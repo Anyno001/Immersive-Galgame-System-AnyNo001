@@ -1,12 +1,5 @@
 # Visual Novel AI 协作流程
 
-## 门禁与测试精简
-
-- 对整套已有门禁筛选实际价值，删除无用、重复或只锁定源码写法和样式字面量的检查，不以默认不运行代替删除，也不无差别删除有效行为回归。
-- 不为凑数量或覆盖率新增测试，不自动重建全量门禁。围绕实际故障直接定位、修复并核对结果；构建只负责生成发布文件。
-- 排查下载、语法或启动错误时，直接获取实际发布响应并执行对应文件；不把酒馆、手机调试或导出数据作为这类排查的前提。
-- 本地构建成功、测试数量或 HTTP 200 均不能证明下载内容有效或程序已经启动。交付只报告本轮实际执行结果。
-
 本文件是 `projects/Visual Novel/` 的项目级协作规则。上级分流仍以 `../../AGENTS.md` 与 `../../../AGENTS.md` 为准；本项目当前是独立 app 工程，最终发布为独立酒馆助手脚本 loader JSON，不默认接入奶龙工具箱发布壳。
 
 ## 基本约定
@@ -21,6 +14,8 @@
 - 不提交真实 API key、cookie、token、私有聊天记录、真实 shujuku 数据库或用户本地资源。
 - 项目级变更只记录在本目录 `README.md`，不写入奶龙工具箱 `CHANGELOG.md`。
 - 防止结构腐化是硬要求：改动前先读现有模块契约，优先复用已有入口、类型、helper 与状态流。
+- 助手已不再使用 `nai-dbgen`。后续所有生图相关方案、实现与验收，未明确指定其他来源时，均以本项目内置 NAI 为唯一目标，包括立绘、CG、写词、衣装、表情与一致性重绘；不默认扩展到 DBG 的配置、预设、接口或专项回归。
+- 助手指定的 `1001适配gal前端生图预设.json` 仍作为提示词正文与使用方式的参考，不以 DBG 默认种子预设替代。现有 DBG 相关代码和文档仅作历史兼容背景；除非明确要求，不迁移或清理插件，不把文档约定当成已切换运行时来源。
 
 ## 任务风险级别
 
@@ -28,25 +23,30 @@
 
 - `R0` 只读、讨论、方案：不改文件、不验证、不提交、不发布。
 - `R1` 文档、契约、fixtures 计划或非运行逻辑修改：检查相关文件自洽，必要时运行静态检索，不打包、不发布。
-- `R2` 单模块普通 JS/CSS 小改：选择能验证本次行为变化的已有用例；不追加全量测试。
-- `R3` 跨模块运行时、状态、registry、storage、shujuku、generated-images 或公开 API 修改：只对当前改动做必要的定向检查，禁止自动批量测试。
-- `R4` loader、dist、发布流程、版本号或远程 bundle 链路修改：生成发布文件，直接获取并执行实际发布文件，记录下载和启动结果。
+- `R2` 单模块普通 JS/CSS 小改：运行相关单测或最小模拟测试，能运行时再补 `pnpm test`。
+- `R3` 跨模块运行时、状态、registry、storage、shujuku、generated-images 或公开 API 修改：运行 `pnpm test`、`pnpm simulate`、必要的局部 smoke。
+- `R4` loader、dist、发布流程、版本号或远程 bundle 链路修改：运行 `pnpm build`、`pnpm simulate`、`pnpm perf`，并保留模拟发布证据。
 - `R5` 真实 provider、真实 shujuku 写入、真实用户数据迁移或不可逆操作：先用 fake provider / fake shujuku / fixtures 做确定性模拟，真实链路必须等用户明确确认。
 
-本项目常规验证以 Visual Novel 模拟测试替换 NailongHub 的安装版实机验真。例外：bug 修复在模拟测试覆盖不到、或现象只在用户真实酒馆+存量数据下出现时，按 `docs/AI_WORKFLOW.md` 的「真机调试与复验」用 CDP 直连（F12 手动探针兜底）做真机定位与终验，真实设备验证单独记录；每次更新均推送 `test-vX.Y.Z` 测试标签，不自动创建正式版标签。
+本项目常规验证以 Visual Novel 模拟测试替换 NailongHub 的安装版实机验真。例外：bug 修复在模拟测试覆盖不到、或现象只在用户真实酒馆+存量数据下出现时，按 `docs/AI_WORKFLOW.md` 的「真机调试与复验」用 CDP 直连（F12 手动探针兜底）做真机定位与终验，真机验过才打 tag。
 
 ## 执行清单规则
 
 功能修改、bug 修复、结构调整和发布流程改动开始时，使用短清单推进，并在每项完成后立即更新状态。
 
 ```text
-- [ ] 确认目标、工作树与受影响的调用链
-- [ ] 完成修改及必要的调用方、文档同步
-- [ ] 验证受影响的真实行为；涉及产物时核对构建结果
-- [ ] 回传实际结果与未验证范围
+- [ ] 理解需求并确认风险级别
+- [ ] 检查当前工作区状态
+- [ ] 阅读 README、AGENTS、AI_WORKFLOW 与目标模块 CONTRACT
+- [ ] 检查是否已有可复用模块，避免重复补丁
+- [ ] 实现修改
+- [ ] 更新 README 更新日志和相关 docs
+- [ ] 按风险级别运行模拟测试或记录 skipped 原因
+- [ ] 提交本项目 Git 仓库、推送 `origin/main`、创建并推送版本标签
+- [ ] 回传变更、验证证据、技术债与残余风险
 ```
 
-只列当前任务适用的事项，不为填满清单增加测试或检查。提交、推送和打标签仅在当前任务授权范围内执行。
+不适用的项目标记为 `[x] 不适用：原因`。失败的项目保持未完成状态，并在最终回复说明当前状态。
 
 ## 修改前读取顺序
 
@@ -75,16 +75,18 @@ shujuku 数据层读取 `app/src/data/shujuku/CONTRACT.md`。模型提示词 sch
 
 验证证据按层记录：
 
-- 行为回归：从 `app/tests/` 选择与本次改动直接相关的已有用例，用 `node --test tests/<文件>.test.js` 执行；选择依据是行为风险，不是源码写法、样式字面量或测试数量。
-- 构建与启动：需要生成产物时，在 `app/` 执行 `npm.cmd run build`；bundle 冷启动、销毁与重启检查保留为独立行为验证。
-- 实际环境：fake host、fixtures 与 Node 测试不等于真实酒馆、手机或真实 provider 验收；性能结论须注明实际运行路径与测量条件。
+- 静态证据：读取过的 `CONTRACT.md`、docs、schema 或调用链。
+- 单元证据：`pnpm test` 或目标测试文件。
+- 模拟证据：`pnpm simulate`，使用 fake TavernHelper、fake shujuku、fake image provider 与 fixtures。
+- 构建证据：`pnpm build`。
+- 性能证据：`pnpm perf`，重点看移动端布局、大图资源、轮询和缓存。
 
-验证未执行或失败时如实报告，不为填补清单新建测试矩阵或恢复已删除的门禁。
+当前未接入命令时，不伪造通过结果。应补充 fixtures、测试矩阵或 skipped 原因，并说明残余风险。
 
 ## 发布策略
 
 - 只讨论、只规划、只审查时，不提交、不打包、不发布。
-- 用户要求实现时，默认做到本地修改、文档更新、可执行范围内的模拟验证、升版本号、提交、推送 GitHub main；同时按「GitHub 回退点硬要求」创建并推送 `test-vX.Y.Z` 测试标签。
+- 用户要求实现时，默认做到本地修改、文档更新、可执行范围内的模拟验证、升版本号、提交、推送 GitHub main；版本标签按「GitHub 回退点硬要求」在真机验证通过后才打。
 - 用户明确要求只做本地草稿、不上传或不打标签时，才跳过 GitHub 上传；最终回复必须说明 skipped 原因。
 - 用户明确要求发布酒馆导入件时，才额外生成 loader、release notes 或 GitHub Release。
 - 发布候选不得依赖真实 API key、真实聊天记录或真实 shujuku 数据作为唯一验证来源。
@@ -97,13 +99,13 @@ shujuku 数据层读取 `app/src/data/shujuku/CONTRACT.md`。模型提示词 sch
 
 版本号、tag 与修复闭环的细则以 `CLAUDE.md` 的「版本号同步清单 / 提交与推送规则 / Bug 修复闭环」为准，本节与其保持一致。
 
-- 每一轮产生文件改动、push 到 main 前都必须升 patch 版本号并同步脚本内版本号（`app/package.json`、`app/src/core/bootstrap.js` 的 `IGS_VERSION`、`README.md`），不复用上次已 push 的版本号；升号后 `npm run build` + `npm run build:loader -- --release test-v<当前版本>` 让 dist 与 loader 版本号对齐。
-- 结束前必须在本项目独立仓库选择性暂存本轮文件，执行 `git commit`、`git push origin main`，保留无关工作区改动。
-- **2026-10-15 用户新规则**：每次更新提交与 main 推送都创建并推送 `test-vX.Y.Z` 测试标签，版本号必须与脚本内 `X.Y.Z` 对齐。测试标签标识可回退提交，不代表真实设备验收；不自动创建 `vX.Y.Z` 正式版标签，正式发布须用户另行明确要求。
-- 修复继续变化时再次升号、提交并推送新的测试标签；CDP 不可用时明确记录真实酒馆和手机未终验，不阻断测试标签交付。
+- 每一轮产生文件改动、push 到 main 前都必须升 patch 版本号并同步脚本内版本号（`app/package.json`、`app/src/core/bootstrap.js` 的 `IGS_VERSION`、`README.md`），不复用上次已 push 的版本号；升号后 `npm run build` + `npm run build:loader` 让 dist 与 loader 版本号对齐。
+- 结束前必须在本项目独立仓库执行 `git add .`、`git commit`、`git push origin main`。
+- **tag 与 push 分离**：push 可随时累加；版本标签只在真机 CDP 测试通过后才打，且**必须与脚本内版本号对齐**（验过的那一版是 `vX.Y.Z` 就打 `vX.Y.Z`）。真机调试用 CDP 直连优先、F12 手动探针兜底（见 `docs/AI_WORKFLOW.md` 的「真机调试与复验」）。
+- 真机测试失败时改完再升号 push，真机重验；失败的中间版本号只留 commit 历史、不打 tag。CDP 不可用时本地 gate + 真机导出数据本地复跑通过即可打 tag，并在回复注明未做 CDP 真机终验。
 - 版本标签已存在时不得强推覆盖；提升 patch 版本重来。
 - 上传前必须确认 `git rev-parse --show-toplevel` 指向 `D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Visual Novel`，禁止从上级 `nailongwang-main` 仓库提交本项目。
-- 上传后必须回查 `git status --short --branch`、`git ls-remote --heads origin main`；打 tag 后回查 `git ls-remote --tags origin test-v<当前版本>`，确认远程分支和标签存在。
+- 上传后必须回查 `git status --short --branch`、`git ls-remote --heads origin main`；打 tag 后回查 `git ls-remote --tags origin v<当前版本>`，确认远程分支和标签存在。
 - 只有用户明确要求“只本地修改/不要上传/不要打标签”时才能跳过；跳过必须写入最终回复和必要的 README/docs 技术债记录。
 
 ## 技术债记录
@@ -120,7 +122,7 @@ shujuku 数据层读取 `app/src/data/shujuku/CONTRACT.md`。模型提示词 sch
 
 ## 版本号规则
 
-程序版本使用 `MAJOR.MINOR.PATCH`；每次更新的测试标签使用 `test-vMAJOR.MINOR.PATCH`，不自动创建正式版标签。
+当前项目版本使用 `vMAJOR.MINOR.PATCH`。
 
 - 文档、契约、测试计划补充：增加 patch，例如 `v0.1.5` -> `v0.1.6`
 - 新功能模块或可用模拟测试：增加 minor，并重置 patch，例如 `v0.1.6` -> `v0.2.0`

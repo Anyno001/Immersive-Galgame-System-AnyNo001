@@ -1,4 +1,3 @@
-import { decodeImage as decodeMediaImage } from '../../media/image-decode.js';
 // 遮罩修复编辑器视图：Canvas 编解码、棋盘底预览、Pointer Events 画笔（鼠标与触控）。
 // 编辑只在会话内存中进行，点「保存」才经控制层按 revision 提交。
 
@@ -25,8 +24,12 @@ export function createCanvasImageCodec(globalObject = globalThis) {
         available,
         async decodeImage(dataUrl) {
             if (!available) throw new Error('no-canvas');
-            const img = await decodeMediaImage(globalObject, dataUrl);
-            if (!img) throw new Error('image-load-failed');
+            const img = await new Promise((resolve, reject) => {
+                const i = new globalObject.Image();
+                i.onload = () => resolve(i);
+                i.onerror = () => reject(new Error('image-load-failed'));
+                i.src = dataUrl;
+            });
             const c = canvasOf(img.naturalWidth || img.width, img.naturalHeight || img.height);
             const ctx = c.getContext('2d', { willReadFrequently: true });
             ctx.drawImage(img, 0, 0);

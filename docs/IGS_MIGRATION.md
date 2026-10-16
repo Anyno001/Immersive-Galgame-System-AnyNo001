@@ -45,7 +45,7 @@ igs-display-mode
 
 - 在 `window.IGS` 上保留同名兼容方法。
 - 支持只读读取旧 `igs_*` 配置。
-- 用保留的导入、存储与公开 API 行为用例验证兼容，不维护源码排布快照。
+- 用 fixtures 和 `npm run gate` 固化兼容行为。
 - 不直接迁移完整阅读器 DOM。
 - 不修改原版 `Immersive Galgame System` 项目。
 
@@ -82,4 +82,4 @@ igs-display-mode
 
 - 不接真实 NAI/provider 网络请求，只走 fake provider / fake 检测结果。
 - 不把 `window.ImmersiveGalgameSystemBridge` 旧全局别名重新挂回。
-- 记录相关模拟用例的实际结果；不将其视为真实酒馆 DOM 验收。
+- 不做真实酒馆 DOM 实机验真；本轮验收继续以 `npm run gate` 的模拟测试为准。

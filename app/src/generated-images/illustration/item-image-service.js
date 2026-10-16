@@ -10,6 +10,7 @@ import { buildItemCatalog, normalizeItemName } from '../../data/shujuku/item-cat
 import { normalizeItemImageSettings } from './item-image-settings.js';
 import { createItemRecordCache } from './item-image-cache.js';
 import { ITEM_PLANNER_SYSTEM_PROMPT, ITEM_PLANNER_SOFT_SYSTEM_PROMPT, buildItemPlannerUserPrompt, parseItemPlan, buildFallbackItemPlan, buildItemSlot } from './item-prompt.js';
+import { inheritImageTaskLease } from '../image-task-runtime.js';
 
 export const ITEM_IMAGE_UPDATED_EVENT = 'igs:item-image-updated';
 export const ITEM_ASSET_TYPE = 'item';
@@ -59,12 +60,11 @@ export function createItemImageService(deps) {
     const report = deps.report || (() => {});
     const newId = deps.newId || (() => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
     const emit = (detail) => { if (events && typeof events.emit === 'function') events.emit(ITEM_IMAGE_UPDATED_EVENT, detail); };
-    const cache = createItemRecordCache({ store, type: ITEM_ASSET_TYPE, emit, mediaCache: deps.mediaCache,
-        onError: () => report('error', '物品记录读取失败，本次补图暂停；可在素材 → 待确认中重新读取。') });
+    const cache = createItemRecordCache({ store, type: ITEM_ASSET_TYPE, emit });
     const floorLocks = new Map();
     const inflight = new Map();
     let queue = Promise.resolve();
-    let offRendered = null, retryTarget = null;
+    let offRendered = null;
 
     const readSettings = () => {
         const raw = getSettings ? getSettings() || {} : {};
@@ -89,32 +89,45 @@ export function createItemImageService(deps) {
         return job;
     }
 
-    // 数据库生图插件自己写提示词；否则副 LLM 写 tag，缺项或整体失败时逐项本地兜底。
+    // 活动预设负责完整正文；旧独立调用保留内容词模板兼容。
     async function planItems(needs, text, s, backend) {
         if (backend.ownPrompts) return needs.map((need) => ({ need, tags: '' }));
+        const ordered = typeof llm?.prepareImagePrompt === 'function';
+        const final = backend.mode === 'nai' && ordered;
+        const transparent = supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
+        const requirements = buildItemSlot('', { transparent, positiveContext: s.auto.nai.artistPrefix });
         let planned = [];
         try {
             const plan = await requestWithSoftRetry(llm, {
                 system: ITEM_PLANNER_SYSTEM_PROMPT,
                 softSystem: ITEM_PLANNER_SOFT_SYSTEM_PROMPT,
                 user: buildItemPlannerUserPrompt(needs, text),
-                parse: (reply) => parseItemPlan(reply, needs),
+                imagePrompt: { task: 'item', input: { description: buildItemPlannerUserPrompt(needs, text),
+                    ...(final && { userPrompts: { positive: requirements.scene,
+                        negative: requirements.sceneUc },
+                        writingRequirements: { size: s.items.size, transparent } }),
+                    outputs: { format: 'asset-plan', items: needs.map((need, index) => ({ id: `ch${index + 1}`, type: 'item' })) } } },
+                parse: (reply) => parseItemPlan(reply, needs, { strict: ordered }),
             }, s.auto.llm);
+            if (plan?.stopGeneration) return plan;
+            if (ordered && !plan?.ok) return { ...plan, ok: false, stopGeneration: true };
             if (plan && plan.ok) planned = plan.items;
         } catch (error) {
+            if (ordered) return { ok: false, reason: 'item-prompt-write-failed', stopGeneration: true,
+                error: '物品写词失败，未继续绘图' };
             report('warn', '物品图规划失败，改用本地兜底');
         }
+        if (final) return planned.map(item => inheritImageTaskLease(item,
+            { ...item, captionMode: 'final', transparent }));
         return needs.map((need) => planned.find((item) => item.need === need) || buildFallbackItemPlan(need));
     }
 
 
     // 生成单件；重画失败时保留原图，不覆盖已可用的记录。
-    async function generateItem(chatId, plan, s, floor, force = false) {
+    async function generateItem(chatId, plan, s, floor) {
         const need = plan.need;
         const key = itemAssetKeyOf(chatId, need.name);
-        if (chatId !== chatOf()) return { ok: false, error: '聊天已切换', reason: 'stale-chat' };
-        const previous = await cache.read(chatId, key);
-        if (!force && previous && SETTLED_STATUSES.has(previous.status)) return { ok: true, record: previous, reason: 'already-present' };
+        const previous = recordFor(chatId, need.name);
         const base = { key, chatId, type: ITEM_ASSET_TYPE, name: need.name, description: need.description || '', tags: plan.tags || '',
             floorKey: floor ? floorKeyOf(floor) : '', messageId: floor ? floor.messageId : null, swipeId: floor ? floor.swipeId : null, createdAt: now() };
         let error = plan.error || '';
@@ -122,10 +135,13 @@ export function createItemImageService(deps) {
         if (!error) {
             // 智绘姬 / 柏宝绘出图不保证透明底：走它们时按非透明底出图，不信任 NAI 模型的原生透明能力。
             const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
-            const transparent = plannedVia !== 'chatu8' && plannedVia !== 'baibai' && supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
-            const slot = buildItemSlot(plan.tags, { transparent, uc: plan.uc, positiveContext: s.auto.nai.artistPrefix });
+            const final = plan.captionMode === 'final';
+            const transparent = final ? plan.transparent : plannedVia !== 'chatu8' && plannedVia !== 'baibai' && supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
+            const slot = inheritImageTaskLease(plan, buildItemSlot(plan.tags, { transparent, uc: plan.uc,
+                positiveContext: s.auto.nai.artistPrefix, final }));
             const meta = { messageId: floor ? floor.messageId : undefined, size: s.items.size, imageKind: 'item',
-                description: `物品：${need.name}${need.description ? `，${need.description}` : ''}`, userPrompts: { positive: slot.scene, negative: slot.sceneUc } };
+                description: `物品：${need.name}${need.description ? `，${need.description}` : ''}`,
+                ...(!final && { userPrompts: { positive: slot.scene, negative: slot.sceneUc } }) };
             let result;
             try { result = await nai.generate(slot, { ...s.auto.nai, size: s.items.size }, meta); }
             catch (e) { result = { ok: false, error: `NAI 生成失败：${(e && e.message) || e}` }; }
@@ -142,29 +158,21 @@ export function createItemImageService(deps) {
             if (previous && previous.status === 'ready') return { ok: false, error, record: previous };
             record = { ...base, imageId: '', status: 'failed', error };
         }
-        try { await store.putAsset(record); }
-        catch (error) {
-            if (record.status === 'ready' && record.imageId) await cache.dropImage(record.imageId);
-            throw error;
-        }
-        if (record.status === 'ready' && previous && previous.imageId && previous.imageId !== record.imageId) await cache.dropImage(previous.imageId);
+        if (record.status === 'ready' && previous && previous.imageId) await cache.dropImage(previous.imageId);
+        await store.putAsset(record);
         cache.set(record);
         emit({ chatId, key, name: need.name, reason: record.status === 'ready' ? 'generated' : 'failed' });
         return { ok: record.status === 'ready', error, record };
     }
 
-    async function missingNeeds(chatId, candidates, limit) {
-        const needs = [];
-        for (const item of candidates) {
-            if (chatId !== chatOf()) throw Object.assign(new Error('media-metadata-stale'), { code: 'media-metadata-stale' });
-            const record = await cache.read(chatId, itemAssetKeyOf(chatId, item.name));
-            if (!record || !SETTLED_STATUSES.has(record.status)) needs.push(item);
-            if (needs.length >= limit) break;
-        }
-        return needs;
+    function missingNeeds(chatId, candidates, limit) {
+        return candidates.filter((item) => {
+            const record = recordFor(chatId, item.name);
+            return !record || !SETTLED_STATUSES.has(record.status);
+        }).slice(0, limit);
     }
 
-    async function runBatch(chatId, needs, text, s, floor, force = false) {
+    async function runBatch(chatId, needs, text, s, floor) {
         const backend = nai && typeof nai.describe === 'function' ? nai.describe() : { ready: { ok: true } };
         if (!backend.ready || !backend.ready.ok) {
             const error = (backend.ready && backend.ready.error) || '生图后端未就绪';
@@ -172,9 +180,10 @@ export function createItemImageService(deps) {
             return { ok: false, reason: 'backend-unavailable', error, count: 0 };
         }
         const plans = await planItems(needs, text, s, backend);
+        if (plans?.ok === false) return { ...plans, count: 0, failedCount: needs.length };
         const results = [];
         for (const plan of plans) {
-            results.push(await enqueue(itemAssetKeyOf(chatId, plan.need.name), () => generateItem(chatId, plan, s, floor, force)));
+            results.push(await enqueue(itemAssetKeyOf(chatId, plan.need.name), () => generateItem(chatId, plan, s, floor)));
         }
         const count = results.filter((r) => r.ok).length;
         const failedCount = results.length - count;
@@ -197,12 +206,10 @@ export function createItemImageService(deps) {
         const job = (async () => {
             await cache.ensure(floor.chatId);
             const candidates = mergeItemCandidates(collectTagItems(floor.text), readCatalog());
-            const needs = await missingNeeds(floor.chatId, candidates, s.items.maxPerFloor);
+            const needs = missingNeeds(floor.chatId, candidates, s.items.maxPerFloor);
             if (!needs.length) return { ok: true, reason: 'nothing-missing', count: 0 };
             return runBatch(floor.chatId, needs, itemContextOf(floor.text, needs), s, floor);
-        })().then(result => { if (result.ok && retryTarget?.chatId === floor.chatId && retryTarget?.messageId === Number(messageId)) retryTarget = null; return result; }).catch((error) => {
-            if (error.code === 'media-metadata-stale') return { ok: false, reason: 'stale-chat' };
-            retryTarget = { chatId: floor.chatId, messageId: Number(messageId) };
+        })().catch((error) => {
             report('error', `物品图处理异常：${(error && error.message) || error}`);
             return { ok: false, reason: 'error', error: '物品图生成失败' };
         }).finally(() => floorLocks.delete(lockKey));
@@ -218,7 +225,7 @@ export function createItemImageService(deps) {
         if (!chatId) return { ok: false, reason: 'no-chat' };
         await cache.ensure(chatId);
         const cap = Math.max(1, Math.min(Math.trunc(Number(limit)) || MANUAL_LIMIT, MANUAL_LIMIT));
-        const needs = await missingNeeds(chatId, readCatalog(), cap);
+        const needs = missingNeeds(chatId, readCatalog(), cap);
         if (!needs.length) return { ok: true, reason: 'nothing-missing', count: 0 };
         return runBatch(chatId, needs, '', s, null);
     }
@@ -230,25 +237,25 @@ export function createItemImageService(deps) {
         const label = String(name || '').trim();
         if (!chatId || !normalizeItemName(label)) return { ok: false, reason: 'invalid-item' };
         await cache.ensure(chatId);
-        const previous = await cache.read(chatId, itemAssetKeyOf(chatId, label));
+        const previous = recordFor(chatId, label);
         const fromTable = readCatalog().find((item) => item.key === normalizeItemName(label));
         const need = {
             name: previous ? previous.name : label,
             description: (previous && previous.description) || (fromTable && fromTable.description) || '',
         };
-        return runBatch(chatId, [need], '', s, null, true);
+        return runBatch(chatId, [need], '', s, null);
     }
 
     async function discard(name) {
         const chatId = chatOf();
         if (!chatId) return { ok: false, reason: 'no-chat' };
         await cache.ensure(chatId);
-        const record = await cache.read(chatId, itemAssetKeyOf(chatId, name));
+        const record = recordFor(chatId, name);
         if (!record) return { ok: false, reason: 'not-found' };
+        await cache.dropImage(record.imageId);
         const next = { ...record, imageId: '', status: 'discarded', updatedAt: now() };
         await store.putAsset(next);
         cache.set(next);
-        await cache.dropImage(record.imageId);
         emit({ chatId, key: record.key, name: record.name, reason: 'discarded' });
         return { ok: true, record: next };
     }
@@ -256,28 +263,19 @@ export function createItemImageService(deps) {
     // 同步取图（演出与背包格位用）：只读本地缓存，未命中时异步补载并发事件。
     function imageUrlFor(name, chatId = chatOf()) {
         if (!chatId || !normalizeItemName(name)) return '';
-        cache.ensure(chatId);
+        void cache.ensure(chatId);
         const record = recordFor(chatId, name);
         return record && record.status === 'ready' ? cache.imageUrl(record.imageId) : '';
     }
 
     return {
         processMessage, fillMissing, regenerate, discard, imageUrlFor,
-        listItems: (options = {}) => cache.page(chatOf(), { ...options, statuses: ['ready'] }),
-        metadataStatus: cache.status,
-        async retryMetadata() {
-            cache.clear();
-            if (!chatOf()) return { ok: true };
-            await cache.page(chatOf(), { limit: 1 });
-            return retryTarget?.chatId === chatOf() ? processMessage(retryTarget.messageId) : { ok: true };
-        },
+        listItems: () => cache.list(chatOf()).filter((record) => record.status === 'ready'),
         start() {
             if (offRendered) return;
             offRendered = messageHost.on('CHARACTER_MESSAGE_RENDERED', (messageId) => { void processMessage(Number(messageId)); });
         },
-        clearCache() { cache.clear(); },
         stop() {
-            cache.clear();
             if (offRendered) { offRendered(); offRendered = null; }
         },
     };

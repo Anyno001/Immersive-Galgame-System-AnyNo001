@@ -27,5 +27,5 @@ export function renderMyPhoneFields(reader, more = collapsible) {
         + field(`${p}.wallpaper`, '壁纸', segmentedInput(`${p}.wallpaper`, wallMode, [['scene', '当前场景'], ['none', '纯色'], ['custom', '自定义']], '手机壁纸'))
         + (wallMode === 'custom' ? field(`${p}.wallpaper`, '图片地址', textInput(`${p}.wallpaper`, s.wallpaper === 'custom' ? '' : s.wallpaper, 'https://…')) : '')
         + field(`${p}.ringtone`, '铃声', segmentedInput(`${p}.ringtone`, s.ringtone, PHONE_RINGTONES.map((key) => [key, PHONE_RINGTONE_LABELS[key]]), '铃声风格'));
-    return perfItem(more, 'my-phone', '<span class="igs-perf-item-label"><svg class="igs-perf-item-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 5.5h3"/><path d="M11 18.5h2"/></svg>我的手机</span>', { on: true, hint: known ? '' : '自定义壳色', detail });
+    return perfItem(more, 'my-phone', '<span class="igs-perf-item-label">我的手机</span>', { on: true, hint: known ? '' : '自定义壳色', detail });
 }

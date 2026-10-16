@@ -255,10 +255,6 @@ export function applyCgPortrait(root, snapshot, ctx = {}) {
     lockPortraitWidth(dialog);
     dialog.setAttribute('data-igs-cgp', '');
     dialog.setAttribute('data-igs-cgp-src', raw);
-    // 换图事件（姿势 / 体位变化）：冒泡给舞台，镜头切换等附加层自行订阅。
-    if (prevRaw && prevRaw !== raw && typeof dialog.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
-        dialog.dispatchEvent(new CustomEvent('igs-cg-swap', { bubbles: true, detail: { from: prevRaw, to: raw } }));
-    }
     if (!url) {
         // 换了人但新图还没解码：旧脸马上拿掉。边距留着。
         if (prevRaw && prevRaw !== raw) dropImages(dialog.querySelector('#igs-cg-portrait'));
@@ -287,7 +283,7 @@ export function applyCgPortrait(root, snapshot, ctx = {}) {
         if (!crop) return;
         showImage(box, url, crop);
     };
-    const known = peekSpriteHead(url, dialog.ownerDocument);
+    const known = peekSpriteHead(url);
     if (known) place(known);
     else probeSpriteHead(url, dialog.ownerDocument).then(place, () => place(null));
 }

@@ -28,6 +28,24 @@ test('gate:page-diagnostic:explains-sprite-miss-and-background-hit-without-dialo
     assert.match(text, /演出 instants\(letter\)、flashback/);
     assert.match(text, /提示 forced-fallback/);
     assert.doesNotMatch(text, /私密台词|整楼正文|亲爱的小雨|token=secret/);
+    for (const [reason, message] of Object.entries({
+        'default-outfit-unset': '尚未指定默认衣装', 'outfit-image-missing': '人物图片已丢失',
+        'outfit-image-read-error': '人物图片读取失败',
+        'outfit-image-decode-error': '人物图片加载或解码失败', 'outfit-image-pending': '人物图片加载中',
+    })) {
+        const diagnostic = buildPageDiagnostic(snapshot({ spriteMatch: {
+            character: '林小雨', mood: '害羞', requestedOutfit: '礼服', outfit: '', source: 'none', reason,
+        } }));
+        assert.ok(diagnostic.includes('要求「礼服」'), diagnostic);
+        assert.ok(diagnostic.includes(message), diagnostic);
+        assert.doesNotMatch(diagnostic, /私密台词|整楼正文/);
+    }
+    const fallback = buildPageDiagnostic(snapshot({ spriteImage: 'daily.png', spriteMatch: {
+        character: '林小雨', mood: '害羞', requestedOutfit: '未登记', outfit: '常服',
+        source: 'user-default-outfit', selectionSource: 'default-fallback', fallbackReason: 'outfit-unregistered',
+    } }));
+    assert.match(fallback, /服装「常服」，要求「未登记」/);
+    assert.match(fallback, /要求衣装未登记/);
 });
 
 test('gate:page-diagnostic:reports-cg-and-chat-page-reasons', () => {
@@ -35,17 +53,6 @@ test('gate:page-diagnostic:reports-cg-and-chat-page-reasons', () => {
     assert.match(buildPageDiagnostic(snapshot({ chatPage: true })), /聊天 \/ 卡片页，不显示立绘/);
     assert.match(buildPageDiagnostic(snapshot({ spriteMatch: null, speaker: '旁白' })), /未进入立绘匹配/);
     assert.equal(buildPageDiagnostic(null), '');
-});
-
-test('gate:page-diagnostic:distinguishes-pending-cg-and-matched-sprite-from-active-cg-and-miss', () => {
-    const text = buildPageDiagnostic(snapshot({
-        cgActive: false, cgWaiting: true, illustrationSlot: 19,
-        pendingSpriteRef: 'igs-gen:private-id',
-        spriteMatch: { character: '林小雨', mood: '害羞', source: 'user', slot: '平和' },
-    }));
-    assert.match(text, /CG 有标记（槽位 19）但图片未就绪，保留场景与立绘/);
-    assert.match(text, /立绘 .*用户配置，槽位「平和」，原图读取中/);
-    assert.doesNotMatch(text, /CG 显示中|挂着 CG|→ 未命中|private-id/);
 });
 
 test('gate:page-diagnostic:image-refs-never-carry-image-bodies-or-query-strings', () => {
@@ -73,10 +80,4 @@ test('gate:page-diagnostic:settings-button-copies-active-reader-page', async () 
     assert.match(shown.at(-1)[2], /立绘 角色「林小雨」/);
     await handleSettingsAction('copy-page-diagnostic', ctx(null));
     assert.match(shown.at(-1)[1], /先打开阅读器/);
-});
-
-test('gate:page-diagnostic:reports-user-sprite-source', () => {
-    assert.match(buildPageDiagnostic(snapshot(), {}), /User立绘：无/);
-    assert.match(buildPageDiagnostic(snapshot({ userChar: { key: '我', source: 'manual' } }), {}), /User立绘：我（手动指定）/);
-    assert.match(buildPageDiagnostic(snapshot({ userChar: { key: '阿明', source: 'name' } }), {}), /User立绘：阿明（按用户名）/);
 });

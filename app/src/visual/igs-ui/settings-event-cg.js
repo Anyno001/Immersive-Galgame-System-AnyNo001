@@ -18,7 +18,7 @@ export function renderEventCgList(eventCgs, { resolveUrl, scopeTag, lead = '' } 
             menuItem(`event-cg-upload:${encoded}`, '上传图片'),
             menuItem(`event-cg-url:${encoded}`, '填网址'),
             menuItem(`event-cg-keywords:${encoded}`, '触发词'),
-            menuItem(`event-cg-nsfw:${encoded}`, entry.nsfw ? '改为过场CG' : '标为NSFW'),
+            menuItem(`event-cg-nsfw:${encoded}`, entry.nsfw ? '改为过场 CG' : '标为 NSFW'),
             menuItem(`event-cg-rename:${encoded}`, '重命名'),
             menuItem(`event-cg-remove:${encoded}`, '删除', ' is-danger'),
         ], `「${name}」的操作`);
@@ -30,7 +30,7 @@ export function renderEventCgList(eventCgs, { resolveUrl, scopeTag, lead = '' } 
     }).join('');
     const body = rows
         ? `<div class="igs-btn-mgr-list">${rows}</div>`
-        : '<div class="igs-scene-empty">还没有预置CG，可点击右上角「+」添加</div>';
+        : '<div class="igs-scene-empty">还没有预置 CG，可点击右上角「+」添加</div>';
     return `${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${body}`;
 }
 
@@ -52,10 +52,10 @@ async function runEventCgAction(command, name, ctx) {
     const map = library.eventCgs = normalizeEventCgs(library.eventCgs);
     const save = async () => { const persisted = persistSettingsDraft(); return persisted && persisted.ok === false ? persisted : rerenderSettings(); };
     if (command === 'add') {
-        const next = await ask('CG名字（AI写 [igs-cg:名字] 时出现）：');
+        const next = await ask('CG 名字（AI 写 [igs-cg:名字] 时出现）：');
         if (!next) return rerenderSettings();
         if (BLOCKED.has(next) || /[\]|:]/.test(next)) { await say(`「${next}」不能用作名字`); return rerenderSettings(); }
-        if (hasOwn(normalizeEventCgs(draftEffectiveAssets(settingsState).eventCgs), next)) { await say(`CG库里已有「${next}」`); return rerenderSettings(); }
+        if (hasOwn(normalizeEventCgs(draftEffectiveAssets(settingsState).eventCgs), next)) { await say(`CG 库里已有「${next}」`); return rerenderSettings(); }
         const words = await ask(`「${next}」的触发词（正文出现就显示，用逗号或顿号分开，可留空）：`);
         if (words == null) return rerenderSettings();
         map[next] = normalizeEventCgs({ [next]: { url: '', keywords: words } })[next];
@@ -67,7 +67,7 @@ async function runEventCgAction(command, name, ctx) {
     if (command === 'upload') {
         const picked = typeof ctx.pickImage === 'function' ? await ctx.pickImage() : null;
         if (!picked) return rerenderSettings();
-        if (!picked.ok) { await say(picked.reason === 'too-large' ? '图片不能超过8MB。' : '仅支持PNG、JPEG、WebP和GIF图片。'); return rerenderSettings(); }
+        if (!picked.ok) { await say(picked.reason === 'too-large' ? '图片不能超过 8 MB。' : '仅支持 PNG、JPEG、WebP 和 GIF 图片。'); return rerenderSettings(); }
         const service = options.generatedAssets;
         let imported = null;
         try { imported = service && typeof service.importAssetImage === 'function' ? await service.importAssetImage(picked.dataUrl, 'background') : null; }
@@ -79,7 +79,7 @@ async function runEventCgAction(command, name, ctx) {
     if (command === 'url') {
         const url = await ask(`「${name}」的图片网址：`, entry.url.startsWith('igs-gen:') ? '' : entry.url);
         if (url == null || !url) return rerenderSettings();
-        if (!/^(https?:|data:image\/|\/|\.\/)/i.test(url)) { await say('请填http(s) 开头的图片网址。'); return rerenderSettings(); }
+        if (!/^(https?:|data:image\/|\/|\.\/)/i.test(url)) { await say('请填 http(s) 开头的图片网址。'); return rerenderSettings(); }
         entry.url = url;
         return save();
     }
@@ -101,7 +101,7 @@ async function runEventCgAction(command, name, ctx) {
         return save();
     }
     if (command === 'remove') {
-        if (typeof dialogs.confirm === 'function' && !await dialogs.confirm(`删除CG「${name}」？`, { okLabel: '删除' })) return rerenderSettings();
+        if (typeof dialogs.confirm === 'function' && !await dialogs.confirm(`删除 CG「${name}」？`, { okLabel: '删除' })) return rerenderSettings();
         delete map[name];
         return save();
     }

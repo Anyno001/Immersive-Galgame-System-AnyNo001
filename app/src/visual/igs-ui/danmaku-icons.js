@@ -1,9 +1,6 @@
 // 直播间图标：统一 24 视框、1.6 细描边、圆角端点，描边随 currentColor；禁止用 emoji 代替。
 const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 
-// 各入口按钮共用的小手机图标（观众弹幕入口、社区回看入口）：32 视框，纯描边随 currentColor，无半透明底。
-export const PHONE_ENTRY_ICON = '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="9" y="3.2" width="14" height="25.6" rx="3.6" stroke="currentColor" stroke-width="1.6"/><path d="M13.8 6.6h4.4M14 25.4h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
-
 export const LIVE_ICONS = Object.freeze({
     close: svg('<path d="M7 7l10 10M17 7 7 17"/>'),
     heart: svg('<path d="M12 20.2s-7.4-4.5-7.4-10.1A4.2 4.2 0 0 1 12 7.4a4.2 4.2 0 0 1 7.4 2.7c0 5.6-7.4 10.1-7.4 10.1z" fill="currentColor" stroke="none"/>'),
@@ -12,13 +9,10 @@ export const LIVE_ICONS = Object.freeze({
     mic: svg('<rect x="9" y="3.5" width="6" height="10.5" rx="3"/><path d="M6 11.2a6 6 0 0 0 12 0M12 17.2v3.3M9.2 20.5h5.6"/>'),
     flip: svg('<path d="M4.5 9.5a7.8 7.8 0 0 1 13.6-2.3M19.5 14.5a7.8 7.8 0 0 1-13.6 2.3"/><path d="M18.6 3.8v3.6H15M5.4 20.2v-3.6H9"/>'),
     beauty: svg('<path d="M5 19.5 14.2 10.3"/><path d="M15.8 4.2l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9zM19 12.6l.5 1.1 1.1.5-1.1.5-.5 1.1-.5-1.1-1.1-.5 1.1-.5z" fill="currentColor" stroke="none"/>'),
-    shield: svg('<path d="M12 3.5 5 6.2v5.3c0 4.4 2.9 7.6 7 9 4.1-1.4 7-4.6 7-9V6.2z"/><path d="M12 8.6v4.4M12 15.8v.2"/>'),
-    ban: svg('<circle cx="12" cy="12" r="8"/><path d="M6.4 6.4l11.2 11.2"/>'),
     ship: svg('<circle cx="12" cy="5.2" r="1.9"/><path d="M12 7.1v13.4M8.4 10.6h7.2M4.8 13.6a7.2 7.2 0 0 0 14.4 0"/>'),
     viewers: svg('<circle cx="12" cy="8.3" r="3.3"/><path d="M5.6 19.6c.7-3.4 3.3-5.3 6.4-5.3s5.7 1.9 6.4 5.3"/>'),
     more: svg('<circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.2" fill="currentColor" stroke="none"/>'),
     plus: svg('<path d="M12 7v10M7 12h10"/>'),
-    swap: svg('<path d="M4.5 8h14M14.5 4l4 4-4 4"/><path d="M19.5 16h-14M9.5 12l-4 4 4 4"/>'),
 });
 
 const SIGNAL_ICON = '<svg viewBox="0 0 17 11" aria-hidden="true"><rect x="0" y="7" width="3" height="4" rx=".8"/><rect x="4.5" y="5" width="3" height="6" rx=".8"/><rect x="9" y="2.5" width="3" height="8.5" rx=".8"/><rect x="13.5" y="0" width="3" height="11" rx=".8"/></svg>';

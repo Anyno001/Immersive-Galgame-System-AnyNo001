@@ -2,17 +2,18 @@
 // 导出成一个 json（scenes / characters / characterAliases / … / spriteLayouts / spriteHeads）。
 // 新版改成按角色卡和全局两层存放后，这里负责把旧预设读出来，按名字合并进某一层，不删任何已有条目。
 import { normalizeCharacterOutfits, normalizeWardrobe } from './character-outfits.js';
+import { normalizeCharacterDefaultOutfits } from './character-appearance.js';
+import { normalizeCharacterSeeds } from './generation-seeds.js';
 import { normalizeCharacterDnaMap } from './character-dna.js';
 import { normalizeGeneratedLibrary } from './asset-match.js';
 import { resolveWorldview } from './worldview.js';
-import { writeCheckedStorage } from '../storage/checked-storage-write.js';
 
 export const LEGACY_PRESET_KEY = 'igs:scene-presets:v1';
 
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 const isPlain = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const BLOCKED = new Set(['__proto__', 'prototype', 'constructor']);
-const NAME_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'wardrobe', 'eventCgs', 'statusAvatars'];
+const NAME_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds', 'wardrobe', 'eventCgs', 'statusAvatars'];
 const GENERATED_FIELDS = ['scenes', 'characters', 'characterAliases', 'expressionNotes'];
 
 function clone(value) {
@@ -47,7 +48,10 @@ export function legacyPresetToPack(data) {
         characters: cleanMap(source.characters),
         characterAliases: cleanMap(source.characterAliases),
         characterDna: normalizeCharacterDnaMap(source.characterDna),
+        ...(Object.hasOwn(source, 'characterSeeds') && { characterSeeds: normalizeCharacterSeeds(source.characterSeeds) }),
         characterOutfits: normalizeCharacterOutfits(source.characterOutfits),
+        ...(Object.hasOwn(source, 'characterDefaultOutfits') && {
+            characterDefaultOutfits: normalizeCharacterDefaultOutfits(source.characterDefaultOutfits) }),
         wardrobe: normalizeWardrobe(source.wardrobe),
         statusAvatars: cleanMap(source.statusAvatars),
         generated: normalizeGeneratedLibrary(source.generated),
@@ -94,6 +98,7 @@ export function legacyPackConflicts(target, pack) {
 export function mergeLegacyLibrary(target, pack) {
     const lib = plain(pack && pack.library);
     for (const field of NAME_FIELDS) {
+        if (['characterDefaultOutfits', 'characterSeeds'].includes(field) && !Object.hasOwn(lib, field)) continue;
         target[field] = { ...plain(target[field]), ...clone(plain(lib[field])) };
     }
     const generated = plain(target.generated);
@@ -134,8 +139,7 @@ export function storeLegacyPresets(storage, presets) {
         const parsed = raw ? JSON.parse(raw) : null;
         const current = parsed && isPlain(parsed.presets) ? parsed.presets : {};
         const active = parsed && typeof parsed.active === 'string' ? parsed.active : '';
-        const written = writeCheckedStorage(storage, LEGACY_PRESET_KEY, JSON.stringify({ version: 1, presets: { ...current, ...incoming }, active }));
-        if (!written.ok) return written;
+        storage.setItem(LEGACY_PRESET_KEY, JSON.stringify({ version: 1, presets: { ...current, ...incoming }, active }));
         return { ok: true, count: Object.keys(incoming).length };
     } catch (error) {
         return { ok: false, reason: 'store-write-failed', saveError: error };
@@ -157,7 +161,8 @@ function writePresetStore(storage, update) {
     try {
         const store = readPresetStore(storage);
         const presets = update({ ...store.presets });
-        return writeCheckedStorage(storage, LEGACY_PRESET_KEY, JSON.stringify({ version: 1, presets, active: store.active }));
+        storage.setItem(LEGACY_PRESET_KEY, JSON.stringify({ version: 1, presets, active: store.active }));
+        return { ok: true };
     } catch (error) {
         return { ok: false, reason: 'store-write-failed', saveError: error };
     }
@@ -181,7 +186,10 @@ export function isValidPresetName(name) {
 export function presetFromAssets(effective, { root = {}, readerSettings = {} } = {}) {
     const source = plain(effective);
     const preset = {};
-    for (const field of NAME_FIELDS) preset[field] = clone(cleanMap(source[field]));
+    for (const field of NAME_FIELDS) {
+        if (['characterDefaultOutfits', 'characterSeeds'].includes(field) && !Object.hasOwn(source, field)) continue;
+        preset[field] = clone(cleanMap(source[field]));
+    }
     const gen = plain(source.generated);
     const { expressionNotes, ...presetGenerated } = gen;
     preset.generated = clone(presetGenerated);
@@ -238,7 +246,10 @@ export function layeredPresetFromRoot(root, { cardKey = '', cardLabel = '', read
     const card = cardKey ? plain(plain(source.cards)[cardKey]) : null;
     if (card) {
         const library = {};
-        for (const field of NAME_FIELDS) library[field] = clone(cleanMap(card[field]));
+        for (const field of NAME_FIELDS) {
+            if (['characterDefaultOutfits', 'characterSeeds'].includes(field) && !Object.hasOwn(card, field)) continue;
+            library[field] = clone(cleanMap(card[field]));
+        }
         const cardGen = plain(card.generated);
         const { expressionNotes: _cardNotes, ...cardPresetGenerated } = cardGen;
         library.generated = clone(cardPresetGenerated);

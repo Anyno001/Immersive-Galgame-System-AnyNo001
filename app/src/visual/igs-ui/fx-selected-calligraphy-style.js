@@ -1,4 +1,0 @@
-// Approved catalogue effects only: 29,62,69,71,72,73,74,75. Full licensed glyph set, no dynamic text substitution.
-export const SELECTED_CALLIGRAPHY_STYLE_TEXT = `
-#igs-overlay .igs-dfx-biguan .igs-dfx-biguan-text,#igs-overlay .igs-myth-mythroll .igs-myth-roll-title,#igs-overlay .igs-myth-mythroll .igs-myth-roll-row b,#igs-overlay .igs-myth-subdue .igs-myth-slip b,#igs-overlay .igs-myth-core .igs-myth-core-label,#igs-overlay .igs-myth-pact .igs-myth-name,#igs-overlay .igs-dfx-riverlamp.is-ancient .igs-dfx-rl-wish,#igs-overlay .igs-dfx-wedding.is-cn .igs-dfx-wd-text,#igs-overlay .igs-dfx-wedding.is-cn .igs-dfx-wd-xi b,#igs-overlay .igs-dfx-countdown.is-ancient .igs-dfx-cd-num,#igs-overlay .igs-dfx-countdown.is-ancient .igs-dfx-cd-title b,#igs-overlay .igs-dfx-countdown.is-ancient .igs-dfx-cd-couplet{font-family:"IGS-ZhiMangXing","LXGW WenKai","KaiTi","Noto Serif CJK SC","Noto Serif SC",serif;font-weight:400;}
-`;

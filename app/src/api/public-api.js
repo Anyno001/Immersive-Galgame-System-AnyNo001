@@ -22,6 +22,7 @@ const PRESET_GROUP_TO_TYPE = Object.freeze({
     sceneRegexPresets: 'scene-regex-preset',
     textFilterPresets: 'text-filter-preset',
     textFormatPresets: 'text-format-preset',
+    promptPresets: 'prompt-preset',
 });
 
 export function createPublicApi(app) {
@@ -40,7 +41,6 @@ export function createPublicApi(app) {
         name: 'Immersive Galgame System',
         version: app.version,
         api: groupedApi,
-        media: app.media,
 
         refresh: app.refresh,
         renderScene(textScene) {
@@ -60,7 +60,6 @@ export function createPublicApi(app) {
                 : { attached: false, reason: 'magic-wand-entry-not-mounted' };
         },
         destroy: app.destroy,
-        shutdown: app.shutdown,
         ...igsCompatApi,
     };
 }

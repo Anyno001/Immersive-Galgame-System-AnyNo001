@@ -8,29 +8,25 @@ export function isDefaultBgmTrack(track) {
     return Boolean(track && DEFAULT_IDS.has(track.id));
 }
 
-export function defaultBgmPackTracks(pack = 'all', source = DEFAULT_BGM_PACK, supplement = []) {
-    if (pack === 'all') return [...source];
-    const wanted = new Set([pack, ...supplement.filter((id) => id !== pack)]);
-    return source.filter((item) => item.packs.some((id) => wanted.has(id)));
+export function defaultBgmPackTracks(pack = 'all', source = DEFAULT_BGM_PACK) {
+    return source.filter((item) => pack === 'all' || item.packs.includes(pack));
 }
 
-export function mergeDefaultBgm(tracks, pack = 'all', { limit = Infinity, source = DEFAULT_BGM_PACK, supplement = [] } = {}) {
+export function mergeDefaultBgm(tracks, pack = 'all', { limit = Infinity, source = DEFAULT_BGM_PACK } = {}) {
     const next = Array.isArray(tracks) ? [...tracks] : [];
     const ids = new Set(next.map((track) => track && track.id));
     const urls = new Set(next.map((track) => track && track.url));
     const added = [];
     let skipped = 0;
-    for (const item of defaultBgmPackTracks(pack, source, supplement)) {
+    for (const item of defaultBgmPackTracks(pack, source)) {
         if (ids.has(item.id) || urls.has(item.url)) {
             skipped += 1;
             continue;
         }
         if (next.length >= limit) break;
-        // 用户挑来当补充的其他世界观曲包：连同当前 worldview 一起打标，否则选曲时会被 pack 过滤掉。
-        const extra = pack !== 'all' && supplement.some((id) => id !== pack && item.packs.includes(id)) ? [pack] : [];
         const track = {
             id: item.id, name: item.name, url: item.url, keywords: [], credit: item.credit, source: item.source,
-            packs: [...new Set([...item.packs, ...extra])], moods: [...item.moods],
+            packs: [...item.packs], moods: [...item.moods],
         };
         for (const key of ['scenes', 'times', 'weathers']) if (item[key].length) track[key] = [...item[key]];
         next.push(track);

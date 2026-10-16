@@ -35,6 +35,7 @@ export const DEFAULT_IMAGE_API = Object.freeze({
     pollIntervalMs: 2000,
     pollAttempts: 60,
     dbgenSpriteTransparent: true,
+    naiSpriteTransparent: true,
     cgModel: '',
     spriteModel: '',
     backgroundModel: '',
@@ -136,7 +137,6 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.gradientVeil.heightPercent',
     'readerSettings.gradientVeil.opacity',
     'readerSettings.gradientVeil.speakerStyle',
-    'readerSettings.xianxiaSpeaker',
     'readerSettings.classicDialogWidthPercent',
     'readerSettings.skinDialogScale',
     'readerSettings.magicHouse',
@@ -173,7 +173,6 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.hiddenBtns',
     'readerSettings.btnOrder',
     'readerSettings.toolbarSplit',
-    'readerSettings.toolbarPlate',
     'readerSettings.dialogBarAlign',
     'readerSettings.dialogBarBtns',
     'readerSettings.spriteLayouts',
@@ -182,149 +181,60 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.spriteGenderScale.female',
     'readerSettings.spriteGenderScale.male',
     'readerSettings.spriteGenderScale.other',
-    'readerSettings.spriteGenderScale.elderShorter',
-    'readerSettings.spriteGenderScale.childShorter',
     'readerSettings.spriteDisplayScale',
     'readerSettings.spriteHeads',
     'readerSettings.vnTheme.preset',
     'readerSettings.classicVnTheme.preset',
 ]);
 
-// 设置器外壳必有的节点：分类侧边栏（窄屏收成抽屉）、内容区、内容主体；子页条只在多页分类里出现，不列为必有。
 export const SETTINGS_PANEL_REQUIRED_SELECTORS = Object.freeze([
     '#igs-unified-settings',
     '.igs-settings-shell',
     '.igs-settings-head',
     '.igs-settings-theme-switch',
-    '.igs-settings-nav',
-    '.igs-settings-content',
+    '.igs-settings-tabs',
     '.igs-settings-body',
     '.igs-segmented',
+    '.igs-scene-settings-subtabs',
+    '.igs-reader-subtabs',
     '.igs-source-filter',
     '.igs-settings-preview',
 ]);
 
-const frozen = (list) => Object.freeze(list.slice());
-
-// 按分类给出：requiredPaths 跟着项目搬到它现在所在的分类（存储路径本身不变）。
 export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
-    dash: Object.freeze({
-        label: '仪表盘',
-        requiredPaths: frozen(['bridge.settingsTheme']),
-        requiredActions: frozen(['onboarding-start']),
-    }),
-    style: Object.freeze({
-        label: '风格',
-        requiredPaths: frozen([
-            'readerSettings.dialogSkin',
-            'readerSettings.gradientVeil.color',
-            'readerSettings.gradientVeil.heightPercent',
-            'readerSettings.gradientVeil.opacity',
-            'readerSettings.gradientVeil.speakerStyle',
-            'readerSettings.classicDialogWidthPercent',
-            'readerSettings.skinDialogScale',
-            'readerSettings.magicHouse',
-            'readerSettings.dialogWidth',
-            'readerSettings.dialogHeight',
-            'readerSettings.glassOpacity',
-            'readerSettings.glassBackdropFilter',
-            'readerSettings.inputScale',
-            'readerSettings.showStatusLine',
-            'readerSettings.dblclickCgOnly',
-            'readerSettings.titleScreen',
-            'readerSettings.dialogAutoHeight',
-        ]),
-    }),
-    text: Object.freeze({
-        label: '文字',
-        requiredPaths: frozen([
-            'readerSettings.fontSize',
-            'readerSettings.dialogFontWeight',
-            'readerSettings.dialogTextEffect',
-            'readerSettings.dialogTextEffectColor',
-            'readerSettings.dialogTextEffectStrength',
-            'readerSettings.dialogTextEffectSize',
-            'readerSettings.vnTheme.preset',
-            'readerSettings.classicVnTheme.preset',
-        ]),
-    }),
-    ui: Object.freeze({
-        label: '界面',
-        requiredPaths: frozen([
+    basic: Object.freeze({
+        label: '基础',
+        requiredPaths: Object.freeze([
             'bridge.openMode',
             'bridge.showToasts',
-            'readerSettings.optionFontSize',
-            'readerSettings.toolbarScale',
-            'readerSettings.toolbarDock',
-            'readerSettings.inputPlacement',
-            'readerSettings.imgMode',
-            'readerSettings.imgBrightness',
-            'readerSettings.pinnedBtns',
-            'readerSettings.hiddenBtns',
-            'readerSettings.btnOrder',
-            'readerSettings.toolbarSplit',
-            'readerSettings.toolbarPlate',
-            'readerSettings.dialogBarAlign',
-            'readerSettings.dialogBarBtns',
+            'bridge.settingsTheme',
+            'bridge.sourceFilter.enabled',
+            'bridge.sourceFilter.textIncludeTags',
+            'bridge.sourceFilter.textExcludeTags',
+            'bridge.sourceFilter.imageIncludeTags',
+            'bridge.sourceFilter.htmlCardTags',
+            'bridge.virtualRegex.enabled',
+            'bridge.virtualRegex.pattern',
+            'bridge.virtualRegex.flags',
+            'bridge.virtualRegex.replacement',
+            'bridge.virtualRegex.rules',
+        ]),
+        requiredActions: Object.freeze([
+            'reset-virtual-regex',
+            'test-virtual-regex',
+            'add-virtual-regex',
+            'remove-virtual-regex:',
         ]),
     }),
-    perf: Object.freeze({
-        label: '演出',
-        requiredPaths: frozen([
-            'bridge.sentencePaging',
-            'bridge.dialogueSentencePaging',
-            'readerSettings.cgHoldPages',
-            'readerSettings.cinemaBars',
-            'readerSettings.typewriter.enabled',
-            'readerSettings.typewriter.speed',
-            'readerSettings.typewriter.mode',
-            'readerSettings.typewriter.sound.enabled',
-            'readerSettings.typewriter.sound.volume',
-            'readerSettings.typewriter.sound.dialogueVolume',
-            'readerSettings.typewriter.sound.narrationVolume',
-            'readerSettings.typewriter.sound.dialoguePreset',
-            'readerSettings.typewriter.sound.thoughtPreset',
-            'readerSettings.typewriter.sound.narrationPreset',
-            'readerSettings.typewriter.sound.speakerPitch',
-        ]),
-        requiredActions: frozen(['perf-preset:']),
-    }),
-    sound: Object.freeze({
-        label: '声音',
-        requiredPaths: frozen(['readerSettings.voiceBark.enabled', 'readerSettings.tts.enabled']),
-        requiredActions: frozen(['perf-preset:']),
-    }),
-    chars: Object.freeze({
-        label: '角色',
-        requiredPaths: frozen([
-            'bridge.sceneAssets.enabled',
-            'readerSettings.spriteLayouts',
-            'readerSettings.spriteDefaultScale',
-            'readerSettings.spriteGenderScale.enabled',
-            'readerSettings.spriteGenderScale.female',
-            'readerSettings.spriteGenderScale.male',
-            'readerSettings.spriteGenderScale.other',
-            'readerSettings.spriteGenderScale.elderShorter',
-            'readerSettings.spriteGenderScale.childShorter',
-            'readerSettings.spriteDisplayScale',
-            'readerSettings.spriteHeads',
-        ]),
-    }),
-    scenes: Object.freeze({
-        label: '场景',
-        requiredPaths: frozen([
-            'bridge.sceneAssets.enabled',
-            'bridge.autoIllustration.assets.strictMatch',
-        ]),
-    }),
-    ai: Object.freeze({
-        label: '生图与AI',
-        requiredPaths: frozen([
+    image: Object.freeze({
+        label: '生图',
+        requiredPaths: Object.freeze([
             'bridge.imageApi.mode',
             'bridge.imageApi.externalAdapter',
             'bridge.imageApi.pollIntervalMs',
             'bridge.imageApi.pollAttempts',
             'bridge.imageApi.dbgenSpriteTransparent',
+            'bridge.imageApi.naiSpriteTransparent',
             'bridge.imageApi.cgModel',
             'bridge.imageApi.spriteModel',
             'bridge.imageApi.backgroundModel',
@@ -337,7 +247,6 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.backfillOldFloors',
             'bridge.autoIllustration.assets.spriteEnabled',
             'bridge.autoIllustration.assets.backgroundEnabled',
-            'bridge.autoIllustration.assets.dayFirst',
             'bridge.autoIllustration.assets.maxPerFloor',
             'bridge.autoIllustration.assets.spriteSize',
             'bridge.itemImages.enabled',
@@ -367,51 +276,35 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.nai.steps',
             'bridge.autoIllustration.nai.scale',
             'bridge.autoIllustration.nai.sampler',
-            'bridge.autoIllustration.nai.artistPrefix',
-            'bridge.autoIllustration.nai.negativePrompt',
-            'bridge.sceneAssets.promptRule',
-            'bridge.sceneAssets.promptRuleEnabled',
-            'bridge.sourceFilter.enabled',
-            'bridge.sourceFilter.textIncludeTags',
-            'bridge.sourceFilter.textExcludeTags',
-            'bridge.sourceFilter.imageIncludeTags',
-            'bridge.sourceFilter.htmlCardTags',
-            'bridge.virtualRegex.enabled',
-            'bridge.virtualRegex.pattern',
-            'bridge.virtualRegex.flags',
-            'bridge.virtualRegex.replacement',
-            'bridge.virtualRegex.rules',
-            'readerSettings.imageCountOverride',
+            'bridge.imageJobLog.retainDays',
+            'bridge.imageJobLog.maxEntries',
         ]),
-        requiredActions: frozen([
+        requiredActions: Object.freeze([
             'fetch-llm-models',
             'fetch-nai-models',
             'test-image',
-            'reset-virtual-regex',
-            'test-virtual-regex',
-            'add-virtual-regex',
-            'remove-virtual-regex:',
+            'image-log-refresh',
+            'image-log-copy',
+            'image-log-clear',
+        ]),
+    }),
+    scene: Object.freeze({
+        label: '场景',
+        requiredPaths: Object.freeze([
+            'bridge.sceneAssets.enabled',
+            'bridge.sceneAssets.promptRule',
+            'bridge.sceneAssets.promptRuleEnabled',
+            'bridge.autoIllustration.assets.strictMatch',
+        ]),
+        requiredActions: Object.freeze([
             'reset-prompt-rule',
             'save-prompt-rule',
             'copy-prompt-rule',
         ]),
     }),
-    data: Object.freeze({
-        label: '数据',
-        requiredPaths: frozen([
-            'bridge.imageCache.maxCount',
-            'bridge.imageJobLog.retainDays',
-            'bridge.imageJobLog.maxEntries',
-        ]),
-        requiredActions: frozen([
-            'settings-export-all',
-            'settings-import-all',
-            'copy-page-diagnostic',
-            'purge-asset-cache',
-            'image-log-refresh',
-            'image-log-copy',
-            'image-log-clear',
-        ]),
+    reader: Object.freeze({
+        label: '阅读器',
+        requiredPaths: READER_REQUIRED_SETTINGS_PATHS,
     }),
 });
 
@@ -427,12 +320,13 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['tts-replay', '重听这句'],
     ['quick-save', '快速存档'],
     ['quick-load', '快速读档'],
-    ['regen', '绘制CG'],
+    ['regen', '绘制 CG'],
     ['reroll-cg', '重画这张'],
-    ['clear-cg', '清扫当前CG'],
+    ['consistency-cg', '角色一致性重绘'],
+    ['clear-cg', '清扫当前 CG'],
     ['clear-floor-cg', '清扫本楼'],
     ['generate-assets', '补全立绘与背景'],
-    ['cg-gallery', 'CG库'],
+    ['cg-gallery', 'CG 库'],
     ['fill-item-images', '补全物品图'],
     ['save', '保存图片'],
     ['hide', '隐藏对话框'],
@@ -444,8 +338,6 @@ export const TOOLBAR_ACTIONS = Object.freeze([
 export const DEFAULT_PINNED_TOOLBAR_BUTTONS = Object.freeze([]);
 // 工具栏分两截：翻页和读档类默认放对话框底部的快捷栏，顶栏只留生图、素材、画面和系统。
 export const TOOLBAR_SPLIT_MODES = Object.freeze(['split', 'top', 'dialog']);
-// 工具栏底板：off 完全无底板（默认）、blur 展开时羽化毛玻璃、solid 实色不糊。
-export const TOOLBAR_PLATE_MODES = Object.freeze(['blur', 'solid', 'off']);
 // 对话框下快捷栏的对齐：auto 为手机居中、电脑靠左。
 export const DIALOG_BAR_ALIGNS = Object.freeze(['auto', 'left', 'center', 'right']);
 export const DEFAULT_DIALOG_BAR_BUTTONS = Object.freeze(['first-turn', 'prev-turn', 'prev', 'auto-play', 'next', 'next-turn', 'quick-save', 'quick-load']);
@@ -456,8 +348,8 @@ export const INITIAL_IMAGE_POLL_ATTEMPTS = 8;
 export const INITIAL_IMAGE_POLL_INTERVAL_MS = 250;
 
 // 通用规则（每行一条、| 分隔、不发明新标签等）由 tag-grammar 统一写在最前，这里只写场景与台词本身。
-export const DEFAULT_SCENE_PROMPT_RULE = `【场景与台词】
-[igs-scene:场景名|时间|天气]：本轮开头输出一次（即使与上轮相同），换场景时再输出；NSFW场景加第4栏大写NSFW，非NSFW场景第4栏留空；换场景时，可在第5段写上此刻在场的角色名，逗号分隔，可省略；非NSFW场景第4段留空（如 [igs-scene:场景名|时间|天气||角色A,角色B]）
+export const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V4 = `【场景与台词】
+[igs-scene:场景名|时间|天气]：本轮开头输出一次（即使与上轮相同），换场景时再输出；NSFW场景加第4栏大写NSFW，其他场景不写第4栏
 [igs-char:角色名|表情|服装|对白]：角色开口时使用
 [igs-thought:角色名|表情|服装|心里话]：角色内心独白
 角色名写完整全名；不知名角色写「？？？」，路人写「男路人A」「女同学B」；场景名写空间概念（教室、走廊），不写家具摆设。
@@ -473,6 +365,8 @@ export const DEFAULT_SCENE_PROMPT_RULE = `【场景与台词】
 {{weather_groups}}
 {{scene_groups}}`.trim();
 
+export const DEFAULT_SCENE_PROMPT_RULE = `${LEGACY_DEFAULT_SCENE_PROMPT_RULE_V4}\n{{previous_outfit_dna}}`;
+
 // 关闭精简注入时使用的长版原文。已保存的提示词不在这里被替换，要换新规则用「恢复默认提示词」。
 export const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 = `[igs标签语法]
 以下标签供前端渲染系统读取，是附加在正文上的元数据注释，不改变正文本身的写法。
@@ -486,7 +380,7 @@ export const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 = `[igs标签语法]
 1. 每条标签独立成行，头尾用方括号包裹
 2. 字段之间用 | 分隔
 3. [igs-scene] 在本轮场景首次出现、以及任何场景切换时各输出一次；即使与上一轮场景相同，新一轮开头也要重新输出一次
-4. 场景属于NSFW内容时，[igs-scene]第四栏必须填写大写NSFW；其他场景第四栏留空或不写，不得写其他词；换场景时可在第五栏写此刻在场的角色名，逗号分隔，可省略（如 [igs-scene:场景名|时间|天气||角色A,角色B]）
+4. 场景属于NSFW内容时，[igs-scene]第四栏必须填写大写NSFW；其他场景保持三栏，禁止输出第四栏
 5. [igs-char] 在角色开口时使用
 6. [igs-thought] 在需要表现角色内心独白时使用
 7. 角色名必须输出完整全名
@@ -519,19 +413,23 @@ export const LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3 = `[igs标签语法]
 [核心原则]
 igs标签是透明的元数据层。正文的文风、叙事密度、修辞手法、段落节奏完全由其他文风指令决定，不受标签存在的影响。标签插在段落之间，读者略去所有标签后，剩余正文应当是一篇完整的、符合当前文风要求的文章。其中，表情字段为角色可外在观察的神态表情，禁止理解成语气或说话方式。`.trim();
 
-// 只有没存过提示词时用当前默认。已存的内容保持原样，换新规则走「恢复默认提示词」。
+// 空值及逐字等于上一版默认的规则采用新默认；自定义原文保持不动。
 export function normalizeScenePromptRule(value) {
     const rule = String(value || '');
-    return rule ? rule : DEFAULT_SCENE_PROMPT_RULE;
+    return !rule || rule === LEGACY_DEFAULT_SCENE_PROMPT_RULE_V4 ? DEFAULT_SCENE_PROMPT_RULE : rule;
 }
 
 // 自定义规则缺服装占位符时 AI 不会写服装栏；只提示，不改写用户规则。
-export const PROMPT_RULE_OUTFIT_HINT = '自定义规则缺少服装栏说明；需要服装差分请恢复默认，或手动加上 {{outfit_groups}}。';
+export const PROMPT_RULE_OUTFIT_HINT = '当前为自定义规则，未包含服装栏说明；如需服装差分可恢复默认或手动添加 {{outfit_groups}}';
+export const PROMPT_RULE_OUTFIT_DNA_HINT = '可添加 {{previous_outfit_dna}}，注入上一轮出场角色对应衣装的已保存服装 DNA 和延续说明；无可用 DNA 的衣装不显示。';
 
 export function scenePromptRuleOutfitHint(rule) {
-    return String(rule || '').includes('{{outfit_groups}}') ? '' : PROMPT_RULE_OUTFIT_HINT;
+    const text = String(rule || '');
+    return [text.includes('{{outfit_groups}}') ? '' : PROMPT_RULE_OUTFIT_HINT,
+        text.includes('{{previous_outfit_dna}}') ? '' : PROMPT_RULE_OUTFIT_DNA_HINT]
+        .filter(Boolean).join('\n');
 }
 
 // 规则原文里的 {{mood_groups}} 等占位符酒馆不认识，所以提醒用「复制到酒馆预设」拿词表已展开的版本，而不是直接复制输入框。
-export const PROMPT_RULE_PRESET_HINT = '也可点「复制到酒馆预设」贴进预设（词表已展开）；贴后请关闭上方开关，免得重复发送。';
-export const PROMPT_RULE_OFF_HINT = '已关闭自动注入，请把「复制到酒馆预设」的内容贴进预设，否则背景和立绘不会切换。';
+export const PROMPT_RULE_PRESET_HINT = '也可点击「复制到酒馆预设」，将占位符已展开的完整规则粘贴到酒馆预设中使用；粘贴后请关闭上方开关，以免重复发送。{{previous_outfit_dna}} 自动注入时逐轮刷新，复制结果只是当时快照，之后需重新复制。';
+export const PROMPT_RULE_OFF_HINT = '自动注入已关闭，聊天模型将不再收到这段规则。请将「复制到酒馆预设」的内容粘贴到酒馆预设中，否则 AI 不会输出场景与台词标签，背景与立绘将无法切换；词表或上一轮衣装有变动后需重新复制，静态快照不会逐轮刷新。';

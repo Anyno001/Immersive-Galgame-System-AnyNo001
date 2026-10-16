@@ -139,7 +139,17 @@ test('gate:romance-solo:dream-figure-sits-under-sprite-and-fades', () => {
 
 test('gate:romance-solo:runtime-detects-solo-span-fantasy-and-noise', () => {
     const { root, stage } = makeStage();
-    const sceneAssets = { characters: { 雪乃: { 默认: 'yukino.png' }, 结衣: { 默认: 'yui.png' } } };
+    const sceneAssets = {
+        characters: { 雪乃: {}, 结衣: {} },
+        characterOutfits: {
+            雪乃: { 常服: { moods: { 平和: 'yukino.png' } } },
+            结衣: { 常服: { moods: { 平和: 'yui.png' } } },
+        },
+        characterDefaultOutfits: {
+            雪乃: { version: 1, outfitName: '常服' },
+            结衣: { version: 1, outfitName: '常服' },
+        },
+    };
     const page = (index, text, extra = {}) => ({
         messageId: 21,
         readerSettings: { romanceFx: { enabled: true, nsfwSound: true }, _sceneAssets: sceneAssets },

@@ -1,68 +1,65 @@
 // 新手配置引导的步骤数据。
-// page 是设置器的页面 id（见 settings-pages.js），交给设置控制器切换视图，不写任何设置值。
-// open 是要自动展开的折叠 key（data-advanced）；target 为候选选择器，取第一个可见的命中元素高亮，
-// targetNarrow 只在窄屏（与设置外壳同一断点，宽度小于 900px）使用，全部不命中时卡片提示「这一项当前不可见」。
-// requires：目标所在区域被隐藏时，先高亮 switch 对应的开关并提示 hint（素材模式没开就是这种情况）。
-const SCENE_ASSET_REQUIRES = Object.freeze({
-    content: '.igs-scene-settings-content',
-    switch: 'bridge.sceneAssets.enabled',
-    hint: '先开启「启用场景素材模式」',
-});
-
+// tab / subTabs 交给设置控制器切换视图（subTabs 为 [种类, 子页签] 按顺序切换），不写任何设置值。
+// target 为候选选择器，取第一个命中的元素高亮；全部不命中时只显示引导卡。
 export const ONBOARDING_STEPS = Object.freeze([
     Object.freeze({
-        id: 'welcome', page: 'dash', target: [],
+        id: 'welcome', tab: 'basic', subTabs: [], target: [],
         title: '欢迎',
-        body: '每一步都可跳过，随时按Esc暂停，之后从邀请条继续。',
+        body: '用一分钟了解最常用的几项设置。每一步都可以跳过，之后也可随时修改。',
     }),
     Object.freeze({
-        id: 'quick', page: 'dash', target: ['.igs-perf-presets'], quiz: true,
-        title: '快速配置演出',
-        body: '回答几个问题，把演出调成合适的组合；暂不设置可跳过。',
+        id: 'quick', tab: 'basic', subTabs: [], target: ['.igs-perf-presets'], quiz: true,
+        title: '是否快速配置演出？',
+        body: '回答几个问题，即可将演出调整为合适的组合。如暂不设置，可点击「下一步」，之后也可在「阅读器 › 演出」中修改。',
     }),
     Object.freeze({
-        id: 'sidebar', page: 'dash', target: ['.igs-settings-nav'], targetNarrow: ['.igs-settings-nav-toggle'],
-        title: '设置分类',
-        body: '设置按用途分类，仪表盘右侧能看到每类现状。',
+        id: 'paging', tab: 'basic', subTabs: [], target: [],
+        title: '翻页',
+        body: '点击画面右半边翻到下一页，点击左半边返回上一页；也可使用空格或「→」前进。开启打字机时，第一次点击会先显示全文。',
     }),
     Object.freeze({
-        id: 'preset', page: 'dash', target: ['.igs-perf-quality', '.igs-perf-preset-row'],
-        title: '档位与省电',
-        body: '不确定就选「推荐」；手机发热，把画质切到「省电模式」。',
+        id: 'mode', tab: 'basic', subTabs: [], target: ['[data-path="bridge.openMode"]'],
+        title: '选择阅读方式',
+        body: '可在电脑浮窗、手机、楼层内嵌和全屏之间选择，初次使用建议选择「内嵌模式」。',
     }),
     Object.freeze({
-        id: 'perf', page: 'perf-text', target: ['.igs-perf-item:has([data-switch="readerSettings.typewriter.enabled"])', '.igs-perf-page .igs-perf-item', '.igs-perf-page'],
-        title: '演出细项',
-        body: '每项一个开关，点›看细项。',
+        id: 'performance', tab: 'basic', subTabs: [], target: ['.igs-perf-preset-row', '[data-action^="perf-preset:"]'],
+        title: '一键演出档位',
+        body: '档位决定开启多少演出，不确定时建议选择「推荐」。手机发热时，可将画质切换为「省电模式」。细项位于「阅读器 › 演出」：每项各有一个开关，点击右侧的 › 可展开参数。',
     }),
     Object.freeze({
-        id: 'style', page: 'style', target: ['[data-path="readerSettings.dialogSkin"]'],
-        title: '对话框与文字',
-        body: '在这里换对话框风格；字号、字体在「文字」。',
+        id: 'dialog', tab: 'reader', subTabs: [['reader', 'dialog']], target: ['[data-path="readerSettings.dialogSkin"]'],
+        title: '对话框外观',
+        body: '在此更换对话框皮肤、调整大小。字号、字体和描边位于相邻的「文字」页。',
     }),
     Object.freeze({
-        id: 'mode', page: 'ui-reader', target: ['.igs-key-block:has([data-segment-path="bridge.openMode"])', '[data-segment-path="bridge.openMode"]'],
-        title: '打开方式',
-        body: '可选电脑、窄屏模式、网页全屏、全屏、楼层内嵌，建议「楼层内嵌」。',
-    }),
-    Object.freeze({
-        id: 'toolbar', page: 'ui-bar', target: ['[data-reader-pane="interface"] .igs-btn-mgr-list'],
+        id: 'toolbar', tab: 'reader', subTabs: [['reader', 'interface']], target: ['.igs-btn-mgr-list'],
         title: '工具栏',
-        body: '目录、存档、CG库都在工具栏，可在这里隐藏或排序。',
+        body: '工具栏默认固定在顶部，也可选择「紧贴对话框」。在下方列表中关闭眼睛图标即可隐藏对应按钮，拖动可调整顺序。',
     }),
     Object.freeze({
-        id: 'assets', page: 'scenes', requires: SCENE_ASSET_REQUIRES, target: ['[data-add-menu="scenes"]', '.igs-page-tabs'],
-        title: '场景与角色',
-        body: '点「+」新增场景或下载默认素材，「多选」批量删除；立绘设置在「角色」页。',
+        id: 'scene', tab: 'scene', subTabs: [['scene', 'scenes']], target: ['.igs-scene-settings-subtabs'],
+        title: '场景背景与角色立绘',
+        body: '为地点配置背景、为角色配置各情绪的立绘，剧情中会自动切换。立绘大小可在角色页顶部的「立绘设置」中调整。',
     }),
     Object.freeze({
-        id: 'image', page: 'source', target: ['[data-image-pane="source"] .igs-settings-field', '[data-image-pane="source"]'], optional: true,
-        title: '自动插图',
-        body: '填好图像来源即可自动生成插图；没配置也不影响阅读。',
+        id: 'assets', tab: 'scene', subTabs: [['scene', 'scenes']], target: ['[data-add-menu="scenes"]', '.igs-scene-settings-subtabs'],
+        title: '配置素材',
+        body: '点击右侧「+」，选择「下载默认素材」可一次装好常用背景（同名不覆盖），也可新增空白场景。不需要的素材可通过「多选」批量删除。',
     }),
     Object.freeze({
-        id: 'search', page: 'dash', target: ['.igs-settings-search'],
+        id: 'image', tab: 'image', subTabs: [['image', 'source']], target: ['.igs-image-subpane'], optional: true,
+        title: '自动插图（可选）',
+        body: '填写生图接口和 Key 后即可自动生成插图；未配置也不影响正常阅读。',
+    }),
+    Object.freeze({
+        id: 'search', tab: 'basic', subTabs: [], target: ['.igs-settings-search'],
         title: '找不到就搜',
-        body: '搜「黑边」「卡顿」这类口语词即可跳转；「最近改过」在仪表盘。',
+        body: '顶部搜索框支持口语化的说法，例如「黑边」「打字音」「卡顿」，点击结果即可跳转到对应设置。',
+    }),
+    Object.freeze({
+        id: 'done', tab: 'basic', subTabs: [], target: ['[data-action="onboarding-start"]'],
+        title: '配置完成',
+        body: '如需再次查看，可点击此处的「新手引导」。若分页或图片数量不正确，请前往「基础 › 标签解析」检查。',
     }),
 ]);

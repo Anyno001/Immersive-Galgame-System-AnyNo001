@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { spriteDrawRect } from '../src/visual/igs-ui/fx-anchor.js';
 import { castSideOf, planCastLayouts, plantFeet, playSpeakerCastMotion, posXForCenter, resolveCastHandoff } from '../src/visual/igs-ui/stage-cast-motion.js';
 import { applyCastToDom } from '../src/visual/igs-ui/stage-cast-render.js';
-import { resolveSpriteSlideGates } from '../src/visual/igs-ui/reader-dom-render.js';
 
 function fakeCastRoot() {
     const make = (tag) => {
@@ -114,33 +113,6 @@ test('gate: speaker motion enters, moves and brightens on promotion', () => {
     assert.deepEqual(playSpeakerCastMotion(sprite, prev, { key: 'C', posX: 94, posY: 100 }, {}), ['enter']);
     assert.deepEqual(playSpeakerCastMotion(sprite, prev, { key: 'C', posX: 94, posY: 100 }, {}, { skipEnter: true }), []);
     assert.deepEqual(playSpeakerCastMotion(sprite, prev, { key: 'A', posX: 18, posY: 100 }, {}), []);
-});
-
-test('gate: switching off enter/exit and stage walking stops every cast slide and move', () => {
-    const { root, layer, make } = fakeCastRoot();
-    const m = (character, posX) => ({ character, url: `${character}.png`, posX, posY: 100, scale: 60 });
-    const off = { slide: false, move: false };
-    applyCastToDom(root, [m('A', 18)], off);
-    const a = layer.children[0];
-    assert.ok(a.animations.every((x) => !x.frames.some((f) => 'transform' in f)), '上台不侧滑');
-    applyCastToDom(root, [m('A', 94)], off);
-    assert.ok(a.animations.every((x) => !x.frames.some((f) => 'backgroundPosition' in f)), '换槽位不平移');
-    applyCastToDom(root, [], off);
-    assert.equal(a.getAttribute('data-igs-cast-leaving'), '1');
-    assert.ok(a.animations.every((x) => !x.frames.some((f) => 'transform' in f)), '下台不侧滑');
-
-    const sprite = make('div');
-    const prev = { speaker: 'A', speakerX: 6, members: ['B'], memberX: { B: 94 } };
-    assert.deepEqual(playSpeakerCastMotion(sprite, prev, { key: 'B', posX: 6, posY: 100 }, {}, off), []);
-    assert.deepEqual(playSpeakerCastMotion(sprite, prev, { key: 'C', posX: 94, posY: 100 }, {}, off), []);
-    assert.equal(sprite.animations.length, 0, '说话人不横穿舞台、不侧滑入场');
-});
-
-test('gate: sprite slide gates follow enter/exit and stage walking switches', () => {
-    assert.deepEqual(resolveSpriteSlideGates({}), { slide: false, move: false });
-    assert.deepEqual(resolveSpriteSlideGates({ spriteMotion: { enabled: true, enterExit: false }, stageCast: { castStage: false } }), { slide: false, move: false });
-    assert.deepEqual(resolveSpriteSlideGates({ spriteMotion: { enabled: true } }), { slide: true, move: true });
-    assert.deepEqual(resolveSpriteSlideGates({ stageCast: { castStage: true } }), { slide: false, move: true });
 });
 
 test('gate: promotion brighten keeps the scene grade filter', () => {

@@ -26,7 +26,7 @@ function feedLines(s, platforms, mentioned = null) {
 function feedTagLines() {
     return [
         'app|平台|主人 … app-end：看社交媒体、刷手机、告示等就主动包住；平台只写列出的名字，泛指时挑最贴的；主人省略即自己的，偷看角色的写其名',
-        'post|作者|内容|附加：一条帖子，写在 app 与 app-end 之间；帖子之间夹一两句看手机的叙述，别整块只有标签；每次2~4条，内容≤80字，附加按平台写，可省',
+        'post|作者|内容|附加：一条帖子，放在被看到的正文前；每次2~4条，内容≤80字，附加按平台写，可省',
         'reply|作者|内容：上一条帖子的评论，每帖0~3条',
     ];
 }
@@ -182,8 +182,6 @@ const SAMPLE_POSTS = {
 function renderSamplePosts(rows) {
     const lines = [];
     for (const [author, text, extra, replies] of rows) {
-        // 帖子之间夹一句叙述：区间内没有正文时，演出没有页可挂。
-        if (lines.length) lines.push('他往下划了划。');
         lines.push(`[igs-fx:post|${author}|${text}|${extra}]`);
         for (const [who, say] of replies || []) lines.push(`[igs-fx:reply|${who}|${say}]`);
     }
@@ -223,15 +221,13 @@ function feedSample(platforms, mentioned) {
 function feedPromptText(s, platforms, mentioned) {
     const sample = feedSample(platforms, mentioned);
     const rules = feedLines(s, platforms, mentioned).map((line) => `- ${line}`).join('\n');
-    return `【手机社区】${sample.where}使用。写作 [igs-fx:app|平台|主人] 开始、[igs-fx:app-end] 结束：\n${rules}\n示例：\n${sample.text}`;
+    return `【手机社区】你应该使用以下格式写正文中${sample.where}，规则如下：\n${rules}\n示例：\n${sample.text}`;
 }
 
-// 社区始终按场合展开（出现刷手机、看社区等关键词时）。detailed 时展开全部平台写法，compact 时只展开最近提到的平台。
-export function feedGrammarBlocks(readerSettings, { detailed = false } = {}) {
+export function feedGrammarBlocks(readerSettings) {
     const { s, platforms, mentioned } = feedState(readerSettings);
     if (!platforms.length) return [];
-    const full = detailed ? feedPromptText(s, platforms, null) : feedPromptText(s, platforms, mentioned || []);
-    return [{ key: 'feed', adaptive: true, full, index: '社区 igs-fx:app/app-end/post/reply/storm' }];
+    return [{ key: 'feed', adaptive: true, full: feedPromptText(s, platforms, mentioned || []), index: '社区 igs-fx:app/app-end/post/reply/storm' }];
 }
 
 // 关闭按需注入时的旧路径：平台写法全部展开，开头、规则、示例与按需展开的是同一份。

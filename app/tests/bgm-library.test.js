@@ -9,7 +9,7 @@ import { extractFxDirectives, resolveFxAtPage } from '../src/scene/fx-directives
 import { bgmMoodTagEnabled, resolveBgmPromptRule } from '../src/visual/igs-ui/fx-prompt.js';
 import { buildTagGrammar } from '../src/visual/igs-ui/tag-grammar.js';
 import { DEFAULT_BGM_PACK } from '../src/bgm/default-bgm-pack.js';
-import { defaultBgmPackTracks, isDefaultBgmTrack, mergeDefaultBgm, removeDefaultBgm } from '../src/bgm/merge-default-bgm.js';
+import { isDefaultBgmTrack, mergeDefaultBgm, removeDefaultBgm } from '../src/bgm/merge-default-bgm.js';
 import { BGM_ACTION_RE } from '../src/visual/igs-ui/bgm-settings-actions.js';
 import { isTavernAudioPath } from '../src/media/tavern-audio-files.js';
 
@@ -158,22 +158,6 @@ test('bgm default pack: merge adds only the chosen pack, never duplicates, remov
     assert.ok(all.tracks.filter(isDefaultBgmTrack).length === DEFAULT_BGM_PACK.length);
     const removed = removeDefaultBgm(all.tracks);
     assert.deepEqual(removed.tracks, [mine]);
-});
-
-test('bgm default pack: supplement packs come in and get tagged for the current worldview', () => {
-    const ancientOnly = mergeDefaultBgm([], 'ancient');
-    const withModern = mergeDefaultBgm([], 'ancient', { supplement: ['modern'] });
-    assert.ok(withModern.added.length > ancientOnly.added.length);
-    const modernOnly = DEFAULT_BGM_PACK.filter((t) => t.packs.includes('modern') && !t.packs.includes('ancient'));
-    assert.ok(modernOnly.length > 0);
-    for (const item of modernOnly) {
-        const added = withModern.added.find((t) => t.id === item.id);
-        assert.ok(added, item.id);
-        // 补进来的曲子必须带当前世界观的标签，否则选曲时被 pack 过滤掉。
-        assert.ok(added.packs.includes('ancient'), item.id);
-    }
-    assert.equal(mergeDefaultBgm(withModern.tracks, 'ancient', { supplement: ['modern'] }).added.length, 0);
-    assert.deepEqual(defaultBgmPackTracks('modern', DEFAULT_BGM_PACK, []).length > 0, true);
 });
 
 test('bgm settings actions: action names route to the bgm handler', () => {

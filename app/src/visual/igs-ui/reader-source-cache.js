@@ -12,7 +12,6 @@ export function buildReaderSourceSignature(input = {}) {
         hashText(input.virtualRegex),
         input.sceneAssetsEnabled ? '1' : '0',
         input.sentencePaging ? '1' : '0',
-        input.dialogueSentencePaging ? '1' : '0',
     ].join('|');
 }
 
@@ -21,31 +20,18 @@ export function createReaderSourceCache(options = {}) {
     const parse = typeof options.parse === 'function' ? options.parse : null;
     const entries = new Map();
     let parseCount = 0;
-    let prepareCount = 0;
-    let signatureMemo = null;
-
-    function signature(input) {
-        const fields = Object.values(input);
-        if (signatureMemo && fields.length === signatureMemo.fields.length
-            && fields.every((value, i) => value === signatureMemo.fields[i])) return signatureMemo.value;
-        const value = buildReaderSourceSignature(input);
-        signatureMemo = { fields, value };
-        return value;
-    }
 
     function get(signature, parseInput) {
-        const sceneAssets = parseInput?.parseOptions?.sceneAssets;
-        if (entries.has(signature) && entries.get(signature).sceneAssets === sceneAssets) {
+        if (entries.has(signature)) {
             const hit = entries.get(signature);
             entries.delete(signature);
             entries.set(signature, hit);
-            return { value: hit.value, hit: true };
+            return { value: hit, hit: true };
         }
         if (!parse) return { value: null, hit: false };
         const value = parse(parseInput);
         parseCount += 1;
-        entries.delete(signature);
-        entries.set(signature, { value, sceneAssets, prepared: null, dependencies: [] });
+        entries.set(signature, value);
         while (entries.size > limit) {
             const oldest = entries.keys().next();
             if (oldest.done) break;
@@ -55,28 +41,11 @@ export function createReaderSourceCache(options = {}) {
     }
 
     function invalidate(signature) {
-        if (signature == null) { entries.clear(); signatureMemo = null; }
+        if (signature == null) entries.clear();
         else entries.delete(signature);
     }
 
-    // 准备结果和解析结果同进同出，最多仍为八楼，不另建跨聊天常驻目录。
-    function prepare(signature, dependencies, build) {
-        const entry = entries.get(signature);
-        if (!entry) return build();
-        if (entry.prepared && dependencies.length === entry.dependencies.length
-            && dependencies.every((value, i) => value === entry.dependencies[i])) return entry.prepared;
-        entry.prepared = build();
-        entry.dependencies = dependencies;
-        prepareCount += 1;
-        return entry.prepared;
-    }
-
-    function visitPrepared(visit) {
-        for (const entry of entries.values()) if (entry.prepared) visit(entry.prepared);
-    }
-
-    return { get, signature, prepare, visitPrepared, invalidate, size: () => entries.size,
-        getParseCount: () => parseCount, getPrepareCount: () => prepareCount };
+    return { get, invalidate, size: () => entries.size, getParseCount: () => parseCount };
 }
 
 function hashText(value) {

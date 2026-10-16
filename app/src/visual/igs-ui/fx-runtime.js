@@ -17,18 +17,17 @@ import {
 } from './fx-settings.js';
 import { ensureFxLayers, findFxLayers } from './fx-layer.js';
 import { playFxSfx } from './fx-sfx.js';
-import { duckSceneAudio } from './scene-audio.js';
 import { ANCIENT_SYMBOL_PLACEMENT, ANCIENT_SYMBOL_SVG, MANGA_SYMBOL_SVG, pickFxAccent, speedLinesImage, warmSpeedLines } from './fx-symbols.js';
 import { FALLBACK_HEAD, HEAD_ASPECT, measureStage, peekSpriteHead, probeSpriteHead, resolveSymbolPlacement, waitSpriteHead } from './fx-anchor.js';
 import { planEatBeats } from './fx-eat-model.js';
-import { enabledPackIds, normalizeDailyFxSettings } from './fx-daily-model.js';
+import { normalizeDailyFxSettings } from './fx-daily-model.js';
 import { emergencyOf, sirenOf } from '../../scene/emergency.js';
 import { spamAllowed } from '../../scene/spam-sms.js';
 import { applySpamCard } from './spam-sms-style.js';
 
 export const FX_LIFETIME_MS = Object.freeze({
-    symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 1500,
-    favor: 2400, notify: 3300, delivery: 3300, eye: 1600, call: 2400, 'call-end': 1800, nickname: 3400, voicemail: 4200, contact: 3000, cutin: 1400, promise: 3200, 'promise-due': 3600,
+    symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 800,
+    favor: 2400, notify: 3300, delivery: 3300, eye: 1600, call: 2400, 'call-end': 1800, nickname: 2400, voicemail: 4200, contact: 3000, cutin: 1400, promise: 3200, 'promise-due': 3600,
 });
 export const TITLE_CARD_LIFETIME_MS = Object.freeze({ fast: 1800, medium: 2700, slow: 4200 });
 const SEEN_LIMIT = 256;
@@ -54,7 +53,7 @@ export function resolveCutinCrop(head, aspect, ratio = CUTIN_RATIO) {
     const round = (n) => Math.round(n * 100) / 100;
     return { size: round(k * 100), x: round(px), y: round(py) };
 }
-const RANGE_ATTRS = Object.freeze(['data-igs-fx-era', 'data-igs-fx-flashback', 'data-igs-fx-dream', 'data-igs-fx-letterbox', 'data-igs-fx-whisper', 'data-igs-fx-movie', 'data-igs-fx-lightsoff', 'data-igs-fx-umbrella', 'data-igs-fx-call', 'data-igs-fx-call-remote', 'data-igs-fx-call-sprite', 'data-igs-fx-call-split', 'data-igs-fx-motion', 'data-igs-fx-busy', 'data-igs-fx-presentation', 'data-igs-fx-eat', 'data-igs-fx-state', 'data-igs-fx-state-level']);
+const RANGE_ATTRS = Object.freeze(['data-igs-fx-era', 'data-igs-fx-flashback', 'data-igs-fx-dream', 'data-igs-fx-letterbox', 'data-igs-fx-whisper', 'data-igs-fx-movie', 'data-igs-fx-lightsoff', 'data-igs-fx-umbrella', 'data-igs-fx-call', 'data-igs-fx-call-remote', 'data-igs-fx-call-sprite', 'data-igs-fx-call-split', 'data-igs-fx-motion', 'data-igs-fx-busy', 'data-igs-fx-presentation', 'data-igs-fx-eat']);
 // 进食分镜的立绘动作：挂在 #igs-stage-motion 上，时长与 fx-eat-style 的动画一致。
 const EAT_MOTION_ATTR = 'data-igs-fx-eat';
 const EAT_MOTION_MS = Object.freeze({ bite: 400, chew: 1100, hop: 520, shake: 480, dip: 760, sway: 1300 });
@@ -199,12 +198,9 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline, normalize
     const rawFx = content.fx || EMPTY_FX;
     const atmos = {
         movie: tagKinds.includes('movie') && Boolean(rawFx.movie),
-        movieMode: tagKinds.includes('movie') && rawFx.movie && rawFx.movieMode === 'screen' ? 'screen' : '',
         lightsOff: tagKinds.includes('light') && Boolean(rawFx.lightsOff),
         umbrella: tagKinds.includes('umbrella') && Boolean(rawFx.umbrella),
     };
-    // 持续状态滤镜：区间内的醉酒、中毒等；只在至少一个题材包开着时生效，提示词由各包自己写。
-    const stateFx = rawFx.stateFx && enabledPackIds(snapshot && snapshot.readerSettings).length ? rawFx.stateFx : null;
     // 约定到期提醒：每个楼层每条约定只提醒一次（键不含页号），首个渲染页播放。
     const due = tagKinds.includes('promise') && Array.isArray(rawFx.promiseDue) ? rawFx.promiseDue : [];
     for (const p of due) {
@@ -220,7 +216,6 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline, normalize
         effects,
         ranges: { flashback: fx.flashback, dream: fx.dream, letterbox: fx.letterbox, call: fx.call },
         whisper,
-        stateFx,
         atmos,
         callEnd: fx.instants.find((item) => item.kind === 'call-end') || null,
         eyeHold,
@@ -346,32 +341,6 @@ function sound(state, kind, settings, options, text) {
     return handle;
 }
 
-function duckBgm(soundSettings, ratio, ms) {
-    if (!soundSettings || soundSettings.enabled === false || !(soundSettings.volume > 0)) return;
-    try { duckSceneAudio({ ratio, durationMs: ms }); } catch { /* 无音频环境 */ }
-}
-
-const RANGE_FLASH_LIFE = Object.freeze({ flashback: 520, dream: 900 });
-const RANGE_SOUND = Object.freeze({ flashback: 'range-flashback', dream: 'range-dream', letterbox: 'range-letterbox', whisper: 'range-whisper' });
-
-function playRangeTransitions(ctx, before) {
-    const { state, layers, doc, plan, options, reduced } = ctx;
-    const now = { flashback: Boolean(plan.ranges.flashback), dream: Boolean(plan.ranges.dream), letterbox: Boolean(plan.ranges.letterbox), whisper: Boolean(plan.whisper) };
-    for (const kind of ['flashback', 'dream', 'letterbox', 'whisper']) {
-        const entering = now[kind] && !before[kind];
-        const leaving = kind === 'flashback' && !now[kind] && before[kind];
-        if (!entering && !leaving) continue;
-        if (!reduced && RANGE_FLASH_LIFE[kind]) {
-            const el = node(doc, 'igs-fx-range-flash');
-            el.setAttribute('data-kind', kind);
-            if (leaving) el.setAttribute('data-dir', 'out');
-            spawn(state, layers.front, el, RANGE_FLASH_LIFE[kind]);
-        }
-        if (entering) sound(state, RANGE_SOUND[kind], plan.sound, options);
-        if (entering && (kind === 'flashback' || kind === 'dream')) duckBgm(plan.sound, 0.4, 1500);
-    }
-}
-
 function stopRing(state) {
     if (!state.ring) return;
     try { state.ring.stop(); } catch { /* already stopped */ }
@@ -486,7 +455,7 @@ export function repositionFxSymbols(root, { speaker = null, cast = [] } = {}) {
         const sprite = who ? byChar.get(who) : speaker;
         const kind = el.getAttribute('data-igs-fx-place') || el.getAttribute('data-kind');
         if (!sprite || !sprite.url || !kind) continue;
-        placeSymbol(el, kind, layers.motion, sprite, peekSpriteHead(sprite.url, root.ownerDocument));
+        placeSymbol(el, kind, layers.motion, sprite, peekSpriteHead(sprite.url));
     }
 }
 
@@ -526,7 +495,7 @@ function playSymbol(effect, ctx, life, target) {
     if (effect.castTarget && effect.castTarget.character) el.setAttribute('data-igs-fx-cast', effect.castTarget.character);
     const source = effect.castTarget || options.sprite;
     const sprite = source && source.url ? source : null;
-    const cached = sprite ? peekSpriteHead(sprite.url, doc) : null;
+    const cached = sprite ? peekSpriteHead(sprite.url) : null;
     if (!sprite || cached || (sprite.head && sprite.head.aspect)) {
         showSymbol(el, effect, ctx, life, sprite, cached);
         return;
@@ -606,25 +575,8 @@ export function renderDeliveryCard(doc, effect, skinClass = '') {
     return card;
 }
 
-// 心跳与音效同拍：重搏在 0 / 1.1 秒、轻搏在 0.2 / 1.3 秒，立绘跟着每一拍缩放（紧张档更重）。
-const BEAT_OFFSETS = Object.freeze([[0, 0.012, 1], [0.083, 0.095, 0.7], [0.458, 0.47, 1], [0.542, 0.554, 0.7]]);
-function pulseSpriteBeat(root, tone, reduced) {
-    if (reduced || !root || typeof root.querySelector !== 'function' || (typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low')) return;
-    const sprite = root.querySelector('#igs-sprite');
-    if (!sprite || typeof sprite.animate !== 'function') return;
-    const amp = tone === 'tense' ? 0.032 : 0.022;
-    const frames = [{ transform: 'scale(1)', offset: 0 }];
-    for (const [from, peak, weight] of BEAT_OFFSETS) {
-        if (from > 0) frames.push({ transform: 'scale(1)', offset: from - 0.001 });
-        frames.push({ transform: 'scale(' + (1 + amp * weight).toFixed(4) + ')', offset: peak });
-        frames.push({ transform: 'scale(1)', offset: Math.min(1, peak + 0.07) });
-    }
-    frames.push({ transform: 'scale(1)', offset: 1 });
-    try { sprite.animate(frames.sort((a, b) => a.offset - b.offset).filter((f, i, a) => i === 0 || f.offset > a[i - 1].offset), { duration: 2400, easing: 'ease-out', composite: 'add' }); } catch { /* 无 WAAPI */ }
-}
-
 function playEffect(effect, ctx) {
-    const { state, layers, doc, snapshot, options, reduced, plan, root } = ctx;
+    const { state, layers, doc, snapshot, options, reduced, plan } = ctx;
     const base = effect.type === 'title'
         ? (TITLE_CARD_LIFETIME_MS[plan.titleSpeed] || TITLE_CARD_LIFETIME_MS.medium)
         : (FX_LIFETIME_MS[effect.type] || 1000);
@@ -641,14 +593,12 @@ function playEffect(effect, ctx) {
         el.setAttribute('data-tone', effect.tone);
         spawn(state, layers.stage, el, life, busy);
         sound(state, 'heartbeat', plan.sound, options);
-        pulseSpriteBeat(root, effect.tone, reduced);
     } else if (effect.type === 'flash') {
         if (!reduced) spawn(state, layers.front, node(doc, 'igs-fx-flash'), life);
         sound(state, 'tinnitus', plan.sound, options);
-        duckBgm(plan.sound, 0.3, life);
     } else if (effect.type === 'title') {
         // 古代背景是一条宣纸竖幅：地点、时间竖排，末尾朱印；竖排里不要「——」引线。
-        const el = node(doc, (ctx.ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card') + (ctx.worldSkin || '') + (ctx.xianxiaInk || ''));
+        const el = node(doc, (ctx.ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card') + (ctx.worldSkin || ''));
         const sub = ctx.ancient && effect.sub ? effect.sub.replace(/^——\s*/, '') : effect.sub;
         if (effect.main) el.appendChild(node(doc, 'igs-fx-title-main', effect.main));
         if (sub) el.appendChild(node(doc, 'igs-fx-title-sub', sub));
@@ -675,17 +625,10 @@ function playEffect(effect, ctx) {
         spawn(state, layers.front, el, life);
         sound(state, effect.stage === 'order' ? 'notify' : 'doorbell', plan.sound, options);
     } else if (effect.type === 'nickname') {
-        const el = node(doc, 'igs-fx-nick-card');
-        el.setAttribute('role', 'status');
-        el.appendChild(callFace(doc, effect.name, resolveAvatar(effect.name, snapshot, options)));
-        const body = node(doc, 'igs-fx-nick-body');
-        body.appendChild(node(doc, 'igs-fx-nick-lead', `${effect.name} 开始叫你`));
-        const written = node(doc, 'igs-fx-nick-name', effect.nick);
-        if (written.style && typeof written.style.setProperty === 'function') written.style.setProperty('--igs-nick-n', String(Math.max(1, Array.from(String(effect.nick)).length)));
-        body.appendChild(written);
-        el.appendChild(body);
-        spawn(state, layers.front, el, life);
-        sound(state, 'nick-chime', plan.sound, options);
+        // 称呼变化复用数值提示的堆叠栏，与好感变化同一视觉语言。
+        const el = node(doc, 'igs-fx-favor igs-fx-nickname', `${effect.name}开始叫你『${effect.nick}』了`);
+        el.setAttribute('data-dir', 'up');
+        spawn(state, persistent(layers.front, doc, 'igs-fx-favor-stack'), el, life);
     } else if (effect.type === 'voicemail') {
         // 留言条：静态波形 + 内容整段写入，CSS 遮罩从左到右揭示，播放期不改写文本节点。
         const el = node(doc, 'igs-fx-voicemail');
@@ -711,7 +654,7 @@ function playEffect(effect, ctx) {
         const sprite = options.sprite && options.sprite.url ? options.sprite : null;
         const speaker = snapshot.content && snapshot.content.speaker;
         if (!sprite || (effect.name && !sameCharacter(snapshot, effect.name, speaker))) return;
-        const probed = peekSpriteHead(sprite.url, doc);
+        const probed = peekSpriteHead(sprite.url);
         const head = sprite.head || (probed && probed.head) || FALLBACK_HEAD;
         const aspect = probed && probed.naturalW > 0 ? probed.naturalH / probed.naturalW : (sprite.head && sprite.head.aspect);
         const crop = resolveCutinCrop(head, aspect);
@@ -725,8 +668,6 @@ function playEffect(effect, ctx) {
         }
         el.appendChild(face);
         spawn(state, layers.front, el, life);
-        if (!reduced) spawn(state, layers.front, node(doc, 'igs-fx-cut-flash'), 200);
-        sound(state, 'cut-slash', plan.sound, options);
     } else if (effect.type === 'sfx') {
         // 中文拟声大字观感生硬，只保留音效。
         sound(state, 'onomatopoeia', plan.sound, options, effect.text);
@@ -1071,29 +1012,23 @@ export function applyFxToDom(root, snapshot, options = {}) {
         : worldSkinOf(worldview) ? `notify-${worldview}` : 'notify';
     // 换皮类名：西幻 / 科幻 / 末日追加 is-<id>，古代与现代为空（古代沿用 is-ancient 分支）。
     const worldSkin = worldSkinOf(worldview) ? ` is-${worldview}` : '';
-    // 仙侠水墨皮肤：古代背景里再追加 is-xianxia，过场卡等换成泼墨静态外观。
-    const xianxiaInk = ancient && String((snapshot.readerSettings && snapshot.readerSettings.dialogSkin) || '') === 'xianxia-ink' ? ' is-xianxia' : '';
-    const rangeBefore = { flashback: (motion.getAttribute('data-igs-fx-flashback') != null), dream: (motion.getAttribute('data-igs-fx-dream') != null), letterbox: (motion.getAttribute('data-igs-fx-letterbox') != null), whisper: (motion.getAttribute('data-igs-fx-whisper') != null) };
     setFlag(motion, 'data-igs-fx-flashback', plan.ranges.flashback);
     setFlag(motion, 'data-igs-fx-dream', plan.ranges.dream);
     setFlag(motion, 'data-igs-fx-letterbox', plan.ranges.letterbox);
     setFlag(motion, 'data-igs-fx-whisper', plan.whisper);
-    setFlag(motion, 'data-igs-fx-movie', plan.atmos.movie, plan.atmos.movieMode || '1');
+    setFlag(motion, 'data-igs-fx-movie', plan.atmos.movie);
     setFlag(motion, 'data-igs-fx-lightsoff', plan.atmos.lightsOff);
     setFlag(motion, 'data-igs-fx-umbrella', plan.atmos.umbrella);
-    setFlag(motion, 'data-igs-fx-state', Boolean(plan.stateFx), plan.stateFx && plan.stateFx.type);
-    setFlag(motion, 'data-igs-fx-state-level', Boolean(plan.stateFx), plan.stateFx && plan.stateFx.level);
     state.rangeBusy = Boolean(plan.ranges.flashback || plan.ranges.dream);
     syncBusy(state);
     // 常驻节点只在内容变化时写入，避免每次渲染都产生无意义的 DOM 变更（外部 MutationObserver 也会被惊动）。
     const now = typeof options.now === 'function' ? options.now() : Date.now();
     const emergencyOn = settings.fxTags.enabled && settings.fxTags.emergency !== false;
-    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root, now, ancient, worldview, notifySound, worldSkin, xianxiaInk, emergencyOn };
+    const ctx = { state, layers, doc, snapshot, options, reduced, plan, root, now, ancient, worldview, notifySound, worldSkin, emergencyOn };
     const remote = syncCall(ctx, settings.fxTags.callSprite);
     const eyeHold = persistent(stage, doc, 'igs-fx-eye-hold');
     if (eyeHold.hidden !== !plan.eyeHold) eyeHold.hidden = !plan.eyeHold;
     state.pageKey = plan.pageKey;
-    playRangeTransitions(ctx, rangeBefore);
     for (const effect of plan.effects) playEffect(effect, ctx);
     if (emergencyOn) playSiren(ctx);
     // 陪衬反应的漫画符号（stageCast.castReact）：每页只播一次；目标不在台上或没有图时丢弃。

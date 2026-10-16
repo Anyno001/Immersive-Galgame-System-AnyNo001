@@ -13,12 +13,10 @@ export const STAGE_DIRECTION_STYLE_TEXT = `
 #igs-overlay[data-igs-sd-parallax] #igs-sprite:not(.igs-sprite-editing){--igs-sd-tx:calc(var(--igs-sd-px,0) * -18px);--igs-sd-ty:calc(var(--igs-sd-py,0) * -7px);transition:translate .6s cubic-bezier(.2,.7,.3,1);}
 #igs-overlay #igs-sprite{transition:translate 1.2s cubic-bezier(.3,.7,.2,1);}
 #igs-overlay #igs-sprite:not(.igs-sprite-editing){scale:min(1.3,calc(var(--igs-sd-closeup-scale,1) * var(--igs-rm-scale,1)));translate:calc(var(--igs-sd-tx,0px) + var(--igs-rm-dx,0%)) var(--igs-sd-ty,0px);}
-/* 滤镜一开一停，或立绘层出现、消失，都会把 #igs-bg 拆成独立图层又并回去。没画完的那一帧是一闪黑。背景一直留在自己的图层上。
-   平时用 will-change:transform 钉图层：常驻 will-change:filter 会让全屏背景配着 Ken Burns 每帧多走一遍离屏滤镜，手机发烫。
-   CG 对焦时 filter 过渡一开一停，整张 CG 会重新栅格化，CG 页才提示 filter。 */
-#igs-overlay #igs-bg{transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1);will-change:transform;}
-#igs-stage-motion[data-igs-cg] #igs-bg{will-change:filter;}
+#igs-overlay #igs-bg{transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1);}
 #igs-overlay[data-igs-cg] #igs-bg,#igs-stage-motion[data-igs-cg] #igs-bg{animation:none!important;scale:1;}
+/* CG 对焦时 filter 过渡一开一停，浏览器会把 #igs-bg 拆成独立图层又并回去，每次整张 CG 重新栅格化，没画完的那一帧就是一闪。CG 页上让它一直是独立图层。 */
+#igs-stage-motion[data-igs-cg] #igs-bg{will-change:filter;}
 #igs-overlay[data-igs-cg] #igs-bg-blur,#igs-stage-motion[data-igs-cg] #igs-bg-blur{display:none!important;opacity:0!important;}
 /* 播 CG 时底图在对焦或运镜。对话框若还挂着毛玻璃，或还留着透明度 / 位移过渡，就会跟着底图每一帧重绘，看起来只有对话框在闪。 */
 #igs-stage-motion[data-igs-cg] .igs-dialog{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;transition:none!important;}
@@ -32,7 +30,6 @@ export const STAGE_DIRECTION_STYLE_TEXT = `
 #igs-overlay[data-igs-sd-cam="wide"] #igs-sprite:not(.igs-sprite-editing){--igs-sd-closeup-scale:.82;transform-origin:var(--igs-sd-origin-x,50%) 100%;}
 #igs-overlay[data-igs-sd-cam="wide"] #igs-bg{animation:none;scale:1;}
 #igs-overlay[data-igs-sd-cam="focus"] #igs-stage-motion:not([data-igs-rm-glow]):not([data-igs-fx-flashback]):not([data-igs-fx-dream]) #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) blur(6px) var(--igs-grade-bg,)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) blur(6px) var(--igs-grade-bg,)!important;scale:1.05;}
-#igs-overlay[data-igs-sd-cam="focus"] #igs-sprite:not(.igs-sprite-editing){filter:drop-shadow(0 0 10px rgba(255,255,255,.35));transition:filter .8s ease;}
 #igs-overlay[data-igs-sd-cam^="pan-"] #igs-bg{animation:igs-sd-pan 9s cubic-bezier(.45,.05,.4,1) both;}
 #igs-overlay[data-igs-sd-cam="pan-left"] #igs-bg{animation-direction:reverse;}
 #igs-overlay[data-igs-sd-cam="tilt"] #igs-bg{rotate:-3deg;scale:1.12;transition:opacity .3s ease,scale .9s cubic-bezier(.3,.7,.2,1),rotate .9s cubic-bezier(.3,.7,.2,1);}

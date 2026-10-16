@@ -10,9 +10,7 @@ import { normalizeAmbientSoundSettings, normalizeBgmSettings } from './scene-aud
 import { normalizeTextFxSettings } from './text-fx.js';
 import { normalizeBilingualSettings } from './bilingual-text.js';
 import { normalizeClickWaitMarkSettings } from './click-wait-mark.js';
-import { normalizeWaitStageSettings } from './wait-stage.js';
 import { normalizeDailyFxSettings } from './fx-daily-model.js';
-import { FX_PACK_SETTING_GROUPS } from '../../scene/fx-packs.js';
 import { normalizeBattleFxSettings } from './fx-battle-model.js';
 import { normalizeRomanceFxSettings } from './romance-settings.js';
 import { normalizeMetaFxSettings } from './meta-settings.js';
@@ -141,25 +139,6 @@ export function normalizeFxTagsSettings(value) {
     return out;
 }
 
-// 演出提示词入口：inject 决定各演出标签用法（演出、日常、物品、配乐、亲密、战斗、镜头、同屏、聊天、直播、弹幕、社区、文字演出、双语、扩展）要不要发给 AI（默认发）；
-// 各 key 为用户覆盖文本，留空即用内置动态拼装（随对应功能开关变）。
-// style：compact 精简（缩写写法、部分块按需展开）；detailed 详细约束（完整方括号写法+约束，每块每轮都发）。
-export const FX_PROMPT_OVERRIDE_MAX = 6000;
-export const FX_PROMPT_KEYS = Object.freeze(['fx', 'daily', 'item', 'bgm', 'romance', 'battle', 'camera', 'cast', 'chat', 'live', 'audience', 'feed', 'text', 'bilingual', 'dlc']);
-export const FX_PROMPT_STYLES = Object.freeze(['compact', 'detailed']);
-
-export function normalizeFxPromptsSettings(value) {
-    const src = plain(value);
-    const text = (v) => (typeof v === 'string' ? v.slice(0, FX_PROMPT_OVERRIDE_MAX) : '');
-    return {
-        inject: src.inject !== false,
-        style: FX_PROMPT_STYLES.includes(src.style) ? src.style : 'compact',
-        // 全量常驻：开启后所有按场合块也每轮都发（不再折叠成索引）；默认关，省 token。
-        resident: src.resident === true,
-        ...Object.fromEntries(FX_PROMPT_KEYS.map((key) => [key, text(src[key])])),
-    };
-}
-
 export const FX_MOTION_STYLES = Object.freeze(['smooth', 'snappy']);
 export const FX_HOLD_LEVELS = Object.freeze(['short', 'medium', 'long']);
 export const FX_HOLD_SCALE = Object.freeze({ short: 0.65, medium: 1, long: 1.6 });
@@ -186,8 +165,6 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     flashFx: normalizeFlashFxSettings,
     favorToast: normalizeFavorToastSettings,
     fxTags: normalizeFxTagsSettings,
-    // 演出提示词入口（可读可改可关），不参与一键档位、独立于 FX_FEATURE_KEYS。
-    fxPrompts: normalizeFxPromptsSettings,
     fxSound: normalizeFxSoundSettings,
     fxStyle: normalizeFxStyleSettings,
     // 弹幕三件套独立渲染（danmaku-runtime），不进入 FX_FEATURE_KEYS。
@@ -213,10 +190,7 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     textFx: normalizeTextFxSettings,
     bilingual: normalizeBilingualSettings,
     clickWaitMark: normalizeClickWaitMarkSettings,
-    waitStage: normalizeWaitStageSettings,
     dailyFx: normalizeDailyFxSettings,
-    // 题材包自带开关的设置组（如 aboFx），登记见 scene/fx-packs.js。
-    ...FX_PACK_SETTING_GROUPS,
     // 结果展示（选项检定掷骰卡）独立渲染（fx-result），不进入 FX_FEATURE_KEYS。
     resultFx: normalizeResultFxSettings,
     // 漫画演出模式独立渲染（comic-bubble），不进入 FX_FEATURE_KEYS。

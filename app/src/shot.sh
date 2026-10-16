@@ -1,1 +1,0 @@
-for p in "$@"; do "/c/Program Files/Google/Chrome/Application/chrome.exe" --headless=new --disable-gpu --hide-scrollbars --window-size=390,1000 --force-device-scale-factor=1.5 --screenshot="G:\奶龙Code\gal\社区版面预览\平台\$p.png" "file:///G:/奶龙Code/gal/社区版面预览/平台/$p.html" >/dev/null 2>&1; done

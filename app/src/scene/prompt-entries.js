@@ -1,18 +1,11 @@
-// 按需提示词块的世界书式条目：每块 启用/常驻/关键词，可改注入位置与深度、正文。
-// 默认值等于改版前的行为：关键词触发、扫用户输入 + AI 上 1 楼、跟随全局注入位置。
+// 按需提示词块的世界书式条目：每块 常驻/关键词/关闭，可改关键词、次要词、排除词、扫描范围、黏性、冷却。
+// 默认值等于改版前的行为：关键词触发、扫用户输入 + AI 上 1 楼、无次要词与排除词、不黏、不冷却。
 
-import { FX_PACKS_ACTIVE, FX_PACK_BLOCK_KEYS, packBlockKey } from './fx-packs.js';
-
-export const PROMPT_ENTRY_KEYS = Object.freeze(['chat', 'daily', 'wardrobe', 'play', 'courtesy', 'campus', ...FX_PACK_BLOCK_KEYS, 'battle', 'romance', 'live', 'feed', 'camera']);
+export const PROMPT_ENTRY_KEYS = Object.freeze(['chat', 'daily', 'battle', 'romance', 'live', 'feed', 'camera']);
 
 export const PROMPT_ENTRY_LABELS = Object.freeze({
     chat: '线上聊天',
     daily: '日常',
-    wardrobe: '换装登场',
-    play: '玩乐',
-    courtesy: '体贴礼仪',
-    campus: '校园',
-    ...Object.fromEntries(FX_PACKS_ACTIVE.map((pack) => [packBlockKey(pack.id), pack.label])),
     battle: '战斗',
     romance: '亲密',
     live: '直播',
@@ -21,14 +14,11 @@ export const PROMPT_ENTRY_LABELS = Object.freeze({
 });
 
 export const PROMPT_ENTRY_MODES = Object.freeze(['auto', 'always', 'off']);
-// 注入位置：空串 = 跟随全局 promptPlacement；system 系统说明区；depth0 聊天末尾；depth 指定深度（@D，倒数第 N 条消息处）。
-export const PROMPT_ENTRY_POSITIONS = Object.freeze(['', 'system', 'depth0', 'depth']);
-export const PROMPT_ENTRY_DEPTH_MAX = 99;
-export const PROMPT_ENTRY_DEPTH_DEFAULT = 4;
-export const PROMPT_ENTRY_TEXT_MAX = 6000;
+export const PROMPT_ENTRY_SCAN_MAX = 5;
+export const PROMPT_ENTRY_STICKY_MAX = 10;
+export const PROMPT_ENTRY_COOLDOWN_MAX = 10;
 
-// 排除词、次要词、黏性、冷却、扫描范围的界面已移除：旧存档里的这些值在规范化时丢弃，按「无排除、无次要、不黏、不冷却、扫用户输入 + AI 上 1 楼」运行。
-export const DEFAULT_PROMPT_ENTRY = Object.freeze({ mode: 'auto', keys: '', position: '', depth: PROMPT_ENTRY_DEPTH_DEFAULT, text: '' });
+export const DEFAULT_PROMPT_ENTRY = Object.freeze({ mode: 'auto', keys: '', secondary: '', exclude: '', scan: 1, sticky: 0, cooldown: 0 });
 
 function clampInt(value, min, max, fallback) {
     const n = Number(value);
@@ -41,10 +31,11 @@ export function normalizePromptEntry(value) {
     return {
         mode: PROMPT_ENTRY_MODES.includes(v.mode) ? v.mode : 'auto',
         keys: String(v.keys || '').trim(),
-        position: PROMPT_ENTRY_POSITIONS.includes(v.position) ? v.position : '',
-        depth: clampInt(v.depth, 0, PROMPT_ENTRY_DEPTH_MAX, PROMPT_ENTRY_DEPTH_DEFAULT),
-        // 正文覆盖：只给没有 readerSettings.fxPrompts 对应项的块用（换装、玩乐、校园、题材包）；空 = 用内置写法。
-        text: typeof v.text === 'string' ? v.text.slice(0, PROMPT_ENTRY_TEXT_MAX) : '',
+        secondary: String(v.secondary || '').trim(),
+        exclude: String(v.exclude || '').trim(),
+        scan: clampInt(v.scan, 0, PROMPT_ENTRY_SCAN_MAX, DEFAULT_PROMPT_ENTRY.scan),
+        sticky: clampInt(v.sticky, 0, PROMPT_ENTRY_STICKY_MAX, 0),
+        cooldown: clampInt(v.cooldown, 0, PROMPT_ENTRY_COOLDOWN_MAX, 0),
     };
 }
 
@@ -92,12 +83,3 @@ export function compileKeywordMatcher(words) {
         return '';
     };
 }
-
-// 一条的实际注入位置：未写位置时返回 null（走全局通道：常驻进主段，命中的块进聊天末尾）。
-export function resolveEntryPlacement(entry) {
-    if (!entry || !entry.position) return null;
-    if (entry.position === 'depth') return { position: 'depth', depth: clampInt(entry.depth, 0, PROMPT_ENTRY_DEPTH_MAX, PROMPT_ENTRY_DEPTH_DEFAULT) };
-    return { position: entry.position, depth: 0 };
-}
-
-export const PROMPT_POSITION_LABELS = Object.freeze({ system: '系统说明区', depth0: '聊天末尾', depth: '指定深度' });

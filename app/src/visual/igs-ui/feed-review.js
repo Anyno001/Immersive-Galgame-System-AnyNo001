@@ -1,5 +1,4 @@
-import { LIVE_ICONS, PHONE_ENTRY_ICON } from './danmaku-icons.js';
-import { mountEntry, unmountEntry } from './entry-dock.js';
+import { LIVE_ICONS } from './danmaku-icons.js';
 import { feedPlatformById } from '../../scene/feed-platforms.js';
 import { fitFeedPhone, stopFeedPhone, syncFeedPhone } from './feed-phone.js';
 
@@ -7,6 +6,7 @@ import { fitFeedPhone, stopFeedPhone, syncFeedPhone } from './feed-phone.js';
 // 点开在前层（可点层）弹出同一个 App 页面，内容就是刚刚刷到的那次区间的帖子（最多 9 条），不生成任何新内容。
 // 点遮罩 / 右上角关闭；点按不冒泡到阅读器；换聊天或 cancelDanmaku 时整个清掉。
 const STOP_EVENTS = Object.freeze(['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click', 'dblclick', 'keydown', 'keyup', 'keypress', 'wheel', 'contextmenu']);
+const ENTRY_ICON = '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="5.5" y="5" width="21" height="22" rx="5.5" fill="rgba(14,16,22,.5)" stroke="currentColor" stroke-width="1.5"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10.5 12h11" stroke-opacity=".9"/><path d="M10.5 16.2h7.5" stroke-opacity=".7"/><path d="M10.5 20.4h9.5" stroke-opacity=".5"/></g></svg>';
 
 const reviews = new WeakMap();
 
@@ -64,7 +64,7 @@ function buildEntry(state) {
     entry.type = 'button';
     entry.setAttribute('aria-label', '社区');
     entry.title = '社区';
-    entry.innerHTML = PHONE_ENTRY_ICON;
+    entry.innerHTML = ENTRY_ICON;
     const dot = el(doc, 'i', 'igs-feed-entry-dot');
     entry.appendChild(dot);
     swallow(entry, () => (state.overlay ? closeOverlay(state) : openOverlay(state)));
@@ -80,7 +80,7 @@ export function syncFeedReview(front, info, ctx) {
         if (!show) return null;
         state = { front, doc: ctx.doc, overlay: null, host: null, info: null, ctx: null };
         state.els = buildEntry(state);
-        mountEntry(front, state.els.entry);
+        front.appendChild(state.els.entry);
         reviews.set(front, state);
     }
     state.info = info;
@@ -96,9 +96,21 @@ export function syncFeedReview(front, info, ctx) {
         state.accent = platform.accent;
         dot.style.setProperty('background', platform.accent);
     }
+    const beside = info.beside ? '1' : '0';
+    if (entry.getAttribute('data-beside') !== beside) entry.setAttribute('data-beside', beside);
     const size = info.size || 'medium';
     if (entry.getAttribute('data-size') !== size) entry.setAttribute('data-size', size);
     return state;
+}
+
+// 入口贴在 HUD 下缘，位置变化才写（与观众弹幕入口同一个 top）。
+export function placeFeedEntry(front, top) {
+    const state = reviews.get(front);
+    if (!state) return;
+    const value = `${Math.round(top)}px`;
+    if (state.top === value) return;
+    state.top = value;
+    state.els.entry.style.setProperty('--igs-feed-top', value);
 }
 
 export function isFeedEntryShown(front) {
@@ -110,7 +122,7 @@ export function stopFeedReview(front) {
     const state = front && reviews.get(front);
     if (!state) return false;
     closeOverlay(state);
-    unmountEntry(front, state.els.entry);
+    state.els.entry.remove();
     reviews.delete(front);
     return true;
 }

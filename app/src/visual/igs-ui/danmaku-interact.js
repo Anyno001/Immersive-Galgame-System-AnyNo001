@@ -248,7 +248,6 @@ function describe(event) {
     if (event.kind === 'gift') return `送出${event.text}×${event.extra || 1}`;
     if (event.kind === 'sc') return `发了￥${event.extra}的醒目留言「${event.text}」`;
     if (event.kind === 'guard') return `开通了${event.extra || '舰长'}`;
-    if (event.kind === 'ban') return '直播间已被封禁';
     return '';
 }
 
@@ -282,19 +281,15 @@ export function summarizeLiveEvents(events) {
     return streamer ? `在「${streamer}」的直播间里：${text}` : text;
 }
 
-export function buildLiveDigestRule(summary, banned = false) {
+export function buildLiveDigestRule(summary) {
     const text = String(summary || '').trim();
     if (!text) return '';
-    if (banned) return `[igs直播间]\n（${text}）\n下一段正文明确写出「该直播间已被封禁」，让直播关停成为剧情中的事实；不要继续描写该场直播正在播出。已显示的正文不改写。`;
     return `[igs直播间]\n以下是{{user}}本轮在直播间里的操作，下一段直播里主播与观众要自然接住（主播念弹幕、感谢礼物 / 醒目留言 / 上舰，观众跟着起哄，可用 dm 写出），不要逐条复述，也不要提及「阅读界面」：\n（${text}）`;
 }
 
-// 封禁事件不依赖互动开关；普通互动仍由互动开关控制。
+// 直播间与直播互动都开、且有待送出的互动时才返回规则。
 export function resolveLiveDigestRule(readerSettings) {
     const s = normalizeDanmakuSettings(readerSettings);
-    if (!s.live.enabled) return '';
-    const events = pendingMetaEvents();
-    const banned = s.live.adminWarn && events.some((event) => event.type === 'live' && event.kind === 'ban');
-    if (!banned && !s.live.interact) return '';
-    return buildLiveDigestRule(summarizeLiveEvents(banned && !s.live.interact ? events.filter((event) => event.kind === 'ban') : events), banned);
+    if (!s.live.enabled || !s.live.interact) return '';
+    return buildLiveDigestRule(summarizeLiveEvents(pendingMetaEvents()));
 }

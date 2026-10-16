@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGenerationStrip, GENERATION_STRIP_STYLE_TEXT } from '../src/visual/igs-ui/generation-strip.js';
+import { createGenerationStrip } from '../src/visual/igs-ui/generation-strip.js';
 import { trackImageActivity } from '../src/generated-images/generation-activity.js';
 
 function fakeTimers() {
@@ -117,22 +117,45 @@ test('生成细线：忙完时结果小字不跟着闪一下就熄', () => {
     assert.equal(strip.getState().tip, '第 2 楼已生成 1 项素材，待确认');
 });
 
-test('gate:generation-strip:already-generated-skip-has-green-line-and-expires', () => {
-    const t = fakeTimers();
-    const strip = createGenerationStrip({ timers: t, now: t.now });
-    strip.notice('skipped', '本楼素材已生成，无需重复生图');
-    assert.equal(strip.getState().phase, 'skipped');
-    assert.match(GENERATION_STRIP_STYLE_TEXT, /data-state="skipped"[^\n]*#53c781/);
-    assert.equal(strip.getState().tip, '本楼素材已生成，无需重复生图');
-    t.advance(6500);
+test('一致性进度复用细线，各阶段有文字且终态只清理本任务', () => {
+    const t = fakeTimers(), strip = createGenerationStrip({ timers: t, now: t.now });
+    const task = {};
+    for (const [phase, text] of [['prepare', '准备'], ['reference', '读取参考立绘'],
+        ['write', '写提示词'], ['paint', '局部重绘'], ['compose', '合成候选']]) {
+        strip.progress(task, { phase, done: 1, total: 3 });
+        assert.equal(strip.getState().phase, 'busy');
+        assert.equal(strip.getState().tip, `一致性重绘：${text} 1/3…`);
+    }
+    strip.activity({ type: 'start', id: 'other', kind: 'cg' });
+    strip.progress(task, { phase: 'done' });
+    assert.equal(strip.getState().jobs, 1);
+    strip.activity({ type: 'end', id: 'other', ok: true });
+    assert.equal(strip.getState().phase, 'done');
+    t.advance(1300);
     assert.equal(strip.getState().phase, 'idle');
-    strip.floor(5, false);
-    strip.notice('skipped', '本楼插图都已生成');
-    strip.floor(5, true);
-    assert.equal(strip.getState().phase, 'skipped');
-    strip.notice('error', '另一张生成失败');
-    assert.equal(strip.getState().phase, 'failed');
-    assert.match(GENERATION_STRIP_STYLE_TEXT, /data-state="failed"[^\n]*#e07070/);
-    strip.notice('success', '重试成功');
-    assert.notEqual(strip.getState().phase, 'skipped');
+    strip.dispose();
+});
+
+test('来源中立和旧绘制入口每次只发一组活动事件，保留接收者', async () => {
+    const events = [], input = { imageKind: 'sprite' };
+    let calls = 0;
+    const original = {
+        async generateCaption(request) {
+            assert.equal(this, original);
+            assert.equal(request, input);
+            calls += 1;
+            return { ok: true, dataUrl: 'data:fake' };
+        },
+    };
+    original.generateDbgenCaption = original.generateCaption;
+    const backend = trackImageActivity(original, (event) => events.push(event));
+    await backend.generateCaption(input);
+    await backend.generateDbgenCaption(input);
+    assert.equal(calls, 2);
+    assert.deepEqual(events.map(({ type, kind }) => [type, kind]), [
+        ['start', 'sprite'], ['end', 'sprite'], ['start', 'sprite'], ['end', 'sprite'],
+    ]);
+    assert.equal(events[0].id, events[1].id);
+    assert.equal(events[2].id, events[3].id);
+    assert.notEqual(events[0].id, events[2].id);
 });

@@ -7,8 +7,7 @@ import { worldSkinOf } from '../../scene/worldview.js';
 // 退场按动作区分：获得的图标飞向 HUD 背包入口并让入口闪一下，失去下坠淡出，使用缩小消散。
 import { ensureFxLayers, findFxLayers } from './fx-layer.js';
 import { itemFxIdentity, itemFxLifeMs, itemShowcaseHoldMs } from './fx-item-model.js';
-import { buildItemCard as buildSharedItemCard, safeItemImageUrl, itemPlaceholderSvg, PLACEHOLDER_SVG } from './fx-item-card.js';
-export { safeItemImageUrl, itemPlaceholderSvg } from './fx-item-card.js';
+import { RECORD_ICONS, inventoryIconKey } from './record-icons.js';
 
 const STACK_CLASS = 'igs-fx-item-stack';
 const SHOWCASE_CLASS = 'igs-fx-item-showcase';
@@ -31,7 +30,20 @@ const ERA_ATTR = 'data-igs-era';
 const ANCIENT_SEALS = Object.freeze({ gain: '得', lose: '失', use: '用' });
 // 背包入口按可见度依次回退：物品按钮 → 资料菜单箭头 → 整个 HUD；都不可见时原地淡出。
 const BAG_TARGETS = ['#igs-status-hud [data-act="inventory"]', '#igs-status-hud .igs-hud-entry-arrow', '#igs-status-hud'];
+// 只接受本地生成图的 data URL 与 Blob URL，其余一律按占位处理。
+const SAFE_IMAGE_RE = /^(?:data:image\/(?:png|jpeg|webp|gif);base64,|blob:)/i;
+const PLACEHOLDER_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V5a3 3 0 0 1 6 0v2M12 11v5M9.5 13.5h5"/></svg>';
 const states = new WeakMap();
+
+export function safeItemImageUrl(url) {
+    const value = String(url || '');
+    return SAFE_IMAGE_RE.test(value) ? value : '';
+}
+
+// 没有生成图时按物品名配背包同款图标（钥匙、信、药水……），认不出的用通用图标。
+export function itemPlaceholderSvg(name) {
+    return RECORD_ICONS[inventoryIconKey(name)] || PLACEHOLDER_SVG;
+}
 
 const cardMark = (card) => `${card.action}|${card.name}`;
 
@@ -137,11 +149,23 @@ function buildSeal(doc, card, extraClass) {
     return seal;
 }
 
-export function buildItemCard(doc, card, ancient = false) {
-    return buildSharedItemCard(doc, card, {
-        iconFactory: buildIcon,
-        sealFactory: ancient ? buildSeal : null,
-    });
+function buildCard(doc, card, ancient = false) {
+    const node = el(doc, 'div', 'igs-fx-item-card');
+    node.setAttribute('data-igs-item-action', card.action);
+    node.setAttribute('data-igs-item-name', card.name);
+    if (card.rare) node.setAttribute('data-igs-item-rare', '1');
+    if (card.expanded) node.setAttribute('data-igs-item-expanded', '1');
+    const body = el(doc, 'div', 'igs-fx-item-text');
+    body.appendChild(el(doc, 'span', 'igs-fx-item-action', card.actionLabel));
+    body.appendChild(el(doc, 'span', 'igs-fx-item-name', card.name));
+    if (card.description) {
+        body.appendChild(el(doc, 'span', 'igs-fx-item-desc', card.description));
+        node.setAttribute('title', card.description);
+    }
+    node.appendChild(buildIcon(doc, card));
+    node.appendChild(body);
+    if (ancient) node.appendChild(buildSeal(doc, card));
+    return node;
 }
 
 function buildShowcase(doc, card, ancient = false) {
@@ -295,7 +319,7 @@ function runStack(state, root, layers, plan, options) {
     cards.forEach((card, index) => {
         const show = () => {
             if (state.stack !== stack) return;
-            const node = buildItemCard(doc, card, state.ancient);
+            const node = buildCard(doc, card, state.ancient);
             if (!reduced) bindInteraction(state, root, layers, stack, node);
             stack.appendChild(node);
             if (onCard && !reduced) { try { onCard(card); } catch (error) { /* 音效失败不影响演出 */ } }
@@ -548,8 +572,6 @@ export const ITEM_FX_STYLE_TEXT = `
 .igs-fx-item-showcase[data-igs-era="ancient"]:not(#igs-era-x) .igs-fx-item-showcase-label{color:#7a2a1a;letter-spacing:.4em;}
 .igs-fx-item-showcase[data-igs-era="ancient"]:not(#igs-era-x) .igs-fx-item-showcase-name{color:#2b1d12;font-size:26px;letter-spacing:.12em;}
 .igs-fx-item-showcase[data-igs-era="ancient"]:not(#igs-era-x) .igs-fx-item-showcase-desc{color:#6b5139;opacity:1;}
-/* 世界观换皮的中央面板：占位图标跟随面板前景色，免得深色皮肤的浅色图标落在浅纸面上（古风皮肤 + 西幻 / 大正）。古代自带朱砂色，不在此列 */
-.igs-fx-item-showcase[data-igs-era]:not([data-igs-era="ancient"]):not(#igs-era-x) .igs-fx-item-showcase-plate .igs-fx-item-icon[data-igs-item-placeholder]{color:inherit;}
 .igs-fx-item-showcase-seal{position:absolute;right:16px;bottom:18px;width:40px;height:40px;margin:0;font-size:26px;border-radius:4px;box-shadow:inset 0 0 0 2px #b8452f,inset 0 0 0 4px rgba(246,236,212,.85);animation:igs-fx-item-stamp .5s cubic-bezier(.3,1.4,.5,1) .7s both;}
 /* 世界观换皮（西幻羊皮纸 / 科幻全息面板 / 末日旧纸锈边）：只改配色字体，布局、印文与动画沿用现代。 */
 .igs-fx-item-stack[data-igs-era="fantasy"]:not(#igs-era-x),.igs-fx-item-showcase[data-igs-era="fantasy"]:not(#igs-era-x){--igs-item-accent-c:#b8862f;}

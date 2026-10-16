@@ -4,17 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>IGS 资料页截图入口</title>
-<script>
-// ?frame=390x844：把本页放进指定大小的 iframe 里再打开，设置器按手机宽度排版（设置面板贴着窗口，不跟 ?size= 的舞台走）。
-(function () {
-  var q = new URLSearchParams(location.search);
-  var m = /^([0-9]{2,4})x([0-9]{2,4})$/.exec(q.get('frame') || '');
-  if (!m || window.top !== window) return;
-  q.delete('frame');
-  document.write('<body style="margin:0;background:#0b0d10"><iframe src="' + location.pathname + '?' + q + '" style="display:block;margin:0 auto;border:0;width:' + m[1] + 'px;height:' + m[2] + 'px"></iframe></body>');
-  window.stop();
-})();
-</script>
 <style>
 @font-face{font-family:"Source Han Serif CN";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/SourceHanSerifCN-Regular.otf") format("opentype");}
 @font-face{font-family:"Cormorant Garamond";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/CormorantGaramond-Regular.woff2") format("woff2");}
@@ -51,7 +40,6 @@ import { diaryFixture } from './fixtures/diary.fixture.js';
 import { inventoryFixture } from './fixtures/inventory.fixture.js';
 import { relationshipsFixture } from './fixtures/relationships.fixture.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
-import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
 
 const style = document.createElement('style');
 style.id = 'igs-overlay-style';
@@ -159,7 +147,6 @@ function openSettingsScene() {
   // ?gen=1：假的生成图服务，igs-gen: 地址都显示成示例图，另放两张刚生成的图。
   const fakeGen = q.get('gen') ? new Proxy({
     resolveUrl: (url) => (String(url || '').startsWith('igs-gen:') ? img : url),
-    writeWardrobePrompt: async () => ({ ok: true, prompt: 'pink pajamas' }),
     listTemp: () => [
       { key: 'temp/sp', type: 'sprite', name: '小雪 · 泳装', status: '临时', imageId: 'tmp-sp', url: img },
       { key: 'temp/bg', type: 'background', name: '海边黄昏', status: '临时', imageId: 'tmp-bg', url: img },
@@ -172,23 +159,14 @@ function openSettingsScene() {
     hostAdapter: { getCurrentMessage: async () => ({ id: 1, text: '素材设置预览。' }), typeAndSend: async () => ({ ok: true }) },
   });
   const mode = (q.get('size') || 'desktop').match(/^(mobile|short|tiny)$/) ? 'mobile' : 'pc';
-  // ?page=<设置页 id> 直接打开某页（dash style text ui perf-text perf-stage perf-story perf-special perf-rhythm sound chars wardrobe review scenes eventcg cglib source kinds llm rules parse data logs）；
-  // ?page=settings-scene 或 ?tab=<分类或旧 tab id> 仍可用（旧 tab：basic reader scene image，默认 scene）；?readersub= 切旧的阅读器子页。
-  const wanted = q.get('page');
-  const opened = settingsVn.openSettings({ ...(isSettingsPage(wanted) ? { page: wanted } : { tab: q.get('tab') || 'scene' }), mode });
+  // ?tab=basic|reader|image 打开别的设置页；?readersub= 切阅读器子页。
+  const opened = settingsVn.openSettings({ tab: q.get('tab') || 'scene', mode });
   const readerSub = q.get('readersub');
-  if (readerSub) opened.controller?.switchReaderSubTab?.(readerSub);
+  if (readerSub) document.querySelector(`[data-reader-subtab="${CSS.escape(readerSub)}"]`)?.click();
   if (!opened || opened.ok === false) throw new Error('settings-scene: openSettings failed ' + JSON.stringify(opened));
   const subtab = q.get('subtab');
-  if (subtab) opened.controller?.switchSceneSubTab?.(subtab);
+  if (subtab) document.querySelector(`[data-scene-subtab="${CSS.escape(subtab)}"]`)?.click();
   // ?act=命令:参数:参数,… 依次点设置里的 data-action 按钮（参数按原文写，这里替它编码）。
-  if (fakeGen && q.get('wardrobe-pick') === '1') {
-    document.querySelector(`[data-action="wardrobe-generate-prompt:${encodeURIComponent('睡衣')}"]`)?.click();
-    setTimeout(() => {
-      const editor = document.querySelector('.igs-settings-dialog.is-edit');
-      editor?.querySelector('[data-settings-dialog="ok"]')?.click();
-    }, 0);
-  }
   for (const step of (q.get('act') || '').split(',').filter(Boolean)) {
     const [command, ...rest] = step.split(':');
     // ui-toggle-open 的键本身带冒号，整段当一个参数。
@@ -207,13 +185,11 @@ function openSettingsScene() {
     const node = document.querySelector(`[data-advanced="${CSS.escape(key)}"]`);
     if (node) node.open = true;
   }
-  // ?nav=open：窄屏下把分类抽屉展开再截图。
-  if (q.get('nav') === 'open') document.getElementById('igs-unified-settings')?.setAttribute('data-igs-nav', 'open');
   return { close: () => opened.controller?.close?.() };
 }
 function openPage(page) {
   current?.close?.();
-  if (page === 'settings-scene' || isSettingsPage(page)) current = openSettingsScene();
+  if (page === 'settings-scene') current = openSettingsScene();
   else if (page === 'map') current = map, map.open(overlay, { weatherFx: { enabled: true } }, '临河街道', new URLSearchParams(location.search).get('time') || '', new URLSearchParams(location.search).get('weather') || '');
   else current = record, record.open(overlay, {}, page);
   document.querySelectorAll('#hud button').forEach(btn =>

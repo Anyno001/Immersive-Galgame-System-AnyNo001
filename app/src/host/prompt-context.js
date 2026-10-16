@@ -1,7 +1,9 @@
 // 为按需注入收集本轮上下文：最近几层 AI 正文、本轮用户输入、在场角色线索。只读宿主，不写。
-import { PAIR_TRIGGER_LOOKBACK } from '../scene/prompt-triggers.js';
+import { PAIR_TRIGGER_LOOKBACK, TRIGGER_HISTORY_TURNS } from '../scene/prompt-triggers.js';
 
 const PRESENT_LOOKBACK = 6;
+// 黏性与冷却按聊天记录往回推算：每轮按一问一答算，再多留一截给成对标签。
+const HISTORY_LOOKBACK = (TRIGGER_HISTORY_TURNS + PAIR_TRIGGER_LOOKBACK) * 2;
 
 function messageText(message) {
     return String(message && (message.mes != null ? message.mes : message.text) || '');
@@ -9,9 +11,10 @@ function messageText(message) {
 
 export function collectPromptContext(context, { document: doc = null, lookback = PAIR_TRIGGER_LOOKBACK } = {}) {
     const chat = context && Array.isArray(context.chat) ? context.chat : null;
-    if (!chat) return { recentAiTexts: [], userText: '', presentText: null };
+    if (!chat) return { recentAiTexts: [], userText: '', presentText: null, history: [], previousAiTexts: null };
     const visible = chat.filter((m) => m && !m.is_system);
     const recentAiTexts = visible.filter((m) => !m.is_user).slice(-lookback).map(messageText);
+    const previousAiTexts = visible.filter((m) => !m.is_user).slice(-HISTORY_LOOKBACK).map(messageText);
     let userText = '';
     try {
         const box = doc && typeof doc.querySelector === 'function' ? doc.querySelector('#send_textarea') : null;
@@ -33,5 +36,6 @@ export function collectPromptContext(context, { document: doc = null, lookback =
         }
     } catch (error) { /* */ }
     const presentText = [...names.filter(Boolean), ...visible.slice(-PRESENT_LOOKBACK).map(messageText), userText].join('\n');
-    return { recentAiTexts, userText, presentText };
+    const history = visible.slice(-HISTORY_LOOKBACK).map((m) => ({ user: Boolean(m.is_user), text: messageText(m) }));
+    return { recentAiTexts, userText, presentText, history, previousAiTexts };
 }

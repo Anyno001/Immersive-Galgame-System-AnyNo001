@@ -1,16 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FX_PACK_SFX_DEFS } from '../src/scene/fx-packs.js';
 import { DAILY_SFX, DAILY_SFX_KINDS, dailySfxDuration, playDailySfx } from '../src/visual/igs-ui/fx-daily-sfx.js';
-import { COUNT_STEP_S, FESTIVAL_COUNT_MIN, FESTIVAL_COUNT_MAX } from '../src/visual/igs-ui/fx-festival-sfx.js';
-import { BACKSTAGE_FIRST_MS, BACKSTAGE_STEP_MS, BPM_STEPS, DEBUT_STEP_MS } from '../src/visual/igs-ui/fx-idol-sfx.js';
 
-const EXPECTED = ['shutter', 'bell', 'broadcast', 'firework', 'firework-pop', 'alarm', 'vibrate', 'omikuji', 'receipt', 'pat', 'paper', 'sticky', 'clink-glass', 'clink-ceramic', 'clink-plastic', 'clink-can', 'clink-wood', 'clink-metal', 'tv-on', 'clock', 'drum', 'lantern', 'touch', 'spell', 'potion', 'owl', 'broom', 'hourglass', 'howler', 'blackout', 'knock1', 'knock2', 'knock3', 'knock4', 'knock5', 'knock6', 'murmur',
-    'screech', 'rein', 'engine', 'giddyup', 'train-depart', 'arrive-chime', 'horn', 'door', 'jet', 'touchdown', 'soar', 'gust', 'alight', 'propeller', 'creak', 'sleep', 'wake', 'dressup', 'rustle', 'punch', 'hiss', 'shower', 'splash', 'dryer', 'dive', 'blub', 'vacuum',
-    'sing', 'dance', 'fish', 'draw', 'music', 'ride', 'sweep', 'shopping', 'stroll', 'bike-bell', 'bike-ride', 'bike-skid',
-    'sword-ring', 'talisman', 'guqin', 'candle', 'pill', 'qi', 'tap', 'cook', 'fever', 'cat', 'rps', 'tea', 'go', 'go-play', 'tea-pour', 'bow-sleeve', 'edict-open', 'freeze-point', 'light-step', 'qi-chime', 'qi-break', 'shield-ward', 'tend-soft', 'carry-lift', 'bubble-pop',
-    'game-boot', 'game-win', 'game-lose', 'game-draw', 'game-versus', 'game-ko', 'game-combo', 'game-snatch',
-    'campus-chalk', 'campus-pass', 'campus-drawer', 'campus-rollcall', 'campus-exam', 'campus-festival', 'campus-graduate', 'campus-button'];
+const EXPECTED = ['shutter', 'bell', 'broadcast', 'firework', 'firework-pop', 'alarm', 'vibrate', 'omikuji', 'receipt', 'paper', 'sticky', 'tv-on', 'clock', 'drum', 'lantern', 'touch', 'spell', 'potion', 'owl', 'broom', 'hourglass', 'howler', 'blackout', 'knock1', 'knock2', 'knock3', 'knock4', 'knock5', 'knock6', 'murmur',
+    'screech', 'rein', 'engine', 'giddyup', 'train-depart', 'arrive-chime', 'horn', 'door', 'punch', 'hiss', 'shower', 'splash', 'dryer', 'dive', 'blub', 'vacuum'];
 
 function fakeParam(log) {
     return {
@@ -43,7 +36,7 @@ function fakeContext() {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test('gate: daily sfx exposes every requested kind', () => {
-    assert.deepEqual([...DAILY_SFX_KINDS].sort(), [...EXPECTED, ...Object.keys(FX_PACK_SFX_DEFS)].sort());
+    assert.deepEqual([...DAILY_SFX_KINDS].sort(), [...EXPECTED].sort());
 });
 
 test('gate: daily sfx hands a non-empty description to the scheduler for every kind', () => {
@@ -68,26 +61,7 @@ test('gate: daily sfx layers stay modest, finite and short', () => {
             assert.ok(q.start >= 0 && q.duration > 0, `${kind} timing valid`);
             assert.ok([q.start, q.duration, q.gain].every(Number.isFinite));
         }
-        const countdown = /^fest-count-(\d+)(-cn)?$/.exec(kind);
-        const debut = /^id-debut([2-6])$/.exec(kind);
-        const metronome = /^id-metro(\d+)$/.exec(kind);
-        const backstage = /^id-backstage([45])$/.exec(kind);
-        let limit = 5;
-        if (countdown) {
-            const count = Number(countdown[1]);
-            assert.ok(count >= FESTIVAL_COUNT_MIN && count <= FESTIVAL_COUNT_MAX);
-            limit = count * COUNT_STEP_S + (countdown[2] ? 2 : 0.5);
-            assert.ok(dailySfxDuration(kind) >= count * COUNT_STEP_S, `${kind} reaches zero before its ending`);
-        } else if (debut) {
-            limit = 0.9 + (Number(debut[1]) - 1) * DEBUT_STEP_MS / 1000 + 0.5 + 1.45;
-        } else if (metronome) {
-            const bpm = Number(metronome[1]);
-            assert.ok(BPM_STEPS.includes(bpm));
-            limit = 0.24 + 15 * 60 / bpm;
-        } else if (backstage) {
-            limit = (BACKSTAGE_FIRST_MS + Number(backstage[1]) * BACKSTAGE_STEP_MS) / 1000 + 0.45;
-        }
-        assert.ok(dailySfxDuration(kind) <= limit + 1e-9, `${kind} stays within ${limit}s`);
+        assert.ok(dailySfxDuration(kind) <= 5, `${kind} stays short`);
     }
     assert.ok(Math.abs(dailySfxDuration('bell') - 4.5) < 0.3);
     assert.ok(Math.abs(dailySfxDuration('broadcast') - 1.6) < 0.2);

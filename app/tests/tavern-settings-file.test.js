@@ -19,7 +19,7 @@ function fakeGlobal(fileJson) {
         SillyTavern: { getContext: () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }) },
         async fetch(url, init) {
             if (String(url).startsWith('/user/files/igs-settings.json')) {
-                return fileJson ? { ok: true, status: 200, json: async () => fileJson } : { ok: false, status: 404, json: async () => null };
+                return fileJson ? { ok: true, json: async () => fileJson } : { ok: false, json: async () => null };
             }
             if (url === '/api/files/upload') {
                 const body = JSON.parse(init.body);

@@ -1,37 +1,11 @@
-import { createIdbConnection } from './idb-connection.js';
 // 生成素材存储：images 存图片本体（素材库与临时素材共用，按 id 引用），
 // assets 存本聊天的临时素材记录（按 chatId / floorKey 查询），floors 记录楼层是否已处理过。
+import { editedStoredPrompt } from '../generated-images/generation-prompt.js';
+
 const DB_NAME = 'igs-generated-assets';
 const DB_VERSION = 1;
 
 const clone = (v) => (v == null ? null : JSON.parse(JSON.stringify(v)));
-
-// 查询只保留一页；数量预算属于缓存，不能变成聊天持久记录的数量上限。
-function assetQuery(options = {}) {
-    if (!options.chatId && !options.floorKey) throw new Error('asset-query-scope-required');
-    const limit = Math.max(1, Math.min(100, Math.trunc(Number(options.limit)) || 24));
-    const reverse = Boolean(options.beforeKey);
-    return { ...options, limit, reverse };
-}
-function matchesAsset(record, query) {
-    return (!query.chatId || record.chatId === query.chatId)
-        && (!query.floorKey || record.floorKey === query.floorKey)
-        && (!query.types?.length || query.types.includes(record.type))
-        && (query.name == null || record.name === query.name)
-        && (!query.requireImage || Boolean(record.imageId))
-        && (!query.statuses?.length || query.statuses.includes(record.status));
-}
-function assetFields(record, fields) {
-    if (!record) return null;
-    return Array.isArray(fields) ? Object.fromEntries(['key', ...fields].filter(key => Object.hasOwn(record, key)).map(key => [key, record[key]])) : record;
-}
-function assetPage(records, query, hasMore, total) {
-    if (query.reverse) records.reverse();
-    return { records, hasNext: query.reverse ? true : hasMore,
-        hasPrevious: query.reverse ? hasMore : Boolean(query.afterKey),
-        firstKey: records[0]?.key || '', lastKey: records.at(-1)?.key || '',
-        ...(query.includeTotal ? { total } : {}) };
-}
 
 export const GENERATED_IMAGE_SCHEMA_VERSION = 2;
 
@@ -83,6 +57,32 @@ export function applyGeneratedImageUpdate(current, expectedRevision, patch = {},
     return { ok: true, record: next };
 }
 
+// 提示词编辑与像素修复共用 revision，但 legacy 图片无需原图也可以改词。
+export function applyGeneratedPromptUpdate(current, expectedRevision, prompt, updatedAt = '') {
+    const record = normalizeGeneratedImageRecord(current);
+    if (!record) return { ok: false, reason: 'not-found' };
+    if (record.revision !== expectedRevision) return { ok: false, reason: 'stale-revision' };
+    let stored;
+    try { stored = editedStoredPrompt(prompt, { ...record.prompt, ...record }); }
+    catch { return { ok: false, reason: 'PROMPT_PROVENANCE_INVALID' }; }
+    if (!stored) return { ok: false, reason: 'empty-prompt' };
+    return { ok: true, record: { ...record, prompt: stored, promptEdited: true, captionMode: 'final',
+        revision: record.revision + 1, updatedAt: updatedAt || new Date().toISOString() } };
+}
+
+// 搬家只变图片存放位置，不改变语义 revision；比较与提交必须在同一事务。
+function relocatedImage(current, expected, relocated) {
+    if (!current) return { ok: false, reason: 'not-found' };
+    const keys = new Set([...Object.keys(current), ...Object.keys(expected)]);
+    if ([...keys].some((key) => JSON.stringify(current[key]) !== JSON.stringify(expected[key])))
+        return { ok: false, reason: 'stale-record' };
+    const record = { ...current };
+    for (const key of ['dataUrl', 'originalDataUrl', 'workingDataUrl', 'alphaMaskDataUrl']) {
+        if (typeof relocated[key] === 'string') record[key] = relocated[key];
+    }
+    return { ok: true, record };
+}
+
 export function createMemoryGeneratedAssetStore() {
     const images = new Map();
     const assets = new Map();
@@ -90,38 +90,24 @@ export function createMemoryGeneratedAssetStore() {
     return {
         async getImage(id) { return clone(images.get(id)); },
         async putImage(value) { images.set(value.id, clone(value)); },
-        async deleteImage(id) { images.delete(id); },
-        async listImages() { return Array.from(images.values(), clone); },
-        async listAssets() { return Array.from(assets.values(), clone); },
-        async listFloors() { return Array.from(floors.values(), clone); },
-        async getAsset(key, options = {}) { return clone(assetFields(assets.get(key), options.fields)); },
-        async queryAssets(options) {
-            const query = assetQuery(options), selected = [];
-            let total = 0, eligible = 0;
-            for (const record of assets.values()) {
-                if (!matchesAsset(record, query)) continue;
-                total += 1;
-                if (query.afterKey && record.key <= query.afterKey || query.beforeKey && record.key >= query.beforeKey) continue;
-                eligible += 1;
-                const index = selected.findIndex(value => query.reverse ? value.key < record.key : value.key > record.key);
-                selected.splice(index < 0 ? selected.length : index, 0, record);
-                if (selected.length > query.limit) selected.pop();
-            }
-            return assetPage(selected.map(record => clone(assetFields(record, query.fields))), query, eligible > query.limit, total);
+        async deleteImage(id, options) {
+            if (options?.beforeDelete && !(await options.beforeDelete())) return { retained: true };
+            images.delete(id);
         },
-        async deleteAsset(key) { assets.delete(key); },
-        async deleteFloor(key) { floors.delete(key); },
-        async patchImageMetadata(id, patch) {
-            const old = images.get(id);
-            if (!old) return { ok: false, reason: 'not-found' };
-            const next = { ...old, ...patch, id }; images.set(id, clone(next));
-            return { ok: true, record: clone(next) };
-        },
-        async putImages(list) { for (const value of list) images.set(value.id, clone(value)); },
         async updateImage(id, expectedRevision, patch, updatedAt) {
             const result = applyGeneratedImageUpdate(images.get(id), expectedRevision, patch, updatedAt);
             if (result.ok) images.set(id, clone(result.record));
             return result.ok ? { ok: true, record: clone(result.record) } : result;
+        },
+        async updateImagePrompt(id, expectedRevision, prompt, updatedAt) {
+            const result = applyGeneratedPromptUpdate(images.get(id), expectedRevision, prompt, updatedAt);
+            if (result.ok) images.set(id, clone(result.record));
+            return clone(result);
+        },
+        async relocateImage(expected, relocated) {
+            const result = relocatedImage(images.get(expected.id), expected, relocated);
+            if (result.ok) images.set(expected.id, clone(result.record));
+            return clone(result);
         },
         async getAssetsByChat(chatId) { return Array.from(assets.values()).filter((a) => a.chatId === chatId).map(clone); },
         async getAssetsByFloor(floorKey) { return Array.from(assets.values()).filter((a) => a.floorKey === floorKey).map(clone); },
@@ -134,23 +120,73 @@ export function createMemoryGeneratedAssetStore() {
 export function createIndexedDbGeneratedAssetStore(globalObject = globalThis) {
     const idb = globalObject && globalObject.indexedDB;
     if (!idb) return createMemoryGeneratedAssetStore();
-    const connection = createIdbConnection(idb, DB_NAME, DB_VERSION, db => {
-        if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('floors')) db.createObjectStore('floors', { keyPath: 'key' });
-        if (!db.objectStoreNames.contains('assets')) {
-            const store = db.createObjectStore('assets', { keyPath: 'key' });
-            store.createIndex('chatId', 'chatId', { unique: false });
-            store.createIndex('floorKey', 'floorKey', { unique: false });
+    let dbPromise = null;
+    const open = () => {
+        if (!dbPromise) {
+            dbPromise = new Promise((resolve, reject) => {
+                const req = idb.open(DB_NAME, DB_VERSION);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('floors')) db.createObjectStore('floors', { keyPath: 'key' });
+                    if (!db.objectStoreNames.contains('assets')) {
+                        const store = db.createObjectStore('assets', { keyPath: 'key' });
+                        store.createIndex('chatId', 'chatId', { unique: false });
+                        store.createIndex('floorKey', 'floorKey', { unique: false });
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
         }
-    });
-    const run = (name, mode, fn) => connection.transact(name, mode, tx => fn(tx.objectStore(name)));
+        return dbPromise;
+    };
+    const run = async (storeName, mode, fn) => {
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, mode);
+            const req = fn(tx.objectStore(storeName));
+            tx.oncomplete = () => resolve(req ? req.result : undefined);
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
+        });
+    };
+    const update = async (id, apply) => {
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('images', 'readwrite');
+            const objectStore = tx.objectStore('images');
+            let outcome;
+            const req = objectStore.get(id);
+            req.onsuccess = () => {
+                try {
+                    outcome = apply(req.result);
+                    if (outcome.ok) objectStore.put(outcome.record);
+                } catch { outcome = { ok: false, reason: 'update-failed' }; }
+            };
+            tx.oncomplete = () => resolve(outcome);
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
+        });
+    };
     return {
         async getImage(id) { return (await run('images', 'readonly', (s) => s.get(id))) || null; },
         async putImage(value) { await run('images', 'readwrite', (s) => s.put(value)); },
-        async deleteImage(id) { await run('images', 'readwrite', (s) => s.delete(id)); },
+        async deleteImage(id, options) {
+            // open 的异步窗口结束后复核，再启动本库删除事务；不承诺跨库原子性。
+            const db = await open();
+            if (options?.beforeDelete && !(await options.beforeDelete())) return { retained: true };
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('images', 'readwrite');
+                tx.objectStore('images').delete(id);
+                tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
+            });
+        },
         // 读取与写入在同一 readwrite 事务内，避免另一会话在检查与写入之间覆盖。
         async updateImage(id, expectedRevision, patch, updatedAt) {
-            return connection.transact('images', 'readwrite', tx => {
+            const db = await open();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('images', 'readwrite');
                 const objectStore = tx.objectStore('images');
                 let outcome = { ok: false, reason: 'not-found' };
                 const req = objectStore.get(id);
@@ -158,54 +194,16 @@ export function createIndexedDbGeneratedAssetStore(globalObject = globalThis) {
                     outcome = applyGeneratedImageUpdate(req.result, expectedRevision, patch, updatedAt);
                     if (outcome.ok) objectStore.put(outcome.record);
                 };
-                return () => outcome;
+                tx.oncomplete = () => resolve(outcome);
+                tx.onerror = () => reject(tx.error);
+                tx.onabort = () => reject(tx.error);
             });
         },
-        async patchImageMetadata(id, patch) {
-            return connection.transact('images', 'readwrite', tx => {
-                const objectStore = tx.objectStore('images');
-                let outcome = { ok: false, reason: 'not-found' };
-                const req = objectStore.get(id);
-                req.onsuccess = () => {
-                    if (!req.result) return;
-                    const record = { ...req.result, ...patch, id };
-                    objectStore.put(record); outcome = { ok: true, record };
-                };
-                return () => outcome;
-            });
+        async updateImagePrompt(id, expectedRevision, prompt, updatedAt) {
+            return update(id, (current) => applyGeneratedPromptUpdate(current, expectedRevision, prompt, updatedAt));
         },
-        async listImages() { return await run('images', 'readonly', s => s.getAll()) || []; },
-        async listAssets() { return await run('assets', 'readonly', s => s.getAll()) || []; },
-        async listFloors() { return await run('floors', 'readonly', s => s.getAll()) || []; },
-        async getAsset(key, options = {}) { return assetFields(await run('assets', 'readonly', s => s.get(key)), options.fields); },
-        async queryAssets(options) {
-            const query = assetQuery(options);
-            return connection.transact('assets', 'readonly', tx => {
-                const index = tx.objectStore('assets').index(query.floorKey ? 'floorKey' : 'chatId');
-                const request = index.openCursor(query.floorKey || query.chatId, query.reverse ? 'prev' : 'next');
-                const records = [];
-                let total = 0, hasMore = false;
-                request.onsuccess = () => {
-                    const cursor = request.result;
-                    if (!cursor) return;
-                    const record = cursor.value;
-                    if (matchesAsset(record, query)) {
-                        total += 1;
-                        const eligible = (!query.afterKey || record.key > query.afterKey) && (!query.beforeKey || record.key < query.beforeKey);
-                        if (eligible) {
-                            if (records.length < query.limit) records.push(assetFields(record, query.fields));
-                            else { hasMore = true; if (!query.includeTotal) return; }
-                        }
-                    }
-                    cursor.continue();
-                };
-                return () => assetPage(records, query, hasMore, total);
-            });
-        },
-        async deleteAsset(key) { await run('assets', 'readwrite', s => s.delete(key)); },
-        async deleteFloor(key) { await run('floors', 'readwrite', s => s.delete(key)); },
-        async putImages(list) {
-            await run('images', 'readwrite', s => { for (const value of list) s.put(value); return () => undefined; });
+        async relocateImage(expected, relocated) {
+            return update(expected.id, (current) => relocatedImage(current, expected, relocated));
         },
         async getAssetsByChat(chatId) { return (await run('assets', 'readonly', (s) => s.index('chatId').getAll(chatId))) || []; },
         async getAssetsByFloor(floorKey) { return (await run('assets', 'readonly', (s) => s.index('floorKey').getAll(floorKey))) || []; },

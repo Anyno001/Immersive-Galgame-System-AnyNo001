@@ -14,7 +14,7 @@ function platformCard(settings, id) {
     const dot = /^#[0-9a-fA-F]{3,8}$/.test(platform.accent) ? ` style="background:${platform.accent}"` : '';
     return `<div class="igs-feed-card">`
         + `<div class="igs-feed-card-head"><span class="igs-feed-name"><i class="igs-feed-dot"${dot}></i>${esc(platform.name)}</span>${checkbox(`${P}.platforms.${id}.enabled`, own.enabled, '启用')}</div>`
-        + textareaInput(`${P}.platforms.${id}.prompt`, feedPlatformPrompt(settings, id), '清空恢复默认')
+        + textareaInput(`${P}.platforms.${id}.prompt`, feedPlatformPrompt(settings, id), '留空恢复默认')
         + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="feed-prompt-reset:${esc(id)}"${disabledAttr(!custom)}>恢复默认</button></div>`
         + `</div>`;
 }
@@ -23,7 +23,7 @@ function platformCard(settings, id) {
 function stormCard(settings) {
     return `<div class="igs-feed-card igs-feed-storm">`
         + `<div class="igs-feed-card-head"><span class="igs-feed-name">舆论风暴</span>${checkbox(`${P}.storm.enabled`, settings.storm.enabled, '启用')}</div>`
-        + textareaInput(`${P}.storm.prompt`, stormPromptOf(settings), '清空恢复默认')
+        + textareaInput(`${P}.storm.prompt`, stormPromptOf(settings), '留空恢复默认')
         + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="feed-storm-prompt-reset"${disabledAttr(!settings.storm.prompt)}>恢复默认</button></div>`
         + `</div>`;
 }

@@ -15,6 +15,8 @@ import {
     resolveWeatherFxTime,
 } from '../src/visual/igs-ui/weather-fx-runtime.js';
 import { startWeatherParticles } from '../src/visual/igs-ui/weather-fx-particles.js';
+import { WEATHER_FX_STYLE_TEXT } from '../src/visual/igs-ui/weather-fx-style.js';
+import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 
 function makeLayer() {
     const classes = new Set();
@@ -336,6 +338,16 @@ test('gate: particle engine exits when the layer is detached and refuses non-par
     assert.equal(env.back.children.length, 0);
     assert.equal(startWeatherParticles({ back: env.back, front: env.front, plan: { ...plan, kind: 'fog' } }), null);
     assert.equal(startWeatherParticles({ back: {}, plan }), null);
+});
+
+test('gate: weather style is a single consolidated block wired into the reader stylesheet', () => {
+    const ORIGINAL_READER_STYLE_TEXT = getOriginalReaderStyleText();
+    assert.ok(ORIGINAL_READER_STYLE_TEXT.includes(WEATHER_FX_STYLE_TEXT.trim()));
+    assert.equal(ORIGINAL_READER_STYLE_TEXT.includes('igs-effect-back'), false);
+    assert.equal((ORIGINAL_READER_STYLE_TEXT.match(/@keyframes igs-fx-sunburst/g) || []).length, 1);
+    for (const scene of ['indoor', 'outdoor']) assert.match(WEATHER_FX_STYLE_TEXT, new RegExp(`data-igs-weather-fx-scene="${scene}"`));
+    for (const time of ['dawn', 'dusk', 'night', 'midnight']) assert.match(WEATHER_FX_STYLE_TEXT, new RegExp(`data-igs-weather-fx-time="${time}"`));
+    assert.match(WEATHER_FX_STYLE_TEXT, /data-igs-weather-fx-motion="off"/);
 });
 
 test('gate: lightning flash dispatches a bubbling event for scene audio and reports lightning in the result', () => {

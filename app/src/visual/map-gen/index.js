@@ -1,5 +1,3 @@
-import { createMediaLeaseScope } from '../../media/media-lease-scope.js';
-import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { hashString } from './seed-random.js';
 import { classifyMapPlace, detectMapTheme, resolveMapScale } from './place-semantics.js';
 import { generateCitySteps } from './city.js';
@@ -46,6 +44,7 @@ export function createMapBasemapGenerator(options = {}) {
     const view = doc?.defaultView || globalThis;
     const budget = options.budgetMs ?? 10;
     const timeout = options.timeoutMs ?? 8000;
+    const limit = options.cacheSize ?? 4;
     const now = options.now || (() => (view.performance || globalThis.performance || Date).now());
     const schedule = options.schedule || (fn => (view.setTimeout || setTimeout)(fn, 0));
     const createCanvas = options.createCanvas || ((w, h) => {
@@ -56,33 +55,30 @@ export function createMapBasemapGenerator(options = {}) {
         return canvas;
     });
     const renderScale = options.scale ?? ((view.devicePixelRatio || 1) >= 1.5 ? 2 : 1.5);
-    const media = options.mediaCache || localImageCacheFor(view);
-    const leases = createMediaLeaseScope(media);
-    let activeKey = '';
-    let generation = 0;
+    const cache = new Map();
     let disposed = false;
 
     const revoke = entry => {
-        if (entry?.key === activeKey) { leases.releaseAll(); activeKey = ''; }
-        if (!entry) return;
-        entry.cancelled = true;
-        for (const key of entry.resourceKeys || []) media.forget(key);
+        for (const url of [entry?.result?.url, entry?.result?.lightsUrl]) {
+            if (url && url.startsWith('blob:')) try { view.URL?.revokeObjectURL?.(url); } catch (error) { /* 宿主已卸载时忽略 */ }
+        }
     };
-    const cache = media.auxiliary.createMap('maps', {
-        maxEntries: options.cacheSize,
-        onRemove: revoke,
-        onClear: () => { generation += 1; leases.releaseAll(); activeKey = ''; },
-        onDestroy: () => { disposed = true; },
-    });
     const remember = (key, entry) => {
+        cache.delete(key);
         cache.set(key, entry);
+        while (cache.size > limit) {
+            const [oldKey, old] = cache.entries().next().value;
+            if (old.status === 'pending') break;
+            cache.delete(oldKey);
+            revoke(old);
+        }
     };
 
     // 按时间预算推进生成器：每片不超过 budget 毫秒，其余交回宿主事件循环。
-    const drive = (iterator, cancelled) => new Promise((resolve, reject) => {
+    const drive = iterator => new Promise((resolve, reject) => {
         const started = now();
         const tick = () => {
-            if (disposed || cancelled()) { reject(new Error('disposed')); return; }
+            if (disposed) { reject(new Error('disposed')); return; }
             try {
                 const t0 = now();
                 let step = iterator.next();
@@ -95,14 +91,11 @@ export function createMapBasemapGenerator(options = {}) {
         schedule(tick);
     });
 
-    const toUrl = async (canvas, key, stamp) => {
-        if (media.token(key) !== stamp || disposed) return '';
-        await media.load(key, () => new Promise(resolve => {
-            if (typeof canvas.toBlob === 'function' && view.URL?.createObjectURL) canvas.toBlob(blob => resolve(blob || canvas.toDataURL('image/png')), 'image/webp', 0.9);
-            else resolve(canvas.toDataURL('image/png'));
-        }), { persist: false, timeoutMs: timeout });
-        return media.token(key) === stamp && !disposed ? media.peek(key) : '';
-    };
+    const toUrl = canvas => new Promise(resolve => {
+        if (typeof canvas.toBlob === 'function' && view.URL?.createObjectURL) {
+            canvas.toBlob(blob => resolve(blob ? view.URL.createObjectURL(blob) : canvas.toDataURL('image/png')), 'image/webp', 0.9);
+        } else resolve(canvas.toDataURL('image/png'));
+    });
 
     function* cityJob(input) {
         const scene = yield* generateCitySteps(input);
@@ -128,43 +121,27 @@ export function createMapBasemapGenerator(options = {}) {
     function peek(key) {
         const entry = cache.get(key);
         if (!entry) return null;
-        if (entry.status === 'ready') {
-            const current = new Map(entry.resourceKeys.map(resourceKey => [resourceKey, media.peek(resourceKey)]));
-            if ([...current.values()].some(url => !url)) { cache.delete(key); return null; }
-            entry.result = { ...entry.result, url: current.get(`map:${key}:base`) || '', lightsUrl: current.get(`map:${key}:lights`) || '' };
-        }
+        cache.delete(key);
+        cache.set(key, entry);
         return entry;
     }
 
     function request(input) {
-        if (disposed) return { key: input.key, status: 'failed', error: 'disposed', result: null };
         const existing = peek(input.key);
-        if (input.key !== activeKey) { leases.releaseAll(); activeKey = input.key; }
-        leases.begin();
-        leases.use(`map:${input.key}:base`); leases.use(`map:${input.key}:lights`); leases.end();
         if (existing) return existing;
-        const entry = { key: input.key, status: 'pending', result: null, error: '', cancelled: false, resourceKeys: [] };
-        const currentGeneration = generation;
-        const imageKey = `map:${input.key}:base`, lightsKey = `map:${input.key}:lights`;
-        const imageStamp = media.token(imageKey), lightsStamp = media.token(lightsKey);
-        entry.promise = drive(input.kind === 'lights' ? lightsJob(input) : cityJob(input), () => entry.cancelled || currentGeneration !== generation)
+        const entry = { status: 'pending', result: null, error: '' };
+        entry.promise = drive(input.kind === 'lights' ? lightsJob(input) : cityJob(input))
             .then(async ({ canvas, lights }) => {
-                if (entry.cancelled || currentGeneration !== generation) throw new Error('disposed');
-                entry.resourceKeys = [canvas && imageKey, lights && lightsKey].filter(Boolean);
-                const url = canvas ? await toUrl(canvas, imageKey, imageStamp) : '';
-                if (disposed || entry.cancelled || currentGeneration !== generation) throw new Error('disposed');
-                const lightsUrl = lights ? await toUrl(lights, lightsKey, lightsStamp) : '';
-                if (disposed || entry.cancelled || currentGeneration !== generation) throw new Error('disposed');
+                const url = canvas ? await toUrl(canvas) : '';
+                const lightsUrl = lights ? await toUrl(lights) : '';
                 entry.result = { url, lightsUrl, width: input.width, height: input.height };
                 entry.status = 'ready';
-                if (cache.get(input.key) === entry) remember(input.key, entry);
+                if (disposed) revoke(entry);
                 return entry;
             })
             .catch(error => {
-                if (cache.get(input.key) === entry) revoke(entry);
                 entry.status = 'failed';
                 entry.error = String(error?.message || error);
-                if (cache.get(input.key) === entry) cache.set(input.key, entry);
                 return entry;
             });
         remember(input.key, entry);
@@ -172,8 +149,10 @@ export function createMapBasemapGenerator(options = {}) {
     }
 
     function dispose() {
-        cache.destroy();
+        disposed = true;
+        for (const entry of cache.values()) revoke(entry);
+        cache.clear();
     }
 
-    return { request, peek, dispose, releaseActive() { leases.releaseAll(); activeKey = ''; } };
+    return { request, peek, dispose };
 }

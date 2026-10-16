@@ -28,7 +28,7 @@ export function createIgsCompatApi(app) {
         },
 
         getConfig() {
-            return cloneData(readAppConfig(app));
+            return cloneData(app.getState().config || {});
         },
 
         getUnifiedSettings(options = {}) {
@@ -38,7 +38,7 @@ export function createIgsCompatApi(app) {
             }
 
             const legacy = getLegacySettings(app);
-            const bridge = cloneData(readAppConfig(app));
+            const bridge = cloneData(app.getState().config || {});
             const readerMode = resolveReaderMode(options, legacy, bridge);
             const readerSettingsByMode = legacy.readerSettingsByMode || {};
             // 全模式共用 default 桶；老用户 default 空时回退旧分桶。
@@ -61,7 +61,7 @@ export function createIgsCompatApi(app) {
         async openViewerFromMessage(messageId, mode, openOptions = {}) {
             const normalizedId = normalizeMessageId(messageId);
             const resolved = normalizeViewerRequest(mode, openOptions);
-            const readerMode = resolveReaderMode({ mode: resolved.mode }, getLegacySettings(app), readAppConfig(app));
+            const readerMode = resolveReaderMode({ mode: resolved.mode }, getLegacySettings(app), app.getState().config || {});
             if (normalizedId == null) {
                 return { ok: false, reason: 'invalid-message-id', messageId, mode: readerMode, options: cloneViewerOptions(resolved.options) };
             }
@@ -71,9 +71,6 @@ export function createIgsCompatApi(app) {
             const message = resolved.options.message || await app.hostAdapter.getMessageById(normalizedId);
             if (!message) {
                 return { ok: false, reason: 'message-not-found', messageId: normalizedId, mode: readerMode };
-            }
-            if (typeof resolved.options.canReplace === 'function' && !resolved.options.canReplace()) {
-                return { ok: false, reason: 'reply-stale' };
             }
             const readerPayload = await buildReaderPayload(app, message, normalizedId, readerMode);
             const refreshed = await app.refresh({
@@ -87,15 +84,11 @@ export function createIgsCompatApi(app) {
                 render: refreshed.render,
                 scene: refreshed.scene,
                 startAtEnd: resolved.options.startAtEnd === true,
-                ...(resolved.options.turnOffset != null ? { turnOffset: resolved.options.turnOffset } : {}),
                 ...(resolved.options.skipTitle === true ? { skipTitle: true } : {}),
             };
             const payload = resolved.options.skipImageCollection === true
                 ? basePayload
                 : await enrichReaderPayload(app, basePayload);
-            if (typeof resolved.options.canReplace === 'function' && !resolved.options.canReplace()) {
-                return { ok: false, reason: 'reply-stale' };
-            }
             if (resolved.options.replaceActive === true
                 && app.igsUi && typeof app.igsUi.replaceReader === 'function') {
                 const reader = app.igsUi.replaceReader({
@@ -118,7 +111,7 @@ export function createIgsCompatApi(app) {
         },
 
         async openLatestAvailable(mode, options = {}) {
-            const readerMode = resolveReaderMode({ mode }, getLegacySettings(app), readAppConfig(app));
+            const readerMode = resolveReaderMode({ mode }, getLegacySettings(app), app.getState().config || {});
             if (!app.hostAdapter || typeof app.hostAdapter.getCurrentMessage !== 'function') {
                 return { ok: false, reason: 'missing-host-message-api', mode: readerMode, options: cloneData(options) };
             }
@@ -187,12 +180,6 @@ function normalizeMessageId(messageId) {
     const value = Number(messageId);
     if (!Number.isFinite(value) || value < 0) return null;
     return value;
-}
-
-// 只读配置走 getConfig()：getState() 会连整份阅读器快照和预设库一起深拷贝。
-function readAppConfig(app) {
-    const config = typeof app.getConfig === 'function' ? app.getConfig() : app.getState().config;
-    return config || {};
 }
 
 function cloneData(value) {
@@ -350,28 +337,6 @@ async function resolveInheritedOutfits(app, sceneAssets, messageId) {
     return result;
 }
 
-// 旁白点名跨楼判断：前 3 个 AI 楼里说过话 / 有心理活动的角色名。本楼没露面但在这里面的用默认，不在的视为久违提到、不出立绘。
-async function resolveRecentCast(app, messageId) {
-    if (!app || !app.hostAdapter || typeof app.hostAdapter.getAdjacentMessage !== 'function') return [];
-    const names = new Set();
-    let cursor = Number(messageId);
-    if (!Number.isFinite(cursor) || cursor < 0) return [];
-    for (let depth = 0; depth < INHERITED_SCENE_MAX_FLOORS; depth += 1) {
-        let previous = null;
-        try {
-            previous = await app.hostAdapter.getAdjacentMessage(cursor, -1);
-        } catch (error) {
-            break;
-        }
-        if (!previous || previous.id == null || Number(previous.id) === cursor) break;
-        cursor = Number(previous.id);
-        for (const d of extractSceneDirectives(getMessagePrimaryText(previous)).directives) {
-            if ((d.type === 'char' || d.type === 'thought') && d.character) names.add(String(d.character));
-        }
-    }
-    return [...names];
-}
-
 // 恐怖档位跨楼层延续：本楼没有 [igs-dread:N] 时，向前最多追溯 6 个楼层取最近的一个；都没有返回 null。
 const INHERITED_DREAD_MAX_FLOORS = 6;
 async function resolveInheritedDread(app, messageId) {
@@ -400,14 +365,13 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     const bridge = cloneData(
         unifiedSettings && unifiedSettings.bridge && typeof unifiedSettings.bridge === 'object'
             ? unifiedSettings.bridge
-            : readAppConfig(app),
+            : app.getState().config || {},
     );
     const visualNovelText = buildIgsTextPayload(message, {
         sourceFilter: bridge.sourceFilter,
         virtualRegex: bridge.virtualRegex,
         sceneAssets: bridge.sceneAssets,
         sentencePaging: bridge.sentencePaging,
-        dialogueSentencePaging: bridge.dialogueSentencePaging,
     });
     // 跨楼层场景追溯只在场景素材模式启用时发生；本楼没有任何场景指令时
     // （AI 漏发 [igs-scene:]，正文照常输出）才向前最多追溯 3 个 AI 楼层。
@@ -418,9 +382,6 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     const inheritedOutfits = sceneAssetsEnabled
         ? await resolveInheritedOutfits(app, bridge.sceneAssets, messageId)
         : {};
-    const recentCast = sceneAssetsEnabled && bridge.sceneAssets.narrationNameSwitch !== false
-        ? await resolveRecentCast(app, messageId)
-        : [];
     // 只有恐怖世界观、且本楼没写档位时才向前追溯。
     const inheritedDread = resolveWorldview(sceneAssetsForContext(bridge.sceneAssets, getSillyTavernContext())) === 'horror' && findLastDreadLevel(getMessagePrimaryText(message)) === null
         ? await resolveInheritedDread(app, messageId)
@@ -453,7 +414,6 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
         ...visualNovelText,
         inheritedSceneState,
         inheritedOutfits,
-        recentCast,
         inheritedDread,
         battleContext,
         liveContext,

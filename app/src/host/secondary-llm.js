@@ -1,23 +1,21 @@
 import { getTavernHelper, getSillyTavernContext } from './tavern-helper-adapter.js';
 import { runBackgroundGeneration } from './background-generation.js';
+import { secondaryLlmMessages } from './secondary-llm-messages.js';
+import { requestCustomLlm } from './secondary-llm-custom.js';
+import { SecondaryLlmError, secondaryLlmHttpError, secondaryLlmText } from './secondary-llm-result.js';
 
-function apiBaseUrl(endpoint) {
+function chatCompletionsUrl(endpoint) {
     const base = String(endpoint || '').trim().replace(/\/+$/, '');
-    if (!base) throw new Error('请先填写副 LLM 地址');
-    let parsed;
-    try { parsed = new URL(base); } catch { throw new Error('副 LLM 地址无效，请填写 HTTP/HTTPS 接口地址'); }
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.search || parsed.hash) {
-        throw new Error('副 LLM 地址无效，请填写不含查询参数的 HTTP/HTTPS 接口地址');
-    }
-    const root = base.replace(/\/(?:chat\/completions|models)$/i, '');
-    return /\/v\d+$/i.test(root) ? root : `${root}/v1`;
+    if (!base) return '';
+    if (/\/chat\/completions$/i.test(base)) return base;
+    return /\/v\d+$/i.test(base) ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
 }
 
-function withTimeout(promise, ms, onTimeout = () => {}) {
+function withTimeout(promise, ms) {
     let timer = null;
     return Promise.race([
         promise,
-        new Promise((_, reject) => { timer = setTimeout(() => { reject(new Error('副 LLM 请求超时')); onTimeout(); }, ms); }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('副 LLM 请求超时')), ms); }),
     ]).finally(() => clearTimeout(timer));
 }
 
@@ -34,112 +32,138 @@ export function readSseContent(body) {
     return text;
 }
 
-function customConnection(llm) {
-    const key = String(llm.apiKey || '').trim();
-    return {
-        chat_completion_source: 'custom',
-        custom_url: apiBaseUrl(llm.endpoint),
-        // JSON 是有效 YAML；显式覆盖 Authorization，空 Key 也不借用酒馆主连接的密钥。
-        custom_include_headers: JSON.stringify({ Authorization: key ? `Bearer ${key}` : '' }),
-    };
-}
-
-function safeDetail(value, apiKey) {
-    let text = String(value || '');
-    const key = String(apiKey || '').trim();
-    if (key) text = text.split(key).join('[已隐藏]');
-    return text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
+function modelsUrl(endpoint) {
+    const completions = chatCompletionsUrl(endpoint);
+    return completions ? completions.replace(/\/chat\/completions$/i, '/models') : '';
 }
 
 export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
     const fetchImpl = deps.fetch || (typeof globalObject.fetch === 'function' ? globalObject.fetch.bind(globalObject) : null);
-    const createAbort = () => new (globalObject.AbortController || globalThis.AbortController)();
 
-    async function postToTavern(route, body, llm, signal, label) {
-        if (!fetchImpl) throw new Error('当前环境无法发起网络请求');
-        const context = getSillyTavernContext(globalObject);
-        if (!context || typeof context.getRequestHeaders !== 'function') {
-            throw new Error('无法获取酒馆请求头，请确认脚本在酒馆页面内加载');
-        }
-        let response;
-        try {
-            response = await fetchImpl(`/api/backends/chat-completions/${route}`, {
-                method: 'POST', credentials: 'same-origin', cache: 'no-cache', signal,
-                headers: { ...context.getRequestHeaders(), 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-        } catch {
-            throw new Error(`${label}：无法连接酒馆后端，请检查酒馆连接`);
-        }
-        let text = '', data = null;
-        if (typeof response.text === 'function') {
-            text = String(await response.text());
-            try { data = JSON.parse(text); } catch { /* 下方兼容 SSE 或报告无效响应 */ }
-        } else data = await response.json();
-        if (!response.ok || data?.error) {
-            const detail = safeDetail(data?.error?.message || (typeof data?.error === 'string' ? data.error : '')
-                || data?.message || (!response.ok ? text : '酒馆未返回可用结果，请核对接口地址和密钥'), llm.apiKey);
-            throw new Error(`${label}${!response.ok ? `（HTTP ${response.status}）` : ''}${detail ? `：${detail}` : ''}`);
-        }
-        if (data == null) {
-            if (route === 'generate' && /^\s*data:/.test(text)) return { choices: [{ message: { content: readSseContent(text) } }] };
-            throw new Error(`${label}：返回的不是 JSON${text ? `：${safeDetail(text, llm.apiKey)}` : ''}`);
-        }
-        return data;
-    }
-
-    async function viaTavern(system, user) {
+    async function viaTavern(messages) {
         const helper = getTavernHelper(globalObject);
         if (helper && typeof helper.generateRaw === 'function') {
             // should_silence：后台请求不显示停止按钮、不广播生成事件，避免被当成正文流式。
             return String(await helper.generateRaw({
                 should_stream: false,
                 should_silence: true,
-                ordered_prompts: [{ role: 'system', content: system }, { role: 'user', content: user }],
+                ordered_prompts: messages,
             }) || '');
         }
         const ctx = getSillyTavernContext(globalObject);
         if (ctx && typeof ctx.generateRaw === 'function') {
-            return String(await ctx.generateRaw({ systemPrompt: system, prompt: user }) || '');
+            if (messages.length !== 2 || messages[0].role !== 'system' || messages[1].role !== 'user') {
+                const error = new Error('当前酒馆接口不支持有序多角色提示词，请启用酒馆助手或改用独立 API');
+                error.reason = 'ordered-messages-unsupported';
+                throw error;
+            }
+            return String(await ctx.generateRaw({ systemPrompt: messages[0].content, prompt: messages[1].content }) || '');
         }
         throw new Error('当前酒馆不支持 generateRaw，请在设置中改用独立 API');
     }
 
-    async function viaOpenAi(system, user, llm, signal) {
-        const data = await postToTavern('generate', {
-            ...customConnection(llm),
-            model: llm.model, stream: false, temperature: 0.7, use_sysprompt: true,
-            messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        }, llm, signal, '副 LLM 请求失败');
-        return String(data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '');
+    async function viaOpenAi(messages, llm) {
+        const url = chatCompletionsUrl(llm.endpoint);
+        if (!url) throw new Error('请先填写副 LLM 地址');
+        const Service = getSillyTavernContext(globalObject)?.ChatCompletionService;
+        if (typeof Service?.sendRequest === 'function') {
+            return requestCustomLlm(Service, messages, llm, url);
+        }
+        if (!fetchImpl) throw new Error('当前环境无法发起网络请求');
+        const headers = { 'Content-Type': 'application/json' };
+        if (llm.apiKey) headers.Authorization = `Bearer ${llm.apiKey}`;
+        let response;
+        try {
+            response = await fetchImpl(url, {
+                method: 'POST', headers,
+                body: JSON.stringify({
+                    model: llm.model, stream: false,
+                    messages,
+                }),
+                ...(llm.signal && { signal: llm.signal }),
+            });
+        } catch (error) {
+            if (llm.signal?.aborted) throw Object.assign(new Error('副 LLM 任务已取消；上游可能仍在执行'), { reason: 'request-stale' });
+            throw secondaryLlmHttpError(null, 'direct');
+        }
+        if (!response.ok) {
+            let data;
+            try { data = JSON.parse(await response.text()); } catch { /* 只提取白名单字段 */ }
+            throw secondaryLlmHttpError(response.status, 'direct', data);
+        }
+        let data;
+        if (typeof response.text === 'function') {
+            const body = String(await response.text());
+            // 部分反代无视 stream:false 仍按 SSE 返回，这里兼容拼接增量内容。
+            if (/^\s*data:/.test(body)) return secondaryLlmText(readSseContent(body));
+            try { data = JSON.parse(body); } catch (error) { throw new SecondaryLlmError('secondary-llm-response-invalid', '副 LLM 响应不是有效 JSON；未继续绘图', { transport: 'direct' }); }
+        } else {
+            data = await response.json();
+        }
+        return secondaryLlmText(data?.choices?.[0]?.message?.content);
     }
 
     async function fetchModels(llm = {}) {
-        const controller = createAbort();
-        return withTimeout((async () => {
-            const data = await postToTavern('status', customConnection(llm), llm, controller.signal, '副 LLM 模型拉取失败');
-            const entries = Array.isArray(data && data.data) ? data.data : data && data.models;
-            const models = [...new Set((Array.isArray(entries) ? entries : [])
-                .map((item) => typeof item === 'string' ? item : item && (item.id || item.name))
-                .filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))];
-            if (!models.length) throw new Error('副 LLM 接口未返回可用模型');
-            return { ok: true, models, message: `已拉取 ${models.length} 个副 LLM 模型` };
-        })(), 30000, () => controller.abort());
+        const url = modelsUrl(llm.endpoint);
+        if (!url) throw new Error('请先填写副 LLM 地址');
+        if (!fetchImpl) throw new Error('当前环境无法发起网络请求');
+        const ctx = getSillyTavernContext(globalObject);
+        const custom = typeof ctx?.ChatCompletionService?.sendRequest === 'function'
+            && typeof ctx?.getRequestHeaders === 'function';
+        const transport = custom ? 'st-backend' : 'direct';
+        const payload = custom ? { chat_completion_source: 'custom',
+            custom_url: chatCompletionsUrl(llm.endpoint).replace(/\/chat\/completions$/i, ''),
+            ...(llm.apiKey && { custom_include_headers: `Authorization: ${JSON.stringify(`Bearer ${llm.apiKey}`)}` }) } : null;
+        const headers = custom ? { ...ctx.getRequestHeaders(), 'Content-Type': 'application/json' }
+            : llm.apiKey ? { Authorization: `Bearer ${llm.apiKey}` } : {};
+        let response;
+        try {
+            response = await withTimeout(fetchImpl(custom ? '/api/backends/chat-completions/status' : url,
+                { method: custom ? 'POST' : 'GET', headers,
+                    ...(custom && { body: JSON.stringify(payload), cache: 'no-cache' }) }), 30000);
+        } catch (error) {
+            throw secondaryLlmHttpError(null, transport);
+        }
+        if (!response.ok) throw secondaryLlmHttpError(response.status, transport);
+        let data;
+        try { data = await response.json(); }
+        catch { throw new SecondaryLlmError('secondary-llm-response-invalid', '副 LLM 模型列表不是有效 JSON', { transport }); }
+        if (data?.error === true) throw secondaryLlmHttpError(null, transport);
+        const entries = Array.isArray(data && data.data) ? data.data : data && data.models;
+        const models = [...new Set((Array.isArray(entries) ? entries : [])
+            .map((item) => typeof item === 'string' ? item : item && (item.id || item.name))
+            .filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))];
+        if (!models.length) throw new Error('副 LLM 接口未返回可用模型');
+        return { ok: true, models, message: `已拉取 ${models.length} 个副 LLM 模型` };
     }
 
     return {
         fetchModels,
-        async request({ system, user }, llm = {}) {
+        async request(request, llm = {}) {
             const timeoutMs = Number(llm.timeoutMs) || 90000;
-            const head = String(llm.jailbreakHead || '').trim();
-            const tail = String(llm.jailbreakTail || '').trim();
-            const finalSystem = head ? `${head}\n\n${system}` : system;
-            const finalUser = tail ? `${user}\n\n${tail}` : user;
-            const controller = llm.source === 'openai' ? createAbort() : null;
-            const job = controller
-                ? viaOpenAi(finalSystem, finalUser, llm, controller.signal)
-                : runBackgroundGeneration(() => viaTavern(finalSystem, finalUser));
-            return withTimeout(job, timeoutMs, () => controller?.abort());
+            const messages = secondaryLlmMessages(request, llm);
+            const controller = new AbortController();
+            const cancelled = () => Object.assign(new Error('副 LLM 任务已取消；上游可能仍在执行'), { reason: 'request-stale' });
+            let rejectStop, timer;
+            const stopped = new Promise((_, reject) => { rejectStop = reject; });
+            const abort = () => { controller.abort(); rejectStop(cancelled()); };
+            llm.signal?.addEventListener('abort', abort, { once: true });
+            try {
+                if (llm.signal?.aborted) throw cancelled();
+                timer = setTimeout(() => {
+                    controller.abort();
+                    rejectStop(Object.assign(new Error('副 LLM 请求超时；上游可能仍在执行'), { reason: 'request-timeout' }));
+                }, timeoutMs);
+                const job = llm.source === 'openai'
+                    ? viaOpenAi(messages, { ...llm, signal: controller.signal })
+                    : runBackgroundGeneration(() => {
+                        if (controller.signal.aborted) throw cancelled();
+                        return viaTavern(messages);
+                    });
+                const result = await Promise.race([job, stopped]);
+                if (controller.signal.aborted) throw cancelled();
+                return result;
+            } finally { clearTimeout(timer); llm.signal?.removeEventListener('abort', abort); }
         },
     };
 }

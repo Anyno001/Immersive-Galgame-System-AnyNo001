@@ -10,11 +10,10 @@
   - `palette` 为配色款式：`bright`（默认，明亮插画风）或 `classic`（原暮色版），见 `themes.js` 的 `MAP_THEME_VARIANTS`。款式只换颜色与收尾层（`finish`、`shadowAlpha`），不参与 `seed`，同一对话换款式城市布局不变；它参与 `key`，切换后不会命中另一款的缓存。
   - `scale` 为 `city` 或 `interior`；面板只为 `city` 生成底图，`interior`（楼层、房间）保持中性坐标平面。
 - `buildMarkerLightsInput(points, width, height)`：外部底图没有生成数据时，只在指针周围点灯。
-- `createMapBasemapGenerator({ doc, budgetMs, timeoutMs, cacheSize, scale, schedule, now, createCanvas, mediaCache })`：
+- `createMapBasemapGenerator({ doc, budgetMs, timeoutMs, cacheSize, scale, schedule, now, createCanvas })`：
   - `request(input)` 返回共享的任务条目 `{ status: pending|ready|failed, result: { url, lightsUrl, width, height }, error, promise }`；同一 `key` 不会重复开工。
   - 工作按 `budgetMs`（默认 10ms）切片、通过 `schedule` 交还宿主事件循环；超过 `timeoutMs`（默认 8s）判失败。不依赖 Worker，酒馆 CSP 下也能运行。
-  - 任务元数据 LRU 保留最近 `cacheSize`（默认 4）项；底图/灯光像素和对象 URL 交给注入的中央 `mediaCache`，不另存字节。当前底图与灯光分别持租约，换图、关闭与 `dispose()` 释放；清缓存世代失效后按输入重建。
-  - v0.36.41：任务索引通过中央 `auxiliary` 管理容量、清理、统计和销毁，失败结果 30 秒过期；淘汰仍取消旧任务并释放对应资源。`dispose()` 解除所有者登记。
+  - LRU 保留最近 `cacheSize`（默认 4）张，淘汰和 `dispose()` 时 `revokeObjectURL`。
 - `generateCityScene(input)` / `generateCitySteps(input)`：几何生成，输出纯数据 `MapScene`，可 `JSON.stringify`：
   - 水系 `sea / rivers / lakes / ponds`；道路 `mainRoads`（`kind: arterial | link`）、`streets`、`lanes`（田间小路）、`paths`（园路）、`rails`、`bridges`；
   - 用地 `ground { cols, rows, zone[], urban[] }`（8px 一格：水、沙滩、公园、神社林、野林、城区、郊区、村落、田野），以及 `fields / parking / courts`；

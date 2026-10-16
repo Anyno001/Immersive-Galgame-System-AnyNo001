@@ -1,4 +1,3 @@
-import { requireMediaCache } from './media-cache-owner.js';
 // CG 库服务。三层数据各管各的：
 // 1. 目录（igs-cg-index entries）：每张楼层 CG / 照片一条轻记录，打开 CG 库只读这里。
 // 2. 缩略图（igs-cg-index thumbs）：网格只放缩略图，第一次看到某张时由原图生成后留下。
@@ -68,9 +67,10 @@ export function cgEntryFromSlot(key, rec, mark) {
         slot: parsed.slot,
         photoId: '',
         updatedAt: String((rec && rec.updatedAt) || ''),
+        ...(rec?.revisionToken && { revisionToken: rec.revisionToken }),
         ready: Boolean(rec && rec.status === 'done' && rec.dataUrl),
-        hidden: Boolean((mark || rec)?.hidden),
-        favorite: Boolean((mark || rec)?.favorite),
+        hidden: Boolean(mark && mark.hidden),
+        favorite: Boolean(mark && mark.favorite),
     };
 }
 
@@ -129,22 +129,52 @@ export function cgPageSlice(items, page, size = CG_PAGE_SIZE) {
     return { page: index, pages, total: list.length, items: list.slice(start, start + pageSize) };
 }
 
-const sameEntry = (a, b) => Boolean(a && b) && a.ready === b.ready && a.updatedAt === b.updatedAt && a.hidden === b.hidden && a.favorite === b.favorite;
+export const cgEntryStamp = (entry) => entry?.revisionToken
+    ? `${entry.updatedAt || ''}|${entry.revisionToken}` : String(entry?.updatedAt || '');
+const sameEntry = (a, b) => Boolean(a && b) && a.ready === b.ready && cgEntryStamp(a) === cgEntryStamp(b) && a.hidden === b.hidden && a.favorite === b.favorite;
 
 // 插图库写入 / 删除槽位时同步目录；目录写失败不影响插图本身，下次打开对账补上。
 export function withCgIndexSync(store, indexStore) {
     if (!store || !indexStore) return store;
+    const pending = new Map();
+    const syncEntry = async (entry) => {
+        if (!entry) return;
+        const stamp = cgEntryStamp(entry);
+        pending.set(entry.key, stamp);
+        await indexStore.upsert([entry]);
+        if (pending.get(entry.key) === stamp) pending.delete(entry.key);
+    };
     return {
         ...store,
+        getCgIndexPendingKeys: () => [...pending.keys()],
+        confirmCgIndexSynced(entries) {
+            for (const entry of entries || []) {
+                if (pending.get(entry.key) === cgEntryStamp(entry)) pending.delete(entry.key);
+            }
+        },
         async putSlot(floorKey, value) {
             const result = await store.putSlot(floorKey, value);
-            const entry = cgEntryFromSlot(`${floorKey}|${value && value.slot}`, value, null);
-            if (entry) Promise.resolve().then(() => indexStore.upsert([entry])).catch(() => {});
+            const entry = cgEntryFromSlot(`${floorKey}|${value && value.slot}`, result, null);
+            try { await syncEntry(entry); } catch { /* 原图已保存，保留待对账槽位 */ }
+            return result;
+        },
+        async updateSlot(floorKey, slot, expectedRevision, patch, options = {}) {
+            if (typeof store.updateSlot !== 'function') return { ok: false, reason: 'update-unavailable' };
+            const result = await store.updateSlot(floorKey, slot, expectedRevision, patch, options);
+            if (!result?.ok) return result;
+            const entry = cgEntryFromSlot(`${floorKey}|${slot}`, result.record, null);
+            try {
+                await syncEntry(entry);
+            } catch {
+                // 图片已提交，不伪装成失败并重复接受；目录下次对账修复。
+                return { ...result, warning: 'cg-index-sync-failed' };
+            }
             return result;
         },
         async deleteSlot(floorKey, slot) {
             const result = await store.deleteSlot(floorKey, slot);
             Promise.resolve().then(() => indexStore.removeMany([`${floorKey}|${slot}`])).catch(() => {});
+            pending.delete(`${floorKey}|${slot}`);
             return result;
         },
     };
@@ -152,8 +182,6 @@ export function withCgIndexSync(store, indexStore) {
 
 export function createCgLibrary(deps = {}) {
     const { illustrationStore, photoStore, marksStore, indexStore, clearIllustration } = deps;
-    const mediaCache = requireMediaCache(deps.mediaCache || deps.indexStore?.mediaCache, 'cg-library', deps.indexStore?.mediaCache);
-    const thumbKey = entry => `thumb:cg:${entry.key}:${String(entry.updatedAt || '')}`;
     const timeouts = { ...CG_LIBRARY_TIMEOUTS, ...(deps.timeouts || {}) };
     const now = typeof deps.now === 'function' ? deps.now : () => new Date().toISOString();
     const makeId = typeof deps.makeId === 'function' ? deps.makeId : () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -193,7 +221,8 @@ export function createCgLibrary(deps = {}) {
         const drop = [];
         if (slotKeys.ok) {
             const want = new Set((slotKeys.value || []).map(String));
-            for (const key of want) { const e = byKey.get(key); if (!e || !e.ready) cgToRead.push(key); }
+            const pending = new Set(illustrationStore.getCgIndexPendingKeys?.() || []);
+            for (const key of want) { const e = byKey.get(key); if (!e || !e.ready || pending.has(key)) cgToRead.push(key); }
             for (const e of byKey.values()) if (e.kind !== 'photo' && !want.has(e.key)) drop.push(e.key);
         }
         if (photoIds.ok) {
@@ -209,6 +238,7 @@ export function createCgLibrary(deps = {}) {
             if (!persist || !rows.length) return;
             const saved = await settle(step(indexStore.putMany(rows), timeouts.write, 'write-timeout'), 'write-timeout');
             if (!saved.ok) problems.push(saved.reason);
+            else illustrationStore.confirmCgIndexSynced?.(rows);
         };
         if (total) tell({ phase: 'index', done, total });
         for (let i = 0; i < cgToRead.length; i += SYNC_BATCH) {
@@ -222,7 +252,8 @@ export function createCgLibrary(deps = {}) {
                 if (!rec) { if (old) drop.push(key); return; }
                 const entry = cgEntryFromSlot(key, rec, markOf.get(key) || old);
                 if (!entry) return;
-                if (!sameEntry(entry, old)) { rows.push(entry); changed = true; }
+                if (!sameEntry(entry, old)) changed = true;
+                if (!sameEntry(entry, old) || (illustrationStore.getCgIndexPendingKeys?.() || []).includes(key)) rows.push(entry);
                 byKey.set(key, entry);
             });
             await save(rows);
@@ -255,6 +286,30 @@ export function createCgLibrary(deps = {}) {
             }
         }
         return { ok: problems.length === 0, reason: problems[0] || '', entries: Array.from(byKey.values()), changed };
+    }
+
+    // 更新通知只是定位依据；从同一权威槽位重读，不把阅读器内存图另存成图库副本。
+    async function refreshEntry(key) {
+        if (!parseCgSlotKey(key) || !illustrationStore) return { ok: false, reason: 'missing' };
+        try {
+            const [rec, indexed, mark] = await Promise.all([
+                step(illustrationStore.getSlotRecord(key), timeouts.batch, 'batch-timeout'),
+                readIndex(),
+                marksStore ? step(marksStore.get(key), timeouts.index, 'marks-timeout') : null,
+            ]);
+            if (!indexed.ok) return { ok: false, reason: indexed.reason };
+            if (!rec) {
+                await step(indexStore.removeMany([key]), timeouts.write, 'write-timeout');
+                return { ok: true, entry: null };
+            }
+            const old = indexed.entries.find((e) => e.key === key);
+            const entry = cgEntryFromSlot(key, rec, mark || old);
+            const saved = await settle(step(indexStore.putMany([entry]), timeouts.write, 'write-timeout'), 'write-timeout');
+            if (saved.ok) illustrationStore.confirmCgIndexSynced?.([entry]);
+            return { ok: true, entry, ...(!saved.ok && { warning: saved.reason }) };
+        } catch (error) {
+            return { ok: false, reason: reasonOf(error, 'batch-error') };
+        }
     }
 
     function forget(entry) {
@@ -292,31 +347,25 @@ export function createCgLibrary(deps = {}) {
     async function readThumbs(entries) {
         const list = (entries || []).filter(Boolean);
         if (!indexStore || !list.length) return new Map();
-        const stamps = new Map(list.map(entry => [entry.key, mediaCache.token(thumbKey(entry))]));
         const got = await settle(step(indexStore.getThumbs(list.map((e) => e.key)), timeouts.index, 'index-timeout'), 'index-error');
         const out = new Map();
         if (!got.ok || !got.value) return out;
         for (const e of list) {
             const t = got.value.get(e.key);
-            if (t && mediaCache.token(thumbKey(e)) === stamps.get(e.key) && DISPLAY_URL_RE.test(t.dataUrl) && t.stamp === String(e.updatedAt || '')) out.set(e.key, mediaCache.remember(thumbKey(e), t.dataUrl));
+            if (t && DISPLAY_URL_RE.test(t.dataUrl) && t.stamp === cgEntryStamp(e)) out.set(e.key, t.dataUrl);
         }
         return out;
     }
 
     async function makeThumb(entry) {
-        const key = thumbKey(entry), generation = mediaCache.token(key);
-        try {
-            const dataUrl = await mediaCache.load(key, async () => {
-                const full = await readFull(entry);
-                if (!full.ok) throw Object.assign(new Error(full.reason), { code: full.reason });
-                if (!makeThumbnail) return full.dataUrl;
-                const small = await step(Promise.resolve().then(() => makeThumbnail(full.dataUrl)), timeouts.thumb, 'thumb-timeout');
-                if (!DISPLAY_URL_RE.test(String(small || ''))) throw new Error('thumb-failed');
-                return small;
-            });
-            if (!dataUrl || mediaCache.token(key) !== generation) return { ok: false, reason: 'cache-cleared' };
-            return { ok: true, dataUrl: mediaCache.peek(key) || dataUrl };
-        } catch (error) { return { ok: false, reason: reasonOf(error, 'thumb-failed') }; }
+        const full = await readFull(entry);
+        if (!full.ok) return full;
+        if (!makeThumbnail) return { ok: true, dataUrl: full.dataUrl };
+        const small = await settle(step(Promise.resolve().then(() => makeThumbnail(full.dataUrl)), timeouts.thumb, 'thumb-timeout'), 'thumb-failed');
+        if (!small.ok) return { ok: false, reason: small.reason };
+        if (!DISPLAY_URL_RE.test(String(small.value || ''))) return { ok: false, reason: 'thumb-failed' };
+        if (indexStore) Promise.resolve().then(() => indexStore.putThumb(entry.key, small.value, cgEntryStamp(entry))).catch(() => {});
+        return { ok: true, dataUrl: small.value };
     }
 
     async function setFlag(entry, field, value) {
@@ -324,21 +373,13 @@ export function createCgLibrary(deps = {}) {
         try {
             if (entry.kind === 'photo') {
                 if (!photoStore) return { ok: false, reason: 'store-unavailable' };
-                let result;
-                if (photoStore.patchMetadata) result = await step(photoStore.patchMetadata(entry.photoId, { [field]: value }), timeouts.write, 'write-timeout');
-                else {
-                    const [raw] = await step(photoStore.getMany([entry.photoId]), timeouts.write, 'write-timeout');
-                    if (!raw) return { ok: false, reason: 'missing' };
-                    result = await step(photoStore.put({ ...raw, [field]: value }), timeouts.write, 'write-timeout');
-                }
+                const [raw] = await step(photoStore.getMany([entry.photoId]), timeouts.write, 'write-timeout');
+                if (!raw) return { ok: false, reason: 'missing' };
+                const result = await step(photoStore.put({ ...raw, [field]: value }), timeouts.write, 'write-timeout');
                 if (!result || !result.ok) return result || { ok: false, reason: 'write-timeout' };
             } else {
                 if (!marksStore) return { ok: false, reason: 'store-unavailable' };
                 const current = (await step(marksStore.get(entry.key), timeouts.write, 'write-timeout')) || { key: entry.key, hidden: false, favorite: false };
-                if (illustrationStore?.patchSlotMetadata) {
-                    const updated = await illustrationStore.patchSlotMetadata(entry.key, { [field]: value });
-                    if (!updated?.ok) return updated;
-                }
                 const result = await step(marksStore.put({ ...current, [field]: value, key: entry.key, updatedAt: now() }), timeouts.write, 'write-timeout');
                 if (!result || !result.ok) return result || { ok: false, reason: 'write-timeout' };
             }
@@ -403,9 +444,10 @@ export function createCgLibrary(deps = {}) {
     return {
         readIndex,
         syncIndex,
+        refreshEntry,
+        onChanged: (handler) => deps.onIllustrationUpdated?.(handler) || (() => {}),
         readThumbs,
         makeThumb,
-        mediaCache,
         readFull,
         setHidden: (entry, hidden) => setFlag(entry, 'hidden', hidden === true),
         setFavorite: (entry, favorite) => setFlag(entry, 'favorite', favorite === true),

@@ -1,8 +1,7 @@
-import { createItemImageService } from './helpers/media-fixtures.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryGeneratedAssetStore } from '../src/media/generated-asset-store.js';
-
+import { createItemImageService } from '../src/generated-images/illustration/item-image-service.js';
 
 const TABLES = { ok: true, data: { a: { uid: 'sheet_a', name: '物品表', content: [['物品名称', '描述'], ['信', '一封信']] } } };
 const FAIL = { ok: false, error: 'NAI 请求失败' };

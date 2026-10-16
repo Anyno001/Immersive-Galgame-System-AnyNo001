@@ -245,7 +245,6 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     };
     const asks = [];
     const seen = [];
-    const persistedChanges = [];
     const draft = {
         bridge: {
             sceneAssets: {
@@ -271,7 +270,7 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
                 },
             },
         },
-        persistSettingsDraft: (options = {}) => { persistedChanges.push(options.spriteAssetChanged === true); return { ok: true }; },
+        persistSettingsDraft: () => ({ ok: true }),
         rerenderSettings: () => ({ ok: true }),
         dialogs: { confirm: async (message) => { asks.push(message); return true; } },
     };
@@ -279,25 +278,22 @@ test('gate:expression-set:fills-groups-that-have-no-image', async () => {
     const missingTier8 = moodTierLabels(8).filter((mood) => mood !== '喜悦' && mood !== '愤怒');
     const character = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(character.ok, true);
-    assert.match(asks[0], new RegExp(`这一档还有${missingTier8.length}张尚未生成：${missingTier8.join('、')}`));
-    assert.match(asks[0], /已有的2张保持不变/);
+    assert.match(asks[0], new RegExp(`这一档还有 ${missingTier8.length} 张尚未生成：${missingTier8.join('、')}`));
+    assert.match(asks[0], /已有的 2 张保持不变/);
     assert.deepEqual(seen[0], missingTier8);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['喜悦'], 'igs-gen:old-joy');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'https://kept.example/a.png');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['悲伤'], 'igs-gen:new-悲伤');
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['默认'], 'igs-gen:def');
-    assert.deepEqual(persistedChanges, [true], '画好差分才失效舞台立绘清单');
     const again = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(again.ok, true);
     assert.equal(seen.length, 1);
-    assert.deepEqual(persistedChanges, [true], '没有待画差分不重复保存或刷新');
     const outfit = await handleSettingsAction('outfit-expression-set:%E5%86%AC%E6%9C%88:%E6%97%A5%E5%B8%B8', ctx);
     assert.equal(outfit.ok, true);
     const missingOutfit = moodTierLabels(8).filter((mood) => mood !== '喜悦');
-    assert.match(asks[1], new RegExp(`这一档还有${missingOutfit.length}张尚未生成：${missingOutfit.join('、')}`));
+    assert.match(asks[1], new RegExp(`这一档还有 ${missingOutfit.length} 张尚未生成：${missingOutfit.join('、')}`));
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['喜悦'], 'igs-gen:old-outfit');
     assert.equal(draft.bridge.sceneAssets.characterOutfits['冬月']['日常'].moods['愤怒'], 'igs-gen:new-愤怒');
-    assert.deepEqual(persistedChanges, [true, true], '服装差分同样失效当前立绘清单');
 });
 
 // 新衣服（睡衣这类）还没有自己的图：档位里多一项「1 张」，只画这套的「平和」，所有表情共用；整套差分之后照它画；不改角色记住的档位。
@@ -345,7 +341,7 @@ test('gate:expression-set:new-outfit-can-paint-one-default-first', async () => {
     assert.deepEqual(choose[0].values, ['1', '8', '12', '16', '20', 'pick']);
     assert.equal(choose[0].current, '1', '新衣服默认选「1 张」');
     assert.deepEqual(seen[0], ['平和']);
-    assert.match(asks[0], /给「冬月」的服装「泳装」画1张「平和」/);
+    assert.match(asks[0], /给「冬月」的服装「泳装」画 1 张「平和」/);
     const outfit = draft.bridge.sceneAssets.characterOutfits['冬月']['泳装'];
     assert.equal(outfit.moods['平和'], 'igs-gen:new-平和');
     assert.deepEqual(Object.keys(outfit.moods), ['平和']);
@@ -407,7 +403,7 @@ test('gate:expression-set:repaints-failed-slots-without-rewriting-prompts', asyn
     };
     const allReady = await handleSettingsAction('char-expression-set:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(allReady.ok, true);
-    assert.match(asks[0], /只补画这8张，不重写提示词/);
+    assert.match(asks[0], /只补画这 8 张，不重写提示词/);
     assert.deepEqual(written, []);
     assert.deepEqual(painted[0], moods);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['愤怒'], 'igs-gen:paint-愤怒');
@@ -469,7 +465,8 @@ test('gate:character-sprite:generates-default-from-the-character-page', async ()
     draft.bridge.sceneAssets.characters['冬月']['默认'] = 'https://kept.example/a.png';
     const replaced = await handleSettingsAction('char-generate-sprite:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(replaced.ok, true);
-    assert.match(asks[1], /当前这张将被替换/);
+    assert.match(asks[1], /生成「冬月」的默认立绘/);
+    assert.doesNotMatch(asks[1], /当前这张将被替换/);
     assert.equal(draft.bridge.sceneAssets.characters['冬月']['默认'], 'igs-gen:made-1');
 
     const dnaOnly = await handleSettingsAction('char-generate-sprite:%E8%B7%AF%E4%BA%BA%E7%94%B2', ctx);
@@ -484,6 +481,8 @@ test('gate:asset-upload:binds-scene-variants-and-sprite-and-restores-on-save-fai
     const draft = { bridge: { sceneAssets: {
         scenes: { 庭院: { url: 'old-bg', times: { 夜: { url: 'old-time', weathers: { 雨: { url: 'old-weather' } } } } } },
         characters: { 冬月: { 默认: 'old-sprite' } },
+        characterOutfits: { 冬月: { 校服: { words: [], moods: { 平和: 'old-outfit' }, wardrobe: '校服' } } },
+        characterDefaultOutfits: { 冬月: { version: 1, outfitName: '校服' } },
     } }, readerSettings: {} };
     const doc = makeDoc();
     doc.createElement = (tag) => {
@@ -498,11 +497,20 @@ test('gate:asset-upload:binds-scene-variants-and-sprite-and-restores-on-save-fai
     const stored = new Map();
     let next = 0;
     let fail = false;
+    let readable = true;
+    class Image {
+        naturalWidth = 100; naturalHeight = 200;
+        set src(value) { if (value) queueMicrotask(() => this.onload()); }
+    }
     const ctx = {
         state: { activeSettings: { draft, asyncState: {} } },
-        options: { global: { document: doc, FileReader: Reader }, generatedAssets: {
+        options: { global: { document: doc, FileReader: Reader, Image }, generatedAssets: {
             async importAssetImage(data, type) { const id = `uploaded-${++next}`; stored.set(id, { data, type }); return { ok: true, imageId: id }; },
             async deleteImages(ids) { ids.forEach((id) => stored.delete(id)); return { ok: true }; },
+            async readStoredImage(id) {
+                const record = stored.get(id);
+                return readable && record ? { id, type: record.type, dataUrl: record.data } : null;
+            },
         } },
         persistSettingsDraft: () => fail ? { ok: false, reason: 'save-failed' } : { ok: true },
         rerenderSettings: () => ({ ok: true }),
@@ -513,6 +521,7 @@ test('gate:asset-upload:binds-scene-variants-and-sprite-and-restores-on-save-fai
         ['scene-pick-time:%E5%BA%AD%E9%99%A2:%E5%A4%9C', () => draft.bridge.sceneAssets.scenes.庭院.times.夜.url, 'background'],
         ['scene-pick-weather:%E5%BA%AD%E9%99%A2:%E5%A4%9C:%E9%9B%A8', () => draft.bridge.sceneAssets.scenes.庭院.times.夜.weathers.雨.url, 'background'],
         ['scene-pick-mood:%E5%86%AC%E6%9C%88:%E9%BB%98%E8%AE%A4', () => draft.bridge.sceneAssets.characters.冬月.默认, 'sprite'],
+        ['scene-pick-outfit-mood:冬月:校服:平和', () => draft.bridge.sceneAssets.characterOutfits.冬月.校服.moods.平和, 'sprite'],
     ];
     for (const [action, getUrl, type] of cases) {
         assert.equal((await handleSettingsAction(action, ctx)).ok, true);
@@ -527,7 +536,17 @@ test('gate:asset-upload:binds-scene-variants-and-sprite-and-restores-on-save-fai
     const failed = await handleSettingsAction(cases[0][0], ctx);
     assert.equal(failed.ok, false);
     assert.equal(JSON.stringify(draft.bridge.sceneAssets), before);
-    assert.equal(stored.size, 4);
+    assert.equal(stored.size, 5);
+    const outfitFailed = await handleSettingsAction(cases[4][0], ctx);
+    assert.equal(outfitFailed.reason, 'save-failed');
+    assert.equal(JSON.stringify(draft.bridge.sceneAssets), before);
+    assert.equal(stored.size, 5);
+    fail = false;
+    readable = false;
+    const unreadable = await handleSettingsAction(cases[4][0], ctx);
+    assert.equal(unreadable.reason, 'default-outfit-protected');
+    assert.equal(JSON.stringify(draft.bridge.sceneAssets), before);
+    assert.equal(stored.size, 5);
     assert.equal((await handleSettingsAction('scene-pick-time:%E4%B8%8D%E5%AD%98%E5%9C%A8:%E5%A4%9C', ctx)).reason, 'invalid-asset-slot');
 });
 
@@ -652,6 +671,69 @@ test('gate:page-modal:transformed-host-does-not-become-the-screen', async () => 
     box.querySelector('[data-igs-modal="ok"]').dispatch('click');
     assert.equal(await pending, true);
 });
+
+test('gate:page-modal:一致性生成不弹框且进度透传后交接双图审核', async () => {
+    const { runCgConsistencyAction } = await import('../src/visual/igs-ui/cg-consistency-action.js');
+    for (const accept of [true, false]) {
+        const doc = makeDoc();
+        const modal = createIgsModal({ getHost: () => doc.body, global: { document: doc } });
+        modal.confirm = () => { throw new Error('无衣装回退不额外确认'); };
+        modal.progress = () => { throw new Error('生成期间不打开进度弹框'); };
+        const accepted = [], discarded = [], progress = [];
+        const service = {
+            describeConsistency: () => ({ ok: true }),
+            async redrawConsistency(_query, options) {
+                assert.equal(modal.isOpen(), false);
+                options.onProgress({ phase: 'paint', done: 1, total: 3 });
+                assert.equal(modal.isOpen(), false);
+                assert.deepEqual(progress, [{ phase: 'paint', done: 1, total: 3 }]);
+                return { ok: true, candidateId: 'candidate', dataUrl: 'candidate-image', originalDataUrl: 'original-image' };
+            },
+            async acceptConsistency(id) { accepted.push(id); return { ok: true, reason: 'accepted' }; },
+            cancelConsistency(id) { discarded.push(id); },
+        };
+        const pending = runCgConsistencyAction({ service, query: {}, modal,
+            signal: new AbortController().signal, stillCurrent: () => true, onProgress: detail => progress.push(detail) });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const comparison = doc.body.querySelector('.igs-page-modal-comparison');
+        assert.ok(comparison);
+        assert.deepEqual(comparison.querySelectorAll('img').map((i) => i.src), ['original-image', 'candidate-image']);
+        assert.deepEqual(comparison.querySelectorAll('figcaption').map((i) => i.textContent), ['本次原图', '重绘候选（尚未保存）']);
+        assert.ok(doc.body.querySelector('.igs-page-modal-card-comparison'));
+        doc.body.querySelector(`[data-igs-modal="${accept ? 'ok' : 'cancel'}"]`).dispatch('click');
+        assert.equal((await pending).reason, accept ? 'accepted' : 'cancelled');
+        assert.deepEqual(accepted, accept ? ['candidate'] : []);
+        assert.deepEqual(discarded, ['candidate']);
+        assert.equal(modal.isOpen(), false);
+    }
+});
+
+for (const confirm of [false, true]) test(`衣装预检：UI集中确认与释放-${confirm}`, async () => {
+    const { runCgConsistencyAction } = await import('../src/visual/igs-ui/cg-consistency-action.js');
+    const calls = [], confirms = [];
+    const service = {
+        describeConsistency: () => ({ ok: true }),
+        async preflightConsistency() { return { ok: true, reason: 'needs-confirmation', preflightToken: 'preflight',
+            confirmations: ['A', 'B'].map(characterKey => ({ characterKey, requestedOutfit: '冬装', effectiveOutfit: '夏装' })) }; },
+        async redrawConsistency(_query, options) { calls.push(options); return { ok: true, candidateId: 'candidate',
+            dataUrl: 'candidate-image', originalDataUrl: 'original-image' }; },
+        async acceptConsistency() { throw new Error('候选未接受'); },
+        cancelConsistency(id) { calls.push(id); },
+    };
+    const modal = { async confirm(message) { confirms.push(message); return confirm; },
+        async confirmImage() { return false; }, cancel() {} };
+    const result = await runCgConsistencyAction({ service, query: {}, modal,
+        signal: new AbortController().signal, stillCurrent: () => true });
+    assert.equal(result.reason, 'cancelled');
+    assert.equal(confirms.length, 1);
+    assert.ok(confirms[0].includes('A') && confirms[0].includes('B'));
+    if (confirm) {
+        assert.equal(calls[0].preflightToken, 'preflight'); assert.equal(calls[0].confirmed, true);
+        assert.equal(calls[1], 'candidate');
+    } else assert.deepEqual(calls, ['preflight']);
+});
+
+
 
 test('gate:settings-focus:restores-focused-field-and-caret-after-innerhtml-rebuild', () => {
     const panel = makePanel();
@@ -974,8 +1056,8 @@ test('gate:expression-set:custom-groups-only-when-asked', async () => {
         return { asks, seen };
     };
     const skipped = await run(false);
-    assert.match(skipped.asks[0], /另有2个自建情绪组尚无图片：旧组乙、旧组丙/);
-    assert.match(skipped.asks[1], /生成「冬月」的20张表情差分/);
+    assert.match(skipped.asks[0], /另有 2 个自建情绪组尚无图片：旧组乙、旧组丙/);
+    assert.match(skipped.asks[1], /生成「冬月」的 20 张表情差分/);
     assert.equal(skipped.seen[0].length, 20);
     const taken = await run(true);
     assert.equal(taken.seen[0].length, 22);
@@ -1003,10 +1085,8 @@ test('gate:settings-dialog:choose-picks-a-button-and-highlights-current', async 
     assert.equal(await cancelled, null);
 });
 
-test('gate:status-avatar:generates-a-chibi-avatar-and-default-slot-can-regenerate', async () => {
-    const { buildCharacterAvatarDescription } = await import('../src/generated-images/dbgen-prompt.js');
+test('gate:status-avatar:generates-a-chibi-avatar-without-inferring-a-default-outfit', async () => {
     const { renderCharacterAssetList } = await import('../src/visual/igs-ui/settings-fields.js');
-    assert.match(buildCharacterAvatarDescription('冬月', null), /Q 版头像（chibi）/);
     const asks = [];
     const seen = [];
     const draft = {
@@ -1027,7 +1107,7 @@ test('gate:status-avatar:generates-a-chibi-avatar-and-default-slot-can-regenerat
     };
     const made = await handleSettingsAction('status-avatar-generate:%E5%86%AC%E6%9C%88', ctx);
     assert.equal(made.ok, true);
-    assert.match(asks[0], /生成「冬月」的Q版头像/);
+    assert.match(asks[0], /生成「冬月」的 Q 版头像/);
     assert.equal(seen[0].dna.identity, 'black hair');
     assert.equal(draft.bridge.sceneAssets.statusAvatars['冬月'], 'data:image/png;base64,QUJD');
     await handleSettingsAction('status-avatar-generate:%E5%86%AC%E6%9C%88', ctx);
@@ -1035,7 +1115,9 @@ test('gate:status-avatar:generates-a-chibi-avatar-and-default-slot-can-regenerat
     const html = renderCharacterAssetList({ 冬月: { 默认: 'igs-gen:def', 喜悦: '' } }, { isOpen: () => true, statusAvatars: draft.bridge.sceneAssets.statusAvatars });
     assert.ok(html.includes('data-action="status-avatar-generate:%E5%86%AC%E6%9C%88"'));
     assert.ok(html.includes('重画Q版'));
-    assert.match(html, /data-action="char-generate-sprite:%E5%86%AC%E6%9C%88"[^>]*>重新生成</);
+    assert.match(html, /data-action="char-generate-sprite:%E5%86%AC%E6%9C%88"[^>]*>生成立绘</);
+    assert.ok(html.includes('尚未指定默认服装'));
+    assert.equal(draft.bridge.sceneAssets.characterDefaultOutfits, undefined);
 });
 
 test('gate:row-menu:flips-up-or-clamps-near-the-bottom-of-the-scroll-area', async () => {
@@ -1184,28 +1266,685 @@ test('gate:character-sprite:one-click-user-protagonist-from-tavern-persona', asy
     assert.match(alerts[0], /没读到酒馆的用户名/);
 });
 
-test('gate:settings-dialog:character-dropdown-confirms-and-keeps-selection', async () => {
-    const panel = makePanel();
-    const dialogs = createSettingsDialogs({ getContainer: () => panel.container });
-    const choices = [{ value: '冬月', label: '冬月' }, { value: '雪乃', label: '雪乃' }];
-    const answer = dialogs.choose('选择生成立绘的角色', choices, '冬月', { dropdown: true, cancelLabel: '暂不生成' });
-    let bar = panel.overlay.querySelector('.igs-settings-dialog');
-    let select = bar.querySelector('select');
-    assert.ok(select);
-    assert.ok(!bar.querySelector('.igs-settings-dialog-choice'));
-    assert.equal(select.children[0].selected, true);
-    assert.ok(panel.doc.activeElement === select);
-    select.value = '雪乃';
-    select.dispatch('change');
-    assert.equal(dialogs.isOpen(), true, '切换角色后仍需确认');
-    rebuildPanel(panel, () => {});
-    dialogs.remount();
-    bar = panel.overlay.querySelector('.igs-settings-dialog');
-    select = bar.querySelector('select');
-    assert.equal(select.children[1].selected, true);
-    bar.querySelector('[data-settings-dialog="ok"]').dispatch('click');
-    assert.equal(await answer, '雪乃');
-    const cancelled = dialogs.choose('选择角色', choices, '冬月', { dropdown: true });
-    panel.overlay.querySelector('[data-settings-dialog="cancel"]').dispatch('click');
-    assert.equal(await cancelled, null);
+test('gate:identity:default-sprite-adoption-rolls-back-on-save-failure', async () => {
+    const assets = { characters: { Alice: { 默认: '' } }, characterSpriteNotes: { Alice: 'old note' },
+        characterDna: {}, characterOutfits: {}, wardrobe: {} };
+    const original = structuredClone(assets);
+    const draft = { bridge: { sceneAssets: assets }, readerSettings: {} };
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: { global: { alert() {}, document: { getElementById() { return null; } } },
+            generatedAssets: { async generateCharacterSprite() { return { ok: true, imageId: 'sprite-1',
+                characterMeta: { version: 1, characters: [{ characterKey: 'Alice', identityAnchor: 'Silver hair.',
+                    signatureDetails: 'A small mole.', outfit: { name: 'Coat', description: 'Blue coat.' } }] } }; } } },
+        dialogs: { confirm: async () => true, edit: async () => 'new note' },
+        persistSettingsDraft: () => ({ ok: false, reason: 'save-failed' }),
+        rerenderSettings: () => ({ ok: true }),
+    };
+    const failed = await handleSettingsAction('char-generate-sprite:Alice', ctx);
+    assert.equal(failed.ok, false);
+    for (const key of Object.keys(original)) assert.deepEqual(assets[key], original[key], key);
+    ctx.persistSettingsDraft = () => ({ ok: true });
+    assert.equal((await handleSettingsAction('char-generate-sprite:Alice', ctx)).ok, true);
+    assert.equal(assets.characterDna.Alice.identity, 'Silver hair. A small mole.');
+    assets.characterDna.Alice.identity = '';
+    assert.equal((await handleSettingsAction('char-generate-sprite:Alice', ctx)).ok, true);
+    assert.equal(assets.characterDna.Alice.identity, '');
+});
+
+test('gate:dna-expression-ui:重画和续画保留模板绑定，手改只传定稿标记', async () => {
+    const { characterViewsFixture, characterWriteFixture } = await import('./helpers/prompt-provenance.js');
+    const { characterPromptTask } = await import('../src/generated-images/illustration/character-prompt-task.js');
+    const { prepareCharacterCaption } = await import('../src/generated-images/character-caption.js');
+    const { promptFromCaption } = await import('../src/generated-images/generation-prompt.js');
+    const dna = { version: 2, views: characterViewsFixture() };
+    const task = characterPromptTask([{ characterKey: '冬月', dna }], 'derived', 'half_body', [['冬月']]);
+    const entry = characterWriteFixture(task).captions[0];
+    const prepared = prepareCharacterCaption({ ...entry, ...task });
+    assert.equal(prepared.ok, true, prepared.error);
+    let saved = { ...promptFromCaption(prepared.caption), ...prepared, characterMeta: entry.characterMeta };
+    const retries = [], resumes = [];
+    const draft = { bridge: { sceneAssets: { characters: { 冬月: { 默认: 'igs-gen:def', 喜悦: 'igs-gen:joy' } },
+        characterDna: { 冬月: dna }, generated: { expressionNotes: {} } } }, readerSettings: {} };
+    const ctx = {
+        state: { activeSettings: { draft, asyncState: {} } },
+        options: { global: { alert() {} }, generatedAssets: {
+            getImagePrompt: async () => saved,
+            generateExpressionImage: async (input) => { retries.push(input); return { ok: true, items: [] }; },
+            paintExpressionCaptions: async (input) => { resumes.push(input); return { ok: true, items: [] }; },
+            generateExpressionSet: async () => { throw new Error('已有模板不得重写'); },
+        } },
+        persistSettingsDraft: () => ({ ok: true }), rerenderSettings: () => ({ ok: true }),
+        dialogs: { confirm: async () => true },
+    };
+    assert.equal((await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx)).ok, true);
+    assert.deepEqual(retries[0].promptRecipe, saved.promptRecipe);
+    assert.deepEqual(retries[0].characterMeta, saved.characterMeta);
+    assert.equal(retries[0].exact, false);
+    assert.deepEqual(retries[0].history, saved);
+    const note = { ...entry, promptTask: task.promptTask, error: '已停止' };
+    draft.bridge.sceneAssets.generated = { expressionNotes: { 冬月: { 愤怒: note } } };
+    assert.equal((await handleSettingsAction('char-expression-resume:%E5%86%AC%E6%9C%88', ctx)).ok, true);
+    assert.deepEqual(resumes[0].items[0].promptRecipe, note.promptRecipe);
+    assert.deepEqual(resumes[0].items[0].characterMeta, note.characterMeta);
+    assert.deepEqual(resumes[0].items[0].promptTask, task.promptTask);
+    assert.equal(resumes[0].items[0].slotId, 1);
+    saved = { ...saved, edited: true };
+    assert.equal((await handleSettingsAction('char-expression-retry:%E5%86%AC%E6%9C%88:%E5%96%9C%E6%82%A6', ctx)).ok, true);
+    assert.equal(retries[1].exact, true);
+    assert.deepEqual(retries[1].history.promptRecipe, saved.promptRecipe);
+});
+
+test('gate:dna-adoption-ui:默认采用回读候选后保存 DNA，保存失败恢复', async () => {
+    const { spriteAdoptionFixture } = await import('./helpers/prompt-provenance.js');
+    const record = await spriteAdoptionFixture();
+    for (const mode of ['success', 'save-failed', 'rollback-failed', 'missing', 'missing-candidate']) {
+        const assets = { characters: { Alice: { 默认: 'old.png' } }, characterAliases: {},
+            characterDna: {}, characterOutfits: {}, wardrobe: {}, characterSpriteNotes: { Alice: 'old' } };
+        const original = structuredClone(assets), saves = [], events = [];
+        const ctx = {
+            state: { activeSettings: { draft: { bridge: { sceneAssets: assets }, readerSettings: {} }, asyncState: {} } },
+            options: { global: { alert() {} }, generatedAssets: {
+                async generateCharacterSprite() { events.push('generate'); assert.deepEqual(assets, original); return { ...record }; },
+                async readStoredImage(id) {
+                    events.push('read'); assert.equal(id, record.imageId); assert.deepEqual(assets, original);
+                    if (mode === 'missing') return null;
+                    const stored = structuredClone(record);
+                    if (mode === 'missing-candidate') delete stored.dnaCandidates;
+                    return stored;
+                },
+            } },
+            dialogs: { confirm: async () => true, edit: async () => 'new', alert() {} },
+            persistSettingsDraft() {
+                events.push('save'); saves.push(structuredClone(assets));
+                return mode === 'rollback-failed' || (mode === 'save-failed' && saves.length === 1)
+                    ? { ok: false, reason: 'save-failed' } : { ok: true };
+            },
+            rerenderSettings: () => ({ ok: true }),
+        };
+        const result = await handleSettingsAction('char-generate-sprite:Alice', ctx);
+        if (mode === 'success') {
+            assert.equal(result.ok, true);
+            assert.deepEqual(events, ['generate', 'read', 'save']);
+            assert.deepEqual(saves[0].characterDna.Alice.views, record.dnaCandidates.characters[0].views);
+            assert.equal(assets.characterDna.Alice.identitySource, record.imageId);
+            assert.equal(assets.characters.Alice.默认, 'old.png');
+            assert.equal(assets.characterDna.Alice.defaultAppearance || '', '');
+            const clothing = record.outfitSnapshot.characters[0];
+            assert.deepEqual(assets.characterDefaultOutfits.Alice, { version: 1, outfitName: clothing.name });
+            const entry = assets.characterOutfits.Alice[clothing.name];
+            assert.equal(entry.moods.平和, `igs-gen:${record.imageId}`);
+            assert.equal(assets.wardrobe[entry.wardrobe].prompt, clothing.description);
+        } else {
+            assert.equal(result.ok, false, mode);
+            assert.deepEqual(assets, original, mode);
+            assert.equal(saves.length, mode.includes('failed') ? 2 : 0);
+            if (saves.length) assert.deepEqual(saves[1], original);
+            if (mode === 'rollback-failed') assert.equal(result.reason, 'generated-asset-accept-rollback-failed');
+        }
+    }
+});
+
+test('gate:dna-adoption-ui:迟到生成不能覆盖变化的 DNA、默认图或作用域', async () => {
+    const { spriteAdoptionFixture } = await import('./helpers/prompt-provenance.js');
+    for (const change of ['dna', 'image', 'scope']) {
+        const record = await spriteAdoptionFixture();
+        const assets = { characters: { Alice: { 默认: 'old.png' } }, characterDna: {},
+            characterOutfits: {}, wardrobe: {}, characterAliases: {} };
+        const state = { draft: { bridge: { sceneAssets: assets }, readerSettings: {} }, asyncState: {} };
+        let expected, saves = 0;
+        const result = await handleSettingsAction('char-generate-sprite:Alice', {
+            state: { activeSettings: state },
+            options: { global: { alert() {} }, generatedAssets: {
+                async generateCharacterSprite() {
+                    if (change === 'dna') assets.characterDna.Alice = { identity: '手工定稿', identityInitialized: true };
+                    if (change === 'image') assets.characters.Alice.默认 = 'new.png';
+                    if (change === 'scope') state.asyncState.assetScopeKey = 'card:other';
+                    expected = structuredClone(assets);
+                    return record;
+                }, readStoredImage: async () => record,
+            } },
+            dialogs: { confirm: async () => true, edit: async () => '', alert() {} },
+            persistSettingsDraft: () => { saves++; return { ok: true }; }, rerenderSettings: () => ({ ok: true }),
+        });
+        assert.equal(result.ok, false, change);
+        assert.equal(saves, 0);
+        // 作用域检查不能为了拒绝迟到结果而新建另一张卡的资料库。
+        assert.deepEqual(assets, expected, change);
+    }
+});
+
+test('gate:dna-adoption-ui:默认采用回读期间的身份变化同样拒绝', async () => {
+    const { spriteAdoptionFixture } = await import('./helpers/prompt-provenance.js');
+    const record = await spriteAdoptionFixture();
+    const assets = { characters: { Alice: { 默认: 'old.png' } }, characterDna: {} };
+    let saves = 0;
+    const result = await handleSettingsAction('char-generate-sprite:Alice', {
+        state: { activeSettings: { draft: { bridge: { sceneAssets: assets } }, asyncState: {} } },
+        options: { global: { alert() {} }, generatedAssets: {
+            generateCharacterSprite: async () => record,
+            async readStoredImage() { assets.characterDna.Alice = { identity: '手工更新' }; return record; },
+        } },
+        dialogs: { confirm: async () => true, edit: async () => '', alert() {} },
+        persistSettingsDraft: () => { saves++; return { ok: true }; }, rerenderSettings: () => ({ ok: true }),
+    });
+    assert.equal(result.ok, false);
+    assert.equal(saves, 0);
+    assert.equal(assets.characters.Alice.默认, 'old.png');
+    assert.deepEqual(assets.characterDna.Alice, { identity: '手工更新' });
+});
+
+test('gate:image-prompt-ui:控制器新建保存激活与关闭草稿恢复，零 provider 调用', async () => {
+    const { bootstrapIGS, createMemoryStorage, createPresetRegistry } = await import('../src/index.js');
+    const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+    const answers = ['my-image-prompt', '我的框架'];
+    let requests = 0;
+    const vn = bootstrapIGS({
+        global: { localStorage: storage, prompt: () => answers.shift(), confirm: () => true },
+        presetRegistry: registry, autoAttachMagicWand: false,
+        config: { imageApi: { mode: 'nai' } },
+        secondaryLlm: { request: async () => { requests++; throw new Error('不得调用模型'); } },
+        naiOfficialClient: { generate: async () => { requests++; throw new Error('不得生图'); } },
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    const address = JSON.stringify(['prompts', 'igs-image-framework', 'content']);
+    try {
+        let controller = vn.openSettings({ tab: 'image' }).controller;
+        controller.switchImageSubTab('llm');
+        assert.match(controller.getSnapshot().html, /data-image-prompt-panel/);
+        const original = registry.getCurrent('prompt-preset');
+        assert.equal((await controller.invoke('image-prompt:new')).ok, true);
+        assert.equal(registry.get('prompt-preset', 'my-image-prompt'), null);
+        assert.equal(registry.getCurrent('prompt-preset').id, original.id);
+        assert.equal(controller.setImagePromptField(address, '自定义共享正文').ok, true);
+        assert.equal((await controller.invoke('image-prompt:save')).ok, true);
+        assert.equal(registry.getPromptDraft('my-image-prompt'), null, '保存及清理草稿是一次提交');
+        assert.equal((await controller.invoke('image-prompt:activate')).ok, true);
+        assert.equal(registry.getCurrent('prompt-preset').id, 'my-image-prompt');
+        controller.setImagePromptField(address, '未生效的编辑');
+        assert.equal(controller.close().ok, true);
+        controller = vn.openSettings({ tab: 'image' }).controller;
+        assert.equal(controller.getSnapshot().imagePrompt.draftRevision, 1);
+        assert.equal(registry.getCurrent('prompt-preset').data.prompts[0].content, '自定义共享正文');
+        assert.equal((await controller.invoke('image-prompt:save')).ok, true);
+        const reloaded = createPresetRegistry({ storage });
+        assert.equal(reloaded.getCurrent('prompt-preset').data.prompts[0].content, '未生效的编辑');
+        assert.equal(reloaded.getPromptDraft('my-image-prompt'), null);
+        assert.equal(requests, 0);
+    } finally { vn.destroy(); }
+});
+
+async function imagePromptUiFixture() {
+    const { createMemoryStorage, createPresetRegistry } = await import('../src/index.js');
+    const { createImagePromptEditor } = await import('../src/visual/igs-ui/settings-image-prompt-editor.js');
+    const { handleImagePromptAction } = await import('../src/visual/igs-ui/settings-image-prompt-actions.js');
+    const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+    const editor = createImagePromptEditor(registry);
+    assert.equal(editor.initialize().ok, true);
+    const ctx = { editor, dialogs: { confirm: async () => true }, isCurrent: () => true, global: {} };
+    return { storage, registry, editor, ctx, invoke: action => handleImagePromptAction('image-prompt:' + action, ctx) };
+}
+const imagePromptAddress = (group, id, field) => JSON.stringify([group, id, field]);
+
+test('gate:image-prompt-ui:角色排序启停与模块映射保存并激活', async () => {
+    const { registry, editor, invoke } = await imagePromptUiFixture();
+    assert.equal(editor.create('ordered-preset', '有序框架').ok, true);
+    assert.equal(editor.blockAction('add', 'prompts', 'example').ok, true);
+    editor.edit(imagePromptAddress('prompts', 'example', 'role'), 'assistant');
+    editor.edit(imagePromptAddress('prompts', 'example', 'content'), '示例正文');
+    assert.equal((await invoke('move:example:igs-image-protocol')).ok, true);
+    assert.equal(editor.blockAction('order-enabled', 'prompts', 'igs-image-submit', false).ok, true);
+    editor.edit(imagePromptAddress('prompts', 'igs-image-framework', 'enabled'), false);
+    editor.edit(imagePromptAddress('modules', 'igs-task-sprite', 'content'), '自定义立绘任务');
+    assert.equal(editor.save().ok, true);
+    assert.equal((await invoke('activate')).ok, true);
+    const saved = registry.getCurrent('prompt-preset');
+    assert.equal(saved.id, 'ordered-preset');
+    assert.equal(saved.data.prompts.find(b => b.identifier === 'example').role, 'assistant');
+    assert.equal(saved.data.prompts.find(b => b.identifier === 'igs-image-framework').enabled, false);
+    assert.equal(saved.data.prompt_order.find(b => b.identifier === 'igs-image-submit').enabled, false);
+    assert.ok(saved.data.prompt_order.findIndex(b => b.identifier === 'example')
+        < saved.data.prompt_order.findIndex(b => b.identifier === 'igs-image-protocol'));
+});
+
+
+test('gate:image-prompt-ui:导入预览保留旧格式，冲突默认跳过且明确覆盖才提交', async () => {
+    const { registry, editor, invoke, ctx } = await imagePromptUiFixture();
+    const current = registry.getCurrent('prompt-preset');
+    const imported = structuredClone(current);
+    imported.name = '导入版本';
+    const old = { kind: 'imagegen', id: 'legacy-ui', name: '旧生图', prompts: [
+        { identifier: 'legacy', role: 'assistant', content: '旧正文', enabled: true },
+    ], prompt_order: [{ identifier: 'legacy', enabled: true }] };
+    const raw = JSON.stringify({ items: [imported, old, { kind: 'recall', id: 'recall-ui' }] });
+    ctx.readFile = async () => ({ ok: true, text: raw });
+    const before = registry.snapshot();
+    assert.equal((await invoke('import')).ok, true);
+    assert.deepEqual(registry.snapshot(), before, '预览不写存储');
+    assert.equal(editor.state.importChoices[current.id], 'skip');
+    assert.equal(editor.state.importPreview.accepted.find(p => p.id === 'legacy-ui').activatable, false);
+    assert.equal(editor.state.importPreview.skipped[0].reason, 'recall-not-executed');
+    assert.equal((await invoke('import-commit')).ok, true);
+    assert.deepEqual(registry.getCurrent('prompt-preset'), current);
+    assert.deepEqual(registry.get('prompt-preset', old.id).data.compatibility.source, old);
+    assert.equal(editor.select(old.id).ok, true);
+    assert.equal((await invoke('activate')).reason, 'prompt-not-activatable');
+    assert.equal(editor.previewImport(raw).ok, true);
+    editor.state.importChoices[current.id] = 'replace';
+    assert.equal((await invoke('import-commit')).ok, true);
+    assert.equal(registry.getCurrent('prompt-preset').name, '导入版本');
+    assert.equal(registry.getCurrent('prompt-preset').data.revision, current.data.revision+ 1);
+    assert.equal(editor.previewImport('{"id":"a","id":"b"}').reason, 'duplicate-json-field');
+    assert.equal(registry.getCurrent('prompt-preset').name, '导入版本');
+});
+
+test('gate:image-prompt-ui:写入失败保留磁盘与编辑，陈旧版本不能清理新草稿', async () => {
+    const { storage, registry, editor } = await imagePromptUiFixture();
+    const { createPresetRegistry } = await import('../src/index.js');
+    const address = imagePromptAddress('prompts', 'igs-image-framework', 'content');
+    editor.edit(address, '待保存正文');
+    assert.equal(editor.saveDraft().ok, true);
+    const disk = storage.dump(), memory = registry.snapshot();
+    const write = storage.setItem.bind(storage);
+    storage.setItem = () => { throw new Error('隔离写入失败'); };
+    assert.equal(editor.save().reason, 'preset-store-write-failed');
+    assert.deepEqual(storage.dump(), disk);
+    assert.deepEqual(registry.snapshot(), memory);
+    assert.equal(editor.state.preset.data.prompts[0].content, '待保存正文');
+    assert.equal(editor.state.draftRevision, 1);
+    storage.setItem = write;
+    assert.equal(editor.save().ok, true);
+    const stale = structuredClone(editor.state.preset);
+    assert.equal(registry.savePromptDraft(stale.id, stale, { expectedRevision: editor.state.baseRevision }).ok, true);
+    const before = registry.snapshot();
+    assert.equal(editor.save().reason, 'preset-revision-conflict');
+    assert.deepEqual(registry.snapshot(), before, '陈旧草稿 revision 不得清理新的草稿');
+    assert.equal(editor.reload().ok, true);
+    const external = createPresetRegistry({ storage });
+    const next = external.getCurrent('prompt-preset');
+    next.name = '另一编辑器保存';
+    assert.equal(external.savePromptPreset(next, next.data.revision).ok, true);
+    const externalDisk = storage.dump();
+    editor.edit(address, '陈旧编辑');
+    assert.equal(editor.save().reason, 'preset-revision-conflict');
+    assert.deepEqual(storage.dump(), externalDisk);
+    assert.equal(editor.state.preset.data.prompts[0].content, '陈旧编辑');
+});
+
+test('gate:image-prompt-ui:非法 JSON 草稿刷新保留原文且不可保存或激活', async () => {
+    const { storage, registry, editor } = await imagePromptUiFixture();
+    const { createPresetRegistry } = await import('../src/index.js');
+    const { createImagePromptEditor } = await import('../src/visual/igs-ui/settings-image-prompt-editor.js');
+    const address = imagePromptAddress('modules', 'igs-task-sprite', 'dataFields');
+    const before = registry.getCurrent('prompt-preset');
+    assert.equal(editor.edit(address, '[未完成').reason, 'invalid-json');
+    assert.equal(editor.saveDraft().ok, true);
+    const recovered = createImagePromptEditor(createPresetRegistry({ storage }));
+    assert.equal(recovered.initialize().ok, true);
+    assert.equal(recovered.state.rawFields[address], '[未完成');
+    assert.equal(recovered.save().reason, 'invalid-prompt-fields');
+    assert.equal(recovered.activate().reason, 'prompt-save-before-activate');
+    assert.deepEqual(registry.getCurrent('prompt-preset'), before);
+    recovered.edit(address, '["description","outputs"]');
+    assert.equal(recovered.save().ok, true);
+});
+
+
+test('gate:image-prompt-ui:确认期间编辑或切换面板阻止迟到提交', async () => {
+    for (const mode of ['edit', 'panel', 'choices']) {
+        const { registry, editor, invoke, ctx } = await imagePromptUiFixture();
+        assert.equal(editor.create('late-preset', '迟到候选').ok, true);
+        assert.equal(editor.save().ok, true);
+        const before = registry.snapshot();
+        let answer;
+        let panelCurrent = true;
+        ctx.isCurrent = () => panelCurrent;
+        ctx.dialogs.confirm = () => new Promise(resolve => { answer = resolve; });
+        if (mode === 'choices') {
+            assert.equal(editor.previewImport(JSON.stringify(editor.state.preset)).ok, true);
+        }
+        const pending = invoke(mode === 'choices' ? 'import-commit' : 'activate');
+        assert.equal(typeof answer, 'function');
+        if (mode === 'edit') editor.edit(imagePromptAddress('preset', '', 'name'), '新编辑');
+        if (mode === 'panel') panelCurrent = false;
+        if (mode === 'choices') editor.state.importChoices['late-preset'] = 'replace';
+        answer(true);
+        assert.equal((await pending).reason, 'prompt-editor-stale', mode);
+        assert.deepEqual(registry.snapshot(), before, mode);
+    }
+});
+
+test('gate:image-prompt-ui:关闭时草稿失败保留面板且配置保存与导出不触发 provider', async () => {
+    const { bootstrapIGS, createMemoryStorage, createPresetRegistry, PRESET_STORE_KEY } = await import('../src/index.js');
+    const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+    const write = storage.setItem.bind(storage);
+    let calls = 0;
+    const vn = bootstrapIGS({ global: { localStorage: storage }, presetRegistry: registry,
+        config: { imageApi: { mode: 'nai' } },
+        autoAttachMagicWand: false, secondaryLlm: { request: async () => { calls++; } },
+        naiOfficialClient: { generate: async () => { calls++; } },
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const controller = vn.openSettings({ tab: 'image' }).controller;
+        controller.switchImageSubTab('llm');
+        controller.setImagePromptField(imagePromptAddress('prompts', 'igs-image-framework', 'content'), '未存档正文');
+        const oldDisk = storage.getItem(PRESET_STORE_KEY), oldCurrent = registry.getCurrent('prompt-preset');
+        storage.setItem = (key, value) => { if (key === PRESET_STORE_KEY) throw new Error('写入失败'); write(key, value); };
+        assert.equal(controller.close().reason, 'preset-store-write-failed');
+        assert.equal(controller.getSnapshot().imagePrompt.dirty, true);
+        assert.equal(storage.getItem(PRESET_STORE_KEY), oldDisk);
+        assert.deepEqual(registry.getCurrent('prompt-preset'), oldCurrent);
+        storage.setItem = write;
+        controller.setValue('bridge.autoIllustration.llm.source', 'openai');
+        controller.setValue('bridge.autoIllustration.llm.apiKey', 'FAKE_LLM_SECRET');
+        controller.setValue('bridge.autoIllustration.nai.apiKey', 'FAKE_NAI_SECRET');
+        controller.setValue('bridge.autoIllustration.nai.artistPrefix', 'artist:manual');
+        assert.equal(controller.close().ok, true);
+        const config = vn.getUnifiedSettings({ mode: 'pc' }).bridge.autoIllustration;
+        assert.equal(config.llm.apiKey, 'FAKE_LLM_SECRET');
+        assert.equal(config.nai.apiKey, 'FAKE_NAI_SECRET');
+        assert.equal(config.nai.artistPrefix, 'artist:manual');
+        const exported = JSON.stringify(registry.exportPreset('prompt-preset', oldCurrent.id));
+        assert.doesNotMatch(exported, /FAKE_LLM_SECRET|FAKE_NAI_SECRET|artist:manual/);
+        assert.equal(calls, 0);
+    } finally { storage.setItem = write; vn.destroy(); }
+});
+
+test('gate:image-prompt-ui:复制删除默认恢复及槽映射均使用保存版本门禁', async () => {
+    const { registry, editor, invoke, ctx } = await imagePromptUiFixture();
+    const original = registry.getCurrent('prompt-preset');
+    const answers = ['copied-ui', '复制框架'];
+    ctx.dialogs.prompt = async () => answers.shift();
+    assert.equal((await invoke('copy')).ok, true);
+    assert.equal(editor.state.preset.id, 'copied-ui');
+    assert.equal(editor.state.preset.data.defaultState, undefined);
+    assert.equal((await invoke('save')).ok, true);
+    assert.equal((await invoke('delete')).ok, true);
+    assert.equal(registry.get('prompt-preset', 'copied-ui'), null);
+    assert.equal(registry.getPromptDraft('copied-ui'), null);
+    assert.equal(editor.select(original.id).ok, true);
+    assert.equal((await invoke('delete')).reason, 'prompt-current-delete-blocked');
+    const address = imagePromptAddress('prompts', 'igs-image-framework', 'content');
+    editor.edit(address, '自定义正文');
+    assert.equal(editor.save().ok, true);
+    assert.equal((await invoke('restore:prompts:igs-image-framework:baseline')).ok, true);
+    assert.equal(registry.getCurrent('prompt-preset').data.prompts[0].content, original.data.prompts[0].content);
+    const revision = editor.state.baseRevision;
+    assert.equal((await invoke('restore:prompts:igs-image-framework:' + (revision - 1))).ok, true);
+    assert.equal(registry.getCurrent('prompt-preset').data.prompts[0].content, '自定义正文');
+    assert.equal(editor.create('mapped-ui', '槽映射').ok, true);
+    assert.equal(editor.blockAction('add', 'prompts', 'task-slot-new').ok, true);
+    editor.edit(imagePromptAddress('prompts', 'task-slot-new', 'kind'), 'task-slot');
+    editor.edit(imagePromptAddress('prompts', 'igs-image-task', 'enabled'), false);
+    assert.equal(editor.blockAction('move', 'prompts', 'task-slot-new', 'igs-image-data').ok, true);
+    assert.equal(editor.blockAction('add', 'modules', 'sprite-new').ok, true);
+    editor.edit(imagePromptAddress('modules', 'sprite-new', 'content'), '新立绘任务');
+    editor.edit(imagePromptAddress('taskMap', '', 'sprite'), 'sprite-new');
+    assert.equal(editor.save().ok, true);
+    assert.equal(editor.activate().ok, true);
+    const rendered = editor.preview();
+    assert.equal(rendered.ok, true);
+    assert.equal(rendered.blocks.find(b => b.identifier === 'task-slot-new').content, '新立绘任务');
+    assert.equal(registry.getCurrent('prompt-preset').id, 'mapped-ui');
+});
+
+const libraryRow = { id: 'ui-ink', name: '墨色画师', positivePrompt: 'artist:ui_ink', negativePrompt: 'ui-lowres' };
+const libraryNai = controller => controller.getSnapshot().draft.bridge.autoIllustration.nai;
+async function libraryUi(storage, answers = []) {
+    const { bootstrapIGS, createMemoryStorage } = await import('../src/index.js');
+    storage ||= createMemoryStorage();
+    let requests = 0;
+    const vn = bootstrapIGS({ global: { localStorage: storage, prompt: () => answers.shift(), confirm: () => true },
+        autoAttachMagicWand: false, secondaryLlm: { request: async () => { requests++; assert.fail('管理不应写词'); } },
+        naiOfficialClient: { generate: async () => { requests++; assert.fail('管理不应绘图'); } },
+        config: storage.getItem('igs_bridge_config') ? {} : { imageApi: { mode: 'nai' } },
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    return { vn, storage, requests: () => requests, controller: vn.openSettings({ tab: 'image' }).controller };
+}
+
+test('gate:artist-library-ui:入口导入应用保存刷新回读走真实存储链', async () => {
+    const f = await libraryUi(null, [JSON.stringify([libraryRow])]);
+    try {
+        const c = f.controller;
+        c.switchImageSubTab('source');
+        assert.match(c.getSnapshot().html, /data-setting-go="image-prompt-presets"/);
+        assert.match(c.getSnapshot().html, /data-artist-library-panel/);
+        assert.doesNotMatch(c.getSnapshot().html, /data-image-prompt-panel/);
+        assert.equal(c.goToSetting('image-prompt-presets').ok, true);
+        assert.equal(c.getSnapshot().imageSubTab, 'llm');
+        assert.match(c.getSnapshot().html, /data-image-prompt-panel/);
+        c.goToSetting('artist-library');
+        c.setValue('bridge.autoIllustration.nai.artistPrefix', 'old-artist');
+        assert.equal((await c.invoke('artist-library:import-text')).ok, true);
+        assert.equal(libraryNai(c).artistPrefix, 'old-artist', '导入不自动应用');
+        assert.equal(c.setArtistLibraryField('id', libraryRow.id).ok, true);
+        c.setArtistLibraryField('target', 'global');
+        assert.equal((await c.invoke('artist-library:apply')).ok, true);
+        assert.equal((await c.invoke('artist-library:save')).ok, true);
+        const saved = JSON.parse(f.storage.getItem('igs_bridge_config')).autoIllustration.nai;
+        assert.deepEqual(saved.artistLibrary.entries, [libraryRow]);
+        assert.equal(saved.artistPrefix, libraryRow.positivePrompt);
+        assert.equal(saved.artistNegativePrefix, libraryRow.negativePrompt);
+        c.setArtistLibraryField('target', 'sprite');
+        assert.equal((await c.invoke('artist-library:apply')).ok, true);
+        assert.equal(libraryNai(c).artistByKind.enabled, false);
+        assert.match(c.getSnapshot().html, /分区开关当前关闭/);
+        c.setValue('bridge.autoIllustration.nai.artistByKind.enabled', true);
+        assert.equal(c.close().ok, true);
+        assert.equal(f.requests(), 0);
+    } finally { f.vn.destroy(); }
+    const reopened = await libraryUi(f.storage);
+    try {
+        const nai = libraryNai(reopened.controller);
+        assert.deepEqual(nai.artistLibrary.entries, [libraryRow]);
+        assert.equal(nai.artistPrefix, libraryRow.positivePrompt);
+        assert.equal(nai.artistNegativePrefix, libraryRow.negativePrompt);
+        assert.equal(nai.artistByKind.enabled, true);
+        assert.deepEqual(nai.artistByKind.kinds.sprite, { positive: libraryRow.positivePrompt, negative: libraryRow.negativePrompt });
+        assert.equal(reopened.requests(), 0);
+    } finally { reopened.vn.destroy(); }
+});
+
+
+test('gate:artist-library-ui:坏导入与保存失败不污染正式配置且可重试', async () => {
+    const answers = [JSON.stringify([libraryRow]), '{', JSON.stringify([libraryRow])];
+    const f = await libraryUi(null, answers);
+    const write = f.storage.setItem.bind(f.storage);
+    try {
+        const c = f.controller;
+        assert.equal((await c.invoke('artist-library:import-text')).ok, true);
+        assert.equal((await c.invoke('artist-library:save')).ok, true);
+        const stored = f.storage.getItem('igs_bridge_config');
+        const original = f.vn.getUnifiedSettings().bridge.autoIllustration.nai;
+        for (let i = 0; i < 2; i++) {
+            assert.equal((await c.invoke('artist-library:import-text')).ok, false);
+            assert.equal(f.storage.getItem('igs_bridge_config'), stored);
+            assert.deepEqual(libraryNai(c).artistLibrary.entries, [libraryRow]);
+        }
+        c.setArtistLibraryField('id', libraryRow.id);
+        assert.equal((await c.invoke('artist-library:apply')).ok, true);
+        f.storage.setItem = () => { throw new Error('fixture-storage-full'); };
+        const failed = await c.invoke('artist-library:save');
+        assert.equal(failed.ok, false);
+        assert.equal(failed.reason, 'save-failed');
+        assert.equal(f.storage.getItem('igs_bridge_config'), stored);
+        assert.deepEqual(f.vn.getUnifiedSettings().bridge.autoIllustration.nai, original);
+        assert.equal(libraryNai(c).artistPrefix, libraryRow.positivePrompt, '失败保留草稿供重试');
+        f.storage.setItem = write;
+        assert.equal((await c.invoke('artist-library:save')).ok, true);
+        assert.equal(c.close().ok, true);
+        assert.equal(f.requests(), 0);
+    } finally { f.storage.setItem = write; f.vn.destroy(); }
+});
+
+test('gate:artist-library-ui:文件读取取消失败与迟到确认不改草稿', async () => {
+    const { handleArtistLibraryAction } = await import('../src/visual/igs-ui/settings-artist-library.js');
+    const panel = { draft: { bridge: { autoIllustration: { nai: { artistPrefix: 'old' } } } }, asyncState: {} };
+    let current = true;
+    const ctx = { panel, dialogs: { confirm: async () => true }, isCurrent: () => current, global: {} };
+    const before = structuredClone(panel.draft);
+    for (const file of [{ ok: true, cancelled: true }, { ok: false, reason: 'fixture-read-failed' }]) {
+        const result = await handleArtistLibraryAction('artist-library:import', { ...ctx, readFile: async () => file });
+        assert.equal(result.ok, file.ok);
+        assert.deepEqual(panel.draft, before);
+    }
+    let release;
+    const pending = handleArtistLibraryAction('artist-library:import', { ...ctx, readFile: () => new Promise(resolve => { release = resolve; }) });
+    current = false;
+    release({ ok: true, text: JSON.stringify([libraryRow]) });
+    assert.equal((await pending).ok, false);
+    assert.deepEqual(panel.draft, before);
+    current = true;
+    ctx.readFile = async () => ({ ok: true, text: JSON.stringify([libraryRow]) });
+    ctx.dialogs.confirm = async () => { panel.draft.bridge.autoIllustration.nai.artistPrefix = 'newer'; return true; };
+    assert.equal((await handleArtistLibraryAction('artist-library:import', ctx)).ok, false);
+    assert.equal(panel.draft.bridge.autoIllustration.nai.artistPrefix, 'newer');
+    assert.equal(panel.draft.bridge.autoIllustration.nai.artistLibrary, undefined);
+});
+
+test('gate:artist-library-ui:库内增改删与分类选用保存重开', async () => {
+    const answers = ['新画师', 'artist:new', 'new-uc', '改名画师', 'artist:edited', 'edited-uc'];
+    const f = await libraryUi(null, answers);
+    try {
+        const c = f.controller;
+        assert.equal((await c.invoke('artist-library:create')).ok, true);
+        const id = libraryNai(c).artistLibrary.entries[0].id;
+        assert.equal(libraryNai(c).artistPrefix, '', '新建不自动应用');
+        assert.equal((await c.invoke('artist-library:edit')).ok, true);
+        assert.deepEqual(libraryNai(c).artistLibrary.entries, [{ id, name: '改名画师', positivePrompt: 'artist:edited', negativePrompt: 'edited-uc' }]);
+        c.switchImageSubTab('auto');
+        assert.match(c.getSnapshot().html, /data-action="artist-library:target:sprite"/);
+        assert.doesNotMatch(c.getSnapshot().html, /data-path="bridge\.autoIllustration\.nai\.artistByKind\.kinds\./);
+        await c.invoke('artist-library:target:sprite');
+        assert.equal(c.getSnapshot().imageSubTab, 'source');
+        assert.match(c.getSnapshot().html, /value="sprite" selected/);
+        assert.doesNotMatch(c.getSnapshot().html, /data-path="bridge\.autoIllustration\.nai\.(?:negativePrompt|artistPrefix|artistNegativePrefix)"/);
+        assert.equal((await c.invoke('artist-library:apply')).ok, true);
+        assert.equal(libraryNai(c).artistByKind.enabled, false);
+        c.setValue('bridge.autoIllustration.nai.artistByKind.enabled', true);
+        assert.equal((await c.invoke('artist-library:save')).ok, true);
+        assert.equal((await c.invoke('artist-library:delete')).ok, true);
+        assert.deepEqual(libraryNai(c).artistLibrary.entries, []);
+        assert.deepEqual(libraryNai(c).artistByKind.kinds.sprite, { positive: 'artist:edited', negative: 'edited-uc' });
+        assert.equal((await c.invoke('artist-library:save')).ok, true);
+        assert.equal(c.close().ok, true);
+        assert.equal(f.requests(), 0);
+    } finally { f.vn.destroy(); }
+    const reopened = await libraryUi(f.storage);
+    try {
+        assert.deepEqual(libraryNai(reopened.controller).artistLibrary.entries, [], '已删除条目不因存量归档而复活');
+        assert.equal(libraryNai(reopened.controller).artistByKind.enabled, true);
+        assert.deepEqual(libraryNai(reopened.controller).artistByKind.kinds.sprite, { positive: 'artist:edited', negative: 'edited-uc' });
+        assert.equal(reopened.requests(), 0);
+    } finally { reopened.vn.destroy(); }
+});
+
+test('gate:artist-library-ui:存量归档仅保存后持久化且重开不重复', async () => {
+    const { createMemoryStorage } = await import('../src/index.js');
+    const storage = createMemoryStorage();
+    const legacy = { artistPrefix: ' old artist\n', artistNegativePrefix: ' old uc ', negativePrompt: ' legacy uc\n',
+        artistByKind: { enabled: false, kinds: { sprite: { positive: 'sprite artist', negative: 'sprite uc' } } } };
+    storage.setItem('igs_bridge_config', JSON.stringify({ imageApi: { mode: 'nai' }, autoIllustration: { nai: legacy } }));
+    const original = storage.getItem('igs_bridge_config');
+    const f = await libraryUi(storage);
+    try {
+        const c = f.controller, nai = libraryNai(c);
+        assert.equal(storage.getItem('igs_bridge_config'), original, '打开只归档到草稿');
+        assert.deepEqual(nai.artistLibrary.entries.map(row => [row.positivePrompt, row.negativePrompt]),
+            [[legacy.artistPrefix, legacy.artistNegativePrefix], ['sprite artist', 'sprite uc'], ['', legacy.negativePrompt]]);
+        assert.equal(nai.artistPrefix, legacy.artistPrefix);
+        const write = storage.setItem.bind(storage);
+        storage.setItem = () => { throw new Error('fixture-storage-full'); };
+        try {
+            assert.equal((await c.invoke('artist-library:save')).ok, false);
+            assert.equal(storage.getItem('igs_bridge_config'), original);
+            assert.equal(libraryNai(c).artistLibrary.entries.length, 3);
+        } finally { storage.setItem = write; }
+        assert.equal((await c.invoke('artist-library:save')).ok, true);
+        assert.equal(JSON.parse(storage.getItem('igs_bridge_config')).autoIllustration.nai.artistLibraryArchived, true);
+        c.close();
+    } finally { f.vn.destroy(); }
+    const reopened = await libraryUi(storage);
+    try {
+        assert.equal(libraryNai(reopened.controller).artistLibrary.entries.length, 3);
+        assert.equal(libraryNai(reopened.controller).negativePrompt, legacy.negativePrompt);
+        assert.equal(reopened.requests(), 0);
+    } finally { reopened.vn.destroy(); }
+});
+
+
+
+
+test('gate:nai-settings:四来源可见性、管理权限与保存重开', async () => {
+    const f = await libraryUi();
+    const c = f.controller;
+    const shown = (html, marker) => {
+        const tag = html.match(new RegExp('<[^>]*' + marker + '[^>]*>'));
+        assert.ok(tag, marker);
+        return !/\shidden(?:\s|>)/.test(tag[0]);
+    };
+    try {
+        assert.equal(c.getSnapshot().draft.bridge.imageApi.naiSpriteTransparent, true);
+        c.setValue('bridge.imageApi.naiSpriteTransparent', false);
+        c.setValue('bridge.imageApi.dbgenSpriteTransparent', true);
+        c.setValue('bridge.autoIllustration.consistencyStrength', 0.4);
+        c.setValue('bridge.autoIllustration.consistencyModel', 'nai-diffusion-4-5-full-inpainting');
+        for (const mode of ['nai', 'dbgen', 'extension', 'baibai', 'nai']) {
+            c.setValue('bridge.imageApi.mode', mode);
+            c.switchImageSubTab('source');
+            const html = c.getSnapshot().html, builtin = mode === 'nai';
+            assert.equal(shown(html, 'data-image-source="nai"'), builtin, mode);
+            assert.equal(shown(html, 'data-image-source="dbgen"'), mode === 'dbgen', mode);
+            assert.equal(shown(html, 'data-image-feature="nai-transparency"'), builtin, mode);
+            assert.equal(shown(html, 'data-image-feature="consistency"'), builtin || mode === 'dbgen', mode);
+            assert.equal(shown(html, 'data-image-prompt-entry'), builtin, mode);
+            assert.equal(html.includes('data-artist-library-panel'), builtin, mode);
+            c.switchImageSubTab('llm');
+            assert.equal(c.getSnapshot().html.includes('data-image-prompt-panel'), builtin, mode);
+            if (!builtin) {
+                assert.equal(c.goToSetting('artist-library').ok, false);
+                assert.equal(c.goToSetting('image-prompt-presets').ok, false);
+                assert.equal(c.setArtistLibraryField('target', 'global').ok, false);
+                assert.equal(c.setImagePromptField('["prompts","igs-image-framework","content"]', '禁止修改').ok, false);
+                assert.equal((await c.invoke('artist-library:save')).ok, false);
+                assert.equal((await c.invoke('image-prompt:save')).ok, false);
+            }
+        }
+        assert.equal(c.close().ok, true);
+        assert.equal(f.requests(), 0);
+    } finally { f.vn.destroy(); }
+    const reopened = await libraryUi(f.storage);
+    try {
+        const bridge = reopened.controller.getSnapshot().draft.bridge;
+        assert.equal(bridge.imageApi.naiSpriteTransparent, false);
+        assert.equal(bridge.imageApi.dbgenSpriteTransparent, true);
+        assert.equal(bridge.autoIllustration.consistencyStrength, 0.4);
+        assert.equal(bridge.autoIllustration.consistencyModel, 'nai-diffusion-4-5-full-inpainting');
+    } finally { reopened.vn.destroy(); }
+});
+
+
+test('gate:image-prompt-ui:分格式规则保存回读与非法草稿隔离', async () => {
+    const { registry, editor, storage } = await imagePromptUiFixture();
+    const { createPresetRegistry } = await import('../src/index.js');
+    const { createImagePromptEditor } = await import('../src/visual/igs-ui/settings-image-prompt-editor.js');
+    const address = imagePromptAddress('modules', 'igs-task-cg', 'contentByFormat');
+    const formats = { 'dna-template': '合成模板规则', 'cg-plan': '合成规划规则' };
+    assert.equal(editor.edit(address, JSON.stringify(formats)).ok, true);
+    assert.equal(editor.save().ok, true);
+    const reopenedRegistry = createPresetRegistry({ storage });
+    assert.deepEqual(reopenedRegistry.getCurrent('prompt-preset').data.modules.find(m => m.task === 'cg').contentByFormat, formats);
+    assert.equal(editor.edit(address, '{未完成').reason, 'invalid-json');
+    assert.equal(editor.saveDraft().ok, true);
+    const recovered = createImagePromptEditor(createPresetRegistry({ storage }));
+    assert.equal(recovered.initialize().ok, true);
+    assert.equal(recovered.state.rawFields[address], '{未完成');
+    assert.equal(recovered.save().reason, 'invalid-prompt-fields');
+    assert.deepEqual(registry.getCurrent('prompt-preset').data.modules.find(m => m.task === 'cg').contentByFormat, formats);
+    assert.equal(recovered.edit(address, '').ok, true);
+    assert.equal(recovered.save().ok, true);
+    assert.equal(Object.hasOwn(recovered.state.preset.data.modules.find(m => m.task === 'cg'), 'contentByFormat'), false);
+    assert.equal(recovered.restore('modules', 'igs-task-cg').ok, true);
+    assert.deepEqual(recovered.state.preset.data.modules.find(m => m.task === 'cg').contentByFormat,
+        recovered.state.preset.data.defaultState.baseline.modules.find(m => m.task === 'cg').contentByFormat);
 });

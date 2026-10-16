@@ -9,6 +9,8 @@ import {
     resolveRomanceParams,
 } from '../src/visual/igs-ui/romance-settings.js';
 import { applyRomanceToDom, cancelRomanceFx } from '../src/visual/igs-ui/romance-runtime.js';
+import { ROMANCE_STYLE_TEXT } from '../src/visual/igs-ui/romance-style.js';
+import { STAGE_DIRECTION_STYLE_TEXT } from '../src/visual/igs-ui/stage-direction-style.js';
 import { resolveRomanceFxPromptRule } from '../src/visual/igs-ui/fx-prompt.js';
 import { FX_SETTINGS_NORMALIZERS } from '../src/visual/igs-ui/fx-settings.js';
 import { normalizeStatusHudSettings, STATUS_HUD_DEFAULTS } from '../src/data/shujuku/status-hud-model.js';
@@ -272,6 +274,19 @@ test('gate:romance:nsfw-with-romance-enabled-is-level-three', () => {
     assert.equal(result.level, 3);
     assert.equal(result.shade, true);
     assert.equal(stage.style.getPropertyValue('--igs-rm-backlight'), '1');
+});
+
+test('gate:romance:css-composes-sprite-transform-and-avoids-mask-url', () => {
+    assert.match(STAGE_DIRECTION_STYLE_TEXT, /#igs-stage-motion\[data-igs-cg\] \.igs-dialog\{[^}]*backdrop-filter:none!important;transition:none!important/);
+    assert.match(STAGE_DIRECTION_STYLE_TEXT, /#igs-stage-motion\[data-igs-cg\] #igs-dialog-layer\{isolation:isolate;transform:translateZ\(0\)/);
+    assert.match(STAGE_DIRECTION_STYLE_TEXT, /scale:min\(1\.3,calc\(var\(--igs-sd-closeup-scale,1\) \* var\(--igs-rm-scale,1\)\)\)/);
+    assert.match(STAGE_DIRECTION_STYLE_TEXT, /translate:calc\(var\(--igs-sd-tx,0px\) \+ var\(--igs-rm-dx,0%\)\)/);
+    assert.doesNotMatch(STAGE_DIRECTION_STYLE_TEXT, /\{scale:1\.12;/);
+    // 剪影继承立绘背景图压黑，遮罩只用渐变，不引用立绘地址。
+    assert.match(ROMANCE_STYLE_TEXT, /#igs-sprite::after\{[^}]*background-image:inherit[^}]*filter:brightness\(0\)/);
+    assert.doesNotMatch(ROMANCE_STYLE_TEXT, /mask-image:[^;]*url\(/);
+    assert.match(ROMANCE_STYLE_TEXT, /\.igs-sd-sprite-ghost,#igs-stage-motion\[data-igs-rm-shade\] #igs-sprite-ghost\{filter:brightness\(0\)!important/);
+    assert.match(ROMANCE_STYLE_TEXT, /prefers-reduced-motion: reduce/);
 });
 
 test('gate:romance:prompt-only-when-enabled', () => {

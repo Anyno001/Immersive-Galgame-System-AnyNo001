@@ -5,13 +5,11 @@ import { prefersReducedMotion } from './reduced-motion.js';
 import { createSynthPartial, playSynthPartials } from './chat-sfx.js';
 import { FX_RHYTHM } from './fx-rhythm.js';
 import { pickCameraImpact } from './stage-direction-settings.js';
-import { resolveHeadAnchor } from './stage-snapshot.js';
 
 // 冲击音：低频下扫的「咚」叠一层短促三角波起音，经 playSynthPartials 进 sfx 总线（与镜头同时起播）。
 export const CAMERA_IMPACT_PARTIALS = Object.freeze([
-    createSynthPartial('sine', 130, 38, 0, 0.42, 1),
-    createSynthPartial('triangle', 240, 80, 0, 0.14, 0.5),
-    createSynthPartial('sine', 58, 34, 0.04, 0.5, 0.55),
+    createSynthPartial('sine', 120, 42, 0, 0.32, 0.9),
+    createSynthPartial('triangle', 220, 80, 0, 0.12, 0.35),
 ]);
 
 // sound 为 normalizeFxSoundSettings 的结果；关闭或音量为 0 时静默。
@@ -31,22 +29,10 @@ export function planCameraImpact({ newPage, motionOn, eligible, emotion, camera,
     return stageShakeActive === true ? 'yield' : 'play';
 }
 
-export const CAMERA_IMPACT_PARAMS = Object.freeze({ peak: 1.075, peakOffset: 0.16, duration: FX_RHYTHM.impact.duration });
+export const CAMERA_IMPACT_PARAMS = Object.freeze({ peak: 1.045, peakOffset: 0.18, duration: FX_RHYTHM.impact.duration });
 const EASING = FX_RHYTHM.impact.easing;
 
 const states = new WeakMap();
-
-function impactOrigin(stage) {
-    try {
-        const root = stage.parentNode && typeof stage.parentNode.querySelector === 'function' ? stage.parentNode : stage;
-        const head = resolveHeadAnchor({ root, speaker: '' }, '');
-        const x = Math.max(25, Math.min(75, 50 + (Number(head.x) - 50) * 0.7));
-        const y = Math.max(20, Math.min(55, 50 + (Number(head.y) - 50) * 0.7));
-        return `${x.toFixed(1)}% ${y.toFixed(1)}%`;
-    } catch {
-        return '50% 50%';
-    }
-}
 
 function hasReducedMotion(options) {
     return options.reducedMotion === true
@@ -83,9 +69,8 @@ export function playCameraImpact(stage, options = {}) {
     const p = CAMERA_IMPACT_PARAMS;
     let anim = null;
     try {
-        const origin = impactOrigin(stage);
         anim = stage.animate(
-            [{ scale: '1', transformOrigin: origin }, { scale: String(p.peak), transformOrigin: origin, offset: p.peakOffset }, { scale: '1', transformOrigin: origin }],
+            [{ scale: '1' }, { scale: String(p.peak), offset: p.peakOffset }, { scale: '1' }],
             { duration: p.duration, easing: EASING },
         );
     } catch {

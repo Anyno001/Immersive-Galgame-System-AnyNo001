@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { bootstrapIGS, createMemoryStorage } from '../src/index.js';
 import { buildTagGrammar, collectGrammarBlocks, DEPTH0_REMINDER, normalizePromptPlacement } from '../src/visual/igs-ui/tag-grammar.js';
 import { ADAPTIVE_PROMPT_BLOCKS, DAILY_TRIGGER_WORDS, detectPromptTriggers, estimatePromptTokens } from '../src/scene/prompt-triggers.js';
-import { CAMPUS_FX_KINDS, COURTESY_FX_KINDS, DAILY_FX_KINDS, PLAY_FX_KINDS, WARDROBE_FX_KINDS } from '../src/scene/daily-fx-directives.js';
-import { isPackKind, packBlockKey, packOfKind } from '../src/scene/fx-packs.js';
+import { DAILY_FX_KINDS } from '../src/scene/daily-fx-directives.js';
 import { applyFxWorldview } from '../src/scene/fx-era.js';
 import { buildCompactMoodGroupsText, capVocabItems, DEFAULT_MOOD_GROUPS, resolveMoodGroup } from '../src/scene/mood-groups.js';
 import { buildScopedOutfitGroupsText, NO_OUTFIT_GROUPS_TEXT } from '../src/scene/character-outfits.js';
@@ -53,30 +52,26 @@ test('gate:prompt-budget:all-on-fixed-part-stays-under-3000-chars-with-one-share
     assert.ok(len(system) <= 3000, `system ${len(system)} 字 / ${estimatePromptTokens(system)} token`);
 });
 
-// 阈值 = 2026-10-05 全开实测基础上逐步抬高。10-10 精简版把 igs-fx: 前缀（带横杠）写全到每行后，
-// daily 全集 1716 字、单世界观最多 1231 字、全展开 4048 字（换标签不漏横杠的代价）。
-// ALL_ON 把各世界观的专属日常同时打开，实际不会出现；真实上限由下一条按世界观逐个量（最多 1231 字）。
-const DAILY_SUPERSET_MAX = 2300;
+// 阈值 = 2026-10-05 全开实测（单块最大 daily 983 字、全展开 2414 字）+ 约 15% 余量。
+// ALL_ON 把各世界观的专属日常同时打开，实际不会出现；10-07 加载具洗浴后这个全集 daily 为 1201 字，单独给 1380，
+// 真实上限由下一条按世界观逐个量（10-07 最多 842 字）。
+const DAILY_SUPERSET_MAX = 1380;
 test('gate:prompt-budget:adaptive-blocks-stay-within-measured-budget', () => {
     const sceneRule = sceneRuleWithMoods();
     const sizes = Object.fromEntries(ADAPTIVE_PROMPT_BLOCKS.map((key) => [key, len(buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set([key]) }).depth0)]));
     const report = JSON.stringify(sizes);
     for (const [key, size] of Object.entries(sizes)) assert.ok(size <= (key === 'daily' ? DAILY_SUPERSET_MAX : 1150), `${key} 单块超预算 ${report}`);
     const all = buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set(ADAPTIVE_PROMPT_BLOCKS) });
-    const baseKeys = ADAPTIVE_PROMPT_BLOCKS.filter((key) => !key.startsWith('pack'));
-    const base = buildTagGrammar({ readerSettings: ALL_ON, sceneRule, expand: new Set(baseKeys) });
-    // 当前基础块实测 6023 字；单块预算仍独立约束，避免题材包扩展掩盖基础回归。
-    assert.ok(len(base.depth0) <= 6200, `基础块 ${len(base.depth0)} 字`);
-    // 十二个新增题材包独立按需展开；保留基础上限及单块上限，并约束全开总量。
-    assert.ok(len(all.depth0) <= 16000, `全展开 ${len(all.depth0)} 字 / ${estimatePromptTokens(all.depth0)} token ${report}`);
+    // 10-10 加手机社区后全展开 3053 字。社区示例改成三条帖的完整正文后，未点名平台时单块 655 字，全展开 3415 字。
+    assert.ok(len(all.depth0) <= 3600,`全展开 ${len(all.depth0)} 字 / ${estimatePromptTokens(all.depth0)} token ${report}`);
 });
 
-test('gate:prompt-budget:daily-block-per-worldview-stays-under-1360', () => {
+test('gate:prompt-budget:daily-block-per-worldview-stays-under-1150', () => {
     const sceneRule = sceneRuleWithMoods();
     for (const worldview of ['modern', 'ancient', 'fantasy', 'scifi', 'apocalypse', 'taisho', 'magic', 'horror']) {
         const readerSettings = applyFxWorldview(ALL_ON, worldview);
         const size = len(buildTagGrammar({ readerSettings, sceneRule, expand: new Set(['daily']) }).depth0);
-        assert.ok(size <= 1360, `${worldview} daily ${size} 字`);
+        assert.ok(size <= 1150, `${worldview} daily ${size} 字`);
     }
 });
 
@@ -91,9 +86,7 @@ test('gate:prompt-budget:every-adaptive-block-has-a-trigger-route', () => {
 test('gate:prompt-budget:every-daily-kind-has-chinese-trigger-words', () => {
     assert.deepEqual(Object.keys(DAILY_TRIGGER_WORDS).sort(), [...DAILY_FX_KINDS].sort());
     for (const [kind, words] of Object.entries(DAILY_TRIGGER_WORDS)) {
-        // 衣橱类（换装登场等）点亮独立的 wardrobe 块，玩乐类（唱歌、游乐…）点亮 play 块，其余点亮 daily 块。
-        const block = WARDROBE_FX_KINDS.includes(kind) ? 'wardrobe' : PLAY_FX_KINDS.includes(kind) ? 'play' : COURTESY_FX_KINDS.includes(kind) ? 'courtesy' : CAMPUS_FX_KINDS.includes(kind) ? 'campus' : isPackKind(kind) ? packBlockKey(packOfKind(kind).id) : 'daily';
-        assert.ok(detectPromptTriggers({ userText: `她${words[0]}了` }).has(block), kind);
+        assert.ok(detectPromptTriggers({ userText: `她${words[0]}了` }).has('daily'), kind);
     }
     assert.equal(detectPromptTriggers({ userText: '他成绩不错' }).has('daily'), false);
 });
@@ -253,28 +246,6 @@ test('gate:prompt-budget:adaptive-off-sends-the-old-full-concatenation', () => {
         assert.doesNotMatch(value, /【按需】/);
     } finally {
         vn.destroy();
-    }
-});
-
-test('gate:prompt-budget:adaptive-off-honours-fx-prompt-overrides-and-inject', () => {
-    const base = { chatShow: { enabled: true }, fxTags: ALL_ON.fxTags, itemFx: { enabled: true } };
-    const custom = mountWithHost({ sceneAssets: { promptAdaptive: false, promptPlacement: 'depth0' }, readerSettings: { ...base, fxPrompts: { item: '我写的物品规则' } } });
-    try {
-        custom.emit('generation_started', 'impersonate', {}, false);
-        const value = custom.extensionPrompts[MAIN].value;
-        assert.match(value, /我写的物品规则/);
-        assert.doesNotMatch(value, /【物品】/);
-        assert.ok(value.includes(resolveFxPromptRule(ALL_ON.fxTags)));
-    } finally {
-        custom.vn.destroy();
-    }
-    const off = mountWithHost({ sceneAssets: { promptAdaptive: false, promptPlacement: 'depth0' }, readerSettings: { ...base, fxPrompts: { inject: false } } });
-    try {
-        off.emit('generation_started', 'impersonate', {}, false);
-        const value = off.extensionPrompts[MAIN].value;
-        assert.doesNotMatch(value, /【演出】|【物品】|igs-chat:/);
-    } finally {
-        off.vn.destroy();
     }
 });
 

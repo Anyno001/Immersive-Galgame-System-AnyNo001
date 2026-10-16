@@ -3,9 +3,9 @@
 export const META_COOLDOWNS = Object.freeze([2, 4, 8]);
 export const META_LINE_KINDS = Object.freeze(['poke1', 'poke2', 'poke3', 'skip', 'back', 'idle', 'greetNight', 'greetMorning', 'greetAway', 'greetBirthday', 'greetFestival']);
 export const META_LINE_LABELS = Object.freeze({
-    poke1: '戳头 · 第1次',
-    poke2: '戳头 · 第2～3次',
-    poke3: '戳头 · 4次以上',
+    poke1: '戳头 · 第 1 次',
+    poke2: '戳头 · 第 2～3 次',
+    poke3: '戳头 · 4 次以上',
     skip: '快速连翻',
     back: '回翻旧页',
     idle: '很久不操作',
@@ -13,7 +13,7 @@ export const META_LINE_LABELS = Object.freeze({
     greetMorning: '问候 · 早上',
     greetAway: '问候 · 久别',
     greetBirthday: '问候 · 生日',
-    greetFestival: '问候 · 节日（{节日}换成节日名）',
+    greetFestival: '问候 · 节日（{节日} 换成节日名）',
 });
 // 内置台词保持中性，不预设角色性格；可在设置里按「通用」或按角色覆盖。
 export const META_DEFAULT_LINES = Object.freeze({

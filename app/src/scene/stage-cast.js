@@ -67,30 +67,23 @@ export const STAGE_CAST_MAX_SEATS = 3;
 // cast 为 resolveStageCast 的结果（最近开口在前）。resolve(m) 返回陪衬条目或 null（无图）；
 // 凑满 seats 后不再解析，只继续找说话人的 order。
 // pin 为必须优先保留的角色（修罗场的恋爱对象），先于最近开口的人解析；不在 cast 里时忽略。
-// temp 条目是还没开口的临时座位，只坐空座。speakerTemp：主立绘本人是临时焦点——开过口的人已坐满全部座位时
-// 不挤他们，返回 hideSpeaker（主立绘这一页不上台）。
-export function pickCastMembers(cast, { speakerKey = '', seats = STAGE_CAST_MAX_SEATS - 1, resolve, pin = '', speakerTemp = false } = {}) {
+export function pickCastMembers(cast, { speakerKey = '', seats = STAGE_CAST_MAX_SEATS - 1, resolve, pin = '' } = {}) {
     const max = Math.max(0, Math.floor(Number(seats)) || 0);
     const members = [];
     let speakerOrder = null;
     const list = Array.isArray(cast) ? cast : [];
-    const pinned = pin && pin !== speakerKey ? [...list.filter((m) => m && m.character === pin), ...list.filter((m) => !m || m.character !== pin)] : list;
-    const ordered = [...pinned.filter((m) => m && !m.temp), ...pinned.filter((m) => m && m.temp)];
-    let formal = 0;
+    const ordered = pin && pin !== speakerKey ? [...list.filter((m) => m && m.character === pin), ...list.filter((m) => !m || m.character !== pin)] : list;
     for (const m of ordered) {
+        if (!m) continue;
         if (speakerKey && m.character === speakerKey) {
             speakerOrder = m.order;
             continue;
         }
-        if (typeof resolve !== 'function') continue;
-        if (m.temp ? members.length >= max : members.length >= max + (speakerTemp && formal === members.length ? 1 : 0)) continue;
+        if (members.length >= max || typeof resolve !== 'function') continue;
         const hit = resolve(m);
-        if (!hit) continue;
-        members.push({ ...hit, order: m.order });
-        if (!m.temp) formal += 1;
+        if (hit) members.push({ ...hit, order: m.order });
     }
-    if (speakerTemp && formal > max) return { members, speakerOrder: null, hideSpeaker: true };
-    return { members: members.slice(0, max), speakerOrder };
+    return { members, speakerOrder };
 }
 
 

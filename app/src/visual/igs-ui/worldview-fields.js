@@ -19,7 +19,7 @@ function carryPhoneBlock(source) {
     // 开关用设置页统一的 igs-switch 外观，点击走 data-action（不写 data-switch，避免被当成路径开关）。
     const toggle = `<button type="button" class="igs-switch${on ? ' is-on' : ''}" data-action="carry-phone:${on ? 'off' : 'on'}" aria-pressed="${on ? 'true' : 'false'}"><i></i><span>随身带着现代手机</span></button>`;
     const detail = on
-        ? field('', '随身手机提示词', `<textarea ${CARRY_PHONE_PROMPT_ATTR} rows="3" placeholder="清空恢复默认" aria-label="随身手机提示词">${esc(prompt)}</textarea>`)
+        ? field('', '随身手机提示词', `<textarea ${CARRY_PHONE_PROMPT_ATTR} rows="3" placeholder="留空用默认" aria-label="随身手机提示词">${esc(prompt)}</textarea>`)
         : '';
     return toggle + detail;
 }

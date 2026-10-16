@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DIALOG_SKIN_CHOICES } from '../src/visual/igs-ui/dialog-skin-catalog.js';
 import {
     TITLE_SCREEN_ID,
+    TITLE_SCREEN_STYLE_TEXT,
     TITLE_SKIN_ATTR,
     buildTitleScreenModel,
     createTitleGate,
@@ -182,7 +184,6 @@ test('title-screen:opening-card-reuses-the-scene-title-card-and-can-be-skipped',
 
 test('title-screen:reader-host-holds-floor-zero-behind-the-title-gate', async () => {
     const makeHost = (readerSettings = {}) => createIgsReaderHost({
-        pageRenderGapMs: 0,
         global: {},
         getUnifiedSettings: () => ({
             bridge: { openMode: 'pc', sceneAssets: { enabled: true, scenes: {}, characters: {} } },
@@ -203,4 +204,11 @@ test('title-screen:reader-host-holds-floor-zero-behind-the-title-gate', async ()
     host = makeHost({ titleScreen: false });
     assert.notEqual(await reasonOf(host.openReader(payload(0), { mode: 'pc' })), 'title-screen', '设置里关掉就直接演');
     host.destroy();
+});
+
+test('title-screen:every-dialog-skin-has-a-title-theme', () => {
+    for (const [skin] of DIALOG_SKIN_CHOICES) {
+        assert.ok(TITLE_SCREEN_STYLE_TEXT.includes(`[${TITLE_SKIN_ATTR}="${skin}"]{`), skin);
+    }
+    assert.match(TITLE_SCREEN_STYLE_TEXT, /@container \(max-width:560px\)/, '窄屏另有排法');
 });

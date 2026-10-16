@@ -3,8 +3,6 @@ import { ensureFxLayers } from './fx-layer.js';
 import { MANGA_SYMBOL_SVG } from './fx-symbols.js';
 import { normalizeRomanceFxSettings } from './romance-settings.js';
 import { playFxSfx } from './fx-sfx.js';
-import { startPetals } from './fx-daily-particles.js';
-import { duckSceneAudio } from './scene-audio.js';
 
 // 亲密演出的瞬时时刻：关系变化卡、告白、恋爱回忆、修罗场心碎符号。
 // 关系卡按「角色 → 关系」记基线：首次见到只记录不弹卡，文字变化才弹；同页重绘与翻回旧页不重播（基线已更新）。
@@ -185,10 +183,7 @@ export function applyRomanceMoments(root, snapshot, ctx = {}) {
     const stage = (root && typeof root.querySelector === 'function' && root.querySelector('#igs-stage-motion')) || null;
     const textPage = content.htmlCardPage !== true && content.textType !== 'chat';
     if (!stage || !settings.enabled || !textPage) {
-        if (stage && stage.hasAttribute && stage.hasAttribute(CONFESS_ATTR)) {
-            stage.removeAttribute(CONFESS_ATTR);
-            stopConfessPetals(states.get(stage));
-        }
+        if (stage && stage.hasAttribute && stage.hasAttribute(CONFESS_ATTR)) stage.removeAttribute(CONFESS_ATTR);
         return result;
     }
     const reduced = ctx.reducedMotion === true || (ctx.reducedMotion !== false && prefersReducedMotion());
@@ -215,12 +210,6 @@ export function applyRomanceMoments(root, snapshot, ctx = {}) {
         if (!stage.hasAttribute(CONFESS_ATTR)) {
             const sfx = playFxSfx('heartbeat', snapshot.readerSettings && snapshot.readerSettings.fxSound, { audioScheduler: ctx.audioScheduler });
             if (sfx) result.played.push({ type: 'confess-heartbeat' });
-            const fxSound = snapshot.readerSettings && snapshot.readerSettings.fxSound;
-            if (fxSound && fxSound.enabled !== false && fxSound.volume > 0) {
-                try { duckSceneAudio({ ratio: 0.25, durationMs: 1400 }); } catch { /* 无音频环境 */ }
-            }
-            const fxLayers = ensureFxLayers(root);
-            if (fxLayers && !reduced && !state.petals) state.petals = startPetals(fxLayers.stage, { kind: 'sakura', density: 'light', wind: 'none', reducedMotion: false });
         }
         stage.setAttribute(CONFESS_ATTR, '1');
         ensureFxLayers(root);
@@ -228,7 +217,6 @@ export function applyRomanceMoments(root, snapshot, ctx = {}) {
         result.typewriter = { speed: slowerTypewriterSpeed(speed || 'medium') };
     } else if (stage.hasAttribute(CONFESS_ATTR)) {
         stage.removeAttribute(CONFESS_ATTR);
-        stopConfessPetals(state);
     }
     if (role === 'answer' && !reduced) result.typewriter = { delay: CONFESS_ANSWER_PAUSE_MS };
     if (role) result.played.push({ type: role });
@@ -241,17 +229,10 @@ export function applyRomanceMoments(root, snapshot, ctx = {}) {
     return result;
 }
 
-function stopConfessPetals(state) {
-    if (!state || !state.petals) return;
-    try { state.petals.stop(); } catch { /* 已停止 */ }
-    state.petals = null;
-}
-
 export function closeRomanceMoments(root) {
     const stage = (root && typeof root.querySelector === 'function' && root.querySelector('#igs-stage-motion')) || root;
     const state = stage ? states.get(stage) : null;
     if (state) {
-        stopConfessPetals(state);
         for (const timer of state.timers) clearTimeout(timer);
         for (const node of state.nodes) removeNode(node);
         states.delete(stage);

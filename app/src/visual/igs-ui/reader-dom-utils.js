@@ -92,56 +92,21 @@ export function removeImageLoadingSpinner(container) {
     if (existing) existing.remove();
 }
 
-export function ensureImageEmptyPlaceholder(container, text = '图片未生成', retry = null) {
+export function ensureImageEmptyPlaceholder(container, text = '图片未生成') {
     if (!container) return;
     removeImageLoadingSpinner(container);
-    let wrapper = container.querySelector('.igs-image-empty');
-    if (!wrapper) {
-        wrapper = container.ownerDocument
-            ? container.ownerDocument.createElement('div')
-            : document.createElement('div');
-        wrapper.className = 'igs-image-empty';
-        container.appendChild(wrapper);
-    }
-    if (!retry) {
-        wrapper.removeAttribute('data-retry');
-        wrapper.removeAttribute('data-busy');
-        wrapper.setAttribute('aria-label', text);
-        wrapper.textContent = text;
+    const existing = container.querySelector('.igs-image-empty');
+    if (existing) {
+        existing.textContent = text;
         return;
     }
-    const busy = retry.busy === true;
-    const label = busy ? '正在重画…' : '点一下重画';
-    const reason = busy ? '' : String(retry.reason || '').trim();
-    const signature = `${label}|${reason}`;
-    wrapper.setAttribute('data-retry', '1');
-    if (busy) wrapper.setAttribute('data-busy', '1');
-    else wrapper.removeAttribute('data-busy');
-    wrapper.setAttribute('aria-label', busy ? label : `${text}，${label}`);
-    if (wrapper.getAttribute('data-sig') === signature) return;
-    wrapper.setAttribute('data-sig', signature);
-    wrapper.textContent = '';
-    const doc = wrapper.ownerDocument || document;
-    const pill = doc.createElement('span');
-    pill.className = 'igs-image-retry';
-    pill.textContent = label;
-    wrapper.appendChild(pill);
-    if (reason) {
-        const note = doc.createElement('span');
-        note.className = 'igs-image-retry-reason';
-        note.textContent = reason;
-        wrapper.appendChild(note);
-    }
-}
-
-export function isImageRetryTap(container, x, y) {
-    const pill = container && container.querySelector ? container.querySelector('.igs-image-empty[data-retry] .igs-image-retry') : null;
-    if (!pill || typeof pill.getBoundingClientRect !== 'function') return false;
-    const holder = pill.parentNode;
-    if (holder && holder.getAttribute && holder.getAttribute('data-busy')) return false;
-    const rect = pill.getBoundingClientRect();
-    const pad = 8;
-    return x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad;
+    const wrapper = container.ownerDocument
+        ? container.ownerDocument.createElement('div')
+        : document.createElement('div');
+    wrapper.className = 'igs-image-empty';
+    wrapper.setAttribute('aria-label', text);
+    wrapper.textContent = text;
+    container.appendChild(wrapper);
 }
 
 export function removeImageEmptyPlaceholder(container) {
@@ -228,10 +193,4 @@ export function syncSettingsViewportVars(root) {
     root.style.setProperty('--igs-settings-vtop', `${Math.floor(top) - bleed}px`);
     root.style.setProperty('--igs-settings-vw', `${Math.ceil(width)}px`);
     root.style.setProperty('--igs-settings-vh', `${Math.ceil(height + top - Math.floor(top)) + bleed * 2}px`);
-}
-
-export function setImageRetryState(container, retry) {
-    if (!container || !container.querySelector || !container.querySelector('.igs-image-empty[data-retry]')) return false;
-    ensureImageEmptyPlaceholder(container, '图片未生成', retry);
-    return true;
 }

@@ -1,6 +1,4 @@
 import { normalizeEmotionList } from './stage-shake-runtime.js';
-import { normalizeFaceBox } from './live-face.js';
-import { normalizeFanMedalMap, normalizeLiveCustomLines } from './live-chatter.js';
 
 // 弹幕三件套，各自一个顶层开关以便挂进演出档位：
 // liveFx 直播间（掏出手机看 B 站直播）、audienceFx 观众弹幕（HUD 下方小手机，点开看）、innerFx 内心弹幕（情绪触发的纯演出）。
@@ -27,15 +25,8 @@ export const INNER_DANMAKU_STYLES = Object.freeze(['burst', 'fly']);
 export const INNER_DANMAKU_STYLE_LABELS = Object.freeze({ burst: '爆发', fly: '横飞' });
 // 直播间形态：phone 掏出手机看竖屏直播（原样式，默认）；full 直接铺满舞台的全屏直播。
 export const LIVE_LAYOUTS = Object.freeze(['phone', 'full']);
-// 全屏直播的台词：subtitle 底部直播字幕（默认）；dialog 沿用对话框。旁白位置：above 字幕上方（默认）；name 左上名牌下方；dialog 退回极简对话框。
-export const LIVE_FULL_TEXTS = Object.freeze(['subtitle', 'dialog']);
-export const LIVE_NARRATION_POSITIONS = Object.freeze(['above', 'name', 'dialog']);
 // 直播弹幕：roll 左下角列表向上翻滚（默认）；fly 沿轨道横飞穿过画面；both 两者同时。
 export const LIVE_CHAT_MODES = Object.freeze(['roll', 'fly', 'both']);
-// 直播弹幕字号（小/中/大≈14/16/19px，倍率相对中档）与密度（路人节奏、横飞在飞上限）。
-export const LIVE_FONT_SIZES = Object.freeze(['small', 'medium', 'large']);
-export const LIVE_FONT_SCALE = Object.freeze({ small: 0.875, medium: 1, large: 1.19 });
-export const LIVE_DENSITY = Object.freeze({ sparse: { wait: 1.5, cap: 10 }, medium: { wait: 1, cap: 14 }, dense: { wait: 0.75, cap: 18 } });
 // 手机机型：只换外观与屏幕比例。全面屏 9:18.5（原样式）、刘海屏 9:17、折叠屏展开 6:7、平板 3:4。
 export const LIVE_PHONE_MODELS = Object.freeze(['full', 'notch', 'fold', 'tablet']);
 export const LIVE_PHONE_MODEL_LABELS = Object.freeze({ full: '全面屏', notch: '刘海屏', fold: '折叠屏', tablet: '平板' });
@@ -69,8 +60,7 @@ function clampNumber(value, min, max, fallback) {
 
 export function normalizeLivePortrait(value) {
     const src = plain(value);
-    // face：手调的「防挡脸区域」（相对弹幕层的百分比椭圆），没调过为 null；和取景存在同一处。
-    return { x: clampNumber(src.x, -100, 100, 0), y: clampNumber(src.y, -100, 100, 0), zoom: clampNumber(src.zoom, 30, 400, 100), face: normalizeFaceBox(src.face) };
+    return { x: clampNumber(src.x, -100, 100, 0), y: clampNumber(src.y, -100, 100, 0), zoom: clampNumber(src.zoom, 30, 400, 100) };
 }
 
 export function normalizeLiveFxSettings(value) {
@@ -79,21 +69,7 @@ export function normalizeLiveFxSettings(value) {
         enabled: src.enabled === true,
         muteOnNsfw: src.muteOnNsfw !== false,
         layout: pick(LIVE_LAYOUTS, src.layout, 'phone'),
-        fullText: pick(LIVE_FULL_TEXTS, src.fullText, 'subtitle'),
-        narrationPos: pick(LIVE_NARRATION_POSITIONS, src.narrationPos, 'above'),
-        // 弹幕防挡脸：横飞弹幕层在主播脸部挖一个柔边洞（默认开）。
-        faceGuard: src.faceGuard !== false,
-        // 仅屏蔽内置路人词池中的攻击性弹幕；AI 与用户自定义弹幕不受影响。
-        blockHostile: src.blockHostile === true,
-        // 超管警告演出：直播里出现超管警告 / 封禁时的卡片与关停画面（默认开）。
-        adminWarn: src.adminWarn !== false,
-        // 路人弹幕带表情（默认开）；自定义路人弹幕按场合 / 身份分组、一行一条；粉丝牌名按主播存（主播=牌名）。
-        emoji: src.emoji !== false,
-        customLines: normalizeLiveCustomLines(src.customLines),
-        fanMedals: normalizeFanMedalMap(src.fanMedals),
         chat: pick(LIVE_CHAT_MODES, src.chat, 'roll'),
-        fontSize: pick(LIVE_FONT_SIZES, src.fontSize, 'medium'),
-        density: pick(DANMAKU_DENSITIES, src.density, 'medium'),
         // 跟随对话框主题：沿用线上交流的主题色板（默认关，保持 B 站深色）。
         followTheme: src.followTheme === true,
         model: pick(LIVE_PHONE_MODELS, src.model, 'full'),

@@ -1,19 +1,50 @@
-import { decodeImage } from './image-decode.js';
-// 设置页素材缩略图归中央图片缓存：每张生成 / 上传的图存一张 160 宽小图，
+// 设置页素材缩略图（IndexedDB igs-asset-thumbs）：每张生成 / 上传的图存一张 160 宽小图，
 // 设置器列表只读小图，原图（立绘动辄 1024×1536）只在看大图时才读。图被改过（抠图、导入覆盖）或删掉时删掉对应小图。
-import { localImageCacheFor } from './tavern-image-cache.js';
-import { requireMediaCache } from './media-cache-owner.js';
+import { createIdbConnection } from './idb-connection.js';
+
+const DB_NAME = 'igs-asset-thumbs';
+const DB_VERSION = 1;
+const STORE = 'thumbs';
 export const ASSET_THUMB_WIDTH = 160;
-const keyOf = id => `thumb:asset:${String(id || '')}`;
-const adapter = cache => ({
-    mediaCache: cache,
-    get: id => cache.get(keyOf(id)),
-    put: (id, dataUrl, stamp) => cache.put(keyOf(id), dataUrl, stamp),
-    remove: ids => Promise.all((ids || []).map(id => cache.drop(keyOf(id)))),
-    clear: () => cache.clear(),
-});
-export function createMemoryAssetThumbStore({ mediaCache } = {}) { return adapter(requireMediaCache(mediaCache, 'asset-thumbs')); }
-export function createIndexedDbAssetThumbStore(globalObject = globalThis) { return adapter(localImageCacheFor(globalObject)); }
+const DECODE_TIMEOUT_MS = 15000;
+
+const keyOf = (value) => String(value || '');
+
+export function createMemoryAssetThumbStore() {
+    const thumbs = new Map();
+    return {
+        async get(id) { return thumbs.get(keyOf(id)) || ''; },
+        async put(id, dataUrl) { thumbs.set(keyOf(id), String(dataUrl || '')); },
+        async remove(ids) { for (const id of ids || []) thumbs.delete(keyOf(id)); },
+        async clear() { thumbs.clear(); },
+    };
+}
+
+export function createIndexedDbAssetThumbStore(globalObject = globalThis) {
+    const idb = globalObject && globalObject.indexedDB;
+    if (!idb) return null;
+    const conn = createIdbConnection(idb, DB_NAME, DB_VERSION, (db) => {
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+    });
+    return {
+        async get(id) {
+            const row = await conn.transact(STORE, 'readonly', (tx) => tx.objectStore(STORE).get(keyOf(id)));
+            return row && typeof row.dataUrl === 'string' ? row.dataUrl : '';
+        },
+        // 「清除素材缓存」用：整库清空，下次看列表时重新缩图。
+        async clear() {
+            await conn.transact(STORE, 'readwrite', (tx) => tx.objectStore(STORE).clear());
+        },
+        async put(id, dataUrl) {
+            await conn.transact(STORE, 'readwrite', (tx) => tx.objectStore(STORE).put({ id: keyOf(id), dataUrl: String(dataUrl || '') }));
+        },
+        async remove(ids) {
+            const list = (ids || []).map(keyOf).filter(Boolean);
+            if (!list.length) return;
+            await conn.transact(STORE, 'readwrite', (tx) => { const s = tx.objectStore(STORE); for (const id of list) s.delete(id); return () => undefined; });
+        },
+    };
+}
 
 // 缩成 160 宽 WebP（立绘要留透明底，不能用 JPEG）；浏览器不支持 WebP 编码时自动给 PNG。没有画布或解码失败返回空串。
 export function createAssetThumbnailer(globalObject = globalThis, { width = ASSET_THUMB_WIDTH, quality = 0.82 } = {}) {
@@ -21,7 +52,14 @@ export function createAssetThumbnailer(globalObject = globalThis, { width = ASSE
         const doc = globalObject && globalObject.document;
         const ImageCtor = globalObject && globalObject.Image;
         if (!src || !doc || typeof doc.createElement !== 'function' || typeof ImageCtor !== 'function') return '';
-        const img = await decodeImage(globalObject, src);
+        const img = await new Promise((resolve) => {
+            const image = new ImageCtor();
+            const timer = globalObject.setTimeout(() => resolve(null), DECODE_TIMEOUT_MS);
+            image.onload = () => { globalObject.clearTimeout(timer); resolve(image); };
+            image.onerror = () => { globalObject.clearTimeout(timer); resolve(null); };
+            image.decoding = 'async';
+            image.src = src;
+        });
         const iw = img && (img.naturalWidth || img.width);
         const ih = img && (img.naturalHeight || img.height);
         if (!iw || !ih) return '';

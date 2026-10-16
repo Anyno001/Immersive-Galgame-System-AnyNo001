@@ -1,6 +1,4 @@
-import { DAILY_FX_KINDS, dailyFxHasRoom } from '../../scene/daily-fx-directives.js';
-import { CAMPUS_FX_KINDS, CAMPUS_FX_LABELS } from '../../scene/campus-fx.js';
-import { FX_PACKS_ACTIVE, FX_PACK_KINDS, FX_PACK_LABELS, isPackKind, packOfKind, packRequiresMet, packSwitchKey, packSwitchOn } from '../../scene/fx-packs.js';
+import { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX } from '../../scene/daily-fx-directives.js';
 
 export const DAILY_FX_LABELS = Object.freeze({
     timeskip: '时间跳跃', photo: '拍照', letter: '信件', note: '便签', bell: '校园铃声', broadcast: '广播',
@@ -12,43 +10,18 @@ export const DAILY_FX_LABELS = Object.freeze({
     blackout: '停电', knock: '敲门', murmur: '耳边低语',
     brake: '急刹车', depart: '发车出发', arrive: '到站', ticket: '车票',
     steam: '一团水汽', shower: '淋浴', splash: '泼水', hairdry: '吹头发',
-    sleep: '入睡', wake: '起床',
-    dressup: '换装登场', drape: '披衣整理', fitting: '试衣镜',
     dive: '潜入水中', bubble: '吐气泡', vacuum: '真空泄压',
-    sing: '唱歌', dance: '跳舞', fish: '钓鱼', draw: '画画', music: '演奏乐器', ride: '游乐设施',
-    clean: '打扫', shopping: '逛街购物', stroll: '散步',
-    yujian: '御剑飞行', liandan: '炼丹', biguan: '闭关吐纳', dianxue: '点穴', qinggong: '轻功', yungong: '运功疗伤',
-    opendoor: '开门礼让', shield: '护在身前', tend: '贴心照料', carry: '公主抱', candle: '点灯烛火', pass: '递接', stance: '站位身段',
     say: '头顶小字',
-    ...CAMPUS_FX_LABELS,
-    ...FX_PACK_LABELS,
-    console: '游戏机开机', versus: '双人对战', combo: '连击狂按', snatch: '抢手柄耍赖',
 });
 // 后加的日常类型需显式勾选：旧存档里日常演出已开启的用户不会突然收到新语法。
-const DAILY_FX_OPT_IN = new Set([...CAMPUS_FX_KINDS, ...FX_PACK_KINDS, 'console', 'versus', 'combo', 'snatch', 'say', 'rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur', 'brake', 'depart', 'arrive', 'ticket', 'steam', 'shower', 'splash', 'hairdry', 'sleep', 'wake', 'dressup', 'drape', 'fitting', 'dive', 'bubble', 'vacuum', 'sing', 'dance', 'fish', 'draw', 'music', 'ride', 'clean', 'shopping', 'stroll', 'yujian', 'liandan', 'biguan', 'dianxue', 'qinggong', 'yungong', 'opendoor', 'shield', 'tend', 'carry', 'candle', 'pass', 'stance']);
-// 清单声明 defaultOn 的通用包（镜头空间、立绘变形、戏剧节拍、地点与场景这类不挑题材的演出）：各 kind 跟着默认开，不占显式勾选。
-const GENERAL_DEFAULT_KINDS = new Set(FX_PACKS_ACTIVE.filter((pack) => pack.defaultOn === true).flatMap((pack) => pack.kinds));
+const DAILY_FX_OPT_IN = new Set(['say', 'rps', 'gacha', 'game', 'score', 'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat', 'guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'spell', 'potion', 'owl', 'broom', 'howler', 'blackout', 'knock', 'murmur', 'brake', 'depart', 'arrive', 'ticket', 'steam', 'shower', 'splash', 'hairdry', 'dive', 'bubble', 'vacuum']);
 
 export function normalizeDailyFxSettings(value) {
     const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    // 按地点常驻的氛围层，不写提示词，默认跟着日常演出一起开；分三个开关：车窗光影（载具）、浴室水汽、其他地点光影（室内窗光、水下、星空等）。
-    // 旧存档只有一个 ambience：三个新开关没存过时都沿用它；ambience 本身留作「三个里有一个开着」。
-    const legacy = src.ambience !== false;
-    const own = (key) => (typeof src[key] === 'boolean' ? src[key] : legacy);
-    const out = { enabled: src.enabled === true, petals: src.petals !== false, photoAlbum: src.photoAlbum !== false, vehicleLight: own('vehicleLight'), bathSteam: own('bathSteam'), placeLight: own('placeLight') };
-    out.ambience = out.vehicleLight || out.bathSteam || out.placeLight;
-    for (const kind of DAILY_FX_KINDS) out[kind] = DAILY_FX_OPT_IN.has(kind) && !GENERAL_DEFAULT_KINDS.has(kind) ? src[kind] === true : src[kind] !== false;
-    // 包的默认总开关（dailyFx.pack<Id>，题材包默认关、defaultOn 通用包默认开）；总开关关着时各 kind 由 fx-era 的 applyFxEra 链拨成关，勾选原样留在存档里。
-    for (const pack of FX_PACKS_ACTIVE) if (!pack.packSwitch) out[packSwitchKey(pack.id)] = pack.defaultOn === true ? src[packSwitchKey(pack.id)] !== false : src[packSwitchKey(pack.id)] === true;
-    if (FX_PACKS_ACTIVE.length) out.panelSkin = src.panelSkin === true;
+    // ambience：车窗光影、浴室水汽这类按地点常驻的氛围层，不写提示词，默认跟着日常演出一起开。
+    const out = { enabled: src.enabled === true, petals: src.petals !== false, photoAlbum: src.photoAlbum !== false, ambience: src.ambience !== false };
+    for (const kind of DAILY_FX_KINDS) out[kind] = DAILY_FX_OPT_IN.has(kind) ? src[kind] === true : src[kind] !== false;
     return out;
-}
-
-// 总开关与前置开关都满足的题材包 id（日常演出本身要开着）。readerSettings 是完整的阅读器设置。
-export function enabledPackIds(readerSettings) {
-    const rs = readerSettings && typeof readerSettings === 'object' ? readerSettings : {};
-    if (!normalizeDailyFxSettings(rs.dailyFx).enabled) return [];
-    return FX_PACKS_ACTIVE.filter((pack) => packSwitchOn(pack, rs) && packRequiresMet(pack, rs)).map((pack) => pack.id);
 }
 
 export function enabledDailyFxKinds(settings) {
@@ -56,12 +29,10 @@ export function enabledDailyFxKinds(settings) {
     return s.enabled ? DAILY_FX_KINDS.filter((kind) => s[kind]) : [];
 }
 
-// 聊天页与卡片页本身就是全屏演出；NSFW 场景不插日常小演出，只有声明 allowNsfw 的题材包（且前置开关开着）例外。
-// options.readerSettings 供包的前置开关判断；同页上限见 dailyFxHasRoom（包 kind 3，其余 2）。
+// 聊天页与卡片页本身就是全屏演出；NSFW 场景不插日常小演出。
 export function planDailyFx(fx, options = {}) {
     const settings = normalizeDailyFxSettings(options.settings);
-    if (!settings.enabled || (options.pageKind && options.pageKind !== 'text')) return [];
-    const nsfw = options.nsfw === true;
+    if (!settings.enabled || options.nsfw === true || (options.pageKind && options.pageKind !== 'text')) return [];
     const list = fx && Array.isArray(fx.daily) ? fx.daily : [];
     // 战斗区间里的身体接触多半是擒抱、缠斗，不放心动的心形。
     const inBattle = Boolean(fx && (fx.battle || fx.battleStart === true || (Array.isArray(fx.hits) && fx.hits.length)));
@@ -69,13 +40,10 @@ export function planDailyFx(fx, options = {}) {
     const out = [];
     for (const item of list) {
         if (!item || !settings[item.type] || seen.has(item.type)) continue;
-        const pack = isPackKind(item.type) ? packOfKind(item.type) : null;
-        if (pack && options.readerSettings && !(packSwitchOn(pack, options.readerSettings) && packRequiresMet(pack, options.readerSettings))) continue;
-        if (nsfw && !(pack && pack.allowNsfw)) continue;
-        if (!dailyFxHasRoom(out, item.type)) continue;
         if (inBattle && item.type === 'touch') continue;
         seen.add(item.type);
         out.push(item);
+        if (out.length >= DAILY_FX_PAGE_MAX) break;
     }
     return out;
 }

@@ -3,6 +3,33 @@ import { createIdbConnection } from './idb-connection.js';
 const DB_NAME = 'igs-illustrations';
 const DB_VERSION = 1;
 
+let serial = 0;
+const revisionOf = (record) => Number.isSafeInteger(record?.revision) ? record.revision : 0;
+const revisionToken = () => `${Date.now().toString(36)}-${++serial}-${Math.random().toString(36).slice(2)}`;
+const revised = (old, value, floorKey) => ({ ...value, floorKey, key: `${floorKey}|${value.slot}`,
+    revision: revisionOf(old) + 1, revisionToken: revisionToken() });
+
+// 检查与写入属于同一存储事务；token 防止删除后重建时 revision 碰巧相同。
+function slotPatch(old, expectedRevision, patch, options) {
+    if (!old) return { ok: false, reason: 'not-found' };
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== revisionOf(old)
+        || options.expectedToken !== old.revisionToken) return { ok: false, reason: 'stale-revision' };
+    if (options.shouldCommit && !options.shouldCommit()) return { ok: false, reason: 'stale-target' };
+    if (patch.dataUrl !== undefined && !patch.dataUrl) return { ok: false, reason: 'empty-result' };
+    const { key, floorKey, slot, revision, revisionToken: token, ...fields } = patch;
+    const next = { ...old, ...fields };
+    // 合成 CG 没有整图 wire；使用显式选项，避免文件层复制丢掉 undefined 后留下旧来源。
+    if (options.clearSentPrompt === true) delete next.sentPrompt;
+    if (options.preserveBaseline && !old.consistencyBaselineDataUrl) {
+        next.consistencyBaselineDataUrl = old.dataUrl;
+        next.consistencyBaselineMeta = { revision: revisionOf(old),
+            ...Object.fromEntries(['characterMeta', 'caption', 'originalSize', 'prompt', 'promptRecipe',
+                'dnaSnapshot', 'outfitSnapshot', 'sentPrompt', 'consistencyPrompt', 'captionMode', 'promptEdited']
+                .filter((field) => old[field] !== undefined).map((field) => [field, structuredClone(old[field])])) };
+    }
+    return { ok: true, record: revised(old, next, old.floorKey) };
+}
+
 export function floorKeyOf({ chatId, messageId, swipeId }) {
     return `${chatId}|${messageId}|${Number(swipeId) || 0}`;
 }
@@ -32,7 +59,19 @@ export function createMemoryIllustrationStore() {
         async getSlots(floorKey) {
             return Array.from(slots.values()).filter((s) => s.floorKey === floorKey).map(clone).sort((a, b) => a.slot - b.slot);
         },
-        async putSlot(floorKey, value) { slots.set(`${floorKey}|${value.slot}`, clone({ ...value, floorKey })); },
+        async putSlot(floorKey, value) {
+            const key = `${floorKey}|${value.slot}`;
+            const record = revised(slots.get(key), value, floorKey);
+            slots.set(key, clone(record));
+            return clone(record);
+        },
+        async updateSlot(floorKey, slot, expectedRevision, patch, options = {}) {
+            await options.beforeCommit?.();
+            const key = `${floorKey}|${slot}`;
+            const result = slotPatch(slots.get(key), expectedRevision, patch, options);
+            if (result.ok) slots.set(key, clone(result.record));
+            return clone(result);
+        },
         async deleteSlot(floorKey, slot) { return slots.delete(`${floorKey}|${slot}`); },
         // CG 库目录：全部槽位的主键（含未出图的），记录本身不读。
         async listSlotKeys() { return Array.from(slots.keys()); },
@@ -65,7 +104,30 @@ export function createIndexedDbIllustrationStore(globalObject = globalThis) {
             return (list || []).sort((a, b) => a.slot - b.slot);
         },
         async putSlot(floorKey, value) {
-            await run('slots', 'readwrite', (s) => s.put({ ...value, floorKey, key: `${floorKey}|${value.slot}` }));
+            return run('slots', 'readwrite', (s) => {
+                let record;
+                const req = s.get(`${floorKey}|${value.slot}`);
+                req.onsuccess = () => {
+                    record = revised(req.result, value, floorKey);
+                    s.put(record);
+                };
+                return () => record;
+            });
+        },
+        async updateSlot(floorKey, slot, expectedRevision, patch, options = {}) {
+            // 配置复核必须在事务外完成；请求回调中的 shouldCommit 只做同步判断。
+            await options.beforeCommit?.();
+            return run('slots', 'readwrite', (s) => {
+                let result;
+                const req = s.get(`${floorKey}|${slot}`);
+                req.onsuccess = () => {
+                    try {
+                        result = slotPatch(req.result,expectedRevision, patch, options);
+                        if (result.ok) s.put(result.record);
+                    } catch { result = { ok: false, reason: 'update-failed' }; }
+                };
+                return () => result;
+            });
         },
         async deleteSlot(floorKey, slot) {
             await run('slots', 'readwrite', (s) => s.delete(`${floorKey}|${slot}`));

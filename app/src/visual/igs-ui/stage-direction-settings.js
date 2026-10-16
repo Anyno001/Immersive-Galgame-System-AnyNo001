@@ -114,7 +114,7 @@ export function normalizeCgEntranceSettings(value) {
 // castReact（默认关）：陪衬反应（react 标签、点名提亮、全员小跳、戳陪衬）；提示词只在开启时注入。
 export function normalizeStageCastSettings(value) {
     const src = plain(value);
-    return { enabled: src.enabled === true, alignHeads: src.alignHeads !== false, romanceDuo: src.romanceDuo === true, castReact: src.castReact === true, castStage: src.castStage === true, backHint: src.backHint !== false };
+    return { enabled: src.enabled === true, alignHeads: src.alignHeads !== false, romanceDuo: src.romanceDuo === true, castReact: src.castReact === true, castStage: src.castStage === true };
 }
 
 export const STAGE_DIRECTION_NORMALIZERS = Object.freeze({

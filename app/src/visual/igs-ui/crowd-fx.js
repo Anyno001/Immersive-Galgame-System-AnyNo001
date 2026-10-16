@@ -32,8 +32,6 @@ const REACTIONS = Object.freeze([
     ['laugh', /哄笑|哄堂大笑|笑成一片/],
     ['murmur', /哗然|议论纷纷|窃窃私语|交头接耳/],
     ['hush', /鸦雀无声|安静了下来|一片寂静|全场安静|安静下来/],
-    ['turn', /纷纷转头|齐刷刷(?:地)?(?:转头|回头|看向)|众人(?:纷纷)?回头|纷纷回头|齐齐回头/],
-    ['bow', /躬身行礼|齐齐行礼|众人(?:纷纷)?(?:鞠躬|行礼|跪)|纷纷(?:行礼|鞠躬|跪下)|山呼/],
 ]);
 
 export function resolveCrowdReaction(text) {
@@ -249,8 +247,8 @@ export function applyCrowdFx(root, snapshot) {
         clearTimeout(state.timer);
         if (reaction) {
             layer.setAttribute('data-react', reaction);
-            // 安静下来、齐齐转头保持到翻页；其余反应 1.8 秒后回到日常呼吸。
-            if (reaction !== 'hush' && reaction !== 'turn') state.timer = setTimeout(() => layer.removeAttribute('data-react'), 1800);
+            // 安静下来保持到翻页；其余反应 1.8 秒后回到日常呼吸。
+            if (reaction !== 'hush') state.timer = setTimeout(() => layer.removeAttribute('data-react'), 1800);
         } else layer.removeAttribute('data-react');
     }
     return density;
@@ -269,8 +267,6 @@ export const CROWD_STYLE_TEXT = `
 #igs-crowd[data-react="gasp"] .igs-crowd-p{animation:igs-crowd-lean .35s ease-out both;}
 #igs-crowd[data-react="laugh"] .igs-crowd-p{animation:igs-crowd-shake .14s steps(2,end) infinite;}
 #igs-crowd[data-react="murmur"] .igs-crowd-p{animation:igs-crowd-tilt 1.2s ease-in-out infinite alternate;}
-#igs-crowd[data-react="turn"] .igs-crowd-p{animation:igs-crowd-turn .5s cubic-bezier(.3,.8,.3,1) both;animation-delay:0s!important;}
-#igs-crowd[data-react="bow"] .igs-crowd-p{animation:igs-crowd-bow 1.5s ease-in-out both;animation-delay:0s!important;}
 #igs-crowd[data-react="hush"] .igs-crowd-p{animation:none;}
 #igs-crowd[data-react="hush"]{filter:brightness(.82);transition:filter .6s ease;}
 @keyframes igs-crowd-in{from{opacity:0;}to{opacity:1;}}
@@ -280,8 +276,6 @@ export const CROWD_STYLE_TEXT = `
 @keyframes igs-crowd-jump{from{transform:translateY(0);}to{transform:translateY(-6%);}}
 @keyframes igs-crowd-lean{to{transform:rotate(-4deg) translateY(1%);}}
 @keyframes igs-crowd-shake{0%{transform:rotate(-1.5deg);}100%{transform:rotate(1.5deg);}}
-@keyframes igs-crowd-turn{from{transform:scaleX(1);}to{transform:scaleX(-1);}}
-@keyframes igs-crowd-bow{0%{transform:rotate(0deg);}35%,70%{transform:rotate(11deg) scaleY(.96);}100%{transform:rotate(0deg);}}
 @keyframes igs-crowd-tilt{from{transform:rotate(-2deg);}to{transform:rotate(2deg);}}
 #igs-overlay[data-igs-comic="mono"] #igs-crowd{filter:grayscale(1);}
 #igs-overlay[data-igs-quality="low"] #igs-crowd .igs-crowd-near{display:none;}

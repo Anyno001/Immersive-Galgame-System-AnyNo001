@@ -13,6 +13,7 @@ import {
     resolvePageSense,
 } from '../src/visual/igs-ui/romance-senses.js';
 import { cancelCgPan, syncCgPan } from '../src/visual/igs-ui/romance-cg-pan.js';
+import { SENSES_STYLE_TEXT } from '../src/visual/igs-ui/romance-senses-style.js';
 import { closeRomanceIntimate, resolveIntimatePlan, syncRomanceIntimate } from '../src/visual/igs-ui/romance-intimate-runtime.js';
 import { normalizeRomanceFxSettings } from '../src/visual/igs-ui/romance-settings.js';
 import { renderRomanceFxFields } from '../src/visual/igs-ui/romance-fields.js';
@@ -218,6 +219,17 @@ test('gate:romance-senses:front-layer-shows-sense-ripple-and-undress-sweep', () 
     assert.equal(front.getAttribute('data-igs-rm-sense'), null);
     closeRomanceIntimate(root);
     assert.equal(stage.querySelector('.igs-rm-front'), null);
+});
+
+test('gate:romance-senses:styles-only-edge-on-cg-and-no-heavy-effects', () => {
+    assert.doesNotMatch(SENSES_STYLE_TEXT, /backdrop-filter|mix-blend-mode/);
+    assert.doesNotMatch(SENSES_STYLE_TEXT, /#igs-(bg|sprite|cast)[^{]*\{[^}]*filter:/);
+    assert.doesNotMatch(SENSES_STYLE_TEXT, /igs-dialog/);
+    // 挂 CG 时蒙眼只压边缘：中心透明。
+    assert.match(SENSES_STYLE_TEXT, /\[data-igs-rm-asset\] \.igs-rm-front\[data-igs-rm-sense="blind"\] \.igs-rm-sense\{background:radial-gradient\([^)]*transparent/);
+    // CG 运镜盖过「挂 CG 时关掉背景推镜」。
+    assert.match(SENSES_STYLE_TEXT, /#igs-overlay #igs-stage-motion\[data-igs-cgp="1"\] #igs-bg\{animation:igs-cgp-1[^}]*!important/);
+    assert.match(SENSES_STYLE_TEXT, /prefers-reduced-motion[\s\S]*data-igs-cgp\] #igs-bg\{animation:none!important/);
 });
 
 test('gate:romance-senses:prompt-and-settings', () => {

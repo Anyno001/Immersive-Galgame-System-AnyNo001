@@ -1,8 +1,7 @@
-import { createItemImageService } from './helpers/media-fixtures.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryGeneratedAssetStore } from '../src/media/generated-asset-store.js';
-import { itemAssetKeyOf } from '../src/generated-images/illustration/item-image-service.js';
+import { createItemImageService, itemAssetKeyOf } from '../src/generated-images/illustration/item-image-service.js';
 
 const TEXT = '[igs-fx:item|获得|黄铜钥匙|旧钥匙]\n她把钥匙递过来。';
 const TABLES = { ok: true, data: { a: { uid: 'sheet_a', name: '物品表', content: [['物品名称', '描述'], ['信', '一封信'], ['黄铜钥匙', ''], ['药水', ''], ['地图', '']] } } };
@@ -18,7 +17,9 @@ function setup(overrides = {}) {
             readFloor: () => ({ chatId, messageId: 5, swipeId: 0, isAi: true, isLatest: true, text: TEXT }),
             on: () => () => {},
         },
-        llm: { async request() { calls.llm += 1; return 'id: ch1\ntags: brass key\nid: ch2\ntags: letter\nid: ch3\ntags: potion'; } },
+        llm: {
+            ...(overrides.prepareImagePrompt && { prepareImagePrompt: overrides.prepareImagePrompt }),
+            async request() { calls.llm += 1; return 'id: ch1\ntags: brass key\nid: ch2\ntags: letter\nid: ch3\ntags: potion'; } },
         nai: { async generate(slot, settings) {
             calls.nai.push({ slot, size: settings.size });
             return overrides.generate ? overrides.generate(calls.nai.length) : { ok: true, dataUrl: `data:image/png;base64,${calls.nai.length}` };
@@ -63,4 +64,19 @@ test('gate: item planner only receives paragraphs that mention the needed items,
     assert.equal(itemContextOf(text, [{ name: '地图' }]), '');
     const long = `<content>\n${'钥匙'.repeat(400)}\n</content>`;
     assert.ok(itemContextOf(long, [{ name: '钥匙' }]).length <= 600);
+});
+
+test('gate:image-preset:物品预设拒绝不能被英文名称兜底绕过', async () => {
+    for (const throws of [false, true]) {
+        const { service, store, calls } = setup({ prepareImagePrompt() {
+            if (throws) throw new Error('fake-prepare');
+            return { ok: false, reason: 'preset-store-unreadable', error: '预设读取失败' };
+        } });
+        const result = await service.regenerate('Brass Key');
+        assert.equal(result.ok, false);
+        assert.equal(result.reason, throws ? 'prompt-prepare-failed' : 'preset-store-unreadable');
+        assert.equal(result.count, 0);
+        assert.deepEqual([calls.llm, calls.nai.length], [0, 0]);
+        assert.deepEqual(await store.getAssetsByChat('chat-1'), []);
+    }
 });

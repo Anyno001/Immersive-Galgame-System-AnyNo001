@@ -49,14 +49,11 @@ test('feedFx:render:groups-and-platforms', () => {
         }
     }
     assert.ok(html.includes(feedPlatformById('moments').prompt), '无自定义时显示默认写法');
-    assert.match(html, /placeholder="清空恢复默认"/);
+    assert.match(html, /placeholder="留空恢复默认"/);
 });
 
 test('feedFx:render:placed-in-performance-special-group', () => {
-    const full = renderPerformanceSettings({ feedFx: { enabled: true } }, {}, () => true);
-    // 演出提示词折叠块里也有「手机社区」的写法文本，跳过它再找特殊演出分组。
-    const fold = full.indexOf('igs-fx-prompts-fold');
-    const html = fold >= 0 ? full.slice(0, fold) + full.slice(full.indexOf('</details>', fold)) : full;
+    const html = renderPerformanceSettings({ feedFx: { enabled: true } }, {}, () => true);
     const live = html.indexOf('直播间');
     const feed = html.indexOf('手机社区');
     const audience = html.indexOf('观众弹幕', feed);

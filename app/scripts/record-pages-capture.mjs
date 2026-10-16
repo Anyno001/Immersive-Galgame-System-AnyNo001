@@ -1,6 +1,6 @@
 // CDP 截图与探针：驱动本机 Edge（无头）访问 record-pages preview，
 // 收集控制台错误、核对 DOM 状态、按容器尺寸截图。
-// 用法：node scripts/record-pages-capture.mjs [--page map|diary|inventory|relationships|settings-scene|<设置页 id，如 dash perf-stage wardrobe>|stage-cast] [--size desktop] [--select <data-record-id>] [--query <k=v&...>] [--out <file>] [--probe-only]
+// 用法：node scripts/record-pages-capture.mjs [--page map|diary|inventory|relationships|settings-scene|stage-cast] [--size desktop] [--select <data-record-id>] [--query <k=v&...>] [--out <file>] [--probe-only]
 // stage-cast：加载 fixtures/stage-cast/preview.html；[--step <页号>] 翻到指定页，[--freeze <0~1>] 把进行中的动画暂停在该进度后截图。
 // stage-cast-reader：加载 fixtures/stage-cast/reader.html（真实阅读器）；[--actions "eval:<表达式>;drag:x,y,dx,dy;wheel:x,y,deltaY;sleep:ms;shot:<名称>"] 在同一会话里按序驱动并截图。
 // 依赖：Node >= 22（内置 WebSocket）；Edge 以 --remote-debugging-port 启动。
@@ -277,8 +277,8 @@ try {
                 const offenders = [...panel.querySelectorAll('*')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.right > vw + 1; })
                     .slice(0, 6).map(el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(' ').filter(Boolean).join('.') : '') + ' right=' + Math.round(el.getBoundingClientRect().right));
                 return {
-                    activeTab: panel.querySelector('.igs-settings-nav-item.is-active')?.textContent?.trim() || '',
-                    activeSceneSubtab: panel.querySelector('.igs-page-tab.is-active')?.textContent?.trim() || '',
+                    activeTab: panel.querySelector('.igs-settings-tab.is-active')?.textContent?.trim() || '',
+                    activeSceneSubtab: panel.querySelector('.igs-scene-subtab.is-active')?.textContent?.trim() || '',
                     folderNames: [...panel.querySelectorAll('.igs-asset-folder-name')].map(el => el.textContent.trim()),
                     viewPressed: [...panel.querySelectorAll('.igs-asset-view-btn[aria-pressed="true"]')].map(el => el.textContent.trim()),
                     tiles: panel.querySelectorAll('.igs-asset-tile').length,

@@ -1,11 +1,10 @@
 import { normalizePhoneWallpaper } from './my-phone.js';
 import { normalizePromptEntry } from '../../scene/prompt-entries.js';
-import { isPackSwitchPath } from '../../scene/fx-packs.js';
 import { defaultPromptKeywords } from '../../scene/prompt-triggers.js';
 import { LEGACY_READER_MODES, resolveLegacyReaderMode } from '../../storage/legacy-igs.js';
 import { buildNarrativeSegments } from '../../scene/image-slots.js';
-import { normalizeSettingsTab as normalizeSettingsCategory } from './settings-pages.js';
-import { DEFAULT_DIALOG_BAR_BUTTONS, DIALOG_BAR_ALIGNS, TOOLBAR_ACTIONS, TOOLBAR_PLATE_MODES, TOOLBAR_SPLIT_MODES, VN_THEME_PRESETS } from './reader-host-constants.js';
+import { SETTINGS_TAB_ALIASES, SETTINGS_TAB_DEFS } from './settings-tabs.js';
+import { DEFAULT_DIALOG_BAR_BUTTONS, DIALOG_BAR_ALIGNS, TOOLBAR_ACTIONS, TOOLBAR_SPLIT_MODES, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { esc, normalizeFiniteNumber } from './reader-value-utils.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS, isClassicDialogSkin, normalizeDialogSkin } from './classic-dialog-skin.js';
 import { getReferenceDialogTypography } from './dialog-theme-typography.js';
@@ -22,9 +21,10 @@ export function normalizeReaderMode(mode, bridge) {
     return LEGACY_READER_MODES.includes(resolved) ? resolved : 'pc';
 }
 
-// settingsState.tab 现在是分类 id（dash / style / ... / data）；旧的 basic / reader / scene / image 也认，映射到对应分类。
 export function normalizeSettingsTab(tab) {
-    return normalizeSettingsCategory(tab);
+    const raw = String(tab || 'basic').trim();
+    const normalized = SETTINGS_TAB_ALIASES[raw] || raw;
+    return SETTINGS_TAB_DEFS.some(([id]) => id === normalized) ? normalized : 'basic';
 }
 
 export function normalizePerformanceSettings(value) {
@@ -51,24 +51,16 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye|emergency|spam)$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
-        if (path === 'readerSettings.fxPrompts.inject') return value === true || value === 'true' || value === 1 || value === '1';
-        if (/^readerSettings\.fxPrompts\.(fx|daily|item|bgm|romance|battle|camera|cast|chat|live|audience|feed|text|bilingual|dlc)$/.test(path)) {
-            return (typeof value === 'string' ? value : '').slice(0, 6000);
-        }
-        if (path === 'readerSettings.fxPrompts.style') return value === 'detailed' ? 'detailed' : 'compact';
-        if (/^readerSettings\.(sceneTransition|timeTint|spriteMotion|spriteActions|camera|stageCast|textFx|bilingual|clickWaitMark|bgm|ambientSound|uiSound)\.(enabled|moodTag|night|alignHeads|romanceDuo|castReact|castStage|backHint|breathing|castBreathing|castLean|speakBounce|enterExit|emotionFade|kenBurns|parallax|closeUp|aiShots|birds|rain|wind|insects|waves|crowd|thunder|stream|fire|snow|cicadas|frogs|chimes|bell|clock|drip|train|tavern|ship|traffic|car|carriage|bath|underwater|space)$/.test(path)
+        if (/^readerSettings\.(sceneTransition|timeTint|spriteMotion|spriteActions|camera|stageCast|textFx|bilingual|clickWaitMark|bgm|ambientSound|uiSound)\.(enabled|moodTag|night|alignHeads|romanceDuo|castReact|castStage|breathing|castBreathing|castLean|speakBounce|enterExit|emotionFade|kenBurns|parallax|closeUp|aiShots|birds|rain|wind|insects|waves|crowd|thunder|stream|fire|snow|cicadas|frogs|chimes|bell|clock|drip|train|tavern|ship|traffic|car|carriage|bath|underwater|space)$/.test(path)
             || /^readerSettings\.dailyFx\.[a-zA-Z]+$/.test(path)
-            || (path.startsWith('readerSettings.') && isPackSwitchPath(path.slice('readerSettings.'.length)))
             || /^readerSettings\.(liveFx|audienceFx|innerFx|feedFx)\.(enabled|muteOnNsfw|ambient|useThought|interact|followTheme)$/.test(path)
-            || path === 'readerSettings.liveFx.blockHostile'
             || /^readerSettings\.feedFx\.platforms\.[a-z]+\.enabled$/.test(path)
             || path === 'readerSettings.feedFx.storm.enabled'
-            || path === 'readerSettings.cameraPackFx.sound'
             || path === 'readerSettings.typewriter.punctuationPause'
             || path === 'readerSettings.typewriter.prosody') {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
-        if (path === 'readerSettings.fxSound.volume' || path === 'readerSettings.bgm.volume' || path === 'readerSettings.ambientSound.volume' || path === 'readerSettings.uiSound.volume' || path === 'readerSettings.audioMaster.volume' || path === 'readerSettings.cameraPackFx.volume') {
+        if (path === 'readerSettings.fxSound.volume' || path === 'readerSettings.bgm.volume' || path === 'readerSettings.ambientSound.volume' || path === 'readerSettings.uiSound.volume' || path === 'readerSettings.audioMaster.volume') {
             const volume = Number(value);
             return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.5;
         }
@@ -93,16 +85,12 @@ export function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.statusHud.nsfwCgPortraitShift' || path === 'readerSettings.statusHud.nsfwCgPortraitZoom') return Number(value);
         if (/^readerSettings\.statusHud\.position\.(pc|mobile)\.[xy]$/.test(path)) return normalizeStatusHudPercent(value);
         if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
-        if (/^readerSettings\.waitStage\.(enabled|games|voice)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
-        if (path === 'readerSettings.waitStage.lineSeconds') return Math.min(16, Math.max(3, Math.round(Number(value) || 6)));
         if (path === 'readerSettings.dialogTextEffect') return ['off', 'outline', 'shadow'].includes(value) ? value : 'off';
         if (path === 'readerSettings.dialogTextEffectColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
         if (path === 'readerSettings.spriteDefaultScale') return normalizeSpriteHeight(value, 100);
         if (path === 'readerSettings.spriteGenderScale.enabled') return value === true || value === 'true' || value === 1 || value === '1';
         const genderHeight = path.match(/^readerSettings\.spriteGenderScale\.(female|male|other)$/);
         if (genderHeight) return normalizeSpriteHeight(value, SPRITE_GENDER_SCALE_DEFAULTS[genderHeight[1]]);
-        const ageShorter = path.match(/^readerSettings\.spriteGenderScale\.(elderShorter|childShorter)$/);
-        if (ageShorter) return normalizeSpriteShorter(value, SPRITE_GENDER_SCALE_DEFAULTS[ageShorter[1]]);
         if (path === 'readerSettings.spriteDisplayScale') return normalizeSpriteDisplayScale(value);
         if (path === 'readerSettings.dialogTextEffectStrength') return Math.max(5, Math.min(50, Number(value) || 20));
         if (path === 'readerSettings.dialogTextEffectSize') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
@@ -124,7 +112,7 @@ export function normalizeSettingsValue(path, value) {
     if (path === 'bridge.sceneAssets.spriteEnhance.size') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
     if (path === 'bridge.sceneAssets.promptPlacement') return value === 'depth0' ? 'depth0' : 'system';
     // 按需块条目：关键词与默认一致时存空（留空即用默认），其余字段按条目规范化。
-    const promptEntry = path.match(/^bridge.sceneAssets.promptEntries.([a-z]+).(mode|keys|position|depth|text)$/);
+    const promptEntry = path.match(/^bridge.sceneAssets.promptEntries.([a-z]+).(mode|keys|secondary|exclude|scan|sticky|cooldown)$/);
     if (promptEntry) {
         if (promptEntry[2] === 'keys' && String(value || '').trim() === defaultPromptKeywords(promptEntry[1])) return '';
         return normalizePromptEntry({ [promptEntry[2]]: value })[promptEntry[2]];
@@ -132,7 +120,6 @@ export function normalizeSettingsValue(path, value) {
     if (path === 'bridge.sceneAssets.promptAdaptive') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (path === 'bridge.sceneAssets.wardrobeAutoFlow') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (path === 'bridge.sceneAssets.promptRuleEnabled') return !(value === false || value === 'false' || value === 0 || value === '0');
-    if (path === 'bridge.autoIllustration.assets.dayFirst') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|backfillOldFloors|assets\.(spriteEnabled|backgroundEnabled|strictMatch))$/.test(path)) {
         return value === true || value === 'true' || value === 1 || value === '1';
     }
@@ -149,7 +136,7 @@ export function normalizeSettingsValue(path, value) {
         return Number(value);
     }
     if (/^bridge\.imageApi\.(sprite|background|item)Model$/.test(path)) return String(value || '').trim();
-    if (path === 'bridge.imageApi.dbgenSpriteTransparent') {
+    if (path === 'bridge.imageApi.dbgenSpriteTransparent' || path === 'bridge.imageApi.naiSpriteTransparent') {
         return !(value === false || value === 'false' || value === 0 || value === '0');
     }
     if (path === 'bridge.imageCache.maxCount') return normalizeImageCacheCount(value);
@@ -203,10 +190,6 @@ export function normalizeHiddenButtons(value) {
 
 export function normalizeToolbarSplit(value) {
     return TOOLBAR_SPLIT_MODES.includes(value) ? value : 'split';
-}
-
-export function normalizeToolbarPlate(value) {
-    return TOOLBAR_PLATE_MODES.includes(value) ? value : 'off';
 }
 
 export function normalizeDialogBarAlign(value) {
@@ -276,9 +259,7 @@ export function normalizeSpriteDefaultScale(value) {
 }
 
 // 立绘高度（基准高度、性别默认、角色自定义），单位是舞台高度百分比。不设上下限。
-// elderShorter / childShorter：老人、儿童比同性别默认高度矮多少（百分点），0–60。
-const SPRITE_GENDER_SCALE_DEFAULTS = Object.freeze({ enabled: false, female: 90, male: 100, other: 95, elderShorter: 5, childShorter: 20 });
-export const SPRITE_SHORTER_RANGE = Object.freeze([0, 60]);
+const SPRITE_GENDER_SCALE_DEFAULTS = Object.freeze({ enabled: false, female: 90, male: 100, other: 95 });
 
 // 留空、不是数字或为 0 时用 fallback；其余取整，正负都可以。
 export function normalizeSpriteHeight(value, fallback = null) {
@@ -286,14 +267,6 @@ export function normalizeSpriteHeight(value, fallback = null) {
     const n = Number(value);
     if (!Number.isFinite(n) || n === 0) return fallback;
     return Math.round(n);
-}
-
-// 矮多少：留空或非数字用 fallback，其余夹到 0–60 取整（不接受负数，免得老人反而更高）。
-export function normalizeSpriteShorter(value, fallback = 0) {
-    if (value == null || String(value).trim() === '') return fallback;
-    const n = Number(value);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.round(Math.max(SPRITE_SHORTER_RANGE[0], Math.min(SPRITE_SHORTER_RANGE[1], n)));
 }
 
 export function normalizeSpriteGenderScale(value) {
@@ -304,8 +277,6 @@ export function normalizeSpriteGenderScale(value) {
         female: normalizeSpriteHeight(src.female, defaults.female),
         male: normalizeSpriteHeight(src.male, defaults.male),
         other: normalizeSpriteHeight(src.other, defaults.other),
-        elderShorter: normalizeSpriteShorter(src.elderShorter, defaults.elderShorter),
-        childShorter: normalizeSpriteShorter(src.childShorter, defaults.childShorter),
     };
 }
 
@@ -371,10 +342,6 @@ export function resolveSpriteLayout(layouts, mode, character, mood, outfit = '',
             const moodKey = `${mode}::${character}::${mood}`;
             if (layouts[moodKey]) return placed(layouts[moodKey]);
         }
-        // 原装默认槽：未命中情绪的页把 spriteMood 改写成「默认」，但旁白/无情绪页 mood 为空，
-        // 不写这一层的话，调整「默认」立绘的缩放只在带情绪词的页生效，其余页全部回弹。
-        const baseSlotKey = `${mode}::${character}::默认`;
-        if (identity === character && (!mood || mood === '默认') && layouts[baseSlotKey]) return placed(layouts[baseSlotKey]);
         const charKey = `${mode}::${character}`;
         if (layouts[charKey]) return placed(layouts[charKey]);
     }

@@ -53,8 +53,6 @@ export function shouldInviteOnboarding(readResult, session = {}) {
         && readResult.state.status === 'unseen' && !(session && session.answered));
 }
 
-// 测试与调用方按 id 取下标，不写死数字。
-export function stepIndex(id) { return ONBOARDING_STEPS.findIndex((step) => step.id === id); }
 export function getOnboardingStep(index) { return ONBOARDING_STEPS[normalizeOnboardingStep(index)]; }
 export function nextOnboardingStep(index) { return Math.min(normalizeOnboardingStep(index) + 1, LAST_STEP); }
 export function prevOnboardingStep(index) { return Math.max(normalizeOnboardingStep(index) - 1, 0); }

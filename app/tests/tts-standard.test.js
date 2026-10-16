@@ -154,9 +154,9 @@ test('gate: tts settings show sustain, pronunciation table, bilingual choice and
     const { bootstrapIGS } = await import('../src/index.js');
     const vn = bootstrapIGS({ global: {}, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
     try {
-        const controller = vn.openSettings({ tab: 'sound', mode: 'pc' }).controller;
+        const controller = vn.openSettings({ tab: 'reader', mode: 'pc' }).controller;
         controller.toggle('readerSettings.tts.enabled');
-        controller.switchPage('sound');
+        controller.switchReaderSubTab('performance');
         // 细项要展开才渲染。
         const opened = await controller.invoke('ui-toggle-open:perf-tts');
         const html = opened.html || controller.getSnapshot().html;

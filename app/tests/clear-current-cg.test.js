@@ -1,8 +1,7 @@
-import { createAutoIllustrationService } from './helpers/media-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryIllustrationStore, floorKeyOf } from '../src/media/illustration-store.js';
-
+import { createAutoIllustrationService } from '../src/generated-images/illustration/auto-illustration-service.js';
 import { clearCurrentCg } from '../src/generated-images/illustration/clear-current-cg.js';
 
 const current = { identity: { chatId: 'chat-1', messageId: 8, swipeId: 2 }, slot: 1, url: 'blob:cg-1' };
@@ -65,13 +64,11 @@ test('gate:illustration:clear-service-deletes-slot-invalidates-cache-and-emits-u
 
     const result = await service.clearIllustration({ ...floor, slot: 1 });
     assert.equal(result.ok, true);
-    assert.equal(events.at(-1).type, 'igs:illustration-updated');
-    assert.deepEqual(events.at(-1).payload, { ...floor, slot: 1 });
     assert.equal(service.getIllustrationUrl({ ...floor, slot: 1 }), '');
-    assert.equal(service.getIllustrationUrl({ ...floor, slot: 2 }), '');
-    await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(service.getIllustrationUrl({ ...floor, slot: 2 }), 'blob:cg-2');
     assert.deepEqual((await store.getSlots(key)).map((item) => item.slot), [2]);
+    assert.equal(events.at(-1).type, 'igs:illustration-updated');
+    assert.deepEqual(events.at(-1).payload, { ...floor, slot: 1 });
 });
 
 test('gate:illustration:clear-removes-the-marker-and-keeps-the-other-cg', async () => {
@@ -187,7 +184,7 @@ test('gate:illustration:reroll-one-paints-without-rewriting-the-prompt', async (
         nai: {
             describe: () => ({ via: 'dbgen', ready: { ok: true } }),
             writeDbgenFloorPrompts: async () => { calls.floor += 1; return { ok: false }; },
-            generateDbgenCaption: async (req) => { calls.paint += 1; calls.caption = req.caption; return { ok: true, dataUrl: 'blob:new' }; },
+            generateDbgenCaption: async (req) => { calls.paint += 1; calls.caption = req.caption; return { ok: true, dataUrl: 'new' }; },
         },
         getSettings: () => ({ nsfwEnabled: true }),
         events: { emit() {} },
@@ -202,7 +199,7 @@ test('gate:illustration:reroll-one-paints-without-rewriting-the-prompt', async (
     assert.equal(calls.floor, 0);
     assert.equal(calls.paint, 1);
     assert.equal(calls.caption.kept, true);
-    assert.equal(service.getIllustrationUrl({ messageId: 5, slot: 1 }), 'blob:new');
+    assert.equal(service.getIllustrationUrl({ messageId: 5, slot: 1 }), 'new');
 });
 
 test('gate:illustration:reroll-floor-strips-markers-then-writes-prompts', async () => {

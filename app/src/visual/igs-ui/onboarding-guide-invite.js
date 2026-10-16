@@ -10,7 +10,7 @@ export function removeOnboardingInvite(overlay) {
     overlay?.querySelector?.(`#${ONBOARDING_INVITE_ID}`)?.remove?.();
 }
 
-export function mountOnboardingInvite(overlay, onChoose, doc = overlay?.ownerDocument, options = {}) {
+export function mountOnboardingInvite(overlay, onChoose, doc = overlay?.ownerDocument) {
     removeOnboardingInvite(overlay);
     if (!overlay || !doc || typeof doc.createElement !== 'function') return null;
     const bar = doc.createElement('div');
@@ -18,9 +18,8 @@ export function mountOnboardingInvite(overlay, onChoose, doc = overlay?.ownerDoc
     bar.className = 'igs-onboarding-invite';
     bar.setAttribute('role', 'region');
     bar.setAttribute('aria-label', '新手引导邀请');
-    const resume = Boolean(options && options.resume);
-    bar.innerHTML = `<span class="igs-onboarding-invite-text">${resume ? '上次的新手引导还没完成' : '首次使用？用1分钟完成常用设置'}</span>`
-        + `<button type="button" class="igs-onboarding-btn is-primary" data-onboarding-invite="start">${resume ? '继续' : '开始'}</button>`
+    bar.innerHTML = '<span class="igs-onboarding-invite-text">首次使用？用 1 分钟完成常用设置</span>'
+        + '<button type="button" class="igs-onboarding-btn is-primary" data-onboarding-invite="start">开始</button>'
         + '<button type="button" class="igs-onboarding-btn" data-onboarding-invite="later">以后再说</button>'
         + '<button type="button" class="igs-onboarding-btn is-quiet" data-onboarding-invite="never">不再提示</button>';
     for (const type of STOP_EVENTS) {

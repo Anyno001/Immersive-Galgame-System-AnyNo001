@@ -3,16 +3,14 @@ import assert from 'node:assert/strict';
 import {
     STAGE_PAUSED_ATTR,
     STAGE_PAUSE_STYLE_TEXT,
-    STAGE_REST_ATTR,
-    isStageIdle,
     isStagePaused,
-    markStageActive,
     onStageResume,
     setStagePauseReason,
     watchStagePause,
 } from '../src/visual/igs-ui/stage-pause.js';
 import { startWeatherParticles } from '../src/visual/igs-ui/weather-fx-particles.js';
 import { startPetals } from '../src/visual/igs-ui/fx-daily-particles.js';
+import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 
 function matchesOne(el, selector) {
     const s = selector.trim();
@@ -170,30 +168,11 @@ test('gate:stage-pause:watch-drives-hidden-and-offscreen-and-cleans-up', () => {
     assert.equal(isStagePaused(overlay), false);
 });
 
-test('gate:stage-pause:rest-after-quiet-pauses-backdrop-but-not-foreground', () => {
-    const { doc, overlay } = stage();
-    const timers = [];
-    doc.defaultView.setTimeout = (fn) => { timers.push(fn); return timers.length; };
-    doc.defaultView.clearTimeout = (id) => { timers[id - 1] = null; };
-    let resumed = 0;
-    onStageResume(overlay, () => { resumed += 1; });
-    const stop = watchStagePause(overlay, { restMs: 1000 });
-    const fire = () => { const fn = timers.filter(Boolean).pop(); timers.length = 0; fn?.(); };
-    fire();
-    assert.equal(overlay.getAttribute(STAGE_REST_ATTR), '1');
-    assert.equal(isStageIdle(overlay), true);
-    assert.equal(isStageIdle(overlay, { ignoreRest: true }), false);
-    assert.equal(isStagePaused(overlay), false);
-    doc.listeners.get('pointerdown')();
-    assert.equal(overlay.getAttribute(STAGE_REST_ATTR), null);
-    assert.equal(resumed, 1);
-    fire();
-    markStageActive(overlay);
-    assert.equal(isStageIdle(overlay), false);
-    fire();
-    stop();
-    assert.equal(overlay.getAttribute(STAGE_REST_ATTR), null);
-    assert.equal(doc.listeners.has('pointerdown'), false);
-    assert.match(STAGE_PAUSE_STYLE_TEXT, /data-igs-stage-rest\] :is\([^)]*#igs-bg[^)]*\.igs-dfx-amb/);
-    assert.doesNotMatch(STAGE_PAUSE_STYLE_TEXT, /data-igs-stage-rest\] :is\([^)]*(#igs-fx-front|igs-rm-)/);
+test('gate:stage-pause:css-pauses-only-stage-layers', () => {
+    assert.ok(getOriginalReaderStyleText().includes(STAGE_PAUSE_STYLE_TEXT));
+    assert.match(STAGE_PAUSE_STYLE_TEXT, /animation-play-state:paused!important/);
+    for (const id of ['#igs-bg', '#igs-sprite', '#igs-cast', '#igs-effect-layer', '#igs-fx-stage', '#igs-fx-front']) assert.ok(STAGE_PAUSE_STYLE_TEXT.includes(id), id);
+    for (const panel of ['#igs-dialog', '#igs-text', '#igs-db-layer', '#igs-record-panel', '#igs-map-panel', '#igs-cg-gallery', '#igs-unified-settings', '#igs-toolbar']) {
+        assert.equal(STAGE_PAUSE_STYLE_TEXT.includes(panel), false, panel);
+    }
 });

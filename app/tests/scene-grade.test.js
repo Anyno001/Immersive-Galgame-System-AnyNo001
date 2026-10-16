@@ -8,6 +8,7 @@ import {
 } from '../src/visual/igs-ui/scene-grade.js';
 import { WEATHER_FLASH_EVENT } from '../src/visual/igs-ui/weather-fx-runtime.js';
 import { setStagePauseReason } from '../src/visual/igs-ui/stage-pause.js';
+import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 
 const TINT = { enabled: true, strength: 'medium' };
 const WEATHER = { enabled: true };
@@ -211,6 +212,13 @@ test('gate: lightning brightens the graded stage and settles back, but not in dr
     assert.equal(r.bg.style.getPropertyValue('--igs-grade-bg'), '');
     cancelSceneGrade(r.root);
     assert.ok(!r.root.listeners.has(WEATHER_FLASH_EVENT));
+});
+
+test('gate: reader styles compose bg and sprite filters through variables', () => {
+    const css = getOriginalReaderStyleText();
+    assert.ok(css.includes('#igs-overlay #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) var(--igs-grade-bg,)'));
+    assert.ok(css.includes('#igs-overlay #igs-sprite.igs-sprite-narration{--igs-sprite-dim:brightness(.86) saturate(.86);}'));
+    assert.ok(!css.includes('igs-sd-tint'));
 });
 
 test('gate:perf:scene-grade-writes-vars-on-consumers-not-overlay-root', () => {

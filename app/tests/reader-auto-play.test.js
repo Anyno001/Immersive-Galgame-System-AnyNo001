@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AUTO_PLAY_SPEEDS, createReaderAutoPlay } from '../src/visual/igs-ui/reader-auto-play.js';
 import { createAutoPlayClock } from './helpers/auto-play-clock.js';
+import { ORIGINAL_READER_ICONS, getOriginalReaderHtml, getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 
 function fixture() {
     const timers = createAutoPlayClock();
@@ -53,6 +54,19 @@ test('gate:auto-play:waits-for-text-and-panel-before-counting-a-full-delay', asy
     } finally { player.stop(); }
 });
 
+test('gate:auto-play:toolbar-only-keeps-play-and-stop-in-existing-icon-language', () => {
+    for (const svg of [ORIGINAL_READER_ICONS.play, ORIGINAL_READER_ICONS.stop]) {
+        assert.match(svg, /^<svg /);
+        assert.match(svg, /viewBox="0 0 24 24"/);
+        assert.match(svg, /stroke="currentColor" stroke-width="2"/);
+        assert.doesNotMatch(svg, /<text|<span|[快中慢]/);
+    }
+    assert.match(ORIGINAL_READER_ICONS.stop, /<rect /);
+    const html = getOriginalReaderHtml();
+    assert.ok(html.includes(ORIGINAL_READER_ICONS.play));
+    assert.doesNotMatch(html, /auto-speed/);
+    assert.doesNotMatch(getOriginalReaderStyleText(), /\.igs-icon-btn\[data-act="auto-speed"\]/);
+});
 test('gate:auto-play:set-speed-normalizes-invalid-values-and-keeps-unchanged-countdown', async () => {
     const { player, timers, calls } = fixture();
     try {

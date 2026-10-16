@@ -1,21 +1,15 @@
-import { DAILY_FX_KINDS, dailyFxHasRoom, dailyFxOf, parseDailyFxBody } from './daily-fx-directives.js';
+import { DAILY_FX_KINDS, DAILY_FX_PAGE_MAX, dailyFxOf, parseDailyFxBody } from './daily-fx-directives.js';
 import { FEED_VIEW_MAX, foldFeedDirectives, foldStormDirectives, parseFeedBody } from './feed-platforms.js';
 import { normalizeBgmCue } from './bgm-moods.js';
-import { FX_PACK_STATE_ALIASES } from './fx-packs.js';
-import { buildStateAliases, parseStateBody } from './fx-state.js';
 import { DLC_FX_ARG_MAX, DLC_FX_PAGE_MAX, getDlcFx, isDlcFxKind } from './fx-registry.js';
 
 export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'delivery', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
-// 持续状态滤镜区间 [igs-fx:state|醉酒|重] … [igs-fx:state-end]：独立于 FX_TAG_KINDS，由有题材包开着时生效（见 visual/igs-ui/fx-runtime.js）。
-const FX_STATE_ALIASES = buildStateAliases(FX_PACK_STATE_ALIASES);
 export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox', 'whisper', 'movie', 'light', 'umbrella']);
 // 外卖 / 快递 [igs-fx:delivery|物品|配送方|阶段]：物品必填（外卖、快递、奶茶…），配送方可省，
 // 阶段 order 为刚下单、arrive 为送到门口按门铃（默认）；阶段词写错按 arrive 处理。
 export const FX_DELIVERY_STAGES = Object.freeze(['order', 'arrive']);
 // 关灯区间：light|off 开始、light|on 或 light-end 结束；其余写法整条丢弃。
 const FX_LIGHT_MODES = Object.freeze({ off: 'off', 关: 'off', 关灯: 'off', 吹灯: 'off', on: 'on', 开: 'on', 开灯: 'on', 点灯: 'on' });
-// 看电影区间可选第 1 栏写「屏光」等词：改走屏幕冷光染脸（办公屏幕、手机、电视的光打在立绘上）；不写或写别的词按普通看电影处理。
-const FX_MOVIE_MODES = Object.freeze({ 屏光: 'screen', 屏幕: 'screen', 冷光: 'screen', 电脑: 'screen', 手机: 'screen', 加班: 'screen', screen: 'screen', glow: 'screen' });
 export const FX_EYE_MODES = Object.freeze(['open', 'close']);
 // 物品事件 [igs-fx:item|获得|名称|描述|重要]：独立于 FX_TAG_KINDS（不进入标签演出开关），由物品演出开关控制。
 export const FX_ITEM_ACTIONS = Object.freeze({ 获得: 'gain', 得到: 'gain', gain: 'gain', 失去: 'lose', lose: 'lose', 使用: 'use', use: 'use' });
@@ -42,7 +36,6 @@ export const FX_REACT_PAGE_MAX = 3;
 // 姿态（背对、上前、靠近、拉开、离开）在楼层内按偏移累积到当前页，复位清空；入场只在标签所在页生效，每页最多 3 个角色。
 export const FX_STAGE_ACTIONS = Object.freeze({
     靠近: 'near', near: 'near', 拉开: 'apart', apart: 'apart', 背对: 'turn', 转身: 'turn', turn: 'turn',
-    回眸: 'glance', glance: 'glance', 甩头离开: 'storm', 甩头: 'storm', storm: 'storm', 转身面对: 'face', face: 'face', 背影: 'back', back: 'back',
     上前: 'front', front: 'front', 离开: 'leave', leave: 'leave', 复位: 'reset', reset: 'reset',
     跑进来: 'run', run: 'run', 探头: 'peek', peek: 'peek', 慢慢走进来: 'slow', slow: 'slow',
 });
@@ -104,18 +97,7 @@ export const FX_CAMERA_SHOTS = Object.freeze({
     特写: 'closeup', 近景: 'closeup', closeup: 'closeup', 拉远: 'wide', 远景: 'wide', 全景: 'wide', wide: 'wide',
     虚化: 'focus', 景深: 'focus', 焦点: 'focus', focus: 'focus', 摇镜: 'pan', 横摇: 'pan', pan: 'pan',
     倾斜: 'tilt', 斜角: 'tilt', 荷兰角: 'tilt', tilt: 'tilt', 复位: 'reset', reset: 'reset',
-    // 戏剧动作镜头：目前落到已有的五种镜头上（贴近的收紧成特写，失衡的歪斜，水中的虚化）。
-    壁咚: 'closeup', 墙咚: 'closeup', 抵墙: 'closeup', 捏下巴: 'closeup', 挑下巴: 'closeup', 抬下巴: 'closeup',
-    挡剑: 'tilt', 以身挡刀: 'tilt', 坠落: 'tilt', 跌落: 'tilt', 下坠: 'tilt', 落水: 'focus', 入水: 'focus', 坠水: 'focus',
-    // 镜头与空间包的镜头：跟拍、甩镜、升降（坐下躺下起身）、希区柯克变焦、主观、慢动作、空镜。
-    跟拍: 'track', 平移: 'track', track: 'track', 甩镜: 'whip', 快摇: 'whip', whip: 'whip',
-    下沉: 'sink', 坐下: 'sink', 躺下: 'sink', sink: 'sink', 升起: 'rise', 起身: 'rise', rise: 'rise', 仰望: 'lookup', 仰视: 'lookup', lookup: 'lookup',
-    变焦: 'vertigo', 滑动变焦: 'vertigo', vertigo: 'vertigo', 主观: 'pov', 主观镜头: 'pov', pov: 'pov',
-    慢: 'slow', 慢动作: 'slow', slow: 'slow', 空镜: 'empty', 空镜头: 'empty', empty: 'empty',
 });
-const FX_CAMERA_VERTIGO = Object.freeze({ 远: 'far', 拉远: 'far', far: 'far', 近: 'near', 推近: 'near', near: 'near' });
-const FX_CAMERA_FOCUS = Object.freeze({ 前: 'front', 前景: 'front', front: 'front', 后: 'back', 后景: 'back', back: 'back' });
-const FX_CAMERA_MODS = Object.freeze({ 手持: 'hand', hand: 'hand', 慢: 'slow', slow: 'slow' });
 const FX_CAMERA_PAN_DIRS = Object.freeze({ 左: 'left', 向左: 'left', left: 'left', 右: 'right', 向右: 'right', right: 'right' });
 
 // 配乐情绪 [igs-fx:bgm|悲]：独立于 FX_TAG_KINDS，由背景音乐的情绪标签开关控制；情绪词写错整条丢弃（照常从正文剥离）。
@@ -201,9 +183,9 @@ export function parseFxBody(body) {
         if (!action) return null;
         if (action === 'reset') return { kind, end: false, args: ['reset', '', ''] };
         if (!parts[2]) return null;
-        const pair = action === 'near' || action === 'apart' || action === 'face';
+        const pair = action === 'near' || action === 'apart';
         if (pair && (!parts[3] || parts[3] === parts[2])) return null;
-        return { kind, end: false, args: [action, parts[2], pair || action === 'back' ? parts[3] || '' : ''] };
+        return { kind, end: false, args: [action, parts[2], pair ? parts[3] : ''] };
     }
     if (kind === 'bgm') {
         const mood = isEnd ? '' : normalizeBgmCue(parts[1]);
@@ -212,18 +194,8 @@ export function parseFxBody(body) {
     if (kind === 'cam') {
         const shot = isEnd ? '' : lookup(FX_CAMERA_SHOTS, parts[1], '');
         if (!shot) return null;
-        const mod = [parts[2], parts[3]].map((p) => lookup(FX_CAMERA_MODS, p, '')).find(Boolean) || '';
-        let target = '';
-        if (shot === 'pan' || shot === 'track' || shot === 'whip') target = lookup(FX_CAMERA_PAN_DIRS, parts[2], 'right');
-        else if (shot === 'closeup') target = parts[2] || '';
-        else if (shot === 'vertigo') target = lookup(FX_CAMERA_VERTIGO, parts[2], 'far');
-        else if (shot === 'focus') target = lookup(FX_CAMERA_FOCUS, parts[2], '');
-        return { kind, end: false, args: mod ? [shot, target, mod] : [shot, target] };
-    }
-    if (kind === 'state') {
-        if (isEnd) return { kind, end: true, args: [] };
-        const state = parseStateBody(parts.slice(1), FX_STATE_ALIASES);
-        return state ? { kind, end: false, args: state } : null;
+        if (shot === 'pan') return { kind, end: false, args: [shot, lookup(FX_CAMERA_PAN_DIRS, parts[2], 'right')] };
+        return { kind, end: false, args: [shot, shot === 'closeup' ? parts[2] || '' : ''] };
     }
     if (kind === 'confess') return isEnd ? null : { kind, end: false, args: [] };
     if (kind === 'memory') return !isEnd && parts[1] ? { kind, end: false, args: [parts[1]] } : null;
@@ -264,7 +236,6 @@ export function parseFxBody(body) {
         if (mode === 'on') return { kind, end: true, args: [] };
         return null;
     }
-    if (kind === 'movie') return { kind, end: false, args: [lookup(FX_MOVIE_MODES, args[0], '')] };
     if (kind === 'sfx' && !args[0]) return null;
     // 外卖 / 快递：物品栏必填；配送方可省；阶段词只认 order / arrive，写别的按 arrive（默认送到）。
     if (kind === 'delivery') {
@@ -341,28 +312,7 @@ function applyStageDirective(result, d, current) {
     }
     if (action === 'turn' || action === 'front') {
         const prev = result.poses[a] || { flip: false, front: false };
-        const { face, back, backText, storm, ...plain } = prev;
-        result.poses[a] = action === 'turn' ? { ...plain, flip: !prev.flip } : { ...prev, front: true };
-        return;
-    }
-    // 变体：回眸 / 甩头离开 / 转身面对 / 背影。turns 只收标签所在页，供转身动画选动作；姿态本身仍累积。
-    // 同一页同一角色写了多条时以最后一条为准，和姿态累积保持一致（否则 turns 留第一条、姿态留最后一条，两者对不上会整页无动作）。
-    if (action === 'glance' || action === 'storm' || action === 'face' || action === 'back') {
-        const prev = result.poses[a] || { flip: false, front: false };
-        const { face, back, backText, storm, ...plain } = prev;
-        if (current) result.turns = { ...result.turns, [a]: action };
-        if (action === 'glance') result.poses[a] = { ...plain, flip: false };
-        else if (action === 'storm') {
-            result.poses[a] = { ...plain, flip: true, storm: true };
-            result.goneAt[a] = d.offset;
-        } else if (action === 'back') result.poses[a] = { ...plain, flip: true, back: true, ...(b ? { backText: b } : {}) };
-        else {
-            const other = result.poses[b] || { flip: false, front: false };
-            const { face: of, back: ob, backText: ot, storm: os, ...otherPlain } = other;
-            result.poses[a] = { ...plain, face: b };
-            result.poses[b] = { ...otherPlain, face: a };
-            if (current) result.turns[b] = action;
-        }
+        result.poses[a] = action === 'turn' ? { ...prev, flip: !prev.flip } : { ...prev, front: true };
         return;
     }
     const key = [a, b].sort().join('\u0000');
@@ -370,29 +320,9 @@ function applyStageDirective(result, d, current) {
     result.links.push({ a, b, kind: action });
 }
 
-const FX_PERSISTENT_KEYS = ['call', 'flashback', 'dream', 'letterbox', 'whisper', 'stateFx', 'movie', 'movieMode',
-    'lightsOff', 'umbrella', 'battle', 'poses', 'links', 'goneAt', 'romance', 'romanceTarget', 'romanceAt',
-    'live', 'bgmMood', 'sense', 'solo', 'dlcRanges'];
-
-// 顺序准备整楼时沿用上一页的区间状态，只消费新指令。随机单页调用仍走原有纯解析入口。
-export function createFxPageResolver(directives, initial = null) {
-    const feed = directives.filter(d => ['app', 'post', 'reply'].includes(d.kind));
-    const storm = directives.filter(d => d.kind === 'storm' || d.kind === 'mention');
-    let previous = null, previousOffset = -1, startIndex = 0;
-    return (offset, prevOffset = -1, nextOffset = -1, pagedDirectives = directives) => {
-        const incremental = previous && previousOffset === prevOffset && offset >= previousOffset && pagedDirectives === directives;
-        const result = resolveFxAtPage(pagedDirectives, offset, prevOffset, initial, nextOffset,
-            { previous: incremental ? previous : null, startIndex: incremental ? startIndex : 0, feed, storm });
-        if (offset < previousOffset) startIndex = 0;
-        previous = result; previousOffset = offset;
-        while (startIndex < directives.length && directives[startIndex].offset <= offset) startIndex++;
-        return result;
-    };
-}
-
-export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null, nextOffset = -1, prepared = null) {
+export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null) {
     const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
-    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, stateFx: null, movie: false, movieMode: '', lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, turns: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null, storm: null };
+    const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, movie: false, lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null, storm: null };
     // 感官调度：区间状态，作用到下一条 sense / sense-end。
     result.sense = '';
     // 独处：区间状态 { target }；外面的动静：只归标签所在页。
@@ -404,15 +334,8 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
-    if (prepared?.previous) {
-        for (const key of FX_PERSISTENT_KEYS) result[key] = prepared.previous[key];
-        result.poses = { ...result.poses };
-        result.goneAt = { ...result.goneAt };
-        result.dlcRanges = { ...result.dlcRanges };
-    }
     const seen = new Set();
-    for (let index = prepared?.startIndex || 0; index < directives.length; index++) {
-        const d = directives[index];
+    for (const d of directives) {
         if (d.offset > at) break;
         const openCall = result.call;
         if (d.kind === 'call') result.call = d.end ? null : { ...callOf(d), at: d.offset };
@@ -420,10 +343,9 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         else if (d.kind === 'dream') result.dream = !d.end;
         else if (d.kind === 'letterbox') result.letterbox = !d.end;
         else if (d.kind === 'whisper') result.whisper = !d.end;
-        else if (d.kind === 'movie') { result.movie = !d.end; result.movieMode = d.end ? '' : (d.args[0] || ''); }
+        else if (d.kind === 'movie') result.movie = !d.end;
         else if (d.kind === 'light') result.lightsOff = !d.end;
         else if (d.kind === 'umbrella') result.umbrella = !d.end;
-        else if (d.kind === 'state') result.stateFx = d.end ? null : { type: d.args[0], level: d.args[1] };
         else if (d.kind === 'battle') result.battle = d.end ? null : { foe: d.args[0], title: d.args[1] };
         else if (d.kind === 'live') result.live = d.end ? null : { name: d.args[0], title: d.args[1], view: d.args[2] };
         else if (d.kind === 'bgm') result.bgmMood = d.args[0];
@@ -469,7 +391,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
             continue;
         }
         if (d.kind === 'cam') {
-            if (!result.cam) result.cam = d.args[2] ? { shot: d.args[0], target: d.args[1], mod: d.args[2] } : { shot: d.args[0], target: d.args[1] };
+            if (!result.cam) result.cam = { shot: d.args[0], target: d.args[1] };
             continue;
         }
         if (d.kind === 'live') continue;
@@ -487,7 +409,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         }
         if (d.kind === 'daily') {
             const daily = dailyFxOf(d.args);
-            if (daily && dailyFxHasRoom(result.daily, daily.type) && !result.daily.some((item) => item.type === daily.type)) result.daily.push(daily);
+            if (daily && result.daily.length < DAILY_FX_PAGE_MAX && !result.daily.some((item) => item.type === daily.type)) result.daily.push(daily);
             continue;
         }
         if (d.kind === 'item') {
@@ -505,10 +427,10 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         result.instants.push(instant);
     }
     // 手机社区：区间内取最近几条帖子，本页新出现的标 fresh。
-    const feed = foldFeedDirectives(prepared?.feed || directives, at, Number(nextOffset));
+    const feed = foldFeedDirectives(directives, at);
     result.feed = feed ? { platform: feed.platform, owner: feed.owner, posts: feed.posts.slice(-FEED_VIEW_MAX).map((post) => ({ ...post, fresh: post.offset > from })) } : null;
     // 舆论风暴：区间内累积到当前页的 @ 评论，本页新出现的标 fresh。
-    result.storm = foldStormDirectives(prepared?.storm || directives, at, from);
+    result.storm = foldStormDirectives(directives, at, from);
     return result;
 }
 

@@ -86,15 +86,15 @@ export function itemShowcaseHoldMs(card) {
 
 // 物品表变动补成的事件：挂在正文首次提到该物品的页（找不到就挂第 1 页）。
 // 表格常在翻过几页后才更新：目标页已翻过的事件在当前页补播一次（shown 记已播过的）。本楼 AI 已写标签的物品不重复。
-export function mergeItemEvents(fx, { events, segments, index, tagNames, shown, floorKey = '', pageFor } = {}) {
+export function mergeItemEvents(fx, { events, segments, index, tagNames, shown, floorKey = '' } = {}) {
     if (!fx || !Array.isArray(fx.items) || !Array.isArray(events) || !events.length) return fx;
-    const pages = typeof pageFor === 'function' ? [] : Array.isArray(segments) ? segments.map((segment) => String(segment || '')) : [];
+    const pages = Array.isArray(segments) ? segments.map((segment) => String(segment || '')) : [];
     const skip = tagNames instanceof Set ? tagNames : new Set();
     const played = shown instanceof Set ? shown : new Set();
     for (const event of events) {
         const key = normalizeItemName(event && event.name);
         if (!key || skip.has(key)) continue;
-        const found = typeof pageFor === 'function' ? pageFor(event.name) : pages.findIndex((text) => text.includes(event.name));
+        const found = pages.findIndex((text) => text.includes(event.name));
         const target = found >= 0 ? found : 0;
         const mark = `${floorKey}|${event.action}|${key}`;
         if (target > index || (target < index && played.has(mark))) continue;

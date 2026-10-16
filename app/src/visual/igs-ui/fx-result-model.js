@@ -45,34 +45,7 @@ function reel(label, value, sub, outcome = '') {
 
 function side(part, outcome) {
     const source = part && typeof part === 'object' ? part : {};
-    return { ...reel(`${source.name || ''}·${source.attribute || ''}`, source.roll, `目标${source.target ?? ''} · ${source.tier || ''}`, outcome), who: String(source.name || '') };
-}
-
-// 骰池：每颗骰一个滚轮，面数写进 die 让展示层换骰面外形；合计与成败放进结论。
-const POOL_DIE_SIDES = Object.freeze([4, 6, 8, 10, 12, 20, 100]);
-
-function poolPlan(detail) {
-    const sides = Number(detail.sides);
-    const dice = Array.isArray(detail.dice) ? detail.dice.map(Number) : [];
-    const total = Number(detail.total);
-    if (!POOL_DIE_SIDES.includes(sides) || !dice.length || dice.length > 10 || dice.some((value) => !Number.isInteger(value) || value < 1 || value > sides) || !Number.isFinite(total)) return null;
-    const hasTarget = detail.target !== null && detail.target !== undefined && Number.isFinite(Number(detail.target));
-    const success = detail.success === true;
-    const tier = detail.tier === '大成功' ? 'crit' : detail.tier === '大失败' ? 'fumble' : '';
-    const modifier = Number(detail.modifier) || 0;
-    const tail = hasTarget ? ` · ${detail.tier || (success ? '成功' : '失败')}` : '';
-    return {
-        type: 'dice',
-        title: String(detail.label || detail.expr || '骰池'),
-        reels: dice.map((value) => ({ ...reel(`d${sides}`, value, ''), die: sides })),
-        verdict: `合计 ${total}${tail}`,
-        sub: hasTarget ? `${modifier ? `修正${modifier > 0 ? '+' : ''}${modifier} · ` : ''}需${detail.under ? '≤' : '≥'}${detail.target}` : (modifier ? `修正${modifier > 0 ? '+' : ''}${modifier}` : ''),
-        tone: tier || (hasTarget ? (success ? 'success' : 'fail') : 'neutral'),
-        tier,
-        layout: 'pool',
-        rollMs: RESULT_FX_ROLL_MS,
-        holdMs: RESULT_FX_HOLD_MS,
-    };
+    return reel(`${source.name || ''}·${source.attribute || ''}`, source.roll, `目标${source.target ?? ''} · ${source.tier || ''}`, outcome);
 }
 
 // 返回 null 表示明细不完整，调用方不播放（不编造数字）。
@@ -115,12 +88,10 @@ export function buildResultFxPlan(detail) {
             reels: [left, right],
             verdict: String(detail.verdict || ''),
             tone,
-            layout: 'contest',
             rollMs: RESULT_FX_ROLL_MS,
             holdMs: RESULT_FX_HOLD_MS,
         };
     }
-    if (detail.kind === 'pool') return poolPlan(detail);
     return null;
 }
 
@@ -133,4 +104,10 @@ export function resultDetailOf(result) {
     return null;
 }
 
-export { rollingFrames } from './fx-ticker.js';
+// 过程动画中显示的滚动数字：确定性序列，便于测试；最后一帧必为真实结果。
+export function rollingFrames(finalValue, count = 8, random = Math.random) {
+    const frames = [];
+    for (let i = 0; i < Math.max(0, count - 1); i += 1) frames.push(1 + Math.floor(random() * 100));
+    frames.push(finalValue);
+    return frames;
+}

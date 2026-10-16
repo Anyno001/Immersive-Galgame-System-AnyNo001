@@ -100,12 +100,6 @@ export function applyDialogSkinAssets(dialog, readerSettings) {
         return;
     }
     dialog.setAttribute('data-igs-dialog-skin', skin);
-    // 仙侠水墨的姓名排布随设置挂在对话框上（center 时名字+剑气下划线居中）；其他皮肤不携带这个状态。
-    if (typeof dialog.setAttribute === 'function' && skin === 'xianxia-ink') {
-        dialog.setAttribute('data-igs-speaker-align', readerSettings && readerSettings.xianxiaSpeaker === 'center' ? 'center' : 'left');
-    } else if (typeof dialog.removeAttribute === 'function') {
-        dialog.removeAttribute('data-igs-speaker-align');
-    }
 }
 
 // 姓名牌素材 65×68，可见牌面在上方 0–57px；按 52px 高等比缩放后两端 50px，牌面约 44px。

@@ -1,9 +1,7 @@
 // 手机通知中心样式：入口排在观众弹幕入口、回看入口之后；下拉通知栏只用 transform / opacity，色块一律实色。
 export const NOTIFY_CENTER_STYLE_TEXT = `
-.igs-nc-entry{--igs-aud-entry:38px;order:2;width:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));height:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));padding:0;box-sizing:border-box;border:0;background:transparent;color:#f4f1ec;opacity:.55;cursor:pointer;pointer-events:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));transition:opacity .2s ease;}
+.igs-nc-entry{--igs-aud-entry:38px;position:absolute;left:calc(14px + var(--igs-nc-slot,0) * (var(--igs-aud-entry) * var(--igs-hud-scale,1) + 8px));top:var(--igs-nc-top,14px);width:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));height:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));padding:7px;box-sizing:border-box;border:0;background:transparent;color:#f4f1ec;opacity:.55;cursor:pointer;pointer-events:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));transition:opacity .2s ease;}
 .igs-nc-entry[hidden]{display:none;}
-/* 仅手机等待通知横幅退场；好友卡复用 notify 外壳，不参与遮挡。 */
-@media (max-width:640px){#igs-stage-motion:has(.igs-fx-notify.igs-fx-transient:not(.igs-fx-contact)) .igs-nc-entry{display:none;}}
 .igs-nc-entry svg{display:block;width:100%;height:100%;}
 .igs-nc-entry[data-size="small"]{--igs-aud-entry:30px;}
 .igs-nc-entry[data-size="large"]{--igs-aud-entry:46px;}
@@ -18,8 +16,6 @@ export const NOTIFY_CENTER_STYLE_TEXT = `
 .igs-nc-title{flex:1;font-size:16px;font-weight:700;}
 .igs-nc-clear{padding:5px 11px;border:0;border-radius:14px;background:#2b303a;color:#f4f1ec;font-size:12px;cursor:pointer;}
 .igs-nc-close{width:30px;height:30px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;background:#2b303a;color:#f4f1ec;cursor:pointer;}
-/* 手机回读弹窗把操作键放在同一行居中，不让关闭键被 order 推到左边、清除键留在右边。 */
-@media (max-width:640px){.igs-nc-bar{flex-wrap:wrap;justify-content:center;}.igs-nc-title{flex:0 0 100%;text-align:center;}}
 .igs-nc-close svg{display:block;width:100%;height:100%;}
 .igs-nc-list{overflow-y:auto;overscroll-behavior:contain;padding:2px 12px 14px;}
 .igs-nc-group{margin-top:8px;padding:8px 10px;border-radius:12px;background:#252932;}

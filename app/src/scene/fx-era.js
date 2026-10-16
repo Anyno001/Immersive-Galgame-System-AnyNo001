@@ -3,20 +3,13 @@
 // 古代也有、只是画面还偏现代的演出（时间流逝、字条、书信、烟花、求签…）保留，古风皮另做。
 // 实现方式是在注入提示词前、生成阅读器快照前把对应开关拨成关，不改各演出模块自己的判断。
 import { buildHorrorPromptRule } from './horror.js';
-import { GAME_FX_KINDS } from './game-console.js';
-import { CAMPUS_FX_KINDS } from './campus-fx.js';
-import { FX_PACKS_ACTIVE, FX_PACK_WORLDVIEW_OFF, packEraTables, packRequiresMet, packSwitchOn } from './fx-packs.js';
-
-// 题材包按清单里的 era 合并进现代专属 / 古代专属表（登记见 scene/fx-packs.js）。
-const PACK_ERA = packEraTables();
 
 export const FX_ERA_MODERN_ONLY = Object.freeze({
     // notify 在古代模式下换成「家仆通报」（提示词与画面都按时代切换），不在此列。
     // 外卖 / 快递是近代以后才有的服务，古代与西幻一律拨掉。
     fxTags: Object.freeze(['call', 'delivery', 'voicemail', 'contact', 'movie']),
     // 车票、淋浴、吹风机都是近代以后的东西；古代与西幻坐车按马车演，洗浴只留水汽与泼水。
-    // ride（摩天轮/过山车等游乐设施）是近代以后的东西，古代与西幻一律拨掉。
-    dailyFx: Object.freeze(['photo', 'bell', 'broadcast', 'alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'shower', 'hairdry', 'ride', ...GAME_FX_KINDS, ...CAMPUS_FX_KINDS, ...PACK_ERA.modern]),
+    dailyFx: Object.freeze(['photo', 'bell', 'broadcast', 'alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'shower', 'hairdry']),
 });
 // 整块现代专属的功能（enabled 拨成关）。线上聊天在古代模式下换成「书信往来」，不在此列。
 export const FX_ERA_MODERN_FEATURES = Object.freeze(['liveFx']);
@@ -26,7 +19,7 @@ export const ANCIENT_ERA_PROMPT_RULE = `[igs时代背景]
 
 // 古代专属演出：现代模式下拨成关（不写提示词、不播放）；无需过滤时原样返回原对象。
 export const FX_ERA_ANCIENT_ONLY = Object.freeze({
-    dailyFx: Object.freeze(['guqin', 'go', 'poem', 'edict', 'tea', 'bow', 'yujian', 'liandan', 'biguan', 'dianxue', 'qinggong', 'yungong', ...PACK_ERA.ancient]),
+    dailyFx: Object.freeze(['guqin', 'go', 'poem', 'edict', 'tea', 'bow']),
 });
 // 魔法世界专属演出：施咒、魔药、猫头鹰送信、骑扫帚、吼叫信，其他世界观一律拨成关。
 export const FX_MAGIC_ONLY = Object.freeze({
@@ -38,20 +31,6 @@ export const FX_HORROR_ONLY = Object.freeze({
 });
 // 世界观专属演出表：当前世界观以外的表全部拨成关。
 export const FX_WORLDVIEW_ONLY = Object.freeze({ ancient: FX_ERA_ANCIENT_ONLY, magic: FX_MAGIC_ONLY, horror: FX_HORROR_ONLY });
-
-// 总开关关着（或前置开关没开）的题材包：它的 kind 一律拨成关，不注入提示词、不渲染。不改入参。
-function stripDisabledPacks(readerSettings) {
-    const daily = plain(readerSettings.dailyFx);
-    let out = null;
-    for (const pack of FX_PACKS_ACTIVE) {
-        if (packSwitchOn(pack, readerSettings) && packRequiresMet(pack, readerSettings)) continue;
-        const on = pack.kinds.filter((kind) => (out ? out.dailyFx : daily)[kind] === true);
-        if (!on.length) continue;
-        out = out || { ...readerSettings, dailyFx: { ...daily } };
-        for (const kind of on) out.dailyFx[kind] = false;
-    }
-    return out || readerSettings;
-}
 
 function stripExclusive(readerSettings, worldview) {
     let out = null;
@@ -66,7 +45,7 @@ function stripExclusive(readerSettings, worldview) {
             for (const kind of on) out[key][kind] = false;
         }
     }
-    return stripDisabledPacks(out || readerSettings);
+    return out || readerSettings;
 }
 
 export function isAncientEra(sceneAssets) {
@@ -93,7 +72,7 @@ export function applyFxEra(readerSettings, ancient) {
 
 // 西幻 / 科幻 / 末日 / 大正 / 魔法：在现代基线（先拨掉其他世界观专属项）上，再拨掉与该世界观冲突的演出。
 // fxTags / dailyFx 列出要拨成关的类型，features 列出整块拨成关（enabled:false）的功能。
-const FX_WORLDVIEW_OFF_BASE = Object.freeze({
+export const FX_WORLDVIEW_OFF = Object.freeze({
     // 西幻没有现代电子设备：与古代共用现代专属表。
     fantasy: Object.freeze({ ...FX_ERA_MODERN_ONLY, features: FX_ERA_MODERN_FEATURES }),
     // 科幻保留全部现代演出，画面与说法由换皮和提示词切换。
@@ -101,38 +80,27 @@ const FX_WORLDVIEW_OFF_BASE = Object.freeze({
     // 末日：通讯（对讲机、广播）仍在，末日前才有的日常服务与直播拨掉。
     apocalypse: Object.freeze({
         fxTags: Object.freeze(['movie']),
-        dailyFx: Object.freeze(['receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'hairdry', 'ride', ...GAME_FX_KINDS, ...PACK_ERA.modern]),
+        dailyFx: Object.freeze(['receipt', 'tv', 'gacha', 'game', 'score', 'ticket', 'hairdry']),
         features: Object.freeze(['liveFx']),
     }),
     // 大正：有座机、电报、照相与活动写真，没有手机社交、电视、扭蛋与电子游戏。
     taisho: Object.freeze({
         fxTags: Object.freeze(['voicemail', 'contact']),
-        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry', ...GAME_FX_KINDS, ...PACK_ERA.modern]),
+        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry']),
         features: Object.freeze(['liveFx']),
     }),
     // 魔法世界没有麻瓜电子设备，传讯靠猫头鹰与魔法；照片会动、城堡有钟声、魔法扩音可作广播，这三项保留。
     magic: Object.freeze({
         fxTags: FX_ERA_MODERN_ONLY.fxTags,
-        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry', 'ride', ...GAME_FX_KINDS, ...PACK_ERA.modern]),
+        dailyFx: Object.freeze(['alarm', 'receipt', 'tv', 'gacha', 'game', 'score', 'hairdry']),
         features: FX_ERA_MODERN_FEATURES,
     }),
     // 恐怖：现代日常照常（手机、直播都可以是恐惧来源），只拨掉与氛围相冲的轻快演出。
     horror: Object.freeze({
-        dailyFx: Object.freeze(['fireworks', 'gacha', 'game', 'score', ...GAME_FX_KINDS]),
+        dailyFx: Object.freeze(['fireworks', 'gacha', 'game', 'score']),
         features: Object.freeze([]),
     }),
 });
-
-// 题材包按清单的 worldviewOff（{ 世界观 id: [kind...] }）追加到对应世界观要拨掉的日常演出里。
-function withPackWorldviewOff(base) {
-    const out = { ...base };
-    for (const [worldview, kinds] of Object.entries(FX_PACK_WORLDVIEW_OFF)) {
-        const entry = out[worldview] || {};
-        out[worldview] = Object.freeze({ ...entry, dailyFx: Object.freeze([...(entry.dailyFx || []), ...kinds]) });
-    }
-    return Object.freeze(out);
-}
-export const FX_WORLDVIEW_OFF = withPackWorldviewOff(FX_WORLDVIEW_OFF_BASE);
 
 export const FANTASY_ERA_PROMPT_RULE = `[igs时代背景]
 本故事发生在西方奇幻世界。上述igs标签里填写的文字一律使用奇幻世界的说法与器物：时间写「钟楼敲过三下后」「次日黎明」这类说法，不写「三小时后」「07:00」；通报写信使、侍从或传讯魔法；不要出现手机、电话、照片、电视、广播等现代事物。`;

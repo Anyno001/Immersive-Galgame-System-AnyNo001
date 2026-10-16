@@ -98,34 +98,6 @@ export const FX_SFX_PARTIALS = Object.freeze({
         p('sine', 5200, 5200, 0, 1.3, 0.16, { attack: 0.02 }),
         p('sine', 5240, 5240, 0, 1.3, 0.08, { attack: 0.02 }),
     ]),
-    'range-flashback': Object.freeze([
-        p('noise', 2600, 900, 0, 0.09, 0.5, { filter: 'bandpass', q: 1.4, attack: 0.002, sweep: 1 }),
-        p('sine', 1760, 440, 0.02, 0.5, 0.2, { attack: 0.01, sweep: 1 }),
-        p('triangle', 220, 220, 0.12, 0.4, 0.1, { attack: 0.05 }),
-    ]),
-    'range-dream': Object.freeze([
-        p('sine', 880, 880, 0, 1.4, 0.16, { attack: 0.18 }),
-        p('sine', 1320, 1320, 0.08, 1.3, 0.1, { attack: 0.2 }),
-        p('sine', 1760, 1760, 0.16, 1.2, 0.06, { attack: 0.24 }),
-    ]),
-    'range-letterbox': Object.freeze([
-        p('noise', 3000, 1400, 0, 0.03, 0.6, { filter: 'bandpass', q: 1.8, attack: 0.001, sweep: 1 }),
-        p('sine', 150, 70, 0, 0.09, 0.5, { attack: 0.001, sweep: 1 }),
-        p('noise', 2200, 1200, 0.16, 0.025, 0.4, { filter: 'bandpass', q: 1.8, attack: 0.001, sweep: 1 }),
-    ]),
-    'range-whisper': Object.freeze([
-        p('noise', 6200, 3800, 0, 0.5, 0.12, { filter: 'highpass', q: 0.7, attack: 0.12, sweep: 1 }),
-    ]),
-    'cut-slash': Object.freeze([
-        p('noise', 5200, 700, 0, 0.16, 0.55, { filter: 'bandpass', q: 1.1, attack: 0.002, sweep: 1 }),
-        p('triangle', 1900, 300, 0, 0.12, 0.2, { attack: 0.002, sweep: 1 }),
-        p('sine', 90, 50, 0.1, 0.2, 0.6, { attack: 0.002, sweep: 1 }),
-    ]),
-    'nick-chime': Object.freeze([
-        p('triangle', 1046, 1046, 0, 0.16, 0.3, { attack: 0.003 }),
-        p('triangle', 1568, 1568, 0.09, 0.3, 0.3, { attack: 0.003 }),
-        p('sine', 3136, 3136, 0.09, 0.2, 0.08, { attack: 0.003 }),
-    ]),
     // 物品演出：获得为上行琶音，失去为下滑音，使用为短促提示音，重要物品为小号式和弦。
     'item-gain': Object.freeze([
         p('triangle', 1046, 1046, 0, 0.14, 0.32, { attack: 0.003 }),

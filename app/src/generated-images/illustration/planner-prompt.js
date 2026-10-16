@@ -1,4 +1,17 @@
 import { FICTION_FRAME, CG_COMPOSITION_GUIDE, TAG_WRITING_RULES, SOFT_MODE_NOTE } from './prompt-kit.js';
+import { CG_TASK, CG_TEMPLATE } from '../prompt-tasks/cg.js';
+
+// 普通内置 CG 的兼容入口复用同一任务协议，避免混入立绘或一致性字段。
+export const CG_TEMPLATE_PLANNER_SYSTEM = [
+    ...FICTION_FRAME, CG_TASK, CG_TEMPLATE,
+    ...CG_COMPOSITION_GUIDE,
+].join('\n');
+
+// 两条 CG 写词链消费同一份约束；发送端不再追加这些语义正文。
+export function cgWritingRequirements(settings, size, kind) {
+    return { size, transparent: false, quality: 'High quality illustration.',
+        ...(kind === 'nsfw' && { sceneRequirements: settings.assets.templates.nsfwExtra }) };
+}
 
 const PLANNER_OUTPUT_FORMAT = [
     '【输出格式】不要输出 JSON、不要代码块、不要解释。每张图按以下字段一行一个输出，多张图依次排列：',
@@ -50,51 +63,16 @@ export const PLANNER_SOFT_SYSTEM_PROMPT = [
     ...PLANNER_TAG_RULES,
 ].join('\n');
 
-const flatPrompt = (text) => String(text || '').replace(/\s*\n\s*/g, ' ').trim();
-
-// 今天的穿着只给写词作参考，不写进最终标签。正文换了衣服就按正文。
-export function formatTodayOutfitBlock(entries) {
-    const lines = [];
-    for (const entry of Array.isArray(entries) ? entries : []) {
-        if (!entry || !entry.name || !Array.isArray(entry.segments) || !entry.segments.length) continue;
-        const bits = [];
-        entry.segments.forEach((segment, index) => {
-            if (!segment) return;
-            if (segment.reset) {
-                bits.push(segment.from > 1 ? `从第${segment.from}段起换回原来的衣服` : '换回原来的衣服');
-                return;
-            }
-            if (!segment.outfit) return;
-            const when = index === 0
-                ? (segment.from > 1 ? `从第${segment.from}段起穿着「${segment.outfit}」` : `今天穿着「${segment.outfit}」`)
-                : `从第${segment.from}段起换成「${segment.outfit}」`;
-            const prompt = flatPrompt(segment.prompt);
-            bits.push(prompt ? `${when}。提示词：${prompt}` : when);
-        });
-        if (bits.length) lines.push(`${entry.name}：${bits.join('。')}`);
-    }
-    if (!lines.length) return '';
-    const head = [
-        '【今天的穿着】这只是参考，告诉你这个角色今天穿的是哪一套，不是必须画成这样。',
-        '正文没写衣服时按这个写；正文写了换上别的、脱掉、弄脏、破了，按正文。',
-        '有今天的穿着时，衣服不要再用角色 DNA 里的默认外观。',
-    ].join('');
-    return `${head}\n${lines.join('\n')}`;
-}
-
 // characterDna：[{ name, identity, defaultAppearance }]，由调用方按别名归约后提供；为空时输出与旧版一致。
-// outfits：[{ name, segments: [{ from, outfit, prompt, reset }] }]，这一楼的穿着，只作参考。
-export function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText, want, exact, isNsfw, characterDna = [], outfits = [], frame = '' }) {
+export function buildPlannerUserPrompt({ numberedText, scenes, characters, previousText, want, exact, isNsfw, characterDna = [], frame = '' }) {
     const lastScene = scenes && scenes.length ? scenes[scenes.length - 1] : null;
-    const flat = flatPrompt;
+    const flat = (text) => String(text || '').replace(/\s*\n\s*/g, ' ').trim();
     const dnaLines = (Array.isArray(characterDna) ? characterDna : [])
         .filter((d) => d && d.name && (flat(d.identity) || flat(d.defaultAppearance)))
         .map((d) => [`${d.name}`, flat(d.identity) ? `固定身份：${flat(d.identity)}` : '', flat(d.defaultAppearance) ? `默认外观：${flat(d.defaultAppearance)}` : ''].filter(Boolean).join('｜'));
-    const outfitBlock = formatTodayOutfitBlock(outfits);
-    const dnaIntro = outfitBlock
-        ? '【角色 DNA】固定身份任何时候都不得改变。默认外观里的头发、体型照旧。衣服：写了【今天的穿着】的角色按那一套，没写的仍用默认外观；正文写了变化都按正文：'
-        : '【角色 DNA】固定身份任何时候都不得改变；默认外观只在正文未交代换装时使用，正文明确换装时按正文写：';
-    const dnaBlock = dnaLines.length ? `${dnaIntro}\n${dnaLines.join('\n')}` : '';
+    const dnaBlock = dnaLines.length
+        ? `【角色 DNA】固定身份任何时候都不得改变；默认外观只在正文未交代换装时使用，正文明确换装时按正文写：\n${dnaLines.join('\n')}`
+        : '';
     const sceneLine = lastScene
         ? `${lastScene.scene}｜${lastScene.time}｜${lastScene.weather}${lastScene.nsfw ? '｜NSFW' : ''}`
         : '未标注';
@@ -106,7 +84,6 @@ export function buildPlannerUserPrompt({ numberedText, scenes, characters, previ
         `【场景】${sceneLine}`,
         `【出场角色】${characters && characters.length ? characters.join('、') : '未标注'}`,
         dnaBlock,
-        outfitBlock,
         previousText ? `【前文摘要】\n${previousText}` : '',
         `【本楼正文（已编号）】\n${numberedText}`,
         `【要求】${countLine}${isNsfw ? '本楼为 NSFW 场景，请选择最具代表性的画面。' : ''}`,

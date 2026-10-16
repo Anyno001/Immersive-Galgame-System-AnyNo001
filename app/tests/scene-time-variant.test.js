@@ -1,4 +1,3 @@
-import { createAssetGenerationService } from './helpers/media-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -7,7 +6,7 @@ import { lookupSceneBackground, sceneTimeSlot } from '../src/scene/scene-directi
 import { resolveBackgroundAsset, collectAssetNeeds, bindGeneratedBackground } from '../src/scene/asset-match.js';
 import { promptTimeBucket, sceneVariantTags } from '../src/generated-images/scene-variant-tags.js';
 import { createMemoryGeneratedAssetStore } from '../src/media/generated-asset-store.js';
-
+import { createAssetGenerationService } from '../src/generated-images/illustration/asset-generation-service.js';
 
 const GEN_SCENES = { enabled: true, scenes: { 教室: { url: 'igs-gen:base', times: {} }, 天台: { url: 'roof.png', times: {} } }, characters: {} };
 
@@ -99,3 +98,36 @@ test('gate:scene-time-variant:base-already-in-that-time-paints-nothing', async (
     await service.processMessage(3, { manual: true });
     assert.equal(captions.length, 0);
 });
+
+
+for (const mode of ['success', 'save-failed', 'existing']) {
+    test(`gate:seed:旧场景首次补种及保存恢复-${mode}`, async () => {
+        const { handleSettingsAction } = await import('../src/visual/igs-ui/settings-actions.js');
+        const assets = { scenes: { 教室: { url: 'igs-gen:base', times: {},
+            ...(mode === 'existing' && { seed: 42 }) } } };
+        const before = structuredClone(assets.scenes);
+        const saves = [];
+        const result = await handleSettingsAction('scene-variant-retry:教室:夜晚:', {
+            state: { activeSettings: { draft: { bridge: { sceneAssets: assets } }, asyncState: {} } },
+            options: { global: { alert() {} }, generatedAssets: {
+                async generateSceneVariants() { return { ok: true, items: [
+                    { ok: true, time: '夜晚', weather: '', imageId: 'v1', seed: 0 },
+                ] }; },
+            } },
+            dialogs: { alert() {}, confirm: async () => true },
+            persistSettingsDraft() {
+                saves.push(structuredClone(assets.scenes));
+                return mode === 'save-failed' ? { ok: false, reason: 'save-failed', writeAttempted: false } : { ok: true };
+            }, rerenderSettings: () => ({ ok: true }),
+        });
+        assert.equal(saves.length, 1);
+        if (mode === 'save-failed') {
+            assert.equal(result.ok, false);
+            assert.deepEqual(assets.scenes, before);
+        } else {
+            assert.equal(assets.scenes.教室.seed, mode === 'existing' ? 42 : 0);
+            assert.equal(saves[0].教室.seed, assets.scenes.教室.seed);
+            assert.equal(assets.scenes.教室.times.夜晚.url, 'igs-gen:v1');
+        }
+    });
+}

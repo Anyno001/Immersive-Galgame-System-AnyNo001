@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { igsUiLiquidRule } from '../src/styles/ui-material.js';
 import { recordPageHeadHtml, recordPageLayoutClass } from '../src/visual/igs-ui/record-page-shell.js';
 
 test('record-page-shell:layout-class-follows-container-breakpoints', () => {
@@ -32,6 +34,41 @@ test('record-page-shell:head-html-escapes-nothing-but-keeps-back-hit-target', as
     const mapHtml = recordPageHeadHtml('地点地图', { closeAttr: 'data-map-act', backAriaLabel: '关闭地图' });
     assert.match(mapHtml, /data-map-act="close"/);
     assert.match(mapHtml, /aria-label="关闭地图"/);
+});
+
+test('record-page-shell:caustic-tiles-only-in-settings', () => {
+    const pageRule = igsUiLiquidRule('.record-page::after', 0.5);
+    assert.match(pageRule, /background-position:left top/);
+    assert.match(pageRule, /background-repeat:no-repeat/);
+    assert.match(pageRule, /mask-image:linear-gradient\(135deg/);
+
+    const settingsRule = igsUiLiquidRule('.settings::before', 0.45, { tile: true });
+    assert.match(settingsRule, /background-position:left top/);
+    assert.match(settingsRule, /background-repeat:repeat/);
+    assert.doesNotMatch(settingsRule, /mask-image:/);
+
+    const settingsSource = readFileSync(
+        new URL('../src/visual/igs-ui/settings-style.js', import.meta.url),
+        'utf8',
+    );
+    const recordSource = readFileSync(
+        new URL('../src/visual/igs-ui/record-page-shell-style.js', import.meta.url),
+        'utf8',
+    );
+    assert.match(settingsSource, /igsUiLiquidRule\('#igs-unified-settings::before', \.2, \{ tile: true, tint: 'var\(--igs-settings-ripple\)' \}\)/);
+    // 电脑设备（精确指针 + 悬停）不铺设置器水波纹大背景，触屏保留。
+    assert.match(settingsSource, /@media \(hover:hover\) and \(pointer:fine\)\{#igs-unified-settings::before\{content:none\}\}/);
+
+    const tintedRule = igsUiLiquidRule('.settings::before', 0.26, { tile: true, tint: 'var(--ripple)' });
+    assert.match(tintedRule, /background-color:var\(--ripple\)/);
+    assert.match(tintedRule, /mask-image:url\(/);
+    assert.match(tintedRule, /mask-repeat:repeat/);
+    assert.doesNotMatch(tintedRule, /background-image:/);
+    // 资料页照搬设置器的后景：同一套主题色平铺水纹，浓度随配色走。
+    assert.match(recordSource, /igsUiLiquidRule\('#igs-record-panel \.igs-rp-page::after', \.2, \{ tile: true, tint: 'var\(--igs-rp-ripple\)' \}\)/);
+    assert.doesNotMatch(recordSource, /BLUR_VIVID/);
+    // 资料页后景叠柔光提亮，回退分支同样叠加。
+    assert.equal((recordSource.match(/background:var\(--igs-rp-lift\),var\(--igs-rp-backdrop(-solid)?\)/g) || []).length, 3);
 });
 
 test('record-page-shell:record-pages-share-settings-palettes', async () => {

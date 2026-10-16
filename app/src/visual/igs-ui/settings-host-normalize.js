@@ -1,5 +1,4 @@
 import { normalizeMyPhone } from './my-phone.js';
-import { normalizeQuickActions } from '../../choices/option-sources.js';
 import { normalizePromptEntries } from '../../scene/prompt-entries.js';
 import { normalizeDlcFxSettings } from '../../scene/fx-registry.js';
 // 设置快照的规范化（bridge 配置与阅读器设置）：纯函数，阅读器和设置器共用。
@@ -13,13 +12,14 @@ import { normalizeSpriteHeads } from './fx-anchor.js';
 import { normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { normalizeCharacterDnaMap } from '../../scene/character-dna.js';
 import { normalizeCharacterOutfits, normalizeWardrobe } from '../../scene/character-outfits.js';
+import { normalizeCharacterDefaultOutfits } from '../../scene/character-appearance.js';
+import { normalizeCharacterSeeds } from '../../scene/generation-seeds.js';
 import { normalizeMoodGroups } from '../../scene/mood-groups.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_IMAGE_API, DIALOG_FONT_OPTIONS, DEFAULT_PINNED_TOOLBAR_BUTTONS, normalizeScenePromptRule, READER_SETTINGS_SCHEMA_VERSION, TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
-import { normalizeShortcutOverrides } from './reader-shortcuts.js';
 import { cloneData, clampNumber, normalizeBoolean, normalizeFiniteNumber, normalizeNullableNumber, normalizeOpacity } from './reader-value-utils.js';
-import { normalizeBtnOrder, normalizeCastSlotLayouts, normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarPlate, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
+import { normalizeBtnOrder, normalizeCastSlotLayouts, normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, normalizeClassicDialogWidthPercent, normalizeDialogSkin } from './classic-dialog-skin.js';
@@ -47,7 +47,6 @@ export function normalizeBridgeConfig(bridge) {
     normalized.sourceFilter = normalizeSourceFilter(normalized.sourceFilter);
     normalized.virtualRegex = normalizeVirtualRegex(normalized.virtualRegex);
     normalized.sentencePaging = normalizeBoolean(normalized.sentencePaging, false);
-    normalized.dialogueSentencePaging = normalizeBoolean(normalized.dialogueSentencePaging, false);
     normalized.imageApi = normalizeImageApi(normalized.imageApi);
     normalized.sceneAssets = normalizeSceneAssets(normalized.sceneAssets);
     normalized.vnTheme = normalizeVnTheme(normalized.vnTheme);
@@ -67,9 +66,6 @@ export function normalizeOptionBubble(value) {
         position,
         clickAction: src.clickAction === 'fill' ? 'fill' : 'send',
         widthFollowsText: normalizeBoolean(src.widthFollowsText, false),
-        itemButton: normalizeBoolean(src.itemButton, true),
-        bodyFallback: normalizeBoolean(src.bodyFallback, true),
-        quickActions: normalizeQuickActions(src.quickActions),
     };
 }
 
@@ -89,6 +85,7 @@ export function normalizeImageApi(value) {
         ? normalized.availableModels.filter(Boolean)
         : [];
     normalized.dbgenSpriteTransparent = normalized.dbgenSpriteTransparent !== false;
+    normalized.naiSpriteTransparent = normalized.naiSpriteTransparent !== false;
     return normalized;
 }
 
@@ -147,12 +144,14 @@ export function normalizeSceneAssets(value) {
         normalized.characterAliases[characterName] = nextAliases;
     }
     normalized.characterDna = normalizeCharacterDnaMap(normalized.characterDna);
+    if (Object.hasOwn(normalized, 'characterSeeds')) normalized.characterSeeds = normalizeCharacterSeeds(normalized.characterSeeds);
     normalized.characterOutfits = normalizeCharacterOutfits(normalized.characterOutfits);
+    if (Object.hasOwn(normalized, 'characterDefaultOutfits')) {
+        normalized.characterDefaultOutfits = normalizeCharacterDefaultOutfits(normalized.characterDefaultOutfits);
+    }
     normalized.characterHouses = normalizeCharacterHouses(normalized.characterHouses);
     normalized.characterVoices = normalizeCharacterVoices(normalized.characterVoices);
     normalized.characterSpriteScales = normalizeCharacterSpriteScales(normalized.characterSpriteScales);
-    // 指定为 USER 立绘的角色名，空 = 不指定。
-    normalized.userCharacter = typeof normalized.userCharacter === 'string' ? normalized.userCharacter.trim() : '';
     normalized.wardrobe = normalizeWardrobe(normalized.wardrobe);
     normalized.eventCgs = normalizeEventCgs(normalized.eventCgs);
     normalized.moodGroups = normalizeMoodGroups(normalized.moodGroups);
@@ -183,9 +182,6 @@ export function normalizeSceneAssets(value) {
     normalized.unifiedSpriteLayout = normalizeBoolean(normalized.unifiedSpriteLayout, false);
     normalized.moodFuzzyMatch = normalizeBoolean(normalized.moodFuzzyMatch, false);
     normalized.moodAutoClassify = normalizeBoolean(normalized.moodAutoClassify, false);
-    normalized.nameFallback = normalizeBoolean(normalized.nameFallback, true);
-    normalized.narrationNameSwitch = normalizeBoolean(normalized.narrationNameSwitch, true);
-    normalized.sceneCarryMode = ['strict', 'smart', 'loose'].includes(normalized.sceneCarryMode) ? normalized.sceneCarryMode : 'smart';
     normalizeAssetCards(normalized);
     return normalized;
 }
@@ -272,12 +268,10 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         weatherFx: normalizeWeatherFxSettings(null),
         ...normalizeFxReaderSettings(null),
         imageCountOverride: null,
-        shortcuts: {},
         pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
         hiddenBtns: [],
         btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
         toolbarSplit: 'split',
-        toolbarPlate: 'off',
         dialogBarAlign: 'auto',
         dialogBarBtns: normalizeDialogBarButtons(null),
         spriteLayouts: {},
@@ -290,8 +284,6 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     // DLC 演出开关只记关掉的；对应 DLC 这次没加载也保留，下次加载照旧关着。
     normalized.dlcFx = normalizeDlcFxSettings(normalized.dlcFx);
     normalized.gradientVeil = normalizeGradientVeil(normalized.gradientVeil);
-    // 仙侠水墨的姓名排布：left（默认，左侧落款式）| center（名字+下划线居中）。
-    normalized.xianxiaSpeaker = normalized.xianxiaSpeaker === 'center' ? 'center' : 'left';
     normalized.classicDialogWidthPercent = normalizeClassicDialogWidthPercent(normalized.classicDialogWidthPercent);
     normalized.skinDialogScale = normalizeSkinDialogScale(normalized.skinDialogScale);
     normalized.magicHouse = normalizeMagicHouse(normalized.magicHouse);
@@ -348,12 +340,10 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     for (const [key, normalize] of Object.entries(FX_SETTINGS_NORMALIZERS)) normalized[key] = normalize(normalized[key]);
     normalized.statusHud = normalizeStatusHudSettings(normalized.statusHud);
     normalized.imageCountOverride = normalizeNullableNumber(normalized.imageCountOverride);
-    normalized.shortcuts = normalizeShortcutOverrides(normalized.shortcuts);
     normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);
     normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
     normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
     normalized.toolbarSplit = normalizeToolbarSplit(normalized.toolbarSplit);
-    normalized.toolbarPlate = normalizeToolbarPlate(normalized.toolbarPlate);
     normalized.dialogBarAlign = normalizeDialogBarAlign(normalized.dialogBarAlign);
     normalized.dialogBarBtns = normalizeDialogBarButtons(normalized.dialogBarBtns);
     normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);

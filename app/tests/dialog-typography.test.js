@@ -4,6 +4,7 @@ import {
     DIALOG_FONT_SERIF,
     DIALOG_FONT_WENKAI,
     DIALOG_FONT_YOZAI,
+    DIALOG_TYPESETTING_STYLE_TEXT,
     getReferenceDialogTypography,
     preloadDialogFonts,
     primaryFontFamily,
@@ -34,4 +35,9 @@ test('gate: dialog fonts preload once per family and skip generics', async () =>
     await new Promise(resolve => setTimeout(resolve, 0));
     preloadDialogFonts(doc, ['"IGS Missing Family"']);
     assert.equal(calls.at(-1), '16px "IGS Missing Family"');
+});
+
+test('gate: dialog typesetting css is scoped to reader text', () => {
+    assert.match(DIALOG_TYPESETTING_STYLE_TEXT, /#igs-overlay #igs-text\{[^}]*line-break:strict/);
+    assert.match(DIALOG_TYPESETTING_STYLE_TEXT, /text-autospace:normal/);
 });

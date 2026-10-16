@@ -20,9 +20,6 @@ export function ensureFxLayers(root) {
         stage.appendChild(make(doc, 'igs-fx-letterbox-bar is-bottom'));
         stage.appendChild(make(doc, 'igs-fx-flashback-grain'));
         stage.appendChild(make(doc, 'igs-fx-dream-mist'));
-        const tag = make(doc, 'igs-fx-flashback-tag');
-        tag.textContent = '回忆';
-        stage.appendChild(tag);
         const sprite = motion.querySelector('#igs-sprite');
         if (sprite && sprite.parentNode === motion) motion.insertBefore(stage, sprite.nextSibling);
         else motion.appendChild(stage);

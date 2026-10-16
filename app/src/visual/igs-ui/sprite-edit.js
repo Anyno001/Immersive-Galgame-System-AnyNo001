@@ -189,7 +189,7 @@ export function enterSpriteEditMode(overlay, current, ctx = {}) {
         pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (pointers.size === 1 && dragStart) {
             const rect = spriteEl.getBoundingClientRect ? spriteEl.getBoundingClientRect() : { width: 400, height: 600 };
-            const info = peekSpriteHead(spriteUrlOf(spriteEl), spriteEl.ownerDocument);
+            const info = peekSpriteHead(spriteUrlOf(spriteEl));
             ({ posX, posY } = spriteDragPosition({
                 posX: dragStart.posX, posY: dragStart.posY,
                 dx: event.clientX - dragStart.x, dy: event.clientY - dragStart.y,

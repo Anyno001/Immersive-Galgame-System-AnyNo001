@@ -1,7 +1,6 @@
 import { DANMAKU_PERSONA_LABELS, DANMAKU_SPEED_SECONDS } from './danmaku-settings.js';
 import { randomItem } from './danmaku-pools.js';
-import { buildPhoneStatus, PHONE_ENTRY_ICON } from './danmaku-icons.js';
-import { mountEntry, unmountEntry } from './entry-dock.js';
+import { buildPhoneStatus } from './danmaku-icons.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 
 // 观众弹幕（正文外的小剧场）：平时只是 HUD 下方一台半透明小手机，来新弹幕时亮角标、抖一下；
@@ -17,6 +16,7 @@ const SECONDS_PER_PAGE = 8;
 const LEAVE_MS = 380;
 
 // 入口小手机：细机身、灵动岛、三条长短错落的弹幕（其中一条为 B 站粉），不用 emoji。
+const PHONE_ICON = '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="9" y="3.2" width="14" height="25.6" rx="3.6" fill="rgba(14,16,22,.5)" stroke="currentColor" stroke-width="1.5"/><rect x="13.9" y="5.4" width="4.2" height="1.4" rx=".7" fill="currentColor"/><g stroke-linecap="round" stroke-width="1.5"><path d="M13.6 12.2h6.4" stroke="currentColor" stroke-opacity=".9"/><path d="M11.8 16h5.4" stroke="#fb7299"/><path d="M14.4 19.8h5.6" stroke="currentColor" stroke-opacity=".6"/></g><rect x="13.6" y="25.4" width="4.8" height="1" rx=".5" fill="currentColor" fill-opacity=".6"/></svg>';
 const BACK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 
 const audiences = new WeakMap();
@@ -79,7 +79,7 @@ function buildEntry(state) {
     entry.type = 'button';
     entry.setAttribute('aria-label', '观众弹幕');
     entry.setAttribute('title', '观众弹幕');
-    entry.innerHTML = PHONE_ENTRY_ICON;
+    entry.innerHTML = PHONE_ICON;
     const badge = el(state.doc, 'span', 'igs-aud-badge', '');
     badge.hidden = true;
     entry.appendChild(badge);
@@ -282,7 +282,7 @@ export function syncAudience(front, info, ctx) {
     if (!state) {
         state = { front, doc: ctx.doc, log: new Map(), unread: 0, view: null, info: null, timers: new Set(), pulse: 0 };
         state.els = buildEntry(state);
-        mountEntry(front, state.els.entry);
+        front.appendChild(state.els.entry);
         audiences.set(front, state);
     }
     Object.assign(state, { schedule: ctx.schedule, clear: ctx.clear, now: ctx.now, rng: ctx.rng, frame: ctx.frame });
@@ -314,21 +314,14 @@ export function syncAudience(front, info, ctx) {
     return state;
 }
 
-// 直播手机（手机形态）在场时，入口收成手机顶栏里的小图标（放在视角钮左边）；手机离场或换形态时放回前层。
-export function dockAudienceEntry(front, parent, before) {
+// 入口贴在 HUD 下缘（HUD 隐藏时回到左上角），只在位置变化时写。
+export function placeAudienceEntry(front, top) {
     const state = audiences.get(front);
     if (!state) return;
-    const { entry } = state.els;
-    if (parent) {
-        const next = before && before.parentNode === parent ? before : null;
-        if (entry.parentNode !== parent || entry.nextSibling !== next) parent.insertBefore(entry, next);
-        entry.setAttribute('data-docked', '1');
-        return;
-    }
-    if (entry.getAttribute('data-docked') === '1') {
-        entry.removeAttribute('data-docked');
-        mountEntry(front, entry);
-    }
+    const value = `${Math.round(top)}px`;
+    if (state.top === value) return;
+    state.top = value;
+    state.els.entry.style.setProperty('--igs-aud-top', value);
 }
 
 export function isAudienceEntryShown(front) {
@@ -341,7 +334,7 @@ export function stopAudience(front) {
     if (!state) return false;
     if (state.view) closeViewer(state, false);
     clearBucket(state, state.timers);
-    unmountEntry(front, state.els.entry);
+    state.els.entry.remove();
     audiences.delete(front);
     return true;
 }

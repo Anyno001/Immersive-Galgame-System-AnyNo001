@@ -41,7 +41,7 @@ function renderQuiz(answers, applied) {
     return `<div class="igs-onboarding-quiz">${rows}</div><p class="igs-onboarding-quiz-result">${esc(result)}</p>`;
 }
 
-export function renderOnboardingCardHtml(stepIndex, guide = null, note = '') {
+export function renderOnboardingCardHtml(stepIndex, guide = null) {
     const index = normalizeOnboardingStep(stepIndex);
     const step = getOnboardingStep(index);
     const last = isLastOnboardingStep(index);
@@ -52,66 +52,23 @@ export function renderOnboardingCardHtml(stepIndex, guide = null, note = '') {
     return `<div class="igs-onboarding-head"><h3 class="igs-onboarding-title" tabindex="-1">${esc(step.title)}</h3>`
         + `<span class="igs-onboarding-count">${index + 1} / ${ONBOARDING_STEPS.length}${step.optional ? ' · 可选' : ''}</span></div>`
         + `<p class="igs-onboarding-body" aria-live="polite">${esc(step.body)}</p>`
-        + (note ? `<p class="igs-onboarding-note">${esc(note)}</p>` : '')
         + (step.quiz ? renderQuiz(guide && guide.answers, guide && guide.quizApplied) : '')
         + `<div class="igs-onboarding-actions">${actions}</div>`;
 }
 
-// 与设置外壳同一个断点：宽度 >= 900px 是电脑（侧边栏常驻），否则是窄屏（☰ 抽屉）。
-export const ONBOARDING_WIDE_QUERY = '(min-width:900px)';
-export const ONBOARDING_COMPACT_WIDTH = 420;
-
-export function isWideLayout(doc) {
-    const view = doc?.defaultView;
-    try {
-        const mq = view?.matchMedia?.(ONBOARDING_WIDE_QUERY);
-        if (mq && typeof mq.matches === 'boolean') return mq.matches;
-    } catch (_) { /* 无 matchMedia 时走宽度 */ }
-    const width = Number(view?.innerWidth);
-    return Number.isFinite(width) ? width >= 900 : true;
-}
-
-// 隐藏判定：自身或祖先带 hidden，或没有布局盒（offsetParent 为 null；固定定位元素也为 null，故再看 getClientRects）。
-export function isNodeVisible(node) {
-    if (!node) return false;
-    if (node.closest?.('[hidden]')) return false;
-    if (node.offsetParent === null) {
-        const rects = node.getClientRects?.();
-        if (!rects || rects.length === 0) return false;
-    }
-    return true;
-}
-
-function queryVisible(container, selectors) {
-    for (const selector of selectors || []) {
+function findStepTarget(container, step) {
+    for (const selector of step.target || []) {
         let node = null;
         try { node = container.querySelector?.(selector) || null; } catch (_) { node = null; }
-        if (node && isNodeVisible(node)) return node;
+        if (node) return node;
     }
     return null;
-}
-
-// 返回 { target, note }：requires 的区域被隐藏时改高亮开关；其余找不到目标时给出「当前不可见」。
-export function resolveStepTarget(container, step, wide) {
-    const req = step.requires;
-    if (req) {
-        const content = container.querySelector?.(req.content);
-        if (content && !isNodeVisible(content)) {
-            const toggle = queryVisible(container, [`[data-switch="${req.switch}"]`]);
-            return { target: toggle, note: req.hint, blocked: true };
-        }
-    }
-    const selectors = !wide && step.targetNarrow ? step.targetNarrow : step.target;
-    const target = queryVisible(container, selectors);
-    return { target, note: !target && (selectors || []).length ? '这一项当前不可见' : '', blocked: false };
 }
 
 export function removeOnboardingCard(container) {
     if (!container) return;
     for (const node of Array.from(container.querySelectorAll?.(`[${ONBOARDING_ACTIVE_ATTR}]`) || [])) node.removeAttribute?.(ONBOARDING_ACTIVE_ATTR);
     container.querySelector?.(`#${ONBOARDING_CARD_ID}`)?.remove?.();
-    const body = container.querySelector?.('.igs-settings-body');
-    if (body?.style) body.style.paddingBottom = '';
 }
 
 // guide 为 null 时只清理。focus / scroll 只在换步时传入，避免普通重绘抢焦点。
@@ -120,29 +77,17 @@ export function mountOnboardingCard(container, guide, mountOptions = {}) {
     const doc = mountOptions.doc || container?.ownerDocument;
     if (!container || !guide || !doc || typeof doc.createElement !== 'function') return null;
     const host = container.querySelector?.('#igs-unified-settings') || container;
-    const step = getOnboardingStep(guide.step);
-    const { target, note } = resolveStepTarget(container, step, isWideLayout(doc));
     const card = doc.createElement('section');
     card.id = ONBOARDING_CARD_ID;
     card.className = 'igs-onboarding-card';
     card.setAttribute('role', 'region');
     card.setAttribute('aria-label', '新手引导');
-    card.innerHTML = renderOnboardingCardHtml(guide.step, guide, note);
+    card.innerHTML = renderOnboardingCardHtml(guide.step, guide);
     host.appendChild(card);
-    // 给内容区预留和引导卡一样高的底部内边距，滚到底也不会被卡片盖住。
-    const body = container.querySelector?.('.igs-settings-body');
-    const cardHeight = Number(card.offsetHeight) || 0;
-    if (body?.style && cardHeight > 0) body.style.paddingBottom = `${cardHeight + 16}px`;
+    const target = findStepTarget(container, getOnboardingStep(guide.step));
     if (target) {
         target.setAttribute(ONBOARDING_ACTIVE_ATTR, '1');
-        const compact = Number(doc.defaultView?.innerWidth) <= ONBOARDING_COMPACT_WIDTH;
-        if (mountOptions.scroll) target.scrollIntoView?.({ block: 'start', behavior: compact || prefersReducedMotion(doc) ? 'auto' : 'smooth' });
-        // 细窄手机：目标落在下半屏时，引导卡贴到顶部，不盖住目标。
-        if (compact) {
-            const rect = target.getBoundingClientRect?.();
-            const viewHeight = Number(doc.defaultView?.innerHeight) || 0;
-            if (rect && viewHeight > 0 && rect.top + rect.height / 2 > viewHeight / 2) card.classList.add('is-top');
-        }
+        if (mountOptions.scroll) target.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion(doc) ? 'auto' : 'smooth' });
     }
     if (mountOptions.focus) card.querySelector?.('.igs-onboarding-title')?.focus?.();
     return card;

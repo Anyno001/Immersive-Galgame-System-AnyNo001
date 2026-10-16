@@ -1,5 +1,4 @@
-import { createMediaLeaseScope } from '../../media/media-lease-scope.js';
-import { bindImageCacheDocument } from '../../media/tavern-image-cache.js';
+import { narrationKeepsSprite } from '../../scene/narration-sprite.js';
 import {
     buildIgsTextPayload,
     getMessagePrimaryText,
@@ -7,52 +6,61 @@ import {
     normalizeSourceFilter,
     normalizeVirtualRegex,
 } from '../../scene/message-source.js';
-import { applyVoiceBark, canonicalName, noteFormGender, setActiveFormGenders } from './voice-bark.js';
+import { canonicalName, noteFormGender, setActiveFormGenders } from './voice-bark.js';
 import { createSettingsHost } from './settings-host.js';
+import { handleSettingsAction } from './settings-actions.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
-import { stripIllustrationMarkers } from '../../scene/scene-directives.js';
-import { resolveCharacterKey, setCharacterNameFallback } from '../../scene/scene-directives.js';
-import { recordOutfitReview, dropConfirmedOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
-import { assetOwnerKey, draftAssetLibrary, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { extractSceneDirectives, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers } from '../../scene/scene-directives.js';
+import { classifySceneKey, resolveCharacterKey } from '../../scene/scene-directives.js';
+import { recordOutfitReview, dropConfirmedOutfitReview, removeOutfitReview, storyOutfitSourceHash } from '../../scene/outfit-review-store.js';
+import { assetOwnerKey, draftAssetLibrary, effectiveSceneAssets, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { createStoryOutfitService } from '../../generated-images/illustration/story-outfit-service.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
+import { extractFxDirectives, resolveFxAtPage } from '../../scene/fx-directives.js';
 import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
+import { parseTables } from '../../shujuku-panel/panel-model.js';
+import { applyDiceToHits } from '../../scene/battle-context.js';
+import { liveFallbackOf, withLiveFallback } from '../../scene/live-context.js';
+import { withStormCarry } from '../../scene/storm-context.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
-import { createRewindController, REWIND_NOTICE } from './rewind.js';
 import { createReadingProgress, resolvePositionFloor, resolvePositionPage, segmentText, textHash, textHead, READING_METADATA_KEY } from './reading-progress.js';
 import { createTurnIndexPanel, positionLabel } from './turn-index-panel.js';
 import { createGenerationStrip } from './generation-strip.js';
-import { createMissedHint, detectMissedAssets } from './missed-assets.js';
 import { cancelFxEffects } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
 import { cancelSceneGrade } from './scene-grade.js';
 import { closeRomanceFx } from './romance-runtime.js';
 import { closeMetaFx } from './meta-runtime.js';
-import { normalizeRomanceFxSettings } from './romance-settings.js';
+import { normalizeRomanceFxSettings, resolveNsfwSpan } from './romance-settings.js';
 import { mergeItemEvents, normalizeItemFxSettings } from './fx-item-model.js';
 import { applyEatToItems } from './fx-eat-model.js';
 import { normalizeDailyFxSettings } from './fx-daily-model.js';
+import { normalizeItemName } from '../../data/shujuku/item-catalog.js';
 import { cancelDailyFx } from './fx-daily.js';
 import { cancelSceneAudio, skipBgmTrack } from './scene-audio.js';
 import { applyBgmNoteToDom, toggleBgmNote } from './bgm-note.js';
 import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
-import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
+import { isStagePaused, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
 import { isTtsSpeaking, replayTts, setTtsErrorHandler, stopTts } from './tts.js';
 import { playUiSfx } from './ui-sfx.js';
+import { findLastDreadLevel } from '../../scene/horror.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
-import { isGeneratedAssetUrl, bindGeneratedBackground, bindGeneratedSprite } from '../../scene/asset-match.js';
-import { STAGE_CAST_MAX_SEATS, pickCastMembers } from '../../scene/stage-cast.js';
+import { resolveBackgroundAsset, resolveNudeSpriteAsset, isGeneratedAssetUrl, bindGeneratedBackground, isNonSpriteSpeaker } from '../../scene/asset-match.js';
+import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
+import { STAGE_CAST_MAX_SEATS, STAGE_CAST_SCAN_LIMIT, pickCastMembers, resolveCastOffset, resolveStageCast } from '../../scene/stage-cast.js';
 import { normalizeStageCastSettings } from './stage-direction-settings.js';
-import { SPRITE_BACK_MOOD } from './sprite-turn.js';
-import { isReactMoodHit } from '../../scene/react-mood.js';
 import { resolveRomanceRivalTarget } from './romance-settings.js';
 import { clearCastDom } from './stage-cast-render.js';
-import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe } from '../../scene/character-outfits.js';
+import { resolveCharacterDna } from '../../scene/character-dna.js';
+import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, resolveSpriteOutfit } from '../../scene/character-outfits.js';
+import { resolveEventCgForPage } from '../../scene/event-cg.js';
+import { collectOutfitClues } from '../../data/shujuku/outfit-clues.js';
 import { isStrictBackgroundMatch } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -65,7 +73,19 @@ import {
     ORIGINAL_READER_REQUIRED_SELECTORS,
     ORIGINAL_READER_STYLE_CONTRACT,
 } from './original-reader-source.js';
-import { SETTINGS_CATEGORIES, categoryOfPage, currentSettingsPage, openSettingsPage } from './settings-pages.js';
+import {
+    getImageSubTabTemplate,
+    getReaderSubTabTemplate,
+    getSettingsTabTemplate,
+    normalizeImageSubTab,
+    normalizeSceneSubTab,
+    normalizeReaderSubTab,
+    IMAGE_SUBTAB_DEFS,
+    SCENE_RULES_TEMPLATE,
+    SCENE_SUBTAB_DEFS,
+    READER_SUBTAB_DEFS,
+    SETTINGS_TAB_DEFS,
+} from './settings-tabs.js';
 import { normalizeSettingsTheme } from './settings-theme.js';
 import {
     DEFAULT_IMAGE_API,
@@ -81,9 +101,7 @@ import {
     TOOLBAR_ACTIONS,
     VN_THEME_PRESETS,
 } from './reader-host-constants.js';
-import { eventToShortcut, findShortcutAction, resolveShortcuts } from './reader-shortcuts.js';
 import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
-import { buildWaitStageModel, createWaitStageRuntime } from './wait-stage-runtime.js';
 import { onDlcSkinsChange } from './dlc-skin-registry.js';
 import { onDlcFxChange } from '../../scene/fx-registry.js';
 import {
@@ -141,13 +159,10 @@ import {
     restoreStorySpan,
     storyLines,
 } from './embedded-reader-runtime.js';
-import { createReaderSourceCache } from './reader-source-cache.js';
-import { prepareReaderFloor, stripWrappingQuotes } from './reader-floor-plan.js';
-import { prepareReaderFloorAssets } from './reader-floor-assets.js';
-import { createReaderTableData } from '../../data/shujuku/reader-table-data.js';
+import { buildReaderSourceSignature, createReaderSourceCache } from './reader-source-cache.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
 import { collectFloorAssetUrls } from './floor-asset-prefetch.js';
-import { createChatStreamObserver, isUserFloorNode } from '../../host/chat-stream-observer.js';
+import { createChatStreamObserver } from '../../host/chat-stream-observer.js';
 import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
 import { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } from './fx-result-model.js';
 import { cancelResultFx, playResultFx } from './fx-result.js';
@@ -174,7 +189,6 @@ import {
     getOwnerWindow,
     getRootDocument,
     removeImageLoadingSpinner,
-    setImageRetryState,
     syncSettingsViewportVars,
     unmountNode,
 } from './reader-dom-utils.js';
@@ -205,9 +219,8 @@ import { createRecordPanelController } from './record-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildStatusHudModel, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
-import { buildItemActionText, extractBodyChoices, listPresentNames, normalizeOptionSources, splitQuickActions } from '../../choices/option-sources.js';
-import { buildItemCatalog } from '../../data/shujuku/item-catalog.js';
 import { createIgsModal } from './igs-modal.js';
+import { runCgConsistencyAction } from './cg-consistency-action.js';
 import { createOnboardingController } from './onboarding-guide-controller.js';
 import { applyPerformanceProfile, applyProfileDetails } from './performance-profile.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
@@ -257,7 +270,7 @@ import { resolveChatTheme } from './chat-themes.js';
 import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import { comicContentKey, isComicModeActive } from './comic-settings.js';
-import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
+import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay, stripBilingualTranslation } from './bilingual-text.js';
 
 import {
     applyReaderSnapshotToDom,
@@ -270,36 +283,9 @@ import {
 
 const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 
-// 翻页时设置没变就复用上次整理好的阅读器设置：每次整份深拷贝再跑几十项整理，是翻页最大的一块 JS 开销。
-// 存储配置是共享只读的，改设置会换新引用，按引用判断即可。返回浅拷贝：调用方只改顶层字段，下层对象只读。
-let normalizedReaderMemo = null;
-function normalizeReaderSettingsCached(settings, legacyTheme) {
-    const memo = normalizedReaderMemo;
-    if (memo && settings && memo.settings === settings && memo.legacyTheme === legacyTheme) return { ...memo.value };
-    const value = normalizeReaderSettings(settings, legacyTheme);
-    normalizedReaderMemo = settings && typeof settings === 'object' ? { settings, legacyTheme, value } : null;
-    return { ...value };
-}
-
-// 只在确有图本体读空时才交给素材匹配：平时不传，匹配不必逐槽检查、也不复制素材表。
-function missingImageProbe(generatedAssets) {
-    return generatedAssets && typeof generatedAssets.hasMissingImages === 'function' && generatedAssets.hasMissingImages()
-        ? generatedAssets.isMissingImage : undefined;
-}
-
-function unavailableImageProbe(generatedAssets) {
-    return generatedAssets && typeof generatedAssets.hasUnavailableImages === 'function' && generatedAssets.hasUnavailableImages()
-        ? generatedAssets.isUnavailableImage : undefined;
-}
-
 export function createIgsReaderHost(options = {}) {
-    bindImageCacheDocument(getRootDocument(options.global), options.media?.cache);
-    // 快速连翻的整页渲染最小间隔（见 renderTurnedPage）；放闭包开头，避免提前调用时未初始化。
-    const PAGE_RENDER_GAP_MS = Number.isFinite(options.pageRenderGapMs) ? options.pageRenderGapMs : 32;
     let statusHudClient = null;
     let statusHudCallback = null;
-    let statusHudApi = null;
-    let statusHudTimer = 0;
     // 翻旧楼补插图：每楼每次刷新页面只试一次，同一时间只画一楼。
     const backfillTried = new Set();
     let backfillBusy = false;
@@ -331,22 +317,6 @@ export function createIgsReaderHost(options = {}) {
         getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
         storage: () => (options.global || globalThis).localStorage,
     });
-    const rewindController = createRewindController({
-        getContext: () => getSillyTavernContext(options.global || globalThis),
-        getChatId: () => (typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : ''),
-        storage: () => (options.global || globalThis).localStorage,
-        progress: readingProgress,
-        loadBranchApi: async () => {
-            const g = options.global || globalThis;
-            for (const win of [g, g.parent, g.top]) {
-                try {
-                    const origin = win && win.location && win.location.origin;
-                    if (origin && origin !== 'null') return await import(/* @vite-ignore */ `${origin}/scripts/bookmarks.js`);
-                } catch (_) { /* 换下一层窗口 */ }
-            }
-            return null;
-        },
-    });
     const progressRuntime = { navigating: false, offered: new Set(), pulled: new Set(), pushed: new Map(), newFloorToastAt: 0 };
     const PROGRESS_NAV_ACTIONS = new Set(['prev', 'next', 'first-page', 'last-page', 'prev-turn', 'next-turn', 'resume-reading', 'turn-first', 'turn-latest', 'skip-read', 'quick-load']);
     let turnIndexPanel = null;
@@ -355,10 +325,6 @@ export function createIgsReaderHost(options = {}) {
     const generationStrip = createGenerationStrip({
         timers: options.autoPlayTimers || globalThis,
         getDialog: () => (state.activeReader && state.activeReader.dom && state.activeReader.dom.dialog) || null,
-    });
-    const missedHint = createMissedHint({
-        getDialog: () => (state.activeReader && state.activeReader.dom && state.activeReader.dom.dialog) || null,
-        onRetry: () => runManualIllustration(),
     });
     // 新手引导：会话标记与当前步骤挂在宿主实例上，状态只存独立的 localStorage 键。
     const onboarding = createOnboardingController({
@@ -380,18 +346,7 @@ export function createIgsReaderHost(options = {}) {
     const sourceCache = createReaderSourceCache({
         parse: (input) => buildIgsTextPayload(input.liveMessage, input.parseOptions),
     });
-    const tableData = createReaderTableData(() => (options.global || globalThis).AutoCardUpdaterAPI || null);
-    const preparedFloorKey = Symbol('reader-floor-preparation');
     const imageResourceCache = createImageResourceCache(options.global || globalThis, { limit: 96 });
-    let mediaHostDisposed = false;
-    const offMediaClear = options.media?.cache?.onClear(() => {
-        state.activeReader?.assetLoadRequests?.clear();
-        queueMicrotask(() => {
-            if (mediaHostDisposed) return;
-            if (state.activeReader) rerenderActiveReader();
-            if (state.activeSettings && isAssetSettingsPage(state.activeSettings)) scheduleImageRefresh({ settings: true });
-        });
-    }) || (() => {});
     let moodAutoTimer = 0;
     let moodAutoRunning = false;
     let moodAutoAgain = false;
@@ -404,28 +359,15 @@ export function createIgsReaderHost(options = {}) {
         global: options.global || globalThis,
         getDocument: () => resolveEmbeddedDocument(state.activeReader),
         onActivity: () => handleChatStreamActivity(),
-        onStable: (settled) => handleChatStreamStable(settled),
-        isUserFloor: (messageId) => isUserFloorId(messageId),
+        onStable: () => handleChatStreamStable(),
+        // 硬超时无条件收起等待。全屏在新楼写完之前会让 onStable 返回 false，继续等。
         onTimeout: () => {
-            waitStage.showSlow();
-        },
-    });
-    // 等待过场：五种阅读器模式共用黑屏 + 一句台词（回放角色说过的话 + 通用兜底）。
-    // 回复写完后，未在游戏中就地换页；在游戏中等这一局结算再换页。
-    const waitStage = createWaitStageRuntime({
-        getDoc: () => resolveEmbeddedDocument(state.activeReader),
-        onVoice: (line) => playWaitStageVoice(line),
-        onExitReady: () => finishPendingWaitExit(),
-        onDismiss: () => {
-            streamObserver.cancelPending();
             exitEmbeddedLoading();
         },
     });
-    let pendingReplyMessage = null;
     // 物品图到达后重绘阅读器：演出占位与背包格位据此替换为生图。
     const offItemImageUpdatedRaw = typeof options.onItemImageUpdated === 'function'
-        // 物品图可能一批连着到，和生图一样按窗口合并成一次重绘。
-        ? options.onItemImageUpdated(() => { if (state.activeReader) scheduleImageRefresh({ reader: true }); })
+        ? options.onItemImageUpdated(() => { if (state.activeReader) rerenderActiveReader(); })
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
     // 下面几项被 return host 之后的函数引用，必须声明在 return 之前，否则压缩时会被当作死代码删掉。
@@ -436,7 +378,7 @@ export function createIgsReaderHost(options = {}) {
     // 否则 N 张图触发 N 次整页重绘、每次又带上已到的全部 dataUrl，开销随张数平方增长。
     const IMAGE_REFRESH_BATCH_MS = 120;
     let imageRefreshTimer = 0;
-    let floorAssetPlan = { key: '', reader: null, urls: [] };
+    let floorAssetPlan = { key: '', urls: [] };
     let readerImageRefreshPending = false;
     let settingsImageRefreshPending = false;
     // 设置面板全屏盖住阅读器时不重绘后面的舞台，记一笔，关面板时补一次。
@@ -457,11 +399,10 @@ export function createIgsReaderHost(options = {}) {
             readerImageRefreshPending = false;
             settingsImageRefreshPending = false;
             if (doReader && state.activeReader) {
-                if (waitStage.isOpen()) void refreshWaitStageModel(state.activeReader);
-                else if (state.activeSettings) readerStaleBehindSettings = true;
+                if (state.activeSettings) readerStaleBehindSettings = true;
                 else rerenderActiveReader();
             }
-            if (doSettings && state.activeSettings && isAssetSettingsPage(state.activeSettings)) {
+            if (doSettings && state.activeSettings && state.activeSettings.tab === 'scene') {
                 // 交互中先搁着，松手或菜单收起时由 flushDeferredImageRefresh 补刷。
                 if (settingsInteracting()) settingsImageRefreshPending = true;
                 else rerenderSettings();
@@ -470,40 +411,29 @@ export function createIgsReaderHost(options = {}) {
     }
     const offGeneratedAssetUpdated = typeof options.onGeneratedAssetUpdated === 'function'
         ? options.onGeneratedAssetUpdated((detail) => {
-            sourceCache.visitPrepared(floor => floor.assets?.invalidate(detail));
             const settings = state.activeSettings;
-            const imageLost = Boolean(detail && detail.reason === 'image-lost');
-            // 图本体读空和读回都合并重绘；只使这张图相关的匹配失效。
-            const imageLoaded = imageLost || Boolean(detail && detail.reason === 'image-loaded');
+            const imageLoaded = Boolean(detail && detail.reason === 'image-loaded');
+            // 新素材或状态变化后重新收集本楼图源，未出场的临时立绘也参与预取。
+            if (!imageLoaded) floorAssetPlan = { key: '', urls: [] };
             if (state.activeReader) {
-                if (imageLoaded && !imageLost) warmActiveFloorImages(null, detail.imageId);
+                if (imageLoaded) warmActiveFloorImages();
                 if (settings) readerStaleBehindSettings = true;
-                if (imageLoaded) {
-                    if (waitStage.isOpen() || !settings) scheduleImageRefresh({ reader: true });
-                } else if (!settings) rerenderActiveReader();
+                else if (imageLoaded) scheduleImageRefresh({ reader: true });
+                else rerenderActiveReader();
             }
             if (!settings) return;
             if (imageLoaded) {
-                if (isAssetSettingsPage(settings)) scheduleImageRefresh({ settings: true });
+                if (settings.tab === 'scene') scheduleImageRefresh({ settings: true });
                 return;
             }
-            if (currentSettingsPage(settings) === 'review') rerenderSettings();
-        })
-        : () => {};
-    const offSettingsUpdated = typeof options.onSettingsUpdated === 'function'
-        ? options.onSettingsUpdated(() => {
-            renderConfigCache = null;
-            floorAssetPlan = { key: '', reader: null, urls: [] };
-            if (!state.activeReader) return;
-            if (state.activeSettings) readerStaleBehindSettings = true;
-            else if (state.activeReader) scheduleImageRefresh({ reader: true });
+            if (settings.asyncState.sceneSubTab === 'review') rerenderSettings();
         })
         : () => {};
     // 日志更新时只替换列表 DOM，不整页重渲染，避免打断正在输入的设置项。
     const offImageJobLog = options.imageJobLog && typeof options.imageJobLog.onChange === 'function'
         ? options.imageJobLog.onChange(() => {
             const current = state.activeSettings;
-            if (!current || currentSettingsPage(current) !== 'logs') return;
+            if (!current || current.tab !== 'image' || normalizeImageSubTab(current.asyncState.imageSubTab) !== 'logs') return;
             const list = current.dom && current.dom.root && current.dom.root.querySelector
                 ? current.dom.root.querySelector('[data-image-log-list]') : null;
             if (list) list.innerHTML = renderImageJobLogList();
@@ -513,7 +443,6 @@ export function createIgsReaderHost(options = {}) {
     // DLC 中途登记 / 注销：重绘当前阅读器与设置页（皮肤样式、下拉、演出开关），同一轮里多次登记只重绘一次。
     let dlcRerenderQueued = false;
     const onDlcChange = () => {
-        sourceCache.invalidate();
         if (dlcRerenderQueued) return;
         dlcRerenderQueued = true;
         Promise.resolve().then(() => {
@@ -566,7 +495,6 @@ export function createIgsReaderHost(options = {}) {
         flushDeferredImageRefresh, normalizeUnifiedSettings, onboarding, openCgGallery, options, pageModal,
         playReaderUiSfx, rerenderActiveReader, resolveBridgeConfigSnapshot, scheduleMoodAutoClassify, sourceCache,
         state,
-        invalidateFloorAssetPlan() { floorAssetPlan.key = ''; },
         takeReaderStaleBehindSettings() {
             const stale = readerStaleBehindSettings;
             readerStaleBehindSettings = false;
@@ -597,7 +525,7 @@ export function createIgsReaderHost(options = {}) {
         getSettingsSnapshotContract() {
             return {
                 selectors: Array.from(SETTINGS_PANEL_REQUIRED_SELECTORS),
-                tabs: SETTINGS_CATEGORIES.map(([id, label]) => ({
+                tabs: SETTINGS_TAB_DEFS.map(([id, label]) => ({
                     id,
                     label,
                     requiredPaths: Array.from((SETTINGS_PANEL_TAB_CONTRACT[id] || {}).requiredPaths || []),
@@ -607,21 +535,26 @@ export function createIgsReaderHost(options = {}) {
         },
     };
 
-    // 角色、场景两个分类的页面里有缩略图：图片到了要刷新它们。
-    function isAssetSettingsPage(settings) {
-        const category = categoryOfPage(currentSettingsPage(settings));
-        return category === 'chars' || category === 'scenes';
-    }
-
     // 翻页配置缓存（见 resolveRenderConfig）；闭包变量必须写在 return 之前。
     let renderConfigCache = null;
     // 正文出现衣柜没有的新衣服：排队到本楼最后一页，和新素材入库同一个面板里问。
     const pendingOutfitAsks = [];
+    const storyOutfits = options.generatedAssets?.writeWardrobePrompt && (options.global || globalThis).localStorage
+        ? createStoryOutfitService({
+            storage: (options.global || globalThis).localStorage,
+            assets: options.generatedAssets,
+            getContext: storyOutfitContext,
+            commit: commitStoryOutfit,
+            onChanged() {
+                const current = state.activeReader;
+                if (current) syncAssetReviewAfterRender(current, current.snapshot);
+            },
+        }) : null;
     return host;
 
     function openReader(payload = {}, openOptions = {}) {
+        storyOutfits?.resume();
         closeReader({ keepFullscreen: true });
-        payload = cloneReaderPayload(payload);
         unparkAudioBus();
         const nextMode = normalizeReaderMode(
             firstDefined(
@@ -632,8 +565,8 @@ export function createIgsReaderHost(options = {}) {
             ),
             resolveBridgeConfigSnapshot({ mode: openOptions.mode }).bridge,
         );
-        const unified = resolveRenderConfig(nextMode);
-        const readerSettings = normalizeReaderSettingsCached(unified.readerSettings, unified.bridge.vnTheme);
+        const unified = resolveBridgeConfigSnapshot({ mode: nextMode });
+        const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, unified.bridge);
         const snapshot = buildReaderSnapshot(
             payload,
@@ -649,12 +582,12 @@ export function createIgsReaderHost(options = {}) {
 
         state.activeReader = {
             illustrationIdentity: readIllustrationIdentity(snapshot.messageId),
-            payload,
+            payload: cloneReaderPayload(payload),
             mode: nextMode,
             index: snapshot.content.currentIndex,
             mountMessageId: snapshot.messageId,
             contentMessageId: snapshot.messageId,
-            turnOffset: Math.max(0, Number(firstDefined(openOptions.turnOffset, payload.turnOffset, 0)) || 0),
+            turnOffset: 0,
             streamPhase: 'idle',
             mountBaselineRaw: getMessagePrimaryText(payload.message && (payload.message.raw || payload.message) || payload.raw || ''),
             mountBaselineVisible: String(payload.visibleText || ''),
@@ -675,12 +608,10 @@ export function createIgsReaderHost(options = {}) {
             runtime: null,
             toastTimer: null,
             imagePollToken: 0,
-            assetLoadRequests: new Map(),
+            assetLoadRequests: new Set(),
         };
         const current = state.activeReader;
         current.progressArmed = progressRuntime.navigating;
-        // 重来待办先取：分支会带着原聊天的阅读进度元数据，先按截断后的进度覆盖，再跳过元数据合并。
-        arriveAtRewind(current);
         pullProgressFromMetadata();
         current.titleGate = openOptions.skipTitle !== true && payload.skipTitle !== true && shouldGateTitleScreen({
             readerSettings,
@@ -735,14 +666,14 @@ export function createIgsReaderHost(options = {}) {
         }
 
         if (domState && domState.overlay) onboarding.syncInvite(domState.overlay);
-        return withLazySnapshot({
+        return {
             ok: true,
             mode: nextMode,
             readerMode: nextMode,
-            snapshot: lazySnapshotCopy(snapshot),
+            snapshot: cloneData(snapshot),
             domMounted: Boolean(domState),
             controller,
-        });
+        };
     }
 
     // 已打开阅读器时原地替换阅读源：复用同一 reader root、controller 与事件绑定，
@@ -750,14 +681,13 @@ export function createIgsReaderHost(options = {}) {
     function replaceReader(payload = {}, replaceOptions = {}) {
         const current = state.activeReader;
         if (!current) return openReader(payload, replaceOptions);
-        payload = cloneReaderPayload(payload);
         const mode = normalizeReaderMode(current.mode, resolveBridgeConfigSnapshot({ mode: current.mode }).bridge);
         const merged = applyReaderPayloadToState(current, mode, { payload, index: 0 });
         if (!merged.content.segments.length) return { ok: false, reason: 'no-readable-text' };
         current.contentMessageId = payload.messageId != null ? payload.messageId : current.contentMessageId;
         current.illustrationIdentity = readIllustrationIdentity(current.contentMessageId);
         if (replaceOptions.turnOffset != null) current.turnOffset = Math.max(0, Number(replaceOptions.turnOffset) || 0);
-        current.payload = payload;
+        current.payload = cloneReaderPayload(payload);
         if (current.turnOffset === 0 || payload.messageId === current.mountMessageId) {
             current.mountBaselineRaw = getMessagePrimaryText(payload.message && (payload.message.raw || payload.message) || payload.raw || '');
             current.mountBaselineVisible = String(payload.visibleText || '');
@@ -772,19 +702,19 @@ export function createIgsReaderHost(options = {}) {
         updateMountedReader(merged);
         exitEmbeddedLoading();
         if ((isEmbeddedReaderMode(mode) || followsHostReply(mode)) && current.turnOffset === 0) startReaderImagePolling(current);
-        return withLazySnapshot({
+        return {
             ok: true,
             mode,
             readerMode: mode,
-            snapshot: lazySnapshotCopy(merged),
+            snapshot: cloneData(merged),
             domMounted: Boolean(current.dom),
             controller: current.controller,
             replaced: true,
-        });
+        };
     }
 
     // 物品演出：账本补上物品表变动的获得 / 失去，标出初次获得，并给正文点亮备好已知物品名。
-    function decorateItemFx(pageFx, payload, segments, index, prepared, readerSettings) {
+    function decorateItemFx(pageFx, payload, segments, index, directives, readerSettings) {
         const ledger = options.itemLedger;
         const itemFx = normalizeItemFxSettings(readerSettings && readerSettings.itemFx);
         if (!ledger || !itemFx.enabled || !pageFx || !Array.isArray(pageFx.items)) return;
@@ -794,17 +724,13 @@ export function createIgsReaderHost(options = {}) {
             ? state.activeReader.illustrationIdentity : readIllustrationIdentity(messageId);
         const chatId = identity && identity.chatId;
         if (!chatId) return;
-        const identityKey = `${chatId}|${messageId}|${identity.swipeId}`;
-        if (prepared.ledgerTagKey !== identityKey) {
-            ledger.noteTagItems(chatId, prepared.tagItems, messageId);
-            prepared.ledgerTagKey = identityKey;
-        }
+        const tagItems = (directives || []).filter((d) => d.kind === 'item').map((d) => ({ action: d.args[0], name: d.args[1], description: d.args[2] || '' }));
+        ledger.noteTagItems(chatId, tagItems, messageId);
         mergeItemEvents(pageFx, {
             events: ledger.eventsFor(chatId, messageId, identity.swipeId),
             segments,
             index,
-            tagNames: prepared.tagNames,
-            pageFor: prepared.itemPageFor,
+            tagNames: new Set(tagItems.map((item) => normalizeItemName(item.name))),
             shown: itemEventsShown,
             floorKey: `${chatId}|${messageId}|${Number(identity.swipeId) || 0}`,
         });
@@ -820,8 +746,8 @@ export function createIgsReaderHost(options = {}) {
 
     // 由当前 payload 重新构建 snapshot：正文解析走 source 缓存，普通换源不会重复整楼解析。
     function applyReaderPayloadToState(current, mode, optionsForRender = {}) {
-        const unified = resolveRenderConfig(mode);
-        const readerSettings = normalizeReaderSettingsCached(unified.readerSettings, unified.bridge.vnTheme);
+        const unified = resolveBridgeConfigSnapshot({ mode });
+        const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, unified.bridge);
         return buildReaderSnapshot(optionsForRender.payload || current.payload, mode, readerSettings,
             optionsForRender.index ?? current.index);
@@ -833,68 +759,107 @@ export function createIgsReaderHost(options = {}) {
         }
         statusHudClient = null;
         statusHudCallback = null;
-        statusHudApi = null;
-        if (statusHudTimer) {
-            const g = options.global || globalThis;
-            (g.clearTimeout || clearTimeout).call(g, statusHudTimer);
-            statusHudTimer = 0;
-        }
     }
 
     function syncStatusHudSubscription() {
         const current = state.activeReader;
         const settings = current && current.snapshot && current.snapshot.readerSettings;
         const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
-        const shouldSubscribe = Boolean(current) && ((statusHud.enabled && statusHud.tables.length > 0)
-            || Boolean(settings?._sceneAssets?.enabled && Object.keys(settings._sceneAssets.characterOutfits || {}).length)
-            || Boolean(current.payload?.promiseHistory?.length));
+        const shouldSubscribe = Boolean(current) && statusHud.enabled && statusHud.tables.length > 0;
         if (!shouldSubscribe) {
             teardownStatusHudSubscription();
             return;
         }
+        if (statusHudClient && statusHudCallback) return;
         const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
-        if (statusHudClient && statusHudCallback && statusHudApi === api) return;
-        teardownStatusHudSubscription();
-        statusHudApi = api;
         statusHudClient = createShujukuClient(api);
-        // 数据库插件后台填表时会连发回调：合并成 250ms 一次，内容没变就不整页重绘。
         statusHudCallback = () => {
-            tableData.invalidate();
-            if (!state.activeReader || statusHudTimer) return;
-            const g = options.global || globalThis;
-            const schedule = typeof g.setTimeout === 'function' ? g.setTimeout.bind(g) : setTimeout;
-            statusHudTimer = schedule(() => {
-                statusHudTimer = 0;
-                if (state.activeReader) rerenderActiveReader();
-            }, 250);
+            if (!state.activeReader) return;
+            refreshStatusHudInActiveReader();
         };
         statusHudClient.registerCallback(statusHudCallback);
     }
 
     function readStatusHudTablesSafe() {
-        return tableData.read();
+        const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+        try {
+            return createShujukuClient(api).readTables();
+        } catch (error) {
+            return { ok: false, reason: String((error && error.message) || 'read-failed') };
+        }
     }
 
-    function readerPageAssetUrls(content) {
-        if (!content) return [];
-        return [content.backgroundImage, content.spriteImage, content.pendingSpriteRef, content.nsfwCgPortrait,
-            content.fx && content.fx.foeImage,
-            ...(Array.isArray(content.castSprites) ? content.castSprites.map(member => member && member.image) : []),
-            ...(Array.isArray(content.pendingCastRefs) ? content.pendingCastRefs : [])].filter(Boolean);
+    function refreshStatusHudInActiveReader() {
+        const current = state.activeReader;
+        if (!current || !current.dom || !current.dom.overlay) return;
+        const settings = current.snapshot && current.snapshot.readerSettings;
+        const content = current.snapshot && current.snapshot.content;
+        const statusHudSettings = normalizeStatusHudSettings(settings && settings.statusHud);
+        const showSceneHud = Boolean(content && content.sceneNsfw && statusHudSettings.showSpriteOnNsfw === false);
+        const next = withConcreteAvatar(buildStatusHudModel({
+            settings: statusHudSettings,
+            sceneAssets: (settings && settings._sceneAssets) || {},
+            location: content && content.sceneLocation,
+            time: content && content.sceneTime,
+            weather: content && content.sceneWeather,
+            character: content && !content.sceneNsfw ? content.speaker : '',
+            emotion: content && !content.sceneNsfw ? content.statusEmotion : '',
+            isNarration: Boolean(content && (content.textType === 'narration' || content.textType === 'thought')) || showSceneHud,
+            readResult: readStatusHudTablesSafe(),
+            outfitFor: { character: content && content.spriteCharacter, outfit: content && content.spriteOutfit },
+
+        }));
+        current.snapshot.content.statusHud = next;
+        applyReaderSnapshotToDom(current.dom.overlay, current.snapshot, current, {
+            hasActiveSettings: () => Boolean(state.activeSettings),
+            resolveAssetUrl: (url) => resolveReaderAssetUrl(url, current),
+            // 获得物品演出：只读本聊天物品图本地缓存。
+            resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
+            chatId: typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '',
+            // 用户角色名：直播主播名与之相同时自动切主播视角；用 getter 跟随切换角色。
+            get userName() { return String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''); },
+            onDailyPhoto: saveDailyPhoto,
+            onRomanceMemory: saveRomanceMemory,
+            onCgPortraitMove: (statusHud) => saveReaderSettingsPatch({ statusHud }),
+            onLivePortraitMove: (liveFx) => saveReaderSettingsPatch({ liveFx }),
+        });
     }
 
     function pageUsesAsset(content, source) {
-        return Boolean(source) && readerPageAssetUrls(content).includes(source);
+        if (!content || !source) return false;
+        if (content.backgroundImage === source || content.spriteImage === source || content.nsfwCgPortrait === source) return true;
+        if (content.fx && content.fx.foeImage === source) return true;
+        return Array.isArray(content.castSprites) && content.castSprites.some((member) => member && member.image === source);
     }
 
-    function concreteReaderAssetUrl(url, priority) {
+    function concreteReaderAssetUrl(url) {
         const source = String(url || '').trim();
         if (!source) return '';
         if (!isGeneratedAssetUrl(source)) return source;
         const generatedAssets = options.generatedAssets || null;
         return generatedAssets && typeof generatedAssets.resolveUrl === 'function'
-            ? String(generatedAssets.resolveUrl(source, priority ? { priority } : undefined) || '')
+            ? String(generatedAssets.resolveUrl(source) || '')
             : '';
+    }
+
+    // 选图只使用已知资源状态；缓存未命中先加载，不伪装成图片丢失或换衣许可。
+    function readerSpriteAvailability(url) {
+        const current = state.activeReader;
+        const service = options.generatedAssets;
+        const stored = isGeneratedAssetUrl(url) ? service?.imageAvailability?.(url) : null;
+        if (stored && ['missing', 'read-error'].includes(stored.status)) return stored;
+        const concrete = concreteReaderAssetUrl(url);
+        if (!concrete) return { status: stored?.status === 'unverified' ? 'loading' : stored?.status || 'unverified' };
+        const status = imageResourceCache.inspect(concrete);
+        if (status.status !== 'unverified' || imageResourceCache.get(concrete)) return status;
+        if (current && !current.assetLoadRequests.has(concrete)) {
+            current.assetLoadRequests.add(concrete);
+            imageResourceCache.load(concrete).then(() => {
+                current.assetLoadRequests.delete(concrete);
+                if (state.activeReader === current) scheduleImageRefresh({ reader: true });
+            });
+        }
+        return imageResourceCache.inspect(concrete);
     }
 
     // 状态栏头像存在图库（igs-gen:）时换成已读回的图；还没读回先空着，读回后 image-loaded 会重绘。
@@ -903,7 +868,7 @@ export function createIgsReaderHost(options = {}) {
         return model;
     }
 
-    function warmActiveFloorImages(mountedSnapshot, loadedImageId = '') {
+    function warmActiveFloorImages(mountedSnapshot) {
         const current = state.activeReader;
         const payload = current && current.payload;
         const snapshot = mountedSnapshot || (current && current.snapshot);
@@ -912,31 +877,35 @@ export function createIgsReaderHost(options = {}) {
         const liveMessage = (payload.message && payload.message.raw) || payload.message || payload.raw || '';
         const source = String(payload.raw || (typeof liveMessage === 'string' ? liveMessage : '') || '');
         const slots = snapshot.content && Array.isArray(snapshot.content.imageSlots) ? snapshot.content.imageSlots : [];
-        const floor = snapshot[preparedFloorKey];
         const key = `${firstDefined(payload.messageId, payload.message && payload.message.id, '')}:${source.length}:${slots.map((slot) => (slot && slot.url) || '').join('|')}`;
-        const planChanged = floorAssetPlan.key !== key || floorAssetPlan.reader !== current || floorAssetPlan.floor !== floor;
-        if (planChanged) {
+        if (floorAssetPlan.key !== key) {
+            const sceneAssets = readerSettings._sceneAssets || null;
+            const generatedAssets = options.generatedAssets || null;
             floorAssetPlan = {
-                key, reader: current, floor,
-                urls: collectFloorAssetUrls({ prepared: floor, imageSlots: slots }),
+                key,
+                urls: collectFloorAssetUrls({
+                    source,
+                    sceneAssets,
+                    inheritedOutfits: payload.inheritedOutfits,
+                    inheritedScene: payload.inheritedSceneState,
+                    imageSlots: slots,
+                    systemRole: readerSettings.systemRole,
+                    readClues: (names) => collectOutfitClues(readStatusHudTablesSafe(), names),
+                    assetMatchCtx: {
+                        sceneAssets,
+                        generatedAssets: sceneAssets && sceneAssets.generated,
+                        imageAvailability: readerSpriteAvailability,
+                        strict: readerSettings._strictBackgroundMatch === true,
+                        tempBackground: generatedAssets ? generatedAssets.tempBackground : null,
+                        tempSceneTime: generatedAssets ? generatedAssets.tempSceneTime : null,
+                        tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
+                        tempSpriteForOutfit: generatedAssets ? generatedAssets.tempSpriteForOutfit : null,
+                    },
+                }),
             };
         }
-        const updatedUrls = floor?.assets?.takeUpdatedUrls() || [];
-        if (!planChanged) for (const url of updatedUrls) {
-            const concrete = concreteReaderAssetUrl(url);
-            if (concrete) imageResourceCache.load(concrete);
-        }
-        // 每楼只完整预热一次；缓存放不下的后续页图片由出场页按需读，不能在每次重绘中反复补满。
-        const spriteRef = loadedImageId ? `igs-gen:${loadedImageId}` : '';
-        if (!planChanged) {
-            if (!spriteRef || !floorAssetPlan.urls.includes(spriteRef)) return;
-            const ready = concreteReaderAssetUrl(spriteRef);
-            if (ready) imageResourceCache.load(ready);
-            return;
-        }
-        // 整楼预热用低优先级，让当前页要显示的图先下载。
         for (const url of floorAssetPlan.urls) {
-            const concrete = concreteReaderAssetUrl(url, 'low');
+            const concrete = concreteReaderAssetUrl(url);
             if (concrete) imageResourceCache.load(concrete);
         }
     }
@@ -944,32 +913,22 @@ export function createIgsReaderHost(options = {}) {
     function resolveReaderAssetUrl(url, current) {
         const source = String(url || '').trim();
         if (!source) return '';
-        const leases = current.assetLeases ||= options.media?.cache ? createMediaLeaseScope(options.media.cache) : null;
-        if (isGeneratedAssetUrl(source)) { leases?.use(`asset:${source.slice(8)}`); return concreteReaderAssetUrl(source); }
-        const ownedKey = options.media?.cache?.sourceId?.(source);
-        if (ownedKey) leases?.use(ownedKey);
+        if (isGeneratedAssetUrl(source)) return concreteReaderAssetUrl(source);
         const ready = imageResourceCache.get(source);
-        if (ready) { const key = options.media?.cache?.sourceId?.(ready); if (key) leases?.use(key); return ready; }
+        if (ready) return ready;
         // data / blob 已经是本地像素。先原样画上，解码只为了预热缓存；
         // 等解码完再补地址会先把背景清成空的，播 CG 时整屏闪一下。
         const inline = /^(?:data:|blob:)/i.test(source);
         if (!current.assetLoadRequests.has(source)) {
-            const request = {};
-            current.assetLoadRequests.set(source, request);
+            current.assetLoadRequests.add(source);
             const loading = imageResourceCache.load(source);
             const immediate = imageResourceCache.get(source);
             loading.then(() => {
-                if (current.assetLoadRequests.get(source) !== request) return;
                 current.assetLoadRequests.delete(source);
                 if (inline || state.activeReader !== current) return;
-                // 读取结束不等于出现可显示的新图；读空或被预算淘汰时不能自行重绘、重读。
-                const loaded = imageResourceCache.get(source);
-                if (!loaded || loaded === immediate) return;
                 const content = current.snapshot && current.snapshot.content;
                 if (!pageUsesAsset(content, source)) return;
                 updateMountedReader(current.snapshot);
-            }, () => {
-                if (current.assetLoadRequests.get(source) === request) current.assetLoadRequests.delete(source);
             });
             if (immediate) return immediate;
         }
@@ -987,6 +946,8 @@ export function createIgsReaderHost(options = {}) {
             }
         }
         if (turnIndexPanel) turnIndexPanel.close();
+        current.consistencyTask?.controller.abort();
+        if (current.consistencyTask) pageModal.cancel();
         // 真正关闭（不是切轮重开）时把阅读进度同步进聊天元数据，换设备也能续读。
         if (closeOptions.keepFullscreen !== true) pushProgressToMetadata();
         teardownStatusHudSubscription();
@@ -994,7 +955,6 @@ export function createIgsReaderHost(options = {}) {
         stopTts();
         clearReaderToast(current);
         cancelTypewriter(current.dom && current.dom.text, { finish: false });
-        current.spriteTextWait?.release();
         const stageMotion = current.dom && current.dom.overlay && current.dom.overlay.querySelector
             ? current.dom.overlay.querySelector('#igs-stage-motion')
             : null;
@@ -1013,22 +973,14 @@ export function createIgsReaderHost(options = {}) {
         if (current.dom && current.dom.overlay) cancelSceneAudio(current.dom.overlay);
         parkAudioBus();
         if (typeof current.stopStagePause === 'function') current.stopStagePause();
-        if (current.pageRenderTimer) clearTimeout(current.pageRenderTimer);
-        current.pageRenderTimer = 0;
         clearReaderModeRuntime(current);
         if (closeOptions.keepFullscreen !== true) {
             exitDocumentFullscreen(getRootDocument(options.global));
         }
-        current.assetLeases?.releaseAll();
-        if (floorAssetPlan.reader === current) floorAssetPlan = { key: '', reader: null, urls: [] };
         current.imagePollToken += 1;
         streamObserver.stop();
         stopEmbeddedStoryWatch();
-        // 关阅读器时把等待过场一并收掉，别留下还在轮台词的一层和等着换页的旧楼。
-        waitStage.close();
-        pendingReplyMessage = null;
         sourceCache.invalidate();
-        tableData.invalidate();
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
         }
@@ -1051,11 +1003,11 @@ export function createIgsReaderHost(options = {}) {
                 toastMessage: state.activeReader.toastMessage,
                 generationTip: generationStrip.getState().tip,
                 floatingState: cloneData(state.activeReader.floatingState),
-                snapshot: cloneSnapshotKeepAssets(state.activeReader.snapshot),
+                snapshot: cloneData(state.activeReader.snapshot),
             } : null,
             activeSettings: state.activeSettings ? {
                 tab: state.activeSettings.tab,
-                snapshot: cloneSnapshotKeepAssets(state.activeSettings.snapshot),
+                snapshot: cloneData(state.activeSettings.snapshot),
             } : null,
         };
     }
@@ -1066,7 +1018,6 @@ export function createIgsReaderHost(options = {}) {
         moodAutoTimer = 0;
         const closed = closeSettings();
         if (closed.ok === false) return closed;
-        mediaHostDisposed = true; offMediaClear();
         offIllustrationUpdated();
         offDlcSkins();
         offDlcFx();
@@ -1074,27 +1025,24 @@ export function createIgsReaderHost(options = {}) {
         offImageActivity();
         generationStrip.dispose();
         offGeneratedAssetUpdated();
-        offSettingsUpdated();
+        storyOutfits?.dispose();
         offItemImageUpdated();
         offImageJobLog();
         teardownStatusHudSubscription();
         closeReader();
-        sourceCache.invalidate();
-        tableData.invalidate();
         disarmEditReopen();
         streamObserver.stop();
-        imageResourceCache.destroy();
+        imageResourceCache.clear();
         return { ok: true };
     }
 
-    // 五种模式都跟宿主回复：发送后进等待过场，新回复写完原地换源。内嵌另有一套挂载路径。
     function tracksHostReply(mode) {
-        return Boolean(mode);
+        return isEmbeddedReaderMode(mode) || followsHostReply(mode);
     }
 
-    // 旧调用点按模式判定的写法保留：现在五种模式一律跟回复，统一由等待过场承接。
-    function followsHostReply() {
-        return true;
+    // 全屏与网页全屏：发送后在输入栏显示「正在生成」，新回复写完原地换源。
+    function followsHostReply(mode) {
+        return mode === 'fullscreen' || mode === 'web';
     }
 
     function handleChatStreamActivity() {
@@ -1104,10 +1052,10 @@ export function createIgsReaderHost(options = {}) {
         if (Number(current.turnOffset) > 0 && !current.awaitingReply) { noticeNewFloor(); return; }
         if (isEmbeddedReaderMode(current.mode)) {
             syncEmbeddedStreamMount(current);
-            enterEmbeddedLoading({ observed: true });
+            enterEmbeddedLoading();
             return;
         }
-        enterReplyWait(current, { observed: true });
+        enterReplyWait(current);
     }
 
     function resolveEmbeddedDocument(current) {
@@ -1147,14 +1095,7 @@ export function createIgsReaderHost(options = {}) {
         if (readHostBooleanAttribute(element, ['is_user', 'data-is-user'])) return null;
         if (readHostBooleanAttribute(element, ['is_system', 'data-is-system'])) return null;
         const messageId = readLiveMessageId(element);
-        if (messageId == null || isUserFloorId(messageId)) return null;
-        return { id: messageId, element };
-    }
-
-    // 以聊天数据为准：插件改写用户楼时 DOM 的 is_user 可能丢失。
-    function isUserFloorId(messageId) {
-        if (typeof options.isUserFloor !== 'function') return false;
-        try { return options.isUserFloor(messageId) === true; } catch (error) { return false; }
+        return messageId != null ? { id: messageId, element } : null;
     }
 
     function readHostBooleanAttribute(element, names) {
@@ -1200,228 +1141,112 @@ export function createIgsReaderHost(options = {}) {
 
     // 观察器只在“稳定”后调用一次：读取最新 AI 消息并原地换源。
     // 流式 token 期间不解析正文、不收集图片，避免酒馆卡顿与页面抖动。
-    async function handleChatStreamStable(settled) {
+    async function handleChatStreamStable() {
         const current = state.activeReader;
+        const embedded = Boolean(current && isEmbeddedReaderMode(current.mode));
         if (!current || !tracksHostReply(current.mode)) return true;
-        if (!streamObserver.hasGenerationSettled()) return false;
         if (Number(current.turnOffset) > 0 && !current.awaitingReply && current.streamPhase !== 'streaming') {
             noticeNewFloor();
             return true;
         }
         if (typeof options.getCurrentMessage !== 'function'
             || typeof options.openViewerFromMessage !== 'function') {
-            showReplyFailure(current, 'read');
+            exitEmbeddedLoading();
             return true;
         }
-        if (settled.reason === 'stopped' || settled.reason === 'failed') {
-            showReplyFailure(current, settled.reason);
+        // 宿主挂起时该 await 可能无限 pending，超时兜底保证 loading 退出路径必然到达。
+        const message = await Promise.race([
+            options.getCurrentMessage(),
+            new Promise((resolve) => setTimeout(resolve, 5000)),
+        ]);
+        if (!message || message.id == null) {
+            if (followsHostReply(current.mode) && current.awaitingReply && !streamObserver.hasGenerationSettled()) return false;
+            exitEmbeddedLoading();
             return true;
         }
-        let message;
-        try {
-            message = await readReplyMessage();
-        } catch (error) {
-            if (state.activeReader === current && streamObserver.isCurrentRevision(settled.revision)) {
-                showReplyFailure(current, 'read');
+        // 全屏：用户还停在这一楼。正文比对稍有出入也不能重开，重开会把页码打回第一页并清掉等待提示。
+        // 生成没结束就继续等；结束了仍是这一楼，只收起提示，留在当前页。新楼写完再切过去。
+        if (followsHostReply(current.mode) && current.awaitingReply) {
+            const newFloor = Number(message.id) !== Number(current.contentMessageId);
+            if (!streamObserver.hasGenerationSettled() || !newFloor) {
+                if (!streamObserver.hasGenerationSettled()) return false;
+                exitEmbeddedLoading();
+                return true;
             }
-            return false;
-        }
-        if (state.activeReader !== current || !streamObserver.isCurrentRevision(settled.revision)) return false;
-        if (!streamObserver.hasGenerationSettled()) return false;
-        if (!message || message.id == null || message.isUser || message.isSystem
-            || message.is_user || message.is_system || isUserFloorId(message.id)) {
-            showReplyFailure(current, 'empty');
-            return true;
         }
         const nextRaw = getMessagePrimaryText(message.raw || message);
         const nextVisible = String(message.visibleText || '');
-        const baselineId = current.replyBaselineMessageId ?? current.contentMessageId;
-        const changed = Number(message.id) !== Number(baselineId)
-            || nextRaw.trim() !== String(current.streamBaselineRaw || '').trim();
-        const parsed = buildIgsTextPayload(message, {
-            sourceFilter: current.payload.sourceFilter,
-            virtualRegex: current.payload.virtualRegex,
-            sceneAssets: current.snapshot.readerSettings._sceneAssets,
-            visibleText: nextVisible,
-        });
-        if (!changed || !(parsed.textSegments.length || parsed.htmlCards.length || parsed.chats.length)) {
-            showReplyFailure(current, 'empty');
+        const changed = message.id !== current.contentMessageId
+            || nextRaw !== current.streamBaselineRaw
+            || nextVisible !== current.streamBaselineVisible;
+        if (!changed) {
+            exitEmbeddedLoading();
             return true;
         }
-        // 回复已写完：当前游戏只结算这一局，之后由过场回调继续换楼。
-        if (!waitStage.replyArrived()) {
-            pendingReplyMessage = { reader: current, message, revision: settled.revision };
-            return true;
-        }
-        await applyReplyMessage(current, message, settled.revision);
-        return true;
-    }
-
-    // 换到新写的这一楼：内嵌要先把阅读器挂到新楼层里，其余模式就地换源。
-    async function applyReplyMessage(current, message, revision) {
-        const canReplace = () => state.activeReader === current && streamObserver.isCurrentRevision(revision);
-        if (!current || !canReplace()) return;
-        const embedded = isEmbeddedReaderMode(current.mode);
-        const previous = { turnOffset: current.turnOffset, mountMessageId: current.mountMessageId };
         current.turnOffset = 0;
         current.mountMessageId = message.id;
         if (embedded) syncEmbeddedReaderMount(current, message);
         try {
-            const result = await options.openViewerFromMessage(message.id, current.mode, {
+            await options.openViewerFromMessage(message.id, current.mode, {
                 replaceActive: true,
                 turnOffset: 0,
                 mountMessageId: message.id,
                 message,
-                canReplace,
             });
-            if (!canReplace()) return;
-            if (result && result.ok === false) {
-                current.turnOffset = previous.turnOffset;
-                current.mountMessageId = previous.mountMessageId;
-                showReplyFailure(current, result.reason === 'no-readable-text' ? 'empty' : 'read');
-                return;
-            }
-            exitEmbeddedLoading();
         } catch (error) {
-            if (canReplace()) {
-                current.turnOffset = previous.turnOffset;
-                current.mountMessageId = previous.mountMessageId;
-                showReplyFailure(current, 'read');
-            }
-        }
-    }
-
-    function finishPendingWaitExit() {
-        const pending = pendingReplyMessage;
-        pendingReplyMessage = null;
-        if (!pending || state.activeReader !== pending.reader) return;
-        void applyReplyMessage(pending.reader, pending.message, pending.revision);
-    }
-
-    async function readReplyMessage() {
-        const timers = options.global || globalThis;
-        let timeout;
-        try {
-            return await Promise.race([
-                Promise.resolve().then(() => options.getCurrentMessage()),
-                new Promise((_, reject) => {
-                    timeout = timers.setTimeout(() => reject(new Error('reply-read-timeout')), 5000);
-                }),
-            ]);
+            // 宿主异常不得打断阅读器；保持当前内容即可。
         } finally {
-            timers.clearTimeout(timeout);
+            exitEmbeddedLoading();
         }
+        return true;
     }
 
-    function showReplyFailure(current, kind) {
-        if (state.activeReader !== current) return;
-        pendingReplyMessage = null;
-        streamObserver.cancelPending();
-        current.streamPhase = 'error';
-        current.awaitingReply = false;
-        const overlay = current.dom && current.dom.overlay;
-        if (overlay && overlay.classList) overlay.classList.remove('igs-awaiting-reply');
-        mountWaitStage(current, { embedded: isEmbeddedReaderMode(current.mode) });
-        waitStage.showFailure(kind);
-    }
-
-    // 等待过场的台词池是从最近几楼的正文里现抽的，等树跑完再补一次即可。
-    async function refreshWaitStageModel(current) {
-        if (!current) return null;
-        const turns = await listTurnsSafe();
-        if (state.activeReader !== current || !waitStage.isOpen()) return null;
-        const all = turns.length ? turns.slice(-7) : (Array.isArray(current.payload && current.payload.turns) ? current.payload.turns.slice(-7) : []);
-        // 等待层的牌面不是当前正文页：外链直接可显示，生成图则由图库读回事件更新候选。
-        const resolveUrl = (url) => concreteReaderAssetUrl(url);
-        const model = buildWaitStageModel({
-            settings: current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.waitStage,
-            turns: all,
-            sceneAssets: current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings._sceneAssets,
-            resolveUrl,
-        });
-        waitStage.update(model);
-        return model;
-    }
-
-    // 语气音：回放角色自己的台词时配一声短音；通用兜底句不放。
-    function playWaitStageVoice(line) {
-        const current = state.activeReader;
-        if (!current || !line || !line.who) return;
-        const settings = current.snapshot && current.snapshot.readerSettings;
-        if (!settings) return;
-        const root = current.dom && (current.dom.overlay || (current.dom.embeddedMount && current.dom.embeddedMount.host));
-        if (!root) return;
-        try {
-            applyVoiceBark(root, {
-                key: `waitstage:${line.who}:${line.text}`,
-                textType: 'dialogue',
-                speaker: line.who,
-                mood: line.mood || '',
-                cast: [line.who],
-            }, settings.voiceBark, settings._sceneAssets);
-        } catch (error) {
-            // 语气音失败不影响过场。
-        }
-    }
-
-    // 关掉「等待过场」只收起台词与小游戏，三点等待反馈五种模式都留着（内嵌关了就是开天窗）。
-    function mountWaitStage(current, { embedded = false } = {}) {
-        const host = embedded
-            ? (current.dom && current.dom.embeddedMount && current.dom.embeddedMount.host)
-            : (current.dom && current.dom.overlay);
-        if (!host) return;
-        // 层已经在等就别重建：重建会把台词轮换打回第一句，也会抹掉玩家点开的小游戏。
-        if (waitStage.isOpen(host)) return;
-        const settings = (current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.waitStage) || null;
-        waitStage.open(host, { embedded, settings, model: null });
-        void refreshWaitStageModel(current);
-    }
-
-    // observed：观察器自己报的活动，本轮生命周期已武装；再 prepareForReply 会抹掉刚记下的活动与结束标记，等待层就退不掉。
-    function enterReplyWait(current, { observed = false } = {}) {
-        if (!current) return;
+    function enterReplyWait(current) {
+        if (!current || !followsHostReply(current.mode)) return;
         if (current.streamPhase !== 'streaming') {
-            waitStage.close();
-            pendingReplyMessage = null;
             current.imagePollToken += 1;
             current.imagePolling = false;
             current.streamBaselineRaw = String(current.mountBaselineRaw || '');
-            current.replyBaselineMessageId = current.contentMessageId;
-            if (!observed) streamObserver.prepareForReply();
+            current.streamBaselineVisible = String(current.mountBaselineVisible || '');
+            streamObserver.prepareForReply();
         }
         current.streamPhase = 'streaming';
         current.awaitingReply = true;
         const overlay = current.dom && current.dom.overlay;
         if (overlay && overlay.classList) overlay.classList.add('igs-awaiting-reply');
-        mountWaitStage(current);
     }
 
-    function enterEmbeddedLoading({ observed = false } = {}) {
+    function enterEmbeddedLoading() {
         const current = state.activeReader;
         const mount = current && current.dom && current.dom.embeddedMount;
         if (!current || !isEmbeddedReaderMode(current.mode) || !mount || !mount.host) return;
         if (current.streamPhase !== 'streaming') {
-            waitStage.close();
-            pendingReplyMessage = null;
             current.imagePollToken += 1;
             current.imagePolling = false;
             current.streamBaselineRaw = String(current.mountBaselineRaw || '');
-            current.replyBaselineMessageId = current.contentMessageId;
-            if (!observed) streamObserver.prepareForReply();
+            current.streamBaselineVisible = String(current.mountBaselineVisible || '');
         }
         current.streamPhase = 'streaming';
         current.turnOffset = 0;
-        mount.host.setAttribute('data-igs-embedded-loading', '1');
+        const host = mount.host;
+        host.setAttribute('data-igs-embedded-loading', '1');
         if (current.dom.root && current.dom.root.style) current.dom.root.style.display = 'none';
-        mountWaitStage(current, { embedded: true });
+        let loading = host.querySelector && host.querySelector('.igs-embedded-loading');
+        if (!loading && host.ownerDocument && typeof host.ownerDocument.createElement === 'function') {
+            loading = host.ownerDocument.createElement('div');
+            loading.className = 'igs-embedded-loading';
+            loading.setAttribute('role', 'status');
+            loading.setAttribute('aria-live', 'polite');
+            loading.innerHTML = '<span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-text">正在生成…</span>';
+            host.appendChild(loading);
+        }
     }
 
     function exitEmbeddedLoading() {
         const current = state.activeReader;
         if (!current) return;
-        pendingReplyMessage = null;
         current.streamBaselineRaw = '';
-        current.replyBaselineMessageId = null;
+        current.streamBaselineVisible = '';
         current.streamPhase = 'idle';
         current.awaitingReply = false;
         const waitingOverlay = current.dom && current.dom.overlay;
@@ -1434,17 +1259,15 @@ export function createIgsReaderHost(options = {}) {
         const mount = current.dom && current.dom.embeddedMount;
         const host = mount && mount.host;
         if (host && host.removeAttribute) host.removeAttribute('data-igs-embedded-loading');
-        waitStage.close();
+        const loading = host && host.querySelector ? host.querySelector('.igs-embedded-loading') : null;
+        if (loading && typeof loading.remove === 'function') loading.remove();
         if (current.dom && current.dom.root && current.dom.root.style) current.dom.root.style.display = '';
-        if (current.deferredReviewKey) syncAssetReviewAfterRender(current, current.snapshot);
     }
 
     function remountEmbeddedReader(current, message) {
         if (!current || !current.dom || !current.dom.root) return;
         const root = current.dom.root;
         const doc = resolveEmbeddedDocument(current);
-        // 换楼要换宿主节点，留在旧宿主里的层一并作废（同 syncReaderMountForMode）。
-        waitStage.close();
         teardownEmbeddedMount(current.dom.embeddedMount);
         current.dom.embeddedMount = mountEmbeddedRoot(doc, root, message, message && message.id);
         if (!current.dom.embeddedMount) {
@@ -1468,8 +1291,6 @@ export function createIgsReaderHost(options = {}) {
         if (current.dom.embeddedMount) {
             const wasStreaming = current.streamPhase === 'streaming';
             exitEmbeddedLoading();
-            // 宿主节点马上要被拆掉，先清理过场层与小游戏状态。
-            waitStage.close();
             (doc.documentElement || doc.body).appendChild(root);
             teardownEmbeddedMount(current.dom.embeddedMount);
             current.dom.embeddedMount = null;
@@ -1490,7 +1311,7 @@ export function createIgsReaderHost(options = {}) {
     function createReaderController() {
         return {
             getSnapshot() {
-                return state.activeReader ? cloneSnapshotKeepAssets(state.activeReader.snapshot) : null;
+                return state.activeReader ? cloneData(state.activeReader.snapshot) : null;
             },
             setInputValue(value) {
                 if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
@@ -1557,7 +1378,6 @@ export function createIgsReaderHost(options = {}) {
 
     async function submitReaderInput(text) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
-        if (state.activeReader.streamPhase === 'streaming') return { ok: false, reason: 'reply-pending' };
         // 停在旧楼时发送：剧情会接在最新楼后面，先确认，免得以为是在旧楼的语境里接着写。
         if (Number(state.activeReader.turnOffset) > 0) {
             const floorId = currentTurnMessageId(state.activeReader);
@@ -1565,52 +1385,30 @@ export function createIgsReaderHost(options = {}) {
             if (!confirmed) return { ok: false, sent: false, reason: 'old-floor-cancelled' };
             if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
         }
-        const current = state.activeReader;
-        const nextText = String(firstDefined(text, current.inputValue, '') || '');
-        if (!nextText.trim()) return { ok: false, sent: false, reason: 'empty-input' };
-        const embedded = isEmbeddedReaderMode(current.mode);
-        const fullscreen = followsHostReply(current.mode);
+        const embedded = isEmbeddedReaderMode(state.activeReader.mode);
+        const fullscreen = followsHostReply(state.activeReader.mode);
         if (embedded) enterEmbeddedLoading();
-        else if (fullscreen) enterReplyWait(current);
-        current.inputValue = nextText;
-        if (typeof options.getCurrentMessage === 'function') {
-            try {
-                const baseline = await readReplyMessage();
-                if (state.activeReader !== current) return { ok: false, sent: false, reason: 'reader-changed' };
-                if (baseline && baseline.id != null) {
-                    current.replyBaselineMessageId = baseline.id;
-                    current.streamBaselineRaw = getMessagePrimaryText(baseline.raw || baseline);
-                }
-            } catch (error) {
-                // 尚未发送时读取不到最新楼，保留打开阅读器时的基线。
-            }
-        }
-        if (state.activeReader !== current) return { ok: false, sent: false, reason: 'reader-changed' };
+        else if (fullscreen) enterReplyWait(state.activeReader);
+        const nextText = String(firstDefined(text, state.activeReader.inputValue, '') || '');
         const send = typeof options.typeAndSend === 'function'
             ? options.typeAndSend
             : async () => ({ ok: false, reason: 'missing-send-handler' });
-        let result;
-        try { result = await send(nextText) || { ok: true }; }
-        catch (error) { result = { ok: false, reason: 'send-failed' }; }
-        if (state.activeReader !== current) return { ok: result.ok !== false, sent: result.ok !== false, text: nextText, result };
-        if (result.ok === false) {
-            showReplyFailure(current, 'send');
-        } else {
-            if (current.streamPhase === 'streaming') streamObserver.noteActivity();
-            current.inputValue = '';
-        }
+        const result = await send(nextText);
+        if ((embedded || fullscreen) && result.ok === false) exitEmbeddedLoading();
+        else if (embedded || fullscreen) streamObserver.noteActivity();
+        state.activeReader.inputValue = '';
         // 漫画模式：发出去后输入框收起，新回复到了再出来。
-        const sentSnapshot = current.snapshot;
-        if (result.ok !== false && current.streamPhase === 'streaming' && sentSnapshot && isComicModeActive(sentSnapshot.readerSettings)) {
+        const sentSnapshot = state.activeReader.snapshot;
+        if (result.ok !== false && sentSnapshot && isComicModeActive(sentSnapshot.readerSettings)) {
             state.activeReader.comicInputSent = comicContentKey(sentSnapshot);
             const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
             const controls = overlay && overlay.querySelector ? overlay.querySelector('.igs-controls') : null;
             if (controls && controls.setAttribute) controls.setAttribute('data-igs-comic-sent', '1');
         }
-        if (current.dom && current.dom.input) {
-            current.dom.input.value = current.inputValue;
+        if (state.activeReader.dom && state.activeReader.dom.input) {
+            state.activeReader.dom.input.value = '';
         }
-        if (!(embedded || fullscreen)) {
+        if (!(fullscreen && result.ok !== false)) {
             writeToast(result.ok === false ? (result.reason || '发送失败') : '已发送');
         }
         return {
@@ -1633,7 +1431,7 @@ export function createIgsReaderHost(options = {}) {
             const unified = resolveRenderConfig(mode);
             const bridge = unified.bridge;
             ob = bridge.optionBubble && typeof bridge.optionBubble === 'object' ? bridge.optionBubble : {};
-            reader = normalizeReaderSettingsCached(unified.readerSettings, bridge.vnTheme);
+            reader = normalizeReaderSettings(unified.readerSettings, bridge.vnTheme);
         }
         const position = (ob.position === 'top-center' || ob.position === 'top-right') ? ob.position : 'top-left';
         return {
@@ -1642,125 +1440,7 @@ export function createIgsReaderHost(options = {}) {
             clickAction: ob.clickAction === 'fill' ? 'fill' : 'send',
             widthFollowsText: ob.widthFollowsText === true,
             fontSize: reader.optionFontSize,
-            sources: normalizeOptionSources(ob),
         };
-    }
-
-    function readOptionItemCatalog(api) {
-        try {
-            const catalog = buildItemCatalog(createShujukuClient(api).readTables());
-            return catalog && Array.isArray(catalog.items) ? catalog.items : [];
-        } catch (error) {
-            return [];
-        }
-    }
-
-    function showItemPanel(container, cfg, catalog) {
-        const doc = container.ownerDocument || getRootDocument(options.global);
-        const overlay = container.closest && container.closest('#igs-overlay');
-        const content = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.content;
-        const context = getSillyTavernContext(options.global || globalThis);
-        const present = listPresentNames(content, context && context.name1 ? String(context.name1) : '');
-        const make = (className, text) => {
-            const button = doc.createElement('button');
-            button.type = 'button';
-            button.className = `igs-option-bubble igs-bubble ${className}`;
-            button.textContent = text;
-            return button;
-        };
-        const bind = (button, handler) => {
-            button.addEventListener('pointerenter', () => playReaderUiSfx('hover'));
-            button.addEventListener('click', (event) => {
-                if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-                playReaderUiSfx('confirm');
-                handler();
-            });
-            return button;
-        };
-        const back = (label, handler) => bind(make('igs-option-mini', label), handler);
-        const toList = () => showOptionBubbles(container, cfg, { silent: true });
-        const startPanel = (className) => {
-            clearChildren(container);
-            container.setAttribute('data-igs-panel', 'item');
-            // 图片、状态栏等同页异步更新会重绘阅读器；目录与动作菜单应继续留在当前页。
-            const snapshot = state.activeReader && state.activeReader.snapshot;
-            container.setAttribute('data-igs-panel-page', `${snapshot && snapshot.chatId || ''}|${snapshot && snapshot.messageId}|${snapshot && snapshot.swipeId || 0}|${snapshot && snapshot.content && snapshot.content.currentIndex}`);
-            const panel = doc.createElement('div');
-            panel.className = `igs-option-panel ${className}`;
-            container.appendChild(panel);
-            return panel;
-        };
-        const sendAction = (action, item, target) => {
-            const text = buildItemActionText(action, item.name, target);
-            if (!text) return;
-            container.removeAttribute('data-igs-panel');
-            onOptionBubbleClick(container, text, cfg);
-        };
-        const chooseAction = (item) => {
-            const panel = startPanel('igs-option-actions');
-            const title = doc.createElement('div');
-            title.className = 'igs-option-panel-title';
-            title.textContent = `【${item.name}】`;
-            panel.appendChild(title);
-            if (item.description) {
-                const desc = doc.createElement('div');
-                desc.className = 'igs-option-panel-desc';
-                desc.textContent = item.description;
-                panel.appendChild(desc);
-            }
-            const row = doc.createElement('div');
-            row.className = 'igs-option-row';
-            row.appendChild(bind(make('igs-option-mini', '使用'), () => sendAction('use', item)));
-            if (present.length) {
-                for (const name of present) row.appendChild(bind(make('igs-option-mini', `交给${name}`), () => sendAction('give', item, name)));
-            } else {
-                row.appendChild(bind(make('igs-option-mini', '交给…'), () => {
-                    const text = buildItemActionText('give', item.name, '');
-                    container.removeAttribute('data-igs-panel');
-                    hideOptionBubbles(container);
-                    if (overlay && overlay.classList) overlay.classList.add('igs-free-input');
-                    onOptionBubbleClick(container, text, cfg, null, true);
-                }));
-            }
-            row.appendChild(bind(make('igs-option-mini', '查看'), () => sendAction('inspect', item)));
-            row.appendChild(back('返回', () => choosePick()));
-            panel.appendChild(row);
-        };
-        const choosePick = () => {
-            const panel = startPanel('igs-option-items');
-            const grid = doc.createElement('div');
-            grid.className = 'igs-option-grid';
-            for (const item of catalog) {
-                const button = make('igs-option-item', '');
-                let url = '';
-                try { url = options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(item.name) : ''; } catch (error) { url = ''; }
-                if (url) {
-                    const img = doc.createElement('img');
-                    img.className = 'igs-option-item-img';
-                    img.setAttribute('src', url);
-                    img.setAttribute('alt', '');
-                    img.setAttribute('draggable', 'false');
-                    button.appendChild(img);
-                }
-                const name = doc.createElement('span');
-                name.className = 'igs-option-item-name';
-                name.textContent = item.name;
-                button.appendChild(name);
-                if (item.description) {
-                    const desc = doc.createElement('span');
-                    desc.className = 'igs-option-item-desc';
-                    desc.textContent = item.description;
-                    button.appendChild(desc);
-                }
-                grid.appendChild(bind(button, () => chooseAction(item)));
-            }
-            panel.appendChild(grid);
-            const row = doc.createElement('div');
-            row.className = 'igs-option-row';
-            row.appendChild(back('返回', toList));
-            panel.appendChild(row);
-        };
-        choosePick();
     }
 
     function isReaderLastPage(snapshot) {
@@ -1771,8 +1451,6 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function handleOptionBubbleBlankClick(current, snapshot) {
-        // 历史楼层只读；末页的点击用于继续阅读下一轮，不打开当前数据库的选项。
-        if (Number(current && current.turnOffset) > 0) return false;
         const cfg = getOptionBubbleConfig();
         if (!cfg.enabled || !isReaderLastPage(snapshot)) return false;
         const overlay = current && current.dom && current.dom.overlay;
@@ -1803,8 +1481,6 @@ export function createIgsReaderHost(options = {}) {
     function hideOptionBubbles(container) {
         if (!container) return;
         container.setAttribute('hidden', '');
-        container.removeAttribute('data-igs-panel');
-        container.removeAttribute('data-igs-panel-page');
         syncStatusHudOptionSuppression(container, false);
         clearChildren(container);
     }
@@ -1812,19 +1488,11 @@ export function createIgsReaderHost(options = {}) {
     function showOptionBubbles(container, cfg, optionsForShow = {}) {
         const doc = container.ownerDocument || getRootDocument(options.global);
         const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
-        const sources = cfg.sources || normalizeOptionSources(null);
-        let items = readOptionItems(createShujukuClient(api));
-        // 有选项表时以表为准；表缺失或为空才读正文末尾的编号选项。
-        if (!items.length && sources.bodyFallback) {
-            const content = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.content;
-            items = extractBodyChoices(content && (content.fullText || content.text));
-        }
-        const quick = splitQuickActions(sources.quickActions);
-        const itemCatalog = sources.itemButton ? readOptionItemCatalog(api) : [];
+        const items = readOptionItems(createShujukuClient(api));
         const floatOverlay = container.closest && container.closest('#igs-overlay');
         const floatInput = Boolean(floatOverlay && floatOverlay.getAttribute('data-igs-input') === 'float');
         // 悬浮输入框没有选项时也只给一条「采取其他行动」，点了才出框。
-        if (!items.length && !quick.length && !itemCatalog.length && !floatInput) {
+        if (!items.length && !floatInput) {
             hideOptionBubbles(container);
             if (!optionsForShow.silent) writeToastSafe('未找到选项表（选项 / 选项表 / 行动选项 / 检定建议表）或表为空');
             return;
@@ -1848,39 +1516,6 @@ export function createIgsReaderHost(options = {}) {
                 onOptionBubbleClick(container, send, cfg, dice ? { display, dice } : null);
             });
             container.appendChild(bubble);
-        }
-        container.removeAttribute('data-igs-panel');
-        container.removeAttribute('data-igs-panel-page');
-        if (quick.length) {
-            const row = doc.createElement('div');
-            row.className = 'igs-option-row';
-            for (const phrase of quick) {
-                const mini = doc.createElement('button');
-                mini.type = 'button';
-                mini.className = 'igs-option-bubble igs-bubble igs-option-mini';
-                mini.textContent = phrase;
-                mini.addEventListener('pointerenter', () => playReaderUiSfx('hover'));
-                mini.addEventListener('click', (event) => {
-                    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-                    playReaderUiSfx('confirm');
-                    onOptionBubbleClick(container, phrase, cfg);
-                });
-                row.appendChild(mini);
-            }
-            container.appendChild(row);
-        }
-        if (itemCatalog.length) {
-            const entry = doc.createElement('button');
-            entry.type = 'button';
-            entry.className = 'igs-option-bubble igs-bubble igs-item-entry-bubble';
-            entry.textContent = '使用物品';
-            entry.addEventListener('pointerenter', () => playReaderUiSfx('hover'));
-            entry.addEventListener('click', (event) => {
-                if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-                playReaderUiSfx('confirm');
-                showItemPanel(container, cfg, itemCatalog);
-            });
-            container.appendChild(entry);
         }
         const overlayForInput = container.closest && container.closest('#igs-overlay');
         if (overlayForInput && overlayForInput.classList) overlayForInput.classList.remove('igs-free-input');
@@ -1940,10 +1575,10 @@ export function createIgsReaderHost(options = {}) {
         if (played && played.settled) await played.settled;
     }
 
-    async function onOptionBubbleClick(container, rawText, cfg, check = null, forceFill = false) {
+    async function onOptionBubbleClick(container, rawText, cfg, check = null) {
         hideOptionBubbles(container);
         const text = await resolveOptionSendText(rawText, check);
-        if (cfg.clickAction === 'fill' || forceFill) {
+        if (cfg.clickAction === 'fill') {
             if (state.activeReader && isEmbeddedReaderMode(state.activeReader.mode)) {
                 const fill = typeof options.setInputText === 'function'
                     ? options.setInputText
@@ -1973,6 +1608,7 @@ export function createIgsReaderHost(options = {}) {
     // 插图服务的楼层进度（含写词阶段）：任何楼都点亮生成细线，不再只认当前楼、不弹提示。
     function showIllustrationProgress(payload) {
         if (!payload || payload.messageId == null) return;
+        if (payload.kind === 'consistency') return; // 当前任务由阅读器身份绑定的回调展示。
         generationStrip.floor(payload.messageId, payload.phase === 'done');
     }
 
@@ -2092,8 +1728,8 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'reroll-cg') {
             return rerollCurrentIllustration();
         }
-        if (normalizedAction === 'retry-failed-cg') {
-            return rerollCurrentIllustration({ skipConfirm: true });
+        if (normalizedAction === 'consistency-cg') {
+            return redrawCurrentConsistency();
         }
         if (normalizedAction === 'cg-gallery') {
             return openCgGallery();
@@ -2156,23 +1792,6 @@ export function createIgsReaderHost(options = {}) {
         return { ok: false, reason: 'unknown-reader-action', action: normalizedAction };
     }
 
-    // 快速连翻：距上次整页渲染不到 PAGE_RENDER_GAP_MS 只记页码，到点按最后停的那页渲染一次；中间页不放演出、不起音效。
-    function renderTurnedPage(current) {
-        if (current.pageRenderTimer) return;
-        const wait = PAGE_RENDER_GAP_MS - (Date.now() - (current.pageRenderAt || 0));
-        if (wait <= 0) {
-            current.pageRenderAt = Date.now();
-            rerenderActiveReader();
-            return;
-        }
-        current.pageRenderTimer = setTimeout(() => {
-            current.pageRenderTimer = 0;
-            if (state.activeReader !== current) return;
-            current.pageRenderAt = Date.now();
-            rerenderActiveReader();
-        }, wait);
-    }
-
     function moveReaderSegment(delta) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
         const segments = state.activeReader.snapshot && state.activeReader.snapshot.content
@@ -2193,7 +1812,7 @@ export function createIgsReaderHost(options = {}) {
         }
         state.activeReader.index = nextIndex;
         state.activeReader.autoPlayer?.refresh();
-        renderTurnedPage(state.activeReader);
+        rerenderActiveReader();
         playReaderUiSfx('page');
         return {
             ok: true,
@@ -2237,7 +1856,7 @@ export function createIgsReaderHost(options = {}) {
             : normalizeReaderMode(state.activeReader.mode, baseSnapshot.bridge);
         // 模式没变时第二次读取结果完全相同；整份配置克隆 + 整理随素材库变大，翻页时省掉这一遍。
         const unified = nextMode === state.activeReader.mode ? baseSnapshot : resolveRenderConfig(nextMode);
-        const readerSettings = normalizeReaderSettingsCached(unified.readerSettings, unified.bridge.vnTheme);
+        const readerSettings = normalizeReaderSettings(unified.readerSettings, unified.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, unified.bridge);
         const snapshot = buildReaderSnapshot(state.activeReader.payload, nextMode, readerSettings, state.activeReader.index);
         if (!snapshot.content.segments.length) {
@@ -2248,7 +1867,6 @@ export function createIgsReaderHost(options = {}) {
         syncReaderMountForMode(state.activeReader, nextMode);
         state.activeReader.snapshot = snapshot;
         updateMountedReader(snapshot);
-        readerStaleBehindSettings = false;
         return { ok: true };
     }
 
@@ -2291,11 +1909,12 @@ export function createIgsReaderHost(options = {}) {
         try {
             result = await options.openViewerFromMessage(target.id, current.mode, embedded
                 ? { startAtEnd: false, message: target, replaceActive: true, skipImageCollection: nextOffset > 0, turnOffset: nextOffset, skipTitle: true }
-                : { startAtEnd: false, message: target, turnOffset: nextOffset, skipTitle: true });
+                : { startAtEnd: false, message: target, skipTitle: true });
         } finally {
             progressRuntime.navigating = false;
         }
         if (result && result.ok !== false) {
+            if (!embedded && state.activeReader) state.activeReader.turnOffset = nextOffset;
             if (state.activeReader) armReadingProgress(state.activeReader);
             writeToast(toast);
             return { ok: true, moved: true, messageId: target.id, reader: result.reader };
@@ -2458,10 +2077,9 @@ export function createIgsReaderHost(options = {}) {
                 const far = readingProgress.getFarthest();
                 return state.activeReader ? skipToUnread(far ? far.id : 0) : null;
             },
-            onRewind: (pos) => rewindFromPosition(pos),
             onSaveSlot: (key) => saveReadingSlot(key),
             onQuickSave: () => quickSaveReading(),
-            confirm: (message, labels) => pageModal.confirm(message, labels),
+            confirm: (message) => pageModal.confirm(message),
             prompt: (message, value) => pageModal.prompt(message, value),
             getTheme: () => readSettingsTheme(),
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
@@ -2478,39 +2096,7 @@ export function createIgsReaderHost(options = {}) {
         const page = Math.max(0, Math.min(segments.length - 1, Number(current.index) || 0));
         const thumb = [content.illustrationUrl, content.currentImageUrl, content.backgroundImage]
             .find((url) => typeof url === 'string' && /^(https?:|\/|user\/)/.test(url)) || '';
-        return { id, page, head: textHead(segmentText(segments[page])), hash: textHash(content.fullText), thumb, place: content.sceneLocation || '', swipe: messageSwipeId(id) };
-    }
-
-    // 该楼当前选中的版本号；读不到记 null。
-    function messageSwipeId(id) {
-        try {
-            const ctx = getSillyTavernContext(options.global || globalThis);
-            const swipe = ctx && Array.isArray(ctx.chat) && ctx.chat[id] ? ctx.chat[id].swipe_id : null;
-            return Number.isInteger(swipe) && swipe >= 0 ? swipe : null;
-        } catch (_) { return null; }
-    }
-
-    // 从存档位或某一楼重来：建分支并切过去。失败不改动，只提示。
-    async function rewindFromPosition(pos) {
-        const result = await rewindController.rewind(pos);
-        if (!result.ok) { if (!result.canUseCurrent) writeToast(result.text); return result; }
-        // 阅读器若随聊天切换留着就立刻定位，否则等新聊天里阅读器打开时取走待办。
-        if (state.activeReader) arriveAtRewind(state.activeReader);
-        return result;
-    }
-
-    // 新分支里取走重来待办：导入截断后的进度，阅读器停在存档那页并提示一行。
-    function arriveAtRewind(current) {
-        const target = rewindController.consumePending();
-        if (!target) return;
-        progressRuntime.offered.add(currentChatIdText());
-        progressRuntime.pulled.add(currentChatIdText());
-        pushProgressToMetadata();
-        setTimeout(async () => {
-            if (state.activeReader !== current) return;
-            await jumpToPosition({ pos: target });
-            writeToast(REWIND_NOTICE);
-        }, 400);
+        return { id, page, head: textHead(segmentText(segments[page])), hash: textHash(content.fullText), thumb, place: content.sceneLocation || '' };
     }
 
     function saveReadingSlot(key) {
@@ -2716,13 +2302,13 @@ export function createIgsReaderHost(options = {}) {
         if (!cg || !cg.skipMessage) return cg;
         const regen = await regenerateCurrentImage();
         if (regen && regen.reason === 'provider-not-enabled') {
-            imageNotice(cg.reason === 'nothing-missing' ? 'skipped' : 'warn', cg.skipMessage);
+            imageNotice('warn', cg.skipMessage);
             return cg;
         }
         return regen;
     }
 
-    async function rerollCurrentIllustration({ skipConfirm = false } = {}) {
+    async function rerollCurrentIllustration() {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
         const content = current.snapshot && current.snapshot.content || {};
@@ -2735,7 +2321,7 @@ export function createIgsReaderHost(options = {}) {
             writeToastSafe('当前未接入单张重画。');
             return { ok: false, reason: 'reroll-unavailable' };
         }
-        if (!skipConfirm && !(await pageModal.confirm('只重画这一张？提示词不变。'))) {
+        if (!(await pageModal.confirm('只重画这一张？提示词不变。'))) {
             return { ok: true, reason: 'cancelled' };
         }
         const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload.messageId;
@@ -2746,7 +2332,6 @@ export function createIgsReaderHost(options = {}) {
         }
         current.illustrationPending = true;
         writeGenerating();
-        paintRetryPlaceholder(current, { busy: true });
         try {
             const result = await service.rerollSlot({
                 chatId: identity.chatId,
@@ -2759,27 +2344,69 @@ export function createIgsReaderHost(options = {}) {
                 else if (result.reason === 'not-eligible') imageNotice('warn', '请打开当前聊天最新的非空 AI 楼层');
                 else imageNotice('success', '这一张已重画。');
             }
-            current.imageFailureReason = result && result.ok !== false ? '' : retryFailureReason(result);
             return result || { ok: false, reason: 'error' };
         } catch (error) {
-            current.imageFailureReason = retryFailureReason(error);
             if (state.activeReader === current) imageNotice('error', `重画异常：${(error && error.message) || error || '未知错误'}`);
             return { ok: false, reason: 'error' };
         } finally {
             current.illustrationPending = false;
-            if (state.activeReader === current) paintRetryPlaceholder(current, { busy: false, reason: current.imageFailureReason });
         }
     }
 
-    function retryFailureReason(source) {
-        const failure = source && source.failure;
-        return String((failure && failure.reason) || '').trim();
-    }
-
-    function paintRetryPlaceholder(current, retry) {
-        const overlay = current && current.dom && current.dom.overlay;
-        const bg = overlay && overlay.querySelector ? overlay.querySelector('#igs-bg') : null;
-        setImageRetryState(bg, retry);
+    async function redrawCurrentConsistency() {
+        const current = state.activeReader;
+        if (!current) return { ok: false, reason: 'reader-not-open' };
+        const content = current.snapshot?.content || {};
+        const service = options.illustrations;
+        if (!content.illustrationSlot || !content.illustrationActive || !content.illustrationUrl)
+            return { ok: false, reason: 'no-current-cg', error: '当前页没有已保存的 IGS CG' };
+        if (!service?.redrawConsistency || !service?.acceptConsistency || !service?.cancelConsistency) {
+            imageNotice('warn', '当前未接入角色一致性重绘。');
+            return { ok: false, reason: 'consistency-unavailable' };
+        }
+        if (current.consistencyTask) {
+            current.consistencyTask.controller.abort();
+            return { ok: true, reason: 'cancelled' };
+        }
+        if (current.illustrationPending) return { ok: false, reason: 'consistency-busy' };
+        const identity = current.illustrationIdentity || {};
+        const query = { chatId: identity.chatId,
+            messageId: current.contentMessageId ?? current.payload.messageId,
+            swipeId: identity.swipeId, slot: content.illustrationSlot };
+        const controller = new AbortController();
+        const stillCurrent = () => state.activeReader === current
+            && String(current.illustrationIdentity?.chatId) === String(query.chatId)
+            && Number(current.illustrationIdentity?.swipeId) === Number(query.swipeId)
+            && Number(current.contentMessageId ?? current.payload.messageId) === Number(query.messageId)
+            && Number(current.snapshot?.content?.illustrationSlot) === Number(query.slot);
+        const task = { controller, stillCurrent };
+        current.consistencyTask = task;
+        current.illustrationPending = true;
+        rerenderActiveReader();
+        try {
+            const result = await runCgConsistencyAction({ service, query, modal: pageModal,
+                signal: controller.signal, stillCurrent,
+                onProgress: (detail) => {
+                    if (current.consistencyTask === task && stillCurrent())
+                        generationStrip.progress(task, detail);
+                } });
+            if (state.activeReader === current && !controller.signal.aborted) {
+                if (result?.ok && result.reason === 'accepted') {
+                    rerenderActiveReader();
+                    imageNotice(result.warning ? 'warn' : 'success', result.warning
+                        ? 'CG 已保存，目录或显示同步需刷新重试。' : '角色一致性候选已接受。');
+                } else if (result?.reason !== 'cancelled') {
+                    imageNotice('warn', result?.error || `一致性重绘未保存：${result?.reason || '未知原因'}`);
+                }
+            }
+            return result;
+        } finally {
+            controller.abort();
+            generationStrip.progress(task, { phase: 'done' });
+            if (current.consistencyTask === task) current.consistencyTask = null;
+            current.illustrationPending = false;
+            if (state.activeReader === current) rerenderActiveReader();
+        }
     }
 
     async function clearFloorIllustrations() {
@@ -2837,7 +2464,7 @@ export function createIgsReaderHost(options = {}) {
         };
         const skip = (result, message) => {
             if (!deferSkip) {
-                feedback(result && result.reason === 'nothing-missing' ? 'skipped' : 'warn', message);
+                feedback('warn', message);
                 return result;
             }
             return { ...result, skipMessage: message };
@@ -2861,7 +2488,7 @@ export function createIgsReaderHost(options = {}) {
                 ? await service.rerollFloor(Number(target.messageId))
                 : await service.processMessage(Number(target.messageId), { manual: true });
             const skipped = {
-                disabled: '请在设置「生图与AI › 画师与模型」开启 NSFW 或过场插图并保存',
+                disabled: '请在设置「生图 → 分类」开启 NSFW 或过场插图并保存',
                 'not-eligible': '当前楼层不是最新的非空 AI 回复',
                 'nothing-missing': '本楼插图都已生成',
                 'not-selected': (result && result.why) || '本楼不需要插图',
@@ -2894,7 +2521,7 @@ export function createIgsReaderHost(options = {}) {
         // 没有可补全素材时交给重画当前图，这类跳过不必单独提示。
         const skip = (result, message) => {
             if (!deferSkip) {
-                feedback(result && result.reason === 'nothing-missing' ? 'skipped' : 'warn', message);
+                feedback('warn', message);
                 return result;
             }
             return { ...result, skipMessage: message };
@@ -2919,7 +2546,7 @@ export function createIgsReaderHost(options = {}) {
                 disabled: '请在设置中开启自动背景或自动立绘并保存',
                 'scene-assets-disabled': '请在设置中开启场景素材并保存',
                 'not-eligible': '当前楼层不是最新的非空 AI 回复',
-                'nothing-missing': '本楼已有可用素材，或时段差分已跳过、已丢弃，无需重复生成',
+                'nothing-missing': '本楼没有未登记的人物或场景，已登记的素材不会重复生成',
             };
             if (!result || !result.ok) {
                 feedback('error', `补全素材失败：${result && result.error || '素材生成失败（未返回具体原因）'}`);
@@ -2928,7 +2555,7 @@ export function createIgsReaderHost(options = {}) {
             } else if (skipped[result.reason]) {
                 return skip(result || { ok: false, reason: 'error' }, `补全素材已跳过：${skipped[result.reason]}`);
             } else {
-                feedback('success', `补全素材完成：已生成 ${result.count || 0} 项，可在「素材 → 待确认」查看与入库`);
+                feedback('success', `补全素材完成：已生成 ${result.count || 0} 项素材，待确认`);
             }
             return result || { ok: false, reason: 'error' };
         } catch (error) {
@@ -2969,10 +2596,6 @@ export function createIgsReaderHost(options = {}) {
         }
         if (state.activeReader !== current) return result;
         if (result && result.ok !== false && result.imageState) {
-            // 重画已经落定：在跑的后台轮询可能还拿着旧一版（绑定数为 0）的收集结果，
-            // 让它作废，否则签名一变就整页重绘，把刚画好的图盖回去。
-            current.imagePollToken += 1;
-            current.imagePolling = false;
             current.payload.imageState = cloneData(result.imageState);
             rerenderActiveReader();
         }
@@ -2998,8 +2621,7 @@ export function createIgsReaderHost(options = {}) {
         if (!element) return '';
         // 取可见正文要深克隆整条消息 DOM，翻页时每次都做代价不小；宿主回写正文必然改变
         // textContent，所以同一节点且 textContent 未变时复用上次结果。
-        const sourceElement = element.querySelector?.('.mes_text') || element;
-        const fingerprint = typeof sourceElement.textContent === 'string' ? sourceElement.textContent : null;
+        const fingerprint = typeof element.textContent === 'string' ? element.textContent : null;
         const memo = current.liveTextMemo;
         if (fingerprint !== null && memo && memo.element === element && memo.fingerprint === fingerprint) {
             return memo.text;
@@ -3013,16 +2635,18 @@ export function createIgsReaderHost(options = {}) {
     async function reloadActiveReader() {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
+        // 只在用户显式刷新时重试失败资源；普通翻页/重绘不清失败状态。
+        imageResourceCache.clearFailures();
+        options.generatedAssets?.clearImageReadFailures?.();
+        floorAssetPlan = { key: '', urls: [] };
         if (typeof options.openViewerFromMessage !== 'function') return rescanCurrentImages();
         const messageId = isEmbeddedReaderMode(current.mode)
             ? current.mountMessageId
             : current.snapshot && current.snapshot.messageId;
         if (messageId == null) return rescanCurrentImages();
         const keepIndex = isEmbeddedReaderMode(current.mode) && current.turnOffset > 0 ? 0 : current.index;
-        const turnOffset = isEmbeddedReaderMode(current.mode) ? 0 : current.turnOffset;
         sourceCache.invalidate();
-        tableData.invalidate();
-        const result = await options.openViewerFromMessage(messageId, current.mode, { startAtEnd: false, turnOffset });
+        const result = await options.openViewerFromMessage(messageId, current.mode, { startAtEnd: false });
         if (!result || result.ok === false) {
             writeToast('重新加载失败。');
             return result || { ok: false, reason: 'reload-failed' };
@@ -3041,7 +2665,6 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
         sourceCache.invalidate();
-        tableData.invalidate();
         if (typeof options.collectMessageImages !== 'function') {
             writeToast('图片收集不可用。');
             return { ok: false, reason: 'collect-not-available' };
@@ -3144,8 +2767,6 @@ export function createIgsReaderHost(options = {}) {
                 requiresMessageScope: Array.isArray(context.imageState && context.imageState.slots)
                     && context.imageState.slots.length > 0,
             });
-            // 收集期间可能已经重画过：这一份是旧结果，套用会把刚画好的图盖掉。
-            if (!state.activeReader || state.activeReader !== current || current.imagePollToken !== token) return;
             if (!result || result.ok === false) continue;
             const nextBoundCount = countBoundImageSlots(result);
             const nextSignature = String(result.signature || '');
@@ -3357,20 +2978,23 @@ export function createIgsReaderHost(options = {}) {
             }
             return;
         }
-        writeToast(`有新服装待确认：${fresh.map((f) => `「${f.character}」的「${f.word}」`).join('、')}。到「角色 › 待确认」里归入已有服装或新建。`, 4200);
+        writeToast(`有新服装待确认：${fresh.map((f) => `「${f.character}」的「${f.word}」`).join('、')}。到「素材 → 待确认」里归入已有服装或新建。`, 4200);
     }
 
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
-        const scene = payload.scene || (payload.render && payload.render.scene) || {};
+        const scene = cloneData(payload.scene || (payload.render && payload.render.scene) || {});
         const buildStatusHudForSnapshot = (settings, speaker, emotion, sceneInfo, isNarration, outfitFor) => {
             const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
             if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '', location: '' });
             const sceneAssets = (settings && settings._sceneAssets) || {};
             const readResult = statusHud.tables.length ? readStatusHudTables() : null;
             const info = sceneInfo && typeof sceneInfo === 'object' ? sceneInfo : {};
-            return withConcreteAvatar(buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor, parsedTables: statusHud.tables.length ? tableData.parsed() : [], rowFor: tableData.rowFor }));
+            return withConcreteAvatar(buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor }));
         };
-        const readStatusHudTables = () => tableData.read();
+        const readStatusHudTables = () => {
+            const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+            return createShujukuClient(api).readTables();
+        };
         const render = payload.render || {};
         const stage = render.stage || {};
         const liveMessage = (payload.message && payload.message.raw) || payload.message || payload.raw || '';
@@ -3380,9 +3004,8 @@ export function createIgsReaderHost(options = {}) {
             visibleText: payload.visibleText,
             sceneAssets: readerSettings._sceneAssets,
             sentencePaging: readerSettings._sentencePaging,
-            dialogueSentencePaging: readerSettings._dialogueSentencePaging,
         };
-        const sourceSignature = sourceCache.signature({
+        const sourceSignature = buildReaderSourceSignature({
             messageId: payload.messageId,
             rawText: getMessagePrimaryText(liveMessage),
             visibleText: payload.visibleText,
@@ -3390,69 +3013,61 @@ export function createIgsReaderHost(options = {}) {
             virtualRegex: payload.virtualRegex,
             sceneAssetsEnabled: Boolean(readerSettings._sceneAssets && readerSettings._sceneAssets.enabled),
             sentencePaging: Boolean(readerSettings._sentencePaging),
-            dialogueSentencePaging: Boolean(readerSettings._dialogueSentencePaging),
         });
         const cached = sourceCache.get(sourceSignature, { liveMessage, parseOptions });
         const extracted = cached.value || buildIgsTextPayload(liveMessage, parseOptions);
-        const chatId = typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '';
-        tableData.useFloor(`${chatId}|${payload.messageId ?? ''}`);
-        const userName = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
-        const prepared = sourceCache.prepare(sourceSignature, [
-            scene.text, scene.formattedText, scene.speaker, payload.formattedText, payload.textSegments, payload.raw,
-            payload.inheritedSceneState, payload.inheritedOutfits, payload.inheritedDread,
-            payload.liveContext, payload.stormContext, payload.battleContext, readerSettings._sceneAssets,
-            JSON.stringify(readerSettings.systemRole), readerSettings.liveFx?.enabled === true,
-            readerSettings.feedFx?.enabled === true, readerSettings.feedFx?.storm?.enabled !== false,
-            readerSettings.cgHoldPages, userName, chatId,
-        ], () => {
-            // A matched exclusion must never be undone by stale scene/payload text.
-            const enforceExcludedText = extracted.hasExcludedTextBlocks === true;
-            const text = enforceExcludedText ? extracted.formattedText : firstRenderableText(
-                scene.text,
-                scene.formattedText,
-                payload.formattedText,
-                extracted.formattedText,
-                extracted.visibleText,
-                extracted.cleanedRaw,
-                getMessagePrimaryText(liveMessage),
-                payload.raw,
-            );
-            // 剥离空台词分段里的 [人名]：前缀后，再判断是否有可见正文。
-            const dialogueBody = (value) => {
-                const source = String(value == null ? '' : value).trim();
-                const match = source.match(/^\[([^\]\n]+)\]\s*[:：]\s*([\s\S]*)$/);
-                return match ? match[2].trim() : source;
-            };
-            const extractedSegments = Array.isArray(extracted.textSegments) ? extracted.textSegments : [];
-            const hasExtractedSegments = extractedSegments.some((segment) => String(segment || '').trim());
-            let segments = enforceExcludedText
-                ? extractedSegments
-                : Array.isArray(payload.textSegments) && payload.textSegments.length
-                ? payload.textSegments
-                : hasExtractedSegments
-                    ? extractedSegments
-                    : buildTextSegments(stripSceneDirectiveLines(text));
-            // 场景指令可能紧贴正文（如「正文。[igs-scene:…]」），所有分段来源都必须再剥离一次，
-            // 否则标签会作为正文渲染进对话框。
-            // 剥离后为空的段（场景标签、空台词、不可见格式字符）直接丢弃。
-            const visibleSegments = segments
-                .map((seg) => stripSceneDirectivesInline(String(seg || '').replace(/[\u200B-\u200C\u2060-\u2064]/g, '')))
-                .filter((seg) => {
-                    const visible = String(seg || '').trim();
-                    // ZWJ can join emoji: ignore it when deciding if a page is empty, but preserve it in readable text.
-                    const readable = visible.replace(/\u200D/g, '');
-                    return readable.length > 0 && (!/^\[[^\]\n]+\]\s*[:：]/.test(readable)
-                        || stripWrappingQuotes(dialogueBody(readable)).length > 0);
-                });
-            segments = visibleSegments.length ? visibleSegments : enforceExcludedText ? [] : [''];
+        // A matched exclusion must never be undone by stale scene/payload text.
+        const enforceExcludedText = extracted.hasExcludedTextBlocks === true;
+        const text = enforceExcludedText ? extracted.formattedText : firstRenderableText(
+            scene.text,
+            scene.formattedText,
+            payload.formattedText,
+            extracted.formattedText,
+            extracted.visibleText,
+            extracted.cleanedRaw,
+            getMessagePrimaryText(liveMessage),
+            payload.raw,
+        );
+        // 剥离空台词分段里的 [人名]：前缀后，再判断是否有可见正文。
+        const dialogueBody = (value) => {
+            const source = String(value == null ? '' : value).trim();
+            const match = source.match(/^\[([^\]\n]+)\]\s*[:：]\s*([\s\S]*)$/);
+            return match ? match[2].trim() : source;
+        };
+        const stripWrappingQuotes = (value) => {
+            const source = String(value == null ? '' : value).trim();
+            if (source.length < 2) return source;
+            const pairs = [['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ['"', '"'], ["'", "'"]];
+            for (const [open, close] of pairs) {
+                if (source.startsWith(open) && source.endsWith(close)) {
+                    return source.slice(open.length, source.length - close.length).trim();
+                }
+            }
+            return source;
+        };
+        const extractedSegments = Array.isArray(extracted.textSegments) ? extracted.textSegments : [];
+        const hasExtractedSegments = extractedSegments.some((segment) => String(segment || '').trim());
+        let segments = enforceExcludedText
+            ? cloneData(extractedSegments)
+            : Array.isArray(payload.textSegments) && payload.textSegments.length
+            ? cloneData(payload.textSegments)
+            : hasExtractedSegments
+                ? cloneData(extractedSegments)
+                : buildTextSegments(stripSceneDirectiveLines(text));
+        // 场景指令可能紧贴正文（如「正文。[igs-scene:…]」），所有分段来源都必须再剥离一次，
+        // 否则标签会作为正文渲染进对话框。
+        // 剥离后为空的段（场景标签、空台词、不可见格式字符）直接丢弃。
+        const visibleSegments = segments
+            .map((seg) => stripSceneDirectivesInline(String(seg || '').replace(/[\u200B-\u200C\u2060-\u2064]/g, '')))
+            .filter((seg) => {
+                const visible = String(seg || '').trim();
+                // ZWJ can join emoji: ignore it when deciding if a page is empty, but preserve it in readable text.
+                const readable = visible.replace(/\u200D/g, '');
+                return readable.length > 0 && (!/^\[[^\]\n]+\]\s*[:：]/.test(readable)
+                    || stripWrappingQuotes(dialogueBody(readable)).length > 0);
+            });
+        segments = visibleSegments.length ? visibleSegments : enforceExcludedText ? [] : [''];
 
-            const floor = prepareReaderFloor({ text, segments, extracted, payload, scene, readerSettings, userName });
-            noteFloorMoods(firstDefined(payload.messageId, payload.message && payload.message.id, ''), floor.sceneDirectives, readerSettings._sceneAssets);
-            if (readerSettings._sceneAssets?.enabled) noteUnlistedOutfits(floor.outfitDirectives, readerSettings._sceneAssets);
-            return floor;
-        });
-        const { text, segments } = prepared;
-        if (!segments.length) return { content: { segments: [] } };
         const normalizedIndex = Math.max(0, Math.min(segments.length - 1, Number(index) || 0));
         const segmentImageSlots = Array.isArray(payload.segmentImageSlots) && payload.segmentImageSlots.length
             ? payload.segmentImageSlots
@@ -3499,32 +3114,28 @@ export function createIgsReaderHost(options = {}) {
             ? (generatedAssets ? generatedAssets.resolveUrl(url) : '')
             : (url || ''));
         const assetMatchCtx = {
-            chatId,
             sceneAssets,
             generatedAssets: sceneAssets && sceneAssets.generated,
+            imageAvailability: readerSpriteAvailability,
             strict: readerSettings._strictBackgroundMatch === true,
             tempBackground: generatedAssets ? generatedAssets.tempBackground : null,
             tempSceneTime: generatedAssets ? generatedAssets.tempSceneTime : null,
             tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
-            isMissingImage: missingImageProbe(generatedAssets),
-            isUnavailableImage: unavailableImageProbe(generatedAssets),
+            tempSpriteForOutfit: generatedAssets ? generatedAssets.tempSpriteForOutfit : null,
         };
-        const floorAssets = prepareReaderFloorAssets(prepared, { payload, readerSettings, assetMatchCtx, tableData });
-        const page = prepared.pages[normalizedIndex];
+        const sceneDirectives = Array.isArray(extracted.sceneDirectives) ? extracted.sceneDirectives
+            : Array.isArray(payload.sceneDirectives) ? payload.sceneDirectives : [];
+        noteFloorMoods(firstDefined(payload.messageId, payload.message && payload.message.id, ''), sceneDirectives, sceneAssets);
+        const hasIgsDirectives = sceneDirectives.length > 0;
         let finalBackgroundImage = backgroundImage;
         let finalBackgroundTimed = false;
         const hideSpriteOnNsfw = !normalizeStatusHudSettings(readerSettings && readerSettings.statusHud).showSpriteOnNsfw;
         let spriteImage = null;
-        let pendingSpriteRef = '';
         let resolvedSpeaker = scene.speaker || '';
         let spriteCharacter = '';
         let spriteOutfit = '';
-        // 本页说话人立绘已换成登记的「背影」图：渲染层不再镜像、不再压暗缩小。
-        let spriteBackArt = false;
         let nsfwCgPortrait = '';
         let castSprites = [];
-        let pendingCastRefs = [];
-        let spriteLeft = false;
         let speakerCastOrder = null;
         // 只给「复制本页诊断」用：记下立绘 / 背景这一页实际命中了哪一路。
         let spriteMatch = null;
@@ -3539,33 +3150,119 @@ export function createIgsReaderHost(options = {}) {
             && displayImageState.slots[Math.floor(Number(rawSegmentSlotValue))]
             ? String(displayImageState.slots[Math.floor(Number(rawSegmentSlotValue))].url || '').trim()
             : '';
-        const { sceneStateForBg, sceneDread } = page;
-        const inheritedSceneState = prepared.inheritedSceneState;
-        const nsfwSpan = normalizeRomanceFxSettings(readerSettings.romanceFx).enabled ? page.nsfwSpan || null : null;
-        const pageFx = cloneData(page.fx);
-        decorateItemFx(pageFx, payload, segments, normalizedIndex, prepared, readerSettings);
+        // 场景切换只看 [igs-scene] 标签：直接在原文里定位「当前页正文」，
+        // 再取它前方最近的场景标签。不依赖段数、不做偏移累加。
+        const sceneSourceForOffset = String(payload.raw || text || '');
+        // 说话页正文带「[名字]：」前缀，原文里找不到时先去掉前缀再找；仍找不到就借前面最近一页的位置。
+        // 不按序号推断：说话指令常常没有序号，会一路读到本楼最后一个场景标签，说话页的背景就提前换掉。
+        const locateSegment = (segment) => {
+            const exact = locateTextOffsetInSource(sceneSourceForOffset, segment);
+            return exact >= 0 ? exact : locateTextOffsetInSource(sceneSourceForOffset, stripSegmentSpeaker(segment));
+        };
+        let currentOffset = sceneDirectives.length ? locateSegment(currentText) : -1;
+        for (let back = normalizedIndex - 1; sceneDirectives.length && currentOffset < 0 && back >= 0; back -= 1) {
+            currentOffset = locateSegment(segments[back]);
+        }
+        const inheritedSceneState = payload.inheritedSceneState && payload.inheritedSceneState.scene
+            ? { ...payload.inheritedSceneState, lastDirectiveType: 'scene' }
+            : null;
+        // 本楼正文解析出的场景优先；AI 漏发 [igs-scene:]（本楼可能仍有 char/thought 指令）
+        // 时继承 payload.inheritedSceneState——它由 buildReaderPayload 向前最多追溯
+        // 3 个 AI 楼层取得，只影响背景/地点栏，不影响立绘与分页归属。
+        // 说话页和旁白页同一条路：只按原文位置取前方最近的场景标签，定位不到就用继承来的场景。
+        const ownSceneState = currentOffset >= 0 ? resolveSceneAtSourceOffset(sceneSourceForOffset, currentOffset) : null;
+        const sceneStateForBg = (ownSceneState && ownSceneState.scene) ? ownSceneState : inheritedSceneState;
+        // 恐怖档位：取当前页正文之前最近的 [igs-dread:N]，本楼没有就用向前追溯到的（见 igs-compat）。
+        const ownDread = sceneSourceForOffset.indexOf('[igs-dread') === -1 ? null : (() => {
+            const offset = currentOffset >= 0 ? currentOffset : locateTextOffsetInSource(sceneSourceForOffset, currentText);
+            return findLastDreadLevel(sceneSourceForOffset, offset >= 0 ? offset : undefined);
+        })();
+        const sceneDread = ownDread !== null ? ownDread : (payload.inheritedDread == null ? null : payload.inheritedDread);
+        // 亲密演出的 NSFW 强度曲线与情事阶段（升温 / 顶点 / 余韵）：只在开启且当前页为 NSFW 时，按与当前页相同的规则判定本楼每页是否 NSFW，
+        // 得出当前页在 NSFW 连续段中的位置；上一楼层末尾的场景为 NSFW 时视为延续，不再渐强。
+        const romanceForSpan = normalizeRomanceFxSettings(readerSettings.romanceFx);
+        const nsfwSpan = romanceForSpan.enabled && sceneStateForBg && sceneStateForBg.nsfw
+            ? resolveNsfwSpan(segments.map((segment, index) => {
+                if (index === normalizedIndex) return true;
+                const offset = sceneDirectives.length ? locateSegment(segment) : -1;
+                const own = offset >= 0 ? resolveSceneAtSourceOffset(sceneSourceForOffset, offset) : null;
+                const pageState = own && own.scene ? own : inheritedSceneState;
+                return Boolean(pageState && pageState.nsfw);
+            }), normalizedIndex, Boolean(payload.inheritedSceneState && payload.inheritedSceneState.nsfw))
+            : null;
+        // 直播兜底：直播间开着时，继承上一楼未下播的直播；本楼没写 live 标签时按开播 / 下播词补指令（主播默认是玩家本人）。
+        const liveFallback = readerSettings && readerSettings.liveFx && readerSettings.liveFx.enabled === true
+            ? liveFallbackOf((getSillyTavernContext(options.global || globalThis) || {}).name1)
+            : null;
+        const fxDirectivesLive = liveFallback
+            ? withLiveFallback(extractFxDirectives(sceneSourceForOffset), sceneSourceForOffset, payload.liveContext, liveFallback)
+            : extractFxDirectives(sceneSourceForOffset);
+        // 舆论风暴：继承上一楼未平息的风暴（评论不重放），作为楼首的 storm 指令。
+        const fxDirectives = payload.stormContext && readerSettings && readerSettings.feedFx && readerSettings.feedFx.enabled === true
+            && !(readerSettings.feedFx.storm && readerSettings.feedFx.storm.enabled === false)
+            ? withStormCarry(fxDirectivesLive, payload.stormContext)
+            : fxDirectivesLive;
+        // 对白页正文带「[名字]：」前缀、心里话页另包 *…*，原文里是「名字|表情|对白」：原样定位不到时去掉前缀再定位，否则紧挨对白的演出标签整页失效。
+        const locateFxSegment = (segment) => {
+            const exact = locateTextOffsetInSource(sceneSourceForOffset, segment);
+            return exact >= 0 ? exact : locateTextOffsetInSource(sceneSourceForOffset, stripSegmentSpeaker(segment));
+        };
+        let fxOffset = !fxDirectives.length ? -1
+            : currentOffset >= 0 ? currentOffset : locateFxSegment(currentText);
+        let fxPrevOffset = -1;
+        // 聊天/卡片占位页在原文中定位不到，向前找最近一个可定位的页作为起点。
+        for (let i = normalizedIndex - 1; fxDirectives.length && i >= 0 && fxPrevOffset < 0; i -= 1) {
+            fxPrevOffset = locateFxSegment(segments[i]);
+        }
+        if (fxDirectives.length && fxOffset < 0 && chatIndex >= 0) {
+            const chatStart = sceneSourceForOffset.slice(fxPrevOffset + 1).search(/\[igs-(?:chat:|msg:)/);
+            if (chatStart >= 0) fxOffset = fxPrevOffset + 1 + chatStart;
+        }
+        // 战斗演出开启时 payload 才带 battleContext：跨楼继承未结束的战斗，并把上一条用户消息的检定等级套到主角第一招。
+        const battleContext = payload.battleContext || null;
+        const battleUserName = battleContext ? String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '') : '';
+        // 开播 / 下播词落在本页中间时算本页生效（标签一般写在句前，词在句中，不挪会慢一页）。
+        const fxNextOffset = fxOffset >= 0 && fxDirectives.some((d) => d.cue && d.kind === 'live' && d.offset > fxOffset)
+            ? (normalizedIndex + 1 < segments.length ? locateFxSegment(segments[normalizedIndex + 1]) : Infinity) : -1;
+        const fxDirectivesPaged = fxNextOffset > fxOffset
+            ? fxDirectives.map((d) => (d.cue && d.kind === 'live' && d.offset > fxOffset && d.offset < fxNextOffset ? { ...d, offset: fxOffset } : d))
+                .sort((a, b) => a.offset - b.offset)
+            : fxDirectives;
+        const pageFx = resolveFxAtPage(
+            battleContext ? applyDiceToHits(fxDirectivesPaged, battleContext.dice, battleUserName) : fxDirectivesPaged,
+            fxOffset, fxPrevOffset, battleContext,
+        );
+        if (battleContext) pageFx.userName = battleUserName;
+        decorateItemFx(pageFx, payload, segments, normalizedIndex, fxDirectives, readerSettings);
         // 食物被吃掉 / 喝掉：表格少了食物、AI 写「使用」食物、或本页有进食标签时，角落卡片换成吃掉 / 喝掉。
         const dailyForEat = normalizeDailyFxSettings(readerSettings && readerSettings.dailyFx);
         applyEatToItems(pageFx, { itemOn: normalizeItemFxSettings(readerSettings && readerSettings.itemFx).enabled, eatOn: dailyForEat.enabled && dailyForEat.eat });
         // 约定到期：payload 带近楼约定时（仅「约定」标签开启），按表名含「全局」的表的当前时间判定当天到期项；读不到则不提醒。
         if (Array.isArray(payload.promiseHistory) && payload.promiseHistory.length) {
-            if (prepared.promiseRevision !== tableData.revision || prepared.promiseHistory !== payload.promiseHistory) {
-                const promiseTables = readStatusHudTablesSafe();
-                const storyNow = promiseTables && promiseTables.ok !== false ? readStoryNow(tableData.parsed()) : null;
-                prepared.promiseDue = resolveDuePromises(payload.promiseHistory, storyNow);
-                prepared.promiseRevision = tableData.revision;
-                prepared.promiseHistory = payload.promiseHistory;
-            }
-            pageFx.promiseDue = cloneData(prepared.promiseDue);
+            const promiseTables = readStatusHudTablesSafe();
+            const storyNow = promiseTables && promiseTables.ok !== false ? readStoryNow(parseTables(promiseTables.data)) : null;
+            pageFx.promiseDue = resolveDuePromises(payload.promiseHistory, storyNow);
         }
         // 对手立绘：素材模式下按对手名取默认立绘，供遭遇演出与打对手的出招使用；找不到就不显示。
-        const battleContext = payload.battleContext || null;
         const battleFoe = pageFx.battle && pageFx.battle.foe;
         if (battleContext && battleFoe && sceneAssets && sceneAssets.enabled) {
-            pageFx.foeImage = resolveGenerated(floorAssets.sprite(battleFoe, '').url) || '';
+            pageFx.foeImage = resolveGenerated(resolveReaderSpriteAsset(battleFoe, '', assetMatchCtx).url) || '';
         }
         // NSFW 页整楼挂图；SFW 页只在事件那几页显示，之后回到背景和立绘。
-        const illustrationHit = prepared.illustrations[normalizedIndex];
+        const illustrationHit = /(?:\[igs-img:|<IMG>)/i.test(sceneSourceForOffset)
+            ? resolveIllustrationForPage({
+                source: sceneSourceForOffset,
+                offsets: resolveHeldSourceOffsets(sceneSourceForOffset, segments, (segment, from) => {
+                    const find = (text) => locateNarrativeOffset(sceneSourceForOffset, text, from, (slice, start) => locateTextOffsetInSource(slice, text, start));
+                    const exact = find(segment);
+                    return exact >= 0 ? exact : find(stripSegmentSpeaker(segment));
+                }),
+                segments,
+                index: normalizedIndex,
+                holdPages: readerSettings && readerSettings.cgHoldPages,
+                inheritedNsfw: Boolean(payload.inheritedSceneState && payload.inheritedSceneState.nsfw),
+            })
+            : null;
         const floorIdentity = state.activeReader && Number(state.activeReader.payload.messageId) === Number(payload.messageId)
             ? state.activeReader.illustrationIdentity
             : readIllustrationIdentity(payload.messageId);
@@ -3584,10 +3281,10 @@ export function createIgsReaderHost(options = {}) {
             : '';
         // CG 库：本页没有生成 / 插件 CG 时，按关键词或 [igs-cg:名字] 显示作者预置的那张，停留同 CG 停留页数。
         const eventCg = !illustrationHit && !slotBoundUrl && sceneAssets && sceneAssets.enabled && sceneAssets.eventCgs
-            ? prepared.eventCgs[normalizedIndex]
+            ? resolveEventCgForPage({ source: sceneSourceForOffset, segments, index: normalizedIndex, holdPages: readerSettings && readerSettings.cgHoldPages, eventCgs: sceneAssets.eventCgs })
             : null;
         const eventCgUrl = eventCg ? String(resolveGenerated(eventCg.url) || '') : '';
-        // 标记只定位 CG；没有可显示图片时保留正常舞台，读回后再切入 CG。
+        // 这一页挂了 CG。图还没从存储读回来时不要先铺场景背景，否则两张图先后写上同一层，对话框会跟着闪，最后往往只剩背景。
         const cgWaiting = Boolean(illustrationHit) && !illustrationUrl && !boundMarkerUrl;
         if (illustrationUrl) {
             finalBackgroundImage = illustrationUrl;
@@ -3597,6 +3294,10 @@ export function createIgsReaderHost(options = {}) {
             finalBackgroundImage = boundMarkerUrl;
             spriteImage = null;
             backgroundMatch = { source: 'bound-slot' };
+        } else if (cgWaiting) {
+            finalBackgroundImage = '';
+            spriteImage = null;
+            backgroundMatch = { source: 'cg' };
         } else if (eventCgUrl) {
             finalBackgroundImage = eventCgUrl;
             spriteImage = null;
@@ -3607,54 +3308,211 @@ export function createIgsReaderHost(options = {}) {
             backgroundMatch = { source: 'slot' };
         } else if (sceneAssets && sceneAssets.enabled) {
             if (sceneStateForBg && sceneStateForBg.scene) {
-                const bgHit = floorAssets.background(sceneStateForBg);
+                const bgHit = resolveBackgroundAsset(sceneStateForBg, assetMatchCtx);
                 backgroundMatch = { source: bgHit.source, quality: bgHit.quality || '' };
                 finalBackgroundImage = resolveGenerated(bgHit.url);
                 finalBackgroundTimed = Boolean(finalBackgroundImage) && bgHit.timed === true;
-                // 本楼写了新场景但图还没生成：先暂用上一楼场景的背景顶替，免得整屏空白；
-                // 本楼场景图一生成就按上面的正常路径覆盖，不需要额外撤销。
-                if (!finalBackgroundImage && bgHit.needsGeneration && inheritedSceneState
-                    && inheritedSceneState.scene && inheritedSceneState.scene !== sceneStateForBg.scene) {
-                    const inheritedHit = floorAssets.background(inheritedSceneState);
-                    const inheritedUrl = resolveGenerated(inheritedHit.url);
-                    if (inheritedUrl) {
-                        finalBackgroundImage = inheritedUrl;
-                        finalBackgroundTimed = false;
-                        backgroundMatch = { source: 'inherited', quality: inheritedHit.quality || '' };
-                    }
-                }
             } else {
                 finalBackgroundImage = '';
             }
             spriteImage = null;
         }
-        const cgActive = Boolean(illustrationUrl || boundMarkerUrl || eventCgUrl);
+        const cgActive = Boolean(illustrationUrl || boundMarkerUrl || cgWaiting || eventCgUrl);
         // Per-segment classification from the formatted segment text itself.
         // Order matters: thought (*...*) is checked before dialogue ([名字]：) because
         // a thought segment looks like *[名字]：...* and would otherwise match dialogue.
         // Fallback: when the prefix was stripped (single-segment messages), use the
         // directive that lands on this exact segment index.
         // 角色台词若被成对引号整体包裹（AI 偶发额外输出中英文引号），前端不渲染引号。
-        let { textType, bubbleSpeaker, segmentBody, bubbleMood, spriteMood, systemSpeaker } = page;
-        const { spriteChar, narrationDropped } = page;
-        spriteLeft = page.spriteLeft;
+        let textType = 'narration';
+        let bubbleSpeaker = '';
+        let segmentBody = currentText;
+        let bubbleMood = '';
+        let spriteMood = '';
+        let systemSpeaker = '';
         if (sceneAssetsEnabled) {
+            const charThoughtDirectives = sceneDirectives.filter((d) => d.type === 'char' || d.type === 'thought');
+            // Match this bubble back to its directive by speaker + dialogue/thought text
+            // fingerprint, not by row ordinal. Reformatting (image blocks, italic narration,
+            // merged/stripped lines) desyncs any positional counter, so we look the source
+            // text up directly. normalizeFingerprint strips the translation tail *（…）*,
+            // bilingual 〖…〗 translations, brackets and whitespace so a substring compare is stable.
+            const normalizeFingerprint = (s) => stripBilingualTranslation(s)
+                .replace(/\*（[^）]*）\*/g, '')
+                .replace(/[\[\]\*（）]/g, '')
+                .replace(/\s+/g, '')
+                .trim();
+            // 严格认领：整句相等，或当前段不少于 6 字且是指令原文的片段。
+            // 12 字前缀的双向包含会让「……」「嗯。」这类短台词认领以它开头或含它的旁白，只能用于已判定类型的段补情绪。
+            const textMatchesDirective = (bodyKey, d) => {
+                const src = normalizeFingerprint(d.type === 'thought' ? d.thought : d.dialogue);
+                if (!bodyKey || !src) return false;
+                return bodyKey === src || (bodyKey.length >= 6 && src.includes(bodyKey));
+            };
+            const findDirectiveByText = (speaker, body, match = {}) => {
+                const bodyKey = normalizeFingerprint(body);
+                if (!bodyKey) return null;
+                const probe = bodyKey.slice(0, 12);
+                const pool = charThoughtDirectives.filter((d) => (!speaker || d.character === speaker)
+                    && (!match.type || d.type === match.type));
+                for (const d of pool) {
+                    if (match.strict) {
+                        if (textMatchesDirective(bodyKey, d)) return d;
+                        continue;
+                    }
+                    const src = normalizeFingerprint(d.type === 'thought' ? d.thought : d.dialogue);
+                    if (src && (src.includes(probe) || probe.includes(src.slice(0, 12)))) return d;
+                }
+                return null;
+            };
+            const classifySegment = (segText) => {
+                // 没有任何 [igs-*:] 指令时禁止按文本外形猜测台词/心理话，统一按旁白兜底。
+                if (!hasIgsDirectives) return null;
+                const seg = String(segText || '');
+                const tMatch = seg.match(/^\s*\*\s*(?:\[([^\]]+)\]\s*[:：]\s*)?([\s\S]*?)\s*\*\s*$/);
+                const dMatch = seg.match(/^\s*\[([^\]]+)\]\s*[:：]\s*([\s\S]*)$/);
+                if (tMatch) {
+                    let sp = tMatch[1] ? tMatch[1].trim() : '';
+                    // 正文可能写作 **…**（成对双星号），匹配指令前剥掉残留星号。
+                    const bodyText = String(tMatch[2] || '').replace(/^\s*\*+\s*/, '').replace(/\s*\*+\s*$/, '').trim();
+                    // 无角色名的 *…* 也可能是 AI 的斜体旁白：只有严格对上某条心里话指令才算心理活动。
+                    const matched = sp
+                        ? findDirectiveByText(sp, bodyText) || findDirectiveByText(sp, tMatch[2])
+                        : findDirectiveByText('', bodyText, { strict: true, type: 'thought' });
+                    if (!sp && !matched) return null;
+                    if (!sp) sp = matched.character || '';
+                    return { textType: 'thought', speaker: sp, mood: matched ? (matched.mood || '') : '', body: seg };
+                }
+                if (dMatch) {
+                    const sp = dMatch[1].trim();
+                    const matched = findDirectiveByText(sp, dMatch[2]);
+                    return { textType: 'dialogue', speaker: sp, mood: matched ? (matched.mood || '') : '', body: stripWrappingQuotes(dMatch[2]) };
+                }
+                return null;
+            };
+            const classified = classifySegment(currentText);
+            if (classified) {
+                textType = classified.textType;
+                bubbleSpeaker = classified.speaker;
+                bubbleMood = classified.mood;
+                segmentBody = classified.body;
+            }
+            // 兜底：段落缺「[名字]：」前缀（自定义格式化规则等）时找回说话人。
+            // 段索引会错位、文本相似度会误认，两条路径都必须严格对上指令原文，旁白页不借用相邻台词。
+            if (!bubbleSpeaker) {
+                const probeKey = normalizeFingerprint(String(currentText || '')
+                    .replace(/^\s*\*+\s*/, '').replace(/\s*\*+\s*$/, '')
+                    .replace(/^\s*\[[^\]]+\]\s*[:：]\s*/, ''));
+                const segDirective = sceneDirectives.find((d) => Number(d.segmentIndex) === normalizedIndex
+                    && (d.type === 'char' || d.type === 'thought') && textMatchesDirective(probeKey, d));
+                // 「……」「嗯。」这类短句旁白与台词可能逐字相同，不带段索引佐证时不按文本认领。
+                const matchedDirective = segDirective
+                    || (probeKey.length >= 6 ? findDirectiveByText('', probeKey, { strict: true }) : null);
+                if (globalThis.__IGS_HUD_DEBUG__) console.log('[FB]', JSON.stringify({ cur: String(currentText || '').slice(0, 30), hit: matchedDirective ? matchedDirective.character : null }));
+                if (matchedDirective) {
+                    textType = matchedDirective.type === 'thought' ? 'thought' : 'dialogue';
+                    bubbleSpeaker = matchedDirective.character || scene.speaker;
+                    bubbleMood = matchedDirective.mood || '';
+                }
+            }
+            // 系统类角色的台词按独立旁白样式渲染：不显示立绘与状态栏角色，名字按设置决定。
+            if (textType === 'dialogue' && isSystemRole(bubbleSpeaker, readerSettings.systemRole)) {
+                textType = 'system';
+                systemSpeaker = bubbleSpeaker;
+                bubbleSpeaker = '';
+                bubbleMood = '';
+            }
             resolvedSpeaker = bubbleSpeaker;
+            // Sprite resolves from the bubble's own speaker/mood, not the row-counted
+            // segmentIndex (which desyncs once char/thought tags are reformatted into
+            // visible bubble lines). Background still follows directive accumulation.
+            let spriteChar = bubbleSpeaker;
+            spriteMood = bubbleMood;
+            // Narration pages carry no char/thought tag of their own. Walk backwards
+            // through prior segments and inherit the nearest one that classifies as a
+            // char/thought bubble, so the sprite stays consistent across narration runs.
+            let inheritFrom = -1;
+            if (!spriteChar) {
+                for (let i = normalizedIndex - 1; i >= 0; i--) {
+                    const prev = classifySegment(segments[i]);
+                    if (prev && prev.speaker) {
+                        spriteChar = prev.speaker;
+                        spriteMood = prev.mood;
+                        inheritFrom = i;
+                        break;
+                    }
+                }
+            }
+            // 回溯也失败时（段落前缀被剥离，文本已不含「[名字]：」）按段索引取 char/thought 指令。
+            // 只用于立绘继承，不改 textType，避免把旁白页误判成角色页。
+            if (!spriteChar) {
+                for (let i = normalizedIndex; i >= 0; i--) {
+                    const d = sceneDirectives.find((x) => Number(x.segmentIndex) === i
+                        && (x.type === 'char' || x.type === 'thought') && x.character);
+                    if (d) {
+                        spriteChar = d.character;
+                        spriteMood = d.mood || '';
+                        if (i < normalizedIndex) inheritFrom = i;
+                  break;
+                    }
+                }
+            }
+            // 旁白页沿用的立绘：写到这个人离开就清掉；离台词超过 2 页且旁白不再写这个人也收起（见 narration-sprite）。
+            let narrationDropped = false;
+            if (spriteChar && inheritFrom >= 0) {
+                const assetsForKey = sceneAssets || {};
+                const keyOf = (name) => resolveCharacterKey(assetsForKey.characters, assetsForKey.characterAliases, name) || name;
+                const key = keyOf(spriteChar);
+                const aliasMap = assetsForKey.characterAliases && typeof assetsForKey.characterAliases === 'object' ? assetsForKey.characterAliases : {};
+                const userName = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
+                const pov = (userName && keyOf(userName) === key)
+                    || sceneDirectives.some((d) => d && d.type === 'thought' && d.character && keyOf(d.character) === key);
+                if (!narrationKeepsSprite({ name: spriteChar, aliases: [key, ...(Array.isArray(aliasMap[key]) ? aliasMap[key] : [])], pov, pages: segments.slice(inheritFrom + 1, normalizedIndex + 1) })) {
+                    spriteChar = '';
+                    spriteMood = '';
+                    narrationDropped = true;
+                }
+            }
+            if (!spriteChar && !narrationDropped && sceneStateForBg && sceneStateForBg.character) {
+                // Fallback for untransformed/legacy paths where the bubble text still
+                // carries the raw tag (no reformatted "[名字]：" line to parse).
+                spriteChar = sceneStateForBg.character;
+                spriteMood = sceneStateForBg.mood || '';
+            }
             // NSFW 挂 CG 时对话框左侧的裸体头像：只跟本页自己的说话人（旁白页不继承上一位，直接不显示）。
             if (cgActive && htmlCardIndex < 0 && bubbleSpeaker && sceneStateForBg && sceneStateForBg.nsfw && sceneAssets && sceneAssets.enabled
                 && (textType === 'dialogue' || textType === 'thought')
                 && normalizeStatusHudSettings(readerSettings.statusHud).nsfwCgPortrait) {
-                nsfwCgPortrait = resolveGenerated(floorAssets.nude(bubbleSpeaker, bubbleMood).url) || '';
+                nsfwCgPortrait = resolveGenerated(resolveNudeSpriteAsset(bubbleSpeaker, bubbleMood, assetMatchCtx).url) || '';
             }
             // HTML 卡片独占舞台前景：不继承上一段角色的立绘，也不发起素材解析。
-            if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !cgActive && sceneAssets && sceneAssets.enabled && (spriteChar || narrationDropped) && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
-                // 服装与偏移已按整楼原文准备；本页直接取对应结果，表格更新后按现有通知补齐。
+            if (htmlCardIndex < 0 && !hideChatSprite && !slotBoundUrl && !cgActive && sceneAssets && sceneAssets.enabled && spriteChar && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw)) {
+                // 服装按当前页在原文中的位置取该角色最近一次服装栏，本楼没写时取跨楼继承，再按表格 / 装备 / DNA 兜底；指令与偏移同源于原文。
                 const outfitMap = sceneAssets.characterOutfits;
-                const outfitOffset = page.outfitOffset;
+                // 对白页正文带「[名字]：」前缀，原文里是「名字|表情|服装|对白」，去掉前缀再定位，避免取到整楼最后一条服装。
+                // 仍定位不到（旁白被正则改写、楼首旁白前面没有可借的页）时按页码取最近一条台词；再不行记 -1，只认跨楼继承，
+                // 不能传 NaN——那会扫整楼，取到该角色本楼最后一次换的衣服。
+                const outfitOffset = resolveCastOffset({
+                    offset: currentOffset >= 0 ? currentOffset
+                        : locateTextOffsetInSource(sceneSourceForOffset, String(currentText || '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, '')),
+                    directives: sceneDirectives,
+                    segmentIndex: normalizedIndex,
+                    locate: (t) => locateTextOffsetInSource(sceneSourceForOffset, t),
+                });
+                const outfitDirectives = extractSceneDirectives(sceneSourceForOffset, { outfitResolver: createOutfitResolver(sceneAssets) }).directives;
+                noteUnlistedOutfits(outfitDirectives, sceneAssets);
+                const sceneRaw = String((sceneStateForBg && sceneStateForBg.scene) || '').trim();
                 setActiveFormGenders([]);
                 let outfitTrace = null;
-                const outfitFor = (character) => withFormGender(character,
-                    (outfitTrace = floorAssets.outfitFor(normalizedIndex, character)).outfit);
+                const outfitFor = (character) => (outfitTrace = resolveSpriteOutfit({
+                        directives: outfitDirectives,
+                        character,
+                        offset: outfitOffset,
+                        inheritedOutfits: payload.inheritedOutfits,
+                        sceneAssets,
+                        scene: [classifySceneKey(sceneAssets.scenes, sceneRaw).key || '', sceneRaw],
+                        readClues: (names) => collectOutfitClues(readStatusHudTables(), names),
+                    })).outfit;
                 // 变身形态：记下这一页在场角色的形态性别，供高度 / 语气音 / 朗读读取。
                 const withFormGender = (character, outfit) => {
                     const name = canonicalName(sceneAssets, character);
@@ -3663,77 +3521,51 @@ export function createIgsReaderHost(options = {}) {
                     noteFormGender(name, entry && entry.form ? entry.form.gender : '');
                     return outfit;
                 };
-                const wantedOutfit = spriteChar ? outfitFor(spriteChar) : '';
+                const wantedOutfit = outfitFor(spriteChar);
                 const outfitWhy = { outfitSource: (outfitTrace && outfitTrace.source) || '', outfitReason: (outfitTrace && outfitTrace.reason) || '', outfitOffset };
-                let spriteHit = spriteChar ? floorAssets.sprite(spriteChar, spriteMood, wantedOutfit) : { url: '', source: '' };
-                // 陪衬反应换表情（stageCast.enabled && castReact）：react 写的情绪保持到这个人下次开口；
-                // 只在真有这张表情图时换，落到默认 / 平和兜底就维持原表情。
-                const castForReact = normalizeStageCastSettings(readerSettings.stageCast);
-                const reactMoodOf = castForReact.enabled && castForReact.castReact
-                    ? page.reactMoodOf
-                    : () => '';
-                const speakerReactMood = spriteChar ? reactMoodOf(spriteChar) : '';
-                if (speakerReactMood) {
-                    const reactHit = floorAssets.sprite(spriteChar, speakerReactMood, wantedOutfit);
-                    if (isReactMoodHit(reactHit)) {
-                        spriteHit = reactHit;
-                        spriteMood = speakerReactMood;
-                    }
-                }
-                if (spriteChar) spriteMatch = { character: spriteChar, mood: spriteMood || '', outfit: wantedOutfit || '', source: spriteHit.source, quality: spriteHit.quality || '', slot: spriteHit.slot || '', reason: spriteHit.reason || '', ...outfitWhy };
-                if (spriteChar) noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
-                spriteImage = spriteChar ? resolveGenerated(spriteHit.url) || null : null;
-                if (!spriteImage && spriteChar && isGeneratedAssetUrl(spriteHit.url)) pendingSpriteRef = spriteHit.url;
+                const spriteHit = resolveReaderSpriteAsset(spriteChar, spriteMood, assetMatchCtx, wantedOutfit);
+                spriteMatch = { character: spriteHit.character || spriteChar, mood: spriteMood || '',
+                    requestedOutfit: wantedOutfit || '', outfit: spriteHit.outfit || '',
+                    source: spriteHit.source, selectionSource: spriteHit.selectionSource || '',
+                    reason: spriteHit.reason || '', fallbackReason: spriteHit.fallbackReason || '',
+                    quality: spriteHit.quality || '', slot: spriteHit.slot || '', ...outfitWhy };
+                noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
+                spriteImage = resolveGenerated(spriteHit.url) || null;
                 if (spriteImage) {
                     spriteCharacter = spriteHit.character || spriteChar;
-                    spriteOutfit = spriteHit.outfit || '';
+                    spriteOutfit = withFormGender(spriteCharacter, spriteHit.outfit || '');
                     // Position keys follow the resolved image slot (exact mood / group /
                     // 默认), not the raw mood word, so every mood that maps to the same
                     // sprite image shares one position across pages.
                     spriteMood = spriteHit.slot || spriteMood;
-                    // 背影：本页该角色处于背对姿态（castStage 开）且登记了名为「背影」的表情立绘时换成这张图；
-                    // 只认精确槽位，不走情绪组 / 默认兜底；站位仍按原表情槽位取，前后不跳位。没有这张图时渲染层退回镜像 + 压暗 + 缩小。
-                    if (normalizeStageCastSettings(readerSettings.stageCast).castStage && pageFx && pageFx.poses) {
-                        const backKey = resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, spriteCharacter) || spriteCharacter;
-                        const backPose = Object.entries(pageFx.poses).find(([name]) => (resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, name) || name) === backKey);
-                        if (backPose && backPose[1] && backPose[1].back === true) {
-                            const backHit = floorAssets.sprite(spriteChar, SPRITE_BACK_MOOD, wantedOutfit);
-                            const backUrl = backHit.slot === SPRITE_BACK_MOOD && backHit.quality === 'exact' ? resolveGenerated(backHit.url) : '';
-                            if (backUrl) {
-                                spriteImage = backUrl;
-                                spriteBackArt = true;
-                            }
-                        }
-                    }
                 }
                 if (!chatPage && normalizeStageCastSettings(readerSettings.stageCast).enabled) {
-                    // 与同屏名单同一套主名换算（上传区 + 生成区）。
-                    const castKeyOf = (name) => prepared.keyOf(name);
-                    const speakerKey = spriteChar ? castKeyOf(spriteChar) : '';
+                    const castKeyOf = (name) => resolveCharacterKey(sceneAssets.characters, sceneAssets.characterAliases, name) || name;
+                    const speakerKey = castKeyOf(spriteChar);
                     // 修罗场：恋爱对象先于最近开口的人入选，保证对象在台上（romanceDuo 关闭时不钉）。
-                    const castPin = speakerKey && normalizeStageCastSettings(readerSettings.stageCast).romanceDuo
+                    const castPin = normalizeStageCastSettings(readerSettings.stageCast).romanceDuo
                         ? resolveRomanceRivalTarget(pageFx, speakerKey, castKeyOf) : '';
-                    const cast = page.cast;
+                    const cast = resolveStageCast({
+                        directives: outfitDirectives,
+                        // 定位失败时按页码取最近一条台词重新定位，避免名单整体清空。
+                        offset: outfitOffset,
+                        keyOf: castKeyOf,
+                        isEligible: (name) => !isNonSpriteSpeaker(name) && !isSystemRole(name, readerSettings.systemRole),
+                        limit: STAGE_CAST_SCAN_LIMIT,
+                        // 站位「离开」（castStage 开启时）：离开后没再开口的人不进名单，再次开口即回台。
+                        goneAt: normalizeStageCastSettings(readerSettings.stageCast).castStage ? pageFx.goneAt : null,
+                    });
                     const picked = pickCastMembers(cast, {
                         speakerKey,
                         pin: castPin,
                         seats: STAGE_CAST_MAX_SEATS - (spriteImage ? 1 : 0),
-                        speakerTemp: Boolean(spriteImage && page.focusTemp),
                         resolve: (m) => {
-                            const memberOutfit = outfitFor(m.character);
-                            let hit = floorAssets.sprite(m.character, m.mood, memberOutfit);
-                            const memberReact = reactMoodOf(m.character);
-                            if (memberReact) {
-                                const reactHit = floorAssets.sprite(m.character, memberReact, memberOutfit);
-                                if (isReactMoodHit(reactHit)) hit = reactHit;
-                            }
+                            const hit = resolveReaderSpriteAsset(m.character, m.mood, assetMatchCtx, outfitFor(m.character));
                             const image = resolveGenerated(hit.url);
-                            if (!image && isGeneratedAssetUrl(hit.url)) pendingCastRefs.push(hit.url);
-                            return image ? { character: hit.character || m.character, mood: hit.slot || m.mood, outfit: hit.outfit || '', image } : null;
+                            const character = hit.character || m.character;
+                            return image ? { character, mood: hit.slot || m.mood, outfit: withFormGender(character, hit.outfit || ''), image } : null;
                         },
                     });
-                    // 旁白点名的临时焦点不挤掉已开口坐满的人：这一页主立绘不上台。
-                    if (picked.hideSpeaker) spriteImage = null;
                     if (spriteImage && picked.speakerOrder != null) speakerCastOrder = picked.speakerOrder;
                     castSprites.push(...picked.members);
                 }
@@ -3752,7 +3584,6 @@ export function createIgsReaderHost(options = {}) {
             bubbleMood = '';
             if (hideChatSprite) spriteImage = null;
             castSprites = [];
-            pendingCastRefs = [];
             speakerCastOrder = null;
         }
         const statusSceneInfo = {
@@ -3773,7 +3604,6 @@ export function createIgsReaderHost(options = {}) {
 
         return {
             mode,
-            [preparedFloorKey]: prepared,
             messageId: firstDefined(payload.messageId, payload.message && payload.message.id, scene.messageId, null),
             selectors: Array.from(ORIGINAL_READER_REQUIRED_SELECTORS),
             classes: overlayClasses,
@@ -3805,8 +3635,6 @@ export function createIgsReaderHost(options = {}) {
                 spriteCharacter,
                 spriteMood,
                 spriteOutfit,
-                spriteLeft,
-                spriteBackArt,
                 statusEmotion: bubbleMood,
                 textType,
                 text: currentText,
@@ -3818,18 +3646,15 @@ export function createIgsReaderHost(options = {}) {
                 chat,
                 fx: pageFx,
                 nsfwSpan,
-                segments,
+                segments: cloneData(segments),
                 currentIndex: normalizedIndex,
                 progress: buildProgressText(normalizedIndex, segments.length, displayImageState),
                 backgroundImage: finalBackgroundImage,
                 backgroundTimed: finalBackgroundTimed,
                 spriteImage,
-                pendingSpriteRef,
                 spriteMatch,
                 backgroundMatch,
                 castSprites,
-                userChar: { key: prepared.userKey || '', source: prepared.userSource || '' },
-                pendingCastRefs,
                 speakerCastOrder,
                 images: cloneData(displayImageState.images),
                 imageSlots: cloneData(displayImageState.slots),
@@ -3844,8 +3669,6 @@ export function createIgsReaderHost(options = {}) {
                 currentImageUrl: displayImageState.displayUrl || displayImageState.currentUrl,
                 currentSlotImageUrl: displayImageState.slotUrl,
                 imageLoading: Boolean(state.activeReader && state.activeReader.imagePolling),
-                imageRetrying: Boolean(state.activeReader && state.activeReader.illustrationPending),
-                imageFailureReason: (state.activeReader && state.activeReader.imageFailureReason) || '',
                 sourceKind: firstDefined(scene.sourceKind, payload.sourceKind, 'raw-text'),
                 warnings: extracted.warnings,
                 errors: extracted.errors,
@@ -3857,7 +3680,6 @@ export function createIgsReaderHost(options = {}) {
                 cgNsfw: Boolean(eventCgUrl && eventCg.nsfw),
                 illustrationActive: Boolean(illustrationUrl),
                 cgActive,
-                cgWaiting,
                 nsfwCgPortrait,
                 illustrationSlot: illustrationHit ? illustrationHit.slot : null,
                 illustrationUrl,
@@ -3953,7 +3775,6 @@ export function createIgsReaderHost(options = {}) {
             && payload.message.element.ownerDocument;
         const doc = messageDoc || rootDoc;
         if (!doc) return null;
-        bindImageCacheDocument(doc, options.media?.cache);
         ensureStyleTag(doc, 'igs-overlay-style', getOriginalReaderStyleText());
         const existing = doc.getElementById('igs-overlay');
         if (existing) existing.remove();
@@ -3989,7 +3810,6 @@ export function createIgsReaderHost(options = {}) {
         const keydownHandler = (event) => {
             if (onboarding.keydown(event)) return;
             if (!state.activeReader) return;
-            if (state.activeSettings?.asyncState?.shortcutRecording) return;
             if (pageModal.isOpen()) {
                 if (event.key === 'Escape') {
                     event.preventDefault();
@@ -4016,14 +3836,8 @@ export function createIgsReaderHost(options = {}) {
                 arrow?.setAttribute('aria-expanded', 'false'); arrow?.focus?.();
                 return;
             }
-            const optionLayer = state.activeReader.dom?.overlay?.querySelector?.('#igs-option-bubbles');
-            if (event.key === 'Escape' && optionLayer && !optionLayer.hasAttribute('hidden') && optionLayer.hasAttribute('data-igs-panel')) {
-                event.preventDefault(); event.stopPropagation?.();
-                hideOptionBubbles(optionLayer);
-                return;
-            }
             // Focused controls own their keyboard input; sliders must not turn pages.
-            if (event.key !== 'Escape' && event.target?.closest?.('button, input, select, textarea, [role="button"], [role="slider"], .igs-dfx-document-scroll, .igs-ancient-panel-scroll')) return;
+            if (event.key !== 'Escape' && event.target?.closest?.('button, input, select, textarea, [role="button"], [role="slider"]')) return;
             const input = state.activeReader.dom && state.activeReader.dom.input;
             if (doc.activeElement === input && event.key !== 'Escape') return;
             if (event.key === 'Escape') {
@@ -4031,19 +3845,35 @@ export function createIgsReaderHost(options = {}) {
                 controller.close();
                 return;
             }
-            const reader = state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
-            const action = findShortcutAction(resolveShortcuts(reader && reader.shortcuts), eventToShortcut(event));
-            if (!action) return;
-            event.preventDefault();
-            if (action === 'bilingual-toggle') {
+            if (event.key === 'ArrowRight' || event.key === ' ') {
+                event.preventDefault();
+                controller.invokeAction('next');
+                return;
+            }
+            if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                controller.invokeAction('prev');
+                return;
+            }
+            // Home 回第一楼，End 到最新楼。
+            if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault();
+                controller.invokeAction(event.key === 'Home' ? 'turn-first' : 'turn-latest');
+                return;
+            }
+            if (event.key === 'h' || event.key === 'H') {
+                event.preventDefault();
+                controller.invokeAction('hide');
+                return;
+            }
+            if ((event.key === 't' || event.key === 'T') && !event.ctrlKey && !event.metaKey && !event.altKey) {
                 const reader = state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
                 const display = reader ? resolveBilingualDisplay(reader.bilingual, reader._bilingualDisplay) : '';
                 if (!display) return;
+                event.preventDefault();
                 state.bilingualDisplay = { base: normalizeBilingualSettings(reader.bilingual).display, value: nextBilingualDisplay(display) };
                 rerenderActiveReader();
-                return;
             }
-            controller.invokeAction(action);
         };
         // 内嵌模式：点挂载楼层的小铅笔（.mes_edit）时先关闭阅读器并恢复原文；
         // 捕获阶段执行且不拦截事件，酒馆随后在冒泡阶段照常打开编辑框（编辑框渲染在 .mes_text 内）。
@@ -4088,7 +3918,6 @@ export function createIgsReaderHost(options = {}) {
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
         const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
-            mediaCache: options.media?.cache,
             getChatId: () => {
                 const ctx = getSillyTavernContext(options.global || globalThis);
                 return ctx && (typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId) || '';
@@ -4212,10 +4041,7 @@ export function createIgsReaderHost(options = {}) {
         embeddedStoryObserver = new Ctor((records) => {
             const external = Array.isArray(records) && records.some((record) => {
                 const target = record && record.target;
-                // 挪出去的插件面板（状态栏、动画小部件）自己刷新不碰正文，不算外部改动，免得每次都重跑一遍藏正文。
-                if (target && target.closest && target.closest('[data-igs-internal-reader="1"], [data-igs-parallel-blocks="1"]')) return false;
-                // 插件改写用户楼不碰 AI 正文，不必重跑。
-                if (isUserFloorNode(target, isUserFloorId)) return false;
+                if (target && target.closest && target.closest('[data-igs-internal-reader="1"]')) return false;
                 return true;
             });
             if (external) scheduleEmbeddedStoryHide();
@@ -4309,19 +4135,12 @@ export function createIgsReaderHost(options = {}) {
     function updateMountedReader(snapshot) {
         const current = state.activeReader;
         if (!current) return;
-        markStageActive(current.dom?.overlay);
-        const leases = current.assetLeases ||= options.media?.cache ? createMediaLeaseScope(options.media.cache) : null;
-        leases?.begin();
-        for (const url of readerPageAssetUrls(snapshot.content)) {
-            const key = isGeneratedAssetUrl(url) ? `asset:${url.slice(8)}`
-                : options.media?.cache?.sourceId?.(url) || imageResourceCache.keyOf(url);
-            leases?.use(key);
-        }
+        if (current.consistencyTask && !current.consistencyTask.stillCurrent()) current.consistencyTask.controller.abort();
         warmActiveFloorImages(snapshot);
         current.autoPlayer?.setSpeed(snapshot.readerSettings?.typewriter?.speed);
         noteReadingProgress(current, snapshot);
         backfillOldFloor(current);
-        if (!current.dom || !current.dom.root) { current.assetLeases?.releaseAll(); return; }
+        if (!current.dom || !current.dom.root) return;
         generationStripRemount = true;
         const refs = hydrateReaderMount(current.dom.root, snapshot);
         current.dom.overlay = refs.overlay;
@@ -4337,7 +4156,6 @@ export function createIgsReaderHost(options = {}) {
             const titleOn = !snapshot.readerSettings || snapshot.readerSettings.titleScreen !== false;
             if (titleOn && Number(snapshot.content && snapshot.content.currentIndex) === 0) {
                 renderTitleGate(current);
-                current.assetLeases?.releaseAll();
                 return;
             }
             dropTitleGate(current);
@@ -4346,11 +4164,7 @@ export function createIgsReaderHost(options = {}) {
             hasActiveSettings: () => Boolean(state.activeSettings),
             closeSettings,
             handleReaderAction,
-            // 点击层监听只绑一次，闭包里的 current/snapshot 是首次渲染的；必须读当前阅读器，否则按旧页判断「末页」会吞掉翻页。
-            handleBlankClick: () => {
-                const live = state.activeReader || current;
-                return handleOptionBubbleBlankClick(live, live.snapshot || snapshot);
-            },
+            handleBlankClick: () => handleOptionBubbleBlankClick(current, snapshot),
             isActiveReader: (reader) => state.activeReader === reader,
             closeReader,
             resolveAssetUrl: (url) => resolveReaderAssetUrl(url, current),
@@ -4364,7 +4178,6 @@ export function createIgsReaderHost(options = {}) {
             onCgPortraitMove: (statusHud) => saveReaderSettingsPatch({ statusHud }),
             onLivePortraitMove: (liveFx) => saveReaderSettingsPatch({ liveFx }),
         });
-        current.assetLeases?.end();
         if (current.dom.progress) {
             const progressText = formatReaderProgress(snapshot);
             current.dom.progress.textContent = progressText;
@@ -4372,26 +4185,7 @@ export function createIgsReaderHost(options = {}) {
         }
         syncOptionBubblesAfterRender(current, snapshot);
         syncAssetReviewAfterRender(current, snapshot);
-        syncMissedAssetsHint(current, snapshot);
         if (generationStripRemount) { generationStripRemount = false; generationStrip.remount(); }
-    }
-
-    function syncMissedAssetsHint(current, snapshot) {
-        const idle = current.awaitingReply !== true && current.streamPhase !== 'streaming' && !current.illustrationPending
-            && !(snapshot.content && snapshot.content.imageLoading) && generationStrip.getState().phase === 'idle';
-        const target = idle && typeof options.isIllustrationEnabled === 'function' && options.isIllustrationEnabled()
-            ? readManualFloor(current) : {};
-        const floor = target.floor;
-        const content = snapshot.content || {};
-        const detection = floor ? detectMissedAssets({
-            enabled: true,
-            busy: false,
-            isLatest: floor.isLatest !== false,
-            text: floor.text,
-            expected: content.imageExpectedCount,
-            bound: content.imageBoundCount,
-        }) : { missed: false };
-        missedHint.sync(detection, floor ? `${floor.chatId}:${floor.messageId}:${floor.swipeId}:${detection.reason}` : '');
     }
 
     // 第 0 层之后有没有 AI 楼层：决定「开始」先进世界观页还是直接重播，以及出不出「继续」。
@@ -4470,10 +4264,10 @@ export function createIgsReaderHost(options = {}) {
 
     // 主菜单「生成主角立绘」：打开设置的角色页，走和「＋ › 用酒馆用户设定生成主角」同一个动作，进度和结果都在那里看；关掉设置回到主菜单。
     async function generateUserCharFromTitle(current) {
-        openSettings({ page: 'chars', mode: current.mode });
+        openSettings({ tab: 'scene', mode: current.mode });
         const settings = state.activeSettings;
         if (!settings || !settings.controller || typeof settings.controller.invoke !== 'function') return { ok: false, reason: 'settings-not-open' };
-        openSettingsPage(settings, 'chars');
+        settings.asyncState.sceneSubTab = 'characters';
         rerenderSettings();
         return settings.controller.invoke('scene-add-user-char');
     }
@@ -4561,26 +4355,24 @@ export function createIgsReaderHost(options = {}) {
     function syncAssetReviewAfterRender(current, snapshot) {
         const overlay = current && current.dom && current.dom.overlay;
         const service = options.generatedAssets;
-        if (!overlay || !overlay.querySelector || !service || typeof service.listReview !== 'function') return;
+        if (!overlay || !overlay.querySelector || !service) return;
+        const context = storyOutfitContext();
+        if (storyOutfits && context && snapshot.readerSettings?._sceneAssets) {
+            const assets = effectiveSceneAssets(context.root, context.scopeKey);
+            storyOutfits.observe(extractSceneDirectives(context.text, { outfitResolver: createOutfitResolver(assets) }).directives);
+        }
         let container = overlay.querySelector('#igs-asset-review');
         const floorKey = currentFloorKey(current);
-        // 没读完就重 roll：流式期间不弹，记下旧楼，等新回复载入完在最后一页一并补问。
-        if (current.streamPhase === 'streaming') {
-            if (floorKey && !current.deferredReviewKey && service.listReview(floorKey).length) current.deferredReviewKey = floorKey;
-            if (container) container.setAttribute('hidden', '');
-            return;
-        }
         const lastPage = isReaderLastPage(snapshot);
-        let items = floorKey && lastPage
-            ? service.listReview(floorKey)
+        const items = floorKey && lastPage
+            ? service.listReview?.(floorKey) || []
             : [];
-        const deferredKey = current.deferredReviewKey;
-        if (deferredKey && deferredKey !== floorKey) {
-            const deferred = service.listReview(deferredKey);
-            if (!deferred.length) current.deferredReviewKey = '';
-            else if (lastPage) items = deferred.concat(items);
-        } else if (deferredKey) current.deferredReviewKey = '';
-        const outfitAsks = lastPage ? pendingOutfitAsks : [];
+        const storyAsks = lastPage ? storyOutfits?.list() || [] : [];
+        const allStoryAsks = storyOutfits?.list({ includeDeferred: true }) || [];
+        const outfitAsks = lastPage ? [...storyAsks, ...pendingOutfitAsks.filter(ask =>
+            !createOutfitResolver(snapshot.readerSettings?._sceneAssets || {})(ask.character, ask.word)
+            && !service.tempSpriteForOutfit?.(ask.character, ask.word)
+            && !allStoryAsks.some(row => row.character === ask.character && row.word === ask.word))] : [];
         if (!items.length && !outfitAsks.length) {
             if (container) container.setAttribute('hidden', '');
             return;
@@ -4595,14 +4387,88 @@ export function createIgsReaderHost(options = {}) {
             ...item,
             previewUrl: typeof service.resolveUrl === 'function' ? service.resolveUrl(item.url) : item.url,
         })), {
-            onResolve: (item, status, name) => { void resolveGeneratedReview(item, status, name); },
+            onResolve: (item, status, name) => resolveGeneratedReview(item, status, name).catch(() => {
+                writeToastSafe('素材审核提交失败，请重新打开审核；未确认的结果不算入库成功。');
+                return { ok: false, reason: 'generated-asset-status-failed' };
+            }),
             outfitAsks,
             onOutfit: (ask, picked) => resolveOutfitAsk(ask, picked),
         });
     }
 
+    function storyOutfitContext() {
+        const current = state.activeReader;
+        if (!current) return null;
+        const { floor } = readManualFloor(current);
+        if (!floor) return null;
+        const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis));
+        const root = cloneData(resolveBridgeConfigSnapshot({ mode: current.mode }).bridge.sceneAssets || {});
+        relocateLegacyCard(root, scope.key, scope.legacyKey);
+        return { root, scopeKey: scope.key, floorKey: floorKeyOf(floor), messageId: Number(floor.messageId),
+            sourceHash: storyOutfitSourceHash(floor.text), text: floor.text };
+    }
+
+    function commitStoryOutfit(next, expected, guard) {
+        const context = storyOutfitContext();
+        if (!guard() || !context || JSON.stringify(context.root) !== JSON.stringify(expected))
+            return { ok: false, reason: 'OUTFIT_ADOPTION_CONFLICT' };
+        if (state.activeSettings) {
+            const draft = state.activeSettings.draft.bridge;
+            if (JSON.stringify(draft.sceneAssets) !== JSON.stringify(expected))
+                return { ok: false, reason: 'OUTFIT_ADOPTION_CONFLICT' };
+            const previous = draft.sceneAssets;
+            draft.sceneAssets = next;
+            const result = persistSettingsDraft();
+            if (!result?.ok) draft.sceneAssets = previous;
+            else rerenderSettings();
+            return result;
+        }
+        return saveBridgePatch(() => guard() ? { sceneAssets: next } : null);
+    }
+
+    async function resolveStoryOutfit(ask, picked) {
+        if (!picked) {
+            storyOutfits.defer(ask.id);
+            return;
+        }
+        // adopt 同步登记在途选择并通知面板收起，随后等待后台处理。
+        const pending = picked === 'retry' ? storyOutfits.retry(ask.id) : storyOutfits.adopt(ask.id, picked);
+        const current = state.activeReader;
+        if (current) syncAssetReviewAfterRender(current, current.snapshot);
+        const result = await pending;
+        if (result?.saved || (result?.ok && picked !== 'retry')) {
+            for (let i = pendingOutfitAsks.length - 1; i >= 0; i--)
+                if (pendingOutfitAsks[i].character === ask.character && pendingOutfitAsks[i].word === ask.word)
+                    pendingOutfitAsks.splice(i, 1);
+            if (state.activeReader) rerenderActiveReader();
+        }
+        if (result?.ok && !result.alreadyHandled && picked !== 'retry') {
+            imageNotice('success', picked === 'sprite' ? '衣装和对应立绘已入库' : '衣装已入库衣柜');
+        } else if (!result?.ok) {
+            const code = typeof result?.reason === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(result.reason) ? result.reason : 'story-outfit-failed';
+            const recovery = result?.recoverySaved
+                ? '补画提示词已保存，可在素材页继续生图。' : '可在素材页检查资料后补画。';
+            imageNotice('error', code === 'candidate-limit'
+                ? (result?.saved
+                    ? '衣装已入库，但衣装候选队列已满，后续处理已停止；已有恢复资料保留，请先处理未完成候选。（candidate-limit）'
+                    : '衣装候选队列已满，现有条目含恢复资料或处理状态，未自动删除；本次尚未入库或生成立绘，请先处理未完成候选后重试。（candidate-limit）')
+                : result?.saved
+                ? `衣装已入库，换装立绘未完成；衣装保持不变。${recovery}（${code}）`
+                : `衣装写词或入库未完成，候选保留，请重新确认。（${code}）`);
+        }
+        if (result?.warning && !(result.reason === 'candidate-limit' && result.warning === 'candidate-limit')) {
+            const code = /^[A-Za-z0-9_-]{1,80}$/.test(result.warning) ? result.warning : 'save-failed';
+            imageNotice('error', result.ok
+                ? `衣装已入库，但候选清理未完成，请检查存储。（${code}）`
+                : `衣装处理的恢复资料或状态保存未完成，请检查存储；已入库衣装不回滚。（${code}）`);
+        }
+        if (state.activeReader) syncAssetReviewAfterRender(state.activeReader, state.activeReader.snapshot);
+        return result;
+    }
+
     // 段末新衣服面板的确认：加别名原地完成；用衣柜 / 生成新衣服要出图，交给素材页的自动衣柜流程（带上已选项，不再二次询问）。
     function resolveOutfitAsk(ask, picked) {
+        if (ask.id && storyOutfits) return resolveStoryOutfit(ask, picked);
         const at = pendingOutfitAsks.indexOf(ask);
         if (at >= 0) pendingOutfitAsks.splice(at, 1);
         if (picked && picked.startsWith('o:')) {
@@ -4617,9 +4483,9 @@ export function createIgsReaderHost(options = {}) {
             if (added && added.ok !== false) {
                 removeOutfitReview((options.global || globalThis).localStorage, ask.character, ask.word);
                 writeToastSafe(`已把「${ask.word}」归入「${ask.character}」的「${name}」`);
-            } else writeToastSafe('归入失败，可到「角色 › 待确认」里处理');
+            } else writeToastSafe('归入失败，可到「素材 → 待确认」里处理');
         } else if (picked) {
-            if (!state.activeSettings) openSettings({ page: 'review', mode: state.activeReader ? state.activeReader.mode : 'pc' });
+            if (!state.activeSettings) openSettings({ tab: 'scene', mode: state.activeReader ? state.activeReader.mode : 'pc' });
             const settings = state.activeSettings;
             if (settings && settings.controller && typeof settings.controller.invoke === 'function') {
                 settings.controller.invoke(`outfit-review-auto:${encodeURIComponent(ask.character)}:${encodeURIComponent(ask.word)}:${encodeURIComponent(picked)}`);
@@ -4628,7 +4494,7 @@ export function createIgsReaderHost(options = {}) {
         if (state.activeReader) rerenderActiveReader();
     }
 
-    // character：改的是哪个角色。写回本卡或全局里已有的那一份，不改别的卡。
+    // character：改的是哪个角色。借自别的卡的角色要写回那张卡，不然本卡会冒出一个只有这一处改动的同名角色，把原来那份盖住。
     function mutateSceneLibrary(mutator, { character = '' } = {}) {
         const target = character ? { collections: CHARACTER_COLLECTIONS, name: character } : undefined;
         if (state.activeSettings) {
@@ -4670,66 +4536,98 @@ export function createIgsReaderHost(options = {}) {
     async function resolveGeneratedReview(item, status, name) {
         const service = options.generatedAssets;
         if (!service || !item) return;
-        // 「加入素材库并编辑 DNA」= 先按普通入库处理，成功后再打开 DNA 候选确认；候选不自动写入。
         const withDna = status === 'library-dna' && item.type === 'sprite';
         if (status === 'library-dna') status = 'library';
-        let addedName = '';
-        let previous = null;
-        if (status === 'library') {
-            const background = item.type === 'background';
+        if (status === 'library' && item.type === 'sprite') {
+            const activeSettings = state.activeSettings;
+            const scope = () => resolveAssetScope(getSillyTavernContext(options.global || globalThis)).key;
+            const sourceScope = scope();
+            const snapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
+            const settingsState = activeSettings || { draft: cloneData(snapshot), asyncState: {} };
+            let committedAssets = JSON.stringify(snapshot.bridge.sceneAssets);
+            const save = () => {
+                if (state.activeSettings !== activeSettings || scope() !== sourceScope)
+                    return { ok: false, reason: 'DNA_ADOPTION_CONFLICT', writeAttempted: false };
+                if (activeSettings) return persistSettingsDraft();
+                const current = resolveBridgeConfigSnapshot({ mode: 'default' });
+                if (JSON.stringify(current.bridge.sceneAssets) !== committedAssets)
+                    return { ok: false, reason: 'DNA_ADOPTION_CONFLICT', writeAttempted: false };
+                if (typeof options.saveUnifiedSettings !== 'function') return { ok: false, reason: 'missing-save-handler', writeAttempted: false };
+                let saved;
+                try { saved = options.saveUnifiedSettings({ bridge: { ...current.bridge,
+                    sceneAssets: settingsState.draft.bridge.sceneAssets }, readerMode: 'default', readerSettings: current.readerSettings }); }
+                catch { return { ok: false, reason: 'save-failed' }; }
+                if (!saved || saved.ok === false) return saved || { ok: false, reason: 'save-failed' };
+                committedAssets = JSON.stringify(resolveBridgeConfigSnapshot({ mode: 'default' }).bridge.sceneAssets);
+                return saved;
+            };
+            let adoptionError = '';
+            const result = await handleSettingsAction(`gen-temp-accept:${encodeURIComponent(item.key)}`, {
+                state: { activeSettings: settingsState },
+                options: { ...options, generatedAssets: { ...service,
+                    getRecord(key) {
+                        const current = service.getRecord?.(key);
+                        return current?.imageId === item.imageId && current.status === item.status
+                            && current.updatedAt === item.updatedAt ? current : null;
+                    } } },
+                dialogs: { prompt: async () => String(name || item.name || '').trim(),
+                    alert: (message) => { adoptionError = String(message || ''); } },
+                persistSettingsDraft: save, rerenderSettings: () => ({ ok: true }),
+            });
+            if (!result?.ok || service.getRecord?.(item.key)?.status !== 'library') {
+                const failure = result?.ok === false ? result
+                    : { ok: false, reason: 'DNA_ADOPTION_CONFLICT' };
+                const messages = {
+                    'DNA_ADOPTION_CONFLICT': '候选图片、角色资料或当前角色卡已变化，请重新打开审核后重试。',
+                    'OUTFIT_ADOPTION_CONFLICT': '衣装候选或已保存衣装与生成时的资料不一致，入库已停止。',
+                    'DNA_ADOPTION_INVALID': '候选图片或身份资料无法权威回读，入库已停止。',
+                    'generated-asset-status-failed': '素材审核状态保存失败，入库未完成。',
+                    'generated-asset-persist-failed': '角色素材设置保存失败，入库未完成。',
+                    'save-failed': '角色素材设置保存失败，入库未完成。',
+                    'missing-save-handler': '角色素材设置保存接口不可用，入库未完成。',
+                    'generated-assets-unavailable': '生成素材服务不可用，入库未完成。',
+                };
+                const code = /^[A-Za-z0-9_-]{1,80}$/.test(failure.reason || '')
+                    ? failure.reason : 'sprite-adoption-failed';
+                const cause = /^[A-Za-z0-9_-]{1,80}$/.test(failure.causeReason || '') ? failure.causeReason : '';
+                const recovery = failure.rollbackFailed
+                    ? '恢复保存也失败，设置状态未确认；请先检查角色资料，不要反复点击入库。' : '';
+                writeToastSafe(`${adoptionError || messages[code] || '角色素材设置保存失败或采用检查未通过，入库未完成。'}${recovery}`
+                    + `（${code}${cause && cause !== code ? `；原始原因：${cause}` : ''}）`);
+                return failure;
+            }
+            if (activeSettings) rerenderSettings();
+            if (state.activeReader) rerenderActiveReader();
+            const assets = sceneAssetsForContext(settingsState.draft.bridge.sceneAssets,
+                getSillyTavernContext(options.global || globalThis));
+            const known = { ...assets.characterDna, ...assets.characters };
+            const addedName = resolveCharacterKey(known, assets.characterAliases, name || item.name) || name || item.name;
+            writeToastSafe(`已放入角色立绘「${addedName}」`);
+            if (withDna) {
+                if (!state.activeSettings) openSettings({ tab: 'scene', mode: state.activeReader?.mode || 'pc' });
+                await state.activeSettings?.controller?.invoke('open-character-dna');
+                const settings = state.activeSettings;
+                if (!settings?.asyncState?.advancedOpen?.[`char-dna:${addedName}`]) {
+                    await settings?.controller?.invoke(`scene-toggle-dna:${encodeURIComponent(addedName)}`);
+                }
+            }
+            return result;
+        }
+        if (status === 'library' && item.type === 'background') {
             const added = mutateSceneLibrary((assets) => {
-                previous = background
-                    ? { scenes: assets.scenes }
-                    : { characters: assets.characters, characterAliases: assets.characterAliases };
-                if (background) {
-                    const bound = bindGeneratedBackground(assets, item, name || item.name);
-                    if (bound.ok) assets.scenes = bound.scenes;
-                    return bound;
-                }
-                const bound = bindGeneratedSprite(assets, name || item.name, item.imageId ? `igs-gen:${item.imageId}` : '', { replace: true });
-                if (bound.ok) {
-                    assets.characters = bound.characters;
-                    assets.characterAliases = bound.characterAliases;
-                }
+                const bound = bindGeneratedBackground(assets, item, name || item.name);
+                if (!bound.ok) return bound;
+                assets.scenes = bound.scenes;
                 return bound;
-            }, background ? {} : { character: name || item.name });
+            });
             if (!added || added.ok === false) {
-                // 设置草稿可能已被改写但保存失败；恢复该条操作前的映射，不保留未保存的假成功。
-                if (previous && state.activeSettings) {
-                    const assets = draftAssetLibrary(state.activeSettings, background ? undefined : { collections: CHARACTER_COLLECTIONS, name: name || item.name });
-                    Object.assign(assets, previous);
-                }
-                writeToastSafe('素材入库失败，请检查名称与保存状态后重试');
+                writeToastSafe('加入场景素材失败：名称不能为空');
                 return;
             }
-            addedName = added.name;
+            writeToastSafe(`已放入场景素材「${added.name}」`);
         }
-        let updated;
-        try { updated = typeof service.setStatus === 'function' ? await service.setStatus(item.key, status) : { ok: false }; }
-        catch (error) { updated = { ok: false }; }
-        if (!updated || updated.ok === false) {
-            if (previous && addedName) {
-                const rolled = mutateSceneLibrary((assets) => {
-                    Object.assign(assets, previous);
-                    return { ok: true };
-                }, item.type === 'background' ? {} : { character: name || item.name });
-                writeToastSafe(rolled && rolled.ok !== false
-                    ? '审核状态更新失败，素材库已恢复，请重试'
-                    : '审核状态更新失败，素材库无法恢复，请检查素材库后重试');
-            } else writeToastSafe('审核状态更新失败，请重试');
-            return;
-        }
-        if (addedName) writeToastSafe(`已放入${item.type === 'background' ? '场景素材' : '角色立绘'}「${addedName}」`);
+        if (typeof service.setStatus === 'function') await service.setStatus(item.key, status);
         if (state.activeReader) rerenderActiveReader();
-        if (withDna && addedName) openDnaCandidate(addedName, item.tags);
-    }
-
-    function openDnaCandidate(characterName, tags) {
-        if (!state.activeSettings) openSettings({ page: 'chars', mode: state.activeReader ? state.activeReader.mode : 'pc' });
-        if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
-        openSettingsPage(state.activeSettings, 'chars');
-        state.activeSettings.asyncState.dnaCandidate = { name: String(characterName || ''), tags: String(tags || '') };
-        return rerenderSettings();
     }
 
     function syncOptionBubblesAfterRender(current, snapshot) {
@@ -4741,17 +4639,12 @@ export function createIgsReaderHost(options = {}) {
         if (container.style && typeof container.style.setProperty === 'function') {
             container.style.setProperty('--igs-option-font-size', `${cfg.fontSize}px`);
         }
-        // 同页重绘不打断正在挑选的物品；翻页、切楼、换 swipe 或回读旧楼时必须清掉。
-        const panelPage = `${snapshot && snapshot.chatId || ''}|${snapshot && snapshot.messageId}|${snapshot && snapshot.swipeId || 0}|${snapshot && snapshot.content && snapshot.content.currentIndex}`;
-        const keepItemPanel = cfg.enabled && Number(current.turnOffset) === 0 && isReaderLastPage(snapshot)
-            && container.getAttribute('data-igs-panel') === 'item'
-            && !container.hasAttribute('hidden') && container.getAttribute('data-igs-panel-page') === panelPage;
-        if (keepItemPanel) syncStatusHudOptionSuppression(container, true);
-        else hideOptionBubbles(container);
+        // 每次渲染都收起旧气泡；最后一页需由随后一次未被页内演出消费的推进显式打开。
+        hideOptionBubbles(container);
         // 悬浮输入框 + 选项气泡：框先藏着，等选项里点「采取其他行动」才出现；翻离最后一页就收回。
-        if (cfg.enabled && !(Number(current.turnOffset) > 0)) overlay.setAttribute('data-igs-options-on', '1');
+        if (cfg.enabled) overlay.setAttribute('data-igs-options-on', '1');
         else overlay.removeAttribute('data-igs-options-on');
-        if ((!isReaderLastPage(snapshot) || Number(current.turnOffset) > 0) && overlay.classList) overlay.classList.remove('igs-free-input');
+        if (!isReaderLastPage(snapshot) && overlay.classList) overlay.classList.remove('igs-free-input');
         // 把对话框实际高度/宽度写入 CSS 变量，供气泡定位在对话框正上方、宽度跟随对话框。
         const dialog = overlay.querySelector('#igs-dialog');
         if (dialog && typeof dialog.getBoundingClientRect === 'function') {
@@ -4800,7 +4693,6 @@ export function createIgsReaderHost(options = {}) {
             ? sceneAssetsForContext(bridge.sceneAssets, getSillyTavernContext(options.global || globalThis))
             : null;
         const worldview = resolveWorldview(sceneAssets);
-        setCharacterNameFallback(!sceneAssets || sceneAssets.nameFallback !== false);
         readerSettings.dialogSkin = effectiveDialogSkin(readerSettings.dialogSkin, sceneAssets);
         Object.assign(readerSettings, applyFxWorldview(readerSettings, worldview, { carryPhone: Boolean(sceneAssets && sceneAssets.carryPhone === true) }));
         // 演出与聊天层据此换皮：_ancientEra 保留给既有古风分支，_worldview 供西幻 / 科幻 / 末日换皮。
@@ -4809,12 +4701,7 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._carryPhone = Boolean(readerSettings.feedFx && readerSettings.feedFx.carryPhone === true);
         readerSettings._worldview = worldview;
         readerSettings._sceneAssets = sceneAssets;
-        // 还没入库的生成立绘的 tag：立绘默认高度据此判断没有 DNA 的角色性别与老人 / 儿童。
-        const spriteTagService = options.generatedAssets;
-        readerSettings._tempSpriteTags = spriteTagService && typeof spriteTagService.tempSpriteTags === 'function'
-            ? spriteTagService.tempSpriteTags() : {};
         readerSettings._sentencePaging = Boolean(bridge.sentencePaging);
-        readerSettings._dialogueSentencePaging = Boolean(bridge.dialogueSentencePaging);
         readerSettings._optionBubble = bridge.optionBubble && typeof bridge.optionBubble === 'object' ? bridge.optionBubble : {};
         const bilingualOverride = state.bilingualDisplay;
         readerSettings._bilingualDisplay = bilingualOverride && bilingualOverride.base === normalizeBilingualSettings(readerSettings.bilingual).display ? bilingualOverride.value : '';
@@ -4826,40 +4713,10 @@ export function createIgsReaderHost(options = {}) {
 
     // 翻页重绘只读配置：设置修订号没变就复用上次整理的结果，不再每页深拷贝、整理整份素材库（素材越多翻页越顿）。
     // 宿主不提供修订号时照旧每次重读。
-    // 快照只会改顶层字段（如 sceneDialogSkin 换皮），浅拷贝就够；下层对象一律只读。
     function cloneReaderSettingsShallowAssets(readerSettings) {
-        return readerSettings && typeof readerSettings === 'object' ? { ...readerSettings } : readerSettings;
-    }
-
-    // 对外返回的快照副本：深拷贝但 _sceneAssets（整份素材库，只读）按引用带过去，避免每次随素材库变大而变慢。
-    function cloneSnapshotKeepAssets(snapshot) {
-        const rs = snapshot && snapshot.readerSettings;
-        if (!rs || typeof rs !== 'object' || !('_sceneAssets' in rs)) return cloneData(snapshot);
-        const { _sceneAssets: assets, ...rest } = rs;
-        const copy = cloneData({ ...snapshot, readerSettings: rest });
-        copy.readerSettings._sceneAssets = assets;
-        return copy;
-    }
-
-    // 返回值里的 snapshot 改惰性：首次访问才深拷并缓存，没人读就零开销（外部拿到的仍是独立副本）。
-    function lazySnapshotCopy(snapshot) {
-        return { __lazySnapshot: snapshot };
-    }
-
-    function withLazySnapshot(result) {
-        const source = result.snapshot && result.snapshot.__lazySnapshot;
-        let copy;
-        let done = false;
-        Object.defineProperty(result, 'snapshot', {
-            enumerable: true,
-            configurable: true,
-            get() {
-                if (!done) { copy = cloneSnapshotKeepAssets(source); done = true; }
-                return copy;
-            },
-            set(value) { copy = value; done = true; },
-        });
-        return result;
+        if (!readerSettings || !readerSettings._sceneAssets) return cloneData(readerSettings);
+        const { _sceneAssets: assets, ...rest } = readerSettings;
+        return { ...cloneData(rest), _sceneAssets: assets };
     }
 
     function resolveRenderConfig(mode) {
@@ -4882,7 +4739,7 @@ export function createIgsReaderHost(options = {}) {
     function normalizeUnifiedSettings(snapshot, preferredMode) {
         const bridge = normalizeBridgeConfig(snapshot.bridge);
         const readerMode = normalizeReaderMode(firstDefined(snapshot.readerMode, preferredMode, bridge.openMode), bridge);
-        const readerSettings = normalizeReaderSettingsCached(snapshot.readerSettings, bridge.vnTheme);
+        const readerSettings = normalizeReaderSettings(snapshot.readerSettings, bridge.vnTheme);
 
         return {
             version: snapshot.version || options.version || '0.5.4',
@@ -4931,7 +4788,7 @@ export function createIgsReaderHost(options = {}) {
         const result = save({ bridge: unified.bridge, readerMode: unified.readerMode, readerSettings: { ...unified.readerSettings, ...patch } });
         if (!result || result.ok === false) return result || { ok: false, reason: 'save-failed' };
         const refreshed = resolveBridgeConfigSnapshot({ mode });
-        const readerSettings = normalizeReaderSettingsCached(refreshed.readerSettings, refreshed.bridge.vnTheme);
+        const readerSettings = normalizeReaderSettings(refreshed.readerSettings, refreshed.bridge.vnTheme);
         attachBridgeReaderExtras(readerSettings, refreshed.bridge);
         state.activeReader.snapshot = buildReaderSnapshot(state.activeReader.payload, mode, readerSettings, state.activeReader.index);
         updateMountedReader(state.activeReader.snapshot);
@@ -4977,10 +4834,10 @@ function clearReaderToast(current) {
 }
 
 const REGEN_FAILURE_TEXT = Object.freeze({
-    'provider-not-enabled': '当前图像来源无法重画，请在设置「生图与AI › 图像来源」选择 IGS 内置 NAI 或数据库生图插件并填好配置',
+    'provider-not-enabled': '当前图像来源无法重画，请在设置「生图 → 图像来源」选择 IGS 内置 NAI 或数据库生图插件并填好配置',
     'invalid-message-id': '找不到当前楼层',
     'regen-failed': '请求出错',
-    'regen-button-not-found': '当前楼层没有找到插图插件的生图按钮。若未安装智绘姬，请在设置「生图与AI › 图像来源」改选 IGS 内置 NAI 或数据库生图插件',
+    'regen-button-not-found': '当前楼层没有找到插图插件的生图按钮。若未安装智绘姬，请在设置「生图 → 图像来源」改选 IGS 内置 NAI 或数据库生图插件',
     'image-poll-timeout': '已点击插图插件的生图按钮，但等待超时仍没有新图片，请检查该插件是否正常工作',
 });
 
@@ -5019,6 +4876,33 @@ function stripSceneDirectiveLines(rawText) {
         .join('\n');
 }
 
+// 在原文里定位一段正文的位置：先精确匹配，失败再去掉排版符号后匹配。
+// 纯函数、不做全局缓存，避免跨页状态残留。
+function locateTextOffsetInSource(source, segText, from = 0) {
+    const src = String(source || '');
+    const needle = String(segText || '').trim();
+    if (!src || !needle) return -1;
+    const exact = src.indexOf(needle, Math.max(0, Number(from) || 0));
+    if (exact >= 0) return exact;
+    const loose = needle.replace(/[\s*（）\[\]]+/g, '');
+    if (!loose) return -1;
+    // 把原文与目标都去掉排版符号，再做一次真实匹配；命中后回推原文下标。
+    const fromIndex = Math.max(0, Number(from) || 0);
+    const map = [];
+    let flat = '';
+    for (let i = fromIndex; i < src.length; i += 1) {
+        if (/[\s*（）\[\]]/.test(src[i])) continue;
+        map.push(i);
+        flat += src[i];
+    }
+    const hit = flat.indexOf(loose);
+    if (hit >= 0) {
+        const end = hit + loose.length - 1;
+        if (end < map.length) return map[hit];
+    }
+    return -1;
+}
+
 function resolveBoundSlotImageUrl(imageState, slot) {
     const numericSlot = Number(slot);
     if (!Number.isInteger(numericSlot) || numericSlot < 1) return '';
@@ -5037,4 +4921,8 @@ function resolveBoundSlotImageUrl(imageState, slot) {
         }
     }
     return '';
+}
+
+function stripSegmentSpeaker(text) {
+    return String(text || '').trim().replace(/^\*+|\*+$/g, '').replace(/^\s*\[[^\]\n]*\][：:]\s*/, '');
 }

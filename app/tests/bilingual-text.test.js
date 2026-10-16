@@ -89,7 +89,7 @@ test('gate: T cycles ruby, source, translation and the override wins only when e
 test('gate: bilingual prompt rule follows the switch and targets tag dialogue fields', () => {
     assert.equal(resolveBilingualPromptRule({ enabled: false }), '');
     const rule = resolveBilingualPromptRule({ enabled: true, foreign: 'en', target: 'zh-Hant' });
-    assert.match(rule, /^【双语台词】/);
+    assert.match(rule, /^\[igs双语台词\]/);
     assert.match(rule, /英语原文/);
     assert.match(rule, /〖繁体中文译文〗/);
     assert.match(rule, /\[igs-char\] 的对白栏/);
@@ -108,43 +108,27 @@ test('gate: bilingual settings field shows options only when enabled', () => {
 });
 
 test('gate: sentence paging never cuts between source and 〖translation〗', () => {
-    const source = '[アリス]：そうですね。〖是啊。〗行こう。〖走吧。〗';
-    const paged = applySentencePaging(source);
-    assert.equal(paged, '[アリス]：そうですね。〖是啊。〗\n行こう。〖走吧。〗');
-    assert.equal(paged.replaceAll('\n', ''), source, '分页只插入边界，原句和译文不得丢字');
-});
-
-test('gate: dialogue and thought paging keep speaker and bilingual pairs on every page', () => {
-    const options = { narrationOnly: true, splitNarration: false, dialogueAndThought: true };
-    const dialogue = applySentencePaging('[玉子]：你好。〖你好。〗再见。〖再见。〗', options);
-    assert.deepEqual(dialogue.split('\n'), [
-        '[玉子]：你好。〖你好。〗', '[玉子]：再见。〖再见。〗',
-    ]);
-    const thought = applySentencePaging('*[玉子]：先别急？！〖别着急？！〗再等。〖再等等。〗*', options);
-    assert.deepEqual(thought.split('\n'), [
-        '*[玉子]：先别急？！〖别着急？！〗*', '*[玉子]：再等。〖再等等。〗*',
-    ]);
-    assert.equal(applySentencePaging('旁白第一句。旁白第二句。', options), '旁白第一句。旁白第二句。');
+    assert.equal(applySentencePaging('[アリス]：そうですね。〖是啊。〗行こう。〖走吧。〗'), '[アリス]：そうですね。〖是啊。〗行こう。〖走吧。〗');
 });
 
 // 压力测试（最小锚点）：AI 犯蠢把 igs 指令与旁白黏在同一段、且旁白用非句号收尾时，分页与译文归页是否正常。
 test('stress: sentence paging splits narration after igs directive and keeps 〖〗 translation on the same page', () => {
     // 场景A：applySentencePaging 只按句末分页，不吞字；igs 指令与旁白同段的断段由 breakAfterIgsDirectiveClose 在 body-format 阶段负责（见 message-source.js:253）。
-    // 这里锚定：译文 〗 后才断页，旁白后续两句也各自分页，译文不跨页。
+    // 这里锚定：分页后 〗 后旁白与「傘を取った」之间按句号切开，译文不跨页。
     const withDirective = applySentencePaging('[アリス]：行こう。〖走吧。〗その後、雨が降った。傘を取った。');
-    assert.equal(withDirective, '[アリス]：行こう。〖走吧。〗\nその後、雨が降った。\n傘を取った。');
-    // 场景B：AI 用非句号句末（！？!?）时仍分页；译文必须留在原文同一页。
+    assert.equal(withDirective, '[アリス]：行こう。〖走吧。〗その後、雨が降った。\n傘を取った。', '句号分页行为被意外改变');
+    // 场景B：AI 用非句号句末（！？!?）时，当前实现是否仍分页；译文必须留在原文同一页。
     const bang = applySentencePaging('待って！〖等等！〗どうして？〖为什么？〗');
-    assert.equal(bang, '待って！〖等等！〗\nどうして？〖为什么？〗', '不得在原句与译文之间切开');
-    // 场景C：中文旁白用！号收尾多句连写，应能分页。
+    // 契约：句子分页不在 〖〗 前后断开，双语单元整行保持一页，译文随原文归页。
+    assert.equal(bang, '待って！〖等等！〗どうして？〖为什么？〗', '双语单元在 〖〗 前被切开，译文掉到第二页');
+    // 场景C：中文旁白用！号收尾多句连写，应能分页（当前只认。，预期失败=复现你报的问题）。
     const zh = applySentencePaging('他冲了过来！她愣住了。门开了。');
     assert.ok(zh.includes('！\n'), '中文！号未被识别为句末，多句黏在一起');
     // 场景D：省略号收尾（……/…）也应分页；译文场景同理。
     const dots = applySentencePaging('她沉默了很久……转身离开。');
     assert.ok(dots.includes('……\n'), '省略号未被识别为句末，与后句黏在一起');
     const dotsBi = applySentencePaging('そうか……〖这样啊……〗じゃあね。');
-    assert.equal(dotsBi, 'そうか……〖这样啊……〗\nじゃあね。', '省略号与译文必须留在同页');
-    assert.equal(dotsBi.replaceAll('\n', ''), 'そうか……〖这样啊……〗じゃあね。');
+    assert.equal(dotsBi, 'そうか……〖这样啊……〗じゃあね。', '省略号后在 〖〗 前断页，译文掉到第二页');
 });
 
 

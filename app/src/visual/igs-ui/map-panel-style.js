@@ -4,7 +4,7 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-status-hud .igs-hud-toggle{z-index:0;}
 #igs-status-hud .igs-hud-identity{display:contents;}
 #igs-status-hud .igs-hud-avatar-frame{position:relative;grid-column:1;grid-row:1;align-self:center;width:calc(46px * var(--igs-hud-scale,1));height:calc(46px * var(--igs-hud-scale,1));}
-#igs-status-hud .igs-hud-entry-anchor{position:relative;top:1.2px;z-index:1;grid-column:2;grid-row:1;align-self:center;justify-self:start;display:flex;align-items:center;gap:calc(3px * var(--igs-hud-scale,1));max-width:100%;min-width:0;pointer-events:none;}
+#igs-status-hud .igs-hud-entry-anchor{position:relative;z-index:1;grid-column:2;grid-row:1;align-self:center;justify-self:start;display:flex;align-items:center;gap:calc(3px * var(--igs-hud-scale,1));max-width:100%;min-width:0;pointer-events:none;}
 #igs-status-hud .igs-hud-emotion{flex:none;}
 #igs-status-hud .igs-hud-metrics{grid-column:1 / 3;grid-row:2;display:grid;grid-template-columns:max-content minmax(0,1fr) auto;align-items:center;justify-content:normal;align-self:auto;gap:calc(4px * var(--igs-hud-scale,1)) calc(5px * var(--igs-hud-scale,1));margin-top:calc(7px * var(--igs-hud-scale,1));}
 #igs-status-hud .igs-hud-metric{display:contents;}

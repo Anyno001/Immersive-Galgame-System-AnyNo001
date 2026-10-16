@@ -1,13 +1,5 @@
 # 发布与打包工作流
 
-## 固定测试版锁定规则（test-v0.36.66）
-
-固定文件将 `PINNED_REF` 写为对应 `test-vX.Y.Z` 内部常量，禁止回退 main 或其他版本，禁止页面残留 ref/base 覆盖。模块必须实际创建该版本 API，否则关闭错误实例并明确报错。仅推送程序包不会更新酒馆中已导入的 loader 源码，启动器修复需重新导入对应固定版 JSON。此节覆盖旧版关于固定版注入全局 ref 和回退 main 的描述。
-
-## 精简后的检查范围
-
-已删除无用、重复、仅锁定源码或 CSS 字面量的检查及门禁执行入口；不以默认跳过代替删除，不重建等价全量运行器。保留行为回归见 `../app/tests/README.md`。构建只生成发布文件，发布时核对实际产物、下载和启动行为，不能用构建成功或 HTTP 200 代替启动结果。
-
 本项目采用 GitHub 远程 bundle + 酒馆助手脚本 loader JSON 发布。loader 形态参考 `_inbox/酒馆助手脚本-玉子手机.json`。
 
 ## GitHub 仓库
@@ -83,16 +75,20 @@ loader 默认追踪 GitHub API 返回的 `main` 最新提交哈希，并优先�
 ## 后续建议命令
 
 ```text
-npm run build:loader -- --release test-v<当前版本>
+npm run build:loader -- --release v<当前版本>
+npm run gate
 npm run build
+npm run test
+npm run simulate
+npm run perf
 ```
 
 这些命令属于 app 自身工程，不属于奶龙工具箱校验流程。
-构建只生成发布文件；实际发布响应和启动结果需要直接获取并执行确认。
+其中 `npm run build` 与 `npm run test` 会共同检查 dist bundle 自包含，避免自动更新脚本加载到旧子模块。
 
 生成 loader JSON 后，必须额外验证 JSON 字段和 `content`：
 
-先用 `npm run build:loader -- --release test-v<当前版本>` 生成版本化导入件，再直接核对其 JSON 字段及 loader 原文一致性。
+先用 `npm run build:loader -- --release v<当前版本>` 生成版本化导入件；`npm run gate` 内的 `gate:loader:versioned-release-matches-source-and-internal-entry` 也会检查此产物和固定入口完全一致。
 
 ```powershell
 node -e "const fs=require('fs'); const js=fs.readFileSync('loader/igs-loader.js','utf8'); const j=JSON.parse(fs.readFileSync('loader/igs-loader.json','utf8')); if(j.type!=='script'||j.content!==js||!j.content.includes('igs.bundle.js')) throw new Error('bad loader json');"
@@ -115,7 +111,8 @@ gh repo create Anyno001/Immersive-Galgame-System-AnyNo001 --public --source . --
 
 ```powershell
 cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System\app"
-npm run build:loader -- --release test-v<当前版本>
+npm run build:loader -- --release v<当前版本>
+npm run gate
 cd ..
 git status --short
 git add .
@@ -124,20 +121,20 @@ git push origin main
 git ls-remote --heads origin main
 ```
 
-每次更新都为本次提交创建并推送测试标签：
+仅在真实酒馆复验通过后执行：
 
 ```powershell
-git tag -a test-v<当前版本> -m "test-v<当前版本>: <简短更新说明>"
-git push origin test-v<当前版本>
-git ls-remote --tags origin test-v<当前版本>
+git tag -a v<当前版本> -m "v<当前版本>: <简短更新说明>"
+git push origin v<当前版本>
+git ls-remote --tags origin v<当前版本>
 ```
 
-## 每轮上传并打测试标签
+## 每轮上传与真机复验后打标签
 
-- 任何实现、修复、文档工作流变更、fixtures/test 变更，只要写入了文件，结束前都必须推送到 `origin/main`；同时创建并推送 `test-vMAJOR.MINOR.PATCH` 测试标签。
-- 测试标签版本必须与该提交的 `app/package.json` 对应；不自动创建 `vMAJOR.MINOR.PATCH` 正式版标签，正式发布须用户另行明确要求。
+- 任何实现、修复、文档工作流变更、fixtures/test 变更，只要写入了文件，结束前都必须推送到 `origin/main`；真实酒馆复验通过前不创建版本标签。
+- 复验通过后标签格式固定为 `vMAJOR.MINOR.PATCH`，必须与已验收版本的 `app/package.json` 对应。
 - 标签已存在时禁止覆盖，提升 patch 版本再发布。
-- 文档任务只检查相关说明和引用，不增加行为测试；提交、推送须在当前任务授权范围内。测试标签不代表真实设备验收，未终验时保留边界。
+- 文档-only 任务可以跳过 `npm run gate`，但仍需提交、推送；打标签仍须等待真实酒馆复验，跳过验证须在最终回复说明。
 - 上传必须在本项目独立仓库根目录执行，先确认 `git rev-parse --show-toplevel` 返回本项目目录。
 
 如果需要给 SillyTavern loader 直接加载 GitHub raw bundle，先确认没有真实密钥、真实聊天记录、真实 shujuku 数据和本机私有路径，再保持仓库 public 或建立单独的公开发布仓库。

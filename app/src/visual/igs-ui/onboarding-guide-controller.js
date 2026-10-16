@@ -9,6 +9,11 @@ import { PROFILE_QUESTIONS, PROFILE_SECTIONS } from './performance-profile.js';
 import { handleOnboardingKeydown, mountOnboardingInvite, removeOnboardingInvite } from './onboarding-guide-invite.js';
 import { ONBOARDING_STYLE_ID, getOnboardingStyleText } from './onboarding-guide-style.js';
 
+const SUBTAB_SWITCHERS = Object.freeze({
+    reader: 'switchReaderSubTab',
+    scene: 'switchSceneSubTab',
+    image: 'switchImageSubTab',
+});
 export const ONBOARDING_ACTIONS = Object.freeze(['onboarding-start', 'onboarding-next', 'onboarding-prev', 'onboarding-skip', 'onboarding-finish', 'onboarding-quiz-apply']);
 export const DEFAULT_QUIZ_ANSWERS = Object.freeze({ types: [], level: 'standard', sound: ['fx', 'ui', 'typing'], adult: 'no' });
 
@@ -45,21 +50,14 @@ export function createOnboardingController(deps) {
             return false;
         }
         ensureOnboardingStyle(overlay.ownerDocument);
-        const resumeStep = savedStep();
-        return Boolean(mountOnboardingInvite(overlay, (choice) => chooseInvite(choice, overlay), overlay.ownerDocument, { resume: resumeStep > 0 }));
-    }
-
-    // 上次中途停下的步骤；没有进度（或已完成 / 跳过，step 已清零）为 0。
-    function savedStep() {
-        const result = readOnboardingState(deps.getStorage());
-        return result.ok && result.state.status === 'unseen' ? result.state.step : 0;
+        return Boolean(mountOnboardingInvite(overlay, (choice) => chooseInvite(choice, overlay)));
     }
 
     function chooseInvite(choice, overlay) {
         session.answered = true;
         removeOnboardingInvite(overlay);
         if (choice === 'never') return persist({ status: 'dismissed' });
-        if (choice === 'start') return goTo(savedStep());
+        if (choice === 'start') return goTo(0);
         return { ok: true };
     }
 
@@ -69,7 +67,7 @@ export function createOnboardingController(deps) {
         // 问卷答案跟着这次引导走，前后翻页不丢。
         guide = { step: index, pendingFocus: false, answers: guide && guide.answers ? guide.answers : { ...DEFAULT_QUIZ_ANSWERS, types: [] }, quizApplied: Boolean(guide && guide.quizApplied) };
         if (!deps.getSettingsController()) {
-            const opened = deps.openSettings(step.page);
+            const opened = deps.openSettings(step.tab);
             if (!opened || opened.ok === false) {
                 guide = null;
                 return opened || { ok: false, reason: 'settings-not-open' };
@@ -80,11 +78,13 @@ export function createOnboardingController(deps) {
             guide = null;
             return { ok: false, reason: 'settings-not-open' };
         }
-        controller.switchPage(step.page, step.open);
+        controller.switchTab(step.tab);
+        for (const [kind, id] of step.subTabs) {
+            const method = SUBTAB_SWITCHERS[kind];
+            if (method && typeof controller[method] === 'function') controller[method](id);
+        }
         // 切页过程中的多次重绘不抢焦点，最后一次重绘才聚焦标题并滚到目标。
         guide.pendingFocus = true;
-        // 每次换步都记下进度，中途关掉也能从邀请条或仪表盘入口继续。
-        persist({ step: index });
         return deps.rerenderSettings();
     }
 
@@ -102,7 +102,7 @@ export function createOnboardingController(deps) {
         if (quiz) return chooseQuiz(quiz[1], quiz[2]);
         if (!ONBOARDING_ACTIONS.includes(name)) return null;
         if (name === 'onboarding-quiz-apply') return applyQuiz();
-        if (name === 'onboarding-start') return goTo(savedStep());
+        if (name === 'onboarding-start') return goTo(0);
         if (!guide) return deps.rerenderSettings();
         if (name === 'onboarding-next') {
             return isLastOnboardingStep(guide.step) ? finish('done') : goTo(nextOnboardingStep(guide.step));
@@ -141,14 +141,8 @@ export function createOnboardingController(deps) {
         return deps.rerenderSettings();
     }
 
-    // Esc 和关闭设置都只是暂停：进度已存，本次会话再次打开阅读器时邀请条会显示「继续」。
-    function pauseGuide() {
-        if (guide) session.answered = false;
-        guide = null;
-    }
-
     function closeGuide() {
-        pauseGuide();
+        guide = null;
         deps.rerenderSettings();
     }
 
@@ -170,7 +164,7 @@ export function createOnboardingController(deps) {
         handleAction,
         mountInSettings,
         keydown,
-        onSettingsClosed() { pauseGuide(); },
+        onSettingsClosed() { guide = null; },
         getState() { return { answered: session.answered, step: guide ? guide.step : null }; },
     };
 }

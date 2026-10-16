@@ -18,7 +18,6 @@ export function createGenerationStrip(options = {}) {
     const floors = new Map();
     let manualUntil = 0;
     let failure = null;
-    let skipped = false;
     let phase = 'idle';
     let tipOpen = false;
     let noteText = '';
@@ -41,6 +40,8 @@ export function createGenerationStrip(options = {}) {
     }
 
     function summary() {
+        const details = [...jobs.values()].filter((job) => job.text).map((job) => job.text);
+        if (details.length) return details.join(' · ');
         const counts = {};
         for (const job of jobs.values()) counts[job.kind] = (counts[job.kind] || 0) + 1;
         if (floors.size && !counts.cg) counts.cg = floors.size;
@@ -110,13 +111,12 @@ export function createGenerationStrip(options = {}) {
         } else if (failure) {
             phase = 'failed';
         } else if (phase === 'busy') {
-            phase = skipped ? 'skipped' : 'done';
+            phase = 'done';
             tipOpen = false;
             // 结果小字还没读完就别跟着熄掉。
             schedule(Math.max(DONE_FLASH_MS, noteText ? noteUntil - now() : 0));
-        } else if ((phase === 'done' || phase === 'skipped') && !timer) {
+        } else if (phase === 'done' && !timer) {
             phase = 'idle';
-            skipped = false;
         }
         render();
     }
@@ -145,13 +145,28 @@ export function createGenerationStrip(options = {}) {
     }
 
     return {
+        // 显式任务占用与后端活动共用细线；终态只清除对应任务。
+        progress(id, detail = {}) {
+            if (!id) return;
+            if (detail.phase === 'done') jobs.delete(id);
+            else {
+                const labels = { prepare: '准备', reference: '读取参考立绘', write: '写提示词',
+                    paint: '局部重绘', compose: '合成候选' };
+                if (!Object.hasOwn(labels, detail.phase)) return;
+                const count = Number.isInteger(detail.done) && Number.isInteger(detail.total)
+                    && detail.total > 0 && detail.done >= 0 && detail.done <= detail.total
+                    ? ` ${detail.done}/${detail.total}` : '';
+                jobs.set(id, { kind: 'edit', text: `一致性重绘：${labels[detail.phase]}${count}…` });
+                tipOpen = true;
+            }
+            settle();
+        },
         // 后端活动事件：{ type: 'start'|'end', id, kind, ok, error }
         activity(event) {
             if (!event || !event.id) return;
             if (event.type === 'start') {
                 jobs.set(event.id, { kind: event.kind || 'cg' });
-                skipped = false;
-                if (phase === 'done' || phase === 'skipped') schedule(0);
+                if (phase === 'done') schedule(0);
             } else if (event.type === 'end') {
                 jobs.delete(event.id);
                 if (event.ok === false) failure = { kind: event.kind || 'cg', error: event.error || '出图失败' };
@@ -169,15 +184,11 @@ export function createGenerationStrip(options = {}) {
         // 手动出图：先亮起来并弹一下小字，后端事件接手后由它决定何时结束。
         manual(text = '生图中…') {
             manualUntil = now() + MANUAL_HOLD_MS;
-            // 新一次操作重新判定结果；旧失败不能盖住随后「已有图，跳过」的绿色状态。
-            failure = null;
-            tipOpen = false;
-            skipped = false;
-            if (phase === 'done' || phase === 'skipped') schedule(0);
+            if (phase === 'done') schedule(0);
             settle();
             note(text);
         },
-        // 生图服务的说明：error 停红线；skipped（已有图无需画）显示绿线；success / warn 弹小字。
+        // 生图服务的说明：error 停红线并展开原因（点一下收起），success / warn 弹一下小字；info 是过程记录，只在已亮时换小字。
         notice(level, message) {
             const text = String(message || '').trim();
             if (!text) return;
@@ -188,7 +199,6 @@ export function createGenerationStrip(options = {}) {
             // 有了结果，手动出图的兜底保持就到头了；后端还在画的照常亮着。
             manualUntil = 0;
             if (level === 'error') {
-                skipped = false;
                 failure = { kind: 'cg', error: text, text };
                 tipOpen = true;
                 noteText = '';
@@ -197,17 +207,15 @@ export function createGenerationStrip(options = {}) {
                 settle();
                 return;
             }
-            if (level === 'skipped') skipped = true;
-            else if (level === 'success') skipped = false;
             if (level === 'success' && failure && !jobs.size) {
                 failure = null;
                 tipOpen = false;
                 if (phase === 'failed') phase = 'idle';
             }
             note(text, noticeMs(text));
-            if (phase === 'idle' || phase === 'done' || phase === 'skipped') {
+            if (phase === 'idle' || phase === 'done') {
                 // 没亮时先亮起来，小字才挂得上；读完再熄。
-                phase = skipped && !failure ? 'skipped' : 'done';
+                phase = 'done';
                 schedule(noticeMs(text));
                 render();
             } else {
@@ -237,7 +245,6 @@ export const GENERATION_STRIP_STYLE_TEXT = `
 #igs-gen-strip .igs-gen-line{position:absolute;left:0;right:0;top:6px;height:2px;border-radius:2px;opacity:.55;background:linear-gradient(90deg,transparent,currentColor,transparent);background-size:40% 100%;background-repeat:no-repeat;}
 #igs-gen-strip[data-state="busy"] .igs-gen-line{animation:igs-gen-flow 2.4s ease-in-out infinite;}
 #igs-gen-strip[data-state="done"] .igs-gen-line{background-size:100% 100%;opacity:0;animation:igs-gen-done 1.2s ease-out;}
-#igs-gen-strip[data-state="skipped"] .igs-gen-line{background:linear-gradient(90deg,transparent,#53c781,transparent);background-size:100% 100%;opacity:.9;}
 #igs-gen-strip[data-state="failed"] .igs-gen-line{left:35%;right:35%;background:linear-gradient(90deg,transparent,#e07070,transparent);background-size:100% 100%;opacity:.85;}
 #igs-gen-strip .igs-gen-tip{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);max-width:min(420px,80vw);padding:3px 10px;border-radius:999px;background:var(--igs-dialog-bg,rgba(20,20,24,.82));font-size:12px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 #igs-gen-strip .igs-gen-tip[data-wrap]{white-space:normal;width:max-content;text-align:center;border-radius:10px;line-height:17px;padding:4px 10px;overflow:visible;}

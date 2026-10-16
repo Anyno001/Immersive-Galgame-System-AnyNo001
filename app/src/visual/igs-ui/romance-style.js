@@ -27,11 +27,11 @@ export const ROMANCE_STYLE_TEXT = `
 #igs-stage-motion[data-igs-rm-shade] #igs-sprite::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:inherit;background-size:inherit;background-position:inherit;background-repeat:no-repeat;filter:brightness(0);-webkit-filter:brightness(0);}
 #igs-stage-motion[data-igs-rm-face] #igs-sprite::after{-webkit-mask-image:linear-gradient(to bottom,transparent var(--igs-rm-neck,100%),#000 var(--igs-rm-shade-end,100%));mask-image:linear-gradient(to bottom,transparent var(--igs-rm-neck,100%),#000 var(--igs-rm-shade-end,100%));}
 #igs-stage-motion[data-igs-rm-shade] .igs-sd-sprite-ghost,#igs-stage-motion[data-igs-rm-shade] #igs-sprite-ghost{filter:brightness(0)!important;-webkit-filter:brightness(0)!important;}
-#igs-stage-motion .igs-rm-relation-card{position:absolute;left:50%;top:34%;transform:translate(-50%,-50%);min-width:220px;padding:18px 32px;text-align:center;color:#fff;pointer-events:auto;cursor:pointer;border-radius:14px;background:linear-gradient(180deg,#3c1c2c,#1c121e);border:1px solid #d9899f;box-shadow:0 0 0 3px #1c121e,0 0 0 4px #8a5568,0 10px 30px rgba(0,0,0,.4);animation:igs-rm-card 2.6s ease both;}
+#igs-stage-motion .igs-rm-relation-card{position:absolute;left:50%;top:34%;transform:translate(-50%,-50%);min-width:220px;padding:18px 32px;text-align:center;color:#fff;pointer-events:auto;cursor:pointer;border-radius:14px;background:linear-gradient(180deg,rgba(60,28,44,.78),rgba(28,18,30,.82));border:1px solid rgba(255,180,200,.45);box-shadow:0 0 40px rgba(255,150,180,.25);animation:igs-rm-card 2.6s ease both;}
 #igs-stage-motion .igs-rm-relation-title{font-size:12px;letter-spacing:.3em;color:rgba(255,200,215,.85);}
 #igs-stage-motion .igs-rm-relation-name{margin-top:6px;font-size:20px;font-weight:600;}
 #igs-stage-motion .igs-rm-relation-value{margin-top:4px;font-size:15px;color:rgba(255,226,234,.95);}
-#igs-stage-motion .igs-rm-memory-toast{position:absolute;right:14px;bottom:30%;padding:5px 14px;border-radius:999px;font-size:13px;color:#fff;background:#281622;border:1px solid #d98fa8;animation:igs-rm-toast 2.4s ease both;}
+#igs-stage-motion .igs-rm-memory-toast{position:absolute;right:14px;bottom:30%;padding:5px 14px;border-radius:999px;font-size:13px;color:#fff;background:rgba(40,22,34,.7);border:1px solid rgba(255,170,200,.55);animation:igs-rm-toast 2.4s ease both;}
 #igs-stage-motion[data-igs-rm-confess] .igs-fx-letterbox-bar{transform:scaleY(1);}
 #igs-stage-motion[data-igs-rm-confess] #igs-fx-stage::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 48%,rgba(255,110,160,.42) 100%);animation:igs-fx-beat 1.6s ease-in-out infinite;}
 #igs-stage-motion .igs-rm-action-btn{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;padding:7px;border-radius:50%;pointer-events:auto;cursor:pointer;color:#ff7fa8;background:rgba(30,18,26,.55);border:1px solid rgba(255,160,190,.6);box-shadow:0 0 14px rgba(255,120,170,.35);transition:left .6s ease,top .6s ease,transform .2s ease;animation:igs-rm-btn-pulse 2.4s ease-in-out infinite;}
@@ -43,9 +43,6 @@ export const ROMANCE_STYLE_TEXT = `
 @keyframes igs-rm-btn-pulse{0%,100%{box-shadow:0 0 10px rgba(255,120,170,.25);}50%{box-shadow:0 0 18px rgba(255,120,170,.55);}}
 @keyframes igs-rm-toast{0%{opacity:0;transform:translateY(8px);}12%,82%{opacity:1;transform:none;}100%{opacity:0;}}
 @keyframes igs-rm-card{0%{opacity:0;transform:translate(-50%,-44%) scale(.96);}14%,80%{opacity:1;transform:translate(-50%,-50%) scale(1);}100%{opacity:0;transform:translate(-50%,-54%);}}
-#igs-stage-motion[data-igs-rm-confess] #igs-sprite:not(.igs-sprite-editing){filter:drop-shadow(0 0 14px #ffc2d6) saturate(1.06);-webkit-filter:drop-shadow(0 0 14px #ffc2d6) saturate(1.06);}
-#igs-stage-motion[data-igs-rm-confess] #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) blur(2px) saturate(1.08) var(--igs-grade-bg,);-webkit-filter:brightness(var(--igs-bg-brightness,1)) blur(2px) saturate(1.08) var(--igs-grade-bg,);}
-#igs-overlay[data-igs-quality="low"] #igs-stage-motion[data-igs-rm-confess] #igs-bg{filter:none;-webkit-filter:none;}
 @keyframes igs-rm-bokeh{from{transform:translate3d(-2%,1%,0);}to{transform:translate3d(2%,-2%,0);}}
 @keyframes igs-rm-breathe{0%,100%{transform:scale(1,1);}50%{transform:scale(1.006,1.018);}}
 @media (prefers-reduced-motion: reduce){

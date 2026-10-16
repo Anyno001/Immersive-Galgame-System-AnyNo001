@@ -1,10 +1,12 @@
 // 场景时间/天气差分：不写词，拿场景原图的提示词，去掉里面原有的时间天气词，把目标时间天气的英文标签放最前。
 // 中文名按子串命中，先具体后泛化；都不中就用原名，插件模型多少能认一些。
 
-import { sceneTimeKey } from '../scene/time-bucket.js';
+import { TIME_WORDS } from '../scene/time-bucket.js';
 import { SCENE_DICTIONARY } from './prompt-registry.js';
 
 const TIME_TAGS = SCENE_DICTIONARY.variantTime;
+
+const TIME_RULES = TIME_WORDS.map(([key, , words]) => [words, TIME_TAGS[key]]);
 
 const WEATHER_RULES = SCENE_DICTIONARY.variantWeather;
 
@@ -44,14 +46,8 @@ function ruleTags(rules, label) {
     return hit ? hit[1] : text;
 }
 
-// 钟点（14:30、下午两点）也能归档；认不出的时间保留原名。
-function timeTags(label) {
-    const key = sceneTimeKey(label);
-    return key && TIME_TAGS[key] ? TIME_TAGS[key] : String(label || '').trim().toLowerCase();
-}
-
 export function sceneVariantTags(time, weather) {
-    return [timeTags(time), ruleTags(WEATHER_RULES, weather)].filter(Boolean).join(', ');
+    return [ruleTags(TIME_RULES, time), ruleTags(WEATHER_RULES, weather)].filter(Boolean).join(', ');
 }
 
 export function applySceneVariantTags(text, tags) {

@@ -1,4 +1,3 @@
-import { decodeImage } from './image-decode.js';
 // 纯色底立绘抠图：从图像四边洪泛，只抠与边缘连通、颜色接近底色的像素，
 // 角色内部的白色（衬衫、高光）不与边缘连通，不会被误抠。
 const HARD_TOLERANCE = 28;
@@ -67,22 +66,6 @@ export function matteSolidBackground(imageData) {
     return imageData;
 }
 
-// 出图方不一定照计划给纯色底：智绘姬 / 柏宝绘接 NAI V5 时常直接回透明底，调用方的 alreadyTransparent 只是预期。
-// 四边大半已经透明就当已抠好、只裁边；否则洪泛会把透明像素的 RGB（多为黑色）当底色，连深色描线和黑发一起抠掉。
-export function hasTransparentBorder(imageData, alphaThreshold = 8) {
-    const { data, width, height } = imageData;
-    const step = Math.max(1, Math.floor(Math.min(width, height) / 32));
-    let total = 0;
-    let clear = 0;
-    const check = (x, y) => {
-        total += 1;
-        if (data[(y * width + x) * 4 + 3] <= alphaThreshold) clear += 1;
-    };
-    for (let x = 0; x < width; x += step) { check(x, 0); check(x, height - 1); }
-    for (let y = 0; y < height; y += step) { check(0, y); check(width - 1, y); }
-    return total > 0 && clear * 2 >= total;
-}
-
 export function findOpaqueBounds(imageData, alphaThreshold = 8) {
     const { data, width, height } = imageData;
     let top = height; let left = width; let right = -1; let bottom = -1;
@@ -99,6 +82,14 @@ export function findOpaqueBounds(imageData, alphaThreshold = 8) {
     return { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
 }
 
+function loadImage(globalObject, src) {
+    return new Promise((resolve, reject) => {
+        const img = new globalObject.Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('image-load-failed'));
+        img.src = src;
+    });
+}
 
 // ---- PNG 文本块保留：canvas 重编码会丢掉 NAI 写入的 tEXt/iTXt/zTXt（Comment 里有正负提示词与参数），
 // 裁边后把原图的文本块原样拷回输出 PNG 的 IHDR 之后。块自带 CRC，原样拷贝即有效。
@@ -214,8 +205,7 @@ export function createAlphaMatte(globalObject = globalThis) {
     async function matteWithMask(dataUrl, alreadyTransparent) {
         if (!canUseCanvas || !/^data:image\//i.test(String(dataUrl || ''))) return passthrough(dataUrl, 'no-canvas');
         try {
-            const img = await decodeImage(globalObject, dataUrl);
-            if (!img) return passthrough(dataUrl, 'image-load-failed');
+            const img = await loadImage(globalObject, dataUrl);
             const canvas = doc.createElement('canvas');
             canvas.width = img.naturalWidth || img.width;
             canvas.height = img.naturalHeight || img.height;
@@ -223,8 +213,7 @@ export function createAlphaMatte(globalObject = globalThis) {
             if (!ctx || !canvas.width || !canvas.height) return passthrough(dataUrl, 'no-context');
             ctx.drawImage(img, 0, 0);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const detectedTransparent = !alreadyTransparent && hasTransparentBorder(imageData);
-            if (!alreadyTransparent && !detectedTransparent) {
+            if (!alreadyTransparent) {
                 matteSolidBackground(imageData);
                 ctx.putImageData(imageData, 0, 0);
             }
@@ -238,7 +227,7 @@ export function createAlphaMatte(globalObject = globalThis) {
             return {
                 dataUrl: preservePngTextChunks(dataUrl, out.toDataURL('image/png'), globalObject),
                 alphaMaskDataUrl: buildAlphaMaskDataUrl(doc, outCtx, bounds.width, bounds.height),
-                diagnostics: { sourceWidth: canvas.width, sourceHeight: canvas.height, crop: bounds, alreadyTransparent, detectedTransparent },
+                diagnostics: { sourceWidth: canvas.width, sourceHeight: canvas.height, crop: bounds, alreadyTransparent },
             };
         } catch (error) {
             return passthrough(dataUrl, 'error');

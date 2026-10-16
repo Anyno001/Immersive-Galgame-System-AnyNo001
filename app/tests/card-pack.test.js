@@ -94,3 +94,39 @@ test('素材预设压缩包往返，同一张图的原图和当前图只存一�
     assert.equal(pack.images[0].revision, 3);
     assert.equal(parsePresetArchive(buildCharacterCardPack({ characterName: '小雪' })), null, '角色卡素材包不当预设认');
 });
+
+test('三阶段资料经角色卡、预设、设置包导入真实 IDB 后跨连接回读', async () => {
+    const { provenanceFixture } = await import('./helpers/prompt-provenance.js');
+    const { promptProvenance } = await import('../src/generated-images/generation-prompt.js');
+    const { createIndexedDbGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
+    const { createTransactionalIdb } = await import('./helpers/transactional-idb.js');
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
+    const { buildPresetArchive, parsePresetArchive } = await import('../src/scene/card-pack.js');
+    const fixture = provenanceFixture();
+    const service = (indexedDB) => createAssetGenerationService({
+        store: createIndexedDbGeneratedAssetStore({ indexedDB }), llm: {}, nai: {},
+        messageHost: { getChatId: () => 'fixture' },
+        getSettings: () => ({ autoIllustration: {}, sceneAssets: {} }),
+    });
+    const indexedDB = createTransactionalIdb(), source = service(indexedDB);
+    const image = { id: 'dna-pack', type: 'sprite', revision: 2, dataUrl: PNG,
+        originalDataUrl: PNG, prompt: fixture.prompt, ...promptProvenance(fixture) };
+    assert.equal((await source.writeStoredImage(image)).ok, true);
+    const exported = await source.readStoredImage(image.id);
+    const variants = [
+        [buildCharacterCardPack, parseCharacterCardPack, { characterName: 'Alice' }],
+        [buildPresetArchive, parsePresetArchive, { name: 'fixture', preset: {} }],
+        [buildSettingsArchive, parseSettingsArchive, { settings: {} }],
+    ];
+    for (const [build, parse, input] of variants) {
+        const packed = parse(build({ ...input, images: [exported] }));
+        const targetIdb = createTransactionalIdb();
+        assert.equal((await service(targetIdb).writeStoredImage(packed.images[0])).ok, true);
+        const read = await service(targetIdb).readStoredImage(image.id);
+        assert.deepEqual(read, exported);
+        assert.equal(JSON.stringify(read.sentPrompt).includes('base64'), false);
+    }
+    const rejected = await source.writeStoredImage({ ...image, sentPrompt: { version: 9 } });
+    assert.equal(rejected.reason, 'PROMPT_PROVENANCE_INVALID');
+    assert.deepEqual(await source.readStoredImage(image.id), exported);
+});

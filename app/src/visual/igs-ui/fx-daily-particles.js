@@ -452,25 +452,8 @@ export function planLanterns(options = {}) {
         const j = Math.floor(random() * (i + 1));
         [slots[i], slots[j]] = [slots[j], slots[i]];
     }
-    const river = options.variant === 'river';
     const plan = [];
     for (let i = 0; i < count; i += 1) {
-        if (river) {
-            plan.push({
-                index: i,
-                at: Math.max(0, (count > 1 ? (i / (count - 1)) * spread : 0) + r(-0.1, 0.1)),
-                life: total * r(0.7, 0.82),
-                x0: r(0.02, 0.22) * width,
-                y0: (0.5 + 0.2 * ((slots[i] + r(0.1, 0.9)) / count)) * height,
-                rise: 0,
-                size: r(0.7, 1.05) * (0.8 + 0.4 * ((slots[i] + 1) / count)),
-                drift: r(0.1, 0.17) * width,
-                sway: r(1.5, 3.5),
-                swayFreq: r(0.3, 0.55),
-                phase: r(0, TAU),
-            });
-            continue;
-        }
         plan.push({
             index: i,
             at: Math.max(0, (count > 1 ? (i / (count - 1)) * spread : 0) + r(-0.1, 0.1)),
@@ -508,66 +491,6 @@ function lanternPose(l, scale) {
         alpha: fadeIn * fadeOut * fadeOut,
         flicker: Math.max(0.6, Math.min(1.05, flicker)),
     };
-}
-
-// 河灯：水面上的荷花灯，随水横向漂移，只在原位上下轻晃；灯下一道淡淡的倒影。
-function riverPose(l, scale) {
-    const p = Math.min(1, l.age / l.life);
-    const fadeIn = Math.min(1, l.age / 0.9);
-    const fadeOut = p > 0.7 ? Math.max(0, 1 - (p - 0.7) / 0.3) : 1;
-    const flicker = 0.86 + 0.08 * Math.sin(l.age * 8.1 + l.phase) + 0.05 * Math.sin(l.age * 19.3 + l.phase * 2) + l.jitter;
-    return {
-        x: l.x0 + l.drift * p * (0.6 + 0.4 * p),
-        y: l.y0 + Math.sin(l.age * l.swayFreq * TAU + l.phase) * l.sway * scale,
-        tilt: Math.sin(l.age * l.swayFreq * TAU + l.phase) * 0.05,
-        k: l.size * scale,
-        alpha: fadeIn * fadeOut,
-        flicker: Math.max(0.6, Math.min(1.05, flicker)),
-    };
-}
-
-function drawRiverLamp(ctx, pose) {
-    const { x, y, k, alpha, flicker } = pose;
-    if (alpha <= 0.01 || k <= 0) return;
-    const R = 20 * k;
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = alpha * flicker * 0.9;
-    ctx.fillStyle = withStops(ctx.createRadialGradient(x, y, 0, x, y, R * 2.6), [
-        [0, 'rgba(255,190,100,0.45)'], [0.4, 'rgba(255,140,60,0.16)'], [1, 'rgba(255,120,40,0)'],
-    ], 'rgba(255,150,70,0.14)');
-    ctx.beginPath();
-    ctx.ellipse(x, y, R * 2.6, R * 1.3, 0, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = alpha * 0.28 * flicker;
-    ctx.beginPath();
-    ctx.ellipse(x, y + R * 0.9, R * 0.5, R * 1.1, 0, 0, TAU);
-    ctx.fill();
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = alpha;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(pose.tilt);
-    ctx.fillStyle = 'rgb(122,52,34)';
-    ctx.beginPath();
-    ctx.ellipse(0, R * 0.3, R * 0.95, R * 0.28, 0, 0, TAU);
-    ctx.fill();
-    for (const [dx, a, color] of [[-0.62, -0.5, 'rgb(240,120,150)'], [0.62, 0.5, 'rgb(240,120,150)'], [-0.3, -0.22, 'rgb(255,168,190)'], [0.3, 0.22, 'rgb(255,168,190)'], [0, 0, 'rgb(255,200,214)']]) {
-        ctx.save();
-        ctx.translate(dx * R, R * 0.12);
-        ctx.rotate(a);
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.ellipse(0, -R * 0.42, R * 0.26, R * 0.62, 0, 0, TAU);
-        ctx.fill();
-        ctx.restore();
-    }
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = alpha * flicker;
-    ctx.fillStyle = 'rgb(255,226,150)';
-    ctx.beginPath();
-    ctx.ellipse(0, -R * 0.12, R * 0.12 * flicker, R * 0.2, 0, 0, TAU);
-    ctx.fill();
-    ctx.restore();
 }
 
 function drawLantern(ctx, pose) {
@@ -652,8 +575,7 @@ export function startLanterns(layer, options = {}) {
     let startTime = 0;
     let clock = 0;
     let nextLaunch = 0;
-    const river = options.variant === 'river';
-    const plan = reduced ? [] : planLanterns({ count, width: surface.w, height: surface.h, random, duration: options.duration, variant: options.variant });
+    const plan = reduced ? [] : planLanterns({ count, width: surface.w, height: surface.h, random, duration: options.duration });
     const safetyS = plan.reduce((max, l) => Math.max(max, l.at + l.life), 0) + 2;
     const lanterns = [];
 
@@ -678,10 +600,7 @@ export function startLanterns(layer, options = {}) {
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
         ctx.clearRect(0, 0, surface.w, surface.h);
-        for (const l of lanterns) {
-            if (river) drawRiverLamp(ctx, riverPose(l, scale));
-            else drawLantern(ctx, lanternPose(l, scale));
-        }
+        for (const l of lanterns) drawLantern(ctx, lanternPose(l, scale));
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
     }
@@ -724,7 +643,7 @@ export function startLanterns(layer, options = {}) {
         const n = Math.min(4, count);
         for (let i = 0; i < n; i += 1) {
             lanterns.push({
-                x0: surface.w * ((i + 1) / (n + 1)), y0: surface.h * (river ? 0.54 + 0.06 * (i % 2) : 0.36 + 0.08 * (i % 2)), rise: 0, life: 10, age: 1.2,
+                x0: surface.w * ((i + 1) / (n + 1)), y0: surface.h * (0.36 + 0.08 * (i % 2)), rise: 0, life: 10, age: 1.2,
                 size: 1, drift: 0, sway: 0, swayFreq: 0, phase: 0, jitter: 0,
             });
         }
@@ -750,12 +669,6 @@ const PETAL_KINDS = Object.freeze({
         size: [11, 17], fall: [40, 68], drift: [14, 30], flip: [0.7, 1.5], spin: [-0.6, 0.6],
         sway: [10, 22], swayFreq: [0.1, 0.22], alpha: 0.92, countScale: 0.7,
     }),
-    confetti: Object.freeze({
-        colors: ['255,92,122', '255,200,64', '84,196,255', '120,220,140', '190,130,255'],
-        back: ['214,60,92', '226,164,30', '48,150,220', '78,180,104', '150,92,220'],
-        size: [8, 13], fall: [70, 120], drift: [10, 32], flip: [3, 6], spin: [-3, 3],
-        sway: [10, 20], swayFreq: [0.3, 0.6], alpha: 0.95, countScale: 0.8, shape: 'ribbon', seedY: [-0.95, 0],
-    }),
 });
 export const PETAL_KIND_NAMES = Object.freeze(Object.keys(PETAL_KINDS));
 
@@ -768,14 +681,13 @@ function normalizeWind(value) {
 }
 
 function spawnPetal(config, w, h, wind, random, seed) {
-    const seedY = config.seedY || [-0.1, 1];
     const r = rangeOf(random);
     const size = r(config.size[0], config.size[1]);
     const xMin = wind > 0 ? -0.25 : -0.05;
     const xMax = wind < 0 ? 1.25 : 1.05;
     return {
         x: seed ? r(-0.05, 1.05) * w : r(xMin, xMax) * w,
-        y: seed ? r(seedY[0], seedY[1]) * h : -size * 2 - r(0, 0.15) * h,
+        y: seed ? r(-0.1, 1) * h : -size * 2 - r(0, 0.15) * h,
         size,
         fall: r(config.fall[0], config.fall[1]),
         drift: r(config.drift[0], config.drift[1]),
@@ -791,7 +703,7 @@ function spawnPetal(config, w, h, wind, random, seed) {
 }
 
 // 翻转用 scaleX = cos(phase) 模拟 3D 翻面；逐点做变换，才能把同色花瓣并进一条路径。
-function tracePetalShape(ctx, p, leaf, ribbon) {
+function tracePetalShape(ctx, p, leaf) {
     const c = Math.cos(p.rot);
     const s = Math.sin(p.rot);
     let sx = Math.cos(p.flip);
@@ -799,15 +711,6 @@ function tracePetalShape(ctx, p, leaf, ribbon) {
     const X = (lx, ly) => p.x + lx * sx * c - ly * s;
     const Y = (lx, ly) => p.y + lx * sx * s + ly * c;
     const L = p.size;
-    if (ribbon) {
-        const hw = L * 0.19;
-        ctx.moveTo(X(-hw, -L / 2), Y(-hw, -L / 2));
-        ctx.lineTo(X(hw, -L / 2), Y(hw, -L / 2));
-        ctx.lineTo(X(hw, L / 2), Y(hw, L / 2));
-        ctx.lineTo(X(-hw, L / 2), Y(-hw, L / 2));
-        ctx.closePath();
-        return;
-    }
     if (leaf) {
         const W = L * 0.62;
         ctx.moveTo(X(0, -L / 2), Y(0, -L / 2));
@@ -896,7 +799,6 @@ export function startPetals(layer, options = {}) {
     }
     function draw(config) {
         const leaf = kind === 'leaves';
-        const ribbon = config.shape === 'ribbon';
         ctx.globalAlpha = 1;
         ctx.clearRect(0, 0, surface.w, surface.h);
         ctx.globalAlpha = config.alpha * dim;
@@ -908,7 +810,7 @@ export function startPetals(layer, options = {}) {
                 for (const p of items) {
                     if (p.colorIndex !== c || (Math.cos(p.flip) < 0 ? 1 : 0) !== side) continue;
                     any = true;
-                    tracePetalShape(ctx, p, leaf, ribbon);
+                    tracePetalShape(ctx, p, leaf);
                 }
                 if (!any) continue;
                 ctx.fillStyle = `rgb(${palette[c]})`;

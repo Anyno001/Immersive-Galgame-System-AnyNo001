@@ -1,4 +1,3 @@
-import { decodeImage } from '../../media/image-decode.js';
 // 状态栏头像的图片放进 IndexedDB 图库（和立绘、背景同一处），设置和素材预设里只记 igs-gen:<编号>。
 // 早先头像是整段 base64 直接写在设置里（上传的原图可达 700KB 文本），每存一份预设、每次套用前备份都再复制一遍，
 // 几张头像就能把浏览器给酒馆的本地存储（几 MB，酒馆和各插件共用）撑满。
@@ -12,16 +11,25 @@ export function shrinkAvatarDataUrl(globalObj, dataUrl, side = AVATAR_INLINE_SIZ
     const doc = globalObj && globalObj.document;
     const ImageCtor = globalObj && globalObj.Image;
     if (!doc || typeof doc.createElement !== 'function' || typeof ImageCtor !== 'function') return Promise.resolve(dataUrl);
-    return decodeImage(globalObj, dataUrl).then(img => {
-        if (!img) return dataUrl;
-        try {
-            const canvas = doc.createElement('canvas'); canvas.width = side; canvas.height = side;
-            const ctx = canvas.getContext('2d');
-            const crop = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
-            const sx = ((img.naturalWidth || img.width) - crop) / 2, sy = ((img.naturalHeight || img.height) - crop) / 2;
-            ctx.drawImage(img, sx, sy, crop, crop, 0, 0, side, side);
-            return canvas.toDataURL('image/webp', 0.9);
-        } catch { return dataUrl; }
+    return new Promise((resolve) => {
+        const img = new ImageCtor();
+        img.onload = () => {
+            try {
+                const canvas = doc.createElement('canvas');
+                canvas.width = side;
+                canvas.height = side;
+                const ctx = canvas.getContext('2d');
+                const crop = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
+                const sx = ((img.naturalWidth || img.width) - crop) / 2;
+                const sy = ((img.naturalHeight || img.height) - crop) / 2;
+                ctx.drawImage(img, sx, sy, crop, crop, 0, 0, side, side);
+                resolve(canvas.toDataURL('image/webp', 0.9));
+            } catch (error) {
+                resolve(dataUrl);
+            }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
     });
 }
 

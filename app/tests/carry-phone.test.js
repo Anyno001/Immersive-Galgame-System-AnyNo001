@@ -73,9 +73,9 @@ test('gate:carry-phone:ui-only-for-non-modern-worldviews', () => {
         assert.doesNotMatch(renderWorldviewRow({ worldview: wv, ancient: wv === 'ancient' }), /随身带着现代手机/, wv);
     }
     const off = renderWorldviewRow({ worldview: 'ancient', ancient: true });
-    assert.doesNotMatch(off, /清空恢复默认/, '开关关时不显示提示词框');
+    assert.doesNotMatch(off, /留空用默认/, '开关关时不显示提示词框');
     const on = renderWorldviewRow({ worldview: 'ancient', ancient: true, carryPhone: true });
-    assert.match(on, /清空恢复默认/);
+    assert.match(on, /留空用默认/);
     assert.match(on, /随身手机提示词/);
     assert.match(on, /class="igs-switch is-on" data-action="carry-phone:off"/);
 });

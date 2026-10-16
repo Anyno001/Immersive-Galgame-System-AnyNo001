@@ -1,7 +1,4 @@
-import { ANCIENT_PANEL_TEXTURE_STYLE_TEXT } from './ancient-panel-frames.js';
-import { SELECTED_CALLIGRAPHY_STYLE_TEXT } from './fx-selected-calligraphy-style.js';
 import { EAT_FX_STYLE_TEXT } from './fx-eat-style.js';
-import { RANGE_FX_STYLE_TEXT } from './fx-range-style.js';
 import { EMERGENCY_FX_STYLE_TEXT } from './fx-emergency-style.js';
 
 // 演出样式：#igs-fx-stage 在立绘之上、对话层之下；#igs-fx-front 在对话层与选项之上、工具栏之下。
@@ -13,13 +10,8 @@ const HANDSET = `url("data:image/svg+xml,${encodeURIComponent(HANDSET_SVG)}")`;
 // 通话计时：注册成整数的自定义属性由动画逐秒步进，再经 counter 显示成 mm:ss，全程不需要脚本每秒改 DOM。
 const CALL_TIMER_ANIMATION = 'igs-fx-mm 3600s steps(60,end) infinite,igs-fx-ss 60s steps(60,end) infinite';
 export const FX_STYLE_TEXT = `
-${SELECTED_CALLIGRAPHY_STYLE_TEXT}
-${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 @property --igs-fx-mm{syntax:"<integer>";inherits:false;initial-value:0;}
 @property --igs-fx-ss{syntax:"<integer>";inherits:false;initial-value:0;}
-/* 题材包共用的对话框避让：--igs-dialog-h 由阅读器写在 #igs-overlay 上（漫画模式固定 72px）；safe=底部被对话框占掉的高度，vis=对话框上方可视高度；直播全屏对话框收成字幕，只留 64px。 */
-#igs-overlay{--igs-fx-safe:min(calc(var(--igs-dialog-h,160px) + 32px),62%);--igs-fx-vis:calc(100% - var(--igs-fx-safe));}
-#igs-overlay[data-igs-live-full]{--igs-fx-safe:64px;}
 .igs-fx-layer{position:absolute;inset:0;pointer-events:none;overflow:hidden;contain:layout paint style;}
 #igs-fx-stage{z-index:2;}
 #igs-fx-front{z-index:6;}
@@ -31,12 +23,8 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 /* 区间氛围：只改展示层。关灯压暗挂在 #igs-fx-stage 自身背景上（立绘之上、对话层之下），压过时段调色；看电影用 ::before 屏幕光；撑伞用 ::after 伞面剪影。 */
 #igs-stage-motion[data-igs-fx-lightsoff] #igs-fx-stage{background:linear-gradient(180deg,rgba(6,12,34,.62),rgba(4,8,22,.78));}
 #igs-stage-motion[data-igs-fx-movie] #igs-fx-stage::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,rgba(150,190,255,.28),rgba(0,0,0,.62) 70%);animation:igs-fx-movie-flicker 2.6s ease-in-out infinite;}
-/* 屏光染脸（[igs-fx:movie|屏光]）：立绘静态偏冷（sepia+hue-rotate 推向蓝，不逐帧改滤镜），再叠一层只闪 opacity 的屏幕光：自下而上的冷白光晕打在脸与肩上，房间其余处轻压暗。 */
-#igs-stage-motion[data-igs-fx-movie="screen"] #igs-sprite:not(.igs-sprite-editing),#igs-stage-motion[data-igs-fx-movie="screen"] #igs-cast{filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,) var(--igs-sprite-enhance,) brightness(.9) sepia(.35) hue-rotate(172deg) saturate(1.25);-webkit-filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,) var(--igs-sprite-enhance,) brightness(.9) sepia(.35) hue-rotate(172deg) saturate(1.25);}
-#igs-stage-motion[data-igs-fx-movie="screen"] #igs-fx-stage::before{background:radial-gradient(ellipse 70% 55% at 50% 100%,rgba(170,210,255,.34),rgba(120,170,255,.12) 55%,rgba(0,0,0,0) 78%),linear-gradient(180deg,rgba(4,10,26,.38),rgba(4,10,26,.12) 60%,rgba(4,10,26,.2));animation:igs-fx-screen-glow 3.4s ease-in-out infinite;}
 #igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{content:'';position:absolute;left:8%;right:8%;top:-34%;height:62%;border-radius:50%;background:radial-gradient(ellipse at 50% 100%,rgba(38,54,86,.78) 60%,rgba(24,34,56,.92));box-shadow:0 10px 24px rgba(0,0,0,.35);transform-origin:50% 0;animation:igs-fx-umbrella-open .5s ease-out both;}
 @keyframes igs-fx-movie-flicker{0%,100%{opacity:1;}35%{opacity:.82;}55%{opacity:.95;}72%{opacity:.76;}}
-@keyframes igs-fx-screen-glow{0%{opacity:1;}9%{opacity:.84;}17%{opacity:.96;}31%{opacity:.78;}38%{opacity:.92;}52%{opacity:1;}64%{opacity:.82;}73%{opacity:.94;}88%{opacity:.8;}}
 @keyframes igs-fx-umbrella-open{from{transform:scaleX(.2);opacity:0;}}
 @media (prefers-reduced-motion: reduce){#igs-stage-motion[data-igs-fx-movie] #igs-fx-stage::before,#igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{animation:none!important;}}
 /* 古代背景关灯为「吹灯」：烛火一晃熄灭，随后升起一缕青烟；区间压暗仍由 data-igs-fx-lightsoff 驱动。 */
@@ -91,7 +79,6 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 @keyframes igs-fx-flash-snap{0%{opacity:1;}18%{opacity:0;}32%{opacity:.9;}52%{opacity:0;}100%{opacity:0;}}
 @keyframes igs-fx-speed{0%{opacity:0;transform:scale(1.08);}16%{opacity:1;transform:scale(1);}72%{opacity:1;}100%{opacity:0;transform:scale(1);}}
 @keyframes igs-fx-speed-snap{0%{opacity:1;transform:translate(0,0);}12%{transform:translate(-.6%,.4%);}24%{transform:translate(.5%,-.3%);}36%{transform:translate(-.4%,-.4%);}48%{transform:translate(.4%,.5%);}60%{transform:translate(0,0);}76%{opacity:1;}88%{opacity:.5;}100%{opacity:0;}}
-@keyframes igs-fx-heartbeat-pulse{0%{opacity:0}1.2%{opacity:1}7%{opacity:.25}8.3%{opacity:.75}14%{opacity:.1}45.8%{opacity:0}47%{opacity:1}53%{opacity:.25}54.2%{opacity:.75}60%{opacity:.1}100%{opacity:0}}
 @keyframes igs-fx-beat{0%,100%{opacity:0;}12%{opacity:.9;}24%{opacity:.35;}36%{opacity:.8;}60%{opacity:0;}}
 @keyframes igs-fx-drop{0%{opacity:0;transform:translate(-50%,-120%);}12%{opacity:1;transform:translate(-50%,0);}86%{opacity:1;transform:translate(-50%,0);}100%{opacity:0;transform:translate(-50%,-120%);}}
 @keyframes igs-fx-rise{0%{opacity:0;transform:translateY(10px);}14%{opacity:1;transform:translateY(0);}82%{opacity:1;}100%{opacity:0;transform:translateY(-6px);}}
@@ -219,7 +206,7 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 #igs-overlay[data-igs-dialog-skin="black-white-manga"] .igs-fx-svg .igs-fx-flame-in{fill:#fff;}
 .igs-fx-speedlines{position:absolute;inset:0;background:repeating-conic-gradient(from 0deg at 50% 45%,rgba(255,255,255,0) 0deg 3deg,rgba(255,255,255,.55) 3deg 3.5deg,rgba(255,255,255,0) 3.5deg 7deg);animation:igs-fx-speed var(--igs-fx-life,.7s) ease-out both;}
 .igs-fx-speedlines[data-baked]{background-color:transparent;background-position:50% 45%;background-size:cover;background-repeat:no-repeat;}
-.igs-fx-heartbeat{position:absolute;inset:0;--igs-fx-beat:255,110,160;background:radial-gradient(ellipse at 50% 50%,transparent 45%,rgba(var(--igs-fx-beat),.55) 100%);animation:igs-fx-heartbeat-pulse 2.4s linear both;}
+.igs-fx-heartbeat{position:absolute;inset:0;--igs-fx-beat:255,110,160;background:radial-gradient(ellipse at 50% 50%,transparent 45%,rgba(var(--igs-fx-beat),.55) 100%);animation:igs-fx-beat 1.2s ease-in-out 2 both;}
 .igs-fx-heartbeat[data-tone="tense"]{--igs-fx-beat:120,10,20;}
 .igs-fx-flash{position:absolute;inset:0;background:#fff;animation:igs-fx-flash .8s ease-out both;}
 .igs-fx-title-card{position:absolute;left:0;right:0;top:20%;display:flex;flex-direction:column;align-items:center;gap:6px;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.65);animation:igs-fx-fade var(--igs-fx-life,2.7s) ease both;}
@@ -232,11 +219,6 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 .igs-fx-title-card.is-ancient::after{width:22px;height:22px;align-self:flex-end;border-radius:3px;background:#b8452f;box-shadow:inset 0 0 0 2px #f6ecd4,inset 0 0 0 3px #b8452f;}
 .igs-fx-title-card.is-ancient .igs-fx-title-main{font-size:clamp(28px,6vmin,48px);font-weight:400;letter-spacing:.3em;padding:0;}
 .igs-fx-title-card.is-ancient .igs-fx-title-sub{font-size:clamp(14px,2.2vmin,18px);color:#7a2a1a;opacity:1;letter-spacing:.3em;padding-top:1.2em;}
-/* 仙侠水墨过场卡：焦墨一块，象牙白字落在一团化开的墨晕上，保留竖排与朱砂印；只换静态外观，入场节奏不变。 */
-.igs-fx-title-card.is-ancient.is-xianxia{border:0;border-radius:0;background:rgba(18,22,27,.94);box-shadow:0 6px 22px rgba(6,8,11,.34);color:#f3ecdd;}
-.igs-fx-title-card.is-ancient.is-xianxia::before{content:"";display:block;position:absolute;z-index:-1;left:-18%;right:-18%;top:-12%;bottom:-12%;background:radial-gradient(ellipse 56% 62% at 42% 44%,rgba(9,12,17,.5),rgba(9,12,17,.24) 50%,transparent 74%);}
-.igs-fx-title-card.is-ancient.is-xianxia::after{background:#b23a2a;box-shadow:none;}
-.igs-fx-title-card.is-ancient.is-xianxia .igs-fx-title-sub{color:#a8c6cd;}
 .igs-fx-favor-stack{position:absolute;top:56px;right:14px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
 .igs-fx-favor{padding:4px 12px;border-radius:999px;font-size:13px;color:#fff;background:rgba(20,20,28,.62);border:1px solid rgba(255,255,255,.18);animation:igs-fx-rise var(--igs-fx-life,2.4s) ease both;}
 .igs-fx-favor[data-dir="up"]{border-color:rgba(255,140,180,.7);}
@@ -403,8 +385,6 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 #igs-stage-motion[data-igs-fx-flashback] .igs-fx-flashback-grain{opacity:1;will-change:transform;animation:igs-fx-grain .5s steps(2) infinite;}
 .igs-fx-dream-mist{position:absolute;inset:-8%;opacity:0;pointer-events:none;transition:opacity .8s ease;background:radial-gradient(ellipse 58% 48% at 28% 34%,rgba(206,196,255,.22),transparent 70%),radial-gradient(ellipse 54% 44% at 72% 68%,rgba(170,184,255,.18),transparent 70%),repeating-radial-gradient(circle at 30% 40%,rgba(235,238,255,.08) 0 1px,transparent 1px 4px);mix-blend-mode:screen;filter:blur(2px);}
 #igs-stage-motion[data-igs-fx-dream] .igs-fx-dream-mist{opacity:1;will-change:transform;animation:igs-fx-dream-drift 8s ease-in-out infinite alternate;}
-#igs-overlay[data-igs-quality="low"] .igs-fx-flashback-grain,#igs-overlay[data-igs-quality="low"] .igs-fx-dream-mist{animation:none!important;will-change:auto;}
-#igs-overlay[data-igs-quality="low"] .igs-fx-call-ring::after,#igs-overlay[data-igs-quality="low"] .igs-fx-call-badge::before,#igs-overlay[data-igs-quality="low"] .igs-fx-call-pip[data-speaking]::before{animation-iteration-count:1;}
 #igs-stage-motion[data-igs-fx-flashback] #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) sepia(.55) saturate(.55) brightness(.92) contrast(.95)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) sepia(.55) saturate(.55) brightness(.92) contrast(.95)!important;}
 #igs-stage-motion[data-igs-fx-flashback] #igs-sprite{filter:sepia(.55) saturate(.55) brightness(.92) contrast(.95)!important;-webkit-filter:sepia(.55) saturate(.55) brightness(.92) contrast(.95)!important;}
 #igs-stage-motion[data-igs-fx-dream] #igs-bg{filter:brightness(var(--igs-bg-brightness,1)) saturate(.72) brightness(1.03) contrast(.94)!important;-webkit-filter:brightness(var(--igs-bg-brightness,1)) saturate(.72) brightness(1.03) contrast(.94)!important;}
@@ -430,7 +410,6 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 .igs-fx-notify.is-ancient{transform:none;}
 .igs-fx-symbol{transform:none;}
 }
-${RANGE_FX_STYLE_TEXT}
 ${EAT_FX_STYLE_TEXT}
 ${EMERGENCY_FX_STYLE_TEXT}
 `.trim();

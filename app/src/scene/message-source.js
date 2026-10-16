@@ -7,10 +7,8 @@ import { extractSceneDirectives, stripIllustrationMarkers } from './scene-direct
 import { parseSceneText } from './text-parser.js';
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards } from './html-cards.js';
 import { extractChatBlocks } from './chat-blocks.js';
-import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags, normalizeIgsDirectiveLayout, normalizeClosedIgsDialogueLines, stripOutfitFields } from './directive-tags.js';
+import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags, normalizeIgsDirectiveLayout, stripOutfitFields } from './directive-tags.js';
 import { createOutfitResolver } from './character-outfits.js';
-import { normalizeImageMarkerLayout } from './image-marker-layout.js';
-import { matchTextFxMarkupAt } from './text-fx-markup.js';
 
 export const DEFAULT_SOURCE_FILTER = Object.freeze({
     enabled: true,
@@ -30,11 +28,13 @@ const LEGACY_TEXT_EXCLUDE_TAGS = Object.freeze([
 
 // 字段不得跨行：AI 漏写 "]" 时旧规则会一路吞到后文下一个 "]"，把旁白并进台词。
 // 表情栏可省略：AI 偶发 [igs-char:角色|台词] 两栏写法，按「没写表情」的台词处理。
-// 内置追加规则：把整段 HTML 注释连同它独占的换行一起去掉，避免正文里留一大片空行。
-// 它排在用户规则之前，所以用户自己的规则仍然后跑、可以覆盖它。
+// 内置追加规则：删除完整 HTML 注释，以及宿主脱壳后的成对 segmentplan 标记。
+// 只消费同一行缩进和末尾一个换行，保留前后段落边界。
+export const DEFAULT_VIRTUAL_REGEX_RULES_VERSION = 2;
+const LEGACY_HTML_COMMENT_RULE_PATTERN = '\\s*<!--[\\s\\S]*?-->\\s*\\n?';
 export const DEFAULT_VIRTUAL_REGEX_RULES = Object.freeze([
     Object.freeze({
-        pattern: '\\s*<!--[\\s\\S]*?-->\\s*\\n?',
+        pattern: '[ \\t]*(?:<!--[\\s\\S]*?-->|\\bsegmentplan[ \\t]*[:：][\\s\\S]*?\\bsegmentplan_end\\b)[ \\t]*(?:\\r?\\n)?',
         flags: 'g',
         replacement: '',
     }),
@@ -46,11 +46,8 @@ export const DEFAULT_VIRTUAL_REGEX = Object.freeze({
     flags: 'gm',
     replacement: '[$1]：$2',
     rules: DEFAULT_VIRTUAL_REGEX_RULES,
+    rulesVersion: DEFAULT_VIRTUAL_REGEX_RULES_VERSION,
 });
-
-// 内置规则的注入版本。老存档里的 virtualRegex.rules 是空数组，靠这个标记补一次内置规则；
-// 补过之后用户删掉它就真的删掉了，不会每次保存又冒出来。
-export const DEFAULT_VIRTUAL_REGEX_RULES_VERSION = 1;
 
 // 已保存设置中的旧默认规则按原值迁移，用户自定义规则不动。
 const LEGACY_VIRTUAL_REGEX_PATTERNS = Object.freeze([
@@ -159,8 +156,11 @@ export function cleanNarrativeSource(text) {
     cleaned = cleaned.replace(/<style[\s\S]*?<\/style>/gi, '');
     cleaned = cleaned.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
     cleaned = cleaned.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '');
-    // igs 标签的名字栏（如 [igs-char:【系统】|…]）不是状态批注，不能删。
-    cleaned = cleaned.replace(/(?<!\[igs-(?:char|thought|msg):)【[^】\n]{0,100}】/g, '');
+    // 原始指令和已格式化的 [【系统】]：名字栏都不是状态批注。
+    cleaned = cleaned.replace(/(?<!\[igs-(?:char|thought|msg):)【[^】\n]{0,100}】/g,
+        (match, offset, source) => source[offset - 1] === '['
+            && /^\]\s*[:：]/.test(source.slice(offset + match.length))
+            ? match : '');
     cleaned = cleaned.replace(/<[^>]+>/g, '');
     cleaned = cleaned.replace(/\r/g, '');
     return cleaned;
@@ -199,13 +199,15 @@ export function normalizeVirtualRegex(value) {
     let rules = Array.isArray(merged.rules)
         ? merged.rules.map(normalizeVirtualRegexRule)
         : [];
-    // 老存档（rulesVersion 缺失）没见过内置规则，补一次；用户删掉后版本号仍在，不会重新长出来。
-    const sourceVersion = Number(merged.rulesVersion);
+    // 仅迁移逐字相同的旧内置规则；自定义列表和已删除的规则不注入、不覆盖。
+    const sourceVersion = Number(source.rulesVersion);
     const rulesVersion = Number.isInteger(sourceVersion) && sourceVersion >= DEFAULT_VIRTUAL_REGEX_RULES_VERSION
         ? sourceVersion
         : DEFAULT_VIRTUAL_REGEX_RULES_VERSION;
-    if (rulesVersion < DEFAULT_VIRTUAL_REGEX_RULES_VERSION) {
-        rules = [...DEFAULT_VIRTUAL_REGEX_RULES.map((rule) => normalizeVirtualRegexRule(rule)), ...rules];
+    if (!Number.isInteger(sourceVersion) || sourceVersion < DEFAULT_VIRTUAL_REGEX_RULES_VERSION) {
+        rules = rules.map(rule => rule.pattern === LEGACY_HTML_COMMENT_RULE_PATTERN
+            && rule.flags === 'g' && rule.replacement === ''
+            ? normalizeVirtualRegexRule(DEFAULT_VIRTUAL_REGEX_RULES[0]) : rule);
     }
     return {
         enabled: merged.enabled !== false,
@@ -251,7 +253,7 @@ export function applyImmersiveGalgameSystemBodyFormat(raw, rule, outfitResolver 
     }
 
     try {
-        const bounded = breakAfterIgsDirectiveClose(stripOutfitFields(normalizeClosedIgsDialogueLines(source), outfitResolver));
+        const bounded = breakAfterIgsDirectiveClose(stripOutfitFields(source, outfitResolver));
         const rules = [{
             pattern: cfg.pattern,
             flags: cfg.flags,
@@ -307,91 +309,42 @@ export function applySentencePaging(text, options = {}) {
     const source = String(text || '');
     if (!source.trim()) return source;
     const narrationOnly = Boolean(options.narrationOnly);
-    const splitNarration = options.splitNarration !== false;
     return source
         .split('\n')
-        .map((line) => splitSentenceLine(line, narrationOnly, Boolean(options.dialogueAndThought), splitNarration))
+        .map((line) => splitSentenceLine(line, narrationOnly))
         .join('\n');
 }
 
-function splitSentenceLine(line, narrationOnly, dialogueAndThought = false, splitNarration = true) {
+function splitSentenceLine(line, narrationOnly) {
     const trimmed = line.trim();
     if (!trimmed) return line;
     // 跳过非旁白行：场景素材模式下，对话([名字]：…)和心理活动(*…*)整行保留，
     // 只在旁白行按句号断页，否则会把对话/心理拆碎、丢失气泡样式和角色名归属。
-    if (narrationOnly && !isNarrationLine(trimmed)) {
-        if (!dialogueAndThought) return line;
-        const thought = line.match(/^(\s*\*+)([\s\S]*?)(\*+\s*)$/);
-        if (thought) {
-            const prefix = (thought[2].match(/^(\s*\[[^\]\n]+\]\s*[:：]\s*)/) || [])[1] || '';
-            const body = prefix ? thought[2].slice(prefix.length) : thought[2];
-            return splitSentenceBody(body).split('\n').map((part) => `${thought[1]}${prefix}${part.trimEnd()}${thought[3]}`).join('\n');
-        }
-        const dialogue = line.match(/^(\s*(?:\[[^\]\n]+\]|[^:：\n]{1,24})\s*[:：]\s*)([\s\S]+)$/);
-        return dialogue ? splitSentenceBody(dialogue[2]).split('\n').map((part) => `${dialogue[1]}${part}`).join('\n') : line;
-    }
-    if (!splitNarration) return line;
-    return splitSentenceBody(line);
-}
-
-function splitSentenceBody(line) {
+    if (narrationOnly && !isNarrationLine(trimmed)) return line;
     // \x00IMG\x00 是图片占位，不能被句号切断；保护标签/心理/插图块内部的句号。
-    if (/\x00IMG\x00/.test(line) || /image###/i.test(line) || /^\s*\[[^\]]+\]\s*$/.test(line.trim())) return line;
+    if (/\x00IMG\x00/.test(line) || /image###/i.test(line) || /^\s*\[[^\]]+\]\s*$/.test(trimmed)) return line;
     // 逐字扫描：〖〗 译文块内部的句末符号不切（译文被切到下一页会丢失注音配对）；
     // 连续句末符号（……、？！）视作一个整体，在最后一个符号后断页。
     let out = '';
     let depth = 0;
     let thought = false;
-    let splitAfterTranslation = false;
     for (let i = 0; i < line.length; i++) {
         const ch = line[i];
-        const textFx = ch === '{' ? matchTextFxMarkupAt(line, i) : null;
-        if (textFx) {
-            out += textFx[0];
-            i += textFx[0].length - 1;
-        } else out += ch;
+        out += ch;
         if (ch === '〖') { depth += 1; continue; }
-        if (ch === '〗') {
-            depth = Math.max(0, depth - 1);
-            if (depth === 0 && splitAfterTranslation) {
-                splitAfterTranslation = false;
-                while (i + 1 < line.length && SENTENCE_PAGING_CLOSERS.includes(line[i + 1])) out += line[++i];
-                const rest = line.slice(i + 1);
-                if (rest.trim()) {
-                    const spaces = (rest.match(/^\s*/) || [''])[0];
-                    out += spaces + '\n';
-                    i += spaces.length;
-                }
-            }
-            continue;
-        }
+        if (ch === '〗') { depth = Math.max(0, depth - 1); continue; }
         if (depth > 0) continue;
         // *…*/**…** 心理话标记内部的句末不切：标记被切成两页会丢失心理样式与配对。
         // 连续 *（如 ** 强调）是同一个标记单元，只翻转一次。
         if (ch === '*') { thought = !thought; while (line[i + 1] === '*') { out += '*'; i++; } continue; }
-        if (thought || !(textFx ? textFxEndsSentence(textFx[2]) : SENTENCE_PAGING_TERMINATORS.includes(ch))) continue;
-        // 末尾的？！与闭引号归前句；译文 〖〗 必须与原句同页。
-        while (i + 1 < line.length && SENTENCE_PAGING_TERMINATORS.includes(line[i + 1])) out += line[++i];
-        if (line[i + 1] === '〖') { splitAfterTranslation = true; continue; }
-        while (i + 1 < line.length && SENTENCE_PAGING_CLOSERS.includes(line[i + 1]) && line[i + 1] !== '〖') out += line[++i];
+        if (thought || !SENTENCE_PAGING_TERMINATORS.includes(ch)) continue;
         const rest = line.slice(i + 1);
         if (!rest.trim()) continue;
-        const spaces = (rest.match(/^\s*/) || [''])[0];
-        if (rest[spaces.length] === '〖') { splitAfterTranslation = true; continue; }
-        out += spaces;
-        i += spaces.length;
+        const next = rest[0];
+        if (/\s/.test(next) || SENTENCE_PAGING_TERMINATORS.includes(next) || SENTENCE_PAGING_CLOSERS.includes(next)) continue;
         out += '\n';
     }
     return out;
-}
-
-function textFxEndsSentence(inner) {
-    for (let i = inner.length - 1; i >= 0; i--) {
-        const ch = inner[i];
-        if (/\s/.test(ch) || (ch !== '〖' && SENTENCE_PAGING_CLOSERS.includes(ch))) continue;
-        return SENTENCE_PAGING_TERMINATORS.includes(ch);
-    }
-    return false;
 }
 
 function isNarrationLine(trimmed) {
@@ -406,7 +359,7 @@ export function buildFormattedTextPipeline(raw, sourceFilter, formatRule, option
     const visibleText = typeof options.visibleText === 'string' ? options.visibleText : '';
     const filtered = buildFilteredTextSource(raw, cfg, visibleText);
     // Formatting controls around an excluded block can precede [igs-scene:] and prevent the directive from being recognized.
-    const textSource = normalizeClosedIgsDialogueLines(stripReaderFormattingControls(filtered.textSource));
+    const textSource = stripReaderFormattingControls(filtered.textSource);
     const imageSource = buildBridgeImageSource(raw, cfg);
     const outfitResolver = typeof options.outfitResolver === 'function' ? options.outfitResolver : null;
     const directiveResult = options.sceneAssetsEnabled
@@ -445,8 +398,7 @@ export function readerBodyText(raw, sourceFilter) {
 export function buildIgsTextPayload(message, options = {}) {
     const originalRaw = getMessagePrimaryText(message);
     const sourceFilter = normalizeSourceFilter(options.sourceFilter);
-    const markerLayoutSource = normalizeImageMarkerLayout(originalRaw);
-    const htmlCardResult = extractHtmlCards(markerLayoutSource, parseTagList(sourceFilter.htmlCardTags));
+    const htmlCardResult = extractHtmlCards(originalRaw, parseTagList(sourceFilter.htmlCardTags));
     const chatResult = extractChatBlocks(htmlCardResult.text);
     // 指令写走样、或和旁白挤在同一行时先理顺：分页、正文格式化和指令归属都从这份文本出发，三者才对得上。
     const raw = normalizeIgsDirectiveLayout(chatResult.text);
@@ -463,16 +415,18 @@ export function buildIgsTextPayload(message, options = {}) {
     // 场景素材模式下始终识别四栏：没登记任何服装时，AI 写出的服装栏也按未登记服装剥掉，不把整句打成旁白。
     const outfitResolver = sceneAssetsEnabled ? createOutfitResolver(options.sceneAssets) : null;
     const sentencePagingEnabled = Boolean(options.sentencePaging);
-    const dialogueSentencePagingEnabled = Boolean(options.dialogueSentencePaging);
     const strictPayload = buildFormattedTextPipeline(raw, sourceFilter, virtualRegex, { visibleText: safeVisibleText, sceneAssetsEnabled, outfitResolver });
     const cleanedRaw = normalizeWhitespace(stripReaderFormattingControls(cleanNarrativeSource(safeRaw)));
-    const filteredToEmpty = strictPayload.sourceKind === 'tagged-empty';
+    // 有正文但被合法规则删空，不是提取失败；禁止回退把删掉的原文重新补回。
+    let filteredToEmpty = strictPayload.sourceKind === 'tagged-empty'
+        || Boolean(strictPayload.tagText.trim() && !strictPayload.formattedText && !strictPayload.virtualRegexError);
     const warnings = [];
     const errors = [];
 
     let formattedText = strictPayload.formattedText;
     let sourceKind = strictPayload.sourceKind;
     let formatSourceKind = strictPayload.formatSourceKind;
+    let bodyFormat = strictPayload;
     let sceneDirectives = strictPayload.sceneDirectives || [];
     let sceneDirectiveSource = strictPayload.tagText || safeRaw;
     let usedFallback = false;
@@ -483,15 +437,24 @@ export function buildIgsTextPayload(message, options = {}) {
     }
 
     if (!filteredToEmpty && (!formattedText || looksLikeHostUiHtml(formattedText))) {
-        formattedText = firstNonEmpty(
+        const fallbackSource = firstNonEmpty(
             !looksLikeHostUiHtml(strictPayload.formattedText) ? strictPayload.formattedText : '',
             safeVisibleText,
+            !looksLikeHostUiHtml(safeRaw) ? safeRaw : '',
             cleanedRaw,
             sourceFilter.enabled ? '' : String(raw || '').trim(),
         );
-        sourceKind = formattedText ? 'forced-fallback' : (sourceKind || 'empty-forced');
-        formatSourceKind = strictPayload.formattedText ? strictPayload.formatSourceKind : 'forced-fallback';
-        usedFallback = formattedText !== strictPayload.formattedText;
+        // 注释边界仍在时先跑用户正则，再做 HTML 清洗；不依赖场景素材开关。
+        if (sceneAssetsEnabled && !sceneDirectives.length) {
+            sceneDirectiveSource = fallbackSource;
+            sceneDirectives = extractSceneDirectives(fallbackSource, { outfitResolver }).directives;
+        }
+        bodyFormat = applyImmersiveGalgameSystemBodyFormat(fallbackSource, virtualRegex, outfitResolver);
+        formattedText = cleanNarrativeSource(bodyFormat.formattedRaw);
+        sourceKind = formattedText.trim() ? 'forced-fallback' : (sourceKind || 'empty-forced');
+        formatSourceKind = bodyFormat.formatSourceKind;
+        usedFallback = true;
+        filteredToEmpty = Boolean(fallbackSource.trim() && !formattedText.trim() && !bodyFormat.virtualRegexError);
     }
 
     if (looksLikeHostUiHtml(formattedText)) {
@@ -503,15 +466,6 @@ export function buildIgsTextPayload(message, options = {}) {
         );
     }
 
-    // 无 <content> 的回退文本仍须消费 [igs-char:]，否则整条指令会被误读为说话人前缀。
-    if (sceneAssetsEnabled && usedFallback && hasIgsDirectiveTags(formattedText)) {
-        // 格式化会替换掉指令标签；先保留原文中的角色/场景定位供后续分页归属使用。
-        if (!sceneDirectives.length) {
-            sceneDirectiveSource = formattedText;
-            sceneDirectives = extractSceneDirectives(sceneDirectiveSource, { outfitResolver }).directives;
-        }
-        formattedText = applyImmersiveGalgameSystemBodyFormat(formattedText, virtualRegex, outfitResolver).formattedRaw;
-    }
     formattedText = normalizeWhitespace(formattedText);
 
     // DOM 差异优先：第三方关键词过滤插件（如 Veridis）会改渲染层 .mes_text，
@@ -533,13 +487,16 @@ export function buildIgsTextPayload(message, options = {}) {
     // 宿主把卡片渲染成了纯文本，DOM 覆盖会让卡片以散文字出现在正文里。
     if (!htmlCards.length
         && !chats.length
+        && !filteredToEmpty
         && domVisibleText
         && !looksLikeHostUiHtml(domVisibleText)
         && localizedTextDiffers(domCompareBase, domVisibleText)) {
         // DOM 文本可能仍含 [igs-char/thought:] 原始标签（宿主没清洗）。必须先跑正文格式化，
         // 把标签转成气泡/心理话形态（[名]：… 与 *…*），否则阅读器把整段当旁白、丢失角色名。
         const domFormatted = applyImmersiveGalgameSystemBodyFormat(domVisibleText, virtualRegex, outfitResolver);
-        formattedText = normalizeWhitespace(domFormatted.formattedRaw || domVisibleText);
+        formattedText = normalizeWhitespace(domFormatted.formattedRaw);
+        bodyFormat = domFormatted;
+        filteredToEmpty = !formattedText && !domFormatted.virtualRegexError;
         sourceKind = 'dom-visible-override';
         formatSourceKind = 'dom-visible-override';
         usedDomOverride = true;
@@ -567,20 +524,13 @@ export function buildIgsTextPayload(message, options = {}) {
     const readerText = filteredToEmpty ? '' : stripIllustrationMarkers(normalizeReaderSegmentText(firstNonEmpty(
         readerScene.text,
         formattedText,
-        safeVisibleText,
-        cleanedRaw,
-        sourceFilter.enabled ? '' : String(raw || '').trim(),
     ), readerScene.speaker));
-    const pagedReaderText = sentencePagingEnabled || dialogueSentencePagingEnabled
-        ? applySentencePaging(readerText, {
-            narrationOnly: sceneAssetsEnabled || dialogueSentencePagingEnabled,
-            splitNarration: sentencePagingEnabled, dialogueAndThought: dialogueSentencePagingEnabled,
-        })
+    const pagedReaderText = sentencePagingEnabled
+        ? applySentencePaging(readerText, { narrationOnly: sceneAssetsEnabled })
         : readerText;
     if (sceneAssetsEnabled && sceneDirectives.length) {
         sceneDirectives = remapSceneDirectiveSegments(sceneDirectives, sceneDirectiveSource, virtualRegex, {
             sentencePaging: sentencePagingEnabled,
-            dialogueSentencePaging: dialogueSentencePagingEnabled,
             narrationOnly: true,
         });
     }
@@ -602,7 +552,6 @@ export function buildIgsTextPayload(message, options = {}) {
 
     return {
         raw: originalRaw,
-        markerLayoutSource,
         htmlCards,
         chats,
         hasExcludedTextBlocks: Boolean(hasExcludedBlocks),
@@ -620,8 +569,8 @@ export function buildIgsTextPayload(message, options = {}) {
         sourceKind,
         expectedTags: strictPayload.expectedTags,
         formatSourceKind,
-        virtualRegexChanged: strictPayload.virtualRegexChanged,
-        virtualRegexError: strictPayload.virtualRegexError,
+        virtualRegexChanged: bodyFormat.virtualRegexChanged,
+        virtualRegexError: bodyFormat.virtualRegexError,
         usedFallback,
         usedDomOverride,
         warnings,
@@ -861,9 +810,8 @@ function remapSceneDirectiveSegments(directives, source, virtualRegex, options =
         formatted.formattedRaw,
         markedSource,
     ), readerScene.speaker);
-    const pagedText = options.sentencePaging || options.dialogueSentencePaging
-        ? applySentencePaging(readerText, { narrationOnly: options.narrationOnly === true,
-            splitNarration: options.sentencePaging === true, dialogueAndThought: options.dialogueSentencePaging === true })
+    const pagedText = options.sentencePaging
+        ? applySentencePaging(readerText, { narrationOnly: options.narrationOnly === true })
         : readerText;
     const segments = buildNarrativeSegments(pagedText);
     const mapped = [];

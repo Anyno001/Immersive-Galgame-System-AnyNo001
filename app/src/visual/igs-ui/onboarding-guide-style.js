@@ -10,8 +10,6 @@ const STYLE_TEXT = `
 #igs-onboarding-card .igs-onboarding-title{margin:0;font-size:15px;font-weight:600;outline:none}
 #igs-onboarding-card .igs-onboarding-count{font-size:12px;opacity:.7;white-space:nowrap}
 #igs-onboarding-card .igs-onboarding-body{margin:6px 0 10px;font-size:13px;line-height:1.6}
-#igs-onboarding-card.is-top{top:max(8px,env(safe-area-inset-top));bottom:auto}
-#igs-onboarding-card .igs-onboarding-note{margin:-4px 0 10px;font-size:12px;opacity:.75}
 #igs-onboarding-card .igs-onboarding-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 .igs-onboarding-btn{min-height:32px;padding:0 12px;border-radius:var(--igs-settings-radius-control,8px);border:1px solid ${SOFT_LINE};background:transparent;color:inherit;font:inherit;font-size:13px;cursor:pointer}
 .igs-onboarding-btn.is-primary{border-color:currentColor;font-weight:600}
@@ -29,8 +27,7 @@ const STYLE_TEXT = `
 .igs-onboarding-chip.is-active{border-color:currentColor;background:color-mix(in srgb,currentColor 14%,transparent);font-weight:600}
 .igs-onboarding-chip:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 #igs-onboarding-card .igs-onboarding-quiz-result{margin:0 0 10px;font-size:12px;line-height:1.5;opacity:.8}
-#igs-unified-settings [data-igs-guide-active]{scroll-margin:12px;outline:2px solid currentColor;outline-offset:3px;border-radius:var(--igs-settings-radius-small,6px)}
-#igs-unified-settings .igs-key-block[data-igs-guide-active],#igs-unified-settings .igs-perf-item[data-igs-guide-active]{position:relative;z-index:3}
+#igs-unified-settings [data-igs-guide-active]{outline:2px solid currentColor;outline-offset:3px;border-radius:var(--igs-settings-radius-small,6px)}
 #igs-onboarding-invite{position:absolute;left:50%;top:max(10px,env(safe-area-inset-top));transform:translateX(-50%);z-index:30;box-sizing:border-box;display:flex;flex-wrap:nowrap;align-items:center;gap:2px;max-width:calc(100% - 24px);height:30px;padding:0 3px 0 14px;border:0;border-radius:999px;background:var(--igs-dialog-bg,Canvas);color:inherit;box-shadow:0 4px 14px rgba(0,0,0,.18);font-size:12px;line-height:1;white-space:nowrap}
 #igs-onboarding-invite .igs-onboarding-invite-text{flex:1 1 auto;min-width:0;margin-right:6px;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
 #igs-onboarding-invite .igs-onboarding-btn{position:relative;flex:none;min-height:24px;min-width:0;padding:0 10px;border:0;border-radius:999px;background:transparent;font-size:12px}

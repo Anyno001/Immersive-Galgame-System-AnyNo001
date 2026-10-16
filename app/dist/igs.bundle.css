@@ -13,8 +13,6 @@
 @import url("./fonts/ChillRoundFRegular/font.css?v=d54d253c");
 @import url("./fonts/ChillRoundFBold/font.css?v=caa529ed");
 @import url("./fonts/SourceHanSerifCN-Regular/font.css?v=6f3b4dcb");
-@font-face { font-family: "IGS-MaShanZheng"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/MaShanZheng-Regular.woff2") format("woff2"); }
-@font-face { font-family: "IGS-ZhiMangXing"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/ZhiMangXing-Regular.woff2") format("woff2"); }
 @font-face { font-family: "Tsanger YuYang"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/TsangerYuYangT-W05.woff2") format("woff2"); }
 @font-face { font-family: "Smiley Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/SmileySans-Oblique.ttf") format("truetype"); }
 @font-face { font-family: "ZCOOL KuaiLe"; font-style: normal; font-weight: 400; font-display: swap; src: url("./fonts/ZCOOLKuaiLe-Regular.ttf") format("truetype"); }

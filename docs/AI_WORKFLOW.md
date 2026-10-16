@@ -1,9 +1,5 @@
 # AI 工作流
 
-## 精简后的检查范围
-
-检查清单本体已删减，不保留无用、重复、仅锁定源码写法或 CSS 字面量的项；保留范围以 `../app/tests/README.md` 为准。不另建全量运行器，不为覆盖率或测试数量补项。构建只生成发布文件；下载、语法和启动问题直接获取并执行实际发布文件，HTTP 200 或构建成功不代表实际启动。
-
 本项目主要由 AI 根据用户方向逐步实现，因此必须让每次改动都能被定位、测试和回滚。
 
 ## 开工前
@@ -20,7 +16,7 @@
 
 ## 执行中清单
 
-按 `AGENTS.md` 的短清单推进，只列本次适用的修改与验证，完成后更新状态；不为填满清单增加检查。
+功能修改、bug 修复、结构调整和发布流程改动按 `AGENTS.md` 的短清单推进。每完成一项就更新状态；不适用项写明原因，不静默跳过。
 
 ## 修改中
 
@@ -41,16 +37,37 @@
 
 ## 验收
 
-在 `app/` 按问题选择已有行为用例；需要产物时单独构建：
+每次实现代码后至少准备：
 
 ```text
-node --test tests/<相关文件>.test.js
-npm.cmd run build
+npm run gate
+npm run test
+npm run simulate
+npm run build
+npm run perf
 ```
+
+当前本机可执行命令使用 npm。后续安装 pnpm 后，保持以下命令等价：
+
+```text
+pnpm gate
+pnpm test
+pnpm simulate
+pnpm build
+pnpm perf
+```
+
+`gate` 顺序固定为：
+
+```text
+structure -> static -> test -> simulate -> perf -> build
+```
+
+任何一层失败时先修当前层，不继续用后续错误覆盖根因。
 
 本项目不运行奶龙工具箱 `pack-project`、`verify-project`、`validate`、`check-refs` 作为本项目验收，除非用户明确要求重新接入工具箱流程。
 
-fake host 与 fixtures 只证明相应行为，不要求执行整张模拟矩阵，也不代表真实酒馆或手机验收。真实 provider 或真实 shujuku 写入须用户明确授权。
+NailongHub 工作流中的安装版实机验真、Computer Use 实机操作和 live AI 校验，在本项目默认替换为 `docs/SCHEMA_AND_FIXTURES.md` 的 `S0-S10` 模拟测试矩阵。真实酒馆、真实 provider 或真实 shujuku 写入只在用户明确要求时加入。
 
 ## 真机调试与复验
 
@@ -69,18 +86,24 @@ fake host 与 fixtures 只证明相应行为，不要求执行整张模拟矩阵
 
 ### 修复闭环（真机可用时）
 
-bug 修复按当前用户规则交付测试版本：
+bug 修复走以下闭环，**真机测试通过才算结束、才打 tag**：
 
-1. 修复、必要的定向验证、升 patch，同步 package.json / bootstrap / README。
-2. 构建 bundle 与 `npm run build:loader -- --release test-v<当前版本>`，记录实际执行证据。
-3. 提交并推送 main，为同一提交创建并推送 `test-v<当前版本>` 测试标签。
-4. 有条件时做真实酒馆/手机复验；未做时保留边界。后续修复再次升号和打测试标签，不覆盖旧标签。
+```text
+1. 修复 + 升 patch 版本号（同步 package.json / bootstrap.js / README）+ npm run build + npm run build:loader + 本地 npm run gate 全绿
+2. 本地预验：用真机导出的真实数据，本地复跑修复后代码，确认逻辑对（第一道闸）
+3. git commit + git push origin main   ← 先推 main，让 jsdelivr @main 能拉到新 bundle；【暂不打 tag】
+4. CDP 真机测试：触发真机重载新 bundle，抓状态确认现象消失（第二道闸）
+5a. 测试成功 → git tag v<当前版本> + git push origin v<当前版本> → 结束（tag 与脚本内版本号对齐）
+5b. 测试失败 → 改完再升 patch 版本号、再 push（每次 push 都升号），真机重验；只给真机验过的那一版打 tag
+```
 
-2026-10-15 起每次更新均附测试标签，不自动创建 `v<当前版本>` 正式版标签。测试标签不是设备验收结论。
+- 每次 push 都升 patch 版本号；tag = 经过真机验证的那一版版本号，必须与脚本内版本号对齐。
+- 失败的中间版本号只留在 commit 历史、不打 tag；不强推、不覆盖已存在的 tag。
+- loader 从 `@main` 拉取，push 到 main 后真机即可加载新代码做验证。
 
 ### CDP 不可用时
 
-用户不在、不愿重启浏览器、或手机端（TauriTavern/柏宝箱等非 Chromium 宿主）时：直接下载并执行发布文件，明确记录实际运行环境和未覆盖的设备边界；不能据此声称真实酒馆或手机已验收；照常交付对应测试标签。
+用户不在、不愿重启浏览器、或手机端（TauriTavern/柏宝箱等非 Chromium 宿主）时：本地 `gate` 全绿 + 真机导出数据本地复跑通过即可打 tag 结束，并在最终回复明确注明「未做 CDP 真机终验」，让用户知晓需自行确认。
 
 ## 酒馆助手脚本打包
 
@@ -110,7 +133,7 @@ D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive G
 
 打包发布任务必须遵守：
 
-- 只核对受影响的产物、下载与启动行为；文档任务只检查相关说明和引用，不恢复已删除的检查项。
+- 先跑 `npm run gate`，文档-only 任务可 skipped 但必须说明原因。
 - `loader/igs-loader.js` 只负责加载远程 bundle，不写业务逻辑。
 - `loader/igs-loader.json` 的 `content` 必须等于 `loader/igs-loader.js` 原文。
 - 当前仓库是 private 时，不得把 private raw 地址写成最终用户可用发布源。
@@ -127,6 +150,7 @@ https://github.com/Anyno001/Immersive-Galgame-System-AnyNo001
 上传前必须在项目根目录运行：
 
 ```text
+npm run gate
 git status --short
 ```
 
@@ -134,23 +158,36 @@ git status --short
 
 ## 每轮结束回退点
 
-每次更新都升 patch，选择性暂存本轮文件，提交并推送 main，同时为该提交打 `test-v<当前版本>` 测试标签。保留无关工作区改动，不自动创建正式版标签。
+每一轮只要产生文件改动，结束前必须 push 到 main。**tag 与 push 分离：push 可随时累加，tag 仅在真机验证通过后才打**（见上文「修复闭环」）。
+
+第一步——升版本号 + 推代码到 main（修复后立即执行，让 jsdelivr `@main` 能拉到新 bundle 供真机验证）：
 
 ```powershell
-cd app
-npm run build
-npm run build:loader -- --release test-v<当前版本>
+# 先升 patch 版本号：package.json、bootstrap.js 的 IGS_VERSION、README 状态行/更新日志
+cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Visual Novel\app"
+npm run build          # dist bundle 版本号随之更新
+npm run build:loader   # 生成 loader/…… v<当前版本>.json
+npm run gate
 cd ..
-# 仅 git add 本轮修改的具体文件
-git commit -m "test-v<当前版本>: <简短说明>"
-git tag -a test-v<当前版本> -m "test-v<当前版本>: <简短说明>"
-git push origin HEAD:main
-git push origin test-v<当前版本>
-git status --short --branch
-git ls-remote --heads origin main
-git ls-remote --tags origin test-v<当前版本>
+git status --short
+git add .
+git commit -m "Release v<当前版本>: <简短说明>"
+git push origin main
 ```
 
-标签版本与脚本版本一致；已存在标签不覆盖、不强推。真实设备尚未终验时明确记录，测试标签不阻断交付。只有用户明确要求不要上传或不要打标签时跳过。
+第二步——真机 CDP 测试通过后，才打 tag 并推送：
+
+```powershell
+git tag -a v<当前版本> -m "v<当前版本>: <简短说明>"
+git push origin v<当前版本>
+git status --short --branch
+git ls-remote --heads origin main
+git ls-remote --tags origin v<当前版本>
+```
+
+- 真机测试失败时改完再升 patch 版本号、再 push（每次 push 都升号），真机重验；只给真机验过的版本打 tag，失败的中间版本号不打 tag。
+- tag 必须与脚本内版本号对齐；标签已存在时不覆盖、不强推。
+- CDP 不可用（用户不在/不愿重启/手机端）时，本地 gate + 真机导出数据本地复跑通过即可打 tag 结束，并在回复注明未做 CDP 真机终验。
+- 只有用户明确说不要上传或不要打标签时才跳过，并在最终回复说明原因。
 
 详细发布与上传命令见 `docs/RELEASE.md`。

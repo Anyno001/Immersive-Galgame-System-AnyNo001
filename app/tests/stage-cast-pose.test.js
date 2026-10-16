@@ -173,9 +173,7 @@ test('gate: cast entrance styles only on entering page', () => {
 
 test('gate: cast stage switch defaults off and gates both prompt paths', () => {
     assert.equal(normalizeStageCastSettings({}).castStage, false);
-    // 只开 castStage（无多角色总开关）时仅注入单人转身写法，不含靠近/拉开
-    assert.ok(!resolveStageCastFxPromptRule({ castStage: true }).includes('靠近'));
-    assert.equal(resolveStageCastFxPromptRule({ castReact: true }), '');
+    assert.equal(resolveStageCastFxPromptRule({ castStage: true }), '');
     assert.ok(resolveStageCastFxPromptRule({ enabled: true, castStage: true }).includes('[igs-fx:stage|'));
     assert.ok(!resolveStageCastFxPromptRule({ enabled: true, castReact: true }).includes('igs-fx:stage'));
     assert.deepEqual(stageCastGrammarLines({ enabled: true }), []);

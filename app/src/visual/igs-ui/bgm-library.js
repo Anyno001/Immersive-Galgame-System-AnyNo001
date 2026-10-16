@@ -12,8 +12,8 @@ const MOOD_FALLBACK = Object.freeze({
     sad: ['calm'], tense: ['eerie', 'battle'], battle: ['tense'], eerie: ['tense'],
 });
 
-export const BGM_PACKS = Object.freeze(['modern', 'ancient', 'magic', 'japanese']);
-export const BGM_PACK_LABELS = Object.freeze({ modern: '现代', ancient: '古风', magic: '魔法·奇幻', japanese: '日式·和风' });
+export const BGM_PACKS = Object.freeze(['modern', 'ancient', 'magic']);
+export const BGM_PACK_LABELS = Object.freeze({ modern: '现代', ancient: '古风', magic: '魔法·奇幻' });
 
 export const BGM_SCENES = Object.freeze(['festival', 'dungeon', 'shrine', 'bar', 'shop', 'palace', 'school', 'home', 'sea', 'village', 'nature', 'street']);
 export const BGM_SCENE_LABELS = Object.freeze({

@@ -45,8 +45,6 @@ export function encodeIdSet(ids) {
 export function decodeIdSet(text) {
     const set = new Set();
     for (const part of String(text || '').split(',')) {
-        // 空串 Number('') 是 0：没有已读记录时不能把第 0 楼当成读过。
-        if (!part.trim()) continue;
         const [a, b] = part.split('-').map((n) => Number(n));
         if (!Number.isInteger(a)) continue;
         const end = Number.isInteger(b) && b >= a && b - a < 100000 ? b : a;
@@ -71,33 +69,12 @@ function cleanPosition(pos) {
 function cleanSlot(slot) {
     const pos = cleanPosition(slot);
     if (!pos) return null;
-    const thumb = typeof slot.thumb === 'string' && /^(https?:|\/|user\/)/.test(slot.thumb) && slot.thumb.length < 600 ? slot.thumb : '';
-    // swipe：存档时那一楼选中的版本；旧存档没有，记 null，重来时不校验版本。
-    const swipe = slot.swipe != null && slot.swipe !== '' && Number.isInteger(Number(slot.swipe)) && Number(slot.swipe) >= 0 ? Number(slot.swipe) : null;
-    return { ...pos, key: String(slot.key || `s${pos.at || Date.now()}`), name: String(slot.name || '').slice(0, 40), thumb, place: String(slot.place || '').slice(0, 40), swipe };
-}
-
-// 重来用：把进度截到存档楼为止，作为新分支聊天的起始进度。只读入参，返回新对象。
-export function truncateReadingData(raw, upToId, pos = null) {
-    const data = normalizeReadingData(raw);
-    const limit = Number(upToId);
-    if (!Number.isInteger(limit)) return data;
-    const within = (item) => item && item.id <= limit;
-    const read = new Set(Array.from(decodeIdSet(data.read)).filter((id) => id <= limit));
-    const keep = (map) => Object.fromEntries(Object.entries(map).filter(([id]) => Number(id) <= limit));
-    return normalizeReadingData({
-        last: pos ? cleanPosition(pos) : (within(data.last) ? data.last : null),
-        far: within(data.far) ? data.far : (pos ? cleanPosition(pos) : null),
-        read: encodeIdSet(read),
-        partial: keep(data.partial),
-        chapters: keep(data.chapters),
-        slots: data.slots.filter(within),
-        quick: within(data.quick) ? data.quick : null,
-    });
+    const thumb = typeof slot.thumb === 'string' && /^(https?:|\/)/.test(slot.thumb) && slot.thumb.length < 600 ? slot.thumb : '';
+    return { ...pos, key: String(slot.key || `s${pos.at || Date.now()}`), name: String(slot.name || '').slice(0, 40), thumb, place: String(slot.place || '').slice(0, 40) };
 }
 
 function emptyData() {
-    return { v: 2, last: null, far: null, read: '', partial: {}, chapters: {}, slots: [], quick: null };
+    return { v: 1, last: null, far: null, read: '', partial: {}, chapters: {}, slots: [], quick: null };
 }
 
 export function normalizeReadingData(raw) {
@@ -176,31 +153,10 @@ export function createReadingProgress(options = {}) {
     const storage = () => { try { return options.storage?.() || null; } catch (_) { return null; } };
     const now = () => (typeof options.now === 'function' ? options.now() : Date.now());
     let cache = { chatId: '', data: emptyData(), readSet: new Set() };
-    // 翻页记进度合并写盘：每页都排序已读楼、同步写 localStorage，长聊天在手机上一直在烧。
-    // 1.2 秒内只写最后一次；换聊天、切后台、离开页面时立刻补写。
-    const SAVE_DELAY_MS = 1200;
-    let saveTimer = null;
-    function flushSave() {
-        if (saveTimer == null) return;
-        clearTimeout(saveTimer);
-        saveTimer = null;
-        save();
-    }
-    function saveSoon() {
-        if (saveTimer != null) return;
-        saveTimer = setTimeout(() => { saveTimer = null; save(); }, SAVE_DELAY_MS);
-    }
-    try {
-        const g = globalThis;
-        if (g && typeof g.addEventListener === 'function') g.addEventListener('pagehide', flushSave);
-        const d = g && g.document;
-        if (d && typeof d.addEventListener === 'function') d.addEventListener('visibilitychange', () => { if (d.hidden) flushSave(); });
-    } catch (_) { /* 没有页面事件时只靠定时写 */ }
 
     function load() {
         const chatId = getChatId();
         if (cache.chatId === chatId && chatId) return cache;
-        flushSave();
         let data = emptyData();
         const store = storage();
         if (chatId && store) {
@@ -221,7 +177,6 @@ export function createReadingProgress(options = {}) {
     }
 
     function save() {
-        if (saveTimer != null) { clearTimeout(saveTimer); saveTimer = null; }
         const store = storage();
         if (!cache.chatId || !store) return;
         cache.data.read = encodeIdSet(cache.readSet);
@@ -240,8 +195,6 @@ export function createReadingProgress(options = {}) {
         c.data.last = pos;
         const far = c.data.far;
         if (!far || id > far.id || (id === far.id && page > far.page)) c.data.far = pos;
-        // 一楼刚读完立刻落盘（每楼一次）；同一楼里翻页的位置合并写。
-        const finished = page >= total - 1 && !c.readSet.has(id);
         if (page >= total - 1) {
             c.readSet.add(id);
             delete c.data.partial[id];
@@ -254,8 +207,7 @@ export function createReadingProgress(options = {}) {
             const keys = Object.keys(c.data.chapters).map(Number).sort((a, b) => a - b);
             for (const k of keys.slice(0, Math.max(0, keys.length - CHAPTER_LIMIT))) delete c.data.chapters[k];
         }
-        if (finished) save();
-        else saveSoon();
+        save();
         return pos;
     }
 
@@ -336,16 +288,6 @@ export function createReadingProgress(options = {}) {
         return true;
     }
 
-    // 整体替换当前聊天的进度（重来进新分支用：不合并，避免带入存档楼之后的已读）。
-    function replaceData(raw) {
-        const c = load();
-        if (!c.chatId || !raw) return false;
-        c.data = normalizeReadingData(raw);
-        c.readSet = decodeIdSet(c.data.read);
-        save();
-        return true;
-    }
-
     return {
         load: () => load().data,
         notePage,
@@ -363,7 +305,6 @@ export function createReadingProgress(options = {}) {
         quickSave,
         exportData,
         importData,
-        replaceData,
-        reset() { flushSave(); cache = { chatId: '', data: emptyData(), readSet: new Set() }; },
+        reset() { cache = { chatId: '', data: emptyData(), readSet: new Set() }; },
     };
 }

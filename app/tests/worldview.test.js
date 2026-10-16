@@ -110,20 +110,9 @@ test('gate:worldview:fx-filter-per-worldview-without-mutating-input', () => {
         liveFx: { enabled: true },
     };
     const before = JSON.stringify(reader);
-    // applyFxWorldview 会在 feedFx 里注入 worldview 字段，applyFxEra 不做这件事，排除后对比
-    const withoutWorldview = (obj) => {
-        if (!obj || !obj.feedFx) return obj;
-        const feedFx = Object.assign({}, obj.feedFx);
-        delete feedFx.worldview;
-        return Object.assign({}, obj, { feedFx });
-    };
-    assert.deepEqual(withoutWorldview(applyFxWorldview(reader, 'ancient')), applyFxEra(reader, true));
-    const modernBase = applyFxEra(reader, false);
-    assert.deepEqual(withoutWorldview(applyFxWorldview(reader, 'modern')), {
-        ...modernBase,
-        dailyFx: { ...modernBase.dailyFx, sigil: false },
-    });
-    assert.deepEqual(withoutWorldview(applyFxWorldview(reader, 'bogus')), applyFxEra(reader, false));
+    assert.deepEqual(applyFxWorldview(reader, 'ancient'), applyFxEra(reader, true));
+    assert.deepEqual(applyFxWorldview(reader, 'modern'), applyFxEra(reader, false));
+    assert.deepEqual(applyFxWorldview(reader, 'bogus'), applyFxEra(reader, false));
     const fantasy = applyFxWorldview(reader, 'fantasy');
     assert.equal(fantasy.fxTags.call, false);
     assert.equal(fantasy.fxTags.notify, true);

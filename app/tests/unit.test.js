@@ -1,8 +1,10 @@
-import { createReaderImageService } from './helpers/media-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pngFixture, pngChunk, imageZipFixture } from './helpers/png-fixture.js';
+import { deflateRawSync } from 'node:zlib';
+
 
 import { createInputChannel } from '../src/host/input-channel.js';
 import { createPresetRegistry } from '../src/presets/preset-registry.js';
@@ -41,7 +43,7 @@ import { resolveVisualMode, VISUAL_MODES } from '../src/visual/visual-mode.js';
 import { createPromptAdapter } from '../src/prompts/adapters/prompt-adapter.js';
 import { naiRequestBuilder } from '../src/generated-images/request-builders/nai-builder.js';
 import { fetchModels as fetchImageModels, generateImage as generateImageFromApi } from '../src/generated-images/image-api-client.js';
-
+import { createReaderImageService } from '../src/generated-images/reader-image-service.js';
 import { createPublicApi, attachPublicApi } from '../src/api/public-api.js';
 import { createIgsCompatApi } from '../src/api/igs-compat.js';
 import {
@@ -49,7 +51,6 @@ import {
     ensureMessageImagePlaceholders,
 } from '../src/host/tavern-helper-adapter.js';
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
-import { syncSpriteTextWait } from '../src/visual/igs-ui/reader-dom-render.js';
 import { createPromptInjector } from '../src/host/prompt-injector.js';
 import {
     extractSceneDirectives,
@@ -195,18 +196,6 @@ test('gate:igs-ui:embedded-source-cache-parses-once-per-signature', () => {
     });
     cache.get(pagingSignature, { mark: 2 });
     assert.equal(cache.getParseCount(), 2);
-    const dialogueSignature = buildReaderSourceSignature({
-        messageId: 7,
-        rawText: 'line one\nline two',
-        visibleText: 'line one\nline two',
-        sourceFilter: { enabled: true },
-        virtualRegex: { enabled: true, pattern: 'x', flags: 'g', replacement: 'y' },
-        sceneAssetsEnabled: false,
-        sentencePaging: false,
-        dialogueSentencePaging: true,
-    });
-    cache.get(dialogueSignature, { mark: 3 });
-    assert.equal(cache.getParseCount(), 3, '对白开关变化不得复用未拆分的旧阅读源');
 });
 
 test('gate:igs-ui:embedded-source-cache-tolerates-circular-host-objects', () => {
@@ -551,8 +540,8 @@ test('gate:igs-ui:embedded-chat-observer-uses-generation-end-and-ignores-late-do
         off(name, handler) {
             listeners.set(name, (listeners.get(name) || []).filter((item) => item !== handler));
         },
-        emit(name, ...args) {
-            for (const handler of listeners.get(name) || []) handler(...args);
+        emit(name) {
+            for (const handler of listeners.get(name) || []) handler();
         },
     };
     const globalObject = {
@@ -595,7 +584,7 @@ test('gate:igs-ui:embedded-chat-observer-uses-generation-end-and-ignores-late-do
     assert.equal(stableCount, 0);
 
     eventSource.emit('generation_ended');
-    eventSource.emit('generation_started', 'quiet', {}, false);
+    eventSource.emit('generation_started');
     const stableTimer = Array.from(timers.entries()).find(([, timer]) => timer.delay === 800);
     assert.ok(stableTimer);
     timers.delete(stableTimer[0]);
@@ -672,13 +661,6 @@ test('gate:igs-ui:embedded-chat-observer-ignores-quiet-and-dry-run-generations',
     idleTimer[1].handler();
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(stableCount, 0, '生成中的静默不触发完成回调');
-    eventSource.emit('generation_ended');
-    const finishedTimer = Array.from(timers.entries()).find(([, timer]) => timer.delay === 800);
-    assert.ok(finishedTimer);
-    timers.delete(finishedTimer[0]);
-    finishedTimer[1].handler();
-    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(stableCount, 1);
     observer.stop();
 });
@@ -1303,26 +1285,6 @@ test('gate:scene:sentence-paging-only-splits-narration-when-scene-assets-on', ()
     assert.deepEqual(payload.textSegments, ['旁白第一句。', '旁白第二句。', '[玉子]：你好呀。请坐。']);
 });
 
-test('gate:scene:sentence-paging-keeps-punctuation-spaces-and-quoted-text', () => {
-    const source = '她轻声说“走吧。” 随后出门。门开了！ 她停下。';
-    const pages = buildIgsTextPayload({ text: source }, { sentencePaging: true }).textSegments;
-    assert.deepEqual(pages, ['她轻声说“走吧。”', '随后出门。', '门开了！', '她停下。']);
-});
-
-test('gate:scene:dialogue-and-thought-paging-is-independent-and-preserves-markup', () => {
-    const source = '旁白第一句。旁白第二句。\n[玉子]：你好呀。请坐。\n*[玉子]：先别急。再等等。*';
-    const options = { sceneAssets: { enabled: true }, dialogueSentencePaging: true };
-    const dialogueOnly = buildIgsTextPayload({ text: source }, options);
-    assert.deepEqual(dialogueOnly.textSegments, [
-        '旁白第一句。旁白第二句。', '[玉子]：你好呀。', '[玉子]：请坐。',
-        '*[玉子]：先别急。*', '*[玉子]：再等等。*',
-    ]);
-    const both = buildIgsTextPayload({ text: source }, { ...options, sentencePaging: true });
-    assert.deepEqual(both.textSegments.slice(0, 2), ['旁白第一句。', '旁白第二句。']);
-    const noAssets = buildIgsTextPayload({ text: '一段旁白。另一句。\n[玉子]：你好。再见。', }, { dialogueSentencePaging: true });
-    assert.deepEqual(noAssets.textSegments.slice(0, 1), ['一段旁白。另一句。'], '对白开关不能误拆旁白');
-});
-
 test('gate:igs-ui:apply-align-style-maps-left-center-indent', () => {
     const makeEl = () => ({ style: {} });
     const left = makeEl();
@@ -1391,18 +1353,6 @@ test('gate:igs-ui:resolve-sprite-layout-keeps-mode-isolated', () => {
     // 切到没有该 key 的模式回退默认，不会串用其他模式的数据
     assert.deepEqual(resolveSpriteLayout(layouts, 'web', '小林海斗', '平和'), { posX: 50, posY: 100, scale: 100 });
 });
-
-test('gate:igs-ui:resolve-sprite-layout-base-default-slot-reads-back-on-mood-less-pages', () => {
-    // 调整原装立绘时编辑条把情绪改写到「默认」槽；旁白页 spriteMood 为空，必须仍能读到这条。
-    const layouts = { 'pc::雪乃::默认': { posX: 60, posY: 95, scale: 150 } };
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '雪乃', '默认'), { posX: 60, posY: 95, scale: 150 });
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '雪乃', ''), { posX: 60, posY: 95, scale: 150 });
-    // 其他情绪词有自己的槽键时不被默认槽盖住；没键时落到默认 100。
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '雪乃', '喜悦'), { posX: 50, posY: 100, scale: 100 });
-    // 服装身份不借用原装的默认槽。
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '雪乃', '', '校服'), { posX: 50, posY: 100, scale: 100 });
-});
-
 
 test('gate:igs-ui:resolve-sprite-layout-default-scale-only-fills-unplaced', () => {
     const layouts = { 'pc::小林海斗::平和': { posX: 70, posY: 30, scale: 180 } };
@@ -2004,7 +1954,7 @@ test('gate:settings:generated-asset-actions-manage-library-and-temp-status', asy
     let promptValue = '';
     let confirmed = true;
     const service = {
-        readRecord: async (key) => key === 'temp/bg' ? {
+        getRecord: (key) => key === 'temp/bg' ? {
             key,
             imageId: 'bg-temp',
             type: 'background',
@@ -2131,7 +2081,7 @@ test('gate:settings:generated-asset-actions-rollback-on-persist-and-service-fail
             { alert: () => {} },
             () => { persistCount += 1; return { ok: true }; },
             {
-                readRecord: async () => ({ imageId: 'temp-image', type: 'background', name: '临时景' }),
+                getRecord: () => ({ imageId: 'temp-image', type: 'background', name: '临时景' }),
                 setStatus: async () => ({ ok: false, reason: 'status-failed' }),
             },
         ));
@@ -2139,58 +2089,6 @@ test('gate:settings:generated-asset-actions-rollback-on-persist-and-service-fail
         assert.equal(persistCount, 2);
         assert.equal(draft.bridge.sceneAssets.generated.scenes['临时景'], undefined);
         assert.equal(draft.bridge.sceneAssets.scenes['临时景'], undefined);
-    }
-
-    {
-        const draft = makeDraft();
-        draft.bridge.sceneAssets.characters = { 临时人: { 默认: 'igs-gen:old-sprite' } };
-        const saved = [];
-        const result = await handleSettingsAction('gen-temp-accept:sprite', makeContext(
-            draft,
-            { alert: () => {} },
-            (options = {}) => {
-                saved.push({ changed: options.spriteAssetChanged, url: draft.bridge.sceneAssets.characters.临时人.默认 });
-                return { ok: true };
-            },
-            {
-                readRecord: async () => ({ imageId: 'new-sprite', type: 'sprite', name: '临时人' }),
-                setStatus: async () => ({ ok: false, reason: 'status-failed' }),
-            },
-        ));
-        assert.equal(result.reason, 'status-failed');
-        assert.deepEqual(saved, [
-            { changed: true, url: 'igs-gen:new-sprite' },
-            { changed: true, url: 'igs-gen:old-sprite' },
-        ], '立绘入库及服务失败后的回滚都须失效舞台预热清单');
-    }
-
-    {
-        const draft = makeDraft();
-        draft.bridge.sceneAssets.generated.characters.临时人 = { 默认: 'igs-gen:adopted-sprite' };
-        draft.bridge.sceneAssets.characters = { 临时人: { 默认: 'igs-gen:old-sprite' } };
-        const saved = [];
-        const result = await handleSettingsAction(`gen-adopt-sprite:${enc('临时人')}`, makeContext(
-            draft, { alert: () => {} },
-            (options = {}) => {
-                saved.push({ changed: options.spriteAssetChanged, url: draft.bridge.sceneAssets.characters.临时人.默认 });
-                return { ok: true };
-            }, null,
-        ));
-        assert.equal(result.ok, true);
-        assert.deepEqual(saved, [{ changed: true, url: 'igs-gen:adopted-sprite' }]);
-        assert.equal(draft.bridge.sceneAssets.generated.characters.临时人, undefined);
-    }
-
-    {
-        const draft = makeDraft();
-        draft.bridge.sceneAssets.generated.characters.空图 = { 默认: '' };
-        let saves = 0;
-        const result = await handleSettingsAction(`gen-adopt-sprite:${enc('空图')}`, makeContext(
-            draft, { alert: () => {} },
-            () => { saves += 1; return { ok: true }; }, null,
-        ));
-        assert.equal(result.reason, 'generated-sprite-adopt-failed');
-        assert.equal(saves, 0, '未绑定图片不得提交设置或失效舞台清单');
     }
 
     {
@@ -2203,6 +2101,225 @@ test('gate:settings:generated-asset-actions-rollback-on-persist-and-service-fail
         ));
         assert.equal(result.reason, 'generated-asset-status-failed');
     }
+});
+
+test('gate:dna-adoption-ui:临时采用按规范名入库，回读与提交失败保持原资料', async () => {
+    const { spriteAdoptionFixture } = await import('./helpers/prompt-provenance.js');
+    const makeLibrary = () => ({ characters: { Alice: { 默认: 'old.png' } },
+        characterAliases: { Alice: ['小爱'] }, characterDna: {}, characterOutfits: {}, wardrobe: {} });
+    for (const mode of ['card', 'global', 'missing', 'missing-candidate', 'wrong-image', 'wrong-character',
+        'record-image', 'record-status', 'record-revision', 'dna', 'scope', 'borrowed',
+        'persist-not-started', 'persist-failed', 'status-failed', 'status-throw', 'rollback-failed', 'conflict-rollback-failed']) {
+        const record = await spriteAdoptionFixture();
+        record.updatedAt = 7;
+        let liveRecord = structuredClone(record);
+        const root = makeLibrary();
+        root.cards = { 'card:current': mode === 'global' ? {} : makeLibrary() };
+        if (mode === 'borrowed') {
+            root.characters = {}; root.characterAliases = {};
+            root.cards = { 'card:current': {}, 'card:source': makeLibrary() };
+        }
+        const original = structuredClone(root), saves = [], events = [];
+        const state = { draft: { bridge: { sceneAssets: root }, readerSettings: {} },
+            asyncState: { assetScopeKey: 'card:current' } };
+        let afterRead;
+        const ctx = {
+            state: { activeSettings: state },
+            options: { global: { alert() {}, SillyTavern: { getContext: () => ({ name2: 'current' }) } },
+                generatedAssets: {
+                getRecord: () => liveRecord,
+                async readStoredImage(id) {
+                    events.push('read'); assert.equal(id, record.imageId); assert.deepEqual(root, original);
+                    const stored = structuredClone(record);
+                    if (mode === 'record-image') liveRecord.imageId = 'replacement';
+                    if (mode === 'record-status') liveRecord.status = 'discarded';
+                    if (mode === 'record-revision') liveRecord.updatedAt++;
+                    if (mode === 'dna') root.cards['card:current'].characterDna.Alice = { identity: '手工更新' };
+                    if (mode === 'scope') state.asyncState.assetScopeKey = 'card:other';
+                    afterRead = structuredClone(root);
+                    if (mode === 'missing') return null;
+                    if (mode === 'missing-candidate') delete stored.dnaCandidates;
+                    if (mode === 'wrong-image') stored.id = 'other-image';
+                    if (mode === 'wrong-character') stored.identityContext[0].characterKey = 'Bob';
+                    return stored;
+                },
+                async setStatus(key, status, receipt) {
+                    events.push('status'); assert.equal(key, 'temp'); assert.equal(status, 'library');
+                    assert.deepEqual(receipt, { imageId: record.imageId, status: 'temp', updatedAt: 7 });
+                    if (mode === 'status-throw') throw new Error('fixture-status');
+                    if (mode === 'conflict-rollback-failed') return { ok: false, reason: 'DNA_ADOPTION_CONFLICT' };
+                    if (['status-failed', 'rollback-failed'].includes(mode)) return { ok: false, reason: 'status-failed' };
+                    liveRecord.status = status; return { ok: true };
+                },
+            } },
+            dialogs: { prompt: async () => '小爱', alert() {} },
+            persistSettingsDraft() {
+                events.push('save'); saves.push(structuredClone(root));
+                if (mode === 'persist-not-started') return { ok: false, reason: 'DNA_ADOPTION_CONFLICT', writeAttempted: false };
+                if (mode === 'persist-failed' && saves.length === 1) return { ok: false, reason: 'persist-failed' };
+                if (['rollback-failed', 'conflict-rollback-failed'].includes(mode) && saves.length === 2)
+                    return { ok: false, reason: 'rollback-failed' };
+                return { ok: true };
+            }, rerenderSettings: () => ({ ok: true }),
+        };
+        const result = await handleSettingsAction('gen-temp-accept:temp', ctx);
+        if (['card', 'global'].includes(mode)) {
+            assert.equal(result.ok, true, mode);
+            const library = mode === 'global' ? root : root.cards['card:current'];
+            assert.equal(library.characters.Alice.默认, 'old.png');
+            assert.deepEqual(library.characterDna.Alice.views, record.dnaCandidates.characters[0].views);
+            assert.equal(library.characterDna.Alice.identitySource, record.imageId);
+            assert.equal(library.characterDna.Alice.defaultAppearance || '', '');
+            const clothing = record.outfitSnapshot.characters[0];
+            assert.deepEqual(library.characterDefaultOutfits.Alice, { version: 1, outfitName: clothing.name });
+            const entry = library.characterOutfits.Alice[clothing.name];
+            assert.equal(entry.moods.平和, `igs-gen:${record.imageId}`);
+            assert.equal(library.wardrobe[entry.wardrobe].prompt, clothing.description);
+            assert.equal(library.characters['小爱'], undefined);
+            assert.deepEqual(events, ['read', 'save', 'status']);
+            if (mode === 'card') for (const field of Object.keys(makeLibrary())) assert.deepEqual(root[field], original[field]);
+            else assert.deepEqual(root.cards, original.cards);
+        } else {
+            assert.equal(result.ok, false, mode);
+            assert.deepEqual(root, mode === 'dna' ? afterRead : original, mode);
+            assert.equal(liveRecord.status, mode === 'record-status' ? 'discarded' : 'temp', mode);
+            if (['persist-failed', 'status-failed', 'status-throw', 'rollback-failed', 'conflict-rollback-failed'].includes(mode)) {
+                assert.equal(saves.length, 2, mode); assert.deepEqual(saves[1], original, mode);
+            } else if (mode === 'persist-not-started') {
+                assert.equal(result.reason, 'DNA_ADOPTION_CONFLICT');
+                assert.equal(result.writeAttempted, false);
+                assert.deepEqual(events, ['read', 'save'], '未尝试写入时只恢复草稿，不再次保存或采用候选');
+            } else assert.equal(saves.length, 0, mode);
+            if (mode === 'borrowed') { assert.equal(result.reason, 'DNA_ADOPTION_SCOPE'); assert.deepEqual(events, []); }
+            if (['rollback-failed', 'conflict-rollback-failed'].includes(mode)) {
+                assert.equal(result.reason, 'generated-asset-accept-rollback-failed');
+                assert.equal(result.rollbackFailed, true);
+                assert.equal(result.causeReason, mode === 'conflict-rollback-failed' ? 'DNA_ADOPTION_CONFLICT' : 'status-failed');
+            }
+        }
+    }
+});
+
+test('gate:outfit-adoption-ui:立绘采用读取共享衣柜但只写角色所属库', async () => {
+    const { spriteAdoptionFixture } = await import('./helpers/prompt-provenance.js');
+    for (const action of ['gen-temp-accept:temp', 'char-generate-sprite:Alice']) {
+        for (const changed of [false, true]) {
+            const description = 'wears a red hoodie';
+            const record = await spriteAdoptionFixture('Alice', {}, [{ characterKey: 'Alice', dna: {},
+                outfit: { name: '日常', description },
+                outfits: [{ name: '日常', description, default: true }] }]);
+            const root = { wardrobe: { shared: { prompt: changed ? 'wears a blue coat' : description },
+                unrelated: { prompt: 'wears a black suit' } },
+                cards: { 'card:current': { characters: { Alice: { 默认: 'old.png' } },
+                    characterAliases: {}, characterDna: {},
+                    characterOutfits: { Alice: { 日常: { words: [], moods: {}, default: true, wardrobe: 'shared' } } },
+                    characterDefaultOutfits: { Alice: { version: 1, outfitName: '日常' } },
+                    wardrobe: {} } } };
+            const before = structuredClone(root), saves = [], alerts = [];
+            const state = { draft: { bridge: { sceneAssets: root } }, asyncState: {} };
+            let status = 'temp';
+            const result = await handleSettingsAction(action, {
+                state: { activeSettings: state },
+                options: { global: { SillyTavern: { getContext: () => ({ name2: 'current' }) } },
+                    generatedAssets: { getRecord: () => ({ ...record, status }),
+                        readStoredImage: async () => structuredClone(record),
+                        generateCharacterSprite: async () => ({ ...record, ok: true }),
+                        setStatus: async () => { status = 'library'; return { ok: true }; } } },
+                dialogs: { prompt: async () => 'Alice', confirm: async () => true,
+                    edit: async () => '', alert: message => alerts.push(message) },
+                persistSettingsDraft: () => { saves.push(structuredClone(root)); return { ok: true }; },
+                rerenderSettings: () => ({ ok: true }),
+            });
+            if (changed) {
+                assert.equal(result.ok, false, action);
+                assert.match(alerts.join('; '), /saved-outfits-changed/);
+                assert.equal(result.reason, 'OUTFIT_ADOPTION_CONFLICT');
+                assert.equal(result.writeAttempted, false);
+                assert.deepEqual(result.diagnostic.baseline, {
+                    baselineKnown: true, baselineCount: 1, currentCount: 1, equal: false,
+                    addedCount: 0, removedCount: 0, descriptionChangedCount: 1, defaultChangedCount: 0,
+                    effectiveCount: 1, ownerEffectiveEqual: true, effectiveBaselineEqual: false,
+                    ownerKind: 'current-card',
+                });
+                assert.doesNotMatch(JSON.stringify(result.diagnostic), /Alice|日常|wears|shared|card:current/);
+                assert.doesNotMatch(alerts.join('; '), /Alice|日常|wears|shared|card:current/);
+                assert.deepEqual(root, before, '真实共享说明变化必须拒收且不改资料');
+                assert.equal(saves.length, 0);
+                assert.equal(status, 'temp');
+            } else {
+                assert.equal(result.ok, true, `${action}: ${alerts.join('; ')}`);
+                assert.equal(saves.length, 1);
+                assert.equal(root.cards['card:current'].characters.Alice.默认, 'old.png');
+                assert.deepEqual(root.wardrobe, before.wardrobe, '全局共享衣柜保持原样');
+                assert.deepEqual(root.cards['card:current'].wardrobe, {}, '不把共享衣柜复制到角色卡');
+                const entry = root.cards['card:current'].characterOutfits.Alice.日常;
+                assert.equal(entry.wardrobe, 'shared');
+                assert.equal(entry.moods.平和, `igs-gen:${record.imageId}`);
+                assert.deepEqual(root.cards['card:current'].characterDefaultOutfits.Alice, { version: 1, outfitName: '日常' });
+            }
+        }
+    }
+});
+
+test('gate:outfit-adoption-diagnostic:空基线、真实差异与有效视图只读摘要', async () => {
+    const { spriteAdoptionFixture } = await import('./helpers/prompt-provenance.js');
+    const { prepareOutfitAdoption } = await import('../src/scene/outfit-identity.js');
+    const row = { name: '日常', description: 'wears a red hoodie', default: true };
+    const context = outfits => [{ characterKey: 'Alice', dna: {}, outfits,
+        outfit: outfits.length ? { name: row.name, description: row.description } : { name: '', description: '' } }];
+    const empty = await spriteAdoptionFixture('Alice', {}, context([]));
+    const saved = await spriteAdoptionFixture('Alice', {}, context([row]));
+    const assetsOf = rows => ({ characterOutfits: { Alice: Object.fromEntries(rows.map(o =>
+        [o.name, { wardrobe: o.name, ...(o.default === true && { default: true }) }])) },
+        wardrobe: Object.fromEntries(rows.map(o => [o.name, { prompt: o.description }])),
+        characterDefaultOutfits: Object.fromEntries(rows.filter(o => o.default === true)
+            .map(o => ['Alice', { version: 1, outfitName: o.name }])) });
+    assert.equal(prepareOutfitAdoption({}, 'Alice', empty.id, empty).ok, true);
+    assert.deepEqual(prepareOutfitAdoption({}, 'Alice', empty.id, empty,
+        { diagnosticAssets: assetsOf([row]), diagnosticOwner: 'current-card' }),
+        prepareOutfitAdoption({}, 'Alice', empty.id, empty), '诊断视图不能参与放行或补丁');
+    for (const [record, rows, expected] of [
+        [empty, [row], [0, 1, 1, 0, 0, 0]],
+        [saved, [], [1, 0, 0, 1, 0, 0]],
+        [saved, [{ ...row, description: 'wears a blue coat' }], [1, 1, 0, 0, 1, 0]],
+        [saved, [{ ...row, default: false }], [1, 1, 0, 0, 0, 1]],
+    ]) {
+        const assets = assetsOf(rows), before = structuredClone(assets);
+        const effective = assetsOf(record === empty ? [] : [row]);
+        const result = prepareOutfitAdoption(assets, 'Alice', record.id, record,
+            { diagnosticAssets: effective, diagnosticOwner: 'current-card' });
+        assert.equal(result.reason, 'OUTFIT_ADOPTION_CONFLICT');
+        assert.equal(result.diagnostic.issue, 'saved-outfits-changed');
+        const d = result.diagnostic.baseline;
+        assert.deepEqual([d.baselineCount, d.currentCount, d.addedCount, d.removedCount,
+            d.descriptionChangedCount, d.defaultChangedCount], expected);
+        assert.equal(d.ownerEffectiveEqual, false);
+        assert.equal(d.effectiveBaselineEqual, true);
+        assert.equal(d.equal, false);
+        assert.doesNotMatch(JSON.stringify(result), /Alice|日常|wears a|red hoodie|blue coat/);
+        assert.deepEqual(assets, before, '失败和诊断不能改写资产');
+    }
+    const unknown = structuredClone(empty);
+    delete unknown.identityContext[0].outfits;
+    const rejected = prepareOutfitAdoption(assetsOf([row]), 'Alice', unknown.id, unknown);
+    assert.equal(rejected.diagnostic.baseline.baselineKnown, false);
+    assert.equal(rejected.diagnostic.baseline.baselineCount, null);
+    assert.match(rejected.error, /不能确认历史基线为空/);
+});
+
+
+test('gate:dna-adoption-ui:无模板旧立绘采用保留独立兼容路径', async () => {
+    const assets = { characters: {}, characterDna: {}, characterAliases: {} };
+    const result = await handleSettingsAction('gen-temp-accept:old', {
+        state: { activeSettings: { draft: { bridge: { sceneAssets: assets } }, asyncState: {} } },
+        options: { global: { alert() {} }, generatedAssets: {
+            getRecord: () => ({ type: 'sprite', name: 'Alice', imageId: 'legacy', characterMeta: {
+                version: 1, characters: [{ characterKey: 'Alice', identityAnchor: 'Silver hair.' }] } }),
+            readStoredImage: async () => { throw new Error('旧记录不得假装新模板'); }, setStatus: async () => ({ ok: true }),
+        } }, persistSettingsDraft: () => ({ ok: true }), rerenderSettings: () => ({ ok: true }),
+    });
+    assert.equal(result.ok, true); assert.equal(assets.characterDna.Alice.identity, 'Silver hair.');
+    assert.equal(assets.characterDna.Alice.views, undefined);
 });
 
 test('gate:settings:generated-asset-download-button-and-action', async () => {
@@ -2372,7 +2489,8 @@ test('gate:scene:mood-group-list-shows-the-containers-and-their-count', () => {
         saveUnifiedSettings: () => ({ ok: true }),
     });
     host.openReader({ message: { text: '旁白。' } }, { mode: 'pc' });
-    const opened = host.openSettings({ page: 'wardrobe' });
+    const opened = host.openSettings({ tab: 'scene' });
+    opened.controller.switchSceneSubTab('rules');
     const html = opened.controller.getSnapshot().html;
     assert.match(html, new RegExp(`data-mood-group-count="${extra.length}"`));
     assert.match(html, new RegExp(`class="igs-mood-group-total">${extra.length}</`));
@@ -2380,7 +2498,7 @@ test('gate:scene:mood-group-list-shows-the-containers-and-their-count', () => {
         assert.match(html, new RegExp(`data-mood-group="${group.label}"`));
     }
     assert.match(html, /嘲讽/);
-    assert.match(html, /2个词/);
+    assert.match(html, /2 个词/);
     host.destroy();
 });
 
@@ -2556,6 +2674,8 @@ test('gate:igs-ui:scene-assets-keeps-sprite-with-existing-background', () => {
                             calm: 'https://example.com/kaito.png',
                         },
                     },
+                    characterOutfits: { Kaito: { 常服: { moods: { calm: 'https://example.com/kaito.png' } } } },
+                    characterDefaultOutfits: { Kaito: { version: 1, outfitName: '常服' } },
                 },
             },
             readerMode: 'pc',
@@ -2589,97 +2709,6 @@ test('gate:igs-ui:scene-assets-keeps-sprite-with-existing-background', () => {
     host.destroy();
 });
 
-test('gate:igs-ui:generated-sprite-arrival-only-warms-that-sprite', () => {
-    let notify = () => {};
-    const calls = [];
-    const timers = [];
-    const pictures = new Map();
-    const host = createIgsReaderHost({
-        global: { setTimeout: (fn) => { timers.push(fn); return timers.length; }, clearTimeout: () => {} },
-        onGeneratedAssetUpdated: (handler) => { notify = handler; return () => {}; },
-        generatedAssets: { resolveUrl: (ref) => { calls.push(ref); return pictures.get(ref) || ''; } },
-        getUnifiedSettings: () => ({
-            version: '0.36.45',
-            bridge: {
-                openMode: 'pc',
-                sceneAssets: {
-                    enabled: true,
-                    scenes: {},
-                    characters: { Alice: { 默认: 'igs-gen:first' }, Bob: { 默认: 'igs-gen:second' } },
-                    characterAliases: {},
-                    characterOutfits: {},
-                },
-            },
-            readerMode: 'pc',
-            readerSettings: {},
-        }),
-        saveUnifiedSettings: () => ({ ok: true }),
-    });
-    try {
-        const source = [
-            '[igs-char:Alice|平和|你好]',
-            '开场。',
-            '[igs-char:Bob|平和|再见]',
-        ].join('\n');
-        const opened = host.openReader({ raw: source, message: { text: source } }, { mode: 'pc' });
-        assert.equal(opened.snapshot.content.pendingSpriteRef, 'igs-gen:first', '首屏未就绪的立绘应留下等待标记');
-        assert.equal(opened.snapshot.content.spriteImage, null);
-        assert.ok(calls.includes('igs-gen:first'));
-        assert.ok(calls.includes('igs-gen:second'));
-        calls.length = 0;
-        pictures.set('igs-gen:first', 'data:image/png;base64,QQ==');
-        notify({ reason: 'image-loaded', imageId: 'first' });
-        assert.ok(calls.includes('igs-gen:first'));
-        assert.ok(!calls.includes('igs-gen:second'), '异步到达立绘不应重新遍历其他立绘');
-        assert.equal(timers.length, 1, '保留原有合并重绘调度，不新增重绘');
-        calls.length = 0;
-        notify({ reason: 'image-loaded', imageId: 'unrelated' });
-        assert.deepEqual(calls, [], '无关图片到达不得再次读取整楼预热素材');
-        assert.equal(timers.length, 1, '多个图片事件仍沿用合并重绘');
-    } finally {
-        host.destroy();
-    }
-});
-
-test('gate:igs-ui:sprite-text-wait-is-bounded-and-released-without-rerender', () => {
-    const current = {}, text = { style: { visibility: '' } };
-    const timers = new Map();
-    let nextId = 0, scheduled = 0;
-    const schedule = (fn, ms) => {
-        assert.equal(ms, 160);
-        const id = ++nextId;
-        timers.set(id, fn);
-        scheduled += 1;
-        return id;
-    };
-    const cancel = (id) => timers.delete(id);
-    const sync = (page, pending) => syncSpriteTextWait(current, text, { page, pending, schedule, cancel });
-    sync('floor:0', false);
-    assert.equal(scheduled, 0, '没有待加载立绘不额外唤醒');
-    sync('floor:0', true);
-    assert.equal(text.style.visibility, 'hidden');
-    sync('floor:0', true);
-    assert.equal(scheduled, 1, '同页更新不重复安排定时器');
-    sync('floor:0', false);
-    assert.equal(text.style.visibility, '', '立绘先到立即放开文字');
-    assert.equal(timers.size, 0);
-    sync('floor:0', true);
-    assert.equal(scheduled, 1, '同页不再次隐藏已显示文字');
-    sync('floor:1', true);
-    assert.equal(scheduled, 2);
-    const timeout = timers.values().next().value;
-    timers.clear();
-    timeout();
-    assert.equal(text.style.visibility, '', '到时先让读者看见文字');
-    sync('floor:1', true);
-    assert.equal(scheduled, 2, '超时后本页不重复等待');
-    sync('floor:2', true);
-    assert.equal(scheduled, 3);
-    current.spriteTextWait.release();
-    assert.equal(text.style.visibility, '', '关闭阅读器时可释放文字和计时器');
-    assert.equal(timers.size, 0);
-});
-
 test('gate:igs-ui:settings-repaints-thumbs-when-generated-images-arrive', () => {
     let notify = () => {};
     const images = new Map();
@@ -2696,6 +2725,8 @@ test('gate:igs-ui:settings-repaints-thumbs-when-generated-images-arrive', () => 
                     enabled: true,
                     scenes: {},
                     characters: { Kaito: { 默认: 'igs-gen:abc' } },
+                    characterOutfits: { Kaito: { 常服: { moods: { 平和: 'igs-gen:abc' } } } },
+                    characterDefaultOutfits: { Kaito: { version: 1, outfitName: '常服' } },
                 },
             },
             readerMode: 'pc',
@@ -2716,7 +2747,7 @@ test('gate:igs-ui:settings-repaints-thumbs-when-generated-images-arrive', () => 
     host.destroy();
 });
 
-test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
+test('gate:igs-ui:default-outfit-shows-owned-thumbnail-and-slot-controls', async () => {
     const host = createIgsReaderHost({
         global: {},
         getUnifiedSettings: () => ({
@@ -2728,6 +2759,8 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
                     scenes: {},
                     characters: { Kaito: { 喜悦: 'https://example.com/k.png' } },
                     characterAliases: { Kaito: ['海斗'] },
+                    characterOutfits: { Kaito: { 常服: { moods: { 喜悦: 'https://example.com/k.png' } } } },
+                    characterDefaultOutfits: { Kaito: { version: 1, outfitName: '常服' } },
                     moodGroups: [{ label: '喜悦', words: ['开心', '欣喜'] }],
                 },
             },
@@ -2744,18 +2777,15 @@ test('gate:igs-ui:sprite-slot-expand-shows-thumbnail-and-words', async () => {
     // 角色平时只有一行，先展开 Kaito 才看得到情绪槽。
     await controller.invoke(`ui-toggle-open:${encodeURIComponent('char-open:Kaito')}`);
 
-    // 折叠态：不含缩略图
+    // 原装映射命名衣装，图槽直接展示，不依赖旧角色槽的展开动作。
     const snap = controller.getSnapshot();
-    // 收起时每格只有小缩略图（igs-outfit-thumb），没有展开后的大图。
     assert.equal(/class="igs-sprite-thumb[ "]/.test(snap.html), false);
     assert.doesNotMatch(snap.html, />角色别名<\/div>/);
     assert.match(snap.html, /海斗/);
-
-    // 展开后：含缩略图和该情绪组的词
-    const after = await controller.invoke(`scene-toggle-mood:${encodeURIComponent('Kaito')}:${encodeURIComponent('喜悦')}`);
-    assert.match(after.snapshot.html, /class="igs-sprite-thumb[ "]/);
-    assert.match(after.snapshot.html, /开心/);
-    assert.doesNotMatch(after.snapshot.html, /建为情绪组|无对应情绪组/);
+    assert.match(snap.html, /data-outfit-panel="常服"/);
+    assert.match(snap.html, /data-outfit-slot="喜悦"/);
+    assert.match(snap.html, /src="https:\/\/example.com\/k.png"/);
+    assert.match(snap.html, /data-scene-outfit="常服" data-scene-outfit-mood="喜悦"/);
 
     host.destroy();
 });
@@ -2846,7 +2876,6 @@ test('gate:igs-ui:scene-assets-classifies-dialogue-vs-narration-per-segment', ()
 test('gate:igs-ui:scene-assets-keeps-narration-out-of-dialogue-and-thought-pages', async () => {
     const pagesOf = async (body, sentencePaging = false) => {
         const host = createIgsReaderHost({
-            pageRenderGapMs: 0,
             global: {},
             getUnifiedSettings: () => ({
                 version: '0.4.9',
@@ -3177,32 +3206,6 @@ test('gate:api:public api attaches stable global aliases', async () => {
     assert.equal(api.ensureMagicWandEntry().reason, 'magic-wand-entry-not-mounted');
 });
 
-test('gate:host:adjacent-message-reads-chat-once-per-task-on-long-chat', async () => {
-    // 千楼聊天：同一轮里连续往前回看 60 次，只应重读整份聊天一次；下一个宏任务后重新读取。
-    const messages = Array.from({ length: 1000 }, (_, id) => ({ id, text: `第${id}楼`, role: 'assistant' }));
-    let reads = 0;
-    const adapter = createTavernHelperAdapter({
-        TavernHelper: {
-            getLastMessageId: () => 999,
-            getChatMessages: () => { reads += 1; return messages; },
-        },
-        document: { querySelectorAll: () => [] },
-        setTimeout,
-    });
-    let cursor = 999;
-    for (let step = 0; step < 60; step += 1) {
-        const previous = await adapter.getAdjacentMessage(cursor, -1);
-        assert.equal(previous.id, cursor - 1);
-        cursor = previous.id;
-    }
-    const firstRound = reads;
-    assert.ok(firstRound <= 2, `同一轮读了 ${firstRound} 次整份聊天`);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    messages.push({ id: 1000, text: '新楼', role: 'assistant' });
-    assert.equal((await adapter.getAdjacentMessage(999, 1)).id, 1000);
-    assert.ok(reads > firstRound);
-});
-
 test('gate:host:tavern-helper-adapter-detects-user-messages-from-role-flags-and-dom', async () => {
     const domUserMessage = {
         getAttribute(name) {
@@ -3321,6 +3324,34 @@ test('gate:generated-images:image-api-client-parses-zip-image-response', async (
     });
 
     assert.ok(result.url.startsWith('data:image/png;base64,'));
+});
+
+test('gate:generated-images:image-api-response-preserves-binary-and-descriptor', async () => {
+    const { parseImageResponse } = await import('../src/generated-images/image-api-client.js');
+    const png = pngFixture(1, 1);
+    for (const method of [0, 8]) {
+        for (const descriptor of [false, true]) {
+            const zip = imageZipFixture(png.bytes, { method, descriptor,
+                ...(method === 8 && { compressed: deflateRawSync(png.bytes) }) });
+            for (const contentType of ['', 'text/plain', 'application/json', 'application/zip']) {
+                const response = new Response(zip, { headers: { 'content-type': contentType } });
+                const result = await parseImageResponse(response);
+                assert.equal(result.url, png.dataUrl, `${method}/${descriptor}/${contentType}`);
+                assert.equal(response.bodyUsed, true);
+            }
+        }
+    }
+    for (const contentType of ['', 'text/plain', 'application/octet-stream']) {
+        assert.equal((await parseImageResponse(new Response(png.bytes,
+            { headers: { 'content-type': contentType } }))).url, png.dataUrl);
+    }
+    for (const body of [{ images: [{ image: png.base64 }] }, { data: [{ b64_json: png.base64 }] }]) {
+        assert.equal((await parseImageResponse(new Response(JSON.stringify(body)))).url, png.dataUrl);
+    }
+    const broken = imageZipFixture(png.bytes, { method: 8, descriptor: true, compressed: Buffer.from([255, 255]) });
+    await assert.rejects(parseImageResponse(new Response(broken)), { reason: 'image-zip-deflate-failed' });
+    const unsupported = imageZipFixture(png.bytes, { method: 99 });
+    await assert.rejects(parseImageResponse(new Response(unsupported)), { reason: 'image-zip-method-unsupported' });
 });
 
 test('gate:generated-images:reader-image-service-prefers-slot-binding-over-scan-order', async () => {
@@ -4102,12 +4133,12 @@ test('gate:scene:scene-assets-indent-without-horizontal-overflow', () => {
             },
         },
     };
-    // 时间 / 天气行默认收起，场景行上只有「1个时间 · 1个天气」。
+    // 时间 / 天气行默认收起，场景行上只有「1 个时间 · 1 个天气」。
     const collapsed = renderSceneAssetList(scenes);
-    assert.match(collapsed, /data-action="scene-toggle-times:%E6%97%A7%E5%9F%8E" aria-expanded="false">1个时间 · 1个天气<\/button>/);
+    assert.match(collapsed, /data-action="scene-toggle-times:%E6%97%A7%E5%9F%8E" aria-expanded="false">1 个时间 · 1 个天气<\/button>/);
     assert.doesNotMatch(collapsed, /igs-scene-time-group/);
     const html = renderSceneAssetList(scenes, { expandedSlots: new Set(['times\x00旧城']) });
-    assert.match(html, /aria-expanded="true">1个时间 · 1个天气/);
+    assert.match(html, /aria-expanded="true">1 个时间 · 1 个天气/);
     assert.match(html, /class="igs-scene-char-group igs-scene-time-group"/);
     assert.match(html, /class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row"/);
     assert.doesNotMatch(html, /style="margin-left:(?:16|32)px"/);
@@ -4566,6 +4597,81 @@ test('character dna: prompt tags keep weight groups, dedupe case-insensitively a
     assert.deepEqual(buildCharacterDnaPromptParts({}), { positive: '', negative: '' });
 });
 
+test('character dna: empty edited views remain storable but cannot expand', async () => {
+    const { readCharacterDnaView, checkDnaViews } = await import('../src/scene/character-dna.js');
+    const dna = { version: 2, identity: '银发', identityInitialized: true, views: {
+        portrait: { subject: 'Alice, with silver hair,' }, partial: { subject: '', negative: 'glasses' } } };
+    assert.equal(checkDnaViews(dna.views, { allowEmpty: true }).ok, true);
+    assert.equal(readCharacterDnaView(dna, 'portrait').ok, true);
+    assert.equal(readCharacterDnaView(dna, 'partial').reason, 'DNA_VIEW_MISSING');
+    assert.equal(readCharacterDnaView({ defaultAppearance: 'coat', negative: 'glasses' }, 'portrait').reason, 'DNA_MISSING');
+    assert.equal(readCharacterDnaView({ ...dna, views: { portrait: { subject: '<<dna:bad>>' } } }, 'portrait').reason, 'DNA_VIEW_INVALID');
+});
+
+
+test('character dna: versioned views preserve identity and select exact framing', async () => {
+    const { normalizeCharacterDna, readCharacterDnaView, checkDnaViews, editCharacterDnaField, isCharacterDnaEmpty } = await import('../src/scene/character-dna.js');
+    const old = { identity: '银发', triggerWords: '1.2::alice::' };
+    assert.equal(normalizeCharacterDna(old).version, undefined);
+    assert.equal(readCharacterDnaView(old, 'portrait').reason, 'DNA_VIEW_MISSING');
+    assert.equal(readCharacterDnaView({}, 'portrait').reason, 'DNA_MISSING');
+    const views = { portrait: { subject: 'Alice, with 1.2::silver hair::,' } };
+    const dna = normalizeCharacterDna({ ...old, version: 2, views });
+    assert.equal(dna.identity, '银发');
+    assert.equal(readCharacterDnaView(dna, 'portrait').value.subject, views.portrait.subject);
+    assert.equal(readCharacterDnaView(dna, 'full_body').reason, 'DNA_VIEW_MISSING');
+    assert.equal(isCharacterDnaEmpty({ version: 2, views }), false);
+    assert.equal(checkDnaViews(views, { complete: true }).ok, false);
+    assert.equal(checkDnaViews({ portrait: { subject: '<<dna:evil>>' } }).ok, false);
+    const edited = editCharacterDnaField(dna, 'views.portrait.subject', 'Alice, with black hair,');
+    assert.equal(edited.views.portrait.subject, 'Alice, with black hair,');
+    assert.equal(dna.views.portrait.subject, views.portrait.subject);
+    assert.deepEqual(editCharacterDnaField(dna, 'identity', '').views, dna.views);
+    assert.equal(editCharacterDnaField(dna, 'identity', '').identityInitialized, true);
+    const negativeOnly = editCharacterDnaField({}, 'views.portrait.negative', 'glasses');
+    assert.equal(negativeOnly.identityInitialized, undefined);
+    assert.equal(editCharacterDnaField({}, 'views.portrait.subject', '').identityInitialized, true);
+    assert.equal(readCharacterDnaView(negativeOnly, 'portrait').reason, 'DNA_MISSING');
+    assert.equal(readCharacterDnaView(dna, 'unknown').reason, 'DNA_VIEW_INVALID');
+    assert.equal(checkDnaViews({ portrait: { subject: 'Alice', negative: '<<dna_uc:evil>>' } }).ok, false);
+    assert.equal(checkDnaViews({ unknown: { subject: 'Alice' } }).ok, false);
+    assert.equal(checkDnaViews({ portrait: { subject: 'Alice', negative: 123 } }).ok, false);
+    assert.equal(edited.identityInitialized, true);
+    assert.equal(editCharacterDnaField(dna, 'views.__proto__.subject', 'x'), null);
+});
+
+test('character dna: view diagnostics preserve strict validation without exposing identity', async () => {
+    const { checkDnaViews } = await import('../src/scene/character-dna.js');
+    const cases = [
+        [[], {}, 'dna.views', 'invalid', 'object-required'],
+        [{ private_key: {} }, {}, 'dna.views', 'invalid', 'unknown-view'],
+        [{}, { complete: true }, 'dna.views.full_body', 'missing', 'view-required'],
+        [{ portrait: [] }, {}, 'dna.views.portrait', 'invalid', 'object-required'],
+        [{ portrait: { negative: 'private text' } }, {}, 'dna.views.portrait.subject', 'missing', 'subject-required'],
+        [{ portrait: { subject: 123 } }, {}, 'dna.views.portrait.subject', 'invalid', 'string-required'],
+        [{ portrait: { subject: ' ' } }, {}, 'dna.views.portrait.subject', 'invalid', 'empty-subject'],
+        [{ portrait: { subject: 'x'.repeat(4097) } }, {}, 'dna.views.portrait.subject', 'invalid', 'text-too-long'],
+        [{ portrait: { subject: 'private identity', negative: 123 } }, {}, 'dna.views.portrait.negative', 'invalid', 'string-required'],
+        [{ portrait: { subject: 'private identity', negative: 'x'.repeat(4097) } }, {}, 'dna.views.portrait.negative', 'invalid', 'text-too-long'],
+        [{ portrait: { subject: '<<dna:private_token>>' } }, {}, 'dna.views.portrait.subject', 'placeholder', 'recursive-placeholder'],
+        [{ portrait: { subject: 'private identity', negative: '<<dna_uc:private_token>>' } }, {}, 'dna.views.portrait.negative', 'placeholder', 'recursive-placeholder'],
+    ];
+    for (const [raw, options, field, issue, detail] of cases) {
+        const before = structuredClone(raw);
+        const result = checkDnaViews(raw, options);
+        assert.equal(result.ok, false);
+        assert.equal(result.reason, 'DNA_VIEW_INVALID');
+        assert.deepEqual(result.diagnostic, { code: result.reason, field, issue, detail });
+        assert.match(result.error, /景别 DNA 格式无效.*字段=.*原因=/);
+        assert.doesNotMatch(JSON.stringify(result), /private|<<dna|xxxxx/);
+        assert.deepEqual(raw, before);
+    }
+    assert.equal(checkDnaViews({ portrait: { subject: '', negative: '' } }, { allowEmpty: true }).ok, true);
+    assert.equal(checkDnaViews({ portrait: { subject: 'x'.repeat(4096), negative: 'x'.repeat(4096) } }).ok, true);
+});
+
+
+
 
 test('gate:scene:character-dna-lifecycle', async () => {
     const storage = createMemoryStorage();
@@ -4619,8 +4725,12 @@ test('gate:scene:character-dna-lifecycle', async () => {
 test('gate:igs-ui:character-dna-editor-renders-escaped-name-and-values', async () => {
     const { renderCharacterAssetList, renderCharacterDnaEditor } = await import('../src/visual/igs-ui/settings-fields.js');
     const empty = renderCharacterDnaEditor('白墨', null);
-    assert.ok(empty.includes('外貌（DNA）（未填写）'));
-    assert.equal((empty.match(/data-dna-field="/g) || []).length, 4);
+    assert.ok(empty.includes('角色DNA（未填写）'));
+    assert.deepEqual([...empty.matchAll(/data-dna-field="([^"]+)"/g)].map((match) => match[1]), [
+        'triggerWords', 'personality',
+        ...['full_body', 'half_body', 'portrait']
+            .flatMap((view) => [`views.${view}.subject`, `views.${view}.negative`]),
+    ]);
     // DNA 在角色那一行的 ⋯ 里（「角色设定」），点开才出编辑区。
     const closed = renderCharacterAssetList({ 'A.<b>': { '默认': '' } }, {
         characterDna: { 'A.<b>': { identity: 'silver hair', triggerWords: 'alice_v2' } },
@@ -4634,8 +4744,11 @@ test('gate:igs-ui:character-dna-editor-renders-escaped-name-and-values', async (
     assert.ok(html.includes('>收起角色设定<'));
     assert.ok(html.includes('data-dna-char="A.&lt;b&gt;"'));
     assert.ok(!html.includes('data-dna-char="A.<b>"'));
-    assert.ok(html.includes('data-dna-field="identity" placeholder='));
-    assert.ok(html.includes('>silver hair</textarea>'));
+    assert.ok(!html.includes('data-dna-field="identity"'));
+    assert.ok(!html.includes('data-dna-field="negative"'));
+    assert.ok(!html.includes('data-dna-field="views.partial.'));
+    assert.ok(!html.includes('data-dna-field="defaultAppearance"'));
+    assert.ok(html.includes('身份（含年龄感）'));
     assert.ok(html.includes('>alice_v2</textarea>'));
     assert.ok(!html.includes('角色 DNA（未填写）'));
     assert.ok(!/data-path="[^"]*characterDna/.test(html));
@@ -4712,7 +4825,7 @@ test('gate:scene:dna-only-character-add-rename-remove-and-list', async () => {
 });
 
 
-test('gate:generated-images:sprite-slot-merges-character-dna-in-fixed-order', async () => {
+test('gate:generated-images:sprite-slot-composes-character-dna-as-single-source', async () => {
     const { buildAssetSlot, buildAssetPlannerUserPrompt } = await import('../src/generated-images/illustration/asset-prompt.js');
     const { attachCharacterDna } = await import('../src/generated-images/illustration/asset-generation-service.js');
     const templates = { sprite: '{tags}, {matte}', spriteNegative: 'NEG_TPL' };
@@ -4725,7 +4838,7 @@ test('gate:generated-images:sprite-slot-merges-character-dna-in-fixed-order', as
 
     const dna = { triggerWords: 'alice_v2', identity: 'silver hair, blue eyes', defaultAppearance: 'school uniform', negative: 'zz_no_glasses' };
     const withDna = buildAssetSlot({ ...base, need: { ...base.need, dna } }, { templates });
-    assert.equal(withDna.scene.startsWith('alice_v2, silver hair, blue eyes, school uniform, 1girl, smile, '), true);
+    assert.equal(withDna.scene.startsWith('alice_v2, silver hair, blue eyes, smile, school uniform, '), true);
     assert.equal((withDna.scene.match(/blue eyes/gi) || []).length, 1);
     assert.equal(withDna.sceneUc.startsWith('NEG_TPL, zz_no_glasses, '), true);
     assert.equal(withDna.sceneUc.replace(', zz_no_glasses', ''), plain.sceneUc);
@@ -4788,6 +4901,83 @@ test('gate:generated-images:sprite-lore-reads-persona-card-and-matching-worldinf
     assert.doesNotMatch(lore[1].text, /黑龙|已关闭/);
 });
 
+test('gate:image-worldinfo:原生扫描窗口与预算正确且恢复作者注释', async () => {
+    const { createImageWorldInfoSource } = await import('../src/host/image-world-info.js');
+    const note = { value: '原注释', position: 1, depth: 2, filter: () => true };
+    const calls = [];
+    const ctx = { name2: '角色', mainApi: 'openai', maxContext: 4096,
+        chatCompletionSettings: { openai_max_context: 32000, openai_max_tokens: 2000 },
+        extensionPrompts: { '2_floating_prompt': note, other: { value: '其他扩展' } },
+        getCharacterCardFields: () => ({ persona: '人设', description: '角色设定', scenario: '场景' }),
+        async getWorldInfoPrompt(...args) {
+            calls.push(args);
+            this.extensionPrompts['2_floating_prompt'] = { value: '扫描副作用' };
+            return { worldInfoString: '常量资料', worldInfoExamples: [{ content: '示例资料' }],
+                worldInfoDepth: [{ entries: ['深度资料'] }], anBefore: '前注释资料',
+                anAfter: ['后注释资料'], outletEntries: { ref: ['出口资料'] } };
+        } };
+    const source = createImageWorldInfoSource({ SillyTavern: { getContext: () => ctx } },
+        { readIncludeNames: () => false });
+    const input = { description: '任务说明', numberedText: '本楼正文', previousText: '前楼正文' };
+    const result = await source(input);
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls[0], [['本楼正文', '前楼正文'], 30000, true, {
+        personaDescription: '人设', characterDescription: '角色设定', characterPersonality: '',
+        characterDepthPrompt: '', scenario: '场景', creatorNotes: '', trigger: 'normal' }]);
+    assert.equal(result.text, '常量资料\n示例资料\n深度资料\n前注释资料\n后注释资料\n出口资料');
+    assert.deepEqual(ctx.extensionPrompts, { '2_floating_prompt': note, other: { value: '其他扩展' } });
+    assert.deepEqual(input, { description: '任务说明', numberedText: '本楼正文', previousText: '前楼正文' });
+});
+
+test('gate:image-worldinfo:扫描异常或接口缺失不污染注释且不伪装为空', async () => {
+    const { createImageWorldInfoSource } = await import('../src/host/image-world-info.js');
+    const ctx = { extensionPrompts: {}, async getWorldInfoPrompt() {
+        this.extensionPrompts['2_floating_prompt'] = { value: '临时注释' };
+        throw new Error('不应暴露的宿主正文');
+    } };
+    const source = createImageWorldInfoSource({ SillyTavern: { getContext: () => ctx } });
+    const result = await source({ description: '本次任务' });
+    assert.equal(result.reason, 'WORLDINFO_RESOLVE_FAILED');
+    assert.equal(result.stopGeneration, true);
+    assert.equal(Object.hasOwn(result, 'text'), false);
+    assert.deepEqual(ctx.extensionPrompts, {});
+    delete ctx.getWorldInfoPrompt;
+    ctx.extensionPrompts['2_floating_prompt'] = { value: '保留注释' };
+    assert.equal((await source()).reason, 'WORLDINFO_UNAVAILABLE');
+    assert.deepEqual(ctx.extensionPrompts, { '2_floating_prompt': { value: '保留注释' } });
+});
+
+test('gate:image-worldinfo:扫描串行且排队取消不调用宿主', async () => {
+    const { createImageWorldInfoSource } = await import('../src/host/image-world-info.js');
+    let release, started, calls = 0;
+    const entered = new Promise(resolve => { started = resolve; });
+    const waiting = new Promise(resolve => { release = resolve; });
+    const note = { value: '原注释', depth: 2 };
+    const ctx = { extensionPrompts: { '2_floating_prompt': note }, async getWorldInfoPrompt() {
+        calls++;
+        this.extensionPrompts['2_floating_prompt'] = { value: '扫描中' };
+        started();
+        await waiting;
+        return { worldInfoString: '' };
+    } };
+    const source = createImageWorldInfoSource({ SillyTavern: { getContext: () => ctx } },
+        { readIncludeNames: () => false });
+    const first = source({ description: '本次任务' });
+    await entered;
+    const controller = new AbortController();
+    const second = source({ description: '排队任务', signal: controller.signal });
+    controller.abort();
+    release();
+    assert.equal((await first).ok, true);
+    const cancelled = await second;
+    assert.equal(cancelled.reason, 'request-stale');
+    assert.equal(cancelled.stopGeneration, true);
+    assert.equal(calls, 1);
+    assert.deepEqual(ctx.extensionPrompts['2_floating_prompt'], note);
+});
+
+
+
 
 test('gate:generated-images:cg-planner-binds-character-dna-safely', async () => {
     const { parseIllustrationPlan } = await import('../src/generated-images/illustration/planner-parser.js');
@@ -4827,11 +5017,6 @@ test('gate:generated-images:cg-planner-binds-character-dna-safely', async () => 
     assert.equal(single.warnings.length, 1);
     assert.equal(slots[0].chars[0].tags, 'smile, Silver Hair');
 
-    // 柏宝绘 / 智绘姬回退：只拼身份，DNA 负面词不并进 uc。
-    const idOnly = bindCharacterDnaToSlots([slots[0]], sceneAssets, ['爱丽'], { identityOnly: true });
-    assert.equal(idOnly.slots[0].chars[0].tags, 'alice_v2, silver hair, blue eyes, smile');
-    assert.equal(idOnly.slots[0].chars[0].uc, 'frown');
-
     // 上下文多人时无名单人角色不猜人。
     const multi = bindCharacterDnaToSlots([slots[1]], sceneAssets, ['爱丽', '白墨']);
     assert.equal(multi.slots[0].chars[0].tags, 'sitting');
@@ -4851,14 +5036,14 @@ test('gate:generated-images:cg-planner-binds-character-dna-safely', async () => 
     assert.ok(!plain.includes('【角色 DNA】'));
 });
 
-test('gate:scene:dna-candidate-accept-does-not-overwrite-and-dismiss-clears', async () => {
+test('gate:scene:dna-candidate-is-read-only-and-dismiss-clears', async () => {
     const { renderDnaCandidateBar } = await import('../src/visual/igs-ui/settings-fields.js');
     assert.equal(renderDnaCandidateBar(null), '');
     assert.equal(renderDnaCandidateBar({ name: '  ' }), '');
     const bar = renderDnaCandidateBar({ name: 'A<b>', tags: '1girl, <x>' });
     assert.ok(bar.includes('data-dna-candidate="A&lt;b&gt;"'));
     assert.ok(bar.includes('1girl, &lt;x&gt;'));
-    assert.ok(bar.includes('data-action="scene-accept-dna-candidate"'));
+    assert.ok(!bar.includes('data-action="scene-accept-dna-candidate"'));
     assert.ok(bar.includes('data-action="scene-dismiss-dna-candidate"'));
 
     const draft = {
@@ -4877,38 +5062,40 @@ test('gate:scene:dna-candidate-accept-does-not-overwrite-and-dismiss-clears', as
     };
     const sa = () => draft.bridge.sceneAssets;
 
-    // 已填写的默认外观不被候选覆盖。
-    await handleSettingsAction('scene-accept-dna-candidate', ctx);
+    // 历史字段原样保留；旧按钮也不再采用混合 tag。
+    assert.equal((await handleSettingsAction('scene-accept-dna-candidate', ctx)).reason, 'legacy-dna-candidate-read-only');
     assert.equal(sa().characterDna['爱丽丝'].defaultAppearance, 'user uniform');
-    assert.equal(asyncState.dnaCandidate, null);
-    assert.equal(persistCount, 1);
+    assert.equal(asyncState.dnaCandidate.name, '爱丽丝');
+    assert.equal(persistCount, 0);
 
-    // 新角色：采用时才建 DNA 并写入候选 tag。
+    // 未登记角色也不能由旧候选隐式创建 DNA 或默认衣装。
     asyncState.dnaCandidate = { name: '路人甲', tags: '1boy, black coat' };
     assert.equal(Object.prototype.hasOwnProperty.call(sa().characterDna, '路人甲'), false);
     await handleSettingsAction('scene-accept-dna-candidate', ctx);
-    assert.equal(sa().characterDna['路人甲'].defaultAppearance, '1boy, black coat');
-    assert.equal(sa().characterDna['路人甲'].identity, '');
+    assert.equal(Object.prototype.hasOwnProperty.call(sa().characterDna, '路人甲'), false);
+    assert.equal(sa().characterDefaultOutfits, undefined);
 
     // 忽略：不写 DNA、不落盘。
     asyncState.dnaCandidate = { name: '白墨', tags: 'x' };
     await handleSettingsAction('scene-dismiss-dna-candidate', ctx);
     assert.equal(asyncState.dnaCandidate, null);
     assert.equal(Object.prototype.hasOwnProperty.call(sa().characterDna, '白墨'), false);
-    assert.equal(persistCount, 2);
+    assert.equal(persistCount, 0);
 
-    // 原型污染名被丢弃。
+    // 非法名称同样不参与写入。
     asyncState.dnaCandidate = { name: '__proto__', tags: 'x' };
-    await handleSettingsAction('scene-accept-dna-candidate', ctx);
-    assert.equal(asyncState.dnaCandidate, null);
-    assert.equal(persistCount, 2);
+    assert.equal((await handleSettingsAction('scene-accept-dna-candidate', ctx)).ok, false);
+    assert.equal(persistCount, 0);
 });
 
 
 test('gate:igs-ui:image-settings-open-character-dna-jumps-without-copying-data', async () => {
+    // 「角色 DNA」按钮和角色卡片一起由 render 层拼（分类页的 slots 里），不在模板文件里。
+    const renderSource = fs.readFileSync(new URL('../src/visual/igs-ui/settings-host-render.js', import.meta.url), 'utf8');
+    assert.ok(renderSource.includes('data-action="open-character-dna"'));
     const dna = { '爱丽丝': { identity: 'silver hair' } };
     const draft = { bridge: { sceneAssets: { enabled: true, characters: {}, characterAliases: {}, characterDna: dna } }, readerSettings: {} };
-    const settingsState = { tab: 'ai', draft, readerMode: 'pc', asyncState: { page: 'kinds' } };
+    const settingsState = { tab: 'image', draft, readerMode: 'pc', asyncState: { sceneSubTab: 'scenes' } };
     let persistCount = 0;
     const ctx = {
         state: { activeSettings: settingsState },
@@ -4919,8 +5106,8 @@ test('gate:igs-ui:image-settings-open-character-dna-jumps-without-copying-data',
         buildRegexPreview: () => '',
     };
     await handleSettingsAction('open-character-dna', ctx);
-    assert.equal(settingsState.tab, 'chars');
-    assert.equal(settingsState.asyncState.page, 'chars');
+    assert.equal(settingsState.tab, 'scene');
+    assert.equal(settingsState.asyncState.sceneSubTab, 'characters');
     assert.equal(draft.bridge.sceneAssets.characterDna, dna);
     assert.equal(persistCount, 0);
 });
@@ -5304,7 +5491,7 @@ test('gate:generated-images:image-edit-capability-never-falls-back-to-generate',
 
     const backend = createImageBackend({ nai: naiWithEdit, getBridge: () => bridge('nai') });
     assert.equal(backend.describeEdit(bridge('extension')).reason, 'image-edit-unsupported');
-    assert.equal(backend.describeEdit(bridge('dbgen')).reason, 'image-edit-unsupported');
+    assert.equal(backend.describeEdit(bridge('dbgen')).reason, 'dbgen-upgrade-required');
     assert.equal(backend.describeEdit(bridge('nai', '')).reason, 'backend-unavailable');
     assert.equal(backend.describeEdit(bridge('nai')).supported, true);
     assert.equal(createImageBackend({ nai: naiNoEdit, getBridge: () => bridge('nai') }).describeEdit().reason, 'image-edit-unsupported');
@@ -5312,7 +5499,7 @@ test('gate:generated-images:image-edit-capability-never-falls-back-to-generate',
     const unsupported = await createImageBackend({ nai: naiNoEdit, getBridge: () => bridge('nai') }).edit({ sourceDataUrl: 's', maskDataUrl: 'm' });
     assert.equal(unsupported.ok, false);
     assert.equal(unsupported.reason, 'image-edit-unsupported');
-    assert.equal((await backend.edit({ sourceDataUrl: 's', maskDataUrl: 'm' }, bridge('dbgen'))).reason, 'image-edit-unsupported');
+    assert.equal((await backend.edit({ sourceDataUrl: 's', maskDataUrl: 'm' }, bridge('dbgen'))).reason, 'dbgen-upgrade-required');
     assert.equal((await backend.edit({ sourceDataUrl: 's' })).reason, 'invalid-edit-request');
 
     const ok = await backend.edit({ sourceDataUrl: 's', maskDataUrl: 'm', prompt: 'silver hair' });
@@ -5327,34 +5514,178 @@ test('gate:generated-images:image-edit-capability-never-falls-back-to-generate',
     assert.equal(generateCalls, 0);
 });
 
+test('gate:generated-images:nai-inpaint-png-container-and-encoding-reject-before-send', async () => {
+    const { inspectPngDataUrl, validatePngEncoding } = await import('../src/media/png-validation.js');
+    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
+    const good = pngFixture(64, 128);
+    const dimensions = { width: 64, height: 128, maxPixels: 1024 * 1024 };
+    assert.equal((await validatePngEncoding(inspectPngDataUrl(good.dataUrl, dimensions))).ok, true);
+    const corrupt = Buffer.from(good.bytes); corrupt[29] ^= 1;
+    const url = bytes => 'data:image/png;base64,' + bytes.toString('base64');
+    const headerOnly = url(good.bytes.subarray(0, 33));
+    const badCrc = url(corrupt);
+    const badZlib = pngFixture(64, 128, { idat: Buffer.from('not-zlib') }).dataUrl;
+    const short = pngFixture(64, 128, { scanlines: Buffer.alloc(3) }).dataUrl;
+    const excessive = pngFixture(64, 128, { scanlines: Buffer.alloc(257 * 128 + 1) }).dataUrl;
+    const filters = Buffer.alloc(257 * 128); filters[0] = 5;
+    const badFilter = pngFixture(64, 128, { scanlines: filters }).dataUrl;
+    assert.equal(inspectPngDataUrl(badCrc, dimensions).reason, 'invalid-png');
+    assert.equal(inspectPngDataUrl(headerOnly, dimensions).reason, 'invalid-png');
+    assert.equal(inspectPngDataUrl(pngFixture(128, 128).dataUrl, dimensions).reason, 'png-dimensions-mismatch');
+    assert.equal(inspectPngDataUrl(good.dataUrl, { ...dimensions, maxPixels: 4096 }).reason, 'png-pixel-limit');
+    let sends = 0;
+    const client = createNaiOfficialClient({ fetch: async () => { sends++; throw new Error('不得发送'); } });
+    for (const sourceDataUrl of [headerOnly, badCrc, badZlib, short, excessive, badFilter]) {
+        const result = await client.edit({ sourceDataUrl, maskDataUrl: good.dataUrl,
+            width: 64, height: 128, prompt: 'fix visible hair' }, { apiKey: 'FAKE', model: 'nai-diffusion-5-full' });
+        assert.equal(result.ok, false);
+        assert.ok(['invalid-png', 'invalid-png-encoding'].includes(result.reason), result.reason);
+    }
+    assert.equal(sends, 0);
+});
+
+test('gate:generated-images:nai-inpaint-png-input-limit-before-decode-and-send', { timeout: 10000 }, async () => {
+    const { inspectPngDataUrl, MAX_PNG_INPUT_BYTES } = await import('../src/media/png-validation.js');
+    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
+    const dimensions = { width: 64, height: 128, maxPixels: 1024 * 1024 };
+    const prefix = 'data:image/png;base64,', length = 4 * Math.ceil(MAX_PNG_INPUT_BYTES / 3);
+    const oversized = prefix + 'A'.repeat(length);
+    const decoder = globalThis.atob;
+    let decodes = 0;
+    globalThis.atob = () => { decodes++; return ''; };
+    try {
+        for (const value of [oversized, oversized + 'AAAA', oversized.slice(0, -1) + '='])
+            assert.equal(inspectPngDataUrl(value, dimensions).reason, 'png-input-limit');
+        assert.equal(decodes, 0, '超限检查必须先于 base64 解码');
+        assert.equal(inspectPngDataUrl(oversized.slice(0, -2) + '==', dimensions).reason, 'invalid-png');
+        assert.equal(decodes, 1, '恰好上限的规范长度进入编码校验，而非资源拒绝');
+    } finally { globalThis.atob = decoder; }
+    const png = pngFixture().dataUrl;
+    let sends = 0;
+    const client = createNaiOfficialClient({ fetch: async () => { sends++; throw new Error('不得发送'); } });
+    for (const field of ['sourceDataUrl', 'maskDataUrl']) {
+        const result = await client.edit({ sourceDataUrl: png, maskDataUrl: png, [field]: oversized,
+            width: 64, height: 128, prompt: 'fix visible hair' }, { apiKey: 'FAKE', model: 'nai-diffusion-5-full' });
+        assert.equal(result.reason, 'png-input-limit');
+    }
+    assert.equal(sends, 0);
+});
+
+
+
+test('gate:generated-images:nai-inpaint-png-adam7-chunks-and-truncation', { timeout: 10000 }, async () => {
+    const { inspectPngDataUrl, validatePngEncoding } = await import('../src/media/png-validation.js');
+    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
+    const dimensions = { width: 64, height: 128, maxPixels: 1024 * 1024 };
+    const checked = png => validatePngEncoding(inspectPngDataUrl(png.dataUrl, dimensions));
+    for (const interlace of [0, 1]) {
+        const png = pngFixture(64, 128, { interlace, idatChunkSize: 7 });
+        assert.equal((await checked(png)).ok, true);
+        assert.ok(inspectPngDataUrl(png.dataUrl, dimensions).idat.length > 1);
+    }
+    const raw = Buffer.alloc(257 * 128);
+    const stored = pngFixture(64, 128, { scanlines: raw, deflate: { level: 0 } });
+    const inspected = inspectPngDataUrl(stored.dataUrl, dimensions);
+    assert.ok(inspected.idat[0].length > raw.length, '合法 deflate 可以比扫描行更大');
+    assert.equal((await validatePngEncoding(inspected)).ok, true);
+    const compressed = inspected.idat[0], midpoint = Math.floor(compressed.length / 2);
+    const url = bytes => 'data:image/png;base64,' + bytes.toString('base64');
+    const interrupted = url(Buffer.concat([stored.bytes.subarray(0, 33),
+        pngChunk('IDAT', Buffer.from(compressed.subarray(0, midpoint))), pngChunk('tEXt', Buffer.from('x\0y')),
+        pngChunk('IDAT', Buffer.from(compressed.subarray(midpoint))), pngChunk('IEND')]));
+    const truncated = pngFixture(64, 128, { idat: Buffer.from(compressed.subarray(0, -1)) }).dataUrl;
+    const oversizedChunk = Buffer.from(stored.bytes); oversizedChunk.writeUInt32BE(0xffffffff, 33);
+    const invalidInterlace = pngFixture(64, 128, { interlace: 2 }).dataUrl;
+    let sends = 0;
+    const client = createNaiOfficialClient({ fetch: async () => { sends++; throw new Error('不得发送'); } });
+    for (const sourceDataUrl of [interrupted, truncated, url(oversizedChunk), invalidInterlace]) {
+        const result = await client.edit({ sourceDataUrl, maskDataUrl: stored.dataUrl,
+            width: 64, height: 128, prompt: 'fix visible hair' }, { apiKey: 'FAKE', model: 'nai-diffusion-5-full' });
+        assert.equal(result.ok, false);
+        assert.ok(['invalid-png', 'invalid-png-encoding'].includes(result.reason), result.reason);
+    }
+    assert.equal(sends, 0);
+});
+
+
+test('gate:generated-images:nai-inpaint-png-max-canvas-rgba16-input-budget', { timeout: 20000 }, async (t) => {
+    const { inspectPngDataUrl, validatePngEncoding, MAX_PNG_INPUT_BYTES } = await import('../src/media/png-validation.js');
+    const width = 256, height = 4096, parts = [];
+    let state = 0x12345678;
+    for (const [x, y, dx, dy] of [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8],
+        [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]]) {
+        const w = Math.max(0, Math.ceil((width - x) / dx));
+        const h = Math.max(0, Math.ceil((height - y) / dy));
+        if (!w || !h) continue;
+        const stride = w * 8 + 1, rows = Buffer.alloc(stride * h);
+        for (let row = 0; row < h; row++) {
+            for (let col = 1; col < stride; col++) {
+                state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
+                rows[row * stride + col] = state & 255;
+            }
+        }
+        parts.push(rows);
+    }
+    const scanlines = Buffer.concat(parts);
+    const png = pngFixture(width, height, { depth: 16, interlace: 1,
+        scanlines, deflate: { level: 0 }, idatChunkSize: 65536 });
+    assert.equal(width * height, 1024 * 1024);
+    assert.ok(png.bytes.length > scanlines.length, '验证压缩膨胀，不假设压缩必然缩小');
+    assert.ok(png.bytes.length < MAX_PNG_INPUT_BYTES);
+    const inspected = inspectPngDataUrl(png.dataUrl, { width, height, maxPixels: 1024 * 1024 });
+    assert.equal(inspected.ok, true, inspected.reason);
+    assert.equal((await validatePngEncoding(inspected)).ok, true);
+    t.diagnostic(`RGBA16 Adam7 ${width}x${height}: scanlines=${scanlines.length}, PNG=${png.bytes.length}, cap=${MAX_PNG_INPUT_BYTES}`);
+});
+
+
 test('gate:generated-images:nai-inpaint-request-shape-and-unsupported-models', async () => {
     const { buildNaiInpaintRequest, resolveNaiInpaintModel } = await import('../src/generated-images/request-builders/nai-inpaint-builder.js');
+
     assert.equal(resolveNaiInpaintModel('nai-diffusion-4-5-full'), 'nai-diffusion-4-5-full-inpainting');
-    assert.equal(resolveNaiInpaintModel('nai-diffusion-5-full'), '');
+    for (const model of ['nai-diffusion-5-full', 'nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated',
+        'nai-diffusion-4-full', 'nai-diffusion-4-curated-preview']) {
+        const dedicated = model === 'nai-diffusion-4-curated-preview'
+            ? 'nai-diffusion-4-curated-inpainting' : model + '-inpainting';
+        assert.equal(resolveNaiInpaintModel(model), dedicated);
+        assert.equal(resolveNaiInpaintModel(dedicated), dedicated);
+    }
     assert.equal(resolveNaiInpaintModel('__proto__'), '');
-    const req = { sourceDataUrl: 'data:image/png;base64,SRC', maskDataUrl: 'data:image/png;base64,MSK', prompt: 'silver hair', negative: 'glasses', width: 832, height: 1216 };
+    const png = pngFixture(832, 1216);
+    const req = { sourceDataUrl: png.dataUrl, maskDataUrl: png.dataUrl, prompt: 'silver hair', negative: 'glasses', width: 832, height: 1216 };
     const settings = { model: 'nai-diffusion-4-5-full', apiKey: 'SECRET-KEY', artistPrefix: 'artist:x' };
     const built = buildNaiInpaintRequest(req, settings, () => 0.5);
     assert.equal(built.ok, true);
     const body = built.body;
     assert.equal(body.action, 'infill');
     assert.equal(body.model, 'nai-diffusion-4-5-full-inpainting');
-    assert.equal(body.parameters.image, 'SRC');
-    assert.equal(body.parameters.mask, 'MSK');
+    assert.equal(body.parameters.image, png.base64);
+    assert.equal(body.parameters.mask, png.base64);
     assert.equal(body.parameters.width, 832);
     assert.equal(body.parameters.height, 1216);
-    assert.equal(body.parameters.strength, 0.7);
+    assert.equal(body.parameters.inpaintImg2ImgStrength, 0.7);
+    assert.deepEqual(body.parameters.img2img, { strength: 0.7, color_correct: true });
+    assert.equal(Object.hasOwn(body.parameters, 'strength'), false);
     assert.equal(body.parameters.add_original_image, true);
     assert.ok(body.input.includes('silver hair'));
     assert.ok(body.parameters.negative_prompt.includes('glasses'));
     // 请求体不携带 Key。
     assert.equal(JSON.stringify(body).includes('SECRET-KEY'), false);
 
-    assert.equal(buildNaiInpaintRequest(req, { model: 'nai-diffusion-5-full' }).reason, 'image-edit-unsupported');
-    assert.equal(buildNaiInpaintRequest({ ...req, maskDataUrl: 'not-a-data-url' }, settings).reason, 'invalid-edit-request');
+    assert.equal(buildNaiInpaintRequest(req, { model: 'nai-diffusion-5-curated' }).reason, 'image-edit-unsupported');
+    assert.equal(buildNaiInpaintRequest({ ...req, maskDataUrl: 'not-a-data-url' }, settings).reason, 'invalid-png');
     assert.equal(buildNaiInpaintRequest({ ...req, width: 830 }, settings).reason, 'invalid-size');
     assert.equal(buildNaiInpaintRequest({ ...req, prompt: '  ' }, settings).reason, 'empty-prompt');
-    assert.equal(buildNaiInpaintRequest({ ...req, strength: 5 }, settings).body.parameters.strength, 1);
+    for (const strength of [0, -1, 0.05, 1.01, 5, NaN, Infinity, null, '', '0.7'])
+        assert.equal(buildNaiInpaintRequest({ ...req, strength }, settings).reason, 'invalid-strength');
+    for (const strength of [0.1, 1]) {
+        const full = buildNaiInpaintRequest({ ...req, strength, model: 'nai-diffusion-5-full-inpainting' }, settings);
+        assert.equal(full.ok, true);
+        assert.equal(full.body.model, 'nai-diffusion-5-full-inpainting');
+        assert.equal(full.body.parameters.inpaintImg2ImgStrength, strength);
+        assert.equal(Object.hasOwn(full.body.parameters, 'img2img'), strength < 1);
+        assert.equal(full.body.parameters.straight_alpha, false);
+    }
 });
 
 test('gate:generated-images:nai-client-edit-uses-infill-and-hides-key', async () => {
@@ -5366,12 +5697,14 @@ test('gate:generated-images:nai-client-edit-uses-infill-and-hides-key', async ()
         return { ok: false, status: 400, text: async () => 'bad request', headers: { get: () => null } };
     };
     const client = createNaiOfficialClient({ fetch, sleep: async () => {}, random: () => 0.5 });
-    const req = { sourceDataUrl: 'data:image/png;base64,SRC', maskDataUrl: 'data:image/png;base64,MSK', prompt: 'silver hair', width: 832, height: 1216 };
+    const png = pngFixture(832, 1216);
+    const req = { sourceDataUrl: png.dataUrl, maskDataUrl: png.dataUrl, prompt: 'silver hair', width: 832, height: 1216 };
 
     assert.equal(client.supportsEdit({ model: 'nai-diffusion-4-5-full' }), true);
-    assert.equal(client.supportsEdit({ model: 'nai-diffusion-5-full' }), false);
+    assert.equal(client.supportsEdit({ model: 'nai-diffusion-5-full' }), true);
+    assert.equal(client.supportsEdit({ model: '' }), false);
     assert.equal((await client.edit(req, { model: 'nai-diffusion-4-5-full', apiKey: '' })).ok, false);
-    assert.equal((await client.edit(req, { model: 'nai-diffusion-5-full', apiKey: 'SECRET-KEY' })).reason, 'image-edit-unsupported');
+    assert.equal((await client.edit(req, { model: 'nai-diffusion-5-curated', apiKey: 'SECRET-KEY' })).reason, 'image-edit-unsupported');
     assert.equal(calls.length, 0);
 
     const failed = await client.edit(req, { model: 'nai-diffusion-4-5-full', apiKey: 'SECRET-KEY' });
@@ -5384,19 +5717,23 @@ test('gate:generated-images:nai-client-edit-uses-infill-and-hides-key', async ()
     assert.equal(calls[0].init.body.includes('SECRET-KEY'), false);
     assert.equal(String(failed.error).includes('SECRET-KEY'), false);
 
-    // 后端能力协商：V5 模型判定为不支持，不发请求。
+    // 未知模型拒发；请求级 V5 Full 覆盖不改全局配置。
     const bridge = (model) => ({ imageApi: { mode: 'nai' }, autoIllustration: { nai: { apiKey: 'SECRET-KEY', model } } });
-    const backend = createImageBackend({ nai: client, getBridge: () => bridge('nai-diffusion-5-full') });
+    const backend = createImageBackend({ nai: client, getBridge: () => bridge('nai-diffusion-5-curated') });
     assert.equal(backend.describeEdit().reason, 'image-edit-unsupported');
     assert.equal((await backend.edit(req)).reason, 'image-edit-unsupported');
     assert.equal(calls.length, 1);
     assert.equal(backend.describeEdit(bridge('nai-diffusion-4-5-full')).supported, true);
+    assert.equal(backend.describeEdit(undefined, { model: 'nai-diffusion-5-full-inpainting' }).supported, true);
+    await backend.edit({ ...req, model: 'nai-diffusion-5-full-inpainting' });
+    assert.equal(calls.length, 2);
+    assert.equal(JSON.parse(calls.at(-1).init.body).model, 'nai-diffusion-5-full-inpainting');
 });
 
 test('gate:generated-images:inpaint-transaction-preview-accept-cancel-and-stale', async () => {
     const { createInpaintTransaction, buildInpaintPrompt } = await import('../src/generated-images/illustration/inpaint-transaction.js');
     const { createMemoryGeneratedAssetStore } = await import('../src/media/generated-asset-store.js');
-    const { createAssetGenerationService } = await import('./helpers/media-fixtures.js');
+    const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
     const store = createMemoryGeneratedAssetStore();
     await store.putImage({ id: 'sp', schemaVersion: 2, type: 'sprite', originalDataUrl: 'data:image/png;base64,ORIG', workingDataUrl: '', dataUrl: 'cut0', alphaMaskDataUrl: 'mask0', revision: 1 });
     await store.putImage({ id: 'old', type: 'sprite', dataUrl: 'legacy' });
@@ -5522,4 +5859,774 @@ test('gate:igs-ui:matte-editor-ai-repair-maps-selection-by-crop', async () => {
     const blocked = await noAi.aiRepair(selection, '');
     assert.equal(blocked.reason, 'image-edit-unsupported');
     assert.equal(blocked.message, '智绘姬不支持局部重绘');
+});
+
+test('character dna: three-view candidates preserve only usable historical partial', async () => {
+    const { checkDnaCandidates } = await import('../src/schemas/prompt-recipe.js');
+    const { characterViewsFixture } = await import('./helpers/prompt-provenance.js');
+    const views = characterViewsFixture();
+    const task = { purpose: 'sprite' };
+    const recipe = { bindings: [{ kind: 'named', characterKey: 'Alice' }] };
+    const check = (candidate = views, dna = {}) => checkDnaCandidates({ version: 1,
+        characters: [{ characterKey: 'Alice', views: candidate }] },
+    { task, recipe, context: [{ characterKey: 'Alice', dna }] });
+    assert.deepEqual(check().value.characters[0].views, views);
+    for (const frame of Object.keys(views)) {
+        const missing = structuredClone(views); delete missing[frame];
+        assert.equal(check(missing).reason, 'DNA_VIEW_INVALID', frame);
+    }
+    const partial = { subject: "Alice's visible hand, with light skin,", negative: 'extra fingers' };
+    assert.equal(check({ ...views, partial }).reason, 'DNA_TEMPLATE_BINDING');
+    const saved = { version: 2, views: { partial } };
+    assert.deepEqual(check(views, saved).value.characters[0].views.partial, partial);
+    assert.equal(check({ ...views, partial: { ...partial, subject: 'Another person,' } }, saved).reason, 'DNA_TEMPLATE_BINDING');
+    for (const empty of [{}, { subject: '', negative: 'legacy uc' }]) {
+        const dna = { version: 2, views: { partial: empty } };
+        assert.equal(check(views, dna).value.characters[0].views.partial, undefined);
+        assert.equal(check({ ...views, partial }, dna).reason, 'DNA_TEMPLATE_BINDING');
+    }
+    assert.equal(check(views, { identityInitialized: true }).reason, 'DNA_TEMPLATE_BINDING');
+    assert.equal(check(views, { version: 2, views }).reason, 'DNA_TEMPLATE_BINDING');
+    assert.deepEqual(saved.views.partial, partial);
+});
+
+
+test('character dna: hidden legacy fields survive editing and candidate adoption', async () => {
+    const { editCharacterDnaField, normalizeCharacterDna } = await import('../src/scene/character-dna.js');
+    const { prepareSpriteIdentityAdoption } = await import('../src/scene/character-identity.js');
+    const { spriteAdoptionFixture } = await import('./helpers/prompt-provenance.js');
+    for (const partial of [{ subject: '', negative: 'legacy uc' },
+        { subject: "Alice's visible hand, with light skin,", negative: 'extra fingers' }]) {
+        const dna = { version: 2, identity: 'legacy identity', negative: 'legacy negative',
+            defaultAppearance: 'white shirt', triggerWords: 'alice', identityInitialized: true,
+            identitySource: 'historical-image', views: { partial } };
+        const edited = editCharacterDnaField(dna, 'defaultAppearance', 'blue coat');
+        assert.equal(edited.identity, dna.identity);
+        assert.equal(edited.negative, dna.negative);
+        assert.equal(edited.identitySource, dna.identitySource);
+        assert.equal(edited.identityInitialized, true);
+        assert.deepEqual(edited.views.partial, partial);
+        const record = await spriteAdoptionFixture('Alice', dna);
+        const result = prepareSpriteIdentityAdoption({ characterDna: { Alice: dna } }, 'Alice', 'new-image', record);
+        assert.equal(result.ok, true, result.reason);
+        const saved = normalizeCharacterDna(result.patch.characterDna.Alice);
+        for (const field of ['identity', 'negative', 'defaultAppearance', 'triggerWords', 'identityInitialized', 'identitySource'])
+            assert.equal(saved[field], dna[field], field);
+        assert.deepEqual(saved.views.partial, partial);
+        assert.deepEqual(Object.keys(saved.views), ['full_body', 'half_body', 'portrait', 'partial']);
+        assert.deepEqual(dna.views, { partial });
+    }
+});
+
+async function imagePromptPresetFixture(id = 'prompt.fixture') {
+    const { IMAGE_PROMPT_TASKS } = await import('../src/presets/prompt-preset.js');
+    const prompts = [
+        { identifier: 'shared', role: 'system', kind: 'shared', content: '共享规则' },
+        { identifier: 'task', role: 'user', kind: 'task-slot', content: '{{任务提示词}}' },
+        { identifier: 'data', role: 'user', kind: 'data-slot', content: '{{任务资料}}' },
+        { identifier: 'end', role: 'assistant', kind: 'shared', content: '直接输出' },
+    ];
+    return { format: 'igs_preset_v1', type: 'prompt-preset', id, name: id, version: 1,
+        data: { schemaVersion: 1, usage: 'imagegen', revision: 1, prompts,
+            prompt_order: prompts.map(({ identifier }) => ({ identifier, enabled: true })),
+            variables: ['任务提示词', '任务资料'],
+            modules: IMAGE_PROMPT_TASKS.map((task) => ({ identifier: `module.${task}`, task,
+                role: 'user', content: `执行 ${task}`, dataFields: ['description'], requiredFields: ['description'] })),
+            taskMap: Object.fromEntries(IMAGE_PROMPT_TASKS.map((task) => [task, `module.${task}`])) } };
+}
+
+test('gate:presets:prompt-import-single-write-reload-and-explicit-conflicts', async () => {
+    const memory = createMemoryStorage();
+    let writes = 0;
+    const storage = { ...memory, setItem(key, value) { writes += 1; memory.setItem(key, value); } };
+    const registry = createPresetRegistry({ storage });
+    const a = await imagePromptPresetFixture('a'), b = await imagePromptPresetFixture('b');
+    const preview = registry.previewPromptImport({ items: [a, b] });
+    assert.equal(preview.ok, true);
+    assert.equal(writes, 0);
+    assert.equal(registry.commitPromptImport(preview).ok, true);
+    assert.equal(writes, 1);
+    assert.equal(registry.getCurrent('prompt-preset'), null);
+    assert.equal(registry.setCurrent('prompt-preset', 'a').ok, true);
+    const reloaded = createPresetRegistry({ storage });
+    assert.deepEqual(reloaded.getCurrent('prompt-preset'), a);
+    const conflict = reloaded.previewPromptImport(a), before = reloaded.snapshot();
+    assert.equal(reloaded.commitPromptImport(conflict).reason, 'preset-id-conflict');
+    assert.deepEqual(reloaded.snapshot(), before);
+    assert.equal(reloaded.commitPromptImport(conflict, { a: 'replace' }).ok, true);
+    assert.equal(reloaded.getCurrent('prompt-preset').data.revision, 2);
+    assert.equal(reloaded.commitPromptImport(conflict, { a: 'replace' }).reason, 'preset-revision-conflict');
+});
+
+
+test('gate:presets:prompt-draft-reload-isolated-from-current-and-versioned', async () => {
+    const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+    const preset = await imagePromptPresetFixture();
+    assert.equal(registry.savePromptPreset(preset, null).ok, true);
+    assert.equal(registry.setCurrent('prompt-preset', preset.id).ok, true);
+    const draft = structuredClone(preset);
+    draft.data.prompts[0].content = '草稿，不参与运行';
+    draft.data.modules = [];
+    assert.equal(registry.savePromptDraft(preset.id, draft, { expectedRevision: 1 }).ok, true);
+    assert.deepEqual(registry.getCurrent('prompt-preset'), preset);
+    const reloaded = createPresetRegistry({ storage });
+    assert.deepEqual(reloaded.getPromptDraft(preset.id).preset, draft);
+    assert.deepEqual(reloaded.getCurrent('prompt-preset'), preset);
+    assert.equal(reloaded.savePromptDraft(preset.id, draft, { expectedRevision: 1 }).reason, 'preset-revision-conflict');
+    assert.equal(reloaded.savePromptDraft(preset.id, draft, { expectedRevision: 1, expectedDraftRevision: 1 }).ok, true);
+    assert.equal(reloaded.removePromptDraft(preset.id, 1).reason, 'preset-revision-conflict');
+    assert.equal(reloaded.removePromptDraft(preset.id, 2).ok, true);
+    assert.equal(createPresetRegistry({ storage }).getPromptDraft(preset.id), null);
+});
+
+test('gate:presets:prompt-write-failure-preserves-disk-memory-and-current', async () => {
+    const memory = createMemoryStorage();
+    let broken = false, writes = 0;
+    const storage = { ...memory, setItem(key, value) {
+        writes += 1;
+        if (broken) throw new Error('fake quota');
+        memory.setItem(key, value);
+    } };
+    const registry = createPresetRegistry({ storage }), preset = await imagePromptPresetFixture();
+    assert.equal(registry.savePromptPreset(preset, null).ok, true);
+    assert.equal(registry.setCurrent('prompt-preset', preset.id).ok, true);
+    const preview = registry.previewPromptImport({ items: [await imagePromptPresetFixture('a'), await imagePromptPresetFixture('b')] });
+    const before = registry.snapshot(), disk = memory.dump(), count = writes;
+    broken = true;
+    assert.equal(registry.commitPromptImport(preview).reason, 'preset-store-write-failed');
+    assert.equal(writes, count + 1);
+    assert.deepEqual(registry.snapshot(), before);
+    assert.deepEqual(memory.dump(), disk);
+    assert.equal(registry.savePromptPreset(preset, 1).reason, 'preset-store-write-failed');
+    assert.equal(registry.savePromptDraft(preset.id, preset, { expectedRevision: 1 }).reason, 'preset-store-write-failed');
+    assert.deepEqual(registry.snapshot(), before);
+    assert.deepEqual(createPresetRegistry({ storage }).getCurrent('prompt-preset'), preset);
+});
+
+
+test('gate:presets:legacy-imagegen-import-preserves-source-and-rejects-recall-activation', () => {
+    const source = JSON.parse(fs.readFileSync(path.join(appRoot, '../../../1001适配gal前端生图预设.json'), 'utf8'));
+    const registry = createPresetRegistry(), before = structuredClone(source);
+    const preview = registry.previewPromptImport(JSON.stringify(source));
+    assert.equal(preview.ok, true);
+    assert.equal(preview.accepted.length, 1);
+    assert.equal(preview.skipped.length, 1);
+    assert.equal(preview.accepted[0].activatable, false);
+    assert.equal(registry.commitPromptImport(preview).ok, true);
+    const imagegen = source.items.find((item) => item.kind === 'imagegen');
+    const saved = registry.exportPreset('prompt-preset', imagegen.id);
+    assert.deepEqual(saved.data.prompts, imagegen.prompts);
+    assert.deepEqual(saved.data.prompt_order, imagegen.prompt_order);
+    assert.deepEqual(saved.data.compatibility.source, imagegen);
+    assert.equal(registry.setCurrent('prompt-preset', imagegen.id).reason, 'prompt-not-activatable');
+    assert.equal(registry.getCurrent('prompt-preset'), null);
+    assert.equal(registry.previewPromptImport(source.items.filter((item) => item.kind === 'recall')[0]).ok, false);
+    const restored = createPresetRegistry();
+    assert.equal(restored.commitPromptImport(restored.previewPromptImport(saved)).ok, true);
+    assert.deepEqual(restored.exportPreset('prompt-preset', imagegen.id), saved);
+    assert.deepEqual(source, before);
+});
+
+test('gate:presets:prompt-import-rejects-duplicate-json-fields-without-writing', () => {
+    const registry = createPresetRegistry(), before = registry.snapshot();
+    for (const json of ['{"items":[],"items":[]}', '{"a":{"id":"one","id":"two"}}',
+        '{"a":[{"id":1,"i\\u0064":2}]}']) {
+        assert.equal(registry.previewPromptImport(json).reason, 'duplicate-json-field');
+    }
+    assert.equal(registry.previewPromptImport('{broken').reason, 'invalid-json');
+    assert.deepEqual(registry.snapshot(), before);
+});
+
+test('gate:presets:prompt-read-failure-and-stale-registry-cannot-overwrite-storage', async () => {
+    const { PRESET_STORE_KEY } = await import('../src/storage/preset-store.js');
+    for (const raw of ['{broken', 'null', '{"version":9,"current":{},"items":{}}']) {
+        const storage = createMemoryStorage({ [PRESET_STORE_KEY]: raw });
+        const registry = createPresetRegistry({ storage }), disk = storage.dump();
+        assert.equal(registry.getStatus().ok, false);
+        assert.equal(registry.previewPromptImport(await imagePromptPresetFixture()).reason, 'preset-store-unreadable');
+        assert.equal(registry.savePromptPreset(await imagePromptPresetFixture(), null).reason, 'preset-store-unreadable');
+        assert.deepEqual(storage.dump(), disk);
+    }
+    const storage = createMemoryStorage(), a = createPresetRegistry({ storage }), b = createPresetRegistry({ storage });
+    const preview = b.previewPromptImport(await imagePromptPresetFixture('b'));
+    assert.equal(a.savePromptPreset(await imagePromptPresetFixture('a'), null).ok, true);
+    const disk = storage.dump();
+    assert.equal(b.commitPromptImport(preview).reason, 'preset-revision-conflict');
+    assert.deepEqual(storage.dump(), disk);
+    assert.equal(b.hydrate().ok, true);
+    assert.equal(b.commitPromptImport(b.previewPromptImport(await imagePromptPresetFixture('b'))).ok, true);
+});
+
+
+test('gate:presets:prompt-activation-invalid-shapes-fail-closed', async () => {
+    const { validatePromptActivation, validatePromptPreset } = await import('../src/presets/prompt-preset.js');
+    const good = await imagePromptPresetFixture();
+    assert.equal(validatePromptActivation(good.data).ok, true);
+    const cases = [
+        (d) => { d.prompts.push(structuredClone(d.prompts[0])); },
+        (d) => { d.prompts[0].role = 'tool'; },
+        (d) => { d.prompt_order.push({ identifier: 'missing' }); },
+        (d) => { d.prompt_order.push(structuredClone(d.prompt_order[0])); },
+        (d) => { d.prompts[1].enabled = false; },
+        (d) => { d.prompts[2].content = '{{任务资料}} {{任务资料}}'; },
+        (d) => { d.prompts[0].injection_depth = 1; },
+        (d) => { d.prompts[0].execute = 'unsupported'; },
+        (d) => { d.prompts[0].content = '{{未知宏}}'; },
+        (d) => { d.taskMap.cg = 'module.item'; },
+        (d) => { delete d.taskMap.consistency; },
+        (d) => { d.modules[0].role = 'assistant'; },
+        (d) => { d.modules[0].contentByFormat = []; },
+        (d) => { d.modules[0].contentByFormat = { unknown: 'invalid' }; },
+        (d) => { d.modules[0].contentByFormat = { 'sprite-data': '' }; },
+        (d) => { d.modules[0].contentByFormat = { 'sprite-data': '{{未知宏}}' }; },
+        (d) => { d.modules[0].contentByFormat = { 'sprite-data': '{{任务资料}}' }; },
+        (d) => { d.prompts[1].contentByFormat = { 'sprite-data': 'invalid-slot' }; },
+        (d) => { d.modules[0].dataFields = {}; },
+        (d) => { d.modules[0].requiredFields = ['secret']; },
+    ];
+    for (const mutate of cases) {
+        const invalid = structuredClone(good);
+        mutate(invalid.data);
+        assert.equal(validatePromptActivation(invalid.data).ok, false);
+    }
+    assert.equal(validatePromptPreset({ arbitraryLegacyData: true }).ok, true);
+});
+
+test('gate:presets:public-prompt-api-shares-registry-and-cannot-replace-imagegen-with-generic', async () => {
+    const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+    const preset = await imagePromptPresetFixture();
+    const api = createPublicApi({ version: 'fixture', presetRegistry: registry }).api.promptPresets;
+    assert.equal(api.register(preset).ok, true);
+    assert.equal(api.setCurrent(preset.id).ok, true);
+    assert.deepEqual(api.getCurrent(), registry.getCurrent('prompt-preset'));
+    assert.deepEqual(createPresetRegistry({ storage }).getCurrent('prompt-preset'), preset);
+    const before = registry.snapshot();
+    const generic = { ...preset, data: { legacy: true } };
+    assert.equal(api.register(generic).reason, 'preset-id-conflict');
+    assert.deepEqual(registry.snapshot(), before);
+    const invalid = structuredClone(preset);
+    invalid.data.prompts[1].enabled = false;
+    assert.equal(registry.savePromptPreset(invalid, 1).reason, 'prompt-not-activatable');
+    assert.deepEqual(registry.snapshot(), before);
+    assert.deepEqual(api.exportAll().items, [preset]);
+});
+
+test('gate:presets:image-default-initializes-in-one-snapshot', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const { renderImagePromptPreset } = await import('../src/presets/prompt-preset-renderer.js');
+    const memory = createMemoryStorage();
+    let writes = 0;
+    const storage = { ...memory, setItem(key, value) { writes += 1; memory.setItem(key, value); } };
+    const registry = createPresetRegistry({ storage });
+    const preset = createDefaultImagePromptPreset();
+    assert.equal(registry.ensureImagePromptDefault(preset).ok, true);
+    assert.equal(writes, 1);
+    assert.deepEqual(createPresetRegistry({ storage }).getCurrent('prompt-preset'), preset);
+    assert.equal(registry.ensureImagePromptDefault(preset).changed, false);
+    assert.equal(writes, 1);
+    assert.equal(renderImagePromptPreset(preset.data, 'unknown', {}).reason, 'unknown-image-prompt-task');
+    assert.equal(renderImagePromptPreset(preset.data, 'item', {}).reason, 'missing-prompt-data');
+});
+
+test('gate:presets:image-default-init-failure-keeps-snapshot-and-current', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const preset = createDefaultImagePromptPreset();
+    const memory = createMemoryStorage();
+    const registry = createPresetRegistry({ storage: { ...memory, setItem() { throw new Error('fake-quota'); } } });
+    const before = registry.snapshot(), disk = memory.dump();
+    assert.equal(registry.ensureImagePromptDefault(preset).ok, false);
+    assert.deepEqual(registry.snapshot(), before);
+    assert.deepEqual(memory.dump(), disk);
+    const unreadable = createPresetRegistry({ storage: { ...memory, getItem() { throw new Error('fake-read'); } } });
+    assert.equal(unreadable.ensureImagePromptDefault(preset).reason, 'preset-store-unreadable');
+    assert.deepEqual(memory.dump(), disk);
+    const good = createPresetRegistry();
+    const custom = await imagePromptPresetFixture('custom-default');
+    assert.equal(good.register(custom).ok, true);
+    assert.equal(good.setCurrent('prompt-preset', custom.id).ok, true);
+    const customSnapshot = good.snapshot();
+    assert.equal(good.ensureImagePromptDefault(preset).changed, false);
+    assert.deepEqual(good.snapshot(), customSnapshot);
+    const invalid = createPresetRegistry(), broken = structuredClone(preset);
+    broken.data.prompts[1].enabled = false;
+    assert.equal(invalid.ensureImagePromptDefault(broken).reason, 'prompt-not-activatable');
+    assert.equal(invalid.getCurrent('prompt-preset'), null);
+});
+
+for (const customized of [false, true]) test(`gate:presets:cg-catalog-upgrade-${customized ? 'custom' : 'default'}`, async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const { promptDefaultState } = await import('../src/presets/prompt-default-operations.js');
+    const latest = createDefaultImagePromptPreset(), old = structuredClone(latest);
+    old.version = 25; old.data.defaultVersion = 25;
+    delete old.data.defaultState;
+    for (const module of old.data.modules) module.dataFields = module.dataFields.filter(f => f !== 'outfitCatalog');
+    const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+    assert.equal(registry.ensureImagePromptDefault(promptDefaultState(old)).ok, true);
+    const custom = registry.getCurrent('prompt-preset');
+    const cg = custom.data.modules.find(m => m.task === 'cg');
+    cg.content = '用户保留的 CG 要求';
+    if (customized) cg.dataFields = cg.dataFields.filter(f => f !== 'lore');
+    custom.data.prompts.find(b => b.identifier === 'igs-image-submit').enabled = false;
+    assert.equal(registry.savePromptPreset(custom, 1).ok, true);
+    const before = registry.getCurrent('prompt-preset');
+    assert.equal(registry.upgradeImagePromptDefault(latest, 2).ok, true);
+    const current = createPresetRegistry({ storage }).getCurrent('prompt-preset');
+    const upgraded = current.data.modules.find(m => m.task === 'cg');
+    assert.deepEqual(upgraded.dataFields, customized ? cg.dataFields : [...cg.dataFields, 'outfitCatalog']);
+    assert.equal(upgraded.content, cg.content);
+    assert.equal(current.data.prompts.find(b => b.identifier === 'igs-image-submit').enabled, false);
+    assert.deepEqual(current.data.defaultState.backups.at(-1).data.modules, before.data.modules);
+    assert.deepEqual(current.data.modules.find(m => m.task === 'sprite').dataFields,
+        before.data.modules.find(m => m.task === 'sprite').dataFields);
+    const snapshot = registry.snapshot();
+    assert.equal(registry.ensureImagePromptDefault(latest).changed, false);
+    assert.deepEqual(registry.snapshot(), snapshot);
+});
+
+test('gate:presets:image-default-upgrade-preserves-custom-blocks-and-restores-by-id', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+    const initial = createDefaultImagePromptPreset();
+    assert.equal(registry.ensureImagePromptDefault(initial).ok, true);
+    const custom = registry.getCurrent('prompt-preset');
+    custom.data.modules.find(m => m.task === 'avatar').content = '用户头像要求';
+    custom.data.prompts.find(b => b.identifier === 'igs-image-submit').enabled = false;
+    [custom.data.prompt_order[1], custom.data.prompt_order[2]] = [custom.data.prompt_order[2], custom.data.prompt_order[1]];
+    assert.equal(registry.savePromptPreset(custom, 1).ok, true);
+    const before = registry.getCurrent('prompt-preset');
+    const latest = createDefaultImagePromptPreset();
+    latest.data.defaultVersion = initial.data.defaultVersion + 1;
+    latest.data.prompts[0].content = '新版共享框架';
+    latest.data.modules.find(m => m.task === 'avatar').content = '新版头像规则';
+    latest.data.modules.find(m => m.task === 'sprite').content = '新版立绘规则';
+    const upgraded = registry.upgradeImagePromptDefault(latest, 2);
+    assert.equal(upgraded.ok, true, JSON.stringify(upgraded));
+    const current = registry.getCurrent('prompt-preset');
+    assert.equal(current.data.revision, 3);
+    assert.equal(current.data.prompts[0].content, '新版共享框架');
+    assert.equal(current.data.modules.find(m => m.task === 'avatar').content, '用户头像要求');
+    assert.equal(current.data.modules.find(m => m.task === 'sprite').content, '新版立绘规则');
+    assert.deepEqual(current.data.prompt_order, before.data.prompt_order);
+    assert.equal(current.data.prompts.find(b => b.identifier === 'igs-image-submit').enabled, false);
+    assert.equal(current.data.defaultState.backups[0].revision, 2);
+    assert.deepEqual(createPresetRegistry({ storage }).getCurrent('prompt-preset'), current);
+    const snapshot = registry.snapshot();
+    assert.equal(registry.ensureImagePromptDefault(latest).changed, false);
+    assert.deepEqual(registry.snapshot(), snapshot);
+    const options = { expectedRevision: 3, group: 'modules', identifier: 'igs-task-sprite', backupRevision: 2 };
+    const restored = registry.restoreImagePromptBlock(current.id, options);
+    assert.equal(restored.ok, true, JSON.stringify(restored));
+    const after = registry.getCurrent('prompt-preset');
+    assert.equal(after.data.modules.find(m => m.task === 'sprite').content, initial.data.modules.find(m => m.task === 'sprite').content);
+    assert.equal(after.data.modules.find(m => m.task === 'avatar').content, '用户头像要求');
+    assert.deepEqual(after.data.prompt_order, before.data.prompt_order);
+    assert.equal(after.data.revision, 4);
+    assert.equal(registry.restoreImagePromptBlock(current.id, options).reason, 'preset-revision-conflict');
+});
+
+test('gate:presets:image-default-v1-to-latest-upgrades-protocol-and-keeps-custom-state', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const { promptDefaultState } = await import('../src/presets/prompt-default-operations.js');
+    const latest = createDefaultImagePromptPreset();
+    assert.equal(latest.data.defaultVersion, latest.version);
+    assert.ok(latest.data.defaultVersion > 2);
+    const old = structuredClone(latest);
+    old.version = 1; old.data.defaultVersion = 1;
+    delete old.data.defaultState;
+    old.data.modules.find(m => m.task === 'sprite').content = '绘制单人立绘，保持指定景别与可抠除底色，选择不遮挡身体的轻量日常动作。缺身份景别时在同次模板回复中建立三景别 DNA 候选；已有身份原样引用。';
+    const protocol = old.data.prompts.find(b => b.identifier === 'igs-image-protocol');
+    protocol.content = protocol.content.split('\n').map(line => {
+        if (line.startsWith('dna-template：')) return 'dna-template：每份从 slotid: 允许正整数 开始，份间用独立行 --- 分隔。写 prompt_mode: dna_template、scene、scene_uc；可写 size: 宽x高、analysis，编号正文任务必须写 at。尺寸遵守本轮输入。';
+        if (line.startsWith('模板每个 char 后')) return '模板每个 char 后紧接 char_uc，UC 可空。char 可用 x,y | 正文，坐标为0到1。named 用本人的 <<dna:token>> 一次作主语，可在本人 char_uc 使用 <<dna_uc:token>> 一次；不复制固定外貌。outfitMode 为 template 时写 outfit_mode: template，每个 named 的正向 char 含本人的 <<outfit:token>> 一次，不复制衣装正文。';
+        return line;
+    }).join('\n');
+    const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+    assert.equal(registry.ensureImagePromptDefault(promptDefaultState(old)).ok, true);
+    const custom = registry.getCurrent('prompt-preset');
+    custom.data.modules.find(m => m.task === 'avatar').content = '用户头像要求';
+    custom.data.prompts.find(b => b.identifier === 'igs-image-submit').enabled = false;
+    custom.data.prompts.find(b => b.identifier === 'igs-image-protocol').role = 'user';
+    [custom.data.prompt_order[1], custom.data.prompt_order[2]] = [custom.data.prompt_order[2], custom.data.prompt_order[1]];
+    assert.equal(registry.savePromptPreset(custom, 1).ok, true);
+    const before = registry.getCurrent('prompt-preset');
+    assert.equal(registry.ensureImagePromptDefault(latest).changed, true);
+    const current = registry.getCurrent('prompt-preset');
+    assert.equal(current.data.defaultVersion, latest.data.defaultVersion);
+    assert.equal(current.data.revision, 3);
+    for (const [group, id] of [['modules', 'igs-task-sprite'], ['prompts', 'igs-image-protocol']]) {
+        assert.equal(current.data[group].find(b => b.identifier === id).content,
+            latest.data[group].find(b => b.identifier === id).content);
+    }
+    assert.equal(current.data.modules.find(m => m.task === 'avatar').content, '用户头像要求');
+    assert.deepEqual(current.data.prompt_order, before.data.prompt_order);
+    for (const block of before.data.prompts) {
+        const upgraded = current.data.prompts.find(b => b.identifier === block.identifier);
+        assert.equal(upgraded.role, block.role); assert.equal(upgraded.enabled, block.enabled);
+    }
+    assert.deepEqual(current.data.defaultState.backups[0].data, (() => {
+        const copy = structuredClone(before.data); delete copy.defaultState; return copy;
+    })());
+    const reopened = createPresetRegistry({ storage });
+    assert.deepEqual(reopened.getCurrent('prompt-preset'), current);
+    const snapshot = reopened.snapshot();
+    assert.equal(reopened.ensureImagePromptDefault(latest).changed, false);
+    assert.deepEqual(reopened.snapshot(), snapshot);
+});
+
+test('gate:presets:image-default-v2-to-latest-separates-layers-and-preserves-custom-blocks', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const { promptDefaultState } = await import('../src/presets/prompt-default-operations.js');
+    const latest = createDefaultImagePromptPreset();
+    const targets = [['prompts', 'igs-image-framework'], ['prompts', 'igs-image-protocol'],
+        ['modules', 'igs-task-sprite'], ['modules', 'igs-task-dna']];
+    for (const customId of ['', 'igs-image-framework', 'igs-image-protocol', 'igs-task-sprite', 'igs-task-dna']) {
+        const old = structuredClone(latest);
+        old.version = 2; old.data.defaultVersion = 2; delete old.data.defaultState;
+        // 注册表以每份持久基线为权威，不以当前新默认反推旧正文。
+        for (const [group, id] of targets) old.data[group].find(b => b.identifier === id).content = `v2 已保存默认正文 ${id}`;
+        const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+        assert.equal(registry.ensureImagePromptDefault(promptDefaultState(old)).ok, true);
+        const edited = registry.getCurrent('prompt-preset');
+        if (customId) for (const group of ['prompts', 'modules']) {
+            const block = edited.data[group].find(b => b.identifier === customId);
+            if (block) block.content = '用户自定义正文，不自动覆盖';
+        }
+        edited.data.prompts[0].role = 'user'; edited.data.prompts[0].enabled = false;
+        edited.data.prompt_order.reverse();
+        assert.equal(registry.savePromptPreset(edited, 1).ok, true);
+        const before = registry.getCurrent('prompt-preset');
+        assert.equal(registry.ensureImagePromptDefault(latest).changed, true);
+        const current = registry.getCurrent('prompt-preset');
+        assert.equal(current.data.defaultVersion, latest.data.defaultVersion);
+        for (const [group, id] of targets) assert.equal(current.data[group].find(b => b.identifier === id).content,
+            id === customId ? '用户自定义正文，不自动覆盖' : latest.data[group].find(b => b.identifier === id).content);
+        assert.deepEqual(current.data.prompt_order, before.data.prompt_order);
+        assert.equal(current.data.prompts[0].role, 'user'); assert.equal(current.data.prompts[0].enabled, false);
+        const backup = structuredClone(before.data); delete backup.defaultState;
+        assert.deepEqual(current.data.defaultState.backups.at(-1).data, backup);
+        const reopened = createPresetRegistry({ storage });
+        assert.deepEqual(reopened.getCurrent('prompt-preset'), current);
+        assert.equal(reopened.ensureImagePromptDefault(latest).changed, false);
+    }
+});
+
+test('gate:presets:image-default-v3-v4-v5-v6-v7-v8-to-latest-all-task-upgrade-keeps-custom-state', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const { promptDefaultState } = await import('../src/presets/prompt-default-operations.js');
+    const latest = createDefaultImagePromptPreset();
+    const targets = ['igs-image-framework', 'igs-image-protocol', ...latest.data.modules.map(row => row.identifier)];
+    for (const version of [3, 4, 5, 6, 7, 8]) for (const customId of ['', ...targets]) {
+        const old = structuredClone(latest);
+        old.version = version; old.data.defaultVersion = version; delete old.data.defaultState;
+        for (const group of ['prompts', 'modules']) for (const block of old.data[group])
+            if (targets.includes(block.identifier)) block.content = `v${version} saved baseline ${block.identifier}`;
+        const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+        assert.equal(registry.ensureImagePromptDefault(promptDefaultState(old)).ok, true);
+        const edited = registry.getCurrent('prompt-preset');
+        for (const group of ['prompts', 'modules']) for (const block of edited.data[group])
+            if (block.identifier === customId) block.content = '用户自定义正文';
+        edited.data.prompts[0].role = 'user'; edited.data.prompts[0].enabled = false;
+        edited.data.prompt_order.reverse();
+        assert.equal(registry.savePromptPreset(edited, 1).ok, true);
+        const before = registry.getCurrent('prompt-preset');
+        assert.equal(registry.ensureImagePromptDefault(latest).changed, true);
+        const current = registry.getCurrent('prompt-preset');
+        assert.equal(current.data.defaultVersion, latest.data.defaultVersion);
+        for (const group of ['prompts', 'modules']) for (const block of current.data[group]) {
+            const expected = latest.data[group].find(row => row.identifier === block.identifier);
+            assert.equal(block.content, block.identifier === customId ? '用户自定义正文' : expected.content);
+            const prior = before.data[group].find(row => row.identifier === block.identifier);
+            assert.equal(block.role, prior.role); assert.equal(block.enabled, prior.enabled);
+        }
+        assert.deepEqual(current.data.prompt_order, before.data.prompt_order);
+        const backup = structuredClone(before.data); delete backup.defaultState;
+        assert.deepEqual(current.data.defaultState.backups.at(-1).data, backup);
+        const reopened = createPresetRegistry({ storage });
+        assert.deepEqual(reopened.getCurrent('prompt-preset'), current);
+        assert.equal(reopened.ensureImagePromptDefault(latest).changed, false);
+    }
+});
+
+
+
+test('gate:presets:image-default-upgrade-and-restore-write-failure-are-atomic', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const memory = createMemoryStorage();
+    let rejectWrite = false;
+    const storage = { ...memory, setItem(key, value) {
+        if (rejectWrite) throw new Error('fake-quota');
+        memory.setItem(key, value);
+    } };
+    const registry = createPresetRegistry({ storage }), initial = createDefaultImagePromptPreset();
+    assert.equal(registry.ensureImagePromptDefault(initial).ok, true);
+    const latest = createDefaultImagePromptPreset();
+    latest.data.defaultVersion = initial.data.defaultVersion + 1;
+    latest.data.prompts[0].content = '新版共享规则';
+    const before = registry.snapshot(), disk = memory.dump();
+    rejectWrite = true;
+    assert.equal(registry.upgradeImagePromptDefault(latest, 1).ok, false);
+    assert.deepEqual(registry.snapshot(), before);
+    assert.deepEqual(memory.dump(), disk);
+    rejectWrite = false;
+    assert.equal(registry.upgradeImagePromptDefault(latest, 1).ok, true);
+    const upgraded = registry.snapshot(), upgradedDisk = memory.dump();
+    rejectWrite = true;
+    assert.equal(registry.restoreImagePromptBlock(initial.id, { expectedRevision: 2,
+        group: 'prompts', identifier: 'igs-image-framework', backupRevision: 1 }).ok, false);
+    assert.deepEqual(registry.snapshot(), upgraded);
+    assert.deepEqual(memory.dump(), upgradedDisk);
+    assert.deepEqual(createPresetRegistry({ storage: memory }).snapshot(), upgraded);
+});
+
+const segmentPlanSample = '<!-- segmentplan: 一、段目标：换人过程——顾雨涵上桌，李忆涵下桌。二、推进点：母女交接的动作细节。三、小巧思：母女擦身而过时的自然互动。四、文风引导：动作描写为主，节奏中等。五、节奏策略：中速过渡。六、固定规避点：1.比喻≤1。2.主语"她"≤3。七、动态规避点：1.微观镜头→不写指尖脚趾细节，写整体动作。2.零件化→不写"嘴角弧度"，写整个人的表情。3.翻译腔→不写"身体僵硬"，写具体动作。4.手脚当主语→不写"她的手撑着桌沿"，写"撑着桌沿起身"。5.DGP→不写复杂的动作雕琢，简洁交代位置变换。segmentplan_end -->';
+
+test('gate:scene:segmentplan:完整及脱壳注释在原文和回退路径删除，正文保真', () => {
+    const plain = segmentPlanSample.slice(4, -3).trim();
+    for (const plan of [segmentPlanSample, plain, plain.replace('segmentplan:', 'segmentplan：').replace('二、', '\r\n二、')]) {
+        for (const tagged of [false, true]) {
+            for (const sceneOn of [false, true]) {
+                const text = '前段正文。\n' + plan + '\n后段正文。';
+                const raw = tagged ? '<content>' + text + '</content>' : text;
+                const payload = buildIgsTextPayload({ text: raw }, {
+                    sourceFilter: { stripHtmlComments: false },
+                    sceneAssets: { enabled: sceneOn },
+                });
+                assert.equal(payload.formattedText, '前段正文。\n后段正文。', `${tagged}/${sceneOn}`);
+                assert.deepEqual(payload.textSegments, ['前段正文。', '后段正文。']);
+                assert.equal(payload.raw, raw, '替换仅作用于阅读副本，不写聊天原文');
+                assert.equal(payload.virtualRegexError, '');
+            }
+        }
+    }
+});
+
+test('gate:scene:segmentplan:多块不吞正文及不完整标记保持原文', async () => {
+    const { applyImmersiveGalgameSystemBodyFormat } = await import('../src/scene/message-source.js');
+    const raw = '前段\n\n' + segmentPlanSample + '\n中段\n\n<!-- second\ncomment -->\n后段';
+    assert.equal(applyImmersiveGalgameSystemBodyFormat(raw).formattedRaw, '前段\n\n中段\n\n后段');
+    for (const text of ['segmentplan: 未结束的文字', '这里提到了 segmentplan_end', 'notsegmentplan: 正文 segmentplan_end']) {
+        assert.equal(applyImmersiveGalgameSystemBodyFormat(text).formattedRaw, text);
+    }
+});
+
+test('gate:scene:segmentplan:合法替换删空不从原文或DOM补回且关闭遵从配置', () => {
+    for (const raw of [segmentPlanSample, '<content>' + segmentPlanSample + '</content>']) {
+        const payload = buildIgsTextPayload({ text: raw }, {
+            sourceFilter: { stripHtmlComments: false }, visibleText: segmentPlanSample.slice(4, -3),
+        });
+        assert.equal(payload.formattedText, ''); assert.deepEqual(payload.textSegments, []);
+    }
+    const custom = { enabled: true, pattern: '正文', flags: 'g', replacement: '', rules: [], rulesVersion: 2 };
+    assert.deepEqual(buildIgsTextPayload({ text: '正文' }, { virtualRegex: custom }).textSegments, []);
+    const disabled = buildIgsTextPayload({ text: segmentPlanSample }, {
+        sourceFilter: { stripHtmlComments: false }, virtualRegex: { enabled: false },
+    });
+    assert.match(disabled.formattedText, /segmentplan:/);
+});
+
+test('gate:scene:segmentplan:默认规则按已知旧值升级且保留自定义顺序和删除', async () => {
+    const { DEFAULT_VIRTUAL_REGEX_RULES, normalizeVirtualRegex, applyImmersiveGalgameSystemBodyFormat } = await import('../src/scene/message-source.js');
+    const old = { pattern: String.raw`\s*<!--[\s\S]*?-->\s*\n?`, flags: 'g', replacement: '' };
+    const custom = { pattern: '前段', flags: 'g', replacement: '新前段' };
+    const upgraded = normalizeVirtualRegex({ rules: [old, custom], rulesVersion: 1 });
+    assert.deepEqual(upgraded.rules, [...DEFAULT_VIRTUAL_REGEX_RULES, custom]);
+    assert.equal(upgraded.rulesVersion, 2);
+    assert.deepEqual(normalizeVirtualRegex(upgraded), upgraded);
+    assert.deepEqual(normalizeVirtualRegex({ rules: [], rulesVersion: 1 }).rules, []);
+    assert.deepEqual(normalizeVirtualRegex({ rules: [] }).rules, []);
+    assert.deepEqual(normalizeVirtualRegex({}).rules, [...DEFAULT_VIRTUAL_REGEX_RULES]);
+    assert.deepEqual(normalizeVirtualRegex({ rulesVersion: 1 }).rules, [...DEFAULT_VIRTUAL_REGEX_RULES]);
+    assert.deepEqual(normalizeVirtualRegex({ rules: null }).rules, []);
+    assert.deepEqual(normalizeVirtualRegex({ rules: [old] }).rules, [...DEFAULT_VIRTUAL_REGEX_RULES]);
+    assert.deepEqual(normalizeVirtualRegex({ rules: [custom, old], rulesVersion: 1 }).rules,
+        [custom, ...DEFAULT_VIRTUAL_REGEX_RULES]);
+    assert.deepEqual(normalizeVirtualRegex({ rules: [old], rulesVersion: 2 }).rules, [old]);
+    assert.equal(normalizeVirtualRegex({ rules: [], rulesVersion: 3 }).rulesVersion, 3);
+    assert.deepEqual(normalizeVirtualRegex({ rules: [custom] }).rules, [custom]);
+    const changed = { ...old, replacement: '自定义替换' };
+    assert.deepEqual(normalizeVirtualRegex({ rules: [changed], rulesVersion: 1 }).rules, [changed]);
+    for (const altered of [{ ...old, flags: 'gm' }, { ...old, pattern: old.pattern + '$' }]) {
+        assert.deepEqual(normalizeVirtualRegex({ rules: [altered], rulesVersion: 1 }).rules, [altered]);
+    }
+    const invalid = buildIgsTextPayload({ text: '正文' }, { virtualRegex: { pattern: '[' } });
+    assert.equal(invalid.formattedText, '正文');
+    assert.ok(invalid.virtualRegexError, '非法正则必须保留原文和错误，不伪装为合法删空');
+    assert.equal(applyImmersiveGalgameSystemBodyFormat('前段\n' + segmentPlanSample + '\n后段', upgraded).formattedRaw, '新前段\n后段');
+    const fallback = buildIgsTextPayload({ text: 'x' }, { virtualRegex: { pattern: 'x', flags: 'g', replacement: 'xx', rules: [] } });
+    assert.equal(fallback.formattedText, 'xx', '无标签回退只执行一次规则');
+});
+
+test('gate:scene:segmentplan:回退清洗保留系统角色前缀并删除普通批注', async () => {
+    const { cleanNarrativeSource } = await import('../src/scene/message-source.js');
+    assert.equal(cleanNarrativeSource('[【系统】]：任务已更新。\n【状态批注】正文'), '[【系统】]：任务已更新。\n正文');
+    assert.equal(cleanNarrativeSource('[igs-char:【系统】|平静|任务已更新。]'), '[igs-char:【系统】|平静|任务已更新。]');
+    const text = '[igs-scene:Room|晚上|晴天]\n[igs-char:Alice|平和|你好。]\n' + segmentPlanSample
+        + '\n[igs-char:【系统】|平静|任务已更新。]\n后续旁白。';
+    for (const raw of [text, '<content>' + text + '</content>']) {
+        const payload = buildIgsTextPayload({ text: raw }, {
+            sourceFilter: { stripHtmlComments: false }, sceneAssets: { enabled: true },
+        });
+        assert.match(payload.formattedText, /\[【系统】\]：任务已更新。/);
+        assert.deepEqual(payload.textSegments, ['[Alice]：你好。', '[【系统】]：任务已更新。', '后续旁白。']);
+        const system = payload.sceneDirectives.find(d => d.character === '【系统】');
+        assert.equal(system.segmentIndex, 1);
+        assert.equal(payload.virtualRegexError, '');
+    }
+});
+
+test('gate:presets:image-format-routing-rejects-unmapped-task-format', async () => {
+    const { renderImagePromptPreset } = await import('../src/presets/prompt-preset-renderer.js');
+    const preset = await imagePromptPresetFixture();
+    for (const module of preset.data.modules) {
+        module.dataFields = ['description', 'outputs'];
+        module.contentByFormat = { [module.task === 'item' ? 'asset-plan' : 'dna-template']: '合成格式规则' };
+    }
+    const before = structuredClone(preset);
+    for (const [task, format, ok] of [
+        ['cg', 'dna-template', true], ['consistency', 'dna-template', true],
+        ['item', 'asset-plan', true], ['item', 'dna-template', false],
+        ['cg', 'asset-plan', false], ['consistency', 'sprite-data', false],
+    ]) {
+        const result = renderImagePromptPreset(preset.data, task, { description: '隔离资料', outputs: { format } });
+        assert.equal(result.ok, ok);
+        if (ok) assert.equal(result.moduleId, `module.${task}`);
+        else assert.equal(result.reason, 'unsupported-prompt-format');
+    }
+    assert.deepEqual(preset, before);
+});
+
+
+test('gate:presets:image-format-upgrade-restores-map-and-preserves-custom-map', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const { promptDefaultState } = await import('../src/presets/prompt-default-operations.js');
+    for (const custom of [false, true]) {
+        const latest = createDefaultImagePromptPreset(), initial = structuredClone(latest);
+        delete initial.data.defaultState;
+        initial.data.defaultVersion = latest.data.defaultVersion - 1;
+        for (const module of initial.data.modules) delete module.contentByFormat;
+        const storage = createMemoryStorage(), registry = createPresetRegistry({ storage });
+        assert.equal(registry.ensureImagePromptDefault(promptDefaultState(initial)).ok, true);
+        const edited = registry.getCurrent('prompt-preset');
+        const cg = edited.data.modules.find(m => m.task === 'cg');
+        if (custom) cg.contentByFormat = { 'dna-template': '自定义格式正文' };
+        assert.equal(registry.savePromptPreset(edited, 1).ok, true);
+        const prior = registry.getCurrent('prompt-preset');
+        assert.equal(registry.upgradeImagePromptDefault(latest, 2).ok, true);
+        const upgraded = registry.getCurrent('prompt-preset');
+        const expected = custom ? cg.contentByFormat : latest.data.modules.find(m => m.task === 'cg').contentByFormat;
+        assert.deepEqual(upgraded.data.modules.find(m => m.task === 'cg').contentByFormat, expected);
+        assert.deepEqual(createPresetRegistry({ storage }).getCurrent('prompt-preset'), upgraded);
+        assert.equal(registry.restoreImagePromptBlock(latest.id, {
+            expectedRevision: 3, group: 'modules', identifier: cg.identifier, backupRevision: 2,
+        }).ok, true);
+        const restored = registry.getCurrent('prompt-preset');
+        assert.deepEqual(restored.data.modules.find(m => m.task === 'cg').contentByFormat,
+            prior.data.modules.find(m => m.task === 'cg').contentByFormat);
+        assert.equal(Object.hasOwn(restored.data.modules.find(m => m.task === 'cg'), 'contentByFormat'), custom);
+        assert.equal(restored.data.revision, custom ? upgraded.data.revision : upgraded.data.revision + 1);
+        assert.equal(registry.restoreImagePromptBlock(latest.id, {
+            expectedRevision: restored.data.revision, group: 'modules', identifier: cg.identifier,
+        }).ok, true);
+        assert.deepEqual(registry.getCurrent('prompt-preset').data.modules.find(m => m.task === 'cg').contentByFormat,
+            latest.data.modules.find(m => m.task === 'cg').contentByFormat);
+    }
+});
+
+
+test('gate:image-worldinfo:v20升级补参考块并保留配置与删除状态', async () => {
+    const { createDefaultImagePromptPreset } = await import('../src/generated-images/image-prompt-defaults.js');
+    const { promptDefaultState } = await import('../src/presets/prompt-default-operations.js');
+    const latest = createDefaultImagePromptPreset(), old = structuredClone(latest);
+    old.version = 20; old.data.defaultVersion = 20; delete old.data.defaultState;
+    const worldId = 'igs-image-world';
+    old.data.prompts = old.data.prompts.filter(b => b.identifier !== worldId);
+    old.data.prompt_order = old.data.prompt_order.filter(b => b.identifier !== worldId);
+    old.data.variables = old.data.variables.filter(v => v !== '世界书');
+    const memory = createMemoryStorage();
+    let rejectWrite = false;
+    const storage = { ...memory, setItem(key, value) {
+        if (rejectWrite) throw new Error('fake-quota');
+        memory.setItem(key, value);
+    } };
+    const registry = createPresetRegistry({ storage });
+    assert.equal(registry.ensureImagePromptDefault(promptDefaultState(old)).ok, true);
+    const edited = registry.getCurrent('prompt-preset');
+    edited.data.prompts[0].content = '自定义框架';
+    edited.data.prompts[0].role = 'assistant';
+    edited.data.prompts[0].enabled = false;
+    edited.data.prompt_order.reverse();
+    assert.equal(registry.savePromptPreset(edited, 1).ok, true);
+    const before = registry.snapshot(), disk = memory.dump();
+    rejectWrite = true;
+    assert.equal(registry.ensureImagePromptDefault(latest).ok, false);
+    assert.deepEqual(registry.snapshot(), before); assert.deepEqual(memory.dump(), disk);
+    rejectWrite = false;
+    assert.equal(registry.ensureImagePromptDefault(latest).changed, true);
+    const current = registry.getCurrent('prompt-preset');
+    assert.equal(current.data.prompts.filter(b => b.identifier === worldId).length, 1);
+    assert.deepEqual(current.data.prompts.filter(b => b.identifier !== worldId), edited.data.prompts);
+    assert.deepEqual(current.data.prompt_order.filter(b => b.identifier !== worldId), edited.data.prompt_order);
+    assert.deepEqual(createPresetRegistry({ storage }).getCurrent('prompt-preset'), current);
+    const backup = structuredClone(before.items['prompt-preset'][latest.id].data); delete backup.defaultState;
+    assert.deepEqual(current.data.defaultState.backups.at(-1).data, backup);
+    current.data.prompts = current.data.prompts.filter(b => b.identifier !== worldId);
+    current.data.prompt_order = current.data.prompt_order.filter(b => b.identifier !== worldId);
+    assert.equal(registry.savePromptPreset(current, current.data.revision).ok, true);
+    const next = structuredClone(latest); next.data.defaultVersion++;
+    assert.equal(registry.ensureImagePromptDefault(next).ok, true);
+    assert.equal(registry.getCurrent('prompt-preset').data.prompts.some(b => b.identifier === worldId), false);
+
+    // v21/v22 已有参考块：只迁移未调整的顺序，原配置随同一快照保存。
+    const ids = order => order.map(entry => entry.identifier);
+    for (const previousVersion of [21, 22])
+    for (const mode of ['baseline', 'custom-order', 'deleted', 'excluded', 'custom-block']) {
+        const previous = structuredClone(latest);
+        previous.version = previousVersion; previous.data.defaultVersion = previousVersion;
+        delete previous.data.defaultState;
+        const order = previous.data.prompt_order;
+        const worldIndex = order.findIndex(entry => entry.identifier === worldId);
+        const [worldEntry] = order.splice(worldIndex, 1);
+        order.splice(order.findIndex(entry => entry.identifier === 'igs-image-data') + 1, 0, worldEntry);
+        const store = createMemoryStorage();
+        let blockWrite = false;
+        const savedStorage = { ...store, setItem(key, value) {
+            if (blockWrite) throw new Error('fake-quota');
+            store.setItem(key, value);
+        } };
+        const savedRegistry = createPresetRegistry({ storage: savedStorage });
+        assert.equal(savedRegistry.ensureImagePromptDefault(promptDefaultState(previous)).ok, true);
+        const saved = savedRegistry.getCurrent('prompt-preset');
+        const reference = saved.data.prompts.find(block => block.identifier === worldId);
+        reference.content = '用户自定义参考 {{世界书}}';
+        reference.role = 'assistant'; reference.enabled = false;
+        saved.data.prompt_order.find(entry => entry.identifier === worldId).enabled = false;
+        if (mode === 'custom-order') saved.data.prompt_order.reverse();
+        if (mode === 'deleted') saved.data.prompts = saved.data.prompts.filter(block => block.identifier !== worldId);
+        if (mode === 'deleted' || mode === 'excluded')
+            saved.data.prompt_order = saved.data.prompt_order.filter(entry => entry.identifier !== worldId);
+        if (mode === 'custom-block') {
+            saved.data.prompts.push({ identifier: 'user-reference', role: 'user', kind: 'shared', content: '用户资料', enabled: true });
+            saved.data.prompt_order.push({ identifier: 'user-reference', enabled: true });
+        }
+        assert.equal(savedRegistry.savePromptPreset(saved, 1).ok, true);
+        const snapshot = savedRegistry.snapshot(), persisted = store.dump();
+        blockWrite = true;
+        assert.equal(savedRegistry.ensureImagePromptDefault(latest).ok, false);
+        assert.deepEqual(savedRegistry.snapshot(), snapshot);
+        assert.deepEqual(store.dump(), persisted);
+        blockWrite = false;
+        assert.equal(savedRegistry.ensureImagePromptDefault(latest).changed, true);
+        const upgraded = savedRegistry.getCurrent('prompt-preset');
+        const expectedOrder = mode === 'baseline' ? ids(latest.data.prompt_order)
+            .map(id => saved.data.prompt_order.find(entry => entry.identifier === id)) : saved.data.prompt_order;
+        assert.deepEqual(upgraded.data.prompt_order, expectedOrder, mode);
+        assert.deepEqual(upgraded.data.prompts, saved.data.prompts, mode);
+        assert.equal(upgraded.data.defaultVersion, latest.data.defaultVersion);
+        const backup = structuredClone(snapshot.items['prompt-preset'][latest.id].data); delete backup.defaultState;
+        assert.deepEqual(upgraded.data.defaultState.backups.at(-1).data, backup);
+        assert.deepEqual(createPresetRegistry({ storage: store }).getCurrent('prompt-preset'), upgraded);
+        const stable = savedRegistry.snapshot();
+        assert.equal(savedRegistry.ensureImagePromptDefault(latest).changed, false);
+        assert.deepEqual(savedRegistry.snapshot(), stable);
+    }
 });

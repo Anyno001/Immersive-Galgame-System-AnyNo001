@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createOnboardingController } from '../src/visual/igs-ui/onboarding-guide-controller.js';
 import { handleOnboardingKeydown } from '../src/visual/igs-ui/onboarding-guide-invite.js';
-import { ONBOARDING_STEPS, ONBOARDING_STORAGE_KEY as KEY, stepIndex } from '../src/visual/igs-ui/onboarding-guide.js';
+import { ONBOARDING_STORAGE_KEY as KEY } from '../src/visual/igs-ui/onboarding-guide.js';
 
 function setup(initial = {}) {
     const data = new Map(Object.entries(initial));
@@ -10,12 +10,15 @@ function setup(initial = {}) {
     const calls = [];
     let open = false;
     const settings = {
-        switchPage: (p, open) => calls.push(['page', p, open]),
+        switchTab: (t) => calls.push(['tab', t]),
+        switchReaderSubTab: (s) => calls.push(['reader', s]),
+        switchSceneSubTab: (s) => calls.push(['scene', s]),
+        switchImageSubTab: (s) => calls.push(['image', s]),
     };
     const warns = [];
     const ctl = createOnboardingController({
         getStorage: () => storage,
-        openSettings: (page) => { open = true; calls.push(['open', page]); return { ok: true }; },
+        openSettings: (tab) => { open = true; calls.push(['open', tab]); return { ok: true }; },
         getSettingsController: () => (open ? settings : null),
         rerenderSettings: () => ({ ok: true }),
         warn: (r) => warns.push(r),
@@ -23,42 +26,15 @@ function setup(initial = {}) {
     return { ctl, data, calls, warns };
 }
 
-test('onboarding controller: 换步只切页面，不写设置；每步按 id 对应页面', () => {
+test('onboarding controller: 换步只切页签，不写设置', () => {
     const { ctl, calls } = setup();
     ctl.handleAction('onboarding-start');
-    for (let i = 1; i < ONBOARDING_STEPS.length; i += 1) ctl.handleAction('onboarding-next');
-    const pages = calls.filter((c) => c[0] === 'page').map((c) => c[1]);
-    assert.deepEqual(pages, ONBOARDING_STEPS.map((s) => s.page));
-    assert.deepEqual(calls[0], ['open', 'dash']);
-    assert.equal(ctl.getState().step, ONBOARDING_STEPS.length - 1);
+    for (let i = 0; i < 9; i += 1) ctl.handleAction('onboarding-next');
+    assert.deepEqual(calls.filter(([k]) => k !== 'tab').map((c) => c.join(':')),
+        ['open:basic', 'reader:dialog', 'reader:interface', 'scene:scenes', 'scene:scenes', 'image:source']);
+    assert.equal(ctl.getState().step, 9);
     ctl.handleAction('onboarding-prev');
-    assert.equal(ctl.getState().step, ONBOARDING_STEPS.length - 2);
-});
-
-test('onboarding controller: 每次换步持久化进度；邀请继续和仪表盘入口都从进度开始', () => {
-    const { ctl, data, calls } = setup();
-    ctl.handleAction('onboarding-start');
-    for (let i = 0; i < stepIndex('perf'); i += 1) ctl.handleAction('onboarding-next');
-    assert.equal(JSON.parse(data.get(KEY)).step, stepIndex('perf'));
-    assert.equal(JSON.parse(data.get(KEY)).status, 'unseen');
-    // Esc 暂停：进度保留，会话回到未回应，下次打开阅读器邀请条显示「继续」。
-    ctl.keydown({ key: 'Escape', preventDefault() {}, stopPropagation() {} }, { getElementById: () => ({ contains: () => false }) });
-    assert.equal(ctl.getState().step, null);
-    assert.equal(ctl.getState().answered, false);
-    calls.length = 0;
-    ctl.handleAction('onboarding-start');
-    assert.equal(ctl.getState().step, stepIndex('perf'));
-    assert.deepEqual(calls.at(-1).slice(0, 2), ['page', 'perf-text']);
-});
-
-test('onboarding controller: 完成或跳过后进度清零', () => {
-    const { ctl, data } = setup();
-    ctl.handleAction('onboarding-start');
-    ctl.handleAction('onboarding-next');
-    ctl.handleAction('onboarding-skip');
-    assert.equal(JSON.parse(data.get(KEY)).step, 0);
-    ctl.handleAction('onboarding-start');
-    assert.equal(ctl.getState().step, 0);
+    assert.equal(ctl.getState().step, 8);
 });
 
 test('onboarding controller: 完成写 done，跳过写 dismissed', () => {

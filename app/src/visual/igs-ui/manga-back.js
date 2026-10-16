@@ -71,7 +71,7 @@ function ensureBackLayer(motion, doc) {
 
 function auraRect(motion, sprite) {
     if (!sprite || !sprite.url) return null;
-    const probed = peekSpriteHead(sprite.url, motion.ownerDocument);
+    const probed = peekSpriteHead(sprite.url);
     if (!probed) return null;
     return spriteDrawRect(motion.clientWidth, motion.clientHeight, { ...sprite, naturalW: probed.naturalW, naturalH: probed.naturalH });
 }

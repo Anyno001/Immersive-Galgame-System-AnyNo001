@@ -128,12 +128,12 @@ function writeClock(doc, chatKey, patch) {
 
 // 立绘原图尺寸来自透明通道探测缓存；手动标定的头部自带原图高宽比，不必等探测。
 function spriteGeometry(state, root, sprite, rerun) {
-    const probed = peekSpriteHead(sprite.url, root.ownerDocument);
+    const probed = peekSpriteHead(sprite.url);
     const aspect = sprite.head && Number(sprite.head.aspect) > 0 ? Number(sprite.head.aspect) : 0;
     if (!probed && !aspect && state.probing !== sprite.url && root.ownerDocument) {
         state.probing = sprite.url;
         probeSpriteHead(sprite.url, root.ownerDocument).then(() => {
-            if (peekSpriteHead(sprite.url, root.ownerDocument)) rerun();
+            if (peekSpriteHead(sprite.url)) rerun();
         }, () => {});
     }
     const dims = probed ? { naturalW: probed.naturalW, naturalH: probed.naturalH } : aspect ? { naturalW: 1, naturalH: aspect } : null;

@@ -4,10 +4,6 @@ import { duckSceneAudio } from './scene-audio.js';
 import { normalizeFxSoundSettings } from './fx-settings.js';
 import { createIntimateVoice } from './romance-intimate-audio.js';
 import { applySenseToPlan } from './romance-senses.js';
-import { resolveCgPace } from './romance-cg-pan.js';
-import { setVoiceFilter } from './voice-filter.js';
-import { planBreathTypewriter } from './typewriter-breath.js';
-import { isStageIdle, onStageIdleChange } from './stage-pause.js';
 import {
     BG_SWAY,
     BREATH_PERIOD,
@@ -50,47 +46,10 @@ const RHYTHM_MATERIALS = new Set(['wood', 'metal', 'sofa']);
 
 const states = new WeakMap();
 
-// 衣物散落图标：按脱衣次数依次落下，每件一个简笔剪影（实色，不用半透明）。
-export const SCATTER_GARMENTS = Object.freeze(['coat', 'top', 'bottom', 'socks', 'under']);
-export const SCATTER_MAX = SCATTER_GARMENTS.length;
-const GARMENT_PATHS = Object.freeze({
-    coat: 'M7 3 3 7l2 4 2-1v11h10V10l2 1 2-4-4-4-2 2h-6z',
-    top: 'M8 3 3 6l2 4 3-1v12h8V9l3 1 2-4-5-3c-.6 1.4-1.8 2-4 2S8.6 4.4 8 3z',
-    bottom: 'M6 3h12l1 18h-5l-2-9-2 9H5z',
-    socks: 'M9 3h6v9l4 5c1 1.6 0 4-2 4h-3c-1.6 0-2.4-1-3-2l-3-5z',
-    under: 'M3 6h18l-3 4-3 6h-2l-1-3-1 3H9l-3-6z',
-});
-
-export function scatterIconHtml(id, tilt = 0) {
-    const path = GARMENT_PATHS[id];
-    if (!path) return '';
-    return '<i style="--igs-rm-tilt:' + Number(tilt) + 'deg"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + path + '"/></svg></i>';
-}
-
-// 本页散落的衣物：info.garments（调用方按当前服装给出）优先，否则按脱衣次数取序列前 n 件。
-export function resolveScatter(count, garments) {
-    const named = Array.isArray(garments) ? garments.filter((id) => GARMENT_PATHS[id]).slice(0, SCATTER_MAX) : null;
-    if (named && named.length) return named;
-    return SCATTER_GARMENTS.slice(0, Math.max(0, Math.min(SCATTER_MAX, Number(count) || 0)));
-}
-
-// 气氛升温三档（0 = 不显示）：暧昧 1、亲密 2；情事按本段进度，前三分之一 1、中段 2、后段与顶点 3，余韵回到 2。
-export function resolveHeatTier({ level = 0, phase = '', span = null } = {}) {
-    if (!(level > 0)) return 0;
-    if (level < 3) return level;
-    if (phase === 'after') return 2;
-    if (phase === 'climax') return 3;
-    const length = span && Number(span.length) > 0 ? Number(span.length) : 0;
-    const index = span && Number(span.index) >= 0 ? Number(span.index) : 0;
-    if (!length) return 2;
-    const ratio = (index + 1) / length;
-    return ratio <= 1 / 3 ? 1 : ratio <= 2 / 3 ? 2 : 3;
-}
-
 // 纯函数：本页该开哪些声音与画面。level 为亲密档位（3 = 情事），phase 仅情事有意义。
 // sense 为本页主导感官（romance-senses），undress 非空表示本页有脱衣动作；
 // solo 表示独处的情事段（没有床的往返，只有被褥摩擦与轻颤），noise 为本页门外的动静（steps / knock / phone / door）。
-export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}, sound = {}, reduced = false, coarse = false, low = false, location = '', sense = '', undress = '', solo = false, noise = '', span: heatSpan = null } = {}) {
+export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}, sound = {}, reduced = false, coarse = false, low = false, location = '', sense = '', undress = '', solo = false, noise = '' } = {}) {
     if (!(level > 0)) return null;
     const soundOk = sound.enabled !== false && sound.volume > 0;
     const mild = level === 1 || level === 2;
@@ -132,16 +91,13 @@ export function resolveIntimatePlan({ level = 0, phase = 'steady', settings = {}
         fringe: edge && nsfw && phase === 'climax',
         edge,
     };
-    if (settings.heatTiers === true && edge) plan.heat = resolveHeatTier({ level, phase, span: heatSpan });
-    if (settings.aftermath === true && edge && nsfw && phase === 'after') plan.afterglow = true;
-    if (settings.scatterIcons === true && edge && nsfw) plan.scatter = true;
     let out = plan;
     if (sense && settings.senses !== false) out = applySenseToPlan(plan, sense, { edge, soundOk, coarse, low });
     if (undress && settings.undress !== false) {
         out = { ...out, undress: soundOk && (nsfw ? nsfwSound : soft), undressVisual: edge };
     }
     const any = out.heartBpm || out.breath || out.duck || out.tempo || out.ticks || out.vignette || out.gobo || out.cloth || out.settle
-        || out.heat || out.afterglow || out.scatter || (out.sense && out.senseVisual) || out.undress || out.undressVisual || out.noise;
+        || (out.sense && out.senseVisual) || out.undress || out.undressVisual || out.noise;
     return any ? out : null;
 }
 
@@ -169,19 +125,18 @@ function setAttr(el, name, value) {
 
 function setVar(el, name, value) {
     if (!el || !el.style || typeof el.style.setProperty !== 'function') return;
-    const current = el.style.getPropertyValue?.(name);
-    if (value == null) { if (current !== '') el.style.removeProperty(name); }
-    else if (current !== String(value)) el.style.setProperty(name, String(value));
+    if (value == null) el.style.removeProperty(name);
+    else el.style.setProperty(name, String(value));
 }
 
 function stageOf(root) {
     return (root && typeof root.querySelector === 'function' && root.querySelector('#igs-stage-motion')) || null;
 }
 
-function makeState(stage, root) {
+function makeState(stage) {
     const view = stage.ownerDocument && stage.ownerDocument.defaultView;
     return {
-        stage, root,
+        stage,
         plan: null,
         voice: null,
         rng: Math.random,
@@ -212,8 +167,6 @@ function makeState(stage, root) {
         page: null,
         coarse: false,
         earSide: -1,
-        strewn: 0,
-        strewKey: '',
     };
 }
 
@@ -299,31 +252,14 @@ function scheduleBeat(state, plan, beat) {
 }
 
 // 排程器：往前看 LOOKAHEAD_S 秒，把节拍、心跳、呼吸、钟声排进去；顶点静音期间什么都不排。
-function clockNeeds(state) {
-    const plan = state.plan;
-    const hidden = state.stage.ownerDocument?.hidden === true;
-    const visual = !hidden && !isStageIdle(state.root, { ignoreRest: true }) && !plan?.reduced && Boolean(state.requestFrame);
-    const voice = !hidden && state.voice;
-    return {
-        beat: Boolean(plan?.tempo && ((visual && plan.sway) || (voice && plan.creak))),
-        heart: Boolean(plan?.heartBpm && ((visual && (plan.vignette || plan.fringe)) || (voice && plan.heartAudio))),
-        breath: Boolean(voice && plan?.breath),
-        ticks: Boolean(voice && plan?.ticks),
-    };
-}
-
 function pump(state) {
     const plan = state.plan;
     if (!plan) return;
-    // 切到后台不排节拍：回到前台时超过 1 秒的空档会从新一拍重起。
-    const doc = state.front && state.front.ownerDocument;
-    if (doc && doc.hidden) return;
     const t = schedNow(state);
     if (t < state.hold) return;
     const horizon = t + LOOKAHEAD_S;
     const voice = state.voice;
-    const needs = clockNeeds(state);
-    const tempo = needs.beat ? resolveIntimateTempo(plan.phase, state.span, t - state.phaseStart, plan.solo ? SOLO_TEMPO : PHASE_TEMPO) : null;
+    const tempo = plan.tempo ? resolveIntimateTempo(plan.phase, state.span, t - state.phaseStart, plan.solo ? SOLO_TEMPO : PHASE_TEMPO) : null;
     if (tempo) {
         let last = state.beats[state.beats.length - 1];
         if (!last || last.t < t - 1) {
@@ -338,7 +274,7 @@ function pump(state) {
         }
         if (state.beats.length > 6) state.beats.splice(0, state.beats.length - 6);
     }
-    if (needs.heart) {
+    if (plan.heartBpm) {
         if (!(state.nextHeart > t - 1)) state.nextHeart = t + 0.1;
         while (state.nextHeart < horizon) {
             state.heartBpm = state.heartBpm > 0 ? state.heartBpm + (plan.heartBpm - state.heartBpm) * 0.25 : plan.heartBpm;
@@ -349,7 +285,7 @@ function pump(state) {
         }
         if (state.hearts.length > 4) state.hearts.splice(0, state.hearts.length - 4);
     }
-    if (needs.breath) {
+    if (voice && plan.breath) {
         if (!(state.nextBreath > t - 1)) state.nextBreath = t + 0.4;
         while (state.nextBreath < horizon) {
             const at = state.nextBreath;
@@ -365,42 +301,13 @@ function pump(state) {
             state.inhale = !state.inhale;
         }
     }
-    if (needs.ticks) {
+    if (voice && plan.ticks) {
         if (!(state.nextTick > t - 1)) state.nextTick = t + 0.6;
         while (state.nextTick < horizon) {
             voice.tick(state.nextTick, state.tock, 0.8);
             state.tock = !state.tock;
             state.nextTick += 1;
         }
-    }
-}
-
-// 下一拍到来前才补排，不用 50ms 轮询静止画面或没有声音的计划。
-function schedulePump(state) {
-    if (state.pump != null) clearTimeout(state.pump);
-    state.pump = null;
-    const needs = clockNeeds(state);
-    if (!Object.values(needs).some(Boolean)) return;
-    pump(state);
-    const t = schedNow(state);
-    const times = [];
-    if (needs.beat && state.beats.length) times.push(state.beats.at(-1).t);
-    if (needs.heart) times.push(state.nextHeart);
-    if (needs.breath) times.push(state.nextBreath);
-    if (needs.ticks) times.push(state.nextTick);
-    const delay = t < state.hold ? (state.hold - t) * 1000
-        : Math.max(PUMP_MS, (Math.min(...times) - t - LOOKAHEAD_S) * 1000);
-    state.pump = unref(setTimeout(() => { state.pump = null; schedulePump(state); }, delay));
-}
-
-function syncClocks(state) {
-    schedulePump(state);
-    if (!wantsFrame(state)) {
-        if (state.frame != null && state.cancelFrame) state.cancelFrame(state.frame);
-        state.frame = null;
-    } else if (state.frame == null) {
-        state.lastFrame = 0;
-        loop(state);
     }
 }
 
@@ -434,7 +341,6 @@ function part(state, name) {
 }
 
 function wantsFrame(state) {
-    if (state.stage.ownerDocument?.hidden || isStageIdle(state.root, { ignoreRest: true })) return false;
     const plan = state.plan;
     if (!plan || plan.reduced) return state.swayFade > 0.01;
     return Boolean(plan.sway || plan.fringe || (plan.vignette && plan.heartBpm) || state.swayFade > 0.01);
@@ -474,12 +380,6 @@ function timerFrames(state) {
 
 function loop(state) {
     state.frame = null;
-    if (state.stopped) return;
-    if (state.stage.isConnected === false) {
-        stopState(state, { hard: true });
-        states.delete(state.stage);
-        return;
-    }
     if (!wantsFrame(state) || !state.requestFrame) {
         if (!state.plan || !state.requestFrame) writeSway(state, null);
         return;
@@ -487,7 +387,6 @@ function loop(state) {
     let requesting = true;
     let ranInline = false;
     const id = state.requestFrame((ts) => {
-        if (state.stopped) return;
         if (requesting) {
             ranInline = true;
             return;
@@ -528,35 +427,6 @@ function ensureFront(state) {
     return front;
 }
 
-// 升温 / 余韵 / 散落这几层按需才创建，没开的设置不多挂节点。
-function ensurePart(state, name) {
-    if (part(state, name) || !state.front) return;
-    const layer = state.front.ownerDocument.createElement('div');
-    layer.className = 'igs-rm-' + name;
-    state.front.insertBefore(layer, part(state, 'sense') || null);
-}
-
-function syncStrew(state, plan, info, turned, advanced, undressing) {
-    if (!plan.scatter) {
-        state.strewn = 0;
-        state.strewKey = '';
-        if (state.front) setAttr(state.front, 'data-igs-rm-strew', null);
-        return;
-    }
-    const span = info.span;
-    if (turned && span && span.index === 0 && !span.continued) state.strewn = 0;
-    if (turned && advanced && undressing) state.strewn = Math.min(SCATTER_MAX, state.strewn + 1);
-    const list = resolveScatter(state.strewn, info.garments);
-    const key = list.join(',');
-    if (key === state.strewKey) return;
-    state.strewKey = key;
-    ensurePart(state, 'strew');
-    const box = part(state, 'strew');
-    if (!box) return;
-    box.innerHTML = list.map((id, i) => scatterIconHtml(id, ((i * 37) % 23) - 11)).join('');
-    setAttr(state.front, 'data-igs-rm-strew', list.length ? '1' : null);
-}
-
 function syncFront(state, plan) {
     const front = ensureFront(state);
     if (!front) return;
@@ -568,11 +438,6 @@ function syncFront(state, plan) {
     setAttr(front, 'data-igs-rm-fringe', plan.fringe ? '1' : null);
     if (!plan.fringe) setVar(part(state, 'fringe'), '--igs-rm-fringe', null);
     if (plan.reduced) setVar(part(state, 'vig'), '--igs-rm-pulse', null);
-    setAttr(front, 'data-igs-rm-heat', plan.heat ? plan.heat : null);
-    setVar(front, '--igs-rm-heat', plan.heat ? (plan.heat / 3).toFixed(2) : null);
-    setAttr(front, 'data-igs-rm-after', plan.afterglow ? '1' : null);
-    if (plan.heat) ensurePart(state, 'heat');
-    if (plan.afterglow) ensurePart(state, 'after');
     const sense = plan.sense && plan.senseVisual ? plan.sense : null;
     setAttr(front, 'data-igs-rm-sense', sense);
     setAttr(front, 'data-igs-rm-ear', sense === 'ear' ? (state.earSide < 0 ? 'l' : 'r') : null);
@@ -617,13 +482,8 @@ function runPeak(state, plan) {
 }
 
 function stopState(state, { hard = false } = {}) {
-    state.stopped = true;
-    state.plan = null;
-    if (state.pump != null) clearTimeout(state.pump);
+    if (state.pump) clearInterval(state.pump);
     state.pump = null;
-    state.offIdle?.();
-    state.offVisibility?.();
-    state.offIdle = state.offVisibility = null;
     if (state.frame != null && state.cancelFrame) state.cancelFrame(state.frame);
     state.frame = null;
     for (const id of state.timers) clearTimeout(id);
@@ -631,7 +491,6 @@ function stopState(state, { hard = false } = {}) {
     if (state.voice) state.voice.dispose(hard ? 0.05 : 0.6);
     state.voice = null;
     syncDuck(state, 0);
-    setVoiceFilter('none', 'intimate');
     writeSway(state, null);
     setAttr(state.stage, 'data-igs-rm-sway', null);
     if (state.front && typeof state.front.remove === 'function') state.front.remove();
@@ -648,16 +507,11 @@ export function syncRomanceIntimate(root, info = {}) {
     const reduced = info.reduced === true;
     const coarse = info.coarse != null ? info.coarse === true : isCoarse();
     const phase = info.level === 3 ? resolveIntimatePhase(info.span) : '';
-    // CG 运镜节奏档与换图切镜：写在舞台上，由 romance-cg-pan 读取。
-    const cgLevel = info.level > 0;
-    setAttr(stage, 'data-igs-cgp-pace', cgLevel ? resolveCgPace({ pace: settings.cgPace, phase, textLength: info.textLength }) || null : null);
-    setAttr(stage, 'data-igs-cgp-cut', cgLevel && settings.cgCut === true ? '1' : null);
     const base = resolveIntimatePlan({
         level: info.level, phase, settings, sound: normalizeFxSoundSettings(info.fxSound), reduced, coarse, low: info.low === true, location: info.location,
-        sense: info.sense || '', undress: info.undress || '', solo: info.solo === true, noise: info.noise || '', span: info.span || null,
+        sense: info.sense || '', undress: info.undress || '', solo: info.solo === true, noise: info.noise || '',
     });
     if (!base) {
-        setVoiceFilter('none', 'intimate');
         if (state) {
             stopState(state);
             states.delete(stage);
@@ -666,13 +520,8 @@ export function syncRomanceIntimate(root, info = {}) {
     }
     const plan = { ...base, reduced };
     if (!state) {
-        state = makeState(stage, root);
+        state = makeState(stage);
         states.set(stage, state);
-        state.offIdle = onStageIdleChange(root, () => syncClocks(state));
-        const doc = stage.ownerDocument;
-        const onVisibility = () => syncClocks(state);
-        doc?.addEventListener?.('visibilitychange', onVisibility);
-        state.offVisibility = () => doc?.removeEventListener?.('visibilitychange', onVisibility);
     }
     if (typeof info.rng === 'function') state.rng = info.rng;
     state.coarse = coarse;
@@ -692,7 +541,6 @@ export function syncRomanceIntimate(root, info = {}) {
 
     const clockChanged = syncVoice(state, plan);
     state.span = info.span || null;
-    setVoiceFilter(settings.earVoice === true && plan.level >= 2 && plan.volume > 0 ? 'ear' : 'none', 'intimate');
     if (clockChanged || !prev || prev.phase !== plan.phase || prev.level !== plan.level) state.phaseStart = schedNow(state);
     syncDuck(state, plan.duck);
     const voice = state.voice;
@@ -701,7 +549,6 @@ export function syncRomanceIntimate(root, info = {}) {
         else if (!plan.tinnitus && voice.tinnitusOn) voice.stopTinnitus();
     }
     syncFront(state, plan);
-    syncStrew(state, plan, info, turned, advanced, Boolean(plan.undress || plan.undressVisual));
     setAttr(stage, 'data-igs-rm-sway', plan.sway || state.swayFade > 0 ? '1' : null);
 
     if (turned) {
@@ -730,9 +577,15 @@ export function syncRomanceIntimate(root, info = {}) {
     if ((turned || senseChanged) && plan.sense === 'touch' && plan.senseVisual && !plan.reduced) {
         replay(state, 'sense', 'data-igs-rm-ripple', '1', RIPPLE_MS);
     }
-    syncClocks(state);
-    const typewriter = planBreathTypewriter({ enabled: settings.breathText === true, level: plan.level, phase: plan.phase, reduced, speed: info.speed });
-    return { whisper: plan.whisper || (plan.sense === 'ear' && plan.volume > 0), plan, typewriter };
+    if (!state.pump && (plan.tempo || plan.heartBpm || plan.breath || plan.ticks)) {
+        state.pump = unref(setInterval(() => pump(state), PUMP_MS));
+    } else if (state.pump && !(plan.tempo || plan.heartBpm || plan.breath || plan.ticks)) {
+        clearInterval(state.pump);
+        state.pump = null;
+    }
+    pump(state);
+    if (state.frame == null) loop(state);
+    return { whisper: plan.whisper || (plan.sense === 'ear' && plan.volume > 0), plan };
 }
 
 export function closeRomanceIntimate(root) {

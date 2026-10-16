@@ -34,7 +34,7 @@ export function renderMetaFxFields(reader, more = collapsible) {
     const touch = checkbox(`${P}.poke`, s.poke, '戳立绘头部')
         + checkbox(`${P}.hover`, s.hover, '鼠标悬停头部（电脑端）');
     const reading = checkbox(`${P}.reading`, s.reading, '阅读行为吐槽')
-        + field(`${P}.cooldownSec`, '吐槽间隔', segmentedInput(`${P}.cooldownSec`, String(s.cooldownSec), META_COOLDOWNS.map((n) => [String(n), `${n}秒`]), '吐槽间隔'));
+        + field(`${P}.cooldownSec`, '吐槽间隔', segmentedInput(`${P}.cooldownSec`, String(s.cooldownSec), META_COOLDOWNS.map((n) => [String(n), `${n} 秒`]), '吐槽间隔'));
     const clock = checkbox(`${P}.clock`, s.clock, '真实时间问候')
         + (s.clock ? sub(checkbox(`${P}.festivals`, s.festivals, '节日问候')
             + field(`${P}.birthday`, '你的生日', textInput(`${P}.birthday`, s.birthday, '如03-05，留空不启用'))) : '');

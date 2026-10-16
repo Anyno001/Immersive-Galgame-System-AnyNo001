@@ -18,14 +18,14 @@ export function isWornStatus(status) {
 
 // 只读收集某角色的服装线索：角色表「穿着打扮」等列（profile）与装备表中正在穿戴的衣物（worn）。
 // 读取失败返回 read-error 与原因，不当作空数据；names 为主名与别名，按单元格全文精确匹配。
-export function collectOutfitClues(readResult, names, parsedTables) {
+export function collectOutfitClues(readResult, names) {
     if (!readResult || readResult.ok === false) {
         return { status: 'read-error', reason: String((readResult && readResult.reason) || '读取失败'), profile: [], worn: [] };
     }
     const wanted = new Set((Array.isArray(names) ? names : [names]).map((n) => String(n || '').trim()).filter(Boolean));
     const profile = [];
     const worn = [];
-    for (const table of parsedTables || parseTables(readResult.data)) {
+    for (const table of parseTables(readResult.data)) {
         const columns = table.columns;
         if (matchesRecordTable(table.name, 'inventory')) {
             const holderIdx = indexOf(columns, ITEM_HOLDER_FIELDS);

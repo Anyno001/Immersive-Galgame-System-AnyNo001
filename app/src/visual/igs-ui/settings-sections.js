@@ -31,8 +31,7 @@ export const SETTINGS_SECTIONS = Object.freeze({
         paths: () => ['enabled', 'showEmotion', 'showLocation', 'showLocationDetails', 'avatarRadius', 'size', 'position', 'background', 'barColor', 'tables'].map((key) => `readerSettings.statusHud.${key}`),
     },
     'reader-interface-option-bubble': { label: '选项气泡', paths: () => ['bridge.optionBubble', 'readerSettings.optionFontSize'] },
-    'reader-interface-toolbar': { label: '工具栏', paths: () => reader('toolbarScale', 'toolbarDock', 'inputPlacement', 'toolbarSplit', 'toolbarPlate', 'dialogBarAlign', 'pinnedBtns', 'hiddenBtns', 'btnOrder', 'dialogBarBtns') },
-    'reader-interface-shortcuts': { label: '快捷键', paths: () => reader('shortcuts') },
+    'reader-interface-toolbar': { label: '工具栏', paths: () => reader('toolbarScale', 'toolbarDock', 'inputPlacement', 'toolbarSplit', 'dialogBarAlign', 'pinnedBtns', 'hiddenBtns', 'btnOrder', 'dialogBarBtns') },
 });
 
 export function settingsSectionPaths(sectionId, draft) {
@@ -77,7 +76,7 @@ export const SETTINGS_EXPORT_FORMAT = 'igs-settings';
 const SECRET_KEY = /^(?:api[-_]?key|apikey|token|secret|password|authorization)$/i;
 // 素材内容：场景、角色、衣柜、生成图、各角色卡。全局配置不带走这些，导入也不覆盖本机已有的。
 const ASSET_CONTENT_KEYS = Object.freeze([
-    'scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits',
+    'scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds',
     'wardrobe', 'generated', 'statusAvatars', 'cards',
 ]);
 const READER_CONTENT_KEYS = Object.freeze(['spriteLayouts', 'spriteHeads']);
@@ -161,9 +160,9 @@ export function settingsExportFileName(version, now = new Date()) {
 // 只做格式校验与密钥回填；字段合法性交给宿主 normalizeUnifiedSettings。
 export function parseSettingsImport(text, current = {}) {
     let data;
-    try { data = typeof text === 'string' ? JSON.parse(text) : text; } catch (error) { return { ok: false, reason: 'invalid-json', message: '文件不是有效的JSON' }; }
+    try { data = typeof text === 'string' ? JSON.parse(text) : text; } catch (error) { return { ok: false, reason: 'invalid-json', message: '文件不是有效的 JSON' }; }
     if (!isPlainObject(data)) return { ok: false, reason: 'invalid-format', message: '文件内容不是设置对象' };
-    if (data.format != null && data.format !== SETTINGS_EXPORT_FORMAT) return { ok: false, reason: 'invalid-format', message: '这不是IGS设置文件' };
+    if (data.format != null && data.format !== SETTINGS_EXPORT_FORMAT) return { ok: false, reason: 'invalid-format', message: '这不是 IGS 设置文件' };
     const hasBridge = isPlainObject(data.bridge);
     const hasReader = isPlainObject(data.readerSettings);
     if (!hasBridge && !hasReader) return { ok: false, reason: 'invalid-format', message: '文件里没有可导入的设置' };

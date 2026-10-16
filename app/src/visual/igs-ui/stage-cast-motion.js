@@ -125,14 +125,13 @@ export function playSpeakerMove(spriteEl, fromX, toX, posY) {
 }
 
 // #igs-sprite 上的说话人：上一页不在台上就从近侧滑入；换了位置就平移；从陪衬升上来就由暗转亮。
-// slide=false（登场 / 退场关闭）不侧滑入场；move=false（走位关闭）换位直接到位，不横穿舞台。
-export function playSpeakerCastMotion(spriteEl, prevStage, speaker, handoff = {}, { skipEnter = false, slide = true, move = true } = {}) {
+export function playSpeakerCastMotion(spriteEl, prevStage, speaker, handoff = {}, { skipEnter = false } = {}) {
     if (!spriteEl || typeof spriteEl.animate !== 'function' || !prevStage || !speaker || !speaker.key) return [];
     const played = [];
     const memberX = prevStage.memberX || {};
     const fromX = prevStage.speaker === speaker.key ? prevStage.speakerX : memberX[speaker.key];
     if (fromX == null) {
-        if (skipEnter || !slide) return played;
+        if (skipEnter) return played;
         const side = castSideOf(speaker.posX);
         if (side) {
             spriteEl.animate([{ transform: `translateX(${side * CAST_SLIDE_PCT}%)` }, { transform: 'translateX(0)' }], {
@@ -142,7 +141,7 @@ export function playSpeakerCastMotion(spriteEl, prevStage, speaker, handoff = {}
         played.push('enter');
         return played;
     }
-    if (move && playSpeakerMove(spriteEl, fromX, speaker.posX, speaker.posY)) played.push('move');
+    if (playSpeakerMove(spriteEl, fromX, speaker.posX, speaker.posY)) played.push('move');
     if (handoff.promoted === speaker.key) {
         // 接在样式表算好的环境调色后面播；只写压暗/提亮会把调色整段顶掉，说话人每次接过台词都闪一下原色。
         const view = spriteEl.ownerDocument && spriteEl.ownerDocument.defaultView;

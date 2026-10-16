@@ -23,7 +23,7 @@ export function createIdbConnection(idb, name, version, upgrade, options = {}) {
             timer = setTimeout(() => finish(false, new Error(`${name} 打开超时`)), openTimeout);
             let req;
             try { req = idb.open(name, version); } catch (error) { finish(false, error); return; }
-            req.onupgradeneeded = (event) => { if (typeof upgrade === 'function') upgrade(req.result, req.transaction, event?.oldVersion || 0); };
+            req.onupgradeneeded = () => { if (typeof upgrade === 'function') upgrade(req.result); };
             req.onblocked = () => finish(false, new Error(`${name} 被其他页面占用`));
             req.onerror = () => finish(false, req.error || new Error(`${name} 打开失败`));
             req.onsuccess = () => {
@@ -49,7 +49,7 @@ export function createIdbConnection(idb, name, version, upgrade, options = {}) {
             try { tx = db.transaction(storeNames, mode); } catch (error) { reset(attempt); reject(error); return; }
             let out;
             try { out = fn(tx); } catch (error) { try { tx.abort(); } catch { /* 已结束 */ } reject(error); return; }
-            const timer = setTimeout(() => { try { tx.abort(); } catch { /* 已结束 */ } reset(attempt); reject(new Error(`${name} 读写超时`)); }, timeout);
+            const timer = setTimeout(() => reject(new Error(`${name} 读写超时`)), timeout);
             tx.oncomplete = () => {
                 clearTimeout(timer);
                 try { resolve(typeof out === 'function' ? out() : (out ? out.result : undefined)); } catch (error) { reject(error); }
@@ -59,7 +59,7 @@ export function createIdbConnection(idb, name, version, upgrade, options = {}) {
         });
     }
 
-    return { open, transact, reset: () => reset(), async close() { const attempt = current; current = null; try { (await attempt)?.close(); } catch { /* 失败的连接已经结束 */ } } };
+    return { open, transact, reset: () => reset() };
 }
 
 // 给任意 Promise 加期限；到期按 fallback 落地，原任务继续在后台走完。

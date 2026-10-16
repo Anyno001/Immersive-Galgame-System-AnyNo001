@@ -1,4 +1,3 @@
-import { decodeImage } from './image-decode.js';
 // 相册：日常演出「拍照」把当前背景与立绘合成一张 JPEG，存进独立的 IndexedDB igs-photo-album。
 // CG 库通过 media/cg-library.js 把照片当 kind:'photo' 条目列出；收藏 / 隐藏 / 删除只动相册库，不碰楼层插图。
 import { createIdbConnection } from './idb-connection.js';
@@ -81,7 +80,13 @@ function loadImage(doc, url) {
     const match = /^url\(["']?(.*?)["']?\)$/.exec(String(url || '').trim());
     const src = match ? match[1].replace(/&quot;/g, '"') : '';
     if (!src || typeof Image !== 'function') return Promise.resolve(null);
-    return decodeImage(doc.defaultView, src, { crossOrigin: 'anonymous' });
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = src;
+    });
 }
 
 function percentPair(value, fallback) {

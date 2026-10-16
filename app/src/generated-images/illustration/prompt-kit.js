@@ -1,6 +1,8 @@
 // 生图提示词公共模块：CG 插图与素材补全共用的 LLM 规则、防拦截重试、内置 NAI 模板与词典。
 // 只服务 NovelAI 结构化 caption，按契约放在 generated-images 而不是通用 prompts。
 import { BUILTIN_PROMPTS, SCENE_DICTIONARY } from '../prompt-registry.js';
+import { prepareImageWritingRequest } from '../image-prompt-runtime.js';
+import { SecondaryLlmError, secondaryLlmFailure } from '../../host/secondary-llm-result.js';
 
 export const TAG_WRITING_RULES = [
     'tag 用英文小写逗号分隔，遵循 danbooru 标签习惯，可用 NovelAI 权重语法（如 1.2::red hair::）。',
@@ -45,17 +47,45 @@ export const NSFW_NEGATIVE_GUARD = '';
 const describeError = (error) => (error && error.message) || String(error || '未知错误');
 const snippet = (text) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
 
-export async function requestWithSoftRetry(llm, { system, user, softSystem, softUser, parse }, llmSettings) {
+export async function requestWithSoftRetry(llm, options, llmSettings) {
+    const execute = (guarded, lease) => requestSoft(llm, guarded,
+        lease?.state?.config?.autoIllustration?.llm || llmSettings);
+    return options.imagePrompt && typeof llm?.runImageTask === 'function'
+        ? llm.runImageTask(options, execute) : execute(options);
+}
+
+async function requestSoft(llm, { system, user, softSystem, softUser, parse, imagePrompt, signal, shouldStart }, llmSettings) {
+    const stale = () => signal?.aborted || (typeof shouldStart === 'function' && !shouldStart());
+    const cancelled = () => ({ ok: false, reason: 'request-stale', stopGeneration: true, error: '写词任务已取消或目标失效' });
+    if (stale()) return cancelled();
+    const prepared = imagePrompt ? await prepareImageWritingRequest(llm, imagePrompt.task,
+        { ...imagePrompt.input, ...(signal && { signal }), ...(shouldStart && { shouldStart }) },
+        { system, user }) : { ok: true, request: { system, user } };
+    if (!prepared.ok) return prepared;
+    if (stale()) return cancelled();
+    const settings = signal ? { ...llmSettings, signal } : llmSettings;
+    const ordered = Object.hasOwn(prepared.request, 'messages');
     let first = '';
     let firstError = '';
+    let parseFailure;
     try {
-        first = await llm.request({ system, user }, llmSettings);
+        first = await llm.request(prepared.request, settings);
+        if (stale()) return cancelled();
         const parsed = parse(first);
         if (parsed.ok) return { ...parsed, soft: false };
+        parseFailure = parsed;
     } catch (error) {
+        if (error instanceof SecondaryLlmError || ['request-stale', 'request-timeout'].includes(error?.reason)) return {
+            ...secondaryLlmFailure(error), ...(ordered && { stopGeneration: true }), soft: false };
         first = '';
         firstError = describeError(error);
     }
+    if (stale()) return cancelled();
+    if (ordered) return {
+        ok: false, reason: parseFailure?.reason || 'image-prompt-write-failed', stopGeneration: true,
+        error: parseFailure?.error || (firstError ? '副 LLM 写词请求失败，未继续绘图' : '副 LLM 未返回合法图像字段，未继续绘图'),
+        ...(parseFailure?.diagnostic && { diagnostic: parseFailure.diagnostic }), soft: false,
+    };
     if (!softSystem || (!looksLikeRefusal(first) && first) || firstError) {
         const error = firstError
             ? `副 LLM 请求失败：${firstError}`
@@ -63,10 +93,13 @@ export async function requestWithSoftRetry(llm, { system, user, softSystem, soft
         return { ok: false, error, soft: false };
     }
     try {
-        const second = await llm.request({ system: softSystem, user: softUser || user }, llmSettings);
+        if (stale()) return cancelled();
+        const second = await llm.request({ system: softSystem, user: softUser || user }, settings);
+        if (stale()) return cancelled();
         const parsed = parse(second);
         return parsed.ok ? { ...parsed, soft: true } : { ok: false, error: `副 LLM 拒绝生成标签：${snippet(second) || '返回为空'}`, soft: true };
     } catch (error) {
+        if (error instanceof SecondaryLlmError || ['request-stale', 'request-timeout'].includes(error?.reason)) return { ...secondaryLlmFailure(error), soft: true };
         return { ok: false, error: `副 LLM 请求失败：${describeError(error)}`, soft: true };
     }
 }

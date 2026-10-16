@@ -1,12 +1,5 @@
 // 日常演出标签 [igs-fx:timeskip|三小时后] 等：同属 igs-fx 标签族，但独立于 FX_TAG_KINDS，
 // 由日常演出开关（readerSettings.dailyFx）控制；字段写错时按最宽松的合法形式处理，缺必填字段则整条忽略。
-import { GAME_FX_KINDS, gameFxOf, parseGameFxBody } from './game-console.js';
-import { CAMPUS_FX_KINDS, campusFxOf, parseCampusFxBody } from './campus-fx.js';
-import { FX_PACK_KINDS, isPackKind, packFxOf, parsePackFxBody } from './fx-packs.js';
-
-// 校园演出（黑板、传纸条、抽屉、点名、考试、文化祭、毕业、纽扣）：语法注入与触发词单独走 campus 块，见 scene/campus-fx.js。
-export { CAMPUS_FX_KINDS };
-
 export const DAILY_FX_KINDS = Object.freeze([
     'timeskip', 'photo', 'letter', 'note', 'bell', 'broadcast', 'fireworks', 'touch', 'alarm', 'omikuji', 'receipt', 'tv', 'rps', 'gacha', 'game', 'score',
     'pat', 'poke', 'fever', 'cheers', 'cook', 'cat', 'eat',
@@ -15,51 +8,12 @@ export const DAILY_FX_KINDS = Object.freeze([
     'blackout', 'knock', 'murmur',
     'brake', 'depart', 'arrive', 'ticket',
     'steam', 'shower', 'splash', 'hairdry',
-    'sleep', 'wake',
-    'dressup', 'drape', 'fitting',
     'dive', 'bubble', 'vacuum',
-    'sing', 'dance', 'fish', 'draw', 'music', 'ride', 'clean', 'shopping', 'stroll',
-    'yujian', 'liandan', 'biguan', 'dianxue', 'qinggong', 'yungong',
-    'opendoor', 'shield', 'tend', 'carry', 'candle', 'pass', 'stance',
     'say',
-    ...GAME_FX_KINDS,
-    ...CAMPUS_FX_KINDS,
-    ...FX_PACK_KINDS,
 ]);
-// 衣橱类日常演出：换装登场、披衣、试衣。仍是日常 kind（渲染与 opt-in 走 dailyFx），但语法注入与触发词
-// 单独走 wardrobe 块（只在正文提到换衣/披衣时才补完整写法），不占「每轮必发」的日常预算。
-export const WARDROBE_FX_KINDS = Object.freeze(['dressup', 'drape', 'fitting']);
-// 玩乐类日常演出：唱歌、跳舞、钓鱼、画画、演奏、游乐设施、打扫、逛街、散步。仍是日常 kind（渲染与 opt-in 走 dailyFx），
-// 但语法注入与触发词单独走 play 块（只在正文提到对应活动时才补完整写法），和衣橱类一样不占「每轮必发」的日常预算。
-// 在家玩游戏机的四个标签（console / versus / combo / snatch）也归玩乐块，见 scene/game-console.js。
-export const PLAY_FX_KINDS = Object.freeze(['sing', 'dance', 'fish', 'draw', 'music', 'ride', 'clean', 'shopping', 'stroll', ...GAME_FX_KINDS]);
-// 体贴与礼仪类日常演出：开门礼让、护在身前、贴心照料、公主抱，以及约会与后宫共用的三块积木——点灯烛火 candle、递接 pass、站位身段 stance。
-// 仍是日常 kind（渲染与 opt-in 走 dailyFx），语法注入与触发词单独走 courtesy 块，不占「每轮必发」的日常预算。
-export const COURTESY_FX_KINDS = Object.freeze(['opendoor', 'shield', 'tend', 'carry', 'candle', 'pass', 'stance']);
-// 站位身段：姿态别名 → 规范姿态。跪拜、侍立、上座属古代尊卑；并肩、依偎、俯身属约会亲近，两边共用同一组积木。
-export const DAILY_STANCE_POSES = Object.freeze({
-    跪拜: 'kneel', 跪: 'kneel', 下跪: 'kneel', 叩首: 'kneel', 跪下: 'kneel', kneel: 'kneel',
-    侍立: 'attend', 站侍: 'attend', 垂手: 'attend', 恭立: 'attend', 躬身: 'attend', attend: 'attend',
-    上座: 'throne', 高坐: 'throne', 居中: 'throne', 升座: 'throne', 端坐: 'throne', throne: 'throne',
-    并肩: 'side', 靠肩: 'side', 靠近: 'side', side: 'side',
-    依偎: 'lean', 倚靠: 'lean', 靠在: 'lean', lean: 'lean',
-    俯身: 'stoop', 弯腰: 'stoop', 低头: 'stoop', stoop: 'stoop',
-});
-// 点灯烛火：烛 / 灯 / 香三种火光，未写或写错按烛。
-export const DAILY_CANDLE_STYLES = Object.freeze({ 烛: 'candle', 蜡烛: 'candle', 烛火: 'candle', candle: 'candle', 灯: 'lamp', 宫灯: 'lamp', 灯笼: 'lamp', lamp: 'lamp', 香: 'incense', 上香: 'incense', 焚香: 'incense', incense: 'incense' });
-// 碰杯：按容器材质换声音，塑料瓶不该碰出玻璃的清响。未写时古代按木碗、其余按玻璃。
-export const DAILY_CHEERS_MATERIALS = Object.freeze({ 玻璃: 'glass', 酒杯: 'glass', 高脚杯: 'glass', glass: 'glass', 陶瓷: 'ceramic', 瓷: 'ceramic', 茶杯: 'ceramic', 马克杯: 'ceramic', ceramic: 'ceramic', 塑料: 'plastic', 塑料瓶: 'plastic', 纸杯: 'plastic', plastic: 'plastic', 易拉罐: 'can', 罐: 'can', can: 'can', 木: 'wood', 木杯: 'wood', 酒碗: 'wood', 碗: 'wood', wood: 'wood', 金属: 'metal', 铜: 'metal', 银: 'metal', 酒爵: 'metal', metal: 'metal' });
 export const DAILY_OMIKUJI_RESULTS = Object.freeze(['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶']);
 // 同页日常演出上限：都是全屏或大卡片，连发只会互相遮挡。
 export const DAILY_FX_PAGE_MAX = 2;
-// 题材包的 kind 同页放宽到 3（恋综的花字、榜单、REC 角标常同屏）；其余日常仍为 DAILY_FX_PAGE_MAX。
-export const DAILY_FX_PACK_PAGE_MAX = 3;
-
-// 本页已选的日常演出（带 type）里是否还放得下 type 这一种：包 kind 总数封顶 3，非包 kind 封顶 2。
-export function dailyFxHasRoom(picked, type) {
-    if (isPackKind(type)) return picked.length < DAILY_FX_PACK_PAGE_MAX;
-    return picked.length < DAILY_FX_PACK_PAGE_MAX && picked.filter((item) => !isPackKind(item.type)).length < DAILY_FX_PAGE_MAX;
-}
 // 结果类日常演出：猜拳手势、游戏胜负词表；结果由标签字段决定，前端不掷骰、不编造。
 export const DAILY_RPS_HANDS = Object.freeze({ 石头: 'rock', 拳头: 'rock', rock: 'rock', 剪刀: 'scissors', scissors: 'scissors', 布: 'paper', paper: 'paper' });
 export const DAILY_GAME_RESULTS = Object.freeze({ win: 'win', 胜: 'win', 胜利: 'win', 赢: 'win', lose: 'lose', 败: 'lose', 输: 'lose', 失败: 'lose', draw: 'draw', 平: 'draw', 平局: 'draw' });
@@ -121,10 +75,7 @@ export function parseDailyFxBody(type, fields) {
     case 'poke': return ['poke', a];
     // 体温只显示标签给出的读数，读数里必须有数字。
     case 'fever': return /\d/.test(a) ? ['fever', a] : null;
-    case 'cheers': {
-        const material = lookup(DAILY_CHEERS_MATERIALS, a);
-        return material ? ['cheers', material] : ['cheers'];
-    }
+    case 'cheers': return ['cheers'];
     case 'cook': return a ? ['cook', a] : null;
     case 'cat': return ['cat'];
     // 进食：食物名必填，反应可省（好吃、辣、喂……由前端换算）。
@@ -168,50 +119,11 @@ export function parseDailyFxBody(type, fields) {
     case 'shower': return ['shower'];
     case 'splash': return ['splash'];
     case 'hairdry': return ['hairdry', a];
-    // 居家：入睡、起床，旁白可省（写在黑屏 / 晨光上的一句）。
-    case 'sleep': return ['sleep', a];
-    case 'wake': return ['wake', a];
-    // 换装登场：服装名、角色名均可省（服装名空时只有光效，角色名给多人同屏定位）。
-    case 'dressup': return ['dressup', a, b];
-    // 披衣 / 整理着装：动作必填（披外套、系领带、围围巾、理衣领……），角色名可省。
-    case 'drape': return a ? ['drape', a, b] : null;
-    // 试衣：对着试衣镜换上新装，新装名可省。
-    case 'fitting': return ['fitting', a];
     // 水下与真空：不分世界观，都不带字段。
     case 'dive': return ['dive'];
     case 'bubble': return ['bubble'];
     case 'vacuum': return ['vacuum'];
-    // 玩乐：唱歌、跳舞、钓鱼、画画、演奏乐器、游乐设施——字段均可省（省了只有通用演出）。
-    case 'sing': return ['sing', a];
-    case 'dance': return ['dance', a];
-    case 'fish': return ['fish', a];
-    case 'draw': return ['draw', a];
-    case 'music': return ['music', a];
-    case 'ride': return ['ride', a];
-    // 居家打扫、散步：都不带字段；逛街购物的物品名可省。
-    case 'clean': return ['clean'];
-    case 'shopping': return ['shopping', a];
-    case 'stroll': return ['stroll'];
-    // 修仙武侠（古代专属）：御剑、点穴、轻功不带字段；炼丹、运功的成败可省；闭关的境界可省。
-    case 'yujian': return ['yujian'];
-    case 'liandan': return ['liandan', lookup(DAILY_GAME_RESULTS, a)];
-    case 'biguan': return ['biguan', a];
-    case 'dianxue': return ['dianxue'];
-    case 'qinggong': return ['qinggong'];
-    case 'yungong': return ['yungong', lookup(DAILY_GAME_RESULTS, a)];
-    // 体贴动作：动作字样必填，角色名可省（给多人同屏定位）。
-    case 'opendoor': return a ? ['opendoor', a, b] : null;
-    case 'shield': return a ? ['shield', a, b] : null;
-    case 'tend': return a ? ['tend', a, b] : null;
-    case 'carry': return a ? ['carry', a, b] : null;
-    // 积木：点灯烛火（类型、角色名均可省）、递接（物品必填，接物者可省）、站位身段（姿态必填且要认得，角色名可省）。
-    case 'candle': return ['candle', lookup(DAILY_CANDLE_STYLES, a) || 'candle', lookup(DAILY_CANDLE_STYLES, a) ? b : (a || b)];
-    case 'pass': return a ? ['pass', a, b] : null;
-    case 'stance': {
-        const pose = lookup(DAILY_STANCE_POSES, a);
-        return pose ? ['stance', pose, b] : null;
-    }
-    default: return parseGameFxBody(type, fields) || parseCampusFxBody(type, fields) || parsePackFxBody(type, fields);
+    default: return null;
     }
 }
 
@@ -238,7 +150,7 @@ export function dailyFxOf(args) {
     case 'rps': return { type, mine: a, theirs: b, outcome: rpsOutcome(a, b) };
     case 'gacha': return { type, item: a };
     case 'game': return { type, result: a };
-    case 'cheers': return { type, material: a };
+    case 'cheers': return { type };
     case 'cook': return { type, dish: a };
     case 'cat': return { type };
     case 'eat': return { type, food: a, reaction: b };
@@ -265,36 +177,9 @@ export function dailyFxOf(args) {
     case 'shower': return { type };
     case 'splash': return { type };
     case 'hairdry': return { type, who: a };
-    case 'sleep': return { type, text: a };
-    case 'wake': return { type, text: a };
-    case 'dressup': return { type, outfit: a, who: b };
-    case 'drape': return { type, act: a, who: b };
-    case 'fitting': return { type, outfit: a };
     case 'dive': return { type };
     case 'bubble': return { type };
     case 'vacuum': return { type };
-    case 'sing': return { type, song: a };
-    case 'dance': return { type, style: a };
-    case 'fish': return { type, catch: a };
-    case 'draw': return { type, subject: a };
-    case 'music': return { type, instrument: a };
-    case 'ride': return { type, name: a };
-    case 'clean': return { type };
-    case 'shopping': return { type, item: a };
-    case 'stroll': return { type };
-    case 'yujian': return { type };
-    case 'liandan': return { type, result: a };
-    case 'biguan': return { type, text: a };
-    case 'dianxue': return { type };
-    case 'qinggong': return { type };
-    case 'yungong': return { type, result: a };
-    case 'opendoor': return { type, act: a, who: b };
-    case 'shield': return { type, act: a, who: b };
-    case 'tend': return { type, act: a, who: b };
-    case 'carry': return { type, act: a, who: b };
-    case 'candle': return { type, style: a, who: b };
-    case 'pass': return { type, item: a, who: b };
-    case 'stance': return { type, pose: a, who: b };
     case 'pat': return { type, who: a };
     case 'poke': return { type, who: a };
     case 'fever': {
@@ -306,6 +191,6 @@ export function dailyFxOf(args) {
         const digits = String(b).match(/\d+(?:\.\d+)?/);
         return { type, subject: a, score: b, fail: Boolean(digits) && Number(digits[0]) < 60 };
     }
-    default: return gameFxOf(args) || campusFxOf(args) || packFxOf(args);
+    default: return null;
     }
 }

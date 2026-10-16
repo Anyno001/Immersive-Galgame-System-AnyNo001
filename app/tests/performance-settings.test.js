@@ -57,7 +57,7 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
     // 战斗、直播、手机社区、线上交流、亲密这类只在特定剧情用的，收进「题材专属」，由用户自己勾；演出页不再有剧情题材胶囊。
     assert.match(html, /<b>题材专属<\/b><span class="igs-perf-count">0\/9<\/span>/);
     assert.doesNotMatch(html, /剧情题材|perf-type:/);
-    assert.match(html, /<details data-advanced="perf-group-rhythm"><summary><b>节奏<\/b>/);
+    assert.match(html, /<details data-advanced="perf-group-rhythm"><summary><b>节奏与互动<\/b>/);
     assert.equal(PERFORMANCE_GROUPS.length, 5);
     // 每项一行：开着且有细项时只露 › 按钮，细项默认收起，不再有「自定义触发情绪」之类的二级折叠。
     assert.match(html, /data-action="ui-toggle-open:perf-manga-words" aria-expanded="false"/);
@@ -106,6 +106,10 @@ test('gate:performance-layout:nsfw-display-options-get-one-row-each', () => {
 
 // 挂在某个开关下的子项（如节律音效挂在节律演出下）要保留缩进；只有整段细项包在一层 sub 里时才去掉，免得双重缩进。
 test('gate:performance-layout:nested-sub-options-keep-their-indent', async () => {
+    const { getSettingsStyleText } = await import('../src/visual/igs-ui/settings-style.js');
+    const css = getSettingsStyleText();
+    assert.ok(css.includes('.igs-perf-item-body>.igs-settings-sub:only-child{margin-left:0;padding-left:0;border-left:0}'));
+    assert.ok(!css.includes('.igs-perf-item-body>.igs-settings-sub{'));
     const { renderRomanceFxFields } = await import('../src/visual/igs-ui/romance-fields.js');
     const body = renderRomanceFxFields({ romanceFx: { enabled: true, rhythm: true } });
     assert.match(body, /<div class="igs-perf-item-body">[\s\S]*data-switch="readerSettings\.romanceFx\.rhythm"[^>]*>[\s\S]*?<\/button><div class="igs-settings-sub">[\s\S]*data-switch="readerSettings\.romanceFx\.rhythmSound"/);
@@ -127,7 +131,7 @@ test('gate:perf-presets:home-tab-shows-same-preset-bar-and-custom-state', async 
     const home = renderPerformancePresetBar(reader, { home: true });
     assert.match(home, /演出档位/);
     assert.match(home, /data-action="perf-preset:standard" aria-pressed="true"/);
-    assert.match(home, /细项在「演出」「声音」里调整。/);
+    assert.match(home, /细项前往「阅读器 › 演出」调整。/);
     reader.typewriter = { ...reader.typewriter, enabled: false };
     const custom = renderPerformancePresetBar(reader, { home: true });
     assert.doesNotMatch(custom, /aria-pressed="true"/);
@@ -135,13 +139,13 @@ test('gate:perf-presets:home-tab-shows-same-preset-bar-and-custom-state', async 
     assert.match(renderPerformancePresetBar(reader, { home: true, extraRows: '<div data-x></div>' }), /igs-perf-preset-row">.*<\/div><div data-x><\/div><div class="igs-source-filter-note"/);
 });
 
-test('gate:perf-presets:dash-renders-preset-bar-first', async () => {
+test('gate:perf-presets:basic-tab-renders-preset-bar-first', async () => {
     const { bootstrapIGS } = await import('../src/index.js');
     const vn = bootstrapIGS({ global: {}, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
     try {
-        const controller = vn.openSettings({ tab: 'dash', mode: 'pc' }).controller;
+        const controller = vn.openSettings({ tab: 'basic', mode: 'pc' }).controller;
         const html = controller.getSnapshot().html;
-        assert.ok(html.indexOf('igs-perf-presets') >= 0 && html.indexOf('igs-perf-presets') < html.indexOf('igs-dash-list'));
+        assert.ok(html.indexOf('igs-perf-presets') >= 0 && html.indexOf('igs-perf-presets') < html.indexOf('>通用<'));
         const applied = await controller.invoke('perf-preset:light');
         assert.notEqual(applied.ok, false);
         assert.match(controller.getSnapshot().html, /data-action="perf-preset:light" aria-pressed="true"/);

@@ -12,6 +12,8 @@ import {
     swayAt,
 } from '../src/visual/igs-ui/romance-intimate.js';
 import { closeRomanceIntimate, resolveIntimatePlan, syncRomanceIntimate } from '../src/visual/igs-ui/romance-intimate-runtime.js';
+import { INTIMATE_STYLE_TEXT } from '../src/visual/igs-ui/romance-intimate-style.js';
+import { ROMANCE_STYLE_TEXT } from '../src/visual/igs-ui/romance-style.js';
 import { normalizeRomanceFxSettings } from '../src/visual/igs-ui/romance-settings.js';
 import { renderRomanceFxFields } from '../src/visual/igs-ui/romance-fields.js';
 import { ASSET_GRADE_RATIO, resolveSceneGradePlan } from '../src/visual/igs-ui/scene-grade.js';
@@ -221,6 +223,15 @@ test('gate:romance-intimate:front-layer-sits-below-dialog-and-peak-flashes', () 
     closeRomanceIntimate(root);
     assert.equal(stage.querySelector('.igs-rm-front'), null);
     assert.equal(stage.getAttribute('data-igs-rm-sway'), null);
+});
+
+test('gate:romance-intimate:styles-never-filter-assets-and-keep-dialog-still', () => {
+    assert.doesNotMatch(INTIMATE_STYLE_TEXT, /#igs-(bg|sprite|cast)[^{]*\{[^}]*filter:/);
+    assert.doesNotMatch(INTIMATE_STYLE_TEXT, /igs-dialog/);
+    assert.match(INTIMATE_STYLE_TEXT, /#igs-sprite:not\(\.igs-sprite-editing\)\{translate:calc\(var\(--igs-sd-tx,0px\) \+ var\(--igs-rm-dx,0%\) \+ var\(--igs-rm-sx,0px\)\)/);
+    assert.match(INTIMATE_STYLE_TEXT, /\[data-igs-rm-asset\] \.igs-rm-back\{[^}]*mask-image/);
+    // 亲密演出的背景柔焦叠在环境滤镜之上，不再整条替换。
+    assert.match(ROMANCE_STYLE_TEXT, /saturate\(1\.06\) var\(--igs-grade-bg,\)!important/);
 });
 
 test('gate:romance-intimate:scene-grade-softens-on-generated-art', () => {

@@ -8,9 +8,9 @@ export const STAGE_SHAKE_EMOTIONS = Object.freeze([
 
 export const STAGE_SHAKE_INTENSITIES = Object.freeze(['weak', 'medium', 'strong']);
 export const STAGE_SHAKE_INTENSITY_PARAMS = Object.freeze({
-    weak: Object.freeze({ distance: 5, duration: 240 }),
-    medium: Object.freeze({ distance: 10, duration: 360 }),
-    strong: Object.freeze({ distance: 16, duration: 480 }),
+    weak: Object.freeze({ distance: 3, duration: 180 }),
+    medium: Object.freeze({ distance: 6, duration: 280 }),
+    strong: Object.freeze({ distance: 10, duration: 380 }),
 });
 export const STAGE_SHAKE_DEFAULTS = Object.freeze({
     enabled: false,
@@ -105,6 +105,5 @@ export function applyStageShakeEffect(stage, options = {}) {
     if (stage.classList && typeof stage.classList.add === 'function') stage.classList.add('igs-stage-shake-active');
     if (typeof stage.addEventListener === 'function') stage.addEventListener('animationend', state.listener);
     state.timer = schedule(finish, params.duration + 40);
-    if (typeof options.playSfx === 'function') { try { options.playSfx('impact'); } catch { /* 无音频环境 */ } }
     return { played: true, intensity: settings.intensity, params, cancel: finish };
 }

@@ -53,18 +53,18 @@ export function renderStatusHudPositionField(statusHud, device, currentDevice) {
     const axis = (key, label) => `<label class="igs-hud-pos-axis"><span>${label}</span><span class="igs-settings-range"><input type="range" data-path="${base}.${key}" data-hud-pos-axis="${key}" min="0" max="100" step="1" value="${point[key]}" aria-label="状态栏${label}位置"><output data-hud-pos-value="${key}">${esc(describeStatusHudAxis(key, point[key]))}</output></span></label>`;
     const devices = STATUS_HUD_POSITION_DEVICES.map((id) => [id, DEVICE_LABELS[id]]);
     const atDefault = !point.x && !point.y;
-    const note = `电脑和手机各存一份。窗口宽度不超过640像素，或竖向使用的触屏设备，按「手机」这份显示；当前设备按「${DEVICE_LABELS[currentDevice] || DEVICE_LABELS.pc}」这份显示。`;
+    const note = `电脑和手机各存一份。窗口宽度不超过 640 像素，或竖向使用的触屏设备，按「手机」这份显示；当前设备按「${DEVICE_LABELS[currentDevice] || DEVICE_LABELS.pc}」这份显示。`;
     return `<div class="igs-settings-field igs-hud-pos" data-hud-pos="${device}">`
         + '<span>位置</span>'
         + `<div class="igs-hud-pos-head">${segmentedInput('', device, devices, '状态栏位置对应的设备', { action: 'status-hud-pos-device' })}`
-        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="status-hud-pos-reset:${device}" data-hud-pos-reset${atDefault ? ' disabled' : ''}>复位</button></div>`
+        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="status-hud-pos-reset:${device}" data-hud-pos-reset${atDefault ? ' disabled' : ''}>回到左上角</button></div>`
         + `<div class="igs-hud-pos-stage" data-hud-pos-stage data-device="${device}" style="${vars}" aria-hidden="true"><i class="igs-hud-pos-bar"></i><i class="igs-hud-pos-dialog"></i><i class="igs-hud-pos-hud"></i></div>`
         + axis('x', '左右') + axis('y', '上下')
         + `<em>${esc(note)}</em>`
         + '</div>';
 }
 
-// 拖动中的就地预览：只改小舞台的变量和读数，「复位」随位置启用 / 停用。
+// 拖动中的就地预览：只改小舞台的变量和读数，「回到左上角」随位置启用 / 停用。
 export function previewStatusHudPosition(input) {
     const axis = input && typeof input.getAttribute === 'function' ? input.getAttribute('data-hud-pos-axis') : '';
     const block = axis && typeof input.closest === 'function' ? input.closest('[data-hud-pos]') : null;

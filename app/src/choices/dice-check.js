@@ -53,40 +53,12 @@ function splitActor(text) {
     return { name: parts[0], attribute: parts.slice(1).join(' ') };
 }
 
-const POOL_SIDES = Object.freeze([4, 6, 8, 10, 12, 20, 100]);
-const POOL_MAX_COUNT = 10;
-const POOL_EXPR = /^(\d{0,2})[dD](\d{1,3})([+-]\d{1,3})?$/;
-
-// 骰池：骰池 3d6+2 [目标=12 比较=小于 项目=攀爬]。面数限 d4 到 d20 与 d100，最多 10 颗；目标缺省时只展示点数。
-function parsePoolCommand(body, raw) {
-    const { rest, params } = extractParams(body);
-    const tokens = rest.split(' ').filter(Boolean);
-    const exprIndex = tokens.findIndex((token) => POOL_EXPR.test(token));
-    if (exprIndex < 0) return { kind: 'invalid', reason: '骰池命令格式应为：骰池 <数量>d<面数>[+修正] [目标=数值]', raw };
-    const match = tokens[exprIndex].match(POOL_EXPR);
-    const count = match[1] === '' ? 1 : Number(match[1]);
-    const sides = Number(match[2]);
-    if (count < 1 || count > POOL_MAX_COUNT || !POOL_SIDES.includes(sides)) return { kind: 'invalid', reason: `骰池只支持 1 到 ${POOL_MAX_COUNT} 颗 d4、d6、d8、d10、d12、d20、d100`, raw };
-    const target = Number(params['目标']);
-    const label = String(params['项目'] || tokens.filter((_, index) => index !== exprIndex).join(' ')).trim();
-    return {
-        kind: 'pool',
-        count,
-        sides,
-        modifier: match[3] ? Number(match[3]) : 0,
-        target: params['目标'] !== undefined && Number.isFinite(target) ? target : null,
-        under: /^(小于|低于|不超过|≤|<=?)$/.test(String(params['比较'] || '')),
-        label,
-    };
-}
-
 export function parseDiceCommand(raw) {
     const text = normalizeCommandText(raw);
     if (!text) return { kind: 'invalid', reason: '骰子命令为空', raw };
     if (/^(必成|必定成功|自动成功)(?:\s|$)/.test(text)) return { kind: 'fixed', success: true };
     if (/^(必败|必定失败|自动失败)(?:\s|$)/.test(text)) return { kind: 'fixed', success: false };
     if (/^(无|无需检定|不检定|无检定)(?:\s|$)/.test(text)) return { kind: 'none' };
-    if (/^(骰池|掷骰|投骰)\s/.test(text)) return parsePoolCommand(text.replace(/^\S+\s+/, ''), raw);
     if (text.startsWith('检定 ')) {
         const { rest, params } = extractParams(text.slice(3));
         const actor = splitActor(rest);
@@ -220,36 +192,6 @@ async function resolveContest(command, acuDice, context) {
     return { ok: true, success: winner === 'left', winner, line, detail };
 }
 
-function poolExpression(command) {
-    const mod = command.modifier ? `${command.modifier > 0 ? '+' : ''}${command.modifier}` : '';
-    return `${command.count}d${command.sides}${mod}`;
-}
-
-// 骰池在本地掷（AcuDice 公开 API 没有多面骰池）；单颗 d20 出 20 为大成功、出 1 为大失败，有目标时分别判成功与失败。
-function resolvePool(command, context) {
-    const dice = Array.from({ length: command.count }, () => 1 + Math.floor(context.random() * command.sides));
-    const sum = dice.reduce((acc, value) => acc + value, 0);
-    const total = sum + command.modifier;
-    const single20 = command.count === 1 && command.sides === 20;
-    const tier = single20 && dice[0] === 20 ? '大成功' : single20 && dice[0] === 1 ? '大失败' : '';
-    const hasTarget = command.target !== null;
-    let success;
-    if (hasTarget) success = tier === '大成功' ? true : tier === '大失败' ? false : (command.under ? total <= command.target : total >= command.target);
-    const outcome = tier || (hasTarget ? (success ? '成功' : '失败') : '');
-    const expr = poolExpression(command);
-    const who = displayName(command.label, context.userName);
-    const mod = command.modifier ? `${command.modifier > 0 ? '+' : ''}${command.modifier}` : '';
-    const body = `[${dice.join(',')}]${mod}=${total}`;
-    const goal = hasTarget ? `，需${command.under ? '≤' : '≥'}${command.target}，【${outcome}】` : '';
-    const line = `元叙事：${who ? `${who}：` : ''}骰池 ${expr}，${body}${goal}。`;
-    const detail = {
-        kind: 'pool', label: who, expr, sides: command.sides, dice, modifier: command.modifier, total,
-        target: command.target, under: command.under, tier, outcome,
-        ...(hasTarget ? { success } : {}),
-    };
-    return { ok: true, ...(hasTarget ? { success } : {}), total, line, detail };
-}
-
 // 返回 { ok, line }：line 为空表示无需检定。ok=false 时 reason 说明原因，调用方按原命令降级。
 export async function resolveDiceCommand(raw, acuDice, context = {}) {
     const command = parseDiceCommand(raw);
@@ -257,7 +199,6 @@ export async function resolveDiceCommand(raw, acuDice, context = {}) {
     if (command.kind === 'invalid') return { ok: false, reason: command.reason };
     if (command.kind === 'none') return { ok: true, line: '' };
     if (command.kind === 'fixed') return { ok: true, success: command.success, line: `元叙事：无需投骰，【${command.success ? '必定成功' : '必定失败'}】。` };
-    if (command.kind === 'pool') return resolvePool(command, ctx);
     if (!isAcuDice(acuDice)) return { ok: false, reason: '骰子系统未就绪' };
     try {
         return command.kind === 'check'

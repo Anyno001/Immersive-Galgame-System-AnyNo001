@@ -3,10 +3,6 @@ import { CG_INTERLUDE_STYLES, STAGE_DIRECTION_NORMALIZERS, pickCloseUp, pickSpri
 import { SPEAK_BOUNCE, SPRITE_ACTION_FRAMES, playSpriteSpec } from './sprite-actions.js';
 import { cancelCameraImpact, planCameraImpact, playCameraImpact, playCameraImpactSfx } from './camera-impact.js';
 import { normalizeFxSoundSettings } from './fx-settings.js';
-import { cancelCameraExtras, playCameraExtras, resolveCameraMod, resolveCameraShot } from './camera-shots.js';
-import { cutStyleOf, impliedCam } from './fx-camera-gate.js';
-
-export { resolveCameraShot };
 
 export const BG_TRANSITION_MS = Object.freeze({ fast: 350, medium: 650, slow: 1100 });
 export const BLACK_TRANSITION_MS = Object.freeze({ fast: 700, medium: 1000, slow: 1500 });
@@ -16,7 +12,7 @@ export const SPRITE_EXIT_MS = 380;
 const DECODE_TIMEOUT_MS = 1500;
 const DECODED_LIMIT = 64;
 const BLIND_COUNT = 8;
-const ROOT_ATTRS = Object.freeze(['data-igs-sd-breathe', 'data-igs-cast-breathe', 'data-igs-sd-kenburns', 'data-igs-sd-parallax', 'data-igs-sd-closeup', 'data-igs-sd-cam', 'data-igs-sd-cam-mod']);
+const ROOT_ATTRS = Object.freeze(['data-igs-sd-breathe', 'data-igs-cast-breathe', 'data-igs-sd-kenburns', 'data-igs-sd-parallax', 'data-igs-sd-closeup', 'data-igs-sd-cam']);
 const ROOT_VARS = Object.freeze(['--igs-sd-px', '--igs-sd-py', '--igs-sd-origin-x']);
 
 // 叠加合成：动作与呼吸（CSS 动画）同时作用在 transform 上而不互相覆盖。
@@ -706,12 +702,24 @@ export function cancelStageDirection(root) {
     flushGhosts(state.bgGhosts);
     flushGhosts(state.spriteGhosts);
     syncParallax(state, root, false);
-    cancelCameraExtras(state);
     cancelCameraImpact(typeof root.querySelector === 'function' ? root.querySelector('#igs-stage-motion') : null);
     for (const name of ROOT_ATTRS) setAttr(root, name, false);
     for (const name of ROOT_VARS) setVar(root, name, null);
     states.delete(root);
     return true;
+}
+
+// AI 镜头指令 [igs-fx:cam|…] 落到本页的镜头；返回值写进 data-igs-sd-cam。
+// 特写写了别的角色、特写 / 拉远 / 虚化时本页没有立绘都不推；摇镜在减少动态效果时不播，虚化在低画质档不做。
+export function resolveCameraShot(cam, { speakers = [], spriteUrl = '', reduced = false, lowQuality = false } = {}) {
+    const shot = cam && typeof cam === 'object' ? text(cam.shot) : '';
+    if (!shot || shot === 'reset') return '';
+    if (shot === 'pan') return reduced ? '' : `pan-${cam.target === 'left' ? 'left' : 'right'}`;
+    if (shot === 'tilt') return 'tilt';
+    if (!spriteUrl) return '';
+    if (shot === 'focus') return lowQuality ? '' : 'focus';
+    if (shot === 'closeup' && text(cam.target) && !speakers.map(text).includes(text(cam.target))) return '';
+    return shot === 'closeup' || shot === 'wide' ? shot : '';
 }
 
 // ctx.bgUrl / ctx.spriteUrl 为渲染层已解析、实际写入 DOM 的地址（隐藏立绘时为空）。
@@ -748,8 +756,7 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     if (!cg && state.initialized && bg && bgUrl !== state.bgUrl && s.sceneTransition.enabled) {
         // 同一地点只是换时段的底图时总用淡入，换地点才用所选转场。
         const sameLocation = text(content.sceneLocation) && text(content.sceneLocation) === state.location;
-        const cut = reduced ? '' : cutStyleOf(content.fx, snapshot.readerSettings);
-        const style = reduced ? 'fade' : cut || (sameLocation ? 'fade' : s.sceneTransition.style);
+        const style = reduced || sameLocation ? 'fade' : s.sceneTransition.style;
         const kind = bgUrl ? playBgTransition(state, { doc, bg, root, style, speed, nextUrl: bgUrl }) : '';
         if (kind) played.push(`bg:${kind}`);
         black = kind === 'black';
@@ -792,15 +799,11 @@ export function applyStageDirection(root, snapshot, ctx = {}) {
     setAttr(root, 'data-igs-cg', cg);
     setAttr(root, 'data-igs-sd-kenburns', !cg && !reduced && s.camera.enabled && s.camera.kenBurns && Boolean(bgUrl));
     const lowQuality = typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low';
-    const cam = !cg && eligible && !ctx.spriteEditMode && s.camera.enabled && s.camera.aiShots
-        ? (content.fx && content.fx.cam) || impliedCam(content.fx, snapshot.readerSettings)
-        : null;
-    const camShot = cam ? resolveCameraShot(cam, { speakers: [content.speaker, content.spriteCharacter], spriteUrl, reduced, lowQuality }) : '';
-    const camMod = camShot ? resolveCameraMod(cam, { reduced, lowQuality }) : '';
+    const camShot = !cg && eligible && !ctx.spriteEditMode && s.camera.enabled && s.camera.aiShots
+        ? resolveCameraShot(content.fx && content.fx.cam, { speakers: [content.speaker, content.spriteCharacter], spriteUrl, reduced, lowQuality })
+        : '';
     setAttr(root, 'data-igs-sd-cam', Boolean(camShot), camShot);
-    setAttr(root, 'data-igs-sd-cam-mod', Boolean(camMod), camMod);
     if (camShot && newPage) played.push(`camera:${camShot}`);
-    played.push(...playCameraExtras(state, root, { key: pageKey, shot: camShot, mod: camMod, lowQuality, newPage }));
     // AI 指定了镜头的页不再按情绪自动特写。
     setAttr(root, 'data-igs-sd-closeup', !camShot && !cg && !reduced && eligible && Boolean(spriteUrl) && pickCloseUp(content.statusEmotion, s.camera));
     syncParallax(state, root, !cg && !reduced && s.camera.enabled && s.camera.parallax);

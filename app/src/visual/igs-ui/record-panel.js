@@ -576,7 +576,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const tabs = category === 'relationships' && model.tables.length > 1 ? `<nav class="igs-record-tabs" aria-label="选择资料来源">${model.tables.map(item =>
             `<button type="button" class="igs-rp-chip" data-record-act="table" data-record-id="${escapeHtml(item.uid)}" aria-pressed="${item.uid === activeUid ? 'true' : 'false'}" ${item.uid === activeUid ? 'aria-current="true"' : ''}>${escapeHtml(item.name)}</button>`).join('')}</nav>` : '';
         const error = model.status === 'read-error' ? `${labels[category]}读取失败：${model.reason}`
-            : model.status === 'no-selection' ? '状态栏还没有选择读取表格，请在「界面 › 状态栏」里选择含好感度的表'
+            : model.status === 'no-selection' ? '状态栏还没有选择读取表格，请在「阅读器 → 界面 → 状态栏」里选择含好感度的表'
             : model.status === 'no-tables' ? `未找到匹配的${labels[category]}表`
                 : model.status === 'empty' ? '匹配表没有可阅读的记录' : '';
         const diagnostics = category === 'relationships'

@@ -4,6 +4,7 @@ import {
     STATUS_HUD_DEFAULTS, STATUS_HUD_PHONE_MEDIA, normalizeStatusHudPosition, normalizeStatusHudSettings,
 } from '../src/data/shujuku/status-hud-model.js';
 import { applyStatusHudPosition } from '../src/visual/igs-ui/reader-dom-render.js';
+import { getOriginalReaderStyleText } from '../src/visual/igs-ui/original-reader-source.js';
 import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.js';
 import { settingsSectionPaths } from '../src/visual/igs-ui/settings-sections.js';
 import { searchSettings } from '../src/visual/igs-ui/settings-search.js';
@@ -53,6 +54,23 @@ test('gate:status-hud-position:reader-writes-css-variables-only-when-moved', () 
     assert.equal(host.props.size, 0);
 });
 
+test('gate:status-hud-position:reader-css-moves-custom-positions-below-toolbar', () => {
+    const css = getOriginalReaderStyleText();
+    assert.match(css, /#igs-status-hud\{position:absolute;z-index:8;top:14px;left:14px;/, '默认规则不动');
+    const rule = css.match(/#igs-overlay #igs-status-hud\[data-igs-hud-pos\]\{([^}]*)\}/);
+    assert.ok(rule, '挪过位置才套用的规则');
+    // 工具栏层是 7：挪到右上角时工具栏按钮仍在状态栏上面，点得到设置和关闭。
+    assert.match(rule[1], /z-index:6;/);
+    assert.match(rule[1], /top:calc\(14px \+ \(100% - 28px\) \* var\(--igs-hud-py\) \/ 100\)/);
+    assert.match(rule[1], /left:calc\(var\(--igs-hud-edge-x,14px\) \+ \(100% - var\(--igs-hud-edge-x,14px\) \* 2\) \* var\(--igs-hud-px\) \/ 100\)/);
+    assert.match(rule[1], /transform:translate\(calc\(var\(--igs-hud-px\) \* -1%\),calc\(var\(--igs-hud-py\) \* -1%\)\)/);
+    assert.ok(css.includes(`@media ${STATUS_HUD_PHONE_MEDIA}{#igs-overlay #igs-status-hud[data-igs-hud-pos]{--igs-hud-px:var(--igs-hud-mx,0);--igs-hud-py:var(--igs-hud-my,0);}}`));
+    assert.match(css, /#igs-overlay\.igs-mode-embedded #igs-status-hud\{[^}]*--igs-hud-edge-x:12px;/);
+    const shrink = css.indexOf('#igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-no-metrics{width:max-content;}');
+    const collapsed = css.indexOf('#igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-collapsed{width:calc(36px * var(--igs-hud-scale,1));height:calc(36px * var(--igs-hud-scale,1));padding:0;}');
+    assert.ok(shrink > 0 && collapsed > shrink, '没有 HUD 条时按内容收窄；折叠时收成按钮大小，贴在所选的角上');
+});
+
 test('gate:status-hud-position:field-renders-chosen-device-stage-and-sliders', () => {
     const hud = normalizeStatusHudSettings({ enabled: true, size: 'large', position: { mobile: { x: 100, y: 30 } } });
     const html = renderStatusHudPositionField(hud, 'mobile', 'pc');
@@ -65,7 +83,7 @@ test('gate:status-hud-position:field-renders-chosen-device-stage-and-sliders', (
     assert.match(html, /<output data-hud-pos-value="x">最右<\/output>/);
     assert.match(html, /<output data-hud-pos-value="y">30%<\/output>/);
     assert.match(html, /data-hud-pos-stage data-device="mobile" style="--igs-hp-x:100;--igs-hp-y:30;--igs-hp-w:[\d.]+%;--igs-hp-h:[\d.]+%;--igs-hp-ex:3\.59%;--igs-hp-ey:1\.66%"/);
-    assert.match(html, /data-action="status-hud-pos-reset:mobile" data-hud-pos-reset>复位/);
+    assert.match(html, /data-action="status-hud-pos-reset:mobile" data-hud-pos-reset>回到左上角/);
     assert.match(html, /当前设备按「电脑」这份显示/);
     assert.match(renderStatusHudPositionField(normalizeStatusHudSettings({ enabled: true }), 'pc', 'pc'), /data-hud-pos-reset disabled>/);
     // 小舞台上的状态栏按「大小」档和有没有 HUD 条换算宽度。
@@ -123,6 +141,6 @@ test('gate:status-hud-position:drag-previews-stage-and-reset-state-only', () => 
 test('gate:status-hud-position:settings-search-finds-it', () => {
     const [first] = searchSettings('状态栏位置');
     assert.equal(first.id, 'status-hud-position');
-    assert.deepEqual({ ...first.target, open: [...first.target.open] }, { page: 'ui-bg', open: [] });
+    assert.deepEqual({ ...first.target, open: [...first.target.open] }, { tab: 'reader', readerSubTab: 'interface', open: [] });
     assert.ok(searchSettings('挡住').some((entry) => entry.id === 'status-hud-position'));
 });

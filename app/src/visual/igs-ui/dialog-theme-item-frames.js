@@ -1,4 +1,3 @@
-import { getAncientPanelFrameStyleText } from './ancient-panel-frames.js';
 import { MAGIC_METAL, MAGIC_SPARKLE_MASK, magicTint, magicVeil } from './dialog-theme-css-skins.js';
 import { fairyPaper } from './dialog-theme-fairytale.js';
 import { qinglvSilk } from './dialog-theme-guofeng.js';
@@ -92,15 +91,6 @@ const FRAMES = {
         after: 'right:6px;bottom:5px;width:7px;height:7px;background:#b8452f;border-radius:1px;',
         icon: 'background:rgba(79,143,127,.12);border-radius:0;box-shadow:inset 0 0 0 1px rgba(47,93,124,.35);color:#2f5d7c;',
         desc: 'color:#4f605a;opacity:1;',
-    },
-    'xianxia-ink': {
-        mention: '#5f7f86',
-        ink: '#1f2523',
-        card: 'background:rgba(244,241,234,.95);border:0;border-radius:2px;box-shadow:inset 0 1px 0 rgba(95,127,134,.45),inset 0 -1px 0 rgba(95,127,134,.45),0 2px 10px rgba(31,37,35,.14);padding-left:16px;',
-        before: 'left:5px;top:8px;bottom:8px;width:2px;background:linear-gradient(180deg,transparent,var(--igs-item-mark) 25%,var(--igs-item-mark) 75%,transparent);',
-        after: 'right:6px;bottom:5px;width:7px;height:7px;background:#b23a2a;border-radius:1px;',
-        icon: 'background:rgba(31,37,35,.08);border-radius:0;box-shadow:inset 0 0 0 1px rgba(95,127,134,.35);color:#5f7f86;',
-        desc: 'color:#4a524f;opacity:1;',
     },
     'horror-gore': {
         mention: '#ff5a52',
@@ -224,41 +214,5 @@ export function getDialogThemeItemFrameStyleText(skin) {
     rules.push(`${pick(skin, '', '.igs-fx-item-name')}{color:${f.ink};${f.name || ''}}`);
     rules.push(`${pick(skin, '', '.igs-fx-item-action')}{color:${f.ink};opacity:.78;}`);
     if (f.desc) rules.push(`${pick(skin, '', '.igs-fx-item-desc')}{${f.desc}}`);
-    rules.push(getDialogThemePanelFrameStyleText(skin));
     return rules.join('\n');
-}
-
-// 系统/任务与古代纸面共用物品小弹窗的框元素；只借视觉，不借物品点击/背包状态机。
-// 保留原卡片的尺寸、竖排、卷轴、印章、寿命与减少动态效果分支。
-const PANEL_SURFACES = [
-    '.igs-bt-panel-wrap .igs-panel', '.igs-bt-count .igs-bt-count-card', '.igs-pl-q .igs-pl-q-paper', '.igs-fx-result',
-];
-
-export function getDialogThemePanelFrameStyleText(skin) {
-    const f = FRAMES[skin];
-    if (!f) return '';
-    const roots = skin === DEFAULT_SKIN
-        ? ['#igs-overlay:not([data-igs-dialog-skin])', '#igs-overlay[data-igs-dialog-skin="default"]']
-        : [`#igs-overlay[data-igs-dialog-skin="${skin}"]`];
-    const select = (parts, suffix = '') => roots.map((root) => `${root} :is(${parts.join(',')})${suffix}`).join(',');
-    const surface = (suffix = '') => select(PANEL_SURFACES, suffix);
-    const frame = f.card.replace(/padding(?:-[a-z]+)?:[^;]+;/g, '');
-    return [
-        `${surface()}{--igs-item-mark:${f.mention};--igs-item-mark-gore:${GORE_RED};--igs-fx-result-accent:${f.mention};${frame}color:${f.ink};}`,
-        `${surface('::before')}{content:"";position:absolute;pointer-events:none;background:var(--igs-item-mark);${f.before}}`,
-        `${surface('::after')}{content:"";position:absolute;pointer-events:none;${f.after || 'display:none;'}}`,
-        `${select(['.igs-bt-panel .igs-bt-panel-chip', '.igs-bt-panel .igs-panel-title', '.igs-pl-q .igs-pl-q-head'])}{color:${f.mention};text-shadow:none;}`,
-        `${select(['.igs-pl-q.is-done .igs-pl-q-reward span'])}{color:inherit;}`,
-        `${select(['.igs-bt-panel .igs-panel-title', '.igs-pl-q .igs-pl-q-head', '.igs-pl-q .igs-pl-q-reward'])}{border-color:color-mix(in srgb,${f.ink} 25%,transparent);}`,
-        `${select(['.igs-pl-q .igs-pl-stamp'])}{color:${f.ink};}`,
-        `${select(['.igs-pl-q .igs-pl-q-check', '.igs-pl-q .igs-pl-q-cross'])}{stroke:${f.ink};}`,
-        `${select(['.igs-bt-count .igs-bt-count-label'])}{color:${f.ink};}`,
-        `${select(['.igs-bt-count-card:is(.is-up,.is-down,.is-flat) .igs-bt-count-num'])}{color:${f.ink};}`,
-        `${select(['.igs-bt-count-card.is-up .igs-bt-count-delta'])}{color:color-mix(in srgb,${f.ink} 65%,#23984e);}`,
-        `${select(['.igs-bt-count-card.is-down .igs-bt-count-delta'])}{color:color-mix(in srgb,${f.ink} 65%,#d23838);}`,
-        `${select(['.igs-fx-result .igs-fx-result-verdict'])}{color:${f.ink};}`,
-        `${select(['.igs-bt-panel .igs-panel-row.is-good .igs-panel-v', '.igs-fx-result.is-success .igs-fx-result-verdict'])}{color:color-mix(in srgb,${f.ink} 65%,#23984e);}`,
-        `${select(['.igs-bt-panel .igs-panel-row.is-bad .igs-panel-v', '.igs-fx-result.is-fail .igs-fx-result-verdict', '.igs-fx-result.is-fumble .igs-fx-result-verdict'])}{color:color-mix(in srgb,${f.ink} 65%,#d23838);}`,
-        getAncientPanelFrameStyleText(roots, f),
-    ].join('\n');
 }

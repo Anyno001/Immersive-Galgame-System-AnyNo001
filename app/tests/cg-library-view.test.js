@@ -1,25 +1,10 @@
-import { createCgLibraryView } from './helpers/media-fixtures.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
-import { createLocalImageCache } from '../src/media/tavern-image-cache.js';
-import { pixel, settleMedia } from './helpers/fake-media-server.js';
+import { createCgLibraryView } from '../src/visual/igs-ui/cg-library-view.js';
 
 const entry = (i, extra = {}) => ({
     key: `chat|${i}|0|1`, kind: 'cg', chatId: 'chat', messageId: i, swipeId: 0, slot: 1, photoId: '',
     updatedAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), ready: true, hidden: false, favorite: false, ...extra,
-});
-
-test('gate:media:cg-clear-starts-current-thumbnails-without-waiting-for-old-generation', async () => {
-    const cache = createLocalImageCache({}), item = entry(1);
-    let finishOld, calls = 0;
-    const library = { mediaCache: cache, readIndex: async () => ({ ok: true, entries: [item] }), syncIndex: async () => ({ ok: true, entries: [item] }), readThumbs: async () => new Map(),
-        makeThumb: async () => ++calls === 1 ? new Promise(resolve => { finishOld = resolve; }) : { ok: true, dataUrl: pixel('new') } };
-    const view = createCgLibraryView(library); await view.open(); await settleMedia();
-    await cache.clear(); await view.whenIdle();
-    assert.equal(view.tileOf(item.key).url, pixel('new'));
-    finishOld({ ok: true, dataUrl: pixel('old') }); await settleMedia();
-    assert.equal(view.tileOf(item.key).url, pixel('new')); view.dispose();
 });
 
 function fakeLibrary({ index = [], synced = null, thumbs = new Map(), makeThumb } = {}) {
@@ -179,4 +164,51 @@ test('cg-library-view:no-library-says-unavailable', async () => {
     await view.open();
     assert.equal(view.state.phase, 'error');
     assert.equal(view.statusText(), 'CG 库不可用');
+});
+
+test('cg-library-view:同槽通知拒收迟到旧缩略图并解绑订阅', async () => {
+    const old = entry(1, { revisionToken: 'old' });
+    const next = { ...old, revisionToken: 'new' };
+    let notify, releaseOld, removed = 0;
+    const library = fakeLibrary({ index: [old], makeThumb: e => e.revisionToken === 'old'
+        ? new Promise(resolve => { releaseOld = resolve; })
+        : Promise.resolve({ ok: true, dataUrl: 'data:image/jpeg;base64,NEW' }) });
+    library.onChanged = fn => { notify = fn; return () => { removed++; }; };
+    library.refreshEntry = async () => ({ ok: true, entry: next });
+    const view = createCgLibraryView(library);
+    view.open();
+    library.releaseSync({ ok: true, entries: [old], changed: false });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(typeof releaseOld, 'function');
+    notify({ chatId: 'chat', messageId: 1, swipeId: 0, slot: 1 });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    releaseOld({ ok: true, dataUrl: 'data:image/jpeg;base64,OLD' });
+    await view.whenIdle();
+    assert.equal(view.state.entries.length, 1);
+    assert.equal(view.find(old.key).revisionToken, 'new');
+    assert.equal(view.tileOf(old.key).url, 'data:image/jpeg;base64,NEW');
+    library.refreshEntry = async () => ({ ok: true, entry: null });
+    notify({ chatId: 'chat', messageId: 1, swipeId: 0, slot: 1 });
+    await view.whenIdle();
+    assert.equal(view.state.entries.length, 0);
+    assert.equal(view.tileOf(old.key).url, '');
+    view.dispose();
+    assert.equal(removed, 1);
+});
+
+test('cg-library-view:后台对账同槽新版本使已显示缩略图失效', async () => {
+    const old = entry(1, { revisionToken: 'old' });
+    const next = { ...old, revisionToken: 'new' };
+    const library = fakeLibrary({ index: [old] });
+    library.readThumbs = async entries => new Map(entries.map(e =>
+        [e.key, `data:image/jpeg;base64,${e.revisionToken}`]));
+    const view = createCgLibraryView(library);
+    view.open();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(view.tileOf(old.key).url, 'data:image/jpeg;base64,old');
+    library.releaseSync({ ok: true, entries: [next], changed: true });
+    await view.whenIdle();
+    assert.equal(view.tileOf(old.key).url, 'data:image/jpeg;base64,new');
+    assert.equal(view.state.entries.length, 1);
+    view.dispose();
 });

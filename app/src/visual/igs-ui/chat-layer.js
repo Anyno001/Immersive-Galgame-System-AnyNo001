@@ -298,11 +298,9 @@ function revealTo(state, count, { animate = true, sound = true } = {}) {
     const list = state.layer.querySelector('.igs-chat-list');
     if (list) list.scrollTop = list.scrollHeight || 0;
     const settings = state.settings;
-    state.soundHandle?.stop();
-    state.soundHandle = null;
     if (sound && settings.sound.enabled) {
         const last = state.chat.messages.slice(from, target).reverse().find((m) => m.kind === 'msg');
-        if (last) state.soundHandle = playChatSfx(chatSfxKindForSide(last.side), { volume: settings.sound.volume, preset: state.ancient ? 'paper' : settings.sound.preset });
+        if (last) playChatSfx(chatSfxKindForSide(last.side), { volume: settings.sound.volume, preset: state.ancient ? 'paper' : settings.sound.preset });
     }
     if (target >= state.rows.length) markSeen(state.root, state.key);
     return true;
@@ -357,8 +355,6 @@ export function cancelChatShow(root) {
     const state = layer && states.get(layer);
     if (!state) return false;
     clearTimer(state);
-    state.soundHandle?.stop();
-    state.soundHandle = null;
     hideTyping(state);
     states.delete(layer);
     return true;
@@ -415,14 +411,12 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
     }
     if (previous) {
         clearTimer(previous);
-        previous.soundHandle?.stop();
         hideTyping(previous);
     }
     const state = {
         root, layer, key, renderSig, chat, settings, ancient,
         rows: renderRows(layer, chat, ancient),
         revealed: 0,
-        soundHandle: null,
         timer: null,
         typingRow: null,
         holdTimer: null,

@@ -231,11 +231,11 @@ function pageKindOf(content) {
 // 探测完成后用上一次的快照重算一次几何。
 function spriteGeometry(state, root, sprite) {
     if (!sprite) return { sprite: null, manualHead: null, anyHead: null };
-    const probed = peekSpriteHead(sprite.url, stageOf(root).ownerDocument);
+    const probed = peekSpriteHead(sprite.url);
     if (!probed && !(sprite.head && sprite.head.aspect) && state.probing !== sprite.url && stageOf(root).ownerDocument) {
         state.probing = sprite.url;
         probeSpriteHead(sprite.url, stageOf(root).ownerDocument).then(() => {
-            if (states.get(stageOf(root)) !== state || !state.last || !peekSpriteHead(sprite.url, stageOf(root).ownerDocument)) return;
+            if (states.get(stageOf(root)) !== state || !state.last || !peekSpriteHead(sprite.url)) return;
             if (state.last.ctx.sprite && state.last.ctx.sprite.url === sprite.url) applyRomanceToDom(root, state.last.snapshot, state.last.ctx);
         }, () => {});
     }

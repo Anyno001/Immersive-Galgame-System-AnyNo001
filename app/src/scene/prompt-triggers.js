@@ -1,6 +1,4 @@
-import { CAMPUS_FX_KINDS, COURTESY_FX_KINDS, DAILY_FX_KINDS, PLAY_FX_KINDS, WARDROBE_FX_KINDS } from './daily-fx-directives.js';
-import { CAMPUS_TRIGGER_WORDS } from './campus-fx.js';
-import { FX_PACKS_ACTIVE, FX_PACK_TRIGGER_WORDS, isPackKind, packBlockKey } from './fx-packs.js';
+import { DAILY_FX_KINDS } from './daily-fx-directives.js';
 import { compileKeywordMatcher, joinPromptKeywords, normalizePromptEntries, parsePromptKeywords } from './prompt-entries.js';
 
 // 按需展开的提示词块：最近几层出现过对应标签、用户输入或最近 AI 正文命中触发词、或对应成对标签未闭合时才发完整写法。
@@ -49,53 +47,18 @@ export const DAILY_TRIGGER_WORDS = Object.freeze({
     blackout: ['停电', '断电'],
     knock: ['敲门', '敲窗', '叩门'],
     murmur: ['低语', '耳语', '耳边'],
-    brake: ['急刹车', '急刹', '踩刹车', '猛地停住', '颠簸', '遇到气流'],
-    depart: ['发车', '起步', '启程', '开动了', '起飞', '启航', '御剑', '腾空', '腾云'],
-    arrive: ['到站', '靠岸', '下一站', '终点站', '降落', '着陆', '落地'],
+    brake: ['急刹车', '急刹', '踩刹车', '猛地停住'],
+    depart: ['发车', '起步', '启程', '开动了'],
+    arrive: ['到站', '靠岸', '下一站', '终点站'],
     ticket: ['车票', '船票', '机票', '登机牌'],
     steam: ['水汽', '蒸汽', '雾气氤氲'],
     shower: ['淋浴', '花洒', '冲澡'],
     splash: ['泼水', '打水仗', '水花'],
     hairdry: ['吹头发', '吹风机'],
-    sleep: ['睡着', '入睡', '就寝', '睡下', '安睡', '沉沉睡去', '躺下休息'],
-    wake: ['起床', '睡醒', '一觉醒来', '早上醒来', '清晨醒来'],
-    dressup: ['换上', '换了身', '换好衣', '焕然一新', '换上新', '穿上新', '换好装', '变身'],
-    drape: ['披上', '披外套', '披在', '系领带', '围围巾', '整理衣领', '理了理衣', '替他整理', '替她整理', '搭在肩'],
-    fitting: ['试衣镜', '照镜子', '对着镜子', '镜子前', '试衣间', '站在镜'],
     dive: ['潜入水', '跳进水', '潜水', '入水'],
     bubble: ['气泡', '吐泡泡'],
     vacuum: ['真空', '气闸', '泄压'],
     say: ['嘀咕', '小声', '吐槽', '心想', '暗想', '咕哝'],
-    sing: ['唱歌', '唱起', '歌声', '哼唱', 'KTV', '卡拉OK', '麦克风', '献唱', '一首歌', '唱了一首'],
-    dance: ['跳舞', '舞蹈', '共舞', '起舞', '华尔兹', '圆舞', '旋转', '舞步', '舞池', '伴舞'],
-    fish: ['钓鱼', '垂钓', '鱼竿', '鱼饵', '上钩', '鱼漂', '抛竿', '钓到'],
-    draw: ['画画', '写生', '素描', '涂鸦', '作画', '画笔', '画了', '速写', '油画'],
-    music: ['弹钢琴', '弹吉他', '弹奏', '演奏', '钢琴', '吉他', '小提琴', '乐器', '琴键', '拨弦'],
-    ride: ['摩天轮', '过山车', '游乐园', '游乐场', '旋转木马', '海盗船', '咖啡杯', '碰碰车', '游乐设施'],
-    clean: ['打扫', '扫地', '拖地', '收拾', '擦桌', '大扫除', '清扫', '整理房间', '做家务'],
-    shopping: ['逛街', '购物', '血拼', '逛商场', '试衣', '试穿', '逛店', '买买买', '橱窗'],
-    stroll: ['散步', '漫步', '并肩走', '信步', '遛弯', '散散步', '闲逛', '压马路'],
-    yujian: ['御剑', '飞剑', '剑诀', '御剑飞行'],
-    liandan: ['炼丹', '丹炉', '开炉', '丹成'],
-    biguan: ['闭关', '吐纳', '打坐', '入定'],
-    dianxue: ['点穴', '封穴', '解穴'],
-    qinggong: ['轻功', '纵身', '飞檐走壁', '踏雪无痕'],
-    yungong: ['运功', '疗伤', '调息', '真气'],
-    opendoor: ['开车门', '拉开车门', '拉开椅子', '拉开椅', '替她开门', '替他开门', '推开门让'],
-    shield: ['护在身前', '挡在身前', '护住', '走在马路外侧', '揽到内侧', '拦下'],
-    tend: ['系鞋带', '蹲下系', '擦嘴角', '理了理鬓发', '拂去', '替她戴好', '替他戴好'],
-    carry: ['公主抱', '横抱', '抱起', '背起', '背在身上', '背着'],
-    candle: ['点蜡烛', '点燃蜡烛', '烛光', '烛火', '点灯', '掌灯', '上香', '焚香', '宫灯'],
-    pass: ['递给', '递过', '双手奉上', '接过', '呈上', '奉上', '递上'],
-    console: ['打开游戏机', '插上手柄', '玩switch', '玩Switch', '玩PS', '打游戏', '玩游戏', '游戏机', '手柄', '联机', '通关', '游戏画面'],
-    versus: ['对战', '格斗游戏', '双人对战', '联机对战', '街霸', '拳皇', '1P', '2P', '血条'],
-    combo: ['连击', '狂按', '连打', '搓招', '连招', '手速'],
-    snatch: ['抢手柄', '抢过手柄', '耍赖', '不许玩', '再来一局', '再来一把'],
-    stance: ['跪拜','跪下', '叩首', '侍立', '垂手', '上座', '请安', '伺候', '依偎', '靠在肩'],
-    // 校园类（黑板、传纸条、抽屉、点名、考试、文化祭、毕业、纽扣）的触发词在 scene/campus-fx.js，点亮 campus 块。
-    ...CAMPUS_TRIGGER_WORDS,
-    // 题材包的触发词由各包清单登记（scene/fx-packs.js），各自点亮 pack<id> 块。
-    ...FX_PACK_TRIGGER_WORDS,
 });
 
 // 每块：tag 最近几层出现即展开；words 为默认关键词（设置页可改）；open/close 为成对标签，未闭合时保持展开。
@@ -107,9 +70,8 @@ const BLOCK_TRIGGERS = Object.freeze({
         close: /\[igs-chat-end\]/g,
     },
     daily: {
-        // 衣橱类（换装登场等）、玩乐类（唱歌、游乐…）从日常块里剔除，另走 wardrobe / play 块。
-        tag: new RegExp(`\\[igs-fx:(?:${DAILY_FX_KINDS.filter((k) => !WARDROBE_FX_KINDS.includes(k) && !PLAY_FX_KINDS.includes(k) && !COURTESY_FX_KINDS.includes(k) && !CAMPUS_FX_KINDS.includes(k) && !isPackKind(k)).join('|')})[|\\]]`),
-        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => !WARDROBE_FX_KINDS.includes(k) && !PLAY_FX_KINDS.includes(k) && !COURTESY_FX_KINDS.includes(k) && !CAMPUS_FX_KINDS.includes(k) && !isPackKind(k)).flatMap(([, w]) => w))],
+        tag: new RegExp(`\\[igs-fx:(?:${DAILY_FX_KINDS.join('|')})[|\\]]`),
+        words: [...new Set(Object.values(DAILY_TRIGGER_WORDS).flat())],
     },
     battle: {
         tag: /\[igs-fx:(?:battle|battle-end|hit)[|\]]/,
@@ -119,7 +81,7 @@ const BLOCK_TRIGGERS = Object.freeze({
     },
     romance: {
         // 最近几层出现 NSFW 场景标签也展开：感官调度的写法要在情事段里用得上。
-        tag: /\[igs-fx:(?:romance|romance-end|confess|memory|sense|sense-end|solo|solo-end|noise)[|\]]|\[igs-scene:[^\]\n]*\|\s*nsfw\s*(?:\|[^\]\n]*)?\]/i,
+        tag: /\[igs-fx:(?:romance|romance-end|confess|memory|sense|sense-end|solo|solo-end|noise)[|\]]|\[igs-scene:[^\]\n]*\|\s*nsfw\s*\]/i,
         words: ['告白', '表白', '约会', '亲吻', '接吻', '拥抱', '心动', '暧昧', '喜欢你', '爱你'],
         open: /\[igs-fx:romance[|\]]/g,
         close: /\[igs-fx:romance-end\]/g,
@@ -140,32 +102,6 @@ const BLOCK_TRIGGERS = Object.freeze({
         tag: /\[igs-fx:cam[|\]]/,
         words: ['镜头', '特写', '拉远', '推近', '虚化', '摇镜', '运镜'],
     },
-    // 衣橱：换装登场等，只在正文 / 用户提到换衣、换装、变身时才补完整写法。
-    wardrobe: {
-        tag: new RegExp(`\\[igs-fx:(?:${WARDROBE_FX_KINDS.join('|')})[|\\]]`),
-        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => WARDROBE_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
-    },
-    // 玩乐：唱歌、跳舞、钓鱼、画画、演奏、游乐设施、打扫、逛街、散步，只在正文 / 用户提到对应活动时才补完整写法。
-    play: {
-        tag: new RegExp(`\\[igs-fx:(?:${PLAY_FX_KINDS.join('|')})[|\\]]`),
-        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => PLAY_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
-    },
-    // 体贴与礼仪：开门礼让、护身、照料、公主抱，及点灯烛火 / 递接 / 站位身段三块积木（约会与后宫共用）。
-    // 亲密场景标签在场也展开：写法要在约会、情事段里用得上。
-    courtesy: {
-        tag: new RegExp(`\\[igs-fx:(?:${COURTESY_FX_KINDS.join('|')})[|\\]]|\\[igs-scene:[^\\]\\n]*\\|\\s*nsfw\\s*(?:\\|[^\\]\\n]*)?\\]`, 'i'),
-        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => COURTESY_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
-    },
-    // 校园：黑板写字、传纸条、抽屉里的发现、点名、考试发卷、文化祭、毕业典礼、第二颗纽扣，只在正文 / 用户提到校园场面时才补完整写法。
-    campus: {
-        tag: new RegExp(`\\[igs-fx:(?:${CAMPUS_FX_KINDS.join('|')})[|\\]]`),
-        words: [...new Set(Object.entries(DAILY_TRIGGER_WORDS).filter(([k]) => CAMPUS_FX_KINDS.includes(k)).flatMap(([, w]) => w))],
-    },
-    // 题材包：每个有 kind 的包一块，只在正文 / 用户提到该包场面时才补完整写法。
-    ...Object.fromEntries(FX_PACKS_ACTIVE.map((pack) => [packBlockKey(pack.id), {
-        tag: new RegExp('\\[igs-fx:(?:' + pack.kinds.join('|') + ')[|\\]]'),
-        words: [...new Set(pack.kinds.flatMap((kind) => DAILY_TRIGGER_WORDS[kind] || []))],
-    }])),
 });
 
 // 与 tag-grammar 里 adaptive:true 的块一一对应，测试校验两边一致。
@@ -177,6 +113,9 @@ export function defaultPromptKeywords(block) {
     return rule ? joinPromptKeywords(rule.words) : '';
 }
 
+// 黏性与冷却从聊天记录往回推算，最多回看这么多轮，不另存状态（删楼、重 roll 后自然跟着变）。
+export const TRIGGER_HISTORY_TURNS = 30;
+
 function lastIndexOf(text, pattern) {
     let last = -1;
     pattern.lastIndex = 0;
@@ -184,31 +123,35 @@ function lastIndexOf(text, pattern) {
     return last;
 }
 
-// 关键词匹配器按「块 + 关键词原文」缓存：每轮生成都会走到这里，默认词表与正则不必每轮重编。
-const MATCHER_CACHE = new Map();
-const MATCHER_CACHE_MAX = 64;
-
 function compileEntry(block, entry) {
     const rule = BLOCK_TRIGGERS[block];
-    const cacheKey = `${block}|${entry.keys || ''}`;
-    let primary = MATCHER_CACHE.get(cacheKey);
-    if (!primary) {
-        const words = entry.keys ? parsePromptKeywords(entry.keys) : rule.words;
-        primary = compileKeywordMatcher(words);
-        if (MATCHER_CACHE.size >= MATCHER_CACHE_MAX) MATCHER_CACHE.clear();
-        MATCHER_CACHE.set(cacheKey, primary);
-    }
-    return { rule, primary };
+    const words = entry.keys ? parsePromptKeywords(entry.keys) : rule.words;
+    const secondary = parsePromptKeywords(entry.secondary);
+    const exclude = parsePromptKeywords(entry.exclude);
+    return {
+        rule,
+        entry,
+        primary: compileKeywordMatcher(words),
+        secondary: secondary.length ? compileKeywordMatcher(secondary) : null,
+        exclude: exclude.length ? compileKeywordMatcher(exclude) : null,
+    };
 }
 
-// 这块是否被关键词或标签点亮：先看用户输入与 AI 上 1 楼里的关键词，再看最近几层的标签。
+// 一轮里这块是否被关键词或标签点亮：先看关键词（逐段判断次要词与排除词），再看最近几层的标签。
 function rawTrigger(compiled, turn, lookback) {
-    const { rule } = compiled;
+    const { rule, entry } = compiled;
     const sources = [{ source: '你的输入', text: turn.user }];
-    turn.ai.slice(-AI_WORDS_LOOKBACK).reverse().forEach((text, i) => sources.push({ source: `AI上${i + 1}楼`, text }));
+    if (entry.scan > 0) turn.ai.slice(-entry.scan).reverse().forEach((text, i) => sources.push({ source: `AI上${i + 1}楼`, text }));
     for (const { source, text } of sources) {
         const word = compiled.primary(text);
-        if (word) return { reason: 'word', word, source };
+        if (!word) continue;
+        if (compiled.exclude && compiled.exclude(text)) continue;
+        if (compiled.secondary) {
+            const second = compiled.secondary(text);
+            if (!second) continue;
+            return { reason: 'word', word: `${word}+${second}`, source };
+        }
+        return { reason: 'word', word, source };
     }
     const texts = lookback > 0 ? turn.ai.slice(-lookback) : [];
     if (texts.some((t) => rule.tag.test(t))) return { reason: 'tag' };
@@ -221,12 +164,56 @@ function pairOpen(rule, turn) {
     return lastIndexOf(joined, rule.open) > lastIndexOf(joined, rule.close);
 }
 
+// history 为可见消息（旧 → 新，{ user, text }），用来还原前几轮当时的输入与上文。
+function buildTurns({ recentAiTexts, userText, history, pastTurns }) {
+    const current = { ai: recentAiTexts, user: userText };
+    if (!pastTurns || !Array.isArray(history) || !history.length) return [current];
+    const turns = [];
+    const ai = [];
+    let user = '';
+    for (const message of history) {
+        const text = String(message && message.text || '');
+        if (message && message.user) {
+            user = text;
+            continue;
+        }
+        turns.push({ ai: ai.slice(-PAIR_TRIGGER_LOOKBACK), user });
+        ai.push(text);
+        user = '';
+    }
+    return [...turns.slice(-pastTurns), current];
+}
+
+// 逐轮推算展开状态：新命中刷新黏性；成对标签未闭合时始终展开（不受冷却影响）；收起后冷却 N 楼内关键词与标签都不点亮。
+function simulate(compiled, turns, lookback) {
+    const { sticky, cooldown } = compiled.entry;
+    let stickyUntil = -1;
+    let coolUntil = -1;
+    let prev = false;
+    let result = { active: false };
+    turns.forEach((turn, i) => {
+        const raw = rawTrigger(compiled, turn, lookback);
+        if (raw && i > coolUntil) {
+            stickyUntil = i + sticky;
+            result = { active: true, ...raw };
+        } else if (pairOpen(compiled.rule, turn)) {
+            result = { active: true, reason: 'pair' };
+        } else if (i <= stickyUntil) {
+            result = { active: true, reason: 'sticky', left: stickyUntil - i };
+        } else {
+            result = raw ? { active: false, reason: 'cooldown', left: coolUntil - i + 1 } : { active: false };
+        }
+        if (prev && !result.active && cooldown > 0) coolUntil = i + cooldown;
+        prev = result.active;
+    });
+    return result;
+}
+
 // recentAiTexts 按时间顺序（旧 → 新）；标签出现只看最近 lookback 层，未闭合的成对标签看最近 PAIR_TRIGGER_LOOKBACK 层。
 // entries 为设置里的条目（缺省即默认行为）；返回本轮该展开的块与每块的原因。
-export function resolvePromptTriggers({ recentAiTexts = [], userText = '', lookback = DEFAULT_TRIGGER_LOOKBACK, entries = null } = {}) {
+export function resolvePromptTriggers({ recentAiTexts = [], userText = '', history = null, lookback = DEFAULT_TRIGGER_LOOKBACK, entries = null } = {}) {
     const ai = (Array.isArray(recentAiTexts) ? recentAiTexts : []).map((t) => String(t || '')).slice(-PAIR_TRIGGER_LOOKBACK);
     const normalized = normalizePromptEntries(entries);
-    const turn = { ai, user: String(userText || '') };
     const hits = new Set();
     const report = {};
     for (const block of Object.keys(BLOCK_TRIGGERS)) {
@@ -235,9 +222,9 @@ export function resolvePromptTriggers({ recentAiTexts = [], userText = '', lookb
             report[block] = { active: entry.mode === 'always', reason: entry.mode };
             continue;
         }
-        const compiled = compileEntry(block, entry);
-        const raw = rawTrigger(compiled, turn, lookback);
-        const result = raw ? { active: true, ...raw } : pairOpen(compiled.rule, turn) ? { active: true, reason: 'pair' } : { active: false };
+        const pastTurns = entry.sticky || entry.cooldown ? Math.min(TRIGGER_HISTORY_TURNS, 2 * (entry.sticky + entry.cooldown + 1)) : 0;
+        const turns = buildTurns({ recentAiTexts: ai, userText: String(userText || ''), history, pastTurns });
+        const result = simulate(compileEntry(block, entry), turns, lookback);
         report[block] = result;
         if (result.active) hits.add(block);
     }
@@ -257,13 +244,15 @@ export function getLastPromptReport() {
     return lastPromptReport;
 }
 
-const REASON_TEXT = { word: '命中', tag: '上楼有标签', pair: '成对标签未闭合', always: '常驻', off: '已关闭' };
+const REASON_TEXT = { word: '命中', tag: '上楼有标签', pair: '成对标签未闭合', sticky: '黏性保持', cooldown: '冷却中', always: '常驻', off: '已关闭' };
 
 // 一块的原因写成一句话，如「命中「热搜」（AI上1楼）」「黏性保持（还剩 2 楼）」。
 export function describePromptTrigger(item) {
     if (!item) return '未开启';
     if (!item.reason) return '未触发';
     if (item.reason === 'word') return `命中「${item.word}」（${item.source}）`;
+    if (item.reason === 'sticky') return `${REASON_TEXT.sticky}（还剩 ${item.left} 楼）`;
+    if (item.reason === 'cooldown') return `${REASON_TEXT.cooldown}（还剩 ${item.left} 楼）`;
     return REASON_TEXT[item.reason] || item.reason;
 }
 

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { extractFxDirectives, resolveFxAtPage } from '../src/scene/fx-directives.js';
 import { stripMarkerDirectives } from '../src/scene/directive-tags.js';
 import { DAILY_FX_KINDS, dailyFxOf, parseDailyFxBody } from '../src/scene/daily-fx-directives.js';
-import { isPackKind } from '../src/scene/fx-packs.js';
 import { enabledDailyFxKinds, normalizeDailyFxSettings, planDailyFx } from '../src/visual/igs-ui/fx-daily-model.js';
 import { resolveDailyFxPromptRule } from '../src/visual/igs-ui/fx-daily-prompt.js';
 import { cancelDailyFx, renderDailyFx } from '../src/visual/igs-ui/fx-daily.js';
@@ -52,24 +51,13 @@ function makeReader() {
     motion.appendChild(makeEl(doc, 'igs-sprite'));
     motion.appendChild(makeEl(doc, 'igs-dialog-layer'));
     const timers = [];
-    let now = 0;
     return {
         root, motion,
         ctx: {
             reducedMotion: false,
-            schedule(fn, delay) { const t = { fn, delay, at: now + delay }; timers.push(t); return t; },
+            schedule(fn, delay) { const t = { fn, delay }; timers.push(t); return t; },
             clear(t) { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
             playSfx: (kind) => sounds.push(kind),
-        },
-        advance(to) {
-            for (;;) {
-                const due = timers.filter((t) => t.at <= to).sort((a, b) => a.at - b.at)[0];
-                if (!due) break;
-                timers.splice(timers.indexOf(due), 1);
-                now = due.at;
-                due.fn();
-            }
-            now = to;
         },
         flush() { while (timers.length) timers.shift().fn(); },
     };
@@ -99,8 +87,7 @@ test('gate: daily-fx parses every kind with lenient fields and rejects missing r
     assert.deepEqual(dailyFxOf(['receipt', '可乐、薯条，汉堡', '¥38', '街角便利店']), { type: 'receipt', items: ['可乐', '薯条', '汉堡'], total: '¥38', shop: '街角便利店' });
     assert.deepEqual(dailyFxOf(['tv', '', '今日晴']), { type: 'tv', channel: '', text: '今日晴' });
     // 烟花走粒子层；进食由漫画符号分镜与物品卡演出，不建日常卡片。
-    // 题材包的样式类名由各包自定，由 tests/fx-pack-<id>.test.js 自己核对。
-    for (const kind of DAILY_FX_KINDS.filter((k) => !isPackKind(k))) assert.ok(DAILY_FX_STYLE_TEXT.includes(`igs-dfx-${kind}`) || kind === 'fireworks' || kind === 'eat', kind);
+    for (const kind of DAILY_FX_KINDS) assert.ok(DAILY_FX_STYLE_TEXT.includes(`igs-dfx-${kind}`) || kind === 'fireworks' || kind === 'eat', kind);
 });
 
 test('gate: daily-fx tags attach to pages, stay out of text and keep one per type', () => {
@@ -149,83 +136,6 @@ test('gate: daily-fx renders cards once per page visit, escapes text and clears 
     assert.equal(cards(r).length, 0);
     result = renderDailyFx(r.root, snap(fx), r.ctx);
     assert.deepEqual(result.played, [], 'returning to a seen page does not replay without fxStyle.replay');
-});
-
-test('gate: sleep/wake are opt-in scene-level cards (distinct from the eye POV effect)', () => {
-    sounds.length = 0;
-    // 默认关：旧存档开了日常演出也不会突然冒出入睡/起床。
-    assert.equal(normalizeDailyFxSettings({ enabled: true }).sleep, false);
-    assert.equal(normalizeDailyFxSettings({ enabled: true }).wake, false);
-    assert.deepEqual(dailyFxOf(parseDailyFxBody('sleep', [])), { type: 'sleep', text: '' });
-    assert.deepEqual(dailyFxOf(parseDailyFxBody('wake', ['窗外已经亮了'])), { type: 'wake', text: '窗外已经亮了' });
-    const r = makeReader();
-    const fx = fxOf('[igs-fx:sleep|沉沉睡去]\n[igs-fx:wake]');
-    const result = renderDailyFx(r.root, snap(fx, {}, 0, { enabled: true, sleep: true, wake: true }), r.ctx);
-    assert.deepEqual(result.played, ['sleep', 'wake']);
-    assert.deepEqual(sounds, ['sleep', 'wake']);
-    const front = r.root.querySelector('#igs-fx-front');
-    assert.ok(front.children.some((n) => String(n.className).includes('igs-dfx-sleep')));
-    assert.ok(front.children.some((n) => String(n.className).includes('igs-dfx-wake')));
-});
-
-test('gate: wake at night skips the morning glow; prompt sends faints and naps to eye', () => {
-    const wakeClass = (sceneTime) => {
-        const r = makeReader();
-        renderDailyFx(r.root, snap(fxOf('[igs-fx:wake]'), { sceneTime }, 0, { enabled: true, wake: true }), r.ctx);
-        return r.root.querySelector('#igs-fx-front').children.find((n) => String(n.className).includes('igs-dfx-wake')).className;
-    };
-    assert.match(wakeClass('深夜'), /is-night/);
-    assert.doesNotMatch(wakeClass('清晨'), /is-night/);
-    assert.doesNotMatch(wakeClass(''), /is-night/);
-    const lines = resolveDailyFxPromptRule({ enabled: true, sleep: true, wake: true });
-    assert.match(lines, /sleep[^\n]*eye\|close/);
-    assert.match(lines, /wake[^\n]*eye\|open/);
-});
-
-test('gate: dressup is an opt-in scene card that reskins for magic worldview', () => {
-    sounds.length = 0;
-    assert.equal(normalizeDailyFxSettings({ enabled: true }).dressup, false);
-    assert.deepEqual(dailyFxOf(parseDailyFxBody('dressup', [])), { type: 'dressup', outfit: '', who: '' });
-    assert.deepEqual(dailyFxOf(parseDailyFxBody('dressup', ['泳装', '林小雨'])), { type: 'dressup', outfit: '泳装', who: '林小雨' });
-    const r = makeReader();
-    const result = renderDailyFx(r.root, snap(fxOf('[igs-fx:dressup|和服]'), {}, 0, { enabled: true, dressup: true }), r.ctx);
-    assert.deepEqual(result.played, ['dressup']);
-    assert.deepEqual(sounds, ['dressup']);
-    const stage = r.root.querySelector('#igs-fx-stage');
-    const card = stage.children.find((n) => String(n.className).includes('igs-dfx-dressup'));
-    assert.ok(card);
-    assert.match(card.innerHTML, /和服/);
-    assert.doesNotMatch(card.className, /is-magic/);
-    // 魔法世界观换皮：_worldview 在 readerSettings 顶层，手搓快照。
-    const magic = makeReader();
-    renderDailyFx(magic.root, {
-        messageId: 'm1',
-        readerSettings: { dailyFx: { enabled: true, dressup: true }, _worldview: 'magic' },
-        content: { currentIndex: 0, textType: 'dialogue', fx: fxOf('[igs-fx:dressup|战斗装]') },
-    }, magic.ctx);
-    const mcard = magic.root.querySelector('#igs-fx-stage').children.find((n) => String(n.className).includes('igs-dfx-dressup'));
-    assert.match(mcard.className, /is-magic/);
-});
-
-test('gate: drape and fitting are opt-in wardrobe cards (drape needs an action, fitting shows a mirror)', () => {
-    sounds.length = 0;
-    assert.equal(normalizeDailyFxSettings({ enabled: true }).drape, false);
-    assert.equal(normalizeDailyFxSettings({ enabled: true }).fitting, false);
-    // drape 动作必填，缺了整条忽略。
-    assert.equal(parseDailyFxBody('drape', []), null);
-    assert.deepEqual(dailyFxOf(parseDailyFxBody('drape', ['披上外套', '林小雨'])), { type: 'drape', act: '披上外套', who: '林小雨' });
-    assert.deepEqual(dailyFxOf(parseDailyFxBody('fitting', [])), { type: 'fitting', outfit: '' });
-    assert.deepEqual(dailyFxOf(parseDailyFxBody('fitting', ['晚礼服'])), { type: 'fitting', outfit: '晚礼服' });
-    const r = makeReader();
-    const result = renderDailyFx(r.root, snap(fxOf('[igs-fx:drape|披上外套]\n[igs-fx:fitting|晚礼服]'), {}, 0, { enabled: true, drape: true, fitting: true }), r.ctx);
-    assert.deepEqual(result.played, ['drape', 'fitting']);
-    assert.deepEqual(sounds, ['rustle', 'dressup']);
-    const nodes = [...r.root.querySelector('#igs-fx-stage').children, ...r.root.querySelector('#igs-fx-front').children];
-    assert.ok(nodes.some((n) => String(n.className).includes('igs-dfx-drape')));
-    const mirror = nodes.find((n) => String(n.className).includes('igs-dfx-fitting'));
-    assert.ok(mirror);
-    assert.match(mirror.innerHTML, /晚礼服/);
-    assert.match(mirror.innerHTML, /igs-dfx-fitting-mirror/);
 });
 
 test('gate: daily photo copies the stage into a polaroid and reports to the album hook', () => {
@@ -280,27 +190,19 @@ test('gate: daily-fx ancient era swaps clock, sticky note and letter for incense
     const ancient = (text, index) => ({ ...snap(fxOf(text), {}, index), readerSettings: { dailyFx: { enabled: true }, _ancientEra: true } });
     let result = renderDailyFx(r.root, ancient('[igs-fx:timeskip|一炷香后]\n[igs-fx:note|今夜子时，后山见]', 0), r.ctx);
     assert.deepEqual(result.played, ['timeskip', 'note']);
-    assert.deepEqual(sounds, ['drum']);
-    assert.equal(cards(r).length, 1);
-    const [skip] = cards(r);
-    assert.match(skip.className, /is-ancient/);
-    assert.match(skip.innerHTML, /<svg class="new-incense"/);
-    assert.match(skip.innerHTML, /d="M60 55V172" stroke="#c9c2a8"/);
-    assert.match(skip.innerHTML, /dur="2900ms"/);
-    assert.doesNotMatch(skip.innerHTML, /igs-dfx-clock/);
-    r.advance(3100);
     assert.deepEqual(sounds, ['drum', 'paper']);
-    assert.equal(cards(r).length, 1);
-    const [note] = cards(r);
-    assert.match(note.innerHTML, /igs-dfx-document-paper/);
-    assert.doesNotMatch(note.innerHTML, /igs-dfx-document-seal/);
+    const [skip, note] = cards(r);
+    assert.match(skip.className, /is-ancient/);
+    assert.match(skip.innerHTML, /igs-dfx-incense/);
+    assert.doesNotMatch(skip.innerHTML, /igs-dfx-clock/);
+    assert.match(note.innerHTML, /igs-dfx-scrap/);
     assert.doesNotMatch(note.innerHTML, /igs-dfx-tape/);
     result = renderDailyFx(r.root, ancient('[igs-fx:letter|沈清秋|见字如面]', 1), r.ctx);
     const [letter] = cards(r);
     assert.match(letter.className, /igs-dfx-letter is-ancient/);
-    assert.match(letter.innerHTML, /igs-dfx-document-sign">沈清秋</);
-    assert.match(DAILY_FX_STYLE_TEXT, /\.igs-dfx-document-text\{[^}]*writing-mode:vertical-rl/);
-    assert.match(DAILY_FX_STYLE_TEXT, /\.igs-dfx-timeskip \.new-incense\{/);
+    assert.match(letter.innerHTML, /igs-dfx-letter-sign">沈清秋</);
+    assert.match(DAILY_FX_STYLE_TEXT, /\.igs-dfx-letter\.is-ancient \.igs-dfx-paper\{writing-mode:vertical-rl/);
+    assert.match(DAILY_FX_STYLE_TEXT, /@keyframes igs-dfx-burn/);
     // 现代模式不受影响。
     sounds.length = 0;
     renderDailyFx(r.root, snap(fxOf('[igs-fx:timeskip|三小时后]'), {}, 2), r.ctx);

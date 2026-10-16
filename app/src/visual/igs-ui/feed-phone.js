@@ -1,7 +1,7 @@
 import { applyPhoneLook } from './my-phone.js';
-import { LIVE_ICONS, buildPhoneStatus, setPhoneStatus } from './danmaku-icons.js';
+import { buildPhoneStatus, setPhoneStatus } from './danmaku-icons.js';
 import { grownCount } from './phone-sense.js';
-import { formatPopularity, phoneGeometry, setPhoneSink } from './danmaku-live.js';
+import { formatPopularity, phoneGeometry } from './danmaku-live.js';
 import { feedPlatformById, feedStableCount, isOwnPhone, FEED_REPLY_MAX, FEED_VIEW_MAX } from '../../scene/feed-platforms.js';
 import { applyPeekWall, buildPeekOverlay, buildPeekPin, PEEK_BUILDERS, PEEK_DOT_STEP_MS, PEEK_LOCK_MS, peekLookOf } from './peek-phone.js';
 
@@ -19,7 +19,6 @@ const COUNT_CAP = 99999;
 const SEEN_CAP = 240;
 const REVIEW_MAX = 9;
 const AVATAR_COLORS = Object.freeze(['#f2a65a', '#6fb7a8', '#8aa4e0', '#e08aa4', '#a58ae0', '#7fb069', '#d9a441', '#6c9bbf']);
-const LIST_STOP_EVENTS = Object.freeze(['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click', 'dblclick', 'wheel', 'contextmenu']);
 const PHONE_MODELS = Object.freeze(['full', 'notch', 'fold', 'tablet']);
 const RICH_RE = /(#[^#\n]{1,24}#|@[^\s@:：,，]{1,16})/;
 const CONFESS_TAG_RE = /^[#＃]?(捞人|表白|吐槽|树洞|求助|寻物|告白)/;
@@ -44,9 +43,6 @@ const FEED_ICONS = Object.freeze({
     flame: svg('<path d="M12 21.4c3.5 0 5.9-2.3 5.9-5.7 0-2.6-1.5-4.5-2.9-6.1-.4 1.5-1.2 2.5-2.3 2.9.5-2.9-.6-6-3.1-8.3-.2 3.1-1.8 4.9-3.1 6.5-1.2 1.4-2.3 3-2.3 5 0 3.4 2.4 5.7 5.8 5.7z" fill="currentColor" stroke="none"/>'),
     bag: svg('<path d="M6 8.5h12l-.9 10.2a1.5 1.5 0 0 1-1.5 1.3H8.4a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M9 10.5V7.8a3 3 0 0 1 6 0v2.7"/>'),
     up: svg('<path d="M12 5 5.5 14h4v5h5v-5h4z" fill="currentColor" stroke="none"/>'),
-    forward: svg('<path d="M15 4.5 20 9.5l-5 5"/><path d="M20 9.5H9.5A5.5 5.5 0 0 0 4 15v4.5"/>'),
-    thumb: svg('<path d="M7 10.5v10"/><path d="M15 5.9 14 10.5h5.8a2 2 0 0 1 1.9 2.5l-2.2 7a2 2 0 0 1-1.9 1.5H4.5a1.5 1.5 0 0 1-1.5-1.5v-7.5a1.5 1.5 0 0 1 1.5-1.5h2.3a2 2 0 0 0 1.8-1.1L12 3a3 3 0 0 1 3 2.9z"/>'),
-    chevron: svg('<path d="M6 9.5l6 6 6-6"/>'),
 });
 
 function el(doc, tag, className, text) {
@@ -276,23 +272,15 @@ const POST_BUILDERS = {
         node.append(cover, title, foot, replies);
         return { node, replies, counters };
     },
-    // 贴吧：头像在左；右列依次是「名字 + 楼主 + 楼层号」、正文、「时间 + 回复」、楼中楼（灰蓝底，末行「共 N 条回复」）。
     tieba(doc, id, post) {
         const node = el(doc, 'article', 'igs-feed-post');
-        const body = el(doc, 'div', 'igs-feed-body');
         const head = el(doc, 'div', 'igs-feed-floorbar');
         const floor = el(doc, 'span', 'igs-feed-floor', '1楼');
         const owner = el(doc, 'span', 'igs-feed-owner', '楼主');
-        put(head, el(doc, 'span', 'igs-feed-name', post.author), friendTag(doc, id, post.author), owner, floor);
-        const foot = el(doc, 'div', 'igs-feed-tb-foot');
-        const counters = [];
-        const reply = el(doc, 'span', 'igs-feed-stat');
-        reply.append(icon(doc, 'comment'), counterSpan(doc, counters, feedStableCount(seedOf(post, 'cmt'), 0, 40), (n) => (n === '0' ? '回复' : n), true));
-        foot.append(el(doc, 'span', 'igs-feed-time', `${minutesAgo(post)}分钟前`), reply);
+        put(head, floor, avatarFor(doc, id, post.author), el(doc, 'span', 'igs-feed-name', post.author), friendTag(doc, id, post.author), owner);
         const replies = el(doc, 'div', 'igs-feed-replies');
-        body.append(head, textBlock(doc, post), foot, replies);
-        node.append(avatarFor(doc, id, post.author), body);
-        return { node, replies, counters, floor, owner, fill: fillTieba };
+        node.append(head, textBlock(doc, post), replies);
+        return { node, replies, counters: [], floor, owner };
     },
     // 购物：商品图占位（购物袋）、两行标题、红色价格、销量与店铺。
     shop(doc, id, post) {
@@ -318,162 +306,12 @@ const POST_BUILDERS = {
         const counters = [];
         const commentCount = counterSpan(doc, counters, feedStableCount(seedOf(post, 'cmt'), 0, 40), (n) => ` · ${n}回应`, true);
         const by = el(doc, 'div', 'igs-feed-byline');
-        const small = avatarFor(doc, id, post.author);
-        small.classList.add('is-small');
-        put(by, small, el(doc, 'span', 'igs-feed-name', post.author), friendTag(doc, id, post.author), el(doc, 'span', 'igs-feed-time', `${minutesAgo(post)}分钟前`), commentCount);
+        put(by, el(doc, 'span', 'igs-feed-name', post.author), friendTag(doc, id, post.author), commentCount);
         const body = textBlock(doc, post);
         const replies = el(doc, 'div', 'igs-feed-replies');
         node.append(el(doc, 'div', 'igs-feed-title', titleOf(post.text)), by, body, replies);
         return { node, replies, counters };
     },
-};
-
-// 微博：照手机 App 信息流——通栏白卡，帖头（头像 + 昵称 + 时间来源 + 下拉箭头）、通栏正文、配图、转评赞三格、热评两条。
-const WB_DEVICES = Object.freeze(['iPhone 15 Pro', 'Xiaomi 14', 'HUAWEI Mate 60', 'OPPO Find X7']);
-const WB_PLACES = Object.freeze(['北京', '上海', '广东', '浙江', '四川', '江苏']);
-const WB_VERIFY_RE = /官方|老师|教授|导师|博主|主播|编辑|记者|医生|校长|学生会|学院|协会|大V|新闻|频道/;
-const WB_FULL_AT = 120;
-const WB_FULL_KEEP = 108;
-const WB_HOT_MAX = 2;
-
-function wbCount(label) {
-    return (text) => (text === '0' ? label : text);
-}
-
-function wbSubLine(post) {
-    const when = `${minutesAgo(post)}分钟前`;
-    return feedStableCount(seedOf(post, 'wbs'), 0, 1) === 0
-        ? `${when} 来自 ${WB_DEVICES[feedStableCount(seedOf(post, 'wbd'), 0, WB_DEVICES.length - 1)]}`
-        : `${when} · 发布于 ${WB_PLACES[feedStableCount(seedOf(post, 'wbp'), 0, WB_PLACES.length - 1)]}`;
-}
-
-function wbText(doc, post) {
-    const node = el(doc, 'div', 'igs-feed-text');
-    const chars = Array.from(String(post.text));
-    if (chars.length <= WB_FULL_AT) {
-        richText(doc, node, post.text);
-        return node;
-    }
-    richText(doc, node, `${chars.slice(0, WB_FULL_KEEP).join('')}...`);
-    node.appendChild(el(doc, 'span', 'igs-feed-hl igs-feed-full', '全文'));
-    return node;
-}
-
-// 配图：全平台最多一张。post.pics 可以是地址数组（AI 写多张只取第一张）；目前只有微博版面会画它，生图与 CG 库尚未接入。
-export function feedPicOf(post) {
-    const list = Array.isArray(post && post.pics) ? post.pics : [];
-    return list.find((u) => typeof u === 'string' && u) || '';
-}
-
-function wbPics(doc, post) {
-    const url = feedPicOf(post);
-    if (!url) return null;
-    const box = el(doc, 'div', 'igs-feed-pics');
-    const img = el(doc, 'img', 'igs-feed-pic');
-    img.src = url;
-    img.alt = '';
-    box.appendChild(img);
-    return box;
-}
-
-function fillWbReplies(doc, id, post, box) {
-    const rows = box.children[0];
-    clearChildren(rows);
-    for (const reply of (post.replies || []).slice(0, WB_HOT_MAX)) {
-        const row = el(doc, 'div', 'igs-feed-reply');
-        row.appendChild(el(doc, 'span', 'igs-feed-rname', reply.author));
-        const body = el(doc, 'span', 'igs-feed-rtext');
-        richText(doc, body, reply.text);
-        row.appendChild(body);
-        rows.appendChild(row);
-    }
-}
-
-POST_BUILDERS.weibo = (doc, id, post) => {
-    const node = el(doc, 'article', 'igs-feed-post');
-    const counters = [];
-    const face = el(doc, 'div', 'igs-feed-wb-face');
-    face.appendChild(avatarFor(doc, id, post.author));
-    if (WB_VERIFY_RE.test(post.author)) {
-        const badge = el(doc, 'span', 'igs-feed-vbadge');
-        badge.innerHTML = '<svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="7" fill="#ffc000"/><path d="M4 5.3 7 10l3-4.7" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-        face.appendChild(badge);
-    }
-    const who = el(doc, 'div', 'igs-feed-wb-who');
-    const nameRow = el(doc, 'div', 'igs-feed-wb-name');
-    put(nameRow, el(doc, 'span', 'igs-feed-name', post.author), friendTag(doc, id, post.author));
-    who.append(nameRow, el(doc, 'div', 'igs-feed-sub-line', wbSubLine(post)));
-    const head = el(doc, 'div', 'igs-feed-wb-head');
-    head.append(face, who, icon(doc, 'chevron', 'igs-feed-icon igs-feed-wb-more'));
-    const meta = el(doc, 'div', 'igs-feed-meta');
-    const cmt = el(doc, 'span', 'igs-feed-stat');
-    cmt.append(icon(doc, 'comment'), counterSpan(doc, counters, feedStableCount(seedOf(post, 'cmt'), 0, 40), wbCount('评论'), true));
-    meta.append(
-        statCounter(doc, counters, 'forward', feedStableCount(seedOf(post, 'rp'), 0, 600), wbCount('转发')),
-        cmt,
-        statCounter(doc, counters, 'thumb', likeBase(post), wbCount('赞')),
-    );
-    const replies = el(doc, 'div', 'igs-feed-replies');
-    const more = el(doc, 'div', 'igs-feed-wb-more-line');
-    // 总数与评论格同基数同增长，数字一致。
-    counters.push({ node: more, base: feedStableCount(seedOf(post, 'cmt'), 0, 40), fmt: (t) => `共${t}条评论 >`, replies: true });
-    replies.append(el(doc, 'div', 'igs-feed-wb-rows'), more);
-    put(node, head, wbText(doc, post), wbPics(doc, post));
-    if (post.extra) {
-        const extra = el(doc, 'div', 'igs-feed-extra');
-        extra.appendChild(el(doc, 'span', 'igs-feed-extra-text', post.extra));
-        node.appendChild(extra);
-    }
-    put(node, meta, replies);
-    return { node, replies, counters, fill: fillWbReplies };
-};
-
-// 朋友圈：头像在左，右列是 蓝色昵称、正文（长文折叠加「全文」）、定位、「时间 + 菜单」、灰底评论框（顶上小三角，先点赞行再评论）。
-const MM_FULL_AT = 110;
-
-function fillMoments(doc, id, post, box) {
-    clearChildren(box);
-    const list = (post.replies || []).slice(0, FEED_REPLY_MAX);
-    if (!list.length) return;
-    const names = Array.from(new Set(list.map((r) => String(r.author || '').trim()).filter(Boolean)));
-    if (names.length) {
-        const likes = el(doc, 'div', 'igs-feed-mm-likes');
-        likes.append(icon(doc, 'like'), el(doc, 'span', '', names.join('，')));
-        box.appendChild(likes);
-    }
-    for (const reply of list) {
-        const row = el(doc, 'div', 'igs-feed-reply');
-        put(row, friendTag(doc, id, reply.author));
-        row.appendChild(el(doc, 'span', 'igs-feed-rname', reply.author));
-        const text = el(doc, 'span', 'igs-feed-rtext');
-        richText(doc, text, reply.text);
-        row.appendChild(text);
-        box.appendChild(row);
-    }
-}
-
-function fillTieba(doc, id, post, box) {
-    fillReplies(doc, id, post, box);
-    const n = (post.replies || []).slice(0, FEED_REPLY_MAX).length;
-    if (n) box.appendChild(el(doc, 'div', 'igs-feed-tb-more', `共${n}条回复 >`));
-}
-
-POST_BUILDERS.moments = (doc, id, post) => {
-    const node = el(doc, 'article', 'igs-feed-post');
-    const body = el(doc, 'div', 'igs-feed-body');
-    const who = el(doc, 'div', 'igs-feed-who');
-    put(who, el(doc, 'span', 'igs-feed-name', post.author), friendTag(doc, id, post.author));
-    body.append(who, textBlock(doc, post));
-    if (Array.from(String(post.text)).length > MM_FULL_AT) body.appendChild(el(doc, 'span', 'igs-feed-mm-full', '全文'));
-    if (post.extra) body.appendChild(el(doc, 'div', 'igs-feed-mm-place', post.extra));
-    const foot = el(doc, 'div', 'igs-feed-mm-foot');
-    const menu = el(doc, 'span', 'igs-feed-mm-menu');
-    menu.appendChild(icon(doc, 'more'));
-    foot.append(el(doc, 'span', 'igs-feed-time', `${minutesAgo(post)}分钟前`), menu);
-    const replies = el(doc, 'div', 'igs-feed-replies');
-    body.append(foot, replies);
-    node.append(avatarFor(doc, id, post.author), body);
-    return { node, replies, counters: [], fill: fillMoments };
 };
 
 const PEEK_KIT = { avatarFor, seedOf, minutesAgo };
@@ -485,6 +323,7 @@ function buildStandardPost(doc, id, post) {
     const who = el(doc, 'div', 'igs-feed-who');
     put(who, el(doc, 'span', 'igs-feed-name', post.author), friendTag(doc, id, post.author));
     body.appendChild(who);
+    if (id === 'weibo') body.appendChild(el(doc, 'div', 'igs-feed-sub-line', `${minutesAgo(post)}分钟前 来自 iPhone`));
     if (id === 'starnet') {
         const d = feedStableCount(seedOf(post, 'd'), 1, 28);
         const m = feedStableCount(seedOf(post, 'm'), 1, 12);
@@ -505,6 +344,7 @@ function buildStandardPost(doc, id, post) {
     }
     const meta = el(doc, 'div', 'igs-feed-meta');
     const counters = [];
+    if (id === 'weibo') meta.appendChild(statCounter(doc, counters, 'repost', feedStableCount(seedOf(post, 'rp'), 0, 600)));
     meta.append(commentStat(doc, counters, post, String), statCounter(doc, counters, 'like', likeBase(post)));
     body.appendChild(meta);
     const replies = el(doc, 'div', 'igs-feed-replies');
@@ -678,73 +518,6 @@ function buildLock(doc, platform, first, ctx, peek) {
     return { lock, dots: pin ? pin.dots : [] };
 }
 
-function hasClass(node, name) {
-    return !!node && typeof node.className === 'string' && node.className.split(/\s+/).includes(name);
-}
-
-function findIn(node, name) {
-    if (hasClass(node, name)) return node;
-    for (const child of Array.from(node.children || [])) {
-        const hit = findIn(child, name);
-        if (hit) return hit;
-    }
-    return null;
-}
-
-// 聊天列表点开：整页对话（顶栏 返回 + 备注名，气泡左对方右自己，底部一条静态输入栏）。内容取自该行已生成的节点，不另存数据。
-function buildChatPage(doc, list) {
-    const page = el(doc, 'div', 'igs-feed-chatpage');
-    page.hidden = true;
-    const bar = el(doc, 'div', 'igs-feed-chatbar');
-    const back = el(doc, 'button', 'igs-feed-chatback');
-    back.type = 'button';
-    back.setAttribute('aria-label', '返回');
-    back.appendChild(icon(doc, 'back'));
-    const title = el(doc, 'span', 'igs-feed-chattitle', '');
-    bar.append(back, title, icon(doc, 'more'));
-    const body = el(doc, 'div', 'igs-feed-chatbody');
-    const input = el(doc, 'div', 'igs-feed-chatinput');
-    input.appendChild(el(doc, 'span', 'igs-feed-chatfield', ''));
-    page.append(bar, body, input);
-    for (const name of LIST_STOP_EVENTS) page.addEventListener(name, (event) => event.stopPropagation());
-    back.addEventListener('click', () => { page.hidden = true; });
-    const open = (node) => {
-        const name = findIn(node, 'igs-feed-name');
-        const last = findIn(node, 'igs-feed-chat-last');
-        const time = findIn(node, 'igs-feed-chat-time');
-        const face = findIn(node, 'igs-feed-avatar');
-        const box = findIn(node, 'igs-feed-bubbles');
-        title.textContent = name ? name.textContent : '';
-        clearChildren(body);
-        if (time && time.textContent) body.appendChild(el(doc, 'div', 'igs-feed-chatstamp', time.textContent));
-        const add = (side, text) => {
-            const row = el(doc, 'div', 'igs-feed-msg');
-            row.setAttribute('data-side', side);
-            let av;
-            if (side === 'peer' && face && typeof face.cloneNode === 'function') av = face.cloneNode(true);
-            else if (side === 'peer') av = avatarFor(doc, 'chats', title.textContent);
-            else {
-                av = el(doc, 'div', 'igs-feed-avatar', '我');
-                av.style.setProperty('--fp-av', '#8aa4e0');
-            }
-            const bubble = el(doc, 'div', 'igs-feed-bubble', text);
-            bubble.setAttribute('data-side', side);
-            row.append(av, bubble);
-            body.appendChild(row);
-        };
-        if (last && last.textContent) add('peer', last.textContent);
-        for (const b of Array.from(box ? box.children : [])) add(b.getAttribute('data-side') === 'self' ? 'self' : 'peer', b.textContent);
-        page.hidden = false;
-        body.scrollTop = 0;
-    };
-    list.addEventListener('click', (event) => {
-        let n = event.target;
-        while (n && n !== list && !hasClass(n, 'igs-feed-chat-row')) n = n.parentNode;
-        if (n && n !== list && n.parentNode) open(n.parentNode);
-    });
-    return page;
-}
-
 function buildRoot(doc, platform, ctx, model, first, peek) {
     const now = ctx.now || Date.now;
     const paper = platform.skin === 'paper';
@@ -754,8 +527,6 @@ function buildRoot(doc, platform, ctx, model, first, peek) {
     root.style.setProperty('--fp-accent', platform.accent);
     root.appendChild(el(doc, 'div', 'igs-live-dim'));
     const list = el(doc, 'div', 'igs-feed-list');
-    // 舞台里的手机挂在 pointer-events:none 的弹幕层下，列表要自己开回 auto 才滑得动；事件不再冒泡，手指在手机上滑不会触到阅读器。
-    if (!paper) for (const name of LIST_STOP_EVENTS) list.addEventListener(name, (event) => event.stopPropagation());
     if (paper) {
         const card = el(doc, 'div', 'igs-feed-paper');
         const head = el(doc, 'div', 'igs-feed-paper-head');
@@ -772,34 +543,14 @@ function buildRoot(doc, platform, ctx, model, first, peek) {
     const screen = el(doc, 'div', 'igs-feed-screen');
     const head = el(doc, 'div', 'igs-feed-head');
     const app = el(doc, 'span', 'igs-feed-app', platform.name);
-    if (platform.id === 'weibo') {
-        // 微博顶栏：推荐 / 关注两个页签 + 右侧放大镜；平台名留在隐藏节点里。
-        const tabs = el(doc, 'div', 'igs-feed-wb-tabs');
-        tabs.append(el(doc, 'span', 'igs-feed-wb-tab is-on', '推荐'), el(doc, 'span', 'igs-feed-wb-tab', '关注'));
-        head.append(app, tabs, icon(doc, 'search'));
-    } else {
-        head.append(icon(doc, 'back'), app);
-        if (platform.id === 'tieba') head.appendChild(el(doc, 'span', 'igs-feed-follow', '关注'));
-        else head.appendChild(icon(doc, 'more'));
-    }
-    // 与直播右上角同款的收起按钮（回看里已有自己的关闭，不再放）。
-    let close = null;
-    if (ctx.review !== true) {
-        close = el(doc, 'button', 'igs-feed-close');
-        close.type = 'button';
-        close.setAttribute('aria-label', '收起');
-        close.title = '收起';
-        close.innerHTML = LIVE_ICONS.close;
-        head.appendChild(close);
-    }
+    head.append(icon(doc, 'back'), app);
+    if (platform.id === 'tieba') head.appendChild(el(doc, 'span', 'igs-feed-follow', '关注'));
+    else head.appendChild(icon(doc, 'more'));
     screen.appendChild(head);
     const subBuild = SUB_BUILDERS[platform.id];
     const sub = subBuild ? subBuild(doc) : null;
     if (sub) screen.appendChild(sub.node);
     screen.appendChild(list);
-    const chatPage = platform.id === 'chats' ? buildChatPage(doc, list) : null;
-    if (chatPage) screen.appendChild(chatPage);
-    let chatKey = '';
     const statusBar = buildPhoneStatus(doc, now, ctx.status || null);
     phone.append(screen);
     // 每个平台区间第一次抬起先过一遍锁屏（减少动态效果、回看都跳过）；同区间跨页保留根节点，不再重放。
@@ -820,7 +571,7 @@ function buildRoot(doc, platform, ctx, model, first, peek) {
     root.appendChild(phone);
     const fromExtra = TITLE_FROM_EXTRA.includes(platform.id);
     return {
-        root, list, phone, close,
+        root, list, phone,
         update(posts, ctx) {
             if (ctx.status) {
                 setPhoneStatus(statusBar, ctx.status);
@@ -832,14 +583,6 @@ function buildRoot(doc, platform, ctx, model, first, peek) {
                 if (app.textContent !== name) app.textContent = name;
             }
             if (sub) sub.update(posts, ctx);
-            // 翻页换了会话就收起已打开的对话，免得停在上一页的聊天里。
-            if (chatPage) {
-                const key = posts.map(postKey).join('|');
-                if (key !== chatKey) {
-                    chatKey = key;
-                    chatPage.hidden = true;
-                }
-            }
         },
     };
 }
@@ -877,18 +620,7 @@ export function syncFeedPhone(host, feed, ctx) {
         state = { key, platform, owner, els, posts: new Map(), model, size: 'large', fit: null, max: -1, doc };
         host.appendChild(els.root);
         feeds.set(host, state);
-        // 收起：本平台区间的手机先退回回看入口，换平台（或换主人）再弹出；同一区间重绘不会重新弹出。
-        if (els.close) {
-            const own = state;
-            els.close.addEventListener('click', (event) => {
-                event.stopPropagation();
-                own.dismissed = true;
-                own.els.root.hidden = true;
-                if (typeof own.onDismiss === 'function') own.onDismiss();
-            });
-        }
     }
-    state.onDismiss = typeof ctx.onDismiss === 'function' ? ctx.onDismiss : null;
     state.size = look.size === 'fit' ? 'fit' : 'large';
     state.model = model;
     if (state.els.phone) applyPhoneLook(state.els.root, { ...look, model });
@@ -937,7 +669,7 @@ export function syncFeedPhone(host, feed, ctx) {
     } finally {
         know = null;
     }
-    return state.dismissed ? null : state;
+    return state;
 }
 
 // 由调用方在每页唯一一次几何读取后传入；手机宽高沿用直播手机，纸面只限制最大高度（停在对话框上方）。
@@ -962,7 +694,6 @@ export function fitFeedPhone(host, stage) {
     phone.style.setProperty('--igs-live-h', `${geo.height}px`);
     phone.style.setProperty('--igs-live-top', `${geo.top}px`);
     phone.style.setProperty('--igs-live-w', `${geo.width}px`);
-    setPhoneSink(phone, geo.under);
     return fit;
 }
 

@@ -2,11 +2,12 @@
 // 物品图默认关闭（itemImages.enabled=false）时服务入口短路，不读表、不联网；CG 库只读本地存储。
 import { createItemImageService, ITEM_IMAGE_UPDATED_EVENT } from '../generated-images/illustration/item-image-service.js';
 import { createCgLibrary } from '../media/cg-library.js';
+import { ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
 import { createIndexedDbCgGalleryStore } from '../media/cg-gallery-store.js';
 import { createIndexedDbCgIndexStore } from '../media/cg-index-store.js';
 import { createCgThumbnailer } from '../media/cg-thumbnail.js';
 import { createIndexedDbPhotoAlbumStore } from '../media/photo-album.js';
-import { withTavernPhotoFiles } from '../media/tavern-photos.js';
+import { withTavernPhotoFiles } from '../media/tavern-image-files.js';
 import { createShujukuClient } from '../data/shujuku/client.js';
 import { buildItemCatalog } from '../data/shujuku/item-catalog.js';
 import { createItemLedger } from '../data/shujuku/item-ledger.js';
@@ -23,17 +24,18 @@ export function createItemAndCgServices(deps = {}) {
         }
     };
     const itemImages = deps.itemImageService || createItemImageService({
-        messageHost, llm, nai, store: generatedAssetStore, events, readTables, matte, report, mediaCache: deps.mediaCache,
+        messageHost, llm, nai, store: generatedAssetStore, events, readTables, matte, report,
         getSettings: () => (typeof getBridge === 'function' ? getBridge() || {} : {}),
     });
     // CG 库：楼层 CG 与相册照片共用一份目录（igs-cg-index）；注入的 cgGalleryService（测试替身）保持原样。
     const cgGallery = deps.cgGalleryService || createCgLibrary({
-        mediaCache: deps.mediaCache,
         illustrationStore,
         photoStore: deps.photoAlbumStore || withTavernPhotoFiles(createIndexedDbPhotoAlbumStore(globalObject), globalObject),
         marksStore: deps.cgGalleryStore || createIndexedDbCgGalleryStore(globalObject),
         indexStore: deps.cgIndexStore || createIndexedDbCgIndexStore(globalObject),
         clearIllustration,
+        onIllustrationUpdated: (handler) => (events && typeof events.on === 'function'
+            ? events.on(ILLUSTRATION_UPDATED_EVENT, handler) : () => {}),
         makeThumbnail: createCgThumbnailer(globalObject),
         getDocument: () => globalObject && globalObject.document,
     });

@@ -1,6 +1,14 @@
-import { TEXT_FX_KINDS, TEXT_FX_MARKUP_SOURCE } from '../../scene/text-fx-markup.js';
-
-export { TEXT_FX_KINDS };
+export const TEXT_FX_KINDS = Object.freeze({
+    抖: 'shake',
+    波: 'wave',
+    大: 'big',
+    小: 'small',
+    淡: 'whisper',
+    强: 'strong',
+    吼: 'roar',
+    渐大: 'grow',
+    渐小: 'fade',
+});
 
 const TEXT_FX_MAX_GRAPHEMES = 40;
 const PER_CHAR_KINDS = new Set(['shake', 'wave', 'grow', 'fade']);
@@ -9,7 +17,7 @@ const COUNTED_KINDS = new Set(['grow', 'fade']);
 // 弹出类在打字机揭开该段时才播放，见 armTextFx。
 const POP_SELECTOR = '.igs-tfx-big,.igs-tfx-roar';
 // 半角/全角冒号都接受：模型在中文语境里常顺手写成「：」。
-const MARKUP_RE = new RegExp(TEXT_FX_MARKUP_SOURCE, 'g');
+const MARKUP_RE = new RegExp(`\\{(${Object.keys(TEXT_FX_KINDS).join('|')})[:：]([^{}\\n\\r]+)\\}`, 'g');
 const TAG_SPLIT_RE = /(<[^>]*>)/;
 const ENTITY_SPLIT_RE = /(&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);)/i;
 
@@ -100,7 +108,8 @@ export function armTextFx(textEl, revealDelay) {
 
 export function resolveTextFxPromptRule(enabled) {
     if (enabled !== true) return '';
-    return `【文字演出】台词或旁白里给一小段文字加演出效果时使用，效果只能从以下9种中选：
+    return `[igs文字演出]
+台词或旁白正文中可以用 {效果:文字} 给一小段文字加上演出效果，效果只能从以下9种中选：
 
 1. {抖:文字}：颤抖，用于害怕、寒冷、气到发抖或强忍哭腔，如「{抖:别、别过来……}」
 2. {波:文字}：波浪起伏，用于撒娇、哼歌、得意或醉意，如「{波:好开心呀～}」
@@ -134,7 +143,7 @@ export const TEXT_FX_GRAMMAR = Object.freeze([
 
 export function textFxGrammarBlock() {
     const kinds = TEXT_FX_GRAMMAR.map(([name, use]) => `${name}（${use}）`).join('；');
-    return `【文字演出】情绪真正需要强调时使用，平淡文字不要用。写作 {效果:文字}（短语不超过15字，冒号用半角，不嵌套，不用于角色名、选项和标签字段，每层最多2处）：效果只有以下${TEXT_FX_GRAMMAR.length}种——${kinds}`;
+    return `【文字演出】台词或旁白里可以用 {效果:文字} 给不超过15字的短语加效果，冒号用半角，不嵌套，不用于角色名、选项和标签字段，每层最多2处，只在情绪真正需要时用。效果只有以下${TEXT_FX_GRAMMAR.length}种：${kinds}`;
 }
 
 export const TEXT_FX_STYLE_TEXT = `
@@ -165,7 +174,6 @@ export const TEXT_FX_STYLE_TEXT = `
 #igs-overlay[data-igs-dialog-skin="magic-academy"]{--igs-tfx-accent:#f0cf78;--igs-tfx-glow:rgba(255,214,120,.85);}
 #igs-overlay[data-igs-dialog-skin="mermaid-deep"]{--igs-tfx-accent:#b6d4ff;--igs-tfx-glow:rgba(140,180,255,.8);}
 #igs-overlay[data-igs-dialog-skin="qinglv-shanshui"]{--igs-tfx-accent:#2f5d7c;--igs-tfx-glow:rgba(244,240,229,.9);}
-#igs-overlay[data-igs-dialog-skin="xianxia-ink"]{--igs-tfx-accent:#b23a2a;--igs-tfx-glow:rgba(244,241,234,.9);}
 #igs-overlay[data-igs-dialog-skin="warm-picturebook"]{--igs-tfx-accent:#c8553d;--igs-tfx-glow:rgba(255,255,255,.8);}
 #igs-overlay[data-igs-dialog-skin="fairy-tale"]{--igs-tfx-accent:#b4702c;--igs-tfx-glow:rgba(250,246,234,.9);}
 #igs-overlay[data-igs-dialog-skin="horror-gore"]{--igs-tfx-accent:#ff2a33;--igs-tfx-glow:rgba(0,0,0,.9);}

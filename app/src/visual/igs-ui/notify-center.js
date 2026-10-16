@@ -1,5 +1,4 @@
 import { LIVE_ICONS } from './danmaku-icons.js';
-import { mountEntry, unmountEntry } from './entry-dock.js';
 import { feedPlatformById } from '../../scene/feed-platforms.js';
 import { spamAllowed, spamBrandColor, spamKindOf } from '../../scene/spam-sms.js';
 
@@ -19,9 +18,6 @@ const ICONS = Object.freeze({
     chat: svg('<path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.2a1.5 1.5 0 0 1-1.5 1.5h-7l-4.2 3v-3H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/>'),
     storm: svg('<path d="M12 21.4c3.5 0 5.9-2.3 5.9-5.7 0-2.6-1.5-4.5-2.9-6.1-.4 1.5-1.2 2.5-2.3 2.9.5-2.9-.6-6-3.1-8.3-.2 3.1-1.8 4.9-3.1 6.5-1.2 1.4-2.3 3-2.3 5 0 3.4 2.4 5.7 5.8 5.7z"/>'),
 });
-// 左列入口按钮上的铃铛：与手机入口同规格（32 视框、1.6 描边、铺满 38px 方块），
-// 图形横竖都以 16 为中心，与手机图标落在同一条竖线、同一条水平中线上。
-const ENTRY_BELL_ICON = '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.6 20.5V12.9a7.4 7.4 0 0 1 14.8 0v7.6l2 2.4H6.6z"/><path d="M13.4 25.3a3.4 3.4 0 0 0 5.2 0"/></svg>';
 const FIXED_APPS = Object.freeze({
     notify: { name: '通知', accent: '#4c8bf5', icon: 'bell' },
     call: { name: '电话', accent: '#2fb36d', icon: 'phone' },
@@ -251,7 +247,7 @@ function buildEntry(view) {
     entry.type = 'button';
     entry.setAttribute('aria-label', '通知');
     entry.title = '通知';
-    entry.innerHTML = ENTRY_BELL_ICON;
+    entry.innerHTML = ICONS.bell;
     const badge = el(doc, 'span', 'igs-nc-badge', '');
     badge.hidden = true;
     entry.appendChild(badge);
@@ -269,7 +265,7 @@ export function syncNotify(front, info, ctx) {
         if (!show) return null;
         view = { front, doc: ctx.doc, store, overlay: null, list: null, rendered: -1 };
         view.els = buildEntry(view);
-        mountEntry(front, view.els.entry);
+        front.appendChild(view.els.entry);
         views.set(front, view);
     }
     view.store = store || view.store;
@@ -290,6 +286,21 @@ export function syncNotify(front, info, ctx) {
     return view;
 }
 
+// 入口贴在 HUD 下缘，排在观众弹幕入口、回看入口之后（slot = 前面已有几个入口）；变化才写。
+export function placeNotifyEntry(front, top, slot) {
+    const view = views.get(front);
+    if (!view) return;
+    const value = `${Math.round(top)}px`;
+    if (view.top !== value) {
+        view.top = value;
+        view.els.entry.style.setProperty('--igs-nc-top', value);
+    }
+    if (view.slot !== slot) {
+        view.slot = slot;
+        view.els.entry.style.setProperty('--igs-nc-slot', String(slot));
+    }
+}
+
 export function isNotifyEntryShown(front) {
     const view = views.get(front);
     return Boolean(view && !view.els.entry.hidden);
@@ -299,7 +310,7 @@ export function stopNotify(front) {
     const view = front && views.get(front);
     if (!view) return false;
     closePanel(view);
-    unmountEntry(front, view.els.entry);
+    view.els.entry.remove();
     views.delete(front);
     return true;
 }

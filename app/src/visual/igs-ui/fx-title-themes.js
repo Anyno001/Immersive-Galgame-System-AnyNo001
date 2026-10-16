@@ -42,9 +42,9 @@ const TITLE_EXTRAS = Object.freeze({
     ],
     // 青绿山水：一幅横向绢卷，上下石青细线，右下角一方朱砂小印。
     [DIALOG_SKIN_QINGLV]: (s) => [
-        `${s}{${CARD}padding:18px 52px 16px;background:${qinglvSilk('.95')};box-shadow:0 6px 20px rgba(20,30,28,.16);}`,
-        `${s}::before{display:block;content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent,rgba(47,93,124,.55) 18%,rgba(47,93,124,.55) 82%,transparent) top/100% 1px no-repeat,linear-gradient(90deg,transparent,rgba(47,93,124,.55) 18%,rgba(47,93,124,.55) 82%,transparent) bottom/100% 1px no-repeat;}`,
-        `${s}::after{position:absolute;right:12px;bottom:10px;width:14px;height:14px;border-radius:2px;background:#b23a2a;}`,
+        `${s}{${CARD}padding:18px 52px 16px;background:${qinglvSilk('.95')};box-shadow:inset 0 3px 0 ${qinglvSilk(1)},inset 0 4px 0 rgba(47,93,124,.55),inset 0 -3px 0 ${qinglvSilk(1)},inset 0 -4px 0 rgba(47,93,124,.55),0 8px 24px rgba(20,30,28,.28);}`,
+        `${s}::before{display:none;}`,
+        `${s}::after{position:absolute;right:12px;bottom:10px;width:16px;height:16px;border-radius:2px;background:#b23a2a;box-shadow:inset 0 0 0 2px ${qinglvSilk(1)},inset 0 0 0 3px #b23a2a;}`,
         `${s} .igs-fx-title-main{font-weight:400;letter-spacing:.4em;padding-left:.4em;}`,
         `${s} .igs-fx-title-sub{color:#2f5d7c;}`,
     ],

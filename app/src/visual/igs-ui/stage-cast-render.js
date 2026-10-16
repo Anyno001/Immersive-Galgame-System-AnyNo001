@@ -6,7 +6,6 @@ import { findCalledCast } from '../../scene/stage-cast.js';
 import { CAST_CALLED_FRAME, CAST_DIM_FRAME, CAST_FOCUS_FRAME, CAST_HANDOFF_MS, CAST_LIT_FRAME, CAST_MOVE_MS, CAST_SLIDE_PCT, castSideOf } from './stage-cast-motion.js';
 import { playSpriteAction } from './sprite-actions.js';
 import { decodeSpriteImage } from './stage-direction-runtime.js';
-import { playSpriteTurn } from './sprite-turn.js';
 import { peekSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
 
 const NARROW_MODES = new Set(['mobile', 'embedded']);
@@ -248,9 +247,8 @@ function getStyleProp(el, name) {
 }
 
 // 滑入 / 滑出：透明度单独播；位移用 composite:'add' 叠在 CSS 呼吸上，不把呼吸的 transform 盖掉。
-// noSlide（登场 / 退场关闭）时只淡入淡出，不侧移。
-function playSlide(el, posX, reduced, entering, duration, fill, done, noSlide = false) {
-    const side = reduced || noSlide ? 0 : castSideOf(posX);
+function playSlide(el, posX, reduced, entering, duration, fill, done) {
+    const side = reduced ? 0 : castSideOf(posX);
     const opacity = entering ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }];
     const anim = play(el, opacity, duration, fill, done);
     if (side && anim) {
@@ -286,9 +284,6 @@ export function applyCastToDom(root, members = [], motion = {}) {
     if (!layer) return { count: 0 };
     const doc = layer.ownerDocument;
     const reduced = motion.reduced === true;
-    // 登场 / 退场关闭：上下台只淡入淡出；走位关闭：换槽位直接到位，不平移。
-    const noSlide = motion.slide === false;
-    const noMove = motion.move === false;
     const focus = String(motion.focus || '');
     const handoff = motion.handoff || {};
     const lean = motion.lean || null;
@@ -327,8 +322,7 @@ export function applyCastToDom(root, members = [], motion = {}) {
         const focused = Boolean(focus) && m.character === focus;
         const baseFrame = focused ? CAST_FOCUS_FRAME : (m.called === true || m.front === true) ? CAST_CALLED_FRAME : CAST_DIM_FRAME;
         const enhance = typeof motion.spriteEnhance === 'string' ? motion.spriteEnhance : '';
-        const lit = m.back === true ? `${baseFrame} brightness(.78)` : baseFrame;
-        const frame = enhance ? `${lit} ${enhance}` : lit;
+        const frame = enhance ? `${baseFrame} ${enhance}` : baseFrame;
         const prevFrame = el.style.filter;
         el.style.filter = frame;
         el.style.setProperty('-webkit-filter', frame);
@@ -339,18 +333,12 @@ export function applyCastToDom(root, members = [], motion = {}) {
         // 背对（第四批）：整张立绘水平翻转，用空闲的独立属性 scale；原点移到图的中心，镜像不整体平移。
         const flipped = m.flip === true;
         const host = el.parentNode;
-        const probed = peekSpriteHead(m.url, el.ownerDocument);
-        // 图还没换上时先藏起来再读尺寸。空着的全屏层带滤镜，这一读会把黑帧画出来。
-        if (el.style.backgroundImage !== image) el.style.visibility = 'hidden';
+        const probed = peekSpriteHead(m.url);
         const widthPct = spriteWidthPercent(host && host.clientWidth, host && host.clientHeight, { posX: m.posX, posY: m.posY, scale: m.scale, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH });
         setStyleProp(el, '--igs-cast-origin-x', `${flipped ? castFlipOriginX(m.posX, widthPct) : m.posX}%`);
-        const wasFlipped = el.hasAttribute('data-igs-cast-flip');
         setStyleProp(el, 'scale', flipped ? '-1 1' : '');
         if (flipped) el.setAttribute('data-igs-cast-flip', '1');
         else el.removeAttribute('data-igs-cast-flip');
-        if (!entering && !leaving && wasFlipped !== flipped && motion.turn) {
-            playSpriteTurn(el, { from: wasFlipped, to: flipped, prop: 'scale', variant: motion.turn[m.character] || '', posX: m.posX, reduced, lowQuality: motion.lowQuality === true, stage: motion.turnStage || null, sound: motion.turnSound || null });
-        }
         // 呼吸由根节点 data-igs-cast-breathe（舞台调度写入）控制；相位变量常驻，开关切换时不重新起步。
         const phase = castBreathePhase(m.character);
         setStyleProp(el, '--igs-cast-breathe', `${phase.period}s`);
@@ -358,12 +346,11 @@ export function applyCastToDom(root, members = [], motion = {}) {
         applyLean(el, lean, m.posX);
         const show = () => {
             swapImage(layer, el, image, true);
-            el.style.visibility = '';
             if (!entering) return;
             stopAnim(el);
             el._igsCastAnim = demotedIn
                 ? play(el, [{ filter: CAST_LIT_FRAME }, { filter: CAST_DIM_FRAME }], CAST_HANDOFF_MS, 'backwards')
-                : playEntrance(el, m.posX, reduced, entrances[m.character] || '', noSlide);
+                : playEntrance(el, m.posX, reduced, entrances[m.character] || '');
         };
         if (wait) {
             const pending = { url: m.url };
@@ -376,7 +363,7 @@ export function applyCastToDom(root, members = [], motion = {}) {
         } else if (!pendingSame) {
             show();
         }
-        if (!entering && Number(fromX) !== Number(m.posX) && !reduced && !noMove) {
+        if (!entering && Number(fromX) !== Number(m.posX) && !reduced) {
             stopAnim(el);
             el._igsCastAnim = play(el, [{ backgroundPosition: `${fromX}% ${m.posY}%` }, { backgroundPosition: `${m.posX}% ${m.posY}%` }], CAST_MOVE_MS, 'backwards');
         }
@@ -393,7 +380,7 @@ export function applyCastToDom(root, members = [], motion = {}) {
         el.setAttribute('data-igs-cast-leaving', '1');
         el._igsCastAnim = playSlide(el, el._igsCastX, reduced, false, FADE_MS, 'forwards', () => {
             if (el.hasAttribute('data-igs-cast-leaving') && el.parentNode) el.parentNode.removeChild(el);
-        }, noSlide);
+        });
     }
     layer.style.display = Array.from(layer.children || []).length ? '' : 'none';
     return { count: members.length };
@@ -444,7 +431,7 @@ export const CAST_REACT_ALL = '全员';
 
 // 陪衬反应规划（纯函数）：reacts 为 fx.reacts（[{ target, emotion }]），members 为在台陪衬（[{ character }]）。
 // symbols / actions 为已规范化的漫画符号词表（mangaFx.symbols）与动作词表（spriteActions），只读词表不看各自总开关。
-// 情绪词命中符号与动作时两者都播；没写情绪词只小跳；写了但都不中不再小跳（交给换表情）；目标写「全员」时作用于全部陪衬，不在台上的目标丢弃。
+// 情绪词命中符号与动作时两者都播；都不中只小跳；目标写「全员」时作用于全部陪衬，不在台上的目标丢弃。
 // 说话人情绪命中 surprise 符号词表时，所有尚无动作的陪衬再小跳一次。同一角色的符号与动作各只取第一条。
 export function planCastReacts({ reacts = [], members = [], keyOf = (name) => name, symbols = {}, actions = {}, speakerEmotion = '' } = {}) {
     const onStage = (Array.isArray(members) ? members : []).map((m) => String((m && m.character) || '')).filter(Boolean);
@@ -462,7 +449,7 @@ export function planCastReacts({ reacts = [], members = [], keyOf = (name) => na
         const key = raw === CAST_REACT_ALL ? '' : String(keyOf(raw) || raw);
         const targets = raw === CAST_REACT_ALL ? onStage : onStage.filter((c) => c === key);
         const symbol = symbolOf(emotion);
-        const action = actionOf(emotion) || (symbol || emotion ? '' : 'hop');
+        const action = actionOf(emotion) || (symbol ? '' : 'hop');
         for (const character of targets) {
             if (symbol && !hasMark.has(character)) {
                 hasMark.add(character);
@@ -520,8 +507,8 @@ export const CAST_ENTRANCE_SLOW_MS = 900;
 export const CAST_ENTRANCE_PEEK_MS = 1100;
 const CAST_PEEK_PCT = 20;
 
-function playEntrance(el, posX, reduced, kind, noSlide = false) {
-    if (reduced || !kind) return playSlide(el, posX, reduced, true, reduced ? FADE_MS : FADE_MS + 120, 'backwards', undefined, noSlide);
+function playEntrance(el, posX, reduced, kind) {
+    if (reduced || !kind) return playSlide(el, posX, reduced, true, reduced ? FADE_MS : FADE_MS + 120, 'backwards');
     if (kind === 'slow') return playSlide(el, posX, false, true, CAST_ENTRANCE_SLOW_MS, 'backwards');
     if (kind === 'peek') {
         const side = castSideOf(posX) || -1;
@@ -591,7 +578,7 @@ export const CAST_POSE_FRONT_SCALE = 1.06;
 // plan 为 planCastLayouts 的结果；speakerKey 为说话人主名（说话人条目本身不带 character）。
 // poses / links 来自 fx（键可为别名，经 keyOf 归一）；返回新 plan，条目带 flip / front，posX / scale 已套用姿态。
 // 靠近 / 拉开的方向按两人当前的左右关系决定；任一方不在台上时忽略该对。
-export function applyCastPoses(plan, { poses = {}, links = [], speakerKey = '', keyOf = (name) => name, turns = {} } = {}) {
+export function applyCastPoses(plan, { poses = {}, links = [], speakerKey = '', keyOf = (name) => name } = {}) {
     if (!plan) return plan;
     const canon = (name) => String(keyOf(String(name || '').trim()) || name || '').trim();
     const entries = [];
@@ -603,7 +590,6 @@ export function applyCastPoses(plan, { poses = {}, links = [], speakerKey = '', 
         const key = canon(name);
         if (key && value) pose.set(key, value);
     }
-    const turnOf = new Map(Object.entries(turns && typeof turns === 'object' ? turns : {}).map(([name, kind]) => [canon(name), kind]));
     const shift = new Map();
     for (const link of Array.isArray(links) ? links : []) {
         const a = byChar.get(canon(link && link.a));
@@ -615,18 +601,10 @@ export function applyCastPoses(plan, { poses = {}, links = [], speakerKey = '', 
         shift.set(right, (shift.get(right) || 0) - dir * CAST_POSE_SHIFT);
     }
     for (const e of entries) {
-        let p = pose.get(e.character) || {};
-        // 甩头离开留下的背对只属于离开那一页，之后回台恢复正面。
-        if (p.storm === true && turnOf.get(e.character) !== 'storm') p = {};
+        const p = pose.get(e.character) || {};
         if (shift.has(e)) e.ref.posX = Math.round((Number(e.ref.posX) + shift.get(e)) * 100) / 100;
         e.ref.flip = p.flip === true;
-        if (p.face && byChar.has(canon(p.face))) {
-            const other = byChar.get(canon(p.face));
-            e.ref.flip = Number(e.ref.posX) > Number(other.ref.posX);
-        }
         e.ref.front = p.front === true;
-        e.ref.back = p.back === true;
-        if (p.back === true && p.backText) e.ref.backText = String(p.backText);
         if (e.ref.front) e.ref.scale = Math.round(Number(e.ref.scale) * CAST_POSE_FRONT_SCALE * 100) / 100;
     }
     return {
@@ -634,30 +612,6 @@ export function applyCastPoses(plan, { poses = {}, links = [], speakerKey = '', 
         speaker: plan.speaker ? entries[0].ref : null,
         members: entries.filter((e) => !e.speaker).map((e) => e.ref),
     };
-}
-
-// 单人立绘的站位姿态：只跟随 castStage（与提示词注入同一开关，默认关；不需要开多角色同屏总开关）。
-// 返回 { flip, back, backText, turn }；开关关闭或没写标签时 flip 为 false。turn 为本页变体（glance / storm / face / back / turn 以外为空）。
-// 甩头离开（storm）留下的背对只属于离开那一页：之后再开口的页视为回台，朝向恢复正面。
-export function resolveSpeakerPose(snapshot, speakerKey = '') {
-    const none = { flip: false, back: false, backText: '', turn: '' };
-    const reader = (snapshot && snapshot.readerSettings) || {};
-    const cast = normalizeStageCastSettings(reader.stageCast);
-    if (!cast.castStage || !speakerKey) return none;
-    const fx = (snapshot && snapshot.content && snapshot.content.fx) || {};
-    const keyOf = castKeyOfSnapshot(snapshot);
-    const me = keyOf(speakerKey) || speakerKey;
-    const find = (table) => {
-        for (const [name, value] of Object.entries(table && typeof table === 'object' ? table : {})) {
-            if ((keyOf(name) || name) === me) return value;
-        }
-        return null;
-    };
-    const pose = find(fx.poses) || {};
-    const turn = find(fx.turns) || '';
-    const turnKind = typeof turn === 'string' ? turn : '';
-    if (pose.storm === true && turnKind !== 'storm') return none;
-    return { flip: pose.flip === true, back: pose.back === true, backText: pose.back === true && pose.backText ? String(pose.backText) : '', turn: turnKind };
 }
 
 // 站位姿态接入：stageCast.enabled 且 castStage 开启时把 fx.poses / fx.links 套到布局上，否则原样返回。
@@ -672,7 +626,7 @@ export function resolveCastPosePlan(snapshot, plan, speakerKey = '') {
         const raw = String(name || '').trim();
         return raw ? resolveCharacterKey(assets.characters, assets.characterAliases, raw) || raw : '';
     };
-    return applyCastPoses(plan, { poses: fx.poses, links: fx.links, speakerKey, keyOf, turns: fx.turns });
+    return applyCastPoses(plan, { poses: fx.poses, links: fx.links, speakerKey, keyOf });
 }
 
 // 翻转时的横向原点（百分比）：立绘元素铺满舞台、靠 background-position 摆位，绕图的中心镜像才不会整体平移。

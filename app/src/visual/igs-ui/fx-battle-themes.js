@@ -1,7 +1,6 @@
 import { stroke } from './dialog-skin-frame.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, MAGIC_VEIL, magicTint } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
-import { DIALOG_SKIN_XIANXIA_INK, xianxiaInk } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, MERMAID_PEARL_HI, mermaidAbyss, mermaidPearl } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
@@ -127,24 +126,6 @@ const BATTLE_THEMES = Object.freeze({
         ],
         title: 'font-style:normal;font-weight:400;letter-spacing:.3em;text-indent:.3em;',
         veil: 'background:rgba(30,40,38,.22);',
-    },
-    // 仙侠水墨：焦墨底、象牙白字、朱砂印；古代背景下战斗节点另带 is-xianxia（青白剑气、冷白闪光、紫白雷劫），过场借这里的配色。
-    [DIALOG_SKIN_XIANXIA_INK]: {
-        accent: '#96b6be',
-        light: false,
-        font: DIALOG_FONT_HUIWEN,
-        vars: { veil: xianxiaInk('.92'), rule: 'rgba(150,182,190,.55)', ink: '#f3ecdd', halo: `0 1px 0 ${xianxiaInk('.6')}`, 'title-halo': `0 1px 0 ${xianxiaInk('.8')}`, wipe: xianxiaInk('.94'), lose: '#e08a7a', escape: '#9aa8a2' },
-        mark: `padding:0 3px;border-radius:1px;background:#b23a2a;color:#f3ecdd;font-size:0;line-height:1;text-shadow:none;--igs-bt-seal:"战";`,
-        extra: (scope) => [
-            `${scope} ${PART_SELECTORS.mark}::before{content:var(--igs-bt-seal);font-size:12px;letter-spacing:0;}`,
-            `${scope} ${PART_SELECTORS.pop}{color:#f7f1e4;font-style:normal;font-weight:700;letter-spacing:.2em;text-shadow:${stroke(xianxiaInk('.85'))},0 0 14px ${xianxiaInk('.9')};}`,
-            `${scope} .igs-fx-battle-hit:not(.is-ancient)[data-igs-battle-result="crit"] .igs-fx-battle-pop-label{color:#c3b0ff;}`,
-            `${scope} .igs-fx-battle-hit:not(.is-ancient)[data-igs-battle-result="ko"] .igs-fx-battle-pop-label{color:#ff9f92;}`,
-            `${scope} ${PART_SELECTORS.dice},${scope} ${PART_SELECTORS.target}{color:#eae2d1;text-shadow:${stroke(xianxiaInk('.8'))};}`,
-            `${scope} ${PART_SELECTORS.foe}{text-shadow:${stroke(xianxiaInk('.7'))},0 0 18px ${xianxiaInk('.9')};}`,
-        ],
-        title: 'font-style:normal;font-weight:400;letter-spacing:.3em;text-indent:.3em;',
-        veil: 'background:rgba(16,20,26,.32);',
     },
     // 童话小镇：奶油纸通栏、鼠尾草绿细线，名牌标记是一颗灯火色小星。
     [DIALOG_SKIN_FAIRY_TALE]: {

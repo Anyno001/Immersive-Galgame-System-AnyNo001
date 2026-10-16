@@ -12,10 +12,8 @@ import {
 import { normalizeStageDirectionSettings } from './stage-direction-runtime.js';
 import { AMBIENT_KINDS, AMBIENT_LABELS, normalizeAmbientSoundSettings, normalizeBgmSettings } from './scene-audio.js';
 import { normalizeTextFxSettings } from './text-fx.js';
-import { isPackKind } from '../../scene/fx-packs.js';
 import { BILINGUAL_DISPLAYS, BILINGUAL_DISPLAY_LABELS, BILINGUAL_FOREIGN_LABELS, BILINGUAL_LAYOUTS, BILINGUAL_LAYOUT_LABELS, BILINGUAL_TARGET_LABELS, normalizeBilingualSettings } from './bilingual-text.js';
 import { CLICK_WAIT_MARK_LABELS, normalizeClickWaitMarkSettings } from './click-wait-mark.js';
-import { normalizeWaitStageSettings } from './wait-stage.js';
 import { DAILY_FX_LABELS, normalizeDailyFxSettings } from './fx-daily-model.js';
 import { DAILY_FX_KINDS } from '../../scene/daily-fx-directives.js';
 import { FX_WORLDVIEW_ONLY } from '../../scene/fx-era.js';
@@ -53,26 +51,19 @@ function renderStageFields(s, more) {
     const cast = featureRow(more, 'stage-cast', `${P}.stageCast.enabled`, s.stageCast.enabled, '多角色同屏（实验）', '电脑3人、手机2人', checkbox(`${P}.stageCast.alignHeads`, s.stageCast.alignHeads, '按腿对齐到底部（需抠图）')
         + checkbox(`${P}.stageCast.romanceDuo`, s.stageCast.romanceDuo, '亲密演出时保留同屏角色')
         + checkbox(`${P}.stageCast.castReact`, s.stageCast.castReact, '同屏角色反应')
-        + '<small class="igs-perf-item-hint">同屏角色靠近、拉开等走位，需同时开启「立绘转身与走位」</small>');
-    const turn = featureRow(more, 'sprite-turn', `${P}.stageCast.castStage`, s.stageCast.castStage, '立绘转身与走位', '单人立绘也能背对、回眸、甩头离开（不必开多角色同屏）', checkbox(`${P}.stageCast.backHint`, s.stageCast.backHint, '背影时对话框旁提示'));
+        + checkbox(`${P}.stageCast.castStage`, s.stageCast.castStage, '同屏角色走位'));
     const cgOn = CG_INTERLUDE_STYLES.some((id) => s.cgEntrance.styles[id]);
-    const nsfwOn = s.cgEntrance.nsfw !== 'off';
-    const cgEntrance = perfItem(more, 'cg-interlude', `<button type="button" class="igs-switch${cgOn ? ' is-on' : ''}" data-action="cg-entrance-all:${cgOn ? 'off' : 'on'}" aria-pressed="${cgOn ? 'true' : 'false'}"><i></i><span>过场CG出场</span></button>`, { on: cgOn, hint: cgOn ? '勾选的效果每次随机抽' : '全不勾即关闭', detail: grid(
+    const cgEntrance = perfItem(more, 'cg-interlude', '<span class="igs-perf-item-label">过场 CG 出场</span>', { hint: cgOn ? '勾选的效果每次随机抽' : '全不勾即关闭', detail: grid(
         CG_INTERLUDE_STYLES.map((id) => checkbox(`${P}.cgEntrance.styles.${id}`, s.cgEntrance.styles[id], CG_INTERLUDE_LABELS[id])).join('')) })
-        + perfItem(more, 'cg-nsfw', `<button type="button" class="igs-switch${nsfwOn ? ' is-on' : ''}" data-segment-path="${P}.cgEntrance.nsfw" data-segment-value="${nsfwOn ? 'off' : 'medium'}" aria-pressed="${nsfwOn ? 'true' : 'false'}"><i></i><span>NSFW模糊到清晰</span></button>`,
-            { on: nsfwOn, hint: 'CG由糊变清', detail: segmentedInput(`${P}.cgEntrance.nsfw`, s.cgEntrance.nsfw, [['fast', '快'], ['medium', '中'], ['slow', '慢']], 'NSFW模糊速度') });
-    return { transition, tint, motion, actions, camera, cast, turn, cgEntrance };
+        + perfItem(more, 'cg-nsfw', field(`${P}.cgEntrance.nsfw`, 'NSFW 模糊到清晰', segmentedInput(`${P}.cgEntrance.nsfw`, s.cgEntrance.nsfw, [['off', '关'], ['fast', '快'], ['medium', '中'], ['slow', '慢']], 'NSFW 模糊到清晰')));
+    return { transition, tint, motion, actions, camera, cast, cgEntrance };
 }
 
-function renderTextFields(textFx, clickWait, waitStage, more) {
+function renderTextFields(textFx, clickWait, more) {
     const tfx = featureRow(more, 'text-fx', `${P}.textFx.enabled`, textFx.enabled, '行内文字效果', '抖动、吼叫等字效');
     const glyphs = Object.entries(CLICK_WAIT_MARK_LABELS);
     const clickWaitMark = featureRow(more, 'click-wait', `${P}.clickWaitMark.enabled`, clickWait.enabled, '句末等待符号', '', field(`${P}.clickWaitMark.glyph`, '符号样式', selectInput(`${P}.clickWaitMark.glyph`, clickWait.glyph, glyphs)));
-    const wait = featureRow(more, 'wait-stage', `${P}.waitStage.enabled`, waitStage.enabled, '等待过场', '等回复时给一句台词和小游戏', grid(
-        checkbox(`${P}.waitStage.games`, waitStage.games, '等的时候能玩小游戏')
-        + checkbox(`${P}.waitStage.voice`, waitStage.voice, '回放角色台词时带一声语气音'))
-        + field(`${P}.waitStage.lineSeconds`, '每句停留', segmentedInput(`${P}.waitStage.lineSeconds`, String(waitStage.lineSeconds), [['4', '4秒'], ['6', '6秒'], ['8', '8秒'], ['12', '12秒']], '每句停留')));
-    return { textFx: tfx, clickWaitMark, waitStage: wait };
+    return { textFx: tfx, clickWaitMark };
 }
 
 function renderBilingualField(bilingual, more) {
@@ -96,33 +87,33 @@ function trackSummary(track) {
 function renderTrackRow(track) {
     const keywords = trackSummary(track);
     return `<div class="igs-bgm-track"><div class="igs-bgm-track-main"><b>${esc(track.name)}</b><span>${keywords}</span></div>`
-        + `<button type="button" class="igs-btn-mgr-icon" data-action="bgm-track-edit:${encSeg(track.id)}" title="编辑">编辑</button>`
+        + `<button type="button" class="igs-btn-mgr-icon" data-action="bgm-track-edit:${encSeg(track.id)}" title="编辑">✎</button>`
         + `<button type="button" class="igs-btn-mgr-icon" data-action="bgm-track-remove:${encSeg(track.id)}" title="删除">×</button></div>`;
 }
 
 // 默认曲目折叠成一行摘要，展开才逐首列出；自己加的曲目始终逐行显示。
-function renderBgmTracks(bgm, more, ownPack = '') {
+function renderBgmTracks(bgm, more) {
     const own = bgm.tracks.filter((track) => !isDefaultBgmTrack(track));
     const pack = bgm.tracks.filter(isDefaultBgmTrack);
-    const counts = BGM_PACKS.map((id) => [id, BGM_PACK_LABELS[id], pack.filter((track) => track.packs && track.packs.includes(id)).length])
-        .filter(([, , count]) => count).map(([id, label, count]) => `${label} ${count}${id === ownPack ? '' : '（补充）'}`).join(' · ');
+    const counts = BGM_PACKS.map((id) => [BGM_PACK_LABELS[id], pack.filter((track) => track.packs && track.packs.includes(id)).length])
+        .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join(' · ');
     const packBlock = pack.length
-        ? more('bgm-pack-tracks', `默认曲目${pack.length}首（${counts}）`, `<div class="igs-bgm-tracks">${pack.map(renderTrackRow).join('')}</div>`
+        ? more('bgm-pack-tracks', `默认曲目 ${pack.length} 首（${counts}）`, `<div class="igs-bgm-tracks">${pack.map(renderTrackRow).join('')}</div>`
             + '<button type="button" class="igs-settings-action" data-action="bgm-pack-remove">移除全部默认曲目</button>'
-            + '<div class="igs-source-filter-note">音乐来自魔王魂（maou.audio）与OpenGameArt，按各自授权再配布；曲名与作者可在地点栏的音乐按钮中查看。</div>')
+            + '<div class="igs-source-filter-note">音乐来自魔王魂（maou.audio）与OpenGameArt，按各自授权再配布；曲名与作者可在地点栏的 ♪ 中查看。</div>')
         : '';
     const ownBlock = own.length ? `<div class="igs-bgm-tracks">${own.map(renderTrackRow).join('')}</div>` : (pack.length ? '' : '<div class="igs-scene-empty">还没有曲目</div>');
     return packBlock + ownBlock;
 }
 
-function renderSoundFields(bgm, ambient, ui, master, more, ownPack = '') {
+function renderSoundFields(bgm, ambient, ui, master, more) {
     const bgmBody = featureRow(more, 'bgm', `${P}.bgm.enabled`, bgm.enabled, '背景音乐', '按情绪与地点选曲', field(`${P}.bgm.volume`, '音乐音量', rangeInput(`${P}.bgm.volume`, bgm.volume, '音乐音量'))
         + checkbox(`${P}.bgm.moodTag`, bgm.moodTag, 'AI标注配乐情绪')
         + renderBgmTracks(bgm, more)
         + grid('<button type="button" class="igs-settings-action" data-action="bgm-pack-download">下载默认曲目</button>'
             + '<button type="button" class="igs-settings-action" data-action="bgm-track-upload">上传本地音频</button>'
             + '<button type="button" class="igs-settings-action" data-action="bgm-track-add">添加音频直链</button>')
-        + '<div class="igs-source-filter-note">自行添加的曲目可勾选情绪或填写地点关键词（命中时优先播放）；点击地点栏的音乐按钮可查看曲名或切换曲目。</div>');
+        + '<div class="igs-source-filter-note">自行添加的曲目可勾选情绪或填写地点关键词（命中时优先播放）；点击地点栏的 ♪ 可查看曲名或切换曲目。</div>');
     const ambientBody = featureRow(more, 'ambient-kinds', `${P}.ambientSound.enabled`, ambient.enabled, '环境音', '鸟鸣、雨声、人声', field(`${P}.ambientSound.volume`, '环境音量', rangeInput(`${P}.ambientSound.volume`, ambient.volume, '环境音量'))
         + grid(AMBIENT_KINDS.map((kind) => checkbox(`${P}.ambientSound.${kind}`, ambient[kind], AMBIENT_LABELS[kind])).join('')));
     const uiBody = featureRow(more, 'ui-sound', `${P}.uiSound.enabled`, ui.enabled, '界面音效', '', field(`${P}.uiSound.volume`, '界面音量', rangeInput(`${P}.uiSound.volume`, ui.volume, '界面音量')));
@@ -135,15 +126,13 @@ function dailyKindsFor(worldview) {
     const foreign = new Set(Object.entries(FX_WORLDVIEW_ONLY)
         .filter(([owner]) => owner !== worldview)
         .flatMap(([, table]) => table.dailyFx || []));
-    return DAILY_FX_KINDS.filter((kind) => !foreign.has(kind) && !isPackKind(kind));
+    return DAILY_FX_KINDS.filter((kind) => !foreign.has(kind));
 }
 
 function renderDailyField(daily, more, worldview) {
     return featureRow(more, 'daily-kinds', `${P}.dailyFx.enabled`, daily.enabled, '日常演出', '做饭、拍照等小场面', grid(dailyKindsFor(worldview).map((kind) => checkbox(`${P}.dailyFx.${kind}`, daily[kind], DAILY_FX_LABELS[kind])).join('')
         + checkbox(`${P}.dailyFx.petals`, daily.petals, '樱花、落叶飘落')
-        + checkbox(`${P}.dailyFx.vehicleLight`, daily.vehicleLight, '车窗光影')
-        + checkbox(`${P}.dailyFx.bathSteam`, daily.bathSteam, '浴室水汽')
-        + checkbox(`${P}.dailyFx.placeLight`, daily.placeLight, '室内窗光、水下等地点光影')
+        + checkbox(`${P}.dailyFx.ambience`, daily.ambience, '车窗光影、浴室水汽')
         + checkbox(`${P}.dailyFx.photoAlbum`, daily.photoAlbum, '拍照存入CG库')));
 }
 
@@ -152,7 +141,7 @@ export function renderStageDirectionFields(reader, more = collapsible, { worldvi
     const src = reader && typeof reader === 'object' ? reader : {};
     return {
         ...renderStageFields(normalizeStageDirectionSettings(src), more),
-        ...renderTextFields(normalizeTextFxSettings(src.textFx), normalizeClickWaitMarkSettings(src.clickWaitMark), normalizeWaitStageSettings(src.waitStage), more),
+        ...renderTextFields(normalizeTextFxSettings(src.textFx), normalizeClickWaitMarkSettings(src.clickWaitMark), more),
         bilingual: renderBilingualField(normalizeBilingualSettings(src.bilingual), more),
         daily: renderDailyField(normalizeDailyFxSettings(src.dailyFx), more, worldview),
         ...renderSoundFields(normalizeBgmSettings(src.bgm), normalizeAmbientSoundSettings(src.ambientSound), normalizeUiSoundSettings(src.uiSound), normalizeAudioMasterSettings(src.audioMaster), more),

@@ -185,7 +185,7 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
     let drag = null;
     surface.addEventListener('pointerdown', (event) => {
         const w = work[selected];
-        const info = peekSpriteHead(w.url, doc);
+        const info = peekSpriteHead(w.url);
         if (!info) probeSpriteHead(w.url, doc).catch(() => null);
         drag = { x: event.clientX, y: event.clientY, posX: w.cur.posX, posY: w.cur.posY };
         if (typeof surface.setPointerCapture === 'function') {
@@ -196,7 +196,7 @@ export function enterCastSlotEdit(overlay, current, ctx = {}) {
         if (!drag) return;
         const w = work[selected];
         const rect = motion.getBoundingClientRect();
-        const info = peekSpriteHead(w.url, doc);
+        const info = peekSpriteHead(w.url);
         const next = spriteDragPosition({
             posX: drag.posX,
             posY: drag.posY,

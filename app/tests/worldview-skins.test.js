@@ -102,5 +102,5 @@ test('gate:title-screen:settings-search-finds-title-screen-and-dialog-skin', asy
     assert.equal(searchSettings('主界面')[0].id, 'title-screen');
     assert.equal(searchSettings('开场白')[0].id, 'title-screen');
     assert.ok(searchSettings('皮肤').some((hit) => hit.id === 'dialog-skin'));
-    assert.deepEqual({ ...searchSettings('废土')[0].target, open: [] }, { page: 'style', open: [], path: 'readerSettings.dialogSkin' });
+    assert.deepEqual({ ...searchSettings('废土')[0].target, open: [] }, { tab: 'reader', readerSubTab: 'dialog', open: [] });
 });

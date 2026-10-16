@@ -266,8 +266,8 @@ test('asset scope: 打开角色卡时筛选旁一直有一键迁移，两个方�
         controller.setValue('bridge.sceneAssets.enabled', true);
         controller.setValue('bridge.sceneAssets.scenes', { 教室: { url: '', times: {} } });
         const html = controller.switchSceneSubTab('scenes').html || controller.getSnapshot().html;
-        assert.match(html, /data-asset-bulk="scenes"[\s\S]*?data-action="asset-move-all:scenes:global"[^>]*disabled[^>]*>本卡的0个全放全局</);
-        assert.match(html, /data-action="asset-move-all:scenes:card" role="menuitem">全局的1个全收本卡</);
+        assert.match(html, /data-asset-bulk="scenes"[\s\S]*?data-action="asset-move-all:scenes:global"[^>]*disabled[^>]*>本卡的 0 个全部放到全局</);
+        assert.match(html, /data-action="asset-move-all:scenes:card" role="menuitem">全局的 1 个全部收进本卡</);
         assert.doesNotMatch(html, /列表里是这张卡实际会用的素材/);
         controller.close();
     } finally {
@@ -398,7 +398,7 @@ test('preset: 导出把引用的生成图一起打进压缩包，清了本机再
         assert.equal(result.fileName, 'HP.zip');
         assert.equal(result.images, 2);
         assert.equal(result.missing, 1);
-        assert.match(alerts.at(-1), /1张图片在本机未找到/);
+        assert.match(alerts.at(-1), /1 张图片在本机未找到/);
 
         // 模拟清了浏览器数据：图和预设都没了。
         images.clear();
@@ -406,37 +406,58 @@ test('preset: 导出把引用的生成图一起打进压缩包，清了本机再
         storage.removeItem(LEGACY_PRESET_KEY);
         picked = { name: 'HP.zip', bytes: new Uint8Array(await downloaded.arrayBuffer()) };
         await handleSettingsAction('preset-import', ctx);
+        assert.equal(images.get('alley').dataUrl, JPG);
+        assert.equal(images.get('nezha').originalDataUrl, PNG, '原图也带回来');
+        assert.equal(images.get('nezha').revision, 2);
         const back = loadLegacyPresets(storage).HP;
-        const alleyId = back.scenes.对角巷.url.slice(8);
-        const nezhaId = back.scopeCards['card:小雪'].library.characters.哪吒.默认.slice(8);
-        assert.notEqual(alleyId, 'alley', '导入分配新身份，避免覆盖其他预设的共享图片');
-        assert.equal(back.scenes.对角巷.times.上午.url, back.scenes.对角巷.url);
-        assert.equal(images.get(alleyId).dataUrl, JPG);
-        assert.equal(images.get(nezhaId).originalDataUrl, PNG, '原图也带回来');
-        assert.equal(images.get(nezhaId).revision, 2);
+        assert.equal(back.scenes.对角巷.url, 'igs-gen:alley');
+        assert.equal(back.scopeCards['card:小雪'].library.characters.哪吒.默认, 'igs-gen:nezha');
     } finally {
         globalThis.FileReader = RealFileReader;
     }
 });
 
-test('asset scope: 角色可以在本卡和全局之间挪，别的卡的角色不动', async () => {
-    const { ctx, draft } = makeCtx({ sceneAssets: { characters: { 莉莉: { 默认: 'global-lily' } }, characterAliases: { 莉莉: ['莉'] }, cards: { 'card:A': { characters: { 悟: { 默认: 'a' } } } } } });
+test('asset scope: 角色所有卡共用，「这张卡单独一版」复制一份，改它不动原来那份', async () => {
+    const { ctx, draft } = makeCtx({ sceneAssets: { cards: { 'card:A': { characters: { 莉莉: { 默认: 'a-lily' } }, characterAliases: { 莉莉: ['莉'] } } } } });
     await handleSettingsAction('asset-move:characters:%E8%8E%89%E8%8E%89', ctx);
     const root = draft.bridge.sceneAssets;
-    assert.equal(root.characters.莉莉, undefined);
-    assert.equal(root.cards['card:小雪'].characters.莉莉.默认, 'global-lily');
+    assert.equal(root.cards['card:小雪'], undefined, '角色不再有本卡 / 全局可挪');
+    await handleSettingsAction('asset-own:characters:%E8%8E%89%E8%8E%89', ctx);
+    assert.equal(root.cards['card:小雪'].characters.莉莉.默认, 'a-lily');
     assert.deepEqual(root.cards['card:小雪'].characterAliases.莉莉, ['莉']);
-    assert.equal(root.cards['card:A'].characters.悟.默认, 'a');
+    root.cards['card:小雪'].characters.莉莉.默认 = 'mine';
+    assert.equal(root.cards['card:A'].characters.莉莉.默认, 'a-lily', '复制的不是同一个对象');
 });
 
-test('asset scope: 删除角色只问这一份，不提所有卡共用', async () => {
+test('asset scope: 删共用的角色先说清楚所有卡都没了；删本卡专用版说改用共用的', async () => {
     const asked = [];
-    const { ctx, draft } = makeCtx({ sceneAssets: { cards: { 'card:小雪': { characters: { 莉莉: { 默认: 'mine' } } }, 'card:A': { characters: { 悟: { 默认: 'a' } } } } } });
+    const { ctx, draft } = makeCtx({ sceneAssets: { characters: { 莉莉: { 默认: 'g' } }, cards: { 'card:A': { characters: { 悟: { 默认: 'a' } } } } } });
     ctx.dialogs.confirm = async (text) => { asked.push(text); return false; };
+    await handleSettingsAction('scene-remove-char:%E6%82%9F', ctx);
+    assert.match(asked.pop(), /其他角色卡也将无法使用/);
+    assert.equal(draft.bridge.sceneAssets.cards['card:A'].characters.悟.默认, 'a', '取消不删');
+    draft.bridge.sceneAssets.cards['card:小雪'] = { characters: { 莉莉: { 默认: 'mine' } } };
     await handleSettingsAction('scene-remove-char:%E8%8E%89%E8%8E%89', ctx);
-    const text = asked.pop();
-    assert.match(text, /删除角色「莉莉」/);
-    assert.doesNotMatch(text, /其他角色卡也将无法使用/);
-    assert.equal(draft.bridge.sceneAssets.cards['card:小雪'].characters.莉莉.默认, 'mine');
-    assert.equal(draft.bridge.sceneAssets.cards['card:A'].characters.悟.默认, 'a');
+    assert.match(asked.pop(), /「莉莉」的本卡专属版本/);
+});
+
+test('素材预设和卡级分层往返保留首次采用来源与主动清空标记', async () => {
+    const { presetFromAssets, layeredPresetFromRoot, presetCardLayers, replaceLibraryWithPack } = await import('../src/scene/legacy-preset.js');
+    const dna = { identity: '', defaultAppearance: 'legacy clothing', negative: '', triggerWords: '', identityInitialized: true, identitySource: 'sprite-a' };
+    const library = { scenes: {}, characters: { Alice: { 默认: 'sprite-a' } }, characterDna: { Alice: dna } };
+    const preset = JSON.parse(JSON.stringify(presetFromAssets(library)));
+    const pack = legacyPresetToPack(preset);
+    assert.deepEqual(pack.library.characterDna.Alice, dna);
+    const merged = { characterDna: { Bob: { identity: 'Bob.' } } };
+    mergeLegacyLibrary(merged, pack);
+    assert.deepEqual(merged.characterDna.Alice, dna);
+    assert.equal(merged.characterDna.Bob.identity, 'Bob.');
+    const root = { cards: { 'card:A': library } };
+    const layered = JSON.parse(JSON.stringify(layeredPresetFromRoot(root, { cardKey: 'card:A' })));
+    const [layer] = presetCardLayers(layered);
+    assert.equal(layer.key, 'card:A');
+    const restored = {};
+    replaceLibraryWithPack(restored, layer.pack);
+    assert.deepEqual(restored.characterDna.Alice, dna);
+    assert.equal(restored.characters.Alice.默认, 'sprite-a');
 });

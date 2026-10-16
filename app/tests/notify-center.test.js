@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyDanmakuToDom, cancelDanmaku } from '../src/visual/igs-ui/danmaku-runtime.js';
-import { applyFxToDom, cancelFxEffects, FX_LIFETIME_MS } from '../src/visual/igs-ui/fx-runtime.js';
 import { NOTICE_MAX, collectNotices, createNoticeStore, groupNotices, normalizeNotifyCenterSettings, recordNotices } from '../src/visual/igs-ui/notify-center.js';
 import { NOTIFY_CENTER_STYLE_TEXT } from '../src/visual/igs-ui/notify-center-style.js';
 
@@ -257,50 +256,4 @@ test('gate:notify:disabled-or-empty-builds-zero-nodes', () => {
     assert.equal(normalizeNotifyCenterSettings(undefined).enabled, true);
     assert.equal(normalizeNotifyCenterSettings({ enabled: false }).enabled, false);
     assert.match(NOTIFY_CENTER_STYLE_TEXT, /translateY\(-100%\)/);
-});
-
-test('gate:notify:bell-waits-for-the-top-banner-to-retract', () => {
-    const { root, motion } = makeRoot();
-    const c = clock();
-    const fx = { instants: [{ kind: 'notify', sender: '妈妈', text: '早点回家' }] };
-    const settings = { fxTags: { enabled: true, notify: true }, fxStyle: { hold: 'long' } };
-    const page = snapshot({ fx }, settings);
-    applyFxToDom(root, page, opts(c));
-    applyDanmakuToDom(root, page, opts(c));
-    const banner = motion.querySelector('.igs-fx-notify');
-    const entry = motion.querySelector('.igs-nc-entry');
-    const duration = Math.round(FX_LIFETIME_MS.notify * 1.6);
-    assert.ok(banner && banner.classList.contains('igs-fx-transient'), 'FX mounts the transient banner');
-    assert.equal(banner.style.get('--igs-fx-life'), `${duration}ms`, 'hold setting controls the animation lifetime');
-    assert.ok(entry && !entry.hidden, 'notice is recorded without delaying the store or badge');
-    assert.ok(motion.querySelector('.igs-entry-dock'), 'bell and banner share the same stage');
-    assert.match(NOTIFY_CENTER_STYLE_TEXT, /@media \(max-width:640px\)\{#igs-stage-motion:has\(\.igs-fx-notify\.igs-fx-transient:not\(\.igs-fx-contact\)\) \.igs-nc-entry\{display:none;\}\}/);
-    assert.doesNotMatch(NOTIFY_CENTER_STYLE_TEXT, /(?:^|\n)#igs-stage-motion:has/, 'desktop entry remains unchanged');
-    c.run(duration - 1);
-    assert.ok(banner.isConnected, 'bell remains suppressed while the banner still occupies the stage');
-    c.run(1);
-    assert.ok(!banner.isConnected, 'FX removes the banner only after the complete exit');
-    assert.ok(entry.isConnected && !entry.hidden, 'the bell can appear after the banner is removed');
-    cancelFxEffects(root);
-    cancelDanmaku(root);
-});
-
-test('gate:notify:mobile-panel-actions-stay-centred-and-close-keeps-reader', () => {
-    assert.match(NOTIFY_CENTER_STYLE_TEXT, /@media \(max-width:640px\)\{\.igs-nc-bar\{flex-wrap:wrap;justify-content:center;\}\.igs-nc-title\{flex:0 0 100%;text-align:center;\}\}/);
-    assert.doesNotMatch(NOTIFY_CENTER_STYLE_TEXT, /\.igs-nc-close\{order:-1;/);
-    assert.match(NOTIFY_CENTER_STYLE_TEXT, /\.igs-nc-bar\{display:flex;/);
-    assert.match(NOTIFY_CENTER_STYLE_TEXT, /\.igs-nc-title\{flex:1;/, 'desktop title keeps its original layout');
-    const { root, motion } = makeRoot();
-    const c = clock();
-    applyDanmakuToDom(root, snapshot({ fx: { instants: [{ kind: 'notify', sender: 'a', text: 'b' }] } }, ON), opts(c));
-    const entry = motion.querySelector('.igs-nc-entry');
-    click(entry);
-    const bar = motion.querySelector('.igs-nc-bar');
-    assert.deepEqual(bar.children.map((node) => node.className), ['igs-nc-title', 'igs-nc-clear', 'igs-nc-close']);
-    assert.equal(bar.querySelector('.igs-nc-clear').textContent, '全部清除');
-    assert.equal(bar.querySelector('.igs-nc-close').getAttribute('aria-label'), '关闭');
-    click(bar.querySelector('.igs-nc-close'));
-    assert.ok(!motion.querySelector('.igs-nc-panel'), 'panel closes');
-    assert.ok(root.isConnected, 'reader stays mounted');
-    assert.equal(entry.hidden, false, 'the reader and notification entry remain available');
 });

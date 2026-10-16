@@ -16,7 +16,6 @@
 - `igs-loader.json`
 - `igs-loader-debug.js`（调试版，由 `build:loader` 自动从正式版派生）
 - `igs-loader-debug.json`（导入酒馆后设置 `IGS_DEBUG=true`，输出 `[DEBUG-*]` 控制台日志；仅供开发测试，不随正式版发布）
-- `沉浸式Galgame系统 test-vX.Y.Z.json`（锁定同名测试标签，每次更新随 main 推送；不自动创建正式版标签）
 
 生成命令：
 
@@ -24,8 +23,6 @@
 cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System\app"
 npm run build:loader
 ```
-
-生成当前版本的测试固定版：`npm run build:loader -- --release test-vX.Y.Z`，版本号必须与 `app/package.json` 一致。`--pin` 可额外锁定已有测试或历史正式标签。
 
 ## 固定职责
 

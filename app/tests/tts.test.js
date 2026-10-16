@@ -7,7 +7,6 @@ import {
     guessTtsLine,
     normalizeTtsSettings,
     prefetchTts,
-    resolveTtsApiFormat,
     resolveTtsVoice,
     splitTtsChunks,
     stripSpeakerPrefix,
@@ -16,9 +15,7 @@ import {
     systemVoicePool,
     ttsApiVoiceList,
     ttsCacheKey,
-    ttsErrorMessage,
     ttsPlainText,
-    ttsSpeechRequest,
     ttsSpeechUrl,
 } from '../src/visual/igs-ui/tts.js';
 
@@ -106,31 +103,6 @@ test('gate: tts voice follows DNA gender, manual pick, and narrator setting', ()
     assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '雷恩' }, api, sa).voice, 'alex');
     assert.equal(resolveTtsVoice({ textType: 'narration' }, api, sa).voice, 'anna');
 });
-test('gate: api tts with all three voice boxes empty stays silent and never requests', async () => {
-    const sa = assets({ 雷恩: BOY });
-    const empty = { ...ON, provider: 'api', api: { endpoint: 'https://api.fish.audio/v1/tts' } };
-    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '雷恩' }, empty, sa).volume, 0);
-    assert.equal(resolveTtsVoice({ textType: 'narration' }, empty, sa).volume, 0);
-    assert.equal(decideTts({}, { key: 'e:0', textType: 'dialogue', speaker: '雷恩', text: '你好。' }, empty, { sceneAssets: sa }), null);
-    assert.equal(decideTts({}, { key: 'e:1', textType: 'narration', text: '窗外下着雨。' }, empty, { sceneAssets: sa }), null);
-    // 角色单独指定了声音时照念。
-    const manual = assets({ 雷恩: BOY }, { 雷恩: { tts: 'r1' } });
-    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '雷恩' }, empty, manual).voice, 'r1');
-    // 试听同样不发请求。
-    const realFetch = globalThis.fetch;
-    let called = false;
-    globalThis.fetch = async () => { called = true; return { ok: false, status: 500, text: async () => '' }; };
-    try {
-        const { previewTts } = await import('../src/visual/igs-ui/tts.js');
-        const result = await previewTts(empty);
-        assert.equal(result.ok, false);
-        assert.equal(called, false);
-    } finally {
-        globalThis.fetch = realFetch;
-    }
-});
-
-
 
 test('gate: tts decides per page, honours narration and NSFW switches, never replays the same page', () => {
     const sa = assets({ 艾莉: GIRL });
@@ -157,66 +129,6 @@ test('gate: tts api url appends /audio/speech and supports the tavern CORS proxy
     assert.equal(ttsSpeechUrl('http://127.0.0.1:9880/v1/audio/speech'), 'http://127.0.0.1:9880/v1/audio/speech');
     assert.equal(ttsSpeechUrl('https://x.cn/v1', 'st-proxy'), '/proxy/https://x.cn/v1/audio/speech');
     assert.equal(ttsSpeechUrl(''), '');
-});
-
-test('gate: fish audio endpoints use the native /v1/tts format', () => {
-    assert.equal(resolveTtsApiFormat('https://api.fish.audio/v1/tts'), 'fish');
-    assert.equal(resolveTtsApiFormat('https://api.openai.com/v1'), 'openai');
-    assert.equal(resolveTtsApiFormat('https://notfish.audio.example/v1'), 'openai');
-    assert.equal(resolveTtsApiFormat('https://x.cn/v1', 'fish'), 'fish');
-    assert.equal(resolveTtsApiFormat('https://api.fish.audio', 'openai'), 'openai');
-    assert.equal(ttsSpeechUrl('https://api.fish.audio/v1/tts'), 'https://api.fish.audio/v1/tts');
-    assert.equal(ttsSpeechUrl('https://api.fish.audio/v1/'), 'https://api.fish.audio/v1/tts');
-    assert.equal(ttsSpeechUrl('https://api.fish.audio'), 'https://api.fish.audio/v1/tts');
-    assert.equal(ttsSpeechUrl('https://api.fish.audio/v1/tts', 'st-proxy'), '/proxy/https://api.fish.audio/v1/tts');
-    assert.equal(normalizeTtsSettings({ api: { format: 'bogus' } }).api.format, 'auto');
-    assert.equal(normalizeTtsSettings({ api: { format: 'fish' } }).api.format, 'fish');
-
-    const fish = { endpoint: 'https://api.fish.audio/v1/tts', format: 'auto', apiKey: 'k', model: 's2.1-pro-free' };
-    const req = ttsSpeechRequest(fish, { text: '你好', voice: 'f08a', rate: 1.2 });
-    assert.equal(req.headers.Authorization, 'Bearer k');
-    assert.equal(req.headers.model, 's2.1-pro-free');
-    assert.deepEqual(req.body, { text: '你好', format: 'mp3', reference_id: 'f08a', prosody: { speed: 1.2 } });
-    assert.deepEqual(ttsSpeechRequest(fish, { text: 'a', voice: '', rate: 1 }).body, { text: 'a', format: 'mp3' });
-
-    const openai = ttsSpeechRequest({ endpoint: 'https://api.openai.com/v1', model: '' }, { text: 'a', voice: '', rate: 1 });
-    assert.equal(openai.headers.Authorization, undefined);
-    assert.equal(openai.headers.model, undefined);
-    assert.deepEqual(openai.body, { model: 'tts-1', input: 'a', voice: 'alloy', response_format: 'mp3', speed: 1 });
-});
-
-test('gate: tts errors explain a disabled tavern CORS proxy and strip html', () => {
-    const proxy = { transport: 'st-proxy' };
-    const page = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Error</title></head><body><pre>Forbidden</pre></body></html>';
-    assert.match(ttsErrorMessage(403, page, proxy), /enableCorsProxy/);
-    assert.match(ttsErrorMessage(404, 'CORS proxy is disabled. Enable it in config.yaml or use the --corsProxy flag.', proxy), /enableCorsProxy/);
-    const direct = ttsErrorMessage(403, page, { transport: 'direct' });
-    assert.equal(direct.includes('<'), false);
-    assert.equal(direct.includes('enableCorsProxy'), false);
-    assert.equal(ttsErrorMessage(401, '{"message":"bad key"}', proxy), '接口返回 401：{"message":"bad key"}');
-});
-
-test('gate: tts preview failure shows a notice on the settings page', async () => {
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => 'invalid api key' });
-    const { bootstrapIGS } = await import('../src/index.js');
-    const vn = bootstrapIGS({ global: {}, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
-    try {
-        await clearTtsCache();
-        const controller = vn.openSettings({ tab: 'reader', mode: 'pc' }).controller;
-        controller.toggle('readerSettings.tts.enabled');
-        controller.setValue('readerSettings.tts.provider', 'api');
-        controller.setValue('readerSettings.tts.api.endpoint', 'https://api.fish.audio/v1/tts');
-        controller.setValue('readerSettings.tts.api.female', 'f08a');
-        const result = await controller.invoke('tts-preview');
-        assert.equal(result.ok, false);
-        // Node 里没有 Web Audio，会在请求前失败；这里只确认失败原因被带回来（401 的文案由上面的用例覆盖）。
-        assert.ok(typeof result.error === 'string' && result.error.length > 0);
-        controller.close();
-    } finally {
-        vn.destroy();
-        globalThis.fetch = realFetch;
-    }
 });
 
 test('gate: settings keep tts and voice barks mutually exclusive, and save a per-character tts voice', async () => {

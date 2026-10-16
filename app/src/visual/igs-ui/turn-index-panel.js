@@ -179,7 +179,7 @@ export function createTurnIndexPanel(doc, options = {}) {
             ? `<button type="button" class="igs-rp-chip" data-ti-act="resume">续读第 ${last.page + 1} 页</button>` : '';
         return `<article class="igs-ti-detail"><p class="igs-ti-meta">${meta}</p>`
             + `<p class="igs-ti-body">${escapeHtml(text) || '（这楼没有可读的文字）'}${text.length >= DETAIL_SNIPPET ? '…' : ''}</p>`
-            + `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${selectedId}">阅读</button><button type="button" class="igs-rp-btn is-quiet" data-ti-act="floor-rewind" data-ti-value="${selectedId}">重来</button>${resumeHere}</div>`
+            + `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${selectedId}">从这里读</button>${resumeHere}</div>`
             + `<footer class="igs-ti-nav"><button type="button" data-ti-act="select-step" data-ti-value="-1" ${index <= 0 ? 'disabled' : ''}>← 上一楼</button>`
             + `<span>${String(index + 1).padStart(2, '0')} / ${String(ids.length).padStart(2, '0')}</span>`
             + `<button type="button" data-ti-act="select-step" data-ti-value="1" ${index >= ids.length - 1 ? 'disabled' : ''}>下一楼 →</button></footer></article>`;
@@ -229,7 +229,7 @@ export function createTurnIndexPanel(doc, options = {}) {
                 + `<button type="button" class="igs-rp-chip is-danger" data-ti-act="slot-delete" data-ti-value="${escapeHtml(chosen.key)}">删除</button>`;
             detail = `<article class="igs-ti-detail">${chosen.thumb ? slotThumb(chosen, 'igs-ti-detail-thumb') : ''}<p class="igs-ti-meta">${meta}</p><h3>${escapeHtml(chosen.name || positionLabel(chosen))}</h3>`
                 + (chosen.head ? `<p class="igs-ti-body">${escapeHtml(chosen.head)}</p>` : '')
-                + `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="${chosen.isQuick ? 'quick-load' : 'slot-load'}" data-ti-value="${escapeHtml(chosen.key)}">阅读</button><button type="button" class="igs-rp-btn is-quiet" data-ti-act="slot-rewind" data-ti-value="${escapeHtml(chosen.key)}">重来</button>${manage}</div></article>`;
+                + `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="${chosen.isQuick ? 'quick-load' : 'slot-load'}" data-ti-value="${escapeHtml(chosen.key)}">读取</button>${manage}</div></article>`;
         }
         return `<div class="igs-ti-layout"><aside class="igs-ti-side">${tools}${noticeHtml()}${list}</aside>${detail}</div>`;
     }
@@ -392,21 +392,6 @@ export function createTurnIndexPanel(doc, options = {}) {
             return result;
         }
         if (act === 'slot-load') { const slot = progress.listSlots().find((item) => item.key === value); return slot ? jump({ pos: slot }) : null; }
-        if (act === 'slot-rewind' || act === 'floor-rewind') {
-            const slot = act === 'slot-rewind' ? (value === 'quick' ? progress.getQuick() : progress.listSlots().find((item) => item.key === value)) : null;
-            const pos = slot || (act === 'floor-rewind' && Number.isInteger(Number(value)) ? { id: Number(value), page: 0, head: '', hash: '' } : null);
-            if (!pos || !options.onRewind) return null;
-            if (options.confirm && !(await options.confirm('从这里开一个新分支继续写？这一楼之后的剧情不会带过去，原聊天完整保留。', { okLabel: '重来', cancelLabel: '取消' }))) return null;
-            let result = await options.onRewind(pos);
-            if (result && !result.ok && result.canUseCurrent && options.confirm) {
-                const useCurrent = await options.confirm('存档之后，这一楼换过版本，无法还原成存档时的样子。要改用现在这一版开新分支吗？原聊天不会改动。', { okLabel: '当前版本', cancelLabel: '取消' });
-                if (useCurrent) result = await options.onRewind({ ...pos, useCurrentSwipe: true });
-            }
-            if (result && result.ok) { close(); return result; }
-            notice = (result && result.text) || '没有成功，未做任何修改';
-            render();
-            return result || null;
-        }
         if (act === 'slot-rename') {
             const slot = progress.listSlots().find((item) => item.key === value);
             if (!slot || !options.prompt) return null;
@@ -562,7 +547,6 @@ ${T} .igs-ti-meta i{margin:0 10px;font-style:normal;color:var(--igs-rp-text-ghos
 ${T} .igs-ti-detail h3{margin:12px 0 18px;font-family:var(--igs-rp-font-body);font-size:24px;font-weight:400;letter-spacing:.08em;line-height:1.4;overflow-wrap:anywhere;}
 ${T} .igs-ti-body{margin:18px 0 0;max-width:34em;font-family:var(--igs-rp-font-body);font-size:16px;line-height:1.95;letter-spacing:.03em;color:var(--igs-rp-text);white-space:pre-wrap;overflow-wrap:anywhere;}
 ${T} .igs-ti-detail h3 + .igs-ti-body{margin-top:0;color:var(--igs-rp-text-soft);}
-${T} .igs-ti-detail-actions .igs-rp-btn.is-quiet{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
 ${T} .igs-ti-detail-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;margin-top:28px;}
 ${T} .igs-ti-nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:auto;padding-top:28px;font-size:13px;}
 ${T} .igs-ti-nav button{min-height:36px;padding:7px 12px;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);font-weight:500;letter-spacing:.06em;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}

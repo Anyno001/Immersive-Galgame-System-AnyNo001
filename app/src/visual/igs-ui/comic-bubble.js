@@ -8,7 +8,6 @@ import { normalizeDialogSkin } from './classic-dialog-skin.js';
 import { pickFxAccent } from './fx-symbols.js';
 import { peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import { prefersReducedMotion } from './reduced-motion.js';
-import { isLiveHostCovered } from './stage-pause.js';
 import { preloadDialogFonts } from './dialog-theme-typography.js';
 import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 
@@ -37,7 +36,7 @@ const states = new WeakMap();
 function stateOf(root) {
     let state = states.get(root);
     if (!state) {
-        state = { key: '', pageKey: '', group: null, ghost: null, ghostRect: null, prevTone: '', sceneKey: '', revealEnd: 0, last: null, resizeBound: false, paletteKey: '', watch: null };
+        state = { key: '', pageKey: '', group: null, ghost: null, ghostRect: null, prevTone: '', sceneKey: '', revealEnd: 0, last: null, resizeBound: false, paletteKey: '' };
         states.set(root, state);
     }
     return state;
@@ -133,7 +132,6 @@ function teardown(root, motion, dialog, state) {
     setAttr(root, 'data-igs-comic-frame', null);
     setAttr(root, 'data-igs-comic-input', null);
     if (dialog) setAttr(dialog, 'data-igs-comic-host', null);
-    unwatchText(state);
     removeNode(state.group);
     removeNode(state.ghost);
     state.group = null;
@@ -213,7 +211,7 @@ function headFor(motion, opts, content) {
     const sprite = opts.sprite;
     if (!sprite || !sprite.url) return { head: null, pending: false };
     if (!content.speaker || (content.spriteCharacter && content.spriteCharacter !== content.speaker)) return { head: null, pending: false };
-    const probed = peekSpriteHead(sprite.url, motion.ownerDocument);
+    const probed = peekSpriteHead(sprite.url);
     const manual = sprite.head || null;
     const naturalW = probed ? probed.naturalW : 1;
     const naturalH = probed ? probed.naturalH : manual && manual.aspect;
@@ -227,37 +225,6 @@ function overlapRatio(a, b) {
     const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
     const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
     return w > 0 && h > 0 ? (w * h) / Math.max(1, b.w * b.h) : 0;
-}
-
-function unwatchText(state) {
-    if (state.watch) state.watch.disconnect();
-    state.watch = null;
-}
-
-// 泡是按量到的文字尺寸画的：首页常赶上字体还没加载完，按回退字体量完，字体到了字变宽变长就溢出泡外。
-// 量完盯住泡里的文字，实际尺寸和量到的差出 1px 就按新尺寸重排一次（不重播弹出）。
-function watchText(root, state, items, metrics) {
-    unwatchText(state);
-    const view = root.ownerDocument && root.ownerDocument.defaultView;
-    if (!view || typeof view.ResizeObserver !== 'function') return;
-    const sizes = new Map(items.map((item, i) => [item.text, metrics[i]]));
-    let queued = false;
-    const watch = new view.ResizeObserver(() => {
-        if (queued || state.watch !== watch) return;
-        const drift = items.some((item) => {
-            const m = sizes.get(item.text);
-            return Math.abs(item.text.offsetWidth - m.w) > 1 || Math.abs(item.text.offsetHeight - m.h) > 1;
-        });
-        if (!drift) return;
-        queued = true;
-        view.requestAnimationFrame(() => {
-            if (state.watch !== watch || !state.last || !root.isConnected) return;
-            state.key = '';
-            layoutPage(root, state.last.snapshot, state.last.opts, { relayout: true });
-        });
-    });
-    for (const item of items) watch.observe(item.text);
-    state.watch = watch;
 }
 
 function isThoughtOnly(textEl) {
@@ -358,10 +325,7 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
     const plain = textEl ? readPlainText(textEl) : '';
     const pageKey = String(opts.renderKey || '');
     const sceneKey = String(content.sceneLocation || '');
-    // 手机形态直播盖住舞台、说话的正是主播：立绘收起了，泡不再压在手机画面上。
-    const hostCovered = isLiveHostCovered(root, content.spriteCharacter || content.speaker);
-    if (!(stageW > 0) || !(stageH > 0) || !plain.trim() || !pageKey || hostCovered) {
-        unwatchText(state);
+    if (!(stageW > 0) || !(stageH > 0) || !plain.trim() || !pageKey) {
         demoteToGhost(state, false);
         removeNode(state.ghost);
         state.ghost = null;
@@ -455,7 +419,7 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
     // 同屏其他角色的脸不能被泡挡住。
     for (const member of Array.isArray(opts.cast) ? opts.cast : []) {
         if (!member || member.character === content.speaker) continue;
-        const probed = peekSpriteHead(member.url, motion.ownerDocument);
+        const probed = peekSpriteHead(member.url);
         const box = probed ? resolveHeadBox(stageW, stageH, { ...member, naturalW: probed.naturalW, naturalH: probed.naturalH, head: member.head || probed.head }) : null;
         if (box) avoid.push({ x: box.cx - box.w * 0.6, y: box.top - box.h * 0.05, w: box.w * 1.2, h: box.h * 1.15, weight: 6 });
     }
@@ -533,7 +497,6 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
     }
     group.classList.remove('is-measuring');
     state.group = group;
-    watchText(root, state, items, metrics);
     state.groupRect = { x: placed.x, y: placed.y, w: placed.w, h: placed.h };
     state.revealEnd = group.classList.contains('is-revealed') ? 0 : Date.now() + delay;
     return { active: true, tone };

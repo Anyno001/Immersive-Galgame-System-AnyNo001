@@ -42,7 +42,7 @@ function alertOf(dialogs, globalObj) {
 async function askTrackDetails(dialogs, existing, fallbackName) {
     const name = await dialogs.prompt('曲目名称：', existing ? existing.name : fallbackName || '');
     if (name == null) return null;
-    const moods = await dialogs.prompt(`情绪（可多选，空格分隔：${MOOD_HINT}）；AI标出这个情绪时优先播放。留空则只按关键词匹配：`, existing && existing.moods ? existing.moods.map((m) => BGM_MOOD_LABELS[m]).join(' ') : '');
+    const moods = await dialogs.prompt(`情绪（可多选，空格分隔：${MOOD_HINT}）；AI 标出这个情绪时优先播放。留空则只按关键词匹配：`, existing && existing.moods ? existing.moods.map((m) => BGM_MOOD_LABELS[m]).join(' ') : '');
     if (moods == null) return null;
     const keywords = await dialogs.prompt('地点关键词，用逗号或空格分隔（如 教室, 天台）；地点里出现这些词时最优先播放。情绪和关键词都留空则作为默认曲：', existing ? existing.keywords.join(', ') : '');
     if (keywords == null) return null;
@@ -56,36 +56,20 @@ function withDetails(base, details) {
     return track;
 }
 
-// 返回 { pack, supplement }：先把本世界观那套定下来，再让用户为它勾选其他世界观的分组当补充。
 async function choosePack(dialogs, worldview) {
     const current = bgmPackOfWorldview(worldview);
-    const count = (pack, extra = []) => DEFAULT_BGM_PACK.filter((item) => pack === 'all' || item.packs.some((id) => id === pack || extra.includes(id))).length;
+    const count = (pack) => DEFAULT_BGM_PACK.filter((item) => pack === 'all' || item.packs.includes(pack)).length;
     const choices = [
         ...[current, ...BGM_PACKS.filter((pack) => pack !== current)].map((pack) => ({
-            value: pack, label: BGM_PACK_LABELS[pack], note: `${count(pack)}首${pack === current ? '，当前世界观' : ''}`,
+            value: pack, label: BGM_PACK_LABELS[pack], note: `${count(pack)} 首${pack === current ? '，当前世界观' : ''}`,
         })),
-        { value: 'all', label: '全部', note: `${count('all')}首，切换世界观时自动换曲包` },
+        { value: 'all', label: '全部', note: `${count('all')} 首，切换世界观时自动换曲包` },
     ];
-    let pack = null;
-    if (typeof dialogs.choose === 'function') pack = await dialogs.choose('下载哪一套默认曲目？', choices, current);
-    else {
-        const raw = await dialogs.prompt(`下载哪一套默认曲目？输入：${choices.map((c) => c.label).join(' / ')}`, BGM_PACK_LABELS[current]);
-        if (raw == null) return null;
-        const hit = choices.find((c) => c.label === String(raw).trim() || c.value === String(raw).trim());
-        pack = hit ? hit.value : null;
-    }
-    if (pack == null) return null;
-    if (pack === 'all') return { pack, supplement: [] };
-    // 其他世界观的分组可以一并选进来当补充，选中的曲子在当前世界观下也能放。
-    const others = BGM_PACKS.filter((id) => id !== pack);
-    let supplement = [];
-    if (others.length && typeof dialogs.pick === 'function') {
-        const extraChoices = others.map((id) => ({ value: id, label: BGM_PACK_LABELS[id], note: `${count(id)}首` }));
-        const picked = await dialogs.pick(`还要把哪些分组一起收进来当补充？（${BGM_PACK_LABELS[pack]}之外）`, extraChoices, []);
-        if (picked == null) return null;
-        supplement = picked.filter((id) => others.includes(id));
-    }
-    return { pack, supplement };
+    if (typeof dialogs.choose === 'function') return dialogs.choose('下载哪一套默认曲目？', choices, current);
+    const raw = await dialogs.prompt(`下载哪一套默认曲目？输入：${choices.map((c) => c.label).join(' / ')}`, BGM_PACK_LABELS[current]);
+    if (raw == null) return null;
+    const hit = choices.find((c) => c.label === String(raw).trim() || c.value === String(raw).trim());
+    return hit ? hit.value : null;
 }
 
 // 返回 { ok: false } 表示持久化失败，其余情况由调用方重绘设置页。
@@ -98,9 +82,9 @@ export async function handleBgmSettingsAction(action, { readerDraft, dialogs, pe
     let removedPath = '';
 
     if (verb === 'pack-download') {
-        const chosen = await choosePack(dialogs, worldview);
-        if (chosen == null) return null;
-        const merged = mergeDefaultBgm(current.tracks, chosen.pack, { supplement: chosen.supplement });
+        const pack = await choosePack(dialogs, worldview);
+        if (pack == null) return null;
+        const merged = mergeDefaultBgm(current.tracks, pack);
         if (!merged.added.length) {
             alert('这一套默认曲目已经全部在列表里了。');
             return null;
@@ -109,7 +93,7 @@ export async function handleBgmSettingsAction(action, { readerDraft, dialogs, pe
     } else if (verb === 'pack-remove') {
         const removed = removeDefaultBgm(current.tracks);
         if (!removed.removed) return null;
-        if (!await dialogs.confirm(`移除全部${removed.removed}首默认曲目？自行添加的曲目会保留。`, { okLabel: '移除' })) return null;
+        if (!await dialogs.confirm(`移除全部 ${removed.removed} 首默认曲目？自行添加的曲目会保留。`, { okLabel: '移除' })) return null;
         current.tracks = removed.tracks;
     } else if (verb === 'track-remove') {
         if (index < 0) return null;
@@ -152,7 +136,7 @@ export async function handleBgmSettingsAction(action, { readerDraft, dialogs, pe
 
     const normalized = normalizeBgmSettings(current);
     if (normalized.tracks.length < current.tracks.length) {
-        alert(verb === 'pack-download' ? '曲目数量已达上限，部分默认曲目未能加入。' : '链接无效：只支持http/https音频直链。');
+        alert(verb === 'pack-download' ? '曲目数量已达上限，部分默认曲目未能加入。' : '链接无效：只支持 http/https 音频直链。');
         if (verb !== 'pack-download') return null;
     }
     readerDraft.bgm = normalized;

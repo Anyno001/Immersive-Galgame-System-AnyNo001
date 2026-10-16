@@ -1,13 +1,11 @@
 // 台词朗读（TTS）：逐页朗读台词、心里话，旁白可选。和角色语气音二选一，开了朗读就不播语气音。
 // 两种来源：系统语音（浏览器 speechSynthesis，零配置；Windows 上 Edge 有晓晓、云希等在线自然声）
-// 和接口：OpenAI 兼容的 /audio/speech（网站 API，或本地 GPT-SoVITS / CosyVoice 等兼容服务），
-// 或 Fish Audio 原生的 /v1/tts（text + reference_id，模型放请求头）。
+// 和 OpenAI 兼容的 /audio/speech 接口（网站 API，或本地 GPT-SoVITS / CosyVoice 等兼容服务）。
 // 系统语音不经过 Web Audio，只能调音量、语速、音高；接口返回的音频走总线，声像、听筒、贴耳与语气音一致。
 import { audioMasterVolume, busInput, resumeAudioBus, watchPageAway } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
 import { stripTextFxMarkup } from './text-fx.js';
 import { yieldTypewriterAudio } from './typewriter-audio.js';
-import { voiceFilterGain, voiceFilterUsesDry } from './voice-filter.js';
 import { buildBarkChain, canonicalName, characterDnaGender, normalizeCharacterVoice, resolveBarkMood, resolveBarkShape } from './voice-bark.js';
 
 export const TTS_PROVIDERS = Object.freeze([
@@ -17,12 +15,6 @@ export const TTS_PROVIDERS = Object.freeze([
 export const TTS_TRANSPORTS = Object.freeze([
     ['direct', '浏览器直连'],
     ['st-proxy', '酒馆 CORS 代理'],
-]);
-// 接口格式：自动时地址含 fish.audio 按 Fish Audio，其余按 OpenAI 兼容。
-export const TTS_API_FORMATS = Object.freeze([
-    ['auto', '自动识别'],
-    ['openai', 'OpenAI 兼容'],
-    ['fish', 'Fish Audio'],
 ]);
 export const TTS_RATES = Object.freeze([0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5]);
 export const TTS_BILINGUAL_MODES = Object.freeze([
@@ -96,7 +88,6 @@ export function normalizeTtsSettings(value) {
         system: roles(system),
         api: {
             transport: api.transport === 'st-proxy' ? 'st-proxy' : 'direct',
-            format: TTS_API_FORMATS.some(([id]) => id === api.format) ? api.format : 'auto',
             endpoint: field(api.endpoint),
             apiKey: field(api.apiKey),
             model: field(api.model),
@@ -254,8 +245,7 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     if (config.provider === 'api') {
         const api = config.api;
         const voice = manual.tts || api[role] || (narrator ? api.female : '') || api.female || api.male || '';
-        // 三个声音框都留空、角色也没单独指定时就是「不添加声音」：volume 0 让 decideTts 直接返回 null，不发合成请求。
-        return { voice, role, gender, pitch: 1, rate, volume: voice ? volume : 0 };
+        return { voice, role, gender, pitch: 1, rate, volume };
     }
     const lang = line.lang || 'zh';
     const byName = new Map(voices.map((v) => [v.name, v]));
@@ -409,7 +399,7 @@ function speakSystem(job, { text, voice, volume, rate, pitch, lang }, synth = gl
         } else {
             u.lang = LANG_TAGS[lang] || LANG_TAGS.zh;
         }
-        u.volume = clamp(volume * audioMasterVolume() * voiceFilterGain(), 0, 1);
+        u.volume = clamp(volume * audioMasterVolume(), 0, 1);
         u.rate = rate;
         u.pitch = pitch;
         if (i === 0) {
@@ -437,66 +427,31 @@ function speakSystem(job, { text, voice, volume, rate, pitch, lang }, synth = gl
     return job;
 }
 
-// 实际使用的接口格式：auto 时按地址判断，地址含 fish.audio 视为 Fish Audio。
-export function resolveTtsApiFormat(endpoint, format = 'auto') {
-    if (format === 'openai' || format === 'fish') return format;
-    return /(^|[/.])fish\.audio(?=[/:]|$)/i.test(String(endpoint || '').trim()) ? 'fish' : 'openai';
-}
-
-// OpenAI 兼容：补上 /audio/speech。Fish Audio：补成 /v1/tts（填 https://api.fish.audio、…/v1、…/v1/tts 都行）。
-export function ttsSpeechUrl(endpoint, transport = 'direct', format = 'auto') {
+export function ttsSpeechUrl(endpoint, transport = 'direct') {
     let url = String(endpoint || '').trim().replace(/\/+$/, '');
     if (!url) return '';
-    if (resolveTtsApiFormat(url, format) === 'fish') {
-        if (!/\/tts$/i.test(url)) url += /\/v1$/i.test(url) ? '/tts' : '/v1/tts';
-    } else if (!/\/audio\/speech$/i.test(url)) {
-        url += '/audio/speech';
-    }
+    if (!/\/audio\/speech$/i.test(url)) url += '/audio/speech';
     return transport === 'st-proxy' ? `/proxy/${url}` : url;
 }
 
-// 请求头与请求体：Fish Audio 用 text / reference_id / format / prosody.speed，模型放在请求头 model 里。
-export function ttsSpeechRequest(api, { text, voice, rate }) {
+async function postSpeech(url, api, { text, voice, rate }) {
     const headers = { 'Content-Type': 'application/json' };
     if (api.apiKey) headers.Authorization = `Bearer ${api.apiKey}`;
-    if (resolveTtsApiFormat(api.endpoint, api.format) === 'fish') {
-        if (api.model) headers.model = api.model;
-        const body = { text, format: 'mp3' };
-        if (voice) body.reference_id = voice;
-        if (Number.isFinite(rate) && rate !== 1) body.prosody = { speed: rate };
-        return { headers, body };
-    }
-    return { headers, body: { model: api.model || 'tts-1', input: text, voice: voice || 'alloy', response_format: 'mp3', speed: rate } };
-}
-
-// 报错里的网页（如酒馆的 Forbidden 页）只留文字，不把整段 HTML 塞给用户。
-const errorDetail = (raw) => String(raw || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
-
-// 酒馆没开 CORS 代理时：POST /proxy/… 被 CSRF 拦下回 403 Forbidden，或直接回 404「CORS proxy is disabled」。
-export function ttsErrorMessage(status, raw, api) {
-    const detail = errorDetail(raw);
-    if (api.transport === 'st-proxy' && (/CORS proxy is disabled/i.test(detail) || (status === 403 && /^(Error )?Forbidden$/i.test(detail)))) {
-        return `接口返回 ${status}：酒馆没有打开 CORS 代理。请在酒馆 config.yaml 里把 enableCorsProxy 改为 true 并重启酒馆。`;
-    }
-    return `接口返回 ${status}${detail ? `：${detail}` : ''}`;
-}
-
-async function postSpeech(url, api, plan) {
-    const { headers, body } = ttsSpeechRequest(api, plan);
-    const fish = resolveTtsApiFormat(api.endpoint, api.format) === 'fish';
     let res;
     try {
-        res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+        res = await fetch(url, {
+            method: 'POST', headers,
+            body: JSON.stringify({ model: api.model || 'tts-1', input: text, voice: voice || 'alloy', response_format: 'mp3', speed: rate }),
+        });
     } catch {
-        if (api.transport === 'st-proxy') throw new Error('连不上接口（酒馆 CORS 代理需在 config.yaml 打开 enableCorsProxy）');
-        throw new Error(fish
-            ? '连不上接口：Fish Audio 不允许浏览器直连，请把传输方式改为「酒馆 CORS 代理」'
+        throw new Error(api.transport === 'st-proxy'
+            ? '连不上接口（酒馆 CORS 代理需在 config.yaml 打开 enableCorsProxy）'
             : '连不上接口（网络不通或不允许跨域，可改用「酒馆 CORS 代理」）');
     }
     if (!res.ok) {
-        let raw = '';
-        try { raw = await res.text(); } catch { /* ignore */ }
-        throw new Error(ttsErrorMessage(res.status, raw, api));
+        let detail = '';
+        try { detail = (await res.text()).slice(0, 160); } catch { /* ignore */ }
+        throw new Error(`接口返回 ${res.status}${detail ? `：${detail}` : ''}`);
     }
     return res.arrayBuffer();
 }
@@ -553,7 +508,7 @@ function remember(key, bytes, rate) {
 // 同一句只请求一次：缓存里有就直接用，正在生成就等那一条（翻页、提前生成共用），不跟着页面取消。
 // decodeAudioData 会占用传入的数据，所以每次交出去的都是副本。
 function requestSpeech(api, plan) {
-    const url = ttsSpeechUrl(api.endpoint, api.transport, api.format);
+    const url = ttsSpeechUrl(api.endpoint, api.transport);
     if (!url) return Promise.reject(new Error('还没有填写接口地址'));
     const key = ttsCacheKey(url, api, plan.voice, plan.text);
     const hit = apiCache.get(key);
@@ -582,7 +537,7 @@ function requestSpeech(api, plan) {
 }
 
 function speakApi(job, plan, api) {
-    const bus = busInput(plan.close || plan.phone || voiceFilterUsesDry() ? 'dry' : 'voice');
+    const bus = busInput(plan.close || plan.phone ? 'dry' : 'voice');
     if (!bus) {
         reportError('浏览器音频不可用', job);
         finish(job);
@@ -731,8 +686,6 @@ export function previewTts(settings, { role = 'female', voice = '' } = {}) {
     const picked = voice || (config.provider === 'api'
         ? config.api[role] || config.api.female
         : config.system[role] || (systemVoicePool(voices, role === 'narrator' ? '' : role)[0] || {}).name || '');
-    // 接口来源三个框全空时不发请求，直接说明原因，免得服务端拿默认音色念。
-    if (config.provider === 'api' && !picked) return Promise.resolve({ ok: false, error: '三个声音都留空了，填一个声音 ID 再试听' });
     const plan = {
         provider: config.provider, text: '你好，这是台词朗读的试听。今天也请多指教。', voice: picked, role, lang: 'zh',
         volume: config.volume, rate: config.rate, pitch: 1, pan: 0, close: false, phone: false, preview: true,

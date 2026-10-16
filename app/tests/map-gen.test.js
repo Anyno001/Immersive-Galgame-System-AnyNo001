@@ -8,7 +8,6 @@ import { renderCitySteps, renderLightSteps } from '../src/visual/map-gen/render-
 import { buildMapGenInput, buildMarkerLightsInput, createMapBasemapGenerator } from '../src/visual/map-gen/index.js';
 import { resolveMapHour, resolveMapLighting } from '../src/visual/map-gen/lighting.js';
 import { mapBasemapFilter, mapLightLayersHtml } from '../src/visual/igs-ui/map-light-layers.js';
-import { createLocalImageCache } from '../src/media/tavern-image-cache.js';
 
 const W = 1600;
 const H = 900;
@@ -200,46 +199,6 @@ test('gate:map-gen:generator-slices-work-caches-and-revokes', async () => {
     assert.equal(failed.status, 'failed');
     assert.equal(failed.error, 'canvas-unavailable');
     generator.dispose();
-});
-
-test('gate:map-gen:clear-cancels-encoding-and-a-late-callback-cannot-drop-the-replacement', async () => {
-    const queue = [], callbacks = [], revoked = [];
-    let urls = 0;
-    const view = { Blob, atob, btoa, URL: { createObjectURL: () => `blob:map-${++urls}`, revokeObjectURL: url => revoked.push(url) } };
-    const mediaCache = createLocalImageCache(view);
-    const generator = createMapBasemapGenerator({
-        doc: { defaultView: view }, mediaCache, schedule: fn => queue.push(fn),
-        createCanvas: (w, h) => ({ ...fakeCanvas(w, h), toBlob: callback => callbacks.push(callback) }),
-    });
-    const input = buildMarkerLightsInput([], 1600, 900);
-    const old = generator.request(input);
-    while (queue.length) queue.shift()();
-    await Promise.resolve();
-    assert.equal(callbacks.length, 1);
-    await mediaCache.clear();
-    await old.promise;
-    assert.equal(old.status, 'failed');
-    const replacement = generator.request(input);
-    while (queue.length) queue.shift()();
-    await Promise.resolve();
-    assert.equal(callbacks.length, 2);
-    callbacks[1](new Blob(['current'], { type: 'image/webp' }));
-    await replacement.promise;
-    const url = replacement.result.lightsUrl;
-    assert.equal(url, 'blob:map-1');
-    callbacks[0](new Blob(['old'], { type: 'image/webp' }));
-    await Promise.resolve(); await Promise.resolve();
-    assert.equal(generator.peek(input.key), replacement);
-    assert.equal(mediaCache.peek(`map:${input.key}:lights`), url);
-    assert.equal((await mediaCache.stats()).activeCount, 1);
-    assert.deepEqual(revoked, []);
-    // 同一个资源键换了句柄，结果索引也必须重新解析，不能继续提供撤销的旧 URL。
-    mediaCache.forget(`map:${input.key}:lights`);
-    const refreshed = mediaCache.remember(`map:${input.key}:lights`, new Blob(['refreshed'], { type: 'image/webp' }));
-    assert.notEqual(refreshed, url);
-    assert.equal(generator.peek(input.key).result.lightsUrl, refreshed);
-    assert.deepEqual(revoked, [url]);
-    generator.dispose(); await mediaCache.destroy();
 });
 
 test('gate:map-gen:lighting-interpolates-time-and-weather', () => {

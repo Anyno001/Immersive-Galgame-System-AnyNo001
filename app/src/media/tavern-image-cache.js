@@ -1,337 +1,174 @@
-import { createIdbImageCacheStore } from './image-cache-store.js';
-import { blobDataUrl, dataUrlBlob, dataUrlBytes, imageFingerprint, normalizeImagePath } from './image-identity.js';
-import { withMediaLock } from './media-lock.js';
-import { createImageLoadQueue } from './image-load-queue.js';
-import { createMediaCacheRegistry } from './media-cache-registry.js';
+// 酒馆文件读回后的浏览器缓存。云酒馆上图片在远端磁盘，按路径留下 dataUrl，同一张不再重新下载。
+// 文件名含内容哈希，路径变了就是另一张图。删文件时一并丢掉这条缓存。
+import { createIdbConnection } from './idb-connection.js';
 
+const DB_NAME = 'igs-image-cache';
+const DB_VERSION = 1;
 export const DEFAULT_IMAGE_CACHE_COUNT = 320;
-export const IMAGE_MEMORY_BUDGET = 64 * 1024 * 1024;
-export const IMAGE_DISK_BUDGET = 192 * 1024 * 1024;
+const MIN_IMAGE_CACHE_COUNT = 1;
+const MAX_IMAGE_CACHE_COUNT = 2000;
+const BYTES_PER_IMAGE = Math.floor((192 * 1024 * 1024) / 160);
+
 export function normalizeImageCacheCount(value) {
     const count = Math.round(Number(value));
-    return Number.isFinite(count) ? Math.min(2000, Math.max(1, count)) : DEFAULT_IMAGE_CACHE_COUNT;
+    if (!Number.isFinite(count)) return DEFAULT_IMAGE_CACHE_COUNT;
+    return Math.min(MAX_IMAGE_CACHE_COUNT, Math.max(MIN_IMAGE_CACHE_COUNT, count));
 }
+
 const caches = new WeakMap();
-const documents = new WeakMap();
-const boundDocuments = new WeakMap();
-const retirements = new WeakMap();
-const diskUsage = rows => {
-    const unique = new Map();
-    for (const row of rows.values()) unique.set(row.identity || row.path, Math.max(0, Number(row.bytes) || 0));
-    return { count: unique.size, bytes: [...unique.values()].reduce((sum, bytes) => sum + bytes, 0) };
-};
+const cacheKey = (path) => String(path || '').replace(/^\//, '');
+
+function memoryStore() {
+    const files = new Map();
+    const meta = new Map();
+    return {
+        async get(path) { return files.get(path) || ''; },
+        async put(path, dataUrl, usedAt, bytes) {
+            files.set(path, dataUrl);
+            meta.set(path, { path, usedAt, bytes });
+        },
+        async touch(path, usedAt) {
+            const row = meta.get(path);
+            if (row) row.usedAt = usedAt;
+        },
+        async delete(path) {
+            files.delete(path);
+            meta.delete(path);
+        },
+        async clear() {
+            files.clear();
+            meta.clear();
+        },
+        async allMeta() { return Array.from(meta.values()); },
+    };
+}
+
+function idbStore(idb) {
+    const conn = createIdbConnection(idb, DB_NAME, DB_VERSION, (db) => {
+        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'path' });
+        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'path' });
+    });
+    const run = (storeName, mode, fn) => conn.transact(storeName, mode, (tx) => fn(tx.objectStore(storeName)));
+    return {
+        async get(path) {
+            const row = await run('files', 'readonly', (store) => store.get(path));
+            return row && row.dataUrl || '';
+        },
+        async put(path, dataUrl, usedAt, bytes) {
+            await run('files', 'readwrite', (store) => store.put({ path, dataUrl }));
+            await run('meta', 'readwrite', (store) => store.put({ path, usedAt, bytes }));
+        },
+        async touch(path, usedAt) {
+            const row = await run('meta', 'readonly', (store) => store.get(path));
+            if (!row) return;
+            await run('meta', 'readwrite', (store) => store.put({ ...row, usedAt }));
+        },
+        async delete(path) {
+            await run('files', 'readwrite', (store) => store.delete(path));
+            await run('meta', 'readwrite', (store) => store.delete(path));
+        },
+        async clear() {
+            await run('files', 'readwrite', (store) => store.clear());
+            await run('meta', 'readwrite', (store) => store.clear());
+        },
+        async allMeta() {
+            const rows = await run('meta', 'readonly', (store) => store.getAll());
+            return Array.isArray(rows) ? rows : [];
+        },
+    };
+}
 
 export function createLocalImageCache(globalObject = globalThis, options = {}) {
     const now = options.now || (() => Date.now());
-    // 无 IndexedDB 时只保留中央内存层，禁止用第二个内存库冒充磁盘缓存。
-    const store = options.store || (globalObject.indexedDB ? createIdbImageCacheStore(globalObject.indexedDB) : null);
-    const auxiliary = createMediaCacheRegistry({ now, memoryBudget: options.metadataBytes });
+    const fixedBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : 0;
+    let maxCount = Number(options.maxCount) > 0 ? Math.round(Number(options.maxCount)) : DEFAULT_IMAGE_CACHE_COUNT;
+    let maxBytes = fixedBytes || maxCount * BYTES_PER_IMAGE;
+    const idb = globalObject && globalObject.indexedDB;
+    const store = options.store || (idb && typeof idb.open === 'function' ? idbStore(idb) : memoryStore());
     const memory = new Map();
-    const aliases = new Map();
-    const flights = new Map();
-    const versions = new Map();
-    const listeners = new Set();
-    const urlOwners = new Map();
-    const pins = new Map();
-    const downloads = createImageLoadQueue(4);
-    const Abort = globalObject.AbortController || globalThis.AbortController;
-    let readController = Abort ? new Abort() : null;
-    let maxCount = normalizeImageCacheCount(options.maxCount);
-    const maxBytes = store ? options.maxBytes ?? IMAGE_DISK_BUDGET : 0;
-    const memoryBytes = options.memoryBytes ?? IMAGE_MEMORY_BUDGET;
     let meta = null;
-    let epoch = 0;
-    let serial = Promise.resolve();
-    let lastError = '';
-    let destroyed = false, nextVersion = 0, destroying = null;
-    const channel = typeof globalObject.BroadcastChannel === 'function' ? new globalObject.BroadcastChannel('igs-media-cache-v3') : null;
-    channel?.unref?.();
-    if (channel) channel.onmessage = event => {
-        if (event.data?.type === 'clear') void clear({ memoryOnly: true, broadcast: false });
-        if (event.data?.type === 'drop' && typeof event.data.key === 'string') forget(event.data.key);
-        meta = null;
-    };
-    const enqueue = task => {
-        const result = serial.then(() => withMediaLock(globalObject, 'cache', task));
-        serial = result.catch(error => { lastError = error.message || String(error); });
-        return result;
-    };
-    function token(key) {
-        if (destroyed) return `${epoch}:destroyed`;
-        if (!versions.has(key)) versions.set(key, ++nextVersion);
-        const version = versions.get(key);
-        for (const candidate of versions.keys()) {
-            if (versions.size <= Math.max(8, maxCount * 8)) break;
-            if (candidate !== key && !aliases.has(candidate) && !flights.has(candidate)) versions.delete(candidate);
-        }
-        return `${epoch}:${version}`;
-    }
-    const revoke = entry => {
-        if (entry.url?.startsWith('blob:')) globalObject.URL?.revokeObjectURL?.(entry.url);
-        urlOwners.delete(entry.url);
-    };
-    function evict(identity) {
-        const entry = memory.get(identity);
-        if (!entry) return;
-        revoke(entry); memory.delete(identity);
-        for (const [key, id] of aliases) if (id === identity) aliases.delete(key);
-    }
-    function trimMemory() {
-        let bytes = [...memory.values()].reduce((sum, entry) => sum + entry.bytes, 0);
-        const visible = new Set([...aliases].filter(([key]) => pins.has(key)).map(([, identity]) => identity));
-        // 预热不能挤掉正在显示的图；只有活跃图本身超出硬字节预算才淘汰活跃资源。
-        for (const active of [false, true]) {
-            // 活跃图总量超限时先拒绝后来读入的图，避免当前页图片互相挤出、反复读回。
-            const entries = active ? [...memory].reverse() : memory;
-            for (const [id, entry] of entries) {
-                if (memory.size <= maxCount && bytes <= memoryBytes) return;
-                if (visible.has(id) !== active) continue;
-                if (active && bytes <= memoryBytes) return;
-                bytes -= entry.bytes; evict(id);
-            }
-        }
-    }
-    function remember(path, value) {
-        if (destroyed) return '';
-        const key = normalizeImagePath(path);
-        if (!key || !value) return '';
-        const oldIdentity = aliases.get(key);
-        const identity = urlOwners.get(value) || (typeof value === 'string' ? `${imageFingerprint(value)}:${value.length}` : key);
-        let entry = memory.get(identity);
-        if (!entry) {
-            let data = value;
-            if (typeof value === 'string') {
-                try { data = dataUrlBlob(value, globalObject) || value; } catch { data = value; }
-            }
-            entry = { data, bytes: typeof data === 'string' ? data.length * 2 : Number.isFinite(data.size) ? data.size : dataUrlBytes(value), url: '', usedAt: now() };
-            if (typeof data === 'string') entry.url = data;
-            else if (globalObject.URL?.createObjectURL) entry.url = globalObject.URL.createObjectURL(data);
-        }
-        memory.delete(identity); memory.set(identity, entry); aliases.set(key, identity);
-        if (entry.url) urlOwners.set(entry.url, identity);
-        if (oldIdentity && oldIdentity !== identity && ![...aliases.values()].includes(oldIdentity)) evict(oldIdentity);
-        for (const candidate of aliases.keys()) {
-            if (aliases.size <= maxCount * 4 + pins.size) break;
-            if (!pins.has(candidate) && !flights.has(candidate)) aliases.delete(candidate);
-        }
-        trimMemory();
-        return memory.has(identity) ? entry.url : (typeof value === 'string' && !value.startsWith('blob:') ? value : '');
-    }
-    function peek(path) {
-        const entry = memory.get(aliases.get(normalizeImagePath(path)));
-        if (!entry) return '';
-        const id = aliases.get(normalizeImagePath(path));
-        memory.delete(id); memory.set(id, entry); entry.usedAt = now();
-        return entry.url || '';
-    }
-    async function metadata(refresh = false) {
-        if (!meta || refresh) meta = new Map((await store?.allMeta() || []).map(row => [row.path, { ...row, bytes: Math.max(0, Number(row.bytes) || 0), usedAt: Number(row.usedAt) || 0 }]));
+
+    const loadMeta = async () => {
+        if (meta) return meta;
+        const rows = await store.allMeta().catch(() => []);
+        meta = new Map((rows || []).map((row) => [row.path, { usedAt: Number(row.usedAt) || 0, bytes: Number(row.bytes) || 0 }]));
         return meta;
-    }
-    async function trimDisk() {
-        const rows = await metadata(true);
-        const sorted = [...rows.values()].sort((a, b) => a.usedAt - b.usedAt);
-        for (const row of sorted) {
-            const usage = diskUsage(rows);
-            if (usage.count <= maxCount && usage.bytes <= maxBytes && rows.size <= maxCount * 4) break;
-            await store?.delete(row.path); rows.delete(row.path);
-        }
-        trimMemory();
-    }
-    // 显示用地址：优先内存条目的 objectURL，没有再按需转 dataUrl。
-    async function shownOf(key) {
-        const entry = memory.get(aliases.get(key));
-        return entry ? entry.url || await blobDataUrl(entry.data, globalObject, { signal: readController?.signal }).catch(() => '') : '';
-    }
-    async function get(path, { url = false } = {}) {
-        if (destroyed) return '';
-        const key = normalizeImagePath(path), stamp = token(key);
-        const entry = memory.get(aliases.get(key));
-        if (entry) {
-            peek(key);
-            const usedAt = now();
-            if (meta?.has(key)) meta.get(key).usedAt = usedAt;
-            if (store) void enqueue(() => store.touch(key, usedAt)).catch(() => {});
-            const value = url ? await shownOf(key) : await blobDataUrl(entry.data, globalObject, { signal: readController?.signal }).catch(error => { if (token(key) !== stamp || destroyed) return ''; throw error; });
-            return token(key) === stamp && !destroyed ? value : '';
-        }
-        if (!store) return '';
-        const data = await enqueue(() => store.get(key));
-        if (!data || token(key) !== stamp) return '';
-        // 显示模式下磁盘里的 Blob 直接进内存，不绕 base64；旧数据（dataUrl 字符串）照旧。
-        const direct = url && typeof data !== 'string';
-        const value = direct ? '' : await blobDataUrl(data, globalObject, { signal: readController?.signal }).catch(error => { if (token(key) !== stamp || destroyed) return ''; throw error; });
-        if (token(key) !== stamp) return '';
-        remember(key, direct ? data : value);
-        await enqueue(async () => {
-            if (token(key) !== stamp) return;
-            const rows = await metadata(true);
-            if (rows.has(key)) {
-                const bytes = typeof data === 'string' ? dataUrlBytes(data) : Number.isFinite(data.size) ? data.size : dataUrlBytes(value);
-                rows.get(key).usedAt = now(); rows.get(key).bytes = bytes;
-                await store.touch(key, now(), bytes);
-            }
-            await trimDisk();
-        });
-        if (token(key) !== stamp || destroyed) return '';
-        return url ? await shownOf(key) : value;
-    }
-    async function put(path, value, expectedToken = token(normalizeImagePath(path))) {
-        const key = normalizeImagePath(path);
-        if (destroyed || !key || !value || token(key) !== expectedToken) return false;
-        remember(key, value);
-        if (!store) { channel?.postMessage({ type: 'drop', key }); return token(key) === expectedToken; }
-        const entry = memory.get(aliases.get(key));
-        const data = entry?.data || value;
-        const identity = aliases.get(key) || `${imageFingerprint(value)}:${value.length}`;
-        const bytes = typeof data === 'string' ? dataUrlBytes(data) : Number.isFinite(data.size) ? data.size : dataUrlBytes(value);
-        await enqueue(async () => {
-            if (token(key) !== expectedToken) return;
-            await store.put(key, data, now(), bytes, identity);
-            (await metadata()).set(key, { path: key, identity, usedAt: now(), bytes });
-            await trimDisk();
-        });
-        if (!destroyed) channel?.postMessage({ type: 'drop', key });
-        return !destroyed && token(key) === expectedToken;
-    }
-    // blob 模式：loader 可返回 Blob，结果是显示地址（objectURL）而不是 dataUrl；ticket 为 {high, boost} 的下载优先级。
-    async function load(path, loader, { persist = true, timeoutMs = 30000, download = false, blob = false, ticket = null } = {}) {
-        if (destroyed) return '';
-        const key = normalizeImagePath(path);
-        if (flights.has(key)) {
-            // 低优先级预热排队中，当前页又要同一张图：提到队首。
-            if (!ticket || ticket.high) flights.get(key).boost?.();
-            return flights.get(key).promise;
-        }
-        const stamp = token(key);
-        const controller = Abort ? new Abort() : null;
-        let timer;
-        let cancel;
-        const cancelled = new Promise(resolve => { cancel = () => { controller?.abort(); resolve(''); }; });
-        const handle = {};
-        const pending = { controller, cancel, promise: null, boost: () => handle.boost?.() };
-        if (ticket) ticket.boost = pending.boost;
-        const work = (async () => {
-            const present = memory.get(aliases.get(key));
-            const hit = present ? (blob && present.url) || await blobDataUrl(present.data, globalObject, { signal: controller?.signal }) : persist ? await get(key, { url: blob }).catch(() => '') : '';
-            if (hit) return token(key) === stamp && !destroyed ? hit : '';
-            if (token(key) !== stamp) return '';
-            const value = await (download ? downloads.run(loader, controller?.signal, { high: !ticket || ticket.high, handle }) : loader(controller?.signal));
-            if (token(key) !== stamp || !value) return '';
-            if (persist) await put(key, value, stamp).catch(error => { lastError = error.message || String(error); }); else remember(key, value);
-            if (blob && typeof value !== 'string') return token(key) === stamp && !destroyed ? await shownOf(key) : '';
-            return token(key) === stamp && !destroyed ? value : '';
-        })();
-        pending.promise = Promise.race([work, cancelled, new Promise((_, reject) => {
-            timer = (globalObject.setTimeout || setTimeout)(() => { forget(key); reject(new Error('image-load-timeout')); }, timeoutMs); timer?.unref?.();
-        })]).finally(() => {
-            (globalObject.clearTimeout || clearTimeout)(timer);
-            if (flights.get(key) === pending) flights.delete(key);
-        });
-        flights.set(key, pending);
-        return pending.promise;
-    }
-    function forget(path) {
-        if (destroyed) return;
-        const key = normalizeImagePath(path);
-        versions.set(key, ++nextVersion);
-        flights.get(key)?.cancel(); flights.delete(key);
-        const identity = aliases.get(key); aliases.delete(key);
-        if (identity && ![...aliases.values()].includes(identity)) evict(identity);
-    }
-    async function clear({ memoryOnly = false, broadcast = true, notify = true } = {}) {
-        if (destroyed && !memoryOnly) return destroying;
-        epoch += 1;
-        readController?.abort(); readController = Abort && !destroyed ? new Abort() : null;
-        for (const pending of flights.values()) pending.cancel();
-        flights.clear(); versions.clear();
-        for (const id of [...memory.keys()]) evict(id);
-        aliases.clear();
-        auxiliary.clear();
-        const cleared = !memoryOnly ? enqueue(async () => { await store?.clear(); meta = new Map(); }) : Promise.resolve();
-        if (notify) for (const listener of listeners) { try { listener(epoch); } catch (error) { lastError = error.message || String(error); } }
-        await cleared;
-        if (broadcast && !destroyed) channel?.postMessage({ type: 'clear' });
-    }
-    const api = {
-        get destroyed() { return destroyed; },
-        get, put, load, peek,
-        // 内存条目转 dataUrl（缩略图、导出等需要 dataUrl 的调用方按需用）。
-        async dataUrl(path) { const entry = memory.get(aliases.get(normalizeImagePath(path))); return entry ? blobDataUrl(entry.data, globalObject, { signal: readController?.signal }).catch(() => '') : ''; }, remember, forget, auxiliary, token: path => token(normalizeImagePath(path)),
-        sourceId: url => { const identity = urlOwners.get(url); const matches = [...aliases].filter(([, id]) => id === identity).map(([key]) => key); return matches.find(key => key.startsWith('thumb:asset:')) || matches.find(key => key.startsWith('asset:')) || matches[0] || ''; },
-        async drop(path) { if (destroyed) return; const key = normalizeImagePath(path); forget(key); channel?.postMessage({ type: 'drop', key }); await enqueue(async () => { if (!destroyed) { await store?.delete(key); (await metadata()).delete(key); } }); },
-        async dropPrefix(prefix) {
-            if (destroyed) return;
-            const keys = new Set([...aliases.keys()].filter(key => key.startsWith(prefix)));
-            for (const key of (await enqueue(metadata)).keys()) if (key.startsWith(prefix)) keys.add(key);
-            for (const key of keys) { if (destroyed) return; forget(key); await enqueue(async () => { if (!destroyed) { await store?.delete(key); (await metadata()).delete(key); } }); if (!destroyed) channel?.postMessage({ type: 'drop', key }); }
-        },
-        clear,
-        pin(path) {
-            if (destroyed) return () => {};
-            const key = normalizeImagePath(path); pins.set(key, (pins.get(key) || 0) + 1);
-            let released = false;
-            return () => { if (released) return; released = true; const count = (pins.get(key) || 0) - 1; if (count > 0) pins.set(key, count); else pins.delete(key); trimMemory(); };
-        },
-        destroy() {
-            if (destroying) return destroying;
-            destroyed = true; auxiliary.destroy(); pins.clear(); listeners.clear(); channel?.close();
-            for (const doc of boundDocuments.get(api) || []) if (documents.get(doc) === api) documents.delete(doc);
-            boundDocuments.delete(api);
-            destroying = clear({ memoryOnly: true, broadcast: false, notify: false }).then(async () => { await serial; meta = null; await store?.close?.(); });
-            return destroying;
-        },
-        async setMaxCount(value) { if (destroyed) return maxCount; maxCount = normalizeImageCacheCount(value); trimMemory(); await enqueue(trimDisk).catch(() => {}); return maxCount; },
-        onClear(listener) { if (destroyed) return () => {}; listeners.add(listener); return () => listeners.delete(listener); },
-        async stats() {
-            const auxiliaryStats = auxiliary.stats();
-            let diskAvailable = Boolean(store);
-            const rows = destroyed ? new Map() : await enqueue(() => metadata(true)).catch(() => { diskAvailable = false; return new Map(); });
-            const disk = diskUsage(rows);
-            return { epoch, memoryCount: memory.size, memoryBytes: [...memory.values()].reduce((s, e) => s + e.bytes, 0),
-                diskCount: disk.count, diskBytes: disk.bytes, diskAliases: rows.size, pending: flights.size,
-                maxCount, memoryBudget: memoryBytes, diskBudget: diskAvailable ? maxBytes : 0,
-                backend: !store ? 'memory-only' : diskAvailable ? store.backend || 'custom' : 'unavailable',
-                persistent: diskAvailable && store?.persistent === true, destroyed, auxiliary: auxiliaryStats,
-                activeCount: new Set([...aliases].filter(([key]) => pins.has(key)).map(([, identity]) => identity)).size, downloads: downloads.stats(), lastError };
-        },
-        size: () => memory.size,
     };
-    return api;
+    const trim = async () => {
+        const rows = await loadMeta();
+        const list = Array.from(rows.entries());
+        let bytes = list.reduce((sum, [, row]) => sum + (row.bytes || 0), 0);
+        if (list.length <= maxCount && bytes <= maxBytes) return;
+        list.sort((a, b) => a[1].usedAt - b[1].usedAt);
+        for (const [path, row] of list) {
+            if (rows.size <= maxCount && bytes <= maxBytes) break;
+            if (rows.size <= 1) break;
+            rows.delete(path);
+            memory.delete(path);
+            bytes -= row.bytes || 0;
+            await store.delete(path).catch(() => {});
+        }
+    };
+
+    return {
+        async get(path) {
+            const key = cacheKey(path);
+            if (!key) return '';
+            if (memory.has(key)) {
+                const usedAt = now();
+                if (meta && meta.has(key)) meta.get(key).usedAt = usedAt;
+                store.touch(key, usedAt).catch(() => {});
+                return memory.get(key);
+            }
+            const dataUrl = await store.get(key).catch(() => '');
+            if (!dataUrl) return '';
+            memory.set(key, dataUrl);
+            const usedAt = now();
+            const rows = await loadMeta().catch(() => null);
+            if (rows && rows.has(key)) rows.get(key).usedAt = usedAt;
+            store.touch(key, usedAt).catch(() => {});
+            return dataUrl;
+        },
+        async put(path, dataUrl) {
+            const key = cacheKey(path);
+            const value = String(dataUrl || '');
+            if (!key || !value) return;
+            memory.set(key, value);
+            const usedAt = now();
+            const bytes = value.length;
+            const rows = await loadMeta().catch(() => null);
+            if (rows) rows.set(key, { usedAt, bytes });
+            await store.put(key, value, usedAt, bytes).catch(() => {});
+            await trim().catch(() => {});
+        },
+        async drop(path) {
+            const key = cacheKey(path);
+            if (!key) return;
+            memory.delete(key);
+            const rows = meta;
+            if (rows) rows.delete(key);
+            await store.delete(key).catch(() => {});
+        },
+        async clear() {
+            memory.clear();
+            if (meta) meta.clear();
+            await store.clear().catch(() => {});
+        },
+        async setMaxCount(value) {
+            maxCount = normalizeImageCacheCount(value);
+            if (!fixedBytes) maxBytes = maxCount * BYTES_PER_IMAGE;
+            await trim().catch(() => {});
+            return maxCount;
+        },
+    };
 }
 
 export function localImageCacheFor(globalObject = globalThis) {
     const key = globalObject || globalThis;
-    if (!caches.has(key)) caches.set(key, createLocalImageCache(key));
-    if (caches.get(key).destroyed) throw new Error('media-runtime-closing');
-    return caches.get(key);
-}
-
-export function disposeLocalImageCache(globalObject, { expectedCache, settled = Promise.resolve() } = {}) {
-    if (retirements.has(globalObject)) return retirements.get(globalObject);
-    const cache = caches.get(globalObject);
-    if (!cache || (expectedCache && cache !== expectedCache)) return Promise.resolve();
-    const closing = Promise.allSettled([cache.destroy(), settled]).then(results => {
-        const failed = results.find(result => result.status === 'rejected');
-        if (failed) throw failed.reason;
-    }).finally(() => {
-        if (caches.get(globalObject) === cache) caches.delete(globalObject);
-        if (retirements.get(globalObject) === closing) retirements.delete(globalObject);
-    });
-    retirements.set(globalObject, closing);
-    return closing;
-}
-
-// 酒馆脚本窗口与阅读器宿主 document 可能不同；二者仍必须使用同一个媒体所有者。
-export function bindImageCacheDocument(doc, cache) {
-    if (!doc || !cache || cache.destroyed) return;
-    const old = documents.get(doc);
-    if (old && old !== cache) boundDocuments.get(old)?.delete(doc);
-    documents.set(doc, cache);
-    if (!boundDocuments.has(cache)) boundDocuments.set(cache, new Set());
-    boundDocuments.get(cache).add(doc);
-}
-
-export function imageCacheForDocument(doc = globalThis.document) {
-    return documents.get(doc) || localImageCacheFor(doc?.defaultView || globalThis);
+    let cache = caches.get(key);
+    if (!cache) {
+        cache = createLocalImageCache(key);
+        caches.set(key, cache);
+    }
+    return cache;
 }

@@ -46,7 +46,7 @@ export function renderRomanceFxFields(reader, more = collapsible) {
     const add = s.actions.length < ROMANCE_ACTIONS_MAX ? '<button type="button" class="igs-btn-mgr-icon" data-action="romance-action-add" title="添加动作">+</button>' : '';
     const interact = checkbox(`${P}.quickActions`, s.quickActions, '立绘快捷动作（头旁心形按钮）')
         + (s.quickActions ? sub(`<div class="igs-bgm-tracks">${rows || '<div class="igs-scene-empty">暂无动作</div>'}${add}</div>`
-            + '<div class="igs-source-filter-note">选中的动作写入输入框，不自动发送；{角色}换成当前角色名。</div>') : '');
+            + '<div class="igs-source-filter-note">选中的动作写入输入框，不自动发送；{角色} 换成当前角色名。</div>') : '');
     return featureRow(more, 'romance', `${P}.enabled`, true, '亲密演出', '暧昧时加氛围', field(`${P}.strength`, '演出强度', segmentedInput(`${P}.strength`, s.strength, [['weak', '弱'], ['medium', '中'], ['strong', '强']], '演出强度'))
         + perfSubhead('氛围图层') + layers
         + perfSubhead('声音与节律') + senses

@@ -13,6 +13,9 @@ test('gate:fx-title-themes:every-themed-skin-styles-the-scene-title-card', () =>
         assert.ok(getDialogSkinStyleText(skin).includes('.igs-fx-title-card:not(.is-ancient)'), skin);
     }
     assert.equal(getDialogThemeTitleCardStyleText('default'), '');
+    // 卡片皮肤收掉上下细线、改成居中实底卡片。
+    assert.match(getDialogThemeTitleCardStyleText('warm-picturebook'), /::after\{display:none;\}/);
+    assert.match(getDialogThemeTitleCardStyleText('qinglv-shanshui'), /#b23a2a/);
 });
 
 test('gate:fx-prompt:camera-grammar-only-when-ai-shots-on', () => {

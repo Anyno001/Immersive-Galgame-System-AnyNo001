@@ -1,6 +1,7 @@
-import { createMemoryAssetThumbStore } from './helpers/media-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
     CUSTOM_FONT_STORE_KEY,
     customFontStack,
@@ -12,15 +13,29 @@ import {
     uploadFontFile,
 } from '../src/media/custom-fonts.js';
 import { DIALOG_FONT_OPTIONS } from '../src/visual/igs-ui/reader-host-constants.js';
+import { DIALOG_FONT_CHILL_ROUND } from '../src/visual/igs-ui/dialog-theme-typography.js';
 import { isGlobalSettingKey } from '../src/storage/tavern-settings-file.js';
 import { renderCustomFontManager } from '../src/visual/igs-ui/settings-fields.js';
+import { createMemoryAssetThumbStore } from '../src/media/asset-thumb-store.js';
 
-
+const appRoot = path.resolve(import.meta.dirname, '..');
 
 function memoryStorage() {
     const map = new Map();
     return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), removeItem: (k) => map.delete(k) };
 }
+
+test('gate:fonts:chill-round-bundled-with-license-and-slices', () => {
+    assert.ok(DIALOG_FONT_OPTIONS.some(([stack, label]) => stack === DIALOG_FONT_CHILL_ROUND && label === '寒蝉全圆体'));
+    const build = fs.readFileSync(path.join(appRoot, 'scripts', 'build.js'), 'utf8');
+    for (const file of ['ChillRoundFRegular.otf', 'ChillRoundFBold.otf', 'ChillRoundF-OFL.txt']) {
+        assert.ok(build.includes(file), `build.js 登记 ${file}`);
+        assert.ok(fs.existsSync(path.join(appRoot, 'src', 'visual', 'igs-ui', 'assets', 'fonts', file)), `${file} 在源码字体目录`);
+    }
+    for (const name of ['ChillRoundFRegular', 'ChillRoundFBold']) {
+        assert.ok(fs.existsSync(path.join(appRoot, 'src', 'visual', 'igs-ui', 'assets', 'font-slices', `${name}.json`)), `${name} 已切片`);
+    }
+});
 
 test('gate:fonts:custom-font-store-normalize-and-options', () => {
     const g = { localStorage: memoryStorage() };
@@ -88,4 +103,8 @@ test('gate:assets:purge-asset-cache-clears-thumbnails', async () => {
     await thumbs.put('x', 'data:image/webp;base64,AA');
     await thumbs.clear();
     assert.equal(await thumbs.get('x'), '');
+    const actions = fs.readFileSync(path.join(appRoot, 'src', 'visual', 'igs-ui', 'settings-actions.js'), 'utf8');
+    assert.match(actions, /'purge-asset-cache'/);
+    const tabs = fs.readFileSync(path.join(appRoot, 'src', 'visual', 'igs-ui', 'settings-tabs.js'), 'utf8');
+    assert.match(tabs, /data-action="purge-asset-cache"[^>]*>清除素材缓存</);
 });

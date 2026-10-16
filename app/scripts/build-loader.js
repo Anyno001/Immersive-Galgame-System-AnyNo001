@@ -30,11 +30,10 @@ function assertLoaderButtonConfig(button, label) {
     }
 }
 
-// 固定 tag 属于本次脚本，不能被页面残留的 ref/base 覆盖。
+// 版本化固定 loader：在 loader 源前注入 IGS_LOADER_REF，把它锁定到具体 tag（不追 main、不自动更新）。
 function buildPinnedContent(source, ref) {
-    const marker = "const PINNED_REF = '';";
-    if (!source.includes(marker)) throw new Error('Loader source missing fixed ref marker.');
-    return source.replace(marker, `const PINNED_REF = ${JSON.stringify(ref)};`);
+    const prefix = `(function(){try{(window.parent&&window.parent.document?window.parent:window).IGS_LOADER_REF=${JSON.stringify(ref)};}catch(e){try{window.IGS_LOADER_REF=${JSON.stringify(ref)};}catch(e2){}}})();\n`;
+    return prefix + source;
 }
 
 function writePinnedLoader(ref) {
@@ -58,7 +57,7 @@ function writePinnedLoader(ref) {
     };
     fs.writeFileSync(pinnedPath, `${JSON.stringify(pinnedJson, null, 2)}\n`, 'utf8');
     const verify = JSON.parse(fs.readFileSync(pinnedPath, 'utf8'));
-    if (verify.content !== pinnedContent || !verify.content.includes(`const PINNED_REF = ${JSON.stringify(ref)};`)) {
+    if (verify.content !== pinnedContent || !verify.content.includes(`IGS_LOADER_REF=${JSON.stringify(ref)}`)) {
         throw new Error(`Pinned loader JSON for ${ref} does not match source.`);
     }
     console.log(`loader:pinned ok ${path.relative(projectRoot, pinnedPath)}`);
@@ -94,13 +93,12 @@ assertLoaderButtonConfig(parsed.button, path.relative(projectRoot, jsonPath));
 console.log(`loader:build ok ${path.relative(projectRoot, jsonPath)}`);
 
 // 发布：只留最新一个版本化导入文件，锁定到这个版本的 tag（jsDelivr 的 @tag 地址不变，不受 @main 缓存影响），旧的全删。
-const RELEASE_FILE_RE = /^(?:酒馆助手脚本-)?沉浸式Galgame系统.* (?:test-v|v)?\d+\.\d+\.\d+(?:-test)?\.json$/;
+const RELEASE_FILE_RE = /^(?:酒馆助手脚本-)?沉浸式Galgame系统.* v\d+\.\d+\.\d+\.json$/;
 const releaseArgIndex = process.argv.indexOf('--release');
 if (releaseArgIndex !== -1) {
     const releaseRef = process.argv[releaseArgIndex + 1];
-    const version = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8')).version;
-    if (releaseRef !== `v${version}`) {
-        throw new Error(`--release requires v${version}, matching app/package.json.`);
+    if (!/^v\d+\.\d+\.\d+$/.test(releaseRef || '')) {
+        throw new Error('--release requires a vX.Y.Z ref.');
     }
     for (const name of fs.readdirSync(loaderRoot)) {
         if (RELEASE_FILE_RE.test(name)) fs.unlinkSync(path.join(loaderRoot, name));
@@ -108,13 +106,13 @@ if (releaseArgIndex !== -1) {
     writePinnedLoader(releaseRef);
 }
 
-// 固定版 loader 按需生成：`node scripts/build-loader.js --pin v0.36.70 v0.23.21`（历史 X.Y.Z-test 也认）
+// 固定版 loader 按需生成：`node scripts/build-loader.js --pin v0.23.21 v0.23.15`
 // 不传 --pin 时只更新自动更新版 + debug 版，不生成任何 pinned（避免每次升号堆文件）。
 const pinArgIndex = process.argv.indexOf('--pin');
 if (pinArgIndex !== -1) {
-    const refs = process.argv.slice(pinArgIndex + 1).filter((arg) => /^(?:\d+\.\d+\.\d+-test|(?:test-)?v\d+\.\d+\.\d+)$/.test(arg));
+    const refs = process.argv.slice(pinArgIndex + 1).filter((arg) => /^v\d+\.\d+\.\d+$/.test(arg));
     if (!refs.length) {
-        throw new Error('--pin requires at least one X.Y.Z-test or historical vX.Y.Z ref.');
+        throw new Error('--pin requires at least one vX.Y.Z ref.');
     }
     for (const ref of refs) {
         writePinnedLoader(ref);
