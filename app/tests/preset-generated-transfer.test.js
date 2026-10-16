@@ -19,13 +19,20 @@ test('gate:scene:rows-offer-download-and-stored-prompt', () => {
     assert.match(sceneHtml, /gen-asset-prompt:bg-a/);
     assert.match(sceneHtml, /gen-asset-download:bg-b/);
     assert.doesNotMatch(sceneHtml, /data-asset-preset-transfer/);
-    const charHtml = renderCharacterAssetList({ 雪乃: { 默认: 'igs-gen:sp-a' } }, {
+    const sceneAssets = {
+        characters: { 雪乃: { 默认: 'legacy.png' } },
+        characterOutfits: { 雪乃: { 常服: { moods: { 平和: 'igs-gen:sp-a' } } } },
+        characterDefaultOutfits: { 雪乃: { version: 1, outfitName: '常服' } },
+    };
+    const charHtml = renderCharacterAssetList(sceneAssets.characters, {
         aliases: {},
         moodGroups: [],
+        characterOutfits: sceneAssets.characterOutfits,
+        sceneAssets,
         isOpen: () => true,
     });
     assert.match(charHtml, /gen-asset-download:sp-a/);
-    assert.match(charHtml, /char-expression-prompt:/);
+    assert.match(charHtml, new RegExp(`outfit-expression-prompt:${encodeURIComponent('雪乃')}:${encodeURIComponent('常服')}:`));
     assert.match(charHtml, /scene-rename-char:/);
     assert.doesNotMatch(charHtml, /data-asset-preset-transfer/);
 });

@@ -1,4 +1,5 @@
-import { resolveSpriteAsset, resolveBackgroundAsset, resolveNudeSpriteAsset, isNonSpriteSpeaker, tempAssetKeyOf } from '../../scene/asset-match.js';
+import { resolveBackgroundAsset, resolveNudeSpriteAsset, isNonSpriteSpeaker, tempAssetKeyOf } from '../../scene/asset-match.js';
+import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
 import { resolveSpriteOutfit, outfitsOfCharacter, outfitAllowsScene } from '../../scene/character-outfits.js';
 import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { classifySceneKey } from '../../scene/scene-directives.js';
@@ -32,13 +33,24 @@ function createAssetLookup(initialContext) {
             (type === 'background' ? backgroundPrefixes : temporaryKeys).add(key);
             return fn(name, time);
         } : undefined;
+        const imageAvailability = url => {
+            dependencies.add(url);
+            const state = typeof context.imageAvailability === 'function'
+                ? context.imageAvailability(url) : context.imageAvailability?.[url];
+            const status = typeof state === 'string' ? state : state?.status;
+            if (status === 'missing') retryMs = Math.max(retryMs, 30000);
+            else if (status && status !== 'available') retryMs = Math.max(retryMs, 1500);
+            return state;
+        };
         const ctx = { ...context,
+            imageAvailability,
             isMissingImage: probe(context.isMissingImage, 30000),
             isUnavailableImage: probe(context.isUnavailableImage, 1500),
             tempSprite: temporary(context.tempSprite, 'sprite'),
+            tempSpriteForOutfit: temporary(context.tempSpriteForOutfit, 'sprite'),
             tempBackground: temporary(context.tempBackground, 'background'),
             tempSceneTime: temporary(context.tempSceneTime, 'background') };
-        const hit = kind === 'sprite' ? resolveSpriteAsset(args[0], args[1], ctx, args[2])
+        const hit = kind === 'sprite' ? resolveReaderSpriteAsset(args[0], args[1], ctx, args[2])
             : kind === 'nude' ? resolveNudeSpriteAsset(args[0], args[1], ctx)
                 : resolveBackgroundAsset(args[0], ctx);
         if (hit.url) dependencies.add(hit.url);
@@ -49,7 +61,7 @@ function createAssetLookup(initialContext) {
     function invalidate(detail) {
         if (detail?.chatId != null && String(detail.chatId) !== String(context.chatId || '')) return;
         const id = detail?.imageId;
-        const ref = id ? `igs-gen:${id}` : '';
+        const ref = id ? `igs-gen:${id}` : detail?.url || '';
         for (const [key, entry] of entries) {
             if (detail?.key && !entry.temporaryKeys.has(detail.key)
                 && ![...entry.backgroundPrefixes].some(prefix => detail.key.startsWith(prefix))) continue;
@@ -103,8 +115,8 @@ function prepareStageIndex(floor, settings) {
         const key = floor.keyOf(d.character);
         if (!speeches.has(key)) speeches.set(key, []);
         speeches.get(key).push(d);
-        if (d.outfit) {
-            const outfitKey = outfitsOfCharacter(settings._sceneAssets?.characterOutfits, settings._sceneAssets?.characterAliases, d.character).key || d.character;
+        if (d.unknownOutfit || d.outfit) {
+            const outfitKey = outfitsOfCharacter(settings._sceneAssets?.characterOutfits, settings._sceneAssets?.characterAliases, d.character).key || key;
             if (!outfits.has(outfitKey)) outfits.set(outfitKey, []);
             outfits.get(outfitKey).push(d);
         }
@@ -259,7 +271,7 @@ export function prepareReaderFloorAssets(floor, { payload, readerSettings, asset
     function outfitFor(index, character) {
         const page = floor.pages[index];
         const { key: found, outfits } = outfitsOfCharacter(sceneAssets.characterOutfits, sceneAssets.characterAliases, character);
-        const key = found || character;
+        const key = found || floor.keyOf(character);
         const tags = floor.stageIndex.outfits.get(key) || [];
         let tag = lastBefore(tags, page.outfitOffset);
         const scene = lastBefore(scenes, page.outfitOffset);

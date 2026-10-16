@@ -49,6 +49,17 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
         body.className = 'igs-asset-review-body';
         const label = doc.createElement('div');
         label.textContent = `「${ask.character}」穿了「${ask.word}」`;
+        const status = doc.createElement('div');
+        if (ask.id) {
+            status.textContent = ask.busy ? '正在处理已选择的入库方式…'
+                : ask.reason ? `处理未完成（${ask.reason}），候选保留`
+                : ask.imageId ? '立绘已生成，等待入库' : ask.prompt ? '衣装描述已准备，确认后才入库' : '选择入库后才提取服装描述；仅选择生成立绘时才绘图';
+            body.appendChild(status);
+            if (ask.prompt) { const detail = doc.createElement('details');
+                const summary = doc.createElement('summary'); summary.textContent = '查看衣装描述';
+                const text = doc.createElement('div'); text.textContent = ask.prompt;
+                detail.append(summary, text); body.appendChild(detail); }
+        }
         const select = doc.createElement('select');
         select.setAttribute('aria-label', '新衣服加入方式');
         select.addEventListener('keydown', (event) => event.stopPropagation());
@@ -60,14 +71,23 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
         }
         const actions = doc.createElement('div');
         actions.className = 'igs-asset-review-actions';
-        for (const [act, text] of [['ok', '加入'], ['later', '稍后']]) {
+        const acts = [['ok', '加入'], ['later', '稍后']];
+        select.disabled = !ask.id && Boolean(ask.busy);
+        let submitted = false;
+        for (const [act, text] of acts) {
             const button = doc.createElement('button');
             button.type = 'button';
             button.textContent = text;
             button.setAttribute('data-outfit-ask-act', act);
+            button.disabled = Boolean(ask.busy) && (!ask.id || act === 'retry');
             button.addEventListener('click', (event) => {
                 event.stopPropagation();
-                if (typeof handlers.onOutfit === 'function') handlers.onOutfit(ask, act === 'ok' ? select.value : '');
+                if (!submitted && !button.disabled && typeof handlers.onOutfit === 'function') {
+                    submitted = true;
+                    select.disabled = true;
+                    for (const control of actions.querySelectorAll('button')) control.disabled = true;
+                    handlers.onOutfit(ask, act === 'ok' ? select.value : act === 'retry' ? 'retry' : '');
+                }
             });
             actions.appendChild(button);
         }
@@ -95,8 +115,8 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
         if (activeKey && activeKey === item.key) focusTarget = input;
         const actions = doc.createElement('div');
         actions.className = 'igs-asset-review-actions';
-        // 立绘额外提供「入库并编辑 DNA」：先收入角色立绘，再把 tags 作为 DNA 候选交给设置页，由用户确认后才写入。
-        const acts = [['library', item.type === 'background' ? '存为背景' : '存为立绘'], ['chat', '仅本聊天'], ['discarded', '丢弃']];
+        // 立绘经统一采用入口核验并保存身份；「入库并编辑 DNA」打开采用后的景别资料。
+        const acts = [['library', item.type === 'background' ? '入库到场景' : '入库到角色'], ['chat', '仅本聊天'], ['discarded', '丢弃']];
         if (item.type === 'sprite') acts.splice(1, 0, ['library-dna', '入库并编辑 DNA']);
         for (const [act, text] of acts) {
             const button = doc.createElement('button');

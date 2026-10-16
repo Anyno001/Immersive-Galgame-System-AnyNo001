@@ -44,11 +44,23 @@ function spriteLine(c) {
     if (c.cgActive) return '挂着 CG，立绘让位';
     if (!m) return c.speaker ? `说话人「${c.speaker}」未进入立绘匹配（场景素材关闭或旁白 / 系统角色）` : '无说话人';
     const why = m.outfitOffset == null ? '' : `（来源 ${m.outfitSource || '无'}${m.outfitReason ? `/${m.outfitReason}` : ''} @${m.outfitOffset}）`;
-    const want = `角色「${m.character}」表情「${m.mood || '无'}」服装「${m.outfit || '无'}」${why}`;
-    if (c.spriteImage) return `${want} → ${label(m.source)}，槽位「${m.slot || '默认'}」${m.quality ? `，匹配度 ${m.quality}` : ''}`;
-    if (c.pendingSpriteRef) return `${want} → ${label(m.source)}，槽位「${m.slot || '默认'}」，原图读取中`;
+    const request = Object.hasOwn(m, 'requestedOutfit') ? `，要求「${m.requestedOutfit || '默认'}」` : '';
+    const reasons = {
+        'default-outfit-unset': '尚未指定默认衣装', 'default-outfit-invalid': '默认衣装记录无效',
+        'default-outfit-missing': '默认衣装已不存在', 'outfit-unregistered': '要求衣装未登记',
+        'outfit-image-empty': '整套衣装未设人物图', 'outfit-image-missing': '人物图片已丢失',
+        'outfit-image-read-error': '人物图片读取失败', 'outfit-image-decode-error': '人物图片加载或解码失败',
+        'outfit-image-pending': '人物图片加载中',
+        ...SPRITE_REASONS,
+    };
+    const detail = [...new Set([m.reason, m.fallbackReason].filter(Boolean))]
+        .map(reason => reasons[reason] || reason).join('；');
+    const diagnostic = detail ? `，${detail}` : '';
+    const want = `角色「${m.character}」表情「${m.mood || '无'}」服装「${m.outfit || '无'}」${request}${why}`;
+    if (c.spriteImage) return `${want} → ${label(m.source)}，槽位「${m.slot || '默认'}」${m.quality ? `，匹配度 ${m.quality}` : ''}${diagnostic}`;
+    if (c.pendingSpriteRef) return `${want} → ${label(m.source)}，槽位「${m.slot || '默认'}」，原图读取中${diagnostic}`;
     if (c.sceneNsfw) return `${want} → NSFW 场景隐藏立绘`;
-    return `${want} → 未命中（${SPRITE_REASONS[m.reason] || label(m.source)}${m.quality ? `，匹配度 ${m.quality}` : ''}）`;
+    return `${want} → 未命中（${label(m.source)}${m.quality ? `，匹配度 ${m.quality}` : ''}${diagnostic}）`;
 }
 
 function backgroundLine(c) {

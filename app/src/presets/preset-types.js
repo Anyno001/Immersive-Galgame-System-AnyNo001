@@ -1,3 +1,4 @@
+import { validatePromptPreset } from './prompt-preset.js';
 import {
     normalizeSceneRegexPreset,
     normalizeTextFilterPreset,
@@ -91,6 +92,10 @@ export function validatePresetByType(preset) {
     } else if (normalized.type === 'scene-regex-preset') {
         const result = validateSceneRegexPreset(normalized);
         normalizedData = result.preset;
+        errors.push(...result.errors.map(cloneData));
+    } else if (normalized.type === 'prompt-preset') {
+        const result = validatePromptPreset(normalizedData);
+        normalizedData = result.data || normalizedData;
         errors.push(...result.errors.map(cloneData));
     }
 

@@ -121,6 +121,7 @@ export function createTavernImageFiles(globalObject, legacyDir) {
             for (const key of keys) await cache.drop(key);
             for (const prefix of prefixes) await cache.dropPrefix(prefix);
         },
+
         headers: () => tavernHeaders(globalObject),
         later(task) { Promise.resolve().then(task).catch(() => {}); },
     };

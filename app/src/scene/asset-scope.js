@@ -1,9 +1,12 @@
 // 场景、角色、衣柜、生成库按角色卡分开。根上的同名字段是全局兜底：
 // 当前角色卡里没有这个名字时才用全局，卡里有同名条目时以卡为准。不借用别的卡。
 
+import { normalizeCharacterDefaultOutfits } from './character-appearance.js';
+import { normalizeCharacterSeeds } from './generation-seeds.js';
+import { expressionNoteBelongsTo } from './expression-note-keys.js';
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
-const LIBRARY_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'wardrobe', 'eventCgs', 'statusAvatars'];
+const LIBRARY_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds', 'wardrobe', 'eventCgs', 'statusAvatars'];
 
 export function resolveAssetScope(ctx) {
     if (!ctx || typeof ctx !== 'object') return { key: '', legacyKey: '', kind: 'global', label: '全局' };
@@ -153,7 +156,7 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
     const over = (field) => stack([rest[field], card[field]]);
     const generated = plain(rest.generated);
     const cardGenerated = plain(card.generated);
-    return {
+    const out = {
         ...rest,
         ...(ownedWorldview(card) || {}),
         ...(ownedDialogSkin(card) || {}),
@@ -173,6 +176,23 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
             expressionNotes: stack([generated.expressionNotes, cardGenerated.expressionNotes]),
         },
     };
+    // 默认选择跟随角色所属库，不借同名角色在另一库的默认。
+    const defaults = {};
+    const seeds = {};
+    const owners = [rest, card];
+    const characterFields = ['characters', 'characterDna', 'characterOutfits', 'characterDefaultOutfits'];
+    for (const owner of owners) {
+        const names = new Set(characterFields.flatMap(field => Object.keys(plain(owner[field]))));
+        for (const name of names) {
+            delete defaults[name];
+            delete seeds[name];
+            if (Object.hasOwn(plain(owner.characterSeeds), name)) seeds[name] = owner.characterSeeds[name];
+            if (Object.hasOwn(plain(owner.characterDefaultOutfits), name)) defaults[name] = owner.characterDefaultOutfits[name];
+        }
+    }
+    if (owners.some(owner => Object.hasOwn(owner, 'characterDefaultOutfits'))) out.characterDefaultOutfits = defaults;
+    if (owners.some(owner => Object.hasOwn(owner, 'characterSeeds'))) out.characterSeeds = seeds;
+    return out;
 }
 
 export function normalizeAssetCards(sceneAssets) {
@@ -189,6 +209,9 @@ export function normalizeAssetCards(sceneAssets) {
             characterAliases: plain(card.characterAliases),
             characterDna: plain(card.characterDna),
             characterOutfits: plain(card.characterOutfits),
+            ...(Object.hasOwn(card, 'characterSeeds') && { characterSeeds: normalizeCharacterSeeds(card.characterSeeds) }),
+            ...(Object.hasOwn(card, 'characterDefaultOutfits') && {
+                characterDefaultOutfits: normalizeCharacterDefaultOutfits(card.characterDefaultOutfits) }),
             wardrobe: plain(card.wardrobe),
             eventCgs: plain(card.eventCgs),
             generated: {
@@ -247,12 +270,14 @@ export function moveLibraryEntry(sceneAssets, fromKey, toKey, collection, name, 
     if (!Object.prototype.hasOwnProperty.call(plain(from[collection]), label)) return { ok: false, reason: 'missing' };
     moveKey(from, to, collection, label, copy);
     if (collection === 'characters') {
-        for (const extra of ['characterAliases', 'characterDna', 'characterOutfits', 'statusAvatars']) {
+        for (const extra of ['characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds', 'statusAvatars']) {
             moveKey(from, to, extra, label, copy);
         }
         moveGeneratedName(from, to, 'characters', label, copy);
         moveGeneratedName(from, to, 'characterAliases', label, copy);
-        moveGeneratedName(from, to, 'expressionNotes', label, copy);
+        for (const key of Object.keys(plain(plain(from.generated).expressionNotes))) {
+            if (expressionNoteBelongsTo(key, label)) moveGeneratedName(from, to, 'expressionNotes', key, copy);
+        }
     }
     if (collection === 'scenes') moveGeneratedName(from, to, 'scenes', label, copy);
     return { ok: true };

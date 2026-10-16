@@ -1,7 +1,7 @@
 // 设置面板内的失败提示：保存失败、动作抛异常时在面板底部弹一条，几秒后自动收起。
 // 面板重绘会整体替换 innerHTML，所以提示内容记在调用方状态里，由 remountSettingsNotice 在重绘后补回。
 export const SETTINGS_NOTICE_MS = 6000;
-const SAVE_FAILURE_REASONS = new Set(['save-failed', 'generated-asset-persist-failed', 'legacy-storage-write-failed', 'store-write-failed']);
+const SAVE_FAILURE_REASONS = new Set(['save-failed', 'generated-asset-persist-failed', 'legacy-storage-write-failed', 'store-write-failed', 'preset-store-write-failed']);
 
 export const SETTINGS_NOTICE_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-notice{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:3;max-width:min(520px,calc(100% - 48px));padding:10px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-danger,#c0392b);color:#fff;font-size:13px;line-height:1.5;pointer-events:auto;}
@@ -31,6 +31,10 @@ export function describeSaveError(error) {
 export function describeSettingsFailure(result) {
     if (!result || typeof result !== 'object' || result.ok !== false) return '';
     if (result.thrown) return `操作失败：${describeSaveError(result.thrown)}`;
+    if (result.reason === 'preset-revision-conflict')
+        return '预设保存冲突：存储版本已变化，编辑内容仍保留。请检查并重新读取，不要直接覆盖';
+    if (result.reason === 'preset-store-unreadable')
+        return '预设存储读取失败：编辑内容仍保留，未重置数据。请恢复存储访问后重试';
     if (result.saveError || SAVE_FAILURE_REASONS.has(result.reason)) {
         const detail = describeSaveError(result.saveError || result.message || result.reason);
         return `保存失败：${detail}${result.rollbackFailed ? '。部分设置可能已写入，请勿关闭设置，检查后重试' : ''}`;
@@ -68,7 +72,7 @@ const SETTINGS_BUSY_LABELS = Object.freeze({
 export function settingsBusyLabel(action) {
     const name = String(action || '');
     if (SETTINGS_BUSY_LABELS[name]) return SETTINGS_BUSY_LABELS[name];
-    if (/^(?:char-generate-sprite|outfit-generate-nude|status-avatar-generate|(?:char|outfit)-expression-retry|scene-variant-(?:set|retry)|wardrobe-reference):/.test(name)) return '生图中';
+    if (/^(?:char-(?:generate|redraw)-sprite|outfit-generate-nude|status-avatar-generate|(?:char|outfit)-expression-retry|scene-variant-(?:set|retry)|wardrobe-reference):/.test(name)) return '生图中';
     if (/^wardrobe-generate-prompt:/.test(name)) return '写词中';
     return '';
 }

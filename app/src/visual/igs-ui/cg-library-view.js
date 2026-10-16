@@ -5,7 +5,7 @@ import { metadataBytes } from '../../media/media-metadata-size.js';
 // 打开：先读目录（每张一条轻记录）马上出列表；随后后台对账，只有真有新图 / 删图时才动列表。
 // 翻页：只为当前页取缩略图，最多 3 张同时读；每张单独通知（onChange('thumb', key)），界面只换那一格。
 // 状态文字永远说清楚在做哪一步、做到第几张、哪张失败了为什么。
-import { CG_PAGE_SIZE, cgPageSlice, cgReasonText, filterCgEntries } from '../../media/cg-library.js';
+import { CG_PAGE_SIZE, cgPageSlice, cgReasonText, filterCgEntries, cgEntryStamp } from '../../media/cg-library.js';
 
 const THUMB_WORKERS = 3;
 const ORDER_KEY = 'igs:cg-order:v1';
@@ -43,7 +43,7 @@ export function createCgLibraryView(library, options = {}) {
         return { state: unavailState, open: () => Promise.resolve(), goto: () => {}, setFilters: () => {}, retry: () => {}, removeKeys: () => {}, patchEntry: () => {}, tileOf: () => ({ state: 'loading', url: '', reason: '' }), statusText: () => 'CG 库不可用', setNotice: () => {}, find: () => null, readFull: () => Promise.resolve(null), whenIdle: () => Promise.resolve(), dispose: () => {} };
     }
     const cache = requireMediaCache(rawCache, 'cg-view', library?.mediaCache);
-    const thumbKey = key => `thumb:cg:${key}:${String(state.all.find(entry => entry.key === key)?.updatedAt || '')}`;
+    const thumbKey = key => `thumb:cg:${key}:${cgEntryStamp(state.all.find(entry => entry.key === key))}`;
     const thumbs = { get: key => cache.peek(thumbKey(key)), has: key => Boolean(cache.peek(thumbKey(key))), set: (key, url) => cache.remember(thumbKey(key), url), delete: key => cache.forget(thumbKey(key)) };
     const leases = createMediaLeaseScope(cache);
     const failed = cache.auxiliary.createMap('cg-failures');
@@ -56,6 +56,9 @@ export function createCgLibraryView(library, options = {}) {
     let disposed = false;
     let opened = false;
     let waiters = [];
+    let offChanged = null;
+    const refreshing = new Set();
+    const refreshTokens = new Map();
     const resetThumbWork = () => { thumbGeneration += 1; failed.clear(); queue = []; batching.clear(); working.clear(); };
     const owner = cache.auxiliary.register('cg-catalogue', {
         clear() {
@@ -71,7 +74,7 @@ export function createCgLibraryView(library, options = {}) {
     const emit = (type, key) => {
         try { onChange(type, key); } catch (error) { console.warn('[IGS] CG 库界面刷新失败', type, error); }
     };
-    const busy = () => Boolean(opening) || batching.size > 0 || working.size > 0 || queue.length > 0;
+    const busy = () => Boolean(opening) || refreshing.size > 0 || batching.size > 0 || working.size > 0 || queue.length > 0;
     const wake = () => {
         if (busy()) return;
         const list = waiters;
@@ -97,10 +100,26 @@ export function createCgLibraryView(library, options = {}) {
         return true;
     }
 
-    const pageKeys = () => state.entries.map((e) => e.key).join('\n');
+    const pageKeys = () => state.entries.map((e) => JSON.stringify([e.key, cgEntryStamp(e), e.hidden, e.favorite])).join('\n');
 
     const onPage = (key) => state.entries.some((e) => e.key === key);
     const pending = (key) => batching.has(key) || working.has(key) || queue.some((e) => e.key === key);
+    const currentEntry = (entry) => !disposed && state.all.some((e) => e.key === entry.key
+        && e.ready && cgEntryStamp(e) === cgEntryStamp(entry));
+
+    function replaceEntries(entries) {
+        const next = new Map(entries.map((e) => [e.key, e]));
+        for (const old of state.all) {
+            const entry = next.get(old.key);
+            if (!entry || !entry.ready || cgEntryStamp(entry) !== cgEntryStamp(old)) {
+                thumbs.delete(old.key);
+                failed.delete(old.key);
+            }
+        }
+        const accepted = recompute(entries);
+        queue = queue.filter(currentEntry);
+        return accepted;
+    }
 
     function remember(key, url) {
         thumbs.set(key, url);
@@ -127,13 +146,14 @@ export function createCgLibraryView(library, options = {}) {
         if (disposed) return;
         while (working.size < THUMB_WORKERS && queue.length) {
             const entry = queue.shift();
+            if (!currentEntry(entry)) continue;
             const gen = thumbGeneration;
             working.set(entry.key, gen);
             Promise.resolve()
                 .then(() => library.makeThumb(entry))
                 .catch(() => ({ ok: false, reason: 'thumb-failed' }))
                 .then((result) => {
-                    if (disposed || gen !== thumbGeneration || String(entry.updatedAt || '') !== String(state.all.find(row => row.key === entry.key)?.updatedAt || '')) {
+                    if (gen !== thumbGeneration || !currentEntry(entry)) {
                         finish(entry.key, gen); return;
                     }
                     if (result && result.ok) remember(entry.key, result.dataUrl);
@@ -162,13 +182,14 @@ export function createCgLibraryView(library, options = {}) {
         if (disposed) { wake(); return; }
         if (gen !== thumbGeneration) { void loadPageThumbs(); return; }
         for (const e of need) {
-            if (String(e.updatedAt || '') !== String(state.all.find(row => row.key === e.key)?.updatedAt || '')) continue;
+            if (!currentEntry(e)) continue;
             const url = cached.get(e.key);
             if (url) { remember(e.key, url); emit('thumb', e.key); }
             else if (onPage(e.key) && !pending(e.key) && !thumbs.has(e.key)) queue.push(state.entries.find((x) => x.key === e.key) || e);
         }
         pump();
         emit('status');
+        loadPageThumbs();
         wake();
     }
 
@@ -183,7 +204,7 @@ export function createCgLibraryView(library, options = {}) {
         if (gen !== openGen) return;
         const fromIndex = index.ok && index.entries.length > 0;
         if (fromIndex) {
-            if (!recompute(index.entries)) return;
+            if (!replaceEntries(index.entries)) return;
             state.phase = 'ready';
             emit('list');
             loadPageThumbs();
@@ -206,7 +227,7 @@ export function createCgLibraryView(library, options = {}) {
         state.syncNote = synced.ok ? '' : `部分内容未能读取：${cgReasonText(synced.reason)}。已显示可读取的部分，请点击「刷新」重试。`;
         const before = pageKeys();
         const total = state.list.length;
-        if (!recompute(synced.entries)) return;
+        if (!replaceEntries(synced.entries)) return;
         if (!fromIndex || before !== pageKeys() || total !== state.list.length) {
             state.phase = 'ready';
             emit('list');
@@ -217,9 +238,49 @@ export function createCgLibraryView(library, options = {}) {
         }
     }
 
+    function onLibraryChanged(payload) {
+        if (disposed || !payload || typeof library?.refreshEntry !== 'function') return;
+        const { chatId, messageId, swipeId, slot } = payload;
+        if (typeof chatId !== 'string' || !chatId || !Number.isSafeInteger(messageId) || messageId < 0
+            || !Number.isSafeInteger(swipeId) || swipeId < 0 || !Number.isSafeInteger(slot) || slot < 1) return;
+        const key = `${chatId}|${messageId}|${swipeId}|${slot}`;
+        const token = {};
+        refreshTokens.set(key, token);
+        const job = Promise.resolve().then(async () => {
+            // 初次打开的目录快照先落地，再按通知重读当前槽位，避免旧列表覆盖新图。
+            if (opening) await opening;
+            if (disposed || refreshTokens.get(key) !== token) return;
+            const result = await library.refreshEntry(key);
+            if (opening) await opening;
+            if (disposed || refreshTokens.get(key) !== token) return;
+            if (!result?.ok) {
+                state.notice = `CG 更新读取失败：${cgReasonText(result?.reason)}`;
+                emit('status');
+                return;
+            }
+            const entries = state.all.filter((e) => e.key !== key);
+            if (result.entry) entries.push(result.entry);
+            replaceEntries(entries);
+            state.notice = result.warning ? `图片已替换，目录保存需重试：${cgReasonText(result.warning)}` : '';
+            emit('list');
+            emit('entry', key);
+            loadPageThumbs();
+        }).catch(() => { if (!disposed) { state.notice = 'CG 更新读取失败，请重新打开图库重试'; emit('status'); } })
+            .finally(() => {
+                refreshing.delete(job);
+                if (refreshTokens.get(key) === token) refreshTokens.delete(key);
+                wake();
+            });
+        refreshing.add(job);
+    }
+
     function open(filters) {
         if (disposed) return Promise.resolve();
         opened = true;
+        if (!offChanged && typeof library?.onChanged === 'function') {
+            const off = library.onChanged(onLibraryChanged);
+            offChanged = typeof off === 'function' ? off : () => {};
+        }
         if (filters) state.filters = { ...state.filters, ...filters };
         const gen = ++openGen;
         resetThumbWork();
@@ -275,7 +336,7 @@ export function createCgLibraryView(library, options = {}) {
     }
 
     function patchEntry(key, fields) {
-        if (!recompute(state.all.map((e) => (e.key === key ? { ...e, ...fields } : e)))) return;
+        if (!replaceEntries(state.all.map((e) => (e.key === key ? { ...e, ...fields } : e)))) return;
         emit('list');
         loadPageThumbs();
     }
@@ -329,7 +390,15 @@ export function createCgLibraryView(library, options = {}) {
         readFull: (entry) => library.readFull(entry),
         whenIdle: () => (busy() ? new Promise((resolve) => { waiters.push(resolve); }) : Promise.resolve()),
         dispose() {
-            disposed = true; offClear(); owner.destroy(); failed.destroy();
+            openGen += 1;
+            disposed = true;
+            offChanged?.();
+            offChanged = null;
+            refreshTokens.clear();
+            refreshing.clear();
+            onChange = () => {};
+            offClear(); owner.destroy(); failed.destroy();
+            leases.releaseAll(); wake();
         },
     };
 }

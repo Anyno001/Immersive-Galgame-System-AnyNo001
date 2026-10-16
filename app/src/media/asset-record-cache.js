@@ -1,7 +1,8 @@
 import { requireMediaCache } from './media-cache-owner.js';
 
 // variantOf 必须留着：时段差分入库时主图地址要回指原图（asset-match.bindGeneratedBackground）。
-const DISPLAY_FIELDS = ['chatId', 'floorKey', 'type', 'name', 'time', 'status', 'skipReason', 'imageId', 'tags', 'variantOf'];
+// 临时立绘按本图衣装快照核验，不从输入名称推断；快照与记录共用现有元数据预算。
+const DISPLAY_FIELDS = ['chatId', 'floorKey', 'type', 'name', 'time', 'status', 'skipReason', 'imageId', 'updatedAt', 'tags', 'variantOf', 'outfitSnapshot'];
 const QUERY_FIELDS = DISPLAY_FIELDS.filter(field => field !== 'tags');
 const project = record => record ? Object.fromEntries(['key', ...DISPLAY_FIELDS].filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]])) : null;
 const staleError = () => Object.assign(new Error('media-metadata-stale'), { code: 'media-metadata-stale' });

@@ -75,8 +75,14 @@ test('正文位置一次建图并顺序匹配，重复句子不退回上一场�
 test('整楼预备未来角色素材，翻页时不再逐槽检查或重查素材库', async t => {
     const checks = [];
     const generatedAssets = { hasUnavailableImages: () => true, isUnavailableImage(url) { checks.push(url); return false; },
+        imageAvailability(url) { checks.push(url); return { status: 'available' }; },
         resolveUrl: ref => `blob:fixture/${ref.slice(8)}` };
-    const sceneAssets = { enabled: true, characters: { 白墨: { 平和: 'igs-gen:bai' }, 小林: { 平和: 'igs-gen:lin' } } };
+    const sceneAssets = { enabled: true, characters: { 白墨: {}, 小林: {} },
+        characterDefaultOutfits: { 白墨: { version: 1, outfitName: '常服' }, 小林: { version: 1, outfitName: '常服' } },
+        characterOutfits: {
+            白墨: { 常服: { moods: { 平和: 'igs-gen:bai' } } },
+            小林: { 常服: { moods: { 平和: 'igs-gen:lin' } } },
+        } };
     const r = reader(t, { sceneAssets, generatedAssets, raw: '[igs-char:白墨|平和|第一句。]\n[igs-char:小林|平和|第二句。]\n[igs-char:白墨|平和|第三句。]' });
     assert.ok(checks.includes('igs-gen:lin'), '第一张页面显示前已经匹配下一位角色');
     checks.length = 0;
@@ -85,26 +91,30 @@ test('整楼预备未来角色素材，翻页时不再逐槽检查或重查素�
     assert.equal(r.content().spriteImage, 'blob:fixture/bai');
 });
 
-test('读图失败匹配只检查当前角色，原装未命中仍走同角色图库与别名兜底', () => {
-    const characters = { 白墨: { 喜悦: 'igs-gen:lost', 平和: 'igs-gen:calm' } };
-    for (let i = 0; i < 1000; i++) characters[`其他${i}`] = { 平和: `igs-gen:other-${i}` };
+test('命名默认衣装的缺图匹配只检查当前角色，别名复用同套可用槽', () => {
+    const characterOutfits = { 白墨: { 常服: { moods: { 喜悦: 'igs-gen:lost', 平和: 'igs-gen:calm' } } } };
+    for (let i = 0; i < 1000; i++) characterOutfits[`其他${i}`] = { 常服: { moods: { 平和: `igs-gen:other-${i}` } } };
     const checks = [];
-    const ctx = { sceneAssets: { characters, characterAliases: { 白墨: ['阿墨'] } },
-        isUnavailableImage(url) { checks.push(url); return url === 'igs-gen:lost'; } };
+    const ctx = { sceneAssets: { characterOutfits, characterAliases: { 白墨: ['阿墨'] },
+        characterDefaultOutfits: { 白墨: { version: 1, outfitName: '常服' } } },
+        imageAvailability(url) { checks.push(url); return { status: url === 'igs-gen:lost' ? 'missing' : 'available' }; } };
     assert.equal(resolveSpriteAsset('阿墨', '喜悦', ctx).url, 'igs-gen:calm');
     assert.ok(checks.length < 12);
     assert.equal(checks.some(url => url.includes('other-')), false);
-    ctx.sceneAssets.characters.白墨 = {};
-    ctx.generatedAssets = { characters: { 白墨: { 平和: 'igs-gen:library' } } };
-    assert.equal(resolveSpriteAsset('阿墨', '惊艳', ctx).url, 'igs-gen:library');
 });
 
 test('单图丢失与恢复只补受影响的匹配，其他角色不重查', async t => {
     const missing = new Set(), checks = [];
     const generatedAssets = { hasUnavailableImages: () => true,
+        imageAvailability(url) { checks.push(url); return { status: missing.has(url) ? 'missing' : 'available' }; },
         isUnavailableImage(url) { checks.push(url); return missing.has(url); },
         resolveUrl: ref => missing.has(ref) ? '' : `blob:fixture/${ref.slice(8)}` };
-    const sceneAssets = { enabled: true, characters: { 白墨: { 喜悦: 'igs-gen:joy', 平和: 'igs-gen:calm' }, 小林: { 平和: 'igs-gen:lin' } } };
+    const sceneAssets = { enabled: true, characters: { 白墨: {}, 小林: {} },
+        characterDefaultOutfits: { 白墨: { version: 1, outfitName: '常服' }, 小林: { version: 1, outfitName: '常服' } },
+        characterOutfits: {
+            白墨: { 常服: { moods: { 喜悦: 'igs-gen:joy', 平和: 'igs-gen:calm' } } },
+            小林: { 常服: { moods: { 平和: 'igs-gen:lin' } } },
+        } };
     const r = reader(t, { sceneAssets, generatedAssets, raw: '[igs-char:白墨|喜悦|第一句。]\n[igs-char:小林|平和|第二句。]' });
     checks.length = 0; missing.add('igs-gen:joy'); r.image({ reason: 'image-lost', imageId: 'joy' });
     await pause(150);
@@ -162,9 +172,11 @@ test('跨行对白、重复短对白、换场与换装均按预先定位的本�
 });
 
 test('正文和素材配置改变后丢弃旧计划，同长度的新正文也重新准备', async t => {
-    const sceneAssets = { enabled: true, characters: { 白墨: { 平和: 'first.png' } } };
+    const sceneAssets = { enabled: true, characters: { 白墨: {} },
+        characterDefaultOutfits: { 白墨: { version: 1, outfitName: '常服' } },
+        characterOutfits: { 白墨: { 常服: { moods: { 平和: 'first.png' } } } } };
     const r = reader(t, { sceneAssets, raw: '[igs-char:白墨|平和|你好。]\n下一页。' });
-    r.settings({ ...sceneAssets, characters: { 白墨: { 平和: 'second.png' } } }); await pause(150);
+    r.settings({ ...sceneAssets, characterOutfits: { 白墨: { 常服: { moods: { 平和: 'second.png' } } } } }); await pause(150);
     assert.equal(r.content().spriteImage, 'second.png');
     r.host.replaceReader({ messageId: 40, raw: '[igs-char:白墨|平和|再见。]\n下二页。' });
     assert.equal(r.content().displayText, '再见。');

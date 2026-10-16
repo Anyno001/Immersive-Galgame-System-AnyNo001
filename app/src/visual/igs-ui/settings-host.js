@@ -3,12 +3,11 @@ import { updateCharCounts } from './prompt-entries-fields.js';
 import { draftAssetLibrary, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { placeRowMenu } from './settings-outfit-fields.js';
-import { splitMigrationWords } from '../../scene/outfit-migration.js';
 import { cgReasonText } from '../../media/cg-library.js';
 import { setStagePauseReason } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { fileGeneratedHoldings, normalizeGeneratedLibrary, collectGeneratedImageIds } from '../../scene/asset-match.js';
-import { CHARACTER_DNA_FIELDS, resolveCharacterDna } from '../../scene/character-dna.js';
+import { CHARACTER_DNA_EDIT_FIELDS, editCharacterDnaField, resolveCharacterDna } from '../../scene/character-dna.js';
 import { loadMatteEditor } from './sprite-matte-editor.js';
 import { mountMatteEditor } from './sprite-matte-editor-mount.js';
 import { createCanvasImageCodec } from './sprite-matte-editor-view.js';
@@ -33,6 +32,10 @@ import { eventToShortcut } from './reader-shortcuts.js';
 import { canMorph, morphChildren } from './settings-dom-morph.js';
 import { buildFallbackSettingsOverlay } from './reader-dom-render.js';
 import { createSettingsRenderer } from './settings-host-render.js';
+import { createImagePromptEditor } from './settings-image-prompt-editor.js';
+import { handleImagePromptAction } from './settings-image-prompt-actions.js';
+import { handleArtistLibraryAction, setArtistLibraryField } from './settings-artist-library.js';
+import { preserveConfiguredArtists } from '../../generated-images/artist-library.js';
 import { previewStatusHudPosition } from './status-hud-position-fields.js';
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
@@ -125,6 +128,16 @@ export function createSettingsHost(deps) {
         };
         openSettingsPage(settingsState, explicit || lastPage || 'dash');
         state.activeSettings = settingsState;
+        const naiDraft = settingsState.draft.bridge.autoIllustration.nai;
+        const preserved = preserveConfiguredArtists(naiDraft);
+        if (preserved.ok) settingsState.draft.bridge.autoIllustration.nai = preserved.value;
+        else settingsState.asyncState.artistLibrary = { status: preserved.reason };
+        if (options.presetRegistry) {
+            const editor = createImagePromptEditor(options.presetRegistry);
+            settingsState.asyncState.imagePromptEditor = editor;
+            const initialized = editor.initialize();
+            if (!initialized.ok) editor.state.status = `初始化失败：${initialized.reason}`;
+        }
         settingsState.dom = mountSettingsDom(controller);
         syncSettingsStagePause();
         playReaderUiSfx('open');
@@ -158,6 +171,11 @@ export function createSettingsHost(deps) {
     function closeSettings() {
         const current = state.activeSettings;
         if (!current) return { ok: true, reason: 'settings-not-open' };
+        const editor = current.asyncState.imagePromptEditor;
+        if (editor?.state.dirty) {
+            const draftResult = editor.saveDraft();
+            if (!draftResult.ok) return draftResult;
+        }
         const saved = persistSettingsDraft({
             syncActiveModeFromSettings: current.initialOpenMode !== current.draft.bridge.openMode,
         });
@@ -218,7 +236,6 @@ export function createSettingsHost(deps) {
             for (const key of open) asyncState.advancedOpen[key] = true;
         }
         state.activeSettings.asyncState.wardrobeFocus = '';
-        delete state.activeSettings.asyncState.migrateRows;
         rememberSettingsPage(state.activeSettings);
         return rerenderSettings();
     }
@@ -253,6 +270,9 @@ export function createSettingsHost(deps) {
             // 设置搜索：跳到搜索结果所在页面，并展开所在折叠区。
             goToSetting(id) {
                 if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+                if (['artist-library', 'image-prompt-presets'].includes(id)
+                    && state.activeSettings.draft.bridge.imageApi.mode !== 'nai')
+                    return { ok: false, reason: 'nai-settings-source-required' };
                 const entry = (ensureSearchIndex() || SETTINGS_SEARCH_INDEX).find((item) => item.id === id) || SETTINGS_SEARCH_INDEX.find((item) => item.id === id);
                 if (!entry) return { ok: false, reason: 'unknown-setting' };
                 return jumpToTarget(entry.target, entry);
@@ -271,6 +291,28 @@ export function createSettingsHost(deps) {
             },
             setValue(path, value, editOptions) {
                 return updateSettingsValue(path, value, editOptions);
+            },
+            setArtistLibraryField(key, value) {
+                const panel = state.activeSettings;
+                if (!panel) return { ok: false, reason: 'settings-not-open' };
+                if (panel.draft.bridge.imageApi.mode !== 'nai')
+                    return { ok: false, reason: 'nai-settings-source-required' };
+                const result = setArtistLibraryField(panel, key, value);
+                if (!result.ok) {
+                    (panel.asyncState.artistLibrary ||= {}).status = `操作失败：${result.reason}`;
+                }
+                rerenderSettings();
+                return result;
+            },
+            setImagePromptField(address, value, { render = true } = {}) {
+                const panel = state.activeSettings, editor = panel?.asyncState.imagePromptEditor;
+                if (panel && panel.draft.bridge.imageApi.mode !== 'nai')
+                    return { ok: false, reason: 'nai-settings-source-required' };
+                if (!editor) return { ok: false, reason: 'prompt-editor-unavailable' };
+                const result = editor.edit(address, value);
+                editor.state.status = result.ok ? '有未存档的修改。' : `字段错误：${result.reason}`;
+                if (render) rerenderSettings();
+                return result;
             },
             toggle(path) {
                 const current = getPath(state.activeSettings && state.activeSettings.draft, path);
@@ -426,6 +468,59 @@ export function createSettingsHost(deps) {
     }
 
     async function handleSettingsAction(action) {
+        if (action.startsWith('artist-library:')) {
+            const panel = state.activeSettings;
+            if (!panel) return { ok: false, reason: 'settings-not-open' };
+            if (panel.draft.bridge.imageApi.mode !== 'nai')
+                return { ok: false, reason: '画师串库仅用于 IGS 内置 NAI，请先切换图像来源' };
+            if (panel.asyncState.artistLibraryBusy) return { ok: false, reason: '画师操作正在进行' };
+            if (action.startsWith('artist-library:target:')) {
+                const result = setArtistLibraryField(panel, 'target', action.slice('artist-library:target:'.length));
+                if (!result.ok) return result;
+                openSettingsPage(panel, 'source');
+                return rerenderSettings();
+            }
+            panel.asyncState.artistLibraryBusy = true;
+            try {
+                const result = await handleArtistLibraryAction(action, {
+                    panel, dialogs: settingsDialogs, global: options.global || globalThis,
+                    persistSettingsDraft, isCurrent: () => state.activeSettings === panel
+                        && panel.draft.bridge.imageApi.mode === 'nai',
+                });
+                if (state.activeSettings === panel) {
+                    const libraryState = panel.asyncState.artistLibrary ||= {};
+                    if (!result.ok) libraryState.status = `操作失败：${result.reason}`;
+                    else if (result.cancelled) libraryState.status = '已取消；配置未修改。';
+                    rerenderSettings();
+                }
+                return result;
+            } finally {
+                panel.asyncState.artistLibraryBusy = false;
+            }
+        }
+        if (action.startsWith('image-prompt:')) {
+            const panel = state.activeSettings, editor = panel?.asyncState.imagePromptEditor;
+            if (panel && panel.draft.bridge.imageApi.mode !== 'nai')
+                return { ok: false, reason: 'nai-settings-source-required' };
+            if (!editor) return { ok: false, reason: 'prompt-editor-unavailable' };
+            if (panel.asyncState.imagePromptBusy) return { ok: false, reason: 'prompt-editor-busy' };
+            panel.asyncState.imagePromptBusy = true;
+            try {
+                const result = await handleImagePromptAction(action, {
+                    editor, dialogs: settingsDialogs, global: options.global || globalThis,
+                    isCurrent: () => state.activeSettings === panel && panel.asyncState.imagePromptEditor === editor
+                        && panel.draft.bridge.imageApi.mode === 'nai',
+                });
+                if (state.activeSettings === panel) {
+                    editor.state.status = result.ok ? (result.cancelled ? '已取消。' : '操作完成。')
+                        : `操作失败：${result.reason}${result.errors?.length ? '；' + result.errors.map(e => `${e.field || ''}：${e.reason}`).join('；') : ''}`;
+                    rerenderSettings();
+                }
+                return result;
+            } finally {
+                panel.asyncState.imagePromptBusy = false;
+            }
+        }
         const onboardingResult = onboarding.handleAction(action);
         if (onboardingResult) return onboardingResult;
         return runSettingsAction(action, {
@@ -633,6 +728,18 @@ export function createSettingsHost(deps) {
         root.addEventListener('input', (event) => {
             const target = event.target;
             if (!target || !target.getAttribute) return;
+            const promptField = target.getAttribute('data-image-prompt-field');
+            if (promptField !== null && target.tagName !== 'SELECT' && target.type !== 'checkbox') {
+                controller.setImagePromptField(promptField, target.value, { render: false });
+                const status = root.querySelector('[data-image-prompt-status]');
+                if (status) status.textContent = state.activeSettings.asyncState.imagePromptEditor.state.status;
+                return;
+            }
+            if (target.getAttribute('data-image-prompt-preview-input') !== null) {
+                const editor = state.activeSettings.asyncState.imagePromptEditor;
+                editor.state.previewInput = target.value; editor.state.preview = null;
+                return;
+            }
             // 设置搜索只就地刷新结果列表，不写草稿、不整页重绘，保留输入焦点与软键盘。
             if (target.getAttribute('data-settings-search') !== null) {
                 const list = root.querySelector('[data-settings-search-results]');
@@ -699,27 +806,14 @@ export function createSettingsHost(deps) {
             const dnaField = target.getAttribute('data-dna-field');
             if (dnaChar && dnaField) {
                 // 角色 DNA 输入只更新草稿，关闭设置时统一保存；不重绘，避免丢焦点。
-                if (!CHARACTER_DNA_FIELDS.includes(dnaField) || ['__proto__', 'constructor', 'prototype'].includes(dnaChar)) return;
+                if (!CHARACTER_DNA_EDIT_FIELDS.includes(dnaField) || ['__proto__', 'constructor', 'prototype'].includes(dnaChar)) return;
                 rememberAssetScope(state.activeSettings, getSillyTavernContext(options.global || globalThis));
                 const assets = draftAssetLibrary(state.activeSettings, { collections: ASSET_CHARACTER_FIELDS, name: dnaChar });
                 const dnaMap = assets.characterDna && typeof assets.characterDna === 'object' && !Array.isArray(assets.characterDna)
                     ? assets.characterDna : (assets.characterDna = {});
                 const entry = Object.hasOwn(dnaMap, dnaChar) && dnaMap[dnaChar] && typeof dnaMap[dnaChar] === 'object' ? dnaMap[dnaChar] : (dnaMap[dnaChar] = {});
-                entry[dnaField] = target.value;
+                dnaMap[dnaChar] = editCharacterDnaField(entry, dnaField, target.value);
                 state.activeSettings.snapshot.draft = state.activeSettings.draft;
-                return;
-            }
-            // 原装迁移清单：服装名 / 别名 / 说明只改草稿，不重绘（保焦点），点「迁移」时才落盘。
-            const migChar = target.getAttribute('data-mig-char');
-            const migField = target.getAttribute('data-mig-field');
-            if (migChar && migField) {
-                const rows = state.activeSettings.asyncState.migrateRows;
-                const row = Array.isArray(rows) ? rows.find((item) => item.character === migChar) : null;
-                if (row) {
-                    if (migField === 'words') row.words = splitMigrationWords(target.value);
-                    else if (migField === 'name' || migField === 'note') row[migField] = String(target.value || '');
-                    state.activeSettings.snapshot.draft = state.activeSettings.draft;
-                }
                 return;
             }
             const sceneBg = target.getAttribute('data-scene-bg');
@@ -761,6 +855,37 @@ export function createSettingsHost(deps) {
             }
         });
         root.addEventListener('change', (event) => {
+            const target = event.target;
+            const artistField = target?.getAttribute?.('data-artist-library-field');
+            if (artistField != null) {
+                controller.setArtistLibraryField(artistField, target.value);
+                return;
+            }
+            if (target?.getAttribute && state.activeSettings?.asyncState.imagePromptEditor) {
+                const editor = state.activeSettings.asyncState.imagePromptEditor;
+                const address = target.getAttribute('data-image-prompt-field');
+                if (address !== null) {
+                    controller.setImagePromptField(address, target.type === 'checkbox' ? target.checked : target.value);
+                    return;
+                }
+                if (target.getAttribute('data-image-prompt-select') !== null) {
+                    if (target.value) controller.invoke(`image-prompt:select:${encodeURIComponent(target.value)}`);
+                    return;
+                }
+                const orderId = target.getAttribute('data-image-prompt-order-enabled');
+                if (orderId !== null) {
+                    editor.blockAction('order-enabled', 'prompts', orderId, target.checked);
+                    rerenderSettings(); return;
+                }
+                if (target.getAttribute('data-image-prompt-preview-task') !== null) {
+                    editor.state.previewTask = target.value; editor.state.preview = null;
+                    rerenderSettings(); return;
+                }
+                const importId = target.getAttribute('data-image-prompt-import-choice');
+                if (importId !== null) {
+                    editor.state.importChoices[importId] = target.value; return;
+                }
+            }
             const modelSync = event.target && event.target.getAttribute ? event.target.getAttribute('data-model-sync') : '';
             if (modelSync) {
                 controller.setValue(modelSync, event.target.value);
@@ -838,7 +963,6 @@ export function createSettingsHost(deps) {
                 controller.invoke(`horror-${horrorKind}:` + String(event.target.value || ''));
                 return;
             }
-            const target = event.target;
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
             if (path) noteRecentChange(target, path);
             if (event.target && event.target.type === 'range' && !/^readerSettings\.(typewriter\.sound|statusHud\.position)\./.test(path || '')) return;

@@ -1,5 +1,5 @@
 import { imageSha256 } from './image-sha256.js';
-export const IMAGE_FIELDS = ['dataUrl', 'originalDataUrl', 'workingDataUrl', 'alphaMaskDataUrl'];
+export const IMAGE_FIELDS = ['dataUrl', 'originalDataUrl', 'workingDataUrl', 'alphaMaskDataUrl', 'consistencyBaselineDataUrl'];
 export const isImageData = value => typeof value === 'string' && /^data:image\/(?:png|jpeg|jpg|webp|gif);base64,/i.test(value);
 export const isImagePath = value => typeof value === 'string' && /^\/?user\/images\/igs-[^?#]+$/.test(value);
 export const normalizeImagePath = value => String(value || '').replace(/^\//, '');

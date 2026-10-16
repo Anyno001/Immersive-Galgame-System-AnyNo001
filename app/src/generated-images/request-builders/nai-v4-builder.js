@@ -1,4 +1,7 @@
+import { resolveImageSeed } from '../image-seed.js';
 import { clampPixelPair } from '../illustration/cg-pixel-cap.js';
+import { prefixFinalArtist } from '../final-caption.js';
+import { globalArtist } from '../prompt-artists.js';
 
 export const NAI_OFFICIAL_ENDPOINT = 'https://image.novelai.net/ai/generate-image';
 
@@ -92,14 +95,21 @@ function parseSize(size) {
 
 export function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) {
     const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
+    const final = slot?.captionMode === 'final';
+    if (slot?.captionMode !== undefined && !final) throw new Error('PROMPT_MODE_CONFLICT');
+    const finalArtist = settings.finalArtist !== undefined ? settings.finalArtist
+        : globalArtist(settings);
+    const prepared = final ? prefixFinalArtist(slot.caption, finalArtist) : null;
+    if (final && /<<\s*dna/i.test(JSON.stringify(prepared))) throw new Error('DNA_TEMPLATE_UNRESOLVED');
     const chars = Array.isArray(slot && slot.chars) ? slot.chars.filter((c) => c && String(c.tags || '').trim()) : [];
-    const base = joinTags(settings.artistPrefix, slot && slot.scene);
-    const negBase = joinTags(settings.negativePrompt, slot && slot.sceneUc);
-    const posChars = chars.map((c) => ({
+    const base = final ? prepared.v4_prompt.caption.base_caption : joinTags(settings.artistPrefix, slot && slot.scene);
+    const negBase = final ? prepared.v4_negative_prompt.caption.base_caption : joinTags(settings.artistNegativePrefix, slot && slot.sceneUc);
+    const posChars = final ? prepared.v4_prompt.caption.char_captions : chars.map((c) => ({
         char_caption: String(c.tags).trim(),
         centers: [{ x: snapToNaiGrid(c.x), y: snapToNaiGrid(c.y) }],
     }));
-    const negChars = chars.map((c, i) => ({
+    const negChars = final ? prepared.v4_negative_prompt.caption.char_captions.map((c, i) => ({ ...c,
+        ...(!c.centers && posChars[i]?.centers && { centers: structuredClone(posChars[i].centers) }) })) : chars.map((c, i) => ({
         char_caption: String(c.uc || '').trim(),
         centers: posChars[i].centers,
     }));
@@ -119,16 +129,16 @@ export function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) 
             sampler: resolveSampler(settings.sampler),
             steps: Math.max(1, Math.min(50, Number(settings.steps) || 28)),
             n_samples: 1,
-            seed: Number.isInteger(settings.seed) && settings.seed > 0 ? settings.seed : Math.floor(random() * 4294967295),
+            seed: resolveImageSeed(settings.seed, random),
             noise_schedule: resolveNoiseSchedule(settings.noiseSchedule, model),
             cfg_rescale: 0,
             skip_cfg_above_sigma: null,
             image_format: 'png',
-            qualityToggle: true,
-            tag_hint_qt: true,
-            ucPreset: 0,
-            tag_hint_uc_preset: true,
-            ...(transparent && { straight_alpha: true, tag_hint_transparent_background: true }),
+            qualityToggle: !final,
+            tag_hint_qt: !final,
+            ucPreset: final ? 4 : 0,
+            tag_hint_uc_preset: !final,
+            ...(transparent && { straight_alpha: true, tag_hint_transparent_background: !final }),
             negative_prompt: negBase,
             use_coords: useCoords,
             v4_prompt: {

@@ -10,6 +10,7 @@ import { buildItemCatalog, normalizeItemName } from '../../data/shujuku/item-cat
 import { normalizeItemImageSettings } from './item-image-settings.js';
 import { createItemRecordCache } from './item-image-cache.js';
 import { ITEM_PLANNER_SYSTEM_PROMPT, ITEM_PLANNER_SOFT_SYSTEM_PROMPT, buildItemPlannerUserPrompt, parseItemPlan, buildFallbackItemPlan, buildItemSlot } from './item-prompt.js';
+import { inheritImageTaskLease } from '../image-task-runtime.js';
 
 export const ITEM_IMAGE_UPDATED_EVENT = 'igs:item-image-updated';
 export const ITEM_ASSET_TYPE = 'item';
@@ -89,21 +90,36 @@ export function createItemImageService(deps) {
         return job;
     }
 
-    // 数据库生图插件自己写提示词；否则副 LLM 写 tag，缺项或整体失败时逐项本地兜底。
+    // 活动预设负责完整正文；旧独立调用保留内容词模板兼容。
     async function planItems(needs, text, s, backend) {
         if (backend.ownPrompts) return needs.map((need) => ({ need, tags: '' }));
+        const ordered = typeof llm?.prepareImagePrompt === 'function';
+        const final = backend.mode === 'nai' && ordered;
+        const transparent = supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
+        const requirements = buildItemSlot('', { transparent, positiveContext: s.auto.nai.artistPrefix });
         let planned = [];
         try {
             const plan = await requestWithSoftRetry(llm, {
                 system: ITEM_PLANNER_SYSTEM_PROMPT,
                 softSystem: ITEM_PLANNER_SOFT_SYSTEM_PROMPT,
                 user: buildItemPlannerUserPrompt(needs, text),
-                parse: (reply) => parseItemPlan(reply, needs),
+                imagePrompt: { task: 'item', input: { description: buildItemPlannerUserPrompt(needs, text),
+                    ...(final && { userPrompts: { positive: requirements.scene,
+                        negative: requirements.sceneUc },
+                        writingRequirements: { size: s.items.size, transparent } }),
+                    outputs: { format: 'asset-plan', items: needs.map((need, index) => ({ id: `ch${index + 1}`, type: 'item' })) } } },
+                parse: (reply) => parseItemPlan(reply, needs, { strict: ordered }),
             }, s.auto.llm);
+            if (plan?.stopGeneration) return plan;
+            if (ordered && !plan?.ok) return { ...plan, ok: false, stopGeneration: true };
             if (plan && plan.ok) planned = plan.items;
         } catch (error) {
+            if (ordered) return { ok: false, reason: 'item-prompt-write-failed', stopGeneration: true,
+                error: '物品写词失败，未继续绘图' };
             report('warn', '物品图规划失败，改用本地兜底');
         }
+        if (final) return planned.map(item => inheritImageTaskLease(item,
+            { ...item, captionMode: 'final', transparent }));
         return needs.map((need) => planned.find((item) => item.need === need) || buildFallbackItemPlan(need));
     }
 
@@ -122,10 +138,13 @@ export function createItemImageService(deps) {
         if (!error) {
             // 智绘姬 / 柏宝绘出图不保证透明底：走它们时按非透明底出图，不信任 NAI 模型的原生透明能力。
             const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe().via : 'nai';
-            const transparent = plannedVia !== 'chatu8' && plannedVia !== 'baibai' && supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
-            const slot = buildItemSlot(plan.tags, { transparent, uc: plan.uc, positiveContext: s.auto.nai.artistPrefix });
+            const final = plan.captionMode === 'final';
+            const transparent = final ? plan.transparent : plannedVia !== 'chatu8' && plannedVia !== 'baibai' && supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
+            const slot = inheritImageTaskLease(plan, buildItemSlot(plan.tags, { transparent, uc: plan.uc,
+                positiveContext: s.auto.nai.artistPrefix, final }));
             const meta = { messageId: floor ? floor.messageId : undefined, size: s.items.size, imageKind: 'item',
-                description: `物品：${need.name}${need.description ? `，${need.description}` : ''}`, userPrompts: { positive: slot.scene, negative: slot.sceneUc } };
+                description: `物品：${need.name}${need.description ? `，${need.description}` : ''}`,
+                ...(!final && { userPrompts: { positive: slot.scene, negative: slot.sceneUc } }) };
             let result;
             try { result = await nai.generate(slot, { ...s.auto.nai, size: s.items.size }, meta); }
             catch (e) { result = { ok: false, error: `NAI 生成失败：${(e && e.message) || e}` }; }
@@ -172,6 +191,7 @@ export function createItemImageService(deps) {
             return { ok: false, reason: 'backend-unavailable', error, count: 0 };
         }
         const plans = await planItems(needs, text, s, backend);
+        if (plans?.ok === false) return { ...plans, count: 0, failedCount: needs.length };
         const results = [];
         for (const plan of plans) {
             results.push(await enqueue(itemAssetKeyOf(chatId, plan.need.name), () => generateItem(chatId, plan, s, floor, force)));

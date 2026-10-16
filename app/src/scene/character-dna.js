@@ -1,7 +1,94 @@
 // 角色 DNA：结构化文本角色资料的规范化、别名解析与提示词片段合并。
 // 数据位于 sceneAssets.characterDna，与情绪槽映射 sceneAssets.characters 并列，互不混入。
 
-export const CHARACTER_DNA_FIELDS = Object.freeze(['identity', 'defaultAppearance', 'negative', 'triggerWords']);
+export const CHARACTER_DNA_FIELDS = Object.freeze(['identity', 'defaultAppearance', 'negative', 'triggerWords', 'personality']);
+export const CHARACTER_DNA_REQUIRED_VIEWS = Object.freeze(['full_body', 'half_body', 'portrait']);
+// partial 只兼容历史资料与明确的旧任务，不参与新建完整性要求。
+export const CHARACTER_DNA_VIEWS = Object.freeze(['full_body', 'half_body', 'portrait', 'partial']);
+export const CHARACTER_DNA_EDIT_FIELDS = Object.freeze([...CHARACTER_DNA_FIELDS,
+    ...CHARACTER_DNA_VIEWS.flatMap((view) => [`views.${view}.subject`, `views.${view}.negative`])]);
+
+// 景别资料是同一身份的不同取景文本，不从旧自由文本自动推导。
+export function checkDnaViews(raw, { complete = false, allowEmpty = false } = {}) {
+    // 只输出程序定义的字段和原因，不携带身份正文或未知键。
+    const fail = (field, issue, detail) => {
+        const labels = { 'object-required': '必须是景别对象', 'unknown-view': '包含未知景别',
+            'view-required': '缺少必需景别', 'subject-required': '缺少身份主语',
+            'string-required': '必须是文本', 'empty-subject': '身份主语为空',
+            'text-too-long': '文本超过4096字符', 'recursive-placeholder': '身份资料含递归占位符' };
+        return { ok: false, reason: 'DNA_VIEW_INVALID',
+            error: `景别 DNA 格式无效 [字段=${field}；原因=${labels[detail]}]`,
+            diagnostic: { code: 'DNA_VIEW_INVALID', field, issue, detail } };
+    };
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+        return fail('dna.views', 'invalid', 'object-required');
+    if (Object.keys(raw).some((key) => !CHARACTER_DNA_VIEWS.includes(key)))
+        return fail('dna.views', 'invalid', 'unknown-view');
+    const value = {};
+    for (const view of CHARACTER_DNA_VIEWS) {
+        const item = raw[view], field = `dna.views.${view}`;
+        if (item === undefined && (!complete || !CHARACTER_DNA_REQUIRED_VIEWS.includes(view))) continue;
+        if (item === undefined) return fail(field, 'missing', 'view-required');
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return fail(field, 'invalid', 'object-required');
+        if (item.subject === undefined) return fail(`${field}.subject`, 'missing', 'subject-required');
+        if (typeof item.subject !== 'string') return fail(`${field}.subject`, 'invalid', 'string-required');
+        if (!allowEmpty && !item.subject.trim()) return fail(`${field}.subject`, 'invalid', 'empty-subject');
+        if (item.subject.length > 4096) return fail(`${field}.subject`, 'invalid', 'text-too-long');
+        if (item.negative !== undefined && typeof item.negative !== 'string')
+            return fail(`${field}.negative`, 'invalid', 'string-required');
+        if (item.negative?.length > 4096) return fail(`${field}.negative`, 'invalid', 'text-too-long');
+        if (/<<dna(?:_uc)?:/i.test(item.subject + (item.negative || ''))) {
+            const part = /<<dna(?:_uc)?:/i.test(item.subject) ? '.subject'
+                : /<<dna(?:_uc)?:/i.test(item.negative || '') ? '.negative' : '';
+            return fail(field + part, 'placeholder', 'recursive-placeholder');
+        }
+        value[view] = { subject: cleanText(item.subject), negative: cleanText(item.negative) };
+    }
+    return { ok: true, value };
+}
+
+export function readCharacterDnaView(raw, framing) {
+    if (!CHARACTER_DNA_VIEWS.includes(framing)) return { ok: false, reason: 'DNA_VIEW_INVALID', error: '未知人物景别' };
+    const dna = normalizeCharacterDna(raw);
+    if (!dna.identity && !CHARACTER_DNA_VIEWS.some((view) => dna.views?.[view]?.subject))
+        return { ok: false, reason: 'DNA_MISSING', error: dna.identityInitialized
+            ? '角色身份已手工清空，请先补齐 DNA' : '角色缺少 DNA，请先生成立绘' };
+    if (raw?.version !== undefined && raw.version !== 2)
+        return { ok: false, reason: 'DNA_VIEW_INVALID', error: '未知 DNA 版本' };
+    if (raw?.version !== 2 || raw?.views === undefined)
+        return { ok: false, reason: 'DNA_VIEW_MISSING', error: '角色缺少对应景别 DNA，请通过立绘补齐' };
+    const checked = checkDnaViews(raw.views, { allowEmpty: true });
+    if (!checked.ok) return checked;
+    if (!checked.value[framing]?.subject) return { ok: false, reason: 'DNA_VIEW_MISSING', error: '角色缺少对应景别 DNA，请通过立绘补齐' };
+    const personality = checkCharacterPersonality(raw.personality);
+    if (!personality.ok) return personality;
+    const view = checked.value[framing];
+    return { ok: true, value: { ...view, subject: [view.subject, personality.value].filter(Boolean).join(' ') } };
+}
+
+export function checkCharacterPersonality(value) {
+    if (value === undefined) return { ok: true, value: '' };
+    if (typeof value !== 'string' || value.length > 4096 || /<<\s*(?:dna|outfit)/i.test(value))
+        return { ok: false, reason: 'DNA_VIEW_INVALID', error: '性格 DNA 必须是无占位符的独立文本',
+            diagnostic: { code: 'DNA_VIEW_INVALID', field: 'dna.personality', issue: 'invalid' } };
+    return { ok: true, value: cleanText(value) };
+}
+
+export function editCharacterDnaField(raw, field, value) {
+    if (!CHARACTER_DNA_EDIT_FIELDS.includes(field) || typeof value !== 'string') return null;
+    const next = { ...normalizeCharacterDna(raw) };
+    if (CHARACTER_DNA_FIELDS.includes(field)) {
+        next[field] = value;
+        if (field === 'identity') next.identityInitialized = true;
+    } else {
+        const [, view, part] = field.split('.');
+        next.version = 2;
+        next.views = { ...next.views, [view]: { subject: '', negative: '', ...next.views?.[view], [part]: value } };
+        // 手工编辑身份（包括主动清空）锁定资料；只填负面词不阻止首次立绘建档。
+        if (part === 'subject') next.identityInitialized = true;
+    }
+    return next;
+}
 
 // 预设与导入文件属于不可信输入，拒绝原型污染键。
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -15,12 +102,25 @@ function cleanText(value) {
 export function normalizeCharacterDna(raw) {
     const source = plainObject(raw) || {};
     const dna = {};
-    for (const field of CHARACTER_DNA_FIELDS) dna[field] = cleanText(source[field]);
+    for (const field of CHARACTER_DNA_FIELDS) {
+        if (field !== 'personality' || hasOwn(source, field)) dna[field] = cleanText(source[field]);
+    }
+    if (source.identityInitialized === true) dna.identityInitialized = true;
+    if (typeof source.identitySource === 'string' && source.identitySource) dna.identitySource = source.identitySource;
+    if (source.version === 2) {
+        dna.version = 2;
+        dna.views = {};
+        for (const view of CHARACTER_DNA_VIEWS) {
+            const item = plainObject(source.views?.[view]);
+            if (item) dna.views[view] = { subject: cleanText(item.subject), negative: cleanText(item.negative) };
+        }
+    }
     return dna;
 }
 
 export function isCharacterDnaEmpty(dna) {
-    return CHARACTER_DNA_FIELDS.every((field) => !cleanText(dna?.[field]));
+    return CHARACTER_DNA_FIELDS.every((field) => !cleanText(dna?.[field]))
+        && CHARACTER_DNA_VIEWS.every((view) => !cleanText(dna?.views?.[view]?.subject));
 }
 
 // 空记录保留：DNA-only 角色可以先登记名字、后补资料。
@@ -102,10 +202,10 @@ export function mergePromptTags(...parts) {
     return out.join(', ');
 }
 
-// 固定顺序：triggerWords → identity →（立绘链才追加）defaultAppearance；空字段不注入。
+// 性格独立保存，使用时与身份合并；不复制进各景别资料。
 export function buildCharacterDnaPromptParts(dna, { includeDefaultAppearance = false } = {}) {
     const d = normalizeCharacterDna(dna);
-    const positive = [d.triggerWords, d.identity];
+    const positive = [d.triggerWords, d.identity, d.personality];
     if (includeDefaultAppearance) positive.push(d.defaultAppearance);
     return { positive: mergePromptTags(positive), negative: mergePromptTags(d.negative) };
 }

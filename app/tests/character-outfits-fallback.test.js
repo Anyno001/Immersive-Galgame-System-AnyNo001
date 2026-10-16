@@ -50,17 +50,17 @@ test('gate:outfits:fallback-read-error-differs-from-empty-data', () => {
     assert.equal(empty.status, 'empty');
     assert.equal(empty.reason, '');
     const withDna = resolveFallbackOutfit(outfits, { clues: failed, dnaAppearance: '穿着睡裙' });
-    assert.deepEqual(withDna, { outfit: '睡衣', source: 'dna', reason: 'missing-api' });
+    assert.deepEqual(withDna, { outfit: '', source: '', reason: 'missing-api' });
     assert.deepEqual(resolveFallbackOutfit(outfits, { clues: empty }), { outfit: '', source: '', reason: '' });
 });
 
-test('gate:outfits:fallback-priority-profile-then-equipment-then-dna', () => {
+test('gate:outfits:fallback-priority-profile-then-equipment-without-legacy-dna', () => {
     const all = { status: 'ready', profile: ['水手服'], worn: ['比基尼'] };
     assert.equal(resolveFallbackOutfit(outfits, { clues: all, dnaAppearance: '睡裙' }).source, 'profile');
     assert.equal(resolveFallbackOutfit(outfits, { clues: { ...all, profile: ['普通便装'] }, dnaAppearance: '睡裙' }).outfit, '泳装');
-    assert.equal(resolveFallbackOutfit(outfits, { clues: { profile: [], worn: [] }, dnaAppearance: '睡裙' }).outfit, '睡衣');
+    assert.equal(resolveFallbackOutfit(outfits, { clues: { profile: [], worn: [] }, dnaAppearance: '睡裙' }).outfit, '');
     // 同一来源里两套等长命中视为冲突，交给下一来源。
-    assert.equal(resolveFallbackOutfit(outfits, { clues: { profile: ['制服或泳衣'], worn: [] }, dnaAppearance: '睡裙' }).outfit, '睡衣');
+    assert.equal(resolveFallbackOutfit(outfits, { clues: { profile: ['制服或泳衣'], worn: [] }, dnaAppearance: '睡裙' }).outfit, '');
     // 单字不误配、未登记文本不制造服装。
     assert.equal(resolveFallbackOutfit(outfits, { clues: { profile: ['衣'], worn: ['运动衫'] }, dnaAppearance: '风衣' }).outfit, '');
 });
@@ -78,6 +78,6 @@ test('gate:outfits:sprite-outfit-tag-overrides-fallback-and-reset-skips-it', () 
     assert.equal(reads, 0);
     assert.deepEqual(resolveSpriteOutfit({ ...base, directives: [] }), { outfit: '校服', source: 'profile', reason: '' });
     assert.deepEqual(resolveSpriteOutfit({ ...base, directives: [], readClues: () => { throw new Error('boom'); } }),
-        { outfit: '睡衣', source: 'dna', reason: 'boom' });
+        { outfit: '', source: '', reason: 'boom' });
     assert.deepEqual(resolveSpriteOutfit({ ...base, character: '路人', directives: [] }), { outfit: '', source: '', reason: '' });
 });

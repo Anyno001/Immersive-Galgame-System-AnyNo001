@@ -1,5 +1,6 @@
 import { NAI_DEFAULT_SETTINGS } from '../request-builders/nai-v4-builder.js';
 import { normalizeArtistByKind } from '../prompt-artists.js';
+import { normalizeArtistLibrary } from '../artist-library.js';
 import { DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
 import { PLANNER_SYSTEM_PROMPT, PLANNER_SOFT_SYSTEM_PROMPT } from './planner-prompt.js';
 import { ASSET_PLANNER_SYSTEM_PROMPT, ASSET_PLANNER_SOFT_SYSTEM_PROMPT } from './asset-prompt.js';
@@ -25,9 +26,30 @@ const clampNum = (v, min, max, d) => {
 const bool = (v) => v === true || v === 'true' || v === 1 || v === '1';
 const str = (v, d = '') => (typeof v === 'string' ? v : d);
 
+// 旧低值和非法资料保留可读；是否可发送由任务预检决定，不悄悄抬高强度。
+export const normalizeConsistencyStrength = (value) => {
+    if (value == null || value === '') return 0.6;
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+    return value;
+};
+export const isConsistencyStrengthValid = (value) => Number.isFinite(value) && value >= 0.1 && value <= 1;
+
+export const CONSISTENCY_MODEL_OPTIONS = Object.freeze([
+    ['nai-diffusion-4-5-full-inpainting', 'V4.5 Inpainting'],
+    ['nai-diffusion-5-full-inpainting', 'V5 Inpainting'],
+]);
+// 缺省兼容旧设置；显式非法值保留，执行时拒发，不静默换模型。
+export const normalizeConsistencyModel = (value) => value == null || value === ''
+    ? 'nai-diffusion-5-full-inpainting' : value;
+export const isConsistencyModelValid = (value) => CONSISTENCY_MODEL_OPTIONS.some(([model]) => model === value);
+
 // 模板留空视为恢复内置模板；背景/立绘正向模板必须含 {tags}，否则 LLM 的内容会被丢掉。
-// 旧内置立绘模板带双手下垂，存下来的原样副本换成新内置的。
-const LEGACY_SPRITE_TEMPLATE = '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}';
+// 只迁移可确认的旧内置原样副本；自定义模板保持原值。
+const LEGACY_SPRITE_TEMPLATES = new Set([
+    '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}',
+    '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
+]);
+const LEGACY_SPRITE_NEGATIVE = 'multiple views, 2girls, 2boys, multiple girls, multiple boys, crowd, close-up, portrait, upper body, full body, feet, head out of frame, cropped arms, scenery, detailed background, white background, gradient background, patterned background, drop shadow, floor, furniture, holding weapon, text, speech bubble, watermark, signature, frame, border';
 
 function normalizeTemplates(value) {
     const src = value && typeof value === 'object' ? value : {};
@@ -35,7 +57,8 @@ function normalizeTemplates(value) {
     for (const [key, fallback] of Object.entries(DEFAULT_ASSET_TEMPLATES)) {
         const text = typeof src[key] === 'string' ? src[key].trim() : '';
         const needsTags = key === 'background' || key === 'sprite';
-        const legacy = key === 'sprite' && text === LEGACY_SPRITE_TEMPLATE;
+        const legacy = key === 'sprite' ? LEGACY_SPRITE_TEMPLATES.has(text)
+            : key === 'spriteNegative' && text === LEGACY_SPRITE_NEGATIVE;
         out[key] = text && !legacy && (!needsTags || text.includes('{tags}')) ? text : fallback;
     }
     return out;
@@ -57,6 +80,8 @@ export function normalizeAutoIllustrationSettings(value) {
     const nai = src.nai && typeof src.nai === 'object' ? src.nai : {};
     const assets = src.assets && typeof src.assets === 'object' ? src.assets : {};
     return {
+        consistencyStrength: normalizeConsistencyStrength(src.consistencyStrength),
+        consistencyModel: normalizeConsistencyModel(src.consistencyModel),
         nsfwEnabled: bool(src.nsfwEnabled),
         nsfwCount: clampInt(src.nsfwCount, 1, NSFW_COUNT_MAX, 1),
         interludeEnabled: bool(src.interludeEnabled),
@@ -95,9 +120,14 @@ export function normalizeAutoIllustrationSettings(value) {
             sampler: str(nai.sampler, NAI_DEFAULT_SETTINGS.sampler) || NAI_DEFAULT_SETTINGS.sampler,
             noiseSchedule: str(nai.noiseSchedule, NAI_DEFAULT_SETTINGS.noiseSchedule) || NAI_DEFAULT_SETTINGS.noiseSchedule,
             artistPrefix: str(nai.artistPrefix),
-            negativePrompt: typeof nai.negativePrompt === 'string' ? nai.negativePrompt : NAI_DEFAULT_SETTINGS.negativePrompt,
+            ...(typeof nai.artistNegativePrefix === 'string' && { artistNegativePrefix: nai.artistNegativePrefix }),
+            // 旧通用负面仅保留已有文本供归档；新配置不再注入默认值。
+            negativePrompt: str(nai.negativePrompt),
             artistByKind: normalizeArtistByKind(nai.artistByKind),
+            artistLibrary: normalizeArtistLibrary(nai.artistLibrary),
             timeoutMs: clampInt(nai.timeoutMs, 10000, 300000, NAI_DEFAULT_SETTINGS.timeoutMs),
+            // 草稿首次归档会追加此标记；归一化保持相同顺序，避免无修改关闭重写存储。
+            ...(nai.artistLibraryArchived === true && { artistLibraryArchived: true }),
         },
     };
 }

@@ -22,6 +22,7 @@ const PRESET_GROUP_TO_TYPE = Object.freeze({
     sceneRegexPresets: 'scene-regex-preset',
     textFilterPresets: 'text-filter-preset',
     textFormatPresets: 'text-format-preset',
+    promptPresets: 'prompt-preset',
 });
 
 export function createPublicApi(app) {

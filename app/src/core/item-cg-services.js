@@ -2,6 +2,7 @@
 // 物品图默认关闭（itemImages.enabled=false）时服务入口短路，不读表、不联网；CG 库只读本地存储。
 import { createItemImageService, ITEM_IMAGE_UPDATED_EVENT } from '../generated-images/illustration/item-image-service.js';
 import { createCgLibrary } from '../media/cg-library.js';
+import { ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
 import { createIndexedDbCgGalleryStore } from '../media/cg-gallery-store.js';
 import { createIndexedDbCgIndexStore } from '../media/cg-index-store.js';
 import { createCgThumbnailer } from '../media/cg-thumbnail.js';
@@ -34,6 +35,8 @@ export function createItemAndCgServices(deps = {}) {
         marksStore: deps.cgGalleryStore || createIndexedDbCgGalleryStore(globalObject),
         indexStore: deps.cgIndexStore || createIndexedDbCgIndexStore(globalObject),
         clearIllustration,
+        onIllustrationUpdated: (handler) => (events && typeof events.on === 'function'
+            ? events.on(ILLUSTRATION_UPDATED_EVENT, handler) : () => {}),
         makeThumbnail: createCgThumbnailer(globalObject),
         getDocument: () => globalObject && globalObject.document,
     });

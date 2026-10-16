@@ -440,3 +440,24 @@ test('asset scope: 删除角色只问这一份，不提所有卡共用', async (
     assert.equal(draft.bridge.sceneAssets.cards['card:小雪'].characters.莉莉.默认, 'mine');
     assert.equal(draft.bridge.sceneAssets.cards['card:A'].characters.悟.默认, 'a');
 });
+
+test('素材预设和卡级分层往返保留首次采用来源与主动清空标记', async () => {
+    const { presetFromAssets, layeredPresetFromRoot, presetCardLayers, replaceLibraryWithPack } = await import('../src/scene/legacy-preset.js');
+    const dna = { identity: '', defaultAppearance: 'legacy clothing', negative: '', triggerWords: '', identityInitialized: true, identitySource: 'sprite-a' };
+    const library = { scenes: {}, characters: { Alice: { 默认: 'sprite-a' } }, characterDna: { Alice: dna } };
+    const preset = JSON.parse(JSON.stringify(presetFromAssets(library)));
+    const pack = legacyPresetToPack(preset);
+    assert.deepEqual(pack.library.characterDna.Alice, dna);
+    const merged = { characterDna: { Bob: { identity: 'Bob.' } } };
+    mergeLegacyLibrary(merged, pack);
+    assert.deepEqual(merged.characterDna.Alice, dna);
+    assert.equal(merged.characterDna.Bob.identity, 'Bob.');
+    const root = { cards: { 'card:A': library } };
+    const layered = JSON.parse(JSON.stringify(layeredPresetFromRoot(root, { cardKey: 'card:A' })));
+    const [layer] = presetCardLayers(layered);
+    assert.equal(layer.key, 'card:A');
+    const restored = {};
+    replaceLibraryWithPack(restored, layer.pack);
+    assert.deepEqual(restored.characterDna.Alice, dna);
+    assert.equal(restored.characters.Alice.默认, 'sprite-a');
+});

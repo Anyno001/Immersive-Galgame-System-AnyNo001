@@ -1,5 +1,5 @@
-// 生图 → 分类：按「角色 / 表情差分 / Q 版 / 场景与物品 / CG / NSFW」分卡片，每张卡依次是自动生成开关、模型（slots 传入）、画师串折叠。
-// 画师串折叠里默认只露画师串；IGS 自带的词再收一层折叠。词来自 generated-images/prompt-registry.js，可编辑的模板沿用 assets.templates，其余先只读。
+// 生图 → 分类：自动生成开关、模型与提示词按用途分组，内置 NAI 的画师文本统一在库内管理。
+// IGS 自带的词来自 generated-images/prompt-registry.js，可编辑的模板沿用 assets.templates，其余只读。
 import { esc } from './reader-value-utils.js';
 import { PROMPT_KINDS, normalizeArtistByKind } from '../../generated-images/prompt-artists.js';
 import { BUILTIN_PROMPTS, SCENE_DICTIONARY } from '../../generated-images/prompt-registry.js';
@@ -53,7 +53,7 @@ function fold(key, summary, body, advancedOpen) {
 
 // templateFields：{ sprite: [html…], background: [html…], nsfwCg: [html…] } —— 可编辑的 IGS 自带模板。
 // slots：{ common, character, scene, cg, nsfw } —— 各卡片顶部的生成开关与模型。
-export function renderPromptKindsPanel({ nai, field, textarea, checkbox, advancedOpen, templateFields = {}, slots = {} }) {
+export function renderPromptKindsPanel({ nai, sourceMode, checkbox, advancedOpen, templateFields = {}, slots = {} }) {
     const conf = normalizeArtistByKind(nai && nai.artistByKind);
     const base = 'bridge.autoIllustration.nai.artistByKind';
     const card = (id, single) => {
@@ -61,11 +61,11 @@ export function renderPromptKindsPanel({ nai, field, textarea, checkbox, advance
         const filled = entry.positive.trim() || entry.negative.trim();
         const editable = (templateFields[id] || []).map((html) => `<div class="igs-settings-full">${html}</div>`).join('');
         const view = BUILTIN_VIEW[id] || [];
-        const builtin = editable || view.length ? fold(`prompt-builtin-${id}`, 'IGS自带', editable + builtinBlock(view), advancedOpen) : '';
-        const path = (side) => `${base}.kinds.${id}.${side}`;
+        const builtin = editable || view.length ? fold(`prompt-builtin-${id}`, 'IGS 自带', editable + builtinBlock(view), advancedOpen) : '';
         return fold(`prompt-kind-${id}`, (single ? '画师串与提示词' : `${esc(LABEL.get(id))} · 画师串与提示词`) + (filled ? ' ·' : ''),
-            `<div class="igs-settings-full">${field(path('positive'), '画师串 · 正面', textarea(path('positive'), entry.positive, '留空用全局画师串'))}</div>`
-            + `<div class="igs-settings-full">${field(path('negative'), '画师串 · 负面', textarea(path('negative'), entry.negative, '留空用全局负面'))}</div>`
+            (sourceMode === 'nai' ? `<button type="button" class="igs-settings-action" data-action="artist-library:target:${id}">在画师库选用${esc(LABEL.get(id))}画师</button>`
+                : '')
+            + `<div class="igs-source-filter-note">${filled ? '已配置分区画师；分区开关开启后使用。' : '分区留空，使用全局画师。'}</div>`
             + builtin
             + (KIND_NOTE[id] ? `<div class="igs-source-filter-note">${esc(KIND_NOTE[id])}</div>` : ''), advancedOpen);
     };

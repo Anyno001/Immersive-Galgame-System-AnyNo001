@@ -42,7 +42,7 @@ test('gate:settings-search:ranking-empty-and-no-match', () => {
 test('gate:settings-search:results-html-empty-hint-and-escaping', async () => {
     const { renderSettingsSearchResults } = await import('../src/visual/igs-ui/settings-search.js');
     assert.equal(renderSettingsSearchResults(''), '');
-    assert.match(renderSettingsSearchResults('zzzz-no-such-setting'), /未找到相关设置/);
+    assert.match(renderSettingsSearchResults('zzzz-qqqq-xxxx'), /未找到相关设置/);
     const html = renderSettingsSearchResults('冲击');
     assert.match(html, /data-setting-go="camera-impact"/);
     assert.match(html, /演出 › 画面/);
@@ -61,6 +61,9 @@ test('gate:settings-search:colloquial-words-and-did-you-mean', async () => {
     assert.equal(searchSettings('卡顿')[0].id, 'render-quality');
     assert.equal(searchSettings('黑边')[0].id, 'cinema-bars');
     assert.equal(searchSettings('立绘太大')[0].target.page, 'chars');
+    const strength = searchSettings('strength')[0];
+    assert.equal(strength.id, 'consistency-strength');
+    assert.deepEqual(strength.target, { page: 'source', open: [] });
     // 直接搜不到时给「你是否在找」。
     assert.match(renderSettingsSearchResults('下雨天'), /你是否在找[\s\S]*data-setting-go="perf:/);
 });

@@ -3,6 +3,7 @@ import { createMediaRecordJournal } from './media-record-journal.js';
 import { mediaFileGcFor } from './media-file-gc.js';
 import { IMAGE_FIELDS } from './image-identity.js';
 import { retryInlineMedia } from './media-migration.js';
+import { slotPatch } from './illustration-store.js';
 export const CG_RECORDS_FILE = 'igs-cg-records.json';
 
 export function withTavernIllustrationFiles(store, globalObject = globalThis) {
@@ -28,13 +29,46 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
         const key = keyOf(floorKey, value.slot), old = await getRaw(key);
         const next = await files.offload({ ...value, floorKey }, key, old);
         try {
-            await journal.write(key, next, async () => {
+            const saved = await journal.write(key, next, async () => {
                 if (!files.sameRecord(expected || old, await getRaw(key))) throw new Error('image-write-stale');
                 return store.putSlot(floorKey, next);
             });
-            await files.dropUnused(old, next);
+            await files.dropUnused(old, saved || next);
+            return files.hydrate(saved || next);
         } catch (error) { await files.dropUnused(next, old); throw error; }
         finally { await files.release(next); }
+    }
+    async function updateSlot(floorKey, slot, expectedRevision, patch, options = {}) {
+        await journal.restore().catch(() => {});
+        if (typeof store.updateSlot !== 'function') return { ok: false, reason: 'update-unavailable' };
+        const key = keyOf(floorKey, slot), old = await getRaw(key);
+        const checked = slotPatch(old, expectedRevision, patch, options);
+        if (!checked.ok) return checked;
+        const prepared = { ...patch };
+        if (options.preserveBaseline && !old.consistencyBaselineDataUrl) prepared.consistencyBaselineDataUrl = old.dataUrl;
+        const next = await files.offload(prepared, key, old);
+        let result;
+        try {
+            await options.beforeCommit?.();
+            const { beforeCommit, ...commitOptions } = options;
+            result = await journal.write(key, async () => {
+                const projected = slotPatch(await getRaw(key), expectedRevision, next, commitOptions);
+                if (!projected.ok) throw Object.assign(new Error(projected.reason), { result: projected });
+                return projected.record;
+            }, () => store.updateSlot(floorKey, slot, expectedRevision, next, commitOptions));
+            await files.dropUnused(old, result.record);
+        } catch (error) {
+            await files.dropUnused(next, await getRaw(key));
+            if (error.result) return error.result;
+            throw error;
+        } finally { await files.release(next); }
+        try {
+            const record = await files.hydrate(result.record);
+            if (!record?.dataUrl && patch.dataUrl) return { ...result, record: { ...record, dataUrl: patch.dataUrl }, warning: 'cg-file-read-failed' };
+            return { ...result, record };
+        } catch {
+            return { ...result, record: { ...result.record, ...(patch.dataUrl && { dataUrl: patch.dataUrl }) }, warning: 'cg-file-read-failed' };
+        }
     }
     async function fromNames(floorKey) {
         const candidates = await Promise.all(Array.from({ length: 16 }, async (_, index) => {
@@ -64,6 +98,7 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
             return Promise.all(list.map(record => files.hydrate(record, options)));
         },
         putSlot: save,
+        updateSlot,
         async deleteSlot(floorKey, slot) {
             await journal.restore().catch(() => {});
             const key = keyOf(floorKey, slot), old = await getRaw(key);
@@ -71,7 +106,18 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
             await files.dropUnused(old, null);
             return result;
         },
-        async listSlotKeys() { await journal.restore(); return store.listSlotKeys(); },
+        async listSlotKeys(options = {}) {
+            try {
+                await journal.restore();
+                if (options.requireComplete && journal.remoteExists() === null) {
+                    throw new Error('media-backup-unavailable');
+                }
+                return await store.listSlotKeys(options);
+            } catch (cause) {
+                if (options.requireComplete) throw new Error('image-reference-unavailable', { cause });
+                throw cause;
+            }
+        },
         async getSlotRecord(key) {
             await journal.restore();
             const existing = await getRaw(key);
