@@ -23,6 +23,7 @@ const sameValue = (a, b) => {
     const keys = Object.keys(a);
     return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && sameValue(a[key], b[key]));
 };
+export { sameValue as sameMediaValue };
 const sameRecord = (a, b) => Boolean(a && b) && versionOf(a) === versionOf(b) && Boolean(a.deleted) === Boolean(b.deleted)
     && sameValue(a.value, b.value) && sameValue(a.previousValue || null, b.previousValue || null);
 const MAX_AUTO_ATTEMPTS = 3;
@@ -34,7 +35,7 @@ export function parseMediaBackup(file, legacyField) {
     return Object.fromEntries(Object.entries(file[legacyField]).map(([key, value]) => [key, { value, version: '0000000000000:000000:legacy', deleted: false }]));
 }
 
-export function createMediaRecordJournal(globalObject, { fileName, legacyField = 'records', list, get = async key => new Map(await list()).get(key), put, remove, beforeFlush = async () => {}, onApply = async () => {} }) {
+export function createMediaRecordJournal(globalObject, { fileName, legacyField = 'records', list, get = async key => new Map(await list()).get(key), put, remove, beforeFlush = async () => {}, onApply = async () => {}, isBackupComplete = () => true }) {
     const state = mediaStateStoreFor(globalObject);
     const prefix = `${fileName}:`;
     let queue = Promise.resolve(), restoring = null, restored = false, timer = null, lastError = '', stopped = false;
@@ -43,6 +44,7 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
     let retryAttempts = 0;
     let migrationFailures = [];
     let remoteExists = null;
+    let remoteComplete = false;
     const pending = new Set();
     const track = job => { pending.add(job); job.finally(() => pending.delete(job)).catch(() => {}); return job; };
     const device = Math.random().toString(36).slice(2, 10);
@@ -53,13 +55,16 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
     };
     const stamp = () => { logicalTime = Math.max(Date.now(), logicalTime + 1); return `${String(logicalTime).padStart(13, '0')}:000000:${device}`; };
     const localRows = async () => Object.fromEntries((await state.all()).filter(row => row.id.startsWith(prefix) && row.kind === 'record').map(row => [row.id.slice(prefix.length), row]));
-    async function readRemote() {
+    async function readRemote(requireComplete = false) {
         if (!tavernHeaders(globalObject)) return null;
         const response = await mediaRequest(globalObject, `/user/files/${fileName}?t=${Date.now()}`, { cache: 'no-store' }, 8000);
-        if (response.status === 404) { remoteExists = false; return {}; }
+        if (response.status === 404) { remoteExists = false; remoteComplete = true; return {}; }
         if (!response.ok) throw new Error('media-backup-read-failed');
         remoteExists = true;
-        return parseMediaBackup(await response.json(), legacyField);
+        const file = await response.json();
+        remoteComplete = isBackupComplete(file);
+        if (requireComplete && !remoteComplete) throw new Error('media-backup-incomplete');
+        return parseMediaBackup(file, legacyField);
     }
     async function apply(records) {
         for (const [key, incoming] of Object.entries(records)) {
@@ -88,10 +93,13 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
         retryAttempts = 0; retryDelay = 2000;
         (globalObject.clearTimeout || clearTimeout)(timer); timer = null;
     }
-    async function restore() {
+    async function restore({ requireComplete = false } = {}) {
         if (stopped) throw new Error('media-stopped');
-        if (restored) return;
-        if (restoring) return restoring;
+        if (restored || restoring) {
+            if (restoring) await restoring;
+            if (requireComplete && !remoteComplete) throw new Error('media-backup-incomplete');
+            return;
+        }
         restoring = serial(async () => {
             const current = await localRows();
             const initial = new Map(await list());
@@ -102,7 +110,8 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
                     await state.put({ ...row, prepared: false, dirty: true });
                 }
             }
-            const remote = await readRemote();
+            const remote = await readRemote(requireComplete);
+            if (requireComplete && !remoteComplete) throw new Error('media-backup-incomplete');
             if (remote) await apply(Object.fromEntries(Object.entries(remote).filter(([key, row]) => row.deleted || current[key] || !initial.has(key))));
             const existing = await list();
             for (const [key, record] of existing) {
@@ -191,7 +200,7 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
         else if (!automatic) schedule();
         return result;
     }
-    const journal = { restore: () => track(restore()), write: (...args) => track(write(...args)), flush: options => {
+    const journal = { restore: options => track(restore(options)), write: (...args) => track(write(...args)), flush: options => {
         if (!options?.automatic) resetRetry();
         return track(flush(options).catch(error => { lastError = error.message || String(error); if (!options?.automatic) schedule(); throw error; }));
     }, remoteExists: () => remoteExists, async deleted(key) { return Boolean((await state.get(prefix + key))?.deleted); },

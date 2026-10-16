@@ -1,4 +1,5 @@
-import { resolveSpriteAsset, resolveBackgroundAsset, resolveNudeSpriteAsset, isNonSpriteSpeaker, tempAssetKeyOf } from '../../scene/asset-match.js';
+import { resolveBackgroundAsset, resolveNudeSpriteAsset, isNonSpriteSpeaker, tempAssetKeyOf } from '../../scene/asset-match.js';
+import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
 import { resolveSpriteOutfit, outfitsOfCharacter, outfitAllowsScene } from '../../scene/character-outfits.js';
 import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { classifySceneKey } from '../../scene/scene-directives.js';
@@ -33,12 +34,17 @@ function createAssetLookup(initialContext) {
             return fn(name, time);
         } : undefined;
         const ctx = { ...context,
+            imageAvailability: typeof context.imageAvailability === 'function' ? url => {
+                dependencies.add(url);
+                return context.imageAvailability(url);
+            } : context.imageAvailability,
             isMissingImage: probe(context.isMissingImage, 30000),
             isUnavailableImage: probe(context.isUnavailableImage, 1500),
             tempSprite: temporary(context.tempSprite, 'sprite'),
+            tempSpriteForOutfit: temporary(context.tempSpriteForOutfit, 'sprite'),
             tempBackground: temporary(context.tempBackground, 'background'),
             tempSceneTime: temporary(context.tempSceneTime, 'background') };
-        const hit = kind === 'sprite' ? resolveSpriteAsset(args[0], args[1], ctx, args[2])
+        const hit = kind === 'sprite' ? resolveReaderSpriteAsset(args[0], args[1], ctx, args[2])
             : kind === 'nude' ? resolveNudeSpriteAsset(args[0], args[1], ctx)
                 : resolveBackgroundAsset(args[0], ctx);
         if (hit.url) dependencies.add(hit.url);
@@ -49,7 +55,7 @@ function createAssetLookup(initialContext) {
     function invalidate(detail) {
         if (detail?.chatId != null && String(detail.chatId) !== String(context.chatId || '')) return;
         const id = detail?.imageId;
-        const ref = id ? `igs-gen:${id}` : '';
+        const ref = detail?.url || (id ? `igs-gen:${id}` : '');
         for (const [key, entry] of entries) {
             if (detail?.key && !entry.temporaryKeys.has(detail.key)
                 && ![...entry.backgroundPrefixes].some(prefix => detail.key.startsWith(prefix))) continue;
@@ -103,7 +109,7 @@ function prepareStageIndex(floor, settings) {
         const key = floor.keyOf(d.character);
         if (!speeches.has(key)) speeches.set(key, []);
         speeches.get(key).push(d);
-        if (d.outfit) {
+        if (d.outfit || d.unknownOutfit) {
             const outfitKey = outfitsOfCharacter(settings._sceneAssets?.characterOutfits, settings._sceneAssets?.characterAliases, d.character).key || d.character;
             if (!outfits.has(outfitKey)) outfits.set(outfitKey, []);
             outfits.get(outfitKey).push(d);

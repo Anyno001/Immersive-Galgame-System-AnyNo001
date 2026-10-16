@@ -46,6 +46,7 @@ export function createMemoryStorage(initialData = {}) {
 export function createEmptyPresetSnapshot() {
     return {
         version: 1,
+        revision: 0,
         current: {},
         items: {},
         drafts: {},
@@ -57,6 +58,8 @@ export function normalizePresetSnapshot(snapshot) {
     const source = isPlainObject(snapshot) ? snapshot : {};
     const normalized = createEmptyPresetSnapshot();
     normalized.version = normalizePositiveInteger(source.version, 1);
+    normalized.revision = Number.isSafeInteger(source.revision) && source.revision >= 0
+        ? source.revision : 0;
     normalized.updatedAt = typeof source.updatedAt === 'string' ? source.updatedAt : '';
 
     if (isPlainObject(source.current)) {
@@ -102,10 +105,17 @@ export function readPresetSnapshot(storageLike, key = PRESET_STORE_KEY) {
             };
         }
 
+        const parsed = JSON.parse(raw);
+        if (!isPlainObject(parsed) || parsed.version !== 1
+            || !isPlainObject(parsed.items) || !isPlainObject(parsed.current)
+            || (parsed.drafts !== undefined && !isPlainObject(parsed.drafts))
+            || (parsed.revision !== undefined && (!Number.isSafeInteger(parsed.revision) || parsed.revision < 0))) {
+            throw new Error('预设快照结构或版本不受支持');
+        }
         return {
             ok: true,
             key,
-            snapshot: normalizePresetSnapshot(JSON.parse(raw)),
+            snapshot: normalizePresetSnapshot(parsed),
         };
     } catch (error) {
         return {

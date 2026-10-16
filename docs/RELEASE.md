@@ -2,7 +2,7 @@
 
 ## 固定测试版锁定规则（test-v0.36.66）
 
-固定文件将 `PINNED_REF` 写为对应 `test-vX.Y.Z` 内部常量，禁止回退 main 或其他版本，禁止页面残留 ref/base 覆盖。模块必须实际创建该版本 API，否则关闭错误实例并明确报错。仅推送程序包不会更新酒馆中已导入的 loader 源码，启动器修复需重新导入对应固定版 JSON。此节覆盖旧版关于固定版注入全局 ref 和回退 main 的描述。
+固定文件将 `PINNED_REF` 写为对应 `test-vX.Y.Z` 内部常量，禁止回退 main 或其他版本，禁止页面残留 ref/base 覆盖。模块必须实际创建该版本 API，否则关闭错误实例并明确报错。仅推送程序包不会更新酒馆中已导入的 loader 源码，启动器修复需重新导入对应固定版 JSON。
 
 ## 精简后的检查范围
 
@@ -15,7 +15,7 @@
 - GitHub 账号：`Anyno001`
 - 仓库名：`Immersive-Galgame-System-AnyNo001`
 - 仓库地址：`https://github.com/Anyno001/Immersive-Galgame-System-AnyNo001`
-- 本地仓库根目录：`D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System`
+- 本工作区内测仓库根目录：`Immersive-Galgame-System-AnyNo001/`；同级发布版副本未经明确授权不修改或推送。
 - 默认分支：`main`
 - 当前可见性：public
 
@@ -27,7 +27,7 @@
 - `app/dist/igs.bundle.css`
 - `app/dist/manifest.json`
 - `loader/igs-loader.json`
-- `loader/酒馆助手脚本-沉浸式Galgame系统（自动更新） v<当前版本>.json`
+- `loader/沉浸式Galgame系统 test-v<当前版本>.json`
 - `loader/igs-loader.js`
 
 `app/dist/igs.bundle.js` 是给 loader 远程加载的自包含主程序文件。它不能只是 `import ../src/index.js` 的转发入口，否则 cache bust 只会刷新入口文件，浏览器或酒馆仍可能复用旧的源码子模块。
@@ -38,7 +38,7 @@
 - loader 只负责加载远程 bundle。
 - 主程序逻辑只来自 `app/`。
 - 原版 Immersive Galgame System 只作为迁移来源和兼容参考，路径是 `D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System 原版备份`。
-- 最终给用户导入的是版本化中文发布文件 `loader/酒馆助手脚本-沉浸式Galgame系统（自动更新） v<当前版本>.json`，不是 `app/dist/igs.bundle.js`。`loader/igs-loader.json` 保留为固定内部入口和自动化校验基准。
+- 固定测试导入件为 `loader/沉浸式Galgame系统 test-v<当前版本>.json`，内容仅替换源 loader 的内部 `PINNED_REF`，不回退 main；自动更新入口 `loader/igs-loader.json` 的内容与源 loader 一致。两者都不是直接导入 `app/dist/igs.bundle.js`。
 
 ## loader JSON 格式
 
@@ -75,16 +75,16 @@
 默认远程加载策略：
 
 ```text
-GitHub API branches/main -> jsDelivr @<commit>/app/dist/igs.bundle.* -> 失败时 fallback 到 jsDelivr @main/app/dist/igs.bundle.*
+GitHub API branches/main -> jsDelivr @<commit>/app/dist/igs.bundle.* -> 失败时下载并执行 GitHub raw 同一 <commit> 的 bundle
 ```
 
-loader 默认追踪 GitHub API 返回的 `main` 最新提交哈希，并优先加载该提交对应的不可变 bundle；酒馆端导入一次 loader 后，后续只要仓库 `main` 更新，就会继续拉取最新 bundle，不再要求 loader 源码同步改版本号。loader 会在远程主程序加载完成前先显示临时魔法棒入口，正式运行时加载后替换为正式入口。需要临时锁定旧版本或测试分支时，也可以手动设置 `window.IGS_LOADER_REF` 或 `window.IGS_LOADER_CONFIG.ref`；指定的非 `main` ref 不可用时会 fallback 到 `@main`。
+自动版追踪并短期缓存 `main` 提交，优先加载对应不可变 bundle；只有未取得提交时才使用 main，已选定提交后不跨版本回退。loader 先显示临时魔法棒入口，运行时启动后替换。自动版可通过 `window.IGS_LOADER_REF` 或 `window.IGS_LOADER_CONFIG.ref` 指定 ref，固定版始终服从内部 `PINNED_REF`；指定 ref 不可用时只尝试同 ref 备用来源，失败明确报错。
 
 ## 后续建议命令
 
 ```text
-npm run build:loader -- --release test-v<当前版本>
-npm run build
+npm.cmd run build
+npm.cmd run build:loader -- --release test-v<当前版本>
 ```
 
 这些命令属于 app 自身工程，不属于奶龙工具箱校验流程。
@@ -96,7 +96,7 @@ npm run build
 
 ```powershell
 node -e "const fs=require('fs'); const js=fs.readFileSync('loader/igs-loader.js','utf8'); const j=JSON.parse(fs.readFileSync('loader/igs-loader.json','utf8')); if(j.type!=='script'||j.content!==js||!j.content.includes('igs.bundle.js')) throw new Error('bad loader json');"
-node -e "const fs=require('fs'); const a=JSON.parse(fs.readFileSync('loader/igs-loader.json','utf8')); const b=JSON.parse(fs.readFileSync('loader/酒馆助手脚本-沉浸式Galgame系统（自动更新） v<当前版本>.json','utf8')); if(a.content!==b.content||a.name!==b.name) throw new Error('release json mismatch');"
+# 固定测试 JSON 与同一源 loader 仅替换内部 PINNED_REF 后的文本完全一致，脚本名和版本同时锁定 test-v<当前版本>。
 ```
 
 ## 上传流程
@@ -104,7 +104,7 @@ node -e "const fs=require('fs'); const a=JSON.parse(fs.readFileSync('loader/igs-
 首次上传：
 
 ```powershell
-cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System"
+cd Immersive-Galgame-System-AnyNo001
 git init -b main
 git add .
 git commit -m "Initialize Immersive Galgame System"
@@ -114,11 +114,12 @@ gh repo create Anyno001/Immersive-Galgame-System-AnyNo001 --public --source . --
 后续更新：
 
 ```powershell
-cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System\app"
-npm run build:loader -- --release test-v<当前版本>
+cd Immersive-Galgame-System-AnyNo001/app
+npm.cmd run build
+npm.cmd run build:loader -- --release test-v<当前版本>
 cd ..
 git status --short
-git add .
+# 只 git add 已审查的本轮具体文件，不携带无关改动
 git commit -m "<简短更新说明>"
 git push origin main
 git ls-remote --heads origin main

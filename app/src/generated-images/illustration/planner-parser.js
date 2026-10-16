@@ -2,6 +2,7 @@ import { snapToNaiGrid } from '../request-builders/nai-v4-builder.js';
 
 const FIELD_RE = /^\s*[-*]?\s*(slot|at|analysis|scene_uc|scene|char_uc|char)\s*[:：]\s*(.*)$/i;
 const COORD_ONLY_RE = /^\s*([\d.]+)\s*[,，]\s*([\d.]+)\s*$/;
+const validCoord = (coord) => coord && [Number(coord[1]), Number(coord[2])].every((n) => Number.isFinite(n) && n >= 0 && n <= 1);
 
 // 新格式：char: 角色名 | x,y | tags；旧格式：char: x,y | tags（解析结果与旧版一致，不带 name）。
 function parseCharLine(value) {
@@ -10,7 +11,7 @@ function parseCharLine(value) {
         const name = parts[0].trim();
         const coord = parts[1].match(COORD_ONLY_RE);
         const tagsStart = value.indexOf(parts[1]) + parts[1].length + 1;
-        const char = { x: snapToNaiGrid(coord[1]), y: snapToNaiGrid(coord[2]), tags: value.slice(tagsStart).trim(), uc: '' };
+        const char = { x: snapToNaiGrid(coord[1]), y: snapToNaiGrid(coord[2]), positionExplicit: Boolean(validCoord(coord)), tags: value.slice(tagsStart).trim(), uc: '' };
         if (name) char.name = name;
         return char;
     }
@@ -18,12 +19,13 @@ function parseCharLine(value) {
     let x = 0.5;
     let y = 0.5;
     let tags = value;
+    let positionExplicit = false;
     if (bar >= 0) {
         const coord = value.slice(0, bar).match(/([\d.]+)\s*[,，]\s*([\d.]+)/);
-        if (coord) { x = snapToNaiGrid(coord[1]); y = snapToNaiGrid(coord[2]); }
+        if (coord) { x = snapToNaiGrid(coord[1]); y = snapToNaiGrid(coord[2]); positionExplicit = Boolean(validCoord(coord)); }
         tags = value.slice(bar + 1);
     }
-    return { x, y, tags: tags.trim(), uc: '' };
+    return { x, y, positionExplicit, tags: tags.trim(), uc: '' };
 }
 
 export function parseIllustrationPlan(text, { maxSlots = 1, paragraphCount = 1 } = {}) {

@@ -1,9 +1,17 @@
 import { createTavernImageFiles } from './tavern-image-files.js';
-import { createMediaRecordJournal } from './media-record-journal.js';
+import { createMediaRecordJournal, sameMediaValue } from './media-record-journal.js';
 import { mediaFileGcFor } from './media-file-gc.js';
 import { IMAGE_FIELDS } from './image-identity.js';
 import { retryInlineMedia } from './media-migration.js';
+import { slotPatch } from './illustration-store.js';
 export const CG_RECORDS_FILE = 'igs-cg-records.json';
+
+const plainRecord = value => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+const isBackupComplete = file => file?.version === 1
+    ? plainRecord(file.slots) && Object.values(file.slots).every(plainRecord)
+    : file?.version === 2 && plainRecord(file.records)
+        && Object.values(file.records).every(row => plainRecord(row)
+            && (row.deleted === true || plainRecord(row.value)));
 
 export function withTavernIllustrationFiles(store, globalObject = globalThis) {
     const files = createTavernImageFiles(globalObject, 'igs-cg');
@@ -16,6 +24,7 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
     };
     const journal = createMediaRecordJournal(globalObject, {
         fileName: CG_RECORDS_FILE, legacyField: 'slots', list: all,
+        isBackupComplete,
         get: getRaw,
         onApply: (key, old, next, previous) => files.acceptRemote(old, next, [`cg:${key}`], [`thumb:cg:${key}:`], previous),
         async beforeFlush() { return retryInlineMedia(await all(), files, (key, record) => save(key.slice(0, key.lastIndexOf('|')), record, record)); },
@@ -27,12 +36,16 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
         await journal.restore().catch(() => {});
         const key = keyOf(floorKey, value.slot), old = await getRaw(key);
         const next = await files.offload({ ...value, floorKey }, key, old);
+        const candidate = old ? { ...next, ...Object.fromEntries(['key', 'revision', 'revisionToken']
+            .filter(field => Object.hasOwn(old, field)).map(field => [field, old[field]])) } : next;
         try {
-            await journal.write(key, next, async () => {
+            const saved = await journal.write(key, candidate, async () => {
                 if (!files.sameRecord(expected || old, await getRaw(key))) throw new Error('image-write-stale');
-                return store.putSlot(floorKey, next);
+                return { ok: true, record: sameMediaValue(candidate, old)
+                    ? old : await store.putSlot(floorKey, next) };
             });
             await files.dropUnused(old, next);
+            return saved.record;
         } catch (error) { await files.dropUnused(next, old); throw error; }
         finally { await files.release(next); }
     }
@@ -64,6 +77,30 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
             return Promise.all(list.map(record => files.hydrate(record, options)));
         },
         putSlot: save,
+        async updateSlot(floorKey, slot, expectedRevision, patch, options = {}) {
+            await journal.restore();
+            const key = keyOf(floorKey, slot), old = await getRaw(key);
+            const next = await files.offload(patch || {}, key, old);
+            let result;
+            try {
+                await options.beforeCommit?.();
+                const { beforeCommit, ...guard } = options;
+                await journal.write(key, async () => {
+                    const projected = slotPatch(await getRaw(key), expectedRevision, next, guard);
+                    if (!projected.ok) throw Object.assign(new Error(projected.reason), { result: projected });
+                    return projected.record;
+                }, async () => {
+                    result = await store.updateSlot(floorKey, slot, expectedRevision, next, guard);
+                    return result;
+                });
+                await files.dropUnused(old, result.record);
+                return result;
+            } catch (error) {
+                await files.dropUnused(next, await getRaw(key));
+                if (error.result) return error.result;
+                throw error;
+            } finally { await files.release(next); }
+        },
         async deleteSlot(floorKey, slot) {
             await journal.restore().catch(() => {});
             const key = keyOf(floorKey, slot), old = await getRaw(key);
@@ -71,7 +108,15 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
             await files.dropUnused(old, null);
             return result;
         },
-        async listSlotKeys() { await journal.restore(); return store.listSlotKeys(); },
+        async listSlotKeys(options = {}) {
+            try {
+                await journal.restore(options);
+                return await store.listSlotKeys();
+            } catch (error) {
+                if (options.requireComplete) throw new Error('image-reference-unavailable', { cause: error });
+                throw error;
+            }
+        },
         async getSlotRecord(key) {
             await journal.restore();
             const existing = await getRaw(key);

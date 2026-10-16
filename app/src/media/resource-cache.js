@@ -34,23 +34,45 @@ export function createImageResourceCache(globalObject = globalThis, { limit = 96
         const source = String(url || '').trim();
         if (!source) return Promise.resolve('');
         const key = keyOf(source);
-        sources.set(key, true);
         const ready = cache.peek(key);
         if (ready) return Promise.resolve(ready);
-        if (isImagePath(source)) return files.read(source, { display: true }).then(value => value ? cache.peek(key) || value : '');
-        if (typeof globalObject.Image !== 'function') { cache.remember(key, source); return Promise.resolve(cache.peek(key) || source); }
+        const epoch = sources.epoch(), token = cache.token(key);
+        const setStatus = status => {
+            if (epoch === sources.epoch() && token === cache.token(key)) sources.set(key, { status });
+        };
+        sources.set(key, { status: 'loading' });
+        if (isImagePath(source)) return files.read(source, { display: true }).then(value => {
+            setStatus(value ? 'available' : 'read-error');
+            return value ? cache.peek(key) || value : '';
+        }, () => { setStatus('read-error'); return ''; });
+        if (typeof globalObject.Image !== 'function') {
+            cache.remember(key, source); sources.set(key, { status: 'unverified' });
+            return Promise.resolve(cache.peek(key) || source);
+        }
         return cache.load(key, signal => {
             return new Promise(resolve => {
                 const image = new globalObject.Image();
-                const finish = () => { signal?.removeEventListener('abort', abort); image.onload = null; image.onerror = null; resolve(source); };
+                const finish = (status = 'available') => { signal?.removeEventListener('abort', abort); image.onload = null; image.onerror = null; setStatus(status); resolve(source); };
                 const abort = () => { image.onload = null; image.onerror = null; image.src = ''; resolve(''); };
                 signal?.addEventListener('abort', abort, { once: true });
-                image.onload = finish; image.onerror = finish; image.src = source;
-                if (image.complete) finish();
+                image.onload = () => finish(); image.onerror = () => finish('decode-error'); image.src = source;
+                if (image.complete) finish(image.naturalWidth > 0 ? 'available' : 'decode-error');
             });
-        }, { persist: false, timeoutMs: 15000 }).then(value => value ? cache.peek(key) || source : '').catch(() => source);
+        }, { persist: false, timeoutMs: 15000 }).then(value => value ? cache.peek(key) || source : '').catch(() => { setStatus('read-error'); return source; });
     }
     return { load, get: url => cache.peek(keyOf(String(url || '').trim())), keyOf: url => keyOf(String(url || '').trim()),
+        inspect(url) {
+            const key = keyOf(String(url || '').trim()), state = sources.get(key);
+            if (state?.status === 'decode-error' || state?.status === 'read-error') return state;
+            return cache.peek(key) ? { status: 'available' } : { status: state?.status === 'loading' ? 'loading' : 'unverified' };
+        },
+        clearFailures() {
+            for (const [key, state] of [...sources]) {
+                if (state.status !== 'decode-error' && state.status !== 'read-error') continue;
+                sources.delete(key);
+                cache.forget(key);
+            }
+        },
         clear() { sources.clear(); }, destroy() { sources.destroy(); },
         size: () => [...sources.keys()].filter(key => cache.peek(key)).length };
 }

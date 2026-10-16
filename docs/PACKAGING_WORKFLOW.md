@@ -1,15 +1,15 @@
 # 酒馆助手脚本打包发布工作流
 
-## 0.36.69 加载恢复与当前交付约定
+## 加载恢复与当前测试交付约定
 
-- 按用户最新要求，直接推送内测 `main`，不自动创建测试或正式标签；普通更新运行 `build` 与不带 `--release` 的 `build:loader`，保留历史固定版。
-- 2026-10-15 起改回正式标签：发版用 `build:loader -- --release vX.Y.Z`（须与 app/package.json 一致），生成 `沉浸式Galgame系统 vX.Y.Z.json` 并推送同名 tag；不再用 `X.Y.Z-test`。`--pin` 仍认历史 `X.Y.Z-test`。
+- 每次更新升 patch、推送内测 `main`，为同一提交创建并推送 `test-vX.Y.Z`；不自动创建正式版 `vX.Y.Z` 标签。
+- 构建使用 `npm.cmd run build` 与 `npm.cmd run build:loader -- --release test-vX.Y.Z`（须与 app/package.json 一致），生成 `沉浸式Galgame系统 test-vX.Y.Z.json`。`--pin` 保留锁定历史标签的能力，旧标签不得覆盖。
 - CDN 模块失败或超时后，备用来源为 GitHub raw 的同一个提交或指定 ref，不跨版本回退到 CDN main。下载内容校验 IGS 文件头和版本后以 JavaScript Blob 模块加载，资源基址保留原下载地址，加载结束释放 Blob；连接中断最多重试一次。
 - 本次是启动器源码变更：用户需要重新导入 `loader/igs-loader.json` 一次，仅刷新旧脚本不能获得新下载逻辑。样式和字体仍从同 ref 的 CDN 加载；真实酒馆和手机验收与本地执行分开记录。
 
 ## 固定测试版必须严格锁定（test-v0.36.66）
 
-`build:loader -- --release test-vX.Y.Z` 通过替换 loader 内部 `PINNED_REF` 常量生成固定文件。固定版不得被全局配置覆盖，不请求 main 或其他版本作为后备；失败明确报所需 tag，实际 API 版本也必须匹配。只有同来源和同版本实例可复用。自动版 JSON 仍与 loader 源文一致；固定版内容为同一源文仅替换内部固定 tag 常量。此节覆盖下文旧的全局 ref 注入和固定版 main 后备说明。
+`build:loader -- --release test-vX.Y.Z` 通过替换 loader 内部 `PINNED_REF` 常量生成固定文件。固定版不得被全局配置覆盖，不请求 main 或其他版本作为后备；失败明确报所需 tag，实际 API 版本也必须匹配。只有同来源和同版本实例可复用。自动版 JSON 仍与 loader 源文一致；固定版内容为同一源文仅替换内部固定 tag 常量。
 
 ## 精简后的检查范围
 
@@ -60,10 +60,10 @@ destroy()
 
 ## IGS 源码与产物
 
-IGS 项目根：
+本工作区的内测项目根（发布版副本不属于默认推送目标）：
 
 ```text
-D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System
+Immersive-Galgame-System-AnyNo001/
 ```
 
 主程序源码：
@@ -86,10 +86,10 @@ app/dist/manifest.json
 
 ```text
 loader/igs-loader.json
-loader/酒馆助手脚本-沉浸式Galgame系统（自动更新） v<当前版本>.json
+loader/沉浸式Galgame系统 test-v<当前版本>.json
 ```
 
-`loader/igs-loader.json` 是固定内部入口，便于脚本和测试稳定定位；`loader/酒馆助手脚本-沉浸式Galgame系统（自动更新） v<当前版本>.json` 是给用户导入的版本化发布文件。两者内容必须一致，且 JSON 的 `name` 必须保持 `沉浸式Galgame系统（自动更新）`。
+`loader/igs-loader.json` 是自动更新入口，内容与 `loader/igs-loader.js` 原文一致；固定测试文件 `loader/沉浸式Galgame系统 test-v<当前版本>.json` 使用同一源文，只替换内部 `PINNED_REF`，脚本名与测试标签一致。固定版失败不得回退 main。
 
 loader 源码：
 
@@ -115,7 +115,7 @@ loader/igs-loader.js
 | 阶段 | 模式 | 输出 | 入口 |
 | --- | --- | --- | --- |
 | IGS 主程序开发 | B. JS-Slash-Runner 纯 JS 脚本 / 独立 bundle 源码 | `app/dist/igs.bundle.js` | `window.IGS` / `window.ImmersiveGalgameSystem` |
-| 酒馆导入发布 | A. JS-Slash-Runner Script JSON | `loader/igs-loader.json` + `loader/酒馆助手脚本-沉浸式Galgame系统（自动更新） v<当前版本>.json` | `window.TavernHelper` 环境中的 loader |
+| 酒馆导入发布 | A. JS-Slash-Runner Script JSON | `loader/igs-loader.json` + `loader/沉浸式Galgame系统 test-v<当前版本>.json` | `window.TavernHelper` 环境中的 loader |
 
 不要把最终导入 JSON 写进 `app/src/`。不要把主程序业务逻辑写进 `loader/`。
 
@@ -124,11 +124,12 @@ loader/igs-loader.js
 每次生成可发布 loader 前，先运行：
 
 ```powershell
-cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System\app"
-npm run build:loader -- --release test-v<当前版本>
+cd Immersive-Galgame-System-AnyNo001/app
+npm.cmd run build
+npm.cmd run build:loader -- --release test-v<当前版本>
 ```
 
-`--release` 只接受与 `app/package.json` 一致的 `test-vX.Y.Z`，生成锁定该测试标签的 `沉浸式Galgame系统 test-vX.Y.Z.json`，并删除 loader/ 里所有旧的版本化导入件（只留最新一份）；推送时必须同时推送同名 tag，否则 jsDelivr 取不到会退回 @main。每次升版本后先生成对应导入件，再直接核对实际发布响应和启动结果。无参数的 `build:loader` 仍只更新固定入口和调试版。
+`--release` 只接受与 `app/package.json` 一致的 `test-vX.Y.Z`，生成锁定该测试标签的 `沉浸式Galgame系统 test-vX.Y.Z.json`，并删除 loader/ 里所有旧的版本化导入件（只留最新一份）；推送时必须同时推送同名 tag。固定版失败明确报错，不回退 main。每次升版本后先生成对应导入件，再直接核对实际发布响应和启动结果。无参数的 `build:loader` 仍只更新固定入口和调试版。
 
 `npm.cmd run build` 负责产物完整性及自包含检查，不在测试中重复锁定相同源码写法。`gate-contract.test.js` 保留实际 bundle 冷启动、销毁与重启验证，按启动问题选用。只改文档时只检查相关说明和引用。
 
@@ -165,7 +166,8 @@ npm run build:loader -- --release test-v<当前版本>
 
 ```js
 JSON.parse(fs.readFileSync('loader/igs-loader.json', 'utf8')).content === fs.readFileSync('loader/igs-loader.js', 'utf8')
-JSON.parse(fs.readFileSync('loader/酒馆助手脚本-沉浸式Galgame系统（自动更新） v<当前版本>.json', 'utf8')).content === fs.readFileSync('loader/igs-loader.js', 'utf8')
+JSON.parse(fs.readFileSync('loader/沉浸式Galgame系统 test-v<当前版本>.json', 'utf8')).content ===
+    fs.readFileSync('loader/igs-loader.js', 'utf8').replace("const PINNED_REF = '';", 'const PINNED_REF = "test-v<当前版本>";')
 ```
 
 ## 远程 bundle 地址规则
@@ -187,21 +189,22 @@ https://github.com/Anyno001/Immersive-Galgame-System-AnyNo001
 当前 loader 默认链路：
 
 ```text
-GitHub API branches/main -> jsDelivr @<commit>/app/dist/igs.bundle.* -> 失败时 fallback 到 jsDelivr @main/app/dist/igs.bundle.*
+GitHub API branches/main -> jsDelivr @<commit>/app/dist/igs.bundle.* -> 失败时下载并执行 GitHub raw 同一 <commit> 的 bundle
 ```
 
-loader 默认读取 `main` 的最新提交哈希，并优先加载不可变的 `@<commit>` bundle，避免 jsDelivr `@main` 分支文件缓存卡住旧代码，也避免新版本标签短时未同步；不再需要每次发版都修改 `loader/igs-loader.js` 的内置版本号。
-为了让魔法棒入口更早出现，loader 会在远程主程序加载完成前先注册一个临时入口；正式 IGS 运行时加载后会替换为正式入口。需要临时锁定旧版本或测试分支时，可由用户手动设置 `window.IGS_LOADER_REF = 'v0.3.6'`、`window.IGS_LOADER_REF = 'main'` 或 `window.IGS_LOADER_CONFIG.ref`。如果手动指定的非 `main` ref 在 jsDelivr 上不可用，loader 会 fallback 到 `@main`，避免导入脚本直接失败。
+自动版默认读取并短期缓存 `main` 的提交哈希，优先加载不可变的 `@<commit>` bundle。仅未取得提交时使用 main；已选定提交后的加载失败不跨版本回退。无需每次修改 loader 源码版本号。
+loader 先注册临时魔法棒入口，正式运行时启动后替换。自动版可由 `window.IGS_LOADER_REF` 或 `window.IGS_LOADER_CONFIG.ref` 指定 ref；固定测试版始终使用内部 `PINNED_REF`。指定 ref 不可用时只尝试同 ref 的备用来源，失败明确报错，不回退 main。
 
 ## 推荐发布步骤
 
 ```powershell
-cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System\app"
-npm run build:loader -- --release test-v<当前版本>
+cd Immersive-Galgame-System-AnyNo001/app
+npm.cmd run build
+npm.cmd run build:loader -- --release test-v<当前版本>
 ```
 
 ```powershell
-cd "D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System"
+cd ..
 git status --short
 # 仅 git add 本轮修改的具体文件
 git commit -m "Prepare loader packaging workflow"
@@ -224,7 +227,8 @@ git ls-remote --tags origin test-v<当前版本>
 ```powershell
 git rev-parse --show-toplevel
 cd app
-npm run build:loader -- --release test-v<当前版本>
+npm.cmd run build
+npm.cmd run build:loader -- --release test-v<当前版本>
 cd ..
 # 仅 git add 本轮修改的具体文件
 git commit -m "Release v<当前版本>: <本轮说明>"
@@ -240,13 +244,13 @@ git push origin test-v<当前版本>
 git ls-remote --tags origin test-v<当前版本>
 ```
 
-`git rev-parse --show-toplevel` 必须返回 `D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System`。如果标签已存在，不强推覆盖，提升 patch 版本后重新发布。
+`git rev-parse --show-toplevel` 必须指向内测目录 `Immersive-Galgame-System-AnyNo001`，且 origin 为上述内测仓库。不得从工作区上级或发布版副本提交。如果标签已存在，不强推覆盖，提升 patch 版本后重新发布。
 
 真正生成 `loader/igs-loader.json` 和版本化中文发布文件后，还需要验证：
 
 ```powershell
 node -e "const fs=require('fs'); const j=JSON.parse(fs.readFileSync('loader/igs-loader.json','utf8')); if(j.type!=='script'||typeof j.content!=='string'||!j.content.includes('igs.bundle.js')) throw new Error('bad loader json');"
-node -e "const fs=require('fs'); const a=JSON.parse(fs.readFileSync('loader/igs-loader.json','utf8')); const b=JSON.parse(fs.readFileSync('loader/酒馆助手脚本-沉浸式Galgame系统（自动更新） v<当前版本>.json','utf8')); if(a.content!==b.content||a.name!==b.name) throw new Error('release json mismatch');"
+# 固定测试版按上文 PINNED_REF 替换式比对；debug JSON 只与 igs-loader-debug.js 比对。
 ```
 
 ## 更新日志要求

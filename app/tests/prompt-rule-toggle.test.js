@@ -9,11 +9,11 @@ import { scenePromptRuleEnabled } from '../src/scene/prompt-rule-content.js';
 const MAIN = 'igs-scene-assets-format-rule';
 const DEPTH0 = 'igs-scene-assets-depth0';
 
-function mountWithHost({ sceneAssets = {}, readerSettings = {} } = {}) {
+function mountWithHost({ sceneAssets = {}, readerSettings = {}, chat = [] } = {}) {
     const extensionPrompts = {};
     const handlers = new Map();
     const context = {
-        chat: [],
+        chat,
         name2: '林小雨',
         extensionPrompts,
         event_types: { CHAT_CHANGED: 'chat_changed', GENERATION_STARTED: 'generation_started', GENERATION_ENDED: 'generation_ended' },
@@ -36,7 +36,7 @@ function mountWithHost({ sceneAssets = {}, readerSettings = {} } = {}) {
         hostAdapter: { getCurrentMessage: async () => ({ id: 1, text: '旁白。' }), typeAndSend: async () => ({ ok: true }) },
     });
     const emit = (name, ...args) => { for (const fn of handlers.get(name) || []) fn(...args); };
-    return { vn, extensionPrompts, emit, storage };
+    return { vn, extensionPrompts, emit, storage, context };
 }
 
 test('gate:prompt-rule:enabled-unless-explicitly-false', () => {
@@ -223,4 +223,59 @@ test('gate:prompt-rule:settings-search-finds-the-switch', () => {
         assert.equal(first && first.id, 'prompt-rule-inject', query);
     }
     assert.deepEqual({ ...searchSettings('酒馆预设')[0].target, open: [] }, { page: 'rules', open: [], path: 'bridge.sceneAssets.promptRuleEnabled' });
+});
+
+const outfitInjectionAssets = () => ({
+    characterOutfits: { 林小雨: { 校服: { wardrobe: '校服资料' }, 睡衣: { wardrobe: '睡衣资料' } } },
+    wardrobe: { 校服资料: { prompt: 'wears a navy blazer over a white shirt' },
+        睡衣资料: { prompt: 'wears pale-green cotton pajamas with white piping' } },
+});
+
+test('衣装注入宿主：两种注入模式刷新上一轮、切聊天清除、关闭停止', () => {
+    for (const promptAdaptive of [true, false]) {
+        const assets = outfitInjectionAssets();
+        const { vn, extensionPrompts, emit, context } = mountWithHost({
+            sceneAssets: { ...assets, promptAdaptive },
+            chat: [{ is_user: false, mes: '[igs-char:林小雨|平和|校服|放学了。]' }],
+        });
+        const injected = () => Object.values(extensionPrompts).map(p => p.value).join('\n');
+        try {
+            emit('generation_started', 'normal', {}, false);
+            assert.ok(injected().includes(assets.wardrobe.校服资料.prompt));
+            context.chat.push({ is_user: false, mes: '[igs-char:林小雨|平和|睡衣|晚安。]' });
+            emit('generation_started', 'normal', {}, false);
+            assert.ok(injected().includes(assets.wardrobe.睡衣资料.prompt));
+            assert.ok(!injected().includes(assets.wardrobe.校服资料.prompt));
+            context.chat = [];
+            emit('chat_changed');
+            assert.ok(!injected().includes('【上一轮衣装资料】'));
+            assert.ok(!injected().includes(assets.wardrobe.睡衣资料.prompt));
+        } finally { vn.destroy(); }
+        const off = mountWithHost({ sceneAssets: { ...assets, promptAdaptive, promptRuleEnabled: false },
+            chat: [{ is_user: false, mes: '[igs-char:林小雨|平和|校服|你好。]' }] });
+        try {
+            off.emit('generation_started', 'normal', {}, false);
+            assert.ok(!Object.values(off.extensionPrompts).some(p => p.value.includes(assets.wardrobe.校服资料.prompt)));
+        } finally { off.vn.destroy(); }
+    }
+});
+
+test('衣装注入复制：使用本卡衣柜与上一轮，得到不随聊天变化的快照', async () => {
+    const assets = outfitInjectionAssets();
+    const localPrompt = 'wears a burgundy wool blazer with brass buttons';
+    const tavern = { name2: '卡甲', chat: [{ is_user: false, mes: '[igs-char:林小雨|平和|校服|你好。]' }] };
+    const { ctx, calls } = copyCtx({ tavern, sceneAssets: { ...assets,
+        cards: { 'card:卡甲': { characterOutfits: assets.characterOutfits,
+            wardrobe: { 校服资料: { prompt: localPrompt } } } } } });
+    await handleSettingsAction('copy-prompt-rule', ctx);
+    assert.ok(calls.clip.includes(localPrompt));
+    assert.ok(!calls.clip.includes(assets.wardrobe.校服资料.prompt));
+    assert.ok(!calls.clip.includes(assets.wardrobe.睡衣资料.prompt));
+    assert.ok(!calls.clip.includes('{{previous_outfit_dna}}'));
+    const snapshot = calls.clip;
+    tavern.chat.push({ is_user: false, mes: '[igs-char:林小雨|平和|睡衣|晚安。]' });
+    assert.equal(calls.clip, snapshot);
+    await handleSettingsAction('copy-prompt-rule', ctx);
+    assert.ok(calls.clip.includes(assets.wardrobe.睡衣资料.prompt));
+    assert.ok(!calls.clip.includes(localPrompt));
 });

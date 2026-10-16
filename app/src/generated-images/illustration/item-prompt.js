@@ -1,8 +1,9 @@
-// 物品图提示词：副 LLM 只写物品外观 tag，构图、底色与禁止项由本地模板固定。
-// 输出格式与解析复用素材补全的 id/tags/uc 协议（parseAssetPlan），编号用 ch1、ch2…。
+// 活动预设写完整静物正文；旧独立调用保留内容词与本地模板兼容。
+// 两条路径都使用 id/tags/uc；定稿路径按输入编号严格对账。
 import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, MATTE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, dropMatteTagsWhenTransparent } from './prompt-kit.js';
 import { parseAssetPlan } from './asset-prompt.js';
 import { BUILTIN_PROMPTS } from '../prompt-registry.js';
+import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 
 const ITEM_TASK = [
     '任务：为「需要生成的物品」清单里的每一项写英文 tag，用于生成单个物品的静物图标。',
@@ -27,9 +28,38 @@ export function buildItemPlannerUserPrompt(needs = [], readableText = '') {
         .filter(Boolean).join('\n\n');
 }
 
-export function parseItemPlan(text, needs = []) {
+export function parseItemPlan(text, needs = [], { strict = false } = {}) {
+    if (strict) return parseFinalItemPlan(text, needs);
     const plan = parseAssetPlan(text, needs);
     return plan.ok ? plan : { ...plan, error: '副 LLM 输出中没有可用的物品字段' };
+}
+
+function parseFinalItemPlan(text, needs) {
+    const fail = issue => ({ ok: false, reason: 'item-prompt-fields-invalid',
+        error: '物品写词编号或字段无效，未继续绘图',
+        diagnostic: { stage: 'prompt-parse', field: 'items', issue } });
+    const expected = new Map(needs.map((need, index) => [`ch${index + 1}`, need]));
+    const rows = new Map();
+    let current;
+    for (const line of secondaryLlmText(text).split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        const match = line.match(/^(id|tags|uc):[ \t]*(.*)$/i);
+        if (!match) return fail('invalid-field');
+        const key = match[1].toLowerCase(), value = match[2].trim();
+        if (key === 'id') {
+            if (!expected.has(value)) return fail('unknown-id');
+            if (rows.has(value)) return fail('duplicate-id');
+            current = { need: expected.get(value) };
+            rows.set(value, current);
+        } else {
+            if (!current) return fail('missing-id');
+            if (Object.hasOwn(current, key)) return fail('duplicate-field');
+            current[key] = value;
+        }
+    }
+    if (!needs.length || rows.size !== expected.size || [...rows.values()].some(row =>
+        !row.tags || !Object.hasOwn(row, 'uc'))) return fail('missing-field');
+    return { ok: true, items: [...expected.keys()].map(id => rows.get(id)) };
 }
 
 // 副 LLM 失败时只有纯英文物品名可直接当 tag；中文名交给 NAI 效果不可控，记为失败待重试。
@@ -40,7 +70,11 @@ export function buildFallbackItemPlan(need) {
 
 const joinTags = (...parts) => parts.map((p) => String(p || '').trim().replace(/^,+|,+$/g, '').trim()).filter(Boolean).join(', ');
 
-export function buildItemSlot(tags, { transparent = false, uc = '', positiveContext = '' } = {}) {
+export function buildItemSlot(tags, { transparent = false, uc = '', positiveContext = '', final = false } = {}) {
+    if (final) return { captionMode: 'final', transparent, caption: {
+        v4_prompt: { caption: { base_caption: tags, char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: uc, char_captions: [] } },
+    } };
     return {
         scene: dropMatteTagsWhenTransparent(joinTags(ITEM_BASE_TAGS, tags, transparent ? TRANSPARENT_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS), positiveContext),
         sceneUc: joinTags(ITEM_NEGATIVE_TAGS, NSFW_NEGATIVE_GUARD, uc),

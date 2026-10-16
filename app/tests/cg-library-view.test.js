@@ -180,3 +180,50 @@ test('cg-library-view:no-library-says-unavailable', async () => {
     assert.equal(view.state.phase, 'error');
     assert.equal(view.statusText(), 'CG 库不可用');
 });
+
+test('cg-library-view:同槽通知拒收迟到旧缩略图并解绑订阅', async () => {
+    const old = entry(1, { revisionToken: 'old' });
+    const next = { ...old, revisionToken: 'new' };
+    let notify, releaseOld, removed = 0;
+    const library = fakeLibrary({ index: [old], makeThumb: e => e.revisionToken === 'old'
+        ? new Promise(resolve => { releaseOld = resolve; })
+        : Promise.resolve({ ok: true, dataUrl: 'data:image/jpeg;base64,NEW' }) });
+    library.onChanged = fn => { notify = fn; return () => { removed++; }; };
+    library.refreshEntry = async () => ({ ok: true, entry: next });
+    const view = createCgLibraryView(library);
+    view.open();
+    library.releaseSync({ ok: true, entries: [old], changed: false });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(typeof releaseOld, 'function');
+    notify({ chatId: 'chat', messageId: 1, swipeId: 0, slot: 1 });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    releaseOld({ ok: true, dataUrl: 'data:image/jpeg;base64,OLD' });
+    await view.whenIdle();
+    assert.equal(view.state.entries.length, 1);
+    assert.equal(view.find(old.key).revisionToken, 'new');
+    assert.equal(view.tileOf(old.key).url, 'data:image/jpeg;base64,NEW');
+    library.refreshEntry = async () => ({ ok: true, entry: null });
+    notify({ chatId: 'chat', messageId: 1, swipeId: 0, slot: 1 });
+    await view.whenIdle();
+    assert.equal(view.state.entries.length, 0);
+    assert.equal(view.tileOf(old.key).url, '');
+    view.dispose();
+    assert.equal(removed, 1);
+});
+
+test('cg-library-view:后台对账同槽新版本使已显示缩略图失效', async () => {
+    const old = entry(1, { revisionToken: 'old' });
+    const next = { ...old, revisionToken: 'new' };
+    const library = fakeLibrary({ index: [old] });
+    library.readThumbs = async entries => new Map(entries.map(e =>
+        [e.key, `data:image/jpeg;base64,${e.revisionToken}`]));
+    const view = createCgLibraryView(library);
+    view.open();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(view.tileOf(old.key).url, 'data:image/jpeg;base64,old');
+    library.releaseSync({ ok: true, entries: [next], changed: true });
+    await view.whenIdle();
+    assert.equal(view.tileOf(old.key).url, 'data:image/jpeg;base64,new');
+    assert.equal(view.state.entries.length, 1);
+    view.dispose();
+});

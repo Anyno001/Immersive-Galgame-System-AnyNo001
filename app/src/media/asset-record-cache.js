@@ -1,9 +1,13 @@
 import { requireMediaCache } from './media-cache-owner.js';
 
 // variantOf 必须留着：时段差分入库时主图地址要回指原图（asset-match.bindGeneratedBackground）。
-const DISPLAY_FIELDS = ['chatId', 'floorKey', 'type', 'name', 'time', 'status', 'skipReason', 'imageId', 'tags', 'variantOf'];
+const DISPLAY_FIELDS = ['chatId', 'floorKey', 'messageId', 'swipeId', 'type', 'name', 'time', 'status',
+    'skipReason', 'imageId', 'tags', 'variantOf', 'outfitName', 'outfitSnapshot', 'updatedAt'];
+const ADOPTION_FIELDS = ['seed', 'characterMeta', 'promptRecipe', 'promptTask', 'slotId', 'dnaCandidates',
+    'dnaSnapshot', 'sentPrompt', 'identityContext', 'outfitContext', 'expression'];
 const QUERY_FIELDS = DISPLAY_FIELDS.filter(field => field !== 'tags');
-const project = record => record ? Object.fromEntries(['key', ...DISPLAY_FIELDS].filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]])) : null;
+const project = record => record ? Object.fromEntries(['key', ...DISPLAY_FIELDS, ...ADOPTION_FIELDS]
+    .filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]])) : null;
 const staleError = () => Object.assign(new Error('media-metadata-stale'), { code: 'media-metadata-stale' });
 
 // 缓存 miss 从不代表记录不存在。同步展示按需补载，生图/修改必须 fresh 查权威库。

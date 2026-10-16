@@ -5,8 +5,8 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../loader/igs-loader.js', import.meta.url), 'utf8');
 const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
-const ref = `v${version}`;
-const fixedContent = source.replace("const PINNED_REF = '';", `const PINNED_REF = ${JSON.stringify(ref)};`);
+const ref = `test-v${version}`;
+const fixedContent = JSON.parse(fs.readFileSync(new URL(`../../loader/沉浸式Galgame系统 ${ref}.json`, import.meta.url), 'utf8')).content;
 const autoContent = JSON.parse(fs.readFileSync(new URL('../../loader/igs-loader.json', import.meta.url), 'utf8')).content;
 const base = `https://cdn.jsdelivr.net/gh/Anyno001/Immersive-Galgame-System-AnyNo001@${ref}`;
 const instanceKey = '__IGS_AUTO_UPDATE_LOADER__';
@@ -68,6 +68,7 @@ function harness({ oldVersion, oldRef, shutdown, servedVersion = version, probeS
 
 test('gate:loader:auto-import-file-matches-source-without-requiring-a-new-tag', () => {
     assert.equal(autoContent, source);
+    assert.equal(fixedContent, source.replace("const PINNED_REF = '';", `const PINNED_REF = ${JSON.stringify(ref)};`));
 });
 
 test('gate:loader:pinned-version-replaces-a-fully-working-older-runtime', async () => {

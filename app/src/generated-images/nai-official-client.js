@@ -2,14 +2,41 @@ import { parseImageResponse } from './image-api-client.js';
 import { buildNaiV4Request, validateNaiV4Request, NAI_DEFAULT_SETTINGS, NAI_OFFICIAL_ENDPOINT } from './request-builders/nai-v4-builder.js';
 import { promptFromNaiBody } from './generation-prompt.js';
 import { buildNaiInpaintRequest, resolveNaiInpaintModel } from './request-builders/nai-inpaint-builder.js';
+import { promptSnapshotFromBody } from './final-caption.js';
+import { inspectPngDataUrl, validatePngEncoding } from '../media/png-validation.js';
+import { CG_PIXEL_CAP } from './illustration/cg-pixel-cap.js';
+import { naiRequestQueue } from './nai-request-queue.js';
+import { globalArtist } from './prompt-artists.js';
 
 export { NAI_OFFICIAL_ENDPOINT };
-const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE = new Set([429]);
 const MAX_ATTEMPTS = 3;
 const MAX_BACKOFF_MS = 30000;
 
+// 与 DBG 的最终 wire 保持一致；领域开关仍是布尔值，不改写调用方请求。
+function toNaiWireBody(body) {
+    const parameters = { ...body.parameters };
+    for (const key of ['tag_hint_qt', 'tag_hint_uc_preset']) {
+        if (typeof parameters[key] === 'boolean') {
+            parameters[key] = parameters[key] ? 1 : 0;
+        }
+    }
+    return { ...body, parameters };
+}
+
 export function resolveNaiEndpoint(endpoint) {
-    return String(endpoint || '').trim() || NAI_OFFICIAL_ENDPOINT;
+    const trimmed = String(endpoint || '').trim();
+    if (!trimmed) return NAI_OFFICIAL_ENDPOINT;
+    // 内置 NAI 接受根地址或 /ai；显式自定义路径保留，避免改变旧接口语义。
+    try {
+        const url = new URL(trimmed);
+        if (!['http:', 'https:'].includes(url.protocol)) return trimmed;
+        const path = url.pathname.replace(/\/+$/, '');
+        if (path === '') url.pathname = '/ai/generate-image';
+        else if (path === '/ai') url.pathname = '/ai/generate-image';
+        else return trimmed;
+        return url.href;
+    } catch { return trimmed; }
 }
 
 function toProxyUrl(url) {
@@ -21,27 +48,19 @@ function describeStatus(status, detail = '') {
     if (status === 401) return 'NAI 鉴权失败（401）：请检查 NAI Key';
     if (status === 402) return 'NAI 余额/订阅不足（402）';
     if (status === 429) return `NAI 请求过于频繁（429），已自动重试仍失败，请稍后再试或降低同时生成数量${suffix}`;
-    if (status >= 500) return `NAI 服务端错误（HTTP ${status}），已自动重试 ${MAX_ATTEMPTS - 1} 次仍失败${suffix || '，多为 NAI 繁忙或参数不被当前模型支持'}`;
+    if (status >= 500) return `NAI 服务端错误（HTTP ${status}）；发送状态未知，未自动补发`;
     return `NAI 返回 HTTP ${status}${suffix}`;
-}
-
-// NAI 出错时返回 {statusCode, message}；中转可能返回纯文本或 HTML，只截一小段。
-async function readErrorDetail(response) {
-    let text = '';
-    try { text = String(await response.text()); } catch (error) { return ''; }
-    try {
-        const data = JSON.parse(text);
-        if (data && (data.message || data.error)) text = String(data.message || data.error);
-    } catch (error) { /* 非 JSON */ }
-    if (/<html|<!doctype/i.test(text)) return '';
-    return text.replace(/\s+/g, ' ').trim().slice(0, 160);
 }
 
 function retryDelayMs(response, attempt) {
     const header = response && response.headers && typeof response.headers.get === 'function'
         ? response.headers.get('retry-after') : null;
     const seconds = Number(header);
-    if (header != null && Number.isFinite(seconds) && seconds > 0) return Math.min(MAX_BACKOFF_MS, seconds * 1000);
+    if (header != null && Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+    if (header) {
+        const date = Date.parse(header);
+        if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+    }
     const base = response && response.status === 429 ? 5000 : 2000;
     return Math.min(MAX_BACKOFF_MS, base * (2 ** attempt));
 }
@@ -50,61 +69,123 @@ export function createNaiOfficialClient(deps = {}) {
     const fetchImpl = deps.fetch || (typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null);
     const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     const random = deps.random || Math.random;
+    const queue = deps.queue || naiRequestQueue;
+    const stale = () => ({ ok: false, reason: 'request-stale', stopGeneration: true,
+        error: '任务已取消或配置失效；上游请求可能仍在执行' });
+    const allowed = settings => {
+        try { return !settings.signal?.aborted
+            && (!settings.shouldStart || settings.shouldStart() === true); } catch { return false; }
+    };
+
+    async function dispatch(body, inputSettings) {
+        const controller = new AbortController();
+        const settings = { ...inputSettings, apiKey: String(inputSettings.apiKey).trim(), signal: controller.signal };
+        const timeout = Number(inputSettings.timeoutMs);
+        const timeoutMs = Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 300000) : 120000;
+        let timedOut = false;
+        const abort = () => controller.abort();
+        inputSettings.signal?.addEventListener('abort', abort, { once: true });
+        if (inputSettings.signal?.aborted) abort();
+        const timer = setTimeout(() => { timedOut = true; abort(); }, timeoutMs);
+        const deadline = Date.now() + timeoutMs;
+        try {
+            const result = await queue.run(settings.apiKey,
+                () => sendWithRetry(body, settings, deadline), settings);
+            if (timedOut) return { ok: false, reason: 'request-timeout', stopGeneration: true,
+                error: 'NAI 等待超时；上游请求可能仍在执行，未自动补发' };
+            return allowed(settings) ? result : stale();
+        } finally {
+            clearTimeout(timer);
+            inputSettings.signal?.removeEventListener('abort', abort);
+        }
+    }
+
+    async function pause(ms, signal) {
+        let abort, timer;
+        const stopped = new Promise(resolve => {
+            abort = () => resolve(false);
+            signal.addEventListener('abort', abort, { once: true });
+            if (signal.aborted) abort();
+        });
+        try {
+            const waiting = deps.sleep ? Promise.resolve().then(() => sleep(ms))
+                : new Promise(resolve => { timer = setTimeout(resolve, ms); });
+            return await Promise.race([waiting.then(() => true), stopped]);
+        } finally { clearTimeout(timer); signal.removeEventListener('abort', abort); }
+    }
 
     async function send(body, settings) {
         const direct = settings.transport !== 'st-proxy';
         const target = resolveNaiEndpoint(settings.endpoint);
         const url = direct ? target : toProxyUrl(target);
-        const controller = typeof AbortController === 'function' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), Number(settings.timeoutMs) || 120000) : null;
-        try {
-            return await fetchImpl(url, {
+        if (!allowed(settings)) return null;
+        return fetchImpl(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/zip, application/octet-stream, application/json, image/png',
                     Authorization: `Bearer ${settings.apiKey}`,
                 },
-                body: JSON.stringify(body),
+                body: JSON.stringify(toNaiWireBody(body)),
                 mode: direct ? 'cors' : 'same-origin',
                 credentials: direct ? 'omit' : 'same-origin',
-                signal: controller ? controller.signal : undefined,
+                signal: settings.signal,
             });
-        } finally {
-            if (timer) clearTimeout(timer);
-        }
     }
 
     // 生成与局部重绘共用的发送 / 重试 / 响应解析；错误文案不含 Key 与请求体。
-    async function sendWithRetry(body, settings) {
+    async function sendWithRetry(body, settings, deadline) {
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+            if (!allowed(settings)) return stale();
             let response;
             try {
                 response = await send(body, settings);
             } catch (error) {
+                if (!allowed(settings)) return stale();
                 const aborted = error && error.name === 'AbortError';
                 return {
                     ok: false,
+                    reason: 'nai-transport-unknown',
                     error: aborted ? 'NAI 请求超时' : (settings.transport === 'st-proxy'
                         ? '经酒馆代理请求 NAI 失败：请确认酒馆 config.yaml 中 enableCorsProxy 为 true'
                         : '浏览器直连 NAI 失败（可能是 CORS 或网络不通），可在设置中把传输方式改为「酒馆 CORS 代理」'),
                 };
             }
+            if (!allowed(settings) || !response) return stale();
             if (response.ok) {
                 try {
                     const parsed = await parseImageResponse(response);
+                    if (!allowed(settings)) return stale();
                     if (parsed && parsed.url) return { ok: true, dataUrl: parsed.url };
                 } catch (error) {
-                    return { ok: false, error: 'NAI 图片响应解析失败' };
+                    if (!allowed(settings)) return stale();
+                    const labels = {
+                        'image-response-unrecognized': '响应不是可识别的图片或 ZIP',
+                        'image-zip-truncated': 'ZIP 响应不完整',
+                        'image-zip-unsupported': 'ZIP 格式不受支持',
+                        'image-zip-directory-required': 'ZIP 数据描述符缺少中央目录',
+                        'image-zip-deflate-unavailable': '当前浏览器不支持 ZIP deflate 解压',
+                        'image-zip-deflate-failed': 'ZIP deflate 数据损坏或不完整',
+                        'image-zip-method-unsupported': 'ZIP 压缩方式不受支持',
+                        'image-zip-no-images': 'ZIP 响应中没有图片',
+                    };
+                    const reason = Object.hasOwn(labels, error?.reason) ? error.reason : 'nai-response-parse-failed';
+                    return { ok: false, reason, status: response.status,
+                        error: `NAI 图片响应解析失败：${labels[reason] || '响应读取失败'}；未自动补发` };
                 }
-                return { ok: false, error: 'NAI 返回中没有图片' };
+                return { ok: false, reason: 'nai-response-no-image', status: response.status, error: 'NAI 返回中没有图片；未自动补发' };
             }
             if (RETRYABLE.has(response.status) && attempt < MAX_ATTEMPTS - 1) {
-                await sleep(retryDelayMs(response, attempt));
+                const delay = retryDelayMs(response, attempt);
+                if (delay > MAX_BACKOFF_MS || Date.now() + delay >= deadline)
+                    return { ok: false, reason: 'nai-retry-budget-exhausted', status: response.status,
+                        error: 'NAI 要求的等待时间超过本次重试上限，未提前补发' };
+                try { await response.body?.cancel(); } catch { /* 已结束的错误响应不影响取消 */ }
+                if (!await pause(delay, settings.signal) || !allowed(settings)) return stale();
                 continue;
             }
-            const detail = await readErrorDetail(response);
-            return { ok: false, error: describeStatus(response.status, detail), status: response.status };
+            return { ok: false, reason: response.status === 429 ? 'nai-rate-limited' : 'nai-http-failed',
+                error: describeStatus(response.status), status: response.status };
         }
         return { ok: false, error: 'NAI 请求失败' };
     }
@@ -122,14 +203,16 @@ export function createNaiOfficialClient(deps = {}) {
         const body = buildNaiV4Request(slot, settings, random);
         const valid = validateNaiV4Request(body);
         if (!valid.ok) return { ok: false, error: `生图请求无效：${valid.reason}` };
-        const sent = await sendWithRetry(body, settings);
-        if (sent && sent.ok) return { ...sent, prompt: promptFromNaiBody(body), seed: body.parameters.seed };
+        const snapshot = slot?.captionMode === 'final' ? promptSnapshotFromBody(body, settings.finalArtist
+            !== undefined ? settings.finalArtist : globalArtist(settings)) : null;
+        const sent = await dispatch(body, settings);
+        if (sent && sent.ok) return { ...sent, seed: body.parameters.seed, prompt: promptFromNaiBody(body), ...(snapshot && { sentPrompt: snapshot }) };
         return sent;
     }
 
     // 所选模型存在 inpainting 版本时才支持局部重绘。
     function supportsEdit(naiSettings = {}) {
-        return Boolean(resolveNaiInpaintModel(naiSettings.model || NAI_DEFAULT_SETTINGS.model));
+        return Boolean(resolveNaiInpaintModel(Object.hasOwn(naiSettings, 'model') ? naiSettings.model : NAI_DEFAULT_SETTINGS.model));
     }
 
     async function edit(request = {}, naiSettings = {}) {
@@ -138,7 +221,19 @@ export function createNaiOfficialClient(deps = {}) {
         if (blocked) return blocked;
         const built = buildNaiInpaintRequest(request, settings, random);
         if (!built.ok) return { ok: false, reason: built.reason, error: `局部重绘请求无效：${built.reason}` };
-        return sendWithRetry(built.body, settings);
+        const dimensions = { width: built.body.parameters.width, height: built.body.parameters.height, maxPixels: CG_PIXEL_CAP };
+        for (const dataUrl of [request.sourceDataUrl, request.maskDataUrl]) {
+            const checked = await validatePngEncoding(inspectPngDataUrl(dataUrl, dimensions));
+            if (!checked.ok) return { ok: false, reason: checked.reason, error: `局部重绘图像无效：${checked.reason}` };
+        }
+        if (request.signal?.aborted || (typeof request.shouldStart === 'function' && !request.shouldStart()))
+            return { ok: false, reason: 'request-stale', error: '任务已取消或目标失效，停止发送' };
+        const snapshot = request.captionMode === 'final' ? promptSnapshotFromBody(built.body,
+            settings.finalArtist !== undefined ? settings.finalArtist : globalArtist(settings)) : null;
+        const sent = await dispatch(built.body, { ...settings,
+            ...(request.signal && { signal: request.signal }),
+            ...(request.shouldStart && { shouldStart: request.shouldStart }) });
+        return sent?.ok ? { ...sent, seed: built.body.parameters.seed, ...(snapshot && { sentPrompt: snapshot }) } : sent;
     }
 
     return { generate, edit, supportsEdit };

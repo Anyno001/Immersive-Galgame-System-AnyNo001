@@ -36,3 +36,10 @@ public-api-result.schema.json
 ```
 
 每个新增 schema 应同步补充短 fixtures 和 `docs/SCHEMA_AND_FIXTURES.md` 中的测试覆盖说明。
+
+## 命名衣装与一致性工作轮次
+
+- 默认选择结构为 `characterDefaultOutfits[规范角色键] = { version: 1, outfitName }`；缺省是未指定，未知版本或失效引用拒用，不由旧字段修复。
+- `outfit-template.js` 按角色、token 和 captionIndex 校验衣装占位与同源说明。内置一致性显式授权临时 `appearance_correction` 和有效衣装；普通用途仍受原有身份／衣装约束。
+- `generation-prompt.js` 在保存边界规范化 `consistencyPrompt.rounds[].appearance`：校验版本、枚举、确认状态、受控参考标识及有效衣装快照一致性，剔除额外私有字段。无 `appearance` 的旧轮次不补字段。
+- `character-meta.js` 校验失败保留既有 `character-meta-*` 原因码，附固定字段、issue、有效 captionIndex 和适用的受控 detail；不回显输入值。重复／未知绑定、非法文本、坐标和区域继续拒收，诊断不参与放行判定。

@@ -119,7 +119,8 @@ test('gate:outfits:wardrobe-rules-list-and-scope-tag', async () => {
     assert.match(tabs, /igs-wardrobe-pick/);
     assert.match(tabs, /data-outfit-wardrobe-char="[^"]*"[^>]*>[\s\S]*?<option value="裸体"/);
     assert.match(tabs, /outfit-expression-set:/);
-    assert.doesNotMatch(tabs, /生成立绘|outfit-generate-nude:|char-generate-sprite:/);
+    assert.match(tabs, new RegExp(`outfit-expression-retry:${encodeURIComponent('冬月')}:${encodeURIComponent('日常')}:${encodeURIComponent('平和')}`));
+    assert.doesNotMatch(tabs, /outfit-generate-nude:|char-generate-sprite:/);
     assert.equal(tabs.includes('scene-outfit-tab:%E5%86%AC%E6%9C%88:%E8%A3%B8%E4%BD%93'), false);
     assert.equal(tabs.includes('编辑提示词'), false);
     const nudeSet = renderCharacterSlotTabs({
@@ -200,4 +201,31 @@ test('gate:outfits:body-format-hides-outfit-field-with-default-regex', async () 
     const out = applyImmersiveGalgameSystemBodyFormat(text, DEFAULT_VIRTUAL_REGEX, outfitResolver).formattedRaw;
     assert.equal(out, '[小林]：你好\n*嗯*\n[小林]：你好');
     assert.equal(applyImmersiveGalgameSystemBodyFormat('[igs-char:小林|喜悦|你好]', DEFAULT_VIRTUAL_REGEX).formattedRaw, '[小林]：你好');
+});
+
+test('gate:identity:legacy-adoption-keeps-identity-without-registering-default-clothing', async () => {
+    const { adoptSpriteIdentity } = await import('../src/scene/character-identity.js');
+    const { normalizeCharacterDna } = await import('../src/scene/character-dna.js');
+    const { legacyPresetToPack } = await import('../src/scene/legacy-preset.js');
+    const binding = { characterKey: 'Alice', identityAnchor: 'Silver hair.', signatureDetails: 'A small mole.',
+        outfit: { name: 'Coat', description: 'A blue coat.' } };
+    const meta = { version: 1, characters: [binding] };
+    const assets = { wardrobe: { 'Alice·Coat': { prompt: 'kept' } } };
+    const patch = adoptSpriteIdentity(assets, 'Alice', 'sprite-1', meta);
+    assert.equal(assets.characterDna, undefined, '采用函数不修改输入');
+    assert.equal(patch.characterDna.Alice.identity, 'Silver hair. A small mole.');
+    assert.equal(patch.characterDna.Alice.defaultAppearance || '', '');
+    assert.equal(patch.characterDefaultOutfits, undefined);
+    const outfits = normalizeCharacterOutfits(patch.characterOutfits);
+    const wardrobe = normalizeWardrobe(patch.wardrobe);
+    assert.deepEqual(outfits, {}, '旧元数据不自动登记新默认衣装');
+    assert.equal(wardrobe['Alice·Coat'].prompt, 'kept');
+    const existing = adoptSpriteIdentity({ characterDna: { Alice: { identity: 'Player identity.', defaultAppearance: 'Player clothing.' } } }, 'Alice', 'sprite-2', meta);
+    assert.equal(existing.characterDna.Alice.identity, 'Player identity.');
+    const cleared = { ...patch, characterDna: { Alice: normalizeCharacterDna({ ...patch.characterDna.Alice, identity: '' }) } };
+    assert.equal(existing.characterDna.Alice.defaultAppearance, 'Player clothing.');
+    assert.equal(adoptSpriteIdentity(cleared, 'Alice', 'sprite-3', meta).characterDna.Alice.identity, '');
+    assert.equal(adoptSpriteIdentity({}, 'Alice', 'sprite-4', meta, { hadDefault: true }).characterDna.Alice, undefined);
+    assert.equal(adoptSpriteIdentity({}, 'Alice', 'sprite-5', undefined).characterDna.Alice, undefined);
+    assert.deepEqual(legacyPresetToPack({ ...patch, characters: {} }).library.characterDna, patch.characterDna);
 });

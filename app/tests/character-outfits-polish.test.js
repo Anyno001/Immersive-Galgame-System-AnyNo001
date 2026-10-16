@@ -128,7 +128,8 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     assert.match(base, /class="igs-outfit-tab is-active"[^>]*data-action="scene-outfit-tab:%E5%B0%8F%E6%9E%97%E6%B5%B7%E6%96%97:">原装/);
     assert.match(base, /igs-outfit-quick-btn"[^>]*>生成立绘/);
     assert.match(base, />泳装<span class="igs-outfit-tab-count">1<\/span>/);
-    assert.match(base, /data-scene-char="小林海斗" data-scene-mood="喜悦"/);
+    assert.doesNotMatch(base, /data-scene-char="小林海斗" data-scene-mood="喜悦"/);
+    assert.match(base, /尚未指定默认服装/);
     assert.doesNotMatch(base, /data-outfit-panel=/);
 
     const swim = render({ 小林海斗: '泳装' });
@@ -146,6 +147,7 @@ test('gate:outfits:settings-tabs-show-outfit-panel-with-fallback-preview', () =>
     const swimBar = swim.slice(swim.indexOf('data-outfit-tabs="小林海斗"'), swim.indexOf('data-outfit-panel='));
     assert.doesNotMatch(swimBar, /role="menuitem">表情差分/);
     assert.doesNotMatch(swimBar, /生成立绘|char-generate-sprite:|outfit-generate-nude:/);
+    assert.match(swimBar, /data-action="outfit-expression-retry:[^"]+">重新生成/);
     assert.match(swim, /海边<button type="button" class="igs-mood-word-del" data-action="scene-remove-outfit-scene:/);
     assert.match(swim, /data-scene-outfit-avatar="泳装" value="https:\/\/x\/swim-avatar\.png"/);
 

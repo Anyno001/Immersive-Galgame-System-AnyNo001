@@ -28,6 +28,24 @@ test('gate:page-diagnostic:explains-sprite-miss-and-background-hit-without-dialo
     assert.match(text, /演出 instants\(letter\)、flashback/);
     assert.match(text, /提示 forced-fallback/);
     assert.doesNotMatch(text, /私密台词|整楼正文|亲爱的小雨|token=secret/);
+    for (const [reason, message] of Object.entries({
+        'default-outfit-unset': '尚未指定默认衣装', 'outfit-image-missing': '人物图片已丢失',
+        'outfit-image-read-error': '人物图片读取失败',
+        'outfit-image-decode-error': '人物图片加载或解码失败', 'outfit-image-pending': '人物图片加载中',
+    })) {
+        const diagnostic = buildPageDiagnostic(snapshot({ spriteMatch: {
+            character: '林小雨', mood: '害羞', requestedOutfit: '礼服', outfit: '', source: 'none', reason,
+        } }));
+        assert.ok(diagnostic.includes('要求「礼服」'), diagnostic);
+        assert.ok(diagnostic.includes(message), diagnostic);
+        assert.doesNotMatch(diagnostic, /私密台词|整楼正文/);
+    }
+    const fallback = buildPageDiagnostic(snapshot({ spriteImage: 'daily.png', spriteMatch: {
+        character: '林小雨', mood: '害羞', requestedOutfit: '未登记', outfit: '常服',
+        source: 'user-default-outfit', selectionSource: 'default-fallback', fallbackReason: 'outfit-unregistered',
+    } }));
+    assert.match(fallback, /服装「常服」，要求「未登记」/);
+    assert.match(fallback, /要求衣装未登记/);
 });
 
 test('gate:page-diagnostic:reports-cg-and-chat-page-reasons', () => {

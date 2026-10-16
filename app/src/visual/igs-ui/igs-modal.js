@@ -23,6 +23,14 @@ ${IGS_HINT_THEME_STYLE_TEXT}
 .igs-page-modal{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;background:rgba(0,0,0,.38);color:var(--igs-hint-ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;animation:igs-page-modal-fade .18s ease both;}
 .igs-page-modal-card{width:min(400px,100%);display:flex;flex-direction:column;gap:18px;box-sizing:border-box;padding:24px 22px 16px;border-radius:14px;background:var(--igs-hint-bg);box-shadow:var(--igs-hint-shadow);animation:igs-page-modal-rise .22s cubic-bezier(.2,.8,.2,1) both;}
 .igs-page-modal-msg{margin:0;font-size:15px;line-height:1.7;letter-spacing:.04em;white-space:pre-line;word-break:break-word;}
+.igs-page-modal-card{max-height:100%;overflow:auto;}
+.igs-page-modal-preview{display:block;max-width:100%;max-height:55vh;object-fit:contain;align-self:center;}
+.igs-page-modal-card-comparison{width:min(1100px,100%);}
+.igs-page-modal-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
+.igs-page-modal-comparison figure{margin:0;min-width:0;display:flex;flex-direction:column;gap:10px;}
+.igs-page-modal-comparison figcaption{font-size:13px;color:var(--igs-hint-soft);text-align:center;}
+@media (max-width:640px){.igs-page-modal-comparison{grid-template-columns:1fr;}.igs-page-modal-comparison .igs-page-modal-preview{max-height:35vh;}}
+@media (pointer:coarse){.igs-page-modal-actions button{min-height:44px;}}
 .igs-page-modal-input{width:100%;box-sizing:border-box;margin:0;padding:9px 12px;border-radius:8px;border:0;outline:0;background:var(--igs-hint-field);color:inherit;font:inherit;font-size:14px;}
 .igs-page-modal-input:focus{box-shadow:inset 0 0 0 1.5px var(--igs-hint-accent);}
 .igs-page-modal-actions{display:flex;justify-content:flex-end;gap:6px;}
@@ -88,11 +96,12 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         if (!entry || pending !== entry) return;
         pending = null;
         detach(entry);
+        if (entry.kind === 'progress' && result === false) entry.onCancel?.();
         entry.resolve(result);
     }
 
     function cancelValue(entry) {
-        if (entry.kind === 'confirm') return false;
+        if (entry.kind === 'confirm' || entry.kind === 'progress') return false;
         if (entry.kind === 'alert') return true;
         return null;
     }
@@ -117,6 +126,30 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         msg.className = 'igs-page-modal-msg';
         msg.textContent = entry.message;
         card.appendChild(msg);
+        entry.messageEl = msg;
+        if (entry.imageUrl) {
+            const preview = (src, alt) => {
+                const image = doc.createElement('img');
+                image.className = 'igs-page-modal-preview';
+                image.src = src;
+                image.setAttribute('alt', alt);
+                return image;
+            };
+            if (entry.originalImageUrl) {
+                card.className += ' igs-page-modal-card-comparison';
+                const comparison = doc.createElement('div');
+                comparison.className = 'igs-page-modal-comparison';
+                for (const [src, label] of [[entry.originalImageUrl, '本次原图'], [entry.imageUrl, '重绘候选（尚未保存）']]) {
+                    const figure = doc.createElement('figure');
+                    const caption = doc.createElement('figcaption');
+                    caption.textContent = label;
+                    figure.appendChild(caption);
+                    figure.appendChild(preview(src, label));
+                    comparison.appendChild(figure);
+                }
+                card.appendChild(comparison);
+            } else card.appendChild(preview(entry.imageUrl, '尚未保存的一致性重绘候选'));
+        }
         let input = null;
         if (entry.kind === 'prompt') {
             input = doc.createElement('input');
@@ -129,7 +162,8 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         }
         const actions = doc.createElement('div');
         actions.className = 'igs-page-modal-actions';
-        const buttons = entry.kind === 'alert' ? [['ok', entry.okLabel]] : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
+        const buttons = entry.kind === 'progress' ? [['cancel', entry.cancelLabel]]
+            : entry.kind === 'alert' ? [['ok', entry.okLabel]] : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
         for (const [role, label] of buttons) {
             const btn = doc.createElement('button');
             btn.type = 'button';
@@ -139,7 +173,9 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         }
         card.appendChild(actions);
         el.appendChild(card);
-        const accept = () => settle(entry, entry.kind === 'prompt' ? (input ? input.value : entry.value) : true);
+        const accept = () => {
+            if (entry.kind !== 'progress') settle(entry, entry.kind === 'prompt' ? (input ? input.value : entry.value) : true);
+        };
         el.addEventListener('click', (event) => {
             if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
             const target = event && event.target;
@@ -181,8 +217,11 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
             cancelLabel: labels.cancelLabel || '取消',
             resolve: null,
             el: null,
+            imageUrl: labels.imageUrl || '',
+            originalImageUrl: labels.originalImageUrl || '',
+            onCancel: labels.onCancel,
         };
-        return new Promise((resolve) => {
+        const result = new Promise((resolve) => {
             entry.resolve = resolve;
             pending = entry;
             if (!mount(entry)) {
@@ -190,12 +229,26 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
                 resolve(cancelValue(entry));
             }
         });
+        // 取消只结算本次弹窗，迟到任务不能关闭后来打开的弹窗。
+        result.cancel = () => settle(entry, cancelValue(entry));
+        return result;
     }
 
     return {
         alert: (message, labels) => open('alert', message, '', labels),
         confirm: (message, labels) => open('confirm', message, '', labels),
         prompt: (message, value = '', labels) => open('prompt', message, value, labels),
+        confirmImage: (imageUrl, message, labels = {}) => open('confirm', message, '', { ...labels, imageUrl }),
+        progress(message, onCancel) {
+            void open('progress', message, '', { cancelLabel: '停止', onCancel });
+            const entry = pending;
+            return {
+                update(text) {
+                    if (entry && pending === entry && entry.messageEl) entry.messageEl.textContent = String(text);
+                },
+                close() { if (entry && pending === entry) settle(entry, true); },
+            };
+        },
         cancel() {
             if (pending) settle(pending, cancelValue(pending));
         },

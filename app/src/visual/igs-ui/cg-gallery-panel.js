@@ -102,8 +102,14 @@ export function createCgGalleryPanel(doc, options = {}) {
 
     function onViewChange(type, key) {
         if (!root) return;
+        if (root.isConnected === false) { close(); return; }
         if (type === 'list') render();
         else if (type === 'thumb') patchTile(key);
+        else if (type === 'entry' && viewing === key) {
+            const entry = view.find(key);
+            if (entry?.ready) openViewer(entry);
+            else closeViewer();
+        }
         else patchStatus();
     }
 

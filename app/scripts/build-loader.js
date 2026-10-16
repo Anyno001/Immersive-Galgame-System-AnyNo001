@@ -99,8 +99,8 @@ const releaseArgIndex = process.argv.indexOf('--release');
 if (releaseArgIndex !== -1) {
     const releaseRef = process.argv[releaseArgIndex + 1];
     const version = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8')).version;
-    if (releaseRef !== `v${version}`) {
-        throw new Error(`--release requires v${version}, matching app/package.json.`);
+    if (releaseRef !== `test-v${version}`) {
+        throw new Error(`--release requires test-v${version}, matching app/package.json.`);
     }
     for (const name of fs.readdirSync(loaderRoot)) {
         if (RELEASE_FILE_RE.test(name)) fs.unlinkSync(path.join(loaderRoot, name));

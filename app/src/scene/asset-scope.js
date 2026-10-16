@@ -1,9 +1,12 @@
 // 场景、角色、衣柜、生成库按角色卡分开。根上的同名字段是全局兜底：
 // 当前角色卡里没有这个名字时才用全局，卡里有同名条目时以卡为准。不借用别的卡。
 
+import { normalizeCharacterDefaultOutfits } from './character-appearance.js';
+import { normalizeCharacterSeeds } from './generation-seeds.js';
+import { expressionNoteBelongsTo } from './expression-note-keys.js';
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
-const LIBRARY_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'wardrobe', 'eventCgs', 'statusAvatars'];
+const LIBRARY_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds', 'wardrobe', 'eventCgs', 'statusAvatars'];
 
 export function resolveAssetScope(ctx) {
     if (!ctx || typeof ctx !== 'object') return { key: '', legacyKey: '', kind: 'global', label: '全局' };
@@ -142,6 +145,19 @@ function stack(sources) {
     return out;
 }
 
+function ownedCharacterValues(field, root, card) {
+    const values = {};
+    for (const owner of [root, card]) {
+        const names = new Set(['characters', 'characterDna', 'characterOutfits', field]
+            .flatMap(key => Object.keys(plain(owner[key]))));
+        for (const name of names) {
+            delete values[name];
+            if (Object.hasOwn(plain(owner[field]), name)) values[name] = owner[field][name];
+        }
+    }
+    return values;
+}
+
 // 读路径用的合并结果。不带 cards，避免下游再扫到别的角色卡。本卡盖在全局上，不借用别的卡。
 export function effectiveSceneAssets(sceneAssets, scopeKey) {
     if (!sceneAssets || typeof sceneAssets !== 'object') return sceneAssets || null;
@@ -163,6 +179,10 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
         characterAliases: over('characterAliases'),
         characterDna: over('characterDna'),
         characterOutfits: over('characterOutfits'),
+        ...(['characterDefaultOutfits', 'characterSeeds'].reduce((fields, field) => {
+            if (Object.hasOwn(rest, field) || Object.hasOwn(card, field)) fields[field] = ownedCharacterValues(field, rest, card);
+            return fields;
+        }, {})),
         wardrobe: over('wardrobe'),
         eventCgs: over('eventCgs'),
         statusAvatars: over('statusAvatars'),
@@ -189,6 +209,9 @@ export function normalizeAssetCards(sceneAssets) {
             characterAliases: plain(card.characterAliases),
             characterDna: plain(card.characterDna),
             characterOutfits: plain(card.characterOutfits),
+            ...(Object.hasOwn(card, 'characterSeeds') && { characterSeeds: normalizeCharacterSeeds(card.characterSeeds) }),
+            ...(Object.hasOwn(card, 'characterDefaultOutfits') && {
+                characterDefaultOutfits: normalizeCharacterDefaultOutfits(card.characterDefaultOutfits) }),
             wardrobe: plain(card.wardrobe),
             eventCgs: plain(card.eventCgs),
             generated: {
@@ -247,12 +270,14 @@ export function moveLibraryEntry(sceneAssets, fromKey, toKey, collection, name, 
     if (!Object.prototype.hasOwnProperty.call(plain(from[collection]), label)) return { ok: false, reason: 'missing' };
     moveKey(from, to, collection, label, copy);
     if (collection === 'characters') {
-        for (const extra of ['characterAliases', 'characterDna', 'characterOutfits', 'statusAvatars']) {
+        for (const extra of ['characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds', 'statusAvatars']) {
             moveKey(from, to, extra, label, copy);
         }
         moveGeneratedName(from, to, 'characters', label, copy);
         moveGeneratedName(from, to, 'characterAliases', label, copy);
-        moveGeneratedName(from, to, 'expressionNotes', label, copy);
+        for (const key of Object.keys(plain(plain(from.generated).expressionNotes))) {
+            if (expressionNoteBelongsTo(key, label)) moveGeneratedName(from, to, 'expressionNotes', key, copy);
+        }
     }
     if (collection === 'scenes') moveGeneratedName(from, to, 'scenes', label, copy);
     return { ok: true };

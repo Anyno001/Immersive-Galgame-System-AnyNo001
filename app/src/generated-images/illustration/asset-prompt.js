@@ -6,7 +6,7 @@ import {
     MATTE_BACKGROUND_TAGS, WHITE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, applyTemplate, dropMatteTagsWhenTransparent, dropWhiteBackgroundNegative,
     buildDictionaryBackgroundTags,
 } from './prompt-kit.js';
-import { buildCharacterDnaPromptParts, mergePromptTags } from '../../scene/character-dna.js';
+import { composeSpritePromptParts, spriteExpressionTags } from '../sprite-prompt-composition.js';
 
 const ASSET_TASK = [
     '任务：阅读视觉小说正文，为「需要生成的素材」清单里的每一项写英文 tag。素材分两类：',
@@ -45,12 +45,13 @@ export function describeAssetNeed(need, index) {
         if (need.weather) parts.push(`天气：${need.weather}`);
         return { id: `bg${index + 1}`, line: `背景｜${parts.join('｜')}` };
     }
-    // DNA 固定的身份与默认外观会由程序在出图前合并，这里只让副 LLM 知道、避免写出冲突 tag。
+    // DNA 是角色词来源；可直接组合时只让副 LLM 写本次表情、动作，中文资料由同次请求转译。
     const flat = (text) => String(text || '').replace(/\s*\n\s*/g, ' ').trim();
     const dnaNotes = [];
     if (need.dna && flat(need.dna.identity)) dnaNotes.push(`固定身份：${flat(need.dna.identity)}`);
     if (need.dna && flat(need.dna.defaultAppearance)) dnaNotes.push(`默认外观：${flat(need.dna.defaultAppearance)}`);
-    return { id: `ch${index + 1}`, line: [`立绘｜角色：${need.name}`, ...dnaNotes].join('｜') };
+    return { id: `ch${index + 1}`, line: [`立绘｜角色：${need.name}`,
+        ...(need.outfitName ? [`触发标签服装：${need.outfitName}（本次只写该套服装描述）`] : []), ...dnaNotes].join('｜') };
 }
 
 export function buildAssetPlannerUserPrompt({ needs = [], readableText = '', previousText = '', lore = [] } = {}) {
@@ -61,7 +62,7 @@ export function buildAssetPlannerUserPrompt({ needs = [], readableText = '', pre
     return [
         `【需要生成的素材】\n${listed.join('\n')}`,
         needs.some((need) => need.type === 'sprite' && need.dna)
-            ? '【角色 DNA】标注了固定身份或默认外观的立绘，tags 不得改变这些特征，只补充正文中额外交代的内容。' : '',
+            ? '【角色 DNA】角色提示词由分散的 DNA 字段组合，不另写一份完整外貌词。有英文 DNA 的项目，tags 只写本次表情和动作；中文 DNA 的项目在同次请求中转译为完整英文角色词，不再追加原文。' : '',
         lore.length
             ? `【角色设定参考】只取外貌（发色、瞳色、发型、体型、常穿服装），正文另有交代时以正文为准。\n${lore.map((item) => `${item.name}：${item.text}`).join('\n')}`
             : '',
@@ -125,9 +126,9 @@ export function buildAssetSlot(item, { transparent = false, whiteBackground = fa
             chars: [],
         };
     }
-    // 立绘 DNA 固定顺序：triggerWords → identity → defaultAppearance → 副 LLM tag；无 DNA 时输出与旧版一致。
-    const dnaParts = item.need.dna ? buildCharacterDnaPromptParts(item.need.dna, { includeDefaultAppearance: true }) : null;
-    const tags = dnaParts && dnaParts.positive ? mergePromptTags(dnaParts.positive, item.tags) : item.tags;
+    // 角色词只组合一次；有可用 DNA 时，模型 tags 仅供应当次变化，不作为第二份外貌来源。
+    const dnaParts = composeSpritePromptParts(item.need.dna, { expression: spriteExpressionTags(item.tags) });
+    const tags = dnaParts ? dnaParts.positive : item.tags;
     const useWhite = whiteBackground && !transparent;
     const matte = transparent ? TRANSPARENT_BACKGROUND_TAGS : (useWhite ? WHITE_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS);
     const sceneUc = joinTags(t.spriteNegative, dnaParts ? dnaParts.negative : '', NSFW_NEGATIVE_GUARD, item.uc);

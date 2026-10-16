@@ -5,6 +5,8 @@ import {
     normalizePresetSnapshot,
 } from '../storage/preset-store.js';
 import { PRESET_TYPES, validatePresetByType } from './preset-types.js';
+import { validatePromptActivation } from './prompt-preset.js';
+import { createPromptPresetApi } from './prompt-preset-api.js';
 
 const PRESET_TYPE_SET = new Set(PRESET_TYPES);
 
@@ -12,7 +14,11 @@ export function createPresetRegistry(options = {}) {
     const store = options.store || createPresetStore(options.storage, options.storeOptions);
     const state = {
         snapshot: createEmptyPresetSnapshot(),
+        ready: false,
+        imagePromptEpoch: 0,
+        imagePromptSignature: '',
     };
+    const imagePromptListeners = new Set();
 
     const registry = {
         store,
@@ -28,6 +34,13 @@ export function createPresetRegistry(options = {}) {
         exportPreset,
         exportGroup,
         importBundle,
+        ...createPromptPresetApi({ read: snapshot, commit: commitSnapshot, isReady: () => state.ready }),
+        getImagePromptEpoch: () => state.ready ? state.imagePromptEpoch : null,
+        onImagePromptChanged(handler) {
+            imagePromptListeners.add(handler);
+            return () => imagePromptListeners.delete(handler);
+        },
+        getStatus: () => ({ ok: state.ready, reason: state.ready ? '' : 'preset-store-unreadable' }),
     };
 
     if (options.autoHydrate !== false) {
@@ -38,8 +51,14 @@ export function createPresetRegistry(options = {}) {
 
     function hydrate() {
         const loadResult = store.load();
+        state.ready = loadResult.ok === true;
+        if (!state.ready) return { ...loadResult, snapshot: snapshot(), rejected: [] };
         const normalized = sanitizeSnapshot(loadResult.snapshot);
+        if (normalized.rejected.length) {
+            state.ready = false;
+        }
         state.snapshot = normalized.snapshot;
+        updateImagePromptEpoch();
 
         return {
             ...loadResult,
@@ -67,6 +86,16 @@ export function createPresetRegistry(options = {}) {
         const nextSnapshot = cloneData(state.snapshot);
         const type = validation.normalized.type;
         const id = validation.normalized.id;
+        const existing = get(type, id);
+        if (type === 'prompt-preset' && existing
+            && (existing.data.usage === 'imagegen' || validation.normalized.data.usage === 'imagegen'))
+            return { ok: false, reason: 'preset-id-conflict', errors: [] };
+        if (type === 'prompt-preset' && validation.normalized.data.usage === 'imagegen') {
+            if (nextSnapshot.current[type] === id) {
+                const active = validatePromptActivation(validation.normalized.data);
+                if (!active.ok) return { ok: false, reason: 'prompt-not-activatable', errors: active.errors };
+            }
+        }
 
         if (!nextSnapshot.items[type]) {
             nextSnapshot.items[type] = {};
@@ -156,6 +185,10 @@ export function createPresetRegistry(options = {}) {
             return { ok: false, reason: 'invalid-preset', type: normalizedType, id: normalizedId, errors: validation.errors.map(cloneData) };
         }
 
+        if (normalizedType === 'prompt-preset' && validation.normalized.data.usage === 'imagegen') {
+            const active = validatePromptActivation(validation.normalized.data);
+            if (!active.ok) return { ok: false, reason: 'prompt-not-activatable', errors: active.errors };
+        }
         const nextSnapshot = cloneData(state.snapshot);
         nextSnapshot.current[normalizedType] = normalizedId;
         if (!nextSnapshot.items[normalizedType]) nextSnapshot.items[normalizedType] = {};
@@ -203,13 +236,35 @@ export function createPresetRegistry(options = {}) {
     }
 
     function commitSnapshot(nextSnapshot) {
+        if (!state.ready) return { ok: false, reason: 'preset-store-unreadable' };
+        const stored = store.load();
+        if (!stored.ok) {
+            state.ready = false;
+            return { ok: false, reason: 'preset-store-unreadable' };
+        }
+        if (JSON.stringify(normalizePresetSnapshot(stored.snapshot)) !== JSON.stringify(state.snapshot))
+            return { ok: false, reason: 'preset-revision-conflict' };
         const normalized = normalizePresetSnapshot(nextSnapshot);
+        normalized.revision = state.snapshot.revision + 1;
         const saveResult = store.save(normalized);
         if (!saveResult.ok) {
             return saveResult;
         }
         state.snapshot = normalizePresetSnapshot(saveResult.snapshot);
+        updateImagePromptEpoch();
         return { ok: true, snapshot: cloneData(state.snapshot) };
+    }
+
+    function updateImagePromptEpoch() {
+        const id = state.snapshot.current['prompt-preset'];
+        const signature = JSON.stringify([id, state.snapshot.items['prompt-preset']?.[id]?.data]);
+        if (signature !== state.imagePromptSignature) {
+            state.imagePromptSignature = signature;
+            state.imagePromptEpoch += 1;
+            for (const handler of imagePromptListeners) {
+                try { handler(); } catch { /* 订阅失败不能改变已经提交的快照 */ }
+            }
+        }
     }
 }
 
@@ -283,6 +338,8 @@ function sanitizeSnapshot(snapshot) {
     const nextSnapshot = createEmptyPresetSnapshot();
     nextSnapshot.version = source.version;
     nextSnapshot.updatedAt = source.updatedAt;
+    nextSnapshot.revision = source.revision;
+    nextSnapshot.drafts = cloneData(source.drafts);
     const rejected = [];
 
     for (const [type, records] of Object.entries(source.items || {})) {
@@ -305,6 +362,14 @@ function sanitizeSnapshot(snapshot) {
     for (const [type, id] of Object.entries(source.current || {})) {
         if (!nextSnapshot.items[type] || !Object.prototype.hasOwnProperty.call(nextSnapshot.items[type], id)) {
             continue;
+        }
+        const item = nextSnapshot.items[type][id];
+        if (type === 'prompt-preset' && item.data.usage === 'imagegen') {
+            const active = validatePromptActivation(item.data);
+            if (!active.ok) {
+                rejected.push({ reason: 'invalid-stored-current', id, errors: active.errors });
+                continue;
+            }
         }
         nextSnapshot.current[type] = id;
     }

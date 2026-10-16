@@ -17,8 +17,16 @@
 - 适配 TavernHelper、SillyTavern DOM 和酒馆魔法棒菜单。
 - 统一定位聊天楼层、当前楼层、输入框、发送按钮和消息图片。
 - 副 LLM 请求（`secondary-llm.js`）。
+- `request` 保留旧 `{system,user}` 调用；显式 `{messages}` 仅接受 system/user/assistant 的纯文本消息，保持正文、顺序并复制发送，拒绝混用字段或未知消息字段。用户附加词在旧调用保持原拼接，在有序调用使用独立首尾消息。
+- TavernHelper 使用 `ordered_prompts`，独立 API 使用 `messages`；旧 SillyTavern 双字段接口只接受 system/user 两条消息，多角色请求返回 `ordered-messages-unsupported`，不得压平或降级角色。
+- 独立副 LLM 优先通过宿主 `ChatCompletionService` 的 custom 通道，使用 IGS 本次私有地址、模型、消息及 Authorization，不读取 DBG 配置，不修改酒馆主模型配置。宿主缺少发送能力时才走浏览器直连；已选通道失败后不切换、不自动补发。
+- 两条独立 API 路径固定 `stream: false`，不主动追加未配置的采样参数或 JSON schema。响应仅剥离前置且完整闭合的 `<think>` 块，未闭合思考不作为正式结果；直连保留 JSON／SSE 解析。
+- HTTP 拒绝通过 `SecondaryLlmError` 传递状态、通道和白名单字段名，正文、地址及凭据不进入诊断。写词层透传受控失败，取消／超时保留停止语义；模型列表在宿主发送能力及请求头能力齐全时走酒馆 custom status 通道，否则直连。
+- 生图世界书适配由 `image-world-info.js` 调用宿主 `getWorldInfoPrompt` 的 dryRun：扫描调用方给定的新到旧写词窗口，不自行遍历全量聊天或重写关键词／常量触发。汇总各注入位置的已激活文本；本适配器扫描串行并恢复作者注释，接口缺失／异常／无效返回受控失败。dryRun 其他内部副作用以及与主生成／外部插件的并发隔离不作保证，需真实宿主复验。内置立绘的 `readCharacterLore(..., { includeWorldInfo: false })` 仅补人设与角色卡，世界书统一走原生扫描。
+
 - 自动插图楼层读写、生成事件订阅及 `[igs-img]` 标记对外隐藏（`illustration-message-host.js`）。
 - 自动插图 `writeFloor(messageId, text, expectedFloor)` 写回前复核聊天、楼层、swipe、最新 AI 身份与原文；发生变化返回 `stale`，不写入。宿主 API 未提供原子条件写入，复核与实际调用之间的极窄竞态仍需真机验证。
+- `onImageFloorReady(handler)` 合并主生成期间的渲染通知，在 `GENERATION_ENDED` 后读取当前聊天的最终 AI 楼层；缺渲染通知时按结束事件和当前轮楼层补交。忽略 dryRun、非 quietToLoud 的 quiet、impersonate 和 IGS 后台请求；后台结束不提前收束主生成。停止、换聊天、下一轮或卸载使排队交付失效，停止后的迟到渲染不重启自动生图；正常新一轮才解除拒收。生命周期事件缺失的旧宿主保留渲染入口，真实宿主事件顺序仍需现场复验。
 - 提供 `typeIntoInputAndSend(text)`，供阅读器输入框和选项浮窗调用。
 - `input-channel.js` 是输入框发送的默认骨架入口。
 - `magic-wand-entry.js` 是酒馆魔法棒菜单入口的唯一实现，负责向 `#extensionsMenu`、`#extensions_menu`、`.extensions_block .list-group` 注入 `Immersive Galgame System` 菜单项；入口保留原版书本图标和单入口魔法棒契约。
@@ -37,6 +45,7 @@
 - 标签语法注入（`prompt-injector.js`，由 `core/bootstrap.js` 的 `syncSceneAssetsInjection` 驱动）：`bridge.sceneAssets.promptPlacement` 默认 `system`，主规则以 `IN_PROMPT` 写入 `igs-scene-assets-format-rule`（相对静态、可命中前缀缓存），本轮提醒与按需展开的块、交互摘要以 `IN_CHAT` depth 0 写入 `igs-scene-assets-depth0`；`depth0` 为旧行为，两段合并成一条 `IN_CHAT` depth 0。`bridge.sceneAssets.promptEntries.<块>.position/depth` 写了位置的条目不走上述两段，按位置与深度（system 为 IN_PROMPT，depth0 / depth 为 IN_CHAT，深度即 @D）分段，位置与深度相同的合并为一段，key 为 `igs-scene-assets-entry-system|depth0|d<N>`。`clear()` 清掉以上全部 key。酒馆助手回退只有聊天内位置，始终合并。`bridge.sceneAssets.promptRuleEnabled === false` 时主规则不含【场景与台词】块（用户改由酒馆预设提供），其余已开启的语法块照常注入，都没有时两个 key 都清掉。
 - `bridge.sceneAssets.promptAdaptive` 默认开：`GENERATION_STARTED` 时按本轮上下文（`prompt-context.js`：最近 12 层 AI 正文、输入框或最近一条用户消息、角色卡名与群聊成员）重算，`impersonate` / `quiet` 生成期间清空，`GENERATION_ENDED` / `GENERATION_STOPPED` 与换聊天时恢复；预算上限约 1500 token，按「场景 > 文字演出 > 演出 > 物品 > 聊天 > 日常 > 战斗 > 亲密」填入，超出的块降级为索引行。关闭时按旧版全量拼接（未自定义的场景规则用 V3 长版原文），与改版前逐字一致，代写与静默生成也不清空。
 
+- 正文衣装上下文由 `prompt-context.js` 提供当前聊天内、排除用户与系统消息后的最近 AI 文本窗口，最后一条为目标楼层，前面的仅用于衣装继承。`syncSceneAssetsInjection` 将同一正文过滤及替换配置传给占位符展开；按需与旧拼接入口均支持 `{{previous_outfit_dna}}`，关闭场景规则时不注入。切聊天及生成事件重算，不缓存上一聊天的衣装；设置页复制共用上下文入口，复制文本不自动刷新。
 ## 输入发送契约
 
 - 写入酒馆输入框。

@@ -1,3 +1,5 @@
+import { stripIllustrationMarkers } from './scene-directives.js';
+
 const KEY = 'igs:outfit-review:v1';
 export const OUTFIT_REVIEW_LIMIT = 50;
 
@@ -50,4 +52,75 @@ export function dropConfirmedOutfitReview(storage, isRegistered) {
 
 export function clearOutfitReview(storage) {
     return saveOutfitReview(storage, []);
+}
+// 剧情候选独立保存，旧待确认词的清理不影响未完成图片；不保存正文或 DNA。
+const STORY_KEY = 'igs:story-outfit-review:v1';
+const storyFields = ['id', 'character', 'word', 'scopeKey', 'ownerKey', 'floorKey', 'sourceHash', 'messageId', 'status', 'prompt', 'imageId'];
+export const storyOutfitId = row => JSON.stringify([row.scopeKey, row.ownerKey, row.floorKey, row.sourceHash, row.character, row.word]);
+export function storyOutfitSourceHash(value) {
+    const text = stripIllustrationMarkers(value).trim();
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+    return (hash >>> 0).toString(36);
+}
+const validStoryRow = row => row && typeof row.id === 'string' && row.id === storyOutfitId(row)
+    && ['character', 'word', 'floorKey', 'sourceHash'].every(key => typeof row[key] === 'string' && row[key].trim())
+    && ['scopeKey', 'ownerKey'].every(key => typeof row[key] === 'string')
+    && !['__proto__', 'constructor', 'prototype'].includes(row.character)
+    && Number.isSafeInteger(row.messageId) && row.messageId >= 0
+    && (row.prompt === undefined || (typeof row.prompt === 'string' && row.prompt.trim()
+        && row.prompt.length <= 4096 && !/<<\s*(?:dna|outfit)/i.test(row.prompt)))
+    && (row.imageId === undefined || (typeof row.imageId === 'string' && row.imageId.length > 0));
+
+export function loadStoryOutfitCandidates(storage) {
+    try {
+        const raw = storage?.getItem(STORY_KEY);
+        if (!raw) return { ok: true, items: [] };
+        const parsed = JSON.parse(raw);
+        if (parsed?.version !== 1 || !Array.isArray(parsed.items)) return { ok: false, reason: 'store-read-failed' };
+        const items = parsed.items.filter(validStoryRow);
+        if (items.length !== parsed.items.length) return { ok: false, reason: 'store-read-failed' };
+        return { ok: true, items };
+    } catch { return { ok: false, reason: 'store-read-failed' }; }
+}
+
+function saveStoryRows(storage, items) {
+    try {
+        storage.setItem(STORY_KEY, JSON.stringify({ version: 1, items }));
+        return { ok: true };
+    } catch { return { ok: false, reason: 'store-write-failed' }; }
+}
+
+export function saveStoryOutfitCandidate(storage, candidate) {
+    return saveStoryOutfitCandidates(storage, [candidate]);
+}
+
+export function saveStoryOutfitCandidates(storage, candidates) {
+    if (!Array.isArray(candidates) || candidates.some(row => !validStoryRow(row)))
+        return { ok: false, reason: 'invalid-candidate' };
+    const loaded = loadStoryOutfitCandidates(storage);
+    if (!loaded.ok) return loaded;
+    const rows = new Map(loaded.items.map(row => [row.id, row]));
+    for (const candidate of candidates) {
+        const row = {};
+        for (const key of storyFields) if (candidate[key] !== undefined) row[key] = candidate[key];
+        rows.set(row.id, row);
+    }
+    // 满额时仅替换可从原楼重新发现的纯待选记录；本批候选与任何恢复/在途资料均保留。
+    // 先在内存规划，无法容纳整批时不写入、不删除旧记录。
+    if (rows.size > OUTFIT_REVIEW_LIMIT) {
+        const incoming = new Set(candidates.map(row => row.id));
+        for (const row of rows.values()) {
+            if (rows.size <= OUTFIT_REVIEW_LIMIT) break;
+            if (!incoming.has(row.id) && row.status === 'pending'
+                && row.prompt === undefined && row.imageId === undefined) rows.delete(row.id);
+        }
+    }
+    if (rows.size > OUTFIT_REVIEW_LIMIT) return { ok: false, reason: 'candidate-limit' };
+    return saveStoryRows(storage, [...rows.values()]);
+}
+
+export function removeStoryOutfitCandidate(storage, id) {
+    const loaded = loadStoryOutfitCandidates(storage);
+    return loaded.ok ? saveStoryRows(storage, loaded.items.filter(item => item.id !== id)) : loaded;
 }

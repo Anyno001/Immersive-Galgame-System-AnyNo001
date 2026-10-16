@@ -4,6 +4,7 @@ import { localImageCacheFor } from './tavern-image-cache.js';
 import { mediaRequest, tavernHeaders } from './tavern-media-http.js';
 import { mediaFileGcFor } from './media-file-gc.js';
 export const IMAGE_PROVENANCE = Symbol('igs-image-provenance');
+import { readReferenceImageUrl } from './reference-image-reader.js';
 
 const uploads = new WeakMap();
 const IMAGE_LEASES = Symbol('igs-image-write-leases');
@@ -112,6 +113,11 @@ export function createTavernImageFiles(globalObject, legacyDir) {
     }
     const recover = createLegacyImageRecovery(globalObject, { dir: legacyDir, listFiles, read, slug });
     return { offload, hydrate, read, recover, listFiles, sameRecord,
+        async readCurrentImage(record, options) {
+            if (!record?.dataUrl || isImageData(record.dataUrl)) return record;
+            const dataUrl = await readReferenceImageUrl(record.dataUrl, globalObject, options);
+            return dataUrl === null ? null : { ...record, dataUrl };
+        },
         hasData: record => IMAGE_FIELDS.some(field => isImageData(record?.[field])),
         async release(record) { const results = await Promise.allSettled([...record?.[IMAGE_LEASES] || []].map(path => gc.release(path))); const failed = results.find(result => result.status === 'rejected'); if (failed) throw failed.reason; },
         dropUnused: (old, next) => gc.released(old, next),

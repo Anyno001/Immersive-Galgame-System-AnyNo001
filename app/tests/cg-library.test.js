@@ -186,3 +186,75 @@ test('cg-library:keys-parse-from-the-right-and-pages-slice', () => {
     const sliced = cgPageSlice(Array.from({ length: 50 }, (_, i) => i), 5);
     assert.deepEqual([sliced.page, sliced.pages, sliced.items.length], [2, 3, 2]);
 });
+
+
+test('cg-library:accepted-revision-invalidates-thumb-and-index-failure-is-a-warning', async () => {
+    const { raw, illustrationStore, indexStore, library } = await setup();
+    await library.syncIndex();
+    const before = await raw.getSlotRecord('chat|3|0|1');
+    const entry = (await indexStore.getAll()).find((e) => e.key === before.key);
+    await indexStore.putThumb(entry.key, 'old-thumb', entry.updatedAt);
+    const saved = await illustrationStore.updateSlot('chat|3|0', 1, before.revision,
+        { dataUrl: PNG('NEW'), updatedAt: at(40) }, { expectedToken: before.revisionToken, preserveBaseline: true });
+    assert.equal(saved.ok, true);
+    const next = (await indexStore.getAll()).find((e) => e.key === before.key);
+    assert.equal(next.updatedAt, at(40));
+    assert.equal((await library.readThumbs([next])).size, 0);
+    const broken = withCgIndexSync(raw, { upsert: async () => { throw new Error('fixture'); } });
+    const accepted = await broken.updateSlot('chat|3|0', 1, saved.record.revision,
+        { dataUrl: PNG('NEXT') }, { expectedToken: saved.record.revisionToken });
+    assert.equal(accepted.ok, true);
+    assert.equal(accepted.warning, 'cg-index-sync-failed');
+    assert.equal((await raw.getSlotRecord(before.key)).dataUrl, PNG('NEXT'));
+    assert.equal((await broken.updateSlot('chat|3|0', 1, saved.record.revision,
+        { dataUrl: PNG('LATE') }, { expectedToken: saved.record.revisionToken })).reason, 'stale-revision');
+});
+
+test('cg-library:索引失败后定向补登记已就绪槽位并保留标记', async () => {
+    const f = await setup();
+    await f.library.syncIndex();
+    const key = 'chat|3|0|1';
+    await f.library.setFavorite((await f.indexStore.getAll()).find(e => e.key === key), true);
+    const before = await f.raw.getSlotRecord(key);
+    const flaky = withCgIndexSync(f.raw, { ...f.indexStore, upsert: async () => { throw new Error('fixture'); } });
+    const saved = await flaky.updateSlot('chat|3|0', 1, before.revision,
+        { dataUrl: PNG('NEW') }, { expectedToken: before.revisionToken, preserveBaseline: true });
+    assert.equal(saved.ok, true);
+    assert.equal(saved.warning, 'cg-index-sync-failed');
+    assert.deepEqual(flaky.getCgIndexPendingKeys(), [key]);
+    const reads = [];
+    const library = createCgLibrary({ illustrationStore: { ...flaky, getSlotRecords: async keys => {
+        reads.push(...keys); return flaky.getSlotRecords(keys);
+    } }, indexStore: f.indexStore, marksStore: f.marksStore });
+    const synced = await library.syncIndex();
+    assert.equal(synced.ok, true);
+    assert.equal(reads.includes(key), true, 'ready 旧条目也定向复查');
+    assert.equal(reads.includes('chat|4|1|1'), false, '不全量读取已就绪原图');
+    const entry = synced.entries.find(e => e.key === key);
+    assert.equal(entry.revisionToken, saved.record.revisionToken);
+    assert.equal(entry.favorite, true);
+    assert.deepEqual(flaky.getCgIndexPendingKeys(), []);
+    assert.equal((await library.readFull(entry)).dataUrl, PNG('NEW'));
+});
+
+test('cg-library:同时间替换以 revisionToken 失效缩略图并支持定向刷新', async () => {
+    const f = await setup();
+    await f.library.syncIndex();
+    const key = 'chat|3|0|1';
+    const before = await f.raw.getSlotRecord(key);
+    const old = (await f.library.refreshEntry(key)).entry;
+    const { cgEntryStamp } = await import('../src/media/cg-library.js');
+    await f.indexStore.putThumb(key, PNG('OLD-THUMB'), cgEntryStamp(old));
+    assert.equal((await f.library.readThumbs([old])).size, 1);
+    const saved = await f.illustrationStore.updateSlot('chat|3|0', 1, before.revision,
+        { dataUrl: PNG('NEW'), updatedAt: before.updatedAt }, { expectedToken: before.revisionToken });
+    const next = await f.library.refreshEntry(key);
+    assert.equal(next.ok, true);
+    assert.equal(next.entry.updatedAt, old.updatedAt);
+    assert.equal(next.entry.revisionToken, saved.record.revisionToken);
+    assert.equal((await f.library.readThumbs([next.entry])).size, 0);
+    assert.equal((await f.library.readFull(next.entry)).dataUrl, PNG('NEW'));
+    await f.raw.deleteSlot('chat|3|0', 1);
+    assert.deepEqual(await f.library.refreshEntry(key), { ok: true, entry: null });
+    assert.equal((await f.indexStore.getAll()).some(e => e.key === key), false);
+});

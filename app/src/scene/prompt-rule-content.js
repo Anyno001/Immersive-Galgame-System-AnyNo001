@@ -1,5 +1,6 @@
 import { buildCompactGroupsText, buildCompactMoodGroupsText, buildCompactSceneNamesText, buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from './mood-groups.js';
 import { buildOutfitGroupsText, buildScopedOutfitGroupsText, normalizeCharacterOutfits, OUTFIT_GROUPS_PLACEHOLDER } from './character-outfits.js';
+import { buildPreviousOutfitDnaText, PREVIOUS_OUTFIT_DNA_PLACEHOLDER } from './previous-outfit-dna.js';
 
 // 素材页「自动注入格式规则」：缺省为开，只有明确存了 false 才不把场景规则发给聊天模型。
 export function scenePromptRuleEnabled(sceneAssets) {
@@ -22,7 +23,8 @@ function moodSlotWords(sceneAssets) {
 
 // 把规则里的词表占位符换成素材库内容。compact 是按需注入用的精简词表（服装只列在场角色）；
 // 不带 compact 是完整词表，旧拼接注入和「复制到酒馆预设」都用这一份。
-export function resolvePromptRuleContent(sceneAssets, { compact = false, presentText = null } = {}) {
+export function resolvePromptRuleContent(sceneAssets, { compact = false, presentText = null,
+    previousAiTexts = null, sourceFilter, virtualRegex } = {}) {
     let rule = String(sceneAssets.promptRule || '');
     if (rule.includes(MOOD_GROUPS_PLACEHOLDER)) {
         const moods = compact ? buildCompactMoodGroupsText(sceneAssets.moodGroups, moodSlotWords(sceneAssets)) : buildMoodGroupsText(sceneAssets.moodGroups);
@@ -42,6 +44,11 @@ export function resolvePromptRuleContent(sceneAssets, { compact = false, present
         rule = rule.split(OUTFIT_GROUPS_PLACEHOLDER).join(compact
             ? buildScopedOutfitGroupsText(outfits, { presentText, characterAliases: sceneAssets.characterAliases })
             : buildOutfitGroupsText(outfits));
+    }
+    // 最后展开动态资料，避免衣装原文中的其他占位符被递归解释。
+    if (rule.includes(PREVIOUS_OUTFIT_DNA_PLACEHOLDER)) {
+        const clothing = buildPreviousOutfitDnaText(sceneAssets, { previousAiTexts, sourceFilter, virtualRegex });
+        rule = rule.split(PREVIOUS_OUTFIT_DNA_PLACEHOLDER).join(clothing);
     }
     return compact ? rule.replace(/\n{2,}/g, '\n').trim() : rule;
 }

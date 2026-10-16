@@ -49,7 +49,7 @@ test('gate:media:cg-reroll-keeps-the-old-file-during-generation-and-after-failur
     const gate = new Promise(resolve => { release = resolve; });
     const service = createAutoIllustrationService({ store, mediaCache: localImageCacheFor(host), getSettings: () => ({ nsfwEnabled: true }),
         nai: { describe: () => ({ via: 'dbgen', ready: { ok: true } }), generateDbgenCaption: () => gate },
-        messageHost: { getChatId: () => '聊天', readFloor: () => ({ chatId: '聊天', messageId: 1, swipeId: 0, isAi: true }) }, events: { emit() {} } });
+        messageHost: { getChatId: () => '聊天', readFloor: () => ({ chatId: '聊天', messageId: 1, swipeId: 0, isAi: true, text: '[igs-img:1]' }) }, events: { emit() {} } });
     const job = service.rerollSlot({ chatId: '聊天', messageId: 1, swipeId: 0, slot: 1 });
     await settleMedia(); assert.equal((await raw.getSlotRecord(`${key}|1`)).dataUrl, old.dataUrl);
     release({ ok: false, error: 'provider-failed' });

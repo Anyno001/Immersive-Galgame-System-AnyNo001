@@ -3,7 +3,7 @@ import { createMediaRecordJournal } from './media-record-journal.js';
 import { mediaFileGcFor } from './media-file-gc.js';
 import { generatedImageReferences, generatedImageAudit } from './image-references.js';
 import { IMAGE_FIELDS } from './image-identity.js';
-import { applyGeneratedImageUpdate } from './generated-asset-store.js';
+import { applyGeneratedImageUpdate, applyGeneratedPromptUpdate } from './generated-asset-store.js';
 import { retryInlineMedia } from './media-migration.js';
 
 export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) {
@@ -49,6 +49,7 @@ export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) 
         getImageRecord: raw,
         // 只读本机记录、不等恢复：给阅读器先显示用，没有时由调用方回到 getImageRecord。
         peekImageRecord: id => store.getImage(id),
+        async readImage(id, options = {}) { return files.readCurrentImage(await store.getImage(id), options); },
         async listImages() { await journal.restore(); return store.listImages(); },
         async listAssets() { await journal.restore(); return store.listAssets(); },
         async listFloors() { await journal.restore(); return store.listFloors(); },
@@ -65,10 +66,11 @@ export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) 
             return files.hydrate(record, options);
         },
         putImage: saveImage,
-        async deleteImage(id) {
+        async deleteImage(id, options = {}) {
             const old = await raw(id);
             try {
                 await journal.write(`image:${id}`, async () => {
+                    if (options.beforeDelete && !(await options.beforeDelete())) throw Object.assign(new Error('image-referenced'), { retained: true });
                     const references = await generatedImageReferences(store, globalObject, referenceRoot());
                     if (references.ids.has(id)) throw Object.assign(new Error('image-referenced'), { retained: true });
                     return null;
@@ -76,6 +78,21 @@ export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) 
             } catch (error) { if (error.retained) return { ok: true, retained: [id] }; throw error; }
             await files.dropUnused(old, null);
             return { ok: true, queued: true };
+        },
+        async updateImagePrompt(id, expectedRevision, prompt, updatedAt) {
+            await raw(id);
+            let result;
+            try {
+                await journal.write(`image:${id}`, async () => {
+                    const projected = applyGeneratedPromptUpdate(await store.getImage(id), expectedRevision, prompt, updatedAt);
+                    if (!projected.ok) throw Object.assign(new Error(projected.reason), { result: projected });
+                    return projected.record;
+                }, async () => {
+                    result = await store.updateImagePrompt(id, expectedRevision, prompt, updatedAt);
+                    return result;
+                });
+                return result;
+            } catch (error) { if (error.result) return error.result; throw error; }
         },
         async patchImageMetadata(id, patch) {
             if (IMAGE_FIELDS.some(field => Object.hasOwn(patch, field)) || Object.hasOwn(patch, 'id')) return { ok: false, reason: 'metadata-only' };

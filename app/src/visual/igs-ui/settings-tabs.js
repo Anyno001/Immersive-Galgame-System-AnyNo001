@@ -78,8 +78,9 @@ const IMAGE_SOURCE_TEMPLATE = `
       <div class="igs-source-filter-grid">
         {{autoNaiKeyField}}
         {{autoNaiModelField}}{{autoNaiSizeField}}
-        <div class="igs-settings-full">{{autoNaiArtistField}}</div>
-        <div class="igs-settings-full">{{autoNaiNegativeField}}</div>
+      </div>
+      <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
+        {{naiSpriteTransparentField}}
       </div>
       <div class="igs-settings-result" data-result="nai-models">{{autoNaiModelsMessage}}</div>
       <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai"{{advancedNaiOpen}}>
@@ -100,9 +101,18 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-source="dbgen"{{sourceDbgenHidden}}>
       {{dbgenSpriteTransparentField}}
     </div>
+    <div class="igs-settings-sub" data-image-feature="consistency"{{sourceConsistencyHidden}}>
+      <div class="igs-source-filter-grid">{{consistencyStrengthField}}{{consistencyModelField}}</div>
+    </div>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>插件设置</button></div>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
+  <div class="igs-source-filter" data-image-prompt-entry{{sourceBuiltinHidden}}>
+    <div class="igs-source-filter-title">固定提示词组预设</div>
+    <div class="igs-source-filter-note">在现有管理器中新建、导入、编辑、保存与激活生图提示词组；未激活的草稿不参与写词。</div>
+    <button type="button" class="igs-settings-action" data-setting-go="image-prompt-presets">导入 / 编辑固定提示词组预设</button>
+  </div>
+  {{artistLibraryPanel}}
 </div>
 `.trim();
 
@@ -123,9 +133,10 @@ const IMAGE_LLM_TEMPLATE = `
       <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
     </div>
   </div>
+  {{imagePromptPanel}}
   <div class="igs-source-filter igs-perf-group" data-image-feature="llm-prompts">
     <details data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
-      <summary><b>提示词</b><span class="igs-perf-brief">系统提示词 · 头尾附加词，清空即恢复内置</span></summary>
+      <summary><b>旧版写词要求与附加词</b><span class="igs-perf-brief">保留原配置；完整生图框架在上方编辑</span></summary>
       <div class="igs-perf-group-body">
         <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
         <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>

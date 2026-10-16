@@ -27,7 +27,7 @@ function fakeDoc() {
 
 const button = (act, key = '') => ({ getAttribute: (name) => (name === 'data-cg-act' ? act : name === 'data-cg-key' ? key : null), parentNode: null });
 
-async function setup({ confirm = () => true, chat = 'chat-1' } = {}) {
+async function setup({ confirm = () => true, chat = 'chat-1', onIllustrationUpdated } = {}) {
     const illustrationStore = createMemoryIllustrationStore();
     await illustrationStore.putSlot('chat-1|3|0', { slot: 1, status: 'done', dataUrl: 'data:image/png;base64,A' });
     await illustrationStore.putSlot('chat-1|4|0', { slot: 1, status: 'done', dataUrl: 'data:image/png;base64,B' });
@@ -35,7 +35,7 @@ async function setup({ confirm = () => true, chat = 'chat-1' } = {}) {
     await illustrationStore.putSlot('chat-2|8|0', { slot: 1, status: 'failed' });
     const galleryStore = createMemoryCgGalleryStore();
     const cleared = [];
-    const service = createCgLibrary({ illustrationStore, marksStore: galleryStore, indexStore: createMemoryCgIndexStore(), clearIllustration: async (id) => {
+    const service = createCgLibrary({ illustrationStore, onIllustrationUpdated, marksStore: galleryStore, indexStore: createMemoryCgIndexStore(), clearIllustration: async (id) => {
         cleared.push(id);
         await illustrationStore.deleteSlot(`${id.chatId}|${id.messageId}|${id.swipeId}`, id.slot);
         return { ok: true };
@@ -200,4 +200,33 @@ test('cg-gallery-panel:missing-service-shows-unavailable-without-throwing', asyn
     await panel.whenIdle();
     assert.equal(panel.getState().notice, 'CG 库不可用');
     panel.close();
+});
+
+test('cg-gallery-panel:同槽更新刷新缩略图和已打开大图且继续可删除', async () => {
+    let notify, unsubscribed = 0;
+    const f = await setup({ onIllustrationUpdated: handler => {
+        notify = handler; return () => { unsubscribed++; };
+    } });
+    const key = 'chat-1|3|0|1';
+    await f.click('view', key);
+    assert.match(f.container.children.find(el => el.id === 'igs-cg-viewer').innerHTML, /base64,A/);
+    const before = await f.illustrationStore.getSlotRecord(key);
+    const saved = await f.illustrationStore.updateSlot('chat-1|3|0', 1, before.revision,
+        { dataUrl: 'data:image/png;base64,NEW', updatedAt: before.updatedAt },
+        { expectedToken: before.revisionToken, preserveBaseline: true });
+    assert.equal(saved.ok, true);
+    notify({ chatId: 'chat-1', messageId: 3, swipeId: 0, slot: 1 });
+    await f.panel.whenIdle();
+    assert.equal(f.panel.getState().count, 3, '原槽位替换，不新增图库副本');
+    assert.match(f.root.innerHTML, /base64,NEW/);
+    assert.doesNotMatch(f.root.innerHTML, /base64,A/);
+    assert.match(f.container.children.find(el => el.id === 'igs-cg-viewer').innerHTML, /base64,NEW/);
+    assert.match(f.root.innerHTML, /data-cg-act="delete"/);
+    await f.click('delete', key);
+    assert.equal(await f.illustrationStore.getSlotRecord(key), null);
+    assert.equal(f.panel.getState().count, 2);
+    assert.equal(f.panel.getState().viewing, '');
+    assert.deepEqual(f.cleared, [{ chatId: 'chat-1', messageId: 3, swipeId: 0, slot: 1 }]);
+    f.panel.close();
+    assert.equal(unsubscribed, 1);
 });

@@ -1,5 +1,7 @@
 import { getTavernHelper, getSillyTavernContext } from './tavern-helper-adapter.js';
 import { runBackgroundGeneration } from './background-generation.js';
+import { secondaryLlmMessages } from './secondary-llm-messages.js';
+import { secondaryLlmText } from './secondary-llm-result.js';
 
 function apiBaseUrl(endpoint) {
     const base = String(endpoint || '').trim().replace(/\/+$/, '');
@@ -88,30 +90,35 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
         return data;
     }
 
-    async function viaTavern(system, user) {
+    async function viaTavern(messages) {
         const helper = getTavernHelper(globalObject);
         if (helper && typeof helper.generateRaw === 'function') {
             // should_silence：后台请求不显示停止按钮、不广播生成事件，避免被当成正文流式。
             return String(await helper.generateRaw({
                 should_stream: false,
                 should_silence: true,
-                ordered_prompts: [{ role: 'system', content: system }, { role: 'user', content: user }],
+                ordered_prompts: messages,
             }) || '');
         }
         const ctx = getSillyTavernContext(globalObject);
         if (ctx && typeof ctx.generateRaw === 'function') {
-            return String(await ctx.generateRaw({ systemPrompt: system, prompt: user }) || '');
+            if (messages.length !== 2 || messages[0].role !== 'system' || messages[1].role !== 'user') {
+                const error = new Error('当前酒馆接口不支持有序多角色提示词，请启用酒馆助手或改用独立 API');
+                error.reason = 'ordered-messages-unsupported';
+                throw error;
+            }
+            return String(await ctx.generateRaw({ systemPrompt: messages[0].content, prompt: messages[1].content }) || '');
         }
         throw new Error('当前酒馆不支持 generateRaw，请在设置中改用独立 API');
     }
 
-    async function viaOpenAi(system, user, llm, signal) {
+    async function viaOpenAi(messages, llm, signal) {
         const data = await postToTavern('generate', {
             ...customConnection(llm),
             model: llm.model, stream: false, temperature: 0.7, use_sysprompt: true,
-            messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+            messages,
         }, llm, signal, '副 LLM 请求失败');
-        return String(data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '');
+        return secondaryLlmText(data?.choices?.[0]?.message?.content);
     }
 
     async function fetchModels(llm = {}) {
@@ -129,17 +136,31 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
 
     return {
         fetchModels,
-        async request({ system, user }, llm = {}) {
+        async request(request, llm = {}) {
             const timeoutMs = Number(llm.timeoutMs) || 90000;
-            const head = String(llm.jailbreakHead || '').trim();
-            const tail = String(llm.jailbreakTail || '').trim();
-            const finalSystem = head ? `${head}\n\n${system}` : system;
-            const finalUser = tail ? `${user}\n\n${tail}` : user;
-            const controller = llm.source === 'openai' ? createAbort() : null;
-            const job = controller
-                ? viaOpenAi(finalSystem, finalUser, llm, controller.signal)
-                : runBackgroundGeneration(() => viaTavern(finalSystem, finalUser));
-            return withTimeout(job, timeoutMs, () => controller?.abort());
+            const messages = secondaryLlmMessages(request, llm);
+            const controller = createAbort();
+            const cancelled = () => Object.assign(new Error('副 LLM 任务已取消；上游可能仍在执行'), { reason: 'request-stale' });
+            let rejectStop, timer;
+            const stopped = new Promise((_, reject) => { rejectStop = reject; });
+            const abort = () => { controller.abort(); rejectStop(cancelled()); };
+            llm.signal?.addEventListener('abort', abort, { once: true });
+            try {
+                if (llm.signal?.aborted) throw cancelled();
+                timer = setTimeout(() => {
+                    controller.abort();
+                    rejectStop(Object.assign(new Error('副 LLM 请求超时；上游可能仍在执行'), { reason: 'request-timeout' }));
+                }, timeoutMs);
+                const job = llm.source === 'openai'
+                    ? viaOpenAi(messages, llm, controller.signal)
+                    : runBackgroundGeneration(() => {
+                        if (controller.signal.aborted) throw cancelled();
+                        return viaTavern(messages);
+                    });
+                const result = await Promise.race([job, stopped]);
+                if (controller.signal.aborted) throw cancelled();
+                return result;
+            } finally { clearTimeout(timer); llm.signal?.removeEventListener('abort', abort); }
         },
     };
 }

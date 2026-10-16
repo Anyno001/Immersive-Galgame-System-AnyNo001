@@ -256,11 +256,22 @@ test('gate:asset-batch-delete:select-pick-and-delete-characters', async () => {
     const vn = bootstrapIGS({ global, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
     try {
         const controller = vn.openSettings({ tab: 'scene', mode: 'pc' }).controller;
-        controller.setValue('bridge.sceneAssets.characters', { 甲: { 默认: '' }, 乙: { 默认: '' }, 丙: { 默认: '' } });
+        controller.setValue('bridge.sceneAssets.characters', { 甲: { 默认: 'legacy.png' }, 乙: { 默认: '' }, 丙: { 默认: '' } });
+        controller.setValue('bridge.sceneAssets.characterOutfits', {
+            甲: { 校服: { moods: { 平和: 'uniform.png' } }, 礼服: { moods: { 平和: 'dress.png' } } },
+            乙: { 常服: { moods: { 平和: 'casual.png' } } },
+        });
+        controller.setValue('bridge.sceneAssets.characterDefaultOutfits', {
+            甲: { version: 1, outfitName: '礼服' }, 乙: { version: 1, outfitName: '常服' },
+        });
         let html = controller.switchSceneSubTab('characters').html || controller.getSnapshot().html;
         assert.match(html, /data-action="asset-select:characters"[^>]*>多选</);
         html = (await controller.invoke('asset-select:characters')).snapshot.html;
         assert.match(html, /已选 0 项/);
+        assert.match(html, /src="dress.png"/, '多选缩略图取当前默认衣装');
+        assert.match(html, /src="casual.png"/, '仅命名衣装有图时也显示');
+        assert.doesNotMatch(html, /src="(?:legacy|uniform).png"/, '不以旧槽或其他衣装替代当前默认');
+        assert.match(html, /未配置/, '确实无图仍显示空态');
         assert.match(html, /data-action="asset-delete-picked:characters" disabled/);
         await controller.invoke(`asset-pick:characters:${encodeURIComponent('甲')}`);
         html = (await controller.invoke(`asset-pick:characters:${encodeURIComponent('丙')}`)).snapshot.html;
