@@ -47,4 +47,35 @@ node --test tests/reader-floor-preparation.test.js
 | 媒体日志 / 备份 | `igs-media-journal` v1；四类酒馆备份 v2 | WAL 准备失败、离线上传恢复、版本合并、tombstone 防复活、浏览器数据丢失后恢复删除队列 |
 | 配置引用 | `igs-settings.json` v2；地图记录独立权威 | 网络/500 不覆盖、远程键合并、地图旧配置迁移与删除、导入新 ID/共享链接/头像/失败补偿 |
 
-新增 `media-cache-lifecycle`、`media-cache-concurrency`、`media-storage-lifecycle`、`media-transactions`、`media-settings-concurrency` 测试。`helpers/fake-idb.js` 模拟多 store 原子事务、abort、quota 与升级；`helpers/fake-media-server.js` 模拟文件和图片 API，不接触真实图库。真实酒馆、移动端解码内存和真实 provider 为未验证边界，不用这些 fixture 结果替代真机验收。
+## 预设持久化与公开接口夹具
+
+- `S8 storage`：新增 `app/fixtures/presets/preset-registry-snapshot.json`，覆盖预设 current 和 items 的持久化恢复。
+- `S9 registry`：新增 `app/fixtures/presets/text-presets-import-bundle.json` 与 `bad-current-overwrite-bundle.json`，覆盖文本预设导入、坏预设拒收和 current 守卫。
+- `S10 api`：文本预设公开分组继续覆盖 `register/unregister/get/list`，并补充 `setCurrent/getCurrent/export/exportAll` 契约。
+
+## DNA 模板离线夹具
+
+- `app/tests/unit.test.js` 的 `character dna` 与生命周期用例覆盖四景别、旧中文原文和权重、手工清空、精确景别选择；旧自由文本不自动拆分。
+- `app/tests/image-source-adapters.test.js` 的 `gate:dna-template` 使用合成角色，覆盖 DBGen 工作台扁平回复交接、自身身份展开、相似名与跨角色提及、缺身份／景别、冲突模式、取消和其他来源隔离。真实 DBGen service/gateway 配合假 transport 捕获最终 wire；内置 NAI 普通生成及 infill 采用同样捕获方式。
+- DBGen `tests/domain/flat-imagegen.test.js`、`tests/application/generate-slots.test.js`、`tests/domain/nai.test.js`、`tests/domain/img2img.test.js`、`tests/adapters/gateway.test.js` 覆盖旧 API、两条写词入口、新旁路与定稿 generate/img2img/infill。离线 fixture 不证明真实模型身份一致性、服务端开关行为、业务采用或全部存储回读。
+
+### 命名衣装与内置一致性覆盖
+
+- 衣装、作用域和预设的既有用例覆盖唯一新默认、原装映射、旧档保留、角色卡归属及保存失败；不从旧服装字段推断新默认。
+- `auto-illustration.test.js` 的内置一致性、衣装预检、目标衣装契约和完整参考几何用例验证确认前零请求、来源失效、取消／迟到拒收、原快照保留及统一几何 plan。
+- `cg-records-backup.test.js` 使用真实 IndexedDB Adapter 接口和已有事务替身，覆盖新旧轮次经文件备份、清缓存恢复的往返，以及坏来源拒收和私有租约剔除；不代表浏览器或酒馆实机事务验收。
+- `preset-generated-library.test.js`、`asset-generation.test.js` 覆盖全库衣柜、候选和 CG 引用保留，读取失败拒删及删除边界的迟到引用复核。跨设置、CG 库与酒馆文件不承诺原子性。
+- 生图功能以 IGS 内置 NAI 为目标；DBGen 相关夹具仅描述保留的兼容覆盖，不代表本轮已验证。操作与视觉验收表见 [命名衣装与内置一致性重绘](IGS_WARDROBE_CONSISTENCY.md)，本轮实际结果单独记录。
+
+## 媒体生命周期夹具
+
+- `media-cache-lifecycle`、`media-cache-concurrency`、`media-storage-lifecycle`、`media-transactions`、`media-settings-concurrency` 覆盖统一缓存、存储生命周期、事务与设置并发。
+- `helpers/fake-idb.js` 模拟多 store 原子事务、abort、quota 与升级；`helpers/fake-media-server.js` 模拟文件和图片 API，不接触真实图库。
+- 严格引用读取等待备份恢复完成；网络、非法 schema 或坏记录必须拒绝清理，合法空旧备份仍可恢复。文件回收用现有 `drain()` 等待备份确认与引用复核，不以固定延时推断完成。
+- 真实酒馆、移动端解码内存和真实 provider 为未验证边界，不用 fixture 结果替代真机验收。
+
+## 验证证据格式
+
+只运行与变更相关的已有行为用例，命令使用 `node --test tests/<文件>.test.js`；构建入口以 `app/package.json` 为准。报告风险级别、证据文件、实际命令、发现数及通过／失败／取消／跳过数，并区分导入阻断与进入行为后的失败。历史记录中的门禁命令与计数不是本轮验证结果。
+
+未覆盖真实 provider、真实 shujuku、酒馆／手机或性能边界时明确写为未验证；不将模拟结果称为实机验收。

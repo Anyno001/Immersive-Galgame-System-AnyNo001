@@ -36,7 +36,7 @@ IGS.api.promptPresets.register(preset);
 - `export(id)`：导出单个预设，保持 `igs_preset_v1` 结构。
 - `exportAll()`：导出当前分组全部预设，保持 `igs-import-bundle` 结构。
 
-`sceneRegexPresets`、`textFilterPresets`、`textFormatPresets` 必须走同一套 runtime `PresetRegistry`，不能在 UI 或 API 层各自维护第二份 current 状态。
+`sceneRegexPresets`、`textFilterPresets`、`textFormatPresets`、`promptPresets` 必须走同一套 runtime `PresetRegistry`，不能在 UI 或 API 层各自维护第二份 current 状态。`promptPresets` 同样提供 setCurrent/getCurrent/export/exportAll；生图用途的激活与覆盖遵守 presets 契约。
 
 ## 稳定性要求
 

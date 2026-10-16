@@ -1,8 +1,8 @@
 import { extractSceneDirectives, classifySceneKey } from '../../scene/scene-directives.js';
-import { resolveBackgroundAsset, resolveNudeSpriteAsset, resolveSpriteAsset, isNonSpriteSpeaker } from '../../scene/asset-match.js';
+import { resolveBackgroundAsset, resolveNudeSpriteAsset, isNonSpriteSpeaker } from '../../scene/asset-match.js';
 import { createOutfitResolver, resolveSpriteOutfit } from '../../scene/character-outfits.js';
-import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { isSystemRole } from './system-role.js';
+import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
 
 function pushUrl(urls, seen, url) {
     const source = String(url || '').trim();
@@ -50,10 +50,7 @@ export function collectFloorAssetUrls({
     const ctx = assetMatchCtx || { sceneAssets };
     const outfitResolver = createOutfitResolver(sceneAssets);
     const directives = extractSceneDirectives(String(source || ''), { outfitResolver }).directives;
-    const outfitMap = sceneAssets.characterOutfits;
-    const hasOutfits = Boolean(outfitMap && Object.keys(outfitMap).length);
     const outfitFor = (character, offset) => {
-        if (!hasOutfits) return '';
         const place = sceneBefore(directives, offset, inheritedScene);
         const sceneRaw = place.scene;
         return resolveSpriteOutfit({
@@ -64,10 +61,6 @@ export function collectFloorAssetUrls({
             sceneAssets,
             scene: [classifySceneKey(sceneAssets.scenes, sceneRaw).key || '', sceneRaw],
             readClues: typeof readClues === 'function' ? readClues : () => null,
-            resolveDna: (name) => {
-                const hit = resolveCharacterDna(sceneAssets.characterDna, name);
-                return hit ? hit.dna : null;
-            },
         }).outfit;
     };
     if (inheritedScene && inheritedScene.scene) {
@@ -82,7 +75,7 @@ export function collectFloorAssetUrls({
         const name = String(directive.character || '').trim();
         if (!name || isNonSpriteSpeaker(name) || isSystemRole(name, systemRole)) continue;
         const outfit = outfitFor(name, Number(directive.offset));
-        const spriteUrl = resolveSpriteAsset(name, directive.mood || '', ctx, outfit).url;
+        const spriteUrl = resolveReaderSpriteAsset(name, directive.mood || '', ctx, outfit).url;
         if (spriteUrl && onSpriteUrl) onSpriteUrl(spriteUrl);
         pushUrl(urls, seen, spriteUrl);
         const place = sceneBefore(directives, Number(directive.offset), inheritedScene);

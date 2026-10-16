@@ -1,6 +1,8 @@
 import { esc } from './reader-value-utils.js';
-import { resolveSpriteAsset } from '../../scene/asset-match.js';
-import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
+import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit, resolveWardrobePrompt } from '../../scene/character-outfits.js';
+import { readDefaultOutfit, outfitSpriteSlots, resolveCharacterAppearance } from '../../scene/character-appearance.js';
+import { characterPromptRecovery } from '../../generated-images/illustration/character-prompt-task.js';
+import { promptProvenance } from '../../generated-images/generation-prompt.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -80,7 +82,7 @@ export function pendingExpressionCaptions(notes, slots) {
     return Object.entries(notes && typeof notes === 'object' ? notes : {})
         .filter(([mood, note]) => note && note.caption && mood !== '默认' && !String(own[mood] || '').trim()
             && (Object.prototype.hasOwnProperty.call(own, mood) || note.error === '已停止'))
-        .map(([mood, note]) => ({ mood, caption: note.caption }));
+        .map(([mood, note]) => ({ mood, caption: note.caption, ...promptProvenance(note), ...characterPromptRecovery(note) }));
 }
 
 export const menuItem = (action, label, extra = '') => `<button type="button" class="igs-add-menu-item${extra}" data-action="${action}" role="menuitem">${esc(label)}</button>`;
@@ -135,13 +137,14 @@ export function thumb(url, alt, extraClass = '', resolveUrl, note = '') {
     return `<span class="igs-outfit-thumb igs-outfit-thumb-empty${extraClass}" aria-hidden="true">${value ? '生成' : PERSON_SVG}</span>`;
 }
 
-// 该服装缺这一格（或这一格没填图）时阅读器实际显示什么：借用服装内同组槽，或这一套的平和。
+// 缺格预览与统一衣装解析同源，不把旧原装图当作新默认。
 function previewOf(sceneAssets, charName, mood, outfit) {
-    const hit = resolveSpriteAsset(charName, mood, { sceneAssets }, outfit);
-    // 这一套里没有、借的是角色默认立绘：说成回落原装，不说成借这一套的格子。
-    if (hit.source === 'user-outfit' && hit.slot !== '默认') return { url: hit.url, label: `借用「${hit.slot}」`, kind: 'borrow', slot: hit.slot };
-    if (hit.url) return { url: hit.url, label: `改用原装图「${hit.slot || mood}」`, kind: 'base', slot: hit.slot || mood };
-    return { url: '', label: '无图可显示', kind: 'none', slot: '' };
+    const appearance = resolveCharacterAppearance({ characterKey: charName, requestedOutfit: outfit, mood, sceneAssets });
+    if (!appearance.ok) return { url: '', label: '无图可显示', kind: 'none', slot: '' };
+    const { url, slot } = appearance.spriteImage;
+    if (appearance.effectiveOutfit === outfit) return { url, label: `借用「${slot}」`, kind: 'borrow', slot };
+    return { url, label: `回落默认衣装「${appearance.effectiveOutfit}」的「${slot}」`,
+        kind: 'base', slot, outfit: appearance.effectiveOutfit };
 }
 
 // 借来的图多半和本格情绪接近（回退链按同方向找），不写明就会被当成本格自己的图。
@@ -149,7 +152,7 @@ function ghostNote(mood, preview, status) {
     if (!preview.url) return '';
     const lead = preview.kind === 'borrow'
         ? `「${mood}」尚无专属图片，此处显示的是阅读器暂时借用的「${preview.slot}」。`
-        : `「${mood}」尚无专属图片，此处显示的是阅读器暂时改用的原装图「${preview.slot}」。`;
+        : `「${mood}」尚无专属图片，此处预览默认衣装「${preview.outfit}」的「${preview.slot}」。`;
     return status ? `${lead}\n${status.text}` : lead;
 }
 
@@ -227,6 +230,11 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
     const notes = expressionNotes && typeof expressionNotes === 'object' ? expressionNotes[`${charName}\u0001${name}`] : null;
     const metaKey = `outfit-meta:${charName}\u0001${name}`;
     const metaOpen = isOpen(metaKey);
+    const clothing = resolveWardrobePrompt(sceneAssets.wardrobe, entry, name);
+    const dna = isBuiltinNudeOutfit(entry.wardrobe) || isBuiltinNudeOutfit(name) ? ''
+        : `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">服装 DNA</span>`
+            + `<button type="button" class="igs-settings-action" data-action="scene-outfit-dna:${c}:${o}" title="查看和编辑本套服装 DNA；后续模板按保存值展开">${clothing?.prompt ? '查看 / 编辑' : '填写'}</button>`
+            + `<span>${clothing?.prompt ? '已保存，后续差分复用' : '首次生成立绘时同次生成并保存'}</span></div>`;
     const meta = !metaOpen ? '' : `<div class="igs-outfit-meta-body"><div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">衣柜</span>${wardrobeChoices(charName, name, entry, sceneAssets.wardrobe)}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">变身形态</span>${formChoices(charName, name, entry)}</div>`
         + `<div class="igs-outfit-meta-row"><span class="igs-outfit-meta-label">说明</span><input class="igs-scene-url-input" data-scene-outfit-note-char="${esc(charName)}" data-scene-outfit-note="${esc(name)}" value="${esc(note)}" placeholder="什么情形穿这套"></div>`
@@ -244,7 +252,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const imageId = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
         const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
         const acts = slotActions([
-            imageId || (note && note.error) ? [`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, '重新生成', 'retry'] : null,
+            !raw || imageId || (note && note.error) ? [`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, filled ? '重新生成' : '生成立绘', 'retry'] : null,
         ]);
         const slotMenu = acts.inline + transferIcons(raw, `${charName}-${name}-${mood}-立绘.png`, [`scene-pick-outfit-mood:${c}:${o}:${encSeg(mood)}`, `上传${mood}立绘`]) + renderRowMenu([
             canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
@@ -274,15 +282,18 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
     const fillAll = missing.length > 1
         ? `<div class="igs-outfit-fill-all"><button type="button" class="igs-review-link" data-action="scene-outfit-copy-slots:${c}:${o}">补上缺的${missing.length}格</button></div>`
         : '';
-    const rows = ownRows + fallbackRows || '<div class="igs-scene-empty">暂无情绪，可点击右上角「+」添加</div>';
-    return `<div class="igs-outfit-panel" data-outfit-panel="${esc(name)}">${meta}<div class="igs-btn-mgr-list igs-outfit-slots">${rows}</div>${fillAll}</div>`;
+    const rows = ownRows + fallbackRows || '<div class="igs-scene-empty">暂无情绪槽，可点击右上角「+」添加</div>';
+    return `<div class="igs-outfit-panel" data-outfit-panel="${esc(name)}">${dna}${meta}<div class="igs-btn-mgr-list igs-outfit-slots">${rows}</div>${fillAll}</div>`;
 }
 
-// 角色卡的立绘区：「原装 · 服装…」标签切换。原装标签显示原有情绪槽；服装标签显示该服装的槽、词、场景、头像与缺图预览。
+// 原装只映射当前默认衣装；所有操作固定真实衣装键，不复制图片或说明。
 export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, baseMenuItems = [], outfits, activeOutfit, sceneAssets, icons, expressionNotes, resolveUrl, isOpen = () => false }) {
     const map = plain(outfits);
     const names = Object.keys(map);
     const active = names.includes(activeOutfit) ? activeOutfit : '';
+    const selected = readDefaultOutfit(sceneAssets, charName);
+    const defaultName = selected.ok ? selected.outfitName : '';
+    const target = active || defaultName;
     const c = encSeg(charName);
     const tab = (value, label, extra = '', title = '') => (
         `<button type="button" class="igs-outfit-tab${active === value ? ' is-active' : ''}" role="tab" aria-selected="${active === value ? 'true' : 'false'}" data-action="scene-outfit-tab:${c}:${encSeg(value)}"${title ? ` title="${esc(title)}"` : ''}>${label}${extra}</button>`
@@ -290,40 +301,44 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
     const tabs = [tab('', '原装')].concat(names.map((name) => {
         const moods = plain(map[name] && map[name].moods);
         const filled = Object.values(moods).filter((url) => String(url || '').trim()).length;
-        return tab(name, esc(name) + formBadges(map[name]), `<span class="igs-outfit-tab-count">${filled}</span>`, `AI 写法：[igs-char:${charName}|表情|${name}|对白]`);
+        return tab(name, esc(name) + (name === defaultName ? '（默认）' : '') + formBadges(map[name]), `<span class="igs-outfit-tab-count">${filled}</span>`, `AI 写法：[igs-char:${charName}|表情|${name}|对白]`);
     })).join('');
-    const o = encSeg(active);
-    const metaKey = `outfit-meta:${charName}\u0001${active}`;
-    // 生成立绘只留在原装。其它服装没有自己的立绘，只能出表情差分。
-    const exprAction = active ? `outfit-expression-set:${c}:${o}` : `char-expression-set:${c}`;
+    const o = encSeg(target);
+    const metaKey = `outfit-meta:${charName}\u0001${target}`;
+    // 原装只映射已选衣装，所有图槽动作都携带真实衣装键。
+    const exprAction = target ? `outfit-expression-set:${c}:${o}` : '';
     const notesMap = plain(expressionNotes);
-    const pending = active
-        ? pendingExpressionCaptions(notesMap[`${charName}\u0001${active}`], plain(map[active] && map[active].moods))
-        : pendingExpressionCaptions(notesMap[charName], plain(plain(plain(sceneAssets).characters)[charName]));
-    const resumeAction = active ? `outfit-expression-resume:${c}:${o}` : `char-expression-resume:${c}`;
-    const spriteButton = active
-        ? ''
-        : `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="char-generate-sprite:${c}">生成立绘</button>`;
+    const pending = target
+        ? pendingExpressionCaptions(notesMap[`${charName}\u0001${target}`], plain(map[target]?.moods))
+        : [];
+    const resumeAction = target ? `outfit-expression-resume:${c}:${o}` : '';
+    const slots = outfitSpriteSlots(map[target]);
+    const spriteMood = Object.hasOwn(slots, '平和') ? '平和' : Object.keys(slots)[0] || '平和';
+    const spriteAction = target
+        ? `outfit-expression-retry:${c}:${o}:${encSeg(spriteMood)}`
+        : `char-generate-sprite:${c}`;
+    const spriteButton = `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${spriteAction}">${Object.keys(slots).length ? '重新生成' : '生成立绘'}</button>`;
     const quickButtons = `<span class="igs-outfit-quick">`
         + spriteButton
-        + `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>`
+        + (exprAction ? `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>` : '')
         + (pending.length ? `<button type="button" class="igs-settings-action igs-outfit-quick-btn" data-action="${resumeAction}" title="提示词已写好，将直接出图，不重写">继续生图（${pending.length}）</button>` : '')
         + `</span>`;
-    const menu = active
+    const menu = target
         ? renderRowMenu([
+            target !== defaultName && Object.keys(outfitSpriteSlots(map[target])).length
+                ? menuItem(`scene-set-default-outfit:${c}:${o}`, '设为默认') : '',
             menuItem(`ui-toggle-open:${encSeg(metaKey)}`, isOpen(metaKey) ? '收起服装设置' : '服装设置（衣柜、别名…）'),
-            menuItem(`scene-promote-outfit:${c}:${o}`, '设为原装'),
             menuItem(`scene-rename-outfit:${c}:${o}`, '重命名这套'),
             menuItem(`scene-remove-outfit:${c}:${o}`, '删除这套', ' is-danger'),
-        ], `「${active}」的操作`)
-        : renderRowMenu(baseMenuItems, '原装的操作');
+        ], `「${target}」的操作`)
+        : '';
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
         + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">+服装</button>`
-        + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add igs-outfit-tab-mood" data-action="${active ? `scene-add-outfit-mood:${c}:${o}` : `scene-add-mood:${c}`}" title="给${active ? `「${esc(active)}」` : '原装'}添加情绪">+情绪</button>`
+        + (target ? `<button type="button" class="igs-outfit-tab igs-outfit-tab-add igs-outfit-tab-mood" data-action="scene-add-outfit-mood:${c}:${o}" title="给「${esc(target)}」添加情绪">+情绪</button>` : '')
         + `${quickButtons}${menu}</div>`;
-    const panel = active
-        ? renderOutfitPanel(charName, active, plain(map[active]) || { words: [], moods: {} }, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
-        : baseListHtml;
+    const panel = target
+        ? renderOutfitPanel(charName, target, plain(map[target]), baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
+        : '<div class="igs-scene-empty">尚未指定默认服装。请在有立绘的衣装菜单中设为默认，或重新生成默认立绘；旧素材保持不变。</div>';
     return `<div class="igs-outfit-area" data-outfit-area="${esc(charName)}">${bar}${panel}</div>`;
 }
 
@@ -356,55 +371,6 @@ export function renderWardrobe(wardrobe, { resolveUrl, scopeTag, scopeMenu, focu
         ? `<div class="igs-btn-mgr-list igs-wardrobe-list is-tall">${rows}</div>`
         : '<div class="igs-scene-empty">暂无衣柜提示词，可点击右上角「+」添加</div>';
     return `<div class="igs-wardrobe-group">${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${body}</div>`;
-}
-
-function field(attrs, charName, value, placeholder) {
-    return `<input class="igs-scene-url-input igs-mig-field" ${attrs} data-mig-char="${esc(charName)}" value="${esc(value || '')}" placeholder="${esc(placeholder)}">`;
-}
-
-export function renderMigrationRow({ character, name, words, note, stat = '', warned = false }) {
-    const c = encSeg(character);
-    const pick = (key) => `data-mig-field="${key}" data-mig-char="${esc(character)}"`;
-    return `<div class="igs-mig-row" data-mig-row="${esc(character)}">`
-        + `<div class="igs-mig-head"><span class="igs-mig-name">${esc(character)}</span><span class="igs-mig-stat${warned ? ' is-warn' : ''}">${esc(stat)}</span></div>`
-        + `<div class="igs-mig-fields">`
-        + `<label class="igs-mig-label"><span>服装名</span>${field(pick('name'), character, name, '如 睡衣')}</label>`
-        + `<label class="igs-mig-label"><span>别名</span>${field(pick('words'), character, (Array.isArray(words) ? words : []).join('、'), '正文里怎么写，如 睡衣、家居服')}</label>`
-        + `<label class="igs-mig-label"><span>说明</span>${field(pick('note'), character, note, '什么情形穿这套（可留空）')}</label>`
-        + `</div>`
-        + `<div class="igs-mig-foot"><span class="igs-mig-hint">提示词会从原装默认立绘上取，取不到就留空</span>`
-        + `<button type="button" class="igs-review-link" data-action="scene-migrate-outfit-skip:${c}">不迁移</button></div>`
-        + `</div>`;
-}
-
-// 原装迁移清单：点功能键先出这块，逐行确认服装名、别名、说明，再一次性搬。
-export function renderMigrateOutfitPanel(rows, { skipped = [], busy = false } = {}) {
-    const list = Array.isArray(rows) ? rows : [];
-    const drop = Array.isArray(skipped) ? skipped : [];
-    if (!list.length) {
-        const why = drop.length
-            ? `<div class="igs-mig-list">${drop.map((item) => `<div class="igs-mig-skip">${esc(item.character)}：${esc(item.reason)}</div>`).join('')}</div>`
-            : '<div class="igs-scene-empty">没有可迁移的原装立绘</div>';
-        return `<section class="igs-review-card is-empty" data-migrate-outfit-panel="1"><div class="igs-review-card-head"><span class="igs-review-card-title">原装迁移</span>`
-            + `<button type="button" class="igs-review-link" data-action="scene-migrate-outfit-cancel">关闭</button></div>${why}</section>`;
-    }
-    const body = `<div class="igs-mig-list">${list.map(renderMigrationRow).join('')}</div>`
-        + (drop.length ? `<div class="igs-mig-skip-head">已跳过</div><div class="igs-mig-list">${drop.map((item) => `<div class="igs-mig-skip">${esc(item.character)}：${esc(item.reason)}</div>`).join('')}</div>` : '');
-    return renderReviewCard({
-        key: 'migrate-outfit',
-        title: '原装迁移',
-        count: list.length,
-        hint: '把原装立绘整体搬成一套差分服装，并建好同名衣柜条目。原装的「默认」立绘搬进「平和」那个槽（这套衣服缺图时本来就兜底到它）。迁移后原装清空、不再保留。',
-        clearAction: 'scene-migrate-outfit-cancel',
-        headerAction: `<button type="button" class="igs-review-link is-primary" data-action="scene-migrate-outfit-apply"${busy ? ' disabled' : ''}>${busy ? '迁移中…' : `迁移 ${list.length} 个`}</button>`,
-        body,
-    });
-}
-
-// 清单仍显示在角色立绘区顶部；入口只存在于各角色行菜单。
-export function renderMigrateEntry(rows) {
-    if (Array.isArray(rows)) return renderMigrateOutfitPanel(rows);
-    return '';
 }
 
 // 待确认页的一块：标题、数量、一句说明、清空，下面是条目。三块（服装词 / 情绪词 / 刚生成的图）长得一样。

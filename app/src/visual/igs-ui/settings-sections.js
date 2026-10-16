@@ -77,7 +77,7 @@ export const SETTINGS_EXPORT_FORMAT = 'igs-settings';
 const SECRET_KEY = /^(?:api[-_]?key|apikey|token|secret|password|authorization)$/i;
 // 素材内容：场景、角色、衣柜、生成图、各角色卡。全局配置不带走这些，导入也不覆盖本机已有的。
 const ASSET_CONTENT_KEYS = Object.freeze([
-    'scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits',
+    'scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds',
     'wardrobe', 'generated', 'statusAvatars', 'cards',
 ]);
 const READER_CONTENT_KEYS = Object.freeze(['spriteLayouts', 'spriteHeads']);

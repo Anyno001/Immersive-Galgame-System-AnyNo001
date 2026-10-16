@@ -28,10 +28,24 @@ const sameRecord = (a, b) => Boolean(a && b) && versionOf(a) === versionOf(b) &&
 const MAX_AUTO_ATTEMPTS = 3;
 
 export function parseMediaBackup(file, legacyField) {
-    if (!file || typeof file !== 'object') throw new Error('media-backup-invalid');
-    if (file.version >= 2 && file.records && typeof file.records === 'object') return file.records;
-    if (!file[legacyField] || typeof file[legacyField] !== 'object') throw new Error('media-backup-invalid');
-    return Object.fromEntries(Object.entries(file[legacyField]).map(([key, value]) => [key, { value, version: '0000000000000:000000:legacy', deleted: false }]));
+    const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (!object(file)) throw new Error('media-backup-invalid');
+    if (file.version >= 2) {
+        if (!object(file.records)) throw new Error('media-backup-invalid');
+        for (const [key, row] of Object.entries(file.records)) {
+            if (!key || !object(row) || typeof row.version !== 'string' || !row.version
+                || typeof row.deleted !== 'boolean' || (!row.deleted && !object(row.value))
+                || (row.previousValue != null && !object(row.previousValue))) {
+                throw new Error('media-backup-invalid-record');
+            }
+        }
+        return file.records;
+    }
+    if (!object(file[legacyField])) throw new Error('media-backup-invalid');
+    return Object.fromEntries(Object.entries(file[legacyField]).map(([key, value]) => {
+        if (!key || !object(value)) throw new Error('media-backup-invalid-record');
+        return [key, { value, version: '0000000000000:000000:legacy', deleted: false }];
+    }));
 }
 
 export function createMediaRecordJournal(globalObject, { fileName, legacyField = 'records', list, get = async key => new Map(await list()).get(key), put, remove, beforeFlush = async () => {}, onApply = async () => {} }) {

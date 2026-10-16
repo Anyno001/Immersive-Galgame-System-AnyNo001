@@ -1,4 +1,17 @@
 import { FICTION_FRAME, CG_COMPOSITION_GUIDE, TAG_WRITING_RULES, SOFT_MODE_NOTE } from './prompt-kit.js';
+import { CG_TASK, CG_TEMPLATE } from '../prompt-tasks/cg.js';
+
+// 普通内置 CG 的兼容入口复用同一任务协议，避免混入立绘或一致性字段。
+export const CG_TEMPLATE_PLANNER_SYSTEM = [
+    ...FICTION_FRAME, CG_TASK, CG_TEMPLATE,
+    ...CG_COMPOSITION_GUIDE,
+].join('\n');
+
+// 两条 CG 写词链消费同一份约束；发送端不再追加这些语义正文。
+export function cgWritingRequirements(settings, size, kind) {
+    return { size, transparent: false, quality: 'High quality illustration.',
+        ...(kind === 'nsfw' && { sceneRequirements: settings.assets.templates.nsfwExtra }) };
+}
 
 const PLANNER_OUTPUT_FORMAT = [
     '【输出格式】不要输出 JSON、不要代码块、不要解释。每张图按以下字段一行一个输出，多张图依次排列：',

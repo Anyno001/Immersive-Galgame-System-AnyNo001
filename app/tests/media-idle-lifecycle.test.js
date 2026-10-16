@@ -75,15 +75,15 @@ test('gate:media:stable-floor-only-uploads-the-changed-backup-once', async t => 
 });
 
 test('gate:media:writing-equal-metadata-with-different-property-order-does-not-dirty-backup', async t => {
-    const f = fixture(t), { cg } = repositories(f.host);
-    await cg.putSlot(floor, { slot: 1, status: 'done', dataUrl: 'user/images/igs-media/stable.png', prompt: { positive: 'a', negative: 'b' } });
-    await cg.flush();
-    const saved = structuredClone(f.server.files.get('igs-cg-records.json'));
-    await cg.putSlot(floor, { prompt: { negative: 'b', positive: 'a' }, dataUrl: 'user/images/igs-media/stable.png', status: 'done', slot: 1 });
-    await cg.flush();
-    assert.equal((await cg.diagnostics()).dirty, 0);
-    assert.deepEqual(f.server.files.get('igs-cg-records.json'), saved);
-    assert.deepEqual(f.server.uploads, ['igs-cg-records.json']);
+    const f = fixture(t), { assets } = repositories(f.host);
+    await assets.putImage({ id: 'stable', dataUrl: 'user/images/igs-media/stable.png', prompt: { positive: 'a', negative: 'b' } });
+    await assets.flush();
+    const saved = structuredClone(f.server.files.get('igs-asset-records.json'));
+    await assets.patchImageMetadata('stable', { prompt: { negative: 'b', positive: 'a' } });
+    await assets.flush();
+    assert.equal((await assets.diagnostics()).dirty, 0);
+    assert.deepEqual(f.server.files.get('igs-asset-records.json'), saved);
+    assert.deepEqual(f.server.uploads, ['igs-asset-records.json']);
     assert.equal(f.timers.size, 0);
 });
 

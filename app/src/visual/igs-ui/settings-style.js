@@ -153,6 +153,13 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-reader-text-effect-options>.igs-settings-field{min-width:0}
 .igs-settings-grid[data-reader-pane="dialog"] .igs-gradient-veil-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px;min-width:0}
 .igs-source-filter textarea{min-height:76px}
+[data-image-prompt-panel]{min-width:0}
+[data-image-prompt-panel] .igs-image-prompt-actions{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+[data-image-prompt-panel] .igs-settings-field input[type="checkbox"]{width:20px;min-height:20px;align-self:flex-start;accent-color:var(--igs-settings-accent);border:0}
+[data-image-prompt-panel] details>summary{overflow-wrap:anywhere}
+[data-image-prompt-panel] .igs-perf-group-body{padding:0 0 8px}
+[data-image-prompt-panel] textarea{min-height:132px}
+
 .igs-dna-editor{margin:6px 0;min-width:0}
 .igs-dna-summary{cursor:pointer;font-size:12px;color:var(--igs-settings-ink);opacity:.78;user-select:none}
 .igs-dna-fields{display:grid;gap:6px;margin-top:6px;min-width:0}

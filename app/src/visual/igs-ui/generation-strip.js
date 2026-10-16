@@ -41,6 +41,8 @@ export function createGenerationStrip(options = {}) {
     }
 
     function summary() {
+        const details = [...jobs.values()].filter((job) => job.text).map((job) => job.text);
+        if (details.length) return details.join(' · ');
         const counts = {};
         for (const job of jobs.values()) counts[job.kind] = (counts[job.kind] || 0) + 1;
         if (floors.size && !counts.cg) counts.cg = floors.size;
@@ -145,6 +147,22 @@ export function createGenerationStrip(options = {}) {
     }
 
     return {
+        // 显式任务占用与后端活动共用细线；终态只清除对应任务。
+        progress(id, detail = {}) {
+            if (!id) return;
+            if (detail.phase === 'done') jobs.delete(id);
+            else {
+                const labels = { prepare: '准备', reference: '读取参考立绘', write: '写提示词',
+                    paint: '局部重绘', compose: '合成候选' };
+                if (!Object.hasOwn(labels, detail.phase)) return;
+                const count = Number.isInteger(detail.done) && Number.isInteger(detail.total)
+                    && detail.total > 0 && detail.done >= 0 && detail.done <= detail.total
+                    ? ` ${detail.done}/${detail.total}` : '';
+                jobs.set(id, { kind: 'edit', text: `一致性重绘：${labels[detail.phase]}${count}…` });
+                tipOpen = true;
+            }
+            settle();
+        },
         // 后端活动事件：{ type: 'start'|'end', id, kind, ok, error }
         activity(event) {
             if (!event || !event.id) return;

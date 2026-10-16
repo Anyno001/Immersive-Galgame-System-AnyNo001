@@ -71,7 +71,7 @@ export async function withImageRetry(run, options = {}) {
         await gate.wait();
         let result;
         try { result = await run({ attempt, seed }); } catch (error) { result = { ok: false, error: (error && error.message) || String(error) }; }
-        if (result && (result.ok || result.delegate)) return result;
+        if (result && (result.ok || result.delegate || result.stopGeneration)) return result;
         const failure = failureOf(result, source, attempt + 1);
         if (failure.kind === 'rateLimit429') gate.note429(retryAfterMs(result));
         const delay = backoffMs(failure.kind, attempt, result);
@@ -87,6 +87,6 @@ export async function withImageRetry(run, options = {}) {
 }
 
 export function annotateImageFailure(result, source) {
-    if (!result || result.ok !== false || result.failure || result.delegate) return result;
+    if (!result || result.ok !== false || result.failure || result.delegate || result.stopGeneration) return result;
     return { ...result, failure: failureOf(result, source, 1) };
 }

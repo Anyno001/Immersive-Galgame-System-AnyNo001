@@ -149,3 +149,146 @@ test('gate: 没变身的服装下拉显示「不是变身」', async () => {
     assert.match(html, /<option value=""selected>不是变身|<option value="" selected>不是变身/);
     assert.doesNotMatch(html, /igs-form-badge/);
 });
+
+const artistRow = (extra = {}) => ({ id: 'ink', name: '墨色', positivePrompt: 'artist:ink', negativePrompt: 'lowres', ...extra });
+
+test('gate:artist-library:两种兼容格式仅导入文本，不改原库', async () => {
+    const { importArtistLibrary, readArtistLibrary } = await import('../src/generated-images/artist-library.js');
+    const raw = JSON.stringify([artistRow({ sequence: 4, referenceImage: 'data:image/png;base64,X', apiKey: 'ignored' })]);
+    const imported = importArtistLibrary(raw);
+    assert.equal(imported.ok, true);
+    assert.deepEqual(imported.value.entries, [artistRow()]);
+    const before = structuredClone(imported.value);
+    const next = importArtistLibrary(JSON.stringify({ presets: { 水彩: { fixedPrompt: 'artist:water', fixedPrompt_end: 'soft', negativePrompt: 'noise' } }, images: { 水彩: 'ignored' } }), imported.value);
+    assert.equal(next.ok, true);
+    assert.deepEqual(imported.value, before);
+    assert.deepEqual(next.value.entries[1], { id: 'artist-水彩', name: '水彩', positivePrompt: 'artist:water, soft', negativePrompt: 'noise' });
+    assert.deepEqual(readArtistLibrary(undefined), { ok: true, value: [] });
+});
+
+test('gate:artist-library:无效JSON危险键与重名重复ID整批拒绝', async () => {
+    const { importArtistLibrary, normalizeArtistLibrary } = await import('../src/generated-images/artist-library.js');
+    const original = { version: 1, entries: [artistRow()] }, before = structuredClone(original);
+    for (const raw of ['{', '[]', '{"version":2,"entries":[]}',
+        '[{"name":"A","name":"B","positivePrompt":"","negativePrompt":""}]',
+        '[{"__proto__":{"polluted":true}}]', JSON.stringify([artistRow({ id: 'new' })]),
+        JSON.stringify([artistRow({ name: '另一个' })]), JSON.stringify([artistRow({ negativePrompt: 7 })]),
+        JSON.stringify([artistRow({ id: 'constructor' })]), JSON.stringify([artistRow({ positivePrompt: 'x'.repeat(20001) })]),
+        JSON.stringify({ presets: { A: { fixedPrompt: [] } } })]) {
+        assert.equal(importArtistLibrary(raw, original).ok, false, raw.slice(0, 120));
+        assert.deepEqual(original, before);
+    }
+    assert.equal({}.polluted, undefined);
+    const broken = { version: 99, entries: [artistRow()] };
+    assert.equal(normalizeArtistLibrary(broken), broken, '未知持久版本保持，不伪装空库');
+    assert.equal(importArtistLibrary(JSON.stringify([artistRow()]), broken).ok, false);
+});
+
+test('gate:artist-library:显式应用全局或分区保留开关及其他字段', async () => {
+    const { applyLibraryArtist } = await import('../src/generated-images/artist-library.js');
+    const nai = { apiKey: 'fixture', artistPrefix: 'old', negativePrompt: 'old-uc', artistByKind: { enabled: false, kinds: { cg: { positive: 'cg-old', negative: 'cg-uc' } } }, artistLibrary: { version: 1, entries: [artistRow()] } };
+    const before = structuredClone(nai);
+    const global = applyLibraryArtist(nai, 'ink', 'global').value;
+    assert.equal(global.artistPrefix, 'artist:ink'); assert.equal(global.artistNegativePrefix, 'lowres');
+    assert.equal(global.negativePrompt, 'old-uc');
+    const kind = applyLibraryArtist(nai, 'ink', 'sprite').value;
+    assert.equal(kind.artistByKind.enabled, false);
+    assert.deepEqual(kind.artistByKind.kinds.sprite, { positive: 'artist:ink', negative: 'lowres' });
+    assert.deepEqual(kind.artistByKind.kinds.cg, before.artistByKind.kinds.cg);
+    assert.equal(kind.artistPrefix, 'old'); assert.equal(kind.apiKey, 'fixture');
+    assert.equal(applyLibraryArtist(nai, 'ink', 'unknown').ok, false);
+    assert.equal(applyLibraryArtist(nai, 'absent', 'global').ok, false);
+    assert.deepEqual(nai, before);
+});
+
+test('gate:artist-library:已应用文本进入最终NAI请求且库管理不改变租约', async t => {
+    const { importArtistLibrary, applyLibraryArtist } = await import('../src/generated-images/artist-library.js');
+    const { builtinImageHarness } = await import('./helpers/builtin-image-harness.js');
+    const h = builtinImageHarness(); t.after(() => h.dispose());
+    const captured = h.runtime.capture();
+    assert.equal(captured.ok, true);
+    const nai = h.bridge.autoIllustration.nai;
+    nai.artistLibrary = importArtistLibrary(JSON.stringify([artistRow()])).value;
+    h.runtime.refresh();
+    assert.equal(captured.isCurrent(), true, '未应用的库管理不影响发送');
+    assert.equal(captured.state.config.autoIllustration.nai.artistLibrary, undefined);
+    h.bridge.autoIllustration.nai = applyLibraryArtist(nai, 'ink', 'global').value;
+    h.runtime.refresh();
+    assert.equal(captured.isCurrent(), false, '应用后旧任务失效');
+    captured.release();
+    const caption = {
+        v4_prompt: { caption: { base_caption: 'a quiet landscape', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'blur', char_captions: [] } },
+    };
+    const first = await h.backend.generateCaption({ caption, captionMode: 'final', imageKind: 'cg' });
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(h.wires[0].parameters.v4_prompt.caption.base_caption, 'artist:ink, a quiet landscape');
+    assert.equal(h.wires[0].parameters.v4_negative_prompt.caption.base_caption, 'lowres, blur');
+    assert.deepEqual(first.sentPrompt.artist, { positivePrompt: 'artist:ink', negativePrompt: 'lowres' });
+    h.bridge.autoIllustration.nai = applyLibraryArtist(h.bridge.autoIllustration.nai, 'ink', 'background').value;
+    h.bridge.autoIllustration.nai.artistPrefix = 'artist:global';
+    h.bridge.autoIllustration.nai.negativePrompt = 'global-uc';
+    h.bridge.autoIllustration.nai.artistByKind.enabled = true;
+    const second = await h.backend.generateCaption({ caption, captionMode: 'final', imageKind: 'background' });
+    assert.equal(second.ok, true, JSON.stringify(second));
+    assert.equal(h.wires[1].parameters.v4_prompt.caption.base_caption, 'artist:ink, a quiet landscape');
+    assert.equal(h.wires[1].parameters.v4_negative_prompt.caption.base_caption, 'lowres, blur');
+    assert.doesNotMatch(JSON.stringify(h.wires), /artistLibrary|墨色|apiKey|fixture-builtin/);
+    assert.equal(h.writes.length, 0);
+});
+
+test('gate:artist-library:重绘保留全局负向与画师三态且旧生成不重复前置', async t => {
+    const { builtinImageHarness } = await import('./helpers/builtin-image-harness.js');
+    const { pngFixture } = await import('./helpers/png-fixture.js');
+    const h = builtinImageHarness(); t.after(() => h.dispose());
+    Object.assign(h.bridge.autoIllustration.nai, { artistPrefix: 'artist:global', artistNegativePrefix: 'artist-uc', negativePrompt: 'legacy-uc' });
+    const caption = { v4_prompt: { caption: { base_caption: 'landscape', char_captions: [] } },
+        v4_negative_prompt: { caption: { base_caption: 'blur', char_captions: [] } } };
+    const config = await h.backend.getEditConfig({ imageKind: 'cg' });
+    assert.equal(config.ok, true, JSON.stringify(config));
+    assert.deepEqual(config.artist, { positivePrompt: 'artist:global', negativePrompt: 'artist-uc' });
+    const png = pngFixture(64, 64).dataUrl;
+    for (const artist of [undefined, null, { positivePrompt: 'artist:explicit', negativePrompt: 'explicit-uc' }]) {
+        const result = await h.backend.edit({ caption, captionMode: 'final', imageKind: 'cg',
+            sourceDataUrl: png, maskDataUrl: png, width: 64, height: 64, strength: 1,
+            ...(artist !== undefined && { artist }) });
+        assert.equal(result.ok, true, JSON.stringify(result));
+        const expected = artist === undefined ? config.artist : artist;
+        const body = h.wires.at(-1);
+        assert.equal(body.action, 'infill');
+        assert.equal(body.parameters.v4_prompt.caption.base_caption, expected ? `${expected.positivePrompt}, landscape` : 'landscape');
+        assert.equal(body.parameters.v4_negative_prompt.caption.base_caption, expected ? `${expected.negativePrompt}, blur` : 'blur');
+        assert.deepEqual(result.sentPrompt.artist, expected);
+        assert.doesNotMatch(JSON.stringify(body), /legacy-uc/);
+    }
+    h.bridge.autoIllustration.nai.artistByKind = { enabled: true,
+        kinds: { background: { positive: 'artist:kind', negative: 'kind-uc' } } };
+    const result = await h.backend.generate({ scene: 'landscape', sceneUc: 'blur' }, {}, { imageKind: 'background' });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(h.wires.at(-1).input, 'artist:kind, landscape');
+    assert.equal(h.wires.at(-1).parameters.negative_prompt, 'kind-uc, blur');
+    assert.equal(h.writes.length, 0);
+});
+
+test('gate:artist-library:归档原文保真且坏库和满库不产生半成品', async () => {
+    const { preserveConfiguredArtists, removeArtistEntry } = await import('../src/generated-images/artist-library.js');
+    const nai = { artistPrefix: '  old artist\n', artistNegativePrefix: ' old uc ', negativePrompt: ' legacy uc\n',
+        artistByKind: { enabled: false, kinds: { sprite: { positive: 'sprite artist', negative: 'sprite uc' } } } };
+    const before = structuredClone(nai);
+    const archived = preserveConfiguredArtists(nai);
+    assert.equal(archived.ok, true);
+    assert.deepEqual(nai, before, '归档只生成新草稿');
+    assert.deepEqual(archived.value.artistLibrary.entries.map(row => [row.positivePrompt, row.negativePrompt]),
+        [[nai.artistPrefix, nai.artistNegativePrefix], ['sprite artist', 'sprite uc'], ['', nai.negativePrompt]]);
+    assert.equal(archived.value.artistLibraryArchived, true);
+    const deleted = { ...archived.value, artistLibrary: removeArtistEntry(archived.value.artistLibrary,
+        archived.value.artistLibrary.entries[0].id).value };
+    assert.deepEqual(preserveConfiguredArtists(deleted).value, deleted, '迁移完成后不重新归档用户删除的条目');
+    for (const library of [{ version: 99, entries: [] }, { version: 1,
+        entries: Array.from({ length: 500 }, (_, i) => ({ id: `full-${i}`, name: `full-${i}`, positivePrompt: '', negativePrompt: '' })) }]) {
+        const original = { ...nai, artistLibrary: library }, copy = structuredClone(original);
+        assert.equal(preserveConfiguredArtists(original).ok, false);
+        assert.deepEqual(original, copy, '拒绝不改原库、历史文本或归档标记');
+        assert.equal(original.artistLibraryArchived, undefined);
+    }
+});

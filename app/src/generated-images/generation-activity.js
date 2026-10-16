@@ -4,8 +4,10 @@ export const IMAGE_ACTIVITY_EVENT = 'igs:image-activity';
 
 const KIND_OF = {
     generate: (args) => (args[2] && args[2].imageKind) || 'cg',
+    generateCaption: (args) => (args[0] && args[0].imageKind) || 'cg',
     generateDbgenCaption: (args) => (args[0] && args[0].imageKind) || 'cg',
     generateForReader: () => 'cg',
+    testForReader: () => 'cg',
     edit: () => 'edit',
 };
 

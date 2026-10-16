@@ -4,7 +4,7 @@ import { buildIgsTextPayload, normalizeSourceFilter, normalizeVirtualRegex } fro
 import { dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
 import { assetOwnerKey, assetShadowsGlobal, draftEffectiveAssets, effectiveSceneAssets, rememberAssetScope } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
-import { menuItem, renderMigrateEntry, renderOutfitReviewList, renderRowMenu, renderWardrobe } from './settings-outfit-fields.js';
+import { menuItem, renderOutfitReviewList, renderRowMenu, renderWardrobe } from './settings-outfit-fields.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgLibraryView } from './cg-library-view.js';
 import { countEnabledPerformance, performanceGroupCounts, renderPerformancePage, renderPerformancePresetBar } from './performance-settings-layout.js';
@@ -12,9 +12,10 @@ import { renderWorldviewRow } from './worldview-fields.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { isGeneratedAssetUrl, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { createOutfitResolver } from '../../scene/character-outfits.js';
+import { readDefaultOutfit, pickOutfitSprite } from '../../scene/character-appearance.js';
 import { renderEventCgList } from './settings-event-cg.js';
 import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList, kindModelPicker } from './settings-fields.js';
-import { NSFW_COUNT_MAX, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { NSFW_COUNT_MAX, CONSISTENCY_MODEL_OPTIONS, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { describeLlmReady } from '../../generated-images/illustration/caption-writer.js';
 import { normalizeImageSourceMode, mergeLegacyNaiSettings } from '../../generated-images/image-backend.js';
 import { getSettingsShellTemplate, renderSettingsNav } from './settings-shell.js';
@@ -24,9 +25,11 @@ import { renderDashboard } from './settings-dashboard.js';
 import { loadSettingsRecent } from './settings-recent.js';
 import { getReaderModeIcon } from './icons.js';
 import { renderPromptKindsPanel } from './settings-prompt-kinds.js';
+import { renderImagePromptPanel } from './settings-image-prompt-view.js';
+import { renderArtistLibrary } from './settings-artist-library.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
-import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OFF_HINT, PROMPT_RULE_OUTFIT_HINT, PROMPT_RULE_PRESET_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
+import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OFF_HINT, PROMPT_RULE_PRESET_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
 import { PUBLIC_READER_MODES, getReaderModeLabel } from '../../schemas/reader-mode.js';
 import { esc, toHex } from './reader-value-utils.js';
 import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderShortcutSettings, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderCustomFontManager, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
@@ -115,6 +118,12 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 promptRuleDraft: settingsState.asyncState.promptRuleDraft,
             },
             draft,
+            imagePrompt: settingsState.asyncState.imagePromptEditor ? (() => {
+                const edit = settingsState.asyncState.imagePromptEditor.state;
+                return { presetId: edit.preset?.id || null, baseRevision: edit.baseRevision,
+                    draftRevision: edit.draftRevision, dirty: edit.dirty, status: edit.status,
+                    errors: { ...edit.errors }, preview: edit.preview };
+            })() : null,
         };
         settingsShellHtml.set(snapshot, { theme: settingsTheme, html: shellHtml });
         return snapshot;
@@ -250,19 +259,24 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS内置NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬'], ['baibai', '柏宝绘']], '图像来源')),
                 imageSourceNote: esc(sourceNotes[sourceMode]),
                 imageContentNote: esc(contentNotes[sourceMode]),
-                sourceNaiHidden: hiddenAttr(sourceMode === 'dbgen'),
+                sourceNaiHidden: hiddenAttr(sourceMode !== 'nai'),
+                sourceBuiltinHidden: hiddenAttr(sourceMode !== 'nai'),
+                sourceConsistencyHidden: hiddenAttr(sourceMode !== 'nai' && sourceMode !== 'dbgen'),
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
-                dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5需关）'),
+                naiSpriteTransparentField: checkbox('bridge.imageApi.naiSpriteTransparent', imageApi.naiSpriteTransparent !== false, '立绘透明底（V5 原生透明；关闭或不支持时使用白底并抠图）'),
+                dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭，关闭后改为白色背景）'),
                 advancedNaiOpen: advancedOpen('nai'),
                 advancedExtensionOpen: advancedOpen('extension'),
                 advancedNsfwOpen: advancedOpen('nsfw'),
                 advancedAssetTemplatesOpen: advancedOpen('asset-templates'),
                 autoAssetOptionsHidden: hiddenAttr(!auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
                 assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
+                imagePromptPanel: sourceMode === 'nai' ? renderImagePromptPanel(asyncState.imagePromptEditor, asyncState.advancedOpen) : '',
+                artistLibraryPanel: sourceMode === 'nai' ? renderArtistLibrary(auto.nai, asyncState.artistLibrary) : '',
                 autoLlmNote: esc(sourceMode === 'dbgen'
                     ? '负责规划剧情CG画面与素材补全的标签；表情差分、头像、立绘与服装提示词由数据库生图插件自行编写。'
-                    : '负责编写剧情CG、素材、立绘和表情的提示词；可沿用酒馆 API。'),
+                    : '使用 IGS 内置框架编写各类生图提示词；独立接口经酒馆同源后端发送，无需安装 DBG。请求失败不切通道补发。'),
                 adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
                 pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：查询间隔（毫秒）', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
                 pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：查询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
@@ -307,17 +321,17 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoLlmPromptAssetField: field('bridge.autoIllustration.llm.prompts.asset', '素材补全规划', autoTextarea('bridge.autoIllustration.llm.prompts.asset', auto.llm.prompts.asset, '清空即恢复内置提示词')),
                 autoLlmPromptAssetSoftField: field('bridge.autoIllustration.llm.prompts.assetSoft', '素材补全规划 · 温和重试', autoTextarea('bridge.autoIllustration.llm.prompts.assetSoft', auto.llm.prompts.assetSoft, '清空即恢复内置提示词')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
-                autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '经酒馆转发']])),
-                autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', '接口地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用NovelAI官方地址')),
+                autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）']])),
+                autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', '接口地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方；根地址或 /ai 自动补全，完整接口原样使用')),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'NAI Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, 'pst-...')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
                 autoNaiModelsMessage: esc(asyncState.naiModelsMessage || ''),
                 autoNaiSizeField: field('bridge.autoIllustration.nai.size', '尺寸', textInput('bridge.autoIllustration.nai.size', auto.nai.size, '832x1216')),
                 autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', auto.nai.steps, 1, 50)),
                 autoNaiScaleField: field('bridge.autoIllustration.nai.scale', 'CFG', numberInput('bridge.autoIllustration.nai.scale', auto.nai.scale, 0, 10, false, 'any')),
+                consistencyStrengthField: field('bridge.autoIllustration.consistencyStrength', '一致性重绘强度（0.1–1，越低越保留原图；默认 0.6）', numberInput('bridge.autoIllustration.consistencyStrength', auto.consistencyStrength, 0.1, 1, false, '0.05')),
+                consistencyModelField: field('bridge.autoIllustration.consistencyModel', '一致性重绘模型（默认 V5）', selectInput('bridge.autoIllustration.consistencyModel', auto.consistencyModel, CONSISTENCY_MODEL_OPTIONS)),
                 autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', auto.nai.sampler, 'k_euler_ancestral')),
-                autoNaiArtistField: field('bridge.autoIllustration.nai.artistPrefix', '画师串 / 固定前缀', autoTextarea('bridge.autoIllustration.nai.artistPrefix', auto.nai.artistPrefix, '可选，拼在每张图的正向提示词最前面')),
-                autoNaiNegativeField: field('bridge.autoIllustration.nai.negativePrompt', '负面提示词', autoTextarea('bridge.autoIllustration.nai.negativePrompt', auto.nai.negativePrompt, '')),
             };
             const grid = (...items) => {
                 const body = items.filter(Boolean).join('');
@@ -327,7 +341,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const kindModel = (kind, label) => (sourceMode === 'nai' || sourceMode === 'dbgen'
                 ? field(`bridge.imageApi.${kind}Model`, label, kindModelPicker(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], pulledImageModels)) : '');
             imageFields.promptKindsPanel = renderPromptKindsPanel({
-                nai: auto.nai, field, textarea: autoTextarea, checkbox, advancedOpen,
+                nai: auto.nai, sourceMode, checkbox, advancedOpen,
                 templateFields: {
                     sprite: [imageFields.autoAssetSpriteTemplateField, imageFields.autoAssetSpriteNegativeTemplateField],
                     background: [imageFields.autoAssetBackgroundTemplateField, imageFields.autoAssetBackgroundNegativeTemplateField],
@@ -474,7 +488,11 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 select: assetSelect('characters'),
                 lead: scopeFilterBar('characters'),
                 renderList: (subset) => renderCharacterAssetList(subset, charListOptions),
-                thumbOf: (name, moods) => resolveGenerated(firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]]))),
+                thumbOf: (name, moods) => {
+                    const selected = readDefaultOutfit(sceneAssets, name);
+                    const sprite = selected.ok && pickOutfitSprite(selected.entry, '平和', sceneAssets);
+                    return resolveGenerated(sprite?.url || firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]])));
+                },
             });
             const generatedArgs = {
                 library: normalizeGeneratedLibrary(sceneAssets.generated),
@@ -557,7 +575,6 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
           ${CHARACTER_ADD_MENU}
         </div>
         ${renderDnaCandidateBar(asyncState.dnaCandidate)}
-        ${idx ? '' : renderMigrateEntry(asyncState.migrateRows)}
         ${idx ? '' : charsHtml()}
         ${idx ? '' : renderDnaOnlyCharacterList(sceneAssets.characterDna || {}, sceneAssets.characters || {})}
       </div>`;
@@ -571,8 +588,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + `<div class="igs-source-filter-note" data-result="prompt-rule-preset">${esc(promptRuleOn ? PROMPT_RULE_PRESET_HINT : PROMPT_RULE_OFF_HINT)}</div>`,
                 promptRuleField: `<div class="igs-settings-field"><textarea data-prompt-rule-draft="1" aria-label="AI格式规则" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea></div>`,
                 promptRuleStatus: esc(asyncState.promptRuleStatus || ''),
-                promptRuleOutfitHint: scenePromptRuleOutfitHint(sceneAssets.promptRule)
-                    ? `<div class="igs-source-filter-note" data-result="prompt-rule-outfit">${esc(PROMPT_RULE_OUTFIT_HINT)}</div>` : '',
+                promptRuleOutfitHint: scenePromptRuleOutfitHint(promptRuleDraft)
+                    ? `<div class="igs-source-filter-note" data-result="prompt-rule-outfit">${esc(scenePromptRuleOutfitHint(promptRuleDraft))}</div>` : '',
                 promptAdvanced: `<details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-injection"${advancedOpen('prompt-injection')}><summary>高级：全局注入位置</summary>`
                     + field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区'], ['depth0', '聊天末尾']]),
                         '如AI未按标签输出，可改回聊天末尾。每条演出写法可单独指定位置。')
@@ -979,12 +996,11 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const payload = buildIgsTextPayload(previewMessage, {
             sourceFilter: filter,
             virtualRegex,
+            sceneAssets: bridge.sceneAssets,
         });
-        if (!payload.formattedText) {
+        if (!payload.formattedText && !String(payload.tagText || '').trim()
+            && !payload.virtualRegexChanged && !payload.virtualRegexError) {
             return '当前没有可测试的正文内容。';
-        }
-        if (!virtualRegex.enabled || !virtualRegex.pattern) {
-            return `formattedTextLength=${payload.formattedText.length}\n\n最终正文：\n${payload.formattedText}`;
         }
         return [
             `source=${payload.sourceKind}`,
@@ -992,9 +1008,11 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             `formattedTextLength=${payload.formattedText.length}`,
             `changed=${payload.virtualRegexChanged === true}`,
             payload.usedFallback ? 'fallback=true' : 'fallback=false',
+            ...(payload.virtualRegexError ? [`error=${payload.virtualRegexError}`] : []),
             '',
             '最终正文：',
-            payload.formattedText,
+            payload.formattedText || (payload.virtualRegexError
+                ? '（正文为空）' : '（正文已被当前过滤／替换规则清空）'),
         ].join('\n');
     }
 

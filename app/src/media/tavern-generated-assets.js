@@ -3,7 +3,8 @@ import { createMediaRecordJournal } from './media-record-journal.js';
 import { mediaFileGcFor } from './media-file-gc.js';
 import { generatedImageReferences, generatedImageAudit } from './image-references.js';
 import { IMAGE_FIELDS } from './image-identity.js';
-import { applyGeneratedImageUpdate } from './generated-asset-store.js';
+import { applyGeneratedImageUpdate, applyGeneratedPromptUpdate } from './generated-asset-store.js';
+import { readReferenceImageUrl } from './reference-image-reader.js';
 import { retryInlineMedia } from './media-migration.js';
 
 export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) {
@@ -47,6 +48,12 @@ export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) 
         restore: journal.restore,
         hydrateImage: files.hydrate,
         getImageRecord: raw,
+        async readImage(id, options) {
+            const record = await store.getImage(id);
+            if (!record?.dataUrl || /^data:image\//i.test(record.dataUrl)) return record;
+            const dataUrl = await readReferenceImageUrl(record.dataUrl, globalObject, options);
+            return dataUrl === null ? null : { ...record, dataUrl };
+        },
         // 只读本机记录、不等恢复：给阅读器先显示用，没有时由调用方回到 getImageRecord。
         peekImageRecord: id => store.getImage(id),
         async listImages() { await journal.restore(); return store.listImages(); },
@@ -65,14 +72,22 @@ export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) 
             return files.hydrate(record, options);
         },
         putImage: saveImage,
-        async deleteImage(id) {
+        async deleteImage(id, options = {}) {
             const old = await raw(id);
+            const check = async () => {
+                if (options.beforeDelete && !await options.beforeDelete()) return false;
+                const references = await generatedImageReferences(store, globalObject, referenceRoot());
+                return !references.ids.has(id);
+            };
             try {
                 await journal.write(`image:${id}`, async () => {
-                    const references = await generatedImageReferences(store, globalObject, referenceRoot());
-                    if (references.ids.has(id)) throw Object.assign(new Error('image-referenced'), { retained: true });
+                    if (!await check()) throw Object.assign(new Error('image-referenced'), { retained: true });
                     return null;
-                }, () => store.deleteImage(id));
+                }, async () => {
+                    const result = await store.deleteImage(id, { beforeDelete: check });
+                    if (result?.retained) throw Object.assign(new Error('image-referenced'), { retained: true });
+                    return result;
+                });
             } catch (error) { if (error.retained) return { ok: true, retained: [id] }; throw error; }
             await files.dropUnused(old, null);
             return { ok: true, queued: true };
@@ -84,6 +99,19 @@ export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) 
             let result;
             await journal.write(`image:${id}`, async () => ({ ...await store.getImage(id), ...patch }), async () => { result = await store.patchImageMetadata(id, patch); return result; });
             return result;
+        },
+        async updateImagePrompt(id, expectedRevision, prompt, updatedAt) {
+            if (typeof store.updateImagePrompt !== 'function') return { ok: false, reason: 'update-unavailable' };
+            try {
+                return await journal.write(`image:${id}`, async () => {
+                    const projected = applyGeneratedPromptUpdate(await store.getImage(id), expectedRevision, prompt, updatedAt);
+                    if (!projected.ok) throw Object.assign(new Error(projected.reason), { result: projected });
+                    return projected.record;
+                }, () => store.updateImagePrompt(id, expectedRevision, prompt, updatedAt));
+            } catch (error) {
+                if (error.result) return error.result;
+                throw error;
+            }
         },
         async updateImage(id, expectedRevision, patch, updatedAt) {
             const old = await raw(id), next = await files.offload(patch || {}, id, old);

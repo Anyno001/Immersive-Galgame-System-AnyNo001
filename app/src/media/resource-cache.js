@@ -34,23 +34,54 @@ export function createImageResourceCache(globalObject = globalThis, { limit = 96
         const source = String(url || '').trim();
         if (!source) return Promise.resolve('');
         const key = keyOf(source);
-        sources.set(key, true);
         const ready = cache.peek(key);
         if (ready) return Promise.resolve(ready);
-        if (isImagePath(source)) return files.read(source, { display: true }).then(value => value ? cache.peek(key) || value : '');
-        if (typeof globalObject.Image !== 'function') { cache.remember(key, source); return Promise.resolve(cache.peek(key) || source); }
-        return cache.load(key, signal => {
-            return new Promise(resolve => {
+        const previous = sources.get(key);
+        if (['read-error', 'decode-error'].includes(previous?.status)) return Promise.resolve('');
+        const entry = previous?.status === 'loading' ? previous : { status: 'loading' };
+        sources.set(key, entry);
+        const generation = sources.epoch();
+        const mark = status => {
+            if (sources.epoch() === generation && sources.get(key) === entry) entry.status = status;
+        };
+        let task;
+        if (isImagePath(source)) task = files.read(source, { display: true, strictRead: true });
+        else if (typeof globalObject.Image !== 'function') {
+            mark('unverified'); cache.remember(key, source); return Promise.resolve(cache.peek(key) || source);
+        } else task = cache.load(key, signal => {
+            return new Promise((resolve, reject) => {
                 const image = new globalObject.Image();
-                const finish = () => { signal?.removeEventListener('abort', abort); image.onload = null; image.onerror = null; resolve(source); };
-                const abort = () => { image.onload = null; image.onerror = null; image.src = ''; resolve(''); };
+                let settled = false;
+                const finish = error => {
+                    if (settled) return;
+                    settled = true; signal?.removeEventListener('abort', abort);
+                    image.onload = null; image.onerror = null;
+                    if (error) reject(error); else resolve(source);
+                };
+                const abort = () => { finish(new Error('image-read-aborted')); image.src = ''; };
+                if (signal?.aborted) { abort(); return; }
                 signal?.addEventListener('abort', abort, { once: true });
-                image.onload = finish; image.onerror = finish; image.src = source;
-                if (image.complete) finish();
+                image.onload = () => finish(); image.onerror = () => finish(new Error('image-decode-error'));
+                image.src = source;
+                if (image.complete) finish(image.naturalWidth > 0 ? null : new Error('image-decode-error'));
             });
-        }, { persist: false, timeoutMs: 15000 }).then(value => value ? cache.peek(key) || source : '').catch(() => source);
+        }, { persist: false, timeoutMs: 15000 });
+        return task.then(value => {
+            if (!value || sources.epoch() !== generation) return '';
+            mark('available'); return cache.peek(key) || value;
+        }).catch(error => { mark(error.message === 'image-decode-error' ? 'decode-error' : 'read-error'); return ''; });
     }
     return { load, get: url => cache.peek(keyOf(String(url || '').trim())), keyOf: url => keyOf(String(url || '').trim()),
+        inspect(url) {
+            const key = keyOf(String(url || '').trim());
+            const status = sources.get(key)?.status || 'unverified';
+            return { status: status === 'available' && !cache.peek(key) ? 'unverified' : status };
+        },
+        clearFailures() {
+            for (const [key, entry] of sources) if (['read-error', 'decode-error'].includes(entry.status)) {
+                sources.delete(key); cache.forget(key);
+            }
+        },
         clear() { sources.clear(); }, destroy() { sources.destroy(); },
         size: () => [...sources.keys()].filter(key => cache.peek(key)).length };
 }

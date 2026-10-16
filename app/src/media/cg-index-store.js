@@ -5,6 +5,7 @@
 import { createIdbConnection } from './idb-connection.js';
 import { localImageCacheFor } from './tavern-image-cache.js';
 import { requireMediaCache } from './media-cache-owner.js';
+import { cgEntryStamp } from './cg-entry-stamp.js';
 
 const DB_NAME = 'igs-cg-index';
 const DB_VERSION = 2;
@@ -35,7 +36,7 @@ export function createMemoryCgIndexStore({ mediaCache } = {}) {
         async getThumbs(keys) {
             const out = new Map();
             for (const k of keys || []) {
-                const stamp = String(entries.get(keyOf(k))?.updatedAt || '');
+                const stamp = cgEntryStamp(entries.get(keyOf(k)));
                 const dataUrl = await cache.get(`thumb:cg:${keyOf(k)}:${stamp}`);
                 if (dataUrl) out.set(keyOf(k), { key: keyOf(k), dataUrl, stamp });
             }
@@ -101,7 +102,7 @@ export function createIndexedDbCgIndexStore(globalObject = globalThis) {
                 return () => requests.map(request => request.result);
             });
             await Promise.all(records.map(async (record, i) => {
-                const stamp = String(record?.updatedAt || ''), dataUrl = await cache.get(`thumb:cg:${list[i]}:${stamp}`);
+                const stamp = cgEntryStamp(record), dataUrl = await cache.get(`thumb:cg:${list[i]}:${stamp}`);
                 if (dataUrl) out.set(list[i], { key: list[i], dataUrl, stamp });
             }));
             return out;
