@@ -813,9 +813,7 @@ export function createAutoIllustrationService(deps) {
             stopped = false;
             if (offRendered) return;
             messageHost.attachPromptStrip();
-            offRendered = messageHost.on('CHARACTER_MESSAGE_RENDERED', (messageId) => {
-                void processMessage(Number(messageId));
-            });
+            offRendered = messageHost.on('CHARACTER_MESSAGE_RENDERED', (messageId) => processMessage(Number(messageId)));
         },
         clearCache() { states.clear(); },
         stop() {

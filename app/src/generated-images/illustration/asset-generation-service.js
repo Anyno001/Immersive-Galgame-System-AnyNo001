@@ -1361,9 +1361,7 @@ export function createAssetGenerationService(deps) {
         start() {
             stopped = false;
             if (offRendered) return;
-            offRendered = messageHost.on('CHARACTER_MESSAGE_RENDERED', (messageId) => {
-                void processMessage(Number(messageId));
-            });
+            offRendered = messageHost.on('CHARACTER_MESSAGE_RENDERED', (messageId) => processMessage(Number(messageId)));
             if (typeof deps.global?.addEventListener === 'function') {
                 deps.global.addEventListener('online', retryImageReads);
                 offOnline = () => deps.global.removeEventListener('online', retryImageReads);

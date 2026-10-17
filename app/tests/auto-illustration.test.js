@@ -460,6 +460,60 @@ test('gate:illustration:message-host-rejects-stale-floor-before-helper-write', a
     assert.equal(ctx.chat[0].mes, 'original');
 });
 
+test('gate:illustration:message-host-passes-events-without-waiting', async (t) => {
+    const { EventEmitter } = await import('node:events');
+    const { createIllustrationMessageHost } = await import('../src/host/illustration-message-host.js');
+    for (const awaited of [false, true]) {
+        await t.test(awaited ? '逐个等待监听器的宿主' : '同步广播的宿主', async (t) => {
+            const eventSource = new EventEmitter();
+            if (awaited) eventSource.emit = async (name, ...args) => {
+                for (const listener of eventSource.listeners(name)) await listener(...args);
+            };
+            const originalEmit = eventSource.emit;
+            const names = ['GENERATION_ENDED', 'CHARACTER_MESSAGE_RENDERED'];
+            const ctx = { eventSource, eventTypes: Object.fromEntries(names.map(name => [name, name])) };
+            const warnings = [], received = [], other = [];
+            let scheduled = 0, release, finished = false;
+            const pending = new Promise(resolve => { release = resolve; }).then(() => { finished = true; });
+            const host = createIllustrationMessageHost({ SillyTavern: { getContext: () => ctx },
+                setTimeout() { scheduled++; }, console: { warn: (...args) => warnings.push(args) } });
+            t.after(async () => { host.destroy(); release(); await pending; });
+            const payload = Object.freeze({ source: 'host' });
+            for (const name of names) {
+                const off = host.on(name, (...args) => { received.push([name, ...args]); return pending; });
+                host.on(name, () => { throw new Error('private-sync-error'); });
+                host.on(name, () => Promise.reject(new Error('private-async-error')));
+                eventSource.on(name, (...args) => other.push([name, ...args]));
+                const listener = eventSource.listeners(name)[0];
+                assert.equal(listener(1, payload), undefined, '宿主回调不返回内部 Promise');
+                await eventSource.emit(name, 1, payload);
+                assert.equal(finished, false, '内部任务仍未完成');
+                assert.equal(other.at(-1)[0], name);
+                assert.equal(other.at(-1)[1], 1);
+                assert.equal(other.at(-1)[2], payload, '原参数身份保持不变');
+                const count = received.length;
+                off();
+                await eventSource.emit(name, 1, payload);
+                assert.equal(received.length, count, '取消订阅移除实际包装监听器');
+            }
+            await Promise.resolve();
+            assert.equal(scheduled, 0, '接收与转交不依赖定时器');
+            assert.equal(other.length, 4, '每次原事件仅通知后续插件一次');
+            assert.equal(warnings.length, 8, '同步和异步失败分别报告');
+            assert.ok(warnings.every(([, detail]) => names.includes(detail.eventKey)));
+            assert.equal(JSON.stringify(warnings).includes('private-'), false, '日志不输出错误原文');
+            assert.equal(eventSource.emit, originalEmit, '不接管宿主派发器');
+            host.destroy();
+            for (const name of names) {
+                await eventSource.emit(name, 1, payload);
+                assert.equal(eventSource.listenerCount(name), 1, '销毁仅移除 IGS 监听器');
+            }
+            assert.equal(other.length, 6);
+        });
+    }
+});
+
+
 const NSFW_TEXT = '[igs-scene:卧室|夜晚|晴|NSFW]\n一段。\n二段。\n三段。';
 const SFW_TEXT = '[igs-scene:街道|白天|晴]\n一段。\n二段。';
 const REPLY = 'slot: 1\nat: 2\nscene: 1girl, bedroom\nchar: 0.5,0.5 | 1girl, black hair';

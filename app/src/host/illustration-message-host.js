@@ -152,16 +152,30 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         return { ok: true };
     }
 
+    function reportListenerFailure(eventKey) {
+        try { globalObject.console?.warn?.('[IGS] 宿主事件的内部处理失败', { eventKey }); }
+        catch { /* 诊断失败不影响宿主派发。 */ }
+    }
+
     function on(eventKey, handler) {
         const ctx = context();
         const source = ctx && ctx.eventSource;
         const types = ctx && (ctx.event_types || ctx.eventTypes);
         const name = types && types[eventKey];
         if (!source || !name || typeof source.on !== 'function') return () => {};
-        source.on(name, handler);
+        // 直接接收并返回；内部 Promise 和异常不进入宿主派发链。
+        const listener = (...args) => {
+            try {
+                const result = handler(...args);
+                if (result && typeof result.then === 'function') {
+                    void Promise.resolve(result).catch(() => reportListenerFailure(eventKey));
+                }
+            } catch { reportListenerFailure(eventKey); }
+        };
+        source.on(name, listener);
         const off = () => {
-            if (typeof source.removeListener === 'function') source.removeListener(name, handler);
-            else if (typeof source.off === 'function') source.off(name, handler);
+            if (typeof source.removeListener === 'function') source.removeListener(name, listener);
+            else if (typeof source.off === 'function') source.off(name, listener);
         };
         cleanups.push(off);
         return off;
