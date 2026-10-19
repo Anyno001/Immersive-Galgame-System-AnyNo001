@@ -6455,6 +6455,97 @@ test('gate:simulation:igs-ui-fullscreen-mode-requests-browser-fullscreen-and-exi
     vn.destroy();
 });
 
+test('gate:simulation:igs-ui-fullscreen-resumes-after-background-with-the-next-normal-click', async () => {
+    const document = createFakeDocument({ innerWidth: 390, innerHeight: 780,
+        visualViewport: { width: 390, height: 780, offsetTop: 0, offsetLeft: 0 } });
+    const win = document.defaultView;
+    let requested = 0, clicks = 0, prevented = 0, stopped = 0;
+    document.documentElement.requestFullscreen = () => {
+        requested++;
+        if (requested === 2) return Promise.reject(new Error('gesture unavailable'));
+        document.fullscreenElement = document.documentElement;
+        win.visualViewport.height = 780;
+        document.dispatchEvent({ type: 'fullscreenchange' });
+        return Promise.resolve();
+    };
+    const vn = bootstrapIGS({ global: win, autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => ({ id: 20, text: '[角色: 艾莉]\n艾莉: 第一段。 第二段。' }),
+            typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const opened = await vn.openLatestAvailable('fullscreen');
+        const root = document.getElementById('igs-overlay');
+        root.addEventListener('click', () => { clicks++; });
+        const click = () => root.dispatchEvent({ type: 'click', target: root, isTrusted: true,
+            preventDefault() { prevented++; }, stopPropagation() { stopped++; } });
+        assert.equal(requested, 1);
+        document.hidden = true;
+        win.dispatchEvent({ type: 'blur' });
+        document.dispatchEvent({ type: 'visibilitychange' });
+        document.fullscreenElement = null;
+        win.visualViewport.height = 720;
+        document.dispatchEvent({ type: 'fullscreenchange' });
+        document.hidden = false;
+        document.dispatchEvent({ type: 'visibilitychange' });
+        win.dispatchEvent({ type: 'focus' });
+        win.dispatchEvent({ type: 'pageshow' });
+        assert.equal(requested, 1, '切回事件只同步状态，不在无手势时循环请求');
+        assert.equal(root.style.height, '720px');
+        document.fullscreenElement = document.createElement('video');
+        await click();
+        assert.equal(requested, 1, '其它内容正在全屏时保留其使用权');
+        document.fullscreenElement = null;
+        document.dispatchEvent({ type: 'fullscreenchange' });
+        await click();
+        assert.equal(requested, 2);
+        assert.equal(root.style.height, '720px', '恢复被浏览器拒绝后页面仍适配可见区域');
+        win.dispatchEvent({ type: 'focus' });
+        assert.equal(requested, 2);
+        await click();
+        assert.equal(requested, 3);
+        assert.equal(document.fullscreenElement, document.documentElement);
+        assert.equal(root.style.height, '780px');
+        assert.deepEqual([clicks, prevented, stopped], [3, 0, 0], '恢复保留本次正常点击');
+        document.fullscreenElement = null;
+        document.dispatchEvent({ type: 'fullscreenchange' });
+        await click();
+        assert.equal(requested, 3, '前台主动退出后不强制重新全屏');
+        await opened.reader.controller.invokeAction('close');
+        win.dispatchEvent({ type: 'focus' });
+        document.dispatchEvent({ type: 'visibilitychange' });
+        await click();
+        assert.equal(requested, 3, '关闭后不再恢复旧阅读器');
+        assert.equal(root.style.height, '');
+    } finally { vn.destroy(); }
+});
+
+test('gate:simulation:igs-ui-fullscreen-late-request-releases-closed-session-and-preserves-reopened-reader', async () => {
+    const { applyReaderModeRuntime, clearReaderModeRuntime } = await import('../src/visual/igs-ui/reader-runtime.js');
+    for (const reopen of [false, true]) {
+        const document = createFakeDocument();
+        const root = document.createElement('div');
+        let finish;
+        document.documentElement.requestFullscreen = () => new Promise(resolve => {
+            finish = () => { document.fullscreenElement = document.documentElement; resolve(); };
+        });
+        const old = {};
+        applyReaderModeRuntime(root, { mode: 'fullscreen' }, old);
+        clearReaderModeRuntime(old);
+        const next = {};
+        if (reopen) {
+            document.documentElement.requestFullscreen = () => {
+                document.fullscreenElement = document.documentElement;
+                return Promise.resolve();
+            };
+            applyReaderModeRuntime(document.createElement('div'), { mode: 'fullscreen' }, next);
+        }
+        finish();
+        await Promise.resolve();
+        assert.equal(document.fullscreenElement, reopen ? document.documentElement : null);
+        clearReaderModeRuntime(next);
+        await document.exitFullscreen();
+    }
+});
+
 test('gate:simulation:igs-ui-settings-follows-visual-viewport-in-web-and-fullscreen', async () => {
     for (const mode of ['web', 'fullscreen']) {
         const document = createFakeDocument({

@@ -1,6 +1,9 @@
 import { getOwnerWindow } from './reader-dom-utils.js';
 import { clampNumber } from './reader-value-utils.js';
 import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
+import { installReaderFullscreen, exitDocumentFullscreen } from './reader-fullscreen.js';
+
+export { exitDocumentFullscreen } from './reader-fullscreen.js';
 
 export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
     if (current.runtime && current.runtime.mode === snapshot.mode && current.runtime.root === root) {
@@ -377,65 +380,26 @@ function applyFullscreenReaderRuntime(root, current, runtime, ctx = {}) {
     const doc = runtime.doc;
     if (!doc) return;
     const win = runtime.win || doc.defaultView || globalThis;
-    // 全屏模式同样会被软键盘顶走：高度跟随可见区域，键盘收起时交回 CSS 的 100dvh。
-    const syncKeyboard = () => {
+    const syncViewport = () => {
         const vv = win.visualViewport;
-        const full = Number(win.innerHeight) || 0;
-        const open = Boolean(vv && full > 0 && Number.isFinite(vv.height) && vv.height < full * 0.85);
-        if (root && root.style) root.style.height = open ? `${Math.round(vv.height)}px` : '';
+        const height = Number(vv?.height) || Number(win.innerHeight) || 0;
+        if (root && root.style) root.style.height = height > 0 ? `${Math.round(height)}px` : '';
         syncKeyboardOffset(root, win);
+        syncOrientationClass(root, win);
     };
-    if (win.visualViewport) {
-        addEventListenerWithCleanup(win.visualViewport, 'resize', syncKeyboard, runtime);
-        addEventListenerWithCleanup(win.visualViewport, 'scroll', syncKeyboard, runtime);
-    }
     addRuntimeCleanup(runtime, () => {
         if (root && root.style) { root.style.height = ''; root.style.top = ''; }
         if (root && root.classList) root.classList.remove('igs-keyboard-open');
     });
 
-    // requestFullscreen() 会重置浏览器的音频自动播放许可上下文，
-    // 导致 vertin-tips 等插件在进入全屏后调用 HTMLAudioElement.play() 被静默拒绝。
-    // 在用户手势调用链仍然有效时提前 resume 一个无声 AudioContext，以保留许可。
-    try {
-        const AudioCtorKey = win.AudioContext ? 'AudioContext' : (win.webkitAudioContext ? 'webkitAudioContext' : null);
-        if (AudioCtorKey) {
-            const ac = new win[AudioCtorKey]();
-            ac.resume().catch(() => {});
-            ac.close().catch(() => {});
-        }
-    } catch (e) { /* ignore — AudioContext not available */ }
-
     syncOrientationClass(root, win);
-    const onOrientationChange = () => syncOrientationClass(root, win);
+    const onOrientationChange = syncViewport;
     addEventListenerWithCleanup(win, 'orientationchange', onOrientationChange, runtime);
     if (win.screen && win.screen.orientation) {
         addEventListenerWithCleanup(win.screen.orientation, 'change', onOrientationChange, runtime);
     }
 
-    const target = doc.documentElement || doc.body;
-    const request = target && (target.requestFullscreen || target.webkitRequestFullscreen);
-    if (typeof request === 'function' && !doc.fullscreenElement && !doc.webkitFullscreenElement) {
-        try {
-            const result = request.call(target);
-            if (result && typeof result.catch === 'function') result.catch(() => {});
-        } catch (error) {
-            // Ignore fullscreen failures in simulation.
-        }
-    }
-}
-
-export function exitDocumentFullscreen(doc) {
-    if (!doc) return;
-    const exit = doc.exitFullscreen || doc.webkitExitFullscreen;
-    if ((doc.fullscreenElement || doc.webkitFullscreenElement) && typeof exit === 'function') {
-        try {
-            const result = exit.call(doc);
-            if (result && typeof result.catch === 'function') result.catch(() => {});
-        } catch (error) {
-            // Ignore exit failures.
-        }
-    }
+    addRuntimeCleanup(runtime, installReaderFullscreen({ ...runtime, win }, syncViewport));
 }
 
 function getInlineViewportMetrics(win, doc) {
