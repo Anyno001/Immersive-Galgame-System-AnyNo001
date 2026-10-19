@@ -436,11 +436,12 @@ test('gate:outfits:wardrobe-review-prompt-continues-with-known-character', async
     };
     ctx.options.generatedAssets = { writeWardrobePrompt: async (input) => {
         assert.equal(input.character, '雪乃');
-        return { ok: true, prompt: 'school uniform' };
+        return { ok: true, prompt: 'school uniform, skirt, black shoes', promptHalfBody: 'school uniform' };
     } };
     assert.equal((await handleOutfitAction(`wardrobe-generate-prompt:${enc('雪乃', '校服')}`, ctx)).ok, true);
     assert.deepEqual(seen, [`outfit-expression-set:${enc('雪乃', '校服')}`]);
-    assert.equal(t.sa().wardrobe.校服.prompt, 'school uniform');
+    assert.equal(t.sa().wardrobe.校服.prompt, 'school uniform, skirt, black shoes');
+    assert.equal(t.sa().wardrobe.校服.promptHalfBody, 'school uniform');
     assert.equal(t.sa().characterOutfits.雪乃.校服.wardrobe, '校服');
     assert.deepEqual(loadOutfitReview(t.ctx.options.global.localStorage), []);
 });

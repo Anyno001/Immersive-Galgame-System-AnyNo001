@@ -418,7 +418,8 @@ async function handleWardrobe(command, segs, ctx, { editLibrary, resolveEditLibr
             }
             if (!unchanged()) return { ...conflict(), candidatePrompt: String(written.prompt).trim() };
             wardrobe[name] = { ...wardrobe[name], prompt: String(written.prompt).trim() };
-            delete wardrobe[name].promptHalfBody;
+            if (written.promptHalfBody !== undefined) wardrobe[name].promptHalfBody = written.promptHalfBody;
+            else delete wardrobe[name].promptHalfBody;
             const persistedDirect = persistSettingsDraft();
             if (persistedDirect.ok === false) return persistedDirect;
             const renderedDirect = await rerenderSettings();
@@ -451,7 +452,8 @@ async function handleWardrobe(command, segs, ctx, { editLibrary, resolveEditLibr
         }
         if (!unchanged()) return { ...conflict(), candidatePrompt: String(written.prompt).trim() };
         wardrobe[word] = { ...(wardrobe[word] || {}), prompt: String(written.prompt).trim() };
-        delete wardrobe[word].promptHalfBody;
+        if (written.promptHalfBody !== undefined) wardrobe[word].promptHalfBody = written.promptHalfBody;
+        else delete wardrobe[word].promptHalfBody;
         removeOutfitReview(globalObj.localStorage, character, word);
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;

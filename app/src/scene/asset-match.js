@@ -402,9 +402,15 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     const hasLegacySprite = legacySlots.some(slots => Object.values(slots || {}).some(url => typeof url === 'string' && url.trim()));
     if (appearanceKey && (Object.hasOwn(userAssets.characterDefaultOutfits || {}, appearanceKey)
         || (!hasLegacySprite && Object.keys(userAssets.characterOutfits?.[appearanceKey] || {}).length))) {
-        const availability = url => lostImage(url, ctx) ? { status: 'missing' }
-            : unavailableImage(url, ctx) ? { status: 'read-error' }
-            : typeof ctx.imageAvailability === 'function' ? ctx.imageAvailability(url) : ctx.imageAvailability?.[url];
+        const availability = url => {
+            if (lostImage(url, ctx)) return { status: 'missing' };
+            if (unavailableImage(url, ctx)) return { status: 'read-error' };
+            const state = typeof ctx.imageAvailability === 'function'
+                ? ctx.imageAvailability(url) : ctx.imageAvailability?.[url];
+            // 显示时保留正在加载的引用，让中央缓存完成读取；不改变一致性参考的核验规则。
+            return state === 'loading' ? 'unverified'
+                : state?.status === 'loading' ? { ...state, status: 'unverified' } : state;
+        };
         const selected = resolveCharacterAppearance({ characterKey: appearanceKey, requestedOutfit: outfit,
             mood, sceneAssets: userAssets, ownerScope: ctx.ownerScope || '', imageAvailability: availability });
         if (!selected.ok) return { url: '', slot: '', character: appearanceKey, source: 'none', quality: 'none',

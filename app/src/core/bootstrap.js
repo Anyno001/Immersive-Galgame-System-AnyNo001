@@ -3,6 +3,7 @@ import { createPublicApi, attachPublicApi, detachPublicApi } from '../api/public
 import { createTavernHelperAdapter, getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 import { sceneAssetsForContext, resolveAssetScope } from '../scene/asset-scope.js';
 import { createCharacterDnaStore } from './character-dna-store.js';
+import { createStoryOutfitRuntime } from './story-outfit-runtime.js';
 import { migrateSpriteSystem } from '../scene/sprite-system-migration.js';
 import { captureOutfitScope, prepareCgOutfitCandidates } from '../scene/outfit-identity.js';
 import { loadStoryOutfitCandidates, saveStoryOutfitCandidates } from '../scene/outfit-review-store.js';
@@ -71,7 +72,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.36.95';
+const IGS_VERSION = '0.36.102';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -268,6 +269,17 @@ export function bootstrapIGS(options = {}) {
         thumbStore: options.assetThumbStore !== undefined ? options.assetThumbStore : createIndexedDbAssetThumbStore(globalObject),
         makeThumb: createAssetThumbnailer(globalObject),
     });
+    const storyOutfits = assetGenerationService.writeWardrobePrompt && storageLike
+        ? createStoryOutfitRuntime({ storage: storageLike, assets: assetGenerationService,
+            messageHost: illustrationMessageHost,
+            readContext: () => getSillyTavernContext(globalObject), readBridge: readImageBridge,
+            saveAssets: sceneAssets => saveUnifiedSettings({ bridge: { sceneAssets } }),
+            onAssetsSaved: (before, next) => app.igsUi?.syncStoryOutfitDraft?.(before, next),
+            onAutoResult(_row, result) {
+                if (result?.ok) reportImageJob('success', '剧情衣装和对应立绘已入库');
+                else reportImageJob('error', '剧情衣装自动处理未完成，请查看衣装审核与生图日志');
+            },
+        }) : null;
     generatedAssetStore.setReferenceResolver?.(() => readImageBridge().sceneAssets);
     const media = createMediaRuntime(globalObject, { generatedAssetStore });
     const itemCg = createItemAndCgServices({
@@ -346,6 +358,7 @@ export function bootstrapIGS(options = {}) {
         onIllustrationProgress: (handler) => events.on(ILLUSTRATION_PROGRESS_EVENT, handler),
         onImageActivity: (handler) => events.on(IMAGE_ACTIVITY_EVENT, handler),
         generatedAssets: assetGenerationService,
+        storyOutfits,
         // 遮罩修复编辑器的 AI 局部重绘：只经 describeEdit/edit 显式调用，不影响普通生成。
         imageEditBackend: imageBackend,
         alphaMatte: options.alphaMatte || createAlphaMatte(globalObject),
@@ -572,6 +585,7 @@ export function bootstrapIGS(options = {}) {
     applyImageCacheLimit((getUnifiedSettingsSnapshot() || {}).bridge);
     illustrationService.start();
     assetGenerationService.start();
+    storyOutfits?.start();
     itemCg.itemImages.start();
     itemCg.itemLedger.start();
     scheduleSceneAssetsInjection(SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS, 1);
@@ -1042,6 +1056,7 @@ export function bootstrapIGS(options = {}) {
         state.metaDigestCleanup = null;
         close(() => imageTaskRuntime.dispose());
         close(() => promptInjector.clear());
+        close(() => storyOutfits?.dispose());
         close(() => illustrationService.stop());
         close(() => assetGenerationService.stop());
         close(() => itemCg.itemImages.stop());

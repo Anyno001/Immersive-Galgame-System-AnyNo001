@@ -241,7 +241,8 @@ export function prepareStoryOutfitAdoption(root, scopeKey, candidate) {
     const existing = effective.characterOutfits?.[character]?.[word];
     const saved = resolveWardrobePrompt(effective.wardrobe, existing, word);
     if (saved?.prompt && existing) return { ok: true, sceneAssets: root, changed: false };
-    const prepared = prepareOutfitDnaSave(effective, character, word, prompt);
+    const prepared = prepareOutfitDnaSave(effective, character, word, prompt,
+        { descriptionHalfBody: candidate.promptHalfBody });
     if (!prepared.ok) return prepared;
     const next = structuredClone(root), target = ownerKey ? ensureCardLibrary(next, ownerKey) : next;
     target.characterOutfits = { ...target.characterOutfits,

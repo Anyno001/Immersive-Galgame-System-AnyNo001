@@ -4484,6 +4484,41 @@ test('gate:igs-scene-inheritance:does-not-reach-beyond-three-ai-floors', async (
     assert.equal(app.captured.payload.inheritedSceneState, null);
 });
 
+test('服装继承跨过三楼仍取每个角色最近衣装，旁白与开口使用同一套', async () => {
+    const floors = [
+        { id: 0, text: '[igs-char:白墨|平和|常服|早些时候。]' },
+        { id: 1, text: '[igs-thought:阿墨|平和|红裙|换好衣服。]' },
+        ...[2, 3, 4, 5].map(id => ({ id, text: '窗外的风吹过树梢。' })),
+        { id: 6, text: '白墨走到窗前。\n[igs-char:白墨|平和|红裙|我回来了。]' },
+    ];
+    const assets = { enabled: true, characters: { 白墨: {} }, characterAliases: { 白墨: ['阿墨'] },
+        characterOutfits: { 白墨: { 常服: { moods: { 平和: 'base.png' } }, 红裙: { moods: { 平和: 'red.png' } } } } };
+    const app = createSceneInheritanceApp(floors);
+    app.getState = () => ({ config: { sceneAssets: assets } });
+    await createIgsCompatApi(app).openViewerFromMessage(6, 'pc');
+    const payload = app.captured.payload;
+    assert.deepEqual(payload.inheritedOutfits, { 白墨: '红裙' });
+    const { prepareReaderFloor } = await import('../src/visual/igs-ui/reader-floor-plan.js');
+    const { prepareReaderFloorAssets } = await import('../src/visual/igs-ui/reader-floor-assets.js');
+    const readerSettings = { _sceneAssets: assets };
+    const floor = prepareReaderFloor({ text: payload.formattedText, segments: payload.textSegments,
+        extracted: payload, payload, scene: {}, readerSettings });
+    const lookup = prepareReaderFloorAssets(floor, { payload, readerSettings, assetMatchCtx: { sceneAssets: assets },
+        tableData: { revision: 0, outfitClues: null } });
+    assert.deepEqual(floor.pages.map(page => page.spriteChar), ['白墨', '白墨']);
+    assert.deepEqual(floor.pages.map((page, i) => lookup.outfitFor(i, page.spriteChar).outfit), ['红裙', '红裙']);
+    assert.equal(lookup.sprite('白墨', '平和', lookup.outfitFor(0, '白墨').outfit).url, 'red.png');
+    app.global = { SillyTavern: { getContext: () => ({ name2: 'Current' }) } };
+    app.getState = () => ({ config: { sceneAssets: { enabled: true, cards: { 'card:Current': assets } } } });
+    await createIgsCompatApi(app).openViewerFromMessage(6, 'pc');
+    assert.deepEqual(app.captured.payload.inheritedOutfits, { 白墨: '红裙' }, '本卡独立衣柜同样继承最近服装');
+    assert.equal(app.captured.payload.sceneDirectives.find(d => d.type === 'char').outfit, '红裙');
+    floors[4].text = '[igs-char:阿墨|平和|默认|换回常服。]';
+    await createIgsCompatApi(app).openViewerFromMessage(6, 'pc');
+    assert.deepEqual(app.captured.payload.inheritedOutfits, { 白墨: '默认' });
+});
+
+
 test('gate:igs-ui:illustrated-dialog-skins-normalize-and-share-default-theme', () => {
     for (const skin of [DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK]) {
         assert.equal(normalizeDialogSkin(skin), skin);

@@ -123,13 +123,21 @@ export async function handleArtistLibraryAction(action, ctx) {
         if (!current()) return stale();
         if (!file.ok) return file;
         if (file.cancelled || file.text === null) return { ok: true, cancelled: true };
-        const imported = importArtistLibrary(file.text, nai.artistLibrary);
+        let imported = importArtistLibrary(file.text, nai.artistLibrary);
         if (!imported.ok) return imported;
-        if (!await dialogs.confirm(`追加 ${imported.count} 条画师？不覆盖已有条目，不自动应用，图片不导入。`))
-            return { ok: true, cancelled: true };
+        if (imported.conflicts) {
+            const overwrite = await dialogs.confirm(
+                `本次导入有 ${imported.conflicts} 条画师 ID 或名称重复，是否统一覆盖？选择「跳过」保留已有条目，其余画师照常导入。不自动应用，图片不导入。`,
+                { okLabel: '覆盖', cancelLabel: '跳过' });
+            if (!current()) return stale();
+            if (overwrite) {
+                imported = importArtistLibrary(file.text, nai.artistLibrary, { overwrite: true });
+                if (!imported.ok) return imported;
+            }
+        }
         if (!current()) return stale();
         panel.draft.bridge.autoIllustration.nai = { ...nai, artistLibrary: imported.value };
-        state.status = `已追加 ${imported.count} 条，保存后可在生图下拉框选用。`;
+        state.status = `已新增 ${imported.added} 条、覆盖 ${imported.overwritten} 条、跳过 ${imported.skipped} 条，保存后可在生图下拉框选用。`;
         return { ok: true };
     }
     return { ok: false, reason: '画师操作无效' };

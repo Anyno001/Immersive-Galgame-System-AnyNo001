@@ -210,11 +210,12 @@ export function createAutoIllustrationService(deps) {
     let offRendered = null;
     let stopped = false;
     let recoveryController = new AbortController();
-    const recover = (floor, execute, input) => recoverOperation(execute, {
+    const recover = (floor, execute, input, options = {}) => recoverOperation(execute, {
         retryUnchanged: false,
         signal: recoveryController.signal, global: deps.global || llm?.recoveryGlobal || nai?.recoveryGlobal || globalThis,
         isActive: () => targetStillLive(floor),
         onRecover: ({ attempt }) => { if (attempt === 1) report('info', '正在自动续接本楼 CG 任务'); },
+        ...options,
     });
     let regexesEnsured = false;
     const settings = signal => ({ ...normalizeAutoIllustrationSettings(
@@ -455,8 +456,8 @@ export function createAutoIllustrationService(deps) {
             writtenText = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.anyFloor });
         }
         const keptSlots = merged && merged.slots ? slots.filter((item) => merged.slots.includes(item.slot)) : slots;
-        if (!writtenText || !writtenText.ok) {
-            const stale = writtenText && writtenText.reason === 'stale';
+        if (!writtenText?.ok || !markersWritten(floor, keptSlots)) {
+            const stale = writtenText?.reason === 'stale' || !targetStillLive(floor);
             await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });
             report(stale ? 'warn' : 'error', `第 ${messageId} 楼${stale ? '写回时一直被其他插件改动' : '无法写回插图标记'}，本楼不出 CG；需要的话点「绘制 CG」重画`);
             progress(floor, { phase: 'done' });
@@ -544,12 +545,20 @@ export function createAutoIllustrationService(deps) {
                 ...(attempt.dataUrl && { dataUrl: attempt.dataUrl }), error: result?.error || '出图失败',
                 ...(result?.reason && { failureReason: result.reason }) };
         const saved = await recover(floor, async () => {
-            const latest = await store.getSlotRecord(`${key}|${request.slot}`) || attempt;
+            const latest = await store.getSlotRecord(`${key}|${request.slot}`);
+            if (!latest) return { ok: false, reason: 'stale-target', stopGeneration: true };
             return store.updateSlot(key, request.slot, latest.revision || 0,
                 { ...record, updatedAt: now() }, { expectedToken: latest.revisionToken,
                     shouldCommit: () => targetStillLive(floor) });
+        }, undefined, {
+            repeatable: 'save',
+            shouldRecover: value => value?.reason !== 'not-found',
         });
-        if (recoveryCancelled(saved)) return saved;
+        if (saved?.reason === 'not-found' || recoveryCancelled(saved)) {
+            return { ...saved, ok: false, stopGeneration: true,
+                ...(saved?.reason === 'not-found' && { reason: 'stale-target' }) };
+        }
+        if (!saved?.ok) return saved || { ok: false, reason: 'save-failed', error: '插图尚未保存' };
         if (result?.ok && record.promptRecipe?.outfitMode === 'template'
             && record.promptEdited !== true && record.edited !== true
             && record.outfitSnapshot?.characters.some(c => c.source === 'candidate')) {
@@ -660,7 +669,7 @@ export function createAutoIllustrationService(deps) {
                 report('error', `第 ${messageId} 楼第 ${request.slot} 张插图生成失败：${(result && result.error) || '出图失败'}`);
             }
             const saved = await finishSlotPaint(key, request, attempts.get(request.slot), result, floor);
-            if (recoveryCancelled(saved)) return saved;
+            if (!saved?.ok || recoveryCancelled(saved)) return saved;
         }
         progress(floor, { phase: 'done' });
         const failedCount = requests.length - succeeded;
@@ -680,6 +689,17 @@ export function createAutoIllustrationService(deps) {
     // anyFloor：允许画不是最新的楼（工具栏手动出图、翻旧楼补 CG），写回时也不要求还是最新楼。
     function withAnyFloor(floor, anyFloor) {
         return floor && anyFloor ? { ...floor, anyFloor: true } : floor;
+    }
+
+    function slotsInText(text, slots) {
+        const present = new Set(Array.from(String(text || '').matchAll(MARKER_RE), m => Number(m[1] || m[2])));
+        return slots.filter(item => present.has(Number(item.slot)));
+    }
+
+    function markersWritten(floor, slots) {
+        const live = messageHost.readFloor(floor.messageId);
+        return live?.isAi && floorKeyOf(live) === floorKeyOf(floor)
+            && slots.length > 0 && slotsInText(live.text, slots).length === slots.length;
     }
 
     function mergeIntoLatest(messageId, floor, expected, markedText) {
@@ -860,6 +880,18 @@ export function createAutoIllustrationService(deps) {
         }
 
         const markedText = insertMarkers(floor.text, numbered.paragraphs, plan.slots);
+        const placedSlots = slotsInText(markedText, plan.slots);
+        for (const slot of plan.slots.filter(item => !placedSlots.includes(item))) {
+            report('warn', `第 ${messageId} 楼第 ${slot.slot} 张已选中第 ${slot.at} 段，但无法在完整结构之后安全插入，本张不出图`);
+        }
+        if (!placedSlots.length) {
+            const error = '生成点已选中正文段落，但没有安全的独占行插入位置';
+            await store.putFloor(key, { ...base, status: 'failed', error, updatedAt: now() });
+            report('error', `第 ${messageId} 楼插图规划失败，未发送生图请求：${error}`);
+            progress(floor, { phase: 'done' });
+            return { ok: false, reason: 'plan-failed', error };
+        }
+        plan.slots = placedSlots;
         let merged = mergeIntoLatest(messageId, floor, expected, markedText);
         if (!merged) {
             await store.putFloor(key, { ...base, status: 'stale', updatedAt: now() });
@@ -875,8 +907,8 @@ export function createAutoIllustrationService(deps) {
             written = await messageHost.writeFloor(messageId, merged.text, merged.latest, { requireLatest: !floor.anyFloor });
         }
         if (merged && merged.slots) plan.slots = plan.slots.filter((slot) => merged.slots.includes(Number(slot.slot)));
-        if (!written || !written.ok) {
-            const stale = written && written.reason === 'stale';
+        if (!written?.ok || !markersWritten(floor, plan.slots)) {
+            const stale = written?.reason === 'stale' || !targetStillLive(floor);
             await store.putFloor(key, { ...base, status: stale ? 'stale' : 'failed', ...(!stale && { error: '无法写回楼层' }), updatedAt: now() });
             report(stale ? 'warn' : 'error', `第 ${messageId} 楼${stale ? '写回时一直被其他插件改动' : '无法写回插图标记'}，本楼不出 CG；需要的话点「绘制 CG」重画`);
             progress(floor, { phase: 'done' });
@@ -933,7 +965,7 @@ export function createAutoIllustrationService(deps) {
                 report('error', `第 ${messageId} 楼第 ${request.slot} 张插图生成失败：${(result && result.error) || 'NAI 生成失败'}`);
             }
             const saved = await finishSlotPaint(key, request, attempts.get(request.slot), result, floor);
-            if (recoveryCancelled(saved)) return saved;
+            if (!saved?.ok || recoveryCancelled(saved)) return saved;
         }
         progress(floor, { phase: 'done' });
         const failedCount = requests.length - succeeded;
@@ -977,7 +1009,7 @@ export function createAutoIllustrationService(deps) {
                 pendingFloors.delete(key);
                 runningFloors.set(key, stripIllustrationMarkers(current.text));
                 result = await withGenerationTask(current, captured => recover(current, () => run(Number(messageId),
-                    withAnyFloor(messageHost.readFloor(messageId), true) || current,
+                    withAnyFloor(messageHost.readFloor(messageId), current.anyFloor) || current,
                     key, captured, manual)));
                 if (!result?.ok || result.stopGeneration || !pendingFloors.has(key)) break;
                 const latest = messageHost.readFloor(messageId);

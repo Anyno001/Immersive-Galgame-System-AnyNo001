@@ -1999,9 +1999,21 @@ export function createAssetGenerationService(deps) {
         const builtin = describeTask(signal).mode === 'nai' && typeof llm?.prepareImagePrompt === 'function';
         if (builtin && messageId !== undefined && (typeof sourceText !== 'string' || !sourceText.trim()))
             return { ok: false, reason: 'outfit-source-unavailable', error: '剧情衣装缺少本楼正文，未发送写词请求' };
+        const dualDna = builtin && Boolean(name);
         let written;
         try {
-            written = await writePrompt({ signal, imagePromptTask: 'wardrobe',
+            if (dualDna) {
+                const assets = readSettings(signal).sceneAssets;
+                const context = singleCharacterContext(name, assets.characterDna?.[name], { name: clothes }, assets);
+                const task = characterPromptTask(context, 'derived', 'half_body', [[name]]);
+                written = await writePrompt({ signal, ...task, imagePromptTask: 'outfit',
+                    description: `为角色「${name}」的衣装「${clothes}」一次生成完整服装 DNA 和半身服装 DNA。依据本轮正文、衣装要求与角色资料交付 outfit_description 和 outfit_half_body；半身版从同一完整母版仅删除画外标签，不输出人物外貌、动作或场景。${note ? `用户要求：${note}` : ''}`,
+                    outputs: { format: 'sprite-data' },
+                    userPrompts: expressionPaintMeta({ template: true, signal }).userPrompts,
+                    ...(sourceText !== undefined && { numberedText: toReadableText(sourceText) }),
+                    ...(shouldStart && { shouldStart }),
+                    ...(messageId !== undefined && { messageId }) });
+            } else written = await writePrompt({ signal, imagePromptTask: 'wardrobe',
                 description: buildWardrobeClothingDescription(name, clothes, { nsfwBoost, note }),
                 ...(builtin && { outputs: { purpose: 'outfit-dna', slotIds: [1] },
                     ...(sourceText !== undefined && { numberedText: toReadableText(sourceText) }) }),
@@ -2012,6 +2024,14 @@ export function createAssetGenerationService(deps) {
         }
         if (stale()) return { ok: false, reason: 'request-stale', error: '衣装任务已取消或目标失效' };
         if (!written || !written.ok) return { ...written, ok: false, error: (written && written.error) || '写服装提示词失败' };
+        if (dualDna) {
+            const outfits = written.captions?.find(item => item.slotId === 1)?.outfitSnapshot?.characters;
+            const clothing = outfits?.[0];
+            if (outfits?.length !== 1 || clothing.characterKey !== name || clothing.name !== clothes
+                || !clothing.description?.trim() || !clothing.descriptionHalfBody?.trim())
+                return { ok: false, reason: 'SPRITE_DATA_INVALID', error: '缺少本套衣装的完整或半身服装 DNA' };
+            return { ok: true, prompt: clothing.description, promptHalfBody: clothing.descriptionHalfBody };
+        }
         const prompt = promptFromCaption(written.caption);
         const text = prompt && String(prompt.positive || '').trim();
         if (!text) return { ok: false, error: '写提示词没有返回服装标签' };

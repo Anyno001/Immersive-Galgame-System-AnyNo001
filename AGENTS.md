@@ -11,7 +11,7 @@
 
 ## 基本约定
 
-- 默认项目目录：`D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Visual Novel`
+- 项目目录以当前本地工作区中的本项目独立 Git 仓库为准，不依赖固定盘符或历史检出路径。
 - 默认工作形态：`loader/` 只放远程 bundle loader，主程序只放 `app/`。
 - 最终导入产物：`loader/酒馆助手脚本-Visual Novel（自动更新） v<当前版本>.json`，格式参考 `D:\下载\酒馆\奶龙王\nailongwang-main\_inbox\酒馆助手脚本-玉子手机.json`；`loader/vn-loader.json` 保留为固定内部入口和自动化校验基准。
 - 原版脚本来源：`D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Visual Novel 原版备份`。
@@ -102,7 +102,7 @@ shujuku 数据层读取 `app/src/data/shujuku/CONTRACT.md`。模型提示词 sch
 - **2026-10-18 用户纠正**：经用户授权发布时，标签统一使用 `vX.Y.Z`，与程序及在线导入包版本一致；不再创建带 test 前缀的新标签。标签不代表真实设备验收，验证范围另行记录。
 - 修复继续变化时再次升号、提交并推送新的版本标签；CDP 不可用时明确记录真实酒馆和手机未终验，不阻断版本标签交付。
 - 版本标签已存在时不得强推覆盖；提升 patch 版本重来。
-- 上传前必须确认 `git rev-parse --show-toplevel` 指向 `D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Visual Novel`，禁止从上级 `nailongwang-main` 仓库提交本项目。
+- 上传前必须确认 `git rev-parse --show-toplevel` 指向当前本地工作区中的本项目独立仓库，且 `origin` 与本项目目标 GitHub 仓库一致；禁止从上级仓库提交本项目，不以历史绝对路径作为上传门禁。
 - 上传后必须回查 `git status --short --branch`、`git ls-remote --heads origin main`；打 tag 后回查 `git ls-remote --tags origin v<当前版本>`，确认远程分支和标签存在。
 - 只有用户明确要求“只本地修改/不要上传/不要打标签”时才能跳过；跳过必须写入最终回复和必要的 README/docs 技术债记录。
 

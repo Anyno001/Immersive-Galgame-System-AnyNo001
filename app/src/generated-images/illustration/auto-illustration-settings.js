@@ -95,6 +95,7 @@ export function normalizeAutoIllustrationSettings(value) {
         retry: { enabled: !(src.retry && src.retry.enabled === false), times: clampInt(src.retry && src.retry.times, 0, 5, 2) },
         assets: {
             spriteEnabled: bool(assets.spriteEnabled),
+            outfitAutoGenerate: bool(assets.outfitAutoGenerate),
             backgroundEnabled: bool(assets.backgroundEnabled),
             strictMatch: bool(assets.strictMatch),
             // 默认开：非白天先画白天底图，再复用底图种子换时间词出差分。

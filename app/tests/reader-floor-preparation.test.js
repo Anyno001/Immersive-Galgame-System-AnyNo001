@@ -215,6 +215,28 @@ test('跨行对白、重复短对白、换场与换装均按预先定位的本�
     assert.equal(r.content().backgroundImage, 'outside.png');
 });
 
+test('未入库衣装覆盖前一套换装并回退默认服装，默认图冷加载仍可读取', async t => {
+    const sceneAssets = { enabled: true, characters: { 白墨: {} }, characterAliases: { 白墨: ['阿墨'] },
+        characterOutfits: { 白墨: {
+            常服: { moods: { 平和: 'igs-gen:base' } },
+            红裙: { moods: { 平和: 'igs-gen:red' } },
+        } }, characterDefaultOutfits: { 白墨: { version: 1, outfitName: '常服' } } };
+    const generatedAssets = { resolveUrl: ref => `blob:fixture/${ref.slice(8)}`,
+        imageAvailability: () => ({ status: 'unverified' }) };
+    const r = reader(t, { sceneAssets, generatedAssets,
+        raw: '[igs-char:阿墨|平和|红裙|第一句。]\n[igs-char:阿墨|平和|浴衣|第二句。]' });
+    assert.equal(r.content().spriteImage, 'blob:fixture/red', JSON.stringify(r.content().spriteMatch));
+    await r.next();
+    assert.equal(r.content().spriteImage, 'blob:fixture/base');
+    assert.equal(r.content().spriteOutfit, '常服');
+    assert.equal(r.content().displayText, '第二句。');
+    const hit = resolveSpriteAsset('阿墨', '平和', { sceneAssets,
+        imageAvailability: () => ({ status: 'loading' }) }, '浴衣');
+    assert.equal(hit.url, 'igs-gen:base');
+    assert.equal(hit.outfit, '常服');
+    assert.equal(hit.needsGeneration, false);
+});
+
 test('正文和素材配置改变后丢弃旧计划，同长度的新正文也重新准备', async t => {
     const sceneAssets = { enabled: true, characters: { 白墨: { 平和: 'first.png' } } };
     const r = reader(t, { sceneAssets, raw: '[igs-char:白墨|平和|你好。]\n下一页。' });

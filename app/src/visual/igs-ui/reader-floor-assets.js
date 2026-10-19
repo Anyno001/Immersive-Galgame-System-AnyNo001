@@ -105,7 +105,7 @@ function prepareStageIndex(floor, settings) {
         const key = floor.keyOf(d.character);
         if (!speeches.has(key)) speeches.set(key, []);
         speeches.get(key).push(d);
-        if (d.outfit) {
+        if (d.outfit || d.unknownOutfit) {
             const outfitKey = outfitsOfCharacter(settings._sceneAssets?.characterOutfits, settings._sceneAssets?.characterAliases, d.character).key || d.character;
             if (!outfits.has(outfitKey)) outfits.set(outfitKey, []);
             outfits.get(outfitKey).push(d);

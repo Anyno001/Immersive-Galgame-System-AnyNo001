@@ -134,8 +134,25 @@ export async function requestWithSoftRetry(llm, options, llmSettings) {
                 if (!invalidOutput) return { changed: await refreshRejectedSettings(result) };
                 const diagnosis = invalidOutput.parsed?.diagnostic || invalidOutput.parsed?.diagnostics || {};
                 const field = diagnosis.field;
+                const rowFailure = diagnosis.code === 'DNA_TEMPLATE_BINDING' && ['meta_rows', 'char_uc'].includes(field);
+                const rowRepair = [];
+                if (rowFailure) {
+                    if (Number.isSafeInteger(diagnosis.slotId) && diagnosis.slotId >= 1 && diagnosis.slotId <= 9999)
+                        rowRepair.push(`需修正的图片 slotid=${diagnosis.slotId}。`);
+                    for (const key of ['charCount', 'charUcCount', 'metaRowCount']) {
+                        if (Number.isSafeInteger(diagnosis[key]) && diagnosis[key] >= 0 && diagnosis[key] <= 100000)
+                            rowRepair.push(`${key}=${diagnosis[key]}。`);
+                    }
+                    for (const key of ['missingMetaIndexes', 'extraMetaIndexes']) {
+                        const indexes = diagnosis[key];
+                        if (Array.isArray(indexes) && indexes.length <= 16
+                            && indexes.every(index => Number.isSafeInteger(index) && index >= 0))
+                            rowRepair.push(`${key}=[${indexes.join(',')}]。`);
+                    }
+                    rowRepair.push('meta_rows 是诊断名称，不是输出字段。每位实际出镜者各交一条 char、一条 char_uc 和一组 meta_*；char_uc 可空但不可省略。先交齐全部人物的 char/char_uc 对，再按其出现顺序从 0 连续编号交付 meta，每张图重新从 0 开始。元数据超出当前 char 范围时，先核对是否漏交人物条目，不靠删除实际出镜者或只补 meta 来凑数量。');
+                }
                 recoveryFeedback = '请重新交付本次任务的完整结果，逐项采用原请求中的角色、槽号与输出格式。'
-                    + (typeof field === 'string' && /^[A-Za-z0-9_.[\]-]{1,100}$/.test(field)
+                    + (rowFailure ? '\n' + rowRepair.join('') : typeof field === 'string' && /^[A-Za-z0-9_.[\]-]{1,100}$/.test(field)
                         ? `本次补齐并核对字段 ${field}。` : '')
                     + (invalidOutput.text.trim() ? `\n上一份需要修正的输出：\n${invalidOutput.text}`
                         : '\n请直接输出本次任务要求的全部字段及内容。');

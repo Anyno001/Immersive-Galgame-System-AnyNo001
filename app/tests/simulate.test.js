@@ -857,6 +857,32 @@ test('gate:assets:review-rename-accept-persists-status-and-hides-card-or-rolls-b
     }
 });
 
+test('gate:assets:同一衣装正文连续更新后只显示一个入库框', async () => {
+    const document = createFakeDocument(), storage = createMemoryStorage();
+    let writes = 0;
+    const floor = { chatId: 'review-duplicate', messageId: 39, swipeId: 0, isAi: true, isLatest: true, text: '' };
+    const host = createIgsReaderHost({
+        global: { document, localStorage: storage },
+        getIllustrationSource: () => floor,
+        getUnifiedSettings: () => ({ bridge: { sceneAssets: { enabled: true,
+            characters: { 天之音: { 默认: 'https://example.com/character.png' } },
+            characterOutfits: {}, wardrobe: {} } }, readerSettings: {} }),
+        generatedAssets: { listReview: () => [], writeWardrobePrompt() { writes++; assert.fail('查看待确认框不写词'); } },
+    });
+    try {
+        for (let round = 0; round < 4; round++) {
+            if (round) await host.closeReader();
+            floor.text = `[igs-char:天之音|平和|系统光团|这段正文已更新 ${round} 次。]`;
+            const opened = host.openReader({ messageId: 39, raw: floor.text }, { mode: 'pc', skipTitle: true });
+            assert.equal(opened.ok, true);
+            const panel = document.getElementById('igs-asset-review');
+            assert.ok(panel);
+            assert.equal(panel.querySelectorAll('[data-outfit-ask-act="ok"]').length, 1);
+        }
+        assert.equal(writes, 0);
+    } finally { host.destroy(); }
+});
+
 test('gate:simulation:new-scene-without-image-temporarily-shows-inherited-scene-background', async () => {
     const document = createFakeDocument();
     // 场景名刻意不与已有场景共享子串，避免撞进 lookupSceneBackground 的模糊命中。
@@ -1193,6 +1219,73 @@ test('gate:scene:mood-auto-classify-stays-off-until-the-switch-is-on', async () 
         host.destroy();
     }
 });
+
+test('gate:scene:阅读器新衣装自动入库立绘，关闭零请求且生成中保留默认图', async t => {
+    const { builtinImageHarness } = await import('./helpers/builtin-image-harness.js');
+    const { createTransactionalIdb } = await import('./helpers/transactional-idb.js');
+    const { characterViewsFixture } = await import('./helpers/prompt-provenance.js');
+    const { createAssetGenerationService: createService } = await import('./helpers/media-fixtures.js');
+    const document = createFakeDocument(), global = { document, localStorage: createMemoryStorage() };
+    const cache = localImageCacheFor(global), h = builtinImageHarness({ outfitHalfBody: 'white dress' });
+    let bridge = { ...h.bridge, sceneAssets: { enabled: true, wardrobeAutoFlow: false,
+        characters: { Alice: { 默认: 'original.png' } }, characterSeeds: { Alice: 42 },
+        characterDna: { Alice: { version: 2, views: characterViewsFixture() } },
+        characterDefaultOutfits: { Alice: { version: 1, outfitName: '常服' } },
+        characterOutfits: { Alice: { 常服: { moods: { 平和: 'original.png' } } } }, wardrobe: {} } };
+    bridge.autoIllustration = { ...bridge.autoIllustration,
+        assets: { ...bridge.autoIllustration.assets, outfitAutoGenerate: false } };
+    const service = createService({ nai: h.backend, llm: h.llm, mediaCache: cache,
+        store: createIndexedDbGeneratedAssetStore({ indexedDB: createTransactionalIdb() }),
+        messageHost: { getChatId: () => 'reader-auto-outfit' }, getSettings: () => bridge,
+        report() {}, newId: () => 'reader-auto-outfit-1', matte: async url => url });
+    const raw = '[igs-char:Alice|平和|礼服|Alice 换上白色礼服。]\n她走向门口。';
+    const floor = { chatId: 'reader-auto-outfit', messageId: 39, swipeId: 0, isAi: true, isLatest: true, text: raw };
+    let revision = 1;
+    const host = createIgsReaderHost({ global, media: { cache }, pageRenderGapMs: 0,
+        generatedAssets: { ...service, listReview: () => [] },
+        getUnifiedSettings: () => ({ bridge, readerSettings: { titleScreen: false, typewriter: { enabled: false } } }),
+        getSettingsRevision: () => revision,
+        getCurrentChatId: () => floor.chatId, getIllustrationSource: () => floor,
+        saveUnifiedSettings(value) { bridge = value.bridge; revision++; return { ok: true }; },
+    });
+    t.after(async () => { host.destroy(); service.stop(); h.dispose(); await cache.destroy(); });
+    const until = async check => {
+        const end = Date.now() + 3000;
+        while (!check() && Date.now() < end) await new Promise(resolve => setImmediate(resolve));
+        assert.ok(check(), '阅读器未到达预期处理状态');
+    };
+    const content = () => host.getState().activeReader.snapshot.content;
+    assert.equal(host.openReader({ messageId: 39, raw }, { mode: 'pc', skipTitle: true }).ok, true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual([h.writes.length, h.wires.length], [0, 0]);
+    assert.equal(content().spriteImage, 'original.png');
+    host.closeReader();
+    bridge.autoIllustration.assets.outfitAutoGenerate = true; revision++;
+    h.waitWriting();
+    const opened = host.openReader({ messageId: 39, raw }, { mode: 'pc', skipTitle: true });
+    assert.equal(opened.ok, true);
+    await until(() => h.gates.length === 1);
+    assert.equal(content().spriteImage, 'original.png');
+    h.waitImages();
+    h.waitWriting(false); h.release();
+    await until(() => h.wires.length === 1 && h.gates.length === 1);
+    assert.equal(bridge.sceneAssets.wardrobe['Alice·礼服'].promptHalfBody, 'white dress');
+    assert.equal(bridge.sceneAssets.characterOutfits.Alice.礼服.moods.平和, undefined);
+    await opened.controller.invokeAction('next');
+    await opened.controller.invokeAction('prev');
+    assert.equal(content().spriteImage, 'original.png', 'DNA 已入库但立绘尚未完成时继续显示默认服装');
+    assert.deepEqual([h.writes.length, h.wires.length], [1, 1]);
+    h.waitImages(false); h.release();
+    await until(() => Boolean(bridge.sceneAssets.characterOutfits?.Alice?.礼服?.moods?.平和));
+    assert.equal(bridge.sceneAssets.wardrobe['Alice·礼服'].promptHalfBody, 'white dress');
+    await until(() => content().spriteOutfit === '礼服');
+    assert.deepEqual([h.writes.length, h.wires.length], [1, 1]);
+    assert.equal(bridge.sceneAssets.characterDefaultOutfits.Alice.outfitName, '常服');
+    await opened.controller.invokeAction('next');
+    await opened.controller.invokeAction('prev');
+    assert.deepEqual([h.writes.length, h.wires.length], [1, 1]);
+});
+
 
 test('gate:illustration:reader-clear-cg-removes-only-current-slot-and-rerenders', async () => {
     const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });

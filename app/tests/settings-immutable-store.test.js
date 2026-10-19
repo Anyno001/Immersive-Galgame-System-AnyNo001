@@ -33,9 +33,9 @@ const SEED = {
     'igs-reader-settings-v9-default': JSON.stringify({ dialogSkin: 'gradient-veil' }),
 };
 
-function boot() {
+function boot(storage = memoryStorage(SEED)) {
     return bootstrapIGS({
-        global: { localStorage: memoryStorage(SEED) },
+        global: { localStorage: storage },
         autoAttachMagicWand: false,
         hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
     });
@@ -45,8 +45,11 @@ test('immutable-store: 对外的配置是副本，改了不影响内部', () => 
     const vn = boot();
     try {
         const a = vn.getUnifiedSettings({ mode: 'pc' });
-        a.bridge.sceneAssets.characterOutfits.小雪.初始衣装.moods.喜悦 = 'mutated';
-        assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).bridge.sceneAssets.characterOutfits.小雪.初始衣装.moods.喜悦, 'x.png');
+        const outfitName = a.bridge.sceneAssets.characterDefaultOutfits.小雪.outfitName;
+        assert.equal(a.bridge.sceneAssets.characterOutfits.小雪[outfitName].moods.喜悦, 'x.png');
+        a.bridge.sceneAssets.characterOutfits.小雪[outfitName].moods.喜悦 = 'mutated';
+        const next = vn.getUnifiedSettings({ mode: 'pc' });
+        assert.equal(next.bridge.sceneAssets.characterOutfits.小雪[outfitName].moods.喜悦, 'x.png');
     } finally {
         vn.destroy();
     }
@@ -92,6 +95,31 @@ test('immutable-store: 设置里点按钮后取消、重开，旧配置都没被
         }
         assert.equal(before.bridge.sceneAssets.moodAutoClassify, undefined);
         assert.equal(vn.getUnifiedSettings({ mode: 'default' }).bridge.sceneAssets.moodAutoClassify, false);
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('新衣装自动开关默认关闭，保存及重启后保留，关闭不清除素材', () => {
+    const storage = memoryStorage(SEED);
+    let vn = boot(storage);
+    try {
+        const path = 'bridge.autoIllustration.assets.outfitAutoGenerate';
+        assert.equal(vn.getUnifiedSettings().bridge.autoIllustration?.assets?.outfitAutoGenerate === true, false);
+        let ctl = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
+        assert.notEqual(ctl.close().ok, false);
+        const before = structuredClone(vn.getUnifiedSettings().bridge.sceneAssets);
+        ctl = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
+        assert.notEqual(ctl.toggle(path).ok, false);
+        assert.notEqual(ctl.close().ok, false);
+        vn.destroy(); vn = boot(storage);
+        assert.equal(vn.getUnifiedSettings().bridge.autoIllustration.assets.outfitAutoGenerate, true);
+        assert.deepEqual(vn.getUnifiedSettings().bridge.sceneAssets, before);
+        ctl = vn.openSettings({ tab: 'image', mode: 'pc' }).controller;
+        assert.notEqual(ctl.toggle(path).ok, false);
+        assert.notEqual(ctl.close().ok, false);
+        assert.equal(vn.getUnifiedSettings().bridge.autoIllustration.assets.outfitAutoGenerate, false);
+        assert.deepEqual(vn.getUnifiedSettings().bridge.sceneAssets, before);
     } finally {
         vn.destroy();
     }

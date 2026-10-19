@@ -10,7 +10,7 @@ const validId = id => typeof id === 'string' && id.trim() === id && id.length > 
     && id.length <= 160 && !reserved.has(id) && !/[\u0000-\u001f]/.test(id);
 const nameKey = name => name.trim().toLocaleLowerCase();
 
-function rowsToEntries(rows, requireId = false) {
+function rowsToEntries(rows, requireId = false, allowDuplicates = false) {
     if (!Array.isArray(rows) || rows.length > 500) return fail('画师库必须是最多 500 条的数组');
     const entries = [], ids = new Set(), names = new Set();
     for (const row of rows) {
@@ -22,7 +22,8 @@ function rowsToEntries(rows, requireId = false) {
         if (typeof row.positivePrompt !== 'string' || typeof row.negativePrompt !== 'string'
             || row.positivePrompt.length > 20000 || row.negativePrompt.length > 20000)
             return fail('画师正负向必须是文本，且各不超过 20000 字');
-        if (ids.has(id) || names.has(nameKey(name))) return fail('画师 ID 或名称重复，整批未导入');
+        if (!allowDuplicates && (ids.has(id) || names.has(nameKey(name))))
+            return fail('画师 ID 或名称重复，整批未导入');
         ids.add(id); names.add(nameKey(name));
         entries.push({ id, name, positivePrompt: row.positivePrompt, negativePrompt: row.negativePrompt });
     }
@@ -41,7 +42,7 @@ export function normalizeArtistLibrary(value) {
     return result.ok ? { version: 1, entries: result.value } : value;
 }
 
-export function importArtistLibrary(raw, library) {
+export function importArtistLibrary(raw, library, { overwrite = false } = {}) {
     const current = readArtistLibrary(library);
     if (!current.ok) return current;
     let payload;
@@ -65,11 +66,31 @@ export function importArtistLibrary(raw, library) {
             negativePrompt: preset.negativePrompt || '' });
         }
     } else return fail('不支持的画师 JSON 格式');
-    const imported = rowsToEntries(rows);
+    const imported = rowsToEntries(rows, false, true);
     if (!imported.ok) return imported;
     if (!imported.value.length) return fail('文件中没有画师条目');
-    const merged = rowsToEntries([...current.value, ...imported.value], true);
-    return merged.ok ? { ok: true, value: { version: 1, entries: merged.value }, count: imported.value.length } : merged;
+    let entries = [...current.value];
+    let added = 0, overwritten = 0, skipped = 0, conflicts = 0;
+    for (const entry of imported.value) {
+        const matches = row => row.id === entry.id || nameKey(row.name) === nameKey(entry.name);
+        const index = entries.findIndex(matches);
+        if (index < 0) {
+            entries.push(entry);
+            added++;
+            continue;
+        }
+        conflicts++;
+        if (!overwrite) {
+            skipped++;
+            continue;
+        }
+        entries = entries.filter(row => !matches(row));
+        entries.splice(index, 0, entry);
+        overwritten++;
+    }
+    const merged = rowsToEntries(entries, true);
+    return merged.ok ? { ok: true, value: { version: 1, entries: merged.value },
+        count: added + overwritten, added, overwritten, skipped, conflicts } : merged;
 }
 
 export function saveArtistEntry(library, entry, { create = false } = {}) {

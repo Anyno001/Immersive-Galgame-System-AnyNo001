@@ -2,6 +2,7 @@
 export const templateRule = ({ outfitSelection } = {}) => [
     '每张图以独立一行 slotid: 本轮允许正整数 开始，编号恰好一次。写 prompt_mode: dna_template、scene、scene_uc，可写 size: 宽x高 和 analysis。尺寸服从本次要求。除 analysis 可多行记录简短来源与检查结论外，每字段单行，不输出推理正文。',
     '先写本图全部 char/char_uc 对，再按 Char 顺序写各自 meta 字段。--- 只分隔完整的不同图片，之后下一非空行必须是新的 slotid；单图内部和末尾不写 ---，不同人物之间绝不分段。',
+    '【逐图数量与索引】本图有 N 个 Char，就必须有 N 条 char、N 条 char_uc 和 N 组不同索引的 meta_*，索引恰为 0 到 N-1。每组 meta 中的多行字段仍只算一个人物组，不会创建 Char。两人图先写 char、char_uc、char、char_uc，再写索引0和1各自的 meta；下一张图独立计数并从0重新编号。char_uc 可空但行必须保留。纯空镜 N=0，不写人物字段。meta_rows 是诊断名称，不是可交付字段，不能输出 meta_rows:。',
     'char 格式为实际数字坐标 | 英文正文，例如 char: 0.32,0.52 | <<dna:r0>> <<outfit:r0>> and waves.。坐标为0到1的数字，不写字面 x,y，不增加索引、kind 或角色名等额外列。每个 char 后紧接 char_uc，可空但字段不能省略。',
     'named 正向 Char 恰好一次自己的 <<dna:token>> 作身份槽；任务 outfitMode 为 template 时另写 outfit_mode: template，本人 Char 恰好一次自己的 <<outfit:token>>，后接动作表情，不重复固定外貌或衣装正文。非衣装模板任务直接写当次衣装 TAG；已有保存说明仍原样复用。本人 char_uc 最多一次自己的 <<dna_uc:token>>；Scene、他人提及和元数据不放身份令牌。每段权重独立闭合，不用未闭合权重包住占位符。',
     '本图 Char 按实际出现顺序从0连续编号；每个索引各写 meta_kind、meta_key、meta_token、meta_frame、meta_outfit_name、meta_outfit_description 恰好一次，所有行内值都为 本图索引 | 值。前四项非空且匹配输入；衣装两项空值也必须保留索引和竖线。slotid、token 数字和原角色序号不是本图索引，不在末尾重复汇总。',

@@ -15,6 +15,7 @@ export const CG_TEMPLATE = [
     'at 取本轮已编号正文中实际选中画面的一个正整数，范围为 1 到 outputs.paragraphCount，负责挂载位置；衣装由本轮衣柜引用或当次描述选择。画面涉及连续数段时，选择最能体现核心动作的那一段，字段只写一个整数，不写段号范围、理由或字面“正文段落编号”。slotid 是图号，at 是段号，meta 索引是本图人物序号，三者分别确定。多图 at 不重复且递增；非 numbered-text 模板任务不新增 at，保持本轮既定生成点。',
     '【指定尺寸原样交付】本轮 writingRequirements.size 非空时，每图必须写 size: 该尺寸，宽高及顺序逐字一致，不省略、不改成相近面积或其他横竖比例。只在未指定尺寸时自行确定适用尺寸；示例尺寸不能覆盖本轮要求。',
     '【人物字段用法】从 promptTask.characters 取本人 characterKey 和 token。char 写作：char: 实际坐标 | <<dna:本人token>> <<outfit:本人token>> and 动作。两个占位符各一次，后面只写本图表情、视线、姿势与互动。characterContext.availableFrames 列出已有身份景别，meta_frame 仍按本图可见范围选择；身份描述写 meta_identity，衣装描述写 meta_outfit_description。',
+    '【先配齐人物，再填资料】每张图先确定实际出镜者，逐人写完一对 char/char_uc，再逐人填完整 meta。scene 或他人动作提到某人、填写了该人的 meta，都不等于交付了本人的 char。两人同屏必须有两条 char、两条 char_uc 和索引0、1两组 meta；每一张图都独立满足，不能跨图借用人物条目。发现数量不等时先补齐漏交的出镜人物，不删除人物来规避检查。',
     ...rules, outfitRule({ outfitSelection: 'catalog' }), templateRule({ outfitSelection: 'catalog' }),
     'CG 从允许池中选择实际出镜者；正文有标签的每位出镜者独立 named，各交一对 char/char_uc 及完整的本人 meta 字段，即使位于后景或只露出局部也不省略。不能 Scene 写两人却只交一组人物字段。真正无名临时人物为 generic，其 Char 中的身份和衣装同样只用英文 TAG，再接本图动作、表情和互动，不编造角色键或 token。动物或非人物客体为 object；generic/object 只写 meta_kind 并直接描述，不使用身份或衣装槽。纯空镜不新增 Char 或身份旁路。reference 不属于普通 CG。',
     '【逐人完整身份字段】每个 named 固定各写一次 meta_identity: 本图索引 | 完整英文身份 TAG 和 meta_signature: 本图索引 | 标志特征 TAG。meta_identity 必须非空，不能以摘要代替；meta_signature 无依据可空但保留字段。字段要求对所有具名出镜者相同，不分支或省略。两字段只用 TAG，不含衣装、灰尘、血污、临时伤势、表情、动作或令牌，不输出 meta_dna_*。',
@@ -48,6 +49,7 @@ export const CG_TEMPLATE = [
     'meta_outfit_id: 1 |', 'meta_outfit_name: 1 | 灰衬衫', 'meta_outfit_description: 1 | 1.2::grey shirt::, collared shirt, long sleeves, buttons, tucked in, 1.2::grey pants::, brown belt, leather belt, brown footwear, dress shoes',
     'meta_identity: 1 | 1boy, adult, 1.2::black hair::, short hair, wavy hair, swept bangs, brown eyes, thick eyebrows, broad shoulders, muscular male', 'meta_signature: 1 | 1.2::black hair::, short hair, wavy hair, thick eyebrows',
     '【多图编号对照】假设正文共12段、允许两张图，分别选择第4段和第9段：第一张是 slotid 1、at 4，第二张是 slotid 2、at 9；两张都要完整交付图头、场景和适用的人物旁路，只在第一张全部字段结束后写独立一行 ---，再从第二张 slotid 开始。不能把第二张 at 写成图号2，也不能让两张复用同一个段号。此处只解释编号关系，不是新增任务或可直接交付的字段。',
+    '【数量错误纠正】meta_rows 不是输出字段；它表示本图 char 条数与不同 meta 索引的组数不一致，或索引没有从0连续排列。若 charCount=1、charUcCount=1、metaRowCount=2，而画面确有两人，缺的是第二人的 char 和 char_uc，不是再补一行 meta_rows 或重复已有 meta。逐图复点三者数量，再按实际 Char 顺序核对角色键和 token；检查结论不写成额外协议字段。',
     '【交付前逐图核对】先对照 Scene 实际出镜者与正文角色标签：每位有标签的出镜者是否都有独立 Char/UC、完整 meta 和详细身份，后景或局部人物是否漏交；未出镜的标签人物不硬塞。再核对 numbered-text 每图 slotid 后是否紧接且只出现一次非空整数 at，段号在范围内、多图递增不重复；size 原样交付；本图 meta 索引从0连续且每项恰好一次。按 meta_token 核对本人正向 char：完整 <<dna:该token>> 恰好一次，衣装模板另有一次 <<outfit:该token>>，无他人身份槽；meta_identity 逐人写清发型、五官、肤色、体态与适用身份锚点，不能以摘要或职业代替。身份、衣装与当次动态分开，Char 不重抄身份正文。发现遗漏先补齐再交付，不把检查或思考过程写进回复。',
     '最终回复第一行直接写 slotid，numbered-text 第二行直接写 at；不输出思考标签、推理正文、开场说明或范例说明。analysis 如需填写只记录简短检查结论。',
 ].join('\n');

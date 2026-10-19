@@ -8,6 +8,12 @@ const REGEX_ID_PROMPT = 'igs-illustration-marker-prompt';
 export function createIllustrationMessageHost(globalObject = globalThis) {
     const cleanups = [];
     const context = () => getSillyTavernContext(globalObject);
+    const pendingBindings = new Set();
+    let bindingTimer = null, bindingDelay = 100, destroyed = false;
+    const clearBindingTimer = () => {
+        if (bindingTimer !== null) (globalObject.clearTimeout || clearTimeout)(bindingTimer);
+        bindingTimer = null;
+    };
 
     function getChatId() {
         const ctx = context();
@@ -161,21 +167,52 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         } catch { reportListenerFailure(eventKey); }
     }
 
+    // 只在宿主事件端口尚未出现时探测绑定；就绪后停表，不扫描正文或补跑历史楼层。
+    function scheduleBindings() {
+        if (destroyed || bindingTimer !== null || !pendingBindings.size) return;
+        bindingTimer = (globalObject.setTimeout || setTimeout)(() => {
+            bindingTimer = null;
+            for (const bind of [...pendingBindings]) bind();
+            bindingDelay = Math.min(2000, bindingDelay * 2);
+            scheduleBindings();
+        }, bindingDelay);
+        bindingTimer?.unref?.();
+    }
+
     function on(eventKey, handler) {
-        const ctx = context();
-        const source = ctx && ctx.eventSource;
-        const types = ctx && (ctx.event_types || ctx.eventTypes);
-        const name = types && types[eventKey];
-        if (!source || !name || typeof source.on !== 'function') return () => {};
+        if (destroyed) return () => {};
+        let source = null, name = '', alive = true;
         // 直接接收并返回；内部 Promise 和异常不进入宿主派发链。
         const listener = (...args) => {
-            invokeListener(eventKey, handler, args);
+            if (alive && !destroyed) invokeListener(eventKey, handler, args);
         };
-        source.on(name, listener);
+        const bind = () => {
+            if (!alive || destroyed || source) return;
+            const ctx = context();
+            const nextSource = ctx?.eventSource;
+            const types = ctx && (ctx.event_types || ctx.eventTypes);
+            if (!nextSource || typeof nextSource.on !== 'function' || !types) return;
+            // 已就绪但未提供的可选事件不持续重试。
+            const nextName = types[eventKey];
+            if (nextName) {
+                nextSource.on(nextName, listener);
+                source = nextSource;
+                name = nextName;
+            }
+            pendingBindings.delete(bind);
+            if (!pendingBindings.size) { clearBindingTimer(); bindingDelay = 100; }
+        };
         const off = () => {
-            if (typeof source.removeListener === 'function') source.removeListener(name, listener);
-            else if (typeof source.off === 'function') source.off(name, listener);
+            if (!alive) return;
+            alive = false;
+            pendingBindings.delete(bind);
+            if (!pendingBindings.size) clearBindingTimer();
+            if (typeof source?.removeListener === 'function') source.removeListener(name, listener);
+            else if (typeof source?.off === 'function') source.off(name, listener);
         };
+        pendingBindings.add(bind);
+        bind();
+        scheduleBindings();
         cleanups.push(off);
         return off;
     }
@@ -270,6 +307,10 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
 
     return {
         getChatId, getUserName, readCharacterLore, readFloor, readPreviousAiTexts, writeFloor, on, onImageFloorReady, attachPromptStrip, ensureMarkerRegexes,
-        destroy() { while (cleanups.length) cleanups.pop()(); },
+        destroy() {
+            destroyed = true;
+            clearBindingTimer();
+            while (cleanups.length) cleanups.pop()();
+        },
     };
 }

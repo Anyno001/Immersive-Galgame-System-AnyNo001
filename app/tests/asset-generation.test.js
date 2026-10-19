@@ -372,6 +372,44 @@ test('gate:assets:service-generates-missing-assets-and-reviews', async () => {
     assert.equal(await store.getImage('img1'), null);
     assert.ok(emitted.includes('generated'));
 });
+test('未开阅读器时，宿主完成事件实际补全立绘与背景，重复通知不双发', { timeout: 5000 }, async t => {
+    const { EventEmitter } = await import('node:events');
+    const { createIllustrationMessageHost } = await import('../src/host/illustration-message-host.js');
+    const source = new EventEmitter();
+    const names = ['GENERATION_STARTED', 'GENERATION_ENDED', 'CHARACTER_MESSAGE_RENDERED'];
+    const ctx = { chatId: 'chat-1', chat: [{ is_user: false, mes: FLOOR_TEXT }], eventSource: source,
+        eventTypes: Object.fromEntries(names.map(name => [name, name])) };
+    const host = createIllustrationMessageHost({ SillyTavern: { getContext: () => ctx } });
+    const jobs = [], subscribe = host.onImageFloorReady;
+    host.onImageFloorReady = handler => subscribe(id => {
+        const job = handler(id); jobs.push(job); return job;
+    });
+    const store = createMemoryGeneratedAssetStore();
+    let sends = 0, sequence = 0;
+    const service = createAssetGenerationService({ messageHost: host, store,
+        llm: { async request() { return 'id: bg1\ntags: factory, night, rain\nid: ch2\ntags: 1girl, silver hair, black coat'; } },
+        nai: { async generate() { sends++; return { ok: true, dataUrl: 'data:image/png;base64,AAA' }; } },
+        matte: async url => url, newId: () => `background-event-${++sequence}`, minBodyChars: 0,
+        getSettings: () => ({ autoIllustration: { assets: { spriteEnabled: true, backgroundEnabled: true, strictMatch: true } },
+            sceneAssets: USER_ASSETS }),
+    });
+    t.after(() => { service.stop(); host.destroy(); });
+    service.start();
+    source.emit('GENERATION_STARTED', 'normal', {}, false);
+    source.emit('GENERATION_ENDED', 0);
+    await Promise.resolve();
+    assert.equal(jobs.length, 1);
+    const result = await jobs[0];
+    assert.deepEqual([result.ok, result.count], [true, 2]);
+    assert.deepEqual(service.listReview('chat-1|0|0').map(row => row.type), ['background', 'sprite']);
+    assert.ok(service.tempSprite('神秘少女'));
+    assert.ok(service.tempBackground('废弃工厂', '夜晚'));
+    source.emit('CHARACTER_MESSAGE_RENDERED', 0);
+    await jobs.at(-1);
+    assert.equal(sends, 2);
+});
+
+
 
 test('gate:assets:review-library-status-invalidates-cached-page-and-hides-card', async () => {
     const store = createMemoryGeneratedAssetStore();

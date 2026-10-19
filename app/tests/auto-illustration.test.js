@@ -552,6 +552,53 @@ test('gate:illustration:message-host-floor-ready-isolates-internal-tasks', async
     assert.equal(eventSource.listenerCount('GENERATION_ENDED'), 1);
 });
 
+test('message-host 未开阅读器且宿主延迟就绪时自动绑定，结束事件无需渲染通知', async t => {
+    const { EventEmitter } = await import('node:events');
+    const { createIllustrationMessageHost } = await import('../src/host/illustration-message-host.js');
+    const timers = new Map();
+    let ctx = null, sequence = 0;
+    const g = { SillyTavern: { getContext: () => ctx },
+        setTimeout(fn) { const id = ++sequence; timers.set(id, fn); return id; },
+        clearTimeout(id) { timers.delete(id); } };
+    const host = createIllustrationMessageHost(g);
+    t.after(() => host.destroy());
+    const floors = [];
+    host.onImageFloorReady(id => floors.push(id));
+    const off = host.on('MESSAGE_UPDATED', () => assert.fail('已取消的监听器不可复活'));
+    off();
+    assert.equal(timers.size, 1, '所有待绑定订阅共用一个启动探测');
+    const source = new EventEmitter();
+    const names = ['GENERATION_STARTED', 'GENERATION_ENDED', 'GENERATION_STOPPED', 'CHAT_CHANGED', 'CHARACTER_MESSAGE_RENDERED', 'MESSAGE_UPDATED'];
+    ctx = { chatId: 'background-fixture', chat: [{ is_user: false, mes: '正文' }], eventSource: source,
+        eventTypes: Object.fromEntries(names.map(name => [name, name])) };
+    const [id, tick] = timers.entries().next().value;
+    timers.delete(id); tick();
+    assert.equal(timers.size, 0, '宿主就绪后不再探测');
+    assert.equal(source.listenerCount('MESSAGE_UPDATED'), 0);
+    source.emit('GENERATION_STARTED', 'normal', {}, false);
+    source.emit('GENERATION_ENDED', 0);
+    await Promise.resolve();
+    assert.deepEqual(floors, [0]);
+    source.emit('GENERATION_STARTED', 'quiet', {}, false);
+    source.emit('GENERATION_ENDED', 0);
+    await Promise.resolve();
+    assert.deepEqual(floors, [0], '后台写词不会触发新一轮生图');
+    source.emit('GENERATION_STARTED', 'normal', {}, false);
+    source.emit('GENERATION_STOPPED'); source.emit('GENERATION_ENDED', 0);
+    await Promise.resolve();
+    assert.deepEqual(floors, [0], '停止的正文不触发生图');
+    host.destroy();
+    assert.equal(source.listenerCount('GENERATION_ENDED'), 0);
+    ctx = null;
+    const waiting = createIllustrationMessageHost(g);
+    waiting.onImageFloorReady(() => assert.fail('已销毁的宿主不可触发'));
+    const late = [...timers.values()];
+    waiting.destroy();
+    late.forEach(fn => fn());
+    assert.equal(timers.size, 0, '销毁取消等待绑定及迟到回调');
+});
+
+
 const NSFW_TEXT = '[igs-scene:卧室|夜晚|晴|NSFW]\n一段。\n二段。\n三段。';
 const SFW_TEXT = '[igs-scene:街道|白天|晴]\n一段。\n二段。';
 const REPLY = 'slot: 1\nat: 2\nscene: 1girl, bedroom\nchar: 0.5,0.5 | 1girl, black hair';
@@ -610,6 +657,44 @@ function makeFakes({ text, isLatest = true, llmReply = REPLY, naiResult, setting
     // 这批用例的正文都只有几个字，专测流程；「少于 50 字不自动生图」单独测。
     return { calls, messageHost, llm, nai, events, getSettings: () => settings, minBodyChars: 0 };
 }
+test('未开阅读器时，宿主完成事件实际生成 CG 和 NSFW CG，重复通知不双发', { timeout: 5000 }, async t => {
+    const { EventEmitter } = await import('node:events');
+    const { createIllustrationMessageHost } = await import('../src/host/illustration-message-host.js');
+    const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    for (const nsfw of [false, true]) await t.test(nsfw ? 'NSFW CG' : 'CG', async t => {
+        const source = new EventEmitter();
+        const names = ['GENERATION_STARTED', 'GENERATION_ENDED', 'CHARACTER_MESSAGE_RENDERED'];
+        const ctx = { chatId: 'c1', chat: Array.from({ length: 5 }, () => ({ is_user: true, mes: '前文' })),
+            eventSource: source, eventTypes: Object.fromEntries(names.map(name => [name, name])) };
+        ctx.chat.push({ is_user: false, mes: nsfw ? NSFW_TEXT : SFW_TEXT });
+        const host = createIllustrationMessageHost({ SillyTavern: { getContext: () => ctx } });
+        host.ensureMarkerRegexes = async () => ({ ok: true });
+        const jobs = [], subscribe = host.onImageFloorReady;
+        host.onImageFloorReady = handler => subscribe(id => {
+            const job = handler(id); jobs.push(job); return job;
+        });
+        const fake = makeFakes({ text: ctx.chat[5].mes, settings: {
+            nsfwEnabled: nsfw, nsfwCount: 1, interludeEnabled: !nsfw, interludeProbability: 100 } });
+        const store = createMemoryIllustrationStore();
+        const service = createAutoIllustrationService({ ...fake, messageHost: host, store });
+        t.after(() => service.stop());
+        service.start();
+        source.emit('GENERATION_STARTED', 'normal', {}, false);
+        source.emit('GENERATION_ENDED', 5);
+        await Promise.resolve();
+        assert.equal(jobs.length, 1);
+        assert.equal((await jobs[0]).ok, true);
+        assert.equal((await store.getFloor('c1|5|0')).status, 'done');
+        assert.ok(ctx.chat[5].mes.includes('[igs-img:1]'));
+        assert.equal(fake.calls.nai, 1);
+        source.emit('CHARACTER_MESSAGE_RENDERED', 5);
+        await jobs.at(-1);
+        assert.equal(fake.calls.nai, 1);
+    });
+});
+
+
 
 test('CG 原楼标记变化和保存修订推进：续存同一张图，出图只调用一次', { timeout: 3000 }, async t => {
     const { createAutoIllustrationService, fixtureMedia } = await import('./helpers/media-fixtures.js');
@@ -754,19 +839,50 @@ for (const action of ['显示标记变化', '切回复分支', '清除图片']) 
     }
 });
 
-test('gate:illustration:service-nsfw-generates-and-writes-marker', async () => {
+test('gate:illustration:service-nsfw-generates-and-writes-marker', async t => {
     const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
     const { ILLUSTRATION_UPDATED_EVENT } = await import('../src/generated-images/illustration/auto-illustration-service.js');
     const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
-    const store = createMemoryIllustrationStore();
-    const fake = makeFakes({ text: NSFW_TEXT, settings: { nsfwEnabled: true, nsfwCount: 1 } });
-    const service = createAutoIllustrationService({ ...fake, store });
-    assert.equal((await service.processMessage(5)).reason, 'done');
-    assert.ok(fake.calls.writes[0].includes('\n二段。\n[igs-img:1]'));
-    assert.equal(fake.calls.nai, 1);
-    assert.equal((await store.getSlots('c1|5|0'))[0].status, 'done');
-    assert.ok(fake.calls.events.some(({ type }) => type === ILLUSTRATION_UPDATED_EVENT));
-    assert.equal(service.getIllustrationUrl({ messageId: 5, slot: 1 }), 'data:image/png;base64,AAAA');
+    const unsafe = '<content>\n[igs-scene:办公室|上午|晴|NSFW]\n一段。\n[igs-char:角色甲|平和|二段。\n</content>';
+    for (const mode of ['normal', 'unsafe', 'mixed', 'write-not-applied', 'save-failed']) await t.test(mode, async () => {
+        const store = createMemoryIllustrationStore(), reports = [];
+        const fake = makeFakes({ text: mode === 'unsafe' || mode === 'mixed' ? unsafe : NSFW_TEXT,
+            llmReply: mode === 'mixed' ? 'slot: 1\nat: 1\nscene: office\n\nslot: 2\nat: 2\nscene: office' : REPLY,
+            settings: { nsfwEnabled: true, nsfwCount: mode === 'mixed' ? 2 : 1 } });
+        if (mode === 'save-failed') {
+            const update = store.updateSlot;
+            store.updateSlot = (...args) => args[3]?.dataUrl
+                ? { ok: false, reason: 'save-failed', recoveryStopped: true, error: '插图保存失败' }
+                : update(...args);
+        }
+        if (mode === 'write-not-applied') fake.messageHost.writeFloor = async (_id, next) => {
+            fake.calls.writes.push(next); return { ok: true };
+        };
+        const service = createAutoIllustrationService({ ...fake, store,
+            report: (level, message) => reports.push([level, message]) });
+        try {
+            const result = await service.processMessage(5);
+            if (mode === 'unsafe' || mode === 'write-not-applied' || mode === 'save-failed') {
+                assert.equal(result.ok, false, JSON.stringify(result));
+                assert.equal(fake.calls.nai, mode === 'save-failed' ? 1 : 0);
+                assert.equal(reports.some(([level]) => level === 'success'), false);
+                assert.notEqual((await store.getFloor('c1|5|0')).status, 'done');
+                assert.equal((await store.getSlots('c1|5|0')).some(slot => slot.status === 'done'), false);
+                return;
+            }
+            assert.equal(result.reason, 'done');
+            assert.equal(result.count, 1);
+            assert.ok(fake.messageHost.readFloor(5).text.includes(mode === 'mixed'
+                ? '\n一段。\n[igs-img:1]' : '\n二段。\n[igs-img:1]'));
+            assert.equal(fake.calls.nai, 1);
+            assert.deepEqual((await store.getSlots('c1|5|0')).map(s => [s.slot, s.status]), [[1, 'done']]);
+            assert.ok(fake.calls.events.some(({ type }) => type === ILLUSTRATION_UPDATED_EVENT));
+            assert.equal(service.getIllustrationUrl({ messageId: 5, slot: 1 }), 'data:image/png;base64,AAAA');
+            assert.equal((await service.processMessage(5, { manual: true })).reason, 'nothing-missing');
+            assert.equal(fake.calls.llm, 1);
+            assert.equal(fake.calls.nai, 1);
+        } finally { service.stop(); }
+    });
 });
 
 test('gate:illustration:embedded-cg-uses-host-box-not-window', async () => {

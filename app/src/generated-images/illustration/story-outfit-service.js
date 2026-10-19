@@ -1,12 +1,12 @@
 import { recoverOperation } from '../../storage/automatic-recovery.js';
 import { adoptCharacterSeed } from '../../scene/generation-seeds.js';
-// 剧情衣装候选：发现时仅登记，用户选择后才写词、入库及按需生成立绘。
+// 剧情衣装候选：手动选择或显式开启自动流程后，沿同一入口写词、入库及生成立绘。
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { createOutfitResolver, isValidOutfitName, isBuiltinNudeOutfit, resolveWardrobePrompt } from '../../scene/character-outfits.js';
 import { assetOwnerKey, effectiveSceneAssets, ensureCardLibrary } from '../../scene/asset-scope.js';
 import { prepareStoryOutfitAdoption, prepareOutfitAdoption, prepareOutfitDnaSave } from '../../scene/outfit-identity.js';
 import { prepareInitialDefaultOutfitSelection } from '../../scene/character-appearance.js';
-import { loadStoryOutfitCandidates, saveStoryOutfitCandidate, removeStoryOutfitCandidate, storyOutfitId } from '../../scene/outfit-review-store.js';
+import { loadStoryOutfitCandidates, saveStoryOutfitCandidate, removeStoryOutfitCandidate, storyOutfitId, storyOutfitKey } from '../../scene/outfit-review-store.js';
 import { normalizeCharacterDna, readCharacterDnaView } from '../../scene/character-dna.js';
 import { GENERATED_ASSET_URL_PREFIX, setGeneratedExpressionNote } from '../../scene/asset-match.js';
 import { promptProvenance } from '../generation-prompt.js';
@@ -21,12 +21,11 @@ export function createStoryOutfitService(deps) {
     const recoveryController = new AbortController();
     const loaded = loadStoryOutfitCandidates(deps.storage);
     if (loaded.ok) for (const row of loaded.items) candidates.set(row.id, { ...row,
-        saved: row.status === 'saved', status: row.status === 'saved' ? 'saved' : row.prompt ? 'ready' : 'pending' });
+        saved: row.status === 'saved', status: row.status === 'saved' || row.status === 'failed' ? row.status : row.prompt ? 'ready' : 'pending' });
     const current = (row) => {
         const ctx = deps.getContext(row);
         return !disposed && ctx && ctx.scopeKey === row.scopeKey && ctx.floorKey === row.floorKey
-            && ctx.messageId === row.messageId
-;
+            && ctx.messageId === row.messageId;
     };
     const persist = (row) => {
         const result = saveStoryOutfitCandidate(deps.storage, row);
@@ -61,25 +60,40 @@ export function createStoryOutfitService(deps) {
             row.status = 'failed'; persist(row);
             return fail(safeReason(result?.reason) || 'outfit-write-failed');
         }
-        row.prompt = prompt; row.status = 'ready'; row.reason = '';
+        row.prompt = prompt;
+        if (result.promptHalfBody !== undefined) row.promptHalfBody = result.promptHalfBody;
+        row.status = 'ready'; row.reason = '';
         return persist(row);
     }
 
-    function observe(directives) {
+    // 正文指纹记录来源；同一回复里的同角色、同衣装只处理一次。
+    // 旧重复项优先使用已生成图片、完整衣装及半身资料，其余记录仍保留。
+    function rowsForContext(context) {
+        const rows = new Map();
+        for (const row of candidates.values()) {
+            if (!context || row.floorKey !== context.floorKey || row.scopeKey !== context.scopeKey || !current(row)) continue;
+            const key = storyOutfitKey(row);
+            const rank = (row.imageId ? 4 : 0) + (row.prompt ? 2 : 0) + (row.promptHalfBody ? 1 : 0);
+            if (!rows.has(key) || rank > rows.get(key).rank) rows.set(key, { row, rank });
+        }
+        return [...rows.values()].map(value => value.row);
+    }
+
+    function observe(directives, ctx = deps.getContext()) {
         if (disposed) return fail('disposed');
         const fresh = loadStoryOutfitCandidates(deps.storage);
         if (!fresh.ok) return fresh;
         // CG 完成可在服务创建后暂存新候选；同步时不覆盖在途任务和同图恢复状态。
         for (const row of fresh.items) {
             if (!candidates.has(row.id)) candidates.set(row.id, { ...row,
-                saved: row.status === 'saved', status: row.status === 'saved' ? 'saved' : row.prompt ? 'ready' : 'pending' });
+                saved: row.status === 'saved', status: row.status === 'saved' || row.status === 'failed' ? row.status : row.prompt ? 'ready' : 'pending' });
         }
-        const ctx = deps.getContext();
         if (!ctx || !Number.isSafeInteger(ctx.messageId) || !ctx.floorKey || !ctx.sourceHash) return fail('stale-target');
         const assets = effectiveSceneAssets(ctx.root, ctx.scopeKey);
-        if (assets.wardrobeAutoFlow === false) return { ok: true };
+        if (assets.wardrobeAutoFlow === false && ctx.autoGenerate !== true) return { ok: true };
         const resolver = createOutfitResolver(assets);
         const known = { ...assets.characterDna, ...assets.characters, ...assets.characterOutfits };
+        const seen = new Set([...candidates.values()].map(storyOutfitKey));
         for (const directive of directives || []) {
             const word = directive?.unknownOutfit;
             if (!word || !isValidOutfitName(word) || isBuiltinNudeOutfit(word)) continue;
@@ -87,19 +101,21 @@ export function createStoryOutfitService(deps) {
             if (!character || resolver(character, word)) continue;
             const ownerKey = assetOwnerKey(ctx.root, ctx.scopeKey, fields, character);
             const id = storyOutfitId({ ...ctx, ownerKey, character, word });
-            if (candidates.has(id)) continue;
             const row = { id, character, word, ownerKey, scopeKey: ctx.scopeKey, floorKey: ctx.floorKey,
                 sourceHash: ctx.sourceHash, messageId: ctx.messageId, status: 'pending' };
+            const key = storyOutfitKey(row);
+            if (seen.has(key)) continue;
             candidates.set(id, row);
             const saved = persist(row);
             if (!saved.ok) return saved;
+            seen.add(key);
         }
         return { ok: true };
     }
 
-    function list({ includeDeferred = false } = {}) {
-        return [...candidates.values()].filter(row => current(row) && (!deps.isVisible || deps.isVisible(row))
-            && (includeDeferred || (!deferred.has(row.id) && !adoptions.has(row.id) && row.status !== 'saved'))
+    function list({ includeDeferred = false, context = deps.getContext() } = {}) {
+        return rowsForContext(context).filter(row => (!deps.isVisible || deps.isVisible(row))
+            && (includeDeferred || (!deferred.has(storyOutfitKey(row)) && !adoptions.has(storyOutfitKey(row)) && row.status !== 'saved'))
             && row.status !== 'done' && (row.saved || !handled(row)))
             .map(row => ({ ...row, choices: [
                 { value: 'save', label: '仅入库衣柜' },
@@ -111,9 +127,12 @@ export function createStoryOutfitService(deps) {
         const ctx = deps.getContext(row);
         const assets = ctx && effectiveSceneAssets(ctx.root, row.scopeKey);
         const entry = assets?.characterOutfits?.[row.character]?.[row.word];
-        const prompt = assets?.wardrobe?.[entry?.wardrobe]?.prompt;
-        if (prompt) row.prompt = prompt;
-        return current(row) && Boolean(prompt);
+        const clothing = resolveWardrobePrompt(assets?.wardrobe, entry, row.word);
+        if (clothing?.prompt) {
+            row.prompt = clothing.prompt;
+            if (clothing.promptHalfBody !== undefined) row.promptHalfBody = clothing.promptHalfBody;
+        }
+        return current(row) && Boolean(clothing?.prompt);
     }
     function finish(row) {
         row.status = 'saved';
@@ -186,7 +205,8 @@ export function createStoryOutfitService(deps) {
             if (!row.imageId) {
                 row.status = 'painting'; notify();
                 const result = await deps.assets.generateExpressionSet({ name: row.character, dna,
-                    outfit: { name: row.word, prompt: row.prompt }, moods: ['平和'],
+                    outfit: { name: row.word, prompt: row.prompt,
+                        ...(row.promptHalfBody !== undefined && { promptHalfBody: row.promptHalfBody }) }, moods: ['平和'],
                     messageId: row.messageId, ...(deps.signal && { signal: deps.signal }),
                     shouldStart: paintCurrent,
                     ...(template && { onOutfitDna: async clothing => {
@@ -269,6 +289,21 @@ export function createStoryOutfitService(deps) {
     }
 
     return { observe, list,
+        // 只自动领取尚未处理的候选；在途、失败与已保存结果不因重绘重复付费。
+        autoGenerate(ctx = deps.getContext()) {
+            if (disposed || ctx?.autoGenerate !== true) return Promise.resolve([]);
+            const rows = rowsForContext(ctx).filter(row => row.status === 'pending' && !row.reason && !row.mode
+                && !deferred.has(storyOutfitKey(row)) && !adoptions.has(storyOutfitKey(row)) && !handled(row));
+            return Promise.all(rows.map(async row => {
+                let result;
+                try { result = await this.adopt(row.id, 'sprite'); }
+                catch (error) { result = { ok: false, reason: 'story-outfit-failed',
+                    error: error?.message || '衣装自动处理失败' }; }
+                try { await deps.onAutoResult?.({ ...row }, result); }
+                catch { /* 展示异常不改变已完成的保存和生成结果。 */ }
+                return result;
+            }));
+        },
         retry(id) {
             const row = candidates.get(id);
             if (!row) return Promise.resolve(fail('not-found'));
@@ -278,7 +313,8 @@ export function createStoryOutfitService(deps) {
         adopt(id, mode) {
             const row = candidates.get(id);
             if (!row || !['save', 'sprite'].includes(mode)) return Promise.resolve(fail('invalid-action'));
-            if (adoptions.has(id)) return adoptions.get(id);
+            const key = storyOutfitKey(row);
+            if (adoptions.has(key)) return adoptions.get(key);
             row.mode = mode;
             const pending = recoverOperation(() => adopt(row, mode === 'sprite'), {
                 signal: recoveryController.signal, isActive: () => current(row),
@@ -291,15 +327,15 @@ export function createStoryOutfitService(deps) {
                     result = { ...result, saved, reopen: !saved };
                     const stored = persist(row);
                     if (!stored.ok) result.warning = stored.reason;
-                    if (result.reopen) deferred.delete(id);
+                    if (result.reopen) deferred.delete(key);
                 }
                 return result;
-            }).finally(() => { adoptions.delete(id); notify(); });
-            adoptions.set(id, pending);
+            }).finally(() => { adoptions.delete(key); notify(); });
+            adoptions.set(key, pending);
             notify();
             return pending;
         },
-        defer(id) { deferred.add(id); notify(); },
+        defer(id) { const row = candidates.get(id); if (row) deferred.add(storyOutfitKey(row)); notify(); },
         resume() { deferred.clear(); },
         dispose() { disposed = true; recoveryController.abort(); },
     };

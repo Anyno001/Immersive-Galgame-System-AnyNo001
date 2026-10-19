@@ -296,6 +296,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoInterludeProbabilityField: field('bridge.autoIllustration.interludeProbability', '触发概率 %', numberInput('bridge.autoIllustration.interludeProbability', auto.interludeProbability, 0, 100)),
                 autoInterludeMaxField: field('bridge.autoIllustration.interludeMaxCount', '每层最多张数', numberInput('bridge.autoIllustration.interludeMaxCount', auto.interludeMaxCount, 1, 16)),
                 autoAssetSpriteField: checkbox('bridge.autoIllustration.assets.spriteEnabled', auto.assets.spriteEnabled, '自动生成角色立绘'),
+                autoOutfitField: checkbox('bridge.autoIllustration.assets.outfitAutoGenerate', auto.assets.outfitAutoGenerate, '新衣装自动入库并生成立绘'),
                 autoAssetBackgroundField: checkbox('bridge.autoIllustration.assets.backgroundEnabled', auto.assets.backgroundEnabled, '自动生成场景背景'),
                 autoAssetDayFirstField: checkbox('bridge.autoIllustration.assets.dayFirst', auto.assets.dayFirst, '非白天先画白天再差分'),
                 autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多素材数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 16)),
@@ -356,6 +357,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     common: `<div class="igs-source-filter-note"${imageFields.assetSceneWarnHidden}>需先在「角色」页开启场景素材模式。</div>`
                         + `<div class="igs-settings-sub" data-image-feature="asset-options"${imageFields.autoAssetOptionsHidden}>${grid(imageFields.autoAssetMaxField)}</div>`,
                     character: grid(imageFields.autoAssetSpriteField, '<button type="button" class="igs-settings-action" data-action="open-character-dna" title="在「角色」页编辑外貌（DNA）">角色 DNA</button>')
+                        + grid(imageFields.autoOutfitField)
+                        + '<div class="igs-source-filter-note">默认关闭。开启后，阅读中发现未入库衣装时自动生成服装 DNA，保存后生成对应平和立绘；完成前显示默认服装立绘。会调用备用模型和当前生图来源。</div>'
                         + `<div class="igs-settings-sub" data-image-feature="sprite-options"${hiddenAttr(!auto.assets.spriteEnabled)}>${grid(imageFields.autoAssetSpriteSizeField, kindModel('sprite', '立绘模型'))}</div>`,
                     scene: grid(imageFields.autoAssetBackgroundField)
                         + `<div class="igs-settings-sub" data-image-feature="background-options"${hiddenAttr(!auto.assets.backgroundEnabled)}>${grid(imageFields.autoAssetBackgroundSizeField, kindModel('background', '背景模型'), imageFields.autoAssetDayFirstField)}</div>`

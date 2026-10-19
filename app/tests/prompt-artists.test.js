@@ -247,13 +247,13 @@ test('gate:artist-library:两种兼容格式仅导入文本，不改原库', asy
     assert.deepEqual(readArtistLibrary(undefined), { ok: true, value: [] });
 });
 
-test('gate:artist-library:无效JSON危险键与重名重复ID整批拒绝', async () => {
+test('gate:artist-library:无效JSON危险键与无效条目整批拒绝', async () => {
     const { importArtistLibrary, normalizeArtistLibrary } = await import('../src/generated-images/artist-library.js');
     const original = { version: 1, entries: [artistRow()] }, before = structuredClone(original);
     for (const raw of ['{', '[]', '{"version":2,"entries":[]}',
         '[{"name":"A","name":"B","positivePrompt":"","negativePrompt":""}]',
-        '[{"__proto__":{"polluted":true}}]', JSON.stringify([artistRow({ id: 'new' })]),
-        JSON.stringify([artistRow({ name: '另一个' })]), JSON.stringify([artistRow({ negativePrompt: 7 })]),
+        '[{"__proto__":{"polluted":true}}]', JSON.stringify([artistRow({ name: '' })]),
+        JSON.stringify([artistRow({ negativePrompt: 7 })]),
         JSON.stringify([artistRow({ id: 'constructor' })]), JSON.stringify([artistRow({ positivePrompt: 'x'.repeat(20001) })]),
         JSON.stringify({ presets: { A: { fixedPrompt: [] } } })]) {
         assert.equal(importArtistLibrary(raw, original).ok, false, raw.slice(0, 120));
@@ -263,6 +263,88 @@ test('gate:artist-library:无效JSON危险键与重名重复ID整批拒绝', asy
     const broken = { version: 99, entries: [artistRow()] };
     assert.equal(normalizeArtistLibrary(broken), broken, '未知持久版本保持，不伪装空库');
     assert.equal(importArtistLibrary(JSON.stringify([artistRow()]), broken).ok, false);
+});
+
+test('gate:artist-library:重复ID名称和文件内重复按统一策略合并', async () => {
+    const { importArtistLibrary, readArtistLibrary } = await import('../src/generated-images/artist-library.js');
+    const original = { version: 1, entries: [artistRow(), artistRow({ id: 'water', name: 'Water' })] };
+    const before = structuredClone(original);
+    const rows = [artistRow({ name: '墨色新版', positivePrompt: 'artist:new' }),
+        artistRow({ id: 'water-new', name: ' water ', negativePrompt: 'new-uc' }),
+        artistRow({ id: 'fresh', name: '新画师' }),
+        artistRow({ id: 'fresh-again', name: '新画师', positivePrompt: 'artist:last' })];
+    const raw = JSON.stringify({ version: 1, entries: rows });
+    const skipped = importArtistLibrary(raw, original);
+    assert.equal(skipped.ok, true);
+    assert.deepEqual(skipped.value.entries, [...before.entries, rows[2]]);
+    assert.equal(skipped.added, 1); assert.equal(skipped.skipped, 3); assert.equal(skipped.overwritten, 0);
+    const replaced = importArtistLibrary(raw, original, { overwrite: true });
+    assert.equal(replaced.ok, true);
+    assert.deepEqual(replaced.value.entries, [rows[0], { ...rows[1], name: 'water' }, rows[3]]);
+    assert.equal(replaced.added, 1); assert.equal(replaced.overwritten, 3); assert.equal(replaced.skipped, 0);
+    assert.equal(readArtistLibrary(replaced.value).ok, true);
+    assert.deepEqual(original, before, '两种策略都不修改传入的原库');
+    const onlyDuplicates = importArtistLibrary(JSON.stringify(before.entries), original);
+    assert.equal(onlyDuplicates.ok, true, '全部跳过仍是成功导入');
+    assert.equal(onlyDuplicates.count, 0);
+    assert.deepEqual(onlyDuplicates.value, before);
+});
+
+for (const verb of ['import', 'import-text']) for (const overwrite of [true, false]) {
+    test(`gate:artist-library:${verb}重复统一询问一次并${overwrite ? '覆盖' : '跳过'}且继续导入`, async () => {
+        const { handleArtistLibraryAction } = await import('../src/visual/igs-ui/settings-artist-library.js');
+        const original = { artistPrefix: 'artist:active', artistNegativePrefix: 'active-uc', apiKey: 'fixture',
+            artistLibrary: { version: 1, entries: [artistRow(), artistRow({ id: 'water', name: '水彩' })] } };
+        const before = structuredClone(original);
+        const rows = [artistRow({ positivePrompt: 'artist:new' }),
+            artistRow({ id: 'water-new', name: '水彩', negativePrompt: 'new-uc' }),
+            artistRow({ id: 'fresh', name: '新画师' })];
+        const raw = JSON.stringify(rows), asked = [];
+        const panel = { draft: { bridge: { autoIllustration: { nai: original } } }, asyncState: {} };
+        const result = await handleArtistLibraryAction(`artist-library:${verb}`, {
+            panel, isCurrent: () => true,
+            readFile: async () => ({ ok: true, text: raw }),
+            dialogs: { edit: async () => raw, confirm: async (message, labels) => {
+                asked.push({ message, labels }); return overwrite;
+            } },
+            persistSettingsDraft() { assert.fail('导入只写草稿，不自动保存或应用'); },
+        });
+        assert.deepEqual(result, { ok: true });
+        assert.equal(asked.length, 1);
+        assert.deepEqual(asked[0].labels, { okLabel: '覆盖', cancelLabel: '跳过' });
+        const nai = panel.draft.bridge.autoIllustration.nai;
+        assert.deepEqual(nai.artistLibrary.entries, overwrite ? rows : [...before.artistLibrary.entries, rows[2]]);
+        assert.deepEqual({ ...nai, artistLibrary: before.artistLibrary }, before, '当前生效画师与其他配置不变');
+        assert.deepEqual(original, before);
+    });
+}
+
+test('gate:artist-library:无冲突直接导入且全部跳过仍成功', async () => {
+    const { handleArtistLibraryAction } = await import('../src/visual/igs-ui/settings-artist-library.js');
+    const panel = { draft: { bridge: { autoIllustration: { nai: {} } } }, asyncState: {} };
+    let asked = 0;
+    const ctx = { panel, isCurrent: () => true, readFile: async () => ({ ok: true, text: JSON.stringify([artistRow()]) }),
+        dialogs: { confirm: async () => { asked++; return false; } } };
+    assert.deepEqual(await handleArtistLibraryAction('artist-library:import', ctx), { ok: true });
+    assert.equal(asked, 0, '无冲突无需二次确认追加');
+    const before = structuredClone(panel.draft);
+    assert.deepEqual(await handleArtistLibraryAction('artist-library:import', ctx), { ok: true });
+    assert.equal(asked, 1);
+    assert.deepEqual(panel.draft, before);
+});
+
+test('gate:artist-library:覆盖确认后面板过期不写入旧草稿', async () => {
+    const { handleArtistLibraryAction } = await import('../src/visual/igs-ui/settings-artist-library.js');
+    const panel = { draft: { bridge: { autoIllustration: { nai: { artistLibrary: { version: 1, entries: [artistRow()] } } } } }, asyncState: {} };
+    const before = structuredClone(panel.draft);
+    let current = true;
+    const result = await handleArtistLibraryAction('artist-library:import', {
+        panel, isCurrent: () => current,
+        readFile: async () => ({ ok: true, text: JSON.stringify([artistRow({ positivePrompt: 'new' })]) }),
+        dialogs: { confirm: async () => { current = false; return true; } },
+    });
+    assert.equal(result.ok, false);
+    assert.deepEqual(panel.draft, before);
 });
 
 test('gate:artist-library:显式应用全局或分区保留开关及其他字段', async () => {

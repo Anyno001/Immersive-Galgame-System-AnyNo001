@@ -15,7 +15,7 @@
 - GitHub 账号：`Anyno001`
 - 仓库名：`Immersive-Galgame-System-AnyNo001`
 - 仓库地址：`https://github.com/Anyno001/Immersive-Galgame-System-AnyNo001`
-- 本地仓库根目录：`D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System`
+- 本地仓库根目录：以当前本地工作区中 `git rev-parse --show-toplevel` 返回的本项目独立仓库为准；历史绝对路径仅为示例，上传前另行核对 `origin`。
 - 默认分支：`main`
 - 当前可见性：public
 

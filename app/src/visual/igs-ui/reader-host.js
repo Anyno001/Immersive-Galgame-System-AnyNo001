@@ -441,6 +441,12 @@ export function createIgsReaderHost(options = {}) {
         replaceReader,
         openSettings,
         withCharacterDnaDraftSync,
+        syncStoryOutfitDraft(before, next) {
+            const draft = state.activeSettings?.draft.bridge;
+            if (!draft) return;
+            draft.sceneAssets = applyOperationEdits(before, next, draft.sceneAssets);
+            rerenderSettings();
+        },
         closeReader,
         closeSettings,
         getState,
@@ -482,17 +488,29 @@ export function createIgsReaderHost(options = {}) {
     const readerRecoveryController = new AbortController();
     // 正文出现衣柜没有的新衣服：排队到本楼最后一页，和新素材入库同一个面板里问。
     const pendingOutfitAsks = [];
-    const storyOutfits = options.generatedAssets?.writeWardrobePrompt && (options.global || globalThis).localStorage
+    const storyOutfits = options.storyOutfits || (options.generatedAssets?.writeWardrobePrompt && (options.global || globalThis).localStorage
         ? createStoryOutfitService({
             storage: (options.global || globalThis).localStorage,
             assets: options.generatedAssets,
             getContext: storyOutfitContext,
             commit: commitStoryOutfit,
+            onAutoResult(row, result) {
+                if (result?.saved) {
+                    for (let i = pendingOutfitAsks.length - 1; i >= 0; i--)
+                        if (pendingOutfitAsks[i].character === row.character && pendingOutfitAsks[i].word === row.word)
+                            pendingOutfitAsks.splice(i, 1);
+                    if (state.activeReader) rerenderActiveReader();
+                }
+            },
             onChanged() {
                 const current = state.activeReader;
                 if (current) syncAssetReviewAfterRender(current, current.snapshot);
             },
-        }) : null;
+        }) : null);
+    const offStoryOutfits = options.storyOutfits?.subscribe?.(() => {
+        const current = state.activeReader;
+        if (current) syncAssetReviewAfterRender(current, current.snapshot);
+    }) || (() => {});
     return host;
 
     function openReader(payload = {}, openOptions = {}) {
@@ -973,7 +991,8 @@ export function createIgsReaderHost(options = {}) {
         generationStrip.dispose();
         offGeneratedAssetUpdated();
         offSettingsUpdated();
-        storyOutfits?.dispose();
+        offStoryOutfits();
+        if (!options.storyOutfits) storyOutfits?.dispose();
         offItemImageUpdated();
         offImageJobLog();
         teardownStatusHudSubscription();
@@ -4569,12 +4588,14 @@ export function createIgsReaderHost(options = {}) {
     function syncAssetReviewAfterRender(current, snapshot) {
         const overlay = current && current.dom && current.dom.overlay;
         const service = options.generatedAssets;
-        if (!overlay || !overlay.querySelector || !service) return;
+        if (!service) return;
         const context = storyOutfitContext();
-        if (storyOutfits && context && snapshot.readerSettings?._sceneAssets) {
+        if (current.streamPhase !== 'streaming' && storyOutfits && context && snapshot.readerSettings?._sceneAssets?.enabled) {
             const assets = effectiveSceneAssets(context.root, context.scopeKey);
-            storyOutfits.observe(extractSceneDirectives(context.text, { outfitResolver: createOutfitResolver(assets) }).directives);
+            const observed = storyOutfits.observe(extractSceneDirectives(context.text, { outfitResolver: createOutfitResolver(assets) }).directives, context);
+            if (observed.ok) void storyOutfits.autoGenerate(context);
         }
+        if (!overlay || !overlay.querySelector) return;
         let container = overlay.querySelector('#igs-asset-review');
         const floorKey = currentFloorKey(current);
         // 没读完就重 roll：流式期间不弹，记下旧楼，等新回复载入完在最后一页一并补问。
@@ -4593,8 +4614,8 @@ export function createIgsReaderHost(options = {}) {
             if (!deferred.length) current.deferredReviewKey = '';
             else if (lastPage) items = deferred.concat(items);
         } else if (deferredKey) current.deferredReviewKey = '';
-        const storyAsks = lastPage ? storyOutfits?.list() || [] : [];
-        const allStoryAsks = storyOutfits?.list({ includeDeferred: true }) || [];
+        const storyAsks = lastPage ? storyOutfits?.list({ context }) || [] : [];
+        const allStoryAsks = storyOutfits?.list({ includeDeferred: true, context }) || [];
         const outfitAsks = lastPage ? [...storyAsks, ...pendingOutfitAsks.filter(ask =>
             !createOutfitResolver(snapshot.readerSettings?._sceneAssets || {})(ask.character, ask.word)
             && !service.tempSpriteForOutfit?.(ask.character, ask.word)
@@ -4625,10 +4646,12 @@ export function createIgsReaderHost(options = {}) {
         const { floor } = readManualFloor(current);
         if (!floor) return null;
         const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis));
-        const root = cloneData(resolveBridgeConfigSnapshot({ mode: current.mode }).bridge.sceneAssets || {});
+        const { bridge } = resolveBridgeConfigSnapshot({ mode: current.mode });
+        const root = cloneData(bridge.sceneAssets || {});
         relocateLegacyCard(root, scope.key, scope.legacyKey);
         return { root, scopeKey: scope.key, floorKey: floorKeyOf(floor), messageId: Number(floor.messageId),
-            sourceHash: storyOutfitSourceHash(floor.text), text: floor.text };
+            sourceHash: storyOutfitSourceHash(floor.text), text: floor.text,
+            autoGenerate: bridge.autoIllustration?.assets?.outfitAutoGenerate === true };
     }
 
     function commitStoryOutfit(next, expected, guard) {

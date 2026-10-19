@@ -240,7 +240,7 @@ git push origin v<当前版本>
 git ls-remote --tags origin v<当前版本>
 ```
 
-`git rev-parse --show-toplevel` 必须返回 `D:\下载\酒馆\奶龙王\nailongwang-main\奶龙工具箱\projects\Immersive Galgame System`。如果标签已存在，不强推覆盖，提升 patch 版本后重新发布。
+上传目录以当前本地工作区为准：`git rev-parse --show-toplevel` 必须返回本项目独立仓库根目录，且 `origin` 必须与目标 GitHub 仓库一致；文中的历史绝对路径仅为示例，不作为门禁。如果标签已存在，不强推覆盖，提升 patch 版本后重新发布。
 
 真正生成 `loader/igs-loader.json` 和版本化中文发布文件后，还需要验证：
 

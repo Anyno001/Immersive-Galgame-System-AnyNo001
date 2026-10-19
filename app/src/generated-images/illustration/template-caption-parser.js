@@ -100,18 +100,27 @@ export function parseTemplateCaptionSlots(text, { promptTask, characterContext, 
     const captions = [];
 
     for (const block of blocks) {
-        const reject = (field, issue = 'invalid', captionIndex, reason = 'DNA_TEMPLATE_BINDING') =>
-            fail(reason, field, issue, position(block.slotId, captionIndex));
+        const reject = (field, issue = 'invalid', captionIndex, reason = 'DNA_TEMPLATE_BINDING', detail = {}) =>
+            fail(reason, field, issue, { ...position(block.slotId, captionIndex), ...detail });
         if (block.prompt_mode !== 'dna_template') return reject('prompt_mode',
             block.prompt_mode === undefined ? 'missing' : 'invalid', undefined, 'PROMPT_MODE_CONFLICT');
         if (block.outfit_mode !== undefined && block.outfit_mode !== 'template') return reject('outfit_mode', 'invalid', undefined, 'OUTFIT_TEMPLATE_INVALID');
         if (block.chars.length > 16) return reject('char');
-        if (block.ucs.length !== block.chars.length) return reject('char_uc', 'mismatch');
-        if (block.rows.size !== block.chars.length) return reject('meta_rows', 'mismatch');
+        const rowFailure = (field, issue = 'mismatch', captionIndex) => {
+            const expected = Array.from({ length: block.chars.length }, (_, index) => index);
+            return reject(field, issue, captionIndex, 'DNA_TEMPLATE_BINDING', {
+                charCount: block.chars.length, charUcCount: block.ucs.length, metaRowCount: block.rows.size,
+                missingMetaIndexes: expected.filter(index => !block.rows.has(index)),
+                extraMetaIndexes: [...block.rows.keys()].filter(index => Number.isSafeInteger(index)
+                    && index >= block.chars.length).slice(0, 16),
+            });
+        };
+        if (block.ucs.length !== block.chars.length) return rowFailure('char_uc');
+        if (block.rows.size !== block.chars.length) return rowFailure('meta_rows');
         const positive = [], negative = [], bindings = [], characters = [], candidates = [];
         for (let index = 0; index < block.chars.length; index += 1) {
             const raw = block.chars[index], row = block.rows.get(index);
-            if (!row) return reject('meta_rows', 'missing', index);
+            if (!row) return rowFailure('meta_rows', 'missing', index);
             const coord = /^([0-9]*\.?[0-9]+)\s*,\s*([0-9]*\.?[0-9]+)\s*\|\s*([\s\S]*)$/.exec(raw);
             if (!coord && raw.includes('|')) return reject('char', 'invalid', index);
             const x = coord ? Number(coord[1]) : 0.5, y = coord ? Number(coord[2]) : 0.5;

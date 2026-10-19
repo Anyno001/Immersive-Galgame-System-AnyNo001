@@ -55,7 +55,8 @@ export function clearOutfitReview(storage) {
 }
 // 剧情候选独立保存，旧待确认词的清理不影响未完成图片；不保存正文或 DNA。
 const STORY_KEY = 'igs:story-outfit-review:v1';
-const storyFields = ['id', 'character', 'word', 'scopeKey', 'ownerKey', 'floorKey', 'sourceHash', 'messageId', 'status', 'prompt', 'imageId'];
+const storyFields = ['id', 'character', 'word', 'scopeKey', 'ownerKey', 'floorKey', 'sourceHash', 'messageId', 'status', 'prompt', 'promptHalfBody', 'imageId'];
+export const storyOutfitKey = row => JSON.stringify([row.scopeKey, row.ownerKey, row.floorKey, row.character, row.word]);
 export const storyOutfitId = row => JSON.stringify([row.scopeKey, row.ownerKey, row.floorKey, row.sourceHash, row.character, row.word]);
 export function storyOutfitSourceHash(value) {
     const text = stripIllustrationMarkers(value).trim();
@@ -70,6 +71,8 @@ const validStoryRow = row => row && typeof row.id === 'string' && row.id === sto
     && Number.isSafeInteger(row.messageId) && row.messageId >= 0
     && (row.prompt === undefined || (typeof row.prompt === 'string' && row.prompt.trim()
         && row.prompt.length <= 4096 && !/<<\s*(?:dna|outfit)/i.test(row.prompt)))
+    && (row.promptHalfBody === undefined || (typeof row.promptHalfBody === 'string' && row.promptHalfBody.trim()
+        && row.promptHalfBody.length <= 4096 && !/<<\s*(?:dna|outfit)/i.test(row.promptHalfBody)))
     && (row.imageId === undefined || (typeof row.imageId === 'string' && row.imageId.length > 0));
 
 export function loadStoryOutfitCandidates(storage) {

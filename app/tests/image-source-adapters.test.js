@@ -739,6 +739,10 @@ test('gate:dna-template:批量 slot 显式角色映射贯通解析与唯一准�
         assert.equal(rejected.ok, false);
         assert.deepEqual([rejected.diagnostic.field, rejected.diagnostic.issue, rejected.diagnostic.slotId],
             ['meta_rows', issue, 9], '错误索引不自动修正，也不交接部分成功批次');
+        assert.deepEqual([rejected.diagnostic.charCount, rejected.diagnostic.charUcCount,
+            rejected.diagnostic.metaRowCount], [1, 1, issue === 'missing' ? 1 : 2]);
+        assert.deepEqual(rejected.diagnostic.missingMetaIndexes, issue === 'missing' ? [0] : []);
+        assert.deepEqual(rejected.diagnostic.extraMetaIndexes, [1]);
     }
     const pairTask = { ...task, slots: [{ slotId: 12, tokens: ['r1', 'rA7'] }] };
     const personLines = text => text.split('\n').filter(line => /^(?:char(?:_uc)?|meta_\w+):/.test(line));
@@ -752,6 +756,43 @@ test('gate:dna-template:批量 slot 显式角色映射贯通解析与唯一准�
         [[0, 'r1', 'Bob'], [1, 'rA7', 'Alice']], '双人图按本图 Char 顺序从 0 编号');
     assert.equal(prepareCharacterCaption({ ...pair.captions[0], promptTask: pairTask,
         characterContext: context }).ok, true);
+    const omittedPair = pairReply.split('\n').filter(line =>
+        !/^char(?:_uc)?:/.test(line) || !line.includes('rA7')).join('\n');
+    const parsePair = text => parseTemplateCaptionSlots(text, { promptTask: pairTask, characterContext: context });
+    const omitted = parsePair(omittedPair);
+    assert.equal(omitted.ok, false);
+    assert.deepEqual(omitted.diagnostic, { code: 'DNA_TEMPLATE_BINDING', stage: 'prompt-parse',
+        field: 'meta_rows', issue: 'mismatch', slotId: 12, charCount: 1, charUcCount: 1,
+        metaRowCount: 2, missingMetaIndexes: [], extraMetaIndexes: [1] });
+    assert.match(omitted.error, /charCount=1；charUcCount=1；metaRowCount=2/);
+    const missingUc = parsePair(pairReply.split('\n').filter(line =>
+        !line.startsWith('char_uc:') || !line.includes('rA7')).join('\n'));
+    assert.equal(missingUc.diagnostic.field, 'char_uc');
+    assert.deepEqual([missingUc.diagnostic.charCount, missingUc.diagnostic.charUcCount,
+        missingUc.diagnostic.metaRowCount], [2, 1, 2]);
+    const { requestWithSoftRetry } = await import('../src/generated-images/illustration/prompt-kit.js');
+    const original = { messages: [{ role: 'user', content: '双人模板结构校验' }] };
+    const requests = [];
+    const retried = await requestWithSoftRetry({ async request(request) {
+        requests.push(structuredClone(request));
+        return omittedPair;
+    } }, { preparedRequest: original, parse: parsePair }, {});
+    assert.equal(retried.ok, false);
+    assert.equal(retried.reason, 'recovery-exhausted');
+    assert.equal(retried.diagnostic.failureReason, 'DNA_TEMPLATE_BINDING');
+    assert.equal(retried.diagnostic.charCount, 1);
+    assert.equal(retried.diagnostic.metaRowCount, 2);
+    assert.equal(retried.diagnostic.attempts, 3);
+    assert.equal(requests.length, 3, '结构错误仍最多发送三次，不无限纠正');
+    for (const request of requests.slice(1)) {
+        assert.deepEqual(request.messages.slice(0, -1), original.messages);
+        const feedback = request.messages.at(-1);
+        assert.equal(feedback.role, 'user');
+        assert.match(feedback.content, /slotid=12/);
+        assert.match(feedback.content, /charCount=1.*charUcCount=1.*metaRowCount=2/);
+        assert.match(feedback.content, /extraMetaIndexes=\[1\]/);
+    }
+    assert.deepEqual(original, { messages: [{ role: 'user', content: '双人模板结构校验' }] });
     assert.equal(checkPromptTask({ ...task, slots: [task.slots[0]] }, context).ok, false);
     assert.deepEqual(task, before);
 });
