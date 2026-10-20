@@ -204,6 +204,45 @@ test('状态栏关闭也订阅服装线索更新，切楼重新读取当前表�
     r.host.closeReader(); assert.equal(r.callbacks.size, 0);
 });
 
+test('正文、台词和心里话提到钟点时保持场景时间与背景，显式标签仍正常换时换场', async t => {
+    const sceneAssets = { enabled: true,
+        scenes: {
+            教室: { url: 'class-day.png', times: { 夜晚: 'class-night.png' } },
+            操场: { url: 'field-day.png', times: { 黄昏: 'field-dusk.png' } },
+        },
+        characters: { 白墨: { 平和: 'calm.png' } },
+        characterOutfits: { 白墨: { 红裙: { moods: { 平和: 'red.png' } } } },
+    };
+    const raw = [
+        '[igs-scene:教室|夜晚|晴]',
+        '昨天14:30的约定早就结束了。',
+        '[igs-char:白墨|平和|明天早上7点钟再见。]',
+        '[igs-thought:白墨|平和|她想起了昨日18:30的那次见面。]',
+        '[igs-char:白墨|平和|红裙|中午12点的排练已经取消了。]',
+        '[igs-scene:教室|14:30|晴]',
+        '[igs-char:白墨|平和|她说明天晚上八点整见。]',
+        '[igs-scene:操场|傍晚|雨]',
+        '她提到了明天上午8点钟的比赛。',
+    ].join('\n');
+    const r = reader(t, { sceneAssets, raw });
+    const expected = [
+        ['昨天14:30', '教室', '夜晚', 'class-night.png'],
+        ['早上7点钟', '教室', '夜晚', 'class-night.png'],
+        ['昨日18:30', '教室', '夜晚', 'class-night.png'],
+        ['中午12点', '教室', '夜晚', 'class-night.png'],
+        ['晚上八点整', '教室', '14:30', 'class-day.png'],
+        ['上午8点钟', '操场', '傍晚', 'field-dusk.png'],
+    ];
+    assert.equal(r.content().segments.length, expected.length);
+    for (let i = 0; i < expected.length; i++) {
+        if (i) await r.next();
+        const [body, location, time, image] = expected[i];
+        const content = r.content();
+        assert.ok(content.displayText.includes(body), content.displayText);
+        assert.deepEqual([content.sceneLocation, content.sceneTime, content.backgroundImage], [location, time, image], body);
+    }
+});
+
 test('跨行对白、重复短对白、换场与换装均按预先定位的本页原文解析', async t => {
     const sceneAssets = { enabled: true, scenes: { 室内: { url: 'inside.png' }, 室外: { url: 'outside.png' } },
         characters: { 白墨: { 平和: 'calm.png', 喜悦: 'joy.png' } }, characterOutfits: { 白墨: { 红裙: { moods: { 喜悦: 'red-joy.png' } } } } };

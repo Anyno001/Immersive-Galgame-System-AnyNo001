@@ -1,6 +1,6 @@
 import { resolveMoodGroup, fuzzyResolveMoodGroup, moodFallbackChain } from './mood-groups.js';
 import { resolveSceneTimeAsset } from './scene-time.js';
-import { sceneTimeBucket, clockMarksInText, sceneBucketOfHour } from './time-bucket.js';
+import { sceneTimeBucket } from './time-bucket.js';
 import { IGS_DIRECTIVE_START_RE, matchOutfitDirectiveAt, splitIgsDirectiveLines } from './directive-tags.js';
 
 // 指令可独占整行，也可紧跟在正文之后（同一行内混排），因此不做行首锚定。
@@ -61,19 +61,6 @@ export function extractSceneDirectives(text, options = {}) {
     let segmentCount = 0;
     // 待结算的正文本：只有遇到 [igs-scene] 或行尾时才确定它属于哪一段。
     let pending = '';
-    // 正文里写明的钟点（14:30、下午两点）覆盖场景时间栏：挂在当前场景指令的 clocks 上，换场景自然重置。
-    // 解析时顺带扫，只记档位变化处；读取方按位置用 applySceneClock 取。
-    let clockScene = null;
-    let clockBucket = '';
-    const noteClock = (chunk, at) => {
-        if (!clockScene) return;
-        for (const mark of clockMarksInText(chunk)) {
-            const bucket = sceneBucketOfHour(mark.hour);
-            if (!bucket || bucket === clockBucket) continue;
-            clockBucket = bucket;
-            (clockScene.clocks || (clockScene.clocks = [])).push({ offset: at + mark.index, time: bucket });
-        }
-    };
     for (let i = 0; i < lines.length; i++) {
         const { text: rawLine, offset: lineOffset, lineIndex } = lines[i];
         const trimmed = rawLine.trim();
@@ -102,24 +89,19 @@ export function extractSceneDirectives(text, options = {}) {
                     lineIndex,
                     offset: cursor,
                 });
-                clockScene = directives[directives.length - 1];
-                clockBucket = sceneTimeBucket(clockScene.time);
             } else if ((m = matchOutfitDirectiveAt(rest, outfitResolver))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 const textKey = m.type === 'thought' ? 'thought' : 'dialogue';
                 directives.push({ type: m.type, character: m.character, mood: m.mood, outfit: m.outfit, ...(m.unknownOutfit ? { unknownOutfit: m.unknownOutfit } : {}), [textKey]: m.text, segmentIndex: segmentCount, lineIndex, offset: cursor });
-                noteClock(m.text, cursor);
                 rest = rest.slice(m.raw.length);
                 cursor += m.raw.length;
                 continue;
             } else if ((m = rest.match(CHAR_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'char', character: m[1].trim(), mood: String(m[2] || '').trim(), dialogue: m[3].trim(), segmentIndex: segmentCount, lineIndex, offset: cursor });
-                noteClock(m[3], cursor);
             } else if ((m = rest.match(THOUGHT_AT_RE))) {
                 if (pending.trim()) { segmentCount += 1; pending = ''; }
                 directives.push({ type: 'thought', character: m[1].trim(), mood: String(m[2] || '').trim(), thought: m[3].trim(),segmentIndex: segmentCount, lineIndex, offset: cursor });
-                noteClock(m[3], cursor);
             } else if ((m = rest.match(IMG_AT_RE))) {
                 illustrationMarkers.push({ slot: Number(m[1] || m[2]), lineIndex, offset: cursor });
             } else if ((m = rest.match(FX_AT_RE))) {
@@ -128,9 +110,8 @@ export function extractSceneDirectives(text, options = {}) {
                 // 当前位置不是指令：把到「下一条指令之前」的文本计入正文。
                 // 残缺指令（缺 "]" 或缺字段）停在当前位置时 nextAt 为 0，须越过其 "[" 当正文，否则死循环。
                 const nextAt = nextDirectiveIndex(rest.slice(1));
-                if (nextAt < 0) { pending += rest; noteClock(rest, cursor); rest = ''; break; }
+                if (nextAt < 0) { pending += rest; rest = ''; break; }
                 pending += rest.slice(0, nextAt + 1);
-                noteClock(rest.slice(0, nextAt + 1), cursor);
                 rest = rest.slice(nextAt + 1);
                 cursor += nextAt + 1;
                 continue;
@@ -145,18 +126,6 @@ export function extractSceneDirectives(text, options = {}) {
 }
 // 按「字符位置」找最近一条 char/thought 指令：用于恢复说话人，
 // 不依赖按行计数的 segmentIndex，因此不受文本管线重排版影响。
-// 场景指令带 clocks（正文钟点）时，按位置取「最近一次钟点」覆盖时间栏；没有钟点或还没出现就原样返回。
-export function applySceneClock(scene, offset) {
-    const clocks = scene && scene.clocks;
-    if (!clocks || !clocks.length || !(Number(offset) >= 0)) return scene;
-    let hit = null;
-    for (const clock of clocks) {
-        if (clock.offset > offset) break;
-        hit = clock;
-    }
-    return hit ? { ...scene, time: hit.time } : scene;
-}
-
 export function resolveNearestCharacterBefore(directives, offset) {
     const out = { character: '', mood: '', lastDirectiveType: '' };
     if (!Array.isArray(directives) || !directives.length) return out;

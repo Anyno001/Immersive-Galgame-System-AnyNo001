@@ -1,6 +1,6 @@
 import { createNarrationSpriteTracker, otherNamesOf, sceneCarryOf, NARRATION_HOLD_PAGES, SCENE_AHEAD_PAGES } from '../../scene/narration-sprite.js';
 import { createNarrationNamer } from '../../scene/narration-focus.js';
-import { extractSceneDirectives, resolveCharacterKey, narrativeRanges, prepareIllustrationPages, applySceneClock } from '../../scene/scene-directives.js';
+import { extractSceneDirectives, resolveCharacterKey, narrativeRanges, prepareIllustrationPages } from '../../scene/scene-directives.js';
 import { DEFAULT_MOOD_GROUPS } from '../../scene/mood-groups.js';
 import { createOutfitResolver, outfitsOfCharacter } from '../../scene/character-outfits.js';
 import { extractFxDirectives, createFxPageResolver } from '../../scene/fx-directives.js';
@@ -112,8 +112,7 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
     const scenes = outfitDirectives.filter(d => d.type === 'scene');
     const sceneAt = (offset) => {
         const own = offset >= 0 ? lastBefore(scenes, offset, false) : null;
-        // 正文里写的钟点（如 14:30）在本场景内覆盖时间栏。
-        return own && own.scene ? { ...applySceneClock(own, offset), character: '', mood: '', lastDirectiveType: 'scene' } : inheritedSceneState;
+        return own && own.scene ? { ...own, character: '', mood: '', lastDirectiveType: 'scene' } : inheritedSceneState;
     };
     const sceneStates = offsets.map(sceneAt);
     const dread = Array.from(source.matchAll(/\[igs-dread:\s*([0-3])\s*\]/g), m => ({ offset: m.index, value: Number(m[1]) }));

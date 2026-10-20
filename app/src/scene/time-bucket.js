@@ -102,46 +102,6 @@ export function sceneTimeKey(label) {
     return hit ? hit[0] : '';
 }
 
-// 正文里的钟点比时间栏严格得多：时间栏整段就是时间，正文里「一点点」「有一点冷」「第三点」满地都是。
-// 只认：14:30 / 2:30pm / 14时 / N点钟|半|整|N分；以及「下午|晚上…」紧贴的「N点」且后面不接形容词性的字。
-const CN_NUM = '零〇一二两三四五六七八九十';
-const CLOCK_PREFIX = '凌晨|深夜|半夜|午夜|夜里|傍晚|黄昏|晚上|今晚|晚间|下午|午后|中午|正午|晌午|清晨|早晨|早上|清早|上午|拂晓|黎明';
-const CLOCK_TEXT_RE = new RegExp(
-    `(?<![\\d:：.第])(${CLOCK_PREFIX})?\\s*(?:\\d{1,2}(?:[:：][0-5]\\d)?\\s*[ap]\\.?m\\b`
-    + `|(\\d{1,2})[:：][0-5]\\d(?![\\d:：])`
-    + `|(\\d{1,2}|[${CN_NUM}]{1,3})\\s*点(钟|半|整|\\s*\\d{1,2}\\s*分|[${CN_NUM}]{1,3}分)?(?!点)`
-    + `|\\d{1,2}\\s*时(?:\\d{1,2}\\s*分)?(?![候间代刻常而光期分段]))`,
-    'gi',
-);
-const CLOCK_CUE_RE = /[点时:：]|[ap]\.?m/i;
-const CLOCK_TAIL_OK = /[了的左右前后过时才起到开许多整]/;
-
-// 返回正文里每一处明确钟点：[{ index, hour }]，hour 为 0–23。无线索字符的文本直接跳过，不跑正则。
-export function clockMarksInText(text) {
-    const source = String(text || '');
-    if (!source || !CLOCK_CUE_RE.test(source)) return [];
-    const marks = [];
-    for (const m of source.matchAll(CLOCK_TEXT_RE)) {
-        const [whole, prefix, , cnOrDigit, suffix] = m;
-        // 「N点」不带钟/半/整/分：必须有时段前缀，且后面不能是「冷、累、多余」这类接着修饰的字。
-        if (cnOrDigit !== undefined && !suffix) {
-            if (!prefix) continue;
-            const tail = source.charAt(m.index + whole.length);
-            if (tail && /[一-鿿]/.test(tail) && !CLOCK_TAIL_OK.test(tail)) continue;
-        }
-        const hour = hourOfTimeLabel(whole.trim());
-        if (hour >= 0) marks.push({ index: m.index, hour });
-    }
-    return marks;
-}
-
-// 小时 -> 四档中文名（与 sceneTimeBucket 同口径）。
-export function sceneBucketOfHour(hour) {
-    const key = BUCKET_KEY[keyOfHour(hour)];
-    const hit = TIME_WORDS.find(([k]) => k === key);
-    return hit ? hit[1] : '';
-}
-
 export function sceneTimeBucket(label) {
     const key = sceneTimeKey(label);
     const hit = key && TIME_WORDS.find(([k]) => k === key);
