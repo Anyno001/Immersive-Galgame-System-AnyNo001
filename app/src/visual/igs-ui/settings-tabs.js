@@ -83,17 +83,18 @@ const IMAGE_SOURCE_TEMPLATE = `
     </div>
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
-        {{autoNaiKeyField}}
+        <div class="igs-settings-full">{{autoNaiEndpointField}}</div>
+        {{autoNaiKeyField}}{{autoNaiTransportField}}
         {{autoNaiModelField}}{{autoNaiSizeField}}
       </div>
+      <div class="igs-source-filter-note">支持官方及兼容 NAI 的中转。地址留空使用官方；使用中转时填写对应地址和 Key。可填服务根地址、/ai 或完整生图接口地址。</div>
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}
       </div>
       <div class="igs-settings-result" data-result="nai-models">{{autoNaiModelsMessage}}</div>
       <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai"{{advancedNaiOpen}}>
-        <summary>连接与采样</summary>
+        <summary>采样参数</summary>
         <div class="igs-source-filter-grid">
-          {{autoNaiTransportField}}{{autoNaiEndpointField}}
           {{autoNaiStepsField}}{{autoNaiScaleField}}
           {{autoNaiSamplerField}}
         </div>

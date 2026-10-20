@@ -7064,6 +7064,44 @@ test('gate:simulation:igs-ui-builtin-nai-empty-endpoint-tests-and-regenerates-vi
     }
 });
 
+test('gate:simulation:igs-ui-builtin-nai-custom-url-is-visible-persists-and-reaches-relay', async () => {
+    const document = createFakeDocument({ innerWidth: 390, innerHeight: 844 });
+    const storage = createMemoryStorage();
+    let expectedUrl, server;
+    const vn = bootstrapIGS({
+        global: { document, localStorage: storage, fetch: (...args) => server.fetch(...args) },
+        autoAttachMagicWand: false,
+        config: { imageApi: { mode: 'nai' }, autoIllustration: { nai: { apiKey: 'pst-fake' } } },
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    try {
+        for (const [endpoint, transport, wire] of [
+            ['https://relay.example.com/custom/generate?route=nai', 'direct', 'https://relay.example.com/custom/generate?route=nai'],
+            ['https://relay.example.com', 'direct', 'https://relay.example.com/ai/generate-image'],
+            ['https://relay.example.com/ai', 'st-proxy', '/proxy/https://relay.example.com/ai/generate-image'],
+        ]) {
+            let settings = vn.openSettings({ tab: 'image', mode: 'mobile' }).controller;
+            const expanded = settings.getSnapshot().html.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '');
+            assert.match(expanded, /data-path="bridge\.autoIllustration\.nai\.endpoint"/, '地址直接显示在主配置区');
+            assert.match(expanded, /data-path="bridge\.autoIllustration\.nai\.transport"/, '传输方式直接显示在主配置区');
+            assert.equal(settings.setValue('bridge.autoIllustration.nai.endpoint', endpoint).ok, true);
+            assert.equal(settings.setValue('bridge.autoIllustration.nai.transport', transport).ok, true);
+            assert.equal(settings.close().ok, true);
+            assert.equal(vn.getUnifiedSettings({ mode: 'mobile' }).bridge.autoIllustration.nai.endpoint, endpoint);
+            settings = vn.openSettings({ tab: 'image', mode: 'mobile' }).controller;
+            assert.equal(settings.getSnapshot().draft.bridge.autoIllustration.nai.endpoint, endpoint);
+            expectedUrl = wire;
+            server = createStrictNaiServer(expectedUrl);
+            const result = await settings.invoke('test-image');
+            assert.equal(result.ok, true, result.error || result.reason);
+            assert.equal(server.calls.length, 1);
+            assert.equal(server.calls[0].url, expectedUrl);
+            assert.equal(server.calls[0].init.headers.Authorization, 'Bearer pst-fake');
+            assert.equal(settings.close().ok, true);
+        }
+    } finally { vn.destroy(); }
+});
+
 test('gate:simulation:igs-ui-builtin-nai-reports-auth-failure-and-relay-endpoint', async () => {
     const relay = 'https://relay.example.com/ai/generate-image';
     const server = createStrictNaiServer(relay);
