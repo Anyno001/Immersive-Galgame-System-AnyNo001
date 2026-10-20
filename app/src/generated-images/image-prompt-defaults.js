@@ -13,7 +13,7 @@ import { CG_TASK, CG_TEMPLATE, CG_PLAN } from './prompt-tasks/cg.js';
 import { CONSISTENCY_TASK, CONSISTENCY_TEMPLATE } from './prompt-tasks/consistency.js';
 
 export const IMAGE_PROMPT_DEFAULT_ID = 'igs-imagegen-default-v1';
-export const IMAGE_PROMPT_DEFAULT_VERSION = 34;
+export const IMAGE_PROMPT_DEFAULT_VERSION = 35;
 
 // taskMap 选择用途，contentByFormat 仅选择该用途允许的协议。
 const TASKS = {

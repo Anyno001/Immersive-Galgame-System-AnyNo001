@@ -1,5 +1,5 @@
 import { SOURCE_RULE, IDENTITY_RULE, OUTFIT_RULE, OUTFIT_HALF_BODY_RULE } from './common.js';
-import { TEMPLATE_RULE, PICTURE_RULE } from './template.js';
+import { SPRITE_TEMPLATE_RULE, SPRITE_PICTURE_RULE } from './template.js';
 import { SPRITE_HALF_BODY_RULE } from '../prompt-registry.js';
 
 export const SPRITE_TASK = '完成角色默认立绘任务。首次缺资料时建立详细且可复用的身份候选与命名衣装设计，已有资料原样复用；按本轮格式交资料或画面。外貌、独立性格和衣装分离，不把本楼动作、姿势或地点变成默认立绘。';
@@ -25,11 +25,11 @@ export const SPRITE_DATA = [
     '可选 dna_uc_* 只写该景别身份需要排除的英文特征；无额外排除项时省略或留空，不写沿用正向、默认不变、表情姿势说明等自然语言指令。',
     '交付前先核对每份首行 slotid 和第二行 character 是否齐全且匹配本轮清单，再逐角色核对三景别、独立性格、完整衣装、半身派生及全部必填字段；首次候选有具体发型和五官组合，新衣装有逐件结构，身份不含鞋袜或其他穿戴物，半身衣装不含画外长度和腿脚细节。共同描述保真，UC 为实际排除项。只输出完整资料字段，不输出检查过程。',
 ].join('\n');
-export const SPRITE_TEMPLATE = [...identity, TEMPLATE_RULE, PICTURE_RULE, SPRITE_HALF_BODY_RULE,
+export const SPRITE_TEMPLATE = [...identity, SPRITE_TEMPLATE_RULE, SPRITE_PICTURE_RULE, SPRITE_HALF_BODY_RULE,
     '本轮交单人立绘模板，不输出 at 或 CG 当次身份旁路。缺身份景别时同次交 meta_dna_full_body、meta_dna_half_body、meta_dna_portrait: 本图索引 | 纯英文身份 TAG，可附 meta_dna_uc_对应景别；半身立绘也必须交齐三景别候选，不新增 partial。',
     '模板 Char 只引用自身身份和适用衣装槽，接默认站姿与平和表情，不照搬剧情动作。三景别身份不含衣装、表情、姿势或令牌；衣装旁路独立。逐槽完整写完后再分隔下一图，编号与任务一致。',
 ].join('\n');
-export const SPRITE_CAPTION = [SOURCE_RULE, PICTURE_RULE, SPRITE_HALF_BODY_RULE,
+export const SPRITE_CAPTION = [SOURCE_RULE, SPRITE_PICTURE_RULE, SPRITE_HALF_BODY_RULE,
     '本轮仅编写单人默认立绘画面，不提取或登记 DNA、性格或衣装候选。使用所给角色身份与指定衣装，保持默认站姿和平和表情，按实际取景只写可见特征。',
     '每份首行 #本轮编号，随后 scene: 英文人数、景别、机位与底色、char: 本人的完整英文可见身份、衣装、姿势与表情、uc: 排除项。若未提供编号，只交 #1 一份；已提供编号时逐一原样使用。',
     '每字段恰好一次；不使用身份或衣装令牌，不输出 slotid、meta、analysis、at、DNA 资料或 ---，多份以各自 #编号 开始。',

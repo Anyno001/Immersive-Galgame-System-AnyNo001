@@ -1,5 +1,5 @@
 import { SOURCE_RULE } from './common.js';
-import { TEMPLATE_RULE, PICTURE_RULE } from './template.js';
+import { SPRITE_TEMPLATE_RULE, SPRITE_PICTURE_RULE } from './template.js';
 import { SPRITE_HALF_BODY_RULE } from '../prompt-registry.js';
 
 export const EXPRESSION_TASK = '只处理本轮指定表情，保持角色身份和当前命名衣装，不借表情重新设计人物。';
@@ -13,7 +13,7 @@ export const EXPRESSION_FRAGMENTS = [SOURCE_RULE,
     'expression_uc: closed eyes',
     '交付前对账本轮槽号集合、规范角色键和指定表情，字段各一次，不复用其他槽的表情。',
 ].join('\n');
-export const EXPRESSION_TEMPLATE = [SOURCE_RULE, TEMPLATE_RULE, PICTURE_RULE, SPRITE_HALF_BODY_RULE,
+export const EXPRESSION_TEMPLATE = [SOURCE_RULE, SPRITE_TEMPLATE_RULE, SPRITE_PICTURE_RULE, SPRITE_HALF_BODY_RULE,
     '本轮按指定表情逐图输出完整立绘模板。每个 slot 是一张独立图片，不是同图多个表情；本图索引从0开始，只绑定该槽角色。',
     '只引用保存身份、所需景别和当前衣装，改变指定的可见面部表情，不沿用剧情坐姿或动作，不更换衣装。完整写完本图字段再分隔下一图。',
     '不输出 at、meta_identity、meta_signature、meta_dna_* 或临时校正字段，不建立身份候选。',

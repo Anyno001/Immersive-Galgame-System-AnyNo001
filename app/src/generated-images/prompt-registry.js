@@ -3,12 +3,12 @@
 
 import { DNA_WEIGHT_RULE } from './prompt-tasks/common.js';
 
-export const SPRITE_HALF_BODY_RULE = '立绘、换装和表情的 half_body 使用正常上半身取景：从完整头顶到腰胯，完整保留头发、双肩和躯干，手势在画面内，头顶及身体两侧留少量余白。Scene 明写 framed from the top of the head to the hips，不能只写 half-body；不裁成胸像或脸部特写，不使用 cowboy shot，不画全身或脚。明确指定 full_body 或 portrait 时按该景别，不套用本条；普通 CG 和局部一致性沿各自镜头。';
+export const SPRITE_HALF_BODY_RULE = '立绘、换装和表情的 half_body 使用正常上半身取景：从完整头顶到腰胯，完整保留头发、双肩和躯干，手势在画面内，头顶及身体两侧留少量余白。Scene 的半身构图标签使用 upper body。立绘的构图、动作和表情用逗号分隔的英文绘图 TAG 表达，身份与衣装占位符保持原格式。明确指定 full_body 时使用 full body，指定 portrait 时使用 portrait，按该景别设置画面边界。普通 CG 和局部一致性沿各自镜头。';
 
 export const BUILTIN_PROMPTS = Object.freeze({
     sprite: Object.freeze({
         // {tags} = DNA 组成的角色词与当次表情／动作；无 DNA 时使用写词结果。{matte} = 底色词。
-        positive: '{tags}, solo, upper body, framed from the top of the head to the hips, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
+        positive: '{tags}, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
         negative: 'multiple views, 2girls, 2boys, multiple girls, multiple boys, crowd, close-up, portrait, full body, feet, head out of frame, cropped arms, 1.2::scenery, detailed background::, white background, 1.2::gradient background, patterned background, drop shadow, floor, furniture::, holding weapon, text, speech bubble, watermark, signature, frame, border',
         // 立绘站得太板正：要一个不挡身体的日常小动作。
         poseRule: '根据角色性格和本次情境设计自然、轻微的日常动作。人物站姿稳定，手部与身体姿态协调，手势安排在取景范围内，随身物件置于身体轮廓两侧或画面侧边，躯干轮廓与衣装主要结构清晰可见。',
@@ -16,7 +16,7 @@ export const BUILTIN_PROMPTS = Object.freeze({
     expression: Object.freeze({
         designRule: '根据本次指定情绪及其强度，结合角色性格设计相应的眉眼、视线、嘴型和轻微动作，使面部与身体共同表达该情绪，符合该角色的行为习惯。整组立绘保持固定外貌、当前衣装、取景边界和正面朝向一致，各种情绪具有可辨识的神态与姿态差异，手势安排在取景范围内，躯干轮廓与衣装主要结构清晰可见。',
         // 旧组合路径使用腰胯以上的正常上半身，负面不排除 upper body。
-        positive: 'upper body, framed from the top of the head to the hips, standing, facing viewer, straight-on',
+        positive: 'upper body, standing, facing viewer, straight-on',
         negative: 'dutch angle, from side, profile, full body, feet',
         // 只拿掉双手下垂，避免表情动作被锁死。
         dropPositive: 'arms at sides',
@@ -134,7 +134,7 @@ export const DNA_TEMPLATE_WRITER_SYSTEM = [
     '每份必须写 prompt_mode: dna_template。可用 size、analysis、scene、scene_uc、char、char_uc；每个 char 后紧接自身 char_uc，UC 允许为空。',
     '任务 outfitMode 为 template 时，每份另写 outfit_mode: template；每个 named Char 恰写本人的 <<outfit:token>> 一次，与身份使用同一 token。衣装占位只能在本人的正向 char，不在 scene、reference 或任何 UC 中出现。',
     '任务若提供 slots，每个 slotid 只绑定该项 tokens 指定的全部角色，不带入其他 slot 的人物；没有 slots 时 sprite/derived 每图绑定全部任务角色，CG 按实际出镜取允许池子集。',
-    'scene 用英文句子描述共同场景、人数、互动、取景和光线，不含身份令牌或各人的固定外貌清单。',
+    '立绘、换装和表情的 scene 使用逗号分隔的英文绘图 TAG，写人数、景别、机位与底色；char 在本人的身份与衣装占位符后接动作、表情 TAG。普通 CG 和局部一致性的 scene 仍用英文句子描述共同场景、人数、互动、取景和光线。Scene 不含身份令牌或各人的固定外貌清单。',
     '具名 char 使用输入 token 的 <<dna:token>> 一次作为身份槽；衣装模板任务后接本人的 <<outfit:token>>，再写动作与表情，不在正文重复衣装说明。未启用衣装模板时，新写衣装使用 TAG，已有保存说明原样复用。不要再复制固定外貌，不替换普通名字或对别人的提及。',
     '衣装名与服装 DNA 独立写入 meta_outfit_name、meta_outfit_description。新衣装说明只用逗号分隔的英文 TAG，颜色、类别、款式、长度、材质和细节均按标签表达，不写自然语言句子、穿着谓语或补述；裙、靴、袜及外套明确适用长度，各件分别绑定颜色，从内到外独立列出。本次 outfit.name 或对应正文服装栏已有名称时逐字沿用原名，尚未入柜或缺说明也不改名、不翻译、不另造英文名；只有正文和本次资料均未命名时才命名。已有当次衣装说明或角色 outfits 按保存值原样引用，不改写、翻译、转换或补全；缺说明的新装在同次回复保留已知设定并补全可用标签表达的颜色、款式和细节，不新增请求。Char 保持角色占位符、服装占位符与当次动态的模板结构，不重写完整衣装正文。裸体和 form 保留显式语义。consistency 逐字使用本次 characterContext.outfit：显式校正为预检冻结的有效衣装，其他旧任务仍为原 CG 快照，不自行换装。',
     'char 可写 x,y | 正文，坐标在 0 到 1；自身身份 UC 可用 <<dna_uc:token>> 一次，其余负面要求在当次正文中完成。',

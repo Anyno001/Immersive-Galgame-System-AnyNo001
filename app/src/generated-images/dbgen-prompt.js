@@ -254,7 +254,7 @@ function characterDnaLines(name, dna) {
 }
 
 const SPRITE_DAILY_POSE_LINE = BUILTIN_PROMPTS.sprite.poseRule;
-const SPRITE_FRAMING_DESCRIPTION = '常规立绘采用头顶至腰胯的半身取景：画面上边缘位于完整发顶上方，下边缘落在腰胯，左右留出少量余白，完整呈现头发、双肩和躯干，手势安排在取景范围内。场景构图词明确写为 framed from the top of the head to the hips。本次明确指定 full_body 时采用完整全身取景，指定 portrait 时采用头颈双肩取景，画面边界随指定景别设置。';
+const SPRITE_FRAMING_DESCRIPTION = '常规立绘采用头顶至腰胯的半身取景：画面上边缘位于完整发顶上方，下边缘落在腰胯，左右留出少量余白，完整呈现头发、双肩和躯干，手势安排在取景范围内。半身构图标签使用 upper body，构图、动作和表情使用逗号分隔的英文绘图 TAG。本次明确指定 full_body 时使用 full body，指定 portrait 时使用 portrait，画面边界随指定景别设置。';
 const SPRITE_FACING_DESCRIPTION = '人物头部、双肩和躯干一起正对镜头，身体竖直，镜头与视线齐平。';
 const SPRITE_POSE_DESCRIPTION = SPRITE_DAILY_POSE_LINE;
 
@@ -273,7 +273,7 @@ export function buildCharacterSpriteDescription(name, dna, options) {
         '固定身份只引用本次任务 token；仅缺景别时同次输出独立景别 DNA 候选，衣装不进入 DNA。',
         nude ? '当次不穿衣服；保留基础身份及标志性特征，不删改 DNA。' : '衣装按当次角色资料；未指定时按角色设定设计日常穿着。',
         SPRITE_DAILY_POSE_LINE, note ? `本次额外要求：\n${note}` : '',
-        '镜头、底色、质量、UC 和用户模板约束以本次 writingRequirements 为准，写成自然语言正文。',
+        '镜头、底色、质量、UC 和用户模板约束以本次 writingRequirements 为准，用英文绘图 TAG 写入对应字段。',
     ].filter(Boolean).join('\n');
     return [
         nude ? `画角色「${name || ''}」的裸体立绘。` : `画角色「${name || ''}」的立绘。`,

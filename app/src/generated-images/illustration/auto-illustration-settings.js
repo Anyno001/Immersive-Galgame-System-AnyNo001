@@ -46,6 +46,7 @@ export const isConsistencyModelValid = (value) => CONSISTENCY_MODEL_OPTIONS.some
 // 模板留空视为恢复内置模板；背景/立绘正向模板必须含 {tags}，否则 LLM 的内容会被丢掉。
 // 只迁移可确认的旧内置原样副本；自定义模板保持原值。
 const LEGACY_SPRITE_TEMPLATES = new Set([
+    '{tags}, solo, upper body, framed from the top of the head to the hips, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
     '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}',
     '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
 ]);
