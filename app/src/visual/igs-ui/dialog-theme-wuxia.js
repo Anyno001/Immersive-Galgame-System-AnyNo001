@@ -48,6 +48,10 @@ export const WUXIA_DIALOG_STYLE = [
 // 选项（v6 .opt）：墨拓签条叠石纹，起首一道月白短竖笔；悬停翻作月白纸、焦墨字。字号仍由选项设置控制。
 const choice = `${overlay} .igs-option-bubble`;
 const tick = (head, tail) => `linear-gradient(180deg,${head} 0,${head} 50%,${tail} 80%,transparent)`;
+// 默认 / 悬浮布局下的选项列（顶栏工具栏、内嵌模式已自带 top 限位，不在此列）。
+const OPT_FREE = `${overlay}:not(.igs-toolbar-top):not(.igs-mode-embedded)`;
+// 选项列顶端离屏幕上缘至少留 16px，刘海屏再让出安全区。
+const OPT_TOP = 'max(16px, env(safe-area-inset-top, 0px) + 8px)';
 
 export const WUXIA_CHOICE_STYLE = [
     `${choice}{position:relative;box-sizing:border-box;min-width:min(420px,86%);padding:12px 56px 13px 66px;border:0;border-radius:0;background:${WUXIA_RUBBING_LAYER},${ink('.9')};box-shadow:none;color:${MOON};font-family:${SONG};font-weight:400;letter-spacing:.14em;text-shadow:none;transition:background .18s,color .18s;}`,
@@ -55,9 +59,13 @@ export const WUXIA_CHOICE_STYLE = [
     `${choice}:hover{background:rgb(${MOON_RGB});color:${JIAO};}`,
     `${choice}:hover::before{background:${tick(JIAO, 'rgba(28,27,25,.4)')};}`,
     `${choice}:active{transform:translateY(1px);}`,
-    // 对话框是通栏，量出的 --igs-dialog-w 就是整屏宽；选项容器改为对齐正文区（左右各让 72px，手机 28px），不随量宽贴边。
-    `${overlay} #igs-option-bubbles[data-igs-width="dialog"]{width:min(640px,calc(100% - 144px));max-width:none;}`,
-    `@media (max-width:640px){${choice}{min-width:0;}${overlay} #igs-option-bubbles[data-igs-width="dialog"]{width:calc(100% - 56px);}}`,
+    // 选项列吊在对话框上方，基础规则只限 max-height:60%，没扣掉底部偏移：有姓名、正文多行时对话框变高，列顶被推出屏幕。
+    // 可用高度改为「容器高 − 顶部留白 − 底部偏移」，仍不超过原 60%；放不下时在列内滚动，首项始终在屏内。
+    // 两条底部偏移与 original-reader-source.js 的默认 / 悬浮 bottom 规则逐项对应，改那边时这里同步。
+    `${OPT_FREE} #igs-option-bubbles[data-igs-pos]{max-height:min(60%,calc(100% - ${OPT_TOP} - (24px + var(--igs-dialog-h,220px) + var(--igs-toolbar-h,50px) + 12px)));overscroll-behavior:contain;}`,
+    `${OPT_FREE}.igs-floating #igs-option-bubbles[data-igs-pos]{max-height:min(60%,calc(100% - ${OPT_TOP} - (14px + var(--igs-dialog-h,220px) + var(--igs-toolbar-h,50px) + 10px)));}`,
+    // 手机竖屏：收窄签条留白与字距，少换行、压低整列高度；起首竖笔随左内距内移。
+    `@media (max-width:640px){${choice}{min-width:0;width:calc(100% - 40px);padding:8px 24px 9px 44px;letter-spacing:.06em;}${choice}::before{left:22px;}}`,
 ].join('\n');
 
 // 状态栏（v6 .hud）：墨底 .8 叠石纹，左缘一道上实下枯的月白干笔；头像外留 2px 再一线月白 .5（形状随用户设置）；进度条是干笔。
