@@ -41,7 +41,7 @@ export const WUXIA_DIALOG_STYLE = [
     // 引笔：v6 lead 干笔（dryh 飞白 + 前四成实墨），月白 .5，距姓名尾端 14px。
     `${scope} .igs-speaker::after{content:"";position:absolute;left:calc(100% + 14px);top:15px;width:min(400px,44vw);height:9px;pointer-events:none;background:${moon('.5')};${maskOf(WX_LEAD)}}`,
     // 手机竖屏（策划书 §1.5）：两侧 28，姓名 23px，引笔最长 150px。
-    `@media (max-width:640px){${scope},${scope}[data-igs-has-speaker="1"]{padding-left:28px;padding-right:28px;}${scope} .igs-speaker{left:28px;max-width:calc(100% - 56px);font-size:23px;}${scope} .igs-speaker::after{width:min(150px,30vw);top:13px;}}`,
+    `@media (max-width:640px){${scope},${scope}[data-igs-has-speaker="1"]{padding-left:28px;padding-right:28px;}${scope} .igs-speaker{left:28px;max-width:calc(100% - 56px);font-size:23px;}${scope} .igs-speaker::after{--wx-lead-w:min(150px,40vw);width:var(--wx-lead-w);height:calc(var(--wx-lead-w) * .06);top:calc(13px + (9px - var(--wx-lead-w) * .06) / 2);}}`,
 ].join('\n');
 
 // 选项（v6 .opt）：墨拓签条叠石纹，起首一道月白短竖笔；悬停翻作月白纸、焦墨字。字号仍由选项设置控制。
