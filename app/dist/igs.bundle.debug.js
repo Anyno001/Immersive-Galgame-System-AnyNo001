@@ -15827,9 +15827,10 @@ const WUXIA_DIALOG_STYLE = [
     // 石纹：v6 --rubbing 原样平铺 1024×512，不做皮肤缩放换算；只在纱的浓处出现。
     `${scope}::after{content:"";position:absolute;z-index:0;pointer-events:none;left:0;right:0;top:-40px;bottom:0;opacity:.8;background:${WX_RUBBING} 0 0/1024px 512px repeat;-webkit-mask:linear-gradient(180deg,transparent,#000 120px);mask:linear-gradient(180deg,transparent,#000 120px);}`,
     // 引笔：v6 lead 干笔（dryh 飞白 + 前四成实墨），月白 .5，距姓名尾端 14px。
-    `${scope} .igs-speaker::after{content:"";position:absolute;left:calc(100% + 14px);top:15px;width:min(400px,44vw);height:9px;pointer-events:none;background:${moon('.5')};${maskOf(WX_LEAD)}}`,
-    // 手机竖屏（策划书 §1.5）：两侧 28，姓名 23px，引笔最长 150px。
-    `@media (max-width:640px){${scope},${scope}[data-igs-has-speaker="1"]{padding-left:28px;padding-right:28px;}${scope} .igs-speaker{left:28px;max-width:calc(100% - 56px);font-size:23px;}${scope} .igs-speaker::after{--wx-lead-w:min(150px,40vw);width:var(--wx-lead-w);height:calc(var(--wx-lead-w) * .06);top:calc(13px + (9px - var(--wx-lead-w) * .06) / 2);}}`,
+    // 粗细、竖直位置与长度都以姓名文字为基准（em + 姓名框中线），字号或行高怎么变，引笔与字的比例都不变。
+    `${scope} .igs-speaker::after{content:"";position:absolute;left:calc(100% + 14px);top:calc(50% - .075em);width:min(15.4em,44vw);height:.35em;pointer-events:none;background:${moon('.5')};${maskOf(WX_LEAD)}}`,
+    // 手机竖屏（策划书 §1.5）：两侧 28，姓名 23px，引笔约 6.5 字宽（23px 时 150px）；粗细与位置沿用上面的 em 规则。
+    `@media (max-width:640px){${scope},${scope}[data-igs-has-speaker="1"]{padding-left:28px;padding-right:28px;}${scope} .igs-speaker{left:28px;max-width:calc(100% - 56px);font-size:23px;}${scope} .igs-speaker::after{width:min(6.5em,40vw);}}`,
 ].join('\n');
 
 // 选项（v6 .opt）：墨拓签条叠石纹，起首一道月白短竖笔；悬停翻作月白纸、焦墨字。字号仍由选项设置控制。
@@ -15841,7 +15842,9 @@ const WUXIA_CHOICE_STYLE = [
     `${choice}:hover{background:rgb(${MOON_RGB});color:${JIAO};}`,
     `${choice}:hover::before{background:${tick(JIAO, 'rgba(28,27,25,.4)')};}`,
     `${choice}:active{transform:translateY(1px);}`,
-    `@media (max-width:640px){${choice}{min-width:0;width:calc(100% - 40px);}}`,
+    // 对话框是通栏，量出的 --igs-dialog-w 就是整屏宽；选项容器改为对齐正文区（左右各让 72px，手机 28px），不随量宽贴边。
+    `${overlay} #igs-option-bubbles[data-igs-width="dialog"]{width:min(640px,calc(100% - 144px));max-width:none;}`,
+    `@media (max-width:640px){${choice}{min-width:0;}${overlay} #igs-option-bubbles[data-igs-width="dialog"]{width:calc(100% - 56px);}}`,
 ].join('\n');
 
 // 状态栏（v6 .hud）：墨底 .8 叠石纹，左缘一道上实下枯的月白干笔；头像外留 2px 再一线月白 .5（形状随用户设置）；进度条是干笔。
