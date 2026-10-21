@@ -98,6 +98,7 @@ IGS.api.uiSkins.register({
 | `qinglv-shanshui` | 青绿山水 | `wasteland-rust` | 废土锈铁 |
 | `adventure-journey` | 冒险旅途 | `horror-gore` | 血色噩梦 |
 | `plant-coffee` | 植物咖啡 | `horror-psych` | 褪色病历 |
+| `wuxia-ink` | 水墨武侠 | | |
 
 只借周边样式，不借对话框本体，所以不会出现两套几何叠在一起的情况。
 

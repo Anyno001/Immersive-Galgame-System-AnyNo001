@@ -58,7 +58,8 @@ export function renderItemFx(root, snapshot, ctx = {}) {
         schedule: ctx.schedule,
         clear: ctx.clear,
         accent,
-        ancient: readerSettings._ancientEra === true,
+        // 水墨武侠皮肤：任何世界观都按古代分支建物品卡（单字印），外观由皮肤的拓片样式接管。
+        ancient: readerSettings._ancientEra === true || readerSettings.dialogSkin === 'wuxia-ink',
         worldview: String(readerSettings._worldview || ''),
         onCard: (card) => play(EAT_ACTIONS.has(card.action) ? 'item-use' : `item-${card.action}`),
         onShowcase: () => play('item-rare'),
@@ -110,7 +111,8 @@ export function showItemMention(root, snapshot, name, ctx = {}) {
         schedule: ctx.schedule,
         clear: ctx.clear,
         accent,
-        ancient: readerSettings._ancientEra === true,
+        // 水墨武侠皮肤：任何世界观都按古代分支建物品卡（单字印），外观由皮肤的拓片样式接管。
+        ancient: readerSettings._ancientEra === true || readerSettings.dialogSkin === 'wuxia-ink',
         worldview: String(readerSettings._worldview || ''),
     });
 }

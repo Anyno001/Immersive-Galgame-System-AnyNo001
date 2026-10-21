@@ -102,6 +102,17 @@ const FRAMES = {
         icon: 'background:rgba(31,37,35,.08);border-radius:0;box-shadow:inset 0 0 0 1px rgba(95,127,134,.35);color:#5f7f86;',
         desc: 'color:#4a524f;opacity:1;',
     },
+    // 水墨武侠：拓片小品。墨底，外一线月白 .1、内收 6px 再一线 .2 作碑框；右下钤一方朱印。
+    'wuxia-ink': {
+        mention: '#ece7dd',
+        ink: '#ece7dd',
+        card: 'background:rgba(12,11,10,.94);border:0;border-radius:0;box-shadow:inset 0 0 0 1px rgba(236,231,221,.1),inset 0 0 0 6px rgba(12,11,10,.94),inset 0 0 0 7px rgba(236,231,221,.2),0 4px 14px rgba(0,0,0,.45);padding-left:18px;',
+        before: 'left:10px;top:12px;bottom:12px;width:2px;background:linear-gradient(180deg,var(--igs-item-mark),transparent);',
+        after: 'right:9px;bottom:8px;width:10px;height:10px;background:#a8382a;border-radius:1px;',
+        icon: 'background:rgba(236,231,221,.06);border-radius:0;box-shadow:inset 0 0 0 1px rgba(236,231,221,.3);color:#ece7dd;',
+        name: 'font-family:"IGS-MaShanZheng","LXGW WenKai",serif;font-weight:400;letter-spacing:.06em;',
+        desc: 'color:#c7c1b6;opacity:1;',
+    },
     'horror-gore': {
         mention: '#ff5a52',
         ink: '#f3ece4',

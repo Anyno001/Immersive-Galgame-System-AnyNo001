@@ -69,6 +69,7 @@ const SKIN_FAMILIES = Object.freeze({
     'adventure-journey': 'wood',
     'qinglv-shanshui': 'wood',
     'xianxia-ink': 'wood',
+    'wuxia-ink': 'paper',
     'black-white-manga': 'paper',
     'warm-picturebook': 'paper',
     'fairy-tale': 'paper',

@@ -92,7 +92,7 @@ function titleCard(env, text, life) {
     if (!text) return '';
     const front = env.layers && env.layers.front;
     if (front && typeof front.querySelector === 'function' && front.querySelector('.igs-fx-title-card')) return '';
-    return `<div class="igs-fx-title-card${env.ancient ? ' is-ancient' : ''}" style="--igs-fx-life:${life}ms"><div class="igs-fx-title-main">${esc(text)}</div></div>`;
+    return `<div class="igs-fx-title-card${env.ancient ? ' is-ancient' : ''}" data-igs-seal="${esc(Array.from(String(text))[0] || '')}" style="--igs-fx-life:${life}ms"><div class="igs-fx-title-main">${esc(text)}</div></div>`;
 }
 
 const POSITIONS = Object.freeze([[10, 8], [24, 70], [40, 20], [58, 78], [74, 16], [88, 66], [18, 40], [66, 44], [82, 84], [34, 54], [50, 6], [92, 30]]);

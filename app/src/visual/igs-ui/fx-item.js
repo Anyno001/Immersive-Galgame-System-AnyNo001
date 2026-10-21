@@ -153,7 +153,10 @@ function buildShowcase(doc, card, ancient = false) {
     node.appendChild(el(doc, 'div', 'igs-fx-item-showcase-burst'));
     const plate = el(doc, 'div', 'igs-fx-item-showcase-plate');
     plate.appendChild(buildIcon(doc, card, 'igs-fx-item-showcase-icon'));
-    plate.appendChild(el(doc, 'span', 'igs-fx-item-showcase-label', `${card.actionLabel}了`));
+    const label = el(doc, 'span', 'igs-fx-item-showcase-label', `${card.actionLabel}了`);
+    // 动作原词另存一份，供不带「了」的皮肤（水墨武侠「获 得」）取用。
+    label.setAttribute('data-igs-item-act', card.actionLabel || '');
+    plate.appendChild(label);
     plate.appendChild(el(doc, 'span', 'igs-fx-item-showcase-name', card.name));
     if (card.description) plate.appendChild(el(doc, 'span', 'igs-fx-item-showcase-desc', card.description));
     if (ancient) plate.appendChild(buildSeal(doc, card, 'igs-fx-item-showcase-seal'));

@@ -14,7 +14,7 @@ const envOf = (ancient) => {
     return { root, doc: root.ownerDocument, reduced: true, hold: 1, ancient, worldview: ancient ? 'ancient' : 'modern' };
 };
 
-test('all 20 popup skins cover system, result and quest while documents keep their approved paper', () => {
+test('all 21 popup skins cover system, result and quest while documents keep their approved paper', () => {
     for (const skin of ITEM_FRAME_SKINS) {
         const css = getDialogThemePanelFrameStyleText(skin);
         assert.ok(getDialogSkinStyleText(skin).includes(css), skin);

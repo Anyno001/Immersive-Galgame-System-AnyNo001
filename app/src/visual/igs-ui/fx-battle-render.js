@@ -91,6 +91,8 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
         motion: style.motion,
         ancient: readerSettings._ancientEra === true,
         xianxia: readerSettings.dialogSkin === 'xianxia-ink',
+        // 水墨武侠皮肤：不论世界观，战斗一律走武侠分支；古代背景下的其他皮肤保持原有水墨。
+        wuxia: readerSettings.dialogSkin === 'wuxia-ink',
         worldview: String(readerSettings._worldview || ''),
         onEvent: (event) => play(battleSfxKind(event, String(readerSettings._worldview || ''))),
     });

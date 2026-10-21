@@ -1,3 +1,5 @@
+import { WUXIA_PACE } from '../src/visual/igs-ui/fx-battle-wuxia.js';
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractFxDirectives, parseFxBody, resolveFxAtPage } from '../src/scene/fx-directives.js';
@@ -405,6 +407,40 @@ test('gate:fx-battle:ancient-era-switches-to-ink-and-seal-markup-modern-unchange
     assert.match(BATTLE_FX_STYLE_TEXT, /\.igs-fx-battle-hit\.is-ancient \.igs-fx-battle-slash\{/);
     assert.match(BATTLE_FX_STYLE_TEXT, /\[data-igs-fx-static\] \.igs-fx-battle-slash/, 'reduced motion still hides the sword light');
 });
+test('gate:fx-battle:wuxia-skin-uses-ink-branch-in-any-worldview-without-extra-timers', () => {
+    const fx = fxOf({ battle: { foe: '青衣剑客', title: '华山弃徒' }, battleStart: true, hits: [hit('crit', { skill: '落英剑法' })] });
+    const run = (readerSettings) => {
+        const root = makeStage();
+        const timers = makeTimers();
+        const page = (index, pageFx) => renderBattleFx(root, { messageId: 1, readerSettings, content: { currentIndex: index, fx: pageFx } }, { ...timers, playSfx: () => null });
+        page(0, fx);
+        const front = frontOf(root);
+        const plate = front.querySelector('.igs-fx-battle-plate');
+        timers.advance(Math.ceil(BATTLE_TIMING.encounterGap * (readerSettings.dialogSkin === 'wuxia-ink' ? WUXIA_PACE : 1)));
+        const hitNode = front.querySelector('.igs-fx-battle-hit');
+        const pending = timers.size();
+        page(1, fxOf({ battleEnd: 'win' }));
+        return { plate, hitNode, pending, result: front.querySelector('.igs-fx-battle-result') };
+    };
+    const base = run({ battleFx: ON, _ancientEra: true });
+    assert.doesNotMatch(base.hitNode.className, /is-wuxia/, '古代背景未选水墨武侠时保持原水墨分支');
+    for (const worldview of ['modern', 'scifi', 'ancient']) {
+        const wx = run({ battleFx: ON, dialogSkin: 'wuxia-ink', _ancientEra: worldview === 'ancient', _worldview: worldview });
+        for (const node of [wx.plate, wx.hitNode, wx.result]) assert.match(node.className, /\bis-ancient\b.*\bis-wuxia\b/, worldview);
+        assert.doesNotMatch(wx.hitNode.className, /\bis-scifi\b/, worldview);
+        assert.equal(wx.plate.getAttribute('data-igs-battle-era'), 'wuxia');
+        assert.equal(wx.hitNode.querySelector('.wx-verdict').textContent, '要害');
+        assert.equal(wx.hitNode.querySelectorAll('.wx-ch').length, 4);
+        assert.equal(wx.hitNode.querySelector('.wx-h-skill').textContent, '落英剑法');
+        assert.equal(wx.result.querySelector('.wx-r-char').textContent, '胜');
+        assert.equal(wx.result.querySelector('.wx-r-line').textContent, '青衣剑客 · 败走');
+        // 逐字、顿帧只用 CSS 延时；震屏改用带 delay 的 WAAPI，不走 shake 计时器，所以计时器只会更少。
+        assert.ok(wx.pending <= base.pending, `${worldview}: ${wx.pending} > ${base.pending}`);
+    }
+    assert.match(BATTLE_FX_STYLE_TEXT, /\.igs-fx-battle-hit\.is-ancient\.is-wuxia /);
+});
+
+
 
 test('gate: battle targets a stage cast member by name after the speaker', () => {
     const fx = { hits: [{ attacker: '甲', target: '乙', result: 'hit' }, { attacker: '乙', target: '甲', result: 'hit' }] };

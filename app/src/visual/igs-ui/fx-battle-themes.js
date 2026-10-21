@@ -2,6 +2,7 @@ import { stroke } from './dialog-skin-frame.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, MAGIC_VEIL, magicTint } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_XIANXIA_INK, xianxiaInk } from './dialog-theme-xianxia.js';
+import { DIALOG_SKIN_WUXIA_INK, wuxiaInk } from './dialog-theme-wuxia.js';
 import { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, MERMAID_PEARL_HI, mermaidAbyss, mermaidPearl } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
@@ -27,6 +28,7 @@ import {
 import {
     DIALOG_FONT_CINZEL,
     DIALOG_FONT_HUIWEN,
+    DIALOG_FONT_MASHANZHENG,
     DIALOG_FONT_NEO_XIHEI,
     DIALOG_FONT_NEO_ZHISONG,
     DIALOG_FONT_SERIF,
@@ -145,6 +147,14 @@ const BATTLE_THEMES = Object.freeze({
         ],
         title: 'font-style:normal;font-weight:400;letter-spacing:.3em;text-indent:.3em;',
         veil: 'background:rgba(16,20,26,.32);',
+    },
+    // 水墨武侠：过场标题卡借这里的墨色与字体；战斗本身走 fx-battle 的 is-wuxia 分支，与世界观无关。
+    [DIALOG_SKIN_WUXIA_INK]: {
+        accent: '#a8382a',
+        font: DIALOG_FONT_MASHANZHENG,
+        vars: { veil: wuxiaInk('.93'), rule: 'rgba(236,231,221,.35)', ink: '#f3eee4', halo: `0 1px 0 ${wuxiaInk('.6')}`, 'title-halo': `0 1px 0 ${wuxiaInk('.8')}`, wipe: wuxiaInk('.94'), lose: '#c7c1b6', escape: '#8c8881' },
+        mark: `padding:0 3px;border-radius:1px;background:#a8382a;color:#f3eee4;font-size:0;line-height:1;text-shadow:none;--igs-bt-seal:"战";`,
+        extra: (scope) => [`${scope} ${PART_SELECTORS.mark}::before{content:var(--igs-bt-seal);font-size:12px;letter-spacing:0;}`],
     },
     // 童话小镇：奶油纸通栏、鼠尾草绿细线，名牌标记是一颗灯火色小星。
     [DIALOG_SKIN_FAIRY_TALE]: {
