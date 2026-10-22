@@ -20,6 +20,8 @@ export const TITLE_SCREEN_ID = 'igs-title-screen';
 export const TITLE_SKIN_ATTR = 'data-igs-title-skin';
 const STYLE_ID = 'igs-title-screen-style';
 const OPENING_CARD_MS = 2200;
+// 水墨武侠开场：朱砂印 1.76s 起钤、2.08s 落定，再留约 1.5s 才随卡淡出，不让印没看清就跳走。
+const WUXIA_OPENING_CARD_MS = 3600;
 
 // 世界观名录旁的英文小字，没有立绘时也作背景右侧的大号描边字。
 const WORLD_EN = Object.freeze({ modern: 'MODERN', ancient: 'ANCIENT', fantasy: 'FANTASY', scifi: 'SCI-FI', apocalypse: 'WASTELAND', taisho: 'TAISHO', magic: 'MAGIC', horror: 'HORROR' });
@@ -282,10 +284,11 @@ export function playOpeningCard(overlay, { main = '序章', sub = '', worldview 
     const id = normalizeWorldview(worldview);
     const ancient = id === 'ancient';
     const worldSkin = !ancient && worldSkinOf(id) ? ` is-${id}` : '';
-    const life = prefersReducedMotion() ? 900 : OPENING_CARD_MS;
+    const wuxia = typeof overlay.getAttribute === 'function' && overlay.getAttribute('data-igs-dialog-skin') === 'wuxia-ink';
+    const life = prefersReducedMotion() ? 900 : (wuxia ? WUXIA_OPENING_CARD_MS : OPENING_CARD_MS);
     const subText = ancient ? String(sub || '').replace(/^——\s*/, '') : sub;
     layer.setAttribute('data-igs-title-view', 'opening');
-    const html = `<div class="igs-ts-backdrop"></div><div class="${ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card'}${worldSkin}" style="--igs-fx-life:${life}ms"><div class="igs-fx-title-main">${esc(main)}</div>${subText ? `<div class="igs-fx-title-sub">${esc(subText)}</div>` : ''}</div>`;
+    const html = `<div class="igs-ts-backdrop"></div><div class="${ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card'}${worldSkin}" data-igs-seal="${esc(Array.from(String(main || ''))[0] || '')}" style="--igs-fx-life:${life}ms"><div class="igs-fx-title-main">${esc(main)}</div>${subText ? `<div class="igs-fx-title-sub">${esc(subText)}</div>` : ''}</div>`;
     layer.innerHTML = html;
     htmlByLayer.set(layer, html);
     const wait = typeof schedule === 'function' ? schedule : (fn, ms) => setTimeout(fn, ms);

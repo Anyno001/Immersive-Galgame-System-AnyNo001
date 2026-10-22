@@ -9,6 +9,7 @@ import { PACK as variety } from '../visual/igs-ui/fx-pack-variety.js';
 import { PACK as harem } from '../visual/igs-ui/fx-pack-harem.js';
 import { PACK as abo } from '../visual/igs-ui/fx-pack-abo.js';
 import { PACK as myth } from '../visual/igs-ui/fx-pack-myth.js';
+import { PACK as wuxia } from '../visual/igs-ui/fx-pack-wuxia.js';
 import { PACK as nsfw } from '../visual/igs-ui/fx-pack-nsfw.js';
 import { PACK as coc } from '../visual/igs-ui/fx-pack-coc.js';
 import { PACK as places } from '../visual/igs-ui/fx-pack-places.js';
@@ -190,7 +191,7 @@ export function buildPackRegistry(manifests) {
     });
 }
 
-const REGISTRY = buildPackRegistry([transform, beats, festival, variety, harem, abo, myth, nsfw, coc, places, idol, camera]);
+const REGISTRY = buildPackRegistry([transform, beats, festival, variety, harem, abo, myth, wuxia, nsfw, coc, places, idol, camera]);
 
 export const FX_PACKS = REGISTRY.packs;
 export const FX_PACK_IDS = REGISTRY.ids;

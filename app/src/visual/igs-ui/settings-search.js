@@ -62,7 +62,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'toolbar-dock', label: '工具栏位置', aliases: ['工具栏', '按钮', '顶部', '紧贴对话框'], page: 'ui-bar', path: 'readerSettings.toolbarDock' },
     { id: 'status-hud-position', label: '状态栏位置', aliases: ['状态栏', 'hud', '头像', '左上角', '挡住', '挪位置'], page: 'ui-bg' },
     { id: 'sprite-scale', label: '立绘缩放与高度', aliases: ['立绘太大', '立绘太小', '缩放', '高度', '人物大小'], page: 'chars', open: ['sprite-display'] },
-    { id: 'dialog-skin', label: '对话框风格', aliases: ['皮肤', '对话框样式', '换皮', '科幻', '末日', '全息', '废土', '本卡皮肤', '主题'], page: 'style', path: 'readerSettings.dialogSkin' },
+    { id: 'dialog-skin', label: '对话框风格', aliases: ['皮肤', '对话框样式', '换皮', '科幻', '末日', '全息', '废土', '武侠', '水墨', '江湖', '本卡皮肤', '主题'], page: 'style', path: 'readerSettings.dialogSkin' },
     { id: 'title-screen', label: '开场先显示主界面', aliases: ['主界面', '标题画面', '开始菜单', '开场白', '第0层', '选择世界观'], page: 'style', path: 'readerSettings.titleScreen' },
     { id: 'text-effect', label: '文字增强', aliases: ['描边', '看不清', '投影', '字看不清'], page: 'text', path: 'readerSettings.dialogTextEffect' },
     { id: 'camera-kenburns', label: '背景缓慢推镜', group: 'stage', open: ['perf-camera'], aliases: ['推镜', '背景移动', '镜头'] },

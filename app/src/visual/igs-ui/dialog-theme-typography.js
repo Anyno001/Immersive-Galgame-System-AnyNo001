@@ -21,6 +21,7 @@ export const DIALOG_FONT_PINYON_SCRIPT = '"Pinyon Script","Source Han Serif CN",
 export const DIALOG_FONT_QUICKSAND = '"Quicksand","Caveat","Tsanger YuYang",sans-serif';
 export const DIALOG_FONT_CAVEAT = '"Caveat","Quicksand","Tsanger YuYang",sans-serif';
 export const DIALOG_FONT_IM_FELL = '"IM Fell English SC","Cinzel","Source Han Serif CN",serif';
+export const DIALOG_FONT_MASHANZHENG = '"IGS-MaShanZheng","LXGW WenKai","KaiTi",serif';
 
 // 素材主题的默认排版；用户在主题页改过的值仍优先（见 settings-normalize 的 applyReferenceTypographyDefaults）。
 const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
@@ -183,6 +184,18 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         textColor: '#eae2d1',
         thoughtColor: '#9fc0c8',
         narrationColor: '#c4bcae',
+    }),
+    // 水墨武侠：夜墨拓本，底暗字亮；姓名马善政楷书月白，正文与旁白新致宋，心里话文楷、淡一档。
+    'wuxia-ink': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_MASHANZHENG,
+        textFont: DIALOG_FONT_NEO_ZHISONG,
+        thoughtFont: DIALOG_FONT_WENKAI,
+        narrationFont: DIALOG_FONT_NEO_ZHISONG,
+        nameColor: '#f3eee4',
+        textColor: '#ece7dd',
+        thoughtColor: '#a39e95',
+        narrationColor: '#c7c1b6',
     }),
     // 血色噩梦（波普血浆）：名字是红块上的骨白得意黑，正文用干脆的新晰黑；心里话亮红，旁白褪成灰。
     'horror-gore': Object.freeze({

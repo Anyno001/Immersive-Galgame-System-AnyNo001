@@ -2,6 +2,8 @@ import { stroke } from './dialog-skin-frame.js';
 import { getBattleTheme } from './fx-battle-themes.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint } from './dialog-theme-css-skins.js';
 import { DIALOG_SKIN_QINGLV, qinglvSilk } from './dialog-theme-guofeng.js';
+import { DIALOG_SKIN_WUXIA_INK } from './dialog-theme-wuxia.js';
+import { WX_SEAL_MASK, WX_TBAND_MASK, maskOf } from './wuxia-ink-svg.js';
 import { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, mermaidPearl } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
@@ -48,6 +50,21 @@ const TITLE_EXTRAS = Object.freeze({
         `${s} .igs-fx-title-main{font-weight:400;letter-spacing:.4em;padding-left:.4em;}`,
         `${s} .igs-fx-title-sub{color:#2f5d7c;}`,
     ],
+    // 水墨武侠（v6 定稿）：焦墨毛边条由中线向两侧展开，纸色马善政标题字距由宽收紧，副题纸色 .62，条上一方小朱印。
+    // 选了本皮肤时古代背景也走这一版：同时覆盖 .is-ancient 宣纸竖幅（选择器特异度与 s 相同、排在其后）。
+    [DIALOG_SKIN_WUXIA_INK]: (s) => {
+        const t = `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_WUXIA_INK}"] .igs-fx-title-card.is-ancient`;
+        const both = (suffix = '') => `${s}${suffix},${t}${suffix}`;
+        return [
+            `${both()}{left:0;right:0;top:36.3%;bottom:auto;height:150px;transform:none;writing-mode:horizontal-tb;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:0;border:0;border-radius:0;background:none;box-shadow:none;isolation:isolate;color:#f3eee4;text-shadow:none;}`,
+            `${both('::before')}{display:block;content:"";position:absolute;left:0;right:0;top:0;bottom:0;width:auto;height:auto;margin:0;z-index:-1;border:0;background:rgba(22,21,19,.93);${maskOf(WX_TBAND_MASK)}animation:igs-wx-title-unroll .88s cubic-bezier(.3,.7,.2,1) .08s both;}`,
+            `${both('::after')}{display:grid;place-items:center;content:attr(data-igs-seal);color:#f5ece0;font:400 17px/1 "IGS-MaShanZheng","LXGW WenKai",serif;letter-spacing:0;text-shadow:none;writing-mode:horizontal-tb;position:absolute;left:calc(50% + 184px);right:auto;top:92px;bottom:auto;width:30px;height:30px;margin:0;align-self:auto;transform:none;border:0;border-radius:0;box-shadow:none;background:#a8382a;${maskOf(WX_SEAL_MASK)}animation:igs-wx-title-stamp .32s ease-out 1.76s both;}`,
+            `${both(' .igs-fx-title-main')}{writing-mode:horizontal-tb;font:400 54px/1.1 "IGS-MaShanZheng","LXGW WenKai",serif;letter-spacing:.42em;padding:0 0 0 .42em;color:#f3eee4;text-shadow:none;animation:igs-wx-title-name .8s ease-out .72s both;}`,
+            `${both(' .igs-fx-title-sub')}{writing-mode:horizontal-tb;font:400 15px "LXGW Neo ZhiSong","Source Han Serif CN",serif;letter-spacing:.6em;padding:0 0 0 .6em;color:rgba(243,238,228,.62);text-shadow:none;opacity:1;animation:igs-wx-title-fade .64s 1.28s both;}`,
+            `@media (max-width:640px){${both()}{top:40.3%;height:140px;gap:12px;}${both('::after')}{left:auto;right:36px;top:86px;width:26px;height:26px;font-size:15px;}${both(' .igs-fx-title-main')}{font-size:34px;letter-spacing:.3em;padding-left:.3em;}${both(' .igs-fx-title-sub')}{font-size:13px;letter-spacing:.4em;padding-left:.4em;}}`,
+            '@keyframes igs-wx-title-unroll{from{transform:scaleX(0)}to{transform:scaleX(1)}}@keyframes igs-wx-title-name{from{opacity:0;letter-spacing:.7em}to{opacity:1;letter-spacing:.42em}}@keyframes igs-wx-title-fade{from{opacity:0}to{opacity:1}}@keyframes igs-wx-title-stamp{0%{opacity:0;transform:scale(1.7)}55%{opacity:1;transform:scale(.94)}100%{opacity:1;transform:scale(1)}}',
+        ];
+    },
     // 童话小镇：野餐卡片，红白格子布边框，地点前后各一颗灯火色小星；装饰一律实色。
     [DIALOG_SKIN_FAIRY_TALE]: (s) => [
         `${s}{${CARD}border:7px solid transparent;border-radius:14px;background:${fairyPaper(1)} padding-box,repeating-conic-gradient(#e9a3a0 0 25%,#fbf3e6 0 50%) 0 0/14px 14px border-box;box-shadow:0 6px 0 rgba(74,64,52,.18),0 10px 24px rgba(40,30,20,.22);}`,

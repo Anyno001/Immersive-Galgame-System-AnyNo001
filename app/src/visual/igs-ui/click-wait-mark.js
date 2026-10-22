@@ -2,7 +2,7 @@
 export const CLICK_WAIT_MARK_GLYPHS = Object.freeze([
     'auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush',
     'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye',
-    'reticle', 'hazard', 'bubbles', 'sword',
+    'reticle', 'hazard', 'bubbles', 'sword', 'dian',
 ]);
 
 export const CLICK_WAIT_MARK_LABELS = Object.freeze({
@@ -30,6 +30,7 @@ export const CLICK_WAIT_MARK_LABELS = Object.freeze({
     reticle: '全息准星',
     hazard: '警示三角',
     sword: '倒悬飞剑',
+    dian: '墨点',
 });
 
 export const CLICK_WAIT_MARK_STYLES = Object.freeze(
@@ -86,6 +87,8 @@ const SHAPES = Object.freeze({
     compass: "<path d='M12 22.2L6.6 9.4L12 12.2L17.4 9.4Z'/><circle cx='12' cy='4.6' r='2'/>",
     // 仙侠水墨：一柄倒悬的飞剑（剑尖朝下）。
     sword: "<path d='M12 22.6L9.6 13.6V4.6H14.4V13.6Z'/><rect x='7' y='2.4' width='10' height='2' rx='.6'/>",
+    // 水墨武侠：月白侧点「、」，起笔圆钝、向右下收成一团。
+    dian: "<path transform='translate(3 2)' d='M3 2 C7 2 13 6 15.5 12 C17 16 14 19.5 10.5 18 C7 16.5 5 10 2.4 4.6 C1.8 3.2 2 2 3 2Z'/>",
     seal: "<rect x='6.5' y='6.5' width='11' height='11' rx='1.4'/>",
     // 童话小镇的草莓：籽镂空（evenodd），单色遮罩下也认得出。
     strawberry: "<path fill-rule='evenodd' d='M12 6.5C17.5 6.5 20 10 18.6 14.8C17.4 18.8 14 21.6 12 22.5C10 21.6 6.6 18.8 5.4 14.8C4 10 6.5 6.5 12 6.5ZM8.6 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM14 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM11.25 14.4a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM9.1 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0ZM13.5 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0Z'/><path d='M6.6 6.6L10.2 6.4L12 2.2L13.8 6.4L17.4 6.6L14.4 8.6H9.6Z'/>",
@@ -110,11 +113,12 @@ const ANIMATIONS = Object.freeze({
     'tap-soft': { keyframes: '0%,100%{transform:translateY(-1px);opacity:.45;}50%{transform:translateY(2px);opacity:1;}', timing: '1.8s ease-in-out infinite', origin: '50% 50%' },
     'tap-hop': { keyframes: '0%,100%{transform:translateY(0) scale(1.08,.92);}15%{transform:translateY(0) scale(1);}45%{transform:translateY(-4px);}75%{transform:translateY(0) scale(1);}', timing: '1.4s ease-in-out infinite', origin: '50% 100%' },
     'tap-steps': { keyframes: '0%{transform:translateY(0);}25%{transform:translateY(-4px);}50%{transform:translateY(0);}75%{transform:translateY(1.5px) scale(1.12,.86);}', timing: '.9s steps(1,end) infinite', origin: '50% 100%' },
+    'tap-breath': { keyframes: '0%,100%{opacity:.35;}50%{opacity:1;}', timing: '2.4s ease-in-out infinite', origin: '50% 50%' },
 });
 
 const GLYPH_ANIMATIONS = Object.freeze({
     pendant: 'tap-soft', seal: 'tap-soft', caret: 'tap-soft', 'triangle-hollow': 'tap-soft', eye: 'tap-soft',
-    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop', reticle: 'tap-soft', bubbles: 'tap-hop',
+    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop', reticle: 'tap-soft', bubbles: 'tap-hop', dian: 'tap-breath',
 });
 const GLYPH_MARKS = Object.freeze(Object.fromEntries(CLICK_WAIT_MARK_GLYPHS.filter((id) => id !== 'auto')
     .map((id) => [id, { shape: id, animation: GLYPH_ANIMATIONS[id] || 'tap' }])));
@@ -129,6 +133,7 @@ export const CLICK_WAIT_MARK_SKINS = Object.freeze({
     'fairy-tale': mark('strawberry', '#dc6a5c'),
     'qinglv-shanshui': mark('seal', '#b23a2a'),
     'xianxia-ink': mark('sword', '#b23a2a'),
+    'wuxia-ink': mark('dian', '#ece7dd'),
     'retro-japanese': mark('triangle-brush', '#c23a24'),
     'adventure-journey': mark('compass', '#9a6a2c'),
     'plant-coffee': mark('leaf', '#6f8446'),

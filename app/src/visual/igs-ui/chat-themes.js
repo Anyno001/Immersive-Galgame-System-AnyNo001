@@ -14,6 +14,7 @@ export const CHAT_THEME_PALETTES = Object.freeze({
     'fairy-tale': palette('#f6f1e2', '#e9e6cf', '#4a4034', '#5e5444', '#9a9380', '#fffcf3', '#d9e3bf', 'rgba(122,138,82,.3)'),
     'qinglv-shanshui': palette('#f1ede2', '#e8e3d5', '#26332f', '#2b3532', '#8c958f', '#fbf9f3', '#cfe0d6', 'rgba(47,93,124,.3)'),
     'xianxia-ink': palette('#f0ece3', '#e6e1d4', '#1f2523', '#2a302e', '#8b938d', '#faf8f2', '#d4dcd8', 'rgba(95,127,134,.3)'),
+    'wuxia-ink': palette('#0c0b0a', '#2b2a28', '#ece7dd', '#0c0b0a', '#77736c', '#2b2a28', '#ece7dd', 'rgba(236,231,221,.18)'),
     'elegant-european': palette('#f4efe6', '#2b2a3a', '#e8dcc2', '#1f1e2b', '#8b8577', '#ffffff', '#dccba8'),
     'gradient-veil': palette('#1d1d22', '#111114', '#eeeeee', '#000000', '#9a9aa6', '#34343d', '#4a6cf7'),
     'day-minimal': palette('#f5f7fa', '#ffffff', '#222222', '#d0d5dd', '#8b93a1', '#ffffff', '#cfe3ff'),

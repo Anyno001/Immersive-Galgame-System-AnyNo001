@@ -1,4 +1,6 @@
 import { worldSkinOf } from '../../scene/worldview.js';
+import { WUXIA_BATTLE_STYLE_TEXT } from './fx-battle-wuxia-style.js';
+import { WUXIA_PACE, WUXIA_REACT_DELAY, WUXIA_SHAKE_FRAMES, buildWuxiaEncounter, buildWuxiaHit, buildWuxiaHurt, buildWuxiaResult, wuxiaHurts, wuxiaShakeOf } from './fx-battle-wuxia.js';
 
 // 战斗演出 DOM 层：遭遇、出招、结算挂在 fx 前层（对话层之上），对手名牌与战斗暗角挂在 fx 后层。
 // 同一身份（消息|swipe|页）重绘不重播；名牌、暗角与黑边跟随当前页的战斗区间状态；计时器与立绘动画统一回收。
@@ -14,12 +16,13 @@ const MOTION_ATTR = 'data-igs-fx-battle-motion';
 const LETTERBOX_ATTR = 'data-igs-fx-battle-letterbox';
 const MOTION_ATTRS = Object.freeze([SHOW_ATTR, SHAKE_ATTR, MOTION_ATTR, LETTERBOX_ATTR]);
 const SHAKE_MS = 420;
-const EVENT_CLASSES = '.igs-fx-battle-encounter, .igs-fx-battle-hit, .igs-fx-battle-result, .igs-fx-battle-skip, .igs-fx-battle-foe';
+const EVENT_CLASSES = '.igs-fx-battle-encounter, .igs-fx-battle-hit, .igs-fx-battle-result, .igs-fx-battle-skip, .igs-fx-battle-foe, .igs-fx-battle-wx-hurt';
 // 古代背景（readerSettings._ancientEra）：时间轴与音效不变，节点加 is-ancient，换成水墨剑光、书法招式名与朱砂印。
 const ANCIENT_HIT_LABELS = Object.freeze({ hit: '命中', crit: '暴击', miss: '闪避', guard: '格挡', ko: '击倒', heal: '疗伤' });
 const ANCIENT_RESULT_GLYPHS = Object.freeze({ win: '胜', lose: '败', escape: '遁' });
-// ancient 取值：false | true（水墨）| 'xianxia'（仙侠水墨皮肤：水墨基础上再加 is-xianxia，换成青白剑气、冷白闪光、紫白雷劫）。
-const eraClass = (className, ancient) => (ancient ? `${className} is-ancient${ancient === 'xianxia' ? ' is-xianxia' : ''}` : className);
+// ancient 取值：false | true（水墨）| 'xianxia'（仙侠水墨皮肤：水墨基础上再加 is-xianxia，换成青白剑气、冷白闪光、紫白雷劫）
+// | 'wuxia'（水墨武侠皮肤：任何世界观都挂 is-ancient is-wuxia，焦墨落笔，样式见 fx-battle-wuxia-style.js）。
+const eraClass = (className, ancient) => (ancient ? `${className} is-ancient${ancient === 'xianxia' || ancient === 'wuxia' ? ` is-${ancient}` : ''}` : className);
 // 换皮世界观（worldSkinOf）：在现代节点上追加 is-<id> 换皮，时间轴、文案与音效不变。
 const SHIELD_SVG = '<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true"><polygon points="50,4 90,27 90,73 50,96 10,73 10,27" fill="none" stroke="currentColor" stroke-width="4"/><polygon points="50,18 78,34 78,66 50,82 22,66 22,34" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="2" stroke-opacity=".7"/></svg>';
 
@@ -113,18 +116,29 @@ function shake(state, level) {
     track(state, () => state.motion.removeAttribute(SHAKE_ATTR), SHAKE_MS);
 }
 
-function reactSprite(state, spriteEl, result) {
+function reactSprite(state, spriteEl, result, delay = 0) {
     const steps = SPRITE_REACTIONS[result];
     if (!steps || !spriteEl || typeof spriteEl.animate !== 'function') return;
     for (const step of steps) {
         try {
             const anim = spriteEl.animate(step.frames.map((value) => ({ [step.prop]: value })), {
-                duration: step.duration, easing: 'cubic-bezier(.2,.8,.3,1)', fill: step.fill || 'none', composite: step.composite || 'add',
+                duration: step.duration, delay, easing: 'cubic-bezier(.2,.8,.3,1)', fill: step.fill || 'none', composite: step.composite || 'add',
             });
             state.anims.add(anim);
             if (step.fill !== 'forwards' && anim && 'onfinish' in anim) anim.onfinish = () => state.anims.delete(anim);
         } catch { /* 不支持叠加合成的环境跳过立绘反应 */ }
     }
+}
+
+// 武侠：震屏按定稿的落笔时刻错后，用 WAAPI 的 delay 播放，不另起计时器。
+function wuxiaShake(state, motion, [level, delay]) {
+    const spec = WUXIA_SHAKE_FRAMES[level];
+    if (!spec || !motion || typeof motion.animate !== 'function') return;
+    try {
+        const anim = motion.animate(spec.frames.map((translate, i) => ({ translate, offset: spec.offsets[i] })), { duration: spec.duration, delay, easing: spec.easing });
+        state.anims.add(anim);
+        if (anim && 'onfinish' in anim) anim.onfinish = () => state.anims.delete(anim);
+    } catch { /* 不支持 WAAPI 的环境不震屏 */ }
 }
 
 function portraitImg(doc, className, url, name) {
@@ -146,6 +160,7 @@ function buildFoe(doc, event) {
 
 function buildEncounter(doc, event, ancient) {
     const node = el(doc, 'div', eraClass('igs-fx-battle-encounter igs-fx-transient', ancient));
+    if (ancient === 'wuxia') return buildWuxiaEncounter(doc, node, event);
     node.appendChild(el(doc, 'div', 'igs-fx-battle-wipe is-a'));
     node.appendChild(el(doc, 'div', 'igs-fx-battle-wipe is-b'));
     if (event.portrait) node.appendChild(portraitImg(doc, 'igs-fx-battle-vs-portrait', event.portrait, event.foe));
@@ -192,6 +207,7 @@ function buildHit(doc, event, ancient) {
     const node = el(doc, 'div', eraClass('igs-fx-battle-hit igs-fx-transient', ancient));
     node.setAttribute('data-igs-battle-result', event.result);
     node.setAttribute('data-igs-battle-target', event.targetKind || 'stage');
+    if (ancient === 'wuxia') return buildWuxiaHit(doc, node, event);
     if (event.skill || event.attacker) {
         const banner = el(doc, 'div', 'igs-fx-battle-skill');
         if (event.attacker) banner.appendChild(el(doc, 'span', 'igs-fx-battle-skill-who', event.attacker));
@@ -205,9 +221,10 @@ function buildHit(doc, event, ancient) {
     return node;
 }
 
-function buildResult(doc, event, ancient) {
+function buildResult(doc, event, ancient, foe = '') {
     const node = el(doc, 'div', eraClass('igs-fx-battle-result igs-fx-transient', ancient));
     node.setAttribute('data-igs-battle-result', event.result);
+    if (ancient === 'wuxia') return buildWuxiaResult(doc, node, event, foe);
     node.appendChild(el(doc, 'div', 'igs-fx-battle-result-veil'));
     const ribbon = el(doc, 'div', 'igs-fx-battle-ribbon');
     ribbon.appendChild(el(doc, 'span', 'igs-fx-battle-ribbon-title', (ancient && ANCIENT_RESULT_GLYPHS[event.result]) || event.title));
@@ -258,6 +275,8 @@ export function repositionBattleImpacts(root, { speaker = null, cast = [] } = {}
 
 function syncPlate(state, layers, plan, ancient, worldSkin = '') {
     const plate = plan.plate;
+    // 结算页战斗已结束、没有名牌时，结算行仍要写出对手名：记住最近一次名牌上的对手。
+    if (plate && plate.foe) state.foe = plate.foe;
     if (plan.letterbox) layers.motion.setAttribute(LETTERBOX_ATTR, '1');
     else layers.motion.removeAttribute(LETTERBOX_ATTR);
     if (!plate) {
@@ -282,14 +301,16 @@ function syncPlate(state, layers, plan, ancient, worldSkin = '') {
     const vignetteClass = eraClass('igs-fx-battle-vignette', ancient) + skin;
     if (state.vignette.className !== vignetteClass) state.vignette.className = vignetteClass;
     const label = [plate.foe || '战斗中', plate.title].filter(Boolean).join(' · ');
-    const era = ancient === 'xianxia' ? 'xianxia' : ancient ? 'ancient' : (worldSkin || 'modern');
+    const era = ancient === 'xianxia' || ancient === 'wuxia' ? ancient : ancient ? 'ancient' : (worldSkin || 'modern');
     if (state.plate.getAttribute('data-igs-battle-label') !== label || state.plate.getAttribute('data-igs-battle-era') !== era) {
         state.plate.setAttribute('data-igs-battle-label', label);
         state.plate.setAttribute('data-igs-battle-era', era);
         state.plate.className = eraClass('igs-fx-battle-plate', ancient) + skin;
         state.plate.textContent = '';
         state.plate.appendChild(el(doc, 'span', 'igs-fx-battle-plate-mark', ancient ? '战' : 'VS'));
-        state.plate.appendChild(el(doc, 'span', 'igs-fx-battle-plate-name', label));
+        const name = el(doc, 'span', 'igs-fx-battle-plate-name', ancient === 'wuxia' ? (plate.foe || '战斗中') : label);
+        if (ancient === 'wuxia' && plate.title) name.appendChild(el(doc, 'small', '', plate.title));
+        state.plate.appendChild(name);
     }
     clearHud(layers.motion, state.plate, stage);
 }
@@ -326,8 +347,10 @@ export function applyBattleFxToDom(root, plan, options = {}) {
     if (options.accent) setVar(layers.motion, '--igs-battle-accent', options.accent);
     if (options.motion === 'snappy') layers.motion.setAttribute(MOTION_ATTR, 'snappy');
     else layers.motion.removeAttribute(MOTION_ATTR);
-    const ancient = options.ancient === true ? (options.xianxia === true ? 'xianxia' : true) : false;
+    const ancient = options.wuxia === true ? 'wuxia' : options.ancient === true ? (options.xianxia === true ? 'xianxia' : true) : false;
     const worldSkin = ancient ? '' : worldSkinOf(options.worldview);
+    // 水墨武侠整体放慢：出场时刻、停留时长与快进结算一起乘节奏，计时器数量不变。
+    const pace = ancient === 'wuxia' ? WUXIA_PACE : 1;
     syncPlate(state, layers, plan, ancient, worldSkin);
     const key = plan.identity ? battleFxIdentity(plan.identity) : '';
     if (key && state.key === key) return { played: false, reason: 'same-page' };
@@ -350,11 +373,11 @@ export function applyBattleFxToDom(root, plan, options = {}) {
     const play = (event, lifeOverride) => {
         if (state.key !== key || shown.has(event)) return;
         shown.add(event);
-        const life = lifeOverride || event.life;
+        const life = Math.round((lifeOverride || event.life) * pace);
         let node;
         if (event.type === 'encounter') node = buildEncounter(doc, event, ancient);
         else if (event.type === 'hit') node = buildHit(doc, event, ancient);
-        else node = buildResult(doc, event, ancient);
+        else node = buildResult(doc, event, ancient, (plan.plate && plan.plate.foe) || state.foe || '');
         setVar(node, '--igs-battle-life', `${life}ms`);
         if (worldSkin) node.className = `${node.className} is-${worldSkin}`;
         if (reduced) node.setAttribute('data-igs-fx-static', '1');
@@ -366,7 +389,21 @@ export function applyBattleFxToDom(root, plan, options = {}) {
             mount(state, layers.stage, foe, life);
         }
         mount(state, front, node, life);
-        if (event.type === 'hit') {
+        if (event.type === 'hit' && ancient === 'wuxia') {
+            // 主角中招挂舞台层（对话框之下），对话框的字始终在上。
+            if (wuxiaHurts(event)) {
+                const hurt = buildWuxiaHurt(doc);
+                if (reduced) hurt.setAttribute('data-igs-fx-static', '1');
+                mount(state, layers.stage, hurt, life);
+            }
+            if (!reduced) {
+                const shakeSpec = wuxiaShakeOf(event);
+                if (shakeSpec) wuxiaShake(state, motion, shakeSpec);
+                const delay = WUXIA_REACT_DELAY[event.result] || 0;
+                if (event.targetKind === 'sprite') reactSprite(state, spriteEl, event.result, delay);
+                else if (event.targetKind === 'cast') reactSprite(state, castElOf(motion, event.targetChar), event.result, delay);
+            }
+        } else if (event.type === 'hit') {
             if (event.targetKind === 'cast' && event.targetChar) node.setAttribute('data-igs-battle-char', event.targetChar);
             placeImpact(node, event, motion, event.targetKind === 'cast' ? castTargetOf(options.cast, event.targetChar) : options.sprite);
             if (!reduced) {
@@ -403,11 +440,11 @@ export function applyBattleFxToDom(root, plan, options = {}) {
     // 只有单独一招时演出很短，不拦截翻页点击。
     if (plan.events.length > 1 || plan.events[0].type !== 'hit') {
         state.skip = skip;
-        mount(state, front, skip, plan.totalMs);
+        mount(state, front, skip, Math.round(plan.totalMs * pace));
     }
     for (const event of plan.events) {
         if (event.at <= 0) play(event);
-        else track(state, () => play(event), event.at);
+        else track(state, () => play(event), Math.round(event.at * pace));
     }
     return { played: true, count: plan.events.length };
 }
@@ -634,5 +671,6 @@ export const BATTLE_FX_STYLE_TEXT = `
 @keyframes igs-battle-brush{0%{opacity:0;transform:translateX(-50%) rotate(-5deg) scale(1.2);clip-path:inset(-20% 100% -20% -20%);filter:blur(2px)}16%{opacity:1;transform:translateX(-50%) rotate(-5deg) scale(1);clip-path:inset(-20% -20% -20% -20%);filter:none}80%{opacity:1}100%{opacity:0;transform:translateX(-50%) rotate(-5deg) scale(1.03);clip-path:inset(-20% -20% -20% -20%)}}
 @keyframes igs-battle-ink-slash{0%,55%{opacity:1;transform:rotate(var(--igs-slash-rot,28deg)) translateY(var(--igs-slash-shift,0px))}100%{opacity:0;transform:rotate(var(--igs-slash-rot,28deg)) translateY(var(--igs-slash-shift,0px)) translateX(3%) scaleY(.35)}}
 @keyframes igs-battle-ink-sweep{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+${WUXIA_BATTLE_STYLE_TEXT}
 @media (prefers-reduced-motion: reduce){#igs-stage-motion[data-igs-fx-battle-shake]{animation:none!important;}.igs-fx-battle-wipe,.igs-fx-battle-slash,.igs-fx-battle-spark,.igs-fx-battle-flash,.igs-fx-battle-hurt{display:none!important;}}
 `;

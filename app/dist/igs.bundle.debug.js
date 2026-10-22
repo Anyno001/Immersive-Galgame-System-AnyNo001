@@ -12195,6 +12195,7 @@ const { PACK: variety } = require("src/visual/igs-ui/fx-pack-variety.js");
 const { PACK: harem } = require("src/visual/igs-ui/fx-pack-harem.js");
 const { PACK: abo } = require("src/visual/igs-ui/fx-pack-abo.js");
 const { PACK: myth } = require("src/visual/igs-ui/fx-pack-myth.js");
+const { PACK: wuxia } = require("src/visual/igs-ui/fx-pack-wuxia.js");
 const { PACK: nsfw } = require("src/visual/igs-ui/fx-pack-nsfw.js");
 const { PACK: coc } = require("src/visual/igs-ui/fx-pack-coc.js");
 const { PACK: places } = require("src/visual/igs-ui/fx-pack-places.js");
@@ -12375,7 +12376,7 @@ function buildPackRegistry(manifests) {
     });
 }
 
-const REGISTRY = buildPackRegistry([transform, beats, festival, variety, harem, abo, myth, nsfw, coc, places, idol, camera]);
+const REGISTRY = buildPackRegistry([transform, beats, festival, variety, harem, abo, myth, wuxia, nsfw, coc, places, idol, camera]);
 const FX_PACKS = REGISTRY.packs;
 const FX_PACK_IDS = REGISTRY.ids;
 // 有 kind 的包才进设置器、提示词块与按需触发；空壳包不产生任何东西。
@@ -14928,13 +14929,14 @@ const { stroke } = require("src/visual/igs-ui/dialog-skin-frame.js");
 const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, MAGIC_VEIL, magicTint } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV, qinglvSilk } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_XIANXIA_INK, xianxiaInk } = require("src/visual/igs-ui/dialog-theme-xianxia.js");
+const { DIALOG_SKIN_WUXIA_INK, wuxiaInk } = require("src/visual/igs-ui/dialog-theme-wuxia.js");
 const { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, MERMAID_PEARL_HI, mermaidAbyss, mermaidPearl } = require("src/visual/igs-ui/dialog-theme-mermaid.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
 const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } = require("src/visual/igs-ui/dialog-theme-horror.js");
 const { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiDeep, scifiHolo } = require("src/visual/igs-ui/dialog-theme-scifi.js");
 const { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_HAZARD, WASTELAND_HAZARD_MASK, WASTELAND_STEEL, wastelandRust, wastelandStripes } = require("src/visual/igs-ui/dialog-theme-wasteland.js");
 const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK } = require("src/visual/igs-ui/dialog-theme-skins.js");
-const { DIALOG_FONT_CINZEL, DIALOG_FONT_HUIWEN, DIALOG_FONT_NEO_XIHEI, DIALOG_FONT_NEO_ZHISONG, DIALOG_FONT_SERIF, DIALOG_FONT_SMILEY, DIALOG_FONT_WENKAI, DIALOG_FONT_WENKAI_LITE, DIALOG_FONT_YOZAI, DIALOG_FONT_ZCOOL_KUAILE } = require("src/visual/igs-ui/dialog-theme-typography.js");
+const { DIALOG_FONT_CINZEL, DIALOG_FONT_HUIWEN, DIALOG_FONT_MASHANZHENG, DIALOG_FONT_NEO_XIHEI, DIALOG_FONT_NEO_ZHISONG, DIALOG_FONT_SERIF, DIALOG_FONT_SMILEY, DIALOG_FONT_WENKAI, DIALOG_FONT_WENKAI_LITE, DIALOG_FONT_YOZAI, DIALOG_FONT_ZCOOL_KUAILE } = require("src/visual/igs-ui/dialog-theme-typography.js");
 const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-dialog-skin.js");
 // 战斗演出跟随对话框皮肤：名牌、招式条、判定字、结算带与遭遇横幅取主题的底色、墨色、细线与字体，
 // 剑光、闪光、受击红边等打击效果不变。暗色纱底主题沿用默认的两端渐隐通栏，只换变量；
@@ -15043,6 +15045,14 @@ const BATTLE_THEMES = Object.freeze({
         ],
         title: 'font-style:normal;font-weight:400;letter-spacing:.3em;text-indent:.3em;',
         veil: 'background:rgba(16,20,26,.32);',
+    },
+    // 水墨武侠：过场标题卡借这里的墨色与字体；战斗本身走 fx-battle 的 is-wuxia 分支，与世界观无关。
+    [DIALOG_SKIN_WUXIA_INK]: {
+        accent: '#a8382a',
+        font: DIALOG_FONT_MASHANZHENG,
+        vars: { veil: wuxiaInk('.93'), rule: 'rgba(236,231,221,.35)', ink: '#f3eee4', halo: `0 1px 0 ${wuxiaInk('.6')}`, 'title-halo': `0 1px 0 ${wuxiaInk('.8')}`, wipe: wuxiaInk('.94'), lose: '#c7c1b6', escape: '#8c8881' },
+        mark: `padding:0 3px;border-radius:1px;background:#a8382a;color:#f3eee4;font-size:0;line-height:1;text-shadow:none;--igs-bt-seal:"战";`,
+        extra: (scope) => [`${scope} ${PART_SELECTORS.mark}::before{content:var(--igs-bt-seal);font-size:12px;letter-spacing:0;}`],
     },
     // 童话小镇：奶油纸通栏、鼠尾草绿细线，名牌标记是一颗灯火色小星。
     [DIALOG_SKIN_FAIRY_TALE]: {
@@ -15776,6 +15786,218 @@ __igsDefine(exports, "xianxiaInk", () => xianxiaInk);
 __igsDefine(exports, "XIANXIA_DIALOG_STYLE", () => XIANXIA_DIALOG_STYLE);
 __igsDefine(exports, "XIANXIA_CHOICE_STYLE", () => XIANXIA_CHOICE_STYLE);
 __igsDefine(exports, "XIANXIA_HUD_THEME", () => XIANXIA_HUD_THEME);
+});
+__igsRegister("src/visual/igs-ui/dialog-theme-wuxia.js", function(module, exports, require) {
+const { buildDialogFrameCss } = require("src/visual/igs-ui/dialog-skin-frame.js");
+const { WX_BAR, WX_LEAD, WX_RUBBING, WX_SEAL_MASK, WX_SEAL_MASK_WIDE, maskOf, wxEdge } = require("src/visual/igs-ui/wuxia-ink-svg.js");
+const DIALOG_SKIN_WUXIA_INK = 'wuxia-ink';
+
+// 水墨武侠：夜墨拓本。几何、渐变节点、纹理与笔形一律取 plan/wuxia-ink-ui/v6 定稿原值（笔形与滤镜见 wuxia-ink-svg.js）。
+// 对话框不画框：自下而上一层墨纱，纱内极淡的拓本石纹；姓名尾端拖出一道月白干笔。朱砂只落在演出的印章上。
+const INK_RGB = '12,11,10';
+const MOON_RGB = '236,231,221';
+const MOON = '#ece7dd';
+const JIAO = '#1c1b19';
+const SONG = '"LXGW Neo ZhiSong","Source Han Serif CN",serif';
+// 随场景时段：深夜纱底再沉一档，晨、昏只给墨加极轻的冷暖调，文字颜色不变。
+const INK_BY_TIME = Object.freeze({ dawn: '12,12,14', dusk: '15,12,9', night: '8,8,9', midnight: '4,4,5' });
+const ink = (a) => `rgba(var(--wx-ink,${INK_RGB}),${a})`;
+const moon = (a) => `rgba(${MOON_RGB},${a})`;
+const wuxiaInk = ink;
+const WUXIA_MOON = MOON;
+const WUXIA_JIAO = JIAO;
+const WUXIA_BRUSH = WX_LEAD;
+const WUXIA_RUBBING_LAYER = `${WX_RUBBING} 0 0/1024px 512px repeat`;
+const overlay = `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_WUXIA_INK}"]`;
+const scope = `#igs-overlay .igs-dialog[data-igs-dialog-skin="${DIALOG_SKIN_WUXIA_INK}"]`;
+// v6 .dlg::before：墨纱高出框顶 120px，节点 0 → .38@90px → .74@150px → .88@210px → .93。
+const VEIL = `linear-gradient(180deg,${ink(0)} 0,${ink('.38')} 90px,${ink('.74')} 150px,${ink('.88')} 210px,${ink('.93')})`;
+const WUXIA_DIALOG_STYLE = [
+    ...Object.entries(INK_BY_TIME).map(([time, rgb]) => `${overlay}[data-igs-scene-time="${time}"]{--wx-ink:${rgb};}`),
+    buildDialogFrameCss(DIALOG_SKIN_WUXIA_INK, {
+        height: 196,
+        text: { top: 58, speakerTop: 84, right: 72, bottom: 24, left: 72 },
+        rise: 0,
+        flush: true, mobilePlate: 1,
+        frameCss: 'background:transparent;border:0;border-radius:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;',
+        speakerCss: 'left:72px;top:30px;width:max-content;max-width:calc(100% - 144px);height:34px;line-height:34px;margin:0;padding:0;white-space:nowrap;overflow:visible;background:none;border:0;font-size:26px;font-weight:400;letter-spacing:.14em;color:#f3eee4;text-shadow:0 1px 2px rgba(0,0,0,.6);',
+        textCss: 'position:relative;z-index:1;line-height:1.85;letter-spacing:.06em;text-shadow:0 1px 2px rgba(0,0,0,.55);',
+    }),
+    `${scope}::before{content:"";position:absolute;z-index:0;pointer-events:none;left:0;right:0;top:-120px;bottom:0;background:${VEIL};}`,
+    // 石纹：v6 --rubbing 原样平铺 1024×512，不做皮肤缩放换算；只在纱的浓处出现。
+    `${scope}::after{content:"";position:absolute;z-index:0;pointer-events:none;left:0;right:0;top:-40px;bottom:0;opacity:.8;background:${WX_RUBBING} 0 0/1024px 512px repeat;-webkit-mask:linear-gradient(180deg,transparent,#000 120px);mask:linear-gradient(180deg,transparent,#000 120px);}`,
+    // 引笔：v6 lead 干笔（dryh 飞白 + 前四成实墨），月白 .5，距姓名尾端 14px。
+    // 粗细、竖直位置与长度都以姓名文字为基准（em + 姓名框中线），字号或行高怎么变，引笔与字的比例都不变。
+    `${scope} .igs-speaker::after{content:"";position:absolute;left:calc(100% + 14px);top:calc(50% - .075em);width:min(15.4em,44vw);height:.35em;pointer-events:none;background:${moon('.5')};${maskOf(WX_LEAD)}}`,
+    // 手机竖屏（策划书 §1.5）：两侧 28，姓名 23px，引笔约 6.5 字宽（23px 时 150px）；粗细与位置沿用上面的 em 规则。
+    `@media (max-width:640px){${scope},${scope}[data-igs-has-speaker="1"]{padding-left:28px;padding-right:28px;}${scope} .igs-speaker{left:28px;max-width:calc(100% - 56px);font-size:23px;}${scope} .igs-speaker::after{width:min(6.5em,40vw);}}`,
+].join('\n');
+
+// 选项（v6 .opt）：墨拓签条叠石纹，起首一道月白短竖笔；悬停翻作月白纸、焦墨字。字号仍由选项设置控制。
+const choice = `${overlay} .igs-option-bubble`;
+const tick = (head, tail) => `linear-gradient(180deg,${head} 0,${head} 50%,${tail} 80%,transparent)`;
+// 默认 / 悬浮布局下的选项列（顶栏工具栏、内嵌模式已自带 top 限位，不在此列）。
+const OPT_FREE = `${overlay}:not(.igs-toolbar-top):not(.igs-mode-embedded)`;
+// 选项列顶端离屏幕上缘至少留 16px，刘海屏再让出安全区。
+const OPT_TOP = 'max(16px, env(safe-area-inset-top, 0px) + 8px)';
+const WUXIA_CHOICE_STYLE = [
+    `${choice}{position:relative;box-sizing:border-box;min-width:min(420px,86%);padding:12px 56px 13px 66px;border:0;border-radius:0;background:${WUXIA_RUBBING_LAYER},${ink('.9')};box-shadow:none;color:${MOON};font-family:${SONG};font-weight:400;letter-spacing:.14em;text-shadow:none;transition:background .18s,color .18s;}`,
+    `${choice}::before{content:"";position:absolute;left:34px;top:50%;width:5px;height:22px;transform:translateY(-50%) skewY(-8deg);border-radius:3px 2px 1px 1px;pointer-events:none;background:${tick(`rgb(${MOON_RGB})`, moon('.4'))};}`,
+    `${choice}:hover{background:rgb(${MOON_RGB});color:${JIAO};}`,
+    `${choice}:hover::before{background:${tick(JIAO, 'rgba(28,27,25,.4)')};}`,
+    `${choice}:active{transform:translateY(1px);}`,
+    // 选项列吊在对话框上方，基础规则只限 max-height:60%，没扣掉底部偏移：有姓名、正文多行时对话框变高，列顶被推出屏幕。
+    // 可用高度改为「容器高 − 顶部留白 − 底部偏移」，仍不超过原 60%；放不下时在列内滚动，首项始终在屏内。
+    // 两条底部偏移与 original-reader-source.js 的默认 / 悬浮 bottom 规则逐项对应，改那边时这里同步。
+    `${OPT_FREE} #igs-option-bubbles[data-igs-pos]{max-height:min(60%,calc(100% - ${OPT_TOP} - (24px + var(--igs-dialog-h,220px) + var(--igs-toolbar-h,50px) + 12px)));overscroll-behavior:contain;}`,
+    `${OPT_FREE}.igs-floating #igs-option-bubbles[data-igs-pos]{max-height:min(60%,calc(100% - ${OPT_TOP} - (14px + var(--igs-dialog-h,220px) + var(--igs-toolbar-h,50px) + 10px)));}`,
+    // 手机竖屏：收窄签条留白与字距，少换行、压低整列高度；起首竖笔随左内距内移。
+    `@media (max-width:640px){${choice}{min-width:0;width:calc(100% - 40px);padding:8px 24px 9px 44px;letter-spacing:.06em;}${choice}::before{left:22px;}}`,
+].join('\n');
+
+// 状态栏（v6 .hud）：墨底 .8 叠石纹，左缘一道上实下枯的月白干笔；头像外留 2px 再一线月白 .5（形状随用户设置）；进度条是干笔。
+const s = (v) => `calc(${v}px * var(--igs-hud-scale,1))`;
+// 干笔离面板左缘留 8px，不贴边。
+const EDGE = `${wxEdge('rgba(236,231,221,.8)')} ${s(8)} ${s(8)}/${s(6)} calc(100% - ${s(16)}) no-repeat`;
+const WUXIA_HUD_THEME = Object.freeze({
+    neutral: moon('.5'),
+    // 干笔右移 8px 后左内距同步加 8（20→28），干笔与头像、数值行的间距不变。
+    panel: `padding:${s(12)} ${s(16)} ${s(14)} ${s(28)};background:${EDGE},${WUXIA_RUBBING_LAYER},${ink('.8')};border:0;border-radius:0;box-shadow:none;`,
+    toast: `padding-left:${s(28)};background:radial-gradient(circle,rgb(${MOON_RGB}) 0 2.5px,transparent 3px) ${s(9)} 50%/6px 6px no-repeat,${WUXIA_RUBBING_LAYER},${ink('.86')};border:0;border-radius:0;box-shadow:none;color:${MOON};font-family:${SONG};letter-spacing:.12em;text-shadow:none;`,
+    ink: '#c7c1b6',
+    // 情绪词钤作朱砂小印：毛边印泥、纸色楷书，字多时横向撑开。
+    emotion: `padding:${s(2)} ${s(8)} ${s(1)};border:0;border-radius:0;background:#a8382a;color:#f5ece0;font-family:"IGS-MaShanZheng","LXGW WenKai",serif;font-weight:400;letter-spacing:.16em;text-shadow:none;transform:rotate(-2deg);${maskOf(WX_SEAL_MASK_WIDE)}`,
+    // 头像外留 2px 再一线月白 .5（v6 .ava）；圆形 / 方形 / 圆角沿用用户在状态栏设置里的选择，这里不改形状。
+    avatar: `outline:1px solid ${moon('.5')};outline-offset:2px;filter:none;`,
+    placeholder: 'background:linear-gradient(160deg,#5b5852,#2e2c29);color:rgba(236,231,221,.72);',
+    placeholderSvg: `fill:none;stroke:${moon('.6')};stroke-width:1.2;`,
+    track: `height:${s(9)};border:0;border-radius:0;background:${moon('.16')};${maskOf(WX_BAR)}`,
+    fill: `background:rgb(${MOON_RGB}) !important;border-radius:0;${maskOf(WX_BAR)}`,
+    value: 'font-weight:400;',
+});
+
+
+// 物品卡（v6 .item 拓片小品）：选了水墨武侠时物品演出一律按古代分支建节点（带单字印），这里再压过宣纸卷轴。
+// :not(#igs-wx-x) 抬一级特异度，高于古代宣纸规则的 :not(#igs-era-x)。
+const IO = `${overlay}:not(#igs-wx-x)`;
+const SEAL = `display:flex;align-items:center;justify-content:center;border-radius:0;box-shadow:none;transform:none;opacity:1;background:#a8382a;color:#f5ece0;font-family:"IGS-MaShanZheng","LXGW WenKai",serif;font-weight:400;line-height:1;writing-mode:horizontal-tb;${maskOf(WX_SEAL_MASK)}`;
+const RUB = `${WUXIA_RUBBING_LAYER},rgba(12,11,10,.92)`;
+const WUXIA_ITEM_STYLE = [
+    // 拓片从右上角出，不居中挡住立绘。
+    `${IO} .igs-fx-item-showcase{--igs-item-accent-c:#a8382a;box-sizing:border-box;align-items:flex-start;justify-content:flex-end;padding:clamp(56px,12%,96px) clamp(12px,4%,36px) 0 0;background:radial-gradient(ellipse closest-side at 50% 46%,rgba(28,27,25,0) 62%,rgba(28,27,25,.42) 86%,rgba(28,27,25,.72) 100%);}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-plate{animation:igs-wx-item-in .5s cubic-bezier(.3,.7,.3,1) .06s both;}`,
+    '@keyframes igs-wx-item-in{from{opacity:0;transform:translate(28px,-20px)}to{opacity:1;transform:none}}',
+    `${IO} .igs-fx-item-showcase :is(.igs-fx-item-showcase-rays,.igs-fx-item-showcase-burst,.igs-fx-item-showcase-icon){display:none;}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-plate{display:block;writing-mode:vertical-rl;box-sizing:border-box;height:300px;max-height:72%;width:auto;min-width:0;max-width:none;margin:0;padding:30px 24px;border:1px solid rgba(${MOON_RGB},.1);border-radius:0;outline:none;background:${RUB};box-shadow:none;color:#f3eee4;text-shadow:none;text-align:center;font-family:${SONG};}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-plate::before{content:"";position:absolute;inset:6px;left:6px;right:6px;top:6px;bottom:6px;width:auto;height:auto;border:1px solid rgba(${MOON_RGB},.2);border-radius:0;background:none;box-shadow:none;pointer-events:none;}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-plate::after{display:none;}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-label{display:block;font-size:0;letter-spacing:0;color:#a39e95;}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-label::before{content:attr(data-igs-item-act);font:400 13px ${SONG};letter-spacing:.5em;}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-name{display:block;margin:0 12px 0 14px;font:400 34px "IGS-MaShanZheng","LXGW WenKai",serif;letter-spacing:.24em;color:#f3eee4;}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-desc{display:block;font:400 14px/2 ${SONG};letter-spacing:.08em;color:#c7c1b6;text-align:start;opacity:1;}`,
+    `${IO} .igs-fx-item-showcase .igs-fx-item-showcase-seal{position:absolute;right:20px;bottom:18px;width:30px;height:30px;margin:0;font-size:17px;${SEAL}}`,
+    `@media (max-width:640px){${IO} .igs-fx-item-showcase{padding:56px 16px 0 0;}${IO} .igs-fx-item-showcase .igs-fx-item-showcase-plate{height:320px;}}`,
+    `${IO} .igs-fx-item-stack .igs-fx-item-card{gap:10px;padding:8px 12px 8px 14px;border:0;border-radius:0;outline:none;filter:none;background:${RUB};color:#ece7dd;text-shadow:none;font-family:${SONG};box-shadow:inset 0 0 0 1px rgba(${MOON_RGB},.1),inset 0 0 0 6px rgba(12,11,10,.92),inset 0 0 0 7px rgba(${MOON_RGB},.2),0 4px 14px rgba(0,0,0,.45);}`,
+    `${IO} .igs-fx-item-stack .igs-fx-item-card::before{display:none;}`,
+    `${IO} .igs-fx-item-stack .igs-fx-item-icon,${IO} .igs-fx-item-stack .igs-fx-item-icon[data-igs-item-placeholder]{border-radius:0;background:rgba(${MOON_RGB},.06);box-shadow:inset 0 0 0 1px rgba(${MOON_RGB},.3);color:${MOON};opacity:1;}`,
+    `${IO} .igs-fx-item-stack .igs-fx-item-name{color:#f3eee4;font:400 17px "IGS-MaShanZheng","LXGW WenKai",serif;letter-spacing:.08em;}`,
+    `${IO} .igs-fx-item-stack .igs-fx-item-desc{color:#c7c1b6;opacity:1;}`,
+    // 单字印钤在卡片右下角（基础规则是贴顶）；整张卡只这一方印。
+    `${IO} .igs-fx-item-stack .igs-fx-item-seal{align-self:flex-end;width:22px;height:22px;font-size:14px;${SEAL}}`,
+    `${IO} .igs-fx-item-stack .igs-fx-item-more{border:0;border-radius:0;background:rgba(12,11,10,.9);color:#c7c1b6;font-family:${SONG};}`,
+].join('\n');
+
+
+__igsDefine(exports, "DIALOG_SKIN_WUXIA_INK", () => DIALOG_SKIN_WUXIA_INK);
+__igsDefine(exports, "wuxiaInk", () => wuxiaInk);
+__igsDefine(exports, "WUXIA_MOON", () => WUXIA_MOON);
+__igsDefine(exports, "WUXIA_JIAO", () => WUXIA_JIAO);
+__igsDefine(exports, "WUXIA_BRUSH", () => WUXIA_BRUSH);
+__igsDefine(exports, "WUXIA_RUBBING_LAYER", () => WUXIA_RUBBING_LAYER);
+__igsDefine(exports, "WUXIA_DIALOG_STYLE", () => WUXIA_DIALOG_STYLE);
+__igsDefine(exports, "WUXIA_CHOICE_STYLE", () => WUXIA_CHOICE_STYLE);
+__igsDefine(exports, "WUXIA_HUD_THEME", () => WUXIA_HUD_THEME);
+__igsDefine(exports, "WUXIA_ITEM_STYLE", () => WUXIA_ITEM_STYLE);
+});
+__igsRegister("src/visual/igs-ui/wuxia-ink-svg.js", function(module, exports, require) {
+// 水墨武侠的笔形、滤镜与遮罩：一律照 plan/wuxia-ink-ui/v6 定稿原值移植，打包成自带滤镜的 data-URI SVG。
+// 作 mask 用的图形一律白色实填，颜色由使用处的 background 决定。
+const NS = "xmlns='http://www.w3.org/2000/svg'";
+const url = (markup) => `url("data:image/svg+xml,${encodeURIComponent(markup)}")`;
+
+const ROUGH = "<filter id='rough' x='-5%' y='-30%' width='110%' height='160%'><feTurbulence type='fractalNoise' baseFrequency='.03 .4' numOctaves='3' seed='5' result='n'/><feDisplacementMap in='SourceGraphic' in2='n' scale='7' xChannelSelector='R' yChannelSelector='G'/></filter>";
+const DRYH = "<filter id='dryh' x='-5%' y='-30%' width='110%' height='160%'><feTurbulence type='fractalNoise' baseFrequency='.03 .4' numOctaves='3' seed='5' result='n'/><feDisplacementMap in='SourceGraphic' in2='n' scale='7' xChannelSelector='R' yChannelSelector='G' result='rough'/><feTurbulence type='fractalNoise' baseFrequency='.004 .3' numOctaves='2' seed='21' result='s'/><feColorMatrix in='s' type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -7 4.3' result='streak'/><feComposite in='rough' in2='streak' operator='in'/></filter>";
+const DRYV = "<filter id='dryv' x='-40%' y='-5%' width='180%' height='110%'><feTurbulence type='fractalNoise' baseFrequency='.5 .012' numOctaves='2' seed='8' result='n'/><feDisplacementMap in='SourceGraphic' in2='n' scale='3' xChannelSelector='R' yChannelSelector='G' result='rough'/><feTurbulence type='fractalNoise' baseFrequency='.6 .01' numOctaves='2' seed='2' result='s'/><feColorMatrix in='s' type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.4 1.9' result='streak'/><feComposite in='rough' in2='streak' operator='in'/></filter>";
+const BLEED = "<filter id='bleed' x='-20%' y='-20%' width='140%' height='140%'><feTurbulence type='fractalNoise' baseFrequency='.05' numOctaves='3' seed='4'/><feDisplacementMap in='SourceGraphic' scale='8'/><feGaussianBlur stdDeviation='.5'/></filter>";
+const SOLID_H = "<linearGradient id='solidL' x1='0' x2='1'><stop offset='0' stop-color='#fff'/><stop offset='.42' stop-color='#fff'/><stop offset='.96' stop-color='#fff' stop-opacity='0'/></linearGradient><mask id='mSolidH' maskContentUnits='objectBoundingBox'><rect width='1' height='1' fill='url(#solidL)'/></mask>";
+const TOP = "<linearGradient id='fadeV' x1='0' x2='0' y1='0' y2='1'><stop offset='0' stop-color='#fff'/><stop offset='.42' stop-color='#fff'/><stop offset='.72' stop-color='#fff' stop-opacity='0'/></linearGradient><mask id='mTop' maskContentUnits='objectBoundingBox'><rect width='1' height='1' fill='url(#fadeV)'/></mask>";
+
+// 干笔：dryh 飞白一层 + 前段 rough 实墨一层（mSolidH 只留前四成）。
+const dryStroke = (viewBox, d) => url(`<svg ${NS} viewBox='${viewBox}' preserveAspectRatio='none'><defs>${ROUGH}${DRYH}${SOLID_H}<path id='p' d='${d}' fill='#fff'/></defs><use href='#p' filter='url(#dryh)'/><g mask='url(#mSolidH)'><use href='#p' filter='url(#rough)'/></g></svg>`);
+
+// 拓本石纹（v6 --rubbing 原样）：自带透明度，直接作背景层平铺 1024×512。
+const WX_RUBBING = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'1024\' height=\'512\'%3E%3Cfilter id=\'f\' x=\'0\' y=\'0\' width=\'100%25\' height=\'100%25\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.008\' numOctaves=\'4\' seed=\'14\' stitchTiles=\'stitch\' result=\'a\'/%3E%3CfeColorMatrix in=\'a\' values=\'0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .34 -.14\' result=\'m\'/%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.9\' numOctaves=\'1\' seed=\'2\' stitchTiles=\'stitch\' result=\'g\'/%3E%3CfeColorMatrix in=\'g\' values=\'0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .22 -.08\' result=\'k\'/%3E%3CfeMerge%3E%3CfeMergeNode in=\'m\'/%3E%3CfeMergeNode in=\'k\'/%3E%3C/feMerge%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23f)\'/%3E%3C/svg%3E")';
+const WX_LEAD = dryStroke('0 0 420 12', 'M2 5 C2 2.2 4.6 1 11 1.2 C120 2.4 260 3.6 418 4.8 C260 6 120 7.4 11 8.8 C4.6 9 2 7.8 2 5Z');
+const WX_HSTROKE = dryStroke('0 0 1040 150', 'M30 74 C26 40 64 18 126 20 C320 24 600 32 820 42 C900 46 980 56 1032 72 C962 80 882 96 802 104 C602 118 330 128 122 130 C58 130 33 104 30 74Z');
+const WX_SLASH = dryStroke('0 0 420 60', 'M4 32 C24 20 70 16 120 18 C220 20 330 25 416 30 C330 37 220 43 120 45 C70 47 24 44 4 32Z');
+const WX_BAR = url(`<svg ${NS} viewBox='0 0 200 9' preserveAspectRatio='none'><defs>${ROUGH}${DRYH}${SOLID_H}<path id='p' d='M1 4.5 C1 1.5 4 .8 10 1 L196 2.6 C198.6 3 199.4 4.6 197.4 6 L10 8.2 C4 8.4 1 7.4 1 4.5Z' fill='#fff'/></defs><use href='#p' filter='url(#dryh)'/><g mask='url(#mSolidH)'><use href='#p'/></g></svg>`);
+// 左缘竖笔：上实下枯（edge）。颜色烘进图里，直接作背景层。
+const wxEdge = (color) => url(`<svg ${NS} viewBox='0 0 6 152' preserveAspectRatio='none'><defs>${DRYV}${TOP}<path id='p' d='M1 3 C3.4 1.4 4.6 .8 5 1.8 C5.6 2.6 5.4 5 5 7.6 L4.6 70 C4.4 104 4 130 3.4 151 L2.8 151 C2.4 128 2 100 1.8 70 L1.4 22 C1.4 16 1.2 10 .8 6.6 C.6 5.2 .5 3.8 1 3Z' fill='${color}'/></defs><use href='#p' filter='url(#dryv)'/><g mask='url(#mTop)'><use href='#p'/></g></svg>`);
+const WX_SPLAT = url(`<svg ${NS} viewBox='0 0 200 200'><defs>${BLEED}</defs><g fill='#fff' filter='url(#bleed)'><ellipse cx='100' cy='100' rx='9' ry='7'/><ellipse cx='136' cy='78' rx='9' ry='3.2' transform='rotate(-32 136 78)'/><ellipse cx='160' cy='62' rx='5' ry='2' transform='rotate(-32 160 62)'/><ellipse cx='178' cy='50' rx='2.6' ry='1.5'/><ellipse cx='64' cy='122' rx='10' ry='3.4' transform='rotate(-32 64 122)'/><ellipse cx='38' cy='138' rx='4.6' ry='1.9' transform='rotate(-32 38 138)'/><ellipse cx='122' cy='132' rx='6' ry='2.4' transform='rotate(28 122 132)'/><ellipse cx='80' cy='70' rx='5' ry='2.2' transform='rotate(28 80 70)'/><circle cx='116' cy='112' r='1.8'/><circle cx='88' cy='90' r='1.5'/><circle cx='150' cy='96' r='1.3'/><circle cx='58' cy='54' r='1.4'/></g></svg>`);
+const WX_WAVE = url(`<svg ${NS} viewBox='0 0 260 320'><defs>${BLEED}</defs><g fill='none' stroke='#fff' stroke-linecap='round' filter='url(#bleed)'><path d='M60 20 C170 80 170 240 60 300' stroke-width='16'/><path d='M120 46 C200 100 200 220 120 274' stroke-width='10' opacity='.75'/><path d='M176 80 C226 120 226 200 176 240' stroke-width='6' opacity='.5'/></g></svg>`);
+// 江湖令：与秘籍 / 物品 / 名号拓片同一风格。挂耳切角轮廓只作遮罩，底由样式铺拓片石纹 + 深墨；
+// 线稿层照拓片碑框：外一线月白 .1、内收一线月白 .2，卷草纹与令名界线同为月白细线。
+const TOKEN_PATH = 'M76 16 V11 C76 5 82 1 90 1 C98 1 104 5 104 11 V16 H160 A14 14 0 0 0 174 30 V314 A14 14 0 0 0 160 328 H20 A14 14 0 0 0 6 314 V30 A14 14 0 0 0 20 16 Z';
+const WX_TOKEN_SHAPE = url(`<svg ${NS} viewBox='0 0 180 330' preserveAspectRatio='none'><path d='${TOKEN_PATH}' fill='#fff'/></svg>`);
+const WX_TOKEN_LINES = url(`<svg ${NS} viewBox='0 0 180 330' preserveAspectRatio='none'><path d='${TOKEN_PATH}' fill='none' stroke='rgba(236,231,221,.1)' stroke-width='2'/><path d='M28 25 H152 A13 13 0 0 0 165 38 V306 A13 13 0 0 0 152 319 H28 A13 13 0 0 0 15 306 V38 A13 13 0 0 0 28 25 Z' fill='none' stroke='rgba(236,231,221,.2)' stroke-width='1'/><g fill='none' stroke='rgba(236,231,221,.3)' stroke-width='1.1' stroke-linecap='round'><path d='M80 14 C80 8 84 5 90 5 C96 5 100 8 100 14'/><path d='M90 36 C82 30 70 33 70 41 C70 47 77 49 79 44'/><path d='M90 36 C98 30 110 33 110 41 C110 47 103 49 101 44'/><path d='M68 44 C60 38 50 40 46 48'/><path d='M112 44 C120 38 130 40 134 48'/><path d='M90 40 L94 45 L90 50 L86 45 Z'/><path d='M34 300 C40 292 52 294 52 302 C52 307 46 308 45 304'/><path d='M146 300 C140 292 128 294 128 302 C128 307 134 308 135 304'/><path d='M56 172 H124' stroke='rgba(236,231,221,.2)' stroke-width='1'/></g></svg>`);
+// 调息水晕：v6 的 .ring 径向渐变加 bleed，烘成图。
+const WX_RING = url(`<svg ${NS} viewBox='0 0 240 240'><defs>${BLEED}<radialGradient id='g'><stop offset='.44' stop-color='#1c1b19' stop-opacity='0'/><stop offset='.56' stop-color='#1c1b19' stop-opacity='.6'/><stop offset='.66' stop-color='#1c1b19' stop-opacity='.18'/><stop offset='.72' stop-color='#1c1b19' stop-opacity='0'/></radialGradient></defs><circle cx='120' cy='120' r='120' fill='url(#g)' filter='url(#bleed)'/></svg>`);
+const WX_HALO = url(`<svg ${NS} viewBox='0 0 300 400' preserveAspectRatio='none'><defs>${BLEED}<radialGradient id='g'><stop offset='0' stop-color='#1c1b19' stop-opacity='.42'/><stop offset='.42' stop-color='#1c1b19' stop-opacity='.16'/><stop offset='.68' stop-color='#1c1b19' stop-opacity='0'/></radialGradient></defs><rect width='300' height='400' fill='url(#g)' filter='url(#bleed)'/></svg>`);
+
+// 毛边墨签（v6 --tagH / --tagV 原样），作 mask。
+const WX_TAG_H = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 400 60\' preserveAspectRatio=\'none\'%3E%3Cfilter id=\'d\' x=\'-.02\' y=\'-.2\' width=\'1.04\' height=\'1.4\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.04 .5\' numOctaves=\'3\' seed=\'3\'/%3E%3CfeDisplacementMap in=\'SourceGraphic\' scale=\'6\' yChannelSelector=\'R\'/%3E%3C/filter%3E%3ClinearGradient id=\'h\'%3E%3Cstop offset=\'0\' stop-color=\'%23fff\' stop-opacity=\'0\'/%3E%3Cstop offset=\'.07\' stop-color=\'%23fff\'/%3E%3Cstop offset=\'.93\' stop-color=\'%23fff\'/%3E%3Cstop offset=\'1\' stop-color=\'%23fff\' stop-opacity=\'0\'/%3E%3C/linearGradient%3E%3Crect x=\'0\' y=\'6\' width=\'400\' height=\'48\' fill=\'url(%23h)\' filter=\'url(%23d)\'/%3E%3C/svg%3E")';
+const WX_TAG_V = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 60 400\' preserveAspectRatio=\'none\'%3E%3Cfilter id=\'d\' x=\'-.2\' y=\'-.02\' width=\'1.4\' height=\'1.04\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.5 .04\' numOctaves=\'3\' seed=\'3\'/%3E%3CfeDisplacementMap in=\'SourceGraphic\' scale=\'6\' xChannelSelector=\'R\'/%3E%3C/filter%3E%3ClinearGradient id=\'h\' x2=\'0\' y2=\'1\'%3E%3Cstop offset=\'0\' stop-color=\'%23fff\' stop-opacity=\'0\'/%3E%3Cstop offset=\'.07\' stop-color=\'%23fff\'/%3E%3Cstop offset=\'.93\' stop-color=\'%23fff\'/%3E%3Cstop offset=\'1\' stop-color=\'%23fff\' stop-opacity=\'0\'/%3E%3C/linearGradient%3E%3Crect x=\'6\' y=\'0\' width=\'48\' height=\'400\' fill=\'url(%23h)\' filter=\'url(%23d)\'/%3E%3C/svg%3E")';
+// 印章毛边（v6 .seal mask-image 原样）。
+const WX_SEAL_MASK = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 60 60\'%3E%3Cfilter id=\'e\' x=\'-10%25\' y=\'-10%25\' width=\'120%25\' height=\'120%25\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.09\' numOctaves=\'2\' seed=\'9\' result=\'n\'/%3E%3CfeDisplacementMap in=\'SourceGraphic\' in2=\'n\' scale=\'2.4\' result=\'r\'/%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.7\' numOctaves=\'1\' seed=\'3\' result=\'g\'/%3E%3CfeColorMatrix in=\'g\' values=\'0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 -5 3.9\' result=\'k\'/%3E%3CfeComposite in=\'r\' in2=\'k\' operator=\'in\'/%3E%3C/filter%3E%3Crect x=\'2\' y=\'2\' width=\'56\' height=\'56\' rx=\'1.5\' fill=\'%23fff\' filter=\'url(%23e)\'/%3E%3C/svg%3E")';
+// 情绪词等随字数横向撑开的印：同一毛边，但随元素宽高拉伸，不再只在正中留一方、裁掉两侧的字。
+const WX_SEAL_MASK_WIDE = WX_SEAL_MASK.replace("viewBox='0 0 60 60'", "viewBox='0 0 60 60' preserveAspectRatio='none'");
+// 28px 左右的小方印：同一毛边与斑驳，按缩小倍数放粗起伏、位移与颗粒，颗粒密度与横向拉开的情绪印一致，不糊成实心方块。
+const WX_SEAL_MASK_SMALL = WX_SEAL_MASK.replace("baseFrequency='.09'", "baseFrequency='.04'").replace("scale='2.4'", "scale='5.6'").replace("baseFrequency='.7'", "baseFrequency='.3'");
+
+
+// 中招：四边洇墨的噪声遮罩（v6 .hurt 原样）。
+const WX_HURT_MASK = 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 960 540%27 preserveAspectRatio=%27none%27%3E%3Cfilter id=%27b%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%27.012%27 numOctaves=%273%27 seed=%275%27/%3E%3CfeColorMatrix values=%270 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.4 .15%27/%3E%3C/filter%3E%3Crect width=%27960%27 height=%27540%27 filter=%27url(%23b)%27/%3E%3C/svg%3E")';
+// 过场：焦墨毛边条（v6 .t-band 原样）。
+const WX_TBAND_MASK = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 960 150\' preserveAspectRatio=\'none\'%3E%3Cfilter id=\'d\' x=\'-.02\' y=\'-.1\' width=\'1.04\' height=\'1.2\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.03 .6\' numOctaves=\'3\' seed=\'3\'/%3E%3CfeDisplacementMap in=\'SourceGraphic\' scale=\'10\' yChannelSelector=\'R\'/%3E%3C/filter%3E%3ClinearGradient id=\'h\'%3E%3Cstop offset=\'0\' stop-color=\'%23fff\' stop-opacity=\'0\'/%3E%3Cstop offset=\'.16\' stop-color=\'%23fff\'/%3E%3Cstop offset=\'.84\' stop-color=\'%23fff\'/%3E%3Cstop offset=\'1\' stop-color=\'%23fff\' stop-opacity=\'0\'/%3E%3C/linearGradient%3E%3Crect x=\'0\' y=\'10\' width=\'960\' height=\'130\' fill=\'url(%23h)\' filter=\'url(%23d)\'/%3E%3C/svg%3E")';
+// 走火入魔：墨自下倒灌的起伏边（v6 .mad 原样）。
+const WX_MAD_MASK = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 1000 648\' preserveAspectRatio=\'none\'%3E%3Cfilter id=\'d\' x=\'-.1\' y=\'-.5\' width=\'1.2\' height=\'2\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'.007 .012\' numOctaves=\'3\' seed=\'6\'/%3E%3CfeDisplacementMap in=\'SourceGraphic\' scale=\'150\'/%3E%3CfeGaussianBlur stdDeviation=\'9\'/%3E%3C/filter%3E%3Crect x=\'-60\' y=\'250\' width=\'1120\' height=\'520\' fill=\'%23fff\' filter=\'url(%23d)\'/%3E%3C/svg%3E")';
+
+// 墨点「、」（v6 #dian），viewBox 18×20。
+const WX_DIAN_PATH = 'M3 2 C7 2 13 6 15.5 12 C17 16 14 19.5 10.5 18 C7 16.5 5 10 2.4 4.6 C1.8 3.2 2 2 3 2Z';
+const maskOf = (image, size = '100% 100%') => `-webkit-mask:${image} center/${size} no-repeat;mask:${image} center/${size} no-repeat;`;
+
+__igsDefine(exports, "WX_RUBBING", () => WX_RUBBING);
+__igsDefine(exports, "WX_LEAD", () => WX_LEAD);
+__igsDefine(exports, "WX_HSTROKE", () => WX_HSTROKE);
+__igsDefine(exports, "WX_SLASH", () => WX_SLASH);
+__igsDefine(exports, "WX_BAR", () => WX_BAR);
+__igsDefine(exports, "wxEdge", () => wxEdge);
+__igsDefine(exports, "WX_SPLAT", () => WX_SPLAT);
+__igsDefine(exports, "WX_WAVE", () => WX_WAVE);
+__igsDefine(exports, "WX_TOKEN_SHAPE", () => WX_TOKEN_SHAPE);
+__igsDefine(exports, "WX_TOKEN_LINES", () => WX_TOKEN_LINES);
+__igsDefine(exports, "WX_RING", () => WX_RING);
+__igsDefine(exports, "WX_HALO", () => WX_HALO);
+__igsDefine(exports, "WX_TAG_H", () => WX_TAG_H);
+__igsDefine(exports, "WX_TAG_V", () => WX_TAG_V);
+__igsDefine(exports, "WX_SEAL_MASK", () => WX_SEAL_MASK);
+__igsDefine(exports, "WX_SEAL_MASK_WIDE", () => WX_SEAL_MASK_WIDE);
+__igsDefine(exports, "WX_SEAL_MASK_SMALL", () => WX_SEAL_MASK_SMALL);
+__igsDefine(exports, "WX_HURT_MASK", () => WX_HURT_MASK);
+__igsDefine(exports, "WX_TBAND_MASK", () => WX_TBAND_MASK);
+__igsDefine(exports, "WX_MAD_MASK", () => WX_MAD_MASK);
+__igsDefine(exports, "WX_DIAN_PATH", () => WX_DIAN_PATH);
+__igsDefine(exports, "maskOf", () => maskOf);
 });
 __igsRegister("src/visual/igs-ui/dialog-theme-mermaid.js", function(module, exports, require) {
 const { buildDialogFrameCss, scalePx, stroke } = require("src/visual/igs-ui/dialog-skin-frame.js");
@@ -16644,6 +16866,7 @@ const { getDlcSkin } = require("src/visual/igs-ui/dlc-skin-registry.js");
 __igsDefine(exports, "buildSlicedDialogSkinCss", () => buildSlicedDialogSkinCss);
 const { DIALOG_SKIN_QINGLV, QINGLV_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_XIANXIA_INK, XIANXIA_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-xianxia.js");
+const { DIALOG_SKIN_WUXIA_INK, WUXIA_DIALOG_STYLE, WUXIA_ITEM_STYLE } = require("src/visual/igs-ui/dialog-theme-wuxia.js");
 const { DIALOG_SKIN_MERMAID, MERMAID_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-mermaid.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
 const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_DIALOG_STYLE, PSYCH_DIALOG_STYLE } = require("src/visual/igs-ui/dialog-theme-horror.js");
@@ -16662,6 +16885,7 @@ __igsDefine(exports, "DIALOG_SKIN_SCIFI_HOLO", () => DIALOG_SKIN_SCIFI_HOLO);
 __igsDefine(exports, "DIALOG_SKIN_WARM_PICTUREBOOK", () => DIALOG_SKIN_WARM_PICTUREBOOK);
 __igsDefine(exports, "DIALOG_SKIN_WASTELAND_RUST", () => DIALOG_SKIN_WASTELAND_RUST);
 __igsDefine(exports, "DIALOG_SKIN_XIANXIA_INK", () => DIALOG_SKIN_XIANXIA_INK);
+__igsDefine(exports, "DIALOG_SKIN_WUXIA_INK", () => DIALOG_SKIN_WUXIA_INK);
 const SLICED_DIALOG_SKINS = Object.freeze([
     DIALOG_SKIN_PLANT_COFFEE,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -16671,7 +16895,7 @@ const SLICED_DIALOG_SKINS = Object.freeze([
 ]);
 
 // 「插画式」= 固定高度、自带排版默认值的主题，含三片素材主题与纯 CSS 还原主题。
-const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_XIANXIA_INK, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, DIALOG_SKIN_SCIFI_HOLO, DIALOG_SKIN_WASTELAND_RUST, DIALOG_SKIN_MERMAID]);
+const ILLUSTRATED_DIALOG_SKINS = Object.freeze([...SLICED_DIALOG_SKINS, ...CSS_DIALOG_SKINS, DIALOG_SKIN_QINGLV, DIALOG_SKIN_XIANXIA_INK, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, DIALOG_SKIN_SCIFI_HOLO, DIALOG_SKIN_WASTELAND_RUST, DIALOG_SKIN_MERMAID, DIALOG_SKIN_WUXIA_INK]);
 
 // 「对话框高度自适应」开放给全部插画式主题与西式古典：字少压矮、字多不超原高度。
 // 三片素材只横向切、纵向拉伸；伪元素装饰按上下边定位的主题压矮后跟着框走。
@@ -16777,6 +17001,7 @@ const ILLUSTRATED_DIALOG_STYLE_BY_SKIN = Object.freeze({
     ...CSS_DIALOG_STYLE_BY_SKIN,
     [DIALOG_SKIN_QINGLV]: QINGLV_DIALOG_STYLE,
     [DIALOG_SKIN_XIANXIA_INK]: XIANXIA_DIALOG_STYLE,
+    [DIALOG_SKIN_WUXIA_INK]: `${WUXIA_DIALOG_STYLE}\n${WUXIA_ITEM_STYLE}`,
     [DIALOG_SKIN_MERMAID]: MERMAID_DIALOG_STYLE,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_DIALOG_STYLE,
     [DIALOG_SKIN_HORROR_GORE]: GORE_DIALOG_STYLE,
@@ -17129,6 +17354,7 @@ const DIALOG_FONT_PINYON_SCRIPT = '"Pinyon Script","Source Han Serif CN",serif';
 const DIALOG_FONT_QUICKSAND = '"Quicksand","Caveat","Tsanger YuYang",sans-serif';
 const DIALOG_FONT_CAVEAT = '"Caveat","Quicksand","Tsanger YuYang",sans-serif';
 const DIALOG_FONT_IM_FELL = '"IM Fell English SC","Cinzel","Source Han Serif CN",serif';
+const DIALOG_FONT_MASHANZHENG = '"IGS-MaShanZheng","LXGW WenKai","KaiTi",serif';
 
 // 素材主题的默认排版；用户在主题页改过的值仍优先（见 settings-normalize 的 applyReferenceTypographyDefaults）。
 const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
@@ -17292,6 +17518,18 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#9fc0c8',
         narrationColor: '#c4bcae',
     }),
+    // 水墨武侠：夜墨拓本，底暗字亮；姓名马善政楷书月白，正文与旁白新致宋，心里话文楷、淡一档。
+    'wuxia-ink': Object.freeze({
+        nameAlign: 'left',
+        nameFont: DIALOG_FONT_MASHANZHENG,
+        textFont: DIALOG_FONT_NEO_ZHISONG,
+        thoughtFont: DIALOG_FONT_WENKAI,
+        narrationFont: DIALOG_FONT_NEO_ZHISONG,
+        nameColor: '#f3eee4',
+        textColor: '#ece7dd',
+        thoughtColor: '#a39e95',
+        narrationColor: '#c7c1b6',
+    }),
     // 血色噩梦（波普血浆）：名字是红块上的骨白得意黑，正文用干脆的新晰黑；心里话亮红，旁白褪成灰。
     'horror-gore': Object.freeze({
         nameAlign: 'left',
@@ -17424,6 +17662,7 @@ __igsDefine(exports, "DIALOG_FONT_PINYON_SCRIPT", () => DIALOG_FONT_PINYON_SCRIP
 __igsDefine(exports, "DIALOG_FONT_QUICKSAND", () => DIALOG_FONT_QUICKSAND);
 __igsDefine(exports, "DIALOG_FONT_CAVEAT", () => DIALOG_FONT_CAVEAT);
 __igsDefine(exports, "DIALOG_FONT_IM_FELL", () => DIALOG_FONT_IM_FELL);
+__igsDefine(exports, "DIALOG_FONT_MASHANZHENG", () => DIALOG_FONT_MASHANZHENG);
 __igsDefine(exports, "DIALOG_TYPESETTING_STYLE_TEXT", () => DIALOG_TYPESETTING_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/gradient-veil-dialog-skin.js", function(module, exports, require) {
@@ -25775,6 +26014,339 @@ __igsDefine(exports, "createMythVoices", () => createMythVoices);
 __igsDefine(exports, "MYTH_AMBIENCE_HTML", () => MYTH_AMBIENCE_HTML);
 __igsDefine(exports, "MYTH_AMBIENT_LABELS", () => MYTH_AMBIENT_LABELS);
 });
+__igsRegister("src/visual/igs-ui/fx-pack-wuxia.js", function(module, exports, require) {
+// 题材包清单：武侠江湖。字段同 fx-pack-myth.js；本文件只导出 PACK，由 scene/fx-packs.js 汇总。
+// 只在古代背景开放（era:'ancient'）；演出焦墨落笔，任何对话框皮肤下都按这一套画，不改战斗演出。
+const { WUXIA_KINDS, WUXIA_LABELS, WUXIA_PROMPT_LINES, WUXIA_TRIGGERS, parseWuxiaBody, wuxiaFxOf } = require("src/visual/igs-ui/fx-wuxia-model.js");
+const { WUXIA_BUILDERS } = require("src/visual/igs-ui/fx-wuxia.js");
+const { WUXIA_SFX_DEFS } = require("src/visual/igs-ui/fx-wuxia-sfx.js");
+const { WUXIA_STYLE_TEXT } = require("src/visual/igs-ui/fx-wuxia-style.js");
+const PACK = {
+    id: 'wuxia',
+    label: '武侠江湖',
+    when: '江湖人物、门派、比武与秘籍的场面才用',
+    era: 'ancient',
+    kinds: [...WUXIA_KINDS],
+    labels: WUXIA_LABELS,
+    triggers: WUXIA_TRIGGERS,
+    promptLines: WUXIA_PROMPT_LINES,
+    parse: (type, fields) => parseWuxiaBody(type, fields),
+    of: (args) => wuxiaFxOf(args),
+    builders: WUXIA_BUILDERS,
+    sfx: WUXIA_SFX_DEFS,
+    cssText: WUXIA_STYLE_TEXT,
+};
+
+__igsDefine(exports, "PACK", () => PACK);
+});
+__igsRegister("src/visual/igs-ui/fx-wuxia-model.js", function(module, exports, require) {
+// 武侠江湖包的标签语法：纯数据与解析，不碰 DOM。缺必填字段则整条忽略。
+const WUXIA_KINDS = Object.freeze(['wxname', 'wxpalm', 'wxdart', 'wxmanual', 'wxtoken', 'wxoath', 'wxmad']);
+const WUXIA_LABELS = Object.freeze({
+    wxname: '名号亮相', wxpalm: '内力对掌', wxdart: '暗器', wxmanual: '秘籍', wxtoken: '江湖令', wxoath: '结义拜师', wxmad: '走火入魔',
+});
+const WUXIA_TRIGGERS = Object.freeze({
+    wxname: ['名号', '绰号', '外号', '人称'], wxpalm: ['对掌', '内力', '比拼内力'], wxdart: ['暗器', '袖箭', '飞镖', '银针'],
+    wxmanual: ['秘籍', '剑谱', '心法', '拳谱'], wxtoken: ['令牌', '江湖令', '信物'], wxoath: ['结义', '结拜', '拜师'], wxmad: ['走火入魔', '内息大乱'],
+});
+const WUXIA_PROMPT_LINES = Object.freeze({
+    wxname: '[igs-fx:wxname|名号|姓名]：重要人物第一次报出名号时写，名号可省。',
+    wxpalm: '[igs-fx:wxpalm|甲|乙|胜者]：两人对掌硬拼内力时写，胜者是甲或乙，可省。',
+    wxdart: '[igs-fx:wxdart|暗器名]：暗器出手时写。',
+    wxmanual: '[igs-fx:wxmanual|书名|一句说明]：得到秘籍、剑谱或心法时写，说明可省。',
+    wxtoken: '[igs-fx:wxtoken|令名]：亮出令牌或信物时写。',
+    wxoath: '[igs-fx:wxoath|结义/拜师|甲|乙]：结拜或拜入师门时写。',
+    wxmad: '[igs-fx:wxmad|角色]：内息失控、走火入魔时写，角色可省。',
+});
+const WUXIA_OATH_MODES = Object.freeze({ 结义: 'oath', 结拜: 'oath', oath: 'oath', 拜师: 'master', 入门: 'master', master: 'master' });
+const WUXIA_OATH_WORDS = Object.freeze({ oath: '义结金兰', master: '入我门下' });
+
+const text = (value) => String(value == null ? '' : value).trim();
+const pick = (map, value, fallback) => {
+    const key = text(value).toLowerCase();
+    return Object.hasOwn(map, key) ? map[key] : fallback;
+};
+function parseWuxiaBody(type, f) {
+    const a = text(f && f[0]);
+    const b = text(f && f[1]);
+    const c = text(f && f[2]);
+    switch (type) {
+    case 'wxname': return b ? ['wxname', a, b] : a ? ['wxname', '', a] : null;
+    case 'wxpalm': return a && b ? ['wxpalm', a, b, c === a || c === b ? c : ''] : null;
+    case 'wxdart': return ['wxdart', a || '暗器'];
+    case 'wxmanual': return a ? ['wxmanual', a, b] : null;
+    case 'wxtoken': return a ? ['wxtoken', a] : null;
+    case 'wxoath': {
+        const mode = pick(WUXIA_OATH_MODES, a, '');
+        if (mode) return ['wxoath', mode, b, c];
+        return a ? ['wxoath', 'oath', a, b] : null;
+    }
+    case 'wxmad': return ['wxmad', a];
+    default: return null;
+    }
+}
+function wuxiaFxOf(args) {
+    const [type, a = '', b = '', c = ''] = args || [];
+    switch (type) {
+    case 'wxname': return { type, title: a, name: b };
+    case 'wxpalm': return { type, a, b, winner: c };
+    case 'wxdart': return { type, name: a };
+    case 'wxmanual': return { type, name: a, note: b };
+    case 'wxtoken': return { type, name: a };
+    case 'wxoath': return { type, mode: a || 'oath', a: b, b: c };
+    case 'wxmad': return { type, who: a };
+    default: return null;
+    }
+}
+
+__igsDefine(exports, "parseWuxiaBody", () => parseWuxiaBody);
+__igsDefine(exports, "wuxiaFxOf", () => wuxiaFxOf);
+__igsDefine(exports, "WUXIA_KINDS", () => WUXIA_KINDS);
+__igsDefine(exports, "WUXIA_LABELS", () => WUXIA_LABELS);
+__igsDefine(exports, "WUXIA_TRIGGERS", () => WUXIA_TRIGGERS);
+__igsDefine(exports, "WUXIA_PROMPT_LINES", () => WUXIA_PROMPT_LINES);
+__igsDefine(exports, "WUXIA_OATH_MODES", () => WUXIA_OATH_MODES);
+__igsDefine(exports, "WUXIA_OATH_WORDS", () => WUXIA_OATH_WORDS);
+});
+__igsRegister("src/visual/igs-ui/fx-wuxia.js", function(module, exports, require) {
+// 武侠江湖包的演出构建器：DOM 照 plan/wuxia-ink-ui/v6 定稿（类名 wx-*），样式见 fx-wuxia-style.js。
+// 每个构建器返回 { node, life, layer, sounds }；减少动态效果时只留静止终态、不跑 WAAPI；逐字与钤印的先后全在 CSS 延时里。
+const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
+const { spriteElOf } = require("src/visual/igs-ui/stage-snapshot.js");
+const { WUXIA_OATH_WORDS } = require("src/visual/igs-ui/fx-wuxia-model.js");
+// 江湖令的立绘站位、停留与秘籍完全一致（不震屏），只有令牌本身的入场不同。
+const WUXIA_LIFE_MS = Object.freeze({ wxname: 3200, wxpalm: 3600, wxdart: 1800, wxmanual: 3200, wxtoken: 3200, wxoath: 3600, wxmad: 2600 });
+
+// 节奏：停留时长与震屏延时一起放慢到 1.6 倍，与样式里的 --wxs 一致。
+const PACE = 1.6;
+const lifeOf = (kind, env) => Math.round(WUXIA_LIFE_MS[kind] * PACE * (env.hold || 1));
+const chars = (text) => Array.from(String(text || '')).map((ch, i) => `<b class="wx-ch" style="--i:${i}">${esc(ch)}</b>`).join('');
+const div = (cls, html = '') => `<div class="wx ${cls}">${html}</div>`;
+const INKV = div('wx-inkv');
+
+function animate(env, el, frames, options) {
+    if (env.reduced || !el || typeof el.animate !== 'function') return null;
+    try { return el.animate(frames, options); } catch { return null; }
+}
+function spriteOf(env, who) { try { return spriteElOf(env, who); } catch { return null; } }
+function stageWidth(env) {
+    const m = env.layers && env.layers.motion;
+    const w = m ? Number(m.clientWidth) || 0 : 0;
+    return w > 0 ? w : 960;
+}
+// 立绘站位（v6）：按舞台宽度比例横移，演出收束回原位；composite:add 叠在立绘自身动作上。
+function standAt(env, who, frac, life) {
+    const dx = `${Math.round(stageWidth(env) * frac)}px`;
+    animate(env, spriteOf(env, who || env.speaker), [{ translate: '0 0' }, { translate: `${dx} 0`, offset: 0.1 }, { translate: `${dx} 0`, offset: 0.88 }, { translate: '0 0' }], { duration: life, easing: 'ease-in-out', composite: 'add' });
+}
+// 震屏（v6 shake-l / shake-h，逐格）。
+function shake(env, delay, heavy) {
+    const f = heavy ? ['0 0', '-9px 4px', '8px -5px', '-6px 3px', '5px -2px', '-2px 1px', '0 0'] : ['0 0', '-4px 2px', '3px -2px', '-2px 1px', '0 0'];
+    animate(env, env.layers && env.layers.motion, f.map((translate) => ({ translate })), { delay: Math.round(delay * PACE), duration: heavy ? 420 : 260, easing: heavy ? 'steps(3,end)' : 'steps(2,end)' });
+}
+function build(env, kind, html, { full = false } = {}) {
+    const node = env.doc.createElement('div');
+    node.className = `igs-dfx igs-wx igs-wx-${kind}${full ? ' is-full' : ''}${env.reduced ? ' is-reduced' : ''}`;
+    node.innerHTML = html;
+    return node;
+}
+const out = (env, kind, layer, node, sounds) => ({ layer, life: lifeOf(kind, env), sounds, node });
+const WUXIA_BUILDERS = Object.freeze({
+    // 名号亮相：竖排拓片，别号作小字，名字逐字写出，右下角钤名首字。
+    wxname(item, env) {
+        standAt(env, item.name, -0.2, lifeOf('wxname', env));
+        const name = item.name || '';
+        const card = div('wx-item wx-n-card', `${item.title ? `<div class="wx-k">${esc(item.title)}</div>` : ''}<div class="wx-n wx-n-name">${chars(name)}</div><div class="wx-seal wx-n-seal">${esc(Array.from(name)[0] || '名')}</div>`);
+        return out(env, 'wxname', 'front', build(env, 'wxname', INKV + card, { full: true }), ['wx-name']);
+    },
+    // 内力对掌：两股墨纹相持、中线迸开；胜者为乙时整组左右镜像。
+    wxpalm(item, env) {
+        standAt(env, item.a, -0.35, lifeOf('wxpalm', env));
+        const mirror = item.winner && item.winner === item.b ? ' is-mirror' : '';
+        const html = `${div('wx-tag v wx-p-a', esc(item.a))}${div('wx-tag v wx-p-b', esc(item.b))}<div class="wx-clash${mirror}">${div('wx-wave l')}${div('wx-wave r')}${div('wx-p-burst')}</div>`;
+        shake(env, 1600, true);
+        return out(env, 'wxpalm', 'front', build(env, 'wxpalm', html), ['wx-palm']);
+    },
+    // 暗器：四道极细墨线疾射而过，落点洇墨，墨签写暗器名。
+    wxdart(item, env) {
+        const html = `${[1, 2, 3, 4].map((i) => div(`wx-dart d${i}`)).join('')}${div('wx-d-pin')}${div('wx-tag v wx-d-tag', esc(item.name))}`;
+        shake(env, 500, false);
+        return out(env, 'wxdart', 'front', build(env, 'wxdart', html), ['wx-dart']);
+    },
+    // 秘籍：只留竖排拓片（v6 不画书）。
+    wxmanual(item, env) {
+        standAt(env, '', 0.27, lifeOf('wxmanual', env));
+        const card = div('wx-item wx-m-card', `<div class="wx-k">武学秘籍</div><div class="wx-n">${esc(item.name)}</div>${item.note ? `<div class="wx-d">${esc(item.note)}</div>` : ''}`);
+        return out(env, 'wxmanual', 'front', build(env, 'wxmanual', INKV + card, { full: true }), ['wx-manual']);
+    },
+    // 江湖令：黑漆令牌由大落定，正面纸色「令」，下竖写令名。
+    wxtoken(item, env) {
+        standAt(env, '', 0.27, lifeOf('wxtoken', env));
+        const html = `${INKV}${div('wx-token')}${div('wx-k-char', '令')}<div class="wx wx-k-sub" style="--n:${Array.from(item.name || '').length || 1}">${esc(item.name)}</div>`;
+        return out(env, 'wxtoken', 'front', build(env, 'wxtoken', html, { full: true }), ['wx-token']);
+    },
+    // 结义 · 拜师：四字由淡转浓加白色外发光，旁写两人名，最后钤印。
+    wxoath(item, env) {
+        standAt(env, '', -0.31, lifeOf('wxoath', env));
+        const words = WUXIA_OATH_WORDS[item.mode] || WUXIA_OATH_WORDS.oath;
+        const names = [item.a, item.b].filter(Boolean).join(' · ');
+        const seal = item.mode === 'master' ? '师' : '义';
+        const html = `${INKV}${names ? div('wx-tag v wx-o-who', esc(names)) : ''}${div('wx-o-words', chars(words))}${div('wx-seal wx-o-seal', seal)}`;
+        return out(env, 'wxoath', 'front', build(env, 'wxoath', html, { full: true }), ['wx-oath']);
+    },
+    // 走火入魔：墨自下倒灌，挂舞台层（对话框之下）；人物逐格失焦。
+    wxmad(item, env) {
+        shake(env, 300, true);
+        animate(env, spriteOf(env, item.who || env.speaker), [{ filter: 'blur(0px)' }, { filter: 'blur(3px)', offset: 0.45 }, { filter: 'blur(0px)' }], { duration: lifeOf('wxmad', env), easing: 'steps(14,end)', composite: 'add' });
+        return out(env, 'wxmad', 'stage', build(env, 'wxmad', div('wx-mad')), ['wx-mad']);
+    },
+});
+
+__igsDefine(exports, "WUXIA_LIFE_MS", () => WUXIA_LIFE_MS);
+__igsDefine(exports, "WUXIA_BUILDERS", () => WUXIA_BUILDERS);
+});
+__igsRegister("src/visual/igs-ui/fx-wuxia-sfx.js", function(module, exports, require) {
+// 武侠江湖包的合成音效：只描述振荡器与滤波噪声，播放由 fx-daily-sfx 合并后统一负责。单项增益不超过 0.4，时长不超过 5s。
+const p = (wave, from, to, start, duration, gain, extra = {}) => Object.freeze({ wave, from, to, start, duration, gain, ...extra });
+const n = (start, duration, gain, extra = {}) => Object.freeze({ start, duration, gain, filter: 'bandpass', freq: 2000, q: 1, attack: 0.002, ...extra });
+// 磬：基音加两个非整数泛音，长尾；鼓：低频下滑。
+const qing = (freq, start, gain) => [
+    p('sine', freq, freq, start, 2.2, gain, { attack: 0.003 }),
+    p('sine', freq * 2.71, freq * 2.71, start, 0.9, gain * 0.3, { attack: 0.002 }),
+    p('sine', freq * 4.16, freq * 4.16, start, 0.4, gain * 0.12, { attack: 0.001 }),
+];
+const drum = (start, gain) => [
+    p('sine', 110, 48, start, 0.5, gain, { attack: 0.004, sweep: 1 }),
+    p('triangle', 70, 40, start, 0.35, gain * 0.4, { attack: 0.004, sweep: 1 }),
+];
+const WUXIA_SFX_DEFS = Object.freeze({
+    'wx-name': { partials: [...drum(0, 0.38), ...qing(523.25, 1.2, 0.22)], noise: [n(0, 0.4, 0.18, { filter: 'lowpass', freq: 900, q: 0.7 })] },
+    'wx-palm': {
+        partials: [p('sine', 90, 120, 0, 1.3, 0.2, { attack: 0.3, sweep: 1 }), ...drum(1.4, 0.4)],
+        noise: [n(0, 1.3, 0.12, { filter: 'lowpass', freq: 400, freqTo: 1200, q: 0.8, attack: 0.4 }), n(1.4, 0.5, 0.35, { filter: 'lowpass', freq: 2600, freqTo: 300, q: 0.7 })],
+    },
+    'wx-dart': {
+        partials: [p('sine', 2600, 1800, 0, 0.12, 0.12, { attack: 0.001, sweep: 1 }), p('triangle', 900, 700, 0.38, 0.12, 0.25, { attack: 0.001 })],
+        noise: [0, 0.07, 0.14, 0.21].map((t) => n(t, 0.12, 0.2, { filter: 'highpass', freq: 3600, q: 0.8, attack: 0.001 })),
+    },
+    'wx-manual': { partials: qing(659.25, 0.5, 0.2), noise: [n(0, 0.45, 0.16, { filter: 'bandpass', freq: 1800, freqTo: 900, q: 0.9, attack: 0.05 })] },
+    'wx-token': { partials: [...drum(0.3, 0.34), p('triangle', 420, 380, 0.3, 0.3, 0.16, { attack: 0.002 })], noise: [n(0.3, 0.2, 0.2, { freq: 1400, q: 1.4 })] },
+    'wx-oath': { partials: [...qing(392, 0.3, 0.22), ...qing(587.33, 1.1, 0.2)], noise: [n(0.3, 0.3, 0.08, { freq: 1200, q: 2, attack: 0.01 })] },
+    'wx-mad': {
+        partials: [p('sawtooth', 80, 60, 0, 2.2, 0.12, { attack: 0.2, sweep: 1 }), p('sine', 160, 90, 0.3, 1.8, 0.18, { attack: 0.1, sweep: 1 })],
+        noise: [n(0, 2.4, 0.22, { filter: 'lowpass', freq: 300, freqTo: 1600, q: 1.2, attack: 0.3 })],
+    },
+});
+
+__igsDefine(exports, "WUXIA_SFX_DEFS", () => WUXIA_SFX_DEFS);
+});
+__igsRegister("src/visual/igs-ui/fx-wuxia-style.js", function(module, exports, require) {
+const { WX_MAD_MASK, WX_RUBBING, WX_SEAL_MASK, WX_SPLAT, WX_TAG_H, WX_TAG_V, WX_TOKEN_LINES, WX_TOKEN_SHAPE, WX_WAVE, maskOf } = require("src/visual/igs-ui/wuxia-ink-svg.js");
+// 武侠江湖包样式：坐标、字号、延时一律取 plan/wuxia-ink-ui/v6 定稿（桌面 960×540，手机 390×844）。
+// 演出根节点设为尺寸容器，以居中的定稿画布为基准按 --wu 等比换算。整屏演出期间对话框淡出；走火入魔挂舞台层。
+const JIAO = '#1c1b19';
+const PAPER = '243,240,232';
+const MOON = '236,231,221';
+const ZHU = '#a8382a';
+const BRUSH = '"IGS-MaShanZheng","LXGW WenKai",serif';
+// 江湖令的令字与令名用另一款毛笔字（志莽行），与拓片上的马善政区分开。
+const CURSIVE = '"IGS-ZhiMangXing","IGS-MaShanZheng","LXGW WenKai",serif';
+const SONG = '"LXGW Neo ZhiSong","Source Han Serif CN",serif';
+const RGLOW = '0 0 2px rgba(250,250,250,.95),0 0 10px rgba(250,250,250,.8),0 0 26px rgba(250,250,250,.45)';
+const S = '#igs-overlay .igs-wx';
+const K = (kind) => `${S}-${kind}`;
+const u = (v) => `calc(${v} * var(--wu))`;
+const x = (v) => `calc(50% + (${v} - var(--wcx)) * var(--wu))`;
+const y = (v) => `calc(50% + (${v} - var(--wcy)) * var(--wu))`;
+const at = (l, t) => `left:${x(l)};top:${y(t)};`;
+const atR = (r, t) => `right:${x(r)};top:${y(t)};`;
+const box = (l, t, w, h) => `${at(l, t)}width:${u(w)};height:${u(h)};`;
+// 节奏 --wxs（默认 1.6，与 fx-wuxia.js 的 PACE 一致）：时长与延时一起放慢。
+const anim = (name, dur, delay, ease = 'ease-out') => `animation:igs-wxp-${name} calc(${dur}s * var(--wxs,1.6)) ${ease} calc(${delay}s * var(--wxs,1.6)) both;`;
+
+const BASE = [
+    `${S}{position:absolute;inset:0;pointer-events:none;container-type:size;--wcx:480;--wcy:270;--wu:min(calc(100cqw / 960),calc(100cqh / 540));color:${JIAO};animation:igs-wxp-life var(--igs-dfx-life,3s) linear both;}`,
+    `@media (max-width:640px){${S}{--wcx:195;--wcy:422;--wu:min(calc(100cqw / 390),calc(100cqh / 844));}}`,
+    '#igs-overlay:has(.igs-wx.is-full) .igs-dialog{opacity:0;transition:opacity .2s ease-out;}',
+    `${S} .wx{position:absolute;display:block;box-sizing:border-box;white-space:nowrap;opacity:0;}`,
+    `${S} .wx-clash{position:absolute;inset:0;}${S} .wx-clash.is-mirror{transform:scaleX(-1);}`,
+    `${S} .wx-inkv{inset:0;background:radial-gradient(ellipse closest-side at 50% 46%,rgba(28,27,25,0) 62%,rgba(28,27,25,.42) 86%,rgba(28,27,25,.72) 100%);${anim('fade-in', 0.45, 0)}}`,
+    `${S} :where(.wx-tag){background:rgba(22,21,19,.9);color:rgb(${PAPER});text-shadow:none;padding:${u(5)} ${u(20)} ${u(6)};${maskOf(WX_TAG_H)}}`,
+    `${S} :where(.wx-tag.v){writing-mode:vertical-rl;padding:${u(16)} ${u(7)} ${u(14)};${maskOf(WX_TAG_V)}}`,
+    // 印须压过 .wx{display:block} 才能字居中，不包 :where；各演出的印位规则特异度相同、排在其后。
+    `${S} .wx-seal{position:absolute;display:grid;place-items:center;background:${ZHU};color:#f5ece0;font-family:${BRUSH};font-weight:400;line-height:1.05;text-align:center;${maskOf(WX_SEAL_MASK)}}`,
+    `${S} .wx-ch{display:inline-block;font-weight:400;opacity:0;}`,
+    // 拓片（v6 .item）：墨底叠石纹，外一线、内收 6px 再一线作碑框，竖排。
+    `${S} .wx-item{writing-mode:vertical-rl;white-space:normal;padding:${u(30)} ${u(24)};background:${WX_RUBBING} 0 0/1024px 512px,rgba(12,11,10,.92);border:1px solid rgba(${MOON},.1);text-align:center;}`,
+    `${S} .wx-item::before{content:"";position:absolute;inset:${u(6)};border:1px solid rgba(${MOON},.2);pointer-events:none;}`,
+    `${S} .wx-k{font:400 ${u(13)} ${SONG};letter-spacing:.4em;color:#a39e95;}`,
+    `${S} .wx-n{margin:0 ${u(12)} 0 ${u(14)};font:400 ${u(34)} ${BRUSH};letter-spacing:.24em;color:#f3eee4;}`,
+    `${S} .wx-d{font:400 ${u(14)}/2 ${SONG};color:#c7c1b6;letter-spacing:.08em;text-align:start;}`,
+];
+
+const KINDS = [
+    `${K('wxname')} .wx-n-card{${atR(170, 36)}${anim('rise-in', 0.45, 0.15)}}`,
+    `${K('wxname')} .wx-n-name{font-size:${u(96)};color:#f3eee4;text-shadow:none;}`,
+    `${K('wxname')} .wx-n-name .wx-ch{animation:igs-wxp-write-down calc(.34s * var(--wxs,1.6)) ease-out calc((.3s + var(--i,0) * .22s) * var(--wxs,1.6)) both;}`,
+    `${K('wxname')} .wx-n-seal{right:${u(16)};bottom:${u(16)};width:${u(34)};height:${u(34)};font-size:${u(19)};${anim('stamp', 0.22, 1.5)}}`,
+    `${K('wxpalm')} .wx-p-a{${at(330, 40)}font:400 ${u(22)} ${BRUSH};letter-spacing:.4em;${anim('fade-in', 0.3, 0.1)}}`,
+    `${K('wxpalm')} .wx-p-b{${atR(330, 40)}font:400 ${u(22)} ${BRUSH};letter-spacing:.4em;${anim('fade-in', 0.3, 0.1)}}`,
+    `${K('wxpalm')} .wx-wave{top:${y(40)};width:${u(220)};height:${u(270)};background:${JIAO};${maskOf(WX_WAVE)}}`,
+    `${K('wxpalm')} .wx-wave.l{left:${x(262)};${anim('wave-l', 2.4, 0.2, 'cubic-bezier(.3,.6,.3,1)')}}`,
+    `${K('wxpalm')} .wx-wave.r{left:${x(478)};transform:scaleX(-1);${anim('wave-r', 2.4, 0.2, 'cubic-bezier(.3,.6,.3,1)')}}`,
+    `${K('wxpalm')} .wx-p-burst{${box(350, 46, 260, 260)}background:${JIAO};${maskOf(WX_SPLAT)}${anim('splat-in', 0.3, 1.6)}}`,
+    `${K('wxdart')} .wx-dart{left:0;height:${u(4)};width:${u(300)};border-radius:2px;box-shadow:0 0 0 2px rgba(${PAPER},.55);background:linear-gradient(90deg,rgba(28,27,25,0),rgba(28,27,25,.6) 70%,${JIAO} 96%,rgba(28,27,25,0));animation:igs-wxp-dart calc(.3s * var(--wxs,1.6)) cubic-bezier(.5,0,.9,.6) both;}`,
+    `${K('wxdart')} .d1{top:${y(120)};rotate:-4deg;animation-delay:calc(.1s * var(--wxs,1.6));}${K('wxdart')} .d2{top:${y(164)};rotate:-2deg;animation-delay:calc(.16s * var(--wxs,1.6));}${K('wxdart')} .d3{top:${y(196)};rotate:-5deg;animation-delay:calc(.2s * var(--wxs,1.6));}${K('wxdart')} .d4{top:${y(236)};rotate:-3deg;animation-delay:calc(.27s * var(--wxs,1.6));}`,
+    `${K('wxdart')} .wx-d-pin{${box(760, 116, 90, 150)}background:${JIAO};${maskOf(WX_SPLAT)}${anim('splat-in', 0.2, 0.5)}}`,
+    `${K('wxdart')} .wx-d-tag{${at(840, 60)}font:400 ${u(24)} ${BRUSH};letter-spacing:.4em;${anim('write-down', 0.45, 0.55)}}`,
+    `${K('wxmanual')} .wx-m-card{${at(330, 64)}height:${u(340)};${anim('rise-in', 0.45, 0.2)}}`,
+    `${K('wxmanual')} .wx-m-card .wx-n{font-size:${u(40)};}`,
+    // 令牌与拓片同底（石纹 + 墨 .92），轮廓遮罩裁成挂耳切角，线稿层叠在最上；入场与秘籍拓片同款升起。
+    `${K('wxtoken')} .wx-token{${box(250, 96, 180, 330)}background:${WX_TOKEN_LINES} center/100% 100% no-repeat,${WX_RUBBING} 0 0/1024px 512px,rgba(12,11,10,.92);${maskOf(WX_TOKEN_SHAPE)}${anim('rise-in', 0.45, 0.2)}}`,
+    `${K('wxtoken')} .wx-k-char{${at(250, 160)}width:${u(180)};text-align:center;font:400 ${u(88)}/1 ${CURSIVE};color:rgb(${PAPER});text-shadow:0 0 1px rgba(${PAPER},.6);${anim('fade-in', 0.35, 0.7)}}`,
+    // 令名按字数缩字，始终落在令牌内框里（内框下沿在定稿 y≈404）。
+    `${K('wxtoken')} .wx-k-sub{left:${x(340)};top:${y(282)};translate:-50% 0;writing-mode:vertical-rl;font:400 calc(min(22, 118 / (var(--n,4) * 1.3)) * var(--wu)) ${CURSIVE};letter-spacing:.3em;color:rgba(${PAPER},.82);${anim('write-down', 0.5, 0.95)}}`,
+    `${K('wxoath')} .wx-o-who{${at(560, 40)}font:400 ${u(17)} ${SONG};letter-spacing:.5em;${anim('fade-in', 0.5, 1.6)}}`,
+    `${K('wxoath')} .wx-o-words{${at(432, 40)}writing-mode:vertical-rl;font:400 ${u(96)}/1.02 ${BRUSH};color:${JIAO};text-shadow:${RGLOW};filter:drop-shadow(0 0 1px rgba(250,250,250,.95)) drop-shadow(0 0 6px rgba(250,250,250,.8)) drop-shadow(0 0 16px rgba(250,250,250,.5));opacity:1;}${K('wxoath')} .wx-o-words .wx-ch{text-shadow:inherit;}`,
+    `${K('wxoath')} .wx-o-words .wx-ch{animation:igs-wxp-ink-deepen calc(.6s * var(--wxs,1.6)) ease-out calc((.3s + var(--i,0) * .32s) * var(--wxs,1.6)) both;}`,
+    `${K('wxoath')} .wx-o-seal{${box(448, 440, 42, 42)}font-size:${u(15)};${anim('stamp', 0.22, 1.85)}}`,
+    `${K('wxmad')} .wx-mad{left:${u(-20)};right:${u(-20)};bottom:${u(-40)};height:120%;background:linear-gradient(0deg,rgba(28,27,25,.96),rgba(28,27,25,.9) 50%,rgba(28,27,25,.82) 70%);${maskOf(WX_MAD_MASK)}${anim('mad', 2.2, 0.1, 'cubic-bezier(.4,.1,.4,1)')}}`,
+];
+
+// 手机竖屏：坐标取 v6-手机定稿（390×844），小字一律 16。
+const MOBILE = `@media (max-width:640px){${[
+    `${K('wxname')} .wx-n-card{${atR(24, 96)}}${K('wxname')} .wx-n-name{font-size:${u(72)};}${K('wxname')} .wx-n-seal{right:${u(14)};bottom:${u(14)};width:${u(30)};height:${u(30)};font-size:${u(17)};}`,
+    `${K('wxpalm')} .wx-wave{top:${y(250)};width:${u(150)};height:${u(190)};}${K('wxpalm')} .wx-wave.l{left:${x(44)};}${K('wxpalm')} .wx-wave.r{left:${x(196)};}`,
+    `${K('wxpalm')} .wx-p-burst{${box(95, 240, 200, 200)}}${K('wxpalm')} .wx-p-a{${at(24, 110)}font-size:${u(16)};}${K('wxpalm')} .wx-p-b{${atR(24, 110)}font-size:${u(16)};}`,
+    `${K('wxdart')} .wx-dart{width:${u(200)};animation-name:igs-wxp-dart-m;}${K('wxdart')} .d1{top:${y(250)};}${K('wxdart')} .d2{top:${y(290)};}${K('wxdart')} .d3{top:${y(318)};}${K('wxdart')} .d4{top:${y(352)};}`,
+    `${K('wxdart')} .wx-d-pin{${box(260, 250, 80, 120)}}${K('wxdart')} .wx-d-tag{${at(336, 120)}font-size:${u(16)};}`,
+    `${K('wxmanual')} .wx-m-card{${at(40, 150)}height:${u(330)};}${K('wxmanual')} .wx-m-card .wx-n{font-size:${u(32)};}`,
+    `${K('wxtoken')} .wx-token{${box(30, 120, 150, 275)}}${K('wxtoken')} .wx-k-char{${at(30, 173)}width:${u(150)};font-size:${u(72)};}${K('wxtoken')} .wx-k-sub{left:${x(105)};top:${y(272)};font-size:calc(min(18, 100 / (var(--n,4) * 1.3)) * var(--wu));}`,
+    `${K('wxoath')} .wx-o-words{${at(195, 110)}translate:-50% 0;font-size:${u(80)};}${K('wxoath')} .wx-o-who{${at(118, 190)}font-size:${u(16)};}${K('wxoath')} .wx-o-seal{${box(176, 470, 38, 38)}font-size:${u(14)};}`,
+].join('')}}`;
+
+// 减少动态效果：去掉全部动画，留静止终态（暗器飞线与墨晕不留，走火入魔留半截墨）。
+const REDUCED = `${S}.is-reduced,${S}.is-reduced *{animation:none!important;}${S}.is-reduced .wx,${S}.is-reduced .wx-ch{opacity:1;}${S}.is-reduced :is(.wx-dart,.wx-inkv){display:none;}${K('wxmad')}.is-reduced .wx-mad{transform:translateY(60%);opacity:.6;}`;
+
+const KEYFRAMES = `
+@keyframes igs-wxp-life{0%,88%{opacity:1}100%{opacity:0}}
+@keyframes igs-wxp-fade-in{from{opacity:0}to{opacity:1}}
+@keyframes igs-wxp-rise-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes igs-wxp-write-down{from{opacity:1;clip-path:inset(0 0 100% 0)}to{opacity:1;clip-path:inset(0 0 0 0)}}
+@keyframes igs-wxp-stamp{0%{opacity:0;transform:scale(1.7)}55%{opacity:1;transform:scale(.94)}100%{opacity:1;transform:scale(1)}}
+@keyframes igs-wxp-splat-in{0%{opacity:0;transform:scale(.35)}40%{opacity:.95}100%{opacity:.9;transform:scale(1)}}
+@keyframes igs-wxp-wave-l{0%{opacity:0;transform:translateX(calc(-200 * var(--wu)))}25%{opacity:1;transform:translateX(0)}30%{transform:translateX(-4px)}35%{transform:translateX(3px)}40%{transform:translateX(-3px)}45%{transform:translateX(4px)}50%{transform:translateX(-2px)}58%{transform:translateX(0)}72%{opacity:1;transform:translateX(calc(150 * var(--wu)))}100%{opacity:0;transform:translateX(calc(220 * var(--wu)))}}
+@keyframes igs-wxp-wave-r{0%{opacity:0;transform:scaleX(-1) translateX(calc(-200 * var(--wu)))}25%{opacity:1;transform:scaleX(-1) translateX(0)}30%{transform:scaleX(-1) translateX(-4px)}35%{transform:scaleX(-1) translateX(3px)}40%{transform:scaleX(-1) translateX(-3px)}45%{transform:scaleX(-1) translateX(4px)}50%{transform:scaleX(-1) translateX(-2px)}58%{opacity:1;transform:scaleX(-1) translateX(0)}72%{opacity:.35;transform:scaleX(-1) translateX(calc(-150 * var(--wu)))}100%{opacity:0;transform:scaleX(-1) translateX(calc(-200 * var(--wu)))}}
+@keyframes igs-wxp-dart{0%{opacity:1;translate:calc(-300 * var(--wu)) 0}100%{opacity:1;translate:calc(1180 * var(--wu)) 0}}
+@keyframes igs-wxp-dart-m{0%{opacity:1;translate:calc(-240 * var(--wu)) 0}100%{opacity:1;translate:calc(640 * var(--wu)) 0}}
+@keyframes igs-wxp-ink-deepen{0%{opacity:0;color:rgba(28,27,25,.1);filter:blur(4px)}40%{opacity:1;color:rgba(28,27,25,.35);filter:blur(1.5px)}100%{opacity:1;color:${JIAO};filter:none}}
+@keyframes igs-wxp-token{from{opacity:0;transform:scale(1.12) rotate(-3deg)}to{opacity:1;transform:none}}
+@keyframes igs-wxp-mad{0%{opacity:1;transform:translateY(100%)}40%{opacity:1;transform:translateY(22%)}62%{opacity:1;transform:translateY(26%)}100%{opacity:0;transform:translateY(100%)}}
+`;
+const WUXIA_STYLE_TEXT = [...BASE, ...KINDS, MOBILE, REDUCED, KEYFRAMES].join('\n');
+
+__igsDefine(exports, "WUXIA_STYLE_TEXT", () => WUXIA_STYLE_TEXT);
+});
 __igsRegister("src/visual/igs-ui/fx-pack-nsfw.js", function(module, exports, require) {
 // 题材包清单：直白亲密。字段说明见 docs/FX_PACK_CONTRACT.md；本文件只导出 PACK，由 scene/fx-packs.js 汇总。
 // 前置开关是亲密演出总开关（romanceFx.enabled）；全部 kind 默认关，NSFW 场景里也允许播放。
@@ -29870,7 +30442,7 @@ function titleCard(env, text, life) {
     if (!text) return '';
     const front = env.layers && env.layers.front;
     if (front && typeof front.querySelector === 'function' && front.querySelector('.igs-fx-title-card')) return '';
-    return `<div class="igs-fx-title-card${env.ancient ? ' is-ancient' : ''}" style="--igs-fx-life:${life}ms"><div class="igs-fx-title-main">${esc(text)}</div></div>`;
+    return `<div class="igs-fx-title-card${env.ancient ? ' is-ancient' : ''}" data-igs-seal="${esc(Array.from(String(text))[0] || '')}" style="--igs-fx-life:${life}ms"><div class="igs-fx-title-main">${esc(text)}</div></div>`;
 }
 
 const POSITIONS = Object.freeze([[10, 8], [24, 70], [40, 20], [58, 78], [74, 16], [88, 66], [18, 40], [66, 44], [82, 84], [34, 54], [50, 6], [92, 30]]);
@@ -39035,7 +39607,7 @@ __igsDefine(exports, "resolveVisualMode", () => resolveVisualMode);
 __igsDefine(exports, "VISUAL_MODES", () => VISUAL_MODES);
 });
 __igsRegister("src/visual/igs-ui/reader-host-constants.js", function(module, exports, require) {
-const { DIALOG_FONT_CAVEAT, DIALOG_FONT_CHILL_ROUND, DIALOG_FONT_CINZEL, DIALOG_FONT_CORMORANT, DIALOG_FONT_GREAT_VIBES, DIALOG_FONT_HUIWEN, DIALOG_FONT_IM_FELL, DIALOG_FONT_NEO_XIHEI, DIALOG_FONT_NEO_ZHISONG, DIALOG_FONT_PINYON_SCRIPT, DIALOG_FONT_QUICKSAND, DIALOG_FONT_ROUNDED, DIALOG_FONT_SERIF, DIALOG_FONT_SMILEY, DIALOG_FONT_SOURCE_HAN_SANS, DIALOG_FONT_WENKAI, DIALOG_FONT_WENKAI_LITE, DIALOG_FONT_YOZAI, DIALOG_FONT_YUYANG, DIALOG_FONT_ZCOOL_KUAILE } = require("src/visual/igs-ui/dialog-theme-typography.js");
+const { DIALOG_FONT_CAVEAT, DIALOG_FONT_CHILL_ROUND, DIALOG_FONT_CINZEL, DIALOG_FONT_CORMORANT, DIALOG_FONT_GREAT_VIBES, DIALOG_FONT_HUIWEN, DIALOG_FONT_IM_FELL, DIALOG_FONT_MASHANZHENG, DIALOG_FONT_NEO_XIHEI, DIALOG_FONT_NEO_ZHISONG, DIALOG_FONT_PINYON_SCRIPT, DIALOG_FONT_QUICKSAND, DIALOG_FONT_ROUNDED, DIALOG_FONT_SERIF, DIALOG_FONT_SMILEY, DIALOG_FONT_SOURCE_HAN_SANS, DIALOG_FONT_WENKAI, DIALOG_FONT_WENKAI_LITE, DIALOG_FONT_YOZAI, DIALOG_FONT_YUYANG, DIALOG_FONT_ZCOOL_KUAILE } = require("src/visual/igs-ui/dialog-theme-typography.js");
 const DEFAULT_IMAGE_API = Object.freeze({
     mode: 'extension',
     externalAdapter: 'auto',
@@ -39127,6 +39699,7 @@ const DIALOG_FONT_OPTIONS = Object.freeze([
     [DIALOG_FONT_SOURCE_HAN_SANS, '思源黑体'],
     [DIALOG_FONT_SERIF, '思源宋体'],
     [DIALOG_FONT_HUIWEN, '汇文明朝体'],
+    [DIALOG_FONT_MASHANZHENG, '马善政楷书'],
     [DIALOG_FONT_YUYANG, '仓耳渔阳体'],
     [DIALOG_FONT_SMILEY, '得意黑'],
     [DIALOG_FONT_ZCOOL_KUAILE, '站酷快乐体'],
@@ -54037,6 +54610,7 @@ const SKIN_FAMILIES = Object.freeze({
     'adventure-journey': 'wood',
     'qinglv-shanshui': 'wood',
     'xianxia-ink': 'wood',
+    'wuxia-ink': 'paper',
     'black-white-manga': 'paper',
     'warm-picturebook': 'paper',
     'fairy-tale': 'paper',
@@ -54252,6 +54826,7 @@ const TEXT_FX_STYLE_TEXT = `
 #igs-overlay[data-igs-dialog-skin="mermaid-deep"]{--igs-tfx-accent:#b6d4ff;--igs-tfx-glow:rgba(140,180,255,.8);}
 #igs-overlay[data-igs-dialog-skin="qinglv-shanshui"]{--igs-tfx-accent:#2f5d7c;--igs-tfx-glow:rgba(244,240,229,.9);}
 #igs-overlay[data-igs-dialog-skin="xianxia-ink"]{--igs-tfx-accent:#b23a2a;--igs-tfx-glow:rgba(244,241,234,.9);}
+#igs-overlay[data-igs-dialog-skin="wuxia-ink"]{--igs-tfx-accent:#ece7dd;--igs-tfx-glow:rgba(12,11,10,.85);}
 #igs-overlay[data-igs-dialog-skin="warm-picturebook"]{--igs-tfx-accent:#c8553d;--igs-tfx-glow:rgba(255,255,255,.8);}
 #igs-overlay[data-igs-dialog-skin="fairy-tale"]{--igs-tfx-accent:#b4702c;--igs-tfx-glow:rgba(250,246,234,.9);}
 #igs-overlay[data-igs-dialog-skin="horror-gore"]{--igs-tfx-accent:#ff2a33;--igs-tfx-glow:rgba(0,0,0,.9);}
@@ -54283,7 +54858,7 @@ __igsRegister("src/visual/igs-ui/click-wait-mark.js", function(module, exports, 
 const CLICK_WAIT_MARK_GLYPHS = Object.freeze([
     'auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush',
     'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye',
-    'reticle', 'hazard', 'bubbles', 'sword',
+    'reticle', 'hazard', 'bubbles', 'sword', 'dian',
 ]);
 const CLICK_WAIT_MARK_LABELS = Object.freeze({
     auto: '跟随皮肤',
@@ -54310,6 +54885,7 @@ const CLICK_WAIT_MARK_LABELS = Object.freeze({
     reticle: '全息准星',
     hazard: '警示三角',
     sword: '倒悬飞剑',
+    dian: '墨点',
 });
 const CLICK_WAIT_MARK_STYLES = Object.freeze(
     CLICK_WAIT_MARK_GLYPHS.map(id => Object.freeze({ id, label: CLICK_WAIT_MARK_LABELS[id] })),
@@ -54362,6 +54938,8 @@ const SHAPES = Object.freeze({
     compass: "<path d='M12 22.2L6.6 9.4L12 12.2L17.4 9.4Z'/><circle cx='12' cy='4.6' r='2'/>",
     // 仙侠水墨：一柄倒悬的飞剑（剑尖朝下）。
     sword: "<path d='M12 22.6L9.6 13.6V4.6H14.4V13.6Z'/><rect x='7' y='2.4' width='10' height='2' rx='.6'/>",
+    // 水墨武侠：月白侧点「、」，起笔圆钝、向右下收成一团。
+    dian: "<path transform='translate(3 2)' d='M3 2 C7 2 13 6 15.5 12 C17 16 14 19.5 10.5 18 C7 16.5 5 10 2.4 4.6 C1.8 3.2 2 2 3 2Z'/>",
     seal: "<rect x='6.5' y='6.5' width='11' height='11' rx='1.4'/>",
     // 童话小镇的草莓：籽镂空（evenodd），单色遮罩下也认得出。
     strawberry: "<path fill-rule='evenodd' d='M12 6.5C17.5 6.5 20 10 18.6 14.8C17.4 18.8 14 21.6 12 22.5C10 21.6 6.6 18.8 5.4 14.8C4 10 6.5 6.5 12 6.5ZM8.6 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM14 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM11.25 14.4a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM9.1 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0ZM13.5 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0Z'/><path d='M6.6 6.6L10.2 6.4L12 2.2L13.8 6.4L17.4 6.6L14.4 8.6H9.6Z'/>",
@@ -54386,11 +54964,12 @@ const ANIMATIONS = Object.freeze({
     'tap-soft': { keyframes: '0%,100%{transform:translateY(-1px);opacity:.45;}50%{transform:translateY(2px);opacity:1;}', timing: '1.8s ease-in-out infinite', origin: '50% 50%' },
     'tap-hop': { keyframes: '0%,100%{transform:translateY(0) scale(1.08,.92);}15%{transform:translateY(0) scale(1);}45%{transform:translateY(-4px);}75%{transform:translateY(0) scale(1);}', timing: '1.4s ease-in-out infinite', origin: '50% 100%' },
     'tap-steps': { keyframes: '0%{transform:translateY(0);}25%{transform:translateY(-4px);}50%{transform:translateY(0);}75%{transform:translateY(1.5px) scale(1.12,.86);}', timing: '.9s steps(1,end) infinite', origin: '50% 100%' },
+    'tap-breath': { keyframes: '0%,100%{opacity:.35;}50%{opacity:1;}', timing: '2.4s ease-in-out infinite', origin: '50% 50%' },
 });
 
 const GLYPH_ANIMATIONS = Object.freeze({
     pendant: 'tap-soft', seal: 'tap-soft', caret: 'tap-soft', 'triangle-hollow': 'tap-soft', eye: 'tap-soft',
-    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop', reticle: 'tap-soft', bubbles: 'tap-hop',
+    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop', reticle: 'tap-soft', bubbles: 'tap-hop', dian: 'tap-breath',
 });
 const GLYPH_MARKS = Object.freeze(Object.fromEntries(CLICK_WAIT_MARK_GLYPHS.filter((id) => id !== 'auto')
     .map((id) => [id, { shape: id, animation: GLYPH_ANIMATIONS[id] || 'tap' }])));
@@ -54404,6 +54983,7 @@ const CLICK_WAIT_MARK_SKINS = Object.freeze({
     'fairy-tale': mark('strawberry', '#dc6a5c'),
     'qinglv-shanshui': mark('seal', '#b23a2a'),
     'xianxia-ink': mark('sword', '#b23a2a'),
+    'wuxia-ink': mark('dian', '#ece7dd'),
     'retro-japanese': mark('triangle-brush', '#c23a24'),
     'adventure-journey': mark('compass', '#9a6a2c'),
     'plant-coffee': mark('leaf', '#6f8446'),
@@ -81865,7 +82445,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'toolbar-dock', label: '工具栏位置', aliases: ['工具栏', '按钮', '顶部', '紧贴对话框'], page: 'ui-bar', path: 'readerSettings.toolbarDock' },
     { id: 'status-hud-position', label: '状态栏位置', aliases: ['状态栏', 'hud', '头像', '左上角', '挡住', '挪位置'], page: 'ui-bg' },
     { id: 'sprite-scale', label: '立绘缩放与高度', aliases: ['立绘太大', '立绘太小', '缩放', '高度', '人物大小'], page: 'chars', open: ['sprite-display'] },
-    { id: 'dialog-skin', label: '对话框风格', aliases: ['皮肤', '对话框样式', '换皮', '科幻', '末日', '全息', '废土', '本卡皮肤', '主题'], page: 'style', path: 'readerSettings.dialogSkin' },
+    { id: 'dialog-skin', label: '对话框风格', aliases: ['皮肤', '对话框样式', '换皮', '科幻', '末日', '全息', '废土', '武侠', '水墨', '江湖', '本卡皮肤', '主题'], page: 'style', path: 'readerSettings.dialogSkin' },
     { id: 'title-screen', label: '开场先显示主界面', aliases: ['主界面', '标题画面', '开始菜单', '开场白', '第0层', '选择世界观'], page: 'style', path: 'readerSettings.titleScreen' },
     { id: 'text-effect', label: '文字增强', aliases: ['描边', '看不清', '投影', '字看不清'], page: 'text', path: 'readerSettings.dialogTextEffect' },
     { id: 'camera-kenburns', label: '背景缓慢推镜', group: 'stage', open: ['perf-camera'], aliases: ['推镜', '背景移动', '镜头'] },
@@ -86987,6 +87567,7 @@ const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-d
 const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV, QINGLV_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_XIANXIA_INK, XIANXIA_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-xianxia.js");
+const { DIALOG_SKIN_WUXIA_INK, WUXIA_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-wuxia.js");
 const { DIALOG_SKIN_MERMAID, MERMAID_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-mermaid.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
 const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_CHOICE_STYLE, PSYCH_CHOICE_STYLE } = require("src/visual/igs-ui/dialog-theme-horror.js");
@@ -87086,6 +87667,7 @@ const DIALOG_THEME_CHOICE_STYLE_BY_SKIN = Object.freeze({
     }),
     [DIALOG_SKIN_QINGLV]: QINGLV_CHOICE_STYLE,
     [DIALOG_SKIN_XIANXIA_INK]: XIANXIA_CHOICE_STYLE,
+    [DIALOG_SKIN_WUXIA_INK]: WUXIA_CHOICE_STYLE,
     [DIALOG_SKIN_MERMAID]: MERMAID_CHOICE_STYLE,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_CHOICE_STYLE,
     [DIALOG_SKIN_HORROR_GORE]: GORE_CHOICE_STYLE,
@@ -93385,7 +93967,10 @@ function buildShowcase(doc, card, ancient = false) {
     node.appendChild(el(doc, 'div', 'igs-fx-item-showcase-burst'));
     const plate = el(doc, 'div', 'igs-fx-item-showcase-plate');
     plate.appendChild(buildIcon(doc, card, 'igs-fx-item-showcase-icon'));
-    plate.appendChild(el(doc, 'span', 'igs-fx-item-showcase-label', `${card.actionLabel}了`));
+    const label = el(doc, 'span', 'igs-fx-item-showcase-label', `${card.actionLabel}了`);
+    // 动作原词另存一份，供不带「了」的皮肤（水墨武侠「获 得」）取用。
+    label.setAttribute('data-igs-item-act', card.actionLabel || '');
+    plate.appendChild(label);
     plate.appendChild(el(doc, 'span', 'igs-fx-item-showcase-name', card.name));
     if (card.description) plate.appendChild(el(doc, 'span', 'igs-fx-item-showcase-desc', card.description));
     if (ancient) plate.appendChild(buildSeal(doc, card, 'igs-fx-item-showcase-seal'));
@@ -93917,6 +94502,8 @@ __igsDefine(exports, "findFxLayers", () => findFxLayers);
 });
 __igsRegister("src/visual/igs-ui/fx-battle.js", function(module, exports, require) {
 const { worldSkinOf } = require("src/scene/worldview.js");
+const { WUXIA_BATTLE_STYLE_TEXT } = require("src/visual/igs-ui/fx-battle-wuxia-style.js");
+const { WUXIA_PACE, WUXIA_REACT_DELAY, WUXIA_SHAKE_FRAMES, buildWuxiaEncounter, buildWuxiaHit, buildWuxiaHurt, buildWuxiaResult, wuxiaHurts, wuxiaShakeOf } = require("src/visual/igs-ui/fx-battle-wuxia.js");
 // 战斗演出 DOM 层：遭遇、出招、结算挂在 fx 前层（对话层之上），对手名牌与战斗暗角挂在 fx 后层。
 // 同一身份（消息|swipe|页）重绘不重播；名牌、暗角与黑边跟随当前页的战斗区间状态；计时器与立绘动画统一回收。
 // 演出播放期间前层铺一块透明点击层：点一下跳到结算，这次点击不翻页。
@@ -93930,12 +94517,13 @@ const MOTION_ATTR = 'data-igs-fx-battle-motion';
 const LETTERBOX_ATTR = 'data-igs-fx-battle-letterbox';
 const MOTION_ATTRS = Object.freeze([SHOW_ATTR, SHAKE_ATTR, MOTION_ATTR, LETTERBOX_ATTR]);
 const SHAKE_MS = 420;
-const EVENT_CLASSES = '.igs-fx-battle-encounter, .igs-fx-battle-hit, .igs-fx-battle-result, .igs-fx-battle-skip, .igs-fx-battle-foe';
+const EVENT_CLASSES = '.igs-fx-battle-encounter, .igs-fx-battle-hit, .igs-fx-battle-result, .igs-fx-battle-skip, .igs-fx-battle-foe, .igs-fx-battle-wx-hurt';
 // 古代背景（readerSettings._ancientEra）：时间轴与音效不变，节点加 is-ancient，换成水墨剑光、书法招式名与朱砂印。
 const ANCIENT_HIT_LABELS = Object.freeze({ hit: '命中', crit: '暴击', miss: '闪避', guard: '格挡', ko: '击倒', heal: '疗伤' });
 const ANCIENT_RESULT_GLYPHS = Object.freeze({ win: '胜', lose: '败', escape: '遁' });
-// ancient 取值：false | true（水墨）| 'xianxia'（仙侠水墨皮肤：水墨基础上再加 is-xianxia，换成青白剑气、冷白闪光、紫白雷劫）。
-const eraClass = (className, ancient) => (ancient ? `${className} is-ancient${ancient === 'xianxia' ? ' is-xianxia' : ''}` : className);
+// ancient 取值：false | true（水墨）| 'xianxia'（仙侠水墨皮肤：水墨基础上再加 is-xianxia，换成青白剑气、冷白闪光、紫白雷劫）
+// | 'wuxia'（水墨武侠皮肤：任何世界观都挂 is-ancient is-wuxia，焦墨落笔，样式见 fx-battle-wuxia-style.js）。
+const eraClass = (className, ancient) => (ancient ? `${className} is-ancient${ancient === 'xianxia' || ancient === 'wuxia' ? ` is-${ancient}` : ''}` : className);
 // 换皮世界观（worldSkinOf）：在现代节点上追加 is-<id> 换皮，时间轴、文案与音效不变。
 const SHIELD_SVG = '<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true"><polygon points="50,4 90,27 90,73 50,96 10,73 10,27" fill="none" stroke="currentColor" stroke-width="4"/><polygon points="50,18 78,34 78,66 50,82 22,66 22,34" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="2" stroke-opacity=".7"/></svg>';
 
@@ -94029,18 +94617,29 @@ function shake(state, level) {
     track(state, () => state.motion.removeAttribute(SHAKE_ATTR), SHAKE_MS);
 }
 
-function reactSprite(state, spriteEl, result) {
+function reactSprite(state, spriteEl, result, delay = 0) {
     const steps = SPRITE_REACTIONS[result];
     if (!steps || !spriteEl || typeof spriteEl.animate !== 'function') return;
     for (const step of steps) {
         try {
             const anim = spriteEl.animate(step.frames.map((value) => ({ [step.prop]: value })), {
-                duration: step.duration, easing: 'cubic-bezier(.2,.8,.3,1)', fill: step.fill || 'none', composite: step.composite || 'add',
+                duration: step.duration, delay, easing: 'cubic-bezier(.2,.8,.3,1)', fill: step.fill || 'none', composite: step.composite || 'add',
             });
             state.anims.add(anim);
             if (step.fill !== 'forwards' && anim && 'onfinish' in anim) anim.onfinish = () => state.anims.delete(anim);
         } catch { /* 不支持叠加合成的环境跳过立绘反应 */ }
     }
+}
+
+// 武侠：震屏按定稿的落笔时刻错后，用 WAAPI 的 delay 播放，不另起计时器。
+function wuxiaShake(state, motion, [level, delay]) {
+    const spec = WUXIA_SHAKE_FRAMES[level];
+    if (!spec || !motion || typeof motion.animate !== 'function') return;
+    try {
+        const anim = motion.animate(spec.frames.map((translate, i) => ({ translate, offset: spec.offsets[i] })), { duration: spec.duration, delay, easing: spec.easing });
+        state.anims.add(anim);
+        if (anim && 'onfinish' in anim) anim.onfinish = () => state.anims.delete(anim);
+    } catch { /* 不支持 WAAPI 的环境不震屏 */ }
 }
 
 function portraitImg(doc, className, url, name) {
@@ -94062,6 +94661,7 @@ function buildFoe(doc, event) {
 
 function buildEncounter(doc, event, ancient) {
     const node = el(doc, 'div', eraClass('igs-fx-battle-encounter igs-fx-transient', ancient));
+    if (ancient === 'wuxia') return buildWuxiaEncounter(doc, node, event);
     node.appendChild(el(doc, 'div', 'igs-fx-battle-wipe is-a'));
     node.appendChild(el(doc, 'div', 'igs-fx-battle-wipe is-b'));
     if (event.portrait) node.appendChild(portraitImg(doc, 'igs-fx-battle-vs-portrait', event.portrait, event.foe));
@@ -94108,6 +94708,7 @@ function buildHit(doc, event, ancient) {
     const node = el(doc, 'div', eraClass('igs-fx-battle-hit igs-fx-transient', ancient));
     node.setAttribute('data-igs-battle-result', event.result);
     node.setAttribute('data-igs-battle-target', event.targetKind || 'stage');
+    if (ancient === 'wuxia') return buildWuxiaHit(doc, node, event);
     if (event.skill || event.attacker) {
         const banner = el(doc, 'div', 'igs-fx-battle-skill');
         if (event.attacker) banner.appendChild(el(doc, 'span', 'igs-fx-battle-skill-who', event.attacker));
@@ -94121,9 +94722,10 @@ function buildHit(doc, event, ancient) {
     return node;
 }
 
-function buildResult(doc, event, ancient) {
+function buildResult(doc, event, ancient, foe = '') {
     const node = el(doc, 'div', eraClass('igs-fx-battle-result igs-fx-transient', ancient));
     node.setAttribute('data-igs-battle-result', event.result);
+    if (ancient === 'wuxia') return buildWuxiaResult(doc, node, event, foe);
     node.appendChild(el(doc, 'div', 'igs-fx-battle-result-veil'));
     const ribbon = el(doc, 'div', 'igs-fx-battle-ribbon');
     ribbon.appendChild(el(doc, 'span', 'igs-fx-battle-ribbon-title', (ancient && ANCIENT_RESULT_GLYPHS[event.result]) || event.title));
@@ -94173,6 +94775,8 @@ function repositionBattleImpacts(root, { speaker = null, cast = [] } = {}) {
 
 function syncPlate(state, layers, plan, ancient, worldSkin = '') {
     const plate = plan.plate;
+    // 结算页战斗已结束、没有名牌时，结算行仍要写出对手名：记住最近一次名牌上的对手。
+    if (plate && plate.foe) state.foe = plate.foe;
     if (plan.letterbox) layers.motion.setAttribute(LETTERBOX_ATTR, '1');
     else layers.motion.removeAttribute(LETTERBOX_ATTR);
     if (!plate) {
@@ -94197,14 +94801,16 @@ function syncPlate(state, layers, plan, ancient, worldSkin = '') {
     const vignetteClass = eraClass('igs-fx-battle-vignette', ancient) + skin;
     if (state.vignette.className !== vignetteClass) state.vignette.className = vignetteClass;
     const label = [plate.foe || '战斗中', plate.title].filter(Boolean).join(' · ');
-    const era = ancient === 'xianxia' ? 'xianxia' : ancient ? 'ancient' : (worldSkin || 'modern');
+    const era = ancient === 'xianxia' || ancient === 'wuxia' ? ancient : ancient ? 'ancient' : (worldSkin || 'modern');
     if (state.plate.getAttribute('data-igs-battle-label') !== label || state.plate.getAttribute('data-igs-battle-era') !== era) {
         state.plate.setAttribute('data-igs-battle-label', label);
         state.plate.setAttribute('data-igs-battle-era', era);
         state.plate.className = eraClass('igs-fx-battle-plate', ancient) + skin;
         state.plate.textContent = '';
         state.plate.appendChild(el(doc, 'span', 'igs-fx-battle-plate-mark', ancient ? '战' : 'VS'));
-        state.plate.appendChild(el(doc, 'span', 'igs-fx-battle-plate-name', label));
+        const name = el(doc, 'span', 'igs-fx-battle-plate-name', ancient === 'wuxia' ? (plate.foe || '战斗中') : label);
+        if (ancient === 'wuxia' && plate.title) name.appendChild(el(doc, 'small', '', plate.title));
+        state.plate.appendChild(name);
     }
     clearHud(layers.motion, state.plate, stage);
 }
@@ -94241,8 +94847,10 @@ function applyBattleFxToDom(root, plan, options = {}) {
     if (options.accent) setVar(layers.motion, '--igs-battle-accent', options.accent);
     if (options.motion === 'snappy') layers.motion.setAttribute(MOTION_ATTR, 'snappy');
     else layers.motion.removeAttribute(MOTION_ATTR);
-    const ancient = options.ancient === true ? (options.xianxia === true ? 'xianxia' : true) : false;
+    const ancient = options.wuxia === true ? 'wuxia' : options.ancient === true ? (options.xianxia === true ? 'xianxia' : true) : false;
     const worldSkin = ancient ? '' : worldSkinOf(options.worldview);
+    // 水墨武侠整体放慢：出场时刻、停留时长与快进结算一起乘节奏，计时器数量不变。
+    const pace = ancient === 'wuxia' ? WUXIA_PACE : 1;
     syncPlate(state, layers, plan, ancient, worldSkin);
     const key = plan.identity ? battleFxIdentity(plan.identity) : '';
     if (key && state.key === key) return { played: false, reason: 'same-page' };
@@ -94265,11 +94873,11 @@ function applyBattleFxToDom(root, plan, options = {}) {
     const play = (event, lifeOverride) => {
         if (state.key !== key || shown.has(event)) return;
         shown.add(event);
-        const life = lifeOverride || event.life;
+        const life = Math.round((lifeOverride || event.life) * pace);
         let node;
         if (event.type === 'encounter') node = buildEncounter(doc, event, ancient);
         else if (event.type === 'hit') node = buildHit(doc, event, ancient);
-        else node = buildResult(doc, event, ancient);
+        else node = buildResult(doc, event, ancient, (plan.plate && plan.plate.foe) || state.foe || '');
         setVar(node, '--igs-battle-life', `${life}ms`);
         if (worldSkin) node.className = `${node.className} is-${worldSkin}`;
         if (reduced) node.setAttribute('data-igs-fx-static', '1');
@@ -94281,7 +94889,21 @@ function applyBattleFxToDom(root, plan, options = {}) {
             mount(state, layers.stage, foe, life);
         }
         mount(state, front, node, life);
-        if (event.type === 'hit') {
+        if (event.type === 'hit' && ancient === 'wuxia') {
+            // 主角中招挂舞台层（对话框之下），对话框的字始终在上。
+            if (wuxiaHurts(event)) {
+                const hurt = buildWuxiaHurt(doc);
+                if (reduced) hurt.setAttribute('data-igs-fx-static', '1');
+                mount(state, layers.stage, hurt, life);
+            }
+            if (!reduced) {
+                const shakeSpec = wuxiaShakeOf(event);
+                if (shakeSpec) wuxiaShake(state, motion, shakeSpec);
+                const delay = WUXIA_REACT_DELAY[event.result] || 0;
+                if (event.targetKind === 'sprite') reactSprite(state, spriteEl, event.result, delay);
+                else if (event.targetKind === 'cast') reactSprite(state, castElOf(motion, event.targetChar), event.result, delay);
+            }
+        } else if (event.type === 'hit') {
             if (event.targetKind === 'cast' && event.targetChar) node.setAttribute('data-igs-battle-char', event.targetChar);
             placeImpact(node, event, motion, event.targetKind === 'cast' ? castTargetOf(options.cast, event.targetChar) : options.sprite);
             if (!reduced) {
@@ -94318,11 +94940,11 @@ function applyBattleFxToDom(root, plan, options = {}) {
     // 只有单独一招时演出很短，不拦截翻页点击。
     if (plan.events.length > 1 || plan.events[0].type !== 'hit') {
         state.skip = skip;
-        mount(state, front, skip, plan.totalMs);
+        mount(state, front, skip, Math.round(plan.totalMs * pace));
     }
     for (const event of plan.events) {
         if (event.at <= 0) play(event);
-        else track(state, () => play(event), event.at);
+        else track(state, () => play(event), Math.round(event.at * pace));
     }
     return { played: true, count: plan.events.length };
 }
@@ -94546,6 +95168,7 @@ const BATTLE_FX_STYLE_TEXT = `
 @keyframes igs-battle-brush{0%{opacity:0;transform:translateX(-50%) rotate(-5deg) scale(1.2);clip-path:inset(-20% 100% -20% -20%);filter:blur(2px)}16%{opacity:1;transform:translateX(-50%) rotate(-5deg) scale(1);clip-path:inset(-20% -20% -20% -20%);filter:none}80%{opacity:1}100%{opacity:0;transform:translateX(-50%) rotate(-5deg) scale(1.03);clip-path:inset(-20% -20% -20% -20%)}}
 @keyframes igs-battle-ink-slash{0%,55%{opacity:1;transform:rotate(var(--igs-slash-rot,28deg)) translateY(var(--igs-slash-shift,0px))}100%{opacity:0;transform:rotate(var(--igs-slash-rot,28deg)) translateY(var(--igs-slash-shift,0px)) translateX(3%) scaleY(.35)}}
 @keyframes igs-battle-ink-sweep{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+${WUXIA_BATTLE_STYLE_TEXT}
 @media (prefers-reduced-motion: reduce){#igs-stage-motion[data-igs-fx-battle-shake]{animation:none!important;}.igs-fx-battle-wipe,.igs-fx-battle-slash,.igs-fx-battle-spark,.igs-fx-battle-flash,.igs-fx-battle-hurt{display:none!important;}}
 `;
 
@@ -94554,6 +95177,239 @@ __igsDefine(exports, "applyBattleFxToDom", () => applyBattleFxToDom);
 __igsDefine(exports, "skipBattleFx", () => skipBattleFx);
 __igsDefine(exports, "cancelBattleFx", () => cancelBattleFx);
 __igsDefine(exports, "BATTLE_FX_STYLE_TEXT", () => BATTLE_FX_STYLE_TEXT);
+});
+__igsRegister("src/visual/igs-ui/fx-battle-wuxia-style.js", function(module, exports, require) {
+const { WX_HSTROKE, WX_HURT_MASK, WX_RING, WX_RUBBING, WX_SEAL_MASK, WX_SEAL_MASK_SMALL, WX_SLASH, WX_SPLAT, WX_TAG_H, WX_TAG_V, maskOf, wxEdge } = require("src/visual/igs-ui/wuxia-ink-svg.js");
+// 水墨武侠战斗样式：坐标、字号、延时一律取 plan/wuxia-ink-ui/v6 定稿（桌面 960×540，手机 390×844）。
+// 遭遇 / 出招 / 结算根节点设为尺寸容器，以居中的定稿画布为基准按 --wu 等比换算；名牌与中招不在容器内，按定稿 px。
+const JIAO = '#1c1b19';
+const PAPER = '243,240,232';
+const ZHU = '#a8382a';
+const BRUSH = '"IGS-MaShanZheng","LXGW WenKai",serif';
+const CURSIVE = '"IGS-ZhiMangXing","IGS-MaShanZheng",serif';
+const SONG = '"LXGW Neo ZhiSong","Source Han Serif CN",serif';
+const RGLOW = '0 0 2px rgba(250,250,250,.95),0 0 10px rgba(250,250,250,.8),0 0 26px rgba(250,250,250,.45)';
+const W = '.is-ancient.is-wuxia';
+const E = `.igs-fx-battle-encounter${W}`;
+const H = `.igs-fx-battle-hit${W}`;
+const R = `.igs-fx-battle-result${W}`;
+const ALL = `:is(${E},${H},${R})`;
+const u = (v) => `calc(${v} * var(--wu))`;
+const x = (v) => `calc(50% + (${v} - var(--wcx)) * var(--wu))`;
+const y = (v) => `calc(50% + (${v} - var(--wcy)) * var(--wu))`;
+const at = (l, t) => `left:${x(l)};top:${y(t)};`;
+const atR = (r, t) => `right:${x(r)};top:${y(t)};`;
+const box = (l, t, w, h) => `${at(l, t)}width:${u(w)};height:${u(h)};`;
+const ink = (image) => `background:${JIAO};${maskOf(image)}`;
+// 节奏 --wxs（默认 1.6，与 fx-battle-wuxia.js 的 WUXIA_PACE 一致）：时长与延时一起放慢。
+const anim = (name, dur, delay, ease = 'ease-out') => `animation:igs-wx-${name} calc(${dur}s * var(--wxs,1.6)) ${ease} calc(${delay}s * var(--wxs,1.6)) both;`;
+
+const FRAME = [
+    `${ALL}{container-type:size;--wcx:480;--wcy:270;--wu:min(calc(100cqw / 960),calc(100cqh / 540));color:${JIAO};animation:igs-wx-life var(--igs-battle-life,1.3s) linear both;}`,
+    `@media (max-width:640px){${ALL}{--wcx:195;--wcy:422;--wu:min(calc(100cqw / 390),calc(100cqh / 844));}}`,
+    `${ALL} .wx{position:absolute;display:block;opacity:0;pointer-events:none;box-sizing:border-box;white-space:nowrap;}`,
+    `${ALL} .wx-inkv{inset:0;background:radial-gradient(ellipse closest-side at 50% 46%,rgba(28,27,25,0) 62%,rgba(28,27,25,.42) 86%,rgba(28,27,25,.72) 100%);${anim('fade-in', 0.45, 0)}}`,
+    `${ALL} :where(.wx-tag){background:rgba(22,21,19,.9);color:rgb(${PAPER});text-shadow:none;padding:${u(5)} ${u(20)} ${u(6)};${maskOf(WX_TAG_H)}}`,
+    `${ALL} :where(.wx-tag.v){writing-mode:vertical-rl;padding:${u(16)} ${u(7)} ${u(14)};${maskOf(WX_TAG_V)}}`,
+    // 印须压过同特异度、排在前面的 .wx{display:block} 才能字居中，所以不包 :where；各处印位规则只改尺寸字号，排在其后照样生效。
+    `${ALL} .wx-seal{display:grid;place-items:center;background:${ZHU};color:#f5ece0;font-family:${BRUSH};font-weight:400;line-height:1;${maskOf(WX_SEAL_MASK)}}`,
+    `${ALL} :where(.wx-seal.v){writing-mode:vertical-rl;letter-spacing:.06em;}`,
+    '#igs-overlay[data-igs-dialog-skin="wuxia-ink"] .igs-dialog{transition:opacity .2s ease-out;}',
+    `#igs-overlay:has(#igs-stage-motion[data-igs-fx-battle-show="1"] .igs-fx-battle-encounter${W},#igs-stage-motion[data-igs-fx-battle-show="1"] .igs-fx-battle-result${W}) .igs-dialog{opacity:0;}`,
+    `.igs-fx-battle-vignette${W}{background:none;}`,
+    // 名牌干笔与状态栏同款：离左缘 8px，左内距 28px。
+    `.igs-fx-battle-plate${W}{left:18px;top:calc(16px + var(--igs-bt-hud-gap,0px));transform:none;display:flex;align-items:center;gap:12px;max-width:min(340px,72%);padding:10px 18px 10px 28px;border:0;border-radius:0;background:${wxEdge('rgba(236,231,221,.8)')} 8px 8px/6px calc(100% - 16px) no-repeat,${WX_RUBBING} 0 0/1024px 512px,rgba(12,11,10,.8);box-shadow:none;color:#ece7dd;font:400 20px/1.2 ${BRUSH};letter-spacing:.2em;text-shadow:none;animation:igs-wx-fade-in .2s both;}`,
+    // 名牌【战】只有 28px：用放粗毛边与斑驳的小印遮罩，颗粒与情绪印一致，不糊成实心方块。
+    `.igs-fx-battle-plate${W} .igs-fx-battle-plate-mark{display:grid;place-items:center;width:28px;height:28px;padding:0;border-radius:0;background:${ZHU};color:rgb(${PAPER});font:400 16px/1 ${BRUSH};letter-spacing:0;box-shadow:none;${maskOf(WX_SEAL_MASK_SMALL)}}`,
+    `.igs-fx-battle-plate${W} .igs-fx-battle-plate-name{overflow:hidden;text-overflow:ellipsis;}`,
+    `.igs-fx-battle-plate${W} .igs-fx-battle-plate-name small{display:block;margin-top:3px;font:400 11px ${SONG};letter-spacing:.3em;color:#a39e95;}`,
+    `#igs-stage-motion[data-igs-fx-battle-shake]:has(.igs-fx-battle-hit${W}){animation:none;}`,
+    `.igs-fx-battle-wx-hurt{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse closest-side at 50% 48%,rgba(28,27,25,0) 52%,rgba(28,27,25,.5) 80%,rgba(28,27,25,.9) 100%);-webkit-mask:${WX_HURT_MASK} 0 0/100% 100%;mask:${WX_HURT_MASK} 0 0/100% 100%;opacity:0;animation:igs-wx-hurt calc(1.1s * var(--wxs,1.6)) ease-out calc(.1s * var(--wxs,1.6)) both;}`,
+    '.igs-fx-battle-wx-hurt[data-igs-fx-static]{animation:none;opacity:.6;}',
+];
+
+const ENCOUNTER = [
+    // 大笔垫底，墨签、对手名、称号与印压在墨痕之上。
+    `${E} .wx-e-stroke{z-index:0;}${E} :is(.wx-e-tag,.wx-e-name,.wx-e-title,.wx-e-seal){z-index:1;}`,
+    `${E} .wx-e-tag{${atR(120, 90)}font:400 ${u(22)} ${BRUSH};letter-spacing:.5em;${anim('write-down', 0.5, 0.5)}}`,
+    `${E} .wx-e-stroke{${box(-40, 186, 1040, 150)}transform:rotate(-3deg);${ink(WX_HSTROKE)}${anim('sweep-r', 0.38, 0.15, 'cubic-bezier(.25,.7,.2,1)')}}`,
+    `${E} .wx-e-name{${at(435, 198)}translate:-50% 0;rotate:-3deg;font:400 ${u(80)}/1 ${BRUSH};letter-spacing:.24em;color:rgb(${PAPER});${anim('name-in', 0.45, 0.42)}}`,
+    `${E} .wx-e-title{${at(435, 286)}translate:-50% 0;rotate:-3deg;font:400 ${u(16)} ${SONG};letter-spacing:.5em;color:rgba(${PAPER},.82);${anim('fade-in', 0.4, 0.72)}}`,
+    `${E} .wx-e-seal{${box(772, 298, 46, 46)}font-size:${u(26)};--r:rotate(-3deg);${anim('stamp', 0.22, 0.95)}}`,
+];
+
+const res = (r) => `${H}[data-igs-battle-result="${r}"]`;
+const CK = `${H}:is([data-igs-battle-result="crit"],[data-igs-battle-result="ko"])`;
+const HIT = [
+    `${H} .wx-h-who{${atR(190, 40)}font:400 ${u(17)} ${BRUSH};letter-spacing:.42em;${anim('fade-in', 0.2, 0.05)}}`,
+    `${H} .wx-h-skill{${atR(88, 30)}padding:${u(26)} ${u(14)} ${u(22)};font:400 ${u(58)}/1.05 ${CURSIVE};letter-spacing:.04em;opacity:1;${anim('write-down', 0.3, 0)}}`,
+    `${H} .wx-h-skill .wx-ch{display:inline-block;opacity:0;animation:igs-wx-char-in calc(.26s * var(--wxs,1.6)) ease-out calc((.1s + var(--i,0) * 70ms) * var(--wxs,1.6)) both;}`,
+    `${H} .wx-s1{${box(120, 196, 520, 58)}transform:rotate(-26deg);${ink(WX_SLASH)}}`,
+    `${H} .wx-s2{${box(300, 170, 300, 36)}transform:rotate(9deg) scaleX(-1);${ink(WX_SLASH)}}`,
+    `${H} .wx-sp{${box(262, 84, 260, 260)}${ink(WX_SPLAT)}}`,
+    `${H} .wx-ghost{${box(150, 184, 480, 50)}transform:rotate(-26deg);${ink(WX_SLASH)}${anim('ghost', 0.5, 0.55)}}`,
+    `${H} .wx-g1{${box(250, 200, 210, 34)}transform:rotate(-6deg);${ink(WX_SLASH)}${anim('g-l', 0.22, 0.55, 'ease-in')}}`,
+    `${H} .wx-g2{${box(392, 180, 210, 34)}transform:rotate(186deg);${ink(WX_SLASH)}${anim('g-r', 0.22, 0.55, 'ease-in')}}`,
+    `${H} .wx-gsp{${box(336, 110, 160, 160)}${ink(WX_SPLAT)}${anim('splat-in', 0.3, 0.76)}}`,
+    `${H} .wx-ring{${box(280, 90, 240, 240)}background:${WX_RING} center/100% 100% no-repeat;${anim('ring', 1.3, 0.55)}}`,
+    `${H} .wx-ring.r2{animation-delay:calc(.9s * var(--wxs,1.6));}`,
+    `${H} .wx-v-ink{${at(700, 150)}font:400 ${u(24)} ${BRUSH};letter-spacing:.3em;}`,
+    `${H} .wx-v-seal{${box(703, 250, 34, 34)}font-size:${u(19)};--r:rotate(-4deg);}`,
+    `${H} .wx-v-big{${box(697, 250, 46, 46)}font-size:${u(26)};--r:rotate(-4deg);}`,
+    `${res('hit')} .wx-s1{${anim('sweep-r', 0.18, 0.55, 'ease-in')}}${res('hit')} .wx-sp{${anim('splat-in', 0.3, 0.66)}}${res('hit')} .wx-v-ink{${anim('fade-in', 0.3, 0.8)}}`,
+    `${CK} .wx-s1{${anim('sweep-r', 0.16, 0.55, 'ease-in')}}${CK} .wx-s2{${anim('sweep-r', 0.12, 0.78, 'ease-in')}}${CK} .wx-sp{${anim('splat-in', 0.32, 0.98)}}`,
+    `${CK} .wx-v-ink{${anim('fade-in', 0.3, 0.98)}}${res('crit')} .wx-v-seal{${anim('stamp', 0.2, 1.06)}}${res('ko')} .wx-v-big{${anim('stamp', 0.26, 1.12, 'cubic-bezier(.3,.6,.3,1)')}}`,
+    `${res('miss')} .wx-v-ink{${anim('fade-in', 0.3, 0.7)}}${res('guard')} .wx-v-ink{${anim('fade-in', 0.3, 0.9)}}${res('heal')} .wx-v-ink{${anim('fade-in', 0.4, 0.9)}}`,
+];
+
+const RESULT = [
+    `${R} .wx-defs{position:absolute;width:0;height:0;overflow:hidden;}`,
+    `${R} .wx-r-char{${at(120, 110)}font:400 ${u(260)}/1 ${BRUSH};color:${JIAO};text-shadow:${RGLOW};filter:url(#igs-wx-inkchar);}`,
+    `${R} .wx-r-line{${at(404, 160)}font:400 ${u(19)} ${SONG};letter-spacing:.5em;${anim('fade-in', 0.4, 0.8)}}`,
+    `${R} .wx-r-seal{${box(404, 420, 38, 38)}font-size:${u(21)};${anim('stamp', 0.22, 1.05)}}`,
+    `${R}[data-igs-battle-result="win"] .wx-r-char{${anim('write-down', 0.55, 0.25, 'cubic-bezier(.3,.6,.3,1)')}}`,
+    `${R}[data-igs-battle-result="lose"] .wx-r-char{${anim('lose', 1.6, 0.25)}}`,
+    `${R}[data-igs-battle-result="escape"] .wx-r-char{${anim('escape', 1.5, 0.2, 'ease-in')}}${R}[data-igs-battle-result="escape"] .wx-r-line{animation-delay:calc(.6s * var(--wxs,1.6));}`,
+];
+
+// 减少动态效果：去掉扫出与洇开，保留静态的笔痕、大字与印章（残影与水晕不留）。
+const REDUCED = `${ALL}[data-igs-fx-static] .wx,${ALL}[data-igs-fx-static] .wx-ch{opacity:1;}${ALL}[data-igs-fx-static] :is(.wx-ghost,.wx-ring,.wx-inkv){display:none;}`;
+const KEYFRAMES = `
+@keyframes igs-wx-life{0%,90%{opacity:1}100%{opacity:0}}
+@keyframes igs-wx-fade-in{from{opacity:0}to{opacity:1}}
+@keyframes igs-wx-sweep-r{from{opacity:1;clip-path:inset(0 100% 0 0)}to{opacity:1;clip-path:inset(0 0 0 0)}}
+@keyframes igs-wx-write-down{from{opacity:1;clip-path:inset(0 0 100% 0)}to{opacity:1;clip-path:inset(0 0 0 0)}}
+@keyframes igs-wx-stamp{0%{opacity:0;transform:var(--r,rotate(0)) scale(1.7)}55%{opacity:1;transform:var(--r,rotate(0)) scale(.94)}100%{opacity:1;transform:var(--r,rotate(0)) scale(1)}}
+@keyframes igs-wx-splat-in{0%{opacity:0;transform:scale(.35)}40%{opacity:.95}100%{opacity:.9;transform:scale(1)}}
+@keyframes igs-wx-char-in{from{opacity:0;transform:translateY(-10px);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
+@keyframes igs-wx-name-in{from{opacity:0;letter-spacing:.42em}to{opacity:1;letter-spacing:.24em}}
+@keyframes igs-wx-ghost{0%{opacity:0;clip-path:inset(0 100% 0 0);transform:rotate(-26deg) translateX(-30px)}40%{opacity:.28;clip-path:inset(0 0 0 0)}100%{opacity:0;transform:rotate(-26deg) translateX(40px)}}
+@keyframes igs-wx-g-l{from{opacity:0;transform:rotate(-6deg) translateX(-160px)}to{opacity:1;transform:rotate(-6deg)}}
+@keyframes igs-wx-g-r{from{opacity:0;transform:rotate(186deg) translateX(-160px)}to{opacity:1;transform:rotate(186deg)}}
+@keyframes igs-wx-ring{0%{opacity:0;transform:scale(.25)}25%{opacity:1}100%{opacity:0;transform:scale(1.5)}}
+@keyframes igs-wx-hurt{0%{opacity:0;transform:scale(1.18)}30%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.04)}}
+@keyframes igs-wx-lose{0%{opacity:0;clip-path:inset(0 0 100% 0)}35%{opacity:1;clip-path:inset(0 0 0 0);color:${JIAO};filter:url(#igs-wx-inkchar)}100%{opacity:.92;color:#5a5752;filter:url(#igs-wx-inkchar) blur(.8px)}}
+@keyframes igs-wx-escape{0%{opacity:0;transform:translateX(-20px)}25%{opacity:1;transform:none;text-shadow:${RGLOW}}100%{opacity:0;transform:translateX(120px);text-shadow:${RGLOW},-30px 0 0 rgba(20,19,17,.35),-60px 0 0 rgba(20,19,17,.16)}}
+`;
+
+// 手机竖屏：坐标取 v6-手机定稿（390×844）。
+const MOBILE = `@media (max-width:640px){${[
+    `${E} .wx-e-tag{${atR(30, 110)}font-size:${u(16)};}`,
+    `${E} .wx-e-stroke{${box(-30, 494, 460, 130)}}`,
+    `${E} .wx-e-name{${at(195, 508)}font-size:${u(50)};letter-spacing:.2em;}`,
+    `${E} .wx-e-title{${at(195, 566)}font-size:${u(14)};letter-spacing:.4em;}`,
+    `${E} .wx-e-seal{${box(312, 612, 38, 38)}font-size:${u(21)};}`,
+    `${H} .wx-h-skill{${atR(22, 118)}padding:${u(20)} ${u(12)} ${u(18)};font-size:${u(44)};}`,
+    `${H} .wx-h-who{${atR(104, 122)}font-size:${u(16)};}`,
+    `${H} .wx-s1{${box(10, 310, 340, 44)}}`,
+    `${H} .wx-s2{${box(110, 292, 200, 28)}}`,
+    `${H} .wx-sp{${box(90, 230, 200, 200)}}`,
+    `${H} .wx-ghost{${box(30, 300, 320, 40)}}`,
+    `${H} .wx-g1{${box(40, 330, 160, 28)}}`,
+    `${H} .wx-g2{${box(180, 316, 160, 28)}}`,
+    `${H} .wx-gsp{${box(120, 250, 140, 140)}}`,
+    `${H} .wx-ring{${box(80, 220, 230, 230)}}`,
+    `${H} .wx-v-ink{${at(28, 150)}font-size:${u(16)};}`,
+    `${H} .wx-v-seal{${box(26, 236, 30, 30)}font-size:${u(16)};}`,
+    `${H} .wx-v-big{${box(22, 236, 38, 38)}font-size:${u(21)};}`,
+    `${R} .wx-r-char{${at(195, 120)}translate:-50% 0;font-size:${u(190)};}`,
+    `${R} .wx-r-line{${at(195, 322)}translate:-50% 0;writing-mode:horizontal-tb;padding:${u(5)} ${u(20)} ${u(6)};font-size:${u(16)};letter-spacing:.4em;${maskOf(WX_TAG_H)}}`,
+    `${R} .wx-r-seal{${box(179, 370, 32, 32)}font-size:${u(18)};}`,
+    `.igs-fx-battle-plate${W}{left:12px;top:calc(44px + var(--igs-bt-hud-gap,0px));}`,
+].join('')}}`;
+const WUXIA_BATTLE_STYLE_TEXT = [...FRAME, ...ENCOUNTER, ...HIT, ...RESULT, MOBILE, REDUCED, KEYFRAMES].join('\n');
+
+
+
+
+__igsDefine(exports, "WUXIA_BATTLE_STYLE_TEXT", () => WUXIA_BATTLE_STYLE_TEXT);
+});
+__igsRegister("src/visual/igs-ui/fx-battle-wuxia.js", function(module, exports, require) {
+// 水墨武侠战斗节点：DOM 照 plan/wuxia-ink-ui/v6 定稿搭（类名 wx-*），样式见 fx-battle-wuxia-style.js。
+// 落笔位置按定稿固定，不建 .igs-fx-battle-impact；逐字、顿帧、钤印的先后全在 CSS 延时里，不加计时器。
+const WUXIA_HIT_LABELS = Object.freeze({ hit: '得手', crit: '要害', miss: '身法', guard: '化解', ko: '重创', heal: '调息' });
+// 节奏：时间轴与 CSS 动画整体放慢到 1.6 倍（计时器数量不变）；CSS 侧用同值的 --wxs。
+const WUXIA_PACE = 1.6;
+const RESULT_GLYPHS = Object.freeze({ win: '胜', lose: '败', escape: '遁' });
+const RESULT_LINES = Object.freeze({ win: (foe) => `${foe || '对手'} · 败走`, lose: () => '力竭 · 退出三丈', escape: () => '借势脱身' });
+const STROKES = Object.freeze({ hit: ['wx-s1', 'wx-sp'], crit: ['wx-s1', 'wx-s2', 'wx-sp'], ko: ['wx-s1', 'wx-s2', 'wx-sp'], miss: ['wx-ghost'], guard: ['wx-g1', 'wx-g2', 'wx-gsp'], heal: ['wx-ring', 'wx-ring r2'] });
+// 印一律单字方印：判定字写在墨签上，要害、重创另钤一方。
+const VERDICT_SEALS = Object.freeze({ crit: ['wx-v-seal', '中'], ko: ['wx-v-big', '伤'] });
+const INKCHAR_SVG = '<svg width="0" height="0" aria-hidden="true"><filter id="igs-wx-inkchar" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".06" numOctaves="3" seed="12" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" result="r"/><feGaussianBlur in="r" stdDeviation="5" result="halo"/><feColorMatrix in="halo" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 .22 0" result="h2"/><feMerge><feMergeNode in="h2"/><feMergeNode in="r"/></feMerge></filter></svg>';
+
+function el(doc, className, text) {
+    const node = doc.createElement('div');
+    node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+}
+
+function chars(doc, node, text) {
+    Array.from(String(text)).forEach((ch, i) => {
+        const c = el(doc, 'wx-ch', ch);
+        if (c.style && typeof c.style.setProperty === 'function') c.style.setProperty('--i', String(i));
+        node.appendChild(c);
+    });
+    return node;
+}
+const wuxiaHurts = (event) => event.targetKind === 'player' && ['hit', 'crit', 'ko'].includes(event.result);
+
+// 大笔先挂、墨签与字后挂：字压在墨痕之上，不被遮盖。
+function buildWuxiaEncounter(doc, node, event) {
+    node.appendChild(el(doc, 'wx wx-inkv'));
+    node.appendChild(el(doc, 'wx wx-e-stroke'));
+    node.appendChild(el(doc, 'wx wx-tag v wx-e-tag', '狭路相逢'));
+    if (event.foe) node.appendChild(el(doc, 'wx wx-e-name', event.foe));
+    if (event.title) node.appendChild(el(doc, 'wx wx-e-title', event.title));
+    node.appendChild(el(doc, 'wx wx-seal wx-e-seal', '战'));
+    return node;
+}
+function buildWuxiaHit(doc, node, event) {
+    for (const cls of wuxiaHurts(event) ? [] : (STROKES[event.result] || STROKES.hit)) node.appendChild(el(doc, `wx ${cls}`));
+    if (event.attacker) node.appendChild(el(doc, 'wx wx-tag v wx-h-who', event.attacker));
+    if (event.skill || event.attacker) node.appendChild(chars(doc, el(doc, 'wx wx-tag v wx-h-skill'), event.skill || '攻击'));
+    if (wuxiaHurts(event)) return node;
+    node.appendChild(el(doc, 'wx wx-verdict wx-tag v wx-v-ink', WUXIA_HIT_LABELS[event.result] || WUXIA_HIT_LABELS.hit));
+    const seal = VERDICT_SEALS[event.result];
+    if (seal) node.appendChild(el(doc, `wx wx-seal ${seal[0]}`, seal[1]));
+    return node;
+}
+function buildWuxiaHurt(doc) {
+    return el(doc, 'igs-fx-battle-wx-hurt igs-fx-transient');
+}
+function buildWuxiaResult(doc, node, event, foe) {
+    node.appendChild(el(doc, 'wx wx-inkv'));
+    const defs = el(doc, 'wx-defs');
+    defs.innerHTML = INKCHAR_SVG;
+    node.appendChild(defs);
+    node.appendChild(el(doc, 'wx wx-r-char', RESULT_GLYPHS[event.result] || RESULT_GLYPHS.win));
+    node.appendChild(el(doc, 'wx wx-tag v wx-r-line', (RESULT_LINES[event.result] || RESULT_LINES.win)(foe)));
+    if (event.result === 'win') node.appendChild(el(doc, 'wx wx-seal wx-r-seal', '胜'));
+    return node;
+}
+
+// 震屏与立绘反应按定稿落笔时刻错后（再乘节奏），用 WAAPI 的 delay 播放，不另起计时器。
+const SHAKES = Object.freeze({ crit: ['heavy', 980], ko: ['heavy', 1160], guard: ['light', 760] });
+function wuxiaShakeOf(event) {
+    const spec = wuxiaHurts(event) ? ['heavy', 100] : (event.targetKind === 'player' ? null : SHAKES[event.result] || null);
+    return spec ? [spec[0], Math.round(spec[1] * WUXIA_PACE)] : null;
+}
+const WUXIA_REACT_DELAY = Object.freeze(Object.fromEntries(Object.entries({ hit: 620, crit: 1000, guard: 1000, ko: 1140, miss: 500, heal: 0 }).map(([k, v]) => [k, Math.round(v * WUXIA_PACE)])));
+const WUXIA_SHAKE_FRAMES = Object.freeze({
+    heavy: { duration: 420, easing: 'steps(3,end)', frames: ['0 0', '-9px 4px', '8px -5px', '-6px 3px', '5px -2px', '-2px 1px', '0 0'], offsets: [0, 0.15, 0.3, 0.45, 0.6, 0.8, 1] },
+    light: { duration: 260, easing: 'steps(2,end)', frames: ['0 0', '-4px 2px', '3px -2px', '-2px 1px', '0 0'], offsets: [0, 0.25, 0.5, 0.75, 1] },
+});
+
+__igsDefine(exports, "buildWuxiaEncounter", () => buildWuxiaEncounter);
+__igsDefine(exports, "buildWuxiaHit", () => buildWuxiaHit);
+__igsDefine(exports, "buildWuxiaHurt", () => buildWuxiaHurt);
+__igsDefine(exports, "buildWuxiaResult", () => buildWuxiaResult);
+__igsDefine(exports, "wuxiaShakeOf", () => wuxiaShakeOf);
+__igsDefine(exports, "WUXIA_HIT_LABELS", () => WUXIA_HIT_LABELS);
+__igsDefine(exports, "WUXIA_PACE", () => WUXIA_PACE);
+__igsDefine(exports, "wuxiaHurts", () => wuxiaHurts);
+__igsDefine(exports, "WUXIA_REACT_DELAY", () => WUXIA_REACT_DELAY);
+__igsDefine(exports, "WUXIA_SHAKE_FRAMES", () => WUXIA_SHAKE_FRAMES);
 });
 __igsRegister("src/visual/igs-ui/fx-runtime.js", function(module, exports, require) {
 const { worldSkinOf } = require("src/scene/worldview.js");const { prefersReducedMotion } = require("src/visual/igs-ui/reduced-motion.js");
@@ -94577,6 +95433,9 @@ const FX_LIFETIME_MS = Object.freeze({
     favor: 2400, notify: 3300, delivery: 3300, eye: 1600, call: 2400, 'call-end': 1800, nickname: 3400, voicemail: 4200, contact: 3000, cutin: 1400, promise: 3200, 'promise-due': 3600,
 });
 const TITLE_CARD_LIFETIME_MS = Object.freeze({ fast: 1800, medium: 2700, slow: 4200 });
+// 水墨武侠的过场标题卡：朱砂印 2.08s 才落定，至少停 3600ms，与序章开场卡一致。
+const WUXIA_TITLE_CARD_MS = 3600;
+const isWuxiaInkSkin = (snapshot) => String((snapshot && snapshot.readerSettings && snapshot.readerSettings.dialogSkin) || '') === 'wuxia-ink';
 const SEEN_LIMIT = 256;
 const FAVOR_LIMIT = 256;
 const MIN_FAVOR_DELTA = 1;
@@ -95167,7 +96026,7 @@ function pulseSpriteBeat(root, tone, reduced) {
 function playEffect(effect, ctx) {
     const { state, layers, doc, snapshot, options, reduced, plan, root } = ctx;
     const base = effect.type === 'title'
-        ? (TITLE_CARD_LIFETIME_MS[plan.titleSpeed] || TITLE_CARD_LIFETIME_MS.medium)
+        ? Math.max(TITLE_CARD_LIFETIME_MS[plan.titleSpeed] || TITLE_CARD_LIFETIME_MS.medium, isWuxiaInkSkin(snapshot) ? WUXIA_TITLE_CARD_MS : 0)
         : (FX_LIFETIME_MS[effect.type] || 1000);
     const life = HOLDABLE.has(effect.type) ? Math.round(base * (FX_HOLD_SCALE[plan.style.hold] || 1)) : base;
     const busy = BUSY_EFFECTS.has(effect.type);
@@ -95190,6 +96049,8 @@ function playEffect(effect, ctx) {
     } else if (effect.type === 'title') {
         // 古代背景是一条宣纸竖幅：地点、时间竖排，末尾朱印；竖排里不要「——」引线。
         const el = node(doc, (ctx.ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card') + (ctx.worldSkin || '') + (ctx.xianxiaInk || ''));
+        // 印文取标题首字，供带字小印的皮肤（水墨武侠）用 attr() 读出。
+        el.setAttribute('data-igs-seal', Array.from(String(effect.main || ''))[0] || '');
         const sub = ctx.ancient && effect.sub ? effect.sub.replace(/^——\s*/, '') : effect.sub;
         if (effect.main) el.appendChild(node(doc, 'igs-fx-title-main', effect.main));
         if (sub) el.appendChild(node(doc, 'igs-fx-title-sub', sub));
@@ -95696,6 +96557,7 @@ __igsDefine(exports, "applyFxToDom", () => applyFxToDom);
 __igsDefine(exports, "cancelFxEffects", () => cancelFxEffects);
 __igsDefine(exports, "FX_LIFETIME_MS", () => FX_LIFETIME_MS);
 __igsDefine(exports, "TITLE_CARD_LIFETIME_MS", () => TITLE_CARD_LIFETIME_MS);
+__igsDefine(exports, "WUXIA_TITLE_CARD_MS", () => WUXIA_TITLE_CARD_MS);
 __igsDefine(exports, "CUTIN_RATIO", () => CUTIN_RATIO);
 });
 __igsRegister("src/visual/igs-ui/dlc-fx-runtime.js", function(module, exports, require) {
@@ -103643,6 +104505,7 @@ const CHAT_THEME_PALETTES = Object.freeze({
     'fairy-tale': palette('#f6f1e2', '#e9e6cf', '#4a4034', '#5e5444', '#9a9380', '#fffcf3', '#d9e3bf', 'rgba(122,138,82,.3)'),
     'qinglv-shanshui': palette('#f1ede2', '#e8e3d5', '#26332f', '#2b3532', '#8c958f', '#fbf9f3', '#cfe0d6', 'rgba(47,93,124,.3)'),
     'xianxia-ink': palette('#f0ece3', '#e6e1d4', '#1f2523', '#2a302e', '#8b938d', '#faf8f2', '#d4dcd8', 'rgba(95,127,134,.3)'),
+    'wuxia-ink': palette('#0c0b0a', '#2b2a28', '#ece7dd', '#0c0b0a', '#77736c', '#2b2a28', '#ece7dd', 'rgba(236,231,221,.18)'),
     'elegant-european': palette('#f4efe6', '#2b2a3a', '#e8dcc2', '#1f1e2b', '#8b8577', '#ffffff', '#dccba8'),
     'gradient-veil': palette('#1d1d22', '#111114', '#eeeeee', '#000000', '#9a9aa6', '#34343d', '#4a6cf7'),
     'day-minimal': palette('#f5f7fa', '#ffffff', '#222222', '#d0d5dd', '#8b93a1', '#ffffff', '#cfe3ff'),
@@ -105753,7 +106616,8 @@ function renderItemFx(root, snapshot, ctx = {}) {
         schedule: ctx.schedule,
         clear: ctx.clear,
         accent,
-        ancient: readerSettings._ancientEra === true,
+        // 水墨武侠皮肤：任何世界观都按古代分支建物品卡（单字印），外观由皮肤的拓片样式接管。
+        ancient: readerSettings._ancientEra === true || readerSettings.dialogSkin === 'wuxia-ink',
         worldview: String(readerSettings._worldview || ''),
         onCard: (card) => play(EAT_ACTIONS.has(card.action) ? 'item-use' : `item-${card.action}`),
         onShowcase: () => play('item-rare'),
@@ -105804,7 +106668,8 @@ function showItemMention(root, snapshot, name, ctx = {}) {
         schedule: ctx.schedule,
         clear: ctx.clear,
         accent,
-        ancient: readerSettings._ancientEra === true,
+        // 水墨武侠皮肤：任何世界观都按古代分支建物品卡（单字印），外观由皮肤的拓片样式接管。
+        ancient: readerSettings._ancientEra === true || readerSettings.dialogSkin === 'wuxia-ink',
         worldview: String(readerSettings._worldview || ''),
     });
 }
@@ -105906,6 +106771,8 @@ function renderBattleFx(root, snapshot, ctx = {}) {
         motion: style.motion,
         ancient: readerSettings._ancientEra === true,
         xianxia: readerSettings.dialogSkin === 'xianxia-ink',
+        // 水墨武侠皮肤：不论世界观，战斗一律走武侠分支；古代背景下的其他皮肤保持原有水墨。
+        wuxia: readerSettings.dialogSkin === 'wuxia-ink',
         worldview: String(readerSettings._worldview || ''),
         onEvent: (event) => play(battleSfxKind(event, String(readerSettings._worldview || ''))),
     });
@@ -117251,6 +118118,7 @@ const { DIALOG_SKIN_GRADIENT_VEIL } = require("src/visual/igs-ui/gradient-veil-d
 const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint, magicVeil } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV, QINGLV_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_XIANXIA_INK, XIANXIA_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-xianxia.js");
+const { DIALOG_SKIN_WUXIA_INK, WUXIA_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-wuxia.js");
 const { DIALOG_SKIN_MERMAID, MERMAID_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-mermaid.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
 const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_HUD_THEME, PSYCH_HUD_THEME } = require("src/visual/igs-ui/dialog-theme-horror.js");
@@ -117397,6 +118265,7 @@ const HUD_THEMES = Object.freeze({
     },
     [DIALOG_SKIN_QINGLV]: QINGLV_HUD_THEME,
     [DIALOG_SKIN_XIANXIA_INK]: XIANXIA_HUD_THEME,
+    [DIALOG_SKIN_WUXIA_INK]: WUXIA_HUD_THEME,
     [DIALOG_SKIN_MERMAID]: MERMAID_HUD_THEME,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_HUD_THEME,
     [DIALOG_SKIN_HORROR_GORE]: GORE_HUD_THEME,
@@ -117605,6 +118474,16 @@ const FRAMES = {
         icon: 'background:rgba(31,37,35,.08);border-radius:0;box-shadow:inset 0 0 0 1px rgba(95,127,134,.35);color:#5f7f86;',
         desc: 'color:#4a524f;opacity:1;',
     },
+    // 水墨武侠：拓片小品。墨底，外一线月白 .1、内收 6px 再一线 .2 作碑框。右下的朱印由物品卡的单字印节点（得/失/用）承担，框上不再另画色块。
+    'wuxia-ink': {
+        mention: '#ece7dd',
+        ink: '#ece7dd',
+        card: 'background:rgba(12,11,10,.94);border:0;border-radius:0;box-shadow:inset 0 0 0 1px rgba(236,231,221,.1),inset 0 0 0 6px rgba(12,11,10,.94),inset 0 0 0 7px rgba(236,231,221,.2),0 4px 14px rgba(0,0,0,.45);padding-left:18px;',
+        before: 'left:10px;top:12px;bottom:12px;width:2px;background:linear-gradient(180deg,var(--igs-item-mark),transparent);',
+        icon: 'background:rgba(236,231,221,.06);border-radius:0;box-shadow:inset 0 0 0 1px rgba(236,231,221,.3);color:#ece7dd;',
+        name: 'font-family:"IGS-MaShanZheng","LXGW WenKai",serif;font-weight:400;letter-spacing:.06em;',
+        desc: 'color:#c7c1b6;opacity:1;',
+    },
     'horror-gore': {
         mention: '#ff5a52',
         ink: '#f3ece4',
@@ -117772,6 +118651,8 @@ const { stroke } = require("src/visual/igs-ui/dialog-skin-frame.js");
 const { getBattleTheme } = require("src/visual/igs-ui/fx-battle-themes.js");
 const { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_METAL_HI, MAGIC_SPARKLE_MASK, magicTint } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV, qinglvSilk } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
+const { DIALOG_SKIN_WUXIA_INK } = require("src/visual/igs-ui/dialog-theme-wuxia.js");
+const { WX_SEAL_MASK, WX_TBAND_MASK, maskOf } = require("src/visual/igs-ui/wuxia-ink-svg.js");
 const { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, mermaidPearl } = require("src/visual/igs-ui/dialog-theme-mermaid.js");
 const { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
 const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } = require("src/visual/igs-ui/dialog-theme-horror.js");
@@ -117809,6 +118690,21 @@ const TITLE_EXTRAS = Object.freeze({
         `${s} .igs-fx-title-main{font-weight:400;letter-spacing:.4em;padding-left:.4em;}`,
         `${s} .igs-fx-title-sub{color:#2f5d7c;}`,
     ],
+    // 水墨武侠（v6 定稿）：焦墨毛边条由中线向两侧展开，纸色马善政标题字距由宽收紧，副题纸色 .62，条上一方小朱印。
+    // 选了本皮肤时古代背景也走这一版：同时覆盖 .is-ancient 宣纸竖幅（选择器特异度与 s 相同、排在其后）。
+    [DIALOG_SKIN_WUXIA_INK]: (s) => {
+        const t = `#igs-overlay[data-igs-dialog-skin="${DIALOG_SKIN_WUXIA_INK}"] .igs-fx-title-card.is-ancient`;
+        const both = (suffix = '') => `${s}${suffix},${t}${suffix}`;
+        return [
+            `${both()}{left:0;right:0;top:36.3%;bottom:auto;height:150px;transform:none;writing-mode:horizontal-tb;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:0;border:0;border-radius:0;background:none;box-shadow:none;isolation:isolate;color:#f3eee4;text-shadow:none;}`,
+            `${both('::before')}{display:block;content:"";position:absolute;left:0;right:0;top:0;bottom:0;width:auto;height:auto;margin:0;z-index:-1;border:0;background:rgba(22,21,19,.93);${maskOf(WX_TBAND_MASK)}animation:igs-wx-title-unroll .88s cubic-bezier(.3,.7,.2,1) .08s both;}`,
+            `${both('::after')}{display:grid;place-items:center;content:attr(data-igs-seal);color:#f5ece0;font:400 17px/1 "IGS-MaShanZheng","LXGW WenKai",serif;letter-spacing:0;text-shadow:none;writing-mode:horizontal-tb;position:absolute;left:calc(50% + 184px);right:auto;top:92px;bottom:auto;width:30px;height:30px;margin:0;align-self:auto;transform:none;border:0;border-radius:0;box-shadow:none;background:#a8382a;${maskOf(WX_SEAL_MASK)}animation:igs-wx-title-stamp .32s ease-out 1.76s both;}`,
+            `${both(' .igs-fx-title-main')}{writing-mode:horizontal-tb;font:400 54px/1.1 "IGS-MaShanZheng","LXGW WenKai",serif;letter-spacing:.42em;padding:0 0 0 .42em;color:#f3eee4;text-shadow:none;animation:igs-wx-title-name .8s ease-out .72s both;}`,
+            `${both(' .igs-fx-title-sub')}{writing-mode:horizontal-tb;font:400 15px "LXGW Neo ZhiSong","Source Han Serif CN",serif;letter-spacing:.6em;padding:0 0 0 .6em;color:rgba(243,238,228,.62);text-shadow:none;opacity:1;animation:igs-wx-title-fade .64s 1.28s both;}`,
+            `@media (max-width:640px){${both()}{top:40.3%;height:140px;gap:12px;}${both('::after')}{left:auto;right:36px;top:86px;width:26px;height:26px;font-size:15px;}${both(' .igs-fx-title-main')}{font-size:34px;letter-spacing:.3em;padding-left:.3em;}${both(' .igs-fx-title-sub')}{font-size:13px;letter-spacing:.4em;padding-left:.4em;}}`,
+            '@keyframes igs-wx-title-unroll{from{transform:scaleX(0)}to{transform:scaleX(1)}}@keyframes igs-wx-title-name{from{opacity:0;letter-spacing:.7em}to{opacity:1;letter-spacing:.42em}}@keyframes igs-wx-title-fade{from{opacity:0}to{opacity:1}}@keyframes igs-wx-title-stamp{0%{opacity:0;transform:scale(1.7)}55%{opacity:1;transform:scale(.94)}100%{opacity:1;transform:scale(1)}}',
+        ];
+    },
     // 童话小镇：野餐卡片，红白格子布边框，地点前后各一颗灯火色小星；装饰一律实色。
     [DIALOG_SKIN_FAIRY_TALE]: (s) => [
         `${s}{${CARD}border:7px solid transparent;border-radius:14px;background:${fairyPaper(1)} padding-box,repeating-conic-gradient(#e9a3a0 0 25%,#fbf3e6 0 50%) 0 0/14px 14px border-box;box-shadow:0 6px 0 rgba(74,64,52,.18),0 10px 24px rgba(40,30,20,.22);}`,
@@ -120114,6 +121010,7 @@ const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKI
 const { DIALOG_SKIN_MAGIC_ACADEMY } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_XIANXIA_INK } = require("src/visual/igs-ui/dialog-theme-xianxia.js");
+const { DIALOG_SKIN_WUXIA_INK } = require("src/visual/igs-ui/dialog-theme-wuxia.js");
 const { DIALOG_SKIN_MERMAID } = require("src/visual/igs-ui/dialog-theme-mermaid.js");
 const { DIALOG_SKIN_FAIRY_TALE } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
 const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } = require("src/visual/igs-ui/dialog-theme-horror.js");
@@ -120131,6 +121028,7 @@ const DIALOG_SKIN_CHOICES = Object.freeze([
     [DIALOG_SKIN_RETRO_JAPANESE, '复古日式'],
     [DIALOG_SKIN_QINGLV, '青绿山水'],
     [DIALOG_SKIN_XIANXIA_INK, '仙侠水墨'],
+    [DIALOG_SKIN_WUXIA_INK, '水墨武侠'],
     [DIALOG_SKIN_ADVENTURE_JOURNEY, '冒险旅途'],
     [DIALOG_SKIN_PLANT_COFFEE, '植物咖啡'],
     [DIALOG_SKIN_WARM_PICTUREBOOK, '温暖绘本'],
@@ -131892,6 +132790,7 @@ const { DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKI
 const { DIALOG_SKIN_MAGIC_ACADEMY } = require("src/visual/igs-ui/dialog-theme-css-skins.js");
 const { DIALOG_SKIN_QINGLV } = require("src/visual/igs-ui/dialog-theme-guofeng.js");
 const { DIALOG_SKIN_XIANXIA_INK } = require("src/visual/igs-ui/dialog-theme-xianxia.js");
+const { DIALOG_SKIN_WUXIA_INK } = require("src/visual/igs-ui/dialog-theme-wuxia.js");
 const { DIALOG_SKIN_FAIRY_TALE } = require("src/visual/igs-ui/dialog-theme-fairytale.js");
 const { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } = require("src/visual/igs-ui/dialog-theme-horror.js");
 const { DIALOG_SKIN_SCIFI_HOLO } = require("src/visual/igs-ui/dialog-theme-scifi.js");
@@ -131903,7 +132802,7 @@ const { resolvePlaceAmbience } = require("src/scene/place-ambience.js");
 // 不在表里的皮肤仍可在「其他皮肤」里选，存进角色卡后照样生效。现代排在第一的是默认皮肤，老用户不选也不变样。
 const WORLDVIEW_DIALOG_SKINS = Object.freeze({
     modern: Object.freeze([DIALOG_SKIN_DEFAULT, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_WARM_PICTUREBOOK, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_GRADIENT_VEIL]),
-    ancient: Object.freeze([DIALOG_SKIN_QINGLV, DIALOG_SKIN_XIANXIA_INK]),
+    ancient: Object.freeze([DIALOG_SKIN_QINGLV, DIALOG_SKIN_XIANXIA_INK, DIALOG_SKIN_WUXIA_INK]),
     fantasy: Object.freeze([DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_WESTERN_CLASSIC, DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_FAIRY_TALE]),
     scifi: Object.freeze([DIALOG_SKIN_SCIFI_HOLO, DIALOG_SKIN_GRADIENT_VEIL]),
     apocalypse: Object.freeze([DIALOG_SKIN_WASTELAND_RUST, DIALOG_SKIN_GRADIENT_VEIL]),
@@ -131973,6 +132872,8 @@ const TITLE_SCREEN_ID = 'igs-title-screen';
 const TITLE_SKIN_ATTR = 'data-igs-title-skin';
 const STYLE_ID = 'igs-title-screen-style';
 const OPENING_CARD_MS = 2200;
+// 水墨武侠开场：朱砂印 1.76s 起钤、2.08s 落定，再留约 1.5s 才随卡淡出，不让印没看清就跳走。
+const WUXIA_OPENING_CARD_MS = 3600;
 
 // 世界观名录旁的英文小字，没有立绘时也作背景右侧的大号描边字。
 const WORLD_EN = Object.freeze({ modern: 'MODERN', ancient: 'ANCIENT', fantasy: 'FANTASY', scifi: 'SCI-FI', apocalypse: 'WASTELAND', taisho: 'TAISHO', magic: 'MAGIC', horror: 'HORROR' });
@@ -132232,10 +133133,11 @@ function playOpeningCard(overlay, { main = '序章', sub = '', worldview = '', s
     const id = normalizeWorldview(worldview);
     const ancient = id === 'ancient';
     const worldSkin = !ancient && worldSkinOf(id) ? ` is-${id}` : '';
-    const life = prefersReducedMotion() ? 900 : OPENING_CARD_MS;
+    const wuxia = typeof overlay.getAttribute === 'function' && overlay.getAttribute('data-igs-dialog-skin') === 'wuxia-ink';
+    const life = prefersReducedMotion() ? 900 : (wuxia ? WUXIA_OPENING_CARD_MS : OPENING_CARD_MS);
     const subText = ancient ? String(sub || '').replace(/^——\s*/, '') : sub;
     layer.setAttribute('data-igs-title-view', 'opening');
-    const html = `<div class="igs-ts-backdrop"></div><div class="${ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card'}${worldSkin}" style="--igs-fx-life:${life}ms"><div class="igs-fx-title-main">${esc(main)}</div>${subText ? `<div class="igs-fx-title-sub">${esc(subText)}</div>` : ''}</div>`;
+    const html = `<div class="igs-ts-backdrop"></div><div class="${ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card'}${worldSkin}" data-igs-seal="${esc(Array.from(String(main || ''))[0] || '')}" style="--igs-fx-life:${life}ms"><div class="igs-fx-title-main">${esc(main)}</div>${subText ? `<div class="igs-fx-title-sub">${esc(subText)}</div>` : ''}</div>`;
     layer.innerHTML = html;
     htmlByLayer.set(layer, html);
     const wait = typeof schedule === 'function' ? schedule : (fn, ms) => setTimeout(fn, ms);

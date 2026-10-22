@@ -166,6 +166,7 @@ export const TEXT_FX_STYLE_TEXT = `
 #igs-overlay[data-igs-dialog-skin="mermaid-deep"]{--igs-tfx-accent:#b6d4ff;--igs-tfx-glow:rgba(140,180,255,.8);}
 #igs-overlay[data-igs-dialog-skin="qinglv-shanshui"]{--igs-tfx-accent:#2f5d7c;--igs-tfx-glow:rgba(244,240,229,.9);}
 #igs-overlay[data-igs-dialog-skin="xianxia-ink"]{--igs-tfx-accent:#b23a2a;--igs-tfx-glow:rgba(244,241,234,.9);}
+#igs-overlay[data-igs-dialog-skin="wuxia-ink"]{--igs-tfx-accent:#ece7dd;--igs-tfx-glow:rgba(12,11,10,.85);}
 #igs-overlay[data-igs-dialog-skin="warm-picturebook"]{--igs-tfx-accent:#c8553d;--igs-tfx-glow:rgba(255,255,255,.8);}
 #igs-overlay[data-igs-dialog-skin="fairy-tale"]{--igs-tfx-accent:#b4702c;--igs-tfx-glow:rgba(250,246,234,.9);}
 #igs-overlay[data-igs-dialog-skin="horror-gore"]{--igs-tfx-accent:#ff2a33;--igs-tfx-glow:rgba(0,0,0,.9);}

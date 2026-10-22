@@ -31,6 +31,9 @@ export const FX_LIFETIME_MS = Object.freeze({
     favor: 2400, notify: 3300, delivery: 3300, eye: 1600, call: 2400, 'call-end': 1800, nickname: 3400, voicemail: 4200, contact: 3000, cutin: 1400, promise: 3200, 'promise-due': 3600,
 });
 export const TITLE_CARD_LIFETIME_MS = Object.freeze({ fast: 1800, medium: 2700, slow: 4200 });
+// 水墨武侠的过场标题卡：朱砂印 2.08s 才落定，至少停 3600ms，与序章开场卡一致。
+export const WUXIA_TITLE_CARD_MS = 3600;
+const isWuxiaInkSkin = (snapshot) => String((snapshot && snapshot.readerSettings && snapshot.readerSettings.dialogSkin) || '') === 'wuxia-ink';
 const SEEN_LIMIT = 256;
 const FAVOR_LIMIT = 256;
 const MIN_FAVOR_DELTA = 1;
@@ -626,7 +629,7 @@ function pulseSpriteBeat(root, tone, reduced) {
 function playEffect(effect, ctx) {
     const { state, layers, doc, snapshot, options, reduced, plan, root } = ctx;
     const base = effect.type === 'title'
-        ? (TITLE_CARD_LIFETIME_MS[plan.titleSpeed] || TITLE_CARD_LIFETIME_MS.medium)
+        ? Math.max(TITLE_CARD_LIFETIME_MS[plan.titleSpeed] || TITLE_CARD_LIFETIME_MS.medium, isWuxiaInkSkin(snapshot) ? WUXIA_TITLE_CARD_MS : 0)
         : (FX_LIFETIME_MS[effect.type] || 1000);
     const life = HOLDABLE.has(effect.type) ? Math.round(base * (FX_HOLD_SCALE[plan.style.hold] || 1)) : base;
     const busy = BUSY_EFFECTS.has(effect.type);
@@ -649,6 +652,8 @@ function playEffect(effect, ctx) {
     } else if (effect.type === 'title') {
         // 古代背景是一条宣纸竖幅：地点、时间竖排，末尾朱印；竖排里不要「——」引线。
         const el = node(doc, (ctx.ancient ? 'igs-fx-title-card is-ancient' : 'igs-fx-title-card') + (ctx.worldSkin || '') + (ctx.xianxiaInk || ''));
+        // 印文取标题首字，供带字小印的皮肤（水墨武侠）用 attr() 读出。
+        el.setAttribute('data-igs-seal', Array.from(String(effect.main || ''))[0] || '');
         const sub = ctx.ancient && effect.sub ? effect.sub.replace(/^——\s*/, '') : effect.sub;
         if (effect.main) el.appendChild(node(doc, 'igs-fx-title-main', effect.main));
         if (sub) el.appendChild(node(doc, 'igs-fx-title-sub', sub));

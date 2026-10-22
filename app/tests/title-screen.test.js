@@ -180,6 +180,23 @@ test('title-screen:opening-card-reuses-the-scene-title-card-and-can-be-skipped',
     assert.equal(await playOpeningCard(fakeOverlay(), { schedule }), false, '主界面不在时不放');
 });
 
+test('title-screen:wuxia-ink-opening-card-holds-until-the-seal-has-landed', async () => {
+    const overlay = fakeOverlay();
+    const layer = renderTitleScreen(overlay, buildTitleScreenModel({ snapshot: snapshotOf() }), {});
+    const pending = [];
+    const schedule = (fn, ms) => pending.push([fn, ms]);
+    const plain = playOpeningCard(overlay, { main: '序章', worldview: 'ancient', schedule });
+    assert.equal(pending.at(-1)[1], 2200, '其他皮肤开场时长不变');
+    pending.at(-1)[0]();
+    await plain;
+    overlay.setAttribute('data-igs-dialog-skin', 'wuxia-ink');
+    const wuxia = playOpeningCard(overlay, { main: '序章', worldview: 'ancient', schedule });
+    assert.equal(pending.at(-1)[1], 3600, '水墨武侠：朱砂印 2.08s 落定后再留约 1.5s');
+    assert.match(layer.innerHTML, /--igs-fx-life:3600ms/, '卡片淡出跟同一时长');
+    pending.at(-1)[0]();
+    assert.equal(await wuxia, true);
+});
+
 test('title-screen:reader-host-holds-floor-zero-behind-the-title-gate', async () => {
     const makeHost = (readerSettings = {}) => createIgsReaderHost({
         pageRenderGapMs: 0,
