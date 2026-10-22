@@ -3887,6 +3887,13 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 角色立绘区「＋」菜单里的「Live2D模型（高级）」：展开角色页上的 Live2D 面板，不写任何存储。
+    if (normalizedAction === 'live2d-open') {
+        openSettingsPage(settingsState, 'chars');
+        settingsState.asyncState.advancedOpen = { ...(settingsState.asyncState.advancedOpen || {}), 'live2d-library': true };
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('scene-remove-char:')) {
         const name = decodeSeg(normalizedAction.slice('scene-remove-char:'.length));
         // 整次编辑固定所属库，不能在删掉角色字段后重新解析到全局同名角色。

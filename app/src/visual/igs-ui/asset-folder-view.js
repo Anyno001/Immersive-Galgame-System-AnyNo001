@@ -67,8 +67,7 @@ export function renderAssetFolderView(kind, entries, options = {}) {
     const viewBtn = (view, label, svg) => `<button type="button" class="igs-asset-view-btn" data-action="asset-view:${kind}:${view}" aria-pressed="${k.view === view}" title="${label}" aria-label="${label}">${svg}</button>`;
     const bar = `<div class="igs-asset-folder-bar">${lead}<span class="igs-asset-bar-spacer"></span>`
         + `<span class="igs-asset-view-toggle" role="group" aria-label="显示方式">${viewBtn('list', '列表', LIST_ICON)}${viewBtn('grid', '缩略图', GRID_ICON)}</span>`
-        + `<button type="button" class="igs-btn-mgr-icon igs-asset-folder-add" data-action="asset-folder-add:${kind}" title="新建文件夹" aria-label="新建文件夹">${FOLDER_ADD_ICON}</button>`
-        + `<button type="button" class="igs-settings-action igs-asset-select-toggle${select ? ' is-on' : ''}" data-action="asset-select:${kind}" aria-pressed="${Boolean(select)}">${select ? '完成' : '多选'}</button></div>`
+        + `<button type="button" class="igs-btn-mgr-icon igs-asset-folder-add" data-action="asset-folder-add:${kind}" title="新建文件夹" aria-label="新建文件夹">${FOLDER_ADD_ICON}</button></div>`
         + (select ? `<div class="igs-asset-select-bar"><span>已选 ${select.size} 项</span>`
             + `<button type="button" class="igs-settings-action" data-action="asset-pick-all:${kind}">${select.size === names.length ? '全不选' : '全选'}</button>`
             + `<button type="button" class="igs-settings-action is-danger" data-action="asset-delete-picked:${kind}"${select.size ? '' : ' disabled'}>删除选中</button></div>` : '');

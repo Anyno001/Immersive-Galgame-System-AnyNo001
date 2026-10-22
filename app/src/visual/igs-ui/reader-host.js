@@ -345,7 +345,7 @@ export function createIgsReaderHost(options = {}) {
                 if (isAssetSettingsPage(settings)) scheduleImageRefresh({ settings: true });
                 return;
             }
-            if (currentSettingsPage(settings) === 'review') rerenderSettings();
+            if (['review', 'scene-review'].includes(currentSettingsPage(settings))) rerenderSettings();
         })
         : () => {};
     const offSettingsUpdated = typeof options.onSettingsUpdated === 'function'
@@ -2974,7 +2974,7 @@ export function createIgsReaderHost(options = {}) {
             } else if (skipped[result.reason]) {
                 return skip(result || { ok: false, reason: 'error' }, `补全素材已跳过：${skipped[result.reason]}`);
             } else {
-                feedback('success', `补全素材完成：已生成 ${result.count || 0} 项，可在「素材 → 待确认」查看与入库`);
+                feedback('success', `补全素材完成：已生成 ${result.count || 0} 项，可在「场景 › 待确认」查看与入库`);
             }
             return result || { ok: false, reason: 'error' };
         } catch (error) {

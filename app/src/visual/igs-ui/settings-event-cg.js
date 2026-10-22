@@ -30,7 +30,7 @@ export function renderEventCgList(eventCgs, { resolveUrl, scopeTag, lead = '' } 
     }).join('');
     const body = rows
         ? `<div class="igs-btn-mgr-list">${rows}</div>`
-        : '<div class="igs-scene-empty">还没有预置CG，可点击右上角「+」添加</div>';
+        : '<div class="igs-scene-empty">暂无预置CG</div>';
     return `${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${body}`;
 }
 

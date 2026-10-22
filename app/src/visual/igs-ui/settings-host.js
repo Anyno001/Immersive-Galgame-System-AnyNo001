@@ -376,7 +376,13 @@ export function createSettingsHost(deps) {
             return rerenderSettings();
         }
 
+        // 对话框高度下拉里的「自适应 / 固定」：写 dialogAutoHeight，不动高度比例；选具体比例时顺手关掉自适应。
+        if (path === 'readerSettings.skinDialogScale' && (value === 'auto' || value === 'fixed')) {
+            setPath(draft, 'readerSettings.dialogAutoHeight', value === 'auto');
+            return editOptions.liveInput ? { ok: true } : rerenderSettings();
+        }
         setPath(draft, path, normalizeSettingsValue(path, value));
+        if (path === 'readerSettings.skinDialogScale') setPath(draft, 'readerSettings.dialogAutoHeight', false);
         // 题材包总开关打开时，该包全部细项一起开（defaultOn 通用包的细项本来就默认开，不再逐个写脏草稿）；关掉时细项原样保留。
         if (value === true && path.startsWith('readerSettings.')) {
             const pack = FX_PACKS_ACTIVE.find((p) => !p.defaultOn && `readerSettings.${packSwitchPath(p)}` === path);

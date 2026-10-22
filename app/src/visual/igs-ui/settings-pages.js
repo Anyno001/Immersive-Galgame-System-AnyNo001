@@ -34,8 +34,8 @@ export const SETTINGS_PAGES = Object.freeze([
     Object.freeze(['wardrobe', '衣柜与情绪', 'chars']),
     Object.freeze(['review', '待确认', 'chars']),
     Object.freeze(['scenes', '背景', 'scenes']),
-    Object.freeze(['eventcg', '预置CG', 'scenes']),
     Object.freeze(['cglib', 'CG库', 'scenes']),
+    Object.freeze(['scene-review', '待确认', 'scenes']),
     Object.freeze(['source', '图像来源', 'ai']),
     Object.freeze(['kinds', '画师与模型', 'ai']),
     Object.freeze(['llm', '备用模型', 'ai']),
@@ -48,7 +48,9 @@ export const SETTINGS_PAGES = Object.freeze([
 export const DEFAULT_SETTINGS_PAGE = 'dash';
 
 // 旧页面 id → 现行页面 id（「界面」拆成四个子页后，'ui' 仍可打开，指到第一个子页）。
-const PAGE_ALIASES = Object.freeze({ ui: 'ui-reader' });
+// 预置CG 并入 CG库 页底部的折叠；打开旧 id 时同时展开那个折叠（EVENT_CG_FOLD）。
+const PAGE_ALIASES = Object.freeze({ ui: 'ui-reader', eventcg: 'cglib' });
+const EVENT_CG_FOLD = 'event-cg';
 const canon = (page) => {
     const id = String(page || '').trim();
     return PAGE_ALIASES[id] || id;
@@ -70,7 +72,7 @@ export const PERFORMANCE_GROUP_PAGES = Object.freeze({
 export const PAGE_PERFORMANCE_GROUPS = Object.freeze(Object.fromEntries(Object.entries(PERFORMANCE_GROUP_PAGES).map(([group, page]) => [page, group])));
 
 const LEGACY_READER_ALIASES = Object.freeze({ display: 'dialog', theme: 'text', toolbar: 'interface', visual: 'interface', options: 'interface' });
-const LEGACY_SCENE_ALIASES = Object.freeze({ generated: 'review' });
+const LEGACY_SCENE_ALIASES = Object.freeze({ generated: 'scene-review' });
 const LEGACY_IMAGE_PAGES = Object.freeze({ source: 'source', llm: 'llm', auto: 'kinds', prompts: 'kinds', content: 'kinds', logs: 'logs', cg: 'cglib', other: 'source' });
 const LEGACY_READER_PAGES = Object.freeze({ dialog: 'style', text: 'text', interface: 'ui-reader', performance: 'perf-text' });
 
@@ -144,10 +146,11 @@ function legacyScenePage(sub, open, wardrobeFocus) {
     if (id === 'characters') return 'chars';
     if (id === 'scenes') return 'scenes';
     if (id === 'review') return 'review';
+    if (id === 'scene-review') return 'scene-review';
     if (id === 'wardrobe') return 'wardrobe';
     if (id === 'rules') {
         if (wardrobeFocus || open.includes('rules-mood')) return 'wardrobe';
-        if (open.includes('rules-event-cg')) return 'eventcg';
+        if (open.includes('rules-event-cg')) return 'cglib';
         return 'rules';
     }
     return 'chars';
@@ -177,7 +180,10 @@ export function resolveSettingsTarget(target = {}) {
     const src = target && typeof target === 'object' ? target : {};
     const open = openList(src.open);
     const page = resolveSettingsPage({ ...src, open });
-    return { page, open: open.filter((key) => !/^perf-group-\w+$/.test(key)), path: typeof src.path === 'string' ? src.path : '' };
+    const keys = open.filter((key) => !/^perf-group-\w+$/.test(key));
+    // 旧的预置CG页（或旧的 rules-event-cg 折叠）现在是 CG库 页里的折叠，跳转时一并展开。
+    if (page === 'cglib' && !keys.includes(EVENT_CG_FOLD) && (String(src.page || '').trim() === 'eventcg' || String(src.tab || '').trim() === 'eventcg' || open.includes('rules-event-cg'))) keys.push(EVENT_CG_FOLD);
+    return { page, open: keys, path: typeof src.path === 'string' ? src.path : '' };
 }
 
 // settingsState.tab 只认分类 id，也接受旧 tab id。
@@ -208,6 +214,7 @@ export function openSettingsPage(settingsState, page) {
     const id = isSettingsPage(page) ? canon(page) : resolveSettingsPage({ tab: page });
     settingsState.asyncState = settingsState.asyncState || {};
     settingsState.asyncState.page = id;
+    if (String(page || '').trim() === 'eventcg') settingsState.asyncState.advancedOpen = { ...(settingsState.asyncState.advancedOpen || {}), [EVENT_CG_FOLD]: true };
     settingsState.tab = categoryOfPage(id);
     // 记下每个分类最近停留的子页：点回这个分类时回到那一页。
     settingsState.asyncState.pageByCategory = { ...(settingsState.asyncState.pageByCategory || {}), [settingsState.tab]: id };

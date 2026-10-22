@@ -72,7 +72,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.36.108';
+const IGS_VERSION = '0.36.109';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -572,7 +572,7 @@ export function bootstrapIGS(options = {}) {
     function applyImageCacheLimit(bridge) {
         const cache = mediaCache;
         if (cache && typeof cache.setDisplayCompression === 'function') {
-            void cache.setDisplayCompression(bridge?.imageCache?.compressDisplay === true).catch(error => console.warn('[IGS 图片缓存] 设置未完成', error));
+            void cache.setDisplayCompression(bridge?.imageCache?.compressDisplay !== false).catch(error => console.warn('[IGS 图片缓存] 设置未完成', error));
         }
         if (cache && typeof cache.setMaxCount === 'function') {
             void cache.setMaxCount(bridge && bridge.imageCache && bridge.imageCache.maxCount);

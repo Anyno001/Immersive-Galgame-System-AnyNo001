@@ -21,6 +21,11 @@ export const PERFORMANCE_GROUPS = Object.freeze([
     Object.freeze(['sound', '声音']),
 ]);
 
+// 第五段「自定义」：当前开关与四档都不吻合时高亮；在仪表盘上点它去演出页，在演出页上不做事。
+function customButton(active, home) {
+    return `<button type="button" class="igs-perf-preset${active ? ' is-active' : ''}"${home ? ' data-cat="perf"' : ''} aria-pressed="${active ? 'true' : 'false'}">自定义</button>`;
+}
+
 // 首页与「阅读器 › 演出」共用同一档位条和 perf-preset 动作；extraRows 供其他档位（如画质档）挂在同一卡片里。
 export function renderPerformancePresetBar(reader, { home = false, extraRows = '', canUndo = false, compact = false } = {}) {
     const src = reader && typeof reader === 'object' ? reader : {};
@@ -31,7 +36,7 @@ export function renderPerformancePresetBar(reader, { home = false, extraRows = '
     const current = profile ? (changed ? '' : profile.level) : detectPerformancePreset(src);
     const buttons = PERFORMANCE_PRESETS.map(([id, label]) => (
         `<button type="button" class="igs-perf-preset${current === id ? ' is-active' : ''}" data-action="perf-preset:${id}" aria-pressed="${current === id ? 'true' : 'false'}">${esc(label)}</button>`
-    )).join('');
+    )).join('') + customButton(current === '', home);
     let state = '';
     if (changed) {
         state = [diff.added.length ? `比配置多开了：${diff.added.join('、')}` : '', diff.removed.length ? `关掉了：${diff.removed.join('、')}` : ''].filter(Boolean).join('；') + '。点档位会恢复。';

@@ -135,7 +135,7 @@ export function renderPromptEntryFields(sceneAssets, { reader = {}, report = nul
         + field(`${FX}.style`, '写法', segmentedInput(`${FX}.style`, fx.style, [['detailed', '详细'], ['compact', '精简']], '写法'))
         + '<div class="igs-settings-row"><button type="button" class="igs-settings-action" data-action="fx-prompts-copy-all">复制全部</button></div>';
     return '<div class="igs-source-filter-title">演出写法</div>'
-        + '<div class="igs-source-filter-note">每条演出一行：可设常驻或关键词、注入位置和正文。不改就和默认一样；触发情况也会写进「本页诊断」。</div>'
+        + '<div class="igs-source-filter-note">展开后可设常驻、关键词、注入位置与正文，未修改即为默认。</div>'
         + head + rows
         + (fixed ? `<div class="igs-settings-subhead">固定写法</div>${fixed}` : '');
 }

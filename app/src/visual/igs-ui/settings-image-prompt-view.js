@@ -2,6 +2,10 @@ import { IMAGE_PROMPT_TASKS, PROMPT_DATA_FIELDS } from '../../presets/prompt-pre
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const action = (verb, label, args = [], disabled = false) => `<button type="button" class="igs-settings-action" data-action="image-prompt:${verb}${args.map(v => ':' + encodeURIComponent(v)).join('')}"${disabled ? ' disabled' : ''}>${esc(label)}</button>`;
+const MORE_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
+// 次要操作收进 ⋯：与「角色」「情绪」页的行菜单同一套样式与关闭逻辑。
+const menuItem = (verb, label, args = [], disabled = false) => `<button type="button" class="igs-add-menu-item" role="menuitem" data-action="image-prompt:${verb}${args.map(v => ':' + encodeURIComponent(v)).join('')}"${disabled ? ' disabled' : ''}>${esc(label)}</button>`;
+const moreMenu = items => `<details class="igs-add-menu igs-row-menu"><summary class="igs-btn-mgr-icon" title="更多操作" aria-label="更多操作">${MORE_SVG}</summary><div class="igs-add-menu-list" role="menu">${items.join('')}</div></details>`;
 const note = text => `<div class="igs-source-filter-note">${esc(text)}</div>`;
 const choices = (items, value) => items.map(item => {
     const [id, label] = Array.isArray(item) ? item : [item, item];
@@ -32,14 +36,14 @@ export function renderImagePromptPanel(editor, advancedOpen = {}) {
     html += `<details class="igs-settings-sub igs-settings-advanced" data-advanced="image-prompt-editor"${advancedOpen['image-prompt-editor'] === true ? ' open' : ''}><summary>编辑提示词组</summary>`;
 
     html += `<label class="igs-settings-field"><span>编辑预设</span><select data-image-prompt-select aria-label="编辑预设"><option value="">请选择</option>${choices(items.map(p => [p.id, `${p.name || p.id}${p.draftOnly ? ' · 仅草稿' : ''}`]), state.preset?.id)}</select></label>`;
-    html += `<div class="igs-image-prompt-actions">${action('new', '新建')}${action('copy', '复制', [], !state.preset)}${action('import', '导入 JSON')}${action('import-text', '粘贴 JSON')}${action('export', '导出保存版本', [], !saved)}${action('reload', '重新读取')}</div>`;
+    html += `<div class="igs-image-prompt-actions">${action('new', '新建')}${moreMenu([menuItem('copy', '复制', [], !state.preset), menuItem('import', '导入JSON'), menuItem('import-text', '粘贴JSON'), menuItem('export', '导出保存版本', [], !saved), menuItem('reload', '重新读取')])}</div>`;
     html += `<div data-image-prompt-status role="status">${esc(state.status)}</div>`;
     if (state.preset) {
         const p = state.preset, data = p.data;
         html += note(`编辑：${p.id} · 保存版本：${saved ? 'r' + saved.data.revision : '尚未保存'} · 草稿：${state.draftRevision === null ? '未存档' : 'd' + state.draftRevision}${state.dirty ? ' · 有未存档修改' : ''} · 来源版本：${state.baseRevision ?? '新建'}`);
         html += field(state, 'preset', '', 'name', '名称', p.name);
-        html += `<div class="igs-image-prompt-actions">${action('draft', '存档草稿')}${action('save', '保存版本')}${action('activate', '启用保存版本', [], state.dirty || state.draftRevision !== null || !saved)}${action('discard', '放弃草稿')}${action('delete', '删除预设')}</div>`;
-        html += note(activation?.ok ? '结构可激活。' : '尚不可激活：' + (activation?.errors || []).map(e => `${e.field}：${e.reason}`).join('；'));
+        html += `<div class="igs-image-prompt-actions">${action('save', '保存版本')}${action('activate', '启用', [], state.dirty || state.draftRevision !== null || !saved)}${moreMenu([menuItem('draft', '存档草稿'), menuItem('discard', '放弃草稿'), menuItem('delete', '删除预设')])}</div>`;
+        if (!activation?.ok) html += note('尚不可激活：' + (activation?.errors || []).map(e => `${e.field}：${e.reason}`).join('；'));
         const ordered = (data.prompt_order || []).map(entry => ({ entry, block: data.prompts.find(b => b.identifier === entry.identifier) })).filter(row => row.block);
         const unordered = data.prompts.filter(b => !ordered.some(row => row.block.identifier === b.identifier));
         html += `<div class="igs-source-filter-title">共享框架与中间槽</div>${action('add', '新增提示块', ['prompts'])}`;
@@ -51,7 +55,7 @@ export function renderImagePromptPanel(editor, advancedOpen = {}) {
         html += `<div class="igs-source-filter-title">显式任务映射</div>`;
         for (const task of IMAGE_PROMPT_TASKS) html += field(state, 'taskMap', '', task, task,
             data.taskMap?.[task] || '', 'select', [['', '未映射'], ...(data.modules || []).map(m => [m.identifier, `${m.identifier} · ${m.task}`])]);
-        html += note(`可用资料字段：${PROMPT_DATA_FIELDS.join('、')}。变量只单轮替换；不执行宿主宏。`);
+        html += note(`可用资料字段：${PROMPT_DATA_FIELDS.join('、')}`);
         html += field(state, 'data', '', 'variables', '声明变量（JSON 数组）', data.variables || [], 'json');
         html += field(state, 'data', '', 'literalVariables', '保留字面变量（JSON 数组）', data.literalVariables || [], 'json');
         html += `<label class="igs-settings-field"><span>本地预览任务</span><select data-image-prompt-preview-task>${choices(IMAGE_PROMPT_TASKS, state.previewTask)}</select></label>`;
@@ -61,7 +65,7 @@ export function renderImagePromptPanel(editor, advancedOpen = {}) {
     if (state.importPreview) {
         const preview = state.importPreview;
         html += `<div class="igs-source-filter-title">导入预览</div>`;
-        html += note('导入不自动激活。同 ID 默认跳过，明确选择覆盖后才替换；旧格式未映射只存档。');
+        html += note('导入不会自动启用；同ID默认跳过。');
         for (const entry of preview.accepted || []) {
             html += note(`${entry.id} · ${entry.activatable ? '可激活' : '仅存档'}${entry.conflict ? ' · 同 ID 冲突' : ''}`);
             html += note((entry.issues || []).map(e => `${e.field}：${e.reason}`).join('；'));

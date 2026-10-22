@@ -279,7 +279,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
     const fillAll = missing.length > 1
         ? `<div class="igs-outfit-fill-all"><button type="button" class="igs-review-link" data-action="scene-outfit-copy-slots:${c}:${o}">补上缺的${missing.length}格</button></div>`
         : '';
-    const rows = ownRows + fallbackRows || '<div class="igs-scene-empty">暂无情绪槽，可点击右上角「+」添加</div>';
+    const rows = ownRows + fallbackRows || '<div class="igs-scene-empty">暂无情绪槽</div>';
     return `<div class="igs-outfit-panel" data-outfit-panel="${esc(name)}">${meta}<div class="igs-btn-mgr-list igs-outfit-slots">${rows}</div>${fillAll}</div>`;
 }
 
@@ -378,7 +378,7 @@ export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTa
     }).join('');
     const body = rows
         ? `<div class="igs-btn-mgr-list igs-wardrobe-list is-tall">${rows}</div>`
-        : '<div class="igs-scene-empty">暂无衣柜提示词，可点击右上角「+」添加</div>';
+        : '<div class="igs-scene-empty">暂无衣柜提示词</div>';
     return `<div class="igs-wardrobe-group">${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${body}</div>`;
 }
 
@@ -669,6 +669,7 @@ button.igs-scope-seg:hover,button.igs-scope-seg:focus-visible{color:var(--igs-se
 .igs-gen-tile-actions{display:flex;align-items:center;gap:4px}
 .igs-gen-tile-actions>.igs-review-link{flex:1;min-height:28px;background:var(--igs-settings-field);text-align:center}
 .igs-gen-tile-actions>.igs-review-link.is-primary{color:var(--igs-settings-ink)}
+.igs-gen-page-note{flex:1;min-width:0;margin:0;font-size:11px;line-height:1.5;text-align:center;color:var(--igs-settings-ink-4)}
 @media (max-width:420px){.igs-gen-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .igs-review-select{width:auto;max-width:8em;height:28px;padding:0 6px;font-size:12px}
 .igs-scene-subtab-count{margin-left:4px;padding:0 5px;border-radius:8px;background:var(--igs-settings-accent);color:#fff;font-size:10px;line-height:16px}

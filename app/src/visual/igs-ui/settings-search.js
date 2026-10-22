@@ -48,7 +48,7 @@ const FEATURE_ALIASES = Object.freeze({
 const EXTRA_ENTRIES = Object.freeze([
     { id: 'nai-sprite-transparent', label: '内置 NAI 立绘透明底', aliases: ['NAI', '透明底', 'V5', '抠图'], page: 'source', path: 'bridge.imageApi.naiSpriteTransparent' },
     { id: 'external-sprite-dna', label: '外部生图前补齐角色 DNA', aliases: ['副API', '副 API', '备用模型', '外部立绘', 'dbgen', '建档'], page: 'source', path: 'bridge.imageApi.externalSpriteDna' },
-    { id: 'image-prompt-presets', label: '固定提示词组预设', aliases: ['生图预设', '提示块', '导入预设', '编辑提示词'], page: 'llm', open: ['image-prompt-editor'] },
+    { id: 'image-prompt-presets', label: '提示词组', aliases: ['固定提示词组预设', '生图预设', '提示块', '导入预设', '编辑提示词'], page: 'llm', open: ['image-prompt-editor'] },
     { id: 'artist-library', label: '画师串库', aliases: ['画师', '导入画师', '选择画师', '画师库'], page: 'kinds' },
     { id: 'consistency-strength', label: '一致性重绘强度', aliases: ['强度', '角色一致性', '重绘', 'strength'], page: 'source', path: 'bridge.autoIllustration.consistencyStrength' },
     { id: 'my-phone', label: '我的手机', group: 'special', open: ['perf-my-phone'], aliases: ['手机壳', '机型', '壁纸', '铃声', '手机外观', '壳色', '折叠屏', '刘海屏', '平板'] },
@@ -62,6 +62,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'toolbar-dock', label: '工具栏位置', aliases: ['工具栏', '按钮', '顶部', '紧贴对话框'], page: 'ui-bar', path: 'readerSettings.toolbarDock' },
     { id: 'status-hud-position', label: '状态栏位置', aliases: ['状态栏', 'hud', '头像', '左上角', '挡住', '挪位置'], page: 'ui-bg' },
     { id: 'sprite-scale', label: '立绘缩放与高度', aliases: ['立绘太大', '立绘太小', '缩放', '高度', '人物大小'], page: 'chars', open: ['sprite-display'] },
+    { id: 'panel-glass', label: '面板透明度', aliases: ['面板玻璃', '玻璃', '玻璃浓度', '毛玻璃', '半透明', '透明度'], page: 'style', open: ['dialog-glass'], path: 'readerSettings.glassOpacity' },
     { id: 'dialog-skin', label: '对话框风格', aliases: ['皮肤', '对话框样式', '换皮', '科幻', '末日', '全息', '废土', '武侠', '水墨', '江湖', '本卡皮肤', '主题'], page: 'style', path: 'readerSettings.dialogSkin' },
     { id: 'title-screen', label: '开场先显示主界面', aliases: ['主界面', '标题画面', '开始菜单', '开场白', '第0层', '选择世界观'], page: 'style', path: 'readerSettings.titleScreen' },
     { id: 'text-effect', label: '文字增强', aliases: ['描边', '看不清', '投影', '字看不清'], page: 'text', path: 'readerSettings.dialogTextEffect' },

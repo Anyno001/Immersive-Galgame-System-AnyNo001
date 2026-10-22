@@ -429,7 +429,7 @@ export const TOOLBAR_ACTIONS = Object.freeze([
 ]);
 
 export const DEFAULT_PINNED_TOOLBAR_BUTTONS = Object.freeze([]);
-// 工具栏分两截：翻页和读档类默认放对话框底部的快捷栏，顶栏只留生图、素材、画面和系统。
+// 按钮分布「顶栏+对话框下」：翻页和读档类默认放对话框底部的快捷栏，顶栏只留生图、素材、画面和系统。
 export const TOOLBAR_SPLIT_MODES = Object.freeze(['split', 'top', 'dialog']);
 // 工具栏底板：off 完全无底板（默认）、blur 展开时羽化毛玻璃、solid 实色不糊。
 export const TOOLBAR_PLATE_MODES = Object.freeze(['blur', 'solid', 'off']);
@@ -515,8 +515,8 @@ export function normalizeScenePromptRule(value) {
 }
 
 // 自定义规则缺服装占位符时 AI 不会写服装栏；只提示，不改写用户规则。
-export const PROMPT_RULE_OUTFIT_HINT = '当前为自定义规则，未包含服装栏说明；如需服装差分可恢复默认或手动添加 {{outfit_groups}}';
-export const PROMPT_RULE_OUTFIT_DNA_HINT = '可添加 {{previous_outfit_dna}}，注入上一轮出场角色对应衣装的已保存服装 DNA 和延续说明；无可用 DNA 的衣装不显示。';
+export const PROMPT_RULE_OUTFIT_HINT = '自定义规则未包含服装栏，可恢复默认或添加{{outfit_groups}}。';
+export const PROMPT_RULE_OUTFIT_DNA_HINT = '可添加{{previous_outfit_dna}}，注入上一轮衣装的服装DNA。';
 
 export function scenePromptRuleOutfitHint(rule) {
     const text = String(rule || '');
@@ -526,5 +526,5 @@ export function scenePromptRuleOutfitHint(rule) {
 }
 
 // 规则原文里的 {{mood_groups}} 等占位符酒馆不认识，所以提醒用「复制到酒馆预设」拿词表已展开的版本，而不是直接复制输入框。
-export const PROMPT_RULE_PRESET_HINT = '也可点击「复制到酒馆预设」，将占位符已展开的完整规则粘贴到酒馆预设中使用；粘贴后请关闭上方开关，以免重复发送。{{previous_outfit_dna}} 自动注入时逐轮刷新，复制结果只是当时快照，之后需重新复制。';
-export const PROMPT_RULE_OFF_HINT = '自动注入已关闭，聊天模型将不再收到这段规则。请将「复制到酒馆预设」的内容粘贴到酒馆预设中，否则 AI 不会输出场景与台词标签，背景与立绘将无法切换；词表或上一轮衣装有变动后需重新复制，静态快照不会逐轮刷新。';
+export const PROMPT_RULE_PRESET_HINT = '规则可复制到酒馆预设使用，复制后请关闭自动注入。';
+export const PROMPT_RULE_OFF_HINT = '自动注入已关闭，需将规则复制到酒馆预设，否则AI不会输出场景标签。';

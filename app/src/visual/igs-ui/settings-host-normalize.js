@@ -54,7 +54,7 @@ export function normalizeBridgeConfig(bridge) {
     normalized.imageApi = normalizeImageApi(normalized.imageApi);
     normalized.imageCache = { ...normalized.imageCache,
         maxCount: normalizeImageCacheCount(normalized.imageCache?.maxCount),
-        compressDisplay: normalized.imageCache?.compressDisplay === true };
+        compressDisplay: normalized.imageCache?.compressDisplay !== false };
     normalized.sceneAssets = normalizeSceneAssets(normalized.sceneAssets);
     normalized.vnTheme = normalizeVnTheme(normalized.vnTheme);
     normalized.entry = normalizeEntryConfig(normalized.entry);

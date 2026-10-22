@@ -171,6 +171,10 @@ export function profileDiff(reader) {
         if (key === 'fxSound' && !Object.values(expected).some(Boolean)) continue;
         (actual ? added : removed).push(label);
     }
+    // 打字机音不在演出开关表里，档位（含「全部关闭」）会一并改它，手动开关后同样算偏离。
+    const typingOn = plain(plain(plain(reader).typewriter).sound).enabled !== false;
+    const typingExpected = LEVELS[profile.level] > 0 && profile.sound.includes('typing');
+    if (typingOn !== typingExpected) (typingOn ? added : removed).push('打字机音');
     return { added, removed };
 }
 

@@ -64,10 +64,7 @@ const BACKUP_TEMPLATE = `
     {{imageCompressionField}}
     <div class="igs-source-filter-note">开启后降低显示占用；下载与编辑仍用原图。</div>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="purge-asset-cache" type="button" title="清空浏览器里缓存的图片和设置页缩略图，酒馆上的原图不动">清素材缓存</button></div>
-    <details class="igs-settings-sub igs-settings-advanced" data-advanced="cache-maintenance"{{advancedCacheMaintOpen}}>
-      <summary>缓存维护</summary>
-      <div class="igs-settings-row"><button class="igs-settings-action" data-action="image-cache-status" type="button">查看占用</button><button class="igs-settings-action" data-action="image-records-retry-backup" type="button">重试待备份记录</button><button class="igs-settings-action" data-action="image-files-retry-delete" type="button">重试待删除文件</button></div>
-    </details>
+    <div class="igs-link-row"><button class="igs-link-btn" data-action="image-cache-status" type="button">查看占用</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-records-retry-backup" type="button">重试备份</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-files-retry-delete" type="button">重试删除</button></div>
     <div class="igs-source-filter-note">{{imageCacheStatus}}</div>
   </div>
 </div>
@@ -117,8 +114,9 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
   <div class="igs-source-filter" data-image-prompt-entry{{sourceBuiltinHidden}}>
-    <div class="igs-source-filter-title">固定提示词组预设</div>
-    <button type="button" class="igs-settings-action" data-setting-go="image-prompt-presets">导入 / 编辑固定提示词组预设</button>
+    <div class="igs-source-filter-title">提示词组</div>
+    <div class="igs-source-filter-note">已内置默认词组。</div>
+    <div class="igs-settings-row"><button type="button" class="igs-settings-action" data-setting-go="image-prompt-presets">查看 / 编辑</button></div>
   </div>
 </div>
 `.trim();
@@ -143,7 +141,7 @@ const IMAGE_LLM_TEMPLATE = `
   {{imagePromptPanel}}
   <div class="igs-source-filter" data-image-feature="llm-prompts">
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
-      <summary>旧版写词要求</summary>
+      <summary><b>附加写词要求（可选）</b><span class="igs-perf-brief">修改后作为追加要求生效</span></summary>
       <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
       <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
       <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
@@ -179,7 +177,7 @@ const IMAGE_CG_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="cg">
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">CG库</div>
-    <div class="igs-source-filter-note">生成过的 CG 都在这里，点图看大图。</div>
+    <div class="igs-source-filter-note">已生成的CG，点击图片查看大图。</div>
     <div class="igs-cg-actions">
       <div class="igs-cg-actions-row"><span class="igs-cg-actions-label">查看</span>
         <button class="igs-settings-action" data-action="image-cg-refresh" type="button">刷新</button>
@@ -202,10 +200,10 @@ const IMAGE_CG_TEMPLATE = `
 // 生图内容按类别分卡片（角色 / 表情差分 / Q 版 / 场景与物品 / CG / NSFW），开关、模型、画师串都在卡片里，见 settings-prompt-kinds.js。
 const IMAGE_AUTO_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="auto">
-  {{artistLibraryPanel}}
   <div class="igs-source-filter-note">{{imageContentNote}}</div>
   <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
   {{promptKindsPanel}}
+  {{artistLibraryPanel}}
 </div>
 `.trim();
 
@@ -225,12 +223,13 @@ const READER_DIALOG_TEMPLATE = `
       {{classicDialogWidthPercentField}}
       {{skinDialogScaleField}}
       {{dialogHeightField}}
+      {{dialogAutoHeightField}}
       {{inputScaleField}}
     </div>
   </div>
   <div class="igs-source-filter igs-perf-group">
     <details data-advanced="dialog-glass"{{advancedDialogGlassOpen}}>
-      <summary><b>面板玻璃</b><span class="igs-perf-brief">{{glassScopeNote}}</span></summary>
+      <summary><b>面板透明度</b><span class="igs-perf-brief">{{glassScopeNote}}</span></summary>
       <div class="igs-perf-group-body">
     <div class="igs-source-filter-grid">
       {{glassOpacityField}}
@@ -262,9 +261,9 @@ const READER_TEXT_TEMPLATE = `
     <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">台词</div><div class="igs-settings-row">{{textFontField}}{{textColorField}}</div></div>
     <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">旁白</div><div class="igs-settings-row">{{narrationFontField}}{{narrationColorField}}</div></div>
     <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}</div></div>
-    <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">系统角色</div>{{systemRoleFields}}</div>
-    <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">上传字体</div>{{customFontManager}}</div>
     <div class="igs-settings-group igs-text-style-line"{{dividerHidden}}><div class="igs-settings-subhead">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
+    <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">上传字体</div>{{customFontManager}}</div>
+    <div class="igs-settings-group igs-system-role"{{themeHidden}}><div class="igs-settings-subhead">系统消息</div>{{systemRoleFields}}</div>
   </div>
 </div>
 `.trim();
@@ -298,7 +297,8 @@ const READER_UI_OPTION_TEMPLATE = `
     <div class="igs-source-filter-title">选项气泡{{resetReaderInterfaceOptionBubble}}</div>
     {{optionBubbleToggle}}
     <div class="igs-settings-sub"{{optionBubbleHidden}}>
-      <div class="igs-source-filter-grid">{{optionFontSizeField}}{{optionBubbleWidthToggle}}</div>
+      {{optionFontSizeField}}
+      {{optionBubbleWidthToggle}}
       {{optionBubblePositionField}}
       {{optionBubbleActionField}}
       {{optionSourcesField}}
@@ -330,12 +330,15 @@ const RULES_TEMPLATE = `
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">AI格式规则<span class="igs-outfit-muted">{{promptRuleTag}}</span></div>
     {{promptRuleToggle}}
-    {{promptRuleField}}
-    <div class="igs-settings-row">
-      <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认</button>
-      <button class="igs-settings-action" data-action="save-prompt-rule" type="button">保存</button>
-      <button class="igs-settings-action" data-action="copy-prompt-rule" type="button" title="复制到酒馆预设">复制预设</button>
-    </div>
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-rule-edit"{{advancedPromptRuleOpen}}>
+      <summary>查看 / 修改规则</summary>
+      {{promptRuleField}}
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认</button>
+        <button class="igs-settings-action" data-action="save-prompt-rule" type="button">保存</button>
+        <button class="igs-settings-action" data-action="copy-prompt-rule" type="button" title="复制到酒馆预设">复制预设</button>
+      </div>
+    </details>
     <div class="igs-settings-result" data-result="prompt-rule">{{promptRuleStatus}}</div>
     {{promptRuleOutfitHint}}
     {{promptAdvanced}}
@@ -359,12 +362,12 @@ const WARDROBE_TEMPLATE = `
 </div>
 `.trim();
 
-// 预置CG：作者预置的、正文触发的 CG。
+// 预置CG：作者预置的、正文触发的 CG；在 CG库 页底部的折叠「高级：正文触发的预置CG」里。
 const EVENTCG_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="eventcg">
   <div class="igs-source-filter" data-event-cg-section>
-    <div class="igs-source-filter-title">正文触发的预置CG<button class="igs-btn-mgr-icon igs-title-add" data-action="event-cg-add" type="button" title="添加一张预置CG" aria-label="添加一张预置CG">+</button></div>
-    <div class="igs-source-filter-note">正文出现触发词或AI写 [igs-cg:名字] 时显示这张图；命中的楼不再生成过场CG。</div>
+    <div class="igs-source-filter-title">预置CG<button class="igs-btn-mgr-icon igs-title-add" data-action="event-cg-add" type="button" title="添加一张预置CG" aria-label="添加一张预置CG">+</button></div>
+    <div class="igs-source-filter-note">正文出现触发词或[igs-cg:名字]时显示对应图片，命中的楼层不再生成过场CG。</div>
     {{eventCgSection}}
   </div>
 </div>
@@ -386,7 +389,6 @@ const PAGE_TEMPLATES = Object.freeze({
     'perf-rhythm': READER_PERFORMANCE_TEMPLATE,
     sound: READER_PERFORMANCE_TEMPLATE,
     wardrobe: WARDROBE_TEMPLATE,
-    eventcg: EVENTCG_TEMPLATE,
     cglib: IMAGE_CG_TEMPLATE,
     source: IMAGE_SOURCE_TEMPLATE,
     kinds: IMAGE_AUTO_TEMPLATE,

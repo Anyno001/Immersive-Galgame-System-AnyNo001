@@ -482,7 +482,7 @@ export function applyToolbarState(root, current) {
     const pinned = root.querySelector('#igs-bar-pinned');
     const dialogBar = root.querySelector('#igs-dialog-bar');
     const readerSettings = current.snapshot && current.snapshot.readerSettings || {};
-    // 按钮分布：split 分两截（dialogBarBtns 放对话框底部快捷栏）/ top 只用顶栏 / dialog 除设置外全放对话框下。
+    // 按钮分布：split 顶栏+对话框下（dialogBarBtns 放对话框底部快捷栏）/ top 全在顶栏 / dialog 除设置外全放对话框下。
     const split = normalizeToolbarSplit(readerSettings.toolbarSplit);
     const dialogIds = new Set(normalizeDialogBarButtons(readerSettings.dialogBarBtns));
     // 用户固定在顶栏的按钮优先留在顶栏。
