@@ -15,6 +15,9 @@
 - `rules.js`：`COMBAT_RULES`（每回合能量 3、抽牌 5、卡组 20–30 张、同名卡不超过 3 张、敌人档位、职业原型）、基础卡 `BASIC_CARDS`、卡牌价值预算 `evaluateCardBudget`、经验曲线 `levelFromExp/expProgress`、卡组校验 `validateDeck`。
 - `schema.js`：效果原语、卡牌、技能、被动、档案（`class / deck-character / skill-character / enemy`）与成长日志条目的判别联合校验。
 - `random.js`：确定性哈希与伪随机数，用于战斗重放。
+- `battle-state.js`：只读的战局查询与数值估算（存活单位、最弱目标、卡牌视图、伤害/格挡计算、条件判定、意图描述），供引擎与策略共用。
+- `engine.js`：纯函数引擎。`createBattle(setup, seed)`、`applyAction(state, action) → { ok, state, events, error? }`、`legalActions(state)`、`replayBattle(setup, seed, actions)`、`seedFor(combatId)`。结局为 `victory / defeat / escape`；操控角色倒下即 `defeat`。
+- `policy.js`：确定性托管。`chooseAllyPlay`（预计受伤大于格挡先防御 → 可击杀时取最低费击杀 → 前两回合打能力牌 → 按伤害/费用攻击最弱敌人）；`chooseSkillIntent`（按权重与冷却抽取，同一技能不连续使用三次）。
 
 ## 约束
 
@@ -24,6 +27,8 @@
 - 同一职业以已登记的 `class` 档案为准；`deck-character` 通过 `classRef` 引用职业，只持有个人部分。
 - 起始卡组固定为 20 张：基础攻击 3、基础防御 3、职业卡 10、个人卡 4，且同名卡不超过 3 张。
 - 成长日志除 `profile` 与 `revoke` 外必须带锚点 `{ messageId, swipeId, tagHash, occurrence }`；条目 ID 由 `ledgerEntryId` 确定性推导。
+- 引擎不就地修改入参：`applyAction` 先校验，非法动作返回原 `state`、空事件和 `{ reason, detail? }`；合法动作在副本上结算。断点续战只保存 `setup`、`seed` 与动作序列，由 `replayBattle` 重建，不持久化引擎快照。
+- 开局配置 fail-closed：规则版本不符、单位 ID 非法或保留名、卡组引用未知卡、操控角色不是友方卡组角色、种子非法均拒绝建局。
 
 ## 禁止
 
