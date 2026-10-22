@@ -237,9 +237,17 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
         }
         const stamp = token(key);
         const controller = Abort ? new Abort() : null;
-        let timer;
+        let timer, expire;
         let cancel;
         const cancelled = new Promise(resolve => { cancel = () => { controller?.abort(); resolve(''); }; });
+        const setTimer = globalObject.setTimeout || setTimeout, clearTimer = globalObject.clearTimeout || clearTimeout;
+        // 超时只算自己在读的时间：排在下载队列里等名额时不计，否则别处一次要很多图时，排在后面的没开始下就被判超时。
+        const arm = () => { clearTimer(timer); timer = setTimer(() => expire(), timeoutMs); timer?.unref?.(); };
+        const pause = () => { clearTimer(timer); timer = undefined; };
+        const timedOut = new Promise((_, reject) => {
+            expire = () => { forget(key); reject(new Error('image-load-timeout')); };
+            arm();
+        });
         const handle = {};
         const pending = { controller, cancel, promise: null, boost: () => handle.boost?.() };
         if (ticket) ticket.boost = pending.boost;
@@ -248,7 +256,8 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
             const hit = present ? (blob && present.url) || await blobDataUrl(present.data, globalObject, { signal: controller?.signal }) : persist ? await get(key, { url: blob }).catch(() => '') : '';
             if (hit) return token(key) === stamp && !destroyed ? hit : '';
             if (token(key) !== stamp) return '';
-            let value = await (download ? downloads.run(loader, controller?.signal, { high: !ticket || ticket.high, handle }) : loader(controller?.signal));
+            if (download) pause();
+            let value = await (download ? downloads.run(signal => { arm(); return loader(signal); }, controller?.signal, { high: !ticket || ticket.high, handle }) : loader(controller?.signal));
             if (token(key) !== stamp || !value) return '';
             if (compressDisplay) value = await displayEncoder.encode(value, { signal: controller?.signal });
             if (token(key) !== stamp || !value) return '';
@@ -256,10 +265,8 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
             if (blob && typeof value !== 'string') return token(key) === stamp && !destroyed ? await shownOf(key) : '';
             return token(key) === stamp && !destroyed ? await blobDataUrl(value, globalObject, { signal: controller?.signal }) : '';
         })();
-        pending.promise = Promise.race([work, cancelled, new Promise((_, reject) => {
-            timer = (globalObject.setTimeout || setTimeout)(() => { forget(key); reject(new Error('image-load-timeout')); }, timeoutMs); timer?.unref?.();
-        })]).finally(() => {
-            (globalObject.clearTimeout || clearTimeout)(timer);
+        pending.promise = Promise.race([work, cancelled, timedOut]).finally(() => {
+            clearTimer(timer);
             if (flights.get(key) === pending) flights.delete(key);
         });
         flights.set(key, pending);

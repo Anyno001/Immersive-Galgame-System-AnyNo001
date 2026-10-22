@@ -460,6 +460,13 @@ export function createCgLibrary(deps = {}) {
         if (!photoStore) return { ok: false, reason: 'store-unavailable' };
         const dataUrl = await recover(async () => (await compose(getDocument(), shot)) || { ok: false, reason: 'compose-failed' });
         if (dataUrl?.cancelled) return dataUrl;
+        return keepPhoto({ ...shot, dataUrl });
+    }
+
+    // 已经是成图（小游戏惩罚 CG 等）：不再合成缩小，原图直接进相册。
+    async function keepPhoto(shot = {}) {
+        if (!photoStore) return { ok: false, reason: 'store-unavailable' };
+        const { dataUrl } = shot;
         const photo = { id: makeId(), chatId: shot.chatId, messageId: shot.messageId, caption: shot.caption, dataUrl, createdAt: now() };
         const result = await recover(() => photoStore.put(photo));
         if (result && result.ok) {
@@ -498,5 +505,6 @@ export function createCgLibrary(deps = {}) {
         removeMany,
         removeAll,
         capturePhoto,
+        keepPhoto,
     };
 }

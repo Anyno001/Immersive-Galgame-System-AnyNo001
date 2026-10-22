@@ -105,6 +105,46 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
         return entries.filter((e) => e && !e.disable && String(e.content || '').trim());
     }
 
+    // 只读当前角色卡绑定的世界书（主世界书、附加世界书、卡内嵌世界书），不含聊天与全局世界书。
+    // 每个名字只收开着的、条目名或关键字命中这个名字的条目。
+    async function readCardWorldbook(names = []) {
+        const ctx = context();
+        const wanted = [...new Set(names.map((n) => String(n || '').trim()).filter(Boolean))];
+        if (!ctx || !wanted.length) return [];
+        const characters = Array.isArray(ctx.characters) ? ctx.characters : [];
+        const card = ctx.characterId != null ? characters[ctx.characterId] : null;
+        if (!card) return wanted.map((name) => ({ name, entries: [] }));
+        const books = new Set();
+        const add = (book) => { if (typeof book === 'string' && book.trim()) books.add(book.trim()); };
+        add(card.data && card.data.extensions && card.data.extensions.world);
+        const helper = getTavernHelper(globalObject);
+        try {
+            const bound = helper && typeof helper.getCharWorldbookNames === 'function' ? helper.getCharWorldbookNames('current') : null;
+            if (bound) {
+                add(bound.primary);
+                (Array.isArray(bound.additional) ? bound.additional : []).forEach(add);
+            }
+        } catch (error) { /* 读不到附加世界书就只用主世界书 */ }
+        const entries = [];
+        if (typeof ctx.loadWorldInfo === 'function') {
+            for (const book of books) {
+                try {
+                    const data = await ctx.loadWorldInfo(book);
+                    if (data && data.entries) entries.push(...Object.values(data.entries));
+                } catch (error) { /* 单本读取失败跳过 */ }
+            }
+        }
+        // 卡内嵌的世界书导入后通常就是主世界书；没绑主世界书时才读内嵌的那份。
+        const embedded = !books.size && card.data && card.data.character_book && card.data.character_book.entries;
+        if (Array.isArray(embedded)) entries.push(...embedded.map((e) => ({ key: e.keys, keysecondary: e.secondary_keys, comment: e.comment || e.name, content: e.content, disable: e.enabled === false })));
+        const open = entries.filter((e) => e && !e.disable && String(e.content || '').trim());
+        return wanted.map((name) => ({
+            name,
+            entries: open.filter((entry) => entryMentions(entry, name))
+                .map((entry) => ({ title: String(entry.comment || '').trim(), content: String(entry.content || '').trim() })),
+        }));
+    }
+
     function entryMentions(entry, name) {
         const keys = [].concat(entry.key || [], entry.keysecondary || []).map((k) => String(k || '').trim()).filter((k) => k.length >= 2 || k === name);
         if (keys.some((k) => k === name || k.includes(name) || name.includes(k))) return true;
@@ -306,7 +346,7 @@ export function createIllustrationMessageHost(globalObject = globalThis) {
     }
 
     return {
-        getChatId, getUserName, readCharacterLore, readFloor, readPreviousAiTexts, writeFloor, on, onImageFloorReady, attachPromptStrip, ensureMarkerRegexes,
+        getChatId, getUserName, readCharacterLore, readCardWorldbook, readFloor, readPreviousAiTexts, writeFloor, on, onImageFloorReady, attachPromptStrip, ensureMarkerRegexes,
         destroy() {
             destroyed = true;
             clearBindingTimer();

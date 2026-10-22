@@ -18,6 +18,7 @@ import { recordOutfitReview, dropConfirmedOutfitReview, removeOutfitReview, stor
 import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { createStoryOutfitService } from '../../generated-images/illustration/story-outfit-service.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
+import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
 import { overlayStatsMetrics } from '../../scene/stats/stat-metrics.js';
@@ -42,14 +43,14 @@ import { normalizeDailyFxSettings } from './fx-daily-model.js';
 import { cancelDailyFx } from './fx-daily.js';
 import { cancelSceneAudio, skipBgmTrack } from './scene-audio.js';
 import { applyBgmNoteToDom, toggleBgmNote } from './bgm-note.js';
-import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
+import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus } from './audio-bus.js';
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
 import { isTtsSpeaking, replayTts, setTtsErrorHandler, stopTts } from './tts.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
-import { isGeneratedAssetUrl, bindGeneratedBackground, bindGeneratedSprite } from '../../scene/asset-match.js';
+import { isGeneratedAssetUrl, generatedAssetIdOf, bindGeneratedBackground, bindGeneratedSprite } from '../../scene/asset-match.js';
 import { STAGE_CAST_MAX_SEATS, pickCastMembers } from '../../scene/stage-cast.js';
 import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
 import { normalizeStageCastSettings } from './stage-direction-settings.js';
@@ -64,6 +65,7 @@ import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe } from '../../
 import { isStrictBackgroundMatch, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
+import { cgEntryFromPhoto } from '../../media/cg-library.js';
 import { normalizeMoodGroups, resolveMoodGroup } from '../../scene/mood-groups.js';
 
 import { getOriginalReaderHtml, getOriginalReaderSource, getOriginalReaderStyleText, ORIGINAL_READER_REQUIRED_SELECTORS, ORIGINAL_READER_STYLE_CONTRACT } from './original-reader-source.js';
@@ -73,6 +75,7 @@ import { DEFAULT_IMAGE_API, DIALOG_FONT_OPTIONS, DEFAULT_PINNED_TOOLBAR_BUTTONS,
 import { eventToShortcut, findShortcutAction, resolveShortcuts } from './reader-shortcuts.js';
 import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
 import { buildWaitStageModel, createWaitStageRuntime } from './wait-stage-runtime.js';
+import { getWaitStageGamePack, subscribeWaitStageGamePack } from './wait-stage-games-api.js';
 import { onDlcSkinsChange } from './dlc-skin-registry.js';
 import { onDlcFxChange } from '../../scene/fx-registry.js';
 import { cloneData, esc, firstDefined, firstNonEmptyString, firstRenderableText, clampNumber, normalizeBoolean, normalizeFiniteIndex, normalizeFiniteNumber, normalizeNullableNumber, normalizeOpacity, toHex } from './reader-value-utils.js';
@@ -273,8 +276,117 @@ export function createIgsReaderHost(options = {}) {
         },
     });
     // 等待过场：五种阅读器模式共用黑屏 + 一句台词（回放角色说过的话 + 通用兜底）。
-    // 回复写完后，未在游戏中就地换页；在游戏中等这一局结算再换页。
+    // 回复写完后，没在玩就地换页；正在玩小游戏时先留在这一层，等玩家点「加载下一楼」。
+    // 等待小游戏的惩罚 CG：写词出图沿用楼内 CG 的来源，成图原样存进 CG 库相册，小游戏只记照片 id。
+    const waitStagePenalty = {
+        status() {
+            const service = options.illustrations;
+            if (!service || typeof service.paintStandaloneCg !== 'function') return { ok: false, nsfw: false };
+            return service.standaloneCgStatus();
+        },
+        async paint({ characters, outfits, nude, description, nsfw, caption, aspect } = {}) {
+            const service = options.illustrations;
+            if (!service || typeof service.paintStandaloneCg !== 'function') return { ok: false, error: '生图服务没有接入' };
+            const result = await service.paintStandaloneCg({ characters, outfits, nude, description, nsfw, aspect });
+            if (!result || !result.ok) return { ok: false, error: (result && result.error) || 'CG 生成失败' };
+            const album = options.cgGallery;
+            let id = '';
+            if (album && typeof album.keepPhoto === 'function') {
+                const chatId = typeof options.getCurrentChatId === 'function' ? options.getCurrentChatId() : '';
+                const saved = await Promise.resolve(album.keepPhoto({ dataUrl: result.dataUrl, chatId, caption })).catch(() => null);
+                id = saved && saved.ok && saved.photo ? saved.photo.id : '';
+            }
+            return { ok: true, url: result.dataUrl, id, size: result.size, request: result.request, prompt: result.prompt };
+        },
+        async read(id) {
+            const album = options.cgGallery;
+            if (!id || !album || typeof album.readFull !== 'function') return { ok: false };
+            const got = await Promise.resolve(album.readFull(cgEntryFromPhoto({ id }))).catch(() => null);
+            return got && got.ok ? { ok: true, url: got.dataUrl } : { ok: false };
+        },
+    };
+    // 麻将对手的打法：宿主只交出角色卡世界书里按名字命中的条目和一次副 API 文本请求，怎么问、怎么用由小游戏定。
+    const waitStagePersona = {
+        status() {
+            if (typeof options.readCardWorldbook !== 'function' || typeof options.requestSecondaryText !== 'function') {
+                return { ok: false, reason: 'unavailable' };
+            }
+            const via = moodAutoContext().llm.source === 'openai' ? 'secondary' : 'tavern';
+            // 没单独配副 API 时走酒馆当前连接，正文还在写就别去抢。
+            const current = state.activeReader;
+            if (via === 'tavern' && current && current.streamPhase === 'streaming') return { ok: false, reason: 'busy', via };
+            return { ok: true, via, chat: typeof options.getCurrentChatId === 'function' ? String(options.getCurrentChatId() || '') : '' };
+        },
+        async lore(names) {
+            try {
+                const list = await options.readCardWorldbook(Array.isArray(names) ? names : []);
+                return { ok: true, list: Array.isArray(list) ? list : [] };
+            } catch (error) {
+                return { ok: false, list: [] };
+            }
+        },
+        async ask({ system, user } = {}) {
+            const status = waitStagePersona.status();
+            if (!status.ok) return { ok: false, reason: status.reason };
+            try {
+                const raw = await options.requestSecondaryText({ system, user }, moodAutoContext().llm);
+                const text = secondaryLlmText(raw);
+                return text.trim() ? { ok: true, text } : { ok: false, reason: 'empty' };
+            } catch (error) {
+                return { ok: false, reason: 'failed', error: String(error && error.message || '') };
+            }
+        },
+    };
+    // 小游戏的图在显示时才读、读一张租一张：整卡几百张立绘一起读会挤爆图片缓存，排在后面的超时后被记成读不到。
+    const WAIT_STAGE_IMAGE_TIMEOUT_MS = 90000;
+    const waitStageImageWaiters = new Map();
+    let waitStageLeases = null;
+    function loadWaitStageImage(url) {
+        const source = String(url || '').trim();
+        if (!source || !isGeneratedAssetUrl(source)) return source;
+        const id = generatedAssetIdOf(source);
+        waitStageLeases ||= options.media?.cache ? createMediaLeaseScope(options.media.cache) : null;
+        waitStageLeases?.use(`asset:${id}`);
+        const service = options.generatedAssets;
+        const stored = service?.imageAvailability?.(source);
+        if (stored?.status === 'missing') return '';
+        const ready = stored?.status === 'read-error' && typeof service.retryImageRead === 'function'
+            ? String(service.retryImageRead(source) || '') : concreteReaderAssetUrl(source);
+        if (ready) return ready;
+        return new Promise((resolve) => {
+            const g = options.global || globalThis;
+            const waiters = waitStageImageWaiters.get(id) || new Set();
+            waitStageImageWaiters.set(id, waiters);
+            const waiter = (value) => {
+                g.clearTimeout(timer);
+                waiters.delete(waiter);
+                if (!waiters.size) waitStageImageWaiters.delete(id);
+                resolve(value);
+            };
+            waiter.source = source;
+            const timer = g.setTimeout(() => waiter(''), WAIT_STAGE_IMAGE_TIMEOUT_MS);
+            waiters.add(waiter);
+        });
+    }
+    function settleWaitStageImage(detail) {
+        const waiters = detail && detail.imageId ? waitStageImageWaiters.get(detail.imageId) : null;
+        if (!waiters) return;
+        for (const waiter of [...waiters]) {
+            if (detail.reason === 'image-lost') { waiter(''); continue; }
+            if (detail.reason !== 'image-loaded') continue;
+            const value = concreteReaderAssetUrl(waiter.source);
+            if (value) waiter(value);
+        }
+    }
+    function releaseWaitStageImages() {
+        waitStageLeases?.releaseAll();
+    }
     const waitStage = createWaitStageRuntime({
+        penalty: waitStagePenalty,
+        persona: waitStagePersona,
+        loadImage: (url) => loadWaitStageImage(url),
+        releaseImages: () => releaseWaitStageImages(),
+        audio: { context: () => audioBusContext(), input: () => busInput('sfx'), resume: () => resumeAudioBus() },
         getDoc: () => resolveEmbeddedDocument(state.activeReader),
         onVoice: (line) => playWaitStageVoice(line),
         onExitReady: () => finishPendingWaitExit(),
@@ -284,6 +396,12 @@ export function createIgsReaderHost(options = {}) {
         },
     });
     let pendingReplyMessage = null;
+    // 小游戏脚本可能比阅读器晚装上：装上或卸掉都要重排一次工具栏里的「小游戏」。
+    const offWaitGamePack = subscribeWaitStageGamePack((pack) => {
+        const current = state.activeReader;
+        if (!pack && waitStage.isPlaying()) waitStage.close();
+        if (current) applyToolbarState(current.dom && current.dom.overlay, current);
+    });
     // 物品图到达后重绘阅读器：演出占位与背包格位据此替换为生图。
     const offItemImageUpdatedRaw = typeof options.onItemImageUpdated === 'function'
         // 物品图可能一批连着到，和生图一样按窗口合并成一次重绘。
@@ -332,6 +450,7 @@ export function createIgsReaderHost(options = {}) {
     }
     const offGeneratedAssetUpdated = typeof options.onGeneratedAssetUpdated === 'function'
         ? options.onGeneratedAssetUpdated((detail) => {
+            settleWaitStageImage(detail);
             sourceCache.visitPrepared(floor => floor.assets?.invalidate(detail));
             const settings = state.activeSettings;
             const imageLost = Boolean(detail && detail.reason === 'image-lost');
@@ -1003,6 +1122,7 @@ export function createIgsReaderHost(options = {}) {
         offStoryOutfits();
         if (!options.storyOutfits) storyOutfits?.dispose();
         offItemImageUpdated();
+        offWaitGamePack();
         offImageJobLog();
         teardownStatusHudSubscription();
         closeReader();
@@ -1175,7 +1295,7 @@ export function createIgsReaderHost(options = {}) {
             showReplyFailure(current, 'empty');
             return false;
         }
-        // 回复已写完：当前游戏只结算这一局，之后由过场回调继续换楼。
+        // 回复已写完：正在玩就先记下这一楼，等玩家点「加载下一楼」再换。
         if (!waitStage.replyArrived()) {
             pendingReplyMessage = { reader: current, message, revision: settled.revision };
             return true;
@@ -1280,13 +1400,12 @@ export function createIgsReaderHost(options = {}) {
         const turns = await listTurnsSafe();
         if (state.activeReader !== current || !waitStage.isOpen()) return null;
         const all = turns.length ? turns.slice(-7) : (Array.isArray(current.payload && current.payload.turns) ? current.payload.turns.slice(-7) : []);
-        // 等待层的牌面不是当前正文页：外链直接可显示，生成图则由图库读回事件更新候选。
-        const resolveUrl = (url) => concreteReaderAssetUrl(url);
+        // 牌面保留图库原地址（igs-gen:），这里不读图；小游戏显示哪张再用 loadImage 读哪张。
         const model = buildWaitStageModel({
             settings: current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.waitStage,
             turns: all,
             sceneAssets: current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings._sceneAssets,
-            resolveUrl,
+            spriteHeads: current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.spriteHeads,
         });
         waitStage.update(model);
         return model;
@@ -1320,17 +1439,39 @@ export function createIgsReaderHost(options = {}) {
             : (current.dom && current.dom.overlay);
         if (!host) return;
         // 层已经在等就别重建：重建会把台词轮换打回第一句，也会抹掉玩家点开的小游戏。
-        if (waitStage.isOpen(host)) return;
+        if (waitStage.isOpen(host)) {
+            waitStage.enterWait();
+            return;
+        }
         const settings = (current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.waitStage) || null;
         waitStage.open(host, { embedded, settings, model: null });
         void refreshWaitStageModel(current);
+    }
+
+    // 工具栏「小游戏」：不等回复也把这一层叫出来玩，再按一次或点「返回阅读」收起。
+    function toggleMiniGames() {
+        const current = state.activeReader;
+        const host = current && current.dom && current.dom.overlay;
+        if (!host) return { ok: false, reason: 'reader-not-open' };
+        if (waitStage.isPlaying()) {
+            waitStage.close();
+            return { ok: true, open: false };
+        }
+        // 正在等回复时小游戏本来就摆在等待层里。
+        if (waitStage.isOpen()) return { ok: false, reason: 'awaiting-reply' };
+        if (!getWaitStageGamePack()) return { ok: false, reason: 'wait-games-not-installed' };
+        const settings = (current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.waitStage) || null;
+        waitStage.open(host, { settings, model: null, play: true });
+        void refreshWaitStageModel(current);
+        return { ok: true, open: true };
     }
 
     // observed：观察器自己报的活动，本轮生命周期已武装；再 prepareForReply 会抹掉刚记下的活动与结束标记，等待层就退不掉。
     function enterReplyWait(current, { observed = false } = {}) {
         if (!current) return;
         if (current.streamPhase !== 'streaming') {
-            waitStage.close();
+            // 正在玩的小游戏留着，下面 mountWaitStage 会把它就地变成等待层。
+            if (!waitStage.isPlaying()) waitStage.close();
             pendingReplyMessage = null;
             current.imagePollToken += 1;
             current.imagePolling = false;
@@ -2083,6 +2224,9 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'cg-gallery') {
             return openCgGallery();
+        }
+        if (normalizedAction === 'mini-games') {
+            return toggleMiniGames();
         }
         if (normalizedAction === 'fill-item-images') {
             return runFillItemImages();
@@ -4159,6 +4303,14 @@ export function createIgsReaderHost(options = {}) {
                 menu.setAttribute('hidden', '');
                 const arrow = host.querySelector?.('.igs-hud-entry-arrow');
                 arrow?.setAttribute('aria-expanded', 'false'); arrow?.focus?.();
+                return;
+            }
+            // 牌桌盖在正文上：Esc 只收起小游戏，翻页类快捷键也别穿过去改动底下的楼层。
+            if (waitStage.isPlaying()) {
+                if (event.key === 'Escape') {
+                    event.preventDefault(); event.stopPropagation?.();
+                    waitStage.close();
+                }
                 return;
             }
             const optionLayer = state.activeReader.dom?.overlay?.querySelector?.('#igs-option-bubbles');

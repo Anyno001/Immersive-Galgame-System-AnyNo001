@@ -16,6 +16,7 @@ import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyVoiceBark } from './voice-bark.js';
 import { applyTts, normalizeTtsSettings } from './tts.js';
+import { getWaitStageGamePack } from './wait-stage-games-api.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { playCameraImpactSfx } from './camera-impact.js';
@@ -492,6 +493,8 @@ export function applyToolbarState(root, current) {
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     // 「重听这句」只在开了台词朗读时显示。
     if (!normalizeTtsSettings(readerSettings.tts).enabled) hiddenSet.add('tts-replay');
+    // 「小游戏」要等独立的小游戏脚本装上才有东西可玩。
+    if (!getWaitStageGamePack()) hiddenSet.add('mini-games');
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
     // 默认顶部固定：只有明确选了「紧贴对话框」才是 float。

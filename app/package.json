@@ -1,6 +1,6 @@
 {
   "name": "igs-app",
-  "version": "0.36.118",
+  "version": "0.36.119",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,8 @@
     "build": "node scripts/build.js",
     "build:fonts": "node scripts/split-fonts.js",
     "build:loader": "node scripts/build-loader.js",
+    "build:wait-games": "node scripts/build-wait-games.js",
+    "build:local": "npm run build && npm run build:loader && npm run build:wait-games && node scripts/build-local-package.js",
     "package:loader": "npm run build && npm run build:loader"
   },
   "devDependencies": {
@@ -22,6 +24,8 @@
     ]
   },
   "dependencies": {
+    "@kobalab/majiang-ai": "1.1.0",
+    "@kobalab/majiang-core": "1.4.1",
     "fflate": "0.8.2"
   }
 }

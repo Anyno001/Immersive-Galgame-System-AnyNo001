@@ -24,6 +24,9 @@ import { isImageSeed, resolveImageSeed } from '../image-seed.js';
 import { createCgConsistencyService } from './cg-consistency-service.js';
 import { promptProvenance, storedPromptFromResult } from '../generation-prompt.js';
 import { outfitAdoptionEvidence } from '../../scene/outfit-identity.js';
+import { buildCharacterContext } from '../../scene/character-identity.js';
+import { BUILTIN_NUDE_OUTFIT, isBuiltinNudeOutfit, resolveWardrobePrompt } from '../../scene/character-outfits.js';
+import { outfitSpriteSlots } from '../../scene/character-appearance.js';
 import { usesCharacterTemplates } from './character-prompt-task.js';
 import { inheritImageTaskLease, imageTaskState, bindImageTaskTarget } from '../image-task-runtime.js';
 
@@ -74,6 +77,14 @@ function isPhoneEmbedded(viewport) {
     if (viewport && viewport.portrait === true) return true;
     const width = Number(viewport && viewport.width) || 0;
     return width > 0 && width <= EMBEDDED_PHONE_MAX_WIDTH;
+}
+
+// 立绘的存档提示词只留角色那一段：分角色写的取角色提示，没有分角色就取整段正向词。
+export function spritePromptTags(prompt) {
+    if (!prompt || typeof prompt !== 'object') return '';
+    const chars = prompt.caption?.v4_prompt?.caption?.char_captions;
+    const own = Array.isArray(chars) ? chars.map(c => String(c?.char_caption || '').trim()).filter(Boolean).join(', ') : '';
+    return own || String(prompt.positive || '').trim();
 }
 
 // 写提示词时告诉模型这张图的宽高。尺寸只在出图时传，写词的模型看不到。
@@ -1215,7 +1226,107 @@ export function createAutoIllustrationService(deps) {
         return job;
     }
 
+    function standaloneCgStatus() {
+        const s = settings();
+        return { ok: Boolean(nai && typeof nai.describe === 'function'), nsfw: s.nsfwEnabled === true };
+    }
+
+    // 楼外单张 CG（等待小游戏的惩罚图等）：不写楼层、不进楼层插图库，写词和出图沿用楼内 CG 的来源与角色资料。
+    // outfits 指定每人穿哪套衣装，nude 里的角色按内置裸体衣装出镜；NSFW 仍受「NSFW 插图」开关约束。
+    // aspect 是成图要铺满的显示区域，尺寸和全屏阅读器一样按它的宽高比算，总像素不超过上限。
+    function paintStandaloneCg({ characters = [], outfits = {}, nude = [], description = '', nsfw = false, aspect = null } = {}) {
+        const text = String(description || '').trim();
+        if (!text) return Promise.resolve({ ok: false, reason: 'empty-description', error: '没有画面要求' });
+        if (nsfw && !settings().nsfwEnabled) return Promise.resolve({ ok: false, reason: 'nsfw-disabled', error: 'NSFW 插图没有开启' });
+        const target = bindImageTaskTarget({ signal: recoveryController.signal, isCurrent: () => !stopped });
+        const input = { signal: target.signal, shouldStart: target.shouldStart };
+        const run = async guarded => {
+            if (typeof nai?.waitUntilReady === 'function') {
+                const ready = await nai.waitUntilReady(guarded);
+                if (!ready?.ok) return ready;
+            }
+            try {
+                return await paintStandalone(settings(guarded.signal), guarded, { characters, outfits, nude, text, nsfw, aspect });
+            } catch (error) {
+                return { ok: false, error: `CG 生成失败：${(error && error.message) || error}` };
+            }
+        };
+        return Promise.resolve(typeof llm?.runImageTask === 'function' ? llm.runImageTask(input, run) : run(input))
+            .finally(() => target.release());
+    }
+
+    async function paintStandalone(s, guarded, { characters, outfits, nude, text, nsfw, aspect }) {
+        const backend = backendReady(s);
+        if (!backend.ready.ok) return { ok: false, error: backend.ready.error || '图像来源没有就绪' };
+        const assets = structuredClone(readSceneAssets());
+        const bare = new Set((Array.isArray(nude) ? nude : []).map(name => String(name || '').trim()));
+        const picked = outfits && typeof outfits === 'object' ? outfits : {};
+        const context = buildCharacterContext(characters, assets).map(c => ({ ...c,
+            outfit: standaloneOutfit(assets, c.characterKey, bare.has(c.characterKey) ? BUILTIN_NUDE_OUTFIT : picked[c.characterKey], c.outfit) }));
+        const profiles = context.map(c => c.dna);
+        const template = backend.mode === 'nai' && context.length > 0
+            && (profiles.some(dna => dna?.version === 2) || profiles.every(dna => usesCharacterTemplates(nai, dna)));
+        const legacyDna = backend.mode === 'nai' && !template ? summarizeCharacterDna(characters, assets) : [];
+        const sprites = (await Promise.all(context.map(async c => ({ c, tags: await calmSpriteTags(assets, c.characterKey, c.outfit.name) }))))
+            .filter(item => item.tags);
+        const dressed = context.map(c => (isBuiltinNudeOutfit(c.outfit.name) ? `${c.characterKey}全裸出镜`
+            : c.outfit.name ? `${c.characterKey}穿「${c.outfit.name}」` : '')).filter(Boolean);
+        const description = [text,
+            legacyDna.length ? `【角色外貌】\n${legacyDna.map(c => `${c.name}：${[c.identity, c.defaultAppearance].filter(Boolean).join('；')}`).join('\n')}` : '',
+            dressed.length ? `衣装：${dressed.join('；')}。` : '',
+            sprites.length ? `【角色立绘提示词】这套衣装「平和」立绘出图用的词，用来保持长相和衣装；表情、动作、镜头和背景按惩罚内容重写，不照搬白底和站姿。\n${sprites.map(({ c, tags }) => `${c.characterKey}（${c.outfit.name || '默认'}）：${tags}`).join('\n')}` : '',
+        ].filter(Boolean).join('\n');
+        const size = aspect && aspect.width > 0 && aspect.height > 0
+            ? cgSizeForAspect(s.assets && s.assets.backgroundSize, aspect) : cgSize(s);
+        const task = template ? cgPromptTask(context) : {};
+        const written = await imageBackendMethod(nai, 'writePrompt')({ ...task, imagePromptTask: 'cg', description,
+            outputs: { slotIds: [1] },
+            writingRequirements: cgWritingRequirements(s, size, nsfw ? 'nsfw' : 'cg'),
+            ...(!template && context.length && { characterContext: context }),
+            signal: guarded.signal, shouldStart: guarded.shouldStart });
+        if (!written?.ok) return { ok: false, ...written, error: written?.error || 'CG 写词失败' };
+        const entries = written.captions || [written];
+        const entry = entries.find(item => Number(item.slotId) === 1) || entries[0];
+        if (!entry?.caption) return { ok: false, error: 'CG 写词没有交回画面' };
+        const checked = template ? preflightCgCaption(entry, task.promptTask, context) : { ok: true };
+        if (!checked.ok) return checked;
+        const request = template
+            ? inheritImageTaskLease(entry, { ...entry, ...checked, promptTask: task.promptTask, characterContext: context })
+            : inheritImageTaskLease(entry, { caption: entry.caption, ...(backend.mode === 'nai' && { captionMode: 'final' }) });
+        const result = await generateCaption({ ...request, size, imageKind: 'cg', promptKind: nsfw ? 'nsfwCg' : 'cg',
+            description: text, signal: guarded.signal, shouldStart: guarded.shouldStart });
+        if (!result?.ok || !hasSlotImage(result)) return { ok: false, ...result, error: result?.error || '图像来源没有交回图片' };
+        const sent = result.prompt || {};
+        return { ok: true, dataUrl: result.dataUrl, size, request: description,
+            prompt: { positive: String(sent.positive || ''), negative: String(sent.negative || '') } };
+    }
+
+    function standaloneOutfit(assets, key, name, fallback) {
+        if (isBuiltinNudeOutfit(name)) return { name: BUILTIN_NUDE_OUTFIT, description: 'No clothing; retain the fixed identifying features.' };
+        const entry = name && assets.characterOutfits?.[key]?.[name];
+        if (!entry) return fallback;
+        return { name, description: resolveWardrobePrompt(assets.wardrobe, entry, name)?.prompt || '' };
+    }
+
+    // 立绘本身存着出图时的提示词；取这套衣装平和那张（没有就取底图或第一张）里这个角色的部分。
+    async function calmSpriteTags(assets, key, outfitName) {
+        if (typeof deps.readSpritePrompt !== 'function') return '';
+        const outfits = assets.characterOutfits?.[key] || {};
+        const entry = isBuiltinNudeOutfit(outfitName)
+            ? Object.entries(outfits).find(([name, item]) => isBuiltinNudeOutfit(name) || isBuiltinNudeOutfit(item?.wardrobe))?.[1]
+            : outfits[outfitName];
+        const slots = entry ? outfitSpriteSlots(entry) : (assets.characters?.[key] || {});
+        const url = slots['平和'] || slots['默认'] || slots['裸体'] || Object.values(slots).find(Boolean);
+        if (!url) return '';
+        try {
+            return spritePromptTags(await deps.readSpritePrompt(url));
+        } catch {
+            return '';
+        }
+    }
+
     return {
+        standaloneCgStatus, paintStandaloneCg,
         processMessage, getIllustrationUrl, clearIllustration, clearFloorIllustrations, rerollSlot, rerollFloor,
         preflightConsistency, redrawConsistency, acceptConsistency, cancelConsistency, describeConsistency,
         start() {

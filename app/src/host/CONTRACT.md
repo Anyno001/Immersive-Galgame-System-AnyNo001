@@ -33,6 +33,7 @@
 - 统一定位聊天楼层、当前楼层、输入框、发送按钮和消息图片。
 - 副 LLM 请求（`secondary-llm.js`）。
 - `illustration-message-host.readCharacterLore` 按本轮角色筛选并完整收集角色卡、用户人设及匹配的世界书条目，不按每人或总字符数截断；`includeWorldInfo:false` 仍由内置预设的原生世界书扫描负责参考。
+- `illustration-message-host.readCardWorldbook(names)` 只读当前角色卡绑定的世界书（卡上主世界书与 TavernHelper 报告的主/附加世界书；都没绑才读卡内嵌的那份），返回每个名字命中的启用、非空条目 `{title, content}`；命中只看关键字（含次关键字）与条目标题，不扫正文。供等待小游戏的麻将对手配打法用，条目整条返回、整条送给副 API，不截断。
 - 自动插图楼层读写、生成事件订阅及 `[igs-img]` 标记对外隐藏（`illustration-message-host.js`）。
 - 自动插图 `writeFloor(messageId, text, expectedFloor)` 写回前复核聊天、楼层、swipe、最新 AI 身份与原文；发生变化返回 `stale`，不写入。宿主 API 未提供原子条件写入，复核与实际调用之间的极窄竞态仍需真机验证。
 - 提供 `typeIntoInputAndSend(text)`，供阅读器输入框和选项浮窗调用。

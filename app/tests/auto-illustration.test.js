@@ -125,6 +125,86 @@ function makeFakes({ text, isLatest = true, llmReply = REPLY, naiResult, setting
 
 const LONG_LINE = '她靠在窗边，看着外面的雨一点点停下来，城市的灯光一盏接一盏地亮起。';
 
+test('gate:illustration:standalone-cg-writes-and-paints-without-a-floor', async () => {
+    const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: SFW_TEXT, settings: { nsfwEnabled: true } });
+    const caption = { v4_prompt: { caption: { base_caption: '1girl, mahjong table', char_captions: [] } } };
+    const seen = {};
+    fake.nai = {
+        describe: () => ({ mode: 'baibai', via: 'baibai', ready: { ok: true } }),
+        writePrompt: async (meta) => { seen.write = meta; return { ok: true, caption, captions: [{ slotId: 1, caption }] }; },
+        generateCaption: async (meta) => { seen.paint = meta; return { ok: true, dataUrl: 'data:image/png;base64,CG' }; },
+    };
+    const store = createMemoryIllustrationStore();
+    const service = createAutoIllustrationService({ ...fake, store,
+        getSceneAssets: () => ({ characterOutfits: { 凛: { 礼服: { base: 'rin.png' } } } }) });
+    const result = await service.paintStandaloneCg({ characters: ['凛'], nude: ['凛'], nsfw: true, description: '凛垫底，罚她学猫叫' });
+    assert.equal(result.ok, true);
+    assert.equal(result.dataUrl, 'data:image/png;base64,CG');
+    assert.match(result.request, /衣装：凛全裸出镜/);
+    assert.equal(seen.write.imagePromptTask, 'cg');
+    assert.match(seen.write.description, /罚她学猫叫/);
+    assert.equal(seen.write.characterContext[0].characterKey, '凛');
+    assert.equal(seen.write.characterContext[0].outfit.name, '裸体');
+    assert.equal(seen.paint.caption, caption);
+    assert.equal(seen.paint.imageKind, 'cg');
+    assert.equal(seen.paint.promptKind, 'nsfwCg');
+    assert.equal(fake.calls.writes.length, 0);
+    assert.deepEqual(await store.listSlotKeys?.() || [], []);
+});
+
+test('gate:illustration:standalone-cg-dresses-the-picked-outfit-and-fits-the-table', async () => {
+    const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: SFW_TEXT, settings: { nsfwEnabled: false } });
+    const caption = { v4_prompt: { caption: { base_caption: 'mahjong table', char_captions: [] } } };
+    const seen = {};
+    const read = [];
+    fake.nai = {
+        describe: () => ({ mode: 'baibai', via: 'baibai', ready: { ok: true } }),
+        writePrompt: async (meta) => { seen.write = meta; return { ok: true, caption, captions: [{ slotId: 1, caption }] }; },
+        generateCaption: async (meta) => { seen.paint = meta; return { ok: true, dataUrl: 'data:image/png;base64,CG', prompt: { positive: 'best quality, 1girl', negative: 'lowres' } }; },
+    };
+    const service = createAutoIllustrationService({ ...fake, store: createMemoryIllustrationStore(),
+        readSpritePrompt: async (url) => {
+            read.push(url);
+            return { positive: 'whole', caption: { v4_prompt: { caption: { base_caption: 'white background', char_captions: [{ char_caption: 'rin, black hair, red evening dress' }] } } } };
+        },
+        getSceneAssets: () => ({
+            characterOutfits: { 凛: { 便服: { moods: { 平和: 'igs-gen:casual' } }, 礼服: { moods: { 喜悦: 'igs-gen:dress-joy', 平和: 'igs-gen:dress-calm' } } } },
+            wardrobe: { 礼服: { prompt: 'red evening dress' } },
+        }) });
+    const result = await service.paintStandaloneCg({ characters: ['凛'], outfits: { 凛: '礼服' }, description: '凛罚我捏肩', aspect: { width: 1600, height: 900 } });
+    assert.equal(result.ok, true);
+    assert.deepEqual(read, ['igs-gen:dress-calm']);
+    assert.deepEqual(seen.write.characterContext[0].outfit, { name: '礼服', description: 'red evening dress' });
+    assert.match(seen.write.description, /衣装：凛穿「礼服」/);
+    assert.match(seen.write.description, /凛（礼服）：rin, black hair, red evening dress/);
+    const [width, height] = seen.paint.size.split('x').map(Number);
+    assert.ok(Math.abs(width / height - 16 / 9) < 0.05, seen.paint.size);
+    assert.ok(width * height <= 1024 * 1024 && width % 64 === 0 && height % 64 === 0, seen.paint.size);
+    assert.equal(result.size, seen.paint.size);
+    assert.deepEqual(result.prompt, { positive: 'best quality, 1girl', negative: 'lowres' });
+});
+
+test('gate:illustration:standalone-cg-respects-the-nsfw-switch-and-needs-a-request', async () => {
+    const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: SFW_TEXT, settings: { nsfwEnabled: false } });
+    let calls = 0;
+    fake.nai = {
+        describe: () => ({ mode: 'baibai', via: 'baibai', ready: { ok: true } }),
+        writePrompt: async () => { calls++; return { ok: false }; },
+        generateCaption: async () => { calls++; return { ok: false }; },
+    };
+    const service = createAutoIllustrationService({ ...fake, store: createMemoryIllustrationStore() });
+    assert.deepEqual(service.standaloneCgStatus(), { ok: true, nsfw: false });
+    assert.equal((await service.paintStandaloneCg({ characters: ['凛'], nsfw: true, description: '罚她' })).reason, 'nsfw-disabled');
+    assert.equal((await service.paintStandaloneCg({ characters: ['凛'], description: '  ' })).reason, 'empty-description');
+    assert.equal(calls, 0);
+});
+
 test('gate:illustration:service-concurrent-calls-share-lock', async () => {
     const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
     const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');

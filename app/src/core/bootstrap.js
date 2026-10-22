@@ -83,7 +83,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.36.118';
+const IGS_VERSION = '0.36.119';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -223,6 +223,8 @@ export function bootstrapIGS(options = {}) {
             return saveStoryOutfitCandidates(storageLike, staged.items.filter(row => !existing.has(row.id)));
         },
         imageCodec: options.imageCodec || createCanvasImageCodec(globalObject),
+        readSpritePrompt: async (url) => (isGeneratedAssetUrl(url) && typeof assetGenerationService?.getImagePrompt === 'function'
+            ? assetGenerationService.getImagePrompt(generatedAssetIdOf(url)) : null),
         readCgReferenceImage: async (url, options) => {
             if (!isGeneratedAssetUrl(url)) {
                 const dataUrl = await readReferenceImageUrl(url, globalObject, options);
@@ -413,6 +415,11 @@ export function bootstrapIGS(options = {}) {
         requestMoodClassification({ system, user }, llmSettings) {
             return secondaryLlm.request({ system, user }, llmSettings);
         },
+        requestSecondaryText({ system, user }, llmSettings) {
+            return secondaryLlm.request({ system, user }, llmSettings);
+        },
+        readCardWorldbook: (names) => (typeof illustrationMessageHost.readCardWorldbook === 'function'
+            ? illustrationMessageHost.readCardWorldbook(names) : []),
         getCurrentChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
         imageJobLog,
         getUnifiedSettings: getUnifiedSettingsSnapshot,

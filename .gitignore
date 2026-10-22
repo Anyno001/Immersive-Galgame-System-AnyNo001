@@ -45,3 +45,7 @@ repro*.mjs
 
 # 文件系统临时文件
 .fuse_hidden*
+
+# 麻将预览的打包产物与本地参考立绘
+app/fixtures/mahjong/preview-bundle.js
+app/fixtures/mahjong/*.jpg

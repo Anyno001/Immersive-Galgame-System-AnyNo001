@@ -68,8 +68,8 @@ function renderTextFields(textFx, clickWait, waitStage, more) {
     const tfx = featureRow(more, 'text-fx', `${P}.textFx.enabled`, textFx.enabled, '行内文字效果', '抖动、吼叫等字效');
     const glyphs = Object.entries(CLICK_WAIT_MARK_LABELS);
     const clickWaitMark = featureRow(more, 'click-wait', `${P}.clickWaitMark.enabled`, clickWait.enabled, '句末等待符号', '', field(`${P}.clickWaitMark.glyph`, '符号样式', selectInput(`${P}.clickWaitMark.glyph`, clickWait.glyph, glyphs)));
-    const wait = featureRow(more, 'wait-stage', `${P}.waitStage.enabled`, waitStage.enabled, '等待过场', '等回复时给一句台词和小游戏', grid(
-        checkbox(`${P}.waitStage.games`, waitStage.games, '等的时候能玩小游戏')
+    const wait = featureRow(more, 'wait-stage', `${P}.waitStage.enabled`, waitStage.enabled, '等待过场', '等回复时轮换一句台词', grid(
+        checkbox(`${P}.waitStage.games`, waitStage.games, '等的时候能玩小游戏（需另装小游戏脚本）')
         + checkbox(`${P}.waitStage.voice`, waitStage.voice, '回放角色台词时带一声语气音'))
         + field(`${P}.waitStage.lineSeconds`, '每句停留', segmentedInput(`${P}.waitStage.lineSeconds`, String(waitStage.lineSeconds), [['4', '4秒'], ['6', '6秒'], ['8', '8秒'], ['12', '12秒']], '每句停留')));
     return { textFx: tfx, clickWaitMark, waitStage: wait };
