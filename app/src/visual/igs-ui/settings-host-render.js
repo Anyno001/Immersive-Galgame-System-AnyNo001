@@ -232,10 +232,10 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const sourceMode = normalizeImageSourceMode(imageApi.mode);
             const auto = normalizeAutoIllustrationSettings(mergeLegacyNaiSettings(bridge.autoIllustration, imageApi));
             const sourceNotes = {
-                nai: '使用官方或兼容 NAI 的中转生成剧情 CG、立绘、素材和重画。',
-                dbgen: '提示词和 NAI Key 由数据库生图插件管理；画师串可在这里选择，留空使用插件默认画师。',
-                extension: '画风沿用智绘姬；填写NAI Key后，生成失败时将改用NAI。',
-                baibai: '后端与画风沿用柏宝绘；填写NAI Key后，生成失败时将改用NAI。',
+                nai: '用 NAI 生成剧情 CG、立绘与背景。',
+                dbgen: '提示词与 Key 由数据库生图插件管理。',
+                extension: '画风沿用智绘姬。',
+                baibai: '画风沿用柏宝绘。',
             };
             const contentNotes = {
                 nai: '当前图像来源：IGS内置NAI。',
@@ -248,13 +248,15 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const autoTextarea = (path, value, placeholder) => `<textarea data-path="${esc(path)}" placeholder="${esc(placeholder)}">${esc(value)}</textarea>`;
             const logSettings = normalizeImageJobLogSettings(bridge.imageJobLog);
             const imageFields = {
-                imageLogRetainDaysField: field('bridge.imageJobLog.retainDays', '自动清理：保留天数（0不限）', numberInput('bridge.imageJobLog.retainDays', logSettings.retainDays, 0, 30)),
-                imageLogMaxEntriesField: field('bridge.imageJobLog.maxEntries', '自动清理：最多保留条数', numberInput('bridge.imageJobLog.maxEntries', logSettings.maxEntries, 50, 1000)),
+                imageLogRetainDaysField: field('bridge.imageJobLog.retainDays', '保留天数（0不限）', numberInput('bridge.imageJobLog.retainDays', logSettings.retainDays, 0, 30)),
+                imageLogMaxEntriesField: field('bridge.imageJobLog.maxEntries', '最多保留条数', numberInput('bridge.imageJobLog.maxEntries', logSettings.maxEntries, 50, 1000)),
+                advancedImageLogOpen: advancedOpen('image-log-retain'),
                 imageLogStatus: esc(asyncState.imageLogStatus || ''),
                 imageLogList: page === 'logs' && !idx ? renderImageJobLogList() : '',
                 imageCacheCountField: field('bridge.imageCache.maxCount', '本地缓存张数', numberInput('bridge.imageCache.maxCount', normalizeImageCacheCount(bridge.imageCache && bridge.imageCache.maxCount), 1, 2000)),
                 imageCompressionField: checkbox('bridge.imageCache.compressDisplay', bridge.imageCache?.compressDisplay === true, '压缩显示图片（WebP）'),
-                imageCacheStatus: esc(asyncState.imageCacheStatus || '图片按需加载；编码字节内存上限 64 MB。跨会话缓存取决于 IndexedDB 是否可用，点击查看实际占用。'),
+                imageCacheStatus: esc(asyncState.imageCacheStatus || ''),
+                advancedCacheMaintOpen: advancedOpen('cache-maintenance'),
                 imageCgStatus: esc(asyncState.imageCgStatus || ''),
                 imageCgList: page === 'cglib' && !idx ? renderImageCgList() : '',
                 imageCgOldestFirst: String(Boolean(asyncState.imageCg && asyncState.imageCg.state.filters.oldestFirst)),
@@ -268,9 +270,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 sourceExternalHidden: hiddenAttr(sourceMode === 'nai'),
-                externalSpriteDnaField: checkbox('bridge.imageApi.externalSpriteDna', imageApi.externalSpriteDna === true, '外部生图前补齐角色 DNA（使用备用模型）'),
-                naiSpriteTransparentField: checkbox('bridge.imageApi.naiSpriteTransparent', imageApi.naiSpriteTransparent !== false, '立绘透明底（V5 原生透明；关闭或不支持时使用白底并抠图）'),
-                dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭，关闭后改为白色背景）'),
+                externalSpriteDnaField: checkbox('bridge.imageApi.externalSpriteDna', imageApi.externalSpriteDna === true, '外部生图前补齐角色 DNA'),
+                naiSpriteTransparentField: checkbox('bridge.imageApi.naiSpriteTransparent', imageApi.naiSpriteTransparent !== false, '立绘透明底'),
+                dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭）'),
                 advancedNaiOpen: advancedOpen('nai'),
                 advancedExtensionOpen: advancedOpen('extension'),
                 advancedNsfwOpen: advancedOpen('nsfw'),
@@ -282,8 +284,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 globalArtistField: sourceMode === 'nai' || sourceMode === 'dbgen'
                     ? renderArtistSelector(auto.nai, 'global', sourceMode) : '',
                 autoLlmNote: esc(sourceMode === 'dbgen'
-                    ? '负责规划剧情CG画面与素材补全的标签；表情差分、头像、立绘与服装提示词由数据库生图插件自行编写。'
-                    : '负责编写剧情CG、素材、立绘和表情的提示词；可沿用酒馆 API。'),
+                    ? '规划剧情 CG 与素材标签。'
+                    : '编写生图提示词；可沿用酒馆 API。'),
                 adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
                 pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：查询间隔（毫秒）', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
                 pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：查询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
@@ -360,7 +362,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + `<div class="igs-settings-sub" data-image-feature="asset-options"${imageFields.autoAssetOptionsHidden}>${grid(imageFields.autoAssetMaxField)}</div>`,
                     character: grid(imageFields.autoAssetSpriteField, '<button type="button" class="igs-settings-action" data-action="open-character-dna" title="在「角色」页编辑外貌（DNA）">角色 DNA</button>')
                         + grid(imageFields.autoOutfitField)
-                        + '<div class="igs-source-filter-note">默认关闭。开启后，阅读中发现未入库衣装时自动生成服装 DNA，保存后生成对应平和立绘；完成前显示默认服装立绘。会调用备用模型和当前生图来源。</div>'
+                        + '<div class="igs-source-filter-note">会调用备用模型和当前生图来源。</div>'
                         + `<div class="igs-settings-sub" data-image-feature="sprite-options"${hiddenAttr(!auto.assets.spriteEnabled)}>${grid(imageFields.autoAssetSpriteSizeField, kindModel('sprite', '立绘模型'))}</div>`,
                     scene: grid(imageFields.autoAssetBackgroundField)
                         + `<div class="igs-settings-sub" data-image-feature="background-options"${hiddenAttr(!auto.assets.backgroundEnabled)}>${grid(imageFields.autoAssetBackgroundSizeField, kindModel('background', '背景模型'), imageFields.autoAssetDayFirstField)}</div>`
@@ -553,17 +555,14 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             // 立绘显示与情绪匹配是整区设置：单独一张折叠卡放在角色列表上面，不再压在「角色立绘」标题下。
             const charactersSettingsCard = `<div class="igs-source-filter igs-perf-group"><details data-advanced="sprite-display"${advancedOpen('sprite-display')}><summary><b>立绘设置</b><span class="igs-perf-brief">缩放 · 高度 · 增强 · 名字/情绪匹配</span></summary><div class="igs-perf-group-body">
         ${checkbox('bridge.sceneAssets.moodFuzzyMatch', sceneAssets.moodFuzzyMatch, '情绪词模糊匹配')}
-        <div class="igs-source-filter-note">相近的情绪词也会归入组中（可能归错，可在「待确认」中核对）。</div>
         ${checkbox('bridge.sceneAssets.nameFallback', sceneAssets.nameFallback !== false, '名字兜底匹配')}
-        <div class="igs-source-filter-note">名字只写对一部分（如「小雨」对「林小雨」）也认作同一人；「路人A」「路人B」只差编号的不会混。</div>
+        <div class="igs-source-filter-note">如「小雨」可匹配「林小雨」。</div>
         ${checkbox('bridge.sceneAssets.narrationNameSwitch', sceneAssets.narrationNameSwitch !== false, '旁白点名切换立绘')}
-        <div class="igs-source-filter-note">旁白开头点名、写到看见某人或以她/他指代时，立绘换成此人。</div>
         ${field('bridge.sceneAssets.sceneCarryMode', '换场景立绘', selectInput('bridge.sceneAssets.sceneCarryMode', sceneAssets.sceneCarryMode || 'smart', [['strict', '严格'], ['smart', '智能'], ['loose', '宽松']]))}
-        <div class="igs-source-filter-note">换场景时，原立绘是否随行。严格：须明写同行或新场景首页即出场；智能：依正文判断；宽松：除非写明分开或时间跳转，否则保留。</div>
+        <div class="igs-source-filter-note">严格：须写明同行；智能：依正文判断；宽松：除非写明分开，否则保留。</div>
         ${checkbox('bridge.sceneAssets.unifiedSpriteLayout', sceneAssets.unifiedSpriteLayout, '统一角色立绘位置')}
         ${checkbox('bridge.sceneAssets.spriteEnhance.enabled', spriteEnhance.enabled === true, '立绘增强（手机较耗电）')}
         ${checkbox('readerSettings.spriteGenderScale.enabled', spriteGenderScale.enabled, '按性别区分默认高度')}
-        <div class="igs-source-filter-note">按DNA（没有时看生成tag）判断性别和老人、儿童；已调整过的立绘和单独设置了高度的角色不受影响。</div>
         <div class="igs-source-filter-grid">
           ${field('readerSettings.spriteDisplayScale', '立绘全局缩放 %', numberInput('readerSettings.spriteDisplayScale', normalizeSpriteDisplayScale(reader.spriteDisplayScale)))}
           ${field('readerSettings.spriteDefaultScale', '立绘基准高度 %', numberInput('readerSettings.spriteDefaultScale', normalizeSpriteDefaultScale(reader.spriteDefaultScale)))}
@@ -628,7 +627,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     assetScopeBar,
                 },
                 panes: {
-                    chars: () => `<div class="igs-settings-grid" data-scene-settings-pane="assets">${charactersSettingsCard}<div class="igs-source-filter">${charactersPane()}</div><details class="igs-source-filter igs-perf-group" data-advanced="live2d-library"${advancedOpen('live2d-library')}><summary><b>Live2D 角色模型（实验）</b><span class="igs-perf-brief">导入模型并绑定差分</span></summary>${renderLive2dLibrary(readLive2dConfig(storage, cardKey), scopeState.assetScopeLabel || '未选卡范围')}</details></div>`,
+                    chars: () => `<div class="igs-settings-grid" data-scene-settings-pane="assets">${charactersSettingsCard}<div class="igs-source-filter">${charactersPane()}<details class="igs-settings-sub igs-settings-advanced" data-advanced="live2d-library"${advancedOpen('live2d-library')}><summary>Live2D 角色模型</summary>${renderLive2dLibrary(readLive2dConfig(storage, cardKey), scopeState.assetScopeLabel || '未选卡范围')}</details></div></div>`,
                     scenes: () => assetPane(scenesPane()),
                     // 索引模式不读待确认（会清掉已确认的记录、读生成素材），页面只留外框。
                     review: () => assetPane(idx ? '' : reviewPane()),
@@ -1080,7 +1079,7 @@ function renderTtsControls(tts, { bilingual = false } = {}) {
             if (value && !options.some(([id]) => id === value)) items.push([value, `${value}（本机没有）`]);
             parts.push(field(`${base}.system.${key}`, label, selectInput(`${base}.system.${key}`, value, items)));
         }
-        parts.push(`<div class="igs-source-filter-note">${options.length ? '' : '没读到本机的中文声音。'}Windows 推荐用 Edge 浏览器打开酒馆：有晓晓、云希等自然声；Chrome 只有慧慧、康康等本地声音。系统语音不支持声像和听筒音色。</div>`);
+        parts.push(`<div class="igs-source-filter-note">${options.length ? '' : '没读到本机的中文声音。'}推荐用 Edge 浏览器打开酒馆，自然声更多。</div>`);
     } else {
         const api = tts.api;
         parts.push(
@@ -1095,11 +1094,11 @@ function renderTtsControls(tts, { bilingual = false } = {}) {
             field(`${base}.api.voices`, '可选声音', textInput(`${base}.api.voices`, api.voices, '逗号分隔，给角色单独指定时用')),
             checkbox(`${base}.api.prefetch`, api.prefetch, '提前生成下一页（停留1.5秒后才生成）'),
             '<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-clear-cache">清除朗读缓存</button>',
-            '<div class="igs-source-filter-note">支持OpenAI兼容语音接口与Fish Audio。直连被拦时改用「酒馆 CORS 代理」（需在酒馆 config.yaml 打开 enableCorsProxy）；Fish Audio 不允许浏览器直连，必须用代理。</div>',
+            '<div class="igs-source-filter-note">直连被拦时改用「酒馆 CORS 代理」；Fish Audio 必须用代理。</div>',
         );
     }
     parts.push(field(`${base}.lexicon`, '读音替换', textareaInput(`${base}.lexicon`, tts.lexicon, '每行一条：原词=读法\n例：雫=shizuku\n例：Λ=兰姆达')));
     parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview">试听</button>');
-    parts.push('<div class="igs-source-filter-note">开启后不再播放角色语气音。每个角色的朗读声音可在「角色 › 角色设定」单独指定。</div>');
+    parts.push('<div class="igs-source-filter-note">开启后不再播放语气音；角色声音在「角色 › 角色设定」指定。</div>');
     return parts.join('');
 }

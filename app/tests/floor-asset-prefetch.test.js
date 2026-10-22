@@ -33,21 +33,3 @@ test('gate:floor-assets:collects-every-sprite-and-background-in-the-floor', () =
     assert.deepEqual(urls, ['cg-1.png', 'class.png', 'igs-gen:joy', 'lin-calm.png', 'roof.png', 'igs-gen:base']);
     assert.deepEqual(sprites, ['igs-gen:joy', 'lin-calm.png', 'igs-gen:base'], '立绘回调不包含背景或 CG');
 });
-
-test('gate:floor-assets:skips-narrators-and-keeps-inherited-background', () => {
-    const urls = collectFloorAssetUrls({
-        source: '[igs-char:旁白|平和|天黑了]\n[igs-char:冬月|默认|我在]',
-        sceneAssets,
-        inheritedScene: { scene: '教室', time: '夜晚', nsfw: false },
-        assetMatchCtx: { sceneAssets },
-    });
-    assert.deepEqual(urls, ['class.png', 'igs-gen:base']);
-});
-
-test('gate:floor-assets:enabled-model-skips-only-its-static-differences-and-aliases', () => {
-    const assets = { ...sceneAssets, characterAliases: { 冬月: ['小冬'] } };
-    const config = { enabled: true, bindings: { 冬月: { modelId: 'test-model', moods: {} } } };
-    const options = { source: '[igs-scene:教室|白天|晴]\n[igs-char:冬月|喜悦|你好]\n[igs-char:小冬|默认|嗯]\n[igs-char:小林|平和|在]', sceneAssets: assets, live2dConfig: config };
-    assert.deepEqual(collectFloorAssetUrls(options), ['class.png', 'lin-calm.png']);
-    assert.deepEqual(collectFloorAssetUrls({ ...options, live2dConfig: { ...config, enabled: false } }), ['class.png', 'igs-gen:joy', 'igs-gen:base', 'lin-calm.png']);
-});

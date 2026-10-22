@@ -62,9 +62,12 @@ const BACKUP_TEMPLATE = `
     <div class="igs-source-filter-title">本地缓存</div>
     <div class="igs-source-filter-grid">{{imageCacheCountField}}</div>
     {{imageCompressionField}}
-    <div class="igs-source-filter-note">默认关闭。开启后，图片从服务端读取到浏览器再压缩缓存，降低日常显示占用；下载、导出和编辑仍使用原图。保存后生效，切换时重新加载当前图片。</div>
+    <div class="igs-source-filter-note">开启后降低显示占用；下载与编辑仍用原图。</div>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="purge-asset-cache" type="button" title="清空浏览器里缓存的图片和设置页缩略图，酒馆上的原图不动">清素材缓存</button></div>
-    <div class="igs-settings-row"><button class="igs-settings-action" data-action="image-cache-status" type="button">查看占用</button><button class="igs-settings-action" data-action="image-records-retry-backup" type="button">重试待备份记录</button><button class="igs-settings-action" data-action="image-files-retry-delete" type="button">重试待删除文件</button></div>
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="cache-maintenance"{{advancedCacheMaintOpen}}>
+      <summary>缓存维护</summary>
+      <div class="igs-settings-row"><button class="igs-settings-action" data-action="image-cache-status" type="button">查看占用</button><button class="igs-settings-action" data-action="image-records-retry-backup" type="button">重试待备份记录</button><button class="igs-settings-action" data-action="image-files-retry-delete" type="button">重试待删除文件</button></div>
+    </details>
     <div class="igs-source-filter-note">{{imageCacheStatus}}</div>
   </div>
 </div>
@@ -79,7 +82,6 @@ const IMAGE_SOURCE_TEMPLATE = `
     {{globalArtistField}}
     <div class="igs-settings-sub" data-image-feature="external-sprite-dna"{{sourceExternalHidden}}>
       {{externalSpriteDnaField}}
-      <div class="igs-source-filter-note">开启后，自动立绘先用「备用模型」补齐缺失的三景别 DNA 并保存；手动生成会先提示补齐。已有旧格式 DNA 继续复用。DNA 仅供外部插件参考，提示词和出图仍由原来源处理。</div>
     </div>
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
@@ -87,7 +89,6 @@ const IMAGE_SOURCE_TEMPLATE = `
         {{autoNaiKeyField}}{{autoNaiTransportField}}
         {{autoNaiModelField}}{{autoNaiSizeField}}
       </div>
-      <div class="igs-source-filter-note">支持官方及兼容 NAI 的中转。地址留空使用官方；使用中转时填写对应地址和 Key。可填服务根地址、/ai 或完整生图接口地址。</div>
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}
       </div>
@@ -117,7 +118,6 @@ const IMAGE_SOURCE_TEMPLATE = `
   </div>
   <div class="igs-source-filter" data-image-prompt-entry{{sourceBuiltinHidden}}>
     <div class="igs-source-filter-title">固定提示词组预设</div>
-    <div class="igs-source-filter-note">在现有管理器中新建、导入、编辑、保存与激活生图提示词组；未激活的草稿不参与写词。</div>
     <button type="button" class="igs-settings-action" data-setting-go="image-prompt-presets">导入 / 编辑固定提示词组预设</button>
   </div>
 </div>
@@ -141,17 +141,15 @@ const IMAGE_LLM_TEMPLATE = `
     </div>
   </div>
   {{imagePromptPanel}}
-  <div class="igs-source-filter igs-perf-group" data-image-feature="llm-prompts">
-    <details data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
-      <summary><b>旧版写词要求与附加词</b><span class="igs-perf-brief">保留原配置；完整生图框架在上方编辑</span></summary>
-      <div class="igs-perf-group-body">
-        <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
-        <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
-        <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
-        <div class="igs-settings-full">{{autoLlmPromptAssetSoftField}}</div>
-        <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
-        <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
-      </div>
+  <div class="igs-source-filter" data-image-feature="llm-prompts">
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
+      <summary>旧版写词要求</summary>
+      <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
+      <div class="igs-settings-full">{{autoLlmPromptAssetSoftField}}</div>
+      <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
+      <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
     </details>
   </div>
 </div>
@@ -162,7 +160,6 @@ const IMAGE_LOGS_TEMPLATE = `
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">生图日志</div>
     <div class="igs-source-filter-note">出图失败时在这里看原因。</div>
-    <div class="igs-source-filter-grid">{{imageLogRetainDaysField}}{{imageLogMaxEntriesField}}</div>
     <div class="igs-settings-row">
       <button class="igs-settings-action" data-action="image-log-refresh" type="button">刷新</button>
       <button class="igs-settings-action" data-action="image-log-copy" type="button">复制</button>
@@ -170,6 +167,10 @@ const IMAGE_LOGS_TEMPLATE = `
     </div>
     <div class="igs-settings-result" data-result="image-log">{{imageLogStatus}}</div>
     <div class="igs-image-log-list" data-image-log-list>{{imageLogList}}</div>
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="image-log-retain"{{advancedImageLogOpen}}>
+      <summary>自动清理</summary>
+      <div class="igs-source-filter-grid">{{imageLogRetainDaysField}}{{imageLogMaxEntriesField}}</div>
+    </details>
   </div>
 </div>
 `.trim();

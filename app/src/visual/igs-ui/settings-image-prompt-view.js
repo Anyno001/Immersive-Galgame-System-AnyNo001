@@ -26,9 +26,10 @@ export function renderImagePromptPanel(editor, advancedOpen = {}) {
     const view = editor?.view();
     if (!view?.ok) return `<div class="igs-source-filter" data-image-prompt-panel>${note('写词预设读取不可用，未初始化或重置存量数据。')}${action('reload', '重新读取')}</div>`;
     const { state, items, current, saved, activation } = view;
-    let html = `<div class="igs-source-filter igs-settings-full" data-image-prompt-panel><div class="igs-source-filter-title">生图提示块与任务模块</div>`;
-    html += note('内置 NAI 按具体任务选择模块，再按 outputs.format 选择专属规则；未映射格式停止装配。默认框架将独立 user 世界书参考块放在本轮任务资料之前，正式写词按本次正文／描述与前文调用酒馆原生扫描，保留关键词和常量触发；provided 模式不读取世界书。关闭参考块即不扫描。预览不调用宿主扫描，可在预览资料的 worldInfo 字段填写示例文本。旧内置预设升级前备份，仅未手调的基线顺序跟随新版，保留自定义正文、角色、顺序与开关；更早版本补入新参考块。其他自定义预设须自行声明“世界书”变量并加入含 {{世界书}} 的共享参考块后保存、激活。');
-    html += note(`当前生效：${current?.name || '未选择'}${current ? ` · r${current.data.revision}` : ''}`);
+    let html = `<div class="igs-source-filter igs-settings-full" data-image-prompt-panel><div class="igs-source-filter-title">生图提示词组</div>`;
+    html += note(`当前生效：${current?.name || '未选择'}`);
+    // 编辑器是少数人用的进阶功能：整块收进一层折叠，首屏只露当前生效的预设。
+    html += `<details class="igs-settings-sub igs-settings-advanced" data-advanced="image-prompt-editor"${advancedOpen['image-prompt-editor'] === true ? ' open' : ''}><summary>编辑提示词组</summary>`;
 
     html += `<label class="igs-settings-field"><span>编辑预设</span><select data-image-prompt-select aria-label="编辑预设"><option value="">请选择</option>${choices(items.map(p => [p.id, `${p.name || p.id}${p.draftOnly ? ' · 仅草稿' : ''}`]), state.preset?.id)}</select></label>`;
     html += `<div class="igs-image-prompt-actions">${action('new', '新建')}${action('copy', '复制', [], !state.preset)}${action('import', '导入 JSON')}${action('import-text', '粘贴 JSON')}${action('export', '导出保存版本', [], !saved)}${action('reload', '重新读取')}</div>`;
@@ -70,7 +71,7 @@ export function renderImagePromptPanel(editor, advancedOpen = {}) {
         if (!preview.ok) html += note(preview.reason || '导入校验失败');
         html += action('import-commit', '确认导入', [], !preview.ok);
     }
-    return html + '</div>';
+    return html + '</details></div>';
 }
 
 function renderBlock(state, group, block, advancedOpen, entry, ordered = [], index = -1) {

@@ -4790,7 +4790,7 @@ async function importAllSettings(settingsState, options, dialogs, ctx, persistSe
     const doc = globalObj.document;
     if (!doc || typeof doc.createElement !== 'function') return { ok: false, reason: 'no-document' };
     if (typeof ctx.normalizeImportedSettings !== 'function') return { ok: false, reason: 'import-unavailable' };
-    const file = await (options.recoveryCheckpoint?.step('file:settings', () => pickSettingsFile(doc)) || pickSettingsFile(doc));
+    const file = await (options.recoveryCheckpoint?.step('file:settings', () => pickSettingsFile(doc, options)) || pickSettingsFile(doc, options));
     if (!file) return rerenderSettings();
     if (file.error) { pageAlert(dialogs, globalObj, `导入失败：${file.error}`); return { ok: false, reason: file.error }; }
     const archive = file.archive;
@@ -5294,7 +5294,8 @@ function pickCardPackFile(doc) {
     });
 }
 
-async function pickSettingsFile(doc) {
+// options 由调用方传入；此前直接引用未定义的外层变量，导入配置会抛 ReferenceError。
+async function pickSettingsFile(doc, options = {}) {
     const file = await (options.recoveryCheckpoint?.step('file:asset-pack', () => pickCardPackFile(doc)) || pickCardPackFile(doc));
     if (!file || file.error) return file;
     if (file.archive) return file.archive.format === 'igs-settings-pack' ? file : { ...file, error: '该压缩包不是全局配置包，请从素材页导入' };

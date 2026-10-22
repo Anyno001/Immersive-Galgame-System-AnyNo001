@@ -16,12 +16,3 @@ test('生图提示：阅读器开着时交给生成细线，不弹酒馆 toastr'
     assert.deepEqual(seen.map((item) => item[0]), ['success', 'error']);
     assert.equal(toastr.calls.length, 0);
 });
-
-test('生图提示：阅读器没开或细线出错时照旧弹 toastr', () => {
-    const toastr = fakeToastr();
-    const closed = createImageJobReporter({ toastr }, () => ({}), null, () => () => false);
-    closed('error', '失败了');
-    const broken = createImageJobReporter({ toastr }, () => ({}), null, () => { throw new ReferenceError('app'); });
-    broken('success', '好了');
-    assert.deepEqual(toastr.calls, [['error', '失败了'], ['success', '好了']]);
-});

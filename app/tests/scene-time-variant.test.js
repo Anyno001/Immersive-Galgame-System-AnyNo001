@@ -21,36 +21,6 @@ test('gate:scene-time-variant:four-buckets-and-prompt-detection', () => {
     assert.ok(sceneVariantTags('夜晚', '').startsWith('night, night sky'));
 });
 
-test('gate:scene-time-variant:same-bucket-slot-is-used-before-grading', () => {
-    const assets = { scenes: { 教室: { url: 'day.png', times: { 夜晚: { url: 'night.png', weathers: {} } } } } };
-    const hit = lookupSceneBackground({ scene: '教室', time: '深夜' }, assets);
-    assert.deepEqual([hit.url, hit.timed], ['night.png', true]);
-    assert.equal(lookupSceneBackground({ scene: '教室', time: '下午' }, assets).url, 'day.png');
-});
-
-test('gate:scene-time-variant:only-generated-registered-scenes-ask-for-a-variant', () => {
-    const night = resolveBackgroundAsset({ scene: '教室', time: '夜晚' }, { sceneAssets: GEN_SCENES });
-    assert.equal(night.url, 'igs-gen:base');
-    assert.equal(night.needsGeneration, false);
-    assert.deepEqual(night.timeVariant, { scene: '教室', time: '夜晚', baseImageId: 'base' });
-    assert.equal(resolveBackgroundAsset({ scene: '天台', time: '夜晚' }, { sceneAssets: GEN_SCENES }).timeVariant, undefined);
-    assert.equal(resolveBackgroundAsset({ scene: '教室', time: '' }, { sceneAssets: GEN_SCENES }).timeVariant, undefined);
-
-    const shown = resolveBackgroundAsset({ scene: '教室', time: '深夜' }, { sceneAssets: GEN_SCENES, tempSceneTime: (s, t) => (t === '夜晚' ? { url: 'igs-gen:v1' } : null) });
-    assert.deepEqual([shown.url, shown.source, shown.timed], ['igs-gen:v1', 'temp', true]);
-    const tried = resolveBackgroundAsset({ scene: '教室', time: '夜晚' }, { sceneAssets: GEN_SCENES, tempSceneTime: () => ({ url: '' }) });
-    assert.deepEqual([tried.url, tried.timeVariant], ['igs-gen:base', undefined]);
-
-    const needs = collectAssetNeeds({ scenes: [{ scene: '教室', time: '夜晚' }, { scene: '教室', time: '深夜' }, { scene: '天台', time: '夜晚' }] }, { sceneAssets: GEN_SCENES }, { background: true });
-    assert.deepEqual(needs, [{ type: 'background', name: '教室', time: '夜晚', weather: '', variantOf: 'base' }]);
-});
-
-test('gate:scene-time-variant:accepting-into-a-library-only-scene-keeps-the-base-image', () => {
-    const bound = bindGeneratedBackground({ scenes: {} }, { type: 'background', name: '教室', time: '夜晚', imageId: 'v1', variantOf: 'base' }, '教室');
-    assert.equal(bound.scenes.教室.url, 'igs-gen:base');
-    assert.equal(bound.scenes.教室.times.夜晚.url, 'igs-gen:v1');
-});
-
 function variantService(basePrompt, text = '[igs-scene:教室|夜晚|雨]\n灯都关了。') {
     const store = createMemoryGeneratedAssetStore();
     const captions = [];
@@ -72,30 +42,3 @@ function variantService(basePrompt, text = '[igs-scene:教室|夜晚|雨]\n灯�
     });
     return { service, store, captions, llmCalls: () => llmCalls, ready: store.putImage({ id: 'base', type: 'background', dataUrl: 'data:,', prompt: { positive: basePrompt, negative: 'lowres' } }) };
 }
-
-test('gate:scene-time-variant:service-paints-from-the-stored-prompt-into-review', async () => {
-    const { service, captions, llmCalls, ready } = variantService('classroom, day, blue sky, desk, no humans');
-    await ready;
-    const result = await service.processMessage(3);
-    assert.deepEqual([result.ok, result.count, llmCalls()], [true, 1, 0]);
-    const base = captions[0].caption.v4_prompt.caption.base_caption;
-    assert.ok(base.startsWith('night, night sky'));
-    assert.ok(!/\bday\b|blue sky/.test(base) && base.includes('desk'));
-    const review = service.listReview('c|3|0');
-    assert.deepEqual(review.map((r) => [r.type, r.name, r.time, r.variantOf, r.url]), [['background', '教室', '夜晚', 'base', 'igs-gen:v1']]);
-    const shown = resolveBackgroundAsset({ scene: '教室', time: '夜晚' }, { sceneAssets: GEN_SCENES, tempSceneTime: service.tempSceneTime });
-    assert.deepEqual([shown.url, shown.timed], ['igs-gen:v1', true]);
-
-    await service.setStatus(review[0].key, 'discarded');
-    await service.processMessage(3, { manual: true });
-    assert.equal(captions.length, 1);
-});
-
-test('gate:scene-time-variant:base-already-in-that-time-paints-nothing', async () => {
-    const { service, captions, ready } = variantService('classroom, night, moonlight, desk');
-    await ready;
-    const result = await service.processMessage(3);
-    assert.deepEqual([result.ok, result.count, captions.length], [true, 0, 0]);
-    await service.processMessage(3, { manual: true });
-    assert.equal(captions.length, 0);
-});

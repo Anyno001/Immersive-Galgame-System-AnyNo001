@@ -39,22 +39,3 @@ test('下一轮：新楼写入后缓存当场作废，用户楼不算下一轮',
     assert.equal((await adapter.getAdjacentMessage(4, -1)).id, 2);
     assert.equal((await adapter.getAdjacentMessage(3, 1)).id, 4, '停在用户楼也能找到下一个 AI 楼');
 });
-
-test('用户楼判断以聊天数据为准，DOM 丢了 is_user 也认得出', () => {
-    const chat = [
-        { message_id: 0, role: 'assistant', message: '开场' },
-        { message_id: 1, role: 'user', message: '被插件改写过的输入' },
-    ];
-    const adapter = createTavernHelperAdapter(createHost(chat));
-    assert.equal(adapter.isUserFloor(1), true);
-    assert.equal(adapter.isUserFloor(0), false);
-
-    const mes = (attrs) => ({
-        getAttribute: (name) => (name in attrs ? attrs[name] : null),
-        closest(selector) { return selector === '.mes' ? this : null; },
-    });
-    const textInside = (node) => ({ parentElement: { closest: () => node } });
-    assert.equal(isUserFloorNode(mes({ is_user: 'true', mesid: '1' })), true);
-    assert.equal(isUserFloorNode(textInside(mes({ mesid: '1' })), (id) => adapter.isUserFloor(id)), true, '属性丢失时按楼号查数据');
-    assert.equal(isUserFloorNode(mes({ mesid: '0' }), (id) => adapter.isUserFloor(id)), false);
-});

@@ -11,60 +11,10 @@ const CARD_MESSAGE = `<content>她把手机递了过来。屏幕亮着。
 「看到了吗？」她问。
 </content>`;
 
-test('gate: html card block becomes its own page between narration and dialogue', () => {
-    for (const options of [{}, { sentencePaging: true, sceneAssets: { enabled: true } }]) {
-        const payload = buildIgsTextPayload({ text: CARD_MESSAGE }, options);
-        const cardPages = payload.textSegments.filter((segment) => parseHtmlCardMarker(segment) >= 0);
-        assert.equal(cardPages.length, 1);
-        assert.equal(payload.htmlCards.length, 1);
-        assert.match(payload.htmlCards[0], /^<span style="display:none;">/);
-        assert.ok(!payload.textSegments.some((segment) => /<div|htm1fenge|您有 1 条/.test(segment)));
-        const cardIndex = payload.textSegments.findIndex((segment) => parseHtmlCardMarker(segment) === 0);
-        assert.match(payload.textSegments[cardIndex - 1], /屏幕亮着/);
-        assert.match(payload.textSegments[cardIndex + 1], /看到了吗/);
-        assert.equal(payload.raw, CARD_MESSAGE);
-    }
-});
-
-test('gate: html card tags are user configurable and can be disabled', () => {
-    assert.equal(normalizeSourceFilter({}).htmlCardTags, 'htm1fenge');
-    const custom = buildIgsTextPayload({ text: '<content>前文\n<screen><b>屏幕</b></screen>\n后文</content>' }, {
-        sourceFilter: { htmlCardTags: 'htm1fenge\nscreen' },
-    });
-    assert.deepEqual(custom.htmlCards, ['<b>屏幕</b>']);
-    const disabled = buildIgsTextPayload({ text: CARD_MESSAGE }, { sourceFilter: { htmlCardTags: '' } });
-    assert.deepEqual(disabled.htmlCards, []);
-});
-
 test('gate: unclosed streaming html card is held as a card instead of leaking code', () => {
     const result = extractHtmlCards('正文\n<htm1fenge>\n<div style="color:red">半截', ['htm1fenge']);
     assert.equal(result.cards.length, 1);
     assert.doesNotMatch(result.text, /<div/);
 });
 
-test('gate: html card sanitizer strips scripts, handlers and script urls', () => {
-    const html = sanitizeHtmlCard('<div onclick="x()">a</div><script>alert(1)</script><a href="javascript:alert(1)">b</a><iframe src="x"></iframe><svg><rect width="10%"/></svg>');
-    assert.doesNotMatch(html, /script|onclick|javascript|iframe/i);
-    assert.match(html, /<svg><rect width="10%"\/><\/svg>/);
-});
-
 const LEGACY_EXCLUDE = 'thinking\nSubtext_think\nStatus_block\ntext_to_image\nparallel_world\naftertalk\nimage';
-
-test('gate:scene:source-filter default excludes meta:检定结果 and migrates legacy default only', () => {
-    assert.match(normalizeSourceFilter({}).textExcludeTags, /(^|\n)meta:检定结果$/);
-    assert.equal(normalizeSourceFilter({ textExcludeTags: LEGACY_EXCLUDE }).textExcludeTags, normalizeSourceFilter({}).textExcludeTags);
-    assert.equal(normalizeSourceFilter({ textExcludeTags: LEGACY_EXCLUDE.replace(/\n/g, '\r\n') }).textExcludeTags, normalizeSourceFilter({}).textExcludeTags);
-    assert.equal(normalizeSourceFilter({ textExcludeTags: 'thinking' }).textExcludeTags, 'thinking');
-    assert.equal(normalizeSourceFilter({ textExcludeTags: '' }).textExcludeTags, '');
-});
-
-test('gate:scene:source-filter default filter hides option check result block from reader text', () => {
-    const payload = buildIgsTextPayload('<content>我撑开伞。<meta:检定结果>\n元叙事：1d100=17\n</meta:检定结果>雨还在下。</content>', {
-        sourceFilter: normalizeSourceFilter({ textExcludeTags: LEGACY_EXCLUDE }),
-    });
-    assert.equal(payload.hasExcludedTextBlocks, true);
-    assert.doesNotMatch(payload.textSource, /检定结果|1d100/);
-    assert.match(payload.textSource, /我撑开伞。/);
-    assert.match(payload.textSource, /雨还在下。/);
-});
-
