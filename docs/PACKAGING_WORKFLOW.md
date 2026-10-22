@@ -17,16 +17,9 @@
 
 本文件是未来 AI 处理“打包、发布、更新、上传、生成酒馆助手脚本 JSON”时的固定入口。换对话后，先读本文件，再读 `docs/RELEASE.md`。
 
-## 可选 Live2D 内嵌导入件
+## Live2D
 
-在 `app/` 下运行 `npm.cmd run package:standalone`：先构建当前 dist 和 loader，再生成 `loader/igs-live2d-standalone.js`、`loader/IGS-Live2D-导入即用-v<当前版本>.json` 与 SHA256 清单。`npm.cmd run build:standalone` 只打包现有 dist，不代替构建。
-
-- 前端、CSS 与 fflate 0.8.2 同步解压器内嵌，不依赖 CMD、Node.js、本地 18086 服务或远端前端下载；失败不回退到官方 main。
-- 默认音乐、字体、地图、皮肤与背景仍来自固定上游提交；SDK 也需网络。素材基准由 `app/scripts/build-standalone.js` 的 `ASSET_REF` 声明，升级素材时应单独审阅，不标注为完全离线包。
-- 复用现有启动器的版本校验、安全关闭、单实例与 Gal模拟/魔法棒入口。损坏的内嵌配置在替换旧实例之前拒绝；固定版 loader 忽略遗留内嵌配置。
-- 内嵌 JSON 默认停用，`content` 必须与生成 JS 逐字一致。不重新打包历史下载，不分发 Cubism Core 或人物模型。
-- 仅本地调试可用 `启动Live2D前端.cmd` 与 `loader/IGS-Live2D-本地测试.json`；服务仅监听回环地址、只读 dist。两个 Live2D 导入件及原自动更新件不可同时启用。
-- 定向运行 Live2D、loader 和 standalone 行为回归，验证实际导入件启动、关闭及重新启用；真实酒馆和手机验收需另行执行，不恢复批量门禁。
+Live2D 已编入主程序 bundle，随普通自动更新导入件分发，不再单独生成「导入即用」内嵌包。仅本地调试可用 `启动Live2D前端.cmd` 与 `loader/IGS-Live2D-本地测试.json`；服务仅监听回环地址、只读 dist，与自动更新件不可同时启用。不分发 Cubism Core 或人物模型。
 
 ## 固定结论
 

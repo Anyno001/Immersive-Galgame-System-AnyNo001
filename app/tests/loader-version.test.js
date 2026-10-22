@@ -6,9 +6,7 @@ import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../../loader/igs-loader.js', import.meta.url), 'utf8');
 const localSource = fs.readFileSync(new URL('../../loader/igs-live2d-local.js', import.meta.url), 'utf8');
 const localImport = JSON.parse(fs.readFileSync(new URL('../../loader/IGS-Live2D-本地测试.json', import.meta.url), 'utf8'));
-const standaloneSource = fs.readFileSync(new URL('../../loader/igs-live2d-standalone.js', import.meta.url), 'utf8');
 const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
-const standaloneImport = JSON.parse(fs.readFileSync(new URL(`../../loader/IGS-Live2D-导入即用-v${version}.json`, import.meta.url), 'utf8'));
 const ref = `v${version}`;
 const fixedContent = source.replace("const PINNED_REF = '';", `const PINNED_REF = ${JSON.stringify(ref)};`);
 const autoContent = JSON.parse(fs.readFileSync(new URL('../../loader/igs-loader.json', import.meta.url), 'utf8')).content;
@@ -16,7 +14,7 @@ const base = `https://cdn.jsdelivr.net/gh/Anyno001/Immersive-Galgame-System-AnyN
 const instanceKey = '__IGS_AUTO_UPDATE_LOADER__';
 const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(resolve => setImmediate(resolve)); };
 
-function harness({ oldVersion, oldRef, shutdown, servedVersion = version, probeStatus = 200, scriptError = false, cdnError = false, rawBody, auto = false, local = false, standalone = false, contentOverride } = {}) {
+function harness({ oldVersion, oldRef, shutdown, servedVersion = version, probeStatus = 200, scriptError = false, cdnError = false, rawBody, auto = false, local = false, contentOverride } = {}) {
     const nodes = new Map(), scripts = [], requests = [], alerts = [], logs = [], timers = [];
     const blobs = [], revoked = [], cleared = [], subscriptions = [];
     let stopped = 0, ensured = 0, opened = 0;
@@ -66,7 +64,7 @@ function harness({ oldVersion, oldRef, shutdown, servedVersion = version, probeS
         activeBase: `https://cdn.jsdelivr.net/gh/Anyno001/Immersive-Galgame-System-AnyNo001@${oldRef}` };
     const quiet = { info: (...args) => logs.push(args), warn: (...args) => logs.push(args), error: (...args) => logs.push(args) };
     const context = vm.createContext({ window: root, document: doc, console: quiet, Promise, Date, atob, Uint8Array, TextDecoder });
-    const content = contentOverride ?? (standalone ? standaloneSource : local ? localSource : auto ? autoContent : fixedContent);
+    const content = contentOverride ?? (local ? localSource : auto ? autoContent : fixedContent);
     return { root, nodes, scripts, requests, alerts, logs, timers, blobs, revoked, cleared, run: () => vm.runInContext(content, context), click: () => subscriptions[0](), opened: () => opened, stopped: () => stopped, ensured: () => ensured };
 }
 

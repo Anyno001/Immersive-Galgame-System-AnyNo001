@@ -1,6 +1,6 @@
 {
   "name": "igs-app",
-  "version": "0.36.114",
+  "version": "0.36.115",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,9 +8,7 @@
     "build": "node scripts/build.js",
     "build:fonts": "node scripts/split-fonts.js",
     "build:loader": "node scripts/build-loader.js",
-    "package:loader": "npm run build && npm run build:loader",
-    "build:standalone": "node scripts/build-standalone.js",
-    "package:standalone": "npm run build && npm run build:loader && npm run build:standalone"
+    "package:loader": "npm run build && npm run build:loader"
   },
   "devDependencies": {
     "cn-font-split": "7.4.3",
