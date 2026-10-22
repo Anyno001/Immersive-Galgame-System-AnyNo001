@@ -125,7 +125,10 @@ export function diffFavorMetrics(baseline, character, metrics) {
     if (!name || !Array.isArray(metrics)) return changes;
     for (const metric of metrics) {
         const label = text(metric && metric.label);
-        const value = Number(metric && metric.percent);
+        // 数值系统的指标带原始值（含负数），按原始值算增减；表格指标仍按条长。
+        const value = metric && metric.statValue != null && Number.isFinite(Number(metric.statValue))
+            ? Number(metric.statValue)
+            : Number(metric && metric.percent);
         if (!label || !Number.isFinite(value)) continue;
         const key = `${name}::${label}`;
         const previous = baseline.get(key);
@@ -133,7 +136,7 @@ export function diffFavorMetrics(baseline, character, metrics) {
         baseline.set(key, value);
         if (previous == null) continue;
         const delta = Math.round((value - previous) * 10) / 10;
-        if (Math.abs(delta) >= MIN_FAVOR_DELTA) changes.push({ character: name, label, delta });
+        if (Math.abs(delta) >= MIN_FAVOR_DELTA) changes.push({ character: name, label, delta, ...(metric.quiet === true ? { quiet: true } : {}) });
     }
     while (baseline.size > FAVOR_LIMIT) baseline.delete(baseline.keys().next().value);
     return changes;
@@ -660,7 +663,10 @@ function playEffect(effect, ctx) {
         spawn(state, layers.front, el, life, false, true);
     } else if (effect.type === 'favor') {
         const up = effect.delta > 0;
-        const el = node(doc, 'igs-fx-favor', `${effect.character} ${effect.label} ${up ? '↑' : '↓'} ${up ? '+' : ''}${effect.delta}`);
+        // 阶段名模式只出心形，不露数字（§10）。
+        const el = node(doc, 'igs-fx-favor', effect.quiet
+            ? `${effect.character} ${up ? '♥' : '♡'}`
+            : `${effect.character} ${effect.label} ${up ? '↑' : '↓'} ${up ? '+' : ''}${effect.delta}`);
         el.setAttribute('data-dir', up ? 'up' : 'down');
         const stack = persistent(layers.front, doc, 'igs-fx-favor-stack');
         spawn(state, stack, el, life);

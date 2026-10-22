@@ -37,11 +37,6 @@ export const TRANSFORM_SFX_DEFS = Object.freeze({
         partials: [...bell(1568, 0, 1.3, 0.16), ...bell(2093, 0.18, 1.0, 0.1)],
         noise: [n(0.05, 0.6, 0.05, { filter: 'highpass', freq: 5200, freqTo: 8000, q: 0.6, attack: 0.15 })],
     },
-    // 照妖镜：低沉的铜钟托起一道金色的上行扫音。
-    xftrue: {
-        partials: [...bell(392, 0, 2.0, 0.2), p('sine', 600, 1500, 0.2, 1.2, 0.1, { attack: 0.05, sweep: 1 }), ...bell(1175, 0.7, 1.2, 0.1)],
-        noise: [n(0.2, 1.1, 0.07, { filter: 'highpass', freq: 3000, freqTo: 7000, q: 0.6, attack: 0.3 })],
-    },
     // 水面倒影：几声不均匀的水滴。
     xfdrop: {
         partials: drops,
@@ -81,19 +76,5 @@ export const TRANSFORM_SFX_DEFS = Object.freeze({
     xfspirit: {
         partials: [p('sine', 440, 1320, 0, 1.6, 0.08, { attack: 0.3, sweep: 1 }), ...bell(1760, 0.9, 1.4, 0.07)],
         noise: [n(0, 1.8, 0.09, { filter: 'bandpass', freq: 1200, freqTo: 4200, q: 0.6, attack: 0.5 })],
-    },
-    // 现出原形：低频闷响、兽吼般下滑的锯齿音，转场处一记金属闪光。
-    xfshift: {
-        partials: [
-            p('sine', 62, 38, 0, 1.2, 0.3, { attack: 0.02, sweep: 1 }),
-            p('sawtooth', 190, 85, 0.1, 1.1, 0.07, { attack: 0.1, sweep: 1 }),
-            ...bell(1320, 1.7, 1.0, 0.1),
-        ],
-        noise: [n(0, 1.0, 0.18, { filter: 'lowpass', freq: 500, freqTo: 180, q: 0.8, attack: 0.05 }), n(1.7, 0.4, 0.08, { filter: 'highpass', freq: 5000, q: 0.6, attack: 0.02 })],
-    },
-    // 九尾展开：一条接一条的布帛甩开声，逐次抬高。
-    xftail: {
-        partials: [p('sine', 300, 600, 0.1, 1.5, 0.05, { attack: 0.4, sweep: 1 })],
-        noise: Array.from({ length: 5 }, (_, i) => n(i * 0.16, 0.34, 0.13, { filter: 'bandpass', freq: 1500 + i * 450, freqTo: 3200 + i * 300, q: 0.8, attack: 0.04 })),
     },
 });

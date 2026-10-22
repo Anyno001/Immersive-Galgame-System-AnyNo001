@@ -1,8 +1,10 @@
+import { normalizePromptEntries } from '../scene/prompt-entries.js';
 import { createMediaRuntime } from '../media/media-runtime.js';
 import { createPublicApi, attachPublicApi, detachPublicApi } from '../api/public-api.js';
 import { createTavernHelperAdapter, getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 import { sceneAssetsForContext, resolveAssetScope } from '../scene/asset-scope.js';
 import { createCharacterDnaStore } from './character-dna-store.js';
+import { creatureSystemEnabled, normalizeCreatureDisplaySettings, setCreatureSystem } from '../scene/creature-profile.js';
 import { createStoryOutfitRuntime } from './story-outfit-runtime.js';
 import { migrateSpriteSystem } from '../scene/sprite-system-migration.js';
 import { captureOutfitScope, prepareCgOutfitCandidates } from '../scene/outfit-identity.js';
@@ -39,11 +41,20 @@ import { resolveLiveDigestRule } from '../visual/igs-ui/danmaku-interact.js';
 import { applyFxWorldview, resolveCarryPhonePrompt, resolveWorldviewPromptRule } from '../scene/fx-era.js';
 import { resolveWorldview } from '../scene/worldview.js';
 import { resolveBattleFxPromptRule } from '../visual/igs-ui/fx-battle-model.js';
+import { resolveCreatureFxPromptRule } from '../visual/igs-ui/fx-creature-model.js';
 import { createEventBus } from './event-bus.js';
 import { createMagicWandEntry } from '../host/magic-wand-entry.js';
 import { createExtensionPanel } from '../host/extension-panel.js';
 import { createReaderImageService } from '../generated-images/reader-image-service.js';
 import { createPromptInjector } from '../host/prompt-injector.js';
+import { createStatsRuntime } from './stats-runtime.js';
+import { describeLlmReady } from '../generated-images/illustration/caption-writer.js';
+import { statsFxOf, statsNoticeLines } from '../scene/stats/stat-fx.js';
+import { clearStatsRivals, registerStatsRivals } from '../visual/igs-ui/romance-runtime.js';
+import { normalizeStatsSettings } from '../scene/stats/stat-settings.js';
+import { createShujukuClient } from '../data/shujuku/client.js';
+import { describeStatMappings } from '../data/shujuku/stats-push.js';
+import { buildInitialState } from '../scene/stats/stat-build.js';
 import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
 import { createSecondaryLlm } from '../host/secondary-llm.js';
 import { createImageWorldInfoSource } from '../host/image-world-info.js';
@@ -72,12 +83,20 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.36.116';
+const IGS_VERSION = '0.36.117';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
 // 自动插图 / 素材补全的进度与失败原因：始终写控制台；阅读器开着时交给对话框顶边的生成细线，
 // 没开时失败与成功再按「显示提示弹窗」弹酒馆 toastr。
+
+// 非人角色总开关与巨型铺满随已保存的设置同步到运行时；读不到设置时保持默认（开）。
+function syncCreatureSystem(legacy) {
+    const by = legacy && legacy.readerSettingsByMode && typeof legacy.readerSettingsByMode === 'object' ? legacy.readerSettingsByMode : {};
+    const rs = by.default && Object.keys(by.default).length ? by.default : (legacy && legacy.readerSettings) || {};
+    const { enabled, giantFill } = normalizeCreatureDisplaySettings(rs.creatureDisplay);
+    setCreatureSystem({ enabled, giantFill });
+}
 export function createImageJobReporter(globalObject, getBridge, log, getReaderNotice) {
     return (level, message) => {
         if (log && typeof log.add === 'function') log.add(level, message);
@@ -109,6 +128,7 @@ export function bootstrapIGS(options = {}) {
     const hostAdapter = options.hostAdapter || createTavernHelperAdapter(globalObject);
     const storageLike = options.storage || getStorageLike(globalObject);
     const legacyIgs = options.legacyIgsSettings || readLegacyIgsSettings(storageLike);
+    syncCreatureSystem(legacyIgs);
     const presetStore = options.presetStore || createPresetStore(storageLike);
     const presetRegistry = options.presetRegistry || createPresetRegistry({ store: presetStore });
     const inputChannel = createInputChannel(hostAdapter);
@@ -246,6 +266,7 @@ export function bootstrapIGS(options = {}) {
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
         nai: imageBackend,
+        registerCreatureProfiles: hints => (creatureSystemEnabled() ? characterDnaStore.registerCreatures(hints) : { ok: true, changed: false }),
         captureCharacterDnaTarget: name => {
             const target = characterDnaStore.capture(name);
             return app.igsUi?.withCharacterDnaDraftSync?.(target) || target;
@@ -346,6 +367,26 @@ export function bootstrapIGS(options = {}) {
     let sceneAssetsInjectionTimer = null;
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
+        // statsRuntime 在阅读器之后创建，这里按需读取。
+        statsLookup: () => (app.statsRuntime && typeof app.statsRuntime.metricsLookup === 'function' ? app.statsRuntime.metricsLookup() : null),
+        statsChat: () => (app.statsRuntime ? app.statsRuntime.chatStatus() : null),
+        statsArchive: () => (app.statsRuntime ? app.statsRuntime.archive() : null),
+        // 推送映射页：读当前表格，按草稿里的覆盖值标出每列状态；没装数据库插件时返回 null。
+        statsMappings: (overridesByFingerprint) => {
+            const api = globalObject.AutoCardUpdaterAPI;
+            return api ? describeStatMappings(createShujukuClient(api).readTables(), overridesByFingerprint || {}) : null;
+        },
+        statsChatAction: (kind, payload) => {
+            if (!app.statsRuntime) return { ok: false, reason: 'stats-runtime-missing' };
+            if (kind !== 'enable') return app.statsRuntime.disableForChat();
+            // 按分配启用：超点或多选时不建卡，返回原因；已有存档（之前暂停过）时沿用冻结的数值，分配不覆盖（§10A）。
+            if (payload && Object.hasOwn(payload, 'build')) {
+                const built = buildInitialState(payload.build);
+                if (!built.ok) return { ok: false, reason: built.reason };
+                return app.statsRuntime.enableForChat({ initial: built.state });
+            }
+            return app.statsRuntime.enableForChat();
+        },
         media,
         version: app.version,
         presetRegistry,
@@ -509,6 +550,7 @@ export function bootstrapIGS(options = {}) {
                 if (state.destroyed) return;
                 void media.referencesChanged().catch(() => {});
                 state.legacyIgs = readLegacyIgsSettings(storageLike);
+                syncCreatureSystem(state.legacyIgs);
                 state.config = mergeInitialConfig(options.config, state.legacyIgs);
                 runSpriteMigration();
                 state.settingsRevision = (state.settingsRevision || 0) + 1;
@@ -591,6 +633,42 @@ export function bootstrapIGS(options = {}) {
     scheduleSceneAssetsInjection(SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS, 1);
     attachChatChangedReinjection();
     attachMetaDigestSync();
+    // 数值系统：总开关关闭时 sync() 不挂任何监听；设置保存后重新同步（易错点 H1）。
+    const statsRuntime = createStatsRuntime({
+        getContext: resolveTavernContext,
+        readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats,
+        getPushClient: () => (globalObject.AutoCardUpdaterAPI ? createShujukuClient(globalObject.AutoCardUpdaterAPI) : null),
+        // 词表冲突时的辅助模型（§4.1、G1/G2）：只用独立 API。生成开始事件会被宿主等待，此时再走酒馆 generateRaw 等于嵌套主生成，可能互相阻塞，因此沿用酒馆 API 时不启用，按无需检定继续。
+        getModelRequest: () => {
+            const auto = ((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration || {};
+            const llm = auto.llm;
+            if (!llm || llm.source !== 'openai' || !describeLlmReady(llm).ok) return null;
+            return (prompt) => secondaryLlm.request({ system: prompt.system, user: prompt.user }, llm);
+        },
+        onChange: (statsState, entry, info) => {
+            // 换聊天时清掉上一个聊天的吃醋情敌，同名角色不串（§5.3 修罗场联动）。
+            if (info && info.chatChanged) clearStatsRivals();
+            events.emit('igs:stats-updated', { state: statsState, entry });
+            // 演出数据（P5）：只在本楼有新结算时发出；没有可播内容时 statsFxOf 返回 null，直接跳过。
+            if (!entry) return;
+            const hudLabel = normalizeStatsSettings(((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats).hudLabel;
+            const fx = statsFxOf(entry, { hudLabel });
+            if (!fx) return;
+            events.emit('igs:stats-fx', { messageId: entry.messageId, swipeId: entry.swipeId, ...fx });
+            // 吃醋扣过好感的角色登记为修罗场情敌来源；主对象仍只认 romance 第 3 栏。
+            if (fx.jealous && fx.jealous.length) registerStatsRivals(fx.jealous);
+            // 成长与战斗结果走阅读器生成细线（不弹窗、不挡画面，§10）；阅读器未打开时 info 级不退回 toastr。
+            const notice = app.igsUi && app.igsUi.showImageNotice;
+            if (typeof notice === 'function') {
+                for (const line of statsNoticeLines(fx)) {
+                    try { notice.call(app.igsUi, 'info', line); } catch (error) { /* 细线出错不影响结算 */ }
+                }
+            }
+        },
+    });
+    app.statsRuntime = statsRuntime;
+    state.statsSettingsOff = events.on('igs:legacy-settings-updated', () => statsRuntime.sync());
+    statsRuntime.sync();
     events.emit('igs:ready', publicApi);
 
     return publicApi;
@@ -788,6 +866,7 @@ export function bootstrapIGS(options = {}) {
         // 整份替换：nextBridge 是本次唯一一次深拷（payload 多半是设置草稿，之后还会被原地改），已含 state.config 全部键。
         // 从此它和 writeResult.legacy 都只读，config 与 legacy.bridge 共用同一份。
         state.legacyIgs = writeResult.legacy;
+        syncCreatureSystem(state.legacyIgs);
         state.config = nextBridge;
         state.settingsRevision = (state.settingsRevision || 0) + 1;
         // 监听方只当通知用（不读载荷），传引用即可；需要数据请走 getUnifiedSettings。
@@ -889,6 +968,10 @@ export function bootstrapIGS(options = {}) {
         pushFx('bilingual', resolveBilingualPromptRule(rs.bilingual));
         pushFx('daily', resolveDailyFxPromptRule(rs.dailyFx));
         pushFx('battle', resolveBattleFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled)));
+        // 非人角色标签：与 pushFx 同一注入条件（inject 打开且战斗演出开启）；条目关闭则不发，条目正文非空时用用户的覆盖文本。
+        { const entry = normalizePromptEntries(sceneAssets && sceneAssets.promptEntries).creature;
+            const creatureRule = resolveCreatureFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled && rs.battleFx.creature !== false) && creatureSystemEnabled());
+            if (fxPrompts.inject && creatureRule && entry.mode !== 'off') rules.push(entry.text.trim() || creatureRule); }
         pushFx('romance', resolveRomanceFxPromptRule(rs.romanceFx));
         pushFx('bgm', resolveBgmPromptRule(rs.bgm));
         pushFx('cast', resolveStageCastFxPromptRule(rs.stageCast));
@@ -1054,6 +1137,8 @@ export function bootstrapIGS(options = {}) {
         close(() => state.notesFile?.flush());
         close(() => state.metaDigestCleanup?.());
         state.metaDigestCleanup = null;
+        close(() => state.statsSettingsOff?.());
+        close(() => app.statsRuntime?.destroy());
         close(() => imageTaskRuntime.dispose());
         close(() => promptInjector.clear());
         close(() => storyOutfits?.dispose());

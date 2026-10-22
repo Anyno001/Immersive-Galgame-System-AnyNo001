@@ -20,6 +20,7 @@ import { mergeLegacyNaiSettings } from '../../generated-images/image-backend.js'
 import { getSettingsStyleText } from './settings-style.js';
 import { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsCategory, isSettingsPage, normalizeSettingsPage, openSettingsPage, resolveSettingsPage, resolveSettingsTarget } from './settings-pages.js';
 import { recordSettingsRecent, settingsRecentLabel } from './settings-recent.js';
+import { downloadStatsTemplate } from './stats-template-link.js';
 import { VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData } from './reader-value-utils.js';
 import { attachSettingsViewportEvents, clearChildren, detachSettingsViewportEvents, ensureStyleTag, getRootDocument, unmountNode } from './reader-dom-utils.js';
@@ -519,6 +520,43 @@ export function createSettingsHost(deps) {
     const recoveringSettingsActions = new Map();
     function handleSettingsAction(action) {
         if (String(action).startsWith('live2d-edit:')) return Promise.resolve(openLive2dManager?.(decodeURIComponent(String(action).slice('live2d-edit:'.length))));
+        // 数值系统提示词「恢复默认」：清空覆盖值，规范化后回到默认模板（§9）。
+        if (String(action).startsWith('stats-prompt-reset:')) {
+            const id = String(action).slice('stats-prompt-reset:'.length);
+            if (!/^[a-z]+$/.test(id)) return Promise.resolve({ ok: false, reason: 'stats-prompt-unknown' });
+            return Promise.resolve(updateSettingsValue(`bridge.stats.prompts.${id}`, ''));
+        }
+        // 适配版表格模板下载（§8C）。
+        // 推送映射「确认映射」：给当前模板指纹写一个空覆盖，之后不再提示「新的表格模板」（§8B 第 5 条）。
+        if (String(action).startsWith('stats-mapping-confirm:')) {
+            const fp = String(action).slice('stats-mapping-confirm:'.length);
+            if (!/^tpl-[0-9a-f]{1,8}$/.test(fp)) return Promise.resolve({ ok: false, reason: 'stats-mapping-unknown' });
+            const draft = state.activeSettings && state.activeSettings.draft;
+            const existing = draft && draft.bridge && draft.bridge.stats && draft.bridge.stats.push && draft.bridge.stats.push.mappings && draft.bridge.stats.push.mappings[fp];
+            return Promise.resolve(updateSettingsValue(`bridge.stats.push.mappings.${fp}`, existing && typeof existing === 'object' ? { ...existing } : {}));
+        }
+        if (action === 'stats-template-download') {
+            let result;
+            try { result = downloadStatsTemplate((options.global || globalThis).document); }
+            catch (error) { result = { ok: false, reason: 'stats-template-download-threw', thrown: error }; }
+            return Promise.resolve(result);
+        }
+        // 数值系统「本聊天」启用 / 暂停：直接交给运行时，结果重绘后反映到按钮与状态说明。
+        if (action === 'stats-chat-enable' || action === 'stats-chat-disable' || action === 'stats-chat-enable-build') {
+            let result;
+            try {
+                // 「按分配启用」用草稿里的分配（可能还没保存），不读已落盘的设置。
+                const draftStats = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge && state.activeSettings.draft.bridge.stats;
+                const payload = action === 'stats-chat-enable-build' ? { build: draftStats ? draftStats.build : undefined } : undefined;
+                result = typeof options.statsChatAction === 'function'
+                    ? options.statsChatAction(action === 'stats-chat-disable' ? 'disable' : 'enable', payload)
+                    : { ok: false, reason: 'stats-runtime-missing' };
+            } catch (error) {
+                result = { ok: false, reason: 'stats-chat-action-threw', thrown: error };
+            }
+            if (state.activeSettings) rerenderSettings();
+            return Promise.resolve(result || { ok: false, reason: 'stats-runtime-missing' });
+        }
         if (recoveringSettingsActions.has(action)) return recoveringSettingsActions.get(action);
         const panel = state.activeSettings;
         if (!panel) return Promise.resolve({ ok: true, cancelled: true });
@@ -1015,6 +1053,13 @@ export function createSettingsHost(deps) {
             if (voiceField) {
                 const voiceChar = charSelect.getAttribute(voiceField === 'pack' ? 'data-char-voice' : `data-char-voice-${voiceField}`) || '';
                 controller.invoke(`char-voice:${voiceField}:${encodeURIComponent(voiceChar)}:${encodeURIComponent(charSelect.value || '')}`);
+                return;
+            }
+            const creatureChar = charSelect ? charSelect.getAttribute('data-char-creature') : null;
+            if (creatureChar) {
+                const creatureField = charSelect.getAttribute('data-creature-field') || '';
+                const creatureValue = charSelect.type === 'checkbox' ? String(charSelect.checked) : charSelect.value || '';
+                controller.invoke(`char-creature:${creatureField}:${encodeURIComponent(creatureChar)}:${encodeURIComponent(creatureValue)}`);
                 return;
             }
             // 角色立绘高度：输完（失焦或回车）才保存，打字途中不重绘。

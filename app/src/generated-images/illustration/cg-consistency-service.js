@@ -1,4 +1,5 @@
 import { imageBackendMethod } from '../backend-methods.js';
+import { confirmedCreatureOf } from '../../scene/creature-profile.js';
 import { cgGenerationSeed } from '../../scene/generation-seeds.js';
 import { resolveImageSeed } from '../image-seed.js';
 import { inheritImageTaskLease, imageTaskState } from '../image-task-runtime.js';
@@ -166,6 +167,9 @@ export function createCgConsistencyService(deps) {
         const chars = checked.value?.characters;
         if (!checked.ok) return checked;
         if (!chars?.length || chars.length !== record.caption?.v4_prompt?.caption?.char_captions?.length) return failure('cg-binding-incomplete', '旧 CG 或角色绑定不完整，不能猜测人物身份');
+        // 非人角色没有衣装与人类五官可核对：含非人角色的 CG 不做一致性重绘，原图保持不变。
+        if (chars.some(c => confirmedCreatureOf(assets.characterDna?.[c.characterKey]))) return failure('cg-creature-unsupported',
+            '本张 CG 含非人角色，其体表与肢体特征无法按人类五官与衣装校正，一致性重绘未发送；原图保持不变');
         task.record = record;
         task.assets = assets;
         task.characters = chars.slice().sort((a, b) => a.captionIndex - b.captionIndex);

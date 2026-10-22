@@ -122,17 +122,17 @@ function openSettingsScene() {
   const mem = createMemoryStorage();
   // ?card=卡名：模拟打开了一张角色卡，小雪和睡衣提示词放在这张卡里，其余在全局。
   const cardAssets = {
-    characters: { 小雪: q.get('gen') ? { 默认: 'igs-gen:snow-default', 微笑: 'igs-gen:snow-smile', 害羞: '' } : { 默认: img, 微笑: img, 害羞: '' } },
+    characters: { 小雪: q.get('gen') ? { 默认: 'igs-gen:snow-default', 微笑: 'igs-gen:snow-smile', 害羞: '' } : { 默认: img, 微笑: img, 害羞: '' }, ...(q.get('creature') ? { 岩甲蜥: { 默认: img }, 狐妖: { 默认: img } } : {}) },
     characterAliases: { 小雪: ['雪'] },
     characterOutfits: { 小雪: { 校服: { moods: { 微笑: img }, words: ['制服'], scenes: [], note: '' }, 睡衣: { moods: {}, words: [], scenes: ['卧室'], note: '晚上在家' } } },
     wardrobe: { 睡衣: { prompt: 'pink pajamas' } },
   };
-  mem.setItem('igs_bridge_config', JSON.stringify({ sceneAssets: {
+  mem.setItem('igs_bridge_config', JSON.stringify({ ...(q.get('nai') ? { imageApi: { mode: 'nai' } } : {}), sceneAssets: {
     enabled: true, promptRule: '规则', characterAliases: {}, moodGroups: [],
     // 带时间行和长名字，看窄屏挤不挤。
     scenes: { 教室: { url: img, times: { '14:50': { url: img } } }, 走廊: { url: img, times: {} }, 海边: { url: img, times: { '黄昏': { url: img } } }, 天台: { url: '', times: {} }, 伦敦国王十字车站: { url: 'https://example.com/london.png', times: {} } },
     characters: { 林夏: { 普通: img, 微笑: img }, 陈屿: { 普通: img }, 路人: { 普通: '' } },
-    characterDna: { 林夏: { identity: '黑色长发，琥珀色眼睛' } },
+    characterDna: { 林夏: { identity: '黑色长发，琥珀色眼睛' }, ...(q.get('creature') ? { 岩甲蜥: { creature: { form: 'beast', size: 'large' } }, 狐妖: { creature: { form: 'humanoid', size: 'medium', framing: 'half' } } } : {}) },
     wardrobe: { 校服: { prompt: 'white shirt, pleated skirt' }, 泳装: { prompt: '' } },
     ...(q.get('card') ? { cards: { [`card:${q.get('card')}`]: cardAssets } } : cardAssets),
   } }));

@@ -9,8 +9,9 @@ import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
 import { SLOT_ICONS, menuItem, transferIcons, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions } from './settings-outfit-fields.js';
 import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
-import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions } from './voice-bark.js';
+import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions, creatureVoiceLabel } from './voice-bark.js';
 import { TTS_CHARACTER_VOLUMES, findSystemVoice, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceOptions } from './tts.js';
+import { renderCharacterCreatureFold } from './creature-settings.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { hasCharacterSpriteLayout } from './sprite-key-migration.js';
 
@@ -90,11 +91,11 @@ export function splitLabelNote(label) {
     return match ? [match[1], match[2]] : [text, ''];
 }
 
-export function checkbox(path, value, label) {
+export function checkbox(path, value, label, disabled = false) {
     const [main, note] = splitLabelNote(label);
     const noteHtml = note ? `<small class="igs-switch-note">${esc(note)}</small>` : '';
     const ariaLabel = note ? ` aria-label="${esc(label)}"` : '';
-    return `<button type="button" class="igs-switch${value ? ' is-on' : ''}" data-switch="${esc(path)}" aria-pressed="${value ? 'true' : 'false'}"${ariaLabel}><i></i><span>${esc(main)}${noteHtml}</span></button>`;
+    return `<button type="button" class="igs-switch${value ? ' is-on' : ''}" data-switch="${esc(path)}" aria-pressed="${value ? 'true' : 'false'}"${ariaLabel}${disabledAttr(disabled)}><i></i><span>${esc(main)}${noteHtml}</span></button>`;
 }
 
 export function tableMultiSelect(paths, selected, catalog, options = {}) {
@@ -566,7 +567,7 @@ export function renderCharacterAssetList(characters, options = {}) {
                 voiceHtml,
             ].join(''))
             : '';
-        return `<div class="igs-scene-char-group igs-char-card${open ? ' is-open' : ''}">${head}${setup}${open ? `<div class="igs-char-body">${heightRow ? renderCharacterSpriteHeightRow(charName, heightRow) : ''}${slotArea}</div>` : ''}</div>`;
+        return `<div class="igs-scene-char-group igs-char-card${open ? ' is-open' : ''}">${head}${setup}${open ? `<div class="igs-char-body">${heightRow ? renderCharacterSpriteHeightRow(charName, heightRow) : ''}${renderCharacterCreatureFold(charName, dna, isOpen)}${slotArea}</div>` : ''}</div>`;
     }).join('');
 }
 
@@ -626,7 +627,7 @@ function renderCharacterVoiceRow(charName, { sceneAssets, tts }) {
     const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
     const manual = normalizeCharacterVoice(Object.prototype.hasOwnProperty.call(voices, charName) ? voices[charName] : null);
     const auto = resolveCharacterVoice({ ...sceneAssets, characterVoices: {} }, charName);
-    const autoText = auto.pack ? `自动（${auto.pack.name}）` : '自动（无法从DNA判断性别，不发声）';
+    const autoText = auto.creature ? `自动（非人声线：${creatureVoiceLabel(auto.creature)}）` : auto.pack ? `自动（${auto.pack.name}）` : '自动（无法从DNA判断性别，不发声）';
     const option = (id, label) => `<option value="${esc(id)}"${id === manual.pack ? ' selected' : ''}>${esc(label)}</option>`;
     const packs = voicePackOptions();
     const groups = VOICE_GENDER_GROUPS.map(([gender, label]) => {

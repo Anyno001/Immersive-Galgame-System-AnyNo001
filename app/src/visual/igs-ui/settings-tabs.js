@@ -378,6 +378,52 @@ const EVENTCG_TEMPLATE = `
 
 export { RULES_TEMPLATE, WARDROBE_TEMPLATE, EVENTCG_TEMPLATE, SCENE_HEAD_TEMPLATE, PARSE_TEMPLATE, BACKUP_TEMPLATE };
 
+// 数值系统：总开关在最上；关闭时下方整块隐藏，只留一行说明。
+const STATS_TEMPLATE = `
+<div class="igs-settings-grid" data-settings-pane="stats">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">数值系统</div>
+    <div class="igs-settings-row">{{statsToggle}}</div>
+    <div class="igs-source-filter-note"{{statsOffNoteHidden}}>开启后，好感、技能、体力与金钱由脚本掷骰结算，AI 只报告发生了什么。每个聊天第一次使用时可以选择是否启用。</div>
+  </div>
+  <div class="igs-settings-sub"{{statsHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">规则</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{intimacyField}}</div>
+      <div class="igs-source-filter-grid">{{registerField}}{{hudLabelField}}</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">生活条</div>
+      <div class="igs-settings-section">{{barsFields}}</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">同步到表格</div>
+      <div class="igs-settings-section">{{pushField}}</div>
+      {{statsMappingFields}}
+      <div class="igs-source-filter-note">表格里的数值只作展示；在表格里改动的数值会在下一次同步时被覆盖。</div>
+      <div class="igs-source-filter-note">推荐导入「IGS 数值系统适配版」表格模板：填表 AI 不再改好感与属性，导入后无需配置。</div>
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="stats-template-download" type="button">下载适配版表格模板</button>
+      </div>
+    </div>
+    <div class="igs-source-filter">{{statsPromptFields}}</div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">存档</div>
+      {{statsArchiveFields}}
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">本聊天</div>
+      <div class="igs-source-filter-note" data-result="stats-chat">{{statsChatNote}}</div>
+      <div{{statsBuildHidden}}>{{statsBuildFields}}</div>
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="stats-chat-enable" type="button"{{statsChatEnableHidden}}>快速开始（默认数值）</button>
+        <button class="igs-settings-action" data-action="stats-chat-disable" type="button"{{statsChatDisableHidden}}>本聊天暂停（数值冻结）</button>
+      </div>
+    </div>
+  </div>
+</div>
+`.trim();
+
 const PAGE_TEMPLATES = Object.freeze({
     style: READER_DIALOG_TEMPLATE,
     text: READER_TEXT_TEMPLATE,
@@ -398,6 +444,7 @@ const PAGE_TEMPLATES = Object.freeze({
     llm: IMAGE_LLM_TEMPLATE,
     rules: RULES_TEMPLATE,
     parse: PARSE_TEMPLATE,
+    stats: STATS_TEMPLATE,
     data: BACKUP_TEMPLATE,
     logs: IMAGE_LOGS_TEMPLATE,
 });

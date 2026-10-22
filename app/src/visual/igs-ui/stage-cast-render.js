@@ -56,8 +56,10 @@ export function resolveCastCapacity(mode, stage = {}) {
 // 只剩一人时返回 multi=false，调用方走原有单人布局。
 export function layoutCastSlots({ members = [], speakerOrder = null, hasSpeaker = false, capacity = 3, pin = '' } = {}) {
     const seats = Math.max(1, Math.min(3, Math.floor(Number(capacity)) || 1));
-    const pinned = pin ? members.filter((m) => m && m.character === pin) : [];
-    const ranked = pinned.length ? [...pinned, ...members.filter((m) => !m || m.character !== pin)] : members;
+    // pin 可以是单个名字，也可以是名字数组（多对手同屏时钉住多个对手）。
+    const pins = Array.isArray(pin) ? pin : pin ? [pin] : [];
+    const pinned = pins.length ? members.filter((m) => m && pins.includes(m.character)) : [];
+    const ranked = pinned.length ? [...pinned, ...members.filter((m) => !m || !pins.includes(m.character))] : members;
     const kept = ranked.slice(0, hasSpeaker ? seats - 1 : seats);
     const onStage = kept.map((m) => ({ ...m, speaker: false }));
     if (hasSpeaker) onStage.push({ speaker: true, order: Number.isFinite(speakerOrder) ? speakerOrder : Number.MAX_SAFE_INTEGER });

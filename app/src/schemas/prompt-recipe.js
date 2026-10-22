@@ -2,6 +2,7 @@
 import { CHARACTER_DNA_VIEWS, CHARACTER_DNA_REQUIRED_VIEWS, checkDnaViews, checkCharacterPersonality, characterDnaIdentityCleared } from '../scene/character-dna.js';
 import { checkOutfitTemplates } from './outfit-template.js';
 import { isValidOutfitName } from '../scene/character-outfits.js';
+import { confirmedCreatureOf } from '../scene/creature-profile.js';
 const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const keyOk = (v) => typeof v === 'string' && v === v.trim() && v.length > 0 && v.length <= 128
     && !['__proto__', 'constructor', 'prototype'].includes(v);
@@ -84,7 +85,7 @@ export function promptTaskForSlot(task, slotId) {
         ...(slot.identityMode !== undefined && { identityMode: slot.identityMode }) } };
 }
 
-export function checkPromptRecipe(raw, caption, task, { allowArchivedCorrection = false } = {}) {
+export function checkPromptRecipe(raw, caption, task, { allowArchivedCorrection = false, context, allowStoredNoOutfit = false } = {}) {
     if (raw === undefined) return task ? fail('PROMPT_MODE_CONFLICT', 'promptRecipe', 'missing') : { ok: true, value: undefined };
     if ((raw?.outfitSelection !== undefined && (raw.outfitSelection !== 'catalog' || raw.outfitMode !== 'template'))
         || (task && raw?.outfitSelection !== task.outfitSelection)) return fail('PROMPT_MODE_CONFLICT', 'promptRecipe.outfitSelection');
@@ -115,7 +116,12 @@ export function checkPromptRecipe(raw, caption, task, { allowArchivedCorrection 
         if (!plain(b) || !['named', 'generic', 'object', 'reference'].includes(b.kind)) return reject('kind');
         const catalog = raw.outfitSelection === 'catalog';
         if (catalog && b.kind === 'reference') return reject('kind');
-        if (catalog && b.kind === 'named') {
+        if (catalog && b.kind === 'named' && plain(b.outfit) && b.outfit.source === 'none') {
+            // 非人角色无衣装：名称与说明必为空；是否确属非人角色由带角色资料的衣装校验核对。
+            // 无资料不放行：需要本次角色资料证明是已确认的非人角色；仅已存档记录的整理（promptProvenance）可免资料。
+            const proven = allowStoredNoOutfit || (Array.isArray(context) && context.some(c => c?.characterKey === b.characterKey && confirmedCreatureOf(c.dna)));
+            if (!proven || b.outfit.name !== '' || b.outfit.description !== '') return reject('outfit');
+        } else if (catalog && b.kind === 'named') {
             if (!plain(b.outfit) || !isValidOutfitName(b.outfit.name)
                 || !['saved', 'candidate'].includes(b.outfit.source)
                 || typeof b.outfit.description !== 'string' || !b.outfit.description.trim()
@@ -253,7 +259,7 @@ export function checkPromptOutput(item, task, context) {
     const selected = promptTaskForSlot(task, item.slotId ?? item.slotid);
     if (!selected.ok) return selected;
     task = selected.value;
-    const recipe = checkPromptRecipe(item.promptRecipe, item.caption, task);
+    const recipe = checkPromptRecipe(item.promptRecipe, item.caption, task, { context });
     if (!recipe.ok) return recipe;
     const metadata = checkRecipeCharacterMeta(recipe.value, item.characterMeta);
     if (!metadata.ok) return metadata;

@@ -15,6 +15,16 @@ const BUILTIN_VIEW = {
         ['灰底', B.ground.matte], ['白底', B.ground.white], ['透明底', B.ground.transparent],
         ['日常小动作', B.sprite.poseRule, true],
     ],
+    // 非人角色（完全非人形 / 半人形）：与人类立绘分开的固定词；取景与悬浮词按体型、落地方式拼入。
+    creature: [
+        ['完全非人形 · 正向', B.creatureBeast.positive], ['完全非人形 · 负向', B.creatureBeast.negative],
+        ['半人形 · 正向', B.creatureHumanoid.positive], ['半人形 · 负向', B.creatureHumanoid.negative],
+        ['取景（按体型）', Object.entries(B.creatureBeast.framing).map(([size, f]) => `${size} → ${f.positive}`).join('\n')],
+        ['悬浮', B.creatureBeast.anchor.float.positive],
+        ['半人形半身取景', `${B.creatureHumanoid.halfBody.positive}\n负向：${B.creatureHumanoid.halfBody.negative}`],
+        ['姿态规则 · 完全非人形', B.creatureBeast.poseRule, true], ['姿态规则 · 半人形', B.creatureHumanoid.poseRule, true],
+        ['姿态规则 · 半人形半身', B.creatureHumanoid.halfPoseRule, true],
+    ],
     expression: [
         ['立正正面', B.expression.positive], ['立正负面', B.expression.negative], ['去掉的词', B.expression.dropPositive],
         ['情绪默认词表', MOOD_PRESET.map((m) => `${m.label} → ${m.tags}${m.tagsNsfw ? `（NSFW：${m.tagsNsfw}）` : ''}`).join('\n')],
@@ -30,6 +40,7 @@ const BUILTIN_VIEW = {
 const KIND_NOTE = {
     cg: 'CG的写词规则在「备用模型」页。',
     expression: '表情差分跟随立绘模型。',
+    creature: '非人角色的立绘与姿态差分使用本分区画师串；留空使用全局画师。写词规则在「备用模型」页的提示词预设（任务 creature）。',
     avatar: 'Q版头像跟随立绘模型。',
     nsfwCg: 'NSFW CG跟随剧情CG模型；写词规则在「备用模型」页（含温和重试）。',
 };
@@ -39,7 +50,7 @@ const FORM_VIEW = [
     ['按年龄档补回', Object.entries(B.form.age).map(([k, v]) => `${({ child: '幼', teen: '少年', adult: '成年', elder: '年长' })[k]} → ${v}`).join('\n')],
 ];
 // [卡片标题, 画师串分类, slots 键]
-const GROUPS = [['角色', ['sprite', 'wardrobe', 'expression', 'avatar'], 'character'],
+const GROUPS = [['角色', ['sprite', 'wardrobe', 'expression', 'avatar', 'creature'], 'character'],
     ['场景与物品', ['background', 'item'], 'scene'], ['CG', ['cg', 'nsfwCg'], 'cg']];
 // 该分类入口之前先放的生成开关（NSFW 开关紧贴自己的入口行）。
 const SLOT_BEFORE = { nsfwCg: 'nsfw' };

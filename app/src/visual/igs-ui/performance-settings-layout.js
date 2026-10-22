@@ -144,7 +144,7 @@ function buildPerformanceBodies(src, extras, isOpen) {
                 section('事件演出', [fx.tags, fx.dlc, renderPackFields(src, more, { ids: ['beats'] })].filter(Boolean)),
             ],
             special: [
-                section('日常与冒险', [stage.daily, fx.battleFx, fx.flash]),
+                section('日常与冒险', [stage.daily, fx.battleFx, fx.battleCreature, fx.flash]),
                 section('题材包', [packSection(renderPackFields(src, more))]),
                 section('Meta互动', [renderMetaFxFields(src, more)]),
                 section('线上与直播', [renderMyPhoneFields(src, more), host('chat-show', extras.chatShow, '聊天页演出'), danmaku.live, renderFeedFields(src, more), danmaku.audience, danmaku.inner, fx.notifyCenter]),

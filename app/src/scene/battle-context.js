@@ -1,6 +1,7 @@
 // 战斗上下文（纯函数）：跨楼层继承未结束的战斗、读取上一条用户消息里的骰子检定等级并套到主角的出招上。
 // 宿主读取由 api/igs-compat.js 负责，这里只处理文本与指令。
 import { extractFxDirectives } from './fx-directives.js';
+import { FOE_DOWN_MAX, addFrenzy } from './creature-battle.js';
 
 // 战斗链：向前追溯时，带出招标签的楼层算「战斗仍在继续」，沿链一直找到开战标签，最多 12 个 AI 楼层；
 // 连续 2 个 AI 楼层没有任何战斗标签即认为战斗已结束（也限制 AI 漏写 battle-end 时名牌多挂的层数）。
@@ -14,11 +15,27 @@ const DICE_TIER_RE = /(大成功|大失败|极难成功|困难成功|普通成�
 const DICE_TIER_EFFECT = Object.freeze({ 大成功: 'crit', 大失败: 'miss' });
 
 // 返回 { battle } 表示该楼层结束时战斗仍在进行，{ battle: null } 表示已结束，{ active: true } 表示只有出招（战斗进行中但开战在更早的楼层），null 表示本楼没有战斗标签。
+// 二阶段（phase）算战斗仍在继续；狂暴名单只在有二阶段时才出现在结果里（frenzy：本楼开战之后 / 本楼内写过的名字，空串表示全部对手）。
 export function readBattleCarry(text) {
-    const list = extractFxDirectives(text).filter((d) => d.kind === 'battle' || d.kind === 'hit');
-    const last = [...list].reverse().find((d) => d.kind === 'battle');
-    if (last) return { battle: last.end ? null : { foe: last.args[0], title: last.args[1] } };
-    return list.length ? { active: true } : null;
+    const list = extractFxDirectives(text).filter((d) => d.kind === 'battle' || d.kind === 'hit' || d.kind === 'phase');
+    const lastIndex = list.reduce((found, d, i) => (d.kind === 'battle' ? i : found), -1);
+    const phases = list.slice(lastIndex + 1).filter((d) => d.kind === 'phase').map((d) => d.args[0]);
+    // 击倒与收服（神话包 subdue）的目标：只在本楼有战斗标签时记录，不改变「本楼有没有战斗标签」的判断。
+    const downs = extractFxDirectives(text).filter((d, i) => (d.kind === 'hit' && d.args[3] === 'ko' && d.args[1]) || (d.kind === 'daily' && d.args[0] === 'subdue' && d.args[2]))
+        .filter((d) => d.offset > (lastIndex >= 0 ? list[lastIndex].offset : -1)).map((d) => (d.kind === 'hit' ? d.args[1] : d.args[2]));
+    if (lastIndex >= 0) {
+        const last = list[lastIndex];
+        if (last.end) return { battle: null };
+        const battle = { foe: last.args[0], title: last.args[1] };
+        if (phases.length) battle.frenzy = phases.reduce((names, name) => addFrenzy(names, name, battle.foe), []);
+        if (downs.length) battle.down = downs.slice(0, FOE_DOWN_MAX);
+        return { battle };
+    }
+    if (!list.length) return null;
+    const active = { active: true };
+    if (phases.length) active.phases = phases;
+    if (downs.length) active.down = downs;
+    return active;
 }
 
 export function readDiceEffect(text) {
@@ -40,6 +57,9 @@ export function createBattleHistoryScanner() {
     let quiet = 0;
     let battle = null;
     let done = false;
+    // 更近的楼层里写过的二阶段（扫描从近到远）；开战楼层找到后并入对手的狂暴名单。
+    let phases = [];
+    let down = [];
     return {
         push(message) {
             if (done || !message) return done;
@@ -49,8 +69,12 @@ export function createBattleHistoryScanner() {
             }
             aiSeen += 1;
             const carry = readBattleCarry(message.text);
-            if (carry && !carry.active) { battle = carry.battle; done = true; }
-            else if (carry) quiet = 0;
+            if (carry && !carry.active) {
+                battle = carry.battle;
+                if (battle && phases.length) battle = { ...battle, frenzy: [...phases, ...(battle.frenzy || [])].reduce((names, name) => addFrenzy(names, name, battle.foe), []) };
+                if (battle && down.length) battle = { ...battle, down: [...(battle.down || []), ...down].slice(0, FOE_DOWN_MAX) };
+                done = true;
+            } else if (carry) { quiet = 0; if (carry.phases) phases = phases.concat(carry.phases); if (carry.down) down = carry.down.concat(down); }
             else quiet += 1;
             if (quiet >= BATTLE_QUIET_MAX_FLOORS || aiSeen >= BATTLE_CHAIN_MAX_FLOORS) done = true;
             return done;

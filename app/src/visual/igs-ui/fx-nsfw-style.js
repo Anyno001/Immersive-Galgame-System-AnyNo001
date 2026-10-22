@@ -117,8 +117,6 @@ export const NSFW_STYLE_TEXT = `
 #igs-overlay .igs-nfx-fetal-n{grid-area:n;font-size:1.5em;color:#ff9db6;}
 #igs-overlay .igs-nfx-fetal-u{grid-area:u;font-size:.78em;opacity:.85;}
 #igs-overlay .igs-nfx-fetal-text{grid-column:1 / 4;font-size:.78em;opacity:.85;}
-#igs-overlay .igs-nfx-trait{position:absolute;display:block;transform:translate(-50%,-50%) rotate(var(--igs-nfx-rot,0deg));animation:igs-nfx-fade var(--igs-dfx-life) ease calc(var(--igs-nfx-i,0) * 90ms) both;}
-#igs-overlay .igs-nfx-trait svg{display:block;width:100%;height:auto;}
 #igs-overlay .igs-dfx.is-reduced .igs-nfx-tick,#igs-overlay .igs-dfx.is-reduced .igs-nfx-sweat,#igs-overlay .igs-dfx.is-reduced .igs-nfx-fetal-glow i,#igs-overlay .igs-dfx.is-reduced .igs-nfx-after-time i{animation:none;}
 #igs-overlay .igs-dfx.is-reduced .igs-nfx-flash,#igs-overlay .igs-dfx.is-reduced .igs-nfx-pulse{display:none;}
 #igs-overlay .igs-dfx.is-reduced .igs-nfx-flame{box-shadow:0 0 8px 3px #ff9a3c;}

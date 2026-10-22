@@ -1,7 +1,7 @@
 // 战斗演出的渲染适配：reader-dom-render 每次渲染调用一次。
 // 关闭时只清理曾挂过的演出；同一页重绘不重播；翻回看过的页是否重播跟随演出风格的「重播」开关；
 // 停留时间与灵动风格沿用漫画演出的 fxStyle，音效沿用 fxSound。
-import { planBattleFx, normalizeBattleFxSettings, battleFxIdentity } from './fx-battle-model.js';
+import { planBattleFx, normalizeBattleFxSettings, battleFxIdentity, safePortraitUrl } from './fx-battle-model.js';
 import { applyBattleFxToDom, cancelBattleFx } from './fx-battle.js';
 import { battleSfxKind, playBattleSfx } from './fx-battle-sfx.js';
 import { FX_HOLD_SCALE, normalizeFxSoundSettings, normalizeFxStyleSettings } from './fx-settings.js';
@@ -9,10 +9,30 @@ import { pickFxAccent } from './fx-symbols.js';
 import { probeSpriteHead } from './fx-anchor.js';
 import { castKeyOfSnapshot } from './stage-cast-render.js';
 import { prefersReducedMotion } from './reduced-motion.js';
+import { creatureProfileOf } from './creature-layout.js';
+import { playCreatureSfx } from './creature-battle-sfx.js';
 
 const SEEN_LIMIT = 256;
 const mountedRoots = new WeakSet();
 const seenPages = new WeakMap();
+
+// 非人对手的立绘与三档姿态图（本页 fx 里由阅读器按角色取好）：只接受安全地址；没有就返回空。
+function resolveCreatureAssets(fx, resolve) {
+    const url = (raw) => {
+        let value = '';
+        try { value = raw ? String((typeof resolve === 'function' ? resolve(raw) : raw) || '') : ''; } catch (error) { value = ''; }
+        return safePortraitUrl(value);
+    };
+    const tiersOf = (raw) => {
+        if (!raw || typeof raw !== 'object') return null;
+        const out = {};
+        for (const tier of ['menace', 'wounded', 'frenzy']) { const value = url(raw[tier]); if (value) out[tier] = value; }
+        return Object.keys(out).length ? out : null;
+    };
+    const foes = (Array.isArray(fx && fx.foes) ? fx.foes : []).filter((item) => item && item.name)
+        .map((item) => ({ name: String(item.name), image: url(item.image), tiers: tiersOf(item.tiers) }));
+    return { foes, foeTiers: tiersOf(fx && fx.foeTiers) };
+}
 
 function pageKindOf(content) {
     if (content.chatPage === true) return 'chat';
@@ -40,6 +60,13 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
     const fx = content.fx || null;
     let foeImage = '';
     try { foeImage = fx && fx.foeImage ? String((typeof ctx.resolveAssetUrl === 'function' ? ctx.resolveAssetUrl(fx.foeImage) : fx.foeImage) || '') : ''; } catch (error) { foeImage = ''; }
+    // 非人角色：档案按别名归一后的主名查，已确认的非人才返回；没有角色档案（人类流程）时不传，计划与改动前逐项相同。
+    const characterDna = readerSettings._sceneAssets && readerSettings._sceneAssets.characterDna;
+    const keyOf = castKeyOfSnapshot(snapshot);
+    // 设置里关闭「非人演出」时不传 creatureOf，战斗回到人类演出。
+    const creatureOf = characterDna && typeof characterDna === 'object' && normalizeBattleFxSettings(readerSettings.battleFx).creature
+        ? (name) => creatureProfileOf(characterDna, name) : null;
+    const creatureAssets = creatureOf ? resolveCreatureAssets(fx, ctx.resolveAssetUrl) : { foes: [], foeTiers: null };
     let plan = planBattleFx(fx, {
         settings: readerSettings.battleFx,
         identity: {
@@ -54,7 +81,8 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
         spriteName: sprite ? content.spriteCharacter || content.speaker || '' : '',
         foeImage,
         castNames: cast.map((c) => c.character),
-        keyOf: castKeyOfSnapshot(snapshot),
+        keyOf,
+        ...(creatureOf ? { creatureOf, foes: creatureAssets.foes, foeTiers: creatureAssets.foeTiers } : {}),
     });
     if (!plan.plate && !plan.events.length && !mountedRoots.has(root)) return { played: false, reason: 'no-battle' };
     if (plan.identity) {
@@ -95,6 +123,8 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
         wuxia: readerSettings.dialogSkin === 'wuxia-ink',
         worldview: String(readerSettings._worldview || ''),
         onEvent: (event) => play(battleSfxKind(event, String(readerSettings._worldview || ''))),
+        spriteName: sprite ? content.spriteCharacter || content.speaker || '' : '',
+        onCreatureSfx: (kind) => { if (typeof ctx.playSfx === 'function') ctx.playSfx(kind); else playCreatureSfx(kind, sound, { audioScheduler: ctx.audioScheduler }); },
     });
     mountedRoots.add(root);
     return result;

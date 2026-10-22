@@ -9,6 +9,7 @@ import { ensureFxLayers, findFxLayers } from './fx-layer.js';
 import { battleFxIdentity, resolveImpactPoint, BATTLE_SKIP_RESULT_MS } from './fx-battle-model.js';
 import { measureStage, peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import { spriteGeometry } from './fx-runtime.js';
+import { CREATURE_BATTLE_STYLE_TEXT, clearGroupBodies, createCreatureState, expectedFoeImage, foeElementOf, playCreatureEvent, settleCreatureTiers, syncGroupBodies } from './fx-creature-battle.js';
 
 const SHOW_ATTR = 'data-igs-fx-battle-show';
 const SHAKE_ATTR = 'data-igs-fx-battle-shake';
@@ -44,7 +45,7 @@ const states = new WeakMap();
 function getState(root, options) {
     let state = states.get(root);
     if (!state) {
-        state = { key: '', timers: new Set(), nodes: new Set(), anims: new Set(), plate: null, vignette: null, motion: null, shows: 0, skip: null };
+        state = { key: '', timers: new Set(), nodes: new Set(), anims: new Set(), plate: null, vignette: null, motion: null, shows: 0, skip: null, creature: createCreatureState() };
         states.set(root, state);
     }
     state.schedule = typeof options.schedule === 'function' ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -81,9 +82,10 @@ function stopAnims(state, finish = false) {
     if (!finish) state.anims.clear();
 }
 
-function clearEvents(state) {
+function clearEvents(state, expected = null) {
     stopTimers(state);
     stopAnims(state);
+    settleCreatureTiers(state.creature, { full: true, expected });
     for (const node of state.nodes) node.remove();
     state.nodes.clear();
     state.shows = 0;
@@ -174,6 +176,19 @@ function buildEncounter(doc, event, ancient) {
     }
     if (event.title) vs.appendChild(el(doc, 'span', 'igs-fx-battle-vs-title', event.title));
     node.appendChild(vs);
+    return node;
+}
+
+// 二阶段登场的横幅：对手名 + 「狂暴」，复用出招横幅的版式。
+function buildPhase(doc, event, ancient) {
+    const node = el(doc, 'div', eraClass('igs-fx-battle-hit igs-fx-transient', ancient));
+    node.setAttribute('data-igs-battle-result', 'crit');
+    node.setAttribute('data-igs-battle-target', 'stage');
+    const banner = el(doc, 'div', 'igs-fx-battle-skill');
+    const who = (event.creatures || []).map((c) => c.name).filter(Boolean).join('、') || event.name || '';
+    if (who) banner.appendChild(el(doc, 'span', 'igs-fx-battle-skill-who', who));
+    banner.appendChild(el(doc, 'span', 'igs-fx-battle-skill-name', '狂暴'));
+    node.appendChild(banner);
     return node;
 }
 
@@ -334,6 +349,30 @@ function clearHud(motion, plate, stage) {
     setVar(motion, '--igs-bt-hud-gap', `${Math.ceil(Math.max(...bars.map((r) => r.bottom)) - box.top)}px`);
 }
 
+// 非人对手演出的宿主：计时器、动画、节点与震屏都挂在本模块的状态上，翻页 / 快进 / 取消时统一回收。
+function creatureHostOf(state, layers, root, options, pace) {
+    let low = false;
+    try { const overlay = root.closest ? root.closest('#igs-overlay') || root : root; low = overlay.getAttribute('data-igs-quality') === 'low'; } catch (error) { low = false; }
+    const reduced = options.reducedMotion === true;
+    return {
+        doc: layers.doc, root, motion: layers.motion, stage: layers.stage, front: layers.front, cs: state.creature,
+        reduced, low, pace, spriteName: String(options.spriteName || ''),
+        track: (fn, ms) => track(state, fn, ms),
+        keep: (node, life) => { state.nodes.add(node); track(state, () => { node.remove(); state.nodes.delete(node); }, life); },
+        anim: (target, frames, opts) => {
+            if (!target || typeof target.animate !== 'function') return null;
+            try {
+                const anim = target.animate(frames, opts);
+                state.anims.add(anim);
+                if (opts.fill !== 'forwards' && anim && 'onfinish' in anim) anim.onfinish = () => state.anims.delete(anim);
+                return anim;
+            } catch { return null; }
+        },
+        shake: (level) => { if (!reduced) shake(state, level); },
+        sfx: (kind) => { if (!reduced && typeof options.onCreatureSfx === 'function') { try { options.onCreatureSfx(kind); } catch (error) { /* 音效失败不影响演出 */ } } },
+    };
+}
+
 // plan 来自 planBattleFx；options：reducedMotion（不震屏、不闪光、无立绘反应、静态显示）、onEvent(event) 供音效挂接、
 // sprite（当前立绘几何，用于冲击点定位）、motion（'smooth' | 'snappy'）、accent（主题强调色）、ancient（古代背景水墨换皮）。
 export function applyBattleFxToDom(root, plan, options = {}) {
@@ -352,10 +391,14 @@ export function applyBattleFxToDom(root, plan, options = {}) {
     // 水墨武侠整体放慢：出场时刻、停留时长与快进结算一起乘节奏，计时器数量不变。
     const pace = ancient === 'wuxia' ? WUXIA_PACE : 1;
     syncPlate(state, layers, plan, ancient, worldSkin);
+    // 非人对手：涉及非人角色的计划才建宿主；杂兵多身影跟随战斗区间，人类对手不经过这里。
+    const creatureHost = plan.creature || plan.events.some((e) => e.creatures) ? creatureHostOf(state, layers, root, options, pace) : null;
+    if (creatureHost) syncGroupBodies(creatureHost, plan);
+    else if (state.creature.groups.size) clearGroupBodies(state.creature);
     const key = plan.identity ? battleFxIdentity(plan.identity) : '';
     if (key && state.key === key) return { played: false, reason: 'same-page' };
     // 换页即收掉上一页未播完的出招，即使本页没有新演出。
-    if (key) { clearEvents(state); state.key = key; }
+    if (key) { clearEvents(state, creatureHost ? expectedFoeImage(creatureHost, plan) : null); state.key = key; }
     if (!plan.events.length || !key) return { played: false, reason: plan.plate ? 'plate-only' : 'no-events' };
     const reduced = options.reducedMotion === true;
     const onEvent = typeof options.onEvent === 'function' ? options.onEvent : null;
@@ -377,12 +420,19 @@ export function applyBattleFxToDom(root, plan, options = {}) {
         let node;
         if (event.type === 'encounter') node = buildEncounter(doc, event, ancient);
         else if (event.type === 'hit') node = buildHit(doc, event, ancient);
+        else if (event.type === 'phase') node = buildPhase(doc, event, ancient);
         else node = buildResult(doc, event, ancient, (plan.plate && plan.plate.foe) || state.foe || '');
         setVar(node, '--igs-battle-life', `${life}ms`);
+        // 非人对手已在台上时，遭遇卡不再另放一张对手立绘：上台演出直接作用在舞台上的本体，不出现第二只。
+        if (event.type === 'encounter' && creatureHost && event.creatures && event.creatures.some((c) => foeElementOf(creatureHost, c.name))) {
+            for (const portrait of Array.from(node.querySelectorAll('.igs-fx-battle-vs-portrait'))) portrait.remove();
+        }
         if (worldSkin) node.className = `${node.className} is-${worldSkin}`;
         if (reduced) node.setAttribute('data-igs-fx-static', '1');
-        if (event.type !== 'hit') holdShow(state, life);
-        if (event.type === 'hit' && event.targetKind === 'foe' && event.portrait) {
+        if (event.type === 'encounter' || event.type === 'result') holdShow(state, life);
+        // 非人对手：演出直接作用在台上的对手立绘；处理了命中目标的反应后，不再叠加人类版的立绘反应与临时登场。
+        const creatureHandled = Boolean(creatureHost && event.creatures && playCreatureEvent(creatureHost, event, life));
+        if (event.type === 'hit' && event.targetKind === 'foe' && event.portrait && !creatureHandled) {
             const foe = buildFoe(doc, event);
             setVar(foe, '--igs-battle-life', `${life}ms`);
             if (reduced) foe.setAttribute('data-igs-fx-static', '1');
@@ -400,7 +450,7 @@ export function applyBattleFxToDom(root, plan, options = {}) {
                 const shakeSpec = wuxiaShakeOf(event);
                 if (shakeSpec) wuxiaShake(state, motion, shakeSpec);
                 const delay = WUXIA_REACT_DELAY[event.result] || 0;
-                if (event.targetKind === 'sprite') reactSprite(state, spriteEl, event.result, delay);
+                if (creatureHandled) { /* 非人对手的反应已播放 */ } else if (event.targetKind === 'sprite') reactSprite(state, spriteEl, event.result, delay);
                 else if (event.targetKind === 'cast') reactSprite(state, castElOf(motion, event.targetChar), event.result, delay);
             }
         } else if (event.type === 'hit') {
@@ -409,7 +459,7 @@ export function applyBattleFxToDom(root, plan, options = {}) {
             if (!reduced) {
                 const heavy = event.result === 'crit' || event.result === 'ko' || (event.targetKind === 'player' && event.result === 'hit');
                 if (event.result !== 'miss' && event.result !== 'heal') shake(state, heavy ? 'heavy' : 'light');
-                if (event.targetKind === 'sprite') reactSprite(state, spriteEl, event.result);
+                if (creatureHandled) { /* 非人对手的反应已播放 */ } else if (event.targetKind === 'sprite') reactSprite(state, spriteEl, event.result);
                 else if (event.targetKind === 'cast') reactSprite(state, castElOf(motion, event.targetChar), event.result);
             }
         }
@@ -428,6 +478,7 @@ export function applyBattleFxToDom(root, plan, options = {}) {
         stopAnims(state, true);
         for (const node of state.nodes) node.remove();
         state.nodes.clear();
+        settleCreatureTiers(state.creature);
         state.shows = 0;
         state.skip = null;
         motion.removeAttribute(SHOW_ATTR);
@@ -460,6 +511,7 @@ export function cancelBattleFx(root) {
     const state = root && states.get(root);
     if (state) {
         clearEvents(state);
+        clearGroupBodies(state.creature);
         if (state.plate) state.plate.remove();
         if (state.vignette) state.vignette.remove();
         states.delete(root);
@@ -672,5 +724,6 @@ export const BATTLE_FX_STYLE_TEXT = `
 @keyframes igs-battle-ink-slash{0%,55%{opacity:1;transform:rotate(var(--igs-slash-rot,28deg)) translateY(var(--igs-slash-shift,0px))}100%{opacity:0;transform:rotate(var(--igs-slash-rot,28deg)) translateY(var(--igs-slash-shift,0px)) translateX(3%) scaleY(.35)}}
 @keyframes igs-battle-ink-sweep{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 ${WUXIA_BATTLE_STYLE_TEXT}
+${CREATURE_BATTLE_STYLE_TEXT}
 @media (prefers-reduced-motion: reduce){#igs-stage-motion[data-igs-fx-battle-shake]{animation:none!important;}.igs-fx-battle-wipe,.igs-fx-battle-slash,.igs-fx-battle-spark,.igs-fx-battle-flash,.igs-fx-battle-hurt{display:none!important;}}
 `;

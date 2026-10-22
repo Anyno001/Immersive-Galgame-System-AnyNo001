@@ -100,6 +100,8 @@ export function normalizeAutoIllustrationSettings(value) {
             backgroundEnabled: bool(assets.backgroundEnabled),
             strictMatch: bool(assets.strictMatch),
             // 默认开：非白天先画白天底图，再复用底图种子换时间词出差分。
+            // 默认开：战斗对手不在名单里时自动建立临时非人档案。
+            creatureAutoProfile: !(assets.creatureAutoProfile === false || assets.creatureAutoProfile === 'false' || assets.creatureAutoProfile === 0 || assets.creatureAutoProfile === '0'),
             dayFirst: !(assets.dayFirst === false || assets.dayFirst === 'false' || assets.dayFirst === 0 || assets.dayFirst === '0'),
             maxPerFloor: clampInt(assets.maxPerFloor, 1, 16, 2),
             spriteSize: str(assets.spriteSize, '832x1216') || '832x1216',

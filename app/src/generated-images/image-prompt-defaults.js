@@ -1,4 +1,4 @@
-import { IMAGE_PROMPT_TASKS, PROMPT_DATA_FIELDS } from '../presets/prompt-preset.js';
+import { IMAGE_PROMPT_TASKS, PROMPT_DATA_FIELDS, completeMissingTaskModules } from '../presets/prompt-preset.js';
 import { promptDefaultState } from '../presets/prompt-default-operations.js';
 import { OUTPUT_RULE, SOURCE_RULE } from './prompt-tasks/common.js';
 import { SPRITE_TASK, SPRITE_DATA, SPRITE_TEMPLATE, SPRITE_CAPTION } from './prompt-tasks/sprite.js';
@@ -11,6 +11,7 @@ import { BACKGROUND_TASK, BACKGROUND_CAPTION, BACKGROUND_PLAN } from './prompt-t
 import { ITEM_TASK, ITEM_PLAN } from './prompt-tasks/item.js';
 import { CG_TASK, CG_TEMPLATE, CG_PLAN } from './prompt-tasks/cg.js';
 import { CONSISTENCY_TASK, CONSISTENCY_TEMPLATE } from './prompt-tasks/consistency.js';
+import { CREATURE_SPRITE_TASK, CREATURE_SPRITE_DATA_RULE, CREATURE_EXPRESSION_FRAGMENTS_RULE } from './prompt-tasks/creature.js';
 
 export const IMAGE_PROMPT_DEFAULT_ID = 'igs-imagegen-default-v1';
 export const IMAGE_PROMPT_DEFAULT_VERSION = 35;
@@ -31,7 +32,19 @@ const TASKS = {
     item: { content: ITEM_TASK, contentByFormat: { 'asset-plan': ITEM_PLAN } },
     cg: { content: CG_TASK, contentByFormat: { 'dna-template': CG_TEMPLATE, 'cg-plan': CG_PLAN } },
     consistency: { content: CONSISTENCY_TASK, contentByFormat: { 'dna-template': CONSISTENCY_TEMPLATE } },
+    // 非人角色立绘与姿态差分的写词规则：内置默认，用户可在提示词预设里改写。
+    creature: { content: CREATURE_SPRITE_TASK, contentByFormat: {
+        'sprite-data': CREATURE_SPRITE_DATA_RULE, 'expression-fragments': CREATURE_EXPRESSION_FRAGMENTS_RULE } },
 };
+
+const taskModule = (task) => ({ identifier: `igs-task-${task}`, task,
+    role: 'system', ...TASKS[task], enabled: true,
+    dataFields: [...PROMPT_DATA_FIELDS], requiredFields: ['description', 'outputs'] });
+
+// 旧预设没有非人任务条目时，读取时补入内置默认（只读，不写回；保存预设时一并写入）。
+export function completeImagePromptPreset(data) {
+    return completeMissingTaskModules(data, ['creature'].map(taskModule));
+}
 
 export function createDefaultImagePromptPreset() {
     const block = (identifier, role, kind, content) => ({ identifier, role, kind, content, enabled: true });
@@ -53,8 +66,6 @@ export function createDefaultImagePromptPreset() {
             variables: ['任务提示词', '任务资料', '世界书'], prompts,
             prompt_order: prompts.map(({ identifier }) => ({ identifier, enabled: true })),
             taskMap: Object.fromEntries(IMAGE_PROMPT_TASKS.map(task => [task, `igs-task-${task}`])),
-            modules: IMAGE_PROMPT_TASKS.map(task => ({ identifier: `igs-task-${task}`, task,
-                role: 'system', ...TASKS[task], enabled: true,
-                dataFields: [...PROMPT_DATA_FIELDS], requiredFields: ['description', 'outputs'] })),
+            modules: IMAGE_PROMPT_TASKS.map(taskModule),
         } });
 }

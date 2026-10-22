@@ -1,5 +1,6 @@
 // 角色 DNA：结构化文本角色资料的规范化、别名解析与提示词片段合并。
 // 数据位于 sceneAssets.characterDna，与情绪槽映射 sceneAssets.characters 并列，互不混入。
+import { normalizeCreatureProfile } from './creature-profile.js';
 
 export const CHARACTER_DNA_FIELDS = Object.freeze(['identity', 'defaultAppearance', 'negative', 'triggerWords', 'personality']);
 export const CHARACTER_DNA_REQUIRED_VIEWS = Object.freeze(['full_body', 'half_body', 'portrait']);
@@ -127,6 +128,9 @@ export function normalizeCharacterDna(raw) {
         if (field !== 'personality' || hasOwn(source, field)) dna[field] = cleanText(source[field]);
     }
     if (source.identityInitialized === true) dna.identityInitialized = true;
+    // 非人档案与 views 同级；缺省即人类，不产生该字段。
+    const creature = normalizeCreatureProfile(source.creature);
+    if (creature) dna.creature = creature;
     if (typeof source.identitySource === 'string' && source.identitySource) dna.identitySource = source.identitySource;
     if (source.version === 2) {
         dna.version = 2;
@@ -142,7 +146,7 @@ export function normalizeCharacterDna(raw) {
 }
 
 export function isCharacterDnaEmpty(dna) {
-    return CHARACTER_DNA_FIELDS.every((field) => !cleanText(dna?.[field]))
+    return CHARACTER_DNA_FIELDS.every((field) => !cleanText(dna?.[field])) && !normalizeCreatureProfile(dna?.creature)
         && CHARACTER_DNA_VIEWS.every((view) => !cleanText(dna?.views?.[view]?.subject));
 }
 

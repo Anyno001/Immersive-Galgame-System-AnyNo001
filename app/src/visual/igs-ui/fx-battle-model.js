@@ -2,6 +2,7 @@
 // fx 为 resolveFxAtPage 的结果（battle / battleStart / battleEnd / hits / userName）。
 import { isPlayerName } from '../../scene/battle-context.js';
 import { FALLBACK_HEAD, HEAD_ASPECT, spriteDrawRect } from './fx-anchor.js';
+import { annotateCreatureBattle } from './creature-battle-model.js';
 
 export const BATTLE_HIT_LABELS = Object.freeze({ hit: '', crit: '暴击！', miss: '闪避', guard: '格挡', ko: '击倒', heal: '恢复' });
 export const BATTLE_RESULT_LABELS = Object.freeze({
@@ -20,7 +21,8 @@ export const BATTLE_SKIP_RESULT_MS = 1800;
 
 export function normalizeBattleFxSettings(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
-    return { enabled: src.enabled === true, letterbox: src.letterbox !== false };
+    // creature：非人专属演出（威吓上台、受创 / 狂暴切档、前冲、消散、群怪、收服、音效），默认开。
+    return { enabled: src.enabled === true, letterbox: src.letterbox !== false, creature: !(src.creature === false || src.creature === 'false' || src.creature === 0 || src.creature === '0') };
 }
 
 const identityPart = (value) => String(value == null ? '' : value);
@@ -74,7 +76,9 @@ function scaled(ms, scale) {
 
 // 未开启、NSFW、聊天页或卡片页返回空计划；plate 为战斗进行中常驻的对手名牌，events 为本页一次性演出。
 // holdScale 来自演出风格的停留时间档位；spriteName 为当前立绘角色，用来判断目标是否在场；foeImage 为对手立绘的可显示地址；keyOf 把目标别名归一到角色主名（可选）。
-export function planBattleFx(fx, { settings, identity, nsfw = false, pageKind = 'text', holdScale = 1, spriteName = '', foeImage = '', castNames = [], keyOf = null } = {}) {
+// 非人对手（可选）：creatureOf(名字) 返回已确认非人的档案或 null；foes / foeTiers 为对手立绘与威吓 / 受创 / 狂暴三档图。不传 creatureOf 时与改动前逐项相同；
+// 传了但出手者、目标、对手都不是非人时同样原样返回，只有涉及非人角色的事件才带 creatures 字段，并可能多出 phase 事件与 plan.creature。
+export function planBattleFx(fx, { settings, identity, nsfw = false, pageKind = 'text', holdScale = 1, spriteName = '', foeImage = '', castNames = [], keyOf = null, creatureOf = null, foes = [], foeTiers = null } = {}) {
     const empty = { plate: null, letterbox: false, events: [], identity: null, totalMs: 0 };
     const config = normalizeBattleFxSettings(settings);
     if (!config.enabled || nsfw || pageKind !== 'text' || !fx) return empty;
@@ -109,13 +113,16 @@ export function planBattleFx(fx, { settings, identity, nsfw = false, pageKind = 
     }
     const last = events[events.length - 1];
     const plate = battle && !end ? battle : null;
-    return {
+    const plan = {
         plate,
         letterbox: Boolean(plate) && config.letterbox,
         events,
         identity: identity ? { ...identity } : null,
         totalMs: last ? last.at + last.life : 0,
     };
+    return typeof creatureOf === 'function'
+        ? annotateCreatureBattle(plan, fx, { creatureOf, keyOf, foes, foeImage: portrait, foeTiers, holdScale: scale, userName })
+        : plan;
 }
 
 // 冲击点落在目标立绘的上半身（头部下方约 1.3 个头高），夹在舞台内且不压对话框；立绘几何不可用时返回 null 走舞台默认位置。
@@ -138,8 +145,9 @@ export function resolveBattleFxPromptRule(enabled) {
     if (enabled !== true) return '';
     return `【战斗】正文出现战斗时使用，只有画面效果、不显示任何数值：
 
-1. [igs-fx:battle|对手名|对手称号] … [igs-fx:battle-end|结果]：包住整场战斗；称号可省略；结果只写 胜利／败北／撤退，战斗未分胜负就结束时可不写结果
-2. [igs-fx:hit|出手者|目标|招式名|效果]：一次攻击、技能或治疗；效果只写 命中／暴击／闪避／格挡／击倒／治疗，省略按命中处理，如[igs-fx:hit|爱丽丝|史莱姆|冰霜新星|暴击]；主角出手或被攻击时，出手者或目标写「我」
+1. [igs-fx:battle|对手名|对手称号] … [igs-fx:battle-end|结果]：包住整场战斗；称号可省略；有多个对手时用顿号并列，如[igs-fx:battle|哥布林头目、哥布林|围攻]；结果只写 胜利／败北／撤退，战斗未分胜负就结束时可不写结果
+2. [igs-fx:hit|出手者|目标|招式名|效果]：一次攻击、技能或治疗；效果只写 命中／暴击／闪避／格挡／击倒／治疗，省略按命中处理，如[igs-fx:hit|爱丽丝|史莱姆|冰霜新星|暴击]；主角出手或被攻击时，出手者或目标写「我」；目标是成群的同名杂兵时可写「哥布林们」
+3. [igs-fx:phase|对手名]：怪物、Boss 进入二阶段（狂暴、形态变化）时写一次，名字可省略（本场全部对手）；人类对手不用
 
 语法要求：
 1. 不要写伤害数字或血量
@@ -149,6 +157,7 @@ export function resolveBattleFxPromptRule(enabled) {
 }
 
 export const BATTLE_GRAMMAR_LINES = Object.freeze([
-    'battle|对手名|对手称号 … battle-end|结果：包住整场战斗，称号可省，结果只写 胜利/败北/撤退；跨多层时只在开战那层写 battle，battle-end 写在分出结果的那层',
-    'hit|出手者|目标|招式名|效果：一次攻击、技能或治疗，效果只写 命中/暴击/闪避/格挡/击倒/治疗，省略按命中；主角写「我」；不写伤害数字；每层最多3个；上条用户消息带检定结果时，大成功写暴击、大失败写闪避',
+    'battle|对手名|对手称号 … battle-end|结果：包住整场战斗，称号可省，结果只写 胜利/败北/撤退；多个对手用顿号并列（对手1、对手2）；跨多层时只在开战那层写 battle，battle-end 写在分出结果的那层',
+    'hit|出手者|目标|招式名|效果：一次攻击、技能或治疗，效果只写 命中/暴击/闪避/格挡/击倒/治疗，省略按命中；主角写「我」；成群杂兵作目标可写「哥布林们」；不写伤害数字；每层最多3个；上条用户消息带检定结果时，大成功写暴击、大失败写闪避',
+    'phase|对手名：怪物、Boss 进入二阶段（狂暴、形态变化）时写一次，名字可省（本场全部对手）；人类对手不用',
 ]);

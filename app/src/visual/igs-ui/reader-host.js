@@ -20,6 +20,7 @@ import { createStoryOutfitService } from '../../generated-images/illustration/st
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
+import { overlayStatsMetrics } from '../../scene/stats/stat-metrics.js';
 import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
@@ -56,6 +57,9 @@ import { SPRITE_BACK_MOOD } from './sprite-turn.js';
 import { isReactMoodHit } from '../../scene/react-mood.js';
 
 import { clearCastDom } from './stage-cast-render.js';
+import { hasGroupSuffix, sameFoeName, splitFoeNames } from '../../scene/creature-battle.js';
+import { foeIsDown } from './creature-battle-model.js';
+import { CREATURE_FOE_SLOTS, composeCreatureStage, creatureProfileOf, isGiantCreature, resolveCreatureFoes } from './creature-layout.js';
 import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe } from '../../scene/character-outfits.js';
 import { isStrictBackgroundMatch, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
@@ -776,6 +780,7 @@ export function createIgsReaderHost(options = {}) {
         if (!content) return [];
         return [content.backgroundImage, content.spriteImage, content.pendingSpriteRef, content.nsfwCgPortrait,
             content.fx && content.fx.foeImage,
+            content.giantSprite && content.giantSprite.image,
             ...(Array.isArray(content.castSprites) ? content.castSprites.map(member => member && member.image) : []),
             ...(Array.isArray(content.pendingCastRefs) ? content.pendingCastRefs : [])].filter(Boolean);
     }
@@ -3417,7 +3422,10 @@ export function createIgsReaderHost(options = {}) {
             const sceneAssets = (settings && settings._sceneAssets) || {};
             const readResult = statusHud.tables.length ? readStatusHudTables() : null;
             const info = sceneInfo && typeof sceneInfo === 'object' ? sceneInfo : {};
-            return withConcreteAvatar(buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor, parsedTables: statusHud.tables.length ? tableData.parsed() : [], rowFor: tableData.rowFor }));
+            const hud = buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor, parsedTables: statusHud.tables.length ? tableData.parsed() : [], rowFor: tableData.rowFor });
+            // 数值系统接管时，已登记角色的 HUD 条以 IGS 为准（易错点 H3）。
+            const statsLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
+            return withConcreteAvatar(overlayStatsMetrics(hud, statsLookup, speaker));
         };
         const readStatusHudTables = () => tableData.read();
         const render = payload.render || {};
@@ -3577,6 +3585,9 @@ export function createIgsReaderHost(options = {}) {
         let spriteBackArt = false;
         let nsfwCgPortrait = '';
         let castSprites = [];
+        // 非人角色：巨型候选（不占同屏槽位，渲染在立绘层后的独立层）与战斗对手。
+        let castGiants = [];
+        let creatureFoes = [];
         let pendingCastRefs = [];
         let spriteLeft = false;
         let speakerCastOrder = null;
@@ -3617,6 +3628,26 @@ export function createIgsReaderHost(options = {}) {
         const battleFoe = pageFx.battle && pageFx.battle.foe;
         if (battleContext && battleFoe && sceneAssets && sceneAssets.enabled) {
             pageFx.foeImage = resolveGenerated(floorAssets.sprite(battleFoe, '').url) || '';
+        }
+        // 非人对手（有 creature 档案；可写多个）：战斗未结束的页面自动上台，结束那一页也认得对手（击倒 / 败北 / 撤退演出）。
+        // 人类对手与待定档不取图、行为不变。二阶段后的页面基准立绘换成狂暴档；演出用的威吓 / 受创 / 狂暴三档图随 fx 带给战斗演出。
+        const creatureFoeRaw = battleFoe || (pageFx.battleOver && pageFx.battleOver.foe) || '';
+        if (creatureFoeRaw && sceneAssets && sceneAssets.enabled && !(readerSettings.battleFx && readerSettings.battleFx.creature === false)) {
+            const foeState = pageFx.battle || pageFx.battleOver || {};
+            creatureFoes = resolveCreatureFoes({
+                raw: creatureFoeRaw, dnaMap: sceneAssets.characterDna, canonical: (name) => canonicalName(sceneAssets, name),
+                spriteOf: (name, mood) => floorAssets.sprite(name, mood), resolve: resolveGenerated,
+                frenzy: foeState.frenzy, phases: pageFx.phases, withTiers: Boolean(battleContext),
+            });
+            // 本场战斗里已被击倒 / 收服的对手（群怪要所有身影都倒了）不再上台；本页自己的击倒与收服由演出播放。
+            creatureFoes = creatureFoes.filter((f) => !foeIsDown(pageFx, f.raw, {
+                group: f.profile.group === true || hasGroupSuffix(f.raw) || (pageFx.hits || []).some((h) => hasGroupSuffix(h.target) && sameFoeName(h.target, f.raw)),
+                size: f.profile.size,
+            }));
+            if (battleContext && creatureFoes.length) {
+                if (creatureFoes.length === 1 && splitFoeNames(creatureFoeRaw).length === 1) pageFx.foeTiers = creatureFoes[0].tiers;
+                else pageFx.foes = creatureFoes.map((f) => ({ name: f.raw, image: f.image, tiers: f.tiers }));
+            }
         }
         // NSFW 页整楼挂图；SFW 页只在事件那几页显示，之后回到背景和立绘。
         const illustrationHit = prepared.illustrations[normalizedIndex];
@@ -3766,6 +3797,11 @@ export function createIgsReaderHost(options = {}) {
                         }
                     }
                 }
+                // 巨型非人角色不进同屏槽位：说话人是巨型时，图交给巨型层。
+                if (spriteImage && isGiantCreature(creatureProfileOf(sceneAssets.characterDna, spriteCharacter))) {
+                    castGiants.push({ character: spriteCharacter, image: spriteImage, speaker: true });
+                    spriteImage = null;
+                }
                 if (!chatPage && normalizeStageCastSettings(readerSettings.stageCast).enabled) {
                     // 与同屏名单同一套主名换算（上传区 + 生成区）。
                     const castKeyOf = (name) => prepared.keyOf(name);
@@ -3790,6 +3826,10 @@ export function createIgsReaderHost(options = {}) {
                             }
                             const image = resolveGenerated(hit.url);
                             if (!image && isGeneratedAssetUrl(hit.url)) pendingCastRefs.push(hit.url);
+                            if (image && isGiantCreature(creatureProfileOf(sceneAssets.characterDna, hit.character || m.character))) {
+                                castGiants.push({ character: hit.character || m.character, image });
+                                return null;
+                            }
                             return image ? { character: hit.character || m.character, mood: hit.slot || m.mood, outfit: hit.outfit || '', image } : null;
                         },
                     });
@@ -3799,6 +3839,39 @@ export function createIgsReaderHost(options = {}) {
                     castSprites.push(...picked.members);
                 }
             }
+        }
+        // 非人角色编排：巨型取代、对手自动上台。没有非人角色时 composeCreatureStage 不会运行，人类页面原样。
+        let giantSprite = null;
+        let creatureFoePin = '';
+        const creatureStageOpen = sceneAssetsEnabled && htmlCardIndex < 0 && !chatPage && !slotBoundUrl && !cgActive && sceneAssets && sceneAssets.enabled
+            && !(sceneStateForBg && sceneStateForBg.nsfw && hideSpriteOnNsfw);
+        if (creatureStageOpen && (castGiants.length || (creatureFoes.length && !spriteLive2d))) {
+            const foeOne = creatureFoes.length === 1 ? creatureFoes[0] : null;
+            // 后来者取代：陪衬巨型 < 战斗对手巨型（多个时最后一个）< 说话人巨型。
+            const foeGiants = creatureFoes.filter((f) => f.image && isGiantCreature(f.profile) && !castGiants.some((g) => g.character === f.name))
+                .map((f) => ({ character: f.name, image: f.image }));
+            const giants = [...castGiants.filter((g) => !g.speaker), ...foeGiants, ...castGiants.filter((g) => g.speaker)];
+            const slotFoes = creatureFoes.filter((f) => f.image && !isGiantCreature(f.profile) && !spriteLive2d);
+            const speakerBefore = spriteImage ? { character: spriteCharacter, image: spriteImage, mood: spriteMood, outfit: spriteOutfit, order: speakerCastOrder } : null;
+            const composed = composeCreatureStage({
+                speaker: speakerBefore, members: castSprites, giants,
+                foe: foeOne && slotFoes.length ? { character: foeOne.name, image: foeOne.image, mood: '', outfit: '' } : null,
+                foes: foeOne ? [] : slotFoes.slice(0, CREATURE_FOE_SLOTS).map((f) => ({ character: f.name, image: f.image, mood: '', outfit: '' })),
+                castOn: normalizeStageCastSettings(readerSettings.stageCast).enabled,
+            });
+            if (composed.speaker !== speakerBefore) {
+                const next = composed.speaker;
+                spriteImage = next ? next.image : null;
+                if (next) {
+                    spriteCharacter = next.character;
+                    spriteMood = next.mood || '';
+                    spriteOutfit = next.outfit || '';
+                    speakerCastOrder = Number.isFinite(next.order) ? next.order : null;
+                }
+            }
+            castSprites = composed.members;
+            giantSprite = composed.giant;
+            creatureFoePin = composed.pin;
         }
         if (systemSpeaker && normalizeSystemRoleSettings(readerSettings.systemRole).showName) resolvedSpeaker = systemSpeaker;
         if (systemOnlyChat) {
@@ -3890,6 +3963,8 @@ export function createIgsReaderHost(options = {}) {
                 spriteMatch,
                 backgroundMatch,
                 castSprites,
+                giantSprite,
+                creatureFoePin,
                 userChar: { key: prepared.userKey || '', source: prepared.userSource || '' },
                 pendingCastRefs,
                 speakerCastOrder,
@@ -4155,6 +4230,8 @@ export function createIgsReaderHost(options = {}) {
             subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
             getTheme: () => resolveRenderConfig(state.activeReader ? state.activeReader.mode : 'default').bridge.settingsTheme,
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
+            // 数值系统接管已登记角色的人物数值；未接管时返回 null，人际关系页照旧读表格。
+            statsLookup: () => (typeof options.statsLookup === 'function' ? options.statsLookup() : null),
         });
         const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
             mediaCache: options.media?.cache,

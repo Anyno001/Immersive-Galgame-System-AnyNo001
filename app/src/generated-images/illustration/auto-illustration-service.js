@@ -17,6 +17,7 @@ import { floorKeyOf } from '../../media/illustration-store.js';
 import { resolveCharacterKey, stripIllustrationMarker, stripIllustrationMarkers } from '../../scene/scene-directives.js';
 import { buildCharacterDnaPromptParts, isCharacterDnaEmpty, mergePromptTags, resolveCharacterDna } from '../../scene/character-dna.js';
 import { CG_PIXEL_CAP, clampToPixelCap, fitCgSize, parseCgSize } from './cg-pixel-cap.js';
+import { withCreatureCast } from './creature-cg.js';
 import { cgCharacterState, bindCgCaption, cgPromptTask, preflightCgCaption, cgPaintRequests, cgFinalRequest, completedCgOutfitAnchor } from './cg-character-bindings.js';
 import { cgGenerationSeed } from '../../scene/generation-seeds.js';
 import { isImageSeed, resolveImageSeed } from '../image-seed.js';
@@ -342,7 +343,7 @@ export function createAutoIllustrationService(deps) {
             return { ok: false, reason: 'backend-unavailable', error };
         }
         const sceneAssets = JSON.parse(JSON.stringify(readSceneAssets()));
-        const characters = numberParagraphs(floor.text).characters;
+        const characters = withCreatureCast(numberParagraphs(floor.text).characters, floor.text, sceneAssets);
         const outfitScope = deps.captureCgOutfitScope?.(characters);
         const characterState = cgCharacterState(floor.text, characters, sceneAssets,
             typeof messageHost.readPreviousAiTexts === 'function'
@@ -586,7 +587,7 @@ export function createAutoIllustrationService(deps) {
         if (!request.preflightFailure && (request.caption || request.scene)) return request;
         return recover(floor, async () => {
             const text = messageHost.readFloor(floor.messageId)?.text || floor.text;
-            const state = cgCharacterState(text, numberParagraphs(text).characters, readSceneAssets(),
+            const state = cgCharacterState(text, withCreatureCast(numberParagraphs(text).characters, text, readSceneAssets()), readSceneAssets(),
                 messageHost.readPreviousAiTexts?.(floor.messageId, 3) || [], deps.readOutfitClues);
             const context = request.characterContext?.length ? request.characterContext : state.context;
             const template = nai.describe?.().mode === 'nai';
@@ -778,12 +779,14 @@ export function createAutoIllustrationService(deps) {
         await store.putFloor(key, { ...base, status: 'planning', updatedAt: now() });
         let plan;
         const sceneAssets = structuredClone(readSceneAssets());
-        const profiles = numbered.characters.map(name => resolveCharacterDna(sceneAssets.characterDna, name, key =>
+        // 已登记的非人角色（战斗对手等）即使没有说话标签也并入可出镜池；纯人类楼层原样不变。
+        const cast = withCreatureCast(numbered.characters, floor.text, sceneAssets);
+        const profiles = cast.map(name => resolveCharacterDna(sceneAssets.characterDna, name, key =>
             resolveCharacterKey(sceneAssets.characters || {}, sceneAssets.characterAliases || {}, key))?.dna);
         const template = backend.mode === 'nai' && (profiles.some(dna => dna?.version === 2)
             || profiles.every(dna => usesCharacterTemplates(nai, dna)));
-        const outfitScope = deps.captureCgOutfitScope?.(numbered.characters);
-        const characterState = template ? cgCharacterState(floor.text, numbered.characters, sceneAssets,
+        const outfitScope = deps.captureCgOutfitScope?.(cast);
+        const characterState = template ? cgCharacterState(floor.text, cast, sceneAssets,
             messageHost.readPreviousAiTexts(messageId, 3), deps.readOutfitClues) : null;
         const task = template ? cgPromptTask(characterState.context, { outfitSelection: 'catalog' }) : null;
         try {
@@ -791,7 +794,7 @@ export function createAutoIllustrationService(deps) {
                 .map(toReadableText).join('\n');
             const user = buildPlannerUserPrompt({
                 numberedText: formatNumberedParagraphs(numbered.paragraphs),
-                scenes: numbered.scenes, characters: numbered.characters,
+                scenes: numbered.scenes, characters: cast,
                 previousText, want: decision.want, exact: decision.exact, isNsfw: numbered.isNsfw,
                 characterDna: template ? [] : summarizeCharacterDna(numbered.characters, sceneAssets),
                 outfits,

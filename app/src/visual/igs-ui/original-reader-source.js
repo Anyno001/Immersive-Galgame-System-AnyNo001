@@ -12,6 +12,7 @@ import { NOTIFY_CENTER_STYLE_TEXT } from './notify-center-style.js';
 import { SPAM_SMS_STYLE_TEXT } from './spam-sms-style.js';
 import { STAGE_DIRECTION_STYLE_TEXT } from './stage-direction-style.js';
 import { STAGE_CAST_STYLE_TEXT } from './stage-cast-render.js';
+import { CREATURE_LAYOUT_STYLE_TEXT } from './creature-layout.js';
 import { SCENE_GRADE_STYLE_TEXT } from './scene-grade.js';
 import { ROMANCE_STYLE_TEXT } from './romance-style.js';
 import { INTIMATE_STYLE_TEXT } from './romance-intimate-style.js';
@@ -435,6 +436,7 @@ ${SPRITE_TURN_STYLE_TEXT}
 ${FX_STYLE_TEXT}
 ${STAGE_DIRECTION_STYLE_TEXT}
 ${STAGE_CAST_STYLE_TEXT}
+${CREATURE_LAYOUT_STYLE_TEXT}
 ${SCENE_GRADE_STYLE_TEXT}
 ${ROMANCE_STYLE_TEXT}
 ${INTIMATE_STYLE_TEXT}

@@ -1,4 +1,5 @@
 import { normalizePhoneWallpaper } from './my-phone.js';
+import { normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizePromptEntry } from '../../scene/prompt-entries.js';
 import { isPackSwitchPath } from '../../scene/fx-packs.js';
 import { defaultPromptKeywords } from '../../scene/prompt-triggers.js';
@@ -76,6 +77,9 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.metaFx\.(enabled|poke|hover|reading|clock|festivals|digest)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.comicMode\.(enabled|frame|keepPrev|tail)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.(mangaBack\.enabled|crowdFx\.(enabled|react)|notifyCenter\.enabled)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.creatureDisplay\.(enabled|giantFill)$/.test(path) || path === 'readerSettings.battleFx.creature') return !(value === false || value === 'false' || value === 0 || value === '0');
+        const creatureScale = path.match(/^readerSettings\.creatureDisplay\.(small|medium|large)$/);
+        if (creatureScale) return normalizeCreatureDisplaySettings({ [creatureScale[1]]: value })[creatureScale[1]];
         if (path === 'readerSettings.comicMode.palette') return value === 'color' ? 'color' : 'mono';
         if (path === 'readerSettings.comicMode.line') return ['thin', 'medium', 'bold'].includes(value) ? value : 'medium';
         if (path === 'readerSettings.comicMode.inputStyle') return value === 'plain' ? 'plain' : 'comic';
@@ -132,7 +136,7 @@ export function normalizeSettingsValue(path, value) {
     if (path === 'bridge.sceneAssets.promptAdaptive') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (path === 'bridge.sceneAssets.wardrobeAutoFlow') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (path === 'bridge.sceneAssets.promptRuleEnabled') return !(value === false || value === 'false' || value === 0 || value === '0');
-    if (path === 'bridge.autoIllustration.assets.dayFirst') return !(value === false || value === 'false' || value === 0 || value === '0');
+    if (path === 'bridge.autoIllustration.assets.dayFirst' || path === 'bridge.autoIllustration.assets.creatureAutoProfile') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|backfillOldFloors|assets\.(spriteEnabled|outfitAutoGenerate|backgroundEnabled|strictMatch))$/.test(path)) {
         return value === true || value === 'true' || value === 1 || value === '1';
     }

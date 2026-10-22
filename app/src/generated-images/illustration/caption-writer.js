@@ -8,6 +8,8 @@ import { checkPromptTask } from '../../schemas/prompt-recipe.js';
 import { spriteIdentityRequirements, characterWritingContext, expressionWritingInput } from './character-prompt-task.js';
 import { EXPRESSION_TASK, EXPRESSION_FRAGMENTS } from '../prompt-tasks/expression.js';
 import { SPRITE_DATA_RULE, parseSpriteData } from './sprite-data.js';
+import { CREATURE_SPRITE_DATA_RULE, CREATURE_EXPRESSION_FRAGMENTS_RULE, CREATURE_PRIORITY_NOTE, creatureCgRule } from '../prompt-tasks/creature.js';
+import { creatureOf } from '../../scene/creature-profile.js';
 import { prepareImageWritingRequest } from '../image-prompt-runtime.js';
 import { imageWritingContext } from '../image-prompt-context.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
@@ -189,6 +191,16 @@ async function writeTemplateCaptions(llm, llmSettings, meta) {
             : `完整画面提示词的 scene 写明 ${meta.writingRequirements.transparent ? 'transparent background' : 'white background'}。`;
         description = `${ground}\n${deliver}\n${description}`;
     }
+    // 非人角色：规则随任务描述发送（内置预设的任务模块按人类衣装与表情撰写，不改预设结构），并声明优先于模块条款。
+    const creatureSystem = dataOnly && Array.isArray(meta.characterContext) && meta.characterContext.length > 0
+        && meta.characterContext.every(c => creatureOf(c.dna))
+        ? (meta.outputs?.format === 'expression-fragments' ? CREATURE_EXPRESSION_FRAGMENTS_RULE : CREATURE_SPRITE_DATA_RULE) : '';
+    // 走预设装配时规则在预设的非人任务条目里（可编辑）；旧的独立调用仍把规则随描述发送。
+    const creaturePreset = Boolean(creatureSystem) && typeof llm.prepareImagePrompt === 'function';
+    if (creatureSystem && !creaturePreset) description = [CREATURE_PRIORITY_NOTE, creatureSystem, description].join('\n');
+    // 非人角色 CG 出镜：角色池里有已登记的非人角色时附加专属规则；纯人类池得到空串，描述不变。
+    const creatureCg = task.value.purpose === 'cg' ? creatureCgRule(meta.characterContext) : '';
+    if (creatureCg) description = [creatureCg, description].join('\n');
     const stale = () => meta.signal?.aborted || (typeof meta.shouldStart === 'function' && !meta.shouldStart());
     if (stale()) return { ok: false, reason: 'request-stale', error: '任务已取消或目标失效' };
     const frozenContext = structuredClone(meta.characterContext);
@@ -237,11 +249,11 @@ async function writeTemplateCaptions(llm, llmSettings, meta) {
                 } }) };
     }
     const reprepare = () => prepareImageWritingRequest(llm,
-        meta.imagePromptTask || (task.value.purpose === 'derived' ? 'expression' : task.value.purpose),
+        creaturePreset ? 'creature' : meta.imagePromptTask || (task.value.purpose === 'derived' ? 'expression' : task.value.purpose),
         { ...modelInput, ...(meta.signal && { signal: meta.signal }),
             ...(meta.shouldStart && { shouldStart: meta.shouldStart }) },
-        { system: fragments ? [EXPRESSION_TASK, EXPRESSION_FRAGMENTS].join('\n')
-            : dataOnly ? SPRITE_DATA_RULE : meta.systemPrompt || DNA_TEMPLATE_WRITER_SYSTEM,
+        { system: creatureSystem || (fragments ? [EXPRESSION_TASK, EXPRESSION_FRAGMENTS].join('\n')
+            : dataOnly ? SPRITE_DATA_RULE : meta.systemPrompt || DNA_TEMPLATE_WRITER_SYSTEM),
             user: fragments ? JSON.stringify(modelInput)
                 : description + '\n本次任务与角色资料（仅作输入，不输出 JSON）：\n' + JSON.stringify({ ...input, outputs }) });
     const prepared = await reprepare();

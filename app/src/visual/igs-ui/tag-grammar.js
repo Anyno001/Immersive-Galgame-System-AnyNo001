@@ -1,6 +1,7 @@
 import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, dlcFxGrammarLines, fxDetailedBlock, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, resolveBgmPromptRule, resolveCameraPromptRule, resolveDlcFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
 import { campusDetailedBlock, campusGrammarLines, courtesyDetailedBlock, courtesyGrammarLines,dailyDetailedBlock, dailyGrammarLines, packDetailedBlock, packGrammarLines, playDetailedBlock, playGrammarLines, wardrobeDetailedBlock, wardrobeGrammarLines } from './fx-daily-prompt.js';
 import { BATTLE_GRAMMAR_LINES, resolveBattleFxPromptRule } from './fx-battle-model.js';
+import { CREATURE_GRAMMAR_LINES, resolveCreatureFxPromptRule } from './fx-creature-model.js';
 import { resolveTextFxPromptRule, textFxGrammarBlock } from './text-fx.js';
 import { bilingualGrammarBlock, normalizeBilingualSettings } from './bilingual-text.js';
 import { normalizeChatShowSettings, resolveChatShowGrammar, resolveChatShowPromptRule } from './chat-show-runtime.js';
@@ -114,6 +115,9 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
     if (plain(rs.battleFx).enabled === true) {
         blocks.push({ key: 'battle', adaptive: true, full: fxBlock('战斗', BATTLE_GRAMMAR_LINES, '，只有画面效果不显示数值，非战斗场景不用'), index: '战斗 igs-fx:battle/battle-end/hit' });
     }
+    if (plain(rs.battleFx).enabled === true) {
+        blocks.push({ key: 'creature', adaptive: true, full: fxBlock('非人角色', CREATURE_GRAMMAR_LINES, '，仅非人角色首次出场或体型变化时用'), index: '非人角色 igs-fx:creature' });
+    }
     const romanceLines = romanceGrammarLines(rs.romanceFx);
     if (romanceLines.length) {
         const extra = ['romance', ...(plain(rs.romanceFx).confess === true ? ['confess'] : []), ...(plain(rs.romanceFx).memories === true ? ['memory'] : []), ...(plain(rs.romanceFx).senses !== false ? ['sense'] : []), ...(plain(rs.romanceFx).solo !== false ? ['solo', 'noise'] : [])];
@@ -149,6 +153,7 @@ const DETAILED_BUILDERS = Object.freeze({
     campus: (rs) => campusDetailedBlock(rs.dailyFx),
     ...Object.fromEntries(FX_PACKS_ACTIVE.map((pack) => [packBlockKey(pack.id), (rs) => packDetailedBlock(rs.dailyFx, pack.id)])),
     battle: () => resolveBattleFxPromptRule(true),
+    creature: () => resolveCreatureFxPromptRule(true),
     romance: (rs) => resolveRomanceFxPromptRule(rs.romanceFx),
     cast: (rs) => resolveStageCastFxPromptRule(rs.stageCast),
     camera: (rs) => resolveCameraPromptRule(rs.camera),

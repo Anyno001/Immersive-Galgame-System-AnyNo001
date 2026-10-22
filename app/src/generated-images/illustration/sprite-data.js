@@ -4,6 +4,7 @@ import { isValidOutfitName } from '../../scene/character-outfits.js';
 import { savedExpressionTemplate, bindAutoSpriteOutfitNames } from './character-prompt-task.js';
 import { checkPromptOutput, checkPromptTask } from '../../schemas/prompt-recipe.js';
 import { DNA_WEIGHT_RULE, OUTFIT_HALF_BODY_RULE } from '../prompt-tasks/common.js';
+import { creatureOf } from '../../scene/creature-profile.js';
 
 export const SPRITE_DATA_RULE = [
     '仅 outputs.format 为 sprite-data 或 expression-fragments 时执行本段：只提取可复用资料，不生成 scene、char、构图、姿势、背景或完整绘图提示词。其他格式不执行本段。',
@@ -47,8 +48,11 @@ export function parseSpriteData(text, meta) {
     const implicitSlot = !fragments && task.value.purpose === 'sprite' && task.value.characters.length === 1
         && slots.length === 1 && slots[0].tokens.length === 1
         && slots[0].tokens[0] === task.value.characters[0].token ? slots[0] : undefined;
+    // 非人角色另有待机姿态字段 pose / pose_uc，没有衣装字段要求。
+    const creaturePose = !fragments && meta.characterContext?.some(c => creatureOf(c.dna));
     const allowed = new Set(['slotid', 'character', ...(fragments ? ['expression', 'expression_uc']
-        : ['outfit_name', 'outfit_description', 'outfit_half_body', 'personality', ...viewFields])]);
+        : ['outfit_name', 'outfit_description', 'outfit_half_body', 'personality', ...viewFields,
+            ...(creaturePose ? ['pose', 'pose_uc'] : [])])]);
     const rows = new Map();
     let row;
     for (const [index, line] of String(text || '').split(/\r?\n/).entries()) {
@@ -86,9 +90,11 @@ function assembleSpriteData(rows, meta, fragments, slots) {
         if (!source || row.character !== character.characterKey) return fail('character', 'mismatch');
         const data = fragments ? readExpression(row) : readIdentity(row, source, task.purpose);
         if (!data.ok) return locateFailure(data, row);
+        // 非人角色的默认姿态来自写词的 pose，缺省时由程序模板取物种待机词。
+        if (!fragments && creatureOf(source.dna) && row.pose?.trim()) data.expression = { positive: row.pose, negative: row.pose_uc || '' };
         const half = data.outfit?.descriptionHalfBody || source.outfit?.descriptionHalfBody
             || source.outfits?.find(o => o.name === data.outfit?.name)?.descriptionHalfBody;
-        if (!fragments && meta.imagePromptTask !== 'dna' && character.framing === 'half_body' && !half?.trim())
+        if (!fragments && meta.imagePromptTask !== 'dna' && character.framing === 'half_body' && !half?.trim() && !creatureOf(source.dna))
             return locateFailure(fail('outfit_half_body', 'missing'), row);
         const built = savedExpressionTemplate([{ ...source, outfit: data.outfit || source.outfit }], '平和', meta.userPrompts, {
             purpose: task.purpose, framing: character.framing, slotId: slot.slotId, promptTask: task,
@@ -109,10 +115,12 @@ function readExpression(row) {
 }
 
 function readIdentity(row, source, purpose) {
-    if (!isValidOutfitName(row.outfit_name) || !validText(row.outfit_description)) return fail('outfit');
-    const outfit = { name: row.outfit_name, description: row.outfit_description,
+    // 非人角色没有衣装：不要求衣装字段，也不进入衣柜。
+    const creature = Boolean(creatureOf(source.dna));
+    if (!creature && (!isValidOutfitName(row.outfit_name) || !validText(row.outfit_description))) return fail('outfit');
+    const outfit = creature ? { name: '', description: '' } : { name: row.outfit_name, description: row.outfit_description,
         ...(row.outfit_half_body !== undefined && { descriptionHalfBody: row.outfit_half_body }) };
-    const saved = source.outfits?.find(o => o.name === outfit.name) || (source.outfit?.name === outfit.name ? source.outfit : undefined);
+    const saved = creature ? undefined : source.outfits?.find(o => o.name === outfit.name) || (source.outfit?.name === outfit.name ? source.outfit : undefined);
     // DNA-only 仍兼容原资料协议；立绘／换装的新资料不能静默退回带鞋袜的完整服装。
     if (!outfit.descriptionHalfBody?.trim() && !saved?.descriptionHalfBody?.trim()
         && row.outfit_half_body !== undefined) return fail('outfit_half_body', 'missing');

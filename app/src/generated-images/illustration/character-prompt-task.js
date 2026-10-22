@@ -5,11 +5,14 @@ import { readDefaultOutfit } from '../../scene/character-appearance.js';
 import { isValidOutfitName } from '../../scene/character-outfits.js';
 import { inheritImageTaskLease } from '../image-task-runtime.js';
 import { checkPromptRecipe, checkRecipeCharacterMeta } from '../../schemas/prompt-recipe.js';
+import { creatureFraming, creatureOf } from '../../scene/creature-profile.js';
+import { BUILTIN_PROMPTS } from '../prompt-registry.js';
 
 export const usesCharacterTemplates = (backend, dna) => {
     const mode = backend?.describe?.().mode;
     if (mode !== 'nai') return false;
-    return !hasLegacyCharacterIdentity(dna);
+    // 非人角色没有旧版完整词存档，始终走资料模板。
+    return !hasLegacyCharacterIdentity(dna) || Boolean(creatureOf(dna));
 };
 
 // 写词输入与采用基线分离：旧服装仅留在本地原始快照，不交给模型选衣。
@@ -37,7 +40,8 @@ export function expressionWritingInput(task, context) {
         if (!view.ok) return view;
         characters.push({ characterKey: character.characterKey, dna: view.value,
             outfit: { name: source.outfit?.name || '', description: character.framing === 'half_body'
-                ? source.outfit?.descriptionHalfBody || source.outfit?.description || '' : source.outfit?.description || '' } });
+                ? source.outfit?.descriptionHalfBody || source.outfit?.description || '' : source.outfit?.description || '' },
+            ...(creatureOf(source.dna) && { creature: creatureOf(source.dna) }) });
     }
     return { ok: true, value: { characterContext: characters,
         outputs: { format: 'expression-fragments', rows: slots.map(slot => ({ slotId: slot.slotId,
@@ -46,10 +50,13 @@ export function expressionWritingInput(task, context) {
 
 export function characterPromptTask(context, purpose, framing, slotKeys) {
     const characterContext = structuredClone(context);
+    // 非人角色按体型取景，并且不使用衣装模板；同一任务内不混入人类角色。
+    const creature = ['sprite', 'derived'].includes(purpose) && characterContext.length > 0
+        && characterContext.every(c => creatureOf(c.dna));
     const characters = characterContext.map((c, index) => ({ characterKey: c.characterKey,
-        token: `r${index.toString(36)}`, framing }));
+        token: `r${index.toString(36)}`, framing: creature ? creatureFraming(c.dna.creature) : framing }));
     const byKey = new Map(characters.map((c) => [c.characterKey, c.token]));
-    return { characterContext, promptTask: { version: 1, mode: 'dna_template', purpose, outfitMode: 'template', characters,
+    return { characterContext, promptTask: { version: 1, mode: 'dna_template', purpose, ...(!creature && { outfitMode: 'template' }), characters,
         ...(slotKeys && { slots: slotKeys.map((keys, index) => ({ slotId: index + 1,
             tokens: keys.map((key) => byKey.get(key)) })) }) } };
 }
@@ -121,7 +128,9 @@ export function savedExpressionTemplate(context, mood, prompts, { expression,
     const saved = source.outfits?.find(o => o.name === outfit?.name);
     const clothing = outfit?.description || saved?.description;
     const half = outfit?.descriptionHalfBody ?? saved?.descriptionHalfBody;
-    if (!clothing?.trim()) return { ok: true, available: false };
+    // 非人角色没有衣装：跳过衣柜与换装，不报缺字段。
+    const creature = creatureOf(source.dna);
+    if (!clothing?.trim() && !creature) return { ok: true, available: false };
     const task = characterPromptTask(context, purpose, framing, [[source.characterKey]]);
     if (promptTask) {
         const original = promptTask.characters.find(c => c.characterKey === source.characterKey);
@@ -131,12 +140,12 @@ export function savedExpressionTemplate(context, mood, prompts, { expression,
     task.promptTask.slots[0].slotId = slotId;
     const binding = { kind: 'named', ...task.promptTask.characters[0], captionIndex: 0 };
     const centers = [{ x: 0.5, y: 0.5 }];
-    const tags = expression?.positive ?? 'calm, relaxed, closed mouth';
+    const tags = expression?.positive ?? (creature ? BUILTIN_PROMPTS[creature.form === 'humanoid' ? 'creatureHumanoid' : 'creatureBeast'].defaultPose : 'calm, relaxed, closed mouth');
     const fragment = expression === undefined ? undefined : {
         positive: String(expression.positive || ''), negative: String(expression.negative || '') };
     const caption = {
         v4_prompt: { caption: { base_caption: prompts.positive, char_captions: [{
-            char_caption: `<<dna:${binding.token}>> <<outfit:${binding.token}>> ${tags}`,
+            char_caption: creature ? `<<dna:${binding.token}>>, ${tags}` : `<<dna:${binding.token}>> <<outfit:${binding.token}>> ${tags}`,
             centers,
         }] } },
         v4_negative_prompt: { caption: { base_caption: prompts.negative, char_captions: [{
@@ -144,10 +153,10 @@ export function savedExpressionTemplate(context, mood, prompts, { expression,
         }] } },
     };
     return { ok: true, available: true, value: { slotId, caption,
-        promptRecipe: { version: 1, mode: 'dna_template', outfitMode: 'template',
+        promptRecipe: { version: 1, mode: 'dna_template', ...(!creature && { outfitMode: 'template' }),
             caption, bindings: [binding] },
         characterMeta: { version: 1, characters: [{ characterKey: source.characterKey,
-            captionIndex: 0, identityAnchor: '', signatureDetails: '', outfit: { name: outfit.name, description: clothing,
+            captionIndex: 0, identityAnchor: '', signatureDetails: '', outfit: { name: creature ? outfit?.name || '' : outfit.name, description: creature ? clothing || '' : clothing,
                 ...(half !== undefined && { descriptionHalfBody: half }) },
             centers, positionExplicit: true }] },
         promptTask: task.promptTask,

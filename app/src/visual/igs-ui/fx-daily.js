@@ -31,6 +31,8 @@ import { playSpriteSpec } from './sprite-actions.js';
 import { resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { normalizeCameraSettings } from './fx-camera-model.js';
 import { groundHintsOf } from './fx-camera-ground.js';
+import { resolveCharacterKey } from '../../scene/scene-directives.js';
+import { creatureProfileOf } from './creature-layout.js';
 import { FX_PACK_AMBIENCE_HTML, FX_PACK_BUILDERS, FX_PACK_STILL_KINDS, resolvePackAmbience } from '../../scene/fx-packs.js';
 
 export const DAILY_FX_LIFETIME_MS = Object.freeze({
@@ -56,12 +58,20 @@ function getState(root, ctx) {
     return state;
 }
 
+// 收服后保持消失的立绘动画：翻页时取消，立绘随新一页恢复。
+function releaseHolds(state) {
+    if (!state.holds) return;
+    for (const anim of state.holds) { try { anim.cancel(); } catch { /* 已结束 */ } }
+    state.holds.clear();
+}
+
 function clearTransients(state) {
     state.mainGen += 1;
     state.mainBusy = false;
     state.mainQueue.length = 0;
     for (const node of state.transients) removeNode(node);
     state.transients.clear();
+    releaseHolds(state);
 }
 
 // 主卡类演出（占画面中央的大卡 / 整屏演出）：同页只允许一张在场，后到者排队等前者退场。
@@ -974,13 +984,22 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
         ? ctx.playSfx
         : (kind) => { try { playDailySfx(kind, sound, { audioScheduler: ctx.audioScheduler }); } catch { /* 无音频环境 */ } };
     const env = {
-        root, doc: layers.doc, layers, reduced, play, messageId: snapshot.messageId, hold: FX_HOLD_SCALE[style.hold] || 1,
+        root, doc: layers.doc, layers, reduced, play,
+        holdAnim: (anim) => { if (!state.holds) state.holds = new Set(); state.holds.add(anim); }, messageId: snapshot.messageId, hold: FX_HOLD_SCALE[style.hold] || 1,
         ancient: readerSettings._ancientEra === true,
         worldview: String(readerSettings._worldview || ''),
         onPhoto: settings.photoAlbum ? ctx.onPhoto : null,
         sprite: ctx.sprite || null,
         cast: Array.isArray(ctx.cast) ? ctx.cast : [],
         speaker: String(content.spriteCharacter || content.speaker || '').trim(),
+        // 已确认的非人角色档案（别名归一后按主名查）；没有角色档案时恒为 null，演出走人类原有分支。
+        creatureOf: (name) => {
+            const assets = readerSettings._sceneAssets;
+            const dna = assets && typeof assets === 'object' ? assets.characterDna : null;
+            const raw = String(name || '').trim();
+            if (!dna || !raw || (readerSettings.battleFx && readerSettings.battleFx.creature === false)) return null;
+            return creatureProfileOf(dna, resolveCharacterKey(assets.characters, assets.characterAliases, raw) || raw);
+        },
         sceneTime: content.sceneTime,
         // 面板类卡片可选跟随对话框皮肤（dailyFx.panelSkin，默认关）：传给 buildPanel 的 skin。
         panelSkin: settings.panelSkin === true ? String(readerSettings.dialogSkin || '') : '',

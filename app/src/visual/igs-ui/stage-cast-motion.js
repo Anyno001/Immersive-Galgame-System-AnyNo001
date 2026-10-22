@@ -1,4 +1,5 @@
 import { spriteDrawRect } from './fx-anchor.js';
+import { planCreatureEntry, relieveCreatureCrowding } from './creature-layout.js';
 
 export const CAST_ENTER_MS = 340;
 export const CAST_MOVE_MS = 420;
@@ -92,6 +93,13 @@ export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker
     };
     const finish = (entry) => {
         const e = entry || {};
+        // 非人角色（entry.creature）：体型、悬浮、溢出对齐交给 creature-layout，下面的人类计算不经过。
+        if (e.creature) {
+            const probedCreature = sized && e.url ? peek(e.url) : null;
+            const planned = planCreatureEntry({ stageW, stageH, align, entry: e, probed: probedCreature });
+            if (planned.pending) remember(e.url);
+            return planned.entry;
+        }
         const probed = sized && e.url ? peek(e.url) : null;
         const centerX = Number(e.centerX);
         const hasCenter = Number.isFinite(centerX);
@@ -108,11 +116,13 @@ export function planCastLayouts({ stageW = 0, stageH = 0, align = false, speaker
         }
         return next;
     };
-    return {
+    const planned = {
         speaker: speaker ? finish(speaker) : null,
         members: (members || []).map(finish),
         pending,
     };
+    // 窄舞台上放大的非人条目不得被相邻人物的头部盖住（没有非人条目时原样返回）。
+    return roster.some((e) => e && e.creature) ? relieveCreatureCrowding({ stageW, stageH, align, peek, ...planned }) : planned;
 }
 
 // 说话人横向平移（收成单人 / 回到多人时复用）；位置没变或无动画能力时返回 false。

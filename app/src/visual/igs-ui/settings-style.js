@@ -155,6 +155,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-switch.is-on{color:var(--igs-settings-ink);background:var(--igs-settings-highlight)}
 .igs-switch.is-on i{background:var(--igs-settings-accent)}
 .igs-switch.is-on i:after{left:14px;background:var(--igs-settings-on-accent)}
+.igs-switch[disabled]{opacity:.5;cursor:not-allowed;pointer-events:none}
 .igs-source-filter{grid-column:1/-1;padding:14px 16px 16px;border:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-surface);display:flex;flex-direction:column;gap:14px;min-width:0;max-width:100%;box-sizing:border-box}
 .igs-source-filter-title{font-size:13px;line-height:20px;font-weight:600;letter-spacing:.04em;color:var(--igs-settings-ink)}
 .igs-source-filter-note{font-size:11px;line-height:16px;font-weight:400;color:var(--igs-settings-ink-4);overflow-wrap:anywhere}

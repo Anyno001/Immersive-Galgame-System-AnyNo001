@@ -42,6 +42,9 @@ import { isStatusHudPhone, renderStatusHudPositionField, statusHudPositionDevice
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
+import { CREATURE_DISPLAY_RANGE, normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
+import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
+import { renderStatsArchive, renderStatsBuildFields, renderStatsMappingFields, renderStatsPromptFields } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
@@ -184,6 +187,43 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const reader = draft.readerSettings;
 
         const advancedOpen = (key) => (isOpenKey(key) ? ' open' : '');
+
+        // 数值系统页：总开关关闭时下方整块隐藏，只留一行说明（§10）。
+        const statsValues = memo(() => {
+            const stats = normalizeStatsSettings(bridge.stats);
+            let chat = null;
+            try { chat = typeof options.statsChat === 'function' && !idx ? options.statsChat() : null; } catch (error) { chat = null; }
+            const chatReady = Boolean(stats.enabled && chat && chat.hasChat && !chat.blocked);
+            const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里启用。'
+                : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
+                    : chat.enabled ? '本聊天已启用。暂停后数值冻结、不结算，存档保留。' : '本聊天尚未启用数值系统。';
+            return {
+                statsToggle: checkbox('bridge.stats.enabled', stats.enabled, '启用数值系统'),
+                statsOffNoteHidden: hiddenAttr(stats.enabled),
+                statsHidden: hiddenAttr(!stats.enabled),
+                autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '自动判断检定技能（关闭后不做先掷后写）'),
+                intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '亲密门槛（好感与信任不够时角色会拒绝）'),
+                registerField: field('bridge.stats.register', '重要角色登记', selectInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']])),
+                hudLabelField: field('bridge.stats.hudLabel', '好感条右侧', selectInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']])),
+                barsFields: checkbox('bridge.stats.bars.stamina', stats.bars.stamina, '体力')
+                    + checkbox('bridge.stats.bars.money', stats.bars.money, '金钱')
+                    + checkbox('bridge.stats.bars.stress', stats.bars.stress, '压力'),
+                pushField: checkbox('bridge.stats.push.enabled', stats.push.enabled, '同步到数据库表格（需要数据库插件）'),
+                statsPromptFields: renderStatsPromptFields(stats, advancedOpen),
+                statsMappingFields: renderStatsMappingFields((() => {
+                    if (!stats.push.enabled || idx || typeof options.statsMappings !== 'function') return null;
+                    try { return options.statsMappings(stats.push.mappings); } catch (error) { return { ok: false, reason: 'stats-push-read-failed', detail: String(error && error.message || error) }; }
+                })(), advancedOpen, { pushEnabled: stats.push.enabled }),
+                statsArchiveFields: renderStatsArchive((() => {
+                    try { return typeof options.statsArchive === 'function' && !idx ? options.statsArchive() : null; } catch (error) { return null; }
+                })(), advancedOpen),
+                statsChatNote: esc(chatNote),
+                statsChatEnableHidden: hiddenAttr(!chatReady || chat.enabled),
+                statsChatDisableHidden: hiddenAttr(!chatReady || !chat.enabled),
+                statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen),
+                statsBuildHidden: hiddenAttr(!chatReady || chat.enabled),
+            };
+        });
 
         const parseValues = memo(() => ({
                 advancedFilterOpen: advancedOpen('source-filter'),
@@ -583,6 +623,22 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
           ${field('bridge.sceneAssets.spriteEnhance.size', '增强大小', selectInput('bridge.sceneAssets.spriteEnhance.size', spriteEnhance.size ?? 0.8, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`])))}` : ''}
         </div>
         </div></details></div>`;
+            // 非人角色整组设置：总开关关闭时其余项置灰，档案保留。
+            const creatureDisplay = normalizeCreatureDisplaySettings(reader.creatureDisplay);
+            const creatureAutoOn = normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.creatureAutoProfile;
+            const creatureOff = !creatureDisplay.enabled;
+            const creatureScaleField = (key, label) => field(`readerSettings.creatureDisplay.${key}`, label, numberInput(`readerSettings.creatureDisplay.${key}`, creatureDisplay[key], CREATURE_DISPLAY_RANGE.min, CREATURE_DISPLAY_RANGE.max, creatureOff));
+            const creatureSettingsCard = `<div class="igs-source-filter igs-perf-group"><details data-advanced="creature-system"${advancedOpen('creature-system')}><summary><b>非人角色</b><span class="igs-perf-brief">体型缩放 · 巨型 · 自动建档</span></summary><div class="igs-perf-group-body">
+        ${checkbox('readerSettings.creatureDisplay.enabled', creatureDisplay.enabled, '启用非人角色')}
+        ${checkbox('bridge.autoIllustration.assets.creatureAutoProfile', creatureAutoOn, '战斗对手自动建档', creatureOff)}
+        ${checkbox('readerSettings.creatureDisplay.giantFill', creatureDisplay.giantFill, '巨型铺满舞台', creatureOff)}
+        <div class="igs-source-filter-grid">
+          ${creatureScaleField('small', '小型缩放 %')}
+          ${creatureScaleField('medium', '中型缩放 %')}
+          ${creatureScaleField('large', '大型缩放 %')}
+        </div>
+        <div class="igs-settings-row"><button type="button" class="igs-settings-action" data-page="kinds">非人画师串（画师与模型页）</button></div>
+        </div></details></div>`;
             const charactersPane = () => `<div class="igs-settings-section">
         <div class="igs-settings-section-head">
           <div class="igs-settings-subhead">角色立绘</div>
@@ -633,7 +689,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     assetScopeBar,
                 },
                 panes: {
-                    chars: () => `<div class="igs-settings-grid" data-scene-settings-pane="assets">${charactersSettingsCard}<div class="igs-source-filter">${charactersPane()}</div></div>`,
+                    chars: () => `<div class="igs-settings-grid" data-scene-settings-pane="assets">${charactersSettingsCard}${creatureSettingsCard}<div class="igs-source-filter">${charactersPane()}</div></div>`,
                     scenes: () => assetPane(scenesPane()),
                     // 索引模式不读待确认（会清掉已确认的记录、读生成素材），页面只留外框。
                     review: () => assetPane(idx ? '' : reviewPane()),
@@ -898,6 +954,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             return pageTabs() + renderTemplate(getPageTemplate(page), sceneValues().values);
         case 'parse':
             return pageTabs() + renderTemplate(getPageTemplate(page), parseValues());
+        case 'stats':
+            return pageTabs() + renderTemplate(getPageTemplate(page), statsValues());
         case 'source':
         case 'kinds':
         case 'llm':
@@ -924,6 +982,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 chars: sceneOn ? `${sizeOf(assets.characters)}个角色` : '素材模式未开',
                 scenes: `${sizeOf(assets.scenes)}个背景`,
                 ai: sources[normalizeImageSourceMode(imageApi.mode)] || '',
+                stats: normalizeStatsSettings(bridge.stats).enabled ? '已开启' : '未开启',
                 data: '备份 · 日志',
             };
             const storage = (options.global || globalThis).localStorage;

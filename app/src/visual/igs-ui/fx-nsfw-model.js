@@ -1,10 +1,10 @@
 // 直白亲密包的纯数据：标签解析、触发词、提示词。不碰 DOM；渲染见 fx-nsfw-build.js。
 // 只写机制与画面节拍，文案不描写具体动作；触发词每类 2-4 个，仅作测试门禁。
-export const NSFW_KINDS = Object.freeze(['peak', 'counter', 'aftermath', 'bedcurtain', 'dualcult', 'favortip', 'sigil', 'footfall', 'knotafter', 'conceive', 'traits']);
+export const NSFW_KINDS = Object.freeze(['peak', 'counter', 'aftermath', 'bedcurtain', 'dualcult', 'favortip', 'sigil', 'footfall', 'knotafter', 'conceive']);
 
 export const NSFW_LABELS = Object.freeze({
     peak: '高潮节拍', counter: '次数计数', aftermath: '事后余韵', bedcurtain: '床幔红烛', dualcult: '双修光丝',
-    favortip: '好感度提示', sigil: '契约印记', footfall: '门外脚步', knotafter: '成结余韵', conceive: '受孕心音', traits: '人外特征',
+    favortip: '好感度提示', sigil: '契约印记', footfall: '门外脚步', knotafter: '成结余韵', conceive: '受孕心音',
 });
 
 export const NSFW_TRIGGERS = Object.freeze({
@@ -18,7 +18,6 @@ export const NSFW_TRIGGERS = Object.freeze({
     footfall: ['脚步声', '门外', '侍寝'],
     knotafter: ['成结', '结合热', '终身标记'],
     conceive: ['怀孕', '受孕', '胎心'],
-    traits: ['狐耳', '尾巴', '龙角', '鳞片'],
 });
 
 export const NSFW_PROMPT_LINES = Object.freeze({
@@ -32,29 +31,16 @@ export const NSFW_PROMPT_LINES = Object.freeze({
     footfall: '[igs-fx:footfall|渐近/远去]：宫廷场面里门外有人走近或离开时写，省略按渐近。',
     knotafter: '[igs-fx:knotafter|对象|描述]：ABO 设定里成结之后的静谧余韵，对象与描述可省。',
     conceive: '[igs-fx:conceive|胎心数值|描述]：剧情确认怀孕、第一次听到胎心的时刻写，数值取每分钟次数，可省。',
-    traits: '[igs-fx:traits|角色|耳,尾,角,鳞|颜色]：角色是非人形态、特征需要在立绘上显出来时写，部位按正文写到的选，颜色可省。',
 });
 
 const text = (value) => String(value == null ? '' : value).trim();
 const NUM = /^[+-]?\d{1,4}$/;
-const HEX = /^#[0-9a-f]{3,8}$/i;
 const TIER_WORDS = Object.freeze({ 一: 1, 轻: 1, 低: 1, 二: 2, 中: 2, 三: 3, 重: 3, 高: 3 });
-export const TRAIT_PARTS = Object.freeze(['ear', 'tail', 'horn', 'scale']);
-const TRAIT_WORDS = Object.freeze([['ear', /耳|ear/i], ['tail', /尾|tail/i], ['horn', /角|horn/i], ['scale', /鳞|scale/i]]);
 
 export function tierOf(value, fallback = 2) {
     const raw = text(value);
     if (/^[123]$/.test(raw)) return Number(raw);
     return TIER_WORDS[raw.charAt(0)] || fallback;
-}
-
-export function traitPartsOf(value) {
-    const out = [];
-    for (const piece of text(value).split(/[,，、\s/]+/)) {
-        const hit = TRAIT_WORDS.find(([, re]) => re.test(piece));
-        if (hit && !out.includes(hit[0])) out.push(hit[0]);
-    }
-    return out;
 }
 
 // 返回 fx-directives 统一的 [type, ...字段]；缺必填字段返回 null。
@@ -82,10 +68,6 @@ export function parseNsfwBody(type, fields) {
     case 'footfall': return ['footfall', /远|离|去/.test(a) ? 'leave' : 'near'];
     case 'knotafter': return ['knotafter', a, b.slice(0, 24)];
     case 'conceive': return ['conceive', NUM.test(a) ? Math.max(60, Math.min(220, Number(a))) : 150, (NUM.test(a) ? b : a).slice(0, 24)];
-    case 'traits': {
-        const parts = traitPartsOf(b);
-        return parts.length ? ['traits', a, parts, HEX.test(c) ? c : ''] : null;
-    }
     default: return null;
     }
 }
@@ -103,7 +85,6 @@ export function nsfwFxOf(args) {
     case 'footfall': return { type, dir: rest[0] || 'near' };
     case 'knotafter': return { type, target: rest[0] || '', text: rest[1] || '' };
     case 'conceive': return { type, bpm: rest[0], text: rest[1] || '' };
-    case 'traits': return { type, who: rest[0] || '', parts: rest[1], color: rest[2] || '' };
     default: return null;
     }
 }

@@ -290,6 +290,12 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'readerSettings.spriteGenderScale.childShorter',
             'readerSettings.spriteDisplayScale',
             'readerSettings.spriteHeads',
+            'readerSettings.creatureDisplay.enabled',
+            'readerSettings.creatureDisplay.giantFill',
+            'readerSettings.creatureDisplay.small',
+            'readerSettings.creatureDisplay.medium',
+            'readerSettings.creatureDisplay.large',
+            'bridge.autoIllustration.assets.creatureAutoProfile',
         ]),
     }),
     scenes: Object.freeze({

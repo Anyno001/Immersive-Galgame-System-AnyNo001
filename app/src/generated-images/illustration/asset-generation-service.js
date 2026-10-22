@@ -28,6 +28,11 @@ import { buildCharacterContext, spriteAdoptionEvidence } from '../../scene/chara
 import { outfitAdoptionEvidence } from '../../scene/outfit-identity.js';
 import { prepareCharacterCaption } from '../character-caption.js';
 import { BUILTIN_PROMPTS } from '../prompt-registry.js';
+import { creatureOf, creatureFraming, creatureCanvasSize, creatureMoodLabels, creatureNeedsReference } from '../../scene/creature-profile.js';
+import { creatureHintsOf } from '../../scene/creature-registry.js';
+import { CREATURE_FORM_JUDGE_RULE, creatureFormJudgeDescription, parseCreatureFormJudgement } from '../prompt-tasks/creature.js';
+import { creatureFixedPrompts, creaturePaintMeta } from '../creature-sprite.js';
+import { creatureSpriteBatchDescription, creatureSingleSpriteDescription, creatureExpressionDescription, creatureAssetDescription } from '../prompt-tasks/creature.js';
 import { DNA_WEIGHT_RULE } from '../prompt-tasks/common.js';
 import { usesCharacterTemplates, characterPromptTask, singleCharacterContext, preflightCharacterTask, savedExpressionTemplate, characterTemplateInput, characterPromptRecovery, bindAutoSpriteOutfitNames, checkSpriteRecoveryBinding } from './character-prompt-task.js';
 import { inheritImageTaskLease, imageTaskState, bindImageTaskTarget } from '../image-task-runtime.js';
@@ -97,6 +102,8 @@ export function createAssetGenerationService(deps) {
     const report = deps.report || (() => {});
     const newId = deps.newId || (() => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
     const locks = new Map();
+    // 本聊天内已判定为人类的战斗对手：不再自动建档，避免每楼重复判定。
+    const judgedHuman = new Set();
     const runningFloors = new Map(), pendingFloors = new Map();
     // 同一地点的白天底图只画一次：跨楼并发时后到的等先到的画完再取。
     const dayBasePending = new Map();
@@ -490,7 +497,9 @@ export function createAssetGenerationService(deps) {
             templates: s.auto.assets.templates,
             positiveContext: s.auto.nai.artistPrefix,
         }));
-        const size = isSprite ? s.auto.assets.spriteSize : backgroundSize(s);
+        const itemCreature = isSprite ? creatureOf(item.need.dna) : null;
+        const size = itemCreature ? creatureCanvasSize(itemCreature, s.auto.assets.spriteSize)
+            : isSprite ? s.auto.assets.spriteSize : backgroundSize(s);
         const seed = isSprite ? spriteSeed(item.need.name, undefined, s.taskSignal) : await backgroundSeed(item.need.name, undefined, s.taskSignal);
         // 数据库生图：描述只说明画什么。正负模板随 userPrompts 传出，出图前合并进最终 caption。
         const userPrompts = { positive: slot.scene, negative: slot.sceneUc };
@@ -499,13 +508,15 @@ export function createAssetGenerationService(deps) {
         const autoSpriteOutfitNames = outfitName && characterContext.length === 1
             ? [{ slotId: 1, characterKey: characterContext[0].characterKey, name: outfitName }] : [];
         const meta = {
-            signal: s.taskSignal, messageId: floor.messageId, size, description: buildDbgenAssetDescription(item.need, { transparent, includeDna: !externalSource(s.taskSignal) }), userPrompts,
+            signal: s.taskSignal, messageId: floor.messageId, size, description: itemCreature ? creatureAssetDescription(item.need, { transparent, includeDna: !externalSource(s.taskSignal) })
+                : buildDbgenAssetDescription(item.need, { transparent, includeDna: !externalSource(s.taskSignal) }), userPrompts,
             skipRecall: true, seed,
             ...(isSprite && { characterContext }),
             ...(isSprite && spriteGuard && { shouldStart: spriteGuard }),
             ...(autoSpriteOutfitNames.length && { autoSpriteOutfitNames }),
             ...(isSprite && !externalSource(s.taskSignal) && hasSpriteDna(item.need.dna) && { replaceCharacterKeywords: false }),
             imageKind: isSprite ? 'sprite' : 'background',
+            ...(itemCreature && { promptKind: 'creature' }),
             ...(transparent && { transparent: true }),
         };
         let result;
@@ -677,12 +688,22 @@ export function createAssetGenerationService(deps) {
 
     // 数据库生图：本楼缺的立绘一次写完，再按份出图。超过 8 张均分成两批，一批写完并出完再写下一批。
     async function generateSpriteBatch(items, s, floor, floorKey) {
+        // 非人角色按形态、体型、落地、画布分批：固定词与取景因档案而异；人类角色全部落在同一组，流程不变。
+        const profileKey = item => { const p = creatureOf(item.need.dna); return p ? [p.form, p.size, p.anchor, p.canvas].join('|') : ''; };
+        if (new Set(items.map(profileKey)).size > 1) {
+            const groups = new Map();
+            for (const item of items) groups.set(profileKey(item), [...(groups.get(profileKey(item)) || []), item]);
+            const merged = [];
+            for (const group of groups.values()) merged.push(...await generateSpriteBatch(group, s, floor, floorKey));
+            return merged;
+        }
+        const profile = creatureOf(items[0]?.need.dna), creature = Boolean(profile);
         const records = [];
         const guardOf = item => s.spriteShouldStart?.forCharacter?.(item.need.name) || s.spriteShouldStart;
         const itemCurrent = item => !guardOf(item) || guardOf(item)();
         let stopError = '';
         const template = items.every(item => usesCharacterTemplates(taskBackend(s.taskSignal), item.need.dna));
-        const paintMeta = template ? expressionPaintMeta({ template: true, signal: s.taskSignal }) : null;
+        const paintMeta = template ? expressionPaintMeta({ template: true, signal: s.taskSignal, creature: profile }) : null;
         const transparent = template ? paintMeta.transparent : spriteTransparent(s);
         const builtin = template && describeTask(s.taskSignal).mode === 'nai' && typeof llm?.prepareImagePrompt === 'function';
         const numberedText = builtin ? toReadableText(floor.text) : undefined;
@@ -691,8 +712,8 @@ export function createAssetGenerationService(deps) {
         let lore;
         if (builtin && typeof messageHost.readCharacterLore === 'function') {
             try {
-                lore = await messageHost.readCharacterLore(items.filter(item => !item.need.dna).map(item => item.need.name),
-                    { includeWorldInfo: false });
+                lore = await messageHost.readCharacterLore(items.filter(item => !item.need.dna || creatureNeedsReference(item.need.dna)).map(item => item.need.name),
+                    { includeWorldInfo: creature });
                 if (!Array.isArray(lore)) throw new Error('invalid-lore');
             } catch {
                 stopError = '角色设定读取失败，未发送自动立绘请求';
@@ -766,7 +787,7 @@ export function createAssetGenerationService(deps) {
             })).values()] : undefined;
             const task = template ? characterPromptTask(context, 'sprite', 'half_body',
                 batch.map((item) => [contexts.get(item.need.name).characterKey])) : null;
-            const autoSpriteOutfitNames = batch.flatMap((item, index) => isValidOutfitName(item.need.outfitName)
+            const autoSpriteOutfitNames = creature ? [] : batch.flatMap((item, index) => isValidOutfitName(item.need.outfitName)
                 ? [{ slotId: index + 1, characterKey: template ? contexts.get(item.need.name).characterKey
                     : buildCharacterContext([item.need.name], s.sceneAssets)[0]?.characterKey,
                 name: item.need.outfitName }] : []);
@@ -775,7 +796,8 @@ export function createAssetGenerationService(deps) {
                     imagePromptTask: 'sprite',
                     shouldStart: batchCurrent,
                     ...(autoSpriteOutfitNames.length && { autoSpriteOutfitNames }),
-                    description: template ? '整理本轮角色的三景别纯 TAG 外貌、独立性格与指定衣装 DNA。每份第一行必须是 slotid: 本轮实际槽号，第二行是 character: 规范角色键，单人单份也不能省略图头。首次身份候选在明确设定内协调补全普通外貌，新衣装缺说明时逐件用准确英文 TAG 表达颜色、材质与款式，无法准确表达的细节省略；已有资料逐字保留。三景别只写稳定身体外貌，不夹带衣装、灰尘、临时伤势、表情或姿态；衣装独立交付。可选身份 UC 只写实际英文排除标签，无额外项则省略或留空，不写默认值或沿用说明。只交资料字段，不生成构图、动作、场景或完整绘图提示词。\n' + DNA_WEIGHT_RULE
+                    description: creature ? creatureSpriteBatchDescription(batch.map(item => ({ name: item.need.name, profile: item.need.dna.creature })))
+                        : template ? '整理本轮角色的三景别纯 TAG 外貌、独立性格与指定衣装 DNA。每份第一行必须是 slotid: 本轮实际槽号，第二行是 character: 规范角色键，单人单份也不能省略图头。首次身份候选在明确设定内协调补全普通外貌，新衣装缺说明时逐件用准确英文 TAG 表达颜色、材质与款式，无法准确表达的细节省略；已有资料逐字保留。三景别只写稳定身体外貌，不夹带衣装、灰尘、临时伤势、表情或姿态；衣装独立交付。可选身份 UC 只写实际英文排除标签，无额外项则省略或留空，不写默认值或沿用说明。只交资料字段，不生成构图、动作、场景或完整绘图提示词。\n' + DNA_WEIGHT_RULE
                         : buildDbgenSpriteBatchDescription(batch.map((item) => item.need), { transparent, template, includeDna: !externalSource(s.taskSignal) }),
                     messageId: floor.messageId,
                     ...(builtin && { numberedText, previousText,
@@ -785,7 +807,7 @@ export function createAssetGenerationService(deps) {
                         ...(builtin && s.auto.llm.prompts.asset !== DEFAULT_LLM_PROMPTS.asset && {
                             userPrompts: { ...paintMeta.userPrompts, writing: s.auto.llm.prompts.asset },
                         }),
-                        writingRequirements: { size: paintMeta.size, transparent, framing: 'half_body' } }
+                        writingRequirements: { size: paintMeta.size, transparent, framing: creature ? creatureFraming(profile) : 'half_body' } }
                         : { characterContext: assetCharacterContext(batch.map((item) => item.need), s.sceneAssets) }),
                 });
             } catch (error) {
@@ -811,7 +833,8 @@ export function createAssetGenerationService(deps) {
                 const seed = spriteSeed(item.need.name, undefined, s.taskSignal);
                 const slot = buildAssetSlot({ need: { type: 'sprite', name: item.need.name }, tags: '', uc: '' },
                     { transparent, whiteBackground: !transparent, templates: s.auto.assets.templates });
-                const prompts = expressionSpritePrompts(slot.scene, slot.sceneUc);
+                const prompts = creature ? creatureFixedPrompts(profile, { transparent, whiteBackground: !transparent })
+                    : expressionSpritePrompts(slot.scene, slot.sceneUc);
                 let result;
                 if (!caption) {
                     result = { ok: false, error: '没有对应的立绘提示词' };
@@ -821,7 +844,7 @@ export function createAssetGenerationService(deps) {
                         const input = characterTemplateInput(found, task.promptTask, task.characterContext);
                         try {
                             result = await generateCaption({ signal: s.taskSignal, ...input, size: paintMeta.size, seed,
-                                imageKind: 'sprite', promptKind: 'sprite', messageId: floor.messageId,
+                                imageKind: 'sprite', promptKind: creature ? 'creature' : 'sprite', messageId: floor.messageId,
                                 ...(spriteGuard && { shouldStart: spriteGuard }),
                                 ...(transparent && { transparent: true }), replaceCharacterKeywords: false });
                             if (result.ok) result = { ...result, ...spriteAdoptionEvidence(input, result), ...outfitAdoptionEvidence(input, result) };
@@ -830,8 +853,9 @@ export function createAssetGenerationService(deps) {
                 } else {
                     try {
                         result = await generateCaption({ signal: s.taskSignal,
-                            caption: externalSource(s.taskSignal) ? caption : uprightSpriteCaption(caption) || caption,
-                            size: s.auto.assets.spriteSize,
+                            caption: externalSource(s.taskSignal) || creature ? caption : uprightSpriteCaption(caption) || caption,
+                            size: creature ? creatureCanvasSize(profile, s.auto.assets.spriteSize) : s.auto.assets.spriteSize,
+                            ...(creature && { promptKind: 'creature' }),
                             seed,
                             characterMeta: found.characterMeta,
                             imageKind: 'sprite',
@@ -863,6 +887,43 @@ export function createAssetGenerationService(deps) {
         }
     }
 
+    // 自动建的临时档案形态待定：先判定对手是人类、半人形还是完全非人形。
+    // 人类：删除临时档案，按原人类流程补立绘；半人形与完全非人形：写入形态继续非人流程；判定失败的本轮跳过，下一楼再试。
+    async function judgeAutoCreatureForms(needs, spriteNeeds, s, floor, messageId) {
+        const pending = needs.filter(need => need.type === 'sprite' && creatureOf(need.dna)?.form === 'auto');
+        if (!pending.length) return s;
+        const names = pending.map(need => need.name);
+        let verdict = {};
+        try {
+            let lore = [];
+            if (typeof messageHost.readCharacterLore === 'function') lore = await messageHost.readCharacterLore(names, { includeWorldInfo: true }).catch(() => []);
+            const user = creatureFormJudgeDescription({ names, readableText: toReadableText(floor.text), lore: Array.isArray(lore) ? lore : [] });
+            const judged = await requestWithSoftRetry(llm, { signal: s.taskSignal, system: CREATURE_FORM_JUDGE_RULE,
+                softSystem: CREATURE_FORM_JUDGE_RULE, user, ...(s.spriteShouldStart && { shouldStart: s.spriteShouldStart }),
+                parse: reply => parseCreatureFormJudgement(reply, names) }, s.auto.llm);
+            if (judged.ok) verdict = judged.verdict;
+        } catch { /* 判定失败按未判定处理。 */ }
+        const drop = new Set();
+        const registerOne = async hint => { try { await deps.registerCreatureProfiles?.([hint]); } catch { /* 保存失败不阻断本楼。 */ } };
+        for (const need of pending) {
+            const form = verdict[need.name];
+            if (!form) { drop.add(need); continue; }
+            if (form === 'human') {
+                judgedHuman.add(`${floor.chatId}|${need.name}`);
+                await registerOne({ name: need.name, source: 'discard' });
+                need.dna = undefined;
+            } else {
+                await registerOne({ name: need.name, source: 'creature', form });
+                need.dna = { ...need.dna, creature: { ...need.dna.creature, form } };
+            }
+        }
+        if (drop.size) {
+            report('warn', `第 ${messageId} 楼战斗对手「${[...drop].map(need => need.name).join('、')}」的形态判定失败，本轮不补立绘`);
+            for (const list of [needs, spriteNeeds]) for (let i = list.length - 1; i >= 0; i -= 1) if (drop.has(list[i])) list.splice(i, 1);
+        }
+        return { ...s, sceneAssets: readSettings(s.taskSignal).sceneAssets };
+    }
+
     async function run(messageId, floor, key, s, manual, refresh = false) {
         if (manual) s.auto.assets = { ...s.auto.assets, spriteEnabled: true, backgroundEnabled: true };
         // 失败或中途刷新残留的 planning 不算处理完，下次渲染时重试。
@@ -885,6 +946,26 @@ export function createAssetGenerationService(deps) {
                 return resolved && isValidOutfitName(token) ? token : resolved;
             },
         }).directives.filter(d => d.type === 'char' || d.type === 'thought');
+        // AI 标注的非人角色与战斗对手：先登记档案（战斗对手建临时档），本楼随即按档案补立绘。
+        // 战斗对手自动建档的排除：开关关闭、近期以角色标签或说话人出现过的人物、本聊天已判为人类的名字。
+        const spokenKeys = new Set();
+        const canonicalOf = name => resolveCharacterKey({ ...s.sceneAssets.characterDna, ...s.sceneAssets.characters, ...s.sceneAssets.characterOutfits },
+            s.sceneAssets.characterAliases || {}, name) || String(name || '').trim();
+        const noteSpeakers = text => { try { for (const name of numberParagraphs(text).characters) spokenKeys.add(canonicalOf(name)); } catch { /* 解析失败按未出现处理。 */ } };
+        noteSpeakers(floor.text);
+        if (typeof messageHost.readPreviousAiTexts === 'function') {
+            try { for (const text of messageHost.readPreviousAiTexts(messageId, Math.max(3, s.auto.llm.contextFloors || 0))) noteSpeakers(text); } catch { /* 读不到前文时只按本楼判断。 */ }
+        }
+        const creatureHints = s.auto.assets.spriteEnabled ? creatureHintsOf(floor.text)
+            .filter(hint => hint.source !== 'battle' || (s.auto.assets.creatureAutoProfile !== false
+                && !spokenKeys.has(canonicalOf(hint.name)) && !judgedHuman.has(`${floor.chatId}|${hint.name}`))) : [];
+        if (creatureHints.length && typeof deps.registerCreatureProfiles === 'function') {
+            try {
+                const registered = await deps.registerCreatureProfiles(creatureHints);
+                if (registered?.ok && registered.changed) s = { ...s, sceneAssets: readSettings(s.taskSignal).sceneAssets };
+            } catch { /* 登记失败不阻断本楼其余素材。 */ }
+        }
+        const creatureNames = creatureHints.map(hint => canonicalOf(hint.name)).filter(name => creatureOf(s.sceneAssets.characterDna?.[name]));
         const match = matchContext(s, floor, numbered, manual);
         // 命中的 igs-gen 图先记下，查一遍图片本体还在不在；丢了的按缺图重算，否则一直「已有素材」却显示不出来。
         const probed = new Set();
@@ -896,7 +977,7 @@ export function createAssetGenerationService(deps) {
                 ? collectAssetNeeds({ scenes: numbered.scenes, characters: [] }, match, { background: true, sprite: false })
                 : [],
             s.auto.assets.spriteEnabled
-                ? collectAssetNeeds({ scenes: [], characters: numbered.characters, characterTriggers }, match, { background: false, sprite: true, limit: s.auto.assets.maxPerFloor })
+                ? collectAssetNeeds({ scenes: [], characters: [...numbered.characters, ...creatureNames.filter(name => !numbered.characters.includes(name))], characterTriggers }, match, { background: false, sprite: true, limit: s.auto.assets.maxPerFloor })
                 : [],
         ];
         await match.hydrate();
@@ -950,6 +1031,7 @@ export function createAssetGenerationService(deps) {
             needs.push(...kept);
         }
         attachCharacterDna(needs, s.sceneAssets);
+        s = await judgeAutoCreatureForms(needs, spriteNeeds, s, floor, messageId);
         if (!needs.length && !variantNeeds.length && !dayFirst.length) {
             await store.putFloor(key, { status: 'done', count: 0, updatedAt: now() });
             return { ok: true, reason: 'nothing-missing' };
@@ -1337,10 +1419,13 @@ export function createAssetGenerationService(deps) {
     }
 
     // 内置 NAI 原生透明受独立开关和模型能力双重约束；外部来源保留各自策略。
-    function expressionPaintMeta({ template = false, signal } = {}) {
+    function expressionPaintMeta({ template = false, signal, creature } = {}) {
         const s = { ...readSettings(signal), taskSignal: signal };
         const via = describeTask(signal).via;
         const transparent = spriteTransparent(s);
+        // 非人角色使用独立的固定词、取景与画布。
+        if (creature) return creaturePaintMeta(creature, { transparent, whiteBackground: (via === 'nai' || via === 'dbgen') && !transparent,
+            ...(!template && { positiveContext: s.auto.nai.artistPrefix }), spriteSize: s.auto.assets.spriteSize, signal });
         const slot = buildAssetSlot(
             { need: { type: 'sprite', name: '' }, tags: '', uc: '' },
             {
@@ -1384,11 +1469,12 @@ export function createAssetGenerationService(deps) {
         seed = spriteSeed(name, seed, signal);
         const finalEdit = exact && usesCharacterTemplates(taskBackend(signal), dna);
         const protocol = templateInput || (finalEdit ? { caption, captionMode: 'final' } : null);
+        const creature = Boolean(creatureOf(dna));
         let upright = caption;
-        if (!externalSource(signal) && !protocol && !exact) upright = uprightSpriteCaption(caption) || caption;
+        if (!externalSource(signal) && !protocol && !exact && !creature) upright = uprightSpriteCaption(caption) || caption;
         const rawMeta = paintMeta || expressionPaintMeta({ signal });
         const { userPrompts, ...sendMeta } = rawMeta;
-        const meta = { ...(protocol || externalSource(signal) ? sendMeta : rawMeta), promptKind: mood === '默认' ? 'sprite' : 'expression' };
+        const meta = { ...(protocol || externalSource(signal) ? sendMeta : rawMeta), promptKind: creature ? 'creature' : mood === '默认' ? 'sprite' : 'expression' };
         const stopped = () => Boolean(signal?.aborted)
             || (typeof shouldStart === 'function' && shouldStart() !== true);
         if (stopped()) return { mood, ok: false, reason: 'stale-target', error: '已停止', caption,
@@ -1454,6 +1540,7 @@ export function createAssetGenerationService(deps) {
     // 内置 NAI 优先复用已入库角色种子；尚未建档时只在本批共享随机种子。
     async function generateExpressionSet({ name, basePrompt, moods, dna, outfit, note, nsfw, onProgress, signal, messageId, shouldStart, onOutfitDna } = {}) {
         const labels = (Array.isArray(moods) ? moods : []).map((item) => String(item || '').trim()).filter(Boolean);
+        if (creatureOf(dna)) return generateCreatureExpressionSet({ name, moods: labels, dna, note, nsfw, onProgress, signal, messageId, shouldStart });
         if (!labels.length) return { ok: false, error: '没有表情分组' };
         if (!nai || typeof generateCaption !== 'function') {
             return { ok: false, error: '当前图像来源不能出表情差分' };
@@ -1706,6 +1793,141 @@ export function createAssetGenerationService(deps) {
         return { ok: true, items: results, stopped: generationStopped || stopped() };
     }
 
+    // 非人角色的姿态差分：整体姿态只改姿态与状态词，身份 DNA 原样复用，同一整套种子；没有衣装环节。
+    // 完全非人形默认出四档（常态、威吓、受创、狂暴），请求里没有对应档位时按四档补齐。
+    async function generateCreatureExpressionSet({ name, moods, dna, note, nsfw, onProgress, signal, messageId, shouldStart } = {}) {
+        const profile = creatureOf(dna);
+        if (!nai || typeof generateCaption !== 'function' || typeof writePrompt !== 'function') {
+            return { ok: false, error: '当前图像来源不能出表情差分' };
+        }
+        if (!usesCharacterTemplates(taskBackend(signal), dna)) {
+            return { ok: false, error: '非人角色的姿态差分需要内置写词链，当前图像来源暂不支持' };
+        }
+        const tiers = creatureMoodLabels(profile);
+        const requested = (Array.isArray(moods) ? moods : []).filter(Boolean);
+        const picked = tiers ? tiers.filter(mood => requested.includes(mood)) : requested;
+        const labels = tiers ? (picked.length ? picked : tiers) : requested;
+        if (!labels.length) return { ok: false, error: '没有表情分组' };
+        const framing = creatureFraming(profile);
+        let context = singleCharacterContext(name, dna, undefined, readSettings(signal).sceneAssets);
+        const paintMeta = expressionPaintMeta({ template: true, signal, creature: profile });
+        const checked = preflightCharacterTask(context, 'derived', framing);
+        if (!checked.ok) return checked;
+        dna = context[0].dna;
+        const paint = { paintMeta, seed: randomSeed(), outfitName: '', identityDna: dna, nsfw: nsfw === true };
+        const stopped = () => Boolean(signal && signal.aborted)
+            || (typeof shouldStart === 'function' && shouldStart() !== true);
+        const items = [];
+        let painted = 0, writeError = '';
+        for (const batch of splitExpressionWriteBatches(labels)) {
+            if (stopped()) break;
+            if (writeError) {
+                for (const mood of batch) items.push({ mood, ok: false, error: writeError });
+                continue;
+            }
+            let pending = batch.slice();
+            for (let round = 0; round < 2 && pending.length; round += 1) {
+                if (stopped()) break;
+                reportExpressionProgress(onProgress, { phase: 'write', done: painted, total: labels.length });
+                const task = characterPromptTask(context, 'derived', framing, pending.map(() => [name]));
+                let written;
+                try {
+                    written = await writePrompt({ signal, imagePromptTask: 'expression',
+                        description: creatureExpressionDescription(name, profile, pending, { note, nsfw: paint.nsfw }),
+                        ...task, outputs: { format: 'expression-fragments' }, userPrompts: paintMeta.userPrompts,
+                        writingRequirements: { size: paintMeta.size, transparent: paintMeta.transparent, framing, nsfw: paint.nsfw },
+                        ...(messageId !== undefined && { messageId }), ...(shouldStart && { shouldStart }) });
+                } catch (error) {
+                    const message = (error && error.message) || '写提示词失败';
+                    if (!items.length) return { ok: false, error: message };
+                    for (const mood of pending) items.push({ mood, ok: false, error: message });
+                    writeError = message;
+                    break;
+                }
+                if (!written || !written.ok) {
+                    const message = (written && written.error) || '写提示词失败';
+                    if (!items.length) return { ...written, ok: false, error: message, ...(stopped() && { stopped: true }) };
+                    if (written?.stopGeneration || stopped()) return { ...written, ok: false, items, stopped: true };
+                    for (const mood of pending) items.push({ mood, ok: false, error: message });
+                    writeError = message;
+                    break;
+                }
+                const captions = Array.isArray(written.captions) ? written.captions : [];
+                const missing = [];
+                for (let i = 0; i < pending.length; i += 1) {
+                    if (stopped()) {
+                        for (let j = i; j < pending.length; j += 1) items.push({ mood: pending[j], ok: false, error: '已停止' });
+                        pending = [];
+                        break;
+                    }
+                    const slot = captions.find((item) => Number(item && item.slotId) === i + 1);
+                    if (!slot || !slot.caption) {
+                        missing.push(pending[i]);
+                        items.push({ mood: pending[i], ok: false, error: '写提示词没有返回这一份' });
+                        continue;
+                    }
+                    if (!slot.promptRecipe) {
+                        items.push({ mood: pending[i], ok: false, reason: 'PROMPT_MODE_CONFLICT', error: '表情写词缺少动态模板' });
+                        continue;
+                    }
+                    painted += 1;
+                    reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: pending[i] });
+                    items.push(await paintExpressionCaption(name, pending[i], slot.caption, dna, { ...paint,
+                        templateInput: characterTemplateInput(slot, task.promptTask, context), characterMeta: slot.characterMeta,
+                        signal, ...(shouldStart && { shouldStart }) }));
+                }
+                pending = round === 0 ? missing : [];
+            }
+        }
+        return { ok: true, items, stopped: stopped() };
+    }
+
+    // 非人角色的默认立绘：已有完整身份时直接用程序模板重画，缺资料时写词；没有衣装环节。
+    async function generateCreatureSprite({ name, dna, note = '', caption, exact = false, onProgress, characterMeta, history, signal, shouldStart } = {}) {
+        const profile = creatureOf(dna);
+        const framing = creatureFraming(profile);
+        const stopped = () => Boolean(signal?.aborted) || (typeof shouldStart === 'function' && shouldStart() !== true);
+        const stale = () => ({ ok: false, reason: 'stale-target', stopGeneration: true, error: '角色或作用域已变化，已停止' });
+        const context = singleCharacterContext(name, dna, undefined, readSettings(signal).sceneAssets);
+        const meta = expressionPaintMeta({ template: true, signal, creature: profile });
+        let input;
+        if (exact && caption) input = { caption, captionMode: 'final' };
+        else {
+            const ready = preflightCharacterTask(context, 'derived', framing);
+            const complete = context[0].dna.personality !== undefined
+                && ['full_body', 'half_body', 'portrait'].every(view => context[0].dna.views?.[view]?.subject?.trim());
+            const built = ready.ok && complete ? savedExpressionTemplate(context, '平和', meta.userPrompts, { purpose: 'sprite', framing }) : null;
+            if (built?.ok && built.available) {
+                input = characterTemplateInput(built.value, built.value.promptTask, context);
+                characterMeta = built.value.characterMeta;
+            } else {
+                if (signal?.aborted) return { ok: false, error: '已停止' };
+                const task = characterPromptTask(context, 'sprite', framing, [[name]]);
+                const checked = preflightCharacterTask(context, task.promptTask.purpose, framing);
+                if (!checked.ok) return checked;
+                reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: 1, mood: '平和' });
+                let written;
+                try {
+                    written = await writePrompt({ signal, ...task, imagePromptTask: 'sprite',
+                        description: creatureSingleSpriteDescription(name, profile, { note }),
+                        outputs: { format: 'sprite-data' }, userPrompts: meta.userPrompts,
+                        writingRequirements: { size: meta.size, transparent: meta.transparent, framing },
+                        ...(shouldStart && { shouldStart }) });
+                } catch (error) { return { ok: false, error: error.message || '写提示词失败' }; }
+                if (stopped()) return stale();
+                if (!written?.ok) return written || { ok: false, error: '写提示词失败' };
+                const entry = written.captions?.find((c) => c.slotId === 1) || (!written.captions && written);
+                if (!entry?.promptRecipe) return { ok: false, reason: 'PROMPT_MODE_CONFLICT', error: '立绘写词缺少动态模板' };
+                input = characterTemplateInput(entry, task.promptTask, task.characterContext);
+                characterMeta = entry.characterMeta;
+            }
+        }
+        if (stopped()) return stale();
+        reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: '平和' });
+        return paintExpressionCaption(name, '平和', input.caption, dna,
+            { templateInput: input, paintMeta: meta, exact, history, characterMeta, seed: randomSeed(), signal, shouldStart });
+    }
+
     // 普通立绘重画按当前资料重组；仅手改定稿原样发送。
     async function generateExpressionImage({ name, mood, caption, exact = false, basePrompt, dna, outfit, note, nsfw, onProgress, promptRecipe, characterMeta, history, signal, promptTask, slotId, dnaCandidates, expression, shouldStart, onOutfitDna } = {}) {
         const label = String(mood || '').trim();
@@ -1857,6 +2079,7 @@ export function createAssetGenerationService(deps) {
         const stopped = () => Boolean(signal?.aborted) || (typeof shouldStart === 'function' && shouldStart() !== true);
         const stale = () => ({ ok: false, reason: 'stale-target', stopGeneration: true, error: '角色、衣装或作用域已变化，已停止' });
         if (stopped()) return stale();
+        if (creatureOf(dna) && usesCharacterTemplates(taskBackend(signal), dna)) return generateCreatureSprite({ name: who, dna, note, caption, exact, onProgress, characterMeta, history, signal, shouldStart });
         if (usesCharacterTemplates(taskBackend(signal), dna)) {
             const context = singleCharacterContext(who, dna, nude ? { nude: true } : undefined, readSettings(signal).sceneAssets);
             const meta = expressionPaintMeta({ template: true, signal });

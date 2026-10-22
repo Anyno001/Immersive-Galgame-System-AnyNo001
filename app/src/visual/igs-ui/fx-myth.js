@@ -5,6 +5,7 @@ import { charSpans, make } from './fx-daily-kit.js';
 import { resolveHeadAnchor, spriteElOf } from './stage-snapshot.js';
 import { drawLinks } from './fx-links.js';
 import { spawnMist } from './fx-mist.js';
+import { absorbCreatureSprite, foeElementOf } from './fx-creature-battle.js';
 
 export const MYTH_LIFE_MS = Object.freeze({
     relic: 3000, clash: 3200, mythroll: 3000, formation: 3800, flame: 3200, thunder: 2200, aura: 3600,
@@ -50,6 +51,16 @@ function shake(env, delay, px) {
 
 function spritePulse(env, who, filters, life) {
     animateEl(env, spriteOf(env, who), filters.map((filter) => ({ filter })), { duration: life, easing: 'ease-in-out', composite: 'add', fill: 'none' });
+}
+
+// 收服目标是已确认的非人角色且在台上时返回 { profile, el }，否则 null（人类、待定档、不在台上都走原有分支）。
+function creatureTarget(env, who) {
+    const name = String(who || '').trim();
+    if (!name || typeof env.creatureOf !== 'function') return null;
+    const profile = env.creatureOf(name);
+    if (!profile) return null;
+    const el = foeElementOf({ motion: env.layers.motion, root: env.root, spriteName: env.speaker }, name);
+    return el ? { profile, el } : null;
 }
 
 const result = (env, kind, layer, node, sounds) => ({ layer, life: lifeOf(kind, env), sounds, node });
@@ -201,18 +212,37 @@ const BUILDERS = {
         const y = round(a.y);
         const sx = round(clamp(x + (x < 50 ? 1 : -1) * Math.max(a.d * 1.1, 11), 8, 92));
         const map = { '--x': `${x}%`, '--y': `${y}%`, '--sx': `${sx}%` };
+        // 已确认的非人角色：演出作用在立绘本身，缩小并被吸入法器位置；临时档案收服后提示转正。人类走下面原有分支。
+        const creature = creatureTarget(env, item.who);
+        const finish = (node, vessel, sounds) => {
+            const life = lifeOf('subdue', env);
+            // 立绘被吸入法器后保持消失到翻页（动画交给宿主，换页时取消）；波纹圈是给人类用的施法反馈，这里去掉，只留法器本身。
+            for (const anim of absorbCreatureSprite(creature.el, vessel, { life, origin: { x, y: 100 }, reduced: env.reduced })) if (typeof env.holdAnim === 'function') env.holdAnim(anim);
+            for (const ring of Array.from(node.querySelectorAll('.igs-myth-ring'))) ring.remove();
+            if (creature.profile.temp) {
+                const note = env.doc.createElement('div');
+                note.className = 'igs-creature-tame-note';
+                note.textContent = `「${String(item.who).trim()}」为临时档案，可在角色设置中转为正式角色。`;
+                node.appendChild(note);
+            }
+            return result(env, 'subdue', 'stage', node, sounds);
+        };
         if (mode === 'talisman') {
             const node = root(env, 'subdue', 'is-talisman', `<div class="igs-myth-slip"><b>敕</b><b>令</b></div><i class="igs-myth-ring is-red"></i>`, map);
+            if (creature) return finish(node, { x, y }, ['myth-seal-talisman']);
             return result(env, 'subdue', 'stage', node, ['myth-seal-talisman']);
         }
         if (mode === 'bowl') {
-            const node = root(env, 'subdue', 'is-bowl', '<div class="igs-myth-bowl"><i class="igs-myth-bowl-rim"></i></div><i class="igs-myth-ring is-b"></i>', { ...map, '--by': `${round(clamp(y + 40, 40, 80))}%` });
+            const by = round(clamp(y + 40, 40, 80));
+            const node = root(env, 'subdue', 'is-bowl', '<div class="igs-myth-bowl"><i class="igs-myth-bowl-rim"></i></div><i class="igs-myth-ring is-b"></i>', { ...map, '--by': `${by}%` });
+            if (creature) return finish(node, { x, y: by }, ['myth-seal-bowl']);
             return result(env, 'subdue', 'stage', node, ['myth-seal-bowl']);
         }
         if (mode === 'gourd') {
             const gx = x < 50 ? 82 : 18;
             const node = root(env, 'subdue', 'is-gourd', `<i class="igs-myth-gourd-orb" style="left:${gx}%"></i>`
                 + `<i class="igs-myth-vortex" style="left:${gx}%"></i><i class="igs-myth-vortex is-b" style="left:${gx}%"></i>`, map);
+            if (creature) return finish(node, { x: gx, y: 28 }, ['myth-seal-gourd']);
             const tx = round((gx - x) * 0.9);
             const life = lifeOf('subdue', env);
             animateEl(env, spriteOf(env, item.who), [
@@ -229,6 +259,7 @@ const BUILDERS = {
         const back = pts.map(([dx, dy]) => [-dx, dy]);
         const node = root(env, 'subdue', 'is-chain', `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path class="igs-myth-chain is-under" pathLength="1" d="${segs(pts)}"/><path class="igs-myth-chain is-under" pathLength="1" d="${segs(back)}"/><path class="igs-myth-chain" pathLength="1" d="${segs(pts)}"/><path class="igs-myth-chain" pathLength="1" d="${segs(back)}"/></svg>`
             + `<i class="igs-myth-lock" style="left:${x}%;top:${round(y + 27)}%"></i><i class="igs-myth-flash is-soft"></i>`, map);
+        if (creature) return finish(node, { x, y: round(y + 27) }, ['myth-seal-chain']);
         return result(env, 'subdue', 'stage', node, ['myth-seal-chain']);
     },
 

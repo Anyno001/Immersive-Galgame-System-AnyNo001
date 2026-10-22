@@ -39,6 +39,7 @@ import { normalizeChatShowSettings } from './chat-show-runtime.js';
 import { normalizeSystemRoleSettings } from './system-role.js';
 import { normalizePromptPlacement } from './tag-grammar.js';
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
+import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
 
 export function normalizeBridgeConfig(bridge) {
     // 不改入参、不深拷：入参可能是存储里共享的只读配置。改到哪层就浅拷哪层，没动的子树（素材库）原样共享。
@@ -60,6 +61,7 @@ export function normalizeBridgeConfig(bridge) {
     normalized.entry = normalizeEntryConfig(normalized.entry);
     normalized.optionBubble = normalizeOptionBubble(normalized.optionBubble);
     normalized.autoIllustration = normalizeAutoIllustrationSettings(normalized.autoIllustration);
+    normalized.stats = normalizeStatsSettings(normalized.stats);
     return normalized;
 }
 

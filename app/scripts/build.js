@@ -211,6 +211,19 @@ for (const file of voiceAssets) {
 }
 fs.copyFileSync(path.join(voiceSourceDir, 'CREDITS.md'), path.join(voiceTargetDir, 'CREDITS.md'));
 fs.copyFileSync(path.join(srcRoot, 'vendor', 'fflate.LICENSE.txt'), path.join(distRoot, 'fflate.LICENSE.txt'));
+// IGS 数值系统适配版表格模板（§8C）：由 scripts/build-stats-template.mjs 生成到 docs/templates/，随发布包放进 dist/templates/ 供设置器下载。
+// 缺文件、坏 JSON、或不是适配版（没有标记）时直接失败，不发布原版模板。
+{
+    const { STATS_TEMPLATE_FILE, STATS_TEMPLATE_MARK } = await import('../src/data/shujuku/stats-template-adapt.js');
+    const statsTemplateSource = path.join(appRoot, '..', 'docs', 'templates', STATS_TEMPLATE_FILE);
+    if (!fs.existsSync(statsTemplateSource)) throw new Error(`Stats table template is missing (run node scripts/build-stats-template.mjs): ${statsTemplateSource}`);
+    const statsTemplateText = fs.readFileSync(statsTemplateSource, 'utf8');
+    JSON.parse(statsTemplateText);
+    if (!statsTemplateText.includes(STATS_TEMPLATE_MARK)) throw new Error(`Stats table template is not the IGS adapted version: ${statsTemplateSource}`);
+    const statsTemplateDir = path.join(distRoot, 'templates');
+    fs.mkdirSync(statsTemplateDir, { recursive: true });
+    fs.copyFileSync(statsTemplateSource, path.join(statsTemplateDir, STATS_TEMPLATE_FILE));
+}
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.debug.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), await minifyBundle(bundle), 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');

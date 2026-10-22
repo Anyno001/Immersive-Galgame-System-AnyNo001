@@ -243,7 +243,7 @@
 - 亲密演出扩展（`romance-moments.js` / `romance-actions.js`，均为 `readerSettings.romanceFx` 子开关、默认关闭，总开关关闭时全部不生效）：
   - 好感常驻（`favorAmbience` / `favorWords` / `favorThreshold` 40·60·80）：只读快照 `content.statusHud.metrics`，标签精确命中词表取最大百分比，按角色缓存（旁白页沿用），达标且该角色立绘在场时置 `data-igs-rm-favor`，只开很淡的暖光与光斑（不逼近、不柔焦、不占整数档）；需状态栏开启并选表，NSFW 不生效。
   - 关系变化卡（`relationCard`）：`status-hud-model.js` 的 `extractStatusHudRelation` 取列名含「关系」的非数字文字，快照 `statusHud.relation`；按角色记基线，首次只记录、变化才弹卡（挂 `#igs-fx-front`，点击关闭）；不从好感推断关系名。
-  - 修罗场（`rival`）：`[igs-fx:romance|档位|对象]` 第 3 栏为对象（`fx.romanceTarget`，升档沿用；缺省时不算修罗场，不猜对象），1、2 档内另一位已登记角色（`resolveCharacterKey`，含别名）出场时 `data-igs-rm-tone="rival"` 转冷色，并在其头部旁弹一次心碎符号（复用 `MANGA_SYMBOL_SVG.heartbreak` 与头部定位）。
+  - 修罗场（`rival`）：`[igs-fx:romance|档位|对象]` 第 3 栏为对象（`fx.romanceTarget`，升档沿用；缺省时不算修罗场，不猜对象），1、2 档内另一位已登记角色（`resolveCharacterKey`，含别名）出场时 `data-igs-rm-tone="rival"` 转冷色，并在其头部旁弹一次心碎符号（复用 `MANGA_SYMBOL_SVG.heartbreak` 与头部定位）。情敌来源有两种：当过 romance 对象的角色，以及数值系统里吃醋扣过好感的角色（`registerStatsRivals`，bootstrap 在 `igs:stats-fx` 时登记、换聊天时清空）；主对象仍只认第 3 栏，不猜对象。
   - 告白（`confess`）：瞬时 `[igs-fx:confess]`（`fx.confess`），告白页起连续同一说话人最多 3 页为告白段：`data-igs-rm-confess` 驱动黑边与粉色心跳暗角，打字机降一档；段后第一页（回答）经 `applyTypewriterEffect` 的 `delay` 选项停顿 600ms（打字音与行内文字效果同步后移）；减少动态效果时只保留黑边；NSFW 不触发。
   - 恋爱回忆（`memories`）：瞬时 `[igs-fx:memory|名称]`（`fx.memory`），读取舞台背景与立绘交给宿主 `onRomanceMemory` → `cgGallery.capturePhoto` 写入相册，宿主按「chatId|messageId|名称」记在 localStorage `igs-romance-memory-keys`（上限 300）跨会话去重；NSFW 不拍。
   - 快捷动作（`quickActions` / `actions`，上限 8 项，模板 `{角色}` 替换为当前立绘角色）：1、2 档或好感常驻、有立绘、非 NSFW 时在 `#igs-fx-front` 放心形按钮（头部右上方，复用「心」的落点），菜单项写入 `#igs-input` 并聚焦、不自动发送，输入框不可见时复制到剪贴板；翻页收起菜单；按钮点击不冒泡到翻页。

@@ -3,6 +3,9 @@
 // 保证背景图里没有人、立绘始终是单人 3/4 身 + 可抠除的浅灰纯色底。
 import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, DEFAULT_ASSET_TEMPLATES, MATTE_BACKGROUND_TAGS, WHITE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, applyTemplate, dropMatteTagsWhenTransparent, dropWhiteBackgroundNegative, buildDictionaryBackgroundTags } from './prompt-kit.js';
 import { composeSpritePromptParts, spriteExpressionTags } from '../sprite-prompt-composition.js';
+import { buildCreatureAssetSlot } from '../creature-sprite.js';
+import { creatureFacts, CREATURE_ASSET_RULE } from '../prompt-tasks/creature.js';
+import { creatureOf } from '../../scene/creature-profile.js';
 
 const ASSET_TASK = [
     '任务：阅读视觉小说正文，为「需要生成的素材」清单里的每一项写英文 tag。素材分两类：',
@@ -46,7 +49,9 @@ export function describeAssetNeed(need, index) {
     const dnaNotes = [];
     if (need.dna && flat(need.dna.identity)) dnaNotes.push(`固定身份：${flat(need.dna.identity)}`);
     if (need.dna && flat(need.dna.defaultAppearance)) dnaNotes.push(`默认外观：${flat(need.dna.defaultAppearance)}`);
-    return { id: `ch${index + 1}`, line: [`立绘｜角色：${need.name}`,
+    // 非人角色：标注档案，写词规则见 CREATURE_ASSET_RULE。
+    const creatureNotes = creatureOf(need.dna) ? [creatureFacts(need.dna.creature).line] : [];
+    return { id: `ch${index + 1}`, line: [`立绘｜角色：${need.name}`, ...creatureNotes,
         ...(need.outfitName ? [`触发标签服装：${need.outfitName}（本次只写该套服装描述）`] : []), ...dnaNotes].join('｜') };
 }
 
@@ -59,6 +64,7 @@ export function buildAssetPlannerUserPrompt({ needs = [], readableText = '', pre
         `【需要生成的素材】\n${listed.join('\n')}`,
         needs.some((need) => need.type === 'sprite' && need.dna)
             ? '【角色 DNA】角色提示词由分散的 DNA 字段组合，不另写一份完整外貌词。有英文 DNA 的项目，tags 只写本次表情和动作；中文 DNA 的项目在同次请求中转译为完整英文角色词，不再追加原文。' : '',
+        needs.some((need) => need.type === 'sprite' && creatureOf(need.dna)) ? CREATURE_ASSET_RULE : '',
         lore.length
             ? `【角色设定参考】只取外貌（发色、瞳色、发型、体型、常穿服装），正文另有交代时以正文为准。\n${lore.map((item) => `${item.name}：${item.text}`).join('\n')}`
             : '',
@@ -123,6 +129,8 @@ export function buildAssetSlot(item, { transparent = false, whiteBackground = fa
             chars: [],
         };
     }
+    // 非人角色走独立的固定词与取景，人类立绘词不借用。
+    if (creatureOf(item.need.dna)) return buildCreatureAssetSlot(item, { transparent, whiteBackground, positiveContext });
     // 角色词只组合一次；有可用 DNA 时，模型 tags 仅供应当次变化，不作为第二份外貌来源。
     const dnaParts = composeSpritePromptParts(item.need.dna, { expression: spriteExpressionTags(item.tags) });
     const tags = dnaParts ? dnaParts.positive : item.tags;

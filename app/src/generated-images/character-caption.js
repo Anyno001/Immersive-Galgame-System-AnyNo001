@@ -1,4 +1,6 @@
 // 唯一身份展开点：无存储、模型或配置访问；调用方提供本次资料快照。
+import { tidyCreatureCaption } from './creature-caption.js';
+import { confirmedCreatureOf, creatureOf } from '../scene/creature-profile.js';
 import { checkPromptRecipe, checkPromptTask, checkPromptOutput, checkRecipeCharacterMeta, promptTaskForSlot, isSceneOnlyPromptOutput } from '../schemas/prompt-recipe.js';
 import { readCharacterDnaView, normalizeCharacterDna, checkDnaViews } from '../scene/character-dna.js';
 import { checkOutfitTemplates } from '../schemas/outfit-template.js';
@@ -56,7 +58,7 @@ export function prepareCharacterCaption(input = {}) {
     if (!validTask.ok) return validTask;
     const selected = promptTaskForSlot(validTask.value, input.slotId);
     if (!selected.ok) return selected;
-    const checked = checkPromptRecipe(promptRecipe, caption, selected.value);
+    const checked = checkPromptRecipe(promptRecipe, caption, selected.value, { context: Array.isArray(characterContext) ? characterContext : undefined });
     if (!checked.ok) return checked;
     if (!Array.isArray(characterContext)) return fail('DNA_TEMPLATE_BINDING', '缺少角色资料快照');
     // 已保存的显式 recipe 可独立重画；候选与 reference 必须保留原任务用途，不能猜测。
@@ -123,6 +125,10 @@ export function prepareCharacterCaption(input = {}) {
     }
     if (textFields(expanded).some((v) => controlled.test(v || '')))
         return fail('DNA_TEMPLATE_UNRESOLVED', '身份展开后仍有未解析令牌');
+    // 非人角色：展开后按标签去重并统一为单行逗号分隔；差分的姿态词优先于固定取景里的姿态词。
+    const cgCast = selected.value?.purpose === 'cg';
+    if (characters.some(c => cgCast ? confirmedCreatureOf(c.profile) : creatureOf(c.profile))) tidyCreatureCaption(expanded, { derived: selected.value?.purpose === 'derived',
+        ...(cgCast && { only: characters.filter(c => confirmedCreatureOf(c.profile)).map(c => c.captionIndex) }) });
     // 工作画布标记属于发送封装，不写回可复用模板或原 CG 提示词。
     if (selected.value?.purpose === 'consistency'
         && checked.value.bindings.some(b => b.kind === 'reference')) {

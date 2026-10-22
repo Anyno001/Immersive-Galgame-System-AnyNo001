@@ -118,6 +118,11 @@ const BLOCK_TRIGGERS = Object.freeze({
         open: /\[igs-fx:battle[|\]]/g,
         close: /\[igs-fx:battle-end[|\]]/g,
     },
+    // 非人角色：开关跟随战斗演出，条目设置与其他块相同。
+    creature: {
+        tag: /\[igs-fx:creature[|\]]/,
+        words: ['怪物', '魔物', '妖怪', '妖兽', '魔兽', '使魔', '坐骑', '恶魔', '幽灵', '兽人', '人鱼', 'Boss'],
+    },
     romance: {
         // 最近几层出现 NSFW 场景标签也展开：感官调度的写法要在情事段里用得上。
         tag: /\[igs-fx:(?:romance|romance-end|confess|memory|sense|sense-end|solo|solo-end|noise)[|\]]|\[igs-scene:[^\]\n]*\|\s*nsfw\s*(?:\|[^\]\n]*)?\]/i,

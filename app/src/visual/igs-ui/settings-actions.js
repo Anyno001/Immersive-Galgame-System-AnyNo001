@@ -1,3 +1,4 @@
+import { editCharacterCreature } from './creature-settings.js';
 import { characterDnaNeedsViews } from '../../scene/character-dna.js';
 import { needsSettingsExternalSpriteDna, prepareSettingsExternalSpriteDna } from './settings-external-sprite-dna.js';
 import { spriteDnaPreparationState } from '../../scene/character-dna-preparation.js';
@@ -73,7 +74,7 @@ import { prepareOutfitAdoption, prepareOutfitDnaSave } from '../../scene/outfit-
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
-import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, resolveCharacterVoice } from './voice-bark.js';
+import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
 import { clearTtsCache, fetchTtsVoices, getTtsSkipReason, listSystemVoices, mergeTtsVoices, normalizeTtsSettings, previewTts, resolveTtsVoice } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction, guardDefaultOutfitImages } from './settings-outfit-actions.js';
@@ -2986,6 +2987,10 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction.startsWith('voice-bark-preview:')) {
         const charName = decodeSeg(normalizedAction.slice('voice-bark-preview:'.length));
         const voice = resolveCharacterVoice(draftEffectiveAssets(settingsState), charName);
+        if (voice.creature) {
+            previewCreatureVoice(voice.creature, { pitch: voice.pitch, speed: voice.speed, volume: normalizeVoiceBarkSettings((settingsState.draft.readerSettings || {}).voiceBark).volume });
+            return { ok: true, previewed: `creature:${voice.creature.kind}` };
+        }
         if (!voice.pack) return { ok: false, error: '该角色当前未设置声线，请先选择一个声线' };
         previewVoicePack(voice.pack.id, { pitch: voice.pitch, speed: voice.speed, volume: normalizeVoiceBarkSettings((settingsState.draft.readerSettings || {}).voiceBark).volume });
         return { ok: true, previewed: voice.pack.id };
@@ -3802,6 +3807,20 @@ export async function handleSettingsAction(action, ctx) {
         target.library.characterDna = { ...target.library.characterDna, [target.name]: { ...source, version: 2 } };
         const saved = persistGeneratedLibrary(persistSettingsDraft);
         if (operationFailed(saved)) { restoreAdoptionFields(target.library, previous); return saved; }
+        return rerenderSettings();
+    }
+
+    // 非人角色档案：写在角色所属库的 characterDna[名].creature，写时浅拷，不改共享对象。
+    if (normalizedAction.startsWith('char-creature:')) {
+        const [field, rawName, rawValue] = normalizedAction.slice('char-creature:'.length).split(':');
+        const target = spriteAdoptionTarget(settingsState, decodeSeg(rawName));
+        if (!target.name || !target.library || target.borrowed || RESERVED_ASSET_NAMES.includes(target.name)) return { ok: false, error: '角色名无效' };
+        const map = target.library.characterDna && typeof target.library.characterDna === 'object' ? target.library.characterDna : {};
+        const next = editCharacterCreature(Object.hasOwn(map, target.name) ? map[target.name] : null, field, decodeSeg(rawValue));
+        if (!next) return rerenderSettings();
+        target.library.characterDna = { ...map, [target.name]: next };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 

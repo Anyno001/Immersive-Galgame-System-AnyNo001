@@ -1,6 +1,6 @@
 import { clonePromptData, validatePromptActivation } from '../../presets/prompt-preset.js';
 import { renderImagePromptPreset } from '../../presets/prompt-preset-renderer.js';
-import { createDefaultImagePromptPreset } from '../../generated-images/image-prompt-defaults.js';
+import { completeImagePromptPreset, createDefaultImagePromptPreset } from '../../generated-images/image-prompt-defaults.js';
 import { editImagePromptField } from './settings-image-prompt-fields.js';
 
 const TYPE = 'prompt-preset';
@@ -17,6 +17,8 @@ export function createImagePromptEditor(registry) {
         state.editRevision += 1;
         const saved = registry.get(TYPE, id), draft = registry.getPromptDraft(id);
         state.preset = clonePromptData(restore && draft ? draft.preset : saved);
+        // 旧预设缺非人任务条目时在编辑副本里补入内置默认；保存时才写入。
+        if (state.preset) state.preset.data = completeImagePromptPreset(state.preset.data);
         state.baseRevision = restore && draft ? draft.baseRevision : saved?.data.revision ?? null;
         state.draftRevision = draft?.revision ?? null;
         state.dirty = false;

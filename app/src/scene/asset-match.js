@@ -4,6 +4,7 @@ import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit, outfitsOfCharac
 import { promptProvenance } from '../generated-images/generation-prompt.js';
 import { characterPromptRecovery } from '../generated-images/illustration/character-prompt-task.js';
 import { appearanceCharacterKey, resolveCharacterAppearance } from './character-appearance.js';
+import { creatureOf } from './creature-profile.js';
 
 export const GENERATED_ASSET_URL_PREFIX = 'igs-gen:';
 
@@ -473,8 +474,11 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     // 副 API 先建档的新角色尚未有图；出图失败后，下次补全仍需处理，不能因刚保存 DNA 变成“已登记”而跳过。
     const preparedOnly = registeredKey && userAssets.characterDna?.[registeredKey]?.identitySource === 'secondary-api'
         && !userAssets.characters?.[registeredKey] && !userAssets.characterOutfits?.[registeredKey];
+    // 非人角色只登记了档案、还没有任何立绘：需要补图。
+    const creatureUndrawn = Boolean(registeredKey && creatureOf((userAssets.characterDna || {})[registeredKey])
+        && !userAssets.characters?.[registeredKey] && !userAssets.characterOutfits?.[registeredKey]);
     const unavailableRegistered = registeredKey && Object.values((userAssets.characters || {})[registeredKey] || {}).some(url => unavailableImage(url, ctx));
-    return { url: '', slot: '', character: name, source: 'none', reason: unavailableRegistered ? 'original-unavailable' : registeredKey || generated.spriteCharacter ? 'original-empty' : 'character-unregistered', needsGeneration: Boolean(missingRegistered || preparedOnly) || (!registeredKey && !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets)) };
+    return { url: '', slot: '', character: name, source: 'none', reason: unavailableRegistered ? 'original-unavailable' : registeredKey || generated.spriteCharacter ? 'original-empty' : 'character-unregistered', needsGeneration: Boolean(missingRegistered || preparedOnly || creatureUndrawn) || (!registeredKey && !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets)) };
 }
 
 // NSFW 挂 CG 时的对话框头像：只在衣柜引用「裸体」的那几套里找（当条表情 → 裸体底图 → 这一套的「平和」），

@@ -3,7 +3,7 @@
 
 import { FX_PACKS_ACTIVE, FX_PACK_BLOCK_KEYS, packBlockKey } from './fx-packs.js';
 
-export const PROMPT_ENTRY_KEYS = Object.freeze(['chat', 'daily', 'wardrobe', 'play', 'courtesy', 'campus', ...FX_PACK_BLOCK_KEYS, 'battle', 'romance', 'live', 'feed', 'camera']);
+export const PROMPT_ENTRY_KEYS = Object.freeze(['chat', 'daily', 'wardrobe', 'play', 'courtesy', 'campus', ...FX_PACK_BLOCK_KEYS, 'battle', 'creature', 'romance', 'live', 'feed', 'camera']);
 
 export const PROMPT_ENTRY_LABELS = Object.freeze({
     chat: '线上聊天',
@@ -14,6 +14,7 @@ export const PROMPT_ENTRY_LABELS = Object.freeze({
     campus: '校园',
     ...Object.fromEntries(FX_PACKS_ACTIVE.map((pack) => [packBlockKey(pack.id), pack.label])),
     battle: '战斗',
+    creature: '非人角色',
     romance: '亲密',
     live: '直播',
     feed: '社区',

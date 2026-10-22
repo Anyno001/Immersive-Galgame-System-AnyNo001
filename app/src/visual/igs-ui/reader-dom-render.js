@@ -30,6 +30,7 @@ import { renderDailyFx } from './fx-daily.js';
 import { enabledPackIds } from './fx-daily-model.js';
 import { audioCuesOf } from './fx-camera-gate.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
+import { applyCreatureScale, applyGiantLayer, creatureDisplayProfileOf, giantAsideCenter, placeCreature, posXForCenterPct, setCreatureFloat, syncCastFloat } from './creature-layout.js';
 import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
 import { applyStageDirection, cancelCgReveal, decodeSpriteImage, revealCgImage } from './stage-direction-runtime.js';
@@ -1506,6 +1507,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         ? sceneAssets.spriteEnhance : null);
     let stageSprite = null;
     let fxSprite = null;
+    // 同屏重排（探测完成后）算出的说话人位置：图解码回调晚于重排时以它为准，不被首轮的旧位置盖回去。
+    let castSpeakerReplan = null;
     const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
     const hideSpriteNsfw = snapshot.content.sceneNsfw === true && normalizeStatusHudSettings(spriteSettings).nsfwSpriteMode === 'hide';
     const spriteAssetUrl = hideSpriteNsfw || snapshot.content.htmlCardPage === true
@@ -1523,9 +1526,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     // 恋爱演出收成单人（romanceDuo 开启时）：记住说话人站位，进出单人时平移而不瞬移。
     const castRomanceCollapse = castEnabled && !hideSpriteNsfw && !current.spriteEditMode && isCastRomanceDuoEnabled(snapshot) && resolveCastRomanceMode(snapshot) === 'collapse';
     const castView = (root.ownerDocument && root.ownerDocument.defaultView) || {};
+    // 窄舞台（宽/高 < 1）上有巨型怪：前景只留说话人，陪衬不上台，让巨型怪的脸露出来。
+    const giantNarrow = Boolean(snapshot.content.giantSprite) && !current.spriteEditMode
+        && (stageMotion.clientWidth || castView.innerWidth) < (stageMotion.clientHeight || castView.innerHeight);
     const castLayout = layoutCastSlots({
-        members: castOn && Array.isArray(snapshot.content.castSprites) ? snapshot.content.castSprites : [],
-        pin: castRomancePin,
+        members: castOn && !giantNarrow && Array.isArray(snapshot.content.castSprites) ? snapshot.content.castSprites : [],
+        pin: castRomancePin || snapshot.content.creatureFoePin || '',
         speakerOrder: snapshot.content.speakerCastOrder,
         hasSpeaker: Boolean(spriteAssetUrl || live2dBinding),
         capacity: resolveCastCapacity(snapshot.mode, {
@@ -1539,12 +1545,19 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const castSpeakerOutfit = snapshot.content.spriteOutfit || '';
     const castSlotLayouts = snapshot.readerSettings.castSlotLayouts || {};
     const spriteLayouts = snapshot.readerSettings.spriteLayouts;
+    // 非人角色（characterDna[名].creature）：体型缩放交给 creature-layout；人类角色查不到档案，原样返回。
+    const creatureDna = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.characterDna;
+    const creatureOfName = (name) => creatureDisplayProfileOf(creatureDna, name);
     const presentSpriteLayout = (character, mood, outfit) => {
         const height = resolveSpriteBaseScale(snapshot.readerSettings._sceneAssets, snapshot.readerSettings, character);
-        return applySpriteDisplayScale(
+        const shown = applySpriteDisplayScale(
             resolveSpriteLayout(spriteLayouts, snapshot.mode, character, mood, outfit, height.defaultScale, height.characterScale),
             snapshot.readerSettings.spriteDisplayScale,
         );
+        const creature = creatureOfName(character);
+        if (!creature) return shown;
+        const manual = height.characterScale != null || Boolean(spriteLayouts && spriteLayouts[spriteHeightLayoutKey(spriteLayouts, snapshot.mode, character, mood, outfit)]);
+        return applyCreatureScale(creature, shown, snapshot.readerSettings.creatureDisplay, manual);
     };
     const heightMeta = (character, mood, outfit, layout) => ({
         layoutKey: spriteHeightLayoutKey(spriteLayouts, snapshot.mode, character, mood, outfit),
@@ -1565,6 +1578,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             ...(speakerSlotX != null ? { posX: speakerSlotX, centerX: castLayout.speakerCenterX } : {}),
             ...heightMeta(castSpeakerKey, castSpeakerMood, castSpeakerOutfit, speakerLayout),
             character: castSpeakerKey,
+            ...(creatureOfName(castSpeakerKey) ? { creature: creatureOfName(castSpeakerKey) } : {}),
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
@@ -1573,6 +1587,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const layout = presentSpriteLayout(m.character, m.mood, m.outfit);
             return withCastSlot({
                 character: m.character,
+                ...(creatureOfName(m.character) ? { creature: creatureOfName(m.character) } : {}),
                 url: resolveAssetUrl(m.image),
                 order: m.order,
                 posX: m.posX == null ? layout.posX : m.posX,
@@ -1611,6 +1626,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const stageW = stageMotion.clientWidth || castView.innerWidth;
         const stageH = stageMotion.clientHeight || castView.innerHeight;
         let spritePose = null;
+        let speakerCreature = null;
         speakerBack = null;
         if (!current.spriteEditMode) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
@@ -1622,6 +1638,37 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 : resolveSpeakerPose(snapshot, spriteKey);
             if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
             else if (speakerSlotX != null) layout.posX = speakerSlotX;
+            // 非人角色单人显示：悬浮、溢出按头部对齐交给 creature-layout（图的探测结果按地址缓存，没有时探测完回头重摆）。
+            speakerCreature = castPlan && castPlan.speaker ? null : creatureOfName(spriteKey);
+            // 窄舞台巨型怪在场：说话人站到与巨型怪头部相反的一侧。
+            const asideOn = giantNarrow && !(castPlan && castPlan.speaker);
+            if (speakerCreature || asideOn) {
+                const speakerHead = resolveSpriteHead(snapshot.readerSettings.spriteHeads, spriteKey, spriteMood, spriteOutfit);
+                const giantUrl = asideOn ? resolveAssetUrl(snapshot.content.giantSprite.image) : '';
+                const creaturePlace = (info, giantInfo) => {
+                    const aside = asideOn ? giantAsideCenter({ stageW, stageH, probed: giantInfo }) : null;
+                    if (speakerCreature) return placeCreature({ stageW, stageH, profile: speakerCreature, sprite: layout, probed: info, head: speakerHead, centerX: aside });
+                    const posX = posXForCenterPct(stageW, stageH, layout.scale, info, aside);
+                    return { scale: Number(layout.scale), posX: posX == null ? layout.posX : posX, posY: Number(layout.posY) };
+                };
+                const early = peekSpriteHead(spriteAssetUrl, root.ownerDocument);
+                const earlyGiant = giantUrl ? peekSpriteHead(giantUrl, root.ownerDocument) : null;
+                Object.assign(layout, creaturePlace(early, earlyGiant));
+                if (!early || (giantUrl && !earlyGiant)) {
+                    const token = {};
+                    current.creatureSingleToken = token;
+                    Promise.all([probeSpriteHead(spriteAssetUrl, root.ownerDocument), giantUrl ? probeSpriteHead(giantUrl, root.ownerDocument) : null]).then(([info, giantInfo]) => {
+                        if (!info || current.creatureSingleToken !== token || current.spriteEditMode || !spritePose || !spriteEl) return;
+                        const placed = creaturePlace(info, giantInfo);
+                        Object.assign(spritePose.layout, placed);
+                        spriteEl.style.backgroundSize = spriteBackgroundSize(placed.scale);
+                        spriteEl.style.backgroundPosition = `${placed.posX}% ${placed.posY}%`;
+                        if (fxSprite) Object.assign(fxSprite, { posX: placed.posX, posY: placed.posY, scale: placed.scale });
+                        if (stageSprite) stageSprite.posX = placed.posX;
+                        if (spritePose.flip) applySpeakerFlip(spriteEl, true, placed.posX, spriteWidthPercent(stageW, stageH, { ...placed, naturalW: info.naturalW, naturalH: info.naturalH }));
+                    }, () => {});
+                }
+            }
             // 背影：已换成登记的「背影」图时不再镜像、不压暗；没有这张图时镜像 + 压暗 + 略缩小。
             const backArt = speakerPose.back === true && snapshot.content.spriteBackArt === true;
             const visualFlip = backArt ? false : speakerPose.flip;
@@ -1649,7 +1696,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             spriteEl.style.setProperty('-webkit-filter', '');
             const wait = current.spriteTextWait;
             if (wait && wait.page === spritePage) wait.release();
+            setCreatureFloat(spriteEl, Boolean(spritePose && speakerCreature && speakerCreature.anchor === 'float'));
             if (!spritePose) return;
+            if (castSpeakerReplan) Object.assign(spritePose.layout, { posX: castSpeakerReplan.posX, posY: castSpeakerReplan.posY, scale: castSpeakerReplan.scale });
             spriteEl.style.backgroundSize = spriteBackgroundSize(spritePose.layout.scale);
             spriteEl.style.backgroundPosition = `${spritePose.layout.posX}% ${spritePose.layout.posY}%`;
             applySpeakerFlip(spriteEl, spritePose.flip, spritePose.layout.posX, spritePose.widthPct);
@@ -1681,6 +1730,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     } else if (spriteEl) {
         cancelSpriteReveal(spriteEl);
         const exiting = snapshot.content.spriteLeft === true && Boolean(current.spriteLook) && spriteEl.style.display === 'block' && !current.spriteEditMode;
+        setCreatureFloat(spriteEl, false);
         spriteEl.style.removeProperty('--igs-sprite-enhance');
         current.spriteLook = null;
         current.spriteTurn = null;
@@ -1733,6 +1783,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         let releaseCastAlign = () => {};
         const castAlignReady = castPlan.pending.length ? new Promise((resolve) => { releaseCastAlign = resolve; }) : null;
         applyCastToDom(root, markCalledCast(castPlan.members, castReact.called), { reduced: castReduced, slide: slideGates.slide, move: slideGates.move, handoff, focus: castFocus, lean: castLean, entrances: castStageEntrances(snapshot), ready: castAlignReady, spriteEnhance, turn: castTurnKinds, lowQuality: root.getAttribute('data-igs-quality') === 'low', turnStage: stageMotion, turnSound: normalizeFxSoundSettings(snapshot.readerSettings && snapshot.readerSettings.fxSound) });
+        if (creatureDna) syncCastFloat(root, (name) => { const c = creatureOfName(name); return Boolean(c && c.anchor === 'float'); });
         const castReactKey = `${snapshot.messageId}:${snapshot.content.currentIndex}`;
         if (current.castReactKey !== castReactKey) {
             current.castReactKey = castReactKey;
@@ -1758,11 +1809,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 if (current.castAlignToken !== token || current.spriteEditMode) return;
                 const again = resolveCastPosePlan(snapshot, planCastLayouts(castPlanInput), castSpeakerKey);
                 if (again.speaker && spriteEl) {
+                    castSpeakerReplan = again.speaker;
                     spriteEl.style.backgroundSize = spriteBackgroundSize(again.speaker.scale);
                     spriteEl.style.backgroundPosition = `${again.speaker.posX}% ${again.speaker.posY}%`;
                     if (fxSprite) Object.assign(fxSprite, { posY: Number(again.speaker.posY), scale: Number(again.speaker.scale) });
                 }
                 applyCastToDom(root, markCalledCast(again.members, castReact.called), { reduced: true, focus: castFocus, lean: castLean, spriteEnhance });
+                if (creatureDna) syncCastFloat(root, (name) => { const c = creatureOfName(name); return Boolean(c && c.anchor === 'float'); });
                 const fxTargetOf = new Map(castFxTargets.map((t) => [t.character, t]));
                 for (const m of again.members) {
                     const t = fxTargetOf.get(m.character);
@@ -1792,6 +1845,23 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         current.castStage = null;
         if (castEnabled) applyCastToDom(root, [], { reduced: castReduced, slide: slideGates.slide, move: slideGates.move });
         else clearCastDom(root);
+    }
+    // 巨型层：立绘层之后、背景之上，铺满舞台并溢出；不占同屏槽位，同时最多一只。无巨型且从未显示过时不碰 DOM。
+    const giantContent = !current.spriteEditMode ? snapshot.content.giantSprite : null;
+    if (giantContent || current.giantShown) {
+        const giantUrl = giantContent ? resolveAssetUrl(giantContent.image) : '';
+        // 窄舞台且前景有人物：巨型怪头部偏到与人物相反的一侧（人物 82% 侧时约 36%，镜像 64%）。
+        const giantInfo = giantUrl && giantNarrow ? peekSpriteHead(giantUrl, root.ownerDocument) : null;
+        const giantHeadX = giantUrl && giantNarrow && snapshot.content.spriteImage ? (giantAsideCenter({ stageW: stageMotion.clientWidth || castView.innerWidth, stageH: stageMotion.clientHeight || castView.innerHeight, probed: giantInfo }) === 82 ? 0.36 : 0.64) : 0.5;
+        applyGiantLayer(root, giantUrl ? { character: giantContent.character, url: giantUrl } : null, {
+            headX: giantHeadX,
+            stageW: stageMotion.clientWidth || castView.innerWidth,
+            stageH: stageMotion.clientHeight || castView.innerHeight,
+            reduced: castReduced,
+            peek: (url) => peekSpriteHead(url, root.ownerDocument),
+            probe: (url) => probeSpriteHead(url, root.ownerDocument),
+        });
+        current.giantShown = Boolean(giantUrl);
     }
     const castRomanceMark = !castEditing && castPlan && castPlan.members.length ? castRomanceAttr(snapshot.mode, castRomanceMode) : '';
     if (stageMotion && typeof stageMotion.setAttribute === 'function') {

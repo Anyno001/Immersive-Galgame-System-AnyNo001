@@ -1,4 +1,5 @@
 // 衣装模板的纯校验：按角色与 Char 绑定，不访问存储、不改写衣装正文。
+import { confirmedCreatureOf } from '../scene/creature-profile.js';
 const marker = /<<\s*(?:dna|outfit)/i;
 const text = (v, n = 4096) => typeof v === 'string' && v.length <= n && !marker.test(v);
 const fail = (field, issue, captionIndex) => ({ ok: false, reason: 'OUTFIT_TEMPLATE_INVALID',
@@ -19,11 +20,20 @@ export function checkOutfitTemplates(recipe, metadata, context, task) {
         const value = pos.char_captions[b.captionIndex]?.char_caption || '';
         const uc = neg.char_captions[b.captionIndex]?.char_caption || '';
         const placeholder = `<<outfit:${b.token}>>`;
-        const count = enabled && b.kind === 'named' ? 1 : 0;
+        // 非人角色在 CG 里没有衣装：绑定记为 source=none，正文不带衣装占位，也不进衣装快照。
+        const none = enabled && b.kind === 'named' && recipe.outfitSelection === 'catalog' && b.outfit?.source === 'none';
+        const count = enabled && b.kind === 'named' && !none ? 1 : 0;
         const matches = [...value.matchAll(/<<outfit:[^>]*>>/g)];
         if (matches.length !== count || matches.some(m => m[0] !== placeholder)
             || /<<\s*outfit/i.test(value.replaceAll(count ? placeholder : '\u0000', ''))
             || /<<\s*outfit/i.test(uc)) return fail('caption.char', 'placeholder', b.captionIndex);
+        if (none && context !== undefined) {
+            if (!Array.isArray(context)) return fail('outfit.binding', 'invalid', b.captionIndex);
+            const source = context.filter(c => c?.characterKey === b.characterKey);
+            const meta = metadata?.characters?.find(c => c.characterKey === b.characterKey && c.captionIndex === b.captionIndex);
+            if (source.length !== 1 || !meta || !confirmedCreatureOf(source[0].dna)) return fail('outfit.binding', 'mismatch', b.captionIndex);
+            if (meta.outfit?.name !== '' || meta.outfit?.description !== '') return fail('outfit.text', 'invalid', b.captionIndex);
+        }
         if (!count || context === undefined) continue;
         if (!Array.isArray(context)) return fail('outfit.binding', 'invalid', b.captionIndex);
         const source = context.filter(c => c?.characterKey === b.characterKey);
