@@ -2,8 +2,7 @@
 // 留空表示使用默认值（默认值作为占位提示显示），整块默认折叠在高级分区里。
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
 import { BUILD_CUSTOM_MAX, BUILD_MAX, BUILD_MIN, BUILD_SPECIAL_COUNT, buildSummary, normalizeBuild, specialCandidates } from '../../scene/stats/stat-build.js';
-import { BASE_ATTRIBUTES, DEFAULT_SPECIAL_SKILLS } from '../../scene/stats/stat-state.js';
-import { worldSkillNames } from '../../scene/stats/stat-world-skills.js';
+import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
 import { checkbox, field, numberInput, selectInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
 
@@ -32,18 +31,18 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
         const label = STAT_PROMPT_LABELS[id] || id;
         return `<div class="igs-settings-section" data-stats-prompt="${esc(id)}">`
             + checkbox(`bridge.stats.segments.${id}`, segments[id] !== false, `注入「${label}」（约 ${Array.from(effective).length} 字）`)
-            + `<div class="igs-settings-full">${textareaInput(`bridge.stats.prompts.${id}`, custom, DEFAULT_STAT_PROMPTS[id])}</div>`
+            + `<div class="igs-settings-full">${textareaInput(`bridge.stats.prompts.${id}`, effective, '')}</div>`
             + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-prompt-reset:${esc(id)}" type="button"${custom ? '' : ' disabled'}>恢复默认</button></div>`
             + '</div>';
     }).join('');
     const stages = Object.keys(DEFAULT_STAGE_TEXT).map((name) => field(
         `bridge.stats.stageText.${name}`,
         name,
-        textareaInput(`bridge.stats.stageText.${name}`, textOf(stageText, name), DEFAULT_STAGE_TEXT[name]),
+        textareaInput(`bridge.stats.stageText.${name}`, textOf(stageText, name) || DEFAULT_STAGE_TEXT[name], ''),
     )).join('');
     return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-prompts"${advancedOpen('stats-prompts')}>`
         + '<summary>高级：注入给 AI 的提示词</summary>'
-        + '<div class="igs-source-filter-note">留空即使用默认内容。模板里的 {{变量}} 写错时会原样保留，不会中断。</div>'
+        + '<div class="igs-source-filter-note">框里是当前生效的提示词，可直接修改；点「恢复默认」回到内置内容。模板里的 {{变量}} 写错时会原样保留，不会中断。</div>'
         + rows
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-stage-text"${advancedOpen('stats-stage-text')}><summary>关系阶段文案</summary><div class="igs-source-filter-grid">${stages}</div></details>`
         + '</details>';
@@ -81,24 +80,21 @@ export function renderStatsBuildFields(build, advancedOpen = () => '', { worldvi
     const b = normalizeBuild(build);
     const st = statsBuildStatus(b, worldview);
     const base = BASE_ATTRIBUTES.map((name) => field(`bridge.stats.build.base.${name}`, name, numberInput(`bridge.stats.build.base.${name}`, b.base[name], BUILD_MIN, BUILD_MAX))).join('');
-    // 候选顺序：默认 8 项 → 世界观附加（标「本世界」）→ 玩家自定义（可删除）。
-    const world = worldSkillNames(worldview);
-    const special = specialCandidates(b, { worldview }).map((name) => {
-        const path = `bridge.stats.build.special.${name}`;
-        if (b.custom.includes(name)) {
-            return `<span class="igs-stats-custom-skill">${checkbox(path, b.special[name], `${name}（自定义）`)}<button type="button" class="igs-mood-word-del" data-action="stats-build-remove-skill:${esc(encodeURIComponent(name))}" title="删除自定义技能" aria-label="删除自定义技能${esc(name)}">×</button></span>`;
-        }
-        return checkbox(path, b.special[name], world.includes(name) && !DEFAULT_SPECIAL_SKILLS.includes(name) ? `${name}（本世界）` : name);
-    }).join('');
+    // 技能选择沿用原有开关样式：默认 8 项、世界观附加与自定义技能同一种开关，不加附注、不加容器。
+    const special = specialCandidates(b, { worldview }).map((name) => checkbox(`bridge.stats.build.special.${name}`, b.special[name], name)).join('');
+    // 自定义技能的增删放在列表下方单独一行，沿用设置页的词条标签样式。
+    const customTags = b.custom.map((name) => `<span class="igs-mood-word-tag">${esc(name)}<button type="button" class="igs-mood-word-del" data-action="stats-build-remove-skill:${esc(encodeURIComponent(name))}" title="删除自定义技能" aria-label="删除自定义技能${esc(name)}">×</button></span>`).join('');
     const addSkill = b.custom.length < BUILD_CUSTOM_MAX
         ? '<button type="button" class="igs-btn-mgr-icon" data-action="stats-build-add-skill" title="新增自定义技能" aria-label="新增自定义技能">+</button>'
         : '';
+    const customRow = `<div class="igs-settings-field"><span>自定义技能</span><div class="igs-mood-word-list">${customTags}${addSkill}</div></div>`;
     return `<details class="igs-settings-sub igs-settings-advanced" data-stats-worldview="${esc(worldview || 'modern')}" data-advanced="stats-build"${advancedOpen('stats-build')}>`
         + '<summary>分配点数（基础属性各 40 起，另有 60 点）</summary>'
         + `<div class="igs-source-filter-note" data-result="stats-build">${esc(st.pointNote)}</div>`
         + `<div class="igs-source-filter-grid">${base}</div>`
         + `<div class="igs-source-filter-note" data-result="stats-build-special">${esc(st.specialNote)}</div>`
-        + `<div class="igs-settings-section">${special}${addSkill}</div>`
+        + `<div class="igs-settings-section">${special}</div>`
+        + customRow
         + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-chat-enable-build" type="button"${st.ok ? '' : ' disabled'}>按分配启用</button></div>`
         + '</details>';
 }

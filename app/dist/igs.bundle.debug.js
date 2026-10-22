@@ -76142,6 +76142,8 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-reader-text-effect-options>.igs-settings-field{min-width:0}
 .igs-settings-grid[data-reader-pane="dialog"] .igs-gradient-veil-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px;min-width:0}
 .igs-source-filter textarea{min-height:76px}
+[data-stats-prompt] .igs-settings-full>textarea{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid color-mix(in srgb,var(--igs-settings-ink) 16%,transparent);background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:8px 10px;font:inherit;font-size:13px;line-height:1.55;font-family:ui-monospace,Consolas,monospace;min-height:132px;resize:vertical;outline:none}
+[data-stats-prompt] .igs-settings-full>textarea:focus{border-bottom-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
 [data-image-prompt-panel]{min-width:0}
 .igs-settings-actions,[data-image-prompt-panel] .igs-image-prompt-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
 .igs-settings-actions>.igs-settings-action{flex:0 0 auto;white-space:nowrap}
@@ -127494,7 +127496,7 @@ __igsDefine(exports, "createShujukuClient", () => createShujukuClient);
 });
 __igsRegister("src/scene/stats/stat-settings.js", function(module, exports, require) {
 // 数值系统设置（§1、§10）：总开关默认关闭；规范化只读入参、返回新对象。
-const { DEFAULT_STAGE_TEXT, STAT_PROMPT_SEGMENTS } = require("src/scene/stats/stat-prompt.js");
+const { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } = require("src/scene/stats/stat-prompt.js");
 const { normalizeBuild } = require("src/scene/stats/stat-build.js");
 const PROMPT_MAX = 4000;
 const STATS_SETTINGS_DEFAULTS = Object.freeze({
@@ -127515,12 +127517,15 @@ function bool(value, fallback) {
 }
 
 // 用户覆盖的文本：只收已登记的键与非空字符串（超长截断）；留空表示用默认值（§9）。
-function textMap(raw, keys) {
+// 设置页框里直接显示默认原文，与默认值相同的内容不算覆盖，内置提示词更新时仍跟随默认。
+function textMap(raw, keys, defaults = {}) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     const out = {};
     for (const key of keys) {
         const value = src[key];
-        if (typeof value === 'string' && value.trim()) out[key] = value.slice(0, PROMPT_MAX);
+        if (typeof value !== 'string' || !value.trim()) continue;
+        if (typeof defaults[key] === 'string' && value.trim() === defaults[key].trim()) continue;
+        out[key] = value.slice(0, PROMPT_MAX);
     }
     return out;
 }
@@ -127564,9 +127569,9 @@ function normalizeStatsSettings(raw) {
             stress: bool(bars.stress, d.bars.stress),
         },
         push: { enabled: bool(push.enabled, d.push.enabled), mappings: mappingMap(push.mappings) },
-        prompts: textMap(src.prompts, STAT_PROMPT_SEGMENTS),
+        prompts: textMap(src.prompts, STAT_PROMPT_SEGMENTS, DEFAULT_STAT_PROMPTS),
         segments: segmentMap(src.segments),
-        stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT)),
+        stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT), DEFAULT_STAGE_TEXT),
         // 建卡分配（Q5：点数分配可在设置中修改）；「按分配启用」时用它生成本聊天初始数值。
         build: normalizeBuild(src.build),
     };
@@ -128265,8 +128270,7 @@ __igsRegister("src/visual/igs-ui/stats-settings-fields.js", function(module, exp
 // 留空表示使用默认值（默认值作为占位提示显示），整块默认折叠在高级分区里。
 const { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } = require("src/scene/stats/stat-prompt.js");
 const { BUILD_CUSTOM_MAX, BUILD_MAX, BUILD_MIN, BUILD_SPECIAL_COUNT, buildSummary, normalizeBuild, specialCandidates } = require("src/scene/stats/stat-build.js");
-const { BASE_ATTRIBUTES, DEFAULT_SPECIAL_SKILLS } = require("src/scene/stats/stat-state.js");
-const { worldSkillNames } = require("src/scene/stats/stat-world-skills.js");
+const { BASE_ATTRIBUTES } = require("src/scene/stats/stat-state.js");
 const { checkbox, field, numberInput, selectInput, textareaInput } = require("src/visual/igs-ui/settings-fields.js");
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
 const STAT_PROMPT_LABELS = Object.freeze({
@@ -128294,18 +128298,18 @@ function renderStatsPromptFields(stats, advancedOpen = () => '') {
         const label = STAT_PROMPT_LABELS[id] || id;
         return `<div class="igs-settings-section" data-stats-prompt="${esc(id)}">`
             + checkbox(`bridge.stats.segments.${id}`, segments[id] !== false, `注入「${label}」（约 ${Array.from(effective).length} 字）`)
-            + `<div class="igs-settings-full">${textareaInput(`bridge.stats.prompts.${id}`, custom, DEFAULT_STAT_PROMPTS[id])}</div>`
+            + `<div class="igs-settings-full">${textareaInput(`bridge.stats.prompts.${id}`, effective, '')}</div>`
             + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-prompt-reset:${esc(id)}" type="button"${custom ? '' : ' disabled'}>恢复默认</button></div>`
             + '</div>';
     }).join('');
     const stages = Object.keys(DEFAULT_STAGE_TEXT).map((name) => field(
         `bridge.stats.stageText.${name}`,
         name,
-        textareaInput(`bridge.stats.stageText.${name}`, textOf(stageText, name), DEFAULT_STAGE_TEXT[name]),
+        textareaInput(`bridge.stats.stageText.${name}`, textOf(stageText, name) || DEFAULT_STAGE_TEXT[name], ''),
     )).join('');
     return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-prompts"${advancedOpen('stats-prompts')}>`
         + '<summary>高级：注入给 AI 的提示词</summary>'
-        + '<div class="igs-source-filter-note">留空即使用默认内容。模板里的 {{变量}} 写错时会原样保留，不会中断。</div>'
+        + '<div class="igs-source-filter-note">框里是当前生效的提示词，可直接修改；点「恢复默认」回到内置内容。模板里的 {{变量}} 写错时会原样保留，不会中断。</div>'
         + rows
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-stage-text"${advancedOpen('stats-stage-text')}><summary>关系阶段文案</summary><div class="igs-source-filter-grid">${stages}</div></details>`
         + '</details>';
@@ -128343,24 +128347,21 @@ function renderStatsBuildFields(build, advancedOpen = () => '', { worldview } = 
     const b = normalizeBuild(build);
     const st = statsBuildStatus(b, worldview);
     const base = BASE_ATTRIBUTES.map((name) => field(`bridge.stats.build.base.${name}`, name, numberInput(`bridge.stats.build.base.${name}`, b.base[name], BUILD_MIN, BUILD_MAX))).join('');
-    // 候选顺序：默认 8 项 → 世界观附加（标「本世界」）→ 玩家自定义（可删除）。
-    const world = worldSkillNames(worldview);
-    const special = specialCandidates(b, { worldview }).map((name) => {
-        const path = `bridge.stats.build.special.${name}`;
-        if (b.custom.includes(name)) {
-            return `<span class="igs-stats-custom-skill">${checkbox(path, b.special[name], `${name}（自定义）`)}<button type="button" class="igs-mood-word-del" data-action="stats-build-remove-skill:${esc(encodeURIComponent(name))}" title="删除自定义技能" aria-label="删除自定义技能${esc(name)}">×</button></span>`;
-        }
-        return checkbox(path, b.special[name], world.includes(name) && !DEFAULT_SPECIAL_SKILLS.includes(name) ? `${name}（本世界）` : name);
-    }).join('');
+    // 技能选择沿用原有开关样式：默认 8 项、世界观附加与自定义技能同一种开关，不加附注、不加容器。
+    const special = specialCandidates(b, { worldview }).map((name) => checkbox(`bridge.stats.build.special.${name}`, b.special[name], name)).join('');
+    // 自定义技能的增删放在列表下方单独一行，沿用设置页的词条标签样式。
+    const customTags = b.custom.map((name) => `<span class="igs-mood-word-tag">${esc(name)}<button type="button" class="igs-mood-word-del" data-action="stats-build-remove-skill:${esc(encodeURIComponent(name))}" title="删除自定义技能" aria-label="删除自定义技能${esc(name)}">×</button></span>`).join('');
     const addSkill = b.custom.length < BUILD_CUSTOM_MAX
         ? '<button type="button" class="igs-btn-mgr-icon" data-action="stats-build-add-skill" title="新增自定义技能" aria-label="新增自定义技能">+</button>'
         : '';
+    const customRow = `<div class="igs-settings-field"><span>自定义技能</span><div class="igs-mood-word-list">${customTags}${addSkill}</div></div>`;
     return `<details class="igs-settings-sub igs-settings-advanced" data-stats-worldview="${esc(worldview || 'modern')}" data-advanced="stats-build"${advancedOpen('stats-build')}>`
         + '<summary>分配点数（基础属性各 40 起，另有 60 点）</summary>'
         + `<div class="igs-source-filter-note" data-result="stats-build">${esc(st.pointNote)}</div>`
         + `<div class="igs-source-filter-grid">${base}</div>`
         + `<div class="igs-source-filter-note" data-result="stats-build-special">${esc(st.specialNote)}</div>`
-        + `<div class="igs-settings-section">${special}${addSkill}</div>`
+        + `<div class="igs-settings-section">${special}</div>`
+        + customRow
         + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-chat-enable-build" type="button"${st.ok ? '' : ' disabled'}>按分配启用</button></div>`
         + '</details>';
 }

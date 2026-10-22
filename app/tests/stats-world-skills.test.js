@@ -4,6 +4,8 @@ import { buildInitialState, buildSummary, normalizeBuild, specialCandidates, val
 import { worldSkillNames } from '../src/scene/stats/stat-world-skills.js';
 import { matchSkill } from '../src/scene/stats/stat-skill-match.js';
 import { renderStatsBuildFields } from '../src/visual/igs-ui/stats-settings-fields.js';
+import { checkbox } from '../src/visual/igs-ui/settings-fields.js';
+import { DEFAULT_SPECIAL_SKILLS } from '../src/scene/stats/stat-state.js';
 
 test('世界观候选：现代不追加；魔法追加咒语等且默认不选；默认 3 项不变', () => {
     assert.deepEqual(worldSkillNames('modern'), []);
@@ -36,15 +38,16 @@ test('自定义技能：名字校验、去重；选中后写进存档；按技�
     assert.equal(matchSkill('我去河边钓鱼').skill, null);
 });
 
-test('建卡区渲染：世界观候选标「本世界」、自定义可删除、有新增入口', () => {
+test('建卡区渲染：技能选择沿用原有开关样式（默认 8 项与 v0.36.117 逐字一致，附加技能无附注）；自定义技能在下方单独一行增删', () => {
+    const original = `<div class="igs-settings-section">${DEFAULT_SPECIAL_SKILLS.map((name, i) => checkbox(`bridge.stats.build.special.${name}`, i < 3, name)).join('')}</div>`;
+    assert.ok(renderStatsBuildFields(undefined).includes(original));
     const html = renderStatsBuildFields({ custom: ['钓鱼'] }, () => '', { worldview: 'magic' });
     assert.match(html, /data-stats-worldview="magic"/);
-    assert.match(html, /data-switch="bridge\.stats\.build\.special\.咒语"/);
-    assert.match(html, /本世界/);
-    assert.match(html, /data-switch="bridge\.stats\.build\.special\.钓鱼"/);
+    assert.match(html, /data-switch="bridge\.stats\.build\.special\.咒语" aria-pressed="false"><i><\/i><span>咒语<\/span><\/button>/);
+    assert.match(html, /data-switch="bridge\.stats\.build\.special\.钓鱼" aria-pressed="false"><i><\/i><span>钓鱼<\/span><\/button>/);
+    assert.doesNotMatch(html, /本世界|自定义）|igs-switch-note|igs-stats-custom-skill/);
     assert.match(html, new RegExp(`data-action="stats-build-remove-skill:${encodeURIComponent('钓鱼')}"`));
     assert.match(html, /data-action="stats-build-add-skill"/);
-    assert.doesNotMatch(renderStatsBuildFields(undefined), /本世界/);
 });
 
 test('设置页新增与删除自定义技能：写入草稿、默认不选，删除后清掉选择', async () => {

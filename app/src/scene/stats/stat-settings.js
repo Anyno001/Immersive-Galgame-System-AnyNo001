@@ -1,5 +1,5 @@
 // 数值系统设置（§1、§10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, STAT_PROMPT_SEGMENTS } from './stat-prompt.js';
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
 
 const PROMPT_MAX = 4000;
@@ -22,12 +22,15 @@ function bool(value, fallback) {
 }
 
 // 用户覆盖的文本：只收已登记的键与非空字符串（超长截断）；留空表示用默认值（§9）。
-function textMap(raw, keys) {
+// 设置页框里直接显示默认原文，与默认值相同的内容不算覆盖，内置提示词更新时仍跟随默认。
+function textMap(raw, keys, defaults = {}) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     const out = {};
     for (const key of keys) {
         const value = src[key];
-        if (typeof value === 'string' && value.trim()) out[key] = value.slice(0, PROMPT_MAX);
+        if (typeof value !== 'string' || !value.trim()) continue;
+        if (typeof defaults[key] === 'string' && value.trim() === defaults[key].trim()) continue;
+        out[key] = value.slice(0, PROMPT_MAX);
     }
     return out;
 }
@@ -72,9 +75,9 @@ export function normalizeStatsSettings(raw) {
             stress: bool(bars.stress, d.bars.stress),
         },
         push: { enabled: bool(push.enabled, d.push.enabled), mappings: mappingMap(push.mappings) },
-        prompts: textMap(src.prompts, STAT_PROMPT_SEGMENTS),
+        prompts: textMap(src.prompts, STAT_PROMPT_SEGMENTS, DEFAULT_STAT_PROMPTS),
         segments: segmentMap(src.segments),
-        stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT)),
+        stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT), DEFAULT_STAGE_TEXT),
         // 建卡分配（Q5：点数分配可在设置中修改）；「按分配启用」时用它生成本聊天初始数值。
         build: normalizeBuild(src.build),
     };
