@@ -1,6 +1,6 @@
 // igs 行内指令名的唯一登记点：分段、正文清洗、DOM 对比与聊天块收口都从这里构造正则，
 // 新增指令只改这一处，避免标签漏进正文。聊天标签（igs-chat/msg）是块级结构，由 chat-blocks 单独处理。
-export const IGS_INLINE_DIRECTIVE_NAMES = Object.freeze(['scene', 'char', 'thought', 'img', 'fx']);
+export const IGS_INLINE_DIRECTIVE_NAMES = Object.freeze(['scene', 'char', 'thought', 'img', 'fx', 'combat']);
 
 const NAMES = IGS_INLINE_DIRECTIVE_NAMES.join('|');
 const LOOSE_START_SOURCE = `[\\[［【]\\s*igs\\s*-?\\s*(${NAMES}|chat(?:-end|-time)?|msg)\\s*[:：]`;
@@ -67,12 +67,14 @@ export const IGS_DIRECTIVE_LINE_RE = new RegExp(`^\\[igs-(?:${NAMES}):[^\\]]*\\]
 // 指令闭合后同行残留文字（捕获组 1），供正文格式化在 "]" 后断行。
 export const IGS_DIRECTIVE_CLOSE_SOURCE = `\\[\\s*igs-(?:${NAMES})\\s*:[^\\]\\n]*\\]([^\\n]*)`;
 
-// 分页阶段需要从正文剥离的纯标记类指令（scene、fx 与恐怖档位 dread 不承载可见文字）。
+// 分页阶段需要从正文剥离的纯标记类指令（scene、fx、战斗 combat 与恐怖档位 dread 不承载可见文字）。
 // scene 沿用既有剥离规则；fx 字段不跨行，漏写 "]" 时以行尾收口。
+// combat 是否生效由 scene/combat-directives.js 判定，显示上一律剥离，同样以行尾收口。
 const SCENE_INLINE_RE = /\[igs-scene:[^\]]*\]/g;
 const FX_INLINE_RE = /\[igs-fx:[^\]\n]*(?:\]|$)/gm;
+const COMBAT_INLINE_RE = /\[igs-combat:[^\]\n]*(?:\]|$)/gm;
 const DREAD_INLINE_RE = /\[igs-dread:[^\]\n]*\]/g;
-const MARKER_LINE_RE = /^\[igs-(?:scene:[^\]]*\]|fx:|dread:)/;
+const MARKER_LINE_RE = /^\[igs-(?:scene:[^\]]*\]|fx:|combat:|dread:)/;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));
@@ -105,7 +107,7 @@ export function normalizeIgsDirectiveLayout(text) {
 }
 
 export function stripMarkerDirectives(text) {
-    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(DREAD_INLINE_RE, '');
+    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(DREAD_INLINE_RE, '');
 }
 
 export function isMarkerDirectiveLine(line) {

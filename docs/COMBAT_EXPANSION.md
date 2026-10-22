@@ -51,3 +51,14 @@
   - 队友托管每回合最多出 30 张牌，作为防止死循环的保护。
 - 验证：`node --test tests/combat-engine.test.js` 共 15 项，全部通过；与 `tests/combat-rules.test.js` 合跑 23 项全部通过。
 
+### 第 5 步：战斗标签解析
+
+- 新增 `app/src/scene/combat-directives.js`，在 `directive-tags.js` 登记指令名 `combat` 并加入显示剥离；`scene-directives.js` 跳过 combat 标签，不计入正文段。
+- 实现时定下的细节（设计未写明）：
+  - 依赖方向是 combat → scene，scene 不导入 combat。标签上限复制为 `COMBAT_TAG_LIMITS`，由测试锁定与 `COMBAT_RULES` 一致。
+  - 敌方单项数量写法 `名称*N` 接受全角星号、乘号与全角数字；单项数量不设单独上限，只按合计不超过 5 个单位拒收（`too-many`）。同名敌人合并计数。
+  - 栏位多于协议时整条拒收（`too-many-fields`），不截断。等级词写错拒收（`unknown-tier`），不回退为普通。
+  - 锚点只由规范化后的类型和栏位决定，不含字符偏移，前文增删不影响已入库条目；完全相同的标签按 `occurrence` 区分。
+  - 战报楼的 exp 由程序生成，解析时传 `{ expCap: false }` 跳过剧情封顶。
+- 验证：`node --test tests/combat-directives.test.js` 共 10 项，全部通过；与 fx 指令、多行指令、插图、HTML 卡片、unit、楼层准备、场景延续、旁白离场、用户角色等受影响的既有测试合跑 46 项全部通过。
+

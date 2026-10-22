@@ -24,6 +24,7 @@ const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const IMG_AT_RE = /^(?:\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>)/i;
 const FX_AT_RE = /^\[igs-fx:[^\]\n]*(?:\]|$)/;
+const COMBAT_AT_RE = /^\[igs-combat:[^\]\n]*(?:\]|$)/;
 export const IGS_IMG_MARKER_SOURCE = '(?:\\[igs-img:\\s*|<IMG>\\s*)(\\d+)(?:\\s*\\]|\\s*<\\/IMG>)';
 
 export function stripIllustrationMarkers(text) {
@@ -104,8 +105,8 @@ export function extractSceneDirectives(text, options = {}) {
                 directives.push({ type: 'thought', character: m[1].trim(), mood: String(m[2] || '').trim(), thought: m[3].trim(),segmentIndex: segmentCount, lineIndex, offset: cursor });
             } else if ((m = rest.match(IMG_AT_RE))) {
                 illustrationMarkers.push({ slot: Number(m[1] || m[2]), lineIndex, offset: cursor });
-            } else if ((m = rest.match(FX_AT_RE))) {
-                // igs-fx 由 fx-directives 单独解析，这里只跳过、不计入正文。
+            } else if ((m = rest.match(FX_AT_RE)) || (m = rest.match(COMBAT_AT_RE))) {
+                // igs-fx 由 fx-directives、igs-combat 由 combat-directives 单独解析，这里只跳过、不计入正文。
             } else {
                 // 当前位置不是指令：把到「下一条指令之前」的文本计入正文。
                 // 残缺指令（缺 "]" 或缺字段）停在当前位置时 nextAt 为 0，须越过其 "[" 当正文，否则死循环。
