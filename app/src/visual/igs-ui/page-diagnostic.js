@@ -89,7 +89,14 @@ function promptLines(report) {
     return [`提示词按需块（共展开 ${total} 字）`, ...blocks.map(([key, item]) => `  ${PROMPT_ENTRY_LABELS[key] || key} ${item.reason === 'off' ? '' : item.active ? '展开' : '收起'} ${describePromptTrigger(item)}${item.active && item.chars ? ` · ${item.chars} 字` : ''}${item.position ? ` · ${PROMPT_POSITION_LABELS[item.position] || item.position}${item.position === 'depth' ? ` @D${item.depth}` : ''}` : ''}`.replace(/ {2,}/g, ' ').replace(/^ /, '  '))];
 }
 
-export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null } = {}) {
+// 朗读这一页：没开 / 本页会念 / 本页没念的原因（原因只认这一页的）。
+function ttsLine(c, rs, snapshot, skip) {
+    if (!rs.tts || rs.tts.enabled !== true) return '未开启';
+    const page = `${c.messageId ?? snapshot.messageId}:${c.currentIndex}`;
+    return skip && skip.key === page && skip.reason ? `本页未朗读：${skip.reason}` : '本页会朗读（或还没轮到）';
+}
+
+export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null } = {}) {
     if (!snapshot || !snapshot.content) return '';
     const c = snapshot.content;
     const rs = snapshot.readerSettings || {};
@@ -112,6 +119,7 @@ export function buildPageDiagnostic(snapshot, { version = '', worldview = '', pr
     ];
     if (notes.length) lines.push(`提示 ${notes.join('、')}`);
     lines.push(`直播 ${liveLine(c, rs)}`);
+    lines.push(`朗读 ${ttsLine(c, rs, snapshot, ttsSkip)}`);
     lines.push(...promptLines(promptReport));
     if (mediaStats) lines.push(`图片资源 ${describeMediaUsage(mediaStats)}`);
     return lines.join('\n');

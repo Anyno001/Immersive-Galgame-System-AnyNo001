@@ -86,11 +86,14 @@ test('gate: chat bubble sound retries once after autoplay unlock and cancelled c
     try {
         const ctx = fakeContext({ state: 'suspended', resumeTo: 'suspended' });
         resetAudioBusForTest(counted(ctx));
+        getAudioBus();
+        // 总线创建时已挂上「第一次手势解锁」的监听，重试监听要在它之外另数。
+        const base = doc.listeners.filter((l) => l.type === 'pointerdown').length;
         const cue = playChatSfx('receive', { volume: 0.6 });
         assert.ok(cue);
         await flush();
         assert.equal(ctx.nodes.filter((node) => node.kind === 'osc').length, 0, 'blocked context cannot play the first bubble');
-        assert.equal(doc.listeners.filter((l) => l.type === 'pointerdown').length, 1);
+        assert.equal(doc.listeners.filter((l) => l.type === 'pointerdown').length, base + 1);
         ctx.resume = function () { this.resumes++; this.state = 'running'; return Promise.resolve(); };
         doc.fire('pointerdown');
         await flush();
@@ -127,9 +130,11 @@ test('gate: pending audio resume unlocks chat bubble once without a late cancell
             return Promise.resolve();
         };
         resetAudioBusForTest(counted(ctx));
+        getAudioBus();
+        const base = doc.listeners.filter((l) => l.type === 'pointerdown').length;
         const cue = playChatSfx('receive');
         assert.ok(cue);
-        assert.equal(doc.listeners.filter((l) => l.type === 'pointerdown').length, 1, 'arm while the initial resume is pending');
+        assert.equal(doc.listeners.filter((l) => l.type === 'pointerdown').length, base + 1, 'arm while the initial resume is pending');
         doc.fire('pointerdown');
         await flush();
         assert.equal(ctx.nodes.filter((n) => n.kind === 'osc').length, 4, 'one receive cue is scheduled');
@@ -141,10 +146,12 @@ test('gate: pending audio resume unlocks chat bubble once without a late cancell
         const blocked = fakeContext({ state: 'suspended' });
         blocked.resume = () => new Promise(() => {});
         resetAudioBusForTest(counted(blocked));
+        getAudioBus();
+        const blockedBase = doc.listeners.filter((l) => l.type === 'pointerdown').length;
         const cancelled = playChatSfx('send');
-        assert.equal(doc.listeners.filter((l) => l.type === 'pointerdown').length, 1);
+        assert.equal(doc.listeners.filter((l) => l.type === 'pointerdown').length, blockedBase + 1);
         cancelled.stop();
-        assert.equal(doc.listeners.filter((l) => l.type === 'pointerdown').length, 0, 'leaving the page removes the unlock listener');
+        assert.equal(doc.listeners.filter((l) => l.type === 'pointerdown').length, blockedBase, 'leaving the page removes the retry listener');
     } finally {
         resetAudioBusForTest();
         globalThis.document = previous;

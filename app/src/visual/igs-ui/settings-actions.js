@@ -74,7 +74,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, resolveCharacterVoice } from './voice-bark.js';
-import { clearTtsCache, listSystemVoices, previewTts, resolveTtsVoice } from './tts.js';
+import { clearTtsCache, fetchTtsVoices, getTtsSkipReason, listSystemVoices, mergeTtsVoices, normalizeTtsSettings, previewTts, resolveTtsVoice } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction, guardDefaultOutfitImages } from './settings-outfit-actions.js';
 import { handleEventCgAction } from './settings-event-cg.js';
@@ -1048,7 +1048,7 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'copy-page-diagnostic') {
         const mediaStats = await Promise.resolve(options.media?.stats?.()).catch(() => null);
-        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)), promptReport: getLastPromptReport(), mediaStats });
+        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)), promptReport: getLastPromptReport(), mediaStats, ttsSkip: getTtsSkipReason() });
         if (!text) {
             if (typeof dialogs.view === 'function') await dialogs.view('请先打开阅读器并翻到出现问题的页面，再从工具栏的「设置」进入并复制。');
             return rerenderSettings();
@@ -2953,6 +2953,24 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'tts-clear-cache') {
         await clearTtsCache();
         return { ok: true, cleared: true };
+    }
+    if (normalizedAction === 'tts-fetch-voices') {
+        // 拉到的声音并进「可选声音」（去重）；草稿是设置器自己的副本，这里换一份新的 tts 对象写回。
+        const reader = settingsState.draft.readerSettings || (settingsState.draft.readerSettings = {});
+        const tts = normalizeTtsSettings(reader.tts);
+        const result = await fetchTtsVoices(tts);
+        if (!result.ok) {
+            settingsState.asyncState.ttsVoicesMessage = `获取音色列表失败：${result.error}`;
+            return rerenderSettings();
+        }
+        const merged = mergeTtsVoices(tts.api.voices, result.voices);
+        reader.tts = { ...tts, api: { ...tts.api, voices: merged.text } };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        settingsState.asyncState.ttsVoicesMessage = result.builtin
+            ? `接口没有返回自定义音色，已加入 ${merged.added} 个常用声音名（共 ${merged.total} 个可选）。`
+            : `获取到 ${result.voices.length} 个音色，新增 ${merged.added} 个（共 ${merged.total} 个可选）。`;
+        return rerenderSettings();
     }
     if (normalizedAction === 'tts-preview' || normalizedAction.startsWith('tts-preview:')) {
         // 试听台词朗读：可带角色名，按这个角色会用到的声音念。

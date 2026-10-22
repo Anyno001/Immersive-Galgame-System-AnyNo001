@@ -10,7 +10,7 @@ import { SLOT_ICONS, menuItem, transferIcons, renderCharacterSlotTabs, renderRev
 import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
 import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions } from './voice-bark.js';
-import { TTS_CHARACTER_VOLUMES, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceList } from './tts.js';
+import { TTS_CHARACTER_VOLUMES, findSystemVoice, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceOptions } from './tts.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { hasCharacterSpriteLayout } from './sprite-key-migration.js';
 
@@ -602,9 +602,12 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const systemVoices = tts.provider === 'system' ? listSystemVoices() : [];
     const auto = resolveTtsVoice({ textType: 'dialogue', speaker: charName }, tts, { ...sceneAssets, characterVoices: {} }, systemVoices);
     const autoName = auto.voice ? auto.voice.replace(/^Microsoft\s+/i, '') : '默认声音';
-    const items = tts.provider === 'system' ? systemVoiceOptions(systemVoices) : ttsApiVoiceList(tts).map((v) => [v, v]);
-    if (manual.tts && !items.some(([id]) => id === manual.tts)) items.push([manual.tts, `${manual.tts}（不可用）`]);
-    const option = (id, label) => `<option value="${esc(id)}"${id === manual.tts ? ' selected' : ''}>${esc(label)}</option>`;
+    const items = tts.provider === 'system' ? systemVoiceOptions(systemVoices, { all: tts.allVoices }) : ttsApiVoiceOptions(tts);
+    // 已保存的是 voiceURI 时按它对应的声音名显示。
+    const savedVoice = tts.provider === 'system' ? findSystemVoice(systemVoices, manual.tts) : null;
+    const savedId = savedVoice ? savedVoice.name : manual.tts;
+    if (manual.tts && !items.some(([id]) => id === savedId)) items.push([manual.tts, `${manual.tts}（不可用）`]);
+    const option = (id, label) => `<option value="${esc(id)}"${id === savedId ? ' selected' : ''}>${esc(label)}</option>`;
     const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
     const volumeOpts = TTS_CHARACTER_VOLUMES.map(([v, label]) => `<option value="${v}"${v === manual.ttsVolume ? ' selected' : ''}>${esc(label)}</option>`).join('');
     // 接口来源不支持调音高，只给语速。

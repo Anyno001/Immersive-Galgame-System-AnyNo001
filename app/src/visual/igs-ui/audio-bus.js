@@ -48,11 +48,12 @@ export function getAudioBus() {
             inputs[name] = ctx.createGain();
             inputs[name].connect(compressor);
         }
-        bus = { ctx, inputs, compressor, master, retry: null, visibility: null, parkTimer: null, space: null };
+        bus = { ctx, inputs, compressor, master, retry: null, gesture: null, visibility: null, parkTimer: null, space: null };
     } catch {
         return null;
     }
     watchVisibility(bus);
+    armGestureUnlock(bus);
     return bus;
 }
 
@@ -190,11 +191,65 @@ export function watchPageAway(doc, onChange) {
     };
 }
 
+// 用户手势：点按、触屏抬起都算（部分手机浏览器只发 touchend / click，不发 pointerdown）。
+const GESTURE_EVENTS = Object.freeze(['pointerdown', 'click', 'touchend']);
+// 极短的静音 wav（44 字节头、无数据），用来在 iOS 上切换音频会话。
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+let sessionPrimed = false;
+
+// iOS 的静音键会让网页音频失声：第一次手势里把音频会话切成 playback。
+// 有 navigator.audioSession 就直接设；没有就放一段静音 HTMLAudio，让系统按媒体播放处理。
+export function primeAudioSession(scope = globalThis) {
+    try {
+        const session = scope.navigator && scope.navigator.audioSession;
+        if (session) {
+            session.type = 'playback';
+            return 'session';
+        }
+    } catch { /* 不支持就走静音音频 */ }
+    try {
+        if (typeof scope.Audio === 'function') {
+            const el = new scope.Audio(SILENT_WAV);
+            const played = el.play();
+            if (played && typeof played.catch === 'function') played.catch(() => {});
+            return 'audio';
+        }
+    } catch { /* ignore */ }
+    return '';
+}
+
+function disarmGesture(current) {
+    if (!current.gesture) return;
+    const { doc, handler } = current.gesture;
+    current.gesture = null;
+    for (const name of GESTURE_EVENTS) {
+        try { doc.removeEventListener(name, handler, true); } catch { /* ignore */ }
+    }
+}
+
+// 第一次手势：解锁音频会话并 resume，然后摘掉监听。
+function armGestureUnlock(current) {
+    const doc = documentOf();
+    if (!doc || current.gesture || sessionPrimed) return;
+    const handler = () => {
+        disarmGesture(current);
+        if (!sessionPrimed) {
+            sessionPrimed = true;
+            primeAudioSession();
+        }
+        if (bus === current && !current.hidden) resumeAudioBus({ retry: false });
+    };
+    current.gesture = { doc, handler };
+    for (const name of GESTURE_EVENTS) doc.addEventListener(name, handler, true);
+}
+
 function disarmRetry(current) {
     if (!current.retry) return;
     const { doc, handler } = current.retry;
     current.retry = null;
-    try { doc.removeEventListener('pointerdown', handler, true); } catch { /* ignore */ }
+    for (const name of GESTURE_EVENTS) {
+        try { doc.removeEventListener(name, handler, true); } catch { /* ignore */ }
+    }
 }
 
 // 自动播放策略会拒绝无手势的 resume()，等下一次点击再试一次。
@@ -206,7 +261,13 @@ function armRetry(current) {
         if (bus === current && !current.hidden) resumeAudioBus({ retry: false });
     };
     current.retry = { doc, handler };
-    doc.addEventListener('pointerdown', handler, true);
+    for (const name of GESTURE_EVENTS) doc.addEventListener(name, handler, true);
+}
+
+// 朗读等了一会儿 resume 还没放行时，让下一次点按再试一次。
+export function armAudioBusRetry() {
+    const current = getAudioBus();
+    if (current) armRetry(current);
 }
 
 // 返回的 Promise 在 resume 结束后兑现为 context（是否 running 由调用方判断），不会 reject。
@@ -272,10 +333,12 @@ export function unparkAudioBus() {
 export function resetAudioBusForTest(factory) {
     if (bus) {
         disarmRetry(bus);
+        disarmGesture(bus);
         clearTimeout(bus.parkTimer);
         if (bus.visibility) bus.visibility.stop();
     }
     bus = null;
+    sessionPrimed = false;
     masterVolume = AUDIO_MASTER_DEFAULTS.volume;
     contextFactory = typeof factory === 'function' ? factory : defaultContextFactory;
 }
