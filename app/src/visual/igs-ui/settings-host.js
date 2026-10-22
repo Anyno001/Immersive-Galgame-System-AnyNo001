@@ -2,7 +2,8 @@ import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRec
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
 import { updateCharCounts } from './prompt-entries-fields.js';
 import { withCharacterDnaDraftSync } from './settings-external-sprite-dna.js';
-import { draftAssetLibrary, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { draftAssetLibrary, effectiveSceneAssets, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { resolveWorldview } from '../../scene/worldview.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { placeRowMenu } from './settings-outfit-fields.js';
 import { splitMigrationWords } from '../../scene/outfit-migration.js';
@@ -43,10 +44,19 @@ import { preserveConfiguredArtists } from '../../generated-images/artist-library
 import { pickImagePromptFile } from './settings-image-prompt-io.js';
 import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
+import { normalizeBuild } from '../../scene/stats/stat-build.js';
+import { refreshStatsBuildStatus } from './stats-settings-fields.js';
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
 const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 const LAST_SETTINGS_PAGE_KEY = 'igs:settings-last-page:v1';
+// 建卡分配的默认值（基础属性 40、默认预选的特有技能）只在规范化时补出，原始草稿里没有。
+// 改动前先把规范化结果写回草稿：开关按界面显示值取反，默认选中的技能才能取消，其余技能才能选上。
+const STATS_BUILD_PATH = 'bridge.stats.build';
+function materializeStatsBuild(draft, path) {
+    if (!draft || !String(path).startsWith(`${STATS_BUILD_PATH}.`)) return;
+    setPath(draft, STATS_BUILD_PATH, normalizeBuild(getPath(draft, STATS_BUILD_PATH)));
+}
 
 export function createSettingsHost(deps) {
     const {
@@ -359,7 +369,9 @@ export function createSettingsHost(deps) {
                 return result;
             },
             toggle(path) {
-                const current = getPath(state.activeSettings && state.activeSettings.draft, path);
+                const draft = state.activeSettings && state.activeSettings.draft;
+                materializeStatsBuild(draft, path);
+                const current = getPath(draft, path);
                 return updateSettingsValue(path, !current);
             },
             async invoke(action) {
@@ -395,6 +407,7 @@ export function createSettingsHost(deps) {
             setPath(draft, 'readerSettings.dialogAutoHeight', value === 'auto');
             return editOptions.liveInput ? { ok: true } : rerenderSettings();
         }
+        materializeStatsBuild(draft, path);
         setPath(draft, path, normalizeSettingsValue(path, value));
         if (path === 'readerSettings.skinDialogScale') setPath(draft, 'readerSettings.dialogAutoHeight', false);
         // 题材包总开关打开时，该包全部细项一起开（defaultOn 通用包的细项本来就默认开，不再逐个写脏草稿）；关掉时细项原样保留。
@@ -433,6 +446,8 @@ export function createSettingsHost(deps) {
             // getSnapshot() clones before exposing this value; do not deep-copy the entire
             // asset library for every keystroke (including long prompts and API keys).
             state.activeSettings.snapshot.draft = draft;
+            // 建卡分配数字框：剩余点数与「按分配启用」就地刷新，不整页重绘。
+            if (path.startsWith(`${STATS_BUILD_PATH}.`)) refreshStatsBuildStatus(state.activeSettings.dom && state.activeSettings.dom.root, getPath(draft, STATS_BUILD_PATH));
             return { ok: true };
         }
         if (path === 'bridge.sceneAssets.moodAutoClassify' && value === true) scheduleMoodAutoClassify();
@@ -547,7 +562,11 @@ export function createSettingsHost(deps) {
             try {
                 // 「按分配启用」用草稿里的分配（可能还没保存），不读已落盘的设置。
                 const draftStats = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge && state.activeSettings.draft.bridge.stats;
-                const payload = action === 'stats-chat-enable-build' ? { build: draftStats ? draftStats.build : undefined } : undefined;
+                // 世界观附加技能按设置页当前世界观计入，与建卡区显示的候选一致。
+                const draftBridge = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge;
+                const scopeKey = state.activeSettings && state.activeSettings.asyncState && state.activeSettings.asyncState.assetScopeKey;
+                const worldAssets = draftBridge ? (scopeKey ? effectiveSceneAssets(draftBridge.sceneAssets, scopeKey) : draftBridge.sceneAssets) : null;
+                const payload = action === 'stats-chat-enable-build' ? { build: draftStats ? draftStats.build : undefined, worldview: resolveWorldview(worldAssets) } : undefined;
                 result = typeof options.statsChatAction === 'function'
                     ? options.statsChatAction(action === 'stats-chat-disable' ? 'disable' : 'enable', payload)
                     : { ok: false, reason: 'stats-runtime-missing' };

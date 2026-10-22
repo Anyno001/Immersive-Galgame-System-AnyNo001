@@ -83,7 +83,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.36.117';
+const IGS_VERSION = '0.36.118';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -381,7 +381,8 @@ export function bootstrapIGS(options = {}) {
             if (kind !== 'enable') return app.statsRuntime.disableForChat();
             // 按分配启用：超点或多选时不建卡，返回原因；已有存档（之前暂停过）时沿用冻结的数值，分配不覆盖（§10A）。
             if (payload && Object.hasOwn(payload, 'build')) {
-                const built = buildInitialState(payload.build);
+                // 世界观附加技能只在当前世界观下计入；与设置页显示的候选保持一致。
+                const built = buildInitialState(payload.build, { worldview: payload.worldview });
                 if (!built.ok) return { ok: false, reason: built.reason };
                 return app.statsRuntime.enableForChat({ initial: built.state });
             }

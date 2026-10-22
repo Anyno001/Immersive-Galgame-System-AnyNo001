@@ -1,3 +1,5 @@
+import { BUILD_CUSTOM_MAX, normalizeBuild, validCustomSkillName } from '../../scene/stats/stat-build.js';
+
 import { editCharacterCreature } from './creature-settings.js';
 import { characterDnaNeedsViews } from '../../scene/character-dna.js';
 import { needsSettingsExternalSpriteDna, prepareSettingsExternalSpriteDna } from './settings-external-sprite-dna.js';
@@ -2392,6 +2394,41 @@ export async function handleSettingsAction(action, ctx) {
         readerDraft.systemRole = current;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    // 数值建卡：玩家新增 / 删除自定义特有技能。新增的默认不选，不挤占已选的 3 项。
+    if (normalizedAction === 'stats-build-add-skill') {
+        const bridgeDraft = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const statsDraft = bridgeDraft.stats = bridgeDraft.stats || {};
+        const build = normalizeBuild(statsDraft.build);
+        if (build.custom.length >= BUILD_CUSTOM_MAX) return { ok: false, reason: 'stats-build-skill-full' };
+        const raw = await dialogs.prompt(`新增技能名（1–8 字，不含数字和符号，最多 ${BUILD_CUSTOM_MAX} 个）：`, '');
+        if (raw == null || !String(raw).trim()) return rerenderSettings();
+        const name = validCustomSkillName(raw);
+        if (!name) return { ok: false, reason: 'stats-build-skill-invalid' };
+        if (!build.custom.includes(name)) {
+            build.custom.push(name);
+            if (!Object.hasOwn(build.special, name)) build.special[name] = false;
+            statsDraft.build = build;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('stats-build-remove-skill:')) {
+        const name = decodeSeg(normalizedAction.slice('stats-build-remove-skill:'.length));
+        const bridgeDraft = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const statsDraft = bridgeDraft.stats = bridgeDraft.stats || {};
+        const build = normalizeBuild(statsDraft.build);
+        if (build.custom.includes(name)) {
+            build.custom = build.custom.filter((item) => item !== name);
+            delete build.special[name];
+            statsDraft.build = build;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+        }
         return rerenderSettings();
     }
 

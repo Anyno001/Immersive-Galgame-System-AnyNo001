@@ -1,8 +1,9 @@
 // 数值系统提示词编辑（§9）：每段一个可编辑模板，可单独关闭，可恢复默认；阶段文案同样可改。
 // 留空表示使用默认值（默认值作为占位提示显示），整块默认折叠在高级分区里。
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
-import { BUILD_MAX, BUILD_MIN, BUILD_SPECIAL_COUNT, buildSummary, normalizeBuild } from '../../scene/stats/stat-build.js';
+import { BUILD_CUSTOM_MAX, BUILD_MAX, BUILD_MIN, BUILD_SPECIAL_COUNT, buildSummary, normalizeBuild, specialCandidates } from '../../scene/stats/stat-build.js';
 import { BASE_ATTRIBUTES, DEFAULT_SPECIAL_SKILLS } from '../../scene/stats/stat-state.js';
+import { worldSkillNames } from '../../scene/stats/stat-world-skills.js';
 import { checkbox, field, numberInput, selectInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
 
@@ -51,23 +52,54 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
 // 存档区（§10）：当前数值一目了然；技能与变动记录折叠，低频信息不平铺。model 为 statsArchiveModel 的结果。
 const MAPPING_TARGETS = Object.freeze({ health: '生命', stamina: '体力', money: '金钱', stress: '压力', base: '基础属性', special: '特有属性' });
 
-// 建卡分配（§6、§10A）：默认折叠；超点或多选时「按分配启用」禁用并说明原因。
-export function renderStatsBuildFields(build, advancedOpen = () => '') {
-    const b = normalizeBuild(build);
-    const s = buildSummary(b);
-    const base = BASE_ATTRIBUTES.map((name) => field(`bridge.stats.build.base.${name}`, name, numberInput(`bridge.stats.build.base.${name}`, b.base[name], BUILD_MIN, BUILD_MAX))).join('');
-    const special = DEFAULT_SPECIAL_SKILLS.map((name) => checkbox(`bridge.stats.build.special.${name}`, b.special[name], name)).join('');
+// 建卡区提示文案与可用状态：渲染和输入时就地刷新共用同一份计算。
+export function statsBuildStatus(build, worldview) {
+    const s = buildSummary(build, { worldview });
     const pointNote = s.left < 0 ? `超出 ${-s.left} 点，请调低几项。` : `剩余 ${s.left} 点（每项 ${BUILD_MIN}–${BUILD_MAX}）`;
     const specialNote = s.picked.length > BUILD_SPECIAL_COUNT
         ? `特有技能最多选 ${BUILD_SPECIAL_COUNT} 项（已选 ${s.picked.length} 项）。`
         : `特有技能已选 ${s.picked.length}/${BUILD_SPECIAL_COUNT}，每项 50 起步。`;
-    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-build"${advancedOpen('stats-build')}>`
+    return { ok: s.ok, pointNote, specialNote };
+}
+
+// 数字框输入只写草稿、不整页重绘（保焦点）；剩余点数、技能提示与「按分配启用」在这里就地更新。
+export function refreshStatsBuildStatus(root, build, worldview) {
+    if (!root || typeof root.querySelector !== 'function') return false;
+    const holder = worldview === undefined ? root.querySelector('[data-advanced="stats-build"]') : null;
+    const st = statsBuildStatus(build, holder && typeof holder.getAttribute === 'function' ? holder.getAttribute('data-stats-worldview') || undefined : worldview);
+    const point = root.querySelector('[data-result="stats-build"]');
+    if (point) point.textContent = st.pointNote;
+    const special = root.querySelector('[data-result="stats-build-special"]');
+    if (special) special.textContent = st.specialNote;
+    const button = root.querySelector('[data-action="stats-chat-enable-build"]');
+    if (button) button.disabled = !st.ok;
+    return true;
+}
+
+// 建卡分配（§6、§10A）：默认折叠；超点或多选时「按分配启用」禁用并说明原因。
+export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview } = {}) {
+    const b = normalizeBuild(build);
+    const st = statsBuildStatus(b, worldview);
+    const base = BASE_ATTRIBUTES.map((name) => field(`bridge.stats.build.base.${name}`, name, numberInput(`bridge.stats.build.base.${name}`, b.base[name], BUILD_MIN, BUILD_MAX))).join('');
+    // 候选顺序：默认 8 项 → 世界观附加（标「本世界」）→ 玩家自定义（可删除）。
+    const world = worldSkillNames(worldview);
+    const special = specialCandidates(b, { worldview }).map((name) => {
+        const path = `bridge.stats.build.special.${name}`;
+        if (b.custom.includes(name)) {
+            return `<span class="igs-stats-custom-skill">${checkbox(path, b.special[name], `${name}（自定义）`)}<button type="button" class="igs-mood-word-del" data-action="stats-build-remove-skill:${esc(encodeURIComponent(name))}" title="删除自定义技能" aria-label="删除自定义技能${esc(name)}">×</button></span>`;
+        }
+        return checkbox(path, b.special[name], world.includes(name) && !DEFAULT_SPECIAL_SKILLS.includes(name) ? `${name}（本世界）` : name);
+    }).join('');
+    const addSkill = b.custom.length < BUILD_CUSTOM_MAX
+        ? '<button type="button" class="igs-btn-mgr-icon" data-action="stats-build-add-skill" title="新增自定义技能" aria-label="新增自定义技能">+</button>'
+        : '';
+    return `<details class="igs-settings-sub igs-settings-advanced" data-stats-worldview="${esc(worldview || 'modern')}" data-advanced="stats-build"${advancedOpen('stats-build')}>`
         + '<summary>分配点数（基础属性各 40 起，另有 60 点）</summary>'
-        + `<div class="igs-source-filter-note" data-result="stats-build">${esc(pointNote)}</div>`
+        + `<div class="igs-source-filter-note" data-result="stats-build">${esc(st.pointNote)}</div>`
         + `<div class="igs-source-filter-grid">${base}</div>`
-        + `<div class="igs-source-filter-note">${esc(specialNote)}</div>`
-        + `<div class="igs-settings-section">${special}</div>`
-        + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-chat-enable-build" type="button"${s.ok ? '' : ' disabled'}>按分配启用</button></div>`
+        + `<div class="igs-source-filter-note" data-result="stats-build-special">${esc(st.specialNote)}</div>`
+        + `<div class="igs-settings-section">${special}${addSkill}</div>`
+        + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-chat-enable-build" type="button"${st.ok ? '' : ' disabled'}>按分配启用</button></div>`
         + '</details>';
 }
 const MAPPING_FORMS = Object.freeze({ number: '数字', stage: '阶段名', attrs: '多属性格' });

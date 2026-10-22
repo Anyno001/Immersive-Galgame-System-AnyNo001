@@ -220,7 +220,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 statsChatNote: esc(chatNote),
                 statsChatEnableHidden: hiddenAttr(!chatReady || chat.enabled),
                 statsChatDisableHidden: hiddenAttr(!chatReady || !chat.enabled),
-                statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen),
+                statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen, { worldview: resolveWorldview(worldviewAssets) }),
                 statsBuildHidden: hiddenAttr(!chatReady || chat.enabled),
             };
         });

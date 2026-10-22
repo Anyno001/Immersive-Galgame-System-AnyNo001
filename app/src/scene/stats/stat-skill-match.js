@@ -1,6 +1,7 @@
 // 先掷后写的技能匹配词系统（§4.1A）：本地词表为主，辅助模型只兜底。
 // 组合词需「动作词 + 对象词」同时命中（防止「做作业」判成烹饪）；否定、假设、引号台词、回忆梦境、旁观他人不触发。
 import { BASE_ATTRIBUTES, DEFAULT_SPECIAL_SKILLS } from './stat-state.js';
+import { WORLD_SKILL_LEXICON } from './stat-world-skills.js';
 
 const COMBO_WINDOW = 6;
 const NEGATION = /(不想|不会|不要|不能|没有|没|别|不|如果|要是|假如|假设|打算|万一)/;
@@ -50,6 +51,10 @@ function buildLexicon(skills, extra, learned) {
     };
     for (const [word, skill] of Object.entries(learned || {})) put(word, skill, 0);
     for (const [skill, entry] of Object.entries(BASE_LEXICON)) addEntry(skill, entry, 1);
+    // 世界观附加技能词条：allowed 过滤，只有存档里真有该技能时才会命中。
+    for (const [skill, entry] of Object.entries(WORLD_SKILL_LEXICON)) if (!Object.hasOwn(BASE_LEXICON, skill)) addEntry(skill, entry, 1);
+    // 玩家自定义技能没有词条：按技能名本身命中（基础属性不按名字触发，避免「很健康」误判）。
+    for (const skill of skills) if (!BASE_ATTRIBUTES.includes(skill) && !Object.hasOwn(BASE_LEXICON, skill) && !Object.hasOwn(WORLD_SKILL_LEXICON, skill)) put(skill, skill, 1);
     for (const [skill, entry] of Object.entries(extra || {})) addEntry(skill, entry, 2);
     return { solo, combos };
 }
