@@ -117,7 +117,8 @@ export const WUXIA_ITEM_STYLE = [
     `${IO} .igs-fx-item-stack .igs-fx-item-icon,${IO} .igs-fx-item-stack .igs-fx-item-icon[data-igs-item-placeholder]{border-radius:0;background:rgba(${MOON_RGB},.06);box-shadow:inset 0 0 0 1px rgba(${MOON_RGB},.3);color:${MOON};opacity:1;}`,
     `${IO} .igs-fx-item-stack .igs-fx-item-name{color:#f3eee4;font:400 17px "IGS-MaShanZheng","LXGW WenKai",serif;letter-spacing:.08em;}`,
     `${IO} .igs-fx-item-stack .igs-fx-item-desc{color:#c7c1b6;opacity:1;}`,
-    `${IO} .igs-fx-item-stack .igs-fx-item-seal{width:22px;height:22px;font-size:14px;${SEAL}}`,
+    // 单字印钤在卡片右下角（基础规则是贴顶）；整张卡只这一方印。
+    `${IO} .igs-fx-item-stack .igs-fx-item-seal{align-self:flex-end;width:22px;height:22px;font-size:14px;${SEAL}}`,
     `${IO} .igs-fx-item-stack .igs-fx-item-more{border:0;border-radius:0;background:rgba(12,11,10,.9);color:#c7c1b6;font-family:${SONG};}`,
 ].join('\n');
 
