@@ -16,7 +16,7 @@ const fields = ['characters', 'characterDna', 'characterOutfits'];
 const fail = (reason, error = '正在自动完成衣装处理') => ({ ok: false, reason, error });
 
 export function createStoryOutfitService(deps) {
-    const candidates = new Map(), adoptions = new Map(), deferred = new Set();
+    const candidates = new Map(), adoptions = new Map(), deferred = loadDeferred(deps.storage);
     let disposed = false;
     const recoveryController = new AbortController();
     const loaded = loadStoryOutfitCandidates(deps.storage);
@@ -115,12 +115,43 @@ export function createStoryOutfitService(deps) {
 
     function list({ includeDeferred = false, context = deps.getContext() } = {}) {
         return rowsForContext(context).filter(row => (!deps.isVisible || deps.isVisible(row))
-            && (includeDeferred || (!deferred.has(storyOutfitKey(row)) && !adoptions.has(storyOutfitKey(row)) && row.status !== 'saved'))
+            && (includeDeferred || (!deferred.has(deferKey(row)) && !adoptions.has(storyOutfitKey(row)) && row.status !== 'saved'))
             && row.status !== 'done' && (row.saved || !handled(row)))
             .map(row => ({ ...row, choices: [
                 { value: 'save', label: '仅入库衣柜' },
                 { value: 'sprite', label: row.imageId ? '入库并采用已生成立绘' : '入库并用保存 DNA 生成立绘' },
+                ...aliasChoices(row),
             ] }));
+    }
+
+    // 归入已有衣装：默认衣装排第一，正文写法记成该衣装的别名；不写词、不出图。
+    function aliasChoices(row) {
+        const ctx = deps.getContext(row);
+        if (!ctx) return [];
+        const assets = effectiveSceneAssets(ctx.root, row.scopeKey);
+        const outfits = assets.characterOutfits?.[row.character] || {};
+        const names = Object.keys(outfits).filter(isValidOutfitName);
+        const selected = assets.characterDefaultOutfits?.[row.character];
+        const def = selected?.version === 1 && names.includes(selected.outfitName) ? selected.outfitName
+            : names.find(name => outfits[name]?.default === true) || '';
+        return [...(def ? [def] : []), ...names.filter(name => name !== def)].map(name => ({ value: `o:${name}`,
+            label: name === def ? `归入默认衣装「${name}」（加别名）` : `归入「${name}」（加别名）` }));
+    }
+    async function aliasOutfit(row, name) {
+        if (!current(row)) return fail('stale-target');
+        const ctx = deps.getContext(row), next = structuredClone(ctx.root);
+        const owner = assetOwnerKey(ctx.root, row.scopeKey, fields, row.character);
+        const target = owner ? ensureCardLibrary(next, owner) : next;
+        const entry = target.characterOutfits?.[row.character]?.[name];
+        if (!entry || typeof entry !== 'object') return fail('OUTFIT_ADOPTION_CONFLICT');
+        entry.words = Array.isArray(entry.words) ? entry.words : [];
+        if (!entry.words.includes(row.word)) entry.words.push(row.word);
+        const saved = await commit(row, { changed: true, sceneAssets: next }, ctx.root);
+        if (!saved?.ok) return saved || fail('save-failed');
+        const readback = deps.getContext(row);
+        if (!readback || createOutfitResolver(effectiveSceneAssets(readback.root, row.scopeKey))(row.character, row.word) !== name)
+            return fail('save-readback-failed');
+        return { ok: true, saved: true, aliased: name, ...finish(row) };
     }
 
     function savedOutfit(row) {
@@ -293,7 +324,7 @@ export function createStoryOutfitService(deps) {
         autoGenerate(ctx = deps.getContext()) {
             if (disposed || ctx?.autoGenerate !== true) return Promise.resolve([]);
             const rows = rowsForContext(ctx).filter(row => row.status === 'pending' && !row.reason && !row.mode
-                && !deferred.has(storyOutfitKey(row)) && !adoptions.has(storyOutfitKey(row)) && !handled(row));
+                && !deferred.has(deferKey(row)) && !adoptions.has(storyOutfitKey(row)) && !handled(row));
             return Promise.all(rows.map(async row => {
                 let result;
                 try { result = await this.adopt(row.id, 'sprite'); }
@@ -327,7 +358,7 @@ export function createStoryOutfitService(deps) {
                     result = { ...result, saved, reopen: !saved };
                     const stored = persist(row);
                     if (!stored.ok) result.warning = stored.reason;
-                    if (result.reopen) deferred.delete(key);
+                    if (result.reopen && deferred.delete(deferKey(row))) saveDeferred(deps.storage, deferred);
                 }
                 return result;
             }).finally(() => { adoptions.delete(key); notify(); });
@@ -335,10 +366,43 @@ export function createStoryOutfitService(deps) {
             notify();
             return pending;
         },
-        defer(id) { const row = candidates.get(id); if (row) deferred.add(storyOutfitKey(row)); notify(); },
-        resume() { deferred.clear(); },
+        defer(id) {
+            const row = candidates.get(id);
+            if (row) { deferred.add(deferKey(row)); saveDeferred(deps.storage, deferred); }
+            notify();
+        },
+        // 只从存储补齐其他实例记下的「稍后」，不清空。
+        resume() { for (const key of loadDeferred(deps.storage)) deferred.add(key); },
+        alias(id, name) {
+            const row = candidates.get(id);
+            if (!row || typeof name !== 'string' || !isValidOutfitName(name)) return Promise.resolve(fail('invalid-action'));
+            const key = storyOutfitKey(row);
+            if (adoptions.has(key)) return adoptions.get(key);
+            const pending = aliasOutfit(row, name).then(result => {
+                if (!result?.ok) { row.reason = safeReason(result?.reason) || 'story-outfit-failed'; persist(row); }
+                return result;
+            }).finally(() => { adoptions.delete(key); notify(); });
+            adoptions.set(key, pending);
+            notify();
+            return pending;
+        },
         dispose() { disposed = true; recoveryController.abort(); },
     };
 }
 
 const safeReason = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value) ? value : '';
+
+// 「稍后」按卡、归属、人物与衣装记，不含楼层与正文指纹：之后的回复再写同一件新衣服也不再弹，仍留在「素材 → 待确认」。
+const DEFERRED_KEY = 'igs:story-outfit-deferred:v1';
+const DEFERRED_LIMIT = 200;
+const deferKey = row => JSON.stringify([row.scopeKey, row.ownerKey, row.character, row.word]);
+function loadDeferred(storage) {
+    try {
+        const list = JSON.parse(storage?.getItem?.(DEFERRED_KEY) || '[]');
+        return new Set(Array.isArray(list) ? list.filter(key => typeof key === 'string') : []);
+    } catch { return new Set(); }
+}
+function saveDeferred(storage, set) {
+    try { storage?.setItem?.(DEFERRED_KEY, JSON.stringify([...set].slice(-DEFERRED_LIMIT))); return true; }
+    catch { return false; }
+}

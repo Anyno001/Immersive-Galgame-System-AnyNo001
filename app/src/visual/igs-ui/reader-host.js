@@ -517,7 +517,6 @@ export function createIgsReaderHost(options = {}) {
     return host;
 
     function openReader(payload = {}, openOptions = {}) {
-        storyOutfits?.resume();
         closeReader({ keepFullscreen: true });
         payload = cloneReaderPayload(payload);
         unparkAudioBus();
@@ -4722,7 +4721,9 @@ export function createIgsReaderHost(options = {}) {
             return;
         }
         // adopt 同步登记在途选择并通知面板收起，随后等待后台处理。
-        const pending = picked === 'retry' ? storyOutfits.retry(ask.id) : storyOutfits.adopt(ask.id, picked);
+        const aliasName = picked.startsWith('o:') ? picked.slice(2) : '';
+        const pending = picked === 'retry' ? storyOutfits.retry(ask.id)
+            : aliasName ? storyOutfits.alias(ask.id, aliasName) : storyOutfits.adopt(ask.id, picked);
         const current = state.activeReader;
         if (current) syncAssetReviewAfterRender(current, current.snapshot);
         const result = await pending;
@@ -4733,7 +4734,7 @@ export function createIgsReaderHost(options = {}) {
             if (state.activeReader) rerenderActiveReader();
         }
         if (result?.ok && !result.alreadyHandled && picked !== 'retry') {
-            imageNotice('success', picked === 'sprite' ? '衣装和对应立绘已入库' : '衣装已入库衣柜');
+            imageNotice('success', aliasName ? `已把「${ask.word}」归入「${aliasName}」` : picked === 'sprite' ? '衣装和对应立绘已入库' : '衣装已入库衣柜');
         }
         if (state.activeReader) syncAssetReviewAfterRender(state.activeReader, state.activeReader.snapshot);
         return result;
