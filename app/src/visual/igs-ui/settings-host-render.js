@@ -16,7 +16,7 @@ import { isGeneratedAssetUrl, normalizeGeneratedLibrary } from '../../scene/asse
 import { createOutfitResolver } from '../../scene/character-outfits.js';
 import { readDefaultOutfit, pickOutfitSprite } from '../../scene/character-appearance.js';
 import { renderEventCgList } from './settings-event-cg.js';
-import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList, kindModelPicker, checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderShortcutSettings, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderWeatherFxSettings, renderCustomFontManager, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
+import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList, kindModelPicker, checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderShortcutSettings, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderSystemRoleAdvanced, renderWeatherFxSettings, renderCustomFontManager, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
 import { NSFW_COUNT_MAX, CONSISTENCY_MODEL_OPTIONS, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { describeLlmReady } from '../../generated-images/illustration/caption-writer.js';
 import { normalizeImageSourceMode, mergeLegacyNaiSettings } from '../../generated-images/image-backend.js';
@@ -316,7 +316,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 itemImageFields: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '自动生成物品图')
                     + field('bridge.itemImages.inventoryIcon', '背包格子图标', selectInput('bridge.itemImages.inventoryIcon', normalizeItemImageSettings(bridge.itemImages).inventoryIcon, [['image', '图片'], ['svg', '矢量图标']])),
                 autoLlmApiHidden: hiddenAttr(openaiDisabled),
-                autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前API（消耗主模型额度）'], ['openai', '独立OpenAI兼容API']])),
+                autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前API（消耗主模型额度）'], ['openai', '独立API']])),
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
                 autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '无需Key可留空', openaiDisabled)),
                 autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', modelPicker('bridge.autoIllustration.llm.model', auto.llm.model, asyncState.llmModels, 'fetch-llm-models', 'gpt-4o-mini', openaiDisabled)),
@@ -602,19 +602,17 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const promptRuleOn = sceneAssets.promptRuleEnabled !== false;
             const sceneValues0 = {
                 promptRuleTag: promptRuleOn ? '发给聊天模型' : '已关闭',
-                promptRuleToggle: checkbox('bridge.sceneAssets.promptRuleEnabled', promptRuleOn, '自动注入格式规则')
-                    + `<div class="igs-source-filter-note" data-result="prompt-rule-preset">${esc(promptRuleOn ? PROMPT_RULE_PRESET_HINT : PROMPT_RULE_OFF_HINT)}</div>`,
+                promptRuleToggle: checkbox('bridge.sceneAssets.promptRuleEnabled', promptRuleOn, '自动注入格式规则'),
+                promptRuleHint: `<div class="igs-source-filter-note" data-result="prompt-rule-preset">${esc(promptRuleOn ? PROMPT_RULE_PRESET_HINT : PROMPT_RULE_OFF_HINT)}</div>`,
                 promptRuleField: `<div class="igs-settings-field"><textarea data-prompt-rule-draft="1" aria-label="AI格式规则" placeholder="格式规则..."${disabled ? ' disabled' : ''}>${esc(promptRuleDraft)}</textarea></div>`,
                 advancedPromptRuleOpen: isOpenKey('prompt-rule-edit') ? ' open' : '',
                 promptRuleStatus: esc(asyncState.promptRuleStatus || ''),
                 promptRuleOutfitHint: scenePromptRuleOutfitHint(promptRuleDraft)
                     ? `<div class="igs-source-filter-note" data-result="prompt-rule-outfit">${esc(scenePromptRuleOutfitHint(promptRuleDraft))}</div>` : '',
-                promptAdvanced: `<details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-injection"${asyncState.advancedOpen && asyncState.advancedOpen['prompt-injection'] ? ' open' : ''}><summary>高级：注入位置与按需注入</summary>`
-                    + field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区'], ['depth0', '聊天末尾']]),
-                        '如AI未按标签输出，可改回聊天末尾。每条演出写法可单独指定位置。')
-                    // 按需注入（promptAdaptive）不再公开：配置键与已存值保留，默认仍为开。
-                    + '</details>'
-                    + renderPromptEntryFields(sceneAssets, { reader: draft.readerSettings, report: getLastPromptReport(), isOpen: isOpenKey }),
+                promptPlacementField: field('bridge.sceneAssets.promptPlacement', '注入位置', selectInput('bridge.sceneAssets.promptPlacement', normalizePromptPlacement(sceneAssets.promptPlacement), [['system', '系统说明区'], ['depth0', '聊天末尾']]),
+                    '如AI未按标签输出，可改回聊天末尾。每条演出写法可单独指定位置。'),
+                // 按需注入（promptAdaptive）不再公开：配置键与已存值保留，默认仍为开。
+                promptAdvanced: renderPromptEntryFields(sceneAssets, { reader: draft.readerSettings, report: getLastPromptReport(), isOpen: isOpenKey }),
                 get wardrobeSection() { return checkbox('bridge.sceneAssets.wardrobeAutoFlow', sceneAssets.wardrobeAutoFlow !== false, '自动流程（新建后自动写提示词、生成参考图）')
                     + (idx ? '' : renderWardrobe(scopedEntries('wardrobe'), { sceneAssets, resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') })); },
                 get eventCgSection() { return idx ? '' : renderEventCgList(scopedEntries('eventCgs'), { resolveUrl: resolveGenerated, scopeTag }); },
@@ -721,7 +719,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             dialogBarAlignField: reader.toolbarSplit === 'top' ? '' : field('readerSettings.dialogBarAlign', '对话框下按钮位置', selectInput('readerSettings.dialogBarAlign', reader.dialogBarAlign || 'auto', [['auto', '自动'], ['left', '靠左'], ['center', '居中'], ['right', '靠右']])),
             imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
             imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示对话框内状态行') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（右键 / 三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面') + checkbox('readerSettings.underwaterSkin', reader.underwaterSkin !== false, '水下场景自动用人鱼风格')
+            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示页码（对话框内显示本楼页码，如1/33）') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（右键 / 三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面') + checkbox('readerSettings.underwaterSkin', reader.underwaterSkin !== false, '水下场景自动用人鱼风格')
                 + (reader.underwaterSkin !== false || reader.dialogSkin === DIALOG_SKIN_MERMAID ? field('readerSettings.mermaidTone', '人鱼风格配色', selectInput('readerSettings.mermaidTone', normalizeMermaidTone(reader.mermaidTone), MERMAID_TONES.map((tone) => [tone.id, tone.label])))
                     + (normalizeMermaidTone(reader.mermaidTone) === 'custom' ? field('readerSettings.mermaidAccent', '珠光颜色', colorInput('readerSettings.mermaidAccent', normalizeMermaidAccent(reader.mermaidAccent))) : '') : '')
                ,
@@ -767,6 +765,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 narrationColor: toHex(displayTheme.narrationColor || '#f4f4f6'),
                 disabled: themeDisabled,
             }),
+            systemRoleAdvanced: renderSystemRoleAdvanced(systemRole, { open: isOpenKey('system-role'), hidden: hiddenAttr(themeDisabled) }),
             chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '线上交流'),
             chatShowSettings: chatShow.enabled ? renderChatShowSettings(chatShow, {
                 promptDraft: asyncState.chatPromptDraft,
@@ -789,7 +788,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             optionBubbleHidden: hiddenAttr(!(bridge.optionBubble && bridge.optionBubble.enabled)),
             optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
             optionBubbleActionField: field('bridge.optionBubble.clickAction', '点击选项', segmentedInput('bridge.optionBubble.clickAction', (bridge.optionBubble && bridge.optionBubble.clickAction) || 'send', [['send', '自动发送'], ['fill', '填入输入框']], '点击行为')),
-            optionSourcesField: `${checkbox('bridge.optionBubble.itemButton', !(bridge.optionBubble && bridge.optionBubble.itemButton === false), '显示使用物品按钮')}${checkbox('bridge.optionBubble.bodyFallback', !(bridge.optionBubble && bridge.optionBubble.bodyFallback === false), '没有选项表时读取正文末尾选项')}${field('bridge.optionBubble.quickActions', '快捷行动', textareaInput('bridge.optionBubble.quickActions', (bridge.optionBubble && bridge.optionBubble.quickActions) || '', '观察四周\n离开这里'), '每行一条，显示于选项气泡，点击即发送')}`,
+            optionSourcesField: `<div class="igs-settings-group igs-switch-stack">${checkbox('bridge.optionBubble.itemButton', !(bridge.optionBubble && bridge.optionBubble.itemButton === false), '显示使用物品按钮')}${checkbox('bridge.optionBubble.bodyFallback', !(bridge.optionBubble && bridge.optionBubble.bodyFallback === false), '没有选项表时读取正文末尾选项')}</div><div class="igs-settings-group igs-option-fixed">${field('bridge.optionBubble.quickActions', '固定选项', textareaInput('bridge.optionBubble.quickActions', (bridge.optionBubble && bridge.optionBubble.quickActions) || '', '观察四周\n离开这里'), '每行一条，最多 8 条，每回合附在选项气泡末尾；点击后作为行动发送')}</div>`,
             optionBubbleWidthToggle: checkbox('bridge.optionBubble.widthFollowsText', Boolean(bridge.optionBubble && bridge.optionBubble.widthFollowsText), '气泡宽度随文本变化'),
             pinnedButtonsField: renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder, reader.dialogBarBtns, reader.toolbarSplit, advancedOpen('toolbar-buttons')),
             themeNoteHidden: hiddenAttr(!themeDisabled),

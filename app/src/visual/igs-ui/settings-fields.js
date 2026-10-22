@@ -208,7 +208,6 @@ export function renderSystemRoleSettings(settings, options = {}) {
     const p = 'readerSettings.systemRole';
     const disabled = options.disabled === true;
     const fontItems = [['', '跟随旁白']].concat((options.fontOptions || []).filter(([value]) => value !== 'inherit'));
-    const tags = s.words.map((word) => `<span class="igs-mood-word-tag">${esc(word)}<button type="button" class="igs-mood-word-del" data-action="system-role-remove-word:${encSeg(word)}" title="删除">×</button></span>`).join('');
     const followBtn = s.color ? '<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="system-role-follow-color">跟随旁白</button>' : '';
     return [
         '<div class="igs-settings-row">',
@@ -216,9 +215,18 @@ export function renderSystemRoleSettings(settings, options = {}) {
         `<label class="igs-settings-field"><span>颜色</span>${colorInput(`${p}.color`, s.color || options.narrationColor, disabled)}</label>`,
         followBtn,
         '</div>',
-        checkbox(`${p}.showName`, s.showName, '显示角色名'),
-        `<div class="igs-settings-field"><span>角色词池</span><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="system-role-add-word" title="添加系统类角色">+</button></div><em>名单内的发送者使用此样式，线上交流中显示为居中提示条</em></div>`,
     ].join('');
+}
+
+// 系统消息的折叠设置：显示发送者名称、识别名单。默认收起，展开状态走 advancedOpen。
+export function renderSystemRoleAdvanced(settings, options = {}) {
+    const s = settings;
+    const p = 'readerSettings.systemRole';
+    const tags = s.words.map((word) => `<span class="igs-mood-word-tag">${esc(word)}<button type="button" class="igs-mood-word-del" data-action="system-role-remove-word:${encSeg(word)}" title="删除">×</button></span>`).join('');
+    return `<details class="igs-settings-sub igs-settings-advanced igs-system-role-advanced" data-advanced="system-role"${options.open ? ' open' : ''}${options.hidden || ''}><summary>系统消息设置</summary>`
+        + checkbox(`${p}.showName`, s.showName, '显示发送者名称')
+        + `<div class="igs-settings-field"><span>识别名单</span><div class="igs-mood-word-list">${tags || '<div class="igs-scene-empty">暂无</div>'}<button type="button" class="igs-btn-mgr-icon" data-action="system-role-add-word" title="添加系统类发送者">+</button></div><em>名单内的发送者使用此样式，线上交流中显示为居中提示条</em></div>`
+        + '</details>';
 }
 
 export function renderWeatherFxSettings(settings) {

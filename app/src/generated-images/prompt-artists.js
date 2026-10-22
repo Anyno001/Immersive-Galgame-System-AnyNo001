@@ -4,7 +4,7 @@
 export const PROMPT_KINDS = Object.freeze([
     ['sprite', '立绘'],
     ['expression', '表情差分'],
-    ['avatar', 'Q 版头像'],
+    ['avatar', 'Q版头像'],
     ['wardrobe', '衣柜'],
     ['background', '背景'],
     ['item', '物品'],

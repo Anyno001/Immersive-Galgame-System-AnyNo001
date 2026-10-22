@@ -130,12 +130,14 @@ export function renderPromptEntryFields(sceneAssets, { reader = {}, report = nul
     const open = (key) => isOpen(`prompt-entry-${key}`);
     const rows = PROMPT_ENTRY_KEYS.map((key) => entryRow(key, entries[key], { ...ctx, open: open(key) })).join('');
     const fixed = FIXED_KEYS.map((key) => fixedRow(key, { ...ctx, open: open(key) })).join('');
-    // 两个开关并排一行，写法（详细 / 精简）放在开关下面，不把两个开关隔开。
-    const head = `<div class="igs-settings-row igs-switch-stack">${checkbox(`${FX}.inject`, fx.inject, '使用内置演出规则')}${checkbox(`${FX}.resident`, fx.resident, '全量常驻（更耗费用，默认关）')}</div>`
-        + field(`${FX}.style`, '写法', segmentedInput(`${FX}.style`, fx.style, [['detailed', '详细'], ['compact', '精简']], '写法'))
-        + '<div class="igs-settings-row"><button type="button" class="igs-settings-action" data-action="fx-prompts-copy-all">复制全部</button></div>';
-    return '<div class="igs-source-filter-title">演出写法</div>'
+    // 只露两个开关；写法、复制全部与条目列表收进折叠。
+    const head = `<div class="igs-settings-row igs-switch-stack">${checkbox(`${FX}.inject`, fx.inject, '使用内置演出规则')}${checkbox(`${FX}.resident`, fx.resident, '全量常驻（更耗费用，默认关）')}</div>`;
+    const inner = field(`${FX}.style`, '写法', segmentedInput(`${FX}.style`, fx.style, [['detailed', '详细'], ['compact', '精简']], '写法'))
+        + '<div class="igs-settings-row"><button type="button" class="igs-settings-action" data-action="fx-prompts-copy-all">复制全部</button></div>'
         + '<div class="igs-source-filter-note">展开后可设常驻、关键词、注入位置与正文，未修改即为默认。</div>'
-        + head + rows
+        + rows
         + (fixed ? `<div class="igs-settings-subhead">固定写法</div>${fixed}` : '');
+    return '<div class="igs-source-filter-title">演出写法</div>'
+        + head
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-entries"${isOpen('prompt-entries') ? ' open' : ''}><summary>演出条目与写法</summary>${inner}</details>`;
 }

@@ -144,6 +144,7 @@ function openSettingsScene() {
     雪之国日常: { scenes: { 教室: { url: img, times: {} } }, characters: {}, scopeCards: { 'card:雪之国': { label: '雪之国', library: { scenes: { 小雪的房间: { url: img } }, characters: { 小雪: { 默认: img } } } } } },
   } }));
   mem.setItem('igs:mood-review:v1', JSON.stringify({ version: 1, items: [{ word: '幽怨' }, { word: '嘲弄' }] }));
+  if (q.get('recent')) mem.setItem('igs:settings-recent:v1', JSON.stringify([{ path: 'readerSettings.showStatusLine', label: '显示页码', page: 'style' }, { path: 'readerSettings.dialogSkin', label: '对话框皮肤', page: 'style' }, { path: 'bridge.optionBubble.enabled', label: '启用选项气泡', page: 'ui-option' }]));
   const view = q.get('view') === 'list' ? 'list' : 'grid';
   mem.setItem('igs-asset-folders-v1', JSON.stringify({ scopes: { '': {
     scenes: { view, folders: ['学校', '户外'], collapsed: [], assign: { 教室: '学校', 走廊: '学校', 海边: '户外' } },

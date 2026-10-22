@@ -8,7 +8,7 @@ function categoryRows(rows) {
 
 function recentRows(recent) {
     if (!recent.length) return '';
-    return `<div class="igs-dash-section"><div class="igs-dash-subhead">最近改过</div>${recent.map((item) => `<button type="button" class="igs-dash-row igs-dash-recent" data-recent-path="${esc(item.path)}" data-recent-page="${esc(item.page)}"><span class="igs-dash-row-name">${esc(item.label)}</span><i class="igs-dash-row-go" aria-hidden="true"></i></button>`).join('')}</div>`;
+    return `<div class="igs-dash-recent-line"><span class="igs-dash-recent-label">最近改过</span>${recent.map((item) => `<button type="button" class="igs-dash-recent" data-recent-path="${esc(item.path)}" data-recent-page="${esc(item.page)}">${esc(item.label)}</button>`).join('<span class="igs-dash-recent-dot" aria-hidden="true">·</span>')}</div>`;
 }
 
 export function renderDashboard({ presetBar = '', rows = [], recent = [] } = {}) {

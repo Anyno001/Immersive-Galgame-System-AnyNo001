@@ -39,8 +39,10 @@ const FORM_VIEW = [
     ['按年龄档补回', Object.entries(B.form.age).map(([k, v]) => `${({ child: '幼', teen: '少年', adult: '成年', elder: '年长' })[k]} → ${v}`).join('\n')],
 ];
 // [卡片标题, 画师串分类, slots 键]
-const GROUPS = [['角色', ['sprite', 'wardrobe'], 'character'], ['表情差分', ['expression']], ['Q版头像', ['avatar']],
-    ['场景与物品', ['background', 'item'], 'scene'], ['CG', ['cg'], 'cg'], ['NSFW', ['nsfwCg'], 'nsfw']];
+const GROUPS = [['角色', ['sprite', 'wardrobe', 'expression', 'avatar'], 'character'],
+    ['场景与物品', ['background', 'item'], 'scene'], ['CG', ['cg', 'nsfwCg'], 'cg']];
+// 该分类入口之前先放的生成开关（NSFW 开关紧贴自己的入口行）。
+const SLOT_BEFORE = { nsfwCg: 'nsfw' };
 const LABEL = new Map(PROMPT_KINDS);
 
 function builtinBlock(items) {
@@ -74,6 +76,6 @@ export function renderPromptKindsPanel({ nai, sourceMode, checkbox, advancedOpen
     return group('通用', checkbox(`${base}.enabled`, conf.enabled, '分区画师串（打开后每类用自己的画师串替换全局）')
         + (artistSelectionAvailable ? renderArtistSelector(nai, 'global', sourceMode) : '')
         + (slots.common || ''))
-        + GROUPS.map(([title, ids, slot]) => group(title, (slot && slots[slot] || '') + ids.map((id) => card(id, ids.length === 1)).join('')
+        + GROUPS.map(([title, ids, slot]) => group(title, (slot && slots[slot] || '') + ids.map((id) => (SLOT_BEFORE[id] && slots[SLOT_BEFORE[id]] || '') + card(id, ids.length === 1)).join('')
             + (slot === 'character' ? fold('prompt-kind-form', '变身 · IGS自带', builtinBlock(FORM_VIEW), advancedOpen) : ''))).join('');
 }

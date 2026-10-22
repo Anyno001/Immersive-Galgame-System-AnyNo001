@@ -1,15 +1,15 @@
 {
-  "version": "0.36.109",
+  "version": "0.36.110",
   "distribution": "standalone.1",
   "assetRef": "073e715a7b285f22f8d591a1da8286586564f969",
   "assetBase": "https://cdn.jsdelivr.net/gh/Anyno001/IGS_GaLSystem@073e715a7b285f22f8d591a1da8286586564f969",
-  "runtimeId": "035aecf8bd35d1b1545aca3a",
-  "sourceBundleSha256": "d39c5daf91f7d1bed51c72520b03e11f0238a8fff6c1db2d6ee99a2a294b4b27",
+  "runtimeId": "0f88465f4e45d64f0352ea18",
+  "sourceBundleSha256": "e802491e4d5e0ed253656b785c70864236894df1b61f5ef79e826199f308782a",
   "sourceCssSha256": "9b02fc61bd37d2a1193aa2a953eb6bd29ea1165c4280af5848547185a4035b1f",
   "loaderSha256": "c746e67252b88c29b154e918e5a1007339444b392021023710756fc5df08df8c",
-  "contentSha256": "9bfd56c4773bf24bc346dd92fa4fd9209d0d1b15a4c969365c108c21d076f3c6",
-  "importSha256": "fee7b4784a5f66d7bcfd33fa78571c1834d468dd512a730b9fe2ec899e86ad93",
-  "importBytes": 2985173,
-  "embeddedRuntimeBytes": 6538033,
-  "compressedBase64Bytes": 2940012
+  "contentSha256": "b4936d0ba97b017cf6bfdd66822015ccc4d93d8de349d2c58b0dc6f147561407",
+  "importSha256": "82531eaad80f3eb0a0b158ea4c438e445f1ec4a3000a463d43a0e0465eae55eb",
+  "importBytes": 2985573,
+  "embeddedRuntimeBytes": 6539379,
+  "compressedBase64Bytes": 2940412
 }

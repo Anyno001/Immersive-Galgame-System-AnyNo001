@@ -263,7 +263,8 @@ const READER_TEXT_TEMPLATE = `
     <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">心里话</div><div class="igs-settings-row">{{thoughtFontField}}{{thoughtColorField}}</div></div>
     <div class="igs-settings-group igs-text-style-line"{{dividerHidden}}><div class="igs-settings-subhead">分隔线</div><div class="igs-settings-row">{{dividerField}}{{dividerColorField}}</div></div>
     <div class="igs-settings-group igs-text-style-line"{{themeHidden}}><div class="igs-settings-subhead">上传字体</div>{{customFontManager}}</div>
-    <div class="igs-settings-group igs-system-role"{{themeHidden}}><div class="igs-settings-subhead">系统消息</div>{{systemRoleFields}}</div>
+    <div class="igs-settings-group igs-text-style-line igs-system-role"{{themeHidden}}><div class="igs-settings-subhead">系统消息</div>{{systemRoleFields}}</div>
+    {{systemRoleAdvanced}}
   </div>
 </div>
 `.trim();
@@ -331,16 +332,18 @@ const RULES_TEMPLATE = `
     <div class="igs-source-filter-title">AI格式规则<span class="igs-outfit-muted">{{promptRuleTag}}</span></div>
     {{promptRuleToggle}}
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-rule-edit"{{advancedPromptRuleOpen}}>
-      <summary>查看 / 修改规则</summary>
+      <summary>规则内容与注入位置</summary>
+      {{promptRuleHint}}
       {{promptRuleField}}
       <div class="igs-settings-row">
         <button class="igs-settings-action" data-action="reset-prompt-rule" type="button">恢复默认</button>
         <button class="igs-settings-action" data-action="save-prompt-rule" type="button">保存</button>
         <button class="igs-settings-action" data-action="copy-prompt-rule" type="button" title="复制到酒馆预设">复制预设</button>
       </div>
+      <div class="igs-settings-result" data-result="prompt-rule">{{promptRuleStatus}}</div>
+      {{promptRuleOutfitHint}}
+      {{promptPlacementField}}
     </details>
-    <div class="igs-settings-result" data-result="prompt-rule">{{promptRuleStatus}}</div>
-    {{promptRuleOutfitHint}}
     {{promptAdvanced}}
   </div>
 </div>
