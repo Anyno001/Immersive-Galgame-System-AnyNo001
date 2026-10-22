@@ -41,7 +41,7 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
     title.className = 'igs-asset-review-title';
     title.textContent = items.length ? `本层待确认素材 ${items.length}${handlers.hasMore ? '+' : ''} 项，是否入库？` : '正文出现了衣柜里没有的衣服';
     container.appendChild(title);
-    // 新衣服：下拉菜单选去向，确认后交给宿主；「稍后」留在素材页「待确认」里。
+    // 新衣服：「角色」穿了「衣服」+ 下拉菜单 + 加入/稍后；点过即从列表移除，不另显示状态。
     for (const ask of outfitAsks) {
         const row = doc.createElement('div');
         row.className = 'igs-asset-review-item';
@@ -49,17 +49,6 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
         body.className = 'igs-asset-review-body';
         const label = doc.createElement('div');
         label.textContent = `「${ask.character}」穿了「${ask.word}」`;
-        const status = doc.createElement('div');
-        if (ask.id) {
-            status.textContent = ask.busy ? '正在处理已选择的入库方式…'
-                : ask.reason ? `处理未完成（${ask.reason}），候选保留`
-                : ask.imageId ? '立绘已生成，等待入库' : ask.prompt ? '衣装描述已准备，确认后才入库' : '选择入库后才提取服装描述；仅选择生成立绘时才绘图';
-            body.appendChild(status);
-            if (ask.prompt) { const detail = doc.createElement('details');
-                const summary = doc.createElement('summary'); summary.textContent = '查看衣装描述';
-                const text = doc.createElement('div'); text.textContent = ask.prompt;
-                detail.append(summary, text); body.appendChild(detail); }
-        }
         const select = doc.createElement('select');
         select.setAttribute('aria-label', '新衣服加入方式');
         select.addEventListener('keydown', (event) => event.stopPropagation());
