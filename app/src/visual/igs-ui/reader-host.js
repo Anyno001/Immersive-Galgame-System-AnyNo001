@@ -15,7 +15,7 @@ import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-
 import { extractSceneDirectives, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers, classifySceneKey, resolveCharacterKey, setCharacterNameFallback } from '../../scene/scene-directives.js';
 
 import { recordOutfitReview, dropConfirmedOutfitReview, removeOutfitReview, storyOutfitSourceHash } from '../../scene/outfit-review-store.js';
-import { assetOwnerKey, draftAssetLibrary, effectiveSceneAssets, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { createStoryOutfitService } from '../../generated-images/illustration/story-outfit-service.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 
