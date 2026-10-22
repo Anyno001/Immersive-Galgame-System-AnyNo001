@@ -82,12 +82,14 @@ export function renderStatsBuildFields(build, advancedOpen = () => '', { worldvi
     const base = BASE_ATTRIBUTES.map((name) => field(`bridge.stats.build.base.${name}`, name, numberInput(`bridge.stats.build.base.${name}`, b.base[name], BUILD_MIN, BUILD_MAX))).join('');
     // 技能选择沿用原有开关样式：默认 8 项、世界观附加与自定义技能同一种开关，不加附注、不加容器。
     const special = specialCandidates(b, { worldview }).map((name) => checkbox(`bridge.stats.build.special.${name}`, b.special[name], name)).join('');
-    // 自定义技能的增删放在列表下方单独一行，沿用设置页的词条标签样式。
-    const customTags = b.custom.map((name) => `<span class="igs-mood-word-tag">${esc(name)}<button type="button" class="igs-mood-word-del" data-action="stats-build-remove-skill:${esc(encodeURIComponent(name))}" title="删除自定义技能" aria-label="删除自定义技能${esc(name)}">×</button></span>`).join('');
+    // 自定义技能已在上方开关列表里，下方这一行只放增删按钮，不重复列名字。
     const addSkill = b.custom.length < BUILD_CUSTOM_MAX
         ? '<button type="button" class="igs-btn-mgr-icon" data-action="stats-build-add-skill" title="新增自定义技能" aria-label="新增自定义技能">+</button>'
         : '';
-    const customRow = `<div class="igs-settings-field"><span>自定义技能</span><div class="igs-mood-word-list">${customTags}${addSkill}</div></div>`;
+    const removeSkill = b.custom.length
+        ? '<button type="button" class="igs-btn-mgr-icon" data-action="stats-build-remove-skill" title="删除自定义技能" aria-label="删除自定义技能">−</button>'
+        : '';
+    const customRow = `<div class="igs-settings-field igs-stats-custom-row"><span>自定义技能</span><div class="igs-mood-word-list">${addSkill}${removeSkill}</div></div>`;
     return `<details class="igs-settings-sub igs-settings-advanced" data-stats-worldview="${esc(worldview || 'modern')}" data-advanced="stats-build"${advancedOpen('stats-build')}>`
         + '<summary>分配点数（基础属性各 40 起，另有 60 点）</summary>'
         + `<div class="igs-source-filter-note" data-result="stats-build">${esc(st.pointNote)}</div>`

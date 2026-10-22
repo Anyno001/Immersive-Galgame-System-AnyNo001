@@ -46,13 +46,17 @@ test('建卡区渲染：技能选择沿用原有开关样式（默认 8 项与 v
     assert.match(html, /data-switch="bridge\.stats\.build\.special\.咒语" aria-pressed="false"><i><\/i><span>咒语<\/span><\/button>/);
     assert.match(html, /data-switch="bridge\.stats\.build\.special\.钓鱼" aria-pressed="false"><i><\/i><span>钓鱼<\/span><\/button>/);
     assert.doesNotMatch(html, /本世界|自定义）|igs-switch-note|igs-stats-custom-skill/);
-    assert.match(html, new RegExp(`data-action="stats-build-remove-skill:${encodeURIComponent('钓鱼')}"`));
+    // 自定义技能只在上方开关列表出现一次；下方一行只有增删按钮，整行居中。
+    assert.equal(html.split('>钓鱼<').length - 1, 1);
+    assert.doesNotMatch(html, /igs-mood-word-tag/);
+    assert.match(html, /class="igs-settings-field igs-stats-custom-row"/);
+    assert.match(html, /data-action="stats-build-remove-skill"/);
     assert.match(html, /data-action="stats-build-add-skill"/);
 });
 
 test('设置页新增与删除自定义技能：写入草稿、默认不选，删除后清掉选择', async () => {
     const { bootstrapIGS } = await import('../src/index.js');
-    const answers = ['钓鱼'];
+    const answers = ['钓鱼', '钓鱼'];
     const global = { prompt: () => answers.shift() ?? '', confirm: () => true };
     const vn = bootstrapIGS({ global, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
     try {
@@ -64,7 +68,7 @@ test('设置页新增与删除自定义技能：写入草稿、默认不选，�
         assert.equal(build().special.钓鱼, false);
         controller.toggle('bridge.stats.build.special.钓鱼');
         assert.equal(build().special.钓鱼, true);
-        await controller.invoke(`stats-build-remove-skill:${encodeURIComponent('钓鱼')}`);
+        await controller.invoke('stats-build-remove-skill');
         assert.deepEqual(build().custom, []);
         assert.equal(Object.hasOwn(build().special, '钓鱼'), false);
         assert.notEqual(controller.close().ok, false);

@@ -2417,18 +2417,21 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
-    if (normalizedAction.startsWith('stats-build-remove-skill:')) {
-        const name = decodeSeg(normalizedAction.slice('stats-build-remove-skill:'.length));
+    // 「−」按钮：弹框填要删除的自定义技能名；只有一个时预填。
+    if (normalizedAction === 'stats-build-remove-skill') {
         const bridgeDraft = settingsState.draft.bridge = settingsState.draft.bridge || {};
         const statsDraft = bridgeDraft.stats = bridgeDraft.stats || {};
         const build = normalizeBuild(statsDraft.build);
-        if (build.custom.includes(name)) {
-            build.custom = build.custom.filter((item) => item !== name);
-            delete build.special[name];
-            statsDraft.build = build;
-            const persisted = persistSettingsDraft();
-            if (persisted.ok === false) return persisted;
-        }
+        if (!build.custom.length) return rerenderSettings();
+        const raw = await dialogs.prompt(`要删除的自定义技能（现有：${build.custom.join('、')}）：`, build.custom.length === 1 ? build.custom[0] : '');
+        const name = String(raw == null ? '' : raw).trim();
+        if (!name) return rerenderSettings();
+        if (!build.custom.includes(name)) return { ok: false, reason: 'stats-build-skill-unknown' };
+        build.custom = build.custom.filter((item) => item !== name);
+        delete build.special[name];
+        statsDraft.build = build;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 
