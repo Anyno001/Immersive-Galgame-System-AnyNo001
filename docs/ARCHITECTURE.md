@@ -25,6 +25,9 @@ flowchart LR
     ShujukuData["data/shujuku"] --> ShujukuPanel["shujuku-panel"]
     ShujukuPanel --> Core
     Api["api: window.IGS"] --> Core
+    Scene --> Combat["combat"]
+    Core --> Combat
+    Visual --> Combat
 ```
 
 ## 层级边界
@@ -41,6 +44,7 @@ flowchart LR
 | 提示词 | `app/src/prompts/` | prompt context、adapter、模型 schema | 图片缓存、DOM 渲染 |
 | 数据库联动 | `app/src/data/shujuku/` | shujuku API 包装、表格数据模型 | 表格 UI 布局 |
 | 数据库界面 | `app/src/shujuku-panel/` | 表格编辑、筛选、刷新按钮 | 直接绕过 data 层写表 |
+| 战斗扩展 | `app/src/combat/` | 战斗规则、数据契约、纯函数引擎、托管策略、成长归并、战报 | DOM、宿主全局、直接调用 shujuku 或副 LLM |
 | 扩展导入 | `app/src/registry/` | Mod / Preset / Pack 索引和能力分组 | 具体业务实现 |
 | 公开 API | `app/src/api/` | `window.IGS` 能力出口 | 内部状态绕过权限直接暴露 |
 
