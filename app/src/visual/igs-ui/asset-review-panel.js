@@ -11,6 +11,7 @@ export const ASSET_REVIEW_STYLE_TEXT = `
 .igs-asset-review-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
 .igs-asset-review-actions button{min-height:28px;padding:4px 8px;border-radius:6px;border:0;background:rgba(255,255,255,.1);color:inherit;cursor:pointer;font-size:12px;line-height:18px;text-align:center;}
 .igs-asset-review-actions button.is-primary{grid-column:1/-1;background:rgba(255,255,255,.2);font-weight:600;}
+.igs-asset-review-actions button.is-wide{grid-column:1/-1;}
 .igs-asset-review-actions button:hover{background:rgba(255,255,255,.26);}
 .igs-asset-review-actions button:focus-visible{outline:2px solid rgba(255,255,255,.6);outline-offset:1px;}
 `;
@@ -41,6 +42,24 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
     title.className = 'igs-asset-review-title';
     title.textContent = items.length ? `本层待确认素材 ${items.length}${handlers.hasMore ? '+' : ''} 项，是否入库？` : '正文出现了衣柜里没有的衣服';
     container.appendChild(title);
+    // 多件新衣服时一键全部稍后：逐件走与单行「稍后」相同的回调，全部留在「待确认」。
+    if (outfitAsks.length > 1) {
+        const bulk = doc.createElement('div');
+        bulk.className = 'igs-asset-review-actions';
+        const deferAll = doc.createElement('button');
+        deferAll.type = 'button';
+        deferAll.className = 'is-wide';
+        deferAll.textContent = '全部稍后';
+        deferAll.setAttribute('data-outfit-ask-act', 'later-all');
+        deferAll.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (deferAll.disabled || typeof handlers.onOutfit !== 'function') return;
+            deferAll.disabled = true;
+            for (const ask of outfitAsks) if (!ask.busy) handlers.onOutfit(ask, '');
+        });
+        bulk.appendChild(deferAll);
+        container.appendChild(bulk);
+    }
     // 新衣服：「角色」穿了「衣服」+ 下拉菜单 + 加入/稍后；点过即从列表移除，不另显示状态。
     for (const ask of outfitAsks) {
         const row = doc.createElement('div');

@@ -486,8 +486,12 @@ export function buildIgsTextPayload(message, options = {}) {
     }
 
     if (!filteredToEmpty && (!formattedText || looksLikeHostUiHtml(formattedText))) {
+        // 宿主渲染的可见文字已清掉 [igs-*] 标签与聊天占位；原文带指令或聊天块时先用原文，
+        // 否则回看（DOM 已渲染）时聊天页丢失、场景指令取空。
+        const rawCarriesDirectives = !looksLikeHostUiHtml(safeRaw) && (chats.length > 0 || hasIgsDirectiveTags(safeRaw));
         const fallbackSource = firstNonEmpty(
             !looksLikeHostUiHtml(strictPayload.formattedText) ? strictPayload.formattedText : '',
+            rawCarriesDirectives ? safeRaw : '',
             safeVisibleText,
             !looksLikeHostUiHtml(safeRaw) ? safeRaw : '',
             cleanedRaw,
