@@ -62,3 +62,12 @@
   - 战报楼的 exp 由程序生成，解析时传 `{ expCap: false }` 跳过剧情封顶。
 - 验证：`node --test tests/combat-directives.test.js` 共 10 项，全部通过；与 fx 指令、多行指令、插图、HTML 卡片、unit、楼层准备、场景延续、旁白离场、用户角色等受影响的既有测试合跑 46 项全部通过。
 
+### 第 6 步：提示词装配
+
+- 新增 `app/src/scene/combat-prompt.js`：combat 提示块、`combat-narration` 段与战报待续写判定。计划写的是放在 prompts 层，但 `prompts/` 的契约只管生图提示词，主模型标签提示词一直在 scene / visual 两层（`tag-grammar`、`prompt-triggers`），因此放在 scene。
+- `tag-grammar.js`、`bootstrap.js` 的旧拼接路径：扩展开启时以 combat 替代 battle；`prompt-triggers.js` 新增 `combat` 触发块，`prompt-entries.js` 登记条目「卡牌战斗」，设置页条目可按世界书方式开关、改关键词与正文。
+- 实现时定下的细节（设计未写明）：
+  - 宿主在 `GENERATION_STARTED` 之后才把输入框内容写成用户楼（已核对 SillyTavern `Generate` 源码顺序），所以普通发送时 narration 判定看输入框原文；为此 `collectPromptContext` 新增 `inputText` 字段，旧字段不变。
+  - swipe / regenerate 重写续写楼时，末尾那条 AI 楼是被重写的对象，判定前先去掉，narration 段照常注入。
+- 验证：`node --test tests/combat-prompt-assembly.test.js` 共 5 项，覆盖扩展关闭时 battle 组装结果不变、开启时 combat 替代 battle、三种结果的 narration 段、AI 楼出现后消失、输入框判定；只断言段的存在与类别，不断言提示词文字。与 bgm、unit、fx 指令及前三步 combat 测试合跑 52 项全部通过。
+

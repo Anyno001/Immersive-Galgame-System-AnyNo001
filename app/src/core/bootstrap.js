@@ -70,6 +70,7 @@ import { createAlphaMatte } from '../media/alpha-matte.js';
 import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from '../scene/prompt-rule-content.js';
 import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
+import { combatExpansionEnabled, resolveCombatNarrationSegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
 const IGS_VERSION = '0.36.115';
@@ -825,8 +826,10 @@ export function bootstrapIGS(options = {}) {
         const promptContext = collectPromptContext(resolveTavernContext(), { document: globalObject.document });
         const outfitContext = { previousAiTexts: promptContext.previousAiTexts,
             sourceFilter: unified.bridge?.sourceFilter, virtualRegex: unified.bridge?.virtualRegex };
+        // 战报待续写时（最近一条用户楼是战报、其后还没有 AI 楼）在 depth 0 追加 combat-narration 段；扩展关闭时为 null。
+        const combatNarration = resolveCombatNarrationSegment(readerSettings, promptContext.history, { generationType, inputText: promptContext.inputText });
         if (sceneAssets && sceneAssets.promptAdaptive === false) {
-            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext });
+            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatNarration });
         }
         if (generationType === 'impersonate' || generationType === 'quiet') {
             promptInjector.clear();
@@ -854,11 +857,12 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'scene-assets-disabled' };
         }
         const depth0Content = [placement === 'system' ? DEPTH0_REMINDER : '', grammar.depth0].filter(Boolean).join('\n\n');
-        return promptInjector.inject(grammar.system, { placement, depth0Content, segments: grammar.segments });
+        const segments = combatNarration ? [...grammar.segments, combatNarration] : grammar.segments;
+        return promptInjector.inject(grammar.system, { placement, depth0Content, segments });
     }
 
     // 关闭按需注入时的旧行为：各块完整拼接；未自定义的场景规则用改版前的长版原文。
-    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext }) {
+    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatNarration = null }) {
         const rules = [];
         // 场景规则自带 [igs标签语法] 头部（含通用机制）；没有它时，若后面有演出规则就补一次兜底，
         // 因为各演出块已把通用机制抽到头部、自身不再复述。
@@ -888,7 +892,10 @@ export function bootstrapIGS(options = {}) {
         pushFx('text', resolveTextFxPromptRule(Boolean(rs.textFx && rs.textFx.enabled)));
         pushFx('bilingual', resolveBilingualPromptRule(rs.bilingual));
         pushFx('daily', resolveDailyFxPromptRule(rs.dailyFx));
-        pushFx('battle', resolveBattleFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled)));
+        // 战斗扩展开启时以 combat 规则替代 battle 块；combat 没有 fxPrompts 覆盖项，只受演出提示词总开关约束。
+        if (combatExpansionEnabled(rs)) {
+            if (fxPrompts.inject) rules.push(resolveCombatPromptRule(rs));
+        } else pushFx('battle', resolveBattleFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled)));
         pushFx('romance', resolveRomanceFxPromptRule(rs.romanceFx));
         pushFx('bgm', resolveBgmPromptRule(rs.bgm));
         pushFx('cast', resolveStageCastFxPromptRule(rs.stageCast));
@@ -907,7 +914,7 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'scene-assets-disabled' };
         }
         const depth0Content = split ? [DEPTH0_REMINDER, metaDigestRule].filter(Boolean).join('\n\n') : '';
-        return promptInjector.inject(rules.join('\n\n'), { placement, depth0Content });
+        return promptInjector.inject(rules.join('\n\n'), combatNarration ? { placement, depth0Content, segments: [combatNarration] } : { placement, depth0Content });
     }
 
     function syncSceneAssetsInjectionWithRetry(attempt) {

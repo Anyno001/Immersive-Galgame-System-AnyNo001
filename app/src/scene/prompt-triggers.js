@@ -100,6 +100,8 @@ export const DAILY_TRIGGER_WORDS = Object.freeze({
 });
 
 // 每块：tag 最近几层出现即展开；words 为默认关键词（设置页可改）；open/close 为成对标签，未闭合时保持展开。
+const BATTLE_TRIGGER_WORDS = Object.freeze(['攻击', '战斗', '检定', '交战', '开战', '迎战', '出招', '对决', '拔剑', '拔刀', '敌人', '怪物', '魔物', '反击', '决斗']);
+
 const BLOCK_TRIGGERS = Object.freeze({
     chat: {
         tag: /\[igs-(?:chat|msg)[:\]]/,
@@ -114,9 +116,14 @@ const BLOCK_TRIGGERS = Object.freeze({
     },
     battle: {
         tag: /\[igs-fx:(?:battle|battle-end|hit)[|\]]/,
-        words: ['攻击', '战斗', '检定', '交战', '开战', '迎战', '出招', '对决', '拔剑', '拔刀', '敌人', '怪物', '魔物', '反击', '决斗'],
+        words: BATTLE_TRIGGER_WORDS,
         open: /\[igs-fx:battle[|\]]/g,
         close: /\[igs-fx:battle-end[|\]]/g,
+    },
+    // 卡牌战斗：扩展开启时替代 battle 块，沿用同一份战斗词表；最近几层出现战斗标签也展开。
+    combat: {
+        tag: /\[igs-combat:(?:start|exp|learn|upgrade|class)[|\]]/,
+        words: BATTLE_TRIGGER_WORDS,
     },
     romance: {
         // 最近几层出现 NSFW 场景标签也展开：感官调度的写法要在情事段里用得上。
