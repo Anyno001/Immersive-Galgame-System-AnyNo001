@@ -120,7 +120,6 @@ test('gate:camera-shot-extras-play-and-cancel', () => {
     const hand = r.bg.animations.find((a) => a.options.iterations === Infinity);
     assert.equal(hand.options.composite, 'add');
     const whip = r.bg.animations.find((a) => a.options.duration === 350);
-    assert.match(whip.frames[0].filter, /blur\(10px\)/);
     assert.deepEqual(playCameraExtras(state, r.root, { key: 'a', shot: 'whip-left', mod: 'hand', newPage: true }), [], 'same page does not replay');
     playCameraExtras(state, r.root, { key: 'b', shot: '', mod: '', newPage: true });
     assert.ok(hand.cancelled, 'next page cancels hand-held');

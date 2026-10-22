@@ -1,3 +1,5 @@
+import { readLive2dConfig } from './live2d-config.js';
+import { renderLive2dLibrary } from './live2d-panel.js';
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
 import { DIALOG_SKIN_MERMAID, MERMAID_TONES, normalizeMermaidAccent, normalizeMermaidTone } from './dialog-theme-mermaid.js';
 import { buildIgsTextPayload, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
@@ -473,6 +475,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             });
             const charListOptions = {
                 imageSourceMode: bridge.imageApi?.mode || 'extension',
+                live2dConfig: readLive2dConfig(storage, cardKey),
                 aliases: sceneAssets.characterAliases || {},
                 characterDna: sceneAssets.characterDna || {},
                 characterOutfits: sceneAssets.characterOutfits || {},
@@ -625,7 +628,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     assetScopeBar,
                 },
                 panes: {
-                    chars: () => `<div class="igs-settings-grid" data-scene-settings-pane="assets">${charactersSettingsCard}<div class="igs-source-filter">${charactersPane()}</div></div>`,
+                    chars: () => `<div class="igs-settings-grid" data-scene-settings-pane="assets">${charactersSettingsCard}<div class="igs-source-filter">${charactersPane()}</div><details class="igs-source-filter igs-perf-group" data-advanced="live2d-library"${advancedOpen('live2d-library')}><summary><b>Live2D 角色模型（实验）</b><span class="igs-perf-brief">导入模型并绑定差分</span></summary>${renderLive2dLibrary(readLive2dConfig(storage, cardKey), scopeState.assetScopeLabel || '未选卡范围')}</details></div>`,
                     scenes: () => assetPane(scenesPane()),
                     // 索引模式不读待确认（会清掉已确认的记录、读生成素材），页面只留外框。
                     review: () => assetPane(idx ? '' : reviewPane()),

@@ -42,6 +42,7 @@ function spriteLine(c) {
     const m = c.spriteMatch;
     if (c.chatPage || c.htmlCardPage) return '本页是聊天 / 卡片页，不显示立绘';
     if (c.cgActive) return '挂着 CG，立绘让位';
+    if (c.spriteLive2d) return `角色「${c.spriteLive2d.character}」情绪「${c.spriteLive2d.mood || '默认'}」 → Live2D（静态差分已暂停）`;
     if (!m) return c.speaker ? `说话人「${c.speaker}」未进入立绘匹配（场景素材关闭或旁白 / 系统角色）` : '无说话人';
     const why = m.outfitOffset == null ? '' : `（来源 ${m.outfitSource || '无'}${m.outfitReason ? `/${m.outfitReason}` : ''} @${m.outfitOffset}）`;
     const request = Object.hasOwn(m, 'requestedOutfit') ? `，要求「${m.requestedOutfit || '默认'}」` : '';

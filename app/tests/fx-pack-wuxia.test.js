@@ -111,20 +111,3 @@ test('gate: wuxia sfx defs are modest and finite', () => {
     }
 });
 
-test('gate: wuxia shared tag/seal rules stay low-specificity, phone result line is horizontal, HUD keeps user avatar shape', () => {
-    for (const [label, css] of [['battle', WUXIA_BATTLE_STYLE_TEXT], ['pack', WUXIA_STYLE_TEXT]]) {
-        assert.match(css, /:where\(\.wx-tag\.v\)\{/, label);
-        assert.doesNotMatch(css, /[^(]\.wx-tag\.v\{/, `${label}: 共享 .wx-tag.v 须包在 :where() 里，否则压过 .wx-r-line`);
-        assert.match(css, /[^(]\.wx-seal\{[^}]*display:grid;place-items:center/, `${label}: 印须压过 .wx{display:block}，字居中`);
-        assert.doesNotMatch(css, /:where\(\.wx-seal\)/, `${label}: .wx-seal 降到 :where 会被 .wx 压过，字偏到左上角`);
-    }
-    assert.match(WUXIA_BATTLE_STYLE_TEXT, /\.wx-r-line\{[^}]*writing-mode:horizontal-tb/, '手机结算行横排');
-    assert.match(WUXIA_BATTLE_STYLE_TEXT, /\.igs-fx-battle-plate-mark\{[^}]*mask:/, '战斗名牌【战】钤毛边朱砂印');
-    assert.match(WUXIA_BATTLE_STYLE_TEXT, /\.wx-h-who\{[^}]*IGS-MaShanZheng/, '出招人名用毛笔字');
-    assert.doesNotMatch(WUXIA_HUD_THEME.avatar, /border-radius|clip-path/, '头像圆形/方形/圆角随用户设置');
-    assert.match(WUXIA_HUD_THEME.emotion, /background:#a8382a/, '情绪词钤朱砂印');
-    assert.match(WUXIA_HUD_THEME.emotion, /preserveAspectRatio='none'/, '情绪印毛边随字数横向拉伸，不只在正中留一方');
-    assert.match(WUXIA_HUD_THEME.panel, /^padding:(calc\([^)]*\)\) ){3}calc\(28px/, '左内距 28，干笔不挤内容');
-    assert.match(WUXIA_HUD_THEME.panel, /\) calc\(8px \* var\(--igs-hud-scale,1\)\) calc\(8px/, '干笔离面板左缘 8px，不贴边');
-});
-

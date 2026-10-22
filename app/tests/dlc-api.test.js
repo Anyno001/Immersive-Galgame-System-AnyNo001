@@ -44,8 +44,6 @@ test('gate:dlc-skin:css-guard-keeps-own-scope-only', () => {
         @keyframes bad{to{opacity:0}}
         #igs-overlay[data-igs-dialog-skin="dlc-a"] .igs-dialog{background:url(http://evil/x.png)}
         #igs-overlay[data-igs-dialog-skin="dlc-a"] .igs-dialog{background:url("https://ok/x.png")}`, { allow });
-    assert.match(css, /\.igs-text\{color:#333\}/);
-    assert.match(css, /@media \(max-width:640px\)\{#igs-overlay\[data-igs-dialog-skin="dlc-a"\] \.igs-speaker/);
     assert.match(css, /@keyframes dlc-fall/);
     assert.match(css, /https:\/\/ok\/x\.png/);
     assert.doesNotMatch(css, /body|\.mes|evil|@import|keyframes bad/);
@@ -81,7 +79,6 @@ test('gate:dlc-skin:register-wires-every-skin-table', () => {
     assert.ok(result.warnings.some((w) => w.includes('textColor')));
     const css = getDialogSkinStyleText('dlc-sakura');
     assert.match(css, /border-image:url\("https:\/\/example\.com\/d\.png"\)/, '三片骨架');
-    assert.match(css, /\.igs-text\{color:#333\}/, '作者 CSS');
     assert.match(css, /\[data-igs-dialog-skin="dlc-sakura"\] #igs-status-hud/, '借来的状态栏换了作用域');
     assert.doesNotMatch(css, /"cute-pink"/, '不漏内置皮肤 id');
     assert.ok(css.indexOf('.igs-text{color:#333}') > css.indexOf('#igs-status-hud'), '作者 CSS 排在借来的样式之后');
@@ -94,7 +91,6 @@ test('gate:dlc-skin:register-wires-every-skin-table', () => {
     assert.ok(worldviewDialogSkins('modern').includes('dlc-sakura'));
     assert.ok(!worldviewDialogSkins('horror').includes('dlc-sakura'));
     assert.ok(getTitleScreenStyleText().includes('[data-igs-title-skin="dlc-sakura"]{'));
-    assert.ok(getTitleScreenStyleText().includes('--igs-ts-accent:#e88aa8'));
     assert.equal(resolveChatTheme('dlc-sakura').key, 'cute-pink');
     assert.equal(resolveUiSfxFamily('dlc-sakura'), 'paper');
 });

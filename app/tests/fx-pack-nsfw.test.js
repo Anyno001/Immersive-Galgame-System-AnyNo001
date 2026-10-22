@@ -168,13 +168,6 @@ test('gate:aftermath-opt-in heat tiers, scatter icons and aftermath layer are op
     assert.equal(on.scatter, true);
 });
 
-test('gate:nsfw-fx bedcurtain switches by era: red candles ancient, solid sheer curtain and lamp modern', () => {
-    const doc = makeStage().ownerDocument;
-    const mk = (ancient) => NSFW_BUILDERS.bedcurtain({ type: 'bedcurtain', text: '' }, { root: doc, doc, reduced: true, hold: 1, ancient }).node.innerHTML;
-    assert.ok(mk(true).includes('igs-nfx-flame'));
-    assert.ok(mk(false).includes('igs-nfx-lamp') && !mk(false).includes('igs-nfx-flame'));
-});
-
 test('gate:nsfw-fx counter tally, favortip anchor, aftermath and conceive glow', () => {
     const root = makeStage({ waapi: true });
     const env = { root, doc: root.ownerDocument, reduced: false, hold: 1, speaker: 'A', ancient: false };

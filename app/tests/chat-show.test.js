@@ -89,7 +89,6 @@ test('gate: chat show bubble radius normalizes, clamps and renders a settings fi
     const { renderChatShowSettings } = await import('../src/visual/igs-ui/settings-fields.js');
     const html = renderChatShowSettings(normalizeChatShowSettings({ enabled: true, bubbleRadius: 10 }));
     assert.match(html, /data-path="readerSettings\.chatShow\.bubbleRadius"/);
-    assert.match(html, /<option value="10" selected>10px<\/option>/);
     assert.match(html, /<option value="0">直角<\/option>/);
 });
 

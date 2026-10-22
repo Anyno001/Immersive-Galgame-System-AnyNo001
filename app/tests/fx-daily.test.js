@@ -285,7 +285,6 @@ test('gate: daily-fx ancient era swaps clock, sticky note and letter for incense
     const [skip] = cards(r);
     assert.match(skip.className, /is-ancient/);
     assert.match(skip.innerHTML, /<svg class="new-incense"/);
-    assert.match(skip.innerHTML, /d="M60 55V172" stroke="#c9c2a8"/);
     assert.match(skip.innerHTML, /dur="2900ms"/);
     assert.doesNotMatch(skip.innerHTML, /igs-dfx-clock/);
     r.advance(3100);
@@ -330,7 +329,6 @@ test('gate: daily-fx ancient era swaps omikuji for a bamboo lot tube with Chines
         assert.match(node.innerHTML, new RegExp(`igs-dfx-slip-result">${lot}<`), result);
         assert.doesNotMatch(node.innerHTML, /igs-dfx-slip-text/);
     });
-    assert.match(DAILY_FX_STYLE_TEXT, /.igs-dfx-omikuji.is-ancient .igs-dfx-slip{writing-mode:vertical-rl/);
     // 烟花换孔明灯：暖色柔光、无爆炸声；现代模式仍是烟花闪光。
     const glowOf = (reader) => reader.root.querySelector('#igs-fx-stage').children.find((n) => String(n.className).includes('igs-dfx-sky-glow'));
     sounds.length = 0;

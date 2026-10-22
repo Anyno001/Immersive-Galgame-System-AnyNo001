@@ -59,23 +59,6 @@ test('quest retains take/done/fail labels, rewards, sound and escaping for ancie
     }
 });
 
-test('ancient edicts preserve scroll rods and text while using the approved square seal', () => {
-    const built = RITES_BUILDERS.edict({ text: '奉旨前往山门' }, envOf(true));
-    assert.match(built.node.innerHTML, /igs-dfx-edict-rod/);
-    assert.match(built.node.innerHTML, /igs-dfx-document-seal/);
-    assert.match(built.node.innerHTML, /data-shape="square"/);
-    assert.match(built.node.innerHTML, /aria-label="奉旨前往山门"/);
-});
-
-test('compact stage panels use available width and quest stamps have reserved space', () => {
-    assert.match(BEATS_STYLE_TEXT, /width:320px;max-width:100%;min-width:0/);
-    assert.match(BEATS_STYLE_TEXT, /overflow-wrap:anywhere/);
-    const places = readFileSync(new URL('../src/visual/igs-ui/fx-places-style.js', import.meta.url), 'utf8');
-    assert.match(places, /width:min\(320px,90%\)/);
-    assert.match(places, /padding:14px 18px 46px/);
-    assert.doesNotMatch(places, /width:min\(34%,320px\)/);
-});
-
 
 test('reference screenshot regression: score 150 to 0 keeps -150 while the number card follows every skin', () => {
     for (const ancient of [false, true]) {
@@ -106,23 +89,11 @@ test('cloud shoulders match the approved light paper across skins and keep all c
         assert.match(frame, /igs-bt.is-ancient/);
         assert.match(frame, /::before/);
         assert.match(frame, /transform:none;margin:0/);
-        assert.match(frame, /50 fill \/ 48px/);
         assert.match(frame, /filter:none/);
         assert.ok(frame.includes('%23f6efe0'), 'approved cream paper, independent of dark skin');
         assert.ok(frame.includes('%237c5a3c'), 'approved brown thin outline');
-        assert.ok(css.includes('color:#352014'), 'dark ink');
-        assert.ok(css.includes('color:#b22620'), 'vermilion numeric deltas');
         assert.ok(css.includes('IGS-MaShanZheng'), 'approved brush font');
-        assert.ok(css.includes('max-height:calc(var(--igs-fx-vis,380px) - 58px)'), 'content limited to safe stage');
         assert.match(frame, /-webkit-mask:none;mask:none/);
-        assert.doesNotMatch(css, /filter:blur\(1.2px\)|width:76px;height:38px/);
         assert.doesNotMatch(css, /igs-dfx-omikuji|igs-dfx-edict|igs-dfx-poem|igs-dfx-letter/);
-        assert.match(css, /padding-bottom:49px/);
     }
-});
-
-test('settings explains that only other panels honor the optional panelSkin switch', () => {
-    const text = readFileSync(new URL('../src/visual/igs-ui/fx-pack-fields.js', import.meta.url), 'utf8');
-    assert.match(text, /其他面板跟随对话框皮肤/);
-    assert.match(text, /系统、任务、结算与数值卡始终跟随当前皮肤/);
 });

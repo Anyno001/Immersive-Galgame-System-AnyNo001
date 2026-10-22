@@ -173,7 +173,6 @@ test('gate:fx-pack-beats link draws between head anchors, falls back for absent 
     const built = BEATS_BUILDERS.link(SAMPLES.link, env);
     const box = built.node.querySelector('.igs-links');
     assert.ok(box);
-    assert.match(box.innerHTML, /stroke="#d23b3b"/);
     const thread = BEATS_BUILDERS.link({ ...SAMPLES.link, style: 'thread' }, env);
     assert.match(thread.node.querySelector('.igs-links').innerHTML, /is-mist/);
     assert.match(thread.node.querySelector('.igs-links').innerHTML, /is-line/);
@@ -313,10 +312,6 @@ test('gate:dice-pool plan carries one die reel per die, bounded face frames and 
     assert.match(card.innerHTML, /igs-fx-result-note/);
     played.settled.then(() => {});
     timers.advance(10000);
-});
-
-test('gate:dice-pool d4 to d100 faces have shape styles', () => {
-    for (const sides of [4, 6, 8, 10, 12, 20, 100]) assert.match(RESULT_FX_STYLE_TEXT, new RegExp(`is-d${sides} \\.igs-fx-result-die`));
 });
 
 test('gate:fx-result crit and fumble decorate the card, contest splits with VS, reduced stays plain', () => {

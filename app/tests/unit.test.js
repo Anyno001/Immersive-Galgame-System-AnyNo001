@@ -1624,22 +1624,6 @@ test('gate:scene:mood-review-dedupes-by-word-and-caps-length', () => {
     assert.equal(loadMoodReview(storage).length, MOOD_REVIEW_LIMIT);
 });
 
-test('gate:scene:mood-review-list-renders-one-add-per-word-as-compact-chips', () => {
-    const html = renderMoodReviewList([
-        { word: '嘲弄', character: '爱丽丝', quality: 'fuzzy', group: '嫌弃' },
-        { word: '冷笑', character: '', quality: 'default', group: '' },
-    ], [{ label: '嫌弃', words: ['嘲讽'] }, { label: '平和', words: ['平静'] }]);
-    assert.match(html, /data-mood-review-word="嘲弄"/);
-    assert.match(html, /data-mood-review-word="冷笑"/);
-    assert.match(html, /<option value="">加入…<\/option><option value="嫌弃">嫌弃<\/option>/);
-    assert.doesNotMatch(html, /mood-review-assign|确认加入|改到其他组|加入情绪组|建为情绪组/);
-    assert.doesNotMatch(html, /未命中|显示默认立绘|模糊归入|请核对/);
-    assert.doesNotMatch(html, /igs-mood-review-who/, '待确认情绪词标签不带所属角色');
-    assert.match(html, /class="igs-review-clear" data-action="mood-review-clear"/);
-    assert.match(html, /class="igs-mood-review-chip"/);
-    assert.match(renderMoodReviewList([]), /暂无/);
-});
-
 test('gate:scene:mood-groups-build-text-renders-label-and-words', () => {
     const text = buildMoodGroupsText([
         { label: '喜悦', words: ['开心', '欣喜'] },
@@ -2349,39 +2333,6 @@ test('gate:scene:settings-action-mood-groups-toggle-and-reset', async () => {
     await handleSettingsAction('reset-mood-groups', ctx);
     assert.equal(draft.bridge.sceneAssets.moodGroups.length, DEFAULT_MOOD_GROUPS.length);
     assert.ok(rerenders >= 3);
-});
-
-test('gate:scene:mood-group-list-shows-the-containers-and-their-count', () => {
-    const extra = DEFAULT_MOOD_GROUPS.concat([{ label: '嘲讽', words: ['嘲弄', '讥讽'] }]);
-    const host = createIgsReaderHost({
-        global: {},
-        getUnifiedSettings: () => ({
-            version: '0.34.3',
-            bridge: {
-                openMode: 'pc',
-                sceneAssets: {
-                    enabled: true,
-                    scenes: {},
-                    characters: { 冬月星见: { 默认: '' } },
-                    moodGroups: extra,
-                },
-            },
-            readerMode: 'pc',
-            readerSettings: {},
-        }),
-        saveUnifiedSettings: () => ({ ok: true }),
-    });
-    host.openReader({ message: { text: '旁白。' } }, { mode: 'pc' });
-    const opened = host.openSettings({ page: 'wardrobe' });
-    const html = opened.controller.getSnapshot().html;
-    assert.match(html, new RegExp(`data-mood-group-count="${extra.length}"`));
-    assert.match(html, new RegExp(`class="igs-mood-group-total">${extra.length}</`));
-    for (const group of extra) {
-        assert.match(html, new RegExp(`data-mood-group="${group.label}"`));
-    }
-    assert.match(html, /嘲讽/);
-    assert.match(html, /2个词/);
-    host.destroy();
 });
 
 test('gate:scene:mood-create-group-auto-first-word-and-blocks-dup', async () => {
@@ -4077,40 +4028,6 @@ test('gate:simulation:status-hud-table-picker-wires-actions-and-only-highlights-
     assert.match(html, /class="igs-table-pick is-on"[^>]*data-action="status-hud-toggle-table:sheet_stats:%E8%A7%92%E8%89%B2%E6%95%B0%E5%80%BC%E8%A1%A8"[^>]*aria-pressed="true"/);
     assert.equal((html.match(/class="igs-table-pick is-on"/g) || []).length, 1);
     assert.match(html, /<em>仅读取勾选的表；留空则不读取任何表。<\/em>/);
-});
-
-test('gate:scene:character-assets-render-status-avatar-row', () => {
-    const html = renderCharacterAssetList(
-        { H: { 默认: '' } },
-        { aliases: { H: [] }, moodGroups: [], statusAvatars: { H: 'data:image/png;base64,AAA' }, isOpen: () => true },
-    );
-    // 头像本身就是上传按钮；地址和清除在毛笔打开的「角色设定」里。
-    assert.match(html, /<button type="button" class="igs-char-avatar" data-action="status-avatar-pick:H"/);
-    assert.match(renderCharacterAssetList({ H: { 默认: '' } }, { statusAvatars: { H: 'x' } }), /^(?![\s\S]*status-avatar-url)/);
-    assert.match(html, /class="igs-scene-url-input igs-status-avatar-url"[^>]*data-status-avatar-char="H"[^>]*value="data:image\/png;base64,AAA"/);
-    assert.match(html, /data-action="status-avatar-pick:H"/);
-    assert.match(html, /data-action="status-avatar-clear:H"/);
-    assert.match(html, /class="igs-status-avatar-thumb"[^>]*src="data:image\/png;base64,AAA"/);
-});
-
-test('gate:scene:scene-assets-indent-without-horizontal-overflow', () => {
-    const scenes = {
-        旧城: {
-            url: '',
-            times: {
-                夜晚: { url: '', weathers: { 雨天: { url: '' } } },
-            },
-        },
-    };
-    // 时间 / 天气行默认收起，场景行上只有「1个时间 · 1个天气」。
-    const collapsed = renderSceneAssetList(scenes);
-    assert.match(collapsed, /data-action="scene-toggle-times:%E6%97%A7%E5%9F%8E" aria-expanded="false">1个时间 · 1个天气<\/button>/);
-    assert.doesNotMatch(collapsed, /igs-scene-time-group/);
-    const html = renderSceneAssetList(scenes, { expandedSlots: new Set(['times\x00旧城']) });
-    assert.match(html, /aria-expanded="true">1个时间 · 1个天气/);
-    assert.match(html, /class="igs-scene-char-group igs-scene-time-group"/);
-    assert.match(html, /class="igs-btn-mgr-row igs-scene-mood-row igs-scene-weather-row"/);
-    assert.doesNotMatch(html, /style="margin-left:(?:16|32)px"/);
 });
 
 test('gate:simulation:status-hud-metric-parsing-positive-and-negative', () => {

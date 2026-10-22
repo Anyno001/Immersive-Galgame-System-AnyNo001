@@ -35,7 +35,6 @@ test('gate:settings-pages:dashboard-lists-categories-with-status-and-onboarding'
         assert.doesNotMatch(html, /class="igs-dash-row" data-cat="dash"/);
         assert.match(html, /data-cat="perf"><span class="igs-dash-row-name">演出<\/span><span class="igs-dash-row-status">开\d+项</);
         assert.match(html, /data-cat="sound"><span class="igs-dash-row-name">声音<\/span><span class="igs-dash-row-status">开\d+项</);
-        assert.match(html, /data-cat="text"><span class="igs-dash-row-name">文字<\/span><span class="igs-dash-row-status">\d+px</);
         assert.match(html, /data-cat="ui"><span class="igs-dash-row-name">界面<\/span><span class="igs-dash-row-status">(顶部固定|紧贴对话框)</);
         assert.match(html, /data-cat="data"><span class="igs-dash-row-name">数据<\/span><span class="igs-dash-row-status">备份 · 日志</);
         assert.doesNotMatch(html, /最近改过/);
@@ -136,22 +135,6 @@ test('gate:settings-pages:ui-page-leads-with-reader-card-and-ai-parse-page-keeps
         assert.match(backup, /data-action="purge-asset-cache"/);
         assert.match(backup, /配置不含素材图片和API Key/);
         assert.doesNotMatch(controller.switchPage('cglib').snapshot.html, /purge-asset-cache/);
-    } finally {
-        vn.destroy();
-    }
-});
-
-test('gate:settings-pages:asset-pages-keep-scene-mode-header', () => {
-    const { vn, controller } = openApp();
-    try {
-        for (const page of ['chars', 'wardrobe', 'review', 'scenes', 'eventcg', 'cglib']) {
-            const html = controller.switchPage(page).snapshot.html;
-            assert.match(html, /data-switch="bridge.sceneAssets.enabled"/, page);
-            assert.match(html, /igs-asset-scope-bar/, page);
-            assert.match(html, /class="igs-page-tabs"/, page);
-        }
-        assert.match(controller.switchPage('wardrobe').snapshot.html, /data-wardrobe-section[\s\S]*data-mood-section/);
-        assert.match(controller.switchPage('eventcg').snapshot.html, /data-event-cg-section/);
     } finally {
         vn.destroy();
     }

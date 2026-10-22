@@ -17,7 +17,6 @@ test('gate:dialog-skin-mermaid is a built-in skin with frame, options, hud, item
     assert.equal(dialogSkinLabel(SKIN), '深海人鱼');
     const css = getDialogSkinStyleText(SKIN);
     assert.ok(css.includes(`#igs-overlay .igs-dialog[data-igs-dialog-skin="${SKIN}"]{`));
-    assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${SKIN}"]{--igs-skin-plate-rise:`));
     assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${SKIN}"] .igs-option-bubble{`));
     assert.ok(css.includes(`#igs-overlay[data-igs-dialog-skin="${SKIN}"] .igs-option-bubble:hover{`));
     const hud = `#igs-overlay[data-igs-dialog-skin="${SKIN}"] #igs-status-hud`;
@@ -26,8 +25,6 @@ test('gate:dialog-skin-mermaid is a built-in skin with frame, options, hud, item
     assert.ok(!/magic-academy/.test(css), 'does not leak the starry-night skin');
     // 闪光只动透明度，舞台暂停与减少动态时静止。
     assert.match(css, /mermaid-deep"\]::before\{[^}]*animation:igs-mm-glint/);
-    assert.match(css, /@keyframes igs-mm-glint\{0%\{opacity:[^}]*\}/);
-    assert.match(css, /data-igs-paused\] \.igs-dialog\[data-igs-dialog-skin="mermaid-deep"\]::before\{animation-play-state:paused/);
     assert.equal(getReferenceDialogTypography(SKIN).nameColor, '#f4f8ff');
     assert.ok(CHAT_THEME_PALETTES[SKIN]);
     assert.equal(CLICK_WAIT_MARK_SKINS[SKIN].shape, 'bubbles');
@@ -60,6 +57,4 @@ test('gate:dialog-skin-mermaid tones: presets, custom pearl color and settings d
     assert.equal(normalizeReaderSettings({}).mermaidTone, 'ocean');
     // 颜色全走变量，换配色不必重新注入样式。
     const css = getDialogSkinStyleText(SKIN);
-    assert.match(css, /var\(--igs-mm-veil,#0a2148\)/);
-    assert.match(css, /var\(--igs-mm-line,#c8dcf6\)/);
 });

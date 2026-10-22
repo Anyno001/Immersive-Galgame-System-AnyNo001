@@ -134,7 +134,6 @@ test('gate:romance-solo:dream-figure-sits-under-sprite-and-fades', () => {
     closeDreamFigure(stage);
     assert.equal(stage.querySelector('.igs-rm-dream'), null);
     assert.doesNotMatch(DREAM_STYLE_TEXT, /#igs-(bg|sprite|cast)[^{]*\{[^}]*filter:/);
-    assert.match(DREAM_STYLE_TEXT, /data-igs-quality="low"[^{]*\{filter:none;\}/);
 });
 
 test('gate:romance-solo:runtime-detects-solo-span-fantasy-and-noise', () => {

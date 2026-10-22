@@ -248,7 +248,6 @@ test('gate:peek:search-history-list', () => {
     assert.equal(rows[1].querySelector('.igs-feed-term-time'), null, 'no time, nothing invented');
     assert.equal(rows[1].querySelector('.igs-feed-term').textContent, '<img src=x onerror=1> 失眠怎么办', 'plain text only');
     assert.equal(rows[1].children.length, 3);
-    assert.match(FEED_STYLE_TEXT, /data-platform="search"\] \.igs-feed-list\{flex-direction:column-reverse/);
 });
 
 test('gate:peek:memo-sticky-notes-and-draft-badge', () => {

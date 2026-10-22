@@ -1,0 +1,15 @@
+{
+  "version": "0.36.107",
+  "distribution": "standalone.1",
+  "assetRef": "073e715a7b285f22f8d591a1da8286586564f969",
+  "assetBase": "https://cdn.jsdelivr.net/gh/Anyno001/IGS_GaLSystem@073e715a7b285f22f8d591a1da8286586564f969",
+  "runtimeId": "5f5c3636c5478490c06b7bd6",
+  "sourceBundleSha256": "803e308d066f4ec89e912b3679f44c12b30ce2558697116bb6be65c5dd1ad304",
+  "sourceCssSha256": "9b02fc61bd37d2a1193aa2a953eb6bd29ea1165c4280af5848547185a4035b1f",
+  "loaderSha256": "c746e67252b88c29b154e918e5a1007339444b392021023710756fc5df08df8c",
+  "contentSha256": "82562ec0c4530942676821366c9de4368dc2745dbbc36127b455a97175b2c6da",
+  "importSha256": "8654420e4ea7bd86e4b171719a8ecb9b217423511091fac8a7048ca6df7111bf",
+  "importBytes": 2987261,
+  "embeddedRuntimeBytes": 6535812,
+  "compressedBase64Bytes": 2942100
+}

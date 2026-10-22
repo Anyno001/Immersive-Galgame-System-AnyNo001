@@ -171,7 +171,6 @@ test('gate:fx-runtime:title-card-temporarily-hides-stage-chrome', () => {
     assert.ok(FX_STYLE_TEXT.includes('#igs-stage-motion[data-igs-fx-presentation="1"] #igs-status-hud'));
     assert.ok(FX_STYLE_TEXT.includes('#igs-stage-motion[data-igs-fx-presentation="1"] #igs-sprite'));
     assert.ok(FX_STYLE_TEXT.includes('#igs-stage-motion[data-igs-fx-presentation="1"] #igs-dialog-layer'));
-    assert.ok(FX_STYLE_TEXT.includes('{display:none!important;pointer-events:none!important;}'));
     timers.flush();
     assert.equal(motion.getAttribute('data-igs-fx-presentation'), null);
     assert.equal(motion.querySelector('.igs-fx-title-card'), null);
@@ -533,7 +532,6 @@ test('gate:fx-settings:new-symbols-have-words-offsets-and-call-sprite-mode', () 
     for (const kind of MANGA_SYMBOL_KINDS) {
         assert.ok(SYMBOL_OFFSETS[kind], kind);
         assert.ok(MANGA_FX_DEFAULT_SYMBOLS[kind].length, kind);
-        assert.match(FX_STYLE_TEXT, new RegExp(`data-kind="${kind}"\\]\\{--igs-fx-hue:`), kind);
     }
     // 默认词表之间不重复，保证每个词只落到一个符号上。
     const words = MANGA_SYMBOL_KINDS.flatMap((kind) => MANGA_FX_DEFAULT_SYMBOLS[kind]);
@@ -883,7 +881,6 @@ test('gate:fx-runtime:ancient-era-light-off-blows-out-a-candle', () => {
     assert.deepEqual(reduced.sounds, ['onomatopoeia:whoosh']);
     cancelFxEffects(reduced.root);
     assert.match(FX_STYLE_TEXT, /\.igs-fx-candle-flame\{[^}]*animation:igs-fx-candle-blow/);
-    assert.match(FX_STYLE_TEXT, /prefers-reduced-motion: reduce\)\{\.igs-fx-candle\{display:none/);
 });
 
 

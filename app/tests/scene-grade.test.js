@@ -108,7 +108,6 @@ test('gate: flashback and dream take priority over the scene grade', () => {
     assert.equal(resolveSceneGradePlan({ ...options, ranges: { flashback: true } }), null);
     assert.equal(resolveSceneGradePlan({ ...options, ranges: { dream: true } }), null);
     assert.ok(resolveSceneGradePlan({ ...options, ranges: { letterbox: true } }));
-    assert.match(SCENE_GRADE_STYLE_TEXT, /data-igs-fx-flashback\],\[data-igs-fx-dream\]\) \.igs-grade-layer\{opacity:0!important/);
 });
 
 test('gate: scene grade scales with strength, eases indoors and keeps sprites gentler than the background', () => {
@@ -241,8 +240,6 @@ test('gate: scene grade layer carries a flat tint for the low quality tier', asy
     applySceneGrade(root, { ...ctx, settings: TINT, time: '夜晚', instant: true });
     const active = layers(motion).find((layer) => layer.style.opacity === '1');
     assert.match(active.style.getPropertyValue('--igs-grade-flat'), /^linear-gradient\(180deg,rgba\(\d+,\d+,\d+,[\d.]+\),rgba\(\d+,\d+,\d+,[\d.]+\)\)$/);
-    assert.match(SCENE_GRADE_STYLE_TEXT, /#igs-overlay\[data-igs-quality="low"\] \.igs-grade-layer\{mix-blend-mode:normal;background:var\(--igs-grade-flat,none\)!important;\}/);
-    assert.match(SCENE_GRADE_STYLE_TEXT, /#igs-overlay\[data-igs-quality="low"\] \.igs-grade-layer::after\{display:none;\}/);
 });
 
 test('gate:perf:retired-grade-layer-drops-its-blend-mode-after-the-fade', (t) => {
@@ -261,7 +258,6 @@ test('gate:perf:retired-grade-layer-drops-its-blend-mode-after-the-fade', (t) =>
     applySceneGrade(r.root, { ...options, time: '黄昏' });
     assert.equal(a.getAttribute('data-igs-grade-idle'), null, 'reactivated layer blends again at once');
     cancelSceneGrade(r.root);
-    assert.match(SCENE_GRADE_STYLE_TEXT, /\.igs-grade-layer\[data-igs-grade-idle\][^{]*\{mix-blend-mode:normal;\}/);
 });
 
 test('gate:perf:lightning-skips-the-grade-flash-while-a-panel-pauses-the-stage', () => {

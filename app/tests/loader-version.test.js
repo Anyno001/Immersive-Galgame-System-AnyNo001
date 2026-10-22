@@ -4,7 +4,11 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../loader/igs-loader.js', import.meta.url), 'utf8');
+const localSource = fs.readFileSync(new URL('../../loader/igs-live2d-local.js', import.meta.url), 'utf8');
+const localImport = JSON.parse(fs.readFileSync(new URL('../../loader/IGS-Live2D-本地测试.json', import.meta.url), 'utf8'));
+const standaloneSource = fs.readFileSync(new URL('../../loader/igs-live2d-standalone.js', import.meta.url), 'utf8');
 const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+const standaloneImport = JSON.parse(fs.readFileSync(new URL(`../../loader/IGS-Live2D-导入即用-v${version}.json`, import.meta.url), 'utf8'));
 const ref = `v${version}`;
 const fixedContent = source.replace("const PINNED_REF = '';", `const PINNED_REF = ${JSON.stringify(ref)};`);
 const autoContent = JSON.parse(fs.readFileSync(new URL('../../loader/igs-loader.json', import.meta.url), 'utf8')).content;
@@ -12,7 +16,7 @@ const base = `https://cdn.jsdelivr.net/gh/Anyno001/Immersive-Galgame-System-AnyN
 const instanceKey = '__IGS_AUTO_UPDATE_LOADER__';
 const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(resolve => setImmediate(resolve)); };
 
-function harness({ oldVersion, oldRef, shutdown, servedVersion = version, probeStatus = 200, scriptError = false, cdnError = false, rawBody, auto = false } = {}) {
+function harness({ oldVersion, oldRef, shutdown, servedVersion = version, probeStatus = 200, scriptError = false, cdnError = false, rawBody, auto = false, local = false, standalone = false, contentOverride } = {}) {
     const nodes = new Map(), scripts = [], requests = [], alerts = [], logs = [], timers = [];
     const blobs = [], revoked = [], cleared = [], subscriptions = [];
     let stopped = 0, ensured = 0, opened = 0;
@@ -61,8 +65,8 @@ function harness({ oldVersion, oldRef, shutdown, servedVersion = version, probeS
     if (oldRef) root[instanceKey] = { repository: 'Anyno001/Immersive-Galgame-System-AnyNo001', activeRef: oldRef,
         activeBase: `https://cdn.jsdelivr.net/gh/Anyno001/Immersive-Galgame-System-AnyNo001@${oldRef}` };
     const quiet = { info: (...args) => logs.push(args), warn: (...args) => logs.push(args), error: (...args) => logs.push(args) };
-    const context = vm.createContext({ window: root, document: doc, console: quiet, Promise, Date });
-    const content = auto ? autoContent : fixedContent;
+    const context = vm.createContext({ window: root, document: doc, console: quiet, Promise, Date, atob, Uint8Array, TextDecoder });
+    const content = contentOverride ?? (standalone ? standaloneSource : local ? localSource : auto ? autoContent : fixedContent);
     return { root, nodes, scripts, requests, alerts, logs, timers, blobs, revoked, cleared, run: () => vm.runInContext(content, context), click: () => subscriptions[0](), opened: () => opened, stopped: () => stopped, ensured: () => ensured };
 }
 
@@ -238,4 +242,109 @@ test('gate:loader:auto-update-replaces-a-runtime-from-a-different-commit', async
     assert.equal(f.stopped(), 1); assert.equal(f.root.IGS.version, version);
     assert.equal(f.root[instanceKey].activeRef, 'b'.repeat(40));
     assert.equal(f.scripts.length, 1);
+});
+
+
+test('live2d:local-loader-import-is-current-disabled-and-verbatim', () => {
+    assert.equal(localImport.content, localSource);
+    assert.equal(localImport.enabled, false);
+    assert.ok(localImport.info.includes(version));
+    assert.ok(localSource.endsWith(source), '本地配置前缀后的实现必须完整沿用新版 loader');
+});
+
+test('live2d:local-loader-starts-and-reuses-only-the-local-runtime', async () => {
+    const f = harness({ local: true });
+    f.run(); await settle();
+    assert.equal(f.root.IGS.version, version);
+    assert.equal(f.root[instanceKey].activeBase, 'http://127.0.0.1:18086');
+    assert.equal(f.root[instanceKey].activeRef, 'local-live2d');
+    assert.equal(f.requests.length, 1); assert.equal(f.scripts.length, 1);
+    assert.ok([...f.scripts, ...f.requests.map(r => r.url)].every(url => url.startsWith('http://127.0.0.1:18086/')));
+    f.run(); await settle(); assert.equal(f.root[instanceKey].reused, true);
+    assert.equal(f.scripts.length, 1); assert.deepEqual(f.alerts, []);
+});
+
+for (const failure of [{ probeStatus: 503 }, { scriptError: true }]) {
+    test('live2d:local-loader-failure-never-falls-back-to-upstream-' + Object.keys(failure)[0], async () => {
+        const f = harness({ local: true, ...failure });
+        f.run(); await settle();
+        assert.equal(f.root.IGS, undefined); assert.equal(f.alerts.length, 1);
+        assert.ok(f.requests.length > 0);
+        assert.ok([...f.scripts, ...f.requests.map(r => r.url)].every(url => url.startsWith('http://127.0.0.1:18086/')));
+        assert.equal(f.blobs.length, 0);
+    });
+}
+
+
+test('standalone:import-is-verbatim-disabled-and-has-QR-button', () => {
+    assert.equal(standaloneImport.content, standaloneSource);
+    assert.equal(standaloneImport.enabled, false);
+    assert.equal(standaloneImport.type, 'script');
+    assert.deepEqual(standaloneImport.button, { enabled: true, buttons: [{ name: 'Gal模拟', visible: true }] });
+    assert.ok(standaloneSource.length < 3 * 1024 * 1024);
+    assert.ok(!standaloneSource.includes('http://127.0.0.1:18086'));
+});
+
+test('standalone:boots-embedded-code-with-zero-frontend-network-and-revokes-blob', async () => {
+    const f = harness({ standalone: true });
+    f.root.fetch = () => { throw new Error('no frontend network allowed'); };
+    f.run(); await settle();
+    assert.equal(f.root.IGS.version, version);
+    assert.equal(f.root[instanceKey].embedded, true);
+    assert.match(f.root[instanceKey].activeRef, /^embedded-live2d-[a-f0-9]{24}$/);
+    assert.equal(f.requests.length, 0);
+    assert.deepEqual(f.scripts, ['blob:igs-1']);
+    assert.deepEqual(f.revoked, ['blob:igs-1']);
+    assert.deepEqual(f.alerts, []);
+    const embedded = await f.blobs[0].text();
+    assert.ok(embedded.includes('igs-live2d-models'));
+    assert.ok(!embedded.includes('import.meta.url'));
+    assert.ok(embedded.includes('@073e715a7b285f22f8d591a1da8286586564f969/app/dist/igs.bundle.js'));
+    assert.equal(f.nodes.get('igs-auto-loader-css').tagName, 'style');
+    assert.match(f.nodes.get('igs-auto-loader-css').textContent, /https:\/\/cdn\.jsdelivr\.net\/gh\/Anyno001\/IGS_GaLSystem@073e715a7b285f22f8d591a1da8286586564f969\/app\/dist\/fonts\//);
+});
+
+test('standalone:replaces-older-runtime-and-reuses-identical-build', async () => {
+    const f = harness({ standalone: true, oldVersion: '0.34.78' });
+    f.run(); await settle();
+    assert.equal(f.stopped(), 1);
+    f.run(); await settle();
+    assert.equal(f.stopped(), 1);
+    assert.equal(f.scripts.length, 1);
+    assert.equal(f.root[instanceKey].reused, true);
+    assert.deepEqual(f.alerts, []);
+});
+
+for (const options of [{ scriptError: true }, { servedVersion: '0.0.1' }]) {
+    test('standalone:startup-failure-cleans-and-never-falls-back-' + Object.keys(options)[0], async () => {
+        const f = harness({ standalone: true, ...options });
+        f.run(); await settle();
+        assert.equal(f.root.IGS, undefined);
+        assert.equal(f.requests.length, 0);
+        assert.deepEqual(f.scripts, ['blob:igs-1']);
+        assert.deepEqual(f.revoked, ['blob:igs-1']);
+        assert.equal(f.nodes.has('igs-auto-loader-css'), false);
+        assert.equal(f.nodes.has('igs-auto-loader-js'), false);
+        assert.equal(f.alerts.length, 1);
+        assert.match(f.alerts[0], /内嵌前端启动失败/);
+    });
+}
+
+test('standalone:corrupt-embedded-package-cannot-replace-a-working-runtime', async () => {
+    const f = harness({ auto: true, oldVersion: version });
+    f.root.IGS_LOADER_CONFIG = { embeddedRuntime: { version, script: 'broken', style: '' } };
+    f.run(); await settle();
+    assert.equal(f.stopped(), 0);
+    assert.equal(f.requests.length, 0);
+    assert.equal(f.scripts.length, 0);
+    assert.match(f.alerts[0], /内容损坏或版本不一致/);
+});
+
+test('standalone:fixed-upstream-loader-ignores-leftover-embedded-config', async () => {
+    const f = harness();
+    f.root.IGS_LOADER_CONFIG = { embeddedRuntime: { script: 'broken' } };
+    f.run(); await settle();
+    assert.equal(f.root.IGS.version, version);
+    assert.ok(f.requests.every(request => request.url.startsWith(base + '/')));
+    assert.deepEqual(f.alerts, []);
 });

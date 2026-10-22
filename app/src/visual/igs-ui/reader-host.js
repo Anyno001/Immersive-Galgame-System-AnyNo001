@@ -1,6 +1,9 @@
 import { recoverOperation, linkRecoverySignals, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 import { applyOperationEdits } from '../../storage/operation-edits.js';
 import { appendInputDraft } from '../../host/input-channel.js';
+import { readLive2dConfig, resolveCharacterLive2dBinding } from './live2d-config.js';
+import { disposeLive2dStage } from './live2d-stage.js';
+import { openLive2dPanel } from './live2d-panel.js';
 import { createMediaLeaseScope } from '../../media/media-lease-scope.js';
 import { bindImageCacheDocument } from '../../media/tavern-image-cache.js';
 import { buildIgsTextPayload, getMessagePrimaryText, getVisibleMessageTextFromElement, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
@@ -420,7 +423,7 @@ export function createIgsReaderHost(options = {}) {
     } = createSettingsHost({
         flushDeferredImageRefresh, normalizeUnifiedSettings, onboarding, openCgGallery, options, pageModal,
         playReaderUiSfx, rerenderActiveReader, resolveBridgeConfigSnapshot, scheduleMoodAutoClassify, sourceCache,
-        state,
+        state, openLive2dManager,
         invalidateFloorAssetPlan() { floorAssetPlan.key = ''; },
         takeReaderStaleBehindSettings() {
             const stale = readerStaleBehindSettings;
@@ -823,10 +826,12 @@ export function createIgsReaderHost(options = {}) {
         const slots = snapshot.content && Array.isArray(snapshot.content.imageSlots) ? snapshot.content.imageSlots : [];
         const floor = snapshot[preparedFloorKey];
         const key = `${firstDefined(payload.messageId, payload.message && payload.message.id, '')}:${source.length}:${slots.map((slot) => (slot && slot.url) || '').join('|')}`;
-        const planChanged = floorAssetPlan.key !== key || floorAssetPlan.reader !== current || floorAssetPlan.floor !== floor;
+        const live2dKey = JSON.stringify([readerSettings._live2d?.enabled, Object.keys(readerSettings._live2d?.bindings || {})]);
+        const planKey = key + ':' + live2dKey;
+        const planChanged = floorAssetPlan.key !== planKey || floorAssetPlan.reader !== current || floorAssetPlan.floor !== floor;
         if (planChanged) {
             floorAssetPlan = {
-                key, reader: current, floor,
+                key: planKey, reader: current, floor,
                 urls: collectFloorAssetUrls({ prepared: floor, imageSlots: slots }),
             };
         }
@@ -1930,6 +1935,21 @@ export function createIgsReaderHost(options = {}) {
         generationStrip.floor(payload.messageId, payload.phase === 'done');
     }
 
+    function openLive2dManager(character = '') {
+        state.live2dEditor?.close(true);
+        const win = options.global || globalThis;
+        let storage; try { storage = win.localStorage; } catch { /* 编辑器会报告保存错误 */ }
+        const settings = state.activeSettings;
+        const scope = settings ? rememberAssetScope(settings, getSillyTavernContext(win)).assetScopeKey || '' : resolveAssetScope(getSillyTavernContext(win)).key;
+        const assets = settings ? draftEffectiveAssets(settings) : state.activeReader?.snapshot?.readerSettings?._sceneAssets || {};
+        const current = state.activeReader || { dom: { overlay: settings?.dom?.root }, snapshot: { content: {} } };
+        state.live2dEditor = openLive2dPanel(current, storage, () => {
+            if (state.activeSettings) rerenderSettings();
+            if (state.activeReader) rerenderActiveReader();
+        }, { root: current.dom?.overlay || settings?.dom?.root, scope, scopeLabel: settings?.asyncState?.assetScopeLabel || '当前角色卡', character, characters: assets.characters || {}, moodGroups: assets.moodGroups, onClose: () => { state.live2dEditor = null; } });
+        return state.live2dEditor;
+    }
+
     async function handleReaderAction(action) {
         if (!state.activeReader) return { ok: false, reason: 'reader-not-open' };
         const normalizedAction = String(action || '').trim();
@@ -1939,6 +1959,11 @@ export function createIgsReaderHost(options = {}) {
         state.activeReader.lastAction = normalizedAction;
         if (PROGRESS_NAV_ACTIONS.has(normalizedAction)) armReadingProgress(state.activeReader);
 
+        if (normalizedAction === 'live2d-settings') {
+            const name = state.activeReader.snapshot.content.spriteCharacter || state.activeReader.snapshot.content.speaker || '';
+            openSettings({ tab: 'chars', page: 'chars' });
+            return openLive2dManager(name);
+        }
         if (normalizedAction === 'auto-play') {
             const player = state.activeReader.autoPlayer;
             return { ok: true, ...player.toggle() };
@@ -3429,6 +3454,7 @@ export function createIgsReaderHost(options = {}) {
             JSON.stringify(readerSettings.systemRole), readerSettings.liveFx?.enabled === true,
             readerSettings.feedFx?.enabled === true, readerSettings.feedFx?.storm?.enabled !== false,
             readerSettings.cgHoldPages, userName, chatId,
+            JSON.stringify([readerSettings._live2d?.enabled, Object.keys(readerSettings._live2d?.bindings || {})]),
         ], () => {
             // A matched exclusion must never be undone by stale scene/payload text.
             const enforceExcludedText = extracted.hasExcludedTextBlocks === true;
@@ -3529,6 +3555,7 @@ export function createIgsReaderHost(options = {}) {
             generatedAssets: sceneAssets && sceneAssets.generated,
             imageAvailability: readerSpriteAvailability,
             strict: readerSettings._strictBackgroundMatch === true,
+            live2dConfig: readerSettings._live2d,
             tempBackground: generatedAssets ? generatedAssets.tempBackground : null,
             tempSceneTime: generatedAssets ? generatedAssets.tempSceneTime : null,
             tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
@@ -3542,6 +3569,7 @@ export function createIgsReaderHost(options = {}) {
         let finalBackgroundTimed = false;
         const hideSpriteOnNsfw = !normalizeStatusHudSettings(readerSettings && readerSettings.statusHud).showSpriteOnNsfw;
         let spriteImage = null;
+        let spriteLive2d = null;
         let pendingSpriteRef = '';
         let resolvedSpeaker = scene.speaker || '';
         let spriteCharacter = '';
@@ -3692,7 +3720,13 @@ export function createIgsReaderHost(options = {}) {
                 };
                 const wantedOutfit = spriteChar ? outfitFor(spriteChar) : '';
                 const outfitWhy = { outfitSource: (outfitTrace && outfitTrace.source) || '', outfitReason: (outfitTrace && outfitTrace.reason) || '', outfitOffset };
-                let spriteHit = spriteChar ? floorAssets.sprite(spriteChar, spriteMood, wantedOutfit) : { url: '', source: '' };
+                // 模型按剧情原始情绪取绑定；即使加载失败也不回退普通静态差分。
+                spriteLive2d = resolveCharacterLive2dBinding(readerSettings._live2d, sceneAssets, spriteChar, spriteMood);
+                let spriteHit = !spriteLive2d && spriteChar ? floorAssets.sprite(spriteChar, spriteMood, wantedOutfit) : { url: '', source: '' };
+                if (spriteLive2d) {
+                    spriteCharacter = spriteChar;
+                    spriteOutfit = wantedOutfit;
+                }
                 // 陪衬反应换表情（stageCast.enabled && castReact）：react 写的情绪保持到这个人下次开口；
                 // 只在真有这张表情图时换，落到默认 / 平和兜底就维持原表情。
                 const castForReact = normalizeStageCastSettings(readerSettings.stageCast);
@@ -3700,15 +3734,15 @@ export function createIgsReaderHost(options = {}) {
                     ? page.reactMoodOf
                     : () => '';
                 const speakerReactMood = spriteChar ? reactMoodOf(spriteChar) : '';
-                if (speakerReactMood) {
+                if (speakerReactMood && !spriteLive2d) {
                     const reactHit = floorAssets.sprite(spriteChar, speakerReactMood, wantedOutfit);
                     if (isReactMoodHit(reactHit)) {
                         spriteHit = reactHit;
                         spriteMood = speakerReactMood;
                     }
                 }
-                if (spriteChar) spriteMatch = { character: spriteChar, mood: spriteMood || '', outfit: wantedOutfit || '', source: spriteHit.source, quality: spriteHit.quality || '', slot: spriteHit.slot || '', reason: spriteHit.reason || '', ...outfitWhy };
-                if (spriteChar) noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
+                if (spriteChar && !spriteLive2d) spriteMatch = { character: spriteChar, mood: spriteMood || '', outfit: wantedOutfit || '', source: spriteHit.source, quality: spriteHit.quality || '', slot: spriteHit.slot || '', reason: spriteHit.reason || '', ...outfitWhy };
+                if (spriteChar && !spriteLive2d) noteUnlistedMood(spriteHit, spriteMood, sceneAssets);
                 spriteImage = spriteChar ? resolveGenerated(spriteHit.url) || null : null;
                 if (!spriteImage && spriteChar && isGeneratedAssetUrl(spriteHit.url)) pendingSpriteRef = spriteHit.url;
                 if (spriteImage) {
@@ -3744,9 +3778,10 @@ export function createIgsReaderHost(options = {}) {
                     const picked = pickCastMembers(cast, {
                         speakerKey,
                         pin: castPin,
-                        seats: STAGE_CAST_MAX_SEATS - (spriteImage ? 1 : 0),
-                        speakerTemp: Boolean(spriteImage && page.focusTemp),
+                        seats: STAGE_CAST_MAX_SEATS - (spriteImage || spriteLive2d ? 1 : 0),
+                        speakerTemp: Boolean((spriteImage || spriteLive2d) && page.focusTemp),
                         resolve: (m) => {
+                            if (resolveCharacterLive2dBinding(readerSettings._live2d, sceneAssets, m.character, m.mood)) return null;
                             const memberOutfit = outfitFor(m.character);
                             let hit = floorAssets.sprite(m.character, m.mood, memberOutfit);
                             const memberReact = reactMoodOf(m.character);
@@ -3760,8 +3795,8 @@ export function createIgsReaderHost(options = {}) {
                         },
                     });
                     // 旁白点名的临时焦点不挤掉已开口坐满的人：这一页主立绘不上台。
-                    if (picked.hideSpeaker) spriteImage = null;
-                    if (spriteImage && picked.speakerOrder != null) speakerCastOrder = picked.speakerOrder;
+                    if (picked.hideSpeaker) { spriteImage = null; spriteLive2d = null; }
+                    if ((spriteImage || spriteLive2d) && picked.speakerOrder != null) speakerCastOrder = picked.speakerOrder;
                     castSprites.push(...picked.members);
                 }
             }
@@ -3777,7 +3812,7 @@ export function createIgsReaderHost(options = {}) {
             textType = 'chat';
             resolvedSpeaker = '';
             bubbleMood = '';
-            if (hideChatSprite) spriteImage = null;
+            if (hideChatSprite) { spriteImage = null; spriteLive2d = null; }
             castSprites = [];
             pendingCastRefs = [];
             speakerCastOrder = null;
@@ -3851,6 +3886,7 @@ export function createIgsReaderHost(options = {}) {
                 backgroundImage: finalBackgroundImage,
                 backgroundTimed: finalBackgroundTimed,
                 spriteImage,
+                spriteLive2d,
                 pendingSpriteRef,
                 spriteMatch,
                 backgroundMatch,
@@ -4017,6 +4053,14 @@ export function createIgsReaderHost(options = {}) {
             if (onboarding.keydown(event)) return;
             if (!state.activeReader) return;
             if (state.activeSettings?.asyncState?.shortcutRecording) return;
+            if (state.activeReader.live2dPanel) {
+                if (event.key === 'Escape') {
+                    event.preventDefault(); event.stopPropagation?.();
+                    state.activeReader.live2dPanel.close();
+                }
+                return;
+            }
+
             if (pageModal.isOpen()) {
                 if (event.key === 'Escape') {
                     event.preventDefault();
@@ -4132,6 +4176,8 @@ export function createIgsReaderHost(options = {}) {
                     doc.removeEventListener('keydown', keydownHandler, true);
                     doc.removeEventListener('click', hostEditHandler, true);
                 }
+                state.activeReader?.live2dPanel?.close(true);
+                if (state.activeReader) disposeLive2dStage(state.activeReader);
                 mapController.dispose();
                 recordController.close();
                 dbController.close();
@@ -4941,6 +4987,10 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._carryPhone = Boolean(readerSettings.feedFx && readerSettings.feedFx.carryPhone === true);
         readerSettings._worldview = worldview;
         readerSettings._sceneAssets = sceneAssets;
+        readerSettings._live2dScope = resolveAssetScope(getSillyTavernContext(options.global || globalThis)).key;
+        let live2dStorage;
+        try { live2dStorage = (options.global || globalThis).localStorage; } catch { /* 存储不可用时默认关闭绑定 */ }
+        readerSettings._live2d = readLive2dConfig(live2dStorage, readerSettings._live2dScope);
         // 还没入库的生成立绘的 tag：立绘默认高度据此判断没有 DNA 的角色性别与老人 / 儿童。
         const spriteTagService = options.generatedAssets;
         readerSettings._tempSpriteTags = spriteTagService && typeof spriteTagService.tempSpriteTags === 'function'

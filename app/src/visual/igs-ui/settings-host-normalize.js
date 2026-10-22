@@ -230,6 +230,15 @@ export function normalizeVnTheme(value, fallback = VN_THEME_PRESETS.genshin) {
     return normalized;
 }
 
+// 设置 schema 版本比较；缺失或无法解析视为最旧。
+function schemaBefore(value, target) {
+    const parse = v => String(v || '').split('.').map(n => Number.parseInt(n, 10));
+    const a = parse(value), b = parse(target);
+    if (a.some(n => !Number.isFinite(n))) return true;
+    for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+    return false;
+}
+
 export function normalizeReaderSettings(settings, legacyTheme) {
     const currentVersion = READER_SETTINGS_SCHEMA_VERSION;
     const src = (settings && typeof settings === 'object' && !Array.isArray(settings))
@@ -286,7 +295,8 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         imageCountOverride: null,
         shortcuts: {},
         pinnedBtns: Array.from(DEFAULT_PINNED_TOOLBAR_BUTTONS),
-        hiddenBtns: [],
+        // Live2D 是少数人用的实验功能：工具栏按钮默认隐藏，需要时在按钮管理里打开。
+        hiddenBtns: ['live2d-settings'],
         btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
         toolbarSplit: 'split',
         toolbarPlate: 'off',
@@ -363,6 +373,8 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.shortcuts = normalizeShortcutOverrides(normalized.shortcuts);
     normalized.pinnedBtns = normalizePinnedButtons(normalized.pinnedBtns);
     normalized.hiddenBtns = normalizeHiddenButtons(normalized.hiddenBtns);
+    // 0.5.7 之前保存的设置里没有 Live2D 按钮，补进隐藏列表一次；此后用户手动打开会随 _v 保留。
+    if (schemaBefore(src._v, '0.5.7') && !normalized.hiddenBtns.includes('live2d-settings')) normalized.hiddenBtns.push('live2d-settings');
     normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
     normalized.toolbarSplit = normalizeToolbarSplit(normalized.toolbarSplit);
     normalized.toolbarPlate = normalizeToolbarPlate(normalized.toolbarPlate);

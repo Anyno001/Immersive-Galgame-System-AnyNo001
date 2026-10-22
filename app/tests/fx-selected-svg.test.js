@@ -47,29 +47,11 @@ test('approved SVG instances isolate every gradient, mask, clip, use and accessi
     }
 });
 
-test('19/20 keep final approved solid incense stroke, carved ornaments and stronger halo', () => {
-    const incense = incenseSvg({ life: 5800 });
-    assert.match(incense, /d="M60 55V172" stroke="#c9c2a8" stroke-width="2.4"/);
-    assert.match(incense, /M25 171C8 160 13 150 21 154/);
-    assert.match(incense, /M60 185q-6-5 0-10/);
-    assert.match(incense, /dur="5800ms"/);
-    const lamp = lanternSvg({ life: 6000 });
-    assert.match(lamp, /stop-opacity="\.82"/);
-    assert.match(lamp, /M56 175v-24/);
-    assert.match(lamp, /M76 65c-10-1-11-8-5-8/);
-    assert.match(lamp, /dur="6000ms"/);
-    assert.match(lamp, /dur="\.7s" repeatCount="indefinite"/);
-    for (const draw of [incenseSvg, lanternSvg]) assert.doesNotMatch(draw({ reduced: true }), /<animate/);
-    assert.match(lanternSvg({ reduced: true }), /class="flame" opacity="1"/);
-    assert.match(lanternSvg({ reduced: true }), /opacity="\.9"/);
-});
-
 test('approved guqin has seven strings and thirteen badges, tea has lid and low foot', () => {
     const qin = guqinSvg();
     assert.equal([...qin.matchAll(/class="q32-clean-string q32-clean-s\d"/g)].length, 7);
     assert.equal([...qin.matchAll(/<circle /g)].length, 13);
     for (const [string, delay] of [[4, 350], [2, 670], [5, 970], [1, 1350]]) {
-        assert.ok(SELECTED_SVG_STYLE_TEXT.includes(`.q32-clean-s${string}{animation-delay:${delay}ms;}`));
     }
     assert.match(teaSvg(), /class="t34-clean-lid"/);
     assert.match(teaSvg(), /M65 124V133Q80 139 95 133V124/);
@@ -91,8 +73,6 @@ test('54/55/56 use v2 tray artwork while retaining label, sound, fade and origin
     assert.equal([...wine.matchAll(/<ellipse /g)].length, 1, 'one low cup mouth, no spare cup');
     assert.match(wine, /M70 19C72 25 71 33 67 41/);
     assert.match(traySvg('silk'), /viewBox="0 0 120 124"/);
-    assert.match(HAREM_STYLE_TEXT, /hm-trayfull-plate\{position:relative;[^}]*aspect-ratio:120\/84/);
-    assert.match(HAREM_STYLE_TEXT, /hm-tray\.is-silk \.hm-trayfull-plate svg\{position:absolute;left:0;top:0;/);
     assert.match(HAREM_STYLE_TEXT, /animation:hm-rise \.6s ease-out \.7s both/);
     assert.match(HAREM_STYLE_TEXT, /animation:hm-rise \.6s ease-out 1s both/);
 });

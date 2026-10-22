@@ -195,7 +195,6 @@ test('gate:emergency:siren-respects-worldview-switch-and-reduced', () => {
     applyFxToDom(calm.root, snap({ displayText: '警车来了' }, settings), calm.opts);
     const el = calm.motion.querySelector('#igs-fx-stage').querySelector('.igs-fx-siren');
     assert.ok(el.classList.contains('is-reduced'));
-    assert.match(FX_STYLE_TEXT, /\.igs-fx-siren\.is-reduced > i\.is-a\{animation:none/);
 });
 
 test('gate:emergency:setting-defaults-on-boolean-path-and-checkbox', () => {

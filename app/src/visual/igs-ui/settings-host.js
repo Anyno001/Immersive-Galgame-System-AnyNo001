@@ -50,7 +50,7 @@ export function createSettingsHost(deps) {
     const {
         flushDeferredImageRefresh, normalizeUnifiedSettings, onboarding, openCgGallery, options, pageModal,
         playReaderUiSfx, rerenderActiveReader, resolveBridgeConfigSnapshot, scheduleMoodAutoClassify, sourceCache,
-        state, takeReaderStaleBehindSettings, invalidateFloorAssetPlan,
+        state, takeReaderStaleBehindSettings, invalidateFloorAssetPlan, openLive2dManager,
     } = deps;
     const settingsDialogs = createSettingsDialogs({
         getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
@@ -200,6 +200,7 @@ export function createSettingsHost(deps) {
             }
             return { ok: true, pending: true, completion: current.asyncState.closingRecovery };
         }
+        state.live2dEditor?.close(true);
         settingsDialogs.cancel();
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
@@ -498,6 +499,7 @@ export function createSettingsHost(deps) {
 
     const recoveringSettingsActions = new Map();
     function handleSettingsAction(action) {
+        if (String(action).startsWith('live2d-edit:')) return Promise.resolve(openLive2dManager?.(decodeURIComponent(String(action).slice('live2d-edit:'.length))));
         if (recoveringSettingsActions.has(action)) return recoveringSettingsActions.get(action);
         const panel = state.activeSettings;
         if (!panel) return Promise.resolve({ ok: true, cancelled: true });

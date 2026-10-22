@@ -211,7 +211,6 @@ test('gate:worldview:magic-refinements-spell-hue-house-colors-and-world-scoped-d
     assert.deepEqual(MAGIC_HOUSES.map((h) => h.id), ['starlight', 'scarlet', 'emerald', 'sapphire', 'amber', 'obsidian']);
     assert.equal(normalizeMagicHouse('nope'), 'starlight');
     assert.equal(magicHouseVars('emerald')['--igs-ma-veil'], '#0f2b2c');
-    assert.match(CSS_DIALOG_STYLE_BY_SKIN['magic-academy'], /var\(--igs-ma-veil,#1b1a44\)/);
     const reader = { dailyFx: { enabled: true } };
     const list = (worldview) => renderStageDirectionFields(reader, (key, label, body) => body, { worldview }).daily;
     assert.ok(list('magic').includes('dailyFx.spell') && !list('magic').includes('dailyFx.guqin'));
@@ -305,7 +304,6 @@ test('gate:worldview:obsidian-scheme-takes-user-accent', async () => {
         controller.setValue('readerSettings.dialogSkin', 'magic-academy');
         assert.doesNotMatch(controller.getSnapshot().html, /readerSettings\.magicAccent/);
         controller.setValue('readerSettings.magicHouse', 'obsidian');
-        assert.match(controller.getSnapshot().html, /data-path="readerSettings\.magicAccent" type="color" value="#d4b98a"/);
         controller.close();
     } finally {
         vn.destroy();

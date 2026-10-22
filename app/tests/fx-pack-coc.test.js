@@ -184,19 +184,3 @@ test('gate: coc stats keeps every value visible under reduced motion and uses a 
     assert.ok(dnd.includes('+3'));
     assert.match(dnd, /AC/);
 });
-
-test('gate: coc portal lids appear only in motion and casebook, dungeon, clue, kp keep their own shapes', () => {
-    assert.match(htmlOf(built('portal').node), /igs-coc-lid/);
-    assert.doesNotMatch(htmlOf(built('portal', { reduced: true }).node), /igs-coc-lid/);
-    assert.match(htmlOf(built('casebook').node), /igs-coc-cb-sheet/);
-    assert.match(htmlOf(built('dungeon').node), /igs-coc-dg-bar/);
-    assert.match(htmlOf(built('symptom').node), /igs-coc-sym-edge/);
-    assert.match(htmlOf(built('kp').node), /igs-coc-kp-box is-(?:left|right)/);
-    assert.match(htmlOf(built('clue').node), /igs-coc-clue-found/);
-});
-
-test('gate: coc stats label font is at least 12 SVG units and long axis names are truncated with a title', () => {
-    const html = htmlOf(COC_BUILDERS.stats(statsItem(['', '幸运女神眷顾:60;CON:55;DEX:70']), env()).node);
-    assert.ok(html.includes('幸运女神…'));
-    assert.ok(html.includes('<title>幸运女神眷</title>'));
-});

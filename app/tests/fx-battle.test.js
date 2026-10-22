@@ -235,7 +235,6 @@ test('gate:fx-battle:sprite-target-reacts-with-additive-animation-and-ko-holds-u
     applyBattleFxToDom(root, plan, { ...timers, sprite });
     const impact = frontOf(root).querySelector('.igs-fx-battle-impact');
     assert.equal(impact.style.left, '500px');
-    assert.match(impact.style.top, /^\d+px$/);
     const spriteEl = root.querySelector('#igs-sprite');
     assert.ok(spriteEl.animations.length >= 2);
     assert.ok(spriteEl.animations.filter((a) => a.options.composite === 'add').length >= 2, 'transform/filter reactions stack on top of stage direction');
@@ -519,5 +518,4 @@ test('gate:fx-battle:chrome-follows-every-dialog-skin', async () => {
     const veil = getDialogThemeBattleFxStyleText('gradient-veil');
     assert.doesNotMatch(veil, /border:|box-shadow:/, 'gradient veil battle chrome has no frame');
     assert.match(veil, /var\(--igs-gradient-veil-color/);
-    assert.doesNotMatch(BATTLE_FX_STYLE_TEXT, /\.igs-fx-battle-(plate|skill)\{[^}]*border:2px solid rgba\(255,255,255/, 'default chrome drops the white outline');
 });

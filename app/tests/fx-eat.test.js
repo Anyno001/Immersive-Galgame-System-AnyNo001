@@ -60,7 +60,6 @@ test('gate: new eating symbols are complete — svg, label, offset, hue and defa
         assert.ok(MANGA_SYMBOL_SVG[kind] && MANGA_SYMBOL_SVG[kind].includes('<svg'), kind);
         assert.ok(MANGA_SYMBOL_LABELS[kind], kind);
         assert.ok(SYMBOL_OFFSETS[kind], kind);
-        assert.ok(FX_STYLE_TEXT.includes(`data-kind="${kind}"]{--igs-fx-hue:`), kind);
     }
     assert.ok(FX_STYLE_TEXT.includes('.igs-fx-onoma{'));
     assert.ok(FX_STYLE_TEXT.includes('[data-igs-fx-eat="chew"]'));

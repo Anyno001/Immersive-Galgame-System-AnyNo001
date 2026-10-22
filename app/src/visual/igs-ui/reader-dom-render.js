@@ -1,3 +1,4 @@
+import { syncLive2dStage } from './live2d-stage.js';
 import { magicHouseVars } from './dialog-theme-css-skins.js';
 import { mermaidToneVars } from './dialog-theme-mermaid.js';
 import { resolveSpeakerMagicHouse } from './magic-house.js';
@@ -1510,6 +1511,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const spriteAssetUrl = hideSpriteNsfw || snapshot.content.htmlCardPage === true
         ? null
         : resolveAssetUrl(snapshot.content.spriteImage);
+    const live2dBinding = hideSpriteNsfw || snapshot.content.htmlCardPage === true || current.spriteEditMode
+        ? null : snapshot.content.spriteLive2d;
     const spritePage = `${snapshot.messageId}:${snapshot.content.currentIndex}`;
     let spriteDecodePending = false;
     const castEnabled = isStageCastEnabled(snapshot);
@@ -1524,7 +1527,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         members: castOn && Array.isArray(snapshot.content.castSprites) ? snapshot.content.castSprites : [],
         pin: castRomancePin,
         speakerOrder: snapshot.content.speakerCastOrder,
-        hasSpeaker: Boolean(spriteAssetUrl),
+        hasSpeaker: Boolean(spriteAssetUrl || live2dBinding),
         capacity: resolveCastCapacity(snapshot.mode, {
             width: stageMotion.clientWidth || castView.innerWidth,
             height: stageMotion.clientHeight || castView.innerHeight,
@@ -1694,6 +1697,16 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             writeBackgroundImage(spriteEl, '');
             spriteEl.style.filter = '';
             spriteEl.style.setProperty('-webkit-filter', '');
+        }
+    }
+    if (spriteEl) {
+        const liveLayout = { ...presentSpriteLayout(castSpeakerKey, castSpeakerMood, castSpeakerOutfit) };
+        if (speakerSlotX != null) liveLayout.posX = speakerSlotX;
+        syncLive2dStage(root, spriteEl, current, live2dBinding, liveLayout);
+        if (live2dBinding) {
+            spriteEl.classList.toggle('igs-sprite-narration', ['narration', 'chat', 'system'].includes(snapshot.content.textType) && spriteSettings.dimSpriteOnNarration !== false);
+            // 图片专用的裁切/换装/头像探测不得处理 WebGL 模型；静态陪衬仍走原布局。
+            stageSprite = null; fxSprite = null;
         }
     }
     const castReduced = prefersReducedMotion();

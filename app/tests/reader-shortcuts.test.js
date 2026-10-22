@@ -10,14 +10,14 @@ import {
     shortcutLabel,
 } from '../src/visual/igs-ui/reader-shortcuts.js';
 
-test('快捷键默认值覆盖全部动作且不使用浏览器常见修饰键', async () => {
+test('默认快捷键不占浏览器常见组合，实验功能不占默认键但可自行绑定', async () => {
     const shortcuts = resolveShortcuts({});
-    assert.ok(Object.keys(DEFAULT_SHORTCUTS).length >= 25);
     for (const values of Object.values(shortcuts)) {
-        assert.ok(values.length > 0);
         assert.equal(values.some((value) => /^(Ctrl|Alt|Meta)\+/.test(value)), false);
         assert.equal(values.some((value) => /^F(?:[1-9]|1[0-2])$/.test(value)), false);
     }
+    assert.deepEqual(shortcuts['live2d-settings'], []);
+    assert.deepEqual(resolveShortcuts({ 'live2d-settings': ['Shift+KeyD'] })['live2d-settings'], ['Shift+KeyD']);
 });
 
 test('快捷键覆盖、清空和非法动作过滤', async () => {

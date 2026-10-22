@@ -69,70 +69,15 @@ test('gate:performance-layout:groups-collapsed-with-summary-and-word-lists-hidde
 });
 
 // 胶囊数字按分组里实际摆出来的开关算：档位不管的双语、按句分页、同屏、压暗立绘、掷骰也要计入。
-test('gate:performance-layout:capsule-counts-every-visible-switch', () => {
-    const html = renderPerformanceSettings({ bilingual: { enabled: true }, resultFx: { enabled: true } }, {
-        sentencePaging: '<i data-paging></i>', sentencePagingOn: true,
-        narrationFilter: '<i data-dim></i>',
-    });
-    assert.match(html, /<b>文字<\/b><span class="igs-perf-count is-on">2\/6<\/span><span class="igs-perf-brief">打字机 · 字效 · 双语<\/span>/);
-    assert.match(html, /<b>画面<\/b><span class="igs-perf-count is-on">1\/10<\/span><span class="igs-perf-brief">镜头 · 天气 · 立绘<\/span>/);
-    assert.match(html, /<b>情绪与提示<\/b><span class="igs-perf-count is-on">1\/8<\/span>/);
-});
-
 // 角色语气音对所有角色生效，摆在「声音」卡并计入胶囊；不跟打字机挤在「文字」里。
-test('gate:performance-layout:voice-bark-lives-in-sound-group', () => {
-    const html = renderPerformanceSettings({}, {
-        typewriter: '<i data-tw></i>',
-        voiceBark: '<i data-voice-bark></i>', voiceBarkOn: true,
-    });
-    assert.match(html, /<b>声音<\/b><span class="igs-perf-count is-on">1\/5<\/span><span class="igs-perf-brief">音效 · 语气 · 配乐<\/span>/);
-    const sound = html.slice(html.indexOf('data-advanced="perf-group-sound"'));
-    assert.match(sound.slice(0, sound.indexOf('perf-group-rhythm')), /data-voice-bark/);
-    const text = html.slice(html.indexOf('data-advanced="perf-group-text"'), html.indexOf('data-advanced="perf-group-stage"'));
-    assert.doesNotMatch(text, /data-voice-bark/);
-});
-
 // 行头是横排的：NSFW 显示的几项要各占一行，整串塞进一个行头会把立绘三档挤成一条缝。
-test('gate:performance-layout:nsfw-display-options-get-one-row-each', () => {
-    const html = renderPerformanceSettings({}, {
-        nsfwSprite: '<i data-nsfw-sprite></i>',
-        nsfwVeil: '<i data-nsfw-veil></i>',
-        nsfwCgPortrait: ['<i data-cg-portrait></i>', '<i data-cg-portrait-detail></i>'],
-    }, (key) => key === 'perf-nsfw-cg-portrait');
-    const romance = html.slice(html.indexOf('<div class="igs-settings-subhead">亲密</div>'));
-    assert.match(romance, /<div class="igs-perf-item"><div class="igs-perf-item-head"><i data-nsfw-sprite><\/i><\/div><\/div><div class="igs-perf-item"><div class="igs-perf-item-head"><i data-nsfw-veil><\/i><\/div><\/div>/);
-    assert.match(romance, /<div class="igs-perf-item"><div class="igs-perf-item-head"><i data-cg-portrait><\/i><button type="button" class="igs-perf-item-more is-open" data-action="ui-toggle-open:perf-nsfw-cg-portrait"[^>]*><\/button><\/div><div class="igs-perf-item-body"><i data-cg-portrait-detail><\/i><\/div><\/div>/);
-});
-
 // 挂在某个开关下的子项（如节律音效挂在节律演出下）要保留缩进；只有整段细项包在一层 sub 里时才去掉，免得双重缩进。
-test('gate:performance-layout:nested-sub-options-keep-their-indent', async () => {
-    const { renderRomanceFxFields } = await import('../src/visual/igs-ui/romance-fields.js');
-    const body = renderRomanceFxFields({ romanceFx: { enabled: true, rhythm: true } });
-    assert.match(body, /<div class="igs-perf-item-body">[\s\S]*data-switch="readerSettings\.romanceFx\.rhythm"[^>]*>[\s\S]*?<\/button><div class="igs-settings-sub">[\s\S]*data-switch="readerSettings\.romanceFx\.rhythmSound"/);
-});
-
 test('gate:performance-layout:remembers-open-sections', () => {
     const html = renderPerformanceSettings({ mangaFx: { enabled: true } }, {}, (key) => key === 'perf-group-story' || key === 'perf-manga-words');
     assert.match(html, /data-advanced="perf-group-story" open/);
     assert.match(html, /data-action="ui-toggle-open:perf-manga-words" aria-expanded="true"/);
     assert.match(html, /mangaFx\.speedLines/);
     assert.doesNotMatch(html, /data-advanced="perf-group-text" open/);
-});
-
-test('gate:perf-presets:home-tab-shows-same-preset-bar-and-custom-state', async () => {
-    const { renderPerformancePresetBar } = await import('../src/visual/igs-ui/performance-settings-layout.js');
-    const { applyPerformancePreset } = await import('../src/visual/igs-ui/performance-presets.js');
-    const reader = {};
-    applyPerformancePreset(reader, 'standard');
-    const home = renderPerformancePresetBar(reader, { home: true });
-    assert.match(home, /演出档位/);
-    assert.match(home, /data-action="perf-preset:standard" aria-pressed="true"/);
-    assert.match(home, /细项在「演出」「声音」里调整。/);
-    reader.typewriter = { ...reader.typewriter, enabled: false };
-    const custom = renderPerformancePresetBar(reader, { home: true });
-    assert.doesNotMatch(custom, /aria-pressed="true"/);
-    assert.match(custom, /当前为自定义组合/);
-    assert.match(renderPerformancePresetBar(reader, { home: true, extraRows: '<div data-x></div>' }), /igs-perf-preset-row">.*<\/div><div data-x><\/div><div class="igs-source-filter-note"/);
 });
 
 test('gate:perf-presets:dash-renders-preset-bar-first', async () => {

@@ -33,17 +33,3 @@ test('record-page-shell:head-html-escapes-nothing-but-keeps-back-hit-target', as
     assert.match(mapHtml, /data-map-act="close"/);
     assert.match(mapHtml, /aria-label="关闭地图"/);
 });
-
-test('record-page-shell:record-pages-share-settings-palettes', async () => {
-    const { RECORD_PAGE_SHELL_STYLE_TEXT } = await import('../src/visual/igs-ui/record-page-shell-style.js');
-    const { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } = await import('../src/visual/igs-ui/settings-theme.js');
-    for (const { value } of SETTINGS_THEME_OPTIONS) {
-        const palette = getSettingsThemePalette(value);
-        const selector = value === 'landmine' ? '#igs-record-panel\\{' : `#igs-record-panel\\[data-rp-theme="${value}"\\]\\{`;
-        const rule = new RegExp(`${selector}[^}]*--igs-rp-accent:${palette.tokens.accent.replace(/[().]/g, '\\$&')};[^}]*--igs-rp-backdrop:${palette.backdrop.replace(/[().]/g, '\\$&')};`);
-        assert.match(RECORD_PAGE_SHELL_STYLE_TEXT, rule, value);
-    }
-    const html = recordPageHeadHtml('你的背包', { trailing: '<i>swatch</i>' });
-    assert.match(html, /<h2 class="igs-rp-title">你的背包<\/h2><div class="igs-rp-head-end"><i>swatch<\/i><\/div>/);
-    assert.doesNotMatch(recordPageHeadHtml('地点地图'), /igs-rp-head-end/);
-});

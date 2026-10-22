@@ -210,6 +210,7 @@ for (const file of voiceAssets) {
     fs.copyFileSync(source, path.join(voiceTargetDir, file));
 }
 fs.copyFileSync(path.join(voiceSourceDir, 'CREDITS.md'), path.join(voiceTargetDir, 'CREDITS.md'));
+fs.copyFileSync(path.join(srcRoot, 'vendor', 'fflate.LICENSE.txt'), path.join(distRoot, 'fflate.LICENSE.txt'));
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.debug.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), await minifyBundle(bundle), 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');

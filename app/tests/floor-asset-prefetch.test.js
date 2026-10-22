@@ -43,3 +43,11 @@ test('gate:floor-assets:skips-narrators-and-keeps-inherited-background', () => {
     });
     assert.deepEqual(urls, ['class.png', 'igs-gen:base']);
 });
+
+test('gate:floor-assets:enabled-model-skips-only-its-static-differences-and-aliases', () => {
+    const assets = { ...sceneAssets, characterAliases: { 冬月: ['小冬'] } };
+    const config = { enabled: true, bindings: { 冬月: { modelId: 'test-model', moods: {} } } };
+    const options = { source: '[igs-scene:教室|白天|晴]\n[igs-char:冬月|喜悦|你好]\n[igs-char:小冬|默认|嗯]\n[igs-char:小林|平和|在]', sceneAssets: assets, live2dConfig: config };
+    assert.deepEqual(collectFloorAssetUrls(options), ['class.png', 'lin-calm.png']);
+    assert.deepEqual(collectFloorAssetUrls({ ...options, live2dConfig: { ...config, enabled: false } }), ['class.png', 'igs-gen:joy', 'igs-gen:base', 'lin-calm.png']);
+});

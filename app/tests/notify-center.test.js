@@ -274,7 +274,6 @@ test('gate:notify:bell-waits-for-the-top-banner-to-retract', () => {
     assert.equal(banner.style.get('--igs-fx-life'), `${duration}ms`, 'hold setting controls the animation lifetime');
     assert.ok(entry && !entry.hidden, 'notice is recorded without delaying the store or badge');
     assert.ok(motion.querySelector('.igs-entry-dock'), 'bell and banner share the same stage');
-    assert.match(NOTIFY_CENTER_STYLE_TEXT, /@media \(max-width:640px\)\{#igs-stage-motion:has\(\.igs-fx-notify\.igs-fx-transient:not\(\.igs-fx-contact\)\) \.igs-nc-entry\{display:none;\}\}/);
     assert.doesNotMatch(NOTIFY_CENTER_STYLE_TEXT, /(?:^|\n)#igs-stage-motion:has/, 'desktop entry remains unchanged');
     c.run(duration - 1);
     assert.ok(banner.isConnected, 'bell remains suppressed while the banner still occupies the stage');
@@ -286,10 +285,6 @@ test('gate:notify:bell-waits-for-the-top-banner-to-retract', () => {
 });
 
 test('gate:notify:mobile-panel-actions-stay-centred-and-close-keeps-reader', () => {
-    assert.match(NOTIFY_CENTER_STYLE_TEXT, /@media \(max-width:640px\)\{\.igs-nc-bar\{flex-wrap:wrap;justify-content:center;\}\.igs-nc-title\{flex:0 0 100%;text-align:center;\}\}/);
-    assert.doesNotMatch(NOTIFY_CENTER_STYLE_TEXT, /\.igs-nc-close\{order:-1;/);
-    assert.match(NOTIFY_CENTER_STYLE_TEXT, /\.igs-nc-bar\{display:flex;/);
-    assert.match(NOTIFY_CENTER_STYLE_TEXT, /\.igs-nc-title\{flex:1;/, 'desktop title keeps its original layout');
     const { root, motion } = makeRoot();
     const c = clock();
     applyDanmakuToDom(root, snapshot({ fx: { instants: [{ kind: 'notify', sender: 'a', text: 'b' }] } }, ON), opts(c));

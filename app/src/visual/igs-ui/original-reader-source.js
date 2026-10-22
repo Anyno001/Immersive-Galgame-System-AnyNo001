@@ -110,6 +110,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'cg-gallery', group: 'create', title: 'CG 库', html: ITEM_CG_ICONS.cgGallery },
     { id: 'save', group: 'view', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
     { id: 'hide', group: 'view', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
+    { id: 'live2d-settings', group: 'view', title: 'Live2D 角色绑定', html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M8 1 15 5v6l-7 4-7-4V5Zm0 0v14M1 5l7 4 7-4"/></svg>' },
     { id: 'sprite-edit', group: 'view', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
     { id: 'rescan', group: 'system', title: '重新加载', html: ORIGINAL_READER_ICONS.rescan },
     { id: 'settings', group: 'system', title: '设置', html: ORIGINAL_READER_ICONS.settings },
@@ -257,6 +258,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay.igs-floating #igs-toolbar-layer{left:12px;right:12px;bottom:14px;width:auto;transform:none;}
 #igs-overlay.igs-floating-mobile #igs-toolbar-layer{left:10px;right:10px;bottom:12px;}
 .igs-ctrl-bar{position:absolute;top:-50px;right:0;display:flex;align-items:flex-start;gap:6px;z-index:5;padding:6px;background:var(--igs-toolbar-bg,var(--igs-glass-bg,rgba(20,20,22,.62)));border:1px solid var(--igs-toolbar-border,rgba(255,255,255,.14));-webkit-backdrop-filter:var(--igs-toolbar-blur,none);backdrop-filter:var(--igs-toolbar-blur,none);border-radius:var(--igs-toolbar-radius,18px);box-shadow:var(--igs-toolbar-shadow,0 4px 24px rgba(0,0,0,.20));pointer-events:auto;transition:opacity .3s;}
+#igs-sprite.igs-live2d-ready{background-image:none!important;}
 .igs-ctrl-bar.igs-hidden{opacity:0;pointer-events:none;}
 #igs-bar-btns{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0;max-width:min(336px,calc(100vw - 112px));justify-content:flex-start;align-content:flex-start;}
 /* 顶部固定栏贴右上角收成一团，不把按钮、菜单、关闭撑到屏幕两头。 */

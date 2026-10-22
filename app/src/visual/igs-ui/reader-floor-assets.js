@@ -1,3 +1,4 @@
+import { resolveCharacterLive2dBinding } from './live2d-config.js';
 import { resolveSpriteAsset, resolveBackgroundAsset, resolveNudeSpriteAsset, isNonSpriteSpeaker, tempAssetKeyOf } from '../../scene/asset-match.js';
 import { resolveSpriteOutfit, outfitsOfCharacter, outfitAllowsScene } from '../../scene/character-outfits.js';
 import { resolveCharacterDna } from '../../scene/character-dna.js';
@@ -16,6 +17,10 @@ function createAssetLookup(initialContext) {
     const dirty = new Map();
     const updated = new Map();
     function resolve(kind, args) {
+        // 整楼预处理也必须在匹配静态图前分流，而非等渲染时再隐藏。
+        if (kind === 'sprite' && resolveCharacterLive2dBinding(context.live2dConfig, context.sceneAssets, args[0], args[1])) {
+            return { url: '', source: 'live2d', character: args[0] };
+        }
         const key = JSON.stringify([kind, ...args]);
         const cached = entries.get(key);
         if (cached && (!cached.retryAt || Date.now() < cached.retryAt)) return cached.hit;
@@ -225,8 +230,9 @@ export function prepareReaderFloorAssets(floor, { payload, readerSettings, asset
     const stageSettings = JSON.stringify(readerSettings.stageCast);
     const hudSettings = JSON.stringify([readerSettings.statusHud?.enabled, readerSettings.statusHud?.tables]);
     const strict = assetMatchCtx.strict === true;
+    const live2dKey = JSON.stringify([readerSettings._live2d?.enabled, Object.keys(readerSettings._live2d?.bindings || {}), readerSettings._sceneAssets?.characterAliases]);
     if (floor.assets && floor.tablesRevision === tableData.revision && floor.stageSettings === stageSettings
-        && floor.hudSettings === hudSettings && floor.matchStrict === strict) {
+        && floor.hudSettings === hudSettings && floor.matchStrict === strict && floor.live2dKey === live2dKey) {
         floor.assets.updateContext(assetMatchCtx);
         return floor.assets;
     }
@@ -239,7 +245,9 @@ export function prepareReaderFloorAssets(floor, { payload, readerSettings, asset
         if (floor.sceneSpeaker) names.add(floor.keyOf(floor.sceneSpeaker));
         tableData.prepareCharacters(names, readerSettings.statusHud.tables, sceneAssets.characterAliases);
     }
-    const lookup = floor.assets || createAssetLookup(assetMatchCtx);
+    // 关闭/移除绑定后允许静态图恢复；开启时不能留下旧静态命中的预加载 URL。
+    const lookup = floor.live2dKey === live2dKey && floor.assets || createAssetLookup(assetMatchCtx);
+    floor.live2dKey = live2dKey;
     if (floor.matchStrict !== strict) lookup.invalidate();
     floor.matchStrict = strict;
     lookup.updateContext(assetMatchCtx);

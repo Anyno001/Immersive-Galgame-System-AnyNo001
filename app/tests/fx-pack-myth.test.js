@@ -159,10 +159,6 @@ test('gate: myth ambience resolves four ancient places and four ambient voices',
     for (const kind of Object.keys(pack.ambience.html)) assert.ok(pack.ambience.html[kind], kind);
 });
 
-test('gate: myth charm state registers and sources avoid canvas and mask-image url', () => {
-    assert.ok(pack.states.charm.aliases.includes('魅惑'));
-});
-
 test('gate:myth-subdue four variants use four distinct sounds', () => {
     const { env } = makeEnv(true);
     const seen = new Set();

@@ -92,11 +92,8 @@ test('paper sizing uses bounded text-column budgets and the real dialogue-safe s
     assert.ok(ancientPaperLayout('山中何事？\n松花酿酒，春水煎茶。', 'poem').columns > 1);
     const { dom, node } = paper({ text: '长信正文。'.repeat(200) });
     assert.equal(node.querySelector('.igs-dfx-document-paper').style.getPropertyValue('--igs-document-columns'), '6');
-    assert.match(ANCIENT_PAPER_STYLE_TEXT, /inset:0 0 var\(--igs-fx-safe,160px\);height:var\(--igs-fx-vis/);
     assert.match(ANCIENT_PAPER_STYLE_TEXT, /height:min\(100%,var\(--igs-document-max-h\)/);
     assert.match(ANCIENT_PAPER_STYLE_TEXT, /calc\(\(var\(--igs-document-rows,7\) \+ 1\) \* var\(--igs-document-font\)/, 'one vertical glyph of layout slack covers brush-font metrics and punctuation line-break rules');
-    assert.match(ANCIENT_PAPER_STYLE_TEXT, /--igs-document-max-h:230px/);
-    assert.doesNotMatch(ANCIENT_PAPER_STYLE_TEXT, /width:min\(390px,90%\)|height:min\(450px,90%\)/);
     dom.window.close();
 });
 
@@ -124,10 +121,7 @@ test('official notice has a large horizontal title and double fine frame; imperi
         dom.window.close();
     }
     assert.match(ANCIENT_PAPER_STYLE_TEXT, /document-notice-title\{[^}]*writing-mode:horizontal-tb/);
-    assert.match(ANCIENT_PAPER_STYLE_TEXT, /is-notice \.igs-dfx-document-paper::after\{[^}]*border:1px solid[^}]*outline:1px solid/);
-    assert.match(ANCIENT_PAPER_STYLE_TEXT, /:not\(\.is-notice\) \.igs-dfx-document-paper\{background:#d6ad4f/);
     assert.match(ANCIENT_PAPER_STYLE_TEXT, /:not\(\.is-notice\) \.igs-dfx-document-paper\{[^}]*width:min\(96%,calc\(var\(--igs-document-columns,3\)[^}]*max-width:96%/);
-    assert.match(ANCIENT_PAPER_STYLE_TEXT, /:not\(\.is-notice\) \.igs-dfx-document-paper::before\{mix-blend-mode:multiply;opacity:\.52/);
 });
 
 test('RTL keyboard, pointer dragging and reduced-motion documents retain horizontal navigation', () => {

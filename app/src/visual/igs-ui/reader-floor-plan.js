@@ -1,5 +1,6 @@
 import { createNarrationSpriteTracker, otherNamesOf, sceneCarryOf, NARRATION_HOLD_PAGES, SCENE_AHEAD_PAGES } from '../../scene/narration-sprite.js';
 import { createNarrationNamer } from '../../scene/narration-focus.js';
+import { resolveCharacterLive2dBinding } from './live2d-config.js';
 import { extractSceneDirectives, resolveCharacterKey, narrativeRanges, prepareIllustrationPages } from '../../scene/scene-directives.js';
 import { DEFAULT_MOOD_GROUPS } from '../../scene/mood-groups.js';
 import { createOutfitResolver, outfitsOfCharacter } from '../../scene/character-outfits.js';
@@ -164,6 +165,11 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
         }
     }
     if (userCharKey && userName && !castAliases[userCharKey]?.includes(userName)) castAliases[userCharKey] = [...(castAliases[userCharKey] || []), userName];
+    // 只有模型、没有静态图的角色也参加新版旁白点名与场景继承。仅扩展本楼名单，不写静态素材库。
+    if (readerSettings._live2d?.enabled) for (const name of Object.keys(readerSettings._live2d.bindings || {})) {
+        const key = resolveCharacterKey(castCharacters, castAliases, name) || name;
+        if (!Object.hasOwn(castCharacters, key)) castCharacters[key] = {};
+    }
     const castKeyMemo = new Map();
     const castKeyOf = name => {
         if (!castKeyMemo.has(name)) castKeyMemo.set(name, resolveCharacterKey(castCharacters, castAliases, name) || name);
@@ -189,8 +195,9 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
         if (!genderMemo.has(key)) genderMemo.set(key, detectVoiceGender(characterDnaText(sceneAssets, key)));
         return genderMemo.get(key);
     };
-    // 默认槽空着、图只在衣柜里（换装后的立绘）也算有素材。
-    const hasSprites = key => Object.keys(castCharacters[key] || {}).length > 0
+    // 绑定了 Live2D、默认槽有图、或图只在衣柜里（换装后的立绘），都算有素材。
+    const hasSprites = key => Boolean(resolveCharacterLive2dBinding(readerSettings._live2d, sceneAssets, key))
+        || Object.keys(castCharacters[key] || {}).length > 0
         || Object.keys(outfitsOfCharacter(sceneAssets?.characterOutfits, sceneAssets?.characterAliases, key).outfits).length > 0;
     // 旁白点名：主角要有素材才上；其他人要在名单里。句首主语 / 感知者 / 被看见的人算本楼露面；只是句中顺口提到的，须本楼或前 3 个 AI 楼露过面（宿主没给前楼名单时不拦）。
     // 指定了 User 立绘时，「你」开头的旁白页也换成主角（第二人称故事）。

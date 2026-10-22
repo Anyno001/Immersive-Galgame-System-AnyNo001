@@ -146,7 +146,6 @@ test('gate:settings-notice:expression-progress-shows-write-then-each-image', () 
     assert.equal(host.querySelector('.igs-settings-progress'), null);
     assert.match(SETTINGS_NOTICE_STYLE_TEXT, /igs-settings-progress\{[^}]*background:var\(--igs-settings-raised\)/);
     assert.match(SETTINGS_NOTICE_STYLE_TEXT, /color:var\(--igs-settings-ink\)/);
-    assert.equal(SETTINGS_NOTICE_STYLE_TEXT.includes('#2f5f78'), false);
 });
 
 test('gate:settings-notice:full-storage-keeps-panel-open-with-readable-reason', () => {

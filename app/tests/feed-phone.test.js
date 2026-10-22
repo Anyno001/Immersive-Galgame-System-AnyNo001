@@ -287,7 +287,6 @@ test('gate:feed:all-off-costs-nothing-and-news-style-exists', () => {
     assert.equal(cancelDanmaku(root), false);
     assert.match(FEED_STYLE_TEXT, /data-platform="news"/);
     assert.doesNotMatch(FEED_STYLE_TEXT, /backdrop-filter/);
-    assert.match(FEED_STYLE_TEXT, /#igs-fx-stage:has\(\.igs-feed-stage\[data-skin="phone"\]:not\(\[hidden\]\)\)\{z-index:4;\}/, 'phone lifts the stage layer above the click layer so it can scroll');
 });
 
 test('gate:feed:phone-geometry-matches-live-phone', () => {

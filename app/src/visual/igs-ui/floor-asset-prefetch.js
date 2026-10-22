@@ -1,3 +1,4 @@
+import { resolveCharacterLive2dBinding } from './live2d-config.js';
 import { extractSceneDirectives, classifySceneKey } from '../../scene/scene-directives.js';
 import { resolveBackgroundAsset, resolveNudeSpriteAsset, isNonSpriteSpeaker } from '../../scene/asset-match.js';
 import { createOutfitResolver, resolveSpriteOutfit } from '../../scene/character-outfits.js';
@@ -33,6 +34,7 @@ export function collectFloorAssetUrls({
     imageSlots = [],
     onSpriteUrl = null,
     systemRole = null,
+    live2dConfig = null,
     readClues = null,
     prepared = null,
 } = {}) {
@@ -75,9 +77,11 @@ export function collectFloorAssetUrls({
         const name = String(directive.character || '').trim();
         if (!name || isNonSpriteSpeaker(name) || isSystemRole(name, systemRole)) continue;
         const outfit = outfitFor(name, Number(directive.offset));
-        const spriteUrl = resolveReaderSpriteAsset(name, directive.mood || '', ctx, outfit).url;
-        if (spriteUrl && onSpriteUrl) onSpriteUrl(spriteUrl);
-        pushUrl(urls, seen, spriteUrl);
+        if (!resolveCharacterLive2dBinding(live2dConfig, sceneAssets, name, directive.mood)) {
+            const spriteUrl = resolveReaderSpriteAsset(name, directive.mood || '', ctx, outfit).url;
+            if (spriteUrl && onSpriteUrl) onSpriteUrl(spriteUrl);
+            pushUrl(urls, seen, spriteUrl);
+        }
         const place = sceneBefore(directives, Number(directive.offset), inheritedScene);
         if (place.nsfw) {
             const nudeUrl = resolveNudeSpriteAsset(name, directive.mood || '', ctx).url;
