@@ -96,3 +96,15 @@
   - 拒收条目（升级目标不存在、奖励等级未达到或重复领取、ID 冲突等）只记诊断，不生效；`revoke` 只让目标失效，不做物理删除。
 - 跨聊天隔离（设计 A6）仍按「表随聊天」处理，未加角色卡作用域前缀，待第 13 步真机确认。
 - 验证：`node --test tests/combat-ledger.test.js` 共 10 项，全部通过（锚点有效 / 换 swipe / 切回 / 删标签 / 删楼、分支后锚点仍有效、重复扫描不重复写、名字键归并、EXP 封顶与战报、失败战报无 EXP、待生成队列、职业复用、卡组回退与剔除、revoke、读取失败不当空状态、与真实 combat-tables 适配器联通）。与 combat 其余测试及 fx-directives 合跑 57 项全部通过。仍是内存或 fake API 验证，未在真机执行。
+
+### 第 9 步：副 LLM 生成
+
+- 新增 `combat/generation.js`：`resolveCombatLlm`、`readGenerationJson`、实体构造 `deckProfileEntities / skillProfileEntity / enemyEntities / growthEntity`、`templateEnemy`、`buildGenerationRequest`、`generateEntities(entities, { request, llm, signal, classes, context, now })`、`generationWrites`。`request` 由调用方注入（`createSecondaryLlm().request`），本模块不读宿主、不落账；落账由第 10 步会话经账本与战斗表完成。
+- 实现时定下的细节（设计未写明）：
+  - 身份字段（`kind / id / name / tier`、已定 `classRef`）由程序覆盖，模型只填数值与效果原语；起始卡组按 `COMBAT_RULES.starterDeckShape`（3/3/10/4）校验，设计 §8.2 的 5/5/7/3 已在第 3 步改定。
+  - 职业已登记（传入 `classRef`，或标签职业名与已有职业同名）时请求里没有职业实体；未指定职业名且已有可复用职业时，职业实体标为 `optional`，模型可改填已有职业 ID。同批卡组档案在职业有结论前挂起，职业修好后直接重核，不重新提交。
+  - 敌人档案 ID 由「档位:名称」推导，同名同档复用、同名不同档分开；learn / upgrade 产出的卡牌或技能 ID 由角色、技能名与锚点推导，重试得到同一 ID。upgrade 找不到目标时转为 learn 并记 `combat-upgrade-as-learn`。
+  - 修正耗尽：敌人给出 `generated: false` 的模板敌人（不入库）、主角 `blocked`、队友 `skip`。请求本身失败时全部实体按同样规则拒收，不重试、不伪造档案。
+  - 取消或迟到结果一律 `request-stale`，已通过的实体也不交付；`source: 'openai'` 缺地址或模型时返回 `combat-llm-config-incomplete`，不改走酒馆。
+- 主角自动生成、其他角色手动触发由调用方（第 10、12 步）决定，本模块只提供实体构造。
+- 验证：`node --test tests/combat-generation.test.js` 共 7 项，全部通过（合法回复、超封顶与超预算定向修正、已通过实体不进入修正请求、职业已登记不请求职业、同名敌人复用、修正耗尽回落、请求失败、取消与迟到、配置不完整、learn / upgrade ID 分配与转换）。与 combat 其余测试及 fx-directives 合跑 64 项全部通过。用例使用固定回复夹具，只证明解析与校验链路，不证明模型生成质量。
