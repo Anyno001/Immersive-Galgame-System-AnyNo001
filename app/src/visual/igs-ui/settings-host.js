@@ -199,7 +199,7 @@ export function createSettingsHost(deps) {
         };
     }
 
-    // 保存键与关闭设置共用：提示词编辑器有未存档修改时先存档，再落盘草稿。
+    // 关闭设置时：提示词编辑器有未存档修改时先存档，再落盘草稿。
     function saveSettingsNow(panel, persistOptions = {}) {
         const editor = panel.asyncState.imagePromptEditor;
         if (editor?.state.dirty) {
@@ -210,10 +210,21 @@ export function createSettingsHost(deps) {
     }
 
     // 后台生图任务读已保存配置：接口地址、密钥、模型等字段改完（change）即落盘，不等关闭设置。
-    function persistImmediateField(path) {
+    // 打字途中停顿 800ms 也落盘，不必等失焦；同一面板内只保留最后一次。
+    let immediateSaveTimer = null;
+    function persistImmediateField(path, { debounce = false } = {}) {
         if (!state.activeSettings || !isImmediateSavePath(path)) return;
-        const result = persistSettingsDraft();
-        if (result && result.ok === false) reportSettingsFailure(result);
+        clearTimeout(immediateSaveTimer);
+        immediateSaveTimer = null;
+        const panel = state.activeSettings;
+        const run = () => {
+            immediateSaveTimer = null;
+            if (state.activeSettings !== panel) return;
+            const result = persistSettingsDraft();
+            if (result && result.ok === false) reportSettingsFailure(result);
+        };
+        if (debounce) immediateSaveTimer = setTimeout(run, 800);
+        else run();
     }
 
     function closeSettings() {
@@ -681,13 +692,6 @@ export function createSettingsHost(deps) {
                 panel.asyncState.imagePromptBusy = false;
             }
         }
-        if (action === 'settings-save') {
-            const panel = state.activeSettings;
-            if (!panel) return { ok: false, reason: 'settings-not-open' };
-            const saved = saveSettingsNow(panel);
-            if (saved.ok !== false) showSettingsNotice('已保存', 'info');
-            return saved;
-        }
         if (action.startsWith('model-profile:')) {
             const panel = state.activeSettings;
             if (!panel) return { ok: false, reason: 'settings-not-open' };
@@ -950,6 +954,7 @@ export function createSettingsHost(deps) {
             if (path) {
                 if (target.tagName === 'TEXTAREA') updateCharCounts(root, path, target.value);
                 controller.setValue(path, target.value, { liveInput: true });
+                persistImmediateField(path, { debounce: true });
                 return;
             }
             const statusAvatarChar = target.getAttribute('data-status-avatar-char');
@@ -1364,10 +1369,10 @@ export function createSettingsHost(deps) {
         showSettingsNotice(message);
     }
 
-    function showSettingsNotice(message, tone) {
+    function showSettingsNotice(message) {
         const current = state.activeSettings;
         if (!current || !message) return;
-        const notice = { message, until: Date.now() + SETTINGS_NOTICE_MS, ...(tone ? { tone } : {}) };
+        const notice = { message, until: Date.now() + SETTINGS_NOTICE_MS };
         current.notice = notice;
         remountSettingsNotice(current.dom && current.dom.root, notice);
         setTimeout(() => {
