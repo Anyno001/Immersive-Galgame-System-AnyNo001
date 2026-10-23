@@ -147,3 +147,13 @@
 - 补扫时机：此前剧情楼的成长标签只在战报回传后扫描。现在 `combat-services.refreshGrowth()` 在启动、设置变更、生成结束、换聊天时补扫入库（按记录 ID 幂等），并缓存成长事件与待生成项；阅读器订阅缓存刷新后合并重绘一次。缓存不属于当前聊天或读表失败时不出演出。`retryGrowth()` 把待整理的 learn / upgrade / class 交副 LLM 生成并落账，构筑面板「待整理」行的重试按钮调用它。
 - 验证：`combat-deck-panel.test.js` 5 项、`combat-growth-fx.test.js` 4 项、`combat-ledger.test.js` 12 项；战斗相关 12 个测试文件与 `settings-panel-ux.test.js`、`simulate.test.js` 合跑 105 项，全部通过。`npm.cmd run build` 产出 0.36.115。构建产物预览在 Edge headless 下实测：deck 场景测了 1440 / 390 / 320 三个宽度，经状态栏「战斗」项打开构筑面板，尺寸 900×540 / 358×540 / 288×528，无溢出，焦点在面板内，Esc 关闭；growth 场景测了 390 / 1440 两个宽度，显示「升级 林夕 Lv2」与「EXP 林夕 +45」；均无 console error、无外站请求。VS Code 内置浏览器打开 deck 场景，产物指纹与服务端一致。
 - 未验证：构筑面板的保存与手动生成点击链（预览默认拒绝写入，只有单元用例覆盖）、领奖界面、主题切换、完整 Tab 顺序；真实酒馆、手机、shujuku、副 LLM 均未验收。
+
+### 第 12.6 步：战斗界面立绘、卡面与握牌
+
+- 新增 `visual/igs-ui/combat-card-art.js`。`describeEffects(effects)` 把效果原语转成中文说明，覆盖伤害、格挡、回复、抽牌、能量、状态、消耗和条件分支。`cardArtSvg(card)` 按卡牌类型定配色、按主效果定纹样、按「ID + 类型 + 效果」的哈希定细节，同一张卡始终得到同一张图。`portraitSilhouetteSvg(name, side)` 生成无立绘时的剪影，我方暖色、敌方冷色。SVG 只由程序常量和数值拼出，不含档案文本，也不经副 LLM，档案结构不变。
+- 卡面：手牌显示费用、卡名、卡图、类型和效果说明；`aria-label` 带名称、费用和说明。
+- 握牌：手牌重叠成扇形，不滚动。以手牌中点为轴，每张角度为 `min(7°, 36° / (张数 − 1))`，离中点越远位置越低。悬停、键盘聚焦或选中时，该牌抬起、摆正并置顶。窄屏卡宽 96px。
+- 立绘：战前和对局都有立绘位。素材模式开启时，reader-host 的 `resolveCombatPortrait(name)` 按角色名取素材库默认立绘（含本聊天临时立绘），取不到再用状态栏头像。面板经 `safePortraitUrl` 过滤后用 `<img>` 显示，两者都没有时显示剪影。敌方立绘按 `contain`、底部对齐显示，全身图不被裁切。
+- 战斗面板打开时在 overlay 上写 `data-igs-combat-open`，隐藏背后的剧情对话层 `#igs-dialog-layer`，背景保留；关闭时移除该属性。
+- 验证：`combat-panel.test.js` 覆盖立绘地址过滤与剪影回退、`data-igs-combat-open` 的打开写入与关闭移除、5 张起手牌的扇形角度；与 `combat-deck-panel`、`combat-growth-fx`、`combat-session`、`simulate` 合跑 36 项，全部通过。`npm.cmd run build` 产出 0.36.115。构建产物预览使用合成立绘与背景，在 Edge headless 下测 1440 / 390 两个宽度：战前加载 3 张立绘，对局加载 4 张，背景命中；对话层在面板打开时隐藏、关闭后恢复；无溢出、无 console error、无外站请求。VS Code 内置浏览器打开同一对局场景。
+- 未验证：悬停抬起与满手牌重叠的逐张命中；预览素材齐全，剪影回退只有单元用例覆盖；真实酒馆素材库作用域与相对 URL、手机均未验收。

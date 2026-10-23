@@ -2,6 +2,7 @@ import { canAfford, cardView, describeIntent, effectsNeedTarget } from '../../co
 import { COMBAT_RULES } from '../../combat/rules.js';
 import { hash32 } from '../../combat/random.js';
 import { injuryLevel } from '../../combat/report.js';
+import { CARD_TYPE_LABELS, cardArtSvg, describeEffects } from './combat-card-art.js';
 
 // 战斗面板的纯视图模型：会话快照 → 战前 / 对局 / 结算所需字段；不操作 DOM。
 // 是否可出牌只以引擎 legalActions 为准，界面不另算规则。
@@ -39,6 +40,7 @@ export function battleView(state, legal = []) {
         const mine = plays.filter((a) => a.inst === inst);
         return {
             inst, id: card.id, name: card.name, type: card.type, cost: card.cost, upgraded: card.upgraded,
+            typeLabel: CARD_TYPE_LABELS[card.type] || '', text: describeEffects(card.effects), art: cardArtSvg(card),
             affordable: canAfford(card, hero.energy), needsTarget: effectsNeedTarget(card.effects),
             targets: mine.map((a) => a.targetId).filter((t) => t !== undefined), playable: mine.length > 0,
         };

@@ -1,4 +1,5 @@
 import { esc } from './reader-value-utils.js';
+import { portraitSilhouetteSvg } from './combat-card-art.js';
 
 // 战斗面板的 HTML 片段：只输出字段、状态、错误与操作确认；动作统一走 data-combat-act / data-combat-id。
 const REASON_TEXT = Object.freeze({
@@ -71,28 +72,47 @@ const hpBar = (u) => {
 const statusesHtml = (list) => (list.length
     ? `<div class="igs-combat-statuses">${list.map((s) => `<span data-status="${esc(s.key)}">${esc(s.label)} ${s.stacks}</span>`).join('')}</div>` : '');
 
-function unitHtml(u, { targetable = false } = {}) {
+// 立绘：素材库有图时用 <img>（地址已经 safePortraitUrl 过滤），否则用程序剪影。
+const portraitHtml = (name, side, url) => `<div class="igs-combat-portrait" data-side="${esc(side)}">${url
+    ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : portraitSilhouetteSvg(name, side)}</div>`;
+
+function unitHtml(u, { targetable = false, portrait = '' } = {}) {
     const intent = u.intent ? `<div class="igs-combat-intent" data-intent="${esc(u.intent.kind)}">${esc(u.intent.label)}·${esc(u.intent.name)}${u.intent.damage ? ` ${u.intent.damage}` : ''}</div>` : '';
     const block = u.block ? `<span class="igs-combat-block">格挡 ${u.block}</span>` : '';
     const attrs = targetable ? ` data-combat-act="target" data-combat-id="${esc(u.id)}" role="button" tabindex="0"` : '';
     return `<div class="igs-combat-unit${u.alive ? '' : ' is-down'}${u.controlled ? ' is-controlled' : ''}${targetable ? ' is-targetable' : ''}" data-unit="${esc(u.id)}"${attrs}>`
-        + `<div class="igs-combat-unit-name">${esc(u.name)}${block}</div>${hpBar(u)}${statusesHtml(u.statuses)}${intent}</div>`;
+        + portraitHtml(u.name, u.side, portrait)
+        + `<div class="igs-combat-unit-info"><div class="igs-combat-unit-name">${esc(u.name)}${block}</div>${hpBar(u)}${statusesHtml(u.statuses)}${intent}</div></div>`;
 }
 
-function cardHtml(c, selected) {
+// 握牌扇形：以手牌中点为轴，越靠两侧旋转越大、位置越低；张数越多每张的角度越小。只输出数值，不含档案文本。
+function fanStyle(i, n) {
+    const d = i - (n - 1) / 2;
+    const step = n > 1 ? Math.min(7, 36 / (n - 1)) : 0;
+    const rot = d * step;
+    return `--fan-r:${rot.toFixed(1)}deg;--fan-y:${Math.round(rot * rot * 0.1)}px;--fan-n:${n}`;
+}
+
+function cardHtml(c, selected, i = 0, n = 1) {
     const cls = `igs-combat-card${c.playable ? '' : ' is-disabled'}${selected === c.inst ? ' is-selected' : ''}${c.upgraded ? ' is-upgraded' : ''}`;
-    return `<button type="button" class="${cls}" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.playable ? '' : ' aria-disabled="true"'}>`
-        + `<span class="igs-combat-card-cost">${esc(c.cost)}</span><span class="igs-combat-card-name">${esc(c.name)}${c.upgraded ? '+' : ''}</span></button>`;
+    // 卡图 SVG 由 combat-card-art 只用程序常量与数值生成，不含档案文本，可直接拼入。
+    return `<button type="button" class="${cls}" style="${fanStyle(i, n)}" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.playable ? '' : ' aria-disabled="true"'} aria-label="${esc(`${c.name} ${c.cost} 费 ${c.text || ''}`)}">`
+        + `<span class="igs-combat-card-cost">${esc(c.cost)}</span><span class="igs-combat-card-name">${esc(c.name)}${c.upgraded ? '+' : ''}</span>`
+        + `<span class="igs-combat-card-art">${c.art || ''}</span><span class="igs-combat-card-type">${esc(c.typeLabel || '')}</span>`
+        + `<span class="igs-combat-card-text">${esc(c.text || '')}</span></button>`;
 }
 
 function lobbyHtml(v) {
     const l = v.lobby;
+    const pics = (v.portraits || {});
+    const roster = [...l.allies.map((a) => ({ name: a.name, side: 'ally' })), ...l.enemies.map((e) => ({ name: e.name, side: 'enemy' }))]
+        .map((u) => `<figure class="igs-combat-lobby-figure" data-side="${u.side}">${portraitHtml(u.name, u.side, pics[u.name] || '')}<figcaption>${esc(u.name)}</figcaption></figure>`).join('');
     const allies = l.allies.map((a) => (a.controllable
         ? btn('pick', `${a.name} Lv${a.level}`, { id: a.id, primary: v.controlledId === a.id })
         : `<span class="igs-combat-chip">${esc(a.name)} Lv${a.level}·托管</span>`)).join('');
     const enemies = l.enemies.map((e) => `<span class="igs-combat-chip">${esc(e.name)}${e.count > 1 ? ` ×${e.count}` : ''}${e.templated ? '·模板' : ''}</span>`).join('');
     const absent = [...l.absent, ...l.skipped];
-    return `<section class="igs-combat-lobby"><div class="igs-combat-row"><span class="igs-combat-label">我方</span>${allies}</div>`
+    return `<section class="igs-combat-lobby"><div class="igs-combat-lobby-stage">${roster}</div><div class="igs-combat-row"><span class="igs-combat-label">我方</span>${allies}</div>`
         + `<div class="igs-combat-row"><span class="igs-combat-label">敌方</span>${enemies}</div>`
         + (absent.length ? `<div class="igs-combat-row"><span class="igs-combat-label">未参战</span>${absent.map((n) => `<span class="igs-combat-chip">${esc(n)}</span>`).join('')}</div>` : '')
         + `<div class="igs-combat-actions">${btn('skip', '跳过卡牌战斗', { disabled: Boolean(v.pending) })}${btn('start', '开始战斗', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
@@ -102,12 +122,13 @@ function battleHtml(v) {
     const b = v.battle;
     const targets = v.selected ? new Set(b.hand.find((c) => c.inst === v.selected)?.targets || []) : new Set();
     const ended = Boolean(b.outcome);
-    const hand = b.hand.map((c) => cardHtml(c, v.selected)).join('');
+    const hand = b.hand.map((c, i) => cardHtml(c, v.selected, i, b.hand.length)).join('');
     const foot = ended ? '' : `<footer class="igs-combat-foot"><div class="igs-combat-energy" aria-label="能量">${b.energy}/${b.energyPerTurn}</div>`
         + `<div class="igs-combat-hand">${hand}</div><div class="igs-combat-piles"><span>抽牌 ${b.piles.draw}</span><span>弃牌 ${b.piles.discard}</span></div>`
         + `<div class="igs-combat-actions">${v.selected ? btn('cancel', '取消') : ''}${b.canEscape ? btn('escape', '撤退') : ''}${btn('end-turn', '结束回合', { primary: true, disabled: !b.canEndTurn })}</div></footer>`;
-    return `<section class="igs-combat-field" data-turn="${b.turn}"><div class="igs-combat-side is-ally">${b.allies.map((u) => unitHtml(u)).join('')}</div>`
-        + `<div class="igs-combat-side is-enemy">${b.enemies.map((u) => unitHtml(u, { targetable: !ended && u.alive && targets.has(u.id) })).join('')}</div></section>${foot}`;
+    const pics = v.portraits || {};
+    return `<section class="igs-combat-field" data-turn="${b.turn}"><div class="igs-combat-side is-ally">${b.allies.map((u) => unitHtml(u, { portrait: pics[u.name] || '' })).join('')}</div>`
+        + `<div class="igs-combat-side is-enemy">${b.enemies.map((u) => unitHtml(u, { targetable: !ended && u.alive && targets.has(u.id), portrait: pics[u.name] || '' })).join('')}</div></section>${foot}`;
 }
 
 function endHtml(v) {

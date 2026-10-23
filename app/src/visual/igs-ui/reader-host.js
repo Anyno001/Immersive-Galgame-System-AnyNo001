@@ -843,6 +843,26 @@ export function createIgsReaderHost(options = {}) {
         return imageResourceCache.inspect(concrete);
     }
 
+    // 战斗面板立绘：素材模式开启时按角色名取素材库默认立绘（含本聊天临时立绘），取不到再用状态栏头像；都没有返回空串，面板改用剪影。
+    function resolveCombatPortrait(name) {
+        const current = state.activeReader;
+        const readerSettings = current && current.snapshot && current.snapshot.readerSettings;
+        const sceneAssets = readerSettings && readerSettings._sceneAssets;
+        const character = String(name || '').trim();
+        if (!character || !sceneAssets || !sceneAssets.enabled) return '';
+        const generatedAssets = options.generatedAssets || null;
+        const chatId = current.illustrationIdentity && current.illustrationIdentity.chatId || '';
+        let hit = { url: '' };
+        try {
+            hit = resolveReaderSpriteAsset(character, '', {
+                chatId, sceneAssets, generatedAssets: sceneAssets.generated, imageAvailability: readerSpriteAvailability,
+                tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
+                tempSpriteForOutfit: generatedAssets ? generatedAssets.tempSpriteForOutfit : null,
+            });
+        } catch (error) { hit = { url: '' }; }
+        return concreteReaderAssetUrl(hit.url) || concreteReaderAssetUrl(resolveStatusAvatar(sceneAssets.statusAvatars, character));
+    }
+
     // 状态栏头像存在图库（igs-gen:）时换成已读回的图；还没读回先空着，读回后 image-loaded 会重绘。
     function withConcreteAvatar(model) {
         if (model && isGeneratedAssetUrl(model.avatar)) model.avatar = concreteReaderAssetUrl(model.avatar);
@@ -4211,6 +4231,7 @@ export function createIgsReaderHost(options = {}) {
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
             getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
+            resolvePortrait: (name) => resolveCombatPortrait(name),
         });
         // 卡组构筑面板：资料菜单「战斗」项打开；账本、会话与手动生成都由 bootstrap 注入。
         const combatDeckController = createCombatDeckPanelController(doc, {

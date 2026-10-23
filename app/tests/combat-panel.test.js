@@ -102,7 +102,9 @@ function panelHarness() {
     const overlay = new FakeEl(doc, 'div');
     overlay.id = 'igs-overlay';
     const timers = makeTimers();
-    const panel = createCombatPanelController(doc, { getSession: () => h.session, getLedger: () => h.ledger, reducedMotion: () => true, schedule: timers.schedule, clear: timers.clear });
+    // 立绘：狼给网络图片，主角给被拒协议，验证过滤后回退剪影。
+    const resolvePortrait = (name) => (name === '狼' ? 'https://example.test/wolf.png' : 'javascript:alert(1)');
+    const panel = createCombatPanelController(doc, { getSession: () => h.session, getLedger: () => h.ledger, reducedMotion: () => true, schedule: timers.schedule, clear: timers.clear, resolvePortrait });
     return { ...h, doc, overlay, panel, timers };
 }
 
@@ -118,11 +120,18 @@ test('面板：打开加 panel:combat 暂停原因并进入战前，关闭只撤
     setStagePauseReason(p.overlay, 'offscreen', true);
     assert.equal(p.panel.open(p.overlay, { messageId: 1 }).ok, true);
     assert.deepEqual(paused(p.overlay).sort(), ['offscreen', 'panel:combat']);
+    assert.equal(p.overlay.getAttribute('data-igs-combat-open'), '');
     await until(() => p.panel.view().status === 'lobby');
-    assert.match(p.overlay.querySelector('.igs-combat-body').innerHTML, /data-combat-act="start"/);
+    const lobbyHtml = p.overlay.querySelector('.igs-combat-body').innerHTML;
+    assert.match(lobbyHtml, /data-combat-act="start"/);
+    assert.deepEqual(p.panel.view().portraits, { 主角: '', 狼: 'https://example.test/wolf.png' });
+    assert.match(lobbyHtml, /<img src="https:\/\/example\.test\/wolf\.png"/);
+    assert.doesNotMatch(lobbyHtml, /javascript:/);
+    assert.equal((lobbyHtml.match(/<svg viewBox="0 0 100 120"/g) || []).length, 1);
     assert.equal(p.panel.close().ok, true);
     assert.equal(p.panel.isOpen(), false);
     assert.deepEqual(paused(p.overlay), ['offscreen']);
+    assert.equal(p.overlay.getAttribute('data-igs-combat-open'), null);
     assert.equal(p.overlay.querySelector('#igs-combat-panel'), null);
 });
 
@@ -131,6 +140,9 @@ test('面板：能量不足的牌不能打出，结束回合推进托管与敌�
     p.panel.open(p.overlay, { messageId: 1 });
     await until(() => p.panel.view().status === 'lobby');
     assert.equal(p.panel.invoke('start').ok, true);
+    // 5 张起手牌按中点对称展开，每张 7°，中间一张不旋转。
+    const fans = [...p.overlay.querySelector('.igs-combat-body').innerHTML.matchAll(/--fan-r:(-?[\d.]+)deg/g)].map((m) => Number(m[1]));
+    assert.deepEqual(fans, [-14, -7, 0, 7, 14]);
     for (let i = 0; i < 3; i += 1) {
         const card = p.panel.view().battle.hand[0];
         const r = p.panel.invoke('card', card.inst);

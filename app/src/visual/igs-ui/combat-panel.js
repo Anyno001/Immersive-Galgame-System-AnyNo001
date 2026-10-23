@@ -1,5 +1,5 @@
 import { setStagePauseReason } from './stage-pause.js';
-import { planBattleFx } from './fx-battle-model.js';
+import { planBattleFx, safePortraitUrl } from './fx-battle-model.js';
 import { applyBattleFxToDom, cancelBattleFx } from './fx-battle.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 import { battleView, combatFxSource, endView, lobbyView, resolvePlay, rewardChoices } from './combat-panel-model.js';
@@ -30,6 +30,17 @@ export function createCombatPanelController(doc, options = {}) {
     const reduced = () => {
         try { return typeof options.reducedMotion === 'function' ? options.reducedMotion() === true : prefersReducedMotion(); } catch (error) { return false; }
     };
+    // 立绘地址由宿主按素材库解析（options.resolvePortrait），这里只过滤协议；取不到时渲染层用剪影。
+    const portraitsFor = (names) => {
+        const out = {};
+        for (const name of names) {
+            if (!name || Object.hasOwn(out, name)) continue;
+            let url = '';
+            try { url = typeof options.resolvePortrait === 'function' ? options.resolvePortrait(name) : ''; } catch (error) { url = ''; }
+            out[name] = safePortraitUrl(url);
+        }
+        return out;
+    };
 
     function snapshot() {
         const s = session();
@@ -38,6 +49,9 @@ export function createCombatPanelController(doc, options = {}) {
         if (cur.status === 'lobby') view.lobby = lobbyView(cur);
         if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal);
         if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle);
+        const names = view.battle ? [...view.battle.allies, ...view.battle.enemies].map((u) => u.name)
+            : view.lobby ? [...view.lobby.allies.map((a) => a.name), ...view.lobby.enemies.map((e) => e.name)] : [];
+        view.portraits = portraitsFor(names);
         if (cur.status === 'send-failed' || cur.status === 'done') view.report = cur.report ? { result: cur.report.result } : null;
         view.encounter = cur.start?.encounter || cur.record?.encounter || '';
         return view;
@@ -250,6 +264,8 @@ export function createCombatPanelController(doc, options = {}) {
         root.addEventListener('click', onClick);
         overlay.appendChild(root);
         overlay.classList?.toggle('igs-record-screen-open', true);
+        // 战斗期间隐藏背后的剧情文字（对话层），背景与立绘保留。
+        overlay.setAttribute?.('data-igs-combat-open', '');
         setStagePauseReason(overlay, PAUSE_REASON, true);
         const cur = s.state();
         if (cur.lobby) controlledId = cur.lobby.heroId;
@@ -273,6 +289,7 @@ export function createCombatPanelController(doc, options = {}) {
         root = null;
         stage = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
+        pageOverlay?.removeAttribute?.('data-igs-combat-open');
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         pageOverlay = null;
         pending = ''; rewards = null; selected = null; confirming = '';
