@@ -13,7 +13,7 @@ import { countEnabledPerformance, performanceGroupCounts, renderPerformancePage,
 import { renderWorldviewRow } from './worldview-fields.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { isGeneratedAssetUrl, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
-import { createOutfitResolver } from '../../scene/character-outfits.js';
+import { createOutfitResolver, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
 import { readDefaultOutfit, pickOutfitSprite } from '../../scene/character-appearance.js';
 import { renderEventCgList } from './settings-event-cg.js';
 import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList, kindModelPicker, checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderShortcutSettings, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderSystemRoleAdvanced, renderWeatherFxSettings, renderCustomFontManager, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
@@ -672,8 +672,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     '如AI未按标签输出，可改回聊天末尾。每条演出写法可单独指定位置。'),
                 // 按需注入（promptAdaptive）不再公开：配置键与已存值保留，默认仍为开。
                 promptAdvanced: renderPromptEntryFields(sceneAssets, { reader: draft.readerSettings, report: getLastPromptReport(), isOpen: isOpenKey }),
+                get wardrobeSelectToggle() { return idx ? '' : selectLink('wardrobe', Object.keys(scopedEntries('wardrobe')).filter((name) => !isBuiltinNudeOutfit(name)).length); },
                 get wardrobeSection() { return checkbox('bridge.sceneAssets.wardrobeAutoFlow', sceneAssets.wardrobeAutoFlow !== false, '自动流程（新建后自动写提示词、生成参考图）')
-                    + (idx ? '' : renderWardrobe(scopedEntries('wardrobe'), { sceneAssets, resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe') })); },
+                    + (idx ? '' : renderWardrobe(scopedEntries('wardrobe'), { sceneAssets, resolveUrl: resolveGenerated, scopeTag, focus: asyncState.wardrobeFocus || '', lead: scopeFilterBar('wardrobe'), select: assetSelect('wardrobe') })); },
                 get eventCgSection() { return idx ? '' : renderEventCgList(scopedEntries('eventCgs'), { resolveUrl: resolveGenerated, scopeTag }); },
                 get moodSection() { return checkbox('bridge.sceneAssets.moodAutoClassify', sceneAssets.moodAutoClassify === true, '自动归类（用备用模型）')
                     + (asyncState.moodAutoStatus ? `<div class="igs-source-filter-note" data-mood-auto-status>${esc(asyncState.moodAutoStatus)}</div>` : '')

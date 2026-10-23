@@ -11,7 +11,7 @@ import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
 import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions, creatureVoiceLabel } from './voice-bark.js';
 import { TTS_CHARACTER_VOLUMES, findSystemVoice, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceOptions } from './tts.js';
-import { renderCharacterCreatureFold } from './creature-settings.js';
+import { renderCharacterCreatureMenuItem, renderCharacterCreatureRows, renderCharacterCreatureTag } from './creature-settings.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { hasCharacterSpriteLayout } from './sprite-key-migration.js';
 
@@ -547,11 +547,12 @@ export function renderCharacterAssetList(characters, options = {}) {
         const live2dOn = Boolean(resolveCharacterLive2dBinding(options.live2dConfig, options.sceneAssets || { characters, characterAliases: aliasesByCharacter }, charName));
         const meta = [aliases.join('、'), live2dOn ? 'Live2D 已启用 · 静态差分暂停' : ''].filter(Boolean).join(' · ');
         const head = `<div class="igs-char-head"><button type="button" class="igs-char-avatar" data-action="status-avatar-pick:${encSeg(charName)}" title="上传状态栏头像">${avatarPreview}</button>`
-            + `<button type="button" class="igs-char-title" data-action="${toggle}" aria-expanded="${open}"><b class="igs-char-name">${esc(charName)}</b>${isUserChar ? '<span class="igs-char-user-tag" title="旁白里的「你」和酒馆用户名都用这个角色的立绘">User</span>' : ''}<span class="igs-char-aliases">${esc(meta)}</span></button>`
+            + `<button type="button" class="igs-char-title" data-action="${toggle}" aria-expanded="${open}"><b class="igs-char-name">${esc(charName)}</b>${isUserChar ? '<span class="igs-char-user-tag" title="旁白里的「你」和酒馆用户名都用这个角色的立绘">User</span>' : ''}${renderCharacterCreatureTag(dna)}<span class="igs-char-aliases">${esc(meta)}</span></button>`
             + `${scopeTag(options, 'characters', charName)}`
             + renderRowMenu([
                 menuItem(`scene-toggle-dna:${encSeg(charName)}`, dnaOpen ? '收起角色设定' : `角色设定${characterDnaFilled(dna) ? '' : '（外貌未填）'}`),
                 menuItem(`scene-set-user-char:${encSeg(charName)}`, isUserChar ? '取消User立绘' : '设为User立绘'),
+                renderCharacterCreatureMenuItem(charName, dna),
                 folderSelect(charName, { menu: true }),
                 String((moods || {}).默认 || '').trim() ? menuItem(`scene-migrate-outfit:${encSeg(charName)}`, '原装迁成差分服装') : '',
                 menuItem(`scene-rename-char:${encSeg(charName)}`, '重命名'),
@@ -565,9 +566,10 @@ export function renderCharacterAssetList(characters, options = {}) {
                 `<div class="igs-char-info-row"><span class="igs-char-info-label">状态栏头像</span>${avatarHtml}</div>`,
                 houseHtml,
                 voiceHtml,
+                renderCharacterCreatureRows(charName, dna),
             ].join(''))
             : '';
-        return `<div class="igs-scene-char-group igs-char-card${open ? ' is-open' : ''}">${head}${setup}${open ? `<div class="igs-char-body">${heightRow ? renderCharacterSpriteHeightRow(charName, heightRow) : ''}${renderCharacterCreatureFold(charName, dna, isOpen)}${slotArea}</div>` : ''}</div>`;
+        return `<div class="igs-scene-char-group igs-char-card${open ? ' is-open' : ''}">${head}${setup}${open ? `<div class="igs-char-body">${heightRow ? renderCharacterSpriteHeightRow(charName, heightRow) : ''}${slotArea}</div>` : ''}</div>`;
     }).join('');
 }
 

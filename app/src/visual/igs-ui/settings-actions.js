@@ -1,6 +1,7 @@
 import { BUILD_CUSTOM_MAX, normalizeBuild, validCustomSkillName } from '../../scene/stats/stat-build.js';
 
 import { editCharacterCreature } from './creature-settings.js';
+import { storedCreatureOf } from '../../scene/creature-profile.js';
 import { characterDnaNeedsViews } from '../../scene/character-dna.js';
 import { needsSettingsExternalSpriteDna, prepareSettingsExternalSpriteDna } from './settings-external-sprite-dna.js';
 import { spriteDnaPreparationState } from '../../scene/character-dna-preparation.js';
@@ -914,13 +915,17 @@ export async function handleSettingsAction(action, ctx) {
     const risky = riskyActionMessage(normalizedAction, settingsState, editTarget);
     if (risky && typeof dialogs.confirm === 'function' && !(await dialogs.confirm(risky))) return rerenderSettings();
     // 素材批量删除：多选只记在界面状态里；删除时逐个走单条删除动作，别名、DNA、服装、文件夹归属的清理与单删完全一致。
-    const selectMatch = /^asset-(select|pick|pick-all|delete-picked):(scenes|characters)(?::(.*))?$/.exec(normalizedAction);
+    // 衣柜同一套：单删会把引用它的服装一并解绑。
+    const selectMatch = /^asset-(select|pick|pick-all|delete-picked):(scenes|characters|wardrobe)(?::(.*))?$/.exec(normalizedAction);
     if (selectMatch) {
         const [, op, kind, rest = ''] = selectMatch;
         const asyncState = settingsState.asyncState;
         const cur = asyncState.assetSelect && asyncState.assetSelect.kind === kind ? asyncState.assetSelect : null;
         // 列表里本卡与全局混在一起：按合并后的素材算；单条删除动作各自找到条目所在的那一边。
-        const library = (draftEffectiveAssets(settingsState) || {})[kind] || {};
+        const merged = (draftEffectiveAssets(settingsState) || {})[kind] || {};
+        const library = kind === 'wardrobe'
+            ? Object.fromEntries(Object.entries(merged).filter(([name]) => !isBuiltinNudeOutfit(name)))
+            : merged;
         if (op === 'select') {
             asyncState.assetSelect = cur ? null : { kind, names: new Set() };
             return rerenderSettings();
@@ -938,10 +943,11 @@ export async function handleSettingsAction(action, ctx) {
         }
         const names = [...cur.names].filter((name) => Object.prototype.hasOwnProperty.call(library, name));
         if (!names.length) return rerenderSettings();
-        const label = kind === 'characters' ? '角色' : '场景';
+        const label = { characters: '角色', scenes: '场景', wardrobe: '衣柜提示词' }[kind];
+        const note = { characters: '立绘、别名、服装将一并删除。', scenes: '时间、天气背景将一并删除。', wardrobe: '引用这些条目的服装改用同名提示词。' }[kind];
         const preview = names.slice(0, 5).map((name) => `「${name}」`).join('') + (names.length > 5 ? ` 等${names.length}个` : '');
-        if (typeof dialogs.confirm === 'function' && !(await dialogs.confirm(`删除${preview}${label}？${kind === 'characters' ? '立绘、别名、服装将一并删除。' : '时间、天气背景将一并删除。'}`))) return rerenderSettings();
-        const prefix = kind === 'characters' ? 'scene-remove-char:' : 'scene-remove-bg:';
+        if (typeof dialogs.confirm === 'function' && !(await dialogs.confirm(`删除${preview}${label}？${note}`))) return rerenderSettings();
+        const prefix = { characters: 'scene-remove-char:', scenes: 'scene-remove-bg:', wardrobe: 'wardrobe-remove:' }[kind];
         const quiet = { ...ctx, dialogs: { ...dialogs, confirm: async () => true } };
         for (const name of names) {
             const result = await handleSettingsAction(`${prefix}${encodeURIComponent(name)}`, quiet);
@@ -3861,6 +3867,11 @@ export async function handleSettingsAction(action, ctx) {
         target.library.characterDna = { ...map, [target.name]: next };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        // 从 ⋯ 菜单启用后直接展开「角色设定」，档案各项在那里调整。
+        if (field === 'enabled' && storedCreatureOf(next)) {
+            const open = settingsState.asyncState.advancedOpen || {};
+            settingsState.asyncState.advancedOpen = { ...open, [`char-dna:${target.name}`]: true };
+        }
         return rerenderSettings();
     }
 

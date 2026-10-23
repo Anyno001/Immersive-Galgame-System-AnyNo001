@@ -355,7 +355,7 @@ const RULES_TEMPLATE = `
 const WARDROBE_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="wardrobe">
   <div class="igs-source-filter" data-wardrobe-section>
-    <div class="igs-source-filter-title">衣柜提示词<span class="igs-outfit-muted">生图用</span><button class="igs-btn-mgr-icon igs-title-add" data-action="wardrobe-add" type="button" title="添加一条衣柜提示词" aria-label="添加一条衣柜提示词">+</button></div>
+    <div class="igs-source-filter-title">衣柜提示词<span class="igs-outfit-muted">生图用</span>{{wardrobeSelectToggle}}<button class="igs-btn-mgr-icon igs-title-add" data-action="wardrobe-add" type="button" title="添加一条衣柜提示词" aria-label="添加一条衣柜提示词">+</button></div>
     <div class="igs-source-filter-note">生成服装立绘时使用的服装描述；未指定时使用同名的那一条。</div>
     {{wardrobeSection}}
   </div>

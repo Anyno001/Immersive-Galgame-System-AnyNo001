@@ -14,7 +14,7 @@ import {
     normalizeCreatureProfile, setCreatureSystem, storedCreatureOf,
 } from '../src/scene/creature-profile.js';
 import { creatureDisplayProfileOf, creatureProfileOf, isGiantCreature, applyCreatureScale } from '../src/visual/igs-ui/creature-layout.js';
-import { editCharacterCreature, renderCharacterCreatureFold } from '../src/visual/igs-ui/creature-settings.js';
+import { editCharacterCreature, renderCharacterCreatureRows, renderCharacterCreatureTag } from '../src/visual/igs-ui/creature-settings.js';
 import { normalizeBattleFxSettings } from '../src/visual/igs-ui/fx-battle-model.js';
 import { normalizeFxReaderSettings } from '../src/visual/igs-ui/fx-settings.js';
 import { renderFxFeatureFields } from '../src/visual/igs-ui/fx-settings-fields.js';
@@ -65,7 +65,7 @@ test('总开关关闭：所有角色按人类处理，档案保留；再开恢�
         assert.equal(creatureProfileOf(map, '狐'), null);
         assert.equal(storedCreatureOf(map.狐).size, 'giant');
         assert.equal(editCharacterCreature(map.狐, 'size', 'small').creature.size, 'small');
-        assert.match(renderCharacterCreatureFold('狐', map.狐), /已启用/);
+        assert.match(renderCharacterCreatureTag(map.狐), /非人/);
         setCreatureSystem({ enabled: true });
         assert.equal(creatureProfileOf(map, '狐').size, 'giant');
     } finally { setCreatureSystem({}); }
@@ -130,12 +130,12 @@ test('半身取景接到显示：显示层按人类布局，战斗侧仍认得�
 test('情绪档：半人形默认完整，选四档后用四档姿态', () => {
     assert.equal(creatureMoodLabels(humanoid()), null);
     assert.equal(creatureMoodLabels(humanoid({ tiers: 'four' })).length, 4);
-    const html = renderCharacterCreatureFold('狐', dnaOf({ form: 'humanoid' }));
+    const html = renderCharacterCreatureRows('狐', dnaOf({ form: 'humanoid' }));
     assert.match(html, /data-creature-field="framing"/);
     assert.match(html, /data-creature-field="tiers"/);
     assert.match(html, /取景/);
     assert.match(html, /情绪档/);
-    const beast = renderCharacterCreatureFold('狐', dnaOf({ form: 'beast' }));
+    const beast = renderCharacterCreatureRows('狐', dnaOf({ form: 'beast' }));
     assert.doesNotMatch(beast, /data-creature-field="framing"/);
     assert.doesNotMatch(beast, /data-creature-field="tiers"/);
     assert.doesNotMatch(beast, /creatureAutoProfile/);

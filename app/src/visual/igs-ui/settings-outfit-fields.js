@@ -341,7 +341,9 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
 }
 
 // 规则页的衣柜提示词。focus 是从服装面板跳过来的那一条，高亮显示。
-export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTag, scopeMenu, focus = '', lead = '' } = {}) {
+// select 是多选时已勾的名字集合（null 为不在多选）：整张卡变成勾选按钮，不开菜单、不弹大图。
+export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTag, scopeMenu, focus = '', lead = '', select = null } = {}) {
+    const picking = select instanceof Set ? select : null;
     const tag = typeof scopeTag === 'function' ? scopeTag : () => '';
     const ownItem = typeof scopeMenu === 'function' ? scopeMenu : () => '';
     const linkedSprites = new Map();
@@ -353,10 +355,20 @@ export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTa
             if (sprite.ok) linkedSprites.set(linked.name, sprite.url);
         }
     }
-    const rows = Object.entries(plain(wardrobe)).filter(([name]) => !isBuiltinNudeOutfit(name)).map(([name, entry]) => {
+    const entries = Object.entries(plain(wardrobe)).filter(([name]) => !isBuiltinNudeOutfit(name));
+    const rows = entries.map(([name, entry]) => {
         const reference = entry && typeof entry.reference === 'string' ? entry.reference.trim() : '';
         const preview = reference || linkedSprites.get(name) || '';
         const encoded = encSeg(name);
+        if (picking) {
+            const on = picking.has(name);
+            const url = shownUrl(preview, resolveUrl);
+            const img = isImageUrl(url)
+                ? `<img loading="lazy" decoding="async" class="igs-outfit-thumb" src="${esc(url)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+                : '<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true"></span>';
+            return `<button type="button" class="igs-sprite-slot igs-wardrobe-item is-selectable${on ? ' is-picked' : ''}" data-action="asset-pick:wardrobe:${encoded}" aria-pressed="${on}">`
+                + `<span class="igs-btn-mgr-row igs-scene-mood-row">${img}<span class="igs-btn-mgr-label igs-wardrobe-name">${esc(name)}</span></span><span class="igs-asset-tile-check" aria-hidden="true"></span></button>`;
+        }
         const nsfwBoost = Boolean(entry && entry.nsfwBoost);
         const menu = renderRowMenu([
             menuItem(`wardrobe-prompt:${encoded}`, '提示词'),
@@ -379,7 +391,10 @@ export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTa
     const body = rows
         ? `<div class="igs-btn-mgr-list igs-wardrobe-list is-tall">${rows}</div>`
         : '<div class="igs-scene-empty">暂无衣柜提示词</div>';
-    return `<div class="igs-wardrobe-group">${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${body}</div>`;
+    const bar = picking ? `<div class="igs-asset-select-bar"><span>已选 ${picking.size} 项</span>`
+        + `<button type="button" class="igs-settings-action" data-action="asset-pick-all:wardrobe">${picking.size === entries.length ? '全不选' : '全选'}</button>`
+        + `<button type="button" class="igs-settings-action is-danger" data-action="asset-delete-picked:wardrobe"${picking.size ? '' : ' disabled'}>删除选中</button></div>` : '';
+    return `<div class="igs-wardrobe-group">${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${bar}${body}</div>`;
 }
 
 function field(attrs, charName, value, placeholder) {
@@ -604,6 +619,18 @@ img.igs-outfit-avatar{padding:0}
 button.igs-wardrobe-name{min-width:0;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}
 .igs-wardrobe-nsfw.is-on{color:var(--igs-settings-accent)}
 .igs-wardrobe-item.is-focus>.igs-btn-mgr-row{background:var(--igs-settings-highlight)}
+/* 多选：整张卡是勾选按钮，勾选圆点与素材缩略图同一套（igs-asset-tile-check）。 */
+.igs-wardrobe-item.is-selectable{position:relative;display:block;width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.igs-wardrobe-item.is-selectable .igs-outfit-thumb{transition:opacity .12s}
+.igs-wardrobe-item.is-selectable:not(.is-picked) .igs-outfit-thumb{opacity:.72}
+.igs-wardrobe-list.is-tall .igs-wardrobe-item.is-picked .igs-outfit-thumb{outline:2px solid var(--igs-settings-accent);outline-offset:-2px}
+.igs-wardrobe-item.is-picked .igs-asset-tile-check{background:var(--igs-settings-accent);border-color:var(--igs-settings-accent)}
+.igs-wardrobe-item.is-picked .igs-asset-tile-check::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border-right:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(45deg)}
+/* 标题行的「多选」与 ＋ 并排靠右，做成文字按钮。 */
+.igs-source-filter-title>.igs-asset-select-toggle{margin-left:auto;height:24px;padding:0 4px;background:transparent;color:var(--igs-settings-ink-3);font-weight:400}
+.igs-source-filter-title>.igs-asset-select-toggle:hover,.igs-source-filter-title>.igs-asset-select-toggle:focus-visible{background:transparent;color:var(--igs-settings-ink);outline:none}
+.igs-source-filter-title>.igs-asset-select-toggle.is-on{background:transparent;color:var(--igs-settings-accent)}
+.igs-source-filter-title>.igs-asset-select-toggle+.igs-title-add{margin-left:0}
 .igs-asset-scope-switch{display:inline-flex;flex-shrink:0;gap:2px;padding:2px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field)}
 .igs-scope-seg{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:0;border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink-4);font:inherit;font-size:11px;white-space:nowrap}
 button.igs-scope-seg{cursor:pointer}
