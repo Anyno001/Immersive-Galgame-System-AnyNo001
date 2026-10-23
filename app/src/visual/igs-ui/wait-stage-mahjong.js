@@ -4,6 +4,7 @@ import Majiang from '@kobalab/majiang-core';
 import AI from '@kobalab/majiang-ai';
 import { MAHJONG_STYLES, MindfulAI, STYLE_IDS, createPersonaStore, mindMood, pickLine, readSituation } from './wait-stage-mahjong-mind.js';
 import { createMahjongSound } from './wait-stage-mahjong-sound.js';
+import { createMahjongFelt } from './wait-stage-mahjong-felt.js';
 import { ORIGINAL_READER_ICONS as ICONS } from './reader-icons.js';
 
 const WIND = ['东', '南', '西', '北'];
@@ -77,18 +78,21 @@ const WAVE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="24"
 const WAVE = `url("data:image/svg+xml,${encodeURIComponent(WAVE_SVG)}")`;
 const GOLD_BUTTON = 'background:linear-gradient(180deg,#fbe39a 0%,#e9b84a 55%,#c98a22 100%);color:#3b2400;font-weight:800;box-shadow:0 0 0 1px rgba(255,248,220,.75),0 3px 0 #8d5b12,0 6px 14px rgba(0,0,0,.35);';
 
-export const MAHJONG_STYLE = `
+// 牌桌尺寸都写成 cqi，出样式时换成 --igs-mj-u：16:9 基准宽的百分之一。
+// 屏幕比 16:9 宽时牌桌横向铺满，牌区仍是 16:9 居中，头像、宝牌、工具栏贴边。
+const MAHJONG_STYLE_SOURCE = `
 @keyframes igs-mj-pop{0%{opacity:0;transform:scale(.92);}100%{opacity:1;transform:scale(1);}}
 @keyframes igs-mj-glow{0%,100%{opacity:.55;}50%{opacity:1;}}
 ${STAGE} .igs-ws-dots,${STAGE} .igs-ws-line{display:none;}
 ${STAGE} .igs-ws-board{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:100%;max-width:min(1100px,100%);padding:0;background:none;box-shadow:none;color:#f4efe4;}
 ${STAGE} .igs-ws-board[hidden]{display:none;}
 ${FULL}{padding:0;container:igs-mj-stage/size;}
-${FULL} .igs-ws-body{position:absolute;inset:8px;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:minmax(0,1fr) auto;align-items:center;gap:6px 12px;width:auto;height:auto;max-width:none;animation:none;}
-${FULL} .igs-ws-note{grid-column:1;grid-row:2;min-width:0;overflow:hidden;font-size:12px;line-height:1.5;letter-spacing:.06em;text-align:left;white-space:nowrap;text-overflow:ellipsis;animation:none;}
-${FULL} .igs-ws-actions{grid-column:2;grid-row:2;flex-wrap:nowrap;margin:0;}
-${FULL} .igs-ws-board{grid-column:1/-1;grid-row:1;align-self:stretch;justify-self:stretch;max-width:none;height:100%;min-height:0;container:igs-mj-board/size;animation:none;}
-${FULL} .igs-mj-table{width:min(100cqw,100cqh * 16 / 9);}
+${FULL} .igs-ws-body{position:absolute;inset:6px;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);width:auto;height:auto;max-width:none;animation:none;}
+${FULL} .igs-ws-note{position:absolute;left:50%;top:8px;z-index:20;box-sizing:border-box;max-width:34%;padding:4px 12px;overflow:hidden;border-radius:999px;background:rgba(8,12,34,.86);box-shadow:inset 0 0 0 1px rgba(234,200,124,.5);color:#fbf4e2;font-size:12px;line-height:1.5;letter-spacing:.04em;white-space:nowrap;text-overflow:ellipsis;transform:translateX(-82%);pointer-events:none;animation:none;}
+${FULL} .igs-ws-note:empty{display:none;}
+${FULL} .igs-ws-actions{display:none!important;}
+${FULL} .igs-ws-board{grid-column:1;grid-row:1;align-self:stretch;justify-self:stretch;max-width:none;height:100%;min-height:0;container:igs-mj-board/size;animation:none;}
+${FULL} .igs-mj-table{width:min(100cqw,100cqh * 2.4);height:min(100cqh,100cqw * 9 / 16);aspect-ratio:auto;}
 @container igs-mj-stage (orientation: portrait) and (max-width: 720px){
 ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);height:calc(100cqw - 16px);transform:translate(-50%,-50%) rotate(90deg);}
 }
@@ -96,45 +100,14 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-table{--tw:2.5cqi;--igs-mj-back:#e2546d;--igs-mj-back-deep:#b3304b;--igs-mj-serif:"Hiragino Mincho ProN","Yu Mincho","Songti SC","STSong","Noto Serif CJK SC","Source Han Serif SC","Noto Serif SC",serif;position:relative;box-sizing:border-box;flex:none;width:100%;aspect-ratio:16/9;border-radius:14px;overflow:hidden;container-type:inline-size;color:#f4efe4;background:radial-gradient(ellipse 46% 40% at 50% 47%,rgba(130,160,255,.2),transparent 72%),radial-gradient(circle at 9% 3%,rgba(196,146,255,.36),transparent 30%),radial-gradient(circle at 93% 5%,rgba(196,146,255,.26),transparent 27%),radial-gradient(circle at 78% 98%,rgba(120,90,220,.24),transparent 34%),${WAVE},linear-gradient(180deg,#2b3b7a 0%,#1e2b60 42%,#141c45 100%);background-size:auto,auto,auto,auto,44px 22px,auto;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),inset 0 0 70px rgba(4,6,20,.55),0 18px 40px rgba(0,0,0,.4);}
 .igs-mj-scene{position:absolute;inset:0;}
 .igs-mj-crowd{pointer-events:none;}
-.igs-mj-felt{--cy:24.6cqi;--pq:15.5cqi;--ty:-1.4cqi;--sx:13cqi;position:absolute;inset:0;transform-origin:50% 44%;transform:perspective(90cqi) rotateX(24deg);pointer-events:none;}
-.igs-mj-mat{position:absolute;left:9cqi;right:9cqi;top:-5cqi;bottom:1.5cqi;box-sizing:border-box;border:1px solid rgba(214,226,255,.24);border-radius:1.6cqi;background:radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.05),transparent 70%);box-shadow:inset 0 0 0 .7cqi rgba(255,255,255,.025);}
-.igs-mj-mat-lines{position:absolute;inset:0;width:100%;height:100%;stroke:rgba(214,226,255,.17);stroke-width:1;}
-.igs-mj-plaque{position:absolute;left:calc(50% - var(--pq) / 2);top:calc(var(--cy) - var(--pq) / 2);width:var(--pq);height:var(--pq);border-radius:1.6cqi;background:linear-gradient(150deg,#363d50 0%,#191d28 42%,#0d1017 100%);box-shadow:0 0 0 .22cqi #4a5368,0 0 0 .5cqi #0a0c12,0 1.4cqi 2.4cqi rgba(0,0,0,.55),inset 0 .2cqi .3cqi rgba(255,255,255,.14);}
-.igs-mj-core{position:absolute;inset:29%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3cqi;border-radius:.9cqi;background:radial-gradient(ellipse at 50% 30%,#123a44,#081a21 75%);box-shadow:inset 0 0 0 .14cqi rgba(80,210,220,.55),inset 0 0 1.2cqi rgba(70,200,215,.35);}
-.igs-mj-core-round{color:#9ff7f2;font-size:1.75cqi;font-weight:800;letter-spacing:.08em;line-height:1;text-shadow:0 0 .6cqi rgba(110,240,235,.7);white-space:nowrap;}
-.igs-mj-core-left{color:#d8f7f4;font-size:1.3cqi;line-height:1;letter-spacing:.06em;white-space:nowrap;}
-.igs-mj-side{position:absolute;left:0;top:calc(50% - 1.7cqi);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:.25cqi;box-sizing:border-box;width:100%;height:3.4cqi;padding-bottom:.55cqi;transform:rotate(var(--rot,0deg)) translateY(calc(var(--pq) / 2 - 1.7cqi));}
-.igs-mj-side.is-right{--rot:-90deg;}
-.igs-mj-side.is-top{--rot:180deg;}
-.igs-mj-side.is-left{--rot:90deg;}
-.igs-mj-side-score{color:#f4f1e8;font:700 1.6cqi/1 "DIN Alternate","Bahnschrift","Roboto Condensed",sans-serif;letter-spacing:.1em;}
-.igs-mj-side.is-turn .igs-mj-side-score{color:#ffe187;text-shadow:0 0 .7cqi rgba(255,210,80,.75);}
-.igs-mj-side-wind{position:absolute;left:.45cqi;bottom:.45cqi;display:flex;align-items:center;justify-content:center;width:2cqi;height:2cqi;border-radius:.45cqi;background:#2a3142;box-shadow:inset 0 0 0 .1cqi rgba(255,255,255,.18);color:#e9e4d6;font-size:1.2cqi;font-weight:800;line-height:1;}
-.igs-mj-side.is-dealer .igs-mj-side-wind{background:linear-gradient(160deg,#ff6a6a,#c21d38);color:#fff;}
-.igs-mj-side-bar{position:absolute;left:27%;right:27%;bottom:.12cqi;height:.3cqi;border-radius:.3cqi;}
-.igs-mj-side.is-turn .igs-mj-side-bar{background:#ffd54f;box-shadow:0 0 .8cqi .1cqi rgba(255,200,60,.9);animation:igs-mj-glow 1.4s ease-in-out infinite;}
-.igs-mj-stick{position:relative;display:block;width:6cqi;height:.55cqi;border-radius:.3cqi;background:linear-gradient(180deg,#ffffff,#e4dccb);box-shadow:0 .1cqi .2cqi rgba(0,0,0,.45);}
-.igs-mj-stick::after{content:"";position:absolute;left:50%;top:50%;width:.42cqi;height:.42cqi;border-radius:50%;background:#d8202f;transform:translate(-50%,-50%);}
-.igs-mj-pond{--tw:2.85cqi;position:absolute;left:50%;top:var(--cy);width:0;height:0;}
-.igs-mj-pond.is-right{--dx:-1;--dy:0;transform:rotate(-90deg);}
-.igs-mj-pond.is-top{--dx:0;--dy:-1;transform:rotate(180deg);}
-.igs-mj-pond.is-left{--dx:1;--dy:0;transform:rotate(90deg);}
-.igs-mj-river{position:absolute;left:calc(var(--tw) * -3);top:calc(var(--pq) / 2 + .8cqi);display:flex;flex-direction:column;gap:.5cqi;}
-.igs-mj-river-row{display:flex;align-items:center;gap:.08cqi;}
-.igs-mj-pond.is-right .igs-mj-river-row{flex-direction:row-reverse;justify-content:flex-end;}
-.igs-mj-pond.is-top .igs-mj-river{flex-direction:column-reverse;}
+.igs-mj-felt{position:absolute;inset:0;display:block;width:100%;height:100%;pointer-events:none;}
 .igs-mj-rail{position:absolute;display:flex;align-items:flex-end;gap:1.2cqi;}
-.igs-mj-rail.is-top{--dx:0;--dy:-1;left:50%;top:var(--ty);transform:translate(-50%,-50%) rotate(180deg);}
-.igs-mj-rail.is-left{--dx:1;--dy:0;left:var(--sx);top:var(--cy);transform:translate(-50%,-50%) rotate(90deg);}
-.igs-mj-rail.is-right{--dx:-1;--dy:0;left:calc(100% - var(--sx));top:var(--cy);transform:translate(-50%,-50%) rotate(-90deg);}
-.igs-mj-rail .igs-mj-pai{--tw:2.35cqi;}
-.igs-mj-rail.is-self{--dx:0;--dy:1;left:11.6cqi;right:2.4cqi;bottom:1.8cqi;z-index:4;justify-content:space-between;transform:none;}
+.igs-mj-rail.is-self{--dx:0;--dy:1;left:calc(50% - 38.4cqi);right:calc(50% - 47.6cqi);bottom:1.8cqi;z-index:4;justify-content:space-between;transform:none;}
 .igs-mj-rail.is-self .igs-mj-hand .igs-mj-pai{--tw:4.75cqi;--th:calc(var(--tw) * 1.4);--tz:calc(var(--tw) * .09);}
 .igs-mj-rail.is-self .igs-mj-meld .igs-mj-pai{--tw:3cqi;}
 .igs-mj-hand{display:flex;align-items:flex-end;gap:.08cqi;}
 .igs-mj-melds{display:flex;align-items:flex-end;gap:.8cqi;}
 .igs-mj-meld{display:flex;align-items:flex-end;gap:.04cqi;}
-.igs-mj-rail.is-right .igs-mj-hand,.igs-mj-rail.is-right .igs-mj-melds,.igs-mj-rail.is-right .igs-mj-meld{flex-direction:row-reverse;justify-content:flex-end;}
 .igs-mj-pai{--th:calc(var(--tw) * 4 / 3);--tz:calc(var(--tw) * .11);position:relative;box-sizing:border-box;display:inline-block;flex:none;width:var(--tw);height:var(--th);margin:0;padding:0;border:0;border-radius:calc(var(--tw) * .13);background:linear-gradient(165deg,#ffffff 0%,#fbf7ee 52%,#ece3d1 100%);color:inherit;font:inherit;line-height:0;vertical-align:bottom;box-shadow:inset 0 0 0 max(1px,calc(var(--tw) * .03)) rgba(150,128,96,.3),calc(var(--dx,0) * var(--tz)) calc(var(--dy,1) * var(--tz)) 0 #e3d7bf,calc(var(--dx,0) * var(--tz) * 2.1) calc(var(--dy,1) * var(--tz) * 2.1) 0 var(--igs-mj-back),calc(var(--dx,0) * var(--tz) * 2.6) calc(var(--dy,1) * var(--tz) * 2.6) calc(var(--tz) * 2.2) rgba(0,0,0,.4);}
 .igs-mj-pai.is-back{background:linear-gradient(165deg,#f57e93 0%,var(--igs-mj-back) 46%,var(--igs-mj-back-deep) 100%);box-shadow:inset 0 0 0 max(1px,calc(var(--tw) * .03)) rgba(110,16,36,.4),calc(var(--dx,0) * var(--tz)) calc(var(--dy,1) * var(--tz)) 0 var(--igs-mj-back-deep),calc(var(--dx,0) * var(--tz) * 2.1) calc(var(--dy,1) * var(--tz) * 2.1) 0 #f1e8d4,calc(var(--dx,0) * var(--tz) * 2.6) calc(var(--dy,1) * var(--tz) * 2.6) calc(var(--tz) * 2.2) rgba(0,0,0,.4);}
 .igs-mj-pai.is-side{width:var(--th);height:var(--tw);}
@@ -144,28 +117,29 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-pai.is-fresh::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 0 0 .18cqi #ffd65a,0 0 1cqi .2cqi rgba(255,214,90,.75);animation:igs-mj-glow 1.2s ease-in-out infinite;pointer-events:none;}
 .igs-mj-pai.is-zimo{margin-left:1.4cqi;}
 .igs-mj-pai.is-hot{cursor:pointer;transition:transform .12s ease,filter .12s ease;}
-.igs-mj-pai.is-hot:hover,.igs-mj-pai.is-hot:focus-visible{outline:none;transform:translateY(-1.2cqi);}
+.igs-mj-pai.is-hot:focus-visible{outline:none;transform:translateY(-1.2cqi);}
+@media (hover:hover){.igs-mj-pai.is-hot:hover{transform:translateY(-1.2cqi);}}
 .igs-mj-hand.is-live .igs-mj-pai:not(.is-hot){filter:brightness(.6) saturate(.7);}
 .igs-mj-pai:disabled{cursor:default;}
 .igs-mj-label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);border:0;}
 .igs-mj-head{position:absolute;z-index:3;display:flex;flex-direction:column;align-items:center;gap:.6cqi;pointer-events:none;}
-.igs-mj-head.is-top{left:66cqi;top:1.3cqi;flex-direction:row;gap:1cqi;}
+.igs-mj-head.is-top{left:calc(50% + 16cqi);top:1.3cqi;flex-direction:row;gap:1cqi;}
 .igs-mj-head.is-left{left:1.2cqi;top:14cqi;}
 .igs-mj-head.is-right{right:1.2cqi;top:14cqi;}
-.igs-mj-head.is-self{left:1.6cqi;bottom:1.4cqi;}
+.igs-mj-head.is-self{left:calc(50% - 48.4cqi);bottom:1.4cqi;}
 .igs-mj-avatar{position:relative;box-sizing:border-box;width:8.8cqi;height:11cqi;padding:.24cqi;border-radius:1.2cqi;background:linear-gradient(160deg,#fff4cf 0%,#d9b467 46%,#8a6326 100%);box-shadow:0 .5cqi 1.2cqi rgba(0,0,0,.45);transition:box-shadow .2s ease;}
 .igs-mj-head.is-turn .igs-mj-avatar{box-shadow:0 0 0 .26cqi #ffd65a,0 0 1.8cqi .5cqi rgba(255,214,90,.65);}
 .igs-mj-face{position:relative;display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%;height:100%;overflow:hidden;border-radius:1cqi;background:linear-gradient(160deg,#6274c0,#2b3672);color:#fff;font-size:2.8cqi;font-weight:700;line-height:1;}
 .igs-mj-crop{position:absolute;display:block;max-width:none;height:auto;opacity:0;transition:opacity .28s ease;pointer-events:none;}
 .igs-mj-crop.is-ready{opacity:1;}
-.igs-mj-crop.is-ready.is-leaving{opacity:0;}
+.igs-mj-crop.is-swap{transition:none;}
 .igs-mj-wind{position:absolute;right:-.8cqi;bottom:-.8cqi;display:flex;align-items:center;justify-content:center;width:2.4cqi;height:2.4cqi;border-radius:50%;background:#1b2142;box-shadow:0 0 0 .18cqi #ead39a;color:#f3e8cc;font-size:1.3cqi;font-weight:800;line-height:1;}
 .igs-mj-wind.is-dealer{background:linear-gradient(160deg,#ff6b6b,#c21d38);color:#fff;}
 .igs-mj-name{max-width:12cqi;padding:.35cqi 1.1cqi;overflow:hidden;border-radius:.7cqi;background:rgba(8,12,34,.74);box-shadow:inset 0 0 0 1px rgba(234,211,154,.38);color:#fbf4e2;font-size:max(10px,1.3cqi);font-weight:700;line-height:1.3;white-space:nowrap;text-overflow:ellipsis;}
-.igs-mj-say{position:absolute;top:calc(100% + 1cqi);left:0;width:max-content;max-width:24cqi;box-sizing:border-box;padding:.7cqi 1.2cqi;border-radius:1cqi;background:rgba(255,250,236,.96);box-shadow:0 .5cqi 1.2cqi rgba(0,0,0,.4);color:#2a2238;font-size:max(11px,1.45cqi);font-weight:700;line-height:1.45;text-align:left;opacity:0;visibility:hidden;transform:translateY(-.5cqi) scale(.96);transform-origin:top left;transition:opacity .18s ease,transform .18s ease,visibility 0s linear .18s;}
+.igs-mj-say{position:absolute;top:calc(100% + 1cqi);left:0;width:max-content;max-width:24cqi;box-sizing:border-box;padding:.7cqi 1.2cqi;border-radius:1cqi;background:rgba(255,250,236,.96);box-shadow:0 .5cqi 1.2cqi rgba(0,0,0,.4);color:#2a2238;font-size:max(11px,1.45cqi);font-weight:700;line-height:1.45;text-align:left;visibility:hidden;}
 .igs-mj-say::before{content:"";position:absolute;top:-.9cqi;left:2.4cqi;border:.5cqi solid transparent;border-bottom:.5cqi solid rgba(255,250,236,.96);}
-.igs-mj-say.is-on{opacity:1;visibility:visible;transform:none;transition:opacity .18s ease,transform .18s ease;}
-.igs-mj-head.is-right .igs-mj-say,.igs-mj-head.is-top .igs-mj-say{left:auto;right:0;transform-origin:top right;}
+.igs-mj-say.is-on{visibility:visible;}
+.igs-mj-head.is-right .igs-mj-say,.igs-mj-head.is-top .igs-mj-say{left:auto;right:0;}
 .igs-mj-head.is-right .igs-mj-say::before,.igs-mj-head.is-top .igs-mj-say::before{left:auto;right:2.4cqi;}
 .igs-mj-head.is-self .igs-mj-say{display:none;}
 .igs-mj-dora{position:absolute;left:1.6cqi;top:1.6cqi;z-index:3;display:flex;flex-direction:column;gap:.6cqi;padding:.9cqi 1.1cqi .8cqi;border-radius:1.1cqi;background:linear-gradient(180deg,rgba(20,24,52,.9),rgba(10,12,30,.9));box-shadow:0 0 0 .14cqi rgba(234,200,124,.6),0 .6cqi 1.4cqi rgba(0,0,0,.4);}
@@ -177,13 +151,10 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-chip.is-1000::after{content:"";position:absolute;left:50%;top:50%;width:.4cqi;height:.4cqi;border-radius:50%;background:#d8202f;transform:translate(-50%,-50%);}
 .igs-mj-chip.is-100{background:radial-gradient(circle,#222 0 36%,transparent 40%) 0 50%/.75cqi .6cqi repeat-x,linear-gradient(180deg,#fff,#ddd3c0);}
 .igs-mj-dora-title{color:#ecc97c;font-size:max(10px,1.15cqi);letter-spacing:.14em;line-height:1;white-space:nowrap;}
-.igs-mj-tools{position:absolute;right:1.6cqi;top:1.6cqi;z-index:7;display:flex;gap:.8cqi;}
-.igs-mj-tools .igs-mj-tool{box-sizing:border-box;height:3.6cqi;min-height:24px;padding:0 1.5cqi;border:0;border-radius:.9cqi;background:rgba(14,18,42,.8);box-shadow:inset 0 0 0 1px rgba(170,195,255,.35),0 .4cqi 1cqi rgba(0,0,0,.35);color:#e1e8ff;font:inherit;font-size:max(11px,1.3cqi);letter-spacing:.08em;line-height:1;opacity:1;cursor:pointer;transition:background .15s ease;}
-.igs-mj-tools .igs-mj-tool:hover{background:rgba(40,52,104,.9);}
-.igs-mj-tools .igs-mj-end{color:#ffc9c9;box-shadow:inset 0 0 0 1px rgba(255,150,150,.4),0 .4cqi 1cqi rgba(0,0,0,.35);}
-.igs-mj-actions{position:absolute;right:3cqi;bottom:12.6cqi;z-index:6;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:1.1cqi;max-width:80cqi;pointer-events:none;}
-.igs-mj-act{display:inline-flex;align-items:center;justify-content:center;gap:.8cqi;box-sizing:border-box;height:5.4cqi;min-height:32px;padding:0 2.4cqi;border:0;border-radius:2.7cqi;background:linear-gradient(180deg,#7fd6ff 0%,#2a8be6 55%,#1b5fc4 100%);box-shadow:0 0 0 .22cqi rgba(255,255,255,.9),0 .45cqi 0 rgba(10,20,60,.45),0 .9cqi 1.8cqi rgba(0,0,0,.35);color:#fff;font:900 max(14px,2.2cqi)/1 var(--igs-mj-serif);letter-spacing:.14em;text-shadow:0 .15cqi .3cqi rgba(0,0,0,.45);cursor:pointer;pointer-events:auto;animation:igs-mj-pop .18s ease-out both;transition:transform .12s ease,filter .12s ease;}
-.igs-mj-act:hover{filter:brightness(1.08);transform:translateY(-.3cqi);}
+.igs-mj-tools{position:absolute;right:1.2cqi;top:1.2cqi;z-index:7;}
+.igs-mj-actions{position:absolute;right:calc(50% - 47cqi);bottom:12.6cqi;z-index:6;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:1.1cqi;max-width:80cqi;pointer-events:none;}
+.igs-mj-act{display:inline-flex;align-items:center;justify-content:center;gap:.8cqi;box-sizing:border-box;height:5.4cqi;min-height:32px;padding:0 2.4cqi;border:0;border-radius:2.7cqi;background:linear-gradient(180deg,#7fd6ff 0%,#2a8be6 55%,#1b5fc4 100%);box-shadow:0 0 0 .22cqi rgba(255,255,255,.9),0 .45cqi 0 rgba(10,20,60,.45),0 .9cqi 1.8cqi rgba(0,0,0,.35);color:#fff;font:900 max(14px,2.2cqi)/1 var(--igs-mj-serif);letter-spacing:.14em;text-shadow:0 .15cqi .3cqi rgba(0,0,0,.45);cursor:pointer;pointer-events:auto;}
+@media (hover:hover){.igs-mj-act:hover{filter:brightness(1.08);transform:translateY(-.3cqi);transition:transform .12s ease,filter .12s ease;}}
 .igs-mj-act.is-win{background:linear-gradient(180deg,#ffb36b 0%,#ff5a4f 50%,#d81e4f 100%);}
 .igs-mj-act.is-riichi{background:linear-gradient(180deg,#ffe27a 0%,#ffae2b 55%,#e8780f 100%);}
 .igs-mj-act.is-riichi.is-on{box-shadow:0 0 0 .22cqi #fff,0 0 1.6cqi .5cqi rgba(255,200,70,.85),0 .45cqi 0 rgba(10,20,60,.45);}
@@ -227,7 +198,7 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-card-text{color:#e9e2cf;font-size:max(12px,1.6cqi);line-height:1.6;}
 .igs-mj-card-foot{display:flex;justify-content:center;gap:1cqi;margin-top:.4cqi;}
 .igs-mj-card-foot .igs-ws-chip{height:max(30px,4.4cqi);padding:0 3.2cqi;border-radius:999px;font-size:max(12px,1.5cqi);letter-spacing:.16em;${GOLD_BUTTON}}
-.igs-mj.igs-mj-picker{--igs-mj-card-h:clamp(88px,28cqh,128px);--igs-mj-seat:clamp(44px,14cqh,80px);flex-direction:column;justify-content:flex-start;align-items:stretch;gap:clamp(6px,2.2cqh,14px);box-sizing:border-box;width:min(720px,100%);height:auto;max-height:100%;overflow:hidden;padding:clamp(10px,3cqh,20px) clamp(12px,2.4cqw,22px);border-radius:14px;background:radial-gradient(circle at 12% 0%,rgba(196,146,255,.28),transparent 42%),${WAVE},linear-gradient(180deg,#26346e,#141c45);background-size:auto,44px 22px,auto;box-shadow:inset 0 0 0 1px rgba(234,200,124,.4),0 18px 40px rgba(0,0,0,.4);color:#f4efe4;}
+.igs-mj.igs-mj-picker{--igs-mj-card-h:clamp(88px,28cqh,128px);--igs-mj-seat:clamp(44px,14cqh,80px);flex-direction:column;justify-content:flex-start;align-items:stretch;gap:clamp(6px,2.2cqh,14px);box-sizing:border-box;width:min(1100px,100%);height:auto;max-height:100%;overflow:hidden;padding:clamp(10px,3cqh,20px) clamp(12px,2.4cqw,22px);border-radius:14px;background:radial-gradient(circle at 12% 0%,rgba(196,146,255,.28),transparent 42%),${WAVE},linear-gradient(180deg,#26346e,#141c45);background-size:auto,44px 22px,auto;box-shadow:inset 0 0 0 1px rgba(234,200,124,.4),0 18px 40px rgba(0,0,0,.4);color:#f4efe4;}
 .igs-mj-picker>*{flex-shrink:0;}
 .igs-mj-picker .igs-ws-board-head{display:flex;align-items:center;gap:12px;color:#f0cf86;font-size:15px;font-weight:700;letter-spacing:.2em;}
 .igs-mj-picker .igs-ws-status{flex:1;min-width:0;min-height:0;margin:0;overflow:hidden;color:#aeb8e0;font-size:12px;font-weight:400;letter-spacing:.04em;white-space:nowrap;text-overflow:ellipsis;}
@@ -287,7 +258,13 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-penalty-status.is-error{color:#ff9a9a;}
 .igs-mj-cgview{position:absolute;inset:0;z-index:14;overflow:hidden;border-radius:inherit;background:#05060f;animation:igs-mj-pop .25s ease-out both;}
 .igs-mj-cgview>img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;}
-.igs-mj-cgbar{position:absolute;top:8px;right:8px;display:flex;align-items:center;padding:2px 3px;border-radius:10px;background:rgba(18,18,20,.32);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:#fff;}
+.igs-mj-cgbar{position:absolute;top:8px;right:8px;}
+.igs-mj-cgbar,.igs-mj-bar{display:flex;align-items:center;padding:2px 3px;border-radius:10px;background:rgba(18,18,20,.32);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:#fff;}
+.igs-mj-bar{flex:none;background:rgba(8,10,26,.72);-webkit-backdrop-filter:none;backdrop-filter:none;}
+.igs-mj-bar-group{display:flex;align-items:center;}
+.igs-mj-bar-group[hidden],.igs-mj-icon[hidden]{display:none;}
+.igs-mj-bar-group+.igs-mj-bar-group::before{content:"";flex:none;width:1px;height:14px;margin:0 3px;background:currentColor;opacity:.2;}
+.igs-mj-icon.is-next{width:auto;gap:2px;padding:0 8px 0 4px;color:#ffe08a;opacity:1;font:inherit;font-size:12px;font-weight:700;letter-spacing:.06em;animation:igs-mj-glow 1.6s ease-in-out infinite;}
 .igs-mj-icon{display:inline-flex;flex:none;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:transparent;color:inherit;opacity:.6;cursor:pointer;transition:opacity .15s;}
 .igs-mj-icon:hover,.igs-mj-icon:focus-visible{opacity:.95;outline:none;}
 .igs-mj-icon[aria-pressed="true"]{opacity:.95;}
@@ -314,9 +291,13 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-album-cap{padding:4px 6px;overflow:hidden;font-size:11px;white-space:nowrap;text-overflow:ellipsis;}
 .igs-mj-album-tag{position:absolute;right:4px;top:4px;padding:1px 5px;border-radius:4px;background:#c42c55;color:#fff;font-size:10px;}
 @media (prefers-reduced-motion: reduce){
-.igs-mj-act,.igs-mj-card,.igs-mj-pai.is-fresh::after,.igs-mj-side.is-turn .igs-mj-side-bar{animation:none!important;}
+.igs-mj-card,.igs-mj-pai.is-fresh::after,.igs-mj-icon.is-next{animation:none!important;}
 }
 `;
+
+// 嵌在阅读器加载位时牌桌就是 16:9，1cqi 即基准；铺满整层时在子元素上解析，cqi 量的是牌桌宽、cqh 量的是外面的 board。
+export const MAHJONG_STYLE = MAHJONG_STYLE_SOURCE.replace(/(-?\d*\.?\d+)cqi\b/g, 'calc($1 * var(--igs-mj-u))')
+    + `.igs-mj-table{--igs-mj-u:1cqi;}${FULL} .igs-mj-table{--igs-mj-u:min(1cqi,1cqh * 16 / 9);}`;
 
 export function mahjongRule(extra = {}) {
     return Majiang.rule(Object.assign({
@@ -393,7 +374,8 @@ export function collectCall(player, data, robbed) {
         replies.push({ label: robbed ? '抢杠' : '荣和', reply: { hule: '-' } });
     }
     if (!robbed) {
-        for (const m of listOf(player.get_gang_mianzi(player.shoupai, tile))) replies.push(meldReply('杠', m, { gang: m }));
+        // 别家打的牌只认 fulou：大明杠也是副露，gang 只在自己摸牌后（暗杠 / 加杠）才认，发错会被当成跳过。
+        for (const m of listOf(player.get_gang_mianzi(player.shoupai, tile))) replies.push(meldReply('杠', m, { fulou: m }));
         for (const m of listOf(player.get_peng_mianzi(player.shoupai, tile))) replies.push(meldReply('碰', m, { fulou: m }));
         for (const m of listOf(player.get_chi_mianzi(player.shoupai, tile))) replies.push(meldReply('吃', m, { fulou: m }));
     }
@@ -708,8 +690,8 @@ function rememberPenaltyCg(storage, entry) {
 }
 
 // 惩罚图的画面要求：被罚的是角色就以她为主体；被罚的是玩家就由第一名来罚，画面以第一名为主体。
-// 画面按主体当前穿的那套衣装（outfits：名字 → 衣装名，这一场裸体的写「裸体」）；
-// 成人向惩罚时被罚角色按裸体衣装出镜，和下一局换上的裸体立绘一致。
+// 画面按主体当前穿的那套衣装（outfits：名字 → 衣装名，这一场已经换了裸体的写「裸体」）。
+// nsfw 是「成人向」开关，只管把被罚角色记进 strip、下一局换裸体立绘，和这张图怎么画无关。
 // 玩家被罚时 request 可以不写，由第一名按自己的性格想怎么罚；写了就当作补充要求。
 // 受罚的人：分数最低的并列都算；busted 时分数为负（被飞）的也都算；losing 时最低分必须是负的（这一局真丢了分）。
 // 四家同分就没人受罚。rows 为 [{ id, score }]：终局传总分，每局传这一局的得失。
@@ -744,14 +726,12 @@ export function penaltyBrief({ targets, target, punisher, request, nsfw = false,
     const how = self
         ? `怎么罚由${punisher}按她的性格自己决定，画出她正在惩罚${others.length ? '大家' : '主角'}的那一刻。${extra ? `\n玩家补充：${extra}` : ''}`
         : `惩罚内容：${extra}`;
-    const rating = nsfw ? (self && !others.length ? '成人向画面。' : '成人向画面，按惩罚内容如实描绘。') : '全年龄画面：不出现裸露和性暗示。';
     const label = self ? `${punisher}罚你${others.length ? `和${names}` : ''}` : names;
     return {
         characters: subjects,
         outfits: worn,
-        nude: nsfw ? others : [],
-        nsfw: Boolean(nsfw),
-        description: `${scene}，${who}\n${how}\n${rating}`,
+        strip: nsfw ? others : [],
+        description: `${scene}，${who}\n${how}`,
         caption: `麻将惩罚 · ${label} · ${extra || `由${punisher}决定`}`.slice(0, 60),
     };
 }
@@ -898,22 +878,27 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     const root = el(doc, 'div', 'igs-mj');
     const table = el(doc, 'div', 'igs-mj-table');
     const scene = el(doc, 'div', 'igs-mj-scene');
+    const felt = createMahjongFelt(doc, { faceSvg: (code) => tileSvg(doc, code) });
+    const sceneTop = el(doc, 'div', 'igs-mj-scene');
     const actions = el(doc, 'div', 'igs-mj-actions');
-    const tools = el(doc, 'div', 'igs-mj-tools');
-    const end = button(doc, 'igs-mj-tool igs-mj-end', '结束这局');
-    const close = button(doc, 'igs-mj-tool igs-ws-close', '收起');
-    close.title = '收起牌桌，这一局留着';
+    // 同一次询问不重画按钮：别家动作、换图引起的重绘不碰按钮区。
+    let shownOffer = null;
+    let shownRiichi = false;
+    const end = iconTool(doc, ICONS.stop, '结束这局（进度不留）');
+    end.className += ' igs-mj-end';
+    const close = iconTool(doc, BAR_ICONS.fold, '收起牌桌，这一局留着');
+    close.className += ' igs-ws-close';
     const sound = createMahjongSound({ audio: ctx.audio, storage: bucket(ctx) });
-    const soundToggle = button(doc, 'igs-mj-tool igs-mj-sound');
+    const soundToggle = iconTool(doc, '', '', () => { sound.setEnabled(!sound.enabled); syncSound(); });
+    soundToggle.className += ' igs-mj-sound';
     const syncSound = () => {
-        soundToggle.textContent = sound.enabled ? '音效 开' : '音效 关';
+        soundToggle.innerHTML = sound.enabled ? ICONS.replay : BAR_ICONS.muted;
+        labelTool(soundToggle, sound.enabled ? '音效：开' : '音效：关');
         soundToggle.setAttribute('aria-pressed', String(sound.enabled));
     };
-    soundToggle.addEventListener('click', () => { sound.setEnabled(!sound.enabled); syncSound(); });
     syncSound();
-    tools.appendChild(soundToggle);
-    tools.appendChild(end);
-    tools.appendChild(close);
+    const leave = hostTools(doc);
+    const tools = toolBar(doc, 'igs-mj-tools', [[soundToggle], [end, close], leave.group]);
     const banner = el(doc, 'div', 'igs-mj-banner');
     banner.hidden = true;
     const crowd = el(doc, 'div', 'igs-mj-scene igs-mj-crowd');
@@ -925,7 +910,8 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     root.appendChild(table);
     board.appendChild(root);
     let host = ctx;
-    host.setNote(revived ? '接着上次的牌局。' : '东风战。轮到你时点牌打出，吃碰杠和立直会另给按钮。');
+    host.setNote('');
+    leave.bind(host);
     const names = cast.map((item) => item.name);
     const feed = revived && revived.feed ? revived.feed.slice() : [];
     const match = {
@@ -943,7 +929,8 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
             nextBoard.appendChild(root);
             match.parked = false;
             watchModel(next, true);
-            host.setNote(match.finished ? '这一场已经打完。' : '接着上次的牌局。点「结束这局」才会丢掉进度。');
+            host.setNote('');
+            leave.bind(host);
             armWatch();
             paint();
         },
@@ -1110,8 +1097,8 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         const flash = flashes.get(id);
         if (flash && flash.until > Date.now()) return flash.mood;
         const ai = game._players[id];
-        const felt = ai && ai.mind ? mindMood(ai.mind) : '';
-        return felt || standingMood(seat);
+        const inner = ai && ai.mind ? mindMood(ai.mind) : '';
+        return inner || standingMood(seat);
     }
 
     // 对手的台词：头像下冒气泡，同一时间只让一个人说，同一手同一种话只说一次。
@@ -1173,10 +1160,10 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
             const id = playerId(board, seat);
             const ai = id ? game._players[id] : null;
             if (!ai || !ai.mind) continue;
-            const felt = mindMood(ai.mind);
+            const inner = mindMood(ai.mind);
             const where = readSituation(board, seat);
-            if (felt === '愤怒') options.push([seat, 'tilt']);
-            else if (felt === '紧张') options.push([seat, 'shrink']);
+            if (inner === '愤怒') options.push([seat, 'tilt']);
+            else if (inner === '紧张') options.push([seat, 'shrink']);
             else if (where.allLast && where.rank === 1 && where.gapDown >= 8000) options.push([seat, 'lead']);
             else if (where.allLast && where.rank === 4) options.push([seat, 'behind']);
         }
@@ -1266,6 +1253,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         const ended = match.finished;
         match.generation = -1;
         match.finished = true;
+        felt.destroy();
         offPersonas();
         offModel();
         clearInterval(session.watch);
@@ -1478,24 +1466,25 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         // 出图尺寸按牌桌的宽高比算，成图铺满牌桌。画成就记进相册，成人向里被罚的角色记下来下一场换裸体。
         const paintOnce = async (brief) => {
             let result;
+            const { strip, ...request } = brief;
             try {
-                result = await api.paint({ ...brief, aspect: { width: table.clientWidth, height: table.clientHeight } });
+                result = await api.paint({ ...request, aspect: { width: table.clientWidth, height: table.clientHeight } });
             } catch (error) {
                 result = { ok: false, error: (error && error.message) || String(error) };
             }
             if (!result || !result.ok || !result.url) return { ok: false, error: (result && result.error) || '图像来源没有交回图片' };
             if (result.id) {
-                rememberPenaltyCg(bucket(host), { id: result.id, caption: brief.caption, nsfw: brief.nsfw, at: Date.now(),
+                rememberPenaltyCg(bucket(host), { id: result.id, caption: brief.caption, at: Date.now(),
                     prompt: keptPrompt(result) });
             }
-            if (brief.nude.length) {
-                for (const name of brief.nude) stripped.add(name);
+            if (strip.length) {
+                for (const name of strip) stripped.add(name);
                 if (match.finished) saveRematch();
             }
             return result;
         };
         const noteFor = (result, brief) => [result.id ? '已存进 CG 库。' : 'CG 库没有接上，这张只在这里看得到。',
-            brief.nude.length ? `再来一局时${brief.nude.join('、')}换裸体立绘。` : ''].join('');
+            brief.strip.length ? `再来一局时${brief.strip.join('、')}换裸体立绘。` : ''].join('');
         go.addEventListener('click', async () => {
             const request = input.value.trim();
             if (!ready() || busy) return;
@@ -1638,6 +1627,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         addPenalty(card, 'final', order.map((id) => ({ id, score: paipu.defen[id] || 0 })));
         const leave = (next) => {
             match.generation = -1;
+            felt.destroy();
             if (liveMatch === match) forgetMahjongTable();
             next();
         };
@@ -1677,30 +1667,42 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         if (!alive()) return;
         const model = human.model;
         const self = Number.isInteger(human._menfeng) ? human._menfeng : 0;
-        scene.innerHTML = '';
-        actions.innerHTML = '';
-        const felt = el(doc, 'div', 'igs-mj-felt');
-        felt.appendChild(matNode(doc));
-        for (const rel of [2, 3, 1]) felt.appendChild(railNode(model, (self + rel) % 4, PLACE[rel]));
-        for (const rel of [0, 1, 2, 3]) {
-            const pond = pondNode(model, (self + rel) % 4, PLACE[rel]);
-            if (pond) felt.appendChild(pond);
+        if (felt.node.parentNode !== scene) {
+            scene.innerHTML = '';
+            scene.appendChild(felt.node);
+            scene.appendChild(sceneTop);
         }
-        felt.appendChild(plaqueNode(model, self));
-        scene.appendChild(felt);
-        scene.appendChild(doraNode(model));
-        scene.appendChild(selfNode(model, self));
+        sceneTop.innerHTML = '';
+        felt.draw(feltScene(model, self));
+        sceneTop.appendChild(doraNode(model));
+        sceneTop.appendChild(selfNode(model, self));
         paintHeads();
         paintActions();
     }
 
-    function railNode(model, seat, place) {
-        const node = el(doc, 'div', `igs-mj-rail is-${place}`);
-        const shoupai = model && model.shoupai ? model.shoupai[seat] : null;
-        const hand = node.appendChild(handRow(shoupai));
-        const melds = appendMelds(node, shoupai);
-        if (place === 'right') [hand, ...(melds ? [melds, ...melds.children] : [])].forEach(paintNearLast);
-        return node;
+    function feltScene(model, self) {
+        const seats = [0, 1, 2, 3].map((rel) => {
+            const seat = (self + rel) % 4;
+            const id = playerId(model, seat);
+            const shoupai = model && model.shoupai ? model.shoupai[seat] : null;
+            const pai = (model && model.he && model.he[seat] && model.he[seat]._pai) || [];
+            const fresh = session.lastDiscard === seat ? pai.length - 1 : -1;
+            return {
+                wind: WIND[seat],
+                score: model && model.defen && Number.isFinite(model.defen[id]) ? model.defen[id] : '',
+                dealer: seat === 0,
+                turn: Boolean(model && model.lunban === seat),
+                riichi: Boolean(shoupai && shoupai.lizhi),
+                hand: closedTiles(shoupai),
+                melds: ((shoupai && shoupai._fulou) || []).map((m) => meldLayout(m).map((tile) => ({ code: tile.back ? 'back' : tile.code, back: tile.back, side: tile.called }))),
+                pond: pai.map((code, index) => ({ code, spent: /[+=-]/.test(code), side: /[*]/.test(code), fresh: index === fresh })),
+            };
+        });
+        return {
+            round: model && model.jushu != null ? `${WIND[model.zhuangfeng] || '东'}${model.jushu + 1}局` : '开局',
+            left: model && model.shan ? model.shan.paishu : null,
+            seats,
+        };
     }
 
     function handRow(shoupai) {
@@ -1722,52 +1724,6 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         }
         if (!melds.children.length) return null;
         return node.appendChild(melds);
-    }
-
-    function pondNode(model, seat, place) {
-        const pai = (model && model.he && model.he[seat] && model.he[seat]._pai) || [];
-        if (!pai.length) return null;
-        const pond = el(doc, 'div', `igs-mj-pond is-${place}`);
-        const river = el(doc, 'div', 'igs-mj-river');
-        const fresh = session.lastDiscard === seat ? pai.length - 1 : -1;
-        [pai.slice(0, 6), pai.slice(6, 12), pai.slice(12)].forEach((list, line) => {
-            if (!list.length) return;
-            const row = el(doc, 'div', 'igs-mj-river-row');
-            list.forEach((code, index) => row.appendChild(tileNode(doc, code, {
-                spent: /[+=-]/.test(code),
-                side: /[*]/.test(code),
-                fresh: line * 6 + index === fresh,
-            })));
-            river.appendChild(place === 'right' ? paintNearLast(row) : row);
-        });
-        pond.appendChild(place === 'top' ? paintNearLast(river) : river);
-        return pond;
-    }
-
-    function plaqueNode(model, self) {
-        const node = el(doc, 'div', 'igs-mj-plaque');
-        const core = el(doc, 'div', 'igs-mj-core');
-        core.appendChild(el(doc, 'div', 'igs-mj-core-round', model && model.jushu != null ? `${WIND[model.zhuangfeng] || '东'}${model.jushu + 1}局` : '开局'));
-        if (model && model.shan) core.appendChild(el(doc, 'div', 'igs-mj-core-left', `余 ${model.shan.paishu}`));
-        node.appendChild(core);
-        for (let rel = 0; rel < 4; rel += 1) {
-            const seat = (self + rel) % 4;
-            const id = playerId(model, seat);
-            const score = model && model.defen && Number.isFinite(model.defen[id]) ? model.defen[id] : '';
-            const shoupai = model && model.shoupai ? model.shoupai[seat] : null;
-            const side = el(doc, 'div', [
-                'igs-mj-side',
-                `is-${PLACE[rel]}`,
-                seat === 0 ? 'is-dealer' : '',
-                model && model.lunban === seat ? 'is-turn' : '',
-            ].filter(Boolean).join(' '));
-            if (shoupai && shoupai.lizhi) side.appendChild(el(doc, 'span', 'igs-mj-stick'));
-            side.appendChild(el(doc, 'span', 'igs-mj-side-score', String(score)));
-            side.appendChild(el(doc, 'span', 'igs-mj-side-wind', WIND[seat]));
-            side.appendChild(el(doc, 'span', 'igs-mj-side-bar'));
-            node.appendChild(side);
-        }
-        return node;
     }
 
     function doraNode(model) {
@@ -1824,6 +1780,11 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
 
     function paintActions() {
         const offer = session.offer;
+        const riichi = Boolean(offer && offer.riichi);
+        if (offer === shownOffer && riichi === shownRiichi) return;
+        shownOffer = offer;
+        shownRiichi = riichi;
+        actions.innerHTML = '';
         if (!offer) return;
         const rank = (item) => (item.reply.hule ? 3 : (item.reply.daopai ? 2 : 0));
         const replies = offer.replies.slice().sort((a, b) => rank(a) - rank(b));
@@ -1980,14 +1941,6 @@ function scoreRank(hule) {
     return '';
 }
 
-function matNode(doc) {
-    const mat = el(doc, 'div', 'igs-mj-mat');
-    const svg = svgEl(doc, 'svg', { viewBox: '0 0 100 100', preserveAspectRatio: 'none', class: 'igs-mj-mat-lines', 'aria-hidden': 'true' });
-    for (const [x1, y1, x2, y2] of MAT_LINES) svg.appendChild(svgEl(doc, 'line', { x1, y1, x2, y2, 'vector-effect': 'non-scaling-stroke' }));
-    mat.appendChild(svg);
-    return mat;
-}
-
 // 取景框（原图像素，宽高比 aspect）：有头部标定按头框往下取；没有就在立绘上部 reach 比例内居中裁，
 // 取景高再按图宽封顶，立绘下面长出一截腿也不会把头缩小（712×1024 的腰上立绘正好取上半张）。
 const CROP_PER_WIDTH = 0.72;
@@ -2034,12 +1987,18 @@ function cropInto(doc, frame, face, onReady, shape = {}) {
         const height = img.naturalHeight;
         if (placed || !(width > 0 && height > 0)) return;
         placed = true;
-        const box = avatarCrop(width, height, face.head, shape.aspect, shape.reach, shape.headroom);
+        const box = (shape.boxFor && shape.boxFor(width, height, face))
+            || avatarCrop(width, height, face.head, shape.aspect, shape.reach, shape.headroom);
         img.style.width = `${(width / box.w) * 100}%`;
         img.style.left = `${(-box.x / box.w) * 100}%`;
         img.style.top = `${(-box.y / box.h) * 100}%`;
-        img.className = 'igs-mj-crop is-ready';
-        if (onReady) onReady(img);
+        const show = () => {
+            img.className = 'igs-mj-crop is-ready';
+            if (onReady) onReady(img);
+        };
+        // load 只代表下载完；异步解码的图头一帧可能还画不出来，等 decode 完再顶上，换图那一帧才不会透出底色。
+        if (typeof img.decode === 'function') img.decode().then(show, show);
+        else show();
     };
     img.addEventListener('load', place);
     img.addEventListener('error', () => img.remove());
@@ -2069,29 +2028,70 @@ function avatarNode(doc, person, name, mood) {
 // 牌桌头像是竖框（与 .igs-mj-avatar 内框同比例），取到肩，头顶多留些给发饰。
 const TABLE_SHAPE = { aspect: 0.79, reach: 0.62, headroom: 0.9 };
 
-// 牌桌头像常驻：换表情时新图读好再淡入，旧图随后撤掉，不跟着每次重绘闪。
-function liveFace(doc, person, name) {
+const FACE_SWITCH_MS = 1500;
+
+// 牌桌头像常驻，不跟着每次重绘重建。换表情是硬切：新图读好当场顶上、旧图当场撤，不叠影也不透底；
+// 只有第一张盖住首字时淡入。表情至多 1.5 秒换一次、只认最新的；同一表情换了图（图库读回、换装）当场换。
+// 某个表情没标头部时借「平和」的标定裁，不退回半身裁法，脸才不会忽大忽小地跳。
+// 同一套衣装的表情图尺寸相同，各自的头部标定却差几像素：同尺寸的图沿用第一张的取景框，换表情时脸不挪位。
+export function liveFace(doc, person, name) {
     const node = el(doc, 'div', 'igs-mj-face');
     node.appendChild(el(doc, 'span', 'igs-mj-initial', String(name || '?').slice(0, 1)));
     let shown = '';
+    let shownMood = '';
+    let shownAt = 0;
+    let wanted = '';
+    let timer = 0;
+    let seq = 0;
+    let frame = null;
+    const boxFor = (width, height, face) => {
+        const calm = faceFor(person, '平和');
+        const outfit = calm ? calm.url : '';
+        if (frame && frame.outfit === outfit && frame.width === width && frame.height === height) return frame.box;
+        const box = avatarCrop(width, height, face.head, TABLE_SHAPE.aspect, TABLE_SHAPE.reach, TABLE_SHAPE.headroom);
+        frame = { outfit, width, height, box };
+        return box;
+    };
+    const apply = (mood) => {
+        const face = faceFor(person, mood);
+        if (!face) return;
+        const calm = faceFor(person, '平和');
+        const head = face.head || (calm && calm.head) || null;
+        const key = `${face.url}\n${JSON.stringify(head)}`;
+        if (key === shown) return;
+        shown = key;
+        shownMood = mood;
+        shownAt = Date.now();
+        const token = ++seq;
+        // 缓存里的图设地址当场就读好，回调早于 cropInto 返回，所以按 DOM 先后找旧图层。
+        cropInto(doc, node, { ...face, head }, (ready) => {
+            if (token !== seq) {
+                ready.remove();
+                return;
+            }
+            const olds = [];
+            for (const old of node.querySelectorAll('.igs-mj-crop')) {
+                if (old === ready) break;
+                olds.push(old);
+            }
+            if (!olds.length) return;
+            ready.className += ' is-swap';
+            olds.forEach((old) => old.remove());
+        }, { ...TABLE_SHAPE, boxFor });
+    };
     return {
         node,
         show(mood) {
             node.setAttribute('data-mood', mood);
-            const face = faceFor(person, mood);
-            const key = face ? `${face.url}\n${JSON.stringify(face.head || null)}` : '';
-            if (!face || key === shown) return;
-            shown = key;
-            // 缓存里的图设地址当场就读好，回调早于 cropInto 返回，所以按 DOM 先后找旧图层；
-            // 旧图跟新图一起淡出，透明底立绘才不会叠出重影。
-            cropInto(doc, node, face, (ready) => {
-                for (const old of node.querySelectorAll('.igs-mj-crop')) {
-                    if (old === ready) break;
-                    if (/\bis-leaving\b/.test(old.className)) continue;
-                    old.className += ' is-leaving';
-                    setTimeout(() => old.remove(), 320);
-                }
-            }, TABLE_SHAPE);
+            wanted = mood;
+            const wait = shownAt + FACE_SWITCH_MS - Date.now();
+            if (!shown || mood === shownMood || wait <= 0) {
+                clearTimeout(timer);
+                timer = 0;
+                apply(mood);
+                return;
+            }
+            if (!timer) timer = setTimeout(() => { timer = 0; apply(wanted); }, wait);
         },
     };
 }
@@ -2200,6 +2200,71 @@ function saveImage(doc, url, caption) {
     link.remove();
 }
 
+const BAR_ICONS = {
+    muted: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9.5l5 5M22 9.5l-5 5"/></svg>',
+    fold: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="7 9 12 14 17 9"/><line x1="5" y1="19" x2="19" y2="19"/></svg>',
+    read: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z"/><path d="M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z"/></svg>',
+};
+
+// 和阅读器工具栏同款的图标按钮：只有图标，说明放在 title 和读屏标签里。
+function iconTool(doc, glyph, title, run) {
+    const node = button(doc, 'igs-mj-icon');
+    node.innerHTML = glyph;
+    labelTool(node, title);
+    if (run) {
+        node.addEventListener('click', (event) => {
+            event.stopPropagation();
+            run(node);
+        });
+    }
+    return node;
+}
+
+function labelTool(node, title) {
+    node.title = title;
+    node.setAttribute('aria-label', title);
+}
+
+// 图标按钮分组排成一条，组与组之间一道细线；整组藏起时线跟着藏。
+function toolBar(doc, className, groups) {
+    const bar = el(doc, 'div', `igs-mj-bar ${className}`.trim());
+    for (const group of groups) {
+        const node = Array.isArray(group) ? el(doc, 'span', 'igs-mj-bar-group') : group;
+        if (Array.isArray(group)) group.forEach((item) => node.appendChild(item));
+        bar.appendChild(node);
+    }
+    return bar;
+}
+
+// 等待层的「返回阅读 / 返回当前楼」和「加载下一楼」放进工具栏：牌桌收起再打开会换一个 ctx，要重新接。
+function hostTools(doc) {
+    const group = el(doc, 'span', 'igs-mj-bar-group');
+    const back = iconTool(doc, BAR_ICONS.read, '返回阅读', () => { if (host) host.back(); });
+    const next = iconTool(doc, ICONS.lastPage, '加载下一楼', () => { if (host) host.next(); });
+    next.className += ' is-next';
+    next.appendChild(el(doc, 'span', '', '下一楼'));
+    group.appendChild(back);
+    group.appendChild(next);
+    let host = null;
+    let off = () => {};
+    const sync = (state) => {
+        back.hidden = !state.back;
+        if (state.back) labelTool(back, state.back);
+        next.hidden = !state.next;
+        next.disabled = Boolean(state.nextBusy);
+        group.hidden = back.hidden && next.hidden;
+    };
+    return {
+        group,
+        bind(ctx) {
+            off();
+            host = ctx && ctx.host && typeof ctx.host.state === 'function' ? ctx.host : null;
+            off = host && typeof host.onChange === 'function' ? host.onChange(sync) : () => {};
+            sync(host ? host.state() : {});
+        },
+    };
+}
+
 // 惩罚 CG 全图显示：图铺满所在区域（出图尺寸就是按牌桌的宽高比算的），右上角一条和阅读器工具栏同款的图标按钮。
 // lead 是画图类按钮，tail 是离开类按钮；中间固定「查看提示词」「保存图片」。
 function cgStage(doc, { lead = [], tail = [] } = {}) {
@@ -2212,17 +2277,7 @@ function cgStage(doc, { lead = [], tail = [] } = {}) {
     const panel = el(doc, 'div', 'igs-mj-cgprompt');
     panel.hidden = true;
     let current = {};
-    const icon = (glyph, title, run) => {
-        const node = button(doc, 'igs-mj-icon');
-        node.title = title;
-        node.setAttribute('aria-label', title);
-        node.innerHTML = glyph;
-        node.addEventListener('click', (event) => {
-            event.stopPropagation();
-            run(node);
-        });
-        return node;
-    };
+    const icon = (glyph, title, run) => iconTool(doc, glyph, title, run);
     const leads = lead.map((tool) => icon(tool.icon, tool.title, tool.run));
     const promptButton = icon(ICONS.promptText, '查看提示词', () => {
         panel.hidden = !panel.hidden;
@@ -2377,9 +2432,11 @@ function openMahjongPicker(ctx, cast, rematch) {
     });
     const album = albumButton(ctx, root, () => () => {});
     if (album) head.appendChild(album);
-    const close = button(doc, 'igs-ws-close', '✕');
-    close.addEventListener('click', () => ctx.requestClose());
-    head.appendChild(close);
+    const close = iconTool(doc, BAR_ICONS.fold, '收起小游戏', () => ctx.requestClose());
+    close.className += ' igs-ws-close';
+    const leave = hostTools(doc);
+    leave.bind(ctx);
+    head.appendChild(toolBar(doc, '', [[close], leave.group]));
     root.appendChild(head);
     const lineup = el(doc, 'div', 'igs-mj-lineup');
     const slots = el(doc, 'div', 'igs-mj-slots');
@@ -2502,6 +2559,7 @@ function openMahjongPicker(ctx, cast, rematch) {
     start.addEventListener('click', () => {
         const rivals = [0, 1, 2].map((index) => picked[index] || { name: `路人${'甲乙丙'[index]}`, url: '' });
         const nude = [...stripped].filter((name) => rivals.some((person) => person.name === name));
+        leave.bind(null);
         openMahjongTable(ctx, [{ name: '你', url: '' }, ...rivals], null, { nude });
     });
     render();
@@ -2514,7 +2572,7 @@ function openMahjongPicker(ctx, cast, rematch) {
     root.appendChild(shelf);
     root.appendChild(start);
     board.appendChild(root);
-    ctx.setNote('先挑三个对手，再开始东风战。');
+    ctx.setNote('');
     return null;
 }
 
@@ -2560,7 +2618,6 @@ const IVORY = '#fffdf6';
 const DEEP = { [RED]: '#8c1119', [GREEN]: '#0c5530', [BLUE]: '#13336d' };
 const SERIF = '"Hiragino Mincho ProN","Yu Mincho","Songti SC","STSong","Noto Serif CJK SC","Source Han Serif SC","Noto Serif SC",serif';
 const MAN_FACE = ['', '一', '二', '三', '四', '伍', '六', '七', '八', '九'];
-const MAT_LINES = [[0, 0, 40.5, 36.6], [100, 0, 59.5, 36.6], [0, 100, 40.5, 62.5], [100, 100, 59.5, 62.5]];
 const B = BLUE;
 const G = GREEN;
 const R = RED;
@@ -2586,13 +2643,6 @@ const SOU_STICKS = {
         [10.5, 42, 31, G], [23, 42, 31, G, -24], [37, 42, 31, G, 24], [49.5, 42, 31, G]],
     9: [[14, 4, 21, G], [30, 4, 21, R], [46, 4, 21, G], [14, 29.5, 21, G], [30, 29.5, 21, R], [46, 29.5, 21, G], [14, 55, 21, G], [30, 55, 21, R], [46, 55, 21, G]],
 };
-
-// 视点在玩家这边，牌的厚度朝屏幕下方：靠下（离玩家近）的牌要盖住靠上的。往屏幕上方排的行倒着放进 DOM，
-// 再由 CSS 的 row-reverse / column-reverse 摆回原位，后画的就是近的那张。
-function paintNearLast(parent) {
-    for (const child of [...parent.children].reverse()) parent.appendChild(child);
-    return parent;
-}
 
 function svgEl(doc, tag, attrs, text) {
     const node = doc.createElementNS ? doc.createElementNS(SVG_NS, tag) : doc.createElement(tag);

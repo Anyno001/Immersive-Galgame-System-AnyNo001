@@ -139,4 +139,12 @@ startMahjong({
     onVoice(line) { (window.__voices = window.__voices || []).push(line); },
     setNote(text) { note.textContent = text || ''; },
     requestClose() { note.textContent = '牌桌先收起了，这一局还在。刷新页面会接着打。'; },
+    // ?next 模拟回复已经写好：工具栏换成「下一楼」。
+    host: {
+        state: () => (/next/.test(location.search) ? { back: '', next: true, nextBusy: false } : { back: '返回阅读', next: false, nextBusy: false }),
+        back() { note.textContent = '（预览）返回阅读'; },
+        next() { note.textContent = '（预览）加载下一楼'; },
+        onChange: () => () => {},
+    },
 });
+if (/next/.test(location.search)) note.textContent = '下一楼已经写好，点「加载下一楼」再进去。';

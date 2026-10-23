@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FakeEl } from './helpers/fake-dom.js';
-import { avatarCrop, forgetMahjongTable, mahjongReactions, penaltyBrief, penaltyLosers, playMahjongSync, startMahjong } from '../src/visual/igs-ui/wait-stage-mahjong.js';
+import Majiang from '@kobalab/majiang-core';
+import { MAHJONG_STYLE, avatarCrop, collectCall, forgetMahjongTable, mahjongReactions, penaltyBrief, penaltyLosers, playMahjongSync, startMahjong } from '../src/visual/igs-ui/wait-stage-mahjong.js';
 import { MAHJONG_SOUNDS, createMahjongSound } from '../src/visual/igs-ui/wait-stage-mahjong-sound.js';
 
 function memoryStorage() {
@@ -103,6 +104,111 @@ test('gate:wait-stage:mahjong-picker-uses-card-characters', async () => {
     forgetMahjongTable();
 });
 
+test('gate:wait-stage:mahjong-kan-on-a-discard-is-sent-as-a-call-the-engine-accepts', () => {
+    const shoupai = Majiang.Shoupai.fromString('m555p123s456z1122');
+    const player = {
+        shoupai,
+        _menfeng: 0,
+        model: { lunban: 3 },
+        allow_hule: () => false,
+        get_gang_mianzi: (hand, tile) => hand.get_gang_mianzi(tile),
+        get_peng_mianzi: (hand, tile) => hand.get_peng_mianzi(tile),
+        get_chi_mianzi: (hand, tile) => hand.get_chi_mianzi(tile),
+    };
+    const offer = collectCall(player, { l: 3, p: 'm5' });
+    const kan = offer.replies.find((item) => item.verb === '杠');
+    const pon = offer.replies.find((item) => item.verb === '碰');
+    assert.ok(kan && pon, '能碰也能杠时两个按钮都在');
+    assert.equal(kan.reply.gang, undefined, '别家打的牌引擎不认 gang，发了就被当成跳过');
+    assert.ok(Majiang.Game.get_gang_mianzi(Majiang.rule(), shoupai, 'm5-', 60, 0).includes(kan.reply.fulou));
+});
+
+test('gate:wait-stage:mahjong-toolbar-carries-the-back-and-next-floor-buttons', async () => {
+    forgetMahjongTable();
+    const doc = fakeDoc();
+    const board = doc.createElement('div');
+    doc.createElement('div').appendChild(board);
+    let state = { back: '返回阅读', next: false, nextBusy: false };
+    const listeners = new Set();
+    const calls = [];
+    const host = {
+        state: () => state,
+        back: () => calls.push('back'),
+        next: () => calls.push('next'),
+        onChange(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    };
+    const push = (next) => { state = next; for (const listener of [...listeners]) listener(state); };
+    const model = { names: ['绫'], art: { sprites: [{ character: '绫', url: 'data:image/svg+xml,aya', mood: '笑' }], pictures: [] } };
+    startMahjong({ doc, board, model, host, storage: memoryStorage(), setNote() {}, requestClose() {} });
+    const back = () => board.querySelector('[aria-label="返回阅读"]');
+    assert.ok(back(), '选人界面的工具栏里就有返回');
+    back().fire('click');
+    assert.deepEqual(calls, ['back']);
+    for (const button of board.querySelectorAll('.igs-mj-person')) button.fire('click');
+    board.querySelectorAll('.igs-ws-chip').find((node) => node.textContent === '开始这局').fire('click');
+    assert.equal(listeners.size, 1, '换成牌桌后只剩牌桌那一份订阅');
+    const tools = board.querySelector('.igs-mj-tools');
+    assert.equal(tools.querySelector('[aria-label="返回阅读"]').hidden, false);
+    const next = tools.querySelector('.is-next');
+    assert.equal(next.hidden, true);
+    push({ back: '', next: true, nextBusy: false });
+    assert.equal(next.hidden, false);
+    assert.equal(tools.querySelector('[aria-label="返回阅读"]').hidden, true);
+    next.fire('click');
+    assert.deepEqual(calls, ['back', 'next']);
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+    forgetMahjongTable();
+});
+
+test('gate:wait-stage:mahjong-table-fills-wide-screens-and-drops-the-footer', () => {
+    const units = MAHJONG_STYLE.match(/[\d.]+cqi/g) || [];
+    assert.deepEqual(units, ['1cqi', '1cqi'], '牌桌尺寸只经 --igs-mj-u 换算，基准只在定义处出现');
+    assert.match(MAHJONG_STYLE, /\.igs-ws-actions\{display:none!important;\}/);
+    assert.match(MAHJONG_STYLE, /\.igs-mj-table\{width:min\(100cqw,100cqh \* 2\.4\);height:min\(100cqh,100cqw \* 9 \/ 16\)/);
+    assert.match(MAHJONG_STYLE, /\.igs-mj-felt\{position:absolute;inset:0;/, '牌区画布铺满牌桌，16:9 的牌区在画布里居中，宽屏时两侧留给头像');
+});
+
+test('gate:wait-stage:mahjong-felt-is-one-canvas-without-the-diagonals', async () => {
+    forgetMahjongTable();
+    const doc = fakeDoc();
+    const board = doc.createElement('div');
+    doc.createElement('div').appendChild(board);
+    startMahjong({ doc, board, storage: memoryStorage(), setNote() {}, requestClose() {} });
+    const felt = board.querySelector('.igs-mj-felt');
+    assert.equal(felt.tagName, 'canvas', '桌垫、牌河、牌墙、计分板画在同一张画布上');
+    assert.equal(felt.children.length, 0);
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+    assert.match(felt.getAttribute('aria-label'), /^牌桌 (东1局|开局)/, '画布上的局数和点数给读屏留一份');
+    assert.equal(board.querySelector('.igs-mj-pond'), null);
+    assert.doesNotMatch(MAHJONG_STYLE, /igs-mj-mat|igs-mj-plaque|igs-mj-pond/, '旧的 DOM 牌区连同桌垫对角线一起去掉');
+    board.querySelector('.igs-ws-close').fire('click');
+    forgetMahjongTable();
+});
+
+test('gate:wait-stage:mahjong-table-has-nothing-that-shakes-on-phones', () => {
+    assert.doesNotMatch(MAHJONG_STYLE, /perspective\(|rotateX|rotate3d/, '牌区不做 3D 倾斜：每手重绘都要重新透视采样，手机上牌和计分板会抖');
+    const outside = MAHJONG_STYLE.replace(/@media \(hover:hover\)\{[^{}]*\{[^{}]*\}\}/g, '');
+    assert.doesNotMatch(outside, /:hover[^{]*\{[^}]*transform/, '悬停上浮只给有鼠标的设备，触屏点完会粘在手指底下');
+    for (const name of ['igs-mj-say', 'igs-mj-act']) {
+        const rules = MAHJONG_STYLE.match(new RegExp(`\\.${name}(\\.is-on)?\\{[^}]*\\}`, 'g')) || [];
+        assert.ok(rules.length, name);
+        for (const rule of rules) assert.doesNotMatch(rule, /transform|opacity|animation|transition:opacity/, `${name} 盖在牌桌画布上，出现收起都硬切：带动画就会临时成合成层，安卓上整张桌面闪一帧`);
+    }
+});
+
+test('gate:wait-stage:mahjong-felt-canvas-stays-out-of-the-gpu-layers', async () => {
+    const { createMahjongFelt } = await import('../src/visual/igs-ui/wait-stage-mahjong-felt.js');
+    const asked = [];
+    const doc = { createElement(tag) {
+        const node = new FakeEl(this, tag);
+        node.getContext = (kind, options) => { asked.push([kind, options]); return null; };
+        return node;
+    } };
+    const felt = createMahjongFelt(doc, { faceSvg: () => null });
+    assert.deepEqual(asked, [['2d', { willReadFrequently: true }]], 'CPU 画布像图片一样画进牌桌的层，上面的气泡、按钮出没不会让它闪');
+    felt.destroy();
+});
+
 test('gate:wait-stage:mahjong-avatar-takes-the-upper-body-or-the-calibrated-head', () => {
     assert.deepEqual(avatarCrop(712, 1024), { x: 100, y: 0, w: 512, h: 512 });
     const longer = avatarCrop(712, 1600);
@@ -146,12 +252,13 @@ test('gate:wait-stage:mahjong-heads-use-each-rivals-calm-face', async () => {
 test('gate:wait-stage:mahjong-penalty-brief-centres-the-right-person', () => {
     const rival = penaltyBrief({ target: '凛', punisher: '绫', request: '罚她学猫叫', nsfw: true, stage: 'final' });
     assert.deepEqual(rival.characters, ['凛']);
-    assert.deepEqual(rival.nude, ['凛']);
+    assert.deepEqual(rival.strip, ['凛'], '成人向记下被罚的人，下一局换裸体');
+    assert.equal(rival.nude, undefined, '这张图不替她脱，按她这一场穿的衣装画');
     assert.match(rival.description, /凛垫底/);
     assert.match(rival.description, /罚她学猫叫/);
     const self = penaltyBrief({ target: '你', punisher: '绫', request: '罚我请客', nsfw: true, stage: 'final' });
     assert.deepEqual(self.characters, ['绫']);
-    assert.deepEqual(self.nude, []);
+    assert.deepEqual(self.strip, []);
     assert.match(self.description, /第一名的绫来惩罚主角/);
     assert.match(self.description, /玩家补充：罚我请客/);
     const free = penaltyBrief({ target: '你', punisher: '绫', request: '  ' });
@@ -159,8 +266,12 @@ test('gate:wait-stage:mahjong-penalty-brief-centres-the-right-person', () => {
     assert.doesNotMatch(free.description, /玩家补充|惩罚内容/);
     assert.match(free.caption, /由绫决定/);
     const hand = penaltyBrief({ target: '凛', punisher: '绫', request: '罚她唱歌' });
-    assert.deepEqual(hand.nude, []);
-    assert.match(hand.description, /全年龄/);
+    assert.deepEqual(hand.strip, []);
+    assert.doesNotMatch(hand.description, /全年龄|成人/);
+    assert.doesNotMatch(rival.description, /成人|全年龄/, '成人向只决定下一局换不换裸体立绘，不写进这张图的提示词');
+    assert.equal('nsfw' in rival, false, '开关只管下一局换不换裸体立绘，出图请求里没有它');
+    const plain = penaltyBrief({ target: '凛', punisher: '绫', request: '罚她学猫叫', stage: 'final' });
+    assert.equal(rival.description, plain.description, '开关开不开，这张图的要求一字不差');
     assert.ok(hand.caption.length <= 60);
     const worn = { 凛: '礼服', 绫: '校服' };
     assert.deepEqual(penaltyBrief({ target: '凛', punisher: '绫', request: '罚她', outfits: worn }).outfits, { 凛: '礼服' });
@@ -181,13 +292,13 @@ test('gate:wait-stage:mahjong-penalty-takes-everyone-tied-last-or-busted', () =>
     assert.match(hand.description, /玩家（主角）这一局输得最多，由这一局赢分的沙绫来惩罚主角/);
     const pair = penaltyBrief({ targets: ['凛', '咲'], punisher: '绫', request: '一起罚站', nsfw: true, stage: 'final', outfits: { 凛: '礼服', 咲: '泳装', 绫: '校服' } });
     assert.deepEqual(pair.characters, ['凛', '咲']);
-    assert.deepEqual(pair.nude, ['凛', '咲']);
+    assert.deepEqual(pair.strip, ['凛', '咲']);
     assert.deepEqual(pair.outfits, { 凛: '礼服', 咲: '泳装' });
     assert.match(pair.description, /凛、咲并列垫底/);
     assert.match(pair.description, /每个人都要入镜/);
     const withMe = penaltyBrief({ targets: ['你', '凛'], punisher: '绫', request: '', nsfw: true, stage: 'final' });
     assert.deepEqual(withMe.characters, ['绫', '凛']);
-    assert.deepEqual(withMe.nude, ['凛'], '玩家不画，同罚的角色照罚');
+    assert.deepEqual(withMe.strip, ['凛'], '玩家不画，同罚的角色照罚');
     assert.match(withMe.description, /玩家（主角）和凛并列垫底，由第一名的绫来惩罚他们/);
     assert.match(withMe.caption, /绫罚你和凛/);
 });

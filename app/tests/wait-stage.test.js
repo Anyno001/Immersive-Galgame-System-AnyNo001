@@ -186,6 +186,34 @@ test('gate:wait-stage:toolbar-play-turns-into-the-wait-without-dropping-the-game
     h.runtime.close();
 });
 
+test('gate:wait-stage:games-get-the-back-and-next-floor-buttons-for-their-own-toolbar', () => {
+    const h = runtimeHarness({}, { games: true });
+    const real = createWaitStageGamePack();
+    let ctx = null;
+    registerWaitStageGamePack({ ...real, start(next) { ctx = next; return real.start(next); } });
+    h.root.querySelector('.igs-ws-games').querySelector('button').fire('click');
+    assert.deepEqual(ctx.host.state(), { back: '', next: false, nextBusy: false }, '等回复时不给返回');
+    const seen = [];
+    const off = ctx.host.onChange((state) => seen.push(state));
+    assert.equal(h.runtime.replyArrived(), false);
+    assert.deepEqual(seen.pop(), { back: '', next: true, nextBusy: false });
+    ctx.host.back();
+    assert.equal(h.dismissed(), 0);
+    ctx.host.next();
+    assert.equal(h.ready(), 1, '工具栏里的「加载下一楼」和底栏按钮走同一条路');
+    assert.equal(seen.pop().nextBusy, true);
+    off();
+    h.runtime.close();
+
+    const play = runtimeHarness({}, { games: true, play: true });
+    registerWaitStageGamePack({ ...real, start(next) { ctx = next; return real.start(next); } });
+    play.root.querySelector('.igs-ws-games').querySelector('button').fire('click');
+    assert.equal(ctx.host.state().back, '返回阅读');
+    ctx.host.back();
+    assert.equal(play.runtime.isOpen(), false);
+    assert.equal(play.dismissed(), 0);
+});
+
 test('gate:wait-stage:toolbar-button-is-registered-for-the-reader', () => {
     const src = (file) => fs.readFileSync(path.resolve(import.meta.dirname, '../src/visual/igs-ui', file), 'utf8');
     assert.match(src('original-reader-source.js'), /id: 'mini-games', group: 'view'.*ORIGINAL_READER_ICONS\.games/);

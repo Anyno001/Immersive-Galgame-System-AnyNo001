@@ -18,7 +18,7 @@ import {
     pickLine,
     readSituation,
 } from '../src/visual/igs-ui/wait-stage-mahjong-mind.js';
-import { forgetMahjongTable, startMahjong } from '../src/visual/igs-ui/wait-stage-mahjong.js';
+import { forgetMahjongTable, liveFace, startMahjong } from '../src/visual/igs-ui/wait-stage-mahjong.js';
 import { createIllustrationMessageHost } from '../src/host/illustration-message-host.js';
 import { buildWaitStageModel, createWaitStageRuntime } from '../src/visual/igs-ui/wait-stage-runtime.js';
 import { registerWaitStageGamePack, unregisterWaitStageGamePack } from '../src/visual/igs-ui/wait-stage-games-api.js';
@@ -338,12 +338,87 @@ test('gate:wait-stage:mahjong-table-face-drops-the-old-layer-even-on-a-cache-hit
         assert.equal(ayaLayers().length, 1);
         model = { ...model, cast: [{ ...model.cast[0], faces: face('aya-new') }, ...model.cast.slice(1)] };
         for (const fn of [...listeners]) fn(model);
-        assert.match(ayaLayers()[0].className, /is-leaving/, '缓存命中当场读好，旧图层也要淡出');
-        await flush(400);
-        assert.deepEqual(ayaLayers().map((node) => node.src), ['aya-new'], '旧图层撤掉，不留残影');
+        assert.deepEqual(ayaLayers().map((node) => node.src), ['aya-new'], '缓存命中当场读好，旧图层当场撤，不留残影');
+        assert.match(ayaLayers()[0].className, /is-swap/, '换图是硬切，不淡入');
     } finally {
         forgetMahjongTable();
     }
+});
+
+test('gate:wait-stage:mahjong-table-face-holds-still-between-moods', async () => {
+    const doc = { createElement(tag) {
+        const node = new FakeEl(this, tag);
+        if (tag === 'img') {
+            let src = '';
+            Object.defineProperty(node, 'src', { get: () => src, set(value) { src = value; node.complete = true; node.naturalWidth = 712; node.naturalHeight = 1024; } });
+        }
+        return node;
+    } };
+    const head = { x: 0.5, top: 0.12, w: 0.24 };
+    const person = { faces: { 平和: { url: 'calm', head }, 喜悦: { url: 'joy' }, 愤怒: { url: 'angry' } } };
+    const face = liveFace(doc, person, '绫');
+    const layers = () => face.node.querySelectorAll('.igs-mj-crop');
+    face.show('平和');
+    const calm = layers()[0];
+    face.show('喜悦');
+    face.show('愤怒');
+    assert.deepEqual(layers().map((node) => node.src), ['calm'], '刚换过表情，1.5 秒内不再换');
+    await flush(1600);
+    assert.deepEqual(layers().map((node) => node.src), ['angry'], '只认最新的表情，旧图层当场撤');
+    const angry = layers()[0];
+    assert.match(angry.className, /is-swap/);
+    assert.deepEqual([angry.style.width, angry.style.left, angry.style.top], [calm.style.width, calm.style.left, calm.style.top],
+        '没标头部的表情借「平和」的裁切框，脸不跳位');
+});
+
+test('gate:wait-stage:mahjong-table-face-keeps-one-frame-per-outfit', async () => {
+    const doc = { createElement(tag) {
+        const node = new FakeEl(this, tag);
+        if (tag === 'img') {
+            let src = '';
+            Object.defineProperty(node, 'src', { get: () => src, set(value) { src = value; node.complete = true; node.naturalWidth = 712; node.naturalHeight = 1024; } });
+        }
+        return node;
+    } };
+    const person = { faces: {
+        平和: { url: 'calm', head: { x: 0.5, top: 0.12, w: 0.24, hh: 0.3 } },
+        喜悦: { url: 'joy', head: { x: 0.53, top: 0.14, w: 0.22, hh: 0.28 } },
+    } };
+    const face = liveFace(doc, person, '绫');
+    const layer = () => face.node.querySelector('.igs-mj-crop');
+    face.show('平和');
+    const calm = layer();
+    const frame = [calm.style.width, calm.style.left, calm.style.top];
+    await flush(1600);
+    face.show('喜悦');
+    assert.equal(layer().src, 'joy');
+    assert.deepEqual([layer().style.width, layer().style.left, layer().style.top], frame, '各表情的头部标定差几像素，同尺寸的图沿用同一个取景框');
+});
+
+test('gate:wait-stage:mahjong-table-face-swaps-only-after-the-new-image-decodes', async () => {
+    const decodes = [];
+    const doc = { createElement(tag) {
+        const node = new FakeEl(this, tag);
+        if (tag === 'img') {
+            let src = '';
+            Object.defineProperty(node, 'src', { get: () => src, set(value) { src = value; node.complete = true; node.naturalWidth = 712; node.naturalHeight = 1024; } });
+            node.decode = () => new Promise((resolve) => decodes.push(resolve));
+        }
+        return node;
+    } };
+    const person = { faces: { 平和: { url: 'calm' }, 喜悦: { url: 'joy' } } };
+    const face = liveFace(doc, person, '绫');
+    const srcs = () => face.node.querySelectorAll('.igs-mj-crop').map((node) => node.src);
+    face.show('平和');
+    decodes.shift()();
+    await flush(0);
+    await flush(1600);
+    face.show('喜悦');
+    assert.deepEqual(srcs(), ['calm', 'joy'], '新图还没解码完，旧图留着');
+    assert.doesNotMatch(face.node.querySelectorAll('.igs-mj-crop')[1].className, /is-ready/);
+    decodes.shift()();
+    await flush(0);
+    assert.deepEqual(srcs(), ['joy'], '解码完同一帧里顶上并撤掉旧图');
 });
 
 test('gate:wait-stage:runtime-keeps-gallery-addresses-and-lends-the-loader', () => {

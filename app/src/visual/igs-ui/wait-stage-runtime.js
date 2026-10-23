@@ -292,6 +292,23 @@ export function createWaitStageRuntime(options = {}) {
         if (root) root.setAttribute('data-igs-waitstage-game', game ? game.id : '');
     }
 
+    function hostState() {
+        const shown = (node) => Boolean(node && actions && !actions.hidden && !node.hidden);
+        return {
+            back: shown(backButton) ? backButton.textContent : '',
+            next: shown(nextButton),
+            nextBusy: Boolean(nextButton && nextButton.disabled),
+        };
+    }
+
+    function notifyHost() {
+        if (!gameState) return;
+        const state = hostState();
+        for (const listener of [...gameState.hostListeners]) {
+            try { listener(state); } catch (error) { /* 游戏工具栏出错不影响等待层 */ }
+        }
+    }
+
     function closeRoot() {
         clearTimer();
         releaseImages();
@@ -328,6 +345,7 @@ export function createWaitStageRuntime(options = {}) {
         if (!game) setNote('');
         renderLine();
         scheduleLine();
+        notifyHost();
         return true;
     }
 
@@ -336,6 +354,7 @@ export function createWaitStageRuntime(options = {}) {
         nextButton.hidden = false;
         if (backButton) backButton.hidden = true;
         actions.hidden = false;
+        notifyHost();
     }
 
     function confirmNextFloor() {
@@ -343,6 +362,7 @@ export function createWaitStageRuntime(options = {}) {
         replyReady = false;
         if (nextButton) nextButton.disabled = true;
         setNote('正在打开下一楼…');
+        notifyHost();
         onExitReady();
     }
 
@@ -396,6 +416,24 @@ export function createWaitStageRuntime(options = {}) {
                 gameState.done = true;
             },
             requestClose: () => closeGame(),
+            // 等待层自己的「返回」「加载下一楼」：铺满整层的游戏把它们放进自己的工具栏，底栏就不用留。
+            // state().back 是按钮文字（返回阅读 / 返回当前楼），空串表示这会儿不给返回。
+            host: {
+                state: hostState,
+                back() {
+                    if (!hostState().back) return;
+                    if (play) closeRoot();
+                    else onDismiss();
+                },
+                next() {
+                    if (hostState().next) confirmNextFloor();
+                },
+                onChange(listener) {
+                    if (!own || typeof listener !== 'function') return () => {};
+                    own.hostListeners.add(listener);
+                    return () => own.hostListeners.delete(listener);
+                },
+            },
         };
     }
 
@@ -404,7 +442,7 @@ export function createWaitStageRuntime(options = {}) {
         if (!pack || typeof pack.start !== 'function' || !board || !model || phase !== 'wait') return;
         clearTimer();
         game = { id };
-        gameState = { listeners: new Set() };
+        gameState = { listeners: new Set(), hostListeners: new Set() };
         board.hidden = false;
         if (gamesRow) gamesRow.hidden = true;
         syncGameAttr();
@@ -580,6 +618,7 @@ export function createWaitStageRuntime(options = {}) {
             if (!root || play || phase !== 'wait' || replyReady) return;
             setNote('等待较久，尚未确认回复写完。请求可能仍在进行，可返回酒馆检查。');
             actions.hidden = false;
+            notifyHost();
         },
         // 生成期间宿主每 150ms 报一次活动：层已经挂着就别重建，否则台词永远停在第一句、点开的小游戏会被抹掉。
         isOpen(host) {
