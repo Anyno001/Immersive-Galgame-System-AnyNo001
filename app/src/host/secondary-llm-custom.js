@@ -1,4 +1,4 @@
-import { secondaryLlmHttpError, secondaryLlmText } from './secondary-llm-result.js';
+import { secondaryLlmBackendError, secondaryLlmText } from './secondary-llm-result.js';
 
 export function customLlmPayload(messages, settings, completionsUrl) {
     const payload = { stream: false, messages: messages.map(message => ({ ...message })),
@@ -22,8 +22,6 @@ export async function requestCustomLlm(Service, messages, settings, completionsU
         if (settings.signal?.aborted || cause?.name === 'AbortError') {
             throw Object.assign(new Error('副 LLM 任务已取消；未继续绘图'), { reason: 'request-stale' });
         }
-        const explicit = Number(cause?.status ?? cause?.statusCode);
-        const match = String(cause?.message || '').match(/(?:HTTP|status(?:\s+code)?)\s*[:=(]?\s*([45]\d{2})\b/i);
-        throw secondaryLlmHttpError(explicit >= 400 && explicit <= 599 ? explicit : Number(match?.[1]), 'st-backend');
+        throw secondaryLlmBackendError(cause?.message, Number(cause?.status ?? cause?.statusCode));
     }
 }

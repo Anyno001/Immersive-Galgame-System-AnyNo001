@@ -1,5 +1,7 @@
 import { NAI_DEFAULT_SETTINGS, buildNaiV4Request, resolveNaiNativeEndpoint } from './request-builders/nai-v4-builder.js';
 import { readZipImage } from './image-response-zip.js';
+import { resetTavernProxyProbe, resolveTavernTransport, tavernProxyFailure, tavernProxyUrl,
+    TAVERN_BACKEND_UNREACHABLE_HINT, TAVERN_PROXY_DISABLED_HINT } from '../host/tavern-cors-proxy.js';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFAULT_POLL_INTERVAL_MS = 2000;
@@ -255,8 +257,8 @@ async function generateNaiNativeImage(request, imageApi, endpoint, deps) {
         sampler: String(imageApi.sampler || '').trim() || NAI_DEFAULT_SETTINGS.sampler,
         artistPrefix: imageApi.promptPrefix || '',
     });
-    const proxied = imageApi.transport === 'st-proxy';
-    const url = proxied ? `/proxy/${endpoint}` : endpoint;
+    const proxied = await resolveTavernTransport(imageApi.transport, resolveFetchFunction(deps)) === 'st-proxy';
+    const url = proxied ? tavernProxyUrl(endpoint) : endpoint;
     let response;
     try {
         response = await fetchWithTimeout(url, {
@@ -271,11 +273,15 @@ async function generateNaiNativeImage(request, imageApi, endpoint, deps) {
     } catch (error) {
         const message = error && error.message ? error.message : String(error);
         throw new Error(proxied
-            ? `经酒馆代理请求 NAI 失败：请确认酒馆 config.yaml 中 enableCorsProxy 为 true（${message}）；地址：${endpoint}`
-            : `浏览器直连 NAI 失败（可能是跨域 CORS 或网络不通），可把传输方式改为「酒馆 CORS 代理」（${message}）；地址：${endpoint}`);
+            ? `经酒馆代理请求 NAI 失败：无法连接酒馆，请确认酒馆正在运行（${message}）；地址：${endpoint}`
+            : `浏览器直连 NAI 失败（可能是跨域 CORS 或网络不通），可在酒馆 config.yaml 中开启 enableCorsProxy，并把传输方式改为「酒馆 CORS 代理」或「自动」（${message}）；地址：${endpoint}`);
     }
     if (!response.ok) {
         const text = await response.text();
+        const proxyFailure = proxied ? tavernProxyFailure(response.status, text) : '';
+        if (proxyFailure === 'disabled') resetTavernProxyProbe();
+        if (proxyFailure) throw new Error(proxyFailure === 'disabled' ? TAVERN_PROXY_DISABLED_HINT
+            : `经酒馆代理请求 NAI 失败（HTTP 500）：${TAVERN_BACKEND_UNREACHABLE_HINT}；地址：${endpoint}`);
         throw new Error(`${NAI_STATUS_TEXT[response.status] || `NAI 返回 HTTP ${response.status}`}；地址：${endpoint}；响应：${text.slice(0, 180)}`);
     }
     const parsed = await parseImageResponse(response);

@@ -7,6 +7,8 @@ import { inspectPngDataUrl, validatePngEncoding } from '../media/png-validation.
 import { CG_PIXEL_CAP } from './illustration/cg-pixel-cap.js';
 import { naiRequestQueue } from './nai-request-queue.js';
 import { globalArtist } from './prompt-artists.js';
+import { resetTavernProxyProbe, resolveTavernTransport, tavernProxyFailure, tavernProxyUrl,
+    TAVERN_BACKEND_UNREACHABLE_HINT, TAVERN_PROXY_DISABLED_HINT } from '../host/tavern-cors-proxy.js';
 
 export { NAI_OFFICIAL_ENDPOINT };
 const RETRYABLE = new Set([429]);
@@ -64,17 +66,29 @@ export function resolveNaiEndpoint(endpoint) {
     } catch { return trimmed; }
 }
 
-function toProxyUrl(url) {
-    return `/proxy/${url}`;
-}
-
 function describeStatus(status, detail = '') {
     const suffix = detail ? `：${detail}` : '';
     if (status === 401) return 'NAI 鉴权失败（401）：请检查 NAI Key';
     if (status === 402) return 'NAI 余额/订阅不足（402）';
     if (status === 429) return `NAI 请求过于频繁（429），已自动重试仍失败，请稍后再试或降低同时生成数量${suffix}`;
-    if (status >= 500) return `NAI 服务端错误（HTTP ${status}）；发送状态未知，未自动补发`;
+    if (status >= 500) return `NAI 服务端错误（HTTP ${status}）${suffix}；发送状态未知，未自动补发`;
     return `NAI 返回 HTTP ${status}${suffix}`;
+}
+
+async function readErrorText(response) {
+    try { return typeof response.text === 'function' ? String(await response.text()) : ''; } catch { return ''; }
+}
+
+// 上游错误说明只取 message 类字段并截短；Key 打码，HTML 去标签。
+function safeDetail(text, apiKey) {
+    let value = String(text || '');
+    try {
+        const data = JSON.parse(value);
+        const message = data?.message ?? data?.error?.message ?? data?.error ?? data?.detail;
+        if (typeof message === 'string') value = message;
+    } catch { /* 纯文本响应 */ }
+    if (apiKey) value = value.split(apiKey).join('[已隐藏]');
+    return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 
 function retryDelayMs(response, attempt) {
@@ -104,7 +118,8 @@ export function createNaiOfficialClient(deps = {}) {
 
     async function dispatch(body, inputSettings) {
         const controller = new AbortController();
-        const settings = { ...inputSettings, apiKey: String(inputSettings.apiKey).trim(), signal: controller.signal };
+        const transport = await resolveTavernTransport(inputSettings.transport, fetchImpl);
+        const settings = { ...inputSettings, transport, apiKey: String(inputSettings.apiKey).trim(), signal: controller.signal };
         const timeout = Number(inputSettings.timeoutMs);
         const timeoutMs = Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 300000) : 120000;
         const abort = () => controller.abort();
@@ -139,7 +154,7 @@ export function createNaiOfficialClient(deps = {}) {
     async function send(body, settings) {
         const direct = settings.transport !== 'st-proxy';
         const target = resolveNaiEndpoint(settings.endpoint);
-        const url = direct ? target : toProxyUrl(target);
+        const url = direct ? target : tavernProxyUrl(target);
         if (!allowed(settings)) return null;
         return fetchImpl(url, {
                 method: 'POST',
@@ -169,8 +184,8 @@ export function createNaiOfficialClient(deps = {}) {
                     ok: false,
                     reason: 'nai-transport-unknown',
                     error: aborted ? 'NAI 请求超时' : (settings.transport === 'st-proxy'
-                        ? '经酒馆代理请求 NAI 失败：请确认酒馆 config.yaml 中 enableCorsProxy 为 true'
-                        : '浏览器直连 NAI 失败（可能是 CORS 或网络不通），可在设置中把传输方式改为「酒馆 CORS 代理」'),
+                        ? '经酒馆代理请求 NAI 失败：无法连接酒馆，请确认酒馆正在运行'
+                        : '浏览器直连 NAI 失败（可能是 CORS 或网络不通），可在酒馆 config.yaml 中开启 enableCorsProxy，并把传输方式改为「酒馆 CORS 代理」或「自动」'),
                 };
             }
             if (!allowed(settings) || !response) return stale();
@@ -206,8 +221,14 @@ export function createNaiOfficialClient(deps = {}) {
                 if (!await pause(delay, settings.signal) || !allowed(settings)) return stale();
                 continue;
             }
+            const text = await readErrorText(response);
+            const proxyFailure = settings.transport === 'st-proxy' ? tavernProxyFailure(response.status, text) : '';
+            if (proxyFailure === 'disabled') resetTavernProxyProbe();
+            if (proxyFailure) return { ok: false, reason: proxyFailure === 'disabled' ? 'st-proxy-disabled' : 'nai-http-failed',
+                status: response.status, error: proxyFailure === 'disabled' ? TAVERN_PROXY_DISABLED_HINT
+                    : `经酒馆代理请求 NAI 失败（HTTP 500）：${TAVERN_BACKEND_UNREACHABLE_HINT}；未自动补发` };
             return { ok: false, reason: response.status === 429 ? 'nai-rate-limited' : 'nai-http-failed',
-                error: describeStatus(response.status), status: response.status };
+                error: describeStatus(response.status, safeDetail(text, settings.apiKey)), status: response.status };
         }
         return { ok: false, error: 'NAI 请求失败' };
     }

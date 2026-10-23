@@ -2,7 +2,7 @@ import { getTavernHelper, getSillyTavernContext } from './tavern-helper-adapter.
 import { runBackgroundGeneration } from './background-generation.js';
 import { secondaryLlmMessages } from './secondary-llm-messages.js';
 import { requestCustomLlm } from './secondary-llm-custom.js';
-import { secondaryLlmHttpError, secondaryLlmText } from './secondary-llm-result.js';
+import { secondaryLlmBackendError, secondaryLlmHttpError, secondaryLlmText } from './secondary-llm-result.js';
 
 function apiBaseUrl(endpoint) {
     const base = String(endpoint || '').trim().replace(/\/+$/, '');
@@ -82,7 +82,7 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
         } else data = await response.json();
         if (!response.ok || data?.error) {
             if (route === 'generate') {
-                const rejected = secondaryLlmHttpError(response.ok ? null : response.status, 'st-backend', data);
+                const rejected = secondaryLlmBackendError(data?.error?.message, response.ok ? null : response.status, data);
                 if (response.ok) rejected.diagnostic.rejected = true;
                 throw rejected;
             }

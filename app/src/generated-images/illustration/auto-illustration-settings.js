@@ -118,7 +118,7 @@ export function normalizeAutoIllustrationSettings(value) {
             jailbreakTail: str(llm.jailbreakTail),
         },
         nai: {
-            transport: nai.transport === 'st-proxy' ? 'st-proxy' : 'direct',
+            transport: ['st-proxy', 'auto'].includes(nai.transport) ? nai.transport : 'direct',
             endpoint: str(nai.endpoint),
             apiKey: str(nai.apiKey),
             model: str(nai.model, NAI_DEFAULT_SETTINGS.model) || NAI_DEFAULT_SETTINGS.model,
