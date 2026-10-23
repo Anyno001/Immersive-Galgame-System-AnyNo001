@@ -40,10 +40,12 @@ const NARRATION_BY_RESULT = Object.freeze({
 const REWRITE_TYPES = new Set(['swipe', 'regenerate']);
 const INPUT_TYPES = new Set(['normal']);
 
-function reportResult(text) {
+// 程序生成的战报块 <igs-combat-report result="win|lose|escape">；没有战报返回 null。
+export function combatReportResult(text) {
     const match = String(text || '').match(REPORT_RE);
     return match ? { result: match[1].toLowerCase() } : null;
 }
+const reportResult = combatReportResult;
 
 // history 为按时间顺序的可见消息 [{ user, text }]。最近一条是用户楼且带战报时返回结果。
 // 宿主在 GENERATION_STARTED 之后才把输入框内容写成用户楼，所以普通发送时先看输入框（inputText）；

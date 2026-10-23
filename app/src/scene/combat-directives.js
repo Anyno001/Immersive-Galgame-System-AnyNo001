@@ -171,9 +171,9 @@ export function extractCombatStart(raw, options = {}) {
 }
 
 // 成长标签：按正文顺序解析。剧情 EXP 每楼每角色累计封顶，超出部分截断并记诊断；
-// 程序生成的战报楼由调用方传 { expCap: false } 跳过封顶。
+// 程序生成的战报楼由调用方传 { expCap: false} 跳过封顶；战报是用户楼、没有正文容器，传 { raw: true } 直接扫原文。
 export function extractGrowthDirectives(raw, options = {}) {
-    const body = combatBodyText(raw, options);
+    const body = options.raw === true ? String(raw || '') : combatBodyText(raw, options);
     const cap = options.expCap === false ? Infinity : COMBAT_TAG_LIMITS.storyExpCapPerFloor;
     const used = new Map();
     const directives = [];

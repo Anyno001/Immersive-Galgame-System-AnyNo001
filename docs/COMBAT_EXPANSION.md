@@ -83,3 +83,16 @@
   - 写行用 `skipNotify: true`，整批结束后只调用一次 `refreshDataAndWorldbook`。
 - 验证：`node --test tests/combat-tables.test.js` 共 7 项，全部通过（fake API：缺方法 fail-closed、建表需确认且幂等、读回不一致保留待写、读取失败不当空表、分段还原、client 旧调用形状）。与 simulate、楼层准备及前几步 combat 测试合跑 60 项全部通过。未在真机 shujuku 上执行建表或写入（留待第 13 步逐项确认）。
 
+### 第 8 步：成长账本归并与正文扫描入库
+
+- 新增 `combat/ledger.js`：`normalizeSnapshot`、`indexProfiles`、`computeEffectiveState`、`scanGrowthTags`、`buildDeckEntry`，以及门面 `createCombatLedger({ tables, chat, userName, sourceFilter, now })` → `read / effectiveState / append / scan / saveDeck`。`chat` 由调用方传入消息快照（数组或函数），combat 不读宿主。
+- `scene/combat-directives.js` 的 `extractGrowthDirectives` 增加 `{ raw: true }`，供战报用户楼直接扫原文；`scene/combat-prompt.js` 导出 `combatReportResult`。
+- 实现时定下的细节（设计未写明）：
+  - 尚无档案的角色以名字键 `nm-<hash>` 记 EXP（暂计入 `unassignedExp`），登记档案后按名字与别名归并；同一标签先后以名字键和档案 ID 各记一次时只计一次，扫描也把两种 ID 都视为已入库。
+  - 同一楼层内按 exp → class → learn → upgrade → reward → deck 的顺序归并，再按 occurrence，保证奖励按当时等级核对。
+  - 隐藏楼（`is_system`）仍算存在；普通用户输入楼不扫描、其中的标签也不计；只有带 `<igs-combat-report>` 的战报用户楼计标签，`result="lose"` 时 EXP 不入库，已入库的也判为失效。
+  - `deck` 与 `reward` 不来自标签，只核对楼层与 swipe；`deck` 锚点 `tagHash` 固定为 `deck`，同楼同 swipe 多次保存时 occurrence 递增，`revision` 单调递增。
+  - 同名职业后登记者不生效，引用它的角色改用先登记的职业（`classAlias`）。
+  - 拒收条目（升级目标不存在、奖励等级未达到或重复领取、ID 冲突等）只记诊断，不生效；`revoke` 只让目标失效，不做物理删除。
+- 跨聊天隔离（设计 A6）仍按「表随聊天」处理，未加角色卡作用域前缀，待第 13 步真机确认。
+- 验证：`node --test tests/combat-ledger.test.js` 共 10 项，全部通过（锚点有效 / 换 swipe / 切回 / 删标签 / 删楼、分支后锚点仍有效、重复扫描不重复写、名字键归并、EXP 封顶与战报、失败战报无 EXP、待生成队列、职业复用、卡组回退与剔除、revoke、读取失败不当空状态、与真实 combat-tables 适配器联通）。与 combat 其余测试及 fx-directives 合跑 57 项全部通过。仍是内存或 fake API 验证，未在真机执行。
