@@ -11,6 +11,7 @@ import {
     weaveWaitStageLines,
 } from './wait-stage.js';
 import { getWaitStageGamePack, listWaitStageGameIds, subscribeWaitStageGamePack } from './wait-stage-games-api.js';
+import { ORIGINAL_READER_ICONS } from './reader-icons.js';
 
 const QUOTE_MAX = 34;
 const TURN_LOOKBACK = 6;
@@ -210,6 +211,8 @@ export function createWaitStageRuntime(options = {}) {
     const onVoice = typeof options.onVoice === 'function' ? options.onVoice : () => {};
     const onExitReady = typeof options.onExitReady === 'function' ? options.onExitReady : () => {};
     const onDismiss = typeof options.onDismiss === 'function' ? options.onDismiss : () => {};
+    // 全屏等待层盖住了工具栏的退出键：右上角另放一个，生成照常在酒馆里跑。
+    const onClose = typeof options.onClose === 'function' ? options.onClose : null;
     const loadImage = typeof options.loadImage === 'function' ? options.loadImage : (url) => String(url || '');
     const releaseImages = typeof options.releaseImages === 'function' ? options.releaseImages : () => {};
     const timers = options.timers || globalThis;
@@ -544,6 +547,20 @@ export function createWaitStageRuntime(options = {}) {
             actions.appendChild(backButton);
             actions.appendChild(nextButton);
             body.appendChild(actions);
+            if (onClose && !opts.embedded) {
+                const closeButton = doc.createElement('button');
+                closeButton.type = 'button';
+                closeButton.className = 'igs-ws-close';
+                closeButton.title = '关闭';
+                closeButton.setAttribute('aria-label', '关闭');
+                closeButton.setAttribute('data-igs-waitstage-close', '1');
+                closeButton.innerHTML = ORIGINAL_READER_ICONS.close;
+                closeButton.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    if (root === openedRoot) onClose();
+                });
+                root.appendChild(closeButton);
+            }
             root.appendChild(body);
             host.appendChild(root);
             syncGameAttr();

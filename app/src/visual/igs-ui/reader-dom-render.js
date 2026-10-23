@@ -2187,7 +2187,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     if (input) {
         input.placeholder = snapshot.input.placeholder;
-        input.value = current.inputValue;
+        // 边打字边重绘（出图、报错都会重绘）：草稿由宿主的 input 监听实时记下，值没变就不回写，免得吞字、打断输入法。
+        if (input.value !== current.inputValue) input.value = current.inputValue;
     }
     if (send && !(send.dataset && send.dataset.igsBound)) {
         if (send.dataset) send.dataset.igsBound = '1';

@@ -1,4 +1,4 @@
-import { recoverOperation, linkRecoverySignals, RECOVERY_ATTEMPTS } from '../../storage/automatic-recovery.js';
+import { recoverOperation, linkRecoverySignals, recoveryFailureText, RECOVERY_ATTEMPTS } from '../../storage/automatic-recovery.js';
 import { requireMediaCache } from '../../media/media-cache-owner.js';
 import { createAssetRecordCache } from '../../media/asset-record-cache.js';
 import { IMAGE_FIELDS, isImageData } from '../../media/image-identity.js';
@@ -16,6 +16,7 @@ import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-bui
 import { collectAssetNeeds, collectGeneratedImageIds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
 import { GENERATED_IMAGE_SCHEMA_VERSION, isLegacyGeneratedImage, isQuotaError, normalizeGeneratedImageRecord } from '../../media/generated-asset-store.js';
+import { checkImageStorageRoom, IMAGE_STORAGE_FULL_MESSAGE, plannedImageCount } from '../../media/image-storage-room.js';
 import { buildCharacterAvatarDescription, buildCharacterSpriteDescription, buildDbgenAssetDescription, buildDbgenBackgroundBatchDescription, buildDbgenSpriteBatchDescription, buildExpressionDiffDescription, buildWardrobeClothingDescription, nsfwClothingBoostLine, expressionLookTags, expressionPaintDna, expressionSpritePrompts, splitExpressionWriteBatches, splitWriteBatches, uprightSpriteCaption } from '../dbgen-prompt.js';
 import { composeSpriteCaption, hasSpriteDna, spritePromptNeedsWriting } from '../sprite-prompt-composition.js';
 import { normalizeStoredPrompt, promptFromCaption, promptProvenance, storedPromptFromResult } from '../generation-prompt.js';
@@ -1521,7 +1522,21 @@ export function createAssetGenerationService(deps) {
             dna: normalizeCharacterDna(identityDna ?? dna) };
         Object.assign(image, spriteAdoptionEvidence(templateInput, painted));
         Object.assign(image, outfitAdoptionEvidence(templateInput, painted));
-        await persistGeneratedImage(image);
+        // 保存重试用尽时 recoverOperation 会直接抛错：不接住的话整批异常中止，本批已存好的图也回不到设置里。
+        let saved;
+        try { saved = await persistGeneratedImage(image); }
+        catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
+        // 没存上就不能报成功：否则格子会指向一张不存在的图，已画好的表情也看不到。
+        if (saved?.ok === false) {
+            const cancelled = saved.cancelled === true;
+            const failure = saved.saveError ? { ...saved, error: saved.error || saved.saveError } : saved;
+            const quota = isQuotaError(saved.saveError) || /quota|存储.*满|空间不足/i.test(recoveryFailureText(failure));
+            return { mood, ok: false, reason: cancelled ? 'cancelled' : 'image-save-failed', stopGeneration: true, recoveryStopped: true,
+                error: cancelled ? '已停止' : quota ? IMAGE_STORAGE_FULL_MESSAGE : `图片没存上：${recoveryFailureText(failure)}`,
+                prompt, caption: protocol?.caption || upright,
+                ...characterPromptRecovery(templateInput), ...(exact && { edited: true }),
+                ...(characterMeta !== undefined && { characterMeta }) };
+        }
         rememberImage(imageId, image.dataUrl);
         return { mood, ok: true, imageId, prompt, name, characterMeta: image.characterMeta,
             ...(isImageSeed(image.seed) && { seed: image.seed }),
@@ -1610,7 +1625,9 @@ export function createAssetGenerationService(deps) {
             nsfw: nsfw === true,
         };
         const paintDna = template ? dna : expressionPaintDna(dna, outfit);
-        const stopped = () => Boolean(signal && signal.aborted)
+        // 某张图没存上（空间不足等）后不再继续出图，剩下的词留给「继续生图」。
+        let saveHalted = false;
+        const stopped = () => saveHalted || Boolean(signal && signal.aborted)
             || (typeof shouldStart === 'function' && shouldStart() !== true);
         const items = [];
         let painted = 0;
@@ -1715,6 +1732,7 @@ export function createAssetGenerationService(deps) {
                     const result = await paintExpressionCaption(name, pending[i], caption, paintDna, { ...paint,
                         ...(template && { templateInput: characterTemplateInput(slot, task.promptTask, context), characterMeta: slot.characterMeta }), signal, ...(shouldStart && { shouldStart }) });
                     items.push(result);
+                    if (result.reason === 'image-save-failed' || result.reason === 'cancelled') saveHalted = true;
                 }
                 pending = round === 0 ? missing : [];
             }
@@ -1815,7 +1833,8 @@ export function createAssetGenerationService(deps) {
         if (!checked.ok) return checked;
         dna = context[0].dna;
         const paint = { paintMeta, seed: randomSeed(), outfitName: '', identityDna: dna, nsfw: nsfw === true };
-        const stopped = () => Boolean(signal && signal.aborted)
+        let saveHalted = false;
+        const stopped = () => saveHalted || Boolean(signal && signal.aborted)
             || (typeof shouldStart === 'function' && shouldStart() !== true);
         const items = [];
         let painted = 0, writeError = '';
@@ -1872,9 +1891,11 @@ export function createAssetGenerationService(deps) {
                     }
                     painted += 1;
                     reportExpressionProgress(onProgress, { phase: 'paint', done: painted, total: labels.length, mood: pending[i] });
-                    items.push(await paintExpressionCaption(name, pending[i], slot.caption, dna, { ...paint,
+                    const result = await paintExpressionCaption(name, pending[i], slot.caption, dna, { ...paint,
                         templateInput: characterTemplateInput(slot, task.promptTask, context), characterMeta: slot.characterMeta,
-                        signal, ...(shouldStart && { shouldStart }) }));
+                        signal, ...(shouldStart && { shouldStart }) });
+                    items.push(result);
+                    if (result.reason === 'image-save-failed' || result.reason === 'cancelled') saveHalted = true;
                 }
                 pending = round === 0 ? missing : [];
             }
@@ -2416,6 +2437,12 @@ export function createAssetGenerationService(deps) {
                 ...(target && { shouldStart: target.shouldStart }) });
             const captured = generation && typeof llm?.runImageTask === 'function';
             const run = async guarded => {
+                // 存储空间明显装不下这一批时不发任何请求，免得出完图才发现存不下。
+                const planned = generation ? plannedImageCount(method, args[0]) : 0;
+                if (planned) {
+                    const room = await checkImageStorageRoom(deps.global || globalThis, planned);
+                    if (!room.ok) return { ...room, stopGeneration: true };
+                }
                 if (generation && method !== 'writeWardrobePrompt' && typeof nai?.waitUntilReady === 'function') {
                     const ready = await nai.waitUntilReady(guarded);
                     if (!ready.ok) return ready;

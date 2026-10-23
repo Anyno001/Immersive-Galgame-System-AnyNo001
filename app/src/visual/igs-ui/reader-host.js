@@ -157,6 +157,23 @@ function unavailableImageProbe(generatedAssets) {
         ? generatedAssets.isUnavailableImage : undefined;
 }
 
+// 阅读器认领的 Esc：IGS 自己的面板、弹窗照常收到（冒泡途经它们），到 <html> 再截住，不让酒馆 document 上的「中止生成」收到。
+const claimedReaderEscapes = new WeakSet();
+const escapeGuardDocs = new WeakSet();
+
+function installReaderEscapeGuard(doc) {
+    const html = doc && doc.documentElement;
+    if (!html || escapeGuardDocs.has(doc) || typeof html.addEventListener !== 'function') return;
+    escapeGuardDocs.add(doc);
+    html.addEventListener('keydown', (event) => {
+        if (claimedReaderEscapes.has(event)) event.stopPropagation();
+    });
+}
+
+function claimReaderEscape(event) {
+    if (event && typeof event === 'object') claimedReaderEscapes.add(event);
+}
+
 export function createIgsReaderHost(options = {}) {
     bindImageCacheDocument(getRootDocument(options.global), options.media?.cache);
     // 快速连翻的整页渲染最小间隔（见 renderTurnedPage）；放闭包开头，避免提前调用时未初始化。
@@ -394,6 +411,7 @@ export function createIgsReaderHost(options = {}) {
             streamObserver.cancelPending();
             exitEmbeddedLoading();
         },
+        onClose: () => closeReader(),
     });
     let pendingReplyMessage = null;
     // 小游戏脚本可能比阅读器晚装上：装上或卸掉都要重排一次工具栏里的「小游戏」。
@@ -640,6 +658,10 @@ export function createIgsReaderHost(options = {}) {
     return host;
 
     function openReader(payload = {}, openOptions = {}) {
+        // 开着时重开（切轮、报错后重建）带上没发出去的草稿；关掉再开是新输入框。
+        const draft = state.activeReader ? String(state.activeReader.inputValue || '') : '';
+        const prevInput = state.activeReader && state.activeReader.dom && state.activeReader.dom.input;
+        const draftFocused = Boolean(prevInput && prevInput.ownerDocument && prevInput.ownerDocument.activeElement === prevInput);
         closeReader({ keepFullscreen: true });
         payload = cloneReaderPayload(payload);
         unparkAudioBus();
@@ -678,7 +700,7 @@ export function createIgsReaderHost(options = {}) {
             streamPhase: 'idle',
             mountBaselineRaw: getMessagePrimaryText(payload.message && (payload.message.raw || payload.message) || payload.raw || ''),
             mountBaselineVisible: String(payload.visibleText || ''),
-            inputValue: '',
+            inputValue: draft,
             hidden: false,
             dragSuppressClick: false,
             toolbarCollapsed: true,
@@ -737,6 +759,10 @@ export function createIgsReaderHost(options = {}) {
         });
         current.autoPlay = current.autoPlayer.getState();
         updateMountedReader(snapshot);
+        // 正打着字被重开：焦点也接回新输入框，后续按键不会落到翻页快捷键上。
+        if (draftFocused && current.dom && current.dom.input && typeof current.dom.input.focus === 'function') {
+            current.dom.input.focus();
+        }
         startReaderImagePolling(state.activeReader);
         if (!progressRuntime.navigating) void offerResume(current);
         if (domState && domState.overlay) {
@@ -783,7 +809,7 @@ export function createIgsReaderHost(options = {}) {
             current.mountBaselineVisible = String(payload.visibleText || '');
         }
         current.index = 0;
-        current.inputValue = '';
+        // 输入框里没发出去的草稿留着：出图写回、回复失败都会走这里原地换源。
         current.awaitingReply = false;
         current.mountMessageId = replaceOptions.mountMessageId != null ? replaceOptions.mountMessageId : current.mountMessageId;
         current.mode = mode;
@@ -4267,7 +4293,17 @@ export function createIgsReaderHost(options = {}) {
                 }
             }
         });
+        // 草稿随打随记：出图写回、生成报错会重绘或重开阅读器，按记下的值回填，打到一半的字不丢。
+        root.addEventListener('input', (event) => {
+            if (event.target && event.target.id === 'igs-input' && state.activeReader) {
+                state.activeReader.inputValue = String(event.target.value || '');
+            }
+        });
         const keydownHandler = (event) => {
+            // 全屏阅读器里的 Esc 归 IGS：酒馆在 document 上把 Esc 当「中止生成」，不能让它冒泡过去。
+            if (event.key === 'Escape' && state.activeReader && !isEmbeddedReaderMode(state.activeReader.mode)) {
+                claimReaderEscape(event);
+            }
             if (onboarding.keydown(event)) return;
             if (!state.activeReader) return;
             if (state.activeSettings?.asyncState?.shortcutRecording) return;
@@ -4358,6 +4394,7 @@ export function createIgsReaderHost(options = {}) {
             doc.addEventListener('keydown', keydownHandler, true);
             doc.addEventListener('click', hostEditHandler, true);
         }
+        installReaderEscapeGuard(doc);
         const dbController = createDbPanelController(doc, options.global);
         // 「前往 / 使用」保留原草稿并追加命令，不发送消息。
         const fillRecordDraft = async text => {
