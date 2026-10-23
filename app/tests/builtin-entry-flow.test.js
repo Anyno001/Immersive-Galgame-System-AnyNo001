@@ -189,6 +189,28 @@ test('gate:builtin-entry:首次立绘同次 DNA 候选，权威回读采用才�
     assert.deepEqual(f.assets, before);
 });
 
+test('手动默认立绘首次建档附上角色卡与世界书参考', async t => {
+    const asked = [];
+    const lore = [{ name: 'Alice', text: '角色卡：身高152cm，黑色长发。' }];
+    const f = entryFixture({ messageHost: { getChatId: () => 'builtin-entry',
+        readCharacterLore: async (names, options) => { asked.push({ names, options }); return lore; } } });
+    t.after(() => f.dispose());
+    const generated = await f.service.generateCharacterSprite({ name: 'Alice', dna: {} });
+    assert.equal(generated.ok, true, JSON.stringify(generated));
+    assert.deepEqual(asked, [{ names: ['Alice'], options: { includeWorldInfo: true } }]);
+    assert.deepEqual(f.writes[0].input.lore, lore);
+});
+
+test('手动默认立绘设定读取失败时不发送写词', async t => {
+    const f = entryFixture({ messageHost: { getChatId: () => 'builtin-entry',
+        readCharacterLore: async () => { throw new Error('offline'); } } });
+    t.after(() => f.dispose());
+    const generated = await f.service.generateCharacterSprite({ name: 'Alice', dna: {} });
+    assert.equal(generated.ok, false);
+    assert.equal(generated.reason, 'dna-lore-unavailable');
+    assert.deepEqual([f.writes.length, f.wires.length], [0, 0]);
+});
+
 test('手动默认立绘生成期间保存其它衣装，完成后合并而不覆盖', async t => {
     const { handleSettingsAction } = await import('../src/visual/igs-ui/settings-actions.js');
     const assets = { characters: { Alice: {} }, characterDna: { Alice: { version: 2,

@@ -493,3 +493,28 @@ function forbidProvidedReads(input) {
         { enumerable: true, get() { assert.fail(`provided 不得读取 ${field}`); } });
     return input;
 }
+
+test('中转地址单人图把角色词并入场景段，官方地址与多人图保持分段', async () => {
+    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
+    const wires = [];
+    const nai = createNaiOfficialClient({ fetch: async (_url, init) => {
+        wires.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ image: 'data:image/png;base64,AAAA' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } });
+    } });
+    const solo = { scene: 'solo, standing', sceneUc: 'text', chars: [{ tags: '1girl, black_hair', uc: 'white_hair', x: 0.5, y: 0.5 }] };
+    const duo = { ...solo, chars: [...solo.chars, { tags: '1boy', uc: '', x: 0.7, y: 0.5 }] };
+    const relay = { apiKey: 'k', endpoint: 'https://my-relay.example.com/ai/generate-image' };
+    assert.equal((await nai.generate(solo, relay)).ok, true);
+    let wire = wires.at(-1);
+    assert.equal(wire.input, 'solo, standing, 1girl, black_hair');
+    assert.equal(wire.parameters.v4_prompt.caption.base_caption, 'solo, standing, 1girl, black_hair');
+    assert.equal(wire.parameters.negative_prompt, 'text, white_hair');
+    assert.equal(wire.parameters.v4_prompt.caption.char_captions[0].char_caption, '1girl, black_hair');
+    await nai.generate(duo, relay);
+    assert.equal(wires.at(-1).input, 'solo, standing');
+    await nai.generate(solo, { apiKey: 'k' });
+    assert.equal(wires.at(-1).input, 'solo, standing');
+    await nai.generate(solo, { apiKey: 'k', endpoint: 'https://image.novelai.net/ai/generate-image' });
+    assert.equal(wires.at(-1).input, 'solo, standing');
+});

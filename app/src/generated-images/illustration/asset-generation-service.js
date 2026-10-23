@@ -23,7 +23,7 @@ import { promptTimeBucket, sceneVariantCaption, sceneVariantTags } from '../scen
 import { sceneTimeBucket } from '../../scene/time-bucket.js';
 import { extractSceneDirectives, resolveCharacterKey } from '../../scene/scene-directives.js';
 import { createOutfitResolver, isValidOutfitName } from '../../scene/character-outfits.js';
-import { normalizeCharacterDna, isCharacterDnaEmpty, resolveCharacterDna } from '../../scene/character-dna.js';
+import { normalizeCharacterDna, isCharacterDnaEmpty, resolveCharacterDna, CHARACTER_DNA_REQUIRED_VIEWS } from '../../scene/character-dna.js';
 import { buildCharacterContext, spriteAdoptionEvidence } from '../../scene/character-identity.js';
 import { outfitAdoptionEvidence } from '../../scene/outfit-identity.js';
 import { prepareCharacterCaption } from '../character-caption.js';
@@ -2100,10 +2100,18 @@ export function createAssetGenerationService(deps) {
                 const task = characterPromptTask(context, nude ? 'derived' : 'sprite', 'half_body', [[who]]);
                 const checked = preflightCharacterTask(context, task.promptTask.purpose, 'half_body');
                 if (!checked.ok) return checked;
+                // 身份未建档时由写词模型首次设计外貌；手动入口没有楼层正文触发世界书，直接附上人设、角色卡与点名条目。
+                let lore;
+                if (!nude && !CHARACTER_DNA_REQUIRED_VIEWS.every(view => context[0].dna.views?.[view]?.subject?.trim())
+                    && typeof messageHost.readCharacterLore === 'function') {
+                    try { lore = await messageHost.readCharacterLore([who], { includeWorldInfo: true }); } catch { lore = null; }
+                    if (!Array.isArray(lore)) return { ok: false, reason: 'dna-lore-unavailable', error: '角色设定读取失败，未发送立绘请求' };
+                    if (stopped()) return stale();
+                }
                 reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: 1, mood: '平和' });
                 let written;
                 try {
-                    written = await writePrompt({ signal, ...task,
+                    written = await writePrompt({ signal, ...task, ...(lore?.length && { lore }),
                         imagePromptTask: nude ? 'outfit' : 'sprite',
                         description: nude
                             ? `整理本次显式裸体或形态资料，保留其语义，不改变已保存身份、不新增衣物；只交衣装资料字段，不生成构图、动作或场景。用户要求：${note || ''}`

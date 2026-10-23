@@ -24,6 +24,31 @@ function toNaiWireBody(body) {
     return { ...body, parameters };
 }
 
+function isOfficialNaiEndpoint(endpoint) {
+    const trimmed = String(endpoint || '').trim();
+    if (!trimmed) return true;
+    try { return /(^|\.)novelai\.net$/i.test(new URL(trimmed).hostname); } catch { return false; }
+}
+
+const joinTags = (...parts) => parts.map((p) => String(p || '').trim().replace(/^,+|,+$/g, '').trim())
+    .filter(Boolean).join(', ');
+
+// 部分中转只转发场景段、丢弃 V4 角色段；单人图把角色词并入场景段，多人保持分段以免串特征。
+export function foldSoloCharForRelay(body, endpoint) {
+    const p = body && body.parameters;
+    const pos = p?.v4_prompt?.caption, neg = p?.v4_negative_prompt?.caption;
+    if (isOfficialNaiEndpoint(endpoint) || !pos || !Array.isArray(pos.char_captions) || pos.char_captions.length !== 1)
+        return body;
+    const charPos = pos.char_captions[0]?.char_caption;
+    const charNeg = Array.isArray(neg?.char_captions) ? neg.char_captions[0]?.char_caption : '';
+    const base = joinTags(pos.base_caption, charPos);
+    const negBase = neg ? joinTags(neg.base_caption, charNeg) : '';
+    return { ...body, input: base, parameters: { ...p,
+        v4_prompt: { ...p.v4_prompt, caption: { ...pos, base_caption: base } },
+        ...(neg && { negative_prompt: negBase,
+            v4_negative_prompt: { ...p.v4_negative_prompt, caption: { ...neg, base_caption: negBase } } }) } };
+}
+
 export function resolveNaiEndpoint(endpoint) {
     const trimmed = String(endpoint || '').trim();
     if (!trimmed) return NAI_OFFICIAL_ENDPOINT;
@@ -123,7 +148,7 @@ export function createNaiOfficialClient(deps = {}) {
                     Accept: 'application/zip, application/octet-stream, application/json, image/png',
                     Authorization: `Bearer ${settings.apiKey}`,
                 },
-                body: JSON.stringify(toNaiWireBody(body)),
+                body: JSON.stringify(toNaiWireBody(foldSoloCharForRelay(body, settings.endpoint))),
                 mode: direct ? 'cors' : 'same-origin',
                 credentials: direct ? 'omit' : 'same-origin',
                 signal: settings.signal,
