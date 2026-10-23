@@ -20,6 +20,8 @@
 - `policy.js`：确定性托管。`chooseAllyPlay`（预计受伤大于格挡先防御 → 可击杀时取最低费击杀 → 前两回合打能力牌 → 按伤害/费用攻击最弱敌人）；`chooseSkillIntent`（按权重与冷却抽取，同一技能不连续使用三次）。
 - `ledger.js`：成长账本。`createCombatLedger({ tables, chat })` → `read / effectiveState / append / scan / saveDeck`；只读归并两张战斗表，按锚点（`messageId + swipeId + tagHash + occurrence`，不含 chatId）判定条目是否生效，读取失败返回 `ok:false`，不当作空账本；写入只经注入的 `tables`。
 - `generation.js`：副 LLM 生成。`generateEntities(entities, { request, llm, signal })` → `{ ok, accepted, rejected, diagnostics, blocked }`；逐实体 schema 与预算校验，不合格实体最多定向修正 2 轮，已通过实体不再提交；修正耗尽时敌人回落模板敌人、主角 `blocked`、队友不参战；取消返回 `request-stale`。只构造请求与校验，不落账。
+- `report.js`：战报构造。`buildCombatReport(...)` → `{ ok, text, result, reportId, exp }`；只写技能名与相对伤势，胜利附 EXP 标签，失败与撤退不附。
+- `session.js`：战斗会话。`createCombatSession(deps)` → `prepare / start / act / finish / retrySend / skip / resume / reset / state`；断点续战只存 `{ combatId, anchor, seed, setup, actions }`，核对锚点与规则版本后重放；先写待回传再发送，失败不自动重发；已回传的战斗只能回顾。宿主能力全部注入。
 
 ## 约束
 

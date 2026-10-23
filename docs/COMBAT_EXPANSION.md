@@ -108,3 +108,20 @@
   - 取消或迟到结果一律 `request-stale`，已通过的实体也不交付；`source: 'openai'` 缺地址或模型时返回 `combat-llm-config-incomplete`，不改走酒馆。
 - 主角自动生成、其他角色手动触发由调用方（第 10、12 步）决定，本模块只提供实体构造。
 - 验证：`node --test tests/combat-generation.test.js` 共 7 项，全部通过（合法回复、超封顶与超预算定向修正、已通过实体不进入修正请求、职业已登记不请求职业、同名敌人复用、修正耗尽回落、请求失败、取消与迟到、配置不完整、learn / upgrade ID 分配与转换）。与 combat 其余测试及 fx-directives 合跑 64 项全部通过。用例使用固定回复夹具，只证明解析与校验链路，不证明模型生成质量。
+
+### 第 10 步：战斗会话、战报与自动回传
+
+- 新增 `combat/report.js`：`collectTurns`、`buildCombatReport({ combatId, encounter, state, events, enemyTiers, expTargets, detail })`、`injuryLevel`、`reportIdFor / reportIdOf`、`COMBAT_SKIP_TEXT`。战报只写技能名（卡牌取 `skillRef`）和相对伤势（无伤 / 轻伤 / 重创 / 濒死 / 倒下），不出现卡牌、费用、能量或数值；每回合按重要度保留最多 4 条（`brief` 为 2 条），超过 8 回合时中段合并成概述。胜利时在战报块后附 `[igs-combat:exp|角色|数值|战斗:<reportId>]`，数值为各敌人档位 EXP 之和；失败与撤退不附。
+- 新增 `combat/session.js`：`createCombatSession(deps)` → `prepare / start / act / finish / retrySend / skip / resume / reset / state`。账本、战斗表、副 LLM、发送、storage、聊天快照全部注入。
+- 新增 `host/combat-report-regex.js`：`ensureCombatReportRegex(globalObject)` 注册一条只作用于用户楼、只改 display 的全局正则，把战报块及其后的 exp 标签行折叠成「战斗记录」；prompt 目标不处理，主模型看到原文。注册幂等，并保留其他全局正则。
+- `combat/ledger.js` 的 `effectiveState()` 增加 `enemies`（敌人档案按 ID 索引），供会话复用同名同档的敌人。
+- 实现时定下的细节（设计未写明）：
+  - `combatId` 由开战标签锚点推导（`cb|messageId|swipeId|tagHash|occurrence`），不含 chatId，与日志锚点的分支语义一致；设计 §6.1 写的 `floorKeyOf` 含 chatId，回溯分支后已回传的战斗会被误判为未打，因此没有采用。
+  - 「已回传」以开战楼之后存在同一 `reportId` 的用户楼为准；待回传战报存在 `igs-combat:outbox:<chatId>`，存档存在 `igs-combat:session:<chatId>`，二者都不在全局配置文件白名单内。
+  - 发送前先写待回传；收到回执后清掉待回传和存档，再对战报楼执行一次账本扫描，EXP 由战报楼标签入库。发送失败时保留待回传，只能手动 `retrySend`；重试前若聊天里已有同一战报，直接完成，不重复发送。
+  - 动作先在副本上结算，存档写入成功后才推进；开战楼换 swipe、删楼或换聊天时会话作废并清存档。续战核对存档版本、规则版本和锚点后，用同一 seed 重放；不一致时作废，不就地修补。
+  - 准备阶段：主角缺档案时自动生成卡组档案；队友缺档案时生成技能档案（卡组档案只在第 12 步面板里手动生成）；敌人同名同档复用。主角生成失败或读表失败时进入 `blocked`；队友生成失败时本次不参战；敌人生成失败时用模板敌人，不入库，`lobby.templated` 会列出这些敌人。生成期间开战楼发生变化时，结果丢弃。
+  - 操控角色只能从卡组合规的参战卡组角色中选；首领战不能撤退。
+- 会话尚未接入 bootstrap 与界面：战斗面板、入口卡片和正则注册时机归第 11 步，真机发送与折叠显示归第 13 步。
+- 验证：`node --test tests/combat-session.test.js` 7 项、`tests/combat-report-regex.test.js` 2 项，全部通过。覆盖胜、败、撤退全流程及对应战报和成长条目（失败与撤退无 EXP）；刷新后重放得到相同战局；换 swipe 后作废；发送失败保留待回传、不自动重发，手动重试；已回传的战斗只能回顾；跳过战斗不产生条目；主角生成失败与读表失败阻断；正则只折叠显示且幂等。与 combat 其余测试及 fx-directives 合跑 73 项，全部通过。发送和正则都使用 fake 宿主，没有在真机执行。
+

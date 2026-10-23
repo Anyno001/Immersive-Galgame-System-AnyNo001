@@ -34,6 +34,7 @@
 - 副 LLM 请求（`secondary-llm.js`）。
 - `illustration-message-host.readCharacterLore` 按本轮角色筛选并完整收集角色卡、用户人设及匹配的世界书条目，不按每人或总字符数截断；`includeWorldInfo:false` 仍由内置预设的原生世界书扫描负责参考。
 - 自动插图楼层读写、生成事件订阅及 `[igs-img]` 标记对外隐藏（`illustration-message-host.js`）。
+- 战报显示折叠（`combat-report-regex.js`）：`ensureCombatReportRegex` 只注册作用于用户楼的 display 正则，prompt 目标保留原文；注册幂等，保留其他全局正则，缺少酒馆助手正则接口时返回 `regex-api-missing`。
 - 自动插图 `writeFloor(messageId, text, expectedFloor)` 写回前复核聊天、楼层、swipe、最新 AI 身份与原文；发生变化返回 `stale`，不写入。宿主 API 未提供原子条件写入，复核与实际调用之间的极窄竞态仍需真机验证。
 - 提供 `typeIntoInputAndSend(text)`，供阅读器输入框和选项浮窗调用。
 - `input-channel.js` 是输入框发送的默认骨架入口。

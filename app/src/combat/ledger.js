@@ -66,6 +66,7 @@ export function indexProfiles(profiles, diagnostics = []) {
     const classByName = new Map();
     const classAlias = new Map();
     const characters = new Map();
+    const enemies = new Map();
     const byName = new Map();
     const byNameKey = new Map();
     const sorted = [...profiles.values()].sort((a, b) => a.createdAt - b.createdAt || (a.profile.id < b.profile.id ? -1 : 1));
@@ -88,9 +89,11 @@ export function indexProfiles(profiles, diagnostics = []) {
                 if (owner === undefined) byName.set(name, profile.id);
                 else if (owner !== profile.id) diagnostics.push({ code: 'combat-name-duplicate', name, id: profile.id, kept: owner });
             }
+        } else if (profile.kind === 'enemy') {
+            enemies.set(profile.id, profile);
         }
     }
-    return { classes, classByName, classAlias, characters, byName, byNameKey };
+    return { classes, classByName, classAlias, characters, enemies, byName, byNameKey };
 }
 
 export function resolveClass(index, classId) {
@@ -339,7 +342,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         else applied.push(e.id);
     }
     const characters = new Map([...state].map(([id, c]) => [id, characterView(c)]));
-    return { ok: true, characters, classes: index.classes, unassignedExp, applied, inactive, diagnostics };
+    return { ok: true, characters, classes: index.classes, enemies: index.enemies, unassignedExp, applied, inactive, diagnostics };
 }
 
 const GENERATED_KINDS = new Set(['learn', 'upgrade', 'class']);
