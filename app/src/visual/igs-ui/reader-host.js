@@ -9,6 +9,8 @@ import { bindImageCacheDocument } from '../../media/tavern-image-cache.js';
 import { buildIgsTextPayload, getMessagePrimaryText, getVisibleMessageTextFromElement, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
 import { applyVoiceBark, canonicalName, noteFormGender, setActiveFormGenders } from './voice-bark.js';
 import { createSettingsHost } from './settings-host.js';
+import { createCombatPanelController } from './combat-panel.js';
+import { resolveCombatEntry, syncCombatEntry } from './combat-entry.js';
 import { createRecoveryNotice } from './recovery-notice.js';
 import { handleSettingsAction } from './settings-actions.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
@@ -2002,7 +2004,7 @@ export function createIgsReaderHost(options = {}) {
                 || overlay?.classList?.contains('igs-options-visible') || !host || !menu || host.classList?.contains('igs-hud-collapsed'))
                 return { ok: false, reason: 'record-entry-not-visible' };
             if (normalizedAction === 'toggle-record-menu') {
-                if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen()) return { ok: false, reason: 'panel-open' };
+                if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen() || current.dom.combatController?.isOpen()) return { ok: false, reason: 'panel-open' };
                 const expanded = menu.hasAttribute('hidden');
                 if (expanded) menu.removeAttribute('hidden');
                 else menu.setAttribute('hidden', '');
@@ -2011,7 +2013,7 @@ export function createIgsReaderHost(options = {}) {
             }
             if (normalizedAction === 'map' && !hud.character && !hud.location) return { ok: false, reason: 'record-entry-not-visible' };
             if (normalizedAction === 'favor' && !(hud.metrics || []).some(metric => /好感/.test(String(metric?.label || '')))) return { ok: false, reason: 'favor-bar-missing' };
-            if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen()) return { ok: false, reason: 'panel-open' };
+            if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen() || current.dom.combatController?.isOpen()) return { ok: false, reason: 'panel-open' };
             if (!menu.hasAttribute('hidden')) {
                 menu.setAttribute('hidden', '');
                 arrow?.setAttribute('aria-expanded', 'false');
@@ -4070,10 +4072,11 @@ export function createIgsReaderHost(options = {}) {
             }
             const mapPanel = state.activeReader.dom?.mapController;
             const recordPanel = state.activeReader.dom?.recordController;
-            if (mapPanel?.isOpen() || recordPanel?.isOpen()) {
+            const combatPanel = state.activeReader.dom?.combatController;
+            if (mapPanel?.isOpen() || recordPanel?.isOpen() || combatPanel?.isOpen()) {
                 if (event.key === 'Escape') {
                     event.preventDefault(); event.stopPropagation?.();
-                    if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
+                    if (combatPanel?.isOpen()) combatPanel.close(); else if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
                 } else if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.stopPropagation?.();
                 return;
             }
@@ -4163,12 +4166,19 @@ export function createIgsReaderHost(options = {}) {
                 return ctx && (typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId) || '';
             },
         });
+        // 卡牌战斗面板：会话、账本与建表由 bootstrap 注入；扩展关闭或宿主不可用时 getSession 返回 null，面板不打开。
+        const combatController = createCombatPanelController(doc, {
+            getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
+            getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
+            ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
+        });
         const domState = {
             root,
             doc,
             dbController,
             mapController,
             recordController,
+            combatController,
             embeddedMount,
             dispose() {
                 if (typeof doc.removeEventListener === 'function') {
@@ -4179,6 +4189,7 @@ export function createIgsReaderHost(options = {}) {
                 if (state.activeReader) disposeLive2dStage(state.activeReader);
                 mapController.dispose();
                 recordController.close();
+                combatController.dispose();
                 dbController.close();
                 teardownEmbeddedMount(domState.embeddedMount);
                 domState.embeddedMount = null;
@@ -4445,7 +4456,31 @@ export function createIgsReaderHost(options = {}) {
         syncOptionBubblesAfterRender(current, snapshot);
         syncAssetReviewAfterRender(current, snapshot);
         syncMissedAssetsHint(current, snapshot);
+        syncCombatEntryAfterRender(current, snapshot);
         if (generationStripRemount) { generationStripRemount = false; generationStrip.remount(); }
+    }
+
+    // 开战楼入口：最新 AI 楼末页、正文末尾有开战标签时显示遭遇卡片；历史楼层与流式输出期间不显示。
+    function syncCombatEntryAfterRender(current, snapshot) {
+        const overlay = current && current.dom && current.dom.overlay;
+        if (!overlay) return;
+        const messageId = current.contentMessageId != null ? current.contentMessageId : current.payload && current.payload.messageId;
+        const live = current.streamPhase !== 'streaming' && !(Number(current.turnOffset) > 0);
+        const floor = live && messageId != null && typeof options.getIllustrationSource === 'function'
+            ? options.getIllustrationSource(messageId) : null;
+        const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: isReaderLastPage(snapshot), sourceFilter: current.payload && current.payload.sourceFilter }) : null;
+        state.combatAutoOpened ||= new Set();
+        const auto = syncCombatEntry(overlay, entry, { seen: state.combatAutoOpened, onOpen: () => openCombatPanel(current, entry) });
+        if (auto) openCombatPanel(current, entry);
+    }
+
+    function openCombatPanel(current, entry) {
+        const dom = current && current.dom;
+        if (!dom || !dom.overlay || !entry) return { ok: false, reason: 'combat-entry-missing' };
+        if (dom.mapController.isOpen() || dom.recordController.isOpen()) return { ok: false, reason: 'panel-open' };
+        const menu = dom.overlay.querySelector?.('#igs-hud-record-menu');
+        if (menu && !menu.hasAttribute('hidden')) menu.setAttribute('hidden', '');
+        return dom.combatController.open(dom.overlay, { messageId: entry.messageId });
     }
 
     function syncMissedAssetsHint(current, snapshot) {

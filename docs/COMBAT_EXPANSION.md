@@ -125,3 +125,14 @@
 - 会话尚未接入 bootstrap 与界面：战斗面板、入口卡片和正则注册时机归第 11 步，真机发送与折叠显示归第 13 步。
 - 验证：`node --test tests/combat-session.test.js` 7 项、`tests/combat-report-regex.test.js` 2 项，全部通过。覆盖胜、败、撤退全流程及对应战报和成长条目（失败与撤退无 EXP）；刷新后重放得到相同战局；换 swipe 后作废；发送失败保留待回传、不自动重发，手动重试；已回传的战斗只能回顾；跳过战斗不产生条目；主角生成失败与读表失败阻断；正则只折叠显示且幂等。与 combat 其余测试及 fx-directives 合跑 73 项，全部通过。发送和正则都使用 fake 宿主，没有在真机执行。
 
+### 第 11 步：战斗面板、入口与设置项
+
+- 新增 `visual/igs-ui/combat-settings.js`：归一化 `readerSettings.combatExpansion` 的 `enabled / autoOpen / difficulty（easy / normal / hard）/ reportDetail（brief / normal）`，默认关闭、普通难度、标准详略。`checkCombatExpansionReady({ api, autoIllustration })` 在开启前检查 shujuku 接口与副 LLM 配置，不满足时不开启。`battleFx` 被接管时，设置页显示接管状态。
+- 新增 `combat-entry.js`（`resolveCombatEntry`）：入口只在扩展开启、处于最新 AI 楼末页且正文末尾为开战标签时出现。`autoOpen` 对同一开战楼只触发一次。
+- 新增面板：纯视图模型 `combat-panel-model.js`，以及 `combat-panel.js`、`combat-panel-render.js`、`combat-panel-style.js`。面板包含战前、对局、结算、领奖候选，以及缺表时的建表确认与阻塞原因。打开时加 `panel:combat` 暂停原因，关闭时只撤销自己加的原因；Esc 关闭并恢复焦点；出招沿用 `fx-battle` 演出；常见错误码显示为中文提示。
+- 新增 `core/combat-services.js`：`createCombatServices(deps)` 返回 `getSession / getLedger / ensureTables / syncRegex / resetChat / settings`。扩展关闭时不创建对象、不注册正则；会话按聊天创建并执行 `resume`；建表只在面板内确认后执行。`reader-host.js` 接入楼末入口，与地图、资料面板互斥。
+- `combat/ledger.js` 新增 `REWARD_TAG_HASH`、`buildRewardEntry` 和门面方法 `claimReward(characterId, level, choice)`：先按归并状态核对等级已达到且未领取，再写一条 reward 条目。重复领取、非法选项、读失败、写失败都返回 `ok:false`。
+- `combat/session.js` 与账本一致，每次调用时读取 `sourceFilter`（可传函数），设置变化后不必重建会话。
+- 构建产物验收使用本机合成预览服务（工作区 `app/tools/local-preview/`，不纳入版本库）：读取真实 `app/dist`，只监听 127.0.0.1，只放行无请求体的 GET/HEAD；宿主接口与写入默认拒绝；用户、聊天、档案均为合成数据。`fixtures/record-pages/preview.html` 增加战斗页。`scripts/record-pages-capture.mjs` 的 Edge CDP 端口改为 0，从 `DevToolsActivePort` 读取实际端口。
+- 验证：`combat-panel.test.js` 8 项、`combat-ledger.test.js` 11 项；战斗相关 10 个测试文件与 `settings-panel-ux.test.js` 合跑 84 项，全部通过。`npm.cmd run build` 产出 0.36.115。构建产物预览在 Edge headless 下实测：lobby 测了 1440 / 768 / 390 / 320 四个宽度，no-tables、read-fail、disabled 各测 390 宽；均无溢出、无 console error、无外站请求。VS Code 内置浏览器打开同一场景，产物指纹一致。
+- 未验证：结算、战报发送、领奖界面、内存写入模式、主题切换、完整 Tab 顺序；真实酒馆、手机、shujuku、副 LLM 均未验收。

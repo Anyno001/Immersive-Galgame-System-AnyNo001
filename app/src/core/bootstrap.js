@@ -71,6 +71,7 @@ import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from 
 import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { combatExpansionEnabled, resolveCombatNarrationSegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
+import { createCombatServices } from './combat-services.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
 const IGS_VERSION = '0.36.115';
@@ -345,6 +346,20 @@ export function bootstrapIGS(options = {}) {
     });
     let publicApi = null;
     let sceneAssetsInjectionTimer = null;
+    // 卡牌战斗：设置关闭时 getSession / getLedger 返回 null，不建表、不注册正则。
+    const combatServices = options.combatServices || createCombatServices({
+        global: globalObject,
+        storage: storageLike,
+        send: (text) => typeAndSend(text),
+        request: (req, llm) => secondaryLlm.request(req, llm),
+        getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
+        getAutoIllustration: () => readImageBridge().autoIllustration,
+        getSourceFilter: () => readImageBridge().sourceFilter,
+        getChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
+        getUserName: () => (typeof illustrationMessageHost.getUserName === 'function' ? illustrationMessageHost.getUserName() : ''),
+    });
+    const offCombatRegex = events.on('igs:legacy-settings-updated', () => { combatServices.syncRegex(); });
+    combatServices.syncRegex();
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
         media,
@@ -379,6 +394,9 @@ export function bootstrapIGS(options = {}) {
         getSettingsRevision: () => state.settingsRevision || 0,
         saveUnifiedSettings,
         typeAndSend,
+        getCombatSession: () => combatServices.getSession(),
+        getCombatLedger: () => combatServices.getLedger(),
+        ensureCombatTables: () => combatServices.ensureTables(),
         resumeReply: () => hostAdapter.resumeReply?.() || { ok: false, reason: 'reply-host-not-ready' },
         setInputText(text) {
             return typeof hostAdapter.setInputText === 'function' ? hostAdapter.setInputText(text) : { ok: false, reason: 'missing-input-api' };
@@ -974,12 +992,17 @@ export function bootstrapIGS(options = {}) {
             if (state.destroyed) return;
             syncSceneAssetsInjectionWithRetry(1);
         };
+        // 换聊天：丢弃旧聊天的战斗会话，下次取用时按新聊天的存档续战。
+        const onChatChanged = () => {
+            combatServices.resetChat();
+            resync();
+        };
         const onGenerationStarted = (type) => {
             if (state.destroyed) return;
             syncSceneAssetsInjection(typeof type === 'string' ? type : null);
         };
         const bindings = [
-            [eventTypes.CHAT_CHANGED, resync],
+            [eventTypes.CHAT_CHANGED, onChatChanged],
             [eventTypes.GENERATION_STARTED, onGenerationStarted],
             [eventTypes.GENERATION_ENDED, resync],
             [eventTypes.GENERATION_STOPPED, resync],
@@ -1070,6 +1093,7 @@ export function bootstrapIGS(options = {}) {
         close(() => itemCg.itemLedger.stop());
         close(offMediaClear);
         close(offRecoveryWake);
+        close(offCombatRegex);
         close(() => readerImageService.destroy?.());
         close(() => app.igsUi?.destroy?.());
         close(() => app.magicWandEntry?.destroy?.());

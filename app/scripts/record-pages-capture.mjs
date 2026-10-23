@@ -30,20 +30,27 @@ const previewPath = page === 'stage-cast' ? 'fixtures/stage-cast/preview.html'
 const SIZES = { desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768], tall: [900, 1700], mobile: [390, 844], short: [390, 500], tiny: [320, 568] };
 const [width, height] = SIZES[size] || SIZES.desktop;
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const CDP_PORT = 9333;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-const edge = spawn(EDGE, ['--headless=new', '--disable-gpu', '--no-first-run', `--remote-debugging-port=${CDP_PORT}`,
-    `--user-data-dir=${process.env.TEMP}\\igs-cdp-profile`, 'about:blank'], { stdio: 'ignore' });
+// 每次运行独立配置目录（不复用业务浏览器的存储），调试端口由 Edge 自选空闲端口：
+// 固定端口可能落在 Windows 保留端口段里，Edge 能启动却监听不上。实际端口从 DevToolsActivePort 读取。
+const profileDir = fs.mkdtempSync(path.join(process.env.TEMP || appRoot, 'igs-cdp-'));
+const edge = spawn(EDGE, ['--headless=new', '--disable-gpu', '--no-first-run', '--remote-debugging-port=0',
+    `--user-data-dir=${profileDir}`, 'about:blank'], { stdio: 'ignore' });
 let failed = false;
 try {
+    let cdpPort = 0;
     let version = null;
-    for (let i = 0; i < 30; i++) {
-        try { version = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`)).json(); break; }
+    for (let i = 0; i < 40 && !version; i++) {
+        if (!cdpPort) {
+            try { cdpPort = Number(fs.readFileSync(path.join(profileDir, 'DevToolsActivePort'), 'utf8').split(/\r?\n/)[0]) || 0; } catch { /* 尚未写出 */ }
+        }
+        if (!cdpPort) { await sleep(300); continue; }
+        try { version = await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json(); }
         catch { await sleep(300); }
     }
-    if (!version) throw new Error('CDP endpoint not reachable');
-    const target = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/new?about:blank`, { method: 'PUT' })).json();
+    if (!version) throw new Error(`CDP endpoint not reachable (port ${cdpPort || 'unknown'})`);
+    const target = await (await fetch(`http://127.0.0.1:${cdpPort}/json/new?about:blank`, { method: 'PUT' })).json();
     const ws = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
     let seq = 0;
@@ -71,8 +78,9 @@ try {
         await sleep(250);
         settled = await evaluate(`(() => {
             if (window.__stageCast) return window.__stageCast.ready === true;
-            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings');
+            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings,#igs-combat-panel');
             if (!panel) return false;
+            if (panel.id === 'igs-combat-panel') return window.__preview?.combatState?.ready === true && !window.__preview.combat.view()?.pending;
             if (panel.id !== 'igs-map-panel') return true;
             const state = window.__preview?.map?.getState?.();
             return !!state && state.basemapState !== 'loading' && state.generation?.status !== 'pending';
@@ -271,6 +279,27 @@ try {
             stageCastReader: ${JSON.stringify(readerSteps)},
             relationshipNodeCount: panel?.querySelectorAll?.('.igs-record-relationship-node')?.length ?? null,
             relationshipLabelCount: panel?.querySelectorAll?.('.igs-record-relationship-label')?.length ?? null,
+            // 战斗面板诊断：状态、尺寸与溢出、可见文字（截断）、手牌与焦点；不代替看图。
+            combat: (() => {
+                const root = document.getElementById('igs-combat-panel');
+                const view = window.__preview?.combat?.view?.();
+                if (!root || !view) return null;
+                const rect = root.getBoundingClientRect();
+                const hand = root.querySelector('.igs-combat-hand');
+                // 演出层（.igs-combat-fx）里的扫屏条本就超出并由图层裁切，不计入越界。
+                const fx = root.querySelector('.igs-combat-fx');
+                const offenders = [...root.querySelectorAll('*')].filter(el => !fx?.contains(el)).filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > rect.right + 1 || r.left < rect.left - 1); })
+                    .filter(el => !hand?.contains(el) || el === hand).slice(0, 6).map(el => el.tagName.toLowerCase() + '.' + String(el.className || '').trim().split(/\\s+/).join('.'));
+                return {
+                    want: window.__preview.combatState?.want || '', status: view.status, notice: view.notice || '',
+                    rect: [Math.round(rect.width), Math.round(rect.height)],
+                    overflowX: root.scrollWidth > root.clientWidth + 1, overflowY: root.scrollHeight > root.clientHeight + 1,
+                    handScroll: hand ? [hand.scrollWidth, hand.clientWidth] : null,
+                    cards: root.querySelectorAll('.igs-combat-card').length, units: root.querySelectorAll('.igs-combat-unit').length,
+                    outside: offenders, focus: document.activeElement?.getAttribute?.('data-combat-act') || document.activeElement?.tagName || '',
+                    text: (root.innerText || '').replace(/\\s+/g, ' ').slice(0, 240),
+                };
+            })(),
             settings: panel?.id === 'igs-unified-settings' ? (() => {
                 const thumbs = [...panel.querySelectorAll('img.igs-asset-tile-thumb')];
                 const vw = window.innerWidth;
@@ -308,5 +337,7 @@ try {
     ws.close();
 } finally {
     edge.kill();
+    await sleep(500);
+    try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch { /* 浏览器仍占用时留给系统清理 */ }
 }
 process.exit(failed ? 1 : 0);

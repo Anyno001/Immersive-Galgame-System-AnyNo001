@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeEffectiveState, createCombatLedger, indexProfiles, nameKey, normalizeSnapshot } from '../src/combat/ledger.js';
+import { REWARD_TAG_HASH, computeEffectiveState, createCombatLedger, indexProfiles, nameKey, normalizeSnapshot } from '../src/combat/ledger.js';
 import { createCombatTables } from '../src/data/shujuku/combat-tables.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -231,6 +231,43 @@ test('非法条目不写入；与真实 combat-tables 适配器联通时读写�
     const s = await ledger.effectiveState();
     assert.deepEqual([s.ok, hero(s).exp, s.diagnostics], [true, 30, []]);
 });
+test('领取升级奖励：未达等级拒绝；达到后写一条 reward 并读回；重复领取、非法选项、读写失败都不伪造成功', async () => {
+    const story = ai('[igs-combat:exp|我|30|甲]');
+    const win = user(report('win', '[igs-combat:exp|我|45|击败狼群]'));
+
+    const early = setup(undefined, [story]);
+    await early.ledger.scan();
+    const before = early.tables.appends;
+    assert.deepEqual(await early.ledger.claimReward('pc-hero', 2, { kind: 'skip' }), { ok: false, reason: 'combat-reward-unavailable' });
+    assert.equal(early.tables.appends, before);
+
+    const { ledger, tables } = setup(undefined, [story, win]);
+    await ledger.scan();
+    const bad = await ledger.claimReward('pc-hero', 2, { kind: 'bogus' });
+    assert.deepEqual([bad.ok, bad.reason], [false, 'combat-entry-invalid']);
+    const appendsBefore = tables.appends;
+    const claimed = await ledger.claimReward('pc-hero', 2, { kind: 'card', cardId: 'm3' });
+    assert.equal(claimed.ok, true);
+    assert.equal(tables.appends, appendsBefore + 1);
+    assert.deepEqual([claimed.entry.type, claimed.entry.anchor.tagHash, claimed.entry.anchor.messageId, claimed.entry.payload], ['reward', REWARD_TAG_HASH, 1, { level: 2, choice: { kind: 'card', cardId: 'm3' } }]);
+    const s = await ledger.effectiveState();
+    assert.deepEqual(hero(s).pendingRewards, []);
+    assert.deepEqual(hero(s).claimedLevels, [2]);
+    assert.equal(tables.ledger.filter((e) => e.type === 'reward').length, 1);
+
+    assert.deepEqual(await ledger.claimReward('pc-hero', 2, { kind: 'skip' }), { ok: false, reason: 'combat-reward-unavailable' });
+    assert.equal(tables.ledger.filter((e) => e.type === 'reward').length, 1);
+
+    const failing = setup(undefined, [story, win]);
+    await failing.ledger.scan();
+    failing.tables.append = async () => ({ ok: false, reason: 'combat-ledger-insert-failed', written: [], present: [], rejected: [], pending: [{}] });
+    const writeFail = await failing.ledger.claimReward('pc-hero', 2, { kind: 'skip' });
+    assert.deepEqual([writeFail.ok, writeFail.reason], [false, 'combat-ledger-insert-failed']);
+    failing.tables.failRead = true;
+    assert.deepEqual((await failing.ledger.claimReward('pc-hero', 2, { kind: 'skip' })).reason, 'combat-table-read-failed');
+});
+
+
 
 function fakeShujuku() {
     const tables = { mate: { type: 'chatSheets', version: 1 } };

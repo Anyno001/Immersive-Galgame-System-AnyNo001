@@ -35,6 +35,7 @@ html,body{margin:0;height:100%;background:#0b0d10;color:#d8d5cf;font-family:"Sou
   <button data-page="diary">心事</button>
   <button data-page="inventory">背包</button>
   <button data-page="relationships">关系</button>
+  <button data-page="combat">战斗</button>
   <button data-page="settings-scene">素材设置</button>
 </div>
 <div id="stage"><div id="igs-overlay"><div id="igs-db-layer"></div></div></div>
@@ -50,6 +51,8 @@ import { mapFixture } from './fixtures/map.fixture.js';
 import { diaryFixture } from './fixtures/diary.fixture.js';
 import { inventoryFixture } from './fixtures/inventory.fixture.js';
 import { relationshipsFixture } from './fixtures/relationships.fixture.js';
+import { createCombatPreview } from './fixtures/combat.fixture.js';
+import { createCombatPanelController } from '../../src/visual/igs-ui/combat-panel.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
 
@@ -212,9 +215,29 @@ function openSettingsScene() {
   if (q.get('nav') === 'open') document.getElementById('igs-unified-settings')?.setAttribute('data-igs-nav', 'open');
   return { close: () => opened.controller?.close?.() };
 }
+// 战斗面板预览：内存战斗表与存档；?combat=battle 直接开战，?combat=end 打到结束。
+const combatPreview = createCombatPreview();
+const combat = createCombatPanelController(document, { getSession: () => combatPreview.session, getLedger: () => combatPreview.ledger });
+// 截图脚本以 combatReady 判定本场景已就绪，不以中间态（lobby 后尚未开战）截图。
+const combatState = { ready: false, want: '' };
+async function openCombat() {
+  combatState.ready = false;
+  combat.open(overlay, { messageId: combatPreview.messageId });
+  const want = new URLSearchParams(location.search).get('combat') || 'lobby';
+  combatState.want = want;
+  for (let i = 0; i < 40 && combat.view()?.status !== 'lobby'; i += 1) await new Promise(r => setTimeout(r, 25));
+  if (want !== 'lobby') combat.invoke('start');
+  for (let i = 0; want === 'end' && i < 400 && combat.view()?.status === 'battle'; i += 1) {
+    const card = combat.view().battle.hand.find(c => c.playable);
+    if (!card) { combat.invoke('end-turn'); continue; }
+    if (!combat.invoke('card', card.inst).ok) combat.invoke('target', card.targets[0]);
+  }
+  combatState.ready = true;
+}
 function openPage(page) {
   current?.close?.();
   if (page === 'settings-scene' || isSettingsPage(page)) current = openSettingsScene();
+  else if (page === 'combat') { current = combat; openCombat(); }
   else if (page === 'map') current = map, map.open(overlay, { weatherFx: { enabled: true } }, '临河街道', new URLSearchParams(location.search).get('time') || '', new URLSearchParams(location.search).get('weather') || '');
   else current = record, record.open(overlay, {}, page);
   document.querySelectorAll('#hud button').forEach(btn =>
@@ -244,7 +267,7 @@ document.getElementById('hud').addEventListener('click', event => {
   const page = event.target?.dataset?.page;
   if (page) openPage(page);
 });
-window.__preview = { openPage, setSize, record, map, stats };
+window.__preview = { openPage, setSize, record, map, combat, combatState, combatStats: combatPreview.stats, stats };
 </script>
 </body>
 </html>

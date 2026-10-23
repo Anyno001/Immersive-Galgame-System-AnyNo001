@@ -14,6 +14,7 @@ import { normalizeWaitStageSettings } from './wait-stage.js';
 import { normalizeDailyFxSettings } from './fx-daily-model.js';
 import { FX_PACK_SETTING_GROUPS } from '../../scene/fx-packs.js';
 import { normalizeBattleFxSettings } from './fx-battle-model.js';
+import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { normalizeRomanceFxSettings } from './romance-settings.js';
 import { normalizeMetaFxSettings } from './meta-settings.js';
 import { normalizeResultFxSettings } from './fx-result-model.js';
@@ -196,6 +197,8 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     itemFx: normalizeItemFxSettings,
     // 战斗演出同样独立渲染（fx-battle-render）。
     battleFx: normalizeBattleFxSettings,
+    // 卡牌战斗扩展：开战与成长标签、战斗面板与战报回传（combat/*），默认关闭。
+    combatExpansion: normalizeCombatExpansionSettings,
     // 亲密演出独立渲染（romance-runtime）。
     romanceFx: normalizeRomanceFxSettings,
     // Meta 互动独立渲染（meta-runtime），不参与一键档位。

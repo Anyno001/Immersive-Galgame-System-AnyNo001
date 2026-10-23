@@ -8,6 +8,7 @@ import { placeRowMenu } from './settings-outfit-fields.js';
 import { splitMigrationWords } from '../../scene/outfit-migration.js';
 import { cgReasonText } from '../../media/cg-library.js';
 import { setStagePauseReason } from './stage-pause.js';
+import { checkCombatExpansionReady } from './combat-settings.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { fileGeneratedHoldings, normalizeGeneratedLibrary, collectGeneratedImageIds } from '../../scene/asset-match.js';
 import { CHARACTER_DNA_EDIT_FIELDS, editCharacterDnaField, resolveCharacterDna } from '../../scene/character-dna.js';
@@ -393,6 +394,15 @@ export function createSettingsHost(deps) {
         if (path === 'readerSettings.skinDialogScale' && (value === 'auto' || value === 'fixed')) {
             setPath(draft, 'readerSettings.dialogAutoHeight', value === 'auto');
             return editOptions.liveInput ? { ok: true } : rerenderSettings();
+        }
+        // 卡牌战斗开启前检查数据库与副 LLM；任一不通过时保持关闭并提示原因。
+        if (path === 'readerSettings.combatExpansion.enabled' && value === true) {
+            const ready = checkCombatExpansionReady({ api: (options.global || globalThis).AutoCardUpdaterAPI || null, autoIllustration: draft.bridge && draft.bridge.autoIllustration });
+            if (!ready.ok) {
+                setPath(draft, path, false);
+                showSettingsNotice(ready.message);
+                return { ok: false, reason: ready.reason, missing: ready.missing };
+            }
         }
         setPath(draft, path, normalizeSettingsValue(path, value));
         if (path === 'readerSettings.skinDialogScale') setPath(draft, 'readerSettings.dialogAutoHeight', false);

@@ -9,6 +9,8 @@ import { combatReportResult } from '../scene/combat-prompt.js';
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
 // deck 条目不来自标签，锚点 tagHash 固定为此值。
 export const DECK_TAG_HASH = 'deck';
+// reward 条目同样不来自标签。
+export const REWARD_TAG_HASH = 'reward';
 const TAGLESS_TYPES = new Set(['deck', 'reward']);
 const ANCHORLESS_TYPES = new Set(['profile', 'revoke']);
 const CHARACTER_KINDS = new Set(['deck-character', 'skill-character']);
@@ -411,11 +413,28 @@ export function buildDeckEntry(snapshot, chat, characterId, cards, now = 0) {
     return n.ok ? { ok: true, entry: n.value } : { ok: false, reason: 'combat-entry-invalid', errors: n.errors };
 }
 
+// 升级奖励条目：锚点取当前最新楼层（与卡组保存相同）；同一等级只能领一次，已领时直接拒绝，不写表。
+export function buildRewardEntry(snapshot, chat, characterId, level, choice, now = 0) {
+    if (!snapshot || snapshot.ok !== true) return { ok: false, reason: snapshot?.reason || 'combat-ledger-read-failed' };
+    const list = Array.isArray(chat) ? chat : [];
+    const messageId = list.length - 1;
+    if (messageId < 0) return { ok: false, reason: 'combat-reward-no-floor' };
+    const mine = snapshot.entries.filter((e) => e.type === 'reward' && e.character === characterId);
+    if (mine.some((e) => e.payload.level === level)) return { ok: false, reason: 'combat-reward-duplicate' };
+    const swipeId = swipeOf(list[messageId]);
+    const occurrence = mine.filter((e) => e.anchor.messageId === messageId && e.anchor.swipeId === swipeId).length;
+    const anchor = { messageId, swipeId, tagHash: REWARD_TAG_HASH, occurrence };
+    const raw = { id: ledgerEntryId('reward', characterId, anchor), type: 'reward', character: characterId, anchor, payload: { level, choice: { ...choice } }, createdAt: now };
+    const n = normalizeLedgerEntry(raw);
+    return n.ok ? { ok: true, entry: n.value } : { ok: false, reason: 'combat-entry-invalid', errors: n.errors };
+}
+
 // 账本门面。tables 为 data/shujuku/combat-tables 的实例（read / append）；chat 为消息快照数组或返回快照的函数。
 // 每次调用都重读表与聊天，不缓存；读失败一律 ok:false，不当作空账本。
 export function createCombatLedger({ tables, chat, userName = '', sourceFilter, now = () => Date.now() } = {}) {
     const chatOf = () => (typeof chat === 'function' ? chat() : chat) || [];
     const userOf = () => (typeof userName === 'function' ? userName() : userName);
+    const filterOf = () => (typeof sourceFilter === 'function' ? sourceFilter() : sourceFilter);
 
     async function read() {
         try {
@@ -426,7 +445,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     }
 
     async function effectiveState() {
-        return computeEffectiveState(await read(), chatOf(), { sourceFilter });
+        return computeEffectiveState(await read(), chatOf(), { sourceFilter: filterOf() });
     }
 
     // 只追加通过 schema 的条目；全部非法时不调用写入。写入结果原样透传（written / present / rejected / pending）。
@@ -447,7 +466,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     async function scan({ messageIds } = {}) {
         const snapshot = await read();
         if (!snapshot.ok) return snapshot;
-        const found = scanGrowthTags(snapshot, chatOf(), { userName: userOf(), sourceFilter, messageIds, now: now() });
+        const found = scanGrowthTags(snapshot, chatOf(), { userName: userOf(), sourceFilter: filterOf(), messageIds, now: now() });
         if (!found.entries.length) return { ...found, write: null };
         const write = await append(found.entries);
         return { ...found, ok: write.ok === true, write };
@@ -462,6 +481,18 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return { ...write, entry: built.entry };
     }
 
-    return { read, effectiveState, append, scan, saveDeck };
+    // 领取升级奖励：先按当前归并状态核对等级已达到、未领取，再写一条 reward 条目。
+    async function claimReward(characterId, level, choice) {
+        const snapshot = await read();
+        if (!snapshot.ok) return snapshot;
+        const view = computeEffectiveState(snapshot, chatOf(), { sourceFilter: filterOf() }).characters?.get(characterId);
+        if (!view || view.kind !== 'deck-character' || !view.pendingRewards.includes(level)) return { ok: false, reason: 'combat-reward-unavailable' };
+        const built = buildRewardEntry(snapshot, chatOf(), characterId, level, choice, now());
+        if (!built.ok) return built;
+        const write = await append([built.entry]);
+        return { ...write, entry: built.entry };
+    }
+
+    return { read, effectiveState, append, scan, saveDeck, claimReward };
 }
 

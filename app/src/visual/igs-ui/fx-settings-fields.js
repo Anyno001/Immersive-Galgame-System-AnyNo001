@@ -85,7 +85,11 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.titleCard.onTime`, s.titleCard.onTime, '时间变化时显示'));
     const favor = featureRow(more, 'favor', `${p}.favorToast.enabled`, s.favorToast.enabled, '数值变化提示', '好感等升降');
     const itemFx = featureRow(more, 'item-fx', `${p}.itemFx.enabled`, s.itemFx.enabled, '获得物品演出', '', checkbox(`${p}.itemFx.mention`, s.itemFx.mention, '正文里点亮已获得的物品名'));
-    const battleFx = featureRow(more, 'battle-fx', `${p}.battleFx.enabled`, s.battleFx.enabled, '战斗演出', '', checkbox(`${p}.battleFx.letterbox`, s.battleFx.letterbox, '战斗时加电影黑边'));
+    const battleFx = featureRow(more, 'battle-fx', `${p}.battleFx.enabled`, s.battleFx.enabled, '战斗演出', s.combatExpansion.enabled ? '已由战斗扩展接管' : '', checkbox(`${p}.battleFx.letterbox`, s.battleFx.letterbox, '战斗时加电影黑边'));
+    const cx = s.combatExpansion;
+    const combat = featureRow(more, 'combat-expansion', `${p}.combatExpansion.enabled`, cx.enabled, '卡牌战斗', '', checkbox(`${p}.combatExpansion.autoOpen`, cx.autoOpen, '遇敌时自动打开战斗面板')
+        + field(`${p}.combatExpansion.difficulty`, '难度', segmentedInput(`${p}.combatExpansion.difficulty`, cx.difficulty, [['easy', '简单'], ['normal', '普通'], ['hard', '困难']], '难度'))
+        + field(`${p}.combatExpansion.reportDetail`, '战报详略', segmentedInput(`${p}.combatExpansion.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略')));
     const resultFx = featureRow(more, 'result-fx', `${p}.resultFx.enabled`, s.resultFx.enabled, '选项检定掷骰');
     const tags = featureRow(more, 'fx-tags', `${p}.fxTags.enabled`, s.fxTags.enabled, '来电、通知、回忆等演出', '', grid(FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('') + checkbox(`${p}.fxTags.emergency`, s.fxTags.emergency, '紧急求助') + checkbox(`${p}.fxTags.spam`, s.fxTags.spam, '垃圾短信样式'))
         + (s.fxTags.call ? field(`${p}.fxTags.callSprite`, '语音通话画面', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['split', '分屏'], ['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话画面')) : ''));
@@ -112,5 +116,5 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
     const dlc = dlcDefs.length
         ? perfItem(more, 'dlc-fx', `<span>扩展演出（DLC）</span>`, { hint: `${dlcDefs.length}个`, detail: grid(dlcDefs.map((def) => checkbox(`${p}.dlcFx.${def.kind}`, dlcOff[def.kind] !== false, def.label)).join('')) })
         : '';
-    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, resultFx, tags, dlc, sound, comic, mangaBack, crowd, notifyCenter };
+    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, combat, resultFx, tags, dlc, sound, comic, mangaBack, crowd, notifyCenter };
 }

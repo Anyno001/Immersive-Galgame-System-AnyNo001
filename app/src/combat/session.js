@@ -155,6 +155,7 @@ export function createCombatSession(deps = {}) {
     const chatOf = () => valueOf(deps.chat) || [];
     const chatIdOf = () => String(valueOf(deps.getChatId) ?? '');
     const userOf = () => String(valueOf(deps.userName) || '').trim();
+    const filterOf = () => valueOf(deps.sourceFilter);
     const now = typeof deps.now === 'function' ? deps.now : () => Date.now();
     let cur = { status: 'idle' };
     let sending = false;
@@ -169,7 +170,7 @@ export function createCombatSession(deps = {}) {
     // 开战楼仍在、swipe 未变、末尾标签未变，且仍是同一聊天。
     const anchorValid = (s) => {
         if (s.chatId !== undefined && s.chatId !== chatIdOf()) return false;
-        const found = locateCombatStart(chatOf(), s.anchor?.messageId, deps.sourceFilter);
+        const found = locateCombatStart(chatOf(), s.anchor?.messageId, filterOf());
         return found.ok && sameAnchor(found.anchor, s.anchor);
     };
     const invalidate = () => {
@@ -198,7 +199,7 @@ export function createCombatSession(deps = {}) {
     // 开战楼 messageId 由调用方确认为最新 AI 楼。已回传的只回顾，待回传的只能重试发送，不再重打。
     async function prepare(messageId, { signal } = {}) {
         const chat = chatOf();
-        const found = locateCombatStart(chat, messageId, deps.sourceFilter);
+        const found = locateCombatStart(chat, messageId, filterOf());
         if (!found.ok) return fail(found.reason);
         const userName = userOf();
         if (!userName) return fail('combat-user-name-missing');
@@ -346,7 +347,7 @@ export function createCombatSession(deps = {}) {
             set({ combatId: rec.combatId, anchor: rec.anchor, status: 'stale', reason: 'combat-rules-version-mismatch' });
             return fail('combat-rules-version-mismatch');
         }
-        const found = locateCombatStart(chatOf(), rec.anchor?.messageId, deps.sourceFilter);
+        const found = locateCombatStart(chatOf(), rec.anchor?.messageId, filterOf());
         const b = { combatId: rec.combatId, anchor: rec.anchor, start: found.start, reportId: reportIdFor(rec.combatId), chatId: chatIdOf() };
         if (!found.ok || !sameAnchor(found.anchor, rec.anchor) || found.combatId !== rec.combatId) {
             cur = b;
