@@ -1,6 +1,7 @@
 // 生图前的存储空间预检：剩余空间明显装不下这一批时，直接不出图，免得生完才发现存不下。
 // 浏览器不提供 estimate、读取失败或返回值不可信时一律放行，只拦「明确不够」。
 import { isQuotaError } from './generated-asset-store.js';
+import { describeLocalStorageUsage } from '../storage/storage-usage.js';
 
 // 单张图（原图、透明结果、遮罩）落盘的保守估计。
 export const IMAGE_STORAGE_ESTIMATE_BYTES = 3 * 1024 * 1024;
@@ -45,7 +46,9 @@ export async function checkImageStorageRoom(globalObject, count, { perImageBytes
     const total = Math.trunc(Number(count));
     if (!(total > 0)) return { ok: true };
     if (!settingsHaveRoom(globalObject, total)) {
-        return { ok: false, reason: 'image-storage-full', error: SETTINGS_STORAGE_FULL_MESSAGE };
+        let usage = '';
+        try { usage = describeLocalStorageUsage(globalObject.localStorage, { topKeys: 3 }); } catch { /* 读不到占用就只报已满 */ }
+        return { ok: false, reason: 'image-storage-full', error: usage ? `${SETTINGS_STORAGE_FULL_MESSAGE}${usage}。` : SETTINGS_STORAGE_FULL_MESSAGE };
     }
     const storage = globalObject?.navigator?.storage;
     if (!storage || typeof storage.estimate !== 'function') return { ok: true };

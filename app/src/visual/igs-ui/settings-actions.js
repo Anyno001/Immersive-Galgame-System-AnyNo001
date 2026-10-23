@@ -3203,7 +3203,8 @@ export async function handleSettingsAction(action, ctx) {
         try {
             if (normalizedAction === 'image-files-retry-delete') await options.media.retryDeletes();
             if (normalizedAction === 'image-records-retry-backup') await options.media.flush();
-            settingsState.asyncState.imageCacheStatus = describeMediaUsage(await options.media.stats());
+            const local = describeLocalStorageUsage((options.global || globalThis).localStorage, { topKeys: 5 });
+            settingsState.asyncState.imageCacheStatus = `${describeMediaUsage(await options.media.stats())}${local ? `；${local}` : ''}`;
         } catch (error) { settingsState.asyncState.imageCacheStatus = `读取、备份或回收失败：${error.message}`; }
         return rerenderSettings();
     }

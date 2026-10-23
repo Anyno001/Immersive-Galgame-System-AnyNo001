@@ -51,6 +51,20 @@ test('预检：本地设置存储写不进占位就先拦，不等出完图再�
     assert.equal((await checkImageStorageRoom(denied, 8)).ok, true, '非配额错误不误拦');
 });
 
+test('预检：本地存储已满时报出谁占得最多，手机上无需控制台也能定位', async () => {
+    const quotaError = Object.assign(new Error('exceeded the quota'), { name: 'QuotaExceededError' });
+    const data = new Map([['igs:scene-presets:v1', 'x'.repeat(1024 * 1024)], ['other-plugin', 'y'.repeat(2048)]]);
+    const full = { localStorage: {
+        get length() { return data.size; }, key: i => [...data.keys()][i] ?? null, getItem: key => data.get(key) ?? null,
+        setItem(key) { if (key === 'igs:storage-room-probe') throw quotaError; }, removeItem() {},
+    } };
+    const blocked = await checkImageStorageRoom(full, 8);
+    assert.equal(blocked.ok, false);
+    assert.ok(blocked.error.startsWith(SETTINGS_STORAGE_FULL_MESSAGE));
+    assert.match(blocked.error, /素材预设 2\.0 MB/);
+    assert.match(blocked.error, /最大：igs:scene-presets:v1 2\.0 MB/);
+});
+
 test('预检：按入口估算本批张数', () => {
     assert.equal(plannedImageCount('generateExpressionSet', { moods: ['a', 'b', 'c'] }), 3);
     assert.equal(plannedImageCount('generateExpressionSet', {}), 1);

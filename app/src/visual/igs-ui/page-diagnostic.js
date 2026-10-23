@@ -2,7 +2,7 @@
 // 不带台词正文、聊天内容、演出参数文本和图片本体，外链只留域名，方便用户直接贴出来求助。
 import { PROMPT_ENTRY_LABELS, PROMPT_POSITION_LABELS } from '../../scene/prompt-entries.js';
 import { describePromptTrigger } from '../../scene/prompt-triggers.js';
-import { describeMediaUsage } from '../../storage/storage-usage.js';
+import { describeLocalStorageUsage, describeMediaUsage } from '../../storage/storage-usage.js';
 import { CREATURE_ANCHOR_LABELS, CREATURE_FORM_LABELS, CREATURE_FRAMING_LABELS, CREATURE_SIZE_LABELS, normalizeCreatureDisplaySettings, storedCreatureOf } from '../../scene/creature-profile.js';
 
 const SOURCE_LABELS = Object.freeze({
@@ -139,5 +139,8 @@ export function buildPageDiagnostic(snapshot, { version = '', worldview = '', pr
     lines.push(`非人角色 ${creatureLine(c, rs)}`);
     lines.push(...promptLines(promptReport));
     if (mediaStats) lines.push(`图片资源 ${describeMediaUsage(mediaStats)}`);
+    let local = '';
+    try { local = describeLocalStorageUsage(globalThis.localStorage, { topKeys: 5 }); } catch { /* 无 localStorage */ }
+    if (local) lines.push(local);
     return lines.join('\n');
 }
