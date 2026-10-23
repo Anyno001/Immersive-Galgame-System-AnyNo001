@@ -8,6 +8,7 @@ const SETTINGS_SHELL_TEMPLATE = `
     <div class="igs-settings-theme-switch" role="radiogroup" aria-label="设置配色">{{settingsThemeSwitch}}</div>
     <div class="igs-settings-head-spacer"></div>
     <div class="igs-settings-badge">{{version}}</div>
+    <button type="button" class="igs-settings-action igs-settings-save" data-action="settings-save" title="保存当前设置">保存</button>
     <button type="button" class="igs-settings-close" data-action="close" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
   <div class="igs-settings-main">

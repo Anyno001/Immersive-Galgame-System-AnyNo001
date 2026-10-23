@@ -28,6 +28,7 @@ import { attachSettingsViewportEvents, clearChildren, detachSettingsViewportEven
 import { getPath, normalizeReaderMode, normalizeSettingsValue, setPath } from './settings-normalize.js';
 import { FX_PACKS_ACTIVE, packSwitchPath } from '../../scene/fx-packs.js';
 import { handleSettingsAction as runSettingsAction, releasedGeneratedImageIds } from './settings-actions.js';
+import { ensureModelProfilesLoaded, handleModelProfileAction, isImmediateSavePath, setModelProfileSelection } from './settings-model-profiles.js';
 import { SETTINGS_NOTICE_MS, beginSettingsProgress, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, remountSettingsProgress, settingsBusyLabel } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
@@ -185,6 +186,9 @@ export function createSettingsHost(deps) {
         const snapshot = buildSettingsSnapshot(state.activeSettings);
         state.activeSettings.snapshot = snapshot;
         updateMountedSettings(snapshot);
+        if (['source', 'llm'].includes(state.activeSettings.asyncState.page)) {
+            ensureModelProfilesLoaded(state.activeSettings, { global: options.global || globalThis, onChange: (panel) => { if (state.activeSettings === panel) rerenderSettings(); } });
+        }
         return {
             ok: true,
             tab: state.activeSettings.tab,
@@ -195,19 +199,27 @@ export function createSettingsHost(deps) {
         };
     }
 
+    // 保存键与关闭设置共用：提示词编辑器有未存档修改时先存档，再落盘草稿。
+    function saveSettingsNow(panel, persistOptions = {}) {
+        const editor = panel.asyncState.imagePromptEditor;
+        if (editor?.state.dirty) {
+            const draftResult = editor.saveDraft();
+            if (!draftResult.ok) return draftResult;
+        }
+        return persistSettingsDraft(persistOptions);
+    }
+
+    // 后台生图任务读已保存配置：接口地址、密钥、模型等字段改完（change）即落盘，不等关闭设置。
+    function persistImmediateField(path) {
+        if (!state.activeSettings || !isImmediateSavePath(path)) return;
+        const result = persistSettingsDraft();
+        if (result && result.ok === false) reportSettingsFailure(result);
+    }
+
     function closeSettings() {
         const current = state.activeSettings;
         if (!current) return { ok: true, reason: 'settings-not-open' };
-        const editor = current.asyncState.imagePromptEditor;
-        const saveForClose = () => {
-            if (editor?.state.dirty) {
-                const draftResult = editor.saveDraft();
-                if (!draftResult.ok) return draftResult;
-            }
-            return persistSettingsDraft({
-                syncActiveModeFromSettings: current.initialOpenMode !== current.draft.bridge.openMode,
-            });
-        };
+        const saveForClose = () => saveSettingsNow(current, { syncActiveModeFromSettings: current.initialOpenMode !== current.draft.bridge.openMode });
         const saved = saveForClose();
         if (saved.ok === false) {
             if (!current.asyncState.closingRecovery) {
@@ -669,6 +681,19 @@ export function createSettingsHost(deps) {
                 panel.asyncState.imagePromptBusy = false;
             }
         }
+        if (action === 'settings-save') {
+            const panel = state.activeSettings;
+            if (!panel) return { ok: false, reason: 'settings-not-open' };
+            const saved = saveSettingsNow(panel);
+            if (saved.ok !== false) showSettingsNotice('已保存', 'info');
+            return saved;
+        }
+        if (action.startsWith('model-profile:')) {
+            const panel = state.activeSettings;
+            if (!panel) return { ok: false, reason: 'settings-not-open' };
+            return handleModelProfileAction(action, { panel, dialogs: recoveryDialogs, global: options.global || globalThis,
+                persistSettingsDraft, rerenderSettings, isCurrent: () => state.activeSettings === panel });
+        }
         const onboardingResult = onboarding.handleAction(action);
         if (onboardingResult) return onboardingResult;
         return runSettingsAction(action, {
@@ -798,6 +823,7 @@ export function createSettingsHost(deps) {
             if (segment) {
                 noteRecentChange(segment, segment.getAttribute('data-segment-path'));
                 controller.setValue(segment.getAttribute('data-segment-path'), segment.getAttribute('data-segment-value'));
+                persistImmediateField(segment.getAttribute('data-segment-path'));
                 return;
             }
             const action = event.target.closest('[data-action]');
@@ -1052,9 +1078,18 @@ export function createSettingsHost(deps) {
                     editor.state.importChoices[importId] = target.value; return;
                 }
             }
+            const profileKind = target?.getAttribute?.('data-model-profile-select');
+            if (profileKind) {
+                // 下拉选中即切换：写入草稿并落盘，后台任务随即改用新预设。
+                if (!state.activeSettings) return;
+                setModelProfileSelection(state.activeSettings, profileKind, target.value);
+                if (target.value) controller.invoke(`model-profile:apply:${profileKind}`);
+                return;
+            }
             const modelSync = event.target && event.target.getAttribute ? event.target.getAttribute('data-model-sync') : '';
             if (modelSync) {
                 controller.setValue(modelSync, event.target.value);
+                persistImmediateField(modelSync);
                 return;
             }
             // 角色学院 / 声线下拉：交给动作层写草稿并保存（input 监听不处理 SELECT）。
@@ -1141,6 +1176,7 @@ export function createSettingsHost(deps) {
             if (event.target && event.target.type === 'range' && !/^readerSettings\.(typewriter\.sound|statusHud\.position)\./.test(path || '')) return;
             if (!path) return;
             controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
+            persistImmediateField(path);
         });
         // 点下拉菜单（⋯、＋）以外的地方，把开着的菜单收起。
         root.addEventListener('click', (event) => {
@@ -1328,10 +1364,10 @@ export function createSettingsHost(deps) {
         showSettingsNotice(message);
     }
 
-    function showSettingsNotice(message) {
+    function showSettingsNotice(message, tone) {
         const current = state.activeSettings;
         if (!current || !message) return;
-        const notice = { message, until: Date.now() + SETTINGS_NOTICE_MS };
+        const notice = { message, until: Date.now() + SETTINGS_NOTICE_MS, ...(tone ? { tone } : {}) };
         current.notice = notice;
         remountSettingsNotice(current.dom && current.dom.root, notice);
         setTimeout(() => {

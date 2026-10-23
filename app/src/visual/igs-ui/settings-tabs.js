@@ -86,6 +86,7 @@ const IMAGE_SOURCE_TEMPLATE = `
         {{autoNaiKeyField}}{{autoNaiTransportField}}
         {{autoNaiModelField}}{{autoNaiSizeField}}
       </div>
+      {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}
       </div>
@@ -135,6 +136,7 @@ const IMAGE_LLM_TEMPLATE = `
         {{autoLlmEndpointField}}{{autoLlmKeyField}}
         {{autoLlmModelField}}
       </div>
+      {{modelProfileLlmRow}}
       <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
     </div>
   </div>

@@ -29,6 +29,7 @@ import { getReaderModeIcon } from './icons.js';
 import { renderPromptKindsPanel } from './settings-prompt-kinds.js';
 import { renderImagePromptPanel } from './settings-image-prompt-view.js';
 import { renderArtistLibrary, renderArtistSelector } from './settings-artist-library.js';
+import { renderModelProfileRow } from './settings-model-profiles.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OFF_HINT, PROMPT_RULE_PRESET_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
@@ -374,6 +375,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', 'NAI API 地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方，或填写中转生图接口')),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'API Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, '填写官方或中转服务的 Key')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
+                modelProfileImageRow: renderModelProfileRow('image', asyncState.modelProfiles),
+                modelProfileLlmRow: renderModelProfileRow('llm', asyncState.modelProfiles),
                 autoNaiModelsMessage: esc(asyncState.naiModelsMessage || ''),
                 autoNaiSizeField: field('bridge.autoIllustration.nai.size', '尺寸', textInput('bridge.autoIllustration.nai.size', auto.nai.size, '832x1216')),
                 autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', auto.nai.steps, 1, 50)),
