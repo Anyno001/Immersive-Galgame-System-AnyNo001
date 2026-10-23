@@ -71,3 +71,15 @@
   - swipe / regenerate 重写续写楼时，末尾那条 AI 楼是被重写的对象，判定前先去掉，narration 段照常注入。
 - 验证：`node --test tests/combat-prompt-assembly.test.js` 共 5 项，覆盖扩展关闭时 battle 组装结果不变、开启时 combat 替代 battle、三种结果的 narration 段、AI 楼出现后消失、输入框判定；只断言段的存在与类别，不断言提示词文字。与 bgm、unit、fx 指令及前三步 combat 测试合跑 52 项全部通过。
 
+### 第 7 步：IGS 一侧的 shujuku 战斗表适配
+
+- `data/shujuku/client.js` 新增 `getTableTemplate()`、`importTemplate()`；`insertRow` 增加可选 `options`（不传时保持原位置参数调用，旧调用对象形状不变）。
+- 新增 `data/shujuku/combat-tables.js`：`probeCombatTableSupport`、`withCombatSheets`、`readCombatTables`、`encodeCombatRecord / decodeCombatRows`、`createCombatTables({ api })` → `probe / read / ensure / append / flush / pending / isWriting`。
+- 实现时定下的细节（设计未写明）：
+  - 计划写「分段上限取第 1 步实测值」，但第 1 步核查结论是宿主单元格没有长度上限，因此默认 `cellMax = 16000` 只用于控制单行体积，可由调用方覆盖。表里增加「分段」列记录 `序号/总数`。
+  - 行身份：档案为 `档案ID|版本`（重新生成时追加新版本），日志为 `记录ID`。同一身份已存在且内容相同记为 `present`、不再插行；内容不同记为 `combat-record-conflict` 拒收，不覆盖。
+  - 写入重试可能留下半截行：解码时同一序号后写覆盖、总数变化时按新总数重新成组；仍不完整的组只记诊断，不当作数据。
+  - 待写队列在遇到第一条未核实条目时停止，保持 FIFO 顺序；读取失败、表缺失时整批保留。
+  - 写行用 `skipNotify: true`，整批结束后只调用一次 `refreshDataAndWorldbook`。
+- 验证：`node --test tests/combat-tables.test.js` 共 7 项，全部通过（fake API：缺方法 fail-closed、建表需确认且幂等、读回不一致保留待写、读取失败不当空表、分段还原、client 旧调用形状）。与 simulate、楼层准备及前几步 combat 测试合跑 60 项全部通过。未在真机 shujuku 上执行建表或写入（留待第 13 步逐项确认）。
+

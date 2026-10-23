@@ -32,11 +32,15 @@ export function createShujukuClient(api) {
             return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'update-failed' };
         },
 
-        async insertRow(tableName, rowData) {
+        // options 只在调用方传入时使用对象参数形式（如 skipNotify），不传时保持原来的位置参数调用。
+        async insertRow(tableName, rowData, options) {
             if (!api || typeof api.insertRow !== 'function')
                 return { ok: false, reason: 'missing-api' };
-            const result = await api.insertRow(tableName, rowData);
-            return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'insert-failed' };
+            const result = options && typeof options === 'object'
+                ? await api.insertRow({ ...options, tableName, data: rowData })
+                : await api.insertRow(tableName, rowData);
+            if (!isSuccessful(result)) return { ok: false, reason: 'insert-failed' };
+            return typeof result === 'number' ? { ok: true, rowIndex: result } : { ok: true };
         },
 
         async deleteRow(tableName, rowIndex) {
@@ -44,6 +48,34 @@ export function createShujukuClient(api) {
                 return { ok: false, reason: 'missing-api' };
             const result = await api.deleteRow(tableName, rowIndex);
             return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'delete-failed' };
+        },
+
+        // 当前聊天生效的表格模板（只读副本由调用方自行克隆）；宿主返回字符串时按 JSON 解析。
+        getTableTemplate() {
+            if (!api || typeof api.getTableTemplate !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            try {
+                const raw = api.getTableTemplate({ scope: 'chat' });
+                const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                return data && typeof data === 'object' && !Array.isArray(data)
+                    ? { ok: true, data }
+                    : { ok: false, reason: 'template-unavailable' };
+            } catch (e) {
+                return { ok: false, reason: 'template-read-failed', message: String(e && e.message || e) };
+            }
+        },
+
+        // 只调用宿主自带的模板导入，不自行实现导入逻辑。
+        async importTemplate(template, options = {}) {
+            if (!api || typeof api.importTemplateFromData !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            try {
+                const result = await api.importTemplateFromData(template, options);
+                if (result && typeof result === 'object' && result.success === true) return { ok: true, result };
+                return { ok: false, reason: 'import-failed', message: String(result && (result.error || result.message) || '') };
+            } catch (e) {
+                return { ok: false, reason: 'import-failed', message: String(e && e.message || e) };
+            }
         },
 
         async refresh() {

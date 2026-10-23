@@ -16,6 +16,8 @@
 - 模型保留命中表的 UID、原始表头和行，缺列、无效坐标、孤儿、循环和重复 ID 可诊断；读取失败与无地图表分开报告。真实导出列名不符时应只读核对并提示，不得改写用户表。
 - 服装兜底线索（`outfit-clues.js` 的 `collectOutfitClues(readResult, [主名, ...别名])`，只读）：`profile` 取非物品表中「姓名／人物／角色／名称」列精确等于主名或别名的行的「穿着打扮／打扮／穿着／服装／着装」列（列名与资料页共用 `record-model.js` 的 `OUTFIT_CLUE_FIELDS`）；`worn` 按装备表方案 A 取物品页表（表名含「物品／装备／道具／背包」）中持有者列（`持有者`、`所属角色`、`拥有者`、`穿戴者`、`角色`）精确匹配、状态列含 `穿着／正在穿／已穿戴／已装备／装备中` 且不含 `收纳／脱下／未穿戴／未装备／损坏／遗失` 的行的名称与描述；无持有者列或无状态列的表不参与，不按物品名或描述猜归属。读取失败返回 `status: 'read-error'` 与原因，与 `empty`（有数据但无线索）区分。
 - 表格编辑由 `shujuku-panel` 发起，`data/shujuku` 只提供安全包装和错误归一化。
+- 战斗表（`combat-tables.js`）是第二个受控写入方，只能写「IGS战斗·档案」「IGS战斗·日志」两张表，只追加不覆盖，其他表仍然只读。建表只调用宿主的 `getTableTemplate` + `importTemplateFromData(当前模板副本 + 战斗表, { scope: 'chat', dataMode: 'seed' })`；须由调用方传入用户确认；两张表已存在时不导入。战斗表固定 `updateConfig.updateFrequency = 0`、`exportConfig.enabled = false`、`exportConfig.injectIntoWorldbook = false`，导入时 `mate.updateConfigUiSentinel = -1`。宿主缺任一必需方法时返回 `combat-table-host-unsupported` 并列出缺项。写入走单写者 FIFO 队列：逐行 `insertRow(..., { skipNotify: true })` 后用 `exportTableAsJson` 读回核对，不一致返回 `combat-ledger-write-unverified` 并把该条及其后条目留在待写队列；读取失败返回 `combat-table-read-failed`，不当作空表；批次有写入时只调用一次 `refreshDataAndWorldbook`；写入期间 `isWriting()` 为真，供回调侧抑制自激。JSON 超过 `cellMax` 时按「分段」列 `序号/总数` 拆行，读回拼接还原；不完整或非法行只记诊断。
+- `client.insertRow(tableName, rowData, options?)`：不传 options 时保持原位置参数调用；成功时宿主返回行号则带 `rowIndex`。`client.getTableTemplate()`、`client.importTemplate()` 统一返回 `{ ok, reason }`，缺方法时为 `missing-api`。
 - 刷新世界书必须显式调用 `refreshDataAndWorldbook()`，不能隐式触发。
 
 ## 禁止
