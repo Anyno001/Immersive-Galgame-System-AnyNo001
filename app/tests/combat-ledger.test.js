@@ -267,6 +267,33 @@ test('领取升级奖励：未达等级拒绝；达到后写一条 reward 并读
     assert.deepEqual((await failing.ledger.claimReward('pc-hero', 2, { kind: 'skip' })).reason, 'combat-table-read-failed');
 });
 
+test('同名时卡组档案优先：技能档案让位但保留，其 EXP 读取时并入卡组档案、不改表；重扫不重复写；换 swipe 仍按锚点回退', async () => {
+    const skill = (id, effects, intent = 'attack') => ({ id, name: `技${id}`, intent, effects });
+    const aliceSkill = row({
+        kind: 'skill-character', id: 'sc-alice', name: '爱丽丝', base: { hp: 50 },
+        skills: [skill('s1', [{ op: 'damage', amount: 5 }]), skill('s2', [{ op: 'block', amount: 5 }], 'defend'), skill('s3', [{ op: 'damage', amount: 4 }])],
+        passives: [{ id: 'pa1', name: '坚守', trigger: 'turn-start', effects: [{ op: 'block', amount: 2 }] }],
+    }, 3);
+    const { ledger, tables, ref } = setup([...baseProfiles(), aliceSkill], [ai('[igs-combat:exp|爱丽丝|20|旁观]')]);
+    await ledger.scan();
+    assert.deepEqual(tables.ledger.map((e) => e.character), ['sc-alice']);
+
+    tables.profile.push(row(heroDef('pc-alice', '爱丽丝'), 10));
+    const s = await ledger.effectiveState();
+    assert.equal(s.characters.has('sc-alice'), false);
+    assert.equal(s.characters.get('pc-alice').exp, 20);
+    assert.ok(s.diagnostics.some((d) => d.code === 'combat-profile-superseded' && d.id === 'sc-alice' && d.kept === 'pc-alice'));
+
+    const appends = tables.appends;
+    assert.equal((await ledger.scan()).entries.length, 0);
+    assert.equal(tables.appends, appends);
+    assert.equal(tables.profile.filter((p) => p.id === 'sc-alice').length, 1);
+
+    ref.chat = [ai('另一个版本。', 1)];
+    assert.equal((await ledger.effectiveState()).characters.get('pc-alice').exp, 0);
+});
+
+
 
 
 function fakeShujuku() {

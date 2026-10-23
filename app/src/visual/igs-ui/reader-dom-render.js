@@ -4,6 +4,7 @@ import { mermaidToneVars } from './dialog-theme-mermaid.js';
 import { resolveSpeakerMagicHouse } from './magic-house.js';
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
+import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { ORIGINAL_READER_ICONS, ORIGINAL_READER_TOOLBAR_BUTTONS } from './original-reader-source.js';
 import { DIALOG_ONLY_BUTTONS, TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarSplit, applySpriteDisplayScale, renderDialogueHtml, resolveActiveTheme, resolveSpriteLayout, spriteHeightLayoutKey } from './settings-normalize.js';
@@ -25,6 +26,7 @@ import { applyFxToDom, repositionFxSymbols } from './fx-runtime.js';
 import { applyDanmakuToDom } from './danmaku-runtime.js';
 import { applyItemMentionMarkup, itemMentionsOf, renderItemFx, showItemMention } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
+import { renderGrowthFx } from './combat-growth-fx.js';
 import { repositionBattleImpacts } from './fx-battle.js';
 import { renderDailyFx } from './fx-daily.js';
 import { enabledPackIds } from './fx-daily-model.js';
@@ -956,8 +958,10 @@ const statusHudKeys = new WeakMap();
 function statusHudKey(root, snapshot, hud, radius) {
     const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     const optionsVisible = Boolean(root.classList && root.classList.contains('igs-options-visible'));
+    // 资料菜单的「战斗」项随扩展开关增减，开关必须进重建签名。
+    const combat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
     try {
-        return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size] : null, optionsVisible, radius]);
+        return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size] : null, optionsVisible, radius, combat]);
     } catch {
         return '';
     }
@@ -1093,8 +1097,10 @@ export function applyStatusHudToDom(root, snapshot) {
     if (!recordMenuOpen) menu.setAttribute('hidden', '');
     // 好感总览入口只在当前 HUD 已有好感度条时出现；数据仍来自状态栏所选表。
     const hasFavorBar = hasMetrics && hud.metrics.some(metric => /好感/.test(String(metric?.label || '')));
-    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : [])];
-    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度' })[name]])) {
+    // 战斗分类只在卡牌战斗扩展开启时出现。
+    const hasCombat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
+    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : []), ...(hasCombat ? ['combat'] : [])];
+    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度', combat: '战斗' })[name]])) {
         const button = doc.createElement('button');
         button.type = 'button';
         button.className = 'igs-hud-entry-item';
@@ -1924,6 +1930,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     });
     // 获得物品演出：默认关闭；图片只读本聊天本地缓存，同页重绘不重播。
     renderItemFx(root, snapshot, { resolveItemImage: ctx.resolveItemImage, chatId: ctx.chatId, theme: fxTheme });
+    // 卡牌战斗成长演出：只播已入库的成长事件，同页重绘不重播。
+    renderGrowthFx(root, snapshot);
     // 战斗演出：默认关闭；只读 igs-fx:battle / hit 标签，不显示数值。
     renderBattleFx(root, snapshot, {
         chatId: ctx.chatId,

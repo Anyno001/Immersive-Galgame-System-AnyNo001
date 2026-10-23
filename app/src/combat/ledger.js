@@ -62,7 +62,8 @@ export function normalizeSnapshot(read) {
     return { ok: true, profiles, entries, ids, diagnostics };
 }
 
-// 职业按职业名唯一，先登记（createdAt 早）的为准；角色按名字与别名索引，重名时先登记的为准。
+// 职业按职业名唯一，先登记（createdAt 早）的为准；角色按名字与别名索引，同类重名时先登记的为准。
+// 同名时卡组档案优先：技能档案的名字已归卡组档案时整份让位（superseded），档案仍留在表里，其 EXP 条目归并到卡组档案。
 export function indexProfiles(profiles, diagnostics = []) {
     const classes = new Map();
     const classByName = new Map();
@@ -71,6 +72,8 @@ export function indexProfiles(profiles, diagnostics = []) {
     const enemies = new Map();
     const byName = new Map();
     const byNameKey = new Map();
+    const superseded = new Map();
+    const people = [];
     const sorted = [...profiles.values()].sort((a, b) => a.createdAt - b.createdAt || (a.profile.id < b.profile.id ? -1 : 1));
     for (const { profile } of sorted) {
         if (profile.kind === 'class') {
@@ -83,19 +86,34 @@ export function indexProfiles(profiles, diagnostics = []) {
             }
             classByName.set(profile.className, profile);
             classes.set(profile.id, profile);
-        } else if (CHARACTER_KINDS.has(profile.kind)) {
-            characters.set(profile.id, profile);
-            for (const name of [profile.name, ...(profile.aliases || [])]) {
-                if (!byNameKey.has(nameKey(name))) byNameKey.set(nameKey(name), profile.id);
-                const owner = byName.get(name);
-                if (owner === undefined) byName.set(name, profile.id);
-                else if (owner !== profile.id) diagnostics.push({ code: 'combat-name-duplicate', name, id: profile.id, kept: owner });
-            }
-        } else if (profile.kind === 'enemy') {
+        } else if (CHARACTER_KINDS.has(profile.kind)) people.push(profile);
+        else if (profile.kind === 'enemy') {
             enemies.set(profile.id, profile);
         }
     }
-    return { classes, classByName, classAlias, characters, enemies, byName, byNameKey };
+    const ordered = [...people.filter((p) => p.kind === 'deck-character'), ...people.filter((p) => p.kind !== 'deck-character')];
+    for (const profile of ordered) {
+        const names = [profile.name, ...(profile.aliases || [])];
+        const holder = profile.kind === 'skill-character' ? byName.get(profile.name) : undefined;
+        if (holder !== undefined && characters.get(holder)?.kind === 'deck-character') {
+            superseded.set(profile.id, holder);
+            diagnostics.push({ code: 'combat-profile-superseded', id: profile.id, name: profile.name, kept: holder });
+            // 让位档案的别名仍指向接替它的卡组档案，按名字暂记的 EXP 照常归并。
+            for (const name of names) {
+                if (!byNameKey.has(nameKey(name))) byNameKey.set(nameKey(name), holder);
+                if (!byName.has(name)) byName.set(name, holder);
+            }
+            continue;
+        }
+        characters.set(profile.id, profile);
+        for (const name of names) {
+            if (!byNameKey.has(nameKey(name))) byNameKey.set(nameKey(name), profile.id);
+            const owner = byName.get(name);
+            if (owner === undefined) byName.set(name, profile.id);
+            else if (owner !== profile.id) diagnostics.push({ code: 'combat-name-duplicate', name, id: profile.id, kept: owner });
+        }
+    }
+    return { classes, classByName, classAlias, characters, enemies, byName, byNameKey, superseded };
 }
 
 export function resolveClass(index, classId) {
@@ -116,9 +134,11 @@ export function characterKeyFor(index, name, userName = '') {
     return resolveCharacterId(index, name, userName) ?? nameKey(effectiveName(name, userName));
 }
 
-// 同一标签可能先以名字键、后以档案 ID 记账；两种候选 ID 任一已入库即视为已存在。
+// 同一标签可能先以名字键、后以档案 ID 记账，或记在已让位的技能档案上；任一候选 ID 已入库即视为已存在。
 function candidateIds(index, kind, name, userName, anchor) {
-    const keys = new Set([characterKeyFor(index, name, userName), nameKey(effectiveName(name, userName))]);
+    const id = characterKeyFor(index, name, userName);
+    const keys = new Set([id, nameKey(effectiveName(name, userName))]);
+    for (const [old, holder] of index.superseded || []) if (holder === id) keys.add(old);
     return [...keys].map((key) => ledgerEntryId(kind, key, anchor));
 }
 
@@ -155,6 +175,7 @@ function anchorProblem(entry, floorOf) {
 
 function ownerOf(index, character) {
     if (index.characters.has(character)) return character;
+    if (index.superseded?.has(character)) return index.superseded.get(character);
     return index.byNameKey.get(character) ?? null;
 }
 
@@ -314,6 +335,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     const unassignedExp = new Map();
     const applied = [];
     const inactive = [];
+    const growth = [];
     const seen = new Set();
     const timeline = snapshot.entries.filter((e) => !ANCHORLESS_TYPES.has(e.type)).sort(byAnchor);
     for (const e of timeline) {
@@ -339,12 +361,34 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
             } else diag(diagnostics, 'combat-character-missing', e);
             continue;
         }
-        const reason = HANDLERS[e.type](state.get(owner), e.payload, { index, entry: e, diagnostics });
+        // 让位档案只把 EXP 交给接替的卡组档案；技能、职业等条目属于旧的技能形态，不套用到卡组角色上。
+        if (index.superseded.has(e.character) && e.type !== 'exp') {
+            diag(diagnostics, 'combat-superseded-entry-skipped', e, { kept: owner });
+            continue;
+        }
+        const c = state.get(owner);
+        const levelBefore = expProgress(c.exp).level;
+        const reason = HANDLERS[e.type](c, e.payload, { index, entry: e, diagnostics });
         if (reason) diag(diagnostics, reason, e);
-        else applied.push(e.id);
+        else {
+            applied.push(e.id);
+            if (GROWTH_FX_TYPES.has(e.type)) growth.push(growthEvent(e, c, levelBefore, index));
+        }
     }
     const characters = new Map([...state].map(([id, c]) => [id, characterView(c)]));
-    return { ok: true, characters, classes: index.classes, enemies: index.enemies, unassignedExp, applied, inactive, diagnostics };
+    return { ok: true, characters, classes: index.classes, enemies: index.enemies, unassignedExp, applied, inactive, diagnostics, growth };
+}
+
+// 成长演出只读的事件：已生效的标签类成长条目，带接手角色、楼层锚点与条目生效前后的等级。
+const GROWTH_FX_TYPES = new Set(['exp', 'learn', 'upgrade', 'class']);
+
+function growthEvent(e, c, levelBefore, index) {
+    const p = e.payload;
+    const name = e.type === 'class' ? resolveClass(index, p.classRef)?.className || '' : (p.card || p.skill)?.name || '';
+    return {
+        id: e.id, type: e.type, character: c.id, characterName: c.name, anchor: { ...e.anchor },
+        amount: e.type === 'exp' ? p.amount : 0, name, levelBefore, levelAfter: expProgress(c.exp).level,
+    };
 }
 
 const GENERATED_KINDS = new Set(['learn', 'upgrade', 'class']);

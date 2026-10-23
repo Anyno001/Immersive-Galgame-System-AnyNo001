@@ -2,7 +2,7 @@
 
 - 0.36.101：`story-outfit-runtime.js` 在主程序启动后订阅宿主楼层就绪事件，装配既有剧情衣装服务、当前卡素材视图和配置保存端口；阅读器复用同一实例，按显式楼层上下文展示和处理候选，关闭阅读器不销毁常驻任务。后台保存仅合并本次字段，成功后通知设置草稿合并，保留用户未保存编辑；主程序销毁解除订阅并取消所属任务。生成开关、候选去重与回复分支校验保持。
 
-- 卡牌战斗扩展：`combat-services.js` 的 `createCombatServices(deps)` 按当前聊天装配 combat 会话、账本与 `data/shujuku/combat-tables` 适配器，返回 `getSession / getLedger / ensureTables / syncRegex / resetChat / settings`。`readerSettings.combatExpansion.enabled` 关闭时不创建对象、不注册正则；聊天、用户名、`sourceFilter`、副 LLM 配置都以 getter 注入，每次调用重读。core 不直接读写表，建表只在 UI 确认后调用 `ensureTables`。
+- 卡牌战斗扩展：`combat-services.js` 的 `createCombatServices(deps)` 按当前聊天装配 combat 会话、账本与 `data/shujuku/combat-tables` 适配器，返回 `getSession / getLedger / ensureTables / syncRegex / resetChat / settings / generateDeckProfile / refreshGrowth / getGrowth / onGrowthUpdated / retryGrowth`。`readerSettings.combatExpansion.enabled` 关闭时不创建对象、不注册正则；聊天、用户名、`sourceFilter`、副 LLM 配置都以 getter 注入，每次调用重读。core 不直接读写表，建表只在 UI 确认后调用 `ensureTables`。`refreshGrowth` 在启动、设置变更、生成结束、换聊天时补扫成长标签入库（按记录 ID 幂等，单飞并合并补跑），缓存本聊天的成长事件与待生成项并通知订阅者；换聊天后缓存不再返回。`generateDeckProfile` 与 `retryGrowth` 取消或迟到返回 `request-stale`、不落表，写入后读回确认。
 
 
 - 0.36.90：人物参考补全传播 DNA 失败，固定角色资料保存显式续存；不在准备失败后假装就绪继续出图。恢复状态仅由视觉层呈现，core 不操作 DOM。

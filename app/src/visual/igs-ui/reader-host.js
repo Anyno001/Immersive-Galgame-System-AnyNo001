@@ -10,6 +10,10 @@ import { buildIgsTextPayload, getMessagePrimaryText, getVisibleMessageTextFromEl
 import { applyVoiceBark, canonicalName, noteFormGender, setActiveFormGenders } from './voice-bark.js';
 import { createSettingsHost } from './settings-host.js';
 import { createCombatPanelController } from './combat-panel.js';
+import { createCombatDeckPanelController } from './combat-deck-panel.js';
+import { normalizeCombatExpansionSettings } from './combat-settings.js';
+import { growthTagsByPage, planGrowthFx } from './combat-growth-fx-model.js';
+import { cancelGrowthFx } from './combat-growth-fx.js';
 import { resolveCombatEntry, syncCombatEntry } from './combat-entry.js';
 import { createRecoveryNotice } from './recovery-notice.js';
 import { handleSettingsAction } from './settings-actions.js';
@@ -129,6 +133,10 @@ import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDispl
 import { applyReaderSnapshotToDom, applyToolbarState, buildFallbackReaderOverlay, buildFallbackSettingsOverlay, normalizeReaderStableLayers, pinEmbeddedHostFrame } from './reader-dom-render.js';
 
 const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
+
+// 盖住舞台的面板（地图、资料、战斗、卡组构筑）同一时刻只开一个。
+const anyPanelOpen = (dom) => Boolean(dom && (dom.mapController?.isOpen() || dom.recordController?.isOpen()
+    || dom.combatController?.isOpen() || dom.combatDeckController?.isOpen()));
 
 // 翻页时设置没变就复用上次整理好的阅读器设置：每次整份深拷贝再跑几十项整理，是翻页最大的一块 JS 开销。
 // 存储配置是共享只读的，改设置会换新引用，按引用判断即可。返回浅拷贝：调用方只改顶层字段，下层对象只读。
@@ -288,6 +296,11 @@ export function createIgsReaderHost(options = {}) {
         ? options.onItemImageUpdated(() => { if (state.activeReader) scheduleImageRefresh({ reader: true }); })
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
+    // 成长缓存刷新（生成结束补扫、换聊天）后合并重绘一次，本页成长演出据此补播。
+    const offCombatGrowthRaw = typeof options.onCombatGrowthUpdated === 'function'
+        ? options.onCombatGrowthUpdated(() => { if (state.activeReader) scheduleImageRefresh({ reader: true }); })
+        : null;
+    const offCombatGrowth = typeof offCombatGrowthRaw === 'function' ? offCombatGrowthRaw : () => {};
     // 下面几项被 return host 之后的函数引用，必须声明在 return 之前，否则压缩时会被当作死代码删掉。
     const itemEventsShown = new Set();
     const ROMANCE_MEMORY_KEYS = 'igs-romance-memory-keys';
@@ -711,6 +724,26 @@ export function createIgsReaderHost(options = {}) {
         if (itemFx.mention) pageFx.itemMentions = ledger.knownItems(chatId);
     }
 
+    // 成长演出：只读 combat-services 缓存的已入库成长事件与待生成项，按「楼层 + swipe + 本页标签」挑出本页条目。
+    // 扩展关闭、缓存不属于当前聊天或尚未刷新时不出演出，不当作没有成长。
+    function decorateGrowthFx(pageFx, payload, index, prepared, readerSettings) {
+        if (!pageFx || !normalizeCombatExpansionSettings(readerSettings && readerSettings.combatExpansion).enabled) return;
+        const growth = typeof options.getCombatGrowth === 'function' ? options.getCombatGrowth() : null;
+        if (!growth || growth.ok !== true) return;
+        const messageId = Number(firstDefined(payload.messageId, payload.message && payload.message.id, null));
+        if (!Number.isInteger(messageId)) return;
+        const identity = state.activeReader && Number(state.activeReader.payload.messageId) === messageId && state.activeReader.illustrationIdentity
+            ? state.activeReader.illustrationIdentity : readIllustrationIdentity(messageId);
+        if (!identity || !identity.chatId || identity.chatId !== growth.chatId) return;
+        if (!prepared.growthPages) prepared.growthPages = growthTagsByPage(prepared.source, (prepared.pages || []).map((p) => p.fxOffset));
+        const keys = prepared.growthPages[index];
+        if (!keys || !keys.size) return;
+        const swipeId = Number(identity.swipeId) || 0;
+        const plan = planGrowthFx({ growth: growth.growth, pending: growth.pending, messageId, swipeId, keys,
+            identity: { chatId: identity.chatId, messageId, swipeId, page: index } });
+        if (plan.items.length) pageFx.growth = plan;
+    }
+
     function readIllustrationIdentity(messageId) {
         const floor = messageId != null && typeof options.getIllustrationSource === 'function'
             ? options.getIllustrationSource(messageId) : null;
@@ -928,6 +961,7 @@ export function createIgsReaderHost(options = {}) {
         if (current.dom && current.dom.overlay) closeMetaFx(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelDailyFx(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelResultFx(current.dom.overlay);
+        if (current.dom && current.dom.overlay) cancelGrowthFx(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelSceneAudio(current.dom.overlay);
         parkAudioBus();
         if (typeof current.stopStagePause === 'function') current.stopStagePause();
@@ -1000,6 +1034,7 @@ export function createIgsReaderHost(options = {}) {
         offStoryOutfits();
         if (!options.storyOutfits) storyOutfits?.dispose();
         offItemImageUpdated();
+        offCombatGrowth();
         offImageJobLog();
         teardownStatusHudSubscription();
         closeReader();
@@ -1992,7 +2027,7 @@ export function createIgsReaderHost(options = {}) {
             applyBgmNoteToDom(skipped.root, skipped.track, { open: true });
             return { ok: true, track: skipped.track.name };
         }
-        if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships', 'favor'].includes(normalizedAction)) {
+        if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships', 'favor', 'combat'].includes(normalizedAction)) {
             const current = state.activeReader;
             const hud = current.snapshot?.content?.statusHud;
             const settings = current.snapshot?.readerSettings;
@@ -2004,7 +2039,7 @@ export function createIgsReaderHost(options = {}) {
                 || overlay?.classList?.contains('igs-options-visible') || !host || !menu || host.classList?.contains('igs-hud-collapsed'))
                 return { ok: false, reason: 'record-entry-not-visible' };
             if (normalizedAction === 'toggle-record-menu') {
-                if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen() || current.dom.combatController?.isOpen()) return { ok: false, reason: 'panel-open' };
+                if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
                 const expanded = menu.hasAttribute('hidden');
                 if (expanded) menu.removeAttribute('hidden');
                 else menu.setAttribute('hidden', '');
@@ -2013,7 +2048,8 @@ export function createIgsReaderHost(options = {}) {
             }
             if (normalizedAction === 'map' && !hud.character && !hud.location) return { ok: false, reason: 'record-entry-not-visible' };
             if (normalizedAction === 'favor' && !(hud.metrics || []).some(metric => /好感/.test(String(metric?.label || '')))) return { ok: false, reason: 'favor-bar-missing' };
-            if (current.dom.mapController.isOpen() || current.dom.recordController.isOpen() || current.dom.combatController?.isOpen()) return { ok: false, reason: 'panel-open' };
+            if (normalizedAction === 'combat' && !normalizeCombatExpansionSettings(settings?.combatExpansion).enabled) return { ok: false, reason: 'combat-disabled' };
+            if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
             if (!menu.hasAttribute('hidden')) {
                 menu.setAttribute('hidden', '');
                 arrow?.setAttribute('aria-expanded', 'false');
@@ -2021,7 +2057,9 @@ export function createIgsReaderHost(options = {}) {
             }
             return normalizedAction === 'map'
                 ? current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation, current.snapshot?.content?.sceneTime, current.snapshot?.content?.sceneWeather)
-                : current.dom.recordController.open(overlay, settings, normalizedAction);
+                : normalizedAction === 'combat'
+                    ? current.dom.combatDeckController.open(overlay)
+                    : current.dom.recordController.open(overlay, settings, normalizedAction);
         }
         if (normalizedAction === 'toggle-status-hud') {
             return state.activeReader.controller.toggleStatusHud();
@@ -3600,6 +3638,7 @@ export function createIgsReaderHost(options = {}) {
         const nsfwSpan = normalizeRomanceFxSettings(readerSettings.romanceFx).enabled ? page.nsfwSpan || null : null;
         const pageFx = cloneData(page.fx);
         decorateItemFx(pageFx, payload, segments, normalizedIndex, prepared, readerSettings);
+        decorateGrowthFx(pageFx, payload, normalizedIndex, prepared, readerSettings);
         // 食物被吃掉 / 喝掉：表格少了食物、AI 写「使用」食物、或本页有进食标签时，角落卡片换成吃掉 / 喝掉。
         const dailyForEat = normalizeDailyFxSettings(readerSettings && readerSettings.dailyFx);
         applyEatToItems(pageFx, { itemOn: normalizeItemFxSettings(readerSettings && readerSettings.itemFx).enabled, eatOn: dailyForEat.enabled && dailyForEat.eat });
@@ -4073,10 +4112,11 @@ export function createIgsReaderHost(options = {}) {
             const mapPanel = state.activeReader.dom?.mapController;
             const recordPanel = state.activeReader.dom?.recordController;
             const combatPanel = state.activeReader.dom?.combatController;
-            if (mapPanel?.isOpen() || recordPanel?.isOpen() || combatPanel?.isOpen()) {
+            const deckPanel = state.activeReader.dom?.combatDeckController;
+            if (mapPanel?.isOpen() || recordPanel?.isOpen() || combatPanel?.isOpen() || deckPanel?.isOpen()) {
                 if (event.key === 'Escape') {
                     event.preventDefault(); event.stopPropagation?.();
-                    if (combatPanel?.isOpen()) combatPanel.close(); else if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
+                    if (combatPanel?.isOpen()) combatPanel.close(); else if (deckPanel?.isOpen()) deckPanel.close(); else if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
                 } else if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.stopPropagation?.();
                 return;
             }
@@ -4172,6 +4212,14 @@ export function createIgsReaderHost(options = {}) {
             getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
         });
+        // 卡组构筑面板：资料菜单「战斗」项打开；账本、会话与手动生成都由 bootstrap 注入。
+        const combatDeckController = createCombatDeckPanelController(doc, {
+            getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
+            getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
+            generateDeckProfile: typeof options.generateCombatDeckProfile === 'function' ? (input, opts) => options.generateCombatDeckProfile(input, opts) : null,
+            getGrowth: () => (typeof options.getCombatGrowth === 'function' ? options.getCombatGrowth() : null),
+            retryGrowth: typeof options.retryCombatGrowth === 'function' ? () => options.retryCombatGrowth() : null,
+        });
         const domState = {
             root,
             doc,
@@ -4179,6 +4227,7 @@ export function createIgsReaderHost(options = {}) {
             mapController,
             recordController,
             combatController,
+            combatDeckController,
             embeddedMount,
             dispose() {
                 if (typeof doc.removeEventListener === 'function') {
@@ -4190,6 +4239,7 @@ export function createIgsReaderHost(options = {}) {
                 mapController.dispose();
                 recordController.close();
                 combatController.dispose();
+                combatDeckController.dispose();
                 dbController.close();
                 teardownEmbeddedMount(domState.embeddedMount);
                 domState.embeddedMount = null;
@@ -4477,7 +4527,7 @@ export function createIgsReaderHost(options = {}) {
     function openCombatPanel(current, entry) {
         const dom = current && current.dom;
         if (!dom || !dom.overlay || !entry) return { ok: false, reason: 'combat-entry-missing' };
-        if (dom.mapController.isOpen() || dom.recordController.isOpen()) return { ok: false, reason: 'panel-open' };
+        if (dom.mapController.isOpen() || dom.recordController.isOpen() || dom.combatDeckController?.isOpen()) return { ok: false, reason: 'panel-open' };
         const menu = dom.overlay.querySelector?.('#igs-hud-record-menu');
         if (menu && !menu.hasAttribute('hidden')) menu.setAttribute('hidden', '');
         return dom.combatController.open(dom.overlay, { messageId: entry.messageId });

@@ -358,8 +358,10 @@ export function bootstrapIGS(options = {}) {
         getChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
         getUserName: () => (typeof illustrationMessageHost.getUserName === 'function' ? illustrationMessageHost.getUserName() : ''),
     });
-    const offCombatRegex = events.on('igs:legacy-settings-updated', () => { combatServices.syncRegex(); });
+    // 设置变更（含扩展开关）与启动时：注册战报折叠正则，并补扫当前聊天的成长标签、刷新成长演出缓存。
+    const offCombatRegex = events.on('igs:legacy-settings-updated', () => { combatServices.syncRegex(); combatServices.refreshGrowth(); });
     combatServices.syncRegex();
+    combatServices.refreshGrowth();
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
         media,
@@ -397,6 +399,11 @@ export function bootstrapIGS(options = {}) {
         getCombatSession: () => combatServices.getSession(),
         getCombatLedger: () => combatServices.getLedger(),
         ensureCombatTables: () => combatServices.ensureTables(),
+        generateCombatDeckProfile: (input, opts) => combatServices.generateDeckProfile(input, opts),
+        getCombatGrowth: () => combatServices.getGrowth(),
+        onCombatGrowthUpdated: (handler) => combatServices.onGrowthUpdated(handler),
+        refreshCombatGrowth: () => combatServices.refreshGrowth(),
+        retryCombatGrowth: () => combatServices.retryGrowth(),
         resumeReply: () => hostAdapter.resumeReply?.() || { ok: false, reason: 'reply-host-not-ready' },
         setInputText(text) {
             return typeof hostAdapter.setInputText === 'function' ? hostAdapter.setInputText(text) : { ok: false, reason: 'missing-input-api' };
@@ -995,6 +1002,13 @@ export function bootstrapIGS(options = {}) {
         // 换聊天：丢弃旧聊天的战斗会话，下次取用时按新聊天的存档续战。
         const onChatChanged = () => {
             combatServices.resetChat();
+            combatServices.refreshGrowth();
+            resync();
+        };
+        // 生成结束：剧情楼的成长标签补扫入库，刷新成长演出缓存。
+        const onGenerationEnded = () => {
+            if (state.destroyed) return;
+            combatServices.refreshGrowth();
             resync();
         };
         const onGenerationStarted = (type) => {
@@ -1004,7 +1018,7 @@ export function bootstrapIGS(options = {}) {
         const bindings = [
             [eventTypes.CHAT_CHANGED, onChatChanged],
             [eventTypes.GENERATION_STARTED, onGenerationStarted],
-            [eventTypes.GENERATION_ENDED, resync],
+            [eventTypes.GENERATION_ENDED, onGenerationEnded],
             [eventTypes.GENERATION_STOPPED, resync],
         ].filter(([name]) => name);
         const bound = [];

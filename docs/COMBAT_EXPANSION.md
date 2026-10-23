@@ -136,3 +136,14 @@
 - 构建产物验收使用本机合成预览服务（工作区 `app/tools/local-preview/`，不纳入版本库）：读取真实 `app/dist`，只监听 127.0.0.1，只放行无请求体的 GET/HEAD；宿主接口与写入默认拒绝；用户、聊天、档案均为合成数据。`fixtures/record-pages/preview.html` 增加战斗页。`scripts/record-pages-capture.mjs` 的 Edge CDP 端口改为 0，从 `DevToolsActivePort` 读取实际端口。
 - 验证：`combat-panel.test.js` 8 项、`combat-ledger.test.js` 11 项；战斗相关 10 个测试文件与 `settings-panel-ux.test.js` 合跑 84 项，全部通过。`npm.cmd run build` 产出 0.36.115。构建产物预览在 Edge headless 下实测：lobby 测了 1440 / 768 / 390 / 320 四个宽度，no-tables、read-fail、disabled 各测 390 宽；均无溢出、无 console error、无外站请求。VS Code 内置浏览器打开同一场景，产物指纹一致。
 - 未验证：结算、战报发送、领奖界面、内存写入模式、主题切换、完整 Tab 顺序；真实酒馆、手机、shujuku、副 LLM 均未验收。
+
+### 第 12 步：资料菜单「战斗」、卡组构筑面板与成长演出
+
+- 资料菜单新增「战斗」项（`record-icons.js` 的 `combat` 图标），只在扩展开启时出现；开关已纳入状态栏重建签名，切换后菜单随之增减。`reader-host.js` 把 `combat` 动作直接交给卡组构筑面板，不经过 `record-panel`：资料面板只渲染 shujuku 资料表，构筑需要账本、会话与副 LLM，因此计划中列出的 `record-panel.js` 登记点没有改动。地图、资料、战斗、卡组构筑四个面板经 `anyPanelOpen` 统一互斥，Esc 优先级为战斗 > 卡组构筑 > 地图 > 资料。
+- 新增卡组构筑面板 `combat-deck-panel-model.js` / `combat-deck-panel-render.js` / `combat-deck-panel-style.js` / `combat-deck-panel.js`：角色列表（卡组角色在前，显示等级与 EXP 进度、需调整标记）；角色详情（职业、HP、被动、技能）；构筑草稿实时校验 20–30 张、同名不超过 3 张、不超过拥有数，不合规时保存按钮禁用且对应卡标错；保存写一条 `deck` 日志并读回；会话处于准备、对局、结算或待回传时只读。暂停原因为 `panel:combat-deck`。
+- 手动生成卡组档案（设计 A2）：`combat-services.generateDeckProfile({ name, classRef }, { signal })`。选定已有职业时沿用其职业特性，请求里不含职业部分；已有卡组档案时拒绝；取消或迟到结果返回 `request-stale`、不落表；写入后经账本读回确认档案生效。
+- 同名档案规则（助手 2026-10-23 选定方案 A）：同名时卡组档案优先，技能档案让位但保留在表中（诊断 `combat-profile-superseded`）。技能档案上的 EXP 条目在读取归并时并入卡组档案，不改表、不写迁移行，换 swipe 或回溯后仍按锚点回退；让位档案上的其他条目只记诊断 `combat-superseded-entry-skipped`，不套用到卡组角色上。
+- 成长演出 `combat-growth-fx-model.js` / `combat-growth-fx.js`：账本 `effectiveState()` 新增 `growth`（已生效的 exp / learn / upgrade / class 条目，带接手角色、锚点和生效前后等级）。成长标签按页归位，规则与演出标签相同，正文末尾的标签归最后一个有效页。只播本楼、本 swipe、本页已入库的条目；同一角色本页的 EXP 合并为一条，跨级时单列「升级」；尚待副 LLM 生成的项显示「整理中」占位；页内最多 3 项，超出的计数；同页重绘不重播，晚入库的条目只补播新增的。NSFW、聊天页、卡片页不播；减少动态效果时静态显示。
+- 补扫时机：此前剧情楼的成长标签只在战报回传后扫描。现在 `combat-services.refreshGrowth()` 在启动、设置变更、生成结束、换聊天时补扫入库（按记录 ID 幂等），并缓存成长事件与待生成项；阅读器订阅缓存刷新后合并重绘一次。缓存不属于当前聊天或读表失败时不出演出。`retryGrowth()` 把待整理的 learn / upgrade / class 交副 LLM 生成并落账，构筑面板「待整理」行的重试按钮调用它。
+- 验证：`combat-deck-panel.test.js` 5 项、`combat-growth-fx.test.js` 4 项、`combat-ledger.test.js` 12 项；战斗相关 12 个测试文件与 `settings-panel-ux.test.js`、`simulate.test.js` 合跑 105 项，全部通过。`npm.cmd run build` 产出 0.36.115。构建产物预览在 Edge headless 下实测：deck 场景测了 1440 / 390 / 320 三个宽度，经状态栏「战斗」项打开构筑面板，尺寸 900×540 / 358×540 / 288×528，无溢出，焦点在面板内，Esc 关闭；growth 场景测了 390 / 1440 两个宽度，显示「升级 林夕 Lv2」与「EXP 林夕 +45」；均无 console error、无外站请求。VS Code 内置浏览器打开 deck 场景，产物指纹与服务端一致。
+- 未验证：构筑面板的保存与手动生成点击链（预览默认拒绝写入，只有单元用例覆盖）、领奖界面、主题切换、完整 Tab 顺序；真实酒馆、手机、shujuku、副 LLM 均未验收。

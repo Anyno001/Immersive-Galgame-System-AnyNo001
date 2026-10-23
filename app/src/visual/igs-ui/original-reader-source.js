@@ -28,6 +28,8 @@ import { DAILY_FX_STYLE_TEXT } from './fx-daily-style.js';
 import { ITEM_FX_STYLE_TEXT } from './fx-item.js';
 import { BATTLE_FX_STYLE_TEXT } from './fx-battle.js';
 import { COMBAT_PANEL_STYLE_TEXT } from './combat-panel-style.js';
+import { COMBAT_DECK_PANEL_STYLE_TEXT } from './combat-deck-panel-style.js';
+import { GROWTH_FX_STYLE_TEXT } from './combat-growth-fx.js';
 import { RESULT_FX_STYLE_TEXT } from './fx-result.js';
 import { CG_GALLERY_STYLE_TEXT } from './cg-gallery-panel.js';
 import { TURN_INDEX_STYLE_TEXT } from './turn-index-panel.js';
@@ -452,6 +454,8 @@ ${DAILY_FX_STYLE_TEXT}
 ${ITEM_FX_STYLE_TEXT}
 ${BATTLE_FX_STYLE_TEXT}
 ${COMBAT_PANEL_STYLE_TEXT}
+${COMBAT_DECK_PANEL_STYLE_TEXT}
+${GROWTH_FX_STYLE_TEXT}
 ${RESULT_FX_STYLE_TEXT}
 ${DANMAKU_STYLE_TEXT}
 ${FEED_STYLE_TEXT}
