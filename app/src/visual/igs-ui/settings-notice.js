@@ -66,6 +66,7 @@ const SETTINGS_BUSY_LABELS = Object.freeze({
     'fetch-llm-models': '拉取中…',
     'fetch-image-models': '拉取中…',
     'tts-fetch-voices': '获取中…',
+    'tts-fetch-voices-narrator': '获取中…',
     'mood-review-ai-classify': '分类中…',
     'mood-ai-reclassify': '整理中…',
 });

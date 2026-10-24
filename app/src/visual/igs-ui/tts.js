@@ -46,12 +46,13 @@ export const TTS_BILINGUAL_MODES = Object.freeze([
 ]);
 // 角色单独音量：0 为这个角色不朗读。
 export const TTS_CHARACTER_VOLUMES = Object.freeze([[1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.25, '25%'], [0, '不朗读']]);
+// 心里话音量（倍）：在力度之上再压一档，像在脑子里说。
+export const TTS_THOUGHT_VOLUMES = Object.freeze([[1, '100%'], [0.8, '80%'], [0.6, '60%'], [0.4, '40%']]);
 const ROLE_KEYS = ['female', 'male', 'narrator'];
 const TTS_DEFAULTS = Object.freeze({ enabled: false, provider: 'system', volume: 0.9, rate: 1, narration: true, nsfw: false });
 // 朗读时 BGM 与环境音让得比语气音多一点，台词要听清。
 const TTS_DUCK_RATIO = 0.55;
-// 心里话轻一点，像在脑子里说。
-const THOUGHT_GAIN = 0.8;
+const THOUGHT_VOLUME_DEFAULT = 0.8;
 // Chrome 一条朗读超过约 15 秒会被掐断，按句切成短段排队念。
 const CHUNK_MAX = 120;
 // 系统语音拿不到时长，按每秒约 4.5 个字估算，用于让打字音静音。
@@ -75,6 +76,9 @@ const RESUME_TIMEOUT_MS = 1200;
 const API_SEGMENT_THRESHOLD = 60;
 const API_SEGMENT_MIN = 15;
 const LEXICON_MAX = 4000;
+// 可选声音最多存这么多个；Fish / MiniMax 的声音 ID 连标题一项可达百来字，字数上限按个数留足。
+export const TTS_VOICE_MAX = 50;
+const VOICES_TEXT_MAX = TTS_VOICE_MAX * 160;
 // 系统语音偶尔漏发 onend：按估算时长的 2 倍再加 5 秒兜底收尾，免得自动播放和「翻页不打断」一直等。
 const SYSTEM_WATCHDOG_PAD_S = 5;
 // 清掉卡住的上一句后等这么久再开口。
@@ -92,6 +96,19 @@ const MOOD_PROSODY = Object.freeze({
     无奈: { rate: 0.94, pitch: 0.97 }, 动情: { rate: 0.9 }, 爱恋: { rate: 0.94, pitch: 1.02 },
 });
 const WHISPER_PROSODY = Object.freeze({ rate: 0.92 });
+// 情绪写进风格描述时用的短语；平和不写。
+const MOOD_STYLE_TEXT = Object.freeze({
+    喜悦: '语气愉快', 愤怒: '语气愤怒', 悲伤: '语气悲伤低落', 惊讶: '语气惊讶', 害羞: '语气羞涩', 紧张: '语气紧张', 思考: '语气若有所思',
+    爱恋: '语气温柔含情', 嫌弃: '语气嫌弃', 得意: '语气得意', 冷淡: '语气冷淡', 大笑: '带着笑意', 哭泣: '带着哭腔', 不满: '语气不满',
+    无奈: '语气无奈', 心虚: '语气心虚', 委屈: '语气委屈', 怀疑: '语气带着怀疑', 动情: '声音轻柔动情',
+});
+const WHISPER_STYLE_TEXT = '压低声音耳语';
+// 情绪标签 → MiniMax voice_setting.emotion；映射不到的不发。
+const MINIMAX_EMOTIONS = Object.freeze(['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm']);
+const MOOD_EMOTION = Object.freeze({
+    喜悦: 'happy', 得意: 'happy', 大笑: 'happy', 悲伤: 'sad', 哭泣: 'sad', 委屈: 'sad', 愤怒: 'angry', 不满: 'angry',
+    紧张: 'fearful', 心虚: 'fearful', 嫌弃: 'disgusted', 惊讶: 'surprised', 冷淡: 'calm', 思考: 'calm', 无奈: 'calm',
+});
 
 const plainObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -100,12 +117,38 @@ const template = (v) => String(v ?? '').trim().slice(0, MAX_TEMPLATE);
 const pick = (list, v, fallback) => (list.some(([id]) => id === v) ? v : fallback);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+// 一套接口的连接项：台词接口与旁白独立接口共用。
+function normalizeTtsApi(api) {
+    return {
+        // 接口格式：按各家文档的字段构造请求；旧版保存的 auto 或无效值按地址判断（含 fish.audio 为 Fish Audio，否则 OpenAI 兼容）。
+        format: pick(TTS_API_FORMATS, api.format, resolveTtsApiFormat(api.endpoint)),
+        responseFormat: pick(TTS_RESPONSE_FORMATS, api.responseFormat, 'mp3'),
+        sendSpeed: api.sendSpeed !== false,
+        // 长句按句末标点切段：第一段先请求先播，其余并行请求、按顺序接着播。
+        chunk: api.chunk !== false,
+        customMethod: pick(TTS_CUSTOM_METHODS, api.customMethod, 'POST'),
+        customUrl: field(api.customUrl),
+        customHeaders: template(api.customHeaders),
+        customBody: template(api.customBody),
+        customResponse: pick(TTS_CUSTOM_RESPONSES, api.customResponse, 'audio'),
+        customPath: field(api.customPath),
+        transport: api.transport === 'st-proxy' ? 'st-proxy' : 'direct',
+        endpoint: field(api.endpoint),
+        apiKey: field(api.apiKey),
+        model: field(api.model),
+        // MiniMax：把情绪标签映射为 voice_setting.emotion 发送。
+        sendEmotion: api.sendEmotion !== false,
+    };
+}
+
 export function normalizeTtsSettings(value) {
     const source = plainObject(value) || {};
     const system = plainObject(source.system) || {};
     const api = plainObject(source.api) || {};
+    const narratorApi = plainObject(source.narratorApi) || {};
     const volume = Number(source.volume);
     const rate = Number(source.rate);
+    const thoughtVolume = Number(source.thoughtVolume);
     const roles = (src) => Object.fromEntries(ROLE_KEYS.map((key) => [key, field(src[key])]));
     return {
         enabled: source.enabled === true,
@@ -121,26 +164,20 @@ export function normalizeTtsSettings(value) {
         lexicon: String(source.lexicon ?? '').slice(0, LEXICON_MAX),
         // 系统声音下拉列出全部语言；关掉时只列中文、日文。
         allVoices: source.allVoices === true,
+        // 旁白风格：一段文字描述，OpenAI 兼容接口作为 instructions 发送，自定义请求用 {{style}}。
+        narratorStyle: field(source.narratorStyle),
+        // 心里话页的风格描述与音量；风格与角色风格、情绪描述一起拼进 style。
+        thoughtStyle: field(source.thoughtStyle),
+        thoughtVolume: TTS_THOUGHT_VOLUMES.some(([v]) => v === thoughtVolume) ? thoughtVolume : THOUGHT_VOLUME_DEFAULT,
+        // 台词、心里话按情绪与耳语拼一句中文描述写进风格（仅支持风格的格式有意义）。
+        moodStyle: source.moodStyle === true,
         system: roles(system),
+        // 旁白独立接口：开启后旁白不论主来源是什么，都用这一套接口与声音。
+        narratorApi: { enabled: narratorApi.enabled === true, ...normalizeTtsApi(narratorApi), voice: field(narratorApi.voice), voices: limitVoiceText(String(narratorApi.voices ?? '').trim().slice(0, VOICES_TEXT_MAX)) },
         api: {
-            // 接口格式：按各家文档的字段构造请求；旧版保存的 auto 或无效值按地址判断（含 fish.audio 为 Fish Audio，否则 OpenAI 兼容）。
-            format: pick(TTS_API_FORMATS, api.format, resolveTtsApiFormat(api.endpoint)),
-            responseFormat: pick(TTS_RESPONSE_FORMATS, api.responseFormat, 'mp3'),
-            sendSpeed: api.sendSpeed !== false,
-            // 长句按句末标点切段：第一段先请求先播，其余并行请求、按顺序接着播。
-            chunk: api.chunk !== false,
-            customMethod: pick(TTS_CUSTOM_METHODS, api.customMethod, 'POST'),
-            customUrl: field(api.customUrl),
-            customHeaders: template(api.customHeaders),
-            customBody: template(api.customBody),
-            customResponse: pick(TTS_CUSTOM_RESPONSES, api.customResponse, 'audio'),
-            customPath: field(api.customPath),
-            transport: api.transport === 'st-proxy' ? 'st-proxy' : 'direct',
-            endpoint: field(api.endpoint),
-            apiKey: field(api.apiKey),
-            model: field(api.model),
-            // 可选声音：逗号或换行分隔，给角色单独指定时做下拉。
-            voices: String(api.voices ?? '').trim().slice(0, MAX_FIELD * 10),
+            ...normalizeTtsApi(api),
+            // 可选声音：逗号或换行分隔，给角色单独指定时做下拉；最多 TTS_VOICE_MAX 个。
+            voices: limitVoiceText(String(api.voices ?? '').trim().slice(0, VOICES_TEXT_MAX)),
             // 提前生成下一页：在一页停够 PREFETCH_DWELL_MS 才生成，快速点过的页不花钱。
             prefetch: api.prefetch !== false,
             ...roles(api),
@@ -164,28 +201,48 @@ function parseVoiceEntries(text) {
     return out;
 }
 
+const joinVoiceEntries = (entries) => entries.map(([id, title]) => (title ? `${id}#${title}` : id)).join(', ');
+
+// 超过 TTS_VOICE_MAX 个时只留前面的；没超时原样保留（不改用户的分隔写法）。
+function limitVoiceText(text) {
+    const entries = parseVoiceEntries(text);
+    return entries.length > TTS_VOICE_MAX ? joinVoiceEntries(entries.slice(0, TTS_VOICE_MAX)) : text;
+}
+
 export function ttsApiVoiceList(settings) {
     return parseVoiceEntries(normalizeTtsSettings(settings).api.voices).map(([id]) => id);
 }
 
+const voiceOptionsOf = (voices) => parseVoiceEntries(voices).map(([id, title]) => [id, title ? `${title}（${id}）` : id]);
+
 export function ttsApiVoiceOptions(settings) {
-    return parseVoiceEntries(normalizeTtsSettings(settings).api.voices).map(([id, title]) => [id, title ? `${title}（${id}）` : id]);
+    return voiceOptionsOf(normalizeTtsSettings(settings).api.voices);
 }
 
-// 把拉取到的声音并进已有的可选声音：按声音名去重，已有的在前。
+// 旁白独立接口的可选声音（没有拉取过时为空数组）。
+export function ttsNarratorVoiceOptions(settings) {
+    return voiceOptionsOf(normalizeTtsSettings(settings).narratorApi.voices);
+}
+
+// 把拉取到的声音并进已有的可选声音：按声音名去重，已有的在前；满 TTS_VOICE_MAX 个后其余不加，dropped 为没加进去的个数。
 export function mergeTtsVoices(existing, fetched) {
-    const entries = parseVoiceEntries(existing);
+    const entries = parseVoiceEntries(existing).slice(0, TTS_VOICE_MAX);
     const seen = new Set(entries.map(([id]) => id));
     let added = 0;
+    let dropped = 0;
     for (const [id, title] of fetched) {
         const key = String(id || '').trim();
         if (!key || seen.has(key) || /[,，\n#]/.test(key)) continue;
         seen.add(key);
+        if (entries.length >= TTS_VOICE_MAX) {
+            dropped += 1;
+            continue;
+        }
         added += 1;
         const label = String(title || '').replace(/[,，\n#]+/g, ' ').trim();
         entries.push([key, label && label !== key ? label : '']);
     }
-    return { text: entries.map(([id, title]) => (title ? `${id}#${title}` : id)).join(', ').slice(0, MAX_FIELD * 10), added, total: entries.length };
+    return { text: joinVoiceEntries(entries), added, dropped, total: entries.length };
 }
 
 // 页面文字 → 要念的纯文本。双语「原文〖译文〗」默认念译文，original 为真时念原文；去掉字效与心里话星号，
@@ -363,6 +420,16 @@ function hashName(name) {
     return h;
 }
 
+// 台词、心里话这一页的风格描述：心里话风格、角色风格、情绪与耳语描述（开了 moodStyle 才写）用「；」连接。
+function spokenStyle(config, sceneAssets, line, mood) {
+    const assets = plainObject(sceneAssets) || {};
+    const map = plainObject(assets.characterVoices) || {};
+    const name = canonicalName(assets, line.speaker);
+    const character = name && hasOwn(map, name) ? normalizeCharacterVoice(map[name]).ttsStyle : '';
+    const emotion = config.moodStyle ? [line.whisper ? WHISPER_STYLE_TEXT : '', MOOD_STYLE_TEXT[mood] || ''].filter(Boolean).join('，') : '';
+    return [line.textType === 'thought' ? config.thoughtStyle : '', character, emotion].filter(Boolean).join('；');
+}
+
 // 这一页由谁念、用什么声音（纯函数，便于测试）。voices 是系统声音列表（接口来源时不用）。
 // line.lang：这一页文字的语言（zh / ja / en），系统声音按它挑；接口来源不管语言。
 // 返回 { voice, role, gender, pitch, rate, volume }；voice 为 '' 表示系统默认声音，volume 为 0 表示这个角色不朗读。
@@ -379,6 +446,11 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     let pitch = 2 ** (manual.pitch / 12);
     const rate = manual.speed;
     const volume = manual.ttsVolume;
+    // 旁白独立接口：不看主来源，声音只取这套接口里填的。
+    if (narrator && config.narratorApi.enabled) {
+        const voice = config.narratorApi.voice;
+        return { voice, role, gender, pitch: 1, rate, volume: voice ? volume : 0, provider: 'api', apiSource: 'narrator' };
+    }
     if (config.provider === 'api') {
         const api = config.api;
         const voice = manual.tts || api[role] || (narrator ? api.female : '') || api.female || api.male || '';
@@ -426,14 +498,18 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
     if (!/[\p{L}\p{N}]/u.test(text)) return skipWith('这一页没有可读的文字');
     const lang = detectTtsLang(plain);
     const voice = resolveTtsVoice({ ...line, lang }, config, sceneAssets, voices);
-    if (voice.volume <= 0) return skipWith('这个角色设为不朗读');
+    if (voice.volume <= 0) return skipWith(voice.apiSource === 'narrator' ? '旁白独立接口没有填写声音' : '这个角色设为不朗读');
     if (record) lastSkip = null;
     const mood = spoken ? resolveBarkMood(line.mood) : '';
     const prosody = (spoken && line.whisper ? WHISPER_PROSODY : MOOD_PROSODY[mood]) || {};
     const shape = spoken ? resolveBarkShape(line, mood) : { gain: 1, close: false, phone: false, pan: 0 };
-    const gain = type === 'thought' ? Math.min(shape.gain, THOUGHT_GAIN) : shape.gain;
+    const gain = type === 'thought' ? Math.min(shape.gain, config.thoughtVolume) : shape.gain;
     return {
-        provider: config.provider,
+        provider: voice.provider || config.provider,
+        apiSource: voice.apiSource || 'main',
+        style: spoken ? spokenStyle(config, sceneAssets, line, mood) : config.narratorStyle,
+        // 耳语没有情绪标签时按平静发送；平和与映射不到的不发。
+        emotion: spoken ? (line.whisper ? MOOD_EMOTION[mood] || 'calm' : MOOD_EMOTION[mood] || '') : '',
         text,
         voice: voice.voice,
         role: voice.role,
@@ -666,7 +742,7 @@ export function parseGptSovitsVoice(voice) {
 const speedOf = (rate) => clamp(Number(rate) || 1, 0.5, 2);
 
 function fillTemplate(text, values, { raw = [], uri = false } = {}) {
-    return String(text || '').replace(/\{\{(text|voice|speed|lang|model|key)\}\}/g, (_, key) => {
+    return String(text || '').replace(/\{\{(text|voice|speed|lang|model|key|style)\}\}/g, (_, key) => {
         const value = String(values[key] ?? '');
         if (raw.includes(key)) return value;
         if (uri) return encodeURIComponent(value);
@@ -685,7 +761,7 @@ function parseJsonText(text, label) {
 }
 
 // 按接口格式构造请求（纯函数，不联网）：返回 { url, method, headers, body }，body 是字符串或 undefined。
-export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh' }) {
+export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh', style = '', emotion = '' }) {
     const format = api.format || 'openai';
     const headers = { 'Content-Type': 'application/json' };
     if (api.apiKey) headers.Authorization = `Bearer ${api.apiKey}`;
@@ -711,13 +787,13 @@ export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh' }) {
             url: formatUrl(api, FORMAT_PATHS.minimax, { fallback: FORMAT_DEFAULT_ENDPOINTS.minimax }), method: 'POST', headers,
             body: JSON.stringify({
                 model: api.model || MINIMAX_DEFAULT_MODEL, text, stream: false, output_format: 'hex',
-                voice_setting: { voice_id: voice || '', ...(api.sendSpeed ? { speed: speedOf(rate) } : {}) },
+                voice_setting: { voice_id: voice || '', ...(api.sendSpeed ? { speed: speedOf(rate) } : {}), ...(api.sendEmotion !== false && MINIMAX_EMOTIONS.includes(emotion) ? { emotion } : {}) },
                 audio_setting: { format: 'mp3' },
             }),
         };
     }
     if (format === 'custom') {
-        const values = { text, voice: voice || '', speed: speedOf(rate), lang, model: api.model || '', key: api.apiKey || '' };
+        const values = { text, voice: voice || '', speed: speedOf(rate), lang, model: api.model || '', key: api.apiKey || '', style: style || '' };
         const method = api.customMethod === 'GET' ? 'GET' : 'POST';
         const url = fillTemplate(api.customUrl, values, { uri: true });
         const custom = parseJsonText(fillTemplate(api.customHeaders, values), '自定义请求头') || {};
@@ -735,7 +811,7 @@ export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh' }) {
                 body = fillTemplate(api.customBody, values, { raw: ['speed'] });
                 if (body.trim()) parseJsonText(body, '自定义请求体');
             } else {
-                body = fillTemplate(api.customBody, values, { raw: ['text', 'voice', 'speed', 'lang', 'model', 'key'] });
+                body = fillTemplate(api.customBody, values, { raw: ['text', 'voice', 'speed', 'lang', 'model', 'key', 'style'] });
             }
         }
         return { url: url ? proxied(url, api.transport) : '', method, headers: merged, body: body || undefined };
@@ -743,6 +819,8 @@ export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh' }) {
     const body = { model: api.model || 'tts-1', input: text, voice: voice || 'alloy' };
     if (api.responseFormat !== 'none') body.response_format = api.responseFormat || 'mp3';
     if (api.sendSpeed !== false) body.speed = rate;
+    // 风格描述：gpt-4o-mini-tts 等支持 instructions 的模型生效。
+    if (style) body.instructions = style;
     return { url: ttsSpeechUrl(api.endpoint, api.transport), method: 'POST', headers, body: JSON.stringify(body) };
 }
 
@@ -901,9 +979,10 @@ export function builtinOpenAiVoices(endpoint) {
     return list;
 }
 
-// 返回 { ok, voices: [[id, 标题]], builtin?, error? }；失败不抛。
-export async function fetchTtsVoices(settings) {
-    const api = normalizeTtsSettings(settings).api;
+// 返回 { ok, voices: [[id, 标题]], builtin?, error? }；失败不抛。narrator 为真时按旁白独立接口拉取。
+export async function fetchTtsVoices(settings, { narrator = false } = {}) {
+    const config = normalizeTtsSettings(settings);
+    const api = narrator ? config.narratorApi : config.api;
     const authHeaders = api.apiKey ? { Authorization: `Bearer ${api.apiKey}` } : {};
     const getJson = async (url, init = {}) => {
         const guard = createRequestGuard();
@@ -948,13 +1027,15 @@ export async function fetchTtsVoices(settings) {
 
 // 缓存键不含语速与首尾引号：提前生成时还不知道下一页的情绪，语速差在 RATE_TOLERANCE 内就算同一条。
 // 键里带接口格式与会影响音频的格式项，换格式 / 换请求模板后不会读到旧音频。
-export function ttsCacheKey(url, api, voice, text) {
+export function ttsCacheKey(url, api, voice, text, style = '', emotion = '') {
     const body = String(text || '').replace(/^[\s「『“"'‘]+|[\s」』”"'’]+$/g, '').replace(/\s+/g, ' ');
     const format = api.format || 'openai';
     const noSpeed = api.sendSpeed === false ? 'nospeed' : '';
     const variant = format === 'openai' ? `${api.responseFormat || 'mp3'}${noSpeed}`
         : format === 'custom' ? hashName([api.customMethod, api.customUrl, api.customHeaders, api.customBody, api.customResponse, api.customPath].join('\n')).toString(36) + noSpeed : noSpeed;
-    return [url, format, variant, api.model, voice, body].join('|');
+    // 风格只在填了时进键，没填风格的旧缓存照常命中。
+    // 情绪同理：没有情绪时与旧键一致。
+    return [url, format, variant, api.model, voice, body, ...(style ? [style] : []), ...(emotion ? [`emotion:${emotion}`] : [])].join('|');
 }
 
 const closeRate = (a, b) => Math.abs(a - b) <= RATE_TOLERANCE;
@@ -1066,7 +1147,10 @@ function requestSpeech(api, plan, job = null) {
     }
     const url = request.url;
     if (!url) return Promise.reject(new Error(api.format === 'custom' ? '还没有填写请求地址' : '还没有填写接口地址'));
-    const key = ttsCacheKey(url, api, plan.voice, plan.text);
+    // 只有支持风格 / 情绪的格式才把它们算进缓存键，其余格式换风格不会白白重新生成。
+    const styled = (api.format || 'openai') === 'openai' || api.format === 'custom';
+    const emotional = api.format === 'minimax' && api.sendEmotion !== false;
+    const key = ttsCacheKey(url, api, plan.voice, plan.text, styled ? plan.style : '', emotional ? plan.emotion : '');
     const epoch = cacheEpoch;
     const hit = apiCache.get(key);
     if (hit && closeRate(hit.rate, plan.rate)) {
@@ -1254,12 +1338,16 @@ function speakApi(job, plan, api) {
     return job;
 }
 
+// 这一句用哪套接口：旁白开了独立接口时用旁白那套，其余用台词接口。
+const planApi = (config, plan) => (plan.apiSource === 'narrator' ? config.narratorApi : config.api);
+const usesApi = (config) => config.provider === 'api' || config.narratorApi.enabled;
+
 // 同一时间只念一页：新的一页开始时掐掉上一页。
 export function playTts(plan, settings) {
     if (!plan || !plan.text) return null;
     if (!plan.preview) lastPlayed = { plan, settings };
     const job = startJob(plan);
-    if (plan.provider === 'api') return speakApi(job, plan, normalizeTtsSettings(settings).api);
+    if (plan.provider === 'api') return speakApi(job, plan, planApi(normalizeTtsSettings(settings), plan));
     return speakSystem(job, plan);
 }
 
@@ -1304,10 +1392,11 @@ export function applyTts(root, line, settings, sceneAssets, { now = Date.now, ti
     const fastFlip = state.shownAt != null && shownAt - state.shownAt < FAST_FLIP_MS;
     state.shownAt = shownAt;
     const config = normalizeTtsSettings(settings);
-    const api = config.provider === 'api';
+    // 这一页走不走接口（旁白独立接口时与主来源不同）；没有要念的就按主来源算。
+    const api = plan && !plan.skip ? plan.provider === 'api' : config.provider === 'api';
     watchAway(root);
     const prefetchNext = (fetched) => {
-        if (!api || !config.api.prefetch || !line.next) return;
+        if (!usesApi(config) || !config.api.prefetch || !line.next) return;
         Promise.resolve(fetched).then(() => {
             if (state.token !== token) return;
             const wait = Math.max(0, PREFETCH_DWELL_MS - (now() - shownAt));
@@ -1393,32 +1482,43 @@ export function guessTtsLine(segment) {
     return { textType: 'narration', speaker: '', text: seg };
 }
 
-// 提前生成下一页（只对接口来源；系统语音本地合成，不用等）。
+// 提前生成下一页（只对走接口的句子；系统语音本地合成，不用等）。
 export function prefetchTts(segment, settings, sceneAssets, { nsfw = false } = {}) {
     const config = normalizeTtsSettings(settings);
-    if (!config.enabled || config.provider !== 'api' || !segment) return null;
+    if (!config.enabled || !usesApi(config) || !segment) return null;
     const plan = decideTts({}, { ...guessTtsLine(segment), nsfw }, config, { sceneAssets, record: false });
-    if (!plan || plan.skip) return null;
-    const jobs = requestSegments(config.api, plan, apiSegments(config.api, plan.text));
+    if (!plan || plan.skip || plan.provider !== 'api') return null;
+    const api = planApi(config, plan);
+    // 情绪会进请求时（MiniMax 发情绪、风格写入情绪），台词页事先不知道情绪，预取多半用不上，只预取旁白页。
+    const moodKeyed = (api.format === 'minimax' && api.sendEmotion !== false)
+        || (config.moodStyle && ((api.format || 'openai') === 'openai' || api.format === 'custom'));
+    if (moodKeyed && plan.role !== 'narrator') return null;
+    const jobs = requestSegments(api, plan, apiSegments(api, plan.text));
     return Promise.all(jobs).then((list) => list[0], () => null);
 }
 
 // 设置里的试听：按当前来源念一句。接口来源会等结果，失败时返回原因。
-export function previewTts(settings, { role = 'female', voice = '' } = {}) {
+// 试听旁白（role 为 narrator）时带上旁白风格；开了旁白独立接口就用那套接口。带 speaker 时试听该角色，附上角色风格。
+export function previewTts(settings, { role = 'female', voice = '', speaker = '', sceneAssets = null } = {}) {
     const config = normalizeTtsSettings(settings);
     const voices = listSystemVoices();
-    const picked = voice || (config.provider === 'api'
+    const narrator = role === 'narrator';
+    const separate = narrator && config.narratorApi.enabled;
+    const provider = separate ? 'api' : config.provider;
+    const picked = voice || (separate ? config.narratorApi.voice : config.provider === 'api'
         ? config.api[role] || config.api.female
-        : config.system[role] || (systemVoicePool(voices, role === 'narrator' ? '' : role)[0] || {}).name || '');
+        : config.system[role] || (systemVoicePool(voices, narrator ? '' : role)[0] || {}).name || '');
     // 接口来源三个框全空时不发请求，直接说明原因，免得服务端拿默认音色念。
-    if (config.provider === 'api' && !picked) return Promise.resolve({ ok: false, error: '三个声音都留空了，填一个声音 ID 再试听' });
+    if (separate && !picked) return Promise.resolve({ ok: false, error: '旁白独立接口还没有填写声音' });
+    if (provider === 'api' && !picked) return Promise.resolve({ ok: false, error: '三个声音都留空了，填一个声音 ID 再试听' });
     const plan = {
-        provider: config.provider, text: '你好，这是台词朗读的试听。今天也请多指教。', voice: picked, role, lang: 'zh',
+        provider, apiSource: separate ? 'narrator' : 'main', style: narrator ? config.narratorStyle : speaker ? spokenStyle(config, sceneAssets, { textType: 'dialogue', speaker }, '') : '',
+        text: narrator ? '夜色渐深，街角的灯一盏接一盏亮了起来。' : '你好，这是台词朗读的试听。今天也请多指教。', voice: picked, role, lang: 'zh',
         volume: config.volume, rate: config.rate, pitch: 1, pan: 0, close: false, phone: false, preview: true,
     };
     lastError = '';
     const job = playTts(plan, config);
-    if (config.provider !== 'api') return Promise.resolve(lastError ? { ok: false, error: lastError } : { ok: true });
+    if (provider !== 'api') return Promise.resolve(lastError ? { ok: false, error: lastError } : { ok: true });
     return new Promise((resolve) => {
         const check = () => {
             if (job.done || job.source) resolve(lastError ? { ok: false, error: lastError } : { ok: true });

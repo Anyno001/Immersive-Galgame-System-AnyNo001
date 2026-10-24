@@ -66,7 +66,7 @@ export function normalizeVoiceBarkSettings(value) {
     };
 }
 
-// 单个角色的声线设置：pack 为空表示自动；'off' 表示这个角色不发语气音。tts 为台词朗读单独指定的声音名，空为自动。
+// 单个角色的声线设置：pack 为空表示自动；'off' 表示这个角色不发语气音。tts 为台词朗读单独指定的声音名，空为自动；ttsStyle 为这个角色的朗读风格描述。
 export function normalizeCharacterVoice(value) {
     const source = plainObject(value) || {};
     const pack = source.pack === 'off' || voicePackById(source.pack) ? source.pack : '';
@@ -77,6 +77,7 @@ export function normalizeCharacterVoice(value) {
         speed: normalizeVoiceSpeed(source.speed),
         tts: typeof source.tts === 'string' ? source.tts.trim().slice(0, 200) : '',
         ttsVolume: normalizeTtsVolume(source.ttsVolume),
+        ttsStyle: typeof source.ttsStyle === 'string' ? source.ttsStyle.trim().slice(0, 300) : '',
     };
 }
 
@@ -100,9 +101,9 @@ export function normalizeCharacterVoices(value) {
         const key = String(name || '').trim();
         if (!key || FORBIDDEN_KEYS.has(key)) continue;
         const voice = normalizeCharacterVoice(entry);
-        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && voice.ttsVolume === 1) continue;
-        const { tts, ttsVolume, ...bark } = voice;
-        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}) };
+        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && voice.ttsVolume === 1 && !voice.ttsStyle) continue;
+        const { tts, ttsVolume, ttsStyle, ...bark } = voice;
+        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}), ...(ttsStyle ? { ttsStyle } : {}) };
     }
     return out;
 }

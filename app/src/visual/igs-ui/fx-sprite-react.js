@@ -51,3 +51,27 @@ export function pushStage(env, { scale = 1.03, duration = 2400, delay = 0, easin
         return null;
     }
 }
+
+// 整台一次性位移：舞台容器上叠一段 transform 关键帧（叠加合成，结束自动还原）；减少动态效果与低画质不播。
+export function moveStage(env, frames, { duration = 900, delay = 0, easing = 'ease-out' } = {}) {
+    if (!env || env.reduced || lowQuality(env) || !env.root || typeof env.root.querySelector !== 'function') return null;
+    const motion = env.root.querySelector('#igs-stage-motion');
+    if (!motion || typeof motion.animate !== 'function') return null;
+    try {
+        return motion.animate(frames, { duration, delay, easing, composite: 'add', fill: 'none' });
+    } catch {
+        return null;
+    }
+}
+
+// 背景一次侧向快移：走独立 translate 属性（与镜头甩镜同法），不加模糊；减少动态效果与低画质不播。
+export function sweepBackground(env, sign = 1, { duration = 700, delay = 0 } = {}) {
+    if (!env || env.reduced || lowQuality(env) || !env.root || typeof env.root.querySelector !== 'function') return null;
+    const bg = env.root.querySelector('#igs-bg');
+    if (!bg || typeof bg.animate !== 'function') return null;
+    try {
+        return bg.animate([{ translate: '0 0' }, { translate: `${sign * -3.5}% 0`, offset: 0.35 }, { translate: `${sign * 1}% 0`, offset: 0.75 }, { translate: '0 0' }], { duration, delay, easing: 'cubic-bezier(.6,0,.3,1)', composite: 'add', fill: 'none' });
+    } catch {
+        return null;
+    }
+}

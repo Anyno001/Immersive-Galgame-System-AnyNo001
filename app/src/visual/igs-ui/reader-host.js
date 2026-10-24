@@ -4767,7 +4767,7 @@ export function createIgsReaderHost(options = {}) {
         applyTitleSkin(overlay, model.view === 'worldview' ? { ...snapshot.readerSettings, dialogSkin: model.pick.skin } : snapshot.readerSettings);
         // 主界面盖着时不走正文渲染，原地切到内嵌的 overlay 拿不到内嵌类名，钉框会直接跳过。
         if (isEmbeddedReaderMode(snapshot.mode) && overlay.classList) overlay.classList.add('igs-mode-embedded');
-        pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
+        pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode, snapshot.readerSettings && snapshot.readerSettings.embeddedHeight);
         renderTitleScreen(overlay, model, {
             onAction: (act, value) => { void handleTitleAction(current, act, value); },
         });

@@ -1127,7 +1127,8 @@ export function applyFxToDom(root, snapshot, options = {}) {
         accent: accent || pickFxAccent(options.theme) || '',
     });
     const { flashback, dream, letterbox } = plan.ranges;
-    return { played: [...plan.effects.map((effect) => effect.type), ...castPlayed, ...dlcPlayed], phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox) } };
+    // umbrella 交给场景音频：撑伞区间里伞外雨声变闷、头顶叠雨打伞面。
+    return { played: [...plan.effects.map((effect) => effect.type), ...castPlayed, ...dlcPlayed], phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox), umbrella: Boolean(plan.atmos.umbrella) } };
 }
 
 export function cancelFxEffects(root) {

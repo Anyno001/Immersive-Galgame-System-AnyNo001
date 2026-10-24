@@ -34,10 +34,6 @@ ${Z}-note:not(.is-fantasy):not(.is-scifi):not(.is-apocalypse):not(.is-taisho):no
 ${Z}-note:not(.is-fantasy):not(.is-scifi):not(.is-apocalypse):not(.is-taisho):not(.is-horror):not(.is-magic) .igs-dfx-tape{display:none;}
 
 /* 撸猫：剪影压暗并勾一道细边，爪印改细线、只留三枚且止于人物之前 */
-${Z}-cat-body svg{filter:drop-shadow(0 0 1px rgba(244,241,234,.8));}
-${Z}-cat-body{color:#171a22;width:13%;margin-left:-6.5%;}
-${Z}-cat-paws i{color:${L};font-size:1.2em;}
-${Z}-cat-paws i:nth-child(n+4){display:none;}
 
 /* 购物：细线袋身，挪到右侧 */
 ${Z}-shopping-bags,${Z}-shopping-sparks{left:74%;}

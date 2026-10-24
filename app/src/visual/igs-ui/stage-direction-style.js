@@ -12,7 +12,7 @@ export const STAGE_DIRECTION_STYLE_TEXT = `
 #igs-overlay[data-igs-sd-parallax] #igs-bg{scale:1.03;translate:calc(var(--igs-sd-px,0) * -9px) calc(var(--igs-sd-py,0) * -6px);transition:translate .6s cubic-bezier(.2,.7,.3,1),scale .8s ease;}
 #igs-overlay[data-igs-sd-parallax] #igs-sprite:not(.igs-sprite-editing){--igs-sd-tx:calc(var(--igs-sd-px,0) * -18px);--igs-sd-ty:calc(var(--igs-sd-py,0) * -7px);transition:translate .6s cubic-bezier(.2,.7,.3,1);}
 #igs-overlay #igs-sprite{transition:translate 1.2s cubic-bezier(.3,.7,.2,1);}
-#igs-overlay #igs-sprite:not(.igs-sprite-editing){scale:min(1.3,calc(var(--igs-sd-closeup-scale,1) * var(--igs-rm-scale,1)));translate:calc(var(--igs-sd-tx,0px) + var(--igs-rm-dx,0%)) var(--igs-sd-ty,0px);}
+#igs-overlay #igs-sprite:not(.igs-sprite-editing){scale:min(1.3,calc(var(--igs-sd-closeup-scale,1) * var(--igs-rm-scale,1)));translate:calc(var(--igs-sd-tx,0px) + var(--igs-rm-dx,0%) + var(--igs-fx-huddle-dx,0%)) var(--igs-sd-ty,0px);}
 /* 滤镜一开一停，或立绘层出现、消失，都会把 #igs-bg 拆成独立图层又并回去。没画完的那一帧是一闪黑。背景一直留在自己的图层上。
    平时用 will-change:transform 钉图层：常驻 will-change:filter 会让全屏背景配着 Ken Burns 每帧多走一遍离屏滤镜，手机发烫。
    CG 对焦时 filter 过渡一开一停，整张 CG 会重新栅格化，CG 页才提示 filter。 */

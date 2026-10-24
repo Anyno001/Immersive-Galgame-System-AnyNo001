@@ -28,17 +28,15 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 #igs-stage-motion[data-igs-fx-presentation="1"] #igs-status-hud,
 #igs-stage-motion[data-igs-fx-presentation="1"] #igs-sprite,
 #igs-stage-motion[data-igs-fx-presentation="1"] #igs-dialog-layer{display:none!important;pointer-events:none!important;}
-/* 区间氛围：只改展示层。关灯压暗挂在 #igs-fx-stage 自身背景上（立绘之上、对话层之下），压过时段调色；看电影用 ::before 屏幕光；撑伞用 ::after 伞面剪影。 */
+/* 区间氛围：只改展示层。关灯压暗挂在 #igs-fx-stage 自身背景上（立绘之上、对话层之下），压过时段调色；看电影用 ::before 屏幕光；撑伞不画伞面，阴影、雨缺口与水线见 fx-range-style。 */
 #igs-stage-motion[data-igs-fx-lightsoff] #igs-fx-stage{background:linear-gradient(180deg,rgba(6,12,34,.62),rgba(4,8,22,.78));}
 #igs-stage-motion[data-igs-fx-movie] #igs-fx-stage::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,rgba(150,190,255,.28),rgba(0,0,0,.62) 70%);animation:igs-fx-movie-flicker 2.6s ease-in-out infinite;}
 /* 屏光染脸（[igs-fx:movie|屏光]）：立绘静态偏冷（sepia+hue-rotate 推向蓝，不逐帧改滤镜），再叠一层只闪 opacity 的屏幕光：自下而上的冷白光晕打在脸与肩上，房间其余处轻压暗。 */
 #igs-stage-motion[data-igs-fx-movie="screen"] #igs-sprite:not(.igs-sprite-editing),#igs-stage-motion[data-igs-fx-movie="screen"] #igs-cast{filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,) var(--igs-sprite-enhance,) brightness(.9) sepia(.35) hue-rotate(172deg) saturate(1.25);-webkit-filter:var(--igs-sprite-dim,) var(--igs-grade-sprite,) var(--igs-sprite-enhance,) brightness(.9) sepia(.35) hue-rotate(172deg) saturate(1.25);}
 #igs-stage-motion[data-igs-fx-movie="screen"] #igs-fx-stage::before{background:radial-gradient(ellipse 70% 55% at 50% 100%,rgba(170,210,255,.34),rgba(120,170,255,.12) 55%,rgba(0,0,0,0) 78%),linear-gradient(180deg,rgba(4,10,26,.38),rgba(4,10,26,.12) 60%,rgba(4,10,26,.2));animation:igs-fx-screen-glow 3.4s ease-in-out infinite;}
-#igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{content:'';position:absolute;left:8%;right:8%;top:-34%;height:62%;border-radius:50%;background:radial-gradient(ellipse at 50% 100%,rgba(38,54,86,.78) 60%,rgba(24,34,56,.92));box-shadow:0 10px 24px rgba(0,0,0,.35);transform-origin:50% 0;animation:igs-fx-umbrella-open .5s ease-out both;}
 @keyframes igs-fx-movie-flicker{0%,100%{opacity:1;}35%{opacity:.82;}55%{opacity:.95;}72%{opacity:.76;}}
 @keyframes igs-fx-screen-glow{0%{opacity:1;}9%{opacity:.84;}17%{opacity:.96;}31%{opacity:.78;}38%{opacity:.92;}52%{opacity:1;}64%{opacity:.82;}73%{opacity:.94;}88%{opacity:.8;}}
-@keyframes igs-fx-umbrella-open{from{transform:scaleX(.2);opacity:0;}}
-@media (prefers-reduced-motion: reduce){#igs-stage-motion[data-igs-fx-movie] #igs-fx-stage::before,#igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{animation:none!important;}}
+@media (prefers-reduced-motion: reduce){#igs-stage-motion[data-igs-fx-movie] #igs-fx-stage::before{animation:none!important;}}
 /* 古代背景关灯为「吹灯」：烛火一晃熄灭，随后升起一缕青烟；区间压暗仍由 data-igs-fx-lightsoff 驱动。 */
 .igs-fx-candle{position:absolute;left:50%;top:26%;width:34px;height:130px;margin-left:-17px;pointer-events:none;animation:igs-fx-candle-fade var(--igs-fx-life,1600ms) ease-out both;}
 .igs-fx-candle-body{position:absolute;left:7px;right:7px;bottom:0;height:78px;border-radius:3px 3px 2px 2px;background:linear-gradient(90deg,#d9c9a3,#f4ead2 45%,#cdb98f);box-shadow:0 6px 16px rgba(0,0,0,.4);}

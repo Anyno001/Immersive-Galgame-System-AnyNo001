@@ -123,7 +123,7 @@ export async function requestWithSoftRetry(llm, options, llmSettings) {
                     message: `副 API 尚未完成：${recoveryFailureText(result)}。请在备用模型中修正配置并保存；配置生效后自动继续本次任务。`,
                     page: 'llm', actionLabel: '打开备用模型',
                 };
-                if (!dispatched && guarded.imagePrompt) return {
+                if (!dispatched && guarded.imagePrompt && result?.presetFailure) return {
                     message: `写词预设尚未就绪：${recoveryFailureText(result)}。请修正并保存或启用预设；生效后自动继续本次任务。`,
                     page: 'rules', actionLabel: '打开写法规则',
                 };

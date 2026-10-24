@@ -222,6 +222,19 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-dialog.igs-hidden{opacity:0;transform:translateX(-50%) translateY(20px);pointer-events:none;}
 #igs-overlay.igs-floating #igs-click-layer{cursor:grab;touch-action:none;}
 #igs-overlay.igs-floating.is-dragging #igs-click-layer{cursor:grabbing;}
+/* 悬浮窗四角拖拽改尺寸：角上一道细折线，平时很淡，指上或拖动时才清楚。 */
+#igs-overlay .igs-resize-handle{position:absolute;z-index:41;width:16px;height:16px;touch-action:none;color:var(--igs-bar-ink,#fff);opacity:.22;transition:opacity .15s;}
+#igs-overlay .igs-resize-handle::before{content:"";position:absolute;inset:4px;border:0 solid currentColor;}
+#igs-overlay .igs-resize-handle:hover,#igs-overlay.is-resizing .igs-resize-handle{opacity:.7;}
+#igs-overlay .igs-resize-handle[data-igs-corner="nw"]{left:0;top:0;cursor:nwse-resize;}
+#igs-overlay .igs-resize-handle[data-igs-corner="ne"]{right:0;top:0;cursor:nesw-resize;}
+#igs-overlay .igs-resize-handle[data-igs-corner="sw"]{left:0;bottom:0;cursor:nesw-resize;}
+#igs-overlay .igs-resize-handle[data-igs-corner="se"]{right:0;bottom:0;cursor:nwse-resize;}
+#igs-overlay .igs-resize-handle[data-igs-corner="nw"]::before{border-left-width:1.5px;border-top-width:1.5px;border-top-left-radius:6px;}
+#igs-overlay .igs-resize-handle[data-igs-corner="ne"]::before{border-right-width:1.5px;border-top-width:1.5px;border-top-right-radius:6px;}
+#igs-overlay .igs-resize-handle[data-igs-corner="sw"]::before{border-left-width:1.5px;border-bottom-width:1.5px;border-bottom-left-radius:6px;}
+#igs-overlay .igs-resize-handle[data-igs-corner="se"]::before{border-right-width:1.5px;border-bottom-width:1.5px;border-bottom-right-radius:6px;}
+@media (pointer:coarse){#igs-overlay .igs-resize-handle{width:22px;height:22px;opacity:.35;}#igs-overlay .igs-resize-handle::before{inset:6px;}}
 #igs-overlay.igs-floating .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;transform:translateZ(0);display:flex;flex-direction:column;max-height:none;overflow:visible;padding:7px 18px 14px;}
 #igs-overlay.igs-floating .igs-dialog[data-igs-narration="1"]{padding-top:12px;}
 #igs-overlay.igs-floating .igs-dialog.igs-hidden{transform:translateY(20px);}

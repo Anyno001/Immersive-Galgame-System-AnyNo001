@@ -68,6 +68,22 @@ export const ABO_SFX_DEFS = Object.freeze({
         partials: [],
         noise: [0, 0.34, 0.7, 1.05].map((t, i) => n(t, 0.22, 0.2 - i * 0.02, { freq: 1500 + i * 300, freqTo: 800, q: 0.6, attack: 0.05 })),
     },
+    'abo-inhale': {
+        partials: [],
+        noise: [n(0.2, 0.14, 0.22, { freq: 900, freqTo: 1900, q: 0.8, attack: 0.05 }), n(0.42, 0.2, 0.26, { freq: 800, freqTo: 2100, q: 0.8, attack: 0.07 })],
+    },
+    'abo-exhale': {
+        partials: [],
+        noise: [n(0, 1.7, 0.22, { freq: 1500, freqTo: 520, q: 0.6, attack: 0.4 })],
+    },
+    'abo-chomp': {
+        partials: [p('sine', 118, 48, 0, 0.22, 0.46, { attack: 0.003, sweep: 1 })],
+        noise: [n(0, 0.08, 0.34, { filter: 'lowpass', freq: 520, q: 0.7, attack: 0.002 }), n(0.02, 0.05, 0.22, { freq: 2300, q: 1.2, attack: 0.002 })],
+    },
+    'abo-cloth': {
+        partials: [],
+        noise: [0.1, 0.4, 0.62, 0.95, 1.2].map((t, i) => n(t, 0.2 + (i % 2) * 0.05, 0.14, { freq: 2400 - i * 160, freqTo: 1200, q: 0.5, attack: 0.07 })),
+    },
     'abo-alarm': {
         partials: Array.from({ length: 8 }, (_, i) => p('square', i % 2 ? 988 : 740, i % 2 ? 988 : 740, i * 0.22, 0.2, 0.1, { attack: 0.01 })),
         noise: [],

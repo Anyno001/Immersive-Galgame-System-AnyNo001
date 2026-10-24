@@ -328,7 +328,7 @@ test('gate: tts prefetch over non-openai formats and per-segment caching', async
     };
     try {
         await clearTtsCache();
-        const settings = { enabled: true, provider: 'api', api: { format: 'minimax', apiKey: 'k', female: 'girl-1' } };
+        const settings = { enabled: true, provider: 'api', api: { format: 'minimax', apiKey: 'k', female: 'girl-1', sendEmotion: false } };
         const sa = assets({ 艾莉: GIRL });
         const out = await prefetchTts('[艾莉]：「明天见。」', settings, sa);
         assert.equal(out.byteLength, 2);
@@ -963,4 +963,137 @@ test('gate: tts stops requesting the remaining segments after the first one fail
         await flushAll();
         assert.equal(calls.length, started, 'no more segments are requested after the page ended');
     });
+});
+
+test('tts: voice list keeps up to 50 entries regardless of id length', () => {
+    const fetched = Array.from({ length: 70 }, (_, i) => [`moss_audio_${String(i).padStart(2, '0')}_0123456789abcdef0123456789abcdef`, `音色${i}`]);
+    const merged = mergeTtsVoices('', fetched);
+    assert.equal(merged.total, 50);
+    assert.equal(merged.added, 50);
+    assert.equal(merged.dropped, 20);
+    const config = normalizeTtsSettings({ api: { voices: merged.text } });
+    assert.equal(config.api.voices, merged.text, 'fifty long entries survive normalization intact');
+    const over = normalizeTtsSettings({ api: { voices: Array.from({ length: 60 }, (_, i) => `v${i}`).join('\n') } });
+    assert.equal(over.api.voices.split(', ').length, 50);
+    assert.equal(normalizeTtsSettings({ api: { voices: 'a\nb' } }).api.voices, 'a\nb', 'under the cap the text is left as typed');
+});
+
+test('tts: narrator can use its own interface and a style description', () => {
+    const settings = {
+        enabled: true, provider: 'system', narratorStyle: '沉稳的说书人',
+        narratorApi: { enabled: true, format: 'openai', endpoint: 'https://n.example/v1', model: 'gpt-4o-mini-tts', voice: 'onyx' },
+    };
+    const narration = decideTts({}, { key: 'n1', textType: 'narration', text: '夜色渐深。' }, settings, { sceneAssets: {} });
+    assert.equal(narration.provider, 'api');
+    assert.equal(narration.apiSource, 'narrator');
+    assert.equal(narration.voice, 'onyx');
+    assert.equal(narration.style, '沉稳的说书人');
+    const dialogue = decideTts({}, { key: 'd1', textType: 'dialogue', speaker: '甲', text: '你好。' }, settings, { sceneAssets: {} });
+    assert.equal(dialogue.provider, 'system', 'dialogue keeps the main source');
+    assert.equal(dialogue.style, '');
+    const request = buildTtsRequest(normalizeTtsSettings(settings).narratorApi, narration);
+    assert.equal(request.url, 'https://n.example/v1/audio/speech');
+    assert.equal(JSON.parse(request.body).instructions, '沉稳的说书人');
+    const empty = decideTts({}, { key: 'n2', textType: 'narration', text: '夜色渐深。' }, { ...settings, narratorApi: { ...settings.narratorApi, voice: '' } }, { sceneAssets: {} });
+    assert.equal(empty, null, 'no narrator voice means narration is skipped');
+    const custom = buildTtsRequest(normalizeTtsSettings({ api: { format: 'custom', customUrl: 'https://c.example/tts', customBody: '{"t":"{{text}}","s":"{{style}}"}' } }).api, { text: 'x', voice: 'v', style: '轻声"慢读"' });
+    assert.equal(JSON.parse(custom.body).s, '轻声"慢读"');
+    assert.notEqual(ttsCacheKey('u', {}, 'v', '你好', '风格'), ttsCacheKey('u', {}, 'v', '你好'));
+    assert.equal(ttsCacheKey('u', {}, 'v', '你好', ''), ttsCacheKey('u', {}, 'v', '你好'));
+});
+
+test('tts: character style survives normalization and joins the plan style', async () => {
+    const { normalizeCharacterVoice, normalizeCharacterVoices } = await import('../src/visual/igs-ui/voice-bark.js');
+    assert.equal(normalizeCharacterVoice({ ttsStyle: '  慵懒  ' }).ttsStyle, '慵懒');
+    assert.equal(normalizeCharacterVoice({ ttsStyle: 'x'.repeat(400) }).ttsStyle.length, 300);
+    assert.equal(normalizeCharacterVoice({}).ttsStyle, '');
+    assert.deepEqual(normalizeCharacterVoices({ 甲: { ttsStyle: '慵懒' }, 乙: { ttsStyle: '' } }), { 甲: { pack: '', pitch: 0, speed: 1, ttsStyle: '慵懒' } });
+    const assets = { characterVoices: { 甲: { ttsStyle: '慵懒' } } };
+    const settings = { enabled: true, provider: 'api', api: { female: 'f' }, thoughtStyle: '自言自语' };
+    const say = decideTts({}, { key: 'a', textType: 'dialogue', speaker: '甲', text: '你好。' }, settings, { sceneAssets: assets });
+    assert.equal(say.style, '慵懒');
+    const other = decideTts({}, { key: 'b', textType: 'dialogue', speaker: '乙', text: '你好。' }, settings, { sceneAssets: assets });
+    assert.equal(other.style, '');
+    const thought = decideTts({}, { key: 'c', textType: 'thought', speaker: '甲', text: '你好。' }, settings, { sceneAssets: assets });
+    assert.equal(thought.style, '自言自语；慵懒');
+});
+
+test('tts: mood style is opt-in and joins character style', () => {
+    const assets = { characterVoices: { 甲: { ttsStyle: '慵懒' } } };
+    const base = { enabled: true, provider: 'api', api: { female: 'f' } };
+    const line = { key: 'a', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '愤怒' };
+    assert.equal(normalizeTtsSettings({}).moodStyle, false);
+    assert.equal(decideTts({}, line, base, { sceneAssets: assets }).style, '慵懒');
+    assert.equal(decideTts({}, line, { ...base, moodStyle: true }, { sceneAssets: assets }).style, '慵懒；语气愤怒');
+    const whisper = decideTts({}, { ...line, key: 'b', whisper: true }, { ...base, moodStyle: true }, { sceneAssets: {} });
+    assert.equal(whisper.style, '压低声音耳语，语气愤怒');
+    const calm = decideTts({}, { ...line, key: 'c', mood: '' }, { ...base, moodStyle: true }, { sceneAssets: {} });
+    assert.equal(calm.style, '');
+    const narration = decideTts({}, { key: 'd', textType: 'narration', text: '夜色渐深。' }, { ...base, moodStyle: true, narratorStyle: '沉稳' }, { sceneAssets: {} });
+    assert.equal(narration.style, '沉稳');
+});
+
+test('tts: minimax emotion follows the mood and enters the cache key only when present', () => {
+    const base = { enabled: true, provider: 'api', api: { format: 'minimax', female: 'f' } };
+    const angry = decideTts({}, { key: 'a', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '愤怒' }, base, { sceneAssets: {} });
+    assert.equal(angry.emotion, 'angry');
+    const calmPlan = decideTts({}, { key: 'b', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '平和' }, base, { sceneAssets: {} });
+    assert.equal(calmPlan.emotion, '');
+    const shy = decideTts({}, { key: 'c', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '害羞' }, base, { sceneAssets: {} });
+    assert.equal(shy.emotion, '');
+    const narr = decideTts({}, { key: 'd', textType: 'narration', text: '夜色渐深。' }, base, { sceneAssets: {} });
+    assert.equal(narr.emotion, '');
+    const api = normalizeTtsSettings(base).api;
+    assert.equal(api.sendEmotion, true);
+    assert.equal(JSON.parse(buildTtsRequest(api, { ...angry, voice: 'f' }).body).voice_setting.emotion, 'angry');
+    assert.equal('emotion' in JSON.parse(buildTtsRequest(api, { text: 'x', voice: 'f', emotion: 'bogus' }).body).voice_setting, false);
+    assert.equal('emotion' in JSON.parse(buildTtsRequest(api, { text: 'x', voice: 'f' }).body).voice_setting, false);
+    const off = normalizeTtsSettings({ api: { format: 'minimax', sendEmotion: false } }).api;
+    assert.equal('emotion' in JSON.parse(buildTtsRequest(off, { text: 'x', voice: 'f', emotion: 'angry' }).body).voice_setting, false);
+    assert.equal(ttsCacheKey('u', api, 'v', '你好', '', ''), ttsCacheKey('u', api, 'v', '你好'));
+    assert.notEqual(ttsCacheKey('u', api, 'v', '你好', '', 'angry'), ttsCacheKey('u', api, 'v', '你好'));
+    const narrator = normalizeTtsSettings({ narratorApi: { enabled: true, format: 'minimax' } }).narratorApi;
+    assert.equal(JSON.parse(buildTtsRequest(narrator, { text: 'x', voice: 'f', emotion: 'calm' }).body).voice_setting.emotion, 'calm');
+});
+
+test('tts: narrator interface keeps its own voice list and fetches it', async () => {
+    const config = normalizeTtsSettings({ narratorApi: { enabled: true, voices: Array.from({ length: 60 }, (_, i) => `v${i}`).join('\n') } });
+    assert.equal(config.narratorApi.voices.split(', ').length, 50);
+    assert.equal(normalizeTtsSettings({}).narratorApi.voices, '');
+    const realFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+        calls.push({ url, auth: init.headers.Authorization });
+        return { ok: true, json: async () => ({ items: [{ _id: 'n1', title: '说书' }] }) };
+    };
+    try {
+        const result = await fetchTtsVoices({ provider: 'system', api: { format: 'openai' }, narratorApi: { enabled: true, format: 'fish', apiKey: 'nk' } }, { narrator: true });
+        assert.deepEqual(result.voices, [['n1', '说书']]);
+        assert.match(calls[0].url, /^https:\/\/api\.fish\.audio\/model/);
+        assert.equal(calls[0].auth, 'Bearer nk');
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+    const { ttsNarratorVoiceOptions } = await import('../src/visual/igs-ui/tts.js');
+    assert.deepEqual(ttsNarratorVoiceOptions({ narratorApi: { voices: 'n1#说书' } }), [['n1', '说书（n1）']]);
+});
+
+test('tts: thought page uses its own volume and style', () => {
+    const base = { enabled: true, provider: 'api', api: { female: 'f' }, volume: 1 };
+    assert.equal(normalizeTtsSettings({}).thoughtVolume, 0.8);
+    assert.equal(normalizeTtsSettings({ thoughtVolume: 0.5 }).thoughtVolume, 0.8, 'values off the option list fall back');
+    assert.equal(normalizeTtsSettings({ thoughtVolume: '0.6' }).thoughtVolume, 0.6);
+    assert.equal(normalizeTtsSettings({ thoughtStyle: 'x'.repeat(400) }).thoughtStyle.length, 300);
+    const line = { key: 't', textType: 'thought', speaker: '甲', text: '真麻烦。' };
+    assert.equal(decideTts({}, line, base, { sceneAssets: {} }).volume, 0.8);
+    assert.equal(decideTts({}, { ...line, key: 't2' }, { ...base, thoughtVolume: 0.4 }, { sceneAssets: {} }).volume, 0.4);
+    assert.equal(decideTts({}, { ...line, key: 't3' }, { ...base, thoughtVolume: 1 }, { sceneAssets: {} }).volume, 1);
+    assert.equal(decideTts({}, { ...line, key: 't4', textType: 'dialogue' }, { ...base, thoughtVolume: 0.4 }, { sceneAssets: {} }).volume, 1, 'dialogue is not affected');
+});
+
+test('tts: no prefetch for dialogue when the emotion would change the request', () => {
+    const settings = { enabled: true, provider: 'api', api: { format: 'minimax', endpoint: 'https://m.example', apiKey: 'k', female: 'v1', narrator: 'v2' } };
+    assert.equal(prefetchTts('[甲]：你好。', settings, {}), null);
+    assert.equal(prefetchTts('[甲]：你好。', { ...settings, api: { ...settings.api, sendEmotion: false } }, {}) === null, false);
+    assert.equal(prefetchTts('夜色渐深。', settings, {}) === null, false, 'narration pages are still prefetched');
 });

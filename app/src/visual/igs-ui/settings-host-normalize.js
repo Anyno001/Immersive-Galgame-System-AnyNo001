@@ -281,6 +281,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         dblclickCgOnly: false,
         titleScreen: true,
         dialogAutoHeight: false,
+        embeddedHeight: 1,
         // 场景在水下时对话框自动换成深海人鱼。
         underwaterSkin: true,
         mermaidTone: MERMAID_TONE_DEFAULT,
@@ -356,6 +357,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.dblclickCgOnly = normalizeBoolean(normalized.dblclickCgOnly, false);
     normalized.titleScreen = normalizeBoolean(normalized.titleScreen, true);
     normalized.dialogAutoHeight = normalizeBoolean(normalized.dialogAutoHeight, false);
+    normalized.embeddedHeight = [0.8, 1, 1.25, 1.5].includes(Number(normalized.embeddedHeight)) ? Number(normalized.embeddedHeight) : 1;
     normalized.underwaterSkin = normalizeBoolean(normalized.underwaterSkin, true);
     normalized.mermaidTone = normalizeMermaidTone(normalized.mermaidTone);
     normalized.mermaidAccent = normalizeMermaidAccent(normalized.mermaidAccent);

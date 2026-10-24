@@ -17,9 +17,9 @@ import { playDailySfx } from './fx-daily-sfx.js';
 import { chars, charSpans, later, make, removeNode, spawn } from './fx-daily-kit.js';
 import { makeAncientPaper } from './fx-ancient-paper.js';
 import { layerStyle, readStageBackground, spriteElOf, spritePosX } from './stage-snapshot.js';
-import { at, headPoint, reactSprite } from './fx-sprite-react.js';
+import { at, headPoint, moveStage, reactSprite, sweepBackground } from './fx-sprite-react.js';
 import { spawnMist } from './fx-mist.js';
-import { CHEERS_MATERIALS, cupGlyph, noteGlyph, pawGlyph, rpsGlyph, sparkGlyph } from './fx-glyphs.js';
+import { CHEERS_MATERIALS, cupGlyph, noteGlyph, rpsGlyph, sparkGlyph } from './fx-glyphs.js';
 import { GAME_BUILDERS } from './fx-daily-game.js';
 import { CAMPUS_BUILDERS } from './fx-daily-campus.js';
 import { XIANXIA_BUILDERS } from './fx-daily-xianxia.js';
@@ -183,8 +183,15 @@ const BEAT_FRAMES = Object.freeze([at(0, 'scale(1)'), at(0.02, 'scale(1.03) tran
 const PAT_FRAMES = Object.freeze([at(0, 'translate(0,0) scale(1)'), at(0.16, 'translate(0,1.2%) scale(.99,.975)'), at(0.34, 'translate(.4%,1.3%) rotate(.8deg) scale(.99,.975)'), at(0.52, 'translate(-.4%,1.3%) rotate(-.8deg) scale(.99,.975)'), at(0.7, 'translate(.3%,1.2%) rotate(.5deg) scale(.99,.975)'), at(0.84, 'translate(0,1%) scale(.99,.98)'), at(1, 'translate(0,0) scale(1)')]);
 const CHEERS_NOD_FRAMES = Object.freeze([at(0, 'translate(0,0) rotate(0deg)'), at(0.35, 'translate(.5%,1.4%) rotate(1.4deg)'), at(0.6, 'translate(.3%,.5%) rotate(.6deg)'), at(1, 'translate(0,0) rotate(0deg)')]);
 const CAT_STOOP_FRAMES = Object.freeze([at(0, 'translate(0,0) rotate(0deg)'), at(0.22, 'translate(0,2.4%) rotate(2.2deg)'), at(0.75, 'translate(0,2.4%) rotate(2.2deg)'), at(1, 'translate(0,0) rotate(0deg)')]);
+// 跳舞：随拍左右摇摆，每拍 0.5s、共 3 拍（总长 1500ms）。
+const DANCE_BEAT_FRAMES = Object.freeze([at(0, 'translate(0,0) rotate(0deg)'), at(0.167, 'translate(1.2%,0) rotate(1.5deg)'), at(0.5, 'translate(-1.2%,0) rotate(-1.5deg)'), at(0.833, 'translate(1.2%,0) rotate(1.5deg)'), at(1, 'translate(0,0) rotate(0deg)')]);
+// 骑扫帚：立绘被带得向上提 2.5% 再落回。
+const BROOM_LIFT_FRAMES = Object.freeze([at(0, 'translate(0,0)'), at(0.3, 'translate(0,-2.5%)'), at(0.7, 'translate(0,-2.5%)'), at(1, 'translate(0,0)')]);
+// 钓鱼：提竿那一下立绘后仰、再回弹。
+const FISH_JERK_FRAMES = Object.freeze([at(0, 'translate(0,0) rotate(0deg)'), at(0.35, 'translate(0,-.8%) rotate(-2.2deg)'), at(0.7, 'translate(0,.2%) rotate(.8deg)'), at(1, 'translate(0,0) rotate(0deg)')]);
+// 下跪：整台再沉约 4%，前倾晃动两次（0.6s）。
+const KNEEL_STAGE_FRAMES = Object.freeze([at(0, 'translate(0,0) rotate(0deg)'), at(0.2, 'translate(0,4%) rotate(.8deg)'), at(0.4, 'translate(0,3.2%) rotate(-.3deg)'), at(0.6, 'translate(0,4%) rotate(.7deg)'), at(1, 'translate(0,0) rotate(0deg)')]);
 const HAIRDRY_FRAMES = Object.freeze([at(0, 'translate(0,0) rotate(0deg)'), at(0.12, 'translate(.6%,0) rotate(1.1deg)'), at(0.26, 'translate(-.5%,0) rotate(-1deg)'), at(0.4, 'translate(.6%,0) rotate(1.2deg)'), at(0.54, 'translate(-.5%,0) rotate(-1deg)'), at(0.68, 'translate(.5%,0) rotate(.9deg)'), at(0.82, 'translate(-.3%,0) rotate(-.5deg)'), at(1, 'translate(0,0) rotate(0deg)')]);
-const CAT_SVG = '<svg viewBox="0 0 100 80" aria-hidden="true"><g class="igs-dfx-cat-tail"><path d="M76 64C98 62 98 36 85 30" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></g><ellipse cx="52" cy="60" rx="28" ry="17"/><circle cx="30" cy="40" r="15"/><path d="M17 31 19 10 31 23Z"/><path d="M43 31 41 10 29 23Z"/><circle cx="25" cy="39" r="1.8" class="igs-dfx-cat-eye"/><circle cx="35" cy="39" r="1.8" class="igs-dfx-cat-eye"/></svg>';
 // 魔法光色：咒语 / 魔药名按字取色，同名每次同色。
 const MAGIC_HUES = Object.freeze(['#ffd36a', '#8fd3ff', '#ff7a7a', '#8ff0a4', '#d9a8ff', '#ffa8d8']);
 function magicHue(text) {
@@ -249,8 +256,6 @@ function ticketLabel(item, vehicle) {
 }
 
 const HOURGLASS_HTML = '<div class="igs-dfx-hourglass"><i class="igs-dfx-hg-cap"></i><div class="igs-dfx-hg-glass"><i class="igs-dfx-hg-sand is-top"></i><i class="igs-dfx-hg-stream"></i><i class="igs-dfx-hg-sand is-bottom"></i></div><i class="igs-dfx-hg-cap"></i></div>';
-const OWL_SVG = '<svg class="igs-dfx-owl-bird" viewBox="0 0 64 48" aria-hidden="true"><path class="igs-dfx-owl-wing is-left" d="M28 22C18 8 6 9 0 17c10 1 17 7 26 13Z"/><path class="igs-dfx-owl-wing is-right" d="M36 22C46 8 58 9 64 17c-10 1-17 7-26 13Z"/><path d="M24 20l2-8 4 5h4l4-5 2 8c2 10-2 20-8 22-6-2-10-12-8-22Z"/><circle cx="29" cy="21" r="2.2" fill="#ffd46a"/><circle cx="35" cy="21" r="2.2" fill="#ffd46a"/></svg>';
-const BROOM_SVG = '<svg class="igs-dfx-broom-stick" viewBox="0 0 120 30" aria-hidden="true"><path d="M4 13 82 15" stroke="#6b4423" stroke-width="3.5" stroke-linecap="round"/><path d="M80 10 118 2l-4 13 4 13-38-8Z" fill="#c9a25a"/><path d="M80 9v12" stroke="#4a2e14" stroke-width="3"/></svg>';
 const HAND_SVG = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M7 11V6.5a1.5 1.5 0 0 1 3 0V10h.5V4.5a1.5 1.5 0 0 1 3 0V10h.5V5.5a1.5 1.5 0 0 1 3 0V11h.5V8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.5A6.5 6.5 0 0 1 7 14.5Z"/></svg>';
 
 // 每个构建器返回 { node, life, layer: 'front' | 'stage', sounds: [...] }。
@@ -447,14 +452,9 @@ const BUILDERS = {
         const node = make(env.doc, 'igs-dfx igs-dfx-cook', `<div class="igs-dfx-cook-card"><div class="igs-dfx-cook-steam"><i></i><i></i><i></i></div><div class="igs-dfx-cook-label">完成</div><div class="igs-dfx-cook-dish">${esc(item.dish)}</div></div>`);
         return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.cook * env.hold), sounds: ['cook'], node };
     },
+    // 撸猫：不画猫，只有猫叫与呼噜；立绘前倾蹲下去。
     cat(item, env) {
-        const head = headOf(env, '');
-        const side = head.x > 55 ? -1 : 1;
-        const catX = clampNum(head.x + side * (head.d * 1.5 + 6), 8, 92);
-        // 肉球印沿对话框上沿走成一行小径，从猫脚边伸向人物，一高一低交错。
-        const paws = [0, 1, 2, 3, 4]
-            .map((i) => `<i style="left:${p1(clampNum(catX - side * (7 + i * 6), 6, 94))}%;top:calc(var(--igs-fx-vis) - ${i % 2 ? 11 : 5}%);animation-delay:${i * 180}ms">${pawGlyph()}</i>`).join('');
-        const node = make(env.doc, `igs-dfx igs-dfx-cat${side < 0 ? ' is-flip' : ''}`, `<div class="igs-dfx-cat-body" style="left:${p1(catX)}%">${CAT_SVG}</div><div class="igs-dfx-cat-paws">${paws}</div>`);
+        const node = make(env.doc, 'igs-dfx igs-dfx-cat');
         reactSprite(env, '', CAT_STOOP_FRAMES, { duration: Math.round(1700 * env.hold) });
         return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.cat * env.hold), sounds: ['cat'], node };
     },
@@ -498,13 +498,13 @@ const BUILDERS = {
         return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.pass * env.hold), sounds: ['rustle'], node };
     },
     // 站位身段：用立绘位移、缩放、微倾表现尊卑与亲近（跪拜 / 侍立 / 上座 / 并肩 / 依偎 / 俯身），角落落姿态字样。
-    // 指名陪衬角色时动陪衬，否则动说话人；上座另有一道自下而上的升座光。
+    // 指名陪衬角色时动陪衬，否则动说话人；下跪另让整台再沉一下并前倾晃两次。
     stance(item, env) {
         const pose = STANCE_POSE[item.pose] ? item.pose : 'attend';
         if (!env.reduced) playSpriteSpec(spriteElOf(env, item.who), stanceSpec(pose));
-        const x = spritePosX(readStageBackground(env.root).sprite);
-        const node = make(env.doc, `igs-dfx igs-dfx-stance is-${pose}`, `<div class="igs-dfx-stance-stage" style="left:${x}%"><i class="igs-dfx-stance-dais"></i><i class="igs-dfx-stance-beam"></i></div><div class="igs-dfx-courtesy-label">${STANCE_LABEL[pose]}</div>`);
-        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.stance * env.hold), sounds: ['rustle'], node };
+        const node = make(env.doc, `igs-dfx igs-dfx-stance is-${pose}`, `<div class="igs-dfx-courtesy-label">${STANCE_LABEL[pose]}</div>`);
+        if (pose === 'kneel') moveStage(env, KNEEL_STAGE_FRAMES, { duration: 600, delay: 650 });
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.stance * env.hold), sounds: pose === 'kneel' ? ['rustle', 'kneel-thud'] : ['rustle'], node };
     },
     // 魔法世界独有：只在魔法世界观可用（fx-era 在其他世界观拨掉）。
     spell(item, env) {
@@ -525,7 +525,7 @@ const BUILDERS = {
     },
     owl(item, env) {
         const from = item.from ? `<div class="igs-dfx-owl-from">来自 ${esc(item.from)}</div>` : '';
-        const node = make(env.doc, 'igs-dfx igs-dfx-owl', `<div class="igs-dfx-owl-flight">${OWL_SVG}</div><div class="igs-dfx-owl-drop"><div class="igs-dfx-owl-letter"><i class="igs-dfx-owl-seal"></i></div>${from}</div>`);
+        const node = make(env.doc, 'igs-dfx igs-dfx-owl', `<div class="igs-dfx-owl-drop"><div class="igs-dfx-owl-letter"><i class="igs-dfx-owl-seal"></i></div>${from}</div>`);
         return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.owl * env.hold), sounds: ['owl'], node };
     },
     howler(item, env) {
@@ -535,10 +535,14 @@ const BUILDERS = {
         const node = make(env.doc, 'igs-dfx igs-dfx-howler', `<div class="igs-dfx-howler-env"><i class="igs-dfx-howler-flap"></i></div><div class="igs-dfx-howler-mouth">${charSpans(item.text, HOWLER_MS.perChar, HOWLER_MS.shake + 120)}</div>${from}`);
         return { layer: 'front', life, sounds: ['howler'], node };
     },
+    // 骑扫帚：不画扫帚，只有掠过声、立绘上提与背景快速侧移；风线是速度线，保留。
     broom(item, env) {
         const streaks = [18, 34, 52, 66, 80].map((y, i) => `<i style="top:${y}%;animation-delay:${i * 90}ms"></i>`).join('');
-        const node = make(env.doc, 'igs-dfx igs-dfx-broom', `<div class="igs-dfx-broom-wind">${streaks}</div><div class="igs-dfx-broom-flight">${BROOM_SVG}<i class="igs-dfx-broom-trail"></i></div>`);
-        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.broom * env.hold), sounds: ['broom'], node };
+        const node = make(env.doc, 'igs-dfx igs-dfx-broom', `<div class="igs-dfx-broom-wind">${streaks}</div>`);
+        const life = Math.round(DAILY_RESULT_LIFE_MS.broom * env.hold);
+        reactSprite(env, '', BROOM_LIFT_FRAMES, { duration: life });
+        sweepBackground(env, 1, { duration: 900, delay: 150 });
+        return { layer: 'stage', life, sounds: ['broom'], node };
     },
 
     // 恐怖：灯管闪几下后全黑，黑暗里浮出一句旁白，再慢慢亮回来。
@@ -719,18 +723,20 @@ const BUILDERS = {
         const node = make(env.doc, 'igs-dfx igs-dfx-sing', `<div class="igs-dfx-sing-waves">${rings}</div><div class="igs-dfx-sing-notes">${notes}</div>${label}`);
         return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.sing * env.hold), sounds: ['sing'], node };
     },
-    // 跳舞：一对剪影随旋律旋转，脚边荡开光圈，几点亮片飞散；舞种落在下方。
+    // 跳舞：立绘随拍左右摇摆，几点亮片飞散，配舞曲节拍；舞种落在下方。
     dance(item, env) {
         const sparks = [0, 60, 120, 180, 240, 300].map((a, i) => `<i style="--igs-dc-a:${a}deg;animation-delay:${200 + i * 90}ms"></i>`).join('');
         const label = item.style ? `<div class="igs-dfx-dance-label">${esc(item.style)}</div>` : '';
-        const node = make(env.doc, 'igs-dfx igs-dfx-dance', `<div class="igs-dfx-dance-pair"><i class="igs-dfx-dance-figure is-a"></i><i class="igs-dfx-dance-figure is-b"></i><i class="igs-dfx-dance-ring"></i></div><div class="igs-dfx-dance-sparks">${sparks}</div>${label}`);
-        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.dance * env.hold), sounds: ['dance'], node };
+        const node = make(env.doc, 'igs-dfx igs-dfx-dance', `<div class="igs-dfx-dance-sparks">${sparks}</div>${label}`);
+        reactSprite(env, '', DANCE_BEAT_FRAMES, { duration: 1500 });
+        return { layer: 'stage', life: Math.round(DAILY_RESULT_LIFE_MS.dance * env.hold), sounds: ['dance', 'dance-beat'], node };
     },
     // 钓鱼：水面漾开一圈圈涟漪，浮漂一沉，鱼线一绷拉起一尾鱼影；钓到的鱼落在下方。
     fish(item, env) {
         const ripples = [0, 1, 2].map((i) => `<i style="animation-delay:${i * 500}ms"></i>`).join('');
         const label = item.catch ? `<div class="igs-dfx-fish-catch">${esc(item.catch)}</div>` : '';
-        const node = make(env.doc, 'igs-dfx igs-dfx-fish', `<div class="igs-dfx-fish-water">${ripples}</div><i class="igs-dfx-fish-line"></i><i class="igs-dfx-fish-float"></i><i class="igs-dfx-fish-silhouette"></i>${label}`);
+        const node = make(env.doc, 'igs-dfx igs-dfx-fish', `<div class="igs-dfx-fish-water">${ripples}</div><i class="igs-dfx-fish-line"></i><i class="igs-dfx-fish-float"></i>${label}`);
+        reactSprite(env, '', FISH_JERK_FRAMES, { duration: 900, delay: 1700 });
         return { layer: 'front', life: Math.round(DAILY_RESULT_LIFE_MS.fish * env.hold), sounds: ['fish'], node };
     },
     // 画画：画布上笔触一道道落下、渐渐成形，画笔在角上游走；画的内容落在下方。
@@ -787,14 +793,14 @@ Object.assign(BUILDERS, FX_PACK_BUILDERS);
 
 // 常驻氛围层：人在车里、船上、浴室时一直挂着，换地点淡出。每种只有一两个动画元素，样式见 fx-daily-style。
 const AMBIENCE_HTML = Object.freeze({
-    train: '<i class="igs-dfx-amb-scenery"></i><i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i><i class="igs-dfx-amb-frame"></i>',
-    car: '<i class="igs-dfx-amb-scenery"></i><i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i><i class="igs-dfx-amb-frame"></i>',
+    train: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i><i class="igs-dfx-amb-frame"></i>',
+    car: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i><i class="igs-dfx-amb-frame"></i>',
     carriage: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i>',
     // 修仙武侠古风地点（只在古代世界观生效）：客栈暖灯晕 + 飘尘、洞府暗角 + 水滴光点、云海流云 + 薄雾。
     inn: '<i class="igs-dfx-amb-innglow"></i><i class="igs-dfx-amb-innsmoke"></i><i class="igs-dfx-amb-innmote"></i><i class="igs-dfx-amb-innbeam"></i><i class="igs-dfx-amb-innlamps"><b></b><b></b></i>',
-    cave: '<i class="igs-dfx-amb-cavedark"></i><i class="igs-dfx-amb-caveglow"></i><i class="igs-dfx-amb-cavecrown"></i><i class="igs-dfx-amb-cavedrip"></i><i class="igs-dfx-amb-cavedrip2"></i><i class="igs-dfx-amb-cavedrip3"></i>',
-    cloudsea: '<i class="igs-dfx-amb-sunrim"></i><i class="igs-dfx-amb-peaks"></i><i class="igs-dfx-amb-clouds"></i><i class="igs-dfx-amb-seamist"></i>',
-    plane: '<i class="igs-dfx-amb-scenery"></i><i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i><i class="igs-dfx-amb-frame"></i>',
+    cave: '<i class="igs-dfx-amb-cavedark"></i><i class="igs-dfx-amb-caveglow"></i><i class="igs-dfx-amb-cavedrip"></i><i class="igs-dfx-amb-cavedrip2"></i><i class="igs-dfx-amb-cavedrip3"></i>',
+    cloudsea: '<i class="igs-dfx-amb-sunrim"></i><i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-clouds"></i><i class="igs-dfx-amb-seamist"></i>',
+    plane: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i><i class="igs-dfx-amb-frame"></i>',
     sky: '<i class="igs-dfx-amb-clouds"></i><i class="igs-dfx-amb-gust"></i>',
     // 自行车 / 摩托：开放式骑行，不是封闭车厢——用迎面掠过的风线，不挂车窗光带。
     bike: '<i class="igs-dfx-amb-rush"></i>',
@@ -802,6 +808,12 @@ const AMBIENCE_HTML = Object.freeze({
     bath: '<i class="igs-dfx-amb-fog"></i><i class="igs-dfx-amb-steam"></i>',
     underwater: '<i class="igs-dfx-amb-deep"></i><i class="igs-dfx-amb-rays"></i><i class="igs-dfx-amb-bubbles"></i>',
     space: '<i class="igs-dfx-amb-planet"></i><i class="igs-dfx-amb-void"></i><i class="igs-dfx-amb-dust"></i><i class="igs-dfx-amb-twink"></i>',
+});
+// 窗外景只作用在背景层（立绘之后）：横向明暗带缓慢流过，不盖住立绘。
+const AMBIENCE_BG_HTML = Object.freeze({
+    train: '<i class="igs-dfx-amb-scenery"></i>',
+    car: '<i class="igs-dfx-amb-scenery"></i>',
+    plane: '<i class="igs-dfx-amb-scenery"></i>',
 });
 const AMBIENCE_FADE_MS = 900;
 
@@ -839,8 +851,8 @@ function resolveAmbience(settings, content, place) {
 function syncAmbience(state, env, spec) {
     const key = spec ? `${spec.kind}:${spec.variant}:${spec.night ? 1 : 0}` : '';
     if (key === state.ambienceKey && (!spec || (state.ambience && state.ambience.parentNode))) return;
-    const old = state.ambience;
-    if (old) {
+    for (const old of [state.ambience, state.ambienceBg]) {
+        if (!old) continue;
         if (old.classList) old.classList.add('is-leaving');
         state.transients.add(old);
         later(state, () => {
@@ -849,6 +861,7 @@ function syncAmbience(state, env, spec) {
         }, AMBIENCE_FADE_MS);
     }
     state.ambience = null;
+    state.ambienceBg = null;
     state.ambienceKey = key;
     if (!spec) return;
     const classes = ['igs-dfx-amb', `is-${spec.kind}`, spec.variant && `is-${spec.variant}`, spec.night && 'is-night', env.reduced && 'is-reduced'].filter(Boolean).join(' ');
@@ -856,6 +869,13 @@ function syncAmbience(state, env, spec) {
     const stage = env.layers.stage;
     stage.insertBefore(node, stage.firstChild || null);
     state.ambience = node;
+    const bgHtml = AMBIENCE_BG_HTML[spec.kind];
+    const sky = bgHtml ? ensureSky(state, env.root, env.doc) : null;
+    if (sky) {
+        const bgNode = make(env.doc, classes, bgHtml);
+        sky.insertBefore(bgNode, sky.firstChild || null);
+        state.ambienceBg = bgNode;
+    }
 }
 
 function ensureSky(state, root, doc) {
@@ -948,6 +968,7 @@ export function cancelDailyFx(root) {
     removeNode(state.sky);
     removeNode(state.petalLayer);
     removeNode(state.ambience);
+    removeNode(state.ambienceBg);
     states.delete(root);
     return true;
 }

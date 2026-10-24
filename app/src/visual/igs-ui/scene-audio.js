@@ -116,7 +116,8 @@ const NATURE_WORDS = Object.freeze(['森林', '树林', '公园', '花园', '庭
 const INSECT_EXTRA_WORDS = Object.freeze(['草', '田', '夏']);
 const WAVE_WORDS = Object.freeze(['海', '沙滩', '港', '码头', '岸', '礁']);
 export const CROWD_WORDS = Object.freeze(['街', '市', '商场', '车站', '广场', '食堂', '餐厅', '集市', '教室', '咖啡', '酒吧']);
-const STREAM_WORDS = Object.freeze(['溪', '泉', '瀑', '河', '江边', '水边', '水渠']);
+const BUSY_CROWD_WORDS = Object.freeze(['车站', '广场', '集市', '商场', '商店街', '步行街', '庙会', '祭典', '夏日祭', '市场', '机场', '人潮', '演唱会']);
+const STREAM_WORDS =Object.freeze(['溪', '泉', '瀑', '河', '江边', '水边', '水渠']);
 const FIRE_WORDS = Object.freeze(['篝火', '营火', '壁炉', '火堆', '火炉', '炉边', '暖炉', '火塘']);
 const SUMMER_WORDS = Object.freeze(['夏', '暑', '蝉', '七月', '八月', '7月', '8月']);
 const FOREST_WORDS = Object.freeze(['森林', '树林', '林', '山']);
@@ -161,9 +162,30 @@ const TONE_SHAPES = Object.freeze({
     letterbox: Object.freeze({ low: 20000, high: 20, wet: 0, gain: 0.5 }),
 });
 const TONE_TC_S = 0.4;
+// 撑伞（[igs-fx:umbrella] 区间）：伞外的雨经一道低通变闷、略压音量，头顶再叠一层「雨打伞面」的闷响。
+// cover 是雨层自带的遮挡低通，进出区间时按 TC 平滑滑动（约 4×TC 到位），不重建雨层；伞面层单独用较短的淡入淡出。
+const UMBRELLA = Object.freeze({
+    fadeS: 0.8,
+    coverTcS: 0.22,
+    openHz: 20000,
+    coveredHz: 1500,
+    coveredGain: 0.72,
+    bedGain: 0.16,
+    bedHz: 380,
+    bedLowHz: 1000,
+    bedSwayHz: Object.freeze([0.12, 0.26]),
+    tapHz: Object.freeze([200, 620]),
+    tapQ: Object.freeze([1.2, 2.4]),
+    tapPeak: Object.freeze([0.025, 0.07]),
+    tapSeconds: Object.freeze([0.025, 0.06]),
+    tapPan: 0.35,
+    tapGapMs: Object.freeze({ heavy: Object.freeze([30, 100]), medium: Object.freeze([60, 180]), light: Object.freeze([130, 380]) }),
+});
 // 空间混响：衰减噪声生成脉冲响应；梦境固定用长混响。
 const IMPULSES = Object.freeze({ room: Object.freeze({ seconds: 0.4, wet: 0.18 }), hall: Object.freeze({ seconds: 1.8, wet: 0.3 }), long: Object.freeze({ seconds: 2.6, wet: 0 }) });
 const HALL_WORDS = Object.freeze(['大厅', '大堂', '走廊', '教堂', '礼堂', '体育馆', '车站', '神殿', '洞', '隧道', '地下', '地牢', '地窖', '遗迹', '下水道']);
+// 洞府类地点（HALL_WORDS 没覆盖到的写法）同样带低回响。
+const CAVE_ECHO_WORDS = Object.freeze(['仙府', '石室', '丹房', '密室']);
 // 打字音与音效送进同一空间混响的湿声量；梦境用长混响。
 const VOICE_SPACE_WET = Object.freeze({ room: 0.05, hall: 0.12, long: 0.15 });
 const DUCK_MS = 150;
@@ -319,7 +341,7 @@ export function resolveAmbientTone(context = {}) {
 export function resolveAmbientSpace(location, weatherSettings) {
     const text = textOf(location);
     if (!text) return '';
-    if (includesAny(text, HALL_WORDS)) return 'hall';
+    if (includesAny(text, HALL_WORDS) || includesAny(text, CAVE_ECHO_WORDS)) return 'hall';
     return resolveWeatherFxScene(location, weatherSettings) === 'indoor' ? 'room' : '';
 }
 
@@ -357,6 +379,9 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     else if (place && place.kind === 'plane') add('plane', night ? 'light' : 'medium', false, place.variant);
     // 自行车 / 摩托是开放式骑行：传 variant 让 voiceBike 分辨链条声还是引擎声。
     else if (place && place.kind === 'bike') add('bike', night ? 'light' : 'medium', false, place.variant);
+    // 云海没有自己的声层，借高空风声（variant high：更远更轻）；洞府借滴水层，空间回响见 resolveAmbientSpace。
+    else if (place && place.kind === 'cloudsea') add('sky', 'light', false, 'high');
+    else if (place && place.kind === 'cave') add('drip', 'medium', false);
     else if (place) add(place.kind, night ? 'light' : 'medium', false);
     else {
         // 约会 / 深宫场所：place-ambience 没认出来时，再按约会词表兜底；海边直接借用海浪层。
@@ -379,7 +404,8 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
             if ((nature || summer || includesAny(`${location} ${textOf(ctx.time)}`, INSECT_EXTRA_WORDS)) && !rain && !snow) add('insects', 'medium', false);
             if (includesAny(location, FROG_WORDS) && !snow && rain !== 'heavy') add('frogs', rain ? 'heavy' : 'medium', false);
         }
-        if (includesAny(location, WAVE_WORDS)) add('waves', rain === 'heavy' || weather?.wind ? 'heavy' : 'medium', false);
+        // 「云海」的海不是海浪。
+        if (includesAny(location, WAVE_WORDS) && !(place && place.kind === 'cloudsea')) add('waves', rain === 'heavy' || weather?.wind ? 'heavy' : 'medium', false);
         if (includesAny(location, STREAM_WORDS)) add('stream', rain === 'heavy' ? 'heavy' : 'medium', false);
     }
     // 夏天白天的蝉鸣隔着窗也听得见（夏日教室）；傍晚换成茅蜩。
@@ -390,7 +416,8 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     if (includesAny(location, FIRE_WORDS)) add('fire', 'medium', false);
     const tavern = includesAny(location, TAVERN_WORDS);
     if (tavern) add('tavern', 'medium', false);
-    else if (includesAny(location, CROWD_WORDS) && !candidates.has('classroom')) add('crowd', indoor ? 'medium' : 'light', false);
+    // 人群底噪按人多人少分三档：集市、车站等拥挤处最响，一般人多处按室内外分中 / 轻。
+    else if (includesAny(location, CROWD_WORDS) && !candidates.has('classroom')) add('crowd', includesAny(location, BUSY_CROWD_WORDS) ? 'heavy' : (indoor ? 'medium' : 'light'), false);
     if (includesAny(location, TRAFFIC_WORDS)) add('traffic', night ? 'light' : 'medium', indoor);
     if (includesAny(location, BELL_WORDS)) add('bell', 'medium', false, includesAny(location, CHURCH_WORDS) ? 'church' : 'temple');
     if (includesAny(location, CHIME_WORDS) && rain !== 'heavy') add('chimes', weather?.wind || weather?.kind === 'wind' ? 'heavy' : 'medium', false);
@@ -420,11 +447,15 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     const lead = textOf(ctx.leadLocation);
     if (lead && lead !== location) {
         const next = resolveAmbientPlan({ ...ctx, location: lead, leadLocation: '', lcut: false }, ambientSettings, weatherSettings)
-            .find((item) => item.kind !== 'thunder' && item.kind !== 'vinyl' && !plan.some((own) => own.kind === item.kind));
+            .find((item) => item.kind !== 'thunder' && item.kind !== 'vinyl' && item.kind !== 'umbrella' && !plan.some((own) => own.kind === item.kind));
         if (next) plan.push({ ...next, lead: true });
     }
     // 回忆段落叠一层唱片沙沙声，不占层数、不单独设开关。
     if (resolveAmbientTone(ctx) === 'flashback') plan.push({ kind: 'vinyl', level: 'light', muffled: false });
+    // 撑伞区间且本场景在室外下雨（雨声层已上）：叠一层雨打伞面，不占层数、不单独设开关；跟随雨的强度。
+    if (plainObject(ctx.fxRanges).umbrella === true && rain && !indoor && plan.some((layer) => layer.kind === 'rain')) {
+        plan.push({ kind: 'umbrella', level: rain, muffled: false, fade: UMBRELLA.fadeS });
+    }
     return plan;
 }
 
@@ -472,6 +503,7 @@ function createState(root) {
         master: null,
         layers: new Map(),
         lingering: new Set(),
+        umbrella: false,
         trail: false,
         retry: null,
         hidden: false,
@@ -1107,6 +1139,39 @@ function windowTaps(layer, heavy, light) {
         layerLater(layer, tap, rand(minGap, maxGap));
     };
     layerLater(layer, tap, rand(minGap, maxGap));
+}
+
+// 雨打伞面：贴着头顶的闷响。低频带通噪声垫底并缓慢起伏，再叠密集、柔和的低频细碎鼓点；走 clear，不被室内闷声二次低通。
+function voiceUmbrella(layer) {
+    const u = UMBRELLA;
+    const bed = makeGain(layer, u.bedGain);
+    chain(makeNoise(layer), makeFilter(layer, 'bandpass', u.bedHz, 0.8), makeFilter(layer, 'lowpass', u.bedLowHz), bed, layer.clear);
+    makeLfo(layer, rand(u.bedSwayHz[0], u.bedSwayHz[1]), u.bedGain * 0.25, bed.gain);
+    const [minGap, maxGap] = u.tapGapMs[layer.level] || u.tapGapMs.medium;
+    const tap = () => {
+        const at = layer.ctx.currentTime + 0.02;
+        noiseBurst(layer, at, rand(u.tapSeconds[0], u.tapSeconds[1]), {
+            type: 'bandpass', frequency: rand(u.tapHz[0], u.tapHz[1]), q: rand(u.tapQ[0], u.tapQ[1]),
+            peak: rand(u.tapPeak[0], u.tapPeak[1]), attack: 0.002, pan: rand(-u.tapPan, u.tapPan), out: layer.clear,
+        });
+        layerLater(layer, tap, rand(minGap, maxGap));
+    };
+    layerLater(layer, tap, rand(minGap, maxGap));
+}
+
+// 雨层的伞下遮挡：撑伞时低通压到 coveredHz、音量略降，收伞时放开；只滑动参数，不重建雨层，避免爆音。
+function syncUmbrellaCover(state, on) {
+    state.umbrella = on;
+    for (const layer of state.layers.values()) setCover(layer, on);
+}
+
+function setCover(layer, on) {
+    if (!layer.cover) return;
+    try {
+        const now = layer.ctx.currentTime;
+        layer.cover.filter.frequency.setTargetAtTime(on ? UMBRELLA.coveredHz : UMBRELLA.openHz, now, UMBRELLA.coverTcS);
+        layer.cover.gain.gain.setTargetAtTime(on ? UMBRELLA.coveredGain : 1, now, UMBRELLA.coverTcS);
+    } catch { /* ignore */ }
 }
 
 function voiceWind(layer) {
@@ -1898,17 +1963,19 @@ function voicePlane(layer) {
 
 // 露天飞行：迎面的风一直在耳边呼呼作响，一层低沉的风压托底，隔一阵扑来一股乱风。比天气的风声更近、更满。
 function voiceSky(layer) {
-    const band = makeFilter(layer, 'bandpass', 900, 0.8);
-    const rush = makeGain(layer, layer.level === 'light' ? 0.2 : 0.3);
+    // 云海（variant high）：云端的风更远更轻，音量压在人群底噪之下。
+    const high = layer.variant === 'high';
+    const band = makeFilter(layer, 'bandpass', high ? 640 : 900, 0.8);
+    const rush = makeGain(layer, high ? 0.11 : layer.level === 'light' ? 0.2 : 0.3);
     chain(makeNoise(layer), band, rush, layer.out);
     makeLfo(layer, rand(0.1, 0.18), 420, band.frequency);
     makeLfo(layer, rand(0.06, 0.12), 0.08, rush.gain);
-    const low = makeGain(layer, 0.14);
+    const low = makeGain(layer, high ? 0.08 : 0.14);
     chain(makeNoise(layer), makeFilter(layer, 'lowpass', 160), low, layer.out);
-    makeLfo(layer, rand(0.04, 0.08), 0.05, low.gain);
+    makeLfo(layer, rand(0.04, 0.08), high ? 0.03 : 0.05, low.gain);
     const gust = () => {
         const at = layer.ctx.currentTime + 0.05;
-        noiseBurst(layer, at, rand(0.6, 1.1), { type: 'bandpass', frequency: rand(700, 1600), q: 0.8, peak: rand(0.08, 0.14), attack: 0.15, pan: rand(-0.6, 0.6) });
+        noiseBurst(layer, at, rand(0.6, 1.1), { type: 'bandpass', frequency: rand(700, 1600), q: 0.8, peak: high ? rand(0.04, 0.07) : rand(0.08, 0.14), attack: 0.15, pan: rand(-0.6, 0.6) });
         layerLater(layer, gust, rand(6000, 14000));
     };
     layerLater(layer, gust, rand(2500, 6000));
@@ -2195,6 +2262,15 @@ function voiceNightview(layer) {
     makeLfo(layer, rand(0.06, 0.12), 0.035, wind.gain);
     makeLfo(layer, rand(0.04, 0.09), 140, band.frequency);
     chain(makeNoise(layer), makeFilter(layer, 'highpass', 2200), makeGain(layer, 0.006), layer.out);
+    // 远处的车流：极低的一层轰鸣，偶尔一辆车缓缓驶过；音量远低于人群底噪。
+    const flow = makeGain(layer, 0.022);
+    chain(makeNoise(layer), makeFilter(layer, 'lowpass', 240), flow, layer.out);
+    makeLfo(layer, rand(0.05, 0.1), 0.008, flow.gain);
+    const pass = () => {
+        noiseBurst(layer, layer.ctx.currentTime + 0.05, rand(2.4, 3.6), { type: 'bandpass', frequency: rand(260, 420), q: 0.7, peak: rand(0.014, 0.024), attack: 1.1, pan: rand(-0.7, 0.7) });
+        layerLater(layer, pass, rand(5000, 12000));
+    };
+    layerLater(layer, pass, rand(1500, 5000));
     const gust = () => {
         noiseBurst(layer, layer.ctx.currentTime + 0.05, 3.2, { type: 'bandpass', frequency: rand(500, 800), q: 0.6, peak: rand(0.05, 0.08), attack: 1.2, pan: rand(-0.5, 0.5) });
         layerLater(layer, gust, rand(9000, 20000));
@@ -2295,6 +2371,7 @@ const VOICES = Object.freeze({
     fire: voiceFire,
     snow: voiceSnow,
     vinyl: voiceVinyl,
+    umbrella: voiceUmbrella,
     cicadas: voiceCicadas,
     frogs: voiceFrogs,
     chimes: voiceChimes,
@@ -2368,9 +2445,11 @@ function startLayer(state, spec) {
         out: null,
         clear: null,
         fade: null,
+        cover: null,
+        fadeOutS: Number(spec.fade) > 0 ? Number(spec.fade) : AMBIENT_FADE_OUT_S,
     };
     try {
-        // 声音 → out →（室内闷声低通）→ fade（淡入淡出）→ 色调链；clear 直接进 fade，不被闷掉。
+        // 声音 → out →（室内闷声低通 / 室外雨的伞下遮挡）→ fade（淡入淡出）→ 色调链；clear 直接进 fade，不被闷掉。
         layer.fade = makeGain(layer, 0);
         layer.fade.connect(state.tone ? state.tone.input : state.master);
         layer.clear = layer.fade;
@@ -2378,11 +2457,20 @@ function startLayer(state, spec) {
         if (spec.muffled) {
             layer.out = makeGain(layer, 1);
             chain(layer.out, makeFilter(layer, 'lowpass', MUFFLE_HZ, 0.5), layer.fade);
+        } else if (spec.kind === 'rain') {
+            const covered = state.umbrella === true;
+            layer.cover = {
+                filter: makeFilter(layer, 'lowpass', covered ? UMBRELLA.coveredHz : UMBRELLA.openHz, 0.5),
+                gain: makeGain(layer, covered ? UMBRELLA.coveredGain : 1),
+            };
+            layer.out = makeGain(layer, 1);
+            chain(layer.out, layer.cover.filter, layer.cover.gain, layer.fade);
         }
         VOICES[spec.kind](layer);
         const now = ctx.currentTime;
+        const fadeIn = Number(spec.fade) > 0 ? Number(spec.fade) : spec.lead === true ? AMBIENT_LEAD_FADE_IN_S : AMBIENT_FADE_IN_S;
         layer.fade.gain.setValueAtTime(0, now);
-        layer.fade.gain.linearRampToValueAtTime(LEVEL_GAIN[spec.level] || LEVEL_GAIN.medium, now + (spec.lead === true ? AMBIENT_LEAD_FADE_IN_S : AMBIENT_FADE_IN_S));
+        layer.fade.gain.linearRampToValueAtTime(LEVEL_GAIN[spec.level] || LEVEL_GAIN.medium, now + fadeIn);
     } catch {
         disposeLayer(state, layer);
         return null;
@@ -2405,9 +2493,9 @@ function fadeOutLayer(state, layer, hold = 0) {
         const gain = layer.fade.gain;
         gain.cancelScheduledValues(now);
         gain.setValueAtTime(gain.value, now);
-        gain.linearRampToValueAtTime(0, now + AMBIENT_FADE_OUT_S);
+        gain.linearRampToValueAtTime(0, now + layer.fadeOutS);
     } catch { /* ignore */ }
-    later(state, () => disposeLayer(state, layer), AMBIENT_FADE_OUT_S * 1000 + 100);
+    later(state, () => disposeLayer(state, layer), layer.fadeOutS * 1000 + 100);
 }
 
 function syncAmbient(state, plan, volume, toneKey = '', spaceKey = '') {
@@ -2418,6 +2506,9 @@ function syncAmbient(state, plan, volume, toneKey = '', spaceKey = '') {
         state.layers.delete(key);
         fadeOutLayer(state, layer, state.trail === true ? AMBIENT_TRAIL_HOLD_MS : 0);
     }
+    // 撑伞进出：在起新层之前先定好遮挡状态，新建的雨层按它起步，留下的雨层平滑滑过去。
+    const covered = plan.some((spec) => spec.kind === 'umbrella');
+    if (covered !== state.umbrella) syncUmbrellaCover(state, covered);
     if (!wanted.size) return;
     if (!ensureContext(state)) return;
     resumeContext(state);

@@ -5,6 +5,8 @@ import { noteGlyph } from './fx-glyphs.js';
 import { make } from './fx-daily-kit.js';
 import { setVoiceFilter } from './voice-filter.js';
 import { CHEST_GRADES, QUEST_STATES, floorFrames, scoreParts } from './fx-places-model.js';
+import { HAND_FRAMES, HAND_PERIOD_MS } from './camera-shots.js';
+import { pushStage } from './fx-sprite-react.js';
 
 export const PLACES_LIFE_MS = Object.freeze({
     elevator: 3800, eavesdrop: 4600, concert: 5200, flashes: 900, raceStart: 3000, raceFinish: 3200, raceScore: 3400,
@@ -53,6 +55,20 @@ function lowQuality(env) {
     return Boolean(root && typeof root.getAttribute === 'function' && root.getAttribute('data-igs-quality') === 'low');
 }
 
+// 整台舞台上的一次性镜头动作（叠加合成，结束自动还原）；减少动态效果与低画质不做。
+function stageAnimate(env, frames, options) {
+    if (env.reduced || lowQuality(env) || !env.root || typeof env.root.querySelector !== 'function') return;
+    const motion = env.root.querySelector('#igs-stage-motion');
+    if (!motion || typeof motion.animate !== 'function') return;
+    try { motion.animate(frames, { composite: 'add', fill: 'none', ...options }); } catch { /* 无 WAAPI */ }
+}
+
+// 偷看的聚焦与手持轻晃：推近一点，再叠有限轮的手持抖动（不循环）。
+function peekFocus(env, life) {
+    pushStage(env, { scale: 1.025, duration: Math.round(life * 0.9) });
+    stageAnimate(env, HAND_FRAMES, { duration: HAND_PERIOD_MS, iterations: Math.max(1, Math.ceil(life / HAND_PERIOD_MS)), easing: 'ease-in-out' });
+}
+
 export const PLACES_BUILDERS = {
     elevator(item, env) {
         const frames = floorFrames(item.floor);
@@ -60,18 +76,22 @@ export const PLACES_BUILDERS = {
         const n = frames.length;
         const strip = `<span class="igs-pl-strip" style="--n:${n};animation-timing-function:steps(${Math.max(1, n - 1)},end)">${frames.map((f) => `<span>${esc(f)}</span>`).join('')}</span>`;
         const arrow = n > 1 ? `<b class="igs-pl-elev-arrow${down ? ' is-down' : ''}"></b>` : '';
+        const life = scaled(PLACES_LIFE_MS.elevator, env);
+        // 门开的那一刻（样式里 44%）整台轻微一顿：电梯到站的顿挫。
+        stageAnimate(env, [{ translate: '0 0' }, { translate: '0 1.1%' }, { translate: '0 -0.3%' }, { translate: '0 0' }], { duration: 320, delay: Math.round(life * 0.44), easing: 'ease-out' });
         return {
-            layer: 'stage', life: scaled(PLACES_LIFE_MS.elevator, env), sounds: ['pl-doors', 'pl-ding'],
+            layer: 'stage', life, sounds: ['pl-doors', 'pl-ding'],
             node: shell(env, 'elevator', `<div class="igs-pl-door is-l"></div><div class="igs-pl-door is-r"></div><div class="igs-pl-elev-lamp">${arrow}<span class="igs-pl-elev-window">${strip}</span></div>`),
         };
     },
     eavesdrop(item, env) {
         const life = scaled(PLACES_LIFE_MS.eavesdrop, env);
         holdMuffle(env, life);
+        peekFocus(env, life);
         const heard = item.heard ? `<div class="igs-pl-heard">${esc(item.heard)}</div>` : '<div class="igs-pl-heard">……</div>';
         return {
-            layer: 'stage', life, sounds: ['pl-eaves'],
-            node: shell(env, 'eavesdrop', `<div class="igs-pl-crack-light"></div><div class="igs-pl-crack is-l"></div><div class="igs-pl-crack is-r"></div>${heard}`),
+            layer: 'stage', life, sounds: ['pl-eaves', 'cm-creak'],
+            node: shell(env, 'eavesdrop', `<div class="igs-pl-crack is-l"></div><div class="igs-pl-crack is-r"></div>${heard}`),
         };
     },
     concert(item, env) {

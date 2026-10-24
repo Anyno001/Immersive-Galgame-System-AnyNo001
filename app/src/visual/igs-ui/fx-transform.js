@@ -7,6 +7,7 @@ import { FALLBACK_HEAD, headToMarker, measureStage, peekSpriteHead, spriteDrawRe
 import { cloneSpriteLayer, playWarp, readStageBackground, resolveHeadAnchor, resolveRegionCrop, spriteElOf } from './stage-snapshot.js';
 import { playSpriteSpec } from './sprite-actions.js';
 import { fitCrop, markPlacement } from './fx-transform-model.js';
+import { MARK_SYMBOL_SVG } from './fx-symbols.js';
 
 export const TRANSFORM_LIFE_MS = Object.freeze({
     mirror: 3600, reflect: 3400, silhouette: 3200, frame: 3600, warp: 1600, zoom: 2800, mark: 3600, spirit: 3400,
@@ -323,10 +324,9 @@ function buildZoom(item, env) {
 
 const MARK_ART = Object.freeze({
     blush: { w: 0.4, html: '' },
-    kiss: { w: 0.3, html: '<svg viewBox="0 0 24 16"><path d="M2 8C6 1 10 3 12 5C14 3 18 1 22 8C18 15 6 15 2 8Z" fill="#d6304f"/><path d="M3 8C9 10 15 10 21 8" stroke="#8f1c33" stroke-width=".8" fill="none"/></svg>' },
-    bite: { w: 0.44, html: '<svg viewBox="0 0 30 18"><path d="M3 4C8 16 22 16 27 4" stroke="#b3263f" stroke-width="2" fill="none" stroke-dasharray="1 3.4" stroke-linecap="round"/><path d="M5 10C10 18 20 18 25 10" stroke="#b3263f" stroke-width="2" fill="none" stroke-dasharray="1 3.4" stroke-linecap="round"/></svg>' },
+    kiss: { w: 0.3, html: MARK_SYMBOL_SVG.kiss },
+    bite: { w: 0.34, html: MARK_SYMBOL_SVG.bite },
     sigil: { w: 0.5, html: '<svg viewBox="0 0 40 40" fill="none" stroke="#ffd36a" stroke-width="1.6" stroke-linejoin="round"><circle cx="20" cy="20" r="17"/><path d="M20 4L33 28H7Z"/><path d="M20 36L7 12H33Z"/><circle cx="20" cy="20" r="3"/></svg>' },
-    sweat: { w: 0.18, html: '<svg viewBox="0 0 10 14"><path d="M5 1C8 6 9 8 9 9.5A4 4 0 0 1 1 9.5C1 8 2 6 5 1Z" fill="#cfeaff" stroke="#7fb4dc" stroke-width=".8"/></svg>' },
     bruise: { w: 0.4, html: '' },
 });
 
@@ -339,10 +339,9 @@ function buildMark(item, env) {
     const anchor = anchorOf(env, item.who, view);
     const spots = markPlacement(item.part, anchor, stageAspect(env));
     const node = shell(env, 'mark', `is-${style}`);
-    const sweatDrop = style === 'sweat';
     spots.forEach((spot, i) => {
         const patch = make(env.doc, `igs-xf-patch is-${style}`, art.html);
-        patch.setAttribute('style', `left:${spot.x}%;top:${round(spot.y + (sweatDrop ? 3 : 0))}%;width:${round(anchor.d * art.w)}%;animation-delay:${i * 140}ms`);
+        patch.setAttribute('style', `left:${spot.x}%;top:${round(spot.y)}%;width:${round(anchor.d * art.w)}%;animation-delay:${i * 140}ms`);
         node.appendChild(patch);
     });
     return { layer: 'stage', life: life('mark', env), sounds: ['xfmark'], node };

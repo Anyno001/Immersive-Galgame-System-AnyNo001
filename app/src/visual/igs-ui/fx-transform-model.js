@@ -12,10 +12,10 @@ export const XF_SILHOUETTE_MODES = Object.freeze({ 玻璃: 'glass', 磨砂玻璃
 export const XF_FRAME_STYLES = Object.freeze({ 监控: 'monitor', 摄像头: 'monitor', 监视: 'monitor', monitor: 'monitor', 全息: 'holo', 投影: 'holo', holo: 'holo', 回忆: 'memory', 记忆: 'memory', 回想: 'memory', memory: 'memory' });
 export const XF_WARP_STYLES = Object.freeze({ 故障: 'glitch', 乱码: 'glitch', glitch: 'glitch', 负片: 'negative', 反色: 'negative', negative: 'negative', 黑眼: 'blackeye', 黑瞳: 'blackeye', 压黑: 'blackeye', blackeye: 'blackeye', 错位: 'shift', 断裂: 'shift', shift: 'shift', 颤抖: 'tremble', 威压: 'tremble', 发抖: 'tremble', tremble: 'tremble' });
 export const XF_ZOOM_REGIONS = Object.freeze({ 手: 'hand', 手指: 'hand', 指尖: 'hand', hand: 'hand', 唇: 'lip', 嘴唇: 'lip', 嘴: 'lip', lip: 'lip', 眼: 'eye', 眼睛: 'eye', 眼神: 'eye', eye: 'eye', 颈: 'neck', 脖颈: 'neck', 脖子: 'neck', 后颈: 'neck', neck: 'neck', 脸: 'face', 面庞: 'face', face: 'face', 腰: 'waist', waist: 'waist' });
-export const XF_MARK_STYLES = Object.freeze({ 潮红: 'blush', 红晕: 'blush', 脸红: 'blush', blush: 'blush', 吻痕: 'kiss', 唇印: 'kiss', 红唇: 'kiss', kiss: 'kiss', 咬痕: 'bite', 牙印: 'bite', bite: 'bite', 契约: 'sigil', 契约纹: 'sigil', 印记: 'sigil', 咒印: 'sigil', sigil: 'sigil', 汗: 'sweat', 汗珠: 'sweat', sweat: 'sweat', 淤青: 'bruise', 瘀青: 'bruise', 淤痕: 'bruise', bruise: 'bruise' });
+export const XF_MARK_STYLES = Object.freeze({ 潮红: 'blush', 红晕: 'blush', 脸红: 'blush', blush: 'blush', 吻痕: 'kiss', 唇印: 'kiss', 红唇: 'kiss', kiss: 'kiss', 咬痕: 'bite', 牙印: 'bite', bite: 'bite', 契约: 'sigil', 契约纹: 'sigil', 印记: 'sigil', 咒印: 'sigil', sigil: 'sigil', 淤青: 'bruise', 瘀青: 'bruise', 淤痕: 'bruise', bruise: 'bruise' });
 export const XF_MARK_PARTS = Object.freeze({ 脸颊: 'cheek', 脸: 'cheek', 面颊: 'cheek', cheek: 'cheek', 颈: 'neck', 脖颈: 'neck', 脖子: 'neck', neck: 'neck', 额: 'brow', 额头: 'brow', 眉心: 'brow', brow: 'brow', 唇: 'lip', 嘴角: 'lip', lip: 'lip', 眼角: 'eye', 眼: 'eye', eye: 'eye' });
-const MARK_PART_DEFAULT = Object.freeze({ blush: 'cheek', kiss: 'neck', bite: 'neck', sigil: 'brow', sweat: 'brow', bruise: 'cheek' });
-const MARK_STYLE_DEFAULT = Object.freeze({ cheek: 'blush', neck: 'kiss', brow: 'sigil', lip: 'kiss', eye: 'sweat' });
+const MARK_PART_DEFAULT = Object.freeze({ blush: 'cheek', kiss: 'neck', bite: 'neck', sigil: 'brow', bruise: 'cheek' });
+const MARK_STYLE_DEFAULT = Object.freeze({ cheek: 'blush', neck: 'kiss', brow: 'sigil', lip: 'kiss', eye: 'blush' });
 
 export const XF_KINDS = Object.freeze(['mirror', 'reflect', 'silhouette', 'frame', 'warp', 'zoom', 'mark', 'spirit']);
 

@@ -18,6 +18,25 @@ const clack = (start, freq, gain = 0.5) => [
 ];
 
 export const R3_SFX_DEFS = Object.freeze({
+    // 舞曲节拍：三拍（每拍 0.5s）轻鼓点，偶数拍间夹一记细碎的踩镲。
+    'dance-beat': {
+        partials: [0, 0.5, 1.0].map((start) => p('sine', 120, 58, start, 0.16, 0.34, { attack: 0.004, sweep: 1 })),
+        noise: [0.25, 0.75, 1.25].map((start) => n(start, 0.05, 0.1, { filter: 'highpass', freq: 6500, q: 0.7, attack: 0.001 })),
+    },
+    // 膝盖落地：一记闷响、稍后一记更轻的回压，夹着衣料摩擦的低沙声。
+    'kneel-thud': {
+        partials: [p('sine', 95, 48, 0.62, 0.24, 0.5, { attack: 0.004, sweep: 1 }), p('sine', 82, 46, 0.78, 0.2, 0.3, { attack: 0.004, sweep: 1 })],
+        noise: [
+            n(0.25, 0.4, 0.08, { filter: 'bandpass', freq: 1800, freqTo: 900, q: 0.6, attack: 0.1 }),
+            n(0.62, 0.12, 0.3, { filter: 'lowpass', freq: 420, q: 0.7, attack: 0.003 }),
+            n(0.78, 0.1, 0.16, { filter: 'lowpass', freq: 380, q: 0.7, attack: 0.003 }),
+        ],
+    },
+    // 门把手轻响：金属把手一压、锁舌缩回的两下细碎轻敲。
+    'door-handle': {
+        partials: [p('triangle', 2100, 1500, 0, 0.05, 0.12, { attack: 0.001, sweep: 1 }), p('triangle', 1700, 1200, 0.09, 0.04, 0.1, { attack: 0.001, sweep: 1 })],
+        noise: [n(0, 0.02, 0.16, { freq: 3200, q: 1.4, attack: 0.001 }), n(0.09, 0.025, 0.14, { freq: 2600, q: 1.4, attack: 0.001 })],
+    },
     // 落子：开局几下旧子归位的轻响，随后四记落子，节拍对应棋盘上新子落下的时刻。
     'go-play': {
         partials: [720, 660, 700, 650].flatMap((f, i) => clack(0.9 + i * 0.65, f, 0.5).slice(0, 1)),

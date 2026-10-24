@@ -598,7 +598,7 @@ function voiceTuneOptions(manual) {
     return { pitchOpts, speedOpts };
 }
 
-// 台词朗读开着时：这个角色的朗读声音（自动按 DNA 性别分配，或单独指定），外加音高、语速与试听。
+// 台词朗读开着时：这个角色的朗读声音（自动按 DNA 性别分配，或单独指定），外加音高、语速、音量、风格与试听。
 function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
     const manual = normalizeCharacterVoice(Object.prototype.hasOwnProperty.call(voices, charName) ? voices[charName] : null);
@@ -620,6 +620,7 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
         + pitchSelect
         + `<select class="igs-asset-move" data-char-voice-speed="${esc(charName)}" aria-label="朗读语速" title="语速">${speedOpts}</select>`
         + `<select class="igs-asset-move" data-char-voice-ttsVolume="${esc(charName)}" aria-label="朗读音量" title="这个角色的朗读音量">${volumeOpts}</select>`
+        + `<input class="igs-asset-move" type="text" maxlength="300" data-char-voice-ttsStyle="${esc(charName)}" value="${esc(manual.ttsStyle)}" placeholder="朗读风格（可选）" aria-label="朗读风格" title="这个角色的朗读风格描述，仅 OpenAI 兼容与自定义请求生效">`
         + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview:${encSeg(charName)}">试听</button></div>`;
 }
 

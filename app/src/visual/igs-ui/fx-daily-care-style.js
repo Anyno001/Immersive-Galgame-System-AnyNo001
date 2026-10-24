@@ -3,11 +3,10 @@ export const CARE_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx-opendoor,#igs-overlay .igs-dfx-shield,#igs-overlay .igs-dfx-tend,#igs-overlay .igs-dfx-carry,#igs-overlay .igs-dfx-bubble{animation:igs-dfx-fade var(--igs-dfx-life) ease both;}
 #igs-overlay .igs-dfx-care-card{position:absolute;transform:translateX(-50%);padding:4px 14px;border-radius:999px;background:rgba(36,26,16,.8);color:#eddfc0;font:400 clamp(12px,2vmin,15px)/1.3 "Source Han Serif CN","Songti SC",serif;white-space:nowrap;animation:igs-dfx-cr-card calc(var(--igs-dfx-life) * .5) ease-out calc(var(--igs-dfx-life) * .1) both;}
 @keyframes igs-dfx-cr-card{0%{opacity:0;transform:translate(-50%,8px)}100%{opacity:1;transform:translateX(-50%)}}
-#igs-overlay .igs-dfx-opendoor-door{position:absolute;top:14%;width:22%;height:calc(var(--igs-fx-vis) - 20%);perspective:700px;}
-#igs-overlay .igs-dfx-opendoor-glow{position:absolute;inset:4%;background:rgba(246,220,150,.45);}
-#igs-overlay .igs-dfx-opendoor-frame{position:absolute;inset:0;border:1px solid rgba(86,56,30,.6);border-bottom:0;}
-#igs-overlay .igs-dfx-opendoor-leaf{position:absolute;inset:4% 0 0 0;background:rgba(105,68,36,.42);transform-origin:0 50%;animation:igs-dfx-cr-door calc(var(--igs-dfx-life) * .3) cubic-bezier(.3,.7,.3,1) calc(var(--igs-dfx-life) * .12) both;}
-@keyframes igs-dfx-cr-door{0%{transform:rotateY(0)}100%{transform:rotateY(-72deg)}}
+#igs-overlay .igs-dfx-opendoor-light{position:absolute;top:0;width:46%;height:var(--igs-fx-vis);mix-blend-mode:screen;opacity:0;transform:scaleX(.25);animation:igs-dfx-cr-doorlight calc(var(--igs-dfx-life) * .9) cubic-bezier(.3,.7,.3,1) both;}
+#igs-overlay .igs-dfx-opendoor-light.is-left{left:0;transform-origin:0 50%;background:linear-gradient(90deg,rgba(255,226,170,.34),rgba(255,226,170,.18) 38%,rgba(255,226,170,.06) 72%,transparent);}
+#igs-overlay .igs-dfx-opendoor-light.is-right{right:0;transform-origin:100% 50%;background:linear-gradient(270deg,rgba(255,226,170,.34),rgba(255,226,170,.18) 38%,rgba(255,226,170,.06) 72%,transparent);}
+@keyframes igs-dfx-cr-doorlight{0%{opacity:0;transform:scaleX(.25)}30%{opacity:1;transform:scaleX(1)}100%{opacity:0;transform:scaleX(1.08)}}
 #igs-overlay .igs-dfx-shield-wall{position:absolute;width:12%;height:46%;opacity:0;animation:igs-dfx-cr-wall calc(var(--igs-dfx-life) * .3) ease-out both;}
 #igs-overlay .igs-dfx-shield-wall.is-flip{transform:scaleX(-1);}
 #igs-overlay .igs-dfx-shield-arc{position:absolute;inset:0;border-radius:0 100% 100% 0 / 50%;border:1px solid rgba(238,214,148,.6);border-left:0;}
@@ -38,7 +37,6 @@ export const CARE_FX_STYLE_TEXT = `
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-care-card,#igs-overlay .igs-dfx.is-reduced .igs-dfx-tend-hand{animation:none;opacity:1;transform:translateX(-50%);}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-tend-tile{animation:none;opacity:1;transform:translate(-50%,-50%);}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-tend-tile path{animation:none;stroke-dashoffset:0;}
-#igs-overlay .igs-dfx.is-reduced .igs-dfx-opendoor-leaf{animation:none;transform:rotateY(-72deg);}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-shield b,#igs-overlay .igs-dfx.is-reduced .igs-dfx-carry-petals,#igs-overlay .igs-dfx.is-reduced .igs-dfx-carry-lift{display:none;}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-carry-glow{animation:none;opacity:.7;}
 #igs-overlay .igs-dfx.is-reduced .igs-dfx-bubble-mouth i{animation:none;opacity:.9;transform:translateY(calc(var(--rise) * -.6));}

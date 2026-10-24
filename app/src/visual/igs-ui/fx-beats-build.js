@@ -9,6 +9,7 @@ import { drawLinks, LINK_MAX } from './fx-links.js';
 import { cloneSpriteLayer, resolveHeadAnchor, resolveRegionCrop } from './stage-snapshot.js';
 import { SPRITE_ACTION_FRAMES, playSpriteSpec } from './sprite-actions.js';
 import { isLowQuality, punchStage } from './fx-beats-punch.js';
+import { pushStage } from './fx-sprite-react.js';
 import { buildItemCard } from './fx-item-card.js';
 import { CROWD_CAPTIONS, PANEL_TYPE_LABELS } from './fx-beats-model.js';
 
@@ -203,7 +204,7 @@ export const BEATS_BUILDERS = {
         return { layer: 'stage', life: life('link', env), sounds: ['bt-thread'], node };
     },
 
-    // 众人反应：众人剪影（若开着）整群起反应，同屏立绘一起动，上方落一行字幕；转头、鞠躬是这里新增的两档。
+    // 众人反应：人群氛围层（若开着）整群起反应，同屏立绘一起动，上方落一行字幕；转头、鞠躬是这里新增的两档。
     crowd(item, env) {
         const reaction = Object.hasOwn(CROWD_CAPTIONS, item.reaction) ? item.reaction : 'murmur';
         const layer = env.root.querySelector('#igs-crowd');
@@ -217,6 +218,7 @@ export const BEATS_BUILDERS = {
             const spec = reaction === 'bow' ? BOW_SPEC : reaction === 'turn' ? TURN_SPEC : SPRITE_ACTION_FRAMES[CROWD_SPRITE_ACTION[reaction]];
             playSpriteSpec(env.root.querySelector('#igs-sprite'), spec);
             playSpriteSpec(env.root.querySelector('#igs-cast'), spec);
+            pushStage(env, { scale: 1.015, duration: 1600 });
         }
         const text = item.text || CROWD_CAPTIONS[reaction];
         const node = make(env.doc, `${classOf('crowd', env)} is-${reaction}`, `<div class="igs-bt-crowd-chip">${esc(text)}</div>`);

@@ -83,12 +83,12 @@ ${O} .igs-xf-eyepatch{position:absolute;aspect-ratio:2/1;border-radius:50%;backg
 ${O} .igs-xf-patch{position:absolute;transform:translate(-50%,-50%);animation:igs-xf-fadein .6s ease both;}
 ${O} .igs-xf-patch svg{display:block;width:100%;height:100%;overflow:visible;}
 ${O} .igs-xf-patch.is-blush{aspect-ratio:5/3;background:radial-gradient(ellipse,#ff6f8fcc,#ff6f8f00 70%);}
-${O} .igs-xf-patch.is-kiss{aspect-ratio:3/2;transform:translate(-50%,-50%) rotate(-16deg);}
-${O} .igs-xf-patch.is-bite{aspect-ratio:5/3;background:radial-gradient(ellipse,#d6304f55,#d6304f00 70%);}
+${O} .igs-xf-patch.is-kiss,${O} .igs-xf-patch.is-bite{aspect-ratio:1/1;--igs-fx-c:#e0456f;--igs-fx-ink:#3a1020;--igs-fx-rim-c:#fff;}
+${O} .igs-xf-patch.is-kiss{transform:translate(-50%,-50%) rotate(-16deg);}
+${O} .igs-xf-patch.is-bite .igs-fx-fill{fill:#f0a4b0;}
+${O} .igs-xf-patch.is-kiss .igs-fx-lips .igs-fx-fill{fill:#e0456f;}
 ${O} .igs-xf-patch.is-sigil{aspect-ratio:1/1;}
 ${O} .igs-xf-patch.is-sigil svg{filter:drop-shadow(0 0 4px #ffd36a);animation:igs-xf-pulse 1.4s ease-in-out 2;}
-${O} .igs-xf-patch.is-sweat{aspect-ratio:1/1;opacity:.75;}
-${O} .igs-xf-patch.is-kiss svg{opacity:.8;}
 ${O} .igs-xf-patch.is-bruise{aspect-ratio:3/2;background:radial-gradient(ellipse,#5d4a8acc,#8a6a3a66 55%,transparent 75%);}
 @keyframes igs-xf-pulse{0%,100%{opacity:.55}50%{opacity:1}}
 

@@ -35,7 +35,7 @@ import { applyCreatureScale, applyGiantLayer, creatureDisplayProfileOf, giantAsi
 import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
 import { applyStageDirection, cancelCgReveal, decodeSpriteImage, revealCgImage } from './stage-direction-runtime.js';
-import { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances, castKeyOfSnapshot, resolveSpeakerPose } from './stage-cast-render.js';
+import { applyCastToDom, castDuoAttr, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances, castKeyOfSnapshot, resolveSpeakerPose } from './stage-cast-render.js';
 import { BACK_HINT_DEFAULT, SPRITE_BACK_SCALE, cancelSpriteTurn, playSpriteTurn } from './sprite-turn.js';
 import { applySavedCastSlot } from './cast-slot-edit.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
@@ -794,7 +794,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
                 || Number(win && win.innerHeight)
                 || overlayHeight;
             const designHeight = snapshot.mode === 'pc' ? 540 : 680;
-            const runtimeHeight = Math.min(designHeight, Math.max(180, viewportHeight - 32));
+            const runtimeHeight = Math.min(designHeight, Math.max(180, viewportHeight - 32), inlineMode && overlayHeight > 0 ? overlayHeight : Infinity);
             const floatingMax = Math.max(140, Math.floor(runtimeHeight * 0.86));
             const availableHeight = embeddedMode
                 ? overlayHeight - 28
@@ -1200,8 +1200,15 @@ const backgroundImageSources = new WeakMap();
 // 内嵌框比图再高一截：楼层里读起来更舒展，背景按 cover 铺满，只多裁左右一点。
 export const EMBEDDED_FRAME_TALLER = 1.15;
 
-function embeddedAspectRatio(width, height) {
-    return `${width} / ${Math.round(Number(height) * EMBEDDED_FRAME_TALLER)}`;
+export const EMBEDDED_HEIGHT_SCALES = Object.freeze([0.8, 1, 1.25, 1.5]);
+
+export function normalizeEmbeddedHeightScale(value) {
+    const n = Number(value);
+    return EMBEDDED_HEIGHT_SCALES.includes(n) ? n : 1;
+}
+
+function embeddedAspectRatio(width, height, scale = 1) {
+    return `${width} / ${Math.round(Number(height) * EMBEDDED_FRAME_TALLER * normalizeEmbeddedHeightScale(scale))}`;
 }
 
 // 内嵌框只跟横竖尺寸走。横屏钉背景尺寸，竖屏钉对调后的尺寸。图的像素不参与。
@@ -1215,14 +1222,16 @@ export function syncEmbeddedHostFrame(root, sizeText) {
         if (typeof host.removeAttribute === 'function') host.removeAttribute('data-igs-frame');
         return;
     }
-    host.style.aspectRatio = embeddedAspectRatio(match[1], match[2]);
+    const scale = typeof host.getAttribute === 'function' ? host.getAttribute('data-igs-frame-scale') : 1;
+    host.style.aspectRatio = embeddedAspectRatio(match[1], match[2], scale);
     if (typeof host.setAttribute === 'function') host.setAttribute('data-igs-frame', 'size');
 }
 
 // 楼层被酒馆重绘或暂时隐藏时量到宽 0。这时不能按「不是手机」钉横屏，沿用上次钉好的比例；
 // 还没钉过就按窗口宽度判断。
-export function pinEmbeddedHostFrame(root, backgroundSize, mode) {
+export function pinEmbeddedHostFrame(root, backgroundSize, mode, heightScale) {
     const host = root && typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
+    if (host && typeof host.setAttribute === 'function') host.setAttribute('data-igs-frame-scale', String(normalizeEmbeddedHeightScale(heightScale)));
     const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
     const measured = Boolean(rect && rect.width > 0);
     const pinned = Boolean(host && typeof host.getAttribute === 'function' && host.getAttribute('data-igs-frame') === 'size');
@@ -1265,7 +1274,7 @@ export function watchEmbeddedFrameResize(overlay, frameState) {
         const sizeText = cgSizeForMode(frameState.backgroundSize, frameState.mode, { width, height: 0, portrait: phone });
         const match = String(sizeText || '').match(/^(\d+)\s*[xX×]\s*(\d+)$/);
         if (!match) return;
-        if (host.style && host.style.aspectRatio === embeddedAspectRatio(match[1], match[2])) return;
+        if (host.style && host.style.aspectRatio === embeddedAspectRatio(match[1], match[2], host.getAttribute('data-igs-frame-scale'))) return;
         syncEmbeddedHostFrame(overlay, sizeText);
     });
     observer.observe(host);
@@ -1436,7 +1445,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         frameState.backgroundSize = snapshot.readerSettings ? snapshot.readerSettings._cgBackgroundSize : '';
         frameState.mode = snapshot.mode;
     }
-    pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
+    pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode, snapshot.readerSettings && snapshot.readerSettings.embeddedHeight);
 
     let deferCgFocus = false;
     if (bg && backgroundAssetUrl) {
@@ -1870,6 +1879,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     if (stageMotion && typeof stageMotion.setAttribute === 'function') {
         if (castRomanceMark) stageMotion.setAttribute('data-igs-cast-romance', castRomanceMark);
         else if (typeof stageMotion.removeAttribute === 'function') stageMotion.removeAttribute('data-igs-cast-romance');
+        // 同屏正好两人：标出说话人侧别，供撑伞等区间演出让两人略向中间靠拢（样式见 fx-range-style）。
+        const castDuo = !castEditing && castPlan && castPlan.members.length ? castDuoAttr(castPlan) : '';
+        if (castDuo) stageMotion.setAttribute('data-igs-cast-duo', castDuo);
+        else if (typeof stageMotion.removeAttribute === 'function') stageMotion.removeAttribute('data-igs-cast-duo');
     }
     if (textEl) {
         const theme = resolveActiveTheme(snapshot);
@@ -2037,7 +2050,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 背景是素材自带时段变体（如夜景图）时不再叠时段调色。
         timedAsset: Boolean(snapshot.content && snapshot.content.backgroundTimed === true && snapshot.content.illustrationActive !== true),
     });
-    // 人群剪影与漫画背景：前者按地点铺在背景之后（随时段叠色），后者按情绪铺在立绘之前。
+    // 人群氛围与漫画背景：前者按地点铺在背景之后（随时段叠色），后者按情绪铺在立绘之前。
     applyCrowdFx(root, snapshot);
     applyMangaBack(root, snapshot, { sprite: fxSprite });
     // 场景时段挂到 overlay 上，供对话框等界面随昼夜调整明暗；不受天气/夜间调色开关影响，夜景底图本身就暗。

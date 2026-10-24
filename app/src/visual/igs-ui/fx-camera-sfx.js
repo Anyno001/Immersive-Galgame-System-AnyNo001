@@ -56,6 +56,10 @@ export const CAMERA_SFX_DEFS = Object.freeze({
         partials: [p('sine', 130, 70, 0, 0.14, 0.34, { attack: 0.002, sweep: 1 })],
         noise: [n(0, 0.05, 0.36, { filter: 'lowpass', freq: 800, q: 1.1, attack: 0.001 }), n(0.07, 0.03, 0.2, { freq: 2400, q: 4, attack: 0.001 })],
     },
+    'cm-creak': {
+        partials: [p('triangle', 170, 340, 0, 0.32, 0.05, { attack: 0.06, sweep: 1 }), p('triangle', 340, 230, 0.32, 0.4, 0.045, { attack: 0.02, sweep: 1 })],
+        noise: [n(0, 0.72, 0.1, { filter: 'bandpass', freq: 520, freqTo: 900, q: 6, attack: 0.1 })],
+    },
     'cm-title': {
         partials: [...bell(523.25, 0, 1.8, 0.16), ...bell(783.99, 0.2, 2.2, 0.12)],
         noise: [n(0, 0.4, 0.04, { filter: 'highpass', freq: 4000, q: 0.7, attack: 0.15 })],

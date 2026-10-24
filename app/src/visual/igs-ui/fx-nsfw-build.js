@@ -97,18 +97,13 @@ function aftermath(item, env) {
     return { layer: 'front', life, sounds: ['nsfw-after'], node };
 }
 
-const CANDLE = '<i class="igs-nfx-candle"><i class="igs-nfx-flame"></i></i>';
-
-const LAMP = '<i class="igs-nfx-lamp"><i></i></i>';
-
-// 床幔只落在画面两侧与顶部，束起的帐子不遮中央。古代为红烛床幔，现代为实色纱帘加床头灯。
+// 床幔：不画帐子与烛台。整台暖色温加收窄的暗角，两侧边缘各一抹极淡的暖光，古代偏暖橙，现代偏暖白。
 function bedcurtain(item, env) {
     const caption = item.text ? `<div class="igs-nfx-curtain-text">${esc(item.text)}</div>` : '';
     const ancient = env.ancient === true || env.worldview === 'magic' || env.worldview === 'fantasy';
-    const prop = ancient ? CANDLE : LAMP;
     return {
         layer: 'front', life: lifeOf(7200, env), sounds: ['nsfw-curtain'],
-        node: make(env.doc, `igs-dfx igs-nfx igs-nfx-bed ${ancient ? 'is-ancient' : 'is-modern'}`, `<div class="igs-nfx-valance"></div><div class="igs-nfx-drape is-l"></div><div class="igs-nfx-drape is-r"></div><div class="igs-nfx-candles is-l">${prop}</div><div class="igs-nfx-candles is-r">${prop}</div>${caption}`),
+        node: make(env.doc, `igs-dfx igs-nfx igs-nfx-bed ${ancient ? 'is-ancient' : 'is-modern'}`, `<div class="igs-nfx-bed-tone"></div><div class="igs-nfx-bed-vig"></div><div class="igs-nfx-bed-glow is-l"><i></i></div><div class="igs-nfx-bed-glow is-r"><i></i></div>${caption}`),
     };
 }
 

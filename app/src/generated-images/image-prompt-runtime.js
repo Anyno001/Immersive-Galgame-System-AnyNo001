@@ -2,6 +2,7 @@ import { completeImagePromptPreset, createDefaultImagePromptPreset } from './ima
 import { renderImagePromptPreset } from '../presets/prompt-preset-renderer.js';
 import { runImageTask, staleImageTask, imageTaskState } from './image-task-runtime.js';
 import { imageWritingContext } from './image-prompt-context.js';
+import { recoveryCancelled } from '../storage/automatic-recovery.js';
 
 // 注册表是唯一 current 真值；每次装配冻结本轮资料，不缓存另一份 current。
 export function createImagePromptLlm(llm, registry, taskRuntime, resolveWorldInfo) {
@@ -13,7 +14,7 @@ export function createImagePromptLlm(llm, registry, taskRuntime, resolveWorldInf
         const context = imageWritingContext(input);
         if (!context.ok) return context;
         const initialized = registry.ensureImagePromptDefault(createDefaultImagePromptPreset());
-        if (!initialized.ok) return { ...initialized, error: '生图提示词预设不可读取或初始化失败，未发送写词请求' };
+        if (!initialized.ok) return { ...initialized, presetFailure: true, error:'生图提示词预设不可读取或初始化失败，未发送写词请求' };
         const current = imageTaskState(input)?.promptPreset || registry.getCurrent('prompt-preset');
         const stale = () => input.signal?.aborted || (input.shouldStart && !input.shouldStart());
         if (stale()) return staleImageTask();
@@ -29,13 +30,14 @@ export function createImagePromptLlm(llm, registry, taskRuntime, resolveWorldInf
                 ...(input.signal && { signal: input.signal }),
                 ...(input.shouldStart && { shouldStart: input.shouldStart }) });
             if (stale()) return staleImageTask();
-            if (!reference.ok) return reference;
+            if (!reference.ok && recoveryCancelled(reference)) return reference;
+            // 世界书只是参考：宿主接口缺失或扫描出错时本次不带参考照常写词，不把任务挂起。
             rendered = renderImagePromptPreset(presetData, task, { ...data,
                 ...(context.value.contextMode !== undefined && { contextMode: context.value.contextMode }),
-                worldInfo: reference.text });
+                worldInfo: reference.ok ? reference.text : '' });
         }
         return rendered.ok ? { ...rendered, presetId: current.id }
-            : { ...rendered, error: '当前生图提示词预设或任务资料无效，未发送写词请求' };
+            : { ...rendered, presetFailure: true, error: '当前生图提示词预设或任务资料无效，未发送写词请求' };
     };
     if (typeof llm?.request === 'function') wrapped.request = llm.request.bind(llm);
     if (typeof llm?.fetchModels === 'function') wrapped.fetchModels = llm.fetchModels.bind(llm);

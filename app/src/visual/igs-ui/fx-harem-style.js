@@ -98,21 +98,28 @@ const RAW = `
 
 @@.hm-probe-card{min-width:min(260px,72%);padding:12px 22px 14px;text-align:center;animation:hm-rise .5s ease-out both;}
 @@.hm-probe-scene{height:7.6em;margin:6px 0;}
-@@.hm-probe-scene svg{display:block;width:100%;height:100%;fill:none;stroke:#cfc6ae;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;overflow:visible;}
-@@.hm-probe-verdict{letter-spacing:.3em;animation:hm-veil .5s ease-out 1.6s both;}
-@@.hm-probe-verdict.is-good{color:#c9a961;}
-@@.hm-probe-verdict.is-bad{color:#cf5a4c;}
+@@.hm-probe-scene{--igs-fx-c:#d9d3c2;--igs-fx-ink:#2a1f1a;--igs-fx-rim-c:#fff;--igs-fx-paper:#f3ead2;--igs-fx-pop:#cf5a4c;}
+@@.hm-probe-scene svg{display:block;width:100%;height:100%;overflow:visible;}
+@@.hm-probe-scene .hm-bowl .igs-fx-fill{fill:#e4e0d4;}
+@@.hm-probe-scene .hm-needle-body .igs-fx-line{stroke:#eef1f5;}
+@@.hm-probe-scene .hm-needle-tip .igs-fx-line{stroke:#eef1f5;}
+@@.hm-probe-scene .igs-fx-star-main .igs-fx-fill,@@.hm-probe-scene .igs-fx-star-b .igs-fx-fill{fill:#f3d36b;}
 @@.hm-needle{animation:hm-needle-in .8s ease-out .3s both;}
 @keyframes hm-needle-in{from{transform:translateY(-14px);opacity:0;}}
-@@.hm-needle-tip{stroke-width:1.6;}
-@@.hm-needle.is-black .hm-needle-tip{stroke:#cf5a4c;stroke-width:2.4;animation:hm-tip-black 1.1s ease-in 1.1s both;}
-@keyframes hm-tip-black{from{stroke:#cfc6ae;stroke-width:1.6;}}
-@@.hm-drop{fill:#cf5a4c;stroke:none;animation:hm-drip 1s ease-in .4s both;}
+@@.hm-needle.is-black .hm-needle-tip .igs-fx-line{stroke:#17141a;animation:hm-tip-black 1.1s ease-in 1.1s both;}
+@keyframes hm-tip-black{from{stroke:#eef1f5;}}
+@@.hm-probe-scene .hm-drop .igs-fx-fill{fill:#c9473f;}
+@@.hm-drop{animation:hm-drip 1s ease-in .4s both;}
 @@.hm-drop.is-b{animation-delay:.9s;}
 @keyframes hm-drip{from{transform:translateY(-8px);opacity:0;}15%{opacity:1;}to{transform:translateY(30px);opacity:0;}}
-@@.hm-blend{stroke:#cf5a4c;animation:hm-veil .6s ease-out 1.5s both;}
-@@.hm-doll-tag{fill:#cf5a4c;stroke:none;font-size:11px;font-family:inherit;}
-@@.hm-doll-pin{stroke:#cfc6ae;animation:hm-pin-in .35s ease-in 1s both;}
+@@.hm-probe-scene .hm-blend .igs-fx-fill{fill:#c9473f;}
+@@.hm-blend{animation:hm-veil .6s ease-out 1.5s both;}
+@@.hm-probe-scene .hm-doll .igs-fx-fill{fill:#e7d6b3;}
+@@.hm-probe-scene .hm-doll-arm .igs-fx-line{stroke:#e7d6b3;}
+@@.hm-probe-scene .hm-doll-tag-bg .igs-fx-fill{fill:#f6ecd0;}
+@@.hm-doll-tag{fill:#cf5a4c;stroke:none;font-family:inherit;}
+@@.hm-probe-scene .hm-doll-pin .igs-fx-line{stroke:#cf5a4c;}
+@@.hm-doll-pin{animation:hm-pin-in .35s ease-in 1s both;}
 @@.hm-doll-pin.is-b{animation-delay:1.3s;}
 @keyframes hm-pin-in{from{opacity:0;transform:translateY(-8px);}}
 

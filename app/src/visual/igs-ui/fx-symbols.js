@@ -76,6 +76,17 @@ function wavyLine(x, y0, halves, amp, cls) {
         + '</g>';
 }
 
+// 横向气味线：从 x0 起向右蜿蜒 halves 个半波；三层描边（白边、墨线、主色），pathLength=1 便于从左往右画出。
+function scentLine(x0, y, halves, cls) {
+    let d = `M${x0} ${y}q6 -8 12 0`;
+    for (let i = 1; i < halves; i += 1) d += 't12 0';
+    return `<g class="igs-fx-g igs-fx-wave ${cls}" fill="none" stroke-linecap="round">`
+        + `<path class="igs-fx-rim" d="${d}" stroke-width="14" pathLength="1"/>`
+        + `<path class="igs-fx-ink" d="${d}" stroke-width="8" pathLength="1"/>`
+        + `<path class="igs-fx-line" d="${d}" stroke-width="3.5" pathLength="1"/>`
+        + '</g>';
+}
+
 // 小花：五片圆瓣绕中心（同向圆弧，非零环绕下合成一个轮廓），花心另画一层。
 const FLOWER = [-90, -18, 54, 126, 198].map((deg) => {
     const [x, y] = polar(deg, 20).split(' ').map(Number);
@@ -188,11 +199,58 @@ const BODIES = Object.freeze({
         + fillShape(SWEAT_DROP, 'igs-fx-drop-b', '', 52, 0, .42)
         + fillShape(SWEAT_DROP, 'igs-fx-drop-c', '', 30, 50, .38),
     nosebleed: strokeGlyph('M50 8Q44 46 54 78', 9, 'igs-fx-bleed') + fillShape(SWEAT_DROP, 'igs-fx-drop-a', '', 34, 64, .32),
+    // 气味波浪线：三道自左向右飘散的弯曲细线（漫画里表示香味），颜色由信息素色经 --igs-fx-c 传入。
+    scent: scentLine(10, 22, 6, 'igs-fx-wave-1') + scentLine(4, 50, 7, 'igs-fx-wave-2') + scentLine(14, 78, 5, 'igs-fx-wave-3'),
 });
 
 const svgOf = (body) => `<svg class="igs-fx-svg" viewBox="-12 -12 124 124" aria-hidden="true" focusable="false">${body}</svg>`;
 
 export const MANGA_SYMBOL_SVG = Object.freeze(Object.fromEntries(Object.entries(BODIES).map(([kind, body]) => [kind, svgOf(body)])));
+
+// 立绘贴片 mark 的漫画记号：唇印、齿痕。颜色走 --igs-fx-* 变量，由 fx-transform-style 给定。
+const LIPS = 'M6 54C20 28 38 28 50 40C62 28 80 28 94 54C80 82 20 82 6 54Z';
+const toothRow = (ys) => ys.map((y, i) => circle(18 + i * 16, y, 6.5)).join('');
+const MARK_BODIES = Object.freeze({
+    kiss: fillShape(LIPS, 'igs-fx-lips', shine(30, 46, 9, 4, -20)
+        + '<path class="igs-fx-filament" d="M10 55C34 64 66 64 90 55" fill="none" stroke-width="3.5" stroke-linecap="round"/>'),
+    bite: fillShape(toothRow([40, 30, 26, 30, 40]), 'igs-fx-teeth-up')
+        + fillShape(toothRow([62, 72, 76, 72, 62]), 'igs-fx-teeth-down'),
+    // 终身标记的印记：圆环加四芒星，同样的白边、墨线、主色三层描边。
+    bondsigil: strokeGlyph('M10 50a40 40 0 1 1 80 0a40 40 0 1 1 -80 0Z', 4, 'igs-fx-sigil-ring')
+        + strokeGlyph('M50 20L57 43L80 50L57 57L50 80L43 57L20 50L43 43Z', 4, 'igs-fx-sigil-core'),
+});
+export const MARK_SYMBOL_SVG = Object.freeze(Object.fromEntries(Object.entries(MARK_BODIES).map(([kind, body]) => [kind, svgOf(body)])));
+
+// 后宫 hmprobe 三幅小景（银针验毒、滴血验亲、搜出人偶）：同一套贴纸画法，颜色由 .hm-probe-scene 的变量与部件 class 决定。
+const BOWL = 'M12 54H88Q86 84 50 86Q14 84 12 54Z';
+const bowlPart = () => fillShape(BOWL, 'hm-bowl', shine(28, 68, 5, 9, 20));
+const DOLL_BODY = 'M34 38Q50 31 66 38L70 82H30Z';
+export function probeSceneSvg(mode, good) {
+    let body = '';
+    if (mode === 'needle') {
+        body = bowlPart()
+            + `<g class="hm-needle ${good ? 'is-clean' : 'is-black'}">${strokeGlyph('M70 2L52 70', 3.5, 'hm-needle-body')}${strokeGlyph('M54.5 56L52 70', 3.5, 'hm-needle-tip')}</g>`
+            + (good
+                ? fillShape(STAR, 'igs-fx-star-main', '', 2, 0, .4) + fillShape(STAR, 'igs-fx-star-b', '', 20, 20, .24)
+                : wavyLine(14, -10, 3, 6, 'igs-fx-wave-1') + wavyLine(32, -12, 3, 6, 'igs-fx-wave-2'));
+    } else if (mode === 'blood') {
+        body = bowlPart()
+            + fillShape(DROP, 'hm-drop', shine(40, 58, 6, 11, 20), 23, -6, .3)
+            + fillShape(DROP, 'hm-drop is-b', shine(40, 58, 6, 11, 20), 47, -6, .3)
+            + (good
+                ? fillShape(HEART, 'hm-blend', shine(30, 30, 8, 5, -35), 34, 36, .32)
+                : fillShape(DROP, 'hm-blend', '', 8, 38, .24) + fillShape(DROP, 'hm-blend', '', 68, 38, .24));
+    } else {
+        body = strokeGlyph('M36 46L16 68M64 46L84 68', 7, 'hm-doll-arm')
+            + fillShape(DOLL_BODY, 'hm-doll')
+            + fillShape(circle(50, 22, 13), 'hm-doll')
+            + '<path class="igs-fx-filament" d="M42 19l5 5m0-5l-5 5M53 19l5 5m0-5l-5 5" fill="none" stroke-width="2.5" stroke-linecap="round"/>'
+            + strokeGlyph('M44 38L56 66', 3, 'hm-doll-pin') + strokeGlyph('M62 42L54 72', 3, 'hm-doll-pin is-b')
+            + fillShape('M68 74h28v20h-28Z', 'hm-doll-tag-bg', '<text class="hm-doll-tag" x="82" y="89" text-anchor="middle" font-size="12" font-weight="900">八字</text>')
+            + wavyLine(10, -10, 3, 6, 'igs-fx-wave-1') + wavyLine(90, -10, 3, 6, 'igs-fx-wave-2');
+    }
+    return svgOf(body);
+}
 
 // 古代背景：只替换带现代器物或西文的三个符号——灯泡换油灯，五线谱音符换墨点，Zzz 换鼻涕泡（贴在鼻尖，定位用 snot）。
 const LAMP_BOWL = 'M12 66H88Q84 88 50 90Q16 88 12 66ZM40 90H60L64 96H36Z';

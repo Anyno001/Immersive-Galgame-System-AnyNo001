@@ -1,7 +1,10 @@
 import { esc } from './reader-value-utils.js';
 import { make } from './fx-daily-kit.js';
 import { cloneSpriteLayer, readStageBackground, resolveRegionCrop } from './stage-snapshot.js';
-import { BOKEH_SPOTS, DAPPLE_SPOTS, FG_PARTS, PEEK_LEAF, STREAK_ROWS } from './fx-camera-parts.js';
+import { BOKEH_SPOTS, DAPPLE_SPOTS, STREAK_ROWS } from './fx-camera-parts.js';
+import { HAND_FRAMES, HAND_PERIOD_MS, WHIP_MS } from './camera-shots.js';
+import { SPRITE_ACTION_FRAMES } from './sprite-actions.js';
+import { pushStage, reactSprite } from './fx-sprite-react.js';
 import { STREAK_COLORS, inferStepMaterial } from './fx-camera-model.js';
 import { buildStepPlan, playBodySounds, playSteps } from './camera-steps-audio.js';
 
@@ -68,9 +71,41 @@ function bobSprite(env, life) {
     }
 }
 
+// 柔边暗带：渐变绘制，只动 transform，扫过画面一侧，看不出形状。
 function fgPiece(kind, dir, delayMs = 0, durationMs = 0) {
     const style = [delayMs ? `animation-delay:${delayMs}ms` : '', durationMs ? `animation-duration:${durationMs}ms` : ''].filter(Boolean).join(';');
-    return `<div class="igs-cm-fg is-${kind} is-${dir}"${style ? ` style="${style}"` : ''}>${FG_PARTS[kind] || ''}</div>`;
+    return `<div class="igs-cm-fg is-${kind} is-${dir}"${style ? ` style="${style}"` : ''}></div>`;
+}
+
+function animateOnce(el, frames, options) {
+    if (!el || typeof el.animate !== 'function') return null;
+    try { return el.animate(frames, options); } catch { return null; }
+}
+
+// 背景一次短甩镜：叠加合成，结束自动还原；减少动态与低画质不甩。
+function whipBackground(env, delay = 0, sign = 1) {
+    if (env.reduced || lowQuality(env)) return false;
+    const bg = env.root && typeof env.root.querySelector === 'function' ? env.root.querySelector('#igs-bg') : null;
+    if (!bg) return false;
+    const frames = [
+        { translate: `${sign * -6}% 0`, filter: 'blur(8px)' },
+        { translate: `${sign * 5}% 0`, filter: 'blur(5px)', offset: 0.7 },
+        { translate: '0 0', filter: 'none' },
+    ];
+    return Boolean(animateOnce(bg, frames, { duration: WHIP_MS, delay, easing: 'cubic-bezier(.7,0,.2,1)', composite: 'add', fill: 'none' }));
+}
+
+// 偷看聚焦：整台轻推近、背景轻微失焦（不超过 1px）、立绘与背景手持式轻晃，都只在演出寿命内。
+function focusPeek(env, life) {
+    if (env.reduced || lowQuality(env)) return;
+    pushStage(env, { scale: 1.025, duration: life });
+    const root = env.root;
+    if (!root || typeof root.querySelector !== 'function') return;
+    const bg = root.querySelector('#igs-bg');
+    animateOnce(bg, [{ filter: 'blur(0px)' }, { filter: 'blur(1px)', offset: 0.2 }, { filter: 'blur(1px)', offset: 0.85 }, { filter: 'blur(0px)' }], { duration: life, composite: 'add', fill: 'none' });
+    const options = { duration: HAND_PERIOD_MS, iterations: Math.max(1, Math.ceil(life / HAND_PERIOD_MS)), easing: 'ease-in-out', composite: 'add' };
+    animateOnce(bg, HAND_FRAMES, options);
+    animateOnce(root.querySelector('#igs-sprite'), HAND_FRAMES, options);
 }
 
 function streakLines(color, rows = STREAK_ROWS, speedScale = 1) {
@@ -109,10 +144,16 @@ export const CAMERA_BUILDERS = {
     fg(item, env) {
         if (env.reduced) return null;
         const life = scaled(CAMERA_LIFE_MS[item.item] || CAMERA_LIFE_MS.leaf, env);
-        return {
-            layer: 'stage', life, sounds: [item.item === 'leaf' ? 'cm-leaf' : 'cm-swish'],
-            node: shell(env, 'fgwrap', fgPiece(item.item, item.dir)),
-        };
+        if (item.item === 'leaf') {
+            return { layer: 'stage', life, sounds: ['cm-leaf'], node: shell(env, 'fgwrap', fgPiece('leaf', item.dir)) };
+        }
+        if (item.item === 'passer') {
+            walkSteps(env, { material: '', dir: 'near', count: 3, pair: false });
+            reactSprite(env, env.speaker, SPRITE_ACTION_FRAMES.recoil.frames.map((transform) => ({ transform })), { duration: SPRITE_ACTION_FRAMES.recoil.duration, easing: SPRITE_ACTION_FRAMES.recoil.easing, delay: 500 });
+        } else {
+            whipBackground(env, 200, item.dir === 'left' ? -1 : 1);
+        }
+        return { layer: 'stage', life, sounds: ['cm-swish'], node: shell(env, 'fgwrap') };
     },
     peek(item, env) {
         const corner = item.corner || 'bl';
@@ -121,11 +162,13 @@ export const CAMERA_BUILDERS = {
             const rightSide = corner === 'tr' || corner === 'br';
             body = `<i class="igs-cm-door-slab is-l" style="--a:${rightSide ? 58 : 14}%"></i><i class="igs-cm-door-slab is-r" style="--b:${rightSide ? 14 : 58}%"></i>`;
         } else if (item.object === 'leaf') {
-            body = `<div class="igs-cm-peek is-leaf is-${corner}">${PEEK_LEAF}</div>`;
+            body = fgPiece('leaf', corner.endsWith('r') ? 'left' : 'right');
         } else {
             body = `<div class="igs-cm-peek is-window is-${corner}"></div>`;
         }
-        return { layer: 'stage', life: scaled(CAMERA_LIFE_MS.peek, env), sounds: item.object === 'leaf' ? ['cm-leaf'] : [], node: shell(env, 'peekwrap', body) };
+        const life = scaled(CAMERA_LIFE_MS.peek, env);
+        if (item.object !== 'leaf') focusPeek(env, life);
+        return { layer: 'stage', life, sounds: item.object === 'leaf' ? ['cm-leaf'] : (item.object === 'door' ? ['cm-creak'] : []), node: shell(env, 'peekwrap', body) };
     },
     flare(item, env) {
         const dir = item.dir === 'left' ? 'left' : 'right';
@@ -244,12 +287,13 @@ export const CAMERA_BUILDERS = {
         const life = scaled(CAMERA_LIFE_MS.walk, env);
         const pieces = forest
             ? `${fgPiece('leaf', 'right', 300, 1900)}${fgPiece('leaf', 'left', 2400, 1900)}${fgPiece('leaf', 'right', 4000, 1700)}`
-            : `${fgPiece('rail', 'right', 200, 2300)}${fgPiece('pole', 'right', 2700, 1500)}`;
+            : '';
+        if (!forest) whipBackground(env, 2700);
         const dapples = forest ? DAPPLE_SPOTS.map(([x, y, d], i) => `<i class="igs-cm-dapple" style="--x:${x}%;--y:${y}%;--d:${d}vmin;--t:${-i * 600}ms"></i>`).join('') : '';
         const warm = forest ? '' : `<div class="igs-cm-streaks" style="animation-duration:${life}ms">${streakLines('#ffe2b0', STREAK_ROWS.slice(0, 4), 0.6)}</div>`;
         walkSteps(env, { material: forest ? 'grass' : '', dir: 'lr', count: 9, pair: !forest });
         return {
-            layer: 'stage', life, sounds: forest ? ['cm-swish'] : [],
+            layer: 'stage', life, sounds: ['cm-swish'],
             node: shell(env, 'walk', env.reduced ? dapples : `${dapples}${warm}${pieces}`),
         };
     },
@@ -274,7 +318,8 @@ export const CAMERA_BUILDERS = {
         walkSteps(env, { material: '', dir: 'far', count: 6, pair: false, side: 1 });
         bodySounds(env, { ms: life, bpmFrom: 70, bpmTo: 96, muffled: true });
         const door = '<i class="igs-cm-door-slab is-l" style="--a:12%"></i><i class="igs-cm-door-slab is-r" style="--b:56%"></i>';
-        return { layer: 'stage', life, sounds: ['cm-gasp'], node: shell(env, 'sneak', `<i class="igs-cm-vignette"></i><i class="igs-cm-pulse" style="animation-duration:1.1s"></i>${door}`) };
+        focusPeek(env, life);
+        return { layer: 'stage', life, sounds: ['cm-gasp', 'cm-creak'], node: shell(env, 'sneak', `<i class="igs-cm-vignette"></i><i class="igs-cm-pulse" style="animation-duration:1.1s"></i>${door}`) };
     },
     seeoff(item, env) {
         const dir = item.dir === 'left' ? 'left' : 'right';

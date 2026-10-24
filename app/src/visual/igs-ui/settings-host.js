@@ -1108,7 +1108,8 @@ export function createSettingsHost(deps) {
                 : charSelect.hasAttribute('data-char-voice-pitch') ? 'pitch'
                     : charSelect.hasAttribute('data-char-voice-speed') ? 'speed'
                         : charSelect.hasAttribute('data-char-voice-tts') ? 'tts'
-                            : charSelect.hasAttribute('data-char-voice-ttsVolume') ? 'ttsVolume' : '';
+                            : charSelect.hasAttribute('data-char-voice-ttsVolume') ? 'ttsVolume'
+                                : charSelect.hasAttribute('data-char-voice-ttsStyle') ? 'ttsStyle' : '';
             if (voiceField) {
                 const voiceChar = charSelect.getAttribute(voiceField === 'pack' ? 'data-char-voice' : `data-char-voice-${voiceField}`) || '';
                 controller.invoke(`char-voice:${voiceField}:${encodeURIComponent(voiceChar)}:${encodeURIComponent(charSelect.value || '')}`);

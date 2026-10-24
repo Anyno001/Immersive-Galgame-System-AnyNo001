@@ -1,17 +1,21 @@
-// 地点环境音：厨房、医院、便利店、洋馆、霓虹夜街、祭典、体育馆、地下城。全部 WebAudio 合成，原语由 scene-audio 通过题材包登记表传入。
+// 地点环境音：警局、厨房、医院、便利店、洋馆、霓虹夜街、祭典、体育馆、地下城。全部 WebAudio 合成，原语由 scene-audio 通过题材包登记表传入。
 import { resolvePlaceKind } from './fx-places-model.js';
 
 // 数组顺序即环境音名额的优先级（越靠前越先占 3 层名额）：声音辨识度高的地点在前。
-export const PLACES_AMBIENT_KINDS = Object.freeze(['plhospital', 'plkonbini', 'pldungeon', 'plshrine', 'plgym', 'plkitchen', 'plmansion', 'plneonrain']);
+export const PLACES_AMBIENT_KINDS = Object.freeze(['plhospital', 'plkonbini', 'plpolice', 'pldungeon', 'plshrine', 'plgym', 'plkitchen', 'plmansion', 'plneonrain']);
 export const PLACES_AMBIENT_LABELS = Object.freeze({
-    plhospital: '医院监护', plkonbini: '便利店', pldungeon: '地下城', plshrine: '祭典神社', plgym: '体育馆', plkitchen: '厨房', plmansion: '洋馆', plneonrain: '霓虹夜街',
+    plhospital: '医院监护', plkonbini: '便利店', plpolice: '警局', pldungeon: '地下城', plshrine: '祭典神社', plgym: '体育馆', plkitchen: '厨房', plmansion: '洋馆', plneonrain: '霓虹夜街',
 });
+
+const FESTIVAL_WORDS = Object.freeze(['祭典', '夏祭', '祭礼', '庙会']);
 
 export function placesAmbientPlan(ctx, { night = false } = {}) {
     const hit = resolvePlaceKind(ctx && ctx.location, ctx && ctx.worldview);
     const kind = hit ? hit.kind : '';
     if (!PLACES_AMBIENT_KINDS.includes(kind)) return [];
-    return [{ kind, level: night ? 'light' : 'medium', variant: hit.variant }];
+    // 神社没有祭典时只留风铃与树声：变体写 quiet（神社层不分古风 / 魔法外形）。
+    const variant = kind === 'plshrine' && !FESTIVAL_WORDS.some((word) => String(ctx.location).includes(word)) ? 'quiet' : hit.variant;
+    return [{ kind, level: night ? 'light' : 'medium', variant }];
 }
 
 export function createPlacesVoices(h) {
@@ -46,6 +50,11 @@ export function createPlacesVoices(h) {
             tone(layer, at + 0.42, 523, 0.7, 0.025, { pan: -0.4 });
         }, 22000, 48000, [9000, 20000]);
         every(layer, (at) => footsteps(layer, at, 3 + Math.floor(Math.random() * 3), rand(-0.8, 0.8)), 14000, 34000, [6000, 16000]);
+        // 走廊低语：远处两三个人压低声音交谈。
+        every(layer, (at) => {
+            const pan = rand(-0.8, 0.8);
+            for (let i = 0; i < 3; i++) noiseBurst(layer, at + i * rand(0.5, 0.9), rand(0.5, 0.9), { type: 'bandpass', frequency: rand(380, 620), q: 0.9, peak: 0.012, attack: 0.18, pan });
+        }, 16000, 38000, [7000, 18000]);
     }
 
     function voiceKonbini(layer) {
@@ -61,6 +70,28 @@ export function createPlacesVoices(h) {
             const count = 1 + Math.floor(Math.random() * 3);
             for (let i = 0; i < count; i++) tone(layer, at + i * 0.32, 2600, 0.07, 0.03, { type: 'square', pan: 0.5 });
         }, 6000, 18000, [3000, 9000]);
+    }
+
+    function voicePolice(layer) {
+        const room = makeGain(layer, 0.014);
+        chain(makeNoise(layer), makeFilter(layer, 'lowpass', 180), room, layer.out);
+        makeLfo(layer, rand(0.06, 0.12), 0.006, room.gain);
+        // 远处警笛：隔着街区，一次起伏两个来回，低音量、间歇出现。
+        every(layer, (at) => {
+            const pan = rand(-0.8, 0.8);
+            for (let i = 0; i < 2; i++) {
+                tone(layer, at + i * 1.6, 620, 0.8, 0.012, { type: 'triangle', to: 900, pan });
+                tone(layer, at + i * 1.6 + 0.8, 900, 0.8, 0.012, { type: 'triangle', to: 620, pan });
+            }
+        }, 18000, 46000, [6000, 20000]);
+        // 对讲机杂音：按键的咔哒、一阵电流声，偶尔夹一声短提示音。
+        every(layer, (at) => {
+            const pan = rand(-0.5, 0.5);
+            noiseBurst(layer, at, 0.03, { type: 'highpass', frequency: 3200, q: 0.7, peak: 0.03, attack: 0.001, pan });
+            noiseBurst(layer, at + 0.05, rand(0.4, 0.9), { type: 'bandpass', frequency: rand(1400, 2200), q: 2.2, peak: 0.018, attack: 0.02, pan });
+            noiseBurst(layer, at + 0.6, 0.03, { type: 'highpass', frequency: 3200, q: 0.7, peak: 0.025, attack: 0.001, pan });
+            if (Math.random() < 0.4) tone(layer, at + 1.1, 1760, 0.12, 0.015, { pan });
+        }, 8000, 24000, [3000, 9000]);
     }
 
     function voiceKitchen(layer) {
@@ -115,7 +146,21 @@ export function createPlacesVoices(h) {
         every(layer, (at) => noiseBurst(layer, at, rand(1.2, 2.2), { type: 'bandpass', frequency: rand(500, 900), q: 0.8, peak: 0.035, attack: 0.5, pan: rand(-0.9, 0.9) }), 6000, 16000, [3000, 8000]);
     }
 
+    // 没有祭典的神社：只有树叶间的风与偶尔的风铃。
+    function voiceShrineQuiet(layer) {
+        const leaves = makeGain(layer, 0.02);
+        chain(makeNoise(layer), makeFilter(layer, 'bandpass', 650, 0.5), leaves, layer.out);
+        makeLfo(layer, rand(0.06, 0.12), 0.012, leaves.gain);
+        every(layer, (at) => {
+            for (let i = 0; i < 4; i++) tone(layer, at + i * rand(0.1, 0.22), rand(3400, 4400), 0.14, 0.014, { pan: 0.6 });
+        }, 7000, 16000, [2500, 6000]);
+    }
+
     function voiceShrine(layer) {
+        if (layer.variant === 'quiet') {
+            voiceShrineQuiet(layer);
+            return;
+        }
         const crowd = makeGain(layer, 0.02);
         chain(makeNoise(layer), makeFilter(layer, 'bandpass', 480, 0.6), crowd, layer.out);
         makeLfo(layer, rand(0.1, 0.2), 0.008, crowd.gain);
@@ -186,5 +231,5 @@ export function createPlacesVoices(h) {
         }
     }
 
-    return { plhospital: voiceHospital, plkonbini: voiceKonbini, plkitchen: voiceKitchen, plmansion: voiceMansion, plneonrain: voiceNeon, plshrine: voiceShrine, plgym: voiceGym, pldungeon: voiceDungeon };
+    return { plhospital: voiceHospital, plkonbini: voiceKonbini, plpolice: voicePolice, plkitchen: voiceKitchen, plmansion: voiceMansion, plneonrain: voiceNeon, plshrine: voiceShrine, plgym: voiceGym, pldungeon: voiceDungeon };
 }

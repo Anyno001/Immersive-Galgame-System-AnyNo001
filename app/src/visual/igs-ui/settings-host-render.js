@@ -57,7 +57,7 @@ import { dialogSkinLabel, getDialogSkinChoices } from './dialog-skin-catalog.js'
 import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
-import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, findSystemVoice, listSystemVoices, normalizeTtsSettings, systemVoiceOptions, ttsApiVoiceList, ttsMixedContentRisk } from './tts.js';
+import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_THOUGHT_VOLUMES, TTS_TRANSPORTS, TTS_VOICE_MAX, findSystemVoice, listSystemVoices, normalizeTtsSettings, systemVoiceOptions, ttsApiVoiceList, ttsMixedContentRisk, ttsNarratorVoiceOptions } from './tts.js';
 import { normalizeBilingualSettings } from './bilingual-text.js';
 import { HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
@@ -711,7 +711,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 PUBLIC_READER_MODES.map((id) => [id, getReaderModeLabel(id), getReaderModeIcon(id)]),
                 '打开方式',
             ),
-        )}</div>`;
+        )}</div>${bridge.openMode === 'embedded' ? field('readerSettings.embeddedHeight', '内嵌高度', selectInput('readerSettings.embeddedHeight', reader.embeddedHeight ?? 1, [[0.8, '矮'], [1, '标准'], [1.25, '高'], [1.5, '更高']])) : ''}`;
         const getReaderValues = memo(() => {
         const sceneEnabled = !!(bridge.sceneAssets && bridge.sceneAssets.enabled);
         const classicDialog = reader.dialogSkin === DIALOG_SKIN_WESTERN_CLASSIC;
@@ -817,7 +817,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 `<div class="igs-source-filter-note">声线可在「角色 › 角色设定」中选择；未选择时按DNA中的性别分配。</div>`,
             ].join('') : '',
             ttsToggle: checkbox('readerSettings.tts.enabled', tts.enabled, '台词朗读（TTS）'),
-            ttsControls: tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '' }) : '',
+            ttsControls: tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '', narratorVoicesMessage: asyncState.ttsNarratorVoicesMessage || '' }) : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             systemRoleFields: renderSystemRoleSettings(systemRole, {
@@ -1166,11 +1166,76 @@ const TTS_FORMAT_HINTS = Object.freeze({
         endpoint: '',
         model: '会替换请求里的 {{model}}',
         voice: '会替换请求里的 {{voice}}',
-        note: '自定义请求：请求地址、请求头、请求体里可以写 {{text}} {{voice}} {{speed}} {{lang}} {{model}}（也可用 {{key}} 代入 API Key）。占位符写在引号里，文字会自动转义；{{speed}} 是数字。',
+        note: '自定义请求：请求地址、请求头、请求体里可以写 {{text}} {{voice}} {{speed}} {{lang}} {{model}} {{style}}（也可用 {{key}} 代入 API Key）。占位符写在引号里，文字会自动转义；{{speed}} 是数字。',
     },
 });
 
-function renderTtsControls(tts, { bilingual = false, voicesMessage = '' } = {}) {
+// 一套接口的连接项（台词接口与旁白独立接口共用）：格式、传输、地址、Key、模型及各格式的附加项。
+function renderTtsApiFields(api, apiPath) {
+    const format = api.format;
+    const hint = TTS_FORMAT_HINTS[format] || TTS_FORMAT_HINTS.openai;
+    const parts = [
+        field(apiPath('format'), '接口格式', selectInput(apiPath('format'), format, TTS_API_FORMATS)),
+        field(apiPath('transport'), '传输方式', selectInput(apiPath('transport'), api.transport, TTS_TRANSPORTS)),
+    ];
+    if (format !== 'custom') parts.push(field(apiPath('endpoint'), '接口地址', textInput(apiPath('endpoint'), api.endpoint, hint.endpoint)));
+    if (format !== 'gpt-sovits') parts.push(field(apiPath('apiKey'), 'API Key', secretInput(apiPath('apiKey'), api.apiKey, format === 'openai' ? '本地服务可留空' : '')));
+    if (format !== 'gpt-sovits') parts.push(field(apiPath('model'), '模型', textInput(apiPath('model'), api.model, hint.model)));
+    if (format === 'openai') {
+        parts.push(
+            field(apiPath('responseFormat'), '音频格式', selectInput(apiPath('responseFormat'), api.responseFormat, TTS_RESPONSE_FORMATS)),
+            checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速（接口不认 speed 时关掉）'),
+        );
+    }
+    if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速'));
+    if (format === 'minimax') parts.push(checkbox(apiPath('sendEmotion'), api.sendEmotion, '发送情绪'));
+    if (format === 'custom') {
+        parts.push(
+            field(apiPath('customMethod'), '请求方法', selectInput(apiPath('customMethod'), api.customMethod, TTS_CUSTOM_METHODS)),
+            field(apiPath('customUrl'), '请求地址', textInput(apiPath('customUrl'), api.customUrl, 'https://example.com/tts?text={{text}}')),
+            field(apiPath('customHeaders'), '请求头（JSON）', textareaInput(apiPath('customHeaders'), api.customHeaders, '{"Authorization": "Bearer {{key}}"}')),
+            field(apiPath('customBody'), '请求体（JSON）', textareaInput(apiPath('customBody'), api.customBody, '{"text": "{{text}}", "voice": "{{voice}}", "speed": {{speed}}}')),
+            field(apiPath('customResponse'), '响应类型', selectInput(apiPath('customResponse'), api.customResponse, TTS_CUSTOM_RESPONSES)),
+        );
+        if (api.customResponse !== 'audio') parts.push(field(apiPath('customPath'), '音频字段路径', textInput(apiPath('customPath'), api.customPath, '如 data.audio')));
+    }
+    // 页面是 https、接口是 http 的非本机地址：浏览器会直接拦掉请求。
+    if (ttsMixedContentRisk(api)) parts.push('<div class="igs-source-filter-note igs-tts-warning">当前页面是 https，浏览器会拦截 http 开头的接口地址。请改用「酒馆 CORS 代理」传输方式，或把接口换成 https。</div>');
+    return parts;
+}
+
+// 旁白：风格描述与独立接口（开启后旁白用自己的一套接口与声音，不受主来源影响）。
+function renderTtsNarratorFields(tts, { voicesMessage = '' } = {}) {
+    const base = 'readerSettings.tts';
+    const narrator = tts.narratorApi;
+    const apiPath = (key) => `${base}.narratorApi.${key}`;
+    const parts = [
+        field(`${base}.narratorStyle`, '旁白风格', textareaInput(`${base}.narratorStyle`, tts.narratorStyle, '例：沉稳的说书人，语速平缓，娓娓道来')),
+        '<div class="igs-source-filter-note">风格描述用于 OpenAI 兼容接口（以 instructions 发送，需 gpt-4o-mini-tts 等支持的模型）与自定义请求（{{style}}）；系统语音及其他格式不生效。</div>',
+        checkbox(apiPath('enabled'), narrator.enabled, '旁白使用独立接口'),
+    ];
+    if (narrator.enabled) {
+        const hint = TTS_FORMAT_HINTS[narrator.format] || TTS_FORMAT_HINTS.openai;
+        parts.push(...renderTtsApiFields(narrator, apiPath));
+        // 拉取过音色列表就用下拉；已存的值不在列表里时标「（不可用）」，没有列表时保留文本框。
+        const items = ttsNarratorVoiceOptions(tts);
+        if (items.length) {
+            if (narrator.voice && !items.some(([id]) => id === narrator.voice)) items.push([narrator.voice, `${narrator.voice}（不可用）`]);
+            parts.push(field(apiPath('voice'), '旁白声音', selectInput(apiPath('voice'), narrator.voice, [['', '未选择']].concat(items))));
+        } else {
+            parts.push(field(apiPath('voice'), '旁白声音', textInput(apiPath('voice'), narrator.voice, hint.voice)));
+        }
+        if (['openai', 'fish', 'minimax'].includes(narrator.format)) {
+            parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-fetch-voices-narrator">获取音色列表</button>');
+            if (voicesMessage) parts.push(`<div class="igs-source-filter-note">${esc(voicesMessage)}</div>`);
+        }
+        parts.push(checkbox(apiPath('chunk'), narrator.chunk, '长句分段先播（超过 60 字按句切开，第一段先念）'));
+    }
+    parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview-narrator">试听旁白</button>');
+    return parts;
+}
+
+function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narratorVoicesMessage = '' } = {}) {
     const base = 'readerSettings.tts';
     const rates = TTS_RATES.map((v) => [v, v === 1 ? '正常' : `${v}×`]);
     const parts = [
@@ -1178,12 +1243,17 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '' } = {}) 
         checkbox(`${base}.narration`, tts.narration, '朗读旁白'),
         checkbox(`${base}.nsfw`, tts.nsfw, 'NSFW场景也朗读'),
         checkbox(`${base}.sustain`, tts.sustain, '翻页不打断（上一句念完再念下一句）'),
+        checkbox(`${base}.moodStyle`, tts.moodStyle, '情绪写入风格描述'),
+        '<div class="igs-source-filter-note">开启后台词与心里话的情绪、耳语会写成一句中文描述，随角色风格一起作为风格发送；仅 OpenAI 兼容接口与自定义请求（{{style}}）生效。</div>',
         // 双语台词：读译文用中文声音；读原文时系统语音按原文语言换日文 / 英文声音。
         bilingual ? field(`${base}.bilingual`, '双语台词', segmentedInput(`${base}.bilingual`, tts.bilingual, TTS_BILINGUAL_MODES, '双语台词朗读')) : '',
         field(`${base}.volume`, '音量', rangeInput(`${base}.volume`, tts.volume, '朗读音量')),
         field(`${base}.rate`, '语速', selectInput(`${base}.rate`, tts.rate, rates)),
+        field(`${base}.thoughtVolume`, '心里话音量', selectInput(`${base}.thoughtVolume`, tts.thoughtVolume, TTS_THOUGHT_VOLUMES)),
+        field(`${base}.thoughtStyle`, '心里话风格', textareaInput(`${base}.thoughtStyle`, tts.thoughtStyle, '例：压低声音，像自言自语')),
     ];
-    const roles = [['female', '女声'], ['male', '男声'], ['narrator', '旁白']];
+    // 旁白开了独立接口时，旁白声音在下面那套接口里填。
+    const roles = [['female', '女声'], ['male', '男声'], ['narrator', '旁白']].filter(([key]) => key !== 'narrator' || !tts.narratorApi.enabled);
     if (tts.provider === 'system') {
         const installed = listSystemVoices();
         const options = systemVoiceOptions(installed, { all: tts.allVoices });
@@ -1200,34 +1270,9 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '' } = {}) 
         const format = api.format;
         const hint = TTS_FORMAT_HINTS[format] || TTS_FORMAT_HINTS.openai;
         const apiPath = (key) => `${base}.api.${key}`;
-        parts.push(
-            field(apiPath('format'), '接口格式', selectInput(apiPath('format'), format, TTS_API_FORMATS)),
-            field(apiPath('transport'), '传输方式', selectInput(apiPath('transport'), api.transport, TTS_TRANSPORTS)),
-        );
-        if (format !== 'custom') parts.push(field(apiPath('endpoint'), '接口地址', textInput(apiPath('endpoint'), api.endpoint, hint.endpoint)));
-        if (format !== 'gpt-sovits') parts.push(field(apiPath('apiKey'), 'API Key', secretInput(apiPath('apiKey'), api.apiKey, format === 'openai' ? '本地服务可留空' : '')));
-        if (format !== 'gpt-sovits') parts.push(field(apiPath('model'), '模型', textInput(apiPath('model'), api.model, hint.model)));
-        if (format === 'openai') {
-            parts.push(
-                field(apiPath('responseFormat'), '音频格式', selectInput(apiPath('responseFormat'), api.responseFormat, TTS_RESPONSE_FORMATS)),
-                checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速（接口不认 speed 时关掉）'),
-            );
-        }
-        if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速'));
-        if (format === 'custom') {
-            parts.push(
-                field(apiPath('customMethod'), '请求方法', selectInput(apiPath('customMethod'), api.customMethod, TTS_CUSTOM_METHODS)),
-                field(apiPath('customUrl'), '请求地址', textInput(apiPath('customUrl'), api.customUrl, 'https://example.com/tts?text={{text}}')),
-                field(apiPath('customHeaders'), '请求头（JSON）', textareaInput(apiPath('customHeaders'), api.customHeaders, '{"Authorization": "Bearer {{key}}"}')),
-                field(apiPath('customBody'), '请求体（JSON）', textareaInput(apiPath('customBody'), api.customBody, '{"text": "{{text}}", "voice": "{{voice}}", "speed": {{speed}}}')),
-                field(apiPath('customResponse'), '响应类型', selectInput(apiPath('customResponse'), api.customResponse, TTS_CUSTOM_RESPONSES)),
-            );
-            if (api.customResponse !== 'audio') parts.push(field(apiPath('customPath'), '音频字段路径', textInput(apiPath('customPath'), api.customPath, '如 data.audio')));
-        }
-        // 页面是 https、接口是 http 的非本机地址：浏览器会直接拦掉请求。
-        if (ttsMixedContentRisk(api)) parts.push('<div class="igs-source-filter-note igs-tts-warning">当前页面是 https，浏览器会拦截 http 开头的接口地址。请改用「酒馆 CORS 代理」传输方式，或把接口换成 https。</div>');
+        parts.push(...renderTtsApiFields(api, apiPath));
         for (const [key, label] of roles) parts.push(field(apiPath(key), `${label}声音`, textInput(apiPath(key), api[key], key === 'narrator' ? '留空用女声' : hint.voice)));
-        parts.push(field(apiPath('voices'), '可选声音', textInput(apiPath('voices'), api.voices, '逗号分隔，给角色单独指定时用；可写「声音名#标题」')));
+        parts.push(field(apiPath('voices'), '可选声音', textInput(apiPath('voices'), api.voices, `逗号分隔，最多 ${TTS_VOICE_MAX} 个，给角色单独指定时用；可写「声音名#标题」`)));
         if (format === 'openai' || format === 'fish' || format === 'minimax') {
             parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-fetch-voices">获取音色列表</button>');
             if (voicesMessage) parts.push(`<div class="igs-source-filter-note">${esc(voicesMessage)}</div>`);
@@ -1239,6 +1284,7 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '' } = {}) 
             `<div class="igs-source-filter-note">${esc(hint.note)}浏览器直连被跨域拦住时，改用「酒馆 CORS 代理」（需在酒馆 config.yaml 打开 enableCorsProxy）。</div>`,
         );
     }
+    if (tts.narration) parts.push(...renderTtsNarratorFields(tts, { voicesMessage: narratorVoicesMessage }));
     parts.push(field(`${base}.lexicon`, '读音替换', textareaInput(`${base}.lexicon`, tts.lexicon, '每行一条：原词=读法\n例：雫=shizuku\n例：Λ=兰姆达')));
     parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview">试听</button>');
     parts.push('<div class="igs-source-filter-note">开启后不再播放语气音；角色声音在「角色 › 角色设定」指定。</div>');
