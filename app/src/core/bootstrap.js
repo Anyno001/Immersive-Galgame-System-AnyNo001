@@ -83,7 +83,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.5';
+const IGS_VERSION = '0.37.6';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -112,6 +112,18 @@ export function createImageJobReporter(globalObject, getBridge, log, getReaderNo
         const type = level === 'success' ? 'success' : (level === 'warn' ? 'warning' : 'error');
         if (toastr && typeof toastr[type] === 'function') toastr[type](message, 'IGS 生图');
     };
+}
+
+const OPEN_FAILURE_TEXT = Object.freeze({
+    'no-readable-text': '本楼未读取到可显示的正文，阅读器未打开。请检查正文标签设置。',
+    'no-message': '当前聊天没有可读取的楼层。',
+});
+
+function notifyOpenFailure(globalObject, reason) {
+    const text = OPEN_FAILURE_TEXT[reason] || `阅读器未打开（${reason || '未知原因'}）。`;
+    console.warn('[IGS] 打开阅读器失败：', reason);
+    const toastr = globalObject && globalObject.toastr;
+    if (toastr && typeof toastr.warning === 'function') toastr.warning(text, 'IGS');
 }
 
 export function bootstrapIGS(options = {}) {
@@ -492,6 +504,17 @@ export function bootstrapIGS(options = {}) {
         getCurrentMessage: () => hostAdapter.getCurrentMessage(),
     });
     publicApi = createPublicApi(app);
+    // QR 按钮经 loader 直接调用此入口，失败时 loader 只写控制台，表现为点击无反应；失败原因在此提示。
+    const openLatestQuiet = publicApi.openLatestAvailable;
+    publicApi.openLatestAvailable = (...args) => Promise.resolve()
+        .then(() => openLatestQuiet(...args))
+        .then((result) => {
+            if (result && result.ok === false) notifyOpenFailure(globalObject, result.reason);
+            return result;
+        }, (error) => {
+            notifyOpenFailure(globalObject, error && error.message || String(error));
+            throw error;
+        });
     readerImageService.registerProviders(publicApi.api.imageProviders);
     attachPublicApi(globalObject, publicApi);
     app.magicWandEntry = options.magicWandEntry || createMagicWandEntry({
@@ -500,7 +523,7 @@ export function bootstrapIGS(options = {}) {
         media,
         version: app.version,
         label: '沉浸式Galgame系统',
-        open: (mode) => publicApi.openLatestAvailable(mode),
+        open: (mode) => openLatestQuiet(mode),
         resolveMode: () => {
             const snapshot = publicApi.getUnifiedSettings({});
             return snapshot && (snapshot.readerMode || snapshot.bridge && snapshot.bridge.openMode) || 'pc';

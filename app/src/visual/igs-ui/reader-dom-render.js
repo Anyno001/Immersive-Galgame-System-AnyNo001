@@ -1282,22 +1282,22 @@ export function watchEmbeddedFrameResize(overlay, frameState) {
 }
 
 // 主界面盖着时正文不渲染，上面的观察器装不上。打开那一刻楼层还没排好，量到的宽度不准，会钉成横屏。
-// 主界面期间宿主宽度一变就按同一规则重钉；只看宽度，钉比例改的是高度，不会来回触发。
+// 主界面期间宿主尺寸或窗口尺寸一变就按同一规则重钉；结果相同时写入同值，不会再触发尺寸变化。
 export function watchTitleEmbeddedFrame(overlay, readFrame) {
     const host = overlay && typeof overlay.closest === 'function' ? overlay.closest('.igs-embedded-host') : null;
     const win = (overlay && overlay.ownerDocument && overlay.ownerDocument.defaultView) || null;
     if (!host || !win || typeof win.ResizeObserver !== 'function' || typeof readFrame !== 'function') return null;
-    let lastWidth = -1;
-    const observer = new win.ResizeObserver(() => {
-        const rect = typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
-        const width = rect ? Number(rect.width) || 0 : 0;
-        if (!(width > 0) || width === lastWidth) return;
-        lastWidth = width;
+    const repin = () => {
         const frame = readFrame();
         if (frame) pinEmbeddedHostFrame(overlay, frame.backgroundSize, frame.mode, frame.heightScale);
-    });
+    };
+    const observer = new win.ResizeObserver(repin);
     observer.observe(host);
-    return () => { try { observer.disconnect(); } catch (error) { /* best-effort */ } };
+    win.addEventListener('resize', repin, { passive: true });
+    return () => {
+        win.removeEventListener('resize', repin);
+        try { observer.disconnect(); } catch (error) { /* best-effort */ }
+    };
 }
 
 function writeBackgroundImage(element, url, source = url) {
