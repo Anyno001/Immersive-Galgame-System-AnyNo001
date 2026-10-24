@@ -164,6 +164,28 @@ function titleSize(title) {
     return width <= 4 ? 'xl' : width <= 8 ? 'l' : width <= 13 ? 'm' : 's';
 }
 
+// 标题做成字标：首字放大领起、末个实字收尾，虚词缩小上提，标点缩小居中，其余字轻微起伏；英文与版本号连写成一段。具体形变由各调性 CSS 决定。
+const TITLE_MINOR = /^[的了又之与和及也着过吗呢吧啊么而其乃于以の]$/;
+const TITLE_PUNCT = /^[・·，、。！？!?…：:—~～「」『』《》()（）【】\-]$/;
+function titleGlyphsHtml(title) {
+    const parts = String(title || '').match(/[A-Za-z0-9][A-Za-z0-9'’.\-]*(?:\s+[A-Za-z0-9][A-Za-z0-9'’.\-]*)*|\s+|[\s\S]/gu) || [];
+    const solid = (p) => p.trim() && !TITLE_MINOR.test(p) && !TITLE_PUNCT.test(p) && !/^[A-Za-z0-9]/.test(p);
+    const last = parts.findLastIndex(solid);
+    let lead = -1;
+    let beat = 0;
+    return parts.map((part, i) => {
+        if (!part.trim()) return ' ';
+        let kind;
+        if (/^[A-Za-z0-9]/.test(part)) kind = 'is-latin';
+        else if (TITLE_PUNCT.test(part)) kind = 'is-punct';
+        else if (TITLE_MINOR.test(part)) kind = 'is-minor';
+        else if (lead < 0) { lead = i; kind = 'is-lead'; }
+        else if (i === last && parts.filter(solid).length > 2) kind = 'is-tail';
+        else kind = beat++ === 0 ? 'is-dip' : beat % 2 ? 'is-rise' : 'is-flat';
+        return `<span class="igs-ts-g ${kind}">${esc(part)}</span>`;
+    }).join('');
+}
+
 // 封面地址可能是很长的 data URL：HTML 里只放占位，地址由 syncMedia 直接写到元素上。
 const COVER_IMG = '<img class="igs-ts-cover-img" alt="" decoding="async">';
 const PHASE_ATTR = 'data-igs-ts-phase';
@@ -262,7 +284,7 @@ function menuHtml(model) {
   <div class="igs-ts-chip" aria-hidden="true"></div>
   <div class="igs-ts-slab-mark" aria-hidden="true">${esc(WORLD_EN[model.worldview] || '')}</div>
   <div class="igs-ts-tag"><span class="igs-ts-en">${worldCode(model.worldview)} ${esc(WORLD_EN[model.worldview] || '')}</span><span>${esc(worldLabel(model.worldview))} · ${esc(dialogSkinLabel(model.skin))}</span></div>
-  <div class="igs-ts-title" data-size="${titleSize(model.title)}">${esc(model.title)}<span class="igs-ts-title-seal" aria-hidden="true">${esc(Array.from(model.title)[0] || '')}</span></div>
+  <div class="igs-ts-title" data-size="${titleSize(model.title)}">${titleGlyphsHtml(model.title)}<span class="igs-ts-title-seal" aria-hidden="true">${esc(Array.from(model.title)[0] || '')}</span></div>
 </div>
 <nav class="igs-ts-menu" aria-label="主界面">${items}</nav>
 <div class="igs-ts-foot" aria-hidden="true"><span class="igs-ts-barcode"></span><span class="igs-ts-code">Prologue · N°000</span><span class="igs-ts-hazard"></span></div>`;
@@ -505,7 +527,7 @@ ${S} *{box-sizing:border-box;}
 .igs-ts-slab{position:absolute;left:30cqw;right:0;bottom:16cqh;z-index:2;isolation:isolate;padding:2.6cqh 6cqw 3cqh 8cqw;color:var(--igs-ts-on-block);}
 .igs-ts-slab::before{content:"";position:absolute;inset:0 -14cqw 0 0;z-index:-1;border-radius:var(--igs-ts-radius);background:var(--igs-ts-block);transform:skewX(calc(-1 * var(--igs-ts-angle)));transform-origin:0 100%;}
 .igs-ts-slab::after{content:"";position:absolute;right:4cqw;bottom:1.4cqh;width:72px;height:6px;background:repeating-linear-gradient(-45deg,currentColor 0 3px,transparent 3px 7px);opacity:.35;}
-.igs-ts-script{position:absolute;left:-27cqw;bottom:calc(100% - .16em);font-family:var(--igs-ts-script);font-size:clamp(40px,10cqh,120px);font-weight:400;line-height:1.1;color:#fff;white-space:nowrap;text-shadow:0 2px 16px rgba(0,0,0,.45);pointer-events:none;}
+.igs-ts-script{position:absolute;left:-27cqw;bottom:calc(100% - .16em);font-family:var(--igs-ts-script);font-size:clamp(34px,8.4cqh,104px);font-weight:400;line-height:1.1;color:#fff;white-space:nowrap;text-shadow:0 2px 16px rgba(0,0,0,.45);opacity:.78;pointer-events:none;}
 .igs-ts-slab-mark{position:absolute;right:5cqw;top:50%;z-index:-1;transform:translateY(-50%);font-family:var(--igs-ts-en);font-size:min(15cqh,9cqw);font-weight:700;line-height:1;letter-spacing:.02em;color:transparent;-webkit-text-stroke:1.5px currentColor;opacity:.3;white-space:nowrap;pointer-events:none;}
 .igs-ts-tag{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;margin-bottom:.8cqh;font-family:var(--igs-ts-menu-font);font-size:clamp(12px,1.9cqh,15px);font-weight:600;letter-spacing:.2em;opacity:.85;}
 .igs-ts-en{font-family:var(--igs-ts-en);font-weight:600;letter-spacing:.24em;}
@@ -534,6 +556,31 @@ ${S} *{box-sizing:border-box;}
 .igs-ts-barcode{display:block;width:${BARCODE.width}px;height:18px;background:${BARCODE.image};}
 .igs-ts-hazard{display:none;width:56px;height:8px;background:repeating-linear-gradient(-45deg,var(--igs-ts-block) 0 3px,transparent 3px 7px);}
 .igs-ts-title-seal{display:none;}
+.igs-ts-g{display:inline-block;font-size:.8em;line-height:1;transform-origin:50% 85%;}
+.igs-ts-g.is-lead{font-size:1.3em;margin-right:.03em;transform:rotate(-6deg);}
+.igs-ts-g.is-minor{font-size:.56em;vertical-align:.32em;margin-inline:.06em;opacity:.85;}
+.igs-ts-g.is-punct{font-size:.6em;vertical-align:.12em;opacity:.7;}
+.igs-ts-g.is-rise{transform:translateY(-.05em);}
+.igs-ts-g.is-dip{font-size:.72em;}
+.igs-ts-g.is-tail{font-size:.94em;transform:rotate(5deg);}
+.igs-ts-g.is-latin{font-family:var(--igs-ts-en);font-size:.5em;font-weight:600;letter-spacing:.06em;}
+${S}[${TONE_ATTR}="tech"] .igs-ts-g.is-lead{transform:skewX(-10deg);}
+${S}[${TONE_ATTR}="tech"] .igs-ts-g.is-tail{transform:none;}
+${S}[${TONE_ATTR}="soft"] .igs-ts-g.is-lead{transform:rotate(-9deg) translateY(.04em);}
+${S}[${TONE_ATTR}="soft"] .igs-ts-g.is-rise{transform:translateY(-.1em) rotate(-5deg);}
+${S}[${TONE_ATTR}="soft"] .igs-ts-g.is-flat{transform:rotate(4deg);}
+/* 宋体、书法不歪字：只靠大小对比与上下错落立出字标。 */
+${S}:is([${TONE_ATTR}="classic"],[${TONE_ATTR}="dark"],[${TONE_ATTR}="mystic"],[${TONE_ATTR}="ink"]) .igs-ts-g{transform:none;}
+${S}:is([${TONE_ATTR}="dark"],[${TONE_ATTR}="mystic"]) .igs-ts-g.is-lead{font-size:1.3em;}
+/* 古风：宋体描粗成碑刻式字标，只留轻微大小差，靠上下错落成行气。 */
+${S}:is([${TONE_ATTR}="classic"],[${TONE_ATTR}="ink"]) .igs-ts-g{font-size:.88em;-webkit-text-stroke:.045em currentColor;letter-spacing:.06em;}
+${S}:is([${TONE_ATTR}="classic"],[${TONE_ATTR}="ink"]) .igs-ts-g.is-lead{font-size:1.06em;}
+${S}:is([${TONE_ATTR}="classic"],[${TONE_ATTR}="ink"]) .igs-ts-g.is-dip{font-size:.8em;}
+${S}:is([${TONE_ATTR}="classic"],[${TONE_ATTR}="ink"]) .igs-ts-g.is-tail{font-size:.94em;}
+${S}:is([${TONE_ATTR}="classic"],[${TONE_ATTR}="ink"]) .igs-ts-g.is-minor{font-size:.62em;}
+${S}[${TONE_ATTR}="ink"] .igs-ts-g.is-dip{transform:translateY(.1em);}
+${S}[${TONE_ATTR}="ink"] .igs-ts-g.is-rise{transform:translateY(-.06em);}
+${S}[${TONE_ATTR}="ink"] .igs-ts-g.is-tail{transform:translateY(.04em) rotate(3deg);}
 .igs-ts-slab::after{display:none;}
 ${S}[${PHASE_ATTR}="wait"] :is(.igs-ts-cover,.igs-ts-sliver,.igs-ts-edge,.igs-ts-slab,.igs-ts-menu,.igs-ts-topbar,.igs-ts-foot,.igs-ts-corners){opacity:0;}
 ${S}[${PHASE_ATTR}="intro"] .igs-ts-cover{animation:igs-ts-cut .6s ${EASE} both;}
@@ -598,7 +645,7 @@ ${S}[${TONE_ATTR}="soft"] :is(.igs-ts-sliver,.igs-ts-barcode,.igs-ts-corners){di
 ${S}[${TONE_ATTR}="soft"] .igs-ts-btn::before{inset:4px -6px 4px -4px;border-radius:999px;}
 ${S}[${TONE_ATTR}="soft"] :is(.igs-ts-close,.igs-ts-skin,.igs-ts-link.is-primary){border-radius:999px;clip-path:none;}
 ${S}[${TONE_ATTR}="soft"] .igs-ts-hazard{display:block;width:44px;height:6px;background:radial-gradient(circle,var(--igs-ts-block) 2px,transparent 2.5px) 0 50%/11px 6px repeat-x;}
-${S}[${TONE_ATTR}="classic"]{--igs-ts-angle:0deg;--igs-ts-pangle:0deg;--igs-ts-title-font:"Huiwen Mincho","Source Han Serif CN",serif;--igs-ts-menu-font:"Source Han Serif CN","Huiwen Mincho",serif;}
+${S}[${TONE_ATTR}="classic"]{--igs-ts-angle:0deg;--igs-ts-pangle:0deg;--igs-ts-title-font:"Source Han Serif CN","Huiwen Mincho",serif;--igs-ts-menu-font:"Source Han Serif CN","Huiwen Mincho",serif;}
 ${S}[${TONE_ATTR}="classic"] .igs-ts-base{background-image:linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);background-size:56px 100%;}
 ${S}[${TONE_ATTR}="classic"] :is(.igs-ts-sliver,.igs-ts-barcode){display:none;}
 ${S}[${TONE_ATTR}="classic"] .igs-ts-title{letter-spacing:.14em;}
@@ -641,7 +688,7 @@ ${S}[${TONE_ATTR}="dark"] .igs-ts-ring{display:none;}
 /* 水墨：照水墨武侠皮肤的笔形——色块是一道干笔横扫，选中项是一笔短捺，标题旁落朱砂小印，底铺拓本石纹。 */
 ${S}:is([${TONE_ATTR}="ink"],[${TONE_ATTR}="classic"]){--igs-ts-block:var(--igs-ts-cmuted,var(--igs-ts-accent,#8c7a5b));--igs-ts-on-block:var(--igs-ts-cmink,var(--igs-ts-accent-ink,#101014));}
 ${S}:is([${TONE_ATTR}="ink"],[${TONE_ATTR}="classic"]) :is(.igs-ts-no,.igs-ts-btn.is-primary .igs-ts-btn-en,.igs-ts-mono,.igs-ts-world.is-on .igs-ts-world-en){color:color-mix(in srgb,var(--igs-ts-block) 55%,#fff);}
-${S}[${TONE_ATTR}="ink"]{--igs-ts-angle:0deg;--igs-ts-pangle:0deg;--igs-ts-title-font:"IGS-MaShanZheng","LXGW WenKai",serif;--igs-ts-menu-font:"Source Han Serif CN","LXGW WenKai",serif;}
+${S}[${TONE_ATTR}="ink"]{--igs-ts-angle:0deg;--igs-ts-pangle:0deg;--igs-ts-title-font:"Source Han Serif CN","Huiwen Mincho",serif;--igs-ts-menu-font:"Source Han Serif CN","LXGW WenKai",serif;}
 ${S}[${TONE_ATTR}="ink"] .igs-ts-base{background-image:${WX_RUBBING};background-size:1024px 512px;}
 ${S}[${TONE_ATTR}="ink"] :is(.igs-ts-sliver,.igs-ts-barcode,.igs-ts-corners){display:none;}
 ${S}[${TONE_ATTR}="ink"] .igs-ts-edge{left:calc(var(--igs-ts-cw) - 4px);width:8px;clip-path:none;background:${wxEdge(WUXIA_MOON)} center/100% 100% no-repeat;opacity:.75;}
@@ -694,10 +741,10 @@ ${S}[${WORLD_ATTR}="magic"]:not([${TONE_ATTR}="ink"]) .igs-ts-dot.is-d1{width:10
   ${S}[${TONE_ATTR}="ink"] .igs-ts-chip{top:auto;bottom:-1.4cqh;height:2.2cqh;}
   ${S}[${TONE_ATTR}="mystic"] .igs-ts-slab::before{inset:-2.6cqh 0 -3.6cqh;transform:none;${maskOf(WAVE_BAND)}}
   .igs-ts-tag{font-size:clamp(11px,3.2cqw,14px);gap:2px 10px;}
-  .igs-ts-title{--igs-ts-title-size:min(11cqw,6cqh);}
+  .igs-ts-title{--igs-ts-title-size:min(13cqw,7cqh);margin-top:1.4cqh;rotate:-4deg;transform-origin:0 100%;}
   .igs-ts-title[data-size="xl"]{--igs-ts-title-size:min(15cqw,8cqh);}
-  .igs-ts-title[data-size="m"]{--igs-ts-title-size:min(8cqw,4.4cqh);}
-  .igs-ts-title[data-size="s"]{--igs-ts-title-size:min(6.2cqw,3.6cqh);}
+  .igs-ts-title[data-size="m"]{--igs-ts-title-size:min(11.4cqw,6cqh);}
+  .igs-ts-title[data-size="s"]{--igs-ts-title-size:min(7.4cqw,4.2cqh);}
   .igs-ts-menu{left:6cqw;right:6cqw;top:auto;bottom:calc(max(14px,env(safe-area-inset-bottom,0px)) + 34px);}
   .igs-ts-btn{min-height:max(46px,6.2cqh);}
   .igs-ts-zh{font-size:clamp(18px,5.4cqw,24px);}

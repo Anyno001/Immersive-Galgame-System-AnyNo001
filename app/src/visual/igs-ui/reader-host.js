@@ -131,7 +131,7 @@ import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.
 import { comicContentKey, isComicModeActive } from './comic-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
 
-import { applyReaderSnapshotToDom, applyToolbarState, buildFallbackReaderOverlay, buildFallbackSettingsOverlay, normalizeReaderStableLayers, pinEmbeddedHostFrame } from './reader-dom-render.js';
+import { applyReaderSnapshotToDom, applyToolbarState, buildFallbackReaderOverlay, buildFallbackSettingsOverlay, normalizeReaderStableLayers, pinEmbeddedHostFrame, watchTitleEmbeddedFrame } from './reader-dom-render.js';
 
 const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 
@@ -1079,6 +1079,7 @@ export function createIgsReaderHost(options = {}) {
         if (current.dom && current.dom.overlay) cancelSceneAudio(current.dom.overlay);
         parkAudioBus();
         if (typeof current.stopStagePause === 'function') current.stopStagePause();
+        stopTitleFrameWatch(current);
         if (current.pageRenderTimer) clearTimeout(current.pageRenderTimer);
         current.pageRenderTimer = 0;
         clearReaderModeRuntime(current);
@@ -4795,14 +4796,27 @@ export function createIgsReaderHost(options = {}) {
         // 主界面盖着时不走正文渲染，原地切到内嵌的 overlay 拿不到内嵌类名，钉框会直接跳过。
         if (isEmbeddedReaderMode(snapshot.mode) && overlay.classList) overlay.classList.add('igs-mode-embedded');
         pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode, snapshot.readerSettings && snapshot.readerSettings.embeddedHeight);
+        if (!current.stopTitleFrameWatch && isEmbeddedReaderMode(snapshot.mode)) {
+            current.stopTitleFrameWatch = watchTitleEmbeddedFrame(overlay, () => {
+                const live = current.snapshot;
+                const reader = (live && live.readerSettings) || {};
+                return live ? { backgroundSize: reader._cgBackgroundSize, mode: live.mode, heightScale: reader.embeddedHeight } : null;
+            });
+        }
         renderTitleScreen(overlay, model, {
             onAction: (act, value) => { void handleTitleAction(current, act, value); },
         });
         playTitleBgm(overlay, snapshot);
     }
 
+    function stopTitleFrameWatch(current) {
+        if (typeof current.stopTitleFrameWatch === 'function') current.stopTitleFrameWatch();
+        current.stopTitleFrameWatch = null;
+    }
+
     function dropTitleGate(current) {
         if (!current) return;
+        stopTitleFrameWatch(current);
         current.titleGate = null;
         if (current.dom && current.dom.overlay) removeTitleScreen(current.dom.overlay);
     }
