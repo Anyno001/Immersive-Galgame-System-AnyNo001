@@ -16,14 +16,14 @@ export const MYTH_PROMPT_LINES = Object.freeze({
     relic: '[igs-fx:relic|持有者|法宝名|光色]：某人祭出法宝时写；法宝名取正文原名，光色可写 金/青/赤/紫/白/玉，省略按金。',
     clash: '[igs-fx:clash|甲法宝|乙法宝]：两件法宝在空中对撞、斗法分出声势时写，两栏取正文中的法宝名。',
     mythroll: '[igs-fx:mythroll|名1;名2;名3]：封神榜、金榜、册封名录逐名亮起时写，名字用分号隔开，最多 8 个。',
-    formation: '[igs-fx:formation|阵名|展开/入阵/破阵]：阵法展开、有人踏入或被破时写，阵名取正文，动作省略按展开。',
+    formation: '[igs-fx:formation|阵名|展开/入阵/破阵|光色]：阵法展开、有人踏入或被破时写，阵名取正文，动作省略按展开；光色取正文对光、阵、气的颜色描写，可写 金/青/赤/紫/白/玉，正文没写就省略。',
     flame: '[igs-fx:flame|目标]：真火、业火焚烧时写，目标是被烧的角色，可省。',
     thunder: '[igs-fx:thunder|目标]：天雷、劫雷劈落时写，目标是被劈中的角色，可省。',
     aura: '[igs-fx:aura|角色|妖气/魔气/仙气]：角色周身气息外放、气势压人时写，类型省略按妖气。',
     charm: '[igs-fx:charm|施术者|目标]：施术者以媚术、摄魂迷住目标时写，目标在术中持续迷离可配合 [igs-fx:state|魅惑] 区间。',
     drain: '[igs-fx:drain|吸取者|被吸者]：吸取者夺取被吸者精气、灵气或修为时写。',
-    subdue: '[igs-fx:subdue|符咒/金钵/葫芦/锁链|目标]：以符印、法器收服或镇压目标时写，法器类型省略按符咒。',
-    barrier: '[igs-fx:barrier|展开/破碎]：结界、禁制张开或被击破时写，省略按展开。',
+    subdue: '[igs-fx:subdue|符咒/金钵/葫芦/锁链|目标|光色]：以符印、法器收服或镇压目标时写，法器类型省略按符咒；光色取正文对光、阵、气的颜色描写，可写 金/青/赤/紫/白/玉，正文没写就省略。',
+    barrier: '[igs-fx:barrier|展开/破碎|光色]：结界、禁制张开或被击破时写，省略按展开；光色取正文对光、阵、气的颜色描写，可写 金/青/赤/紫/白/玉，正文没写就省略。',
     core: '[igs-fx:core|名称]：妖丹、内丹取出或亮相时写，名称取正文。',
     pact: '[igs-fx:pact|甲|乙]：两人缔结血契、主仆契约，印记浮现时写。',
 });
@@ -55,7 +55,7 @@ export function parseMythBody(type, f) {
         const names = a.split(/[;；、]/).map(text).filter(Boolean).slice(0, MYTH_ROLL_MAX);
         return names.length ? ['mythroll', names.join(';')] : null;
     }
-    case 'formation': return a ? ['formation', a, pick(MYTH_FORMATION_MODES, b, 'open')] : null;
+    case 'formation': return a ? ['formation', a, pick(MYTH_FORMATION_MODES, b, 'open'), pick(MYTH_RELIC_TONES, c, '')] : null;
     case 'flame': return ['flame', a];
     case 'thunder': return ['thunder', a];
     case 'aura': return a ? ['aura', a, pick(MYTH_AURA_MODES, b, 'yao')] : null;
@@ -63,10 +63,10 @@ export function parseMythBody(type, f) {
     case 'drain': return a && b ? ['drain', a, b] : null;
     case 'subdue': {
         const mode = pick(MYTH_SUBDUE_MODES, a, '');
-        if (mode) return ['subdue', mode, b];
-        return a ? ['subdue', 'talisman', a] : null;
+        if (mode) return ['subdue', mode, b, pick(MYTH_RELIC_TONES, c, '')];
+        return a ? ['subdue', 'talisman', a, pick(MYTH_RELIC_TONES, c, '')] : null;
     }
-    case 'barrier': return ['barrier', pick(MYTH_BARRIER_MODES, a, 'open')];
+    case 'barrier': return ['barrier', pick(MYTH_BARRIER_MODES, a, 'open'), pick(MYTH_RELIC_TONES, b, '')];
     case 'core': return a ? ['core', a] : null;
     case 'pact': return a ? ['pact', a, b] : null;
     default: return null;
@@ -79,14 +79,14 @@ export function mythFxOf(args) {
     case 'relic': return { type, who: a, name: b, tone: c || 'gold' };
     case 'clash': return { type, a, b };
     case 'mythroll': return { type, names: a.split(';').filter(Boolean) };
-    case 'formation': return { type, name: a, mode: b || 'open' };
+    case 'formation': return { type, name: a, mode: b || 'open', tone: c };
     case 'flame': return { type, who: a };
     case 'thunder': return { type, who: a };
     case 'aura': return { type, who: a, mode: b || 'yao' };
     case 'charm': return { type, caster: a, target: b };
     case 'drain': return { type, from: a, to: b };
-    case 'subdue': return { type, mode: a || 'talisman', who: b };
-    case 'barrier': return { type, mode: a || 'open' };
+    case 'subdue': return { type, mode: a || 'talisman', who: b, tone: c };
+    case 'barrier': return { type, mode: a || 'open', tone: b };
     case 'core': return { type, name: a };
     case 'pact': return { type, a, b };
     default: return null;

@@ -79,6 +79,8 @@ const dialogFontAssets = [
     { family: 'Quicksand', file: 'Quicksand-Variable.ttf', weight: '300 700', style: 'normal', format: 'truetype' },
     { family: 'Caveat', file: 'Caveat-Variable.ttf', weight: '400 700', style: 'normal', format: 'truetype' },
     { family: 'IM Fell English SC', file: 'IMFellEnglishSC-Regular.ttf', weight: 400, style: 'normal', format: 'truetype' },
+    // 主界面英文标注用的窄体，只截了西文字符。
+    { family: 'IGS Oswald', file: 'Oswald-Variable.woff2', weight: '200 700', style: 'normal', format: 'woff2' },
 ];
 const classicFontAssets = [
     { family: 'Source Han Serif CN', file: 'SourceHanSerifCN-Regular.otf', weight: 400, style: 'normal', format: 'opentype' },
@@ -121,7 +123,7 @@ const fontLicenseFiles = [
     'Cormorant-OFL.txt', 'Cormorant-OFL-FAQ.txt', 'LXGW-OFL.txt', 'Yozai-OFL.txt',
     'HuiwenMincho-CC0.txt', 'TsangerYuYangT-MIT.txt', 'SmileySans-OFL.txt',
     'Cinzel-OFL.txt', 'ZCOOLKuaiLe-OFL.txt', 'GreatVibes-OFL.txt', 'PinyonScript-OFL.txt',
-    'Quicksand-OFL.txt', 'Caveat-OFL.txt', 'IMFellEnglish-OFL.txt', 'ChillRoundF-OFL.txt',
+    'Quicksand-OFL.txt', 'Caveat-OFL.txt', 'IMFellEnglish-OFL.txt', 'ChillRoundF-OFL.txt', 'Oswald-OFL.txt',
 ];
 fs.mkdirSync(fontTargetDir, { recursive: true });
 for (const weight of roundedFontWeights) {

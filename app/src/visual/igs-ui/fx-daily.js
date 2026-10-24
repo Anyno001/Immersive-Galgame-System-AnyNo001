@@ -800,6 +800,8 @@ const AMBIENCE_HTML = Object.freeze({
     inn: '<i class="igs-dfx-amb-innglow"></i><i class="igs-dfx-amb-innsmoke"></i><i class="igs-dfx-amb-innmote"></i><i class="igs-dfx-amb-innbeam"></i><i class="igs-dfx-amb-innlamps"><b></b><b></b></i>',
     cave: '<i class="igs-dfx-amb-cavedark"></i><i class="igs-dfx-amb-caveglow"></i><i class="igs-dfx-amb-cavedrip"></i><i class="igs-dfx-amb-cavedrip2"></i><i class="igs-dfx-amb-cavedrip3"></i>',
     cloudsea: '<i class="igs-dfx-amb-sunrim"></i><i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-clouds"></i><i class="igs-dfx-amb-seamist"></i>',
+    // 天界：无形的整片薄雾（底层）+ 远景淡小云带 + 近景稍浓云带，前后反向缓漂；不挂色块。
+    heaven: '<i class="igs-dfx-amb-hveil"></i><i class="igs-dfx-amb-hfar"></i><i class="igs-dfx-amb-hnear"></i>',
     plane: '<i class="igs-dfx-amb-shade"></i><i class="igs-dfx-amb-band"></i><i class="igs-dfx-amb-frame"></i>',
     sky: '<i class="igs-dfx-amb-clouds"></i><i class="igs-dfx-amb-gust"></i>',
     // 自行车 / 摩托：开放式骑行，不是封闭车厢——用迎面掠过的风线，不挂车窗光带。

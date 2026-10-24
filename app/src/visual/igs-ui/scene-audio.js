@@ -380,7 +380,7 @@ export function resolveAmbientPlan(context = {}, ambientSettings, weatherSetting
     // 自行车 / 摩托是开放式骑行：传 variant 让 voiceBike 分辨链条声还是引擎声。
     else if (place && place.kind === 'bike') add('bike', night ? 'light' : 'medium', false, place.variant);
     // 云海没有自己的声层，借高空风声（variant high：更远更轻）；洞府借滴水层，空间回响见 resolveAmbientSpace。
-    else if (place && place.kind === 'cloudsea') add('sky', 'light', false, 'high');
+    else if (place && (place.kind === 'cloudsea' || place.kind === 'heaven')) add('sky', 'light', false, 'high');
     else if (place && place.kind === 'cave') add('drip', 'medium', false);
     else if (place) add(place.kind, night ? 'light' : 'medium', false);
     else {

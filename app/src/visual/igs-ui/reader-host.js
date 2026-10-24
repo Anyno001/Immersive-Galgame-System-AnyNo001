@@ -117,7 +117,7 @@ import { applyPerformanceProfile, applyProfileDetails } from './performance-prof
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { applyWorldview, resolveWorldview } from '../../scene/worldview.js';
 import { effectiveDialogSkin, sceneDialogSkin } from './worldview-skins.js';
-import { applyTitleSkin, buildTitleScreenModel, createTitleGate, playOpeningCard, playTitleBgm, reduceTitleAction, removeTitleScreen, renderTitleScreen, shouldGateTitleScreen, titleCardOf } from './title-screen.js';
+import { applyTitleSkin, buildTitleScreenModel, createTitleGate, nextTitleCoverTurn, playOpeningCard, playTitleBgm, reduceTitleAction, removeTitleScreen, renderTitleScreen, shouldGateTitleScreen, titleCardOf } from './title-screen.js';
 import { loadMoodReview, recordMoodReview, removeMoodReview } from '../../scene/mood-review-store.js';
 import { applyMoodAssignments, buildMoodClassificationRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { CLASSIC_DIALOG_HEIGHT, CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_RETRO_JAPANESE, DIALOG_SKIN_WARM_PICTUREBOOK, DIALOG_SKIN_WESTERN_CLASSIC, isIllustratedDialogSkin, normalizeClassicDialogWidthPercent, normalizeDialogSkin } from './classic-dialog-skin.js';
@@ -729,7 +729,7 @@ export function createIgsReaderHost(options = {}) {
             messageId: snapshot.messageId,
             index: snapshot.content.currentIndex,
             startAtEnd: payload.startAtEnd === true,
-        }) ? createTitleGate() : null;
+        }) ? createTitleGate({ coverTurn: nextTitleCoverTurn((options.global || globalThis).localStorage) }) : null;
         if (current.titleGate) void resolveTitleHasLater(current);
         current.autoPlayer = createReaderAutoPlay({
             timers: options.autoPlayTimers || globalThis,
@@ -4747,8 +4747,35 @@ export function createIgsReaderHost(options = {}) {
         renderTitleGate(current);
     }
 
+    // 0 楼已有的 CG（生成插图与 CG 库事件图）：主界面封面拿来轮换。插图还在后台读的先跳过，下次打开再轮到。
+    function titleCgCovers(current) {
+        const snapshot = current.snapshot;
+        const floor = snapshot && snapshot[preparedFloorKey];
+        if (!floor) return [];
+        const urls = [];
+        const slots = new Set();
+        const identity = current.illustrationIdentity || readIllustrationIdentity(0);
+        if (typeof options.getIllustrationUrl === 'function') {
+            for (const hit of floor.illustrations || []) {
+                if (!hit || slots.has(hit.slot)) continue;
+                slots.add(hit.slot);
+                urls.push(String(options.getIllustrationUrl({ chatId: identity && identity.chatId, messageId: 0, swipeId: identity && identity.swipeId, slot: hit.slot }) || ''));
+            }
+        }
+        const sceneAssets = snapshot.readerSettings && snapshot.readerSettings._sceneAssets;
+        if (sceneAssets && sceneAssets.enabled && sceneAssets.eventCgs) {
+            const generatedAssets = options.generatedAssets || null;
+            for (const hit of floor.eventCgs || []) {
+                if (!hit || !hit.url) continue;
+                urls.push(String((isGeneratedAssetUrl(hit.url) ? (generatedAssets ? generatedAssets.resolveUrl(hit.url) : '') : resolveReaderAssetUrl(hit.url, current)) || ''));
+            }
+        }
+        return urls.filter(Boolean);
+    }
+
     function titleModelOf(current) {
         return buildTitleScreenModel({
+            cgCovers: titleCgCovers(current),
             snapshot: current.snapshot,
             gate: current.titleGate,
             card: titleCardOf(getSillyTavernContext(options.global || globalThis)),
