@@ -1,53 +1,30 @@
 // 电脑对手的性格层：牌效和危险度照旧由电脑麻将引擎算，推还是退、鸣不鸣、立不立按打法、场况和情绪来定。
-// 打法从角色卡世界书经副 API 配出来，读不到就按名字随机分一种；玩家可以在选人时改。
+// 打法和台词从角色卡世界书经副 API 配出来，读不到就按名字随机分一种打法、说打法自带的话；玩家可以在选人时改打法。
 import Majiang from '@kobalab/majiang-core';
 import AI from '@kobalab/majiang-ai';
+import { riichiRules, riichiTingpai, riichiYakuXiangting } from './scmj/rules.js';
+import { VOICE_MOODS, cleanAddress, cleanVoice, voiceKeys } from './wait-stage-mahjong-voice.js';
+
+const EVAL_WIDTH = [8, 8 * 4, 8 * 4 * 2];
 
 // push 进攻欲（-1 怂到 1 莽），call 鸣牌欲，dama 默听倾向，speed 求快（正）还是做大（负），
-// skill 牌技（越低越常打出次优牌、越不看别家副露），tilt 输了之后越打越冲（正）还是越打越怂（负），tempo 思考快慢。
+// skill 牌技（越低越常打出次优牌、越不看别家副露），tilt 输了之后越打越冲（正）还是越打越怂（负），tempo 思考快慢，
+// talk 话多话少（只管碰杠、看热闹这类闲话，和牌放铳总会开口）。
 export const MAHJONG_STYLES = Object.freeze({
-    steady: { label: '稳健型', blurb: '照牌效打，有人立直就看危险度推退', push: 0, call: 0.5, dama: 0.15, speed: 0, skill: 1, tilt: 0, tempo: 0.5 },
-    attack: { label: '强攻型', blurb: '有听就立，被立直也敢追', push: 0.6, call: 0.45, dama: 0.03, speed: 0.1, skill: 0.92, tilt: 0.6, tempo: 0.3 },
-    cautious: { label: '谨慎型', blurb: '能默听就默听，有人立直早早弃和', push: -0.6, call: 0.3, dama: 0.55, speed: -0.1, skill: 0.95, tilt: -0.6, tempo: 0.75 },
-    swift: { label: '速攻型', blurb: '能鸣就鸣，抢先和小牌', push: 0.2, call: 0.9, dama: 0.1, speed: 0.6, skill: 0.9, tilt: 0.3, tempo: 0.2 },
-    gambler: { label: '赌徒型', blurb: '硬做大牌，很少弃和', push: 0.8, call: 0.25, dama: 0.2, speed: -0.6, skill: 0.8, tilt: 0.8, tempo: 0.4 },
-    sly: { label: '心机型', blurb: '默听埋伏，看准了才出手', push: -0.1, call: 0.55, dama: 0.75, speed: 0.1, skill: 0.95, tilt: -0.2, tempo: 0.6 },
-    airhead: { label: '天然型', blurb: '凭感觉打，常有失误', push: 0.3, call: 0.6, dama: 0.05, speed: 0.2, skill: 0.45, tilt: 0.1, tempo: 0.35 },
+    steady: { label: '稳健型', blurb: '照牌效打，有人立直就看危险度推退', push: 0, call: 0.5, dama: 0.15, speed: 0, skill: 1, tilt: 0, tempo: 0.5, talk: 0.45 },
+    attack: { label: '强攻型', blurb: '有听就立，被立直也敢追', push: 0.6, call: 0.45, dama: 0.03, speed: 0.1, skill: 0.92, tilt: 0.6, tempo: 0.3, talk: 0.75 },
+    cautious: { label: '谨慎型', blurb: '能默听就默听，有人立直早早弃和', push: -0.6, call: 0.3, dama: 0.55, speed: -0.1, skill: 0.95, tilt: -0.6, tempo: 0.75, talk: 0.4 },
+    swift: { label: '速攻型', blurb: '能鸣就鸣，抢先和小牌', push: 0.2, call: 0.9, dama: 0.1, speed: 0.6, skill: 0.9, tilt: 0.3, tempo: 0.2, talk: 0.7 },
+    gambler: { label: '赌徒型', blurb: '硬做大牌，很少弃和', push: 0.8, call: 0.25, dama: 0.2, speed: -0.6, skill: 0.8, tilt: 0.8, tempo: 0.4, talk: 0.7 },
+    sly: { label: '心机型', blurb: '默听埋伏，看准了才出手', push: -0.1, call: 0.55, dama: 0.75, speed: 0.1, skill: 0.95, tilt: -0.2, tempo: 0.6, talk: 0.5 },
+    airhead: { label: '天然型', blurb: '凭感觉打，常有失误', push: 0.3, call: 0.6, dama: 0.05, speed: 0.2, skill: 0.45, tilt: 0.1, tempo: 0.35, talk: 0.85 },
 });
 export const STYLE_IDS = Object.freeze(Object.keys(MAHJONG_STYLES));
-const PARAM_RANGE = { push: [-1, 1], call: [0, 1], dama: [0, 1], speed: [-1, 1], skill: [0.3, 1], tilt: [-1, 1], tempo: [0, 1] };
-const ADJUSTABLE = ['push', 'call', 'dama', 'speed', 'skill', 'tilt'];
-
-export const LINE_EVENTS = Object.freeze({
-    riichi: '自己立直', chase: '别人立直后她追立', push: '顶着别人的立直硬打危险牌', fold: '决定弃和',
-    call: '吃碰杠', win: '和牌', dama: '默听和牌', dealIn: '放铳',
-    tilt: '被打得上头、下一局开局', shrink: '被打怕了、下一局开局', lead: '后半场领先', behind: '后半场落后',
-});
-
-const GENERIC_LINES = {
-    riichi: ['立直。', '这手就赌一把吧。', '准备好了哦，立直！'],
-    chase: ['追立！谁怕谁。', '你立我也立。', '想吓退我？没门。'],
-    push: ['这张……应该不会中吧。', '不退，就这张。', '硬着头皮也要打。'],
-    fold: ['这把算了，我先躲一躲。', '太危险了，不陪你玩。', '先保命要紧。'],
-    call: ['碰！', '这张我要了。', '吃一口～'],
-    win: ['和了！', '承让承让。', '运气站在我这边呢。'],
-    dama: ['没发现我早就听牌了吧？', '默听，嘿嘿。', '不声不响才最可怕哦。'],
-    dealIn: ['呜……放铳了。', '怎么偏偏是这张！', '失算了……'],
-    tilt: ['可恶，下一把一定讨回来！', '我生气了，接下来不手软。', '刚才那把不算！'],
-    shrink: ['……这把稳一点打。', '有点怕了，先别冒险。', '冷静，冷静。'],
-    lead: ['照这样保持下去就好。', '名次我收下了。', '别想追上来哦。'],
-    behind: ['还没结束呢！', '最后几把得拼一拼了。', '等着看我翻盘。'],
-};
-
-const STYLE_LINES = {
-    steady: { riichi: ['立直。'], win: ['和了，谢谢。'], dealIn: ['……失误了。'], fold: ['这把先退。'] },
-    attack: { riichi: ['立直！正面来吧！', '不立直怎么赢？'], win: ['看吧，进攻才是王道！', '一口气拿下！'], dealIn: ['切，再来！', '这点分不算什么。'], fold: ['……这次先放你一马。'] },
-    cautious: { riichi: ['……那就立直吧，应该安全。'], win: ['稳稳地和了。', '按计划进行。'], dealIn: ['明明那么小心了……'], fold: ['危险牌一张都不打。', '我选择安全第一。'] },
-    swift: { riichi: ['快点结束吧，立直！'], call: ['碰碰碰！', '这张也要！', '先鸣再说～'], win: ['抢先一步！', '快就是正义！'], dealIn: ['哎呀，太急了。'], fold: ['算了算了，这把不抢了。'] },
-    gambler: { riichi: ['全押！立直！', '要玩就玩大的。'], win: ['看到没，这才叫大牌！', '赌赢了！'], dealIn: ['哈，下一把翻倍赢回来。', '愿赌服输。'], fold: ['这把运气不在，先收手。'] },
-    sly: { riichi: ['立直哦，猜猜我在等什么？'], dama: ['你以为我还没听牌吗？', '被我埋伏到了呢。'], win: ['一切都在计算之中。'], dealIn: ['……被看穿了吗。'], fold: ['这把不值得冒险。'] },
-    airhead: { riichi: ['欸，可以立直了吗？那就立直！'], call: ['这个可以碰对吧？'], win: ['欸？和了？和了！'], dealIn: ['诶诶？这张不能打吗？'], fold: ['好像很危险的样子……'] },
-};
+const PARAM_RANGE = { push: [-1, 1], call: [0, 1], dama: [0, 1], speed: [-1, 1], skill: [0.3, 1], tilt: [-1, 1], tempo: [0, 1], talk: [0.1, 1] };
+const ADJUSTABLE = ['push', 'call', 'dama', 'speed', 'skill', 'tilt', 'talk'];
+const RULE_IDS = ['riichi', 'chengdu'];
+// 一套台词至少写回这么多个键才算写好，少了下次再问。
+const VOICE_ENOUGH = 12;
 
 function clamp(value, low, high) {
     const n = Number(value);
@@ -68,17 +45,20 @@ function presetParams(style) {
     return out;
 }
 
-function cleanLines(raw) {
-    const out = {};
-    for (const event of Object.keys(LINE_EVENTS)) {
-        const list = Array.isArray(raw && raw[event]) ? raw[event] : (typeof (raw && raw[event]) === 'string' ? [raw[event]] : []);
-        const kept = list.map((line) => String(line || '').replace(/\s+/g, ' ').trim().slice(0, 30)).filter(Boolean).slice(0, 3);
-        if (kept.length) out[event] = kept;
+// 成都那套不许照抄立直那套的句子。
+function cleanVoices(raw) {
+    const riichi = cleanVoice(raw && raw.riichi, 'riichi');
+    const taken = new Set(Object.values(riichi).flat());
+    const chengdu = cleanVoice(raw && raw.chengdu, 'chengdu');
+    for (const key of Object.keys(chengdu)) {
+        const kept = chengdu[key].filter((line) => !taken.has(line));
+        if (kept.length) chengdu[key] = kept;
+        else delete chengdu[key];
     }
-    return out;
+    return { riichi, chengdu };
 }
 
-// 存档、副 API 回复、手选都走这里：打法不认识就当稳健型，参数夹在范围里，台词每类最多三句。
+// 存档、副 API 回复、手选都走这里：打法不认识就当稳健型，参数夹在范围里，台词只留认识的键。
 export function normalizePersona(raw, name = '', source = '') {
     const r = raw && typeof raw === 'object' ? raw : {};
     const style = MAHJONG_STYLES[r.style] ? r.style : 'steady';
@@ -92,7 +72,8 @@ export function normalizePersona(raw, name = '', source = '') {
         name: String(name || r.name || ''),
         style,
         params,
-        lines: cleanLines(r.lines),
+        voice: cleanVoices(r.voice),
+        address: cleanAddress(r.address),
         summary: String(r.summary || '').trim().slice(0, 80),
         source: source || r.source || 'auto',
     };
@@ -110,37 +91,76 @@ export function withStyle(persona, style) {
     return { ...base, style, params: presetParams(style), source: 'user' };
 }
 
-export function pickLine(persona, event, random = Math.random, avoid = '') {
-    const own = persona && persona.lines && persona.lines[event];
-    const style = persona && STYLE_LINES[persona.style] && STYLE_LINES[persona.style][event];
-    const pool = (own && own.length ? own : (style && style.length ? style : GENERIC_LINES[event])) || [];
-    const fresh = pool.length > 1 ? pool.filter((line) => line !== avoid) : pool;
-    return fresh.length ? fresh[Math.floor(random() * fresh.length) % fresh.length] : '';
+export function voiceCount(persona, rules) {
+    const voice = persona && persona.voice && persona.voice[rules === 'chengdu' ? 'chengdu' : 'riichi'];
+    return voice ? Object.keys(voice).length : 0;
 }
 
 export function loreKey(entries) {
     return hashOf((entries || []).map((entry) => `${entry.title}\n${entry.content}`).join('\n\n')).toString(36);
 }
 
-export function buildPersonaPrompt(people) {
+const TABLE_BRIEF = {
+    riichi: '这一套坐日式立直麻将：有吃碰杠、立直、默听、宝牌、役和役满，点数按符番算，东风战四局，有人被打到负分就结束。',
+    chengdu: '这一套坐成都麻将血战到底：没有吃，只有碰和杠；开局每人换三张、再定缺一门，缺门打完才能胡；一家胡了其余人接着打，直到只剩一家或牌摸完；流局时没听牌的要被查叫赔钱；封顶 4 番，共打四局。只用碰、杠、暗杠、点杠、弯杠、胡、自摸、点炮、查叫、血战、缺门这些说法，不许出现立直、追立、默听、宝牌、役满、荣和、放铳。',
+};
+
+const EXAMPLE_LINES = {
+    riichi: { 'win.ron': ['…', '…'], dealIn: ['…', '…'], 'yaku.国士无双': ['…'] },
+    chengdu: { 'win.ron': ['…', '…'], dealIn: ['…', '…'], 'pattern.清一色': ['…'] },
+};
+
+// 一次只问一个人、一套牌桌：句子少了模型才肯为每一句想她会怎么说。
+export function buildPersonaPrompt({ name, entries }, { rules = 'riichi', keep = null, cast = [] } = {}) {
+    const r = rules === 'chengdu' ? 'chengdu' : 'riichi';
+    const lore = (entries || []).map((entry) => {
+        const body = String(entry.content || '');
+        return entry.title ? `${entry.title}：${body}` : body;
+    }).join('\n');
+    const keys = Object.entries(voiceKeys(r)).map(([key, meta]) => {
+        const slots = meta.slots.length ? `（可用 ${meta.slots.map((slot) => `{${slot}}`).join(' ')}）` : '';
+        return `- ${key}：${meta.label}${slots}`;
+    }).join('\n');
+    const others = [...new Set((cast || []).map((one) => String(one || '').trim()).filter((one) => one && one !== name && one !== '你'))];
     const styles = STYLE_IDS.map((id) => `- ${id} ${MAHJONG_STYLES[id].label}：${MAHJONG_STYLES[id].blurb}`).join('\n');
-    const events = Object.entries(LINE_EVENTS).map(([id, text]) => `${id} ${text}`).join(' / ');
-    const lore = people.map(({ name, entries }) => {
-        const parts = entries.map((entry) => {
-            const body = String(entry.content || '');
-            return entry.title ? `${entry.title}：${body}` : body;
-        });
-        return `【${name}】\n${parts.join('\n')}`;
-    }).join('\n\n');
-    const example = { 角色名: { style: 'attack', adjust: { push: 0, call: 0, dama: 0, speed: 0, skill: 0, tilt: 0 }, summary: '一句话说明她为什么这样打', lines: { riichi: ['…'], win: ['…'] } } };
+    const example = keep
+        ? { address: { 你: '她对玩家的称呼' }, lines: EXAMPLE_LINES[r] }
+        : { style: 'attack', adjust: { push: 0, call: 0, dama: 0, speed: 0, skill: 0, tilt: 0, talk: 0 }, summary: '一句话说明她为什么这样打', address: { 你: '她对玩家的称呼' }, lines: EXAMPLE_LINES[r] };
+    const styleBlock = keep
+        ? `她的打法已经定了：${(MAHJONG_STYLES[keep.style] || MAHJONG_STYLES.steady).label}（${keep.summary || (MAHJONG_STYLES[keep.style] || MAHJONG_STYLES.steady).blurb}）。这次只写台词，不要改打法。`
+        : [
+            `先给她定打法（style 只能填下面的英文 id）：\n${styles}`,
+            '打法之外可以微调（每项 -0.3 到 0.3，不调写 0）：push 进攻欲（正数更敢推、少弃和），call 鸣牌欲，dama 默听倾向（只在立直麻将里生效），speed 求快还是做大（正数求快），skill 牌技（对麻将不熟就调低），tilt 输了之后的反应（正数越输越冲，负数越输越怂），talk 话多话少（正数在碰杠、看别人和牌时更爱插嘴）。',
+        ].join('\n');
     return {
-        system: '你在给立直麻将小游戏里的电脑对手定性格和打法。只根据给出的世界书资料判断每个角色坐上麻将桌会怎么打、会说什么，资料里没写的按她的性格合理推断。只输出一个 JSON 对象，不要任何解释，也不要代码块。',
+        system: [
+            '你是 galgame 编剧，在给游戏里的麻将小游戏写对手的台词。对手是这张角色卡里的人物，玩家（{{user}}）也坐在桌上。',
+            '你的任务是让她在牌桌上像她本人一样开口：自称、口癖、语气、对玩家和其他人的态度、她在意什么、她怕什么，都要从世界书资料里来；资料没写的按她的性格合理推断。',
+            '只输出一个 JSON 对象，不要解释，不要代码块。',
+        ].join('\n'),
         user: [
-            `可选打法（style 只能填下面的英文 id）：\n${styles}`,
-            '在打法之外可以微调（每项 -0.3 到 0.3，不调写 0）：push 进攻欲（正数更敢推、少弃和），call 鸣牌欲，dama 默听倾向，speed 求快还是做大（正数求快），skill 牌技（对麻将不熟就调低），tilt 输了之后的反应（正数越输越冲，负数越输越怂）。',
-            `台词每类写 1 到 2 句，每句不超过 20 个字，用她自己的口吻、称呼和口癖，不写动作和括号。类别：${events}`,
-            `输出格式（每个角色一项，键是角色名，lines 要写全部类别）：\n${JSON.stringify(example)}`,
-            `角色资料：\n${lore}`,
+            `角色：${name}`,
+            TABLE_BRIEF[r],
+            styleBlock,
+            [
+                '台词要求：',
+                '1. 每个键写 2 句，标 ★ 的特殊牌型写 1 到 2 句。每句不超过 22 个字，只写她说出口的话，不写动作、旁白、括号和表情符号。',
+                '2. 两句换个角度：一句冲着人说（挑衅、撒娇、安慰、抱怨、调情都行），一句是自言自语或漏出来的真心话。',
+                '3. 必须是只有她才会这么说的话。换个角色说也成立的句子不要写，比如「我胡了」「放铳了」「运气真好」。也不要每句都报牌名、念规则。',
+                '4. 局势要从话里听得出来，而且按她的性格反应：领先时是从容、得意还是不安，落后时是不甘、硬撑还是想哭；同样是放铳，好强的人嘴硬，胆小的人慌，傲娇找借口，腹黑记仇。',
+                '5. 和玩家的关系要体现出来：被玩家点炮、胡了玩家的牌、输给玩家时，话要带着她和玩家之间的感情和称呼。',
+                '6. 占位符会在说话时换成实际内容：{对方} 是这件事里的另一方（是玩家时换成她对玩家的称呼），{牌} 是相关的那张牌，{番} 是番数，{点} 是点数。每个键后面写了能用哪些，没写的不要用。叫对方一律写 {对方}，不要写死名字。',
+                `7. 可以在句首加一个表情标签，只能从 ${VOICE_MOODS.join(' ')} 里选，例如「[害羞]才、才不是运气好呢」。不加就用默认表情。`,
+                `8. address 写她怎么称呼玩家（键写「你」）${others.length ? `，以及资料里和她有关系的这些人：${others.join('、')}` : ''}。资料没写就按关系推断，完全不认识的不写。`,
+            ].join('\n'),
+            [
+                '示例（虚构的傲娇大小姐，只看写法，不要照抄）：',
+                '差：「我胡了。」「放铳了，可惜。」——谁都能说。',
+                '好：win.ron「[喜悦]哼，{对方}的牌本小姐收下了」「早说过你赢不了我的」；dealIn「这、这种程度才不痛呢！」「[愤怒]{对方}给我记住！」',
+            ].join('\n'),
+            `键（lines 里每个都要写）：\n${keys}`,
+            `输出格式：\n${JSON.stringify(example)}`,
+            `${name}的世界书资料：\n${lore}`,
         ].join('\n\n'),
     };
 }
@@ -154,25 +174,39 @@ function readJson(text) {
     try { return JSON.parse(raw.slice(start, end + 1)); } catch (error) { return null; }
 }
 
-export function parsePersonaReply(text, names) {
+// 回复可能是 { style, lines }，也可能包了一层 { 名字: {...} } 或 { characters: [...] }。
+export function parsePersonaReply(text, name, { rules = 'riichi', keep = null } = {}) {
+    const r = rules === 'chengdu' ? 'chengdu' : 'riichi';
     const data = readJson(text);
-    const out = {};
-    if (!data || typeof data !== 'object') return out;
-    const list = Array.isArray(data) ? data : (Array.isArray(data.characters) ? data.characters : null);
-    for (const name of names) {
-        const raw = list ? list.find((item) => item && item.name === name) : data[name];
-        if (raw && typeof raw === 'object' && MAHJONG_STYLES[raw.style]) out[name] = normalizePersona(raw, name, 'ai');
-    }
-    return out;
+    if (!data || typeof data !== 'object') return null;
+    let raw = data;
+    if (Array.isArray(data)) raw = data.find((item) => item && item.name === name) || data[0];
+    else if (Array.isArray(data.characters)) raw = data.characters.find((item) => item && item.name === name) || data.characters[0];
+    else if (data[name] && typeof data[name] === 'object') raw = data[name];
+    if (!raw || typeof raw !== 'object') return null;
+    const lines = raw.lines || raw[r] || raw.voice || null;
+    const base = keep || (MAHJONG_STYLES[raw.style] ? raw : null);
+    if (!base && !lines) return null;
+    const persona = normalizePersona({
+        style: base ? base.style : autoPersona(name).style,
+        params: keep ? keep.params : undefined,
+        adjust: keep ? undefined : raw.adjust,
+        summary: keep ? keep.summary : raw.summary,
+        address: { ...((keep && keep.address) || {}), ...cleanAddress(raw.address) },
+        voice: { [r]: lines },
+    }, name, 'ai');
+    return persona;
 }
 
 const PERSONA_KEY = 'igs-wait-mahjong-persona-v1';
 const PERSONA_LIMIT = 60;
 
-// 打法表：副 API 配好的按世界书内容记一份，世界书改了再重配；手选的单独记，优先于副 API。
+// 打法和台词表：副 API 配好的按世界书内容记一份，世界书改了再重配；两套牌桌的台词分开问、分开记。
+// 手选的打法单独记，优先于副 API，但台词照用副 API 写的。重写丢掉手选，连打法带当前这套台词再问一次。
 export function createPersonaStore({ storage = null, service = null } = {}) {
     let svc = service;
     const live = new Map();
+    const flight = new Set();
     const listeners = new Set();
     let data = read();
 
@@ -196,16 +230,56 @@ export function createPersonaStore({ storage = null, service = null } = {}) {
         }
     }
 
+    function cachedPersona(name) {
+        const cached = data.ai[name];
+        return cached && cached.persona && MAHJONG_STYLES[cached.persona.style] ? normalizePersona(cached.persona, name, 'ai') : null;
+    }
+
     function base(name) {
         const entry = live.get(name);
         if (entry && entry.state === 'auto') return null;
         if (entry && entry.persona) return entry.persona;
-        const cached = data.ai[name];
-        return cached && cached.persona ? normalizePersona(cached.persona, name, 'ai') : null;
+        return cachedPersona(name);
     }
 
-    function settle(name, state, persona, note = '', retry = false) {
-        live.set(name, { state, persona, note, retry });
+    function settle(name, rules, state, persona, note = '', retry = false) {
+        const entry = live.get(name) || { done: new Set() };
+        if (retry) entry.done.delete(rules);
+        else entry.done.add(rules);
+        const rewriting = Boolean(entry.rewriting) && RULE_IDS.some((id) => id !== rules && flight.has(`${name}\n${id}`));
+        Object.assign(entry, { state, persona, note: rewriting ? entry.note : note, retry, rewriting });
+        live.set(name, entry);
+    }
+
+    function fallback(name, rules, note) {
+        const own = base(name);
+        settle(name, rules, own ? 'ai' : 'auto', own || autoPersona(name), note, true);
+    }
+
+    function keep(name, persona, key) {
+        const cached = data.ai[name];
+        const prev = cached && cached.key === key && cached.persona ? normalizePersona(cached.persona, name, 'ai') : null;
+        const voice = { ...(prev ? prev.voice : {}) };
+        for (const id of RULE_IDS) if (Object.keys(persona.voice[id] || {}).length) voice[id] = persona.voice[id];
+        const merged = { ...persona, voice, address: { ...(prev ? prev.address : {}), ...persona.address } };
+        data.ai[name] = { key, at: Date.now(), persona: { v: 2, style: merged.style, params: merged.params, summary: merged.summary, address: merged.address, voice } };
+        return normalizePersona(data.ai[name].persona, name, 'ai');
+    }
+
+    async function askOne(item, rules, cast) {
+        const reply = await Promise.resolve(svc.ask(buildPersonaPrompt(item, { rules, keep: item.keep, cast }))).catch(() => null);
+        const parsed = reply && reply.ok ? parsePersonaReply(reply.text, item.name, { rules, keep: item.keep }) : null;
+        if (!parsed) {
+            fallback(item.name, rules, reply && reply.ok ? '副 API 的回复没读懂，先用打法自带的台词' : '副 API 请求失败，先用打法自带的台词');
+        } else {
+            const persona = keep(item.name, parsed, item.key);
+            if (item.force) delete data.user[item.name];
+            const enough = voiceCount(persona, rules) >= VOICE_ENOUGH;
+            settle(item.name, rules, 'ai', persona, enough ? '' : '副 API 写回的台词太少，缺的先用打法自带的', !enough);
+            write();
+        }
+        flight.delete(`${item.name}\n${rules}`);
+        emit();
     }
 
     return {
@@ -217,10 +291,14 @@ export function createPersonaStore({ storage = null, service = null } = {}) {
             return own || autoPersona(name);
         },
         state(name) {
-            if (data.user[name] && MAHJONG_STYLES[data.user[name]]) return 'user';
             const entry = live.get(name);
+            if (entry && entry.rewriting) return 'rewrite';
+            if (data.user[name] && MAHJONG_STYLES[data.user[name]]) return 'user';
             if (entry) return entry.state;
-            return data.ai[name] ? 'ai' : 'none';
+            return cachedPersona(name) ? 'ai' : 'none';
+        },
+        busy(name) {
+            return RULE_IDS.some((id) => flight.has(`${name}\n${id}`));
         },
         note(name) {
             const entry = live.get(name);
@@ -239,11 +317,29 @@ export function createPersonaStore({ storage = null, service = null } = {}) {
             listeners.add(listener);
             return () => listeners.delete(listener);
         },
-        async ensure(names) {
-            const todo = [...new Set((names || []).map((n) => String(n || '').trim()).filter(Boolean))]
-                .filter((name) => !live.has(name) || live.get(name).retry);
+        // cast：同桌的人，副 API 顺便写她怎么称呼这些人。force：不看缓存，打法和当前这套台词都重问。
+        async ensure(names, { rules = 'riichi', cast = [], force = false } = {}) {
+            const r = rules === 'chengdu' ? 'chengdu' : 'riichi';
+            const todo = [...new Set((names || []).map((n) => String(n || '').trim()).filter(Boolean))].filter((name) => {
+                if (flight.has(`${name}\n${r}`)) return false;
+                if (force) return true;
+                const entry = live.get(name);
+                return !entry || entry.retry || !entry.done.has(r);
+            });
             if (!todo.length) return;
-            todo.forEach((name) => settle(name, 'pending', base(name)));
+            for (const name of todo) {
+                flight.add(`${name}\n${r}`);
+                const own = base(name);
+                const entry = live.get(name) || { done: new Set() };
+                const rewriting = force || Boolean(entry.rewriting && RULE_IDS.some((id) => id !== r && flight.has(`${name}\n${id}`)));
+                Object.assign(entry, {
+                    state: own && !force ? 'ai' : 'pending',
+                    persona: own,
+                    note: force ? '正在重新生成打法和台词…' : (entry.rewriting ? entry.note : '正在读世界书…'),
+                    rewriting,
+                });
+                live.set(name, entry);
+            }
             emit();
             let lore = null;
             if (svc && typeof svc.lore === 'function') {
@@ -253,47 +349,54 @@ export function createPersonaStore({ storage = null, service = null } = {}) {
             const ask = [];
             for (const name of todo) {
                 if (!lore) {
-                    settle(name, base(name) ? 'ai' : 'auto', base(name) || autoPersona(name), base(name) ? '读不到世界书，沿用上次配的打法' : '读不到世界书，先随机配一种', true);
+                    fallback(name, r, base(name) ? '读不到世界书，沿用上次配的' : '读不到世界书，先随机配一种打法');
+                    flight.delete(`${name}\n${r}`);
                     continue;
                 }
                 const hit = lore.find((item) => item && item.name === name);
                 const entries = hit && Array.isArray(hit.entries) ? hit.entries.filter((entry) => entry && entry.content) : [];
                 if (!entries.length) {
-                    settle(name, 'auto', autoPersona(name), '角色卡世界书里没有她的条目，先随机配一种');
+                    settle(name, r, 'auto', autoPersona(name), '角色卡世界书里没有她的条目，先随机配一种打法');
+                    flight.delete(`${name}\n${r}`);
                     continue;
                 }
                 const key = loreKey(entries);
                 const cached = data.ai[name];
-                if (cached && cached.key === key && cached.persona) {
-                    settle(name, 'ai', normalizePersona(cached.persona, name, 'ai'));
+                const same = cached && cached.key === key && cached.persona && MAHJONG_STYLES[cached.persona.style];
+                const stored = same ? normalizePersona(cached.persona, name, 'ai') : null;
+                if (!force && stored && cached.persona.v === 2 && voiceCount(stored, r) >= VOICE_ENOUGH) {
+                    settle(name, r, 'ai', stored);
+                    flight.delete(`${name}\n${r}`);
                     continue;
                 }
-                ask.push({ name, entries, key });
+                ask.push({ name, entries, key, keep: force ? null : stored, force });
             }
             emit();
             if (!ask.length) return;
             let status = { ok: false, reason: 'unavailable' };
             try { status = svc && typeof svc.status === 'function' ? (svc.status() || status) : status; } catch (error) { /* 当作不可用 */ }
             if (!status.ok || typeof svc.ask !== 'function') {
-                const note = status.reason === 'busy' ? '正文还在写，先随机配一种，下次再读世界书' : '副 API 不可用，先随机配一种';
-                ask.forEach(({ name }) => settle(name, base(name) ? 'ai' : 'auto', base(name) || autoPersona(name), note, true));
+                const note = status.reason === 'busy' ? '正文还在写，先用打法自带的台词，下次再读世界书' : '副 API 不可用，先用打法自带的台词';
+                for (const { name } of ask) {
+                    fallback(name, r, note);
+                    flight.delete(`${name}\n${r}`);
+                }
                 emit();
                 return;
             }
-            const reply = await Promise.resolve(svc.ask(buildPersonaPrompt(ask))).catch(() => null);
-            const parsed = reply && reply.ok ? parsePersonaReply(reply.text, ask.map((item) => item.name)) : {};
-            for (const { name, key } of ask) {
-                const persona = parsed[name];
-                if (persona) {
-                    data.ai[name] = { key, at: Date.now(), persona: { style: persona.style, params: persona.params, lines: persona.lines, summary: persona.summary } };
-                    settle(name, 'ai', persona);
-                } else {
-                    settle(name, base(name) ? 'ai' : 'auto', base(name) || autoPersona(name),
-                        reply && reply.ok ? '副 API 的回复没读懂，先随机配一种' : '副 API 请求失败，先随机配一种', true);
-                }
+            for (const item of ask) {
+                const entry = live.get(item.name);
+                if (entry) entry.note = item.force ? '正在重新生成打法和台词…' : '正在按世界书写台词…';
             }
-            write();
             emit();
+            // 单独配的副 API 一起问；走酒馆主连接时一个一个来，别和正文抢。
+            if (status.via === 'secondary') await Promise.all(ask.map((item) => askOne(item, r, cast)));
+            else for (const item of ask) await askOne(item, r, cast);
+        },
+        refresh(name, options = {}) {
+            const who = String(name || '').trim();
+            if (!who) return Promise.resolve();
+            return this.ensure([who], { ...options, force: true });
         },
     };
 }
@@ -399,6 +502,7 @@ export class MindfulAI extends AI {
         this.random = typeof options.random === 'function' ? options.random : Math.random;
         this.plain = Boolean(options.plain);
         this.think = options.think !== false;
+        this.rules = options.rules || riichiRules();
         this.mind = createMind();
         this.intent = '';
         this.damaHand = false;
@@ -437,6 +541,7 @@ export class MindfulAI extends AI {
 
     qipai(qipai) {
         super.qipai(qipai);
+        if (this.rules.installSuanpai) this.rules.installSuanpai(this, qipai);
         calmMind(this.mind);
         this._damaMemo = new Map();
         this.damaHand = false;
@@ -455,6 +560,7 @@ export class MindfulAI extends AI {
 
     // 别家有多吓人：立直是 1；副露看几副露、巡目、宝牌和染手；门清到很晚才算一点点。
     threatOf(l) {
+        if (this.rules.threatOf) return this.rules.threatOf(this, l);
         const hand = this._model.shoupai[l];
         if (!hand) return 0;
         if (hand.lizhi) return 1;
@@ -487,6 +593,7 @@ export class MindfulAI extends AI {
         let combined = null;
         for (let l = 0; l < 4; l += 1) {
             if (l === this._menfeng) continue;
+            if (this.rules.ignoreSeat && this.rules.ignoreSeat(this, l)) continue;
             let t = this.threatOf(l);
             if (t < 1) t *= 0.4 + 0.6 * skill;
             if (t < 0.3) continue;
@@ -500,13 +607,176 @@ export class MindfulAI extends AI {
             }
             combined = combined || {};
             for (const p of Object.keys(w)) {
-                const v = w[p] / (sum || 1) * 100 * (l === 0 ? 1.5 : 1) * t;
+                const dealer = this.rules.dealerWeight ? this.rules.dealerWeight(l) : (l === 0 ? 1.5 : 1);
+            const v = w[p] / (sum || 1) * 100 * dealer * t;
                 combined[p] = Math.max(combined[p] || 0, v);
             }
             fear = Math.max(fear, t);
         }
         if (!combined) return { weixian: null, fear: 0 };
         return { weixian: (p) => combined[p[0] + (+p[1] || 5)], fear };
+    }
+
+    xiangting(shoupai) {
+        if (this.rules.yaku) return riichiYakuXiangting(this, shoupai);
+        return this.rules.xiangting(shoupai);
+    }
+
+    tingpai(shoupai) {
+        if (this.rules.yaku) return riichiTingpai(this, shoupai);
+        return this.rules.listWaits(this, shoupai);
+    }
+
+    get_dapai(shoupai) {
+        const list = super.get_dapai(shoupai);
+        return this.rules.filterDapai ? this.rules.filterDapai(this, list, shoupai) : list;
+    }
+
+    get_chi_mianzi(shoupai, p) {
+        if (this.rules.allowChi === false) return [];
+        return super.get_chi_mianzi(shoupai, p);
+    }
+
+    allow_hule(shoupai, p, hupai) {
+        if (this.rules.allowHule === false) return false;
+        return super.allow_hule(shoupai, p, hupai);
+    }
+
+    allow_lizhi(shoupai, p) {
+        if (this.rules.allowLizhi === false) return false;
+        return super.allow_lizhi(shoupai, p);
+    }
+
+    allow_pingju(shoupai) {
+        if (this.rules.allowPingju === false) return false;
+        return super.allow_pingju(shoupai);
+    }
+
+    allow_no_daopai(shoupai) {
+        if (this.rules.allowNoDaopai === false) return false;
+        return super.allow_no_daopai(shoupai);
+    }
+
+    get_defen(shoupai, rongpai) {
+        let paistr = shoupai.toString();
+        if (rongpai) paistr = paistr.replace(/^([^\*,]*)(.*)$/, `$1${rongpai}$2`);
+        if (this.rules.cacheExtra) paistr += this.rules.cacheExtra(this);
+        if (this._defen_cache[paistr] != null) return this._defen_cache[paistr];
+        const defen = this.rules.defen(this, shoupai, rongpai);
+        this._defen_cache[paistr] = defen;
+        return defen;
+    }
+
+    eval_shoupai(shoupai, paishu, back) {
+        const paistr = shoupai.toString() + (back != null ? `:${back}` : '');
+        if (this._eval_cache[paistr] != null) return this._eval_cache[paistr];
+        let rv = 0;
+        const nXiangting = this.rules.xiangting(shoupai);
+        if (nXiangting === -1) {
+            rv = this.get_defen(shoupai);
+        } else if (shoupai._zimo) {
+            for (const p of this.get_dapai(shoupai)) {
+                const next = shoupai.clone().dapai(p);
+                if (this.rules.xiangting(next) > nXiangting) continue;
+                const ev = this.eval_shoupai(next, paishu, back);
+                if (ev > rv) rv = ev;
+            }
+        } else if (nXiangting < 3) {
+            for (const p of this.rules.expand(this.rules.tingpai(shoupai))) {
+                if (p === back) { rv = 0; break; }
+                if (paishu.val(p) === 0) continue;
+                const next = shoupai.clone().zimo(p);
+                paishu.pop(p);
+                let ev = this.eval_shoupai(next, paishu, back);
+                if (!back) {
+                    if (nXiangting > 0) ev += this.eval_fulou(shoupai, p, paishu, back);
+                }
+                paishu.push(p);
+                rv += ev * paishu.val(p);
+            }
+            rv /= EVAL_WIDTH[nXiangting];
+        } else {
+            for (const p of this.rules.expand(this.tingpai(shoupai))) {
+                if (paishu.val(p, 1) === 0) continue;
+                rv += paishu.val(p, 1) * this.rules.waitWeight(p);
+            }
+        }
+        this._eval_cache[paistr] = rv;
+        return rv;
+    }
+
+    eval_backtrack(shoupai, paishu, back, min) {
+        const nXiangting = this.rules.xiangting(shoupai);
+        let rv = 0;
+        for (const p of this.rules.expand(this.rules.tingpai(shoupai))) {
+            if (p.replace(/0/, '5') === back) continue;
+            if (paishu.val(p) === 0) continue;
+            const next = shoupai.clone().zimo(p);
+            paishu.pop(p);
+            const ev = this.eval_shoupai(next, paishu, back);
+            paishu.push(p);
+            if (ev - min > 0.0000001) rv += ev * paishu.val(p);
+        }
+        return rv / EVAL_WIDTH[nXiangting];
+    }
+
+    eval_fulou(shoupai, p, paishu, back) {
+        const nXiangting = this.rules.xiangting(shoupai);
+        let pengMax = 0;
+        for (const m of this.get_peng_mianzi(shoupai, `${p}+`)) {
+            const next = shoupai.clone().fulou(m);
+            if (this.rules.xiangting(next) >= nXiangting) continue;
+            pengMax = Math.max(this.eval_shoupai(next, paishu, back), pengMax);
+        }
+        let chiMax = 0;
+        for (const m of this.get_chi_mianzi(shoupai, `${p}-`)) {
+            const next = shoupai.clone().fulou(m);
+            if (this.rules.xiangting(next) >= nXiangting) continue;
+            chiMax = Math.max(this.eval_shoupai(next, paishu, back), chiMax);
+        }
+        return this.rules.mixFulou(pengMax, chiMax);
+    }
+
+    select_gang(info) {
+        let nXiangting = this.rules.xiangting(this.shoupai);
+        if (this._model.shoupai.find((s) => s.lizhi) && nXiangting > 0) return undefined;
+        const paishu = this._suanpai.get_paishu();
+        if (nXiangting < 3) {
+            let gang;
+            let max = this.eval_shoupai(this.shoupai, paishu);
+            for (const m of this.get_gang_mianzi(this.shoupai) || []) {
+                const shoupai = this.shoupai.clone().gang(m);
+                if (this.rules.xiangting(shoupai) >= 3) continue;
+                let ev = this.eval_shoupai(shoupai, paishu);
+                if (this.rules.gangFee) ev += this.rules.gangFee(this, m);
+                if (info) {
+                    const p = m.match(/\d{4}$/) ? m.slice(0, 2) : m[0] + m.slice(-1);
+                    const tingpai = this.rules.tingpai(shoupai);
+                    const nTingpai = tingpai.map((tile) => this._suanpai._paishu[tile[0]][tile[1]]).reduce((x, y) => x + y, 0);
+                    info.push({ p, m, n_xiangting: nXiangting, ev, tingpai, n_tingpai: nTingpai });
+                }
+                if (ev - max > -0.0000001) {
+                    gang = m;
+                    max = ev;
+                }
+            }
+            return gang;
+        }
+        nXiangting = this.xiangting(this.shoupai);
+        for (const m of this.get_gang_mianzi(this.shoupai) || []) {
+            const shoupai = this.shoupai.clone().gang(m);
+            if (this.xiangting(shoupai) === nXiangting) {
+                if (info) {
+                    const p = m.match(/\d{4}$/) ? m.slice(0, 2) : m[0] + m.slice(-1);
+                    const ev = this.eval_shoupai(shoupai, paishu);
+                    const tingpai = this.rules.tingpai(shoupai);
+                    const nTingpai = tingpai.map((tile) => this._suanpai._paishu[tile[0]][tile[1]]).reduce((x, y) => x + y, 0);
+                    info.push({ p, m, n_xiangting: nXiangting, ev, tingpai, n_tingpai: nTingpai });
+                }
+                return m;
+            }
+        }
+        return undefined;
     }
 
     // 引擎的出牌流程，门槛按进攻欲缩放：push=0 时与引擎相同。
@@ -537,14 +807,14 @@ export class MindfulAI extends AI {
         let bestFreeEv = -1;
         const backtrack = [];
         const pool = [];
-        const nXiangting = Majiang.Util.xiangting(this.shoupai);
+        const nXiangting = this.rules.xiangting(this.shoupai);
         const paishu = this._suanpai.get_paishu();
         const paijia = this._suanpai.make_paijia(this.shoupai);
-        const count = (shoupai) => Majiang.Util.tingpai(shoupai).map((p) => this._suanpai._paishu[p[0]][p[1]]).reduce((x, y) => x + y, 0);
+        const count = (shoupai) => this.rules.tingpai(shoupai).map((p) => this._suanpai._paishu[p[0]][p[1]]).reduce((x, y) => x + y, 0);
         for (const p of this.get_dapai(this.shoupai).reverse().sort((x, y) => paijia(x) - paijia(y))) {
             if (!dapai) dapai = p;
             const shoupai = this.shoupai.clone().dapai(p);
-            if ((nXiangting > 2 && this.xiangting(shoupai) > nXiangting) || Majiang.Util.xiangting(shoupai) > nXiangting) {
+            if ((nXiangting > 2 && this.xiangting(shoupai) > nXiangting) || this.rules.xiangting(shoupai) > nXiangting) {
                 if (anquan) continue;
                 if (nXiangting < 2) backtrack.push(p);
                 continue;
@@ -678,22 +948,22 @@ export class MindfulAI extends AI {
     select_fulou(dapai) {
         const k = this.knobs();
         const evScale = 2 ** (-k.push * 1.5);
-        let nXiangting = Majiang.Util.xiangting(this.shoupai);
+        let nXiangting = this.rules.xiangting(this.shoupai);
         const riichi = this._model.shoupai.find((s) => s && s.lizhi);
         if (riichi && nXiangting >= 3) return undefined;
         const d = ['', '+', '=', '-'][(4 + this._model.lunban - this._menfeng) % 4];
         const p = dapai.p.slice(0, 2) + d;
         if (nXiangting < 3) {
-            const mianzi = this.get_gang_mianzi(this.shoupai, p)
-                .concat(this.get_peng_mianzi(this.shoupai, p))
-                .concat(this.get_chi_mianzi(this.shoupai, p));
+            const mianzi = (this.get_gang_mianzi(this.shoupai, p) || [])
+                .concat(this.get_peng_mianzi(this.shoupai, p) || [])
+                .concat(this.get_chi_mianzi(this.shoupai, p) || []);
             if (!mianzi.length) return undefined;
             const paishu = this._suanpai.get_paishu();
             let best = this.eval_shoupai(this.shoupai, paishu, '') * 2 ** ((0.5 - k.call) * 1.8);
             let fulou;
             for (const m of mianzi) {
                 const shoupai = this.shoupai.clone().fulou(m);
-                const x = Majiang.Util.xiangting(shoupai);
+                const x = this.rules.xiangting(shoupai);
                 if (x >= 3) continue;
                 const ev = this.eval_shoupai(shoupai, paishu);
                 if (riichi) {
@@ -708,7 +978,7 @@ export class MindfulAI extends AI {
             if (fulou) this.noteThink(200);
             return fulou;
         }
-        const mianzi = this.get_peng_mianzi(this.shoupai, p).concat(this.get_chi_mianzi(this.shoupai, p));
+        const mianzi = (this.get_peng_mianzi(this.shoupai, p) || []).concat(this.get_chi_mianzi(this.shoupai, p) || []);
         if (!mianzi.length) return undefined;
         nXiangting = this.xiangting(this.shoupai);
         for (const m of mianzi) {

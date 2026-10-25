@@ -1,6 +1,8 @@
 import { WAIT_STAGE_STYLE_TEXT } from '../../src/visual/igs-ui/wait-stage.js';
 import { WAIT_STAGE_GAME_STYLE_TEXT } from '../../src/visual/igs-ui/wait-stage-games.js';
 import { startMahjong } from '../../src/visual/igs-ui/wait-stage-mahjong.js';
+import { scmjLiveMatch } from '../../src/visual/igs-ui/wait-stage-scmj.js';
+import { greedyDecide } from '../../scripts/scmj-players.mjs';
 import { buildWaitStageModel } from '../../src/visual/igs-ui/wait-stage-runtime.js';
 import { CG_PIXEL_CAP, fitCgSize } from '../../src/generated-images/illustration/cg-pixel-cap.js';
 
@@ -115,8 +117,22 @@ const PREVIEW_LORE = {
     咲: [{ title: '咲', content: '田径部王牌，做什么都图快，性子急，说话短。' }],
 };
 const PREVIEW_PERSONA = {
-    绫: { style: 'attack', adjust: { tilt: 0.3 }, summary: '好胜，被立直也要追', lines: { riichi: ['本小姐立直了，退下吧！'], chase: ['想压过本小姐？追立！'], win: ['哼，本小姐的胜利。'], dealIn: ['刚才那张不算！'], tilt: ['本小姐要全力了！'], push: ['本小姐不会退。'] } },
-    咲: { style: 'swift', summary: '图快，能鸣就鸣', lines: { call: ['拿来！', '这张归我！'], win: ['抢到了！'], riichi: ['快，立直！'] } },
+    绫: {
+        style: 'attack', adjust: { tilt: 0.3, talk: 0.2 }, summary: '好胜，被立直也要追', address: { 你: '庶民' },
+        riichi: {
+            riichi: ['本小姐立直了，退下吧！'], 'riichi.chase': ['想压过本小姐？{对方}，追立！'], 'win.ron': ['[喜悦]{对方}的{牌}，本小姐收下了。'],
+            dealIn: ['[愤怒]刚才那张不算！{对方}给我记住！'], 'open.tilt': ['本小姐要全力了！'], push: ['本小姐不会退。'], 'yaku.国士无双': ['十三张全齐，跪下吧！'],
+        },
+        chengdu: {
+            peng: ['{对方}的{牌}，本小姐碰了。'], 'win.ron': ['[喜悦]{对方}，这{番}番是你孝敬的。'], dealIn: ['[愤怒]区区{牌}，本小姐才不在乎！'],
+            'pattern.清一色': ['清一色，这才配得上本小姐。'], duel: ['只剩{对方}？正好，单挑。'],
+        },
+    },
+    咲: {
+        style: 'swift', summary: '图快，能鸣就鸣', address: { 你: '学长' },
+        riichi: { call: ['拿来！', '这张归我！'], 'win.tsumo': ['抢到了！'], riichi: ['快，立直！'] },
+        chengdu: { peng: ['碰碰碰！'], 'win.zimo': ['自摸，先走一步！'], 'win.first': ['第一个下桌，你们慢慢来～'] },
+    },
 };
 window.__personaAsks = [];
 const persona = {
@@ -125,8 +141,11 @@ const persona = {
     async ask(prompt) {
         window.__personaAsks.push(prompt);
         await new Promise((resolve) => { setTimeout(resolve, 1500); });
-        const names = Object.keys(PREVIEW_PERSONA).filter((name) => prompt.user.includes(`【${name}】`));
-        return { ok: true, text: JSON.stringify(Object.fromEntries(names.map((name) => [name, PREVIEW_PERSONA[name]]))) };
+        const name = Object.keys(PREVIEW_PERSONA).find((one) => prompt.user.includes(`角色：${one}`));
+        const one = name && PREVIEW_PERSONA[name];
+        if (!one) return { ok: false, reason: 'failed' };
+        const rules = /血战到底/.test(prompt.user.split('\n\n')[1] || '') ? 'chengdu' : 'riichi';
+        return { ok: true, text: JSON.stringify({ style: one.style, adjust: one.adjust, summary: one.summary, address: one.address, lines: one[rules] }) };
     },
 };
 
@@ -148,3 +167,15 @@ startMahjong({
     },
 });
 if (/next/.test(location.search)) note.textContent = '下一楼已经写好，点「加载下一楼」再进去。';
+
+// 预览调试：让贪心策略替「你」打到指定阶段（huan、dingque、turn、action、result、final）。
+window.__scmjTo = (targets, max = 400) => {
+    const match = scmjLiveMatch();
+    if (!match) return 'no-match';
+    const want = [].concat(targets);
+    for (let i = 0; i < max && !want.includes(match.phase()); i += 1) {
+        if (['result', 'final', 'stop'].includes(match.phase())) break;
+        match.answer(greedyDecide(match.view()));
+    }
+    return match.phase();
+};

@@ -1,0 +1,22 @@
+{
+ "suite": "plan-vs-naive",
+ "walls": 1000,
+ "seedBase": 1,
+ "options": {
+  "variant": "",
+  "K": 0,
+  "persona": "",
+  "oppPersona": ""
+ },
+ "workers": 16,
+ "ms": 159979,
+ "cores": 18,
+ "cpu": "Apple M5 Pro",
+ "node": "v24.10.0",
+ "decide": {
+  "n": 59789,
+  "p50": 2,
+  "p95": 59,
+  "max": 848
+ }
+}

@@ -1,5 +1,6 @@
 // 等待过场里的小游戏。这段不进 Gal 前端主体，只由独立导入脚本登记后才会玩。
 import { MAHJONG_STYLE, startMahjong } from './wait-stage-mahjong.js';
+import { SCMJ_STYLE } from './wait-stage-scmj.js';
 export const WAIT_STAGE_GAME_LINES = Object.freeze({
     win: ['……这局算你的。', '运气不错嘛。', '好吧，你赢了。', '再来，我不信了。'],
     lose: ['承让了。', '还是我比较稳。', '再来一局？', '下次可别怪我不客气。'],
@@ -18,7 +19,7 @@ export const WAIT_STAGE_GAMES = Object.freeze(['rps', 'mahjong', 'whosaid', 'mem
 
 export const WAIT_STAGE_GAME_LABELS = Object.freeze({
     rps: '猜拳',
-    mahjong: '立直麻将',
+    mahjong: '麻将',
     whosaid: '这句是谁说的',
     memory: '翻牌配对',
     mood: '心情猜猜',
@@ -151,7 +152,7 @@ export const WAIT_STAGE_GAME_STYLE_TEXT = `
 @media (prefers-reduced-motion: reduce){
 .igs-ws-board,.igs-ws-card img{animation:none!important;}
 }
-` + MAHJONG_STYLE;
+` + MAHJONG_STYLE + SCMJ_STYLE;
 
 const GAME_STYLE_ID = 'igs-wait-games-style';
 

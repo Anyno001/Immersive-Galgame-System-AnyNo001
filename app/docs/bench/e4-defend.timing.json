@@ -1,0 +1,24 @@
+{
+ "suite": "plan-vs-plan",
+ "walls": 500,
+ "seedBase": 1,
+ "options": {
+  "variant": "defend",
+  "K": 0,
+  "persona": "",
+  "oppPersona": ""
+ },
+ "workers": 16,
+ "ms": 140910,
+ "cores": 18,
+ "cpu": "Apple M5 Pro",
+ "node": "v24.10.0",
+ "decide": {
+  "n": 30237,
+  "p50": 2,
+  "p95": 59,
+  "p99": 283,
+  "over250": 362,
+  "max": 691
+ }
+}

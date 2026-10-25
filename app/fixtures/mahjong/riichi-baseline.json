@@ -1,0 +1,639 @@
+{
+  "commit": "1a1f73994be6811ce494a80133ed28b003d57aa5",
+  "rule": {
+    "場数": 1
+  },
+  "note": "MindfulAI 坐 0 号位，其余三家为原版 AI。random 为 seeded(seed + 1000)，牌山随机源为 seeded(seed)。",
+  "records": [
+    {
+      "kind": "ai",
+      "seed": 1,
+      "seat": null,
+      "style": null,
+      "sha256": "ec4eda44cde274903df99ed0f3482c4be04f4c7908f83f774c20e188c5077b9f"
+    },
+    {
+      "kind": "ai",
+      "seed": 2,
+      "seat": null,
+      "style": null,
+      "sha256": "b366405931d7064588b1f3aa1440868db838c87c112a06d6456d8e921c7f1f42"
+    },
+    {
+      "kind": "ai",
+      "seed": 3,
+      "seat": null,
+      "style": null,
+      "sha256": "efbf992d71726149d5a336dfe650b3e836dfd588537338ef0bfcfb535002165c"
+    },
+    {
+      "kind": "ai",
+      "seed": 4,
+      "seat": null,
+      "style": null,
+      "sha256": "01cf7366b612bc15fb6575dd4aa57988aae17293e4f8cfc87c118df0677f0d7b"
+    },
+    {
+      "kind": "ai",
+      "seed": 5,
+      "seat": null,
+      "style": null,
+      "sha256": "41fcee2a9be4c1970b3078f47e2a08d747bcf3897354ec8958abac52350bc2f9"
+    },
+    {
+      "kind": "ai",
+      "seed": 6,
+      "seat": null,
+      "style": null,
+      "sha256": "5ada9de1732fdd10fc2dee1cd0ae7ed17518f6c500028833938905fb7a9f3845"
+    },
+    {
+      "kind": "ai",
+      "seed": 7,
+      "seat": null,
+      "style": null,
+      "sha256": "af0b6312136113cbb97d117aba45d6d4ff131180e1e08c18e3f59e165e452610"
+    },
+    {
+      "kind": "ai",
+      "seed": 8,
+      "seat": null,
+      "style": null,
+      "sha256": "a24836ff7cd4ad2c26168b8cc413ed86d7ba6fb38f6221d60d48c2b1019c8f03"
+    },
+    {
+      "kind": "ai",
+      "seed": 9,
+      "seat": null,
+      "style": null,
+      "sha256": "0f43d58fbc907c358e259dd203bd2a61d1f26832fbbd2f6e7bc0325ff00af430"
+    },
+    {
+      "kind": "ai",
+      "seed": 10,
+      "seat": null,
+      "style": null,
+      "sha256": "b42a01d660d85dc9bb57d45d0a0abdb299ae27dc3ba9d24560d89c5e923b8a51"
+    },
+    {
+      "kind": "ai",
+      "seed": 11,
+      "seat": null,
+      "style": null,
+      "sha256": "215f155c7a737c4052fe32b2f256374a3f6aed3e2f73135130662236c321ff3b"
+    },
+    {
+      "kind": "ai",
+      "seed": 12,
+      "seat": null,
+      "style": null,
+      "sha256": "60d28ed7bf919991d88ff2b294210f99d0b58577a8a82b53be8a912acd05f608"
+    },
+    {
+      "kind": "ai",
+      "seed": 13,
+      "seat": null,
+      "style": null,
+      "sha256": "badd6272a21112040acbdc92a626e2599a7f0aad536d727fd0c1fdd1a8db1cdd"
+    },
+    {
+      "kind": "ai",
+      "seed": 14,
+      "seat": null,
+      "style": null,
+      "sha256": "74ebba01a8069328a49ba8acbb84e9ae0741c4d7179c74ff192e7b81e8da7007"
+    },
+    {
+      "kind": "ai",
+      "seed": 15,
+      "seat": null,
+      "style": null,
+      "sha256": "026b7185464e5620e70f55cf52a0785b2a9fc0bd79e0d34f9b94fa47b413586c"
+    },
+    {
+      "kind": "ai",
+      "seed": 16,
+      "seat": null,
+      "style": null,
+      "sha256": "67c6b706517779ac9b15be634142f91cba27f9fd202c288eca77ebd6fbd6e180"
+    },
+    {
+      "kind": "ai",
+      "seed": 17,
+      "seat": null,
+      "style": null,
+      "sha256": "eae1fabc659a86aa3451e00568adbf4518bfa8cccc0a68f1c2ffdc166ca77722"
+    },
+    {
+      "kind": "ai",
+      "seed": 18,
+      "seat": null,
+      "style": null,
+      "sha256": "0b78c5e461a0ecc425aab64826256d6ca2c74932e7ccb1bc9b99066065bc6924"
+    },
+    {
+      "kind": "ai",
+      "seed": 19,
+      "seat": null,
+      "style": null,
+      "sha256": "40edd200c9b04cc12304c66bfed82ba335af65539e963338044000eeb8a5ebe0"
+    },
+    {
+      "kind": "ai",
+      "seed": 20,
+      "seat": null,
+      "style": null,
+      "sha256": "ecbd759c5557c196f14870219bb963a4b81a333edb91b84a1fc515af30e7758e"
+    },
+    {
+      "kind": "mindful",
+      "seed": 1,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "1064c130925ecd92b2c4f3ba6b2cf9498b08679efc71fe44f13584d0260aba6c"
+    },
+    {
+      "kind": "mindful",
+      "seed": 2,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "b366405931d7064588b1f3aa1440868db838c87c112a06d6456d8e921c7f1f42"
+    },
+    {
+      "kind": "mindful",
+      "seed": 3,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "fd8203b6ad37dd37dd4ddf22f2cdc4bf30600f5ea83297d900d68f82c919f164"
+    },
+    {
+      "kind": "mindful",
+      "seed": 4,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "03ce73676c5bdd314857985ed2f4d64462ded0c756904d0ce2598e07da2f6d1a"
+    },
+    {
+      "kind": "mindful",
+      "seed": 5,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "1e12793af5a310463bdb513e42df4d435399e70e546a86d8e7034332743efebc"
+    },
+    {
+      "kind": "mindful",
+      "seed": 6,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "b27e8aef04db3e9a7ed1b4b0c5d4f7f0c8c4d6200238a4703c9dcd736fc2838a"
+    },
+    {
+      "kind": "mindful",
+      "seed": 7,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "c558e501e1b94f1f7d3d053de1003f167aa1bf4e00cdf14f6dded421fe7dcb76"
+    },
+    {
+      "kind": "mindful",
+      "seed": 8,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "79d6d15489e71d37dde633d6c9aef0560b3d1f2f94bf9c5f8706bacb77a04442"
+    },
+    {
+      "kind": "mindful",
+      "seed": 9,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "dbdded899dc3a5f290bea23127485533507d0be7052ee65a2fb7533526b82ecd"
+    },
+    {
+      "kind": "mindful",
+      "seed": 10,
+      "seat": 0,
+      "style": "steady",
+      "sha256": "1851fa3b9d3996debfdad744caee075951e376dfcef3d47662edbf84ea55c201"
+    },
+    {
+      "kind": "mindful",
+      "seed": 1,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "cdebea83c65835287d6cd6cb0700a29e65cdae2bdb48bc908751a3e06c82af76"
+    },
+    {
+      "kind": "mindful",
+      "seed": 2,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "4fef8fb935937c1c4d6962dc610b4414d406c77425bcf104e32eefb51f74cff1"
+    },
+    {
+      "kind": "mindful",
+      "seed": 3,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "6616e1cea3f4fcc67a65c602cc6b1ae16bea3c8446e522b27e665ddca814efe3"
+    },
+    {
+      "kind": "mindful",
+      "seed": 4,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "8c92bcf8e0974179cfe764b68f6e25a12ea69a0feb4e538970db8c0cdf02e6ce"
+    },
+    {
+      "kind": "mindful",
+      "seed": 5,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "766ef64f917c324a2a7c75eb450858771aed65aeda8ce849b0a413bd834610f1"
+    },
+    {
+      "kind": "mindful",
+      "seed": 6,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "d922510cc083a8bc7026cc4cb511d2650d24978de6617be8df332ffb4672d8d4"
+    },
+    {
+      "kind": "mindful",
+      "seed": 7,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "17b071c78e3868e793ef9968f1cea5596fd6c412d3e5e9970135177b15a9d6a3"
+    },
+    {
+      "kind": "mindful",
+      "seed": 8,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "cd9e51c5dfad210d773327fea8fb2d98f5faf41fb728f6a02e75f1b55521208a"
+    },
+    {
+      "kind": "mindful",
+      "seed": 9,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "9997f3dbe0d721fb95b2b6112d1aa7ffc9b11febc4446a8f676f222f690d4d7a"
+    },
+    {
+      "kind": "mindful",
+      "seed": 10,
+      "seat": 0,
+      "style": "attack",
+      "sha256": "a17a91925189811c750b5e82dd4582e4d0ad06fbeb0acd9e6365f7f81c62e8e5"
+    },
+    {
+      "kind": "mindful",
+      "seed": 1,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "f98378806f09ba9eebd6a6fe3a0283e32af5bba42ead629e28ffd196c290111c"
+    },
+    {
+      "kind": "mindful",
+      "seed": 2,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "fa1fee241709bde3e9bfa942ca00964acca70cd9ef61dfa6e8086eafc2003fb7"
+    },
+    {
+      "kind": "mindful",
+      "seed": 3,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "cb9e627cd7248ba72445cdcfca6b74169210e0cf1a006cced9530da86c348f70"
+    },
+    {
+      "kind": "mindful",
+      "seed": 4,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "6f12531bab5bc08346e921ab6299c74a612e6ee852182c790c2715177e9e956e"
+    },
+    {
+      "kind": "mindful",
+      "seed": 5,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "5046645c29ce6ab4fc954455e30191c19af6c3823f2c183b0067fdb4adc19170"
+    },
+    {
+      "kind": "mindful",
+      "seed": 6,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "e6c814b09b2d935f88899144974a614f2a32708b3302091db781e23e35faaf3a"
+    },
+    {
+      "kind": "mindful",
+      "seed": 7,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "a71e9486db447d45c381f350c212ce880f75e45b3d9e3c6d9a0150f9161d1346"
+    },
+    {
+      "kind": "mindful",
+      "seed": 8,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "7f2cf8947afa4005f2b29d7c9ce5ff07e6505142740f16aa33f75521ca63d966"
+    },
+    {
+      "kind": "mindful",
+      "seed": 9,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "296f192ae2c5d2b36b2bff9f6046cc24bdc993b670e5f216fd2a50bca59209cf"
+    },
+    {
+      "kind": "mindful",
+      "seed": 10,
+      "seat": 0,
+      "style": "cautious",
+      "sha256": "cc278333c50597ca56cdaaa4816b8befc870d1d38edb03ddcf4fc3ee910a56f7"
+    },
+    {
+      "kind": "mindful",
+      "seed": 1,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "00defcc26cccea6f8e9ac9dfd4a18f4e8653d60b48625c6ec6e79a549b6b85c5"
+    },
+    {
+      "kind": "mindful",
+      "seed": 2,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "ce3c5cf35dc89a415caceaa9d84a747896d059c74c1b964d4e504b592a727093"
+    },
+    {
+      "kind": "mindful",
+      "seed": 3,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "4a313b4cfb190a1d2d4a26cfdf690f40a0d664035dc1296c751e1e04ed328ed2"
+    },
+    {
+      "kind": "mindful",
+      "seed": 4,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "55635b8ae5f24623b1bd3c8f2fa8c4026f057c61eec7b060158864051c943190"
+    },
+    {
+      "kind": "mindful",
+      "seed": 5,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "1e12793af5a310463bdb513e42df4d435399e70e546a86d8e7034332743efebc"
+    },
+    {
+      "kind": "mindful",
+      "seed": 6,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "8853572a1530fd20607027be635c49ef0c5c3e9e31e080957c7a87b69471e312"
+    },
+    {
+      "kind": "mindful",
+      "seed": 7,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "d2bc60b9b41b11c8d45f5a1204562eede8e0605c0d1a7d758be72e0ec419b2ab"
+    },
+    {
+      "kind": "mindful",
+      "seed": 8,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "aa985c7f265bf84bbbe4191e2ea0741d121aba001f7110d022f2fa50cecf393f"
+    },
+    {
+      "kind": "mindful",
+      "seed": 9,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "9f38906969ce9c58925ffcc7a9efcc9b8acc2670149b32791d4c0b912753138a"
+    },
+    {
+      "kind": "mindful",
+      "seed": 10,
+      "seat": 0,
+      "style": "swift",
+      "sha256": "6e4acf5085bea3507f239fa6ce8c03c91d455682150074f7bd150a4157f4fdb8"
+    },
+    {
+      "kind": "mindful",
+      "seed": 1,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "635931ff55ce77d8b1641987ce33b748db6d9bb0982408aeb5fcd04306850050"
+    },
+    {
+      "kind": "mindful",
+      "seed": 2,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "5176cc1afee142029bceb2fdf3ca603070e429ce2ec8e5ed9c15005b9e761dc8"
+    },
+    {
+      "kind": "mindful",
+      "seed": 3,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "b111654609cf26a4728cafff3c6e8c8068ff9c0691d15b09a4334c41044d7915"
+    },
+    {
+      "kind": "mindful",
+      "seed": 4,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "913ea23ba47d6db173d3332b99dddff02c29e06b230e407c4241174748714162"
+    },
+    {
+      "kind": "mindful",
+      "seed": 5,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "a4ef0a4b76a656a0160e909cd98f2ee4d4e79ff5547e860eb4e2147ebcbf81bb"
+    },
+    {
+      "kind": "mindful",
+      "seed": 6,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "ec8f342474dffaa749ba4be1836e501a34c2db49e63cf03e12d1c7df555e9e0c"
+    },
+    {
+      "kind": "mindful",
+      "seed": 7,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "49cd8693f2f20168c4ddf8502567ce4c5675bedfccf38759c0bc8c16ada3ed80"
+    },
+    {
+      "kind": "mindful",
+      "seed": 8,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "5796fbccb0f338c1bcc839ce124400377263669e6878895624740023391079fa"
+    },
+    {
+      "kind": "mindful",
+      "seed": 9,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "a1467b5801ae2cad29603b0c6631bf7458732a778ba5e496f75d76ae34ca5066"
+    },
+    {
+      "kind": "mindful",
+      "seed": 10,
+      "seat": 0,
+      "style": "gambler",
+      "sha256": "6718eab9da26a7190b1c0f87eb80ea3b0b5c97677352f09ed3826ef02668e784"
+    },
+    {
+      "kind": "mindful",
+      "seed": 1,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "3e84fb63647cef41b938eb9055633deec960d423d57d2172dce85dbab744e9cb"
+    },
+    {
+      "kind": "mindful",
+      "seed": 2,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "fd08ac7671f839f32f7c60f7480b6d63381388d07358f1c4029df7b4db97d7db"
+    },
+    {
+      "kind": "mindful",
+      "seed": 3,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "2b9581cae5ea8ba7fded10859dbfb7964603953f78d4f4f03a7496b5a1ba0b83"
+    },
+    {
+      "kind": "mindful",
+      "seed": 4,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "8a5db8e1a09eb357ce7cb12d5bf4f74b037dd833e4efd647c1699e07e5a4de7a"
+    },
+    {
+      "kind": "mindful",
+      "seed": 5,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "5046645c29ce6ab4fc954455e30191c19af6c3823f2c183b0067fdb4adc19170"
+    },
+    {
+      "kind": "mindful",
+      "seed": 6,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "243cf285c73564826abe7bdb3696c61c8e6ff60a7e2c0d5bffbbcf1da251419d"
+    },
+    {
+      "kind": "mindful",
+      "seed": 7,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "7f44c4196424ede130d8212fa958235064827ced5c178784f95ff3a34f54763c"
+    },
+    {
+      "kind": "mindful",
+      "seed": 8,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "b9abe379c4c921c8d62af09158cb3d849592f07fbdcf7fd4e2df66c33a4ec5b2"
+    },
+    {
+      "kind": "mindful",
+      "seed": 9,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "3599d2b340705fb7e08ed70d7fda245ce67e54e724dad112247300fdf06dc390"
+    },
+    {
+      "kind": "mindful",
+      "seed": 10,
+      "seat": 0,
+      "style": "sly",
+      "sha256": "a975c82f8929f7a1559b1fbf9957c025fa9ca3c84d9a4ed2ac1ee8e2f4962848"
+    },
+    {
+      "kind": "mindful",
+      "seed": 1,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "9a53ab700b17836674bd456c452927c75be87da64a923bc69fb7d08897c09f99"
+    },
+    {
+      "kind": "mindful",
+      "seed": 2,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "d34e9f9f3620440f8dcee370072d23f38e8a27a5063478273331421bcb90f6c4"
+    },
+    {
+      "kind": "mindful",
+      "seed": 3,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "68c7bbca2ecdfaa7685f9b853077368ce1a41784c865d1def4024e44963c198c"
+    },
+    {
+      "kind": "mindful",
+      "seed": 4,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "8fd40c453f2185fd9851bc9f39ceece3aa2cbcb7538aa9bcf4005650c39a953e"
+    },
+    {
+      "kind": "mindful",
+      "seed": 5,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "e3359cd2540b2b2da5c3cba4473a319816b32a9050a5e8070baffbf135547284"
+    },
+    {
+      "kind": "mindful",
+      "seed": 6,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "861f3036d7829f9d5c3fbe4b4838d861f0ba4b6d09a281531e3fc6fb1bb6e1b9"
+    },
+    {
+      "kind": "mindful",
+      "seed": 7,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "d780f14ae62689555f036b91cf44798f9d78a87c6bddf89178b7ea3439767490"
+    },
+    {
+      "kind": "mindful",
+      "seed": 8,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "86ca9bc3c50bee85059eb5fb52162927a1480c26704d9e5d60e08ee7c4a81719"
+    },
+    {
+      "kind": "mindful",
+      "seed": 9,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "2dfa7c16712796ee13041cd41bb6d3d498a54b143113cb724c923fa18047324f"
+    },
+    {
+      "kind": "mindful",
+      "seed": 10,
+      "seat": 0,
+      "style": "airhead",
+      "sha256": "5c3128efcc8cf920833d4a687789dcf10bb26ab7194f07c15c5cf391c5ad9833"
+    }
+  ]
+}

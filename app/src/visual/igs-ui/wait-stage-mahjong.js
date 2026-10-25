@@ -2,9 +2,15 @@
 // @kobalab/majiang-core 负责局进行，@kobalab/majiang-ai 负责对局。MIT，Satoshi Kobayashi。
 import Majiang from '@kobalab/majiang-core';
 import AI from '@kobalab/majiang-ai';
-import { MAHJONG_STYLES, MindfulAI, STYLE_IDS, createPersonaStore, mindMood, pickLine, readSituation } from './wait-stage-mahjong-mind.js';
+import { MAHJONG_STYLES, MindfulAI, STYLE_IDS, autoPersona, createPersonaStore, mindMood, readSituation } from './wait-stage-mahjong-mind.js';
+import { declareLine, riichiWinKeys, voiceLine, wantsToTalk } from './wait-stage-mahjong-voice.js';
 import { createMahjongSound } from './wait-stage-mahjong-sound.js';
 import { createMahjongFelt } from './wait-stage-mahjong-felt.js';
+import { avatarCrop, createMahjongTable, cropInto, faceFor, openMahjongAlbum, pictureBrief, setMahjongImageLoader } from './wait-stage-mahjong-table.js';
+export { avatarCrop };
+import { bindScmjFace, openScmjTable, readMahjongMode, readScmjSave, scmjLiveMatch, writeMahjongMode } from './wait-stage-scmj.js';
+
+bindScmjFace((doc, code) => tileSvg(doc, code));
 import { ORIGINAL_READER_ICONS as ICONS } from './reader-icons.js';
 
 const WIND = ['东', '南', '西', '北'];
@@ -205,17 +211,26 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-lineup{display:flex;justify-content:center;}
 .igs-mj-slots{display:flex;justify-content:center;gap:clamp(10px,3cqw,28px);}
 .igs-mj-slot{display:flex;flex-direction:column;align-items:center;gap:2px;box-sizing:border-box;width:calc(var(--igs-mj-seat) + 24px);padding:6px 0 5px;border-radius:10px;background:rgba(8,12,34,.5);box-shadow:inset 0 0 0 1px rgba(170,195,255,.2);color:inherit;transition:box-shadow .15s ease;}
+.igs-mj-slot.is-filled{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:1fr auto auto 1fr;align-items:center;column-gap:6px;row-gap:4px;width:clamp(176px,22cqw,232px);padding:6px 8px 5px 0;}
+.igs-mj-slot.is-filled>.igs-mj-slot-pick{grid-column:1;grid-row:1/-1;width:calc(var(--igs-mj-seat) + 24px);}
+.igs-mj-slot.is-filled>.igs-mj-outfit{grid-column:2;grid-row:2;width:100%;}
+.igs-mj-slot.is-filled>.igs-mj-mind{grid-column:2;grid-row:3;width:100%;margin-top:0;}
 .igs-mj-slot-pick{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%;padding:0 0 2px;border:0;background:none;color:inherit;font:inherit;cursor:pointer;}
-.igs-mj-outfit{display:flex;align-items:center;justify-content:center;width:calc(100% - 6px);height:18px;color:#d8def5;font-size:11px;}
+.igs-mj-outfit{display:flex;align-items:center;justify-content:center;width:calc(100% - 6px);min-height:18px;color:#d8def5;font-size:11px;}
 .igs-mj-outfit-step{flex:none;width:16px;height:18px;padding:0 0 2px;border:0;border-radius:4px;background:none;color:#f0cf86;font:inherit;font-size:14px;line-height:1;cursor:pointer;}
 .igs-mj-outfit-step:hover{background:rgba(240,207,134,.14);}
 .igs-mj-outfit-step.is-idle{visibility:hidden;pointer-events:none;}
-.igs-mj-outfit-name{flex:1;min-width:0;overflow:hidden;text-align:center;white-space:nowrap;text-overflow:ellipsis;}
-.igs-mj-style{max-width:calc(100% - 6px);height:18px;margin-top:1px;padding:0 7px;overflow:hidden;border:0;border-radius:9px;background:rgba(240,207,134,.16);color:#f0cf86;font:inherit;font-size:10px;letter-spacing:.04em;line-height:18px;white-space:nowrap;text-overflow:ellipsis;cursor:pointer;}
+.igs-mj-outfit-name{flex:1;min-width:0;text-align:center;line-height:1.3;overflow-wrap:anywhere;}
+.igs-mj-mind{display:flex;flex-wrap:wrap;align-items:center;gap:2px;width:calc(100% - 6px);margin-top:1px;}
+.igs-mj-style{flex:1;min-width:0;max-width:100%;min-height:18px;padding:2px 7px;border:0;border-radius:9px;background:rgba(240,207,134,.16);color:#f0cf86;font:inherit;font-size:10px;letter-spacing:.04em;line-height:1.35;white-space:normal;word-break:keep-all;cursor:pointer;}
+.igs-mj-style-tag{display:inline-block;margin-left:.3em;white-space:nowrap;opacity:.85;}
 .igs-mj-style:hover{background:rgba(240,207,134,.28);}
 .igs-mj-style.is-user{background:rgba(143,240,168,.18);color:#a8f0bb;}
 .igs-mj-style.is-auto{color:#c9d0ee;background:rgba(170,195,255,.12);}
 .igs-mj-style:disabled{opacity:.6;cursor:default;}
+.igs-mj-rewrite{flex:none;height:18px;padding:0 5px;border:0;border-radius:9px;background:rgba(170,195,255,.16);color:#d5def8;font:inherit;font-size:10px;line-height:18px;letter-spacing:.04em;cursor:pointer;}
+.igs-mj-rewrite:hover{background:rgba(170,195,255,.3);}
+.igs-mj-rewrite:disabled{opacity:.45;cursor:default;}
 .igs-mj-slot.is-filled{box-shadow:inset 0 0 0 1px rgba(240,207,134,.7);}
 .igs-mj-slot .igs-mj-pic{width:var(--igs-mj-seat);height:var(--igs-mj-seat);border-radius:8px;font-size:18px;}
 .igs-mj-slot-name{max-width:calc(100% - 8px);overflow:hidden;font-size:12px;letter-spacing:.04em;white-space:nowrap;text-overflow:ellipsis;}
@@ -380,6 +395,29 @@ export function collectCall(player, data, robbed) {
         for (const m of listOf(player.get_chi_mianzi(player.shoupai, tile))) replies.push(meldReply('吃', m, { fulou: m }));
     }
     return { kind: 'call', dapai: [], lizhi: [], pass: replies.length > 0, replies };
+}
+
+function meldKind(m, prefix) {
+    const body = String(m || '');
+    if (/^[mpsz]\d{4}/.test(body)) return prefix === 'a' ? 'aMinkan' : 'mMinkan';
+    const digits = body.replace(/[^0-9]/g, '').replace(/0/g, '5');
+    if (digits.length >= 3 && digits[0] === digits[1] && digits[1] === digits[2]) return prefix === 'a' ? 'aPon' : 'mPon';
+    return prefix === 'a' ? 'aChi' : 'mChi';
+}
+
+function stolenFrom(caller, m) {
+    const mark = (String(m || '').match(/[+=-]/) || [])[0];
+    if (!CALL_FROM[mark]) return -1;
+    return (caller + CALL_FROM[mark]) % 4;
+}
+
+function passingClaim(player, msg, reply) {
+    if (!player || !msg || !player.shoupai) return false;
+    if (reply && (reply.dapai || reply.fulou || reply.gang || reply.hule || reply.daopai || reply.pass)) return false;
+    if (msg.dapai && msg.dapai.l !== player._menfeng) return collectCall(player, msg.dapai, false).pass;
+    if (msg.gang && msg.gang.l !== player._menfeng) return collectCall(player, msg.gang, true).pass;
+    if (msg.dapai && msg.dapai.l === player._menfeng && typeof player.allow_no_daopai === 'function' && player.allow_no_daopai(player.shoupai)) return true;
+    return false;
 }
 
 function meldReply(verb, m, reply) {
@@ -670,29 +708,6 @@ function clearSave(storage) {
     try { storage.removeItem(MAHJONG_SAVE_KEY); } catch (error) { /* 清不掉也不影响这一页。 */ }
 }
 
-const PENALTY_CG_KEY = 'igs-wait-mahjong-cg-v1';
-const PENALTY_CG_LIMIT = 60;
-
-function readPenaltyCgs(storage) {
-    if (!storage || typeof storage.getItem !== 'function') return [];
-    try {
-        const list = JSON.parse(storage.getItem(PENALTY_CG_KEY) || '[]');
-        return Array.isArray(list) ? list.filter((item) => item && item.id) : [];
-    } catch (error) {
-        return [];
-    }
-}
-
-function rememberPenaltyCg(storage, entry) {
-    if (!storage || typeof storage.setItem !== 'function' || !entry.id) return;
-    const list = [entry, ...readPenaltyCgs(storage)].slice(0, PENALTY_CG_LIMIT);
-    try { storage.setItem(PENALTY_CG_KEY, JSON.stringify(list)); } catch (error) { /* 存满了就只是相册少记一张，图还在 CG 库。 */ }
-}
-
-// 惩罚图的画面要求：被罚的是角色就以她为主体；被罚的是玩家就由第一名来罚，画面以第一名为主体。
-// 画面按主体当前穿的那套衣装（outfits：名字 → 衣装名，这一场已经换了裸体的写「裸体」）。
-// nsfw 是「成人向」开关，只管把被罚角色记进 strip、下一局换裸体立绘，和这张图怎么画无关。
-// 玩家被罚时 request 可以不写，由第一名按自己的性格想怎么罚；写了就当作补充要求。
 // 受罚的人：分数最低的并列都算；busted 时分数为负（被飞）的也都算；losing 时最低分必须是负的（这一局真丢了分）。
 // 四家同分就没人受罚。rows 为 [{ id, score }]：终局传总分，每局传这一局的得失。
 export function penaltyLosers(rows, { busted = false, losing = false } = {}) {
@@ -705,35 +720,14 @@ export function penaltyLosers(rows, { busted = false, losing = false } = {}) {
 }
 
 // targets 里的「你」是玩家：玩家受罚时由第一名动手，玩家只以第一人称入镜；同罚的角色一起画进去。
-export function penaltyBrief({ targets, target, punisher, request, nsfw = false, stage = 'hand', outfits = {} }) {
-    const list = (Array.isArray(targets) && targets.length ? targets : [target]).filter(Boolean);
-    const self = list.includes('你');
-    const others = list.filter((name) => name !== '你');
-    const names = others.join('、');
-    const subjects = self ? [punisher, ...others] : others;
-    const worn = Object.fromEntries(subjects.filter((name) => outfits && outfits[name]).map((name) => [name, outfits[name]]));
-    const extra = String(request || '').trim();
-    const final = stage === 'final';
-    const scene = final ? '一场东风战立直麻将刚刚结束' : '立直麻将的一局刚刚打完';
-    const low = final ? '垫底' : '这一局输得最多';
-    const tie = final ? '并列垫底' : '这一局输得一样多';
-    const top = final ? `第一名的${punisher}` : `这一局赢分的${punisher}`;
-    let who;
-    if (self && others.length) who = `玩家（主角）和${names}${tie}，由${top}来惩罚他们。画面以${punisher}和${names}为主体，主角只以第一人称视角或局部入镜，不露脸。`;
-    else if (self) who = `玩家（主角）${low}，由${top}来惩罚主角。画面以${punisher}为主体，主角只以第一人称视角或局部入镜，不露脸。`;
-    else if (others.length > 1) who = `${names}${tie}，一起接受惩罚游戏。画面以${names}为主体，每个人都要入镜。`;
-    else who = `${names}${low}，正在接受惩罚游戏。画面以${names}为主体。`;
-    const how = self
-        ? `怎么罚由${punisher}按她的性格自己决定，画出她正在惩罚${others.length ? '大家' : '主角'}的那一刻。${extra ? `\n玩家补充：${extra}` : ''}`
-        : `惩罚内容：${extra}`;
-    const label = self ? `${punisher}罚你${others.length ? `和${names}` : ''}` : names;
-    return {
-        characters: subjects,
-        outfits: worn,
-        strip: nsfw ? others : [],
-        description: `${scene}，${who}\n${how}`,
-        caption: `麻将惩罚 · ${label} · ${extra || `由${punisher}决定`}`.slice(0, 60),
-    };
+export function penaltyBrief({ targets, target, punisher, request, nsfw = false, stage = 'hand', outfits = {}, rules = 'riichi', scene = '', present = null, basis = '' }) {
+    const line = scene || (rules === 'chengdu'
+        ? '一场成都麻将血战到底刚刚打完'
+        : (stage === 'final' ? '一场东风战立直麻将刚刚结束' : '立直麻将的一局刚刚打完'));
+    return pictureBrief({
+        targets, target, punisher, request, nsfw, stage, outfits, present, scene: line,
+        basis: basis || (rules === 'chengdu' ? 'negative' : ''),
+    });
 }
 
 function restoreHe(pai) {
@@ -868,50 +862,25 @@ function playerId(model, seat) {
 }
 
 // options.nude：上一场被成人向惩罚的角色，这一场换裸体立绘；没有裸体立绘就照旧用默认那套。
+export function openMahjongView(ctx) {
+    return createMahjongTable(ctx, {
+        el, button, tileNode, liveFace, iconTool, toolBar, hostTools, labelTool,
+        createMahjongFelt, createMahjongSound, ICONS, BAR_ICONS,
+        faceSvg: tileSvg,
+        storage: bucket,
+    });
+}
+
 function openMahjongTable(ctx, seats, revived, options = {}) {
     const { doc, board } = ctx;
     if (!doc || !board) return null;
-    board.innerHTML = '';
+    const view = openMahjongView(ctx);
+    if (!view) return null;
     const bare = new Set((revived ? revived.nude : options.nude) || []);
     const cast = seats.map((person) => (bare.has(person.name) && person.nudeFaces ? { ...person, faces: person.nudeFaces } : person));
     const stripped = new Set();
-    const root = el(doc, 'div', 'igs-mj');
-    const table = el(doc, 'div', 'igs-mj-table');
-    const scene = el(doc, 'div', 'igs-mj-scene');
-    const felt = createMahjongFelt(doc, { faceSvg: (code) => tileSvg(doc, code) });
-    const sceneTop = el(doc, 'div', 'igs-mj-scene');
-    const actions = el(doc, 'div', 'igs-mj-actions');
-    // 同一次询问不重画按钮：别家动作、换图引起的重绘不碰按钮区。
-    let shownOffer = null;
-    let shownRiichi = false;
-    const end = iconTool(doc, ICONS.stop, '结束这局（进度不留）');
-    end.className += ' igs-mj-end';
-    const close = iconTool(doc, BAR_ICONS.fold, '收起牌桌，这一局留着');
-    close.className += ' igs-ws-close';
-    const sound = createMahjongSound({ audio: ctx.audio, storage: bucket(ctx) });
-    const soundToggle = iconTool(doc, '', '', () => { sound.setEnabled(!sound.enabled); syncSound(); });
-    soundToggle.className += ' igs-mj-sound';
-    const syncSound = () => {
-        soundToggle.innerHTML = sound.enabled ? ICONS.replay : BAR_ICONS.muted;
-        labelTool(soundToggle, sound.enabled ? '音效：开' : '音效：关');
-        soundToggle.setAttribute('aria-pressed', String(sound.enabled));
-    };
-    syncSound();
-    const leave = hostTools(doc);
-    const tools = toolBar(doc, 'igs-mj-tools', [[soundToggle], [end, close], leave.group]);
-    const banner = el(doc, 'div', 'igs-mj-banner');
-    banner.hidden = true;
-    const crowd = el(doc, 'div', 'igs-mj-scene igs-mj-crowd');
-    table.appendChild(scene);
-    table.appendChild(crowd);
-    table.appendChild(actions);
-    table.appendChild(tools);
-    table.appendChild(banner);
-    root.appendChild(table);
-    board.appendChild(root);
+    const { root, table, scene, felt, sceneTop, actions, end, close, leave, banner, crowd } = view;
     let host = ctx;
-    host.setNote('');
-    leave.bind(host);
     const names = cast.map((item) => item.name);
     const feed = revived && revived.feed ? revived.feed.slice() : [];
     const match = {
@@ -925,12 +894,9 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
             const nextBoard = next && next.board;
             if (!nextBoard || match.generation < 0) return;
             host = next;
-            nextBoard.innerHTML = '';
-            nextBoard.appendChild(root);
+            view.attach(next);
             match.parked = false;
             watchModel(next, true);
-            host.setNote('');
-            leave.bind(host);
             armWatch();
             paint();
         },
@@ -943,7 +909,6 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         wait: null,
         player: null,
         last: null,
-        lastDiscard: -1,
         foot: null,
         replaying: false,
     };
@@ -1000,11 +965,12 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     // 对手想一会儿再出牌；回调晚到时牌局可能已经结束。
     function thinkReply(player, callback) {
         return (reply) => {
-            const wait = typeof player.thinkDelay === 'function' ? player.thinkDelay(reply) : 0;
-            if (!wait) return callback(reply);
-            setTimeout(() => {
+            const go = () => {
                 if (match.generation > 0) callback(reply);
-            }, wait);
+            };
+            const wait = typeof player.thinkDelay === 'function' ? player.thinkDelay(reply) : 0;
+            if (!wait) return go();
+            setTimeout(go, wait);
             return undefined;
         };
     }
@@ -1016,35 +982,17 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
             return play(msg, id && callback ? thinkReply(player, callback) : callback);
         };
     }
-    // 接回牌局时重放的旧事件不出声。
-    function cue(name) {
-        if (alive() && !session.replaying && !match.parked) sound.play(name);
-    }
-    function cueFor(msg) {
-        if (!msg) return;
-        const self = Number.isInteger(human._menfeng) ? human._menfeng : 0;
-        if (msg.dapai) cue(/\*$/.test(String(msg.dapai.p || '')) ? 'riichi' : 'discard');
-        else if (msg.zimo || msg.gangzimo) { if ((msg.zimo || msg.gangzimo).l === self) cue('draw'); }
-        else if (msg.fulou) cue(String(msg.fulou.m || '').replace(/[^\d]/g, '').length >= 4 ? 'kan' : 'call');
-        else if (msg.gang) cue('kan');
-        else if (msg.hule) cue(msg.hule.l === self ? 'win' : (msg.hule.baojia === self ? 'dealin' : 'lose'));
-        else if (msg.pingju) cue('drawgame');
-    }
     human.view = {
         kaiju() { paint(); },
         redraw() {
-            session.lastDiscard = -1;
+            session.last = null;
             clearBanner();
             paint();
             openingLine();
-            cue('deal');
         },
         update(msg) {
             session.last = msg || null;
-            cueFor(msg);
             react(msg);
-            if (msg && msg.dapai) session.lastDiscard = msg.dapai.l;
-            else if (msg && msg.fulou) session.lastDiscard = -1;
             paint();
             speak(msg);
             if (msg && msg.hule) showHule(msg.hule);
@@ -1058,7 +1006,6 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     }
 
     const flashes = new Map();
-    const heads = new Map();
 
     function react(msg) {
         const board = human.model;
@@ -1101,117 +1048,254 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         return inner || standingMood(seat);
     }
 
-    // 对手的台词：头像下冒气泡，同一时间只让一个人说，同一手同一种话只说一次。
-    const SAY_GAP_MS = 900;
-    const spoken = { at: 0, hand: new Set(), last: new Map() };
+    // 台词：头像下冒气泡。和牌、放铳、立直、开局和终局一定开口；鸣牌、看别人立直这类闲话看她话多话少，
+    // 同一个人刚说过就先不插嘴。玩家本人只喊宣言。
+    const CHATTER_GAP_MS = 2600;
+    const spoken = { hand: new Set(), last: new Map(), at: new Map(), greeted: false };
+    // 跨局记账：谁上次胡了她（报仇），她连着放了几次铳。
+    const ledger = { burnedBy: new Map(), streak: new Map() };
+    let cardLines = [];
+    let lastTile = '';
 
-    function lineFor(seat, event) {
+    function nameAt(seat) {
         const id = playerId(human.model, seat);
-        const ai = id ? game._players[id] : null;
-        const person = cast[id];
-        if (!ai || !ai.persona || !person) return null;
-        const text = pickLine(ai.persona, event, Math.random, spoken.last.get(id));
-        if (!text) return null;
-        spoken.last.set(id, text);
-        spoken.at = Date.now();
-        spoken.hand.add(`${id}:${event}`);
-        if (typeof host.onVoice === 'function') host.onVoice({ who: person.name, text, mood: moodOf(id, seat) });
-        return { id, name: person.name, text };
+        if (id === 0) return '你';
+        return (cast[id] && cast[id].name) || '';
     }
 
-    function say(seat, event, { force = false, chance = 1, once = false } = {}) {
-        if (session.replaying || !alive()) return false;
+    function seatOfId(id) {
+        for (let seat = 0; seat < 4; seat += 1) if (playerId(human.model, seat) === id) return seat;
+        return -1;
+    }
+
+    function rivalSeats(...skip) {
+        return [0, 1, 2, 3].filter((seat) => !skip.includes(seat) && playerId(human.model, seat) > 0);
+    }
+
+    function anyOf(list) {
+        return list.length ? list[Math.floor(Math.random() * list.length) % list.length] : -1;
+    }
+
+    function flashLine(id, mood) {
+        const prev = flashes.get(id);
+        const until = Math.max(prev ? prev.until : 0, Date.now() + MOOD_FLASH_MS);
+        flashes.set(id, { mood, until });
+        setTimeout(() => {
+            if (alive()) paintHeads();
+        }, until - Date.now() + 60);
+    }
+
+    // keys 从具体到一般；chatter 不为 0 时是闲话，按她的 talk 掷一次；declare 是玩家这时喊的宣言。
+    function voice(seat, keys, { slots = {}, chatter = 0, once = '', declare = '' } = {}) {
+        if (session.replaying || !alive() || seat < 0) return null;
         const id = playerId(human.model, seat);
-        if (!id) return false;
-        if (once && spoken.hand.has(`${id}:${event}`)) return false;
-        if (!force && Date.now() - spoken.at < SAY_GAP_MS) return false;
-        if (chance < 1 && Math.random() > chance) return false;
-        const line = lineFor(seat, event);
-        if (!line) return false;
-        const head = headFor(id);
-        head.say.textContent = line.text;
-        head.say.className = 'igs-mj-say is-on';
-        clearTimeout(head.sayTimer);
-        head.sayTimer = setTimeout(() => { head.say.className = 'igs-mj-say'; }, 2400 + line.text.length * 70);
-        return true;
+        if (!Number.isInteger(id) || id < 0) return null;
+        if (once && spoken.hand.has(`${id}:${once}`)) return null;
+        if (id === 0) {
+            const text = declareLine('riichi', declare);
+            if (!text) return null;
+            headFor(0);
+            view.say(0, text);
+            return { id, name: '你', text, declared: true };
+        }
+        const person = cast[id];
+        const who = (person && person.name) || '';
+        const ai = game._players[id];
+        const persona = (ai && ai.persona) || autoPersona(who);
+        if (chatter) {
+            if (Date.now() - (spoken.at.get(id) || 0) < CHATTER_GAP_MS) return null;
+            if (!wantsToTalk(persona, chatter)) return null;
+        }
+        const line = voiceLine(persona, 'riichi', keys, { slots, avoid: spoken.last.get(id) || [] });
+        if (!line) return null;
+        spoken.last.set(id, [line.text, ...(spoken.last.get(id) || [])].slice(0, 4));
+        spoken.at.set(id, Date.now());
+        if (once) spoken.hand.add(`${id}:${once}`);
+        flashLine(id, line.mood);
+        const out = { id, name: who, text: line.text, key: line.key };
+        cardLines.push(out);
+        headFor(id);
+        view.say(id, line.text);
+        if (typeof host.onVoice === 'function') host.onVoice({ who, text: line.text, mood: line.mood, event: line.key });
+        return out;
+    }
+
+    function tileName(code) {
+        return code ? faceOf(code).text : '';
+    }
+
+    // 副露串里方向记号前面那一位是叫来的牌；暗杠、加杠取最后一位。
+    function calledTile(m) {
+        const body = String(m || '');
+        const hit = body.match(/(\d)[+=-]/);
+        return body[0] + (hit ? hit[1] : body.slice(-1));
+    }
+
+    function ranks(scores) {
+        return scores.map((score, seat) => rankOf(scores, seat));
+    }
+
+    function speakHule(hule) {
+        const board = human.model;
+        if (!board) return;
+        const winId = playerId(board, hule.l);
+        const ron = hule.baojia != null;
+        const loserId = ron ? playerId(board, hule.baojia) : -1;
+        const before = [0, 1, 2, 3].map((seat) => Number(board.defen[playerId(board, seat)]) || 0);
+        const after = before.map((score, seat) => score + ((hule.fenpei && hule.fenpei[seat]) || 0));
+        const was = ranks(before)[hule.l];
+        const now = ranks(after)[hule.l];
+        const late = readSituation(board, hule.l).late;
+        const ai = game._players[winId];
+        const hand = board.shoupai && board.shoupai[hule.l];
+        const dama = Boolean(ai && ai.damaHand && !(hand && hand.lizhi));
+        const keys = riichiWinKeys(hule, {
+            dama,
+            comeback: was >= 3 && now < was && (late >= 0.66 || was === 4 || now === 1),
+            revenge: ron && ledger.burnedBy.get(winId) === loserId,
+        });
+        const points = Number(hule.defen) || 0;
+        const tile = ron ? tileName(lastTile) : '';
+        voice(hule.l, keys, { slots: { 点: points, 牌: tile, 对方: ron ? nameAt(hule.baojia) : '' }, declare: ron ? 'win.ron' : 'win.tsumo' });
+        const big = points >= 8000 || Boolean(hule.damanguan);
+        let payer = -1;
+        if (ron) {
+            const lose = [];
+            if (big) lose.push('dealIn.big');
+            if (dama) lose.push('dealIn.dama');
+            if ((ledger.streak.get(loserId) || 0) >= 1) lose.push('dealIn.again');
+            lose.push('dealIn');
+            voice(hule.baojia, lose, { slots: { 对方: nameAt(hule.l), 牌: tile, 点: points } });
+        } else if (big) {
+            const payers = rivalSeats(hule.l);
+            payer = payers.includes(0) ? 0 : anyOf(payers);
+            voice(payer, ['tsumoed'], { slots: { 对方: nameAt(hule.l), 点: points }, chatter: 1.3 });
+        }
+        if (big) voice(anyOf(rivalSeats(hule.l, ron ? hule.baojia : payer)), ['react.big'], { slots: { 对方: nameAt(hule.l), 点: points }, chatter: 1.1 });
+        if (ron) {
+            ledger.burnedBy.set(loserId, winId);
+            ledger.streak.set(loserId, (ledger.streak.get(loserId) || 0) + 1);
+        }
+        ledger.streak.set(winId, 0);
+    }
+
+    function speakPingju(pingju) {
+        const name = pingju.name || '荒牌平局';
+        const hands = listOf(pingju.shoupai);
+        if (name === '荒牌平局') {
+            voice(anyOf(rivalSeats().filter((seat) => hands[seat])), ['draw.tenpai']);
+            voice(anyOf(rivalSeats().filter((seat) => !hands[seat])), ['draw.noten']);
+            return;
+        }
+        if (name === '流し満貫') {
+            const fenpei = listOf(pingju.fenpei);
+            const best = fenpei.indexOf(Math.max(...fenpei.map((n) => Number(n) || 0)));
+            voice(best, ['draw.nagashi']);
+            return;
+        }
+        let seat = anyOf(rivalSeats());
+        if (name === '九種九牌') {
+            const who = hands.findIndex(Boolean);
+            if (who >= 0) seat = who;
+        }
+        voice(seat, ['draw.abort']);
     }
 
     function speak(msg) {
         if (!msg || session.replaying) return;
+        cardLines = [];
         const board = human.model;
         if (msg.dapai) {
             const seat = msg.dapai.l;
             const id = playerId(board, seat);
-            const ai = id ? game._players[id] : null;
+            const ai = Number.isInteger(id) ? game._players[id] : null;
             const intent = ai && typeof ai.takeIntent === 'function' ? ai.takeIntent() : '';
-            if (/\*$/.test(msg.dapai.p)) say(seat, intent === 'chase' ? 'chase' : 'riichi', { force: true });
-            else if (intent === 'fold') say(seat, 'fold', { once: true, chance: 0.7 });
-            else if (intent === 'push') say(seat, 'push', { once: true, chance: 0.6 });
-        } else if (msg.fulou) say(msg.fulou.l, 'call', { chance: 0.45 });
+            const shown = String(msg.dapai.p || '');
+            lastTile = shown.slice(0, 2);
+            const riichiers = ((board && board.shoupai) || []).map((hand, other) => (other !== seat && hand && hand.lizhi ? other : -1)).filter((other) => other >= 0);
+            if (/\*$/.test(shown)) {
+                const where = readSituation(board, seat);
+                const keys = [];
+                if (intent === 'chase' || riichiers.length) keys.push('riichi.chase');
+                if ((where.rank === 4 && where.late >= 0.66) || (where.allLast && where.rank >= 3 && where.gapUp > 8000)) keys.push('riichi.allin');
+                keys.push('riichi');
+                voice(seat, keys, { slots: { 对方: riichiers.length ? nameAt(riichiers[0]) : '' }, declare: 'riichi' });
+                const calm = rivalSeats(seat).filter((other) => !(board.shoupai[other] && board.shoupai[other].lizhi));
+                voice(anyOf(calm), ['threat'], { slots: { 对方: nameAt(seat) }, chatter: 0.9 });
+            } else if (intent === 'fold') voice(seat, ['fold'], { once: 'fold', chatter: 1.5 });
+            else if (intent === 'push') voice(seat, ['push'], { once: 'push', chatter: 1.4, slots: { 对方: riichiers.length ? nameAt(riichiers[0]) : '' } });
+        } else if (msg.fulou) {
+            const kind = meldKind(msg.fulou.m, 'm');
+            const from = stolenFrom(msg.fulou.l, msg.fulou.m);
+            const tile = tileName(calledTile(msg.fulou.m));
+            const slots = { 对方: from >= 0 ? nameAt(from) : '', 牌: tile };
+            if (kind === 'mMinkan') voice(msg.fulou.l, ['kan'], { slots, chatter: 1.1, declare: 'kan' });
+            else voice(msg.fulou.l, ['call'], { slots, chatter: 0.8, declare: kind === 'mChi' ? 'chi' : 'pon' });
+            if (from >= 0) voice(from, ['stolen'], { slots: { 对方: nameAt(msg.fulou.l), 牌: tile }, chatter: 0.45 });
+        } else if (msg.gang) {
+            voice(msg.gang.l, ['kan'], { slots: { 牌: tileName(calledTile(msg.gang.m)) }, chatter: 1.1, declare: 'kan' });
+        } else if (msg.hule) speakHule(msg.hule);
+        else if (msg.pingju) speakPingju(msg.pingju);
     }
 
-    // 开局一句：上一手被打急了、吓到了，或者最后一局领先 / 垫底。
+    // 开局一句：第一局打招呼；之后是上一手被打急了、吓到了，或者最后一局领先 / 垫底的那个人。
     function openingLine() {
         spoken.hand.clear();
         if (session.replaying || !alive()) return;
         const board = human.model;
+        if (!board) return;
         const options = [];
-        for (let seat = 0; seat < 4; seat += 1) {
-            const id = playerId(board, seat);
-            const ai = id ? game._players[id] : null;
+        for (const seat of rivalSeats()) {
+            const ai = game._players[playerId(board, seat)];
             if (!ai || !ai.mind) continue;
             const inner = mindMood(ai.mind);
             const where = readSituation(board, seat);
-            if (inner === '愤怒') options.push([seat, 'tilt']);
-            else if (inner === '紧张') options.push([seat, 'shrink']);
-            else if (where.allLast && where.rank === 1 && where.gapDown >= 8000) options.push([seat, 'lead']);
-            else if (where.allLast && where.rank === 4) options.push([seat, 'behind']);
+            if (inner === '愤怒') options.push([seat, 'open.tilt']);
+            else if (inner === '紧张') options.push([seat, 'open.shrink']);
+            else if (where.allLast && where.rank === 1 && where.gapDown >= 8000) options.push([seat, 'open.lead']);
+            else if (where.allLast && where.rank === 4) options.push([seat, 'open.behind']);
         }
-        if (!options.length || Math.random() > 0.7) return;
-        const [seat, event] = options[Math.floor(Math.random() * options.length)];
-        setTimeout(() => say(seat, event, { force: true }), 900);
+        const first = !spoken.greeted && !(board.zhuangfeng || 0) && !(board.jushu || 0) && !(board.changbang || 0);
+        if (first) {
+            spoken.greeted = true;
+            options.push([anyOf(rivalSeats()), 'open.first']);
+        }
+        if (!options.length) return;
+        const [seat, key] = options[Math.floor(Math.random() * options.length) % options.length];
+        setTimeout(() => voice(seat, [key], { slots: { 对方: '你' } }), 400);
     }
 
-    // 和牌卡上的台词：和的人一句，放铳的人一句。
-    function huleQuotes(hule) {
-        if (session.replaying) return null;
-        const board = human.model;
-        const lines = [];
-        const id = playerId(board, hule.l);
-        const ai = id ? game._players[id] : null;
-        if (ai) {
-            const hand = board && board.shoupai && board.shoupai[hule.l];
-            const line = lineFor(hule.l, ai.damaHand && !(hand && hand.lizhi) ? 'dama' : 'win');
-            if (line) lines.push(line);
-        }
-        if (hule.baojia != null && playerId(board, hule.baojia)) {
-            const line = lineFor(hule.baojia, 'dealIn');
-            if (line) lines.push(line);
-        }
+    // 结算卡上写这一手说过的话；玩家的宣言不写。
+    function quoteBox() {
+        const lines = cardLines.filter((line) => !line.declared);
         if (!lines.length) return null;
         const box = el(doc, 'div', 'igs-mj-card-quote');
         for (const line of lines) box.appendChild(el(doc, 'span', '', `${line.name}：「${line.text}」`));
         return box;
     }
 
+    function huleQuotes() {
+        if (session.replaying) return null;
+        return quoteBox();
+    }
+
+    // 终局：第一名和最后一名各说一句，冲着对方说。
+    function finalQuotes(paipu) {
+        cardLines = [];
+        if (session.replaying || !paipu) return null;
+        const order = paipu.player.map((name, id) => id).sort((a, b) => (paipu.rank[a] || 0) - (paipu.rank[b] || 0));
+        const top = order[0];
+        const last = order[order.length - 1];
+        const label = (id) => (id === 0 ? '你' : paipu.player[id]);
+        if (top > 0) voice(seatOfId(top), ['final.top'], { slots: { 对方: label(last) } });
+        if (last > 0 && last !== top) voice(seatOfId(last), ['final.last'], { slots: { 对方: label(top) } });
+        return quoteBox();
+    }
+
     function headFor(id) {
-        if (heads.has(id)) return heads.get(id);
         const person = cast[id];
         const name = id === 0 ? '你' : ((person && person.name) || REL[id] || '');
-        const node = el(doc, 'div', 'igs-mj-head');
-        const avatar = el(doc, 'div', 'igs-mj-avatar');
-        const face = liveFace(doc, person, name);
-        const wind = el(doc, 'span', 'igs-mj-wind');
-        avatar.appendChild(face.node);
-        avatar.appendChild(wind);
-        node.appendChild(avatar);
-        node.appendChild(el(doc, 'span', 'igs-mj-name', name));
-        const say = el(doc, 'div', 'igs-mj-say');
-        node.appendChild(say);
-        crowd.appendChild(node);
-        const head = { node, face, wind, say, sayTimer: 0 };
-        heads.set(id, head);
-        return head;
+        return view.ensureHead(id, person, name);
     }
 
     function paintHeads() {
@@ -1220,11 +1304,14 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         for (const rel of [0, 1, 2, 3]) {
             const seat = (self + rel) % 4;
             const id = playerId(model, seat);
-            const head = headFor(id);
-            head.node.className = `igs-mj-head is-${PLACE[rel]}${model && model.lunban === seat ? ' is-turn' : ''}`;
-            head.wind.className = `igs-mj-wind${seat === 0 ? ' is-dealer' : ''}`;
-            head.wind.textContent = WIND[seat];
-            if (id) head.face.show(moodOf(id, seat));
+            headFor(id);
+            view.renderHead(id, {
+                place: PLACE[rel],
+                turn: Boolean(model && model.lunban === seat),
+                wind: WIND[seat],
+                dealer: seat === 0,
+                mood: id ? moodOf(id, seat) : '',
+            });
         }
     }
 
@@ -1281,10 +1368,11 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     function send(reply) {
         if (!session.pending) return;
         const pending = session.pending;
+        const body = reply || {};
         session.pending = null;
         session.offer = null;
         paint();
-        pending(reply || {});
+        pending(body);
     }
 
     function choose(player, offer) {
@@ -1295,7 +1383,6 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         session.pendingMsg = session.pendingMsg && session.pendingMsg.msg || null;
         session.pending = (reply) => player.finish(reply);
         paint();
-        if (session.offer.replies && session.offer.replies.length) cue('turn');
         setTimeout(persist, 0);
     }
 
@@ -1321,23 +1408,18 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     }
 
     function clearBanner() {
-        banner.hidden = true;
-        banner.textContent = '';
+        view.clearBanner();
         session.foot = null;
     }
 
     function openCard(kind, title) {
-        banner.hidden = false;
-        banner.textContent = '';
-        const card = el(doc, 'div', `igs-mj-card is-${kind}`);
-        card.appendChild(el(doc, 'div', 'igs-mj-card-title', title));
-        banner.appendChild(card);
-        session.foot = el(doc, 'div', 'igs-mj-card-foot');
+        const card = view.openCard(kind, title);
+        session.foot = view.foot;
         return card;
     }
 
     function sealCard(card) {
-        card.appendChild(session.foot);
+        view.sealCard(card);
     }
 
     function seatName(seat) {
@@ -1349,24 +1431,10 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     }
 
     function deltaRow(fenpei) {
-        const row = el(doc, 'div', 'igs-mj-card-delta');
-        (fenpei || []).forEach((delta, seat) => {
+        return view.deltas((fenpei || []).map((delta, seat) => {
             const id = playerId(human.model, seat);
-            const item = el(doc, 'span', delta > 0 ? 'is-up' : (delta < 0 ? 'is-down' : ''));
-            item.appendChild(avatarNode(doc, cast[id], seatName(seat), id ? moodOf(id, seat) : '平和'));
-            item.appendChild(el(doc, 'i', '', seatName(seat)));
-            item.appendChild(el(doc, 'b', '', delta > 0 ? `+${delta}` : String(delta)));
-            row.appendChild(item);
-        });
-        return row;
-    }
-
-    function penaltyApi() {
-        const api = host && host.penalty;
-        if (!api || typeof api.paint !== 'function') return null;
-        let status = null;
-        try { status = api.status(); } catch (error) { status = null; }
-        return status && status.ok ? { api, nsfw: status.nsfw === true } : null;
+            return { person: cast[id], name: seatName(seat), mood: id ? moodOf(id, seat) : '平和', delta };
+        }));
     }
 
     function nameOf(id) {
@@ -1392,146 +1460,24 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     // 每局罚这一局输分最多的人（只能全年龄），由这一局赢分最多的人动手；终局罚总分末位和被飞的人（可选成人向），由第一名动手。
     // 输得一样多、并列垫底、一起被飞的都一起罚。rows 按分数从高到低，第一个是动手的人。
     function addPenalty(card, stage, rows) {
-        const found = penaltyApi();
         const losers = penaltyLosers(rows, stage === 'final' ? { busted: true } : { losing: true });
-        if (!found || !losers.length) return;
-        const who = { targets: losers.map(nameOf), punisher: nameOf(rows[0].id), stage };
-        const others = who.targets.filter((name) => name !== '你');
-        let label = `惩罚${others.join('、')}`;
-        if (losers.includes(0)) label = others.length ? `和${others.join('、')}一起接受${who.punisher}的惩罚` : `接受${who.punisher}的惩罚`;
-        const open = button(doc, 'igs-ws-chip igs-mj-punish', label);
-        open.addEventListener('click', () => openPenalty(card, who, found));
-        session.foot.appendChild(open);
-    }
-
-    function openPenalty(card, who, { api, nsfw: nsfwAllowed }) {
-        card.hidden = true;
-        const self = who.targets.includes('你');
-        const others = who.targets.filter((name) => name !== '你').join('、');
-        const final = who.stage === 'final';
-        const low = final ? '终局垫底' : '这一局输得最多';
-        const tie = final ? '终局并列垫底' : '这一局输得一样多';
-        const top = final ? `第一名的${who.punisher}` : `这一局赢分的${who.punisher}`;
-        const sheet = el(doc, 'div', 'igs-mj-card is-penalty');
-        sheet.appendChild(el(doc, 'div', 'igs-mj-card-title', '惩罚'));
-        const form = el(doc, 'div', 'igs-mj-penalty-form');
-        let lead = `${others}${low}。`;
-        if (self) lead = others ? `你和${others}${tie}，由${top}来罚你们。` : `你${low}，由${top}来罚你。`;
-        else if (who.targets.length > 1) lead = `${others}${tie}，一起受罚。`;
-        form.appendChild(el(doc, 'div', 'igs-mj-card-text', final ? lead : `${lead}每局的惩罚只能是全年龄的。`));
-        let nsfw = false;
-        if (final) {
-            const modes = el(doc, 'div', 'igs-mj-penalty-modes');
-            const pick = (value) => {
-                nsfw = value;
-                safe.className = `igs-mj-penalty-mode${nsfw ? '' : ' is-on'}`;
-                adult.className = `igs-mj-penalty-mode${nsfw ? ' is-on' : ''}`;
-            };
-            const safe = button(doc, 'igs-mj-penalty-mode', '全年龄');
-            const adult = button(doc, 'igs-mj-penalty-mode', '成人向');
-            safe.addEventListener('click', () => pick(false));
-            adult.addEventListener('click', () => pick(true));
-            adult.disabled = !nsfwAllowed;
-            if (!nsfwAllowed) adult.title = '主程序生图设置里的 NSFW 插图没有开启';
-            modes.appendChild(safe);
-            modes.appendChild(adult);
-            form.appendChild(modes);
-            pick(false);
-        }
-        const input = el(doc, 'textarea', 'igs-mj-penalty-input');
-        input.rows = 3;
-        input.maxLength = 300;
-        input.placeholder = self ? `怎么罚由${who.punisher}决定，想加要求可以写在这里（选填）` : `写下要怎么罚${others}（必填）`;
-        input.addEventListener('keydown', (event) => event.stopPropagation());
-        form.appendChild(input);
-        const status = el(doc, 'div', 'igs-mj-penalty-status');
-        form.appendChild(status);
-        const formFoot = el(doc, 'div', 'igs-mj-card-foot');
-        const back = button(doc, 'igs-ws-chip', '返回');
-        const go = button(doc, 'igs-ws-chip', '画惩罚 CG');
-        const ready = () => self || Boolean(input.value.trim());
-        go.disabled = !ready();
-        formFoot.appendChild(back);
-        formFoot.appendChild(go);
-        form.appendChild(formFoot);
-        sheet.appendChild(form);
-        banner.appendChild(sheet);
-        let busy = false;
-        const leave = () => {
-            sheet.remove();
-            card.hidden = false;
-        };
-        input.addEventListener('input', () => { go.disabled = busy || !ready(); });
-        back.addEventListener('click', () => { if (!busy) leave(); });
-        // 出图尺寸按牌桌的宽高比算，成图铺满牌桌。画成就记进相册，成人向里被罚的角色记下来下一场换裸体。
-        const paintOnce = async (brief) => {
-            let result;
-            const { strip, ...request } = brief;
-            try {
-                result = await api.paint({ ...request, aspect: { width: table.clientWidth, height: table.clientHeight } });
-            } catch (error) {
-                result = { ok: false, error: (error && error.message) || String(error) };
-            }
-            if (!result || !result.ok || !result.url) return { ok: false, error: (result && result.error) || '图像来源没有交回图片' };
-            if (result.id) {
-                rememberPenaltyCg(bucket(host), { id: result.id, caption: brief.caption, at: Date.now(),
-                    prompt: keptPrompt(result) });
-            }
-            if (strip.length) {
-                for (const name of strip) stripped.add(name);
+        if (!losers.length) return;
+        view.punish(card, {
+            targets: losers.map(nameOf),
+            punisher: nameOf(rows[0].id),
+            present: [0, 1, 2, 3].map((seat) => nameOf(playerId(human.model, seat))).filter(Boolean),
+            stage,
+            scene: stage === 'final' ? '一场东风战立直麻将刚刚结束' : '立直麻将的一局刚刚打完',
+            outfits: wornOutfits,
+            onStrip(names) {
+                for (const name of names) stripped.add(name);
                 if (match.finished) saveRematch();
-            }
-            return result;
-        };
-        const noteFor = (result, brief) => [result.id ? '已存进 CG 库。' : 'CG 库没有接上，这张只在这里看得到。',
-            brief.strip.length ? `再来一局时${brief.strip.join('、')}换裸体立绘。` : ''].join('');
-        go.addEventListener('click', async () => {
-            const request = input.value.trim();
-            if (!ready() || busy) return;
-            busy = true;
-            go.disabled = true;
-            back.disabled = true;
-            input.disabled = true;
-            status.className = 'igs-mj-penalty-status';
-            status.textContent = '正在写词和出图，一般要一两分钟。可以先收起牌桌，画好了回来看。';
-            const brief = penaltyBrief({ ...who, request, nsfw, outfits: wornOutfits() });
-            const result = await paintOnce(brief);
-            busy = false;
-            back.disabled = false;
-            input.disabled = false;
-            go.disabled = !ready();
-            if (!result.ok) {
-                status.className = 'igs-mj-penalty-status is-error';
-                status.textContent = `没画成：${result.error}`;
-                return;
-            }
-            status.textContent = '';
-            sheet.hidden = true;
-            const viewer = cgStage(doc, {
-                lead: [
-                    { icon: ICONS.rerollCg, title: '重画这张（要求不变，重新写词出图）', async run() {
-                        viewer.busy('正在重画，一般要一两分钟。');
-                        const again = await paintOnce(brief);
-                        if (again.ok) viewer.show({ ...again, caption: brief.caption, note: noteFor(again, brief) });
-                        else viewer.fail(`没画成：${again.error}`);
-                    } },
-                    { icon: ICONS.pencil, title: '改要求', run() {
-                        viewer.node.remove();
-                        sheet.hidden = false;
-                        if (input.focus) input.focus();
-                    } },
-                ],
-                tail: [{ icon: ICONS.next, title: final ? '回到终局' : '继续下一局', run() {
-                    viewer.node.remove();
-                    leave();
-                    if (final) refreshRematchNote();
-                    else if (session.wait) session.wait();
-                } }],
-            });
-            viewer.show({ ...result, caption: brief.caption, note: noteFor(result, brief) });
-            table.appendChild(viewer.node);
+            },
+            onDone(final) {
+                if (final) refreshRematchNote();
+                else if (session.wait) session.wait();
+            },
         });
-        input.focus && input.focus();
     }
 
     // 画面按每人眼下的样子：这一场换了裸体立绘的按裸体，其余按选的那套衣装。
@@ -1545,13 +1491,16 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         const card = openCard('win', hule.baojia == null ? '自摸' : '荣和');
         const who = hule.baojia == null ? seatName(hule.l) : `${seatName(hule.l)} ← ${seatName(hule.baojia)}`;
         card.appendChild(el(doc, 'div', 'igs-mj-card-who', who));
-        const quotes = huleQuotes(hule);
+        const quotes = huleQuotes();
         if (quotes) card.appendChild(quotes);
-        const hand = el(doc, 'div', 'igs-mj-card-hand');
         const shoupai = Majiang.Shoupai.fromString(hule.shoupai || '');
-        hand.appendChild(handRow(shoupai));
-        appendMelds(hand, shoupai);
-        card.appendChild(hand);
+        const closed = closedTiles(shoupai);
+        card.appendChild(view.played({
+            backs: closed.backs,
+            tiles: closed.tiles,
+            zimo: closed.zimo,
+            melds: ((shoupai && shoupai._fulou) || []).map((m) => meldLayout(m).map((tile) => ({ code: tile.back ? 'back' : tile.code, back: tile.back, side: tile.called }))),
+        }));
         const model = human.model;
         const dora = model && model.shan ? listOf(model.shan.baopai) : [];
         if (dora.length || listOf(hule.fubaopai).length) {
@@ -1587,6 +1536,8 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     function showPingju(pingju) {
         const card = openCard('draw', '流局');
         card.appendChild(el(doc, 'div', 'igs-mj-card-who', PINGJU_ZH[pingju.name] || pingju.name || '流局'));
+        const quotes = quoteBox();
+        if (quotes) card.appendChild(quotes);
         const ready = listOf(pingju.shoupai).map((text, seat) => (text ? seatName(seat) : '')).filter(Boolean);
         if (pingju.name === '荒牌平局') {
             card.appendChild(el(doc, 'div', 'igs-mj-card-text', ready.length ? `听牌：${ready.join('、')}` : '四家都没听牌'));
@@ -1605,20 +1556,20 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     function showSummary(paipu) {
         if (!paipu) return;
         const card = openCard('end', '终局');
-        const list = el(doc, 'ol', 'igs-mj-card-rank');
         const order = paipu.player.map((name, id) => id).sort((a, b) => (paipu.rank[a] || 0) - (paipu.rank[b] || 0));
-        for (const id of order) {
-            const li = el(doc, 'li');
-            li.appendChild(el(doc, 'b', 'igs-mj-card-place', String(paipu.rank[id] || '')));
+        card.appendChild(view.rank(order.map((id) => {
             const place = paipu.rank[id] || 0;
-            const mood = place === 1 ? '喜悦' : (place === 4 ? '悲伤' : '平和');
-            li.appendChild(avatarNode(doc, cast[id], id === 0 ? '你' : paipu.player[id], mood));
-            li.appendChild(el(doc, 'span', '', id === 0 ? '你' : paipu.player[id]));
-            li.appendChild(el(doc, 'b', '', String(paipu.defen[id])));
-            list.appendChild(li);
-        }
-        card.appendChild(list);
-        cue(paipu.rank[0] === 1 ? 'top' : 'final');
+            return {
+                person: cast[id],
+                name: id === 0 ? '你' : paipu.player[id],
+                mood: place === 1 ? '喜悦' : (place === 4 ? '悲伤' : '平和'),
+                place,
+                score: paipu.defen[id],
+            };
+        })));
+        view.announce(paipu.rank[0] === 1 ? 'top' : 'final');
+        const quotes = finalQuotes(paipu);
+        if (quotes) card.appendChild(quotes);
         session.rematchNote = el(doc, 'div', 'igs-mj-card-text');
         card.appendChild(session.rematchNote);
         match.finished = true;
@@ -1637,7 +1588,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         swap.addEventListener('click', () => leave(() => startMahjong(host)));
         session.foot.appendChild(again);
         session.foot.appendChild(swap);
-        session.album = albumButton(host, banner, () => {
+        session.album = view.album(banner, () => {
             card.hidden = true;
             return () => { card.hidden = false; };
         });
@@ -1660,20 +1611,16 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         if (!note) return;
         note.textContent = stripped.size ? `再来一局时${[...stripped].join('、')}换裸体立绘。` : '';
         note.hidden = !stripped.size;
-        syncAlbum(session.album, host);
+        if (session.album && session.album.refresh) session.album.refresh();
     }
 
     function paint() {
         if (!alive()) return;
         const model = human.model;
         const self = Number.isInteger(human._menfeng) ? human._menfeng : 0;
-        if (felt.node.parentNode !== scene) {
-            scene.innerHTML = '';
-            scene.appendChild(felt.node);
-            scene.appendChild(sceneTop);
-        }
-        sceneTop.innerHTML = '';
-        felt.draw(feltScene(model, self));
+        view.ensureFelt();
+        view.quiet(Boolean(session.replaying || match.parked));
+        view.show(feltScene(model, self));
         sceneTop.appendChild(doraNode(model));
         sceneTop.appendChild(selfNode(model, self));
         paintHeads();
@@ -1686,7 +1633,6 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
             const id = playerId(model, seat);
             const shoupai = model && model.shoupai ? model.shoupai[seat] : null;
             const pai = (model && model.he && model.he[seat] && model.he[seat]._pai) || [];
-            const fresh = session.lastDiscard === seat ? pai.length - 1 : -1;
             return {
                 wind: WIND[seat],
                 score: model && model.defen && Number.isFinite(model.defen[id]) ? model.defen[id] : '',
@@ -1695,35 +1641,23 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
                 riichi: Boolean(shoupai && shoupai.lizhi),
                 hand: closedTiles(shoupai),
                 melds: ((shoupai && shoupai._fulou) || []).map((m) => meldLayout(m).map((tile) => ({ code: tile.back ? 'back' : tile.code, back: tile.back, side: tile.called }))),
-                pond: pai.map((code, index) => ({ code, spent: /[+=-]/.test(code), side: /[*]/.test(code), fresh: index === fresh })),
+                pond: pai.map((code) => ({ code, spent: /[+=-]/.test(code), side: /[*]/.test(code) })),
             };
         });
+        const hu = session.last && session.last.hule;
+        const win = hu ? {
+            key: `${hu.l}:${hu.baojia}:${hu.defen}`,
+            seat: (4 + hu.l - self) % 4,
+            kind: hu.baojia == null ? 'zimo' : 'ron',
+            from: hu.baojia == null ? -1 : (4 + hu.baojia - self) % 4,
+        } : null;
         return {
             round: model && model.jushu != null ? `${WIND[model.zhuangfeng] || '东'}${model.jushu + 1}局` : '开局',
             left: model && model.shan ? model.shan.paishu : null,
+            end: session.last && session.last.pingju ? 'drawgame' : '',
+            wins: win ? [win] : [],
             seats,
         };
-    }
-
-    function handRow(shoupai) {
-        const hand = closedTiles(shoupai);
-        const row = el(doc, 'div', 'igs-mj-hand');
-        for (let i = 0; i < hand.backs; i += 1) row.appendChild(tileNode(doc, 'back'));
-        for (const code of hand.tiles) row.appendChild(tileNode(doc, code));
-        if (hand.zimo) row.appendChild(tileNode(doc, hand.zimo, { zimo: true }));
-        return row;
-    }
-
-    function appendMelds(node, shoupai) {
-        const melds = el(doc, 'div', 'igs-mj-melds');
-        for (const m of (shoupai && shoupai._fulou) || []) {
-            const group = el(doc, 'span', 'igs-mj-meld');
-            const tiles = meldLayout(m);
-            tiles.forEach((tile) => group.appendChild(tileNode(doc, tile.back ? 'back' : tile.code, { side: tile.called })));
-            melds.appendChild(group);
-        }
-        if (!melds.children.length) return null;
-        return node.appendChild(melds);
     }
 
     function doraNode(model) {
@@ -1745,63 +1679,56 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     }
 
     function selfNode(model, self) {
-        const node = el(doc, 'div', 'igs-mj-rail is-self');
         const shoupai = model && model.shoupai ? model.shoupai[self] : null;
         const hand = closedTiles(shoupai);
-        const live = Boolean(session.offer && session.offer.dapai.length);
-        const row = el(doc, 'div', `igs-mj-hand${live ? ' is-live' : ''}`);
-        hand.tiles.forEach((code, index) => row.appendChild(handTile(code, false, index)));
-        if (hand.zimo) row.appendChild(handTile(hand.zimo, true, 'zimo'));
-        for (let i = 0; i < hand.backs; i += 1) row.appendChild(tileNode(doc, 'back'));
-        node.appendChild(row);
-        appendMelds(node, shoupai);
-        return node;
+        const tiles = hand.tiles.map((code, index) => handEntry(code, false, index));
+        if (hand.zimo) tiles.push(handEntry(hand.zimo, true, 'zimo'));
+        const melds = ((shoupai && shoupai._fulou) || []).map((m) => meldLayout(m).map((tile) => ({
+            code: tile.back ? 'back' : tile.code,
+            back: tile.back,
+            side: tile.called,
+        })));
+        return view.selfRail({
+            live: Boolean(session.offer && session.offer.dapai.length),
+            tiles,
+            backs: hand.backs,
+            melds,
+        });
     }
 
-    function handTile(code, zimoSlot, key) {
+    function handEntry(code, zimoSlot, key) {
         const reply = discardCode(code, session.offer, zimoSlot);
-        const node = tileNode(doc, code, { button: Boolean(reply), zimo: zimoSlot, hot: Boolean(reply) });
-        if (reply) node.addEventListener('click', () => send({ dapai: reply }));
-        node.setAttribute('data-igs-mj-tile', `${key}`);
-        return node;
-    }
-
-    function actButton(label, kind, meld, onClick) {
-        const node = button(doc, `igs-mj-act ${kind}`);
-        node.appendChild(el(doc, 'span', 'igs-mj-act-label', label));
-        if (meld) {
-            const tiles = el(doc, 'span', 'igs-mj-act-tiles');
-            for (const tile of meldTiles(meld)) tiles.appendChild(tileNode(doc, tile.code));
-            node.appendChild(tiles);
-        }
-        node.addEventListener('click', onClick);
-        return node;
+        return {
+            code,
+            button: Boolean(reply),
+            zimo: zimoSlot,
+            hot: Boolean(reply),
+            key,
+            onClick: reply ? () => send({ dapai: reply }) : null,
+        };
     }
 
     function paintActions() {
         const offer = session.offer;
         const riichi = Boolean(offer && offer.riichi);
-        if (offer === shownOffer && riichi === shownRiichi) return;
-        shownOffer = offer;
-        shownRiichi = riichi;
-        actions.innerHTML = '';
-        if (!offer) return;
-        const rank = (item) => (item.reply.hule ? 3 : (item.reply.daopai ? 2 : 0));
-        const replies = offer.replies.slice().sort((a, b) => rank(a) - rank(b));
-        for (const item of replies.filter((entry) => rank(entry) === 0)) {
-            actions.appendChild(actButton(item.verb || item.label, 'is-call', item.meld, () => send(item.reply)));
-        }
-        if (offer.lizhi.length) {
-            actions.appendChild(actButton(offer.riichi ? '取消立直' : '立直', `is-riichi${offer.riichi ? ' is-on' : ''}`, null, () => {
-                if (!session.offer) return;
-                session.offer.riichi = !session.offer.riichi;
-                paint();
-            }));
-        }
-        for (const item of replies.filter((entry) => rank(entry) > 0)) {
-            actions.appendChild(actButton(item.verb || item.label, item.reply.hule ? 'is-win' : 'is-misc', null, () => send(item.reply)));
-        }
-        if (offer.pass) actions.appendChild(actButton('跳过', 'is-skip', null, () => send({})));
+        view.keepActions(offer, riichi, (box) => {
+            const rank = (item) => (item.reply.hule ? 3 : (item.reply.daopai ? 2 : 0));
+            const replies = offer.replies.slice().sort((a, b) => rank(a) - rank(b));
+            for (const item of replies.filter((entry) => rank(entry) === 0)) {
+                box.appendChild(view.actButton(item.verb || item.label, 'is-call', item.meld ? meldTiles(item.meld).map((tile) => tile.code) : null, () => send(item.reply)));
+            }
+            if (offer.lizhi.length) {
+                box.appendChild(view.actButton(offer.riichi ? '取消立直' : '立直', `is-riichi${offer.riichi ? ' is-on' : ''}`, null, () => {
+                    if (!session.offer) return;
+                    session.offer.riichi = !session.offer.riichi;
+                    paint();
+                }));
+            }
+            for (const item of replies.filter((entry) => rank(entry) > 0)) {
+                box.appendChild(view.actButton(item.verb || item.label, item.reply.hule ? 'is-win' : 'is-misc', null, () => send(item.reply)));
+            }
+            if (offer.pass) box.appendChild(view.actButton('跳过', 'is-skip', null, () => send({})));
+        }, Boolean(offer && offer.replies && offer.replies.length));
     }
 
     function redecide(player, msg) {
@@ -1939,90 +1866,6 @@ function scoreRank(hule) {
     if (fan >= 6) return '跳满';
     if (fan >= 5 || fu * 2 ** (fan + 2) >= 2000) return '满贯';
     return '';
-}
-
-// 取景框（原图像素，宽高比 aspect）：有头部标定按头框往下取；没有就在立绘上部 reach 比例内居中裁，
-// 取景高再按图宽封顶，立绘下面长出一截腿也不会把头缩小（712×1024 的腰上立绘正好取上半张）。
-const CROP_PER_WIDTH = 0.72;
-
-// headroom：头框上沿再往上留几个头高，发饰、马尾高过头顶的不被切掉。
-export function avatarCrop(width, height, head, aspect = 1, reach = 0.5, headroom = 0.45) {
-    const fit = (w, h) => {
-        if (w > width) [w, h] = [width, width / aspect];
-        if (h > height) [w, h] = [height * aspect, height];
-        return [w, h];
-    };
-    if (head && [head.x, head.top, head.w, head.hh].every(Number.isFinite) && head.w > 0) {
-        const headW = head.w * width;
-        const headH = head.hh * width;
-        const tall = Math.max(headH * 2.3 * (reach / 0.5), (headW * 2) / aspect);
-        const [w, h] = fit(tall * aspect, tall);
-        const x = Math.min(Math.max(head.x * width - w / 2, 0), width - w);
-        const y = Math.min(Math.max(head.top * height - headH * headroom, 0), height - h);
-        return { x, y, w, h };
-    }
-    const band = Math.min(height * reach, width * CROP_PER_WIDTH * (reach / 0.5));
-    if (width / band >= aspect) return { x: (width - band * aspect) / 2, y: 0, w: band * aspect, h: band };
-    const [w, h] = fit(width, width / aspect);
-    return { x: 0, y: 0, w, h };
-}
-
-function faceFor(person, mood) {
-    const faces = person && person.faces;
-    const face = faces && (faces[mood] || faces['平和']);
-    if (face && face.url) return face;
-    return person && person.url ? { url: person.url } : null;
-}
-
-// 立绘地址是图库原地址，显示前经宿主 loadImage 读回；开局和接回牌局时换成当次的。
-let imageLoader = null;
-
-function cropInto(doc, frame, face, onReady, shape = {}) {
-    const img = el(doc, 'img', 'igs-mj-crop');
-    img.alt = '';
-    img.decoding = 'async';
-    let placed = false;
-    const place = () => {
-        const width = img.naturalWidth;
-        const height = img.naturalHeight;
-        if (placed || !(width > 0 && height > 0)) return;
-        placed = true;
-        const box = (shape.boxFor && shape.boxFor(width, height, face))
-            || avatarCrop(width, height, face.head, shape.aspect, shape.reach, shape.headroom);
-        img.style.width = `${(width / box.w) * 100}%`;
-        img.style.left = `${(-box.x / box.w) * 100}%`;
-        img.style.top = `${(-box.y / box.h) * 100}%`;
-        const show = () => {
-            img.className = 'igs-mj-crop is-ready';
-            if (onReady) onReady(img);
-        };
-        // load 只代表下载完；异步解码的图头一帧可能还画不出来，等 decode 完再顶上，换图那一帧才不会透出底色。
-        if (typeof img.decode === 'function') img.decode().then(show, show);
-        else show();
-    };
-    img.addEventListener('load', place);
-    img.addEventListener('error', () => img.remove());
-    frame.appendChild(img);
-    const apply = (src) => { if (src) img.src = src; else img.remove(); };
-    const value = imageLoader ? imageLoader(face.url) : face.url;
-    if (typeof value === 'string') apply(value);
-    else Promise.resolve(value).then(apply, () => img.remove());
-    if (img.complete) place();
-    return img;
-}
-
-function faceNode(doc, person, name, mood = '平和') {
-    const frame = el(doc, 'div', 'igs-mj-face');
-    frame.appendChild(el(doc, 'span', 'igs-mj-initial', String(name || '?').slice(0, 1)));
-    const face = faceFor(person, mood);
-    if (face) cropInto(doc, frame, face);
-    return frame;
-}
-
-function avatarNode(doc, person, name, mood) {
-    const frame = el(doc, 'div', 'igs-mj-avatar');
-    frame.appendChild(faceNode(doc, person, name, mood));
-    return frame;
 }
 
 // 牌桌头像是竖框（与 .igs-mj-avatar 内框同比例），取到肩，头顶多留些给发饰。
@@ -2181,32 +2024,12 @@ function lazyLoader(doc) {
     };
 }
 
-// 相册里留一份提示词，回看时能查；太长的截掉，免得撑满本地存储。
-function keptPrompt(result) {
-    const prompt = result && result.prompt;
-    const clip = (text) => String(text || '').slice(0, 4000);
-    if (!prompt && !result.request) return undefined;
-    return { positive: clip(prompt && prompt.positive), negative: clip(prompt && prompt.negative), request: clip(result.request) };
-}
-
-function saveImage(doc, url, caption) {
-    if (!url) return;
-    const type = (String(url).match(/^data:image\/(png|jpeg|webp|gif)/) || [])[1] || 'png';
-    const link = doc.createElement('a');
-    link.href = url;
-    link.download = `${String(caption || '惩罚CG').replace(/[\\/:*?"<>|\s·]+/g, '_').slice(0, 40)}.${type === 'jpeg' ? 'jpg' : type}`;
-    (doc.body || doc.documentElement).appendChild(link);
-    link.click();
-    link.remove();
-}
-
 const BAR_ICONS = {
     muted: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9.5l5 5M22 9.5l-5 5"/></svg>',
     fold: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="7 9 12 14 17 9"/><line x1="5" y1="19" x2="19" y2="19"/></svg>',
     read: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z"/><path d="M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z"/></svg>',
 };
 
-// 和阅读器工具栏同款的图标按钮：只有图标，说明放在 title 和读屏标签里。
 function iconTool(doc, glyph, title, run) {
     const node = button(doc, 'igs-mj-icon');
     node.innerHTML = glyph;
@@ -2225,7 +2048,6 @@ function labelTool(node, title) {
     node.setAttribute('aria-label', title);
 }
 
-// 图标按钮分组排成一条，组与组之间一道细线；整组藏起时线跟着藏。
 function toolBar(doc, className, groups) {
     const bar = el(doc, 'div', `igs-mj-bar ${className}`.trim());
     for (const group of groups) {
@@ -2236,7 +2058,6 @@ function toolBar(doc, className, groups) {
     return bar;
 }
 
-// 等待层的「返回阅读 / 返回当前楼」和「加载下一楼」放进工具栏：牌桌收起再打开会换一个 ctx，要重新接。
 function hostTools(doc) {
     const group = el(doc, 'span', 'igs-mj-bar-group');
     const back = iconTool(doc, BAR_ICONS.read, '返回阅读', () => { if (host) host.back(); });
@@ -2265,137 +2086,6 @@ function hostTools(doc) {
     };
 }
 
-// 惩罚 CG 全图显示：图铺满所在区域（出图尺寸就是按牌桌的宽高比算的），右上角一条和阅读器工具栏同款的图标按钮。
-// lead 是画图类按钮，tail 是离开类按钮；中间固定「查看提示词」「保存图片」。
-function cgStage(doc, { lead = [], tail = [] } = {}) {
-    const node = el(doc, 'div', 'igs-mj-cgview');
-    const img = el(doc, 'img');
-    img.alt = '';
-    img.decoding = 'async';
-    const bar = el(doc, 'div', 'igs-mj-cgbar');
-    const note = el(doc, 'div', 'igs-mj-cgnote');
-    const panel = el(doc, 'div', 'igs-mj-cgprompt');
-    panel.hidden = true;
-    let current = {};
-    const icon = (glyph, title, run) => iconTool(doc, glyph, title, run);
-    const leads = lead.map((tool) => icon(tool.icon, tool.title, tool.run));
-    const promptButton = icon(ICONS.promptText, '查看提示词', () => {
-        panel.hidden = !panel.hidden;
-        promptButton.setAttribute('aria-pressed', String(!panel.hidden));
-    });
-    const saveButton = icon(ICONS.save, '保存图片', () => saveImage(doc, current.url, current.caption));
-    const groups = [leads, [promptButton, saveButton], tail.map((tool) => icon(tool.icon, tool.title, tool.run))].filter((group) => group.length);
-    groups.forEach((group, index) => {
-        if (index) bar.appendChild(el(doc, 'span', 'igs-mj-cgbar-gap'));
-        group.forEach((item) => bar.appendChild(item));
-    });
-    node.appendChild(img);
-    node.appendChild(panel);
-    node.appendChild(note);
-    node.appendChild(bar);
-    const say = (text, error) => {
-        note.textContent = text || '';
-        note.className = `igs-mj-cgnote${error ? ' is-error' : ''}`;
-    };
-    return {
-        node,
-        show(shot) {
-            current = shot || {};
-            img.src = current.url || '';
-            img.alt = current.caption || '';
-            panel.textContent = '';
-            const prompt = current.prompt || {};
-            const parts = [['正向提示词', prompt.positive], ['负向提示词', prompt.negative], ['交给写词的要求', current.request || prompt.request]]
-                .filter(([, text]) => String(text || '').trim());
-            for (const [label, text] of parts) {
-                panel.appendChild(el(doc, 'b', '', label));
-                panel.appendChild(el(doc, 'p', '', String(text).trim()));
-            }
-            promptButton.disabled = !parts.length;
-            if (!parts.length) panel.hidden = true;
-            leads.forEach((item) => { item.disabled = false; });
-            say(current.note);
-        },
-        busy(text) {
-            leads.forEach((item) => { item.disabled = true; });
-            say(text);
-        },
-        fail(text) {
-            leads.forEach((item) => { item.disabled = false; });
-            say(text, true);
-        },
-    };
-}
-
-// 惩罚相册：小游戏只记照片 id，图从 CG 库读；没有罚过图时按钮先藏着。
-function albumButton(ctx, container, cover) {
-    const api = ctx && ctx.penalty;
-    if (!api || typeof api.read !== 'function') return null;
-    const open = button(ctx.doc, 'igs-ws-chip igs-mj-album-open', '惩罚相册');
-    open.addEventListener('click', () => {
-        const restore = cover();
-        container.appendChild(penaltyAlbum(ctx, readPenaltyCgs(bucket(ctx)), restore));
-    });
-    syncAlbum(open, ctx);
-    return open;
-}
-
-function syncAlbum(open, ctx) {
-    if (!open) return;
-    const count = readPenaltyCgs(bucket(ctx)).length;
-    open.textContent = `惩罚相册 ${count}`;
-    open.hidden = !count;
-}
-
-function penaltyAlbum(ctx, list, onClose) {
-    const { doc } = ctx;
-    const root = el(doc, 'div', 'igs-mj-album');
-    const head = el(doc, 'div', 'igs-mj-album-head');
-    head.appendChild(el(doc, 'span', '', `惩罚相册 · ${list.length} 张`));
-    const close = button(doc, 'igs-mj-album-close', '✕');
-    head.appendChild(close);
-    root.appendChild(head);
-    const grid = el(doc, 'div', 'igs-mj-album-grid');
-    const lazy = lazyLoader(doc);
-    const urls = new Map();
-    const show = (entry) => {
-        const url = urls.get(entry.id);
-        if (!url) return;
-        const viewer = cgStage(doc, { tail: [{ icon: ICONS.close, title: '返回相册', run() { viewer.node.remove(); } }] });
-        viewer.show({ url, caption: entry.caption, prompt: entry.prompt, note: entry.caption });
-        root.appendChild(viewer.node);
-    };
-    for (const entry of list) {
-        const item = button(doc, 'igs-mj-album-item');
-        item.title = entry.caption || '';
-        const pic = el(doc, 'span', 'igs-mj-album-pic');
-        item.appendChild(pic);
-        item.appendChild(el(doc, 'span', 'igs-mj-album-cap', entry.caption || ''));
-        if (entry.nsfw) item.appendChild(el(doc, 'span', 'igs-mj-album-tag', '成人向'));
-        const load = () => Promise.resolve(ctx.penalty.read(entry.id)).then((got) => {
-            if (!got || !got.ok || !got.url) {
-                pic.textContent = 'CG 库里已经没有这张';
-                return;
-            }
-            urls.set(entry.id, got.url);
-            const img = el(doc, 'img');
-            img.alt = '';
-            img.src = got.url;
-            pic.appendChild(img);
-        }).catch(() => { pic.textContent = '读不到这张图'; });
-        if (lazy) lazy(item, load);
-        else load();
-        item.addEventListener('click', () => show(entry));
-        grid.appendChild(item);
-    }
-    root.appendChild(grid);
-    close.addEventListener('click', () => {
-        root.remove();
-        if (onClose) onClose();
-    });
-    return root;
-}
-
 function openMahjongPicker(ctx, cast, rematch) {
     const { doc, board } = ctx;
     board.innerHTML = '';
@@ -2405,7 +2095,20 @@ function openMahjongPicker(ctx, cast, rematch) {
     const priorOutfits = (rematch && rematch.outfits) || {};
     const picked = [0, 1, 2].map((index) => dressMahjongPerson(cast.find((person) => person.name === prior[index]), priorOutfits[prior[index]]) || null);
     const stripped = new Set(((rematch && rematch.nude) || []).filter((name) => picked.some((person) => person && person.name === name)));
-    head.appendChild(el(doc, 'span', '', '立直麻将 · 选择对手'));
+    let mode = readMahjongMode(bucket(ctx));
+    const title = el(doc, 'span', '', '麻将 · 选择对手');
+    const riichiMode = button(doc, 'igs-mj-mode', '立直麻将');
+    const scmjMode = button(doc, 'igs-mj-mode', '成都麻将');
+    const markMode = () => {
+        riichiMode.setAttribute('aria-pressed', String(mode !== 'scmj'));
+        scmjMode.setAttribute('aria-pressed', String(mode === 'scmj'));
+    };
+    riichiMode.addEventListener('click', () => { mode = 'riichi'; writeMahjongMode(bucket(ctx), mode); markMode(); queueEnsure(); });
+    scmjMode.addEventListener('click', () => { mode = 'scmj'; writeMahjongMode(bucket(ctx), mode); markMode(); queueEnsure(); });
+    markMode();
+    head.appendChild(title);
+    head.appendChild(riichiMode);
+    head.appendChild(scmjMode);
     const idleStatus = stripped.size
         ? `上一场受罚：${[...stripped].join('、')}这一场换裸体立绘。`
         : `从这张卡的 ${cast.length} 位角色里选三位，左右滑动查看。`;
@@ -2415,22 +2118,24 @@ function openMahjongPicker(ctx, cast, rematch) {
     // 选的人变了才去读世界书；等一会儿凑齐几个一起问，省得每点一个人发一次。
     let ensureTimer = 0;
     let ensuredFor = '';
-    const queueEnsure = () => {
+    // 台词按牌桌分开写，切换立直 / 成都也要补问那一套。
+    function queueEnsure() {
         const names = picked.filter(Boolean).map((person) => person.name);
-        const key = names.join('\n');
+        const rules = mode === 'scmj' ? 'chengdu' : 'riichi';
+        const key = `${rules}\n${names.join('\n')}`;
         if (!names.length || key === ensuredFor) return;
         clearTimeout(ensureTimer);
         ensureTimer = setTimeout(() => {
             if (!root.parentNode) return;
             ensuredFor = key;
-            void personas.ensure(names);
+            void personas.ensure(names, { rules, cast: names });
         }, 1200);
-    };
+    }
     const offPersonas = personas.subscribe(() => {
         if (!root.parentNode) return offPersonas();
         render();
     });
-    const album = albumButton(ctx, root, () => () => {});
+    const album = openMahjongAlbum(ctx, root, () => () => {});
     if (album) head.appendChild(album);
     const close = iconTool(doc, BAR_ICONS.fold, '收起小游戏', () => ctx.requestClose());
     close.className += ' igs-ws-close';
@@ -2491,8 +2196,13 @@ function openMahjongPicker(ctx, cast, rematch) {
             if (person) slot.appendChild(styleChip(person.name));
             slots.appendChild(slot);
         });
+        const rewriting = picked.some((person) => person && personas.state(person.name) === 'rewrite');
         const waiting = picked.some((person) => person && ['pending', 'none'].includes(personas.state(person.name)));
-        status.textContent = waiting && !stripped.size ? '正在按角色卡世界书给对手配打法…' : idleStatus;
+        const writing = picked.some((person) => person && personas.busy(person.name));
+        if (rewriting && !stripped.size) status.textContent = '正在按世界书重新生成打法和台词…';
+        else if (waiting && !stripped.size) status.textContent = '正在按角色卡世界书给对手配打法…';
+        else if (writing && !stripped.size) status.textContent = '正在按世界书给对手写台词，可以先开局，写好了牌桌上就换成她们自己的话。';
+        else status.textContent = idleStatus;
         for (const { person, item } of items) {
             const seat = picked.findIndex((entry) => entry && entry.name === person.name);
             item.className = `igs-mj-person${seat >= 0 ? ' is-on' : ''}`;
@@ -2502,18 +2212,31 @@ function openMahjongPicker(ctx, cast, rematch) {
         start.disabled = picked.filter(Boolean).length < Math.min(3, cast.length);
         queueEnsure();
     };
-    // 打法标签：世界书配的直接写打法，手选 / 随机另外标出来；点一下换下一种。
+    // 打法标签：世界书配的直接写打法，手选 / 随机另外标出来；点一下换下一种。旁边的「重写」再问一次副 API。
     const STATE_TAG = { user: ' · 手选', auto: ' · 随机' };
+    const CHIP_TEXT = { pending: '配打法中…', rewrite: '重写中…' };
     function styleChip(name) {
         const known = personas.state(name);
         const state = known === 'none' ? 'pending' : known;
         const persona = personas.get(name);
         const style = MAHJONG_STYLES[persona.style] || MAHJONG_STYLES.steady;
-        const chip = button(doc, `igs-mj-style is-${state}`, state === 'pending' ? '配打法中…' : `${style.label}${STATE_TAG[state] || ''}`);
+        const row = el(doc, 'div', 'igs-mj-mind');
+        const chip = button(doc, `igs-mj-style is-${state}`, CHIP_TEXT[state] || style.label);
+        // 打法名长了就折行，不截断；「· 手选」整块换到下一行。
+        if (!CHIP_TEXT[state] && STATE_TAG[state]) chip.appendChild(el(doc, 'span', 'igs-mj-style-tag', STATE_TAG[state]));
         chip.title = [style.blurb, persona.summary, personas.note(name), '点一下换打法，转一圈回到世界书配的'].filter(Boolean).join('\n');
-        chip.disabled = state === 'pending';
+        chip.disabled = state === 'pending' || state === 'rewrite';
         chip.addEventListener('click', () => personas.setStyle(name, nextStyle(personas, name)));
-        return chip;
+        const rewrite = button(doc, 'igs-mj-rewrite', '重写');
+        rewrite.title = '按世界书重新生成打法和当前这套台词。手选的打法会被换掉，另一套牌桌的台词留着。';
+        rewrite.disabled = state === 'pending' || state === 'rewrite' || personas.busy(name);
+        rewrite.addEventListener('click', () => {
+            const names = picked.filter(Boolean).map((person) => person.name);
+            void personas.refresh(name, { rules: mode === 'scmj' ? 'chengdu' : 'riichi', cast: names });
+        });
+        row.appendChild(chip);
+        row.appendChild(rewrite);
+        return row;
     }
     const paintCard = (entry) => {
         entry.item.innerHTML = '';
@@ -2560,7 +2283,13 @@ function openMahjongPicker(ctx, cast, rematch) {
         const rivals = [0, 1, 2].map((index) => picked[index] || { name: `路人${'甲乙丙'[index]}`, url: '' });
         const nude = [...stripped].filter((name) => rivals.some((person) => person.name === name));
         leave.bind(null);
-        openMahjongTable(ctx, [{ name: '你', url: '' }, ...rivals], null, { nude });
+        writeMahjongMode(bucket(ctx), mode);
+        clearTimeout(ensureTimer);
+        const seatedNames = picked.filter(Boolean).map((person) => person.name);
+        if (seatedNames.length) void personas.ensure(seatedNames, { rules: mode === 'scmj' ? 'chengdu' : 'riichi', cast: seatedNames });
+        const seated = [{ name: '你', url: '' }, ...rivals];
+        if (mode === 'scmj') openScmjTable(ctx, seated, null, { present: true, nude, personas: personaStoreFor(ctx), onPicker: () => openMahjongPicker(ctx, listMahjongCast(ctx.model), null) });
+        else openMahjongTable(ctx, seated, null, { nude });
     });
     render();
     lineup.appendChild(slots);
@@ -2578,7 +2307,19 @@ function openMahjongPicker(ctx, cast, rematch) {
 
 export function startMahjong(ctx) {
     if (!ctx || !ctx.doc || !ctx.board) return null;
-    imageLoader = typeof ctx.loadImage === 'function' ? ctx.loadImage : null;
+    setMahjongImageLoader(ctx.loadImage);
+    if (readMahjongMode(bucket(ctx)) === 'scmj') {
+        const playing = scmjLiveMatch();
+        if (playing && typeof playing.reattach === 'function') {
+            playing.reattach(ctx);
+            return playing;
+        }
+        const scmjSaved = readScmjSave(bucket(ctx));
+        if (scmjSaved && !scmjSaved.finished && Array.isArray(scmjSaved.decisions)) {
+            const cast = resolveCast(ctx.model, scmjSaved.cast);
+            return openScmjTable(ctx, cast, scmjSaved, { present: true, personas: personaStoreFor(ctx), onPicker: () => openMahjongPicker(ctx, listMahjongCast(ctx.model), null) });
+        }
+    }
     const held = liveMatch && liveMatch.generation > 0 ? liveMatch : null;
     if (held && typeof held.reattach === 'function') {
         held.reattach(ctx);
@@ -2790,7 +2531,7 @@ function drawHonor(doc, svg, n) {
     glyph(doc, svg, 30, 54, 40, fill, face, 900);
 }
 
-function tileNode(doc, code, options = {}) {
+export function tileNode(doc, code, options = {}) {
     const back = code === 'back';
     const face = back ? { text: '', suit: '', red: false } : faceOf(code);
     const node = el(doc, options.button ? 'button' : 'span', [

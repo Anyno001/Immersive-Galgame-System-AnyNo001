@@ -13,11 +13,12 @@ import {
     decisionKnobs,
     feelResult,
     mindMood,
+    loreKey,
     normalizePersona,
     parsePersonaReply,
-    pickLine,
     readSituation,
 } from '../src/visual/igs-ui/wait-stage-mahjong-mind.js';
+import { builtinLines, voiceKeys, voiceLine } from '../src/visual/igs-ui/wait-stage-mahjong-voice.js';
 import { forgetMahjongTable, liveFace, startMahjong } from '../src/visual/igs-ui/wait-stage-mahjong.js';
 import { createIllustrationMessageHost } from '../src/host/illustration-message-host.js';
 import { buildWaitStageModel, createWaitStageRuntime } from '../src/visual/igs-ui/wait-stage-runtime.js';
@@ -89,50 +90,180 @@ test('gate:wait-stage:mahjong-mind-plain-matches-the-engine-move-for-move', () =
     }
 });
 
+// 副 API 写回的一套台词：前 count 个键各写一句，句子带上这套牌桌的名字免得两套撞句。
+function voiceReply(rules, { style = 'gambler', count = 14, address = null, wrap = '' } = {}) {
+    const lines = {};
+    const keys = ['win.ron', ...Object.keys(voiceKeys(rules)).filter((key) => key !== 'win.ron')];
+    for (const key of keys.slice(0, count)) lines[key] = [`${rules === 'chengdu' ? '血战' : '立直'}${key}句`];
+    const body = { style, summary: '好胜', adjust: { push: 0.1 }, lines };
+    if (address) body.address = address;
+    return JSON.stringify(wrap ? { [wrap]: body } : body);
+}
+
 test('gate:wait-stage:mahjong-mind-normalizes-and-parses-llm-personas', () => {
-    const loose = normalizePersona({ style: 'nope', adjust: { push: 9 }, lines: { win: ['  好耶  ', '', 'x'.repeat(50)], riichi: '立直！', bogus: ['?'] } }, '绫', 'ai');
+    const loose = normalizePersona({
+        style: 'nope',
+        adjust: { push: 9, talk: -9 },
+        voice: { riichi: { 'win.ron': ['  好耶  ', '', 'x'.repeat(50), '（笑）「[害羞]才不是运气」'], bogus: ['?'], dealIn: ['{点}点给了{对方}', '{番}番？'] } },
+        address: { 你: ' 笨 蛋 ', '': '无名' },
+    }, '绫', 'ai');
     assert.equal(loose.style, 'steady');
     assert.equal(loose.params.push, 0.3, 'adjust 每项最多 ±0.3');
-    assert.deepEqual(loose.lines.win, ['好耶', 'x'.repeat(30)]);
-    assert.deepEqual(loose.lines.riichi, ['立直！']);
-    assert.equal(loose.lines.bogus, undefined);
-    const reply = '好的，结果如下：\n```json\n{"绫":{"style":"gambler","adjust":{"skill":-0.2},"summary":"爱赌","lines":{"win":["赢啦"]}},"凛":{"style":"???"}}\n```';
-    const parsed = parsePersonaReply(reply, ['绫', '凛', '咲']);
-    assert.deepEqual(Object.keys(parsed), ['绫']);
-    assert.equal(parsed['绫'].style, 'gambler');
-    assert.ok(Math.abs(parsed['绫'].params.skill - (MAHJONG_STYLES.gambler.skill - 0.2)) < 1e-9);
-    assert.equal(pickLine(parsed['绫'], 'win', () => 0), '赢啦', '自己的台词优先');
-    assert.ok(pickLine(parsed['绫'], 'dealIn', () => 0), '没写的类别用打法自带的');
+    assert.ok(Math.abs(loose.params.talk - (MAHJONG_STYLES.steady.talk - 0.3)) < 1e-9);
+    assert.deepEqual(loose.voice.riichi['win.ron'], ['好耶', '[害羞]才不是运气'], '去掉括号动作和引号，超长的不要，表情标签留着');
+    assert.equal(loose.voice.riichi.bogus, undefined);
+    assert.deepEqual(loose.voice.riichi.dealIn, undefined, '用了这个键没给的占位符就不要');
+    assert.deepEqual(loose.address, { 你: '笨蛋' });
+
+    const reply = `好的，结果如下：\n\`\`\`json\n${voiceReply('riichi', { wrap: '绫', address: { 你: '前辈', 凛: '凛酱' } })}\n\`\`\``;
+    const parsed = parsePersonaReply(reply, '绫', { rules: 'riichi' });
+    assert.equal(parsed.style, 'gambler');
+    assert.ok(Math.abs(parsed.params.push - (MAHJONG_STYLES.gambler.push + 0.1)) < 1e-9);
+    assert.equal(parsed.address['你'], '前辈');
+    assert.equal(parsed.voice.riichi['open.first'][0], '立直open.first句');
+    assert.deepEqual(parsed.voice.chengdu, {});
+    assert.equal(parsePersonaReply('抱歉，我写不了', '绫'), null);
+    const kept = parsePersonaReply(voiceReply('chengdu', { style: 'cautious' }), '绫', { rules: 'chengdu', keep: parsed });
+    assert.equal(kept.style, 'gambler', '已经配好打法时只收台词');
+    assert.equal(kept.address['你'], '前辈');
     assert.equal(autoPersona('绫').style, autoPersona('绫').style, '随机配也是同名同打法');
-    const prompt = buildPersonaPrompt([{ name: '绫', entries: [{ title: '绫', content: '长'.repeat(5000) }] }]);
-    assert.match(prompt.user, /【绫】/);
+
+    const prompt = buildPersonaPrompt({ name: '绫', entries: [{ title: '绫', content: '长'.repeat(5000) }] }, { rules: 'chengdu', cast: ['你', '绫', '凛'] });
+    assert.match(prompt.user, /角色：绫/);
     assert.ok(prompt.user.includes('长'.repeat(5000)), '世界书条目整条送去，不截断');
+    assert.match(prompt.user, /成都麻将血战到底/);
+    assert.match(prompt.user, /pattern\.清一色/);
+    assert.doesNotMatch(prompt.user, /yaku\./, '成都那套不问立直的役');
+    assert.match(prompt.user, /凛/, '同桌的人要写称呼');
+    assert.match(prompt.user, /先给她定打法/);
+    const second = buildPersonaPrompt({ name: '绫', entries: [{ title: '绫', content: '好胜' }] }, { rules: 'riichi', keep: parsed });
+    assert.match(second.user, /打法已经定了：赌徒型/);
+    assert.doesNotMatch(second.user, /先给她定打法/);
+    assert.match(second.user, /yaku\.国士无双/);
+});
+
+test('gate:wait-stage:mahjong-mind-chengdu-lines-are-a-separate-set', () => {
+    const riichi = new Set(builtinLines('riichi'));
+    const chengdu = builtinLines('chengdu');
+    assert.ok(chengdu.length > 100);
+    for (const line of chengdu) assert.equal(riichi.has(line), false, `成都台词不能和立直共用：${line}`);
+    const custom = normalizePersona({ style: 'attack', voice: { riichi: { 'win.ron': ['这张我收下了'] }, chengdu: { 'win.ron': ['这张我收下了', '血战胡了'] } } }, '绫');
+    assert.deepEqual(custom.voice.chengdu['win.ron'], ['血战胡了'], '成都那套不许照抄立直的句子');
+    assert.equal(voiceLine(custom, 'riichi', ['win.ron'], { random: () => 0 }).text, '这张我收下了');
+    assert.equal(voiceLine(custom, 'chengdu', ['win.ron'], { random: () => 0 }).text, '血战胡了');
+    assert.equal(voiceLine(custom, 'chengdu', ['riichi'], { random: () => 0 }), null, '成都没有立直');
+});
+
+test('gate:wait-stage:mahjong-mind-store-asks-each-table-once-and-keeps-the-style', async () => {
+    const entries = [{ title: '绫', content: '好胜，爱赌。' }];
+    const storage = memoryStorage();
+    storage.setItem('igs-wait-mahjong-persona-v1', JSON.stringify({
+        ai: { 绫: { key: loreKey(entries), at: 1, persona: { style: 'gambler', params: {}, lines: { win: ['赢了！'] }, summary: '好胜' } } },
+        user: {},
+    }));
+    const asked = [];
+    const svc = fakeService({ lore: { 绫: entries } });
+    svc.ask = async (prompt) => {
+        asked.push(prompt);
+        return { ok: true, text: voiceReply(/成都麻将/.test(prompt.user) ? 'chengdu' : 'riichi', { style: 'cautious' }) };
+    };
+    const store = createPersonaStore({ storage, service: svc });
+    await store.ensure(['绫'], { rules: 'chengdu', cast: ['你', '绫'] });
+    assert.equal(asked.length, 1, '旧档没有新台词，要再问');
+    assert.match(asked[0].user, /打法已经定了：赌徒型/, '旧档的打法留着，只补台词');
+    assert.equal(store.get('绫').style, 'gambler');
+    assert.equal(voiceLine(store.get('绫'), 'chengdu', ['win.ron'], { random: () => 0 }).text, '血战win.ron句');
+    await store.ensure(['绫'], { rules: 'chengdu' });
+    assert.equal(asked.length, 1, '这套写好了不再问');
+    await store.ensure(['绫'], { rules: 'riichi' });
+    assert.equal(asked.length, 2, '立直那套另问一次');
+    assert.equal(voiceLine(store.get('绫'), 'riichi', ['win.ron'], { random: () => 0 }).text, '立直win.ron句');
+    assert.equal(voiceLine(store.get('绫'), 'chengdu', ['win.ron'], { random: () => 0 }).text, '血战win.ron句', '问立直那套不冲掉成都的');
+
+    const again = fakeService({ lore: { 绫: entries } });
+    const reopened = createPersonaStore({ storage, service: again });
+    await reopened.ensure(['绫'], { rules: 'riichi' });
+    await reopened.ensure(['绫'], { rules: 'chengdu' });
+    assert.equal(again.calls.ask.length, 0, '两套台词都在就不再问');
+});
+
+test('gate:wait-stage:mahjong-mind-store-asks-again-when-the-reply-is-too-thin', async () => {
+    const lore = { 绫: [{ title: '绫', content: '好胜' }] };
+    const svc = fakeService({ lore, reply: voiceReply('riichi', { count: 3 }) });
+    const store = createPersonaStore({ storage: memoryStorage(), service: svc });
+    await store.ensure(['绫']);
+    assert.equal(store.state('绫'), 'ai');
+    assert.match(store.note('绫'), /台词太少/);
+    await store.ensure(['绫']);
+    assert.equal(svc.calls.ask.length, 2, '只写了几句的下次补问');
+});
+
+test('gate:wait-stage:mahjong-mind-refresh-rewrites-style-and-keeps-the-other-table', async () => {
+    const entries = [{ title: '绫', content: '好胜，爱赌。' }];
+    let style = 'gambler';
+    const svc = fakeService({ lore: { 绫: entries } });
+    svc.ask = async (prompt) => {
+        svc.calls.ask.push(prompt);
+        const rules = /成都麻将/.test(prompt.user) ? 'chengdu' : 'riichi';
+        return { ok: true, text: voiceReply(rules, { style: rules === 'riichi' ? style : 'attack' }) };
+    };
+    const store = createPersonaStore({ storage: memoryStorage(), service: svc });
+    await store.ensure(['绫'], { rules: 'riichi' });
+    await store.ensure(['绫'], { rules: 'chengdu' });
+    assert.equal(svc.calls.ask.length, 2);
+    store.setStyle('绫', 'swift');
+    assert.equal(store.get('绫').style, 'swift');
+    style = 'cautious';
+    const pending = store.refresh('绫', { rules: 'riichi', cast: ['你', '绫'] });
+    assert.equal(store.state('绫'), 'rewrite');
+    await store.refresh('绫', { rules: 'riichi' });
+    await pending;
+    assert.equal(svc.calls.ask.length, 3, '正在重写时再点一次不再问');
+    assert.match(svc.calls.ask[2].user, /先给她定打法/);
+    assert.doesNotMatch(svc.calls.ask[2].user, /打法已经定了/);
+    assert.equal(store.state('绫'), 'ai');
+    assert.equal(store.userStyle('绫'), '', '重写成功就丢掉手选');
+    assert.equal(store.get('绫').style, 'cautious');
+    assert.equal(voiceLine(store.get('绫'), 'riichi', ['win.ron'], { random: () => 0 }).text, '立直win.ron句');
+    assert.equal(voiceLine(store.get('绫'), 'chengdu', ['win.ron'], { random: () => 0 }).text, '血战win.ron句', '重写立直不冲掉成都台词');
+    await store.ensure(['绫'], { rules: 'riichi' });
+    assert.equal(svc.calls.ask.length, 3, '重写好了就又按缓存');
+
+    store.setStyle('绫', 'sly');
+    svc.ask = async (prompt) => {
+        svc.calls.ask.push(prompt);
+        return { ok: false, reason: 'failed' };
+    };
+    await store.refresh('绫', { rules: 'riichi' });
+    assert.equal(store.get('绫').style, 'sly', '没生成成功就留着手选');
+    assert.equal(store.state('绫'), 'user');
 });
 
 test('gate:wait-stage:mahjong-mind-store-asks-the-secondary-api-once-per-worldbook-version', async () => {
     const storage = memoryStorage();
     const lore = { 绫: [{ title: '绫', content: '好胜，爱赌。' }] };
-    const reply = JSON.stringify({ 绫: { style: 'gambler', summary: '好胜', lines: { win: ['赢了！'] } } });
-    const svc = fakeService({ lore, reply });
+    const svc = fakeService({ lore, reply: voiceReply('riichi') });
     const store = createPersonaStore({ storage, service: svc });
     const pending = store.ensure(['绫', '凛']);
     assert.equal(store.state('绫'), 'pending');
+    assert.equal(store.busy('绫'), true);
     await pending;
+    assert.equal(store.busy('绫'), false);
     assert.equal(svc.calls.ask.length, 1);
     assert.match(svc.calls.ask[0].user, /好胜，爱赌/);
-    assert.doesNotMatch(svc.calls.ask[0].user, /【凛】/, '世界书里没有的人不送去问');
+    assert.doesNotMatch(svc.calls.ask[0].user, /角色：凛/, '世界书里没有的人不送去问');
     assert.equal(store.state('绫'), 'ai');
     assert.equal(store.get('绫').style, 'gambler');
     assert.equal(store.state('凛'), 'auto');
     assert.match(store.note('凛'), /没有她的条目/);
 
-    const again = fakeService({ lore, reply });
+    const again = fakeService({ lore, reply: voiceReply('riichi') });
     const reopened = createPersonaStore({ storage, service: again });
     await reopened.ensure(['绫']);
     assert.equal(again.calls.ask.length, 0, '世界书没变就用存下的');
     assert.equal(reopened.get('绫').style, 'gambler');
 
-    const edited = fakeService({ lore: { 绫: [{ title: '绫', content: '改了设定，变胆小。' }] }, reply: JSON.stringify({ 绫: { style: 'cautious' } }) });
+    const edited = fakeService({ lore: { 绫: [{ title: '绫', content: '改了设定，变胆小。' }] }, reply: voiceReply('riichi', { style: 'cautious' }) });
     const third = createPersonaStore({ storage, service: edited });
     await third.ensure(['绫']);
     assert.equal(edited.calls.ask.length, 1, '世界书改了重配');
@@ -141,9 +272,28 @@ test('gate:wait-stage:mahjong-mind-store-asks-the-secondary-api-once-per-worldbo
     third.setStyle('绫', 'swift');
     assert.equal(third.state('绫'), 'user');
     assert.equal(third.get('绫').style, 'swift');
+    assert.equal(third.get('绫').voice.riichi['win.ron'][0], '立直win.ron句', '手选打法照用副 API 写的台词');
     assert.equal(third.baseStyle('绫'), 'cautious');
     third.setStyle('绫', '');
     assert.equal(third.get('绫').style, 'cautious');
+});
+
+test('gate:wait-stage:mahjong-mind-store-asks-people-in-parallel-only-on-the-secondary-api', async () => {
+    const lore = { 绫: [{ title: '绫', content: '好胜' }], 凛: [{ title: '凛', content: '冷静' }] };
+    for (const [via, overlap] of [['secondary', 2], ['tavern', 1]]) {
+        let open = 0;
+        let most = 0;
+        const svc = fakeService({ lore, status: { ok: true, via } });
+        svc.ask = async () => {
+            open += 1;
+            most = Math.max(most, open);
+            await flush(5);
+            open -= 1;
+            return { ok: true, text: voiceReply('riichi') };
+        };
+        await createPersonaStore({ storage: memoryStorage(), service: svc }).ensure(['绫', '凛']);
+        assert.equal(most, overlap, via);
+    }
 });
 
 test('gate:wait-stage:mahjong-mind-store-skips-the-tavern-api-while-the-reply-streams', async () => {
@@ -215,6 +365,16 @@ test('gate:wait-stage:mahjong-picker-shows-and-cycles-each-rivals-style', async 
     assert.notEqual(chips()[0].textContent.replace(' · 手选', ''), '赌徒型');
     for (let i = 0; i < 10 && /手选/.test(chips()[0].textContent); i += 1) chips()[0].fire('click');
     assert.equal(chips()[0].textContent, '赌徒型', '转一圈回到世界书配的');
+    const rewrite = () => board.querySelectorAll('.igs-mj-rewrite');
+    assert.equal(rewrite().length, 3);
+    rewrite()[0].fire('click');
+    assert.equal(chips()[0].textContent, '重写中…');
+    assert.equal(rewrite()[0].disabled, true);
+    assert.equal(board.querySelector('.igs-ws-status').textContent, '正在按世界书重新生成打法和台词…');
+    await flush(0);
+    assert.equal(svc.calls.ask.length, 2, '重写再问一次，不看缓存');
+    assert.match(svc.calls.ask[1].user, /先给她定打法/);
+    assert.equal(chips()[0].textContent, '赌徒型');
     forgetMahjongTable();
 });
 

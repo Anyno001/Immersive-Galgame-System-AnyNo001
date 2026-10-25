@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -7,6 +8,8 @@ const appRoot = path.resolve(import.meta.dirname, '..');
 const projectRoot = path.resolve(appRoot, '..');
 const loaderRoot = path.join(projectRoot, 'loader');
 const version = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8')).version;
+const vendorCheck = spawnSync(process.execPath, [path.join(appRoot, 'scripts/gen-scmj-vendor.mjs'), '--check'], { cwd: appRoot, encoding: 'utf8' });
+if (vendorCheck.status !== 0) throw new Error(vendorCheck.stderr || vendorCheck.stdout || '幼麟原文件与工厂不一致');
 
 const result = await build({
     entryPoints: [path.join(appRoot, 'src/plugins/wait-stage-games-entry.js')],
@@ -28,6 +31,9 @@ if (!program.includes('翻牌配对') || !program.includes('立直麻将') || !p
 }
 if (!program.includes('Satoshi Kobayashi') || !program.includes('MIT')) {
     throw new Error('等待小游戏脚本缺少電脳麻将的许可声明。');
+}
+if (!program.includes('成都麻将') || !program.includes('成都幼麟科技有限公司') || !program.includes('允许第三方把包含它的作品作为整体免费使用')) {
+    throw new Error('等待小游戏脚本缺少成都麻将或幼麟许可声明。');
 }
 
 const sandbox = { console };
@@ -54,8 +60,9 @@ const json = {
     id: 'igs-wait-games',
     content,
     info: [
-        `等待过场小游戏 v${version}：猜拳、立直麻将、这句是谁说的、翻牌配对、心情猜猜。`,
+        `等待过场小游戏 v${version}：猜拳、麻将（立直 / 成都血战到底）、这句是谁说的、翻牌配对、心情猜猜。`,
         '立直麻将使用電脳麻将（@kobalab/majiang-core、@kobalab/majiang-ai，MIT）的规则、算点和电脑。开局从卡里的立绘里选三位对手。牌局存在本地，离开后下次等待可以接着打。东风战，赤宝牌，一家和。',
+        '成都麻将（血战到底）的规则使用幼麟棋牌-四川麻将 v1.0 开源版服务端原文件（成都幼麟科技有限公司，按其开源协议发布，原文与改动说明随脚本附带）。本脚本按该协议允许第三方免费使用。',
         '这是独立脚本，不包含 Gal 前端。请先导入并启用沉浸式 Galgame 系统，再启用本脚本。',
         '没启用本脚本时，等待层只轮换台词，不会加载小游戏。',
     ].join('\n'),

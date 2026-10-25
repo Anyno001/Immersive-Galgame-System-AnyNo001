@@ -2,10 +2,10 @@
 // 透视按原来的 perspective(90) rotateX(24deg) 自己算，整张一次画完：重画只换像素，
 // 不会像 DOM 3D 那样每次改动都重新栅格化一层层元素，手机上不抖。
 // 单位都是 16:9 基准宽的百分之一（和样式里的 cqi 同一把尺子），牌区 100 × 56.25 居中。
-const TILT = (24 * Math.PI) / 180;
+const TILT = (38 * Math.PI) / 180;
 const COS = Math.cos(TILT);
 const SIN = Math.sin(TILT);
-const DEPTH = 90;
+const DEPTH = 80;
 const BASE_W = 100;
 const BASE_H = 56.25;
 const ORIGIN_Y = BASE_H * 0.44;
@@ -17,12 +17,17 @@ const MAT = { left: 9, top: -5, right: 91, bottom: BASE_H - 1.5, radius: 1.6 };
 const POND_TW = 2.85;
 const RAIL_TW = 2.35;
 const ROT = [0, -90, 180, 90];
+// 立牌的牌厚（按牌宽计）。
+const STAND_DEPTH = 0.72;
 const BACK = '#e2546d';
 const BACK_DEEP = '#b3304b';
 const DPR_CAP = 2.5;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const SCORE_FONT = '"DIN Alternate","Bahnschrift","Roboto Condensed",sans-serif';
 const UI_FONT = '"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif';
+const FLIGHT_MS = 720;
+// 自己的手牌在 DOM 里，胡牌飞过去落在手牌右段上方。
+const SELF_LANDING = { x: 72, y: 47.5 };
 const ALL_FACES = ['back', ...['m', 'p', 's'].flatMap((suit) => Array.from({ length: 10 }, (_, n) => suit + n)), ...Array.from({ length: 7 }, (_, n) => `z${n + 1}`)];
 
 const faces = new Map();
@@ -74,25 +79,29 @@ function placeGroup(out, origin, rot, tiles) {
             w: Math.abs(bx - ax),
             h: Math.abs(by - ay),
             th,
-            tz: tile.tw * 0.11,
+            tz: tile.tw * 0.27 * SIN,
             turn: rot + (tile.side ? -90 : 0),
         });
     }
 }
 
-function pondTiles(pond) {
+// 立直照规矩每行 6 张、第三行往右接；成都一人能打二十多张，perRow 给 8，打满三行再把每行加宽，不往外伸第四行（会压到别家的手牌）。
+// 各家牌河从自己左手边起排，转成风车形，加宽了也不会和左右两家的牌河叠在一起。
+function pondTiles(pond, perRow = 0) {
     const tw = POND_TW;
     const th = tw * 4 / 3;
     const out = [];
     let top = PQ / 2 + 0.8;
-    for (const list of [pond.slice(0, 6), pond.slice(6, 12), pond.slice(12)]) {
+    const width = perRow ? Math.max(perRow, Math.ceil(pond.length / 3)) : 6;
+    const rows = [pond.slice(0, width), pond.slice(width, width * 2), pond.slice(width * 2)];
+    for (const list of rows) {
         if (!list.length) continue;
         const sizes = list.map((tile) => (tile.side ? [th, tw] : [tw, th]));
         const rowH = Math.max(...sizes.map((size) => size[1]));
         let x = -3 * tw;
         list.forEach((tile, index) => {
             const [w, h] = sizes[index];
-            out.push({ ...tile, tw, x, y: top + (rowH - h) / 2, w, h });
+            out.push({ ...tile, tw, x, y: top + (rowH - h) / 2, w, h, pondAt: out.length });
             x += w + 0.08;
         });
         top += rowH + 0.5;
@@ -113,7 +122,7 @@ function railTiles(hand, melds) {
     };
     for (let i = 0; i < (hand.backs || 0); i += 1) add({ code: 'back', back: true }, 0.08);
     for (const code of hand.tiles || []) add({ code }, 0.08);
-    if (hand.zimo) add({ code: hand.zimo }, 0.08 + 1.4);
+    if (hand.zimo) add({ code: hand.zimo, fresh: Boolean(hand.won), huTile: Boolean(hand.won) }, 0.08 + 1.4);
     let firstMeld = true;
     for (const meld of melds || []) {
         meld.forEach((tile, index) => add(tile, index ? 0.04 : (firstMeld ? 1.2 : 0.8)));
@@ -157,6 +166,8 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
     // CPU 画布像图片一样画进牌桌所在的层，上面怎么变都不碰它。
     const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d', { willReadFrequently: true }) : null;
     let scene = null;
+    let placed = [];
+    let flights = [];
     let queued = 0;
     let dead = false;
     let view = null;
@@ -347,9 +358,81 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
         roundRectPath(ctx, wx + 0.05, wy + 0.05, 1.9, 1.9, 0.4);
         ctx.stroke();
         text(seat.wind, wx + 1, wy + 1.05, 1.2, 800, UI_FONT, seat.dealer ? '#fff' : '#e9e4d6', null, scale);
+        if (seat.que) text(seat.que, wx + 1, wy - 0.15, 0.85, 700, UI_FONT, '#ffd36a', null, scale);
+        if (seat.hued) text(seat.huMark || '胡', half - 1.3, wy + 1.05, 0.9, 800, UI_FONT, '#ffb4b4', null, scale);
+    }
+
+    // 立着的牌按桌面同一台相机算：方块八个角各自带高度投影，三家和桌子永远一个视角。
+    function project3(x, y, z) {
+        const yr = y - ORIGIN_Y;
+        const k = DEPTH / (DEPTH - yr * SIN - z * COS);
+        return [(view.ox + 50 + (x - 50) * k) * view.u, (view.oy + ORIGIN_Y + (yr * COS - z * SIN) * k) * view.u];
+    }
+
+    function face3(points, fill, stroke) {
+        ctx.beginPath();
+        points.forEach(([x, y, z], index) => {
+            const [px, py] = project3(x, y, z);
+            if (index) ctx.lineTo(px, py);
+            else ctx.moveTo(px, py);
+        });
+        ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.fill();
+        if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.stroke();
+        }
+    }
+
+    // 牌背那层只占牌厚的一部分，朝桌心；其余是米白牌身。
+    function drawBox(tile) {
+        const d = view.dpr;
+        ctx.setTransform(d, 0, 0, d, 0, 0);
+        ctx.lineWidth = 0.8;
+        ctx.lineJoin = 'round';
+        const { tw } = tile;
+        const deep = tw * STAND_DEPTH;
+        const tall = tw * 4 / 3;
+        const band = deep * 0.36;
+        const cx = tile.x + tile.w / 2;
+        const cy = tile.y + tile.h / 2;
+        const across = !tile.upright;
+        const hx = across ? deep / 2 : tile.w / 2;
+        const hy = across ? tile.h / 2 : deep / 2;
+        const [x0, x1, y0, y1] = [cx - hx, cx + hx, cy - hy, cy + hy];
+        const body = '#f3ead6';
+        const bodySide = '#ddd0b4';
+        const backLine = 'rgba(70,6,22,.55)';
+        const bodyLine = 'rgba(120,98,66,.45)';
+        const pad = tw * 0.06;
+        face3([[x0 - pad, y0, 0], [x1 + pad, y0, 0], [x1 + pad, y1 + pad * 2, 0], [x0 - pad, y1 + pad * 2, 0]], 'rgba(0,0,0,.28)');
+        const sideX = cx < 50 ? x1 : x0;
+        const side = [[sideX, y0, 0], [sideX, y1, 0], [sideX, y1, tall], [sideX, y0, tall]];
+        const front = [[x0, y1, 0], [x1, y1, 0], [x1, y1, tall], [x0, y1, tall]];
+        if (across) {
+            const backX = tile.lean > 0 ? x1 : x0;
+            const bandX = tile.lean > 0 ? x1 - band : x0 + band;
+            if (sideX === backX) face3(side, BACK, backLine);
+            else face3(side, bodySide, bodyLine);
+            face3(front, bodySide, bodyLine);
+            face3([[bandX, y1, 0], [backX, y1, 0], [backX, y1, tall], [bandX, y1, tall]], BACK_DEEP);
+            face3([[x0, y0, tall], [x1, y0, tall], [x1, y1, tall], [x0, y1, tall]], body, bodyLine);
+            face3([[bandX, y0, tall], [backX, y0, tall], [backX, y1, tall], [bandX, y1, tall]], BACK, backLine);
+        } else {
+            face3(side, bodySide, bodyLine);
+            face3([[sideX, y1 - band, 0], [sideX, y1, 0], [sideX, y1, tall], [sideX, y1 - band, tall]], BACK_DEEP);
+            face3(front, BACK, backLine);
+            face3([[x0, y0, tall], [x1, y0, tall], [x1, y1, tall], [x0, y1, tall]], body, bodyLine);
+            face3([[x0, y1 - band, tall], [x1, y1 - band, tall], [x1, y1, tall], [x0, y1, tall]], BACK, backLine);
+        }
     }
 
     function drawTile(tile) {
+        if (tile.lean || tile.upright) {
+            drawBox(tile);
+            return;
+        }
         const scale = frame(tile.x + tile.w / 2, tile.y + tile.h / 2, 0, Math.max(tile.w, tile.h));
         const { w, h, tw, th, tz } = tile;
         const x0 = -w / 2;
@@ -417,11 +500,24 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
         const tiles = [];
         const rails = { 1: [[100 - SX, CY], -90], 2: [[50, TY], 180], 3: [[SX, CY], 90] };
         scene.seats.forEach((seat, rel) => {
-            if (rel && seat.hand) placeGroup(tiles, rails[rel][0], rails[rel][1], railTiles(seat.hand, seat.melds));
-            if (seat.pond && seat.pond.length) placeGroup(tiles, [50, CY], ROT[rel], pondTiles(seat.pond));
+            if (rel && seat.hand) {
+                const from = tiles.length;
+                placeGroup(tiles, rails[rel][0], rails[rel][1], railTiles(seat.hand, seat.melds));
+                for (let i = from; i < tiles.length; i += 1) {
+                    tiles[i].rel = rel;
+                    if (!tiles[i].back) continue;
+                    if (rel === 2) tiles[i].upright = true;
+                    else tiles[i].lean = rel === 1 ? -1 : 1;
+                }
+            }
+            if (seat.pond && seat.pond.length) {
+                const from = tiles.length;
+                placeGroup(tiles, [50, CY], ROT[rel], pondTiles(seat.pond, scene.pondRow));
+                for (let i = from; i < tiles.length; i += 1) tiles[i].pondOf = rel;
+            }
         });
         // 远的先画，近的后画：近处牌的厚度要盖住远处那张。
-        return tiles.sort((a, b) => (a.y + a.h) - (b.y + b.h) || a.x - b.x);
+        return tiles.sort((a, b) => (a.y + a.h) - (b.y + b.h) || Math.abs(b.x + b.w / 2 - 50) - Math.abs(a.x + a.w / 2 - 50));
     }
 
     function render() {
@@ -442,14 +538,68 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
         ctx.clearRect(0, 0, pw, ph);
         drawMat();
         drawPlaque();
-        for (const tile of layout()) drawTile(tile);
+        const now = clock();
+        flights = flights.filter((flight) => now - flight.t0 < FLIGHT_MS);
+        const landing = new Set(flights.map((flight) => flight.rel));
+        for (const tile of layout()) if (!(tile.huTile && landing.has(tile.rel))) drawTile(tile);
+        for (const flight of flights) drawFlight(flight, (now - flight.t0) / FLIGHT_MS);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+        if (flights.length) wake();
+    }
+
+    function clock() {
+        return win && win.performance && typeof win.performance.now === 'function' ? win.performance.now() : Date.now();
+    }
+
+    // 胡的那张从点炮的牌河（自摸就是自己手边）抛起来，落到胡牌那家手牌右边。
+    function drawFlight(flight, t) {
+        const e = t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2;
+        const { from, to } = flight;
+        const lift = Math.sin(Math.PI * t) * 5;
+        const grow = 1 + Math.sin(Math.PI * t) * 0.45;
+        const w = (from.w + (to.w - from.w) * e) * grow;
+        const h = (from.h + (to.h - from.h) * e) * grow;
+        const cx = from.x + from.w / 2 + (to.x + to.w / 2 - from.x - from.w / 2) * e;
+        const cy = from.y + from.h / 2 + (to.y + to.h / 2 - from.y - from.h / 2) * e - lift;
+        const tw = Math.min(w, h);
+        ctx.save();
+        if (flight.self && t > 0.8) ctx.globalAlpha = (1 - t) / 0.2;
+        drawTile({ code: flight.code, x: cx - w / 2, y: cy - h / 2, w, h, tw, th: tw * 4 / 3, tz: tw * 0.27 * SIN, turn: e < 0.5 ? from.turn : to.turn, fresh: t > 0.85 });
+        ctx.restore();
+    }
+
+    function launch(prevScene, prevTiles, next, nextTiles) {
+        if (!prevScene || !prevScene.seats || !next.seats) return;
+        const shrunk = next.seats.findIndex((seat, rel) => {
+            const was = prevScene.seats[rel];
+            return was && was.pond && seat.pond && seat.pond.length === was.pond.length - 1;
+        });
+        next.seats.forEach((seat, rel) => {
+            const was = prevScene.seats[rel];
+            if (!seat.hand || !seat.hand.won || !was || (was.hand && was.hand.won)) return;
+            const code = seat.hand.zimo || '';
+            const target = rel
+                ? nextTiles.find((tile) => tile.huTile && tile.rel === rel)
+                : { x: SELF_LANDING.x - RAIL_TW / 2, y: SELF_LANDING.y, w: RAIL_TW, h: RAIL_TW * 4 / 3, turn: 0 };
+            if (!target || !code) return;
+            let source = shrunk >= 0
+                ? prevTiles.filter((tile) => tile.pondOf === shrunk).sort((a, b) => b.pondAt - a.pondAt)[0]
+                : null;
+            if (!source) source = { ...target, y: target.y + (rel === 2 ? 3 : -3) };
+            flights.push({ rel, code, self: !rel, from: source, to: target, t0: clock() });
+        });
     }
 
     return {
         node: canvas,
         draw(next) {
+            const prevScene = scene;
+            const prevTiles = placed;
             scene = next;
+            if (ctx) {
+                placed = layout();
+                launch(prevScene, prevTiles, next, placed);
+            }
             const scores = next.seats.map((seat) => `${seat.wind}${seat.score}`).join(' ');
             canvas.setAttribute('aria-label', `牌桌 ${next.round}${next.left == null ? '' : ` 余${next.left}张`} ${scores}`);
             render();

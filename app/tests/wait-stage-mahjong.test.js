@@ -301,6 +301,21 @@ test('gate:wait-stage:mahjong-penalty-takes-everyone-tied-last-or-busted', () =>
     assert.deepEqual(withMe.strip, ['凛'], '玩家不画，同罚的角色照罚');
     assert.match(withMe.description, /玩家（主角）和凛并列垫底，由第一名的绫来惩罚他们/);
     assert.match(withMe.caption, /绫罚你和凛/);
+    const table = penaltyBrief({
+        targets: ['凛'],
+        punisher: '绫',
+        present: ['你', '绫', '凛', '咲'],
+        request: '罚她学猫叫',
+        nsfw: true,
+        outfits: { 绫: '校服', 凛: '礼服', 咲: '泳装' },
+    });
+    assert.deepEqual(table.characters, ['绫', '凛', '咲']);
+    assert.deepEqual(table.strip, ['凛']);
+    assert.deepEqual(table.outfits, { 绫: '校服', 凛: '礼服', 咲: '泳装' });
+    assert.match(table.description, /受惩罚的是凛/);
+    assert.match(table.description, /旁观的是咲/);
+    assert.match(table.description, /最大化地细化/);
+    assert.match(table.description, /不要另画一张意思相近的图/);
 });
 
 test('gate:wait-stage:mahjong-sound-uses-the-host-bus-and-remembers-mute', () => {
