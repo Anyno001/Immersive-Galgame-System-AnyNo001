@@ -618,21 +618,22 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     };
     const preview = (action) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}:${encSeg(charName)}">试听</button>`;
     const line = (label, html) => `<div class="igs-char-voice-line"><span class="igs-char-voice-sub">${label}</span>${html}</div>`;
-    const tune = (label, html) => `<label class="igs-char-voice-tune"><span class="igs-char-voice-sub">${label}</span>${html}</label>`;
     const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
-    // 台词、心里话各自的语速：0 表示跟随（台词跟随上方语速，心里话跟随台词）。
-    const speedSelect = (field, saved, first, label) => `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}"><option value="0"${saved ? '' : ' selected'}>${first}</option>${speedOpts.replace(/ selected/g, '').replace(`value="${saved}"`, `value="${saved}" selected`)}</select>`;
-    const thoughtVolumeOpts = [[-1, '同台词'], ...TTS_CHARACTER_VOLUMES].map(([v, label]) => `<option value="${v}"${v === manual.ttsThoughtVolume ? ' selected' : ''}>${esc(label)}</option>`).join('');
-    const volumeOpts = TTS_CHARACTER_VOLUMES.map(([v, label]) => `<option value="${v}"${v === manual.ttsVolume ? ' selected' : ''}>${esc(label)}</option>`).join('');
-    // 接口来源不支持调音高，只给语速。
-    const pitch = tts.provider === 'system' ? tune('音高', `<select class="igs-asset-move" data-char-voice-pitch="${name}" aria-label="朗读音高">${pitchOpts}</select>`) : '';
+    const plainSpeeds = speedOpts.replace(/ selected/g, '');
+    const pick = (opts, saved) => opts.replace(`value="${saved}"`, `value="${saved}" selected`);
+    // 台词、心里话各占一行：声音、语速、音量、试听。台词语速未单独设时显示角色原有语速；心里话语速、音量可设「同台词」。
+    const select = (field, label, opts) => `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}" title="${label}">${opts}</select>`;
+    const volumeOpts = (list) => list.map(([v, text]) => `<option value="${v}">${esc(text)}</option>`).join('');
+    const speed = select('ttsSpeed', '台词语速', pick(plainSpeeds, manual.ttsSpeed || manual.speed));
+    const thoughtSpeed = select('ttsThoughtSpeed', '心里话语速', pick(`<option value="0">语速同台词</option>${plainSpeeds}`, manual.ttsThoughtSpeed));
+    const volume = select('ttsVolume', '台词音量', pick(volumeOpts(TTS_CHARACTER_VOLUMES), manual.ttsVolume));
+    const thoughtVolume = select('ttsThoughtVolume', '心里话音量', pick(volumeOpts([[-1, '音量同台词'], ...TTS_CHARACTER_VOLUMES]), manual.ttsThoughtVolume));
+    // 接口来源不支持调音高。
+    const pitch = tts.provider === 'system' ? line('音高', select('pitch', '朗读音高', pitchOpts)) : '';
     return `<div class="igs-char-info-row is-block igs-char-tts"><span class="igs-char-info-label">朗读</span>`
-        + line('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + speedSelect('ttsSpeed', manual.ttsSpeed, '跟随', '台词语速') + preview('tts-preview'))
-        + line('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + speedSelect('ttsThoughtSpeed', manual.ttsThoughtSpeed, '同台词', '心里话语速') + `<select class="igs-asset-move" data-char-voice-ttsThoughtVolume="${name}" aria-label="心里话音量">${thoughtVolumeOpts}</select>` + preview('tts-preview-thought'))
-        + `<div class="igs-char-voice-tunes">${pitch}`
-        + tune('语速', `<select class="igs-asset-move" data-char-voice-speed="${name}" aria-label="朗读语速">${speedOpts}</select>`)
-        + tune('音量', `<select class="igs-asset-move" data-char-voice-ttsVolume="${name}" aria-label="朗读音量">${volumeOpts}</select>`)
-        + '</div>'
+        + line('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + speed + volume + preview('tts-preview'))
+        + line('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + thoughtSpeed + thoughtVolume + preview('tts-preview-thought'))
+        + pitch
         + line('风格', `<input class="igs-asset-move" type="text" maxlength="300" data-char-voice-ttsStyle="${name}" value="${esc(manual.ttsStyle)}" placeholder="可选，仅 OpenAI 兼容接口与自定义请求生效" aria-label="朗读风格">`)
         + '</div>';
 }

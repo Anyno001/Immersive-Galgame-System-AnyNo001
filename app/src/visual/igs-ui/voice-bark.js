@@ -94,13 +94,13 @@ function normalizeOptionalSpeed(value) {
 // 心里话音量（倍）：-1 表示同台词音量（0 已是「不朗读」，不能当缺省）；其余同台词音量范围。
 function normalizeThoughtVolume(value) {
     const volume = Number(value);
-    return value === undefined || value === null || value === '' || !Number.isFinite(volume) || volume < 0 ? -1 : Math.min(1, volume);
+    return value === undefined || value === null || value === '' || !Number.isFinite(volume) || volume < 0 ? -1 : Math.min(2, volume);
 }
 
-// 朗读音量（倍）：0～1，0 表示这个角色不朗读；缺省 1。
+// 朗读音量（倍）：0～2，超过 1 为放大，0 表示这个角色不朗读；缺省 1。
 function normalizeTtsVolume(value) {
     const volume = Number(value);
-    return value === undefined || value === null || value === '' || !Number.isFinite(volume) ? 1 : Math.max(0, Math.min(1, volume));
+    return value === undefined || value === null || value === '' || !Number.isFinite(volume) ? 1 : Math.max(0, Math.min(2, volume));
 }
 
 export function normalizeVoiceSpeed(value) {
@@ -406,11 +406,11 @@ export function stopVoiceBark() {
 }
 
 // gain →（听筒带通 / 声像）→ 总线；返回链头。
-export function buildBarkChain(context, out, { volume, pan, phone }, nodes) {
+export function buildBarkChain(context, out, { volume, pan, phone, gainCap = GAIN_CAP }, nodes) {
     const gain = context.createGain();
     const filter = getVoiceFilter();
     const earPan = (voiceFilterParams(filter) || {}).pan || 0;
-    gain.gain.value = Math.max(0, Math.min(GAIN_CAP, (Number(volume) || 0) * voiceFilterGain(filter)));
+    gain.gain.value = Math.max(0, Math.min(gainCap, (Number(volume) || 0) * voiceFilterGain(filter)));
     nodes.push(gain);
     let tail = gain;
     const link = (node) => {

@@ -50,7 +50,9 @@ export const TTS_THOUGHT_BILINGUAL_MODES = Object.freeze([
     ['original', '读原文'],
 ]);
 // 角色单独音量：0 为这个角色不朗读。
-export const TTS_CHARACTER_VOLUMES = Object.freeze([[1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.25, '25%'], [0, '不朗读']]);
+export const TTS_CHARACTER_VOLUMES = Object.freeze([[2, '200%'], [1.5, '150%'], [1.25, '125%'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.25, '25%'], [0, '不朗读']]);
+// 角色音量可放大到 200%：接口音频走增益节点的上限（系统语音浏览器最高 100%）。
+export const TTS_GAIN_CAP = 2;
 // 心里话音量（倍）：在力度之上再压一档，像在脑子里说。
 export const TTS_THOUGHT_VOLUMES = Object.freeze([[1, '100%'], [0.8, '80%'], [0.6, '60%'], [0.4, '40%']]);
 const ROLE_KEYS = ['female', 'male', 'narrator'];
@@ -781,7 +783,8 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         voice: voice.voice,
         role: voice.role,
         lang,
-        volume: clamp(config.volume * gain * voice.volume, 0, 1),
+        volume: clamp(config.volume * gain * voice.volume, 0, TTS_GAIN_CAP),
+        gainCap: TTS_GAIN_CAP,
         rate,
         pitch: clamp(voice.pitch * (prosody.pitch || 1), 0.5, 2),
         pan: shape.pan, close: shape.close, phone: shape.phone,
@@ -1848,10 +1851,15 @@ export function previewTts(settings, { role = 'female', voice = '', speaker = ''
     // 接口来源三个框全空时不发请求，直接说明原因，免得服务端拿默认音色念。
     if (separate && !picked) return Promise.resolve({ ok: false, error: '旁白独立接口还没有填写声音' });
     if (provider === 'api' && !picked) return Promise.resolve({ ok: false, error: '默认声音均未选择，请先选择声音再试听' });
+    // 试听角色时按这个角色的台词 / 心里话语速与音量念。
+    const own = speaker && !narrator ? resolveTtsVoice({ textType: thought ? 'thought' : 'dialogue', speaker }, config, sceneAssets, voices) : null;
+    if (own && own.volume <= 0) return Promise.resolve({ ok: false, error: '这个角色设为不朗读' });
+    const volume = own ? clamp(config.volume * (thought ? config.thoughtVolume : 1) * own.volume, 0, TTS_GAIN_CAP) : config.volume;
+    const rate = own ? clamp(config.rate * own.rate, 0.5, 2) : config.rate;
     const plan = {
         provider, apiSource: separate ? 'narrator' : 'main', style: narrator ? config.narratorStyle : speaker ? spokenStyle(config, sceneAssets, { textType: thought ? 'thought' : 'dialogue', speaker }, '') : '',
         text: narrator ? '夜色渐深，街角的灯一盏接一盏亮了起来。' : thought ? '这家伙，到底在想些什么呢。' : '你好，这是台词朗读的试听。今天也请多指教。', voice: picked, role, lang: 'zh',
-        volume: config.volume, rate: config.rate, pitch: 1, pan: 0, close: false, phone: false, preview: true,
+        volume, gainCap: TTS_GAIN_CAP, rate, pitch: 1, pan: 0, close: false, phone: false, preview: true,
     };
     lastError = '';
     const job = playTts(plan, config);
