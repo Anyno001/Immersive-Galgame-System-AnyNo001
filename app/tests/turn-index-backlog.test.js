@@ -74,6 +74,23 @@ test('回想：不朗读的句子单独置灰', async () => {
     panel.close();
 });
 
+test('窄屏抽屉：「≡」打开楼层列表，选楼或点遮罩收起', async () => {
+    const { doc, panel, host } = setup();
+    await panel.open(host);
+    const root = doc.getElementById('igs-turn-index');
+    doc.querySelector('.igs-ti-drawer-btn').click();
+    await panel.whenIdle();
+    assert.ok(root.classList.contains('igs-ti-drawer-open'));
+    doc.querySelector('.igs-ti-scrim').click();
+    await panel.whenIdle();
+    assert.ok(!root.classList.contains('igs-ti-drawer-open'));
+    await panel.act('drawer');
+    await panel.act('select', '2');
+    assert.ok(!root.classList.contains('igs-ti-drawer-open'));
+    assert.match(doc.querySelector('.igs-ti-drawer-btn').textContent, /2 楼/);
+    panel.close();
+});
+
 test('目录分组：切到每 10 楼并记住；字号步进', async () => {
     const { doc, panel, host } = setup();
     await panel.open(host);
