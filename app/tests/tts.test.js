@@ -23,6 +23,8 @@ import {
     prefetchTts,
     resolveTtsApiFormat,
     resolveTtsVoice,
+    getTtsLastDecision,
+    trimTtsCache,
     splitTtsChunks,
     stripSpeakerPrefix,
     systemVoiceGender,
@@ -1348,4 +1350,51 @@ test('batch matching uses card-private characters, two passes, and stricter bare
     const { voices, unrecognized } = parseTtsVoiceBatch('Bob Smith\nHello world\n2024 年\nalloy\nBob Smith voice-2');
     assert.deepEqual(voices, [['alloy', ''], ['voice-2', 'Bob Smith']]);
     assert.equal(unrecognized, 3);
+});
+
+test('speakerKey 与生成区别名：酒馆用户名也按角色设定的声音朗读，并带来源与主名', () => {
+    const settings = { enabled: true, provider: 'api', api: { endpoint: 'https://x', female: 'f', male: 'm', voices: 'say#主角声' } };
+    const assets = { characterVoices: { 主角: { tts: 'say', ttsThought: 'think' } }, characterDna: { 主角: '1boy' } };
+    const viaKey = resolveTtsVoice({ textType: 'dialogue', speaker: '玩家名', speakerKey: '主角' }, settings, assets);
+    assert.equal(viaKey.voice, 'say');
+    assert.equal(viaKey.name, '主角');
+    assert.equal(viaKey.source, '角色指定台词声音');
+    assert.equal(resolveTtsVoice({ textType: 'thought', speaker: '玩家名', speakerKey: '主角' }, settings, assets).source, '角色指定心里话声音');
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '玩家名' }, settings, assets).voice, 'f');
+    const generated = { characterVoices: { 小明: { tts: 'say' } }, generated: { characterAliases: { 小明: ['明明'] } } };
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '明明' }, settings, generated).voice, 'say');
+    assert.equal(resolveTtsVoice({ textType: 'narration' }, settings, assets).source, '旁白未设，回落女角色默认');
+    const plan = decideTts({}, { key: 'k1', textType: 'dialogue', text: '你好', speaker: '玩家名', speakerKey: '主角' }, settings, { sceneAssets: assets });
+    assert.equal(plan.voiceName, '主角');
+    assert.equal(plan.voiceSource, '角色指定台词声音');
+    assert.deepEqual([getTtsLastDecision().key, getTtsLastDecision().voiceLabel, getTtsLastDecision().speaker], ['k1', '主角声', '玩家名']);
+});
+
+test('台词与心里话各自语速、旁白单独语速', () => {
+    const settings = { enabled: true, provider: 'api', narratorRate: 1.5, api: { endpoint: 'https://x', female: 'f' } };
+    const assets = { characterVoices: { 甲: { speed: 1.2, ttsSpeed: 0.8 }, 乙: { speed: 1.2, ttsSpeed: 0.8, ttsThoughtSpeed: 1.4 } } };
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '甲' }, settings, assets).rate, 0.8);
+    assert.equal(resolveTtsVoice({ textType: 'thought', speaker: '甲' }, settings, assets).rate, 0.8);
+    assert.equal(resolveTtsVoice({ textType: 'thought', speaker: '乙' }, settings, assets).rate, 1.4);
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '丙' }, settings, { characterVoices: { 丙: { speed: 1.2 } } }).rate, 1.2);
+    assert.equal(decideTts({}, { key: 'n1', textType: 'narration', text: '夜深了。' }, settings, { sceneAssets: assets }).rate, 1.5);
+    assert.equal(normalizeTtsSettings({ narratorRate: 7 }).narratorRate, 1);
+    assert.equal(normalizeTtsSettings({}).cacheMax, 300);
+    assert.equal(normalizeTtsSettings({ cacheMax: 99999 }).cacheMax, 2000);
+    assert.equal(normalizeTtsSettings({ cacheMax: 0 }).cacheMax, 0);
+});
+
+test('trimTtsCache 没有 Cache Storage 时安全返回 0', async () => {
+    assert.equal(await trimTtsCache(10), 0);
+});
+
+test('心里话单独音量：未设跟随台词，0 表示心里话不朗读', () => {
+    const settings = { enabled: true, provider: 'api', api: { endpoint: 'https://x', female: 'f' } };
+    const assets = { characterVoices: { 甲: { ttsVolume: 0.5 }, 乙: { ttsVolume: 0.5, ttsThoughtVolume: 1 }, 丙: { ttsThoughtVolume: 0 } } };
+    const volumeOf = (speaker, textType) => resolveTtsVoice({ textType, speaker }, settings, assets).volume;
+    assert.equal(volumeOf('甲', 'thought'), 0.5);
+    assert.equal(volumeOf('乙', 'thought'), 1);
+    assert.equal(volumeOf('乙', 'dialogue'), 0.5);
+    assert.equal(volumeOf('丙', 'thought'), 0);
+    assert.equal(volumeOf('丙', 'dialogue'), 1);
 });

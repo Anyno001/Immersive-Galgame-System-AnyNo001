@@ -1122,6 +1122,9 @@ export function createSettingsHost(deps) {
                         : charSelect.hasAttribute('data-char-voice-tts') ? 'tts'
                             : charSelect.hasAttribute('data-char-voice-ttsThought') ? 'ttsThought'
                             : charSelect.hasAttribute('data-char-voice-ttsVolume') ? 'ttsVolume'
+                                : charSelect.hasAttribute('data-char-voice-ttsSpeed') ? 'ttsSpeed'
+                                    : charSelect.hasAttribute('data-char-voice-ttsThoughtSpeed') ? 'ttsThoughtSpeed'
+                                        : charSelect.hasAttribute('data-char-voice-ttsThoughtVolume') ? 'ttsThoughtVolume'
                                 : charSelect.hasAttribute('data-char-voice-ttsStyle') ? 'ttsStyle' : '';
             if (voiceField) {
                 const voiceChar = charSelect.getAttribute(voiceField === 'pack' ? 'data-char-voice' : `data-char-voice-${voiceField}`) || '';

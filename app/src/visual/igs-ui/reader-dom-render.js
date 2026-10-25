@@ -497,7 +497,10 @@ export function applyToolbarState(root, current) {
     const pins = new Set(Array.isArray(readerSettings.pinnedBtns) ? readerSettings.pinnedBtns : []);
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     // 「重听这句」只在开了台词朗读时显示。
-    if (!normalizeTtsSettings(readerSettings.tts).enabled) hiddenSet.add('tts-replay');
+    const ttsConfig = normalizeTtsSettings(readerSettings.tts);
+    if (!ttsConfig.enabled) hiddenSet.add('tts-replay');
+    // 「重新生成这句」只对接口来源有意义（系统语音没有缓存可丢）。
+    if (!ttsConfig.enabled || (ttsConfig.provider !== 'api' && !ttsConfig.narratorApi.enabled)) hiddenSet.add('tts-reroll');
     // 「小游戏」要等独立的小游戏脚本装上才有东西可玩。
     if (!getWaitStageGamePack()) hiddenSet.add('mini-games');
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
@@ -2422,6 +2425,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             textType: typewriterTextType,
             text: content.displayText,
             speaker: content.speaker || '',
+            speakerKey: content.speakerKey || '',
             mood,
             phone: fxResult.phone === true,
             nsfw: Boolean(content.sceneNsfw),

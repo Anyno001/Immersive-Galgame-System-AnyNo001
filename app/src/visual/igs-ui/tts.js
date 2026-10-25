@@ -3,7 +3,7 @@
 // 和接口：OpenAI 兼容的 /audio/speech（网站 API，或本地 GPT-SoVITS / CosyVoice 等兼容服务），
 // 或 Fish Audio 原生的 /v1/tts（text + reference_id，模型放请求头）。
 // 系统语音不经过 Web Audio，只能调音量、语速、音高；接口返回的音频走总线，声像、听筒、贴耳与语气音一致。
-import { cacheLowWater, trimCacheEntries } from '../../media/cache-eviction.js';
+import { trimCacheEntries } from '../../media/cache-eviction.js';
 import { armAudioBusRetry, audioMasterVolume, busInput, resumeAudioBus, watchPageAway } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
 import { stripTextFxMarkup } from './text-fx.js';
@@ -54,7 +54,7 @@ export const TTS_CHARACTER_VOLUMES = Object.freeze([[1, '100%'], [0.75, '75%'], 
 // 心里话音量（倍）：在力度之上再压一档，像在脑子里说。
 export const TTS_THOUGHT_VOLUMES = Object.freeze([[1, '100%'], [0.8, '80%'], [0.6, '60%'], [0.4, '40%']]);
 const ROLE_KEYS = ['female', 'male', 'narrator'];
-const TTS_DEFAULTS = Object.freeze({ enabled: false, provider: 'system', volume: 0.9, rate: 1, narration: true, nsfw: false });
+const TTS_DEFAULTS = Object.freeze({ enabled: false, provider: 'system', volume: 0.9, rate: 1, narration: true, nsfw: false, narratorRate: 1, cacheMax: 300 });
 // 朗读时 BGM 与环境音让得比语气音多一点，台词要听清。
 const TTS_DUCK_RATIO = 0.55;
 const THOUGHT_VOLUME_DEFAULT = 0.8;
@@ -64,7 +64,8 @@ const CHUNK_MAX = 120;
 const CHARS_PER_SECOND = 4.5;
 // 内存里留 60 条（一条 mp3 约 30–80KB）；另存一份到浏览器 Cache Storage，重开阅读器、回看旧楼层也能直接用。
 const API_CACHE_MAX = 60;
-const PERSIST_MAX = 300;
+// 持久缓存条数的可设范围；默认值见 TTS_DEFAULTS.cacheMax。
+export const TTS_CACHE_LIMIT = 2000;
 const PERSIST_NAME = 'igs-tts-v1';
 // 在一页停够这么久才提前生成下一页；两次翻页间隔短于 FAST_FLIP_MS 视为快速点击，当前页也推迟 FLIP_DEFER_MS 再请求。
 const PREFETCH_DWELL_MS = 1500;
@@ -195,6 +196,8 @@ export function normalizeTtsSettings(value) {
     const volume = Number(source.volume);
     const rate = Number(source.rate);
     const thoughtVolume = Number(source.thoughtVolume);
+    const narratorRate = Number(source.narratorRate);
+    const cacheMax = Number(source.cacheMax);
     const roles = (src) => Object.fromEntries(ROLE_KEYS.map((key) => [key, field(src[key])]));
     return {
         enabled: source.enabled === true,
@@ -202,6 +205,10 @@ export function normalizeTtsSettings(value) {
         volume: Number.isFinite(volume) ? clamp(volume, 0, 1) : TTS_DEFAULTS.volume,
         rate: TTS_RATES.includes(rate) ? rate : TTS_DEFAULTS.rate,
         narration: source.narration !== false,
+        // 旁白页在全局语速上再乘的倍数。
+        narratorRate: TTS_RATES.includes(narratorRate) ? narratorRate : TTS_DEFAULTS.narratorRate,
+        // 接口朗读的持久缓存最多保留条数，超出按先进先出清理。
+        cacheMax: source.cacheMax !== undefined && source.cacheMax !== '' && Number.isFinite(cacheMax) ? clamp(Math.round(cacheMax), 0, TTS_CACHE_LIMIT) : TTS_DEFAULTS.cacheMax,
         nsfw: source.nsfw === true,
         // 翻页不打断：上一句念完再念这一句（快速翻页时只排最新的一句）。
         sustain: source.sustain === true,
@@ -645,44 +652,56 @@ function hashName(name) {
     return h;
 }
 
+// 说话人的主名：阅读器给了 speakerKey（已按别名、酒馆用户名解析好）就以它为准，否则按别名表查。
+const speakerMainName = (assets, line) => canonicalName(assets, line.speakerKey || line.speaker);
+
 // 台词、心里话这一页的风格描述：心里话风格、角色风格、情绪与耳语描述（开了 moodStyle 才写）用「；」连接。
 function spokenStyle(config, sceneAssets, line, mood) {
     const assets = plainObject(sceneAssets) || {};
     const map = plainObject(assets.characterVoices) || {};
-    const name = canonicalName(assets, line.speaker);
+    const name = speakerMainName(assets, line);
     const character = name && hasOwn(map, name) ? normalizeCharacterVoice(map[name]).ttsStyle : '';
     const emotion = config.moodStyle ? [line.whisper ? WHISPER_STYLE_TEXT : '', MOOD_STYLE_TEXT[mood] || ''].filter(Boolean).join('，') : '';
     return [line.textType === 'thought' ? config.thoughtStyle : '', character, emotion].filter(Boolean).join('；');
 }
 
+const ROLE_SOURCE = Object.freeze({ female: '女角色默认', male: '男角色默认', narrator: '旁白默认' });
+
 // 这一页由谁念、用什么声音（纯函数，便于测试）。voices 是系统声音列表（接口来源时不用）。
 // line.lang：这一页文字的语言（zh / ja / en），系统声音按它挑；接口来源不管语言。
-// 返回 { voice, role, gender, pitch, rate, volume }；voice 为 '' 表示系统默认声音，volume 为 0 表示这个角色不朗读。
+// 返回 { voice, role, gender, name, source, pitch, rate, volume }；name 是实际查表用的主名，source 说明声音从哪来（诊断用）；voice 为 '' 表示系统默认声音，volume 为 0 表示这个角色不朗读。
 export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     const config = normalizeTtsSettings(settings);
     const assets = plainObject(sceneAssets) || {};
     const narrator = line.textType !== 'dialogue' && line.textType !== 'thought';
-    const name = narrator ? '' : canonicalName(assets, line.speaker);
+    const name = narrator ? '' : speakerMainName(assets, line);
     const manualMap = plainObject(assets.characterVoices) || {};
     const manual = name ? normalizeCharacterVoice(hasOwn(manualMap, name) ? manualMap[name] : null) : normalizeCharacterVoice(null);
     const gender = name ? characterDnaGender(assets, name) : '';
     const role = narrator ? 'narrator' : (gender || 'female');
     // 角色在「角色设定」里调的音高、语速，朗读也跟着用。
     let pitch = 2 ** (manual.pitch / 12);
-    const rate = manual.speed;
-    const volume = manual.ttsVolume;
+    // 台词语速：单独设了用它，没设跟随原语速；心里话再往前一层：心里话语速 → 台词语速 → 原语速。
+    const thought = line.textType === 'thought';
+    const rate = narrator ? manual.speed : (thought && manual.ttsThoughtSpeed) || manual.ttsSpeed || manual.speed;
+    // 心里话音量：单独设了（含 0 不朗读）用它，没设跟随台词音量。
+    const volume = thought && manual.ttsThoughtVolume >= 0 ? manual.ttsThoughtVolume : manual.ttsVolume;
     // 心里话可以单独配一个声音，没配时和台词同一个。
-    const manualId = line.textType === 'thought' && manual.ttsThought ? manual.ttsThought : manual.tts;
+    const manualId = thought && manual.ttsThought ? manual.ttsThought : manual.tts;
+    const manualSource = thought && manual.ttsThought ? '角色指定心里话声音' : '角色指定台词声音';
+    const roleSource = ROLE_SOURCE[role];
+    const found = (extra) => ({ role, gender, name, ...extra });
     // 旁白独立接口：不看主来源，声音只取这套接口里填的。
     if (narrator && config.narratorApi.enabled) {
         const voice = config.narratorApi.voice;
-        return { voice, role, gender, pitch: 1, rate, volume: voice ? volume : 0, provider: 'api', apiSource: 'narrator' };
+        return found({ voice, pitch: 1, rate, volume: voice ? volume : 0, provider: 'api', apiSource: 'narrator', source: '旁白独立接口' });
     }
     if (config.provider === 'api') {
         const api = config.api;
         const voice = manualId || api[role] || (narrator ? api.female : '') || api.female || api.male || '';
         // 三个声音框都留空、角色也没单独指定时就是「不添加声音」：volume 0 让 decideTts 直接返回 null，不发合成请求。
-        return { voice, role, gender, pitch: 1, rate, volume: voice ? volume : 0 };
+        const source = manualId ? manualSource : api[role] ? roleSource : (api.female || api.male) ? `${narrator ? '旁白未设，回落' : ''}${api.female ? ROLE_SOURCE.female : ROLE_SOURCE.male}` : '';
+        return found({ voice, pitch: 1, rate, volume: voice ? volume : 0, source });
     }
     const lang = line.lang || 'zh';
     const fits = (voiceName) => {
@@ -691,15 +710,23 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     };
     // 角色单独指定的声音照用；旁白 / 女声 / 男声的预设只在语言对得上时用（读日文原文时不拿中文声音念）。
     const manualVoice = findSystemVoice(voices, manualId);
-    if (manualVoice) return { voice: manualVoice.name, role, gender, pitch, rate, volume };
+    if (manualVoice) return found({ voice: manualVoice.name, pitch, rate, volume, source: manualSource });
     const preset = config.system[role];
-    if (preset && fits(preset)) return { voice: findSystemVoice(voices, preset).name, role, gender, pitch, rate, volume };
+    if (preset && fits(preset)) return found({ voice: findSystemVoice(voices, preset).name, pitch, rate, volume, source: roleSource });
     const pool = systemVoicePool(voices, narrator ? '' : gender, lang);
-    if (!pool.length) return { voice: '', role, gender, pitch, rate, volume };
+    if (!pool.length) return found({ voice: '', pitch, rate, volume, source: '系统默认声音' });
     const key = narrator ? '旁白' : name;
     // 同性别只有一个声音时，按名字给一点音高差，几个角色不至于完全同一个声音。
     if (!narrator && pool.length < 2 && !manual.pitch) pitch *= 1 + ((hashName(key) % 5) - 2) * 0.04;
-    return { voice: pool[hashName(key) % pool.length].name, role, gender, pitch, rate, volume };
+    return found({ voice: pool[hashName(key) % pool.length].name, pitch, rate, volume, source: '按性别自动分配' });
+}
+
+// 声音库里查得到名称就返回名称；系统声音本身就是名称。
+function ttsVoiceLabel(config, voice) {
+    if (!voice.voice) return '';
+    const list = voice.apiSource === 'narrator' ? config.narratorApi.voices : config.provider === 'api' ? config.api.voices : '';
+    const entry = list ? parseVoiceEntries(list).find(([id]) => id === voice.voice) : null;
+    return entry && entry[1] ? entry[1] : '';
 }
 
 // 这一页要不要念、怎么念（纯函数）。state 跨页记忆上一页的 key，同一页重绘不重念。
@@ -741,7 +768,10 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
     const prosody = (spoken && line.whisper ? WHISPER_PROSODY : MOOD_PROSODY[mood]) || {};
     const shape = spoken ? resolveBarkShape(line, mood) : { gain: 1, close: false, phone: false, pan: 0 };
     const gain = type === 'thought' ? Math.min(shape.gain, config.thoughtVolume) : shape.gain;
+    const rate = clamp(config.rate * (spoken ? 1 : config.narratorRate) * voice.rate * (prosody.rate || 1), 0.5, 2);
+    if (record) lastDecision = { key, speaker: String(line.speaker || ''), name: voice.name, gender: voice.gender, role: voice.role, voice: voice.voice, voiceLabel: ttsVoiceLabel(config, voice), source: voice.source, rate };
     return {
+        voiceSource: voice.source, voiceName: voice.name, speaker: String(line.speaker || ''),
         provider: voice.provider || config.provider,
         apiSource: voice.apiSource || 'main',
         style: spoken ? spokenStyle(config, sceneAssets, line, mood) : config.narratorStyle,
@@ -752,7 +782,7 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         role: voice.role,
         lang,
         volume: clamp(config.volume * gain * voice.volume, 0, 1),
-        rate: clamp(config.rate * voice.rate * (prosody.rate || 1), 0.5, 2),
+        rate,
         pitch: clamp(voice.pitch * (prosody.pitch || 1), 0.5, 2),
         pan: shape.pan, close: shape.close, phone: shape.phone,
     };
@@ -768,9 +798,13 @@ let lastPlayed = null;
 let lastLine = null;
 // 最近一次「为什么没念」：{ key: 页面 key, reason }；念了就清空。
 let lastSkip = null;
+// 最近一次决定朗读的声音来源（页面诊断用）。
+let lastDecision = null;
 const apiCache = new Map();
 const inflight = new Map();
 let persistentWrites = Promise.resolve(), cacheEpoch = 0;
+// 持久缓存最多保留的条数，每次播放 / 预取时按设置刷新。
+let persistLimit = TTS_DEFAULTS.cacheMax;
 let lastError = '';
 let errorHandler = null;
 let lastReported = { message: '', at: 0 };
@@ -781,6 +815,10 @@ export function ttsLastError() {
 }
 
 // 这一页没读的原因：{ key, reason }，读了或还没判断过时为 null。
+export function getTtsLastDecision() {
+    return lastDecision ? { ...lastDecision } : null;
+}
+
 export function getTtsSkipReason() {
     return lastSkip ? { ...lastSkip } : null;
 }
@@ -1297,14 +1335,16 @@ async function persistentGet(key, rate) {
     }
 }
 
-function persistentPut(key, bytes, rate, epoch) {
+function persistentPut(key, bytes, rate, epoch, fresh = false) {
     const work = persistentWrites.then(async () => {
-        if (epoch !== cacheEpoch) return;
+        if (epoch !== cacheEpoch || persistLimit <= 0) return;
         const cache = await persistentStore();
         if (!cache || typeof Response !== 'function') return;
+        // 重新生成：先删旧条目，新条目按写入顺序排到最后。
+        if (fresh) await cache.delete(persistUrl(key));
         await cache.put(persistUrl(key), new Response(bytes.slice(0), { headers: { 'Content-Type': 'application/octet-stream', 'x-igs-rate': String(rate) } }));
         const keys = await cache.keys();
-        if (keys.length > PERSIST_MAX) await Promise.all(keys.slice(0, keys.length - cacheLowWater(PERSIST_MAX)).map(old => cache.delete(old)));
+        if (keys.length > persistLimit) await Promise.all(keys.slice(0, keys.length - persistLimit).map(old => cache.delete(old)));
     });
     persistentWrites = work.catch(() => {});
     return persistentWrites;
@@ -1317,6 +1357,27 @@ export async function clearTtsCache() {
     });
     persistentWrites = work.catch(() => {});
     return persistentWrites;
+}
+
+// 只保留最近写入的 max 条（内存与 Cache Storage 都处理），返回删掉的条数。
+export async function trimTtsCache(max) {
+    const limit = clamp(Math.round(Number(max)) || 0, 0, TTS_CACHE_LIMIT);
+    let removed = 0, dropped = 0;
+    for (const key of [...apiCache.keys()]) {
+        if (apiCache.size <= limit) break;
+        apiCache.delete(key); dropped++;
+    }
+    const work = persistentWrites.then(async () => {
+        const cache = await persistentStore();
+        if (!cache) return;
+        const keys = await cache.keys();
+        const extra = keys.slice(0, Math.max(0, keys.length - limit));
+        await Promise.all(extra.map((old) => cache.delete(old)));
+        removed = extra.length;
+    });
+    persistentWrites = work.catch(() => {});
+    await persistentWrites;
+    return Math.max(removed, dropped);
 }
 
 function remember(key, bytes, rate) {
@@ -1389,7 +1450,10 @@ function requestSpeech(api, plan, job = null) {
     const emotional = api.format === 'minimax' && api.sendEmotion !== false;
     const key = ttsCacheKey(url, api, plan.voice, plan.text, styled ? plan.style : '', emotional ? plan.emotion : '');
     const epoch = cacheEpoch;
-    const hit = apiCache.get(key);
+    // 重新生成：丢掉这一条的内存缓存，不合并在途请求，也不读持久缓存。
+    const fresh = plan.fresh === true;
+    if (fresh) apiCache.delete(key);
+    const hit = fresh ? null : apiCache.get(key);
     if (hit && closeRate(hit.rate, plan.rate)) {
         apiCache.delete(key);
         apiCache.set(key, hit);
@@ -1413,9 +1477,9 @@ function requestSpeech(api, plan, job = null) {
         return entry.promise.then((bytes) => bytes.slice(0));
     };
     const pending = inflight.get(key);
-    if (pending && closeRate(pending.rate, plan.rate)) return join(pending);
+    if (!fresh && pending && closeRate(pending.rate, plan.rate)) return join(pending);
     const entry = { rate: plan.rate, refs: 0, settled: false, promise: null, controller: typeof AbortController === 'function' ? new AbortController() : null };
-    entry.promise = persistentGet(key, plan.rate).then((stored) => {
+    entry.promise = (fresh ? Promise.resolve(null) : persistentGet(key, plan.rate)).then((stored) => {
         if (stored) {
             if (epoch === cacheEpoch) remember(key, stored, plan.rate);
             return stored;
@@ -1423,7 +1487,7 @@ function requestSpeech(api, plan, job = null) {
         return postSpeech(api, plan, entry.controller && entry.controller.signal).then((bytes) => {
             if (epoch === cacheEpoch) {
                 remember(key, bytes, plan.rate);
-                void persistentPut(key, bytes, plan.rate, epoch);
+                void persistentPut(key, bytes, plan.rate, epoch, fresh);
             }
             return bytes;
         });
@@ -1584,7 +1648,11 @@ export function playTts(plan, settings) {
     if (!plan || !plan.text) return null;
     if (!plan.preview) lastPlayed = { plan, settings };
     const job = startJob(plan);
-    if (plan.provider === 'api') return speakApi(job, plan, planApi(normalizeTtsSettings(settings), plan));
+    if (plan.provider === 'api') {
+        const config = normalizeTtsSettings(settings);
+        persistLimit = config.cacheMax;
+        return speakApi(job, plan, planApi(config, plan));
+    }
     return speakSystem(job, plan);
 }
 
@@ -1695,16 +1763,32 @@ function watchAway(root) {
     });
 }
 
-// 重听：再念一遍最近念过的那句（从头念，掐掉正在念的）。
-export function replayTts() {
+// 重听、重新生成共用：取最近念过的那一句；这一页翻过来时没念（比如那时朗读还没开）就按现在的设置再判断一次，能念就补上。
+function lastPlayedOrError() {
     if (!lastPlayed && lastLine) {
-        // 这一页翻过来时没念（比如那时朗读还没开）：按现在的设置再判断一次，能念就补念。
         const plan = decideTts({}, lastLine.line, lastLine.settings, { sceneAssets: lastLine.sceneAssets, voices: listSystemVoices() });
         if (plan && !plan.skip) lastPlayed = { plan, settings: lastLine.settings };
         else if (lastSkip) return { ok: false, error: '本页未朗读：' + lastSkip.reason };
     }
-    if (!lastPlayed) return { ok: false, error: '这一页没有可重听的朗读' };
+    return lastPlayed ? null : { ok: false, error: '这一页没有可重听的朗读' };
+}
+
+// 重听：再念一遍最近念过的那句（从头念，掐掉正在念的）。
+export function replayTts() {
+    const problem = lastPlayedOrError();
+    if (problem) return problem;
     const job = playTts(lastPlayed.plan, lastPlayed.settings);
+    return job ? { ok: true } : { ok: false, error: '朗读失败' };
+}
+
+// 重新生成这一句：接口来源丢掉这一句的缓存（内存与持久）后重新请求并覆盖；系统语音没有缓存，等同重听。
+export function rerollTts() {
+    const problem = lastPlayedOrError();
+    if (problem) return problem;
+    const keep = lastPlayed;
+    if (keep.plan.provider !== 'api') return replayTts();
+    const job = playTts({ ...keep.plan, fresh: true }, keep.settings);
+    lastPlayed = keep;
     return job ? { ok: true } : { ok: false, error: '朗读失败' };
 }
 
@@ -1735,9 +1819,10 @@ export function guessTtsLine(segment) {
 export function prefetchTts(segment, settings, sceneAssets, { nsfw = false, hint = null } = {}) {
     const config = normalizeTtsSettings(settings);
     if (!config.enabled || !usesApi(config) || !segment) return null;
+    persistLimit = config.cacheMax;
     const guessed = guessTtsLine(segment);
     const hinted = hint && (hint.textType === 'dialogue' || hint.textType === 'thought') && guessed.textType === hint.textType;
-    const plan = decideTts({}, { ...guessed, ...(hinted ? { mood: String(hint.mood || '') } : {}), nsfw }, config, { sceneAssets, record: false });
+    const plan = decideTts({}, { ...guessed, ...(hinted ? { mood: String(hint.mood || ''), speakerKey: String(hint.speakerKey || '') } : {}), nsfw }, config, { sceneAssets, record: false });
     if (!plan || plan.skip || plan.provider !== 'api') return null;
     const api = planApi(config, plan);
     // 情绪会进请求时（MiniMax 发情绪、风格写入情绪、Fish 句首标签），没有情绪提示的台词页预取多半用不上，只预取旁白页。
@@ -1806,6 +1891,7 @@ export function speakTtsBubble(line, settings, sceneAssets, { poll = 80 } = {}) 
 export function prefetchTtsBubble(line, settings, sceneAssets) {
     const config = normalizeTtsSettings(settings);
     if (!config.enabled || !usesApi(config) || !config.api.prefetch || !line) return null;
+    persistLimit = config.cacheMax;
     const plan = decideTts({}, line, config, { sceneAssets, record: false });
     if (!plan || plan.skip || plan.provider !== 'api') return null;
     const jobs = requestSegments(planApi(config, plan), plan, apiSegments(planApi(config, plan), plan.text));

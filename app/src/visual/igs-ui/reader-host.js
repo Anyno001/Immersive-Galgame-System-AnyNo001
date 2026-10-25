@@ -47,7 +47,7 @@ import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
-import { decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
+import { decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, rerollTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
 import { resolveRegionCrop } from './stage-snapshot.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -2319,6 +2319,9 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'tts-replay') {
             return replayTts();
         }
+        if (normalizedAction === 'tts-reroll') {
+            return rerollTts();
+        }
         if (normalizedAction === 'regen') {
             return generateOrRegenerate();
         }
@@ -4219,6 +4222,8 @@ export function createIgsReaderHost(options = {}) {
             },
             content: {
                 speaker: resolvedSpeaker,
+                // 台词、心里话的说话人主名（别名、酒馆用户名已解析），朗读按它查角色声音；旁白与系统角色为空。
+                speakerKey: resolvedSpeaker && (textType === 'dialogue' || textType === 'thought') ? prepared.keyOf(resolvedSpeaker) : '',
                 spriteCharacter,
                 spriteMood,
                 spriteOutfit,
@@ -4226,7 +4231,7 @@ export function createIgsReaderHost(options = {}) {
                 spriteBackArt,
                 statusEmotion: bubbleMood,
                 // 台词朗读提前生成下一页用：下一页的类型、说话人与情绪（取分页计划里现成的值，不重算）。
-                nextTtsHint: nextTtsHintOf(prepared.pages[normalizedIndex + 1]),
+                nextTtsHint: nextTtsHintOf(prepared.pages[normalizedIndex + 1], prepared.keyOf),
                 textType,
                 text: currentText,
                 fullText: text,

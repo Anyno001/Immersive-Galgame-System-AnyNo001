@@ -214,6 +214,8 @@ function speechLine(state, m, index) {
         textType: 'dialogue',
         text,
         speaker: (m.self && state.userName) || m.displayName || '',
+        // 自己发的气泡按「USER 立绘角色」的声音朗读。
+        speakerKey: m.self && state.userName ? String((state.sceneAssets && state.sceneAssets.userCharacter) || '').trim() : '',
         mood: '',
         phone: false,
         nsfw: state.nsfw,

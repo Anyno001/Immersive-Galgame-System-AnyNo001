@@ -620,12 +620,15 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const line = (label, html) => `<div class="igs-char-voice-line"><span class="igs-char-voice-sub">${label}</span>${html}</div>`;
     const tune = (label, html) => `<label class="igs-char-voice-tune"><span class="igs-char-voice-sub">${label}</span>${html}</label>`;
     const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
+    // 台词、心里话各自的语速：0 表示跟随（台词跟随上方语速，心里话跟随台词）。
+    const speedSelect = (field, saved, first, label) => `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}"><option value="0"${saved ? '' : ' selected'}>${first}</option>${speedOpts.replace(/ selected/g, '').replace(`value="${saved}"`, `value="${saved}" selected`)}</select>`;
+    const thoughtVolumeOpts = [[-1, '同台词'], ...TTS_CHARACTER_VOLUMES].map(([v, label]) => `<option value="${v}"${v === manual.ttsThoughtVolume ? ' selected' : ''}>${esc(label)}</option>`).join('');
     const volumeOpts = TTS_CHARACTER_VOLUMES.map(([v, label]) => `<option value="${v}"${v === manual.ttsVolume ? ' selected' : ''}>${esc(label)}</option>`).join('');
     // 接口来源不支持调音高，只给语速。
     const pitch = tts.provider === 'system' ? tune('音高', `<select class="igs-asset-move" data-char-voice-pitch="${name}" aria-label="朗读音高">${pitchOpts}</select>`) : '';
     return `<div class="igs-char-info-row is-block igs-char-tts"><span class="igs-char-info-label">朗读</span>`
-        + line('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + preview('tts-preview'))
-        + line('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + preview('tts-preview-thought'))
+        + line('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + speedSelect('ttsSpeed', manual.ttsSpeed, '跟随', '台词语速') + preview('tts-preview'))
+        + line('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + speedSelect('ttsThoughtSpeed', manual.ttsThoughtSpeed, '同台词', '心里话语速') + `<select class="igs-asset-move" data-char-voice-ttsThoughtVolume="${name}" aria-label="心里话音量">${thoughtVolumeOpts}</select>` + preview('tts-preview-thought'))
         + `<div class="igs-char-voice-tunes">${pitch}`
         + tune('语速', `<select class="igs-asset-move" data-char-voice-speed="${name}" aria-label="朗读语速">${speedOpts}</select>`)
         + tune('音量', `<select class="igs-asset-move" data-char-voice-ttsVolume="${name}" aria-label="朗读音量">${volumeOpts}</select>`)

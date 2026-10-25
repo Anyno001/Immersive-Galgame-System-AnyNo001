@@ -95,7 +95,8 @@ test('单图丢失与恢复只补受影响的匹配，其他角色不重查', as
 
 test('nextTtsHintOf reads mood and speaker of the next dialogue page only', async () => {
     const { nextTtsHintOf } = await import('../src/visual/igs-ui/reader-floor-plan.js');
-    assert.deepEqual(nextTtsHintOf({ textType: 'dialogue', bubbleSpeaker: '艾莉', bubbleMood: '害羞' }), { textType: 'dialogue', speaker: '艾莉', mood: '害羞' });
+    assert.deepEqual(nextTtsHintOf({ textType: 'dialogue', bubbleSpeaker: '艾莉', bubbleMood: '害羞' }), { textType: 'dialogue', speaker: '艾莉', speakerKey: '', mood: '害羞' });
+    assert.equal(nextTtsHintOf({ textType: 'dialogue', bubbleSpeaker: '玩家' }, (name) => `主:${name}`).speakerKey, '主:玩家');
     assert.equal(nextTtsHintOf({ textType: 'thought', bubbleSpeaker: '艾莉', bubbleMood: '', spriteChar: '艾莉', spriteMood: '紧张' }).mood, '紧张');
     assert.equal(nextTtsHintOf({ textType: 'narration', bubbleMood: '喜悦' }), null);
     assert.equal(nextTtsHintOf(undefined), null);

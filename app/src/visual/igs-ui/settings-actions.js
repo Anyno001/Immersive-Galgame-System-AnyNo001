@@ -78,7 +78,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
-import { TTS_VOICE_MAX, clearTtsCache, editTtsVoices, fetchTtsVoices, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice } from './tts.js';
+import { TTS_VOICE_MAX, clearTtsCache, editTtsVoices, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction, guardDefaultOutfitImages } from './settings-outfit-actions.js';
 import { handleEventCgAction } from './settings-event-cg.js';
@@ -1057,7 +1057,7 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'copy-page-diagnostic') {
         const mediaStats = await Promise.resolve(options.media?.stats?.()).catch(() => null);
-        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)), promptReport: getLastPromptReport(), mediaStats, ttsSkip: getTtsSkipReason() });
+        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)), promptReport: getLastPromptReport(), mediaStats, ttsSkip: getTtsSkipReason(), ttsDecision: getTtsLastDecision() });
         if (!text) {
             if (typeof dialogs.view === 'function') await dialogs.view('请先打开阅读器并翻到出现问题的页面，再从工具栏的「设置」进入并复制。');
             return rerenderSettings();
@@ -2967,7 +2967,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!charName || RESERVED_ASSET_NAMES.includes(charName)) return { ok: false, error: '角色名无效' };
         const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         if (voice) {
-            if (!['pack', 'pitch', 'speed', 'tts', 'ttsThought', 'ttsVolume', 'ttsStyle'].includes(field)) return { ok: false, error: '未知的声线设置' };
+            if (!['pack', 'pitch', 'speed', 'tts', 'ttsThought', 'ttsVolume', 'ttsSpeed', 'ttsThoughtSpeed', 'ttsThoughtVolume', 'ttsStyle'].includes(field)) return { ok: false, error: '未知的声线设置' };
             const voices = assets.characterVoices = normalizeCharacterVoices(assets.characterVoices);
             const entry = normalizeCharacterVoice(voices[charName]);
             entry[field] = field === 'pack' || field === 'tts' || field === 'ttsThought' || field === 'ttsStyle' ? value : Number(value);
@@ -2997,6 +2997,13 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 数据页：朗读缓存只保留最近 N 条（0 即全清）。
+    if (normalizedAction === 'tts-trim-cache') {
+        const limit = normalizeTtsSettings(settingsState.draft.readerSettings && settingsState.draft.readerSettings.tts).cacheMax;
+        const removed = await trimTtsCache(limit);
+        settingsState.asyncState.ttsCacheStatus = `已清理 ${removed} 条朗读缓存，保留最近 ${limit} 条。`;
+        return rerenderSettings();
+    }
     if (normalizedAction === 'tts-clear-cache') {
         await clearTtsCache();
         return { ok: true, cleared: true };

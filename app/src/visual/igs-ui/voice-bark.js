@@ -78,8 +78,23 @@ export function normalizeCharacterVoice(value) {
         tts: typeof source.tts === 'string' ? source.tts.trim().slice(0, 200) : '',
         ttsThought: typeof source.ttsThought === 'string' ? source.ttsThought.trim().slice(0, 200) : '',
         ttsVolume: normalizeTtsVolume(source.ttsVolume),
+        ttsSpeed: normalizeOptionalSpeed(source.ttsSpeed),
+        ttsThoughtSpeed: normalizeOptionalSpeed(source.ttsThoughtSpeed),
+        ttsThoughtVolume: normalizeThoughtVolume(source.ttsThoughtVolume),
         ttsStyle: typeof source.ttsStyle === 'string' ? source.ttsStyle.trim().slice(0, 300) : '',
     };
+}
+
+// 朗读语速（倍）：0 表示未单独设置（台词跟随 speed，心里话跟随台词）。
+function normalizeOptionalSpeed(value) {
+    const speed = Number(value);
+    return Number.isFinite(speed) && speed > 0 ? normalizeVoiceSpeed(speed) : 0;
+}
+
+// 心里话音量（倍）：-1 表示同台词音量（0 已是「不朗读」，不能当缺省）；其余同台词音量范围。
+function normalizeThoughtVolume(value) {
+    const volume = Number(value);
+    return value === undefined || value === null || value === '' || !Number.isFinite(volume) || volume < 0 ? -1 : Math.min(1, volume);
 }
 
 // 朗读音量（倍）：0～1，0 表示这个角色不朗读；缺省 1。
@@ -102,22 +117,24 @@ export function normalizeCharacterVoices(value) {
         const key = String(name || '').trim();
         if (!key || FORBIDDEN_KEYS.has(key)) continue;
         const voice = normalizeCharacterVoice(entry);
-        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && !voice.ttsThought && voice.ttsVolume === 1 && !voice.ttsStyle) continue;
-        const { tts, ttsThought, ttsVolume, ttsStyle, ...bark } = voice;
-        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsThought ? { ttsThought } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}), ...(ttsStyle ? { ttsStyle } : {}) };
+        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && !voice.ttsThought && voice.ttsVolume === 1 && !voice.ttsSpeed && !voice.ttsThoughtSpeed && voice.ttsThoughtVolume < 0 && !voice.ttsStyle) continue;
+        const { tts, ttsThought, ttsVolume, ttsSpeed, ttsThoughtSpeed, ttsThoughtVolume, ttsStyle, ...bark } = voice;
+        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsThought ? { ttsThought } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}), ...(ttsSpeed ? { ttsSpeed } : {}), ...(ttsThoughtSpeed ? { ttsThoughtSpeed } : {}), ...(ttsThoughtVolume >= 0 ? { ttsThoughtVolume } : {}), ...(ttsStyle ? { ttsStyle } : {}) };
     }
     return out;
 }
 
-// 说话人可能写的是别名；别名表以主名为键。
+// 说话人可能写的是别名；别名表以主名为键。生成区（sceneAssets.generated）里的角色与别名同样认。
 export function canonicalName(sceneAssets, name) {
     const target = String(name || '').trim();
     if (!target) return '';
-    const maps = [sceneAssets.characterVoices, sceneAssets.characters, sceneAssets.characterDna].map(plainObject);
+    const generated = plainObject(sceneAssets.generated) || {};
+    const maps = [sceneAssets.characterVoices, sceneAssets.characters, sceneAssets.characterDna, generated.characters].map(plainObject);
     if (maps.some((map) => map && hasOwn(map, target))) return target;
-    const aliases = plainObject(sceneAssets.characterAliases) || {};
-    for (const [key, values] of Object.entries(aliases)) {
-        if (Array.isArray(values) && values.some((v) => String(v || '').trim() === target)) return key;
+    for (const aliases of [plainObject(sceneAssets.characterAliases), plainObject(generated.characterAliases)]) {
+        for (const [key, values] of Object.entries(aliases || {})) {
+            if (Array.isArray(values) && values.some((v) => String(v || '').trim() === target)) return key;
+        }
     }
     return target;
 }
