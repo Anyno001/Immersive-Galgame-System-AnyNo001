@@ -217,6 +217,7 @@ const READER_DIALOG_TEMPLATE = `
     {{gradientVeilFields}}
     {{magicHouseField}}
     <div class="igs-settings-row igs-switch-stack igs-dialog-style-options">{{statusLineToggle}}</div>
+    <div class="igs-source-filter-grid">{{resumePromptField}}</div>
   </div>
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">尺寸{{resetReaderDialogSize}}</div>

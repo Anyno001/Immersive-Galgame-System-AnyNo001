@@ -5,7 +5,7 @@ import { createTurnIndexPanel } from '../src/visual/igs-ui/turn-index-panel.js';
 import { createReadingProgress } from '../src/visual/igs-ui/reading-progress.js';
 
 function setup(extra = {}) {
-    const dom = new JSDOM('<!doctype html><div id="host"></div>');
+    const dom = new JSDOM('<!doctype html><div id="host"></div>', { url: 'https://example.test/' });
     const doc = dom.window.document;
     const progress = createReadingProgress({ storage: null });
     const jumps = [];
@@ -56,10 +56,34 @@ test('回想：重播念那一句，点台词跳到那一页', async () => {
     assert.deepEqual(jumps[0], { id: 4, page: 2 });
 });
 
-test('回想：朗读没开不显示重播键；没有头像显示首字', async () => {
+test('回想：朗读没开时重播键置灰不可点；没有头像显示首字', async () => {
     const { doc, panel, host } = setup({ ttsOn: () => false, avatarOf: () => null });
     await panel.open(host);
-    assert.equal(doc.querySelectorAll('.igs-ti-log-voice').length, 0);
+    const voices = [...doc.querySelectorAll('.igs-ti-log-voice')];
+    assert.equal(voices.length, 3);
+    assert.ok(voices.every((btn) => btn.disabled));
     assert.equal(doc.querySelector('.igs-ti-log-entry.is-dialogue .igs-ti-log-face').textContent, '艾');
+    panel.close();
+});
+
+test('回想：不朗读的句子单独置灰', async () => {
+    const { doc, panel, host } = setup({ canSpeak: (line) => line.textType !== 'narration' });
+    await panel.open(host);
+    const voices = [...doc.querySelectorAll('.igs-ti-log-voice')];
+    assert.deepEqual(voices.map((btn) => btn.disabled), [true, false, false]);
+    panel.close();
+});
+
+test('目录分组：切到每 10 楼并记住；字号步进', async () => {
+    const { doc, panel, host } = setup();
+    await panel.open(host);
+    const select = doc.querySelector('[data-ti-input="group"]');
+    select.value = 'ten';
+    select.dispatchEvent(new doc.defaultView.Event('change', { bubbles: true }));
+    assert.match(doc.querySelector('.igs-ti-chapter').textContent, /第 0–9 楼/);
+    assert.equal(JSON.parse(doc.defaultView.localStorage.getItem('igs_turn_index_prefs')).group, 'ten');
+    doc.querySelector('[data-ti-act="log-size"][data-ti-value="1"]').click();
+    await panel.whenIdle();
+    assert.equal(doc.getElementById('igs-turn-index').style.getPropertyValue('--igs-ti-log-size'), '16px');
     panel.close();
 });

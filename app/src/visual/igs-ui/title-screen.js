@@ -39,8 +39,9 @@ export function shouldGateTitleScreen({ readerSettings, messageId, index, startA
     return Number(index) === 0;
 }
 
-export function createTitleGate({ coverTurn = 0 } = {}) {
-    return { view: 'menu', hasLater: null, pick: null, busy: false, coverTurn };
+// resume：重开酒馆后的续读入口（{ label: '18 楼 · 第 74 页' }），菜单只留继续 / 最新一层 / 设置。
+export function createTitleGate({ coverTurn = 0, resume = null } = {}) {
+    return { view: 'menu', hasLater: resume ? true : null, pick: null, busy: false, coverTurn, resume: resume && resume.label ? { label: String(resume.label) } : null };
 }
 
 const COVER_TURN_KEY = 'igs:title-cover-turn';
@@ -80,6 +81,7 @@ export function reduceTitleAction(gate, model, act, value) {
         case 'start':
             return { gate: base, effect: 'start' };
         case 'continue':
+        case 'latest':
         case 'settings':
         case 'close':
         case 'user-char':
@@ -145,6 +147,7 @@ export function buildTitleScreenModel({ snapshot, gate, card = {}, globalSkin, r
         globalSkin: String(globalSkin || ''),
         horrorStyle: sceneAssets.horrorStyle,
         userName: String(userName || '').trim(),
+        resume: state.resume || null,
     };
 }
 
@@ -262,17 +265,21 @@ function syncMedia(layer, model) {
     }
 }
 
-const MENU_EN = Object.freeze({ start: 'START', replay: 'REPLAY', continue: 'CONTINUE', worldview: 'WORLD', settings: 'CONFIG', 'user-char': 'OPERATOR' });
+const MENU_EN = Object.freeze({ start: 'START', replay: 'REPLAY', continue: 'CONTINUE', worldview: 'WORLD', settings: 'CONFIG', 'user-char': 'OPERATOR', latest: 'LATEST' });
 
 function menuHtml(model) {
     const replay = !model.newChat && model.hasLater;
-    const items = [
+    const items = (model.resume ? [
+        ['continue', '继续', model.resume.label],
+        ['latest', '最新一层', MENU_EN.latest],
+        ['settings', '设置', MENU_EN.settings],
+    ] : [
         ['start', replay ? '从头重播' : '开始', replay ? MENU_EN.replay : MENU_EN.start],
         model.hasLater ? ['continue', '继续', MENU_EN.continue] : null,
         ['worldview', '世界风格', MENU_EN.worldview],
         ['settings', '设置', MENU_EN.settings],
         model.userName ? ['user-char', '生成主角立绘', MENU_EN['user-char']] : null,
-    ].filter(Boolean).map(([act, label, en], i) => `<button type="button" class="igs-ts-btn${i === 0 ? ' is-primary' : ''}" data-ts-act="${act}"${model.busy ? ' disabled' : ''}>`
+    ]).filter(Boolean).map(([act, label, en], i) => `<button type="button" class="igs-ts-btn${i === 0 ? ' is-primary' : ''}" data-ts-act="${act}"${model.busy ? ' disabled' : ''}>`
         + `<span class="igs-ts-no">${String(i + 1).padStart(2, '0')}</span><span class="igs-ts-zh">${esc(label)}</span><span class="igs-ts-btn-en">${en}</span></button>`).join('');
     return `<div class="igs-ts-base"></div>${coverHtml(model)}<div class="igs-ts-edge" aria-hidden="true"></div>${ARC_HTML}
 <div class="igs-ts-corners" aria-hidden="true"><i></i><i></i><i></i><i></i></div>

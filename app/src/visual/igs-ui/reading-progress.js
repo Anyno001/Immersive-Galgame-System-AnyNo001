@@ -1,13 +1,19 @@
 // 阅读进度库：每个聊天一份，存 localStorage `igs-reading:<chatId>`，关闭阅读器时另存一份进聊天元数据跟着聊天走。
 // 位置 = { id 楼号, page 页码, head 页首指纹, hash 楼文本哈希, at 时间 }；分页或楼内容变了用 head / hash 找回或退回第 1 页。
 // last 上次读到哪（任何楼都记）；far 最远读到哪（往回翻不倒退）；read 读完的楼；partial 读了一半的楼的最大页码；
-// chapters 读过的楼里地点变化处（楼号 → 地点名），目录按它分章；slots 手动存档位（上限 10）；quick 快速存档。
+// chapters 读过的楼里地点变化处（楼号 → 地点名），目录按它分章；days 首次读到时的本地日期变化处（楼号 → YYYY-MM-DD），目录按日期分组用；slots 手动存档位（上限 10）；quick 快速存档。
 export const READING_PROGRESS_PREFIX = 'igs-reading:';
 export const LEGACY_TURN_BOOKMARK_PREFIX = 'igs-turn-bookmark:';
 export const READING_SLOT_LIMIT = 10;
 export const READING_METADATA_KEY = 'igs_reading';
 const HEAD_LENGTH = 24;
 const CHAPTER_LIMIT = 300;
+
+function localDay(at) {
+    const d = new Date(at);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 export function textHead(value) {
     return String(value ?? '').replace(/<[^>]*>/g, '').replace(/\s+/g, '').slice(0, HEAD_LENGTH);
@@ -91,13 +97,14 @@ export function truncateReadingData(raw, upToId, pos = null) {
         read: encodeIdSet(read),
         partial: keep(data.partial),
         chapters: keep(data.chapters),
+        days: keep(data.days),
         slots: data.slots.filter(within),
         quick: within(data.quick) ? data.quick : null,
     });
 }
 
 function emptyData() {
-    return { v: 2, last: null, far: null, read: '', partial: {}, chapters: {}, slots: [], quick: null };
+    return { v: 2, last: null, far: null, read: '', partial: {}, chapters: {}, days: {}, slots: [], quick: null };
 }
 
 export function normalizeReadingData(raw) {
@@ -111,6 +118,9 @@ export function normalizeReadingData(raw) {
     }
     for (const [id, name] of Object.entries(raw.chapters || {})) {
         if (Number.isInteger(Number(id)) && name) data.chapters[id] = String(name).slice(0, 40);
+    }
+    for (const [id, day] of Object.entries(raw.days || {})) {
+        if (Number.isInteger(Number(id)) && /^\d{4}-\d{2}-\d{2}$/.test(String(day))) data.days[id] = String(day);
     }
     data.slots = (Array.isArray(raw.slots) ? raw.slots : []).map(cleanSlot).filter(Boolean).slice(0, READING_SLOT_LIMIT);
     data.quick = raw.quick ? cleanSlot(raw.quick) : null;
@@ -136,6 +146,7 @@ export function mergeReadingData(a, b) {
         read: encodeIdSet(read),
         partial,
         chapters: { ...right.chapters, ...left.chapters },
+        days: { ...right.days, ...left.days },
         slots: Array.from(slots.values()).sort((x, y) => y.at - x.at),
         quick: newer(left.quick, right.quick),
     });
@@ -242,6 +253,7 @@ export function createReadingProgress(options = {}) {
         if (!far || id > far.id || (id === far.id && page > far.page)) c.data.far = pos;
         // 一楼刚读完立刻落盘（每楼一次）；同一楼里翻页的位置合并写。
         const finished = page >= total - 1 && !c.readSet.has(id);
+        const firstVisit = !c.readSet.has(id) && c.data.partial[id] == null;
         if (page >= total - 1) {
             c.readSet.add(id);
             delete c.data.partial[id];
@@ -253,6 +265,14 @@ export function createReadingProgress(options = {}) {
             c.data.chapters[id] = place;
             const keys = Object.keys(c.data.chapters).map(Number).sort((a, b) => a - b);
             for (const k of keys.slice(0, Math.max(0, keys.length - CHAPTER_LIMIT))) delete c.data.chapters[k];
+        }
+        if (firstVisit) {
+            const day = localDay(now());
+            if (dayAt(id) !== day) {
+                c.data.days[id] = day;
+                const keys = Object.keys(c.data.days).map(Number).sort((a, b) => a - b);
+                for (const k of keys.slice(0, Math.max(0, keys.length - CHAPTER_LIMIT))) delete c.data.days[k];
+            }
         }
         if (finished) save();
         else saveSoon();
@@ -267,6 +287,17 @@ export function createReadingProgress(options = {}) {
             if (k <= id && k > best) best = k;
         }
         return best >= 0 ? chapters[best] : '';
+    }
+
+    // 某楼首次读到的日期（YYYY-MM-DD）；本功能之前读过的楼为空。
+    function dayAt(id) {
+        const days = load().data.days;
+        let best = -1;
+        for (const key of Object.keys(days)) {
+            const k = Number(key);
+            if (k <= id && k > best) best = k;
+        }
+        return best >= 0 ? days[best] : '';
     }
 
     function floorState(id) {
@@ -357,6 +388,7 @@ export function createReadingProgress(options = {}) {
         firstUnread,
         isPageRead,
         chapterAt,
+        dayAt,
         saveSlot,
         removeSlot,
         renameSlot,

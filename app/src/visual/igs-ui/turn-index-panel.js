@@ -10,6 +10,8 @@ import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { IGS_HINT_THEME_STYLE_TEXT } from './igs-modal.js';
 import { collectFeedPosts, feedPlatformById, isOwnPhone } from '../../scene/feed-platforms.js';
+import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
+import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 
 const ROW_HEIGHT = 40;
 const OVERSCAN = 8;
@@ -24,6 +26,28 @@ const BOOKMARK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const FEED_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-7l-4.5 3.5V16.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z"/></svg>';
 const VOICE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3Z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
 const cssUrl = (url) => String(url || '').replace(/["\\\n\r]/g, (c) => encodeURIComponent(c));
+// 目录自己的阅读设置（回想字号、楼层分组）；字体与日记共用一张表，各页分开记。
+const TI_PREFS_KEY = 'igs_turn_index_prefs';
+const RECORD_FONTS_KEY = 'igs_record_fonts';
+const FONT_CATEGORY = 'turn-index';
+const FONT_DEFAULT = 'inherit';
+const LOG_FONT_SIZE = Object.freeze({ min: 13, max: 22, fallback: 15 });
+const GROUPS = Object.freeze([['place', '按地点'], ['ten', '每 10 楼'], ['day', '按阅读日期'], ['none', '不分组']]);
+const clampLogSize = (value) => {
+    const size = Math.round(Number(value));
+    return Number.isFinite(size) ? Math.min(LOG_FONT_SIZE.max, Math.max(LOG_FONT_SIZE.min, size)) : LOG_FONT_SIZE.fallback;
+};
+const normalizeGroup = (value) => (GROUPS.some(([key]) => key === value) ? value : 'place');
+
+function dayLabel(day, today) {
+    if (!day) return '更早';
+    if (day === today) return '今天';
+    const [y, m, d] = day.split('-').map(Number);
+    const yesterday = new Date(today.replace(/-/g, '/'));
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (yesterday.getFullYear() === y && yesterday.getMonth() + 1 === m && yesterday.getDate() === d) return '昨天';
+    return today.slice(0, 4) === String(y) ? `${m} 月 ${d} 日` : `${y} 年 ${m} 月 ${d} 日`;
+}
 
 // 回想里的一句：去掉 HTML 与 IGS 指令、心声外层的星号。
 function cleanLogText(text) {
@@ -79,6 +103,13 @@ export function createTurnIndexPanel(doc, options = {}) {
     const snippets = new Map();
     const logLines = new Map();
     const avatars = new Map();
+    const win = doc && doc.defaultView;
+    const storage = () => { try { return (win && win.localStorage) || null; } catch (_) { return null; } };
+    const loadJson = (key, fallback) => { try { const raw = storage()?.getItem?.(key); return raw ? JSON.parse(raw) : fallback; } catch (_) { return fallback; } };
+    const saveJson = (key, value) => { try { storage()?.setItem?.(key, JSON.stringify(value)); } catch (_) { /* 存储满时只影响下次打开 */ } };
+    const fontOptions = () => fontOptionsWith(DIALOG_FONT_OPTIONS, loadCustomFonts(win || globalThis));
+    let prefs = { fontSize: LOG_FONT_SIZE.fallback, group: 'place' };
+    let font = FONT_DEFAULT;
 
     const query = (selector) => (root && typeof root.querySelector === 'function' ? root.querySelector(selector) : null);
     const latestId = () => (ids.length ? ids[ids.length - 1] : null);
@@ -138,20 +169,27 @@ export function createTurnIndexPanel(doc, options = {}) {
             + `<button type="button" class="igs-ti-log-copy" data-ti-act="log-jump" data-ti-value="${line.page}" title="从这一页读">`
             + (name ? `<strong class="igs-ti-log-name">${escapeHtml(name)}</strong>` : '')
             + `<span class="igs-ti-log-text">${escapeHtml(line.text)}</span></button>`
-            + (voice ? `<button type="button" class="igs-ti-log-voice" data-ti-act="log-voice" data-ti-value="${line.page}" aria-label="重播语音">${VOICE_ICON}</button>` : '')
+            + `<button type="button" class="igs-ti-log-voice" data-ti-act="log-voice" data-ti-value="${line.page}" aria-label="重播语音"${voice ? '' : ' disabled title="未开启朗读或这一句不朗读"'}>${VOICE_ICON}</button>`
             + '</li>';
+    }
+
+    function canSpeak(line) {
+        if (!options.speak) return false;
+        if (typeof options.canSpeak !== 'function') return true;
+        try { return options.canSpeak(line) === true; } catch (_) { return false; }
     }
 
     function buildRows() {
         rows = [];
         let chapter = null;
         let chapterKey = '';
+        const today = prefs.group === 'day' ? todayKey() : '';
         for (const turn of turns) {
             const id = Number(turn.id);
-            const name = progress.chapterAt(id);
+            const name = groupName(id, today);
             if (name && name !== chapter) {
                 chapter = name;
-                chapterKey = `${id}`;
+                chapterKey = `${prefs.group}:${id}`;
                 rows.push({ kind: 'chapter', name, key: chapterKey });
             }
             if (chapterKey && collapsed.has(chapterKey)) continue;
@@ -159,10 +197,49 @@ export function createTurnIndexPanel(doc, options = {}) {
         }
     }
 
+    function todayKey() {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    function groupName(id, today) {
+        if (prefs.group === 'none') return '';
+        if (prefs.group === 'ten') {
+            const from = Math.floor(id / 10) * 10;
+            return `第 ${from}–${from + 9} 楼`;
+        }
+        if (prefs.group === 'day') {
+            if (progress.floorState(id) === 'unread') return '未读';
+            return dayLabel(typeof progress.dayAt === 'function' ? progress.dayAt(id) : '', today);
+        }
+        return progress.chapterAt(id);
+    }
+
+    function applyLogSize() { root?.style?.setProperty?.('--igs-ti-log-size', `${prefs.fontSize}px`); }
+
+    function applyFont() {
+        const style = root?.style;
+        if (!style) return;
+        if (font === FONT_DEFAULT) {
+            style.removeProperty?.('--igs-rp-font-ui');
+            style.removeProperty?.('--igs-rp-font-body');
+            return;
+        }
+        style.setProperty?.('--igs-rp-font-ui', font);
+        style.setProperty?.('--igs-rp-font-body', font);
+    }
+
+    function selectHtml(input, label, icon, choices, value) {
+        return `<label class="igs-rp-font-select" title="${escapeHtml(label)}">${icon}<select data-ti-input="${input}" aria-label="${escapeHtml(label)}">`
+            + choices.map(([key, text]) => `<option value="${escapeHtml(key)}"${key === value ? ' selected' : ''}>${escapeHtml(text)}</option>`).join('')
+            + '</select></label>';
+    }
+
     function headHtml() {
         const themeSwitch = `<div class="igs-rp-theme-switch" role="radiogroup" aria-label="界面配色">${renderSettingsThemeSwitch(theme, {
             optionClass: 'igs-rp-theme-option', attrs: (value) => `data-ti-act="theme" data-ti-value="${value}"` })}</div>`;
-        return recordPageHeadHtml('目录', { closeAttr: 'data-ti-act', backAriaLabel: '关闭目录', trailing: options.setTheme ? themeSwitch : '' })
+        return recordPageHeadHtml('目录', { closeAttr: 'data-ti-act', backAriaLabel: '关闭目录', trailing: selectHtml('font', '目录字体', '<b aria-hidden="true">Aa</b>', fontOptions(), font) + (options.setTheme ? themeSwitch : '') })
             + `<div class="igs-ti-tabs"><div class="igs-rp-segment" role="tablist" aria-label="目录分页">`
             + `<button type="button" role="tab" data-ti-act="tab" data-ti-value="floors" aria-pressed="${tab === 'floors'}" aria-selected="${tab === 'floors'}">${RECORD_ICONS.book}<span>楼层</span></button>`
             + `<button type="button" role="tab" data-ti-act="tab" data-ti-value="slots" aria-pressed="${tab === 'slots'}" aria-selected="${tab === 'slots'}">${BOOKMARK_ICON}<span>存档</span></button>`
@@ -236,15 +313,18 @@ export function createTurnIndexPanel(doc, options = {}) {
         const actions = `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${selectedId}">阅读</button><button type="button" class="igs-rp-btn is-quiet" data-ti-act="floor-rewind" data-ti-value="${selectedId}">重来</button>${resumeHere}</div>`;
         const lines = linesFor(turn);
         let body;
+        let sizer = '';
         if (lines.length) {
-            const voice = options.speak && options.ttsOn?.() === true;
+            const ttsOn = options.ttsOn?.() === true;
             const currentPage = Number(options.currentId?.()) === selectedId ? Number(options.currentPage?.()) : -1;
-            body = `<ol class="igs-ti-log" aria-label="回想">${lines.map((line) => logEntryHtml(line, voice, line.page === currentPage)).join('')}</ol>`;
+            body = `<ol class="igs-ti-log" aria-label="回想">${lines.map((line) => logEntryHtml(line, ttsOn && canSpeak(line), line.page === currentPage)).join('')}</ol>`;
+            sizer = `<span class="igs-ti-stepper" role="group" aria-label="回想字号"><button type="button" data-ti-act="log-size" data-ti-value="-1" aria-label="减小字号" ${prefs.fontSize <= LOG_FONT_SIZE.min ? 'disabled' : ''}>A−</button>`
+                + `<output aria-live="polite">${prefs.fontSize}</output><button type="button" data-ti-act="log-size" data-ti-value="1" aria-label="增大字号" ${prefs.fontSize >= LOG_FONT_SIZE.max ? 'disabled' : ''}>A+</button></span>`;
         } else {
             const text = fullSnippet(turn);
             body = `<p class="igs-ti-body">${escapeHtml(text) || '（这楼没有可读的文字）'}${text.length >= DETAIL_SNIPPET ? '…' : ''}</p>`;
         }
-        return `<article class="igs-ti-detail igs-ti-log-pane" data-ti-detail><header class="igs-ti-log-head"><p class="igs-ti-meta">${meta}</p>${actions}</header>`
+        return `<article class="igs-ti-detail igs-ti-log-pane" data-ti-detail><header class="igs-ti-log-head"><p class="igs-ti-meta">${meta}</p>${sizer}${actions}</header>`
             + body
             + `<footer class="igs-ti-nav"><button type="button" data-ti-act="select-step" data-ti-value="-1" ${index <= 0 ? 'disabled' : ''}>← 上一楼</button>`
             + `<span>${String(index + 1).padStart(2, '0')} / ${String(ids.length).padStart(2, '0')}</span>`
@@ -259,7 +339,8 @@ export function createTurnIndexPanel(doc, options = {}) {
             + `<button type="button" class="igs-rp-chip" data-ti-act="first" ${ids.length ? '' : 'disabled'}>第 0 层</button>`
             + `<button type="button" class="igs-rp-chip" data-ti-act="unread" ${unread != null ? '' : 'disabled'}>最远未读</button>`
             + `<button type="button" class="igs-rp-chip" data-ti-act="latest" ${ids.length ? '' : 'disabled'}>最新</button></div>`;
-        const goto = `<form class="igs-rp-search igs-ti-goto" data-ti-goto>${RECORD_ICONS.search}<input type="number" inputmode="numeric" min="0" placeholder="输入楼号，回车跳转" aria-label="输入楼号跳转"></form>`;
+        const goto = `<div class="igs-ti-tools"><form class="igs-rp-search igs-ti-goto" data-ti-goto>${RECORD_ICONS.search}<input type="number" inputmode="numeric" min="0" placeholder="输入楼号，回车跳转" aria-label="输入楼号跳转"></form>`
+            + `${selectHtml('group', '楼层分组', `<span>${escapeHtml((GROUPS.find(([key]) => key === prefs.group) || GROUPS[0])[1])}</span><i aria-hidden="true">▾</i>`, GROUPS, prefs.group)}</div>`;
         const list = rows.length
             ? `<div class="igs-ti-list" data-ti-list><div class="igs-ti-inner" data-ti-inner style="height:${rows.length * ROW_HEIGHT}px"></div></div>`
             : '<p class="igs-ti-empty">没有可读的楼层</p>';
@@ -445,6 +526,17 @@ export function createTurnIndexPanel(doc, options = {}) {
             return options.onUnread?.();
         }
         if (act === 'floor') return jump({ id: Number(value), page: 0 });
+        if (act === 'log-size') {
+            prefs.fontSize = clampLogSize(prefs.fontSize + Math.sign(Number(value) || 0));
+            saveJson(TI_PREFS_KEY, prefs);
+            applyLogSize();
+            const out = query('.igs-ti-stepper output');
+            if (out) out.textContent = String(prefs.fontSize);
+            const [down, up] = root ? Array.from(root.querySelectorAll('.igs-ti-stepper button')) : [];
+            down?.toggleAttribute?.('disabled', prefs.fontSize <= LOG_FONT_SIZE.min);
+            up?.toggleAttribute?.('disabled', prefs.fontSize >= LOG_FONT_SIZE.max);
+            return null;
+        }
         if (act === 'log-jump') return selectedId == null ? null : jump({ id: selectedId, page: Math.max(0, Number(value) || 0) });
         if (act === 'log-voice') {
             const turn = turns[ids.indexOf(selectedId)];
@@ -526,6 +618,24 @@ export function createTurnIndexPanel(doc, options = {}) {
         jump({ id, page: 0 });
     }
 
+    function onChange(event) {
+        const input = event && event.target;
+        const kind = input && typeof input.getAttribute === 'function' ? input.getAttribute('data-ti-input') : '';
+        if (!root || !kind) return;
+        event.stopPropagation?.();
+        if (kind === 'font') {
+            font = fontOptions().some(([value]) => value === input.value) ? input.value : FONT_DEFAULT;
+            saveJson(RECORD_FONTS_KEY, { ...loadJson(RECORD_FONTS_KEY, {}), [FONT_CATEGORY]: font });
+            applyFont();
+        } else if (kind === 'group') {
+            prefs.group = normalizeGroup(input.value);
+            saveJson(TI_PREFS_KEY, prefs);
+            collapsed = new Set();
+            render();
+            scrollToId(selectedId ?? Number(options.currentId?.()));
+        }
+    }
+
     // 焦点在面板内时，空格 / 回车 / 方向键不冒泡到阅读器的全局翻页处理器。
     function onKeydown(event) {
         const key = event && event.key;
@@ -538,6 +648,11 @@ export function createTurnIndexPanel(doc, options = {}) {
         if (!container || typeof container.appendChild !== 'function') return { ok: false, reason: 'no-container' };
         previousFocus = doc.activeElement || null;
         try { theme = normalizeSettingsTheme(options.getTheme?.() || ''); } catch (_) { theme = normalizeSettingsTheme(''); }
+        const savedPrefs = loadJson(TI_PREFS_KEY, {}) || {};
+        prefs = { fontSize: clampLogSize(savedPrefs.fontSize ?? LOG_FONT_SIZE.fallback), group: normalizeGroup(savedPrefs.group) };
+        const savedFont = (loadJson(RECORD_FONTS_KEY, {}) || {})[FONT_CATEGORY];
+        font = fontOptions().some(([value]) => value === savedFont) ? savedFont : FONT_DEFAULT;
+        try { registerCustomFonts(doc, loadCustomFonts(win || globalThis)); } catch (_) { /* 上传字体注册失败时用默认字体 */ }
         root = doc.createElement('div');
         root.id = 'igs-turn-index';
         root.setAttribute('role', 'dialog');
@@ -547,6 +662,9 @@ export function createTurnIndexPanel(doc, options = {}) {
         root.addEventListener('click', onClick);
         root.addEventListener('submit', onSubmit);
         root.addEventListener('keydown', onKeydown);
+        root.addEventListener('change', onChange);
+        applyLogSize();
+        applyFont();
         container.appendChild(root);
         host = container;
         host.classList?.toggle(OPEN_CLASS, true);
@@ -568,6 +686,7 @@ export function createTurnIndexPanel(doc, options = {}) {
         root.removeEventListener('click', onClick);
         root.removeEventListener('submit', onSubmit);
         root.removeEventListener('keydown', onKeydown);
+        root.removeEventListener('change', onChange);
         unwatchLayout();
         unwatchLayout = () => { };
         root.remove();
@@ -651,25 +770,40 @@ ${T} .igs-ti-nav button[disabled]{opacity:.3;cursor:default;}
 ${T} .igs-ti-nav span{color:var(--igs-rp-text-faint);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.16em;}
 ${T} .igs-ti-overview h3{font-variant-numeric:tabular-nums;}
 ${T} .igs-ti-log-pane{position:relative;padding-top:clamp(18px,2.4vw,30px);}
-${T} .igs-ti-log-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;padding-bottom:14px;border-bottom:1px solid var(--igs-rp-text-ghost);}
-${T} .igs-ti-log-head .igs-ti-detail-actions{margin:0;justify-content:flex-end;}
+${T} .igs-ti-log-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px;padding-bottom:16px;border-bottom:1px solid var(--igs-rp-text-ghost);}
+${T} .igs-ti-log-head .igs-ti-detail-actions{flex:1 0 100%;margin:0;justify-content:center;gap:10px;}
+${T} .igs-ti-log-head .igs-rp-btn{min-height:30px;padding:5px 22px;font-size:13px;font-weight:500;letter-spacing:.2em;}
+${T} .igs-ti-log-head .igs-rp-btn.is-quiet{background:transparent;color:var(--igs-rp-text-soft);box-shadow:inset 0 0 0 1px var(--igs-rp-text-ghost);}
+${T} .igs-ti-log-head .igs-rp-btn.is-quiet:hover{color:var(--igs-rp-text);opacity:1;}
+${T} .igs-ti-log-head .igs-rp-chip{min-height:30px;padding:5px 12px;font-size:12px;color:var(--igs-rp-text-faint);}
 ${T} .igs-ti-log{list-style:none;margin:0;padding:0;max-width:44em;}
-${T} .igs-ti-log-entry{display:grid;grid-template-columns:40px minmax(0,1fr) 32px;align-items:start;gap:14px;padding:14px 8px;margin:0 -8px;border-radius:var(--igs-rp-radius-m);}
-${T} .igs-ti-log-entry + .igs-ti-log-entry{box-shadow:inset 0 1px 0 var(--igs-rp-text-ghost);}
+${T} .igs-ti-log-entry{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr) 32px;align-items:start;gap:14px;padding:14px 8px;margin:0 -8px;border-radius:var(--igs-rp-radius-m);}
+${T} .igs-ti-log-entry + .igs-ti-log-entry::before{content:"";position:absolute;top:0;left:8px;right:8px;border-top:1px dashed var(--igs-rp-text-ghost);pointer-events:none;}
 ${T} .igs-ti-log-entry[aria-current="true"]{background:var(--igs-rp-fill);}
+${T} .igs-ti-log-entry[aria-current="true"]::before,${T} .igs-ti-log-entry[aria-current="true"] + .igs-ti-log-entry::before{display:none;}
 ${T} .igs-ti-log-face{width:40px;height:40px;border-radius:50%;background-color:var(--igs-rp-fill-active);background-repeat:no-repeat;}
 ${T} .igs-ti-log-face.is-cover{background-size:cover;background-position:center;}
 ${T} .igs-ti-log-face.is-initial{display:grid;place-items:center;color:var(--igs-rp-text-soft);font-family:var(--igs-rp-font-body);font-size:16px;}
 ${T} .igs-ti-log-face.is-empty{background:transparent;}
 ${T} .igs-ti-log-copy{display:flex;flex-direction:column;gap:4px;min-width:0;padding:0;border:0;background:transparent;text-align:left;}
-${T} .igs-ti-log-name{color:var(--igs-rp-accent,var(--igs-rp-text));font-size:13px;font-weight:500;letter-spacing:.1em;}
-${T} .igs-ti-log-text{font-family:var(--igs-rp-font-body);font-size:15px;line-height:1.85;letter-spacing:.03em;color:var(--igs-rp-text);white-space:pre-wrap;overflow-wrap:anywhere;transition:color .18s var(--igs-rp-ease);}
+${T} .igs-ti-log-name{color:var(--igs-rp-accent,var(--igs-rp-text));font-size:calc(var(--igs-ti-log-size,15px) - 2px);font-weight:500;letter-spacing:.1em;}
+${T} .igs-ti-log-text{font-family:var(--igs-rp-font-body);font-size:var(--igs-ti-log-size,15px);line-height:1.85;letter-spacing:.03em;color:var(--igs-rp-text);white-space:pre-wrap;overflow-wrap:anywhere;transition:color .18s var(--igs-rp-ease);}
 ${T} .igs-ti-log-entry.is-narration .igs-ti-log-text{color:var(--igs-rp-text-soft);}
 ${T} .igs-ti-log-entry.is-thought .igs-ti-log-text{color:var(--igs-rp-text-soft);font-style:italic;}
 ${T} .igs-ti-log-copy:hover .igs-ti-log-text{color:var(--igs-rp-text);}
 ${T} .igs-ti-log-voice{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--igs-rp-text-faint);transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
-${T} .igs-ti-log-voice:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+${T} .igs-ti-log-voice:hover:not([disabled]){background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+${T} .igs-ti-log-voice[disabled]{opacity:.3;cursor:default;}
 ${T} .igs-ti-log-voice svg{width:16px;height:16px;}
+${T} .igs-ti-stepper{display:inline-flex;align-items:center;gap:2px;padding:2px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);font-size:12px;}
+${T} .igs-ti-stepper button{display:grid;place-items:center;min-width:30px;height:26px;padding:0 6px;border:0;border-radius:calc(var(--igs-rp-radius-m) - 2px);background:transparent;font-weight:600;line-height:1;}
+${T} .igs-ti-stepper button:hover:not([disabled]){background:var(--igs-rp-fill-hover);}
+${T} .igs-ti-stepper button[disabled]{opacity:.3;cursor:default;}
+${T} .igs-ti-stepper output{min-width:2em;text-align:center;color:var(--igs-rp-text-soft);font-variant-numeric:tabular-nums;}
+${T} .igs-ti-tools{display:flex;align-items:center;gap:8px;}
+${T} .igs-ti-tools .igs-ti-goto{flex:1;min-width:0;}
+${T} .igs-ti-tools .igs-rp-font-select{flex:none;height:auto;align-self:stretch;}
+${T} .igs-ti-tools .igs-rp-font-select i{font-style:normal;font-size:10px;color:var(--igs-rp-text-faint);}
 ${T} .igs-ti-progress{height:3px;border-radius:2px;background:var(--igs-rp-fill-active);overflow:hidden;}
 ${T} .igs-ti-progress span{display:block;height:100%;background:var(--igs-rp-accent,var(--igs-rp-text));}
 ${T} .igs-ti-overview .igs-ti-summary{margin-top:14px;}
@@ -713,5 +847,4 @@ ${T}.igs-rp-narrow .igs-ti-log-entry{grid-template-columns:32px minmax(0,1fr) 30
 ${T}.igs-rp-narrow .igs-ti-log-face{width:32px;height:32px;}
 ${T}.igs-rp-narrow .igs-ti-log-face.is-initial{font-size:14px;}
 ${T}.igs-rp-narrow .igs-ti-log-voice{width:30px;height:30px;}
-${T}.igs-rp-narrow .igs-ti-log-head .igs-ti-detail-actions{justify-content:flex-start;}
 `;

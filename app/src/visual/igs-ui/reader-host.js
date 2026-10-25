@@ -47,7 +47,7 @@ import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
-import { guessTtsLine, isTtsSpeaking, normalizeTtsSettings, replayTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
+import { decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
 import { resolveRegionCrop } from './stage-snapshot.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -2616,6 +2616,11 @@ export function createIgsReaderHost(options = {}) {
             avatarOf: (name) => backlogAvatarOf(name, overlay.ownerDocument),
             currentPage: () => (state.activeReader ? Number(state.activeReader.index) || 0 : -1),
             ttsOn: () => Boolean(state.activeReader && normalizeTtsSettings(state.activeReader.snapshot?.readerSettings?.tts).enabled),
+            canSpeak: (line) => {
+                const readerSettings = state.activeReader?.snapshot?.readerSettings || {};
+                const plan = decideTts({}, { key: '', textType: line.textType, speaker: line.speaker, text: line.text }, readerSettings.tts, { sceneAssets: readerSettings._sceneAssets, voices: listSystemVoices(), record: false });
+                return Boolean(plan && !plan.skip);
+            },
             speak: (line) => {
                 const readerSettings = state.activeReader?.snapshot?.readerSettings || {};
                 return speakTtsLine({ key: '', textType: line.textType, speaker: line.speaker, text: line.text }, readerSettings.tts, readerSettings._sceneAssets);
@@ -2743,8 +2748,14 @@ export function createIgsReaderHost(options = {}) {
         if (!resumeKind(last, ids, current.index)) return;
         const far = readingProgress.getFarthest();
         const unread = far ? ids.filter((id) => id > far.id).length : 0;
+        // 默认用主界面样式（继续 / 最新一层）；设置里可改回简易弹窗。
+        if (current.snapshot?.readerSettings?.resumePrompt !== 'simple') {
+            current.titleGate = createTitleGate({ coverTurn: nextTitleCoverTurn((options.global || globalThis).localStorage), resume: { label: positionLabel(last) } });
+            renderTitleGate(current);
+            return;
+        }
         const message = `上次读到 ${positionLabel(last)}${unread ? `，后面还有 ${unread} 楼没读` : ''}。\n接着上次阅读的地方，还是阅读最新一层？`;
-        const resume = await pageModal.confirm(message, { okLabel: `续读 ${last.id} 楼`, cancelLabel: '最新一层' });
+        const resume = await pageModal.confirm(message, { okLabel: '继续上次', cancelLabel: '最新一层' });
         if (!resume || state.activeReader !== current || current.progressArmed) return;
         await jumpToPosition({ pos: last });
     }
@@ -4718,7 +4729,7 @@ export function createIgsReaderHost(options = {}) {
         if (current.titleGate) {
             // 主界面盖着时正文不渲染：不打字、不放演出和音效，点「开始」后才从第一页演起。
             const titleOn = !snapshot.readerSettings || snapshot.readerSettings.titleScreen !== false;
-            if (titleOn && Number(snapshot.content && snapshot.content.currentIndex) === 0) {
+            if (current.titleGate.resume || (titleOn && Number(snapshot.content && snapshot.content.currentIndex) === 0)) {
                 renderTitleGate(current);
                 current.assetLeases?.releaseAll();
                 return;
@@ -4873,6 +4884,11 @@ export function createIgsReaderHost(options = {}) {
         if (next.effect === 'settings') return current.controller.openSettings();
         if (next.effect === 'user-char') return generateUserCharFromTitle(current);
         if (next.effect === 'continue') return continueFromTitle(current);
+        if (next.effect === 'latest') {
+            dropTitleGate(current);
+            updateMountedReader(current.snapshot);
+            return null;
+        }
         if (next.effect === 'start') return playOpeningFromTitle(current);
         if (next.effect === 'save' || next.effect === 'save-start') {
             const saved = saveTitlePick(next.pick);

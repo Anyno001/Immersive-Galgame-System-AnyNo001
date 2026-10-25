@@ -69,6 +69,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'sprite-scale', label: '立绘缩放与高度', aliases: ['立绘太大', '立绘太小', '缩放', '高度', '人物大小'], page: 'chars', open: ['sprite-display'] },
     { id: 'panel-glass', label: '面板透明度', aliases: ['面板玻璃', '玻璃', '玻璃浓度', '毛玻璃', '半透明', '透明度'], page: 'style', open: ['dialog-glass'], path: 'readerSettings.glassOpacity' },
     { id: 'dialog-skin', label: '对话框风格', aliases: ['皮肤', '对话框样式', '换皮', '科幻', '末日', '全息', '废土', '武侠', '水墨', '江湖', '本卡皮肤', '主题'], page: 'style', path: 'readerSettings.dialogSkin' },
+    { id: 'resume-prompt', label: '续读提示', aliases: ['继续阅读', '上次读到', '续读', '读档提示'], page: 'style', path: 'readerSettings.resumePrompt' },
     { id: 'title-screen', label: '开场先显示主界面', aliases: ['主界面', '标题画面', '开始菜单', '开场白', '第0层', '选择世界观'], page: 'style', path: 'readerSettings.titleScreen' },
     { id: 'page-number', label: '显示页码', aliases: ['显示对话框内状态行', '状态行', '页码', '本楼页码', '1/33'], page: 'style', path: 'readerSettings.showStatusLine' },
     { id: 'text-effect', label: '文字增强', aliases: ['描边', '看不清', '投影', '字看不清'], page: 'text', path: 'readerSettings.dialogTextEffect' },
