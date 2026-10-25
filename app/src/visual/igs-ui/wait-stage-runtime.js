@@ -475,14 +475,18 @@ export function createWaitStageRuntime(options = {}) {
         }
         if (typeof pack.ensureStyle === 'function') pack.ensureStyle(doc);
         gamesRow.hidden = Boolean(game) || phase !== 'wait';
-        for (const id of list) {
+        list.forEach((id, index) => {
             const button = doc.createElement('button');
             button.type = 'button';
             button.className = 'igs-ws-chip';
             button.textContent = (pack.label && pack.label(id)) || id;
+            // 游戏包可以把按钮画成卡片；旧版游戏包没有这一项，照旧用文字按钮。
+            if (typeof pack.decorate === 'function') {
+                try { pack.decorate(button, id, index); } catch (error) { /* 卡片画失败就留文字按钮 */ }
+            }
             button.addEventListener('click', () => openGame(id));
             gamesRow.appendChild(button);
-        }
+        });
     }
 
     subscribeWaitStageGamePack(() => {

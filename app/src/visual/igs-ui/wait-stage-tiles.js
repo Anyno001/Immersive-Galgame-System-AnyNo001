@@ -14,6 +14,28 @@ export const TILES_KINDS = Object.freeze([
     ...HONOR.map((h, i) => ({ id: `z${i + 1}`, top: h, bottom: '' })),
 ]);
 
+// 牌面皮肤：情绪（默认）在麻将牌种之上换画法，一局里每种牌对应一个情绪符号；麻将即原牌面。
+export const TILES_SKINS = Object.freeze([
+    { id: 'emote', label: '情绪' },
+    { id: 'mahjong', label: '麻将' },
+]);
+// 情绪符号，32×32 画布，扁平单色。f 实心、l 粗线、core 花心。颜色在样式表里按 id 取。数量须不少于单关最多牌种。
+export const TILES_EMOTES = Object.freeze([
+    { id: 'heart', label: '爱心', svg: '<path class="f" d="M16 27C6.5 20.5 3.5 14.5 6 9.8 8.4 5.6 13.5 5.8 16 10c2.5-4.2 7.6-4.4 10-.2 2.5 4.7-.5 10.7-10 17.2Z"/>' },
+    { id: 'anger', label: '青筋', svg: '<path class="l" d="M13 5q0 8-8 8M19 5q0 8 8 8M13 27q0-8-8-8M19 27q0-8 8-8"/>' },
+    { id: 'exclaim', label: '感叹', svg: '<path class="f" d="M12.6 5.2h6.8l-1.5 15.2h-3.8Z"/><circle class="f" cx="16" cy="25.6" r="2.7"/>' },
+    { id: 'question', label: '疑问', svg: '<path class="l" d="M10.8 11.2a5.3 5.3 0 1 1 7.4 4.8c-1.6.8-2.2 1.8-2.2 3.8"/><circle class="f" cx="16" cy="25.8" r="2.5"/>' },
+    { id: 'sparkle', label: '闪光', svg: '<path class="f" d="M14 4c1 8.5 3.6 11 11.5 12-7.9 1-10.5 3.5-11.5 12-1-8.5-3.6-11-11.5-12C10.4 15 13 12.5 14 4Z"/><path class="f" d="M25 3.5c.4 3 1.4 4 4 4.5-2.6.5-3.6 1.5-4 4.5-.4-3-1.4-4-4-4.5 2.6-.5 3.6-1.5 4-4.5Z"/>' },
+    { id: 'bolt', label: '闪电', svg: '<path class="f" d="M19 3 7.5 18h7.2l-2.4 11L25 13.4h-7.3Z"/>' },
+    { id: 'clover', label: '四叶草', svg: '<path class="l l-thin" d="M16 17q3 7 9 10"/><circle class="f" cx="11.2" cy="11.2" r="5"/><circle class="f" cx="20.8" cy="11.2" r="5"/><circle class="f" cx="11.2" cy="20.8" r="5"/><circle class="f" cx="20.8" cy="20.8" r="5"/>' },
+    { id: 'sweat', label: '汗滴', svg: '<path class="f" d="M16 3.8S7 14.6 7 20.2a9 9 0 0 0 18 0C25 14.6 16 3.8 16 3.8Z"/>' },
+    { id: 'moon', label: '困倦', svg: '<path class="f" d="M19.5 4.5a11.5 11.5 0 1 0 8 18.4A9.5 9.5 0 0 1 19.5 4.5Z"/>' },
+    { id: 'note', label: '音符', svg: '<path class="f" d="M12.4 7.6 27.6 4v5l-15.2 3.6Z"/><path class="f" d="M12.4 9h2.6v14h-2.6ZM25 5h2.6v14.6H25Z"/><ellipse class="f" cx="10.2" cy="23.6" rx="4.4" ry="3.5"/><ellipse class="f" cx="22.8" cy="20" rx="4.4" ry="3.5"/>' },
+    { id: 'swirl', label: '眩晕', svg: '<path class="l l-swirl" d="M16 16a2 2 0 0 1 4 0 4 4 0 0 1-8 0 6 6 0 0 1 12 0 8 8 0 0 1-16 0"/>' },
+    { id: 'flower', label: '花', svg: '<circle class="f" cx="16" cy="8.6" r="5"/><circle class="f" cx="23" cy="13.7" r="5"/><circle class="f" cx="20.3" cy="22" r="5"/><circle class="f" cx="11.7" cy="22" r="5"/><circle class="f" cx="9" cy="13.7" r="5"/><circle class="core" cx="16" cy="16" r="3.6"/>' },
+    { id: 'puff', label: '叹气', svg: '<path class="f" d="M9.5 24a5 5 0 0 1-.8-9.9 7 7 0 0 1 13.4-2.4 5.6 5.6 0 0 1 1.6 12.3Z"/>' },
+]);
+
 // 每关：各层张数（都是 3 的倍数）、牌种数。
 export const TILES_LEVELS = Object.freeze([
     { layers: [18, 12, 6], kinds: 9 },
@@ -130,6 +152,26 @@ export const TILES_STYLE = `
 @keyframes igs-tl-pop{0%{transform:scale(.7);}100%{transform:scale(1);}}
 .igs-tl-tools{display:flex;gap:8px;align-items:center;justify-content:center;}
 .igs-tl-tools .igs-ws-chip[disabled]{opacity:.4;cursor:default;}
+.igs-tl.is-emote .igs-tl-tile,.igs-tl.is-emote .igs-tl-cell.is-full{background:color-mix(in srgb,currentColor 10%,color-mix(in srgb,var(--igs-bar-ink,#fff) 35%,#fff));}
+.igs-tl-ico{display:block;width:72%;height:auto;}
+.igs-tl-ico .f{fill:currentColor;}
+.igs-tl-ico .l{fill:none;stroke:currentColor;stroke-width:3.6;stroke-linecap:round;stroke-linejoin:round;}
+.igs-tl-ico .l-thin{stroke-width:2.4;}
+.igs-tl-ico .l-swirl{stroke-width:3;}
+.igs-tl-ico .core{fill:#ffc629;}
+.igs-tl.is-emote [data-emote="heart"]{color:#ff4f8f;}
+.igs-tl.is-emote [data-emote="anger"]{color:#f03a47;}
+.igs-tl.is-emote [data-emote="exclaim"]{color:#ff8a1f;}
+.igs-tl.is-emote [data-emote="question"]{color:#16b9a6;}
+.igs-tl.is-emote [data-emote="sparkle"]{color:#f5b800;}
+.igs-tl.is-emote [data-emote="bolt"]{color:#ff9f0a;}
+.igs-tl.is-emote [data-emote="clover"]{color:#36c46a;}
+.igs-tl.is-emote [data-emote="sweat"]{color:#3aa6f5;}
+.igs-tl.is-emote [data-emote="moon"]{color:#5a68ff;}
+.igs-tl.is-emote [data-emote="note"]{color:#9a58ff;}
+.igs-tl.is-emote [data-emote="swirl"]{color:#d64ee6;}
+.igs-tl.is-emote [data-emote="flower"]{color:#ff7fb6;}
+.igs-tl.is-emote [data-emote="puff"]{color:#7fb2e6;}
 @media (prefers-reduced-motion: reduce){
 .igs-tl-tile,.igs-tl-cell.is-full{animation:none!important;transition:none!important;}
 }
@@ -143,7 +185,37 @@ function hueOf(id) {
     return String(Math.max(0, TILES_KINDS.findIndex((kind) => kind.id === id)) * 360 / TILES_KINDS.length);
 }
 
-function fillFace(doc, node, id) {
+const SKIN_KEY = 'igs:wait-games:tiles-skin';
+
+function storeOf(doc) {
+    try { return (doc && doc.defaultView && doc.defaultView.localStorage) || null; } catch (error) { return null; }
+}
+
+export function readTilesSkin(doc) {
+    let saved = '';
+    try { saved = String(storeOf(doc)?.getItem(SKIN_KEY) || ''); } catch (error) { /* 读不到就用默认 */ }
+    return TILES_SKINS.some((skin) => skin.id === saved) ? saved : TILES_SKINS[0].id;
+}
+
+function writeTilesSkin(doc, skin) {
+    try { storeOf(doc)?.setItem(SKIN_KEY, skin); } catch (error) { /* 存不下只影响下次 */ }
+}
+
+// 一局里出现的牌种按出场顺序配上打乱后的情绪符号。
+export function mapTilesEmotes(tiles, random = Math.random) {
+    const emotes = shuffle(TILES_EMOTES, random);
+    const map = new Map();
+    for (const tile of tiles) if (!map.has(tile.kind)) map.set(tile.kind, emotes[map.size % emotes.length]);
+    return map;
+}
+
+function fillFace(doc, node, id, emote) {
+    if (emote) {
+        node.setAttribute('data-emote', emote.id);
+        node.setAttribute('aria-label', emote.label);
+        node.innerHTML = `<svg class="igs-tl-ico" viewBox="0 0 32 32" aria-hidden="true">${emote.svg}</svg>`;
+        return;
+    }
     const kind = kindOf(id);
     node.style.setProperty('--h', hueOf(id));
     const top = doc.createElement('span');
@@ -177,7 +249,9 @@ export function startTiles(ctx) {
     status.className = 'igs-ws-status';
     board.appendChild(status);
     const root = doc.createElement('div');
-    root.className = 'igs-tl';
+    let skin = readTilesSkin(doc);
+    const paintSkin = () => { root.className = `igs-tl is-${skin}`; };
+    paintSkin();
     board.appendChild(root);
 
     let level = 1;
@@ -190,6 +264,8 @@ export function startTiles(ctx) {
         const removed = new Set();
         let slot = [];
         let rescue = true;
+        const emotes = mapTilesEmotes(tiles, ctx.random);
+        const emoteOf = (kind) => (skin === 'emote' ? emotes.get(kind) : null);
         const field = doc.createElement('div');
         field.className = 'igs-tl-field';
         field.style.setProperty('--bw', String(layout.bw));
@@ -203,6 +279,11 @@ export function startTiles(ctx) {
         help.className = 'igs-ws-chip';
         help.textContent = '移出 3 张';
         tools.appendChild(help);
+        // 换牌面皮肤：只换画法，牌局不动；选择记在本机。
+        const skinButton = doc.createElement('button');
+        skinButton.type = 'button';
+        skinButton.className = 'igs-ws-chip';
+        tools.appendChild(skinButton);
         root.appendChild(field);
         root.appendChild(slotRow);
         root.appendChild(tools);
@@ -221,11 +302,12 @@ export function startTiles(ctx) {
                 cell.className = 'igs-tl-cell';
                 if (slot[i]) {
                     cell.className += ' is-full';
-                    fillFace(doc, cell, slot[i].kind);
+                    fillFace(doc, cell, slot[i].kind, emoteOf(slot[i].kind));
                 }
                 slotRow.appendChild(cell);
             }
             help.disabled = !rescue || slot.length < 1;
+            skinButton.textContent = `牌面：${(TILES_SKINS.find((item) => item.id === skin) || TILES_SKINS[0]).label}`;
             status.textContent = `第 ${level} 关 · 剩 ${tiles.length - removed.size} 张`;
         };
 
@@ -251,7 +333,7 @@ export function startTiles(ctx) {
             node.style.setProperty('--x', String(tile.x));
             node.style.setProperty('--y', String(tile.y));
             node.style.setProperty('--z', String(tile.z));
-            fillFace(doc, node, tile.kind);
+            fillFace(doc, node, tile.kind, emoteOf(tile.kind));
             node.addEventListener('click', () => {
                 if (over || ctx.isSettled() || removed.has(tile.id) || isTileCovered(tile, tiles, removed)) return;
                 removed.add(tile.id);
@@ -267,6 +349,19 @@ export function startTiles(ctx) {
             nodes.set(tile.id, node);
             field.appendChild(node);
         }
+        skinButton.addEventListener('click', () => {
+            const at = TILES_SKINS.findIndex((item) => item.id === skin);
+            skin = TILES_SKINS[(at + 1) % TILES_SKINS.length].id;
+            writeTilesSkin(doc, skin);
+            paintSkin();
+            for (const tile of tiles) {
+                const node = nodes.get(tile.id);
+                node.innerHTML = '';
+                if (node.removeAttribute) { node.removeAttribute('data-emote'); node.removeAttribute('aria-label'); }
+                fillFace(doc, node, tile.kind, emoteOf(tile.kind));
+            }
+            refresh();
+        });
         help.addEventListener('click', () => {
             if (over || ctx.isSettled() || !rescue || !slot.length) return;
             rescue = false;

@@ -23,7 +23,7 @@ const program = result.outputFiles[0].text;
 if (program.includes('bootstrapIGS') || program.includes('wait-stage-runtime')) {
     throw new Error('等待小游戏脚本带进了 Gal 前端主体。');
 }
-if (!program.includes('翻牌配对') || !program.includes('立直麻将') || !program.includes('消消乐') || !program.includes('贪吃蛇') || !program.includes('__IGS_WAIT_GAME_PACK__')) {
+if (!program.includes('翻牌配对') || !program.includes('立直麻将') || !program.includes('消消乐') || !program.includes('贪吃蛇') || !program.includes('飞行棋') || !program.includes('__IGS_WAIT_GAME_PACK__')) {
     throw new Error('等待小游戏脚本缺少玩法或安装标记。');
 }
 if (!program.includes('Satoshi Kobayashi') || !program.includes('MIT')) {
@@ -39,7 +39,7 @@ sandbox.window.addEventListener = () => {};
 vm.createContext(sandbox);
 vm.runInContext(program, sandbox, { timeout: 1000 });
 const pack = sandbox.__IGS_WAIT_GAME_PACK__;
-if (!pack || pack.id !== 'igs-wait-games' || pack.list({ art: {}, replay: [], names: [] }).join(',') !== 'rps,mahjong,tiles,snake') {
+if (!pack || pack.id !== 'igs-wait-games' || pack.list({ art: {}, replay: [], names: [] }).join(',') !== 'rps,mahjong,tiles,snake,ludo') {
     throw new Error('等待小游戏脚本没有登记到宿主窗口。');
 }
 
@@ -54,7 +54,7 @@ const json = {
     id: 'igs-wait-games',
     content,
     info: [
-        `等待过场小游戏 v${version}：猜拳、立直麻将、消消乐、贪吃蛇、这句是谁说的、翻牌配对、心情猜猜。`,
+        `等待过场小游戏 v${version}：猜拳、立直麻将、消消乐、贪吃蛇、飞行棋、这句是谁说的、翻牌配对、心情猜猜。`,
         '立直麻将使用電脳麻将（@kobalab/majiang-core、@kobalab/majiang-ai，MIT）的规则、算点和电脑。开局从卡里的立绘里选三位对手。牌局存在本地，离开后下次等待可以接着打。东风战，赤宝牌，一家和。',
         '这是独立脚本，不包含 Gal 前端。请先导入并启用沉浸式 Galgame 系统，再启用本脚本。',
         '没启用本脚本时，等待层只轮换台词，不会加载小游戏。',

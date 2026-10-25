@@ -230,7 +230,7 @@ test('gate:wait-stage:separate-script-installs-the-pack-onto-the-host-window', (
     assert.equal(Array.isArray(root.IGS_WAIT_GAMES), true);
     attachWaitStageGames(root);
     assert.equal(getWaitStageGamePack(), pack);
-    assert.deepEqual(pack.list({ art: {}, replay: [], names: [] }), ['rps', 'mahjong', 'tiles', 'snake']);
+    assert.deepEqual(pack.list({ art: {}, replay: [], names: [] }), ['rps', 'mahjong', 'tiles', 'snake', 'ludo']);
     uninstallWaitStageGames(root);
     detachWaitStageGames(root);
     assert.equal(getWaitStageGamePack(), null);
@@ -257,4 +257,22 @@ test('gate:wait-stage:main-frontend-does-not-import-the-game-pack', () => {
     assert.equal(names.includes('visual/igs-ui/wait-stage-games.js'), false);
     assert.equal(names.includes('plugins/wait-stage-games-entry.js'), false);
     assert.equal(names.includes('visual/igs-ui/wait-stage-games-api.js'), true);
+});
+
+test('wait-stage games pack: decorate 把文字按钮画成带图标的卡片', async () => {
+    const { createWaitStageGamePack, WAIT_STAGE_GAMES } = await import('../src/visual/igs-ui/wait-stage-games.js');
+    const { FakeEl } = await import('./helpers/fake-dom.js');
+    const pack = createWaitStageGamePack();
+    const doc = { createElement(tag) { return new FakeEl(doc, tag); } };
+    for (const [index, id] of WAIT_STAGE_GAMES.entries()) {
+        const button = doc.createElement('button');
+        button.className = 'igs-ws-chip';
+        pack.decorate(button, id, index);
+        assert.equal(button.className, 'igs-ws-game');
+        assert.equal(button.getAttribute('data-game'), id);
+        assert.match(button.innerHTML, /<svg/);
+        assert.ok(button.innerHTML.includes(pack.label(id)));
+        assert.ok(button.innerHTML.includes(String(index + 1).padStart(2, '0')));
+    }
+    assert.match(pack.style, /\.igs-ws-game-ico\{/);
 });

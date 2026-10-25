@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    TILES_EMOTES,
     TILES_KINDS,
     TILES_SLOT_SIZE,
     TILES_STYLE,
     buildTilesLayout,
     freeTiles,
     isTileCovered,
+    mapTilesEmotes,
     slotAdd,
     slotReturn,
     startTiles,
@@ -133,4 +135,38 @@ test('startTiles：整局可点通关第一关并进入第二关，输了会 mar
     }
     assert.ok(done === 1 || field().children.length > 0);
     assert.ok(notes.length >= 1);
+});
+
+test('startTiles：默认情绪符号牌面，可切回原麻将牌面并记在本机', () => {
+    const saved = new Map();
+    const doc = {
+        createElement(tag) { return new FakeEl(doc, tag); },
+        defaultView: { localStorage: { getItem: (k) => saved.get(k) ?? null, setItem: (k, v) => saved.set(k, v) } },
+    };
+    const board = doc.createElement('div');
+    const ctx = {
+        doc, board, timers: makeTimers(), random: seeded(3), model: {},
+        markDone() {}, setNote() {}, onVoice() {},
+        isSettled() { return false; }, isExiting() { return false; }, requestClose() {},
+    };
+    startTiles(ctx);
+    const root = board.children[2];
+    const tiles = root.children[0].children;
+    assert.match(root.className, /is-emote/);
+    assert.match(tiles[0].innerHTML, /igs-tl-ico/);
+    // 同一种牌配同一个符号，不同牌种不撞符号。
+    const pairs = new Map();
+    const layout = buildTilesLayout(seeded(3), 1);
+    const map = mapTilesEmotes(layout.tiles, seeded(5));
+    for (const [kind, emote] of map) pairs.set(emote.id, kind);
+    assert.equal(pairs.size, map.size);
+    assert.ok(TILES_EMOTES.length >= 13);
+    const skinButton = root.children[2].children[1];
+    assert.equal(skinButton.textContent, '牌面：情绪');
+    skinButton.fire('click');
+    assert.match(root.className, /is-mahjong/);
+    assert.equal(tiles[0].getAttribute('data-emote'), null);
+    assert.equal(tiles[0].children[0].className, 'igs-tl-top');
+    assert.equal(skinButton.textContent, '牌面：麻将');
+    assert.equal(saved.get('igs:wait-games:tiles-skin'), 'mahjong');
 });

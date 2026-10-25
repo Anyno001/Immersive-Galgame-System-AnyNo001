@@ -1,21 +1,45 @@
 // 等待过场里的小游戏。这段不进 Gal 前端主体，只由独立导入脚本登记后才会玩。
 import { MAHJONG_STYLE, startMahjong } from './wait-stage-mahjong.js';
 import { SNAKE_STYLE, startSnake } from './wait-stage-snake.js';
+import { LUDO_STYLE, startLudo } from './wait-stage-ludo.js';
 import { TILES_STYLE, startTiles } from './wait-stage-tiles.js';
 import { WAIT_STAGE_GAME_LINES, waitStageGameLine } from './wait-stage-game-lines.js';
 export { WAIT_STAGE_GAME_LINES, waitStageGameLine };
 
-export const WAIT_STAGE_GAMES = Object.freeze(['rps', 'mahjong', 'tiles', 'snake', 'whosaid', 'memory', 'mood']);
+export const WAIT_STAGE_GAMES = Object.freeze(['rps', 'mahjong', 'tiles', 'snake', 'ludo', 'whosaid', 'memory', 'mood']);
 
 export const WAIT_STAGE_GAME_LABELS = Object.freeze({
     rps: '猜拳',
     mahjong: '立直麻将',
     tiles: '消消乐',
     snake: '贪吃蛇',
+    ludo: '飞行棋',
     whosaid: '这句是谁说的',
     memory: '翻牌配对',
     mood: '心情猜猜',
 });
+
+// 选游戏卡片：一句玩法 + 线描图标（24×24，描边取 currentColor），颜色跟随皮肤。
+export const WAIT_STAGE_GAME_CARDS = Object.freeze({
+    rps: { sub: '石头剪刀布', icon: '<circle cx="6.5" cy="17.5" r="3"/><circle cx="17.5" cy="17.5" r="3"/><path d="M8.6 15.4 18 4M15.4 15.4 6 4"/>' },
+    mahjong: { sub: '日麻对局', icon: '<rect x="5.5" y="3" width="13" height="18" rx="2.5"/><path d="M12 6.5v11M8.8 9.6h6.4v4.2H8.8Z"/>' },
+    tiles: { sub: '情绪符号三消', icon: '<rect x="3" y="8" width="10" height="12" rx="2.2"/><rect x="11" y="4" width="10" height="12" rx="2.2"/><path d="M16 13.2c-2.4-1.6-3-3-2.2-3.9.7-.8 1.7-.6 2.2.2.5-.8 1.5-1 2.2-.2.8.9.2 2.3-2.2 3.9Z"/>' },
+    snake: { sub: '越吃越长', icon: '<path d="M3.5 18.5c3 0 3-5 6-5s3 5 6 5 3.4-4.4 4.6-7.6"/><circle cx="20.4" cy="8.6" r="2.2"/>' },
+    ludo: { sub: '四色飞行棋', icon: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.6" cy="8.6" r=".9"/><circle cx="12" cy="12" r=".9"/><circle cx="15.4" cy="15.4" r=".9"/>' },
+    whosaid: { sub: '台词猜角色', icon: '<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4 3.5V17h.5A2.5 2.5 0 0 1 4 14.5Z"/><path d="M10 8.6a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.4M12 14v.1"/>' },
+    memory: { sub: '五关翻牌', icon: '<rect x="3.5" y="6" width="9" height="13" rx="1.8" transform="rotate(-10 8 12.5)"/><rect x="11.5" y="5" width="9" height="13" rx="1.8" transform="rotate(8 16 11.5)"/>' },
+    mood: { sub: '看表情猜心情', icon: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14c1.8 2.2 5.2 2.2 7 0M9 9.5v1M15 9.5v1"/>' },
+});
+
+function gameCardHtml(id, no) {
+    const card = WAIT_STAGE_GAME_CARDS[id];
+    const icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${card.icon}</svg>`;
+    return `<span class="igs-ws-game-no">${String(no).padStart(2, '0')}</span>`
+        + `<span class="igs-ws-game-ico">${icon}</span>`
+        + `<span class="igs-ws-game-name">${WAIT_STAGE_GAME_LABELS[id] || id}</span>`
+        + `<span class="igs-ws-game-sub">${card.sub}</span>`
+        + `<span class="igs-ws-game-mark">${icon}</span>`;
+}
 
 // 只有素材够玩时才列出对应的游戏；都不够就只剩猜拳（不需要任何素材）。
 export function availableWaitStageGames(art = {}, lines = [], extraNames = []) {
@@ -34,7 +58,7 @@ export function availableWaitStageGames(art = {}, lines = [], extraNames = []) {
     const moods = new Set(sprites.map((item) => String(item.mood || '').trim()).filter(Boolean));
     const quotedCount = lines.filter((line) => line && String(line.text || '').trim() && String(line.who || '').trim()).length;
     return WAIT_STAGE_GAMES.filter((id) => {
-        if (id === 'rps' || id === 'mahjong' || id === 'tiles' || id === 'snake') return true;
+        if (id === 'rps' || id === 'mahjong' || id === 'tiles' || id === 'snake' || id === 'ludo') return true;
         if (id === 'whosaid') return quotedCount >= 1 && names.size >= 2;
         if (id === 'memory') return pictures.size >= 3;
         return sprites.length >= 2 && moods.size >= 2;
@@ -137,7 +161,31 @@ export function buildWhoSaidRound(lines, random = Math.random, extraNames = []) 
 
 export const WAIT_STAGE_GAME_STYLE_TEXT = `
 @keyframes igs-ws-flip{0%{transform:rotateY(90deg);opacity:.2;}100%{transform:rotateY(0);opacity:1;}}
-.igs-ws-games{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;margin-top:-2px;}
+.igs-ws-games{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:10px;box-sizing:border-box;width:min(100%,500px);margin-top:4px;}
+@keyframes igs-ws-card-in{0%{opacity:0;transform:translateY(10px) scale(.96);}100%{opacity:1;transform:none;}}
+.igs-ws-game{position:relative;box-sizing:border-box;display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:100px;margin:0;padding:12px 12px 11px;border:0;border-radius:14px;overflow:hidden;text-align:left;font:inherit;color:var(--igs-bar-ink,#e8e5df);cursor:pointer;background:color-mix(in srgb,var(--igs-dialog-bg,#1f2225) 86%,transparent);box-shadow:0 6px 18px rgba(0,0,0,.18);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease,background .22s ease;animation:igs-ws-card-in .42s cubic-bezier(.2,.8,.2,1) both;}
+.igs-ws-game:nth-child(2){animation-delay:.04s;}.igs-ws-game:nth-child(3){animation-delay:.08s;}.igs-ws-game:nth-child(4){animation-delay:.12s;}.igs-ws-game:nth-child(5){animation-delay:.16s;}.igs-ws-game:nth-child(6){animation-delay:.2s;}.igs-ws-game:nth-child(n+7){animation-delay:.24s;}
+.igs-ws-game:hover,.igs-ws-game:focus-visible{transform:translateY(-3px);background:color-mix(in srgb,var(--igs-bar-ink,#fff) 8%,color-mix(in srgb,var(--igs-dialog-bg,#1f2225) 90%,transparent));box-shadow:0 12px 26px rgba(0,0,0,.26);outline:none;}
+.igs-ws-game:active{transform:translateY(0) scale(.97);}
+.igs-ws-game-ico{display:grid;place-items:center;width:34px;height:34px;margin-bottom:3px;border-radius:10px;color:var(--igs-bar-ink,#e8e5df);background:color-mix(in srgb,var(--igs-bar-ink,#fff) 12%,transparent);transition:background .22s ease,color .22s ease;}
+.igs-ws-game:hover .igs-ws-game-ico,.igs-ws-game:focus-visible .igs-ws-game-ico{color:var(--igs-dialog-bg,#1f2225);background:var(--igs-bar-ink,#e8e5df);}
+.igs-ws-game-ico svg{width:20px;height:20px;}
+.igs-ws-game-name{font-size:14px;font-weight:700;letter-spacing:.06em;line-height:1.3;}
+.igs-ws-game-sub{font-size:11px;letter-spacing:.04em;line-height:1.3;opacity:.62;}
+.igs-ws-game-no{position:absolute;top:10px;right:12px;font-size:10px;letter-spacing:.12em;font-variant-numeric:tabular-nums;opacity:.38;}
+.igs-ws-game-mark{position:absolute;right:-12px;bottom:-14px;width:68px;height:68px;color:var(--igs-bar-ink,#e8e5df);opacity:.07;transform:rotate(-12deg);transition:transform .3s ease,opacity .3s ease;pointer-events:none;}
+.igs-ws-game-mark svg{width:100%;height:100%;}
+.igs-ws-game:hover .igs-ws-game-mark{opacity:.12;transform:rotate(-4deg) scale(1.06);}
+@media (max-width:520px){
+.igs-ws-games{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;}
+.igs-ws-game{display:grid;grid-template-columns:30px minmax(0,1fr);grid-template-rows:auto auto;column-gap:9px;row-gap:1px;align-items:center;min-height:0;padding:9px 10px;border-radius:12px;}
+.igs-ws-game-ico{grid-row:1/3;width:30px;height:30px;margin:0;border-radius:9px;}
+.igs-ws-game-ico svg{width:17px;height:17px;}
+.igs-ws-game-name,.igs-ws-game-sub{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+.igs-ws-game-name{font-size:13px;letter-spacing:.04em;}
+.igs-ws-game-sub{font-size:10.5px;letter-spacing:.02em;}
+.igs-ws-game-no,.igs-ws-game-mark{display:none;}
+}
 .igs-ws-board{box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;max-width:min(440px,94%);padding:16px;border-radius:14px;background:color-mix(in srgb,var(--igs-dialog-bg,#1f2225) 72%,transparent);box-shadow:0 10px 30px rgba(0,0,0,.28);animation:igs-ws-rise .38s ease-out both;}
 .igs-ws-games[hidden],.igs-ws-board[hidden]{display:none;}
 .igs-ws-board-head{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;color:color-mix(in srgb,var(--igs-bar-ink,#e8e5df) 60%,transparent);font-size:11px;letter-spacing:.14em;}
@@ -163,9 +211,10 @@ export const WAIT_STAGE_GAME_STYLE_TEXT = `
 .igs-ws-face{display:flex;align-items:center;justify-content:center;width:100%;}
 .igs-ws-face img{display:block;max-height:34vh;max-width:100%;object-fit:contain;border-radius:10px;}
 @media (prefers-reduced-motion: reduce){
-.igs-ws-board,.igs-ws-card img{animation:none!important;}
+.igs-ws-board,.igs-ws-card img,.igs-ws-game{animation:none!important;}
+.igs-ws-game,.igs-ws-game-mark{transition:none!important;}
 }
-` + MAHJONG_STYLE + TILES_STYLE + SNAKE_STYLE;
+` + MAHJONG_STYLE + TILES_STYLE + SNAKE_STYLE + LUDO_STYLE;
 
 const GAME_STYLE_ID = 'igs-wait-games-style';
 
@@ -380,6 +429,7 @@ const STARTERS = Object.freeze({
     mahjong: startMahjong,
     tiles: startTiles,
     snake: startSnake,
+    ludo: startLudo,
 });
 
 export function ensureWaitStageGameStyle(doc, style = WAIT_STAGE_GAME_STYLE_TEXT) {
@@ -407,6 +457,13 @@ export function createWaitStageGamePack() {
         },
         label(id) {
             return WAIT_STAGE_GAME_LABELS[id] || id;
+        },
+        // 把主体画好的文字按钮换成卡片，序号是在列表里的位置。
+        decorate(button, id, index = 0) {
+            if (!WAIT_STAGE_GAME_CARDS[id] || !button) return;
+            button.className = 'igs-ws-game';
+            button.setAttribute('data-game', id);
+            button.innerHTML = gameCardHtml(id, (Number(index) || 0) + 1);
         },
         ensureStyle(doc) {
             ensureWaitStageGameStyle(doc, this.style);
