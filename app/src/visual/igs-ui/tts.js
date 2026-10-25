@@ -45,9 +45,9 @@ export const TTS_BILINGUAL_MODES = Object.freeze([
     ['original', '读原文'],
 ]);
 export const TTS_THOUGHT_BILINGUAL_MODES = Object.freeze([
-    ['same', '心里话：同台词'],
-    ['original', '心里话：原文'],
-    ['translation', '心里话：译文'],
+    ['same', '同台词'],
+    ['translation', '读译文'],
+    ['original', '读原文'],
 ]);
 // 角色单独音量：0 为这个角色不朗读。
 export const TTS_CHARACTER_VOLUMES = Object.freeze([[1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.25, '25%'], [0, '不朗读']]);
@@ -716,6 +716,8 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
     state.lastKey = key;
     if (config.volume <= 0) return skipWith('朗读音量是 0');
     if (line.nsfw && !config.nsfw) return skipWith('NSFW 场景的朗读没开');
+    // 「[名字]：*心里话*」整句包在星号里：阅读器按台词分页、渲染成心里话，朗读也按心里话算。
+    if (line.textType === 'dialogue' && /^\s*\*[^*]+\*\s*$/.test(stripSpeakerPrefix(line.text, line.speaker))) line = { ...line, textType: 'thought' };
     const type = line.textType;
     const spoken = type === 'dialogue' || type === 'thought';
     if (!spoken && type !== 'narration') return skipWith('这一页不是台词或旁白');

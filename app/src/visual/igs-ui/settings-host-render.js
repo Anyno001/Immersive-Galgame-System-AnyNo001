@@ -1261,7 +1261,7 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narrato
         checkbox(`${base}.moodStyle`, tts.moodStyle, '情绪写入风格描述'),
         // 双语台词：读译文用中文声音；读原文时系统语音按原文语言换日文 / 英文声音。
         bilingual ? field(`${base}.bilingual`, '双语台词', segmentedInput(`${base}.bilingual`, tts.bilingual, TTS_BILINGUAL_MODES, '双语台词朗读')) : '',
-        bilingual ? field(`${base}.thoughtBilingual`, '心里话双语', selectInput(`${base}.thoughtBilingual`, tts.thoughtBilingual, TTS_THOUGHT_BILINGUAL_MODES)) : '',
+        bilingual ? field(`${base}.thoughtBilingual`, '心里话双语', segmentedInput(`${base}.thoughtBilingual`, tts.thoughtBilingual, TTS_THOUGHT_BILINGUAL_MODES, '心里话双语朗读')) : '',
         field(`${base}.volume`, '音量', rangeInput(`${base}.volume`, tts.volume, '朗读音量')),
         field(`${base}.rate`, '语速', selectInput(`${base}.rate`, tts.rate, rates)),
         field(`${base}.thoughtVolume`, '心里话音量', selectInput(`${base}.thoughtVolume`, tts.thoughtVolume, TTS_THOUGHT_VOLUMES)),
