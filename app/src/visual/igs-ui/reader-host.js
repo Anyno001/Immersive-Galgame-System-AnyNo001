@@ -1334,8 +1334,8 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 换到新写的这一楼：内嵌要先把阅读器挂到新楼层里，其余模式就地换源。
-    async function applyReplyMessage(current, message, revision) {
-        const canReplace = () => state.activeReader === current && streamObserver.isCurrentRevision(revision);
+    async function applyReplyMessage(current, message, revision, { confirmed = false } = {}) {
+        const canReplace = () => state.activeReader === current && (confirmed || streamObserver.isCurrentRevision(revision));
         if (!current || !canReplace()) return;
         const embedded = isEmbeddedReaderMode(current.mode);
         const previous = { turnOffset: current.turnOffset, mountMessageId: current.mountMessageId };
@@ -1368,11 +1368,25 @@ export function createIgsReaderHost(options = {}) {
         }
     }
 
-    function finishPendingWaitExit() {
+    // 玩家点「加载下一楼」：之后 #chat 的任何变动（含别的插件改按钮）都会让观察器版本号前进，
+    // 这里不再核对版本号，否则静默放弃、等待层卡在「正在打开下一楼…」。记录丢了就现读最新楼。
+    async function finishPendingWaitExit() {
+        const current = state.activeReader;
         const pending = pendingReplyMessage;
         pendingReplyMessage = null;
-        if (!pending || state.activeReader !== pending.reader) return;
-        void applyReplyMessage(pending.reader, pending.message, pending.revision);
+        if (!current) return;
+        if (pending && pending.reader === current) {
+            await applyReplyMessage(current, pending.message, pending.revision, { confirmed: true });
+            return;
+        }
+        let message = null;
+        try { message = await readReplyMessage(); } catch (error) { /* 读不到就退回当前楼 */ }
+        if (state.activeReader !== current) return;
+        if (message && message.id != null && !message.isUser && !message.is_user && !isUserFloorId(message.id)) {
+            await applyReplyMessage(current, message, null, { confirmed: true });
+            return;
+        }
+        exitEmbeddedLoading();
     }
 
     async function readReplyMessage() {
