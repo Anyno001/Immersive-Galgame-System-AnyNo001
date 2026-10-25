@@ -12,7 +12,7 @@ import { createSettingsHost } from './settings-host.js';
 import { createRecoveryNotice } from './recovery-notice.js';
 import { handleSettingsAction } from './settings-actions.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
-import { extractSceneDirectives, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers, classifySceneKey, resolveCharacterKey, setCharacterNameFallback } from '../../scene/scene-directives.js';
+import { extractSceneDirectives, resolveSceneAtSourceOffset, resolveIllustrationForPage, resolveHeldSourceOffsets, locateNarrativeOffset, stripIllustrationMarkers, classifySceneKey, resolveCharacterKey, setCharacterNameFallback, lookupAssetValue } from '../../scene/scene-directives.js';
 
 import { recordOutfitReview, dropConfirmedOutfitReview, removeOutfitReview, storyOutfitSourceHash } from '../../scene/outfit-review-store.js';
 import { assetOwnerKey, draftAssetLibrary, draftEffectiveAssets, effectiveSceneAssets, ensureCardLibrary, relocateLegacyCard, rememberAssetScope, resolveAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
@@ -47,7 +47,8 @@ import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
-import { isTtsSpeaking, replayTts, setTtsErrorHandler, stopTts } from './tts.js';
+import { guessTtsLine, isTtsSpeaking, normalizeTtsSettings, replayTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
+import { resolveRegionCrop } from './stage-snapshot.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
 import { isGeneratedAssetUrl, generatedAssetIdOf, bindGeneratedBackground, bindGeneratedSprite } from '../../scene/asset-match.js';
@@ -2611,7 +2612,15 @@ export function createIgsReaderHost(options = {}) {
             listTurns: listTurnsSafe,
             snippetOf: (turn) => (turn && (turn.visibleText || getMessagePrimaryText(turn.raw || turn))) || '',
             rawOf: (turn) => getMessagePrimaryText(turn && (turn.raw || turn)) || '',
-            currentId: () => (state.activeReader ? currentTurnMessageId(state.activeReader) : null),
+            linesOf: (turn) => backlogLinesOf(turn),
+            avatarOf: (name) => backlogAvatarOf(name, overlay.ownerDocument),
+            currentPage: () => (state.activeReader ? Number(state.activeReader.index) || 0 : -1),
+            ttsOn: () => Boolean(state.activeReader && normalizeTtsSettings(state.activeReader.snapshot?.readerSettings?.tts).enabled),
+            speak: (line) => {
+                const readerSettings = state.activeReader?.snapshot?.readerSettings || {};
+                return speakTtsLine({ key: '', textType: line.textType, speaker: line.speaker, text: line.text }, readerSettings.tts, readerSettings._sceneAssets);
+            },
+            currentId:() => (state.activeReader ? currentTurnMessageId(state.activeReader) : null),
             onJump: (target) => (state.activeReader ? jumpToPosition(target) : null),
             onUnread: () => {
                 const far = readingProgress.getFarthest();
@@ -2626,6 +2635,41 @@ export function createIgsReaderHost(options = {}) {
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
         return turnIndexPanel.open(overlay);
+    }
+
+    // 回想：按阅读器同一套分页拆出这一楼的每一页，page 与阅读器页号对应（点一句可跳回那页）。
+    function backlogLinesOf(turn) {
+        const current = state.activeReader;
+        const readerSettings = (current && current.snapshot && current.snapshot.readerSettings) || {};
+        let segments = [];
+        try {
+            segments = buildIgsTextPayload(turn && (turn.raw || turn), {
+                sourceFilter: current && current.payload && current.payload.sourceFilter,
+                virtualRegex: current && current.payload && current.payload.virtualRegex,
+                visibleText: turn && turn.visibleText,
+                sceneAssets: readerSettings._sceneAssets,
+                sentencePaging: readerSettings._sentencePaging,
+                dialogueSentencePaging: readerSettings._dialogueSentencePaging,
+            }).textSegments || [];
+        } catch (_) { segments = []; }
+        return segments
+            .map((seg) => stripSceneDirectivesInline(String(seg || '').replace(/[\u200B-\u200C\u2060-\u2064]/g, '')).trim())
+            .filter(Boolean)
+            .map((seg, page) => ({ ...guessTtsLine(seg), page }));
+    }
+
+    // 回想头像：状态栏头像优先，没有就裁默认立绘的脸；都没有返回 null（面板显示姓名首字）。
+    function backlogAvatarOf(name, doc) {
+        const current = state.activeReader;
+        const assets = (current && current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings._sceneAssets) || {};
+        const key = resolveCharacterKey(assets.characters || {}, assets.characterAliases, name) || name;
+        if (!current || !key) return null;
+        const status = resolveStatusAvatar(assets.statusAvatars, key);
+        if (status) return { url: resolveReaderAssetUrl(status, current) };
+        const characters = assets.characters || {};
+        const sprite = lookupAssetValue(characters[key], '', assets.moodGroups).url;
+        const url = sprite ? resolveReaderAssetUrl(sprite, current) : '';
+        return url ? { url, crop: resolveRegionCrop({ url }, 'face', 1, doc) } : null;
     }
 
     function currentReadingPosition() {

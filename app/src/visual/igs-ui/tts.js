@@ -1471,6 +1471,17 @@ export function replayTts() {
     return job ? { ok: true } : { ok: false, error: '朗读失败' };
 }
 
+// 回想里重播某一句：按现在的设置念，不占用阅读页的「重听」。
+export function speakTtsLine(line, settings, sceneAssets) {
+    const state = {};
+    const plan = decideTts(state, line, settings, { sceneAssets, voices: listSystemVoices(), record: false });
+    if (!plan || plan.skip) return { ok: false, error: normalizeTtsSettings(settings).enabled ? '这一句不朗读' : '台词朗读没开' };
+    const keep = lastPlayed;
+    const job = playTts(plan, settings);
+    lastPlayed = keep;
+    return job ? { ok: true } : { ok: false, error: '朗读失败' };
+}
+
 // 下一页的文字外形 → 朗读用的一行，与阅读器分页同一套写法：「[名字]：台词」「*[名字]：心里话*」，其余按旁白。
 // 只用于提前生成，猜错了只是缓存没命中，翻过去时照常现生成。
 export function guessTtsLine(segment) {

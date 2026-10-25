@@ -22,6 +22,16 @@ const STATE_LABEL = { read: '已读', partial: '读了一半', unread: '未读' 
 const OPEN_CLASS = 'igs-turn-index-open';
 const BOOKMARK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h11v17L12 16.5l-5.5 4Z"/></svg>';
 const FEED_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-7l-4.5 3.5V16.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z"/></svg>';
+const VOICE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3Z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
+const cssUrl = (url) => String(url || '').replace(/["\\\n\r]/g, (c) => encodeURIComponent(c));
+
+// 回想里的一句：去掉 HTML 与 IGS 指令、心声外层的星号。
+function cleanLogText(text) {
+    return String(text || '').replace(/<[^>]*>/g, '')
+        .replace(/\[\/?igs-[^\]\n]*\]?/g, ' ')
+        .replace(/^\s*\*+|\*+\s*$/g, '')
+        .replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
+}
 
 function findAction(target) {
     let node = target;
@@ -46,6 +56,7 @@ export function positionLabel(pos) {
 
 // options: progress, listTurns() → Promise<turn[]>, snippetOf(turn), rawOf(turn)（带 [igs-fx:...] 的原文，社区页解析帖子用）, currentId(), onJump({ id, page, pos }), onUnread(),
 //          onSaveSlot(key?) → slot|null, onQuickSave(), confirm(message), prompt(message, value), tab, getTheme(), setTheme(theme)
+//          回想：linesOf(turn) → [{ textType, speaker, text, page }]、avatarOf(name) → { url, crop? }|null、currentPage()、ttsOn()、speak(line) → { ok, error? }
 export function createTurnIndexPanel(doc, options = {}) {
     const progress = options.progress;
     let root = null;
@@ -66,6 +77,8 @@ export function createTurnIndexPanel(doc, options = {}) {
     let unwatchLayout = () => { };
     let acting = Promise.resolve();
     const snippets = new Map();
+    const logLines = new Map();
+    const avatars = new Map();
 
     const query = (selector) => (root && typeof root.querySelector === 'function' ? root.querySelector(selector) : null);
     const latestId = () => (ids.length ? ids[ids.length - 1] : null);
@@ -88,6 +101,46 @@ export function createTurnIndexPanel(doc, options = {}) {
         return snippets.get(id);
     }
     const snippet = (turn) => fullSnippet(turn).slice(0, ROW_SNIPPET);
+
+    // 回想：这一楼逐页的 { textType, speaker, text, page }，由宿主按阅读器分页拆好；按楼缓存。
+    function linesFor(turn) {
+        const id = Number(turn && turn.id);
+        if (!logLines.has(id)) {
+            let list = [];
+            try { list = Array.isArray(options.linesOf?.(turn)) ? options.linesOf(turn) : []; } catch (_) { list = []; }
+            logLines.set(id, list.map((line) => ({ ...line, text: cleanLogText(line.text) })).filter((line) => line.text));
+        }
+        return logLines.get(id);
+    }
+
+    function avatarFor(name) {
+        if (!avatars.has(name)) {
+            let found = null;
+            try { found = options.avatarOf?.(name) || null; } catch (_) { found = null; }
+            avatars.set(name, found);
+        }
+        return avatars.get(name);
+    }
+
+    function logFaceHtml(name) {
+        const found = avatarFor(name);
+        if (!found || !found.url) return `<span class="igs-ti-log-face is-initial" aria-hidden="true">${escapeHtml(Array.from(name)[0] || '')}</span>`;
+        const crop = found.crop;
+        const style = `background-image:url(&quot;${escapeHtml(cssUrl(found.url))}&quot;)` + (crop ? `;background-size:${crop.size}% auto;background-position:${crop.x}% ${crop.y}%` : '');
+        return `<span class="igs-ti-log-face${crop ? '' : ' is-cover'}" style="${style}" aria-hidden="true"></span>`;
+    }
+
+    function logEntryHtml(line, voice, current) {
+        const spoken = line.textType === 'dialogue' || line.textType === 'thought';
+        const name = spoken ? String(line.speaker || '').trim() : '';
+        return `<li class="igs-ti-log-entry is-${spoken ? line.textType : 'narration'}"${current ? ' aria-current="true"' : ''}>`
+            + (name ? logFaceHtml(name) : '<span class="igs-ti-log-face is-empty" aria-hidden="true"></span>')
+            + `<button type="button" class="igs-ti-log-copy" data-ti-act="log-jump" data-ti-value="${line.page}" title="从这一页读">`
+            + (name ? `<strong class="igs-ti-log-name">${escapeHtml(name)}</strong>` : '')
+            + `<span class="igs-ti-log-text">${escapeHtml(line.text)}</span></button>`
+            + (voice ? `<button type="button" class="igs-ti-log-voice" data-ti-act="log-voice" data-ti-value="${line.page}" aria-label="重播语音">${VOICE_ICON}</button>` : '')
+            + '</li>';
+    }
 
     function buildRows() {
         rows = [];
@@ -178,12 +231,21 @@ export function createTurnIndexPanel(doc, options = {}) {
         const last = progress.getLast();
         const place = progress.chapterAt(selectedId);
         const meta = [`第 ${selectedId} 楼`, place, STATE_LABEL[stateName]].filter(Boolean).map(escapeHtml).join('<i aria-hidden="true">·</i>');
-        const text = fullSnippet(turn);
         const resumeHere = last && last.id === selectedId && last.page > 0
             ? `<button type="button" class="igs-rp-chip" data-ti-act="resume">续读第 ${last.page + 1} 页</button>` : '';
-        return `<article class="igs-ti-detail"><p class="igs-ti-meta">${meta}</p>`
-            + `<p class="igs-ti-body">${escapeHtml(text) || '（这楼没有可读的文字）'}${text.length >= DETAIL_SNIPPET ? '…' : ''}</p>`
-            + `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${selectedId}">阅读</button><button type="button" class="igs-rp-btn is-quiet" data-ti-act="floor-rewind" data-ti-value="${selectedId}">重来</button>${resumeHere}</div>`
+        const actions = `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${selectedId}">阅读</button><button type="button" class="igs-rp-btn is-quiet" data-ti-act="floor-rewind" data-ti-value="${selectedId}">重来</button>${resumeHere}</div>`;
+        const lines = linesFor(turn);
+        let body;
+        if (lines.length) {
+            const voice = options.speak && options.ttsOn?.() === true;
+            const currentPage = Number(options.currentId?.()) === selectedId ? Number(options.currentPage?.()) : -1;
+            body = `<ol class="igs-ti-log" aria-label="回想">${lines.map((line) => logEntryHtml(line, voice, line.page === currentPage)).join('')}</ol>`;
+        } else {
+            const text = fullSnippet(turn);
+            body = `<p class="igs-ti-body">${escapeHtml(text) || '（这楼没有可读的文字）'}${text.length >= DETAIL_SNIPPET ? '…' : ''}</p>`;
+        }
+        return `<article class="igs-ti-detail igs-ti-log-pane" data-ti-detail><header class="igs-ti-log-head"><p class="igs-ti-meta">${meta}</p>${actions}</header>`
+            + body
             + `<footer class="igs-ti-nav"><button type="button" data-ti-act="select-step" data-ti-value="-1" ${index <= 0 ? 'disabled' : ''}>← 上一楼</button>`
             + `<span>${String(index + 1).padStart(2, '0')} / ${String(ids.length).padStart(2, '0')}</span>`
             + `<button type="button" data-ti-act="select-step" data-ti-value="1" ${index >= ids.length - 1 ? 'disabled' : ''}>下一楼 →</button></footer></article>`;
@@ -315,6 +377,10 @@ export function createTurnIndexPanel(doc, options = {}) {
             list.addEventListener('scroll', paintRows, { passive: true });
             paintRows();
         }
+        // 回想停在当前读到的那一句。
+        const detail = query('[data-ti-detail]');
+        const here = detail && query('.igs-ti-log-entry[aria-current="true"]');
+        if (here && detail.scrollHeight > detail.clientHeight) detail.scrollTop = Math.max(0, here.offsetTop - detail.clientHeight / 2);
     }
 
     function setNotice(text) {
@@ -379,6 +445,14 @@ export function createTurnIndexPanel(doc, options = {}) {
             return options.onUnread?.();
         }
         if (act === 'floor') return jump({ id: Number(value), page: 0 });
+        if (act === 'log-jump') return selectedId == null ? null : jump({ id: selectedId, page: Math.max(0, Number(value) || 0) });
+        if (act === 'log-voice') {
+            const turn = turns[ids.indexOf(selectedId)];
+            const line = turn ? linesFor(turn).find((item) => item.page === Number(value)) : null;
+            const result = line ? options.speak?.(line) : null;
+            setNotice(result && !result.ok ? result.error || '朗读失败' : '');
+            return result || null;
+        }
         if (act === 'quick-save') {
             const slot = await options.onQuickSave?.();
             notice = slot ? `已快速存档：${positionLabel(slot)}` : '存档失败';
@@ -576,6 +650,26 @@ ${T} .igs-ti-nav button:last-child{justify-self:end;}
 ${T} .igs-ti-nav button[disabled]{opacity:.3;cursor:default;}
 ${T} .igs-ti-nav span{color:var(--igs-rp-text-faint);font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.16em;}
 ${T} .igs-ti-overview h3{font-variant-numeric:tabular-nums;}
+${T} .igs-ti-log-pane{position:relative;padding-top:clamp(18px,2.4vw,30px);}
+${T} .igs-ti-log-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;padding-bottom:14px;border-bottom:1px solid var(--igs-rp-text-ghost);}
+${T} .igs-ti-log-head .igs-ti-detail-actions{margin:0;justify-content:flex-end;}
+${T} .igs-ti-log{list-style:none;margin:0;padding:0;max-width:44em;}
+${T} .igs-ti-log-entry{display:grid;grid-template-columns:40px minmax(0,1fr) 32px;align-items:start;gap:14px;padding:14px 8px;margin:0 -8px;border-radius:var(--igs-rp-radius-m);}
+${T} .igs-ti-log-entry + .igs-ti-log-entry{box-shadow:inset 0 1px 0 var(--igs-rp-text-ghost);}
+${T} .igs-ti-log-entry[aria-current="true"]{background:var(--igs-rp-fill);}
+${T} .igs-ti-log-face{width:40px;height:40px;border-radius:50%;background-color:var(--igs-rp-fill-active);background-repeat:no-repeat;}
+${T} .igs-ti-log-face.is-cover{background-size:cover;background-position:center;}
+${T} .igs-ti-log-face.is-initial{display:grid;place-items:center;color:var(--igs-rp-text-soft);font-family:var(--igs-rp-font-body);font-size:16px;}
+${T} .igs-ti-log-face.is-empty{background:transparent;}
+${T} .igs-ti-log-copy{display:flex;flex-direction:column;gap:4px;min-width:0;padding:0;border:0;background:transparent;text-align:left;}
+${T} .igs-ti-log-name{color:var(--igs-rp-accent,var(--igs-rp-text));font-size:13px;font-weight:500;letter-spacing:.1em;}
+${T} .igs-ti-log-text{font-family:var(--igs-rp-font-body);font-size:15px;line-height:1.85;letter-spacing:.03em;color:var(--igs-rp-text);white-space:pre-wrap;overflow-wrap:anywhere;transition:color .18s var(--igs-rp-ease);}
+${T} .igs-ti-log-entry.is-narration .igs-ti-log-text{color:var(--igs-rp-text-soft);}
+${T} .igs-ti-log-entry.is-thought .igs-ti-log-text{color:var(--igs-rp-text-soft);font-style:italic;}
+${T} .igs-ti-log-copy:hover .igs-ti-log-text{color:var(--igs-rp-text);}
+${T} .igs-ti-log-voice{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--igs-rp-text-faint);transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+${T} .igs-ti-log-voice:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+${T} .igs-ti-log-voice svg{width:16px;height:16px;}
 ${T} .igs-ti-progress{height:3px;border-radius:2px;background:var(--igs-rp-fill-active);overflow:hidden;}
 ${T} .igs-ti-progress span{display:block;height:100%;background:var(--igs-rp-accent,var(--igs-rp-text));}
 ${T} .igs-ti-overview .igs-ti-summary{margin-top:14px;}
@@ -615,4 +709,9 @@ ${T}.igs-rp-narrow .igs-ti-list{flex:none;height:38vh;}
 ${T}.igs-rp-narrow .igs-ti-slots{max-height:34vh;}
 ${T}.igs-rp-narrow .igs-ti-detail{flex:1 0 auto;min-height:260px;overflow:visible;padding:22px 18px 12px;}
 ${T}.igs-rp-narrow .igs-ti-detail h3{font-size:20px;margin:10px 0 14px;}
+${T}.igs-rp-narrow .igs-ti-log-entry{grid-template-columns:32px minmax(0,1fr) 30px;gap:10px;padding:12px 6px;margin:0 -6px;}
+${T}.igs-rp-narrow .igs-ti-log-face{width:32px;height:32px;}
+${T}.igs-rp-narrow .igs-ti-log-face.is-initial{font-size:14px;}
+${T}.igs-rp-narrow .igs-ti-log-voice{width:30px;height:30px;}
+${T}.igs-rp-narrow .igs-ti-log-head .igs-ti-detail-actions{justify-content:flex-start;}
 `;
