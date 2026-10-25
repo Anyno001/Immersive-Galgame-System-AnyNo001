@@ -78,7 +78,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
-import { TTS_VOICE_MAX, clearTtsCache, fetchTtsVoices, getTtsSkipReason, listSystemVoices, mergeTtsVoices, normalizeTtsSettings, previewTts, resolveTtsVoice } from './tts.js';
+import { TTS_VOICE_MAX, clearTtsCache, editTtsVoices, fetchTtsVoices, getTtsSkipReason, listSystemVoices, mergeTtsVoices, normalizeTtsSettings, previewTts, resolveTtsVoice } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction, guardDefaultOutfitImages } from './settings-outfit-actions.js';
 import { handleEventCgAction } from './settings-event-cg.js';
@@ -2967,10 +2967,10 @@ export async function handleSettingsAction(action, ctx) {
         if (!charName || RESERVED_ASSET_NAMES.includes(charName)) return { ok: false, error: '角色名无效' };
         const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         if (voice) {
-            if (!['pack', 'pitch', 'speed', 'tts', 'ttsVolume', 'ttsStyle'].includes(field)) return { ok: false, error: '未知的声线设置' };
+            if (!['pack', 'pitch', 'speed', 'tts', 'ttsThought', 'ttsVolume', 'ttsStyle'].includes(field)) return { ok: false, error: '未知的声线设置' };
             const voices = assets.characterVoices = normalizeCharacterVoices(assets.characterVoices);
             const entry = normalizeCharacterVoice(voices[charName]);
-            entry[field] = field === 'pack' || field === 'tts' || field === 'ttsStyle' ? value : Number(value);
+            entry[field] = field === 'pack' || field === 'tts' || field === 'ttsThought' || field === 'ttsStyle' ? value : Number(value);
             const next = normalizeCharacterVoices({ [charName]: entry })[charName];
             if (next) voices[charName] = next;
             else delete voices[charName];
@@ -3001,8 +3001,36 @@ export async function handleSettingsAction(action, ctx) {
         await clearTtsCache();
         return { ok: true, cleared: true };
     }
+    if (normalizedAction.startsWith('tts-voice-add:') || normalizedAction.startsWith('tts-voice-remove:') || normalizedAction.startsWith('tts-voice-edit:')) {
+        // 声音库按条目增删改，写回 api / narratorApi 的 voices 文本。
+        const [command, apiKey, rawIndex, part, rawValue] = normalizedAction.split(':');
+        if (apiKey !== 'api' && apiKey !== 'narratorApi') return { ok: false, error: '未知的声音库' };
+        const globalObj = options.global || globalThis;
+        const reader = settingsState.draft.readerSettings || (settingsState.draft.readerSettings = {});
+        const tts = normalizeTtsSettings(reader.tts);
+        let change;
+        if (command === 'tts-voice-add') {
+            const id = ((await dialogs.prompt('声音 ID（接口里的声音名、音色 ID 或参考音频）：', '')) || '').trim();
+            if (!id) return rerenderSettings();
+            const title = ((await dialogs.prompt('显示名称（可留空）：', '')) || '').trim();
+            change = { id, title };
+        } else if (command === 'tts-voice-remove') {
+            change = { index: Number(rawIndex), remove: true };
+        } else {
+            change = { index: Number(rawIndex), [part === 'id' ? 'id' : 'title']: decodeSeg(rawValue) };
+        }
+        const result = editTtsVoices(tts[apiKey].voices, change);
+        if (!result.ok) {
+            pageAlert(dialogs, globalObj, result.error);
+            return rerenderSettings();
+        }
+        reader.tts = { ...tts, [apiKey]: { ...tts[apiKey], voices: result.text } };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
     if (normalizedAction === 'tts-fetch-voices' || normalizedAction === 'tts-fetch-voices-narrator') {
-        // 拉到的声音并进「可选声音」（去重）；草稿是设置器自己的副本，这里换一份新的 tts 对象写回。
+        // 拉到的声音并进声音库（去重）；草稿是设置器自己的副本，这里换一份新的 tts 对象写回。
         // 旁白独立接口有自己的声音列表与提示信息。
         const narrator = normalizedAction === 'tts-fetch-voices-narrator';
         const messageKey = narrator ? 'ttsNarratorVoicesMessage' : 'ttsVoicesMessage';
@@ -3019,8 +3047,8 @@ export async function handleSettingsAction(action, ctx) {
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         settingsState.asyncState[messageKey] = (result.builtin
-            ? `接口没有返回自定义音色，已加入 ${merged.added} 个常用声音名（共 ${merged.total} 个可选）。`
-            : `获取到 ${result.voices.length} 个音色，新增 ${merged.added} 个（共 ${merged.total} 个可选）。`)
+            ? `接口没有返回自定义音色，已加入 ${merged.added} 个常用声音（声音库共 ${merged.total} 个）。`
+            : `获取到 ${result.voices.length} 个音色，新增 ${merged.added} 个（声音库共 ${merged.total} 个）。`)
             + (merged.dropped ? `已达 ${TTS_VOICE_MAX} 个上限，其余 ${merged.dropped} 个未加入。` : '');
         return rerenderSettings();
     }
@@ -3029,13 +3057,14 @@ export async function handleSettingsAction(action, ctx) {
         if (result && result.ok === false && result.error) showGeneratedNotice(options.global || globalThis, `试听失败：${result.error}`);
         return result;
     }
-    if (normalizedAction === 'tts-preview' || normalizedAction.startsWith('tts-preview:')) {
-        // 试听台词朗读：可带角色名，按这个角色会用到的声音念。
+    if (normalizedAction === 'tts-preview' || normalizedAction.startsWith('tts-preview:') || normalizedAction.startsWith('tts-preview-thought:')) {
+        // 试听台词朗读：可带角色名，按这个角色会用到的声音念；thought 试听心里话的声音。
         const reader = settingsState.draft.readerSettings || {};
-        const charName = decodeSeg(normalizedAction.slice('tts-preview:'.length));
+        const thought = normalizedAction.startsWith('tts-preview-thought:');
+        const charName = decodeSeg(normalizedAction.slice(thought ? 'tts-preview-thought:'.length : 'tts-preview:'.length));
         const assets = settingsState.draft.bridge.sceneAssets || {};
-        const voice = charName ? resolveTtsVoice({ textType: 'dialogue', speaker: charName }, reader.tts, assets, listSystemVoices()) : null;
-        const result = await previewTts(reader.tts, voice ? { role: voice.role, voice: voice.voice, speaker: charName, sceneAssets: assets } : {});
+        const voice = charName ? resolveTtsVoice({ textType: thought ? 'thought' : 'dialogue', speaker: charName }, reader.tts, assets, listSystemVoices()) : null;
+        const result = await previewTts(reader.tts, voice ? { role: voice.role, voice: voice.voice, speaker: charName, sceneAssets: assets, thought } : {});
         // 试听失败的原因不走阅读器的报错通道，这里在设置页提示出来，免得点了像没反应。
         if (result && result.ok === false && result.error) showGeneratedNotice(options.global || globalThis, `试听失败：${result.error}`);
         return result;

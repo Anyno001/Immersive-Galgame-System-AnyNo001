@@ -84,7 +84,7 @@ import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupL
 import { renderAssetReviewPanel } from './asset-review-panel.js';
 import { ensureEmbeddedHost, findEmbeddedHost, hideEmbeddedSourceText, hideStorySpan, isEmbeddedEditTrigger, isStoryHidden, resolveEmbeddedHostParent, restoreEmbeddedSourceText, restoreStorySpan, storyLines } from './embedded-reader-runtime.js';
 import { createReaderSourceCache } from './reader-source-cache.js';
-import { prepareReaderFloor, stripWrappingQuotes } from './reader-floor-plan.js';
+import { nextTtsHintOf, prepareReaderFloor, stripWrappingQuotes } from './reader-floor-plan.js';
 import { prepareReaderFloorAssets } from './reader-floor-assets.js';
 import { createReaderTableData } from '../../data/shujuku/reader-table-data.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
@@ -4225,6 +4225,8 @@ export function createIgsReaderHost(options = {}) {
                 spriteLeft,
                 spriteBackArt,
                 statusEmotion: bubbleMood,
+                // 台词朗读提前生成下一页用：下一页的类型、说话人与情绪（取分页计划里现成的值，不重算）。
+                nextTtsHint: nextTtsHintOf(prepared.pages[normalizedIndex + 1]),
                 textType,
                 text: currentText,
                 fullText: text,

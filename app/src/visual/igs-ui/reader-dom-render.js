@@ -15,7 +15,7 @@ import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyVoiceBark } from './voice-bark.js';
-import { applyTts, normalizeTtsSettings } from './tts.js';
+import { applyTts, cancelPendingTts, normalizeTtsSettings } from './tts.js';
 import { getWaitStageGamePack } from './wait-stage-games-api.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
@@ -2415,7 +2415,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const content = snapshot.content;
         const posX = stageSprite && (!content.spriteCharacter || content.spriteCharacter === content.speaker) ? stageSprite.posX : undefined;
         const mood = content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '';
-        if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
+        // 聊天页：正文为空，朗读由聊天气泡层（chat-layer.js）逐条接管，这里不再起页面台词朗读，免得互相掐断。
+        if (content.chatPage === true && normalizeTtsSettings(snapshot.readerSettings.tts).enabled) cancelPendingTts(root);
+        else if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,
             textType: typewriterTextType,
             text: content.displayText,
@@ -2426,6 +2428,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             posX,
             whisper: romanceResult.whisper === true,
             next: Array.isArray(content.segments) ? content.segments[content.currentIndex + 1] : '',
+            nextHint: content.nextTtsHint || null,
         }, snapshot.readerSettings.tts, snapshot.readerSettings._sceneAssets);
         else applyVoiceBark(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,

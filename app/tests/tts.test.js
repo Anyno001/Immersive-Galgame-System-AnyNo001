@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     applyTts,
+    cancelPendingTts,
+    prefetchTtsBubble,
     buildTtsRequest,
     clearTtsCache,
     fetchTtsVoices,
@@ -13,6 +15,7 @@ import {
     parseTtsResponse,
     splitTtsSegments,
     decideTts,
+    editTtsVoices,
     guessTtsLine,
     normalizeTtsSettings,
     prefetchTts,
@@ -335,7 +338,7 @@ test('gate: tts prefetch over non-openai formats and per-segment caching', async
         assert.equal(calls.length, 1);
         assert.equal(calls[0].url, 'https://api.minimaxi.com/v1/t2a_v2');
         assert.equal(calls[0].body.voice_setting.voice_id, 'girl-1');
-        await prefetchTts('[艾莉]：「明天见。」', { ...settings, api: { ...settings.api, format: 'fish' } }, sa);
+        await prefetchTts('[艾莉]：「明天见。」', { ...settings, api: { ...settings.api, format: 'fish', audioTags: false } }, sa);
         assert.equal(calls.length, 2);
         assert.equal(calls[1].url, 'https://api.fish.audio/v1/tts');
         calls.length = 0;
@@ -1091,9 +1094,135 @@ test('tts: thought page uses its own volume and style', () => {
     assert.equal(decideTts({}, { ...line, key: 't4', textType: 'dialogue' }, { ...base, thoughtVolume: 0.4 }, { sceneAssets: {} }).volume, 1, 'dialogue is not affected');
 });
 
+test('tts: a character can use a separate voice for thoughts', () => {
+    const settings = { enabled: true, provider: 'api', api: { female: 'f' } };
+    const assets = { characterVoices: { 甲: { tts: 'say', ttsThought: 'think' }, 乙: { tts: 'say' } } };
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '甲' }, settings, assets).voice, 'say');
+    assert.equal(resolveTtsVoice({ textType: 'thought', speaker: '甲' }, settings, assets).voice, 'think');
+    assert.equal(resolveTtsVoice({ textType: 'thought', speaker: '乙' }, settings, assets).voice, 'say', 'no thought voice falls back to the dialogue voice');
+});
+
+test('tts: voice library edits entries in place and rejects bad ids', () => {
+    let text = editTtsVoices('', { id: 'alloy', title: '少女' }).text;
+    text = editTtsVoices(text, { id: 'echo' }).text;
+    assert.equal(text, 'alloy#少女, echo');
+    assert.equal(editTtsVoices(text, { index: 1, title: '少, 年#' }).text, 'alloy#少女, echo#少 年');
+    assert.equal(editTtsVoices(text, { index: 0, id: 'nova' }).text, 'nova#少女, echo');
+    assert.equal(editTtsVoices(text, { index: 0, remove: true }).text, 'echo');
+    assert.equal(editTtsVoices(text, { index: 1, id: 'alloy' }).ok, false, 'duplicate id');
+    assert.equal(editTtsVoices(text, { id: 'a,b' }).ok, false, 'separator in id');
+    assert.equal(editTtsVoices(text, { index: 0, id: '' }).ok, false, 'empty id');
+});
+
 test('tts: no prefetch for dialogue when the emotion would change the request', () => {
     const settings = { enabled: true, provider: 'api', api: { format: 'minimax', endpoint: 'https://m.example', apiKey: 'k', female: 'v1', narrator: 'v2' } };
     assert.equal(prefetchTts('[甲]：你好。', settings, {}), null);
     assert.equal(prefetchTts('[甲]：你好。', { ...settings, api: { ...settings.api, sendEmotion: false } }, {}) === null, false);
     assert.equal(prefetchTts('夜色渐深。', settings, {}) === null, false, 'narration pages are still prefetched');
+});
+
+test('gate: tts audio tags fish sentence-head tags from mood, whisper and thought', () => {
+    const base = { enabled: true, provider: 'api', api: { format: 'fish', apiKey: 'k', female: 'v1', narrator: 'v2' } };
+    const plan = (line, settings = base) => decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '那个…', ...line }, settings, { sceneAssets: {} });
+    assert.equal(plan({ mood: '害羞' }).text, '[shy, soft voice] 那个…');
+    assert.equal(plan({ mood: '害羞', whisper: true }).text, '[whisper] [shy, soft voice] 那个…');
+    assert.equal(plan({ mood: '平和' }).text, '那个…');
+    assert.equal(plan({ textType: 'thought', mood: '紧张' }).text, '[soft inner voice] [nervous] 那个…');
+    assert.equal(plan({ mood: '委屈' }).text, '[aggrieved, on the verge of tears] 那个…');
+    const narration = decideTts({}, { key: 'n', textType: 'narration', text: '夜色渐深。', mood: '紧张' }, base, { sceneAssets: {} });
+    assert.equal(narration.text, '夜色渐深。');
+});
+
+test('gate: tts audio tags convert bracket actions for fish and minimax, drop unknown ones', () => {
+    assert.equal(ttsPlainText('（轻笑）你好（小声）别动', { tags: 'fish' }), '[chuckle] 你好 [whisper] 别动');
+    assert.equal(ttsPlainText('（叹气）算了（倒吸一口气）', { tags: 'fish' }), '[sigh] 算了 [gasp]');
+    assert.equal(ttsPlainText('(哭)好疼(喘息)', { tags: 'fish' }), '[sobbing] 好疼 [panting]');
+    assert.equal(ttsPlainText('（轻笑）你好（小声）别动（停顿）', { tags: 'minimax' }), '(chuckle) 你好 别动');
+    assert.equal(ttsPlainText('（叹气）算了（喘息）（抽泣）', { tags: 'minimax' }), '(sighs) 算了 (pant) (sniffs)');
+    assert.equal(ttsPlainText('（翻书）你好（微笑）', { tags: 'fish' }), '你好');
+    assert.equal(ttsPlainText('（轻笑）你好（小声）', { tags: '' }), '你好');
+    assert.equal(ttsPlainText('（轻笑）你好（小声）'), '你好');
+});
+
+test('gate: tts audio tags only apply to fish and minimax and can be turned off', () => {
+    const line = { key: 'a', textType: 'dialogue', speaker: '甲', text: '（笑）你好', mood: '喜悦' };
+    const run = (api, extra = {}) => decideTts({}, { ...line, key: String(Math.random()) }, { enabled: true, provider: 'api', api: { apiKey: 'k', female: 'v1', ...api }, ...extra }, { sceneAssets: {} });
+    assert.equal(run({ format: 'fish' }).text, '[happy] [laugh] 你好');
+    assert.equal(run({ format: 'minimax' }).text, '(laughs) 你好');
+    assert.equal(run({ format: 'fish', audioTags: false }).text, '你好');
+    assert.equal(run({ format: 'minimax', audioTags: false }).text, '你好');
+    assert.equal(run({ format: 'openai' }).text, '你好');
+    assert.equal(run({ format: 'gpt-sovits' }).text, '你好');
+    assert.equal(run({ format: 'custom' }).text, '你好');
+    assert.equal(decideTts({}, { ...line, key: 'z' }, { enabled: true }, { sceneAssets: {} }).text, '你好');
+    assert.equal(normalizeTtsSettings({}).api.audioTags, true);
+    // 只有标签没有字时仍判为没有可读文字
+    assert.equal(decideTts({}, { key: 'e', textType: 'narration', text: '（笑）' }, { enabled: true, provider: 'api', api: { format: 'fish', apiKey: 'k', female: 'v1' } }, { sceneAssets: {} }), null);
+});
+
+test('gate: tts audio tags follow the narrator api and keep lexicon out of tags', () => {
+    const settings = { enabled: true, provider: 'api', lexicon: 'laugh=拉夫\n你好=尼好', api: { format: 'openai', apiKey: 'k', female: 'v1' }, narratorApi: { enabled: true, format: 'minimax', apiKey: 'k', voice: 'nv' } };
+    const narration = decideTts({}, { key: 'n', textType: 'narration', text: '（叹气）夜色渐深。' }, settings, { sceneAssets: {} });
+    assert.equal(narration.text, '(sighs) 夜色渐深。');
+    const fish = decideTts({}, { key: 'd', textType: 'dialogue', speaker: '甲', text: '（笑）你好', mood: '喜悦' }, { ...settings, narratorApi: { enabled: false }, api: { format: 'fish', apiKey: 'k', female: 'v1' } }, { sceneAssets: {} });
+    assert.equal(fish.text, '[happy] [laugh] 尼好');
+    assert.equal(prefetchTts('[甲]：你好。', { ...settings, provider: 'api', narratorApi: { enabled: false }, api: { format: 'fish', endpoint: 'https://f.example', apiKey: 'k', female: 'v1' } }, {}), null);
+});
+
+test('gate: tts prefetch with a mood hint matches the text actually played (fish tags, minimax emotion)', async () => {
+    const realFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+        calls.push({ url, body: JSON.parse(init.body) });
+        return { ok: true, json: async () => ({}), text: async () => JSON.stringify({ data: { audio: '0102' }, base_resp: { status_code: 0 } }), arrayBuffer: async () => new ArrayBuffer(2) };
+    };
+    try {
+        const sa = assets({ 艾莉: GIRL });
+        const hint = { textType: 'dialogue', speaker: '艾莉', mood: '害羞' };
+        const real = (settings, mood = '害羞') => decideTts({}, { key: 'r', textType: 'dialogue', speaker: '艾莉', text: '那个，明天见。', mood }, settings, { sceneAssets: sa });
+        const fish = { enabled: true, provider: 'api', api: { format: 'fish', apiKey: 'k', female: 'v1' } };
+        await clearTtsCache();
+        assert.equal(prefetchTts('[艾莉]：那个，明天见。', fish, sa), null, 'no hint: dialogue page is still skipped');
+        await prefetchTts('[艾莉]：那个，明天见。', fish, sa, { hint });
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].body.text, real(fish).text);
+        assert.equal(calls[0].body.text, '[shy, soft voice] 那个，明天见。');
+        const mm = { enabled: true, provider: 'api', api: { format: 'minimax', apiKey: 'k', female: 'v1' } };
+        await clearTtsCache();
+        calls.length = 0;
+        await prefetchTts('[艾莉]：那个，明天见。', mm, sa, { hint: { ...hint, mood: '愤怒' } });
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].body.voice_setting.emotion, real(mm, '愤怒').emotion);
+        assert.ok(real(mm, '愤怒').emotion);
+        // 类型对不上时不信提示，维持只预取旁白
+        assert.equal(prefetchTts('[艾莉]：那个，明天见。', mm, sa, { hint: { ...hint, textType: 'thought' } }), null);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test('tts lexicon also replaces inside square brackets when no audio tags are in use', () => {
+    const settings = { enabled: true, provider: 'system', lexicon: '你好=尼好' };
+    const plan = decideTts({}, { key: 'b', textType: 'dialogue', speaker: '甲', text: '他说[你好]吧' }, settings, { sceneAssets: {}, voices: [] });
+    assert.ok(plan && plan.text.includes('尼好'), plan && plan.text);
+});
+
+test('prefetchTtsBubble respects the prefetch switch', () => {
+    const base = { enabled: true, provider: 'api', api: { endpoint: 'https://tts.test/v1', female: 'anna', prefetch: false } };
+    assert.equal(prefetchTtsBubble({ key: 'k', textType: 'dialogue', speaker: '甲', text: '你好呀' }, base, {}), null);
+});
+
+test('cancelPendingTts clears the deferred play and prefetch timers left by a fast flip', () => {
+    let seq = 0;
+    const pending = new Map();
+    const timers = { setTimeout: (fn, ms) => { seq += 1; pending.set(seq, fn); return seq; }, clearTimeout: (id) => pending.delete(id) };
+    let clock = 0;
+    const settings = { enabled: true, provider: 'api', api: { endpoint: 'https://tts.test/v1', female: 'anna' } };
+    const root = {};
+    applyTts(root, { key: 'c:0', textType: 'narration', text: '第一页。' }, settings, {}, { now: () => clock, timers });
+    clock = 100;
+    applyTts(root, { key: 'c:1', textType: 'narration', text: '第二页。' }, settings, {}, { now: () => clock, timers });
+    assert.ok(pending.size > 0, 'fast flip leaves a deferred timer');
+    cancelPendingTts(root, timers);
+    assert.equal(pending.size, 0);
 });
