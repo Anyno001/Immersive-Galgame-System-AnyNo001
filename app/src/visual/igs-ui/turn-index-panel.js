@@ -154,9 +154,13 @@ export function createTurnIndexPanel(doc, options = {}) {
         const height = list.clientHeight || 480;
         const from = Math.max(0, Math.floor((list.scrollTop || 0) / ROW_HEIGHT) - OVERSCAN);
         const to = Math.min(rows.length, Math.ceil(((list.scrollTop || 0) + height) / ROW_HEIGHT) + OVERSCAN);
+        // 滚动事件一秒几十次：可见范围没变就不重写整块行。
+        const range = `${from}:${to}:${rows.length}`;
+        if (inner.dataset && inner.dataset.tiRange === range) return;
         let html = '';
         for (let i = from; i < to; i += 1) html += rowHtml(rows[i], i);
         inner.innerHTML = html;
+        if (inner.dataset) inner.dataset.tiRange = range;
     }
 
     function floorDetailHtml() {

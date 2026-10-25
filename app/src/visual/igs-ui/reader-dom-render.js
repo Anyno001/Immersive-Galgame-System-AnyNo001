@@ -478,6 +478,11 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     return overlay;
 }
 
+// 同值 setAttribute 也会排一次属性变动、让样式重算；翻页时每页都走，值没变就不写。
+function setAttrIfChanged(element, name, value) {
+    if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+}
+
 export function applyToolbarState(root, current) {
     if (!root || !current) return;
     const collapsible = root.querySelector('#igs-bar-btns');
@@ -515,10 +520,15 @@ export function applyToolbarState(root, current) {
     if (playButton) {
         const title = autoPlay.enabled ? '停止自动播放' : '自动播放';
         const icon = autoPlay.enabled ? ORIGINAL_READER_ICONS.stop : ORIGINAL_READER_ICONS.play;
-        if (playButton.innerHTML !== icon) playButton.innerHTML = icon;
-        playButton.setAttribute('title', title);
-        playButton.setAttribute('aria-label', title);
-        playButton.setAttribute('aria-pressed', String(autoPlay.enabled));
+        // 读回的 innerHTML 是浏览器重新序列化的，和原串比永远不等；按状态记号判断。
+        const iconKey = autoPlay.enabled ? 'stop' : 'play';
+        if (playButton.getAttribute('data-igs-icon') !== iconKey) {
+            playButton.innerHTML = icon;
+            playButton.setAttribute('data-igs-icon', iconKey);
+        }
+        setAttrIfChanged(playButton, 'title', title);
+        setAttrIfChanged(playButton, 'aria-label', title);
+        setAttrIfChanged(playButton, 'aria-pressed', String(autoPlay.enabled));
     }
     const currentCgShown = Boolean(contentForCg.illustrationActive && contentForCg.illustrationUrl);
     const currentCgSlot = Boolean(contentForCg.illustrationSlot);
@@ -529,29 +539,35 @@ export function applyToolbarState(root, current) {
         const enabled = id === 'reroll-cg' ? currentCgSlot
             : id === 'consistency-cg' ? Boolean(current.consistencyTask) || currentCgSlot && currentCgShown && !current.illustrationPending : currentCgShown;
         if (id === 'consistency-cg') {
-            button.title = current.consistencyTask ? '停止一致性重绘' : '角色一致性重绘';
-            button.setAttribute('aria-label', button.title);
+            const title = current.consistencyTask ? '停止一致性重绘' : '角色一致性重绘';
+            setAttrIfChanged(button, 'title', title);
+            setAttrIfChanged(button, 'aria-label', title);
         }
-        button.disabled = !enabled;
-        button.setAttribute('aria-disabled', String(!enabled));
+        if (button.disabled !== !enabled) button.disabled = !enabled;
+        setAttrIfChanged(button, 'aria-disabled', String(!enabled));
     }
 
+    // 每次翻页都会走到这里：先排出各容器应有的顺序，与现状一致就不挪，否则整栏按钮反复拔插、重排版。
+    const placement = new Map();
     for (const id of order) {
         const button = root.querySelector(`#igs-btn-${id}`);
         if (!button) continue;
-        if (hiddenSet.has(id) || (split === 'top' && DIALOG_ONLY_BUTTONS.includes(id))) {
-            button.style.display = 'none';
-        } else {
-            button.style.display = '';
-            if (toDialog(id)) {
-                dialogBar.appendChild(button);
+        const hidden = hiddenSet.has(id) || (split === 'top' && DIALOG_ONLY_BUTTONS.includes(id));
+        if (button.style.display !== (hidden ? 'none' : '')) button.style.display = hidden ? 'none' : '';
+        if (hidden) continue;
+        const target = toDialog(id) ? dialogBar
             // 顶部固定模式下，按钮区横向滚动；设置键固定到右侧不随之滚动。
-            } else if ((pins.has(id) || (dockTop && id === 'settings')) && pinned) {
-                pinned.appendChild(button);
-            } else if (collapsible) {
-                collapsible.appendChild(button);
-            }
-        }
+            : (pins.has(id) || (dockTop && id === 'settings')) && pinned ? pinned
+                : collapsible;
+        if (!target) continue;
+        if (!placement.has(target)) placement.set(target, []);
+        placement.get(target).push(button);
+    }
+    for (const [container, buttons] of placement) {
+        const children = Array.from(container.children || []);
+        const tail = children.slice(children.length - buttons.length);
+        if (tail.length === buttons.length && buttons.every((button, i) => tail[i] === button)) continue;
+        for (const button of buttons) container.appendChild(button);
     }
 
     // 工具栏分组：按实际可见顺序在每组第一个按钮上标记分隔；用户重排、隐藏、固定后同样成立，不改按钮尺寸。
