@@ -230,7 +230,7 @@ test('gate:wait-stage:separate-script-installs-the-pack-onto-the-host-window', (
     assert.equal(Array.isArray(root.IGS_WAIT_GAMES), true);
     attachWaitStageGames(root);
     assert.equal(getWaitStageGamePack(), pack);
-    assert.deepEqual(pack.list({ art: {}, replay: [], names: [] }), ['rps', 'mahjong']);
+    assert.deepEqual(pack.list({ art: {}, replay: [], names: [] }), ['rps', 'mahjong', 'tiles', 'snake']);
     uninstallWaitStageGames(root);
     detachWaitStageGames(root);
     assert.equal(getWaitStageGamePack(), null);

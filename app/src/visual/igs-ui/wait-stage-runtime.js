@@ -1,6 +1,6 @@
 import { extractSceneDirectives } from '../../scene/scene-directives.js';
 import { getMessagePrimaryText } from '../../scene/message-source.js';
-import { isBuiltinNudeOutfit, outfitsOfCharacter } from '../../scene/character-outfits.js';
+import { createOutfitResolver, isBuiltinNudeOutfit, outfitsOfCharacter } from '../../scene/character-outfits.js';
 import { outfitSpriteSlots, readDefaultOutfit } from '../../scene/character-appearance.js';
 import { moodFallbackChain, moodPresetWords } from '../../scene/mood-groups.js';
 import { HEAD_ASPECT, resolveSpriteHead } from './fx-anchor.js';
@@ -22,12 +22,14 @@ export function collectWaitStageLines(turns, options = {}) {
     const list = Array.isArray(turns) ? turns : [];
     const out = [];
     const seen = new Set();
+    // 带服装栏的四栏标签 [igs-char:角色|表情|服装|对白] 只有传了 resolver 才识别；不传就整条当正文，台词池常年是空的。
+    const outfitResolver = createOutfitResolver(options.sceneAssets);
     for (const turn of list.slice(-Math.max(1, Math.round(options.turns || TURN_LOOKBACK)))) {
         const raw = getMessagePrimaryText(turn && (turn.raw || turn)) || getMessagePrimaryText(turn);
         if (!raw) continue;
         let directives = [];
         try {
-            directives = extractSceneDirectives(raw, {}).directives || [];
+            directives = extractSceneDirectives(raw, { outfitResolver }).directives || [];
         } catch (error) {
             directives = [];
         }
