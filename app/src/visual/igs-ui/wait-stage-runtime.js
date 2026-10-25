@@ -559,7 +559,10 @@ export function createWaitStageRuntime(options = {}) {
                 closeButton.innerHTML = ORIGINAL_READER_ICONS.close;
                 closeButton.addEventListener('click', (event) => {
                     event.stopPropagation();
-                    if (root === openedRoot) onClose();
+                    if (root !== openedRoot) return;
+                    // 主动来玩时只收起这一层回到阅读；等回复时才交给宿主关阅读器。
+                    if (play) closeRoot();
+                    else onClose();
                 });
                 root.appendChild(closeButton);
             }
