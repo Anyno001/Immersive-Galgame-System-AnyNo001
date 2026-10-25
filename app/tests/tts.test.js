@@ -12,6 +12,8 @@ import {
     mergeTtsVoices,
     onSystemVoicesChanged,
     parseGptSovitsVoice,
+    matchBatchVoicesToCharacters,
+    parseTtsVoiceBatch,
     parseTtsResponse,
     splitTtsSegments,
     decideTts,
@@ -27,6 +29,7 @@ import {
     systemVoiceOptions,
     systemVoicePool,
     ttsApiVoiceList,
+    ttsVoiceEntries,
     ttsCacheKey,
     ttsErrorMessage,
     ttsPlainText,
@@ -968,16 +971,16 @@ test('gate: tts stops requesting the remaining segments after the first one fail
     });
 });
 
-test('tts: voice list keeps up to 50 entries regardless of id length', () => {
-    const fetched = Array.from({ length: 70 }, (_, i) => [`moss_audio_${String(i).padStart(2, '0')}_0123456789abcdef0123456789abcdef`, `音色${i}`]);
+test('tts: voice list keeps up to 200 entries regardless of id length', () => {
+    const fetched = Array.from({ length: 250 }, (_, i) => [`moss_audio_${String(i).padStart(3, "0")}_0123456789abcdef0123456789abcdef`, `音色${i}`]);
     const merged = mergeTtsVoices('', fetched);
-    assert.equal(merged.total, 50);
-    assert.equal(merged.added, 50);
-    assert.equal(merged.dropped, 20);
+    assert.equal(merged.total, 200);
+    assert.equal(merged.added, 200);
+    assert.equal(merged.dropped, 50);
     const config = normalizeTtsSettings({ api: { voices: merged.text } });
-    assert.equal(config.api.voices, merged.text, 'fifty long entries survive normalization intact');
-    const over = normalizeTtsSettings({ api: { voices: Array.from({ length: 60 }, (_, i) => `v${i}`).join('\n') } });
-    assert.equal(over.api.voices.split(', ').length, 50);
+    assert.equal(config.api.voices, merged.text, 'two hundred long entries survive normalization intact');
+    const over = normalizeTtsSettings({ api: { voices: Array.from({ length: 210 }, (_, i) => `v${i}`).join('\n') } });
+    assert.equal(over.api.voices.split(', ').length, 200);
     assert.equal(normalizeTtsSettings({ api: { voices: 'a\nb' } }).api.voices, 'a\nb', 'under the cap the text is left as typed');
 });
 
@@ -1060,8 +1063,8 @@ test('tts: minimax emotion follows the mood and enters the cache key only when p
 });
 
 test('tts: narrator interface keeps its own voice list and fetches it', async () => {
-    const config = normalizeTtsSettings({ narratorApi: { enabled: true, voices: Array.from({ length: 60 }, (_, i) => `v${i}`).join('\n') } });
-    assert.equal(config.narratorApi.voices.split(', ').length, 50);
+    const config = normalizeTtsSettings({ narratorApi: { enabled: true, voices: Array.from({ length: 210 }, (_, i) => `v${i}`).join('\n') } });
+    assert.equal(config.narratorApi.voices.split(', ').length, 200);
     assert.equal(normalizeTtsSettings({}).narratorApi.voices, '');
     const realFetch = globalThis.fetch;
     const calls = [];
@@ -1225,4 +1228,124 @@ test('cancelPendingTts clears the deferred play and prefetch timers left by a fa
     assert.ok(pending.size > 0, 'fast flip leaves a deferred timer');
     cancelPendingTts(root, timers);
     assert.equal(pending.size, 0);
+});
+
+test('thoughtBilingual picks original or translation for thought pages only', () => {
+    const text = 'こんにちは〖你好〗';
+    const run = (settings, type) => decideTts({}, { key: `k${Math.random()}`, textType: type, speaker: '甲', text }, { enabled: true, ...settings }, { sceneAssets: {} });
+    assert.equal(normalizeTtsSettings({}).thoughtBilingual, 'same');
+    assert.equal(normalizeTtsSettings({ thoughtBilingual: 'x' }).thoughtBilingual, 'same');
+    assert.equal(run({}, 'thought').text, '你好');
+    assert.equal(run({ thoughtBilingual: 'original' }, 'thought').text, 'こんにちは');
+    assert.equal(run({ thoughtBilingual: 'original' }, 'thought').lang, 'ja');
+    assert.equal(run({ thoughtBilingual: 'original' }, 'dialogue').text, '你好');
+    assert.equal(run({ bilingual: 'original', thoughtBilingual: 'translation' }, 'thought').text, '你好');
+    assert.equal(run({ bilingual: 'original', thoughtBilingual: 'translation' }, 'dialogue').text, 'こんにちは');
+    assert.equal(run({ bilingual: 'original' }, 'thought').text, 'こんにちは');
+});
+
+test('voice library keeps 200 entries through normalize and edit, and rejects the 201st', () => {
+    const entries = Array.from({ length: 200 }, (_, i) => `voice-${i}#名称${i}`);
+    const text = entries.join(', ');
+    const api = normalizeTtsSettings({ api: { voices: text }, narratorApi: { voices: text } });
+    assert.equal(ttsVoiceEntries(api.api.voices).length, 200);
+    assert.equal(ttsVoiceEntries(api.narratorApi.voices).length, 200);
+    assert.equal(normalizeTtsSettings(JSON.parse(JSON.stringify(api))).api.voices, api.api.voices);
+    assert.equal(editTtsVoices(api.api.voices, { id: 'extra' }).ok, false);
+    const over = normalizeTtsSettings({ api: { voices: `${text}, voice-200` } });
+    assert.equal(ttsVoiceEntries(over.api.voices).length, 200);
+    const long = Array.from({ length: 200 }, (_, i) => `${'x'.repeat(100)}${i}#${'名'.repeat(40)}`).join(', ');
+    assert.equal(ttsVoiceEntries(normalizeTtsSettings({ api: { voices: long } }).api.voices).length, 200);
+    const merged = mergeTtsVoices(text, [['new-1', 'N']]);
+    assert.equal(merged.added, 0);
+    assert.equal(merged.dropped, 1);
+});
+
+test('parseTtsVoiceBatch reads json lists and many line layouts', () => {
+    const hex = '0123456789abcdef0123456789abcdef';
+    const fish = parseTtsVoiceBatch(JSON.stringify({ total: 2, items: [{ _id: hex, title: '少女' }, { reference_id: 'r1', title: 'R', _id: 'z' }, {}] }));
+    assert.deepEqual(fish, { voices: [[hex, '少女'], ['r1', 'R']], unrecognized: 1 });
+    assert.deepEqual(parseTtsVoiceBatch('[{"voice_id":"male-qn","voice_name":"青年","description":["a"]},{"name":"alloy"}]').voices, [['male-qn', '青年'], ['alloy', '']]);
+    assert.deepEqual(parseTtsVoiceBatch('{"voices":[{"id":"v1","name":"N"}]}').voices, [['v1', 'N']]);
+    const lines = parseTtsVoiceBatch([
+        `温柔女声 ${hex}`, 'female-shaonv 少女', '甜美：voice_01', 'Alice,female-abc1', '旁白\tnarr-1', '旁白|narr-2', '旁白#narr-3', 'alloy#Alloy',
+        'fish.audio/app/m/abcDEF12_x', `https://fish.audio/zh-CN/m/${hex}?utm=1`, 'plainvoice', '', '纯中文', 'ab',
+    ].join('\n'));
+    assert.deepEqual(lines.voices, [
+        [hex, '温柔女声'], ['female-shaonv', '少女'], ['voice_01', '甜美'], ['female-abc1', 'Alice'], ['narr-1', '旁白'], ['narr-2', '旁白'], ['narr-3', '旁白'],
+        ['alloy', 'Alloy'], ['abcDEF12_x', ''], ['plainvoice', ''],
+    ]);
+    assert.equal(lines.unrecognized, 2);
+    assert.deepEqual(parseTtsVoiceBatch('[少女](https://fish.audio/m/' + hex + ')').voices, [[hex, '少女']]);
+    assert.deepEqual(parseTtsVoiceBatch('  '), { voices: [], unrecognized: 0 });
+    assert.deepEqual(parseTtsVoiceBatch('{broken').voices, []);
+});
+
+test('parseTtsVoiceBatch splits id#name records separated by commas, newlines, semicolons and 、', () => {
+    const hex = '8ef4a238714b45718ce04243307c4ade';
+    assert.deepEqual(parseTtsVoiceBatch(`${hex}#温柔少女, abc123#阿明`).voices, [[hex, '温柔少女'], ['abc123', '阿明']]);
+    assert.deepEqual(parseTtsVoiceBatch('v-one#甲，v-two#乙、v-three#丙;v-four#丁\nv-five#戊').voices.map(([id]) => id), ['v-one', 'v-two', 'v-three', 'v-four', 'v-five']);
+    assert.deepEqual(parseTtsVoiceBatch('甲#alpha-1\nalpha-2#乙 丙').voices, [['alpha-1', '甲'], ['alpha-2', '乙 丙']]);
+    assert.deepEqual(parseTtsVoiceBatch('abc#def').voices, [['abc', 'def']]);
+    assert.deepEqual(parseTtsVoiceBatch('voice-a, voice-b, voice-c').voices.map(([id]) => id), ['voice-a', 'voice-b', 'voice-c']);
+    assert.deepEqual(parseTtsVoiceBatch('少女，female-abc1').voices, [['female-abc1', '少女']]);
+});
+
+test('matchBatchVoicesToCharacters maps voice names to characters without overriding or guessing', () => {
+    const assets = {
+        characters: { 艾莉: {}, 小明: {}, 小红: {} },
+        characterAliases: { 艾莉: ['Ellie'] },
+        characterVoices: { 小红: { tts: 'kept-voice' } },
+    };
+    const run = (voices) => matchBatchVoicesToCharacters(voices, assets);
+    assert.deepEqual(run([['v1', '艾莉']]), [['艾莉', 'v1']]);
+    assert.deepEqual(run([['v1', 'Ellie']]), [['艾莉', 'v1']]);
+    assert.deepEqual(run([['v1', '艾莉的温柔声']]), [['艾莉', 'v1']]);
+    assert.deepEqual(run([['v1', '小红']]), []);
+    assert.deepEqual(run([['v1', '小明和小红合唱']]), []);
+    assert.deepEqual(run([['v1', '艾莉'], ['v2', 'Ellie']]), [['艾莉', 'v1']]);
+    assert.deepEqual(run([['v1', '路人'], ['v2', '']]), []);
+    assert.deepEqual(matchBatchVoicesToCharacters([['v1', '艾莉']], assets, { skip: ['艾莉'] }), []);
+    assert.deepEqual(assets.characterVoices, { 小红: { tts: 'kept-voice' } });
+});
+
+test('gate: voice library actions share one row with preview, and batch recognition expands and cancels as page state only', async () => {
+    const { bootstrapIGS } = await import('../src/index.js');
+    const vn = bootstrapIGS({ global: {}, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const controller = vn.openSettings({ tab: 'performance', mode: 'pc' }).controller;
+        controller.toggle('readerSettings.tts.enabled');
+        controller.setValue('readerSettings.tts.provider', 'api');
+        const view = () => controller.getSnapshot().html;
+        const html = controller.goToPath('readerSettings.tts.provider').html || view();
+        const row = html.match(/<div class="igs-tts-voice-actions">(.*?)<\/div>/s)[1];
+        const order = [...row.matchAll(/data-action="([a-z-]+)/g)].map((m) => m[1]);
+        assert.deepEqual(order, ['tts-voice-add', 'tts-voice-batch', 'tts-fetch-voices', 'tts-preview']);
+        assert.doesNotMatch(html, /data-tts-batch=/);
+        await controller.invoke('tts-voice-batch:api');
+        assert.match(view(), /data-tts-batch="api"/);
+        assert.match(view(), /data-action="tts-voice-batch-run:api"/);
+        await controller.invoke('tts-voice-batch-cancel:api');
+        assert.doesNotMatch(view(), /data-tts-batch=/);
+        assert.equal(JSON.stringify(controller.getSnapshot().draft.readerSettings.tts).includes('batch'), false);
+        controller.close();
+    } finally {
+        vn.destroy();
+    }
+});
+
+test('batch matching uses card-private characters, two passes, and stricter bare-line ids', async () => {
+    const { draftEffectiveAssets } = await import('../src/scene/asset-scope.js');
+    const settingsState = {
+        draft: { bridge: { sceneAssets: { cards: { cardA: { characters: { 私有角: {} }, characterAliases: { 私有角: ['小私'] } } } } } },
+        asyncState: { assetScopeKey: 'cardA' },
+    };
+    const effective = draftEffectiveAssets(settingsState);
+    assert.deepEqual(matchBatchVoicesToCharacters([['v1', '小私']], effective), [['私有角', 'v1']]);
+    assert.deepEqual(matchBatchVoicesToCharacters([['v1', '小私']], settingsState.draft.bridge.sceneAssets), []);
+    const assets = { characters: { 爱丽丝: {}, 阿明: {} } };
+    assert.deepEqual(matchBatchVoicesToCharacters([['v1', '爱丽丝（少女版）'], ['v2', '爱丽丝']], assets), [['爱丽丝', 'v2']]);
+    const { voices, unrecognized } = parseTtsVoiceBatch('Bob Smith\nHello world\n2024 年\nalloy\nBob Smith voice-2');
+    assert.deepEqual(voices, [['alloy', ''], ['voice-2', 'Bob Smith']]);
+    assert.equal(unrecognized, 3);
 });

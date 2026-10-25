@@ -24,6 +24,7 @@ const FOCUS_KEY_ATTRS = Object.freeze([
     ['data-artist-library-field'],
     ['data-artist-selection'],
     ['data-chat-prompt-draft'],
+    ['data-tts-batch'],
     ['data-asset-folder-move', 'data-asset-name'],
     ['data-advanced'],
     ['id'],

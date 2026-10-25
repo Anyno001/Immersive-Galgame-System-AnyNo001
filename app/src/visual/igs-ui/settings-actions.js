@@ -78,7 +78,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
-import { TTS_VOICE_MAX, clearTtsCache, editTtsVoices, fetchTtsVoices, getTtsSkipReason, listSystemVoices, mergeTtsVoices, normalizeTtsSettings, previewTts, resolveTtsVoice } from './tts.js';
+import { TTS_VOICE_MAX, clearTtsCache, editTtsVoices, fetchTtsVoices, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction, guardDefaultOutfitImages } from './settings-outfit-actions.js';
 import { handleEventCgAction } from './settings-event-cg.js';
@@ -3027,6 +3027,49 @@ export async function handleSettingsAction(action, ctx) {
         reader.tts = { ...tts, [apiKey]: { ...tts[apiKey], voices: result.text } };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+    if (normalizedAction.startsWith('tts-voice-batch')) {
+        // 批量识别的展开状态与草稿文字只存在界面临时状态里，不进设置。
+        const [command, apiKey] = normalizedAction.split(':');
+        if (apiKey !== 'api' && apiKey !== 'narratorApi') return { ok: false, error: '未知的声音库' };
+        const asyncState = settingsState.asyncState || (settingsState.asyncState = {});
+        const batches = asyncState.ttsBatch || (asyncState.ttsBatch = {});
+        const messageKey = apiKey === 'narratorApi' ? 'ttsNarratorVoicesMessage' : 'ttsVoicesMessage';
+        if (command === 'tts-voice-batch') {
+            batches[apiKey] = { open: true, text: (batches[apiKey] && batches[apiKey].text) || '' };
+        } else if (command === 'tts-voice-batch-cancel') {
+            delete batches[apiKey];
+        } else if (command === 'tts-voice-batch-run') {
+            const parsed = parseTtsVoiceBatch((batches[apiKey] && batches[apiKey].text) || '');
+            if (!parsed.voices.length) {
+                asyncState[messageKey] = parsed.unrecognized ? `没有识别到声音；${parsed.unrecognized} 行未识别。` : '没有可识别的内容。';
+                return rerenderSettings();
+            }
+            const reader = settingsState.draft.readerSettings || (settingsState.draft.readerSettings = {});
+            const tts = normalizeTtsSettings(reader.tts);
+            const merged = mergeTtsVoices(tts[apiKey].voices, parsed.voices);
+            reader.tts = { ...tts, [apiKey]: { ...tts[apiKey], voices: merged.text } };
+            // 主接口的声音按名称自动分配给角色（只设台词声音，已指定的不覆盖）；旁白库不分配。
+            let assigned = [];
+            if (apiKey === 'api') {
+                const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+                const inLibrary = new Set(ttsVoiceEntries(merged.text).map(([id]) => id));
+                assigned = matchBatchVoicesToCharacters(parsed.voices.filter(([id]) => inLibrary.has(id)), draftEffectiveAssets(settingsState) || {}, { skip: RESERVED_ASSET_NAMES });
+                if (assigned.length) {
+                    const voices = normalizeCharacterVoices(assets.characterVoices);
+                    for (const [name, id] of assigned) voices[name] = normalizeCharacterVoices({ [name]: { ...normalizeCharacterVoice(voices[name]), tts: id } })[name];
+                    assets.characterVoices = voices;
+                }
+            }
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+            delete batches[apiKey];
+            asyncState[messageKey] = `识别 ${parsed.voices.length} 个，新增 ${merged.added} 个（声音库共 ${merged.total} 个）`
+                + (parsed.unrecognized ? `；${parsed.unrecognized} 行未识别` : '')
+                + (merged.dropped ? `；已达 ${TTS_VOICE_MAX} 上限，其余 ${merged.dropped} 个未加入` : '') + '。'
+                + (assigned.length ? `已自动分配给：${assigned.map(([name]) => name).join('、')}。` : '');
+        }
         return rerenderSettings();
     }
     if (normalizedAction === 'tts-fetch-voices' || normalizedAction === 'tts-fetch-voices-narrator') {

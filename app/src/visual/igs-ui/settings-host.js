@@ -932,6 +932,12 @@ export function createSettingsHost(deps) {
                 if (status) status.textContent = state.activeSettings.asyncState.chatPromptStatus;
                 return;
             }
+            const ttsBatch = target.getAttribute('data-tts-batch');
+            if (ttsBatch) {
+                const batches = state.activeSettings.asyncState.ttsBatch || (state.activeSettings.asyncState.ttsBatch = {});
+                batches[ttsBatch] = { open: true, text: target.value };
+                return;
+            }
             if (target.getAttribute('data-prompt-rule-draft') !== null) {
                 state.activeSettings.asyncState.promptRuleDraft = target.value;
                 state.activeSettings.asyncState.promptRuleStatus = '有未保存的修改。';

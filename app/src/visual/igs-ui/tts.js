@@ -44,6 +44,11 @@ export const TTS_BILINGUAL_MODES = Object.freeze([
     ['translation', '读译文'],
     ['original', '读原文'],
 ]);
+export const TTS_THOUGHT_BILINGUAL_MODES = Object.freeze([
+    ['same', '心里话：同台词'],
+    ['original', '心里话：原文'],
+    ['translation', '心里话：译文'],
+]);
 // 角色单独音量：0 为这个角色不朗读。
 export const TTS_CHARACTER_VOLUMES = Object.freeze([[1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.25, '25%'], [0, '不朗读']]);
 // 心里话音量（倍）：在力度之上再压一档，像在脑子里说。
@@ -77,7 +82,7 @@ const API_SEGMENT_THRESHOLD = 60;
 const API_SEGMENT_MIN = 15;
 const LEXICON_MAX = 4000;
 // 声音库最多存这么多个；Fish / MiniMax 的声音 ID 连标题一项可达百来字，字数上限按个数留足。
-export const TTS_VOICE_MAX = 50;
+export const TTS_VOICE_MAX = 200;
 const VOICES_TEXT_MAX = TTS_VOICE_MAX * 160;
 // 系统语音偶尔漏发 onend：按估算时长的 2 倍再加 5 秒兜底收尾，免得自动播放和「翻页不打断」一直等。
 const SYSTEM_WATCHDOG_PAD_S = 5;
@@ -201,6 +206,8 @@ export function normalizeTtsSettings(value) {
         // 翻页不打断：上一句念完再念这一句（快速翻页时只排最新的一句）。
         sustain: source.sustain === true,
         bilingual: source.bilingual === 'original' ? 'original' : 'translation',
+        // 心里话页的双语读法：same 跟台词，其余只作用于心里话。
+        thoughtBilingual: source.thoughtBilingual === 'original' || source.thoughtBilingual === 'translation' ? source.thoughtBilingual : 'same',
         // 读音替换：每行「原词=读法」。
         lexicon: String(source.lexicon ?? '').slice(0, LEXICON_MAX),
         // 系统声音下拉列出全部语言；关掉时只列中文、日文。
@@ -309,6 +316,113 @@ export function mergeTtsVoices(existing, fetched) {
     return { text: joinVoiceEntries(entries), added, dropped, total: entries.length };
 }
 
+// —— 批量识别：把粘贴的一段文字（JSON、列表、Fish 网址）解析成 [声音 ID, 名称] ——
+const BATCH_JSON_LISTS = ['items', 'data', 'voices', 'list', 'system_voice', 'voice_cloning', 'voice_generation'];
+const BATCH_ID_KEYS = ['reference_id', 'voice_id', '_id', 'id', 'name'];
+const BATCH_NAME_KEYS = ['title', 'voice_name', 'name', 'description'];
+const HEX32_RE = /(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])/;
+const ID_TOKEN_RE = /^[A-Za-z0-9_-]{3,}$/;
+const BATCH_SEPARATOR_RE = /[:：|,，\t#]/;
+const cleanBatchName = (v) => String(v ?? '')
+    .replace(/\(\s*\)|\[\s*\]|（\s*）/g, ' ')
+    .replace(/[,，\n#\s]+/g, ' ')
+    .replace(/^[\s:：|\-–—"'“”‘’「」\[\]]+|[\s:：|\-–—"'“”‘’「」\[\]]+$/g, '');
+const batchIdScore = (token) => (/[0-9_-]/.test(token) || token.length >= 16 ? 1 : 0);
+
+function batchJsonItems(data) {
+    if (Array.isArray(data)) return data;
+    const obj = plainObject(data);
+    if (!obj) return null;
+    const lists = BATCH_JSON_LISTS.map((key) => obj[key]).filter(Array.isArray);
+    return lists.length ? lists.flat() : null;
+}
+
+function batchJsonEntry(item) {
+    if (typeof item === 'string' || typeof item === 'number') return batchLineEntry(String(item));
+    const obj = plainObject(item);
+    if (!obj) return null;
+    const text = (key) => (typeof obj[key] === 'string' || typeof obj[key] === 'number' ? String(obj[key]).trim() : '');
+    const idKey = BATCH_ID_KEYS.find((key) => text(key));
+    if (!idKey) return null;
+    const id = text(idKey);
+    if (/[,，\n#]/.test(id)) return null;
+    const nameKey = BATCH_NAME_KEYS.find((key) => key !== idKey && text(key) && text(key) !== id);
+    return [id, nameKey ? cleanBatchName(text(nameKey)) : ''];
+}
+
+// 一行文字：返回 [id, name]，认不出 ID 返回 null。
+function batchLineEntry(raw) {
+    let line = String(raw).trim();
+    if (!line) return null;
+    const url = line.match(/(?:https?:\/\/)?(?:[\w-]+\.)*fish\.audio\/\S*|https?:\/\/\S+/i);
+    if (url) {
+        const link = url[0].replace(/[)\]】」,，;；。]+$/, '');
+        const rest = line.replace(url[0], ' ').replace(/[(（]\s*$/, '');
+        const hex = link.match(HEX32_RE);
+        const slug = link.match(/\/m\/([A-Za-z0-9_-]{3,})/);
+        const id = hex ? hex[0] : slug ? slug[1] : '';
+        return id ? [id, cleanBatchName(rest)] : null;
+    }
+    const hex = line.match(HEX32_RE);
+    if (hex) return [hex[0], cleanBatchName(line.replace(hex[0], ' '))];
+    const sepMatch = line.match(BATCH_SEPARATOR_RE);
+    if (sepMatch) {
+        const cut = line.indexOf(sepMatch[0]);
+        const left = line.slice(0, cut).trim();
+        const right = line.slice(cut + 1).trim();
+        const leftOk = ID_TOKEN_RE.test(left);
+        const rightOk = ID_TOKEN_RE.test(right);
+        if (leftOk || rightOk) {
+            // 只有一侧像 ID 时取那一侧；两侧都像时，「ID#名称」是声音库自己的写法取左侧，其余分隔符看哪侧更像（含数字、下划线、连字符或很长），相同取右侧。
+            const leftScore = batchIdScore(left);
+            const rightScore = batchIdScore(right);
+            const useLeft = leftOk && (!rightOk || sepMatch[0] === '#' || leftScore > rightScore);
+            return useLeft ? [left, cleanBatchName(right)] : [right, cleanBatchName(left)];
+        }
+        line = line.replace(sepMatch[0], ' ');
+    }
+    const words = line.split(/\s+/).filter(Boolean);
+    // 没有分隔符时，单独一个词算 ID；多个词时只认含字母且带数字、下划线或连字符的词。
+    const tokens = words.length === 1 ? words.filter((t) => ID_TOKEN_RE.test(t)) : words.filter((t) => ID_TOKEN_RE.test(t) && /[A-Za-z]/.test(t) && /[0-9_-]/.test(t));
+    if (!tokens.length) return null;
+    const best = tokens.reduce((a, b) => (batchIdScore(b) > batchIdScore(a) || (batchIdScore(b) === batchIdScore(a) && b.length > a.length) ? b : a));
+    return [best, cleanBatchName(line.replace(best, ' '))];
+}
+
+// 一行里的多条：有 # 时按逗号、顿号、分号切开（声音库存储就是这样）；没有 # 时只按顿号、分号切，三段以上的逗号列表也切，两段逗号视为「名称,ID」。
+function splitBatchLine(line) {
+    if (/https?:\/\/|fish\.audio/i.test(line)) return [line];
+    if (line.includes('#')) return line.split(/[,，、;；]/);
+    return line.split(/[、;；]/).flatMap((part) => {
+        const commas = part.split(/[,，]/);
+        return commas.length >= 3 ? commas : [part];
+    });
+}
+
+export function parseTtsVoiceBatch(text) {
+    const source = String(text ?? '').trim();
+    const voices = [];
+    const seen = new Set();
+    let unrecognized = 0;
+    const push = (entry) => {
+        if (!entry) {
+            unrecognized += 1;
+            return;
+        }
+        const [id, name] = entry;
+        if (seen.has(id)) return;
+        seen.add(id);
+        voices.push([id, name]);
+    };
+    let items = null;
+    if (/^[[{]/.test(source)) {
+        try { items = batchJsonItems(JSON.parse(source)); } catch { items = null; }
+    }
+    if (items) items.forEach((item) => push(batchJsonEntry(item)));
+    else source.split(/\r?\n/).forEach((line) => splitBatchLine(line).forEach((part) => { if (part.trim()) push(batchLineEntry(part)); }));
+    return { voices, unrecognized };
+}
+
 // 页面文字 → 要念的纯文本。双语「原文〖译文〗」默认念译文，original 为真时念原文；去掉字效与心里话星号，
 // 再过滤念出来会很怪的东西：网址、emoji 与装饰符号、颜文字、括号里的短动作（「（笑）」「(小声)」），连写的～！… 收成一个。
 // tags 为 'fish' 或 'minimax' 时，词表里认得的括号动作换成该家的内联标签，认不得的照旧删掉。
@@ -390,6 +504,46 @@ export function splitTtsChunks(text, max = CHUNK_MAX) {
     }
     if (buf.trim()) chunks.push(buf);
     return chunks.map((c) => c.trim()).filter(Boolean);
+}
+
+// 批量识别出的声音按名称对上角色：先认主名与别名，认不到再看名称包含角色名（两字以上）且唯一命中；已指定台词声音的角色不覆盖，一个角色只取第一条。
+export function matchBatchVoicesToCharacters(voices, sceneAssets, { skip = [] } = {}) {
+    const assets = plainObject(sceneAssets) || {};
+    const names = new Set();
+    for (const map of [assets.characters, assets.characterVoices, assets.characterDna, assets.characterAliases]) {
+        const obj = plainObject(map);
+        if (obj) Object.keys(obj).forEach((key) => names.add(key));
+    }
+    for (const bad of skip) names.delete(bad);
+    const aliases = plainObject(assets.characterAliases) || {};
+    const labels = [];
+    for (const name of names) {
+        labels.push([name, name]);
+        if (Array.isArray(aliases[name])) for (const alias of aliases[name]) if (String(alias || '').trim()) labels.push([String(alias).trim(), name]);
+    }
+    const existing = plainObject(assets.characterVoices) || {};
+    const taken = new Set();
+    const out = [];
+    const claim = (character, id) => {
+        if (!character || taken.has(character)) return;
+        const entry = plainObject(existing[character]);
+        if (entry && typeof entry.tts === 'string' && entry.tts.trim()) return;
+        taken.add(character);
+        out.push([character, id]);
+    };
+    const rest = [];
+    for (const [id, title] of voices) {
+        const label = String(title || '').trim();
+        if (!label) continue;
+        const exact = canonicalName(assets, label);
+        if (names.has(exact)) claim(exact, id);
+        else rest.push([id, label]);
+    }
+    for (const [id, label] of rest) {
+        const hits = new Set(labels.filter(([alias]) => alias.length >= 2 && label.includes(alias)).map(([, name]) => name));
+        if (hits.size === 1) claim([...hits][0], id);
+    }
+    return out;
 }
 
 // —— 系统声音 ——
@@ -567,7 +721,8 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
     if (!spoken && type !== 'narration') return skipWith('这一页不是台词或旁白');
     if (!spoken && !config.narration) return skipWith('旁白朗读已关');
     const tagMode = ttsTagMode(!spoken && config.narratorApi.enabled ? config.narratorApi : (config.provider === 'api' ? config.api : null));
-    const plain = ttsPlainText(stripSpeakerPrefix(line.text, line.speaker), { original: config.bilingual === 'original', tags: tagMode });
+    const bilingualMode = type === 'thought' && config.thoughtBilingual !== 'same' ? config.thoughtBilingual : config.bilingual;
+    const plain = ttsPlainText(stripSpeakerPrefix(line.text, line.speaker), { original: bilingualMode === 'original', tags: tagMode });
     const lexiconPairs = parseTtsLexicon(config.lexicon);
     let text = (tagMode ? applyLexiconOutsideTags(plain, lexiconPairs) : applyTtsLexicon(plain, lexiconPairs)).replace(/\s+/g, ' ').trim();
     if (!/[\p{L}\p{N}]/u.test(tagMode ? stripTtsTags(text) : text)) return skipWith('这一页没有可读的文字');
