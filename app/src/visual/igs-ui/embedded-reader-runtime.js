@@ -310,12 +310,19 @@ function restoreDisplayStyle(style, value, priority) {
 // 酒馆把编辑框渲染进 .mes_text，内嵌阅读器必须先卸载并恢复原文，否则编辑框随原文一起被隐藏。
 export const HOST_EDIT_TRIGGER_SELECTOR = '.mes_edit';
 
-export function isEmbeddedEditTrigger(target, mesText) {
-    if (!target || !mesText || typeof target.closest !== 'function') return false;
+// 等回复时阅读器挪到新楼，写完后酒馆可能重画 .mes_text，记下的节点就脱离了楼层；
+// 所以也按挂载宿主所在楼层和楼号认，否则等待层 / 小游戏开着时点铅笔不关。
+export function isEmbeddedEditTrigger(target, mesText, { host = null, messageId = null } = {}) {
+    if (!target || typeof target.closest !== 'function') return false;
     const button = target.closest(HOST_EDIT_TRIGGER_SELECTOR);
     if (!button || typeof button.closest !== 'function') return false;
     const message = button.closest('.mes');
-    return Boolean(message && typeof message.contains === 'function' && message.contains(mesText));
+    if (!message || typeof message.contains !== 'function') return false;
+    if (mesText && message.contains(mesText)) return true;
+    if (host && message.contains(host)) return true;
+    if (messageId == null || typeof message.getAttribute !== 'function') return false;
+    const raw = message.getAttribute('mesid');
+    return raw != null && raw !== '' && Number(raw) === Number(messageId);
 }
 
 

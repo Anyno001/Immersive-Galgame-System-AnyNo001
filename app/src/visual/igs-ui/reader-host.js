@@ -656,6 +656,8 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         if (current) syncAssetReviewAfterRender(current, current.snapshot);
     }) || (() => {});
+    // 等待巡检计时器（startReplyWatchdog 用）；必须在 return 之前声明。
+    let replyWatchdog = null;
     return host;
 
     function openReader(payload = {}, openOptions = {}) {
@@ -1532,7 +1534,7 @@ export function createIgsReaderHost(options = {}) {
 
     // 等待中兜底：生成结束信号丢了时等待层会一直轮台词。每几秒看一眼，新 AI 楼已落地就补一次稳定处理。
     // 只认楼号比发送前大的 AI 楼，回复没到时不触发，免得读到用户楼当成空回复去重发。
-    let replyWatchdog = null;
+    // 计时器变量声明在上面 return host 之前：写在 return 之后会被压缩器当死代码删掉，线上报 cl is not defined。
 
     function startReplyWatchdog() {
         if (replyWatchdog != null) return;
@@ -4495,9 +4497,9 @@ export function createIgsReaderHost(options = {}) {
             const current = state.activeReader;
             const mount = current && current.dom && current.dom.embeddedMount;
             if (!mount || !isEmbeddedReaderMode(current.mode)) return;
-            if (!isEmbeddedEditTrigger(event && event.target, mount.mesText)) return;
             const mode = current.mode;
             const messageId = mount.messageId != null ? mount.messageId : current.mountMessageId;
+            if (!isEmbeddedEditTrigger(event && event.target, mount.mesText, { host: mount.host, messageId })) return;
             const closed = closeReader();
             if (closed.ok !== false) armEditReopen(doc, messageId, mode);
         };
