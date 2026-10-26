@@ -35,6 +35,9 @@ const WHISPER_SHAPE = Object.freeze({ gain: 0.6, close: true });
 const PHONE_GAIN = 0.85;
 const PHONE_BAND = Object.freeze({ high: 380, low: 3200 });
 const GAIN_CAP = 1.2;
+// 人声净化：高通去低频嗡声，高架压嘶声与沙沙底噪（听筒本身有带通，不重复）。
+const CLEANUP_HIGHPASS = Object.freeze({ frequency: 80, q: 0.7 });
+const CLEANUP_HIGHSHELF = Object.freeze({ frequency: 7500, gain: -4 });
 // 语气音响着时 BGM 与环境音让一下（比提示音轻）；打字音整段静音到语气音念完。
 const BARK_DUCK_RATIO = 0.7;
 const BARK_TAIL_S = 0.05;
@@ -405,8 +408,8 @@ export function stopVoiceBark() {
     releaseJob(current);
 }
 
-// gain →（听筒带通 / 声像）→ 总线；返回链头。
-export function buildBarkChain(context, out, { volume, pan, phone, gainCap = GAIN_CAP }, nodes) {
+// gain →（净化滤波）→（听筒带通 / 声像）→ 总线；返回链头。
+export function buildBarkChain(context, out, { volume, pan, phone, cleanup = false, gainCap = GAIN_CAP }, nodes) {
     const gain = context.createGain();
     const filter = getVoiceFilter();
     const earPan = (voiceFilterParams(filter) || {}).pan || 0;
@@ -418,6 +421,18 @@ export function buildBarkChain(context, out, { volume, pan, phone, gainCap = GAI
         nodes.push(node);
         tail = node;
     };
+    if (cleanup && !phone) {
+        const hum = context.createBiquadFilter();
+        hum.type = 'highpass';
+        hum.frequency.value = CLEANUP_HIGHPASS.frequency;
+        hum.Q.value = CLEANUP_HIGHPASS.q;
+        link(hum);
+        const hiss = context.createBiquadFilter();
+        hiss.type = 'highshelf';
+        hiss.frequency.value = CLEANUP_HIGHSHELF.frequency;
+        hiss.gain.value = CLEANUP_HIGHSHELF.gain;
+        link(hiss);
+    }
     if (phone) {
         const high = context.createBiquadFilter();
         high.type = 'highpass';

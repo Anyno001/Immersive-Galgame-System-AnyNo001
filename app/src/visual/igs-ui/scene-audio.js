@@ -588,6 +588,10 @@ function unwatchVisibility(state) {
     watch.stop();
 }
 
+export function sceneAudioDuckFactor() {
+    return duckFactor();
+}
+
 // 打字音、聊天/演出提示音播放期间压低场景声音；返回幂等的释放函数，可嵌套。
 export function duckSceneAudio({ durationMs, ratio = DUCK_RATIO } = {}) {
     const value = Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : DUCK_RATIO;

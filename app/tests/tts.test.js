@@ -541,6 +541,7 @@ function fakeAudio({ state = 'running', resumeHangs = false, decode } = {}) {
     };
     const node = (extra = {}) => ({ context: ctx, connect: (target) => target, disconnect() {}, ...extra });
     ctx.createGain = () => node({ gain: audioParam(1) });
+    ctx.createBiquadFilter = () => node({ type: '', frequency: audioParam(), Q: audioParam(), gain: audioParam() });
     ctx.createDynamicsCompressor = () => node({ threshold: audioParam(), knee: audioParam(), ratio: audioParam(), attack: audioParam(), release: audioParam() });
     ctx.createBufferSource = () => {
         const source = node({ buffer: null, playbackRate: audioParam(1), onended: null, stopped: false, start() {}, stop() { this.stopped = true; } });
@@ -1403,4 +1404,163 @@ test('心里话单独音量：未设跟随台词，0 表示心里话不朗读', 
     assert.equal(volumeOf('乙', 'dialogue'), 0.5);
     assert.equal(volumeOf('丙', 'thought'), 0);
     assert.equal(volumeOf('丙', 'dialogue'), 1);
+});
+
+// —— 人声净化、响度统一、BGM 让位保持 ——
+const SR = 24000;
+const rmsOf = (data, from = 0, to = data.length) => {
+    let sum = 0;
+    for (let i = from; i < to; i += 1) sum += data[i] * data[i];
+    return Math.sqrt(sum / Math.max(1, to - from));
+};
+const dbOf = (a, b) => 20 * Math.log10(a / b);
+const noiseOf = (length, rms, seed = 7) => {
+    const out = new Float32Array(length);
+    let state = seed;
+    for (let i = 0; i < length; i += 1) {
+        state = (state * 1664525 + 1013904223) >>> 0;
+        out[i] = ((state / 4294967296) * 2 - 1) * rms * Math.sqrt(3);
+    }
+    return out;
+};
+const sineOf = (length, amp, freq = 1000) => Float32Array.from({ length }, (_, i) => amp * Math.sin((2 * Math.PI * freq * i) / SR));
+
+test('cleanupSamples 压低比语音低 40 dB 的底噪，语音段不变且交界处增益平滑', async () => {
+    const { cleanupSamples } = await import('../src/visual/igs-ui/tts.js');
+    const half = SR / 2;
+    const speech = sineOf(half, 0.5);
+    const noise = noiseOf(half, rmsOf(speech) * 0.01);
+    const input = new Float32Array(half * 2);
+    input.set(speech);
+    input.set(noise, half);
+    const out = cleanupSamples(input, SR);
+    assert.equal(out.length, input.length);
+    assert.ok(Math.abs(dbOf(rmsOf(out, 0, half), rmsOf(input, 0, half))) < 1, 'speech level unchanged');
+    // 80 ms 的释放过程之后（交界后 250 ms 起）才是稳定的衰减量。
+    const settled = half + Math.round(SR * 0.25);
+    assert.ok(dbOf(rmsOf(input, settled), rmsOf(out, settled)) >= 10, `noise dropped ${dbOf(rmsOf(input, settled), rmsOf(out, settled)).toFixed(1)} dB`);
+    assert.ok(dbOf(rmsOf(input, half), rmsOf(out, half)) >= 8, 'the whole noise segment is already clearly quieter');
+    let prev = null;
+    let step = 0;
+    for (let i = half - 2400; i < half + 4800; i += 1) {
+        if (Math.abs(input[i]) < 1e-4) { prev = null; continue; }
+        const gain = out[i] / input[i];
+        if (prev !== null) step = Math.max(step, Math.abs(gain - prev));
+        prev = gain;
+    }
+    assert.ok(step < 0.01, `gain step ${step}`);
+});
+
+test('cleanupSamples 全是静音时原样返回', async () => {
+    const { cleanupSamples } = await import('../src/visual/igs-ui/tts.js');
+    const out = cleanupSamples(new Float32Array(2000), SR);
+    assert.equal(rmsOf(out), 0);
+});
+
+test('响度统一：电平差 12 dB 的两段处理后接近，峰值不超过 -1 dBFS，同一句后续段沿用第一段增益', async () => {
+    const { conditionVoiceBuffer, loudnessGain } = await import('../src/visual/igs-ui/tts.js');
+    const context = {
+        createBuffer(channels, length, sampleRate) {
+            const data = Array.from({ length: channels }, () => new Float32Array(length));
+            return { numberOfChannels: channels, length, sampleRate, duration: length / sampleRate, getChannelData: (c) => data[c] };
+        },
+    };
+    const wrap = (data) => ({ numberOfChannels: 1, length: data.length, sampleRate: SR, duration: data.length / SR, getChannelData: () => data });
+    const quiet = sineOf(SR, 0.07);
+    const loud = sineOf(SR, 0.28);
+    const a = conditionVoiceBuffer(context, wrap(quiet)).getChannelData(0);
+    const b = conditionVoiceBuffer(context, wrap(loud)).getChannelData(0);
+    assert.ok(Math.abs(dbOf(rmsOf(a), rmsOf(b))) < 2, `${dbOf(rmsOf(a), rmsOf(b))}`);
+    const limit = 10 ** (-1 / 20);
+    for (const data of [a, b]) assert.ok(Math.max(...data.map(Math.abs)) <= limit + 1e-6);
+    const peaky = sineOf(SR, 0.9);
+    const gain = loudnessGain([peaky], SR);
+    assert.ok(gain * 0.9 <= limit + 1e-6, 'peak limit wins over the target');
+    const ref = {};
+    const first = conditionVoiceBuffer(context, wrap(quiet), { ref }).getChannelData(0);
+    const second = conditionVoiceBuffer(context, wrap(sineOf(SR, 0.05)), { ref }).getChannelData(0);
+    assert.ok(Math.abs(rmsOf(first) / 0.07 * Math.SQRT2 - rmsOf(second) / 0.05 * Math.SQRT2) < 1e-3, 'same gain on both segments');
+    assert.equal(conditionVoiceBuffer(context, { duration: 1 }).duration, 1, 'buffers without samples pass through');
+});
+
+test('人声净化设置默认开启；关闭时 plan 不带净化，听筒模式不重复插滤波', async () => {
+    const { buildBarkChain } = await import('../src/visual/igs-ui/voice-bark.js');
+    assert.equal(normalizeTtsSettings({}).cleanup, true);
+    assert.equal(normalizeTtsSettings({ cleanup: false }).cleanup, false);
+    const line = { key: 'c1', textType: 'narration', text: '夜深了。' };
+    assert.equal(decideTts({}, line, { ...ON }).cleanup, true);
+    assert.equal(decideTts({}, line, { ...ON, cleanup: false }).cleanup, false);
+    const make = () => {
+        const made = [];
+        const param = () => ({ value: 0 });
+        const node = (extra = {}) => ({ connect() {}, disconnect() {}, ...extra });
+        return {
+            made,
+            createGain: () => node({ gain: param() }),
+            createBiquadFilter: () => { const f = node({ type: '', frequency: param(), Q: param(), gain: param() }); made.push(f); return f; },
+            createStereoPanner: () => node({ pan: param() }),
+        };
+    };
+    const types = (plan) => {
+        const context = make();
+        buildBarkChain(context, {}, { volume: 1, pan: 0, phone: false, ...plan }, []);
+        return context.made.map((f) => f.type);
+    };
+    assert.deepEqual(types({ cleanup: true }), ['highpass', 'highshelf']);
+    assert.deepEqual(types({ cleanup: false }), []);
+    assert.deepEqual(types({}), []);
+    assert.deepEqual(types({ cleanup: true, phone: true }), ['highpass', 'lowpass']);
+});
+
+test('朗读读完后场景声保持压低 800 ms 才回升，保持期内新一句接手，stopTts 立即回升', async (t) => {
+    const { sceneAudioDuckFactor } = await import('../src/visual/igs-ui/scene-audio.js');
+    const synth = fakeSynth();
+    await withSystemEnv(t, synth, async ({ tts }) => {
+        const speak = (text) => {
+            tts.playTts(systemPlan(text), { enabled: true });
+            const u = synth.spoken.at(-1);
+            u.onstart();
+            return u;
+        };
+        assert.equal(sceneAudioDuckFactor(), 1);
+        speak('第一句。').onend();
+        assert.equal(sceneAudioDuckFactor(), 0.55, 'still ducked right after the line ends');
+        t.mock.timers.tick(799);
+        assert.equal(sceneAudioDuckFactor(), 0.55);
+        t.mock.timers.tick(1);
+        assert.equal(sceneAudioDuckFactor(), 1, 'released after the hold');
+
+        speak('第二句。').onend();
+        tts.playTts(systemPlan('第三句。'), { enabled: true });
+        t.mock.timers.tick(2000);
+        assert.equal(sceneAudioDuckFactor(), 0.55, 'hold handed to the next line until it starts speaking');
+        const third = synth.spoken.at(-1);
+        third.onstart();
+        assert.equal(sceneAudioDuckFactor(), 0.55);
+        third.onend();
+        t.mock.timers.tick(800);
+        assert.equal(sceneAudioDuckFactor(), 1);
+
+        speak('第四句。').onend();
+        tts.stopTts();
+        assert.equal(sceneAudioDuckFactor(), 1, 'stopTts after the line ended restores at once');
+
+        speak('第五句。').onend();
+        tts.playTts(systemPlan('第六句。'), { enabled: true });
+        tts.stopTts();
+        assert.equal(sceneAudioDuckFactor(), 1, 'a cancelled new line releases the inherited hold');
+        speak('第七句。');
+        tts.stopTts();
+        assert.equal(sceneAudioDuckFactor(), 1, 'cancelled line releases at once');
+
+        speak('第八句。');
+        tts.playTts(systemPlan('第九句。'), { enabled: true });
+        t.mock.timers.tick(500);
+        assert.equal(sceneAudioDuckFactor(), 0.55, 'a line cut off by the next one keeps the duck until the next starts');
+        const ninth = synth.spoken.at(-1);
+        ninth.onstart();
+        ninth.onend();
+        t.mock.timers.tick(800);
+        assert.equal(sceneAudioDuckFactor(), 1);
+    });
 });

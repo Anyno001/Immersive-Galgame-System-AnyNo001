@@ -57,6 +57,23 @@ const ROLE_KEYS = ['female', 'male', 'narrator'];
 const TTS_DEFAULTS = Object.freeze({ enabled: false, provider: 'system', volume: 0.9, rate: 1, narration: true, nsfw: false, narratorRate: 1, cacheMax: 300 });
 // 朗读时 BGM 与环境音让得比语气音多一点，台词要听清。
 const TTS_DUCK_RATIO = 0.55;
+// 读完后场景声再压低这么久才回升，连续朗读时不一起一伏。
+const TTS_DUCK_HOLD_MS = 800;
+// 人声净化（向下扩展）：阈值取最大 10 ms 窗 RMS 以下 26 dB，低于阈值按 1:2 扩展，最多压 18 dB。
+const CLEANUP_WINDOW_MS = 10;
+const CLEANUP_THRESHOLD_DB = 26;
+const CLEANUP_RATIO = 2;
+const CLEANUP_FLOOR_DB = 18;
+const CLEANUP_ATTACK_MS = 5;
+const CLEANUP_RELEASE_MS = 80;
+// 单段超过这个时长不做净化，只做响度统一。
+const CLEANUP_MAX_S = 30;
+// 响度统一：目标 RMS、静音门限（最大窗以下 40 dB 不计）、增益范围、峰值上限。
+const LOUD_TARGET_DB = -20;
+const LOUD_GATE_DB = 40;
+const LOUD_GAIN_MIN = 0.5;
+const LOUD_GAIN_MAX = 2.5;
+const LOUD_PEAK_DB = -1;
 const THOUGHT_VOLUME_DEFAULT = 0.8;
 // Chrome 一条朗读超过约 15 秒会被掐断，按句切成短段排队念。
 const CHUNK_MAX = 120;
@@ -215,6 +232,8 @@ export function normalizeTtsSettings(value) {
         // 接口朗读的持久缓存最多保留条数，超出按先进先出清理。
         cacheMax: source.cacheMax !== undefined && source.cacheMax !== '' && Number.isFinite(cacheMax) ? clamp(Math.round(cacheMax), 0, TTS_CACHE_LIMIT) : TTS_DEFAULTS.cacheMax,
         nsfw: source.nsfw === true,
+        // 人声净化：接口音频滤掉低频嗡声与高频嘶声，并压低字间与句尾的弱信号。
+        cleanup: source.cleanup !== false,
         // 翻页不打断：上一句念完再念这一句（快速翻页时只排最新的一句）。
         sustain: source.sustain === true,
         bilingual: source.bilingual === 'original' ? 'original' : 'translation',
@@ -798,6 +817,7 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         rate,
         pitch: clamp(voice.pitch * (prosody.pitch || 1), 0.5, 2),
         pan: shape.pan, close: shape.close, phone: shape.phone,
+        cleanup: config.cleanup,
     };
 }
 
@@ -864,11 +884,54 @@ export function isTtsSpeaking() {
     return Boolean(active && !active.done);
 }
 
+// 读完后保持压低一小会儿：下一句在保持期内开口就接手，stopTts 则立即回升。
+let heldDuck = null;
+
+function releaseHeldDuck() {
+    if (!heldDuck) return;
+    const held = heldDuck;
+    heldDuck = null;
+    clearTimeout(held.timer);
+    held.release();
+}
+
+function holdDuck(release) {
+    releaseHeldDuck();
+    const held = { release, timer: null };
+    held.timer = setTimeout(releaseHeldDuck, TTS_DUCK_HOLD_MS);
+    heldDuck = held;
+}
+
+function takeHeldDuck() {
+    if (!heldDuck) return null;
+    const { release, timer } = heldDuck;
+    heldDuck = null;
+    clearTimeout(timer);
+    return release;
+}
+
+// 新任务自己压低之后，才放掉接手来的保持。
+function duckJob(job, options) {
+    if (!job.done) job.releaseDuck = duckSceneAudio({ ratio: TTS_DUCK_RATIO, ...options });
+    if (job.inheritedDuck) {
+        job.inheritedDuck();
+        job.inheritedDuck = null;
+    }
+}
+
 function finish(job) {
     if (job.done) return;
     job.done = true;
-    if (job.releaseDuck) job.releaseDuck();
+    if (job.releaseDuck) {
+        if (job.cancelled && !job.handoff) job.releaseDuck();
+        else holdDuck(job.releaseDuck);
+    }
     job.releaseDuck = null;
+    if (job.inheritedDuck) {
+        if (job.handoff && !heldDuck) holdDuck(job.inheritedDuck);
+        else job.inheritedDuck();
+    }
+    job.inheritedDuck = null;
     for (const node of job.nodes) {
         try { node.disconnect(); } catch { /* already disconnected */ }
     }
@@ -897,18 +960,26 @@ function haltJob(job) {
     }
 }
 
-export function stopTts() {
+// 翻页换句（handoff）时被掐掉的一句也保持压低，交给下一句接手。
+function haltActive({ handoff = false } = {}) {
     queued = null;
     if (!active) return;
     const job = active;
     active = null;
+    job.handoff = handoff;
     haltJob(job);
     finish(job);
 }
 
+export function stopTts() {
+    releaseHeldDuck();
+    haltActive();
+}
+
 function startJob(plan) {
-    stopTts();
-    const job = { plan, done: false, cancelled: false, preview: plan.preview === true, nodes: [], releaseDuck: null, fetched: null, synth: null, source: null, sources: [], utterances: [], watchdog: null, startTimer: null, releases: [] };
+    haltActive({ handoff: true });
+    const inheritedDuck = takeHeldDuck();
+    const job = { plan, done: false, cancelled: false, preview: plan.preview === true, nodes: [], releaseDuck: null, inheritedDuck, fetched: null, synth: null, source: null, sources: [], utterances: [], watchdog: null, startTimer: null, releases: [] };
     active = job;
     return job;
 }
@@ -950,7 +1021,7 @@ function speakSystem(job, { text, voice, volume, rate, pitch, lang }, synth = gl
                     const seconds = text.length / (CHARS_PER_SECOND * rate);
                     yieldTypewriterAudio(seconds);
                     // 念完时释放；兜底时长防止某些浏览器漏发 onend 让配乐一直压着。
-                    job.releaseDuck = duckSceneAudio({ ratio: TTS_DUCK_RATIO, durationMs: seconds * 1500 + 3000 });
+                    duckJob(job, { durationMs: seconds * 1500 + 3000 });
                 };
             }
             if (i === chunks.length - 1) u.onend = () => finish(job);
@@ -1574,6 +1645,132 @@ function expireJob(job, message) {
     finish(job);
 }
 
+const dbToGain = (db) => 10 ** (db / 20);
+
+function windowMeanSquares(samples, win) {
+    const count = Math.ceil(samples.length / win);
+    const out = new Float64Array(count);
+    for (let w = 0; w < count; w += 1) {
+        const start = w * win;
+        const end = Math.min(samples.length, start + win);
+        let sum = 0;
+        for (let i = start; i < end; i += 1) sum += samples[i] * samples[i];
+        out[w] = sum / (end - start);
+    }
+    return out;
+}
+
+// 向下扩展：压低字间与句尾的弱信号（残响、底噪），不做硬门限，增益曲线平滑过渡。
+export function cleanupSamples(samples, sampleRate, options = {}) {
+    const {
+        thresholdDb = CLEANUP_THRESHOLD_DB, ratio = CLEANUP_RATIO, floorDb = CLEANUP_FLOOR_DB,
+        windowMs = CLEANUP_WINDOW_MS, attackMs = CLEANUP_ATTACK_MS, releaseMs = CLEANUP_RELEASE_MS,
+    } = options;
+    const length = samples.length;
+    const out = new Float32Array(length);
+    const win = Math.max(1, Math.round((sampleRate * windowMs) / 1000));
+    const rms = windowMeanSquares(samples, win).map(Math.sqrt);
+    const count = rms.length;
+    let top = 0;
+    for (let w = 0; w < count; w += 1) if (rms[w] > top) top = rms[w];
+    if (top < 1e-9) {
+        out.set(samples);
+        return out;
+    }
+    const threshold = top * dbToGain(-thresholdDb);
+    // 包络取相邻三窗的最大值：开口略早、收口略晚，字头字尾不被切。
+    const targets = new Float64Array(count);
+    for (let w = 0; w < count; w += 1) {
+        const env = Math.max(rms[w], w > 0 ? rms[w - 1] : 0, w + 1 < count ? rms[w + 1] : 0);
+        const cut = env >= threshold ? 0 : Math.min(floorDb, (ratio - 1) * 20 * Math.log10(threshold / Math.max(env, 1e-9)));
+        targets[w] = dbToGain(-cut);
+    }
+    // 时间常数按「走完 90%」的时长算。
+    const coef = (ms) => 1 - Math.exp(-Math.LN10 / Math.max(1, (ms * sampleRate) / 1000));
+    const attack = coef(attackMs);
+    const release = coef(releaseMs);
+    let gain = targets[0];
+    for (let i = 0; i < length; i += 1) {
+        const pos = (i - win / 2) / win;
+        const w0 = Math.min(count - 1, Math.max(0, Math.floor(pos)));
+        const w1 = Math.min(count - 1, w0 + 1);
+        const frac = Math.min(1, Math.max(0, pos - w0));
+        const target = targets[w0] * (1 - frac) + targets[w1] * frac;
+        gain += (target - gain) * (target > gain ? attack : release);
+        out[i] = samples[i] * gain;
+    }
+    return out;
+}
+
+function peakOf(channels) {
+    let peak = 0;
+    for (const data of channels) {
+        for (let i = 0; i < data.length; i += 1) {
+            const v = Math.abs(data[i]);
+            if (v > peak) peak = v;
+        }
+    }
+    return peak;
+}
+
+// 整段接近目标响度的增益：只统计非静音窗，峰值上限优先。
+export function loudnessGain(channels, sampleRate) {
+    const win = Math.max(1, Math.round((sampleRate * CLEANUP_WINDOW_MS) / 1000));
+    const per = channels.map((data) => windowMeanSquares(data, win));
+    const count = per.length ? per[0].length : 0;
+    const power = new Float64Array(count);
+    let top = 0;
+    for (let w = 0; w < count; w += 1) {
+        for (const list of per) power[w] += list[w] / per.length;
+        if (power[w] > top) top = power[w];
+    }
+    if (top <= 0) return 1;
+    const gate = top * dbToGain(-LOUD_GATE_DB) ** 2;
+    let sum = 0;
+    let used = 0;
+    for (let w = 0; w < count; w += 1) {
+        if (power[w] < gate) continue;
+        sum += power[w];
+        used += 1;
+    }
+    const rms = Math.sqrt(sum / Math.max(1, used));
+    let gain = Math.min(LOUD_GAIN_MAX, Math.max(LOUD_GAIN_MIN, dbToGain(LOUD_TARGET_DB) / rms));
+    const peak = peakOf(channels);
+    if (peak > 0) gain = Math.min(gain, dbToGain(LOUD_PEAK_DB) / peak);
+    return gain;
+}
+
+// 解码后的整理：净化（可选）+ 响度统一。ref.gain 由同一句的第一段算出，后续段沿用。出任何问题都原样返回。
+export function conditionVoiceBuffer(context, buffer, { cleanup = false, ref = {} } = {}) {
+    try {
+        if (!buffer || typeof buffer.getChannelData !== 'function' || typeof context.createBuffer !== 'function') return buffer;
+        const rate = buffer.sampleRate;
+        const tidy = cleanup && buffer.length / rate <= CLEANUP_MAX_S;
+        const channels = [];
+        for (let c = 0; c < buffer.numberOfChannels; c += 1) {
+            const data = buffer.getChannelData(c);
+            channels.push(tidy ? cleanupSamples(data, rate) : data);
+        }
+        if (!channels.length) return buffer;
+        let gain = ref.gain;
+        if (!Number.isFinite(gain)) {
+            gain = loudnessGain(channels, rate);
+            ref.gain = gain;
+        } else {
+            const peak = peakOf(channels);
+            if (gain * peak > 1) gain = 1 / peak;
+        }
+        const out = context.createBuffer(channels.length, buffer.length, rate);
+        channels.forEach((data, c) => {
+            const target = out.getChannelData(c);
+            for (let i = 0; i < data.length; i += 1) target[i] = data[i] * gain;
+        });
+        return out;
+    } catch {
+        return buffer;
+    }
+}
+
 function speakApi(job, plan, api) {
     const bus = busInput(plan.close || plan.phone || voiceFilterUsesDry() ? 'dry' : 'voice');
     if (!bus) {
@@ -1613,6 +1810,7 @@ function speakApi(job, plan, api) {
         let scheduled = false;
         let chain = null;
         let when = 0;
+        const loudness = {};
         const settle = () => {
             if (scheduled && !job.cancelled && sources.every((source) => source.igsEnded)) finish(job);
         };
@@ -1621,8 +1819,9 @@ function speakApi(job, plan, api) {
                 const buffer = await item;
                 if (job.cancelled) return;
                 if (!buffer) throw new Error('音频解码失败');
+                const voice = conditionVoiceBuffer(context, buffer, { cleanup: plan.cleanup === true, ref: loudness });
                 const source = context.createBufferSource();
-                source.buffer = buffer;
+                source.buffer = voice;
                 chain = chain || buildBarkChain(context, bus, plan, job.nodes);
                 source.connect(chain);
                 source.onended = () => {
@@ -1631,11 +1830,11 @@ function speakApi(job, plan, api) {
                 };
                 const startAt = Math.max(when, context.currentTime + 0.02);
                 source.start(startAt);
-                when = startAt + (buffer.duration || 0);
+                when = startAt + (voice.duration || 0);
                 if (!sources.length) {
                     job.source = source;
                     lastError = '';
-                    job.releaseDuck = duckSceneAudio({ ratio: TTS_DUCK_RATIO });
+                    duckJob(job);
                 }
                 sources.push(source);
                 job.sources.push(source);
@@ -1732,7 +1931,7 @@ export function applyTts(root, line, settings, sceneAssets, { now = Date.now, ti
     // 翻页不打断：上一句还在念就让它念完，这一句排在后面（只留最新一句）；否则立刻掐掉上一句。
     const sustain = config.sustain && isTtsSpeaking();
     if (sustain) queued = null;
-    else stopTts();
+    else haltActive({ handoff: true });
     if (!plan) {
         // 这一页不念（旁白关了、角色不朗读等）：重听不该念回上一页。
         lastPlayed = null;
@@ -1874,7 +2073,7 @@ export function previewTts(settings, { role = 'female', voice = '', speaker = ''
     const plan = {
         provider, apiSource: separate ? 'narrator' : 'main', style: narrator ? config.narratorStyle : speaker ? spokenStyle(config, sceneAssets, { textType: thought ? 'thought' : 'dialogue', speaker }, '') : '',
         text: narrator ? '夜色渐深，街角的灯一盏接一盏亮了起来。' : thought ? '这家伙，到底在想些什么呢。' : '你好，这是台词朗读的试听。今天也请多指教。', voice: picked, role, lang: 'zh',
-        volume, gainCap: TTS_GAIN_CAP, rate, pitch: 1, pan: 0, close: false, phone: false, preview: true,
+        volume, gainCap: TTS_GAIN_CAP, rate, pitch: 1, pan: 0, close: false, phone: false, preview: true, cleanup: config.cleanup,
     };
     lastError = '';
     const job = playTts(plan, config);

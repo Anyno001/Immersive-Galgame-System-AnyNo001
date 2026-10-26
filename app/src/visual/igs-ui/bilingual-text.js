@@ -6,7 +6,6 @@ export const BILINGUAL_DISPLAY_LABELS = Object.freeze({ ruby: '译文注音', 'r
 export const BILINGUAL_LAYOUTS = Object.freeze(['interleave', 'stack', 'clause']);
 export const BILINGUAL_LAYOUT_LABELS = Object.freeze({ interleave: '交错', stack: '注音在上', clause: '按分句' });
 export const isBilingualRuby = (display) => display === 'ruby' || display === 'ruby-source';
-export const BILINGUAL_TARGET_LABELS = Object.freeze({ 'zh-Hans': '简体中文', 'zh-Hant': '繁体中文' });
 
 // 译文单独成行时的标记类；打字机按 <rt> 同样对待它：不逐字揭示、不发打字音。
 export const BILINGUAL_NOTE_CLASS = 'igs-bi-note';
@@ -36,7 +35,6 @@ export function normalizeBilingualSettings(value) {
         enabled: source.enabled === true,
         display: BILINGUAL_DISPLAYS.includes(source.display) ? source.display : 'ruby',
         layout: BILINGUAL_LAYOUTS.includes(source.layout) ? source.layout : 'interleave',
-        target: Object.hasOwn(BILINGUAL_TARGET_LABELS, source.target) ? source.target : 'zh-Hans',
     };
 }
 
@@ -172,18 +170,17 @@ export function fitBilingualRuby(textEl) {
 export function bilingualGrammarBlock(settings) {
     const s = normalizeBilingualSettings(settings);
     const lang = '各自设定的母语（如日语、英语）';
-    const target = BILINGUAL_TARGET_LABELS[s.target];
     const clause = s.layout === 'clause';
     const examples = clause ? CLAUSE_EXAMPLES : SEGMENT_EXAMPLES;
     const example = examples.ja;
     const unit = clause
         ? '- 每个分句或短句后紧跟一个〖〗，不要整段只在末尾标一次；〖〗内只写译文，不嵌套、不换行'
         : '- 一段连续的台词或心里话只在末尾跟一个〖〗，写这一整段的完整译文，不要一句一个；被旁白、动作或换行隔开的各段各跟一个〖〗\n- 〖〗内只写译文，不嵌套、不换行';
-    return `【双语台词】所有角色（包括主角）的对白和心里话都要双语书写。写作 ${lang}原文后${clause ? '按分句' : ''}紧跟〖${target}译文〗：
+    return `【双语台词】所有角色（包括主角）的对白和心里话都要双语书写。写作 ${lang}原文后${clause ? '按分句' : ''}紧跟〖译文〗：
 - 写在 [igs-char] 的对白栏和 [igs-thought] 的心里话栏里；不用这些标签时，写在正文的台词和心里话里。如 ${example}
 ${unit}
-- 旁白照常用${target}书写，不加〖〗；角色名、表情、服装、选项和其他标签字段也不写〖〗
-- 本来就是${target}的话不加〖〗；其他行内标记只包住原文，不要跨过〖〗`;
+- 译文与旁白使用同一种语言（即本对话的主要叙述语言），旁白照常书写，不加〖〗；角色名、表情、服装、选项和其他标签字段也不写〖〗
+- 本来就是该语言的话不加〖〗；其他行内标记只包住原文，不要跨过〖〗`;
 }
 
 export function resolveBilingualPromptRule(settings) {
