@@ -35,6 +35,18 @@ export function normalizeImageSourceMode(value) {
 // 等待较久只报告仍在处理；继续接收同一插件调用的结果，不再因本地计时器丢开原调用。
 export const DBGEN_TIMEOUTS = Object.freeze({ write: 5 * 60 * 1000, paint: 3 * 60 * 1000 });
 
+const secs = ms => `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
+
+// 生图分段耗时：手机端无控制台，写进排查日志供复制。
+function reportNaiTiming(report, method, enteredAt, readyAt, result) {
+    const t = result?.timing;
+    if (typeof report !== 'function' || !t?.queuedAt) return;
+    const parts = [`就绪检查 ${secs(readyAt - enteredAt)}`, `排队 ${secs((t.startedAt || t.doneAt) - t.queuedAt)}`];
+    if (t.startedAt && t.headersAt) parts.push(`等服务器 ${secs(t.headersAt - t.startedAt)}`, `下载解析 ${secs((t.doneAt || t.headersAt) - t.headersAt)}`);
+    parts.push(`合计 ${secs((t.doneAt || Date.now()) - enteredAt)}`);
+    report('info', `NAI 计时（${method === 'edit' ? '局部重绘' : '生图'}${result?.ok ? '' : '·失败'}）：${parts.join('，')}`);
+}
+
 function waitForPluginResult(promise, ms, onSlow, signal) {
     let timer, abort;
     const cancelled = new Promise(resolve => {
@@ -242,10 +254,12 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             signal: meta.signal || input?.signal || settings?.signal,
             shouldStart: meta.shouldStart || input?.shouldStart || settings?.shouldStart })),
         async (guarded, lease) => {
+            const enteredAt = Date.now();
             if (taskRuntime || getBridge) {
                 const ready = await waitUntilReady(guarded);
                 if (!ready?.ok) return ready;
             }
+            const readyAt = Date.now();
             const config = imageTaskState(guarded)?.config || lease?.state?.config;
             const base = config?.autoIllustration?.nai;
             // 正式链路的凭据、传输和全局参数只取本轮私有快照，不复用旧设置副本。
@@ -270,7 +284,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                 ...(guarded.signal && { signal: guarded.signal }),
                 ...(guarded.shouldStart && { shouldStart: guarded.shouldStart }),
             };
-            return retryRun('nai', () => nai[method](method === 'edit' ? { ...prepared, ...controls } : prepared,
+            const result = await retryRun('nai', () => nai[method](method === 'edit' ? { ...prepared, ...controls } : prepared,
                 { ...frozen, ...controls, onSlow: () => report?.('info', 'NAI 仍在处理同一次请求，继续接收原结果') }), guarded,
             result => {
                 if (![400, 401, 402, 403, 422].includes(result?.status)) return { changed: false };
@@ -300,6 +314,8 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                 }
                 return { changed };
             });
+            reportNaiTiming(report, method, enteredAt, readyAt, result);
+            return result;
         });
     // chatu8 可注入 { findHost, request } 供测试替换；默认走真实的智绘姬事件桥。
     const chatu8Bridge = chatu8 && typeof chatu8 === 'object' ? chatu8 : {};

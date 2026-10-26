@@ -127,9 +127,16 @@ export function createNaiOfficialClient(deps = {}) {
         if (inputSettings.signal?.aborted) abort();
         const timer = setTimeout(() => { try { inputSettings.onSlow?.(); } catch { /* 展示不改变请求状态。 */ } }, timeoutMs);
         const deadline = Date.now() + timeoutMs;
+        // 分段计时写进生图排查日志：排队（同 Key 串行锁）、等服务器响应、下载解析。
+        const timing = { queuedAt: Date.now() };
+        settings.timing = timing;
         try {
-            const result = await queue.run(settings.apiKey,
-                () => sendWithRetry(body, settings, deadline), settings);
+            const result = await queue.run(settings.apiKey, () => {
+                timing.startedAt = Date.now();
+                return sendWithRetry(body, settings, deadline);
+            }, settings);
+            timing.doneAt = Date.now();
+            if (result && typeof result === 'object') result.timing = timing;
             return allowed(settings) ? result : stale();
         } finally {
             clearTimeout(timer);
@@ -177,6 +184,7 @@ export function createNaiOfficialClient(deps = {}) {
             let response;
             try {
                 response = await send(body, settings);
+                if (settings.timing) settings.timing.headersAt = Date.now();
             } catch (error) {
                 if (!allowed(settings)) return stale();
                 const aborted = error && error.name === 'AbortError';

@@ -67,6 +67,8 @@ const isOffDayTime = (time) => { const bucket = sceneTimeBucket(time); return Bo
 const staleSprite = guard => ({ ok: false, reason: 'stale-target', stopGeneration: true,
     error: `${guard?.failureReason?.() || '立绘生成目标已失效'}，已停止立绘生成` });
 
+const secs = ms => `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
+
 function randomSeed() {
     return Math.floor(Math.random() * 4294967295);
 }
@@ -1482,6 +1484,7 @@ export function createAssetGenerationService(deps) {
             ...characterPromptRecovery(templateInput), ...(exact && { edited: true }),
             ...(characterMeta !== undefined && { characterMeta }) };
         let painted;
+        const paintStartedAt = Date.now();
         try {
             painted = await generateCaption(inheritImageTaskLease(protocol, { ...meta, caption: upright, ...(seed != null && { seed }),
                 ...(protocol || {}), ...(signal && { signal }),
@@ -1508,7 +1511,9 @@ export function createAssetGenerationService(deps) {
         }
         const imageId = newId();
         const createdAt = now();
+        const paintDoneAt = Date.now();
         const image = await buildSpriteImageRecord(imageId, painted.dataUrl, meta.transparent, createdAt);
+        const matteDoneAt = Date.now();
         if (builtinSeeds(signal)) image.seed = resolveImageSeed(painted.seed ?? seed);
         let prompt = storedPromptFromResult(painted, upright);
         if (!externalSource(signal) && exact && history && prompt) prompt = { ...promptProvenance(history), ...prompt, captionMode: 'final' };
@@ -1526,6 +1531,7 @@ export function createAssetGenerationService(deps) {
         let saved;
         try { saved = await persistGeneratedImage(image); }
         catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
+        report('info', `立绘计时（${name}·${mood}）：出图 ${secs(paintDoneAt - paintStartedAt)}，抠图 ${secs(matteDoneAt - paintDoneAt)}，保存 ${secs(Date.now() - matteDoneAt)}`);
         // 没存上就不能报成功：否则格子会指向一张不存在的图，已画好的表情也看不到。
         if (saved?.ok === false) {
             const cancelled = saved.cancelled === true;
