@@ -117,8 +117,18 @@ const MOOD_PROSODY = Object.freeze({
     悲伤: { rate: 0.9, pitch: 0.95 }, 哭泣: { rate: 0.88, pitch: 0.97 }, 委屈: { rate: 0.93, pitch: 0.98 },
     害羞: { rate: 0.94, pitch: 1.03 }, 心虚: { rate: 0.95 }, 思考: { rate: 0.92 }, 冷淡: { rate: 0.96, pitch: 0.96 },
     无奈: { rate: 0.94, pitch: 0.97 }, 动情: { rate: 0.9 }, 爱恋: { rate: 0.94, pitch: 1.02 },
+    紧张: { rate: 1.04, pitch: 1.03 }, 嫌弃: { rate: 0.95, pitch: 0.97 }, 不满: { rate: 1.02, pitch: 0.99 }, 怀疑: { rate: 0.95, pitch: 0.98 },
 });
+// 耳语在情绪韵律的基础上再乘这一组。
 const WHISPER_PROSODY = Object.freeze({ rate: 0.92 });
+// 情绪强度（轻 / 中 / 强）：系统语音按它缩放情绪韵律偏离量，Fish 按它换标签。
+const LEVEL_SCALE = Object.freeze({ light: 0.5, mid: 1, strong: 1.4 });
+const LEVEL_LIGHT_RE = /微微|有点|有些|略微|略|稍微|稍|轻微|淡淡|些许|隐隐/;
+const LEVEL_STRONG_RE = /暴怒|大怒|震怒|狂怒|盛怒|怒吼|咆哮|吼叫|崩溃|歇斯底里|狂喜|痛哭|大哭|惊恐|极度|极其|万分|目瞪口呆/;
+// 程度词本身不是情绪词：识别情绪前先去掉（「有点愤怒」按「愤怒」查）。
+const LEVEL_DEGREE_RE = /微微|有点|有些|略微|稍微|轻微|淡淡|些许|隐隐|极度|极其|万分|十分|非常/g;
+const LEVEL_BANG_RE = /[!！]/g;
+const LEVEL_REPEAT_RE = /([^\s\p{P}])\1{2,}/u;
 // 情绪写进风格描述时用的短语；平和不写。
 const MOOD_STYLE_TEXT = Object.freeze({
     喜悦: '语气愉快', 愤怒: '语气愤怒', 悲伤: '语气悲伤低落', 惊讶: '语气惊讶', 害羞: '语气羞涩', 紧张: '语气紧张', 思考: '语气若有所思',
@@ -127,12 +137,22 @@ const MOOD_STYLE_TEXT = Object.freeze({
 });
 const WHISPER_STYLE_TEXT = '压低声音耳语';
 // 音频标签（Fish s2 系列）：中文情绪 → 句首英文描述标签；平和与未知不加。
+// 值为字符串时三档同值，为 { light, mid, strong } 时按强度取。
+const tier = (light, mid, strong) => Object.freeze({ light, mid, strong });
 const MOOD_FISH_TAG = Object.freeze({
-    喜悦: '[happy]', 愤怒: '[angry]', 悲伤: '[sad]', 惊讶: '[surprised]', 害羞: '[shy, soft voice]', 紧张: '[nervous]',
+    喜悦: tier('[slightly happy]', '[happy]', '[overjoyed]'), 愤怒: tier('[slightly angry]', '[angry]', '[furious, shouting]'),
+    悲伤: tier('[slightly sad]', '[sad]', '[heartbroken]'), 惊讶: tier('[slightly surprised]', '[surprised]', '[shocked, gasping]'),
+    害羞: '[shy, soft voice]', 紧张: tier('[slightly nervous]', '[nervous]', '[very nervous, trembling]'),
     思考: '[thoughtful]', 爱恋: '[tender]', 嫌弃: '[disgusted]', 得意: '[smug]', 冷淡: '[cold, flat]', 大笑: '[laughing]',
-    哭泣: '[sobbing]', 不满: '[dissatisfied]', 无奈: '[helpless, resigned]', 心虚: '[guilty, hesitant]',
+    哭泣: tier('[teary]', '[sobbing]', '[wailing]'), 不满: tier('[slightly dissatisfied]', '[dissatisfied]', '[irritated]'),
+    无奈: '[helpless, resigned]', 心虚: '[guilty, hesitant]',
     委屈: '[aggrieved, on the verge of tears]', 怀疑: '[doubtful]', 动情: '[breathy, tender]',
 });
+// 同一情绪组里按原词细分的标签：命中时盖过组标签。
+const FISH_WORD_TAGS = Object.freeze([
+    { mood: '大笑', re: /兴奋|激动|雀跃|欢呼|狂喜/, tag: tier('[slightly excited]', '[excited]', '[very excited]') },
+    { mood: '紧张', re: /害怕|恐惧|惊恐|畏惧|胆怯/, tag: tier('[slightly scared]', '[scared, trembling]', '[terrified, trembling]') },
+]);
 const WHISPER_FISH_TAG = '[whisper]';
 const THOUGHT_FISH_TAG = '[soft inner voice]';
 // 疑惑类情绪词归在「思考」组，朗读要的是上扬的疑问语气，不是若有所思。
@@ -173,6 +193,7 @@ function applyLexiconOutsideTags(text, pairs) {
 // 情绪标签 → MiniMax voice_setting.emotion；映射不到的不发。
 const MINIMAX_EMOTIONS = Object.freeze(['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm']);
 const MOOD_EMOTION = Object.freeze({
+    害羞: 'calm', 爱恋: 'calm', 动情: 'calm', 怀疑: 'calm',
     喜悦: 'happy', 得意: 'happy', 大笑: 'happy', 悲伤: 'sad', 哭泣: 'sad', 委屈: 'sad', 愤怒: 'angry', 不满: 'angry',
     紧张: 'fearful', 心虚: 'fearful', 嫌弃: 'disgusted', 惊讶: 'surprised', 冷淡: 'calm', 思考: 'calm', 无奈: 'calm',
 });
@@ -755,6 +776,24 @@ function ttsVoiceLabel(config, voice) {
     return entry && entry[1] ? entry[1] : '';
 }
 
+// 这一句的情绪强度：情绪原词里的程度词优先；其次看正文的感叹号（两个及以上或「！！」）与叠字，都没有按中档。
+function ttsLevel(text, word) {
+    const w = String(word || '');
+    if (LEVEL_LIGHT_RE.test(w)) return 'light';
+    if (LEVEL_STRONG_RE.test(w)) return 'strong';
+    const body = stripTtsTags(text);
+    if ((body.match(LEVEL_BANG_RE) || []).length >= 2 || LEVEL_REPEAT_RE.test(body)) return 'strong';
+    return 'mid';
+}
+
+// Fish 的情绪标签：先看按原词细分的规则，再取组标签；有分档的按 level 取。
+function fishMoodTag(mood, word, level) {
+    const w = String(word || '');
+    const rule = FISH_WORD_TAGS.find((item) => item.mood === mood && item.re.test(w));
+    const entry = rule ? rule.tag : MOOD_FISH_TAG[mood];
+    return !entry ? '' : typeof entry === 'string' ? entry : entry[level] || entry.mid;
+}
+
 // 这一页要不要念、怎么念（纯函数）。state 跨页记忆上一页的 key，同一页重绘不重念。
 export function decideTts(state, line, settings, { sceneAssets, voices = [], record = true } = {}) {
     const config = normalizeTtsSettings(settings);
@@ -785,20 +824,29 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
     const voice = resolveTtsVoice({ ...line, lang }, config, sceneAssets, voices);
     if (voice.volume <= 0) return skipWith(voice.apiSource === 'narrator' ? '旁白独立接口没有填写声音' : '这个角色设为不朗读');
     if (record) lastSkip = null;
-    const mood = spoken ? resolveBarkMood(line.mood) : '';
+    const assetsMoodGroups = plainObject(sceneAssets) ? sceneAssets.moodGroups : null;
+    const moodWord = String(line.mood || '').replace(LEVEL_DEGREE_RE, '') || String(line.mood || '');
+    const mood = spoken ? resolveBarkMood(moodWord, assetsMoodGroups) : '';
     const confused = spoken && CONFUSED_RE.test(String(line.mood || ''));
+    const level = spoken ? ttsLevel(stripSpeakerPrefix(line.text, line.speaker), line.mood) : 'mid';
     // Fish 句首标签：台词按耳语、心里话、情绪依次叠加；旁白固定平稳叙述。
     let head = '';
     if (tagMode === 'fish') {
         head = spoken
-            ? [line.whisper ? WHISPER_FISH_TAG : '', type === 'thought' ? THOUGHT_FISH_TAG : '', confused ? CONFUSED_FISH_TAG : MOOD_FISH_TAG[mood] || ''].filter(Boolean).join(' ')
+            ? [line.whisper ? WHISPER_FISH_TAG : '', type === 'thought' ? THOUGHT_FISH_TAG : '', confused ? CONFUSED_FISH_TAG : fishMoodTag(mood, line.mood, level)].filter(Boolean).join(' ')
             : NARRATOR_FISH_TAG;
         if (head) text = `${head} ${text}`;
     }
-    const prosody = (spoken && line.whisper ? WHISPER_PROSODY : !confused && MOOD_PROSODY[mood]) || {};
+    // 情绪韵律按强度缩放偏离量；耳语在其上叠加，疑惑保留情绪韵律。
+    const moodProsody = (spoken && MOOD_PROSODY[mood]) || {};
+    const scale = LEVEL_SCALE[level];
+    const prosody = {
+        rate: (1 + ((moodProsody.rate || 1) - 1) * scale) * (spoken && line.whisper ? WHISPER_PROSODY.rate : 1),
+        pitch: (1 + ((moodProsody.pitch || 1) - 1) * scale) * (spoken && line.whisper ? (WHISPER_PROSODY.pitch || 1) : 1),
+    };
     const shape = spoken ? resolveBarkShape(line, mood) : { gain: 1, close: false, phone: false, pan: 0 };
     const gain = type === 'thought' ? shape.gain * config.thoughtVolume : shape.gain;
-    const rate = clamp(config.rate * (spoken ? 1 : config.narratorRate) * voice.rate * (prosody.rate || 1), 0.5, 2);
+    const rate = clamp(config.rate * (spoken ? 1 : config.narratorRate) * voice.rate * prosody.rate, 0.5, 2);
     if (record) lastDecision = { key, speaker: String(line.speaker || ''), name: voice.name, gender: voice.gender, role: voice.role, voice: voice.voice, voiceLabel: ttsVoiceLabel(config, voice), source: voice.source, rate };
     return {
         voiceSource: voice.source, voiceName: voice.name, speaker: String(line.speaker || ''),
@@ -808,6 +856,7 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         // 耳语没有情绪标签时按平静发送；平和与映射不到的不发。
         emotion: spoken ? (line.whisper ? MOOD_EMOTION[mood] || 'calm' : MOOD_EMOTION[mood] || '') : '',
         text,
+        level,
         tagHead: head,
         voice: voice.voice,
         role: voice.role,
@@ -815,7 +864,7 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         volume: clamp(config.volume * gain * voice.volume, 0, TTS_GAIN_CAP),
         gainCap: TTS_GAIN_CAP,
         rate,
-        pitch: clamp(voice.pitch * (prosody.pitch || 1), 0.5, 2),
+        pitch: clamp(voice.pitch * prosody.pitch, 0.5, 2),
         pan: shape.pan, close: shape.close, phone: shape.phone,
         cleanup: config.cleanup,
     };
@@ -863,6 +912,7 @@ export function setTtsErrorHandler(handler) {
 
 function reportError(message, job) {
     lastError = message;
+    if (job) job.failed = true;
     if (!errorHandler || (job && job.preview)) return;
     const now = Date.now();
     if (lastReported.message === message && now - lastReported.at < ERROR_REPEAT_MS) return;
@@ -1044,6 +1094,8 @@ function speakSystem(job, { text, voice, volume, rate, pitch, lang }, synth = gl
         return job;
     }
     job.watchdog = setTimeout(() => {
+        // 系统语音漏发 onend 的兜底收尾：多半是已经念完，不算被掐断。
+        job.timedOut = true;
         haltJob(job);
         finish(job);
     }, ((text.length / (CHARS_PER_SECOND * rate)) * 2 + SYSTEM_WATCHDOG_PAD_S) * 1000 + (busy ? SYSTEM_SPEAK_DELAY_MS : 0));
@@ -1845,8 +1897,10 @@ function speakApi(job, plan, api) {
             reportError(userMessage(error), job);
         }
         scheduled = true;
-        if (!sources.length) finish(job);
-        else settle();
+        if (!sources.length) {
+            job.failed = true;
+            finish(job);
+        } else settle();
     };
     play().catch((error) => {
         if (job.cancelled) return;
@@ -1924,7 +1978,11 @@ export function applyTts(root, line, settings, sceneAssets, { now = Date.now, ti
             const wait = Math.max(0, PREFETCH_DWELL_MS - (now() - shownAt));
             state.prefetchTimer = timers.setTimeout(() => {
                 state.prefetchTimer = null;
-                if (state.token === token) prefetchTts(line.next, settings, sceneAssets, { nsfw: line.nsfw, hint: line.nextHint });
+                if (state.token === token) {
+                    // 耳语多是连续几页：提示里没标耳语区间时，沿用这一页的耳语状态（猜错只是缓存没命中）。
+                    const hint = line.nextHint ? { ...line.nextHint, whisper: line.nextHint.whisper === true || line.whisper === true } : null;
+                    prefetchTts(line.next, settings, sceneAssets, { nsfw: line.nsfw, hint });
+                }
             }, wait);
         });
     };
@@ -2010,14 +2068,33 @@ export function rerollTts() {
 }
 
 // 回想里重播某一句：按现在的设置念，不占用阅读页的「重听」。
-export function speakTtsLine(line, settings, sceneAssets) {
+// 成功时返回 { ok: true, done, cancel }：done 是 Promise（不会 reject），念完、被掐掉或出错时 resolve 为 { completed, cancelled, failed }（三者互斥）；cancel() 只停这一条自己的声音。
+export function speakTtsLine(line, settings, sceneAssets, { poll = 80 } = {}) {
     const state = {};
     const plan = decideTts(state, line, settings, { sceneAssets, voices: listSystemVoices(), record: false });
     if (!plan || plan.skip) return { ok: false, error: normalizeTtsSettings(settings).enabled ? '这一句不朗读' : '台词朗读没开' };
     const keep = lastPlayed;
     const job = playTts(plan, settings);
     lastPlayed = keep;
-    return job ? { ok: true } : { ok: false, error: '朗读失败' };
+    if (!job) return { ok: false, error: '朗读失败' };
+    const done = new Promise((resolve) => {
+        const check = () => {
+            if (!job.done && !job.cancelled) {
+                setTimeout(check, poll);
+                return;
+            }
+            const failed = job.failed === true;
+            const cancelled = !failed && job.cancelled === true && job.timedOut !== true;
+            resolve({ completed: !failed && !cancelled, cancelled, failed });
+        };
+        check();
+    });
+    const cancel = () => {
+        if (job.done) return;
+        haltJob(job);
+        finish(job);
+    };
+    return { ok: true, done, cancel };
 }
 
 // 下一页的文字外形 → 朗读用的一行，与阅读器分页同一套写法：「[名字]：台词」「*[名字]：心里话*」，其余按旁白。
@@ -2032,14 +2109,19 @@ export function guessTtsLine(segment) {
 }
 
 // 提前生成下一页（只对走接口的句子；系统语音本地合成，不用等）。
-// hint：阅读器给的下一页提示 { textType, speaker, mood }，有它时按实际朗读同一条路径构造（情绪、心里话一致，缓存键相同），台词页也预取。
+// hint：阅读器给的下一页提示 { textType, speaker, speakerKey, mood, whisper, phone, nsfw }，有它时按实际朗读同一条路径构造（情绪、耳语、听筒、NSFW 一致，缓存键相同），台词页也预取。
+// 类型以 hint（阅读器分页的判定）为准：「[名字]：*心里话*」文字外形猜成台词，阅读器按心里话算，两边类型对不上也算命中。
 export function prefetchTts(segment, settings, sceneAssets, { nsfw = false, hint = null } = {}) {
     const config = normalizeTtsSettings(settings);
     if (!config.enabled || !usesApi(config) || !segment) return null;
     persistLimit = config.cacheMax;
     const guessed = guessTtsLine(segment);
-    const hinted = hint && (hint.textType === 'dialogue' || hint.textType === 'thought') && guessed.textType === hint.textType;
-    const plan = decideTts({}, { ...guessed, ...(hinted ? { mood: String(hint.mood || ''), speakerKey: String(hint.speakerKey || '') } : {}), nsfw }, config, { sceneAssets, record: false });
+    const spokenType = (type) => type === 'dialogue' || type === 'thought';
+    const hinted = Boolean(hint && spokenType(hint.textType) && spokenType(guessed.textType));
+    const extra = hinted ? { textType: hint.textType, mood: String(hint.mood || ''), speakerKey: String(hint.speakerKey || ''), whisper: hint.whisper === true, phone: hint.phone === true } : {};
+    // NSFW 以下一页自己的为准；没有提示（或提示里没写）时才沿用调用方给的。
+    const pageNsfw = hint && typeof hint.nsfw === 'boolean' ? hint.nsfw : nsfw;
+    const plan = decideTts({}, { ...guessed, ...extra, nsfw: pageNsfw }, config, { sceneAssets, record: false });
     if (!plan || plan.skip || plan.provider !== 'api') return null;
     const api = planApi(config, plan);
     // 情绪会进请求时（MiniMax 发情绪、风格写入情绪、Fish 句首标签），没有情绪提示的台词页预取多半用不上，只预取旁白页。

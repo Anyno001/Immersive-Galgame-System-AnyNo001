@@ -1049,7 +1049,7 @@ test('tts: minimax emotion follows the mood and enters the cache key only when p
     const calmPlan = decideTts({}, { key: 'b', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '平和' }, base, { sceneAssets: {} });
     assert.equal(calmPlan.emotion, '');
     const shy = decideTts({}, { key: 'c', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '害羞' }, base, { sceneAssets: {} });
-    assert.equal(shy.emotion, '');
+    assert.equal(shy.emotion, 'calm', '害羞配平静并降速');
     const narr = decideTts({}, { key: 'd', textType: 'narration', text: '夜色渐深。' }, base, { sceneAssets: {} });
     assert.equal(narr.emotion, '');
     const api = normalizeTtsSettings(base).api;
@@ -1139,7 +1139,7 @@ test('gate: tts audio tags fish sentence-head tags from mood, whisper and though
     assert.equal(plan({ textType: 'thought', mood: '紧张' }).text, '[soft inner voice] [nervous] 那个…');
     assert.equal(plan({ mood: '委屈' }).text, '[aggrieved, on the verge of tears] 那个…');
     assert.equal(plan({ mood: '疑惑' }).text, '[confused, questioning] 那个…');
-    assert.equal(plan({ mood: '疑惑' }).rate, plan({ mood: '平和' }).rate, '疑惑不按思考放慢');
+    assert.equal(plan({ mood: '疑惑' }).rate, plan({ mood: '思考' }).rate, '疑惑保留情绪韵律');
     const narration = decideTts({}, { key: 'n', textType: 'narration', text: '夜色渐深。', mood: '紧张' }, base, { sceneAssets: {} });
     assert.equal(narration.text, '[calm, steady narration] 夜色渐深。');
 });
@@ -1205,8 +1205,9 @@ test('gate: tts prefetch with a mood hint matches the text actually played (fish
         assert.equal(calls.length, 1);
         assert.equal(calls[0].body.voice_setting.emotion, real(mm, '愤怒').emotion);
         assert.ok(real(mm, '愤怒').emotion);
-        // 类型对不上时不信提示，维持只预取旁白
-        assert.equal(prefetchTts('[艾莉]：那个，明天见。', mm, sa, { hint: { ...hint, textType: 'thought' } }), null);
+        // 类型以阅读器的提示为准（「[名字]：*心里话*」猜成台词、阅读器按心里话算）；文字猜成旁白时不信提示（照旁白预取）
+        assert.ok(prefetchTts('[艾莉]：那个，明天见。', mm, sa, { hint: { ...hint, textType: 'thought' } }));
+        assert.ok(prefetchTts('夜色渐深。', mm, sa, { hint }), 'narration guess: hint is ignored, page still prefetched as narration');
     } finally {
         globalThis.fetch = realFetch;
     }
@@ -1563,4 +1564,116 @@ test('朗读读完后场景声保持压低 800 ms 才回升，保持期内新一
         t.mock.timers.tick(800);
         assert.equal(sceneAudioDuckFactor(), 1);
     });
+});
+
+test('tts: fish tags follow emotion strength and split mixed groups by the original word', () => {
+    const base = { enabled: true, provider: 'api', api: { format: 'fish', apiKey: 'k', female: 'v1' } };
+    const plan = (line) => decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '走开。', ...line }, base, { sceneAssets: {} });
+    assert.equal(plan({ mood: '愤怒' }).text, '[angry] 走开。');
+    assert.equal(plan({ mood: '愤怒', text: '走开！！' }).text, '[furious, shouting] 走开！');
+    assert.equal(plan({ mood: '愤怒', text: '走开！' }).text, '[angry] 走开！');
+    assert.equal(plan({ mood: '暴怒' }).text, '[furious, shouting] 走开。');
+    assert.equal(plan({ mood: '有点愤怒' }).text, '[slightly angry] 走开。');
+    assert.equal(plan({ mood: '愤怒', text: '啊啊啊走开' }).level, 'strong');
+    assert.equal(plan({ mood: '兴奋' }).text, '[excited] 走开。');
+    assert.equal(plan({ mood: '大笑' }).text, '[laughing] 走开。');
+    assert.equal(plan({ mood: '害怕' }).text, '[scared, trembling] 走开。');
+    assert.equal(plan({ mood: '紧张' }).text, '[nervous] 走开。');
+    assert.equal(plan({ mood: '害羞', text: '走开！！' }).text, '[shy, soft voice] 走开！', 'untiered moods keep one tag');
+});
+
+test('tts: system prosody scales with strength, whisper stacks on the mood, minimax maps shy moods to calm', () => {
+    const base = { enabled: true };
+    const plan = (line) => decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '走开。', ...line }, base, { sceneAssets: {} });
+    const mid = plan({ mood: '愤怒' }).rate;
+    assert.ok(plan({ mood: '微微愤怒' }).rate < mid && plan({ mood: '暴怒' }).rate > mid);
+    assert.ok(Math.abs(plan({ mood: '愤怒', whisper: true }).rate - mid * 0.92) < 1e-9, 'whisper multiplies the mood rate');
+    assert.equal(plan({ mood: '紧张' }).rate > 1, true);
+    assert.equal(plan({ mood: '怀疑' }).rate < 1, true);
+    const mm = { enabled: true, provider: 'api', api: { format: 'minimax', female: 'f' } };
+    for (const mood of ['害羞', '爱恋', '动情']) assert.equal(decideTts({}, { key: mood, textType: 'dialogue', speaker: '甲', text: '你好。', mood }, mm, { sceneAssets: {} }).emotion, 'calm');
+    assert.equal(decideTts({}, { key: 'x', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '紧张' }, mm, { sceneAssets: {} }).emotion, 'fearful');
+});
+
+test('tts: custom mood groups map to the nearest preset by group name and words', async () => {
+    const { resolveBarkMood } = await import('../src/visual/igs-ui/voice-bark.js');
+    const groups = [{ label: '炸毛', words: ['愤怒', '气鼓鼓', '怒目'] }, { label: '发懵', words: ['神游'] }];
+    assert.equal(resolveBarkMood('气鼓鼓', groups), '愤怒', '自定义词按组内词投票');
+    assert.equal(resolveBarkMood('炸毛', groups), '愤怒', '组名本身也能映射');
+    assert.equal(resolveBarkMood('神游', groups), '平和', '映射不到落平和');
+    assert.equal(resolveBarkMood('气鼓鼓'), '平和', '没有自定义组时照旧');
+    const fish = { enabled: true, provider: 'api', api: { format: 'fish', apiKey: 'k', female: 'v1' } };
+    const plan = decideTts({}, { key: 'g', textType: 'dialogue', speaker: '甲', text: '哼。', mood: '气鼓鼓' }, fish, { sceneAssets: { moodGroups: groups } });
+    assert.equal(plan.text, '[angry] 哼。');
+});
+
+test('tts: prefetch with a whisper / nsfw hint matches the page actually played, thought-shaped dialogue is hinted', async () => {
+    const realFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+        calls.push(JSON.parse(init.body));
+        return { ok: true, json: async () => ({}), text: async () => JSON.stringify({ data: { audio: '0102' }, base_resp: { status_code: 0 } }), arrayBuffer: async () => new ArrayBuffer(2) };
+    };
+    try {
+        const sa = assets({ 艾莉: GIRL });
+        const fish = { enabled: true, provider: 'api', nsfw: false, api: { format: 'fish', apiKey: 'k', female: 'v1' } };
+        await clearTtsCache();
+        await prefetchTts('[艾莉]：靠近一点。', fish, sa, { hint: { textType: 'dialogue', speaker: '艾莉', mood: '害羞', whisper: true } });
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].text, '[whisper] [shy, soft voice] 靠近一点。');
+        assert.equal(calls[0].text, decideTts({}, { key: 'r', textType: 'dialogue', speaker: '艾莉', text: '靠近一点。', mood: '害羞', whisper: true }, fish, { sceneAssets: sa }).text);
+        // 「[名字]：*心里话*」：文字外形猜成台词，阅读器按心里话算，仍然预取
+        calls.length = 0;
+        await prefetchTts('[艾莉]：*好紧张。*', fish, sa, { hint: { textType: 'thought', speaker: '艾莉', mood: '紧张' } });
+        assert.equal(calls.length, 1);
+        assert.match(calls[0].text, /^\[soft inner voice\] \[nervous\]/);
+        // NSFW 以下一页自己的为准：当前页 NSFW、下一页不是，照常预取；反过来不预取
+        assert.ok(prefetchTts('夜深了。', fish, sa, { nsfw: true, hint: { textType: 'narration', nsfw: false } }));
+        assert.equal(prefetchTts('夜深了。', fish, sa, { nsfw: false, hint: { textType: 'narration', nsfw: true } }), null);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test('tts: speakTtsLine returns done / cancel and reports completed, cancelled, failed', async (t) => {
+    const synth = fakeSynth();
+    await withSystemEnv(t, synth, async ({ tts }) => {
+        const settings = { enabled: true, provider: 'system' };
+        const line = { key: '', textType: 'narration', text: '夜色渐深。' };
+        const first = tts.speakTtsLine(line, settings, {});
+        assert.equal(first.ok, true);
+        assert.equal(typeof first.done.then, 'function');
+        assert.equal(typeof first.cancel, 'function');
+        synth.spoken[synth.spoken.length - 1].onend();
+        t.mock.timers.tick(80);
+        assert.deepEqual(await first.done, { completed: true, cancelled: false, failed: false });
+        const second = tts.speakTtsLine(line, settings, {});
+        second.cancel();
+        t.mock.timers.tick(80);
+        assert.deepEqual(await second.done, { completed: false, cancelled: true, failed: false });
+        // 被下一句掐掉也算 cancelled
+        const third = tts.speakTtsLine(line, settings, {});
+        const fourth = tts.speakTtsLine(line, settings, {});
+        t.mock.timers.tick(80);
+        assert.equal((await third.done).cancelled, true);
+        fourth.cancel();
+        // 系统语音出错
+        const fifth = tts.speakTtsLine(line, settings, {});
+        synth.spoken[synth.spoken.length - 1].onerror({ error: 'synthesis-failed' });
+        t.mock.timers.tick(80);
+        assert.deepEqual(await fifth.done, { completed: false, cancelled: false, failed: true });
+        // 不朗读时没有 done
+        assert.equal(tts.speakTtsLine(line, { enabled: false }, {}).done, undefined);
+    });
+    // 不支持系统语音：同步失败
+    const realSynth = globalThis.speechSynthesis;
+    delete globalThis.speechSynthesis;
+    try {
+        const tts = await import('../src/visual/igs-ui/tts.js');
+        const result = tts.speakTtsLine({ key: '', textType: 'narration', text: '夜色渐深。' }, { enabled: true, provider: 'system' }, {});
+        assert.equal(result.ok, true);
+        assert.deepEqual(await result.done, { completed: false, cancelled: false, failed: true });
+    } finally {
+        if (realSynth !== undefined) globalThis.speechSynthesis = realSynth;
+    }
 });

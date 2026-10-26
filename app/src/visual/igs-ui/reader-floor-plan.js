@@ -549,12 +549,17 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
         tagItems, tagNames: new Set(tagItems.map(item => normalizeItemName(item.name))), itemPageFor, assets: null, tablesRevision: -1 };
 }
 
-// 台词朗读提前生成下一页用的提示：下一页的类型、说话人（含主名）与情绪，直接取分页计划里现成的字段；没有可用信息时为 null。
-// 情绪口径与阅读器当页一致：页面情绪优先，说话人就是立绘角色时回落到立绘情绪。
+// 台词朗读提前生成下一页用的提示：下一页的类型、说话人（含主名）、情绪、耳语区间、通话对方与 NSFW，直接取分页计划里现成的字段。
+// 情绪只认这一页自己的标签（bubbleMood），不取立绘情绪：立绘情绪可能是继承、兜底或反应表情，朗读不用。
+// 旁白页只带 NSFW（预取旁白时按下一页自己的算）；没有可用信息时为 null。
 export function nextTtsHintOf(page, keyOf = null) {
-    if (!page || (page.textType !== 'dialogue' && page.textType !== 'thought')) return null;
-    const mood = page.bubbleMood || (page.spriteChar && page.spriteChar === page.bubbleSpeaker ? page.spriteMood : '') || '';
+    if (!page) return null;
+    const nsfw = Boolean(page.sceneStateForBg && page.sceneStateForBg.nsfw);
+    if (page.textType !== 'dialogue' && page.textType !== 'thought') return page.textType === 'narration' ? { textType: 'narration', nsfw } : null;
     const speaker = page.bubbleSpeaker || '';
+    const key = (name) => (name && keyOf ? keyOf(name) : '');
+    const call = page.fx && page.fx.call;
     // speakerKey：说话人的主名（别名、酒馆用户名已解析），朗读按它查角色声音。
-    return { textType: page.textType, speaker, speakerKey: speaker && keyOf ? keyOf(speaker) : '', mood };
+    return { textType: page.textType, speaker, speakerKey: key(speaker), mood: page.bubbleMood || '',
+        whisper: Boolean(page.fx && page.fx.whisper), phone: Boolean(call && call.name && speaker && (keyOf ? key(call.name) === key(speaker) : call.name === speaker)), nsfw };
 }

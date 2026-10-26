@@ -2418,6 +2418,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const content = snapshot.content;
         const posX = stageSprite && (!content.spriteCharacter || content.spriteCharacter === content.speaker) ? stageSprite.posX : undefined;
         const mood = content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '';
+        // 台词朗读只认这一页自己的情绪标签；立绘情绪可能是继承、兜底或反应表情，不拿来用。
+        const ttsMood = content.statusEmotion || '';
         // 聊天页：正文为空，朗读由聊天气泡层（chat-layer.js）逐条接管，这里不再起页面台词朗读，免得互相掐断。
         if (content.chatPage === true && normalizeTtsSettings(snapshot.readerSettings.tts).enabled) cancelPendingTts(root);
         else if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
@@ -2426,7 +2428,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             text: content.displayText,
             speaker: content.speaker || '',
             speakerKey: content.speakerKey || '',
-            mood,
+            mood: ttsMood,
             phone: fxResult.phone === true,
             nsfw: Boolean(content.sceneNsfw),
             posX,

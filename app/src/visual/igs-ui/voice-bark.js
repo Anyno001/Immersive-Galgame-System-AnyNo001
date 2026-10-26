@@ -2,7 +2,7 @@
 // 声线来自内置声音包（voice-packs.js）；每个角色可在角色设定里手动指定声线，未指定时按 DNA 判断性别、
 // 再按名字固定分到同性别的一套声线，保证不同角色天然不同、同一角色始终同一个声音。
 import { VOICE_PACKS } from '../../voice/voice-packs.js';
-import { moodFallbackChain, resolvePresetGroup } from '../../scene/mood-groups.js';
+import { fuzzyResolveMoodGroup, moodFallbackChain, resolveMoodGroup, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { busInput, resumeAudioBus } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
 import { spritePan, yieldTypewriterAudio } from './typewriter-audio.js';
@@ -211,9 +211,24 @@ export function resolveCharacterVoice(sceneAssets, speaker) {
 }
 
 // 情绪词 → 20 个标签之一；默认 / 未知落到「平和」。
-export function resolveBarkMood(word) {
+// moodGroups：用户自定义的情绪组（{ label, words }）；词不在内置预设里时，先找它所在的自定义组，
+// 再用组名与组内词投票，映射到最接近的内置预设；仍映射不到落「平和」。
+export function resolveBarkMood(word, moodGroups = null) {
     const label = resolvePresetGroup(word);
-    return label && label !== '默认' ? label : BASE_MOOD;
+    if (label) return label !== '默认' ? label : BASE_MOOD;
+    if (!Array.isArray(moodGroups) || !moodGroups.length) return BASE_MOOD;
+    const custom = resolveMoodGroup(word, moodGroups) || fuzzyResolveMoodGroup(word, moodGroups);
+    const group = custom && moodGroups.find((g) => g && typeof g === 'object' && String(g.label || '').trim() === custom);
+    if (!group) return BASE_MOOD;
+    const votes = new Map();
+    const words = Array.isArray(group.words) ? group.words : [];
+    for (const [entry, weight] of [[custom, 3], ...words.map((w) => [w, 1])]) {
+        const hit = resolvePresetGroup(entry);
+        if (hit && hit !== '默认' && hit !== BASE_MOOD) votes.set(hit, (votes.get(hit) || 0) + weight);
+    }
+    let best = BASE_MOOD, top = 0;
+    for (const [hit, count] of votes) if (count > top) { best = hit; top = count; }
+    return best;
 }
 
 // 同方向回退，最后落到「平和」；同一情绪有多条时避开上一条。

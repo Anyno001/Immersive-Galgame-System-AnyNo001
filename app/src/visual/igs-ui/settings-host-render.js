@@ -1191,8 +1191,8 @@ function renderTtsApiFields(api, apiPath) {
         );
     }
     if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速'));
-    if (format === 'minimax') parts.push(checkbox(apiPath('sendEmotion'), api.sendEmotion, '发送情绪'));
-    if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('audioTags'), api.audioTags, '音频标签（在文字中插入语气与情绪标签）'));
+    if (format === 'minimax') parts.push(checkbox(apiPath('sendEmotion'), api.sendEmotion, '发送情绪（仅 MiniMax，按情绪选发音情感）'));
+    if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('audioTags'), api.audioTags, '音频标签（句首情绪、耳语与括号动作转标签）'));
     if (format === 'custom') {
         parts.push(
             field(apiPath('customMethod'), '请求方法', selectInput(apiPath('customMethod'), api.customMethod, TTS_CUSTOM_METHODS)),
@@ -1342,7 +1342,7 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narrato
         apiMode ? checkbox(apiPath('chunk'), api.chunk, '长句分段先播') : '',
         apiMode || tts.narratorApi.enabled ? checkbox(`${base}.cleanup`, tts.cleanup, '人声净化（减弱底噪与混响拖尾）') : '',
         tts.narration && tts.narratorApi.enabled ? checkbox(`${base}.narratorApi.chunk`, tts.narratorApi.chunk, '旁白接口长句分段先播') : '',
-        styled ? checkbox(`${base}.moodStyle`, tts.moodStyle, '情绪写入风格描述') : '',
+        styled ? checkbox(`${base}.moodStyle`, tts.moodStyle, '情绪写入风格描述（仅 OpenAI 兼容与自定义接口）') : '',
         field(`${base}.lexicon`, '读音替换', textareaInput(`${base}.lexicon`, tts.lexicon, '每行一条：原词=读法\n例：雫=shizuku\n例：Λ=兰姆达')),
     ].join('')}</details>`;
 
