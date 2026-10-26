@@ -67,6 +67,12 @@ const BACKUP_TEMPLATE = `
     <div class="igs-link-row"><button class="igs-link-btn" data-action="image-cache-status" type="button">查看占用</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-records-retry-backup" type="button">重试备份</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-files-retry-delete" type="button">重试删除</button></div>
     <div class="igs-source-filter-note">{{imageCacheStatus}}</div>
   </div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">朗读缓存</div>
+    <div class="igs-source-filter-grid">{{ttsCacheField}}</div>
+    <div class="igs-settings-row"><button class="igs-settings-action" data-action="tts-trim-cache" type="button">清理朗读缓存</button></div>
+    <div class="igs-source-filter-note">{{ttsCacheStatus}}</div>
+  </div>
 </div>
 `.trim();
 

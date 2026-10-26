@@ -598,30 +598,44 @@ function voiceTuneOptions(manual) {
     return { pitchOpts, speedOpts };
 }
 
-// 台词朗读开着时：这个角色的朗读声音（自动按 DNA 性别分配，或单独指定），外加音高、语速、音量、风格与试听。
+// 台词朗读开着时：这个角色的台词声音与心里话声音（自动按 DNA 性别分配，或单独指定），外加音高、语速、音量、风格与试听。
 function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
     const manual = normalizeCharacterVoice(Object.prototype.hasOwnProperty.call(voices, charName) ? voices[charName] : null);
     const systemVoices = tts.provider === 'system' ? listSystemVoices() : [];
     const auto = resolveTtsVoice({ textType: 'dialogue', speaker: charName }, tts, { ...sceneAssets, characterVoices: {} }, systemVoices);
     const autoName = auto.voice ? auto.voice.replace(/^Microsoft\s+/i, '') : '默认声音';
-    const items = tts.provider === 'system' ? systemVoiceOptions(systemVoices, { all: tts.allVoices }) : ttsApiVoiceOptions(tts);
+    const options = tts.provider === 'system' ? systemVoiceOptions(systemVoices, { all: tts.allVoices }) : ttsApiVoiceOptions(tts);
+    const name = esc(charName);
     // 已保存的是 voiceURI 时按它对应的声音名显示。
-    const savedVoice = tts.provider === 'system' ? findSystemVoice(systemVoices, manual.tts) : null;
-    const savedId = savedVoice ? savedVoice.name : manual.tts;
-    if (manual.tts && !items.some(([id]) => id === savedId)) items.push([manual.tts, `${manual.tts}（不可用）`]);
-    const option = (id, label) => `<option value="${esc(id)}"${id === savedId ? ' selected' : ''}>${esc(label)}</option>`;
+    const voiceSelect = (field, saved, first, label) => {
+        const found = tts.provider === 'system' ? findSystemVoice(systemVoices, saved) : null;
+        const savedId = found ? found.name : saved;
+        const items = [['', first], ...options];
+        if (saved && !options.some(([id]) => id === savedId)) items.push([saved, `${saved}（不可用）`]);
+        const opts = items.map(([id, text]) => `<option value="${esc(id)}"${id === savedId ? ' selected' : ''}>${esc(text)}</option>`).join('');
+        return `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}">${opts}</select>`;
+    };
+    const preview = (action) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}:${encSeg(charName)}">试听</button>`;
+    const line = (label, html) => `<div class="igs-char-voice-line"><span class="igs-char-voice-sub">${label}</span>${html}</div>`;
     const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
-    const volumeOpts = TTS_CHARACTER_VOLUMES.map(([v, label]) => `<option value="${v}"${v === manual.ttsVolume ? ' selected' : ''}>${esc(label)}</option>`).join('');
-    // 接口来源不支持调音高，只给语速。
-    const pitchSelect = tts.provider === 'system' ? `<select class="igs-asset-move" data-char-voice-pitch="${esc(charName)}" aria-label="朗读音高" title="音高（半音）">${pitchOpts}</select>` : '';
-    return `<div class="igs-char-info-row igs-char-voice-row"><span class="igs-char-info-label">朗读</span>`
-        + `<select class="igs-asset-move" data-char-voice-tts="${esc(charName)}" aria-label="朗读声音">${option('', `自动（${autoName}）`)}${items.map(([id, label]) => option(id, label)).join('')}</select>`
-        + pitchSelect
-        + `<select class="igs-asset-move" data-char-voice-speed="${esc(charName)}" aria-label="朗读语速" title="语速">${speedOpts}</select>`
-        + `<select class="igs-asset-move" data-char-voice-ttsVolume="${esc(charName)}" aria-label="朗读音量" title="这个角色的朗读音量">${volumeOpts}</select>`
-        + `<input class="igs-asset-move" type="text" maxlength="300" data-char-voice-ttsStyle="${esc(charName)}" value="${esc(manual.ttsStyle)}" placeholder="朗读风格（可选）" aria-label="朗读风格" title="这个角色的朗读风格描述，仅 OpenAI 兼容与自定义请求生效">`
-        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview:${encSeg(charName)}">试听</button></div>`;
+    const plainSpeeds = speedOpts.replace(/ selected/g, '');
+    const pick = (opts, saved) => opts.replace(`value="${saved}"`, `value="${saved}" selected`);
+    // 台词、心里话各占一行：声音、语速、音量、试听。台词语速未单独设时显示角色原有语速；心里话语速、音量可设「同台词」。
+    const select = (field, label, opts) => `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}" title="${label}">${opts}</select>`;
+    const volumeOpts = (list) => list.map(([v, text]) => `<option value="${v}">${esc(text)}</option>`).join('');
+    const speed = select('ttsSpeed', '台词语速', pick(plainSpeeds, manual.ttsSpeed || manual.speed));
+    const thoughtSpeed = select('ttsThoughtSpeed', '心里话语速', pick(`<option value="0">语速同台词</option>${plainSpeeds}`, manual.ttsThoughtSpeed));
+    const volume = select('ttsVolume', '台词音量', pick(volumeOpts(TTS_CHARACTER_VOLUMES), manual.ttsVolume));
+    const thoughtVolume = select('ttsThoughtVolume', '心里话音量', pick(volumeOpts([[-1, '音量同台词'], ...TTS_CHARACTER_VOLUMES]), manual.ttsThoughtVolume));
+    // 接口来源不支持调音高。
+    const pitch = tts.provider === 'system' ? line('音高', select('pitch', '朗读音高', pitchOpts)) : '';
+    return `<div class="igs-char-info-row is-block igs-char-tts"><span class="igs-char-info-label">朗读</span>`
+        + line('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + speed + volume + preview('tts-preview'))
+        + line('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + thoughtSpeed + thoughtVolume + preview('tts-preview-thought'))
+        + pitch
+        + line('风格', `<input class="igs-asset-move" type="text" maxlength="300" data-char-voice-ttsStyle="${name}" value="${esc(manual.ttsStyle)}" placeholder="可选，仅 OpenAI 兼容接口与自定义请求生效" aria-label="朗读风格">`)
+        + '</div>';
 }
 
 // 角色声线：自动（按 DNA 性别分配）/ 不发声 / 指定声线，外加音高微调与试听。

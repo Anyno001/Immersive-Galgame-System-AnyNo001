@@ -112,7 +112,16 @@ function ttsLine(c, rs, snapshot, skip) {
     return skip && skip.key === page && skip.reason ? `本页未朗读：${skip.reason}` : '本页会朗读（或还没轮到）';
 }
 
-export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null } = {}) {
+// 朗读声音命中：只在记录的 key 对得上本页时输出。
+function ttsVoiceLine(c, snapshot, decision) {
+    const page = `${c.messageId ?? snapshot.messageId}:${c.currentIndex}`;
+    if (!decision || decision.key !== page) return '';
+    const gender = decision.gender === 'male' ? '男' : decision.gender === 'female' ? '女' : '未知';
+    const voice = decision.voice ? `${decision.voice}${decision.voiceLabel ? `（${decision.voiceLabel}）` : ''}` : '系统默认';
+    return `朗读声音 说话人 ${decision.speaker || '-'} → 主名 ${decision.name || '-'} · 性别 ${gender} · 来源 ${decision.source || '-'} · 声音 ${voice} · 语速 ${Number(decision.rate).toFixed(2)}`;
+}
+
+export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null, ttsDecision = null } = {}) {
     if (!snapshot || !snapshot.content) return '';
     const c = snapshot.content;
     const rs = snapshot.readerSettings || {};
@@ -136,6 +145,8 @@ export function buildPageDiagnostic(snapshot, { version = '', worldview = '', pr
     if (notes.length) lines.push(`提示 ${notes.join('、')}`);
     lines.push(`直播 ${liveLine(c, rs)}`);
     lines.push(`朗读 ${ttsLine(c, rs, snapshot, ttsSkip)}`);
+    const voiceLine = ttsVoiceLine(c, snapshot, ttsDecision);
+    if (voiceLine) lines.push(voiceLine);
     lines.push(`非人角色 ${creatureLine(c, rs)}`);
     lines.push(...promptLines(promptReport));
     if (mediaStats) lines.push(`图片资源 ${describeMediaUsage(mediaStats)}`);

@@ -88,11 +88,10 @@ const GOLD_BUTTON = 'background:linear-gradient(180deg,#fbe39a 0%,#e9b84a 55%,#c
 // 屏幕比 16:9 宽时牌桌横向铺满，牌区仍是 16:9 居中，头像、宝牌、工具栏贴边。
 const MAHJONG_STYLE_SOURCE = `
 @keyframes igs-mj-pop{0%{opacity:0;transform:scale(.92);}100%{opacity:1;transform:scale(1);}}
-@keyframes igs-mj-glow{0%,100%{opacity:.55;}50%{opacity:1;}}
 ${STAGE} .igs-ws-dots,${STAGE} .igs-ws-line{display:none;}
 ${STAGE} .igs-ws-board{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:100%;max-width:min(1100px,100%);padding:0;background:none;box-shadow:none;color:#f4efe4;}
 ${STAGE} .igs-ws-board[hidden]{display:none;}
-${FULL}{padding:0;container:igs-mj-stage/size;}
+${FULL}{padding:0;container:igs-mj-stage/size;background:#10162f;-webkit-backdrop-filter:none;backdrop-filter:none;}
 ${FULL} .igs-ws-body{position:absolute;inset:6px;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);width:auto;height:auto;max-width:none;animation:none;}
 ${FULL} .igs-ws-note{position:absolute;left:50%;top:8px;z-index:20;box-sizing:border-box;max-width:34%;padding:4px 12px;overflow:hidden;border-radius:999px;background:rgba(8,12,34,.86);box-shadow:inset 0 0 0 1px rgba(234,200,124,.5);color:#fbf4e2;font-size:12px;line-height:1.5;letter-spacing:.04em;white-space:nowrap;text-overflow:ellipsis;transform:translateX(-82%);pointer-events:none;animation:none;}
 ${FULL} .igs-ws-note:empty{display:none;}
@@ -120,7 +119,7 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-svg{display:block;width:100%;height:100%;pointer-events:none;}
 .igs-mj-pai.is-side .igs-mj-svg{position:absolute;left:50%;top:50%;width:var(--tw);height:var(--th);transform:translate(-50%,-50%) rotate(-90deg);}
 .igs-mj-pai.is-out{filter:brightness(.72) saturate(.6);opacity:.6;}
-.igs-mj-pai.is-fresh::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 0 0 .18cqi #ffd65a,0 0 1cqi .2cqi rgba(255,214,90,.75);animation:igs-mj-glow 1.2s ease-in-out infinite;pointer-events:none;}
+.igs-mj-pai.is-fresh::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 0 0 .18cqi #ffd65a;pointer-events:none;}
 .igs-mj-pai.is-zimo{margin-left:1.4cqi;}
 .igs-mj-pai.is-hot{cursor:pointer;transition:transform .12s ease,filter .12s ease;}
 .igs-mj-pai.is-hot:focus-visible{outline:none;transform:translateY(-1.2cqi);}
@@ -279,7 +278,7 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-bar-group{display:flex;align-items:center;}
 .igs-mj-bar-group[hidden],.igs-mj-icon[hidden]{display:none;}
 .igs-mj-bar-group+.igs-mj-bar-group::before{content:"";flex:none;width:1px;height:14px;margin:0 3px;background:currentColor;opacity:.2;}
-.igs-mj-icon.is-next{width:auto;gap:2px;padding:0 8px 0 4px;color:#ffe08a;opacity:1;font:inherit;font-size:12px;font-weight:700;letter-spacing:.06em;animation:igs-mj-glow 1.6s ease-in-out infinite;}
+.igs-mj-icon.is-next{width:auto;gap:2px;padding:0 8px 0 4px;color:#ffe08a;opacity:1;font:inherit;font-size:12px;font-weight:700;letter-spacing:.06em;}
 .igs-mj-icon{display:inline-flex;flex:none;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:transparent;color:inherit;opacity:.6;cursor:pointer;transition:opacity .15s;}
 .igs-mj-icon:hover,.igs-mj-icon:focus-visible{opacity:.95;outline:none;}
 .igs-mj-icon[aria-pressed="true"]{opacity:.95;}
@@ -306,7 +305,7 @@ ${FULL} .igs-ws-body{inset:auto;left:50%;top:50%;width:calc(100cqh - 16px);heigh
 .igs-mj-album-cap{padding:4px 6px;overflow:hidden;font-size:11px;white-space:nowrap;text-overflow:ellipsis;}
 .igs-mj-album-tag{position:absolute;right:4px;top:4px;padding:1px 5px;border-radius:4px;background:#c42c55;color:#fff;font-size:10px;}
 @media (prefers-reduced-motion: reduce){
-.igs-mj-card,.igs-mj-pai.is-fresh::after,.igs-mj-icon.is-next{animation:none!important;}
+.igs-mj-card{animation:none!important;}
 }
 `;
 

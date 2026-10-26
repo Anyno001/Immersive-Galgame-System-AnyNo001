@@ -521,6 +521,12 @@ export const OUTFIT_SETTINGS_STYLE_TEXT = `
 .igs-char-info-row.igs-char-height-row>.igs-asset-move{flex:0 0 76px;width:76px;cursor:text}
 .igs-char-height-hint{flex:1;min-width:0;font-size:12px;line-height:1.4;color:var(--igs-settings-ink-3)}
 .igs-char-info-row.is-block>.igs-char-info-label{flex:none}
+.igs-char-voice-line,.igs-char-voice-tune{display:flex;align-items:center;gap:8px;min-width:0}
+.igs-char-voice-line>.igs-asset-move,.igs-char-voice-tune>.igs-asset-move{flex:1;width:auto}
+.igs-char-voice-line>.igs-settings-inline-action{flex:0 0 auto;width:auto;height:28px}
+.igs-char-voice-sub{flex:0 0 44px;font-size:12px;color:var(--igs-settings-ink-4)}
+.igs-char-voice-tunes{display:flex;flex-wrap:wrap;gap:6px 12px}
+.igs-char-voice-tune{flex:1 1 140px}
 .igs-char-info .igs-dna-fields{margin-top:0}
 .igs-settings-section-actions{display:flex;align-items:center;gap:2px}
 .igs-btn-mgr-icon.igs-char-dna-btn.is-on{color:var(--igs-settings-ink-2)}

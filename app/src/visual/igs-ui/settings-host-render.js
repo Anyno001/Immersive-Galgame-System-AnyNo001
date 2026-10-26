@@ -57,7 +57,7 @@ import { dialogSkinLabel, getDialogSkinChoices } from './dialog-skin-catalog.js'
 import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
-import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_THOUGHT_VOLUMES, TTS_TRANSPORTS, TTS_VOICE_MAX, findSystemVoice, listSystemVoices, normalizeTtsSettings, systemVoiceOptions, ttsApiVoiceList, ttsMixedContentRisk, ttsNarratorVoiceOptions } from './tts.js';
+import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CACHE_LIMIT, TTS_THOUGHT_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, TTS_VOICE_MAX, findSystemVoice, hasNaturalSystemVoice, listSystemVoices, normalizeTtsSettings, systemVoiceOptions, ttsApiVoiceOptions, ttsMixedContentRisk, ttsNarratorVoiceOptions, ttsVoiceEntries } from './tts.js';
 import { normalizeBilingualSettings } from './bilingual-text.js';
 import { HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
@@ -296,6 +296,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 imageLogList: page === 'logs' && !idx ? renderImageJobLogList() : '',
                 imageCacheCountField: field('bridge.imageCache.maxCount', '本地缓存张数', numberInput('bridge.imageCache.maxCount', normalizeImageCacheCount(bridge.imageCache && bridge.imageCache.maxCount), 1, 2000)),
                 imageCompressionField: checkbox('bridge.imageCache.compressDisplay', bridge.imageCache?.compressDisplay !== false, '压缩显示图片（WebP）'),
+                ttsCacheField: field('readerSettings.tts.cacheMax', '朗读缓存保留条数', numberInput('readerSettings.tts.cacheMax', normalizeTtsSettings(reader && reader.tts).cacheMax, 0, TTS_CACHE_LIMIT)),
+                ttsCacheStatus: esc(asyncState.ttsCacheStatus || ''),
                 imageCacheStatus: esc(asyncState.imageCacheStatus || ''),
                 imageCgStatus: esc(asyncState.imageCgStatus || ''),
                 imageCgList: page === 'cglib' && !idx ? renderImageCgList() : '',
@@ -818,7 +820,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 `<div class="igs-source-filter-note">声线可在「角色 › 角色设定」中选择；未选择时按DNA中的性别分配。</div>`,
             ].join('') : '',
             ttsToggle: checkbox('readerSettings.tts.enabled', tts.enabled, '台词朗读（TTS）'),
-            ttsControls: tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '', narratorVoicesMessage: asyncState.ttsNarratorVoicesMessage || '' }) : '',
+            ttsControls: tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '', narratorVoicesMessage: asyncState.ttsNarratorVoicesMessage || '', batches: asyncState.ttsBatch || {}, assets: draftEffectiveAssets(state.activeSettings), previewError: asyncState.ttsPreviewError || '', narratorPreviewError: asyncState.ttsNarratorPreviewError || '', advancedOpen: isOpenKey('tts-advanced') }) : '',
             stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
             stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
             systemRoleFields: renderSystemRoleSettings(systemRole, {
@@ -1185,11 +1187,12 @@ function renderTtsApiFields(api, apiPath) {
     if (format === 'openai') {
         parts.push(
             field(apiPath('responseFormat'), '音频格式', selectInput(apiPath('responseFormat'), api.responseFormat, TTS_RESPONSE_FORMATS)),
-            checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速（接口不认 speed 时关掉）'),
+            checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速'),
         );
     }
     if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速'));
     if (format === 'minimax') parts.push(checkbox(apiPath('sendEmotion'), api.sendEmotion, '发送情绪'));
+    if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('audioTags'), api.audioTags, '音频标签（在文字中插入语气与情绪标签）'));
     if (format === 'custom') {
         parts.push(
             field(apiPath('customMethod'), '请求方法', selectInput(apiPath('customMethod'), api.customMethod, TTS_CUSTOM_METHODS)),
@@ -1205,89 +1208,143 @@ function renderTtsApiFields(api, apiPath) {
     return parts;
 }
 
-// 旁白：风格描述与独立接口（开启后旁白用自己的一套接口与声音，不受主来源影响）。
-function renderTtsNarratorFields(tts, { voicesMessage = '' } = {}) {
+// 声音库：名称 + 声音 ID 一条一行，角色与默认声音从这里选。source 为 api / narratorApi。
+function renderTtsVoiceLibrary(source, voices, { fetchable = false, message = '', batch = null } = {}) {
+    const entries = ttsVoiceEntries(voices);
+    const rows = entries.map(([id, title], index) => `<div class="igs-tts-voice-item">`
+        + `<input class="igs-asset-move" type="text" data-tts-voice="${source}" data-voice-index="${index}" data-voice-part="title" value="${esc(title)}" placeholder="名称" aria-label="声音名称">`
+        + `<input class="igs-asset-move" type="text" data-tts-voice="${source}" data-voice-index="${index}" data-voice-part="id" value="${esc(id)}" placeholder="声音 ID" aria-label="声音 ID">`
+        + `<button type="button" class="igs-btn-mgr-icon" data-action="tts-voice-remove:${source}:${index}" title="删除" aria-label="删除这个声音">×</button></div>`).join('');
+    const actions = `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-voice-add:${source}"${entries.length >= TTS_VOICE_MAX ? ' disabled' : ''}>添加声音</button>`
+        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-voice-batch:${source}"${entries.length >= TTS_VOICE_MAX ? ' disabled' : ''}>批量识别</button>`
+        + (fetchable ? `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${source === 'api' ? 'tts-fetch-voices' : 'tts-fetch-voices-narrator'}">获取音色列表</button>` : '');
+    const batchBox = batch && batch.open
+        ? `<textarea data-tts-batch="${source}" aria-label="批量识别声音" placeholder="每行一个声音：名称 ID、名称：ID、Fish 网址，或 JSON 列表">${esc(batch.text || '')}</textarea>`
+            + `<div class="igs-tts-voice-actions"><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-voice-batch-run:${source}">识别并加入</button><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-voice-batch-cancel:${source}">取消</button></div>`
+        : '';
+    return `<div class="igs-settings-field igs-tts-voice-lib"><span>声音库<small class="igs-switch-note">${entries.length} / ${TTS_VOICE_MAX}</small></span>`
+        + (rows || '<div class="igs-scene-empty">暂无声音</div>')
+        + `<div class="igs-tts-voice-actions">${actions}</div>`
+        + batchBox
+        + (message ? `<div class="igs-source-filter-note">${esc(message)}</div>` : '')
+        + '</div>';
+}
+
+const ttsGroup = (title, parts, headAction = '') => `<div class="igs-settings-group">${headAction
+    ? `<div class="igs-settings-section-head"><div class="igs-settings-subhead">${title}</div>${headAction}</div>`
+    : `<div class="igs-settings-subhead">${title}</div>`}${parts.filter(Boolean).join('')}</div>`;
+
+const ttsInlineField = (label, controlHtml) => `<label class="igs-settings-field igs-tts-inline"><span>${esc(label)}</span><span class="igs-tts-inline-control">${controlHtml}</span></label>`;
+
+const ttsPreviewButton = (action, label) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}">${label}</button>`;
+
+const ttsPreviewError = (text) => (text ? `<div class="igs-source-filter-note igs-tts-warning" role="status">试听失败：${esc(text)}</div>` : '');
+
+// 风格描述只有 OpenAI 兼容接口（instructions）与自定义请求（{{style}}）会用到。
+const ttsStyleFormat = (api) => api.format === 'openai' || api.format === 'custom';
+
+// 旁白：声音、语速、风格与独立接口（开启后旁白用自己的一套接口与声音，不受主来源影响）。
+function renderTtsNarratorGroup(tts, { voicesMessage = '', batch = null, options = [], installed = [], previewError = '' } = {}) {
     const base = 'readerSettings.tts';
     const narrator = tts.narratorApi;
     const apiPath = (key) => `${base}.narratorApi.${key}`;
-    const parts = [
-        field(`${base}.narratorStyle`, '旁白风格', textareaInput(`${base}.narratorStyle`, tts.narratorStyle, '例：沉稳的说书人，语速平缓，娓娓道来')),
-        '<div class="igs-source-filter-note">风格描述用于 OpenAI 兼容接口（以 instructions 发送，需 gpt-4o-mini-tts 等支持的模型）与自定义请求（{{style}}）；系统语音及其他格式不生效。</div>',
-        checkbox(apiPath('enabled'), narrator.enabled, '旁白使用独立接口'),
-    ];
+    const parts = [ttsPreviewError(previewError)];
     if (narrator.enabled) {
-        const hint = TTS_FORMAT_HINTS[narrator.format] || TTS_FORMAT_HINTS.openai;
-        parts.push(...renderTtsApiFields(narrator, apiPath));
-        // 拉取过音色列表就用下拉；已存的值不在列表里时标「（不可用）」，没有列表时保留文本框。
         const items = ttsNarratorVoiceOptions(tts);
-        if (items.length) {
-            if (narrator.voice && !items.some(([id]) => id === narrator.voice)) items.push([narrator.voice, `${narrator.voice}（不可用）`]);
-            parts.push(field(apiPath('voice'), '旁白声音', selectInput(apiPath('voice'), narrator.voice, [['', '未选择']].concat(items))));
-        } else {
-            parts.push(field(apiPath('voice'), '旁白声音', textInput(apiPath('voice'), narrator.voice, hint.voice)));
-        }
-        if (['openai', 'fish', 'minimax'].includes(narrator.format)) {
-            parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-fetch-voices-narrator">获取音色列表</button>');
-            if (voicesMessage) parts.push(`<div class="igs-source-filter-note">${esc(voicesMessage)}</div>`);
-        }
-        parts.push(checkbox(apiPath('chunk'), narrator.chunk, '长句分段先播（超过 60 字按句切开，第一段先念）'));
+        if (narrator.voice && !items.some(([id]) => id === narrator.voice)) items.push([narrator.voice, `${narrator.voice}（不在声音库）`]);
+        parts.push(ttsInlineField('旁白声音', selectInput(apiPath('voice'), narrator.voice, [['', '未选择']].concat(items))));
+    } else if (tts.provider === 'system') {
+        const value = tts.system.narrator;
+        const items = [['', '自动']].concat(options);
+        if (value && !options.some(([id]) => id === value)) items.push([value, findSystemVoice(installed, value) ? value : `${value}（本机没有）`]);
+        parts.push(ttsInlineField('旁白声音', selectInput(`${base}.system.narrator`, value, items)));
+    } else {
+        const value = tts.api.narrator;
+        const library = ttsApiVoiceOptions(tts);
+        const items = [['', '同女声'], ...library];
+        if (value && !library.some(([id]) => id === value)) items.push([value, `${value}（不在声音库）`]);
+        parts.push(ttsInlineField('旁白声音', selectInput(`${base}.api.narrator`, value, items)));
     }
-    parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview-narrator">试听旁白</button>');
-    return parts;
+    parts.push(ttsInlineField('旁白语速', selectInput(`${base}.narratorRate`, tts.narratorRate, TTS_RATES.map((v) => [v, v === 1 ? '正常' : `${v}×`]))));
+    const styled = narrator.enabled ? ttsStyleFormat(narrator) : tts.provider === 'api' && ttsStyleFormat(tts.api);
+    if (styled) parts.push(field(`${base}.narratorStyle`, '旁白风格', textareaInput(`${base}.narratorStyle`, tts.narratorStyle, '例：沉稳的说书人，语速平缓')));
+    parts.push(checkbox(apiPath('enabled'), narrator.enabled, '旁白使用独立接口'));
+    if (narrator.enabled) {
+        parts.push(...renderTtsApiFields(narrator, apiPath));
+        parts.push(renderTtsVoiceLibrary('narratorApi', narrator.voices, { fetchable: ['openai', 'fish', 'minimax'].includes(narrator.format), message: voicesMessage, batch }));
+    }
+    return ttsGroup('旁白', parts, ttsPreviewButton('tts-preview-narrator', '试听旁白'));
 }
 
-function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narratorVoicesMessage = '' } = {}) {
+function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narratorVoicesMessage = '', batches = {}, assets = null, previewError = '', narratorPreviewError = '', advancedOpen = false } = {}) {
     const base = 'readerSettings.tts';
     const rates = TTS_RATES.map((v) => [v, v === 1 ? '正常' : `${v}×`]);
-    const parts = [
+    const apiMode = tts.provider === 'api';
+    const api = tts.api;
+    const apiPath = (key) => `${base}.api.${key}`;
+    const styled = apiMode && ttsStyleFormat(api);
+    const installed = apiMode ? [] : listSystemVoices();
+    const options = apiMode ? [] : systemVoiceOptions(installed, { all: tts.allVoices });
+
+    const basic = ttsGroup('基本', [
         field(`${base}.provider`, '来源', segmentedInput(`${base}.provider`, tts.provider, TTS_PROVIDERS, '朗读来源')),
-        checkbox(`${base}.narration`, tts.narration, '朗读旁白'),
-        checkbox(`${base}.nsfw`, tts.nsfw, 'NSFW场景也朗读'),
-        checkbox(`${base}.sustain`, tts.sustain, '翻页不打断（上一句念完再念下一句）'),
-        checkbox(`${base}.moodStyle`, tts.moodStyle, '情绪写入风格描述'),
-        '<div class="igs-source-filter-note">开启后台词与心里话的情绪、耳语会写成一句中文描述，随角色风格一起作为风格发送；仅 OpenAI 兼容接口与自定义请求（{{style}}）生效。</div>',
-        // 双语台词：读译文用中文声音；读原文时系统语音按原文语言换日文 / 英文声音。
-        bilingual ? field(`${base}.bilingual`, '双语台词', segmentedInput(`${base}.bilingual`, tts.bilingual, TTS_BILINGUAL_MODES, '双语台词朗读')) : '',
-        field(`${base}.volume`, '音量', rangeInput(`${base}.volume`, tts.volume, '朗读音量')),
-        field(`${base}.rate`, '语速', selectInput(`${base}.rate`, tts.rate, rates)),
-        field(`${base}.thoughtVolume`, '心里话音量', selectInput(`${base}.thoughtVolume`, tts.thoughtVolume, TTS_THOUGHT_VOLUMES)),
-        field(`${base}.thoughtStyle`, '心里话风格', textareaInput(`${base}.thoughtStyle`, tts.thoughtStyle, '例：压低声音，像自言自语')),
-    ];
-    // 旁白开了独立接口时，旁白声音在下面那套接口里填。
-    const roles = [['female', '女声'], ['male', '男声'], ['narrator', '旁白']].filter(([key]) => key !== 'narrator' || !tts.narratorApi.enabled);
-    if (tts.provider === 'system') {
-        const installed = listSystemVoices();
-        const options = systemVoiceOptions(installed, { all: tts.allVoices });
-        parts.push(checkbox(`${base}.allVoices`, tts.allVoices, '列出全部语言的系统声音（默认只列中文、日文）'));
-        for (const [key, label] of roles) {
+        field(`${base}.volume`, '总音量', rangeInput(`${base}.volume`, tts.volume, '朗读总音量')),
+        ttsInlineField('默认语速', selectInput(`${base}.rate`, tts.rate, rates)),
+        `<div class="igs-tts-switches">${[
+            checkbox(`${base}.narration`, tts.narration, '朗读旁白'),
+            checkbox(`${base}.nsfw`, tts.nsfw, 'NSFW场景也朗读'),
+            checkbox(`${base}.sustain`, tts.sustain, '翻页不打断'),
+            apiMode ? checkbox(apiPath('prefetch'), api.prefetch, '提前生成下一页') : '',
+        ].join('')}</div>`,
+        // 读译文用中文声音；读原文时系统语音按原文语言换日文 / 英文声音。
+        bilingual ? field(`${base}.bilingual`, '台词朗读', segmentedInput(`${base}.bilingual`, tts.bilingual, TTS_BILINGUAL_MODES, '台词朗读')) : '',
+    ]);
+
+    const connection = apiMode ? ttsGroup('接口连接', [
+        ...renderTtsApiFields(api, apiPath),
+        `<div class="igs-source-filter-note">${esc((TTS_FORMAT_HINTS[api.format] || TTS_FORMAT_HINTS.openai).note)}跨域被拦时改用「酒馆 CORS 代理」。</div>`,
+    ]) : '';
+
+    const voiceParts = [ttsPreviewError(previewError)];
+    if (apiMode) {
+        voiceParts.push(renderTtsVoiceLibrary('api', api.voices, { fetchable: ['openai', 'fish', 'minimax'].includes(api.format), message: voicesMessage, batch: batches.api }));
+        // 默认声音从声音库里选；旧版手填、不在库里的值保留并标出。
+        const library = ttsApiVoiceOptions(tts);
+        for (const [key, label] of [['female', '女角色默认'], ['male', '男角色默认']]) {
+            const value = api[key];
+            const items = [['', '未选择'], ...library];
+            if (value && !library.some(([id]) => id === value)) items.push([value, `${value}（不在声音库）`]);
+            voiceParts.push(ttsInlineField(label, selectInput(apiPath(key), value, items)));
+        }
+    } else {
+        const allVoicesButton = `<button type="button" class="igs-table-pick${tts.allVoices ? ' is-on' : ''}" data-switch="${base}.allVoices" aria-pressed="${tts.allVoices ? 'true' : 'false'}" title="列出全部语言的系统声音"><i></i><span>全部语言</span></button>`;
+        [['female', '女角色默认'], ['male', '男角色默认']].forEach(([key, label], index) => {
             const value = tts.system[key];
             const items = [['', '自动']].concat(options);
             if (value && !options.some(([id]) => id === value)) items.push([value, findSystemVoice(installed, value) ? value : `${value}（本机没有）`]);
-            parts.push(field(`${base}.system.${key}`, label, selectInput(`${base}.system.${key}`, value, items)));
-        }
-        parts.push(`<div class="igs-source-filter-note">${options.length ? '' : '没读到本机的声音（浏览器可能还在加载，稍等会自动刷新）。'}Windows 推荐用 Edge 浏览器打开酒馆：有晓晓、云希等自然声；Chrome 只有慧慧、康康等本地声音。系统语音不支持声像和听筒音色。</div>`);
-    } else {
-        const api = tts.api;
-        const format = api.format;
-        const hint = TTS_FORMAT_HINTS[format] || TTS_FORMAT_HINTS.openai;
-        const apiPath = (key) => `${base}.api.${key}`;
-        parts.push(...renderTtsApiFields(api, apiPath));
-        for (const [key, label] of roles) parts.push(field(apiPath(key), `${label}声音`, textInput(apiPath(key), api[key], key === 'narrator' ? '留空用女声' : hint.voice)));
-        parts.push(field(apiPath('voices'), '可选声音', textInput(apiPath('voices'), api.voices, `逗号分隔，最多 ${TTS_VOICE_MAX} 个，给角色单独指定时用；可写「声音名#标题」`)));
-        if (format === 'openai' || format === 'fish' || format === 'minimax') {
-            parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-fetch-voices">获取音色列表</button>');
-            if (voicesMessage) parts.push(`<div class="igs-source-filter-note">${esc(voicesMessage)}</div>`);
-        }
-        parts.push(
-            checkbox(apiPath('prefetch'), api.prefetch, '提前生成下一页（在一页停留 1.5 秒后才生成，快速点过的页不生成）'),
-            checkbox(apiPath('chunk'), api.chunk, '长句分段先播（超过 60 字按句切开，第一段先念）'),
-            '<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-clear-cache">清除朗读缓存</button>',
-            `<div class="igs-source-filter-note">${esc(hint.note)}浏览器直连被跨域拦住时，改用「酒馆 CORS 代理」（需在酒馆 config.yaml 打开 enableCorsProxy）。</div>`,
-        );
+            voiceParts.push(ttsInlineField(label, selectInput(`${base}.system.${key}`, value, items) + (index === 0 ? allVoicesButton : '')));
+        });
+        if (!options.length) voiceParts.push('<div class="igs-source-filter-note">没读到本机的声音（浏览器可能还在加载，稍等会自动刷新）。Windows 推荐使用 Edge 浏览器，自然声更多。</div>');
+        else if (!hasNaturalSystemVoice(installed)) voiceParts.push('<div class="igs-source-filter-note">Windows 推荐使用 Edge 浏览器，自然声更多。</div>');
     }
-    if (tts.narration) parts.push(...renderTtsNarratorFields(tts, { voicesMessage: narratorVoicesMessage }));
-    parts.push(field(`${base}.lexicon`, '读音替换', textareaInput(`${base}.lexicon`, tts.lexicon, '每行一条：原词=读法\n例：雫=shizuku\n例：Λ=兰姆达')));
-    parts.push('<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-preview">试听</button>');
-    parts.push('<div class="igs-source-filter-note">开启后不再播放语气音；角色声音在「角色 › 角色设定」指定。</div>');
-    return parts.join('');
+    voiceParts.push('<div class="igs-settings-row"><button type="button" class="igs-settings-action" data-page="chars">前往角色设定</button></div>');
+    const voice = ttsGroup('声音', voiceParts, ttsPreviewButton('tts-preview', '试听'));
+
+    const thought = ttsGroup('心里话', [
+        field(`${base}.thoughtVolume`, '心里话音量', rangeInput(`${base}.thoughtVolume`, tts.thoughtVolume, '心里话音量'), '相对台词音量的比例'),
+        styled ? field(`${base}.thoughtStyle`, '心里话风格', textareaInput(`${base}.thoughtStyle`, tts.thoughtStyle, '例：压低声音，像自言自语')) : '',
+        bilingual ? field(`${base}.thoughtBilingual`, '心里话朗读', segmentedInput(`${base}.thoughtBilingual`, tts.thoughtBilingual, TTS_THOUGHT_BILINGUAL_MODES, '心里话朗读')) : '',
+    ]);
+
+    const narrator = tts.narration ? renderTtsNarratorGroup(tts, { voicesMessage: narratorVoicesMessage, batch: batches.narratorApi, options, installed, previewError: narratorPreviewError }) : '';
+
+    const advanced = `<details class="igs-settings-advanced" data-advanced="tts-advanced"${advancedOpen ? ' open' : ''}><summary>高级</summary>${[
+        apiMode ? checkbox(apiPath('chunk'), api.chunk, '长句分段先播') : '',
+        apiMode || tts.narratorApi.enabled ? checkbox(`${base}.cleanup`, tts.cleanup, '人声净化（减弱底噪与混响拖尾）') : '',
+        tts.narration && tts.narratorApi.enabled ? checkbox(`${base}.narratorApi.chunk`, tts.narratorApi.chunk, '旁白接口长句分段先播') : '',
+        styled ? checkbox(`${base}.moodStyle`, tts.moodStyle, '情绪写入风格描述') : '',
+        field(`${base}.lexicon`, '读音替换', textareaInput(`${base}.lexicon`, tts.lexicon, '每行一条：原词=读法\n例：雫=shizuku\n例：Λ=兰姆达')),
+    ].join('')}</details>`;
+
+    return [basic, connection, voice, thought, narrator, advanced].join('');
 }

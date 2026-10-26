@@ -548,3 +548,13 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
         sceneAt, locator, keyOf, castCharacters, castAliases, selfNames: selfAll, carriesAcross: carriesAt, carryOf, sceneOfPage, sceneLeads, presentOf, genderOf, userName, userKey, userSource: userCharKey ? 'manual' : userKey ? 'name' : '', sceneSpeaker: scene.speaker, latestSpeechByPage, fxDirectives, illustrations, eventCgs,
         tagItems, tagNames: new Set(tagItems.map(item => normalizeItemName(item.name))), itemPageFor, assets: null, tablesRevision: -1 };
 }
+
+// 台词朗读提前生成下一页用的提示：下一页的类型、说话人（含主名）与情绪，直接取分页计划里现成的字段；没有可用信息时为 null。
+// 情绪口径与阅读器当页一致：页面情绪优先，说话人就是立绘角色时回落到立绘情绪。
+export function nextTtsHintOf(page, keyOf = null) {
+    if (!page || (page.textType !== 'dialogue' && page.textType !== 'thought')) return null;
+    const mood = page.bubbleMood || (page.spriteChar && page.spriteChar === page.bubbleSpeaker ? page.spriteMood : '') || '';
+    const speaker = page.bubbleSpeaker || '';
+    // speakerKey：说话人的主名（别名、酒馆用户名已解析），朗读按它查角色声音。
+    return { textType: page.textType, speaker, speakerKey: speaker && keyOf ? keyOf(speaker) : '', mood };
+}

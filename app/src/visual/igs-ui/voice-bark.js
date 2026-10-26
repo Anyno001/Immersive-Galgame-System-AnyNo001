@@ -35,6 +35,9 @@ const WHISPER_SHAPE = Object.freeze({ gain: 0.6, close: true });
 const PHONE_GAIN = 0.85;
 const PHONE_BAND = Object.freeze({ high: 380, low: 3200 });
 const GAIN_CAP = 1.2;
+// 人声净化：高通去低频嗡声，高架压嘶声与沙沙底噪（听筒本身有带通，不重复）。
+const CLEANUP_HIGHPASS = Object.freeze({ frequency: 80, q: 0.7 });
+const CLEANUP_HIGHSHELF = Object.freeze({ frequency: 7500, gain: -4 });
 // 语气音响着时 BGM 与环境音让一下（比提示音轻）；打字音整段静音到语气音念完。
 const BARK_DUCK_RATIO = 0.7;
 const BARK_TAIL_S = 0.05;
@@ -66,7 +69,7 @@ export function normalizeVoiceBarkSettings(value) {
     };
 }
 
-// 单个角色的声线设置：pack 为空表示自动；'off' 表示这个角色不发语气音。tts 为台词朗读单独指定的声音名，空为自动；ttsStyle 为这个角色的朗读风格描述。
+// 单个角色的声线设置：pack 为空表示自动；'off' 表示这个角色不发语气音。tts 为台词朗读单独指定的声音名，空为自动；ttsThought 为心里话的声音，空则同台词；ttsStyle 为这个角色的朗读风格描述。
 export function normalizeCharacterVoice(value) {
     const source = plainObject(value) || {};
     const pack = source.pack === 'off' || voicePackById(source.pack) ? source.pack : '';
@@ -76,15 +79,31 @@ export function normalizeCharacterVoice(value) {
         pitch: Number.isFinite(pitch) ? Math.max(-VOICE_PITCH_LIMIT, Math.min(VOICE_PITCH_LIMIT, Math.round(pitch * 2) / 2)) : 0,
         speed: normalizeVoiceSpeed(source.speed),
         tts: typeof source.tts === 'string' ? source.tts.trim().slice(0, 200) : '',
+        ttsThought: typeof source.ttsThought === 'string' ? source.ttsThought.trim().slice(0, 200) : '',
         ttsVolume: normalizeTtsVolume(source.ttsVolume),
+        ttsSpeed: normalizeOptionalSpeed(source.ttsSpeed),
+        ttsThoughtSpeed: normalizeOptionalSpeed(source.ttsThoughtSpeed),
+        ttsThoughtVolume: normalizeThoughtVolume(source.ttsThoughtVolume),
         ttsStyle: typeof source.ttsStyle === 'string' ? source.ttsStyle.trim().slice(0, 300) : '',
     };
 }
 
-// 朗读音量（倍）：0～1，0 表示这个角色不朗读；缺省 1。
+// 朗读语速（倍）：0 表示未单独设置（台词跟随 speed，心里话跟随台词）。
+function normalizeOptionalSpeed(value) {
+    const speed = Number(value);
+    return Number.isFinite(speed) && speed > 0 ? normalizeVoiceSpeed(speed) : 0;
+}
+
+// 心里话音量（倍）：-1 表示同台词音量（0 已是「不朗读」，不能当缺省）；其余同台词音量范围。
+function normalizeThoughtVolume(value) {
+    const volume = Number(value);
+    return value === undefined || value === null || value === '' || !Number.isFinite(volume) || volume < 0 ? -1 : Math.min(2, volume);
+}
+
+// 朗读音量（倍）：0～2，超过 1 为放大，0 表示这个角色不朗读；缺省 1。
 function normalizeTtsVolume(value) {
     const volume = Number(value);
-    return value === undefined || value === null || value === '' || !Number.isFinite(volume) ? 1 : Math.max(0, Math.min(1, volume));
+    return value === undefined || value === null || value === '' || !Number.isFinite(volume) ? 1 : Math.max(0, Math.min(2, volume));
 }
 
 export function normalizeVoiceSpeed(value) {
@@ -101,22 +120,24 @@ export function normalizeCharacterVoices(value) {
         const key = String(name || '').trim();
         if (!key || FORBIDDEN_KEYS.has(key)) continue;
         const voice = normalizeCharacterVoice(entry);
-        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && voice.ttsVolume === 1 && !voice.ttsStyle) continue;
-        const { tts, ttsVolume, ttsStyle, ...bark } = voice;
-        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}), ...(ttsStyle ? { ttsStyle } : {}) };
+        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && !voice.ttsThought && voice.ttsVolume === 1 && !voice.ttsSpeed && !voice.ttsThoughtSpeed && voice.ttsThoughtVolume < 0 && !voice.ttsStyle) continue;
+        const { tts, ttsThought, ttsVolume, ttsSpeed, ttsThoughtSpeed, ttsThoughtVolume, ttsStyle, ...bark } = voice;
+        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsThought ? { ttsThought } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}), ...(ttsSpeed ? { ttsSpeed } : {}), ...(ttsThoughtSpeed ? { ttsThoughtSpeed } : {}), ...(ttsThoughtVolume >= 0 ? { ttsThoughtVolume } : {}), ...(ttsStyle ? { ttsStyle } : {}) };
     }
     return out;
 }
 
-// 说话人可能写的是别名；别名表以主名为键。
+// 说话人可能写的是别名；别名表以主名为键。生成区（sceneAssets.generated）里的角色与别名同样认。
 export function canonicalName(sceneAssets, name) {
     const target = String(name || '').trim();
     if (!target) return '';
-    const maps = [sceneAssets.characterVoices, sceneAssets.characters, sceneAssets.characterDna].map(plainObject);
+    const generated = plainObject(sceneAssets.generated) || {};
+    const maps = [sceneAssets.characterVoices, sceneAssets.characters, sceneAssets.characterDna, generated.characters].map(plainObject);
     if (maps.some((map) => map && hasOwn(map, target))) return target;
-    const aliases = plainObject(sceneAssets.characterAliases) || {};
-    for (const [key, values] of Object.entries(aliases)) {
-        if (Array.isArray(values) && values.some((v) => String(v || '').trim() === target)) return key;
+    for (const aliases of [plainObject(sceneAssets.characterAliases), plainObject(generated.characterAliases)]) {
+        for (const [key, values] of Object.entries(aliases || {})) {
+            if (Array.isArray(values) && values.some((v) => String(v || '').trim() === target)) return key;
+        }
     }
     return target;
 }
@@ -387,12 +408,12 @@ export function stopVoiceBark() {
     releaseJob(current);
 }
 
-// gain →（听筒带通 / 声像）→ 总线；返回链头。
-export function buildBarkChain(context, out, { volume, pan, phone }, nodes) {
+// gain →（净化滤波）→（听筒带通 / 声像）→ 总线；返回链头。
+export function buildBarkChain(context, out, { volume, pan, phone, cleanup = false, gainCap = GAIN_CAP }, nodes) {
     const gain = context.createGain();
     const filter = getVoiceFilter();
     const earPan = (voiceFilterParams(filter) || {}).pan || 0;
-    gain.gain.value = Math.max(0, Math.min(GAIN_CAP, (Number(volume) || 0) * voiceFilterGain(filter)));
+    gain.gain.value = Math.max(0, Math.min(gainCap, (Number(volume) || 0) * voiceFilterGain(filter)));
     nodes.push(gain);
     let tail = gain;
     const link = (node) => {
@@ -400,6 +421,18 @@ export function buildBarkChain(context, out, { volume, pan, phone }, nodes) {
         nodes.push(node);
         tail = node;
     };
+    if (cleanup && !phone) {
+        const hum = context.createBiquadFilter();
+        hum.type = 'highpass';
+        hum.frequency.value = CLEANUP_HIGHPASS.frequency;
+        hum.Q.value = CLEANUP_HIGHPASS.q;
+        link(hum);
+        const hiss = context.createBiquadFilter();
+        hiss.type = 'highshelf';
+        hiss.frequency.value = CLEANUP_HIGHSHELF.frequency;
+        hiss.gain.value = CLEANUP_HIGHSHELF.gain;
+        link(hiss);
+    }
     if (phone) {
         const high = context.createBiquadFilter();
         high.type = 'highpass';

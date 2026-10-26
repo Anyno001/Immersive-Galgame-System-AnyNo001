@@ -1,6 +1,6 @@
 import { extractSceneDirectives } from '../../scene/scene-directives.js';
 import { getMessagePrimaryText } from '../../scene/message-source.js';
-import { isBuiltinNudeOutfit, outfitsOfCharacter } from '../../scene/character-outfits.js';
+import { createOutfitResolver, isBuiltinNudeOutfit, outfitsOfCharacter } from '../../scene/character-outfits.js';
 import { outfitSpriteSlots, readDefaultOutfit } from '../../scene/character-appearance.js';
 import { moodFallbackChain, moodPresetWords } from '../../scene/mood-groups.js';
 import { HEAD_ASPECT, resolveSpriteHead } from './fx-anchor.js';
@@ -22,12 +22,14 @@ export function collectWaitStageLines(turns, options = {}) {
     const list = Array.isArray(turns) ? turns : [];
     const out = [];
     const seen = new Set();
+    // 带服装栏的四栏标签 [igs-char:角色|表情|服装|对白] 只有传了 resolver 才识别；不传就整条当正文，台词池常年是空的。
+    const outfitResolver = createOutfitResolver(options.sceneAssets);
     for (const turn of list.slice(-Math.max(1, Math.round(options.turns || TURN_LOOKBACK)))) {
         const raw = getMessagePrimaryText(turn && (turn.raw || turn)) || getMessagePrimaryText(turn);
         if (!raw) continue;
         let directives = [];
         try {
-            directives = extractSceneDirectives(raw, {}).directives || [];
+            directives = extractSceneDirectives(raw, { outfitResolver }).directives || [];
         } catch (error) {
             directives = [];
         }
@@ -473,14 +475,18 @@ export function createWaitStageRuntime(options = {}) {
         }
         if (typeof pack.ensureStyle === 'function') pack.ensureStyle(doc);
         gamesRow.hidden = Boolean(game) || phase !== 'wait';
-        for (const id of list) {
+        list.forEach((id, index) => {
             const button = doc.createElement('button');
             button.type = 'button';
             button.className = 'igs-ws-chip';
             button.textContent = (pack.label && pack.label(id)) || id;
+            // 游戏包可以把按钮画成卡片；旧版游戏包没有这一项，照旧用文字按钮。
+            if (typeof pack.decorate === 'function') {
+                try { pack.decorate(button, id, index); } catch (error) { /* 卡片画失败就留文字按钮 */ }
+            }
             button.addEventListener('click', () => openGame(id));
             gamesRow.appendChild(button);
-        }
+        });
     }
 
     subscribeWaitStageGamePack(() => {
@@ -557,7 +563,10 @@ export function createWaitStageRuntime(options = {}) {
                 closeButton.innerHTML = ORIGINAL_READER_ICONS.close;
                 closeButton.addEventListener('click', (event) => {
                     event.stopPropagation();
-                    if (root === openedRoot) onClose();
+                    if (root !== openedRoot) return;
+                    // 主动来玩时只收起这一层回到阅读；等回复时才交给宿主关阅读器。
+                    if (play) closeRoot();
+                    else onClose();
                 });
                 root.appendChild(closeButton);
             }

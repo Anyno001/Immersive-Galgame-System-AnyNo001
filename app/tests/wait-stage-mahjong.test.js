@@ -187,6 +187,8 @@ test('gate:wait-stage:mahjong-felt-is-one-canvas-without-the-diagonals', async (
 
 test('gate:wait-stage:mahjong-table-has-nothing-that-shakes-on-phones', () => {
     assert.doesNotMatch(MAHJONG_STYLE, /perspective\(|rotateX|rotate3d/, '牌区不做 3D 倾斜：每手重绘都要重新透视采样，手机上牌和计分板会抖');
+    assert.doesNotMatch(MAHJONG_STYLE, /igs-mj-glow|animation:[^;}]*infinite/, '牌桌上不循环改透明度：按钮一闪，整屏模糊就会每一帧重画');
+    assert.match(MAHJONG_STYLE, /backdrop-filter:none/, '麻将铺满时关掉等待层的整屏模糊');
     const outside = MAHJONG_STYLE.replace(/@media \(hover:hover\)\{[^{}]*\{[^{}]*\}\}/g, '');
     assert.doesNotMatch(outside, /:hover[^{]*\{[^}]*transform/, '悬停上浮只给有鼠标的设备，触屏点完会粘在手指底下');
     for (const name of ['igs-mj-say', 'igs-mj-act']) {

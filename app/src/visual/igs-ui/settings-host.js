@@ -932,6 +932,12 @@ export function createSettingsHost(deps) {
                 if (status) status.textContent = state.activeSettings.asyncState.chatPromptStatus;
                 return;
             }
+            const ttsBatch = target.getAttribute('data-tts-batch');
+            if (ttsBatch) {
+                const batches = state.activeSettings.asyncState.ttsBatch || (state.activeSettings.asyncState.ttsBatch = {});
+                batches[ttsBatch] = { open: true, text: target.value };
+                return;
+            }
             if (target.getAttribute('data-prompt-rule-draft') !== null) {
                 state.activeSettings.asyncState.promptRuleDraft = target.value;
                 state.activeSettings.asyncState.promptRuleStatus = '有未保存的修改。';
@@ -1104,11 +1110,21 @@ export function createSettingsHost(deps) {
                 controller.invoke(`char-house:${encodeURIComponent(charHouse)}:${encodeURIComponent(charSelect.value || '')}`);
                 return;
             }
+            // 声音库条目：改完（失焦或回车）才保存。
+            const voiceLib = charSelect ? charSelect.getAttribute('data-tts-voice') : null;
+            if (voiceLib) {
+                controller.invoke(`tts-voice-edit:${voiceLib}:${charSelect.getAttribute('data-voice-index')}:${charSelect.getAttribute('data-voice-part')}:${encodeURIComponent(charSelect.value || '')}`);
+                return;
+            }
             const voiceField = !charSelect ? '' : charSelect.hasAttribute('data-char-voice') ? 'pack'
                 : charSelect.hasAttribute('data-char-voice-pitch') ? 'pitch'
                     : charSelect.hasAttribute('data-char-voice-speed') ? 'speed'
                         : charSelect.hasAttribute('data-char-voice-tts') ? 'tts'
+                            : charSelect.hasAttribute('data-char-voice-ttsThought') ? 'ttsThought'
                             : charSelect.hasAttribute('data-char-voice-ttsVolume') ? 'ttsVolume'
+                                : charSelect.hasAttribute('data-char-voice-ttsSpeed') ? 'ttsSpeed'
+                                    : charSelect.hasAttribute('data-char-voice-ttsThoughtSpeed') ? 'ttsThoughtSpeed'
+                                        : charSelect.hasAttribute('data-char-voice-ttsThoughtVolume') ? 'ttsThoughtVolume'
                                 : charSelect.hasAttribute('data-char-voice-ttsStyle') ? 'ttsStyle' : '';
             if (voiceField) {
                 const voiceChar = charSelect.getAttribute(voiceField === 'pack' ? 'data-char-voice' : `data-char-voice-${voiceField}`) || '';

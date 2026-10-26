@@ -13,7 +13,7 @@ import { normalizeStageDirectionSettings } from './stage-direction-runtime.js';
 import { AMBIENT_KINDS, AMBIENT_LABELS, normalizeAmbientSoundSettings, normalizeBgmSettings } from './scene-audio.js';
 import { normalizeTextFxSettings } from './text-fx.js';
 import { isPackKind } from '../../scene/fx-packs.js';
-import { BILINGUAL_DISPLAYS, BILINGUAL_DISPLAY_LABELS, BILINGUAL_FOREIGN_LABELS, BILINGUAL_LAYOUTS, BILINGUAL_LAYOUT_LABELS, BILINGUAL_TARGET_LABELS, normalizeBilingualSettings } from './bilingual-text.js';
+import { BILINGUAL_DISPLAYS, BILINGUAL_DISPLAY_LABELS, BILINGUAL_LAYOUTS, BILINGUAL_LAYOUT_LABELS, isBilingualRuby, normalizeBilingualSettings } from './bilingual-text.js';
 import { CLICK_WAIT_MARK_LABELS, normalizeClickWaitMarkSettings } from './click-wait-mark.js';
 import { normalizeWaitStageSettings } from './wait-stage.js';
 import { DAILY_FX_LABELS, normalizeDailyFxSettings } from './fx-daily-model.js';
@@ -79,10 +79,8 @@ function renderBilingualField(bilingual, more) {
     const displays = BILINGUAL_DISPLAYS.map((id) => [id, BILINGUAL_DISPLAY_LABELS[id]]);
     const layouts = BILINGUAL_LAYOUTS.map((id) => [id, BILINGUAL_LAYOUT_LABELS[id]]);
     return featureRow(more, 'bilingual', `${P}.bilingual.enabled`, bilingual.enabled, '双语台词', '外语台词配译文', field(`${P}.bilingual.display`, '显示方式', segmentedInput(`${P}.bilingual.display`, bilingual.display, displays, '显示方式'))
-        + field(`${P}.bilingual.layout`, '注音排版', segmentedInput(`${P}.bilingual.layout`, bilingual.layout, layouts, '注音排版'))
-        + grid(field(`${P}.bilingual.foreign`, '角色语言', selectInput(`${P}.bilingual.foreign`, bilingual.foreign, Object.entries(BILINGUAL_FOREIGN_LABELS)))
-            + field(`${P}.bilingual.target`, '译文语言', selectInput(`${P}.bilingual.target`, bilingual.target, Object.entries(BILINGUAL_TARGET_LABELS))))
-        + '<div class="igs-source-filter-note">旁白不受影响；电脑端按T键临时切换显示。</div>');
+        + (isBilingualRuby(bilingual.display) ? field(`${P}.bilingual.layout`, '注音排版', segmentedInput(`${P}.bilingual.layout`, bilingual.layout, layouts, '注音排版')) : '')
+        + '<div class="igs-source-filter-note">旁白直接以译文语言书写；电脑端按 T 键临时切换显示。</div>');
 }
 
 function trackSummary(track) {

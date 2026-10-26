@@ -47,7 +47,7 @@ import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
-import { decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
+import { cancelPendingTts, decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, rerollTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
 import { resolveRegionCrop } from './stage-snapshot.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -84,7 +84,7 @@ import { checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupL
 import { renderAssetReviewPanel } from './asset-review-panel.js';
 import { ensureEmbeddedHost, findEmbeddedHost, hideEmbeddedSourceText, hideStorySpan, isEmbeddedEditTrigger, isStoryHidden, resolveEmbeddedHostParent, restoreEmbeddedSourceText, restoreStorySpan, storyLines } from './embedded-reader-runtime.js';
 import { createReaderSourceCache } from './reader-source-cache.js';
-import { prepareReaderFloor, stripWrappingQuotes } from './reader-floor-plan.js';
+import { nextTtsHintOf, prepareReaderFloor, stripWrappingQuotes } from './reader-floor-plan.js';
 import { prepareReaderFloorAssets } from './reader-floor-assets.js';
 import { createReaderTableData } from '../../data/shujuku/reader-table-data.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
@@ -656,6 +656,8 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         if (current) syncAssetReviewAfterRender(current, current.snapshot);
     }) || (() => {});
+    // 等待巡检计时器（startReplyWatchdog 用）；必须在 return 之前声明。
+    let replyWatchdog = null;
     return host;
 
     function openReader(payload = {}, openOptions = {}) {
@@ -1091,6 +1093,7 @@ export function createIgsReaderHost(options = {}) {
         if (floorAssetPlan.reader === current) floorAssetPlan = { key: '', reader: null, urls: [] };
         current.imagePollToken += 1;
         streamObserver.stop();
+        stopReplyWatchdog();
         stopEmbeddedStoryWatch();
         // 关阅读器时把等待过场一并收掉，别留下还在轮台词的一层和等着换页的旧楼。
         waitStage.close();
@@ -1333,8 +1336,8 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 换到新写的这一楼：内嵌要先把阅读器挂到新楼层里，其余模式就地换源。
-    async function applyReplyMessage(current, message, revision) {
-        const canReplace = () => state.activeReader === current && streamObserver.isCurrentRevision(revision);
+    async function applyReplyMessage(current, message, revision, { confirmed = false } = {}) {
+        const canReplace = () => state.activeReader === current && (confirmed || streamObserver.isCurrentRevision(revision));
         if (!current || !canReplace()) return;
         const embedded = isEmbeddedReaderMode(current.mode);
         const previous = { turnOffset: current.turnOffset, mountMessageId: current.mountMessageId };
@@ -1367,11 +1370,25 @@ export function createIgsReaderHost(options = {}) {
         }
     }
 
-    function finishPendingWaitExit() {
+    // 玩家点「加载下一楼」：之后 #chat 的任何变动（含别的插件改按钮）都会让观察器版本号前进，
+    // 这里不再核对版本号，否则静默放弃、等待层卡在「正在打开下一楼…」。记录丢了就现读最新楼。
+    async function finishPendingWaitExit() {
+        const current = state.activeReader;
         const pending = pendingReplyMessage;
         pendingReplyMessage = null;
-        if (!pending || state.activeReader !== pending.reader) return;
-        void applyReplyMessage(pending.reader, pending.message, pending.revision);
+        if (!current) return;
+        if (pending && pending.reader === current) {
+            await applyReplyMessage(current, pending.message, pending.revision, { confirmed: true });
+            return;
+        }
+        let message = null;
+        try { message = await readReplyMessage(); } catch (error) { /* 读不到就退回当前楼 */ }
+        if (state.activeReader !== current) return;
+        if (message && message.id != null && !message.isUser && !message.is_user && !isUserFloorId(message.id)) {
+            await applyReplyMessage(current, message, null, { confirmed: true });
+            return;
+        }
+        exitEmbeddedLoading();
     }
 
     async function readReplyMessage() {
@@ -1512,6 +1529,34 @@ export function createIgsReaderHost(options = {}) {
         const overlay = current.dom && current.dom.overlay;
         if (overlay && overlay.classList) overlay.classList.add('igs-awaiting-reply');
         mountWaitStage(current);
+        startReplyWatchdog();
+    }
+
+    // 等待中兜底：生成结束信号丢了时等待层会一直轮台词。每几秒看一眼，新 AI 楼已落地就补一次稳定处理。
+    // 只认楼号比发送前大的 AI 楼，回复没到时不触发，免得读到用户楼当成空回复去重发。
+    // 计时器变量声明在上面 return host 之前：写在 return 之后会被压缩器当死代码删掉，线上报 cl is not defined。
+
+    function startReplyWatchdog() {
+        if (replyWatchdog != null) return;
+        const timers = options.global || globalThis;
+        if (typeof timers.setInterval !== 'function') return;
+        replyWatchdog = timers.setInterval(checkReplyLanded, 4000);
+    }
+
+    function stopReplyWatchdog() {
+        if (replyWatchdog == null) return;
+        const timers = options.global || globalThis;
+        if (typeof timers.clearInterval === 'function') timers.clearInterval(replyWatchdog);
+        replyWatchdog = null;
+    }
+
+    function checkReplyLanded() {
+        const current = state.activeReader;
+        if (!current || current.streamPhase !== 'streaming') { stopReplyWatchdog(); return; }
+        const latest = resolveLatestLiveAiMessage(resolveEmbeddedDocument(current));
+        const baselineId = current.replyBaselineMessageId ?? current.contentMessageId;
+        if (!latest || baselineId == null || !(Number(latest.id) > Number(baselineId))) return;
+        streamObserver.kick();
     }
 
     function enterEmbeddedLoading({ observed = false } = {}) {
@@ -1532,12 +1577,14 @@ export function createIgsReaderHost(options = {}) {
         mount.host.setAttribute('data-igs-embedded-loading', '1');
         if (current.dom.root && current.dom.root.style) current.dom.root.style.display = 'none';
         mountWaitStage(current, { embedded: true });
+        startReplyWatchdog();
     }
 
     function exitEmbeddedLoading() {
         const current = state.activeReader;
         if (!current) return;
         pendingReplyMessage = null;
+        stopReplyWatchdog();
         current.streamBaselineRaw = '';
         current.replyBaselineMessageId = null;
         current.streamPhase = 'idle';
@@ -1568,6 +1615,16 @@ export function createIgsReaderHost(options = {}) {
         current.dom.embeddedMount = mountEmbeddedRoot(doc, root, message, message && message.id);
         if (!current.dom.embeddedMount) {
             (doc.documentElement || doc.body).appendChild(root);
+            return;
+        }
+        // 酒馆重画楼层（开场白最常见）后宿主是新建的，没钉过比例，只剩最小高度、宽度占满，看着就是横屏。
+        // 主界面盖着时正文不渲染，不会再钉，这里补钉，观察器改绑到新宿主。
+        if (current.titleGate) {
+            stopTitleFrameWatch(current);
+            pinTitleFrame(current, current.dom.overlay);
+        } else if (current.snapshot) {
+            const reader = current.snapshot.readerSettings || {};
+            pinEmbeddedHostFrame(current.dom.overlay, reader._cgBackgroundSize, current.snapshot.mode, reader.embeddedHeight);
         }
     }
 
@@ -2262,6 +2319,9 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'tts-replay') {
             return replayTts();
         }
+        if (normalizedAction === 'tts-reroll') {
+            return rerollTts();
+        }
         if (normalizedAction === 'regen') {
             return generateOrRegenerate();
         }
@@ -2748,6 +2808,9 @@ export function createIgsReaderHost(options = {}) {
         if (!resumeKind(last, ids, current.index)) return;
         const far = readingProgress.getFarthest();
         const unread = far ? ids.filter((id) => id > far.id).length : 0;
+        // 正文已先渲染、朗读可能已开口：提示盖上前先停，选「最新一层」后这一页重新朗读。
+        stopTts();
+        cancelPendingTts(current.dom && current.dom.overlay, options.autoPlayTimers || globalThis, { forget: true });
         // 默认用主界面样式（继续 / 最新一层）；设置里可改回简易弹窗。
         if (current.snapshot?.readerSettings?.resumePrompt !== 'simple') {
             current.titleGate = createTitleGate({ coverTurn: nextTitleCoverTurn((options.global || globalThis).localStorage), resume: { label: positionLabel(last) } });
@@ -2756,7 +2819,11 @@ export function createIgsReaderHost(options = {}) {
         }
         const message = `上次读到 ${positionLabel(last)}${unread ? `，后面还有 ${unread} 楼没读` : ''}。\n接着上次阅读的地方，还是阅读最新一层？`;
         const resume = await pageModal.confirm(message, { okLabel: '继续上次', cancelLabel: '最新一层' });
-        if (!resume || state.activeReader !== current || current.progressArmed) return;
+        if (state.activeReader !== current || current.progressArmed) return;
+        if (!resume) {
+            updateMountedReader(current.snapshot);
+            return;
+        }
         await jumpToPosition({ pos: last });
     }
 
@@ -4162,12 +4229,16 @@ export function createIgsReaderHost(options = {}) {
             },
             content: {
                 speaker: resolvedSpeaker,
+                // 台词、心里话的说话人主名（别名、酒馆用户名已解析），朗读按它查角色声音；旁白与系统角色为空。
+                speakerKey: resolvedSpeaker && (textType === 'dialogue' || textType === 'thought') ? prepared.keyOf(resolvedSpeaker) : '',
                 spriteCharacter,
                 spriteMood,
                 spriteOutfit,
                 spriteLeft,
                 spriteBackArt,
                 statusEmotion: bubbleMood,
+                // 台词朗读提前生成下一页用：下一页的类型、说话人与情绪（取分页计划里现成的值，不重算）。
+                nextTtsHint: nextTtsHintOf(prepared.pages[normalizedIndex + 1], prepared.keyOf),
                 textType,
                 text: currentText,
                 fullText: text,
@@ -4440,9 +4511,9 @@ export function createIgsReaderHost(options = {}) {
             const current = state.activeReader;
             const mount = current && current.dom && current.dom.embeddedMount;
             if (!mount || !isEmbeddedReaderMode(current.mode)) return;
-            if (!isEmbeddedEditTrigger(event && event.target, mount.mesText)) return;
             const mode = current.mode;
             const messageId = mount.messageId != null ? mount.messageId : current.mountMessageId;
+            if (!isEmbeddedEditTrigger(event && event.target, mount.mesText, { host: mount.host, messageId })) return;
             const closed = closeReader();
             if (closed.ok !== false) armEditReopen(doc, messageId, mode);
         };
@@ -4848,6 +4919,16 @@ export function createIgsReaderHost(options = {}) {
         const model = titleModelOf(current);
         // 世界观页底部是所选皮肤的真对话框：先按正在选的皮肤挂样式，确认前不写设置。
         applyTitleSkin(overlay, model.view === 'worldview' ? { ...snapshot.readerSettings, dialogSkin: model.pick.skin } : snapshot.readerSettings);
+        pinTitleFrame(current, overlay);
+        renderTitleScreen(overlay, model, {
+            onAction: (act, value) => { void handleTitleAction(current, act, value); },
+        });
+        playTitleBgm(overlay, snapshot);
+    }
+
+    function pinTitleFrame(current, overlay) {
+        const snapshot = current.snapshot;
+        if (!overlay || !snapshot) return;
         // 主界面盖着时不走正文渲染，原地切到内嵌的 overlay 拿不到内嵌类名，钉框会直接跳过。
         if (isEmbeddedReaderMode(snapshot.mode) && overlay.classList) overlay.classList.add('igs-mode-embedded');
         pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode, snapshot.readerSettings && snapshot.readerSettings.embeddedHeight);
@@ -4858,10 +4939,6 @@ export function createIgsReaderHost(options = {}) {
                 return live ? { backgroundSize: reader._cgBackgroundSize, mode: live.mode, heightScale: reader.embeddedHeight } : null;
             });
         }
-        renderTitleScreen(overlay, model, {
-            onAction: (act, value) => { void handleTitleAction(current, act, value); },
-        });
-        playTitleBgm(overlay, snapshot);
     }
 
     function stopTitleFrameWatch(current) {

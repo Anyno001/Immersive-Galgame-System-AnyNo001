@@ -15,7 +15,7 @@ import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyVoiceBark } from './voice-bark.js';
-import { applyTts, normalizeTtsSettings } from './tts.js';
+import { applyTts, cancelPendingTts, normalizeTtsSettings } from './tts.js';
 import { getWaitStageGamePack } from './wait-stage-games-api.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
@@ -49,7 +49,7 @@ import { applySceneAudio } from './scene-audio.js';
 import { applyBgmNoteToDom } from './bgm-note.js';
 import { isConfessionLine } from './bgm-library.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
-import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
+import { fitBilingualRuby, isBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { getReferenceDialogTypography, preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { clearSpriteOutfitSwap, isFormOutfit, isOutfitSwap, playSpriteFormShift, spriteLookOf } from './sprite-outfit-swap.js';
@@ -497,7 +497,10 @@ export function applyToolbarState(root, current) {
     const pins = new Set(Array.isArray(readerSettings.pinnedBtns) ? readerSettings.pinnedBtns : []);
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     // 「重听这句」只在开了台词朗读时显示。
-    if (!normalizeTtsSettings(readerSettings.tts).enabled) hiddenSet.add('tts-replay');
+    const ttsConfig = normalizeTtsSettings(readerSettings.tts);
+    if (!ttsConfig.enabled) hiddenSet.add('tts-replay');
+    // 「重新生成这句」只对接口来源有意义（系统语音没有缓存可丢）。
+    if (!ttsConfig.enabled || (ttsConfig.provider !== 'api' && !ttsConfig.narratorApi.enabled)) hiddenSet.add('tts-reroll');
     // 「小游戏」要等独立的小游戏脚本装上才有东西可玩。
     if (!getWaitStageGamePack()) hiddenSet.add('mini-games');
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
@@ -2020,7 +2023,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             root.style.setProperty('--igs-bar-blur', `blur(${dialogBlur > 0 ? Math.min(dialogBlur, 10) : 6}px)`);
         }
         // 字体、字号定下后再量：放不下一行的注音改成译文单独成行，打字机随后按改好的排版测量。
-        if (bilingualDisplay === 'ruby') fitBilingualRuby(textEl);
+        if (isBilingualRuby(bilingualDisplay)) fitBilingualRuby(textEl);
     }
     const stageShakeSettings = snapshot.readerSettings && snapshot.readerSettings.stageShake;
     const stageShakeKey = [
@@ -2415,17 +2418,21 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const content = snapshot.content;
         const posX = stageSprite && (!content.spriteCharacter || content.spriteCharacter === content.speaker) ? stageSprite.posX : undefined;
         const mood = content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '';
-        if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
+        // 聊天页：正文为空，朗读由聊天气泡层（chat-layer.js）逐条接管，这里不再起页面台词朗读，免得互相掐断。
+        if (content.chatPage === true && normalizeTtsSettings(snapshot.readerSettings.tts).enabled) cancelPendingTts(root);
+        else if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,
             textType: typewriterTextType,
             text: content.displayText,
             speaker: content.speaker || '',
+            speakerKey: content.speakerKey || '',
             mood,
             phone: fxResult.phone === true,
             nsfw: Boolean(content.sceneNsfw),
             posX,
             whisper: romanceResult.whisper === true,
             next: Array.isArray(content.segments) ? content.segments[content.currentIndex + 1] : '',
+            nextHint: content.nextTtsHint || null,
         }, snapshot.readerSettings.tts, snapshot.readerSettings._sceneAssets);
         else applyVoiceBark(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,
