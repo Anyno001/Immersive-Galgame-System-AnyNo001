@@ -53,8 +53,6 @@ export const TTS_THOUGHT_BILINGUAL_MODES = Object.freeze([
 export const TTS_CHARACTER_VOLUMES = Object.freeze([[2, '200%'], [1.5, '150%'], [1.25, '125%'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.25, '25%'], [0, '不朗读']]);
 // 角色音量可放大到 200%：接口音频走增益节点的上限（系统语音浏览器最高 100%）。
 export const TTS_GAIN_CAP = 2;
-// 心里话音量（倍）：在力度之上再压一档，像在脑子里说。
-export const TTS_THOUGHT_VOLUMES = Object.freeze([[1, '100%'], [0.8, '80%'], [0.6, '60%'], [0.4, '40%']]);
 const ROLE_KEYS = ['female', 'male', 'narrator'];
 const TTS_DEFAULTS = Object.freeze({ enabled: false, provider: 'system', volume: 0.9, rate: 1, narration: true, nsfw: false, narratorRate: 1, cacheMax: 300 });
 // 朗读时 BGM 与环境音让得比语气音多一点，台词要听清。
@@ -81,8 +79,8 @@ const MAX_TEMPLATE = 2000;
 const API_TIMEOUT_MS = 25000;
 const RESUME_TIMEOUT_MS = 1200;
 // 接口模式下超过这么多字才分段；每段至少这么多字，免得切得太碎。
-const API_SEGMENT_THRESHOLD = 60;
-const API_SEGMENT_MIN = 15;
+const API_SEGMENT_THRESHOLD = 40;
+const API_SEGMENT_MIN = 12;
 const LEXICON_MAX = 4000;
 // 声音库最多存这么多个；Fish / MiniMax 的声音 ID 连标题一项可达百来字，字数上限按个数留足。
 export const TTS_VOICE_MAX = 200;
@@ -120,6 +118,11 @@ const MOOD_FISH_TAG = Object.freeze({
 });
 const WHISPER_FISH_TAG = '[whisper]';
 const THOUGHT_FISH_TAG = '[soft inner voice]';
+// 疑惑类情绪词归在「思考」组，朗读要的是上扬的疑问语气，不是若有所思。
+const CONFUSED_RE = /疑惑|困惑|不解|纳闷|迷茫|疑问/;
+const CONFUSED_FISH_TAG = '[confused, questioning]';
+// 旁白不带标签时 Fish 会照着文字起伏去演。
+const NARRATOR_FISH_TAG = '[calm, steady narration]';
 // 括号短动作 → 内联标签：按包含关系从上往下匹配，第一项命中即用；空串表示该家没有对应标签（删掉）。
 const ACTION_TAGS = Object.freeze([
     [/微笑/, '', ''],
@@ -225,7 +228,7 @@ export function normalizeTtsSettings(value) {
         narratorStyle: field(source.narratorStyle),
         // 心里话页的风格描述与音量；风格与角色风格、情绪描述一起拼进 style。
         thoughtStyle: field(source.thoughtStyle),
-        thoughtVolume: TTS_THOUGHT_VOLUMES.some(([v]) => v === thoughtVolume) ? thoughtVolume : THOUGHT_VOLUME_DEFAULT,
+        thoughtVolume: source.thoughtVolume !== undefined && source.thoughtVolume !== null && source.thoughtVolume !== '' && Number.isFinite(thoughtVolume) ? clamp(thoughtVolume, 0, 1) : THOUGHT_VOLUME_DEFAULT,
         // 台词、心里话按情绪与耳语拼一句中文描述写进风格（仅支持风格的格式有意义）。
         moodStyle: source.moodStyle === true,
         system: roles(system),
@@ -619,6 +622,8 @@ export function findSystemVoice(voices, id) {
     return voices.find((v) => v.name === key) || voices.find((v) => v.voiceURI && v.voiceURI === key) || null;
 }
 
+export const hasNaturalSystemVoice = (voices) => voices.some((v) => NATURAL_RE.test(v.name) || /自然/.test(v.name));
+
 // 设置下拉用：默认只列中文、日文声音（自然声优先），免得 Edge 几百个在线声音刷屏；allVoices 为真时全部列出，名字后标语言。
 export function systemVoiceOptions(voices = listSystemVoices(), { all = false } = {}) {
     const rank = (v) => (/^zh/i.test(v.lang) ? 0 : 2) + (NATURAL_RE.test(v.name) ? 0 : 1);
@@ -762,14 +767,18 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
     if (voice.volume <= 0) return skipWith(voice.apiSource === 'narrator' ? '旁白独立接口没有填写声音' : '这个角色设为不朗读');
     if (record) lastSkip = null;
     const mood = spoken ? resolveBarkMood(line.mood) : '';
-    // Fish 句首标签：耳语、心里话、情绪依次叠加；旁白不加。
-    if (tagMode === 'fish' && spoken) {
-        const head = [line.whisper ? WHISPER_FISH_TAG : '', type === 'thought' ? THOUGHT_FISH_TAG : '', MOOD_FISH_TAG[mood] || ''].filter(Boolean).join(' ');
+    const confused = spoken && CONFUSED_RE.test(String(line.mood || ''));
+    // Fish 句首标签：台词按耳语、心里话、情绪依次叠加；旁白固定平稳叙述。
+    let head = '';
+    if (tagMode === 'fish') {
+        head = spoken
+            ? [line.whisper ? WHISPER_FISH_TAG : '', type === 'thought' ? THOUGHT_FISH_TAG : '', confused ? CONFUSED_FISH_TAG : MOOD_FISH_TAG[mood] || ''].filter(Boolean).join(' ')
+            : NARRATOR_FISH_TAG;
         if (head) text = `${head} ${text}`;
     }
-    const prosody = (spoken && line.whisper ? WHISPER_PROSODY : MOOD_PROSODY[mood]) || {};
+    const prosody = (spoken && line.whisper ? WHISPER_PROSODY : !confused && MOOD_PROSODY[mood]) || {};
     const shape = spoken ? resolveBarkShape(line, mood) : { gain: 1, close: false, phone: false, pan: 0 };
-    const gain = type === 'thought' ? Math.min(shape.gain, config.thoughtVolume) : shape.gain;
+    const gain = type === 'thought' ? shape.gain * config.thoughtVolume : shape.gain;
     const rate = clamp(config.rate * (spoken ? 1 : config.narratorRate) * voice.rate * (prosody.rate || 1), 0.5, 2);
     if (record) lastDecision = { key, speaker: String(line.speaker || ''), name: voice.name, gender: voice.gender, role: voice.role, voice: voice.voice, voiceLabel: ttsVoiceLabel(config, voice), source: voice.source, rate };
     return {
@@ -780,6 +789,7 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         // 耳语没有情绪标签时按平静发送；平和与映射不到的不发。
         emotion: spoken ? (line.whisper ? MOOD_EMOTION[mood] || 'calm' : MOOD_EMOTION[mood] || '') : '',
         text,
+        tagHead: head,
         voice: voice.voice,
         role: voice.role,
         lang,
@@ -1057,7 +1067,7 @@ export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh', style
         return {
             url: formatUrl(api, FORMAT_PATHS.fish, { fallback: FORMAT_DEFAULT_ENDPOINTS.fish }), method: 'POST',
             headers: { ...headers, model: api.model || FISH_DEFAULT_MODEL },
-            body: JSON.stringify({ text, reference_id: voice || undefined, format: 'mp3', ...(api.sendSpeed && speedOf(rate) !== 1 ? { prosody: { speed: speedOf(rate) } } : {}) }),
+            body: JSON.stringify({ text, reference_id: voice || undefined, format: 'mp3', latency: 'balanced', ...(api.sendSpeed && speedOf(rate) !== 1 ? { prosody: { speed: speedOf(rate) } } : {}) }),
         };
     }
     if (format === 'minimax') {
@@ -1410,7 +1420,12 @@ export function splitTtsSegments(text, { threshold = API_SEGMENT_THRESHOLD, min 
     return out;
 }
 
-const apiSegments = (api, text) => (api.chunk === false ? [text] : splitTtsSegments(text));
+// 句首标签每段都带上，不然只有第一段有情绪。
+function apiSegments(api, text, head = '') {
+    if (api.chunk === false) return [text];
+    if (!head || !text.startsWith(head)) return splitTtsSegments(text);
+    return splitTtsSegments(text.slice(head.length)).map((part) => `${head} ${part}`);
+}
 // 第一段立即请求；其余段同时在途最多 SEGMENT_CONCURRENCY 个，按顺序补位。isCancelled 为真时不再发起还没开始的段。
 const SEGMENT_CONCURRENCY = 2;
 function requestSegments(api, plan, texts, isCancelled = () => false, job = null) {
@@ -1568,7 +1583,7 @@ function speakApi(job, plan, api) {
     }
     const context = bus.context;
     // 长句切成几段：第一段先请求先播，其余最多两条并行请求、解码好就按顺序接在后面播（每段各自走缓存）。
-    const texts = apiSegments(api, plan.text);
+    const texts = apiSegments(api, plan.text, plan.tagHead);
     const requests = requestSegments(api, plan, texts, () => job.cancelled || job.done, job);
     // 这一页的音频全部拿到后再去生成下一页，两条请求不抢带宽。
     job.fetched = Promise.all(requests.map((request) => request.then(() => null, () => null))).then(() => null);
@@ -1833,7 +1848,7 @@ export function prefetchTts(segment, settings, sceneAssets, { nsfw = false, hint
         || (api.format === 'fish' && api.audioTags !== false)
         || (config.moodStyle && ((api.format || 'openai') === 'openai' || api.format === 'custom'));
     if (moodKeyed && plan.role !== 'narrator' && !hinted) return null;
-    const jobs = requestSegments(api, plan, apiSegments(api, plan.text));
+    const jobs = requestSegments(api, plan, apiSegments(api, plan.text, plan.tagHead));
     return Promise.all(jobs).then((list) => list[0], () => null);
 }
 
@@ -1902,7 +1917,7 @@ export function prefetchTtsBubble(line, settings, sceneAssets) {
     persistLimit = config.cacheMax;
     const plan = decideTts({}, line, config, { sceneAssets, record: false });
     if (!plan || plan.skip || plan.provider !== 'api') return null;
-    const jobs = requestSegments(planApi(config, plan), plan, apiSegments(planApi(config, plan), plan.text));
+    const jobs = requestSegments(planApi(config, plan), plan, apiSegments(planApi(config, plan), plan.text, plan.tagHead));
     return Promise.all(jobs).then((list) => list[0], () => null);
 }
 

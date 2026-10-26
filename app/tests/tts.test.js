@@ -252,7 +252,7 @@ test('gate: tts builds the request for every api format', () => {
     assert.equal(fish.url, '/proxy/https://api.fish.audio/v1/tts');
     assert.equal(fish.headers.model, 's1');
     assert.equal(fish.headers.Authorization, 'Bearer fk');
-    assert.deepEqual(asJson(fish), { text: '你好', reference_id: 'ref123', format: 'mp3' });
+    assert.deepEqual(asJson(fish), { text: '你好', reference_id: 'ref123', format: 'mp3', latency: 'balanced' });
 
     const mm = buildTtsRequest(apiOf({ format: 'minimax', apiKey: 'mk' }), { text: '你好', voice: 'male-qn', rate: 1.3 });
     assert.equal(mm.url, 'https://api.minimaxi.com/v1/t2a_v2');
@@ -1089,7 +1089,10 @@ test('tts: narrator interface keeps its own voice list and fetches it', async ()
 test('tts: thought page uses its own volume and style', () => {
     const base = { enabled: true, provider: 'api', api: { female: 'f' }, volume: 1 };
     assert.equal(normalizeTtsSettings({}).thoughtVolume, 0.8);
-    assert.equal(normalizeTtsSettings({ thoughtVolume: 0.5 }).thoughtVolume, 0.8, 'values off the option list fall back');
+    assert.equal(normalizeTtsSettings({ thoughtVolume: 0.5 }).thoughtVolume, 0.5, 'continuous values are kept');
+    assert.equal(normalizeTtsSettings({ thoughtVolume: 3 }).thoughtVolume, 1);
+    assert.equal(normalizeTtsSettings({ thoughtVolume: -1 }).thoughtVolume, 0);
+    assert.equal(normalizeTtsSettings({ thoughtVolume: 'x' }).thoughtVolume, 0.8);
     assert.equal(normalizeTtsSettings({ thoughtVolume: '0.6' }).thoughtVolume, 0.6);
     assert.equal(normalizeTtsSettings({ thoughtStyle: 'x'.repeat(400) }).thoughtStyle.length, 300);
     const line = { key: 't', textType: 'thought', speaker: '甲', text: '真麻烦。' };
@@ -1134,8 +1137,10 @@ test('gate: tts audio tags fish sentence-head tags from mood, whisper and though
     assert.equal(plan({ mood: '平和' }).text, '那个…');
     assert.equal(plan({ textType: 'thought', mood: '紧张' }).text, '[soft inner voice] [nervous] 那个…');
     assert.equal(plan({ mood: '委屈' }).text, '[aggrieved, on the verge of tears] 那个…');
+    assert.equal(plan({ mood: '疑惑' }).text, '[confused, questioning] 那个…');
+    assert.equal(plan({ mood: '疑惑' }).rate, plan({ mood: '平和' }).rate, '疑惑不按思考放慢');
     const narration = decideTts({}, { key: 'n', textType: 'narration', text: '夜色渐深。', mood: '紧张' }, base, { sceneAssets: {} });
-    assert.equal(narration.text, '夜色渐深。');
+    assert.equal(narration.text, '[calm, steady narration] 夜色渐深。');
 });
 
 test('gate: tts audio tags convert bracket actions for fish and minimax, drop unknown ones', () => {
@@ -1311,7 +1316,7 @@ test('matchBatchVoicesToCharacters maps voice names to characters without overri
     assert.deepEqual(assets.characterVoices, { 小红: { tts: 'kept-voice' } });
 });
 
-test('gate: voice library actions share one row with preview, and batch recognition expands and cancels as page state only', async () => {
+test('gate: voice library actions share one row, preview sits in the voice head, and batch recognition expands and cancels as page state only', async () => {
     const { bootstrapIGS } = await import('../src/index.js');
     const vn = bootstrapIGS({ global: {}, autoAttachMagicWand: false, hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
     try {
@@ -1322,7 +1327,8 @@ test('gate: voice library actions share one row with preview, and batch recognit
         const html = controller.goToPath('readerSettings.tts.provider').html || view();
         const row = html.match(/<div class="igs-tts-voice-actions">(.*?)<\/div>/s)[1];
         const order = [...row.matchAll(/data-action="([a-z-]+)/g)].map((m) => m[1]);
-        assert.deepEqual(order, ['tts-voice-add', 'tts-voice-batch', 'tts-fetch-voices', 'tts-preview']);
+        assert.deepEqual(order, ['tts-voice-add', 'tts-voice-batch', 'tts-fetch-voices']);
+        assert.match(html, /<div class="igs-settings-section-head"><div class="igs-settings-subhead">声音<\/div><button[^>]*data-action="tts-preview"/);
         assert.doesNotMatch(html, /data-tts-batch=/);
         await controller.invoke('tts-voice-batch:api');
         assert.match(view(), /data-tts-batch="api"/);

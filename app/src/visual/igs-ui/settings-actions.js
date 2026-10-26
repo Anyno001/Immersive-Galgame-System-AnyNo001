@@ -78,7 +78,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
-import { TTS_VOICE_MAX, clearTtsCache, editTtsVoices, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice } from './tts.js';
+import { TTS_VOICE_MAX, editTtsVoices, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction, guardDefaultOutfitImages } from './settings-outfit-actions.js';
 import { handleEventCgAction } from './settings-event-cg.js';
@@ -3004,10 +3004,6 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.asyncState.ttsCacheStatus = `已清理 ${removed} 条朗读缓存，保留最近 ${limit} 条。`;
         return rerenderSettings();
     }
-    if (normalizedAction === 'tts-clear-cache') {
-        await clearTtsCache();
-        return { ok: true, cleared: true };
-    }
     if (normalizedAction.startsWith('tts-voice-add:') || normalizedAction.startsWith('tts-voice-remove:') || normalizedAction.startsWith('tts-voice-edit:')) {
         // 声音库按条目增删改，写回 api / narratorApi 的 voices 文本。
         const [command, apiKey, rawIndex, part, rawValue] = normalizedAction.split(':');
@@ -3102,10 +3098,17 @@ export async function handleSettingsAction(action, ctx) {
             + (merged.dropped ? `已达 ${TTS_VOICE_MAX} 个上限，其余 ${merged.dropped} 个未加入。` : '');
         return rerenderSettings();
     }
+    // 试听失败的原因留在试听按钮旁，下次试听成功时清掉。
+    const finishTtsPreview = (stateKey, result) => {
+        const error = result && result.ok === false && result.error ? String(result.error) : '';
+        if (error === (settingsState.asyncState[stateKey] || '')) return result;
+        settingsState.asyncState[stateKey] = error;
+        rerenderSettings();
+        return result;
+    };
     if (normalizedAction === 'tts-preview-narrator') {
         const result = await previewTts((settingsState.draft.readerSettings || {}).tts, { role: 'narrator' });
-        if (result && result.ok === false && result.error) showGeneratedNotice(options.global || globalThis, `试听失败：${result.error}`);
-        return result;
+        return finishTtsPreview('ttsNarratorPreviewError', result);
     }
     if (normalizedAction === 'tts-preview' || normalizedAction.startsWith('tts-preview:') || normalizedAction.startsWith('tts-preview-thought:')) {
         // 试听台词朗读：可带角色名，按这个角色会用到的声音念；thought 试听心里话的声音。
@@ -3115,9 +3118,11 @@ export async function handleSettingsAction(action, ctx) {
         const assets = settingsState.draft.bridge.sceneAssets || {};
         const voice = charName ? resolveTtsVoice({ textType: thought ? 'thought' : 'dialogue', speaker: charName }, reader.tts, assets, listSystemVoices()) : null;
         const result = await previewTts(reader.tts, voice ? { role: voice.role, voice: voice.voice, speaker: charName, sceneAssets: assets, thought } : {});
-        // 试听失败的原因不走阅读器的报错通道，这里在设置页提示出来，免得点了像没反应。
-        if (result && result.ok === false && result.error) showGeneratedNotice(options.global || globalThis, `试听失败：${result.error}`);
-        return result;
+        if (charName) {
+            if (result && result.ok === false && result.error) showGeneratedNotice(options.global || globalThis, `试听失败：${result.error}`);
+            return result;
+        }
+        return finishTtsPreview('ttsPreviewError', result);
     }
     if (normalizedAction.startsWith('voice-bark-preview:')) {
         const charName = decodeSeg(normalizedAction.slice('voice-bark-preview:'.length));
