@@ -47,7 +47,7 @@ import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
-import { decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, rerollTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
+import { cancelPendingTts, decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, rerollTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
 import { resolveRegionCrop } from './stage-snapshot.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -2808,6 +2808,9 @@ export function createIgsReaderHost(options = {}) {
         if (!resumeKind(last, ids, current.index)) return;
         const far = readingProgress.getFarthest();
         const unread = far ? ids.filter((id) => id > far.id).length : 0;
+        // 正文已先渲染、朗读可能已开口：提示盖上前先停，选「最新一层」后这一页重新朗读。
+        stopTts();
+        cancelPendingTts(current.dom && current.dom.overlay, options.autoPlayTimers || globalThis, { forget: true });
         // 默认用主界面样式（继续 / 最新一层）；设置里可改回简易弹窗。
         if (current.snapshot?.readerSettings?.resumePrompt !== 'simple') {
             current.titleGate = createTitleGate({ coverTurn: nextTitleCoverTurn((options.global || globalThis).localStorage), resume: { label: positionLabel(last) } });
@@ -2816,7 +2819,11 @@ export function createIgsReaderHost(options = {}) {
         }
         const message = `上次读到 ${positionLabel(last)}${unread ? `，后面还有 ${unread} 楼没读` : ''}。\n接着上次阅读的地方，还是阅读最新一层？`;
         const resume = await pageModal.confirm(message, { okLabel: '继续上次', cancelLabel: '最新一层' });
-        if (!resume || state.activeReader !== current || current.progressArmed) return;
+        if (state.activeReader !== current || current.progressArmed) return;
+        if (!resume) {
+            updateMountedReader(current.snapshot);
+            return;
+        }
         await jumpToPosition({ pos: last });
     }
 

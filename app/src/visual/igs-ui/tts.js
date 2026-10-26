@@ -2121,11 +2121,13 @@ export function prefetchTtsBubble(line, settings, sceneAssets) {
 }
 
 // 聊天页接管朗读前调用：作废这个根节点上一页 applyTts 留下的延后播放、预取定时器与排队，免得上一页台词在聊天页里响起。
-export function cancelPendingTts(root, timers = globalThis) {
+// forget：同时忘掉已念过的句子，之后同一页重新渲染时照常朗读（续读提示盖住正文时用）。
+export function cancelPendingTts(root, timers = globalThis, { forget = false } = {}) {
     const state = root && states.get(root);
     if (!state) return;
     for (const timer of [state.deferTimer, state.prefetchTimer]) if (timer) timers.clearTimeout(timer);
     state.deferTimer = null;
     state.prefetchTimer = null;
     state.token = (state.token || 0) + 1;
+    if (forget) state.lastKey = null;
 }
