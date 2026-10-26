@@ -207,6 +207,31 @@ test('gate: tts prefetch waits for the reader to dwell, skips fast clicks, and o
 const apiOf = (extra = {}) => normalizeTtsSettings({ provider: 'api', api: extra }).api;
 const asJson = (req) => JSON.parse(req.body);
 
+test('gate: tts waits for the title card / eye-open lead, fetching the line meanwhile', async () => {
+    const realFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+        calls.push(JSON.parse(init.body).input);
+        return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
+    };
+    const pending = new Map();
+    let seq = 0;
+    const timers = {
+        setTimeout: (fn, ms) => { seq += 1; pending.set(seq, { fn, ms }); return seq; },
+        clearTimeout: (id) => pending.delete(id),
+    };
+    try {
+        await clearTtsCache();
+        const settings = { enabled: true, provider: 'api', api: { endpoint: 'https://tts.test/v1', female: 'anna', prefetch: false } };
+        applyTts({}, { key: 'lead:1', textType: 'narration', text: '第二天清晨。', delay: 2700 }, settings, assets({}), { now: () => 0, timers });
+        await new Promise((r) => setImmediate(r));
+        assert.deepEqual(calls, ['第二天清晨。'], 'audio is requested while the card plays');
+        assert.deepEqual([...pending.values()].map((t) => t.ms), [2700], 'playback waits for the card');
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
 test('gate: tts api settings normalize new fields with safe defaults', () => {
     const api = normalizeTtsSettings(null).api;
     assert.equal(api.format, 'openai');

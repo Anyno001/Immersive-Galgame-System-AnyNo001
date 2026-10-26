@@ -2057,7 +2057,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         cast: castFxTargets,
         resolveAssetUrl,
     });
-    renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
+    const dailyFxResult = renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
     // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
     applyDanmakuToDom(root, snapshot, { autoPlay: Boolean(current && current.autoPlay && current.autoPlay.enabled), sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove });
@@ -2438,6 +2438,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             whisper: romanceResult.whisper === true,
             next: Array.isArray(content.segments) ? content.segments[content.currentIndex + 1] : '',
             nextHint: content.nextTtsHint || null,
+            // 报幕卡、睁眼、时间跳跃、醒来这类铺满画面的演出播完再念。
+            delay: Math.max(Number(fxResult && fxResult.ttsLead) || 0, Number(dailyFxResult && dailyFxResult.ttsLead) || 0),
         }, snapshot.readerSettings.tts, snapshot.readerSettings._sceneAssets);
         else applyVoiceBark(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,

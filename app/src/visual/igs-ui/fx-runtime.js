@@ -1209,6 +1209,12 @@ export function applyFxToDom(root, snapshot, options = {}) {
     state.pageKey = plan.pageKey;
     playRangeTransitions(ctx, rangeBefore);
     for (const effect of plan.effects) playEffect(effect, ctx);
+    // 报幕卡、睁眼铺满画面：台词朗读等它们播完再开口（返回给 applyTts 作 delay）。
+    let ttsLead = 0;
+    for (const effect of plan.effects) {
+        if (effect.type === 'title') ttsLead = Math.max(ttsLead, Math.max(TITLE_CARD_LIFETIME_MS[plan.titleSpeed] || TITLE_CARD_LIFETIME_MS.medium, isWuxiaInkSkin(snapshot) ? WUXIA_TITLE_CARD_MS : 0));
+        else if (effect.type === 'eye' && effect.mode === 'open' && !reduced) ttsLead = Math.max(ttsLead, FX_LIFETIME_MS.eye);
+    }
     const clashPlayed = playPageClashes(ctx, settings);
     const demonPlayed = playInnerDemon(ctx, settings.innerDemon);
     if (emergencyOn) playSiren(ctx);
@@ -1233,7 +1239,7 @@ export function applyFxToDom(root, snapshot, options = {}) {
     });
     const { flashback, dream, letterbox } = plan.ranges;
     // umbrella 交给场景音频：撑伞区间里伞外雨声变闷、头顶叠雨打伞面。
-    return { played: [...plan.effects.map((effect) => effect.type), ...clashPlayed, ...demonPlayed, ...castPlayed, ...dlcPlayed], phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox), umbrella: Boolean(plan.atmos.umbrella) } };
+    return { played: [...plan.effects.map((effect) => effect.type), ...clashPlayed, ...demonPlayed, ...castPlayed, ...dlcPlayed], ttsLead, phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox), umbrella: Boolean(plan.atmos.umbrella) } };
 }
 
 export function cancelFxEffects(root) {

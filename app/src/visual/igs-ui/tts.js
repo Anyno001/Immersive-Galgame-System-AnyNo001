@@ -88,6 +88,7 @@ const PERSIST_NAME = 'igs-tts-v1';
 const PREFETCH_DWELL_MS = 1500;
 const FAST_FLIP_MS = 700;
 const FLIP_DEFER_MS = 400;
+const TTS_LEAD_MAX_MS = 6000;
 // 情绪对语速的微调在 0.88～1.08 之间，提前生成的那条按平和语速请求，差这么多以内照用。
 const RATE_TOLERANCE = 0.15;
 const MAX_FIELD = 300;
@@ -2106,11 +2107,19 @@ export function applyTts(root, line, settings, sceneAssets, { now = Date.now, ti
         queued = start;
         return null;
     }
-    if (api && fastFlip) {
+    // 本页有报幕、睁眼等演出时等它播完再开口；快翻推迟与之取较长者。
+    const lead = Math.max(0, Math.min(TTS_LEAD_MAX_MS, Number(line.delay) || 0));
+    const defer = Math.max(lead, api && fastFlip ? FLIP_DEFER_MS : 0);
+    if (defer) {
+        // 等演出期间先把这一句的音频请求下来（同句请求合并、走缓存），演出一结束即可开口。
+        if (lead && api) {
+            const warm = planApi(config, plan);
+            Promise.all(requestSegments(warm, plan, apiSegments(warm, plan.text, plan.tagHead))).catch(() => null);
+        }
         state.deferTimer = timers.setTimeout(() => {
             state.deferTimer = null;
             start();
-        }, FLIP_DEFER_MS);
+        }, defer);
         return null;
     }
     return start();
