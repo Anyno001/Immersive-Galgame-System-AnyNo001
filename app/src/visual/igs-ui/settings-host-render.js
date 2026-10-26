@@ -1191,6 +1191,7 @@ function renderTtsApiFields(api, apiPath) {
         );
     }
     if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('sendSpeed'), api.sendSpeed, '发送语速'));
+    if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('quality'), api.quality, '音质优先（更高码率，生成稍慢）'));
     if (format === 'minimax') parts.push(checkbox(apiPath('sendEmotion'), api.sendEmotion, '发送情绪（仅 MiniMax，按情绪选发音情感）'));
     if (format === 'fish' || format === 'minimax') parts.push(checkbox(apiPath('audioTags'), api.audioTags, '音频标签（句首情绪、耳语与括号动作转标签）'));
     if (format === 'custom') {

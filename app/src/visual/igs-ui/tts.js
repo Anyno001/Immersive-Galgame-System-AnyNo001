@@ -212,6 +212,8 @@ function normalizeTtsApi(api) {
         format: pick(TTS_API_FORMATS, api.format, resolveTtsApiFormat(api.endpoint)),
         responseFormat: pick(TTS_RESPONSE_FORMATS, api.responseFormat, 'mp3'),
         sendSpeed: api.sendSpeed !== false,
+        // Fish / MiniMax：音质优先，换更高码率与采样率，生成稍慢。
+        quality: api.quality === true,
         // 长句按句末标点切段：第一段先请求先播，其余并行请求、按顺序接着播。
         chunk: api.chunk !== false,
         customMethod: pick(TTS_CUSTOM_METHODS, api.customMethod, 'POST'),
@@ -943,6 +945,7 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         lang,
         volume: clamp(config.volume * gain * voice.volume, 0, TTS_GAIN_CAP),
         gainCap: TTS_GAIN_CAP,
+        limit: true,
         rate,
         pitch: clamp(voice.pitch * prosody.pitch, 0.5, 2),
         pan: shape.pan, close: shape.close, phone: shape.phone,
@@ -1270,7 +1273,11 @@ export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh', style
         return {
             url: formatUrl(api, FORMAT_PATHS.fish, { fallback: FORMAT_DEFAULT_ENDPOINTS.fish }), method: 'POST',
             headers: { ...headers, model: api.model || FISH_DEFAULT_MODEL },
-            body: JSON.stringify({ text, reference_id: voice || undefined, format: 'mp3', latency: 'balanced', ...(api.sendSpeed && speedOf(rate) !== 1 ? { prosody: { speed: speedOf(rate) } } : {}) }),
+            body: JSON.stringify({
+                text, reference_id: voice || undefined, format: 'mp3',
+                ...(api.quality ? { latency: 'normal', mp3_bitrate: 192, sample_rate: 44100 } : { latency: 'balanced' }),
+                ...(api.sendSpeed && speedOf(rate) !== 1 ? { prosody: { speed: speedOf(rate) } } : {}),
+            }),
         };
     }
     if (format === 'minimax') {
@@ -1279,7 +1286,7 @@ export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh', style
             body: JSON.stringify({
                 model: api.model || MINIMAX_DEFAULT_MODEL, text, stream: false, output_format: 'hex',
                 voice_setting: { voice_id: voice || '', ...(api.sendSpeed ? { speed: speedOf(rate) } : {}), ...(api.sendEmotion !== false && MINIMAX_EMOTIONS.includes(emotion) ? { emotion } : {}) },
-                audio_setting: { format: 'mp3' },
+                audio_setting: { format: 'mp3', ...(api.quality ? { sample_rate: 44100, bitrate: 256000 } : {}) },
             }),
         };
     }
@@ -1522,8 +1529,9 @@ export function ttsCacheKey(url, api, voice, text, style = '', emotion = '') {
     const body = String(text || '').replace(/^[\s「『“"'‘]+|[\s」』”"'’]+$/g, '').replace(/\s+/g, ' ');
     const format = api.format || 'openai';
     const noSpeed = api.sendSpeed === false ? 'nospeed' : '';
+    const hq = api.quality && (format === 'fish' || format === 'minimax') ? 'hq' : '';
     const variant = format === 'openai' ? `${api.responseFormat || 'mp3'}${noSpeed}`
-        : format === 'custom' ? hashName([api.customMethod, api.customUrl, api.customHeaders, api.customBody, api.customResponse, api.customPath].join('\n')).toString(36) + noSpeed : noSpeed;
+        : format === 'custom' ? hashName([api.customMethod, api.customUrl, api.customHeaders, api.customBody, api.customResponse, api.customPath].join('\n')).toString(36) + noSpeed : noSpeed + hq;
     // 风格只在填了时进键，没填风格的旧缓存照常命中。
     // 情绪同理：没有情绪时与旧键一致。
     return [url, format, variant, api.model, voice, body, ...(style ? [style] : []), ...(emotion ? [`emotion:${emotion}`] : [])].join('|');
@@ -2250,7 +2258,7 @@ export function previewTts(settings, { role = 'female', voice = '', speaker = ''
     const plan = {
         provider, apiSource: separate ? 'narrator' : 'main', style: narrator ? config.narratorStyle : speaker ? spokenStyle(config, sceneAssets, { textType: thought ? 'thought' : 'dialogue', speaker }, '') : '',
         text: narrator ? '夜色渐深，街角的灯一盏接一盏亮了起来。' : thought ? '这家伙，到底在想些什么呢。' : '你好，这是台词朗读的试听。今天也请多指教。', voice: picked, role, lang: 'zh',
-        volume, gainCap: TTS_GAIN_CAP, rate, pitch: 1, pan: 0, close: false, phone: false, preview: true, cleanup: config.cleanup,
+        volume, gainCap: TTS_GAIN_CAP, limit: true, rate, pitch: 1, pan: 0, close: false, phone: false, preview: true, cleanup: config.cleanup,
     };
     lastError = '';
     const job = playTts(plan, config);
