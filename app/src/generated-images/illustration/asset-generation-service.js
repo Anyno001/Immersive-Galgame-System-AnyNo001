@@ -483,7 +483,7 @@ export function createAssetGenerationService(deps) {
     // 完整图片记录始终保留；保存暂时失败时续写同一记录，不删原图或遮罩。
     async function persistGeneratedImage(image) {
         const saved = await recoverOperation(() => store.putImage(image), { repeatable: 'save', signal: recoveryController.signal, isActive: () => !stopped });
-        return saved?.cancelled || saved?.ok === false ? saved : { ok: true };
+        return saved?.cancelled || saved?.ok === false ? saved : { ok: true, ...(saved?.timing && { timing: saved.timing }) };
     }
 
     async function generateItem(item, s, floor, floorKey) {
@@ -1531,7 +1531,7 @@ export function createAssetGenerationService(deps) {
         let saved;
         try { saved = await persistGeneratedImage(image); }
         catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
-        report('info', `立绘计时（${name}·${mood}）：出图 ${secs(paintDoneAt - paintStartedAt)}，抠图 ${secs(matteDoneAt - paintDoneAt)}，保存 ${secs(Date.now() - matteDoneAt)}`);
+        report('info', `立绘计时（${name}·${mood}）：出图 ${secs(paintDoneAt - paintStartedAt)}，抠图 ${secs(matteDoneAt - paintDoneAt)}，保存 ${secs(Date.now() - matteDoneAt)}${saved?.timing ? `（恢复 ${secs(saved.timing.restore)}、上传图片 ${secs(saved.timing.upload)}、等同步并写记录 ${secs(saved.timing.write)}）` : ''}`);
         // 没存上就不能报成功：否则格子会指向一张不存在的图，已画好的表情也看不到。
         if (saved?.ok === false) {
             const cancelled = saved.cancelled === true;

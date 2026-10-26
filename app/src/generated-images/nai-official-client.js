@@ -128,7 +128,10 @@ export function createNaiOfficialClient(deps = {}) {
         const timer = setTimeout(() => { try { inputSettings.onSlow?.(); } catch { /* 展示不改变请求状态。 */ } }, timeoutMs);
         const deadline = Date.now() + timeoutMs;
         // 分段计时写进生图排查日志：排队（同 Key 串行锁）、等服务器响应、下载解析。
-        const timing = { queuedAt: Date.now() };
+        const p = body?.parameters || {};
+        const timing = { queuedAt: Date.now(), params: `${body?.model || '?'} ${p.width}x${p.height} ${p.steps}步 采样${p.sampler}`
+            + `${p.straight_alpha ? ' 透明底' : ''} 角色段${p.v4_prompt?.caption?.char_captions?.length || 0}`
+            + ` ${inputSettings.endpoint && !isOfficialNaiEndpoint(inputSettings.endpoint) ? '中转' : '官网'}·${transport === 'st-proxy' ? '酒馆代理' : '直连'}` };
         settings.timing = timing;
         try {
             const result = await queue.run(settings.apiKey, () => {

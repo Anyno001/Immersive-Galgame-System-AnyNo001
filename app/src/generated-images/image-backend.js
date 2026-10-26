@@ -44,6 +44,7 @@ function reportNaiTiming(report, method, enteredAt, readyAt, result) {
     const parts = [`就绪检查 ${secs(readyAt - enteredAt)}`, `排队 ${secs((t.startedAt || t.doneAt) - t.queuedAt)}`];
     if (t.startedAt && t.headersAt) parts.push(`等服务器 ${secs(t.headersAt - t.startedAt)}`, `下载解析 ${secs((t.doneAt || t.headersAt) - t.headersAt)}`);
     parts.push(`合计 ${secs((t.doneAt || Date.now()) - enteredAt)}`);
+    if (t.params) parts.push(`参数 ${t.params}`);
     report('info', `NAI 计时（${method === 'edit' ? '局部重绘' : '生图'}${result?.ok ? '' : '·失败'}）：${parts.join('，')}`);
 }
 
