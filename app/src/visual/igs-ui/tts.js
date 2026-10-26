@@ -281,6 +281,8 @@ export function normalizeTtsSettings(value) {
             voices: limitVoiceText(String(api.voices ?? '').trim().slice(0, VOICES_TEXT_MAX)),
             // 提前生成下一页：在一页停够 PREFETCH_DWELL_MS 才生成，快速点过的页不花钱。
             prefetch: api.prefetch !== false,
+            // 新楼层写完后按页依次生成整楼朗读，默认关。
+            prefetchFloor: api.prefetchFloor === true,
             ...roles(api),
         },
     };
@@ -2209,6 +2211,21 @@ export function prefetchTts(segment, settings, sceneAssets, { nsfw = false, hint
     if (moodKeyed && plan.role !== 'narrator' && !hinted) return null;
     const jobs = requestSegments(api, plan, apiSegments(api, plan.text, plan.tagHead));
     return Promise.all(jobs).then((list) => list[0], () => null);
+}
+
+// 新楼层写完后整楼预载：逐页依次请求（不并发，免得撞接口限流），alive() 为假时停下。
+export async function prefetchTtsFloor(pages, settings, sceneAssets, { alive = () => true } = {}) {
+    const config = normalizeTtsSettings(settings);
+    if (!config.enabled || !usesApi(config) || !config.api.prefetchFloor) return 0;
+    let count = 0;
+    for (const page of pages) {
+        if (!alive()) break;
+        const job = prefetchTts(page.segment, settings, sceneAssets, { hint: page.hint });
+        if (!job) continue;
+        await job;
+        count += 1;
+    }
+    return count;
 }
 
 // 设置里的试听：按当前来源念一句。接口来源会等结果，失败时返回原因。

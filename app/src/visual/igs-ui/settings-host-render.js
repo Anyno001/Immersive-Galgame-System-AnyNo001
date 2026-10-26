@@ -1306,6 +1306,7 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narrato
             checkbox(`${base}.nsfw`, tts.nsfw, 'NSFW场景也朗读'),
             checkbox(`${base}.sustain`, tts.sustain, '翻页不打断'),
             apiMode ? checkbox(apiPath('prefetch'), api.prefetch, '提前生成下一页') : '',
+            apiMode ? checkbox(apiPath('prefetchFloor'), api.prefetchFloor, '新楼层预载全楼') : '',
         ].join('')}</div>`,
         // 读译文用中文声音；读原文时系统语音按原文语言换日文 / 英文声音。
         bilingual ? field(`${base}.bilingual`, '台词朗读', segmentedInput(`${base}.bilingual`, tts.bilingual, TTS_BILINGUAL_MODES, '台词朗读')) : '',

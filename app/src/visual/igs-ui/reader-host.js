@@ -47,7 +47,7 @@ import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
-import { cancelPendingTts, decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, rerollTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
+import { cancelPendingTts, decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, prefetchTtsFloor, replayTts, rerollTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
 import { resolveRegionCrop } from './stage-snapshot.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -417,6 +417,9 @@ export function createIgsReaderHost(options = {}) {
         onClose: () => closeReader(),
     });
     let pendingReplyMessage = null;
+    // 最近一次分页的楼层（整楼预载朗读用）；ttsFloorToken 换楼即作废上一轮预载。
+    let ttsFloorPlan = null;
+    let ttsFloorToken = 0;
     // 小游戏脚本可能比阅读器晚装上：装上或卸掉都要重排一次工具栏里的「小游戏」。
     const offWaitGamePack = subscribeWaitStageGamePack((pack) => {
         const current = state.activeReader;
@@ -1363,6 +1366,7 @@ export function createIgsReaderHost(options = {}) {
                 return;
             }
             exitEmbeddedLoading();
+            prefetchFloorTts(current, message.id);
         } catch (error) {
             if (canReplace()) {
                 current.turnOffset = previous.turnOffset;
@@ -1370,6 +1374,19 @@ export function createIgsReaderHost(options = {}) {
                 showReplyFailure(current, 'read');
             }
         }
+    }
+
+    // 新楼层写完后整楼预载朗读（设置「新楼层预载全楼」，默认关）：按阅读器分页与下一页提示同一套构造，缓存键与实际朗读一致。
+    function prefetchFloorTts(current, messageId) {
+        const plan = ttsFloorPlan;
+        const readerSettings = current && current.snapshot && current.snapshot.readerSettings;
+        if (!plan || !readerSettings || Number(plan.messageId) !== Number(messageId)) return;
+        const token = ++ttsFloorToken;
+        const { segments, pages, keyOf } = plan.prepared;
+        const list = segments.map((segment, index) => ({ segment, hint: nextTtsHintOf(pages[index], keyOf) }));
+        prefetchTtsFloor(list, readerSettings.tts, readerSettings._sceneAssets, {
+            alive: () => token === ttsFloorToken && state.activeReader === current,
+        }).catch(() => {});
     }
 
     // 玩家点「加载下一楼」：之后 #chat 的任何变动（含别的插件改按钮）都会让观察器版本号前进，
@@ -3851,6 +3868,7 @@ export function createIgsReaderHost(options = {}) {
             return floor;
         });
         const { text, segments } = prepared;
+        ttsFloorPlan = { messageId: payload.messageId, prepared };
         if (!segments.length) return { content: { segments: [] } };
         const normalizedIndex = Math.max(0, Math.min(segments.length - 1, Number(index) || 0));
         const segmentImageSlots = Array.isArray(payload.segmentImageSlots) && payload.segmentImageSlots.length

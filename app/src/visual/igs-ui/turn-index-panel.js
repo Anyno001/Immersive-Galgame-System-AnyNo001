@@ -953,7 +953,9 @@ ${T} .igs-ti-log{list-style:none;margin:0;padding:0;max-width:44em;}
 ${T} .igs-ti-log-entry{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr) 32px;align-items:start;gap:14px;padding:14px 8px;margin:0 -8px;border-radius:var(--igs-rp-radius-m);}
 ${T} .igs-ti-log-entry + .igs-ti-log-entry::before{content:"";position:absolute;top:0;left:8px;right:8px;border-top:1px dashed var(--igs-rp-text-ghost);pointer-events:none;}
 ${T} .igs-ti-log-entry[aria-current="true"]{background:var(--igs-rp-fill);}
-${T} .igs-ti-log-entry.is-reading{background:var(--igs-rp-fill-active);box-shadow:inset 3px 0 0 var(--igs-rp-accent,var(--igs-rp-text-soft));}
+${T} .igs-ti-log-entry.is-reading{background:var(--igs-rp-fill-active);}
+${T} .igs-ti-log-entry.is-reading .igs-ti-log-face{animation:igs-ti-speaking 1.6s var(--igs-rp-ease) infinite;}
+@keyframes igs-ti-speaking{0%,100%{box-shadow:0 0 0 2px var(--igs-rp-accent,var(--igs-rp-text-soft));}50%{box-shadow:0 0 0 5px var(--igs-rp-fill);}}
 ${T} .igs-ti-log-entry[aria-current="true"]::before,${T} .igs-ti-log-entry[aria-current="true"] + .igs-ti-log-entry::before,${T} .igs-ti-log-entry.is-reading::before,${T} .igs-ti-log-entry.is-reading + .igs-ti-log-entry::before{display:none;}
 ${T} .igs-ti-log-face{width:40px;height:40px;border-radius:50%;background-color:var(--igs-rp-fill-active);background-repeat:no-repeat;}
 ${T} .igs-ti-log-face.is-cover{background-size:cover;background-position:center;}
@@ -1040,5 +1042,5 @@ ${T}.igs-rp-narrow.igs-ti-drawer-open .is-floors .igs-ti-side{transform:none;vis
 ${T}.igs-rp-narrow .is-floors .igs-ti-list{flex:1 1 auto;height:auto;min-height:0;}
 ${T}.igs-rp-narrow .is-floors .igs-ti-scrim{display:block;position:absolute;inset:-4px -12px -12px;z-index:2;background:var(--igs-rp-backdrop);opacity:0;pointer-events:none;transition:opacity .26s var(--igs-rp-ease);}
 ${T}.igs-rp-narrow.igs-ti-drawer-open .is-floors .igs-ti-scrim{opacity:1;pointer-events:auto;}
-@media (prefers-reduced-motion:reduce){${T} .igs-ti-side,${T} .igs-ti-scrim{transition:none!important;}}
+@media (prefers-reduced-motion:reduce){${T} .igs-ti-side,${T} .igs-ti-scrim{transition:none!important;}${T} .igs-ti-log-entry.is-reading .igs-ti-log-face{animation:none;box-shadow:0 0 0 2px var(--igs-rp-accent,var(--igs-rp-text-soft));}}
 `;
