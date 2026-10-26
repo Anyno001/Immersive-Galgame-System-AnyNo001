@@ -68,6 +68,15 @@ const CLEANUP_ATTACK_MS = 5;
 const CLEANUP_RELEASE_MS = 80;
 // 单段超过这个时长不做净化，只做响度统一。
 const CLEANUP_MAX_S = 30;
+// 去爆破：180 Hz 以下低频比其余频段高出 6 dB 以上视为喷麦，只把低频压到与其余持平，最多压 16 dB。
+const PLOSIVE_SPLIT_HZ = 180;
+const PLOSIVE_WINDOW_MS = 5;
+const PLOSIVE_EXCESS_DB = 6;
+const PLOSIVE_FLOOR_DB = 16;
+const PLOSIVE_ACTIVE_DB = 30;
+const PLOSIVE_ATTACK_MS = 1;
+const PLOSIVE_RELEASE_MS = 40;
+const EDGE_FADE_MS = 6;
 // 响度统一：目标 RMS、静音门限（最大窗以下 40 dB 不计）、增益范围、峰值上限。
 const LOUD_TARGET_DB = -20;
 const LOUD_GATE_DB = 40;
@@ -111,7 +120,7 @@ const SYSTEM_SPEAK_DELAY_MS = 60;
 const ERROR_REPEAT_MS = 30000;
 const LANG_TAGS = Object.freeze({ zh: 'zh-CN', ja: 'ja-JP', en: 'en-US' });
 
-// 情绪对语速、音高的微调（系统语音两项都用，接口只用语速）。
+// 情绪对语速、音高的微调（只用于系统语音；接口来源不随情绪变速）。
 const MOOD_PROSODY = Object.freeze({
     愤怒: { rate: 1.08, pitch: 1.04 }, 惊讶: { rate: 1.06, pitch: 1.08 }, 大笑: { rate: 1.05, pitch: 1.06 },
     喜悦: { rate: 1.03, pitch: 1.04 }, 得意: { rate: 1.02, pitch: 1.02 },
@@ -122,6 +131,8 @@ const MOOD_PROSODY = Object.freeze({
 });
 // 耳语在情绪韵律的基础上再乘这一组。
 const WHISPER_PROSODY = Object.freeze({ rate: 0.92 });
+const MOOD_RATE_MIN = 0.92;
+const MOOD_RATE_MAX = 1.12;
 // 情绪强度（轻 / 中 / 强）：系统语音按它缩放情绪韵律偏离量，Fish 按它换标签。
 const LEVEL_SCALE = Object.freeze({ light: 0.5, mid: 1, strong: 1.4 });
 const LEVEL_LIGHT_RE = /微微|有点|有些|略微|略|稍微|稍|轻微|淡淡|些许|隐隐/;
@@ -921,10 +932,12 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         if (head) text = `${head} ${text}`;
     }
     // 情绪韵律按强度缩放偏离量；耳语在其上叠加，疑惑保留情绪韵律。
+    // 接口的语速参数是整段时间拉伸，减速听着像慢放，情绪交给标签/emotion/风格；系统语音也只许小幅变速。
     const moodProsody = (spoken && MOOD_PROSODY[mood]) || {};
     const scale = LEVEL_SCALE[level];
+    const viaApi = (voice.provider || config.provider) === 'api';
     const prosody = {
-        rate: (1 + ((moodProsody.rate || 1) - 1) * scale) * (spoken && line.whisper ? WHISPER_PROSODY.rate : 1),
+        rate: viaApi ? 1 : clamp((1 + ((moodProsody.rate || 1) - 1) * scale) * (spoken && line.whisper ? WHISPER_PROSODY.rate : 1), MOOD_RATE_MIN, MOOD_RATE_MAX),
         pitch: (1 + ((moodProsody.pitch || 1) - 1) * scale) * (spoken && line.whisper ? (WHISPER_PROSODY.pitch || 1) : 1),
     };
     const shape = spoken ? resolveBarkShape(line, mood) : { gain: 1, close: false, phone: false, pan: 0 };
@@ -1276,7 +1289,7 @@ export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh', style
             headers: { ...headers, model: api.model || FISH_DEFAULT_MODEL },
             body: JSON.stringify({
                 text, reference_id: voice || undefined, format: 'mp3',
-                ...(api.quality ? { latency: 'normal', mp3_bitrate: 192, sample_rate: 44100 } : { latency: 'balanced' }),
+                ...(api.quality ? { latency: 'normal', mp3_bitrate: 192, sample_rate: 44100 } : { latency: 'balanced', mp3_bitrate: 192 }),
                 ...(api.sendSpeed && speedOf(rate) !== 1 ? { prosody: { speed: speedOf(rate) } } : {}),
             }),
         };
@@ -1801,6 +1814,67 @@ function windowMeanSquares(samples, win) {
     return out;
 }
 
+// 去爆破：低频 = 两级一阶低通正反各过一遍（零相位），其余 = 原信号减低频，未处理处原样还原；只在低频突出时短暂压低频。
+export function deplosiveSamples(samples, sampleRate, options = {}) {
+    const {
+        splitHz = PLOSIVE_SPLIT_HZ, windowMs = PLOSIVE_WINDOW_MS, excessDb = PLOSIVE_EXCESS_DB, floorDb = PLOSIVE_FLOOR_DB,
+        activeDb = PLOSIVE_ACTIVE_DB, attackMs = PLOSIVE_ATTACK_MS, releaseMs = PLOSIVE_RELEASE_MS,
+    } = options;
+    const length = samples.length;
+    const out = new Float32Array(length);
+    const low = new Float32Array(length);
+    const k = 1 - Math.exp((-2 * Math.PI * splitHz) / sampleRate);
+    let s1 = 0;
+    let s2 = 0;
+    for (let i = 0; i < length; i += 1) {
+        s1 += (samples[i] - s1) * k;
+        s2 += (s1 - s2) * k;
+        low[i] = s2;
+    }
+    s1 = 0;
+    s2 = 0;
+    for (let i = length - 1; i >= 0; i -= 1) {
+        s1 += (low[i] - s1) * k;
+        s2 += (s1 - s2) * k;
+        low[i] = s2;
+    }
+    const rest = new Float32Array(length);
+    for (let i = 0; i < length; i += 1) rest[i] = samples[i] - low[i];
+    const win = Math.max(1, Math.round((sampleRate * windowMs) / 1000));
+    const lowRms = windowMeanSquares(low, win).map(Math.sqrt);
+    const restRms = windowMeanSquares(rest, win).map(Math.sqrt);
+    const count = lowRms.length;
+    let top = 0;
+    for (let w = 0; w < count; w += 1) top = Math.max(top, lowRms[w], restRms[w]);
+    if (top < 1e-9) {
+        out.set(samples);
+        return out;
+    }
+    const active = top * dbToGain(-activeDb);
+    const excess = dbToGain(excessDb);
+    const floor = dbToGain(-floorDb);
+    const targets = new Float64Array(count);
+    let hits = 0;
+    for (let w = 0; w < count; w += 1) {
+        targets[w] = lowRms[w] > active && lowRms[w] > restRms[w] * excess ? Math.max(floor, restRms[w] / lowRms[w]) : 1;
+        if (targets[w] < 1) hits += 1;
+    }
+    if (!hits) {
+        out.set(samples);
+        return out;
+    }
+    const coef = (ms) => 1 - Math.exp(-Math.LN10 / Math.max(1, (ms * sampleRate) / 1000));
+    const attack = coef(attackMs);
+    const release = coef(releaseMs);
+    let gain = 1;
+    for (let i = 0; i < length; i += 1) {
+        const target = targets[Math.min(count - 1, Math.floor(i / win))];
+        gain += (target - gain) * (target < gain ? attack : release);
+        out[i] = rest[i] + low[i] * gain;
+    }
+    return out;
+}
+
 // 向下扩展：压低字间与句尾的弱信号（残响、底噪），不做硬门限，增益曲线平滑过渡。
 export function cleanupSamples(samples, sampleRate, options = {}) {
     const {
@@ -1890,7 +1964,7 @@ export function conditionVoiceBuffer(context, buffer, { cleanup = false, ref = {
         const channels = [];
         for (let c = 0; c < buffer.numberOfChannels; c += 1) {
             const data = buffer.getChannelData(c);
-            channels.push(tidy ? cleanupSamples(data, rate) : data);
+            channels.push(tidy ? cleanupSamples(deplosiveSamples(data, rate), rate) : data);
         }
         if (!channels.length) return buffer;
         let gain = ref.gain;
@@ -1902,9 +1976,16 @@ export function conditionVoiceBuffer(context, buffer, { cleanup = false, ref = {
             if (gain * peak > 1) gain = 1 / peak;
         }
         const out = context.createBuffer(channels.length, buffer.length, rate);
+        // 每段首尾淡入淡出：分段拼接和解码填充不在零点时不出咔哒声。
+        const fade = Math.min(Math.floor(buffer.length / 2), Math.round((rate * EDGE_FADE_MS) / 1000));
         channels.forEach((data, c) => {
             const target = out.getChannelData(c);
             for (let i = 0; i < data.length; i += 1) target[i] = data[i] * gain;
+            for (let i = 0; i < fade; i += 1) {
+                const ramp = i / fade;
+                target[i] *= ramp;
+                target[data.length - 1 - i] *= ramp;
+            }
         });
         return out;
     } catch {

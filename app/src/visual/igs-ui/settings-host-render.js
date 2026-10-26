@@ -3,7 +3,7 @@ import { renderLive2dLibrary } from './live2d-panel.js';
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
 import { DIALOG_SKIN_MERMAID, MERMAID_TONES, normalizeMermaidAccent, normalizeMermaidTone } from './dialog-theme-mermaid.js';
 import { buildIgsTextPayload, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
-import { dropConfirmedOutfitReview } from '../../scene/outfit-review-store.js';
+import { dropConfirmedOutfitReview, loadOutfitReview } from '../../scene/outfit-review-store.js';
 import { assetOwnerKey, assetShadowsGlobal, draftEffectiveAssets, effectiveSceneAssets, rememberAssetScope } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { menuItem, renderMigrateEntry, renderOutfitReviewList, renderRowMenu, renderWardrobe } from './settings-outfit-fields.js';
@@ -49,7 +49,7 @@ import { renderStatsArchive, renderStatsBuildFields, renderStatsMappingFields, r
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
-import { isLayeredPreset, loadLegacyPresets, legacyPresetHasContent, presetCardLayers } from '../../scene/legacy-preset.js';
+import { isLayeredPreset, readLegacyPresetsView, legacyPresetHasContent } from '../../scene/legacy-preset.js';
 import { renderAssetFolderView, renderAssetFolderSelect } from './asset-folder-view.js';
 import { loadMoodReview } from '../../scene/mood-review-store.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_WESTERN_CLASSIC, isIllustratedDialogSkin, supportsDialogAutoHeight } from './classic-dialog-skin.js';
@@ -79,6 +79,19 @@ const READER_SCOPE_CATEGORIES = new Set(['dash', 'style', 'text', 'ui', 'perf', 
 const ASSET_MOVE_ALL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>';
 
 export function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state }) {
+    // 草稿可被原地修改，整理结果按「草稿引用 + 修订号」缓存；只有调用方声明草稿没动（reuseNormalized）时才复用，
+    // 任何写草稿的入口都会递增 draftRevision，缓存因此不会让改过的设置显示旧值。
+    function normalizeSettingsDraft(settingsState) {
+        const cache = settingsState.normalizedDraftCache;
+        const revision = settingsState.draftRevision || 0;
+        const reuse = settingsState.reuseNormalized === true;
+        settingsState.reuseNormalized = false;
+        if (reuse && cache && cache.source === settingsState.draft && cache.revision === revision) return cache.value;
+        const value = normalizeUnifiedSettings(settingsState.draft, undefined, { mutableSource: true });
+        settingsState.normalizedDraftCache = { source: settingsState.draft, revision, value };
+        return value;
+    }
+
     function buildSettingsSnapshot(settingsState) {
         const page = currentSettingsPage(settingsState);
         const tab = categoryOfPage(page);
@@ -87,7 +100,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         settingsState.asyncState.page = page;
         // 「适配世界」与本卡对话框风格提示都按当前角色卡显示，渲染前先记下是哪张卡（角色、场景分类在自己的分支里记）。
         if (READER_SCOPE_CATEGORIES.has(tab)) rememberAssetScope(settingsState, getSillyTavernContext(options.global || globalThis));
-        const draft = normalizeUnifiedSettings(settingsState.draft);
+        const draft = normalizeSettingsDraft(settingsState);
         const settingsTheme = normalizeSettingsTheme(draft.bridge.settingsTheme);
         const body = renderSettingsBody(page, draft, settingsState.asyncState);
         const shellHtml = renderTemplate(getSettingsShellTemplate(), {
@@ -128,7 +141,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 const edit = settingsState.asyncState.imagePromptEditor.state;
                 return { presetId: edit.preset?.id || null, baseRevision: edit.baseRevision,
                     draftRevision: edit.draftRevision, dirty: edit.dirty, status: edit.status,
-                    errors: { ...edit.errors }, preview: edit.preview };
+                    errors: { ...edit.errors }, hasPreview: Boolean(edit.preview) };
             })() : null,
         };
         settingsShellHtml.set(snapshot, { theme: settingsTheme, html: shellHtml });
@@ -137,7 +150,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
 
     // 搜索索引用：把一个页面按「索引模式」渲染成 HTML（折叠全部视为展开，跳过重列表和带副作用的读取）。
     // 建索引时各页共用调用方传入的同一份归一化草稿（渲染只读草稿），不再每页各归一化一次。
-    function renderPageForIndex(settingsState, page, draft = normalizeUnifiedSettings(settingsState.draft)) {
+    function renderPageForIndex(settingsState, page, draft = normalizeUnifiedSettings(settingsState.draft, undefined, { mutableSource: true })) {
         return renderSettingsBody(page, draft, settingsState.asyncState || {}, { index: true });
     }
 
@@ -364,14 +377,13 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '无需Key可留空', openaiDisabled)),
                 autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', modelPicker('bridge.autoIllustration.llm.model', auto.llm.model, asyncState.llmModels, 'fetch-llm-models', 'gpt-4o-mini', openaiDisabled)),
                 autoLlmModelsMessage: esc(asyncState.llmModelsMessage || ''),
+                autoLlmRequestOpen: advancedOpen('llm-request'),
+                autoLlmIncludeHeadersField: field('bridge.autoIllustration.llm.includeHeaders', '附加请求头', autoTextarea('bridge.autoIllustration.llm.includeHeaders', auto.llm.includeHeaders, 'X-Title: IGS')),
+                autoLlmIncludeBodyField: field('bridge.autoIllustration.llm.includeBody', '附加请求体参数', autoTextarea('bridge.autoIllustration.llm.includeBody', auto.llm.includeBody, 'temperature: 0.8')),
+                autoLlmExcludeBodyField: field('bridge.autoIllustration.llm.excludeBody', '排除请求体参数', autoTextarea('bridge.autoIllustration.llm.excludeBody', auto.llm.excludeBody, '- frequency_penalty')),
                 autoLlmPromptsOpen: advancedOpen('llm-prompts'),
-                advancedJailbreakOpen: advancedOpen('llm-jailbreak'),
-                autoLlmJailbreakHeadField: field('bridge.autoIllustration.llm.jailbreakHead', '头部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakHead', auto.llm.jailbreakHead, '')),
-                autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '')),
-                autoLlmPromptIllustrationField: field('bridge.autoIllustration.llm.prompts.illustration', 'CG规划', autoTextarea('bridge.autoIllustration.llm.prompts.illustration', auto.llm.prompts.illustration, '清空即恢复内置提示词')),
-                autoLlmPromptIllustrationSoftField: field('bridge.autoIllustration.llm.prompts.illustrationSoft', 'CG规划 · 温和重试（NSFW被拒后使用）', autoTextarea('bridge.autoIllustration.llm.prompts.illustrationSoft', auto.llm.prompts.illustrationSoft, '清空即恢复内置提示词')),
-                autoLlmPromptAssetField: field('bridge.autoIllustration.llm.prompts.asset', '素材补全规划', autoTextarea('bridge.autoIllustration.llm.prompts.asset', auto.llm.prompts.asset, '清空即恢复内置提示词')),
-                autoLlmPromptAssetSoftField: field('bridge.autoIllustration.llm.prompts.assetSoft', '素材补全规划 · 温和重试', autoTextarea('bridge.autoIllustration.llm.prompts.assetSoft', auto.llm.prompts.assetSoft, '清空即恢复内置提示词')),
+                autoLlmJailbreakHeadField: field('bridge.autoIllustration.llm.jailbreakHead', '头部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakHead', auto.llm.jailbreakHead, '每次写词请求最前插入')),
+                autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '每次写词请求最后插入')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
                 autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）'], ['auto', '自动（酒馆代理已开启时经酒馆转发）']])),
                 autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', 'NAI API 地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方，或填写中转生图接口')),
@@ -440,7 +452,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 return `<span class="igs-asset-scope-switch" role="group" aria-label="放在本卡还是全局">${seg(inCard, '本卡', '收进本卡：只有这张角色卡用')}${seg(!inCard, '全局', '放到全局：所有角色卡共用')}</span>`
                     + (inCard && assetShadowsGlobal(assetRoot, cardKey, collection, name) ? '<span class="igs-asset-scope-note" title="全局另有一份同名的，这张卡用本卡这份">覆盖全局</span>' : '');
             };
-            const presetMap = loadLegacyPresets(storage);
+            const { presets: presetMap, layersOf: presetCardLayers } = readLegacyPresetsView(storage);
             const presetNames = Object.entries(presetMap).filter(([, preset]) => legacyPresetHasContent(preset) || presetCardLayers(preset).length).map(([name]) => name);
             // 预设是存档 / 模板：存这张卡实际在用的一套，套用时整层换成预设。旧版存的预设也在这里。
             const presetRow = (name) => {
@@ -564,8 +576,12 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             };
             // 待确认：角色页放 AI 写出但没登记的服装词、词库外的情绪词；场景页放生成了还没入库的图。索引模式不读。
             const reviewData = memo(() => {
-                const resolveOutfit = createOutfitResolver(sceneAssets);
-                const outfitReview = dropConfirmedOutfitReview(storage, (character, word) => Boolean(resolveOutfit(character, word)));
+                // 没有待确认词时不必建解析器，也不会有写回。
+                let outfitReview = [];
+                if (loadOutfitReview(storage).length) {
+                    const resolveOutfit = createOutfitResolver(sceneAssets);
+                    outfitReview = dropConfirmedOutfitReview(storage, (character, word) => Boolean(resolveOutfit(character, word)));
+                }
                 const moodReview = loadMoodReview(storage);
                 return { outfitReview, moodReview, waitingCount: outfitReview.length + moodReview.length };
             });
@@ -747,53 +763,53 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const fontOptions = fontOptionsWith(DIALOG_FONT_OPTIONS, customFonts);
         const values = {
             fontOptions,
-            customFontManager: renderCustomFontManager(customFonts, asyncState.customFontMessage || ''),
-            shortcutsField: renderShortcutSettings(reader.shortcuts, hostGlobal, asyncState),
+            get customFontManager() { return renderCustomFontManager(customFonts, asyncState.customFontMessage || ''); },
+            get shortcutsField() { return renderShortcutSettings(reader.shortcuts, hostGlobal, asyncState); },
             ...sectionResetPlaceholders(),
-            openModeField: openModeHtml(),
-            settingsToggles: checkbox('bridge.showToasts', bridge.showToasts, '显示提示弹窗'),
-            fontSizeField: field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))),
-            dialogFontWeightField: field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])),
+            get openModeField() { return openModeHtml(); },
+            get settingsToggles() { return checkbox('bridge.showToasts', bridge.showToasts, '显示提示弹窗'); },
+            get fontSizeField() { return field('readerSettings.fontSize', '字体大小', selectInput('readerSettings.fontSize', reader.fontSize, [12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30].map((n) => [n, `${n}px`]))); },
+            get dialogFontWeightField() { return field('readerSettings.dialogFontWeight', '对话框字重', selectInput('readerSettings.dialogFontWeight', reader.dialogFontWeight == null ? 'null' : reader.dialogFontWeight, [['null', '跟随当前样式'], [300, '细体'], [400, '常规'], [500, '中等'], [700, '粗体']])); },
             // 文字增强是开关（借分段点击写值：开=硬描边，关=off），开了才出现种类和三个参数。
-            dialogTextEffectToggle: `<button type="button" class="igs-switch${reader.dialogTextEffect !== 'off' ? ' is-on' : ''}" data-segment-path="readerSettings.dialogTextEffect" data-segment-value="${reader.dialogTextEffect !== 'off' ? 'off' : 'outline'}" aria-pressed="${reader.dialogTextEffect !== 'off' ? 'true' : 'false'}"><i></i><span>文字增强</span></button>`,
-            dialogTextEffectOptions: reader.dialogTextEffect === 'off' ? '' : `<div class="igs-source-filter-grid">${field('readerSettings.dialogTextEffect', '增强种类', segmentedInput('readerSettings.dialogTextEffect', reader.dialogTextEffect, [['outline', '硬描边'], ['shadow', '投影式']], '增强种类'))}<div class="igs-reader-text-effect-options">${field('readerSettings.dialogTextEffectColor', '增强颜色', colorInput('readerSettings.dialogTextEffectColor', reader.dialogTextEffectColor))}${field('readerSettings.dialogTextEffectStrength', '增强浓淡', selectInput('readerSettings.dialogTextEffectStrength', reader.dialogTextEffectStrength, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`])))}${field('readerSettings.dialogTextEffectSize', '增强大小', selectInput('readerSettings.dialogTextEffectSize', reader.dialogTextEffectSize, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`])))}</div></div>`,
-            dialogSkinField: field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, getDialogSkinChoices(reader.dialogSkin)))
+            get dialogTextEffectToggle() { return `<button type="button" class="igs-switch${reader.dialogTextEffect !== 'off' ? ' is-on' : ''}" data-segment-path="readerSettings.dialogTextEffect" data-segment-value="${reader.dialogTextEffect !== 'off' ? 'off' : 'outline'}" aria-pressed="${reader.dialogTextEffect !== 'off' ? 'true' : 'false'}"><i></i><span>文字增强</span></button>`; },
+            get dialogTextEffectOptions() { return reader.dialogTextEffect === 'off' ? '' : `<div class="igs-source-filter-grid">${field('readerSettings.dialogTextEffect', '增强种类', segmentedInput('readerSettings.dialogTextEffect', reader.dialogTextEffect, [['outline', '硬描边'], ['shadow', '投影式']], '增强种类'))}<div class="igs-reader-text-effect-options">${field('readerSettings.dialogTextEffectColor', '增强颜色', colorInput('readerSettings.dialogTextEffectColor', reader.dialogTextEffectColor))}${field('readerSettings.dialogTextEffectStrength', '增强浓淡', selectInput('readerSettings.dialogTextEffectStrength', reader.dialogTextEffectStrength, [5, 10, 15, 20, 30, 40, 50].map((n) => [n, `${n}%`])))}${field('readerSettings.dialogTextEffectSize', '增强大小', selectInput('readerSettings.dialogTextEffectSize', reader.dialogTextEffectSize, [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].map((n) => [n, `${n}px`])))}</div></div>`; },
+            get dialogSkinField() { return field('readerSettings.dialogSkin', '对话框风格', selectInput('readerSettings.dialogSkin', reader.dialogSkin, getDialogSkinChoices(reader.dialogSkin)))
                 + (asyncState.assetScopeKey && worldviewAssets && typeof worldviewAssets.dialogSkin === 'string' && worldviewAssets.dialogSkin
                     ? `<div class="igs-source-filter-note igs-card-skin-note">当前角色卡在主界面选定了「${esc(dialogSkinLabel(worldviewAssets.dialogSkin))}」，阅读这张卡时以此为准，上方选项仅对其他角色卡生效。<button type="button" class="igs-settings-action" data-action="card-dialog-skin-clear">跟随上方</button></div>`
-                    : ''),
-            gradientVeilFields: gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认风格'], ['plain-text', '纯文字']])) + '</div>' : '',
-            magicHouseField: reader.dialogSkin === DIALOG_SKIN_XIANXIA_INK ? field('readerSettings.xianxiaSpeaker', '姓名排布', selectInput('readerSettings.xianxiaSpeaker', reader.xianxiaSpeaker === 'center' ? 'center' : 'left', [['left', '左侧落款'], ['center', '居中（名字+剑气下划线）']])) : reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : '',
-            classicDialogWidthPercentField: classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : '',
+                    : ''); },
+            get gradientVeilFields() { return gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认风格'], ['plain-text', '纯文字']])) + '</div>' : ''; },
+            get magicHouseField() { return reader.dialogSkin === DIALOG_SKIN_XIANXIA_INK ? field('readerSettings.xianxiaSpeaker', '姓名排布', selectInput('readerSettings.xianxiaSpeaker', reader.xianxiaSpeaker === 'center' ? 'center' : 'left', [['left', '左侧落款'], ['center', '居中（名字+剑气下划线）']])) : reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : ''; },
+            get classicDialogWidthPercentField() { return classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : ''; },
             // 「自适应」是 dialogAutoHeight 的入口（字少变矮），选它时高度比例保持不变；选具体比例即关掉自适应。
-            skinDialogScaleField: classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.dialogAutoHeight === true && supportsDialogAutoHeight(reader.dialogSkin) ? 'auto' : reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]).concat(supportsDialogAutoHeight(reader.dialogSkin) ? [['auto', '自适应']] : []))) : '',
-            dialogAutoHeightField: !classicDialog && !illustratedDialog && supportsDialogAutoHeight(reader.dialogSkin) ? field('readerSettings.skinDialogScale', '高度方式', selectInput('readerSettings.skinDialogScale', reader.dialogAutoHeight === true ? 'auto' : 'fixed', [['fixed', '固定'], ['auto', '自适应']])) : '',
-            optionFontSizeField: field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))),
-            dialogWidthField: field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog || illustratedDialog)),
+            get skinDialogScaleField() { return classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.dialogAutoHeight === true && supportsDialogAutoHeight(reader.dialogSkin) ? 'auto' : reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]).concat(supportsDialogAutoHeight(reader.dialogSkin) ? [['auto', '自适应']] : []))) : ''; },
+            get dialogAutoHeightField() { return !classicDialog && !illustratedDialog && supportsDialogAutoHeight(reader.dialogSkin) ? field('readerSettings.skinDialogScale', '高度方式', selectInput('readerSettings.skinDialogScale', reader.dialogAutoHeight === true ? 'auto' : 'fixed', [['fixed', '固定'], ['auto', '自适应']])) : ''; },
+            get optionFontSizeField() { return field('readerSettings.optionFontSize', '选项字体大小', selectInput('readerSettings.optionFontSize', reader.optionFontSize, [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((n) => [n, `${n}px`]))); },
+            get dialogWidthField() { return field('readerSettings.dialogWidth', '对话框宽度', selectInput('readerSettings.dialogWidth', reader.dialogWidth === null ? 'null' : reader.dialogWidth, [['null', '自动'], [200, '200px'], [280, '280px'], [360, '360px'], [440, '440px'], [520, '520px'], [600, '600px'], [680, '680px'], [760, '760px'], [840, '840px'], [920, '920px'], [1000, '1000px'], [1080, '1080px'], [1160, '1160px'], [1280, '1280px']], classicDialog || illustratedDialog)); },
             // 经典/异型对话框的高度只由 skinDialogScale 控制，不再并列一个禁用的像素高度选项。
-            dialogHeightField: classicDialog || illustratedDialog ? '' : field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, dialogHeightItems)),
-            glassOpacityField: field('readerSettings.glassOpacity', '面板透明度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`]))),
-            inputScaleField: field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
-            toolbarScaleField: field('readerSettings.toolbarScale', '工具栏大小', selectInput('readerSettings.toolbarScale', reader.toolbarScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))),
-            inputPlacementField: field('readerSettings.inputPlacement', '输入框位置', selectInput('readerSettings.inputPlacement', reader.inputPlacement === 'float' ? 'float' : 'dialog', [['dialog', '在对话框里'], ['float', '悬浮上方']])),
-            toolbarDockField: field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'top', [['float', '紧贴对话框'], ['top', '顶部固定']])),
-            resumePromptField: field('readerSettings.resumePrompt', '续读提示', selectInput('readerSettings.resumePrompt', reader.resumePrompt === 'simple' ? 'simple' : 'title', [['title', '主界面样式'], ['simple', '简易弹窗']])),
-            toolbarSplitField: field('readerSettings.toolbarSplit', '按钮分布', selectInput('readerSettings.toolbarSplit', reader.toolbarSplit || 'split', [['split', '顶栏+对话框下'], ['top', '全在顶栏'], ['dialog', '全在对话框下']])),
-            toolbarPlateField: field('readerSettings.toolbarPlate', '工具栏底板', selectInput('readerSettings.toolbarPlate', reader.toolbarPlate || 'off', [['blur', '模糊（毛玻璃）'], ['solid', '清晰（实色）'], ['off', '关闭（无底板）']])),
-            dialogBarAlignField: reader.toolbarSplit === 'top' ? '' : field('readerSettings.dialogBarAlign', '对话框下按钮位置', selectInput('readerSettings.dialogBarAlign', reader.dialogBarAlign || 'auto', [['auto', '自动'], ['left', '靠左'], ['center', '居中'], ['right', '靠右']])),
-            imgModeField: field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])),
-            imgBrightnessField: field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))),
-            statusLineToggle: checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示页码（对话框内显示本楼页码，如1/33）') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（右键 / 三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面') + checkbox('readerSettings.underwaterSkin', reader.underwaterSkin !== false, '水下场景自动用人鱼风格')
+            get dialogHeightField() { return classicDialog || illustratedDialog ? '' : field('readerSettings.dialogHeight', '对话框高度', selectInput('readerSettings.dialogHeight', reader.dialogHeight === null ? 'null' : reader.dialogHeight, dialogHeightItems)); },
+            get glassOpacityField() { return field('readerSettings.glassOpacity', '面板透明度', selectInput('readerSettings.glassOpacity', reader.glassOpacity, [0, .1, .2, .35, .5, .62, .74, .88, 1].map((n) => [n, `${Math.round(n * 100)}%`]))); },
+            get inputScaleField() { return field('readerSettings.inputScale', '输入框高度', selectInput('readerSettings.inputScale', reader.inputScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))); },
+            get toolbarScaleField() { return field('readerSettings.toolbarScale', '工具栏大小', selectInput('readerSettings.toolbarScale', reader.toolbarScale, [20, 40, 60, 80, 100, 120, 140, 160, 180, 200].map((n) => [n, `${n}%`]))); },
+            get inputPlacementField() { return field('readerSettings.inputPlacement', '输入框位置', selectInput('readerSettings.inputPlacement', reader.inputPlacement === 'float' ? 'float' : 'dialog', [['dialog', '在对话框里'], ['float', '悬浮上方']])); },
+            get toolbarDockField() { return field('readerSettings.toolbarDock', '工具栏位置', selectInput('readerSettings.toolbarDock', reader.toolbarDock || 'top', [['float', '紧贴对话框'], ['top', '顶部固定']])); },
+            get resumePromptField() { return field('readerSettings.resumePrompt', '续读提示', selectInput('readerSettings.resumePrompt', reader.resumePrompt === 'simple' ? 'simple' : 'title', [['title', '主界面样式'], ['simple', '简易弹窗']])); },
+            get toolbarSplitField() { return field('readerSettings.toolbarSplit', '按钮分布', selectInput('readerSettings.toolbarSplit', reader.toolbarSplit || 'split', [['split', '顶栏+对话框下'], ['top', '全在顶栏'], ['dialog', '全在对话框下']])); },
+            get toolbarPlateField() { return field('readerSettings.toolbarPlate', '工具栏底板', selectInput('readerSettings.toolbarPlate', reader.toolbarPlate || 'off', [['blur', '模糊（毛玻璃）'], ['solid', '清晰（实色）'], ['off', '关闭（无底板）']])); },
+            get dialogBarAlignField() { return reader.toolbarSplit === 'top' ? '' : field('readerSettings.dialogBarAlign', '对话框下按钮位置', selectInput('readerSettings.dialogBarAlign', reader.dialogBarAlign || 'auto', [['auto', '自动'], ['left', '靠左'], ['center', '居中'], ['right', '靠右']])); },
+            get imgModeField() { return field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])); },
+            get imgBrightnessField() { return field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))); },
+            get statusLineToggle() { return checkbox('readerSettings.showStatusLine', reader.showStatusLine, '显示页码（对话框内显示本楼页码，如1/33）') + checkbox('readerSettings.dblclickCgOnly', reader.dblclickCgOnly, '隐藏对话框（右键 / 三击画面）') + checkbox('readerSettings.titleScreen', reader.titleScreen, '开场先显示主界面') + checkbox('readerSettings.underwaterSkin', reader.underwaterSkin !== false, '水下场景自动用人鱼风格')
                 + (reader.underwaterSkin !== false || reader.dialogSkin === DIALOG_SKIN_MERMAID ? field('readerSettings.mermaidTone', '人鱼风格配色', selectInput('readerSettings.mermaidTone', normalizeMermaidTone(reader.mermaidTone), MERMAID_TONES.map((tone) => [tone.id, tone.label])))
                     + (normalizeMermaidTone(reader.mermaidTone) === 'custom' ? field('readerSettings.mermaidAccent', '珠光颜色', colorInput('readerSettings.mermaidAccent', normalizeMermaidAccent(reader.mermaidAccent))) : '') : '')
-               ,
-            cinemaBarsToggle: checkbox('readerSettings.cinemaBars', reader.cinemaBars, '电影黑边'),
-            backdropFilterToggle: checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '毛玻璃模糊'),
+               ; },
+            get cinemaBarsToggle() { return checkbox('readerSettings.cinemaBars', reader.cinemaBars, '电影黑边'); },
+            get backdropFilterToggle() { return checkbox('readerSettings.glassBackdropFilter', reader.glassBackdropFilter, '毛玻璃模糊'); },
             // 透明度作用于工具栏、选项、地图等弹出面板；对话框只有默认皮肤跟随，其余皮肤自带底色。
-            glassScopeNote: dialogBgEditable ? '工具栏、选项、地图等弹出面板，对话框也跟着变' : '工具栏、选项、地图等弹出面板',
-            advancedDialogGlassOpen: advancedOpen('dialog-glass'),
-            typewriterToggle: checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '打字机'),
-            playbackSpeed: field('readerSettings.typewriter.speed', '播放速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '播放速度'), '自动播放与打字机共用'),
-            typewriterControls: typewriter.enabled ? [
+            get glassScopeNote() { return dialogBgEditable ? '工具栏、选项、地图等弹出面板，对话框也跟着变' : '工具栏、选项、地图等弹出面板'; },
+            get advancedDialogGlassOpen() { return advancedOpen('dialog-glass'); },
+            get typewriterToggle() { return checkbox('readerSettings.typewriter.enabled', typewriter.enabled, '打字机'); },
+            get playbackSpeed() { return field('readerSettings.typewriter.speed', '播放速度', segmentedInput('readerSettings.typewriter.speed', typewriter.speed, [['fast', '快'], ['medium', '中'], ['slow', '慢']], '播放速度'), '自动播放与打字机共用'); },
+            get typewriterControls() { return typewriter.enabled ? [
                 `<div class="igs-source-filter-grid">`,
                 field('readerSettings.typewriter.mode', '演出方式', segmentedInput('readerSettings.typewriter.mode', typewriter.mode, [['soft', '柔和演出'], ['classic', '经典打字机']], '演出方式')),
                 `</div>`,
@@ -811,68 +827,75 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + checkbox('readerSettings.typewriter.sound.speakerPitch', typewriter.sound.speakerPitch, '按角色区分音高')
                         + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="typewriter-preview-sound">试听</button>`
                     : '',
-            ].join('') : '',
-            voiceBarkToggle: checkbox('readerSettings.voiceBark.enabled', voiceBark.enabled && !tts.enabled, '角色语气音'),
+            ].join('') : ''; },
+            get voiceBarkToggle() { return checkbox('readerSettings.voiceBark.enabled', voiceBark.enabled && !tts.enabled, '角色语气音'); },
             // 台词开头按情绪播一声「啊、嗯、哼」；每个角色的声线在 角色 › 角色设定 里选，默认按 DNA 性别自动分配。
-            voiceBarkControls: voiceBark.enabled && !tts.enabled ? [
+            get voiceBarkControls() { return voiceBark.enabled && !tts.enabled ? [
                 field('readerSettings.voiceBark.frequency', '播放时机', segmentedInput('readerSettings.voiceBark.frequency', voiceBark.frequency, VOICE_BARK_FREQUENCIES, '播放时机')),
                 field('readerSettings.voiceBark.volume', '音量', rangeInput('readerSettings.voiceBark.volume', voiceBark.volume, '语气音音量')),
                 `<div class="igs-source-filter-note">声线可在「角色 › 角色设定」中选择；未选择时按DNA中的性别分配。</div>`,
-            ].join('') : '',
-            ttsToggle: checkbox('readerSettings.tts.enabled', tts.enabled, '台词朗读（TTS）'),
-            ttsControls: tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '', narratorVoicesMessage: asyncState.ttsNarratorVoicesMessage || '', batches: asyncState.ttsBatch || {}, assets: draftEffectiveAssets(state.activeSettings), previewError: asyncState.ttsPreviewError || '', narratorPreviewError: asyncState.ttsNarratorPreviewError || '', advancedOpen: isOpenKey('tts-advanced') }) : '',
-            stageShakeToggle: checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'),
-            stageShakeSettings: stageShake.enabled ? renderStageShakeSettings(stageShake) : '',
-            systemRoleFields: renderSystemRoleSettings(systemRole, {
+            ].join('') : ''; },
+            get ttsToggle() { return checkbox('readerSettings.tts.enabled', tts.enabled, '台词朗读（TTS）'); },
+            get ttsControls() { return tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '', narratorVoicesMessage: asyncState.ttsNarratorVoicesMessage || '', batches: asyncState.ttsBatch || {}, assets: draftEffectiveAssets(state.activeSettings), previewError: asyncState.ttsPreviewError || '', narratorPreviewError: asyncState.ttsNarratorPreviewError || '', advancedOpen: isOpenKey('tts-advanced') }) : ''; },
+            get stageShakeToggle() { return checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'); },
+            get stageShakeSettings() { return stageShake.enabled ? renderStageShakeSettings(stageShake) : ''; },
+            get systemRoleFields() { return renderSystemRoleSettings(systemRole, {
                 fontOptions,
                 narrationColor: toHex(displayTheme.narrationColor || '#f4f4f6'),
                 disabled: themeDisabled,
-            }),
-            systemRoleAdvanced: renderSystemRoleAdvanced(systemRole, { open: isOpenKey('system-role'), hidden: hiddenAttr(themeDisabled) }),
-            chatShowToggle: checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '线上交流'),
-            chatShowSettings: chatShow.enabled ? renderChatShowSettings(chatShow, {
+            }); },
+            get systemRoleAdvanced() { return renderSystemRoleAdvanced(systemRole, { open: isOpenKey('system-role'), hidden: hiddenAttr(themeDisabled) }); },
+            get chatShowToggle() { return checkbox('readerSettings.chatShow.enabled', chatShow.enabled, '线上交流'); },
+            get chatShowSettings() { return chatShow.enabled ? renderChatShowSettings(chatShow, {
                 promptDraft: asyncState.chatPromptDraft,
                 promptStatus: asyncState.chatPromptStatus,
-            }) : '',
-            weatherFxToggle: checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '天气'),
-            weatherFxSettings: weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : '',
-            narrationFilterToggle: checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'),
-            cgHoldField: field('readerSettings.cgHoldPages', '日常CG停留', selectInput('readerSettings.cgHoldPages', reader.cgHoldPages || 4, [[2, '2页'], [3, '3页'], [4, '4页'], [6, '6页'], [8, '8页']]), 'NSFW插图保持到下一张'),
-            sentencePagingToggle: checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'),
-            dialogueSentencePagingToggle: checkbox('bridge.dialogueSentencePaging', Boolean(bridge.dialogueSentencePaging), '对白／心理话也按句分页'),
-            nsfwSpriteModeField: `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', statusHud.nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW场景立绘')}<em>使用剪影前，请先在立绘编辑中标定头部</em></div>`,
-            nsfwVeilLevelField: field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')),
-            nsfwCgPortraitToggle: checkbox('readerSettings.statusHud.nsfwCgPortrait', statusHud.nsfwCgPortrait, 'CG时对话框旁显示裸体头像（需衣柜里有引用「裸体」的服装）'),
-            nsfwCgPortraitControls: statusHud.nsfwCgPortrait
+            }) : ''; },
+            get weatherFxToggle() { return checkbox('readerSettings.weatherFx.enabled', weatherFx.enabled, '天气'); },
+            get weatherFxSettings() { return weatherFx.enabled ? renderWeatherFxSettings(weatherFx) : ''; },
+            get narrationFilterToggle() { return checkbox('readerSettings.statusHud.dimSpriteOnNarration', reader.statusHud && reader.statusHud.dimSpriteOnNarration !== false, '旁白时压暗立绘'); },
+            get cgHoldField() { return field('readerSettings.cgHoldPages', '日常CG停留', selectInput('readerSettings.cgHoldPages', reader.cgHoldPages || 4, [[2, '2页'], [3, '3页'], [4, '4页'], [6, '6页'], [8, '8页']]), 'NSFW插图保持到下一张'); },
+            get sentencePagingToggle() { return checkbox('bridge.sentencePaging', Boolean(bridge.sentencePaging), '旁白按句号分页'); },
+            get dialogueSentencePagingToggle() { return checkbox('bridge.dialogueSentencePaging', Boolean(bridge.dialogueSentencePaging), '对白／心理话也按句分页'); },
+            get nsfwSpriteModeField() { return `<div class="igs-settings-field">${segmentedInput('readerSettings.statusHud.nsfwSpriteMode', statusHud.nsfwSpriteMode, [['show', '显示立绘'], ['hide', '隐藏立绘'], ['shade', '仅露脸剪影']], 'NSFW场景立绘')}<em>使用剪影前，请先在立绘编辑中标定头部</em></div>`; },
+            get nsfwVeilLevelField() { return field('readerSettings.statusHud.nsfwVeilLevel', '黑幕强度', segmentedInput('readerSettings.statusHud.nsfwVeilLevel', (reader.statusHud && reader.statusHud.nsfwVeilLevel) || 'medium', [['light', '弱'], ['medium', '中'], ['strong', '强']], '黑幕强度')); },
+            get nsfwCgPortraitToggle() { return checkbox('readerSettings.statusHud.nsfwCgPortrait', statusHud.nsfwCgPortrait, 'CG时对话框旁显示裸体头像（需衣柜里有引用「裸体」的服装）'); },
+            get nsfwCgPortraitControls() { return statusHud.nsfwCgPortrait
                 ? '<div class="igs-settings-field"><em>位置和大小在阅读器里调：挂着头像时点工具栏「调整立绘」，拖动、双指捏合或滚轮缩放后保存</em></div>'
-                : '',
-            statusHudSection: buildStatusHudSettingsHtml(reader, options),
-            optionBubbleToggle: checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'),
-            optionBubbleHidden: hiddenAttr(!(bridge.optionBubble && bridge.optionBubble.enabled)),
-            optionBubblePositionField: field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')),
-            optionBubbleActionField: field('bridge.optionBubble.clickAction', '点击选项', segmentedInput('bridge.optionBubble.clickAction', (bridge.optionBubble && bridge.optionBubble.clickAction) || 'send', [['send', '自动发送'], ['fill', '填入输入框']], '点击行为')),
-            optionSourcesField: `<div class="igs-settings-group igs-switch-stack">${checkbox('bridge.optionBubble.itemButton', !(bridge.optionBubble && bridge.optionBubble.itemButton === false), '显示使用物品按钮')}${checkbox('bridge.optionBubble.bodyFallback', !(bridge.optionBubble && bridge.optionBubble.bodyFallback === false), '没有选项表时读取正文末尾选项')}</div><div class="igs-settings-group igs-option-fixed">${field('bridge.optionBubble.quickActions', '固定选项', textareaInput('bridge.optionBubble.quickActions', (bridge.optionBubble && bridge.optionBubble.quickActions) || '', '观察四周\n离开这里'), '每行一条，最多 8 条，每回合附在选项气泡末尾；点击后作为行动发送')}</div>`,
-            optionBubbleWidthToggle: checkbox('bridge.optionBubble.widthFollowsText', Boolean(bridge.optionBubble && bridge.optionBubble.widthFollowsText), '气泡宽度随文本变化'),
-            pinnedButtonsField: renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder, reader.dialogBarBtns, reader.toolbarSplit, advancedOpen('toolbar-buttons')),
-            themeNoteHidden: hiddenAttr(!themeDisabled),
-            themeHidden: hiddenAttr(themeDisabled),
-            dividerHidden: hiddenAttr(themeDisabled || classicDialog),
-            dividerField: field(`${themePath}.dividerSymbol`, '样式', selectInput(`${themePath}.dividerSymbol`, displayTheme.dividerSymbol || 'none', [['gradient', '渐变线'], ['none', '无']], themeDisabled || classicDialog || !themeCustom)),
-            nameFontField: field(`${themePath}.nameFont`, '字体', selectInput(`${themePath}.nameFont`, displayTheme.nameFont || 'inherit', fontOptions, themeDisabled || !themeCustom)),
-            textFontField: field(`${themePath}.textFont`, '字体', selectInput(`${themePath}.textFont`, displayTheme.textFont || 'inherit', fontOptions, themeDisabled || !themeCustom)),
-            thoughtFontField: field(`${themePath}.thoughtFont`, '字体', selectInput(`${themePath}.thoughtFont`, displayTheme.thoughtFont || 'inherit', fontOptions, themeDisabled || !themeCustom)),
-            nameColorField: field(`${themePath}.nameColor`, '颜色', colorInput(`${themePath}.nameColor`, toHex(displayTheme.nameColor || '#ffeeb8'), themeDisabled || !themeCustom)),
-            textColorField: field(`${themePath}.textColor`, '颜色', colorInput(`${themePath}.textColor`, toHex(displayTheme.textColor || '#f4f4f6'), themeDisabled || !themeCustom)),
-            thoughtColorField: field(`${themePath}.thoughtColor`, '颜色', colorInput(`${themePath}.thoughtColor`, toHex(displayTheme.thoughtColor || '#c8c8dc'), themeDisabled || !themeCustom)),
-            narrationFontField: field(`${themePath}.narrationFont`, '字体', selectInput(`${themePath}.narrationFont`, displayTheme.narrationFont || 'inherit', fontOptions, themeDisabled || !themeCustom)),
-            narrationColorField: field(`${themePath}.narrationColor`, '颜色', colorInput(`${themePath}.narrationColor`, toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)),
-            dividerColorField: field(`${themePath}.dividerColor`, '颜色', colorInput(`${themePath}.dividerColor`, toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || classicDialog || !themeCustom)),
-            dialogBgField: dialogBgEditable ? field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), !themeCustom)) : '',
-            dialogBgOpacityField: !dialogBgEditable ? '' : field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随面板透明度'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], !themeCustom)),
+                : ''; },
+            get statusHudSection() { return buildStatusHudSettingsHtml(reader, options); },
+            get optionBubbleToggle() { return checkbox('bridge.optionBubble.enabled', Boolean(bridge.optionBubble && bridge.optionBubble.enabled), '启用选项气泡'); },
+            get optionBubbleHidden() { return hiddenAttr(!(bridge.optionBubble && bridge.optionBubble.enabled)); },
+            get optionBubblePositionField() { return field('bridge.optionBubble.position', '气泡位置', segmentedInput('bridge.optionBubble.position', (bridge.optionBubble && bridge.optionBubble.position) || 'top-left', [['top-left', '左上角'], ['top-center', '正上方居中'], ['top-right', '右上角']], '气泡位置')); },
+            get optionBubbleActionField() { return field('bridge.optionBubble.clickAction', '点击选项', segmentedInput('bridge.optionBubble.clickAction', (bridge.optionBubble && bridge.optionBubble.clickAction) || 'send', [['send', '自动发送'], ['fill', '填入输入框']], '点击行为')); },
+            get optionSourcesField() { return `<div class="igs-settings-group igs-switch-stack">${checkbox('bridge.optionBubble.itemButton', !(bridge.optionBubble && bridge.optionBubble.itemButton === false), '显示使用物品按钮')}${checkbox('bridge.optionBubble.bodyFallback', !(bridge.optionBubble && bridge.optionBubble.bodyFallback === false), '没有选项表时读取正文末尾选项')}</div><div class="igs-settings-group igs-option-fixed">${field('bridge.optionBubble.quickActions', '固定选项', textareaInput('bridge.optionBubble.quickActions', (bridge.optionBubble && bridge.optionBubble.quickActions) || '', '观察四周\n离开这里'), '每行一条，最多 8 条，每回合附在选项气泡末尾；点击后作为行动发送')}</div>`; },
+            get optionBubbleWidthToggle() { return checkbox('bridge.optionBubble.widthFollowsText', Boolean(bridge.optionBubble && bridge.optionBubble.widthFollowsText), '气泡宽度随文本变化'); },
+            get pinnedButtonsField() { return renderPinnedButtons(reader.pinnedBtns, reader.hiddenBtns, reader.btnOrder, reader.dialogBarBtns, reader.toolbarSplit, advancedOpen('toolbar-buttons')); },
+            get themeNoteHidden() { return hiddenAttr(!themeDisabled); },
+            get themeHidden() { return hiddenAttr(themeDisabled); },
+            get dividerHidden() { return hiddenAttr(themeDisabled || classicDialog); },
+            get dividerField() { return field(`${themePath}.dividerSymbol`, '样式', selectInput(`${themePath}.dividerSymbol`, displayTheme.dividerSymbol || 'none', [['gradient', '渐变线'], ['none', '无']], themeDisabled || classicDialog || !themeCustom)); },
+            get nameFontField() { return field(`${themePath}.nameFont`, '字体', selectInput(`${themePath}.nameFont`, displayTheme.nameFont || 'inherit', fontOptions, themeDisabled || !themeCustom)); },
+            get textFontField() { return field(`${themePath}.textFont`, '字体', selectInput(`${themePath}.textFont`, displayTheme.textFont || 'inherit', fontOptions, themeDisabled || !themeCustom)); },
+            get thoughtFontField() { return field(`${themePath}.thoughtFont`, '字体', selectInput(`${themePath}.thoughtFont`, displayTheme.thoughtFont || 'inherit', fontOptions, themeDisabled || !themeCustom)); },
+            get nameColorField() { return field(`${themePath}.nameColor`, '颜色', colorInput(`${themePath}.nameColor`, toHex(displayTheme.nameColor || '#ffeeb8'), themeDisabled || !themeCustom)); },
+            get textColorField() { return field(`${themePath}.textColor`, '颜色', colorInput(`${themePath}.textColor`, toHex(displayTheme.textColor || '#f4f4f6'), themeDisabled || !themeCustom)); },
+            get thoughtColorField() { return field(`${themePath}.thoughtColor`, '颜色', colorInput(`${themePath}.thoughtColor`, toHex(displayTheme.thoughtColor || '#c8c8dc'), themeDisabled || !themeCustom)); },
+            get narrationFontField() { return field(`${themePath}.narrationFont`, '字体', selectInput(`${themePath}.narrationFont`, displayTheme.narrationFont || 'inherit', fontOptions, themeDisabled || !themeCustom)); },
+            get narrationColorField() { return field(`${themePath}.narrationColor`, '颜色', colorInput(`${themePath}.narrationColor`, toHex(displayTheme.narrationColor || '#f4f4f6'), themeDisabled || !themeCustom)); },
+            get dividerColorField() { return field(`${themePath}.dividerColor`, '颜色', colorInput(`${themePath}.dividerColor`, toHex(displayTheme.dividerColor || '#ffeeb8'), themeDisabled || classicDialog || !themeCustom)); },
+            get dialogBgField() { return dialogBgEditable ? field(`${themePath}.dialogBg`, '背景色', colorInput(`${themePath}.dialogBg`, toHex(displayTheme.dialogBg || '#1f2225'), !themeCustom)) : ''; },
+            get dialogBgOpacityField() { return !dialogBgEditable ? '' : field(`${themePath}.bgOpacity`, '背景不透明度', selectInput(`${themePath}.bgOpacity`, displayTheme.bgOpacity == null ? 'null' : displayTheme.bgOpacity, [['null', '跟随面板透明度'], [0, '0%'], [.1, '10%'], [.2, '20%'], [.35, '35%'], [.5, '50%'], [.62, '62%'], [.74, '74%'], [.88, '88%'], [1, '100%']], !themeCustom)); },
         };
         return values;
         });
         const performanceSections = (groupId) => renderPerformancePage(groupId, reader, perfExtras(), isOpenKey);
+        // 开关与细项成对给出；细项（含 TTS 声音列表等）只在分组真正渲染到时才生成。
+        const lazyPair = (head, detail) => {
+            const pair = [];
+            Object.defineProperty(pair, 0, { get: head, enumerable: true });
+            Object.defineProperty(pair, 1, { get: detail, enumerable: true });
+            return pair;
+        };
         const perfExtras = () => {
             const readerValues = getReaderValues();
             return ({ worldviewId: resolveWorldview(worldviewAssets), fontOptions: readerValues.fontOptions,
@@ -880,15 +903,15 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 liveBlocked: applyFxWorldview({ liveFx: { enabled: true } }, resolveWorldview(worldviewAssets), { carryPhone: Boolean(worldviewAssets && worldviewAssets.carryPhone === true) }).liveFx.enabled !== true,
                 canUndo: Boolean(asyncState.perfPresetUndo),
                 playbackSpeed: readerValues.playbackSpeed,
-                typewriter: [readerValues.typewriterToggle, readerValues.typewriterControls],
+                typewriter: lazyPair(() => readerValues.typewriterToggle, () => readerValues.typewriterControls),
                 // 语气音的开关、时机、音量对所有角色生效，放「声音」；每个角色的声线在 角色 › 角色设定。
-                voiceBark: [readerValues.voiceBarkToggle, readerValues.voiceBarkControls],
+                voiceBark: lazyPair(() => readerValues.voiceBarkToggle, () => readerValues.voiceBarkControls),
                 voiceBarkOn: normalizeVoiceBarkSettings(reader.voiceBark).enabled && !normalizeTtsSettings(reader.tts).enabled,
-                tts: [readerValues.ttsToggle, readerValues.ttsControls],
+                tts: lazyPair(() => readerValues.ttsToggle, () => readerValues.ttsControls),
                 ttsOn: normalizeTtsSettings(reader.tts).enabled,
-                stageShake: [readerValues.stageShakeToggle, readerValues.stageShakeSettings],
-                weatherFx: [readerValues.weatherFxToggle, readerValues.weatherFxSettings],
-                chatShow: [readerValues.chatShowToggle, readerValues.chatShowSettings],
+                stageShake: lazyPair(() => readerValues.stageShakeToggle, () => readerValues.stageShakeSettings),
+                weatherFx: lazyPair(() => readerValues.weatherFxToggle, () => readerValues.weatherFxSettings),
+                chatShow: lazyPair(() => readerValues.chatShowToggle, () => readerValues.chatShowSettings),
                 narrationFilter: readerValues.narrationFilterToggle,
                 cgHold: readerValues.cgHoldField,
                 cinemaBars: readerValues.cinemaBarsToggle,
@@ -898,7 +921,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 dialogueSentencePagingOn: Boolean(bridge.dialogueSentencePaging),
                 nsfwSprite: readerValues.nsfwSpriteModeField,
                 nsfwVeil: readerValues.nsfwVeilLevelField,
-                nsfwCgPortrait: [readerValues.nsfwCgPortraitToggle, readerValues.nsfwCgPortraitControls],
+                nsfwCgPortrait: lazyPair(() => readerValues.nsfwCgPortraitToggle, () => readerValues.nsfwCgPortraitControls),
             });
         };
 

@@ -368,7 +368,6 @@ export function renderSceneAssetList(scenes, options = {}) {
             + (canVary ? `<button type="button" class="igs-btn-mgr-icon igs-slot-act" data-action="scene-variant-set:${encSeg(sceneName)}" title="按这张的提示词生成时间/天气差分" aria-label="时间/天气差分">${SLOT_ICONS.variants}</button>` : '')
             + transferIcons(sceneObj.url, `${sceneName}-背景.png`, [`scene-pick-bg:${encSeg(sceneName)}`, '上传场景背景图'])
             + renderRowMenu([
-                canVary ? menuItem(`scene-variant-set:${encSeg(sceneName)}`, '时间/天气差分', ' igs-slot-act-menu') : '',
                 menuItem(`scene-rename-bg:${encSeg(sceneName)}`, '重命名'),
                 folderSelect(sceneName, { menu: true }),
                 storedImagePromptItem(sceneObj.url),
@@ -504,20 +503,19 @@ export function renderCharacterAssetList(characters, options = {}) {
             const c = encSeg(charName);
             const m = encSeg(mood);
             const acts = slotActions([
-                mood !== '默认' && (!rawUrl || imageId || (note && note.error)) ? [`char-expression-retry:${c}:${m}`, rawUrl ? '重新生成' : '生成立绘', 'retry'] : null,
+                mood !== '默认' ? [`char-expression-retry:${c}:${m}`, rawUrl ? '重新生成' : '生成立绘', 'retry'] : null,
                 mood === '默认' && rawUrl ? [`char-redraw-sprite:${c}`, '重新生成', 'retry'] : null,
             ]);
             const slotMenu = renderRowMenu([
                 canPrompt ? menuItem(`char-expression-prompt:${c}:${m}`, '提示词') : '',
-                ...acts.items,
+                menuItem(`char-mood-url-ask:${c}:${m}`, rawUrl && !imageId ? '修改网址' : '填写网址'),
                 menuItem(`scene-rename-mood:${c}:${m}`, '重命名'),
                 menuItem(`scene-remove-mood:${c}:${m}`, '删除', ' is-danger'),
             ], `「${mood}」的操作`);
             const collapsedRow = `<div class="igs-btn-mgr-row igs-scene-mood-row">`
                 + rowThumb
                 + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
-                + (imageId ? '' : `<input class="igs-scene-url-input" data-scene-char="${esc(charName)}" data-scene-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL或data:image/...">`)
-                // 重新生成放在最左，下载 / 上传固定在 ⋯ 前两列，有没有重新生成都对得齐。
+                // 重新生成 / 下载 / 上传任何宽度都外露在 ⋯ 前，菜单里不再重复；网址不占行内，从 ⋯ 弹窗填写。
                 + acts.inline
                 + transferIcons(rawUrl, `${charName}-${mood}-立绘.png`, [`scene-pick-mood:${c}:${m}`, `上传${mood}立绘`])
                 + slotMenu
@@ -561,13 +559,15 @@ export function renderCharacterAssetList(characters, options = {}) {
             ], `「${charName}」的操作`)
             + `<button type="button" class="igs-btn-mgr-icon" data-action="${toggle}" title="${open ? '收起' : '展开服装和立绘'}" aria-expanded="${open}">${open ? chevronUp : chevronDown}</button></div>`;
         const setup = dnaOpen
-            ? renderCharacterSetupPanel(charName, dna, [
-                `<div class="igs-char-info-row"><span class="igs-char-info-label">别名</span>${aliasesHtml}</div>`,
-                `<div class="igs-char-info-row"><span class="igs-char-info-label">状态栏头像</span>${avatarHtml}</div>`,
-                houseHtml,
-                voiceHtml,
-                renderCharacterCreatureRows(charName, dna),
-            ].join(''))
+            ? renderCharacterSetupPanel(charName, dna, {
+                profile: [
+                    `<div class="igs-char-info-row"><span class="igs-char-info-label">别名</span>${aliasesHtml}</div>`,
+                    `<div class="igs-char-info-row"><span class="igs-char-info-label">状态栏头像</span>${avatarHtml}</div>`,
+                    houseHtml,
+                ].join(''),
+                look: renderCharacterCreatureRows(charName, dna),
+                voice: voiceHtml,
+            }, isOpen)
             : '';
         return `<div class="igs-scene-char-group igs-char-card${open ? ' is-open' : ''}">${head}${setup}${open ? `<div class="igs-char-body">${heightRow ? renderCharacterSpriteHeightRow(charName, heightRow) : ''}${slotArea}</div>` : ''}</div>`;
     }).join('');
@@ -598,6 +598,12 @@ function voiceTuneOptions(manual) {
     return { pitchOpts, speedOpts };
 }
 
+// 声音页一组：小标题；声音下拉 + 试听独占一行；调节项固定三列、标签在上，各组列宽对齐。
+const voiceGroup = (title, main, tunes = []) => `<div class="igs-char-voice-group"><div class="igs-char-voice-title">${title}</div>`
+    + `<div class="igs-char-voice-main">${main}</div>`
+    + (tunes.filter(Boolean).length ? `<div class="igs-char-voice-tunes">${tunes.filter(Boolean).map(([label, html]) => `<label class="igs-char-voice-tune"><span class="igs-char-voice-sub">${label}</span>${html}</label>`).join('')}</div>` : '')
+    + '</div>';
+
 // 台词朗读开着时：这个角色的台词声音与心里话声音（自动按 DNA 性别分配，或单独指定），外加音高、语速、音量、风格与试听。
 function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
@@ -617,7 +623,6 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
         return `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}">${opts}</select>`;
     };
     const preview = (action) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}:${encSeg(charName)}">试听</button>`;
-    const line = (label, html) => `<div class="igs-char-voice-line"><span class="igs-char-voice-sub">${label}</span>${html}</div>`;
     const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
     const plainSpeeds = speedOpts.replace(/ selected/g, '');
     const pick = (opts, saved) => opts.replace(`value="${saved}"`, `value="${saved}" selected`);
@@ -625,16 +630,15 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const select = (field, label, opts) => `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}" title="${label}">${opts}</select>`;
     const volumeOpts = (list) => list.map(([v, text]) => `<option value="${v}">${esc(text)}</option>`).join('');
     const speed = select('ttsSpeed', '台词语速', pick(plainSpeeds, manual.ttsSpeed || manual.speed));
-    const thoughtSpeed = select('ttsThoughtSpeed', '心里话语速', pick(`<option value="0">语速同台词</option>${plainSpeeds}`, manual.ttsThoughtSpeed));
+    const thoughtSpeed = select('ttsThoughtSpeed', '心里话语速', pick(`<option value="0">同台词</option>${plainSpeeds}`, manual.ttsThoughtSpeed));
     const volume = select('ttsVolume', '台词音量', pick(volumeOpts(TTS_CHARACTER_VOLUMES), manual.ttsVolume));
-    const thoughtVolume = select('ttsThoughtVolume', '心里话音量', pick(volumeOpts([[-1, '音量同台词'], ...TTS_CHARACTER_VOLUMES]), manual.ttsThoughtVolume));
+    const thoughtVolume = select('ttsThoughtVolume', '心里话音量', pick(volumeOpts([[-1, '同台词'], ...TTS_CHARACTER_VOLUMES]), manual.ttsThoughtVolume));
     // 接口来源不支持调音高。
-    const pitch = tts.provider === 'system' ? line('音高', select('pitch', '朗读音高', pitchOpts)) : '';
-    return `<div class="igs-char-info-row is-block igs-char-tts"><span class="igs-char-info-label">朗读</span>`
-        + line('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + speed + volume + preview('tts-preview'))
-        + line('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + thoughtSpeed + thoughtVolume + preview('tts-preview-thought'))
-        + pitch
-        + line('风格', `<input class="igs-asset-move" type="text" maxlength="300" data-char-voice-ttsStyle="${name}" value="${esc(manual.ttsStyle)}" placeholder="可选，仅 OpenAI 兼容接口与自定义请求生效" aria-label="朗读风格">`)
+    const pitch = tts.provider === 'system' ? ['音高', select('pitch', '朗读音高', pitchOpts)] : null;
+    return `<div class="igs-char-tts">`
+        + voiceGroup('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + preview('tts-preview'), [['语速', speed], ['音量', volume], pitch])
+        + voiceGroup('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + preview('tts-preview-thought'), [['语速', thoughtSpeed], ['音量', thoughtVolume]])
+        + voiceGroup('朗读风格', `<input class="igs-asset-move" type="text" maxlength="300" data-char-voice-ttsStyle="${name}" value="${esc(manual.ttsStyle)}" placeholder="仅 OpenAI 兼容与自定义接口生效" aria-label="朗读风格">`)
         + '</div>';
 }
 
@@ -644,7 +648,7 @@ function renderCharacterVoiceRow(charName, { sceneAssets, tts }) {
     const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
     const manual = normalizeCharacterVoice(Object.prototype.hasOwnProperty.call(voices, charName) ? voices[charName] : null);
     const auto = resolveCharacterVoice({ ...sceneAssets, characterVoices: {} }, charName);
-    const autoText = auto.creature ? `自动（非人声线：${creatureVoiceLabel(auto.creature)}）` : auto.pack ? `自动（${auto.pack.name}）` : '自动（无法从DNA判断性别，不发声）';
+    const autoText = auto.creature ? `自动（非人声线：${creatureVoiceLabel(auto.creature)}）` : auto.pack ? `自动（${auto.pack.name}）` : '自动（未识别性别，不发声）';
     const option = (id, label) => `<option value="${esc(id)}"${id === manual.pack ? ' selected' : ''}>${esc(label)}</option>`;
     const packs = voicePackOptions();
     const groups = VOICE_GENDER_GROUPS.map(([gender, label]) => {
@@ -652,11 +656,13 @@ function renderCharacterVoiceRow(charName, { sceneAssets, tts }) {
         return items ? `<optgroup label="${esc(label)}">${items}</optgroup>` : '';
     }).join('');
     const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
-    return `<div class="igs-char-info-row igs-char-voice-row"><span class="igs-char-info-label">声线</span>`
-        + `<select class="igs-asset-move" data-char-voice="${esc(charName)}" aria-label="角色声线">${option('', autoText)}${option('off', '不发声')}${groups}</select>`
-        + `<select class="igs-asset-move" data-char-voice-pitch="${esc(charName)}" aria-label="声线音高" title="音高（半音）">${pitchOpts}</select>`
-        + `<select class="igs-asset-move" data-char-voice-speed="${esc(charName)}" aria-label="声线语速" title="语速，不影响音高">${speedOpts}</select>`
-        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="voice-bark-preview:${encSeg(charName)}">试听</button></div>`;
+    return `<div class="igs-char-voice-row">`
+        + voiceGroup('语气音声线', `<select class="igs-asset-move" data-char-voice="${esc(charName)}" aria-label="角色声线">${option('', autoText)}${option('off', '不发声')}${groups}</select>`
+            + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="voice-bark-preview:${encSeg(charName)}">试听</button>`, [
+            ['音高', `<select class="igs-asset-move" data-char-voice-pitch="${esc(charName)}" aria-label="声线音高" title="音高（半音）">${pitchOpts}</select>`],
+            ['语速', `<select class="igs-asset-move" data-char-voice-speed="${esc(charName)}" aria-label="声线语速" title="语速，不影响音高">${speedOpts}</select>`],
+        ])
+        + '</div>';
 }
 
 const SPRITE_HEIGHT_SOURCE_LABELS = { female: '女性', male: '男性', other: '其他', base: '基准高度' };
@@ -678,13 +684,13 @@ function renderCharacterSpriteHeightRow(charName, { sceneAssets, reader }) {
 
 const CHARACTER_DNA_FIELD_LABELS = [
     ['identity', '固定身份', '发色、瞳色、脸型、体型、年龄感、标志特征'],
-    ['defaultAppearance', '默认外观', '默认发型、服装、饰品；剧情明确换装时可被覆盖'],
-    ['negative', '负面词', '防漂移与禁止增加的特征'],
-    ['triggerWords', '触发词', 'LoRA触发词等纯文本'],
-    ['personality', '性格特点 DNA', '只描述该角色稳定的性格特点，不含外貌、衣装、当次表情、动作或场景；生图时与所选景别身份一起使用'],
+    ['defaultAppearance', '默认外观', '默认发型、服装、饰品'],
+    ['negative', '负面词', '防止漂移的排除词'],
+    ['triggerWords', '触发词', 'LoRA 触发词'],
+    ['personality', '性格', '稳定的性格特点，不含外貌与表情'],
     ...[['full_body', '全身'], ['half_body', '半身'], ['portrait', '头像']].flatMap(([view, label]) => [
-        [`views.${view}.subject`, `${label}身份（含年龄感）`, '英文身份主语片段；核对有依据的年龄感、角、尾巴、非人耳及标志饰品。全身保留已知身体特征，头像保留头颈锚点；三景别同一身份，不含普通服装、动作或临时表情'],
-        [`views.${view}.negative`, `${label}身份负面词`, '该景别固定身份的排除词，可留空'],
+        [`views.${view}.subject`, `${label}身份`, '英文 tag：年龄感、发色、瞳色、标志特征，不含服装与表情'],
+        [`views.${view}.negative`, `${label}负面词`, '英文 tag'],
     ]),
 ];
 
@@ -705,15 +711,48 @@ function characterDnaEditFields(dna) {
         ? !field.startsWith('views.') : field === 'personality' || field.startsWith('views.'));
 }
 
-function renderCharacterDnaFields(charName, dna) {
+const DNA_VIEWS = [['full_body', '全身'], ['half_body', '半身'], ['portrait', '头像']];
+
+// 页签条：沿用服装页签的样式；group 为 ui-pick-open 的组名，选中项记在界面状态里。
+function setupTabs(group, items, active, label) {
+    return `<div class="igs-outfit-tabs igs-char-setup-tabs" role="tablist" aria-label="${esc(label)}">`
+        + items.map(([value, text, extra = '']) => `<button type="button" class="igs-outfit-tab${value === active ? ' is-active' : ''}" role="tab" aria-selected="${value === active}" data-action="ui-pick-open:${encSeg(`${group}=${value}`)}">${esc(text)}${extra}</button>`).join('')
+        + '</div>';
+}
+
+function pickedTab(isOpen, group, values, fallback) {
+    return values.find((value) => isOpen(`${group}=${value}`)) || fallback;
+}
+
+// 设置搜索建索引时所有开合都视为打开：这时各页、各景别全部渲染，搜得到每个字段。
+const indexingAll = (isOpen, group) => isOpen(`${group}=\u0000`);
+
+function dnaField(charName, dna, [field, label, hint], { wide = field === 'personality' } = {}) {
+    return `<label class="igs-dna-field${wide ? ' is-wide' : ''}"><span class="igs-btn-mgr-label">${esc(label)}</span>`
+        + `<textarea class="igs-scene-url-input igs-dna-input" rows="2" data-dna-char="${esc(charName)}" data-dna-field="${field}" placeholder="${esc(hint)}">${esc(dnaValue(dna, field))}</textarea></label>`;
+}
+
+// 三景别外貌一次只露一个景别：身份、负面词两个框。
+function renderDnaViewFields(charName, dna, fields, isOpen) {
+    const group = `dna-view:${charName}`;
+    const view = pickedTab(isOpen, group, DNA_VIEWS.map(([id]) => id), 'full_body');
+    if (indexingAll(isOpen, group)) return fields.filter(([field]) => field.startsWith('views.')).map((entry) => dnaField(charName, dna, entry)).join('');
+    const subject = fields.find(([field]) => field === `views.${view}.subject`);
+    const negative = fields.find(([field]) => field === `views.${view}.negative`);
+    const tabs = setupTabs(group, DNA_VIEWS.map(([id, text]) => [id, text,
+        dnaValue(dna, `views.${id}.subject`).trim() ? '' : '<span class="igs-outfit-tab-count">空</span>']), view, '外貌景别');
+    return `${tabs}${[subject, negative].filter(Boolean).map((entry) => dnaField(charName, dna, entry, { wide: true })).join('')}`;
+}
+
+function renderCharacterDnaFields(charName, dna, isOpen) {
     const fields = characterDnaEditFields(dna);
     const legacy = fields.some(([field]) => field === 'identity');
-    const rows = fields.map(([field, label, hint]) => (
-        `<label class="igs-dna-field${field === 'personality' ? ' is-wide' : ''}"><span class="igs-btn-mgr-label">${esc(label)}</span>`
-        + `<textarea class="igs-scene-url-input igs-dna-input" rows="2" data-dna-char="${esc(charName)}" data-dna-field="${field}" placeholder="${esc(hint)}">${esc(dnaValue(dna, field))}</textarea></label>`
-    )).join('');
-    const protocol = `<div class="igs-dna-protocol"><span class="igs-outfit-muted">${legacy ? '旧版外貌资料' : '三景别外貌资料'}</span>`
-        + (legacy ? `<button type="button" class="igs-review-link" data-action="char-upgrade-dna:${encSeg(charName)}">使用三景别外貌</button>` : '') + '</div>';
+    const rows = legacy || typeof isOpen !== 'function'
+        ? fields.map((entry) => dnaField(charName, dna, entry)).join('')
+        : fields.filter(([field]) => !field.startsWith('views.')).map((entry) => dnaField(charName, dna, entry)).join('')
+            + renderDnaViewFields(charName, dna, fields, isOpen);
+    const protocol = legacy ? `<div class="igs-dna-protocol"><span class="igs-outfit-muted">旧版外貌资料</span>`
+        + `<button type="button" class="igs-review-link" data-action="char-upgrade-dna:${encSeg(charName)}">升级为三景别</button></div>` : '';
     return `${protocol}<div class="igs-dna-fields" data-dna-editor="${esc(charName)}">${rows}</div>`;
 }
 
@@ -724,11 +763,20 @@ export const CHARACTER_ADD_MENU = `<details class="igs-add-menu" data-add-menu="
     + '<button class="igs-add-menu-item" data-action="scene-add-user-char" type="button" role="menuitem">用酒馆用户设定生成主角</button>'
     + '<button class="igs-add-menu-item" data-action="live2d-open" type="button" role="menuitem">Live2D模型（高级）</button></div></details>';
 
-function renderCharacterSetupPanel(charName, dna, profileRows) {
+// 角色设定分「外貌 / 资料 / 声音」三页，一次只看一类；没有声音设置时不出声音页。
+function renderCharacterSetupPanel(charName, dna, { profile = '', look: lookExtra = '', voice = '' } = {}, isOpen = () => false) {
+    const group = `char-setup:${charName}`;
+    const pages = [['look', '外貌', characterDnaFilled(dna) ? '' : '<span class="igs-outfit-tab-count">未填</span>'], ['profile', '资料'], voice ? ['voice', '声音'] : null].filter(Boolean);
+    const page = pickedTab(isOpen, group, pages.map(([id]) => id), 'look');
+    const look = `<div class="igs-char-info-row is-block">${renderCharacterDnaFields(charName, dna, isOpen)}</div>${lookExtra}`;
+    const body = indexingAll(isOpen, group) ? look + profile + voice
+        : page === 'profile' ? profile
+        : page === 'voice' ? voice
+        : look;
     return `<div class="igs-char-dna-panel"><div class="igs-char-dna-panel-head">角色设定`
         + `<button type="button" class="igs-review-link" data-action="scene-toggle-dna:${encSeg(charName)}">收起</button></div>`
-        + profileRows
-        + `<div class="igs-char-info-row is-block"><span class="igs-char-info-label">外貌（DNA）<span class="igs-outfit-muted">（生图时保持长相）</span></span>${renderCharacterDnaFields(charName, dna)}</div></div>`;
+        + setupTabs(group, pages, page, '角色设定分类')
+        + `<div class="igs-char-setup-page">${body}</div></div>`;
 }
 
 export function renderCharacterDnaEditor(charName, dna) {

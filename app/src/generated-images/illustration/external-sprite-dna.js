@@ -3,7 +3,7 @@ import { spriteDnaPreparationState, prepareCharacterDnaSave } from '../../scene/
 import { normalizeCharacterDna } from '../../scene/character-dna.js';
 import { characterPromptTask, singleCharacterContext } from './character-prompt-task.js';
 import { writeTemplateCaptionsWithLlm } from './caption-writer.js';
-import { BUILTIN_PROMPTS } from '../prompt-registry.js';
+import { spriteUserPrompts } from '../prompt-scheme.js';
 import { imageTaskConfig } from '../builtin-image-task-runtime.js';
 
 const stale = () => ({ ok: false, reason: 'stale-target', cancelled: true, stopGeneration: true, error: '原角色卡或聊天目标已结束' });
@@ -120,7 +120,7 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
             const context = rows.flatMap(row => singleCharacterContext(row.name, row.dna, undefined, settings.sceneAssets));
             const task = characterPromptTask(context, 'sprite', 'half_body', rows.map(row => [row.name]));
             const written = await writeTemplateCaptionsWithLlm(llm, settings.auto.llm, { ...task,
-                imagePromptTask: 'dna', outputs: { format: 'sprite-data' }, userPrompts: BUILTIN_PROMPTS.sprite,
+                imagePromptTask: 'dna', outputs: { format: 'sprite-data' }, userPrompts: spriteUserPrompts(settings.promptScheme),
                 description: '一次补齐本轮全部角色的三景别外貌 DNA 与独立性格，供外部写词采用为角色设定。按各槽 slotid 与规范角色键逐份交付，不遗漏或混用角色；保留已有景别及明确设定，首次缺设定时协调设计普通外貌。衣装资料与身份分开，本次只保存身份与性格。角色补充要求：'
                     + JSON.stringify(rows.map(row => ({ characterKey: row.name, note: row.note }))),
                 ...(numberedText !== undefined && { numberedText }), ...(previousText !== undefined && { previousText }),

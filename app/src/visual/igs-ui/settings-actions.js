@@ -350,12 +350,23 @@ function expressionProgressText(who, event) {
 
 // 点下去就挂一条进度，结束时只收自己这一条；同时在画的其他格子进度还在。
 // 面板关着也要收：记住的进度不清掉，下次打开会补回一条过期的进度条。
-function startExpressionProgress(globalObj, who) {
-    const task = beginSettingsProgress(() => settingsProgressHost(globalObj), `生图中：${who}`);
+// signal 交给生图服务：进度条上按「停止」即置 abort，排队的请求撤下，在途的那张结果丢弃。
+function startExpressionProgress(globalObj, who, { stoppable = true } = {}) {
+    const controller = new AbortController();
+    const task = beginSettingsProgress(() => settingsProgressHost(globalObj), `生图中：${who}`,
+        stoppable ? { onStop: () => controller.abort() } : {});
     return {
+        signal: controller.signal,
+        stopped: () => controller.signal.aborted,
         onProgress: (event) => { if (event) task.update(expressionProgressText(who, event)); },
         end: () => task.end(),
     };
+}
+
+// 用户自己按了停止：不弹失败框，只留一条提示。
+function generationStopped(globalObj, who) {
+    showGeneratedNotice(globalObj, `已停止「${who}」的生成，原有图片保持不变。`, 'info');
+    return { ok: false, reason: 'generation-stopped' };
 }
 
 function errorText(error, fallback) {
@@ -567,8 +578,9 @@ function nsfwEnabledForAssets(draft) {
 }
 
 // 跑的时候把生成按钮换成「停止生成」；按一下就置 abort，已画好的图保留。
-function createStopControl(onRestore) {
+function createStopControl(onRestore, parentSignal) {
     const controller = new AbortController();
+    if (parentSignal) parentSignal.addEventListener('abort', () => controller.abort(), { once: true });
     const globalObj = typeof globalThis !== 'undefined' ? globalThis : null;
     const doc = globalObj && globalObj.document;
     const host = doc && typeof doc.getElementById === 'function' ? doc.getElementById('igs-unified-settings') : null;
@@ -670,6 +682,7 @@ function generatedAdoptionFailure(dialogs, globalObj, adoption) {
 
 // 已保存配置、旧预设和待确认衣装共同持有图片；读取候选失败时保守保留。
 export function unreferencedGeneratedImageIds(imageIds, sceneAssets, storage) {
+    if (!Array.isArray(imageIds) || !imageIds.some(Boolean)) return [];
     const inUse = new Set(collectGeneratedImageIds(sceneAssets));
     if (storage) {
         const candidates = loadStoryOutfitCandidates(storage);
@@ -684,9 +697,11 @@ export function unreferencedGeneratedImageIds(imageIds, sceneAssets, storage) {
 }
 
 // 一份配置改完之后，原先引用、现在全局和角色卡都不再引用的图片。
-export function releasedGeneratedImageIds(previousIds, sceneAssets, storage) {
-    const still = new Set(collectGeneratedImageIds(sceneAssets));
+// stillIds：调用方刚算过的 sceneAssets 图 id（可选），传入则不再扫描素材库；没有图被丢弃时直接返回，不读预设与待确认。
+export function releasedGeneratedImageIds(previousIds, sceneAssets, storage, stillIds) {
+    const still = new Set(stillIds || collectGeneratedImageIds(sceneAssets));
     const dropped = (Array.isArray(previousIds) ? previousIds : [...(previousIds || [])]).filter((id) => id && !still.has(id));
+    if (!dropped.length) return [];
     return unreferencedGeneratedImageIds(dropped, sceneAssets, storage);
 }
 
@@ -907,7 +922,7 @@ export async function handleSettingsAction(action, ctx) {
             resolveTarget: name => spriteAdoptionTarget(settingsState, name),
             isOpen: () => state.activeSettings === settingsState,
             persist: () => persistGeneratedLibrary(persistSettingsDraft),
-            startProgress: name => startExpressionProgress(options.global || globalThis, `${name}·补齐 DNA`),
+            startProgress: name => startExpressionProgress(options.global || globalThis, `${name}·补齐 DNA`, { stoppable: false }),
         });
         if (!dnaPrepared.ok) return dnaPrepared.reason === 'dna-cancelled' ? rerenderSettings()
             : generatedOperationFailure(dialogs, options.global || globalThis, dnaPrepared.error, dnaPrepared.reason);
@@ -1600,11 +1615,12 @@ export async function handleSettingsAction(action, ctx) {
         const progress = startExpressionProgress(globalObj, `${sceneName}·时间天气`);
         let result;
         try {
-            result = await service.generateSceneVariants({ baseImageId, scene: sceneName, variants, onProgress: progress.onProgress });
+            result = await service.generateSceneVariants({ baseImageId, scene: sceneName, variants, onProgress: progress.onProgress, signal: progress.signal });
         } catch (error) {
             result = { ok: false, error: errorText(error, '出图失败') };
         }
         const done = result && Array.isArray(result.items) ? result.items.filter((item) => item.ok && item.imageId) : [];
+        if (!done.length && progress.stopped()) { progress.end(); return generationStopped(globalObj, `${sceneName}·时间天气`); }
         if (done.length) {
             const live = (draftAssetLibrary(settingsState, editTarget).scenes || {})[sceneName];
             if (live && typeof live === 'object') {
@@ -1716,7 +1732,7 @@ export async function handleSettingsAction(action, ctx) {
                 resolveTarget: requested => spriteAdoptionTarget(settingsState, requested),
                 isOpen: () => state.activeSettings === settingsState, note: spriteNote,
                 persist: () => persistGeneratedLibrary(persistSettingsDraft),
-                startProgress: who => startExpressionProgress(globalObj, `${who}·补齐 DNA`),
+                startProgress: who => startExpressionProgress(globalObj, `${who}·补齐 DNA`, { stoppable: false }),
             });
             if (!prepared.ok) return prepared.reason === 'dna-cancelled' ? rerenderSettings()
                 : generatedOperationFailure(dialogs, globalObj, prepared.error, prepared.reason);
@@ -1727,6 +1743,7 @@ export async function handleSettingsAction(action, ctx) {
         let result;
         const failed = (error) => {
             progress.end();
+            if (progress.stopped()) return generationStopped(globalObj, `${name}·默认立绘`);
             return generationFailure(globalObj, dialogs, `「${name}」的默认立绘未能生成：${errorText(error, '未返回原因')}${current ? '\n原有图片保持不变。' : ''}`, 'sprite-generate-failed');
         };
         const onOutfitDna = async clothing => {
@@ -1750,7 +1767,7 @@ export async function handleSettingsAction(action, ctx) {
         };
         try {
             result = await service.generateCharacterSprite({ name, dna, note: spriteNote, caption: redrawCaption,
-                characterMeta: redrawMeta, exact: redrawExact, onProgress: progress.onProgress, shouldStart: targetUnchanged,
+                characterMeta: redrawMeta, exact: redrawExact, onProgress: progress.onProgress, signal: progress.signal, shouldStart: targetUnchanged,
                 onOutfitDna,
                 ...(redrawHistory && { history: redrawHistory, ...(redrawHistory.promptRecipe && { promptRecipe: redrawHistory.promptRecipe }) }) });
         } catch (error) {
@@ -1844,10 +1861,11 @@ export async function handleSettingsAction(action, ctx) {
         const failed = (error) => {
             progress.end();
             restoreBusy();
+            if (progress.stopped()) return generationStopped(globalObj, `${name}（${outfitName}）`);
             return generationFailure(globalObj, dialogs, `「${name}」的「${outfitName}」裸体立绘未能生成：${errorText(error, '未返回原因')}${current ? '\n原有图片保持不变。' : ''}`, 'sprite-generate-failed');
         };
         try {
-            result = await service.generateCharacterSprite({ name, dna, nude: true, onProgress: progress.onProgress });
+            result = await service.generateCharacterSprite({ name, dna, nude: true, onProgress: progress.onProgress, signal: progress.signal });
         } catch (error) {
             return failed(error);
         }
@@ -2081,12 +2099,15 @@ export async function handleSettingsAction(action, ctx) {
         const onProgress = progress.onProgress;
         // 单张重画的按钮由宿主按 settingsBusyLabel 锁住，这里只锁整套差分的按钮。
         const restoreBusy = retry ? () => {} : markExpressionActionBusy(globalObj, normalizedAction, '生图中');
-        // 单张重画不接停止键：只有一张，按了也停不下来，别把「表情差分」按钮变成摆设。
-        const stopControl = retry ? { signal: new AbortController().signal, done() {} } : createStopControl(() => restoreBusy());
+        // 单张重画只走进度条上的停止键；整套差分另把「表情差分」按钮换成「停止生成」，两处都能停。
+        const stopControl = retry ? { signal: progress.signal, done() {} } : createStopControl(() => restoreBusy(), progress.signal);
         const hadImage = retry && Boolean(String(slots[mood] || '').trim());
         const failed = (error) => {
             progress.end();
             restoreBusy();
+            if (stopControl.signal.aborted && retry) return generationStopped(globalObj, `${subject}·${mood}`);
+            if (stopControl.signal.aborted && !(result && result.items && result.items.some((item) => item.ok)))
+                return generationStopped(globalObj, subject);
             const message = retry
                 ? `「${subject}」的「${mood}」未能生成：${errorText(error, '未返回原因')}${hadImage ? '\n原有图片保持不变。' : ''}`
                 : `「${subject}」的表情差分未能生成：${errorText(error, '未返回原因')}`;
@@ -2922,12 +2943,13 @@ export async function handleSettingsAction(action, ctx) {
         const progress = startExpressionProgress(globalObj, `${charName}·Q版头像`);
         try {
             result = await service.generateCharacterAvatar({ name: charName, dna: characterExpressionDna(sceneAssets, charName),
-                onProgress: progress.onProgress, shouldStart: targetUnchanged });
+                onProgress: progress.onProgress, signal: progress.signal, shouldStart: targetUnchanged });
         } catch (error) {
             result = { ok: false, error: errorText(error, '') };
         }
         if (!result || !result.ok || !result.dataUrl || !targetUnchanged()) {
             progress.end();
+            if (progress.stopped()) return generationStopped(globalObj, `${charName}·Q版头像`);
             return generationFailure(globalObj, dialogs, `「${charName}」的Q版头像未能生成：${errorText(result && result.error, '未返回原因')}${had ? '\n原有头像保持不变。' : ''}`, 'avatar-generate-failed');
         }
         const stored = await storeAvatarImage(globalObj, service, result.dataUrl, { shrink: true });
@@ -4207,6 +4229,35 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 「填写网址 / 修改网址」：立绘格行内不放地址框，从 ⋯ 弹窗填网址换下这一格。
+    if (/^(?:char|outfit)-mood-url-ask:/.test(normalizedAction)) {
+        const outfitMode = normalizedAction.startsWith('outfit-');
+        const segs = normalizedAction.slice(`${outfitMode ? 'outfit' : 'char'}-mood-url-ask:`.length).split(':');
+        const charName = decodeSeg(segs[0] || '');
+        const outfitName = outfitMode ? decodeSeg(segs[1] || '') : '';
+        const mood = decodeSeg(segs[outfitMode ? 2 : 1] || '');
+        const assets = draftAssetLibrary(settingsState, editTarget);
+        const current = outfitMode
+            ? String(outfitSpriteSlots(assets.characterOutfits?.[charName]?.[outfitName])[mood] || '').trim()
+            : String(assets.characters?.[charName]?.[mood] || '').trim();
+        const shownCurrent = current.startsWith('igs-gen:') ? '' : current;
+        const raw = await dialogs.prompt(`「${mood}」使用网络图片，填写图片网址（https://… 或 data:image/…）。${current && !shownCurrent ? '当前图片将被替换。' : ''}`, shownCurrent);
+        const url = String(raw == null ? '' : raw).trim();
+        if (!url || url === current) return rerenderSettings();
+        if (!/^(?:https?:\/\/|data:image\/)/i.test(url)) {
+            pageAlert(dialogs, options.global || globalThis, '网址需以 https:// 或 data:image/ 开头。');
+            return rerenderSettings();
+        }
+        const setAction = outfitMode
+            ? `scene-set-outfit-mood-url:${[charName, outfitName, mood].map(encodeURIComponent).join(':')}:${url}`
+            : `scene-set-mood-url:${[charName, mood].map(encodeURIComponent).join(':')}:${url}`;
+        const set = await handleSettingsAction(setAction, ctx);
+        if (set && set.ok === false) return set;
+        const persisted = persistSettingsDraft({ spriteAssetChanged: true });
+        if (persisted && persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('scene-set-mood-url:')) {
         const rest = normalizedAction.slice('scene-set-mood-url:'.length);
         const firstColon = rest.indexOf(':');
@@ -4629,6 +4680,20 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.draft.readerSettings.cgEntrance = { ...entrance, styles: Object.fromEntries(CG_INTERLUDE_STYLES.map((id) => [id, on])) };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    // 页签式的单选（如角色设定的资料 / 声音 / 外貌）：键为「组=值」，同组只留一个为真。
+    if (normalizedAction.startsWith('ui-pick-open:')) {
+        const key = decodeSeg(normalizedAction.slice('ui-pick-open:'.length));
+        const cut = key.lastIndexOf('=');
+        if (cut > 0) {
+            const group = key.slice(0, cut + 1);
+            const next = { ...(settingsState.asyncState.advancedOpen || {}) };
+            for (const other of Object.keys(next)) if (other.startsWith(group)) next[other] = false;
+            next[key] = true;
+            settingsState.asyncState.advancedOpen = next;
+        }
         return rerenderSettings();
     }
 

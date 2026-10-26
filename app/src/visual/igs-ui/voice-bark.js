@@ -36,9 +36,9 @@ const PHONE_GAIN = 0.85;
 const PHONE_BAND = Object.freeze({ high: 380, low: 3200 });
 const GAIN_CAP = 1.2;
 // 人声净化：高通去低频嗡声，高架压嘶声与沙沙底噪（听筒本身有带通，不重复）。
-const CLEANUP_HIGHPASS = Object.freeze({ frequency: 80, q: 0.7 });
+const CLEANUP_HIGHPASS = Object.freeze({ frequency: 100, q: 0.7 });
 const CLEANUP_HIGHSHELF = Object.freeze({ frequency: 7500, gain: -4 });
-const VOICE_LIMITER = Object.freeze({ threshold: -4, knee: 0, ratio: 20, attack: 0.002, release: 0.12 });
+const VOICE_LIMITER = Object.freeze({ threshold: -4, knee: 6, ratio: 20, attack: 0.001, release: 0.25 });
 // 语气音响着时 BGM 与环境音让一下（比提示音轻）；打字音整段静音到语气音念完。
 const BARK_DUCK_RATIO = 0.7;
 const BARK_TAIL_S = 0.05;

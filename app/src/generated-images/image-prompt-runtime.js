@@ -1,4 +1,4 @@
-import { completeImagePromptPreset, createDefaultImagePromptPreset } from './image-prompt-defaults.js';
+import { completeImagePromptPreset, createBuiltinImagePromptPresets } from './image-prompt-defaults.js';
 import { renderImagePromptPreset } from '../presets/prompt-preset-renderer.js';
 import { runImageTask, staleImageTask, imageTaskState } from './image-task-runtime.js';
 import { imageWritingContext } from './image-prompt-context.js';
@@ -13,7 +13,7 @@ export function createImagePromptLlm(llm, registry, taskRuntime, resolveWorldInf
     wrapped.prepareImagePrompt = async (task, input) => {
         const context = imageWritingContext(input);
         if (!context.ok) return context;
-        const initialized = registry.ensureImagePromptDefault(createDefaultImagePromptPreset());
+        const initialized = registry.ensureImagePromptDefault(createBuiltinImagePromptPresets());
         if (!initialized.ok) return { ...initialized, presetFailure: true, error:'生图提示词预设不可读取或初始化失败，未发送写词请求' };
         const current = imageTaskState(input)?.promptPreset || registry.getCurrent('prompt-preset');
         const stale = () => input.signal?.aborted || (input.shouldStart && !input.shouldStart());

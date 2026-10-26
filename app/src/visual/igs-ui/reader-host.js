@@ -139,9 +139,17 @@ const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna',
 // 翻页时设置没变就复用上次整理好的阅读器设置：每次整份深拷贝再跑几十项整理，是翻页最大的一块 JS 开销。
 // 存储配置是共享只读的，改设置会换新引用，按引用判断即可。返回浅拷贝：调用方只改顶层字段，下层对象只读。
 let normalizedReaderMemo = null;
+// legacyTheme（bridge.vnTheme）每次都是整理出的新对象，按引用比较永远不命中；按顶层值比较，含嵌套对象时保守判为不同。
+function sameThemeValue(a, b) {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+    const keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length) return false;
+    return keys.every((key) => Object.hasOwn(b, key) && Object.is(a[key], b[key]));
+}
 function normalizeReaderSettingsCached(settings, legacyTheme) {
     const memo = normalizedReaderMemo;
-    if (memo && settings && memo.settings === settings && memo.legacyTheme === legacyTheme) return { ...memo.value };
+    if (memo && settings && memo.settings === settings && sameThemeValue(memo.legacyTheme, legacyTheme)) return { ...memo.value };
     const value = normalizeReaderSettings(settings, legacyTheme);
     normalizedReaderMemo = settings && typeof settings === 'object' ? { settings, legacyTheme, value } : null;
     return { ...value };
@@ -5572,10 +5580,13 @@ export function createIgsReaderHost(options = {}) {
         return normalizeUnifiedSettings(snapshot, optionsForSnapshot.mode);
     }
 
-    function normalizeUnifiedSettings(snapshot, preferredMode) {
+    // normalizeOptions.mutableSource：入参是设置页里可原地修改的草稿，不能走按引用的整理缓存。
+    function normalizeUnifiedSettings(snapshot, preferredMode, normalizeOptions) {
         const bridge = normalizeBridgeConfig(snapshot.bridge);
         const readerMode = normalizeReaderMode(firstDefined(snapshot.readerMode, preferredMode, bridge.openMode), bridge);
-        const readerSettings = normalizeReaderSettingsCached(snapshot.readerSettings, bridge.vnTheme);
+        const readerSettings = normalizeOptions && normalizeOptions.mutableSource === true
+            ? normalizeReaderSettings(snapshot.readerSettings, bridge.vnTheme)
+            : normalizeReaderSettingsCached(snapshot.readerSettings, bridge.vnTheme);
 
         return {
             version: snapshot.version || options.version || '0.5.4',

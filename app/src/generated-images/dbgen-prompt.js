@@ -1,5 +1,6 @@
 import { moodPresetUse } from '../scene/mood-groups.js';
-import { BUILTIN_PROMPTS, SPRITE_HALF_BODY_RULE } from './prompt-registry.js';
+import { BUILTIN_PROMPTS } from './prompt-registry.js';
+import { schemePrompts, performanceLines } from './prompt-scheme.js';
 import { hasSpriteDna, isSpriteExpressionTag } from './sprite-prompt-composition.js';
 
 // 楼内补立绘一次最多写 8 份，超过则平分 2 批。
@@ -98,20 +99,22 @@ export function splitExpressionWriteBatches(items) {
 
 // note 是用户这次临时补的要求（性格、某个情绪的特别表现），只影响写词这一步；
 // 情绪清单保留名称与适用情境，具体神态和动作由写词模型结合角色性格设计。
-export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit, { note = '', nsfw = false, transparent = true, template = false, includeDna = true } = {}) {
+export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit, { note = '', nsfw = false, transparent = true, template = false, includeDna = true, scheme } = {}) {
+    const P = schemePrompts(scheme);
     const moods = (Array.isArray(labels) ? labels : []).map((item) => String(item || '').trim()).filter(Boolean);
     if (template) return [
         `为角色「${name || ''}」写 ${moods.length} 份独立表情动态模板，按本次 slots 映射输出。`,
         `本批图号与表情一一对应：${moods.map((mood, index) => `slotid: ${index + 1} 对应 ${mood}`).join('；')}。每图第一行独立写 slotid: 本图编号，不输出表情标题或 #编号。`,
         '每图写完 prompt_mode、scene、scene_uc、char、char_uc 和该图全部 meta 字段；Char 索引从0重新开始。多图只在完整图片之间用独立一行 ---，之后下一非空行必须是新的 slotid；单图不写 ---，同图字段之间不分段。不输出 at 或身份候选。',
-        SPRITE_HALF_BODY_RULE,
+        P.halfBodyRule,
         OUTFIT_TEMPLATE_RULE,
         '只引用已保存的 half_body 身份，不生成候选、不重复固定外貌。',
         '每份 Char 正文为 <<dna:token>> <<outfit:token>> 加当次表情与动作；服装 DNA 已有则直接复用，缺失则同次写入独立 meta_outfit_*，不要重写包含外貌和衣装的完整正文。',
         outfit?.nude ? '本次不穿衣服；保留基础身份和标志性特征。'
             : outfit?.name ? `当次服装：${outfit.name}。服装名、词池和具体穿着说明以本次角色资料为准。`
             : '当次衣装沿用角色资料中的默认穿着，不复制旧立绘的固定外貌。',
-        BUILTIN_PROMPTS.expression.designRule,
+        P.expression.designRule,
+        ...performanceLines(scheme),
         '按本次要求写明镜头、底色、质量、UC 和用户模板内容。',
         note ? `本次额外要求：\n${note}` : '',
         ...moods.map((mood, index) => {
@@ -126,14 +129,15 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
         return [
             `为角色「${name || ''}」写 ${moods.length} 份立绘表情差分。`,
             saved ? `已有立绘的外貌与构图：\n${saved}` : '',
-            SPRITE_FRAMING_DESCRIPTION,
-            SPRITE_FACING_DESCRIPTION,
+            P.framing,
+            P.facing,
             outfit?.nude ? '本次人物采用全裸形态，视觉要素由自身皮肤、毛发和身体特征构成，裸体细节依据本人身份描写。'
                 : outfit?.name ? `本次穿着「${outfit.name}」，服装细节采用下方衣装设定。`
                 : '本次穿着采用下方角色资料中的衣装设定。',
             words ? `衣装补充描述：${words}` : '',
             outfit?.nsfwBoost && !outfit?.nude ? nsfwClothingBoostLine('character') : '',
-            BUILTIN_PROMPTS.expression.designRule,
+            P.expression.designRule,
+            ...performanceLines(scheme),
             requestNote ? `本次补充要求：\n${requestNote}` : '',
             spriteGroundLine(transparent),
             ...moods.map((mood, index) => `${index + 1}. ${mood}${moodPresetUse(mood) ? `；用于${moodPresetUse(mood)}` : ''}`),
@@ -175,9 +179,10 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
         clothesLine,
         clothes && clothes.nsfwBoost && !nude ? nsfwClothingBoostLine('character') : '',
         clothesPrompt && includeDna ? `服装提示词：\n${clothesPrompt}` : '',
-        BUILTIN_PROMPTS.expression.designRule,
-        SPRITE_HALF_BODY_RULE,
-        '朝向正面，直立，平视，不使用侧身或倾斜构图。',
+        P.expression.designRule,
+        P.halfBodyRule,
+        P.uprightLine,
+        ...performanceLines(scheme),
         String(note || '').trim() ? `这次额外的要求：\n${String(note).trim()}` : '',
         caption ? '上面那份立绘的表情和动作不要沿用，每份的表情、嘴型、眼神和手势都按各自的情绪重写。' : '',
         spriteGroundLine(transparent),
@@ -190,18 +195,17 @@ export function buildExpressionDiffDescription(name, prompt, labels, dna, outfit
     ].filter(Boolean).join('\n');
 }
 
-const UPRIGHT_POSITIVE = BUILTIN_PROMPTS.expression.positive;
-const UPRIGHT_NEGATIVE = BUILTIN_PROMPTS.expression.negative;
-const EXPRESSION_DROP_POSITIVE = new Set(splitTags(BUILTIN_PROMPTS.expression.dropPositive).map(tagKey));
 
 // 旧组合路径使用正常上半身。只拿掉双手下垂，避免表情动作被锁死。
-export function expressionSpritePrompts(positive, negative) {
-    const kept = splitTags(positive).filter((tag) => !EXPRESSION_DROP_POSITIVE.has(tagKey(tag))).join(', ');
+export function expressionSpritePrompts(positive, negative, scheme) {
+    const drop = new Set(splitTags(schemePrompts(scheme).expression.dropPositive).map(tagKey));
+    const kept = splitTags(positive).filter((tag) => !drop.has(tagKey(tag))).join(', ');
     return { positive: kept, negative: String(negative || '') };
 }
 
 // 旧组合路径使用腰胯以上和正面。负面排除全身和脚。
-export function uprightSpriteCaption(caption) {
+export function uprightSpriteCaption(caption, scheme) {
+    const { positive: UPRIGHT_POSITIVE, negative: UPRIGHT_NEGATIVE } = schemePrompts(scheme).expression;
     const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
     const neg = caption && caption.v4_negative_prompt && caption.v4_negative_prompt.caption;
     if (!pos || !neg) return caption;
@@ -253,10 +257,6 @@ function characterDnaLines(name, dna) {
     ].filter(Boolean);
 }
 
-const SPRITE_DAILY_POSE_LINE = BUILTIN_PROMPTS.sprite.poseRule;
-const SPRITE_FRAMING_DESCRIPTION = '常规立绘采用头顶至腰胯的半身取景：画面上边缘位于完整发顶上方，下边缘落在腰胯，左右留出少量余白，完整呈现头发、双肩和躯干，手势安排在取景范围内。半身构图标签使用 upper body，构图、动作和表情使用逗号分隔的英文绘图 TAG。本次明确指定 full_body 时使用 full body，指定 portrait 时使用 portrait，画面边界随指定景别设置。';
-const SPRITE_FACING_DESCRIPTION = '人物头部、双肩和躯干一起正对镜头，身体竖直，镜头与视线齐平。';
-const SPRITE_POSE_DESCRIPTION = SPRITE_DAILY_POSE_LINE;
 
 function spriteGroundLine(transparent) {
     return transparent === false ? '人物轮廓外为纯白色实底。' : '透明底，人物轮廓外为透明区域，人物作为独立图层完整保留。';
@@ -264,15 +264,16 @@ function spriteGroundLine(transparent) {
 
 // 设置页直接出一张角色立绘。没有正文，长相和衣服按角色设定写。
 export function buildCharacterSpriteDescription(name, dna, options) {
+    const P = schemePrompts(options?.scheme);
     const nude = Boolean(options && options.nude);
     const note = String(options && options.note || '').trim();
     if (options?.template) return [
         `为角色「${name || ''}」写一份默认立绘动态模板，slotid 为 1。`,
         OUTFIT_TEMPLATE_RULE,
-        SPRITE_HALF_BODY_RULE,
+        P.halfBodyRule,
         '固定身份只引用本次任务 token；仅缺景别时同次输出独立景别 DNA 候选，衣装不进入 DNA。',
         nude ? '当次不穿衣服；保留基础身份及标志性特征，不删改 DNA。' : '衣装按当次角色资料；未指定时按角色设定设计日常穿着。',
-        SPRITE_DAILY_POSE_LINE, note ? `本次额外要求：\n${note}` : '',
+        P.poseRule, ...performanceLines(options.scheme), note ? `本次额外要求：\n${note}` : '',
         '镜头、底色、质量、UC 和用户模板约束以本次 writingRequirements 为准，用英文绘图 TAG 写入对应字段。',
     ].filter(Boolean).join('\n');
     return [
@@ -280,9 +281,10 @@ export function buildCharacterSpriteDescription(name, dna, options) {
         nude
             ? '角色呈现全裸形态，人物视觉要素由自身皮肤、毛发和身体特征构成。按外貌设定描写身体及标志性特征，裸体细节直接依据本人身份撰写。'
             : '外貌与服装采用下方角色设定，缺省细节结合角色设定协调补齐。',
-        SPRITE_FRAMING_DESCRIPTION,
-        SPRITE_FACING_DESCRIPTION,
-        SPRITE_POSE_DESCRIPTION,
+        P.framing,
+        P.facing,
+        P.poseRule,
+        ...performanceLines(options?.scheme),
         note ? `这次额外的要求：\n${note}` : '',
         spriteGroundLine(options && options.transparent),
         ...(options?.includeDna !== false ? characterDnaLines(name, dna) : []),
@@ -336,16 +338,18 @@ export function buildWardrobeClothingDescription(_character, outfitName, { nsfwB
 
 // 本楼还缺的立绘一次写完。名单里只有尚未生成的，已有的不进来。
 export function buildDbgenSpriteBatchDescription(needs = [], options = {}) {
+    const P = schemePrompts(options.scheme);
     if (options.template) return [
         `按本次 slots 映射写 ${needs.length} 份独立立绘动态模板，slotid 从 1 到 ${needs.length}。`,
         OUTFIT_TEMPLATE_RULE,
-        SPRITE_HALF_BODY_RULE,
+        P.halfBodyRule,
         '每份从独立一行 slotid: 本图编号开始，写完全部 scene、char、char_uc 和 meta 字段再分隔下一图；--- 后下一非空行必须是新的 slotid，单图内部不分段。',
         ...needs.map((need, index) => `${index + 1}. ${need.name}${need.outfitName
             ? `；触发标签衣装原名：${need.outfitName}，名称逐字沿用，只补充服装描述，不采用楼末其他衣装。` : ''}`),
         '每份只画该 slot 指定的角色，固定身份使用自身 token。',
         '仅缺景别的角色同次输出独立景别 DNA 候选；已有景别逐字保留，服装独立。',
-        SPRITE_DAILY_POSE_LINE,
+        P.poseRule,
+        ...performanceLines(options.scheme),
         '按本次 writingRequirements 写明镜头、底色、质量、UC 和自定义模板内容。',
         '不重新选择生成点，不从正文摘挂载句。',
     ].join('\n');
@@ -364,8 +368,9 @@ export function buildDbgenSpriteBatchDescription(needs = [], options = {}) {
         list.join('\n'),
         profiles.length ? '角色外貌与服装依据正文补充；下面列了设定的角色，长相按设定写。' : '角色外貌与服装依据正文补充。',
         ...profiles,
-        SPRITE_FRAMING_DESCRIPTION,
-        SPRITE_POSE_DESCRIPTION,
+        P.framing,
+        P.poseRule,
+        ...performanceLines(options.scheme),
         spriteGroundLine(options.transparent),
         '按上述清单逐份输出立绘提示词。',
     ].join('\n');
@@ -387,14 +392,16 @@ export function buildDbgenBackgroundBatchDescription(needs = []) {
 }
 
 export function buildDbgenAssetDescription(need = {}, options = {}) {
+    const P = schemePrompts(options.scheme);
     const when = [need.time, need.weather].filter(Boolean).join('、');
     if (need.type === 'sprite') {
         return [
             `画角色「${need.name || ''}」的立绘。`,
             `角色外貌与服装依据正文补充。${spriteGroundLine(options.transparent)}`,
             ...(need.outfitName ? [`本次穿着触发标签指定的「${need.outfitName}」，细节采用该套服装说明。`] : []),
-            SPRITE_FRAMING_DESCRIPTION,
-            SPRITE_POSE_DESCRIPTION,
+            P.framing,
+            P.poseRule,
+            ...performanceLines(options.scheme),
             ...(options.includeDna !== false ? characterDnaLines(need.name, need.dna) : []),
         ].join('\n');
     }

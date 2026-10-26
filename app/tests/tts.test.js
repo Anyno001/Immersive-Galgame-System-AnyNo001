@@ -98,6 +98,7 @@ test('gate: settings keep tts and voice barks mutually exclusive, and save a per
         controller.setValue('readerSettings.tts.api.voices', 'alex, anna');
         controller.setValue('bridge.sceneAssets.characters', { 雷恩: { 默认: '' } });
         await controller.invoke(`scene-toggle-dna:${encodeURIComponent('雷恩')}`);
+        await controller.invoke(`ui-pick-open:${encodeURIComponent('char-setup:雷恩=voice')}`);
         const name = encodeURIComponent('雷恩');
         await controller.invoke(`char-voice:tts:${name}:alex`);
         assert.deepEqual(controller.getSnapshot().draft.bridge.sceneAssets.characterVoices, { 雷恩: { pack: '', pitch: 0, speed: 1, tts: 'alex' } });
@@ -279,7 +280,7 @@ test('gate: tts builds the request for every api format', () => {
     assert.equal(fish.url, '/proxy/https://api.fish.audio/v1/tts');
     assert.equal(fish.headers.model, 's1');
     assert.equal(fish.headers.Authorization, 'Bearer fk');
-    assert.deepEqual(asJson(fish), { text: '你好', reference_id: 'ref123', format: 'mp3', latency: 'balanced' });
+    assert.deepEqual(asJson(fish), { text: '你好', reference_id: 'ref123', format: 'mp3', latency: 'balanced', mp3_bitrate: 192 });
 
     const mm = buildTtsRequest(apiOf({ format: 'minimax', apiKey: 'mk' }), { text: '你好', voice: 'male-qn', rate: 1.3 });
     assert.equal(mm.url, 'https://api.minimaxi.com/v1/t2a_v2');
@@ -1479,6 +1480,26 @@ test('cleanupSamples 压低比语音低 40 dB 的底噪，语音段不变且交�
     assert.ok(step < 0.01, `gain step ${step}`);
 });
 
+test('去爆破：低频冲击被压低，男声基频+共振峰的正常语音不动', async () => {
+    const { deplosiveSamples } = await import('../src/visual/igs-ui/tts.js');
+    const voice = Float32Array.from({ length: SR }, (_, i) => {
+        const t = i / SR;
+        return 0.12 * Math.sin(2 * Math.PI * 110 * t) + 0.25 * Math.sin(2 * Math.PI * 550 * t) + 0.15 * Math.sin(2 * Math.PI * 1300 * t);
+    });
+    const kept = deplosiveSamples(voice, SR);
+    let diff = 0;
+    for (let i = 0; i < SR; i += 1) diff = Math.max(diff, Math.abs(kept[i] - voice[i]));
+    assert.ok(diff < 1e-6, `voice untouched, max diff ${diff}`);
+    const pop = new Float32Array(SR / 2);
+    const start = SR / 10;
+    const span = Math.round(SR * 0.04);
+    for (let i = 0; i < pop.length; i += 1) pop[i] = 0.05 * Math.sin(2 * Math.PI * 1000 * i / SR);
+    for (let i = 0; i < span; i += 1) pop[start + i] += 0.8 * Math.sin(Math.PI * i / span) * Math.sin(2 * Math.PI * 60 * i / SR);
+    const out = deplosiveSamples(pop, SR);
+    assert.ok(dbOf(rmsOf(pop, start, start + span), rmsOf(out, start, start + span)) >= 6, 'plosive burst reduced');
+    assert.ok(Math.abs(dbOf(rmsOf(out, SR / 3), rmsOf(pop, SR / 3))) < 0.5, 'speech after the burst unchanged');
+});
+
 test('cleanupSamples 全是静音时原样返回', async () => {
     const { cleanupSamples } = await import('../src/visual/igs-ui/tts.js');
     const out = cleanupSamples(new Float32Array(2000), SR);
@@ -1617,6 +1638,11 @@ test('tts: system prosody scales with strength, whisper stacks on the mood, mini
     assert.ok(Math.abs(plan({ mood: '愤怒', whisper: true }).rate - mid * 0.92) < 1e-9, 'whisper multiplies the mood rate');
     assert.equal(plan({ mood: '紧张' }).rate > 1, true);
     assert.equal(plan({ mood: '怀疑' }).rate < 1, true);
+    assert.ok(plan({ mood: '哭泣', text: '呜呜呜走开', whisper: true }).rate >= 0.92, 'system mood slowdown stays mild');
+    const fish = { enabled: true, provider: 'api', api: { format: 'fish', female: 'f' } };
+    for (const line of [{ mood: '哭泣', text: '呜呜呜走开', whisper: true }, { mood: '悲伤' }, { mood: '愤怒' }]) {
+        assert.equal(decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '走开。', ...line }, fish, { sceneAssets: {} }).rate, 1, 'api voices never time-stretch for mood');
+    }
     const mm = { enabled: true, provider: 'api', api: { format: 'minimax', female: 'f' } };
     for (const mood of ['害羞', '爱恋', '动情']) assert.equal(decideTts({}, { key: mood, textType: 'dialogue', speaker: '甲', text: '你好。', mood }, mm, { sceneAssets: {} }).emotion, 'calm');
     assert.equal(decideTts({}, { key: 'x', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '紧张' }, mm, { sceneAssets: {} }).emotion, 'fearful');

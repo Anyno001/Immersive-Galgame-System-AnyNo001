@@ -133,25 +133,25 @@ function buildPerformanceBodies(src, extras, isOpen) {
         more,
         fx,
         bodies: {
-            text: [host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.waitStage, stage.clickWaitMark, stage.textFx, stage.bilingual, host('sentence-paging', extras.sentencePaging), host('dialogue-sentence-paging', extras.dialogueSentencePaging)],
-            stage: [
+            get text() { return [host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.waitStage, stage.clickWaitMark, stage.textFx, stage.bilingual, host('sentence-paging', extras.sentencePaging), host('dialogue-sentence-paging', extras.dialogueSentencePaging)]; },
+            get stage() { return [
                 section('镜头与环境', [stage.transition, stage.cgEntrance, stage.tint, stage.camera, host('weather', extras.weatherFx, '雨雪雾粒子'), fx.crowd, host('stage-shake', extras.stageShake, '冲击时晃屏'), renderPackFields(src, more, { ids: ['camera'] }), renderPackFields(src, more, { ids: ['places'] }), host('cinema-bars', extras.cinemaBars, '只盖背景，CG时收起'), fx.comic, renderPanelSkinField(src, more)]),
                 section('立绘', [stage.motion, stage.actions, stage.turn, stage.cast, renderPackFields(src, more, { ids: ['transform'] }), fx.innerDemon, host('narration-filter', extras.narrationFilter)]),
-            ],
-            story: [
+            ]; },
+            get story() { return [
                 section('情绪', [fx.manga, fx.mangaBack, fx.heartbeat]),
                 section('剧情提示', [fx.title, fx.favor, fx.itemFx, fx.resultFx]),
                 section('事件演出', [fx.tags, fx.clash, fx.dlc, renderPackFields(src, more, { ids: ['beats'] })].filter(Boolean)),
-            ],
-            special: [
+            ]; },
+            get special() { return [
                 section('日常与冒险', [stage.daily, fx.battleFx, fx.battleCreature, fx.flash]),
                 section('题材包', [packSection(renderPackFields(src, more))]),
                 section('Meta互动', [renderMetaFxFields(src, more)]),
                 section('线上与直播', [renderMyPhoneFields(src, more), host('chat-show', extras.chatShow, '聊天页演出'), danmaku.live, renderFeedFields(src, more), danmaku.audience, danmaku.inner, fx.notifyCenter]),
                 section('亲密', [renderRomanceFxFields(src, more), renderPackFields(src, more, { ids: ['nsfw'] }), host('nsfw-sprite', extras.nsfwSprite), host('nsfw-veil', extras.nsfwVeil), host('nsfw-cg-portrait', extras.nsfwCgPortrait)]),
-            ],
-            sound: [stage.master, fx.sound, host('tts', extras.tts, '朗读台词与旁白'), host('voice-bark', extras.voiceBark, '台词开头的语气声'), stage.ambient, renderPackSoundField(src, more), stage.ui, stage.bgm],
-            rhythm: [section('节奏', [fx.style, host('cg-hold', extras.cgHold)])],
+            ]; },
+            get sound() { return [stage.master, fx.sound, host('tts', extras.tts, '朗读台词与旁白'), host('voice-bark', extras.voiceBark, '台词开头的语气声'), stage.ambient, renderPackSoundField(src, more), stage.ui, stage.bgm]; },
+            get rhythm() { return [section('节奏', [fx.style, host('cg-hold', extras.cgHold)])]; },
         },
     };
 }

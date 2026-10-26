@@ -6,7 +6,7 @@ import { floorHasEventCg } from '../../scene/event-cg.js';
 import { numberParagraphs, formatNumberedParagraphs, insertMarkers, insertMarkersAtAnchors, findAnchorInsertIndex, appendedTail, reattachTail, transplantMarkers } from './marker-placer.js';
 import { normalizeImageMarkerLayout } from '../../scene/image-marker-layout.js';
 import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
-import { buildPlannerUserPrompt, formatTodayOutfitBlock, CG_TEMPLATE_PLANNER_SYSTEM, PLANNER_SYSTEM_PROMPT, cgWritingRequirements } from './planner-prompt.js';
+import { buildPlannerUserPrompt, formatTodayOutfitBlock, CG_TEMPLATE_PLANNER_SYSTEM, PLANNER_SYSTEM_PROMPT, PLANNER_SOFT_SYSTEM_PROMPT, cgWritingRequirements } from './planner-prompt.js';
 import { summarizeFloorOutfits } from './floor-outfit-reference.js';
 
 import { writeTemplateCaptionsWithLlm } from './caption-writer.js';
@@ -823,13 +823,8 @@ export function createAutoIllustrationService(deps) {
                     characterContextForEntry: entry => characterState.at(offsetForEntry(entry)),
                     outputs: { selection: 'numbered-text', maxSlots: decision.want, exact: decision.exact,
                         paragraphCount: numbered.paragraphs.length },
-                    ...(typeof llm?.prepareImagePrompt === 'function' && s.llm.prompts.illustration !== PLANNER_SYSTEM_PROMPT
-                        && { userPrompts: { writing: s.llm.prompts.illustration } }),
                     description: `${user}\n本次允许 slotid 为 1 到 ${decision.want}；不得改用其他编号。`,
-                    systemPrompt: [CG_TEMPLATE_PLANNER_SYSTEM,
-                        s.llm.prompts.illustration !== PLANNER_SYSTEM_PROMPT
-                            ? `用户写词要求（输出协议仍遵守上述动态模板字段）：\n${s.llm.prompts.illustration}` : '',
-                    ].filter(Boolean).join('\n'),
+                    systemPrompt: CG_TEMPLATE_PLANNER_SYSTEM,
                     writingRequirements: cgWritingRequirements(s, cgSize(s), decision.kind),
                 });
                 plan = written;
@@ -857,12 +852,10 @@ export function createAutoIllustrationService(deps) {
                 }
             } else plan = await requestWithSoftRetry(llm, {
                 signal: s.taskSignal || recoveryController.signal, shouldStart: () => targetStillLive(floor),
-                system: s.llm.prompts.illustration,
-                softSystem: numbered.isNsfw ? s.llm.prompts.illustrationSoft : '',
+                system: PLANNER_SYSTEM_PROMPT,
+                softSystem: numbered.isNsfw ? PLANNER_SOFT_SYSTEM_PROMPT : '',
                 user,
                 imagePrompt: { task: 'cg', input: { description: user,
-                    ...(s.llm.prompts.illustration !== PLANNER_SYSTEM_PROMPT
-                        && { userPrompts: { writing: s.llm.prompts.illustration } }),
                     outputs: { format: 'cg-plan', maxSlots: decision.want, exact: decision.exact,
                         paragraphCount: numbered.paragraphs.length } } },
                 parse: (reply) => parseIllustrationPlan(reply, { maxSlots: decision.want, paragraphCount: numbered.paragraphs.length }),

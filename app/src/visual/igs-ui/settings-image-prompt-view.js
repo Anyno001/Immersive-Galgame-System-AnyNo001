@@ -1,114 +1,214 @@
-import { IMAGE_PROMPT_TASKS, PROMPT_DATA_FIELDS } from '../../presets/prompt-preset.js';
+import { IMAGE_PROMPT_FORMATS, IMAGE_PROMPT_TASKS, PROMPT_DATA_FIELDS } from '../../presets/prompt-preset.js';
+import { previewFormats } from './settings-image-prompt-editor.js';
+import { collapsible, perfItem } from './fx-settings-fields.js';
+import { menuItem } from './settings-outfit-fields.js';
+import { field as settingsField, segmentedInput } from './settings-fields.js';
+import { blockTitle, dataFieldLabel, describeFailure, describeIssues, formatLabel, imagePromptStatusClass, imagePromptStatusText,
+    moduleTitle, roleLabel, ROLE_LABELS, SLOT_LABELS, taskLabel } from './settings-image-prompt-labels.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-const action = (verb, label, args = [], disabled = false) => `<button type="button" class="igs-settings-action" data-action="image-prompt:${verb}${args.map(v => ':' + encodeURIComponent(v)).join('')}"${disabled ? ' disabled' : ''}>${esc(label)}</button>`;
-const MORE_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
-// 次要操作收进 ⋯：与「角色」「情绪」页的行菜单同一套样式与关闭逻辑。
-const menuItem = (verb, label, args = [], disabled = false) => `<button type="button" class="igs-add-menu-item" role="menuitem" data-action="image-prompt:${verb}${args.map(v => ':' + encodeURIComponent(v)).join('')}"${disabled ? ' disabled' : ''}>${esc(label)}</button>`;
-const moreMenu = items => `<details class="igs-add-menu igs-row-menu"><summary class="igs-btn-mgr-icon" title="更多操作" aria-label="更多操作">${MORE_SVG}</summary><div class="igs-add-menu-list" role="menu">${items.join('')}</div></details>`;
+const act = (verb, args = []) => `image-prompt:${verb}${args.map(v => ':' + encodeURIComponent(v)).join('')}`;
+const button = (verb, label, args = [], { disabled = false, danger = false } = {}) => `<button type="button" class="igs-settings-action igs-settings-inline-action${danger ? ' is-danger' : ''}" data-action="${act(verb, args)}"${disabled ? ' disabled' : ''}>${esc(label)}</button>`;
 const note = text => `<div class="igs-source-filter-note">${esc(text)}</div>`;
 const choices = (items, value) => items.map(item => {
     const [id, label] = Array.isArray(item) ? item : [item, item];
     return `<option value="${esc(id)}"${id === value ? ' selected' : ''}>${esc(label)}</option>`;
 }).join('');
+const isObject = value => value && typeof value === 'object' && !Array.isArray(value);
+const addr = (group, id, key) => JSON.stringify([group, id, key]);
+const setAction = (address, on) => act('set', [address, on ? '1' : '0']);
 
+// 文本框开头补一个换行：HTML 解析会吞掉 textarea 的第一个换行，不补会让以换行开头的正文被改写。
+const textareaHtml = (attrs, value, rows) => `<textarea class="igs-image-prompt-text" ${attrs} rows="${rows}">\n${esc(value)}</textarea>`;
 function field(state, group, id, key, label, value, type = 'text', items = []) {
-    const address = JSON.stringify([group, id, key]);
+    const address = addr(group, id, key);
     if (Object.hasOwn(state.rawFields, address)) value = state.rawFields[address];
     const attrs = `data-image-prompt-field="${esc(address)}" aria-label="${esc(label)}"`;
     const input = type === 'select' ? `<select ${attrs}>${choices(items, value)}</select>`
-        : type === 'boolean' ? `<input type="checkbox" ${attrs}${value !== false ? ' checked' : ''}>`
-            : type === 'textarea' || type === 'json' ? `<textarea ${attrs} rows="${type === 'json' ? 3 : 8}">${esc(type === 'json' && typeof value !== 'string' ? JSON.stringify(value, null, 2) : value)}</textarea>`
-                : `<input ${attrs} type="${type}" value="${esc(value)}">`;
+        : type === 'textarea' ? textareaHtml(attrs, value, 6)
+            : type === 'textarea-small' ? textareaHtml(attrs, value, 4)
+                : `<input ${attrs} type="text" value="${esc(value)}">`;
     return `<label class="igs-settings-field"><span>${esc(label)}</span>${input}</label>`
-        + (state.errors[address] ? note(`${label}：${state.errors[address].reason}`) : '');
+        + (state.errors[address] ? note(`${label}：${describeFailure(state.errors[address])}`) : '');
 }
-const roles = ['system', 'user', 'assistant'];
-const kinds = [['shared', '共享框架'], ['task-slot', '任务槽'], ['data-slot', '资料槽']];
+// 开关沿用设置器的 igs-switch；点击走动作并立即自动保存。
+const switchHtml = (address, on, label) => `<button type="button" class="igs-switch${on ? ' is-on' : ''}" data-action="${setAction(address, !on)}" aria-pressed="${on ? 'true' : 'false'}"><i></i><span>${esc(label)}</span></button>`;
+const pill = (address, on, label) => `<button type="button" class="igs-table-pick${on ? ' is-on' : ''}" data-action="${setAction(address, !on)}" aria-pressed="${on ? 'true' : 'false'}"><i></i><span>${esc(label)}</span></button>`;
+const group = (key, open, title, count, body) => `<div class="igs-source-filter igs-perf-group"><details data-advanced="${esc(key)}"${open ? ' open' : ''}><summary><b>${esc(title)}</b>${count === '' ? '' : `<span class="igs-perf-count">${esc(count)}</span>`}</summary><div class="igs-perf-group-body">${open ? body() : ''}</div></details></div>`;
+
+// 分场合附加规则：每个场合一个独立文本框，「添加场合规则」只列尚未存在的场合。
+function occasionRules(state, kind, block, ui, allowAdd = true) {
+    const rules = isObject(block.contentByFormat) ? block.contentByFormat : {};
+    const pending = IMAGE_PROMPT_FORMATS.filter(fmt => !Object.hasOwn(rules, fmt) && state.pendingFormats?.[`${kind}|${block.identifier}|${fmt}`]);
+    let html = '';
+    // 每个场合一行折叠：场合名 + 正文首句 + ›，点开才渲染文本框与删除操作。
+    for (const fmt of [...Object.keys(rules), ...pending]) {
+        const key = `ip-occrow-${kind}-${block.identifier}-${fmt}`, label = formatLabel(fmt, Object.keys(rules));
+        const body = () => field(state, kind, block.identifier, 'format:' + fmt, label, rules[fmt] ?? '', 'textarea-small')
+            + `<div class="igs-image-prompt-actions">${button('format-remove', '删除此场合规则', [kind, block.identifier, fmt], { danger: true })}</div>`;
+        html += perfItem(ui.more, key, `<span class="igs-image-prompt-row-name">${esc(label)}</span>`,
+            { detail: ui.isOpen(key) ? body() : '-' });
+    }
+    const free = IMAGE_PROMPT_FORMATS.filter(fmt => !Object.hasOwn(rules, fmt) && !pending.includes(fmt));
+    if (allowAdd && free.length) html += `<label class="igs-settings-field"><span>添加场合规则</span><select data-image-prompt-format-add="${esc(kind + '|' + block.identifier)}" aria-label="添加场合规则"><option value="">请选择场合</option>${choices(free.map(fmt => [fmt, formatLabel(fmt)]), '')}</select></label>`;
+    return ui.collapsible(`ip-occ-${block.identifier}`, `分场合附加规则（${Object.keys(rules).length}）`, html);
+}
+const restorable = (state, kind, id) => Boolean(state.preset.data.defaultState?.baseline?.[kind]?.some?.(block => block.identifier === id));
+
+function rangeTable(module) {
+    const allowed = module.dataFields || [], required = module.requiredFields || [], id = module.identifier;
+    let html = '<div class="igs-perf-item-subhead">资料范围</div>';
+    for (const name of PROMPT_DATA_FIELDS) {
+        html += `<div class="igs-image-prompt-range-row"><span>${esc(dataFieldLabel(name))}</span>`
+            + pill(addr('modules', id, 'allow:' + name), allowed.includes(name), '允许')
+            + pill(addr('modules', id, 'require:' + name), required.includes(name), '必填') + '</div>';
+    }
+    return html;
+}
+
+function versionBody(state, data, module, modules, used, ui) {
+    const id = module.identifier, multi = modules.length > 1;
+    let html = '';
+    if (multi) html += `<div class="igs-perf-item-subhead">${esc(moduleTitle(data, module))}${module === used ? '（使用中）' : ''}</div>`;
+    html += field(state, 'modules', id, 'content', '主规则', module.content, 'textarea');
+    if (restorable(state, 'modules', id)) html += `<div class="igs-image-prompt-actions">${button('restore', '恢复默认', ['modules', id, 'baseline'])}</div>`;
+    html += occasionRules(state, 'modules', module, ui);
+    let adv = rangeTable(module) + `<div class="igs-image-prompt-actions">${button('module-copy', '复制为新版本', [id])}`
+        + (multi && module !== used ? button('block-delete', '删除此版本', ['modules', id], { danger: true }) : '') + '</div>';
+    html += ui.collapsible(`ip-adv-${id}`, '高级', adv);
+    return html;
+}
+
+function taskRow(state, data, task, ui) {
+    const modules = (data.modules || []).filter(module => module.task === task);
+    const key = `ip-task-${task}`, open = ui.isOpen(key);
+    if (!modules.length) return perfItem(ui.more, key, `<span class="igs-image-prompt-row-name">${esc(taskLabel(task))}</span>`, { hint: '暂无规则' });
+    const used = modules.find(module => module.identifier === data.taskMap?.[task]) || modules[0];
+    const body = () => {
+        let html = modules.map(module => versionBody(state, data, module, modules, used, ui)).join('');
+        if (modules.length > 1) html += ui.collapsible(`ip-version-${task}`, '高级',
+            field(state, 'taskMap', '', task, '使用哪一版', data.taskMap?.[task] || '', 'select',
+                [['', '未选择'], ...modules.map((module, i) => [module.identifier, `版本${i + 1}`])]));
+        return html;
+    };
+    return perfItem(ui.more, key, `<span class="igs-image-prompt-row-name">${esc(taskLabel(task))}</span>`,
+        { detail: open ? body() : '-' });
+}
+
+function ruleRow(state, data, block, sent, ui) {
+    const id = block.identifier, key = `ip-rule-${id}`, open = ui.isOpen(key);
+    const body = () => {
+        let html = field(state, 'prompts', id, 'content', '正文', block.content, 'textarea');
+        if (restorable(state, 'prompts', id)) html += `<div class="igs-image-prompt-actions">${button('restore', '恢复默认', ['prompts', id, 'baseline'])}</div>`;
+        if (isObject(block.contentByFormat) || Object.keys(state.pendingFormats || {}).some(k => k.startsWith(`prompts|${id}|`)))
+            html += occasionRules(state, 'prompts', block, ui, true);
+        html += ui.collapsible(`ip-adv-prompts-${id}`, '高级',
+            field(state, 'prompts', id, 'name', '段名', block.name || blockTitle(data, block))
+            + field(state, 'prompts', id, 'role', '发送身份', block.role, 'select', Object.entries(ROLE_LABELS))
+            + `<div class="igs-image-prompt-actions">${button('block-delete', '删除此段', ['prompts', id], { danger: true })}</div>`);
+        return html;
+    };
+    return perfItem(ui.more, key, `<span class="igs-image-prompt-row-name">${esc(blockTitle(data, block))}</span>`,
+        { hint: sent ? '' : '未发送', detail: open ? body() : '-' });
+}
+
+// 发送顺序与段落管理：普通段落带启用开关与上移/下移，两个插入位置标记只有上移/下移；新增、未发送段的加入也在这里。
+function orderManager(state, data, ordered, unordered, ui) {
+    const moves = (id, index) => `<span class="igs-image-prompt-order-btns">${button('move', '上移', [id, ordered[index - 1]?.block.identifier || ''], { disabled: index <= 0 })}${button('move', '下移', [id, ordered[index + 1]?.block.identifier || ''], { disabled: index === ordered.length - 1 })}</span>`;
+    let html = '';
+    html += ordered.map(({ block, entry }, index) => {
+        const on = block.enabled !== false && entry.enabled !== false;
+        // 插入位置标记固定存在：只能调整顺序，不渲染启用开关。
+        const slot = Object.hasOwn(SLOT_LABELS, block.kind);
+        const lead = slot ? `<span class="igs-image-prompt-row-name">${esc(SLOT_LABELS[block.kind])}</span>`
+            : switchHtml(addr('prompts', block.identifier, 'enabledCombined'), on, blockTitle(data, block));
+        return `<div class="igs-perf-item"><div class="igs-perf-item-head">${lead}${moves(block.identifier, index)}</div></div>`;
+    }).join('');
+    html += `<div class="igs-image-prompt-actions">${button('add', '新增一段通用规则', ['prompts'])}</div>`;
+    if (unordered.length) {
+        html += '<div class="igs-perf-item-subhead">未发送</div>';
+        html += unordered.map(block => `<div class="igs-perf-item"><div class="igs-perf-item-head"><span class="igs-image-prompt-row-name">${esc(blockTitle(data, block))}</span>${button('include', '加入发送', [block.identifier])}</div></div>`).join('');
+    }
+    return ui.collapsible('ip-order', '发送顺序与段落管理', html);
+}
+
+function previewBody(state, data) {
+    const formats = previewFormats(data, state.previewTask);
+    let body = `<label class="igs-settings-field"><span>任务</span><select data-image-prompt-preview-task aria-label="任务">${choices(IMAGE_PROMPT_TASKS.map(task => [task, taskLabel(task)]), state.previewTask)}</select></label>`;
+    body += `<label class="igs-settings-field"><span>场合</span><select data-image-prompt-preview-format aria-label="场合">${choices(formats.map(fmt => [fmt, formatLabel(fmt)]), state.previewFormat)}</select></label>`;
+    body += `<div class="igs-image-prompt-actions">${button('preview', '生成预览')}</div>`;
+    const result = state.preview;
+    if (!result) return body;
+    if (!result.ok) {
+        const issues = describeIssues(result.errors, data);
+        return body + `<div class="igs-settings-result is-error">${esc(describeFailure({ reason: result.reason }))}${issues.length ? '：' + esc(issues.join('；')) : ''}</div>`;
+    }
+    const kinds = new Map((data.prompts || []).map(block => [block.identifier, block.kind]));
+    body += '<div class="igs-image-prompt-result">';
+    for (const block of result.blocks) {
+        const head = `【${roleLabel(block.role)}】`;
+        body += kinds.get(block.identifier) === 'data-slot'
+            ? `<details class="igs-image-prompt-msg"><summary>${esc(head)}本轮资料</summary><div class="igs-settings-preview">${esc(block.content)}</div></details>`
+            : `<div class="igs-image-prompt-msg"><div class="igs-image-prompt-msg-role">${esc(head)}</div><div class="igs-settings-preview">${esc(block.content)}</div></div>`;
+    }
+    return body + '</div>';
+}
+
+function renderImport(state) {
+    const preview = state.importPreview;
+    let html = '<div class="igs-source-filter-title">导入预览</div>';
+    for (const entry of preview.accepted || []) {
+        const name = entry.manifest?.name || '未命名提示词组';
+        html += note(`${name} · ${entry.activatable ? '可使用' : '内容未填完整，仅保存为草稿'}${entry.conflict ? ' · 与现有提示词组冲突' : ''}`);
+        const issues = describeIssues(entry.issues, entry.manifest?.data);
+        if (issues.length) html += note(issues.join('；'));
+        if (entry.conflict) html += `<label class="igs-settings-field"><span>「${esc(name)}」冲突处理</span><select data-image-prompt-import-choice="${esc(entry.id)}">${choices([['skip', '跳过'], ['replace', '覆盖已有版本']], state.importChoices[entry.id] || 'skip')}</select></label>`;
+    }
+    for (const entry of [...(preview.rejected || []), ...(preview.skipped || [])])
+        html += note(`${entry.id ? '提示词组 ' : ''}${describeFailure(entry)}`);
+    if (!preview.ok) html += note(preview.reason ? describeFailure(preview) : '导入校验失败');
+    return html + `<div class="igs-image-prompt-actions">${button('import-commit', '确认导入', [], { disabled: !preview.ok })}</div>`;
+}
 
 export function renderImagePromptPanel(editor, advancedOpen = {}) {
     const view = editor?.view();
-    if (!view?.ok) return `<div class="igs-source-filter" data-image-prompt-panel>${note('写词预设读取不可用，未初始化或重置存量数据。')}${action('reload', '重新读取')}</div>`;
-    const { state, items, current, saved, activation } = view;
-    let html = `<div class="igs-source-filter igs-settings-full" data-image-prompt-panel><div class="igs-source-filter-title">生图提示词组</div>`;
-    html += note(`当前生效：${current?.name || '未选择'}`);
-    // 编辑器是少数人用的进阶功能：整块收进一层折叠，首屏只露当前生效的预设。
-    html += `<details class="igs-settings-sub igs-settings-advanced" data-advanced="image-prompt-editor"${advancedOpen['image-prompt-editor'] === true ? ' open' : ''}><summary>编辑提示词组</summary>`;
+    if (!view?.ok) return `<div class="igs-source-filter" data-image-prompt-panel>${note('写词预设读取不可用，未初始化或重置存量数据。')}<div class="igs-image-prompt-actions">${button('reload', '重新读取')}</div></div>`;
+    const { state, items, currentId } = view;
+    const isOpen = key => advancedOpen['perf-' + key] === true;
+    const ui = { more: { isOpen }, isOpen, collapsible: (key, label, body) => collapsible(key, label, body, isOpen(key)) };
+    const label = item => `${item.name || '未命名提示词组'}${item.id === currentId ? '（使用中）' : ''}${item.draftOnly ? ' · 仅草稿' : ''}`;
+    if (state.preset && state.draftRevision !== null && !state.save) {
+        const checked = view.activation;
+        if (checked && !checked.ok) state.save = { kind: 'draft', messages: describeIssues(checked.errors, state.preset.data) };
+    }
+    const own = Boolean(state.preset);
+    let head = '<div class="igs-source-filter"><div class="igs-source-filter-title">生图提示词组</div>';
+    // 下拉一选中即设为使用中；复制与导入/导出/删除收在「更多」里。
+    head += `<label class="igs-settings-field"><span>提示词组</span><select data-image-prompt-select aria-label="提示词组">${own ? '' : '<option value="">请选择</option>'}${choices(items.map(p => [p.id, label(p)]), state.preset?.id)}</select></label>`;
+    head += `<div class="igs-image-prompt-actions igs-image-prompt-preset-actions">${button('new', '新建')}${button('rename', '重命名', [], { disabled: !own })}${button('reset', '恢复默认', [], { disabled: !own })}`
+        + `<details class="igs-add-menu igs-image-prompt-more"><summary class="igs-settings-action igs-settings-inline-action" aria-label="更多">更多 ▾</summary><div class="igs-add-menu-list" role="menu">`
+        + [menuItem(act('copy'), '复制'), menuItem(act('import'), '导入文件'), menuItem(act('import-text'), '从剪贴板导入'),
+            menuItem(act('export'), '导出文件'), menuItem(act('delete'), '删除', ' is-danger')].join('') + '</div></details></div>';
+    // 演绎档位只在灵动方案下出现；现实在前，缺省按现实。
+    if (state.preset?.data.spriteScheme === 'lively')
+        head += settingsField('', '演绎', segmentedInput('', state.preset.data.performance === 'expressive' ? 'expressive' : 'subtle',
+            [['subtle', '现实'], ['expressive', '夸张']], '演绎', { action: act('performance') }));
+    head += `<div class="igs-settings-result${imagePromptStatusClass(state) ? ' ' + imagePromptStatusClass(state) : ''}" data-image-prompt-status role="status">${esc(imagePromptStatusText(state))}</div>`;
+    if (state.importPreview) head += renderImport(state);
+    head += '</div>';
+    if (!own) return `<div class="igs-settings-full igs-image-prompt-stack" data-image-prompt-panel>${head}</div>`;
 
-    html += `<label class="igs-settings-field"><span>编辑预设</span><select data-image-prompt-select aria-label="编辑预设"><option value="">请选择</option>${choices(items.map(p => [p.id, `${p.name || p.id}${p.draftOnly ? ' · 仅草稿' : ''}`]), state.preset?.id)}</select></label>`;
-    html += `<div class="igs-image-prompt-actions">${action('new', '新建')}${moreMenu([menuItem('copy', '复制', [], !state.preset), menuItem('import', '导入JSON'), menuItem('import-text', '粘贴JSON'), menuItem('export', '导出保存版本', [], !saved), menuItem('reload', '重新读取')])}</div>`;
-    html += `<div data-image-prompt-status role="status">${esc(state.status)}</div>`;
-    if (state.preset) {
-        const p = state.preset, data = p.data;
-        html += note(`编辑：${p.id} · 保存版本：${saved ? 'r' + saved.data.revision : '尚未保存'} · 草稿：${state.draftRevision === null ? '未存档' : 'd' + state.draftRevision}${state.dirty ? ' · 有未存档修改' : ''} · 来源版本：${state.baseRevision ?? '新建'}`);
-        html += field(state, 'preset', '', 'name', '名称', p.name);
-        html += `<div class="igs-image-prompt-actions">${action('save', '保存版本')}${action('activate', '启用', [], state.dirty || state.draftRevision !== null || !saved)}${moreMenu([menuItem('draft', '存档草稿'), menuItem('discard', '放弃草稿'), menuItem('delete', '删除预设')])}</div>`;
-        if (!activation?.ok) html += note('尚不可激活：' + (activation?.errors || []).map(e => `${e.field}：${e.reason}`).join('；'));
-        const ordered = (data.prompt_order || []).map(entry => ({ entry, block: data.prompts.find(b => b.identifier === entry.identifier) })).filter(row => row.block);
-        const unordered = data.prompts.filter(b => !ordered.some(row => row.block.identifier === b.identifier));
-        html += `<div class="igs-source-filter-title">共享框架与中间槽</div>${action('add', '新增提示块', ['prompts'])}`;
-        html += ordered.map(({ block, entry }, index) => renderBlock(state, 'prompts', block, advancedOpen, entry, ordered, index)).join('');
-        html += unordered.map(block => renderBlock(state, 'prompts', block, advancedOpen)).join('');
-        html += `<div class="igs-source-filter-title">任务模块</div>${action('add', '新增任务模块', ['modules'])}`;
-        html += (data.modules || []).map(block => renderBlock(state, 'modules', block, advancedOpen)).join('');
-
-        html += `<div class="igs-source-filter-title">显式任务映射</div>`;
-        for (const task of IMAGE_PROMPT_TASKS) html += field(state, 'taskMap', '', task, task,
-            data.taskMap?.[task] || '', 'select', [['', '未映射'], ...(data.modules || []).map(m => [m.identifier, `${m.identifier} · ${m.task}`])]);
-        html += note(`可用资料字段：${PROMPT_DATA_FIELDS.join('、')}`);
-        html += field(state, 'data', '', 'variables', '声明变量（JSON 数组）', data.variables || [], 'json');
-        html += field(state, 'data', '', 'literalVariables', '保留字面变量（JSON 数组）', data.literalVariables || [], 'json');
-        html += `<label class="igs-settings-field"><span>本地预览任务</span><select data-image-prompt-preview-task>${choices(IMAGE_PROMPT_TASKS, state.previewTask)}</select></label>`;
-        html += `<label class="igs-settings-field"><span>本地预览资料（JSON，不联网）</span><textarea data-image-prompt-preview-input rows="6">${esc(state.previewInput)}</textarea></label>${action('preview', '装配预览')}`;
-        if (state.preview) html += `<pre class="igs-settings-result" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(state.preview.ok ? state.preview.request.messages : state.preview, null, 2))}</pre>`;
-    }
-    if (state.importPreview) {
-        const preview = state.importPreview;
-        html += `<div class="igs-source-filter-title">导入预览</div>`;
-        html += note('导入不会自动启用；同ID默认跳过。');
-        for (const entry of preview.accepted || []) {
-            html += note(`${entry.id} · ${entry.activatable ? '可激活' : '仅存档'}${entry.conflict ? ' · 同 ID 冲突' : ''}`);
-            html += note((entry.issues || []).map(e => `${e.field}：${e.reason}`).join('；'));
-            if (entry.conflict) html += `<label class="igs-settings-field"><span>${esc(entry.id)} 冲突处理</span><select data-image-prompt-import-choice="${esc(entry.id)}">${choices([['skip', '跳过'], ['replace', '覆盖保存版本']], state.importChoices[entry.id] || 'skip')}</select></label>`;
-        }
-        for (const entry of [...(preview.rejected || []), ...(preview.skipped || [])]) html += note(`${entry.id || '未知项'}：${entry.reason}`);
-        if (!preview.ok) html += note(preview.reason || '导入校验失败');
-        html += action('import-commit', '确认导入', [], !preview.ok);
-    }
-    return html + '</details></div>';
-}
-
-function renderBlock(state, group, block, advancedOpen, entry, ordered = [], index = -1) {
-    const id = block.identifier, module = group === 'modules';
-    const key = 'image-prompt-' + group + '-' + id;
-    let html = `<details data-advanced="${esc(key)}" class="igs-settings-full igs-settings-advanced"${advancedOpen[key] === true ? ' open' : ''}><summary>${esc(block.name || id)} · ${esc(module ? block.task : block.kind || '未映射')} · ${esc(block.role)}</summary><div class="igs-perf-group-body">`;
-    html += note(`稳定 ID：${id}`);
-    if (!module) html += field(state, group, id, 'name', '块名称', block.name || id);
-    html += field(state, group, id, 'role', '消息角色', block.role, 'select', roles);
-    html += field(state, group, id, 'enabled', '启用此块', block.enabled, 'boolean');
-    html += field(state, group, id, module ? 'task' : 'kind', module ? '任务用途' : '块用途', module ? block.task : block.kind || '', 'select', module ? IMAGE_PROMPT_TASKS : [['', '未映射'], ...kinds]);
-    html += field(state, group, id, 'content', module ? '任务正文' : '提示块正文', block.content, 'textarea');
-    if (module || block.kind === 'shared') {
-        html += field(state, group, id, 'contentByFormat', '分格式规则（JSON 对象，留空仅用正文）',
-            block.contentByFormat === undefined ? '' : block.contentByFormat, 'json');
-    }
-    if (module) {
-        html += field(state, group, id, 'dataFields', '允许资料字段（JSON 数组）', block.dataFields || [], 'json');
-        html += field(state, group, id, 'requiredFields', '必填资料字段（JSON 数组）', block.requiredFields || [], 'json');
-    } else {
-        html += field(state, group, id, 'workbenchOnly', '工作台标记（存档元数据）', block.workbenchOnly === true, 'boolean');
-        for (const key of ['injection_position', 'injection_depth', 'injection_order']) html += field(state, group, id, key, key, block[key] ?? 0, 'number');
-        if (entry) {
-            html += `<label class="igs-settings-field"><span>启用顺序项</span><input type="checkbox" data-image-prompt-order-enabled="${esc(id)}"${entry.enabled !== false ? ' checked' : ''}></label>`;
-            html += action('move', '上移', [id, ordered[index - 1]?.block.identifier || ''], index === 0);
-            html += action('move', '下移', [id, ordered[index + 1]?.block.identifier || ''], index === ordered.length - 1);
-        } else html += action('include', '加入声明顺序', [id]);
-    }
-    html += field(state, group, id, 'metadata', '元数据（JSON）', block.metadata || {}, 'json');
-    html += action('block-delete', '删除此块', [group, id]);
-    if (state.preset.data.defaultState) {
-        html += action('restore', '恢复默认正文', [group, id, 'baseline']);
-        for (const backup of state.preset.data.defaultState.backups || []) html += action('restore', `恢复 r${backup.revision} 正文`, [group, id, String(backup.revision)]);
-    }
-    return html + '</div></details>';
+    const data = state.preset.data;
+    const ordered = (data.prompt_order || []).map(entry => ({ entry, block: data.prompts.find(b => b.identifier === entry.identifier) })).filter(row => row.block);
+    const unordered = data.prompts.filter(b => !ordered.some(row => row.block.identifier === b.identifier));
+    const shared = [...ordered.filter(row => !row.block.kind || row.block.kind === 'shared').map(row => ({ block: row.block, sent: true })),
+        ...unordered.map(block => ({ block, sent: false }))];
+    let html = `<div class="igs-settings-full igs-image-prompt-stack" data-image-prompt-panel>${head}`;
+    html += group('image-prompt-group-tasks', advancedOpen['image-prompt-group-tasks'] !== false, '各任务规则', IMAGE_PROMPT_TASKS.length,
+        () => IMAGE_PROMPT_TASKS.map(task => taskRow(state, data, task, ui)).join(''));
+    html += group('image-prompt-group-rules', advancedOpen['image-prompt-group-rules'] === true, '通用规则', shared.length,
+        () => shared.map(row => ruleRow(state, data, row.block, row.sent, ui)).join('') + orderManager(state, data, ordered, unordered, ui));
+    html += group('image-prompt-group-preview', advancedOpen['image-prompt-group-preview'] === true, '预览发送内容', '',
+        () => previewBody(state, data));
+    return html + '</div>';
 }

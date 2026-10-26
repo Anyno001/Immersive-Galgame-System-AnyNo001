@@ -11,6 +11,9 @@ export const SETTINGS_NOTICE_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-progress-fill{height:100%;width:0;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-accent)}
 #igs-unified-settings .igs-settings-progress.is-writing .igs-settings-progress-fill{width:38%;animation:igs-settings-progress-slide 1.1s ease-in-out infinite}
 @keyframes igs-settings-progress-slide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+#igs-unified-settings .igs-settings-progress-stop{display:block;margin:8px auto 0;padding:2px 12px;border:1px solid var(--igs-settings-line-strong);border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink-2);font:inherit;font-size:12px;letter-spacing:0;cursor:pointer;pointer-events:auto}
+#igs-unified-settings .igs-settings-progress-stop:hover,#igs-unified-settings .igs-settings-progress-stop:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
+#igs-unified-settings .igs-settings-progress-stop:disabled{opacity:.6;cursor:default}
 `;
 
 export function isQuotaError(error) {
@@ -86,25 +89,41 @@ let liveProgress = null;
 // 同时画好几格时进度条只有一条：按任务记着，全部结束才收起，免得先画完的那格把还在画的进度一起清掉。
 const progressTasks = new Map();
 let progressTaskSeq = 0;
+let refreshProgress = () => {};
 
 function progressTaskSummary() {
-    const texts = [...progressTasks.values()].filter(Boolean);
-    if (!texts.length) return null;
+    const tasks = [...progressTasks.values()].filter((task) => task.text);
+    if (!tasks.length) return null;
+    const texts = tasks.map((task) => task.text);
     const text = texts.length === 1 ? texts[0] : `${texts[texts.length - 1]}（共 ${texts.length} 项在画）`;
-    return { text, indeterminate: true, button: '生图中' };
+    const stoppable = tasks.filter((task) => task.stop && !task.stopping).length;
+    const stopping = tasks.some((task) => task.stopping);
+    return { text, indeterminate: true, button: '生图中', stop: stoppable ? (tasks.length > 1 ? '全部停止' : '停止') : stopping ? '正在停止…' : '' };
 }
 
-// getHost 每次现取：任务跑着时面板可能重绘或关掉。返回 { update(text), end() }。
-export function beginSettingsProgress(getHost, text) {
+// 进度条上的停止键：停掉所有可停的任务。排队的请求立即撤下；已发出的那张等不回来就丢弃结果。
+export function stopSettingsProgress() {
+    for (const task of progressTasks.values()) {
+        if (!task.stop || task.stopping) continue;
+        task.stopping = true;
+        try { task.stop(); } catch (error) { /* 停止回调出错不影响其余任务 */ }
+    }
+    refreshProgress();
+}
+
+// getHost 每次现取：任务跑着时面板可能重绘或关掉。onStop 给了才在进度条上出停止键。返回 { update(text), end() }。
+export function beginSettingsProgress(getHost, text, { onStop } = {}) {
     const id = ++progressTaskSeq;
     const host = () => (typeof getHost === 'function' ? getHost() : getHost);
     const refresh = () => showSettingsProgress(host(), progressTaskSummary());
-    progressTasks.set(id, String(text || '生图中'));
+    progressTasks.set(id, { text: String(text || '生图中'), stop: typeof onStop === 'function' ? onStop : null, stopping: false });
+    refreshProgress = refresh;
     refresh();
     return {
         update(next) {
-            if (!progressTasks.has(id) || !next) return;
-            progressTasks.set(id, String(next));
+            const task = progressTasks.get(id);
+            if (!task || !next) return;
+            task.text = String(next);
             refresh();
         },
         end() {
@@ -155,6 +174,18 @@ export function showSettingsProgress(container, progress) {
         el.appendChild(track);
     }
     textEl.textContent = progress.text;
+    let stopEl = el.querySelector('.igs-settings-progress-stop');
+    if (progress.stop) {
+        if (!stopEl) {
+            stopEl = doc.createElement('button');
+            stopEl.type = 'button';
+            stopEl.className = 'igs-settings-progress-stop';
+            stopEl.addEventListener('click', (event) => { event.stopPropagation(); stopSettingsProgress(); });
+            el.appendChild(stopEl);
+        }
+        stopEl.textContent = progress.stop;
+        stopEl.disabled = progress.stop === '正在停止…';
+    } else if (stopEl && stopEl.parentNode) stopEl.parentNode.removeChild(stopEl);
     const ratio = writing ? 0 : Math.max(0, Math.min(1, Number(progress.ratio) || 0));
     fill.setAttribute('data-ratio', String(ratio));
     if (fill.style) fill.style.width = writing ? '' : `${Math.round(ratio * 100)}%`;

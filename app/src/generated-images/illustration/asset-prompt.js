@@ -3,6 +3,7 @@
 // 保证背景图里没有人、立绘始终是单人 3/4 身 + 可抠除的浅灰纯色底。
 import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, DEFAULT_ASSET_TEMPLATES, MATTE_BACKGROUND_TAGS, WHITE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, applyTemplate, dropMatteTagsWhenTransparent, dropWhiteBackgroundNegative, buildDictionaryBackgroundTags } from './prompt-kit.js';
 import { composeSpritePromptParts, spriteExpressionTags } from '../sprite-prompt-composition.js';
+import { schemeTemplates, schemeTemplateDefaults, performanceTags } from '../prompt-scheme.js';
 import { buildCreatureAssetSlot } from '../creature-sprite.js';
 import { creatureFacts, CREATURE_ASSET_RULE } from '../prompt-tasks/creature.js';
 import { creatureOf } from '../../scene/creature-profile.js';
@@ -119,9 +120,10 @@ function joinTags(...parts) {
 }
 
 // 生成可直接交给 buildNaiV4Request 的 slot；transparent 为 true 时走 V5 原生透明底。
-export function buildAssetSlot(item, { transparent = false, whiteBackground = false, templates = {}, positiveContext = '', fixedSpritePrompts = false } = {}) {
-    const t = { ...DEFAULT_ASSET_TEMPLATES, ...templates };
-    const customSprite = fixedSpritePrompts && t.sprite !== DEFAULT_ASSET_TEMPLATES.sprite;
+export function buildAssetSlot(item, { transparent = false, whiteBackground = false, templates = {}, positiveContext = '', fixedSpritePrompts = false, scheme } = {}) {
+    const defaults = schemeTemplateDefaults(scheme, DEFAULT_ASSET_TEMPLATES);
+    const t = schemeTemplates({ ...DEFAULT_ASSET_TEMPLATES, ...templates }, scheme);
+    const customSprite = fixedSpritePrompts && t.sprite !== defaults.sprite;
     if (item.need.type === 'background') {
         return {
             scene: applyTemplate(t.background, { tags: item.tags }),
@@ -132,17 +134,20 @@ export function buildAssetSlot(item, { transparent = false, whiteBackground = fa
     // 非人角色走独立的固定词与取景，人类立绘词不借用。
     if (creatureOf(item.need.dna)) return buildCreatureAssetSlot(item, { transparent, whiteBackground, positiveContext });
     // 角色词只组合一次；有可用 DNA 时，模型 tags 仅供应当次变化，不作为第二份外貌来源。
-    const dnaParts = composeSpritePromptParts(item.need.dna, { expression: spriteExpressionTags(item.tags) });
+    const dnaParts = composeSpritePromptParts(item.need.dna, { expression: spriteExpressionTags(item.tags, scheme) });
     const tags = dnaParts ? dnaParts.positive : item.tags;
     const useWhite = whiteBackground && !transparent;
     const matte = transparent ? TRANSPARENT_BACKGROUND_TAGS : (useWhite ? WHITE_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS);
     // 资料式立绘的固定取景、底色及排除项属于程序模板；自定义词只追加，不替掉这些片段。
-    const positive = customSprite
-        ? joinTags(applyTemplate(t.sprite, { tags, matte: '' }), applyTemplate(DEFAULT_ASSET_TEMPLATES.sprite, { tags: '', matte }))
+    const fixed = customSprite
+        ? joinTags(applyTemplate(t.sprite, { tags, matte: '' }), applyTemplate(defaults.sprite, { tags: '', matte }))
         : applyTemplate(t.sprite, { tags, matte });
-    const fixedNegative = fixedSpritePrompts && t.spriteNegative !== DEFAULT_ASSET_TEMPLATES.spriteNegative
-        ? DEFAULT_ASSET_TEMPLATES.spriteNegative : '';
-    const sceneUc = joinTags(t.spriteNegative, fixedNegative, dnaParts ? dnaParts.negative : '', NSFW_NEGATIVE_GUARD, item.uc);
+    // 演绎档位（仅灵动）的正负追加词。
+    const performance = performanceTags(scheme);
+    const positive = performance.positive ? joinTags(fixed, performance.positive) : fixed;
+    const fixedNegative = fixedSpritePrompts && t.spriteNegative !== defaults.spriteNegative
+        ? defaults.spriteNegative : '';
+    const sceneUc = joinTags(t.spriteNegative, fixedNegative, performance.negative, dnaParts ? dnaParts.negative : '', NSFW_NEGATIVE_GUARD, item.uc);
     return {
         scene: dropMatteTagsWhenTransparent(positive, positiveContext),
         sceneUc: useWhite ? dropWhiteBackgroundNegative(sceneUc) : sceneUc,

@@ -11,10 +11,15 @@ import { BACKGROUND_TASK, BACKGROUND_CAPTION, BACKGROUND_PLAN } from './prompt-t
 import { ITEM_TASK, ITEM_PLAN } from './prompt-tasks/item.js';
 import { CG_TASK, CG_TEMPLATE, CG_PLAN } from './prompt-tasks/cg.js';
 import { CONSISTENCY_TASK, CONSISTENCY_TEMPLATE } from './prompt-tasks/consistency.js';
+import { SCHEME_LIVELY, PERFORMANCE_SUBTLE, LIVELY_TASK_TEXT } from './prompt-scheme.js';
 import { CREATURE_SPRITE_TASK, CREATURE_SPRITE_DATA_RULE, CREATURE_EXPRESSION_FRAGMENTS_RULE } from './prompt-tasks/creature.js';
 
 export const IMAGE_PROMPT_DEFAULT_ID = 'igs-imagegen-default-v1';
-export const IMAGE_PROMPT_DEFAULT_VERSION = 35;
+export const IMAGE_PROMPT_DEFAULT_VERSION = 36;
+export const IMAGE_PROMPT_DEFAULT_NAME = 'IGS内置方案·标准';
+export const IMAGE_PROMPT_LIVELY_ID = 'igs-imagegen-lively-v1';
+export const IMAGE_PROMPT_LIVELY_VERSION = 1;
+export const IMAGE_PROMPT_LIVELY_NAME = 'IGS内置方案·灵动';
 
 // taskMap 选择用途，contentByFormat 仅选择该用途允许的协议。
 const TASKS = {
@@ -37,16 +42,20 @@ const TASKS = {
         'sprite-data': CREATURE_SPRITE_DATA_RULE, 'expression-fragments': CREATURE_EXPRESSION_FRAGMENTS_RULE } },
 };
 
-const taskModule = (task) => ({ identifier: `igs-task-${task}`, task,
-    role: 'system', ...TASKS[task], enabled: true,
+// 灵动方案：只换 LIVELY_TASK_TEXT 里列出的格式正文，其余任务与标准相同。
+const LIVELY_TASKS = Object.fromEntries(Object.entries(TASKS).map(([task, body]) => [task, LIVELY_TASK_TEXT[task]
+    ? { ...body, contentByFormat: { ...body.contentByFormat, ...LIVELY_TASK_TEXT[task] } } : body]));
+
+const taskModule = (task, tasks = TASKS) => ({ identifier: `igs-task-${task}`, task,
+    role: 'system', ...tasks[task], enabled: true,
     dataFields: [...PROMPT_DATA_FIELDS], requiredFields: ['description', 'outputs'] });
 
 // 旧预设没有非人任务条目时，读取时补入内置默认（只读，不写回；保存预设时一并写入）。
 export function completeImagePromptPreset(data) {
-    return completeMissingTaskModules(data, ['creature'].map(taskModule));
+    return completeMissingTaskModules(data, ['creature'].map(task => taskModule(task)));
 }
 
-export function createDefaultImagePromptPreset() {
+function createBuiltinPreset({ id, name, version, tasks, extra = {} }) {
     const block = (identifier, role, kind, content) => ({ identifier, role, kind, content, enabled: true });
     const prompts = [
         block('igs-image-framework', 'system', 'shared',
@@ -59,13 +68,29 @@ export function createDefaultImagePromptPreset() {
         block('igs-image-submit', 'user', 'shared',
             '只交付当前任务模块和本轮 outputs 指定的字段。编号、角色键和 token 取本轮资料，不照搬示例，不输出输入 JSON。'),
     ];
-    return promptDefaultState({ format: 'igs_preset_v1', type: 'prompt-preset', id: IMAGE_PROMPT_DEFAULT_ID,
-        name: 'IGS 内置生图框架', version: IMAGE_PROMPT_DEFAULT_VERSION,
+    return promptDefaultState({ format: 'igs_preset_v1', type: 'prompt-preset', id,
+        name, version,
         data: { schemaVersion: 1, usage: 'imagegen', revision: 1,
-            defaultVersion: IMAGE_PROMPT_DEFAULT_VERSION,
+            defaultVersion: version,
             variables: ['任务提示词', '任务资料', '世界书'], prompts,
             prompt_order: prompts.map(({ identifier }) => ({ identifier, enabled: true })),
             taskMap: Object.fromEntries(IMAGE_PROMPT_TASKS.map(task => [task, `igs-task-${task}`])),
-            modules: IMAGE_PROMPT_TASKS.map(taskModule),
+            modules: IMAGE_PROMPT_TASKS.map(task => taskModule(task, tasks)),
+            ...extra,
         } });
 }
+
+export const createDefaultImagePromptPreset = () => createBuiltinPreset({ id: IMAGE_PROMPT_DEFAULT_ID,
+    name: IMAGE_PROMPT_DEFAULT_NAME, version: IMAGE_PROMPT_DEFAULT_VERSION, tasks: TASKS });
+
+// 演绎档位（subtle 现实 / expressive 夸张）记在预设数据里，复制出来的灵动预设同样生效。
+export const createLivelyImagePromptPreset = () => createBuiltinPreset({ id: IMAGE_PROMPT_LIVELY_ID,
+    name: IMAGE_PROMPT_LIVELY_NAME, version: IMAGE_PROMPT_LIVELY_VERSION, tasks: LIVELY_TASKS,
+    extra: { spriteScheme: SCHEME_LIVELY, performance: PERFORMANCE_SUBTLE } });
+
+// 内置预设全集：第一项为标准（首次初始化时选中），其余只登记进列表。
+export const createBuiltinImagePromptPresets = () => [createDefaultImagePromptPreset(), createLivelyImagePromptPreset()];
+
+// 按方案取内置默认：灵动（含复制出的灵动组）返回灵动内置，其余返回标准。用于「恢复默认框架」。
+export const createBuiltinImagePromptPresetFor = (data) => (data?.spriteScheme === SCHEME_LIVELY
+    ? createLivelyImagePromptPreset() : createDefaultImagePromptPreset());

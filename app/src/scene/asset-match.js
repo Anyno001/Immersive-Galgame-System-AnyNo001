@@ -201,12 +201,16 @@ export function removeGeneratedLibraryEntry(library, type, name) {
     return { library: next, imageIds: collectGeneratedImageIds(entry) };
 }
 
-export function collectGeneratedImageIds(value, out = []) {
+function walkGeneratedImageIds(value, out) {
     if (typeof value === 'string') {
         if (isGeneratedAssetUrl(value)) out.push(generatedAssetIdOf(value));
     } else if (value && typeof value === 'object') {
-        for (const item of Object.values(value)) collectGeneratedImageIds(item, out);
+        for (const item of Object.values(value)) walkGeneratedImageIds(item, out);
     }
+}
+
+export function collectGeneratedImageIds(value, out = []) {
+    walkGeneratedImageIds(value, out);
     return Array.from(new Set(out));
 }
 

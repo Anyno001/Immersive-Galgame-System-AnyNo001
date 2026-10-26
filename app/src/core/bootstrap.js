@@ -72,6 +72,7 @@ import { createAssetThumbnailer, createIndexedDbAssetThumbStore } from '../media
 import { withCgIndexSync } from '../media/cg-library.js';
 import { createAutoIllustrationService, ILLUSTRATION_PROGRESS_EVENT, ILLUSTRATION_UPDATED_EVENT, readCgViewport } from '../generated-images/illustration/auto-illustration-service.js';
 import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
+import { createPromptSchemeReader } from '../generated-images/prompt-scheme.js';
 import { protectedAssetImageIds } from '../generated-images/illustration/asset-image-references.js';
 import { createItemAndCgServices } from './item-cg-services.js';
 import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-store.js';
@@ -83,7 +84,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.32';
+const IGS_VERSION = '0.37.33';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -292,6 +293,7 @@ export function bootstrapIGS(options = {}) {
             storage: storageLike, illustrationStore,
         }),
         matte: options.alphaMatte || createAlphaMatte(globalObject),
+        getPromptScheme: createPromptSchemeReader(presetRegistry),
         getSettings: () => {
             const bridge = readImageBridge();
             return { autoIllustration: bridge.autoIllustration, sceneAssets: sceneAssetsNow(bridge.sceneAssets), imageApi: bridge.imageApi };

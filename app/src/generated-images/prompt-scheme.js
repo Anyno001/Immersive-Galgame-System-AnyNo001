@@ -1,0 +1,233 @@
+// 内置生图「方案」：标准（原框架）与灵动（取景到膝、自然比例、有手势）。
+// 灵动的文字全部由标准的同一批常量按句替换派生；找不到原句即抛错，不会静默失效。
+// 预设里用 data.spriteScheme / data.performance 标记方案与演绎档位，运行时按当前生效预设取句。
+import {
+    BUILTIN_PROMPTS, SPRITE_HALF_BODY_RULE, SPRITE_FRAMING_DESCRIPTION, SPRITE_FACING_DESCRIPTION, SPRITE_UPRIGHT_LINE,
+    DNA_TEMPLATE_WRITER_SYSTEM,
+} from './prompt-registry.js';
+import { IDENTITY_RULE, IDENTITY_FACE_RULE, OUTFIT_HALF_BODY_RULE, OUTFIT_HALF_BODY_PARTS } from './prompt-tasks/common.js';
+import { SPRITE_DATA, SPRITE_TEMPLATE, SPRITE_CAPTION } from './prompt-tasks/sprite.js';
+import { DNA_DATA } from './prompt-tasks/dna.js';
+import { EXPRESSION_FRAGMENTS, EXPRESSION_TEMPLATE } from './prompt-tasks/expression.js';
+import { OUTFIT_DATA, OUTFIT_TEMPLATE } from './prompt-tasks/outfit.js';
+import { CG_TEMPLATE } from './prompt-tasks/cg.js';
+
+export const SCHEME_STANDARD = 'standard';
+export const SCHEME_LIVELY = 'lively';
+export const PERFORMANCE_SUBTLE = 'subtle';
+export const PERFORMANCE_EXPRESSIVE = 'expressive';
+
+// 只替换出现恰好 count 次的原句，否则抛错。
+export function swap(text, from, to, count = 1) {
+    const found = text.split(from).length - 1;
+    if (found !== count) throw new Error(`灵动方案替换失败：原句出现 ${found} 次（应为 ${count}）：${from.slice(0, 40)}`);
+    return text.split(from).join(to);
+}
+
+// ---- 方案标记 ----
+
+const STANDARD = Object.freeze({ id: SCHEME_STANDARD, performance: null });
+const LIVELY = Object.freeze({
+    [PERFORMANCE_SUBTLE]: Object.freeze({ id: SCHEME_LIVELY, performance: PERFORMANCE_SUBTLE }),
+    [PERFORMANCE_EXPRESSIVE]: Object.freeze({ id: SCHEME_LIVELY, performance: PERFORMANCE_EXPRESSIVE }),
+});
+
+// 从预设数据读方案；无标记（含用户旧预设、复制的标准预设）一律按标准。
+export function spriteSchemeOf(data) {
+    if (data?.spriteScheme !== SCHEME_LIVELY) return STANDARD;
+    return LIVELY[data.performance === PERFORMANCE_EXPRESSIVE ? PERFORMANCE_EXPRESSIVE : PERFORMANCE_SUBTLE];
+}
+const isLively = (scheme) => scheme?.id === SCHEME_LIVELY;
+
+// ---- 灵动：取景与衣装 ----
+
+const LIVELY_HALF_BODY_RULE = swap(SPRITE_HALF_BODY_RULE,
+    '立绘、换装和表情的 half_body 使用正常上半身取景：从完整头顶到腰胯，完整保留头发、双肩和躯干，手势在画面内，头顶及身体两侧留少量余白。Scene 的半身构图标签使用 upper body。',
+    '立绘、换装和表情使用膝上取景：从完整头顶到膝盖附近，完整保留头发、双肩、躯干、双手与大腿，手势在画面内，头顶及身体两侧留少量余白，不画小腿以下与鞋袜。Scene 的构图标签使用 cowboy shot。');
+
+// 半身衣装按段替换：段首对不上即抛错。
+function replacePart(parts, prefix, text) {
+    const index = parts.findIndex(part => part.startsWith(prefix));
+    if (index < 0) throw new Error(`灵动方案替换失败：找不到衣装段「${prefix}」`);
+    return parts.map((part, i) => (i === index ? text : part));
+}
+let outfitParts = [...OUTFIT_HALF_BODY_PARTS];
+outfitParts = outfitParts.map(part => (part.startsWith('【半身服装 DNA】')
+    ? swap(part, '只删除画外衣物、画外长度及细节的完整标签和分隔符', '只删除鞋、袜与脚踝饰物的完整标签和分隔符') : part));
+outfitParts = replacePart(outfitParts, '取景为完整头顶到腰胯。',
+    '取景为膝上：完整头顶到膝盖附近。保留画内的上装、裙身或裤装结构及其颜色、材质、领袖、开合、褶裥、腰带和可见口袋；裙裤类别、裙长、裤型与衣摆长度同样保留，不为保留整套衣物而延伸取景。');
+outfitParts = replacePart(outfitParts, '即使裙身或裤腰仍入镜，',
+    'outfit_half_body 用于膝上取景：从完整衣装删除鞋、袜与脚踝饰物，保留裙长、裤型、衣摆长度与腰部结构。knee-length、mini、maxi 等裙长，裙摆、开衩、下摆花边，裤腿长度、卷边，以及外套下摆长度等标签均保留。');
+outfitParts = replacePart(outfitParts, '鞋靴、袜子、丝袜、裤袜',
+    '鞋靴、袜子及脚踝饰物在膝上取景之外，整组移除，包括其颜色、材质与权重；不能只删鞋而留下 white socks、ankle socks 等。完整母版中上装和鞋袜共用的模糊材质标签，按实际归属决定，不误删画内上装细节。');
+outfitParts = outfitParts.map(part => (part.startsWith('保留部分的措辞')
+    ? swap(part, '派生时可删 knee-length dress 而保留原有的', '派生时保留 knee-length dress 与原有的') : part));
+outfitParts = outfitParts.map(part => (part.startsWith('已有 descriptionHalfBody')
+    ? swap(part, '半身栏已去掉画外长度、裙摆、裤腿和鞋袜', '半身栏已去掉鞋袜与脚踝饰物并保留裙长、裤型与衣摆长度') : part));
+const LIVELY_OUTFIT_HALF_BODY_RULE = outfitParts.join('\n');
+
+// ---- 灵动：身份规则 ----
+
+const LIVELY_FACE_RULE = '五官按设定选择可准确表达的脸型、眉形、眼型与瞳色标签，不以漂亮、英俊或职业气质代替，也不为凑齐鼻梁、下巴等微细节而写自然语言。唇形、唇色与妆容只在角色资料明确写出时保留，否则不写。常态眼型可以来自稳定设定，喜怒、闭眼、视线方向属于当次表情，不混入身份。';
+
+const LIVELY_IDENTITY_RULE = swap(swap(swap(IDENTITY_RULE, IDENTITY_FACE_RULE, LIVELY_FACE_RULE),
+    '，不默认人人窄肩、细腰、高个、长腿。', '。未设定体格时不写体型标签。'),
+    '肤色和 slim 的通用组合', '肤色的通用组合');
+
+// ---- 灵动：姿态与表情 ----
+
+const LIVELY_POSE_RULE = '按角色性格设计一个自然的手势，不遮挡或不完全遮挡面部。';
+
+const LIVELY_STANCE_RULE = '各张表情差分保持相同站位，切换时人物不位移。';
+
+const sprite = BUILTIN_PROMPTS.sprite, expression = BUILTIN_PROMPTS.expression;
+const LIVELY_EXPRESSION_DESIGN_RULE = swap(swap(expression.designRule, '嘴型和轻微动作', '嘴型和一个不遮挡或不完全遮挡面部的自然手势'),
+    '取景边界和正面朝向一致', '取景边界和站位一致');
+
+const SCHEME_PROMPTS = Object.freeze({
+    [SCHEME_STANDARD]: Object.freeze({
+        halfBodyRule: SPRITE_HALF_BODY_RULE,
+        framing: SPRITE_FRAMING_DESCRIPTION,
+        facing: SPRITE_FACING_DESCRIPTION,
+        uprightLine: SPRITE_UPRIGHT_LINE,
+        poseRule: sprite.poseRule,
+        expression: Object.freeze({ designRule: expression.designRule, positive: expression.positive,
+            negative: expression.negative, dropPositive: expression.dropPositive }),
+        templates: Object.freeze({ sprite: sprite.positive, spriteNegative: sprite.negative }),
+    }),
+    [SCHEME_LIVELY]: Object.freeze({
+        halfBodyRule: LIVELY_HALF_BODY_RULE,
+        framing: LIVELY_HALF_BODY_RULE,
+        facing: '人物面向镜头，镜头与视线齐平。',
+        uprightLine: '面向镜头，平视，不使用倾斜构图与侧脸。',
+        poseRule: LIVELY_POSE_RULE,
+        expression: Object.freeze({
+            designRule: LIVELY_EXPRESSION_DESIGN_RULE,
+            positive: 'cowboy shot, standing, facing viewer',
+            negative: 'dutch angle, from side, profile, upper body, full body, feet, shoes',
+            dropPositive: expression.dropPositive,
+        }),
+        templates: Object.freeze({
+            sprite: swap(sprite.positive, 'upper body, standing, facing viewer, looking at viewer, straight-on, centered',
+                'cowboy shot, standing, facing viewer, looking at viewer, centered'),
+            spriteNegative: swap(sprite.negative, 'portrait, full body, feet, head out of frame, cropped arms, ',
+                'portrait, upper body, full body, feet, shoes, head out of frame, cropped arms, arms at sides, '),
+        }),
+    }),
+});
+
+export const schemePrompts = (scheme) => SCHEME_PROMPTS[isLively(scheme) ? SCHEME_LIVELY : SCHEME_STANDARD];
+
+// 立绘模板默认值随方案取句：用户没改过（等于任一方案的默认值）才换，改过的原样保留。
+export function schemeTemplates(templates, scheme) {
+    if (!isLively(scheme)) return templates;
+    const standard = SCHEME_PROMPTS[SCHEME_STANDARD].templates, lively = SCHEME_PROMPTS[SCHEME_LIVELY].templates;
+    const out = { ...templates };
+    for (const key of ['sprite', 'spriteNegative']) {
+        if (out[key] === undefined || out[key] === standard[key]) out[key] = lively[key];
+    }
+    return out;
+}
+// 当前方案下「默认值」：立绘固定词与自定义模板的比较基准。
+export const schemeTemplateDefaults = (scheme, fallback) => (isLively(scheme)
+    ? { ...fallback, ...SCHEME_PROMPTS[SCHEME_LIVELY].templates } : fallback);
+
+// ---- 演绎档位（仅灵动） ----
+
+const PERFORMANCE = Object.freeze({
+    [PERFORMANCE_EXPRESSIVE]: Object.freeze({
+        rule: '演绎档位为夸张：表情与肢体按动画电影的方式放大，人物比例与站位不变。',
+        positive: 'expressive',
+        negative: 'chibi',
+    }),
+    [PERFORMANCE_SUBTLE]: Object.freeze({
+        rule: '演绎档位为现实：表情与动作取日常生活中的轻微幅度。',
+        positive: 'subtle expression',
+        negative: '',
+    }),
+});
+
+// 写词请求里追加的规则句（标准方案为空数组）。
+export const performanceLines = (scheme) => {
+    const level = isLively(scheme) && PERFORMANCE[scheme.performance];
+    return level ? [level.rule] : [];
+};
+// 默认立绘与表情差分的正负追加词（标准方案无）。
+export const performanceTags = (scheme) => {
+    const level = isLively(scheme) && PERFORMANCE[scheme.performance];
+    return level ? { positive: level.positive, negative: level.negative } : { positive: '', negative: '' };
+};
+
+// 差分写词一句话描述：标准方案原文；灵动允许写一个手势，并带演绎档位。
+export function expressionFragmentDescription(pending, note, scheme) {
+    const list = pending.map((mood, index) => `${index + 1}. ${mood}`).join('；');
+    const face = isLively(scheme) ? '可见面部变化与一个配合的手势，不写身份、服装、道具或场景'
+        : '可见面部变化，不写身份、服装、身体姿势、道具或场景';
+    return [`只编写以下表情的${face}。按编号逐项输出：${list}。表情要求：${note || ''}`, ...performanceLines(scheme)].join('\n');
+}
+
+// ---- 灵动：预设各任务模块的格式正文 ----
+
+const outfitSwapped = (text) => swap(text, OUTFIT_HALF_BODY_RULE, LIVELY_OUTFIT_HALF_BODY_RULE);
+const halfBodySwapped = (text) => swap(text, SPRITE_HALF_BODY_RULE, LIVELY_HALF_BODY_RULE);
+
+const LIVELY_EXPRESSION_FRAGMENTS = swap(swap(EXPRESSION_FRAGMENTS,
+    '按本轮指定表情与用户要求，只写眼、眉、嘴、脸颊等可见变化，可结合所给性格，不复述身份、衣装，不写身体姿势、手势、道具、背景、镜头、质量或底色。',
+    '按本轮指定表情与用户要求，写眼、眉、嘴、脸颊等可见变化，可配一个自然的手势，不遮挡或不完全遮挡面部，可结合所给性格，不复述身份、衣装，不写道具、背景、镜头、质量或底色。'),
+    'eyes slightly widened and lips parted in surprise', 'eyes slightly widened, lips parted in surprise, one hand raised to chest');
+
+const LIVELY_SPRITE_DATA = ['半身衣装仍有裙身类别、材质与腰部褶裥，只有画外裙长和鞋袜被删除',
+    '半身衣装保留裙身类别、材质、裙长与腰部褶裥，只有鞋袜与脚踝饰物被删除'];
+const livelySpriteData = () => {
+    let text = swap(outfitSwapped(SPRITE_DATA), IDENTITY_RULE, LIVELY_IDENTITY_RULE);
+    text = swap(text, ...LIVELY_SPRITE_DATA);
+    text = swap(text, 'high waist, pleated dress, 1.2::white cardigan::', 'high waist, pleated dress, knee-length dress, 1.2::white cardigan::');
+    text = swap(text, ', slim, narrow waist', '', 2);
+    text = swap(text, '，纤细体态，', '，');
+    return swap(text, '半身衣装不含画外长度和腿脚细节', '半身衣装不含鞋袜与脚踝饰物');
+};
+const livelySpriteTemplate = () => swap(halfBodySwapped(swap(SPRITE_TEMPLATE, IDENTITY_RULE, LIVELY_IDENTITY_RULE)),
+    '接默认站姿与平和表情', '接符合性格的站姿手势与平和表情');
+const livelySpriteCaption = () => swap(halfBodySwapped(SPRITE_CAPTION),
+    '保持默认站姿和平和表情', '保持符合性格的站姿手势和平和表情');
+
+// 灵动方案各任务的格式正文；未列出的任务沿用标准。
+export const LIVELY_TASK_TEXT = Object.freeze({
+    sprite: Object.freeze({ 'sprite-data': livelySpriteData(), 'dna-template': livelySpriteTemplate(), 'caption-slots': livelySpriteCaption() }),
+    dna: Object.freeze({ 'sprite-data': swap(DNA_DATA, IDENTITY_RULE, LIVELY_IDENTITY_RULE) }),
+    expression: Object.freeze({ 'expression-fragments': LIVELY_EXPRESSION_FRAGMENTS,
+        'dna-template': halfBodySwapped(swap(EXPRESSION_TEMPLATE, '完整写完本图字段再分隔下一图。', `完整写完本图字段再分隔下一图。\n${LIVELY_STANCE_RULE}`)) }),
+    outfit: Object.freeze({
+        'sprite-data': swap(outfitSwapped(OUTFIT_DATA), '半身栏保留画内结构并删去画外长度及鞋袜', '半身栏保留画内结构、裙长与衣摆长度并删去鞋袜与脚踝饰物'),
+        'expression-fragments': LIVELY_EXPRESSION_FRAGMENTS,
+        'dna-template': halfBodySwapped(OUTFIT_TEMPLATE) }),
+    cg: Object.freeze({ 'dna-template': swap(swap(swap(CG_TEMPLATE, 'light skin, slim', 'light skin', 2), ', thick eyebrows, broad shoulders, muscular male', ''),
+        'wavy hair, thick eyebrows', 'wavy hair') }),
+});
+
+// 旧版写词系统提示的灵动变体（仅无预设的独立调用才会用到）。
+export const LIVELY_DNA_TEMPLATE_WRITER_SYSTEM = (() => {
+    let text = swap(DNA_TEMPLATE_WRITER_SYSTEM, SPRITE_HALF_BODY_RULE, LIVELY_HALF_BODY_RULE);
+    text = swap(text, '，纤细、高挑、长腿。三行只示范', '。三行只示范');
+    text = swap(text, '::, slim, tall, long legs,', '::,');
+    text = swap(text, 'ornament::, slim,\nmeta_dna_portrait', 'ornament::,\nmeta_dna_portrait');
+    return swap(text, '上述 half_body 只删除 tall, long legs,；portrait 再删除 slim,，', '上述三景别无画外体型标签需删除，');
+})();
+
+// 外部写词补身份时随任务带上的立绘固定词（标准方案即词库原对象）。
+export function spriteUserPrompts(scheme) {
+    if (!isLively(scheme)) return BUILTIN_PROMPTS.sprite;
+    const group = SCHEME_PROMPTS[SCHEME_LIVELY];
+    return { positive: group.templates.sprite, negative: group.templates.spriteNegative, poseRule: group.poseRule };
+}
+
+// 读取当前预设的方案；按预设版本号缓存，避免每次请求都深拷贝预设。
+export function createPromptSchemeReader(registry) {
+    let epoch = null, cached = STANDARD;
+    return () => {
+        const now = registry?.getImagePromptEpoch?.();
+        if (now == null) return STANDARD;
+        if (now !== epoch) { cached = spriteSchemeOf(registry.getCurrent('prompt-preset')?.data); epoch = now; }
+        return cached;
+    };
+}
