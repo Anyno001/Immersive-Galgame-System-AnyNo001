@@ -471,7 +471,7 @@ function bindLayer(layer, ctx) {
     // 与对话框、卡片页一致：左半区上一页，右半区推进气泡/下一页。
     layer.addEventListener('click', (event) => {
         if (event && typeof event.preventDefault === 'function') event.preventDefault();
-        const ttsButton = event && event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-igs-chat-tts]') : null;
+        const ttsButton = event && event.target && typeof event.target.closest === 'function' ? event.target.closest('.igs-chat-tts-btn') : null;
         if (ttsButton) {
             if (typeof event.stopPropagation === 'function') event.stopPropagation();
             speakBubbleAgain(states.get(layer), Number(ttsButton.getAttribute('data-index')), ttsButton.getAttribute('data-igs-chat-tts') === 'reroll');
