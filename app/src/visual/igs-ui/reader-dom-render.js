@@ -2045,6 +2045,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         castMarks: castReactMarks,
         resolveAssetUrl,
         theme: fxTheme,
+        userName: ctx.userName,
     });
     // 获得物品演出：默认关闭；图片只读本聊天本地缓存，同页重绘不重播。
     renderItemFx(root, snapshot, { resolveItemImage: ctx.resolveItemImage, chatId: ctx.chatId, theme: fxTheme });
@@ -2426,6 +2427,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             key: `${snapshot.messageId}:${content.currentIndex}`,
             textType: typewriterTextType,
             text: content.displayText,
+            context: content.fullText || '',
+            spriteTags: snapshot.readerSettings._tempSpriteTags || null,
             speaker: content.speaker || '',
             speakerKey: content.speakerKey || '',
             mood: ttsMood,

@@ -9,7 +9,7 @@ import { duckSceneAudio } from './scene-audio.js';
 import { stripTextFxMarkup } from './text-fx.js';
 import { yieldTypewriterAudio } from './typewriter-audio.js';
 import { voiceFilterGain, voiceFilterUsesDry } from './voice-filter.js';
-import { buildBarkChain, canonicalName, characterDnaGender, normalizeCharacterVoice, resolveBarkMood, resolveBarkShape } from './voice-bark.js';
+import { buildBarkChain, canonicalName, characterDnaGender, detectVoiceGender, normalizeCharacterVoice, resolveBarkMood, resolveBarkShape } from './voice-bark.js';
 
 export const TTS_PROVIDERS = Object.freeze([
     ['system', '系统语音'],
@@ -241,7 +241,8 @@ export function normalizeTtsSettings(value) {
     const thoughtVolume = Number(source.thoughtVolume);
     const narratorRate = Number(source.narratorRate);
     const cacheMax = Number(source.cacheMax);
-    const roles = (src) => Object.fromEntries(ROLE_KEYS.map((key) => [key, field(src[key])]));
+    // 女 / 男默认声音是候选池（换行分隔，旧配置的单个字符串即只有一个候选）；旁白仍是单个。
+    const roles = (src) => Object.fromEntries(ROLE_KEYS.map((key) => [key, key === 'narrator' ? field(src[key]) : joinVoicePool(parseVoicePool(src[key]))]));
     return {
         enabled: source.enabled === true,
         provider: TTS_PROVIDERS.some(([id]) => id === source.provider) ? source.provider : TTS_DEFAULTS.provider,
@@ -325,6 +326,31 @@ export function editTtsVoices(text, { index = -1, id, title, remove = false } = 
 }
 
 export const ttsVoiceEntries = (text) => parseVoiceEntries(text);
+
+// 默认声音候选池：换行分隔、去空去重，最多 TTS_VOICE_MAX 个。
+export function parseVoicePool(text) {
+    const out = [];
+    for (const raw of String(text ?? '').split('\n')) {
+        const id = raw.trim();
+        if (id && !out.includes(id)) out.push(id);
+        if (out.length >= TTS_VOICE_MAX) break;
+    }
+    return out;
+}
+
+export const joinVoicePool = (ids) => ids.join('\n');
+
+// 在候选池里加入或移除一个声音，返回新的池文本。
+export function toggleVoicePool(text, id) {
+    const ids = parseVoicePool(text);
+    const at = ids.indexOf(id);
+    if (at >= 0) ids.splice(at, 1);
+    else if (id && ids.length < TTS_VOICE_MAX) ids.push(id);
+    return joinVoicePool(ids);
+}
+
+// 同一个名字永远取池里同一个声音（名字稳定哈希，翻页、重开都不换）。
+export const pickPoolVoice = (ids, key) => (ids.length ? ids[hashName(key) % ids.length] : '');
 
 // 超过 TTS_VOICE_MAX 个时只留前面的；没超时原样保留（不改用户的分隔写法）。
 function limitVoiceText(text) {
@@ -712,6 +738,54 @@ function spokenStyle(config, sceneAssets, line, mood) {
     return [line.textType === 'thought' ? config.thoughtStyle : '', character, emotion].filter(Boolean).join('；');
 }
 
+// 没有角色设定可查的路人：先看名字里的称谓，再看正文里名字附近的代词与称谓；同名的判定缓存下来保持稳定。
+const NAME_FEMALE_RE = /阿姨|大妈|大娘|奶奶|婆婆|老太|婶|姨|姐|妹|嫂|娘|夫人|小姐|姑娘|女/;
+const NAME_MALE_RE = /大叔|大爷|爷爷|老头|老汉|伯|叔|哥|弟|兄|少爷|公子|先生|小伙|男/;
+const CONTEXT_FEMALE_RE = /她|女人|女子|少女|姑娘|妇人|老妇|大妈|阿姨|奶奶|女士/g;
+const CONTEXT_MALE_RE = /他(?!们)|男人|男子|老汉|汉子|少年|大叔|大爷|爷爷|先生/g;
+const genderCache = new Map();
+const GENDER_CACHE_MAX = 500;
+
+export const clearTtsGenderCache = () => genderCache.clear();
+
+function nameGender(name) {
+    const female = NAME_FEMALE_RE.test(name);
+    const male = NAME_MALE_RE.test(name);
+    return female === male ? '' : female ? 'female' : 'male';
+}
+
+function contextGender(name, text) {
+    const body = String(text || '');
+    if (!name || !body) return '';
+    let female = 0;
+    let male = 0;
+    for (let at = body.indexOf(name); at >= 0; at = body.indexOf(name, at + name.length)) {
+        const end = at + name.length;
+        const after = body.slice(end, end + 50).split(/[。！？\n]/)[0];
+        const before = body.slice(Math.max(0, at - 12), at).split(/[。！？\n]/).pop();
+        for (const part of [after, before]) {
+            female += (part.match(CONTEXT_FEMALE_RE) || []).length;
+            male += (part.match(CONTEXT_MALE_RE) || []).length;
+        }
+    }
+    return female === male ? '' : female > male ? 'female' : 'male';
+}
+
+function spriteTagGender(tags, name) {
+    const map = plainObject(tags);
+    return map && hasOwn(map, name) ? detectVoiceGender(map[name]) : '';
+}
+
+export function guessNameGender(name, context = '') {
+    if (genderCache.has(name)) return genderCache.get(name);
+    const gender = nameGender(name) || contextGender(name, context);
+    if (gender) {
+        if (genderCache.size >= GENDER_CACHE_MAX) genderCache.delete(genderCache.keys().next().value);
+        genderCache.set(name, gender);
+    }
+    return gender;
+}
+
 const ROLE_SOURCE = Object.freeze({ female: '女角色默认', male: '男角色默认', narrator: '旁白默认' });
 
 // 这一页由谁念、用什么声音（纯函数，便于测试）。voices 是系统声音列表（接口来源时不用）。
@@ -724,7 +798,8 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     const name = narrator ? '' : speakerMainName(assets, line);
     const manualMap = plainObject(assets.characterVoices) || {};
     const manual = name ? normalizeCharacterVoice(hasOwn(manualMap, name) ? manualMap[name] : null) : normalizeCharacterVoice(null);
-    const gender = name ? characterDnaGender(assets, name) : '';
+    // 性别：变身 / DNA → 本聊天生成立绘的 tag（路人多半没有 DNA）→ 名字称谓 → 正文代词。
+    const gender = name ? (characterDnaGender(assets, name) || spriteTagGender(line.spriteTags, name) || guessNameGender(name, line.context)) : '';
     const role = narrator ? 'narrator' : (gender || 'female');
     // 角色在「角色设定」里调的音高、语速，朗读也跟着用。
     let pitch = 2 ** (manual.pitch / 12);
@@ -745,7 +820,10 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     }
     if (config.provider === 'api') {
         const api = config.api;
-        const voice = manualId || api[role] || (narrator ? api.female : '') || api.female || api.male || '';
+        // 默认声音是候选池：按名字稳定哈希取一个（只有一个时就是它）。
+        const hashKey = narrator ? '旁白' : name;
+        const pick = (text) => pickPoolVoice(parseVoicePool(text), hashKey);
+        const voice = manualId || pick(api[role]) || (narrator ? pick(api.female) : '') || pick(api.female) || pick(api.male) || '';
         // 三个声音框都留空、角色也没单独指定时就是「不添加声音」：volume 0 让 decideTts 直接返回 null，不发合成请求。
         const source = manualId ? manualSource : api[role] ? roleSource : (api.female || api.male) ? `${narrator ? '旁白未设，回落' : ''}${api.female ? ROLE_SOURCE.female : ROLE_SOURCE.male}` : '';
         return found({ voice, pitch: 1, rate, volume: voice ? volume : 0, source });
@@ -758,8 +836,8 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     // 角色单独指定的声音照用；旁白 / 女声 / 男声的预设只在语言对得上时用（读日文原文时不拿中文声音念）。
     const manualVoice = findSystemVoice(voices, manualId);
     if (manualVoice) return found({ voice: manualVoice.name, pitch, rate, volume, source: manualSource });
-    const preset = config.system[role];
-    if (preset && fits(preset)) return found({ voice: findSystemVoice(voices, preset).name, pitch, rate, volume, source: roleSource });
+    const presets = parseVoicePool(config.system[role]).filter(fits);
+    if (presets.length) return found({ voice: findSystemVoice(voices, pickPoolVoice(presets, narrator ? '旁白' : name)).name, pitch, rate, volume, source: roleSource });
     const pool = systemVoicePool(voices, narrator ? '' : gender, lang);
     if (!pool.length) return found({ voice: '', pitch, rate, volume, source: '系统默认声音' });
     const key = narrator ? '旁白' : name;
@@ -2142,8 +2220,8 @@ export function previewTts(settings, { role = 'female', voice = '', speaker = ''
     const separate = narrator && config.narratorApi.enabled;
     const provider = separate ? 'api' : config.provider;
     const picked = voice || (separate ? config.narratorApi.voice : config.provider === 'api'
-        ? config.api[role] || config.api.female
-        : config.system[role] || (systemVoicePool(voices, narrator ? '' : role)[0] || {}).name || '');
+        ? parseVoicePool(config.api[role])[0] || parseVoicePool(config.api.female)[0] || ''
+        : parseVoicePool(config.system[role])[0] || (systemVoicePool(voices, narrator ? '' : role)[0] || {}).name || '');
     // 接口来源三个框全空时不发请求，直接说明原因，免得服务端拿默认音色念。
     if (separate && !picked) return Promise.resolve({ ok: false, error: '旁白独立接口还没有填写声音' });
     if (provider === 'api' && !picked) return Promise.resolve({ ok: false, error: '默认声音均未选择，请先选择声音再试听' });
@@ -2171,10 +2249,11 @@ export function previewTts(settings, { role = 'female', voice = '', speaker = ''
 
 // 线上聊天气泡的朗读：一条气泡一段声音。返回 { done, cancel }；不朗读（没开、音量 0、角色设为不朗读等）或失败时返回 null。
 // done 在这一条念完、被掐掉或出错时 resolve（不会 reject）；cancel() 只停这一条自己的声音。
-export function speakTtsBubble(line, settings, sceneAssets, { poll = 80 } = {}) {
+// fresh：重新生成（接口来源跳过缓存、覆盖写；系统语音照常念）。
+export function speakTtsBubble(line, settings, sceneAssets, { poll = 80, fresh = false } = {}) {
     const plan = decideTts({}, line, settings, { sceneAssets, voices: listSystemVoices(), record: false });
     if (!plan || plan.skip) return null;
-    const job = playTts(plan, settings);
+    const job = playTts(fresh && plan.provider === 'api' ? { ...plan, fresh: true } : plan, settings);
     if (!job) return null;
     const done = new Promise((resolve) => {
         const check = () => {

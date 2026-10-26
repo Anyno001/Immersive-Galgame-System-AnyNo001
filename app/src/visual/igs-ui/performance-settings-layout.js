@@ -136,12 +136,12 @@ function buildPerformanceBodies(src, extras, isOpen) {
             text: [host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.waitStage, stage.clickWaitMark, stage.textFx, stage.bilingual, host('sentence-paging', extras.sentencePaging), host('dialogue-sentence-paging', extras.dialogueSentencePaging)],
             stage: [
                 section('镜头与环境', [stage.transition, stage.cgEntrance, stage.tint, stage.camera, host('weather', extras.weatherFx, '雨雪雾粒子'), fx.crowd, host('stage-shake', extras.stageShake, '冲击时晃屏'), renderPackFields(src, more, { ids: ['camera'] }), renderPackFields(src, more, { ids: ['places'] }), host('cinema-bars', extras.cinemaBars, '只盖背景，CG时收起'), fx.comic, renderPanelSkinField(src, more)]),
-                section('立绘', [stage.motion, stage.actions, stage.turn, stage.cast, renderPackFields(src, more, { ids: ['transform'] }), host('narration-filter', extras.narrationFilter)]),
+                section('立绘', [stage.motion, stage.actions, stage.turn, stage.cast, renderPackFields(src, more, { ids: ['transform'] }), fx.innerDemon, host('narration-filter', extras.narrationFilter)]),
             ],
             story: [
                 section('情绪', [fx.manga, fx.mangaBack, fx.heartbeat]),
                 section('剧情提示', [fx.title, fx.favor, fx.itemFx, fx.resultFx]),
-                section('事件演出', [fx.tags, fx.dlc, renderPackFields(src, more, { ids: ['beats'] })].filter(Boolean)),
+                section('事件演出', [fx.tags, fx.clash, fx.dlc, renderPackFields(src, more, { ids: ['beats'] })].filter(Boolean)),
             ],
             special: [
                 section('日常与冒险', [stage.daily, fx.battleFx, fx.battleCreature, fx.flash]),

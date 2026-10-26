@@ -124,6 +124,8 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
         worldview: String(readerSettings._worldview || ''),
         onEvent: (event) => play(battleSfxKind(event, String(readerSettings._worldview || ''))),
         spriteName: sprite ? content.spriteCharacter || content.speaker || '' : '',
+        dash: normalizeBattleFxSettings(readerSettings.battleFx).dash,
+        keyOf,
         onCreatureSfx: (kind) => { if (typeof ctx.playSfx === 'function') ctx.playSfx(kind); else playCreatureSfx(kind, sound, { audioScheduler: ctx.audioScheduler }); },
     });
     mountedRoots.add(root);

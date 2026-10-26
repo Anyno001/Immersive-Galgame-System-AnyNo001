@@ -57,7 +57,7 @@ import { dialogSkinLabel, getDialogSkinChoices } from './dialog-skin-catalog.js'
 import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
-import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CACHE_LIMIT, TTS_THOUGHT_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, TTS_VOICE_MAX, findSystemVoice, hasNaturalSystemVoice, listSystemVoices, normalizeTtsSettings, systemVoiceOptions, ttsApiVoiceOptions, ttsMixedContentRisk, ttsNarratorVoiceOptions, ttsVoiceEntries } from './tts.js';
+import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CACHE_LIMIT, TTS_THOUGHT_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, TTS_VOICE_MAX, findSystemVoice, hasNaturalSystemVoice, listSystemVoices, normalizeTtsSettings, parseVoicePool, systemVoiceOptions, ttsApiVoiceOptions, ttsMixedContentRisk, ttsNarratorVoiceOptions, ttsVoiceEntries } from './tts.js';
 import { normalizeBilingualSettings } from './bilingual-text.js';
 import { HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
@@ -1236,6 +1236,17 @@ const ttsGroup = (title, parts, headAction = '') => `<div class="igs-settings-gr
 
 const ttsInlineField = (label, controlHtml) => `<label class="igs-settings-field igs-tts-inline"><span>${esc(label)}</span><span class="igs-tts-inline-control">${controlHtml}</span></label>`;
 
+// 默认声音候选池：点选多个，没单独设声音的角色按名字稳定地取其中一个。source 为 api / system，items 是 [id, 显示名]。
+function ttsVoicePoolField(label, source, role, value, items, { missingNote = '不在声音库' } = {}) {
+    const picked = parseVoicePool(value);
+    const chip = (id, text, missing) => `<button type="button" class="igs-table-pick${picked.includes(id) ? ' is-on' : ''}${missing ? ' is-missing' : ''}" data-action="tts-pool-toggle:${source}:${role}:${encodeURIComponent(id)}" aria-pressed="${picked.includes(id) ? 'true' : 'false'}"><i></i><span>${esc(text)}</span></button>`;
+    const known = new Set(items.map(([id]) => id));
+    const chips = items.filter(([id]) => id).map(([id, text]) => chip(id, text, false))
+        .concat(picked.filter((id) => !known.has(id)).map((id) => chip(id, `${id}（${missingNote}）`, true)));
+    return `<div class="igs-settings-field igs-tts-pool-field"><span>${esc(label)}<small class="igs-switch-note">多选时按名字随机</small></span>`
+        + `<div class="igs-tts-pool">${chips.join('') || '<div class="igs-scene-empty">暂无声音</div>'}</div></div>`;
+}
+
 const ttsPreviewButton = (action, label) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}">${label}</button>`;
 
 const ttsPreviewError = (text) => (text ? `<div class="igs-source-filter-note igs-tts-warning" role="status">试听失败：${esc(text)}</div>` : '');
@@ -1308,21 +1319,17 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narrato
     const voiceParts = [ttsPreviewError(previewError)];
     if (apiMode) {
         voiceParts.push(renderTtsVoiceLibrary('api', api.voices, { fetchable: ['openai', 'fish', 'minimax'].includes(api.format), message: voicesMessage, batch: batches.api }));
-        // 默认声音从声音库里选；旧版手填、不在库里的值保留并标出。
+        // 默认声音从声音库里多选；旧版手填、不在库里的值保留并标出。
         const library = ttsApiVoiceOptions(tts);
         for (const [key, label] of [['female', '女角色默认'], ['male', '男角色默认']]) {
-            const value = api[key];
-            const items = [['', '未选择'], ...library];
-            if (value && !library.some(([id]) => id === value)) items.push([value, `${value}（不在声音库）`]);
-            voiceParts.push(ttsInlineField(label, selectInput(apiPath(key), value, items)));
+            voiceParts.push(ttsVoicePoolField(label, 'api', key, api[key], library));
         }
     } else {
         const allVoicesButton = `<button type="button" class="igs-table-pick${tts.allVoices ? ' is-on' : ''}" data-switch="${base}.allVoices" aria-pressed="${tts.allVoices ? 'true' : 'false'}" title="列出全部语言的系统声音"><i></i><span>全部语言</span></button>`;
         [['female', '女角色默认'], ['male', '男角色默认']].forEach(([key, label], index) => {
             const value = tts.system[key];
-            const items = [['', '自动']].concat(options);
-            if (value && !options.some(([id]) => id === value)) items.push([value, findSystemVoice(installed, value) ? value : `${value}（本机没有）`]);
-            voiceParts.push(ttsInlineField(label, selectInput(`${base}.system.${key}`, value, items) + (index === 0 ? allVoicesButton : '')));
+            voiceParts.push(ttsVoicePoolField(label, 'system', key, value, options, { missingNote: '不在列表' }));
+            if (index === 0) voiceParts.push(`<div class="igs-settings-row">${allVoicesButton}</div>`);
         });
         if (!options.length) voiceParts.push('<div class="igs-source-filter-note">没读到本机的声音（浏览器可能还在加载，稍等会自动刷新）。Windows 推荐使用 Edge 浏览器，自然声更多。</div>');
         else if (!hasNaturalSystemVoice(installed)) voiceParts.push('<div class="igs-source-filter-note">Windows 推荐使用 Edge 浏览器，自然声更多。</div>');

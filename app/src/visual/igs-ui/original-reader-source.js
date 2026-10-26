@@ -28,6 +28,8 @@ import { WAIT_STAGE_STYLE_TEXT } from './wait-stage.js';
 import { DAILY_FX_STYLE_TEXT } from './fx-daily-style.js';
 import { ITEM_FX_STYLE_TEXT } from './fx-item.js';
 import { BATTLE_FX_STYLE_TEXT } from './fx-battle.js';
+import { CLASH_STYLE_TEXT } from './fx-clash.js';
+import { INNER_DEMON_STYLE_TEXT } from './fx-inner-demon.js';
 import { RESULT_FX_STYLE_TEXT } from './fx-result.js';
 import { CG_GALLERY_STYLE_TEXT } from './cg-gallery-panel.js';
 import { TURN_INDEX_STYLE_TEXT } from './turn-index-panel.js';
@@ -440,6 +442,8 @@ ${WAIT_STAGE_STYLE_TEXT}
 ${DAILY_FX_STYLE_TEXT}
 ${ITEM_FX_STYLE_TEXT}
 ${BATTLE_FX_STYLE_TEXT}
+${CLASH_STYLE_TEXT}
+${INNER_DEMON_STYLE_TEXT}
 ${RESULT_FX_STYLE_TEXT}
 ${DANMAKU_STYLE_TEXT}
 ${FEED_STYLE_TEXT}

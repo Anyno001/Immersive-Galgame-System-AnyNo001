@@ -176,6 +176,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-tts-inline-control{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:0 1 70%;min-width:0}
 .igs-tts-inline-control>select{flex:1 1 auto;min-width:0}
 .igs-tts-inline-control>.igs-table-pick{flex:0 0 auto}
+.igs-tts-pool{display:flex;flex-wrap:wrap;gap:6px;max-height:168px;overflow-y:auto}
 .igs-card-skin-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:-6px}
 .igs-source-filter-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0;align-items:end}
 .igs-settings-grid[data-reader-pane="text"] .igs-reader-text-effect-options{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0;align-items:end}

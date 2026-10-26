@@ -78,7 +78,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
-import { TTS_VOICE_MAX, editTtsVoices, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice } from './tts.js';
+import { TTS_VOICE_MAX, editTtsVoices, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice, toggleVoicePool } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction, guardDefaultOutfitImages } from './settings-outfit-actions.js';
 import { handleEventCgAction } from './settings-event-cg.js';
@@ -3002,6 +3002,17 @@ export async function handleSettingsAction(action, ctx) {
         const limit = normalizeTtsSettings(settingsState.draft.readerSettings && settingsState.draft.readerSettings.tts).cacheMax;
         const removed = await trimTtsCache(limit);
         settingsState.asyncState.ttsCacheStatus = `已清理 ${removed} 条朗读缓存，保留最近 ${limit} 条。`;
+        return rerenderSettings();
+    }
+    if (normalizedAction.startsWith('tts-pool-toggle:')) {
+        // 默认声音候选池：点选加入或移除一个声音，写回 api / system 的 female / male。
+        const [, source, role, rawId] = normalizedAction.split(':');
+        if ((source !== 'api' && source !== 'system') || (role !== 'female' && role !== 'male')) return { ok: false, error: '未知的默认声音' };
+        const reader = settingsState.draft.readerSettings || (settingsState.draft.readerSettings = {});
+        const tts = normalizeTtsSettings(reader.tts);
+        reader.tts = { ...tts, [source]: { ...tts[source], [role]: toggleVoicePool(tts[source][role], decodeSeg(rawId)) } };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
     if (normalizedAction.startsWith('tts-voice-add:') || normalizedAction.startsWith('tts-voice-remove:') || normalizedAction.startsWith('tts-voice-edit:')) {

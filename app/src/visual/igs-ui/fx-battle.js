@@ -10,6 +10,7 @@ import { battleFxIdentity, resolveImpactPoint, BATTLE_SKIP_RESULT_MS } from './f
 import { measureStage, peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import { spriteGeometry } from './fx-runtime.js';
 import { CREATURE_BATTLE_STYLE_TEXT, clearGroupBodies, createCreatureState, expectedFoeImage, foeElementOf, playCreatureEvent, settleCreatureTiers, syncGroupBodies } from './fx-creature-battle.js';
+import { playClashDash } from './fx-clash.js';
 
 const SHOW_ATTR = 'data-igs-fx-battle-show';
 const SHAKE_ATTR = 'data-igs-fx-battle-shake';
@@ -458,9 +459,14 @@ export function applyBattleFxToDom(root, plan, options = {}) {
             placeImpact(node, event, motion, event.targetKind === 'cast' ? castTargetOf(options.cast, event.targetChar) : options.sprite);
             if (!reduced) {
                 const heavy = event.result === 'crit' || event.result === 'ko' || (event.targetKind === 'player' && event.result === 'hit');
-                if (event.result !== 'miss' && event.result !== 'heal') shake(state, heavy ? 'heavy' : 'light');
-                if (creatureHandled) { /* 非人对手的反应已播放 */ } else if (event.targetKind === 'sprite') reactSprite(state, spriteEl, event.result);
-                else if (event.targetKind === 'cast') reactSprite(state, castElOf(motion, event.targetChar), event.result);
+                // 出手冲刺（默认关）：出手者与目标都在台上时先冲到目标身边，震屏与受击反应等冲到再播。
+                const dashAt = options.dash === true && !creatureHandled && (event.targetKind === 'sprite' || event.targetKind === 'cast') ? dashOf(root, event, options) : 0;
+                if (event.result !== 'miss' && event.result !== 'heal') {
+                    if (dashAt) track(state, () => shake(state, heavy ? 'heavy' : 'light'), dashAt);
+                    else shake(state, heavy ? 'heavy' : 'light');
+                }
+                if (creatureHandled) { /* 非人对手的反应已播放 */ } else if (event.targetKind === 'sprite') reactSprite(state, spriteEl, event.result, dashAt);
+                else if (event.targetKind === 'cast') reactSprite(state, castElOf(motion, event.targetChar), event.result, dashAt);
             }
         }
         if (onEvent && !reduced) { try { onEvent(event); } catch (error) { /* 音效失败不影响演出 */ } }
@@ -498,6 +504,18 @@ export function applyBattleFxToDom(root, plan, options = {}) {
         else track(state, () => play(event), Math.round(event.at * pace));
     }
     return { played: true, count: plan.events.length };
+}
+
+function dashOf(root, event, options) {
+    const keyOf = typeof options.keyOf === 'function' ? options.keyOf : (name) => String(name || '').trim();
+    const speaker = keyOf(options.spriteName || '');
+    const attacker = keyOf(event.attacker);
+    const target = event.targetKind === 'sprite' ? speaker : event.targetChar;
+    try {
+        return playClashDash(root, { attacker, target, speaker, sprite: options.sprite || null, cast: options.cast || [], schedule: options.schedule, clear: options.clear });
+    } catch {
+        return 0;
+    }
 }
 
 export function skipBattleFx(root) {

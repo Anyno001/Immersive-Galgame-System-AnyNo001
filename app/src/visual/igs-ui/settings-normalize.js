@@ -49,9 +49,10 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
         if (/^readerSettings\.chatShow\.(dim|sound\.volume)$/.test(path)) return Number(value);
-        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye|emergency|spam)$/.test(path)) {
+        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound|innerDemon)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye|emergency|spam|clash)$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
+        if (/^readerSettings\.(clashFx\.(auto|ghost|shake)|battleFx\.dash)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (path === 'readerSettings.fxPrompts.inject') return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.fxPrompts\.(fx|daily|item|bgm|romance|battle|camera|cast|chat|live|audience|feed|text|bilingual|dlc)$/.test(path)) {
             return (typeof value === 'string' ? value : '').slice(0, 6000);

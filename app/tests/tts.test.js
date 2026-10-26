@@ -23,6 +23,8 @@ import {
     prefetchTts,
     resolveTtsApiFormat,
     resolveTtsVoice,
+    toggleVoicePool,
+    clearTtsGenderCache,
     getTtsLastDecision,
     trimTtsCache,
     splitTtsChunks,
@@ -1676,4 +1678,50 @@ test('tts: speakTtsLine returns done / cancel and reports completed, cancelled, 
     } finally {
         if (realSynth !== undefined) globalThis.speechSynthesis = realSynth;
     }
+});
+
+test('默认声音候选池：同名稳定、多选分散、单个与旧配置不变', () => {
+    const pool = 'v1\nv2\nv3';
+    const settings = { enabled: true, provider: 'api', api: { female: pool } };
+    const pick = (speaker) => resolveTtsVoice({ textType: 'dialogue', speaker }, settings, {}).voice;
+    const names = ['阿姨A', '阿姨B', '路人甲', '路人乙', '店员', '老板', '小贩', '门卫'];
+    for (const n of names) {
+        assert.ok(['v1', 'v2', 'v3'].includes(pick(n)));
+        assert.equal(pick(n), pick(n));
+    }
+    assert.ok(new Set(names.map(pick)).size > 1);
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '甲' }, { enabled: true, provider: 'api', api: { female: 'solo' } }, {}).voice, 'solo');
+    assert.equal(normalizeTtsSettings({ api: { female: ' a \n\na\nb ' } }).api.female, 'a\nb');
+    assert.equal(toggleVoicePool('a\nb', 'a'), 'b');
+    assert.equal(toggleVoicePool('b', 'c'), 'b\nc');
+    // 系统语音：池里本机有的才参与
+    const voices = [{ name: 'Sys A', lang: 'zh-CN' }, { name: 'Sys B', lang: 'zh-CN' }];
+    const sys = { enabled: true, provider: 'system', system: { female: 'Sys A\nSys B\nMissing' } };
+    const got = resolveTtsVoice({ textType: 'dialogue', speaker: '阿姨A', lang: 'zh' }, sys, {}, voices).voice;
+    assert.ok(['Sys A', 'Sys B'].includes(got));
+    assert.equal(got, resolveTtsVoice({ textType: 'dialogue', speaker: '阿姨A', lang: 'zh' }, sys, {}, voices).voice);
+});
+
+test('路人性别：设定 → 名字称谓 → 正文代词，男路人只抽男池，判定稳定', () => {
+    clearTtsGenderCache();
+    const settings = { enabled: true, provider: 'api', api: { female: 'f1\nf2', male: 'm1\nm2' } };
+    const voice = (speaker, context) => resolveTtsVoice({ textType: 'dialogue', speaker, context }, settings, {}).voice;
+    for (const n of ['王大叔', '李大爷', '张先生', '赵老头', '陈伯']) assert.ok(['m1', 'm2'].includes(voice(n)), n);
+    for (const n of ['王阿姨', '李大妈', '张奶奶', '赵小姐']) assert.ok(['f1', 'f2'].includes(voice(n)), n);
+    // 名字没有称谓：看正文名字附近的代词
+    assert.ok(['m1', 'm2'].includes(voice('老王', '老王抬起头，他看了看四周。')));
+    assert.ok(['f1', 'f2'].includes(voice('小红', '小红笑了笑，她转身离开。')));
+    // 已缓存：之后没有正文也保持同性别
+    assert.ok(['m1', 'm2'].includes(voice('老王')));
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '老王' }, settings, {}).gender, 'male');
+    // 设定里的性别优先于称谓
+    const assets = { characterDna: { 王大叔: { identity: '1girl, female' } } };
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '王大叔' }, settings, assets).gender, 'female');
+});
+
+test('路人没有 DNA 时按本聊天生成立绘的 tag 判性别', () => {
+    const settings = { enabled: true, provider: 'api', api: { female: 'F1', male: 'M1' } };
+    const male = resolveTtsVoice({ textType: 'dialogue', speaker: '路人丙', text: '让一让', spriteTags: { 路人丙: '1boy, short hair' } }, settings, {});
+    assert.equal(male.gender, 'male');
+    assert.equal(male.voice, 'M1');
 });
