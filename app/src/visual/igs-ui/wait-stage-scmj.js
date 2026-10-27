@@ -995,7 +995,6 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
             return;
         }
         match.answer({ dapai: id });
-        paint();
     }
 
     function paintActions(player) {
@@ -1010,7 +1009,6 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
                 const confirm = press('确认换牌', 'igs-scmj-confirm', () => {
                     if (selected.length !== 3) return;
                     match.answer({ huan: selected.map((index) => player.holds[index]) });
-                    paint();
                 });
                 confirm.disabled = selected.length !== 3;
                 return;
@@ -1020,24 +1018,23 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
                 SUIT_NAME.forEach((name, que) => {
                     press(name, que === hint ? 'is-hint' : '', () => {
                         match.answer({ que });
-                        paint();
                     });
                 });
                 return;
             }
             if (player.pending === 'action' && player.action) {
-                if (player.action.hu) press('胡', 'is-win', () => { match.answer({ hu: true }); paint(); });
+                if (player.action.hu) press('胡', 'is-win', () => match.answer({ hu: true }));
                 if (player.action.gang) {
                     for (const pai of player.action.gangpai) {
                         const face = youlinToCode(pai);
-                        press(`杠${tileLabel(pai)}`, 'is-call', () => { match.answer({ gang: true, pai }); paint(); }, [face, face, face, face]);
+                        press(`杠${tileLabel(pai)}`, 'is-call', () => match.answer({ gang: true, pai }), [face, face, face, face]);
                     }
                 }
                 if (player.action.peng && Number.isInteger(player.action.pai)) {
                     const face = youlinToCode(player.action.pai);
-                    press('碰', 'is-call', () => { match.answer({ peng: true }); paint(); }, [face, face, face]);
-                } else if (player.action.peng) press('碰', 'is-call', () => { match.answer({ peng: true }); paint(); });
-                press('过', 'is-skip', () => { match.answer({ guo: true }); paint(); });
+                    press('碰', 'is-call', () => match.answer({ peng: true }), [face, face, face]);
+                } else if (player.action.peng) press('碰', 'is-call', () => match.answer({ peng: true }));
+                press('过', 'is-skip', () => match.answer({ guo: true }));
             }
             if (match.controller.seats[0].hued) press('快进', 'igs-scmj-fast', () => match.setFast(true));
         }, player.pending === 'action' && player.action && (player.action.hu || player.action.peng || player.action.gang));

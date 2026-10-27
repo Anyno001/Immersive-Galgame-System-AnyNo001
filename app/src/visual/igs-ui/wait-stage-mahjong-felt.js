@@ -21,7 +21,9 @@ const ROT = [0, -90, 180, 90];
 const STAND_DEPTH = 0.72;
 const BACK = '#e2546d';
 const BACK_DEEP = '#b3304b';
-const DPR_CAP = 2.5;
+const DPR_CAP = 2;
+const FACE_W = 156;
+const FACE_H = 208;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const SCORE_FONT = '"DIN Alternate","Bahnschrift","Roboto Condensed",sans-serif';
 const UI_FONT = '"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif';
@@ -31,6 +33,17 @@ const SELF_LANDING = { x: 72, y: 47.5 };
 const ALL_FACES = ['back', ...['m', 'p', 's'].flatMap((suit) => Array.from({ length: 10 }, (_, n) => suit + n)), ...Array.from({ length: 7 }, (_, n) => `z${n + 1}`)];
 
 const faces = new Map();
+
+// 离屏画布也走 CPU：GPU 画布贴到 CPU 牌桌上每次都要回读像素。
+function cpuCanvas(doc, width, height) {
+    if (!doc || typeof doc.createElement !== 'function') return null;
+    const canvas = doc.createElement('canvas');
+    const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d', { willReadFrequently: true }) : null;
+    if (!ctx) return null;
+    canvas.width = width;
+    canvas.height = height;
+    return { canvas, ctx };
+}
 
 function faceKey(code) {
     return code === 'back' ? 'back' : String(code || '').replace(/[_*+=-]/g, '');
@@ -50,6 +63,12 @@ function faceImage(win, faceSvg, code) {
     if (!/xmlns=/.test(markup)) markup = markup.replace('<svg', `<svg xmlns="${SVG_NS}"`);
     const img = new win.Image();
     img.onload = () => {
+        // SVG 图片每次 drawImage 都可能重新栅格化，一桌一百多张；先画成固定大小的位图再贴。
+        const bitmap = cpuCanvas(win.document, FACE_W, FACE_H);
+        if (bitmap) {
+            bitmap.ctx.drawImage(img, 0, 0, FACE_W, FACE_H);
+            item.img = bitmap.canvas;
+        }
         item.ready = true;
         for (const wake of item.waiters) wake();
         item.waiters.clear();
@@ -164,7 +183,10 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
     canvas.setAttribute('aria-label', '牌桌');
     // 走 CPU 画布：GPU 画布在 Chrome 里单独成合成层，上面的气泡、按钮一出一收就重排图层，安卓上整张桌面会闪一帧；
     // CPU 画布像图片一样画进牌桌所在的层，上面怎么变都不碰它。
-    const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d', { willReadFrequently: true }) : null;
+    const main = typeof canvas.getContext === 'function' ? canvas.getContext('2d', { willReadFrequently: true }) : null;
+    // 画图的函数都画到 ctx；画底图时临时指到离屏画布。
+    let ctx = main;
+    let backdrop = null;
     let scene = null;
     let placed = [];
     let flights = [];
@@ -255,7 +277,7 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
         ctx.stroke();
     }
 
-    function drawPlaque() {
+    function drawPlaqueBase() {
         const half = PQ / 2;
         const [l, t, r, b] = [50 - half, CY - half, 50 + half, CY + half];
         polygon(feltRoundRect(l - 0.5, t - 0.5, r + 0.5, b + 0.5, 2.1));
@@ -297,7 +319,32 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
         ctx.strokeStyle = 'rgba(80,210,220,.55)';
         ctx.stroke();
         ctx.restore();
+    }
 
+    // 桌垫和计分板底色只随尺寸变，画一次留着；每次重画直接贴上去。
+    function drawBackdrop(pw, ph) {
+        const key = `${pw}x${ph}:${view.u}:${view.dpr}`;
+        if (!backdrop || backdrop.key !== key) {
+            const layer = cpuCanvas(doc, pw, ph);
+            if (!layer) {
+                drawMat();
+                drawPlaqueBase();
+                return;
+            }
+            ctx = layer.ctx;
+            try {
+                drawMat();
+                drawPlaqueBase();
+            } finally {
+                ctx = main;
+            }
+            backdrop = { key, canvas: layer.canvas };
+        }
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(backdrop.canvas, 0, 0);
+    }
+
+    function drawPlaqueText() {
         const scale = frame(50, CY, 0, PQ * 0.42);
         const left = scene.left;
         const roundY = left == null ? 0 : -0.8;
@@ -536,8 +583,8 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
         view = { u, dpr: pw / cw, ox: (cw / u - BASE_W) / 2, oy: (ch / u - BASE_H) / 2 };
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, pw, ph);
-        drawMat();
-        drawPlaque();
+        drawBackdrop(pw, ph);
+        drawPlaqueText();
         const now = clock();
         flights = flights.filter((flight) => now - flight.t0 < FLIGHT_MS);
         const landing = new Set(flights.map((flight) => flight.rel));
@@ -602,10 +649,12 @@ export function createMahjongFelt(doc, { faceSvg } = {}) {
             }
             const scores = next.seats.map((seat) => `${seat.wind}${seat.score}`).join(' ');
             canvas.setAttribute('aria-label', `牌桌 ${next.round}${next.left == null ? '' : ` 余${next.left}张`} ${scores}`);
-            render();
+            // 同一帧里连着换几次局面只画最后一幅；手机上每多画一整桌，屏幕就多落后一截。
+            wake();
         },
         destroy() {
             dead = true;
+            backdrop = null;
             if (observer) observer.disconnect();
         },
     };
