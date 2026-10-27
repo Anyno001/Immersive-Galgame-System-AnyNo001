@@ -119,6 +119,11 @@ const SCHEME_PROMPTS = Object.freeze({
 export const schemePrompts = (scheme) => SCHEME_PROMPTS[isLively(scheme) ? SCHEME_LIVELY : SCHEME_STANDARD];
 
 // 立绘模板默认值随方案取句：用户没改过（等于任一方案的默认值）才换，改过的原样保留。
+// 改过的立绘模板里与灵动取景冲突的词（旧版默认的 arms at sides、straight-on 等）不进正面。
+const tagKey = (tag) => tag.trim().toLowerCase();
+const LIVELY_SPRITE_CONFLICTS = new Set([...SCHEME_PROMPTS[SCHEME_LIVELY].templates.spriteNegative.split(','), 'straight-on'].map(tagKey));
+const dropLivelyConflicts = (text) => text.split(',').filter(part => !LIVELY_SPRITE_CONFLICTS.has(tagKey(part))).join(',');
+
 export function schemeTemplates(templates, scheme) {
     if (!isLively(scheme)) return templates;
     const standard = SCHEME_PROMPTS[SCHEME_STANDARD].templates, lively = SCHEME_PROMPTS[SCHEME_LIVELY].templates;
@@ -126,6 +131,7 @@ export function schemeTemplates(templates, scheme) {
     for (const key of ['sprite', 'spriteNegative']) {
         if (out[key] === undefined || out[key] === standard[key]) out[key] = lively[key];
     }
+    if (out.sprite !== lively.sprite) out.sprite = dropLivelyConflicts(out.sprite);
     return out;
 }
 // 当前方案下「默认值」：立绘固定词与自定义模板的比较基准。
@@ -184,6 +190,10 @@ const livelySpriteData = () => {
     text = swap(text, 'high waist, pleated dress, 1.2::white cardigan::', 'high waist, pleated dress, knee-length dress, 1.2::white cardigan::');
     text = swap(text, ', slim, narrow waist', '', 2);
     text = swap(text, '，纤细体态，', '，');
+    // 默认立绘的姿态由写词给出：平和表情加一个手势，替换程序的默认平和词。
+    text = swap(text, 'outfit_name、outfit_description、outfit_half_body；',
+        'outfit_name、outfit_description、outfit_half_body、pose；pose 用英文 TAG 写平和表情与一个符合性格的自然手势，不遮挡或不完全遮挡面部；');
+    text = swap(text, 'personality: composed, attentive, patient\n', 'personality: composed, attentive, patient\npose: light smile, closed mouth, hand on own chest\n');
     return swap(text, '半身衣装不含画外长度和腿脚细节', '半身衣装不含鞋袜与脚踝饰物');
 };
 const livelySpriteTemplate = () => swap(halfBodySwapped(swap(SPRITE_TEMPLATE, IDENTITY_RULE, LIVELY_IDENTITY_RULE)),

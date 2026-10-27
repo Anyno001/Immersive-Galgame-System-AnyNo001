@@ -145,7 +145,7 @@ export function savedExpressionTemplate(context, mood, prompts, { expression,
         positive: String(expression.positive || ''), negative: String(expression.negative || '') };
     const caption = {
         v4_prompt: { caption: { base_caption: prompts.positive, char_captions: [{
-            char_caption: creature ? `<<dna:${binding.token}>>, ${tags}` : `<<dna:${binding.token}>> <<outfit:${binding.token}>> ${tags}`,
+            char_caption: creature ? `<<dna:${binding.token}>>, ${tags}` : `<<dna:${binding.token}>>, <<outfit:${binding.token}>>, ${tags}`,
             centers,
         }] } },
         v4_negative_prompt: { caption: { base_caption: prompts.negative, char_captions: [{

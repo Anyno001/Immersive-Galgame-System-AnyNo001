@@ -994,7 +994,11 @@ export function createSettingsHost(deps) {
             // 设置搜索只就地刷新结果列表，不写草稿、不整页重绘，保留输入焦点与软键盘。
             if (target.getAttribute('data-settings-search') !== null) {
                 const list = root.querySelector('[data-settings-search-results]');
-                if (list) list.innerHTML = renderSettingsSearchResults(target.value, target.value && String(target.value).trim() ? ensureSearchIndex() || SETTINGS_SEARCH_INDEX : SETTINGS_SEARCH_INDEX);
+                const index = target.value && String(target.value).trim() ? ensureSearchIndex() || SETTINGS_SEARCH_INDEX : SETTINGS_SEARCH_INDEX;
+                // 提示词组编辑器只在内置 NAI 下渲染，外部图像来源不给找不到的入口。
+                const nai = state.activeSettings?.draft?.bridge?.imageApi?.mode === 'nai';
+                if (list) list.innerHTML = renderSettingsSearchResults(target.value,
+                    nai ? index : index.filter(entry => !entry.target?.open?.includes('image-prompt-editor')));
                 return;
             }
             if (target.tagName === 'SELECT') return; // change handles dependent fields once

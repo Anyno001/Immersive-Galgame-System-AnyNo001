@@ -122,7 +122,7 @@ test('升级：用户改过的名字不动，用户改过的灵动方案档位�
     assert.equal(registry.savePromptPreset(preset, preset.data.revision).ok, true);
     assert.equal(registry.activateImagePromptPreset(IMAGE_PROMPT_LIVELY_ID).ok, true);
     const next = createBuiltinImagePromptPresets();
-    next[1].data.defaultVersion = 2;
+    next[1].data.defaultVersion += 1;
     next[1].data.modules.find(m => m.task === 'avatar').content = '新版头像规则';
     const upgraded = registry.ensureImagePromptDefault(next);
     assert.equal(upgraded.ok, true, JSON.stringify(upgraded));
@@ -395,4 +395,37 @@ test('升级：未被选中的标准预设仍是旧默认名时只改名，不�
     other.savePromptPreset(livelyPreset, null); other.setCurrent(TYPE, IMAGE_PROMPT_LIVELY_ID);
     other.ensureImagePromptDefault(createBuiltinImagePromptPresets());
     assert.equal(other.get(TYPE, IMAGE_PROMPT_DEFAULT_ID).name, '我的方案');
+});
+
+import { spriteDataReply } from './helpers/prompt-provenance.js';
+
+// 新角色默认立绘：灵动用写词的 pose 替换默认平和词、性格不进画图词、旧版模板的垂手与正面词不进正面。
+async function newSpriteWire(t, { lively: live }) {
+    const h = builtinImageHarness({ reply: input => spriteDataReply(input, { outfitDescription: 'white shirt, black trousers',
+        personality: 'assertive, charismatic' }) + (live ? '\npose: light smile, hand on own hip' : '') });
+    t.after(() => h.dispose());
+    h.bridge.autoIllustration.assets.templates = {
+        sprite: '{tags}, solo, cowboy shot, standing,  facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}' };
+    h.registry.ensureImagePromptDefault(createBuiltinImagePromptPresets());
+    if (live) h.registry.activateImagePromptPreset(IMAGE_PROMPT_LIVELY_ID);
+    const assets = { characters: {}, characterDna: {}, scenes: {} };
+    let n = 0;
+    const service = createAssetGenerationService({ nai: h.backend, store: createIndexedDbGeneratedAssetStore({ indexedDB: createTransactionalIdb() }),
+        llm: h.llm, messageHost: { getChatId: () => 'scheme' }, getSettings: () => ({ ...h.bridge, sceneAssets: assets }),
+        matte: async url => url, report: () => {}, newId: () => `s${++n}` });
+    const result = await service.generateCharacterSprite({ name: '艾' });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    return { text: JSON.stringify(h.writes[0].request.messages), caption: h.wires[0].parameters.v4_prompt.caption };
+}
+
+test('新角色默认立绘：灵动用 pose 作手势、不带性格、旧模板垂手不进正面；标准照旧', async t => {
+    const live = await newSpriteWire(t, { lively: true });
+    assert.match(live.text, /pose 用英文 TAG 写平和表情与一个符合性格的自然手势/);
+    const char = live.caption.char_captions[0].char_caption;
+    assert.match(char, /, white shirt, black trousers, light smile, hand on own hip$/);
+    assert.doesNotMatch(char, /assertive|calm, relaxed/);
+    assert.doesNotMatch(live.caption.base_caption, /arms at sides|straight-on/);
+    const std = await newSpriteWire(t, { lively: false });
+    assert.match(std.caption.char_captions[0].char_caption, /, assertive, charismatic, white shirt, black trousers, calm, relaxed, closed mouth$/);
+    assert.doesNotMatch(std.caption.base_caption, /arms at sides/);
 });

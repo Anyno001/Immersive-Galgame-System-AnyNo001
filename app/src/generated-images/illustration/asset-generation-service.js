@@ -9,7 +9,7 @@ import { characterGenerationSeed, sceneGenerationSeed } from '../../scene/genera
 import { numberParagraphs } from './marker-placer.js';
 import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
 import { buildAssetPlannerUserPrompt, parseAssetPlan, buildAssetSlot, buildDictionaryAssetItems } from './asset-prompt.js';
-import { requestWithSoftRetry } from './prompt-kit.js';
+import { requestWithSoftRetry, normalizeMatteColor } from './prompt-kit.js';
 import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './auto-illustration-settings.js';
 import { ASSET_PLANNER_SYSTEM_PROMPT, ASSET_PLANNER_SOFT_SYSTEM_PROMPT } from './asset-prompt.js';
 import { cgSizeForMode } from './auto-illustration-service.js';
@@ -176,6 +176,7 @@ export function createAssetGenerationService(deps) {
             // 没写过这个开关时沿用旧行为：数据库生图的立绘打开透明底。
             dbgenSpriteTransparent: imageApi.dbgenSpriteTransparent !== false,
             naiSpriteTransparent: imageApi.naiSpriteTransparent !== false,
+            matteColor: normalizeMatteColor(imageApi.spriteMatteColor),
             externalSpriteDna: imageApi.externalSpriteDna === true,
             promptScheme: schemeFor(signal),
             imageApi,
@@ -505,6 +506,7 @@ export function createAssetGenerationService(deps) {
             ? { ...item, need: { ...item.need, dna: undefined } } : item, {
             transparent,
             whiteBackground: isSprite && (plannedVia === 'nai' || plannedVia === 'dbgen') && !transparent,
+            matteColor: s.matteColor,
             templates: s.auto.assets.templates,
             positiveContext: s.auto.nai.artistPrefix,
             scheme: s.promptScheme,
@@ -841,8 +843,8 @@ export function createAssetGenerationService(deps) {
                 const caption = found && found.caption;
                 const seed = spriteSeed(item.need.name, undefined, s.taskSignal);
                 const slot = buildAssetSlot({ need: { type: 'sprite', name: item.need.name }, tags: '', uc: '' },
-                    { transparent, whiteBackground: !transparent, templates: s.auto.assets.templates, scheme: s.promptScheme });
-                const prompts = creature ? creatureFixedPrompts(profile, { transparent, whiteBackground: !transparent })
+                    { transparent, whiteBackground: !transparent, matteColor: s.matteColor, templates: s.auto.assets.templates, scheme: s.promptScheme });
+                const prompts = creature ? creatureFixedPrompts(profile, { transparent, whiteBackground: !transparent, matteColor: s.matteColor })
                     : expressionSpritePrompts(slot.scene, slot.sceneUc, s.promptScheme);
                 let result;
                 if (!caption) {
@@ -1431,13 +1433,14 @@ export function createAssetGenerationService(deps) {
         const via = describeTask(signal).via;
         const transparent = spriteTransparent(s);
         // 非人角色使用独立的固定词、取景与画布。
-        if (creature) return creaturePaintMeta(creature, { transparent, whiteBackground: (via === 'nai' || via === 'dbgen') && !transparent,
+        if (creature) return creaturePaintMeta(creature, { transparent, whiteBackground: (via === 'nai' || via === 'dbgen') && !transparent, matteColor: s.matteColor,
             ...(!template && { positiveContext: s.auto.nai.artistPrefix }), spriteSize: s.auto.assets.spriteSize, signal });
         const slot = buildAssetSlot(
             { need: { type: 'sprite', name: '' }, tags: '', uc: '' },
             {
                 transparent,
                 whiteBackground: (via === 'nai' || via === 'dbgen') && !transparent,
+                matteColor: s.matteColor,
                 templates: s.auto.assets.templates,
                 fixedSpritePrompts: template,
                 scheme: s.promptScheme,

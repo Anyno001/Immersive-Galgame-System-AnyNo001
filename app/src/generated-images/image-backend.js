@@ -15,6 +15,7 @@ import { recoverOperation, trackRecovery, waitForRecovery } from '../storage/aut
 import { checkPromptTask, isSceneOnlyPromptOutput } from '../schemas/prompt-recipe.js';
 import { prepareCharacterCaption } from './character-caption.js';
 import { runImageTask, staleImageTask, inheritImageTaskLease, imageTaskState } from './image-task-runtime.js';
+import { spriteSchemeOf, SCHEME_LIVELY } from './prompt-scheme.js';
 import { imageWritingContext } from './image-prompt-context.js';
 import { externalPromptDescription, externalCaptionFailure } from './external-prompt-reference.js';
 
@@ -590,7 +591,8 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
     async function paintCaption(meta) {
         const userPrompts = meta.userPrompts && typeof meta.userPrompts === 'object' ? meta.userPrompts : null;
         if (describe(undefined, meta).mode === 'nai') {
-            const prepared = prepareCharacterCaption(meta);
+            const lively = spriteSchemeOf(imageTaskState(meta)?.promptPreset?.data).id === SCHEME_LIVELY;
+            const prepared = prepareCharacterCaption(lively ? { ...meta, omitPersonality: true } : meta);
             if (!prepared.ok) return prepared;
             if (prepared.captionMode === 'final') {
                 if (String(userPrompts?.positive || '').trim() || String(userPrompts?.negative || '').trim())

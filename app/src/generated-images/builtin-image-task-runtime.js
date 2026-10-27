@@ -18,6 +18,7 @@ export function imageTaskConfig(bridge = {}) {
             .map(key => [key, String(api[key] || '').trim()])),
         dbgenSpriteTransparent: api.dbgenSpriteTransparent !== false,
         naiSpriteTransparent: api.naiSpriteTransparent !== false,
+        spriteMatteColor: String(api.spriteMatteColor || 'auto'),
         externalSpriteDna: api.externalSpriteDna === true,
     }, autoIllustration,
         itemImages: normalizeItemImageSettings(bridge.itemImages),

@@ -37,11 +37,24 @@ export function createImagePromptLlm(llm, registry, taskRuntime, resolveWorldInf
                 worldInfo: reference.ok ? reference.text : '' });
         }
         return rendered.ok ? { ...rendered, presetId: current.id }
-            : { ...rendered, presetFailure: true, error: '当前生图提示词预设或任务资料无效，未发送写词请求' };
+            : { ...rendered, presetFailure: true, error: `当前生图提示词预设或任务资料无效，未发送写词请求${failureDetail(rendered)}` };
+    };
+    // 外部图像来源写完整画面词：当前预设的该任务没有这一格式时退回通用写词，不让请求在装配处被拦。
+    wrapped.imagePromptHasFormat = (task, format, input) => {
+        const current = imageTaskState(input)?.promptPreset || registry.getCurrent('prompt-preset');
+        const data = completeImagePromptPreset(current?.data || createBuiltinImagePromptPresets()[0].data);
+        const module = Array.isArray(data?.modules) && data.modules.find(item => item?.identifier === data.taskMap?.[task]);
+        return Boolean(module) && (module.contentByFormat === undefined || Object.hasOwn(module.contentByFormat, format));
     };
     if (typeof llm?.request === 'function') wrapped.request = llm.request.bind(llm);
     if (typeof llm?.fetchModels === 'function') wrapped.fetchModels = llm.fetchModels.bind(llm);
     return wrapped;
+}
+
+// 只带原因代码与字段名，不带资料正文或密钥。
+function failureDetail(result) {
+    const field = result.errors?.find(item => typeof item?.field === 'string')?.field;
+    return result.reason ? `（${result.reason}${field ? `：${field}` : ''}）` : '';
 }
 
 // 老的独立调用不添加可选字段；正式装配链才启用有序生图预设。

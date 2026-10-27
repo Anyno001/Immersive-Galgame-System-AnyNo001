@@ -135,6 +135,10 @@ async function writeCaptions(llm, llmSettings, description, meta) {
     if (!llm || typeof llm.request !== 'function') return { ok: false, error: `副 LLM 不可用：${LLM_SETUP_HINT}` };
     const user = String(description || '').trim();
     if (!user) return { ok: false, error: '没有可交给副 LLM 的画面描述' };
+    const task = meta.imagePromptTask || 'sprite';
+    // 预设里该任务没有完整画面词格式（表情、换装、CG 等）时走通用写词，资料已写进 description。
+    const preset = typeof llm.prepareImagePrompt === 'function'
+        && (typeof llm.imagePromptHasFormat !== 'function' || llm.imagePromptHasFormat(task, 'caption-slots', meta));
     const result = await requestWithSoftRetry(llm, {
         validateSettings: describeLlmReady,
         system: CAPTION_WRITER_SYSTEM,
@@ -143,7 +147,7 @@ async function writeCaptions(llm, llmSettings, description, meta) {
         ...(meta.signal && { signal: meta.signal }),
         ...(meta.shouldStart && { shouldStart: meta.shouldStart }),
         ...(meta.onRecovery && { onRecovery: meta.onRecovery }),
-        imagePrompt: { task: meta.imagePromptTask || 'sprite', input: { description: user,
+        ...(preset && { imagePrompt: { task, input: { description: user,
             ...(meta.contextMode !== undefined && { contextMode: meta.contextMode }),
             ...(meta.originalPrompt !== undefined && { originalPrompt: meta.originalPrompt }),
             ...(meta.layout !== undefined && { layout: meta.layout }),
@@ -153,8 +157,8 @@ async function writeCaptions(llm, llmSettings, description, meta) {
             ...(meta.lore !== undefined && { lore: meta.lore }),
             ...(meta.userPrompts !== undefined && { userPrompts: meta.userPrompts }),
             ...(meta.writingRequirements !== undefined && { writingRequirements: meta.writingRequirements }),
-            outputs: { ...meta.outputs, format: 'caption-slots' } } },
-        parse: reply => parseCaptionSlots(reply, typeof llm.prepareImagePrompt === 'function' && meta.outputs?.slotIds
+            outputs: { ...meta.outputs, format: 'caption-slots' } } } }),
+        parse: reply => parseCaptionSlots(reply, preset && meta.outputs?.slotIds
             ? { slotIds: meta.outputs.slotIds,
                 noCharacters: meta.imagePromptTask === 'background' || meta.imagePromptTask === 'wardrobe' }
             : {}),

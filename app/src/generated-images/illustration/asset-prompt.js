@@ -1,7 +1,7 @@
 // 素材补全（缺失背景 / 无名角色立绘）的 LLM 提示词与 NAI slot 组装。
 // 副 LLM 只写「内容」tag（地点陈设、外貌服装）；构图、底色、禁止项走可编辑模板，
 // 保证背景图里没有人、立绘始终是单人 3/4 身 + 可抠除的浅灰纯色底。
-import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, DEFAULT_ASSET_TEMPLATES, MATTE_BACKGROUND_TAGS, WHITE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, applyTemplate, dropMatteTagsWhenTransparent, dropWhiteBackgroundNegative, buildDictionaryBackgroundTags } from './prompt-kit.js';
+import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, DEFAULT_ASSET_TEMPLATES, NSFW_NEGATIVE_GUARD, applyTemplate, dropMatteTagsWhenTransparent, dropGroundNegative, resolveMatteGround, matteGroundTags, buildDictionaryBackgroundTags } from './prompt-kit.js';
 import { composeSpritePromptParts, spriteExpressionTags } from '../sprite-prompt-composition.js';
 import { schemeTemplates, schemeTemplateDefaults, performanceTags } from '../prompt-scheme.js';
 import { buildCreatureAssetSlot } from '../creature-sprite.js';
@@ -120,7 +120,7 @@ function joinTags(...parts) {
 }
 
 // 生成可直接交给 buildNaiV4Request 的 slot；transparent 为 true 时走 V5 原生透明底。
-export function buildAssetSlot(item, { transparent = false, whiteBackground = false, templates = {}, positiveContext = '', fixedSpritePrompts = false, scheme } = {}) {
+export function buildAssetSlot(item, { transparent = false, whiteBackground = false, matteColor = 'auto', templates = {}, positiveContext = '', fixedSpritePrompts = false, scheme } = {}) {
     const defaults = schemeTemplateDefaults(scheme, DEFAULT_ASSET_TEMPLATES);
     const t = schemeTemplates({ ...DEFAULT_ASSET_TEMPLATES, ...templates }, scheme);
     const customSprite = fixedSpritePrompts && t.sprite !== defaults.sprite;
@@ -132,12 +132,12 @@ export function buildAssetSlot(item, { transparent = false, whiteBackground = fa
         };
     }
     // 非人角色走独立的固定词与取景，人类立绘词不借用。
-    if (creatureOf(item.need.dna)) return buildCreatureAssetSlot(item, { transparent, whiteBackground, positiveContext });
+    if (creatureOf(item.need.dna)) return buildCreatureAssetSlot(item, { transparent, whiteBackground, matteColor, positiveContext });
     // 角色词只组合一次；有可用 DNA 时，模型 tags 仅供应当次变化，不作为第二份外貌来源。
     const dnaParts = composeSpritePromptParts(item.need.dna, { expression: spriteExpressionTags(item.tags, scheme) });
     const tags = dnaParts ? dnaParts.positive : item.tags;
-    const useWhite = whiteBackground && !transparent;
-    const matte = transparent ? TRANSPARENT_BACKGROUND_TAGS : (useWhite ? WHITE_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS);
+    const ground = resolveMatteGround({ transparent, whiteBackground, matteColor });
+    const matte = matteGroundTags(ground);
     // 资料式立绘的固定取景、底色及排除项属于程序模板；自定义词只追加，不替掉这些片段。
     const fixed = customSprite
         ? joinTags(applyTemplate(t.sprite, { tags, matte: '' }), applyTemplate(defaults.sprite, { tags: '', matte }))
@@ -150,7 +150,7 @@ export function buildAssetSlot(item, { transparent = false, whiteBackground = fa
     const sceneUc = joinTags(t.spriteNegative, fixedNegative, performance.negative, dnaParts ? dnaParts.negative : '', NSFW_NEGATIVE_GUARD, item.uc);
     return {
         scene: dropMatteTagsWhenTransparent(positive, positiveContext),
-        sceneUc: useWhite ? dropWhiteBackgroundNegative(sceneUc) : sceneUc,
+        sceneUc: dropGroundNegative(sceneUc, ground),
         chars: [],
         transparent,
     };

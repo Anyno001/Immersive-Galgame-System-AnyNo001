@@ -18,7 +18,7 @@ export const IMAGE_PROMPT_DEFAULT_ID = 'igs-imagegen-default-v1';
 export const IMAGE_PROMPT_DEFAULT_VERSION = 36;
 export const IMAGE_PROMPT_DEFAULT_NAME = 'IGS内置方案·标准';
 export const IMAGE_PROMPT_LIVELY_ID = 'igs-imagegen-lively-v1';
-export const IMAGE_PROMPT_LIVELY_VERSION = 1;
+export const IMAGE_PROMPT_LIVELY_VERSION = 2;
 export const IMAGE_PROMPT_LIVELY_NAME = 'IGS内置方案·灵动';
 
 // taskMap 选择用途，contentByFormat 仅选择该用途允许的协议。

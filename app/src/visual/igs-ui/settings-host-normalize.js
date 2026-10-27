@@ -88,6 +88,8 @@ export function normalizeEntryConfig(value) {
     };
 }
 
+const SPRITE_MATTE_COLORS = Object.freeze(['auto', 'white', 'grey', 'green', 'purple']);
+
 export function normalizeImageApi(value) {
     const normalized = {
         ...cloneData(DEFAULT_IMAGE_API),
@@ -98,6 +100,7 @@ export function normalizeImageApi(value) {
         : [];
     normalized.dbgenSpriteTransparent = normalized.dbgenSpriteTransparent !== false;
     normalized.naiSpriteTransparent = normalized.naiSpriteTransparent !== false;
+    normalized.spriteMatteColor = SPRITE_MATTE_COLORS.includes(normalized.spriteMatteColor) ? normalized.spriteMatteColor : 'auto';
     normalized.externalSpriteDna = normalized.externalSpriteDna === true;
     return normalized;
 }

@@ -589,7 +589,7 @@ test('gate:builtin-entry:v4身份衣装动态分层发送且采用资料不串�
     assert.doesNotMatch(JSON.stringify(image.promptRecipe), /serious expression|looks alert/);
     assert.match(image.promptRecipe.caption.v4_prompt.caption.char_captions[0].char_caption, /<<outfit:.*calm, relaxed, closed mouth/);
     assert.equal(f.wires[0].parameters.v4_prompt.caption.char_captions[0].char_caption,
-        `${identity} ${outfit} calm, relaxed, closed mouth`);
+        `${identity}, ${outfit}, calm, relaxed, closed mouth`);
     assert.deepEqual(f.assets, before, '生成和准备采用都不直接改已有资料');
 });
 

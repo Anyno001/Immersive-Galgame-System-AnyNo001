@@ -47,6 +47,7 @@ const FEATURE_ALIASES = Object.freeze({
 // 旧叫法（皮肤、副LLM、清除素材缓存）留作别名，老用户照旧搜得到。
 const EXTRA_ENTRIES = Object.freeze([
     { id: 'nai-sprite-transparent', label: '内置 NAI 立绘透明底', aliases: ['NAI', '透明底', 'V5', '抠图'], page: 'source', path: 'bridge.imageApi.naiSpriteTransparent' },
+    { id: 'sprite-matte-color', label: '抠图底色', aliases: ['抠图', '绿底', '紫底', '灰底', '白底', '绿幕'], page: 'source', path: 'bridge.imageApi.spriteMatteColor' },
     { id: 'external-sprite-dna', label: '外部生图前补齐角色 DNA', aliases: ['副API', '副 API', '备用模型', '外部立绘', 'dbgen', '建档'], page: 'source', path: 'bridge.imageApi.externalSpriteDna' },
     { id: 'image-prompt-presets', label: '提示词组', aliases: ['固定提示词组预设', '生图预设', '提示块', '导入预设', '编辑提示词'], page: 'llm', open: ['image-prompt-editor'] },
     { id: 'artist-library', label: '画师串库', aliases: ['画师', '导入画师', '选择画师', '画师库'], page: 'kinds' },

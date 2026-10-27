@@ -158,6 +158,9 @@ export function normalizeSettingsValue(path, value) {
         || path === 'bridge.imageApi.externalSpriteDna') {
         return !(value === false || value === 'false' || value === 0 || value === '0');
     }
+    if (path === 'bridge.imageApi.spriteMatteColor') {
+        return ['auto', 'white', 'grey', 'green', 'purple'].includes(value) ? value : 'auto';
+    }
     if (path === 'bridge.imageCache.maxCount') return normalizeImageCacheCount(value);
     if (path === 'bridge.imageCache.compressDisplay') return !(value === false || value === 'false' || value === 0 || value === '0');
     return value;

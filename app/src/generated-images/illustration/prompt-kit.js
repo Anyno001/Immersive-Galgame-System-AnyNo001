@@ -124,8 +124,8 @@ export async function requestWithSoftRetry(llm, options, llmSettings) {
                     page: 'llm', actionLabel: '打开备用模型',
                 };
                 if (!dispatched && guarded.imagePrompt && result?.presetFailure) return {
-                    message: `写词预设尚未就绪：${recoveryFailureText(result)}。请修正并保存或启用预设；生效后自动继续本次任务。`,
-                    page: 'rules', actionLabel: '打开写法规则',
+                    message: `写词预设尚未就绪：${recoveryFailureText(result)}。请在备用模型的提示词组中修正并保存或启用预设；生效后自动继续本次任务。`,
+                    page: 'llm', actionLabel: '打开提示词组',
                 };
                 return null;
             },
@@ -242,16 +242,43 @@ export const MATTE_BACKGROUND_TAGS = BUILTIN_PROMPTS.ground.matte;
 export const WHITE_BACKGROUND_TAGS = BUILTIN_PROMPTS.ground.white;
 export const TRANSPARENT_BACKGROUND_TAGS = BUILTIN_PROMPTS.ground.transparent;
 
-// 用户在模板 / 画师串里已经要透明底（含加权写法）时，摘掉自动补的灰底词，免得正向词里两种底色打架。
-const MATTE_TAG_KEYS = new Set(MATTE_BACKGROUND_TAGS.split(',').map((t) => t.trim()));
+// 抠图底色：auto 沿用出图方默认（内置 NAI / 数据库生图白底，其余浅灰底），其余为用户自选。
+export const MATTE_COLORS = Object.freeze(['auto', 'white', 'grey', 'green', 'purple']);
+const GROUND_TAGS = Object.freeze({
+    white: WHITE_BACKGROUND_TAGS,
+    grey: MATTE_BACKGROUND_TAGS,
+    green: BUILTIN_PROMPTS.ground.green,
+    purple: BUILTIN_PROMPTS.ground.purple,
+});
+export function normalizeMatteColor(value) {
+    return MATTE_COLORS.includes(value) ? value : 'auto';
+}
+// 透明底时返回空串；自选底色优先，auto 时按 whiteBackground 取白底或浅灰底。
+export function resolveMatteGround({ transparent = false, whiteBackground = false, matteColor = 'auto' } = {}) {
+    if (transparent) return '';
+    const color = normalizeMatteColor(matteColor);
+    return color !== 'auto' ? color : (whiteBackground ? 'white' : 'grey');
+}
+export function matteGroundTags(ground) {
+    return ground ? GROUND_TAGS[ground] || MATTE_BACKGROUND_TAGS : TRANSPARENT_BACKGROUND_TAGS;
+}
+
+// 用户在模板 / 画师串里已经要透明底（含加权写法）时，摘掉自动补的底色词，免得正向词里两种底色打架。
+const MATTE_TAG_KEYS = new Set([MATTE_BACKGROUND_TAGS, BUILTIN_PROMPTS.ground.green, BUILTIN_PROMPTS.ground.purple]
+    .join(',').split(',').map((t) => t.trim()));
 export function dropMatteTagsWhenTransparent(prompt, context = '') {
     if (!/transparent background/i.test(`${prompt} ${context}`)) return prompt;
     return String(prompt || '').split(',').map((t) => t.trim()).filter((t) => t && !MATTE_TAG_KEYS.has(t.toLowerCase())).join(', ');
 }
 
-// 要白底时，负面里的 white background 会和正向对着干，摘掉。
+// 负面里与所选底色同名的 background 词会和正向对着干，摘掉。
+export function dropGroundNegative(prompt, ground) {
+    if (!ground) return prompt;
+    const key = `${ground} background`;
+    return String(prompt || '').split(',').map((t) => t.trim()).filter((t) => t && t.toLowerCase() !== key).join(', ');
+}
 export function dropWhiteBackgroundNegative(prompt) {
-    return String(prompt || '').split(',').map((t) => t.trim()).filter((t) => t && t.toLowerCase() !== 'white background').join(', ');
+    return dropGroundNegative(prompt, 'white');
 }
 
 export function applyTemplate(template, vars = {}) {

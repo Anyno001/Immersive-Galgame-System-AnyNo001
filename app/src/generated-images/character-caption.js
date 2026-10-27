@@ -15,8 +15,8 @@ function freeze(value) {
 }
 
 // 普通 CG 可消费本次写词的身份旁路；不补建 DNA，也不替换身份错绑或非法资料。
-export function readCaptionIdentity(dna, framing, purpose, metadata) {
-    const saved = readCharacterDnaView(dna, framing);
+export function readCaptionIdentity(dna, framing, purpose, metadata, options) {
+    const saved = readCharacterDnaView(dna, framing, options);
     if (saved.ok) return { ...saved, source: 'saved' };
     if (purpose !== 'cg' || !['DNA_MISSING', 'DNA_VIEW_MISSING'].includes(saved.reason)) return saved;
     if (dna?.version !== undefined && dna.version !== 2)
@@ -100,7 +100,7 @@ export function prepareCharacterCaption(input = {}) {
         const dna = candidate ? { ...normalizeCharacterDna(saved), version: 2, views: candidate.views,
             ...(candidate.personality !== undefined && { personality: candidate.personality }) } : saved;
         const metadata = input.characterMeta?.characters?.find((c) => c.characterKey === b.characterKey && c.captionIndex === b.captionIndex);
-        const view = readCaptionIdentity(dna, b.framing, selected.value?.purpose, metadata);
+        const view = readCaptionIdentity(dna, b.framing, selected.value?.purpose, metadata, { personality: input.omitPersonality !== true });
         if (!view.ok) return { ...view, characterKey: b.characterKey, framing: b.framing };
         const correcting = checked.value.identityMode === 'appearance_correction';
         const identity = correcting ? b.correction : view.value;

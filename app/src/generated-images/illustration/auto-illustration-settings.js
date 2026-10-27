@@ -35,16 +35,18 @@ export const isConsistencyModelValid = (value) => CONSISTENCY_MODEL_OPTIONS.some
 
 // 模板留空视为恢复内置模板；背景/立绘正向模板必须含 {tags}，否则 LLM 的内容会被丢掉。
 // 只迁移可确认的旧内置原样副本；自定义模板保持原值。
+// 旧版原样副本按标签比对，空格、换行差异不影响识别。
+const templateKey = (text) => text.split(',').map(part => part.trim()).filter(Boolean).join(',');
 const LEGACY_SPRITE_TEMPLATES = new Set([
     '{tags}, solo, upper body, framed from the top of the head to the hips, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
     '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, arms at sides, centered, {matte}',
     '{tags}, solo, cowboy shot, standing, facing viewer, looking at viewer, straight-on, centered, {matte}',
-]);
+].map(templateKey));
 const LEGACY_SPRITE_NEGATIVES = new Set([
     'multiple views, 2girls, 2boys, multiple girls, multiple boys, crowd, close-up, portrait, upper body, full body, feet, head out of frame, cropped arms, scenery, detailed background, white background, gradient background, patterned background, drop shadow, floor, furniture, holding weapon, text, speech bubble, watermark, signature, frame, border',
     'multiple views, 2girls, 2boys, multiple girls, multiple boys, crowd, close-up, portrait, full body, feet, head out of frame, cropped arms, scenery, detailed background, white background, gradient background, patterned background, drop shadow, floor, furniture, holding weapon, text, speech bubble, watermark, signature, frame, border',
     'multiple views, 2girls, 2boys, multiple girls, multiple boys, crowd, close-up, portrait, full body, feet, head out of frame, cropped arms, 1.5::scenery, detailed background::, white background, 1.5::gradient background, patterned background, drop shadow, floor, furniture::, holding weapon, text, speech bubble, watermark, signature, frame, border',
-]);
+].map(templateKey));
 
 function normalizeTemplates(value) {
     const src = value && typeof value === 'object' ? value : {};
@@ -52,8 +54,8 @@ function normalizeTemplates(value) {
     for (const [key, fallback] of Object.entries(DEFAULT_ASSET_TEMPLATES)) {
         const text = typeof src[key] === 'string' ? src[key].trim() : '';
         const needsTags = key === 'background' || key === 'sprite';
-        const legacy = key === 'sprite' ? LEGACY_SPRITE_TEMPLATES.has(text)
-            : key === 'spriteNegative' && LEGACY_SPRITE_NEGATIVES.has(text);
+        const legacy = key === 'sprite' ? LEGACY_SPRITE_TEMPLATES.has(templateKey(text))
+            : key === 'spriteNegative' && LEGACY_SPRITE_NEGATIVES.has(templateKey(text));
         out[key] = text && !legacy && (!needsTags || text.includes('{tags}')) ? text : fallback;
     }
     return out;
