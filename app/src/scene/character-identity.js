@@ -69,7 +69,7 @@ export function prepareSpriteIdentityAdoption(assets, name, imageId, record = {}
         || (candidate.personality !== undefined && snapshot[0].profile?.personality !== candidate.personality))
         return fail('DNA_ADOPTION_INVALID');
     // 显式立绘转换可补齐旧身份的景别，但旧字段及已存在景别必须原样保留。
-    const nextDna = { ...dna, version: 2, views: structuredClone({ ...candidate.views, ...dna.views }),
+    const nextDna = { ...dna, version: 2, views: structuredClone({ ...candidate.views, ...Object.fromEntries(Object.entries(dna.views || {}).filter(([, view]) => view.subject)) }),
         ...(dna.personality === undefined && candidate.personality !== undefined && { personality: candidate.personality }),
         identityInitialized: true, identitySource: dna.identitySource || imageId };
     return { ok: true, ...(clothes.outfitName && { outfitName: clothes.outfitName }),

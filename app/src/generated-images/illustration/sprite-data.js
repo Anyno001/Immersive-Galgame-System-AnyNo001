@@ -1,5 +1,5 @@
 // 资料／表情协议不接收画面正文；默认立绘由程序模板组装。
-import { CHARACTER_DNA_REQUIRED_VIEWS, CHARACTER_DNA_VIEWS, checkDnaViews, checkCharacterPersonality } from '../../scene/character-dna.js';
+import { CHARACTER_DNA_REQUIRED_VIEWS, CHARACTER_DNA_VIEWS, checkDnaViews, checkCharacterPersonality, characterDnaIdentityCleared } from '../../scene/character-dna.js';
 import { isValidOutfitName } from '../../scene/character-outfits.js';
 import { savedExpressionTemplate, bindAutoSpriteOutfitNames } from './character-prompt-task.js';
 import { checkPromptOutput, checkPromptTask } from '../../schemas/prompt-recipe.js';
@@ -127,6 +127,8 @@ function readIdentity(row, source, purpose) {
     const missingViews = CHARACTER_DNA_REQUIRED_VIEWS.some(view => !source.dna?.views?.[view]?.subject?.trim());
     const missingPersonality = source.dna?.personality === undefined;
     if (purpose !== 'sprite') return hasViews || hasPersonality ? fail('identity', 'unexpected') : { ok: true, outfit };
+    // 手动清空了部分景别：不补建，模型多写的身份丢弃，不判失败。
+    if (characterDnaIdentityCleared(source.dna)) return { ok: true, outfit };
     if (!missingViews && !missingPersonality) {
         if (hasViews || (hasPersonality && row.personality !== source.dna.personality)) return fail('identity', 'preserved');
         return { ok: true, outfit };

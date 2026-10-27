@@ -270,6 +270,8 @@ export function checkPromptOutput(item, task, context) {
     if (task?.purpose === 'sprite') {
         for (const b of recipe.value.bindings.filter((b) => b.kind === 'named')) {
             const dna = context?.find((c) => c.characterKey === b.characterKey)?.dna;
+            // 手动清空部分景别的角色不补建；本次景别仍有身份即可出图。
+            if (characterDnaIdentityCleared(dna) && dna?.views?.[b.framing]?.subject?.trim()) continue;
             if (!CHARACTER_DNA_REQUIRED_VIEWS.every((f) => dna?.views?.[f]?.subject?.trim())
                 && !candidates.value?.characters.some((c) => c.characterKey === b.characterKey))
                 return fail(dna?.identity?.trim() || Object.values(dna?.views || {}).some((v) => v.subject?.trim())

@@ -144,6 +144,11 @@ export function normalizeCharacterDna(raw) {
         if (Array.isArray(source.clearedViews)) dna.clearedViews = [...new Set(source.clearedViews)]
             .filter(view => CHARACTER_DNA_VIEWS.includes(view) && !dna.views[view]?.subject);
     }
+    // 身份全部清空视为重置：解除锁定，下次默认立绘重新建档；只清部分景别仍锁定。
+    if (dna.identityInitialized && !dna.identity && !dna.triggerWords
+        && !Object.values(dna.views || {}).some(view => view.subject)) {
+        delete dna.identityInitialized; delete dna.identitySource; delete dna.clearedViews;
+    }
     return dna;
 }
 
