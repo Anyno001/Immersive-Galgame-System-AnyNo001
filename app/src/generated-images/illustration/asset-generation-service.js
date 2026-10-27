@@ -24,7 +24,8 @@ import { normalizeStoredPrompt, promptFromCaption, promptProvenance, storedPromp
 import { promptTimeBucket, sceneVariantCaption, sceneVariantTags } from '../scene-variant-tags.js';
 import { sceneTimeBucket } from '../../scene/time-bucket.js';
 import { extractSceneDirectives, resolveCharacterKey } from '../../scene/scene-directives.js';
-import { createOutfitResolver, isValidOutfitName } from '../../scene/character-outfits.js';
+import { createOutfitResolver, isValidOutfitName, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
+import { prepareCharacterDnaSave } from '../../scene/character-dna-preparation.js';
 import { normalizeCharacterDna, isCharacterDnaEmpty, resolveCharacterDna, CHARACTER_DNA_REQUIRED_VIEWS } from '../../scene/character-dna.js';
 import { buildCharacterContext, spriteAdoptionEvidence } from '../../scene/character-identity.js';
 import { outfitAdoptionEvidence } from '../../scene/outfit-identity.js';
@@ -746,7 +747,31 @@ export function createAssetGenerationService(deps) {
                 name ? { name, prompt: description } : undefined,
                 s.sceneAssets)[0]];
         })) : null;
-        const putSpriteRecord = async (item, result) => {
+        // 写词即存：写词返回的身份 DNA 与新衣装立刻入库，不等图片入库；记下改动供丢弃图片时还原。
+        const saveWrittenProfile = (input, characterName) => {
+            if (externalSource(s.taskSignal) || typeof deps.captureCharacterDnaTarget !== 'function') return undefined;
+            let target;
+            try { target = deps.captureCharacterDnaTarget(characterName); } catch { return undefined; }
+            if (!target || (target.owner && target.scope && target.owner !== target.scope)) return undefined;
+            const prepared = prepareCharacterCaption(input);
+            if (!prepared.ok) return undefined;
+            const write = { version: 1, character: target.name, scope: target.scope, owner: target.owner || '' };
+            const candidate = prepared.dnaCandidates?.characters?.find(c => c.characterKey === target.name);
+            if (candidate) {
+                const before = target.rawDna?.() ?? null;
+                const dna = prepareCharacterDnaSave(target.dna, candidate, target.name);
+                const saved = dna.ok ? target.save(dna.dna) : null;
+                if (saved?.ok) write.dna = { before, after: target.rawDna?.() ?? saved.dna };
+            }
+            const clothing = prepared.outfitSnapshot?.characters?.find(c => c.characterKey === target.name && c.source === 'candidate');
+            if (clothing && isValidOutfitName(clothing.name) && !isBuiltinNudeOutfit(clothing.name) && typeof target.saveOutfit === 'function') {
+                const saved = target.saveOutfit(clothing);
+                if (saved?.ok && saved.created) write.outfit = { name: saved.name, entry: saved.entry,
+                    ...(saved.wardrobeKey && { wardrobeKey: saved.wardrobeKey, wardrobe: saved.wardrobe }) };
+            }
+            return write.dna || write.outfit ? write : undefined;
+        };
+        const putSpriteRecord = async (item, result, profileWrite) => {
             if (!itemCurrent(item)) result = staleSprite(guardOf(item));
             const key = tempAssetKeyOf(floor.chatId, item.need);
             const base = {
@@ -770,6 +795,7 @@ export function createAssetGenerationService(deps) {
                 const saved = await persistGeneratedImage(image);
                 rememberImage(imageId, image.dataUrl);
                 record = { ...base, imageId, status: 'review', ...(isImageSeed(image.seed) && { seed: image.seed }), ...promptProvenance(image), ...characterPromptRecovery(image),
+                    ...(profileWrite && { profileWrite }),
                     ...(image.identityContext && { identityContext: structuredClone(image.identityContext) }),
                     ...(image.outfitContext && { outfitContext: structuredClone(image.outfitContext) }),
                     ...(saved.diagnostic ? { sourceUnavailable: saved.diagnostic } : {}) };
@@ -846,13 +872,14 @@ export function createAssetGenerationService(deps) {
                     { transparent, whiteBackground: !transparent, matteColor: s.matteColor, templates: s.auto.assets.templates, scheme: s.promptScheme });
                 const prompts = creature ? creatureFixedPrompts(profile, { transparent, whiteBackground: !transparent, matteColor: s.matteColor })
                     : expressionSpritePrompts(slot.scene, slot.sceneUc, s.promptScheme);
-                let result;
+                let result, profileWrite;
                 if (!caption) {
                     result = { ok: false, error: '没有对应的立绘提示词' };
                 } else if (template) {
                     if (!found.promptRecipe) result = { ok: false, reason: 'PROMPT_MODE_CONFLICT', error: '立绘写词缺少动态模板' };
                     else {
                         const input = characterTemplateInput(found, task.promptTask, task.characterContext);
+                        try { profileWrite = saveWrittenProfile(input, contexts.get(item.need.name).characterKey); } catch { profileWrite = undefined; }
                         try {
                             result = await generateCaption({ signal: s.taskSignal, ...input, size: paintMeta.size, seed,
                                 imageKind: 'sprite', promptKind: creature ? 'creature' : 'sprite', messageId: floor.messageId,
@@ -884,7 +911,7 @@ export function createAssetGenerationService(deps) {
                 }
                 if (!itemCurrent(item)) result = staleSprite(spriteGuard);
                 if (builtinSeeds(s.taskSignal) && result?.ok) result = { ...result, seed: resolveImageSeed(result.seed ?? seed) };
-                records.push(await putSpriteRecord(item, result));
+                records.push(await putSpriteRecord(item, result, profileWrite));
             }
         }
         return records;

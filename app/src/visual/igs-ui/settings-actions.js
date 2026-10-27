@@ -74,6 +74,7 @@ import { isImageSeed } from '../../generated-images/image-seed.js';
 import { readDefaultOutfit, outfitSpriteSlots, setOutfitSprite, pickOutfitSprite, prepareInitialDefaultOutfitSelection } from '../../scene/character-appearance.js';
 import { inspectOutfitImages } from '../../media/outfit-image-availability.js';
 import { prepareOutfitAdoption, prepareOutfitDnaSave } from '../../scene/outfit-identity.js';
+import { revertProfileWrite } from '../../scene/profile-write.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
@@ -2255,6 +2256,24 @@ export async function handleSettingsAction(action, ctx) {
         const service = options.generatedAssets;
         if (!service || typeof service.setStatus !== 'function') {
             return { ok: false, reason: 'generated-assets-unavailable' };
+        }
+        // 写词阶段存过 DNA 或新衣装、且之后没再改过：问一句是否一并清空。
+        let record;
+        try { record = await service.readRecord?.(key); } catch { record = null; }
+        const write = record?.profileWrite;
+        if (write?.character) {
+            const root = settingsState.draft.bridge?.sceneAssets || {};
+            const library = write.owner ? root.cards?.[write.owner] : root;
+            const plan = library ? revertProfileWrite(library, write) : { changed: false };
+            if (plan.changed) {
+                const parts = [plan.dna && 'DNA', plan.outfit && `衣装「${plan.outfit}」`].filter(Boolean).join('与');
+                if (await dialogs.confirm(`是否一并清空生成这张图时写入的「${write.character}」${parts}？`)) {
+                    const previous = captureAdoptionFields(library, Object.keys(plan.patch), { clone: true });
+                    Object.assign(library, plan.patch);
+                    const persisted = persistGeneratedLibrary(persistSettingsDraft);
+                    if (operationFailed(persisted)) restoreAdoptionFields(library, previous);
+                }
+            }
         }
         let status;
         try {
