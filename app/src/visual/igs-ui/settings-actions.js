@@ -3704,7 +3704,7 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction.startsWith('scene-add-time:')) {
         const sceneName = decodeSeg(normalizedAction.slice('scene-add-time:'.length));
         const globalObj = options.global || globalThis;
-        const scenes = (settingsState.draft.bridge.sceneAssets || {}).scenes || {};
+        const scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
         const scene = scenes[sceneName];
         if (scene && typeof scene === 'object') {
             const newTime = ((await dialogs.prompt('时间名称（建议与时间组名一致）：', '')) || '').trim();
@@ -3817,7 +3817,7 @@ export async function handleSettingsAction(action, ctx) {
             const sceneName = decodeSeg(rest.slice(0, colonIdx));
             const timeName = decodeSeg(rest.slice(colonIdx + 1));
             const globalObj = options.global || globalThis;
-            const scenes = (settingsState.draft.bridge.sceneAssets || {}).scenes || {};
+            const scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
             const scene = scenes[sceneName];
             if (scene && scene.times && typeof scene.times[timeName] === 'object') {
                 const timeEntry = scene.times[timeName];
@@ -4811,7 +4811,8 @@ export async function handleSettingsAction(action, ctx) {
         const globalObj = options.global || globalThis;
         const alias = ((await dialogs.prompt(`为场景「${sceneName}」添加别名：`, '')) || '').trim();
         if (alias) {
-            const scenes = (settingsState.draft.bridge.sceneAssets || {}).scenes || {};
+            // 场景可能在本卡库里：读写都走它所在的那一份，读全局会找不到条目而静默不写。
+            const scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
             if (Object.prototype.hasOwnProperty.call(scenes, alias)) {
                 pageAlert(dialogs, globalObj, `「${alias}」已是场景主名称`);
                 return rerenderSettings();
@@ -4835,7 +4836,7 @@ export async function handleSettingsAction(action, ctx) {
         const c = rest.indexOf(':');
         if (c > 0) {
             const sceneName = decodeSeg(rest.slice(0, c)); const word = decodeSeg(rest.slice(c + 1));
-            const scenes = (settingsState.draft.bridge.sceneAssets || {}).scenes || {};
+            const scenes = draftAssetLibrary(settingsState, editTarget).scenes || {};
             const s = scenes[sceneName];
             if (s && Array.isArray(s.words)) {
                 s.words = s.words.filter((w) => w !== word);
