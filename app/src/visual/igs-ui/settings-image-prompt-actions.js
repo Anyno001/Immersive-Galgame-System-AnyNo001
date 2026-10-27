@@ -56,10 +56,11 @@ export async function handleImagePromptAction(action, ctx) {
         const saved = editor.autoSave();
         return saved.ok ? result : saved;
     }
-    if (verb === 'performance') {
-        // 演绎档位只属于灵动方案；写入预设数据后走自动保存。
+    if (verb === 'performance' || verb === 'cg-subject' || verb === 'tag-fill') {
+        // 演绎档位、CG主体与补标签只属于灵动方案；写入预设数据后走自动保存。
         if (state.preset?.data.spriteScheme !== 'lively') return fail('invalid-prompt-field');
-        const result = editor.edit(JSON.stringify(['data', '', 'performance']), args[0]);
+        const field = { performance: 'performance', 'cg-subject': 'cgSubject', 'tag-fill': 'tagFill' }[verb];
+        const result = editor.edit(JSON.stringify(['data', '', field]), verb === 'tag-fill' ? args[0] === 'on' : args[0]);
         return result.ok ? structural(editor, result) : result;
     }
     if (verb === 'module-copy') return structural(editor, editor.blockAction('copy', 'modules', args[0]));

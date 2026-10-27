@@ -1,6 +1,6 @@
 import { moodPresetUse } from '../scene/mood-groups.js';
 import { BUILTIN_PROMPTS } from './prompt-registry.js';
-import { schemePrompts, performanceLines } from './prompt-scheme.js';
+import { schemePrompts, performanceLines, identityFillLines } from './prompt-scheme.js';
 import { hasSpriteDna, isSpriteExpressionTag } from './sprite-prompt-composition.js';
 
 // 楼内补立绘一次最多写 8 份，超过则平分 2 批。
@@ -273,7 +273,7 @@ export function buildCharacterSpriteDescription(name, dna, options) {
         P.halfBodyRule,
         '固定身份只引用本次任务 token；仅缺景别时同次输出独立景别 DNA 候选，衣装不进入 DNA。',
         nude ? '当次不穿衣服；保留基础身份及标志性特征，不删改 DNA。' : '衣装按当次角色资料；未指定时按角色设定设计日常穿着。',
-        P.poseRule, ...performanceLines(options.scheme), note ? `本次额外要求：\n${note}` : '',
+        P.poseRule, ...performanceLines(options.scheme), ...identityFillLines(options.scheme), note ? `本次额外要求：\n${note}` : '',
         '镜头、底色、质量、UC 和用户模板约束以本次 writingRequirements 为准，用英文绘图 TAG 写入对应字段。',
     ].filter(Boolean).join('\n');
     return [
@@ -285,6 +285,7 @@ export function buildCharacterSpriteDescription(name, dna, options) {
         P.facing,
         P.poseRule,
         ...performanceLines(options?.scheme),
+        ...identityFillLines(options?.scheme),
         note ? `这次额外的要求：\n${note}` : '',
         spriteGroundLine(options && options.transparent),
         ...(options?.includeDna !== false ? characterDnaLines(name, dna) : []),
@@ -350,6 +351,7 @@ export function buildDbgenSpriteBatchDescription(needs = [], options = {}) {
         '仅缺景别的角色同次输出独立景别 DNA 候选；已有景别逐字保留，服装独立。',
         P.poseRule,
         ...performanceLines(options.scheme),
+        ...identityFillLines(options.scheme),
         '按本次 writingRequirements 写明镜头、底色、质量、UC 和自定义模板内容。',
         '不重新选择生成点，不从正文摘挂载句。',
     ].join('\n');
@@ -371,6 +373,7 @@ export function buildDbgenSpriteBatchDescription(needs = [], options = {}) {
         P.framing,
         P.poseRule,
         ...performanceLines(options.scheme),
+        ...identityFillLines(options.scheme),
         spriteGroundLine(options.transparent),
         '按上述清单逐份输出立绘提示词。',
     ].join('\n');
@@ -402,6 +405,7 @@ export function buildDbgenAssetDescription(need = {}, options = {}) {
             P.framing,
             P.poseRule,
             ...performanceLines(options.scheme),
+            ...identityFillLines(options.scheme),
             ...(options.includeDna !== false ? characterDnaLines(need.name, need.dna) : []),
         ].join('\n');
     }

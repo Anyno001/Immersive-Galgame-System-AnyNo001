@@ -5,7 +5,7 @@ const fields = {
     prompts: ['name', 'role', 'content', 'contentByFormat', 'enabled', 'kind', 'workbenchOnly', 'metadata',
         'injection_position', 'injection_depth', 'injection_order'],
     modules: ['role', 'content', 'contentByFormat', 'enabled', 'task', 'dataFields', 'requiredFields', 'metadata'],
-    data: ['variables', 'literalVariables', 'performance'],
+    data: ['variables', 'literalVariables', 'performance', 'cgSubject', 'tagFill'],
 };
 const jsonFields = new Set(['metadata', 'contentByFormat', 'dataFields', 'requiredFields', 'variables', 'literalVariables']);
 
@@ -86,6 +86,8 @@ export function editImagePromptField(editor, address, value) {
         return { ok: true };
     }
     if (group === 'data' && field === 'performance' && !['subtle', 'expressive'].includes(value)) return { ok: false, reason: 'invalid-prompt-field' };
+    if (group === 'data' && field === 'cgSubject' && !['character', 'user'].includes(value)) return { ok: false, reason: 'invalid-prompt-field' };
+    if (group === 'data' && field === 'tagFill' && typeof value !== 'boolean') return { ok: false, reason: 'invalid-prompt-field' };
     const isVirtual = (group === 'prompts' && field === 'enabledCombined')
         || ((group === 'prompts' || group === 'modules') && /^format:[\w-]+$/.test(field))
         || (group === 'modules' && /^(?:allow|require):[A-Za-z]+$/.test(field));

@@ -293,8 +293,9 @@ export function createImagePromptEditor(registry, options = {}) {
             if (old) { next.defaultState = old; if (state.preset.data.defaultVersion !== undefined) next.defaultVersion = state.preset.data.defaultVersion; }
         }
         next.revision = state.preset.data.revision;
-        // 演绎档位是用户设置，不随框架文字恢复。
-        if (next.spriteScheme === 'lively' && state.preset.data.performance) next.performance = state.preset.data.performance;
+        // 演绎档位、CG主体、补标签是用户设置，不随框架文字恢复。
+        if (next.spriteScheme === 'lively') for (const key of ['performance', 'cgSubject', 'tagFill'])
+            if (state.preset.data[key] !== undefined) next[key] = state.preset.data[key];
         state.preset.data = completeImagePromptPreset(next);
         state.editRevision += 1;
         state.dirty = true; state.save = null;

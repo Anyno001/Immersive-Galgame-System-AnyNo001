@@ -88,7 +88,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-settings-section-head>.igs-asset-select-toggle+.igs-asset-zip{margin-left:0}
 .igs-settings-section-head>.igs-asset-select-toggle::after,.igs-settings-section-head>.igs-asset-zip:has(+.igs-add-menu)::after{content:"·";margin-left:8px;color:var(--igs-settings-ink-4)}
 .igs-settings-sub{display:flex;flex-direction:column;gap:12px;min-width:0;margin-left:6px;padding:2px 0 2px 14px;border-left:2px solid var(--igs-settings-highlight)}
-[data-image-pane="source"] .igs-settings-sub:not(details){margin-left:0;padding-left:0;border-left:0}
+[data-image-pane="source"] .igs-settings-sub:not(details):not([data-image-source="nai"]):not([data-model-profiles]):not([data-image-feature="consistency"]){margin-left:0;padding-left:0;border-left:0}
 .igs-artist-lib-row{display:flex;align-items:center;gap:8px;min-width:0}
 .igs-artist-lib-row>.igs-settings-field{flex:1 1 auto;min-width:0}
 .igs-artist-lib-row>.igs-settings-action{flex:0 0 auto;height:30px;padding:0 10px}

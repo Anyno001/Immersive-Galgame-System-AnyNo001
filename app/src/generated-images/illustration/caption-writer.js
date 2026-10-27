@@ -14,6 +14,8 @@ import { prepareImageWritingRequest } from '../image-prompt-runtime.js';
 import { imageWritingContext } from '../image-prompt-context.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 import { buildCgOutfitCatalog } from './cg-outfit-catalog.js';
+import { spriteSchemeOf, livelyCgLines } from '../prompt-scheme.js';
+import { imageTaskState } from '../image-task-runtime.js';
 import { CHARACTER_DNA_VIEWS, readCharacterDnaView } from '../../scene/character-dna.js';
 
 export const LLM_SETUP_HINT = '请到「生图与AI › 备用模型」页接好备用模型';
@@ -173,11 +175,11 @@ export async function writeTemplateCaptionsWithLlm(llm, llmSettings, meta = {}) 
     if (!context.ok) return context;
     meta = context.value;
     const execute = (guarded, lease) => writeTemplateCaptions(llm,
-        lease?.state?.config?.autoIllustration?.llm || llmSettings, guarded);
+        lease?.state?.config?.autoIllustration?.llm || llmSettings, guarded, lease?.state || imageTaskState(guarded));
     return typeof llm?.runImageTask === 'function' ? llm.runImageTask(meta, execute) : execute(meta);
 }
 
-async function writeTemplateCaptions(llm, llmSettings, meta) {
+async function writeTemplateCaptions(llm, llmSettings, meta, taskState = null) {
     const task = checkPromptTask(meta.promptTask, meta.characterContext);
     if (!task.ok) return task;
     const dataOnly = ['sprite-data', 'expression-fragments'].includes(meta.outputs?.format);
@@ -205,6 +207,10 @@ async function writeTemplateCaptions(llm, llmSettings, meta) {
     // 非人角色 CG 出镜：角色池里有已登记的非人角色时附加专属规则；纯人类池得到空串，描述不变。
     const creatureCg = task.value.purpose === 'cg' ? creatureCgRule(meta.characterContext) : '';
     if (creatureCg) description = [creatureCg, description].join('\n');
+    // 灵动 CG：主体、补标签与 NSFW 楼层规则随本次资料发送，不写进预设正文；标准方案为空。
+    const livelyCg = task.value.purpose === 'cg'
+        ? livelyCgLines(spriteSchemeOf(taskState?.promptPreset?.data), meta.cgHints) : [];
+    if (livelyCg.length) description = [...livelyCg, description].join('\n');
     const stale = () => meta.signal?.aborted || (typeof meta.shouldStart === 'function' && !meta.shouldStart());
     if (stale()) return { ok: false, reason: 'request-stale', error: '任务已取消或目标失效' };
     const frozenContext = structuredClone(meta.characterContext);
