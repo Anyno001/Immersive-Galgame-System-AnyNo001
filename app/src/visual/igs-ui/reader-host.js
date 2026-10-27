@@ -5382,6 +5382,8 @@ export function createIgsReaderHost(options = {}) {
             if (!result?.ok || service.getRecord?.(item.key)?.status !== 'library') {
                 const failure = result?.ok === false ? result
                     : { ok: false, reason: 'DNA_ADOPTION_CONFLICT' };
+                // 入库核验的报错走 alert 回调；面板入口没有弹窗，必须提示出来，否则看起来像点了没反应。
+                writeToastSafe(adoptionError || failure.error || '素材入库未完成，原资料保持不变');
                 return failure;
             }
             if (activeSettings) rerenderSettings();
