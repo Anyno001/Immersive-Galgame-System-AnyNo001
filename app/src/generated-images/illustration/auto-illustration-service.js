@@ -57,7 +57,7 @@ export function cgSizeForAspect(backgroundSize, viewport) {
 // 内嵌：正文栏或窗口不超过 640 像素，或触屏且窗口竖着拿，钉竖屏尺寸。
 // 不论哪种模式，发出去的总像素都不能超过上限。
 export function cgSizeForMode(backgroundSize, mode, viewport) {
-    const landscape = String(backgroundSize || '').trim() || '1216x832';
+    const landscape = squareAsLandscape(String(backgroundSize || '').trim() || '1216x832');
     if (mode === 'fullscreen') return cgSizeForAspect(landscape, viewport);
     const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPhoneEmbedded(viewport));
     if (!usePortrait) return clampToPixelCap(landscape);
@@ -65,6 +65,14 @@ export function cgSizeForMode(backgroundSize, mode, viewport) {
     // 背景尺寸本身填成竖的就直接用，不能再对调回横屏。
     if (!match || Number(match[1]) <= Number(match[2])) return clampToPixelCap(landscape);
     return clampToPixelCap(`${match[2]}x${match[1]}`);
+}
+
+// 背景尺寸填成方的，横竖交给画面决定：按 1216:832 的横图比例在同样像素内重排，手机再对调成竖图。
+function squareAsLandscape(sizeText) {
+    const parsed = parseCgSize(sizeText);
+    if (!parsed || parsed.width !== parsed.height) return sizeText;
+    const fitted = fitCgSize(1216 / 832, Math.min(CG_PIXEL_CAP, parsed.width * parsed.height));
+    return fitted ? `${fitted.width}x${fitted.height}` : sizeText;
 }
 
 // 手机缩放、平板、折叠屏的正文栏可能量出超过 640。触屏且窗口竖着拿时同样钉竖屏。
