@@ -55,7 +55,7 @@ test('灵动预设：合法、带方案与档位字段、含草稿关键句且�
     assert.equal(preset.data.defaultState.baseline.performance, 'subtle');
     const text = allText(preset), old = allText(standard);
     for (const key of ['不画小腿以下与鞋袜', 'cowboy shot', 'knee-length dress', '可配一个自然的手势，不遮挡或不完全遮挡面部', 'one hand raised to chest',
-        '符合性格的站姿手势与平和表情', '符合性格的站姿手势和平和表情', '未设定体格时不写体型标签', '各张表情差分保持相同站位',
+        '符合性格的站姿手势与平和表情', '符合性格的站姿手势和平和表情', '未设定体格时按柔和美型', '各张表情差分保持相同站位',
         '唇形、唇色与妆容只在角色资料明确写出时保留', 'outfit_half_body 用于膝上取景'])
         assert.ok(text.includes(key), key);
     // 被删掉的原句不再出现，且不靠追加反向规则对冲
@@ -369,10 +369,10 @@ test('灵动手势过滤只放行带动作的写法，外貌与衣装词不放�
 });
 
 test('灵动范例不给体型示范：cg、sprite、registry 范例都不含体型词', () => {
-    // 唯一例外是身份规则里「男性写 slim」一句：未设体格的男性默认画成宽肩，给一个中性锚点。
+    // 唯一例外是身份规则里的柔和美型默认：未设体格的男性默认画成宽肩，给 slim, bishounen 锚点。
     const raw = JSON.stringify(LIVELY_TASK_TEXT) + LIVELY_DNA_TEMPLATE_WRITER_SYSTEM;
-    assert.match(raw, /未设定体格时不写体型标签，男性写 slim。/);
-    const text = raw.split('男性写 slim').join('');
+    assert.match(raw, /未设定体格时按柔和美型：男性写 slim, bishounen，女性写 slim。/);
+    const text = raw.split('未设定体格时按柔和美型：男性写 slim, bishounen，女性写 slim。').join('');
     assert.doesNotMatch(text, /\bslim\b|narrow waist|wasp waist|tall, long legs|long legs|narrow shoulders|窄肩|muscular male|broad shoulders/);
     assert.doesNotMatch(LIVELY_TASK_TEXT.cg['dna-template'], /slim|thick eyebrows/);
     assert.match(LIVELY_TASK_TEXT.cg['dna-template'], /light skin\nmeta_signature/);
