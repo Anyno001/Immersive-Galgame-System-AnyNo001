@@ -45,6 +45,8 @@ import { externalPromptDescription } from '../external-prompt-reference.js';
 import { createExternalSpriteDnaPreparation } from './external-sprite-dna.js';
 
 export const GENERATED_ASSET_UPDATED_EVENT = 'igs:generated-asset-updated';
+const THUMB_RETRY_LIMIT = 3;
+const THUMB_RETRY_MS = 3000;
 const AVATAR_SIZE = '1024x1024';
 // 头像按圆形裁切：只到头、颈、肩，脸占画面大半；胸以下一律进负面。
 const AVATAR_POSITIVE = BUILTIN_PROMPTS.avatar.positive;
@@ -121,12 +123,13 @@ export function createAssetGenerationService(deps) {
     const makeThumb = typeof deps.makeThumb === 'function' ? deps.makeThumb : null;
     const smallThumbs = Boolean(thumbStore && makeThumb);
     const pendingThumbs = new Set();
+    const thumbRetries = new Map(), thumbRetryTimers = new Set();
     const imageKey = id => `asset:${id}`;
     const thumbKey = id => `thumb:asset:${id}`;
     let tempCursor = {}, retryTarget = null;
     const tempCache = createAssetRecordCache({ store, mediaCache: cache, owner: 'asset-records',
         onChanged: chatId => emit({ chatId, reason: 'hydrated' }),
-        onClear: () => { pendingImages.clear(); failedImages.clear(); pendingThumbs.clear(); tempCursor = {}; },
+        onClear: () => { pendingImages.clear(); failedImages.clear(); pendingThumbs.clear(); thumbRetries.clear(); tempCursor = {}; },
         onError: () => report('info', '素材记录正在自动恢复，完成后继续原操作。'),
         pendingCount: () => pendingImages.size + pendingThumbs.size,
     });
@@ -376,7 +379,7 @@ export function createAssetGenerationService(deps) {
                     if (/^blob:/i.test(value) && !cache.sourceId(value)) value = (await displayImage(id, record))?.dataUrl || '';
                     if (!value) throw new Error('image-empty');
                     return value;
-                }, { persist: false });
+                }, { persist: false, timeoutMs: 0 });
                 if (tempCache.epoch() !== generation) return;
                 if (cache.token(key) !== stamp) { if (early) emit({ imageId: id, reason: 'image-loaded' }); return; }
                 if (value) failedImages.delete(id);
@@ -403,14 +406,34 @@ export function createAssetGenerationService(deps) {
                 let dataUrl = await thumbStore.get(id).catch(() => '');
                 if (dataUrl) return dataUrl;
                 const full = cached || (await displayImage(id, record))?.dataUrl || '';
-                if (!full) return '';
+                if (!full) throw new Error('image-empty');
                 if (!stopped && tempCache.epoch() === generation) failedImages.delete(id);
                 const small = await Promise.resolve().then(() => makeThumb(full)).catch(() => '');
                 if (small && cache.token(key) === stamp) await thumbStore.put(id, small, stamp);
                 return small || full;
-            });
+            }, { timeoutMs: 0 });
             if (value && tempCache.epoch() === generation && cache.token(key) === stamp && cache.peek(key)) emit({ imageId: id, reason: 'image-loaded' });
         } finally { release(); }
+    }
+
+    function requestThumb(id) {
+        if (stopped || pendingThumbs.has(id)) return;
+        pendingThumbs.add(id);
+        const generation = tempCache.epoch();
+        loadSmallThumb(id).then(() => thumbRetries.delete(id), error => noteThumbFailure(id, error, generation))
+            .finally(() => { if (tempCache.epoch() === generation) pendingThumbs.delete(id); });
+    }
+
+    // 文件确实没了按缺图记（发 image-lost，设置页随之重画）；网络、超时隔几秒自己重读，读到照常发 image-loaded。
+    function noteThumbFailure(id, error, generation) {
+        if (stopped || tempCache.epoch() !== generation || /abort/i.test(error?.message || '')) return;
+        if (['image-file-not-found', 'image-empty'].includes(error?.message)) { thumbRetries.delete(id); noteImageFailure(id, error); return; }
+        const attempts = (thumbRetries.get(id) || 0) + 1;
+        if (attempts > THUMB_RETRY_LIMIT) { thumbRetries.delete(id); return; }
+        thumbRetries.set(id, attempts);
+        const timer = setTimeout(() => { thumbRetryTimers.delete(timer); requestThumb(id); }, THUMB_RETRY_MS * attempts);
+        timer?.unref?.();
+        thumbRetryTimers.add(timer);
     }
 
     function thumbSourceId(url) {
@@ -422,11 +445,7 @@ export function createAssetGenerationService(deps) {
         if (!isGeneratedAssetUrl(url) || !smallThumbs) return resolveUrl(url);
         const id = generatedAssetIdOf(url), ready = cache.peek(thumbKey(id));
         if (ready) return ready;
-        if (!pendingThumbs.has(id)) {
-            pendingThumbs.add(id);
-            const generation = tempCache.epoch();
-            loadSmallThumb(id).catch(() => {}).finally(() => { if (tempCache.epoch() === generation) pendingThumbs.delete(id); });
-        }
+        if (!imageFailure(url)?.missing) requestThumb(id);
         return '';
     }
 
@@ -2455,6 +2474,8 @@ export function createAssetGenerationService(deps) {
             stopped = true;
             recoveryController.abort();
             clearTimeout(imageRecoveryTimer); imageRecoveryTimer = null;
+            for (const timer of thumbRetryTimers) clearTimeout(timer);
+            thumbRetryTimers.clear();
             tempCache.clear();
             if (offOnline) { offOnline(); offOnline = null; }
             if (offRendered) { offRendered(); offRendered = null; }

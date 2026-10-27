@@ -487,7 +487,11 @@ export function renderCharacterAssetList(characters, options = {}) {
         const activeOutfit = outfitNames.includes(outfitTabs[charName]) ? outfitTabs[charName] : '';
         const expressionNotes = options.expressionNotes && typeof options.expressionNotes === 'object' ? options.expressionNotes[charName] : null;
         const moodEntries = Object.entries(moods || {});
-        const moodRows = moodEntries.map(([mood, url]) => {
+        // 和场景一样，每个角色平时只有一行；点名字或右边箭头才展开服装和立绘。
+        const openKey = `char-open:${charName}`;
+        const open = isOpen(openKey);
+        // 折叠着的角色不拼立绘格子：拼的时候就会去读缩略图，整页角色的差分会一起排队。
+        const moodRows = !open ? '' : moodEntries.map(([mood, url]) => {
             const expanded = expandedSlots.has(charName + "\x00" + mood);
             const note = expressionNotes && expressionNotes[mood];
             const rawUrl = String(url || '').trim();
@@ -524,7 +528,7 @@ export function renderCharacterAssetList(characters, options = {}) {
             const expandedBody = expanded ? renderSpriteSlotExpansion(charName, mood, url, moodGroups, { pencil, trash, resolveUrl: options.resolveUrl }) : '';
             return `<div class="igs-sprite-slot">${collapsedRow}${expandedBody}</div>`;
         }).join('');
-        const slotArea = renderCharacterSlotTabs({
+        const slotArea = open && renderCharacterSlotTabs({
             charName,
             builtinImageSource: options.imageSourceMode === undefined || options.imageSourceMode === 'nai',
             baseMoods: moodEntries.map(([mood]) => mood),
@@ -537,9 +541,6 @@ export function renderCharacterAssetList(characters, options = {}) {
             icons: { pencil, trash },
             isOpen,
         });
-        // 和场景一样，每个角色平时只有一行；点名字或右边箭头才展开服装和立绘。
-        const openKey = `char-open:${charName}`;
-        const open = isOpen(openKey);
         const toggle = `ui-toggle-open:${encSeg(openKey)}`;
         const isUserChar = String((options.sceneAssets || {}).userCharacter || '').trim() === charName;
         const live2dOn = Boolean(resolveCharacterLive2dBinding(options.live2dConfig, options.sceneAssets || { characters, characterAliases: aliasesByCharacter }, charName));

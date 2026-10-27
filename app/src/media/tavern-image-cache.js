@@ -10,6 +10,11 @@ export const DEFAULT_IMAGE_CACHE_COUNT = 320;
 export const IMAGE_MEMORY_BUDGET = 64 * 1024 * 1024;
 export const IMAGE_DISK_BUDGET = 192 * 1024 * 1024;
 export const IMAGE_CACHE_LOW_WATER = CACHE_LOW_WATER_RATIO;
+// 缩略图（thumb: 开头的键）单独记账：小图不占显示图的名额，显示图再多也挤不掉它。
+export const THUMB_CACHE_COUNT = 4000;
+export const THUMB_MEMORY_BUDGET = 24 * 1024 * 1024;
+export const THUMB_DISK_BUDGET = 96 * 1024 * 1024;
+export const isThumbKey = key => String(key || '').startsWith('thumb:');
 export function normalizeImageCacheCount(value) {
     const count = Math.round(Number(value));
     return Number.isFinite(count) ? Math.min(2000, Math.max(1, count)) : DEFAULT_IMAGE_CACHE_COUNT;
@@ -18,9 +23,9 @@ const caches = new WeakMap();
 const documents = new WeakMap();
 const boundDocuments = new WeakMap();
 const retirements = new WeakMap();
-const diskUsage = rows => {
+const diskUsage = (rows, keep = () => true) => {
     const unique = new Map();
-    for (const row of rows.values()) unique.set(row.identity || row.path, Math.max(0, Number(row.bytes) || 0));
+    for (const row of rows.values()) if (keep(row)) unique.set(row.identity || row.path, Math.max(0, Number(row.bytes) || 0));
     return { count: unique.size, bytes: [...unique.values()].reduce((sum, bytes) => sum + bytes, 0) };
 };
 
@@ -45,6 +50,9 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
     let maxCount = normalizeImageCacheCount(options.maxCount);
     const maxBytes = store ? options.maxBytes ?? IMAGE_DISK_BUDGET : 0;
     const memoryBytes = options.memoryBytes ?? IMAGE_MEMORY_BUDGET;
+    const thumbCount = options.thumbCount ?? THUMB_CACHE_COUNT;
+    const thumbMemoryBytes = options.thumbMemoryBytes ?? THUMB_MEMORY_BUDGET;
+    const thumbDiskBytes = store ? options.thumbDiskBytes ?? THUMB_DISK_BUDGET : 0;
     let meta = null;
     let epoch = 0;
     let serial = Promise.resolve();
@@ -66,7 +74,7 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
         if (destroyed) return `${epoch}:destroyed`;
         if (!versions.has(key)) versions.set(key, ++nextVersion);
         const version = versions.get(key);
-        trimCacheEntries(versions, Math.max(8, maxCount * 8), (_value, candidate) => candidate !== key && !aliases.has(candidate) && !flights.has(candidate));
+        trimCacheEntries(versions, Math.max(8, maxCount * 8 + thumbCount * 2), (_value, candidate) => candidate !== key && !aliases.has(candidate) && !flights.has(candidate));
         return `${epoch}:${version}`;
     }
     const revoke = entry => {
@@ -79,22 +87,29 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
         revoke(entry); memory.delete(identity); memoryUsed -= entry.bytes;
         for (const [key, id] of aliases) if (id === identity) aliases.delete(key);
     }
-    function trimMemory() {
-        let bytes = memoryUsed;
-        if (memory.size <= maxCount && bytes <= memoryBytes) return;
-        const targetCount = memory.size > maxCount ? cacheLowWater(maxCount) : maxCount;
-        const targetBytes = bytes > memoryBytes ? Math.floor(memoryBytes * IMAGE_CACHE_LOW_WATER) : memoryBytes;
+    function trimPartition(thumb) {
+        const limitCount = thumb ? thumbCount : maxCount, limitBytes = thumb ? thumbMemoryBytes : memoryBytes;
+        const own = [...memory].filter(([, entry]) => entry.thumb === thumb);
+        let count = own.length, bytes = own.reduce((sum, [, entry]) => sum + entry.bytes, 0);
+        if (count <= limitCount && bytes <= limitBytes) return;
+        const targetCount = count > limitCount ? cacheLowWater(limitCount) : limitCount;
+        const targetBytes = bytes > limitBytes ? Math.floor(limitBytes * IMAGE_CACHE_LOW_WATER) : limitBytes;
         const visible = new Set([...aliases].filter(([key]) => pins.has(key)).map(([, identity]) => identity));
-        for (const [id, entry] of memory) {
-            if (memory.size <= targetCount && bytes <= targetBytes) return;
+        for (const [id, entry] of own) {
+            if (count <= targetCount && bytes <= targetBytes) return;
             if (visible.has(id)) continue;
-            bytes -= entry.bytes; evict(id);
+            bytes -= entry.bytes; count -= 1; evict(id);
         }
         // 低水位不能驱逐当前页；活跃图自身超硬预算时仍拒收后来读入的图。
-        for (const [id, entry] of [...memory].reverse()) {
-            if (bytes <= memoryBytes) return;
+        for (const [id, entry] of own.reverse()) {
+            if (bytes <= limitBytes) return;
+            if (!memory.has(id)) continue;
             bytes -= entry.bytes; evict(id);
         }
+    }
+    function trimMemory() {
+        trimPartition(false);
+        trimPartition(true);
     }
     function rememberPrepared(path, value) {
         if (destroyed) return '';
@@ -109,15 +124,17 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
             if (typeof value === 'string') {
                 try { data = dataUrlBlob(value, globalObject) || value; } catch { data = value; }
             }
-            entry = { data, bytes: typeof data === 'string' ? data.length * 2 : Number.isFinite(data.size) ? data.size : dataUrlBytes(value), url: '', usedAt: now() };
+            entry = { data, bytes: typeof data === 'string' ? data.length * 2 : Number.isFinite(data.size) ? data.size : dataUrlBytes(value), url: '', usedAt: now(), thumb: isThumbKey(key) };
             if (typeof data === 'string') entry.url = data;
             else if (globalObject.URL?.createObjectURL) entry.url = globalObject.URL.createObjectURL(data);
             memoryUsed += entry.bytes;
         }
+        // 缩略图退回原图时和显示图共用一份像素，这份按显示图记账。
+        if (!isThumbKey(key)) entry.thumb = false;
         memory.delete(identity); memory.set(identity, entry); aliases.set(key, identity);
         if (entry.url) urlOwners.set(entry.url, identity);
         if (oldIdentity && oldIdentity !== identity && ![...aliases.values()].includes(oldIdentity)) evict(oldIdentity);
-        trimCacheEntries(aliases, maxCount * 4 + pins.size, (_value, candidate) => !pins.has(candidate) && !flights.has(candidate));
+        trimCacheEntries(aliases, maxCount * 4 + thumbCount + pins.size, (_value, candidate) => !isThumbKey(candidate) && !pins.has(candidate) && !flights.has(candidate));
         trimMemory();
         return memory.has(identity) ? entry.url : (typeof value === 'string' && !value.startsWith('blob:') ? value : '');
     }
@@ -134,23 +151,28 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
     }
     async function trimDisk() {
         const rows = await metadata(true);
-        const usage = diskUsage(rows);
-        if (usage.count <= maxCount && usage.bytes <= maxBytes && rows.size <= maxCount * 4) return;
-        const targetCount = usage.count > maxCount ? cacheLowWater(maxCount) : maxCount;
-        const targetBytes = usage.bytes > maxBytes ? Math.floor(maxBytes * IMAGE_CACHE_LOW_WATER) : maxBytes;
-        const targetAliases = rows.size > maxCount * 4 ? cacheLowWater(maxCount * 4) : maxCount * 4;
         const groups = new Map();
         for (const row of rows.values()) {
             const id = row.identity || row.path;
-            const group = groups.get(id) || { paths: [], usedAt: 0, bytes: row.bytes };
+            const group = groups.get(id) || { paths: [], usedAt: 0, bytes: row.bytes, thumb: true };
             group.paths.push(row.path); group.usedAt = Math.max(group.usedAt, row.usedAt);
+            if (!isThumbKey(row.path)) group.thumb = false;
             groups.set(id, group);
         }
         const selected = [];
-        let aliasesLeft = rows.size;
-        for (const group of [...groups.values()].sort((a, b) => a.usedAt - b.usedAt)) {
-            if (usage.count <= targetCount && usage.bytes <= targetBytes && aliasesLeft <= targetAliases) break;
-            selected.push(...group.paths); aliasesLeft -= group.paths.length; usage.count--; usage.bytes -= group.bytes;
+        for (const thumb of [false, true]) {
+            const own = [...groups.values()].filter(group => group.thumb === thumb);
+            const limitCount = thumb ? thumbCount : maxCount, limitBytes = thumb ? thumbDiskBytes : maxBytes, limitAliases = limitCount * 4;
+            let count = own.length, bytes = own.reduce((sum, group) => sum + group.bytes, 0);
+            let aliasesLeft = own.reduce((sum, group) => sum + group.paths.length, 0);
+            if (count <= limitCount && bytes <= limitBytes && aliasesLeft <= limitAliases) continue;
+            const targetCount = count > limitCount ? cacheLowWater(limitCount) : limitCount;
+            const targetBytes = bytes > limitBytes ? Math.floor(limitBytes * IMAGE_CACHE_LOW_WATER) : limitBytes;
+            const targetAliases = aliasesLeft > limitAliases ? cacheLowWater(limitAliases) : limitAliases;
+            for (const group of own.sort((a, b) => a.usedAt - b.usedAt)) {
+                if (count <= targetCount && bytes <= targetBytes && aliasesLeft <= targetAliases) break;
+                selected.push(...group.paths); aliasesLeft -= group.paths.length; count--; bytes -= group.bytes;
+            }
         }
         await deleteDiskRows(selected, rows);
     }
@@ -180,7 +202,7 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
         if (!store) return '';
         const data = await enqueue(async () => {
             const row = (await metadata(true)).get(key);
-            return Boolean(row?.displayCompressed) === compressDisplay ? store.get(key) : '';
+            return isThumbKey(key) || Boolean(row?.displayCompressed) === compressDisplay ? store.get(key) : '';
         });
         if (!data || token(key) !== stamp) return '';
         // 显示模式下磁盘里的 Blob 直接进内存，不绕 base64；旧数据（dataUrl 字符串）照旧。
@@ -202,14 +224,14 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
         return url ? await shownOf(key) : value;
     }
     function remember(path, value) {
-        if (!compressDisplay || !displayEncoder.accepts(value)) return rememberPrepared(path, value);
+        if (!compressDisplay || isThumbKey(normalizeImagePath(path)) || !displayEncoder.accepts(value)) return rememberPrepared(path, value);
         void load(path, async () => value, { persist: false, blob: true }).catch(error => { lastError = error.message; });
         return peek(path);
     }
     async function put(path, value, expectedToken = token(normalizeImagePath(path)), { prepared = false } = {}) {
         const key = normalizeImagePath(path);
         if (destroyed || !key || !value || token(key) !== expectedToken) return false;
-        if (compressDisplay && !prepared) value = await displayEncoder.encode(value, { signal: readController?.signal });
+        if (compressDisplay && !prepared && !isThumbKey(key)) value = await displayEncoder.encode(value, { signal: readController?.signal });
         if (destroyed || token(key) !== expectedToken) return false;
         rememberPrepared(key, value);
         if (!store) { channel?.postMessage({ type: 'drop', key }); return token(key) === expectedToken; }
@@ -242,7 +264,8 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
         const cancelled = new Promise(resolve => { cancel = () => { controller?.abort(); resolve(''); }; });
         const setTimer = globalObject.setTimeout || setTimeout, clearTimer = globalObject.clearTimeout || clearTimeout;
         // 超时只算自己在读的时间：排在下载队列里等名额时不计，否则别处一次要很多图时，排在后面的没开始下就被判超时。
-        const arm = () => { clearTimer(timer); timer = setTimer(() => expire(), timeoutMs); timer?.unref?.(); };
+        // timeoutMs 为 0 不计时：外层只是在等里层的下载，由里层按实际下载时间判超时。
+        const arm = () => { clearTimer(timer); if (timeoutMs > 0) { timer = setTimer(() => expire(), timeoutMs); timer?.unref?.(); } };
         const pause = () => { clearTimer(timer); timer = undefined; };
         const timedOut = new Promise((_, reject) => {
             expire = () => { forget(key); reject(new Error('image-load-timeout')); };
@@ -258,8 +281,10 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
             if (token(key) !== stamp) return '';
             if (download) pause();
             let value = await (download ? downloads.run(signal => { arm(); return loader(signal); }, controller?.signal, { high: !ticket || ticket.high, handle }) : loader(controller?.signal));
+            // 下载完就停表：压缩排队是串行的，排在后面不算下载超时，编码自带超时。
+            if (download) pause();
             if (token(key) !== stamp || !value) return '';
-            if (compressDisplay) value = await displayEncoder.encode(value, { signal: controller?.signal });
+            if (compressDisplay && !isThumbKey(key)) value = await displayEncoder.encode(value, { signal: controller?.signal });
             if (token(key) !== stamp || !value) return '';
             if (persist) await put(key, value, stamp, { prepared: true }).catch(error => { lastError = error.message || String(error); }); else rememberPrepared(key, value);
             if (blob && typeof value !== 'string') return token(key) === stamp && !destroyed ? await shownOf(key) : '';
@@ -335,7 +360,7 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
             await enqueue(async () => {
                 if (destroyed || next !== compressDisplay) return;
                 const rows = await metadata(true);
-                await deleteDiskRows([...rows.values()].filter(row => Boolean(row.displayCompressed) !== next).map(row => row.path), rows);
+                await deleteDiskRows([...rows.values()].filter(row => !isThumbKey(row.path) && Boolean(row.displayCompressed) !== next).map(row => row.path), rows);
             });
             if (changed && !destroyed) channel?.postMessage({ type: 'clear' });
             return compressDisplay;
@@ -345,8 +370,11 @@ export function createLocalImageCache(globalObject = globalThis, options = {}) {
             const auxiliaryStats = auxiliary.stats();
             let diskAvailable = Boolean(store);
             const rows = destroyed ? new Map() : await enqueue(() => metadata(true)).catch(() => { diskAvailable = false; return new Map(); });
-            const disk = diskUsage(rows);
+            const disk = diskUsage(rows), thumbDisk = diskUsage(rows, row => isThumbKey(row.path));
+            const thumbMemory = [...memory.values()].filter(entry => entry.thumb);
             return { epoch, memoryCount: memory.size, memoryBytes: memoryUsed,
+                thumbs: { memoryCount: thumbMemory.length, memoryBytes: thumbMemory.reduce((sum, entry) => sum + entry.bytes, 0),
+                    diskCount: thumbDisk.count, diskBytes: thumbDisk.bytes, maxCount: thumbCount, memoryBudget: thumbMemoryBytes, diskBudget: diskAvailable ? thumbDiskBytes : 0 },
                 diskCount: disk.count, diskBytes: disk.bytes, diskAliases: rows.size, pending: flights.size,
                 maxCount, compressDisplay, lowWaterRatio: IMAGE_CACHE_LOW_WATER, memoryBudget: memoryBytes, diskBudget: diskAvailable ? maxBytes : 0,
                 backend: !store ? 'memory-only' : diskAvailable ? store.backend || 'custom' : 'unavailable',
