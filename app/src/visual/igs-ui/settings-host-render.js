@@ -28,6 +28,7 @@ import { loadSettingsRecent } from './settings-recent.js';
 import { getReaderModeIcon } from './icons.js';
 import { renderPromptKindsPanel } from './settings-prompt-kinds.js';
 import { renderImagePromptPanel } from './settings-image-prompt-view.js';
+import { renderWorldInfoFilterPanel } from './settings-world-info-filter.js';
 import { renderArtistLibrary, renderArtistSelector } from './settings-artist-library.js';
 import { renderModelProfileRow } from './settings-model-profiles.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
@@ -338,6 +339,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoAssetOptionsHidden: hiddenAttr(!auto.assets.spriteEnabled && !auto.assets.backgroundEnabled),
                 assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
                 imagePromptPanel: sourceMode === 'nai' ? renderImagePromptPanel(asyncState.imagePromptEditor, asyncState.advancedOpen) : '',
+                worldInfoFilterPanel: renderWorldInfoFilterPanel(imageApi, asyncState),
                 artistLibraryPanel: renderArtistLibrary(auto.nai, asyncState.artistLibrary),
                 globalArtistField: sourceMode === 'nai' || sourceMode === 'dbgen'
                     ? renderArtistSelector(auto.nai, 'global', sourceMode) : '',

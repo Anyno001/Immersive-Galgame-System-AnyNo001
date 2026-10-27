@@ -7,6 +7,7 @@ import { MERMAID_ACCENT_DEFAULT, MERMAID_TONE_DEFAULT, normalizeMermaidAccent, n
 import { normalizeEventCgs } from '../../scene/event-cg.js';
 import { normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
 import { normalizeSpriteEnhance } from './sprite-enhance.js';
+import { normalizeWorldInfoExclude } from '../../host/world-info-filter.js';
 import { normalizeAssetCards } from '../../scene/asset-scope.js';
 import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
@@ -102,6 +103,7 @@ export function normalizeImageApi(value) {
     normalized.naiSpriteTransparent = normalized.naiSpriteTransparent !== false;
     normalized.spriteMatteColor = SPRITE_MATTE_COLORS.includes(normalized.spriteMatteColor) ? normalized.spriteMatteColor : 'auto';
     normalized.externalSpriteDna = normalized.externalSpriteDna === true;
+    normalized.worldInfoExclude = normalizeWorldInfoExclude(normalized.worldInfoExclude);
     return normalized;
 }
 

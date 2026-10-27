@@ -71,7 +71,7 @@ const LIVELY_OUTFIT_HALF_BODY_RULE = outfitParts.join('\n');
 const LIVELY_FACE_RULE = '五官按设定选择可准确表达的脸型、眉形、眼型与瞳色标签，不以漂亮、英俊或职业气质代替，也不为凑齐鼻梁、下巴等微细节而写自然语言。唇形、唇色与妆容只在角色资料明确写出时保留，否则不写。常态眼型可以来自稳定设定，喜怒、闭眼、视线方向属于当次表情，不混入身份。';
 
 const LIVELY_IDENTITY_RULE = swap(swap(swap(IDENTITY_RULE, IDENTITY_FACE_RULE, LIVELY_FACE_RULE),
-    '，不默认人人窄肩、细腰、高个、长腿。', '。未设定体格时不写体型标签。'),
+    '，不默认人人窄肩、细腰、高个、长腿。', '。未设定体格时不写体型标签，男性写 slim。'),
     '肤色和 slim 的通用组合', '肤色的通用组合');
 
 // ---- 灵动：姿态与表情 ----

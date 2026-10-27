@@ -17,6 +17,7 @@ export const DEFAULT_IMAGE_API = Object.freeze({
     naiSpriteTransparent: true,
     spriteMatteColor: 'auto',
     externalSpriteDna: false,
+    worldInfoExclude: { books: [], entries: {} },
     cgModel: '',
     spriteModel: '',
     backgroundModel: '',

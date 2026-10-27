@@ -4724,6 +4724,8 @@ export async function handleSettingsAction(action, ctx) {
             const next = { ...open, [key]: !open[key] };
             // 演出写法列表同一时间只展开一条。
             if (key.startsWith('prompt-entry-') && next[key]) for (const other of Object.keys(next)) if (other !== key && other.startsWith('prompt-entry-')) next[other] = false;
+            // 世界书筛选同一时间只展开一本书。
+            if (key.startsWith('perf-wi-') && next[key]) for (const other of Object.keys(next)) if (other !== key && other.startsWith('perf-wi-')) next[other] = false;
             settingsState.asyncState.advancedOpen = next;
         }
         return rerenderSettings();

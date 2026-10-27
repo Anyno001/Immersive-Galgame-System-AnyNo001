@@ -50,6 +50,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'sprite-matte-color', label: '抠图底色', aliases: ['抠图', '绿底', '紫底', '灰底', '白底', '绿幕'], page: 'source', path: 'bridge.imageApi.spriteMatteColor' },
     { id: 'external-sprite-dna', label: '外部生图前补齐角色 DNA', aliases: ['副API', '副 API', '备用模型', '外部立绘', 'dbgen', '建档'], page: 'source', path: 'bridge.imageApi.externalSpriteDna' },
     { id: 'image-prompt-presets', label: '提示词组', aliases: ['固定提示词组预设', '生图预设', '提示块', '导入预设', '编辑提示词'], page: 'llm', open: ['image-prompt-editor'] },
+    { id: 'world-info-filter', label: '世界书筛选', aliases: ['世界书', '排除世界书', '屏蔽条目', '污染写词', '写词参考', 'lorebook'], page: 'llm', open: ['wi-filter-group'] },
     { id: 'artist-library', label: '画师串库', aliases: ['画师', '导入画师', '选择画师', '画师库'], page: 'kinds' },
     { id: 'consistency-strength', label: '一致性重绘强度', aliases: ['强度', '角色一致性', '重绘', 'strength'], page: 'source', path: 'bridge.autoIllustration.consistencyStrength' },
     { id: 'my-phone', label: '我的手机', group: 'special', open: ['perf-my-phone'], aliases: ['手机壳', '机型', '壁纸', '铃声', '手机外观', '壳色', '折叠屏', '刘海屏', '平板'] },

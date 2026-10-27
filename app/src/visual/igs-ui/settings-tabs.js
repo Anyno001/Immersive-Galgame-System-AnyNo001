@@ -157,6 +157,7 @@ const IMAGE_LLM_TEMPLATE = `
     </div>
   </div>
   {{imagePromptPanel}}
+  {{worldInfoFilterPanel}}
   <div class="igs-source-filter" data-image-feature="llm-prompts">
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
       <summary><b>附加词</b></summary>

@@ -29,6 +29,7 @@ import { getPath, normalizeReaderMode, normalizeSettingsValue, setPath } from '.
 import { FX_PACKS_ACTIVE, packSwitchPath } from '../../scene/fx-packs.js';
 import { handleSettingsAction as runSettingsAction, releasedGeneratedImageIds } from './settings-actions.js';
 import { ensureModelProfilesLoaded, handleModelProfileAction, isImmediateSavePath, setModelProfileSelection } from './settings-model-profiles.js';
+import { handleWorldInfoFilterAction, WORLD_INFO_FILTER_GROUP } from './settings-world-info-filter.js';
 import { SETTINGS_NOTICE_MS, beginSettingsProgress, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, remountSettingsProgress, settingsBusyLabel } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
@@ -767,6 +768,12 @@ export function createSettingsHost(deps) {
                 panel.asyncState.imagePromptBusy = false;
             }
         }
+        if (action.startsWith('wi-filter:')) {
+            const panel = state.activeSettings;
+            if (!panel) return { ok: false, reason: 'settings-not-open' };
+            return handleWorldInfoFilterAction(action, { panel, global: options.global || globalThis,
+                persistSettingsDraft, rerenderSettings, isCurrent: () => state.activeSettings === panel });
+        }
         if (action.startsWith('model-profile:')) {
             const panel = state.activeSettings;
             if (!panel) return { ok: false, reason: 'settings-not-open' };
@@ -1363,6 +1370,11 @@ export function createSettingsHost(deps) {
             if (!key || !state.activeSettings || !state.activeSettings.asyncState) return;
             const asyncState = state.activeSettings.asyncState;
             asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}), [key]: target.open === true };
+            // 世界书筛选：首次展开时读当前启用的书，之后重绘不再自动读；收起不重绘。
+            if (key === WORLD_INFO_FILTER_GROUP) {
+                if (target.open) handleSettingsAction('wi-filter:open').catch(() => {});
+                return;
+            }
             if (key.startsWith('image-prompt-') || key.startsWith('perf-ip-')) {
                 if (!target.open) flushImagePromptSave(root);
                 // 折叠的组不渲染内容：展开时重绘一次补出内容。
