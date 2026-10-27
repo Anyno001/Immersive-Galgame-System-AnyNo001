@@ -38,7 +38,7 @@ const GAIN_CAP = 1.2;
 // 人声净化：高通去低频嗡声，高架压嘶声与沙沙底噪（听筒本身有带通，不重复）。
 const CLEANUP_HIGHPASS = Object.freeze({ frequency: 100, q: 0.7 });
 const CLEANUP_HIGHSHELF = Object.freeze({ frequency: 7500, gain: -4 });
-const VOICE_LIMITER = Object.freeze({ threshold: -4, knee: 6, ratio: 20, attack: 0.001, release: 0.25 });
+const VOICE_LIMITER = Object.freeze({ threshold: -4, knee: 6, ratio: 20, attack: 0.003, release: 0.25 });
 // 语气音响着时 BGM 与环境音让一下（比提示音轻）；打字音整段静音到语气音念完。
 const BARK_DUCK_RATIO = 0.7;
 const BARK_TAIL_S = 0.05;
@@ -466,7 +466,8 @@ export function buildBarkChain(context, out, { volume, pan, phone, cleanup = fal
     // 贴耳 / 隔墙：局部滤镜只插在语音声链里，不碰 BGM 与环境声。
     if (!phone) insertVoiceFilter(context, link, filter);
     // 音量放大到 100% 以上时，响度统一后的峰值会被推过满幅削波；末端限幅压住峰值。
-    if (limit && typeof context.createDynamicsCompressor === 'function') {
+    // 100% 及以下峰值本就不超过 -1 dB，不接限幅：每个字都被压一下反而把波形压变形。
+    if (limit && gain.gain.value > 1 && typeof context.createDynamicsCompressor === 'function') {
         const limiter = context.createDynamicsCompressor();
         limiter.threshold.value = VOICE_LIMITER.threshold;
         limiter.knee.value = VOICE_LIMITER.knee;

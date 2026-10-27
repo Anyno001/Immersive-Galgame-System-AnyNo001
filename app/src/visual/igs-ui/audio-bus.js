@@ -16,9 +16,15 @@ let bus = null;
 let contextFactory = defaultContextFactory;
 let masterVolume = AUDIO_MASTER_DEFAULTS.volume;
 
+// 按播放场景开大缓冲：默认的低延迟缓冲约 10 ms，页面一忙音频线程就断粮，朗读时听到短促的咔哒/电流声。
 function defaultContextFactory() {
     const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
-    return Context ? new Context() : null;
+    if (!Context) return null;
+    try {
+        return new Context({ latencyHint: 'playback' });
+    } catch {
+        return new Context();
+    }
 }
 
 export function normalizeAudioMasterSettings(value) {
