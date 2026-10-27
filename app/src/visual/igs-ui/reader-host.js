@@ -5196,6 +5196,7 @@ export function createIgsReaderHost(options = {}) {
         }
         renderAssetReviewPanel(container, items.map((item) => ({
             ...item,
+            busy: reviewRecoveries.has(item.key),
             previewUrl: typeof service.resolveUrl === 'function' ? service.resolveUrl(item.url) : item.url,
         })), {
             onResolve: completeGeneratedReview,
@@ -5332,7 +5333,10 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function completeGeneratedReview(item, status, name) {
-        if (reviewRecoveries.has(item.key)) return reviewRecoveries.get(item.key);
+        if (reviewRecoveries.has(item.key)) {
+            writeToastSafe('正在入库，图片保存完成后自动继续');
+            return reviewRecoveries.get(item.key);
+        }
         const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis)).key;
         const chatId = options.getCurrentChatId?.();
         const job = recoverOperation(async () => {
@@ -5343,7 +5347,10 @@ export function createIgsReaderHost(options = {}) {
                 && options.getCurrentChatId?.() === chatId
                 && resolveAssetScope(getSillyTavernContext(options.global || globalThis)).key === scope,
             onRecover: ({ attempt }) => { if (attempt === 1) writeToastSafe('正在自动完成素材入库'); },
-        }).finally(() => reviewRecoveries.delete(item.key));
+        }).finally(() => {
+            reviewRecoveries.delete(item.key);
+            if (state.activeReader) rerenderActiveReader();
+        });
         reviewRecoveries.set(item.key, job);
         return job;
     }

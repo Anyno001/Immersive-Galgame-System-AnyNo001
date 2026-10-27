@@ -167,12 +167,19 @@ function hasSpriteAdoptionEvidence(record) {
         || record?.promptTask?.mode === 'dna_template');
 }
 
-async function readSpriteAdoptionRecord(service, imageId, record) {
+async function readSpriteAdoptionRecord(service, imageId, record, { waitMs = 20000 } = {}) {
     if (!hasSpriteAdoptionEvidence(record)) return { ok: true, record };
+    const readable = stored => stored?.dataUrl && stored.id === imageId && stored.type === 'sprite';
+    const deadline = Date.now() + waitMs;
     try {
-        const stored = await service.readStoredImage?.(imageId);
-        if (!stored?.dataUrl || stored.id !== imageId || stored.type !== 'sprite')
-            return { ok: false, reason: 'DNA_ADOPTION_INVALID', error: '图片还没读取完成，请稍后再试' };
+        let stored = await service.readStoredImage?.(imageId);
+        // 刚生成的图可能还在写入酒馆文件夹：等写完再入库，不让用户反复点。
+        while (!readable(stored) && Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 800));
+            stored = await service.readStoredImage?.(imageId);
+        }
+        if (!readable(stored))
+            return { ok: false, reason: 'DNA_ADOPTION_INVALID', error: '图片仍在保存，请稍后再入库' };
         // 内存结果不能补齐权威存储已丢失的旁路，否则删除候选后仍可能建档。
         return { ok: true, record: { ...stored, imageId,
             ...(record.ok !== undefined && { ok: record.ok }),

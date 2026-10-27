@@ -961,7 +961,7 @@ export function createSettingsHost(deps) {
                     const menu = action.closest('details.igs-add-menu');
                     if (menu) menu.open = false;
                     if (settingsBusyActions.has(actName)) {
-                        showSettingsNotice('这一张仍在生成，完成后会自动替换。');
+                        showSettingsNotice(actName.startsWith('gen-temp-accept:') ? '正在入库，请稍候。' : '这一张仍在生成，完成后会自动替换。');
                         return;
                     }
                     settingsBusyActions.add(actName);

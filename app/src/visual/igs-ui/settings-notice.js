@@ -79,6 +79,7 @@ export function settingsBusyLabel(action) {
     if (SETTINGS_BUSY_LABELS[name]) return SETTINGS_BUSY_LABELS[name];
     if (/^(?:char-(?:generate|redraw)-sprite|outfit-generate-nude|status-avatar-generate|(?:char|outfit)-expression-retry|scene-variant-(?:set|retry)|wardrobe-reference):/.test(name)) return '生图中';
     if (/^wardrobe-generate-prompt:/.test(name)) return '写词中';
+    if (/^gen-temp-accept:/.test(name)) return '入库中…';
     return '';
 }
 
