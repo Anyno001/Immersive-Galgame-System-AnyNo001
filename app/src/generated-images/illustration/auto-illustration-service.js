@@ -321,6 +321,14 @@ export function createAutoIllustrationService(deps) {
         return null;
     }
 
+    // 灵动 CG 写词的附加信息：User 名（User立绘优先，其次酒馆用户名）与本图是否按 NSFW 出图（需已开 NSFW）。
+    const cgHintsFor = (s, nsfw) => ({ nsfw: nsfw === true && s.nsfwEnabled === true,
+        userName: String(readSceneAssets().userCharacter || messageHost.getUserName?.() || '').trim() });
+    // 本楼是否 NSFW 场景；没写场景标签时继承最近一个带标签的楼，与规划同一判定。
+    const floorNsfw = (text, messageId) => {
+        const numbered = numberParagraphs(text);
+        return numbered.scenes.length ? numbered.isNsfw : inheritedNsfw(messageId);
+    };
     function inheritedNsfw(messageId) {
         const texts = typeof messageHost.readPreviousAiTexts === 'function' ? messageHost.readPreviousAiTexts(messageId, 5) : [];
         for (let i = texts.length - 1; i >= 0; i -= 1) {
@@ -608,6 +616,7 @@ export function createAutoIllustrationService(deps) {
                 description: `完善本楼第 ${request.slot} 个 CG 生成点的完整画面提示词。保留该生成点的剧情、人物和衣装，按本次输出映射交付。\n${request.description || request.scene || text}`,
                 outputs: { slotIds: [request.slot] },
                 writingRequirements: cgWritingRequirements(settings(signal), cgSize(settings(signal)), 'cg'),
+                cgHints: cgHintsFor(settings(signal), floorNsfw(text, floor.messageId)),
                 signal: signal || recoveryController.signal, shouldStart: () => targetStillLive(floor) });
             if (!written?.ok) return written || { ok: false, reason: 'cg-write-pending' };
             const entries = written.captions || [written];
@@ -826,6 +835,7 @@ export function createAutoIllustrationService(deps) {
                     description: `${user}\n本次允许 slotid 为 1 到 ${decision.want}；不得改用其他编号。`,
                     systemPrompt: CG_TEMPLATE_PLANNER_SYSTEM,
                     writingRequirements: cgWritingRequirements(s, cgSize(s), decision.kind),
+                    cgHints: cgHintsFor(s, decision.kind === 'nsfw'),
                 });
                 plan = written;
                 if (written.ok) {
@@ -1339,6 +1349,7 @@ export function createAutoIllustrationService(deps) {
         const written = await imageBackendMethod(nai, 'writePrompt')({ ...task, imagePromptTask: 'cg', description,
             outputs: { slotIds: [1] },
             writingRequirements: cgWritingRequirements(s, size, nsfw ? 'nsfw' : 'cg'),
+            cgHints: cgHintsFor(s, nsfw),
             ...(!template && context.length && { characterContext: context }),
             signal: guarded.signal, shouldStart: guarded.shouldStart });
         if (!written?.ok) return { ok: false, ...written, error: written?.error || 'CG 写词失败' };

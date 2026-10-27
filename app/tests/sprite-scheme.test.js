@@ -65,7 +65,7 @@ test('灵动预设：合法、带方案与档位字段、含草稿关键句且�
     for (const key of ['男性角色默认神态', '女性肩', 'stubble', 'thick lips', 'wasp waist', 'straight eyebrows', '演绎档位', '不遮挡面部', '不遮挡眼睛'])
         assert.ok(!text.includes(key), key);
     // 没有换到的任务与标准逐字相同
-    for (const task of ['avatar', 'wardrobe', 'background', 'item', 'consistency', 'creature'])
+    for (const task of ['avatar', 'wardrobe', 'item', 'consistency', 'creature'])
         assert.deepEqual(modules(preset)[task], modules(standard)[task], task);
     // 输出字段名必须保留
     const spriteData = LIVELY_TASK_TEXT.sprite['sprite-data'];

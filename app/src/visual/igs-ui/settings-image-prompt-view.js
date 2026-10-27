@@ -166,10 +166,14 @@ export function renderImagePromptPanel(editor, advancedOpen = {}) {
         + `<details class="igs-add-menu igs-image-prompt-more"><summary class="igs-settings-action igs-settings-inline-action" aria-label="更多">更多 ▾</summary><div class="igs-add-menu-list" role="menu">`
         + [menuItem(act('copy'), '复制'), menuItem(act('import'), '导入文件'), menuItem(act('import-text'), '从剪贴板导入'),
             menuItem(act('export'), '导出文件'), menuItem(act('delete'), '删除', ' is-danger')].join('') + '</div></details></div>';
-    // 演绎档位只在灵动方案下出现；现实在前，缺省按现实。
+    // 演绎档位、CG主体、补标签只在灵动方案下出现；缺省为现实、角色、关闭。
     if (state.preset?.data.spriteScheme === 'lively')
         head += settingsField('', '演绎', segmentedInput('', state.preset.data.performance === 'expressive' ? 'expressive' : 'subtle',
-            [['subtle', '现实'], ['expressive', '夸张']], '演绎', { action: act('performance') }));
+            [['subtle', '现实'], ['expressive', '夸张']], '演绎', { action: act('performance') }))
+            + settingsField('', 'CG主体', segmentedInput('', state.preset.data.cgSubject === 'user' ? 'user' : 'character',
+                [['character', '角色'], ['user', 'User']], 'CG主体', { action: act('cg-subject') }))
+            + settingsField('', '补标签', segmentedInput('', state.preset.data.tagFill === true ? 'on' : 'off',
+                [['off', '关闭'], ['on', '开启']], '补标签', { action: act('tag-fill') }));
     head += `<div class="igs-settings-result${imagePromptStatusClass(state) ? ' ' + imagePromptStatusClass(state) : ''}" data-image-prompt-status role="status">${esc(imagePromptStatusText(state))}</div>`;
     if (state.importPreview) head += renderImport(state);
     head += '</div>';
