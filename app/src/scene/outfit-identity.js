@@ -31,25 +31,21 @@ export function outfitAdoptionEvidence(input = {}, result = {}) {
 
 export function prepareOutfitAdoption(assets, name, imageId, record = {},
     { sourceName = name, defaultOutfit = false, readWardrobe = assets.wardrobe, spriteSlot = '平和' } = {}) {
-    const fail = (issue, message, cause) => {
-        const code = typeof cause === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(cause) ? cause : '';
-        return { ok: false, reason: 'OUTFIT_ADOPTION_CONFLICT',
-            error: `衣装入库核验未通过：${message}；已生成图片保留，原衣装保持不变。（${issue}${code ? `/${code}` : ''}）`,
-            diagnostic: { stage: 'outfit-adoption', issue, ...(code && { causeReason: code }) } };
-    };
-    if (record.promptEdited === true || record.edited === true) return { ok: true, patch: {} };
+    // 入库不因衣装资料对不上而失败：对不上就只采用图片，不登记衣装。
+    const skip = { ok: true, patch: {} };
+    if (record.promptEdited === true || record.edited === true) return skip;
     const adoptDefault = (candidate, allowEmptyDescription = false) => {
         if (typeof spriteSlot !== 'string' || !spriteSlot.trim() || ['__proto__', 'constructor', 'prototype'].includes(spriteSlot))
-            return fail('sprite-slot-invalid', '立绘图槽无效');
+            return skip;
         if (!isValidOutfitName(candidate.name) || isBuiltinNudeOutfit(candidate.name))
-            return fail('candidate-name', '默认立绘需要可保存的命名衣装');
+            return skip;
         const selected = readDefaultOutfit(assets, name);
         // 外部来源可以只交完整绘图词。正文已给衣装名时直接登记图片，衣装 DNA 留空。
         const saved = allowEmptyDescription && !candidate.description?.trim()
             ? prepareOutfitDnaPatch(assets, name, candidate.name, '', readWardrobe)
             : prepareOutfitDnaSave(assets, name, candidate.name, candidate.description,
                 { readWardrobe, descriptionHalfBody: candidate.descriptionHalfBody });
-        if (!saved.ok) return saved;
+        if (!saved.ok) return skip;
         const all = saved.patch.characterOutfits || assets.characterOutfits || {};
         const entry = all[name]?.[candidate.name];
         return { ok: true, outfitName: candidate.name, patch: {
@@ -71,37 +67,28 @@ export function prepareOutfitAdoption(assets, name, imageId, record = {},
         return adoptDefault({ name: outfitName,
             description: outfit?.name === outfitName && typeof outfit.description === 'string' ? outfit.description : '' }, true);
     }
-    if (!imageId || !record.sentPrompt || !record.outfitSnapshot)
-        return fail('evidence-missing', '图片缺少生成时的衣装或发送快照');
+    // IGS 自己出的图：衣装以生成时保存的快照为准，不再与发送正文比对；资料不全时照常采用图片，只是不登记衣装。
+    if (!imageId || !record.outfitSnapshot) return skip;
     let snapshot;
     try { snapshot = promptProvenance({ outfitSnapshot: record.outfitSnapshot }).outfitSnapshot; }
-    catch { return fail('snapshot-invalid', '图片保存的衣装快照无效'); }
-    const sentChars = record.sentPrompt.caption?.v4_prompt?.caption?.char_captions;
-    if (!Array.isArray(sentChars)) return fail('wire-missing', '无法核对图片的实际发送正文');
-    // 只核对衣装词确实画进了这张图；身份、性格、姿态等其余正文随方案变化，不参与入库判断。
-    const tagsOf = text => String(text || '').split(/[,\n]/).map(t => t.trim().toLowerCase()).filter(Boolean);
-    const drawn = c => {
-        const sent = new Set(tagsOf(sentChars[c.captionIndex]?.char_caption));
-        return [c.descriptionHalfBody, c.description].some(text => text !== undefined && tagsOf(text).every(t => sent.has(t)));
-    };
+    catch { return skip; }
     const clothes = snapshot.characters.filter(c => c.characterKey === sourceName);
-    if (clothes.some(c => !drawn(c))) return fail('wire-outfit', '图片实际发送的角色正文里没有这套衣装');
     // 默认采用与身份是否初始化无关；图、服装说明和选择在同一设置补丁提交。
     if (defaultOutfit) {
-        if (clothes.length !== 1) return fail('candidate-binding', '默认服装无法唯一绑定目标角色');
+        if (clothes.length !== 1) return skip;
         return adoptDefault(clothes[0]);
     }
 
     const candidates = snapshot.characters.filter(c => c.characterKey === sourceName
         && (c.source === 'candidate' || c.descriptionHalfBody !== undefined));
     if (!candidates.length) return { ok: true, patch: {} };
-    if (candidates.length !== 1) return fail('candidate-binding', '衣装候选无法唯一绑定目标角色');
+    if (candidates.length !== 1) return skip;
 
     const candidate = candidates[0];
-    if (!isValidOutfitName(candidate.name)) return fail('candidate-name', '衣装候选名称不合法');
-    if (isBuiltinNudeOutfit(candidate.name)) return { ok: true, patch: {} };
-    return prepareOutfitDnaSave(assets, name, candidate.name, candidate.description,
+    if (!isValidOutfitName(candidate.name) || isBuiltinNudeOutfit(candidate.name)) return skip;
+    const saved = prepareOutfitDnaSave(assets, name, candidate.name, candidate.description,
         { readWardrobe, descriptionHalfBody: candidate.descriptionHalfBody });
+    return saved.ok ? saved : skip;
 }
 
 // 服装 DNA 独立于图片保存；调用方负责归属、冻结基线与持久化。

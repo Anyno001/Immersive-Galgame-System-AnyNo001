@@ -5254,6 +5254,11 @@ export function createIgsReaderHost(options = {}) {
         if (result?.ok && !result.alreadyHandled && picked !== 'retry') {
             imageNotice('success', aliasName ? `已把「${ask.word}」归入「${aliasName}」` : picked === 'sprite' ? '衣装和对应立绘已入库' : '衣装已入库衣柜');
         }
+        // 失败的候选会退回待确认、面板重新弹出；不提示原因就像点了没生效。
+        if (result && result.ok === false && result.reason !== 'stale-target') {
+            const why = result.error || result.reason || '未返回具体原因';
+            imageNotice('error', result.saved ? `「${ask.word}」已入库衣柜，立绘未完成：${why}` : `「${ask.word}」入库未完成：${why}`);
+        }
         if (state.activeReader) syncAssetReviewAfterRender(state.activeReader, state.activeReader.snapshot);
         return result;
     }

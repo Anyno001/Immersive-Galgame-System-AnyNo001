@@ -30,15 +30,17 @@ export function buildCharacterContext(names, assets = {}, options) {
 // 新候选采用与旧完整词采用分开：成功图片的旁路是证据，不从图片或正文猜身份。
 export function prepareSpriteIdentityAdoption(assets, name, imageId, record = {},
     { sourceName = name, hadDefault = false, readWardrobe = assets.wardrobe, spriteSlot = '平和' } = {}) {
-    const fail = (reason, error = '立绘身份资料已变化或无法核验，请重新生成；原资料保持不变') => ({ ok: false, reason, error });
     if (record.promptEdited === true || record.edited === true) {
-        if (record.dnaCandidates !== undefined) return fail('DNA_ADOPTION_INVALID');
         return { ok: true, patch: {
             characterDna: assets.characterDna || {}, characterOutfits: assets.characterOutfits || {}, wardrobe: assets.wardrobe || {},
         } };
     }
     const clothes = prepareOutfitAdoption(assets, name, imageId, record, { sourceName, defaultOutfit: true, readWardrobe, spriteSlot });
     if (!clothes.ok) return clothes;
+    // 身份候选核不上时不拦入库：照常采用图片和衣装，只是不写入 DNA。
+    const plain = () => ({ ok: true, ...(clothes.outfitName && { outfitName: clothes.outfitName }), patch: {
+        characterDna: assets.characterDna || {}, characterOutfits: assets.characterOutfits || {}, wardrobe: assets.wardrobe || {},
+        ...clothes.patch } });
     if (record.dnaCandidates === undefined) {
         // 新模板没有候选时不得用旧 identityAnchor 建档。
         const patch = record.promptRecipe ? {
@@ -48,26 +50,26 @@ export function prepareSpriteIdentityAdoption(assets, name, imageId, record = {}
             patch: { ...patch, ...clothes.patch } };
     }
     if (!imageId || record.promptEdited === true || record.edited === true || !record.sentPrompt
-        || !record.promptRecipe || !Array.isArray(record.identityContext)) return fail('DNA_ADOPTION_INVALID');
+        || !record.promptRecipe || !Array.isArray(record.identityContext)) return plain();
     const context = record.identityContext;
     const source = context.filter((c) => c.characterKey === sourceName);
-    if (source.length !== 1) return fail('DNA_TEMPLATE_BINDING');
+    if (source.length !== 1) return plain();
     const task = checkPromptTask(record.promptTask, context);
-    if (!task.ok || task.value?.purpose !== 'sprite') return fail('PROMPT_MODE_CONFLICT');
+    if (!task.ok || task.value?.purpose !== 'sprite') return plain();
     const caption = record.promptRecipe.caption;
     const meta = checkCharacterMeta(record.characterMeta, caption, [sourceName]);
-    if (!meta.ok) return meta;
+    if (!meta.ok) return plain();
     const output = checkPromptOutput({ ...record, caption, characterMeta: meta.value }, task.value, context);
-    if (!output.ok) return output;
+    if (!output.ok) return plain();
     const candidates = output.value.dnaCandidates?.characters;
-    if (candidates?.length !== 1 || candidates[0].characterKey !== sourceName) return fail('DNA_TEMPLATE_BINDING');
+    if (candidates?.length !== 1 || candidates[0].characterKey !== sourceName) return plain();
     const dna = normalizeCharacterDna(assets.characterDna?.[name]);
     const candidate = candidates[0];
     const snapshot = record.dnaSnapshot?.characters?.filter((c) => c.characterKey === sourceName && c.source === 'candidate');
     if (record.dnaSnapshot?.version !== 1 || snapshot?.length !== 1
         || JSON.stringify(normalizeCharacterDna(snapshot[0].profile).views) !== JSON.stringify(candidate.views)
         || (candidate.personality !== undefined && snapshot[0].profile?.personality !== candidate.personality))
-        return fail('DNA_ADOPTION_INVALID');
+        return plain();
     // 显式立绘转换可补齐旧身份的景别，但旧字段及已存在景别必须原样保留。
     const nextDna = { ...dna, version: 2, views: structuredClone({ ...candidate.views, ...Object.fromEntries(Object.entries(dna.views || {}).filter(([, view]) => view.subject)) }),
         ...(dna.personality === undefined && candidate.personality !== undefined && { personality: candidate.personality }),
