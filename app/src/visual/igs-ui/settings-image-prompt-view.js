@@ -1,10 +1,9 @@
 import { IMAGE_PROMPT_FORMATS, IMAGE_PROMPT_TASKS, PROMPT_DATA_FIELDS } from '../../presets/prompt-preset.js';
-import { previewFormats } from './settings-image-prompt-editor.js';
 import { collapsible, perfItem } from './fx-settings-fields.js';
 import { menuItem } from './settings-outfit-fields.js';
 import { field as settingsField, segmentedInput } from './settings-fields.js';
 import { blockTitle, dataFieldLabel, describeFailure, describeIssues, formatLabel, imagePromptStatusClass, imagePromptStatusText,
-    moduleTitle, roleLabel, ROLE_LABELS, SLOT_LABELS, taskLabel } from './settings-image-prompt-labels.js';
+    moduleTitle, ROLE_LABELS, SLOT_LABELS, taskLabel } from './settings-image-prompt-labels.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const act = (verb, args = []) => `image-prompt:${verb}${args.map(v => ':' + encodeURIComponent(v)).join('')}`;
@@ -132,28 +131,6 @@ function orderManager(state, data, ordered, unordered, ui) {
     return ui.collapsible('ip-order', '发送顺序与段落管理', html);
 }
 
-function previewBody(state, data) {
-    const formats = previewFormats(data, state.previewTask);
-    let body = `<label class="igs-settings-field"><span>任务</span><select data-image-prompt-preview-task aria-label="任务">${choices(IMAGE_PROMPT_TASKS.map(task => [task, taskLabel(task)]), state.previewTask)}</select></label>`;
-    body += `<label class="igs-settings-field"><span>场合</span><select data-image-prompt-preview-format aria-label="场合">${choices(formats.map(fmt => [fmt, formatLabel(fmt)]), state.previewFormat)}</select></label>`;
-    body += `<div class="igs-image-prompt-actions">${button('preview', '生成预览')}</div>`;
-    const result = state.preview;
-    if (!result) return body;
-    if (!result.ok) {
-        const issues = describeIssues(result.errors, data);
-        return body + `<div class="igs-settings-result is-error">${esc(describeFailure({ reason: result.reason }))}${issues.length ? '：' + esc(issues.join('；')) : ''}</div>`;
-    }
-    const kinds = new Map((data.prompts || []).map(block => [block.identifier, block.kind]));
-    body += '<div class="igs-image-prompt-result">';
-    for (const block of result.blocks) {
-        const head = `【${roleLabel(block.role)}】`;
-        body += kinds.get(block.identifier) === 'data-slot'
-            ? `<details class="igs-image-prompt-msg"><summary>${esc(head)}本轮资料</summary><div class="igs-settings-preview">${esc(block.content)}</div></details>`
-            : `<div class="igs-image-prompt-msg"><div class="igs-image-prompt-msg-role">${esc(head)}</div><div class="igs-settings-preview">${esc(block.content)}</div></div>`;
-    }
-    return body + '</div>';
-}
-
 function renderImport(state) {
     const preview = state.importPreview;
     let html = '<div class="igs-source-filter-title">导入预览</div>';
@@ -208,7 +185,5 @@ export function renderImagePromptPanel(editor, advancedOpen = {}) {
         () => IMAGE_PROMPT_TASKS.map(task => taskRow(state, data, task, ui)).join(''));
     html += group('image-prompt-group-rules', advancedOpen['image-prompt-group-rules'] === true, '通用规则', shared.length,
         () => shared.map(row => ruleRow(state, data, row.block, row.sent, ui)).join('') + orderManager(state, data, ordered, unordered, ui));
-    html += group('image-prompt-group-preview', advancedOpen['image-prompt-group-preview'] === true, '预览发送内容', '',
-        () => previewBody(state, data));
     return html + '</div>';
 }

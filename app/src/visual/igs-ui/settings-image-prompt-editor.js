@@ -1,5 +1,4 @@
-import { clonePromptData, IMAGE_PROMPT_FORMATS, PROMPT_DATA_FIELDS, validatePromptActivation } from '../../presets/prompt-preset.js';
-import { renderImagePromptPreset } from '../../presets/prompt-preset-renderer.js';
+import { clonePromptData, PROMPT_DATA_FIELDS, validatePromptActivation } from '../../presets/prompt-preset.js';
 import { completeImagePromptPreset, createDefaultImagePromptPreset, createBuiltinImagePromptPresets, createBuiltinImagePromptPresetFor } from '../../generated-images/image-prompt-defaults.js';
 import { editImagePromptField } from './settings-image-prompt-fields.js';
 import { describeFailure, describeIssues } from './settings-image-prompt-labels.js';
@@ -8,7 +7,7 @@ const TYPE = 'prompt-preset';
 const fail = reason => ({ ok: false, reason });
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
-// 预览用的示例资料：按该任务模块的资料范围生成，只在本地装配，不发送。
+// 按该任务模块的资料范围生成示例资料，只在本地装配，不发送（黄金样本测试用）。
 export function buildPreviewInput(data, task, format) {
     const module = data?.modules?.find(item => item.identifier === data.taskMap?.[task]);
     const input = { worldInfo: '（程序自动生成的示例世界书）' };
@@ -20,19 +19,13 @@ export function buildPreviewInput(data, task, format) {
     }
     return input;
 }
-// 预览可选的格式：该任务模块声明了分格式规则时只列已有的，否则列全部。
-export function previewFormats(data, task) {
-    const module = data?.modules?.find(item => item.identifier === data.taskMap?.[task]);
-    const keys = module?.contentByFormat && typeof module.contentByFormat === 'object' ? Object.keys(module.contentByFormat) : [];
-    return keys.length ? keys : [...IMAGE_PROMPT_FORMATS];
-}
 
 // 仅管理编辑副本；所有持久化与 current 变化交给注入的唯一注册表。
 export function createImagePromptEditor(registry, options = {}) {
     const now = options.now || (() => Date.now());
     const state = { preset: null, baseRevision: null, draftRevision: null, dirty: false, editRevision: 0,
-        rawFields: {}, errors: {}, preview: null, importPreview: null, importChoices: {},
-        previewTask: 'sprite', previewFormat: 'sprite-data', status: '', save: null, pendingFormats: {} };
+        rawFields: {}, errors: {}, importPreview: null, importChoices: {},
+        status: '', save: null, pendingFormats: {} };
     // 激活校验按编辑版本缓存：同一版本只校验一次（校验内部有整份 JSON 往返）。
     let activationCache = { revision: -1, id: null, result: null };
     function getActivation() {
@@ -52,7 +45,7 @@ export function createImagePromptEditor(registry, options = {}) {
         state.baseRevision = restore && draft ? draft.baseRevision : saved?.data.revision ?? null;
         state.draftRevision = draft?.revision ?? null;
         state.dirty = false;
-        state.rawFields = {}; state.errors = {}; state.preview = null;
+        state.rawFields = {}; state.errors = {};
         for (const [address, value] of Object.entries(restore ? draft?.editorFields || {} : {})) {
             edit(address, value);
         }
@@ -78,7 +71,7 @@ export function createImagePromptEditor(registry, options = {}) {
         if (!state.preset) return fail('missing-image-prompt-preset');
         const result = editImagePromptField(state, address, value);
         state.editRevision += 1;
-        state.dirty = true; state.preview = null; state.save = null;
+        state.dirty = true; state.save = null;
         if (!result.ok) { state.rawFields[address] = value; state.errors[address] = result; }
         else { delete state.rawFields[address]; delete state.errors[address]; }
         return result;
@@ -101,7 +94,7 @@ export function createImagePromptEditor(registry, options = {}) {
         state.baseRevision = revision;
         state.draftRevision = null;
         state.dirty = false;
-        state.rawFields = {}; state.errors = {}; state.preview = null;
+        state.rawFields = {}; state.errors = {};
         state.editRevision += 1;
     }
     // 自动保存：能通过激活校验就写正式版本（该预设正在使用时立即生效），否则只写草稿，正在使用的版本不变。
@@ -142,7 +135,7 @@ export function createImagePromptEditor(registry, options = {}) {
         preset.id = id; preset.name = name || id;
         delete preset.data.defaultState; delete preset.data.defaultVersion;
         state.preset = preset; state.baseRevision = null; state.draftRevision = null;
-        state.rawFields = {}; state.errors = {}; state.preview = null; state.dirty = true; state.save = null;
+        state.rawFields = {}; state.errors = {}; state.dirty = true; state.save = null;
         state.editRevision += 1; state.pendingFormats = {};
         return autoSave();
     }
@@ -188,7 +181,7 @@ export function createImagePromptEditor(registry, options = {}) {
         const result = state.baseRevision === null ? registry.removePromptDraft(id, state.draftRevision)
             : registry.removeImagePromptPreset(id, { expectedRevision: state.baseRevision, expectedDraftRevision: state.draftRevision });
         if (result.ok) {
-            state.preset = null; state.dirty = false; state.preview = null; state.save = null;
+            state.preset = null; state.dirty = false; state.save = null;
             const initialized = registry.ensureImagePromptDefault(createBuiltinImagePromptPresets());
             if (!initialized.ok) return initialized;
             return load(registry.getCurrent(TYPE)?.id);
@@ -244,7 +237,7 @@ export function createImagePromptEditor(registry, options = {}) {
             } else return fail('invalid-prompt-action');
         }
         state.editRevision += 1;
-        state.dirty = true; state.preview = null; state.save = null;
+        state.dirty = true; state.save = null;
         return { ok: true, structural: true };
     }
 
@@ -262,15 +255,6 @@ export function createImagePromptEditor(registry, options = {}) {
         if (result.ok) { state.importPreview = null; state.importChoices = {}; }
         return result;
     }
-    function preview() {
-        if (!state.preset) return fail('missing-image-prompt-preset');
-        if (Object.keys(state.errors).length) return fail('invalid-prompt-fields');
-        const formats = previewFormats(state.preset.data, state.previewTask);
-        if (!formats.includes(state.previewFormat)) state.previewFormat = formats[0];
-        state.preview = renderImagePromptPreset(state.preset.data, state.previewTask,
-            buildPreviewInput(state.preset.data, state.previewTask, state.previewFormat));
-        return state.preview;
-    }
     function discardDraft() {
         if (!state.preset) return fail('missing-image-prompt-preset');
         const id = state.preset.id;
@@ -279,7 +263,7 @@ export function createImagePromptEditor(registry, options = {}) {
             if (!result.ok) return result;
         }
         if (registry.get(TYPE, id)) return load(id, false);
-        state.preset = null; state.dirty = false; state.rawFields = {}; state.errors = {}; state.preview = null;
+        state.preset = null; state.dirty = false; state.rawFields = {}; state.errors = {};
         return { ok: true };
     }
     // 恢复默认：先冲刷自动保存，再恢复；当前内容未填完整（只能存草稿）时不恢复。
@@ -313,7 +297,7 @@ export function createImagePromptEditor(registry, options = {}) {
         if (next.spriteScheme === 'lively' && state.preset.data.performance) next.performance = state.preset.data.performance;
         state.preset.data = completeImagePromptPreset(next);
         state.editRevision += 1;
-        state.dirty = true; state.preview = null; state.save = null;
+        state.dirty = true; state.save = null;
         state.rawFields = {}; state.errors = {}; state.pendingFormats = {};
         return autoSave();
     }
@@ -332,5 +316,5 @@ export function createImagePromptEditor(registry, options = {}) {
     }
     const saved = () => state.preset ? registry.get(TYPE, state.preset.id) : null;
     return { state, view, saved, edit, select, create, newId, rename, autoSave, saveDraft, save, activate, remove, blockAction, restoreFramework,
-        previewImport, commitImport, preview, discardDraft, restore, initialize, reload };
+        previewImport, commitImport, discardDraft, restore, initialize, reload };
 }

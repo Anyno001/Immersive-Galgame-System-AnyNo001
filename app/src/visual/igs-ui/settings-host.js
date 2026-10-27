@@ -39,7 +39,7 @@ import { eventToShortcut } from './reader-shortcuts.js';
 import { canMorph, morphChildren } from './settings-dom-morph.js';
 import { buildFallbackSettingsOverlay } from './reader-dom-render.js';
 import { createSettingsRenderer } from './settings-host-render.js';
-import { createImagePromptEditor, previewFormats } from './settings-image-prompt-editor.js';
+import { createImagePromptEditor } from './settings-image-prompt-editor.js';
 import { handleImagePromptAction } from './settings-image-prompt-actions.js';
 import { describeFailure, imagePromptStatusClass, imagePromptStatusText } from './settings-image-prompt-labels.js';
 import { handleArtistLibraryAction, setArtistLibraryField, setArtistSelection } from './settings-artist-library.js';
@@ -1159,15 +1159,6 @@ export function createSettingsHost(deps) {
                 if (target.getAttribute('data-image-prompt-select') !== null) {
                     if (target.value) controller.invoke(`image-prompt:select:${encodeURIComponent(target.value)}`);
                     return;
-                }
-                if (target.getAttribute('data-image-prompt-preview-task') !== null) {
-                    editor.state.previewTask = target.value; editor.state.preview = null;
-                    editor.state.previewFormat = previewFormats(editor.state.preset?.data, target.value)[0];
-                    rerenderSettings(); return;
-                }
-                if (target.getAttribute('data-image-prompt-preview-format') !== null) {
-                    editor.state.previewFormat = target.value; editor.state.preview = null;
-                    rerenderSettings(); return;
                 }
                 const formatAdd = target.getAttribute('data-image-prompt-format-add');
                 if (formatAdd !== null) {

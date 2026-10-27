@@ -91,9 +91,9 @@ const IMAGE_SOURCE_TEMPLATE = `
     </div>
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
-        <div class="igs-settings-full">{{autoNaiEndpointField}}</div>
-        {{autoNaiKeyField}}{{autoNaiTransportField}}
+        {{autoNaiEndpointField}}{{autoNaiKeyField}}
         {{autoNaiModelField}}{{autoNaiSizeField}}
+        {{autoNaiTransportField}}
       </div>
       {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>

@@ -108,7 +108,6 @@ export async function handleImagePromptAction(action, ctx) {
     if (verb === 'discard') return editor.discardDraft();
     if (verb === 'reload') return editor.reload();
     if (verb === 'reset') return editor.restoreFramework();
-    if (verb === 'preview') return editor.preview();
     if (verb === 'import-commit') return editor.commitImport();
     if (verb === 'block-delete') return structural(editor, editor.blockAction('delete', args[0], args[1]));
     if (verb === 'move') return structural(editor, editor.blockAction('move', 'prompts', args[0], args[1]));

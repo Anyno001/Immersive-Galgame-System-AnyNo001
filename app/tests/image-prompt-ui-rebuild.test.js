@@ -43,7 +43,7 @@ function customPreset() {
 }
 // 展开所有组、行与折叠项（折叠的内容不渲染）。
 function openAllFor(data) {
-    const open = { 'image-prompt-group-tasks': true, 'image-prompt-group-rules': true, 'image-prompt-group-preview': true, 'perf-ip-order': true };
+    const open = { 'image-prompt-group-tasks': true, 'image-prompt-group-rules': true, 'perf-ip-order': true };
     for (const task of IMAGE_PROMPT_TASKS) { open['perf-ip-task-' + task] = true; open['perf-ip-version-' + task] = true; }
     for (const m of data.modules) { open['perf-ip-occ-' + m.identifier] = true; open['perf-ip-adv-' + m.identifier] = true; }
     for (const b of data.prompts) { open['perf-ip-rule-' + b.identifier] = true; open['perf-ip-occ-' + b.identifier] = true; open['perf-ip-adv-prompts-' + b.identifier] = true; }
@@ -298,11 +298,8 @@ test('界面无内部英文：渲染文本、选项、标签全是中文', () =>
     const { registry, editor } = setup();
     assert.equal(registry.savePromptPreset(customPreset(), null).ok, true);
     editor.select('custom-roundtrip');
-    editor.state.previewTask = 'cg'; editor.state.previewFormat = 'cg-plan';
-    assert.equal(editor.preview().ok, true);
     editor.state.importPreview = registry.previewPromptImport(JSON.stringify(registry.get(TYPE, 'custom-roundtrip')));
     const html = renderImagePromptPanel(editor, openAll(editor));
-    assert.ok(html.includes('igs-image-prompt-result'));
     assert.ok(html.includes('分场合附加规则'));
     // 去掉用户正文（文本框、预览内容、行摘要），其余可见文字、选项、标签都不得含小写英文
     const visible = html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<textarea[\s\S]*?<\/textarea>/g, '')
@@ -319,7 +316,7 @@ test('界面无内部英文：渲染文本、选项、标签全是中文', () =>
     for (const label of ['Q版头像', '剧情CG', 'CG局部重绘']) assert.ok(html.includes(label), label);
 });
 
-test('版面：顶部「新建/重命名/恢复默认/更多」四按钮；各任务组默认展开 11 行；通用规则与预览默认折叠', () => {
+test('版面：顶部「新建/重命名/恢复默认/更多」四按钮；各任务组默认展开 11 行；通用规则默认折叠，无预览区', () => {
     const { editor } = setup();
     const html = renderImagePromptPanel(editor, {});
     const top = html.slice(0, html.indexOf('igs-perf-group'));
@@ -332,7 +329,7 @@ test('版面：顶部「新建/重命名/恢复默认/更多」四按钮；各�
     assert.equal((html.match(/igs-perf-item"/g) || []).length, IMAGE_PROMPT_TASKS.length);
     assert.match(html, /data-advanced="image-prompt-group-tasks" open/);
     assert.doesNotMatch(html, /data-advanced="image-prompt-group-rules" open/);
-    assert.doesNotMatch(html, /data-advanced="image-prompt-group-preview" open/);
+    assert.equal(html.includes('预览发送内容'), false);
     assert.equal(/type="checkbox"/.test(renderImagePromptPanel(editor, openAll(editor))), false, '开关与胶囊不用原生复选框');
 });
 
@@ -442,7 +439,6 @@ test('文案：汉字与英文数字之间不加空格；未知键不露出内�
     const { registry, editor } = setup();
     assert.equal(registry.savePromptPreset(customPreset(), null).ok, true);
     editor.select('custom-roundtrip');
-    editor.preview();
     const html = renderImagePromptPanel(editor, openAll(editor));
     const visible = html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<textarea[\s\S]*?<\/textarea>/g, '')
         .replace(/<div class="igs-settings-preview">[\s\S]*?<\/div>/g, '').replace(/<small class="igs-perf-item-hint">[\s\S]*?<\/small>/g, '')
@@ -516,7 +512,6 @@ test('附加写词：旧存档的四项被容忍但不再产出；界面只剩�
 
 test('提示词组面板不含机制说明文字', () => {
     const { editor } = setup();
-    editor.preview();
     const html = renderImagePromptPanel(editor, openAll(editor)).replace(/<div class="igs-settings-preview">[\s\S]*?<\/div>/g, '');
     for (const text of ['一并发送', '程序自动生成', '导入不会自动使用', '允许：可向', '按从上到下']) assert.equal(html.includes(text), false, text);
 });
