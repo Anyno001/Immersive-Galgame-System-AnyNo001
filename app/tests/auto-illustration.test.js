@@ -205,6 +205,18 @@ test('gate:illustration:standalone-cg-respects-the-nsfw-switch-and-needs-a-reque
     assert.equal(calls, 0);
 });
 
+test('gate:illustration:automatic-floor-settles-before-the-next-floor-prompt', async () => {
+    const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const fake = makeFakes({ text: SFW_TEXT, settings: { nsfwEnabled: false, interludeEnabled: false } });
+    const service = createAutoIllustrationService({ ...fake, store: createMemoryIllustrationStore() });
+    const pending = service.whenFloorSettled(5);
+    assert.equal(service.floorCgStatus(5), null);
+    assert.equal((await service.processMessage(5)).reason, 'disabled');
+    assert.deepEqual(await pending, { status: 'none' });
+    assert.deepEqual(service.floorCgStatus(5), { status: 'none' });
+});
+
 test('gate:illustration:service-concurrent-calls-share-lock', async () => {
     const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
     const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');

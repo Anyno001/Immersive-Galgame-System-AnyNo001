@@ -192,11 +192,11 @@ test('gate:wait-stage:games-get-the-back-and-next-floor-buttons-for-their-own-to
     let ctx = null;
     registerWaitStageGamePack({ ...real, start(next) { ctx = next; return real.start(next); } });
     h.root.querySelector('.igs-ws-games').querySelector('button').fire('click');
-    assert.deepEqual(ctx.host.state(), { back: '', next: false, nextBusy: false }, '等回复时不给返回');
+    assert.deepEqual(ctx.host.state(), { back: '', next: false, nextBusy: false, nextText: '' }, '等回复时不给返回');
     const seen = [];
     const off = ctx.host.onChange((state) => seen.push(state));
     assert.equal(h.runtime.replyArrived(), false);
-    assert.deepEqual(seen.pop(), { back: '', next: true, nextBusy: false });
+    assert.deepEqual(seen.pop(), { back: '', next: true, nextBusy: false, nextText: '下一楼' });
     ctx.host.back();
     assert.equal(h.dismissed(), 0);
     ctx.host.next();
@@ -212,6 +212,28 @@ test('gate:wait-stage:games-get-the-back-and-next-floor-buttons-for-their-own-to
     ctx.host.back();
     assert.equal(play.runtime.isOpen(), false);
     assert.equal(play.dismissed(), 0);
+});
+
+test('gate:wait-stage:next-floor-stays-hidden-until-cg-settles', async () => {
+    const h = runtimeHarness({}, { games: true });
+    h.root.querySelector('.igs-ws-games').querySelector('button').fire('click');
+    let resolveImages;
+    const images = new Promise((resolve) => { resolveImages = resolve; });
+    assert.equal(h.runtime.replyArrived({ images }), false);
+    const next = h.root.querySelector('[data-igs-waitstage-next="1"]');
+    const note = () => h.root.querySelector('.igs-ws-state').textContent;
+    assert.equal(next.disabled, true);
+    assert.equal(next.textContent, 'CG 生成中');
+    assert.equal(note(), 'CG 生成中');
+    assert.doesNotMatch(`${next.textContent}${note()}`, /下一楼/);
+    next.fire('click');
+    assert.equal(h.ready(), 0, 'CG 还没稳定时点不进下一楼');
+    resolveImages({ status: 'failed' });
+    await images;
+    assert.equal(next.disabled, false);
+    assert.equal(next.textContent, '加载下一楼');
+    assert.equal(note(), '下一楼 · CG 没画成');
+    h.runtime.close();
 });
 
 test('gate:wait-stage:toolbar-button-is-registered-for-the-reader', () => {

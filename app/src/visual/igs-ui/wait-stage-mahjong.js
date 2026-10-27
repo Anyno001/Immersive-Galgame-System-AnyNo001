@@ -2060,7 +2060,7 @@ function toolBar(doc, className, groups) {
 function hostTools(doc) {
     const group = el(doc, 'span', 'igs-mj-bar-group');
     const back = iconTool(doc, BAR_ICONS.read, '返回阅读', () => { if (host) host.back(); });
-    const next = iconTool(doc, ICONS.lastPage, '加载下一楼', () => { if (host) host.next(); });
+    const next = iconTool(doc, ICONS.lastPage, '加载下一楼', (node) => { if (host && !node.disabled) host.next(); });
     next.className += ' is-next';
     next.appendChild(el(doc, 'span', '', '下一楼'));
     group.appendChild(back);
@@ -2070,6 +2070,9 @@ function hostTools(doc) {
     const sync = (state) => {
         back.hidden = !state.back;
         if (state.back) labelTool(back, state.back);
+        const caption = next.querySelector('span');
+        if (caption) caption.textContent = state.nextText || '下一楼';
+        labelTool(next, state.nextBusy ? 'CG 还在生成' : '加载下一楼');
         next.hidden = !state.next;
         next.disabled = Boolean(state.nextBusy);
         group.hidden = back.hidden && next.hidden;

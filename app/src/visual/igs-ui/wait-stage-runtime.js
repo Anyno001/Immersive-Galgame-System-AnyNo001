@@ -235,7 +235,10 @@ export function createWaitStageRuntime(options = {}) {
     let gameState = null;
     let backButton = null;
     let nextButton = null;
+    let nextCaption = '下一楼';
     let replyReady = false;
+    let imageHold = false;
+    let imageGate = 0;
     // 关掉等待过场时退化成纯三点：等还是要有反馈，只是不轮台词、不给小游戏。
     let minimal = false;
     // 从工具栏主动打开的「小游戏」：没有在等的回复，返回就是收起这一层。
@@ -302,7 +305,8 @@ export function createWaitStageRuntime(options = {}) {
         return {
             back: shown(backButton) ? backButton.textContent : '',
             next: shown(nextButton),
-            nextBusy: Boolean(nextButton && nextButton.disabled),
+            nextBusy: Boolean(nextButton && !nextButton.hidden && nextButton.disabled),
+            nextText: shown(nextButton) ? nextCaption : '',
         };
     }
 
@@ -333,6 +337,9 @@ export function createWaitStageRuntime(options = {}) {
         game = null;
         gameState = null;
         replyReady = false;
+        imageHold = false;
+        imageGate += 1;
+        nextCaption = '下一楼';
         phase = 'wait';
         play = false;
         dotsBox = null;
@@ -363,12 +370,53 @@ export function createWaitStageRuntime(options = {}) {
     }
 
     function confirmNextFloor() {
-        if (!root || !replyReady) return;
+        if (!root || !replyReady || imageHold) return;
         replyReady = false;
+        imageGate += 1;
         if (nextButton) nextButton.disabled = true;
         setNote('正在打开下一楼…');
         notifyHost();
         onExitReady();
+    }
+
+    // 「下一楼」只在这一楼的 CG 已经稳定（画成、没画成，或确定不画）时出现。还在画时只写「CG 生成中」。
+    function revealNext(status) {
+        imageHold = false;
+        nextCaption = '下一楼';
+        if (nextButton) {
+            nextButton.disabled = false;
+            nextButton.textContent = '加载下一楼';
+        }
+        const note = status === 'failed'
+            ? '下一楼 · CG 没画成'
+            : status === 'done'
+                ? '下一楼 · CG 已生成'
+                : '下一楼已经写好，点「加载下一楼」再进去。';
+        setNote(note);
+        showNextFloorAction();
+    }
+
+    function holdFloorImages(images) {
+        if (!root || !replyReady || imageHold || !images || typeof images.then !== 'function') return;
+        imageHold = true;
+        const gate = ++imageGate;
+        nextCaption = '生图中';
+        if (nextButton) {
+            nextButton.hidden = false;
+            nextButton.disabled = true;
+            nextButton.textContent = 'CG 生成中';
+        }
+        if (backButton) backButton.hidden = true;
+        if (actions) actions.hidden = false;
+        setNote('CG 生成中');
+        notifyHost();
+        Promise.resolve(images).then((result) => {
+            if (gate !== imageGate || !root || !replyReady) return;
+            revealNext(result && result.status);
+        }, () => {
+            if (gate !== imageGate || !root || !replyReady) return;
+            revealNext('failed');
+        });
     }
 
     function closeGame() {
@@ -431,7 +479,9 @@ export function createWaitStageRuntime(options = {}) {
                     else onDismiss();
                 },
                 next() {
-                    if (hostState().next) confirmNextFloor();
+                    const state = hostState();
+                    if (!state.next || state.nextBusy) return;
+                    confirmNextFloor();
                 },
                 onChange(listener) {
                     if (!own || typeof listener !== 'function') return () => {};
@@ -599,16 +649,26 @@ export function createWaitStageRuntime(options = {}) {
                 renderGames();
             }
         },
-        // 正在玩就不切楼。下一楼先备好，等玩家自己点「加载下一楼」。
-        replyArrived() {
+        // 正在玩就不切楼。正文写好后先等这一楼的 CG：还在画就只提示「CG 生成中」，
+        // 画成、没画成或确定不画，才亮「下一楼」。没传生图状态时按已经稳定处理。
+        replyArrived(detail) {
             if (phase === 'error') return false;
             if (replyReady) return false;
             if (!root || !game) return true;
             replyReady = true;
-            setNote('下一楼已经写好，点「加载下一楼」再进去。');
-            showNextFloorAction();
+            const known = detail && detail.status;
+            if (known && known.status) {
+                revealNext(known.status);
+                return false;
+            }
+            if (detail && detail.images) {
+                holdFloorImages(detail.images);
+                return false;
+            }
+            revealNext('none');
             return false;
         },
+        holdFloorImages,
         showFailure(kind = 'failed') {
             if (!root) return false;
             const failure = WAIT_STAGE_FAILURES[kind] || WAIT_STAGE_FAILURES.failed;
@@ -625,6 +685,9 @@ export function createWaitStageRuntime(options = {}) {
             if (gamesRow) gamesRow.hidden = true;
             if (board) board.hidden = true;
             replyReady = false;
+            imageHold = false;
+            imageGate += 1;
+            nextCaption = '下一楼';
             if (backButton) backButton.hidden = false;
             if (nextButton) nextButton.hidden = true;
             lineBox.hidden = false;

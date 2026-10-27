@@ -45046,8 +45046,8 @@ function createIgsReaderHost(options = {}) {
             showReplyFailure(current, 'empty');
             return false;
         }
-        // 回复已写完：正在玩就先记下这一楼，等玩家点「加载下一楼」再换。
-        if (!waitStage.replyArrived()) {
+        // 回复已写完：正在玩就先记下这一楼。CG 还在画时不亮「下一楼」，画成或失败后再亮。
+        if (!waitStage.replyArrived(nextFloorArrival(message))) {
             pendingReplyMessage = { reader: current, message, revision: settled.revision };
             return true;
         }
@@ -45111,18 +45111,49 @@ function createIgsReaderHost(options = {}) {
         const pending = pendingReplyMessage;
         pendingReplyMessage = null;
         if (!current) return;
-        if (pending && pending.reader === current) {
-            await applyReplyMessage(current, pending.message, pending.revision, { confirmed: true });
-            return;
-        }
+        // 等 CG 的这会儿标记会写回正文。先重读最新楼，读不到再用当初记下的那份。
         let message = null;
-        try { message = await readReplyMessage(); } catch (error) { /* 读不到就退回当前楼 */ }
+        try { message = await readReplyMessage(); } catch (error) { /* 读不到就用记下的那份 */ }
         if (state.activeReader !== current) return;
         if (message && message.id != null && !message.isUser && !message.is_user && !isUserFloorId(message.id)) {
             await applyReplyMessage(current, message, null, { confirmed: true });
             return;
         }
+        if (pending && pending.reader === current) {
+            await applyReplyMessage(current, pending.message, pending.revision, { confirmed: true });
+            return;
+        }
         exitEmbeddedLoading();
+    }
+
+    // 正文写好不等于 CG 写好。已经有结果就直接用；正在画就等到画完。
+    // 这一楼的自动出图若始终没开始，等 1.5 秒后当作不画，避免按钮一直停在「CG 生成中」。
+    function nextFloorArrival(message) {
+        const service = options.illustrations;
+        const messageId = message && message.id;
+        if (!service || messageId == null || typeof service.whenFloorSettled !== 'function') return undefined;
+        const known = typeof service.floorCgStatus === 'function' ? service.floorCgStatus(messageId) : null;
+        if (known && known.status !== 'running') return { status: known };
+        const timers = options.global || globalThis;
+        const settled = service.whenFloorSettled(messageId);
+        return { images: new Promise((resolve) => {
+            let done = false;
+            let timer = null;
+            const finish = (value) => {
+                if (done) return;
+                done = true;
+                if (timer != null && typeof timers.clearTimeout === 'function') timers.clearTimeout(timer);
+                resolve(value && value.status ? value : { status: 'none' });
+            };
+            timer = typeof timers.setTimeout === 'function'
+                ? timers.setTimeout(() => {
+                    const later = typeof service.floorCgStatus === 'function' ? service.floorCgStatus(messageId) : null;
+                    if (later && later.status === 'running') return;
+                    finish(later || { status: 'none' });
+                }, 1500)
+                : null;
+            settled.then(finish, () => finish({ status: 'failed' }));
+        }) };
     }
 
     async function readReplyMessage() {
@@ -45897,6 +45928,11 @@ function createIgsReaderHost(options = {}) {
         if (!payload || payload.messageId == null) return;
         if (payload.kind === 'consistency') return; // 当前任务由阅读器身份绑定的回调展示。
         generationStrip.floor(payload.messageId, payload.phase === 'done');
+        // 亮过「下一楼」之后这一楼又开始画：先收回按钮，等这次画完再亮。
+        if (payload.phase === 'done' || !pendingReplyMessage) return;
+        if (Number(pendingReplyMessage.message && pendingReplyMessage.message.id) !== Number(payload.messageId)) return;
+        const again = nextFloorArrival(pendingReplyMessage.message);
+        if (again && again.images) waitStage.holdFloorImages(again.images);
     }
 
     function openLive2dManager(character = '') {
@@ -126596,23 +126632,86 @@ function createAutoIllustrationService(deps) {
         return { all, retry: all.filter((slot) => slot.status !== 'done' || !hasSlotImage(slot)) };
     }
 
+    // 自动出图有没有画完：等待层要等这一楼的 CG 落到成功、失败或确定不画，才把「下一楼」亮出来。
+    const floorWatch = new Map();
+    function floorEntry(messageId) {
+        const id = Number(messageId);
+        let entry = floorWatch.get(id);
+        if (!entry) {
+            entry = { settled: false, result: null, waiters: [] };
+            floorWatch.set(id, entry);
+        }
+        return entry;
+    }
+    function cgWatchStatus(result) {
+        const reason = result && result.reason;
+        if (reason === 'done') return { status: 'done' };
+        if (reason === 'disabled' || reason === 'not-eligible' || reason === 'not-selected'
+            || reason === 'body-too-short' || reason === 'already-decided' || reason === 'nothing-missing' || reason === 'stale') {
+            return { status: 'none' };
+        }
+        if (result && result.ok === false) return { status: 'failed' };
+        return { status: 'none' };
+    }
+    function settleFloorWatch(messageId, result) {
+        const entry = floorEntry(messageId);
+        entry.started = true;
+        entry.settled = true;
+        entry.result = cgWatchStatus(result);
+        const waiters = entry.waiters.splice(0);
+        waiters.forEach((waiter) => waiter(entry.result));
+    }
+    function beginFloorWatch(messageId) {
+        const entry = floorEntry(messageId);
+        entry.started = true;
+        entry.settled = false;
+        entry.result = null;
+    }
+    function floorCgStatus(messageId) {
+        const entry = floorWatch.get(Number(messageId));
+        if (!entry || !entry.started) return null;
+        if (!entry.settled) return { status: 'running' };
+        return entry.result;
+    }
+    function whenFloorSettled(messageId) {
+        const id = Number(messageId);
+        if (!Number.isInteger(id) || id < 0) return Promise.resolve({ status: 'none' });
+        const entry = floorEntry(id);
+        if (entry.settled) return Promise.resolve(entry.result);
+        return new Promise((resolve) => entry.waiters.push(resolve));
+    }
+    function watchAutomaticFloor(messageId, job) {
+        beginFloorWatch(messageId);
+        Promise.resolve(job).then(
+            (result) => settleFloorWatch(messageId, result),
+            () => settleFloorWatch(messageId, { reason: 'error' }),
+        );
+    }
+
     // backfill：翻到旧楼时补 CG。和自动出图一样掷过场概率、看字数、跳过已经判定过的楼，只是放开最新楼的限制。
     async function processMessage(messageId, { manual = false, backfill = false } = {}) {
+        const watch = !manual && !backfill;
         const s = settings();
-        if (!s.nsfwEnabled && !s.interludeEnabled) return { ok: true, reason: 'disabled' };
+        if (!s.nsfwEnabled && !s.interludeEnabled) {
+            if (watch) settleFloorWatch(messageId, { ok: true, reason: 'disabled' });
+            return { ok: true, reason: 'disabled' };
+        }
         if (backfill && !s.backfillOldFloors) return { ok: true, reason: 'disabled' };
         // 手动（工具栏）可画旧楼：续读停在哪一楼就画哪一楼；自动出图仍只认最新楼。
         const floor = withAnyFloor(messageHost.readFloor(messageId), manual || backfill);
         if (!floor || !floor.isAi || !(floor.isLatest || floor.anyFloor) || !floor.chatId || !floor.text.trim()) {
+            if (watch) settleFloorWatch(messageId, { ok: true, reason: 'not-eligible' });
             return { ok: true, reason: 'not-eligible' };
         }
         const key = floorKeyOf(floor);
         if (locks.has(key)) {
+            if (watch) watchAutomaticFloor(messageId, locks.get(key));
             if (!manual && !backfill && runningFloors.has(key)
                 && runningFloors.get(key) !== stripIllustrationMarkers(floor.text))
                 pendingFloors.set(key, true);
             return locks.get(key);
         }
+        if (watch) beginFloorWatch(messageId);
         const job = (async () => {
             let current = floor, config = s, result;
             do {
@@ -126642,6 +126741,7 @@ function createAutoIllustrationService(deps) {
             })
             .finally(() => { locks.delete(key); runningFloors.delete(key); pendingFloors.delete(key); });
         locks.set(key, job);
+        if (watch) watchAutomaticFloor(messageId, job);
         return job;
     }
 
@@ -126923,7 +127023,7 @@ function createAutoIllustrationService(deps) {
 
     return {
         standaloneCgStatus, paintStandaloneCg,
-        processMessage, getIllustrationUrl, clearIllustration, clearFloorIllustrations, rerollSlot, rerollFloor,
+        processMessage, floorCgStatus, whenFloorSettled, getIllustrationUrl, clearIllustration, clearFloorIllustrations, rerollSlot, rerollFloor,
         preflightConsistency, redrawConsistency, acceptConsistency, cancelConsistency, describeConsistency,
         start() {
             stopped = false;
@@ -126939,6 +127039,10 @@ function createAutoIllustrationService(deps) {
         stop() {
             stopped = true; recoveryController.abort();
             states.clear();
+            for (const id of [...floorWatch.keys()]) {
+                const entry = floorWatch.get(id);
+                if (entry && !entry.settled) settleFloorWatch(id, { reason: 'disabled' });
+            }
             consistency.cancel();
             pendingFloors.clear();
             if (offRendered) { offRendered(); offRendered = null; }
@@ -137157,7 +137261,10 @@ function createWaitStageRuntime(options = {}) {
     let gameState = null;
     let backButton = null;
     let nextButton = null;
+    let nextCaption = '下一楼';
     let replyReady = false;
+    let imageHold = false;
+    let imageGate = 0;
     // 关掉等待过场时退化成纯三点：等还是要有反馈，只是不轮台词、不给小游戏。
     let minimal = false;
     // 从工具栏主动打开的「小游戏」：没有在等的回复，返回就是收起这一层。
@@ -137224,7 +137331,8 @@ function createWaitStageRuntime(options = {}) {
         return {
             back: shown(backButton) ? backButton.textContent : '',
             next: shown(nextButton),
-            nextBusy: Boolean(nextButton && nextButton.disabled),
+            nextBusy: Boolean(nextButton && !nextButton.hidden && nextButton.disabled),
+            nextText: shown(nextButton) ? nextCaption : '',
         };
     }
 
@@ -137255,6 +137363,9 @@ function createWaitStageRuntime(options = {}) {
         game = null;
         gameState = null;
         replyReady = false;
+        imageHold = false;
+        imageGate += 1;
+        nextCaption = '下一楼';
         phase = 'wait';
         play = false;
         dotsBox = null;
@@ -137285,12 +137396,53 @@ function createWaitStageRuntime(options = {}) {
     }
 
     function confirmNextFloor() {
-        if (!root || !replyReady) return;
+        if (!root || !replyReady || imageHold) return;
         replyReady = false;
+        imageGate += 1;
         if (nextButton) nextButton.disabled = true;
         setNote('正在打开下一楼…');
         notifyHost();
         onExitReady();
+    }
+
+    // 「下一楼」只在这一楼的 CG 已经稳定（画成、没画成，或确定不画）时出现。还在画时只写「CG 生成中」。
+    function revealNext(status) {
+        imageHold = false;
+        nextCaption = '下一楼';
+        if (nextButton) {
+            nextButton.disabled = false;
+            nextButton.textContent = '加载下一楼';
+        }
+        const note = status === 'failed'
+            ? '下一楼 · CG 没画成'
+            : status === 'done'
+                ? '下一楼 · CG 已生成'
+                : '下一楼已经写好，点「加载下一楼」再进去。';
+        setNote(note);
+        showNextFloorAction();
+    }
+
+    function holdFloorImages(images) {
+        if (!root || !replyReady || imageHold || !images || typeof images.then !== 'function') return;
+        imageHold = true;
+        const gate = ++imageGate;
+        nextCaption = '生图中';
+        if (nextButton) {
+            nextButton.hidden = false;
+            nextButton.disabled = true;
+            nextButton.textContent = 'CG 生成中';
+        }
+        if (backButton) backButton.hidden = true;
+        if (actions) actions.hidden = false;
+        setNote('CG 生成中');
+        notifyHost();
+        Promise.resolve(images).then((result) => {
+            if (gate !== imageGate || !root || !replyReady) return;
+            revealNext(result && result.status);
+        }, () => {
+            if (gate !== imageGate || !root || !replyReady) return;
+            revealNext('failed');
+        });
     }
 
     function closeGame() {
@@ -137353,7 +137505,9 @@ function createWaitStageRuntime(options = {}) {
                     else onDismiss();
                 },
                 next() {
-                    if (hostState().next) confirmNextFloor();
+                    const state = hostState();
+                    if (!state.next || state.nextBusy) return;
+                    confirmNextFloor();
                 },
                 onChange(listener) {
                     if (!own || typeof listener !== 'function') return () => {};
@@ -137521,16 +137675,26 @@ function createWaitStageRuntime(options = {}) {
                 renderGames();
             }
         },
-        // 正在玩就不切楼。下一楼先备好，等玩家自己点「加载下一楼」。
-        replyArrived() {
+        // 正在玩就不切楼。正文写好后先等这一楼的 CG：还在画就只提示「CG 生成中」，
+        // 画成、没画成或确定不画，才亮「下一楼」。没传生图状态时按已经稳定处理。
+        replyArrived(detail) {
             if (phase === 'error') return false;
             if (replyReady) return false;
             if (!root || !game) return true;
             replyReady = true;
-            setNote('下一楼已经写好，点「加载下一楼」再进去。');
-            showNextFloorAction();
+            const known = detail && detail.status;
+            if (known && known.status) {
+                revealNext(known.status);
+                return false;
+            }
+            if (detail && detail.images) {
+                holdFloorImages(detail.images);
+                return false;
+            }
+            revealNext('none');
             return false;
         },
+        holdFloorImages,
         showFailure(kind = 'failed') {
             if (!root) return false;
             const failure = WAIT_STAGE_FAILURES[kind] || WAIT_STAGE_FAILURES.failed;
@@ -137547,6 +137711,9 @@ function createWaitStageRuntime(options = {}) {
             if (gamesRow) gamesRow.hidden = true;
             if (board) board.hidden = true;
             replyReady = false;
+            imageHold = false;
+            imageGate += 1;
+            nextCaption = '下一楼';
             if (backButton) backButton.hidden = false;
             if (nextButton) nextButton.hidden = true;
             lineBox.hidden = false;

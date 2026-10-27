@@ -151,8 +151,14 @@ test('gate:wait-stage:mahjong-toolbar-carries-the-back-and-next-floor-buttons', 
     assert.equal(tools.querySelector('[aria-label="返回阅读"]').hidden, false);
     const next = tools.querySelector('.is-next');
     assert.equal(next.hidden, true);
-    push({ back: '', next: true, nextBusy: false });
+    push({ back: '', next: true, nextBusy: true, nextText: '生图中' });
     assert.equal(next.hidden, false);
+    assert.equal(next.disabled, true);
+    assert.equal(next.querySelector('span').textContent, '生图中');
+    assert.equal(next.getAttribute('aria-label'), 'CG 还在生成');
+    next.fire('click');
+    assert.deepEqual(calls, ['back'], 'CG 还在生成时不进入下一楼');
+    push({ back: '', next: true, nextBusy: false, nextText: '下一楼' });
     assert.equal(tools.querySelector('[aria-label="返回阅读"]').hidden, true);
     next.fire('click');
     assert.deepEqual(calls, ['back', 'next']);

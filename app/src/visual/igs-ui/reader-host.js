@@ -1340,8 +1340,8 @@ export function createIgsReaderHost(options = {}) {
             showReplyFailure(current, 'empty');
             return false;
         }
-        // 回复已写完：正在玩就先记下这一楼，等玩家点「加载下一楼」再换。
-        if (!waitStage.replyArrived()) {
+        // 回复已写完：正在玩就先记下这一楼。CG 还在画时不亮「下一楼」，画成或失败后再亮。
+        if (!waitStage.replyArrived(nextFloorArrival(message))) {
             pendingReplyMessage = { reader: current, message, revision: settled.revision };
             return true;
         }
@@ -1405,18 +1405,49 @@ export function createIgsReaderHost(options = {}) {
         const pending = pendingReplyMessage;
         pendingReplyMessage = null;
         if (!current) return;
-        if (pending && pending.reader === current) {
-            await applyReplyMessage(current, pending.message, pending.revision, { confirmed: true });
-            return;
-        }
+        // 等 CG 的这会儿标记会写回正文。先重读最新楼，读不到再用当初记下的那份。
         let message = null;
-        try { message = await readReplyMessage(); } catch (error) { /* 读不到就退回当前楼 */ }
+        try { message = await readReplyMessage(); } catch (error) { /* 读不到就用记下的那份 */ }
         if (state.activeReader !== current) return;
         if (message && message.id != null && !message.isUser && !message.is_user && !isUserFloorId(message.id)) {
             await applyReplyMessage(current, message, null, { confirmed: true });
             return;
         }
+        if (pending && pending.reader === current) {
+            await applyReplyMessage(current, pending.message, pending.revision, { confirmed: true });
+            return;
+        }
         exitEmbeddedLoading();
+    }
+
+    // 正文写好不等于 CG 写好。已经有结果就直接用；正在画就等到画完。
+    // 这一楼的自动出图若始终没开始，等 1.5 秒后当作不画，避免按钮一直停在「CG 生成中」。
+    function nextFloorArrival(message) {
+        const service = options.illustrations;
+        const messageId = message && message.id;
+        if (!service || messageId == null || typeof service.whenFloorSettled !== 'function') return undefined;
+        const known = typeof service.floorCgStatus === 'function' ? service.floorCgStatus(messageId) : null;
+        if (known && known.status !== 'running') return { status: known };
+        const timers = options.global || globalThis;
+        const settled = service.whenFloorSettled(messageId);
+        return { images: new Promise((resolve) => {
+            let done = false;
+            let timer = null;
+            const finish = (value) => {
+                if (done) return;
+                done = true;
+                if (timer != null && typeof timers.clearTimeout === 'function') timers.clearTimeout(timer);
+                resolve(value && value.status ? value : { status: 'none' });
+            };
+            timer = typeof timers.setTimeout === 'function'
+                ? timers.setTimeout(() => {
+                    const later = typeof service.floorCgStatus === 'function' ? service.floorCgStatus(messageId) : null;
+                    if (later && later.status === 'running') return;
+                    finish(later || { status: 'none' });
+                }, 1500)
+                : null;
+            settled.then(finish, () => finish({ status: 'failed' }));
+        }) };
     }
 
     async function readReplyMessage() {
@@ -2191,6 +2222,11 @@ export function createIgsReaderHost(options = {}) {
         if (!payload || payload.messageId == null) return;
         if (payload.kind === 'consistency') return; // 当前任务由阅读器身份绑定的回调展示。
         generationStrip.floor(payload.messageId, payload.phase === 'done');
+        // 亮过「下一楼」之后这一楼又开始画：先收回按钮，等这次画完再亮。
+        if (payload.phase === 'done' || !pendingReplyMessage) return;
+        if (Number(pendingReplyMessage.message && pendingReplyMessage.message.id) !== Number(payload.messageId)) return;
+        const again = nextFloorArrival(pendingReplyMessage.message);
+        if (again && again.images) waitStage.holdFloorImages(again.images);
     }
 
     function openLive2dManager(character = '') {
