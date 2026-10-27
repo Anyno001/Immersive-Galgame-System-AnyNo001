@@ -1173,15 +1173,19 @@ export function createAssetGenerationService(deps) {
                 const user = externalSource(s.taskSignal) ? externalPromptDescription(description,
                     assetCharacterContext(needs, s.sceneAssets),
                     { imagePromptTask: 'sprite' }) : description;
+                const planTask = needs.some(need => need.type === 'sprite') ? 'sprite' : 'background';
+                // 预设里该任务没有素材规划格式（内置立绘任务即如此）时走通用规划，不让请求在装配处被拦。
+                const planPreset = typeof llm?.imagePromptHasFormat !== 'function'
+                    || llm.imagePromptHasFormat(planTask, 'asset-plan', { signal: s.taskSignal });
                 plan = await requestWithSoftRetry(llm, { signal: s.taskSignal,
                     system: ASSET_PLANNER_SYSTEM_PROMPT,
                     softSystem: ASSET_PLANNER_SOFT_SYSTEM_PROMPT,
                     user,
                     ...(s.spriteShouldStart && { shouldStart: s.spriteShouldStart }),
-                    imagePrompt: { task: needs.some(need => need.type === 'sprite') ? 'sprite' : 'background',
+                    ...(planPreset && { imagePrompt: { task: planTask,
                         input: { description: user,
                         outputs: { format: 'asset-plan', items: needs.map((need, index) => ({
-                            id: `${need.type === 'background' ? 'bg' : 'ch'}${index + 1}`, type: need.type })) } } },
+                            id: `${need.type === 'background' ? 'bg' : 'ch'}${index + 1}`, type: need.type })) } } } }),
                     parse: (reply) => parseAssetPlan(reply, needs),
                 }, s.auto.llm);
             } catch (error) {
