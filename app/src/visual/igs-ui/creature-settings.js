@@ -59,7 +59,7 @@ export function renderCharacterCreatureTag(dna) {
 export function renderCharacterCreatureRows(charName, dna) {
     const profile = storedCreatureOf(dna);
     if (!profile) return '';
-    return `<div class="igs-char-info-row is-block"><span class="igs-char-info-label">非人角色<span class="igs-outfit-muted">（画布默认竖图，仅在需要时更换）</span></span>`
+    return `<div class="igs-char-info-row is-block"><span class="igs-char-info-label">非人角色</span>`
         + (profile.temp ? `<div class="igs-char-info-row"><span class="igs-char-info-label">临时档案</span><button type="button" class="igs-asset-move" data-action="char-creature:temp:${encodeURIComponent(charName)}:false">转为正式角色</button></div>` : '')
         + select(charName, 'form', profile.form, CREATURE_FORM_LABELS, '形态')
         + select(charName, 'size', profile.size, CREATURE_SIZE_LABELS, '体型')

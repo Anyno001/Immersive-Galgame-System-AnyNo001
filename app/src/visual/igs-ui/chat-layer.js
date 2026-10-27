@@ -5,6 +5,7 @@ import { prefersReducedMotion } from './reduced-motion.js';
 import { chatRevealDelayMs, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { chatSfxKindForSide, playChatSfx } from './chat-sfx.js';
 import { normalizeTtsSettings, prefetchTtsBubble, speakTtsBubble, stopTts } from './tts.js';
+import { ORIGINAL_READER_ICONS } from './reader-icons.js';
 
 const FIRST_AUTO_DELAY_MS = 250;
 const FIRST_TYPING_DELAY_MS = 900;
@@ -144,6 +145,32 @@ function renderRow(doc, m, ancient = false) {
     return row;
 }
 
+// 气泡旁的「播放 / 重新生成」：朗读开着才显示（data-igs-chat-tts），重新生成只在接口来源时显示。
+function renderTtsControls(doc, index) {
+    const wrap = el(doc, 'div', 'igs-chat-tts');
+    for (const [act, title, icon] of [['play', '播放这条', ORIGINAL_READER_ICONS.replay], ['reroll', '重新生成这条', ORIGINAL_READER_ICONS.ttsReroll]]) {
+        const button = el(doc, 'button', `igs-chat-tts-btn is-${act}`);
+        button.type = 'button';
+        button.setAttribute('data-igs-chat-tts', act);
+        button.setAttribute('data-index', String(index));
+        button.setAttribute('title', title);
+        button.setAttribute('aria-label', title);
+        button.innerHTML = icon;
+        wrap.appendChild(button);
+    }
+    return wrap;
+}
+
+// 手动重播某一条：掐掉正在念的那条（等它的下一条随即放行），记为已念，之后不再自动念。
+function speakBubbleAgain(state, index, fresh) {
+    if (!state || !state.tts || !state.ttsSettings) return;
+    const line = speechLine(state, state.chat.messages[index], index);
+    if (!line) return;
+    stopSpeech(state);
+    state.spoken.add(line.key);
+    try { state.tts.speak(line, state.ttsSettings, state.sceneAssets, { fresh }); } catch { /* ignore */ }
+}
+
 function applyTheme(layer, theme) {
     layer.setAttribute('data-igs-chat-theme', theme ? theme.key : '');
     for (const name of THEME_VARS) {
@@ -163,8 +190,9 @@ function renderRows(layer, chat, ancient = false) {
     head.hidden = !chat.title;
     clearChildren(list);
     applyTheme(layer, chat.theme || null);
-    return chat.messages.map((m) => {
+    return chat.messages.map((m, index) => {
         const row = renderRow(doc, m, ancient);
+        if (m.kind === 'msg' && m.text && SPOKEN_TYPES.has(m.type || 'text')) row.appendChild(renderTtsControls(doc, index));
         row.hidden = true;
         list.appendChild(row);
         return row;
@@ -443,6 +471,12 @@ function bindLayer(layer, ctx) {
     // 与对话框、卡片页一致：左半区上一页，右半区推进气泡/下一页。
     layer.addEventListener('click', (event) => {
         if (event && typeof event.preventDefault === 'function') event.preventDefault();
+        const ttsButton = event && event.target && typeof event.target.closest === 'function' ? event.target.closest('.igs-chat-tts-btn') : null;
+        if (ttsButton) {
+            if (typeof event.stopPropagation === 'function') event.stopPropagation();
+            speakBubbleAgain(states.get(layer), Number(ttsButton.getAttribute('data-index')), ttsButton.getAttribute('data-igs-chat-tts') === 'reroll');
+            return;
+        }
         const rect = typeof layer.getBoundingClientRect === 'function' ? layer.getBoundingClientRect() : { left: 0, width: 0 };
         const clientX = Number(event && event.clientX);
         const action = Number.isFinite(clientX) && rect.width > 0 && clientX < rect.left + rect.width / 2 ? 'prev' : 'next';
@@ -499,6 +533,8 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
     const ttsOn = normalizeTtsSettings(snapshot.readerSettings && snapshot.readerSettings.tts).enabled === true && ctx.tts !== false;
     const ttsSettings = ttsOn ? snapshot.readerSettings.tts : null;
     const sceneAssets = (snapshot.readerSettings && snapshot.readerSettings._sceneAssets) || null;
+    if (ttsOn) layer.setAttribute('data-igs-chat-tts', normalizeTtsSettings(ttsSettings).provider === 'api' ? 'api' : 'system');
+    else layer.removeAttribute('data-igs-chat-tts');
     if (previous && previous.key === key) {
         previous.settings = settings;
         previous.ancient = ancient;
@@ -629,6 +665,14 @@ export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer .igs-chat-note{padding:3px 10px;border-radius:8px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.78);font-size:12px;line-height:1.5;text-align:center;}
 #igs-chat-layer .igs-chat-row.is-typing-slot{display:none;}
 #igs-chat-layer .igs-chat-read{margin:2px 6px 0;color:rgba(255,255,255,.62);font-size:11px;line-height:1.3;}
+#igs-chat-layer .igs-chat-tts{display:none;flex:none;flex-direction:column;align-self:flex-end;gap:2px;}
+#igs-chat-layer[data-igs-chat-tts] .igs-chat-tts{display:flex;}
+#igs-chat-layer:not([data-igs-chat-tts="api"]) .igs-chat-tts-btn.is-reroll{display:none;}
+#igs-chat-layer .igs-chat-tts-btn{display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:rgba(255,255,255,.82);opacity:.45;cursor:pointer;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));transition:opacity .15s;}
+#igs-chat-layer .igs-chat-tts-btn svg{width:15px;height:15px;}
+#igs-chat-layer .igs-chat-row:hover .igs-chat-tts-btn{opacity:.75;}
+#igs-chat-layer .igs-chat-tts-btn:hover,#igs-chat-layer .igs-chat-tts-btn:focus-visible{opacity:1;}
+#igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-tts-btn{color:var(--igs-chat-sub,#8a8a8a);filter:none;}
 #igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-read{color:var(--igs-chat-sub,#8a8a8a);}
 #igs-chat-layer[data-igs-chat-era="ancient"] .igs-chat-read{align-self:flex-end;color:rgba(243,230,200,.85);letter-spacing:.2em;}
 #igs-chat-layer .igs-chat-system{font-weight:600;letter-spacing:.02em;}

@@ -7,6 +7,7 @@ import { FX_PROMPT_KEYS, FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS,
 import { collectGrammarBlocks } from './tag-grammar.js';
 import { COMIC_TONE_KINDS, COMIC_TONE_LABELS } from './comic-settings.js';
 import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
+import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -85,12 +86,20 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.titleCard.onTime`, s.titleCard.onTime, '时间变化时显示'));
     const favor = featureRow(more, 'favor', `${p}.favorToast.enabled`, s.favorToast.enabled, '数值变化提示', '好感等升降');
     const itemFx = featureRow(more, 'item-fx', `${p}.itemFx.enabled`, s.itemFx.enabled, '获得物品演出', '', checkbox(`${p}.itemFx.mention`, s.itemFx.mention, '正文里点亮已获得的物品名'));
-    const battleFx = featureRow(more, 'battle-fx', `${p}.battleFx.enabled`, s.battleFx.enabled, '战斗演出', '', checkbox(`${p}.battleFx.letterbox`, s.battleFx.letterbox, '战斗时加电影黑边'));
+    const battleFx = featureRow(more, 'battle-fx', `${p}.battleFx.enabled`, s.battleFx.enabled, '战斗演出', '', checkbox(`${p}.battleFx.letterbox`, s.battleFx.letterbox, '战斗时加电影黑边') + checkbox(`${p}.battleFx.dash`, s.battleFx.dash, '出手冲刺'));
     // 非人演出跟随战斗演出：总开关关闭时置灰，不另计入档位。
     const battleCreature = perfItem(more, 'battle-creature', checkbox(`${p}.battleFx.creature`, s.battleFx.creature, '非人演出', !s.battleFx.enabled));
     const resultFx = featureRow(more, 'result-fx', `${p}.resultFx.enabled`, s.resultFx.enabled, '选项检定掷骰');
-    const tags = featureRow(more, 'fx-tags', `${p}.fxTags.enabled`, s.fxTags.enabled, '来电、通知、回忆等演出', '', grid(FX_TAG_KINDS.map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('') + checkbox(`${p}.fxTags.emergency`, s.fxTags.emergency, '紧急求助') + checkbox(`${p}.fxTags.spam`, s.fxTags.spam, '垃圾短信样式'))
+    const tags = featureRow(more, 'fx-tags', `${p}.fxTags.enabled`, s.fxTags.enabled, '来电、通知、回忆等演出', '', grid(FX_TAG_KINDS.filter((kind) => kind !== 'clash').map((kind) => checkbox(`${p}.fxTags.${kind}`, s.fxTags[kind], FX_TAG_LABELS[kind])).join('') + checkbox(`${p}.fxTags.emergency`, s.fxTags.emergency, '紧急求助') + checkbox(`${p}.fxTags.spam`, s.fxTags.spam, '垃圾短信样式'))
         + (s.fxTags.call ? field(`${p}.fxTags.callSprite`, '语音通话画面', segmentedInput(`${p}.fxTags.callSprite`, s.fxTags.callSprite, [['split', '分屏'], ['avatar', '头像小窗'], ['hide', '隐藏'], ['show', '照常显示']], '语音通话画面')) : ''));
+    const clashFx = normalizeClashFxSettings(reader && reader.clashFx);
+    const clashOn = s.fxTags.enabled && s.fxTags.clash;
+    const clash = perfItem(more, 'clash-fx', checkbox(`${p}.fxTags.clash`, s.fxTags.clash, '立绘碰撞', !s.fxTags.enabled), {
+        on: clashOn,
+        hint: '打、推、扑抱时立绘接触',
+        detail: checkbox(`${p}.clashFx.auto`, clashFx.auto, '根据正文自动识别') + checkbox(`${p}.clashFx.ghost`, clashFx.ghost, '缺席一方临时出现') + checkbox(`${p}.clashFx.shake`, clashFx.shake, '碰撞时震屏'),
+    });
+    const innerDemon = perfItem(more, 'inner-demon', checkbox(`${p}.innerDemon.enabled`, s.innerDemon.enabled, '心魔黑影'), { on: s.innerDemon.enabled, hint: '与另一个自己对话时出现' });
     const toneWords = (kinds) => kinds.map((kind) => renderWordListField(`comicMode.tones.${kind}`, COMIC_TONE_LABELS[kind], s.comicMode.tones[kind])).join('');
     const comic = featureRow(more, 'comic-mode', `${p}.comicMode.enabled`, s.comicMode.enabled, '漫画演出模式', '台词变成竖排对话泡', field(`${p}.comicMode.palette`, '画面', segmentedInput(`${p}.comicMode.palette`, s.comicMode.palette, [['mono', '黑白'], ['color', '彩色']], '画面'), s.comicMode.palette === 'color' ? '配色跟随对话框风格' : '')
         + checkbox(`${p}.comicMode.frame`, s.comicMode.frame, '画格边框')
@@ -114,5 +123,5 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
     const dlc = dlcDefs.length
         ? perfItem(more, 'dlc-fx', `<span>扩展演出（DLC）</span>`, { hint: `${dlcDefs.length}个`, detail: grid(dlcDefs.map((def) => checkbox(`${p}.dlcFx.${def.kind}`, dlcOff[def.kind] !== false, def.label)).join('')) })
         : '';
-    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, battleCreature, resultFx, tags, dlc, sound, comic, mangaBack, crowd, notifyCenter };
+    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, battleCreature, resultFx, tags, clash, innerDemon, dlc, sound, comic, mangaBack, crowd, notifyCenter };
 }

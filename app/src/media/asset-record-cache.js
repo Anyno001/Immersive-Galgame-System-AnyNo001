@@ -3,8 +3,9 @@ import { assetBindingMetadata } from './generated-asset-store.js';
 import { requireMediaCache } from './media-cache-owner.js';
 
 // variantOf 必须留着：时段差分入库时主图地址要回指原图（asset-match.bindGeneratedBackground）。
-const DISPLAY_FIELDS = ['chatId', 'floorKey', 'type', 'name', 'time', 'status', 'skipReason', 'imageId', 'tags', 'variantOf', 'characterKey', 'outfitName'];
-const QUERY_FIELDS = DISPLAY_FIELDS.filter(field => field !== 'tags');
+// profileWrite：写词即存的改动记录，丢弃图片时用来还原；只在单条读取时带上。
+const DISPLAY_FIELDS = ['chatId', 'floorKey', 'type', 'name', 'time', 'status', 'skipReason', 'imageId', 'tags', 'variantOf', 'characterKey', 'outfitName', 'profileWrite'];
+const QUERY_FIELDS = DISPLAY_FIELDS.filter(field => field !== 'tags' && field !== 'profileWrite');
 const project = record => {
     if (!record) return null;
     const value = { ...record, ...assetBindingMetadata(record) };

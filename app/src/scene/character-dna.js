@@ -63,7 +63,8 @@ export function checkDnaViews(raw, { complete = false, allowEmpty = false } = {}
     return { ok: true, value };
 }
 
-export function readCharacterDnaView(raw, framing) {
+// personality: false 时身份主语不接性格（灵动方案的性格由手势表现，不进画图词）。
+export function readCharacterDnaView(raw, framing, { personality: withPersonality = true } = {}) {
     if (!CHARACTER_DNA_VIEWS.includes(framing)) return { ok: false, reason: 'DNA_VIEW_INVALID', error: '未知人物景别' };
     const dna = normalizeCharacterDna(raw);
     if (!dna.identity && !CHARACTER_DNA_VIEWS.some((view) => dna.views?.[view]?.subject))
@@ -79,7 +80,8 @@ export function readCharacterDnaView(raw, framing) {
     const personality = checkCharacterPersonality(raw.personality);
     if (!personality.ok) return personality;
     const view = checked.value[framing];
-    return { ok: true, value: { ...view, subject: [view.subject, personality.value].filter(Boolean).join(' ') } };
+    return { ok: true, value: { ...view, subject: withPersonality && personality.value
+        ? `${view.subject.replace(/[\s,]+$/, '')}, ${personality.value}` : view.subject } };
 }
 
 export function checkCharacterPersonality(value) {
@@ -141,6 +143,11 @@ export function normalizeCharacterDna(raw) {
         }
         if (Array.isArray(source.clearedViews)) dna.clearedViews = [...new Set(source.clearedViews)]
             .filter(view => CHARACTER_DNA_VIEWS.includes(view) && !dna.views[view]?.subject);
+    }
+    // 身份全部清空视为重置：解除锁定，下次默认立绘重新建档；只清部分景别仍锁定。
+    if (dna.identityInitialized && !dna.identity && !dna.triggerWords
+        && !Object.values(dna.views || {}).some(view => view.subject)) {
+        delete dna.identityInitialized; delete dna.identitySource; delete dna.clearedViews;
     }
     return dna;
 }

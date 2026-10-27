@@ -19,6 +19,7 @@ const FX_PROMPT_LINES = Object.freeze({
     movie: '[igs-fx:movie] … [igs-fx:movie-end]：包住一起看电影的段落',
     light: '[igs-fx:light|off] … [igs-fx:light|on]：关灯后的段落，重新开灯时写[igs-fx:light|on]',
     umbrella: '[igs-fx:umbrella] … [igs-fx:umbrella-end]：包住两人撑伞同行的段落',
+    clash: '[igs-fx:clash|出手者|目标|动作|力度]：角色之间发生肢体接触的瞬间，如扇耳光、出拳、踢、推开、相撞、拍头、扑抱、击掌；动作写 扇、拳、踢、推、撞、拍头、抱、击掌 等，力度写 轻、中、重，可省略；出手者是主角时写主角名，没有明确出手者时写旁白，如[igs-fx:clash|林小雨|陈默|扇|重]；只用于真实发生的动作，每层最多2个',
 });
 
 // 古代背景下同一标签换成古代的语义；其余类型沿用通用写法（现代专属类型已由 fx-era 拨掉）。
@@ -143,6 +144,7 @@ export const FX_GRAMMAR_LINES = Object.freeze({
     movie: 'movie … movie-end：包住一起看电影的段落',
     light: 'light|off … light|on：关灯后的段落，重新开灯写 light|on',
     umbrella: 'umbrella … umbrella-end：包住撑伞同行的段落',
+    clash: 'clash|出手者|目标|动作|力度：角色之间肢体接触的瞬间（扇、拳、踢、推、撞、拍头、抱、击掌等），力度写 轻/中/重，可省；出手者是主角写主角名，不明确写旁白；只标真实发生的动作，每层最多2个',
 });
 
 const ANCIENT_FX_GRAMMAR_LINES = Object.freeze({

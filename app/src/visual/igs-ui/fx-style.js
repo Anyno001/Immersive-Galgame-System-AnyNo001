@@ -326,6 +326,12 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 .igs-fx-call-screen[data-outcome="reject"] .igs-fx-call-ring::after{animation-iteration-count:1;}
 .igs-fx-call-badge{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:4px 14px 4px 10px;border-radius:999px;font-size:12px;color:#eafff0;white-space:nowrap;background:rgba(20,110,60,.72);}
 .igs-fx-call-timer{font-variant-numeric:tabular-nums;opacity:.85;}
+.igs-fx-call-tts{display:none;align-items:center;gap:2px;margin-left:2px;}
+.igs-fx-call-badge[data-tts] .igs-fx-call-tts{display:flex;}
+.igs-fx-call-badge[data-tts="system"] .igs-fx-call-tts-btn[data-act="tts-reroll"]{display:none;}
+.igs-fx-call-tts-btn{display:flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;opacity:.75;cursor:pointer;pointer-events:auto;}
+.igs-fx-call-tts-btn svg{width:14px;height:14px;}
+.igs-fx-call-tts-btn:hover,.igs-fx-call-tts-btn:focus-visible{opacity:1;background:rgba(255,255,255,.16);}
 .igs-fx-call-timer::after{counter-reset:igs-fx-mm var(--igs-fx-mm) igs-fx-ss var(--igs-fx-ss);content:counter(igs-fx-mm,decimal-leading-zero) ":" counter(igs-fx-ss,decimal-leading-zero);animation:${CALL_TIMER_ANIMATION};animation-delay:var(--igs-fx-call-delay,0s);}
 .igs-fx-call-badge::before{content:"";width:14px;height:12px;background:linear-gradient(90deg,currentColor 0 2px,transparent 2px 4px,currentColor 4px 6px,transparent 6px 8px,currentColor 8px 10px,transparent 10px 12px,currentColor 12px 14px);transform-origin:50% 50%;animation:igs-fx-wave .9s ease-in-out infinite;}
 /* 挂断记录常驻挂断所在页：平时半透明缩小；首次播放时弹出，接着通话徽章挂断的由徽章的绿色变过来。 */

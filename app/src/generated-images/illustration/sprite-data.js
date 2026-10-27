@@ -1,5 +1,5 @@
 // 资料／表情协议不接收画面正文；默认立绘由程序模板组装。
-import { CHARACTER_DNA_REQUIRED_VIEWS, CHARACTER_DNA_VIEWS, checkDnaViews, checkCharacterPersonality } from '../../scene/character-dna.js';
+import { CHARACTER_DNA_REQUIRED_VIEWS, CHARACTER_DNA_VIEWS, checkDnaViews, checkCharacterPersonality, characterDnaIdentityCleared } from '../../scene/character-dna.js';
 import { isValidOutfitName } from '../../scene/character-outfits.js';
 import { savedExpressionTemplate, bindAutoSpriteOutfitNames } from './character-prompt-task.js';
 import { checkPromptOutput, checkPromptTask } from '../../schemas/prompt-recipe.js';
@@ -48,11 +48,9 @@ export function parseSpriteData(text, meta) {
     const implicitSlot = !fragments && task.value.purpose === 'sprite' && task.value.characters.length === 1
         && slots.length === 1 && slots[0].tokens.length === 1
         && slots[0].tokens[0] === task.value.characters[0].token ? slots[0] : undefined;
-    // 非人角色另有待机姿态字段 pose / pose_uc，没有衣装字段要求。
-    const creaturePose = !fragments && meta.characterContext?.some(c => creatureOf(c.dna));
+    // 非人角色与灵动方案另有默认姿态字段 pose / pose_uc；非人角色没有衣装字段要求。
     const allowed = new Set(['slotid', 'character', ...(fragments ? ['expression', 'expression_uc']
-        : ['outfit_name', 'outfit_description', 'outfit_half_body', 'personality', ...viewFields,
-            ...(creaturePose ? ['pose', 'pose_uc'] : [])])]);
+        : ['outfit_name', 'outfit_description', 'outfit_half_body', 'personality', ...viewFields, 'pose', 'pose_uc'])]);
     const rows = new Map();
     let row;
     for (const [index, line] of String(text || '').split(/\r?\n/).entries()) {
@@ -90,8 +88,8 @@ function assembleSpriteData(rows, meta, fragments, slots) {
         if (!source || row.character !== character.characterKey) return fail('character', 'mismatch');
         const data = fragments ? readExpression(row) : readIdentity(row, source, task.purpose);
         if (!data.ok) return locateFailure(data, row);
-        // 非人角色的默认姿态来自写词的 pose，缺省时由程序模板取物种待机词。
-        if (!fragments && creatureOf(source.dna) && row.pose?.trim()) data.expression = { positive: row.pose, negative: row.pose_uc || '' };
+        // 默认姿态来自写词的 pose，缺省时由程序模板取平和或物种待机词。
+        if (!fragments && row.pose?.trim()) data.expression = { positive: row.pose, negative: row.pose_uc || '' };
         const half = data.outfit?.descriptionHalfBody || source.outfit?.descriptionHalfBody
             || source.outfits?.find(o => o.name === data.outfit?.name)?.descriptionHalfBody;
         if (!fragments && meta.imagePromptTask !== 'dna' && character.framing === 'half_body' && !half?.trim() && !creatureOf(source.dna))
@@ -129,6 +127,8 @@ function readIdentity(row, source, purpose) {
     const missingViews = CHARACTER_DNA_REQUIRED_VIEWS.some(view => !source.dna?.views?.[view]?.subject?.trim());
     const missingPersonality = source.dna?.personality === undefined;
     if (purpose !== 'sprite') return hasViews || hasPersonality ? fail('identity', 'unexpected') : { ok: true, outfit };
+    // 手动清空了部分景别：不补建，模型多写的身份丢弃，不判失败。
+    if (characterDnaIdentityCleared(source.dna)) return { ok: true, outfit };
     if (!missingViews && !missingPersonality) {
         if (hasViews || (hasPersonality && row.personality !== source.dna.personality)) return fail('identity', 'preserved');
         return { ok: true, outfit };

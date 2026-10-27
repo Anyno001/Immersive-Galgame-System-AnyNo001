@@ -25,6 +25,15 @@ import { enabledPackIds, normalizeDailyFxSettings } from './fx-daily-model.js';
 import { emergencyOf, sirenOf } from '../../scene/emergency.js';
 import { spamAllowed } from '../../scene/spam-sms.js';
 import { applySpamCard } from './spam-sms-style.js';
+import { applyClashToDom, cancelClashFx } from './fx-clash.js';
+import { cancelInnerDemon, playInnerDemon } from './fx-inner-demon.js';
+import { pageClashes } from '../../scene/clash-detect.js';
+import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
+import { resolveSpriteAsset } from '../../scene/asset-match.js';
+import { characterDnaGender, normalizeVoiceBarkSettings, pickBarkClip, playCreatureBark, playVoiceBark, resolveCharacterVoice } from './voice-bark.js';
+import { normalizeComicModeSettings } from './comic-settings.js';
+import { ORIGINAL_READER_ICONS } from './reader-icons.js';
+import { normalizeTtsSettings } from './tts.js';
 
 export const FX_LIFETIME_MS = Object.freeze({
     symbol: 1000, speedLines: 700, heartbeat: 2400, flash: 1500,
@@ -528,6 +537,7 @@ function playSymbol(effect, ctx, life, target) {
     if (ancientSvg) el.setAttribute('data-era', 'ancient');
     el.innerHTML = ancientSvg || MANGA_SYMBOL_SVG[effect.kind] || '';
     if (effect.onoma) el.appendChild(node(doc, 'igs-fx-onoma', effect.onoma));
+    if (effect.clashTier) el.setAttribute('data-igs-clash', effect.clashTier);
     // 陪衬反应的符号带 castTarget（与 options.cast 条目同结构），落在该陪衬的头部；否则落在说话人。
     if (effect.castTarget && effect.castTarget.character) el.setAttribute('data-igs-fx-cast', effect.castTarget.character);
     const source = effect.castTarget || options.sprite;
@@ -805,11 +815,30 @@ function sameCharacter(snapshot, a, b) {
     return key(x) === key(y);
 }
 
+// 通话徽章上的「重听 / 重新生成」：走工具栏同一动作（data-act），朗读开着才显示，重新生成只在接口来源时显示。
+function syncCallTts(badge, doc, mode) {
+    const wrap = persistent(badge, doc, 'igs-fx-call-tts');
+    if (!wrap.firstChild) {
+        for (const [act, title, icon] of [['tts-replay', '重听这句', ORIGINAL_READER_ICONS.replay], ['tts-reroll', '重新生成这句', ORIGINAL_READER_ICONS.ttsReroll]]) {
+            const button = doc.createElement('button');
+            button.type = 'button';
+            button.className = 'igs-fx-call-tts-btn';
+            button.setAttribute('data-act', act);
+            button.setAttribute('title', title);
+            button.setAttribute('aria-label', title);
+            button.innerHTML = icon;
+            wrap.appendChild(button);
+        }
+    }
+    setFlag(badge, 'data-tts', Boolean(mode), mode);
+}
+
 // 计时由 CSS 计数器动画走表：只在徽章重新出现或换了一通电话时写一次起点，之后不再每秒改 DOM。
-function syncCallBadge(state, front, doc, call, key, now, emergency = null) {
+function syncCallBadge(state, front, doc, call, key, now, emergency = null, ttsMode = '') {
     const badge = persistent(front, doc, 'igs-fx-call-badge');
     const label = persistent(badge, doc, 'igs-fx-call-label');
     const timer = persistent(badge, doc, 'igs-fx-call-timer');
+    syncCallTts(badge, doc, call ? ttsMode : '');
     const labelText = call ? (emergency ? `紧急呼叫 · ${emergency.label}` : `${callMode(call) === 'video' ? '视频通话' : '通话中'} · ${call.name}`) : '';
     setFlag(badge, 'data-emergency', Boolean(emergency), emergency ? emergency.kind : '1');
     if (label.textContent !== labelText) label.textContent = labelText;
@@ -997,7 +1026,9 @@ function syncCall(ctx, callSprite) {
             state.callStart = { key, messageId: snapshot.messageId, start: now + (ringing ? CALL_SCREEN_MS.answer : 0) };
         }
     }
-    syncCallBadge(state, layers.front, doc, call, key, now, call && ctx.emergencyOn ? emergencyOf(call.name) : null);
+    const tts = call ? normalizeTtsSettings(snapshot.readerSettings && snapshot.readerSettings.tts) : null;
+    const ttsMode = tts && tts.enabled ? (tts.provider === 'api' || tts.narratorApi.enabled ? 'api' : 'system') : '';
+    syncCallBadge(state, layers.front, doc, call, key, now, call && ctx.emergencyOn ? emergencyOf(call.name) : null, ttsMode);
     const avatar = call ? resolveAvatar(call.name, snapshot, options) : '';
     syncCallPip(state, layers.stage, doc, call && mode === 'voice' && callSprite === 'avatar' ? call : null, avatar, remote, reduced);
     const split = call && mode === 'voice' && callSprite === 'split' ? call : null;
@@ -1032,6 +1063,75 @@ function playSiren(ctx) {
     sound(state, `siren-${kind}`, plan.sound, ctx.options);
 }
 
+const CLASH_USER_WORDS = Object.freeze(['{{user}}', 'user', '你', '我', '主角', '玩家']);
+const CLASH_BARK_MOOD = '惊讶';
+
+function clashBark(snapshot, key) {
+    const reader = snapshot.readerSettings || {};
+    const bark = normalizeVoiceBarkSettings(reader.voiceBark);
+    if (!bark.enabled || !(bark.volume > 0) || normalizeTtsSettings(reader.tts).enabled) return;
+    const voice = resolveCharacterVoice(reader._sceneAssets, key);
+    if (voice.creature) { playCreatureBark({ creature: voice.creature, mood: CLASH_BARK_MOOD, volume: bark.volume, pitch: voice.pitch, speed: voice.speed }); return; }
+    const url = voice.pack ? pickBarkClip(voice.pack, CLASH_BARK_MOOD) : '';
+    if (url) playVoiceBark({ url, volume: bark.volume, pitch: voice.pitch, speed: voice.speed });
+}
+
+// 立绘碰撞：本页有 clash 标签就按标签，否则在开启自动识别时识别正文；聊天页、卡片页与 NSFW 页不播。
+function playPageClashes(ctx, settings) {
+    const { snapshot, options, plan, state, root, layers, reduced } = ctx;
+    const content = snapshot.content || {};
+    const reader = snapshot.readerSettings || {};
+    if (!enabledFxTagKinds(settings.fxTags).includes('clash')) return [];
+    if (content.chatPage === true || content.htmlCardPage === true || content.sceneNsfw === true) return [];
+    const config = normalizeClashFxSettings(reader.clashFx);
+    const assets = reader._sceneAssets || {};
+    const keyOf = (name) => resolveCharacterKey(assets.characters || {}, assets.characterAliases, name) || text(name);
+    const speaker = keyOf(content.spriteCharacter || content.speaker || '');
+    const cast = (Array.isArray(options.cast) ? options.cast : []).filter((m) => m && m.character);
+    const onStage = [options.sprite && options.sprite.url ? speaker : '', ...cast.map((m) => m.character)].filter(Boolean);
+    const userName = text(options.userName);
+    const fx = content.fx || {};
+    const list = pageClashes(fx.clashes, content.displayText, {
+        auto: config.auto,
+        people: Object.keys(assets.characters || {}).map((key) => ({ key, aliases: (assets.characterAliases || {})[key], gender: characterDnaGender(assets, key) })),
+        onStage,
+        userNames: userName ? [userName] : [],
+    });
+    const extra = Array.isArray(fx.clashExtra) ? fx.clashExtra : [];
+    if (!list.length && !extra.length) return [];
+    if (!markPage(state.memory, `clash:${plan.pageKey}:${JSON.stringify(list)}`, plan.style.replay)) return [];
+    const castByKey = new Map(cast.map((m) => [m.character, m]));
+    const outfitOf = (key) => {
+        const hit = (Array.isArray(content.castSprites) ? content.castSprites : []).find((m) => m && m.character === key);
+        return hit ? hit.outfit || '' : '';
+    };
+    const shakeOff = reader.stageShake && reader.stageShake.enabled === false;
+    const result = applyClashToDom(root, list, {
+        layers, speaker, sprite: options.sprite || null, cast, keyOf, extra,
+        isUser: (name) => CLASH_USER_WORDS.includes(text(name).toLowerCase()) || (userName && text(name) === userName),
+        userKey: userName ? keyOf(userName) : '',
+        resolveSprite: (key) => {
+            const hit = resolveSpriteAsset(key, '平和', { sceneAssets: assets }, outfitOf(key));
+            const raw = hit && hit.url ? String(hit.url) : '';
+            return raw && typeof options.resolveAssetUrl === 'function' ? String(options.resolveAssetUrl(raw) || '') : raw;
+        },
+        ghost: config.ghost,
+        shake: config.shake && !shakeOff,
+        comic: normalizeComicModeSettings(reader.comicMode).enabled,
+        reduced,
+        schedule: state.schedule,
+        clear: state.clear,
+        onSound: (kind, gain = 1) => sound(state, kind, { ...plan.sound, volume: Math.min(1, (plan.sound.volume || 0) * gain) }, options),
+        onBark: (key) => clashBark(snapshot, key),
+        onSymbol: (key, kind, tier, life) => {
+            const castTarget = castByKey.get(key) || null;
+            if (!castTarget && key !== speaker) return;
+            playSymbol({ type: 'symbol', kind, clashTier: tier, ...(castTarget ? { castTarget } : {}) }, ctx, life);
+        },
+    });
+    return result.played.map((route) => `clash:${route}`);
+}
+
 export function applyFxToDom(root, snapshot, options = {}) {
     if (!root || !snapshot) return { played: [] };
     const settings = normalizeFxReaderSettings(snapshot.readerSettings);
@@ -1055,7 +1155,10 @@ export function applyFxToDom(root, snapshot, options = {}) {
     });
     const reduced = hasReducedMotion(options);
     const { motion, stage, doc } = layers;
-    if (state.pageKey && state.pageKey !== plan.pageKey) clearTransients(state, layers);
+    if (state.pageKey && state.pageKey !== plan.pageKey) {
+        clearTransients(state, layers);
+        cancelClashFx(root);
+    }
     state.motion = motion;
     if (settings.mangaFx.enabled) warmSpeedLines(doc);
     if (settings.mangaFx.enabled || castMarks.length) {
@@ -1106,6 +1209,14 @@ export function applyFxToDom(root, snapshot, options = {}) {
     state.pageKey = plan.pageKey;
     playRangeTransitions(ctx, rangeBefore);
     for (const effect of plan.effects) playEffect(effect, ctx);
+    // 报幕卡、睁眼铺满画面：台词朗读等它们播完再开口（返回给 applyTts 作 delay）。
+    let ttsLead = 0;
+    for (const effect of plan.effects) {
+        if (effect.type === 'title') ttsLead = Math.max(ttsLead, Math.max(TITLE_CARD_LIFETIME_MS[plan.titleSpeed] || TITLE_CARD_LIFETIME_MS.medium, isWuxiaInkSkin(snapshot) ? WUXIA_TITLE_CARD_MS : 0));
+        else if (effect.type === 'eye' && effect.mode === 'open' && !reduced) ttsLead = Math.max(ttsLead, FX_LIFETIME_MS.eye);
+    }
+    const clashPlayed = playPageClashes(ctx, settings);
+    const demonPlayed = playInnerDemon(ctx, settings.innerDemon);
     if (emergencyOn) playSiren(ctx);
     // 陪衬反应的漫画符号（stageCast.castReact）：每页只播一次；目标不在台上或没有图时丢弃。
     const castPlayed = [];
@@ -1128,11 +1239,13 @@ export function applyFxToDom(root, snapshot, options = {}) {
     });
     const { flashback, dream, letterbox } = plan.ranges;
     // umbrella 交给场景音频：撑伞区间里伞外雨声变闷、头顶叠雨打伞面。
-    return { played: [...plan.effects.map((effect) => effect.type), ...castPlayed, ...dlcPlayed], phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox), umbrella: Boolean(plan.atmos.umbrella) } };
+    return { played: [...plan.effects.map((effect) => effect.type), ...clashPlayed, ...demonPlayed, ...castPlayed, ...dlcPlayed], ttsLead, phone: remote, whisper: plan.whisper === true, ranges: { flashback: Boolean(flashback), dream: Boolean(dream), letterbox: Boolean(letterbox), umbrella: Boolean(plan.atmos.umbrella) } };
 }
 
 export function cancelFxEffects(root) {
     cancelDlcFx(root);
+    cancelClashFx(root);
+    cancelInnerDemon(root);
     const state = root && states.get(root);
     if (state) {
         for (const timer of state.timers) state.clear(timer);

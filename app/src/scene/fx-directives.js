@@ -6,8 +6,9 @@ import { buildStateAliases, parseStateBody } from './fx-state.js';
 import { parseCreatureAnchor, parseCreatureForm, parseCreatureSize } from './creature-profile.js';
 import { FOE_DOWN_MAX, addFrenzy } from './creature-battle.js';
 import { DLC_FX_ARG_MAX, DLC_FX_PAGE_MAX, getDlcFx, isDlcFxKind } from './fx-registry.js';
+import { clashActionOf, clashTierWord } from './clash-actions.js';
 
-export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'delivery', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
+export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'delivery', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella', 'clash']);
 // 持续状态滤镜区间 [igs-fx:state|醉酒|重] … [igs-fx:state-end]：独立于 FX_TAG_KINDS，由有题材包开着时生效（见 visual/igs-ui/fx-runtime.js）。
 const FX_STATE_ALIASES = buildStateAliases(FX_PACK_STATE_ALIASES);
 export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox', 'whisper', 'movie', 'light', 'umbrella']);
@@ -36,6 +37,9 @@ export const FX_HIT_RESULTS = Object.freeze({
     格挡: 'guard', 防御: 'guard', guard: 'guard', 击倒: 'ko', 倒下: 'ko', ko: 'ko', 治疗: 'heal', 恢复: 'heal', heal: 'heal',
 });
 export const FX_HIT_PAGE_MAX = 3;
+// 立绘碰撞 [igs-fx:clash|出手者|目标|动作|力度]：目标必填；出手者可省（按画外一击）；动作写错按 hit，力度省略时由正文强度词与动作默认力度决定。
+// 每页最多播 FX_CLASH_PAGE_MAX 次，超出的只留动作（clashExtra）供只播声音。
+export const FX_CLASH_PAGE_MAX = 2;
 // 陪衬反应 [igs-fx:react|角色名|情绪词]：独立于 FX_TAG_KINDS，由多角色同屏的 stageCast.castReact 控制；
 // 角色名缺失整条丢弃，情绪词可省；角色名写「全员」表示所有陪衬；每页最多 3 条，超出丢弃。
 export const FX_REACT_PAGE_MAX = 3;
@@ -242,6 +246,10 @@ export function parseFxBody(body) {
     }
     if (kind === 'confess') return isEnd ? null : { kind, end: false, args: [] };
     if (kind === 'memory') return !isEnd && parts[1] ? { kind, end: false, args: [parts[1]] } : null;
+    if (kind === 'clash') {
+        if (isEnd || !parts[2]) return null;
+        return { kind, end: false, args: [parts[1] || '', parts[2], clashActionOf(parts[3]), clashTierWord(parts[4])] };
+    }
     if (kind === 'hit' && !isEnd) {
         if (!parts[1] && !parts[3]) return null;
         return { kind, end: false, args: [parts[1] || '', parts[2] || '', parts[3] || '', lookup(FX_HIT_RESULTS, parts[4], 'hit')] };
@@ -420,6 +428,8 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
     // DLC 演出：dlc 收本页的瞬时标签 [{ kind, args }]；dlcRanges 收到此为止仍开着的区间 { kind: args }。
     result.dlc = [];
     result.dlcRanges = {};
+    result.clashes = [];
+    result.clashExtra = [];
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
@@ -507,6 +517,11 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
             if (result.hits.length < FX_HIT_PAGE_MAX) {
                 result.hits.push({ attacker: d.args[0], target: d.args[1], skill: d.args[2], result: d.args[3], dice: d.dice === true });
             }
+            continue;
+        }
+        if (d.kind === 'clash') {
+            if (result.clashes.length < FX_CLASH_PAGE_MAX) result.clashes.push({ attacker: d.args[0], target: d.args[1], action: d.args[2], tier: d.args[3] });
+            else if (result.clashExtra.length < FX_CLASH_PAGE_MAX) result.clashExtra.push(d.args[2]);
             continue;
         }
         if (d.kind === 'cam') {

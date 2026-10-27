@@ -2045,6 +2045,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         castMarks: castReactMarks,
         resolveAssetUrl,
         theme: fxTheme,
+        userName: ctx.userName,
     });
     // 获得物品演出：默认关闭；图片只读本聊天本地缓存，同页重绘不重播。
     renderItemFx(root, snapshot, { resolveItemImage: ctx.resolveItemImage, chatId: ctx.chatId, theme: fxTheme });
@@ -2056,7 +2057,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         cast: castFxTargets,
         resolveAssetUrl,
     });
-    renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
+    const dailyFxResult = renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
     // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
     applyDanmakuToDom(root, snapshot, { autoPlay: Boolean(current && current.autoPlay && current.autoPlay.enabled), sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove });
@@ -2418,21 +2419,27 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const content = snapshot.content;
         const posX = stageSprite && (!content.spriteCharacter || content.spriteCharacter === content.speaker) ? stageSprite.posX : undefined;
         const mood = content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '';
+        // 台词朗读只认这一页自己的情绪标签；立绘情绪可能是继承、兜底或反应表情，不拿来用。
+        const ttsMood = content.statusEmotion || '';
         // 聊天页：正文为空，朗读由聊天气泡层（chat-layer.js）逐条接管，这里不再起页面台词朗读，免得互相掐断。
         if (content.chatPage === true && normalizeTtsSettings(snapshot.readerSettings.tts).enabled) cancelPendingTts(root);
         else if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,
             textType: typewriterTextType,
             text: content.displayText,
+            context: content.fullText || '',
+            spriteTags: snapshot.readerSettings._tempSpriteTags || null,
             speaker: content.speaker || '',
             speakerKey: content.speakerKey || '',
-            mood,
+            mood: ttsMood,
             phone: fxResult.phone === true,
             nsfw: Boolean(content.sceneNsfw),
             posX,
             whisper: romanceResult.whisper === true,
             next: Array.isArray(content.segments) ? content.segments[content.currentIndex + 1] : '',
             nextHint: content.nextTtsHint || null,
+            // 报幕卡、睁眼、时间跳跃、醒来这类铺满画面的演出播完再念。
+            delay: Math.max(Number(fxResult && fxResult.ttsLead) || 0, Number(dailyFxResult && dailyFxResult.ttsLead) || 0),
         }, snapshot.readerSettings.tts, snapshot.readerSettings._sceneAssets);
         else applyVoiceBark(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,

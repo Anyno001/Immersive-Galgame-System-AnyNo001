@@ -2,7 +2,7 @@
 // 声线来自内置声音包（voice-packs.js）；每个角色可在角色设定里手动指定声线，未指定时按 DNA 判断性别、
 // 再按名字固定分到同性别的一套声线，保证不同角色天然不同、同一角色始终同一个声音。
 import { VOICE_PACKS } from '../../voice/voice-packs.js';
-import { moodFallbackChain, resolvePresetGroup } from '../../scene/mood-groups.js';
+import { fuzzyResolveMoodGroup, moodFallbackChain, resolveMoodGroup, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { busInput, resumeAudioBus } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
 import { spritePan, yieldTypewriterAudio } from './typewriter-audio.js';
@@ -36,8 +36,9 @@ const PHONE_GAIN = 0.85;
 const PHONE_BAND = Object.freeze({ high: 380, low: 3200 });
 const GAIN_CAP = 1.2;
 // 人声净化：高通去低频嗡声，高架压嘶声与沙沙底噪（听筒本身有带通，不重复）。
-const CLEANUP_HIGHPASS = Object.freeze({ frequency: 80, q: 0.7 });
+const CLEANUP_HIGHPASS = Object.freeze({ frequency: 100, q: 0.7 });
 const CLEANUP_HIGHSHELF = Object.freeze({ frequency: 7500, gain: -4 });
+const VOICE_LIMITER = Object.freeze({ threshold: -4, knee: 6, ratio: 20, attack: 0.001, release: 0.25 });
 // 语气音响着时 BGM 与环境音让一下（比提示音轻）；打字音整段静音到语气音念完。
 const BARK_DUCK_RATIO = 0.7;
 const BARK_TAIL_S = 0.05;
@@ -211,9 +212,24 @@ export function resolveCharacterVoice(sceneAssets, speaker) {
 }
 
 // 情绪词 → 20 个标签之一；默认 / 未知落到「平和」。
-export function resolveBarkMood(word) {
+// moodGroups：用户自定义的情绪组（{ label, words }）；词不在内置预设里时，先找它所在的自定义组，
+// 再用组名与组内词投票，映射到最接近的内置预设；仍映射不到落「平和」。
+export function resolveBarkMood(word, moodGroups = null) {
     const label = resolvePresetGroup(word);
-    return label && label !== '默认' ? label : BASE_MOOD;
+    if (label) return label !== '默认' ? label : BASE_MOOD;
+    if (!Array.isArray(moodGroups) || !moodGroups.length) return BASE_MOOD;
+    const custom = resolveMoodGroup(word, moodGroups) || fuzzyResolveMoodGroup(word, moodGroups);
+    const group = custom && moodGroups.find((g) => g && typeof g === 'object' && String(g.label || '').trim() === custom);
+    if (!group) return BASE_MOOD;
+    const votes = new Map();
+    const words = Array.isArray(group.words) ? group.words : [];
+    for (const [entry, weight] of [[custom, 3], ...words.map((w) => [w, 1])]) {
+        const hit = resolvePresetGroup(entry);
+        if (hit && hit !== '默认' && hit !== BASE_MOOD) votes.set(hit, (votes.get(hit) || 0) + weight);
+    }
+    let best = BASE_MOOD, top = 0;
+    for (const [hit, count] of votes) if (count > top) { best = hit; top = count; }
+    return best;
 }
 
 // 同方向回退，最后落到「平和」；同一情绪有多条时避开上一条。
@@ -409,7 +425,7 @@ export function stopVoiceBark() {
 }
 
 // gain →（净化滤波）→（听筒带通 / 声像）→ 总线；返回链头。
-export function buildBarkChain(context, out, { volume, pan, phone, cleanup = false, gainCap = GAIN_CAP }, nodes) {
+export function buildBarkChain(context, out, { volume, pan, phone, cleanup = false, gainCap = GAIN_CAP, limit = false }, nodes) {
     const gain = context.createGain();
     const filter = getVoiceFilter();
     const earPan = (voiceFilterParams(filter) || {}).pan || 0;
@@ -449,6 +465,16 @@ export function buildBarkChain(context, out, { volume, pan, phone, cleanup = fal
     }
     // 贴耳 / 隔墙：局部滤镜只插在语音声链里，不碰 BGM 与环境声。
     if (!phone) insertVoiceFilter(context, link, filter);
+    // 音量放大到 100% 以上时，响度统一后的峰值会被推过满幅削波；末端限幅压住峰值。
+    if (limit && typeof context.createDynamicsCompressor === 'function') {
+        const limiter = context.createDynamicsCompressor();
+        limiter.threshold.value = VOICE_LIMITER.threshold;
+        limiter.knee.value = VOICE_LIMITER.knee;
+        limiter.ratio.value = VOICE_LIMITER.ratio;
+        limiter.attack.value = VOICE_LIMITER.attack;
+        limiter.release.value = VOICE_LIMITER.release;
+        link(limiter);
+    }
     tail.connect(out);
     return gain;
 }

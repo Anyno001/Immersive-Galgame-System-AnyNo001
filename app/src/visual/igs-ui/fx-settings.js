@@ -2,6 +2,7 @@ import { normalizeMyPhone } from './my-phone.js';
 import { normalizeEmotionList } from './stage-shake-runtime.js';
 import { FX_TAG_KINDS } from '../../scene/fx-directives.js';
 import { normalizeItemFxSettings } from './fx-item-model.js';
+import { normalizeInnerDemonSettings } from '../../scene/inner-demon.js';
 import { STAGE_DIRECTION_NORMALIZERS, STAGE_DIRECTION_WORD_LIST_PATHS } from './stage-direction-settings.js';
 import { normalizeUiSoundSettings } from './ui-sfx.js';
 import { normalizeAudioMasterSettings } from './audio-bus.js';
@@ -43,7 +44,7 @@ export const FX_CALL_SPRITE_MODES = Object.freeze(['split', 'avatar', 'hide', 's
 export const FX_TAG_LABELS = Object.freeze({
     call: '来电 / 通话', notify: '通知横幅', delivery: '外卖 / 快递', flashback: '回忆滤镜', dream: '梦境滤镜', letterbox: '电影黑边', sfx: '拟声音效', eye: '睁眼 / 闭眼',
     whisper: '悄悄话', nickname: '称呼变化', voicemail: '语音留言', contact: '交换联系方式', cutin: '脸部特写切入', promise: '约定',
-    movie: '看电影', light: '关灯', umbrella: '撑伞',
+    movie: '看电影', light: '关灯', umbrella: '撑伞', clash: '立绘碰撞',
 });
 // 后加的标签类型需显式勾选：旧存档里「演出标签」已开启的用户不会突然收到新语法。
 const FX_TAG_OPT_IN = new Set(['delivery', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
@@ -195,6 +196,8 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     ...DANMAKU_SETTINGS_NORMALIZERS,
     // 获得物品演出独立渲染（fx-item-render），不进入 FX_FEATURE_KEYS。
     itemFx: normalizeItemFxSettings,
+    // 心魔 / 与自己对话的黑影，由 fx-inner-demon 渲染，不进入 FX_FEATURE_KEYS。
+    innerDemon: normalizeInnerDemonSettings,
     // 战斗演出同样独立渲染（fx-battle-render）。
     battleFx: normalizeBattleFxSettings,
     // 非人角色显示设置：总开关、体型缩放、巨型铺满；由显示层与生成层读取，不进入 FX_FEATURE_KEYS。

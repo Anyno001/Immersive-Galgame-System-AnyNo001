@@ -12,6 +12,7 @@ import { feedGrammarBlocks } from './feed-prompt.js';
 import { isPromptEntryKey, normalizePromptEntries, resolveEntryPlacement } from '../../scene/prompt-entries.js';
 import { CAMPUS_FX_KINDS, COURTESY_FX_KINDS, PLAY_FX_KINDS, WARDROBE_FX_KINDS } from '../../scene/daily-fx-directives.js';
 import { FX_PACKS_ACTIVE, isPackKind, packBlockKey, packOfKind, packRequiresMet } from '../../scene/fx-packs.js';
+import { INNER_DEMON_GRAMMAR_LINE, normalizeInnerDemonSettings } from '../../scene/inner-demon.js';
 
 export const PROMPT_PLACEMENTS = Object.freeze(['system', 'depth0']);
 export const SEGMENT_ID_PREFIX = 'igs-scene-assets-entry-';
@@ -126,6 +127,10 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
     const castLines = stageCastGrammarLines(rs.stageCast);
     if (castLines.length) {
         blocks.push({ key: 'cast', full: fxBlock('同屏角色', castLines), index: `同屏 igs-fx:${castLines.map((line) => line.split('|')[0]).join('/')}` });
+    }
+    // 心魔 / 人格分裂：说话人名写法的一句说明，常驻；开关在演出设置「心魔黑影」。
+    if (normalizeInnerDemonSettings(rs.innerDemon).enabled) {
+        blocks.push({ key: 'demon', full: INNER_DEMON_GRAMMAR_LINE, index: '心魔对话 说话人写法' });
     }
     const cameraLines = cameraGrammarLines(rs.camera);
     if (cameraLines.length) {

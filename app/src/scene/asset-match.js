@@ -1,3 +1,4 @@
+import { isInnerDemonName } from './inner-demon.js';
 import { isImageSeed } from '../generated-images/image-seed.js';
 import { lookupSceneBackground, lookupSceneAssetUrls, resolveCharacterKey, lookupAssetValue, sceneTimeSlot } from './scene-directives.js';
 import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit, outfitsOfCharacter } from './character-outfits.js';
@@ -200,12 +201,16 @@ export function removeGeneratedLibraryEntry(library, type, name) {
     return { library: next, imageIds: collectGeneratedImageIds(entry) };
 }
 
-export function collectGeneratedImageIds(value, out = []) {
+function walkGeneratedImageIds(value, out) {
     if (typeof value === 'string') {
         if (isGeneratedAssetUrl(value)) out.push(generatedAssetIdOf(value));
     } else if (value && typeof value === 'object') {
-        for (const item of Object.values(value)) collectGeneratedImageIds(item, out);
+        for (const item of Object.values(value)) walkGeneratedImageIds(item, out);
     }
+}
+
+export function collectGeneratedImageIds(value, out = []) {
+    walkGeneratedImageIds(value, out);
     return Array.from(new Set(out));
 }
 
@@ -511,6 +516,8 @@ function isKnownCharacterName(name, userAssets) {
 }
 
 export function isNonSpriteSpeaker(name) {
+    // 心魔 / 人格分裂等自我对话的说话人名不是一个要画立绘的角色。
+    if (isInnerDemonName(name)) return true;
     const lower = name.toLowerCase();
     if (NON_SPRITE_SPEAKERS.has(name) || NON_SPRITE_SPEAKERS.has(lower)) return true;
     return /^[?？…·.\s]+$/.test(name);

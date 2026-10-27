@@ -41,6 +41,7 @@ export const DAILY_FX_LIFETIME_MS = Object.freeze({
     omikuji: 5000, receiptPrint: 1100, receiptHold: 3400, tvBase: 1600, tvPerChar: 140, tvMin: 3200,
 });
 const SEEN_LIMIT = 128;
+const TTS_LEAD_KINDS = new Set(['timeskip', 'wake']);
 
 const states = new WeakMap();
 
@@ -1035,6 +1036,8 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
     // 西幻 / 科幻 / 末日：在现代节点上追加 is-<id> 换皮，结构、时长与音效不变；古代沿用自身分支。
     const worldSkin = !env.ancient && worldSkinOf(env.worldview) ? `is-${env.worldview}` : '';
     const played = [];
+    // 时间跳跃报幕、醒来铺光：台词朗读等它们播完再开口。
+    let ttsLead = 0;
     const plan = planDailyFx(content.fx, { settings, readerSettings, nsfw: content.sceneNsfw === true, pageKind: pageKindOf(content) });
     for (const item of plan) {
         const key = `${pageKey}:${JSON.stringify(item)}`;
@@ -1061,11 +1064,14 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
             if (state.mainBusy) { state.mainQueue.push({ run, gen: state.mainGen }); played.push(item.type); continue; }
             const life = run();
             if (!life) continue;
+            if (TTS_LEAD_KINDS.has(item.type)) ttsLead = Math.max(ttsLead, life);
             holdMainCard(state, life);
             played.push(item.type);
             continue;
         }
-        if (!run()) continue;
+        const life = run();
+        if (!life) continue;
+        if (TTS_LEAD_KINDS.has(item.type)) ttsLead = Math.max(ttsLead, life);
         played.push(item.type);
     }
     const petalKind = settings.petals && content.sceneNsfw !== true
@@ -1076,5 +1082,5 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
     syncAmbience(state, env, ambience);
     const crossing = syncWaterCrossing(state, env, settings, content, played);
     if (crossing) played.push(crossing);
-    return { played, petals: petalKind, ambience: ambience ? ambience.kind : '' };
+    return { played, ttsLead, petals: petalKind, ambience: ambience ? ambience.kind : '' };
 }

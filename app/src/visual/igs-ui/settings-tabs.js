@@ -86,11 +86,14 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-feature="external-sprite-dna"{{sourceExternalHidden}}>
       {{externalSpriteDnaField}}
     </div>
+    <div class="igs-settings-sub" data-image-feature="sprite-matte-color">
+      {{spriteMatteColorField}}
+    </div>
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
-        <div class="igs-settings-full">{{autoNaiEndpointField}}</div>
-        {{autoNaiKeyField}}{{autoNaiTransportField}}
+        {{autoNaiEndpointField}}{{autoNaiKeyField}}
         {{autoNaiModelField}}{{autoNaiSizeField}}
+        {{autoNaiTransportField}}
       </div>
       {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
@@ -144,16 +147,20 @@ const IMAGE_LLM_TEMPLATE = `
       </div>
       {{modelProfileLlmRow}}
       <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-request"{{autoLlmRequestOpen}}>
+        <summary><b>请求参数</b></summary>
+        <div class="igs-source-filter-note">写法同酒馆自定义源，YAML或JSON。</div>
+        <div class="igs-settings-full">{{autoLlmIncludeHeadersField}}</div>
+        <div class="igs-settings-full">{{autoLlmIncludeBodyField}}</div>
+        <div class="igs-settings-full">{{autoLlmExcludeBodyField}}</div>
+      </details>
     </div>
   </div>
   {{imagePromptPanel}}
+  {{worldInfoFilterPanel}}
   <div class="igs-source-filter" data-image-feature="llm-prompts">
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
-      <summary><b>附加写词要求（可选）</b><span class="igs-perf-brief">修改后作为追加要求生效</span></summary>
-      <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptAssetSoftField}}</div>
+      <summary><b>附加词</b></summary>
       <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
       <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
     </details>

@@ -34,7 +34,82 @@
    "ground": {
     "matte": "simple background, grey background, light grey background, flat color background",
     "white": "simple background, white background, flat color background",
+    "green": "simple background, green background, flat color background",
+    "purple": "simple background, purple background, flat color background",
     "transparent": "transparent background"
+   },
+   "creatureBeast": {
+    "positive": "{tags}, no humans, solo, {framing}, facing viewer, centered, {matte}",
+    "negative": "1girl, 1boy, human, humanoid, multiple views, multiple creatures, crowd, 1.2::scenery, detailed background::, white background, 1.2::gradient background, patterned background, drop shadow, floor, furniture::, text, speech bubble, watermark, signature, frame, border",
+    "framing": {
+     "small": {
+      "positive": "full body",
+      "negative": "cropped body, out of frame"
+     },
+     "medium": {
+      "positive": "full body, battle stance",
+      "negative": "cropped body, out of frame"
+     },
+     "large": {
+      "positive": "full body, towering",
+      "negative": "cropped body, out of frame"
+     },
+     "giant": {
+      "positive": "from below, upper body, close-up, out of frame, looming",
+      "negative": "full body, distant, small"
+     }
+    },
+    "anchor": {
+     "ground": {
+      "positive": "",
+      "negative": ""
+     },
+     "float": {
+      "positive": "floating, hovering",
+      "negative": "standing, feet on ground"
+     }
+    },
+    "defaultPose": "idle stance, relaxed posture",
+    "poseRule": "正面迎向镜头的战斗或待机架势，符合物种习性：四足兽低伏或前扑预备，长身形立起、盘起或俯身前探并完整收进画面，有翼者收翼或半展，无面部可读时以头部朝向、肢体与躯干姿态表达状态。肢体、尾部与触手不被画框截断（巨型局部取景除外），不写人物日常小动作，不写场景、道具或其他生物。"
+   },
+   "creatureHumanoid": {
+    "positive": "{tags}, solo, {framing}, facing viewer, centered, {matte}",
+    "negative": "multiple views, 2girls, 2boys, multiple girls, multiple boys, crowd, 1.2::scenery, detailed background::, white background, 1.2::gradient background, patterned background, drop shadow, floor, furniture::, text, speech bubble, watermark, signature, frame, border",
+    "framing": {
+     "small": {
+      "positive": "full body",
+      "negative": "cropped legs, cropped tail, out of frame"
+     },
+     "medium": {
+      "positive": "full body",
+      "negative": "cropped legs, cropped tail, out of frame"
+     },
+     "large": {
+      "positive": "full body, towering",
+      "negative": "cropped legs, cropped tail, out of frame"
+     },
+     "giant": {
+      "positive": "from below, upper body, out of frame, looming",
+      "negative": "full body, distant, small"
+     }
+    },
+    "anchor": {
+     "ground": {
+      "positive": "",
+      "negative": ""
+     },
+     "float": {
+      "positive": "floating, hovering",
+      "negative": "standing, feet on ground"
+     }
+    },
+    "halfBody": {
+     "positive": "upper body, standing",
+     "negative": "full body, feet, head out of frame, cropped arms"
+    },
+    "halfPoseRule": "正面迎向镜头的半身待机或战斗姿态：画面取腰胯以上，完整头顶、双肩与躯干入画，手势在取景内，头顶及身体两侧留少量余白；上身姿态符合人设，角、翼、耳、尾根等上半身的非人特征完整保留，非人的下半身不入画，不写与下半身有关的姿态。",
+    "defaultPose": "standing, relaxed posture",
+    "poseRule": "正面迎向镜头的待机或战斗架势：上身姿态符合人设，非人的下半身（蛇尾、鱼尾、蜘蛛下身、马身等）完整入画并自然摆放，尾部与肢体不被画框截断（巨型局部取景除外）。手势安排在取景范围内，不写场景、道具或其他人物。"
    },
    "form": {
     "bodyTagPattern": "\\d+\\s*(?:boy|girl)s?|male|female|boy|girl|man|woman|loli|shota|child|kid|teen(?:ager)?|adult|mature(?: \\w+)?|old(?: \\w+)?|young(?: \\w+)?|elderly|milf|petite|aged (?:up|down)|male focus|female focus",
@@ -311,7 +386,17 @@
    "common": {
     "DNA_TAG_RULE": "# 提示词规则\n- 纯 TAG：新人物 DNA、服装 DNA，以及 CG 当次身份、特征摘要和衣装字段只写逗号分隔的英文标签；主要特征和细节均用 TAG，不写自然语言句子、人物介绍、穿着谓语或解释性补述。\n- 相邻排列（最高优先级）：关联度高的内容跨分类相邻排列；同一部位、同一衣物的标签相邻排列。\n## 标签\n- 中文特征拆译为视觉标签；用确定的 Danbooru 基础标签及复合标签表达，不把长句、with/and 从句或自造描述伪装成标签。没有准确标签的细节，用适用的已知标签组合表达；仍无法表达则省略该细节，不改为自然语言、不编造标签。\n- 保留Danbooru复合标签（forest of magic）\n- 禁止质量词（masterpiece）与画师名（@artist）\n## 标签权重\n- 数字权重：`n::tag::`或`n::tag1,tag2::`（n>1.0增强，n<1.0削弱，n<0反向排斥）\n- 主体强调：准确的同人角色标签用 2::Name (Series)::，新身份发色与明确的核心锚点、新衣装主要衣物用 1.2::tag::，按下列要求执行，不只是格式示例。\n【权重格式适配】本任务用上述数字权重，不写花括号权重，避免与资料变量占位语法混淆。\n> 权重只套标签。\n【核心 TAG 权重：新资料必写】新正向身份中的发色标签及资料明确的核心身份锚点必须使用 1.2::tag::；确认准确的同人角色标签使用 2::Name (Series)::，不能只凭中文姓名编造英文同人标签。新衣装中实际存在的主要衣物，其颜色与类别标签必须使用 1.2::tag::，如 1.2::black armor::；普通细节不机械全加权。无依据或不适用的标签省略，不为凑权重添加特征、衣物或同人名。各标签独立闭合，不嵌套、不包占位符；三景别共同标签及权重逐字相同。只强调当前身份或衣装字段，不因此生成动作、场景或画师词。已有身份、衣装、触发词及闭合权重逐字复用，即使没有权重也不补写。",
     "DNA_WEIGHT_RULE": "【核心 TAG 权重：新资料必写】新正向身份中的发色标签及资料明确的核心身份锚点必须使用 1.2::tag::；确认准确的同人角色标签使用 2::Name (Series)::，不能只凭中文姓名编造英文同人标签。新衣装中实际存在的主要衣物，其颜色与类别标签必须使用 1.2::tag::，如 1.2::black armor::；普通细节不机械全加权。无依据或不适用的标签省略，不为凑权重添加特征、衣物或同人名。各标签独立闭合，不嵌套、不包占位符；三景别共同标签及权重逐字相同。只强调当前身份或衣装字段，不因此生成动作、场景或画师词。已有身份、衣装、触发词及闭合权重逐字复用，即使没有权重也不补写。",
+    "IDENTITY_BODY_RULE": "皮肤、雀斑、痣、疤痕、身体标记及体态用适用标签表达，细节以标签能准确表达为限；不把护甲厚度、衣物收腰或坐姿透视当身体比例，不默认人人窄肩、细腰、高个、长腿。具体身体数值只沿用输入，不自行补造。",
+    "IDENTITY_FACE_RULE": "五官按设定选择可准确表达的脸型、眉形、眼型、瞳色与唇形标签，不以漂亮、英俊或职业气质代替，也不为凑齐鼻梁、下巴等微细节而写自然语言。常态眼型可以来自稳定设定，喜怒、闭眼、视线方向属于当次表情，不混入身份。",
     "IDENTITY_RULE": "先分清保存身份、来源已明确的外貌和首次候选：保存身份及已有景别逐字沿用；来源已明确的性别、年龄感、种族和身体特征不得改写。仅 promptTask.purpose 为 sprite 且缺身份景别、需要首次候选时，才在已知设定内一次协调设计尚未限定的普通可见外貌。candidate-required 是建立可用候选，不是把未知项抄成占位说明；saved-only 和 identity-cleared 不设计或补建。\n# 提示词规则\n- 纯 TAG：新人物 DNA、服装 DNA，以及 CG 当次身份、特征摘要和衣装字段只写逗号分隔的英文标签；主要特征和细节均用 TAG，不写自然语言句子、人物介绍、穿着谓语或解释性补述。\n- 相邻排列（最高优先级）：关联度高的内容跨分类相邻排列；同一部位、同一衣物的标签相邻排列。\n## 标签\n- 中文特征拆译为视觉标签；用确定的 Danbooru 基础标签及复合标签表达，不把长句、with/and 从句或自造描述伪装成标签。没有准确标签的细节，用适用的已知标签组合表达；仍无法表达则省略该细节，不改为自然语言、不编造标签。\n- 保留Danbooru复合标签（forest of magic）\n- 禁止质量词（masterpiece）与画师名（@artist）\n## 标签权重\n- 数字权重：`n::tag::`或`n::tag1,tag2::`（n>1.0增强，n<1.0削弱，n<0反向排斥）\n- 主体强调：准确的同人角色标签用 2::Name (Series)::，新身份发色与明确的核心锚点、新衣装主要衣物用 1.2::tag::，按下列要求执行，不只是格式示例。\n【权重格式适配】本任务用上述数字权重，不写花括号权重，避免与资料变量占位语法混淆。\n> 权重只套标签。\n【核心 TAG 权重：新资料必写】新正向身份中的发色标签及资料明确的核心身份锚点必须使用 1.2::tag::；确认准确的同人角色标签使用 2::Name (Series)::，不能只凭中文姓名编造英文同人标签。新衣装中实际存在的主要衣物，其颜色与类别标签必须使用 1.2::tag::，如 1.2::black armor::；普通细节不机械全加权。无依据或不适用的标签省略，不为凑权重添加特征、衣物或同人名。各标签独立闭合，不嵌套、不包占位符；三景别共同标签及权重逐字相同。只强调当前身份或衣装字段，不因此生成动作、场景或画师词。已有身份、衣装、触发词及闭合权重逐字复用，即使没有权重也不补写。\n【DNA 适配】本任务只整理稳定身份，以上表达规则不授权写入场景、动作或表情。三景别及身份 UC 的新内容只用英文 TAG；年龄感按资料用适用标签，不因 1girl/1boy 推断具体年龄。\n首次候选要建立换装后仍能辨认的具体外貌，而不止性别、发色、瞳色、肤色和 slim 的通用组合。分别落实发型轮廓及局部结构、五官组合、固有肤色与体态；在允许设计的普通特征中作协调而有区别的选择，不把所有角色补成同一张脸或同一身材。不设标签数量配额，细节以可画、互相一致且有辨识作用为准。可补全的普通视觉细节在本次确定后贯穿三景别；不写 indeterminate、unspecified、unknown、fair to medium、某色等待定范围。用户明确禁止设计的未知项不补。\n### 特征\n- 外貌特征：[头发/身体/面容/妆容及标志性特征（疤痕、体型）等]\n- 稳定身份锚点：[资料明确的年龄感、种族特征及标志饰物]；性格另交 personality，职业气场、普通穿戴物和长期持有物不代替身体外貌。\n> 防幻觉铁律：不确定同人提示词是否真实存在→绝不编造，用确定的基础标签与适用的差异特征标签；UC 只排斥确实冲突的原特征。\n【细化不是堆词】发色之外明确长度、直卷、刘海、分缝与鬓发等相互兼容的结构；瞳色之外明确适用的常态眼型、眉形及可准确表达的面部轮廓。体态与年龄感协调，不用 beautiful、delicate features、professional 或职业名称替代可见结构。只在已有设定或允许的普通候选设计内细化，不靠新增特殊体征、饰物或虚构同人名制造特色。\n【身份分栏适配】性格独立写 personality，可更换穿戴物和长期持有物归衣装或当次画面；明确的角色标志饰物才作为稳定身份。原创名只在本轮允许使用且有对应来源时填写，角色绑定字段仍逐字取 characterKey，不照抄范例姓名、种族或未知标签。\n【逐栏归属】所有 dna_* 正向都只写身体与明确的稳定身份锚点；外套、裙裤、丝袜、鞋靴及普通配饰即使反复穿着也不写入身份，职业穿着不写成 professional attire。服装写 outfit_description 及其适用派生栏，持有账夹等当次物品不固定成身体特征。personality 只写稳定性格，不复制到外貌 TAG。\n头发逐项落实具体底色、已有挑染或渐变的位置与颜色、长度、直卷与蓬松度、刘海形状、分缝、鬓发和扎发结构及位置；不只写 black hair 或 shoulder-length hair。已有颜色和发型优先，光照、灰尘或临时散乱不替代固有发色与结构。没有设定的挑染、复杂扎发不是必添项。\n五官按设定选择可准确表达的脸型、眉形、眼型、瞳色与唇形标签，不以漂亮、英俊或职业气质代替，也不为凑齐鼻梁、下巴等微细节而写自然语言。常态眼型可以来自稳定设定，喜怒、闭眼、视线方向属于当次表情，不混入身份。\n皮肤、雀斑、痣、疤痕、身体标记及体态用适用标签表达，细节以标签能准确表达为限；不把护甲厚度、衣物收腰或坐姿透视当身体比例，不默认人人窄肩、细腰、高个、长腿。具体身体数值只沿用输入，不自行补造。\n逐项核对角、非人耳、尾巴、翅膀、身体标记与明确的标志饰品，保留已知数量、颜色、形状、位置，未知不填满清单。衣装、护甲、武器和普通战术耳机不是身份；灰尘、血污、临时伤势、当次表情、视线和姿态也不进入身份。\n来源优先看保存资料、角色资料及设定，再看正文明确外貌；职业、战斗能力和人物姓名不自动推出脸型、发型或身材。首次未限定的普通外貌属于本次候选设计，不是从剧情提取到的事实；不得据此添加无来源的特殊种族、角尾、伤疤、刺青、超能力或标志饰品。性格独立保存，失忆、受伤、疲惫和当前警戒不是稳定性格。\n三景别从同一纯 TAG 外貌母版仅删除画外部位的完整标签及其分隔符；权重组整体保留或移除，不拆坏闭合权重。共同标签、标点、顺序和结构逐字一致，不分别改写。全身保留已知身体锚点；半身删画外腿脚及依赖全身可见的高矮、腿长与整体比例标签；头像再删躯干等画外部位，头部发型名称及长度仍保留。不能在头像另加全身母版没有的 delicate features 等修饰。已有景别逐字保留，完整或主动清空的资料不重建。\n交付前逐栏核对：首次候选是否仍只有通用色块与笼统体型，具体发型与五官组合是否可辨；每份身份有无混入穿戴物、性格或当次状态；三景别是否确实只删减同一母版。只修正本轮新设计，已保存资料不自动丰富或清洗。",
+    "OUTFIT_HALF_BODY_PARTS": [
+     "【半身服装 DNA】完整服装仍写 outfit_description，另交 outfit_half_body。先按完整服装规则建立整套母版，再从本次完整说明只删除画外衣物、画外长度及细节的完整标签和分隔符。以下删减仅作用于半身派生栏，不取消完整母版的长度锚定，也不改短衣物。",
+     "取景为完整头顶到腰胯。保留画内的上装、裙身或裤腰结构及其颜色、材质、领袖、开合、褶裥、腰带和可见口袋；裙裤类别不能一概删除。只保留腰胯内实际可见且未被外套遮住的结构，不为保留整套衣物而延伸取景。",
+     "即使裙身或裤腰仍入镜，knee-length、mini、maxi、floor-length 等裙长以及画外裙摆、开衩、下摆花边，裤腿长度、喇叭裤脚、卷边等标签也要整项删除；裙长属于画外信息，不因仍保留 dress 或 skirt 而保留。外套越过腰胯的长度与画外下摆同样删除；腰胯内可见的收腰、短款边缘或袖口保留。",
+     "鞋靴、袜子、丝袜、裤袜及腿脚局部细节在腰胯取景之外，整组移除，包括其颜色、材质与权重；不能只删鞋而留下 black stockings、sheer pantyhose 等。完整母版中上装和鞋袜共用的模糊材质标签，按实际归属决定，不误删画内上装细节。",
+     "保留部分的措辞、顺序、颜色、标点与闭合权重逐字不变；只删除完整标签，权重组整体保留或移除，不改写、不增添标签、不重新设计。新母版的衣物类别与长度分列，派生时可删 knee-length dress 而保留原有的 1.2::blue dress::，不将长裙改写成短裙。没有画外标签时允许两份相同。",
+     "已有 descriptionHalfBody 逐字复用；仅缺半身版时从已保存 description 删减，完整母版原样交付，不重新编写整套服装。交付前核对半身栏已去掉画外长度、裙摆、裤腿和鞋袜，同时未丢失画内服装结构；不自动重写存量资料。"
+    ],
     "OUTFIT_HALF_BODY_RULE": "【半身服装 DNA】完整服装仍写 outfit_description，另交 outfit_half_body。先按完整服装规则建立整套母版，再从本次完整说明只删除画外衣物、画外长度及细节的完整标签和分隔符。以下删减仅作用于半身派生栏，不取消完整母版的长度锚定，也不改短衣物。\n取景为完整头顶到腰胯。保留画内的上装、裙身或裤腰结构及其颜色、材质、领袖、开合、褶裥、腰带和可见口袋；裙裤类别不能一概删除。只保留腰胯内实际可见且未被外套遮住的结构，不为保留整套衣物而延伸取景。\n即使裙身或裤腰仍入镜，knee-length、mini、maxi、floor-length 等裙长以及画外裙摆、开衩、下摆花边，裤腿长度、喇叭裤脚、卷边等标签也要整项删除；裙长属于画外信息，不因仍保留 dress 或 skirt 而保留。外套越过腰胯的长度与画外下摆同样删除；腰胯内可见的收腰、短款边缘或袖口保留。\n鞋靴、袜子、丝袜、裤袜及腿脚局部细节在腰胯取景之外，整组移除，包括其颜色、材质与权重；不能只删鞋而留下 black stockings、sheer pantyhose 等。完整母版中上装和鞋袜共用的模糊材质标签，按实际归属决定，不误删画内上装细节。\n保留部分的措辞、顺序、颜色、标点与闭合权重逐字不变；只删除完整标签，权重组整体保留或移除，不改写、不增添标签、不重新设计。新母版的衣物类别与长度分列，派生时可删 knee-length dress 而保留原有的 1.2::blue dress::，不将长裙改写成短裙。没有画外标签时允许两份相同。\n已有 descriptionHalfBody 逐字复用；仅缺半身版时从已保存 description 删减，完整母版原样交付，不重新编写整套服装。交付前核对半身栏已去掉画外长度、裙摆、裤腿和鞋袜，同时未丢失画内服装结构；不自动重写存量资料。",
     "OUTFIT_RULE": "衣装原名是绑定键：本次 outfit.name 或对应正文服装栏有名称时逐字沿用，不翻译、不扩写、不因缺说明另起名。仅两者均未命名时才命名；不用 默认、原装、__proto__、constructor、prototype，不含 |、] 或换行。\n已保存衣装说明逐字复用。首次缺说明的新衣装保留全部已知设定，即使只提供衣装名称，也应为未限定的主要衣物确定具体颜色、材质、剪裁、领袖、开合、层次和必要普通配件，形成完整可复用设计；符合世界观、职业与场合，不把补全冒充原文事实。只有用户明确要求“不设计、仅照录已有细节”时才保留未限定项；本轮“资料提取”或“不生成画面”仅限定交付形式，不禁止细化衣装。\n【服装 DNA 表达】新服装说明全部使用英文 TAG，颜色、款式、长度、材质和细节均按标签表达；不写 wears...、with...、layered over... 等自然语言补述。已有保存说明仍逐字复用，不自动转换。\n# 提示词规则\n- 纯 TAG：新人物 DNA、服装 DNA，以及 CG 当次身份、特征摘要和衣装字段只写逗号分隔的英文标签；主要特征和细节均用 TAG，不写自然语言句子、人物介绍、穿着谓语或解释性补述。\n- 相邻排列（最高优先级）：关联度高的内容跨分类相邻排列；同一部位、同一衣物的标签相邻排列。\n## 标签\n- 中文特征拆译为视觉标签；用确定的 Danbooru 基础标签及复合标签表达，不把长句、with/and 从句或自造描述伪装成标签。没有准确标签的细节，用适用的已知标签组合表达；仍无法表达则省略该细节，不改为自然语言、不编造标签。\n- 保留Danbooru复合标签（forest of magic）\n- 禁止质量词（masterpiece）与画师名（@artist）\n## 标签权重\n- 数字权重：`n::tag::`或`n::tag1,tag2::`（n>1.0增强，n<1.0削弱，n<0反向排斥）\n- 主体强调：准确的同人角色标签用 2::Name (Series)::，新身份发色与明确的核心锚点、新衣装主要衣物用 1.2::tag::，按下列要求执行，不只是格式示例。\n【权重格式适配】本任务用上述数字权重，不写花括号权重，避免与资料变量占位语法混淆。\n> 权重只套标签。\n【核心 TAG 权重：新资料必写】新正向身份中的发色标签及资料明确的核心身份锚点必须使用 1.2::tag::；确认准确的同人角色标签使用 2::Name (Series)::，不能只凭中文姓名编造英文同人标签。新衣装中实际存在的主要衣物，其颜色与类别标签必须使用 1.2::tag::，如 1.2::black armor::；普通细节不机械全加权。无依据或不适用的标签省略，不为凑权重添加特征、衣物或同人名。各标签独立闭合，不嵌套、不包占位符；三景别共同标签及权重逐字相同。只强调当前身份或衣装字段，不因此生成动作、场景或画师词。已有身份、衣装、触发词及闭合权重逐字复用，即使没有权重也不补写。\n### 着装\n【新衣装先做完整设计】正文给出的衣物是设计约束，不是细节上限。缺保存说明且允许设计时，逐件确定颜色与材质、版型与长度、领口/翻领、袖型/袖口、门襟/扣合、腰部结构和层次；再按本套风格选择能区分这件衣物的口袋、褶裥、滚边、纹理或扣饰，不机械给每件衣物塞满全部细节。已明确项保留，未限定的普通结构在本次一次确定；不能因“资料提取”或原文简短而退回只抄衣物名称。\n每件主要衣物先写带颜色的加权类别，再相邻写适用的材质、剪裁及结构标签，从内到外分组。长外套不能为半身取景改成短外套；裙裤要有独立的颜色/类别与腰部结构，长度、下摆、裤腿等另列完整标签，便于派生视图只删画外项。特色来自协调的结构与配色，不靠叠加同义颜色、同义鞋袜或无依据的装饰堆长度。\n- 详述：[颜色][材质][长度][名称]+[细节]+[位置/状态]；简述：[颜色][材质][长度][名称]\n- 细节（按需）：改造/装饰/材质/纹理/图案/着装状态/暴露部位等\n> 服装＝贴身衣物，拿掉露出内衣/皮肤（衬衫/裙子/内衣）；附件＝外侧挂载可独立移除，移除后衣物依然完整（配件/首饰/披风）\n> 长度锚定：裙（mini/knee-length/maxi/floor-length）、靴（ankle/knee-high/thigh-high）、袜（ankle socks/knee-high/thigh-high/pantyhose）、外套（cropped/waist-length/long）四类必须带长度词（✗black boots→✓black thigh-high boots）\n> 颜色铁律：每件服装必须带颜色（✗dress→✓red silk dress）；纯透明材质豁免（transparent本身即视觉信息）\n> 叠穿：从内到外逐件独立列出（✗white t-shirt with blue jacket→✓white t-shirt,blue denim open jacket）\n> 签名判定法：服装签名＝颜色＋款式核心词＋长度（如需）+细节（如需）；逐词自问「砍掉后 AI 还画同一件吗？不会→必须保留」\n【衣装分栏适配】只描述本套实际包含的衣物和普通配件，不含人物身份、动作、表情、构图或环境。DNA 保存整套签名，不因当次立绘镜头裁切删件；已有说明及一致性冻结衣装不重新设计。\n不用 muted tones、dark clothes、layered clothing、elegant outfit、matching accessories 或 standard military-grade 等概称代替设计。饰物保留已知数量、颜色、形状和佩戴位置，左右以穿着者为准；缺说明时补全普通服装结构，不新增武器、身份饰品或特殊装备。\n破损、湿润、散乱服从正文及衣装名，描述已知破损位置、形状和仍覆盖范围。仅写“破损衣物”时先建立具体的上装、下装、颜色和材质，再以适量局部磨损表达破损，不以满身尘土、到处撕裂或血污替代衣物结构，不把未说明的伤口、裸露或新增血迹写成事实。持续状态无剧情触发不复原。\n新说明只用 TAG，不含人物身份、动作、表情或占位；清理完全重复、语义重复及互斥词，保留更具体且有依据的标签。整套签名不随镜头删件，同套差分沿用同一完整说明。已有说明无论是 TAG 还是自然语言，即使简短也逐字复用，不自动转换或扩写；一致性任务使用冻结衣装，不重新设计。新默认仅取命名衣装，不从旧 defaultAppearance 推断。",
     "OUTPUT_RULE": "直接输出本轮任务的扁平字段，不输出开场说明、思考标签、推理正文、JSON、Markdown、代码围栏、画师或第二份正文。字段名位于行首，具体字段、空值及分隔方式只遵守当前任务协议。示例不是任务，编号、人物、token 与设计必须替换为本轮输入。",
@@ -734,7 +819,7 @@
         "base_caption": "p, upper body",
         "char_captions": [
          {
-          "char_caption": "<<dna:r0>> <<outfit:r0>> calm, relaxed, closed mouth",
+          "char_caption": "<<dna:r0>>, <<outfit:r0>>, calm, relaxed, closed mouth",
           "centers": [
            {
             "x": 0.5,
@@ -766,7 +851,7 @@
          "base_caption": "p, upper body",
          "char_captions": [
           {
-           "char_caption": "<<dna:r0>> <<outfit:r0>> calm, relaxed, closed mouth",
+           "char_caption": "<<dna:r0>>, <<outfit:r0>>, calm, relaxed, closed mouth",
            "centers": [
             {
              "x": 0.5,
@@ -855,7 +940,7 @@
         "base_caption": "p, upper body",
         "char_captions": [
          {
-          "char_caption": "<<dna:r0>> <<outfit:r0>> smile",
+          "char_caption": "<<dna:r0>>, <<outfit:r0>>, smile",
           "centers": [
            {
             "x": 0.5,
@@ -887,7 +972,7 @@
          "base_caption": "p, upper body",
          "char_captions": [
           {
-           "char_caption": "<<dna:r0>> <<outfit:r0>> smile",
+           "char_caption": "<<dna:r0>>, <<outfit:r0>>, smile",
            "centers": [
             {
              "x": 0.5,
@@ -1125,7 +1210,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "Alice, an adult woman with silver hair and blue eyes, wears a white dress calm, relaxed, closed mouth",
+           "char_caption": "Alice, an adult woman with silver hair and blue eyes,, wears a white dress, calm, relaxed, closed mouth",
            "centers": [
             {
              "x": 0.5,
@@ -1482,7 +1567,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive wears a white dress calm, relaxed, closed mouth",
+           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive, wears a white dress, calm, relaxed, closed mouth",
            "centers": [
             {
              "x": 0.5,
@@ -1544,7 +1629,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive wears a white dress smiling eyes, upturned mouth",
+           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive, wears a white dress, smiling eyes, upturned mouth",
            "centers": [
             {
              "x": 0.5,
@@ -1606,7 +1691,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive wears a white dress furrowed brows, tense lips",
+           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive, wears a white dress, furrowed brows, tense lips",
            "centers": [
             {
              "x": 0.5,
@@ -1668,7 +1753,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive wears a white dress furrowed brows, tense lips",
+           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive, wears a white dress, furrowed brows, tense lips",
            "centers": [
             {
              "x": 0.5,
@@ -2025,7 +2110,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive wears a white dress calm, relaxed, closed mouth",
+           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive, wears a white dress, calm, relaxed, closed mouth",
            "centers": [
             {
              "x": 0.5,
@@ -2087,7 +2172,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive wears a white dress smiling eyes, upturned mouth",
+           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive, wears a white dress, smiling eyes, upturned mouth",
            "centers": [
             {
              "x": 0.5,
@@ -2149,7 +2234,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive wears a white dress furrowed brows, tense lips",
+           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive, wears a white dress, furrowed brows, tense lips",
            "centers": [
             {
              "x": 0.5,
@@ -2211,7 +2296,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive wears a white dress furrowed brows, tense lips",
+           "char_caption": "1girl, adult, 1.2::silver hair::, blue eyes, composed, attentive, wears a white dress, furrowed brows, tense lips",
            "centers": [
             {
              "x": 0.5,
@@ -2450,7 +2535,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "Alice, an adult woman with silver hair and blue eyes, wears a white dress calm, relaxed, closed mouth",
+           "char_caption": "Alice, an adult woman with silver hair and blue eyes,, wears a white dress, calm, relaxed, closed mouth",
            "centers": [
             {
              "x": 0.5,
@@ -2512,7 +2597,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "Alice, an adult woman with silver hair and blue eyes, wears a white dress calm, relaxed, closed mouth",
+           "char_caption": "Alice, an adult woman with silver hair and blue eyes,, wears a white dress, calm, relaxed, closed mouth",
            "centers": [
             {
              "x": 0.5,
@@ -2701,7 +2786,7 @@
          "base_caption": "artist:fixture, solo, upper body, standing, facing viewer, looking at viewer, straight-on, centered, transparent background",
          "char_captions": [
           {
-           "char_caption": "Alice, an adult woman with silver hair and blue eyes, wears a white dress calm, relaxed, closed mouth",
+           "char_caption": "Alice, an adult woman with silver hair and blue eyes,, wears a white dress, calm, relaxed, closed mouth",
            "centers": [
             {
              "x": 0.5,

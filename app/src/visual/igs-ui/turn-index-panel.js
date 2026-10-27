@@ -19,6 +19,7 @@ const ROW_SNIPPET = 40;
 const DETAIL_SNIPPET = 360;
 const FEED_LIST_MAX = 200;
 const FEED_ROW_SNIPPET = 60;
+const AUTO_READ_SKIP_MAX = 50;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const STATE_LABEL = { read: '已读', partial: '读了一半', unread: '未读' };
 const OPEN_CLASS = 'igs-turn-index-open';
@@ -107,6 +108,8 @@ export function createTurnIndexPanel(doc, options = {}) {
     let swipe = null;
     let unwatchLayout = () => { };
     let acting = Promise.resolve();
+    // 自动朗读：token 变了就是被停止或重开；cancel 是当前这句的取消函数。
+    const autoRead = { running: false, token: 0, turnId: null, page: -1, cancel: null, promise: Promise.resolve() };
     const snippets = new Map();
     const logLines = new Map();
     const avatars = new Map();
@@ -171,7 +174,7 @@ export function createTurnIndexPanel(doc, options = {}) {
     function logEntryHtml(line, voice, current) {
         const spoken = line.textType === 'dialogue' || line.textType === 'thought';
         const name = spoken ? String(line.speaker || '').trim() : '';
-        return `<li class="igs-ti-log-entry is-${spoken ? line.textType : 'narration'}"${current ? ' aria-current="true"' : ''}>`
+        return `<li class="igs-ti-log-entry is-${spoken ? line.textType : 'narration'}" data-ti-line="${line.page}"${current ? ' aria-current="true"' : ''}>`
             + (name ? logFaceHtml(name) : '<span class="igs-ti-log-face is-empty" aria-hidden="true"></span>')
             + `<button type="button" class="igs-ti-log-copy" data-ti-act="log-jump" data-ti-value="${line.page}" title="从这一页读">`
             + (name ? `<strong class="igs-ti-log-name">${escapeHtml(name)}</strong>` : '')
@@ -317,8 +320,11 @@ export function createTurnIndexPanel(doc, options = {}) {
         const meta = [`第 ${selectedId} 楼`, place, STATE_LABEL[stateName]].filter(Boolean).map(escapeHtml).join('<i aria-hidden="true">·</i>');
         const resumeHere = last && last.id === selectedId && last.page > 0
             ? `<button type="button" class="igs-rp-chip" data-ti-act="resume">续读第 ${last.page + 1} 页</button>` : '';
-        const actions = `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${selectedId}">阅读</button><button type="button" class="igs-rp-btn is-quiet" data-ti-act="floor-rewind" data-ti-value="${selectedId}">重来</button>${resumeHere}</div>`;
         const lines = linesFor(turn);
+        const autoOk = lines.length > 0 && options.ttsOn?.() === true && Boolean(options.speak);
+        const autoBtn = lines.length
+            ? `<button type="button" class="igs-rp-btn is-quiet" data-ti-act="auto-read" data-ti-auto aria-pressed="${autoRead.running}"${autoOk || autoRead.running ? '' : ' disabled title="未开启朗读"'}>${autoRead.running ? '停止' : '自动朗读'}</button>` : '';
+        const actions = `<div class="igs-ti-detail-actions"><button type="button" class="igs-rp-btn" data-ti-act="floor" data-ti-value="${selectedId}">阅读</button><button type="button" class="igs-rp-btn is-quiet" data-ti-act="floor-rewind" data-ti-value="${selectedId}">重来</button>${autoBtn}${resumeHere}</div>`;
         let body;
         let sizer = '';
         if (lines.length) {
@@ -474,6 +480,115 @@ export function createTurnIndexPanel(doc, options = {}) {
         const detail = query('[data-ti-detail]');
         const here = detail && query('.igs-ti-log-entry[aria-current="true"]');
         if (here && detail.scrollHeight > detail.clientHeight) detail.scrollTop = Math.max(0, here.offsetTop - detail.clientHeight / 2);
+        paintReading();
+    }
+
+    // 自动朗读正在读的那句：按 data 属性重新查询（render 会重写 DOM），并滚到居中。
+    function paintReading() {
+        if (!root) return;
+        for (const el of Array.from(root.querySelectorAll('.igs-ti-log-entry.is-reading'))) el.classList.remove('is-reading');
+        if (!autoRead.running || autoRead.turnId !== selectedId || autoRead.page < 0) return;
+        const el = query(`.igs-ti-log-entry[data-ti-line="${autoRead.page}"]`);
+        if (!el) return;
+        el.classList.add('is-reading');
+        const detail = query('[data-ti-detail]');
+        if (detail && detail.scrollHeight > detail.clientHeight) detail.scrollTop = Math.max(0, el.offsetTop - detail.clientHeight / 2);
+    }
+
+    function syncAutoButton() {
+        const btn = query('[data-ti-auto]');
+        if (!btn) return;
+        btn.textContent = autoRead.running ? '停止' : '自动朗读';
+        btn.setAttribute('aria-pressed', String(autoRead.running));
+    }
+
+    function stopAutoRead() {
+        autoRead.token += 1;
+        autoRead.running = false;
+        autoRead.page = -1;
+        const cancel = autoRead.cancel;
+        autoRead.cancel = null;
+        if (typeof cancel === 'function') { try { cancel(); } catch (_) { /* 取消失败不影响停止 */ } }
+        paintReading();
+        syncAutoButton();
+    }
+
+    // 从某楼某页起逐句朗读，读完这楼自动接下一楼，直到最后一楼；每次 await 后核对 token 与 root。
+    async function runAutoRead(turnId, startPage) {
+        stopAutoRead();
+        const token = autoRead.token + 1;
+        autoRead.token = token;
+        autoRead.running = true;
+        autoRead.turnId = turnId;
+        autoRead.page = -1;
+        const mine = root;
+        const alive = () => autoRead.token === token && root === mine && Boolean(root);
+        const hiddenTurn = (id) => { try { return typeof options.isTurnHidden === 'function' && options.isTurnHidden(id) === true; } catch (_) { return false; } };
+        const fail = (text) => { setNotice(text); stopAutoRead(); };
+        syncAutoButton();
+        let id = turnId;
+        let from = startPage;
+        let skipped = 0;
+        let failures = 0;
+        while (id != null) {
+            const index = ids.indexOf(id);
+            const lines = index < 0 || hiddenTurn(id) ? [] : linesFor(turns[index]).filter((line) => line.page >= from);
+            let attempted = false;
+            for (const line of lines) {
+                if (!(options.ttsOn?.() === true && canSpeak(line))) continue;
+                attempted = true;
+                autoRead.turnId = id;
+                autoRead.page = line.page;
+                if (selectedId !== id) { selectedId = id; render(); scrollToId(id); } else paintReading();
+                let result = options.speak(line);
+                if (result && typeof result.then === 'function') result = await result;
+                if (!alive()) { try { result?.cancel?.(); } catch (_) { /* 已被停止 */ } return; }
+                if (!result || !result.ok) {
+                    failures += 1;
+                    setNotice((result && result.error) || '朗读失败');
+                } else {
+                    if (!result.done || typeof result.done.then !== 'function') { fail('当前朗读方式不支持自动朗读'); return; }
+                    autoRead.cancel = typeof result.cancel === 'function' ? result.cancel : null;
+                    let outcome = null;
+                    try { outcome = await result.done; } catch (_) { outcome = { failed: true }; }
+                    if (!alive()) return;
+                    autoRead.cancel = null;
+                    if (outcome && outcome.cancelled) { stopAutoRead(); return; }
+                    if (outcome && outcome.failed) failures += 1;
+                    else failures = 0;
+                }
+                if (failures >= 3) { fail('连续朗读失败，已停止自动朗读'); return; }
+            }
+            if (!attempted) {
+                skipped += 1;
+                if (skipped > AUTO_READ_SKIP_MAX) { fail('后面没有可朗读的台词，已停止自动朗读'); return; }
+            } else skipped = 0;
+            id = ids[index + 1] ?? null;
+            from = -1;
+        }
+        if (alive()) stopAutoRead();
+    }
+
+    function launchAutoRead(turnId, page) {
+        autoRead.promise = runAutoRead(turnId, page).catch(() => { stopAutoRead(); setNotice('自动朗读出错，已停止'); });
+        return autoRead.promise;
+    }
+
+    // 默认从阅读器当前页那句起，没有就从本楼第一句。
+    function autoReadStart() {
+        const turn = turns[ids.indexOf(selectedId)];
+        const lines = turn ? linesFor(turn) : [];
+        const page = Number(options.currentId?.()) === selectedId ? Number(options.currentPage?.()) : -1;
+        const hit = lines.find((line) => line.page === page) || lines[0];
+        return hit ? hit.page : 0;
+    }
+
+    function stepFloor(delta) {
+        const index = ids.indexOf(selectedId) + delta;
+        if (index < 0 || index >= ids.length) return;
+        selectedId = ids[index];
+        render();
+        scrollToId(selectedId);
     }
 
     function setNotice(text) {
@@ -520,14 +635,19 @@ export function createTurnIndexPanel(doc, options = {}) {
         }
         if (act === 'feed-filter') { feedFilter = value; feedKey = ''; render(); return null; }
         if (act === 'feed-select') { feedKey = value; render(); return null; }
-        if (act === 'tab') { tab = value === 'slots' ? 'slots' : value === 'feed' ? 'feed' : 'floors'; notice = ''; drawerOpen = false; root?.classList?.toggle('igs-ti-drawer-open', false); render(); if (tab === 'floors') scrollToId(selectedId ?? Number(options.currentId?.())); return null; }
+        if (act === 'tab') { stopAutoRead(); tab = value === 'slots' ? 'slots' : value === 'feed' ? 'feed' : 'floors'; notice = ''; drawerOpen = false; root?.classList?.toggle('igs-ti-drawer-open', false); render(); if (tab === 'floors') scrollToId(selectedId ?? Number(options.currentId?.())); return null; }
         if (act === 'chapter') { if (collapsed.has(value)) collapsed.delete(value); else collapsed.add(value); selectFloor(selectedId); return null; }
         if (act === 'drawer') { setDrawer(!drawerOpen); return null; }
         if (act === 'drawer-close') { setDrawer(false); return null; }
-        if (act === 'select') { drawerOpen = false; root?.classList?.toggle('igs-ti-drawer-open', false); selectFloor(Number(value)); return null; }
+        if (act === 'select') { stopAutoRead(); drawerOpen = false; root?.classList?.toggle('igs-ti-drawer-open', false); selectFloor(Number(value)); return null; }
         if (act === 'select-step') {
-            const index = ids.indexOf(selectedId) + Number(value);
-            if (index >= 0 && index < ids.length) { selectedId = ids[index]; render(); scrollToId(selectedId); }
+            stopAutoRead();
+            stepFloor(Number(value) || 0);
+            return null;
+        }
+        if (act === 'auto-read') {
+            if (autoRead.running) stopAutoRead();
+            else if (selectedId != null) { setNotice(''); launchAutoRead(selectedId, autoReadStart()); }
             return null;
         }
         if (act === 'slot-select') { selectedSlot = value; render(); return null; }
@@ -555,6 +675,8 @@ export function createTurnIndexPanel(doc, options = {}) {
         if (act === 'log-voice') {
             const turn = turns[ids.indexOf(selectedId)];
             const line = turn ? linesFor(turn).find((item) => item.page === Number(value)) : null;
+            // 自动朗读中点别行的重播键：从那一行重新开始。
+            if (line && autoRead.running) { setNotice(''); launchAutoRead(selectedId, line.page); return null; }
             const result = line ? options.speak?.(line) : null;
             setNotice(result && !result.ok ? result.error || '朗读失败' : '');
             return result || null;
@@ -728,6 +850,7 @@ export function createTurnIndexPanel(doc, options = {}) {
 
     function close() {
         if (!root) return { ok: true, reason: 'not-open' };
+        stopAutoRead();
         root.removeEventListener('click', onClick);
         root.removeEventListener('submit', onSubmit);
         root.removeEventListener('keydown', onKeydown);
@@ -753,7 +876,8 @@ export function createTurnIndexPanel(doc, options = {}) {
         close,
         isOpen: () => Boolean(root),
         whenIdle: () => acting,
-        getState: () => ({ tab, rows: rows.length, ids: ids.slice(), notice, selectedId, selectedSlot, theme, feedFilter, feedKey }),
+        whenAutoReadIdle: () => autoRead.promise,
+        getState: () => ({ autoReading: autoRead.running, autoTurnId: autoRead.turnId, autoPage: autoRead.page, tab, rows: rows.length, ids: ids.slice(), notice, selectedId, selectedSlot, theme, feedFilter, feedKey }),
         act: (act, value) => (acting = acting.then(() => handle(act, value))),
     };
 }
@@ -829,7 +953,10 @@ ${T} .igs-ti-log{list-style:none;margin:0;padding:0;max-width:44em;}
 ${T} .igs-ti-log-entry{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr) 32px;align-items:start;gap:14px;padding:14px 8px;margin:0 -8px;border-radius:var(--igs-rp-radius-m);}
 ${T} .igs-ti-log-entry + .igs-ti-log-entry::before{content:"";position:absolute;top:0;left:8px;right:8px;border-top:1px dashed var(--igs-rp-text-ghost);pointer-events:none;}
 ${T} .igs-ti-log-entry[aria-current="true"]{background:var(--igs-rp-fill);}
-${T} .igs-ti-log-entry[aria-current="true"]::before,${T} .igs-ti-log-entry[aria-current="true"] + .igs-ti-log-entry::before{display:none;}
+${T} .igs-ti-log-entry.is-reading{background:var(--igs-rp-fill-active);}
+${T} .igs-ti-log-entry.is-reading .igs-ti-log-face{animation:igs-ti-speaking 1.6s var(--igs-rp-ease) infinite;}
+@keyframes igs-ti-speaking{0%,100%{box-shadow:0 0 0 2px var(--igs-rp-accent,var(--igs-rp-text-soft));}50%{box-shadow:0 0 0 5px var(--igs-rp-fill);}}
+${T} .igs-ti-log-entry[aria-current="true"]::before,${T} .igs-ti-log-entry[aria-current="true"] + .igs-ti-log-entry::before,${T} .igs-ti-log-entry.is-reading::before,${T} .igs-ti-log-entry.is-reading + .igs-ti-log-entry::before{display:none;}
 ${T} .igs-ti-log-face{width:40px;height:40px;border-radius:50%;background-color:var(--igs-rp-fill-active);background-repeat:no-repeat;}
 ${T} .igs-ti-log-face.is-cover{background-size:cover;background-position:center;}
 ${T} .igs-ti-log-face.is-initial{display:grid;place-items:center;color:var(--igs-rp-text-soft);font-family:var(--igs-rp-font-body);font-size:16px;}
@@ -915,5 +1042,5 @@ ${T}.igs-rp-narrow.igs-ti-drawer-open .is-floors .igs-ti-side{transform:none;vis
 ${T}.igs-rp-narrow .is-floors .igs-ti-list{flex:1 1 auto;height:auto;min-height:0;}
 ${T}.igs-rp-narrow .is-floors .igs-ti-scrim{display:block;position:absolute;inset:-4px -12px -12px;z-index:2;background:var(--igs-rp-backdrop);opacity:0;pointer-events:none;transition:opacity .26s var(--igs-rp-ease);}
 ${T}.igs-rp-narrow.igs-ti-drawer-open .is-floors .igs-ti-scrim{opacity:1;pointer-events:auto;}
-@media (prefers-reduced-motion:reduce){${T} .igs-ti-side,${T} .igs-ti-scrim{transition:none!important;}}
+@media (prefers-reduced-motion:reduce){${T} .igs-ti-side,${T} .igs-ti-scrim{transition:none!important;}${T} .igs-ti-log-entry.is-reading .igs-ti-log-face{animation:none;box-shadow:0 0 0 2px var(--igs-rp-accent,var(--igs-rp-text-soft));}}
 `;

@@ -64,10 +64,12 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
         return parseMediaBackup(await response.json(), legacyField);
     }
     async function apply(records) {
+        // 一次读出本机日志再逐条比对：逐条 state.get 在记录多的手机上会把每次同步拖到数分钟。
+        const known = await localRows();
         for (const [key, incoming] of Object.entries(records)) {
             if (stopped) throw new Error('media-stopped');
             if (!incoming || (!incoming.deleted && !incoming.value)) continue;
-            const current = await state.get(prefix + key);
+            const current = known[key] || null;
             logicalTime = Math.max(logicalTime, Number(versionOf(incoming).slice(0, 13)) || 0);
             if (current && !newer(incoming, current)) continue;
             const previous = await get(key) || current?.value || incoming.previousValue;
@@ -113,8 +115,9 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
             const remote = await readRemote();
             if (remote) await apply(Object.fromEntries(Object.entries(remote).filter(([key, row]) => row.deleted || current[key] || !initial.has(key))));
             const existing = await list();
+            const known = await localRows();
             for (const [key, record] of existing) {
-                if (await state.get(prefix + key)) continue;
+                if (known[key]) continue;
                 const value = lean(record);
                 await state.put({ id: prefix + key, kind: 'record', value, localOnly: !value, version: stamp(), dirty: true, deleted: false });
             }
@@ -191,7 +194,8 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
                 if (!verified || Object.entries(records).some(([key, row]) => !verified[key] || newer(row, verified[key]))) throw new Error('media-backup-concurrent-write');
                 await apply(verified);
             }
-            for (const row of Object.values(records)) if (row.id?.startsWith(prefix)) await state.update(row.id, current => current?.version === row.version ? { ...current, dirty: false } : current);
+            // 只有脏行需要清标记；全量逐条 update 与记录总数成正比。
+            for (const row of Object.values(records)) if (row.dirty && row.id?.startsWith(prefix)) await state.update(row.id, current => current?.version === row.version ? { ...current, dirty: false } : current);
             lastError = migrationFailures[0]?.error || '';
             return { ok: !Object.values(local).some(row => row.localOnly), skipped: !changed, reason: Object.values(local).some(row => row.localOnly) ? 'media-pixels-pending-upload' : '' };
         });

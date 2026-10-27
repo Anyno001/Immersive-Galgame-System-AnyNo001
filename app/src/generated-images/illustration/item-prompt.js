@@ -1,6 +1,6 @@
 // 活动预设写完整静物正文；旧独立调用保留内容词与本地模板兼容。
 // 两条路径都使用 id/tags/uc；定稿路径按输入编号严格对账。
-import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, MATTE_BACKGROUND_TAGS, TRANSPARENT_BACKGROUND_TAGS, NSFW_NEGATIVE_GUARD, dropMatteTagsWhenTransparent } from './prompt-kit.js';
+import { FICTION_FRAME, TAG_WRITING_RULES, SOFT_MODE_NOTE, NSFW_NEGATIVE_GUARD, dropMatteTagsWhenTransparent, resolveMatteGround, matteGroundTags } from './prompt-kit.js';
 import { parseAssetPlan } from './asset-prompt.js';
 import { BUILTIN_PROMPTS } from '../prompt-registry.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
@@ -70,13 +70,13 @@ export function buildFallbackItemPlan(need) {
 
 const joinTags = (...parts) => parts.map((p) => String(p || '').trim().replace(/^,+|,+$/g, '').trim()).filter(Boolean).join(', ');
 
-export function buildItemSlot(tags, { transparent = false, uc = '', positiveContext = '', final = false } = {}) {
+export function buildItemSlot(tags, { transparent = false, matteColor = 'auto', uc = '', positiveContext = '', final = false } = {}) {
     if (final) return { captionMode: 'final', transparent, caption: {
         v4_prompt: { caption: { base_caption: tags, char_captions: [] } },
         v4_negative_prompt: { caption: { base_caption: uc, char_captions: [] } },
     } };
     return {
-        scene: dropMatteTagsWhenTransparent(joinTags(ITEM_BASE_TAGS, tags, transparent ? TRANSPARENT_BACKGROUND_TAGS : MATTE_BACKGROUND_TAGS), positiveContext),
+        scene: dropMatteTagsWhenTransparent(joinTags(ITEM_BASE_TAGS, tags, matteGroundTags(resolveMatteGround({ transparent, matteColor }))), positiveContext),
         sceneUc: joinTags(ITEM_NEGATIVE_TAGS, NSFW_NEGATIVE_GUARD, uc),
         chars: [],
         transparent,

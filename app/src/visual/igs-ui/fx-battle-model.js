@@ -22,7 +22,7 @@ export const BATTLE_SKIP_RESULT_MS = 1800;
 export function normalizeBattleFxSettings(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
     // creature：非人专属演出（威吓上台、受创 / 狂暴切档、前冲、消散、群怪、收服、音效），默认开。
-    return { enabled: src.enabled === true, letterbox: src.letterbox !== false, creature: !(src.creature === false || src.creature === 'false' || src.creature === 0 || src.creature === '0') };
+    return { enabled: src.enabled === true, letterbox: src.letterbox !== false, dash: src.dash === true, creature: !(src.creature === false || src.creature === 'false' || src.creature === 0 || src.creature === '0') };
 }
 
 const identityPart = (value) => String(value == null ? '' : value);

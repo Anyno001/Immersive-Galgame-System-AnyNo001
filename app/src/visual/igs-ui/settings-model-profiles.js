@@ -9,12 +9,13 @@ const PROFILE_PATHS = Object.freeze({
         'bridge.autoIllustration.nai.model', 'bridge.imageApi.mode', 'bridge.imageApi.cgModel', 'bridge.imageApi.spriteModel',
         'bridge.imageApi.backgroundModel', 'bridge.imageApi.itemModel',
     ],
-    llm: ['bridge.autoIllustration.llm.endpoint', 'bridge.autoIllustration.llm.apiKey', 'bridge.autoIllustration.llm.model'],
+    llm: ['bridge.autoIllustration.llm.endpoint', 'bridge.autoIllustration.llm.apiKey', 'bridge.autoIllustration.llm.model',
+        'bridge.autoIllustration.llm.includeHeaders', 'bridge.autoIllustration.llm.includeBody', 'bridge.autoIllustration.llm.excludeBody'],
 });
 const KIND_LABEL = Object.freeze({ image: '生图', llm: '副 LLM' });
 
 // 这些字段在 change 事件后立即落盘：后台生图任务读的是已保存配置。
-const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model)|autoIllustration\.llm\.(?:endpoint|apiKey|model)|imageApi\.(?:mode|\w+Model))$/;
+const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model)|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
 export function isImmediateSavePath(path) {
     return IMMEDIATE_SAVE_PATH.test(String(path || ''));
 }

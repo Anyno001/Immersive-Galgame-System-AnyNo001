@@ -1,5 +1,6 @@
 import { createNarrationSpriteTracker, otherNamesOf, sceneCarryOf, NARRATION_HOLD_PAGES, SCENE_AHEAD_PAGES } from '../../scene/narration-sprite.js';
 import { createNarrationNamer } from '../../scene/narration-focus.js';
+import { normalizeInnerDemonSettings, parseInnerDemonName, resolveDemonOwner } from '../../scene/inner-demon.js';
 import { resolveCharacterLive2dBinding } from './live2d-config.js';
 import { extractSceneDirectives, resolveCharacterKey, narrativeRanges, prepareIllustrationPages } from '../../scene/scene-directives.js';
 import { DEFAULT_MOOD_GROUPS } from '../../scene/mood-groups.js';
@@ -292,6 +293,10 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
     };
     let lastBubble = null;
     const lastMoodByKey = new Map();
+    // 心魔 / 人格分裂：黑影一侧的说话人名，立绘解析到本体（见 scene/inner-demon.js）；只写「心魔」时本体取上一位普通说话人。
+    const demonKnown = Object.keys(castCharacters).map((key) => ({ key, names: castAliases[key] || [] }));
+    const demonOn = normalizeInnerDemonSettings(readerSettings.innerDemon).enabled;
+    let lastPlainSpeaker = '';
     let narrationTracker = null;
     // 本场景起始页：换场景没跟过来时，按段索引兜底取说话人也不越过它。
     let speechFloor = 0;
@@ -420,6 +425,14 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
         // visible bubble lines). Background still follows directive accumulation.
         let spriteChar = bubbleSpeaker;
         spriteMood = bubbleMood;
+        // 心魔页：舞台保留本体立绘，用本体当前的衣服与表情；姓名牌仍显示原说话人名。
+        const demonParsed = demonOn && bubbleSpeaker ? parseInnerDemonName(bubbleSpeaker, demonKnown) : null;
+        let demonOwner = '';
+        if (demonParsed) {
+            demonOwner = resolveDemonOwner(demonParsed, { known: demonKnown, lastBody: lastPlainSpeaker ? castKeyOf(lastPlainSpeaker) : '', userNames: selfAll });
+            spriteChar = demonOwner;
+            spriteMood = demonOwner ? (lastMoodByKey.get(castKeyOf(demonOwner)) || '') : '';
+        }
         // 旁白点名（默认开）：感知句的宾语、开头三个字内的名字、或能唯一归属的她 / 他（见 narration-focus），立绘换成这个人。
         // 点名页自己也做离场判断（「小雪转身离开」当页就收），后面的旁白接着沿用。
         // 情绪：旁白里的情绪词 → 这个人本楼上次的情绪 → 默认。
@@ -488,7 +501,11 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
             spriteChar = sceneStateForBg.character;
             spriteMood = sceneStateForBg.mood || '';
         }
-        if (classified && classified.speaker) lastBubble = { ...classified, index: normalizedIndex };
+        if (demonParsed) {
+            // 沿用链指向本体：心魔页之后的旁白继承本体立绘，不去找「心魔」这个人。
+            if (demonOwner) lastBubble = { ...(classified || {}), speaker: demonOwner, mood: spriteMood, index: normalizedIndex };
+        } else if (classified && classified.speaker) lastBubble = { ...classified, index: normalizedIndex };
+        if (bubbleSpeaker && !demonParsed && (textType === 'dialogue' || textType === 'thought')) lastPlainSpeaker = bubbleSpeaker;
         if (spriteChar && spriteMood) lastMoodByKey.set(castKeyOf(spriteChar), spriteMood);
         pages.push({ textType, bubbleSpeaker, bubbleMood, segmentBody, systemSpeaker, spriteChar, spriteMood,
             narrationDropped, narrationDroppedKey, spriteLeft, currentOffset: offsets[normalizedIndex], sceneStateForBg,
@@ -549,12 +566,17 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
         tagItems, tagNames: new Set(tagItems.map(item => normalizeItemName(item.name))), itemPageFor, assets: null, tablesRevision: -1 };
 }
 
-// 台词朗读提前生成下一页用的提示：下一页的类型、说话人（含主名）与情绪，直接取分页计划里现成的字段；没有可用信息时为 null。
-// 情绪口径与阅读器当页一致：页面情绪优先，说话人就是立绘角色时回落到立绘情绪。
+// 台词朗读提前生成下一页用的提示：下一页的类型、说话人（含主名）、情绪、耳语区间、通话对方与 NSFW，直接取分页计划里现成的字段。
+// 情绪只认这一页自己的标签（bubbleMood），不取立绘情绪：立绘情绪可能是继承、兜底或反应表情，朗读不用。
+// 旁白页只带 NSFW（预取旁白时按下一页自己的算）；没有可用信息时为 null。
 export function nextTtsHintOf(page, keyOf = null) {
-    if (!page || (page.textType !== 'dialogue' && page.textType !== 'thought')) return null;
-    const mood = page.bubbleMood || (page.spriteChar && page.spriteChar === page.bubbleSpeaker ? page.spriteMood : '') || '';
+    if (!page) return null;
+    const nsfw = Boolean(page.sceneStateForBg && page.sceneStateForBg.nsfw);
+    if (page.textType !== 'dialogue' && page.textType !== 'thought') return page.textType === 'narration' ? { textType: 'narration', nsfw } : null;
     const speaker = page.bubbleSpeaker || '';
+    const key = (name) => (name && keyOf ? keyOf(name) : '');
+    const call = page.fx && page.fx.call;
     // speakerKey：说话人的主名（别名、酒馆用户名已解析），朗读按它查角色声音。
-    return { textType: page.textType, speaker, speakerKey: speaker && keyOf ? keyOf(speaker) : '', mood };
+    return { textType: page.textType, speaker, speakerKey: key(speaker), mood: page.bubbleMood || '',
+        whisper: Boolean(page.fx && page.fx.whisper), phone: Boolean(call && call.name && speaker && (keyOf ? key(call.name) === key(speaker) : call.name === speaker)), nsfw };
 }

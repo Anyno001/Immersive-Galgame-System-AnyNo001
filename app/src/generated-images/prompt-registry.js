@@ -5,6 +5,11 @@ import { DNA_WEIGHT_RULE } from './prompt-tasks/common.js';
 
 export const SPRITE_HALF_BODY_RULE = '立绘、换装和表情的 half_body 使用正常上半身取景：从完整头顶到腰胯，完整保留头发、双肩和躯干，手势在画面内，头顶及身体两侧留少量余白。Scene 的半身构图标签使用 upper body。立绘的构图、动作和表情用逗号分隔的英文绘图 TAG 表达，身份与衣装占位符保持原格式。明确指定 full_body 时使用 full body，指定 portrait 时使用 portrait，按该景别设置画面边界。普通 CG 和局部一致性沿各自镜头。';
 
+// 数据库生图写词时自动拼入的取景、朝向句；「标准」方案原文，「灵动」方案见 prompt-scheme.js。
+export const SPRITE_FRAMING_DESCRIPTION = '常规立绘采用头顶至腰胯的半身取景：画面上边缘位于完整发顶上方，下边缘落在腰胯，左右留出少量余白，完整呈现头发、双肩和躯干，手势安排在取景范围内。半身构图标签使用 upper body，构图、动作和表情使用逗号分隔的英文绘图 TAG。本次明确指定 full_body 时使用 full body，指定 portrait 时使用 portrait，画面边界随指定景别设置。';
+export const SPRITE_FACING_DESCRIPTION = '人物头部、双肩和躯干一起正对镜头，身体竖直，镜头与视线齐平。';
+export const SPRITE_UPRIGHT_LINE = '朝向正面，直立，平视，不使用侧身或倾斜构图。';
+
 export const BUILTIN_PROMPTS = Object.freeze({
     sprite: Object.freeze({
         // {tags} = DNA 组成的角色词与当次表情／动作；无 DNA 时使用写词结果。{matte} = 底色词。
@@ -45,6 +50,9 @@ export const BUILTIN_PROMPTS = Object.freeze({
     ground: Object.freeze({
         matte: 'simple background, grey background, light grey background, flat color background',
         white: 'simple background, white background, flat color background',
+        // 用户自选的抠图底色：角色主色与灰白相近时改用绿底或紫底，避开撞色。
+        green: 'simple background, green background, flat color background',
+        purple: 'simple background, purple background, flat color background',
         transparent: 'transparent background',
     }),
     // 非人角色（妖魔鬼怪、怪物、使魔、半人形）：与人类立绘分开的固定词。{tags} = 角色词与当次姿态；{framing} = 按体型取的取景词；{matte} = 底色词。

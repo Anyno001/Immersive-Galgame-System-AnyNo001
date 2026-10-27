@@ -23,6 +23,8 @@ import {
     prefetchTts,
     resolveTtsApiFormat,
     resolveTtsVoice,
+    toggleVoicePool,
+    clearTtsGenderCache,
     getTtsLastDecision,
     trimTtsCache,
     splitTtsChunks,
@@ -96,6 +98,7 @@ test('gate: settings keep tts and voice barks mutually exclusive, and save a per
         controller.setValue('readerSettings.tts.api.voices', 'alex, anna');
         controller.setValue('bridge.sceneAssets.characters', { 雷恩: { 默认: '' } });
         await controller.invoke(`scene-toggle-dna:${encodeURIComponent('雷恩')}`);
+        await controller.invoke(`ui-pick-open:${encodeURIComponent('char-setup:雷恩=voice')}`);
         const name = encodeURIComponent('雷恩');
         await controller.invoke(`char-voice:tts:${name}:alex`);
         assert.deepEqual(controller.getSnapshot().draft.bridge.sceneAssets.characterVoices, { 雷恩: { pack: '', pitch: 0, speed: 1, tts: 'alex' } });
@@ -205,6 +208,31 @@ test('gate: tts prefetch waits for the reader to dwell, skips fast clicks, and o
 const apiOf = (extra = {}) => normalizeTtsSettings({ provider: 'api', api: extra }).api;
 const asJson = (req) => JSON.parse(req.body);
 
+test('gate: tts waits for the title card / eye-open lead, fetching the line meanwhile', async () => {
+    const realFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+        calls.push(JSON.parse(init.body).input);
+        return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
+    };
+    const pending = new Map();
+    let seq = 0;
+    const timers = {
+        setTimeout: (fn, ms) => { seq += 1; pending.set(seq, { fn, ms }); return seq; },
+        clearTimeout: (id) => pending.delete(id),
+    };
+    try {
+        await clearTtsCache();
+        const settings = { enabled: true, provider: 'api', api: { endpoint: 'https://tts.test/v1', female: 'anna', prefetch: false } };
+        applyTts({}, { key: 'lead:1', textType: 'narration', text: '第二天清晨。', delay: 2700 }, settings, assets({}), { now: () => 0, timers });
+        await new Promise((r) => setImmediate(r));
+        assert.deepEqual(calls, ['第二天清晨。'], 'audio is requested while the card plays');
+        assert.deepEqual([...pending.values()].map((t) => t.ms), [2700], 'playback waits for the card');
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
 test('gate: tts api settings normalize new fields with safe defaults', () => {
     const api = normalizeTtsSettings(null).api;
     assert.equal(api.format, 'openai');
@@ -252,7 +280,7 @@ test('gate: tts builds the request for every api format', () => {
     assert.equal(fish.url, '/proxy/https://api.fish.audio/v1/tts');
     assert.equal(fish.headers.model, 's1');
     assert.equal(fish.headers.Authorization, 'Bearer fk');
-    assert.deepEqual(asJson(fish), { text: '你好', reference_id: 'ref123', format: 'mp3', latency: 'balanced' });
+    assert.deepEqual(asJson(fish), { text: '你好', reference_id: 'ref123', format: 'mp3', latency: 'balanced', mp3_bitrate: 192 });
 
     const mm = buildTtsRequest(apiOf({ format: 'minimax', apiKey: 'mk' }), { text: '你好', voice: 'male-qn', rate: 1.3 });
     assert.equal(mm.url, 'https://api.minimaxi.com/v1/t2a_v2');
@@ -1049,7 +1077,7 @@ test('tts: minimax emotion follows the mood and enters the cache key only when p
     const calmPlan = decideTts({}, { key: 'b', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '平和' }, base, { sceneAssets: {} });
     assert.equal(calmPlan.emotion, '');
     const shy = decideTts({}, { key: 'c', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '害羞' }, base, { sceneAssets: {} });
-    assert.equal(shy.emotion, '');
+    assert.equal(shy.emotion, 'calm', '害羞配平静并降速');
     const narr = decideTts({}, { key: 'd', textType: 'narration', text: '夜色渐深。' }, base, { sceneAssets: {} });
     assert.equal(narr.emotion, '');
     const api = normalizeTtsSettings(base).api;
@@ -1139,7 +1167,7 @@ test('gate: tts audio tags fish sentence-head tags from mood, whisper and though
     assert.equal(plan({ textType: 'thought', mood: '紧张' }).text, '[soft inner voice] [nervous] 那个…');
     assert.equal(plan({ mood: '委屈' }).text, '[aggrieved, on the verge of tears] 那个…');
     assert.equal(plan({ mood: '疑惑' }).text, '[confused, questioning] 那个…');
-    assert.equal(plan({ mood: '疑惑' }).rate, plan({ mood: '平和' }).rate, '疑惑不按思考放慢');
+    assert.equal(plan({ mood: '疑惑' }).rate, plan({ mood: '思考' }).rate, '疑惑保留情绪韵律');
     const narration = decideTts({}, { key: 'n', textType: 'narration', text: '夜色渐深。', mood: '紧张' }, base, { sceneAssets: {} });
     assert.equal(narration.text, '[calm, steady narration] 夜色渐深。');
 });
@@ -1205,8 +1233,9 @@ test('gate: tts prefetch with a mood hint matches the text actually played (fish
         assert.equal(calls.length, 1);
         assert.equal(calls[0].body.voice_setting.emotion, real(mm, '愤怒').emotion);
         assert.ok(real(mm, '愤怒').emotion);
-        // 类型对不上时不信提示，维持只预取旁白
-        assert.equal(prefetchTts('[艾莉]：那个，明天见。', mm, sa, { hint: { ...hint, textType: 'thought' } }), null);
+        // 类型以阅读器的提示为准（「[名字]：*心里话*」猜成台词、阅读器按心里话算）；文字猜成旁白时不信提示（照旁白预取）
+        assert.ok(prefetchTts('[艾莉]：那个，明天见。', mm, sa, { hint: { ...hint, textType: 'thought' } }));
+        assert.ok(prefetchTts('夜色渐深。', mm, sa, { hint }), 'narration guess: hint is ignored, page still prefetched as narration');
     } finally {
         globalThis.fetch = realFetch;
     }
@@ -1451,6 +1480,26 @@ test('cleanupSamples 压低比语音低 40 dB 的底噪，语音段不变且交�
     assert.ok(step < 0.01, `gain step ${step}`);
 });
 
+test('去爆破：低频冲击被压低，男声基频+共振峰的正常语音不动', async () => {
+    const { deplosiveSamples } = await import('../src/visual/igs-ui/tts.js');
+    const voice = Float32Array.from({ length: SR }, (_, i) => {
+        const t = i / SR;
+        return 0.12 * Math.sin(2 * Math.PI * 110 * t) + 0.25 * Math.sin(2 * Math.PI * 550 * t) + 0.15 * Math.sin(2 * Math.PI * 1300 * t);
+    });
+    const kept = deplosiveSamples(voice, SR);
+    let diff = 0;
+    for (let i = 0; i < SR; i += 1) diff = Math.max(diff, Math.abs(kept[i] - voice[i]));
+    assert.ok(diff < 1e-6, `voice untouched, max diff ${diff}`);
+    const pop = new Float32Array(SR / 2);
+    const start = SR / 10;
+    const span = Math.round(SR * 0.04);
+    for (let i = 0; i < pop.length; i += 1) pop[i] = 0.05 * Math.sin(2 * Math.PI * 1000 * i / SR);
+    for (let i = 0; i < span; i += 1) pop[start + i] += 0.8 * Math.sin(Math.PI * i / span) * Math.sin(2 * Math.PI * 60 * i / SR);
+    const out = deplosiveSamples(pop, SR);
+    assert.ok(dbOf(rmsOf(pop, start, start + span), rmsOf(out, start, start + span)) >= 6, 'plosive burst reduced');
+    assert.ok(Math.abs(dbOf(rmsOf(out, SR / 3), rmsOf(pop, SR / 3))) < 0.5, 'speech after the burst unchanged');
+});
+
 test('cleanupSamples 全是静音时原样返回', async () => {
     const { cleanupSamples } = await import('../src/visual/igs-ui/tts.js');
     const out = cleanupSamples(new Float32Array(2000), SR);
@@ -1563,4 +1612,167 @@ test('朗读读完后场景声保持压低 800 ms 才回升，保持期内新一
         t.mock.timers.tick(800);
         assert.equal(sceneAudioDuckFactor(), 1);
     });
+});
+
+test('tts: fish tags follow emotion strength and split mixed groups by the original word', () => {
+    const base = { enabled: true, provider: 'api', api: { format: 'fish', apiKey: 'k', female: 'v1' } };
+    const plan = (line) => decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '走开。', ...line }, base, { sceneAssets: {} });
+    assert.equal(plan({ mood: '愤怒' }).text, '[angry] 走开。');
+    assert.equal(plan({ mood: '愤怒', text: '走开！！' }).text, '[furious, shouting] 走开！');
+    assert.equal(plan({ mood: '愤怒', text: '走开！' }).text, '[angry] 走开！');
+    assert.equal(plan({ mood: '暴怒' }).text, '[furious, shouting] 走开。');
+    assert.equal(plan({ mood: '有点愤怒' }).text, '[slightly angry] 走开。');
+    assert.equal(plan({ mood: '愤怒', text: '啊啊啊走开' }).level, 'strong');
+    assert.equal(plan({ mood: '兴奋' }).text, '[excited] 走开。');
+    assert.equal(plan({ mood: '大笑' }).text, '[laughing] 走开。');
+    assert.equal(plan({ mood: '害怕' }).text, '[scared, trembling] 走开。');
+    assert.equal(plan({ mood: '紧张' }).text, '[nervous] 走开。');
+    assert.equal(plan({ mood: '害羞', text: '走开！！' }).text, '[shy, soft voice] 走开！', 'untiered moods keep one tag');
+});
+
+test('tts: system prosody scales with strength, whisper stacks on the mood, minimax maps shy moods to calm', () => {
+    const base = { enabled: true };
+    const plan = (line) => decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '走开。', ...line }, base, { sceneAssets: {} });
+    const mid = plan({ mood: '愤怒' }).rate;
+    assert.ok(plan({ mood: '微微愤怒' }).rate < mid && plan({ mood: '暴怒' }).rate > mid);
+    assert.ok(Math.abs(plan({ mood: '愤怒', whisper: true }).rate - mid * 0.92) < 1e-9, 'whisper multiplies the mood rate');
+    assert.equal(plan({ mood: '紧张' }).rate > 1, true);
+    assert.equal(plan({ mood: '怀疑' }).rate < 1, true);
+    assert.ok(plan({ mood: '哭泣', text: '呜呜呜走开', whisper: true }).rate >= 0.92, 'system mood slowdown stays mild');
+    const fish = { enabled: true, provider: 'api', api: { format: 'fish', female: 'f' } };
+    for (const line of [{ mood: '哭泣', text: '呜呜呜走开', whisper: true }, { mood: '悲伤' }, { mood: '愤怒' }]) {
+        assert.equal(decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '走开。', ...line }, fish, { sceneAssets: {} }).rate, 1, 'api voices never time-stretch for mood');
+    }
+    const mm = { enabled: true, provider: 'api', api: { format: 'minimax', female: 'f' } };
+    for (const mood of ['害羞', '爱恋', '动情']) assert.equal(decideTts({}, { key: mood, textType: 'dialogue', speaker: '甲', text: '你好。', mood }, mm, { sceneAssets: {} }).emotion, 'calm');
+    assert.equal(decideTts({}, { key: 'x', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '紧张' }, mm, { sceneAssets: {} }).emotion, 'fearful');
+});
+
+test('tts: custom mood groups map to the nearest preset by group name and words', async () => {
+    const { resolveBarkMood } = await import('../src/visual/igs-ui/voice-bark.js');
+    const groups = [{ label: '炸毛', words: ['愤怒', '气鼓鼓', '怒目'] }, { label: '发懵', words: ['神游'] }];
+    assert.equal(resolveBarkMood('气鼓鼓', groups), '愤怒', '自定义词按组内词投票');
+    assert.equal(resolveBarkMood('炸毛', groups), '愤怒', '组名本身也能映射');
+    assert.equal(resolveBarkMood('神游', groups), '平和', '映射不到落平和');
+    assert.equal(resolveBarkMood('气鼓鼓'), '平和', '没有自定义组时照旧');
+    const fish = { enabled: true, provider: 'api', api: { format: 'fish', apiKey: 'k', female: 'v1' } };
+    const plan = decideTts({}, { key: 'g', textType: 'dialogue', speaker: '甲', text: '哼。', mood: '气鼓鼓' }, fish, { sceneAssets: { moodGroups: groups } });
+    assert.equal(plan.text, '[angry] 哼。');
+});
+
+test('tts: prefetch with a whisper / nsfw hint matches the page actually played, thought-shaped dialogue is hinted', async () => {
+    const realFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+        calls.push(JSON.parse(init.body));
+        return { ok: true, json: async () => ({}), text: async () => JSON.stringify({ data: { audio: '0102' }, base_resp: { status_code: 0 } }), arrayBuffer: async () => new ArrayBuffer(2) };
+    };
+    try {
+        const sa = assets({ 艾莉: GIRL });
+        const fish = { enabled: true, provider: 'api', nsfw: false, api: { format: 'fish', apiKey: 'k', female: 'v1' } };
+        await clearTtsCache();
+        await prefetchTts('[艾莉]：靠近一点。', fish, sa, { hint: { textType: 'dialogue', speaker: '艾莉', mood: '害羞', whisper: true } });
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].text, '[whisper] [shy, soft voice] 靠近一点。');
+        assert.equal(calls[0].text, decideTts({}, { key: 'r', textType: 'dialogue', speaker: '艾莉', text: '靠近一点。', mood: '害羞', whisper: true }, fish, { sceneAssets: sa }).text);
+        // 「[名字]：*心里话*」：文字外形猜成台词，阅读器按心里话算，仍然预取
+        calls.length = 0;
+        await prefetchTts('[艾莉]：*好紧张。*', fish, sa, { hint: { textType: 'thought', speaker: '艾莉', mood: '紧张' } });
+        assert.equal(calls.length, 1);
+        assert.match(calls[0].text, /^\[soft inner voice\] \[nervous\]/);
+        // NSFW 以下一页自己的为准：当前页 NSFW、下一页不是，照常预取；反过来不预取
+        assert.ok(prefetchTts('夜深了。', fish, sa, { nsfw: true, hint: { textType: 'narration', nsfw: false } }));
+        assert.equal(prefetchTts('夜深了。', fish, sa, { nsfw: false, hint: { textType: 'narration', nsfw: true } }), null);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test('tts: speakTtsLine returns done / cancel and reports completed, cancelled, failed', async (t) => {
+    const synth = fakeSynth();
+    await withSystemEnv(t, synth, async ({ tts }) => {
+        const settings = { enabled: true, provider: 'system' };
+        const line = { key: '', textType: 'narration', text: '夜色渐深。' };
+        const first = tts.speakTtsLine(line, settings, {});
+        assert.equal(first.ok, true);
+        assert.equal(typeof first.done.then, 'function');
+        assert.equal(typeof first.cancel, 'function');
+        synth.spoken[synth.spoken.length - 1].onend();
+        t.mock.timers.tick(80);
+        assert.deepEqual(await first.done, { completed: true, cancelled: false, failed: false });
+        const second = tts.speakTtsLine(line, settings, {});
+        second.cancel();
+        t.mock.timers.tick(80);
+        assert.deepEqual(await second.done, { completed: false, cancelled: true, failed: false });
+        // 被下一句掐掉也算 cancelled
+        const third = tts.speakTtsLine(line, settings, {});
+        const fourth = tts.speakTtsLine(line, settings, {});
+        t.mock.timers.tick(80);
+        assert.equal((await third.done).cancelled, true);
+        fourth.cancel();
+        // 系统语音出错
+        const fifth = tts.speakTtsLine(line, settings, {});
+        synth.spoken[synth.spoken.length - 1].onerror({ error: 'synthesis-failed' });
+        t.mock.timers.tick(80);
+        assert.deepEqual(await fifth.done, { completed: false, cancelled: false, failed: true });
+        // 不朗读时没有 done
+        assert.equal(tts.speakTtsLine(line, { enabled: false }, {}).done, undefined);
+    });
+    // 不支持系统语音：同步失败
+    const realSynth = globalThis.speechSynthesis;
+    delete globalThis.speechSynthesis;
+    try {
+        const tts = await import('../src/visual/igs-ui/tts.js');
+        const result = tts.speakTtsLine({ key: '', textType: 'narration', text: '夜色渐深。' }, { enabled: true, provider: 'system' }, {});
+        assert.equal(result.ok, true);
+        assert.deepEqual(await result.done, { completed: false, cancelled: false, failed: true });
+    } finally {
+        if (realSynth !== undefined) globalThis.speechSynthesis = realSynth;
+    }
+});
+
+test('默认声音候选池：同名稳定、多选分散、单个与旧配置不变', () => {
+    const pool = 'v1\nv2\nv3';
+    const settings = { enabled: true, provider: 'api', api: { female: pool } };
+    const pick = (speaker) => resolveTtsVoice({ textType: 'dialogue', speaker }, settings, {}).voice;
+    const names = ['阿姨A', '阿姨B', '路人甲', '路人乙', '店员', '老板', '小贩', '门卫'];
+    for (const n of names) {
+        assert.ok(['v1', 'v2', 'v3'].includes(pick(n)));
+        assert.equal(pick(n), pick(n));
+    }
+    assert.ok(new Set(names.map(pick)).size > 1);
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '甲' }, { enabled: true, provider: 'api', api: { female: 'solo' } }, {}).voice, 'solo');
+    assert.equal(normalizeTtsSettings({ api: { female: ' a \n\na\nb ' } }).api.female, 'a\nb');
+    assert.equal(toggleVoicePool('a\nb', 'a'), 'b');
+    assert.equal(toggleVoicePool('b', 'c'), 'b\nc');
+    // 系统语音：池里本机有的才参与
+    const voices = [{ name: 'Sys A', lang: 'zh-CN' }, { name: 'Sys B', lang: 'zh-CN' }];
+    const sys = { enabled: true, provider: 'system', system: { female: 'Sys A\nSys B\nMissing' } };
+    const got = resolveTtsVoice({ textType: 'dialogue', speaker: '阿姨A', lang: 'zh' }, sys, {}, voices).voice;
+    assert.ok(['Sys A', 'Sys B'].includes(got));
+    assert.equal(got, resolveTtsVoice({ textType: 'dialogue', speaker: '阿姨A', lang: 'zh' }, sys, {}, voices).voice);
+});
+
+test('路人性别：设定 → 名字称谓 → 正文代词，男路人只抽男池，判定稳定', () => {
+    clearTtsGenderCache();
+    const settings = { enabled: true, provider: 'api', api: { female: 'f1\nf2', male: 'm1\nm2' } };
+    const voice = (speaker, context) => resolveTtsVoice({ textType: 'dialogue', speaker, context }, settings, {}).voice;
+    for (const n of ['王大叔', '李大爷', '张先生', '赵老头', '陈伯']) assert.ok(['m1', 'm2'].includes(voice(n)), n);
+    for (const n of ['王阿姨', '李大妈', '张奶奶', '赵小姐']) assert.ok(['f1', 'f2'].includes(voice(n)), n);
+    // 名字没有称谓：看正文名字附近的代词
+    assert.ok(['m1', 'm2'].includes(voice('老王', '老王抬起头，他看了看四周。')));
+    assert.ok(['f1', 'f2'].includes(voice('小红', '小红笑了笑，她转身离开。')));
+    // 已缓存：之后没有正文也保持同性别
+    assert.ok(['m1', 'm2'].includes(voice('老王')));
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '老王' }, settings, {}).gender, 'male');
+    // 设定里的性别优先于称谓
+    const assets = { characterDna: { 王大叔: { identity: '1girl, female' } } };
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '王大叔' }, settings, assets).gender, 'female');
+});
+
+test('路人没有 DNA 时按本聊天生成立绘的 tag 判性别', () => {
+    const settings = { enabled: true, provider: 'api', api: { female: 'F1', male: 'M1' } };
+    const male = resolveTtsVoice({ textType: 'dialogue', speaker: '路人丙', text: '让一让', spriteTags: { 路人丙: '1boy, short hair' } }, settings, {});
+    assert.equal(male.gender, 'male');
+    assert.equal(male.voice, 'M1');
 });

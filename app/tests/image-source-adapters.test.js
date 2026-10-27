@@ -518,3 +518,22 @@ test('中转地址单人图把角色词并入场景段，官方地址与多人�
     await nai.generate(solo, { apiKey: 'k', endpoint: 'https://image.novelai.net/ai/generate-image' });
     assert.equal(wires.at(-1).input, 'solo, standing');
 });
+
+test('外部图像来源：预设无完整画面词格式的表情与换装改走通用写词，立绘仍用预设', { timeout: 5000 }, async t => {
+    for (const mode of ['baibai', 'chatu8']) {
+        const h = await committedImageHarness();
+        t.after(() => h.close());
+        const original = structuredClone(h.readBridge().autoIllustration);
+        assert.equal(h.save({ bridge: { imageApi: { mode }, autoIllustration: { ...original,
+            llm: { ...original.llm, source: 'openai', endpoint: 'https://fixture.invalid/v1', model: 'fixed-model' } } } }).ok, true);
+        for (const task of ['expression', 'outfit']) {
+            const written = await h.backend.writePrompt({ description: '#1 写开心表情', imagePromptTask: task });
+            assert.equal(written.ok, true, `${mode}/${task}: ${written.error}`);
+            assert.equal(Object.hasOwn(h.writingCalls.at(-1).request, 'messages'), false);
+        }
+        const sprite = await h.backend.writePrompt({ description: '画立绘', imagePromptTask: 'sprite',
+            outputs: { slotIds: [1] } });
+        assert.equal(sprite.ok, true, sprite.error);
+        assert.equal(Array.isArray(h.writingCalls.at(-1).request.messages), true);
+    }
+});

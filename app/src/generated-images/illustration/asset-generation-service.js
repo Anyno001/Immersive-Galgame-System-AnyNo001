@@ -9,8 +9,9 @@ import { characterGenerationSeed, sceneGenerationSeed } from '../../scene/genera
 import { numberParagraphs } from './marker-placer.js';
 import { MIN_AUTO_IMAGE_BODY_CHARS, floorBodyLength } from './floor-body-length.js';
 import { buildAssetPlannerUserPrompt, parseAssetPlan, buildAssetSlot, buildDictionaryAssetItems } from './asset-prompt.js';
-import { requestWithSoftRetry } from './prompt-kit.js';
-import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch, DEFAULT_LLM_PROMPTS } from './auto-illustration-settings.js';
+import { requestWithSoftRetry, normalizeMatteColor } from './prompt-kit.js';
+import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './auto-illustration-settings.js';
+import { ASSET_PLANNER_SYSTEM_PROMPT, ASSET_PLANNER_SOFT_SYSTEM_PROMPT } from './asset-prompt.js';
 import { cgSizeForMode } from './auto-illustration-service.js';
 import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-builder.js';
 import { collectAssetNeeds, collectGeneratedImageIds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
@@ -23,12 +24,14 @@ import { normalizeStoredPrompt, promptFromCaption, promptProvenance, storedPromp
 import { promptTimeBucket, sceneVariantCaption, sceneVariantTags } from '../scene-variant-tags.js';
 import { sceneTimeBucket } from '../../scene/time-bucket.js';
 import { extractSceneDirectives, resolveCharacterKey } from '../../scene/scene-directives.js';
-import { createOutfitResolver, isValidOutfitName } from '../../scene/character-outfits.js';
+import { createOutfitResolver, isValidOutfitName, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
+import { prepareCharacterDnaSave } from '../../scene/character-dna-preparation.js';
 import { normalizeCharacterDna, isCharacterDnaEmpty, resolveCharacterDna, CHARACTER_DNA_REQUIRED_VIEWS } from '../../scene/character-dna.js';
 import { buildCharacterContext, spriteAdoptionEvidence } from '../../scene/character-identity.js';
 import { outfitAdoptionEvidence } from '../../scene/outfit-identity.js';
 import { prepareCharacterCaption } from '../character-caption.js';
 import { BUILTIN_PROMPTS } from '../prompt-registry.js';
+import { spriteSchemeOf, expressionFragmentDescription } from '../prompt-scheme.js';
 import { creatureOf, creatureFraming, creatureCanvasSize, creatureMoodLabels, creatureNeedsReference } from '../../scene/creature-profile.js';
 import { creatureHintsOf } from '../../scene/creature-registry.js';
 import { CREATURE_FORM_JUDGE_RULE, creatureFormJudgeDescription, parseCreatureFormJudgement } from '../prompt-tasks/creature.js';
@@ -67,6 +70,8 @@ const isOffDayTime = (time) => { const bucket = sceneTimeBucket(time); return Bo
 const staleSprite = guard => ({ ok: false, reason: 'stale-target', stopGeneration: true,
     error: `${guard?.failureReason?.() || '立绘生成目标已失效'}，已停止立绘生成` });
 
+const secs = ms => `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
+
 function randomSeed() {
     return Math.floor(Math.random() * 4294967295);
 }
@@ -89,7 +94,7 @@ export function attachCharacterDna(needs, sceneAssets) {
 }
 
 export function createAssetGenerationService(deps) {
-    const { messageHost, llm, nai, store, getSettings, events } = deps;
+    const { messageHost, llm, nai, store, getSettings, getPromptScheme, events } = deps;
     const writePrompt = imageBackendMethod(nai, 'writePrompt');
     const generateCaption = imageBackendMethod(nai, 'generateCaption');
     const describeTask = signal => nai?.describe?.(imageTaskState({ signal })?.config, { signal }) || { via: 'nai', ready: { ok: true } };
@@ -155,6 +160,11 @@ export function createAssetGenerationService(deps) {
         return store.hydrateImage && record ? store.hydrateImage(record, options) : store.getImage(id, options);
     }
 
+    // 当前生效的生图方案：任务冻结的预设优先，数据库生图等不冻结预设的任务取实时当前预设。
+    const schemeFor = signal => {
+        const frozen = imageTaskState({ signal })?.promptPreset;
+        return frozen ? spriteSchemeOf(frozen.data) : (getPromptScheme ? getPromptScheme() : spriteSchemeOf(null));
+    };
     const readSettings = signal => {
         const live = getSettings ? getSettings() || {} : {};
         const captured = imageTaskState({ signal })?.config;
@@ -167,7 +177,9 @@ export function createAssetGenerationService(deps) {
             // 没写过这个开关时沿用旧行为：数据库生图的立绘打开透明底。
             dbgenSpriteTransparent: imageApi.dbgenSpriteTransparent !== false,
             naiSpriteTransparent: imageApi.naiSpriteTransparent !== false,
+            matteColor: normalizeMatteColor(imageApi.spriteMatteColor),
             externalSpriteDna: imageApi.externalSpriteDna === true,
+            promptScheme: schemeFor(signal),
             imageApi,
             ...(signal && { taskSignal: signal }),
             spriteModel: String(imageApi.spriteModel || '').trim(),
@@ -481,7 +493,7 @@ export function createAssetGenerationService(deps) {
     // 完整图片记录始终保留；保存暂时失败时续写同一记录，不删原图或遮罩。
     async function persistGeneratedImage(image) {
         const saved = await recoverOperation(() => store.putImage(image), { repeatable: 'save', signal: recoveryController.signal, isActive: () => !stopped });
-        return saved?.cancelled || saved?.ok === false ? saved : { ok: true };
+        return saved?.cancelled || saved?.ok === false ? saved : { ok: true, ...(saved?.timing && { timing: saved.timing }) };
     }
 
     async function generateItem(item, s, floor, floorKey) {
@@ -495,8 +507,10 @@ export function createAssetGenerationService(deps) {
             ? { ...item, need: { ...item.need, dna: undefined } } : item, {
             transparent,
             whiteBackground: isSprite && (plannedVia === 'nai' || plannedVia === 'dbgen') && !transparent,
+            matteColor: s.matteColor,
             templates: s.auto.assets.templates,
             positiveContext: s.auto.nai.artistPrefix,
+            scheme: s.promptScheme,
         }));
         const itemCreature = isSprite ? creatureOf(item.need.dna) : null;
         const size = itemCreature ? creatureCanvasSize(itemCreature, s.auto.assets.spriteSize)
@@ -510,7 +524,7 @@ export function createAssetGenerationService(deps) {
             ? [{ slotId: 1, characterKey: characterContext[0].characterKey, name: outfitName }] : [];
         const meta = {
             signal: s.taskSignal, messageId: floor.messageId, size, description: itemCreature ? creatureAssetDescription(item.need, { transparent, includeDna: !externalSource(s.taskSignal) })
-                : buildDbgenAssetDescription(item.need, { transparent, includeDna: !externalSource(s.taskSignal) }), userPrompts,
+                : buildDbgenAssetDescription(item.need, { transparent, includeDna: !externalSource(s.taskSignal), scheme: s.promptScheme }), userPrompts,
             skipRecall: true, seed,
             ...(isSprite && { characterContext }),
             ...(isSprite && spriteGuard && { shouldStart: spriteGuard }),
@@ -733,7 +747,31 @@ export function createAssetGenerationService(deps) {
                 name ? { name, prompt: description } : undefined,
                 s.sceneAssets)[0]];
         })) : null;
-        const putSpriteRecord = async (item, result) => {
+        // 写词即存：写词返回的身份 DNA 与新衣装立刻入库，不等图片入库；记下改动供丢弃图片时还原。
+        const saveWrittenProfile = (input, characterName) => {
+            if (externalSource(s.taskSignal) || typeof deps.captureCharacterDnaTarget !== 'function') return undefined;
+            let target;
+            try { target = deps.captureCharacterDnaTarget(characterName); } catch { return undefined; }
+            if (!target || (target.owner && target.scope && target.owner !== target.scope)) return undefined;
+            const prepared = prepareCharacterCaption(input);
+            if (!prepared.ok) return undefined;
+            const write = { version: 1, character: target.name, scope: target.scope, owner: target.owner || '' };
+            const candidate = prepared.dnaCandidates?.characters?.find(c => c.characterKey === target.name);
+            if (candidate) {
+                const before = target.rawDna?.() ?? null;
+                const dna = prepareCharacterDnaSave(target.dna, candidate, target.name);
+                const saved = dna.ok ? target.save(dna.dna) : null;
+                if (saved?.ok) write.dna = { before, after: target.rawDna?.() ?? saved.dna };
+            }
+            const clothing = prepared.outfitSnapshot?.characters?.find(c => c.characterKey === target.name && c.source === 'candidate');
+            if (clothing && isValidOutfitName(clothing.name) && !isBuiltinNudeOutfit(clothing.name) && typeof target.saveOutfit === 'function') {
+                const saved = target.saveOutfit(clothing);
+                if (saved?.ok && saved.created) write.outfit = { name: saved.name, entry: saved.entry,
+                    ...(saved.wardrobeKey && { wardrobeKey: saved.wardrobeKey, wardrobe: saved.wardrobe }) };
+            }
+            return write.dna || write.outfit ? write : undefined;
+        };
+        const putSpriteRecord = async (item, result, profileWrite) => {
             if (!itemCurrent(item)) result = staleSprite(guardOf(item));
             const key = tempAssetKeyOf(floor.chatId, item.need);
             const base = {
@@ -757,6 +795,7 @@ export function createAssetGenerationService(deps) {
                 const saved = await persistGeneratedImage(image);
                 rememberImage(imageId, image.dataUrl);
                 record = { ...base, imageId, status: 'review', ...(isImageSeed(image.seed) && { seed: image.seed }), ...promptProvenance(image), ...characterPromptRecovery(image),
+                    ...(profileWrite && { profileWrite }),
                     ...(image.identityContext && { identityContext: structuredClone(image.identityContext) }),
                     ...(image.outfitContext && { outfitContext: structuredClone(image.outfitContext) }),
                     ...(saved.diagnostic ? { sourceUnavailable: saved.diagnostic } : {}) };
@@ -799,15 +838,12 @@ export function createAssetGenerationService(deps) {
                     ...(autoSpriteOutfitNames.length && { autoSpriteOutfitNames }),
                     description: creature ? creatureSpriteBatchDescription(batch.map(item => ({ name: item.need.name, profile: item.need.dna.creature })))
                         : template ? '整理本轮角色的三景别纯 TAG 外貌、独立性格与指定衣装 DNA。每份第一行必须是 slotid: 本轮实际槽号，第二行是 character: 规范角色键，单人单份也不能省略图头。首次身份候选在明确设定内协调补全普通外貌，新衣装缺说明时逐件用准确英文 TAG 表达颜色、材质与款式，无法准确表达的细节省略；已有资料逐字保留。三景别只写稳定身体外貌，不夹带衣装、灰尘、临时伤势、表情或姿态；衣装独立交付。可选身份 UC 只写实际英文排除标签，无额外项则省略或留空，不写默认值或沿用说明。只交资料字段，不生成构图、动作、场景或完整绘图提示词。\n' + DNA_WEIGHT_RULE
-                        : buildDbgenSpriteBatchDescription(batch.map((item) => item.need), { transparent, template, includeDna: !externalSource(s.taskSignal) }),
+                        : buildDbgenSpriteBatchDescription(batch.map((item) => item.need), { transparent, template, includeDna: !externalSource(s.taskSignal), scheme: s.promptScheme }),
                     messageId: floor.messageId,
                     ...(builtin && { numberedText, previousText,
                         ...(lore !== undefined && { lore }),
                         outputs: { slotIds: task.promptTask.slots.map(slot => slot.slotId) } }),
                     ...(template ? { ...task, outputs: { format: 'sprite-data' }, userPrompts: paintMeta.userPrompts,
-                        ...(builtin && s.auto.llm.prompts.asset !== DEFAULT_LLM_PROMPTS.asset && {
-                            userPrompts: { ...paintMeta.userPrompts, writing: s.auto.llm.prompts.asset },
-                        }),
                         writingRequirements: { size: paintMeta.size, transparent, framing: creature ? creatureFraming(profile) : 'half_body' } }
                         : { characterContext: assetCharacterContext(batch.map((item) => item.need), s.sceneAssets) }),
                 });
@@ -833,16 +869,17 @@ export function createAssetGenerationService(deps) {
                 const caption = found && found.caption;
                 const seed = spriteSeed(item.need.name, undefined, s.taskSignal);
                 const slot = buildAssetSlot({ need: { type: 'sprite', name: item.need.name }, tags: '', uc: '' },
-                    { transparent, whiteBackground: !transparent, templates: s.auto.assets.templates });
-                const prompts = creature ? creatureFixedPrompts(profile, { transparent, whiteBackground: !transparent })
-                    : expressionSpritePrompts(slot.scene, slot.sceneUc);
-                let result;
+                    { transparent, whiteBackground: !transparent, matteColor: s.matteColor, templates: s.auto.assets.templates, scheme: s.promptScheme });
+                const prompts = creature ? creatureFixedPrompts(profile, { transparent, whiteBackground: !transparent, matteColor: s.matteColor })
+                    : expressionSpritePrompts(slot.scene, slot.sceneUc, s.promptScheme);
+                let result, profileWrite;
                 if (!caption) {
                     result = { ok: false, error: '没有对应的立绘提示词' };
                 } else if (template) {
                     if (!found.promptRecipe) result = { ok: false, reason: 'PROMPT_MODE_CONFLICT', error: '立绘写词缺少动态模板' };
                     else {
                         const input = characterTemplateInput(found, task.promptTask, task.characterContext);
+                        try { profileWrite = saveWrittenProfile(input, contexts.get(item.need.name).characterKey); } catch { profileWrite = undefined; }
                         try {
                             result = await generateCaption({ signal: s.taskSignal, ...input, size: paintMeta.size, seed,
                                 imageKind: 'sprite', promptKind: creature ? 'creature' : 'sprite', messageId: floor.messageId,
@@ -854,7 +891,7 @@ export function createAssetGenerationService(deps) {
                 } else {
                     try {
                         result = await generateCaption({ signal: s.taskSignal,
-                            caption: externalSource(s.taskSignal) || creature ? caption : uprightSpriteCaption(caption) || caption,
+                            caption: externalSource(s.taskSignal) || creature ? caption : uprightSpriteCaption(caption, s.promptScheme) || caption,
                             size: creature ? creatureCanvasSize(profile, s.auto.assets.spriteSize) : s.auto.assets.spriteSize,
                             ...(creature && { promptKind: 'creature' }),
                             seed,
@@ -874,7 +911,7 @@ export function createAssetGenerationService(deps) {
                 }
                 if (!itemCurrent(item)) result = staleSprite(spriteGuard);
                 if (builtinSeeds(s.taskSignal) && result?.ok) result = { ...result, seed: resolveImageSeed(result.seed ?? seed) };
-                records.push(await putSpriteRecord(item, result));
+                records.push(await putSpriteRecord(item, result, profileWrite));
             }
         }
         return records;
@@ -1118,14 +1155,12 @@ export function createAssetGenerationService(deps) {
                     assetCharacterContext(needs, s.sceneAssets),
                     { imagePromptTask: 'sprite' }) : description;
                 plan = await requestWithSoftRetry(llm, { signal: s.taskSignal,
-                    system: s.auto.llm.prompts.asset,
-                    softSystem: s.auto.llm.prompts.assetSoft,
+                    system: ASSET_PLANNER_SYSTEM_PROMPT,
+                    softSystem: ASSET_PLANNER_SOFT_SYSTEM_PROMPT,
                     user,
                     ...(s.spriteShouldStart && { shouldStart: s.spriteShouldStart }),
                     imagePrompt: { task: needs.some(need => need.type === 'sprite') ? 'sprite' : 'background',
                         input: { description: user,
-                        ...(s.auto.llm.prompts.asset !== DEFAULT_LLM_PROMPTS.asset
-                            && { userPrompts: { writing: s.auto.llm.prompts.asset } }),
                         outputs: { format: 'asset-plan', items: needs.map((need, index) => ({
                             id: `${need.type === 'background' ? 'bg' : 'ch'}${index + 1}`, type: need.type })) } } },
                     parse: (reply) => parseAssetPlan(reply, needs),
@@ -1425,19 +1460,21 @@ export function createAssetGenerationService(deps) {
         const via = describeTask(signal).via;
         const transparent = spriteTransparent(s);
         // 非人角色使用独立的固定词、取景与画布。
-        if (creature) return creaturePaintMeta(creature, { transparent, whiteBackground: (via === 'nai' || via === 'dbgen') && !transparent,
+        if (creature) return creaturePaintMeta(creature, { transparent, whiteBackground: (via === 'nai' || via === 'dbgen') && !transparent, matteColor: s.matteColor,
             ...(!template && { positiveContext: s.auto.nai.artistPrefix }), spriteSize: s.auto.assets.spriteSize, signal });
         const slot = buildAssetSlot(
             { need: { type: 'sprite', name: '' }, tags: '', uc: '' },
             {
                 transparent,
                 whiteBackground: (via === 'nai' || via === 'dbgen') && !transparent,
+                matteColor: s.matteColor,
                 templates: s.auto.assets.templates,
                 fixedSpritePrompts: template,
+                scheme: s.promptScheme,
                 ...(!template && { positiveContext: s.auto.nai.artistPrefix }),
             },
         );
-        const prompts = template ? { positive: slot.scene, negative: slot.sceneUc } : expressionSpritePrompts(slot.scene, slot.sceneUc);
+        const prompts = template ? { positive: slot.scene, negative: slot.sceneUc } : expressionSpritePrompts(slot.scene, slot.sceneUc, s.promptScheme);
         return {
             size: s.auto.assets.spriteSize,
             imageKind: 'sprite',
@@ -1472,7 +1509,7 @@ export function createAssetGenerationService(deps) {
         const protocol = templateInput || (finalEdit ? { caption, captionMode: 'final' } : null);
         const creature = Boolean(creatureOf(dna));
         let upright = caption;
-        if (!externalSource(signal) && !protocol && !exact && !creature) upright = uprightSpriteCaption(caption) || caption;
+        if (!externalSource(signal) && !protocol && !exact && !creature) upright = uprightSpriteCaption(caption, schemeFor(signal)) || caption;
         const rawMeta = paintMeta || expressionPaintMeta({ signal });
         const { userPrompts, ...sendMeta } = rawMeta;
         const meta = { ...(protocol || externalSource(signal) ? sendMeta : rawMeta), promptKind: creature ? 'creature' : mood === '默认' ? 'sprite' : 'expression' };
@@ -1482,6 +1519,7 @@ export function createAssetGenerationService(deps) {
             ...characterPromptRecovery(templateInput), ...(exact && { edited: true }),
             ...(characterMeta !== undefined && { characterMeta }) };
         let painted;
+        const paintStartedAt = Date.now();
         try {
             painted = await generateCaption(inheritImageTaskLease(protocol, { ...meta, caption: upright, ...(seed != null && { seed }),
                 ...(protocol || {}), ...(signal && { signal }),
@@ -1508,7 +1546,9 @@ export function createAssetGenerationService(deps) {
         }
         const imageId = newId();
         const createdAt = now();
+        const paintDoneAt = Date.now();
         const image = await buildSpriteImageRecord(imageId, painted.dataUrl, meta.transparent, createdAt);
+        const matteDoneAt = Date.now();
         if (builtinSeeds(signal)) image.seed = resolveImageSeed(painted.seed ?? seed);
         let prompt = storedPromptFromResult(painted, upright);
         if (!externalSource(signal) && exact && history && prompt) prompt = { ...promptProvenance(history), ...prompt, captionMode: 'final' };
@@ -1526,6 +1566,7 @@ export function createAssetGenerationService(deps) {
         let saved;
         try { saved = await persistGeneratedImage(image); }
         catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
+        report('info', `立绘计时（${name}·${mood}）：出图 ${secs(paintDoneAt - paintStartedAt)}，抠图 ${secs(matteDoneAt - paintDoneAt)}，保存 ${secs(Date.now() - matteDoneAt)}${saved?.timing ? `（恢复 ${secs(saved.timing.restore)}、上传图片 ${secs(saved.timing.upload)}、等同步并写记录 ${secs(saved.timing.write)}）` : ''}`);
         // 没存上就不能报成功：否则格子会指向一张不存在的图，已画好的表情也看不到。
         if (saved?.ok === false) {
             const cancelled = saved.cancelled === true;
@@ -1648,9 +1689,9 @@ export function createAssetGenerationService(deps) {
                 try {
                     written = await writePrompt(inheritImageTaskLease(outfitWrite, { signal,
                         imagePromptTask: outfit?.name || outfit?.nude ? 'outfit' : 'expression',
-                        description: template ? `只编写以下表情的可见面部变化，不写身份、服装、身体姿势、道具或场景。按编号逐项输出：${pending.map((mood, index) => `${index + 1}. ${mood}`).join('；')}。表情要求：${note || ''}`
+                        description: template ? expressionFragmentDescription(pending, note, schemeFor(signal))
                             : buildExpressionDiffDescription(name, basePrompt, pending, dna, outfit, { note, nsfw: paint.nsfw,
-                            transparent: template ? paintMeta.transparent : spriteTransparent(readSettings(signal)), template, includeDna: !externalSource(signal) }),
+                            transparent: template ? paintMeta.transparent : spriteTransparent(readSettings(signal)), template, includeDna: !externalSource(signal), scheme: schemeFor(signal) }),
                         ...(!template && { characterContext: context }),
                         ...(template && { ...task, outputs: { format: 'expression-fragments' }, userPrompts: paintMeta.userPrompts,
                             writingRequirements: { size: paintMeta.size, transparent: paintMeta.transparent,
@@ -2077,7 +2118,7 @@ export function createAssetGenerationService(deps) {
         let painted;
         try {
             painted = await generateCaption({ signal,
-                caption: externalSource(signal) ? written.caption : composeSpriteCaption(written.caption, dna),
+                caption: externalSource(signal) ? written.caption : composeSpriteCaption(written.caption, dna, { scheme: schemeFor(signal) }),
                 ...(!externalSource(signal) && hasSpriteDna(dna) && { replaceCharacterKeywords: false }),
                 size: AVATAR_SIZE,
                 imageKind: 'sprite', promptKind: 'avatar',
@@ -2191,7 +2232,7 @@ export function createAssetGenerationService(deps) {
         reportExpressionProgress(onProgress, { phase: 'write', done: 0, total: 1, mood: '平和' });
         let written;
         try {
-            written = await writePrompt({ signal, imagePromptTask: 'sprite', description: buildCharacterSpriteDescription(who, paintDna, { nude: nude === true, note, transparent: spriteTransparent(readSettings(signal)), includeDna: !externalSource(signal) }),
+            written = await writePrompt({ signal, imagePromptTask: 'sprite', description: buildCharacterSpriteDescription(who, paintDna, { nude: nude === true, note, transparent: spriteTransparent(readSettings(signal)), includeDna: !externalSource(signal), scheme: schemeFor(signal) }),
                 characterContext: singleCharacterContext(who, dna, nude ? { nude: true } : undefined, readSettings(signal).sceneAssets),
                 ...(signal && { signal }), ...(shouldStart && { shouldStart }),
             });

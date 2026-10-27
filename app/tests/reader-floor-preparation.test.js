@@ -93,11 +93,16 @@ test('单图丢失与恢复只补受影响的匹配，其他角色不重查', as
     assert.equal(checks.includes('igs-gen:lin'), false);
 });
 
-test('nextTtsHintOf reads mood and speaker of the next dialogue page only', async () => {
+test('nextTtsHintOf reads the page own mood, whisper range, call and nsfw only', async () => {
     const { nextTtsHintOf } = await import('../src/visual/igs-ui/reader-floor-plan.js');
-    assert.deepEqual(nextTtsHintOf({ textType: 'dialogue', bubbleSpeaker: '艾莉', bubbleMood: '害羞' }), { textType: 'dialogue', speaker: '艾莉', speakerKey: '', mood: '害羞' });
+    assert.deepEqual(nextTtsHintOf({ textType: 'dialogue', bubbleSpeaker: '艾莉', bubbleMood: '害羞' }), { textType: 'dialogue', speaker: '艾莉', speakerKey: '', mood: '害羞', whisper: false, phone: false, nsfw: false });
     assert.equal(nextTtsHintOf({ textType: 'dialogue', bubbleSpeaker: '玩家' }, (name) => `主:${name}`).speakerKey, '主:玩家');
-    assert.equal(nextTtsHintOf({ textType: 'thought', bubbleSpeaker: '艾莉', bubbleMood: '', spriteChar: '艾莉', spriteMood: '紧张' }).mood, '紧张');
-    assert.equal(nextTtsHintOf({ textType: 'narration', bubbleMood: '喜悦' }), null);
+    // 立绘情绪是继承 / 兜底来的，不算这一页的情绪
+    assert.equal(nextTtsHintOf({ textType: 'thought', bubbleSpeaker: '艾莉', bubbleMood: '', spriteChar: '艾莉', spriteMood: '紧张' }).mood, '');
+    const page = { textType: 'dialogue', bubbleSpeaker: '艾莉', bubbleMood: '', fx: { whisper: true, call: { name: '艾莉' } }, sceneStateForBg: { nsfw: true } };
+    assert.deepEqual(nextTtsHintOf(page), { textType: 'dialogue', speaker: '艾莉', speakerKey: '', mood: '', whisper: true, phone: true, nsfw: true });
+    assert.equal(nextTtsHintOf({ ...page, bubbleSpeaker: '玩家' }).phone, false);
+    assert.deepEqual(nextTtsHintOf({ textType: 'narration', bubbleMood: '喜悦', sceneStateForBg: { nsfw: true } }), { textType: 'narration', nsfw: true });
+    assert.equal(nextTtsHintOf({ textType: 'system' }), null);
     assert.equal(nextTtsHintOf(undefined), null);
 });

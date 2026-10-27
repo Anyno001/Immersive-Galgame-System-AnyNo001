@@ -190,3 +190,42 @@ test('窗口缩放等重绘不掐掉正在读的气泡，也不提前出下一�
     await flush();
     assert.equal(h.revealed(), 2);
 });
+
+test('气泡旁播放 / 重新生成：手动重念指定一条，重新生成带 fresh，不翻页', async () => {
+    const h = setup(THREE());
+    h.timers.advance(250);
+    const layer = h.root.querySelector('#igs-chat-layer');
+    assert.equal(layer.getAttribute('data-igs-chat-tts'), 'system');
+    const spoken = h.tts.calls.speak.length;
+    const actions = [];
+    h.ctx.handleReaderAction = (action) => actions.push(action);
+    let stopped = false;
+    const button = { getAttribute: (name) => (name === 'data-igs-chat-tts' ? 'reroll' : name === 'data-index' ? '2' : null) };
+    const speakArgs = [];
+    const realSpeak = h.tts.speak;
+    h.tts.speak = (line, settings, assets, opts) => { speakArgs.push(opts); return realSpeak(line); };
+    layer.fire('click', { target: { closest: (sel) => (sel === '.igs-chat-tts-btn' ? button : null) }, stopPropagation() { stopped = true; } });
+    assert.equal(stopped, true);
+    assert.deepEqual(actions, []);
+    assert.equal(h.tts.calls.speak.length, spoken + 1);
+    assert.equal(h.tts.calls.speak.at(-1).text, '今天去哪');
+    assert.deepEqual(speakArgs[0], { fresh: true });
+});
+
+test('朗读开着时点画面空白处照常推进气泡，不被当成播放按钮', () => {
+    const h = setup(THREE());
+    h.timers.advance(250);
+    const layer = h.root.querySelector('#igs-chat-layer');
+    const actions = [];
+    h.ctx.handleReaderAction = (action) => actions.push(action);
+    const spoken = h.tts.calls.speak.length;
+    // 真实 DOM 里空白处向上 closest 会命中带 data-igs-chat-tts 的聊天层本身。
+    layer.fire('click', { target: { closest: (sel) => (sel === '[data-igs-chat-tts]' ? layer : null) } });
+    assert.deepEqual(actions, ['next']);
+    assert.equal(h.tts.calls.speak.length, spoken);
+});
+
+test('朗读关闭时气泡层不标记朗读，按钮隐藏', () => {
+    const h = setup(THREE(), { snapshot: { tts: { enabled: false } } });
+    assert.equal(h.root.querySelector('#igs-chat-layer').getAttribute('data-igs-chat-tts'), null);
+});

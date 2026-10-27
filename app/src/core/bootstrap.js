@@ -72,6 +72,7 @@ import { createAssetThumbnailer, createIndexedDbAssetThumbStore } from '../media
 import { withCgIndexSync } from '../media/cg-library.js';
 import { createAutoIllustrationService, ILLUSTRATION_PROGRESS_EVENT, ILLUSTRATION_UPDATED_EVENT, readCgViewport } from '../generated-images/illustration/auto-illustration-service.js';
 import { createAssetGenerationService, GENERATED_ASSET_UPDATED_EVENT } from '../generated-images/illustration/asset-generation-service.js';
+import { createPromptSchemeReader } from '../generated-images/prompt-scheme.js';
 import { protectedAssetImageIds } from '../generated-images/illustration/asset-image-references.js';
 import { createItemAndCgServices } from './item-cg-services.js';
 import { createIndexedDbGeneratedAssetStore } from '../media/generated-asset-store.js';
@@ -83,7 +84,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.24';
+const IGS_VERSION = '0.37.43';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -164,7 +165,8 @@ export function bootstrapIGS(options = {}) {
         fetch: options.fetch,
     });
     const promptInjector = options.promptInjector || createPromptInjector(globalObject);
-    const illustrationMessageHost = options.illustrationMessageHost || createIllustrationMessageHost(globalObject);
+    const readWorldInfoExclude = () => (peekBridge().imageApi || {}).worldInfoExclude;
+    const illustrationMessageHost = options.illustrationMessageHost || createIllustrationMessageHost(globalObject, { readWorldInfoExclude });
     const naiOfficialClient = options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch || (typeof globalObject.fetch === 'function' ? globalObject.fetch.bind(globalObject) : undefined) });
     // 只读一两个字段的地方用浅合并，不为一个开关整份深拷贝配置（素材库大时每条生图日志、每次取阅读模式都很贵）。
     const peekBridge = () => ({ ...(state.legacyIgs && state.legacyIgs.bridge || {}), ...(state.config || {}) });
@@ -176,7 +178,7 @@ export function bootstrapIGS(options = {}) {
         subscribeSettings: handler => events.on('igs:legacy-settings-updated', handler) });
     const secondaryLlm = createImagePromptLlm(options.secondaryLlm
         || createSecondaryLlm(globalObject, { fetch: options.fetch }), presetRegistry, imageTaskRuntime,
-        createImageWorldInfoSource(globalObject));
+        createImageWorldInfoSource(globalObject, { readExclude: readWorldInfoExclude }));
     const imageJobLog = options.imageJobLog || createImageJobLog({
         storage: storageLike,
         getSettings: () => cloneData(peekBridge().imageJobLog),
@@ -292,6 +294,7 @@ export function bootstrapIGS(options = {}) {
             storage: storageLike, illustrationStore,
         }),
         matte: options.alphaMatte || createAlphaMatte(globalObject),
+        getPromptScheme: createPromptSchemeReader(presetRegistry),
         getSettings: () => {
             const bridge = readImageBridge();
             return { autoIllustration: bridge.autoIllustration, sceneAssets: sceneAssetsNow(bridge.sceneAssets), imageApi: bridge.imageApi };
