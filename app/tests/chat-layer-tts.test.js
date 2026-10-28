@@ -191,7 +191,7 @@ test('窗口缩放等重绘不掐掉正在读的气泡，也不提前出下一�
     assert.equal(h.revealed(), 2);
 });
 
-test('气泡旁播放 / 重新生成：手动重念指定一条，重新生成带 fresh，不翻页', async () => {
+test('气泡旁播放键：手动重念指定一条，不丢缓存，不翻页', async () => {
     const h = setup(THREE());
     h.timers.advance(250);
     const layer = h.root.querySelector('#igs-chat-layer');
@@ -200,7 +200,7 @@ test('气泡旁播放 / 重新生成：手动重念指定一条，重新生成�
     const actions = [];
     h.ctx.handleReaderAction = (action) => actions.push(action);
     let stopped = false;
-    const button = { getAttribute: (name) => (name === 'data-igs-chat-tts' ? 'reroll' : name === 'data-index' ? '2' : null) };
+    const button = { getAttribute: (name) => (name === 'data-igs-chat-tts' ? 'play' : name === 'data-index' ? '2' : null) };
     const speakArgs = [];
     const realSpeak = h.tts.speak;
     h.tts.speak = (line, settings, assets, opts) => { speakArgs.push(opts); return realSpeak(line); };
@@ -209,7 +209,7 @@ test('气泡旁播放 / 重新生成：手动重念指定一条，重新生成�
     assert.deepEqual(actions, []);
     assert.equal(h.tts.calls.speak.length, spoken + 1);
     assert.equal(h.tts.calls.speak.at(-1).text, '今天去哪');
-    assert.deepEqual(speakArgs[0], { fresh: true });
+    assert.equal(speakArgs[0], undefined);
 });
 
 test('朗读开着时点画面空白处照常推进气泡，不被当成播放按钮', () => {

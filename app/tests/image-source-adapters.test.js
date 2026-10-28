@@ -132,6 +132,30 @@ test('gate:dna-template:自身展开保真且缺景别、重复或跨角色令�
     assert.deepEqual(prepareCharacterCaption({ caption: finalCaption }), { ok: true, caption: finalCaption });
 });
 
+test('普通 CG 缺本景别时借同一人已存景别或旧版身份，不用写词现编的身份', async () => {
+    const { readCaptionIdentity, prepareCharacterCaption } = await import('../src/generated-images/character-caption.js');
+    const made = { identityAnchor: '1girl, white hair, red eyes', signatureDetails: '' };
+    const v2 = { version: 2, views: { half_body: { subject: '1girl, black hair, blue eyes', negative: 'full body' } } };
+    assert.deepEqual(readCaptionIdentity(v2, 'full_body', 'cg', made),
+        { ok: true, source: 'saved', value: { subject: '1girl, black hair, blue eyes', negative: '' } });
+    assert.equal(readCaptionIdentity(v2, 'full_body', 'sprite', made).reason, 'DNA_VIEW_MISSING');
+    const legacy = { identity: '1girl, black hair, blue eyes', triggerWords: 'nora', negative: 'glasses' };
+    assert.deepEqual(readCaptionIdentity(legacy, 'half_body', 'cg', made),
+        { ok: true, source: 'saved', value: { subject: 'nora, 1girl, black hair, blue eyes', negative: 'glasses' } });
+    assert.equal(readCaptionIdentity({ identity: '黑发蓝眼的少女' }, 'half_body', 'cg', made).source, 'scene');
+    assert.equal(readCaptionIdentity({}, 'half_body', 'cg', made).source, 'scene');
+    const fixture = dnaTemplateFixture();
+    fixture.characterContext[0].dna.views = { full_body: { subject: 'Alice, with silver hair,', negative: '' } };
+    fixture.characterMeta.characters[0].identityAnchor = '1girl, white hair';
+    const promptTask = { version: 1, mode: 'dna_template', purpose: 'cg',
+        characters: fixture.promptRecipe.bindings.map(({ characterKey, token, framing }) => ({ characterKey, token, framing })) };
+    const result = prepareCharacterCaption({ ...fixture, promptTask });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.caption.v4_prompt.caption.char_captions[0].char_caption,
+        'Alice, with silver hair, wears a blue coat and reaches toward Alicia.');
+    assert.equal(result.dnaSnapshot.characters[0].source, 'saved');
+});
+
 test('gate:dna-template:内置局部重绘定稿 wire 和取消与快照同源', async () => {
     const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
     const wires = [];

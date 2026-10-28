@@ -2,7 +2,7 @@
 import { tidyCreatureCaption } from './creature-caption.js';
 import { confirmedCreatureOf, creatureOf } from '../scene/creature-profile.js';
 import { checkPromptRecipe, checkPromptTask, checkPromptOutput, checkRecipeCharacterMeta, promptTaskForSlot, isSceneOnlyPromptOutput } from '../schemas/prompt-recipe.js';
-import { readCharacterDnaView, normalizeCharacterDna, checkDnaViews } from '../scene/character-dna.js';
+import { readCharacterDnaView, normalizeCharacterDna, checkDnaViews, hasLegacyCharacterIdentity } from '../scene/character-dna.js';
 import { checkOutfitTemplates } from '../schemas/outfit-template.js';
 import { promptProvenance } from './generation-prompt.js';
 const fail = (reason, error) => ({ ok: false, reason, error });
@@ -14,11 +14,37 @@ function freeze(value) {
     return value;
 }
 
-// 普通 CG 可消费本次写词的身份旁路；不补建 DNA，也不替换身份错绑或非法资料。
+// 普通 CG 缺本景别时借同一人最近的已存景别，其次旧版身份文本；都没有才用本次写词的身份旁路。
+// 写词模型看不到保存的身份正文，旁路是它按正文现编的，排在已存资料之后。不补建 DNA，也不替换身份错绑或非法资料。
+const NEAREST_VIEWS = Object.freeze({ full_body: ['half_body', 'portrait'], half_body: ['full_body', 'portrait'],
+    portrait: ['half_body', 'full_body'], partial: ['half_body', 'full_body', 'portrait'] });
+const CJK = /[㐀-鿿]/;
+
+function nearestSavedIdentity(dna, framing, options) {
+    if (dna?.version === 2) {
+        for (const view of NEAREST_VIEWS[framing] || []) {
+            const near = readCharacterDnaView(dna, view, options);
+            // 景别负面词常带该景别的构图排除，借用时不带。
+            if (near.ok) return { ok: true, value: { subject: near.value.subject, negative: '' } };
+        }
+        return null;
+    }
+    if (dna?.version !== undefined || !hasLegacyCharacterIdentity(dna)) return null;
+    const d = normalizeCharacterDna(dna);
+    // 中文身份文本不能直接进画图词。
+    const subject = [d.triggerWords, d.identity, options?.personality === false ? '' : d.personality]
+        .map(s => String(s || '').trim()).filter(Boolean).join(', ');
+    const negative = String(d.negative || '').trim();
+    if (!subject || CJK.test(subject) || controlled.test(subject + negative)) return null;
+    return { ok: true, value: { subject, negative: CJK.test(negative) ? '' : negative } };
+}
+
 export function readCaptionIdentity(dna, framing, purpose, metadata, options) {
     const saved = readCharacterDnaView(dna, framing, options);
     if (saved.ok) return { ...saved, source: 'saved' };
     if (purpose !== 'cg' || !['DNA_MISSING', 'DNA_VIEW_MISSING'].includes(saved.reason)) return saved;
+    const near = saved.reason === 'DNA_VIEW_MISSING' ? nearestSavedIdentity(dna, framing, options) : null;
+    if (near) return { ...near, source: 'saved' };
     if (dna?.version !== undefined && dna.version !== 2)
         return fail('DNA_VIEW_INVALID', '未知 DNA 版本不能作为当次身份降级');
     if (dna?.version === 2 && dna.views !== undefined) {
