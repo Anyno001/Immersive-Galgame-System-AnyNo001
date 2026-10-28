@@ -149,6 +149,52 @@ export const FX_SFX_PARTIALS = Object.freeze({
         p('sine', 1318, 1318, 0.34, 0.7, 0.2, { attack: 0.004 }),
         p('sine', 1568, 1568, 0.34, 0.7, 0.18, { attack: 0.004 }),
     ]),
+    // 立绘碰撞：命中定格那一帧起播。巴掌清脆、拳头闷、踢低沉、推搡是衣料擦过；击掌比巴掌高且短。
+    slap: Object.freeze([
+        p('noise', 2600, 2600, 0, 0.05, 1, { filter: 'highpass', attack: 0.001 }),
+        p('noise', 1900, 1300, 0.004, 0.09, 0.7, { filter: 'bandpass', q: 1.3, attack: 0.001, sweep: 1 }),
+        p('sine', 210, 95, 0, 0.07, 0.45, { attack: 0.001, sweep: 1 }),
+    ]),
+    punch: Object.freeze([
+        p('noise', 1100, 160, 0, 0.18, 1, { filter: 'lowpass', q: 0.8, attack: 0.002, sweep: 1 }),
+        p('sine', 120, 46, 0, 0.2, 0.95, { attack: 0.002, sweep: 1 }),
+    ]),
+    kick: Object.freeze([
+        p('sine', 86, 36, 0, 0.34, 1, { attack: 0.002, sweep: 1 }),
+        p('noise', 600, 110, 0, 0.24, 0.85, { filter: 'lowpass', attack: 0.002, sweep: 1 }),
+    ]),
+    shove: Object.freeze([
+        p('noise', 1500, 620, 0, 0.22, 0.6, { filter: 'bandpass', q: 0.9, attack: 0.025, sweep: 1 }),
+        p('sine', 150, 90, 0.05, 0.1, 0.4, { attack: 0.004, sweep: 1 }),
+    ]),
+    bump: Object.freeze([
+        p('noise', 760, 220, 0, 0.13, 0.75, { filter: 'lowpass', attack: 0.002, sweep: 1 }),
+        p('sine', 160, 82, 0, 0.13, 0.55, { attack: 0.002, sweep: 1 }),
+    ]),
+    pat: Object.freeze([
+        p('noise', 2300, 1800, 0, 0.04, 0.6, { filter: 'bandpass', q: 1.6, attack: 0.001, sweep: 1 }),
+        p('sine', 320, 200, 0, 0.05, 0.3, { attack: 0.001, sweep: 1 }),
+    ]),
+    hug: Object.freeze([
+        p('noise', 950, 480, 0, 0.36, 0.42, { filter: 'bandpass', q: 0.8, attack: 0.08, sweep: 1 }),
+        p('sine', 210, 180, 0.04, 0.24, 0.16, { attack: 0.05, sweep: 1 }),
+    ]),
+    highfive: Object.freeze([
+        p('noise', 3600, 3600, 0, 0.035, 1, { filter: 'highpass', attack: 0.001 }),
+        p('noise', 5200, 4200, 0.003, 0.04, 0.5, { filter: 'bandpass', q: 2, attack: 0.001, sweep: 1 }),
+    ]),
+    // 碰撞档位叠层：中档以上加一层低频，大档再叠低频轰与 0.3 秒尾音。
+    'clash-low': Object.freeze([
+        p('sine', 72, 40, 0, 0.24, 0.85, { attack: 0.002, sweep: 1 }),
+    ]),
+    'clash-boom': Object.freeze([
+        p('noise', 420, 60, 0, 0.5, 0.9, { filter: 'lowpass', attack: 0.003, sweep: 1 }),
+        p('sine', 58, 30, 0, 0.55, 1, { attack: 0.003, sweep: 1 }),
+    ]),
+    'clash-tail': Object.freeze([
+        p('noise', 1300, 220, 0.06, 0.3, 0.32, { filter: 'lowpass', attack: 0.02, sweep: 1 }),
+        p('sine', 44, 34, 0.06, 0.3, 0.3, { attack: 0.02, sweep: 1 }),
+    ]),
 });
 
 // 拟声词只发声不显示：按字归入音色族，第一个命中的字决定；都不命中时按「！」或字数退化为轻/重撞击。

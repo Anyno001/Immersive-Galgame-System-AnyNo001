@@ -8,10 +8,14 @@ import { checkPromptTask } from '../../schemas/prompt-recipe.js';
 import { spriteIdentityRequirements, characterWritingContext, expressionWritingInput } from './character-prompt-task.js';
 import { EXPRESSION_TASK, EXPRESSION_FRAGMENTS } from '../prompt-tasks/expression.js';
 import { SPRITE_DATA_RULE, parseSpriteData } from './sprite-data.js';
+import { CREATURE_SPRITE_DATA_RULE, CREATURE_EXPRESSION_FRAGMENTS_RULE, CREATURE_PRIORITY_NOTE, creatureCgRule } from '../prompt-tasks/creature.js';
+import { creatureOf } from '../../scene/creature-profile.js';
 import { prepareImageWritingRequest } from '../image-prompt-runtime.js';
 import { imageWritingContext } from '../image-prompt-context.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 import { buildCgOutfitCatalog } from './cg-outfit-catalog.js';
+import { spriteSchemeOf, livelyCgLines } from '../prompt-scheme.js';
+import { imageTaskState } from '../image-task-runtime.js';
 import { CHARACTER_DNA_VIEWS, readCharacterDnaView } from '../../scene/character-dna.js';
 
 export const LLM_SETUP_HINT = '请到「生图与AI › 备用模型」页接好备用模型';
@@ -133,6 +137,10 @@ async function writeCaptions(llm, llmSettings, description, meta) {
     if (!llm || typeof llm.request !== 'function') return { ok: false, error: `副 LLM 不可用：${LLM_SETUP_HINT}` };
     const user = String(description || '').trim();
     if (!user) return { ok: false, error: '没有可交给副 LLM 的画面描述' };
+    const task = meta.imagePromptTask || 'sprite';
+    // 预设里该任务没有完整画面词格式（表情、换装、CG 等）时走通用写词，资料已写进 description。
+    const preset = typeof llm.prepareImagePrompt === 'function'
+        && (typeof llm.imagePromptHasFormat !== 'function' || llm.imagePromptHasFormat(task, 'caption-slots', meta));
     const result = await requestWithSoftRetry(llm, {
         validateSettings: describeLlmReady,
         system: CAPTION_WRITER_SYSTEM,
@@ -141,7 +149,7 @@ async function writeCaptions(llm, llmSettings, description, meta) {
         ...(meta.signal && { signal: meta.signal }),
         ...(meta.shouldStart && { shouldStart: meta.shouldStart }),
         ...(meta.onRecovery && { onRecovery: meta.onRecovery }),
-        imagePrompt: { task: meta.imagePromptTask || 'sprite', input: { description: user,
+        ...(preset && { imagePrompt: { task, input: { description: user,
             ...(meta.contextMode !== undefined && { contextMode: meta.contextMode }),
             ...(meta.originalPrompt !== undefined && { originalPrompt: meta.originalPrompt }),
             ...(meta.layout !== undefined && { layout: meta.layout }),
@@ -151,8 +159,8 @@ async function writeCaptions(llm, llmSettings, description, meta) {
             ...(meta.lore !== undefined && { lore: meta.lore }),
             ...(meta.userPrompts !== undefined && { userPrompts: meta.userPrompts }),
             ...(meta.writingRequirements !== undefined && { writingRequirements: meta.writingRequirements }),
-            outputs: { ...meta.outputs, format: 'caption-slots' } } },
-        parse: reply => parseCaptionSlots(reply, typeof llm.prepareImagePrompt === 'function' && meta.outputs?.slotIds
+            outputs: { ...meta.outputs, format: 'caption-slots' } } } }),
+        parse: reply => parseCaptionSlots(reply, preset && meta.outputs?.slotIds
             ? { slotIds: meta.outputs.slotIds,
                 noCharacters: meta.imagePromptTask === 'background' || meta.imagePromptTask === 'wardrobe' }
             : {}),
@@ -167,11 +175,11 @@ export async function writeTemplateCaptionsWithLlm(llm, llmSettings, meta = {}) 
     if (!context.ok) return context;
     meta = context.value;
     const execute = (guarded, lease) => writeTemplateCaptions(llm,
-        lease?.state?.config?.autoIllustration?.llm || llmSettings, guarded);
+        lease?.state?.config?.autoIllustration?.llm || llmSettings, guarded, lease?.state || imageTaskState(guarded));
     return typeof llm?.runImageTask === 'function' ? llm.runImageTask(meta, execute) : execute(meta);
 }
 
-async function writeTemplateCaptions(llm, llmSettings, meta) {
+async function writeTemplateCaptions(llm, llmSettings, meta, taskState = null) {
     const task = checkPromptTask(meta.promptTask, meta.characterContext);
     if (!task.ok) return task;
     const dataOnly = ['sprite-data', 'expression-fragments'].includes(meta.outputs?.format);
@@ -189,6 +197,20 @@ async function writeTemplateCaptions(llm, llmSettings, meta) {
             : `完整画面提示词的 scene 写明 ${meta.writingRequirements.transparent ? 'transparent background' : 'white background'}。`;
         description = `${ground}\n${deliver}\n${description}`;
     }
+    // 非人角色：规则随任务描述发送（内置预设的任务模块按人类衣装与表情撰写，不改预设结构），并声明优先于模块条款。
+    const creatureSystem = dataOnly && Array.isArray(meta.characterContext) && meta.characterContext.length > 0
+        && meta.characterContext.every(c => creatureOf(c.dna))
+        ? (meta.outputs?.format === 'expression-fragments' ? CREATURE_EXPRESSION_FRAGMENTS_RULE : CREATURE_SPRITE_DATA_RULE) : '';
+    // 走预设装配时规则在预设的非人任务条目里（可编辑）；旧的独立调用仍把规则随描述发送。
+    const creaturePreset = Boolean(creatureSystem) && typeof llm.prepareImagePrompt === 'function';
+    if (creatureSystem && !creaturePreset) description = [CREATURE_PRIORITY_NOTE, creatureSystem, description].join('\n');
+    // 非人角色 CG 出镜：角色池里有已登记的非人角色时附加专属规则；纯人类池得到空串，描述不变。
+    const creatureCg = task.value.purpose === 'cg' ? creatureCgRule(meta.characterContext) : '';
+    if (creatureCg) description = [creatureCg, description].join('\n');
+    // 灵动 CG：主体、补标签与 NSFW 楼层规则随本次资料发送，不写进预设正文；标准方案为空。
+    const livelyCg = task.value.purpose === 'cg'
+        ? livelyCgLines(spriteSchemeOf(taskState?.promptPreset?.data), meta.cgHints) : [];
+    if (livelyCg.length) description = [...livelyCg, description].join('\n');
     const stale = () => meta.signal?.aborted || (typeof meta.shouldStart === 'function' && !meta.shouldStart());
     if (stale()) return { ok: false, reason: 'request-stale', error: '任务已取消或目标失效' };
     const frozenContext = structuredClone(meta.characterContext);
@@ -237,11 +259,11 @@ async function writeTemplateCaptions(llm, llmSettings, meta) {
                 } }) };
     }
     const reprepare = () => prepareImageWritingRequest(llm,
-        meta.imagePromptTask || (task.value.purpose === 'derived' ? 'expression' : task.value.purpose),
+        creaturePreset ? 'creature' : meta.imagePromptTask || (task.value.purpose === 'derived' ? 'expression' : task.value.purpose),
         { ...modelInput, ...(meta.signal && { signal: meta.signal }),
             ...(meta.shouldStart && { shouldStart: meta.shouldStart }) },
-        { system: fragments ? [EXPRESSION_TASK, EXPRESSION_FRAGMENTS].join('\n')
-            : dataOnly ? SPRITE_DATA_RULE : meta.systemPrompt || DNA_TEMPLATE_WRITER_SYSTEM,
+        { system: creatureSystem || (fragments ? [EXPRESSION_TASK, EXPRESSION_FRAGMENTS].join('\n')
+            : dataOnly ? SPRITE_DATA_RULE : meta.systemPrompt || DNA_TEMPLATE_WRITER_SYSTEM),
             user: fragments ? JSON.stringify(modelInput)
                 : description + '\n本次任务与角色资料（仅作输入，不输出 JSON）：\n' + JSON.stringify({ ...input, outputs }) });
     const prepared = await reprepare();

@@ -19,7 +19,7 @@ export const DEFAULT_SHORTCUTS = Object.freeze({
     'quick-save': ['KeyS'], 'quick-load': ['KeyL'], regen: ['KeyG'], 'reroll-cg': ['Shift+KeyG'],
     'clear-cg': ['KeyX'], 'clear-floor-cg': ['Shift+KeyX'], 'generate-assets': ['KeyB'],
     'cg-gallery': ['KeyC'], 'fill-item-images': ['KeyI'], save: ['KeyP'], hide: ['KeyH'],
-    'sprite-edit': ['KeyE'], rescan: ['Shift+KeyR'], settings: ['KeyO'],
+    'sprite-edit': ['KeyE'], 'mini-games': ['KeyY'], rescan: ['Shift+KeyR'], settings: ['KeyO'],
     'turn-first': ['Home'], 'turn-latest': ['End'], 'bilingual-toggle': ['KeyT'],
 });
 

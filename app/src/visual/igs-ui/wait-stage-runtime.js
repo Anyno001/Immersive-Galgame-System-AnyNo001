@@ -1,15 +1,17 @@
 import { extractSceneDirectives } from '../../scene/scene-directives.js';
 import { getMessagePrimaryText } from '../../scene/message-source.js';
-import { outfitsOfCharacter } from '../../scene/character-outfits.js';
+import { createOutfitResolver, isBuiltinNudeOutfit, outfitsOfCharacter } from '../../scene/character-outfits.js';
+import { outfitSpriteSlots, readDefaultOutfit } from '../../scene/character-appearance.js';
+import { moodFallbackChain, moodPresetWords } from '../../scene/mood-groups.js';
+import { HEAD_ASPECT, resolveSpriteHead } from './fx-anchor.js';
 import {
     WAIT_STAGE_FALLBACK_LINES,
     WAIT_STAGE_FAILURES,
-    WAIT_STAGE_GAME_LABELS,
-    availableWaitStageGames,
     normalizeWaitStageSettings,
-    waitStageGameLine,
     weaveWaitStageLines,
 } from './wait-stage.js';
+import { getWaitStageGamePack, listWaitStageGameIds, subscribeWaitStageGamePack } from './wait-stage-games-api.js';
+import { ORIGINAL_READER_ICONS } from './reader-icons.js';
 
 const QUOTE_MAX = 34;
 const TURN_LOOKBACK = 6;
@@ -20,12 +22,14 @@ export function collectWaitStageLines(turns, options = {}) {
     const list = Array.isArray(turns) ? turns : [];
     const out = [];
     const seen = new Set();
+    // 带服装栏的四栏标签 [igs-char:角色|表情|服装|对白] 只有传了 resolver 才识别；不传就整条当正文，台词池常年是空的。
+    const outfitResolver = createOutfitResolver(options.sceneAssets);
     for (const turn of list.slice(-Math.max(1, Math.round(options.turns || TURN_LOOKBACK)))) {
         const raw = getMessagePrimaryText(turn && (turn.raw || turn)) || getMessagePrimaryText(turn);
         if (!raw) continue;
         let directives = [];
         try {
-            directives = extractSceneDirectives(raw, {}).directives || [];
+            directives = extractSceneDirectives(raw, { outfitResolver }).directives || [];
         } catch (error) {
             directives = [];
         }
@@ -53,7 +57,7 @@ export function collectWaitStageLines(turns, options = {}) {
     return pool;
 }
 
-// 牌面素材：本卡的立绘差分（带情绪标签）、服装底图与场景图。素材不够的游戏会被 availableWaitStageGames 摘掉。
+// 牌面素材：本卡的立绘差分（带情绪标签）、服装底图与场景图。小游戏脚本装上后按这些素材决定能玩哪些。
 export function collectWaitStageArt(sceneAssets, options = {}) {
     const assets = sceneAssets && typeof sceneAssets === 'object' ? sceneAssets : {};
     const resolveUrl = typeof options.resolveUrl === 'function' ? options.resolveUrl : (url) => String(url || '');
@@ -99,13 +103,82 @@ export function collectWaitStageArt(sceneAssets, options = {}) {
     return { sprites, pictures };
 }
 
+export const WAIT_STAGE_FACE_MOODS = ['平和', '喜悦', '愤怒', '悲伤', '惊讶', '害羞', '紧张', '思考'];
+
+function faceSlot(slots, label) {
+    for (const name of [label, ...moodPresetWords(label)]) if (slots[name]) return name;
+    return '';
+}
+
+// 小游戏头像：每人一套当前衣装（默认衣装优先，没设取第一套），八种基本表情各给一张图，缺的按回退链落到平和。
+// wardrobe 列出这个人所有能换的衣装（裸体除外，当前那套排第一），nude 是裸体那套，留给成人向惩罚后的下一场。
+export function collectWaitStageCast(sceneAssets, options = {}) {
+    const assets = sceneAssets && typeof sceneAssets === 'object' ? sceneAssets : {};
+    const resolveUrl = typeof options.resolveUrl === 'function' ? options.resolveUrl : (url) => String(url || '');
+    const heads = options.spriteHeads && typeof options.spriteHeads === 'object' ? options.spriteHeads : null;
+    const names = Array.from(new Set([...Object.keys(assets.characterOutfits || {}), ...Object.keys(assets.characters || {})]
+        .map((name) => String(name || '').trim()).filter(Boolean)));
+    const cast = [];
+    for (const name of names) {
+        const { outfits } = outfitsOfCharacter(assets.characterOutfits, assets.characterAliases, name);
+        const keys = Object.keys(outfits || {});
+        const preferred = readDefaultOutfit(assets, name);
+        const lead = preferred.ok ? preferred.outfitName : (keys.find((key) => !isNudeOutfit(key, outfits[key])) || '');
+        const wardrobe = [];
+        for (const key of [lead, ...keys.filter((key) => key !== lead)]) {
+            if (!key || !outfits[key] || (isNudeOutfit(key, outfits[key]) && key !== lead)) continue;
+            const faces = outfitFaces(outfitSpriteSlots(outfits[key]), name, key, resolveUrl, heads);
+            if (faces) wardrobe.push({ outfit: key, faces });
+        }
+        if (!wardrobe.length) {
+            const raw = assets.characters && assets.characters[name] && typeof assets.characters[name] === 'object' ? assets.characters[name] : {};
+            const faces = outfitFaces(raw, name, '', resolveUrl, heads);
+            if (faces) wardrobe.push({ outfit: '', faces });
+        }
+        if (!wardrobe.length) continue;
+        const { outfit, faces } = wardrobe[0];
+        const bare = keys.find((key) => key !== outfit && isNudeOutfit(key, outfits[key]));
+        const nude = bare ? outfitFaces(outfitSpriteSlots(outfits[bare]), name, bare, resolveUrl, heads) : null;
+        cast.push({ name, outfit, faces, wardrobe, ...(nude && { nude }) });
+    }
+    return cast;
+}
+
+function isNudeOutfit(name, entry) {
+    return isBuiltinNudeOutfit(name) || isBuiltinNudeOutfit(entry && entry.wardrobe);
+}
+
+function outfitFaces(raw, name, outfit, resolveUrl, heads) {
+    const slots = {};
+    for (const [mood, url] of Object.entries(raw)) {
+        const resolved = url ? String(resolveUrl(url) || '') : '';
+        if (resolved) slots[String(mood).trim()] = resolved;
+    }
+    const base = ['默认', '裸体'].find((label) => slots[label]) || '';
+    const fallback = faceSlot(slots, '平和') || base || Object.keys(slots)[0];
+    if (!fallback) return null;
+    const faces = {};
+    for (const label of WAIT_STAGE_FACE_MOODS) {
+        let slot = faceSlot(slots, label);
+        for (const parent of moodFallbackChain(label)) slot = slot || faceSlot(slots, parent);
+        slot = slot || fallback;
+        const head = resolveSpriteHead(heads, name, slot === base ? '' : slot, outfit);
+        faces[label] = {
+            url: slots[slot],
+            ...(head && { head: { x: head.x, top: head.top, w: head.w, hh: head.w * HEAD_ASPECT } }),
+        };
+    }
+    return faces;
+}
+
 export function buildWaitStageModel(options = {}) {
     const settings = normalizeWaitStageSettings(options.settings);
     const lines = collectWaitStageLines(options.turns, options);
     const art = collectWaitStageArt(options.sceneAssets, options);
+    const cast = collectWaitStageCast(options.sceneAssets, options);
     const fallback = Array.isArray(options.fallback) && options.fallback.length ? options.fallback : WAIT_STAGE_FALLBACK_LINES;
     const playlist = weaveWaitStageLines(lines, fallback, { limit: 14, random: options.random });
-    // 「这句是谁说的」的干扰项也从本卡角色里挑：单人卡最近几楼只有一个人开口，也能玩。
+    // 名字池把本卡角色也算进去，装了小游戏之后可以拿来当干扰项。
     const assets = options.sceneAssets && typeof options.sceneAssets === 'object' ? options.sceneAssets : {};
     const names = Array.from(new Set([
         ...lines.map((line) => line.who),
@@ -118,87 +191,9 @@ export function buildWaitStageModel(options = {}) {
         replay: lines,
         names,
         art,
-        games: availableWaitStageGames(art, lines, names),
+        cast,
+        games: listWaitStageGameIds({ art, replay: lines, names }),
     };
-}
-
-export const RPS_HANDS = Object.freeze([
-    { id: 'rock', label: '石头' },
-    { id: 'scissors', label: '剪刀' },
-    { id: 'paper', label: '布' },
-]);
-
-// 0 平、1 玩家赢、2 角色赢。
-export function rpsOutcome(player, foe) {
-    if (player === foe) return 0;
-    const beats = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
-    return beats[player] === foe ? 1 : 2;
-}
-
-export function rpsLineKey(outcome) {
-    return outcome === 1 ? 'win' : (outcome === 2 ? 'lose' : 'draw');
-}
-
-// 翻牌：取若干张不同的图，每种两张，打乱成牌堆。
-export function buildMemoryDeck(pictures, pairCount = 6, random = Math.random) {
-    const unique = [];
-    const seen = new Set();
-    for (const item of Array.isArray(pictures) ? pictures : []) {
-        const url = item && item.url ? String(item.url) : '';
-        if (!url || seen.has(url)) continue;
-        seen.add(url);
-        unique.push(item);
-        if (unique.length >= pairCount) break;
-    }
-    const deck = [];
-    for (const item of unique) {
-        deck.push({ ...item, id: `${item.url}#a` });
-        deck.push({ ...item, id: `${item.url}#b` });
-    }
-    for (let i = deck.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(random() * (i + 1));
-        const swap = deck[i];
-        deck[i] = deck[j];
-        deck[j] = swap;
-    }
-    return deck;
-}
-
-function pickOptions(answerValue, candidates, size, random) {
-    const pool = candidates.slice();
-    const out = [answerValue];
-    while (out.length < size && pool.length) {
-        out.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
-    }
-    for (let i = out.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(random() * (i + 1));
-        const swap = out[i];
-        out[i] = out[j];
-        out[j] = swap;
-    }
-    return out;
-}
-
-// 心情猜猜：抽一张差分当谜面，再从本卡全部情绪里挑干扰项。
-export function buildMoodRound(sprites, options = {}) {
-    const random = typeof options.random === 'function' ? options.random : Math.random;
-    const pool = (Array.isArray(sprites) ? sprites : []).filter((item) => item && item.url && item.mood);
-    if (pool.length < 2) return null;
-    const answer = pool[Math.floor(random() * pool.length)];
-    const others = Array.from(new Set(pool.map((item) => item.mood))).filter((mood) => mood !== answer.mood);
-    if (!others.length) return null;
-    return { sprite: answer, answer: answer.mood, options: pickOptions(answer.mood, others, 3, random) };
-}
-
-// 这句是谁说的：从回放池里抽一句台词，混入其他角色的名字。
-export function buildWhoSaidRound(lines, random = Math.random, extraNames = []) {
-    const quoted = (Array.isArray(lines) ? lines : []).filter((line) => line && line.who && line.text);
-    if (!quoted.length) return null;
-    const answer = quoted[Math.floor(random() * quoted.length)];
-    const names = Array.from(new Set(quoted.map((line) => line.who).concat(Array.isArray(extraNames) ? extraNames : [])));
-    if (names.length < 2) return null;
-    const others = names.filter((name) => name !== answer.who);
-    return { text: answer.text, answer: answer.who, options: pickOptions(answer.who, others, 3, random) };
 }
 
 function mountNode(doc, className, html) {
@@ -218,6 +213,10 @@ export function createWaitStageRuntime(options = {}) {
     const onVoice = typeof options.onVoice === 'function' ? options.onVoice : () => {};
     const onExitReady = typeof options.onExitReady === 'function' ? options.onExitReady : () => {};
     const onDismiss = typeof options.onDismiss === 'function' ? options.onDismiss : () => {};
+    // 全屏等待层盖住了工具栏的退出键：右上角另放一个，生成照常在酒馆里跑。
+    const onClose = typeof options.onClose === 'function' ? options.onClose : null;
+    const loadImage = typeof options.loadImage === 'function' ? options.loadImage : (url) => String(url || '');
+    const releaseImages = typeof options.releaseImages === 'function' ? options.releaseImages : () => {};
     const timers = options.timers || globalThis;
     let doc = null;
     let root = null;
@@ -234,8 +233,17 @@ export function createWaitStageRuntime(options = {}) {
     let index = 0;
     let game = null;
     let gameState = null;
+    let backButton = null;
+    let nextButton = null;
+    let nextCaption = '下一楼';
+    let replyReady = false;
+    let imageHold = false;
+    let imageGate = 0;
     // 关掉等待过场时退化成纯三点：等还是要有反馈，只是不轮台词、不给小游戏。
     let minimal = false;
+    // 从工具栏主动打开的「小游戏」：没有在等的回复，返回就是收起这一层。
+    let play = false;
+    let dotsBox = null;
 
     function clearTimer() {
         if (timer != null) timers.clearTimeout(timer);
@@ -244,7 +252,7 @@ export function createWaitStageRuntime(options = {}) {
 
     function scheduleLine() {
         clearTimer();
-        if (minimal || !root || phase !== 'wait' || game) return;
+        if (minimal || play || !root || phase !== 'wait' || game) return;
         timer = timers.setTimeout(() => {
             timer = null;
             if (!root || phase !== 'wait' || game) return;
@@ -255,7 +263,14 @@ export function createWaitStageRuntime(options = {}) {
     }
 
     function renderLine() {
-        if (!lineBox || !model || minimal) return;
+        if (!lineBox || minimal) return;
+        // 兜底台词都是「正在写」的口吻，没在等回复时不轮播。
+        if (play) {
+            lineBox.innerHTML = '';
+            lineBox.appendChild(mountNode(doc, 'igs-ws-note', '挑一个玩吧'));
+            return;
+        }
+        if (!model) return;
         const line = model.playlist[index % model.playlist.length] || { who: '', text: '' };
         lineBox.innerHTML = '';
         const text = doc.createElement('div');
@@ -285,8 +300,27 @@ export function createWaitStageRuntime(options = {}) {
         if (root) root.setAttribute('data-igs-waitstage-game', game ? game.id : '');
     }
 
+    function hostState() {
+        const shown = (node) => Boolean(node && actions && !actions.hidden && !node.hidden);
+        return {
+            back: shown(backButton) ? backButton.textContent : '',
+            next: shown(nextButton),
+            nextBusy: Boolean(nextButton && !nextButton.hidden && nextButton.disabled),
+            nextText: shown(nextButton) ? nextCaption : '',
+        };
+    }
+
+    function notifyHost() {
+        if (!gameState) return;
+        const state = hostState();
+        for (const listener of [...gameState.hostListeners]) {
+            try { listener(state); } catch (error) { /* 游戏工具栏出错不影响等待层 */ }
+        }
+    }
+
     function closeRoot() {
         clearTimer();
+        releaseImages();
         if (root && root.parentNode && typeof root.parentNode.removeChild === 'function') {
             root.parentNode.removeChild(root);
         }
@@ -298,243 +332,217 @@ export function createWaitStageRuntime(options = {}) {
         gamesRow = null;
         board = null;
         actions = null;
+        backButton = null;
+        nextButton = null;
         game = null;
         gameState = null;
+        replyReady = false;
+        imageHold = false;
+        imageGate += 1;
+        nextCaption = '下一楼';
         phase = 'wait';
+        play = false;
+        dotsBox = null;
     }
 
-    function finishRound() {
-        if (phase !== 'exit') return;
-        clearTimer();
-        game = null;
-        gameState = null;
-        if (board) board.hidden = true;
-        syncGameAttr();
-        setNote('回复已写完，正在打开…');
+    // 玩着的时候开始等回复：层留着、牌局不断，只把它变回等待过场。
+    function enterWait() {
+        if (!root || !play) return false;
+        play = false;
+        root.classList.remove('is-play');
+        if (dotsBox) dotsBox.hidden = false;
+        if (backButton) backButton.textContent = '返回当前楼';
+        if (actions) actions.hidden = true;
+        root.setAttribute('role', 'status');
+        if (!game) setNote('');
+        renderLine();
+        scheduleLine();
+        notifyHost();
+        return true;
+    }
+
+    function showNextFloorAction() {
+        if (!nextButton || !actions) return;
+        nextButton.hidden = false;
+        if (backButton) backButton.hidden = true;
+        actions.hidden = false;
+        notifyHost();
+    }
+
+    function confirmNextFloor() {
+        if (!root || !replyReady || imageHold) return;
+        replyReady = false;
+        imageGate += 1;
+        if (nextButton) nextButton.disabled = true;
+        setNote('正在打开下一楼…');
+        notifyHost();
         onExitReady();
     }
 
-    function settleRound() {
-        if (phase !== 'exit' || !gameState || !gameState.done) return;
-        clearTimer();
-        timer = timers.setTimeout(() => { timer = null; finishRound(); }, 850);
+    // 「下一楼」只在这一楼的 CG 已经稳定（画成、没画成，或确定不画）时出现。还在画时只写「CG 生成中」。
+    function revealNext(status) {
+        imageHold = false;
+        nextCaption = '下一楼';
+        if (nextButton) {
+            nextButton.disabled = false;
+            nextButton.textContent = '加载下一楼';
+        }
+        const note = status === 'failed'
+            ? '下一楼 · CG 没画成'
+            : status === 'done'
+                ? '下一楼 · CG 已生成'
+                : '下一楼已经写好，点「加载下一楼」再进去。';
+        setNote(note);
+        showNextFloorAction();
+    }
+
+    function holdFloorImages(images) {
+        if (!root || !replyReady || imageHold || !images || typeof images.then !== 'function') return;
+        imageHold = true;
+        const gate = ++imageGate;
+        nextCaption = '生图中';
+        if (nextButton) {
+            nextButton.hidden = false;
+            nextButton.disabled = true;
+            nextButton.textContent = 'CG 生成中';
+        }
+        if (backButton) backButton.hidden = true;
+        if (actions) actions.hidden = false;
+        setNote('CG 生成中');
+        notifyHost();
+        Promise.resolve(images).then((result) => {
+            if (gate !== imageGate || !root || !replyReady) return;
+            revealNext(result && result.status);
+        }, () => {
+            if (gate !== imageGate || !root || !replyReady) return;
+            revealNext('failed');
+        });
     }
 
     function closeGame() {
         if (!board) return;
-        if (phase === 'exit') { finishRound(); return; }
+        releaseImages();
         board.innerHTML = '';
         board.hidden = true;
         game = null;
         gameState = null;
         syncGameAttr();
-        if (gamesRow) gamesRow.hidden = false;
+        renderGames();
         scheduleLine();
     }
 
+    // model 是开局那一刻的；图库里的立绘读回后模型会重建，玩着的游戏用 onModel 接新的。
+    function gameContext(id) {
+        const own = gameState;
+        return {
+            id,
+            doc,
+            board,
+            model,
+            getModel: () => model,
+            onModel(listener) {
+                if (!own || typeof listener !== 'function') return () => {};
+                own.listeners.add(listener);
+                return () => own.listeners.delete(listener);
+            },
+            random,
+            timers,
+            settings,
+            setNote(text) {
+                if (replyReady) return;
+                setNote(text);
+            },
+            onVoice(line) {
+                if (!settings.voice) return;
+                try { onVoice(line); } catch (error) { /* 语气音失败不影响这一局 */ }
+            },
+            // 牌面地址可能是图库原地址：返回能直接显示的地址，还没读回时返回 Promise，读不到给空串。
+            loadImage: (url) => loadImage(url),
+            penalty: options.penalty || null,
+            persona: options.persona || null,
+            // 主程序混音总线：{ context(), input(), resume() }，游戏音效接进 sfx 子总线。
+            audio: options.audio || null,
+            isExiting: () => phase === 'exit',
+            isSettled: () => Boolean(gameState && gameState.done),
+            markDone() {
+                if (!gameState || gameState.done) return;
+                gameState.done = true;
+            },
+            requestClose: () => closeGame(),
+            // 等待层自己的「返回」「加载下一楼」：铺满整层的游戏把它们放进自己的工具栏，底栏就不用留。
+            // state().back 是按钮文字（返回阅读 / 返回当前楼），空串表示这会儿不给返回。
+            host: {
+                state: hostState,
+                back() {
+                    if (!hostState().back) return;
+                    if (play) closeRoot();
+                    else onDismiss();
+                },
+                next() {
+                    const state = hostState();
+                    if (!state.next || state.nextBusy) return;
+                    confirmNextFloor();
+                },
+                onChange(listener) {
+                    if (!own || typeof listener !== 'function') return () => {};
+                    own.hostListeners.add(listener);
+                    return () => own.hostListeners.delete(listener);
+                },
+            },
+        };
+    }
+
     function openGame(id) {
-        if (!board || !model || phase !== 'wait') return;
+        const pack = getWaitStageGamePack();
+        if (!pack || typeof pack.start !== 'function' || !board || !model || phase !== 'wait') return;
         clearTimer();
         game = { id };
-        gameState = {};
+        gameState = { listeners: new Set(), hostListeners: new Set() };
         board.hidden = false;
         if (gamesRow) gamesRow.hidden = true;
         syncGameAttr();
-        if (id === 'rps') startRps();
-        else if (id === 'whosaid') startWhoSaid();
-        else if (id === 'memory') startMemory();
-        else if (id === 'mood') startMood();
-    }
-
-    function gameShell(title) {
-        board.innerHTML = '';
-        const head = doc.createElement('div');
-        head.className = 'igs-ws-board-head';
-        const name = doc.createElement('span');
-        name.textContent = title;
-        const close = doc.createElement('button');
-        close.type = 'button';
-        close.className = 'igs-ws-close';
-        close.textContent = '✕';
-        close.addEventListener('click', () => closeGame());
-        head.appendChild(name);
-        head.appendChild(close);
-        board.appendChild(head);
-        const status = doc.createElement('div');
-        status.className = 'igs-ws-status';
-        board.appendChild(status);
-        return status;
-    }
-
-    function chipRow(className, labels, onPick) {
-        const row = mountNode(doc, className);
-        for (const item of labels) {
-            const button = doc.createElement('button');
-            button.type = 'button';
-            button.className = 'igs-ws-chip';
-            button.textContent = item.label;
-            button.addEventListener('click', () => onPick(item));
-            row.appendChild(button);
+        if (typeof pack.ensureStyle === 'function') pack.ensureStyle(doc);
+        try {
+            pack.start(gameContext(id));
+        } catch (error) {
+            closeGame();
         }
-        board.appendChild(row);
-        return row;
-    }
-
-    function say(status, text, lineKey) {
-        status.textContent = text;
-        if (lineKey) {
-            setNote(waitStageGameLine(lineKey, random));
-            if (settings.voice) {
-                try {
-                    onVoice(null);
-                } catch (error) {
-                    // 同上。
-                }
-            }
-        }
-    }
-
-    function startRps() {
-        const status = gameShell(WAIT_STAGE_GAME_LABELS.rps);
-        status.textContent = '出什么？';
-        setNote(waitStageGameLine('start', random));
-        chipRow('igs-ws-hands', RPS_HANDS.map((hand) => ({ id: hand.id, label: hand.label })), (hand) => {
-            if (phase === 'exit' && gameState.done) return;
-            const foe = RPS_HANDS[Math.floor(random() * RPS_HANDS.length)];
-            const outcome = rpsOutcome(hand.id, foe.id);
-            say(status, `你出${hand.label}，对方出${foe.label}。`, rpsLineKey(outcome));
-            gameState.done = true;
-            settleRound();
-        });
-    }
-
-    function startWhoSaid() {
-        const round = buildWhoSaidRound(model ? model.replay : [], random, model ? model.names : []);
-        const status = gameShell(WAIT_STAGE_GAME_LABELS.whosaid);
-        if (!round) {
-            say(status, '能回放的台词还不够，多聊几句再来。');
-            return;
-        }
-        status.textContent = `「${round.text}」`;
-        chipRow('igs-ws-choices', round.options.map((name) => ({ id: name, label: name })), (item) => {
-            if (gameState.done) return;
-            gameState.done = true;
-            const right = item.id === round.answer;
-            say(status, right ? `是${round.answer}。` : `是${round.answer}说的。`, right ? 'right' : 'wrong');
-            settleRound();
-        });
-    }
-
-    function startMemory() {
-        const deck = buildMemoryDeck(model ? model.art.pictures : [], 6, random);
-        const status = gameShell(WAIT_STAGE_GAME_LABELS.memory);
-        if (!deck.length) {
-            say(status, '图库里还没有能用的图。');
-            return;
-        }
-        const columns = deck.length >= 12 ? 4 : 3;
-        const grid = mountNode(doc, 'igs-ws-grid');
-        grid.style.setProperty('--igs-ws-cols', String(columns));
-        const opened = [];
-        const done = new Set();
-        const nodes = [];
-        const total = deck.length / 2;
-        let pairs = 0;
-        let moves = 0;
-        status.textContent = `配对 0 / ${total}`;
-        const hide = (card, node) => {
-            if (done.has(card.id)) return;
-            node.classList.remove('is-open');
-            node.innerHTML = '';
-        };
-        for (const card of deck) {
-            const button = doc.createElement('button');
-            button.type = 'button';
-            button.className = 'igs-ws-card';
-            button.addEventListener('click', () => {
-                if (done.has(card.id) || opened.indexOf(card) >= 0 || opened.length >= 2) return;
-                opened.push(card);
-                button.classList.add('is-open');
-                const image = doc.createElement('img');
-                image.src = card.url;
-                image.alt = '';
-                button.appendChild(image);
-                if (opened.length < 2) return;
-                const a = opened[0];
-                const b = opened[1];
-                const aNode = nodes[deck.indexOf(a)];
-                const bNode = nodes[deck.indexOf(b)];
-                moves += 1;
-                if (String(a.url) === String(b.url)) {
-                    done.add(a.id);
-                    done.add(b.id);
-                    pairs += 1;
-                    if (aNode) aNode.classList.add('is-done');
-                    if (bNode) bNode.classList.add('is-done');
-                    opened.length = 0;
-                    status.textContent = `配对 ${pairs} / ${total}`;
-                    if (pairs >= total) {
-                        setNote(waitStageGameLine('right', random));
-                        status.textContent = `配对完成，共 ${moves} 手。`;
-                        gameState.done = true;
-                        settleRound();
-                    }
-                    return;
-                }
-                setNote(waitStageGameLine('wrong', random));
-                timers.setTimeout(() => {
-                    if (aNode) hide(a, aNode);
-                    if (bNode) hide(b, bNode);
-                    opened.length = 0;
-                }, 620);
-            });
-            nodes.push(button);
-            grid.appendChild(button);
-        }
-        board.appendChild(grid);
-    }
-
-    function startMood() {
-        const round = buildMoodRound(model ? model.art.sprites : [], { random });
-        const status = gameShell(WAIT_STAGE_GAME_LABELS.mood);
-        if (!round) {
-            say(status, '立绘差分还不够，先去补几张表情。');
-            return;
-        }
-        const face = mountNode(doc, 'igs-ws-face');
-        const image = doc.createElement('img');
-        image.src = round.sprite.url;
-        image.alt = '';
-        face.appendChild(image);
-        board.appendChild(face);
-        status.textContent = '这是什么心情？';
-        chipRow('igs-ws-choices', round.options.map((mood) => ({ id: mood, label: mood })), (item) => {
-            if (gameState.done) return;
-            gameState.done = true;
-            const right = item.id === round.answer;
-            say(status, right ? `是${round.answer}。` : `其实是${round.answer}。`, right ? 'right' : 'wrong');
-            settleRound();
-        });
     }
 
     function renderGames() {
         if (!gamesRow) return;
         gamesRow.innerHTML = '';
-        const list = (model && model.games) || [];
-        if (minimal || !settings.games || !list.length) {
+        const pack = getWaitStageGamePack();
+        const list = (!minimal && (play || settings.games) && pack && model) ? listWaitStageGameIds(model) : [];
+        if (play && !game) {
+            if (!pack) setNote('还没装小游戏脚本。');
+            else if (!model) setNote('正在摆桌…');
+            else setNote(list.length ? '' : '最近几楼里还凑不齐小游戏要的角色和台词，多读几楼再来。');
+        }
+        if (!list.length) {
             gamesRow.hidden = true;
             return;
         }
+        if (typeof pack.ensureStyle === 'function') pack.ensureStyle(doc);
         gamesRow.hidden = Boolean(game) || phase !== 'wait';
-        for (const id of list) {
+        list.forEach((id, index) => {
             const button = doc.createElement('button');
             button.type = 'button';
             button.className = 'igs-ws-chip';
-            button.textContent = WAIT_STAGE_GAME_LABELS[id] || id;
+            button.textContent = (pack.label && pack.label(id)) || id;
+            // 游戏包可以把按钮画成卡片；旧版游戏包没有这一项，照旧用文字按钮。
+            if (typeof pack.decorate === 'function') {
+                try { pack.decorate(button, id, index); } catch (error) { /* 卡片画失败就留文字按钮 */ }
+            }
             button.addEventListener('click', () => openGame(id));
             gamesRow.appendChild(button);
-        }
+        });
     }
+
+    subscribeWaitStageGamePack(() => {
+        if (!root || phase !== 'wait' || game) return;
+        renderGames();
+    });
 
     return {
         open(host, opts = {}) {
@@ -546,17 +554,20 @@ export function createWaitStageRuntime(options = {}) {
             model = opts.model || null;
             phase = 'wait';
             settings = normalizeWaitStageSettings(opts.settings || settings);
-            // 关掉等待过场时内嵌也不能开天窗：退化成纯三点，等还是要有反馈。
-            minimal = settings.enabled === false;
+            play = Boolean(opts.play);
+            // 关掉等待过场时内嵌也不能开天窗：退化成纯三点，等还是要有反馈。主动来玩的不受这个开关管。
+            minimal = !play && settings.enabled === false;
             index = 0;
             game = null;
             gameState = null;
-            root = mountNode(doc, opts.embedded ? 'igs-waitstage igs-embedded-loading' : 'igs-waitstage');
+            root = mountNode(doc, `igs-waitstage${opts.embedded ? ' igs-embedded-loading' : ''}${play ? ' is-play' : ''}`);
             root.setAttribute('data-igs-waitstage-phase', phase);
-            root.setAttribute('role', 'status');
+            root.setAttribute('role', play ? 'dialog' : 'status');
             root.setAttribute('aria-live', 'polite');
             body = mountNode(doc, 'igs-ws-body');
-            body.appendChild(mountNode(doc, 'igs-ws-dots', '<span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span>'));
+            dotsBox = mountNode(doc, 'igs-ws-dots', '<span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span><span class="igs-embedded-loading-dot"></span>');
+            dotsBox.hidden = play;
+            body.appendChild(dotsBox);
             lineBox = mountNode(doc, 'igs-ws-line');
             lineBox.hidden = minimal;
             noteBox = mountNode(doc, 'igs-ws-note igs-ws-state');
@@ -570,15 +581,45 @@ export function createWaitStageRuntime(options = {}) {
                 body.appendChild(board);
             }
             actions = mountNode(doc, 'igs-ws-actions');
-            actions.hidden = true;
-            const back = doc.createElement('button');
-            back.type = 'button';
-            back.className = 'igs-ws-chip';
-            back.textContent = '返回当前楼';
+            actions.hidden = !play;
+            backButton = doc.createElement('button');
+            backButton.type = 'button';
+            backButton.className = 'igs-ws-chip';
+            backButton.textContent = play ? '返回阅读' : '返回当前楼';
+            backButton.setAttribute('data-igs-waitstage-back', '1');
             const openedRoot = root;
-            back.addEventListener('click', () => { if (root === openedRoot) onDismiss(); });
-            actions.appendChild(back);
+            backButton.addEventListener('click', () => {
+                if (root !== openedRoot) return;
+                if (play) closeRoot();
+                else onDismiss();
+            });
+            nextButton = doc.createElement('button');
+            nextButton.type = 'button';
+            nextButton.className = 'igs-ws-chip';
+            nextButton.textContent = '加载下一楼';
+            nextButton.hidden = true;
+            nextButton.setAttribute('data-igs-waitstage-next', '1');
+            nextButton.addEventListener('click', () => { if (root === openedRoot) confirmNextFloor(); });
+            actions.appendChild(backButton);
+            actions.appendChild(nextButton);
             body.appendChild(actions);
+            if (onClose && !opts.embedded) {
+                const closeButton = doc.createElement('button');
+                closeButton.type = 'button';
+                closeButton.className = 'igs-ws-close';
+                closeButton.title = '关闭';
+                closeButton.setAttribute('aria-label', '关闭');
+                closeButton.setAttribute('data-igs-waitstage-close', '1');
+                closeButton.innerHTML = ORIGINAL_READER_ICONS.close;
+                closeButton.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    if (root !== openedRoot) return;
+                    // 主动来玩时只收起这一层回到阅读；等回复时才交给宿主关阅读器。
+                    if (play) closeRoot();
+                    else onClose();
+                });
+                root.appendChild(closeButton);
+            }
             root.appendChild(body);
             host.appendChild(root);
             syncGameAttr();
@@ -595,6 +636,11 @@ export function createWaitStageRuntime(options = {}) {
             const prev = model;
             const swap = !prev || (!(prev.replay || []).length && (nextModel.replay || []).length > 0);
             model = swap ? nextModel : { ...nextModel, playlist: prev.playlist, replay: prev.replay };
+            if (game && gameState) {
+                for (const listener of [...gameState.listeners]) {
+                    try { listener(model); } catch (error) { /* 游戏换图失败不影响等待层 */ }
+                }
+            }
             if (!game && phase === 'wait') {
                 if (swap) {
                     renderLine();
@@ -603,18 +649,26 @@ export function createWaitStageRuntime(options = {}) {
                 renderGames();
             }
         },
-        // 回复到达后不再开新局；已结算的一局稍作展示，未结算的等玩家完成或主动关闭。
-        replyArrived() {
+        // 正在玩就不切楼。正文写好后先等这一楼的 CG：还在画就只提示「CG 生成中」，
+        // 画成、没画成或确定不画，才亮「下一楼」。没传生图状态时按已经稳定处理。
+        replyArrived(detail) {
             if (phase === 'error') return false;
+            if (replyReady) return false;
             if (!root || !game) return true;
-            phase = 'exit';
-            root.setAttribute('data-igs-waitstage-phase', phase);
-            clearTimer();
-            root.classList.add('is-exit');
-            setNote('回复到了，玩完这局再回去。');
-            settleRound();
+            replyReady = true;
+            const known = detail && detail.status;
+            if (known && known.status) {
+                revealNext(known.status);
+                return false;
+            }
+            if (detail && detail.images) {
+                holdFloorImages(detail.images);
+                return false;
+            }
+            revealNext('none');
             return false;
         },
+        holdFloorImages,
         showFailure(kind = 'failed') {
             if (!root) return false;
             const failure = WAIT_STAGE_FAILURES[kind] || WAIT_STAGE_FAILURES.failed;
@@ -630,6 +684,12 @@ export function createWaitStageRuntime(options = {}) {
             root.setAttribute('role', 'alert');
             if (gamesRow) gamesRow.hidden = true;
             if (board) board.hidden = true;
+            replyReady = false;
+            imageHold = false;
+            imageGate += 1;
+            nextCaption = '下一楼';
+            if (backButton) backButton.hidden = false;
+            if (nextButton) nextButton.hidden = true;
             lineBox.hidden = false;
             lineBox.innerHTML = '';
             const mark = mountNode(doc, 'igs-ws-error-mark');
@@ -644,9 +704,10 @@ export function createWaitStageRuntime(options = {}) {
             return true;
         },
         showSlow() {
-            if (!root || phase !== 'wait') return;
+            if (!root || play || phase !== 'wait' || replyReady) return;
             setNote('等待较久，尚未确认回复写完。请求可能仍在进行，可返回酒馆检查。');
             actions.hidden = false;
+            notifyHost();
         },
         // 生成期间宿主每 150ms 报一次活动：层已经挂着就别重建，否则台词永远停在第一句、点开的小游戏会被抹掉。
         isOpen(host) {
@@ -654,6 +715,8 @@ export function createWaitStageRuntime(options = {}) {
             if (host && root.parentNode !== host) return false;
             return true;
         },
+        isPlaying: () => Boolean(root && play),
+        enterWait,
         close: closeRoot,
     };
 }

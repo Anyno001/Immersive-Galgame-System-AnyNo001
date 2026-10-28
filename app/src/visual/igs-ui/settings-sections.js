@@ -21,7 +21,7 @@ export const SETTINGS_SECTIONS = Object.freeze({
         label: '标签解析',
         paths: () => ['enabled', 'stripHtmlComments', 'allowUntaggedFallback', 'textIncludeTags', 'textExcludeTags', 'htmlCardTags', 'imageIncludeTags'].map((key) => `bridge.sourceFilter.${key}`).concat('readerSettings.imageCountOverride'),
     },
-    'reader-dialog-style': { label: '风格', paths: () => reader('dialogSkin', 'gradientVeil', 'magicHouse', 'magicAccent', 'showStatusLine', 'dblclickCgOnly', 'titleScreen', 'dialogAutoHeight', 'underwaterSkin', 'mermaidTone', 'mermaidAccent') },
+    'reader-dialog-style': { label: '风格', paths: () => reader('dialogSkin', 'gradientVeil', 'magicHouse', 'magicAccent', 'showStatusLine', 'dblclickCgOnly', 'titleScreen', 'resumePrompt', 'dialogAutoHeight', 'underwaterSkin', 'mermaidTone', 'mermaidAccent') },
     'reader-dialog-size': { label: '尺寸', paths: () => reader('dialogWidth', 'classicDialogWidthPercent', 'skinDialogScale', 'dialogHeight', 'inputScale') },
     'reader-dialog-background': { label: '面板透明度', paths: (draft) => [...reader('glassOpacity', 'glassBackdropFilter'), `${themePath(draft)}.bgOpacity`, `${themePath(draft)}.dialogBg`] },
     'reader-text-layout': { label: '排版', paths: () => reader('fontSize', 'dialogFontWeight', 'dialogTextEffect', 'dialogTextEffectColor', 'dialogTextEffectStrength', 'dialogTextEffectSize') },

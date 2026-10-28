@@ -66,7 +66,7 @@ function markersOf(sentence, own, others, gender = '', pov = false, selfNames = 
 }
 
 // 动作的主语：所在小句（逗号分隔）里最近的标记；小句里没有主语时，沿用前面最近一个有标记的小句的头一个（省略主语）。返回下标，-1 为找不到。
-function subjectOf(sentence, marks, at) {
+export function subjectOf(sentence, marks, at) {
     const clauseStart = (pos) => { let from = 0; for (const c of sentence.slice(0, pos).matchAll(/[，,；;]/g)) from = c.index + 1; return from; };
     let nearest = -1;
     for (let i = 0; i < marks.length && marks[i].end <= at; i++) nearest = i;

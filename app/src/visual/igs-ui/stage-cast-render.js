@@ -18,10 +18,11 @@ const SLOT_CENTER_X = Object.freeze({ 2: Object.freeze([27, 73]), 3: Object.free
 const FADE_MS = 220;
 const SWAP_FADE_MS = 180;
 
+// 陪衬的 translate 由两个独立变量合成：横向 --igs-fx-huddle-dx（撑伞靠拢），纵向 --igs-cast-sink（ABO 压制下沉），互不覆盖。
 export const STAGE_CAST_STYLE_TEXT = `
 #igs-cast{position:absolute;inset:0;z-index:2;pointer-events:none;}
-#igs-cast .igs-cast-sprite{position:absolute;inset:0;background-repeat:no-repeat;pointer-events:none;transform-origin:var(--igs-cast-origin-x,50%) 100%;}
-#igs-cast .igs-cast-sprite:not([data-igs-cast-ghost]){transition:rotate .6s ease;}
+#igs-cast .igs-cast-sprite{position:absolute;inset:0;background-repeat:no-repeat;pointer-events:none;transform-origin:var(--igs-cast-origin-x,50%) 100%;translate:var(--igs-fx-huddle-dx,0%) var(--igs-cast-sink,0%);}
+#igs-cast .igs-cast-sprite:not([data-igs-cast-ghost]){transition:rotate .6s ease,translate .9s ease;}
 #igs-overlay[data-igs-cast-breathe]:not([data-igs-quality="low"]) #igs-cast .igs-cast-sprite:not([data-igs-cast-leaving]):not([data-igs-cast-ghost]){animation:igs-sd-breathe var(--igs-cast-breathe,5.2s) ease-in-out var(--igs-cast-delay,0s) infinite;}
 #igs-overlay[data-igs-sd-parallax] #igs-cast{translate:calc(var(--igs-sd-px,0) * -12px) calc(var(--igs-sd-py,0) * -5px);transition:translate .6s cubic-bezier(.2,.7,.3,1);}
 #igs-stage-motion[data-igs-fx-presentation="1"] #igs-cast,
@@ -41,6 +42,20 @@ export function castSlotKey(mode, count, index, identity) {
     return `${mode}::${count}::${index}::${identity}`;
 }
 
+// 站位侧别：'l' / 'r'，居中或无效坐标为 ''。
+export function castSideAttr(posX) {
+    const side = posX == null ? 0 : castSideOf(posX);
+    return side < 0 ? 'l' : side > 0 ? 'r' : '';
+}
+
+// #igs-stage-motion 上 data-igs-cast-duo 的取值：台上正好两人时，说话人在左 'l'、在右 'r'，无说话人（两名陪衬）为 'n'；其余返回 ''。
+export function castDuoAttr(castPlan) {
+    if (!castPlan || !Array.isArray(castPlan.members)) return '';
+    const speaker = castPlan.speaker || null;
+    if (castPlan.members.length + (speaker ? 1 : 0) !== 2) return '';
+    return speaker ? castSideAttr(speaker.posX) : 'n';
+}
+
 export function resolveCastCapacity(mode, stage = {}) {
     if (NARROW_MODES.has(mode)) return 2;
     if (mode === 'web' || mode === 'fullscreen') {
@@ -56,8 +71,10 @@ export function resolveCastCapacity(mode, stage = {}) {
 // 只剩一人时返回 multi=false，调用方走原有单人布局。
 export function layoutCastSlots({ members = [], speakerOrder = null, hasSpeaker = false, capacity = 3, pin = '' } = {}) {
     const seats = Math.max(1, Math.min(3, Math.floor(Number(capacity)) || 1));
-    const pinned = pin ? members.filter((m) => m && m.character === pin) : [];
-    const ranked = pinned.length ? [...pinned, ...members.filter((m) => !m || m.character !== pin)] : members;
+    // pin 可以是单个名字，也可以是名字数组（多对手同屏时钉住多个对手）。
+    const pins = Array.isArray(pin) ? pin : pin ? [pin] : [];
+    const pinned = pins.length ? members.filter((m) => m && pins.includes(m.character)) : [];
+    const ranked = pinned.length ? [...pinned, ...members.filter((m) => !m || !pins.includes(m.character))] : members;
     const kept = ranked.slice(0, hasSpeaker ? seats - 1 : seats);
     const onStage = kept.map((m) => ({ ...m, speaker: false }));
     if (hasSpeaker) onStage.push({ speaker: true, order: Number.isFinite(speakerOrder) ? speakerOrder : Number.MAX_SAFE_INTEGER });
@@ -336,6 +353,10 @@ export function applyCastToDom(root, members = [], motion = {}) {
         else el.removeAttribute('data-igs-cast-focus');
         if (!entering && !reduced && prevFrame && prevFrame !== frame) play(el, [{ filter: prevFrame }, { filter: frame }], CAST_HANDOFF_MS, 'backwards');
         el._igsCastX = m.posX;
+        // 左右侧标记：区间演出（撑伞靠拢等）按侧别在样式表里微调站位。
+        const side = castSideAttr(m.posX);
+        if (side) el.setAttribute('data-igs-cast-side', side);
+        else el.removeAttribute('data-igs-cast-side');
         // 背对（第四批）：整张立绘水平翻转，用空闲的独立属性 scale；原点移到图的中心，镜像不整体平移。
         const flipped = m.flip === true;
         const host = el.parentNode;

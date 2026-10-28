@@ -4,6 +4,7 @@ import { checkCharacterMeta } from '../../schemas/character-meta.js';
 import { checkPromptTask, checkPromptOutput } from '../../schemas/prompt-recipe.js';
 import { bindAutoSpriteOutfitNames } from './character-prompt-task.js';
 import { resolveCgOutfit } from './cg-outfit-catalog.js';
+import { isUnclothedCreature, stripOutfitSlot } from './creature-cg.js';
 
 const fields = new Set(['slotid', 'size', 'analysis', 'scene', 'scene_uc', 'prompt_mode', 'outfit_mode', 'identity_mode', 'char', 'char_uc', 'at']);
 const metaFields = new Set(['meta_kind', 'meta_key', 'meta_token', 'meta_frame', 'meta_identity', 'meta_signature',
@@ -134,16 +135,20 @@ export function parseTemplateCaptionSlots(text, { promptTask, characterContext, 
             }
             if (!['named', 'reference'].includes(row.meta_kind)) return reject('meta_kind',
                 row.meta_kind === undefined ? 'missing' : 'invalid', index);
-            const missing = ['meta_key', 'meta_token', 'meta_frame', 'meta_outfit_name', 'meta_outfit_description']
+            // 已登记的非人角色没有衣装：CG 里衣装三项可留空（也可整体省略），绑定记为「无衣装」。
+            const noOutfit = catalog && isUnclothedCreature(characterContext, row);
+            const missing = ['meta_key', 'meta_token', 'meta_frame', ...(noOutfit ? [] : ['meta_outfit_name', 'meta_outfit_description'])]
                 .find((key) => !Object.hasOwn(row, key));
             if (missing) return reject(missing, 'missing', index);
             if (row.meta_kind === 'reference' && (row.meta_outfit_name !== ''
                 || row.meta_outfit_description !== '')) return reject('meta_outfit_description', 'mismatch', index, 'OUTFIT_TEMPLATE_INVALID');
             if (!catalog && row.meta_outfit_id !== undefined) return reject('meta_outfit_id', 'mismatch', index);
-            const selectedOutfit = catalog ? resolveCgOutfit(row.meta_outfit_id,
-                { name: row.meta_outfit_name, description: row.meta_outfit_description },
-                { captionIndex: index, characterKey: row.meta_key }, outfitCatalog) : null;
+            const selectedOutfit = noOutfit ? { ok: true, value: { name: '', description: '', source: 'none' } }
+                : catalog ? resolveCgOutfit(row.meta_outfit_id,
+                    { name: row.meta_outfit_name, description: row.meta_outfit_description },
+                    { captionIndex: index, characterKey: row.meta_key }, outfitCatalog) : null;
             if (selectedOutfit && !selectedOutfit.ok) return atBlock(selectedOutfit, block);
+            if (noOutfit) positive[index].char_caption = stripOutfitSlot(positive[index].char_caption, row.meta_token);
             bindings.push({ kind: row.meta_kind, characterKey: row.meta_key, captionIndex: index,
                 token: row.meta_token, framing: row.meta_frame,
                 ...(selectedOutfit && { outfit: selectedOutfit.value }),
@@ -151,7 +156,7 @@ export function parseTemplateCaptionSlots(text, { promptTask, characterContext, 
                     correction: { subject: row.meta_correction_identity, negative: row.meta_correction_uc || '' } }) });
             const character = { characterKey: row.meta_key, captionIndex: index,
                 identityAnchor: row.meta_identity || '', signatureDetails: row.meta_signature || '',
-                outfit: { name: row.meta_outfit_name, description: row.meta_outfit_description },
+                outfit: { name: row.meta_outfit_name ?? '', description: row.meta_outfit_description ?? '' },
                 centers: coord ? [{ x, y }] : [], positionExplicit: Boolean(coord) };
             if (row.meta_region !== undefined) {
                 const parts = row.meta_region.split(',');

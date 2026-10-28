@@ -2,6 +2,7 @@ import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildRecordModel, buildRelationshipModel, parseLooseDate } from '../../data/shujuku/record-model.js';
 import { buildFavorOverviewModel } from '../../data/shujuku/favor-overview-model.js';
 import { createCharacterMetricsLookup } from '../../data/shujuku/character-metrics.js';
+import { preferStatsLookup } from '../../scene/stats/stat-metrics.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from './record-icons.js';
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
@@ -286,12 +287,17 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         model = next;
         if (!table()) activeUid = model.tables[0]?.uid || '';
         if (category === 'relationships') {
+            let tableLookup = null;
             try {
-                metricsOf = createCharacterMetricsLookup(readResult, {
+                tableLookup = createCharacterMetricsLookup(readResult, {
                     selectedTables: settings?.statusHud?.tables,
                     characterAliases: (settings?._sceneAssets || settings?.sceneAssets)?.characterAliases,
                 });
-            } catch (_) { metricsOf = () => ({ metrics: [], stages: [] }); }
+            } catch (_) { tableLookup = null; }
+            // 数值系统开启且本聊天启用时，已登记角色以 IGS 数值为准，其余人仍读表格（易错点 H3）。
+            let statsLookup = null;
+            try { statsLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null; } catch (_) { statsLookup = null; }
+            metricsOf = preferStatsLookup(statsLookup, tableLookup);
             if (!relationshipPeople().some(person => person.id === relationshipPersonId)) relationshipPersonId = relationshipPeople()[0]?.id || '';
             selectedId = '';
         } else if (selectedId && !entries().some(entry => entry.id === selectedId)) selectedId = '';

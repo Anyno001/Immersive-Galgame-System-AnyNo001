@@ -3,9 +3,12 @@ import { FEED_VIEW_MAX, foldFeedDirectives, foldStormDirectives, parseFeedBody }
 import { normalizeBgmCue } from './bgm-moods.js';
 import { FX_PACK_STATE_ALIASES } from './fx-packs.js';
 import { buildStateAliases, parseStateBody } from './fx-state.js';
+import { parseCreatureAnchor, parseCreatureForm, parseCreatureSize } from './creature-profile.js';
+import { FOE_DOWN_MAX, addFrenzy } from './creature-battle.js';
 import { DLC_FX_ARG_MAX, DLC_FX_PAGE_MAX, getDlcFx, isDlcFxKind } from './fx-registry.js';
+import { clashActionOf, clashTierWord } from './clash-actions.js';
 
-export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'delivery', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella']);
+export const FX_TAG_KINDS = Object.freeze(['call', 'notify', 'delivery', 'flashback', 'dream', 'letterbox', 'sfx', 'eye', 'whisper', 'nickname', 'voicemail', 'contact', 'cutin', 'promise', 'movie', 'light', 'umbrella', 'clash']);
 // 持续状态滤镜区间 [igs-fx:state|醉酒|重] … [igs-fx:state-end]：独立于 FX_TAG_KINDS，由有题材包开着时生效（见 visual/igs-ui/fx-runtime.js）。
 const FX_STATE_ALIASES = buildStateAliases(FX_PACK_STATE_ALIASES);
 export const FX_RANGE_KINDS = Object.freeze(['call', 'flashback', 'dream', 'letterbox', 'whisper', 'movie', 'light', 'umbrella']);
@@ -34,6 +37,9 @@ export const FX_HIT_RESULTS = Object.freeze({
     格挡: 'guard', 防御: 'guard', guard: 'guard', 击倒: 'ko', 倒下: 'ko', ko: 'ko', 治疗: 'heal', 恢复: 'heal', heal: 'heal',
 });
 export const FX_HIT_PAGE_MAX = 3;
+// 立绘碰撞 [igs-fx:clash|出手者|目标|动作|力度]：目标必填；出手者可省（按画外一击）；动作写错按 hit，力度省略时由正文强度词与动作默认力度决定。
+// 每页最多播 FX_CLASH_PAGE_MAX 次，超出的只留动作（clashExtra）供只播声音。
+export const FX_CLASH_PAGE_MAX = 2;
 // 陪衬反应 [igs-fx:react|角色名|情绪词]：独立于 FX_TAG_KINDS，由多角色同屏的 stageCast.castReact 控制；
 // 角色名缺失整条丢弃，情绪词可省；角色名写「全员」表示所有陪衬；每页最多 3 条，超出丢弃。
 export const FX_REACT_PAGE_MAX = 3;
@@ -63,6 +69,14 @@ export const FX_SENSES = Object.freeze({
     屏息: 'hush', 静止: 'hush', hush: 'hush',
     失神: 'daze', 空白: 'daze', daze: 'daze',
 });
+// 非人角色 [igs-fx:creature|名字|形态|体型|落地]：独立于 FX_TAG_KINDS，随战斗演出开关；名字必填，缺省整条丢弃（照常从正文剥离）。
+// 后三栏可省略，同义词按 creature-profile 转成规范值（humanoid|beast、small|medium|large|giant、ground|float），认不出的栏给空串；
+// 只作用于标签所在页、不跨页持续，每页最多 FX_CREATURE_PAGE_MAX 个，同名后者覆盖前者；creature-end 无意义，返回 null。
+export const FX_CREATURE_PAGE_MAX = 4;
+// 二阶段 [igs-fx:phase|名字]：非人对手狂暴登场，之后本场战斗用狂暴档；名字可省（本场全部对手）。同义词在这里归一，phase-end 无意义。
+// 战斗区间状态里记在 battle.frenzy（只在有二阶段时才有这个字段），本页发生的二阶段记在 phases（带已出招数，用来排时间轴）。
+export const FX_PHASE_HEADS = Object.freeze(['phase', '二阶段', '狂暴', '暴走', '狂化', 'enrage', 'frenzy', 'berserk']);
+export const FX_PHASE_PAGE_MAX = 2;
 // 独处 [igs-fx:solo|想着的角色名] … [igs-fx:solo-end]：角色独自一人的情事段，角色名可省；同属亲密演出。
 // 外面的动静 [igs-fx:noise|脚步]：独处时让角色以为要被发现的瞬时声音，类型写错整条丢弃。
 export const FX_NOISES = Object.freeze({
@@ -179,6 +193,11 @@ export function parseFxBody(body) {
         if (isEnd) return { kind, end: true, args: [lookup(FX_BATTLE_RESULTS, parts[1], '')] };
         return { kind, end: false, args: [parts[1] || '', parts[2] || ''] };
     }
+    if (FX_PHASE_HEADS.includes(kind)) return isEnd ? null : { kind: 'phase', end: false, args: [parts[1] || ''] };
+    if (kind === 'creature') {
+        if (isEnd || !parts[1]) return null;
+        return { kind, end: false, args: [parts[1], parseCreatureForm(parts[2]), parseCreatureSize(parts[3]), parseCreatureAnchor(parts[4])] };
+    }
     if (kind === 'romance') {
         if (isEnd) return { kind, end: true, args: [] };
         const level = lookup(FX_ROMANCE_LEVELS, parts[1], '');
@@ -227,6 +246,10 @@ export function parseFxBody(body) {
     }
     if (kind === 'confess') return isEnd ? null : { kind, end: false, args: [] };
     if (kind === 'memory') return !isEnd && parts[1] ? { kind, end: false, args: [parts[1]] } : null;
+    if (kind === 'clash') {
+        if (isEnd || !parts[2]) return null;
+        return { kind, end: false, args: [parts[1] || '', parts[2], clashActionOf(parts[3]), clashTierWord(parts[4])] };
+    }
     if (kind === 'hit' && !isEnd) {
         if (!parts[1] && !parts[3]) return null;
         return { kind, end: false, args: [parts[1] || '', parts[2] || '', parts[3] || '', lookup(FX_HIT_RESULTS, parts[4], 'hit')] };
@@ -391,16 +414,22 @@ export function createFxPageResolver(directives, initial = null) {
 }
 
 export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = null, nextOffset = -1, prepared = null) {
-    const carried = initial && initial.battle && typeof initial.battle === 'object' ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || '') } : null;
+    const carried = initial && initial.battle && typeof initial.battle === 'object'
+        ? { foe: String(initial.battle.foe || ''), title: String(initial.battle.title || ''), ...(Array.isArray(initial.battle.frenzy) && initial.battle.frenzy.length ? { frenzy: initial.battle.frenzy.map(String) } : {}), ...(Array.isArray(initial.battle.down) && initial.battle.down.length ? { down: initial.battle.down.map(String).slice(0, FOE_DOWN_MAX) } : {}) }
+        : null;
     const result = { instants: [], call: null, flashback: false, dream: false, letterbox: false, whisper: false, stateFx: null, movie: false, movieMode: '', lightsOff: false, umbrella: false, items: [], itemOverflow: 0, daily: [], battle: carried, battleStart: false, battleEnd: '', hits: [], reacts: [], poses: {}, links: [], goneAt: {}, entrances: {}, turns: {}, romance: '', romanceTarget: '', romanceAt: -1, confess: false, memory: '', live: null, dms: [], danmaku: [], bgmMood: '', cam: null, storm: null };
     // 感官调度：区间状态，作用到下一条 sense / sense-end。
     result.sense = '';
     // 独处：区间状态 { target }；外面的动静：只归标签所在页。
     result.solo = null;
     result.noise = '';
+    // 非人角色：只归标签所在页，[{ name, form, size, anchor }]。
+    result.creatures = [];
     // DLC 演出：dlc 收本页的瞬时标签 [{ kind, args }]；dlcRanges 收到此为止仍开着的区间 { kind: args }。
     result.dlc = [];
     result.dlcRanges = {};
+    result.clashes = [];
+    result.clashExtra = [];
     const at = Number(offset);
     if (!Array.isArray(directives) || !directives.length || !Number.isFinite(at) || at < 0) return result;
     const from = Number.isFinite(Number(prevOffset)) ? Number(prevOffset) : -1;
@@ -424,7 +453,15 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         else if (d.kind === 'light') result.lightsOff = !d.end;
         else if (d.kind === 'umbrella') result.umbrella = !d.end;
         else if (d.kind === 'state') result.stateFx = d.end ? null : { type: d.args[0], level: d.args[1] };
-        else if (d.kind === 'battle') result.battle = d.end ? null : { foe: d.args[0], title: d.args[1] };
+        else if (d.kind === 'battle') {
+            // 战斗结束的那一页还要认得对手（非人对手的击倒 / 败北 / 撤退演出），记在 battleOver；没有结束标签的页面不带这个字段。
+            if (d.end && result.battle && d.offset > from) result.battleOver = { foe: result.battle.foe, title: result.battle.title, ...(result.battle.frenzy ? { frenzy: result.battle.frenzy } : {}), ...(result.battle.down ? { down: result.battle.down } : {}) };
+            result.battle = d.end ? null : { foe: d.args[0], title: d.args[1] };
+        }
+        // 本场战斗里被击倒 / 收服的对手：按出现顺序记目标名（battle.down，没有击倒时没有这个字段），翻页与跨楼后已倒下的对手不再上台。
+        else if (d.kind === 'hit' && d.args[3] === 'ko' && d.args[1] && result.battle) result.battle = { ...result.battle, down: [...(result.battle.down || []), d.args[1]].slice(0, FOE_DOWN_MAX) };
+        else if (d.kind === 'daily' && d.args[0] === 'subdue' && d.args[2] && result.battle) result.battle = { ...result.battle, down: [...(result.battle.down || []), d.args[2]].slice(0, FOE_DOWN_MAX) };
+        else if (d.kind === 'phase') { if (result.battle) result.battle = { ...result.battle, frenzy: addFrenzy(result.battle.frenzy, d.args[0], result.battle.foe) }; }
         else if (d.kind === 'live') result.live = d.end ? null : { name: d.args[0], title: d.args[1], view: d.args[2] };
         else if (d.kind === 'bgm') result.bgmMood = d.args[0];
         else if (d.kind === 'romance') {
@@ -454,6 +491,20 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         }
         if (d.offset <= from || d.kind === 'romance' || d.kind === 'sense' || d.kind === 'solo') continue;
         if (d.kind === 'noise') { if (!result.noise) result.noise = d.args[0]; continue; }
+        if (d.kind === 'phase') {
+            if (result.battle || result.battleStart) {
+                if (!result.phases) result.phases = [];
+                if (result.phases.length < FX_PHASE_PAGE_MAX) result.phases.push({ name: d.args[0], at: result.hits.length });
+            }
+            continue;
+        }
+        if (d.kind === 'creature') {
+            const item = { name: d.args[0], form: d.args[1], size: d.args[2], anchor: d.args[3] };
+            const idx = result.creatures.findIndex((c) => c.name === item.name);
+            if (idx >= 0) result.creatures[idx] = item;
+            else if (result.creatures.length < FX_CREATURE_PAGE_MAX) result.creatures.push(item);
+            continue;
+        }
         if (d.kind === 'confess') { result.confess = true; continue; }
         if (d.kind === 'memory') { if (!result.memory) result.memory = d.args[0]; continue; }
         // 同页先开战后结算时两者都保留，演出按「遭遇 → 出招 → 结算」顺序播放。
@@ -466,6 +517,11 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
             if (result.hits.length < FX_HIT_PAGE_MAX) {
                 result.hits.push({ attacker: d.args[0], target: d.args[1], skill: d.args[2], result: d.args[3], dice: d.dice === true });
             }
+            continue;
+        }
+        if (d.kind === 'clash') {
+            if (result.clashes.length < FX_CLASH_PAGE_MAX) result.clashes.push({ attacker: d.args[0], target: d.args[1], action: d.args[2], tier: d.args[3] });
+            else if (result.clashExtra.length < FX_CLASH_PAGE_MAX) result.clashExtra.push(d.args[2]);
             continue;
         }
         if (d.kind === 'cam') {

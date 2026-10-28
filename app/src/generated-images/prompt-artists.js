@@ -10,6 +10,8 @@ export const PROMPT_KINDS = Object.freeze([
     ['item', '物品'],
     ['cg', 'CG'],
     ['nsfwCg', 'NSFW CG'],
+    // 非人角色立绘与差分的分区画师串；留空回落到全局。
+    ['creature', '非人'],
 ]);
 const KIND_IDS = new Set(PROMPT_KINDS.map(([id]) => id));
 

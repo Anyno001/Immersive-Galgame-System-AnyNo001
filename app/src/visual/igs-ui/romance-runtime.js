@@ -110,6 +110,25 @@ function characterKey(sceneAssets, name) {
 // 对象栏缺省时不猜——按「区间里第一个出场的人」猜会猜错，心动 / 动情段里换人说话就频繁弹心碎。
 // 主角本人不算对象也不算情敌；情敌只认当过 romance 对象的角色（好感不一定是爱情，系统 / 家人 / 朋友插话不算）。
 const romanceTargets = new Set();
+// 数值系统吃醋（扣过好感的吃醋标签，§5.3）也算「当过恋爱对象」：只扩大情敌来源，主对象仍只认第 3 栏，不猜对象。
+// 存原名，判定时再按别名归一（数值系统登记的名字可能是别名）。
+const statsRivals = new Set();
+
+export function registerStatsRivals(names) {
+    for (const raw of Array.isArray(names) ? names : []) {
+        const name = String(raw || '').trim();
+        if (name) remember(statsRivals, name);
+    }
+}
+
+export function clearStatsRivals() {
+    statsRivals.clear();
+}
+
+function isStatsRival(sceneAssets, current) {
+    for (const name of statsRivals) if ((characterKey(sceneAssets, name) || name) === current) return true;
+    return false;
+}
 
 function romanceOwner(content, sceneAssets, userName) {
     const fx = content.fx || {};
@@ -131,7 +150,12 @@ function resolveRival(content, sceneAssets, userName) {
     const name = String(content.spriteCharacter || content.speaker || '').trim();
     if (!owner || isPlayerName(name, userName)) return false;
     const current = characterKey(sceneAssets, name);
-    return Boolean(current && current !== owner && romanceTargets.has(current));
+    return Boolean(current && current !== owner && (romanceTargets.has(current) || isStatsRival(sceneAssets, current)));
+}
+
+// 供测试与外部判定使用，行为与渲染时的修罗场判定一致。
+export function resolveRomanceRivalSpeaker(content, sceneAssets, userName) {
+    return resolveRival(content || {}, sceneAssets, userName);
 }
 
 // 心形按钮落在头部右上方（复用漫画符号「心」的落点）；原图尺寸未知时贴在立绘上方中间。

@@ -37,7 +37,7 @@ function animate(el, frames, options) {
     try { return el.animate(frames, options); } catch { return null; }
 }
 
-const HAND_FRAMES = Object.freeze([
+export const HAND_FRAMES = Object.freeze([
     { translate: '0 0', rotate: '0deg' },
     { translate: '3px -2px', rotate: '0.4deg' },
     { translate: '-2px 3px', rotate: '-0.3deg' },

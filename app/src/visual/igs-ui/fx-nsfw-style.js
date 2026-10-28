@@ -44,27 +44,19 @@ export const NSFW_STYLE_TEXT = `
 @keyframes igs-nfx-time{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 #igs-overlay .igs-nfx-after-text{position:absolute;left:5%;top:12%;max-width:44%;padding:3px 10px;border-left:2px solid #c9a98f;background:#2f2622;color:#eadccf;font-size:.85em;letter-spacing:.06em;animation:igs-nfx-fade var(--igs-dfx-life) ease both;}
 #igs-overlay .igs-nfx-after.is-ancient .igs-nfx-after-text{font-family:serif;background:#f1ead8;color:#4a3418;border-left-color:#7a5b36;}
-#igs-overlay .igs-nfx-valance{position:absolute;left:0;right:0;top:0;height:4%;background:#8a1c28;animation:igs-nfx-valance var(--igs-dfx-life) ease both;}
-#igs-overlay .igs-nfx-drape{position:absolute;top:0;bottom:0;width:10%;background:#8a1c28;clip-path:polygon(0 0,100% 0,100% 32%,58% 50%,100% 68%,100% 100%,0 100%);border-right:1px solid rgba(216,180,90,.6);animation:igs-nfx-drape-l var(--igs-dfx-life) cubic-bezier(.3,.7,.2,1) both;}
-#igs-overlay .igs-nfx-drape.is-r{right:0;left:auto;clip-path:polygon(0 0,100% 0,100% 100%,0 100%,0 68%,42% 50%,0 32%);border-right:0;border-left:1px solid rgba(216,180,90,.6);animation-name:igs-nfx-drape-r;}
-#igs-overlay .igs-nfx-drape.is-l{left:0;}
-@keyframes igs-nfx-valance{0%{transform:translateY(-100%)}14%{transform:translateY(0)}86%{transform:translateY(0)}100%{transform:translateY(-100%)}}
-@keyframes igs-nfx-drape-l{0%{transform:translateX(-100%)}16%{transform:translateX(0)}84%{transform:translateX(0)}100%{transform:translateX(-100%)}}
-@keyframes igs-nfx-drape-r{0%{transform:translateX(100%)}16%{transform:translateX(0)}84%{transform:translateX(0)}100%{transform:translateX(100%)}}
-#igs-overlay .igs-nfx-candles{position:absolute;top:min(54%,calc(var(--igs-fx-vis) - 72px));width:6%;display:flex;justify-content:center;animation:igs-nfx-fade var(--igs-dfx-life) ease both;}
-#igs-overlay .igs-nfx-candles.is-l{left:2.5%;}
-#igs-overlay .igs-nfx-candles.is-r{right:2.5%;}
-#igs-overlay .igs-nfx-candle{position:relative;display:block;width:12px;height:38px;border-radius:2px;background:#b3262e;border-top:3px solid #f1e3c4;}
-#igs-overlay .igs-nfx-flame{position:absolute;left:50%;bottom:100%;width:10px;height:18px;margin:0 0 3px -5px;border-radius:50% 50% 50% 50%/62% 62% 38% 38%;background:#ffd37a;box-shadow:0 0 14px 6px #ff9a3c;transform-origin:50% 100%;animation:igs-nfx-flicker 1.6s ease-in-out infinite alternate;}
-@keyframes igs-nfx-flicker{from{transform:scale(1,.92) rotate(-2deg)}to{transform:scale(.94,1.08) rotate(2deg)}}
+/* 床幔：不画帐子与烛台，只做整台暖色温、收窄的暗角，以及两侧边缘一抹极淡的暖光（古代偏暖橙，现代偏暖白，明暗起伏不超过 6%）。 */
+#igs-overlay .igs-nfx-bed-tone,#igs-overlay .igs-nfx-bed-vig,#igs-overlay .igs-nfx-bed-glow{position:absolute;inset:0;pointer-events:none;animation:igs-nfx-fade var(--igs-dfx-life) ease both;}
+#igs-overlay .igs-nfx-bed-tone{background:rgba(255,184,120,.26);mix-blend-mode:soft-light;}
+#igs-overlay .igs-nfx-bed.is-modern .igs-nfx-bed-tone{background:rgba(255,226,196,.2);}
+#igs-overlay .igs-nfx-bed-vig{background:radial-gradient(ellipse 70% 72% at 50% 50%,transparent 38%,rgba(28,12,6,.22) 72%,rgba(18,8,4,.4) 100%);}
+#igs-overlay .igs-nfx-bed-glow{right:auto;width:34%;mix-blend-mode:screen;}
+#igs-overlay .igs-nfx-bed-glow.is-r{left:auto;right:0;}
+#igs-overlay .igs-nfx-bed-glow i{display:block;width:100%;height:100%;background:linear-gradient(90deg,rgba(255,170,96,.3),rgba(255,170,96,.14) 38%,rgba(255,170,96,.05) 72%,transparent);animation:igs-nfx-bed-flick 1.8s ease-in-out 4 alternate both;}
+#igs-overlay .igs-nfx-bed-glow.is-r i{background:linear-gradient(270deg,rgba(255,170,96,.3),rgba(255,170,96,.14) 38%,rgba(255,170,96,.05) 72%,transparent);animation-delay:-.7s;}
+#igs-overlay .igs-nfx-bed.is-modern .igs-nfx-bed-glow i{background:linear-gradient(90deg,rgba(255,230,196,.28),rgba(255,230,196,.13) 38%,rgba(255,230,196,.05) 72%,transparent);}
+#igs-overlay .igs-nfx-bed.is-modern .igs-nfx-bed-glow.is-r i{background:linear-gradient(270deg,rgba(255,230,196,.28),rgba(255,230,196,.13) 38%,rgba(255,230,196,.05) 72%,transparent);}
+@keyframes igs-nfx-bed-flick{from{opacity:.94}to{opacity:1}}
 #igs-overlay .igs-nfx-curtain-text{position:absolute;left:0;right:0;top:12%;text-align:center;font-family:serif;font-size:1.3em;letter-spacing:.5em;color:#f1d58a;animation:igs-nfx-fade var(--igs-dfx-life) ease both;}
-#igs-overlay .igs-nfx-bed.is-modern .igs-nfx-valance{height:2%;background:#8c8a94;}
-#igs-overlay .igs-nfx-bed.is-modern .igs-nfx-drape{width:10%;background:#d6d3de;clip-path:polygon(0 0,100% 0,100% 34%,70% 52%,100% 70%,100% 100%,0 100%);border-right:0;}
-#igs-overlay .igs-nfx-bed.is-modern .igs-nfx-drape.is-r{clip-path:polygon(0 0,100% 0,100% 100%,0 100%,0 70%,30% 52%,0 34%);border-left:0;}
-#igs-overlay .igs-nfx-lamp{position:relative;display:block;width:14px;height:34px;}
-#igs-overlay .igs-nfx-lamp::before{content:"";position:absolute;left:0;top:0;width:14px;height:16px;background:#f3e3b8;clip-path:polygon(18% 0,82% 0,100% 100%,0 100%);box-shadow:0 0 12px 5px #ffd9a0;}
-#igs-overlay .igs-nfx-lamp::after{content:"";position:absolute;left:6px;top:16px;width:2px;height:12px;background:#6f6a78;}
-#igs-overlay .igs-nfx-lamp i{position:absolute;left:2px;bottom:0;width:10px;height:6px;background:#6f6a78;border-radius:2px;}
 #igs-overlay .igs-nfx-bed.is-modern .igs-nfx-curtain-text{font-family:sans-serif;letter-spacing:.3em;color:#f4efe6;}
 #igs-overlay .igs-nfx-cult-label{position:absolute;transform:translate(-50%,-50%);display:flex;gap:6px;align-items:baseline;padding:3px 12px;border-radius:4px;background:#2b2210;border:2px solid #d8b45a;color:#f6e3a1;font-family:serif;font-variant-numeric:tabular-nums;animation:igs-nfx-fade var(--igs-dfx-life) ease both;}
 #igs-overlay .igs-nfx-cult-label b{font-size:1.25em;}
@@ -117,20 +109,15 @@ export const NSFW_STYLE_TEXT = `
 #igs-overlay .igs-nfx-fetal-n{grid-area:n;font-size:1.5em;color:#ff9db6;}
 #igs-overlay .igs-nfx-fetal-u{grid-area:u;font-size:.78em;opacity:.85;}
 #igs-overlay .igs-nfx-fetal-text{grid-column:1 / 4;font-size:.78em;opacity:.85;}
-#igs-overlay .igs-nfx-trait{position:absolute;display:block;transform:translate(-50%,-50%) rotate(var(--igs-nfx-rot,0deg));animation:igs-nfx-fade var(--igs-dfx-life) ease calc(var(--igs-nfx-i,0) * 90ms) both;}
-#igs-overlay .igs-nfx-trait svg{display:block;width:100%;height:auto;}
 #igs-overlay .igs-dfx.is-reduced .igs-nfx-tick,#igs-overlay .igs-dfx.is-reduced .igs-nfx-sweat,#igs-overlay .igs-dfx.is-reduced .igs-nfx-fetal-glow i,#igs-overlay .igs-dfx.is-reduced .igs-nfx-after-time i{animation:none;}
 #igs-overlay .igs-dfx.is-reduced .igs-nfx-flash,#igs-overlay .igs-dfx.is-reduced .igs-nfx-pulse{display:none;}
-#igs-overlay .igs-dfx.is-reduced .igs-nfx-flame{box-shadow:0 0 8px 3px #ff9a3c;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-fetal-glow i{animation:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-sweat,#igs-overlay[data-igs-quality="low"] .igs-nfx-tick.is-new{animation:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-after-time i{animation:none;}
-#igs-overlay[data-igs-quality="low"] .igs-nfx-flame{animation:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-pulse{animation-iteration-count:1;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-sigil-mark svg{filter:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-fetal-dot{animation:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-fetal-card svg path{animation:none;}
 @media (prefers-reduced-motion: reduce){
-#igs-overlay .igs-nfx-flame,#igs-overlay .igs-nfx-fetal-dot,#igs-overlay .igs-nfx-fetal-card svg path,#igs-overlay .igs-nfx-fetal-glow i,#igs-overlay .igs-nfx-sweat,#igs-overlay .igs-nfx-tick,#igs-overlay .igs-nfx-after-time i{animation:none;}
 }
 `;

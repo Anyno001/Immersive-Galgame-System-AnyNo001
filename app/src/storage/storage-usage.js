@@ -9,7 +9,7 @@ const GROUPS = [
 ];
 
 export function measureLocalStorage(storage) {
-    const sizes = new Map();
+    const sizes = new Map(), keys = [];
     let total = 0;
     try {
         for (let i = 0; i < storage.length; i += 1) {
@@ -19,10 +19,11 @@ export function measureLocalStorage(storage) {
             const group = GROUPS.find(([, test]) => test(key));
             const label = group ? group[0] : OTHERS;
             sizes.set(label, (sizes.get(label) || 0) + size);
+            keys.push([key, size]);
             total += size;
         }
     } catch (error) { /* 读不了的部分不计 */ }
-    return { total, groups: [...sizes].sort((a, b) => b[1] - a[1]) };
+    return { total, groups: [...sizes].sort((a, b) => b[1] - a[1]), keys: keys.sort((a, b) => b[1] - a[1]) };
 }
 
 export function formatStorageSize(bytes) {
@@ -30,11 +31,13 @@ export function formatStorageSize(bytes) {
 }
 
 // 「本机存储已用 4.8 MB：素材预设 3.1 MB、IGS 设置 1.2 MB、…」；读不到时返回空串。
-export function describeLocalStorageUsage(storage) {
+// topKeys>0 时再附最大的几个键名，便于定位具体是哪项数据。
+export function describeLocalStorageUsage(storage, { topKeys = 0 } = {}) {
     if (!storage || typeof storage.key !== 'function') return '';
-    const { total, groups } = measureLocalStorage(storage);
+    const { total, groups, keys } = measureLocalStorage(storage);
     if (!total) return '';
-    return `本机存储已用 ${formatStorageSize(total)}：${groups.map(([label, size]) => `${label} ${formatStorageSize(size)}`).join('、')}`;
+    const top = topKeys > 0 ? keys.slice(0, topKeys).map(([key, size]) => `${key} ${formatStorageSize(size)}`).join('、') : '';
+    return `本机存储已用 ${formatStorageSize(total)}：${groups.map(([label, size]) => `${label} ${formatStorageSize(size)}`).join('、')}${top ? `（最大：${top}）` : ''}`;
 }
 
 export function describeMediaUsage(stats) {

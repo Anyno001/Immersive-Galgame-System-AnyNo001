@@ -28,6 +28,17 @@ export function withCharacterDnaDraftSync(target, readPanel) {
                 live.characterDna = { ...live.characterDna, [target.name]: merged };
             }
             return result;
+        },
+        // 设置器开着时把新衣装同步进草稿，免得之后保存草稿把刚存的衣装盖掉。
+        saveOutfit(clothing) {
+            const panel = readPanel();
+            const result = target.saveOutfit(clothing);
+            if (result?.ok !== true || !result.created || !panel || readPanel() !== panel) return result;
+            const live = target.owner ? ensureCardLibrary(root(panel), target.owner) : root(panel);
+            live.characterOutfits = { ...live.characterOutfits,
+                [target.name]: { ...live.characterOutfits?.[target.name], [result.name]: structuredClone(result.entry) } };
+            if (result.wardrobeKey) live.wardrobe = { ...live.wardrobe, [result.wardrobeKey]: structuredClone(result.wardrobe) };
+            return result;
         } };
 
 }

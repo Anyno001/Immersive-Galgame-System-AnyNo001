@@ -1,0 +1,24 @@
+{
+ "suite": "plan-vs-plan",
+ "walls": 500,
+ "seedBase": 1,
+ "options": {
+  "variant": "reader",
+  "K": 0,
+  "persona": "",
+  "oppPersona": ""
+ },
+ "workers": 16,
+ "ms": 130407,
+ "cores": 18,
+ "cpu": "Apple M5 Pro",
+ "node": "v24.10.0",
+ "decide": {
+  "n": 30403,
+  "p50": 2,
+  "p95": 51,
+  "p99": 256,
+  "over250": 320,
+  "max": 601
+ }
+}

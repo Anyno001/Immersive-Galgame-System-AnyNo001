@@ -1,5 +1,19 @@
 // 偶像包样式：舞台黑底配应援粉与金，装饰一律实色（光束与暗角除外，它们本身就是光）；动画终态即基础样式，.is-reduced 关掉动画后仍是完整静态画面。
 // 常驻层只有静态与极慢的呼吸；低画质与减少动态效果下循环动画全部静止。
+// 荧光棒：整排只用一个元素，每根棒是两层渐变背景（亮芯加柔光），同排共用一段 skewX 摆动，排与排错开相位。
+// 背景位置的百分比按（容器宽 - 图宽）折算，这里补一段像素修正，让每根的中心落在容器宽度的 x% 处。
+const stickLayers = (xs, { core, halo, heights, pal }) => {
+    const at = (x, w) => `calc(${x}% + ${Math.round(w * (x / 100 - 0.5) * 10) / 10}px) 100%`;
+    const cores = xs.map((x, i) => `linear-gradient(0deg,transparent,rgba(255,250,242,.94) 16%,rgba(255,250,242,.94) 84%,transparent) ${at(x, core)} / ${core}px ${Math.round(heights[i % heights.length] * 0.8)}% no-repeat`);
+    const halos = xs.map((x, i) => `radial-gradient(closest-side,${pal[i % pal.length]},transparent) ${at(x, halo)} / ${halo}px ${heights[i % heights.length]}% no-repeat`);
+    return [...cores, ...halos].join(',');
+};
+// 灯海三排：前排少而大，中排居中，后排多而小；位置有意不等距。
+const LS_FRONT = stickLayers([13, 37, 68, 89], { core: 3, halo: 26, heights: [100, 88, 96, 84], pal: ['var(--l1)', 'var(--l2)', 'var(--l3)'] });
+const LS_MID = stickLayers([6, 24, 41, 57, 77, 94], { core: 2, halo: 17, heights: [92, 100, 86, 96, 90, 98], pal: ['var(--l2)', 'var(--l1)', 'var(--l3)'] });
+const LS_BACK = stickLayers([4, 15, 27, 44, 53, 66, 82, 91], { core: 2, halo: 11, heights: [84, 100, 90, 78, 96, 88, 100, 82], pal: ['var(--l1)', 'var(--l3)', 'var(--l2)'] });
+const OS_STICKS = stickLayers([6, 17, 29, 41, 52, 63, 75, 86, 94], { core: 2, halo: 16, heights: [90, 100, 86, 96, 92, 100, 84, 94, 88], pal: ['var(--l1)', 'var(--l2)', 'var(--l3)'] });
+
 const RAW = `
 @@.igs-id{overflow:hidden;font-weight:700;animation:igs-id-fade var(--igs-dfx-life) ease both;}
 @@.igs-id i,@@.igs-id b,@@.igs-id em{display:block;font-style:normal;}
@@ -28,10 +42,6 @@ const RAW = `
 @@.igs-id-os-song b{font-size:1.1em;font-weight:500;letter-spacing:.1em;}
 @@.igs-id-os-chant{position:absolute;left:0;right:0;top:20%;display:flex;justify-content:center;gap:4px;color:#ffffff;font-size:1.9em;font-weight:500;letter-spacing:.2em;text-shadow:0 0 16px rgba(255,111,174,.9),0 2px 6px rgba(0,0,0,.4);animation:igs-id-chant 1.7s ease both;}
 @@.igs-id-os-chant span{display:inline-block;animation:igs-id-pop .3s ease-out both;}
-@@.igs-id-os-sticks{position:absolute;left:0;right:0;bottom:var(--igs-fx-safe);height:calc(var(--igs-fx-vis) * .22);animation:igs-id-chant 1.7s ease both;}
-@@.igs-id-os-sticks b{position:absolute;bottom:0;left:var(--x);width:5px;height:62%;border-radius:3px;background:#ff6fae;opacity:.88;box-shadow:0 0 8px 2px #ff6fae,0 0 18px 5px rgba(255,111,174,.4);transform-origin:50% 100%;animation:igs-id-sway 1s ease-in-out var(--d) infinite alternate;}
-@@.igs-id-os-sticks b:nth-child(3n){background:#5fc8ff;box-shadow:0 0 8px 2px #5fc8ff,0 0 18px 5px rgba(95,200,255,.4);}
-@@.igs-id-os-sticks b:nth-child(3n+1){background:#ffd83a;opacity:.82;box-shadow:0 0 8px 2px #ffd83a,0 0 16px 4px rgba(255,216,58,.36);}
 
 /* 直拍框 */
 @@.igs-id-fc-dim{position:absolute;inset:0;background:linear-gradient(180deg,#000000 0,#000000 calc(var(--igs-fx-vis) * .7),transparent var(--igs-fx-vis));opacity:.62;animation:igs-id-scrim-in .4s ease both;}
@@ -56,18 +66,16 @@ const RAW = `
 @@.igs-id-fc-focus{position:absolute;left:50%;top:34%;width:28%;aspect-ratio:1;margin-left:-14%;border:1px solid rgba(243,220,160,.85);border-radius:2px;animation:igs-id-focus .8s ease-out .3s both;}
 
 /* 应援色灯海 */
-@@.igs-id-lightsea{--c:#ff6fae;--c2:#5fc8ff;--c3:#fff0f8;}
+@@.igs-id-lightsea{--c:#ff6fae;--c2:#5fc8ff;--c3:#fff0f8;--l1:var(--c);--l2:var(--c2);--l3:var(--c3);}
+@supports (color:color-mix(in srgb,red,blue)){@@.igs-id-lightsea{--l1:color-mix(in srgb,var(--c) 66%,#d8d2d6);--l2:color-mix(in srgb,var(--c2) 66%,#d8d2d6);}}
 @@.igs-id-lightsea::after{content:"";position:absolute;left:5%;right:5%;bottom:var(--igs-fx-safe);height:22%;background:radial-gradient(ellipse at 50% 100%,rgba(255,111,174,.5) 0%,rgba(95,200,255,.28) 44%,transparent 72%);pointer-events:none;animation:igs-id-breathe 2.6s ease-in-out 1.4s infinite;}
 @@.igs-id-ls-wash{position:absolute;left:0;right:0;bottom:0;height:calc(var(--igs-fx-safe) + 26%);background:linear-gradient(0deg,var(--c) 0%,var(--c2) 50%,transparent);opacity:.44;animation:igs-id-wash-in 1.2s ease both,igs-id-breathe 2.4s ease-in-out 1.2s infinite;}
-@@.igs-id-ls-crowd{position:absolute;left:0;right:0;bottom:0;height:calc(var(--igs-fx-safe) + 18%);}
-@@.igs-id-ls-row{position:absolute;left:0;right:0;}
-@@.igs-id-ls-row.is-r0{bottom:22%;height:30%;}
-@@.igs-id-ls-row.is-r1{bottom:10%;height:36%;}
-@@.igs-id-ls-row.is-r2{bottom:-2%;height:44%;}
-@@.igs-id-ls-row b{position:absolute;bottom:0;width:6px;height:100%;margin-left:-3px;border-radius:3px;background:var(--c);box-shadow:0 0 9px 2px var(--c),0 0 20px 5px rgba(255,111,174,.35);transform-origin:50% 100%;animation:igs-id-stick-in .7s ease-out var(--d) both,igs-id-sway 1.2s ease-in-out calc(var(--d) + .7s) infinite alternate;}
-@@.igs-id-ls-row b:nth-child(3n+1){background:var(--c2);box-shadow:0 0 9px 2px var(--c2),0 0 20px 5px rgba(95,200,255,.35);}
-@@.igs-id-ls-row b:nth-child(3n+2){background:var(--c3);box-shadow:0 0 7px 2px rgba(255,240,248,.85),0 0 16px 4px rgba(255,111,174,.3);}
-@@.igs-id-ls-row.is-r0 b{opacity:.7;}
+@@.igs-id-ls-crowd{position:absolute;inset:0;}
+@@.igs-id-os-sticks{--l1:#d9a5bd;--l2:#9fc3d6;--l3:#dcc98f;position:absolute;left:0;right:0;bottom:var(--igs-fx-safe);height:calc(var(--igs-fx-vis) * .22);background:${OS_STICKS};transform-origin:50% 100%;opacity:.88;animation:igs-id-chant 1.7s ease both,igs-id-ls-sway 1s ease-in-out 2 alternate;}
+@@.igs-id-ls-row{position:absolute;left:0;right:0;transform-origin:50% 100%;animation:igs-id-ls-in .7s ease-out var(--rd) both,igs-id-ls-sway 1.2s ease-in-out var(--rp) 5 alternate;}
+@@.igs-id-ls-row.is-r0{bottom:calc(var(--igs-fx-safe) + 1%);height:15%;--rd:.2s;--rp:-.8s;opacity:.4;background:${LS_BACK};}
+@@.igs-id-ls-row.is-r1{bottom:calc(var(--igs-fx-safe) - 2%);height:20%;--rd:.1s;--rp:-.4s;opacity:.55;background:${LS_MID};}
+@@.igs-id-ls-row.is-r2{bottom:calc(var(--igs-fx-safe) - 6%);height:26%;--rd:0s;--rp:0s;opacity:.66;background:${LS_FRONT};}
 @@.igs-id-ls-name{position:absolute;left:0;right:0;top:12%;display:flex;align-items:center;justify-content:center;gap:14px;color:#ffffff;font-size:1.2em;font-weight:500;letter-spacing:.3em;text-shadow:0 0 14px rgba(255,111,174,.9),0 1px 4px rgba(0,0,0,.5);animation:igs-id-line-in .6s ease-out .8s both;}
 @@.igs-id-ls-name i{width:42px;height:2px;background:linear-gradient(90deg,transparent,var(--c));box-shadow:0 0 7px var(--c);}
 @@.igs-id-ls-name i:last-child{background:linear-gradient(90deg,var(--c),transparent);}
@@ -180,7 +188,7 @@ const RAW = `
 #igs-overlay .igs-dfx-amb:is(.is-idbackstage,.is-idpractice).is-reduced *{animation:none!important;}
 
 /* 低画质：循环动画停住，终态保留 */
-#igs-overlay[data-igs-quality="low"] .igs-id :is(.igs-id-fc-shake,.igs-id-fc-rec i,.igs-id-os-sticks b,.igs-id-ls-row b,.igs-id-ls-wash,.igs-id-pr-inner,.igs-id-pr-tick,.igs-id-bn-sign){animation:none;}
+#igs-overlay[data-igs-quality="low"] .igs-id :is(.igs-id-fc-shake,.igs-id-fc-rec i,.igs-id-os-sticks,.igs-id-ls-row,.igs-id-ls-wash,.igs-id-pr-inner,.igs-id-pr-tick,.igs-id-bn-sign){animation:none;}
 #igs-overlay[data-igs-quality="low"] .igs-id-bn-sign{animation:igs-id-bn-up 1.1s cubic-bezier(.2,1.1,.3,1) var(--igs-id-d) both;}
 
 @media (max-aspect-ratio:4/5){
@@ -207,14 +215,14 @@ const RAW = `
 @keyframes igs-id-slide-l{from{opacity:0;transform:translateX(-30px)}}
 @keyframes igs-id-chant{0%{opacity:0}12%{opacity:1}85%{opacity:1}100%{opacity:0}}
 @keyframes igs-id-pop{from{opacity:0;transform:scale(1.7)}}
-@keyframes igs-id-sway{from{transform:rotate(-9deg)}to{transform:rotate(9deg)}}
 @keyframes igs-id-frame-in{from{opacity:0;transform:translateX(-50%) scale(.88)}}
 @keyframes igs-id-handheld{0%{transform:translate(0,0) rotate(0deg)}25%{transform:translate(-1.2%,.8%) rotate(-.5deg)}50%{transform:translate(.8%,-.6%) rotate(.4deg)}75%{transform:translate(-.6%,-.9%) rotate(-.3deg)}100%{transform:translate(0,0) rotate(0deg)}}
 @keyframes igs-id-line-in{from{opacity:0;transform:translateY(10px)}}
 @keyframes igs-id-focus{from{opacity:0;transform:scale(2.2)}}
 @keyframes igs-id-wash-in{from{opacity:0}}
 @keyframes igs-id-breathe{0%{opacity:.34}50%{opacity:.6}100%{opacity:.34}}
-@keyframes igs-id-stick-in{from{opacity:0;transform:translateY(30%) scaleY(.4)}}
+@keyframes igs-id-ls-in{from{opacity:0}}
+@keyframes igs-id-ls-sway{from{transform:skewX(-4deg)}to{transform:skewX(4deg)}}
 @keyframes igs-id-board-in{from{opacity:0;transform:translateY(22px)}}
 @keyframes igs-id-seat{0%{opacity:.25;filter:grayscale(1);transform:scale(.86)}35%{opacity:.25;filter:grayscale(1);transform:scale(.86)}55%{opacity:1;filter:none;transform:scale(1.14)}100%{opacity:1;filter:none;transform:scale(1)}}
 @keyframes igs-id-env-out{to{opacity:0;transform:scale(.7) translateY(-30px)}}

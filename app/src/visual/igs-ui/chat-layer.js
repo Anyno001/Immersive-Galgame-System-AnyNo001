@@ -4,6 +4,8 @@ import { worldSkinOf } from '../../scene/worldview.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 import { chatRevealDelayMs, normalizeChatShowSettings } from './chat-show-runtime.js';
 import { chatSfxKindForSide, playChatSfx } from './chat-sfx.js';
+import { normalizeTtsSettings, prefetchTtsBubble, speakTtsBubble, stopTts } from './tts.js';
+import { ORIGINAL_READER_ICONS } from './reader-icons.js';
 
 const FIRST_AUTO_DELAY_MS = 250;
 const FIRST_TYPING_DELAY_MS = 900;
@@ -13,6 +15,8 @@ const SEEN_LIMIT = 64;
 // 输入后放弃的提示停留 / 撤回前原话停留（毫秒）。
 const TYPING_HOLD_MS = 1800;
 const RECALL_HOLD_MS = 1200;
+// 一条气泡的朗读最多卡住下一条这么久，超过就按原节奏继续。
+const SPEECH_MAX_WAIT_MS = 15000;
 const TYPING_LABEL = Object.freeze({ modern: '对方正在输入…', ancient: '对方提笔又放下' });
 const READ_LABEL = Object.freeze({ modern: '已读', ancient: '已阅' });
 const RECALL_ANCIENT_TEXT = '信被抽回';
@@ -20,6 +24,10 @@ const THEME_VARS = Object.freeze(['shell', 'head', 'headInk', 'frame', 'sub', 'b
 const states = new WeakMap();
 const seenByRoot = new WeakMap();
 const boundLayers = new WeakSet();
+
+// 气泡朗读默认走 tts.js；测试可经 ctx.tts 注入 { speak(line, settings, assets) -> { done, cancel } | null, prefetch(line, settings, assets), stop() }。
+const DEFAULT_TTS = Object.freeze({ speak: speakTtsBubble, prefetch: prefetchTtsBubble, stop: stopTts });
+const SPOKEN_TYPES = new Set(['text', 'voice']);
 
 function hasReducedMotion() {
     return prefersReducedMotion();
@@ -137,6 +145,32 @@ function renderRow(doc, m, ancient = false) {
     return row;
 }
 
+// 气泡旁的「播放 / 重新生成」：朗读开着才显示（data-igs-chat-tts），重新生成只在接口来源时显示。
+function renderTtsControls(doc, index) {
+    const wrap = el(doc, 'div', 'igs-chat-tts');
+    for (const [act, title, icon] of [['play', '播放这条', ORIGINAL_READER_ICONS.replay], ['reroll', '重新生成这条', ORIGINAL_READER_ICONS.ttsReroll]]) {
+        const button = el(doc, 'button', `igs-chat-tts-btn is-${act}`);
+        button.type = 'button';
+        button.setAttribute('data-igs-chat-tts', act);
+        button.setAttribute('data-index', String(index));
+        button.setAttribute('title', title);
+        button.setAttribute('aria-label', title);
+        button.innerHTML = icon;
+        wrap.appendChild(button);
+    }
+    return wrap;
+}
+
+// 手动重播某一条：掐掉正在念的那条（等它的下一条随即放行），记为已念，之后不再自动念。
+function speakBubbleAgain(state, index, fresh) {
+    if (!state || !state.tts || !state.ttsSettings) return;
+    const line = speechLine(state, state.chat.messages[index], index);
+    if (!line) return;
+    stopSpeech(state);
+    state.spoken.add(line.key);
+    try { state.tts.speak(line, state.ttsSettings, state.sceneAssets, { fresh }); } catch { /* ignore */ }
+}
+
 function applyTheme(layer, theme) {
     layer.setAttribute('data-igs-chat-theme', theme ? theme.key : '');
     for (const name of THEME_VARS) {
@@ -156,8 +190,9 @@ function renderRows(layer, chat, ancient = false) {
     head.hidden = !chat.title;
     clearChildren(list);
     applyTheme(layer, chat.theme || null);
-    return chat.messages.map((m) => {
+    return chat.messages.map((m, index) => {
         const row = renderRow(doc, m, ancient);
+        if (m.kind === 'msg' && m.text && SPOKEN_TYPES.has(m.type || 'text')) row.appendChild(renderTtsControls(doc, index));
         row.hidden = true;
         list.appendChild(row);
         return row;
@@ -173,6 +208,7 @@ function markSeen(root, key) {
 }
 
 function clearTimer(state) {
+    if (state) state.waitToken = null;
     if (state && state.timer != null) {
         (state.clear || clearTimeout)(state.timer);
         state.timer = null;
@@ -191,8 +227,83 @@ function settleRecall(state) {
     const pending = state.recallPending;
     if (!pending) return;
     state.recallPending = null;
+    // 被撤回的原话还在念就停掉。
+    stopSpeech(state);
     pending.preview.remove();
     pending.note.hidden = false;
+}
+
+// —— 气泡朗读：一条气泡一段声音，下一条要等本条念完（最多等 SPEECH_MAX_WAIT_MS）——
+function speechLine(state, m, index) {
+    const text = m.kind === 'recall' ? m.original : m.text;
+    if (!text || (m.kind === 'msg' && !SPOKEN_TYPES.has(m.type || 'text'))) return null;
+    return {
+        key: `${state.msgKey}:${index}`,
+        textType: 'dialogue',
+        text,
+        speaker: (m.self && state.userName) || m.displayName || '',
+        // 自己发的气泡按「USER 立绘角色」的声音朗读。
+        speakerKey: m.self && state.userName ? String((state.sceneAssets && state.sceneAssets.userCharacter) || '').trim() : '',
+        mood: '',
+        phone: false,
+        nsfw: state.nsfw,
+        whisper: false,
+    };
+}
+
+function stopSpeech(state) {
+    const sp = state.speech;
+    if (!sp) return;
+    state.speech = null;
+    try { sp.handle.cancel(); } catch { /* ignore */ }
+    sp.end();
+}
+
+function startSpeech(state, index) {
+    stopSpeech(state);
+    const tts = state.tts;
+    if (!tts || !state.ttsSettings) return;
+    const messages = state.chat.messages;
+    const line = speechLine(state, messages[index], index);
+    if (!line || state.spoken.has(line.key)) return;
+    state.spoken.add(line.key);
+    let handle = null;
+    try { handle = tts.speak(line, state.ttsSettings, state.sceneAssets); } catch { handle = null; }
+    if (!handle) return;
+    const sp = { handle, ended: false, waiters: [], capTimer: null };
+    sp.end = () => {
+        if (sp.ended) return;
+        sp.ended = true;
+        if (sp.capTimer != null) (state.clear || clearTimeout)(sp.capTimer);
+        sp.capTimer = null;
+        for (const wake of sp.waiters.splice(0)) wake();
+    };
+    Promise.resolve(handle.done).then(sp.end, sp.end);
+    sp.capTimer = (state.schedule || setTimeout)(sp.end, SPEECH_MAX_WAIT_MS);
+    state.speech = sp;
+    // 本条念的时候就备好下一条的音频，两条之间不留空白。
+    for (let i = index + 1; i < messages.length; i += 1) {
+        const next = speechLine(state, messages[i], i);
+        if (!next) continue;
+        try { if (tts.prefetch) tts.prefetch(next, state.ttsSettings, state.sceneAssets); } catch { /* ignore */ }
+        break;
+    }
+}
+
+// 本条念完（或没在念）才执行 fn；等待期间被取消、跳过则丢弃。
+function afterSpeech(state, fn) {
+    const sp = state.speech;
+    if (!sp || sp.ended) {
+        fn();
+        return;
+    }
+    const token = {};
+    state.waitToken = token;
+    sp.waiters.push(() => {
+        if (state.waitToken !== token || states.get(state.layer) !== state) return;
+        state.waitToken = null;
+        fn();
+    });
 }
 
 function hideTyping(state) {
@@ -271,19 +382,22 @@ function showRecallPreview(state, index) {
     });
 }
 
-function revealTo(state, count, { animate = true, sound = true } = {}) {
+function revealTo(state, count, { animate = true, sound = true, speak = true, keepSpeech = false } = {}) {
     const target = Math.min(state.rows.length, count);
     const from = state.revealed;
     if (target <= from) return false;
     hideTyping(state);
     const pop = animate && !hasReducedMotion();
     const messages = state.chat.messages;
+    let speakIndex = -1;
     for (let i = from; i < target; i += 1) {
         const kind = messages[i] && messages[i].kind;
         if (kind === 'typing') continue;
+        if (kind === 'msg') speakIndex = i;
         // 带原话的撤回：只有最后一条且有动画时才先亮原话，其余直接是灰字。
         if (kind === 'recall' && messages[i].original && animate && i === target - 1) {
             showRecallPreview(state, i);
+            speakIndex = i;
             continue;
         }
         state.rows[i].hidden = false;
@@ -304,6 +418,9 @@ function revealTo(state, count, { animate = true, sound = true } = {}) {
         const last = state.chat.messages.slice(from, target).reverse().find((m) => m.kind === 'msg');
         if (last) state.soundHandle = playChatSfx(chatSfxKindForSide(last.side), { volume: settings.sound.volume, preset: state.ancient ? 'paper' : settings.sound.preset });
     }
+    // 动画跳过（speak:false）或这一批里没有可念的气泡：不补读，掐掉还在念的上一条。
+    if (animate && speak && speakIndex >= 0) startSpeech(state, speakIndex);
+    else if (!keepSpeech) stopSpeech(state);
     if (target >= state.rows.length) markSeen(state.root, state.key);
     return true;
 }
@@ -323,19 +440,28 @@ function scheduleAuto(state) {
         : typing ? FIRST_TYPING_DELAY_MS : FIRST_AUTO_DELAY_MS;
     const fire = () => {
         state.timer = null;
+        state.waitToken = null;
         if (states.get(state.layer) !== state) return;
         revealTo(state, state.revealed + 1);
         scheduleAuto(state);
     };
+    // 朗读中：原本的延迟走完后，「正在输入」/出现还要等本条念完，即 max(原延迟, 朗读结束)。
     if (!typing || delay < TYPING_MIN_DELAY_MS) {
-        state.timer = schedule(fire, delay);
+        state.timer = schedule(() => {
+            state.timer = null;
+            if (states.get(state.layer) !== state) return;
+            afterSpeech(state, fire);
+        }, delay);
         return;
     }
     const lead = Math.round(delay * TYPING_LEAD_RATIO);
     state.timer = schedule(() => {
+        state.timer = null;
         if (states.get(state.layer) !== state) return;
-        showTyping(state, next);
-        state.timer = schedule(fire, delay - lead);
+        afterSpeech(state, () => {
+            showTyping(state, next);
+            state.timer = schedule(fire, delay - lead);
+        });
     }, lead);
 }
 
@@ -345,6 +471,12 @@ function bindLayer(layer, ctx) {
     // 与对话框、卡片页一致：左半区上一页，右半区推进气泡/下一页。
     layer.addEventListener('click', (event) => {
         if (event && typeof event.preventDefault === 'function') event.preventDefault();
+        const ttsButton = event && event.target && typeof event.target.closest === 'function' ? event.target.closest('.igs-chat-tts-btn') : null;
+        if (ttsButton) {
+            if (typeof event.stopPropagation === 'function') event.stopPropagation();
+            speakBubbleAgain(states.get(layer), Number(ttsButton.getAttribute('data-index')), ttsButton.getAttribute('data-igs-chat-tts') === 'reroll');
+            return;
+        }
         const rect = typeof layer.getBoundingClientRect === 'function' ? layer.getBoundingClientRect() : { left: 0, width: 0 };
         const clientX = Number(event && event.clientX);
         const action = Number.isFinite(clientX) && rect.width > 0 && clientX < rect.left + rect.width / 2 ? 'prev' : 'next';
@@ -359,6 +491,7 @@ export function cancelChatShow(root) {
     clearTimer(state);
     state.soundHandle?.stop();
     state.soundHandle = null;
+    stopSpeech(state);
     hideTyping(state);
     states.delete(layer);
     return true;
@@ -397,9 +530,17 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
     const key = [snapshot.messageId, content.currentIndex, JSON.stringify(chat.messages.map((m) => [m.kind, m.displayName || '', m.text]))].join(':');
     const renderSig = JSON.stringify([settings.frame, ancient, chat]);
     const previous = states.get(layer);
+    const ttsOn = normalizeTtsSettings(snapshot.readerSettings && snapshot.readerSettings.tts).enabled === true && ctx.tts !== false;
+    const ttsSettings = ttsOn ? snapshot.readerSettings.tts : null;
+    const sceneAssets = (snapshot.readerSettings && snapshot.readerSettings._sceneAssets) || null;
+    if (ttsOn) layer.setAttribute('data-igs-chat-tts', normalizeTtsSettings(ttsSettings).provider === 'api' ? 'api' : 'system');
+    else layer.removeAttribute('data-igs-chat-tts');
     if (previous && previous.key === key) {
         previous.settings = settings;
         previous.ancient = ancient;
+        previous.ttsSettings = ttsSettings;
+        previous.sceneAssets = sceneAssets;
+        if (!ttsOn) stopSpeech(previous);
         if (previous.renderSig !== renderSig) {
             const revealed = previous.revealed;
             const typing = Boolean(previous.typingRow);
@@ -408,7 +549,7 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
             previous.renderSig = renderSig;
             previous.rows = renderRows(layer, chat, ancient);
             previous.revealed = 0;
-            revealTo(previous, revealed, { animate: false, sound: false });
+            revealTo(previous, revealed, { animate: false, sound: false, keepSpeech: true });
             if (typing && previous.revealed < previous.rows.length) showTyping(previous, chat.messages[previous.revealed]);
         }
         return;
@@ -416,8 +557,11 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
     if (previous) {
         clearTimer(previous);
         previous.soundHandle?.stop();
+        stopSpeech(previous);
         hideTyping(previous);
     }
+    // 新的聊天页：页面本身没有台词朗读（聊天页正文为空），先收掉上一页还在念的声音，再由气泡接管。
+    if (ttsOn) (ctx.tts && typeof ctx.tts === 'object' ? ctx.tts : DEFAULT_TTS).stop?.();
     const state = {
         root, layer, key, renderSig, chat, settings, ancient,
         rows: renderRows(layer, chat, ancient),
@@ -432,6 +576,15 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
         replay: false,
         schedule: ctx.setTimeout,
         clear: ctx.clearTimeout,
+        tts: ttsOn ? (ctx.tts && typeof ctx.tts === 'object' ? ctx.tts : DEFAULT_TTS) : null,
+        ttsSettings,
+        sceneAssets,
+        userName: ctx.userName ? String(ctx.userName) : '',
+        nsfw: Boolean(content.sceneNsfw),
+        msgKey: `${snapshot.messageId}:${content.currentIndex}`,
+        spoken: new Set(),
+        speech: null,
+        waitToken: null,
     };
     states.set(layer, state);
     // 返回看过的聊天页：一次平铺 / 自动逐条重播 / 按冒泡节奏重新来一遍。
@@ -457,7 +610,8 @@ export function advanceChatReveal(root) {
     if (!state || state.revealed >= state.rows.length) return false;
     if (state.auto) {
         clearTimer(state);
-        return revealTo(state, state.rows.length);
+        // 快进跳过：直接露出剩下的气泡，停掉朗读，不补读。
+        return revealTo(state, state.rows.length, { speak: false });
     }
     return revealTo(state, state.revealed + 1);
 }
@@ -465,7 +619,7 @@ export function advanceChatReveal(root) {
 export function getChatRevealState(root) {
     const layer = root && root.querySelector && root.querySelector('#igs-chat-layer');
     const state = layer && states.get(layer);
-    return state ? { revealed: state.revealed, total: state.rows.length, pending: state.timer != null, typing: Boolean(state.typingRow) } : null;
+    return state ? { revealed: state.revealed, total: state.rows.length, pending: state.timer != null || state.waitToken != null, typing: Boolean(state.typingRow) } : null;
 }
 
 export const CHAT_LAYER_STYLE_TEXT = `
@@ -511,6 +665,14 @@ export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer .igs-chat-note{padding:3px 10px;border-radius:8px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.78);font-size:12px;line-height:1.5;text-align:center;}
 #igs-chat-layer .igs-chat-row.is-typing-slot{display:none;}
 #igs-chat-layer .igs-chat-read{margin:2px 6px 0;color:rgba(255,255,255,.62);font-size:11px;line-height:1.3;}
+#igs-chat-layer .igs-chat-tts{display:none;flex:none;flex-direction:column;align-self:flex-end;gap:2px;}
+#igs-chat-layer[data-igs-chat-tts] .igs-chat-tts{display:flex;}
+#igs-chat-layer:not([data-igs-chat-tts="api"]) .igs-chat-tts-btn.is-reroll{display:none;}
+#igs-chat-layer .igs-chat-tts-btn{display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:rgba(255,255,255,.82);opacity:.45;cursor:pointer;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));transition:opacity .15s;}
+#igs-chat-layer .igs-chat-tts-btn svg{width:15px;height:15px;}
+#igs-chat-layer .igs-chat-row:hover .igs-chat-tts-btn{opacity:.75;}
+#igs-chat-layer .igs-chat-tts-btn:hover,#igs-chat-layer .igs-chat-tts-btn:focus-visible{opacity:1;}
+#igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-tts-btn{color:var(--igs-chat-sub,#8a8a8a);filter:none;}
 #igs-chat-layer[data-igs-chat-frame="phone"] .igs-chat-read{color:var(--igs-chat-sub,#8a8a8a);}
 #igs-chat-layer[data-igs-chat-era="ancient"] .igs-chat-read{align-self:flex-end;color:rgba(243,230,200,.85);letter-spacing:.2em;}
 #igs-chat-layer .igs-chat-system{font-weight:600;letter-spacing:.02em;}

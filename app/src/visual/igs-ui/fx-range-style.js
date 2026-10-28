@@ -1,7 +1,7 @@
-const UMBRELLA_BODY = "<path d='M0 40 Q50 -40 100 40 Q90 47 80 40 Q70 47 60 40 Q50 47 40 40 Q30 47 20 40 Q10 47 0 40Z' fill='%232c4268'/><path d='M50 0 L80 40 L60 40Z M50 0 L40 40 L20 40Z M50 0 L100 40 L80 40Z M50 0 L20 40 L0 40Z' fill='%23365580'/><g stroke='%231a2742' stroke-width='1' vector-effect='non-scaling-stroke' fill='none'><path d='M50 0 L100 40 M50 0 L80 40 M50 0 L60 40 M50 0 L40 40 M50 0 L20 40 M50 0 L0 40' vector-effect='non-scaling-stroke'/></g>";
-const UMBRELLA_DRIPS = [80, 60, 40, 20].map((x, i) => `<circle cx='${x}' cy='48' r='1.1' fill='%238fbcff'><animate attributeName='cy' values='47;60;60' keyTimes='0;0.8;1' dur='${(1.6 + i * 0.35).toFixed(2)}s' begin='${(i * 0.4).toFixed(1)}s' repeatCount='indefinite'/><animate attributeName='opacity' values='0;1;0' keyTimes='0;0.15;0.8' dur='${(1.6 + i * 0.35).toFixed(2)}s' begin='${(i * 0.4).toFixed(1)}s' repeatCount='indefinite'/></circle>`).join('');
-const UMBRELLA_STATIC = "<circle cx='80' cy='50' r='1.1' fill='%238fbcff'/><circle cx='40' cy='52' r='1.1' fill='%238fbcff'/>";
-const umbrellaImage = (extra) => `url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 62' preserveAspectRatio='none'>${UMBRELLA_BODY}${extra}</svg>")`;
+
+// 撑伞时伞下的雨缺口：柔边椭圆从画面顶部中央往下罩住两人头顶一带，里面只剩一成多的雨，边缘缓缓过渡到满雨。
+// 进出都靠 --igs-umb 0↔1 过渡 .9s；收伞时 mask-image 以 allow-discrete 留到过渡走完（1.8s 的离散过渡在一半处切换）才撤掉，平时不挂遮罩。
+const UMBRELLA_GAP_MASK = 'radial-gradient(ellipse 36% 50% at 50% 4%,rgba(0,0,0,calc(1 - .88 * var(--igs-umb))) 0,rgba(0,0,0,calc(1 - .8 * var(--igs-umb))) 55%,#000 100%)';
 
 export const RANGE_FX_STYLE_TEXT = `
 @property --igs-lo{syntax:'<number>';inherits:false;initial-value:1;}
@@ -28,8 +28,27 @@ export const RANGE_FX_STYLE_TEXT = `
 #igs-fx-stage{transition:background-color .6s ease;}
 #igs-stage-motion[data-igs-fx-lightsoff] #igs-fx-stage{background:radial-gradient(ellipse 60% 40% at 50% 14%,rgba(255,214,150,calc(.34 * var(--igs-lg))),transparent 70%),linear-gradient(180deg,rgba(6,12,34,calc(.62 * var(--igs-lo))),rgba(4,8,22,calc(.78 * var(--igs-lo))));animation:igs-fx-lights-out 1.6s linear both;}
 @keyframes igs-fx-lights-out{0%,10%{--igs-lo:0;--igs-lg:1;}14%{--igs-lo:.5;--igs-lg:.7;}20%{--igs-lo:.1;--igs-lg:.9;}30%{--igs-lo:.9;--igs-lg:.5;}100%{--igs-lo:1;--igs-lg:0;}}
-#igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{left:6%;right:6%;top:-30%;height:58%;border-radius:0;background:${umbrellaImage(UMBRELLA_DRIPS)} center/100% 100% no-repeat;box-shadow:none;filter:drop-shadow(0 10px 8px rgba(0,0,0,.35));}
-#igs-overlay[data-igs-quality="low"] #igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{background-image:${umbrellaImage(UMBRELLA_STATIC)};filter:none;}
+/* 撑伞：不画伞。伞沿投在画面顶部一道宽而浅的弧形阴影（叠在立绘之上，头肩随之略暗偏冷，整台压暗不超过约 25%）；
+   下雨时伞下一块雨变稀、伞沿两侧偶有细水线滑落；同屏两人略向中间靠拢。声音（雨变闷、雨打伞面）在 scene-audio。
+   低画质与减少动态只留阴影与靠拢，不挖雨、不滑水线。 */
+@property --igs-umb{syntax:'<number>';inherits:false;initial-value:0;}
+#igs-stage-motion[data-igs-fx-umbrella]{--igs-fx-huddle:3%;}
+.igs-fx-umbrella-shade,.igs-fx-umbrella-drip{position:absolute;inset:0;pointer-events:none;--igs-umb-tint:16,22,30;--igs-umb-water:214,224,236;--igs-umb-rim-x:16%;--igs-umb-rim-y:6%;}
+.igs-fx-umbrella-shade{opacity:0;visibility:hidden;transition:opacity .9s ease,visibility 0s linear .9s;background:radial-gradient(ellipse 42% 46% at 50% -6%,rgba(var(--igs-umb-tint),.15) 0,rgba(var(--igs-umb-tint),.11) 38%,rgba(var(--igs-umb-tint),.05) 68%,rgba(var(--igs-umb-tint),0) 100%),radial-gradient(ellipse 38% 30% at 50% 24%,rgba(var(--igs-umb-tint),.07) 0,rgba(var(--igs-umb-tint),0) 100%),linear-gradient(180deg,rgba(var(--igs-umb-tint),.04),rgba(var(--igs-umb-tint),0) 55%);}
+#igs-stage-motion[data-igs-fx-umbrella] .igs-fx-umbrella-shade{opacity:1;visibility:visible;transition:opacity .9s ease,visibility 0s;}
+.igs-fx-umbrella-drip{display:none;}
+.igs-fx-umbrella-drip::before,.igs-fx-umbrella-drip::after{content:'';position:absolute;top:var(--igs-umb-rim-y);left:var(--igs-umb-rim-x);width:1px;height:9%;background:linear-gradient(180deg,rgba(var(--igs-umb-water),0),rgba(var(--igs-umb-water),.6) 72%,rgba(var(--igs-umb-water),0));opacity:0;animation:igs-fx-umb-drip 4.8s cubic-bezier(.55,0,.85,.6) 1.1s infinite;}
+.igs-fx-umbrella-drip::after{left:auto;right:var(--igs-umb-rim-x);top:calc(var(--igs-umb-rim-y) + 2%);animation-duration:6.3s;animation-delay:3.2s;}
+@keyframes igs-fx-umb-drip{0%{opacity:0;transform:translate3d(0,0,0);}6%{opacity:.85;}34%,100%{opacity:0;transform:translate3d(0,420%,0);}}
+@media (prefers-reduced-motion: no-preference){
+#igs-overlay:not([data-igs-quality="low"]) #igs-stage-motion :is(#igs-effect-layer,#igs-effect-front-layer)[data-igs-weather-fx="rain"][data-igs-weather-fx-scene="outdoor"] .igs-fx-canvas{--igs-umb:0;transition:--igs-umb .9s ease,mask-image 1.8s linear allow-discrete,-webkit-mask-image 1.8s linear allow-discrete;}
+#igs-overlay:not([data-igs-quality="low"]) #igs-stage-motion[data-igs-fx-umbrella] :is(#igs-effect-layer,#igs-effect-front-layer)[data-igs-weather-fx="rain"][data-igs-weather-fx-scene="outdoor"] .igs-fx-canvas{--igs-umb:1;-webkit-mask-image:${UMBRELLA_GAP_MASK};mask-image:${UMBRELLA_GAP_MASK};transition:--igs-umb .9s ease;}
+#igs-overlay:not([data-igs-quality="low"]) #igs-stage-motion[data-igs-fx-umbrella]:has(#igs-effect-front-layer[data-igs-weather-fx="rain"][data-igs-weather-fx-scene="outdoor"]:not([data-igs-weather-fx-motion="off"])) .igs-fx-umbrella-drip{display:block;}
+}
+#igs-stage-motion[data-igs-fx-umbrella][data-igs-cast-duo] #igs-cast .igs-cast-sprite[data-igs-cast-side="l"]{--igs-fx-huddle-dx:var(--igs-fx-huddle);}
+#igs-stage-motion[data-igs-fx-umbrella][data-igs-cast-duo] #igs-cast .igs-cast-sprite[data-igs-cast-side="r"]{--igs-fx-huddle-dx:calc(var(--igs-fx-huddle) * -1);}
+#igs-stage-motion[data-igs-fx-umbrella][data-igs-cast-duo="l"] #igs-sprite{--igs-fx-huddle-dx:var(--igs-fx-huddle);}
+#igs-stage-motion[data-igs-fx-umbrella][data-igs-cast-duo="r"] #igs-sprite{--igs-fx-huddle-dx:calc(var(--igs-fx-huddle) * -1);}
 #igs-overlay[data-igs-quality="low"] .igs-fx-flashback-grain,#igs-overlay[data-igs-quality="low"] #igs-stage-motion .igs-fx-dream-mist::after{animation:none!important;}
 @keyframes igs-fx-flash{0%{opacity:.95;}12%{opacity:.05;}24%{opacity:.9;}42%{opacity:.32;}100%{opacity:0;}}
 .igs-fx-flash{animation-duration:1.4s;}
@@ -53,7 +72,6 @@ export const RANGE_FX_STYLE_TEXT = `
 @media (prefers-reduced-motion: reduce){
 .igs-fx-dream-mist::after,.igs-fx-flashback-grain,.igs-fx-cutin-face{animation:none!important;}
 .igs-fx-cutin::before{animation:none;}
-#igs-stage-motion[data-igs-fx-umbrella] #igs-fx-stage::after{background-image:${umbrellaImage(UMBRELLA_STATIC)};}
 #igs-stage-motion[data-igs-fx-lightsoff] #igs-fx-stage{animation:none!important;--igs-lo:1;--igs-lg:0;}
 }
 `.trim();

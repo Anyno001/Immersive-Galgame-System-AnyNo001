@@ -7,6 +7,8 @@ const clean = (data) => {
     return copy;
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// 内置预设改名前的显示名：存量仍是旧名时升级顺带改成新名，用户改过的名字不动。
+const LEGACY_DEFAULT_NAMES = new Map([['igs-imagegen-default-v1', ['IGS 内置生图框架']]]);
 
 // 基线与备份随同一个预设快照保存，绝不另写一份 current。
 export function promptDefaultState(preset) {
@@ -16,6 +18,18 @@ export function promptDefaultState(preset) {
         baseline: clean(copy.data), backups: [],
     };
     return copy;
+}
+
+// 已存在却仍是旧默认名的内置预设只改名（不动内容与版本），就地修改传入的快照；返回是否改动。
+export function renameLegacyDefaultNames(snapshot, presets) {
+    let changed = false;
+    for (const preset of presets) {
+        const record = snapshot.items['prompt-preset']?.[preset?.id];
+        if (record && typeof preset.name === 'string' && LEGACY_DEFAULT_NAMES.get(preset.id)?.includes(record.name)) {
+            record.name = preset.name; changed = true;
+        }
+    }
+    return changed;
 }
 
 export function stagePromptDefaultUpgrade(snapshot, preset) {
@@ -51,6 +65,7 @@ export function stagePromptDefaultUpgrade(snapshot, preset) {
             }
         }
     }
+    if (typeof preset.name === 'string' && LEGACY_DEFAULT_NAMES.get(preset.id)?.includes(candidate.name)) candidate.name = preset.name;
     upgradeUnmodifiedPromptOrder(candidate.data, old, preset.data);
     addNewReferenceBlocks(candidate.data, old, preset.data);
     candidate.data.revision += 1;

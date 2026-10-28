@@ -7,6 +7,7 @@ import { MERMAID_ACCENT_DEFAULT, MERMAID_TONE_DEFAULT, normalizeMermaidAccent, n
 import { normalizeEventCgs } from '../../scene/event-cg.js';
 import { normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
 import { normalizeSpriteEnhance } from './sprite-enhance.js';
+import { normalizeWorldInfoExclude } from '../../host/world-info-filter.js';
 import { normalizeAssetCards } from '../../scene/asset-scope.js';
 import { FX_SETTINGS_NORMALIZERS, normalizeFxReaderSettings } from './fx-settings.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
@@ -39,6 +40,7 @@ import { normalizeChatShowSettings } from './chat-show-runtime.js';
 import { normalizeSystemRoleSettings } from './system-role.js';
 import { normalizePromptPlacement } from './tag-grammar.js';
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
+import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
 
 export function normalizeBridgeConfig(bridge) {
     // 不改入参、不深拷：入参可能是存储里共享的只读配置。改到哪层就浅拷哪层，没动的子树（素材库）原样共享。
@@ -60,6 +62,7 @@ export function normalizeBridgeConfig(bridge) {
     normalized.entry = normalizeEntryConfig(normalized.entry);
     normalized.optionBubble = normalizeOptionBubble(normalized.optionBubble);
     normalized.autoIllustration = normalizeAutoIllustrationSettings(normalized.autoIllustration);
+    normalized.stats = normalizeStatsSettings(normalized.stats);
     return normalized;
 }
 
@@ -86,6 +89,8 @@ export function normalizeEntryConfig(value) {
     };
 }
 
+const SPRITE_MATTE_COLORS = Object.freeze(['auto', 'white', 'grey', 'green', 'purple']);
+
 export function normalizeImageApi(value) {
     const normalized = {
         ...cloneData(DEFAULT_IMAGE_API),
@@ -96,7 +101,9 @@ export function normalizeImageApi(value) {
         : [];
     normalized.dbgenSpriteTransparent = normalized.dbgenSpriteTransparent !== false;
     normalized.naiSpriteTransparent = normalized.naiSpriteTransparent !== false;
+    normalized.spriteMatteColor = SPRITE_MATTE_COLORS.includes(normalized.spriteMatteColor) ? normalized.spriteMatteColor : 'auto';
     normalized.externalSpriteDna = normalized.externalSpriteDna === true;
+    normalized.worldInfoExclude = normalizeWorldInfoExclude(normalized.worldInfoExclude);
     return normalized;
 }
 
@@ -278,7 +285,9 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         showStatusLine: false,
         dblclickCgOnly: false,
         titleScreen: true,
+        resumePrompt: 'title',
         dialogAutoHeight: false,
+        embeddedHeight: 1,
         // 场景在水下时对话框自动换成深海人鱼。
         underwaterSkin: true,
         mermaidTone: MERMAID_TONE_DEFAULT,
@@ -353,7 +362,9 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
     normalized.dblclickCgOnly = normalizeBoolean(normalized.dblclickCgOnly, false);
     normalized.titleScreen = normalizeBoolean(normalized.titleScreen, true);
+    normalized.resumePrompt = normalized.resumePrompt === 'simple' ? 'simple' : 'title';
     normalized.dialogAutoHeight = normalizeBoolean(normalized.dialogAutoHeight, false);
+    normalized.embeddedHeight = [0.8, 1, 1.25, 1.5].includes(Number(normalized.embeddedHeight)) ? Number(normalized.embeddedHeight) : 1;
     normalized.underwaterSkin = normalizeBoolean(normalized.underwaterSkin, true);
     normalized.mermaidTone = normalizeMermaidTone(normalized.mermaidTone);
     normalized.mermaidAccent = normalizeMermaidAccent(normalized.mermaidAccent);

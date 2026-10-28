@@ -1,7 +1,10 @@
 // 写词预设结构校验与激活校验分离：兼容存档不能冒充可执行预设。
 export const IMAGE_PROMPT_TASKS = Object.freeze([
     'sprite', 'dna', 'expression', 'avatar', 'wardrobe', 'outfit', 'background', 'item', 'cg', 'consistency',
+    'creature',
 ]);
+// 后加入的任务：旧预设没有这些条目时校验不报错，读取时由内置默认补齐（见 completeMissingTaskModules）。
+export const COMPLETABLE_IMAGE_TASKS = Object.freeze(['creature']);
 export const IMAGE_PROMPT_FORMATS = Object.freeze([
     'sprite-data', 'expression-fragments', 'dna-template', 'caption-slots', 'asset-plan', 'cg-plan',
 ]);
@@ -112,7 +115,7 @@ function validateModules(data, taskSlot, errors) {
         if (!module || module.enabled === false || module.task !== task) errors.push(error(`taskMap.${task}`, 'module-task-mismatch'));
     }
     for (const task of IMAGE_PROMPT_TASKS) {
-        if (!Object.hasOwn(data.taskMap, task)) errors.push(error(`taskMap.${task}`, 'missing-task-module'));
+        if (!Object.hasOwn(data.taskMap, task) && !COMPLETABLE_IMAGE_TASKS.includes(task)) errors.push(error(`taskMap.${task}`, 'missing-task-module'));
     }
 }
 
@@ -141,4 +144,31 @@ function validateVariables(content, field, data, errors) {
         if (!literals.includes(name) && (!variables.includes(name) || !['任务提示词', '任务资料', '世界书'].includes(name)))
             errors.push(error(field, 'unsupported-variable'));
     }
+}
+
+// 只读补齐：旧预设缺少后加入的任务（taskMap 无此任务）时，返回补入内置默认模块的新对象，不改入参、不改用户已有条目。
+// defaults 为内置模块（identifier、task、content 等）；标识符被占用时顺延编号。无需补齐时原样返回同一个对象。
+// 带默认基线的预设同时把该模块补进基线副本，「恢复默认正文」才找得到。
+export function completeMissingTaskModules(data, defaults) {
+    if (!object(data) || data.usage !== 'imagegen' || !object(data.taskMap) || !Array.isArray(data.modules)) return data;
+    const missing = (Array.isArray(defaults) ? defaults : []).filter((module) => COMPLETABLE_IMAGE_TASKS.includes(module.task)
+        && !Object.hasOwn(data.taskMap, module.task));
+    if (!missing.length) return data;
+    const used = new Set(data.modules.map((module) => module && module.identifier));
+    const added = [], taskMap = { ...data.taskMap };
+    for (const module of missing) {
+        let identifier = module.identifier, n = 1;
+        while (used.has(identifier)) identifier = `${module.identifier}-${n++}`;
+        used.add(identifier);
+        added.push({ ...clonePromptData(module), identifier });
+        taskMap[module.task] = identifier;
+    }
+    const next = { ...data, modules: [...data.modules, ...added], taskMap };
+    const baseline = data.defaultState && data.defaultState.baseline;
+    if (object(baseline) && Array.isArray(baseline.modules)) {
+        const have = new Set(baseline.modules.map((module) => module && module.identifier));
+        const extra = missing.filter((module) => !have.has(module.identifier)).map((module) => clonePromptData(module));
+        if (extra.length) next.defaultState = { ...data.defaultState, baseline: { ...baseline, modules: [...baseline.modules, ...extra] } };
+    }
+    return next;
 }

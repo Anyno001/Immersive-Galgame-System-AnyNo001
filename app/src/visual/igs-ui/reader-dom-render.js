@@ -16,7 +16,8 @@ import { computeLineHeight, igsDebug } from './reader-value-utils.js';
 import { applyReaderModeRuntime } from './reader-runtime.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { applyVoiceBark } from './voice-bark.js';
-import { applyTts, normalizeTtsSettings } from './tts.js';
+import { applyTts, cancelPendingTts, normalizeTtsSettings } from './tts.js';
+import { getWaitStageGamePack } from './wait-stage-games-api.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { applyStageShakeEffect } from './stage-shake-runtime.js';
 import { playCameraImpactSfx } from './camera-impact.js';
@@ -33,10 +34,11 @@ import { renderDailyFx } from './fx-daily.js';
 import { enabledPackIds } from './fx-daily-model.js';
 import { audioCuesOf } from './fx-camera-gate.js';
 import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
+import { applyCreatureScale, applyGiantLayer, creatureDisplayProfileOf, giantAsideCenter, placeCreature, posXForCenterPct, setCreatureFloat, syncCastFloat } from './creature-layout.js';
 import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
 import { applyStageDirection, cancelCgReveal, decodeSpriteImage, revealCgImage } from './stage-direction-runtime.js';
-import { applyCastToDom, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances, castKeyOfSnapshot, resolveSpeakerPose } from './stage-cast-render.js';
+import { applyCastToDom, castDuoAttr, castRomanceAttr, castSlotKey, clearCastDom, isCastAlignEnabled, isCastCollapsed, isCastRomanceDuoEnabled, isStageCastEnabled, layoutCastSlots, resolveCastCapacity, resolveCastRomanceMode, resolveCastRomanceTarget, isCastLeanEnabled, markCalledCast, playCastBeats, resolveCastPosePlan, resolveCastReactPage, applySpeakerFlip, castStageEntrances, castKeyOfSnapshot, resolveSpeakerPose } from './stage-cast-render.js';
 import { BACK_HINT_DEFAULT, SPRITE_BACK_SCALE, cancelSpriteTurn, playSpriteTurn } from './sprite-turn.js';
 import { applySavedCastSlot } from './cast-slot-edit.js';
 import { spriteIdentity } from '../../scene/character-outfits.js';
@@ -50,7 +52,7 @@ import { applySceneAudio } from './scene-audio.js';
 import { applyBgmNoteToDom } from './bgm-note.js';
 import { isConfessionLine } from './bgm-library.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
-import { fitBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
+import { fitBilingualRuby, isBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { getReferenceDialogTypography, preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { clearSpriteOutfitSwap, isFormOutfit, isOutfitSwap, playSpriteFormShift, spriteLookOf } from './sprite-outfit-swap.js';
@@ -479,6 +481,11 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     return overlay;
 }
 
+// 同值 setAttribute 也会排一次属性变动、让样式重算；翻页时每页都走，值没变就不写。
+function setAttrIfChanged(element, name, value) {
+    if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+}
+
 export function applyToolbarState(root, current) {
     if (!root || !current) return;
     const collapsible = root.querySelector('#igs-bar-btns');
@@ -493,7 +500,12 @@ export function applyToolbarState(root, current) {
     const pins = new Set(Array.isArray(readerSettings.pinnedBtns) ? readerSettings.pinnedBtns : []);
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     // 「重听这句」只在开了台词朗读时显示。
-    if (!normalizeTtsSettings(readerSettings.tts).enabled) hiddenSet.add('tts-replay');
+    const ttsConfig = normalizeTtsSettings(readerSettings.tts);
+    if (!ttsConfig.enabled) hiddenSet.add('tts-replay');
+    // 「重新生成这句」只对接口来源有意义（系统语音没有缓存可丢）。
+    if (!ttsConfig.enabled || (ttsConfig.provider !== 'api' && !ttsConfig.narratorApi.enabled)) hiddenSet.add('tts-reroll');
+    // 「小游戏」要等独立的小游戏脚本装上才有东西可玩。
+    if (!getWaitStageGamePack()) hiddenSet.add('mini-games');
     // 「人物状态」只在卡牌战斗扩展开启时显示；用户的排序、隐藏与固定照常生效。
     if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled) hiddenSet.add('combat-status');
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
@@ -516,10 +528,15 @@ export function applyToolbarState(root, current) {
     if (playButton) {
         const title = autoPlay.enabled ? '停止自动播放' : '自动播放';
         const icon = autoPlay.enabled ? ORIGINAL_READER_ICONS.stop : ORIGINAL_READER_ICONS.play;
-        if (playButton.innerHTML !== icon) playButton.innerHTML = icon;
-        playButton.setAttribute('title', title);
-        playButton.setAttribute('aria-label', title);
-        playButton.setAttribute('aria-pressed', String(autoPlay.enabled));
+        // 读回的 innerHTML 是浏览器重新序列化的，和原串比永远不等；按状态记号判断。
+        const iconKey = autoPlay.enabled ? 'stop' : 'play';
+        if (playButton.getAttribute('data-igs-icon') !== iconKey) {
+            playButton.innerHTML = icon;
+            playButton.setAttribute('data-igs-icon', iconKey);
+        }
+        setAttrIfChanged(playButton, 'title', title);
+        setAttrIfChanged(playButton, 'aria-label', title);
+        setAttrIfChanged(playButton, 'aria-pressed', String(autoPlay.enabled));
     }
     const currentCgShown = Boolean(contentForCg.illustrationActive && contentForCg.illustrationUrl);
     const currentCgSlot = Boolean(contentForCg.illustrationSlot);
@@ -530,29 +547,35 @@ export function applyToolbarState(root, current) {
         const enabled = id === 'reroll-cg' ? currentCgSlot
             : id === 'consistency-cg' ? Boolean(current.consistencyTask) || currentCgSlot && currentCgShown && !current.illustrationPending : currentCgShown;
         if (id === 'consistency-cg') {
-            button.title = current.consistencyTask ? '停止一致性重绘' : '角色一致性重绘';
-            button.setAttribute('aria-label', button.title);
+            const title = current.consistencyTask ? '停止一致性重绘' : '角色一致性重绘';
+            setAttrIfChanged(button, 'title', title);
+            setAttrIfChanged(button, 'aria-label', title);
         }
-        button.disabled = !enabled;
-        button.setAttribute('aria-disabled', String(!enabled));
+        if (button.disabled !== !enabled) button.disabled = !enabled;
+        setAttrIfChanged(button, 'aria-disabled', String(!enabled));
     }
 
+    // 每次翻页都会走到这里：先排出各容器应有的顺序，与现状一致就不挪，否则整栏按钮反复拔插、重排版。
+    const placement = new Map();
     for (const id of order) {
         const button = root.querySelector(`#igs-btn-${id}`);
         if (!button) continue;
-        if (hiddenSet.has(id) || (split === 'top' && DIALOG_ONLY_BUTTONS.includes(id))) {
-            button.style.display = 'none';
-        } else {
-            button.style.display = '';
-            if (toDialog(id)) {
-                dialogBar.appendChild(button);
+        const hidden = hiddenSet.has(id) || (split === 'top' && DIALOG_ONLY_BUTTONS.includes(id));
+        if (button.style.display !== (hidden ? 'none' : '')) button.style.display = hidden ? 'none' : '';
+        if (hidden) continue;
+        const target = toDialog(id) ? dialogBar
             // 顶部固定模式下，按钮区横向滚动；设置键固定到右侧不随之滚动。
-            } else if ((pins.has(id) || (dockTop && id === 'settings')) && pinned) {
-                pinned.appendChild(button);
-            } else if (collapsible) {
-                collapsible.appendChild(button);
-            }
-        }
+            : (pins.has(id) || (dockTop && id === 'settings')) && pinned ? pinned
+                : collapsible;
+        if (!target) continue;
+        if (!placement.has(target)) placement.set(target, []);
+        placement.get(target).push(button);
+    }
+    for (const [container, buttons] of placement) {
+        const children = Array.from(container.children || []);
+        const tail = children.slice(children.length - buttons.length);
+        if (tail.length === buttons.length && buttons.every((button, i) => tail[i] === button)) continue;
+        for (const button of buttons) container.appendChild(button);
     }
 
     // 工具栏分组：按实际可见顺序在每组第一个按钮上标记分隔；用户重排、隐藏、固定后同样成立，不改按钮尺寸。
@@ -795,7 +818,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
                 || Number(win && win.innerHeight)
                 || overlayHeight;
             const designHeight = snapshot.mode === 'pc' ? 540 : 680;
-            const runtimeHeight = Math.min(designHeight, Math.max(180, viewportHeight - 32));
+            const runtimeHeight = Math.min(designHeight, Math.max(180, viewportHeight - 32), inlineMode && overlayHeight > 0 ? overlayHeight : Infinity);
             const floatingMax = Math.max(140, Math.floor(runtimeHeight * 0.86));
             const availableHeight = embeddedMode
                 ? overlayHeight - 28
@@ -1205,8 +1228,15 @@ const backgroundImageSources = new WeakMap();
 // 内嵌框比图再高一截：楼层里读起来更舒展，背景按 cover 铺满，只多裁左右一点。
 export const EMBEDDED_FRAME_TALLER = 1.15;
 
-function embeddedAspectRatio(width, height) {
-    return `${width} / ${Math.round(Number(height) * EMBEDDED_FRAME_TALLER)}`;
+export const EMBEDDED_HEIGHT_SCALES = Object.freeze([0.8, 1, 1.25, 1.5]);
+
+export function normalizeEmbeddedHeightScale(value) {
+    const n = Number(value);
+    return EMBEDDED_HEIGHT_SCALES.includes(n) ? n : 1;
+}
+
+function embeddedAspectRatio(width, height, scale = 1) {
+    return `${width} / ${Math.round(Number(height) * EMBEDDED_FRAME_TALLER * normalizeEmbeddedHeightScale(scale))}`;
 }
 
 // 内嵌框只跟横竖尺寸走。横屏钉背景尺寸，竖屏钉对调后的尺寸。图的像素不参与。
@@ -1220,14 +1250,16 @@ export function syncEmbeddedHostFrame(root, sizeText) {
         if (typeof host.removeAttribute === 'function') host.removeAttribute('data-igs-frame');
         return;
     }
-    host.style.aspectRatio = embeddedAspectRatio(match[1], match[2]);
+    const scale = typeof host.getAttribute === 'function' ? host.getAttribute('data-igs-frame-scale') : 1;
+    host.style.aspectRatio = embeddedAspectRatio(match[1], match[2], scale);
     if (typeof host.setAttribute === 'function') host.setAttribute('data-igs-frame', 'size');
 }
 
 // 楼层被酒馆重绘或暂时隐藏时量到宽 0。这时不能按「不是手机」钉横屏，沿用上次钉好的比例；
 // 还没钉过就按窗口宽度判断。
-export function pinEmbeddedHostFrame(root, backgroundSize, mode) {
+export function pinEmbeddedHostFrame(root, backgroundSize, mode, heightScale) {
     const host = root && typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
+    if (host && typeof host.setAttribute === 'function') host.setAttribute('data-igs-frame-scale', String(normalizeEmbeddedHeightScale(heightScale)));
     const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
     const measured = Boolean(rect && rect.width > 0);
     const pinned = Boolean(host && typeof host.getAttribute === 'function' && host.getAttribute('data-igs-frame') === 'size');
@@ -1270,11 +1302,30 @@ export function watchEmbeddedFrameResize(overlay, frameState) {
         const sizeText = cgSizeForMode(frameState.backgroundSize, frameState.mode, { width, height: 0, portrait: phone });
         const match = String(sizeText || '').match(/^(\d+)\s*[xX×]\s*(\d+)$/);
         if (!match) return;
-        if (host.style && host.style.aspectRatio === embeddedAspectRatio(match[1], match[2])) return;
+        if (host.style && host.style.aspectRatio === embeddedAspectRatio(match[1], match[2], host.getAttribute('data-igs-frame-scale'))) return;
         syncEmbeddedHostFrame(overlay, sizeText);
     });
     observer.observe(host);
     return unobserve;
+}
+
+// 主界面盖着时正文不渲染，上面的观察器装不上。打开那一刻楼层还没排好，量到的宽度不准，会钉成横屏。
+// 主界面期间宿主尺寸或窗口尺寸一变就按同一规则重钉；结果相同时写入同值，不会再触发尺寸变化。
+export function watchTitleEmbeddedFrame(overlay, readFrame) {
+    const host = overlay && typeof overlay.closest === 'function' ? overlay.closest('.igs-embedded-host') : null;
+    const win = (overlay && overlay.ownerDocument && overlay.ownerDocument.defaultView) || null;
+    if (!host || !win || typeof win.ResizeObserver !== 'function' || typeof readFrame !== 'function') return null;
+    const repin = () => {
+        const frame = readFrame();
+        if (frame) pinEmbeddedHostFrame(overlay, frame.backgroundSize, frame.mode, frame.heightScale);
+    };
+    const observer = new win.ResizeObserver(repin);
+    observer.observe(host);
+    win.addEventListener('resize', repin, { passive: true });
+    return () => {
+        win.removeEventListener('resize', repin);
+        try { observer.disconnect(); } catch (error) { /* best-effort */ }
+    };
 }
 
 function writeBackgroundImage(element, url, source = url) {
@@ -1445,7 +1496,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         frameState.backgroundSize = snapshot.readerSettings ? snapshot.readerSettings._cgBackgroundSize : '';
         frameState.mode = snapshot.mode;
     }
-    pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode);
+    pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode, snapshot.readerSettings && snapshot.readerSettings.embeddedHeight);
 
     let deferCgFocus = false;
     if (bg && backgroundAssetUrl) {
@@ -1519,6 +1570,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         ? sceneAssets.spriteEnhance : null);
     let stageSprite = null;
     let fxSprite = null;
+    // 同屏重排（探测完成后）算出的说话人位置：图解码回调晚于重排时以它为准，不被首轮的旧位置盖回去。
+    let castSpeakerReplan = null;
     const spriteSettings = (snapshot.readerSettings && snapshot.readerSettings.statusHud) || {};
     const hideSpriteNsfw = snapshot.content.sceneNsfw === true && normalizeStatusHudSettings(spriteSettings).nsfwSpriteMode === 'hide';
     const spriteAssetUrl = hideSpriteNsfw || snapshot.content.htmlCardPage === true
@@ -1536,9 +1589,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     // 恋爱演出收成单人（romanceDuo 开启时）：记住说话人站位，进出单人时平移而不瞬移。
     const castRomanceCollapse = castEnabled && !hideSpriteNsfw && !current.spriteEditMode && isCastRomanceDuoEnabled(snapshot) && resolveCastRomanceMode(snapshot) === 'collapse';
     const castView = (root.ownerDocument && root.ownerDocument.defaultView) || {};
+    // 窄舞台（宽/高 < 1）上有巨型怪：前景只留说话人，陪衬不上台，让巨型怪的脸露出来。
+    const giantNarrow = Boolean(snapshot.content.giantSprite) && !current.spriteEditMode
+        && (stageMotion.clientWidth || castView.innerWidth) < (stageMotion.clientHeight || castView.innerHeight);
     const castLayout = layoutCastSlots({
-        members: castOn && Array.isArray(snapshot.content.castSprites) ? snapshot.content.castSprites : [],
-        pin: castRomancePin,
+        members: castOn && !giantNarrow && Array.isArray(snapshot.content.castSprites) ? snapshot.content.castSprites : [],
+        pin: castRomancePin || snapshot.content.creatureFoePin || '',
         speakerOrder: snapshot.content.speakerCastOrder,
         hasSpeaker: Boolean(spriteAssetUrl || live2dBinding),
         capacity: resolveCastCapacity(snapshot.mode, {
@@ -1552,12 +1608,19 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const castSpeakerOutfit = snapshot.content.spriteOutfit || '';
     const castSlotLayouts = snapshot.readerSettings.castSlotLayouts || {};
     const spriteLayouts = snapshot.readerSettings.spriteLayouts;
+    // 非人角色（characterDna[名].creature）：体型缩放交给 creature-layout；人类角色查不到档案，原样返回。
+    const creatureDna = snapshot.readerSettings._sceneAssets && snapshot.readerSettings._sceneAssets.characterDna;
+    const creatureOfName = (name) => creatureDisplayProfileOf(creatureDna, name);
     const presentSpriteLayout = (character, mood, outfit) => {
         const height = resolveSpriteBaseScale(snapshot.readerSettings._sceneAssets, snapshot.readerSettings, character);
-        return applySpriteDisplayScale(
+        const shown = applySpriteDisplayScale(
             resolveSpriteLayout(spriteLayouts, snapshot.mode, character, mood, outfit, height.defaultScale, height.characterScale),
             snapshot.readerSettings.spriteDisplayScale,
         );
+        const creature = creatureOfName(character);
+        if (!creature) return shown;
+        const manual = height.characterScale != null || Boolean(spriteLayouts && spriteLayouts[spriteHeightLayoutKey(spriteLayouts, snapshot.mode, character, mood, outfit)]);
+        return applyCreatureScale(creature, shown, snapshot.readerSettings.creatureDisplay, manual);
     };
     const heightMeta = (character, mood, outfit, layout) => ({
         layoutKey: spriteHeightLayoutKey(spriteLayouts, snapshot.mode, character, mood, outfit),
@@ -1578,6 +1641,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             ...(speakerSlotX != null ? { posX: speakerSlotX, centerX: castLayout.speakerCenterX } : {}),
             ...heightMeta(castSpeakerKey, castSpeakerMood, castSpeakerOutfit, speakerLayout),
             character: castSpeakerKey,
+            ...(creatureOfName(castSpeakerKey) ? { creature: creatureOfName(castSpeakerKey) } : {}),
             url: spriteAssetUrl,
             order: Number.isFinite(snapshot.content.speakerCastOrder) ? snapshot.content.speakerCastOrder : Number.MAX_SAFE_INTEGER,
             head: resolveSpriteHead(snapshot.readerSettings.spriteHeads, castSpeakerKey, castSpeakerMood, castSpeakerOutfit),
@@ -1586,6 +1650,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const layout = presentSpriteLayout(m.character, m.mood, m.outfit);
             return withCastSlot({
                 character: m.character,
+                ...(creatureOfName(m.character) ? { creature: creatureOfName(m.character) } : {}),
                 url: resolveAssetUrl(m.image),
                 order: m.order,
                 posX: m.posX == null ? layout.posX : m.posX,
@@ -1624,6 +1689,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const stageW = stageMotion.clientWidth || castView.innerWidth;
         const stageH = stageMotion.clientHeight || castView.innerHeight;
         let spritePose = null;
+        let speakerCreature = null;
         speakerBack = null;
         if (!current.spriteEditMode) {
             const spriteKey = snapshot.content.spriteCharacter || snapshot.content.speaker;
@@ -1635,6 +1701,37 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 : resolveSpeakerPose(snapshot, spriteKey);
             if (castPlan && castPlan.speaker) Object.assign(layout, { posX: castPlan.speaker.posX, posY: castPlan.speaker.posY, scale: castPlan.speaker.scale });
             else if (speakerSlotX != null) layout.posX = speakerSlotX;
+            // 非人角色单人显示：悬浮、溢出按头部对齐交给 creature-layout（图的探测结果按地址缓存，没有时探测完回头重摆）。
+            speakerCreature = castPlan && castPlan.speaker ? null : creatureOfName(spriteKey);
+            // 窄舞台巨型怪在场：说话人站到与巨型怪头部相反的一侧。
+            const asideOn = giantNarrow && !(castPlan && castPlan.speaker);
+            if (speakerCreature || asideOn) {
+                const speakerHead = resolveSpriteHead(snapshot.readerSettings.spriteHeads, spriteKey, spriteMood, spriteOutfit);
+                const giantUrl = asideOn ? resolveAssetUrl(snapshot.content.giantSprite.image) : '';
+                const creaturePlace = (info, giantInfo) => {
+                    const aside = asideOn ? giantAsideCenter({ stageW, stageH, probed: giantInfo }) : null;
+                    if (speakerCreature) return placeCreature({ stageW, stageH, profile: speakerCreature, sprite: layout, probed: info, head: speakerHead, centerX: aside });
+                    const posX = posXForCenterPct(stageW, stageH, layout.scale, info, aside);
+                    return { scale: Number(layout.scale), posX: posX == null ? layout.posX : posX, posY: Number(layout.posY) };
+                };
+                const early = peekSpriteHead(spriteAssetUrl, root.ownerDocument);
+                const earlyGiant = giantUrl ? peekSpriteHead(giantUrl, root.ownerDocument) : null;
+                Object.assign(layout, creaturePlace(early, earlyGiant));
+                if (!early || (giantUrl && !earlyGiant)) {
+                    const token = {};
+                    current.creatureSingleToken = token;
+                    Promise.all([probeSpriteHead(spriteAssetUrl, root.ownerDocument), giantUrl ? probeSpriteHead(giantUrl, root.ownerDocument) : null]).then(([info, giantInfo]) => {
+                        if (!info || current.creatureSingleToken !== token || current.spriteEditMode || !spritePose || !spriteEl) return;
+                        const placed = creaturePlace(info, giantInfo);
+                        Object.assign(spritePose.layout, placed);
+                        spriteEl.style.backgroundSize = spriteBackgroundSize(placed.scale);
+                        spriteEl.style.backgroundPosition = `${placed.posX}% ${placed.posY}%`;
+                        if (fxSprite) Object.assign(fxSprite, { posX: placed.posX, posY: placed.posY, scale: placed.scale });
+                        if (stageSprite) stageSprite.posX = placed.posX;
+                        if (spritePose.flip) applySpeakerFlip(spriteEl, true, placed.posX, spriteWidthPercent(stageW, stageH, { ...placed, naturalW: info.naturalW, naturalH: info.naturalH }));
+                    }, () => {});
+                }
+            }
             // 背影：已换成登记的「背影」图时不再镜像、不压暗；没有这张图时镜像 + 压暗 + 略缩小。
             const backArt = speakerPose.back === true && snapshot.content.spriteBackArt === true;
             const visualFlip = backArt ? false : speakerPose.flip;
@@ -1662,7 +1759,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             spriteEl.style.setProperty('-webkit-filter', '');
             const wait = current.spriteTextWait;
             if (wait && wait.page === spritePage) wait.release();
+            setCreatureFloat(spriteEl, Boolean(spritePose && speakerCreature && speakerCreature.anchor === 'float'));
             if (!spritePose) return;
+            if (castSpeakerReplan) Object.assign(spritePose.layout, { posX: castSpeakerReplan.posX, posY: castSpeakerReplan.posY, scale: castSpeakerReplan.scale });
             spriteEl.style.backgroundSize = spriteBackgroundSize(spritePose.layout.scale);
             spriteEl.style.backgroundPosition = `${spritePose.layout.posX}% ${spritePose.layout.posY}%`;
             applySpeakerFlip(spriteEl, spritePose.flip, spritePose.layout.posX, spritePose.widthPct);
@@ -1694,6 +1793,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     } else if (spriteEl) {
         cancelSpriteReveal(spriteEl);
         const exiting = snapshot.content.spriteLeft === true && Boolean(current.spriteLook) && spriteEl.style.display === 'block' && !current.spriteEditMode;
+        setCreatureFloat(spriteEl, false);
         spriteEl.style.removeProperty('--igs-sprite-enhance');
         current.spriteLook = null;
         current.spriteTurn = null;
@@ -1746,6 +1846,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         let releaseCastAlign = () => {};
         const castAlignReady = castPlan.pending.length ? new Promise((resolve) => { releaseCastAlign = resolve; }) : null;
         applyCastToDom(root, markCalledCast(castPlan.members, castReact.called), { reduced: castReduced, slide: slideGates.slide, move: slideGates.move, handoff, focus: castFocus, lean: castLean, entrances: castStageEntrances(snapshot), ready: castAlignReady, spriteEnhance, turn: castTurnKinds, lowQuality: root.getAttribute('data-igs-quality') === 'low', turnStage: stageMotion, turnSound: normalizeFxSoundSettings(snapshot.readerSettings && snapshot.readerSettings.fxSound) });
+        if (creatureDna) syncCastFloat(root, (name) => { const c = creatureOfName(name); return Boolean(c && c.anchor === 'float'); });
         const castReactKey = `${snapshot.messageId}:${snapshot.content.currentIndex}`;
         if (current.castReactKey !== castReactKey) {
             current.castReactKey = castReactKey;
@@ -1771,11 +1872,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 if (current.castAlignToken !== token || current.spriteEditMode) return;
                 const again = resolveCastPosePlan(snapshot, planCastLayouts(castPlanInput), castSpeakerKey);
                 if (again.speaker && spriteEl) {
+                    castSpeakerReplan = again.speaker;
                     spriteEl.style.backgroundSize = spriteBackgroundSize(again.speaker.scale);
                     spriteEl.style.backgroundPosition = `${again.speaker.posX}% ${again.speaker.posY}%`;
                     if (fxSprite) Object.assign(fxSprite, { posY: Number(again.speaker.posY), scale: Number(again.speaker.scale) });
                 }
                 applyCastToDom(root, markCalledCast(again.members, castReact.called), { reduced: true, focus: castFocus, lean: castLean, spriteEnhance });
+                if (creatureDna) syncCastFloat(root, (name) => { const c = creatureOfName(name); return Boolean(c && c.anchor === 'float'); });
                 const fxTargetOf = new Map(castFxTargets.map((t) => [t.character, t]));
                 for (const m of again.members) {
                     const t = fxTargetOf.get(m.character);
@@ -1806,10 +1909,31 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         if (castEnabled) applyCastToDom(root, [], { reduced: castReduced, slide: slideGates.slide, move: slideGates.move });
         else clearCastDom(root);
     }
+    // 巨型层：立绘层之后、背景之上，铺满舞台并溢出；不占同屏槽位，同时最多一只。无巨型且从未显示过时不碰 DOM。
+    const giantContent = !current.spriteEditMode ? snapshot.content.giantSprite : null;
+    if (giantContent || current.giantShown) {
+        const giantUrl = giantContent ? resolveAssetUrl(giantContent.image) : '';
+        // 窄舞台且前景有人物：巨型怪头部偏到与人物相反的一侧（人物 82% 侧时约 36%，镜像 64%）。
+        const giantInfo = giantUrl && giantNarrow ? peekSpriteHead(giantUrl, root.ownerDocument) : null;
+        const giantHeadX = giantUrl && giantNarrow && snapshot.content.spriteImage ? (giantAsideCenter({ stageW: stageMotion.clientWidth || castView.innerWidth, stageH: stageMotion.clientHeight || castView.innerHeight, probed: giantInfo }) === 82 ? 0.36 : 0.64) : 0.5;
+        applyGiantLayer(root, giantUrl ? { character: giantContent.character, url: giantUrl } : null, {
+            headX: giantHeadX,
+            stageW: stageMotion.clientWidth || castView.innerWidth,
+            stageH: stageMotion.clientHeight || castView.innerHeight,
+            reduced: castReduced,
+            peek: (url) => peekSpriteHead(url, root.ownerDocument),
+            probe: (url) => probeSpriteHead(url, root.ownerDocument),
+        });
+        current.giantShown = Boolean(giantUrl);
+    }
     const castRomanceMark = !castEditing && castPlan && castPlan.members.length ? castRomanceAttr(snapshot.mode, castRomanceMode) : '';
     if (stageMotion && typeof stageMotion.setAttribute === 'function') {
         if (castRomanceMark) stageMotion.setAttribute('data-igs-cast-romance', castRomanceMark);
         else if (typeof stageMotion.removeAttribute === 'function') stageMotion.removeAttribute('data-igs-cast-romance');
+        // 同屏正好两人：标出说话人侧别，供撑伞等区间演出让两人略向中间靠拢（样式见 fx-range-style）。
+        const castDuo = !castEditing && castPlan && castPlan.members.length ? castDuoAttr(castPlan) : '';
+        if (castDuo) stageMotion.setAttribute('data-igs-cast-duo', castDuo);
+        else if (typeof stageMotion.removeAttribute === 'function') stageMotion.removeAttribute('data-igs-cast-duo');
     }
     if (textEl) {
         const theme = resolveActiveTheme(snapshot);
@@ -1912,7 +2036,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             root.style.setProperty('--igs-bar-blur', `blur(${dialogBlur > 0 ? Math.min(dialogBlur, 10) : 6}px)`);
         }
         // 字体、字号定下后再量：放不下一行的注音改成译文单独成行，打字机随后按改好的排版测量。
-        if (bilingualDisplay === 'ruby') fitBilingualRuby(textEl);
+        if (isBilingualRuby(bilingualDisplay)) fitBilingualRuby(textEl);
     }
     const stageShakeSettings = snapshot.readerSettings && snapshot.readerSettings.stageShake;
     const stageShakeKey = [
@@ -1934,6 +2058,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         castMarks: castReactMarks,
         resolveAssetUrl,
         theme: fxTheme,
+        userName: ctx.userName,
     });
     // 获得物品演出：默认关闭；图片只读本聊天本地缓存，同页重绘不重播。
     renderItemFx(root, snapshot, { resolveItemImage: ctx.resolveItemImage, chatId: ctx.chatId, theme: fxTheme });
@@ -1949,7 +2074,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         cast: castFxTargets,
         resolveAssetUrl,
     });
-    renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
+    const dailyFxResult = renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
     // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
     applyDanmakuToDom(root, snapshot, { autoPlay: Boolean(current && current.autoPlay && current.autoPlay.enabled), sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove });
@@ -1981,7 +2106,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         // 背景是素材自带时段变体（如夜景图）时不再叠时段调色。
         timedAsset: Boolean(snapshot.content && snapshot.content.backgroundTimed === true && snapshot.content.illustrationActive !== true),
     });
-    // 人群剪影与漫画背景：前者按地点铺在背景之后（随时段叠色），后者按情绪铺在立绘之前。
+    // 人群氛围与漫画背景：前者按地点铺在背景之后（随时段叠色），后者按情绪铺在立绘之前。
     applyCrowdFx(root, snapshot);
     applyMangaBack(root, snapshot, { sprite: fxSprite });
     // 场景时段挂到 overlay 上，供对话框等界面随昼夜调整明暗；不受天气/夜间调色开关影响，夜景底图本身就暗。
@@ -2131,7 +2256,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     if (input) {
         input.placeholder = snapshot.input.placeholder;
-        input.value = current.inputValue;
+        // 边打字边重绘（出图、报错都会重绘）：草稿由宿主的 input 监听实时记下，值没变就不回写，免得吞字、打断输入法。
+        if (input.value !== current.inputValue) input.value = current.inputValue;
     }
     if (send && !(send.dataset && send.dataset.igsBound)) {
         if (send.dataset) send.dataset.igsBound = '1';
@@ -2310,17 +2436,27 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const content = snapshot.content;
         const posX = stageSprite && (!content.spriteCharacter || content.spriteCharacter === content.speaker) ? stageSprite.posX : undefined;
         const mood = content.statusEmotion || (content.spriteCharacter === content.speaker ? content.spriteMood : '') || '';
-        if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
+        // 台词朗读只认这一页自己的情绪标签；立绘情绪可能是继承、兜底或反应表情，不拿来用。
+        const ttsMood = content.statusEmotion || '';
+        // 聊天页：正文为空，朗读由聊天气泡层（chat-layer.js）逐条接管，这里不再起页面台词朗读，免得互相掐断。
+        if (content.chatPage === true && normalizeTtsSettings(snapshot.readerSettings.tts).enabled) cancelPendingTts(root);
+        else if (normalizeTtsSettings(snapshot.readerSettings.tts).enabled) applyTts(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,
             textType: typewriterTextType,
             text: content.displayText,
+            context: content.fullText || '',
+            spriteTags: snapshot.readerSettings._tempSpriteTags || null,
             speaker: content.speaker || '',
-            mood,
+            speakerKey: content.speakerKey || '',
+            mood: ttsMood,
             phone: fxResult.phone === true,
             nsfw: Boolean(content.sceneNsfw),
             posX,
             whisper: romanceResult.whisper === true,
             next: Array.isArray(content.segments) ? content.segments[content.currentIndex + 1] : '',
+            nextHint: content.nextTtsHint || null,
+            // 报幕卡、睁眼、时间跳跃、醒来这类铺满画面的演出播完再念。
+            delay: Math.max(Number(fxResult && fxResult.ttsLead) || 0, Number(dailyFxResult && dailyFxResult.ttsLead) || 0),
         }, snapshot.readerSettings.tts, snapshot.readerSettings._sceneAssets);
         else applyVoiceBark(root, {
             key: `${snapshot.messageId}:${content.currentIndex}`,

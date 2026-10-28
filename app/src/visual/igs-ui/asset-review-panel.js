@@ -133,9 +133,19 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
             // 入库类为主操作，各占一整行；「仅本聊天 / 丢弃」两列并排，保证按钮对齐。
             if (act === 'library' || act === 'library-dna') button.className = 'is-primary';
             button.setAttribute('data-asset-review-act', act);
+            // 入库要等图片写完，可能要十几秒：点下就锁住并显示状态，不让人以为没反应。
+            const working = act === 'library' || act === 'library-dna';
+            if (item.busy) { button.disabled = true; if (working) button.textContent = '入库中…'; }
             button.addEventListener('click', (event) => {
                 event.stopPropagation();
-                if (typeof handlers.onResolve === 'function') handlers.onResolve(item, act, input.value.trim());
+                if (button.disabled || typeof handlers.onResolve !== 'function') return;
+                for (const control of actions.querySelectorAll('button')) control.disabled = true;
+                if (working) button.textContent = '入库中…';
+                Promise.resolve(handlers.onResolve(item, act, input.value.trim())).finally(() => {
+                    if (button.isConnected === false) return;
+                    for (const control of actions.querySelectorAll('button')) control.disabled = false;
+                    button.textContent = text;
+                });
             });
             actions.appendChild(button);
         }

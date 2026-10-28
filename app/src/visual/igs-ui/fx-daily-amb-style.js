@@ -6,25 +6,14 @@ const RED = `${A}.is-reduced.igs-dfx-amb`;
 
 export const AMB_DETAIL_STYLE_TEXT = `
 ${A}-frame{inset:0;opacity:.72;}
-${A}-frame::before,${A}-frame::after{content:"";position:absolute;}
-${A}.is-train .igs-dfx-amb-frame{background:linear-gradient(180deg,#171a22 5%,transparent 5%),linear-gradient(0deg,#1b1e27 6%,#3a3d48 6%,#3a3d48 6.7%,transparent 6.7%),linear-gradient(90deg,#171a22 2.2%,transparent 2.2%,transparent 97.8%,#171a22 97.8%);}
-${A}.is-train .igs-dfx-amb-frame::before,${A}.is-train .igs-dfx-amb-frame::after{top:5%;bottom:6.7%;width:.5%;background:#171a22;}
-${A}.is-train .igs-dfx-amb-frame::before{left:7%;}
-${A}.is-train .igs-dfx-amb-frame::after{right:7%;}
+${A}.is-train .igs-dfx-amb-frame,${A}.is-car .igs-dfx-amb-frame{background:linear-gradient(180deg,rgba(10,12,18,.5),transparent 4%),linear-gradient(0deg,rgba(10,12,18,.5),transparent 5%),radial-gradient(ellipse 80% 75% at 50% 50%,transparent 60%,rgba(10,12,18,.28));}
 ${A}.is-subway .igs-dfx-amb-frame{opacity:.9;}
-${A}.is-car .igs-dfx-amb-frame{background:linear-gradient(180deg,#101319 3.5%,transparent 3.5%),linear-gradient(0deg,#101319 7%,#2a2f3a 7%,#2a2f3a 7.6%,transparent 7.6%);}
-${A}.is-car .igs-dfx-amb-frame::before{left:-3%;top:-6%;bottom:0;width:8%;background:#101319;transform:skewX(9deg);}
-${A}.is-car .igs-dfx-amb-frame::after{left:46%;top:3.5%;width:8%;height:4.6%;border-radius:0 0 42% 42%;background:#101319;box-shadow:inset 0 -3px 0 #2a2f3a;}
-${A}.is-plane .igs-dfx-amb-frame{background:linear-gradient(180deg,#c9cdd6 3%,transparent 3%),linear-gradient(0deg,#b9bec9 5%,transparent 5%);opacity:.5;}
-${A}.is-plane .igs-dfx-amb-frame::before,${A}.is-plane .igs-dfx-amb-frame::after{top:30%;width:9vmin;height:14vmin;border-radius:50%;box-shadow:0 0 0 5px #c9ced6,0 0 0 8px #2a2f3a;}
-${A}.is-plane .igs-dfx-amb-frame::before{left:4%;}
-${A}.is-plane .igs-dfx-amb-frame::after{right:4%;}
-${A}.is-plane.is-airship .igs-dfx-amb-frame{background:linear-gradient(180deg,#3b2412 4.5%,#5a3a1c 4.5%,#5a3a1c 5.2%,transparent 5.2%),linear-gradient(0deg,#3b2412 6%,transparent 6%);opacity:.8;}
-${A}.is-plane.is-airship .igs-dfx-amb-frame::before,${A}.is-plane.is-airship .igs-dfx-amb-frame::after{box-shadow:0 0 0 5px #b58a4a,0 0 0 8px #3b2412;}
+${A}.is-plane .igs-dfx-amb-frame{background:radial-gradient(ellipse 72% 78% at 50% 50%,transparent 58%,rgba(14,18,28,.34));opacity:.6;}
+${A}.is-plane.is-airship .igs-dfx-amb-frame{background:radial-gradient(ellipse 72% 78% at 50% 50%,transparent 58%,rgba(40,24,10,.34));opacity:.8;}
 ${A}-scenery{left:0;top:0;width:200%;height:100%;}
-${A}.is-train .igs-dfx-amb-scenery{top:10%;height:78%;background:linear-gradient(90deg,transparent 48%,rgba(10,12,18,.36) 48%,rgba(10,12,18,.36) 50%,transparent 50%) 0 0/25% 100% repeat-x;animation:igs-amb-clouds 9s linear infinite;}
+${A}.is-train .igs-dfx-amb-scenery{top:8%;height:80%;background:linear-gradient(90deg,transparent,rgba(10,12,18,.16) 50%,transparent) 0 0/25% 100% repeat-x;animation:igs-amb-clouds 16s linear infinite;}
 ${A}.is-subway .igs-dfx-amb-scenery{top:0;height:100%;background:linear-gradient(90deg,transparent 40%,rgba(255,236,196,.26) 40%,rgba(255,236,196,.26) 60%,transparent 60%) 0 30%/25% 3px repeat-x,linear-gradient(90deg,transparent 40%,rgba(255,236,196,.18) 40%,rgba(255,236,196,.18) 60%,transparent 60%) 0 62%/25% 2px repeat-x;animation:igs-amb-clouds 3s linear infinite;}
-${A}.is-car .igs-dfx-amb-scenery{top:10%;height:78%;background:linear-gradient(90deg,transparent 48%,rgba(10,12,18,.3) 48%,rgba(10,12,18,.3) 49.4%,transparent 49.4%) 0 0/25% 100% repeat-x;animation:igs-amb-clouds 14s linear infinite;}
+${A}.is-car .igs-dfx-amb-scenery{top:8%;height:80%;background:linear-gradient(90deg,transparent,rgba(10,12,18,.14) 50%,transparent) 0 0/25% 100% repeat-x;animation:igs-amb-clouds 26s linear infinite;}
 ${A}.is-car.is-night .igs-dfx-amb-scenery{top:0;height:60%;background:radial-gradient(ellipse 12% 34% at 50% 0,rgba(255,186,110,.32),transparent 72%) 0 0/25% 100% repeat-x;animation-duration:8s;}
 ${A}.is-plane .igs-dfx-amb-scenery{top:48%;height:52%;background:radial-gradient(ellipse 14% 22% at 30% 40%,rgba(255,255,255,.18),transparent 70%) 0 0/25% 100% repeat-x,radial-gradient(ellipse 20% 26% at 78% 72%,rgba(255,255,255,.13),transparent 70%) 0 0/25% 100% repeat-x;animation:igs-amb-clouds 70s linear infinite;}
 ${A}.is-plane.is-night .igs-dfx-amb-scenery{opacity:.4;}
@@ -38,14 +27,12 @@ ${A}-twink::after{background:radial-gradient(circle at 52% 34%,#fff 0 1.5px,rgba
 
 ${A}-sunrim{inset:0;background:radial-gradient(ellipse 62% 22% at 50% 62%,rgba(255,216,140,.42),rgba(255,180,110,.12) 52%,transparent 76%);}
 ${A}.is-cloudsea.is-night .igs-dfx-amb-sunrim{background:radial-gradient(ellipse 50% 20% at 50% 62%,rgba(170,196,255,.26),transparent 74%);}
-${A}-peaks{inset:0;}
-${A}-peaks::before,${A}-peaks::after{content:"";position:absolute;left:0;right:0;bottom:0;}
-${A}-peaks::before{height:46%;background:linear-gradient(180deg,#7e97b8,#a6b8d0);opacity:.42;clip-path:polygon(0 100%,0 64%,8% 52%,15% 66%,24% 30%,31% 58%,38% 44%,47% 70%,56% 36%,63% 56%,72% 22%,80% 54%,88% 42%,95% 60%,100% 50%,100% 100%);}
-${A}-peaks::after{height:30%;background:linear-gradient(180deg,#4b6288,#6f86aa);opacity:.52;clip-path:polygon(0 100%,0 58%,10% 40%,19% 62%,29% 24%,38% 56%,52% 70%,64% 30%,73% 58%,83% 36%,92% 56%,100% 44%,100% 100%);}
-${A}.is-cloudsea.is-night .igs-dfx-amb-peaks::before{background:linear-gradient(180deg,#26365a,#3a4c74);}
-${A}.is-cloudsea.is-night .igs-dfx-amb-peaks::after{background:linear-gradient(180deg,#16233f,#26365a);}
 ${A}.is-cloudsea .igs-dfx-amb-clouds{opacity:.75;animation-duration:44s;}
 
+${A}-hveil{inset:0;background:radial-gradient(ellipse 90% 60% at 50% 100%,rgba(255,252,246,.1),transparent 78%),radial-gradient(ellipse 70% 50% at 8% 55%,rgba(255,252,246,.06),transparent 80%),radial-gradient(ellipse 70% 50% at 94% 40%,rgba(255,252,246,.06),transparent 80%);animation:igs-amb-pulse 14s ease-in-out infinite alternate;}
+${A}-hfar{left:0;bottom:6%;width:200%;height:30%;background:radial-gradient(ellipse 12% 30% at 12% 60%,rgba(255,252,246,.12),transparent 72%),radial-gradient(ellipse 9% 24% at 38% 40%,rgba(255,252,246,.09),transparent 72%),radial-gradient(ellipse 13% 28% at 66% 66%,rgba(255,252,246,.1),transparent 72%),radial-gradient(ellipse 8% 22% at 90% 46%,rgba(255,252,246,.08),transparent 72%);background-size:50% 100%;background-repeat:repeat-x;animation:igs-amb-clouds 110s linear infinite;}
+${A}-hnear{left:0;bottom:-6%;width:200%;height:40%;background:radial-gradient(ellipse 20% 42% at 16% 80%,rgba(255,252,246,.24),rgba(255,252,246,.08) 58%,transparent 76%),radial-gradient(ellipse 15% 30% at 24% 62%,rgba(255,252,246,.14),transparent 72%),radial-gradient(ellipse 24% 40% at 70% 88%,rgba(255,252,246,.22),rgba(255,252,246,.07) 58%,transparent 76%),radial-gradient(ellipse 14% 26% at 80% 70%,rgba(255,252,246,.12),transparent 72%);background-size:50% 100%;background-repeat:repeat-x;animation:igs-amb-clouds 56s linear infinite reverse;}
+${A}.is-heaven.is-night .igs-dfx-amb-hveil,${A}.is-heaven.is-night .igs-dfx-amb-hfar,${A}.is-heaven.is-night .igs-dfx-amb-hnear{opacity:.6;}
 ${A}-innbeam{inset:0;opacity:.85;background:linear-gradient(180deg,#2a190c 5%,#4a2f17 5%,#4a2f17 5.7%,transparent 5.7%),linear-gradient(90deg,#2a190c 3%,#4a2f17 3%,#4a2f17 3.5%,transparent 3.5%),linear-gradient(270deg,#2a190c 3%,#4a2f17 3%,#4a2f17 3.5%,transparent 3.5%);}
 ${A}-innlamps{left:0;right:0;top:0;height:30%;}
 ${A}-innlamps b{position:absolute;top:6%;width:clamp(24px,4.6vmin,40px);height:clamp(32px,6vmin,52px);border-radius:42%;background:#b8321f;box-shadow:0 0 22px 8px rgba(255,160,70,.4),inset 0 6px 0 #5a2a14,inset 0 -6px 0 #5a2a14;transform-origin:50% -40px;animation:igs-amb-lamp 4.8s ease-in-out infinite alternate;}
@@ -55,7 +42,6 @@ ${A}-innlamps b:nth-child(2){right:9%;animation-duration:6.1s;animation-delay:-2
 ${A}.is-inn.is-night .igs-dfx-amb-innlamps b{box-shadow:0 0 30px 12px rgba(255,160,70,.55),inset 0 6px 0 #5a2a14,inset 0 -6px 0 #5a2a14;}
 ${A}-innsmoke{left:-5%;right:-5%;bottom:-10%;height:46%;background:radial-gradient(ellipse 50% 60% at 30% 100%,rgba(255,232,170,.2),transparent 70%),radial-gradient(ellipse 40% 50% at 78% 100%,rgba(255,232,170,.14),transparent 70%);animation:igs-amb-drift 22s ease-in-out infinite alternate;}
 
-${A}-cavecrown{left:0;right:0;top:0;height:24%;background:linear-gradient(180deg,#05080b,#0c1217);opacity:.92;clip-path:polygon(0 0,100% 0,100% 30%,95% 52%,91% 34%,86% 74%,80% 40%,73% 58%,66% 32%,58% 86%,52% 44%,44% 60%,37% 30%,30% 70%,23% 42%,15% 62%,9% 36%,4% 50%,0 28%);}
 ${A}-caveglow{left:20%;right:20%;bottom:-8%;height:46%;background:radial-gradient(ellipse 50% 60% at 50% 100%,rgba(120,230,210,.26),transparent 72%);animation:igs-amb-pulse 7s ease-in-out infinite alternate;}
 ${A}.is-cave .igs-dfx-amb-cavedrip{top:14%;}
 ${A}-cavedrip2,${A}-cavedrip3{left:71%;top:14%;width:3px;height:3px;border-radius:50%;background:rgba(200,236,255,.9);box-shadow:0 0 8px 3px rgba(150,210,255,.5);animation:igs-amb-drip 5.7s cubic-bezier(.5,0,.9,.6) -1.9s infinite;}
@@ -76,8 +62,6 @@ ${A}-seaplane::after{left:-4%;right:-4%;top:46%;height:3px;background:linear-gra
 ${A}.is-beach.is-night .igs-dfx-amb-seaplane{background:linear-gradient(180deg,transparent 0 28%,rgba(220,232,255,.08) 28%,rgba(220,232,255,.08) 29%,transparent 29% 56%,rgba(220,232,255,.06) 56%,rgba(220,232,255,.06) 57%,transparent 57%),linear-gradient(180deg,rgba(40,50,120,.34),rgba(60,70,140,.18) 40%,rgba(30,40,100,.1));}
 ${A}.is-beach.is-night .igs-dfx-amb-seaplane::before{background:rgba(214,226,255,.5);}
 
-${A}-skyline{left:0;right:0;bottom:0;height:34%;background:radial-gradient(circle at 4px 4px,rgba(255,214,130,.8) 0 1.4px,transparent 2px) 0 0/16px 20px,linear-gradient(180deg,#0c101c,#070a12);opacity:.9;clip-path:polygon(0 100%,0 62%,5% 62%,5% 40%,10% 40%,10% 70%,14% 70%,14% 28%,19% 28%,19% 54%,24% 54%,24% 46%,30% 46%,30% 66%,35% 66%,35% 22%,41% 22%,41% 58%,47% 58%,47% 72%,53% 72%,53% 36%,59% 36%,59% 60%,64% 60%,64% 44%,70% 44%,70% 26%,76% 26%,76% 64%,82% 64%,82% 50%,88% 50%,88% 34%,94% 34%,94% 60%,100% 60%,100% 100%);}
-${A}.is-nightview:not(.is-night) .igs-dfx-amb-skyline{opacity:.3;}
 
 ${A}-shiphz{left:-5%;right:-5%;top:-5%;bottom:-5%;background:linear-gradient(180deg,transparent 46%,rgba(40,100,150,.16) 46%,rgba(40,100,150,.04));transform-origin:50% 60%;animation:igs-amb-rock 8s ease-in-out infinite alternate;}
 ${A}-shiphz::before,${A}-shiphz::after{content:"";position:absolute;}

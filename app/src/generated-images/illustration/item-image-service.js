@@ -1,7 +1,7 @@
 import { recoverOperation } from '../../storage/automatic-recovery.js';
 // 物品图服务：表格物品 + 本楼 [igs-fx:item] → 缺图物品按聊天隔离生成，存入 igs-generated-assets（type: item）。
 // 关闭时入口短路：不读表、不发请求。记录用独立状态 ready，不进入素材补全的审核弹窗与临时素材列表。
-import { requestWithSoftRetry } from './prompt-kit.js';
+import { requestWithSoftRetry, normalizeMatteColor } from './prompt-kit.js';
 import { normalizeAutoIllustrationSettings } from './auto-illustration-settings.js';
 import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-builder.js';
 import { numberParagraphs } from './marker-placer.js';
@@ -79,7 +79,8 @@ export function createItemImageService(deps) {
     const readSettings = signal => {
         const raw = imageTaskState({ signal })?.config || (getSettings ? getSettings() || {} : {});
         const itemModel = String((raw.imageApi && raw.imageApi.itemModel) || '').trim();
-        return { items: normalizeItemImageSettings(raw.itemImages), auto: normalizeAutoIllustrationSettings(raw.autoIllustration), itemModel, taskSignal: signal };
+        const matteColor = normalizeMatteColor(raw.imageApi && raw.imageApi.spriteMatteColor);
+        return { items: normalizeItemImageSettings(raw.itemImages), auto: normalizeAutoIllustrationSettings(raw.autoIllustration), itemModel, matteColor, taskSignal: signal };
     };
 
     const chatOf = () => (messageHost.getChatId ? messageHost.getChatId() : '');
@@ -105,7 +106,7 @@ export function createItemImageService(deps) {
         const ordered = typeof llm?.prepareImagePrompt === 'function';
         const final = backend.mode === 'nai' && ordered;
         const transparent = supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
-        const requirements = buildItemSlot('', { transparent, positiveContext: s.auto.nai.artistPrefix });
+        const requirements = buildItemSlot('', { transparent, matteColor: s.matteColor, positiveContext: s.auto.nai.artistPrefix });
         let planned = [];
         try {
             const plan = await requestWithSoftRetry(llm, {
@@ -153,7 +154,7 @@ export function createItemImageService(deps) {
             const plannedVia = nai && typeof nai.describe === 'function' ? nai.describe(undefined, { signal: s.taskSignal }).via : 'nai';
             const final = plan.captionMode === 'final';
             const transparent = final ? plan.transparent : plannedVia !== 'chatu8' && plannedVia !== 'baibai' && supportsNaiTransparentBackground(s.itemModel || s.auto.nai.model);
-            const slot = inheritImageTaskLease(plan, buildItemSlot(plan.tags, { transparent, uc: plan.uc,
+            const slot = inheritImageTaskLease(plan, buildItemSlot(plan.tags, { transparent, matteColor: s.matteColor, uc: plan.uc,
                 positiveContext: s.auto.nai.artistPrefix, final }));
             const meta = { messageId: floor ? floor.messageId : undefined, size: s.items.size, imageKind: 'item',
                 signal: s.taskSignal || recoveryController.signal,

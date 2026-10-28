@@ -36,9 +36,9 @@ ${ENTRY_DOCK_CSS}
 .igs-aud-back svg{display:block;width:100%;height:100%;}
 .igs-aud-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.28);}
 .igs-aud-progress i{display:block;height:100%;width:0;background:#fb7299;}
-.igs-aud-item{position:absolute;left:100%;top:0;white-space:nowrap;font:700 var(--igs-aud-font,14px)/1.3 "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;color:#fff;text-shadow:1px 0 0 #000,-1px 0 0 #000,0 1px 0 #000,0 -1px 0 #000;animation:igs-dm-scroll var(--igs-dm-dur,7s) linear both;}
+.igs-aud-item{position:absolute;left:100%;top:0;white-space:nowrap;font:700 var(--igs-aud-font,14px)/1.3 "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;letter-spacing:.035em;color:#fff;-webkit-text-stroke:2.5px #14161c;paint-order:stroke fill;text-shadow:0 1px 2px #14161c;animation:igs-dm-scroll var(--igs-dm-dur,7s) linear both;}
 .igs-aud-item:not([data-ai]){font-weight:500;opacity:.82;}
-.igs-aud-item.is-top{left:50%;color:#ffde4d;transform:translateX(-50%);animation:igs-dm-top 4s ease both;}
+.igs-aud-item.is-top{left:50%;color:#ffde4d;transform:translateX(-50%);text-shadow:0 1px 2px #14161c,0 0 10px #b8801c;animation:igs-dm-top 4s ease both;}
 .igs-aud-info{flex:none;padding:10px 12px 6px;background:#fff;}
 .igs-aud-title{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .igs-aud-sub{margin-top:2px;font-size:11px;color:#9499a0;}

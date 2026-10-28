@@ -1,5 +1,6 @@
 import { getSillyTavernContext } from './tavern-helper-adapter.js';
 import { stripIllustrationMarkers } from '../scene/scene-directives.js';
+import { attachWorldInfoExclude } from './world-info-filter.js';
 
 const NOTE_KEY = '2_floating_prompt';
 const queues = new WeakMap();
@@ -25,6 +26,7 @@ export function createImageWorldInfoSource(globalObject = globalThis, deps = {})
             const prompts = ctx.extensionPrompts;
             const existed = prompts && Object.hasOwn(prompts, NOTE_KEY);
             const note = existed ? { ...prompts[NOTE_KEY] } : null;
+            const detach = attachWorldInfoExclude(ctx, typeof deps.readExclude === 'function' ? deps.readExclude() : null);
             try {
                 const result = await ctx.getWorldInfoPrompt(scan, scanBudget(ctx), true, scanFields(ctx));
                 if (stale()) return failure('request-stale');
@@ -33,6 +35,7 @@ export function createImageWorldInfoSource(globalObject = globalThis, deps = {})
             } catch {
                 return failure('WORLDINFO_RESOLVE_FAILED');
             } finally {
+                detach();
                 // dryRun 仍会改写作者注释；本适配器的扫描串行，结束后恢复原值。
                 if (prompts) {
                     if (existed) prompts[NOTE_KEY] = note;

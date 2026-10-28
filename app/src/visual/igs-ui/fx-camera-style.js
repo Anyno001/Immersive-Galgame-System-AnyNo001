@@ -45,35 +45,19 @@ ${O}[data-igs-sd-cam-mod="slow"] #igs-stage-motion::before,${O}[data-igs-sd-cam-
 
 const FRONT_CSS = `
 ${O} .igs-cm{position:absolute;inset:0;pointer-events:none;overflow:hidden;}
-${O} .igs-cm-fg{position:absolute;top:0;bottom:0;left:0;width:44%;filter:blur(6px);animation:igs-cm-fg-r ${L} linear both;}
+${O} .igs-cm-fg{position:absolute;top:0;bottom:0;left:0;width:46%;background:linear-gradient(90deg,transparent,rgba(8,12,16,.12) 28%,rgba(8,12,16,.25) 50%,rgba(8,12,16,.12) 72%,transparent);animation:igs-cm-fg-r ${L} linear both;}
 ${O} .igs-cm-fg.is-left{animation-name:igs-cm-fg-l;}
-${O} .igs-cm-fg svg{position:absolute;left:0;top:36%;width:100%;height:46%;}
-${O} .igs-cm-fg.is-passer{width:20%;}
-${O} .igs-cm-fg.is-passer svg{top:22%;height:78%;}
-${O} .igs-cm-fg.is-rail{width:62%;filter:blur(5px);}
-${O} .igs-cm-fg.is-rail::before{content:"";position:absolute;left:0;right:0;top:56%;height:3.4%;background:${C};}
-${O} .igs-cm-fg.is-rail::after{content:"";position:absolute;left:0;right:0;top:56%;bottom:0;background:repeating-linear-gradient(90deg,${C} 0 14px,transparent 14px 62px);}
-${O} .igs-cm-fg.is-pole{width:11%;filter:blur(7px);}
-${O} .igs-cm-fg.is-pole::before{content:"";position:absolute;left:40%;width:20%;top:0;bottom:0;background:${C};}
-${O} .igs-cm-fg.is-pole::after{content:"";position:absolute;left:-40%;right:-40%;top:12%;height:2.4%;background:${C};}
 @keyframes igs-cm-fg-r{0%{transform:translateX(-48%)}100%{transform:translateX(235%)}}
 @keyframes igs-cm-fg-l{0%{transform:translateX(235%)}100%{transform:translateX(-48%)}}
 ${O} .igs-cm-peek{position:absolute;animation:igs-cm-peek ${L} ease both;}
-${O} .igs-cm-peek.is-window{width:50%;height:66%;border:9px solid ${C};box-sizing:border-box;background:transparent;}
-${O} .igs-cm-peek.is-window::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:6px;margin-left:-3px;background:${C};}
-${O} .igs-cm-peek.is-window::after{content:"";position:absolute;top:50%;left:0;right:0;height:6px;margin-top:-3px;background:${C};}
-${O} .igs-cm-peek.is-leaf{width:34%;height:44%;}
-${O} .igs-cm-peek.is-leaf svg{width:100%;height:100%;}
-${O} .igs-cm-peek.is-tl{left:-5%;top:-5%;}
-${O} .igs-cm-peek.is-tr{right:-5%;top:-5%;}
-${O} .igs-cm-peek.is-bl{left:-5%;bottom:-5%;}
-${O} .igs-cm-peek.is-br{right:-5%;bottom:-5%;}
-${O} .igs-cm-peek.is-leaf.is-br{transform:scaleX(-1);}
-${O} .igs-cm-peek.is-leaf.is-tl{transform:scaleY(-1);}
-${O} .igs-cm-peek.is-leaf.is-tr{transform:scale(-1,-1);}
-${O} .igs-cm-door-slab{position:absolute;top:0;bottom:0;background:${C};animation:igs-cm-peek ${L} ease both;}
-${O} .igs-cm-door-slab.is-l{left:0;width:var(--a);}
-${O} .igs-cm-door-slab.is-r{right:0;width:var(--b);}
+${O} .igs-cm-peek.is-window{width:56%;height:66%;border-radius:14px;box-sizing:border-box;background:transparent;box-shadow:0 0 9px 2px rgba(0,0,0,.94),0 0 0 150vmax rgba(0,0,0,.94);}
+${O} .igs-cm-peek.is-window.is-tl,${O} .igs-cm-peek.is-window.is-bl{left:10%;}
+${O} .igs-cm-peek.is-window.is-tr,${O} .igs-cm-peek.is-window.is-br{left:34%;}
+${O} .igs-cm-peek.is-window.is-tl,${O} .igs-cm-peek.is-window.is-tr{top:8%;}
+${O} .igs-cm-peek.is-window.is-bl,${O} .igs-cm-peek.is-window.is-br{top:26%;}
+${O} .igs-cm-door-slab{position:absolute;top:0;bottom:0;animation:igs-cm-peek ${L} ease both;}
+${O} .igs-cm-door-slab.is-l{left:0;width:var(--a);background:linear-gradient(90deg,#000 calc(100% - 9px),transparent);}
+${O} .igs-cm-door-slab.is-r{right:0;width:var(--b);background:linear-gradient(270deg,#000 calc(100% - 9px),transparent);}
 ${O} .igs-cm-flare-sweep{position:absolute;top:-10%;bottom:-10%;left:0;width:46%;background:linear-gradient(90deg,transparent,rgba(255,244,214,.62) 50%,transparent);transform:skewX(-14deg);animation:igs-cm-flare-r ${L} cubic-bezier(.4,0,.3,1) both;}
 ${O} .igs-cm-flare.is-left .igs-cm-flare-sweep{animation-name:igs-cm-flare-l;}
 ${O} .igs-cm-flare-core{position:absolute;top:8%;width:26%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,rgba(255,250,232,.9),rgba(255,236,190,.35) 40%,transparent 70%);animation:igs-cm-flare-core ${L} ease both;}
@@ -198,6 +182,7 @@ ${O} .igs-cm.is-reduced .igs-cm-dapple{opacity:.55;}
 ${O} .igs-cm.is-reduced .igs-cm-pulse{opacity:.3;}
 ${O} .igs-cm.is-reduced .igs-cm-cell{animation:none;opacity:1;}
 ${O} .igs-cm.is-reduced .igs-cm-tl-cloud,${O} .igs-cm.is-reduced .igs-cm-tl-band,${O} .igs-cm.is-reduced .igs-cm-flare-sweep,${O} .igs-cm.is-reduced .igs-cm-bokeh,${O} .igs-cm.is-reduced .igs-cm-doorlight,${O} .igs-cm.is-reduced .igs-cm-bolt{display:none;}
+${O} .igs-cm.is-reduced .igs-cm-fg{display:none;}
 ${O} .igs-cm.is-reduced .igs-cm-vignette{animation:none;transform:none;}
 ${O} .igs-cm.is-reduced .igs-cm-peek,${O} .igs-cm.is-reduced .igs-cm-door-slab{animation:none;opacity:.96;}
 ${O} .igs-cm.is-reduced .igs-cm-backdrop{animation:none;opacity:.9;}

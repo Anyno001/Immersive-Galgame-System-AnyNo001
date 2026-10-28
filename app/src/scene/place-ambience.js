@@ -32,7 +32,14 @@ const SKY_FALSE_FRIENDS = /空中(?:花园|走廊|楼阁|餐厅|酒吧|庭院|�
 // 修仙武侠的古风地点（只在古代世界观生效，避免「云海」在现代误伤旅游景点）：客栈酒肆、洞府丹房、云海仙山。
 const INN_WORDS = Object.freeze(['客栈', '酒肆', '酒楼', '镖局', '茶寮', '驿站']);
 const CAVE_WORDS = Object.freeze(['洞府', '仙府', '石室', '丹房', '山洞', '密室', '石洞', '洞窟']);
-const CLOUDSEA_WORDS = Object.freeze(['云海', '仙山', '天宫', '天庭', '云端', '仙岛', '瑶池']);
+const CLOUDSEA_WORDS = Object.freeze(['云海', '仙山', '云端', '仙岛']);
+// 天上神仙居所：天庭天宫、天堂天国、神域，不分世界观（仙侠、西幻、现代奇幻都有）。只收明指居所的词，「天台」「天桥」「天花板」本就不含这些词。
+const HEAVEN_WORDS = Object.freeze([
+    '天庭', '天宫', '天界', '仙界', '天堂', '天国', '凌霄殿', '凌霄宝殿', '南天门', '瑶池', '蓬莱仙境', '九重天', '兜率宫', '广寒宫',
+    '神域', '众神之域', '神之国度', 'heaven', 'celestial realm',
+]);
+// 假朋友：天堂鸟 / 天堂伞、天上人间（夜总会）、太平天国、天庭饱满（面相）、天宫空间站、「天堂号」游轮。
+const HEAVEN_FALSE_FRIENDS = /天堂(?:鸟|伞|号|电影院|路|街|酒店)|太平天国|天庭饱满|天宫(?:空间站|一号|二号|课堂)|天上人间/g;
 const SHOWER_WORDS = Object.freeze(['淋浴', '花洒', '冲澡']);
 const ONSEN_WORDS = Object.freeze(['温泉', '露天风吕', '露天浴', '汤池', '野汤']);
 const BATH_WORDS = Object.freeze([
@@ -81,7 +88,7 @@ const HORSE_DRAWN_WORLDS = Object.freeze(['ancient', 'fantasy']);
 const XIAN_WORLDS = Object.freeze(['ancient']);
 
 // 氛围是「环境本身」的地点：NSFW 页也保留（不扫光带、不晃），载具则只在 SFW 页挂。
-export const STILL_PLACE_KINDS = Object.freeze(['bath', 'underwater', 'space', 'inn', 'cave', 'cloudsea']);
+export const STILL_PLACE_KINDS = Object.freeze(['bath', 'underwater', 'space', 'inn', 'cave', 'cloudsea', 'heaven']);
 // sky（露天飞行）也算载具：人在风里移动，NSFW 页不挂。
 export const VEHICLE_KINDS = Object.freeze(['train', 'car', 'carriage', 'ship', 'plane', 'bike', 'sky']);
 
@@ -89,7 +96,7 @@ export function isHorseDrawnWorld(worldview) {
     return HORSE_DRAWN_WORLDS.includes(String(worldview || ''));
 }
 
-// 返回 { kind: 'underwater'|'space'|'bath'|'carriage'|'train'|'car'|'ship'|'plane'|'bike'|'sky', variant } 或 null。
+// 返回 { kind: 'underwater'|'space'|'bath'|'carriage'|'train'|'car'|'ship'|'plane'|'bike'|'sky'|'heaven', variant } 或 null。
 // variant：train 的 subway（地下隧道）、bath 的 shower / onsen、underwater 的 abyss（深海）、plane 的 airship（飞艇 / 热气球 / 飞毯）；其余为空串。
 // 水下、真空最先（「沉船的甲板」在水底）；再洗浴后载具：「游轮上的浴场」在浴场里；飞行器先于马车、马车先于汽车：「飞艇」不算列车、「马车车厢」不算列车。
 export function resolvePlaceAmbience(location, { worldview = '' } = {}) {
@@ -108,6 +115,8 @@ export function resolvePlaceAmbience(location, { worldview = '' } = {}) {
     if (isInPlane(raw, text)) return { kind: 'plane', variant: horseDrawn ? 'airship' : '' };
     // 露天飞行排在机舱之后：「飞行中的客机」在机舱里；排在马车之前：「龙背上的车驾」在天上。
     if (includesAny(text.replace(SKY_FALSE_FRIENDS, ''), SKY_WORDS)) return { kind: 'sky', variant: '' };
+    // 天界排在露天飞行之后（「腾云到南天门」仍在飞），云海 / 古风地点之前（天庭、天宫、瑶池归它，所有世界观通用）。
+    if (includesAny(text.replace(HEAVEN_FALSE_FRIENDS, ''), HEAVEN_WORDS)) return { kind: 'heaven', variant: '' };
     // 古风地点插在露天飞行之后（「御剑穿云海」仍归 sky）、马车之前。
     if (XIAN_WORLDS.includes(String(worldview || ''))) {
         if (includesAny(text, CLOUDSEA_WORDS)) return { kind: 'cloudsea', variant: '' };

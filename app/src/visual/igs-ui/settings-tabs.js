@@ -67,6 +67,12 @@ const BACKUP_TEMPLATE = `
     <div class="igs-link-row"><button class="igs-link-btn" data-action="image-cache-status" type="button">查看占用</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-records-retry-backup" type="button">重试备份</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-files-retry-delete" type="button">重试删除</button></div>
     <div class="igs-source-filter-note">{{imageCacheStatus}}</div>
   </div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">朗读缓存</div>
+    <div class="igs-source-filter-grid">{{ttsCacheField}}</div>
+    <div class="igs-settings-row"><button class="igs-settings-action" data-action="tts-trim-cache" type="button">清理朗读缓存</button></div>
+    <div class="igs-source-filter-note">{{ttsCacheStatus}}</div>
+  </div>
 </div>
 `.trim();
 
@@ -80,12 +86,16 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-feature="external-sprite-dna"{{sourceExternalHidden}}>
       {{externalSpriteDnaField}}
     </div>
+    <div class="igs-settings-sub" data-image-feature="sprite-matte-color">
+      {{spriteMatteColorField}}
+    </div>
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
-        <div class="igs-settings-full">{{autoNaiEndpointField}}</div>
-        {{autoNaiKeyField}}{{autoNaiTransportField}}
+        {{autoNaiEndpointField}}{{autoNaiKeyField}}
         {{autoNaiModelField}}{{autoNaiSizeField}}
+        {{autoNaiTransportField}}
       </div>
+      {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}
       </div>
@@ -135,17 +145,22 @@ const IMAGE_LLM_TEMPLATE = `
         {{autoLlmEndpointField}}{{autoLlmKeyField}}
         {{autoLlmModelField}}
       </div>
+      {{modelProfileLlmRow}}
       <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-request"{{autoLlmRequestOpen}}>
+        <summary><b>请求参数</b></summary>
+        <div class="igs-source-filter-note">写法同酒馆自定义源，YAML或JSON。</div>
+        <div class="igs-settings-full">{{autoLlmIncludeHeadersField}}</div>
+        <div class="igs-settings-full">{{autoLlmIncludeBodyField}}</div>
+        <div class="igs-settings-full">{{autoLlmExcludeBodyField}}</div>
+      </details>
     </div>
   </div>
   {{imagePromptPanel}}
+  {{worldInfoFilterPanel}}
   <div class="igs-source-filter" data-image-feature="llm-prompts">
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
-      <summary><b>附加写词要求（可选）</b><span class="igs-perf-brief">修改后作为追加要求生效</span></summary>
-      <div class="igs-settings-full">{{autoLlmPromptIllustrationField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptIllustrationSoftField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptAssetField}}</div>
-      <div class="igs-settings-full">{{autoLlmPromptAssetSoftField}}</div>
+      <summary><b>附加词</b></summary>
       <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
       <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
     </details>
@@ -215,6 +230,7 @@ const READER_DIALOG_TEMPLATE = `
     {{gradientVeilFields}}
     {{magicHouseField}}
     <div class="igs-settings-row igs-switch-stack igs-dialog-style-options">{{statusLineToggle}}</div>
+    <div class="igs-source-filter-grid">{{resumePromptField}}</div>
   </div>
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">尺寸{{resetReaderDialogSize}}</div>
@@ -353,7 +369,7 @@ const RULES_TEMPLATE = `
 const WARDROBE_TEMPLATE = `
 <div class="igs-settings-grid" data-scene-settings-pane="wardrobe">
   <div class="igs-source-filter" data-wardrobe-section>
-    <div class="igs-source-filter-title">衣柜提示词<span class="igs-outfit-muted">生图用</span><button class="igs-btn-mgr-icon igs-title-add" data-action="wardrobe-add" type="button" title="添加一条衣柜提示词" aria-label="添加一条衣柜提示词">+</button></div>
+    <div class="igs-source-filter-title">衣柜提示词<span class="igs-outfit-muted">生图用</span>{{wardrobeSelectToggle}}<button class="igs-btn-mgr-icon igs-title-add" data-action="wardrobe-add" type="button" title="添加一条衣柜提示词" aria-label="添加一条衣柜提示词">+</button></div>
     <div class="igs-source-filter-note">生成服装立绘时使用的服装描述；未指定时使用同名的那一条。</div>
     {{wardrobeSection}}
   </div>
@@ -378,6 +394,52 @@ const EVENTCG_TEMPLATE = `
 
 export { RULES_TEMPLATE, WARDROBE_TEMPLATE, EVENTCG_TEMPLATE, SCENE_HEAD_TEMPLATE, PARSE_TEMPLATE, BACKUP_TEMPLATE };
 
+// 数值系统：总开关在最上；关闭时下方整块隐藏，只留一行说明。
+const STATS_TEMPLATE = `
+<div class="igs-settings-grid" data-settings-pane="stats">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">数值系统</div>
+    <div class="igs-settings-row">{{statsToggle}}</div>
+    <div class="igs-source-filter-note"{{statsOffNoteHidden}}>开启后，好感、技能、体力与金钱由脚本掷骰结算，AI 只报告发生了什么。每个聊天第一次使用时可以选择是否启用。</div>
+  </div>
+  <div class="igs-settings-sub"{{statsHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">规则</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{intimacyField}}</div>
+      <div class="igs-source-filter-grid">{{registerField}}{{hudLabelField}}</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">生活条</div>
+      <div class="igs-settings-section">{{barsFields}}</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">同步到表格</div>
+      <div class="igs-settings-section">{{pushField}}</div>
+      {{statsMappingFields}}
+      <div class="igs-source-filter-note">表格里的数值只作展示；在表格里改动的数值会在下一次同步时被覆盖。</div>
+      <div class="igs-source-filter-note">推荐导入「IGS 数值系统适配版」表格模板：填表 AI 不再改好感与属性，导入后无需配置。</div>
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="stats-template-download" type="button">下载适配版表格模板</button>
+      </div>
+    </div>
+    <div class="igs-source-filter">{{statsPromptFields}}</div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">存档</div>
+      {{statsArchiveFields}}
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">本聊天</div>
+      <div class="igs-source-filter-note" data-result="stats-chat">{{statsChatNote}}</div>
+      <div{{statsBuildHidden}}>{{statsBuildFields}}</div>
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="stats-chat-enable" type="button"{{statsChatEnableHidden}}>快速开始（默认数值）</button>
+        <button class="igs-settings-action" data-action="stats-chat-disable" type="button"{{statsChatDisableHidden}}>本聊天暂停（数值冻结）</button>
+      </div>
+    </div>
+  </div>
+</div>
+`.trim();
+
 const PAGE_TEMPLATES = Object.freeze({
     style: READER_DIALOG_TEMPLATE,
     text: READER_TEXT_TEMPLATE,
@@ -398,6 +460,7 @@ const PAGE_TEMPLATES = Object.freeze({
     llm: IMAGE_LLM_TEMPLATE,
     rules: RULES_TEMPLATE,
     parse: PARSE_TEMPLATE,
+    stats: STATS_TEMPLATE,
     data: BACKUP_TEMPLATE,
     logs: IMAGE_LOGS_TEMPLATE,
 });

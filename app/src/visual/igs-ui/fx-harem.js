@@ -4,6 +4,7 @@ import { traySvg } from './fx-selected-svg.js';
 import { esc } from './reader-value-utils.js';
 import { charSpans, make } from './fx-daily-kit.js';
 import { gaugeHtml } from './fx-panel-kit.js';
+import { probeSceneSvg } from './fx-symbols.js';
 import { rollNumber } from './fx-ticker.js';
 import { drawLinks } from './fx-links.js';
 import { resolveHeadAnchor, spriteElOf } from './stage-snapshot.js';
@@ -134,13 +135,7 @@ export const HAREM_BUILDERS = {
     // 验毒 / 验亲 / 巫蛊：三件证物各一张小景，结果落在底下一行字上。
     hmprobe(item, env) {
         const good = item.result === 'good';
-        const bowl = '<path d="M20 52 Q20 74 60 74 Q100 74 100 52"/><ellipse cx="60" cy="52" rx="40" ry="6"/>';
-        const svg = (inner) => `<svg viewBox="0 0 120 84" aria-hidden="true">${inner}</svg>`;
-        const scene = {
-            needle: svg(`${bowl}<g class="hm-needle ${good ? 'is-clean' : 'is-black'}"><line x1="52" y1="6" x2="64" y2="62"/><line class="hm-needle-tip" x1="63" y1="48" x2="64" y2="62"/></g>`),
-            blood: svg(`${bowl}<circle class="hm-drop" cx="48" cy="20" r="2.4"/><circle class="hm-drop is-b" cx="72" cy="20" r="2.4"/>${good ? '<circle class="hm-blend" cx="60" cy="58" r="5"/>' : '<circle class="hm-blend" cx="50" cy="58" r="3"/><circle class="hm-blend" cx="70" cy="58" r="3"/>'}`),
-            doll: svg('<circle cx="60" cy="14" r="8"/><path d="M50 26 Q60 22 70 26 L72 62 L48 62 Z"/><path d="M50 30 L36 46 M70 30 L84 46"/><line class="hm-doll-pin" x1="56" y1="30" x2="60" y2="52"/><line class="hm-doll-pin is-b" x1="66" y1="40" x2="62" y2="58"/><text class="hm-doll-tag" x="76" y="72">八字</text>'),
-        }[item.mode];
+        const scene = probeSceneSvg(item.mode, good);
         const title = { needle: '银针验毒', blood: '滴血验亲', doll: '搜出人偶' }[item.mode];
         const verdict = item.note || { needle: good ? '银针无恙' : '银针发黑', blood: good ? '两血相融' : '两血不融', doll: '厌胜之物' }[item.mode];
         const html = `<div class="hm-probe-card"><div class="hm-probe-title">${title}</div><div class="hm-probe-scene">${scene}</div><div class="hm-probe-verdict ${good ? 'is-good' : 'is-bad'}">${esc(verdict)}</div></div>`;

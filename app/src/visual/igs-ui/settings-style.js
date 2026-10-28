@@ -88,7 +88,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-settings-section-head>.igs-asset-select-toggle+.igs-asset-zip{margin-left:0}
 .igs-settings-section-head>.igs-asset-select-toggle::after,.igs-settings-section-head>.igs-asset-zip:has(+.igs-add-menu)::after{content:"·";margin-left:8px;color:var(--igs-settings-ink-4)}
 .igs-settings-sub{display:flex;flex-direction:column;gap:12px;min-width:0;margin-left:6px;padding:2px 0 2px 14px;border-left:2px solid var(--igs-settings-highlight)}
-[data-image-pane="source"] .igs-settings-sub:not(details){margin-left:0;padding-left:0;border-left:0}
+[data-image-pane="source"] .igs-settings-sub:not(details):not([data-image-source="nai"]):not([data-model-profiles]):not([data-image-feature="consistency"]){margin-left:0;padding-left:0;border-left:0}
 .igs-artist-lib-row{display:flex;align-items:center;gap:8px;min-width:0}
 .igs-artist-lib-row>.igs-settings-field{flex:1 1 auto;min-width:0}
 .igs-artist-lib-row>.igs-settings-action{flex:0 0 auto;height:30px;padding:0 10px}
@@ -155,22 +155,59 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-switch.is-on{color:var(--igs-settings-ink);background:var(--igs-settings-highlight)}
 .igs-switch.is-on i{background:var(--igs-settings-accent)}
 .igs-switch.is-on i:after{left:14px;background:var(--igs-settings-on-accent)}
+.igs-switch[disabled]{opacity:.5;cursor:not-allowed;pointer-events:none}
 .igs-source-filter{grid-column:1/-1;padding:14px 16px 16px;border:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-surface);display:flex;flex-direction:column;gap:14px;min-width:0;max-width:100%;box-sizing:border-box}
 .igs-source-filter-title{font-size:13px;line-height:20px;font-weight:600;letter-spacing:.04em;color:var(--igs-settings-ink)}
 .igs-source-filter-note{font-size:11px;line-height:16px;font-weight:400;color:var(--igs-settings-ink-4);overflow-wrap:anywhere}
+.igs-tts-voice-lib{display:flex;flex-direction:column;gap:6px}
+.igs-tts-voice-item{display:flex;align-items:center;gap:6px;min-width:0}
+.igs-tts-voice-item>.igs-asset-move{flex:1 1 0;cursor:text}
+.igs-tts-voice-item>.igs-asset-move[data-voice-part="id"]{flex-grow:2}
+.igs-tts-voice-item>.igs-btn-mgr-icon{flex:0 0 auto}
+.igs-tts-voice-actions{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px}
+#igs-unified-settings{--igs-compact-h:30px}
+.igs-tts-voice-actions>.igs-settings-inline-action{width:auto;min-width:0;height:var(--igs-compact-h);padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1}
+@media (max-width:520px){.igs-tts-voice-actions{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}}
+.igs-settings-section-head>.igs-settings-inline-action{width:auto;min-width:72px;height:30px;padding:0 12px}
+.igs-tts-switches{display:flex;flex-wrap:wrap;gap:6px}
+.igs-tts-switches>.igs-switch{flex:1 1 auto}
+@media (max-width:520px){.igs-tts-switches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.igs-tts-switches>.igs-switch{height:auto;min-height:38px;padding-top:6px;padding-bottom:6px;white-space:normal;line-height:1.25}}
+.igs-tts-inline{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+.igs-tts-inline>span:first-child{flex:0 0 auto}
+.igs-tts-inline-control{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:0 1 70%;min-width:0}
+.igs-tts-inline-control>select{flex:1 1 auto;min-width:0}
+.igs-tts-inline-control>.igs-table-pick{flex:0 0 auto}
+.igs-tts-pool{display:flex;flex-wrap:wrap;gap:6px;max-height:168px;overflow-y:auto}
+.igs-wi-entries{display:flex;flex-direction:column;gap:4px;min-width:0;max-height:240px;overflow-y:auto}
+.igs-wi-entries>.igs-table-pick{width:100%;flex:0 0 auto;justify-content:flex-start;text-align:left}
 .igs-card-skin-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:-6px}
 .igs-source-filter-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 14px;min-width:0;align-items:end}
 .igs-settings-grid[data-reader-pane="text"] .igs-reader-text-effect-options{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0;align-items:end}
 .igs-reader-text-effect-options>.igs-settings-field{min-width:0}
 .igs-settings-grid[data-reader-pane="dialog"] .igs-gradient-veil-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px;min-width:0}
 .igs-source-filter textarea{min-height:76px}
+.igs-stats-custom-row{align-items:center;text-align:center}
+.igs-stats-custom-row>.igs-mood-word-list{justify-content:center}
+.igs-stats-custom-row .igs-btn-mgr-icon{min-width:28px;min-height:28px;font:inherit;font-size:16px;line-height:1;color:var(--igs-settings-ink-2)}
+[data-stats-prompt] .igs-settings-full>textarea{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid color-mix(in srgb,var(--igs-settings-ink) 16%,transparent);background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:8px 10px;font:inherit;font-size:13px;line-height:1.55;font-family:ui-monospace,Consolas,monospace;min-height:132px;resize:vertical;outline:none}
+[data-stats-prompt] .igs-settings-full>textarea:focus{border-bottom-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
 [data-image-prompt-panel]{min-width:0}
 .igs-settings-actions,[data-image-prompt-panel] .igs-image-prompt-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
 .igs-settings-actions>.igs-settings-action{flex:0 0 auto;white-space:nowrap}
-[data-image-prompt-panel] .igs-settings-field input[type="checkbox"]{width:20px;min-height:20px;align-self:flex-start;accent-color:var(--igs-settings-accent);border:0}
 [data-image-prompt-panel] details>summary{overflow-wrap:anywhere}
-[data-image-prompt-panel] .igs-perf-group-body{padding:0 0 8px}
-[data-image-prompt-panel] textarea{min-height:132px}
+.igs-image-prompt-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
+.igs-image-prompt-more{min-width:0}
+.igs-settings-field textarea.igs-image-prompt-text{font-family:inherit;line-height:1.7}
+[data-image-prompt-panel] .igs-image-prompt-preset-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+@media (max-width:520px){[data-image-prompt-panel] .igs-image-prompt-preset-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+[data-image-prompt-panel] .igs-image-prompt-preset-actions>.igs-settings-inline-action,.igs-image-prompt-more>summary{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%;min-width:0;height:var(--igs-compact-h);padding:0 10px;line-height:1;cursor:pointer;white-space:nowrap}
+[data-image-prompt-panel] .igs-segmented{height:var(--igs-compact-h);padding:2px}
+[data-image-prompt-panel] .igs-segmented-btn{height:calc(var(--igs-compact-h) - 4px)}
+.igs-image-prompt-row-name{flex:0 1 auto;min-width:0;font-size:13px;color:var(--igs-settings-ink-2);overflow-wrap:anywhere}
+.igs-image-prompt-order-btns{display:flex;gap:6px;margin-left:auto}
+.igs-image-prompt-order-btns>.igs-settings-inline-action{width:auto;min-width:56px;height:30px}
+.igs-image-prompt-range-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--igs-settings-ink-2)}
+.igs-image-prompt-range-row>span{flex:1 1 auto;min-width:0}
 
 .igs-dna-editor{margin:6px 0;min-width:0}
 .igs-dna-summary{cursor:pointer;font-size:12px;color:var(--igs-settings-ink);opacity:.78;user-select:none}
@@ -182,7 +219,6 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 @media (max-width:640px){.igs-dna-fields{grid-template-columns:minmax(0,1fr)}}
 details.igs-settings-sub>summary{cursor:pointer;font-size:12px;color:var(--igs-settings-ink);opacity:.78;user-select:none}
 details.igs-settings-sub[open]>summary{margin-bottom:4px}
-details[data-image-feature="llm-prompts"] textarea{min-height:220px}
 /* 「高级」折叠区自带底色框：不再继承 .igs-settings-sub 的左竖线、左外边距与 flex 间距（会叠成双竖线和标题下的大空白）。 */
 details.igs-settings-advanced{display:block;margin-top:4px;margin-left:0;padding:0;border-left:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field)}
 details.igs-settings-advanced[open]{padding-bottom:12px}
@@ -335,7 +371,7 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-scene-times-toggle[aria-expanded="true"]{background:var(--igs-settings-highlight);color:var(--igs-settings-ink)}
 .igs-scene-url-expanded{display:none}
 /* 窄屏一行放不下：去掉「场景/时间」小字，地址框收进展开区，差分按钮收进 ⋯，名字至少留三四个字。 */
-@media (max-width:640px){.igs-scene-badge{display:none}.igs-btn-mgr-row>.igs-scene-url-input:not(.igs-scene-url-expanded){display:none}.igs-scene-url-expanded{display:block;flex:1 0 100%;width:100%;box-sizing:border-box}.igs-scene-char-group .igs-btn-mgr-label{min-width:3.5em}.igs-sprite-slot-body:has(>.igs-scene-url-expanded){flex-wrap:wrap}.igs-scene-char-group .igs-slot-act{display:none}.igs-scene-char-group .igs-add-menu-list .igs-slot-act-menu{display:flex}}
+@media (max-width:640px){.igs-scene-badge{display:none}.igs-btn-mgr-row>.igs-scene-url-input:not(.igs-scene-url-expanded){display:none}.igs-scene-url-expanded{display:block;flex:1 0 100%;width:100%;box-sizing:border-box}.igs-scene-char-group .igs-btn-mgr-label{min-width:3.5em}.igs-sprite-slot-body:has(>.igs-scene-url-expanded){flex-wrap:wrap}}
 @media (max-width:360px){.igs-scene-thumb{width:36px;height:20px}.igs-scene-char-group .igs-asset-transfer.is-spacer{display:none}.igs-scene-char-group .igs-btn-mgr-label{min-width:3em}.igs-scene-char-group .igs-btn-mgr-row{gap:4px}}
 .igs-scene-weather-row{margin-left:32px;max-width:calc(100% - 32px)}
 .igs-scene-char-group:last-child{border-bottom:0}

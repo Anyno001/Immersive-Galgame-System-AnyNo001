@@ -1,5 +1,6 @@
 // 角色 DNA：结构化文本角色资料的规范化、别名解析与提示词片段合并。
 // 数据位于 sceneAssets.characterDna，与情绪槽映射 sceneAssets.characters 并列，互不混入。
+import { normalizeCreatureProfile } from './creature-profile.js';
 
 export const CHARACTER_DNA_FIELDS = Object.freeze(['identity', 'defaultAppearance', 'negative', 'triggerWords', 'personality']);
 export const CHARACTER_DNA_REQUIRED_VIEWS = Object.freeze(['full_body', 'half_body', 'portrait']);
@@ -62,7 +63,8 @@ export function checkDnaViews(raw, { complete = false, allowEmpty = false } = {}
     return { ok: true, value };
 }
 
-export function readCharacterDnaView(raw, framing) {
+// personality: false 时身份主语不接性格（灵动方案的性格由手势表现，不进画图词）。
+export function readCharacterDnaView(raw, framing, { personality: withPersonality = true } = {}) {
     if (!CHARACTER_DNA_VIEWS.includes(framing)) return { ok: false, reason: 'DNA_VIEW_INVALID', error: '未知人物景别' };
     const dna = normalizeCharacterDna(raw);
     if (!dna.identity && !CHARACTER_DNA_VIEWS.some((view) => dna.views?.[view]?.subject))
@@ -78,7 +80,8 @@ export function readCharacterDnaView(raw, framing) {
     const personality = checkCharacterPersonality(raw.personality);
     if (!personality.ok) return personality;
     const view = checked.value[framing];
-    return { ok: true, value: { ...view, subject: [view.subject, personality.value].filter(Boolean).join(' ') } };
+    return { ok: true, value: { ...view, subject: withPersonality && personality.value
+        ? `${view.subject.replace(/[\s,]+$/, '')}, ${personality.value}` : view.subject } };
 }
 
 export function checkCharacterPersonality(value) {
@@ -127,6 +130,9 @@ export function normalizeCharacterDna(raw) {
         if (field !== 'personality' || hasOwn(source, field)) dna[field] = cleanText(source[field]);
     }
     if (source.identityInitialized === true) dna.identityInitialized = true;
+    // 非人档案与 views 同级；缺省即人类，不产生该字段。
+    const creature = normalizeCreatureProfile(source.creature);
+    if (creature) dna.creature = creature;
     if (typeof source.identitySource === 'string' && source.identitySource) dna.identitySource = source.identitySource;
     if (source.version === 2) {
         dna.version = 2;
@@ -138,11 +144,16 @@ export function normalizeCharacterDna(raw) {
         if (Array.isArray(source.clearedViews)) dna.clearedViews = [...new Set(source.clearedViews)]
             .filter(view => CHARACTER_DNA_VIEWS.includes(view) && !dna.views[view]?.subject);
     }
+    // 身份全部清空视为重置：解除锁定，下次默认立绘重新建档；只清部分景别仍锁定。
+    if (dna.identityInitialized && !dna.identity && !dna.triggerWords
+        && !Object.values(dna.views || {}).some(view => view.subject)) {
+        delete dna.identityInitialized; delete dna.identitySource; delete dna.clearedViews;
+    }
     return dna;
 }
 
 export function isCharacterDnaEmpty(dna) {
-    return CHARACTER_DNA_FIELDS.every((field) => !cleanText(dna?.[field]))
+    return CHARACTER_DNA_FIELDS.every((field) => !cleanText(dna?.[field])) && !normalizeCreatureProfile(dna?.creature)
         && CHARACTER_DNA_VIEWS.every((view) => !cleanText(dna?.views?.[view]?.subject));
 }
 

@@ -20,6 +20,9 @@ export function ensureFxLayers(root) {
         stage.appendChild(make(doc, 'igs-fx-letterbox-bar is-bottom'));
         stage.appendChild(make(doc, 'igs-fx-flashback-grain'));
         stage.appendChild(make(doc, 'igs-fx-dream-mist'));
+        // 撑伞区间：伞沿阴影与伞沿水线常驻（平时透明 / 不显示），区间开合时靠样式淡入淡出。
+        stage.appendChild(make(doc, 'igs-fx-umbrella-shade'));
+        stage.appendChild(make(doc, 'igs-fx-umbrella-drip'));
         const tag = make(doc, 'igs-fx-flashback-tag');
         tag.textContent = '回忆';
         stage.appendChild(tag);

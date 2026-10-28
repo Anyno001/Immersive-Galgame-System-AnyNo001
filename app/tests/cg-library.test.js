@@ -72,3 +72,14 @@ test('cg-library:slow-storage-keeps-the-original-read-and-delivers-its-late-resu
     assert.deepEqual(full, { ok: true, dataUrl: PNG('late') });
     assert.equal(reads, 2);
 });
+
+test('cg-library:keep-photo-stores-a-finished-image-as-is', async () => {
+    const { library, photoStore, indexStore } = await setup();
+    const image = PNG('PENALTY');
+    const kept = await library.keepPhoto({ dataUrl: image, chatId: 'chat', caption: '麻将惩罚 · 凛' });
+    assert.equal(kept.ok, true);
+    assert.equal((await photoStore.get(kept.photo.id)).dataUrl, image);
+    assert.ok((await indexStore.getAll()).some((entry) => entry.photoId === kept.photo.id));
+    const full = await library.readFull({ kind: 'photo', photoId: kept.photo.id, key: `photo|${kept.photo.id}` });
+    assert.deepEqual(full, { ok: true, dataUrl: image });
+});

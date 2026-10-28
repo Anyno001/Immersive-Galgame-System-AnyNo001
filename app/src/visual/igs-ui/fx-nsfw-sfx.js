@@ -88,5 +88,4 @@ export const NSFW_SFX_DEFS = Object.freeze({
         ]).flat(),
         noise: Array.from({ length: 8 }, (_, i) => n(i * 0.4, 0.2, 0.06, { filter: 'bandpass', freq: 600, q: 1.2, attack: 0.01 })),
     },
-    'nsfw-traits': { partials: [p('sine', 880, 1320, 0, 0.5, 0.12, { attack: 0.1, sweep: 1 })], noise: [] },
 });

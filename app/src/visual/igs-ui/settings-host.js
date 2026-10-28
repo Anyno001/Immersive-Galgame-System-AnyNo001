@@ -2,7 +2,8 @@ import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRec
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
 import { updateCharCounts } from './prompt-entries-fields.js';
 import { withCharacterDnaDraftSync } from './settings-external-sprite-dna.js';
-import { draftAssetLibrary, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { draftAssetLibrary, effectiveSceneAssets, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
+import { resolveWorldview } from '../../scene/worldview.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { placeRowMenu } from './settings-outfit-fields.js';
 import { splitMigrationWords } from '../../scene/outfit-migration.js';
@@ -21,12 +22,15 @@ import { mergeLegacyNaiSettings } from '../../generated-images/image-backend.js'
 import { getSettingsStyleText } from './settings-style.js';
 import { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsCategory, isSettingsPage, normalizeSettingsPage, openSettingsPage, resolveSettingsPage, resolveSettingsTarget } from './settings-pages.js';
 import { recordSettingsRecent, settingsRecentLabel } from './settings-recent.js';
+import { downloadStatsTemplate } from './stats-template-link.js';
 import { VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData } from './reader-value-utils.js';
 import { attachSettingsViewportEvents, clearChildren, detachSettingsViewportEvents, ensureStyleTag, getRootDocument, unmountNode } from './reader-dom-utils.js';
 import { getPath, normalizeReaderMode, normalizeSettingsValue, setPath } from './settings-normalize.js';
 import { FX_PACKS_ACTIVE, packSwitchPath } from '../../scene/fx-packs.js';
 import { handleSettingsAction as runSettingsAction, releasedGeneratedImageIds } from './settings-actions.js';
+import { ensureModelProfilesLoaded, handleModelProfileAction, isImmediateSavePath, setModelProfileSelection } from './settings-model-profiles.js';
+import { handleWorldInfoFilterAction, WORLD_INFO_FILTER_GROUP } from './settings-world-info-filter.js';
 import { SETTINGS_NOTICE_MS, beginSettingsProgress, describeSettingsFailure, markSettingsButtonBusy, remountSettingsNotice, remountSettingsProgress, settingsBusyLabel } from './settings-notice.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
@@ -38,15 +42,25 @@ import { buildFallbackSettingsOverlay } from './reader-dom-render.js';
 import { createSettingsRenderer } from './settings-host-render.js';
 import { createImagePromptEditor } from './settings-image-prompt-editor.js';
 import { handleImagePromptAction } from './settings-image-prompt-actions.js';
+import { describeFailure, imagePromptStatusClass, imagePromptStatusText } from './settings-image-prompt-labels.js';
 import { handleArtistLibraryAction, setArtistLibraryField, setArtistSelection } from './settings-artist-library.js';
 import { preserveConfiguredArtists } from '../../generated-images/artist-library.js';
 import { pickImagePromptFile } from './settings-image-prompt-io.js';
 import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
+import { normalizeBuild } from '../../scene/stats/stat-build.js';
+import { refreshStatsBuildStatus } from './stats-settings-fields.js';
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
 const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 const LAST_SETTINGS_PAGE_KEY = 'igs:settings-last-page:v1';
+// 建卡分配的默认值（基础属性 40、默认预选的特有技能）只在规范化时补出，原始草稿里没有。
+// 改动前先把规范化结果写回草稿：开关按界面显示值取反，默认选中的技能才能取消，其余技能才能选上。
+const STATS_BUILD_PATH = 'bridge.stats.build';
+function materializeStatsBuild(draft, path) {
+    if (!draft || !String(path).startsWith(`${STATS_BUILD_PATH}.`)) return;
+    setPath(draft, STATS_BUILD_PATH, normalizeBuild(getPath(draft, STATS_BUILD_PATH)));
+}
 
 export function createSettingsHost(deps) {
     const {
@@ -159,7 +173,9 @@ export function createSettingsHost(deps) {
         syncSettingsStagePause();
         playReaderUiSfx('open');
         rememberSettingsPage(settingsState);
-        return rerenderSettings();
+        const rendered = rerenderSettings();
+        scheduleSearchIndexPrebuild(settingsState);
+        return rendered;
     }
 
     // 设置面板盖住整个舞台（遮罩带全屏模糊），打开期间舞台动画与粒子暂停。
@@ -168,13 +184,24 @@ export function createSettingsHost(deps) {
         if (overlay) setStagePauseReason(overlay, 'panel:settings', Boolean(state.activeSettings));
     }
 
-    function rerenderSettings() {
+    // 写草稿的入口都要调：递增修订号，让设置页缓存的整理结果作废。
+    function touchDraft() {
+        const current = state.activeSettings;
+        if (current) current.draftRevision = (current.draftRevision || 0) + 1;
+    }
+
+    // renderOptions.draftUnchanged：只换页、展开折叠这类不碰草稿的重绘，草稿修订号没变就复用上次整理结果。
+    function rerenderSettings(renderOptions) {
         if (!state.activeSettings) {
             return { ok: false, reason: 'settings-not-open' };
         }
+        state.activeSettings.reuseNormalized = Boolean(renderOptions && renderOptions.draftUnchanged === true);
         const snapshot = buildSettingsSnapshot(state.activeSettings);
         state.activeSettings.snapshot = snapshot;
         updateMountedSettings(snapshot);
+        if (['source', 'llm'].includes(state.activeSettings.asyncState.page)) {
+            ensureModelProfilesLoaded(state.activeSettings, { global: options.global || globalThis, onChange: (panel) => { if (state.activeSettings === panel) rerenderSettings(); } });
+        }
         return {
             ok: true,
             tab: state.activeSettings.tab,
@@ -185,19 +212,67 @@ export function createSettingsHost(deps) {
         };
     }
 
+    // 提示词编辑器自动保存：输入停顿 1.2 秒、失焦、折叠、切换预设、关闭设置时保存一次；只就地更新状态行，不重绘。
+    let imagePromptSaveTimer = null;
+    function clearImagePromptSaveTimer() {
+        if (imagePromptSaveTimer) clearTimeout(imagePromptSaveTimer);
+        imagePromptSaveTimer = null;
+    }
+    function flushImagePromptSave(root) {
+        clearImagePromptSaveTimer();
+        const panel = state.activeSettings, editor = panel?.asyncState.imagePromptEditor;
+        if (!editor || !editor.state.dirty) return;
+        editor.autoSave();
+        showImagePromptStatus(root || panel.dom?.root, editor);
+    }
+    function scheduleImagePromptSave(root) {
+        clearImagePromptSaveTimer();
+        const panel = state.activeSettings;
+        imagePromptSaveTimer = setTimeout(() => {
+            imagePromptSaveTimer = null;
+            if (state.activeSettings === panel) flushImagePromptSave(root);
+        }, 1200);
+    }
+    function showImagePromptStatus(root, editor) {
+        const el = root?.querySelector?.('[data-image-prompt-status]');
+        if (!el) return;
+        el.textContent = imagePromptStatusText(editor.state);
+        el.className = `igs-settings-result ${imagePromptStatusClass(editor.state)}`.trim();
+    }
+
+    // 关闭设置时：提示词编辑器有未保存修改时先自动保存，再落盘设置。
+    function saveSettingsNow(panel, persistOptions = {}) {
+        const editor = panel.asyncState.imagePromptEditor;
+        clearImagePromptSaveTimer();
+        if (editor?.state.dirty) {
+            const draftResult = editor.autoSave();
+            if (!draftResult.ok) return draftResult;
+        }
+        return persistSettingsDraft(persistOptions);
+    }
+
+    // 后台生图任务读已保存配置：接口地址、密钥、模型等字段改完（change）即落盘，不等关闭设置。
+    // 打字途中停顿 800ms 也落盘，不必等失焦；同一面板内只保留最后一次。
+    let immediateSaveTimer = null;
+    function persistImmediateField(path, { debounce = false } = {}) {
+        if (!state.activeSettings || !isImmediateSavePath(path)) return;
+        clearTimeout(immediateSaveTimer);
+        immediateSaveTimer = null;
+        const panel = state.activeSettings;
+        const run = () => {
+            immediateSaveTimer = null;
+            if (state.activeSettings !== panel) return;
+            const result = persistSettingsDraft();
+            if (result && result.ok === false) reportSettingsFailure(result);
+        };
+        if (debounce) immediateSaveTimer = setTimeout(run, 800);
+        else run();
+    }
+
     function closeSettings() {
         const current = state.activeSettings;
         if (!current) return { ok: true, reason: 'settings-not-open' };
-        const editor = current.asyncState.imagePromptEditor;
-        const saveForClose = () => {
-            if (editor?.state.dirty) {
-                const draftResult = editor.saveDraft();
-                if (!draftResult.ok) return draftResult;
-            }
-            return persistSettingsDraft({
-                syncActiveModeFromSettings: current.initialOpenMode !== current.draft.bridge.openMode,
-            });
-        };
+        const saveForClose = () => saveSettingsNow(current, { syncActiveModeFromSettings: current.initialOpenMode !== current.draft.bridge.openMode });
         const saved = saveForClose();
         if (saved.ok === false) {
             if (!current.asyncState.closingRecovery) {
@@ -212,6 +287,7 @@ export function createSettingsHost(deps) {
             }
             return { ok: true, pending: true, completion: current.asyncState.closingRecovery };
         }
+        cancelSearchIndexPrebuild(current);
         state.live2dEditor?.close(true);
         settingsDialogs.cancel();
         if (current.stopVoicesWatch) current.stopVoicesWatch();
@@ -232,13 +308,38 @@ export function createSettingsHost(deps) {
         return { ok: true };
     }
 
-    // 搜索索引：第一次输入搜索词时才按页面渲染建一次，缓存在本次打开的设置状态上，关掉设置即丢弃。
+    // 打开设置后趁空闲预建搜索索引，首次按键就不必同步渲染全部页面；关掉设置时取消未执行的预建。
+    function scheduleSearchIndexPrebuild(panel) {
+        const host = options.global || globalThis;
+        const run = () => {
+            panel.searchIndexIdle = null;
+            if (state.activeSettings !== panel || panel.searchIndex) return;
+            ensureSearchIndex();
+        };
+        if (typeof host.requestIdleCallback === 'function') {
+            const id = host.requestIdleCallback(run, { timeout: 4000 });
+            panel.searchIndexIdle = { cancel: () => { if (typeof host.cancelIdleCallback === 'function') host.cancelIdleCallback(id); } };
+        } else {
+            const id = setTimeout(run, 300);
+            if (id && typeof id.unref === 'function') id.unref();
+            panel.searchIndexIdle = { cancel: () => clearTimeout(id) };
+        }
+    }
+
+    function cancelSearchIndexPrebuild(panel) {
+        const idle = panel && panel.searchIndexIdle;
+        panel.searchIndexIdle = null;
+        if (idle) idle.cancel();
+    }
+
+    // 搜索索引：打开设置后空闲时预建；预建前就搜索则第一次输入时同步建，缓存在本次打开的设置状态上，关掉设置即丢弃。
     function ensureSearchIndex() {
         const current = state.activeSettings;
         if (!current) return null;
         if (!current.searchIndex) {
+            cancelSearchIndexPrebuild(current);
             try {
-                const indexDraft = normalizeUnifiedSettings(current.draft);
+                const indexDraft = normalizeUnifiedSettings(current.draft, undefined, { mutableSource: true });
                 current.searchIndex = buildSettingsSearchIndex((page) => renderPageForIndex(current, page, indexDraft));
             } catch (error) {
                 try { console.warn('[IGS] 设置搜索索引构建失败：', error); } catch { /* 控制台不可用时忽略 */ }
@@ -257,7 +358,7 @@ export function createSettingsHost(deps) {
         for (const key of target.open) asyncState.advancedOpen[key] = true;
         asyncState.settingsSearch = '';
         rememberSettingsPage(current);
-        const result = rerenderSettings();
+        const result = rerenderSettings({ draftUnchanged: true });
         revealSetting({ ...entry, target });
         return result;
     }
@@ -274,7 +375,7 @@ export function createSettingsHost(deps) {
         state.activeSettings.asyncState.wardrobeFocus = '';
         delete state.activeSettings.asyncState.migrateRows;
         rememberSettingsPage(state.activeSettings);
-        return rerenderSettings();
+        return rerenderSettings({ draftUnchanged: true });
     }
 
     function createSettingsController() {
@@ -291,7 +392,7 @@ export function createSettingsHost(deps) {
                 openSettingsPage(state.activeSettings, keep ? remembered : page);
                 state.activeSettings.asyncState.wardrobeFocus = '';
                 rememberSettingsPage(state.activeSettings);
-                return rerenderSettings();
+                return rerenderSettings({ draftUnchanged: true });
             },
             switchPage,
             // 旧的子页切换：只作兼容入口，映射到新页面。
@@ -330,6 +431,7 @@ export function createSettingsHost(deps) {
                 return updateSettingsValue(path, value, editOptions);
             },
             setArtistLibraryField(key, value) {
+                touchDraft();
                 const panel = state.activeSettings;
                 if (!panel) return { ok: false, reason: 'settings-not-open' };
                 const result = setArtistLibraryField(panel, key, value);
@@ -340,6 +442,7 @@ export function createSettingsHost(deps) {
                 return result;
             },
             setArtistSelection(target, id) {
+                touchDraft();
                 const panel = state.activeSettings;
                 if (!panel) return { ok: false, reason: 'settings-not-open' };
                 let result = setArtistSelection(panel, target, id);
@@ -348,21 +451,27 @@ export function createSettingsHost(deps) {
                 rerenderSettings();
                 return result;
             },
+            // render：true 总是重绘；'auto' 只在字段联动影响其他控件时重绘；false 不重绘。
             setImagePromptField(address, value, { render = true } = {}) {
+                touchDraft();
                 const panel = state.activeSettings, editor = panel?.asyncState.imagePromptEditor;
                 if (panel && panel.draft.bridge.imageApi.mode !== 'nai')
                     return { ok: false, reason: 'nai-settings-source-required' };
                 if (!editor) return { ok: false, reason: 'prompt-editor-unavailable' };
                 const result = editor.edit(address, value);
-                editor.state.status = result.ok ? '有未存档的修改。' : `字段错误：${result.reason}`;
-                if (render) rerenderSettings();
+                editor.state.status = result.ok ? '' : `字段错误：${describeFailure(result)}`;
+                if (render === 'auto' ? result.rerender === true : render) rerenderSettings();
                 return result;
             },
             toggle(path) {
-                const current = getPath(state.activeSettings && state.activeSettings.draft, path);
+                touchDraft();
+                const draft = state.activeSettings && state.activeSettings.draft;
+                materializeStatsBuild(draft, path);
+                const current = getPath(draft, path);
                 return updateSettingsValue(path, !current);
             },
             async invoke(action) {
+                touchDraft();
                 let result;
                 try {
                     result = await handleSettingsAction(action);
@@ -382,6 +491,7 @@ export function createSettingsHost(deps) {
 
     function updateSettingsValue(path, value, editOptions = {}) {
         if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
+        touchDraft();
         const draft = state.activeSettings.draft;
 
         if (path === 'bridge.openMode') {
@@ -404,6 +514,7 @@ export function createSettingsHost(deps) {
                 return { ok: false, reason: ready.reason, missing: ready.missing };
             }
         }
+        materializeStatsBuild(draft, path);
         setPath(draft, path, normalizeSettingsValue(path, value));
         if (path === 'readerSettings.skinDialogScale') setPath(draft, 'readerSettings.dialogAutoHeight', false);
         // 题材包总开关打开时，该包全部细项一起开（defaultOn 通用包的细项本来就默认开，不再逐个写脏草稿）；关掉时细项原样保留。
@@ -442,6 +553,8 @@ export function createSettingsHost(deps) {
             // getSnapshot() clones before exposing this value; do not deep-copy the entire
             // asset library for every keystroke (including long prompts and API keys).
             state.activeSettings.snapshot.draft = draft;
+            // 建卡分配数字框：剩余点数与「按分配启用」就地刷新，不整页重绘。
+            if (path.startsWith(`${STATS_BUILD_PATH}.`)) refreshStatsBuildStatus(state.activeSettings.dom && state.activeSettings.dom.root, getPath(draft, STATS_BUILD_PATH));
             return { ok: true };
         }
         if (path === 'bridge.sceneAssets.moodAutoClassify' && value === true) scheduleMoodAutoClassify();
@@ -488,8 +601,9 @@ export function createSettingsHost(deps) {
         const snapshot = resolveBridgeConfigSnapshot({ mode: 'default' });
         const savedAssets = snapshot.bridge && snapshot.bridge.sceneAssets;
         const previousIds = state.activeSettings.committedImageIds || [];
-        state.activeSettings.committedImageIds = collectGeneratedImageIds(savedAssets);
-        const released = releasedGeneratedImageIds(previousIds, savedAssets, (options.global || globalThis).localStorage);
+        const savedIds = collectGeneratedImageIds(savedAssets);
+        state.activeSettings.committedImageIds = savedIds;
+        const released = releasedGeneratedImageIds(previousIds, savedAssets, (options.global || globalThis).localStorage, savedIds);
         const imageService = options.generatedAssets;
         if (released.length && imageService && typeof imageService.deleteImages === 'function') {
             const reportDeleteFailure = () => {
@@ -529,6 +643,47 @@ export function createSettingsHost(deps) {
     const recoveringSettingsActions = new Map();
     function handleSettingsAction(action) {
         if (String(action).startsWith('live2d-edit:')) return Promise.resolve(openLive2dManager?.(decodeURIComponent(String(action).slice('live2d-edit:'.length))));
+        // 数值系统提示词「恢复默认」：清空覆盖值，规范化后回到默认模板（§9）。
+        if (String(action).startsWith('stats-prompt-reset:')) {
+            const id = String(action).slice('stats-prompt-reset:'.length);
+            if (!/^[a-z]+$/.test(id)) return Promise.resolve({ ok: false, reason: 'stats-prompt-unknown' });
+            return Promise.resolve(updateSettingsValue(`bridge.stats.prompts.${id}`, ''));
+        }
+        // 适配版表格模板下载（§8C）。
+        // 推送映射「确认映射」：给当前模板指纹写一个空覆盖，之后不再提示「新的表格模板」（§8B 第 5 条）。
+        if (String(action).startsWith('stats-mapping-confirm:')) {
+            const fp = String(action).slice('stats-mapping-confirm:'.length);
+            if (!/^tpl-[0-9a-f]{1,8}$/.test(fp)) return Promise.resolve({ ok: false, reason: 'stats-mapping-unknown' });
+            const draft = state.activeSettings && state.activeSettings.draft;
+            const existing = draft && draft.bridge && draft.bridge.stats && draft.bridge.stats.push && draft.bridge.stats.push.mappings && draft.bridge.stats.push.mappings[fp];
+            return Promise.resolve(updateSettingsValue(`bridge.stats.push.mappings.${fp}`, existing && typeof existing === 'object' ? { ...existing } : {}));
+        }
+        if (action === 'stats-template-download') {
+            let result;
+            try { result = downloadStatsTemplate((options.global || globalThis).document); }
+            catch (error) { result = { ok: false, reason: 'stats-template-download-threw', thrown: error }; }
+            return Promise.resolve(result);
+        }
+        // 数值系统「本聊天」启用 / 暂停：直接交给运行时，结果重绘后反映到按钮与状态说明。
+        if (action === 'stats-chat-enable' || action === 'stats-chat-disable' || action === 'stats-chat-enable-build') {
+            let result;
+            try {
+                // 「按分配启用」用草稿里的分配（可能还没保存），不读已落盘的设置。
+                const draftStats = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge && state.activeSettings.draft.bridge.stats;
+                // 世界观附加技能按设置页当前世界观计入，与建卡区显示的候选一致。
+                const draftBridge = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge;
+                const scopeKey = state.activeSettings && state.activeSettings.asyncState && state.activeSettings.asyncState.assetScopeKey;
+                const worldAssets = draftBridge ? (scopeKey ? effectiveSceneAssets(draftBridge.sceneAssets, scopeKey) : draftBridge.sceneAssets) : null;
+                const payload = action === 'stats-chat-enable-build' ? { build: draftStats ? draftStats.build : undefined, worldview: resolveWorldview(worldAssets) } : undefined;
+                result = typeof options.statsChatAction === 'function'
+                    ? options.statsChatAction(action === 'stats-chat-disable' ? 'disable' : 'enable', payload)
+                    : { ok: false, reason: 'stats-runtime-missing' };
+            } catch (error) {
+                result = { ok: false, reason: 'stats-chat-action-threw', thrown: error };
+            }
+            if (state.activeSettings) rerenderSettings();
+            return Promise.resolve(result || { ok: false, reason: 'stats-runtime-missing' });
+        }
         if (recoveringSettingsActions.has(action)) return recoveringSettingsActions.get(action);
         const panel = state.activeSettings;
         if (!panel) return Promise.resolve({ ok: true, cancelled: true });
@@ -604,6 +759,8 @@ export function createSettingsHost(deps) {
                 return { ok: false, reason: 'nai-settings-source-required' };
             if (!editor) return { ok: false, reason: 'prompt-editor-unavailable' };
             if (panel.asyncState.imagePromptBusy) return { ok: false, reason: 'prompt-editor-busy' };
+            // 动作（含切换提示词组）开始前先冲刷并清掉防抖计时器。
+            flushImagePromptSave();
             panel.asyncState.imagePromptBusy = true;
             try {
                 const result = await handleImagePromptAction(action, {
@@ -613,14 +770,25 @@ export function createSettingsHost(deps) {
                         && panel.draft.bridge.imageApi.mode === 'nai',
                 });
                 if (state.activeSettings === panel) {
-                    editor.state.status = result.ok ? (result.cancelled ? '已取消。' : '操作完成。')
-                        : `操作失败：${result.reason}${result.errors?.length ? '；' + result.errors.map(e => `${e.field || ''}：${e.reason}`).join('；') : ''}`;
+                    editor.state.status = result.ok ? '' : `操作失败：${describeFailure(result, editor.state.preset?.data)}`;
                     rerenderSettings();
                 }
                 return result;
             } finally {
                 panel.asyncState.imagePromptBusy = false;
             }
+        }
+        if (action.startsWith('wi-filter:')) {
+            const panel = state.activeSettings;
+            if (!panel) return { ok: false, reason: 'settings-not-open' };
+            return handleWorldInfoFilterAction(action, { panel, global: options.global || globalThis,
+                persistSettingsDraft, rerenderSettings, isCurrent: () => state.activeSettings === panel });
+        }
+        if (action.startsWith('model-profile:')) {
+            const panel = state.activeSettings;
+            if (!panel) return { ok: false, reason: 'settings-not-open' };
+            return handleModelProfileAction(action, { panel, dialogs: recoveryDialogs, global: options.global || globalThis,
+                persistSettingsDraft, rerenderSettings, isCurrent: () => state.activeSettings === panel });
         }
         const onboardingResult = onboarding.handleAction(action);
         if (onboardingResult) return onboardingResult;
@@ -751,6 +919,7 @@ export function createSettingsHost(deps) {
             if (segment) {
                 noteRecentChange(segment, segment.getAttribute('data-segment-path'));
                 controller.setValue(segment.getAttribute('data-segment-path'), segment.getAttribute('data-segment-value'));
+                persistImmediateField(segment.getAttribute('data-segment-path'));
                 return;
             }
             const action = event.target.closest('[data-action]');
@@ -809,7 +978,7 @@ export function createSettingsHost(deps) {
                     const menu = action.closest('details.igs-add-menu');
                     if (menu) menu.open = false;
                     if (settingsBusyActions.has(actName)) {
-                        showSettingsNotice('这一张仍在生成，完成后会自动替换。');
+                        showSettingsNotice(actName.startsWith('gen-temp-accept:') ? '正在入库，请稍候。' : '这一张仍在生成，完成后会自动替换。');
                         return;
                     }
                     settingsBusyActions.add(actName);
@@ -831,20 +1000,22 @@ export function createSettingsHost(deps) {
             if (!target || !target.getAttribute) return;
             const promptField = target.getAttribute('data-image-prompt-field');
             if (promptField !== null && target.tagName !== 'SELECT' && target.type !== 'checkbox') {
-                controller.setImagePromptField(promptField, target.value, { render: false });
-                const status = root.querySelector('[data-image-prompt-status]');
-                if (status) status.textContent = state.activeSettings.asyncState.imagePromptEditor.state.status;
-                return;
-            }
-            if (target.getAttribute('data-image-prompt-preview-input') !== null) {
-                const editor = state.activeSettings.asyncState.imagePromptEditor;
-                editor.state.previewInput = target.value; editor.state.preview = null;
+                const edited = controller.setImagePromptField(promptField, target.value, { render: false });
+                const editor = state.activeSettings?.asyncState.imagePromptEditor;
+                if (editor) {
+                    showImagePromptStatus(root, editor);
+                    if (edited?.ok) scheduleImagePromptSave(root);
+                }
                 return;
             }
             // 设置搜索只就地刷新结果列表，不写草稿、不整页重绘，保留输入焦点与软键盘。
             if (target.getAttribute('data-settings-search') !== null) {
                 const list = root.querySelector('[data-settings-search-results]');
-                if (list) list.innerHTML = renderSettingsSearchResults(target.value, target.value && String(target.value).trim() ? ensureSearchIndex() || SETTINGS_SEARCH_INDEX : SETTINGS_SEARCH_INDEX);
+                const index = target.value && String(target.value).trim() ? ensureSearchIndex() || SETTINGS_SEARCH_INDEX : SETTINGS_SEARCH_INDEX;
+                // 提示词组编辑器只在内置 NAI 下渲染，外部图像来源不给找不到的入口。
+                const nai = state.activeSettings?.draft?.bridge?.imageApi?.mode === 'nai';
+                if (list) list.innerHTML = renderSettingsSearchResults(target.value,
+                    nai ? index : index.filter(entry => !entry.target?.open?.includes('image-prompt-editor')));
                 return;
             }
             if (target.tagName === 'SELECT') return; // change handles dependent fields once
@@ -853,6 +1024,12 @@ export function createSettingsHost(deps) {
                 state.activeSettings.asyncState.chatPromptStatus = '有未保存的修改。';
                 const status = root.querySelector('[data-result="chat-prompt"]');
                 if (status) status.textContent = state.activeSettings.asyncState.chatPromptStatus;
+                return;
+            }
+            const ttsBatch = target.getAttribute('data-tts-batch');
+            if (ttsBatch) {
+                const batches = state.activeSettings.asyncState.ttsBatch || (state.activeSettings.asyncState.ttsBatch = {});
+                batches[ttsBatch] = { open: true, text: target.value };
                 return;
             }
             if (target.getAttribute('data-prompt-rule-draft') !== null) {
@@ -877,6 +1054,7 @@ export function createSettingsHost(deps) {
             if (path) {
                 if (target.tagName === 'TEXTAREA') updateCharCounts(root, path, target.value);
                 controller.setValue(path, target.value, { liveInput: true });
+                persistImmediateField(path, { debounce: true });
                 return;
             }
             const statusAvatarChar = target.getAttribute('data-status-avatar-char');
@@ -984,30 +1162,42 @@ export function createSettingsHost(deps) {
                 const editor = state.activeSettings.asyncState.imagePromptEditor;
                 const address = target.getAttribute('data-image-prompt-field');
                 if (address !== null) {
-                    controller.setImagePromptField(address, target.type === 'checkbox' ? target.checked : target.value);
+                    controller.setImagePromptField(address, target.type === 'checkbox' ? target.checked : target.value, { render: 'auto' });
+                    flushImagePromptSave(root);
                     return;
                 }
                 if (target.getAttribute('data-image-prompt-select') !== null) {
                     if (target.value) controller.invoke(`image-prompt:select:${encodeURIComponent(target.value)}`);
                     return;
                 }
-                const orderId = target.getAttribute('data-image-prompt-order-enabled');
-                if (orderId !== null) {
-                    editor.blockAction('order-enabled', 'prompts', orderId, target.checked);
-                    rerenderSettings(); return;
-                }
-                if (target.getAttribute('data-image-prompt-preview-task') !== null) {
-                    editor.state.previewTask = target.value; editor.state.preview = null;
-                    rerenderSettings(); return;
+                const formatAdd = target.getAttribute('data-image-prompt-format-add');
+                if (formatAdd !== null) {
+                    const [group, ...rest] = formatAdd.split('|');
+                    // 新添加的场合默认展开。
+                    if (target.value && state.activeSettings) {
+                        const asyncState = state.activeSettings.asyncState;
+                        asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}), [`perf-ip-occrow-${group}-${rest.join('|')}-${target.value}`]: true };
+                    }
+                    if (target.value) controller.invoke(`image-prompt:format-add:${encodeURIComponent(group)}:${encodeURIComponent(rest.join('|'))}:${encodeURIComponent(target.value)}`);
+                    return;
                 }
                 const importId = target.getAttribute('data-image-prompt-import-choice');
                 if (importId !== null) {
                     editor.state.importChoices[importId] = target.value; return;
                 }
             }
+            const profileKind = target?.getAttribute?.('data-model-profile-select');
+            if (profileKind) {
+                // 下拉选中即切换：写入草稿并落盘，后台任务随即改用新预设。
+                if (!state.activeSettings) return;
+                setModelProfileSelection(state.activeSettings, profileKind, target.value);
+                if (target.value) controller.invoke(`model-profile:apply:${profileKind}`);
+                return;
+            }
             const modelSync = event.target && event.target.getAttribute ? event.target.getAttribute('data-model-sync') : '';
             if (modelSync) {
                 controller.setValue(modelSync, event.target.value);
+                persistImmediateField(modelSync);
                 return;
             }
             // 角色学院 / 声线下拉：交给动作层写草稿并保存（input 监听不处理 SELECT）。
@@ -1017,14 +1207,32 @@ export function createSettingsHost(deps) {
                 controller.invoke(`char-house:${encodeURIComponent(charHouse)}:${encodeURIComponent(charSelect.value || '')}`);
                 return;
             }
+            // 声音库条目：改完（失焦或回车）才保存。
+            const voiceLib = charSelect ? charSelect.getAttribute('data-tts-voice') : null;
+            if (voiceLib) {
+                controller.invoke(`tts-voice-edit:${voiceLib}:${charSelect.getAttribute('data-voice-index')}:${charSelect.getAttribute('data-voice-part')}:${encodeURIComponent(charSelect.value || '')}`);
+                return;
+            }
             const voiceField = !charSelect ? '' : charSelect.hasAttribute('data-char-voice') ? 'pack'
                 : charSelect.hasAttribute('data-char-voice-pitch') ? 'pitch'
                     : charSelect.hasAttribute('data-char-voice-speed') ? 'speed'
                         : charSelect.hasAttribute('data-char-voice-tts') ? 'tts'
-                            : charSelect.hasAttribute('data-char-voice-ttsVolume') ? 'ttsVolume' : '';
+                            : charSelect.hasAttribute('data-char-voice-ttsThought') ? 'ttsThought'
+                            : charSelect.hasAttribute('data-char-voice-ttsVolume') ? 'ttsVolume'
+                                : charSelect.hasAttribute('data-char-voice-ttsSpeed') ? 'ttsSpeed'
+                                    : charSelect.hasAttribute('data-char-voice-ttsThoughtSpeed') ? 'ttsThoughtSpeed'
+                                        : charSelect.hasAttribute('data-char-voice-ttsThoughtVolume') ? 'ttsThoughtVolume'
+                                : charSelect.hasAttribute('data-char-voice-ttsStyle') ? 'ttsStyle' : '';
             if (voiceField) {
                 const voiceChar = charSelect.getAttribute(voiceField === 'pack' ? 'data-char-voice' : `data-char-voice-${voiceField}`) || '';
                 controller.invoke(`char-voice:${voiceField}:${encodeURIComponent(voiceChar)}:${encodeURIComponent(charSelect.value || '')}`);
+                return;
+            }
+            const creatureChar = charSelect ? charSelect.getAttribute('data-char-creature') : null;
+            if (creatureChar) {
+                const creatureField = charSelect.getAttribute('data-creature-field') || '';
+                const creatureValue = charSelect.type === 'checkbox' ? String(charSelect.checked) : charSelect.value || '';
+                controller.invoke(`char-creature:${creatureField}:${encodeURIComponent(creatureChar)}:${encodeURIComponent(creatureValue)}`);
                 return;
             }
             // 角色立绘高度：输完（失焦或回车）才保存，打字途中不重绘。
@@ -1087,6 +1295,7 @@ export function createSettingsHost(deps) {
             if (event.target && event.target.type === 'range' && !/^readerSettings\.(typewriter\.sound|statusHud\.position)\./.test(path || '')) return;
             if (!path) return;
             controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
+            persistImmediateField(path);
         });
         // 点下拉菜单（⋯、＋）以外的地方，把开着的菜单收起。
         root.addEventListener('click', (event) => {
@@ -1141,6 +1350,16 @@ export function createSettingsHost(deps) {
         root.addEventListener('pointerdown', pointerDown, true);
         root.addEventListener('pointerup', pointerUp, true);
         root.addEventListener('pointercancel', pointerUp, true);
+        // 草稿修订号：用户操作（输入、改选、点按钮等）都可能原地改草稿，捕获阶段先递增；纯导航点击（换分类、换页、跳转）不碰草稿，放过。
+        const DRAFT_EVENTS = ['input', 'change', 'keydown', 'paste', 'cut', 'drop', 'compositionend', 'focusout', 'click', 'dblclick', 'contextmenu', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dragend', 'touchend'];
+        const PURE_NAV = '[data-cat],[data-page],[data-tab],[data-image-subtab],[data-reader-subtab],[data-scene-subtab],[data-setting-go],[data-recent-path],[data-nav-toggle]';
+        for (const type of DRAFT_EVENTS) {
+            root.addEventListener(type, (event) => {
+                const el = event.target;
+                if (el && typeof el.closest === 'function' && el.closest(PURE_NAV) && !el.closest('[data-action]')) return;
+                touchDraft();
+            }, true);
+        }
         // toggle 不冒泡，用捕获阶段记住「高级」折叠区的展开状态，避免重渲染后被收起。
         root.addEventListener('toggle', (event) => {
             const target = event.target;
@@ -1152,6 +1371,16 @@ export function createSettingsHost(deps) {
             if (!key || !state.activeSettings || !state.activeSettings.asyncState) return;
             const asyncState = state.activeSettings.asyncState;
             asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}), [key]: target.open === true };
+            // 世界书筛选：首次展开时读当前启用的书，之后重绘不再自动读；收起不重绘。
+            if (key === WORLD_INFO_FILTER_GROUP) {
+                if (target.open) handleSettingsAction('wi-filter:open').catch(() => {});
+                return;
+            }
+            if (key.startsWith('image-prompt-') || key.startsWith('perf-ip-')) {
+                if (!target.open) flushImagePromptSave(root);
+                // 折叠的组不渲染内容：展开时重绘一次补出内容。
+                else if (key.startsWith('image-prompt-group-')) rerenderSettings({ draftUnchanged: true });
+            }
         }, true);
         root.addEventListener('keydown', (event) => {
             if (onboarding.keydown(event, doc)) return;

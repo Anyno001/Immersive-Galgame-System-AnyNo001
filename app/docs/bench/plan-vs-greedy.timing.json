@@ -1,0 +1,22 @@
+{
+ "suite": "plan-vs-greedy",
+ "walls": 1000,
+ "seedBase": 1,
+ "options": {
+  "variant": "",
+  "K": 0,
+  "persona": "",
+  "oppPersona": ""
+ },
+ "workers": 16,
+ "ms": 69503,
+ "cores": 18,
+ "cpu": "Apple M5 Pro",
+ "node": "v24.10.0",
+ "decide": {
+  "n": 59569,
+  "p50": 2,
+  "p95": 58,
+  "max": 1111
+ }
+}

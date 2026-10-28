@@ -33,7 +33,7 @@ ${IGS_HINT_THEME_STYLE_TEXT}
 @media (pointer:coarse){.igs-page-modal-actions button{min-height:44px;}}
 .igs-page-modal-input{width:100%;box-sizing:border-box;margin:0;padding:9px 12px;border-radius:8px;border:0;outline:0;background:var(--igs-hint-field);color:inherit;font:inherit;font-size:14px;}
 .igs-page-modal-input:focus{box-shadow:inset 0 0 0 1.5px var(--igs-hint-accent);}
-.igs-page-modal-actions{display:flex;justify-content:flex-end;gap:6px;}
+.igs-page-modal-actions{display:flex;justify-content:center;gap:8px;}
 .igs-page-modal-actions button{min-height:40px;padding:0 16px;border:0;border-radius:8px;background:transparent;color:var(--igs-hint-soft);font:inherit;font-size:13px;letter-spacing:.08em;cursor:pointer;transition:background .15s,opacity .15s;}
 .igs-page-modal-actions button:hover,.igs-page-modal-actions button:focus-visible{background:var(--igs-hint-fill);color:var(--igs-hint-ink);outline:none;}
 .igs-page-modal-actions [data-igs-modal="ok"]{background:var(--igs-hint-accent);color:var(--igs-hint-on-accent);font-weight:600;}

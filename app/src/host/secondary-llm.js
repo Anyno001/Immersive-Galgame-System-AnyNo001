@@ -1,8 +1,8 @@
 import { getTavernHelper, getSillyTavernContext } from './tavern-helper-adapter.js';
 import { runBackgroundGeneration } from './background-generation.js';
 import { secondaryLlmMessages } from './secondary-llm-messages.js';
-import { requestCustomLlm } from './secondary-llm-custom.js';
-import { secondaryLlmHttpError, secondaryLlmText } from './secondary-llm-result.js';
+import { customRequestExtras, requestCustomLlm } from './secondary-llm-custom.js';
+import { secondaryLlmBackendError, secondaryLlmHttpError, secondaryLlmText } from './secondary-llm-result.js';
 
 function apiBaseUrl(endpoint) {
     const base = String(endpoint || '').trim().replace(/\/+$/, '');
@@ -38,12 +38,10 @@ export function readSseContent(body) {
 }
 
 function customConnection(llm) {
-    const key = String(llm.apiKey || '').trim();
     return {
         chat_completion_source: 'custom',
         custom_url: apiBaseUrl(llm.endpoint),
-        // JSON 是有效 YAML；显式覆盖 Authorization，空 Key 也不借用酒馆主连接的密钥。
-        custom_include_headers: JSON.stringify({ Authorization: key ? `Bearer ${key}` : '' }),
+        ...customRequestExtras(llm),
     };
 }
 
@@ -82,7 +80,7 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
         } else data = await response.json();
         if (!response.ok || data?.error) {
             if (route === 'generate') {
-                const rejected = secondaryLlmHttpError(response.ok ? null : response.status, 'st-backend', data);
+                const rejected = secondaryLlmBackendError(data?.error?.message, response.ok ? null : response.status, data);
                 if (response.ok) rejected.diagnostic.rejected = true;
                 throw rejected;
             }

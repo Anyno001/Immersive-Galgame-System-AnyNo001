@@ -2,7 +2,8 @@
 // 不带台词正文、聊天内容、演出参数文本和图片本体，外链只留域名，方便用户直接贴出来求助。
 import { PROMPT_ENTRY_LABELS, PROMPT_POSITION_LABELS } from '../../scene/prompt-entries.js';
 import { describePromptTrigger } from '../../scene/prompt-triggers.js';
-import { describeMediaUsage } from '../../storage/storage-usage.js';
+import { describeLocalStorageUsage, describeMediaUsage } from '../../storage/storage-usage.js';
+import { CREATURE_ANCHOR_LABELS, CREATURE_FORM_LABELS, CREATURE_FRAMING_LABELS, CREATURE_SIZE_LABELS, normalizeCreatureDisplaySettings, storedCreatureOf } from '../../scene/creature-profile.js';
 
 const SOURCE_LABELS = Object.freeze({
     user: '用户配置', 'user-outfit': '衣柜', library: '生成图库', temp: '临时图', placeholder: '占位图',
@@ -81,6 +82,21 @@ function liveLine(c, rs) {
     return '显示中';
 }
 
+// 非人角色：总开关、非人演出、巨型铺满，以及本页说话人的档案（只列档案字段，不带正文）。
+function creatureLine(c, rs) {
+    const display = normalizeCreatureDisplaySettings(rs.creatureDisplay);
+    const battle = rs.battleFx && typeof rs.battleFx === 'object' ? rs.battleFx : {};
+    const assets = rs._sceneAssets && typeof rs._sceneAssets === 'object' ? rs._sceneAssets : {};
+    const dnaMap = assets.characterDna && typeof assets.characterDna === 'object' ? assets.characterDna : {};
+    const who = String((c.spriteMatch && c.spriteMatch.character) || c.spriteCharacter || c.speaker || '');
+    const profile = who && Object.hasOwn(dnaMap, who) ? storedCreatureOf(dnaMap[who]) : null;
+    const head = `${display.enabled ? '开' : '关（所有角色按人类处理）'} · 非人演出${battle.creature === false ? '关' : '开'}${battle.enabled === true ? '' : '（战斗演出未开）'} · 巨型铺满${display.giantFill ? '开' : '关'}`;
+    if (!profile) return `${head} · 本页说话人无非人档案`;
+    const parts = [CREATURE_FORM_LABELS[profile.form] || '待判定', CREATURE_SIZE_LABELS[profile.size], CREATURE_ANCHOR_LABELS[profile.anchor],
+        `取景${CREATURE_FRAMING_LABELS[profile.framing || 'full']}`, profile.form === 'humanoid' ? `情绪档${profile.tiers === 'four' ? '四档' : '完整'}` : '', profile.temp ? '临时档案' : ''].filter(Boolean);
+    return `${head} · 说话人「${who}」${parts.join('/')}`;
+}
+
 // 最近一次注入的按需块：每块展开/收起、原因（命中词、上楼标签…）、字数，以及写了自己位置的块的注入位置与深度。
 function promptLines(report) {
     const blocks = report && report.blocks ? Object.entries(report.blocks) : [];
@@ -96,7 +112,16 @@ function ttsLine(c, rs, snapshot, skip) {
     return skip && skip.key === page && skip.reason ? `本页未朗读：${skip.reason}` : '本页会朗读（或还没轮到）';
 }
 
-export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null } = {}) {
+// 朗读声音命中：只在记录的 key 对得上本页时输出。
+function ttsVoiceLine(c, snapshot, decision) {
+    const page = `${c.messageId ?? snapshot.messageId}:${c.currentIndex}`;
+    if (!decision || decision.key !== page) return '';
+    const gender = decision.gender === 'male' ? '男' : decision.gender === 'female' ? '女' : '未知';
+    const voice = decision.voice ? `${decision.voice}${decision.voiceLabel ? `（${decision.voiceLabel}）` : ''}` : '系统默认';
+    return `朗读声音 说话人 ${decision.speaker || '-'} → 主名 ${decision.name || '-'} · 性别 ${gender} · 来源 ${decision.source || '-'} · 声音 ${voice} · 语速 ${Number(decision.rate).toFixed(2)}`;
+}
+
+export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null, ttsDecision = null } = {}) {
     if (!snapshot || !snapshot.content) return '';
     const c = snapshot.content;
     const rs = snapshot.readerSettings || {};
@@ -120,7 +145,13 @@ export function buildPageDiagnostic(snapshot, { version = '', worldview = '', pr
     if (notes.length) lines.push(`提示 ${notes.join('、')}`);
     lines.push(`直播 ${liveLine(c, rs)}`);
     lines.push(`朗读 ${ttsLine(c, rs, snapshot, ttsSkip)}`);
+    const voiceLine = ttsVoiceLine(c, snapshot, ttsDecision);
+    if (voiceLine) lines.push(voiceLine);
+    lines.push(`非人角色 ${creatureLine(c, rs)}`);
     lines.push(...promptLines(promptReport));
     if (mediaStats) lines.push(`图片资源 ${describeMediaUsage(mediaStats)}`);
+    let local = '';
+    try { local = describeLocalStorageUsage(globalThis.localStorage, { topKeys: 5 }); } catch { /* 无 localStorage */ }
+    if (local) lines.push(local);
     return lines.join('\n');
 }

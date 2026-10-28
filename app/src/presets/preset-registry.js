@@ -28,6 +28,7 @@ export function createPresetRegistry(options = {}) {
         setCurrent,
         getCurrent,
         getCurrentData,
+        peekImagePromptIndex,
         exportPreset,
         exportGroup,
         importBundle,
@@ -215,6 +216,22 @@ export function createPresetRegistry(options = {}) {
     function getCurrentData(type) {
         const current = getCurrent(type);
         return current ? cloneData(current.data) : null;
+    }
+
+    // 只读轻量索引：不拷贝快照，调用方不得修改返回值之外的任何内部对象（返回值本身是新数组）。
+    function peekImagePromptIndex() {
+        if (!state.ready) return null;
+        const items = [], seen = new Set();
+        for (const [id, item] of Object.entries(state.snapshot.items['prompt-preset'] || {})) {
+            if (item?.data?.usage !== 'imagegen') continue;
+            seen.add(id);
+            items.push({ id, name: item.name || id, revision: item.data.revision ?? null, draftOnly: false });
+        }
+        for (const [id, draft] of Object.entries(state.snapshot.drafts?.['prompt-preset'] || {})) {
+            if (seen.has(id) || draft?.preset?.data?.usage !== 'imagegen') continue;
+            items.push({ id, name: draft.preset.name || id, revision: null, draftOnly: true });
+        }
+        return { items, currentId: state.snapshot.current['prompt-preset'] || null };
     }
 
     function exportPreset(type, id) {

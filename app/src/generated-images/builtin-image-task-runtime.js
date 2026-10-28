@@ -1,5 +1,5 @@
 import { createImageTaskRuntime } from './image-task-runtime.js';
-import { createDefaultImagePromptPreset } from './image-prompt-defaults.js';
+import { createBuiltinImagePromptPresets } from './image-prompt-defaults.js';
 import { normalizeAutoIllustrationSettings } from './illustration/auto-illustration-settings.js';
 import { normalizeItemImageSettings } from './illustration/item-image-settings.js';
 import { normalizeSourceFilter } from '../scene/message-source.js';
@@ -18,6 +18,7 @@ export function imageTaskConfig(bridge = {}) {
             .map(key => [key, String(api[key] || '').trim()])),
         dbgenSpriteTransparent: api.dbgenSpriteTransparent !== false,
         naiSpriteTransparent: api.naiSpriteTransparent !== false,
+        spriteMatteColor: String(api.spriteMatteColor || 'auto'),
         externalSpriteDna: api.externalSpriteDna === true,
     }, autoIllustration,
         itemImages: normalizeItemImageSettings(bridge.itemImages),
@@ -29,7 +30,7 @@ export function createBuiltinImageTaskRuntime({ readBridge, registry, subscribeS
     return createImageTaskRuntime({
         global,
         initialize: () => imageTaskConfig(readBridge()).imageApi.mode === 'nai'
-            ? registry.ensureImagePromptDefault(createDefaultImagePromptPreset()) : { ok: true },
+            ? registry.ensureImagePromptDefault(createBuiltinImagePromptPresets()) : { ok: true },
         readState() {
             const config = imageTaskConfig(readBridge());
             if (config.imageApi.mode !== 'nai') return { config };

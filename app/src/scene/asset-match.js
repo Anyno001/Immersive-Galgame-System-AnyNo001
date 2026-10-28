@@ -1,9 +1,11 @@
+import { isInnerDemonName } from './inner-demon.js';
 import { isImageSeed } from '../generated-images/image-seed.js';
 import { lookupSceneBackground, lookupSceneAssetUrls, resolveCharacterKey, lookupAssetValue, sceneTimeSlot } from './scene-directives.js';
 import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit, outfitsOfCharacter } from './character-outfits.js';
 import { promptProvenance } from '../generated-images/generation-prompt.js';
 import { characterPromptRecovery } from '../generated-images/illustration/character-prompt-task.js';
 import { appearanceCharacterKey, resolveCharacterAppearance } from './character-appearance.js';
+import { creatureOf } from './creature-profile.js';
 
 export const GENERATED_ASSET_URL_PREFIX = 'igs-gen:';
 
@@ -199,12 +201,16 @@ export function removeGeneratedLibraryEntry(library, type, name) {
     return { library: next, imageIds: collectGeneratedImageIds(entry) };
 }
 
-export function collectGeneratedImageIds(value, out = []) {
+function walkGeneratedImageIds(value, out) {
     if (typeof value === 'string') {
         if (isGeneratedAssetUrl(value)) out.push(generatedAssetIdOf(value));
     } else if (value && typeof value === 'object') {
-        for (const item of Object.values(value)) collectGeneratedImageIds(item, out);
+        for (const item of Object.values(value)) walkGeneratedImageIds(item, out);
     }
+}
+
+export function collectGeneratedImageIds(value, out = []) {
+    walkGeneratedImageIds(value, out);
     return Array.from(new Set(out));
 }
 
@@ -473,8 +479,11 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     // 副 API 先建档的新角色尚未有图；出图失败后，下次补全仍需处理，不能因刚保存 DNA 变成“已登记”而跳过。
     const preparedOnly = registeredKey && userAssets.characterDna?.[registeredKey]?.identitySource === 'secondary-api'
         && !userAssets.characters?.[registeredKey] && !userAssets.characterOutfits?.[registeredKey];
+    // 非人角色只登记了档案、还没有任何立绘：需要补图。
+    const creatureUndrawn = Boolean(registeredKey && creatureOf((userAssets.characterDna || {})[registeredKey])
+        && !userAssets.characters?.[registeredKey] && !userAssets.characterOutfits?.[registeredKey]);
     const unavailableRegistered = registeredKey && Object.values((userAssets.characters || {})[registeredKey] || {}).some(url => unavailableImage(url, ctx));
-    return { url: '', slot: '', character: name, source: 'none', reason: unavailableRegistered ? 'original-unavailable' : registeredKey || generated.spriteCharacter ? 'original-empty' : 'character-unregistered', needsGeneration: Boolean(missingRegistered || preparedOnly) || (!registeredKey && !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets)) };
+    return { url: '', slot: '', character: name, source: 'none', reason: unavailableRegistered ? 'original-unavailable' : registeredKey || generated.spriteCharacter ? 'original-empty' : 'character-unregistered', needsGeneration: Boolean(missingRegistered || preparedOnly || creatureUndrawn) || (!registeredKey && !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets)) };
 }
 
 // NSFW 挂 CG 时的对话框头像：只在衣柜引用「裸体」的那几套里找（当条表情 → 裸体底图 → 这一套的「平和」），
@@ -507,6 +516,8 @@ function isKnownCharacterName(name, userAssets) {
 }
 
 export function isNonSpriteSpeaker(name) {
+    // 心魔 / 人格分裂等自我对话的说话人名不是一个要画立绘的角色。
+    if (isInnerDemonName(name)) return true;
     const lower = name.toLowerCase();
     if (NON_SPRITE_SPEAKERS.has(name) || NON_SPRITE_SPEAKERS.has(lower)) return true;
     return /^[?？…·.\s]+$/.test(name);

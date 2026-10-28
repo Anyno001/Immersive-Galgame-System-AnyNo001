@@ -333,6 +333,16 @@ export function createChatStreamObserver(opts = {}) {
         scheduleActivity(false);
     };
 
+    // 等待方兜底：调用方已确认新楼落地。结束事件丢了（观察器重启、事件被吞）时，停止按钮已收起就按生成结束处理。
+    const kick = () => {
+        if (!active || settling) return false;
+        if (isHostGenerating(resolveDocument()) !== false) return false;
+        if (!completion) completion = 'ended';
+        manualArmed = true;
+        scheduleStable();
+        return true;
+    };
+
     return {
         start,
         stop,
@@ -340,6 +350,7 @@ export function createChatStreamObserver(opts = {}) {
         isActive: () => active,
         hasLifecycle: () => lifecycleAvailable,
         noteActivity,
+        kick,
         prepareForReply,
         hasGenerationSettled,
         isCurrentRevision: (expected) => active && revision === expected,

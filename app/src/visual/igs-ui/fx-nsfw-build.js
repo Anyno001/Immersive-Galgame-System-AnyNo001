@@ -8,7 +8,6 @@ import { spawnMist } from './fx-mist.js';
 import { readStageBackground, resolveHeadAnchor } from './stage-snapshot.js';
 import { HEAD_ASPECT } from './fx-anchor.js';
 import { at, atFilter, clampNum, headPoint, reactSprite, roundTo } from './fx-sprite-react.js';
-import { BEAST_PART_BOX, BEAST_PART_PATHS } from './fx-beast-parts.js';
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const round = (n) => Math.round(n * 10) / 10;
@@ -98,18 +97,13 @@ function aftermath(item, env) {
     return { layer: 'front', life, sounds: ['nsfw-after'], node };
 }
 
-const CANDLE = '<i class="igs-nfx-candle"><i class="igs-nfx-flame"></i></i>';
-
-const LAMP = '<i class="igs-nfx-lamp"><i></i></i>';
-
-// 床幔只落在画面两侧与顶部，束起的帐子不遮中央。古代为红烛床幔，现代为实色纱帘加床头灯。
+// 床幔：不画帐子与烛台。整台暖色温加收窄的暗角，两侧边缘各一抹极淡的暖光，古代偏暖橙，现代偏暖白。
 function bedcurtain(item, env) {
     const caption = item.text ? `<div class="igs-nfx-curtain-text">${esc(item.text)}</div>` : '';
     const ancient = env.ancient === true || env.worldview === 'magic' || env.worldview === 'fantasy';
-    const prop = ancient ? CANDLE : LAMP;
     return {
         layer: 'front', life: lifeOf(7200, env), sounds: ['nsfw-curtain'],
-        node: make(env.doc, `igs-dfx igs-nfx igs-nfx-bed ${ancient ? 'is-ancient' : 'is-modern'}`, `<div class="igs-nfx-valance"></div><div class="igs-nfx-drape is-l"></div><div class="igs-nfx-drape is-r"></div><div class="igs-nfx-candles is-l">${prop}</div><div class="igs-nfx-candles is-r">${prop}</div>${caption}`),
+        node: make(env.doc, `igs-dfx igs-nfx igs-nfx-bed ${ancient ? 'is-ancient' : 'is-modern'}`, `<div class="igs-nfx-bed-tone"></div><div class="igs-nfx-bed-vig"></div><div class="igs-nfx-bed-glow is-l"><i></i></div><div class="igs-nfx-bed-glow is-r"><i></i></div>${caption}`),
     };
 }
 
@@ -210,63 +204,4 @@ function conceive(item, env) {
     return { layer: 'front', life: lifeOf(5200, env), sounds: ['nsfw-fetal'], node };
 }
 
-// 内置的简笔部件（实色）。transform 包若导出了更好的剪影部件，默认用 fx-beast-parts 的兽影路径（耳 / 角 / 尾），鳞片沿用本地简笔，setNsfwBeastParts 可换。
-const PART_SHAPES = Object.freeze({
-    ear: { box: '0 0 40 44', path: 'M4 42 Q2 6 20 2 Q34 14 36 42 Q20 36 4 42Z', inner: 'M11 36 Q10 16 20 9 Q27 18 28 36 Q20 32 11 36Z', fill: '#e9c9a0', accent: '#e58fb0' },
-    horn: { box: '0 0 30 44', path: 'M6 42 Q4 18 14 2 Q22 18 24 42Z', inner: '', fill: '#eadfc8', accent: '#cdbf9f' },
-    tail: { box: '0 0 92 64', path: 'M4 56 Q20 8 64 14 Q86 18 88 34 Q70 24 54 34 Q36 46 12 60Z', inner: '', fill: '#e9c9a0', accent: '#cfa97a' },
-    scale: { box: '0 0 32 36', path: 'M10 2 L22 2 L30 18 L22 34 L10 34 L2 18Z', inner: '', fill: '#7fc8c0', accent: '#4f9c94' },
-});
-
-function beastPartSvg(kind, { color, flip }) {
-    const path = BEAST_PART_PATHS[kind];
-    const box = BEAST_PART_BOX[kind];
-    if (!path || !box) return '';
-    const fill = color || PART_SHAPES[kind].fill;
-    return `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style="aspect-ratio:1/${box.ar}${flip ? ';transform:scaleX(-1)' : ''}"><path d="${path}" fill="${fill}" stroke="rgba(30,18,10,.35)" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
-}
-
-let partsProvider = beastPartSvg;
-
-export function setNsfwBeastParts(provider) {
-    partsProvider = typeof provider === 'function' ? provider : null;
-}
-
-const colorOk = (value) => (/^#[0-9a-f]{3,8}$/i.test(String(value || '')) ? value : '');
-
-function partSvg(kind, color, flip) {
-    const external = partsProvider ? partsProvider(kind, { color, flip }) : '';
-    if (typeof external === 'string' && external.startsWith('<svg')) return external;
-    const shape = PART_SHAPES[kind];
-    const fill = color || shape.fill;
-    const accent = color ? '#ffffff' : shape.accent;
-    return `<svg viewBox="${shape.box}" aria-hidden="true"${flip ? ' style="transform:scaleX(-1)"' : ''}><path d="${shape.path}" fill="${fill}" stroke="rgba(30,18,10,.3)" stroke-width="1.2"/>${shape.inner ? `<path d="${shape.inner}" fill="${accent}"/>` : ''}</svg>`;
-}
-
-// 按头部锚点近似摆放：头宽 d（舞台宽 %），头高按舞台宽高比换算。不处理衣领遮挡。
-export function traitPlacements(anchor, aspect, parts) {
-    const headH = anchor.d * aspect * HEAD_ASPECT;
-    const dir = anchor.x < 50 ? -1 : 1;
-    const out = [];
-    for (const part of parts) {
-        if (part === 'ear') for (const s of [-1, 1]) out.push({ part, flip: s > 0, x: anchor.x + s * anchor.d * 0.3, y: anchor.y - headH * 0.55, w: anchor.d * 0.3, rot: s * 16 });
-        if (part === 'horn') for (const s of [-1, 1]) out.push({ part, flip: s > 0, x: anchor.x + s * anchor.d * 0.2, y: anchor.y - headH * 0.62, w: anchor.d * 0.16, rot: s * 22 });
-        if (part === 'tail') out.push({ part, flip: dir < 0, x: anchor.x + dir * anchor.d * 1.3, y: anchor.y + headH * 3.2, w: anchor.d * 1.0, rot: 0 });
-        if (part === 'scale') {
-            out.push({ part, flip: false, x: anchor.x - anchor.d * 0.4, y: anchor.y + headH * 0.3, w: anchor.d * 0.1, rot: -14 });
-            out.push({ part, flip: false, x: anchor.x + anchor.d * 0.42, y: anchor.y + headH * 0.38, w: anchor.d * 0.09, rot: 12 });
-            out.push({ part, flip: false, x: anchor.x, y: anchor.y + headH * 0.85, w: anchor.d * 0.09, rot: 0 });
-        }
-    }
-    return out.map((item) => ({ ...item, x: round(clamp(item.x, 2, 98)), y: round(clamp(item.y, 2, 98)), w: round(clamp(item.w, 2, 40)) }));
-}
-
-function traits(item, env) {
-    const anchor = resolveHeadAnchor(env, item.who || env.speaker);
-    const aspect = readStageBackground(env.root).aspect || 16 / 9;
-    const color = colorOk(item.color);
-    const html = traitPlacements(anchor, aspect, item.parts || []).map((p, i) => `<i class="igs-nfx-trait is-${p.part}" style="left:${p.x}%;top:${p.y}%;width:${p.w}%;--igs-nfx-rot:${p.rot}deg;--igs-nfx-i:${i}">${partSvg(p.part, color, p.flip)}</i>`).join('');
-    return { layer: 'stage', life: lifeOf(9000, env), sounds: ['nsfw-traits'], node: make(env.doc, 'igs-dfx igs-nfx igs-nfx-traits', html) };
-}
-
-export const NSFW_BUILDERS = Object.freeze({ peak, counter, aftermath, bedcurtain, dualcult, favortip, sigil, footfall, knotafter, conceive, traits });
+export const NSFW_BUILDERS = Object.freeze({ peak, counter, aftermath, bedcurtain, dualcult, favortip, sigil, footfall, knotafter, conceive });

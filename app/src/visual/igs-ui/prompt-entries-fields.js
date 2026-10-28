@@ -36,6 +36,7 @@ const ENTRY_PURPOSES = Object.freeze({
     campus: '课堂 · 社团 · 考试',
     battle: '攻击 · 受击 · 技能',
     combat: '开战 · 历练 · 习得',
+    creature: '怪物 · 使魔 · 体型',
     romance: '暧昧 · 心动 · 氛围',
     live: '直播 · 弹幕 · 礼物',
     feed: '帖子 · 评论 · 舆论',

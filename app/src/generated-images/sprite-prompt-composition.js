@@ -9,7 +9,12 @@ const keyOf = (part) => part.replace(/^-?\d*\.?\d+::|::$/g, '')
 export const isSpriteExpressionTag = (part) => EXPRESSION_POSE_RE.test(keyOf(part));
 // 与现有立绘动作规则一致；这些是当次姿势，不是另一份外貌资料。
 const DAILY_POSE_RE = /^(?:hands? in (?:own )?(?:pockets?|hair)|adjusting hair|brushing hair|holding (?:own )?(?:shirt|clothes|hem)|hand behind head)$/i;
-export const spriteExpressionTags = (text) => splitPromptTags(text).filter((part) => isSpriteExpressionTag(part) || DAILY_POSE_RE.test(keyOf(part))).join(', ');
+// 灵动方案另保留手势与上身动作类标签；衣装、道具、背景类词仍不放行。标准方案不受影响。
+const GESTURE_RE = /\b(?:(?:hands?|fingers?|fists?|palms?) (?:on|to|near|over|at|behind|together|clasped|up|raised|covering|touching|scratching|against|under|pressed|holding|clenched)|fingers? \w+|arms? (?:crossed|raised|behind|up|folded|out|wide)|(?:crossed|folded|raised) arms|clenched fists?|fists? clenched|leaning (?:forward|back|backward|to the side)|shrug\w*|shoulders (?:raised|up)|head (?:down|tilt\w*)|(?:covering|touching|scratching) \w+|holding own \w+|waving|pointing|hugging|bowing)\b/i;
+const NOT_GESTURE_RE = /\b(?:bare|tattoos?|broad|narrow|muscular|bag|strap|pads?|armou?r|guard|gloves?|sleeves?|ring|bracelet|watch|band|bandage|sword|gun|weapon|cape|jacket|coat|shirt|dress|skirt|background)\b|\bholding (?!own|hands?|arms?)/i;
+const isGestureTag = (part) => GESTURE_RE.test(keyOf(part)) && !NOT_GESTURE_RE.test(keyOf(part));
+export const spriteExpressionTags = (text, scheme) => splitPromptTags(text).filter((part) => isSpriteExpressionTag(part)
+    || DAILY_POSE_RE.test(keyOf(part)) || (scheme?.id === 'lively' && isGestureTag(part))).join(', ');
 
 export function hasSpriteDna(dna) {
     const profile = normalizeCharacterDna(dna);
@@ -43,19 +48,19 @@ export function composeSpritePromptParts(dna, { expression = '', outfit } = {}) 
 }
 
 // 单人立绘：角色块是 DNA 的组合结果；模型的完整外貌词不再追加。
-export function composeSpriteCaption(caption, dna, { outfit } = {}) {
+export function composeSpriteCaption(caption, dna, { outfit, scheme } = {}) {
     const pos = caption?.v4_prompt?.caption;
     const neg = caption?.v4_negative_prompt?.caption;
     if (!pos || !neg) return caption;
     const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
     const role = chars[0]?.char_caption || pos.base_caption;
-    const parts = composeSpritePromptParts(dna, { expression: spriteExpressionTags(role), outfit });
+    const parts = composeSpritePromptParts(dna, { expression: spriteExpressionTags(role, scheme), outfit });
     if (!parts) return caption;
     const ucs = Array.isArray(neg.char_captions) ? neg.char_captions : [];
     return {
         ...caption,
         v4_prompt: { ...caption.v4_prompt, caption: { ...pos,
-            base_caption: chars.length ? spriteExpressionTags(pos.base_caption) : parts.positive,
+            base_caption: chars.length ? spriteExpressionTags(pos.base_caption, scheme) : parts.positive,
             char_captions: chars.map((item, index) => index === 0
                 ? { ...item, char_caption: parts.positive } : item),
         } },

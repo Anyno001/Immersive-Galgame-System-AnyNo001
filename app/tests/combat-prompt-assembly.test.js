@@ -9,6 +9,8 @@ import { isPromptEntryKey } from '../src/scene/prompt-entries.js';
 const BATTLE_ON = { battleFx: { enabled: true } };
 const COMBAT_ON = { battleFx: { enabled: true }, combatExpansion: { enabled: true } };
 const keys = (rs) => collectGrammarBlocks(rs).map((b) => b.key);
+// 非人角色块随战斗演出一起出现（origin/main 合入），按自身条目设置驻留或索引，与卡牌战斗块的驻留规则无关。
+const withoutCreature = (list) => list.filter((k) => k !== 'creature');
 const report = (result) => `战斗结束\n<igs-combat-report id="c1" result="${result}" encounter="巷口">第1回合……</igs-combat-report>`;
 
 test('扩展关闭时 battle 块的组装结果不变', () => {
@@ -25,15 +27,15 @@ test('扩展开启时出现 combat 块、没有 battle 块；缺省常驻，亲�
     assert.ok(keys(COMBAT_ON).includes('combat'));
     assert.ok(!keys(COMBAT_ON).includes('battle'));
     const resident = buildTagGrammar({ readerSettings: COMBAT_ON });
-    assert.deepEqual([resident.expanded, resident.indexed], [[], []]);
+    assert.deepEqual([resident.expanded, withoutCreature(resident.indexed)], [[], []]);
     const quiet = resolvePromptTriggers({ userText: '', recentAiTexts: [] }).report;
     assert.deepEqual([quiet.combat.reason, quiet.battle.active], ['always', false]);
     // 旧存档里规范化补齐的 auto 不算用户选择，仍按缺省常驻；off 照旧整块去掉。
-    assert.deepEqual(buildTagGrammar({ readerSettings: COMBAT_ON, entries: { combat: { mode: 'auto' } } }).indexed, []);
+    assert.deepEqual(withoutCreature(buildTagGrammar({ readerSettings: COMBAT_ON, entries: { combat: { mode: 'auto' } } }).indexed), []);
     assert.ok(!('combat' in buildTagGrammar({ readerSettings: COMBAT_ON, entries: { combat: { mode: 'off' } } }).sizes));
     const auto = { combat: { mode: 'auto', modeChosen: true } };
     const idle = buildTagGrammar({ readerSettings: COMBAT_ON, entries: auto });
-    assert.deepEqual([idle.expanded, idle.indexed], [[], ['combat']]);
+    assert.deepEqual([idle.expanded, withoutCreature(idle.indexed)], [[], ['combat']]);
     assert.notEqual(idle.system, resident.system);
     const hits = resolvePromptTriggers({ userText: '他们拔刀开战', recentAiTexts: [], entries: auto }).hits;
     assert.ok(hits.has('combat'));
@@ -46,7 +48,8 @@ test('扩展开启时出现 combat 块、没有 battle 块；缺省常驻，亲�
         assert.ok(tagged.has('combat'), tag);
     }
     assert.equal(isPromptEntryKey('combat'), true);
-    assert.deepEqual(keys({ combatExpansion: { enabled: true } }), ['combat']);
+    // 心魔块（origin/main 合入）缺省开启，与卡牌战斗无关；关掉后只剩 combat 块。
+    assert.deepEqual(keys({ combatExpansion: { enabled: true }, innerDemon: { enabled: false } }), ['combat']);
 });
 
 test('战报待续写时出现 narration 段，三种结果各自对应', () => {

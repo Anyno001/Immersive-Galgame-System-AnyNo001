@@ -86,7 +86,7 @@ export const IDOL_BUILDERS = {
         node.appendChild(el(env.doc, 'igs-id-os-scrim'));
         if (item.encore) {
             node.appendChild(el(env.doc, 'igs-id-os-chant', charSpans('安可！安可！', 150, 100)));
-            node.appendChild(el(env.doc, 'igs-id-os-sticks', Array.from({ length: 9 }, (_, i) => `<b style="--x:${6 + i * 11}%;--d:${(i % 4) * 120}ms"></b>`).join('')));
+            node.appendChild(el(env.doc, 'igs-id-os-sticks'));
         }
         node.appendChild(el(env.doc, 'igs-id-os-beam is-a'));
         node.appendChild(el(env.doc, 'igs-id-os-beam is-b'));
@@ -122,18 +122,14 @@ export const IDOL_BUILDERS = {
         return { layer: 'front', life: lifeOf('fancam', env), sounds: ['id-rec'], node };
     },
 
-    // 应援色灯海：观众席整片换成应援色，前后三排荧光棒按节奏错相呼吸，顶端一条应援名。
+    // 应援色灯海：观众席整片换成应援色，前后三排荧光棒（共 18 根，各排按节拍同步摆动、排间错相），顶端一条应援名。
     lightsea(item, env) {
         const color = resolveLightColor(item.color);
         const node = shell(env, 'lightsea');
         node.style.setProperty('--c', color);
         node.appendChild(el(env.doc, 'igs-id-ls-wash'));
-        let rows = '';
-        for (let r = 0; r < 3; r += 1) {
-            const count = 11 + r * 2;
-            const sticks = Array.from({ length: count }, (_, i) => `<b style="left:${num((i + 0.5) * 100 / count + (r % 2 ? 1.4 : 0))}%;--d:${(i * 97 + r * 230) % 900}ms"></b>`).join('');
-            rows += `<div class="igs-id-ls-row is-r${r}">${sticks}</div>`;
-        }
+        // 三排荧光棒：每排一个元素，棒身与位置全在样式里（前排 4、中排 6、后排 8，共 18 根）。
+        const rows = [0, 1, 2].map((r) => `<div class="igs-id-ls-row is-r${r}"></div>`).join('');
         node.appendChild(el(env.doc, 'igs-id-ls-crowd', rows));
         if (item.name) node.appendChild(el(env.doc, 'igs-id-ls-name', `<i></i><b>${esc(item.name)}</b><i></i>`));
         return { layer: 'stage', life: lifeOf('lightsea', env), sounds: ['id-lightsea'], node };

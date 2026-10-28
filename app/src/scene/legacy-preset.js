@@ -117,6 +117,32 @@ export function mergeLegacyLibrary(target, pack) {
 export function loadLegacyPresets(storage) {
     try {
         const raw = storage && typeof storage.getItem === 'function' ? storage.getItem(LEGACY_PRESET_KEY) : null;
+        return parseLegacyPresets(raw);
+    } catch (error) {
+        return {};
+    }
+}
+
+// 设置页重绘用的只读版本：存储原始串不变就复用上次的解析结果与各预设的卡层。返回值不可修改。
+let presetViewCache = { raw: null, presets: {}, layers: new WeakMap() };
+export function readLegacyPresetsView(storage) {
+    let raw = null;
+    try { raw = storage && typeof storage.getItem === 'function' ? storage.getItem(LEGACY_PRESET_KEY) : null; } catch (error) { raw = null; }
+    if (typeof raw !== 'string' || !raw) return { presets: {}, layersOf: presetCardLayers };
+    if (presetViewCache.raw !== raw) presetViewCache = { raw, presets: parseLegacyPresets(raw), layers: new WeakMap() };
+    const cache = presetViewCache;
+    return {
+        presets: cache.presets,
+        layersOf(preset) {
+            if (!preset || typeof preset !== 'object') return presetCardLayers(preset);
+            if (!cache.layers.has(preset)) cache.layers.set(preset, presetCardLayers(preset));
+            return cache.layers.get(preset);
+        },
+    };
+}
+
+function parseLegacyPresets(raw) {
+    try {
         if (!raw) return {};
         const parsed = JSON.parse(raw);
         const presets = parsed && isPlain(parsed.presets) ? parsed.presets : {};

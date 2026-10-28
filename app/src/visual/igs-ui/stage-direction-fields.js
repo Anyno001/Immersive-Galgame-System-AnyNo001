@@ -13,7 +13,7 @@ import { normalizeStageDirectionSettings } from './stage-direction-runtime.js';
 import { AMBIENT_KINDS, AMBIENT_LABELS, normalizeAmbientSoundSettings, normalizeBgmSettings } from './scene-audio.js';
 import { normalizeTextFxSettings } from './text-fx.js';
 import { isPackKind } from '../../scene/fx-packs.js';
-import { BILINGUAL_DISPLAYS, BILINGUAL_DISPLAY_LABELS, BILINGUAL_FOREIGN_LABELS, BILINGUAL_LAYOUTS, BILINGUAL_LAYOUT_LABELS, BILINGUAL_TARGET_LABELS, normalizeBilingualSettings } from './bilingual-text.js';
+import { BILINGUAL_DISPLAYS, BILINGUAL_DISPLAY_LABELS, BILINGUAL_LAYOUTS, BILINGUAL_LAYOUT_LABELS, isBilingualRuby, normalizeBilingualSettings } from './bilingual-text.js';
 import { CLICK_WAIT_MARK_LABELS, normalizeClickWaitMarkSettings } from './click-wait-mark.js';
 import { normalizeWaitStageSettings } from './wait-stage.js';
 import { DAILY_FX_LABELS, normalizeDailyFxSettings } from './fx-daily-model.js';
@@ -68,8 +68,8 @@ function renderTextFields(textFx, clickWait, waitStage, more) {
     const tfx = featureRow(more, 'text-fx', `${P}.textFx.enabled`, textFx.enabled, '行内文字效果', '抖动、吼叫等字效');
     const glyphs = Object.entries(CLICK_WAIT_MARK_LABELS);
     const clickWaitMark = featureRow(more, 'click-wait', `${P}.clickWaitMark.enabled`, clickWait.enabled, '句末等待符号', '', field(`${P}.clickWaitMark.glyph`, '符号样式', selectInput(`${P}.clickWaitMark.glyph`, clickWait.glyph, glyphs)));
-    const wait = featureRow(more, 'wait-stage', `${P}.waitStage.enabled`, waitStage.enabled, '等待过场', '等回复时给一句台词和小游戏', grid(
-        checkbox(`${P}.waitStage.games`, waitStage.games, '等的时候能玩小游戏')
+    const wait = featureRow(more, 'wait-stage', `${P}.waitStage.enabled`, waitStage.enabled, '等待过场', '等回复时轮换一句台词', grid(
+        checkbox(`${P}.waitStage.games`, waitStage.games, '等的时候能玩小游戏（需另装小游戏脚本）')
         + checkbox(`${P}.waitStage.voice`, waitStage.voice, '回放角色台词时带一声语气音'))
         + field(`${P}.waitStage.lineSeconds`, '每句停留', segmentedInput(`${P}.waitStage.lineSeconds`, String(waitStage.lineSeconds), [['4', '4秒'], ['6', '6秒'], ['8', '8秒'], ['12', '12秒']], '每句停留')));
     return { textFx: tfx, clickWaitMark, waitStage: wait };
@@ -79,10 +79,8 @@ function renderBilingualField(bilingual, more) {
     const displays = BILINGUAL_DISPLAYS.map((id) => [id, BILINGUAL_DISPLAY_LABELS[id]]);
     const layouts = BILINGUAL_LAYOUTS.map((id) => [id, BILINGUAL_LAYOUT_LABELS[id]]);
     return featureRow(more, 'bilingual', `${P}.bilingual.enabled`, bilingual.enabled, '双语台词', '外语台词配译文', field(`${P}.bilingual.display`, '显示方式', segmentedInput(`${P}.bilingual.display`, bilingual.display, displays, '显示方式'))
-        + field(`${P}.bilingual.layout`, '注音排版', segmentedInput(`${P}.bilingual.layout`, bilingual.layout, layouts, '注音排版'))
-        + grid(field(`${P}.bilingual.foreign`, '角色语言', selectInput(`${P}.bilingual.foreign`, bilingual.foreign, Object.entries(BILINGUAL_FOREIGN_LABELS)))
-            + field(`${P}.bilingual.target`, '译文语言', selectInput(`${P}.bilingual.target`, bilingual.target, Object.entries(BILINGUAL_TARGET_LABELS))))
-        + '<div class="igs-source-filter-note">旁白不受影响；电脑端按T键临时切换显示。</div>');
+        + (isBilingualRuby(bilingual.display) ? field(`${P}.bilingual.layout`, '注音排版', segmentedInput(`${P}.bilingual.layout`, bilingual.layout, layouts, '注音排版')) : '')
+        + '<div class="igs-source-filter-note">旁白直接以译文语言书写；电脑端按 T 键临时切换显示。</div>');
 }
 
 function trackSummary(track) {

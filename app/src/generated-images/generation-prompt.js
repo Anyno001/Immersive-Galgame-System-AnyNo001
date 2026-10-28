@@ -119,7 +119,7 @@ export function promptProvenance(value = {}) {
         const raw = value.promptRecipe;
         const caption = normalizeCaption(raw?.caption);
         const checked = checkPromptRecipe(raw, caption, undefined,
-            { allowArchivedCorrection: value.sentPrompt?.action === 'infill' && value.dnaSnapshot !== undefined });
+            { allowArchivedCorrection: value.sentPrompt?.action === 'infill' && value.dnaSnapshot !== undefined, allowStoredNoOutfit: true });
         if (!caption || !checked.ok) invalid();
         out.promptRecipe = checked.value;
     }

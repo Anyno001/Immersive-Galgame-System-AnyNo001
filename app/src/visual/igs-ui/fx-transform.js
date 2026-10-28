@@ -1,19 +1,18 @@
 // 立绘变形层构建器：镜中倒影、车窗 / 水面、剪影、监控 / 全息 / 回忆框、异化、局部特写、局部贴片，
-// 以及元神出窍、现出原形、九尾展开、照妖镜。立绘一律经 stage-snapshot 读当前 DOM（跟随服装与表情），不读像素，不用蒙版图。
+// 以及元神出窍。立绘一律经 stage-snapshot 读当前 DOM（跟随服装与表情），不读像素，不用蒙版图。
 // 同页最多 1 个变形层：已有变形节点在场时放弃播放。
 import { esc } from './reader-value-utils.js';
 import { make } from './fx-daily-kit.js';
 import { FALLBACK_HEAD, headToMarker, measureStage, peekSpriteHead, spriteDrawRect } from './fx-anchor.js';
 import { cloneSpriteLayer, playWarp, readStageBackground, resolveHeadAnchor, resolveRegionCrop, spriteElOf } from './stage-snapshot.js';
 import { playSpriteSpec } from './sprite-actions.js';
-import { beastEyesHtml, beastLayout, beastPartsHtml, resolveBeast } from './fx-beast-parts.js';
-import { fitCrop, formBeastName, headInBox, markPlacement } from './fx-transform-model.js';
+import { fitCrop, markPlacement } from './fx-transform-model.js';
+import { MARK_SYMBOL_SVG } from './fx-symbols.js';
 
 export const TRANSFORM_LIFE_MS = Object.freeze({
-    mirror: 3600, truemirror: 4400, reflect: 3400, silhouette: 3200, frame: 3600, warp: 1600, zoom: 2800, mark: 3600, spirit: 3400, shift: 3800, tails: 3800,
+    mirror: 3600, reflect: 3400, silhouette: 3200, frame: 3600, warp: 1600, zoom: 2800, mark: 3600, spirit: 3400,
 });
 
-const SHIFT_SHAKE = Object.freeze({ duration: 560, easing: 'ease-out', frames: ['translate(0,0)', 'translate(.6%,0)', 'translate(-.5%,0)', 'translate(.3%,0)', 'translate(0,0)'] });
 const SINK_SPEC = Object.freeze({ duration: 1800, easing: 'ease-in-out', frames: ['translate(0,0)', 'translate(0,1.6%)', 'translate(0,1.6%)', 'translate(0,0)'] });
 const GRADE = 'var(--igs-grade-sprite,)';
 const FRAME_BLOCKED = new Set(['fantasy', 'magic']);
@@ -126,9 +125,9 @@ function card(env, node, vars, innerHtml, pad = [5, 8]) {
     return { frame, view };
 }
 
-// ---- 镜子：mirror 与 truemirror 走同一条路径，唯一差别是镜内内容 content ----
+// ---- 镜子 ----
 
-function buildMirror(item, env, content) {
+function buildMirror(item, env) {
     if (busy(env)) return null;
     const view = spriteView(env, item.who);
     if (!view) return null;
@@ -137,38 +136,22 @@ function buildMirror(item, env, content) {
     const ratio = bronze ? 1 : 2.1;
     const pad = bronze ? [7, 7] : [5, 8];
     const boxRatio = ratio * (100 - pad[0] * 2) / (100 - pad[1] * 2);
-    const truth = content === 'true-form';
     const crop = bronze ? resolveRegionCrop(view.sprite, 'face', boxRatio, env.root.ownerDocument) : fitCrop(view.aspect, boxRatio);
     const mirrored = !view.flip;
     const clone = cloneOf(env, item.who, {
         crop, flip: mirrored,
-        filter: truth ? 'brightness(0)' : `${GRADE} brightness(.97) saturate(.92)`,
+        filter: `${GRADE} brightness(.97) saturate(.92)`,
     });
     if (!clone) return null;
-    const node = shell(env, truth ? 'mirror is-true' : 'mirror', '');
+    const node = shell(env, 'mirror', '');
     const bw = cardWidth(bronze ? 26 : 24, aspect);
     const bx = view.posX >= 50 ? 8 : 100 - 8 - bw;
     const vars = { className: bronze ? 'is-round' : '', style: cardVars(view, aspect, { w: bronze ? 22 : 17, ratio, y: bronze ? 12 : 8 }) };
     const { view: glass, frame } = card(env, node, vars, '', pad);
     glass.insertBefore(bgLayer(env, bx, bronze ? 12 : 8, bw, ratio), glass.firstChild);
     glass.appendChild(clone);
-    if (truth) {
-        const beast = resolveBeast(item.form || formBeastName(env.forms && env.forms[item.who]));
-        const anchor = bronze
-            ? { x: 50, y: 50, d: round(100 / 2.4) }
-            : headInBox(view.head, view.aspect, crop, boxRatio, mirrored);
-        const parts = beastLayout(beast, anchor, 1 / boxRatio, { scale: 1.25, only: ['ear', 'horn', 'tail', 'wing'], tailCount: 1 });
-        const layerHtml = make(env.doc, 'igs-xf-beast', beastPartsHtml(parts, { color: beast.color }) + beastEyesHtml(anchor, 1 / boxRatio, '#fff4c2'));
-        layerHtml.setAttribute('style', `--xf-ox:${anchor.x}%;--xf-oy:${anchor.y}%`);
-        glass.appendChild(layerHtml);
-        if (item.form) {
-            const chip = make(env.doc, 'igs-xf-form');
-            chip.textContent = `原形 · ${item.form}`;
-            frame.appendChild(chip);
-        }
-    }
     glass.appendChild(make(env.doc, 'igs-xf-sheen'));
-    return { layer: 'front', life: life(truth ? 'truemirror' : 'mirror', env), sounds: [truth ? 'xftrue' : 'xfglass'], node };
+    return { layer: 'front', life: life('mirror', env), sounds: ['xfglass'], node };
 }
 
 // ---- 倒影 ----
@@ -341,10 +324,9 @@ function buildZoom(item, env) {
 
 const MARK_ART = Object.freeze({
     blush: { w: 0.4, html: '' },
-    kiss: { w: 0.3, html: '<svg viewBox="0 0 24 16"><path d="M2 8C6 1 10 3 12 5C14 3 18 1 22 8C18 15 6 15 2 8Z" fill="#d6304f"/><path d="M3 8C9 10 15 10 21 8" stroke="#8f1c33" stroke-width=".8" fill="none"/></svg>' },
-    bite: { w: 0.44, html: '<svg viewBox="0 0 30 18"><path d="M3 4C8 16 22 16 27 4" stroke="#b3263f" stroke-width="2" fill="none" stroke-dasharray="1 3.4" stroke-linecap="round"/><path d="M5 10C10 18 20 18 25 10" stroke="#b3263f" stroke-width="2" fill="none" stroke-dasharray="1 3.4" stroke-linecap="round"/></svg>' },
+    kiss: { w: 0.3, html: MARK_SYMBOL_SVG.kiss },
+    bite: { w: 0.34, html: MARK_SYMBOL_SVG.bite },
     sigil: { w: 0.5, html: '<svg viewBox="0 0 40 40" fill="none" stroke="#ffd36a" stroke-width="1.6" stroke-linejoin="round"><circle cx="20" cy="20" r="17"/><path d="M20 4L33 28H7Z"/><path d="M20 36L7 12H33Z"/><circle cx="20" cy="20" r="3"/></svg>' },
-    sweat: { w: 0.18, html: '<svg viewBox="0 0 10 14"><path d="M5 1C8 6 9 8 9 9.5A4 4 0 0 1 1 9.5C1 8 2 6 5 1Z" fill="#cfeaff" stroke="#7fb4dc" stroke-width=".8"/></svg>' },
     bruise: { w: 0.4, html: '' },
 });
 
@@ -357,10 +339,9 @@ function buildMark(item, env) {
     const anchor = anchorOf(env, item.who, view);
     const spots = markPlacement(item.part, anchor, stageAspect(env));
     const node = shell(env, 'mark', `is-${style}`);
-    const sweatDrop = style === 'sweat';
     spots.forEach((spot, i) => {
         const patch = make(env.doc, `igs-xf-patch is-${style}`, art.html);
-        patch.setAttribute('style', `left:${spot.x}%;top:${round(spot.y + (sweatDrop ? 3 : 0))}%;width:${round(anchor.d * art.w)}%;animation-delay:${i * 140}ms`);
+        patch.setAttribute('style', `left:${spot.x}%;top:${round(spot.y)}%;width:${round(anchor.d * art.w)}%;animation-delay:${i * 140}ms`);
         node.appendChild(patch);
     });
     return { layer: 'stage', life: life('mark', env), sounds: ['xfmark'], node };
@@ -387,59 +368,8 @@ function buildSpirit(item, env) {
     return { layer: 'stage', life: life('spirit', env), sounds: ['xfspirit'], node };
 }
 
-// ---- 现出原形：人形压成剪影，背后投出巨大兽影 ----
-
-function buildShift(item, env) {
-    if (busy(env)) return null;
-    const view = spriteView(env, item.who);
-    if (!view) return null;
-    const clone = cloneOf(env, item.who, { filter: 'brightness(0)' });
-    if (!clone) return null;
-    const name = item.form || formBeastName(env.forms && env.forms[item.who]);
-    const beast = resolveBeast(name);
-    const anchor = anchorOf(env, item.who, view);
-    const aspect = stageAspect(env);
-    const parts = beastLayout(beast, anchor, aspect, { scale: 1.9, tailCount: 1 });
-    const node = shell(env, 'shift', '');
-    const layer = make(env.doc, 'igs-xf-beast', beastPartsHtml(parts, { color: beast.color }));
-    layer.setAttribute('style', `--xf-ox:${anchor.x}%;--xf-oy:${anchor.y}%`);
-    node.appendChild(layer);
-    clone.className = `${clone.className} igs-xf-sil`;
-    node.appendChild(clone);
-    node.appendChild(make(env.doc, 'igs-xf-eyes', beastEyesHtml(anchor, aspect, beast.color)));
-    if (name) {
-        const cap = make(env.doc, 'igs-xf-cap');
-        cap.textContent = `现出原形 · ${name}`;
-        node.appendChild(cap);
-    }
-    if (!env.reduced) {
-        node.appendChild(make(env.doc, 'igs-xf-flash'));
-        playSpriteSpec(view.el, SHIFT_SHAKE);
-    }
-    return { layer: 'stage', life: life('shift', env), sounds: ['xfshift'], node };
-}
-
-// ---- 九尾展开：尾巴在身后逐条展开，立绘复刻压在尾巴之上 ----
-
-function buildTails(item, env) {
-    if (busy(env)) return null;
-    const view = spriteView(env, item.who);
-    if (!view) return null;
-    const clone = cloneOf(env, item.who, { filter: GRADE });
-    if (!clone) return null;
-    const beast = resolveBeast('狐');
-    const anchor = anchorOf(env, item.who, view);
-    const count = Math.max(1, Math.min(9, Math.round(item.count) || 9));
-    const parts = beastLayout(beast, anchor, stageAspect(env), { scale: 1.5, only: ['tail'], tailCount: count });
-    const node = shell(env, 'tails', '');
-    node.appendChild(make(env.doc, 'igs-xf-tails', beastPartsHtml(parts, { color: beast.color })));
-    node.appendChild(clone);
-    return { layer: 'stage', life: life('tails', env), sounds: ['xftail'], node };
-}
-
 export const TRANSFORM_BUILDERS = Object.freeze({
-    mirror: (item, env) => buildMirror(item, env, 'self'),
-    truemirror: (item, env) => buildMirror(item, env, 'true-form'),
+    mirror: buildMirror,
     reflect: buildReflect,
     silhouette: buildSilhouette,
     frame: buildFrame,
@@ -447,6 +377,4 @@ export const TRANSFORM_BUILDERS = Object.freeze({
     zoom: buildZoom,
     mark: buildMark,
     spirit: buildSpirit,
-    shift: buildShift,
-    tails: buildTails,
 });

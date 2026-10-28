@@ -2,10 +2,11 @@
 // 声线来自内置声音包（voice-packs.js）；每个角色可在角色设定里手动指定声线，未指定时按 DNA 判断性别、
 // 再按名字固定分到同性别的一套声线，保证不同角色天然不同、同一角色始终同一个声音。
 import { VOICE_PACKS } from '../../voice/voice-packs.js';
-import { moodFallbackChain, resolvePresetGroup } from '../../scene/mood-groups.js';
+import { fuzzyResolveMoodGroup, moodFallbackChain, resolveMoodGroup, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { busInput, resumeAudioBus } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
 import { spritePan, yieldTypewriterAudio } from './typewriter-audio.js';
+import { resolveCreatureVoice, creatureVoiceRecipe, synthCreatureBark, CREATURE_VOICE_LABELS } from './creature-voice.js';
 import { getVoiceFilter, insertVoiceFilter, voiceFilterGain, voiceFilterParams, voiceFilterUsesDry } from './voice-filter.js';
 
 export const VOICE_BARK_FREQUENCIES = Object.freeze([
@@ -34,6 +35,10 @@ const WHISPER_SHAPE = Object.freeze({ gain: 0.6, close: true });
 const PHONE_GAIN = 0.85;
 const PHONE_BAND = Object.freeze({ high: 380, low: 3200 });
 const GAIN_CAP = 1.2;
+// 人声净化：高通去低频嗡声，高架压嘶声与沙沙底噪（听筒本身有带通，不重复）。
+const CLEANUP_HIGHPASS = Object.freeze({ frequency: 100, q: 0.7 });
+const CLEANUP_HIGHSHELF = Object.freeze({ frequency: 7500, gain: -4 });
+const VOICE_LIMITER = Object.freeze({ threshold: -4, knee: 6, ratio: 20, attack: 0.003, release: 0.25 });
 // 语气音响着时 BGM 与环境音让一下（比提示音轻）；打字音整段静音到语气音念完。
 const BARK_DUCK_RATIO = 0.7;
 const BARK_TAIL_S = 0.05;
@@ -65,7 +70,7 @@ export function normalizeVoiceBarkSettings(value) {
     };
 }
 
-// 单个角色的声线设置：pack 为空表示自动；'off' 表示这个角色不发语气音。tts 为台词朗读单独指定的声音名，空为自动。
+// 单个角色的声线设置：pack 为空表示自动；'off' 表示这个角色不发语气音。tts 为台词朗读单独指定的声音名，空为自动；ttsThought 为心里话的声音，空则同台词；ttsStyle 为这个角色的朗读风格描述。
 export function normalizeCharacterVoice(value) {
     const source = plainObject(value) || {};
     const pack = source.pack === 'off' || voicePackById(source.pack) ? source.pack : '';
@@ -75,14 +80,31 @@ export function normalizeCharacterVoice(value) {
         pitch: Number.isFinite(pitch) ? Math.max(-VOICE_PITCH_LIMIT, Math.min(VOICE_PITCH_LIMIT, Math.round(pitch * 2) / 2)) : 0,
         speed: normalizeVoiceSpeed(source.speed),
         tts: typeof source.tts === 'string' ? source.tts.trim().slice(0, 200) : '',
+        ttsThought: typeof source.ttsThought === 'string' ? source.ttsThought.trim().slice(0, 200) : '',
         ttsVolume: normalizeTtsVolume(source.ttsVolume),
+        ttsSpeed: normalizeOptionalSpeed(source.ttsSpeed),
+        ttsThoughtSpeed: normalizeOptionalSpeed(source.ttsThoughtSpeed),
+        ttsThoughtVolume: normalizeThoughtVolume(source.ttsThoughtVolume),
+        ttsStyle: typeof source.ttsStyle === 'string' ? source.ttsStyle.trim().slice(0, 300) : '',
     };
 }
 
-// 朗读音量（倍）：0～1，0 表示这个角色不朗读；缺省 1。
+// 朗读语速（倍）：0 表示未单独设置（台词跟随 speed，心里话跟随台词）。
+function normalizeOptionalSpeed(value) {
+    const speed = Number(value);
+    return Number.isFinite(speed) && speed > 0 ? normalizeVoiceSpeed(speed) : 0;
+}
+
+// 心里话音量（倍）：-1 表示同台词音量（0 已是「不朗读」，不能当缺省）；其余同台词音量范围。
+function normalizeThoughtVolume(value) {
+    const volume = Number(value);
+    return value === undefined || value === null || value === '' || !Number.isFinite(volume) || volume < 0 ? -1 : Math.min(2, volume);
+}
+
+// 朗读音量（倍）：0～2，超过 1 为放大，0 表示这个角色不朗读；缺省 1。
 function normalizeTtsVolume(value) {
     const volume = Number(value);
-    return value === undefined || value === null || value === '' || !Number.isFinite(volume) ? 1 : Math.max(0, Math.min(1, volume));
+    return value === undefined || value === null || value === '' || !Number.isFinite(volume) ? 1 : Math.max(0, Math.min(2, volume));
 }
 
 export function normalizeVoiceSpeed(value) {
@@ -99,22 +121,24 @@ export function normalizeCharacterVoices(value) {
         const key = String(name || '').trim();
         if (!key || FORBIDDEN_KEYS.has(key)) continue;
         const voice = normalizeCharacterVoice(entry);
-        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && voice.ttsVolume === 1) continue;
-        const { tts, ttsVolume, ...bark } = voice;
-        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}) };
+        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && !voice.ttsThought && voice.ttsVolume === 1 && !voice.ttsSpeed && !voice.ttsThoughtSpeed && voice.ttsThoughtVolume < 0 && !voice.ttsStyle) continue;
+        const { tts, ttsThought, ttsVolume, ttsSpeed, ttsThoughtSpeed, ttsThoughtVolume, ttsStyle, ...bark } = voice;
+        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsThought ? { ttsThought } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}), ...(ttsSpeed ? { ttsSpeed } : {}), ...(ttsThoughtSpeed ? { ttsThoughtSpeed } : {}), ...(ttsThoughtVolume >= 0 ? { ttsThoughtVolume } : {}), ...(ttsStyle ? { ttsStyle } : {}) };
     }
     return out;
 }
 
-// 说话人可能写的是别名；别名表以主名为键。
+// 说话人可能写的是别名；别名表以主名为键。生成区（sceneAssets.generated）里的角色与别名同样认。
 export function canonicalName(sceneAssets, name) {
     const target = String(name || '').trim();
     if (!target) return '';
-    const maps = [sceneAssets.characterVoices, sceneAssets.characters, sceneAssets.characterDna].map(plainObject);
+    const generated = plainObject(sceneAssets.generated) || {};
+    const maps = [sceneAssets.characterVoices, sceneAssets.characters, sceneAssets.characterDna, generated.characters].map(plainObject);
     if (maps.some((map) => map && hasOwn(map, target))) return target;
-    const aliases = plainObject(sceneAssets.characterAliases) || {};
-    for (const [key, values] of Object.entries(aliases)) {
-        if (Array.isArray(values) && values.some((v) => String(v || '').trim() === target)) return key;
+    for (const aliases of [plainObject(sceneAssets.characterAliases), plainObject(generated.characterAliases)]) {
+        for (const [key, values] of Object.entries(aliases || {})) {
+            if (Array.isArray(values) && values.some((v) => String(v || '').trim() === target)) return key;
+        }
     }
     return target;
 }
@@ -177,6 +201,10 @@ export function resolveCharacterVoice(sceneAssets, speaker) {
     const tune = { pitch: manual.pitch, speed: manual.speed };
     if (manual.pack === 'off') return { pack: null, pitch: 0, speed: 1, source: 'off' };
     if (manual.pack) return { pack: voicePackById(manual.pack), ...tune, source: 'manual' };
+    // 已登记的非人角色未手动指定声线时，用非人声线（低吼、嘶鸣、虫鸣、幽灵低语）代替人声语气音。
+    const dnaMap = plainObject(assets.characterDna);
+    const creature = resolveCreatureVoice(name, dnaMap && hasOwn(dnaMap, name) ? dnaMap[name] : null);
+    if (creature) return { pack: null, creature, ...tune, source: 'creature' };
     const gender = characterDnaGender(assets, name);
     const pool = gender ? VOICE_PACKS.filter((pack) => pack.gender === gender && !AUTO_EXCLUDE.has(pack.id)) : [];
     if (!pool.length) return { pack: null, ...tune, source: '' };
@@ -184,9 +212,24 @@ export function resolveCharacterVoice(sceneAssets, speaker) {
 }
 
 // 情绪词 → 20 个标签之一；默认 / 未知落到「平和」。
-export function resolveBarkMood(word) {
+// moodGroups：用户自定义的情绪组（{ label, words }）；词不在内置预设里时，先找它所在的自定义组，
+// 再用组名与组内词投票，映射到最接近的内置预设；仍映射不到落「平和」。
+export function resolveBarkMood(word, moodGroups = null) {
     const label = resolvePresetGroup(word);
-    return label && label !== '默认' ? label : BASE_MOOD;
+    if (label) return label !== '默认' ? label : BASE_MOOD;
+    if (!Array.isArray(moodGroups) || !moodGroups.length) return BASE_MOOD;
+    const custom = resolveMoodGroup(word, moodGroups) || fuzzyResolveMoodGroup(word, moodGroups);
+    const group = custom && moodGroups.find((g) => g && typeof g === 'object' && String(g.label || '').trim() === custom);
+    if (!group) return BASE_MOOD;
+    const votes = new Map();
+    const words = Array.isArray(group.words) ? group.words : [];
+    for (const [entry, weight] of [[custom, 3], ...words.map((w) => [w, 1])]) {
+        const hit = resolvePresetGroup(entry);
+        if (hit && hit !== '默认' && hit !== BASE_MOOD) votes.set(hit, (votes.get(hit) || 0) + weight);
+    }
+    let best = BASE_MOOD, top = 0;
+    for (const [hit, count] of votes) if (count > top) { best = hit; top = count; }
+    return best;
 }
 
 // 同方向回退，最后落到「平和」；同一情绪有多条时避开上一条。
@@ -229,6 +272,11 @@ export function decideVoiceBark(state, line, settings, { sceneAssets, random = M
     if (config.frequency !== 'every' && !changed) return null;
     if (config.frequency === 'sometimes' && random() >= SOMETIMES_RATE) return null;
     const voice = resolveCharacterVoice(sceneAssets, speaker);
+    if (voice.creature) {
+        const shape = resolveBarkShape(line, mood);
+        return { creature: voice.creature, pack: '', url: '', volume: Math.min(GAIN_CAP, config.volume * shape.gain), pitch: voice.pitch, speed: voice.speed, mood,
+            pan: shape.pan, close: shape.close, phone: shape.phone };
+    }
     if (!voice.pack) return null;
     const lastBy = state.lastClip || (state.lastClip = new Map());
     const slot = `${voice.pack.id}|${mood}`;
@@ -357,6 +405,8 @@ function tunedBuffer(context, url, buffer, rate, speed) {
 }
 
 function releaseJob(job) {
+    if (job.timer) clearTimeout(job.timer);
+    job.timer = null;
     if (job.releaseDuck) job.releaseDuck();
     job.releaseDuck = null;
     for (const node of job.nodes) {
@@ -374,12 +424,12 @@ export function stopVoiceBark() {
     releaseJob(current);
 }
 
-// gain →（听筒带通 / 声像）→ 总线；返回链头。
-export function buildBarkChain(context, out, { volume, pan, phone }, nodes) {
+// gain →（净化滤波）→（听筒带通 / 声像）→ 总线；返回链头。
+export function buildBarkChain(context, out, { volume, pan, phone, cleanup = false, gainCap = GAIN_CAP, limit = false }, nodes) {
     const gain = context.createGain();
     const filter = getVoiceFilter();
     const earPan = (voiceFilterParams(filter) || {}).pan || 0;
-    gain.gain.value = Math.max(0, Math.min(GAIN_CAP, (Number(volume) || 0) * voiceFilterGain(filter)));
+    gain.gain.value = Math.max(0, Math.min(gainCap, (Number(volume) || 0) * voiceFilterGain(filter)));
     nodes.push(gain);
     let tail = gain;
     const link = (node) => {
@@ -387,6 +437,18 @@ export function buildBarkChain(context, out, { volume, pan, phone }, nodes) {
         nodes.push(node);
         tail = node;
     };
+    if (cleanup && !phone) {
+        const hum = context.createBiquadFilter();
+        hum.type = 'highpass';
+        hum.frequency.value = CLEANUP_HIGHPASS.frequency;
+        hum.Q.value = CLEANUP_HIGHPASS.q;
+        link(hum);
+        const hiss = context.createBiquadFilter();
+        hiss.type = 'highshelf';
+        hiss.frequency.value = CLEANUP_HIGHSHELF.frequency;
+        hiss.gain.value = CLEANUP_HIGHSHELF.gain;
+        link(hiss);
+    }
     if (phone) {
         const high = context.createBiquadFilter();
         high.type = 'highpass';
@@ -403,6 +465,17 @@ export function buildBarkChain(context, out, { volume, pan, phone }, nodes) {
     }
     // 贴耳 / 隔墙：局部滤镜只插在语音声链里，不碰 BGM 与环境声。
     if (!phone) insertVoiceFilter(context, link, filter);
+    // 音量放大到 100% 以上时，响度统一后的峰值会被推过满幅削波；末端限幅压住峰值。
+    // 100% 及以下峰值本就不超过 -1 dB，不接限幅：每个字都被压一下反而把波形压变形。
+    if (limit && gain.gain.value > 1 && typeof context.createDynamicsCompressor === 'function') {
+        const limiter = context.createDynamicsCompressor();
+        limiter.threshold.value = VOICE_LIMITER.threshold;
+        limiter.knee.value = VOICE_LIMITER.knee;
+        limiter.ratio.value = VOICE_LIMITER.ratio;
+        limiter.attack.value = VOICE_LIMITER.attack;
+        limiter.release.value = VOICE_LIMITER.release;
+        link(limiter);
+    }
     tail.connect(out);
     return gain;
 }
@@ -442,6 +515,48 @@ export function playVoiceBark({ url, volume = 1, pitch = 0, speed = 1, pan = 0, 
     return job;
 }
 
+// 非人声线：现场合成，没有素材要加载；同样只留一条在响，掐断、让位、声像与听筒规则与人声语气音一致。
+export function playCreatureBark({ creature, mood = '', volume = 1, pitch = 0, speed = 1, pan = 0, close = false, phone = false, yieldTyping = false, duck = false } = {}) {
+    if (!creature) return null;
+    const bus = busInput(close || phone || voiceFilterUsesDry() ? 'dry' : 'voice');
+    if (!bus) return null;
+    stopVoiceBark();
+    const context = bus.context;
+    const job = { cancelled: false, source: null, nodes: [], releaseDuck: null, timer: null };
+    active = job;
+    resumeAudioBus().then(() => {
+        if (job.cancelled || context.state !== 'running') return;
+        try {
+            const recipe = creatureVoiceRecipe({ ...creature, mood, pitch, speed: normalizeVoiceSpeed(speed) });
+            const synth = synthCreatureBark(context, buildBarkChain(context, bus, { volume, pan, phone }, job.nodes), recipe, job.nodes);
+            job.source = synth;
+            const seconds = synth.duration + BARK_TAIL_S;
+            job.timer = setTimeout(() => {
+                releaseJob(job);
+                if (active === job) active = null;
+            }, seconds * 1000 + 120);
+            if (yieldTyping) yieldTypewriterAudio(seconds);
+            if (duck) job.releaseDuck = duckSceneAudio({ ratio: BARK_DUCK_RATIO, durationMs: seconds * 1000 + 150 });
+        } catch {
+            releaseJob(job);
+            if (active === job) active = null;
+        }
+    });
+    return job;
+}
+
+export function creatureVoiceLabel(creature) {
+    return (creature && CREATURE_VOICE_LABELS[creature.kind]) || '';
+}
+
+// 设置里的试听：非人声线依次换几种情绪。
+export function previewCreatureVoice(creature, { pitch = 0, speed = 1, volume = 0.8 } = {}) {
+    if (!creature) return;
+    ['平和', '愤怒', '惊讶', '悲伤'].forEach((mood, i) => {
+        setTimeout(() => playCreatureBark({ creature, mood, volume, pitch, speed }), i * 1100);
+    });
+}
+
 const states = new WeakMap();
 
 // 阅读器每次渲染调用；同一句重复渲染（设置变化、窗口缩放）由 key 去重，不会重播。
@@ -453,6 +568,7 @@ export function applyVoiceBark(root, line, settings, sceneAssets) {
     warmCastVoices(sceneAssets, line.cast, settings);
     const plan = decideVoiceBark(state, line, settings, { sceneAssets, ready });
     if (!plan) return null;
+    if (plan.creature) return playCreatureBark({ ...plan, yieldTyping: true, duck: true });
     warmMood(plan.pack, plan.mood);
     return playVoiceBark({ ...plan, yieldTyping: true, duck: true });
 }

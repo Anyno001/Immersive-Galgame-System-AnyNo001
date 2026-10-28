@@ -5,11 +5,34 @@ import { charSpans, make } from './fx-daily-kit.js';
 import { resolveHeadAnchor, spriteElOf } from './stage-snapshot.js';
 import { drawLinks } from './fx-links.js';
 import { spawnMist } from './fx-mist.js';
+import { absorbCreatureSprite, foeElementOf } from './fx-creature-battle.js';
+import { MANGA_SYMBOL_SVG, MARK_SYMBOL_SVG } from './fx-symbols.js';
+import { SPRITE_ACTION_FRAMES } from './sprite-actions.js';
+import { pushStage } from './fx-sprite-react.js';
 
 export const MYTH_LIFE_MS = Object.freeze({
     relic: 3000, clash: 3200, mythroll: 3000, formation: 3800, flame: 3200, thunder: 2200, aura: 3600,
     charm: 3400, drain: 3400, subdue: 3000, barrier: 3000, core: 3600, pact: 3400,
 });
+
+// 封印类字卡文字，便于以后调整。
+export const SEAL_CARDS = Object.freeze({ talisman: '封', bowl: '金钵', gourd: '收', chain: '锁' });
+export const PACT_CARD = '血契';
+const SEAL_TONES = Object.freeze(['gold', 'azure', 'crimson', 'violet', 'silver', 'jade']);
+const NAME_TONES = Object.freeze([[/[血赤红]/, 'crimson'], [/[青碧]/, 'azure'], [/紫/, 'violet'], [/[玄黑]/, 'violet'], [/[玉翠]/, 'jade'], [/[白银雪]/, 'silver']]);
+
+// 光色：AI 写的优先，其次阵名里的颜色字，最后按演出给默认（法阵与封印暖金、结界青白、入阵紫、魔法世界观的法阵冷蓝白）。
+export function sealToneOf(kind, item, env) {
+    const given = String((item && item.tone) || '');
+    if (SEAL_TONES.includes(given)) return given;
+    if (kind === 'formation') {
+        const hit = NAME_TONES.find(([re]) => re.test(String(item.name || '')));
+        if (hit) return hit[1];
+        if (env && env.worldview === 'magic') return 'azure';
+        return item.mode === 'enter' ? 'violet' : 'gold';
+    }
+    return kind === 'barrier' ? 'azure' : 'gold';
+}
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const round = (n) => Math.round(n * 10) / 10;
@@ -48,26 +71,59 @@ function shake(env, delay, px) {
     animateEl(env, motion, [{ translate: '0 0' }, { translate: `${-px}px ${px / 2}px` }, { translate: `${px}px ${-px / 3}px` }, { translate: `${-px / 2}px 0` }, { translate: '0 0' }], { delay, duration: 380, easing: 'linear' });
 }
 
-function spritePulse(env, who, filters, life) {
-    animateEl(env, spriteOf(env, who), filters.map((filter) => ({ filter })), { duration: life, easing: 'ease-in-out', composite: 'add', fill: 'none' });
+function spritePulse(env, who, filters, life, delay = 0) {
+    animateEl(env, spriteOf(env, who), filters.map((filter) => ({ filter })), { duration: life, delay, easing: 'ease-in-out', composite: 'add', fill: 'none' });
+}
+
+const JOLT_SPEC = Object.freeze({ duration: 380, easing: 'ease-out', frames: ['translate(0,0)', 'translate(-2.4%,0)', 'translate(1.2%,0)', 'translate(0,0)'] });
+const SINK_ONCE = Object.freeze({ duration: 1200, easing: SPRITE_ACTION_FRAMES.sink.easing, frames: [...SPRITE_ACTION_FRAMES.sink.frames, SPRITE_ACTION_FRAMES.sink.frames[0]] });
+const WARM_LIFT = Object.freeze(['brightness(1)', 'brightness(1.12) sepia(.15)', 'brightness(1)']);
+
+// 立绘一次性动作：按帧规格延迟播放，结束自动还原（不用 fill:forwards，避免翻页后残留）。
+function spriteAct(env, who, spec, { delay = 0, duration } = {}) {
+    animateEl(env, spriteOf(env, who), spec.frames.map((transform) => ({ transform })), { delay, duration: duration || spec.duration, easing: spec.easing, composite: 'add', fill: 'none' });
+}
+
+// 收服目标是已确认的非人角色且在台上时返回 { profile, el }，否则 null（人类、待定档、不在台上都走原有分支）。
+function creatureTarget(env, who) {
+    const name = String(who || '').trim();
+    if (!name || typeof env.creatureOf !== 'function') return null;
+    const profile = env.creatureOf(name);
+    if (!profile) return null;
+    const el = foeElementOf({ motion: env.layers.motion, root: env.root, spriteName: env.speaker }, name);
+    return el ? { profile, el } : null;
 }
 
 const result = (env, kind, layer, node, sounds) => ({ layer, life: lifeOf(kind, env), sounds, node });
 
-// 碎片：同一张图案复制四份，各自按斜切多边形裁剪后向外飞散；静止态只留细微错位。
-const SHARDS = Object.freeze([
-    { clip: 'polygon(0 0,50% 0,40% 55%,0 45%)', tx: '-14%', ty: '-10%', rot: '-9deg' },
-    { clip: 'polygon(50% 0,100% 0,100% 40%,40% 55%)', tx: '14%', ty: '-12%', rot: '8deg' },
-    { clip: 'polygon(0 45%,40% 55%,55% 100%,0 100%)', tx: '-12%', ty: '14%', rot: '7deg' },
-    { clip: 'polygon(40% 55%,100% 40%,100% 100%,55% 100%)', tx: '15%', ty: '12%', rot: '-8deg' },
-]);
+// 法阵：地面是一张透视平面，上面叠三层宽大柔边的光幕（样式里按阵型画出走向与交错），逐层铺开后缓慢流动。
+// 每层的流动方向（占自身尺寸的百分比）与倾角（度）写在这里，阵型走向写在样式里的 .is-<阵型>。
+export const FORMATION_LAYOUTS = Object.freeze({
+    ring: Object.freeze([{ dx: 0, dy: 0, rot: 16 }, { dx: 0, dy: 0, rot: -20 }, { dx: 5, dy: -3, rot: 0 }]),
+    bagua: Object.freeze([{ dx: 0, dy: 0, rot: 12 }, { dx: 0, dy: 0, rot: -14 }, { dx: 0, dy: 0, rot: 8 }]),
+    qixing: Object.freeze([{ dx: -6, dy: 3, rot: 0 }, { dx: 4, dy: 5, rot: 6 }, { dx: 6, dy: -4, rot: -5 }]),
+    square: Object.freeze([{ dx: 0, dy: 5, rot: 0 }, { dx: 6, dy: 0, rot: 0 }, { dx: 0, dy: 0, rot: 10 }]),
+});
+const LAYOUT_KEYS = Object.freeze(Object.keys(FORMATION_LAYOUTS));
+const SHEET_PEAK = Object.freeze([0.5, 0.45, 0.4]);
+const SHEET_STEP_MS = 260;
 
-function shardHtml(inner, cls) {
-    return SHARDS.map((s) => `<div class="igs-myth-shard ${cls}" style="clip-path:${s.clip};--tx:${s.tx};--ty:${s.ty};--rot:${s.rot}">${inner}</div>`).join('');
+export function formationLayoutOf(name) {
+    const text = String(name || '');
+    if (/八卦|两仪|四象/.test(text)) return 'bagua';
+    if (/七星|北斗|天罡/.test(text)) return 'qixing';
+    if (/方|九宫|军阵|大阵/.test(text)) return 'square';
+    return LAYOUT_KEYS[[...text].reduce((h, ch) => (h * 31 + ch.codePointAt(0)) >>> 0, 7) % LAYOUT_KEYS.length];
 }
 
 const RING_DOTS = Object.freeze([0, 60, 120, 180, 240, 300]);
 const sparkHtml = (extra = '') => RING_DOTS.map((a, i) => `<i class="igs-myth-spark" style="--a:${a}deg;--d:${58 + (i % 3) * 16}px;animation-delay:${900 + i * 40}ms${extra}"></i>`).join('');
+
+// 漫画符号（复用 fx-symbols）：位置与宽度为舞台百分比，延迟毫秒。
+function sealSymbol(kind, x, y, w, delay) {
+    const style = `left:${round(clamp(x, 6, 94))}%;top:${round(clamp(y, 6, 88))}%;--igs-myth-sw:${round(w)}%;--igs-fx-life:2200ms;animation-delay:${delay}ms`;
+    return `<div class="igs-fx-symbol igs-myth-sym" data-kind="${kind}" style="${style}">${MANGA_SYMBOL_SVG[kind] || ''}</div>`;
+}
 
 const BUILDERS = {
     relic(item, env) {
@@ -110,19 +166,22 @@ const BUILDERS = {
 
     formation(item, env) {
         const mode = item.mode === 'enter' || item.mode === 'break' ? item.mode : 'open';
-        const svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'
-            + '<circle class="igs-myth-line" cx="50" cy="50" r="47" pathLength="1"/><circle class="igs-myth-line is-thin" cx="50" cy="50" r="40" pathLength="1"/>'
-            + '<polygon class="igs-myth-line" points="50,9 85,29.5 85,70.5 50,91 15,70.5 15,29.5" pathLength="1"/>'
-            + '<polygon class="igs-myth-line is-thin" points="50,14 87,74 13,74" pathLength="1"/><polygon class="igs-myth-line is-thin" points="50,86 13,26 87,26" pathLength="1"/>'
-            + '<circle class="igs-myth-line" cx="50" cy="50" r="12" pathLength="1"/>'
-            + [0, 45, 90, 135, 180, 225, 270, 315].map((a) => `<line class="igs-myth-tick" x1="50" y1="1" x2="50" y2="7" transform="rotate(${a} 50 50)"/>`).join('')
-            + '</svg>';
-        const plate = mode === 'break'
-            ? `<div class="igs-myth-ground">${shardHtml(svg, 'is-form')}</div>`
-            : `<div class="igs-myth-ground"><div class="igs-myth-spin">${svg}</div></div>`;
+        const tone = sealToneOf('formation', { ...item, mode }, env);
+        const key = formationLayoutOf(item.name);
+        const lit = 500 + FORMATION_LAYOUTS[key].length * SHEET_STEP_MS + 700;
+        const sheets = FORMATION_LAYOUTS[key].map((m, i) => {
+            const on = mode === 'break' ? i * 50 : 500 + i * SHEET_STEP_MS;
+            const off = mode === 'break' ? `;--od:${900 + i * 220}ms` : '';
+            return `<i class="igs-myth-sheet" style="--dx:${m.dx}%;--dy:${m.dy}%;--rt:${m.rot}deg;--lo:${SHEET_PEAK[i]};--ld:${on}ms${off}"></i>`;
+        }).join('');
         const tint = mode === 'enter' ? '<i class="igs-myth-tint"></i>' : '';
         const flash = mode === 'break' ? '<i class="igs-myth-flash is-soft"></i>' : '';
-        const node = root(env, 'formation', `is-${mode}`, `${tint}${plate}${flash}<div class="igs-myth-name is-low">${charSpans(item.name, 100, 700)}</div>`);
+        const node = root(env, 'formation', `is-${mode} is-${tone}`, `${tint}<div class="igs-myth-ground is-${key}">${sheets}</div>${flash}<div class="igs-myth-name is-low">${charSpans(item.name, 100, 700)}</div>`, { '--bd': `${lit}ms`, '--fd': '2.1s' });
+        if (mode === 'break') shake(env, 2100, 5);
+        else {
+            spritePulse(env, '', WARM_LIFT, 900, lit);
+            if (mode === 'enter') spriteAct(env, '', SINK_ONCE, { delay: 600 });
+        }
         return result(env, 'formation', 'stage', node, [mode === 'break' ? 'myth-break' : 'myth-formation']);
     },
 
@@ -196,23 +255,52 @@ const BUILDERS = {
 
     subdue(item, env) {
         const mode = ['bowl', 'gourd', 'chain'].includes(item.mode) ? item.mode : 'talisman';
+        const tone = sealToneOf('subdue', item, env);
         const a = headOf(env, item.who);
         const x = round(a.x);
         const y = round(a.y);
+        const chest = round(clamp(y + a.d * 1.2, 20, 88));
         const sx = round(clamp(x + (x < 50 ? 1 : -1) * Math.max(a.d * 1.1, 11), 8, 92));
-        const map = { '--x': `${x}%`, '--y': `${y}%`, '--sx': `${sx}%` };
+        const map = { '--x': `${x}%`, '--y': `${y}%`, '--sx': `${sx}%`, '--cy': `${chest}%` };
+        const cls = `is-${mode} is-${tone}`;
+        const card = (delay) => `<div class="igs-myth-name is-seal${mode === 'talisman' ? ' is-by-slip' : ''}">${charSpans(SEAL_CARDS[mode], 140, delay)}</div>`;
+        const lit = (name, delay) => `<i class="${name}" style="--d:${delay}ms"></i>`;
+        // 已确认的非人角色：演出作用在立绘本身，缩小并被吸入法器位置；临时档案收服后提示转正。人类走下面原有分支。
+        const creature = creatureTarget(env, item.who);
+        const finish = (node, vessel, sounds) => {
+            const life = lifeOf('subdue', env);
+            // 立绘被吸入法器后保持消失到翻页（动画交给宿主，换页时取消）。
+            for (const anim of absorbCreatureSprite(creature.el, vessel, { life, origin: { x, y: 100 }, reduced: env.reduced })) if (typeof env.holdAnim === 'function') env.holdAnim(anim);
+            if (creature.profile.temp) {
+                const note = env.doc.createElement('div');
+                note.className = 'igs-creature-tame-note';
+                note.textContent = `「${String(item.who).trim()}」为临时档案，可在角色设置中转为正式角色。`;
+                node.appendChild(note);
+            }
+            return result(env, 'subdue', 'stage', node, sounds);
+        };
         if (mode === 'talisman') {
-            const node = root(env, 'subdue', 'is-talisman', `<div class="igs-myth-slip"><b>敕</b><b>令</b></div><i class="igs-myth-ring is-red"></i>`, map);
+            const gloom = creature ? '' : sealSymbol('gloom', x + a.d * 0.4, y - a.d * 0.3, Math.max(3, a.d * 0.24), 700);
+            const node = root(env, 'subdue', cls, `<div class="igs-myth-throw ${sx < x ? 'is-from-l' : 'is-from-r'}"><div class="igs-myth-slip"><b>敕</b><b>令</b></div></div>`
+                + `${lit('igs-myth-gglow', 500)}${lit('igs-myth-rise', 550)}${gloom}${card(900)}`, map);
+            if (creature) return finish(node, { x: sx, y: chest }, ['myth-seal-talisman']);
+            spriteAct(env, item.who, SPRITE_ACTION_FRAMES.recoil, { delay: 450 });
+            spriteAct(env, item.who, SPRITE_ACTION_FRAMES.tremble, { delay: 650, duration: 600 });
             return result(env, 'subdue', 'stage', node, ['myth-seal-talisman']);
         }
         if (mode === 'bowl') {
-            const node = root(env, 'subdue', 'is-bowl', '<div class="igs-myth-bowl"><i class="igs-myth-bowl-rim"></i></div><i class="igs-myth-ring is-b"></i>', { ...map, '--by': `${round(clamp(y + 40, 40, 80))}%` });
+            const by = round(clamp(y + 40, 40, 80));
+            const node = root(env, 'subdue', cls, `${lit('igs-myth-cone', 0)}${lit('igs-myth-gglow', 500)}${card(1000)}`, { ...map, '--by': `${by}%` });
+            if (creature) return finish(node, { x, y: by }, ['myth-seal-bowl']);
+            spriteAct(env, item.who, SINK_ONCE, { delay: 400 });
+            animateEl(env, spriteOf(env, item.who), ['saturate(1)', 'saturate(.85)', 'saturate(.85)', 'saturate(1)'].map((filter) => ({ filter })), { delay: 400, duration: 1500, easing: 'ease-in-out', composite: 'add', fill: 'none' });
             return result(env, 'subdue', 'stage', node, ['myth-seal-bowl']);
         }
         if (mode === 'gourd') {
             const gx = x < 50 ? 82 : 18;
-            const node = root(env, 'subdue', 'is-gourd', `<i class="igs-myth-gourd-orb" style="left:${gx}%"></i>`
-                + `<i class="igs-myth-vortex" style="left:${gx}%"></i><i class="igs-myth-vortex is-b" style="left:${gx}%"></i>`, map);
+            const node = root(env, 'subdue', cls, `<i class="igs-myth-corner ${gx > 50 ? 'is-r' : 'is-l'}"></i>${card(900)}`, map);
+            pushStage(env, { scale: 1.03, duration: 1500, delay: 400 });
+            if (creature) return finish(node, { x: gx, y: 28 }, ['myth-seal-gourd']);
             const tx = round((gx - x) * 0.9);
             const life = lifeOf('subdue', env);
             animateEl(env, spriteOf(env, item.who), [
@@ -224,25 +312,21 @@ const BUILDERS = {
             ], { duration: life, easing: 'ease-in-out', composite: 'add' });
             return result(env, 'subdue', 'stage', node, ['myth-seal-gourd']);
         }
-        const pts = [[-9, 6], [9, 20], [-9, 34], [9, 48]];
-        const segs = (list) => `M${list.map(([dx, dy]) => `${round(x + dx)} ${round(y + dy)}`).join('L')}`;
-        const back = pts.map(([dx, dy]) => [-dx, dy]);
-        const node = root(env, 'subdue', 'is-chain', `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path class="igs-myth-chain is-under" pathLength="1" d="${segs(pts)}"/><path class="igs-myth-chain is-under" pathLength="1" d="${segs(back)}"/><path class="igs-myth-chain" pathLength="1" d="${segs(pts)}"/><path class="igs-myth-chain" pathLength="1" d="${segs(back)}"/></svg>`
-            + `<i class="igs-myth-lock" style="left:${x}%;top:${round(y + 27)}%"></i><i class="igs-myth-flash is-soft"></i>`, map);
+        const bands = [0, 1, 2].map((i) => `<i class="igs-myth-band" style="top:${round(clamp(chest + a.d * 1.2 * i, 20, 90))}%;--d:${i * 120}ms"></i>`).join('');
+        const node = root(env, 'subdue', cls, `${bands}<i class="igs-myth-flash is-soft"></i>${card(850)}`, map);
+        if (creature) return finish(node, { x, y: chest }, ['myth-seal-chain']);
+        [0, 1, 2].forEach((i) => spriteAct(env, item.who, SPRITE_ACTION_FRAMES.tremble, { delay: 300 + i * 120, duration: 400 }));
         return result(env, 'subdue', 'stage', node, ['myth-seal-chain']);
     },
 
     barrier(item, env) {
         const mode = item.mode === 'break' ? 'break' : 'open';
-        const lines = '<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'
-            + '<path class="igs-myth-line" pathLength="1" d="M4 96A46 86 0 0 1 96 96"/>'
-            + '<path class="igs-myth-line is-thin" pathLength="1" d="M4 96A46 86 0 0 1 96 96Z"/>'
-            + '<path class="igs-myth-line is-thin" pathLength="1" d="M22 96A28 86 0 0 1 78 96"/><path class="igs-myth-line is-thin" pathLength="1" d="M40 96A10 86 0 0 1 60 96"/>'
-            + '<path class="igs-myth-line is-thin" pathLength="1" d="M8 72Q50 62 92 72"/><path class="igs-myth-line is-thin" pathLength="1" d="M16 50Q50 40 84 50"/><path class="igs-myth-line is-thin" pathLength="1" d="M30 30Q50 24 70 30"/>'
-            + '</svg>';
-        const dome = mode === 'break' ? `<div class="igs-myth-dome">${shardHtml(lines, 'is-dome')}</div>` : `<div class="igs-myth-dome"><div class="igs-myth-grow">${lines}</div></div>`;
-        const node = root(env, 'barrier', `is-${mode}`, `${dome}<i class="igs-myth-pulse"></i>${mode === 'break' ? '<i class="igs-myth-flash is-soft"></i>' : ''}`);
-        if (mode === 'break') shake(env, 80, 5);
+        const tone = sealToneOf('barrier', item, env);
+        const body = mode === 'break'
+            ? '<i class="igs-myth-edge is-l"></i><i class="igs-myth-edge is-r"></i><i class="igs-myth-dometint"></i><i class="igs-myth-flash is-soft"></i>'
+            : '<i class="igs-myth-gglow"></i><i class="igs-myth-rise is-dome"></i><i class="igs-myth-edge is-l"></i><i class="igs-myth-edge is-r"></i><i class="igs-myth-dometint"></i>';
+        const node = root(env, 'barrier', `is-${mode} is-${tone}`, body, { '--x': '50%' });
+        if (mode === 'break') shake(env, 1000, 5);
         return result(env, 'barrier', 'stage', node, [mode === 'break' ? 'myth-break' : 'myth-barrier']);
     },
 
@@ -258,10 +342,11 @@ const BUILDERS = {
     pact(item, env) {
         const a = headOf(env, item.a);
         const b = item.b ? headOf(env, item.b) : null;
-        const seal = (p, cls) => `<svg class="igs-myth-seal ${cls}" style="left:${round(p.x)}%;top:${round(clamp(p.y + p.d * 1.2, 20, 88))}%;width:${round(clamp(p.d * 0.78, 6, 14))}%" viewBox="0 0 40 40" aria-hidden="true">`
-            + '<circle cx="20" cy="20" r="18"/><circle cx="20" cy="20" r="13" class="is-thin"/><polygon points="20,8 30,26 10,26" class="is-thin"/><circle cx="20" cy="20" r="3" class="is-fill"/></svg>';
-        const node = root(env, 'pact', '', seal(a, '') + (b ? seal(b, 'is-b') : '') + `<div class="igs-myth-name is-tag" style="left:50%;top:${round(clamp((b ? (a.y + b.y) / 2 : a.y) + Math.max(a.d, b ? b.d : 0) * 1.2 + 8, 24, 78))}%">${charSpans('血契', 160, 1000)}</div>`);
+        const mark = (p, cls) => `<div class="igs-myth-mark ${cls}" style="left:${round(p.x)}%;top:${round(clamp(p.y + p.d * 1.2, 20, 88))}%;width:${round(clamp(p.d * 0.78, 6, 14) * 0.55)}%">${MARK_SYMBOL_SVG.bondsigil}</div>`;
+        const node = root(env, 'pact', '', mark(a, '') + (b ? mark(b, 'is-b') : '') + `<div class="igs-myth-name is-tag" style="left:50%;top:${round(clamp((b ? (a.y + b.y) / 2 : a.y) + Math.max(a.d, b ? b.d : 0) * 1.2 + 13, 24, 82))}%">${charSpans(PACT_CARD, 160, 1000)}</div>`);
         if (b) drawLinks(node, [{ from: { x: a.x, y: clamp(a.y + a.d * 1.2, 20, 88) }, to: { x: b.x, y: clamp(b.y + b.d * 1.2, 20, 88) }, tone: 'red', style: 'line' }], env, { reduced: env.reduced });
+        spriteAct(env, item.a, JOLT_SPEC, { delay: 300 });
+        if (b) spriteAct(env, item.b, JOLT_SPEC, { delay: 550 });
         return result(env, 'pact', 'stage', node, ['myth-pact']);
     },
 };

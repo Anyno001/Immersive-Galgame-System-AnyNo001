@@ -1,4 +1,5 @@
 import { normalizePhoneWallpaper } from './my-phone.js';
+import { normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizePromptEntry } from '../../scene/prompt-entries.js';
 import { isPackSwitchPath } from '../../scene/fx-packs.js';
 import { defaultPromptKeywords } from '../../scene/prompt-triggers.js';
@@ -48,9 +49,10 @@ export function normalizeSettingsValue(path, value) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
         if (/^readerSettings\.chatShow\.(dim|sound\.volume)$/.test(path)) return Number(value);
-        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye|emergency|spam)$/.test(path)) {
+        if (/^readerSettings\.(titleCard|mangaFx|heartbeatFx|flashFx|favorToast|fxTags|fxSound|innerDemon)\.(enabled|onLocation|onTime|call|notify|flashback|dream|letterbox|sfx|eye|emergency|spam|clash)$/.test(path)) {
             return value === true || value === 'true' || value === 1 || value === '1';
         }
+        if (/^readerSettings\.(clashFx\.(auto|ghost|shake)|battleFx\.dash)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (path === 'readerSettings.fxPrompts.inject') return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.fxPrompts\.(fx|daily|item|bgm|romance|battle|camera|cast|chat|live|audience|feed|text|bilingual|dlc)$/.test(path)) {
             return (typeof value === 'string' ? value : '').slice(0, 6000);
@@ -76,6 +78,9 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.metaFx\.(enabled|poke|hover|reading|clock|festivals|digest)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.comicMode\.(enabled|frame|keepPrev|tail)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.(mangaBack\.enabled|crowdFx\.(enabled|react)|notifyCenter\.enabled)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.creatureDisplay\.(enabled|giantFill)$/.test(path) || path === 'readerSettings.battleFx.creature') return !(value === false || value === 'false' || value === 0 || value === '0');
+        const creatureScale = path.match(/^readerSettings\.creatureDisplay\.(small|medium|large)$/);
+        if (creatureScale) return normalizeCreatureDisplaySettings({ [creatureScale[1]]: value })[creatureScale[1]];
         if (path === 'readerSettings.comicMode.palette') return value === 'color' ? 'color' : 'mono';
         if (path === 'readerSettings.comicMode.line') return ['thin', 'medium', 'bold'].includes(value) ? value : 'medium';
         if (path === 'readerSettings.comicMode.inputStyle') return value === 'plain' ? 'plain' : 'comic';
@@ -106,7 +111,7 @@ export function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.spriteDisplayScale') return normalizeSpriteDisplayScale(value);
         if (path === 'readerSettings.dialogTextEffectStrength') return Math.max(5, Math.min(50, Number(value) || 20));
         if (path === 'readerSettings.dialogTextEffectSize') return [0.4, 0.6, 0.8, 1, 1.2, 1.6, 2].includes(Number(value)) ? Number(value) : 0.8;
-        if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|skinDialogScale|toolbarScale|inputScale|imageCountOverride|imgBrightness|cgHoldPages|gradientVeil\.(heightPercent|opacity)/.test(path)) {
+        if (/fontSize|optionFontSize|dialogWidth|dialogHeight|classicDialogWidthPercent|skinDialogScale|embeddedHeight|toolbarScale|inputScale|imageCountOverride|imgBrightness|cgHoldPages|gradientVeil\.(heightPercent|opacity)/.test(path)) {
             return Number(value);
         }
         if (/glassOpacity/.test(path)) {
@@ -132,7 +137,7 @@ export function normalizeSettingsValue(path, value) {
     if (path === 'bridge.sceneAssets.promptAdaptive') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (path === 'bridge.sceneAssets.wardrobeAutoFlow') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (path === 'bridge.sceneAssets.promptRuleEnabled') return !(value === false || value === 'false' || value === 0 || value === '0');
-    if (path === 'bridge.autoIllustration.assets.dayFirst') return !(value === false || value === 'false' || value === 0 || value === '0');
+    if (path === 'bridge.autoIllustration.assets.dayFirst' || path === 'bridge.autoIllustration.assets.creatureAutoProfile') return !(value === false || value === 'false' || value === 0 || value === '0');
     if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|backfillOldFloors|assets\.(spriteEnabled|outfitAutoGenerate|backgroundEnabled|strictMatch))$/.test(path)) {
         return value === true || value === 'true' || value === 1 || value === '1';
     }
@@ -152,6 +157,9 @@ export function normalizeSettingsValue(path, value) {
     if (path === 'bridge.imageApi.dbgenSpriteTransparent' || path === 'bridge.imageApi.naiSpriteTransparent'
         || path === 'bridge.imageApi.externalSpriteDna') {
         return !(value === false || value === 'false' || value === 0 || value === '0');
+    }
+    if (path === 'bridge.imageApi.spriteMatteColor') {
+        return ['auto', 'white', 'grey', 'green', 'purple'].includes(value) ? value : 'auto';
     }
     if (path === 'bridge.imageCache.maxCount') return normalizeImageCacheCount(value);
     if (path === 'bridge.imageCache.compressDisplay') return !(value === false || value === 'false' || value === 0 || value === '0');

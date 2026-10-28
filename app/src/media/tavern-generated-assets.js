@@ -30,15 +30,19 @@ export function withTavernGeneratedAssetFiles(store, globalObject = globalThis) 
         return store.getImage(id);
     }
     async function saveImage(value, expected = null, options = {}) {
+        const startedAt = Date.now();
         await journal.restore().catch(() => {});
+        const restoredAt = Date.now();
         const old = await store.getImage(value.id), next = await files.offload(value, value.id, old, options);
+        const uploadedAt = Date.now();
         try {
             await journal.write(`image:${value.id}`, next, async () => {
                 if (!files.sameRecord(expected || old, await store.getImage(value.id))) throw new Error('image-write-stale');
                 return store.putImage(next);
             });
+            const writtenAt = Date.now();
             await files.dropUnused(old, next);
-            return { ok: true, record: next };
+            return { ok: true, record: next, timing: { restore: restoredAt - startedAt, upload: uploadedAt - restoredAt, write: writtenAt - uploadedAt } };
         } catch (error) { await files.dropUnused(next, old); throw error; }
         finally { await files.release(next); }
     }

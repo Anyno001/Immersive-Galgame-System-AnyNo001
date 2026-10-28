@@ -112,13 +112,12 @@ export function transferIcons(url, fileName, pick) {
     return down + up;
 }
 
-// 差分格的下载 / 重新生成 / 重命名：宽屏外露成图标；细窄屏藏起图标，仍走 ⋯ 里的同名项。
-// list：[action, label, iconKey]，空项跳过。返回 { inline, items }：inline 放行内，items 塞进 ⋯。
+// 差分格的重新生成：任何宽度都外露成图标，紧挨下载 / 上传，⋯ 里不再放同名项。
+// list：[action, label, iconKey]，空项跳过。返回 { inline }。
 export function slotActions(list) {
     const shown = list.filter(Boolean);
     return {
         inline: shown.map(([action, label, icon]) => `<button type="button" class="igs-btn-mgr-icon igs-slot-act" data-action="${action}" title="${esc(label)}" aria-label="${esc(label)}">${SLOT_ICONS[icon]}</button>`).join(''),
-        items: shown.map(([action, label]) => menuItem(action, label, ' igs-slot-act-menu')),
     };
 }
 
@@ -249,20 +248,19 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         const imageId = raw.startsWith('igs-gen:') ? raw.slice('igs-gen:'.length) : '';
         const canPrompt = Boolean(imageId) || Boolean(note && (note.caption || note.positive || note.negative));
         const acts = slotActions([
-            !raw || imageId || (note && note.error) ? [`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, filled ? '重新生成' : '生成立绘', 'retry'] : null,
+            [`outfit-expression-retry:${c}:${o}:${encSeg(mood)}`, filled ? '重新生成' : '生成立绘', 'retry'],
         ]);
         const slotMenu = acts.inline + transferIcons(raw, `${charName}-${name}-${mood}-立绘.png`, [`scene-pick-outfit-mood:${c}:${o}:${encSeg(mood)}`, `上传${mood}立绘`]) + renderRowMenu([
             canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
-            ...acts.items,
+            menuItem(`outfit-mood-url-ask:${c}:${o}:${encSeg(mood)}`, raw && !imageId ? '修改网址' : '填写网址'),
             mood === '默认' ? '' : menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
             menuItem(`scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}`, '删除', ' is-danger'),
         ], `「${mood}」的操作`);
         const status = filled ? null : expressionSlotStatus(note);
-        // 生成图的格子不放编号地址输入框（差分没画出来的也算）；自己填地址的格子才有输入框。
+        // 行内不放地址框：网址从 ⋯ 的「填写网址 / 修改网址」弹窗填写。
         return `<div class="igs-outfit-slot${filled ? '' : ' is-fallback'}${status && status.failed ? ' is-failed' : ''}" data-outfit-slot="${esc(mood)}">`
             + (filled ? thumb(url, mood, '', resolveUrl) : thumb(preview.url, mood, ' is-ghost', resolveUrl, ghostNote(mood, preview, status)))
             + `<span class="igs-btn-mgr-label">${esc(mood)}</span>`
-            + (imageId || status ? '' : `<input class="igs-scene-url-input" data-scene-outfit-char="${esc(charName)}" data-scene-outfit="${esc(name)}" data-scene-outfit-mood="${esc(mood)}" value="${esc(url || '')}" placeholder="URL或data:image/...">`)
             + (filled ? '' : fallbackHint(preview, status))
             + `<span class="igs-outfit-acts">${slotMenu}</span>`
             + `</div>`;
@@ -315,10 +313,13 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
     const spriteAction = needsViews ? `char-generate-sprite:${c}` : target
         ? `outfit-expression-retry:${c}:${o}:${encSeg(spriteMood)}`
         : `char-generate-sprite:${c}`;
-    const spriteButton = `<button type="button" class="igs-review-link igs-outfit-quick-btn" data-action="${spriteAction}">${hasSprite ? '重新生成' : '生成立绘'}</button>`;
+    // 已有立绘时，重画走各格的 ↻；顶栏只留首次「生成立绘」和需补齐三景别 DNA 时的入口，不和格子重复。
+    const spriteButton = !hasSprite ? `<button type="button" class="igs-review-link igs-outfit-quick-btn" data-action="${spriteAction}">生成立绘</button>`
+        : needsViews ? `<button type="button" class="igs-review-link igs-outfit-quick-btn" data-action="${spriteAction}" title="补齐三景别 DNA 后重画默认立绘，成功前保留原图">补齐 DNA 重画</button>`
+        : '';
     const quickButtons = `<span class="igs-outfit-quick">`
         + spriteButton
-        + (exprAction ? `<button type="button" class="igs-review-link igs-outfit-quick-btn" data-action="${exprAction}">表情差分</button>` : '')
+        + (exprAction ? `<button type="button" class="igs-review-link igs-outfit-quick-btn" data-action="${exprAction}" title="按档位批量生成表情差分">+差分</button>` : '')
         + (pending.length ? `<button type="button" class="igs-review-link igs-outfit-quick-btn" data-action="${resumeAction}" title="提示词已写好，将直接出图，不重写">继续生图（${pending.length}）</button>` : '')
         + `</span>`;
     const menu = target
@@ -341,7 +342,9 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
 }
 
 // 规则页的衣柜提示词。focus 是从服装面板跳过来的那一条，高亮显示。
-export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTag, scopeMenu, focus = '', lead = '' } = {}) {
+// select 是多选时已勾的名字集合（null 为不在多选）：整张卡变成勾选按钮，不开菜单、不弹大图。
+export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTag, scopeMenu, focus = '', lead = '', select = null } = {}) {
+    const picking = select instanceof Set ? select : null;
     const tag = typeof scopeTag === 'function' ? scopeTag : () => '';
     const ownItem = typeof scopeMenu === 'function' ? scopeMenu : () => '';
     const linkedSprites = new Map();
@@ -353,10 +356,20 @@ export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTa
             if (sprite.ok) linkedSprites.set(linked.name, sprite.url);
         }
     }
-    const rows = Object.entries(plain(wardrobe)).filter(([name]) => !isBuiltinNudeOutfit(name)).map(([name, entry]) => {
+    const entries = Object.entries(plain(wardrobe)).filter(([name]) => !isBuiltinNudeOutfit(name));
+    const rows = entries.map(([name, entry]) => {
         const reference = entry && typeof entry.reference === 'string' ? entry.reference.trim() : '';
         const preview = reference || linkedSprites.get(name) || '';
         const encoded = encSeg(name);
+        if (picking) {
+            const on = picking.has(name);
+            const url = shownUrl(preview, resolveUrl);
+            const img = isImageUrl(url)
+                ? `<img loading="lazy" decoding="async" class="igs-outfit-thumb" src="${esc(url)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+                : '<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true"></span>';
+            return `<button type="button" class="igs-sprite-slot igs-wardrobe-item is-selectable${on ? ' is-picked' : ''}" data-action="asset-pick:wardrobe:${encoded}" aria-pressed="${on}">`
+                + `<span class="igs-btn-mgr-row igs-scene-mood-row">${img}<span class="igs-btn-mgr-label igs-wardrobe-name">${esc(name)}</span></span><span class="igs-asset-tile-check" aria-hidden="true"></span></button>`;
+        }
         const nsfwBoost = Boolean(entry && entry.nsfwBoost);
         const menu = renderRowMenu([
             menuItem(`wardrobe-prompt:${encoded}`, '提示词'),
@@ -379,7 +392,10 @@ export function renderWardrobe(wardrobe, { sceneAssets = {}, resolveUrl, scopeTa
     const body = rows
         ? `<div class="igs-btn-mgr-list igs-wardrobe-list is-tall">${rows}</div>`
         : '<div class="igs-scene-empty">暂无衣柜提示词</div>';
-    return `<div class="igs-wardrobe-group">${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${body}</div>`;
+    const bar = picking ? `<div class="igs-asset-select-bar"><span>已选 ${picking.size} 项</span>`
+        + `<button type="button" class="igs-settings-action" data-action="asset-pick-all:wardrobe">${picking.size === entries.length ? '全不选' : '全选'}</button>`
+        + `<button type="button" class="igs-settings-action is-danger" data-action="asset-delete-picked:wardrobe"${picking.size ? '' : ' disabled'}>删除选中</button></div>` : '';
+    return `<div class="igs-wardrobe-group">${lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : ''}${bar}${body}</div>`;
 }
 
 function field(attrs, charName, value, placeholder) {
@@ -506,6 +522,16 @@ export const OUTFIT_SETTINGS_STYLE_TEXT = `
 .igs-char-info-row.igs-char-height-row>.igs-asset-move{flex:0 0 76px;width:76px;cursor:text}
 .igs-char-height-hint{flex:1;min-width:0;font-size:12px;line-height:1.4;color:var(--igs-settings-ink-3)}
 .igs-char-info-row.is-block>.igs-char-info-label{flex:none}
+.igs-char-voice-row,.igs-char-tts{display:flex;flex-direction:column;gap:14px;min-width:0}
+.igs-char-voice-group{display:flex;flex-direction:column;gap:6px;min-width:0}
+.igs-char-voice-title{font-size:12px;font-weight:600;color:var(--igs-settings-ink-2)}
+.igs-char-voice-main{display:flex;align-items:center;gap:8px;min-width:0}
+.igs-char-voice-main>.igs-asset-move{flex:1;min-width:0;width:auto}
+.igs-char-voice-main>.igs-settings-inline-action{flex:0 0 auto;width:auto;height:28px}
+.igs-char-voice-tunes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.igs-char-voice-tune{display:flex;flex-direction:column;gap:3px;min-width:0}
+.igs-char-voice-tune>.igs-asset-move{width:100%;min-width:0}
+.igs-char-voice-sub{font-size:11px;color:var(--igs-settings-ink-4)}
 .igs-char-info .igs-dna-fields{margin-top:0}
 .igs-settings-section-actions{display:flex;align-items:center;gap:2px}
 .igs-btn-mgr-icon.igs-char-dna-btn.is-on{color:var(--igs-settings-ink-2)}
@@ -516,6 +542,12 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-dna-input{padding:8px 10px;line-height:1.6}
 .igs-char-dna-panel .igs-dna-fields{margin-top:0}
 .igs-char-dna-panel .igs-dna-input{height:60px;min-height:60px}
+.igs-char-setup-tabs{display:flex;flex-wrap:nowrap;margin:0}
+.igs-char-setup-tabs>.igs-outfit-tab{flex:1 1 0;min-width:0;justify-content:center;padding:0 6px}
+.igs-char-setup-page{display:flex;flex-direction:column;gap:8px;min-width:0}
+.igs-char-setup-page>.igs-char-info-row.is-block{padding-top:0;border-top:0}
+.igs-dna-fields>.igs-char-setup-tabs{grid-column:1/-1}
+.igs-dna-fields>.igs-char-setup-tabs{margin-top:4px}
 .igs-outfit-area{min-width:0;font-size:12px;line-height:1.5;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .igs-outfit-tabs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:3px;margin:0 0 8px;background:var(--igs-settings-field);border-radius:var(--igs-settings-radius-control)}
 .igs-outfit-tab{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 11px;border:0;background:transparent;color:var(--igs-settings-ink-3);border-radius:var(--igs-settings-radius-small);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer;transition:background-color .14s,color .14s}
@@ -555,9 +587,6 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-outfit-slot.is-failed .igs-outfit-status{color:var(--igs-settings-danger)}
 /* 窄屏上空格子的地址框让出位置，「借用谁」按原长显示。 */
 @media (max-width:640px){.igs-outfit-slot.is-fallback>.igs-scene-url-input{flex:1 1 0;min-width:44px;margin-right:0}.igs-outfit-slot.is-fallback>.igs-outfit-hint{flex:0 1 auto}}
-/* 没画出来的格子，「重新生成」就是下一步：任何宽度都露在行内，⋯ 里不再重复。 */
-.igs-scene-char-group .igs-outfit-slot.is-failed .igs-slot-act{display:inline-flex}
-.igs-scene-char-group .igs-outfit-slot.is-failed .igs-add-menu-list .igs-slot-act-menu{display:none}
 .igs-outfit-slot.is-fallback>.igs-btn-mgr-label{color:var(--igs-settings-ink-4)}
 .igs-outfit-fill-all{display:flex;justify-content:flex-end;margin-top:2px}
 .igs-outfit-meta-body{display:flex;flex-direction:column;gap:6px;margin:2px 0 6px 6px;padding:2px 0 2px 12px;border-left:1px solid var(--igs-settings-line)}
@@ -573,8 +602,6 @@ span.igs-char-dna-btn{display:inline-flex;color:var(--igs-settings-ink-3)}
 .igs-scene-mood-row .igs-scene-url-input{flex:0 1 160px}
 .igs-outfit-tab-icon{color:var(--igs-settings-ink-4)}
 .igs-asset-transfer.is-spacer{visibility:hidden;pointer-events:none}
-.igs-add-menu-list .igs-slot-act-menu{display:none}
-@media (max-width:420px){.igs-slot-act{display:none}.igs-add-menu-list .igs-slot-act-menu{display:flex}}
 .igs-outfit-slot.is-fallback>.igs-btn-mgr-label{color:var(--igs-settings-ink-3)}
 .igs-outfit-fallbacks{padding:0 6px}
 .igs-outfit-fallbacks .igs-outfit-slot{border-bottom:0;padding:2px 6px}
@@ -604,6 +631,18 @@ img.igs-outfit-avatar{padding:0}
 button.igs-wardrobe-name{min-width:0;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}
 .igs-wardrobe-nsfw.is-on{color:var(--igs-settings-accent)}
 .igs-wardrobe-item.is-focus>.igs-btn-mgr-row{background:var(--igs-settings-highlight)}
+/* 多选：整张卡是勾选按钮，勾选圆点与素材缩略图同一套（igs-asset-tile-check）。 */
+.igs-wardrobe-item.is-selectable{position:relative;display:block;width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.igs-wardrobe-item.is-selectable .igs-outfit-thumb{transition:opacity .12s}
+.igs-wardrobe-item.is-selectable:not(.is-picked) .igs-outfit-thumb{opacity:.72}
+.igs-wardrobe-list.is-tall .igs-wardrobe-item.is-picked .igs-outfit-thumb{outline:2px solid var(--igs-settings-accent);outline-offset:-2px}
+.igs-wardrobe-item.is-picked .igs-asset-tile-check{background:var(--igs-settings-accent);border-color:var(--igs-settings-accent)}
+.igs-wardrobe-item.is-picked .igs-asset-tile-check::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border-right:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(45deg)}
+/* 标题行的「多选」与 ＋ 并排靠右，做成文字按钮。 */
+.igs-source-filter-title>.igs-asset-select-toggle{margin-left:auto;height:24px;padding:0 4px;background:transparent;color:var(--igs-settings-ink-3);font-weight:400}
+.igs-source-filter-title>.igs-asset-select-toggle:hover,.igs-source-filter-title>.igs-asset-select-toggle:focus-visible{background:transparent;color:var(--igs-settings-ink);outline:none}
+.igs-source-filter-title>.igs-asset-select-toggle.is-on{background:transparent;color:var(--igs-settings-accent)}
+.igs-source-filter-title>.igs-asset-select-toggle+.igs-title-add{margin-left:0}
 .igs-asset-scope-switch{display:inline-flex;flex-shrink:0;gap:2px;padding:2px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field)}
 .igs-scope-seg{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:0;border-radius:var(--igs-settings-radius-small);background:transparent;color:var(--igs-settings-ink-4);font:inherit;font-size:11px;white-space:nowrap}
 button.igs-scope-seg{cursor:pointer}

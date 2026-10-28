@@ -1,0 +1,4874 @@
+{
+ "directives": {
+  "full": [
+   {
+    "kind": "battle",
+    "end": false,
+    "args": [
+     "史莱姆",
+     "王国护卫"
+    ],
+    "offset": 0
+   },
+   {
+    "kind": "hit",
+    "end": false,
+    "args": [
+     "爱丽丝",
+     "史莱姆",
+     "冰霜新星",
+     "crit"
+    ],
+    "offset": 28
+   },
+   {
+    "kind": "hit",
+    "end": false,
+    "args": [
+     "史莱姆",
+     "我",
+     "撞击",
+     "hit"
+    ],
+    "offset": 60
+   },
+   {
+    "kind": "hit",
+    "end": false,
+    "args": [
+     "爱丽丝",
+     "史莱姆",
+     "终结",
+     "ko"
+    ],
+    "offset": 89
+   },
+   {
+    "kind": "battle",
+    "end": true,
+    "args": [
+     "win"
+    ],
+    "offset": 119
+   }
+  ],
+  "open": [
+   {
+    "kind": "battle",
+    "end": false,
+    "args": [
+     "强盗头目",
+     ""
+    ],
+    "offset": 0
+   },
+   {
+    "kind": "hit",
+    "end": false,
+    "args": [
+     "我",
+     "强盗头目",
+     "斩击",
+     "miss"
+    ],
+    "offset": 23
+   },
+   {
+    "kind": "hit",
+    "end": false,
+    "args": [
+     "强盗头目",
+     "我",
+     "重击",
+     "guard"
+    ],
+    "offset": 50
+   }
+  ],
+  "follow": [
+   {
+    "kind": "hit",
+    "end": false,
+    "args": [
+     "我",
+     "强盗头目",
+     "反击",
+     "hit"
+    ],
+    "offset": 0
+   },
+   {
+    "kind": "hit",
+    "end": false,
+    "args": [
+     "强盗头目",
+     "爱丽丝",
+     "挥砍",
+     "heal"
+    ],
+    "offset": 30
+   }
+  ],
+  "lose": [
+   {
+    "kind": "hit",
+    "end": false,
+    "args": [
+     "强盗头目",
+     "我",
+     "终结一击",
+     "ko"
+    ],
+    "offset": 2
+   },
+   {
+    "kind": "battle",
+    "end": true,
+    "args": [
+     "lose"
+    ],
+    "offset": 34
+   }
+  ],
+  "escape": [
+   {
+    "kind": "battle",
+    "end": false,
+    "args": [
+     "守卫",
+     "城门"
+    ],
+    "offset": 0
+   },
+   {
+    "kind": "battle",
+    "end": true,
+    "args": [
+     "escape"
+    ],
+    "offset": 24
+   }
+  ],
+  "plain": []
+ },
+ "carry": {
+  "full": {
+   "battle": null
+  },
+  "open": {
+   "battle": {
+    "foe": "强盗头目",
+    "title": ""
+   }
+  },
+  "follow": {
+   "active": true
+  },
+  "lose": {
+   "battle": null
+  },
+  "escape": {
+   "battle": null
+  },
+  "plain": null
+ },
+ "scanner": {
+  "0": {
+   "battle": {
+    "foe": "强盗头目",
+    "title": ""
+   },
+   "dice": ""
+  },
+  "1": {
+   "battle": null,
+   "dice": "crit"
+  },
+  "2": {
+   "battle": null,
+   "dice": ""
+  }
+ },
+ "pages": {
+  "full": [
+   {
+    "initial": null,
+    "offset": 0,
+    "input": {
+     "battle": {
+      "foe": "史莱姆",
+      "title": "王国护卫"
+     },
+     "battleStart": true,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "史莱姆",
+         "title": "王国护卫",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 2660,
+         "foe": "史莱姆",
+         "title": "王国护卫",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 2660
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "史莱姆",
+         "title": "王国护卫",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 28,
+    "input": {
+     "battle": {
+      "foe": "史莱姆",
+      "title": "王国护卫"
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "爱丽丝",
+       "target": "史莱姆",
+       "skill": "冰霜新星",
+       "result": "crit",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "crit",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "冰霜新星",
+         "label": "暴击！",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 28
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "crit",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "冰霜新星",
+         "label": "暴击！",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 28
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "crit",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "冰霜新星",
+         "label": "暴击！",
+         "diceLabel": "",
+         "targetKind": "sprite",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 28
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 60,
+    "input": {
+     "battle": {
+      "foe": "史莱姆",
+      "title": "王国护卫"
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "史莱姆",
+       "target": "我",
+       "skill": "撞击",
+       "result": "hit",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "hit",
+         "attacker": "史莱姆",
+         "target": "我",
+         "skill": "撞击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 60
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "hit",
+         "attacker": "史莱姆",
+         "target": "我",
+         "skill": "撞击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 60
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "hit",
+         "attacker": "史莱姆",
+         "target": "我",
+         "skill": "撞击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 60
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 89,
+    "input": {
+     "battle": {
+      "foe": "史莱姆",
+      "title": "王国护卫"
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "爱丽丝",
+       "target": "史莱姆",
+       "skill": "终结",
+       "result": "ko",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "ko",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "终结",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 89
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "ko",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "终结",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 89
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "ko",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "终结",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "sprite",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 89
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 119,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "win",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "win",
+         "title": "VICTORY",
+         "text": "胜利"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 119
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 4200,
+         "result": "win",
+         "title": "VICTORY",
+         "text": "胜利"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 119
+       },
+       "totalMs": 4200
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "win",
+         "title": "VICTORY",
+         "text": "胜利"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 119
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 141,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 141
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 141
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 141
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 0,
+    "input": {
+     "battle": {
+      "foe": "史莱姆",
+      "title": "王国护卫"
+     },
+     "battleStart": true,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "史莱姆",
+         "title": "王国护卫",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 2660,
+         "foe": "史莱姆",
+         "title": "王国护卫",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 2660
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "史莱姆",
+         "title": "王国护卫",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 28,
+    "input": {
+     "battle": {
+      "foe": "史莱姆",
+      "title": "王国护卫"
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "爱丽丝",
+       "target": "史莱姆",
+       "skill": "冰霜新星",
+       "result": "crit",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "crit",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "冰霜新星",
+         "label": "暴击！",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 28
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "crit",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "冰霜新星",
+         "label": "暴击！",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 28
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "crit",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "冰霜新星",
+         "label": "暴击！",
+         "diceLabel": "",
+         "targetKind": "sprite",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 28
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 60,
+    "input": {
+     "battle": {
+      "foe": "史莱姆",
+      "title": "王国护卫"
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "史莱姆",
+       "target": "我",
+       "skill": "撞击",
+       "result": "hit",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "hit",
+         "attacker": "史莱姆",
+         "target": "我",
+         "skill": "撞击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 60
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "hit",
+         "attacker": "史莱姆",
+         "target": "我",
+         "skill": "撞击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 60
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "hit",
+         "attacker": "史莱姆",
+         "target": "我",
+         "skill": "撞击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 60
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 89,
+    "input": {
+     "battle": {
+      "foe": "史莱姆",
+      "title": "王国护卫"
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "爱丽丝",
+       "target": "史莱姆",
+       "skill": "终结",
+       "result": "ko",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "ko",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "终结",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 89
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "ko",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "终结",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 89
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "史莱姆",
+        "title": "王国护卫"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "ko",
+         "attacker": "爱丽丝",
+         "target": "史莱姆",
+         "skill": "终结",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "sprite",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 89
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 119,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "win",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "win",
+         "title": "VICTORY",
+         "text": "胜利"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 119
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 4200,
+         "result": "win",
+         "title": "VICTORY",
+         "text": "胜利"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 119
+       },
+       "totalMs": 4200
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "win",
+         "title": "VICTORY",
+         "text": "胜利"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 119
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 141,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 141
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 141
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 141
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   }
+  ],
+  "open": [
+   {
+    "initial": null,
+    "offset": 0,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": true,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "强盗头目",
+         "title": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 2660,
+         "foe": "强盗头目",
+         "title": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 2660
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "强盗头目",
+         "title": "",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 23,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "我",
+       "target": "强盗头目",
+       "skill": "斩击",
+       "result": "miss",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "miss",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "斩击",
+         "label": "闪避",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 23
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "miss",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "斩击",
+         "label": "闪避",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 23
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "miss",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "斩击",
+         "label": "闪避",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 23
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 50,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "强盗头目",
+       "target": "我",
+       "skill": "重击",
+       "result": "guard",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "guard",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "重击",
+         "label": "格挡",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 50
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "guard",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "重击",
+         "label": "格挡",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 50
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "guard",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "重击",
+         "label": "格挡",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 50
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 75,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 75
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 75
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 75
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 0,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": true,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "强盗头目",
+         "title": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 2660,
+         "foe": "强盗头目",
+         "title": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 2660
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "强盗头目",
+         "title": "",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 23,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "我",
+       "target": "强盗头目",
+       "skill": "斩击",
+       "result": "miss",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "miss",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "斩击",
+         "label": "闪避",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 23
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "miss",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "斩击",
+         "label": "闪避",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 23
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "miss",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "斩击",
+         "label": "闪避",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 23
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 50,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "强盗头目",
+       "target": "我",
+       "skill": "重击",
+       "result": "guard",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "guard",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "重击",
+         "label": "格挡",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 50
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "guard",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "重击",
+         "label": "格挡",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 50
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "guard",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "重击",
+         "label": "格挡",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 50
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 75,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 75
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 75
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 75
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   }
+  ],
+  "follow": [
+   {
+    "initial": null,
+    "offset": 0,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "我",
+       "target": "强盗头目",
+       "skill": "反击",
+       "result": "hit",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "hit",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "反击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "hit",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "反击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "hit",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "反击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 30,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "强盗头目",
+       "target": "爱丽丝",
+       "skill": "挥砍",
+       "result": "heal",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "heal",
+         "attacker": "强盗头目",
+         "target": "爱丽丝",
+         "skill": "挥砍",
+         "label": "恢复",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 30
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "heal",
+         "attacker": "强盗头目",
+         "target": "爱丽丝",
+         "skill": "挥砍",
+         "label": "恢复",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 30
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "heal",
+         "attacker": "强盗头目",
+         "target": "爱丽丝",
+         "skill": "挥砍",
+         "label": "恢复",
+         "diceLabel": "",
+         "targetKind": "cast",
+         "targetChar": "爱丽丝",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 30
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 57,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 57
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 57
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 57
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 0,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "我",
+       "target": "强盗头目",
+       "skill": "反击",
+       "result": "hit",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "hit",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "反击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "hit",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "反击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "hit",
+         "attacker": "我",
+         "target": "强盗头目",
+         "skill": "反击",
+         "label": "",
+         "diceLabel": "",
+         "targetKind": "foe",
+         "targetChar": "",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 30,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "强盗头目",
+       "target": "爱丽丝",
+       "skill": "挥砍",
+       "result": "heal",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "heal",
+         "attacker": "强盗头目",
+         "target": "爱丽丝",
+         "skill": "挥砍",
+         "label": "恢复",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 30
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "heal",
+         "attacker": "强盗头目",
+         "target": "爱丽丝",
+         "skill": "挥砍",
+         "label": "恢复",
+         "diceLabel": "",
+         "targetKind": "stage",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 30
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "heal",
+         "attacker": "强盗头目",
+         "target": "爱丽丝",
+         "skill": "挥砍",
+         "label": "恢复",
+         "diceLabel": "",
+         "targetKind": "cast",
+         "targetChar": "爱丽丝",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 30
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 57,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 57
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 57
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 57
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   }
+  ],
+  "lose": [
+   {
+    "initial": null,
+    "offset": 2,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "强盗头目",
+       "target": "我",
+       "skill": "终结一击",
+       "result": "ko",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "ko",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "终结一击",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 2
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "ko",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "终结一击",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 2
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "ko",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "终结一击",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 2
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 34,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "lose",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "lose",
+         "title": "DEFEAT",
+         "text": "败北"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 34
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 4200,
+         "result": "lose",
+         "title": "DEFEAT",
+         "text": "败北"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 34
+       },
+       "totalMs": 4200
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "lose",
+         "title": "DEFEAT",
+         "text": "败北"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 34
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 56,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 56
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 56
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 56
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 2,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [
+      {
+       "attacker": "强盗头目",
+       "target": "我",
+       "skill": "终结一击",
+       "result": "ko",
+       "dice": false
+      }
+     ],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "ko",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "终结一击",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 2
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1820,
+         "result": "ko",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "终结一击",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 2
+       },
+       "totalMs": 1820
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "hit",
+         "at": 0,
+         "life": 1300,
+         "result": "ko",
+         "attacker": "强盗头目",
+         "target": "我",
+         "skill": "终结一击",
+         "label": "击倒",
+         "diceLabel": "",
+         "targetKind": "player",
+         "targetChar": "",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 2
+       },
+       "totalMs": 1300
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 34,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "lose",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "lose",
+         "title": "DEFEAT",
+         "text": "败北"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 34
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 4200,
+         "result": "lose",
+         "title": "DEFEAT",
+         "text": "败北"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 34
+       },
+       "totalMs": 4200
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "lose",
+         "title": "DEFEAT",
+         "text": "败北"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 34
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 56,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 56
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 56
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 56
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   }
+  ],
+  "escape": [
+   {
+    "initial": null,
+    "offset": 0,
+    "input": {
+     "battle": {
+      "foe": "守卫",
+      "title": "城门"
+     },
+     "battleStart": true,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "守卫",
+        "title": "城门"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "守卫",
+         "title": "城门",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "守卫",
+        "title": "城门"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 2660,
+         "foe": "守卫",
+         "title": "城门",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 2660
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "守卫",
+        "title": "城门"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "守卫",
+         "title": "城门",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 24,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "escape",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "escape",
+         "title": "ESCAPE",
+         "text": "成功撤退"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 24
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 4200,
+         "result": "escape",
+         "title": "ESCAPE",
+         "text": "成功撤退"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 24
+       },
+       "totalMs": 4200
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "escape",
+         "title": "ESCAPE",
+         "text": "成功撤退"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 24
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": null,
+    "offset": 46,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 46
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 46
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 46
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 0,
+    "input": {
+     "battle": {
+      "foe": "守卫",
+      "title": "城门"
+     },
+     "battleStart": true,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "守卫",
+        "title": "城门"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "守卫",
+         "title": "城门",
+         "portrait": ""
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "守卫",
+        "title": "城门"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 2660,
+         "foe": "守卫",
+         "title": "城门",
+         "portrait": "https://example.test/foe.png"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 2660
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "守卫",
+        "title": "城门"
+       },
+       "letterbox": true,
+       "events": [
+        {
+         "type": "encounter",
+         "at": 0,
+         "life": 1900,
+         "foe": "守卫",
+         "title": "城门",
+         "portrait": "data:image/png;base64,AAAA"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 0
+       },
+       "totalMs": 1900
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 24,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "escape",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "escape",
+         "title": "ESCAPE",
+         "text": "成功撤退"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 24
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 4200,
+         "result": "escape",
+         "title": "ESCAPE",
+         "text": "成功撤退"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 24
+       },
+       "totalMs": 4200
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [
+        {
+         "type": "result",
+         "at": 0,
+         "life": 3000,
+         "result": "escape",
+         "title": "ESCAPE",
+         "text": "成功撤退"
+        }
+       ],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 24
+       },
+       "totalMs": 3000
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 46,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 46
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 46
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 46
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   }
+  ],
+  "plain": [
+   {
+    "initial": null,
+    "offset": 14,
+    "input": {
+     "battle": null,
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 14
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 14
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 14
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   },
+   {
+    "initial": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     }
+    },
+    "offset": 14,
+    "input": {
+     "battle": {
+      "foe": "强盗头目",
+      "title": ""
+     },
+     "battleStart": false,
+     "battleEnd": "",
+     "hits": [],
+     "userName": "旅人"
+    },
+    "plans": [
+     {
+      "name": "base",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 14
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "foeImage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 14
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "onStage",
+      "plan": {
+       "plate": {
+        "foe": "强盗头目",
+        "title": ""
+       },
+       "letterbox": true,
+       "events": [],
+       "identity": {
+        "chatId": "c",
+        "messageId": 1,
+        "swipeId": 0,
+        "page": 14
+       },
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "off",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     },
+     {
+      "name": "nsfw",
+      "plan": {
+       "plate": null,
+       "letterbox": false,
+       "events": [],
+       "identity": null,
+       "totalMs": 0
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

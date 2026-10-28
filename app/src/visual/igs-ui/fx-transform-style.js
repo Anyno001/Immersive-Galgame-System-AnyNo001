@@ -1,11 +1,9 @@
 // 立绘变形层样式。装饰一律实色；动画只用 transform / opacity；低画质与减少动态效果时去掉扫描、波纹与模糊。
-import { BEAST_STYLE_TEXT } from './fx-beast-parts.js';
 
 const O = '#igs-overlay';
 const Q = `${O}[data-igs-quality="low"]`;
 
-export const TRANSFORM_STYLE_TEXT = `${BEAST_STYLE_TEXT}
-${O} .igs-xf{position:absolute;inset:0;pointer-events:none;animation:igs-xf-life var(--igs-dfx-life,3000ms) ease both;}
+export const TRANSFORM_STYLE_TEXT = `${O} .igs-xf{position:absolute;inset:0;pointer-events:none;animation:igs-xf-life var(--igs-dfx-life,3000ms) ease both;}
 @keyframes igs-xf-life{0%{opacity:0}9%{opacity:1}86%{opacity:1}100%{opacity:0}}
 @keyframes igs-xf-pop{0%{opacity:0;transform:translateY(14px) scale(.92)}100%{opacity:1;transform:none}}
 @keyframes igs-xf-fadein{0%{opacity:0}100%{opacity:1}}
@@ -24,11 +22,6 @@ ${O} .igs-xf-mirror.is-horror .igs-xf-card{--xf-fa:#4a4a4e;--xf-fb:#26262a;--xf-
 ${O} .igs-xf-mirror.is-horror .igs-xf-view{box-shadow:inset 0 0 22px 6px rgba(0,0,0,0.38);}
 ${O} .igs-xf-mirror.is-scifi .igs-xf-card{--xf-fa:#cfd8e3;--xf-fb:#8996a8;--xf-fc:#505b6b;}
 ${O} .igs-xf-mirror.is-magic .igs-xf-card,${O} .igs-xf-mirror.is-fantasy .igs-xf-card{--xf-fa:#e0c47a;--xf-fb:#9a6fd6;--xf-fc:#4a2d82;}
-${O} .igs-xf-mirror.is-true .igs-xf-card{--xf-fa:#f1d27a;--xf-fb:#c8962c;--xf-fc:#7a560f;}
-${O} .igs-xf-mirror.is-true .igs-xf-view{box-shadow:inset 0 0 22px 6px rgba(0,0,0,0.30);}
-${O} .igs-xf-mirror.is-true .igs-xf-sheen{background:linear-gradient(100deg,transparent,#fff6cc 50%,transparent);}
-${O} .igs-xf-mirror.is-true .igs-bp path{fill:#16110a;}
-${O} .igs-xf-form{position:absolute;left:50%;bottom:4%;transform:translateX(-50%);padding:3px 12px;border-radius:999px;background:#14141bcc;color:#ffe9a8;font:700 clamp(11px,1.9vmin,16px)/1.4 "Source Han Sans CN","PingFang SC",sans-serif;letter-spacing:.16em;text-indent:.16em;white-space:nowrap;}
 
 ${O} .igs-xf-reflect.is-window .igs-xf-card{background:#1b2230;border-radius:8px;border:1px solid #ffffff22;box-shadow:0 6px 18px #00000040;}
 ${O} .igs-xf-reflect.is-window .igs-xf-view{border-radius:6px;box-shadow:inset 0 0 18px 5px rgba(0,0,0,0.35);}
@@ -84,20 +77,18 @@ ${O} .igs-xf-ghostwrap.is-b{animation-name:igs-xf-ghost-b;}
 @keyframes igs-xf-ghost{0%{opacity:0;transform:translateX(0)}20%{opacity:.6;transform:translateX(1.4%)}55%{opacity:.5;transform:translateX(-.9%)}100%{opacity:0;transform:translateX(0)}}
 @keyframes igs-xf-ghost-b{0%{opacity:0;transform:translateX(0)}20%{opacity:.6;transform:translateX(-1.4%)}55%{opacity:.5;transform:translateX(.9%)}100%{opacity:0;transform:translateX(0)}}
 ${O} .igs-xf-warp.is-horror .igs-xf-ghostwrap{opacity:.75;}
-${O} .igs-xf-flash{position:absolute;inset:0;background:#ffffff;animation:igs-xf-flash .5s ease-out both;}
-@keyframes igs-xf-flash{0%{opacity:.7}100%{opacity:0}}
 ${O} .igs-xf-pressure{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,transparent 45%,#000000aa 100%);}
 ${O} .igs-xf-eyepatch{position:absolute;aspect-ratio:2/1;border-radius:50%;background:#050508;box-shadow:0 0 .8vmin 2px #050508;transform:translate(-50%,-50%);animation:igs-xf-fadein .5s ease both;}
 
 ${O} .igs-xf-patch{position:absolute;transform:translate(-50%,-50%);animation:igs-xf-fadein .6s ease both;}
 ${O} .igs-xf-patch svg{display:block;width:100%;height:100%;overflow:visible;}
 ${O} .igs-xf-patch.is-blush{aspect-ratio:5/3;background:radial-gradient(ellipse,#ff6f8fcc,#ff6f8f00 70%);}
-${O} .igs-xf-patch.is-kiss{aspect-ratio:3/2;transform:translate(-50%,-50%) rotate(-16deg);}
-${O} .igs-xf-patch.is-bite{aspect-ratio:5/3;background:radial-gradient(ellipse,#d6304f55,#d6304f00 70%);}
+${O} .igs-xf-patch.is-kiss,${O} .igs-xf-patch.is-bite{aspect-ratio:1/1;--igs-fx-c:#e0456f;--igs-fx-ink:#3a1020;--igs-fx-rim-c:#fff;}
+${O} .igs-xf-patch.is-kiss{transform:translate(-50%,-50%) rotate(-16deg);}
+${O} .igs-xf-patch.is-bite .igs-fx-fill{fill:#f0a4b0;}
+${O} .igs-xf-patch.is-kiss .igs-fx-lips .igs-fx-fill{fill:#e0456f;}
 ${O} .igs-xf-patch.is-sigil{aspect-ratio:1/1;}
 ${O} .igs-xf-patch.is-sigil svg{filter:drop-shadow(0 0 4px #ffd36a);animation:igs-xf-pulse 1.4s ease-in-out 2;}
-${O} .igs-xf-patch.is-sweat{aspect-ratio:1/1;opacity:.75;}
-${O} .igs-xf-patch.is-kiss svg{opacity:.8;}
 ${O} .igs-xf-patch.is-bruise{aspect-ratio:3/2;background:radial-gradient(ellipse,#5d4a8acc,#8a6a3a66 55%,transparent 75%);}
 @keyframes igs-xf-pulse{0%,100%{opacity:.55}50%{opacity:1}}
 
@@ -106,23 +97,9 @@ ${O} .igs-xf-ghostrise.is-b{opacity:.3;transform:translateY(-3%);animation-delay
 @keyframes igs-xf-rise{0%{opacity:0;transform:translateY(0) scale(1)}25%{opacity:.7}100%{opacity:0;transform:translateY(-12%) scale(1.04)}}
 ${O} .igs-xf-spirit-ring{position:absolute;width:20%;aspect-ratio:3/1;transform:translate(-50%,-50%);border-radius:50%;border:2px solid #bfe6ff;box-shadow:0 0 14px #bfe6ff;animation:igs-xf-fadein .8s ease both;}
 
-${O} .igs-xf-beast{position:absolute;inset:0;transform-origin:var(--xf-ox,50%) var(--xf-oy,30%);animation:igs-xf-beast var(--igs-dfx-life,3000ms) ease-out both;}
-@keyframes igs-xf-beast{0%{opacity:0;transform:scale(.6)}22%{opacity:.8;transform:scale(1)}72%{opacity:.8;transform:scale(1.04)}100%{opacity:0;transform:scale(1.08)}}
-${O} .igs-xf-beast .igs-bp svg,${O} .igs-xf-tails .igs-bp svg{filter:drop-shadow(0 0 .6vmin var(--bp-c));}
-${O} .igs-xf-sil{animation:igs-xf-sil var(--igs-dfx-life,3000ms) ease both;}
-@keyframes igs-xf-sil{0%{opacity:0}16%{opacity:1}74%{opacity:1}100%{opacity:0}}
-${O} .igs-xf-shift .igs-bp-eye{animation:igs-xf-eyes var(--igs-dfx-life,3000ms) ease both;}
-@keyframes igs-xf-eyes{0%,28%{opacity:0}40%{opacity:1}72%{opacity:1}100%{opacity:0}}
-${O} .igs-xf-cap{position:absolute;left:50%;top:9%;transform:translateX(-50%);padding:4px 14px;border-radius:999px;background:#14141bcc;color:#ffffff;font:700 clamp(12px,2.1vmin,18px)/1.4 "Source Han Sans CN","PingFang SC",sans-serif;letter-spacing:.18em;text-indent:.18em;white-space:nowrap;animation:igs-xf-cap var(--igs-dfx-life,3000ms) ease both;}
-@keyframes igs-xf-cap{0%,30%{opacity:0;transform:translate(-50%,8px)}44%{opacity:1;transform:translate(-50%,0)}76%{opacity:1}100%{opacity:0}}
-${O} .igs-xf-tails{opacity:.85;}
-${O} .igs-xf-tails .igs-bp{animation:igs-bp-grow .7s cubic-bezier(.2,.9,.3,1.1) both;animation-delay:var(--bp-delay,0ms);}
-@keyframes igs-bp-grow{from{opacity:0;transform:rotate(calc(var(--bp-rot) * .15)) scale(calc(var(--bp-sx) * .2),.2)}to{opacity:1;transform:rotate(var(--bp-rot)) scale(var(--bp-sx),1)}}
 
 ${O} .igs-xf.is-reduced,${O} .igs-xf.is-reduced *{animation:none!important;}
-${O} .igs-xf.is-reduced .igs-xf-sheen,${O} .igs-xf.is-reduced .igs-xf-ripple,${O} .igs-xf.is-reduced .igs-xf-streak,${O} .igs-xf.is-reduced .igs-xf-sweep,${O} .igs-xf.is-reduced .igs-xf-flash{display:none;}
 ${Q} .igs-xf-ripple,${Q} .igs-xf-streak,${Q} .igs-xf-sweep,${Q} .igs-xf-scan,${Q} .igs-xf-sheen{display:none;}
 ${Q} .igs-xf-flipwrap,${Q} .igs-xf-zoomwrap,${Q} .igs-xf-rec i{animation:none;}
-${Q} .igs-xf-beast .igs-bp svg,${Q} .igs-xf-tails .igs-bp svg,${Q} .igs-xf-patch.is-sigil svg{filter:none;}
 ${Q} .igs-xf-ghostwrap{mix-blend-mode:normal;}
 `;

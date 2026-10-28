@@ -267,3 +267,30 @@ test('gate:assets:wardrobe-reference-paints-the-saved-prompt', async () => {
     assert.equal(writes, 0);
     assert.equal(await service.resolveUrl('igs-gen:ref-1'), 'data:image/png;base64,QQ==');
 });
+
+test('外部图像来源：素材规划在预设立绘任务无规划格式时走通用规划，不卡在写词预设未就绪', { timeout: 5000 }, async () => {
+    const { createPresetRegistry } = await import('../src/presets/preset-registry.js');
+    const { createMemoryStorage } = await import('../src/storage/preset-store.js');
+    const { createImagePromptLlm } = await import('../src/generated-images/image-prompt-runtime.js');
+    const requests = [];
+    const llm = createImagePromptLlm({ async request(request) {
+        requests.push(request);
+        return 'id: bg1\ntags: abandoned factory, night, rain\nid: ch2\ntags: girl, long hair';
+    } }, createPresetRegistry({ storage: createMemoryStorage() }));
+    for (const mode of ['baibai', 'chatu8']) {
+        requests.length = 0;
+        const nai = { describe: () => ({ mode, via: mode, ownPrompts: false, ready: { ok: true } }),
+            generate: async () => ({ ok: false, error: 'fixture-no-paint' }) };
+        const service = createAssetGenerationService({ messageHost: fakeHost(FLOOR_TEXT), llm, nai,
+            store: createMemoryGeneratedAssetStore(), minBodyChars: 0, matte: async url => url,
+            getSettings: () => ({ autoIllustration: { retry: { enabled: false },
+                assets: { spriteEnabled: true, backgroundEnabled: true } }, sceneAssets: { enabled: true } }) });
+        const result = await service.processMessage(3, { manual: true });
+        service.stop();
+        assert.ok(requests.length >= 1, `${mode}: ${JSON.stringify(result)}`);
+        assert.equal(Object.hasOwn(requests[0], 'messages'), false, `${mode} 规划请求不应装配预设`);
+        assert.equal(requests[0].system, ASSET_PLANNER_SYSTEM_PROMPT);
+        assert.doesNotMatch(String(result.error || ''), /unsupported-prompt-format|写词预设尚未就绪/);
+    }
+    assert.equal(llm.imagePromptHasFormat('background', 'asset-plan', {}), true, '仅背景时仍用预设规划');
+});

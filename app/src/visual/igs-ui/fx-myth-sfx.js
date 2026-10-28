@@ -67,6 +67,7 @@ export const MYTH_SFX_DEFS = Object.freeze({
             p('sine', 110, 165, 0, 1.6, 0.4, { attack: 0.5, sweep: 1 }),
             p('triangle', 220, 330, 0, 1.4, 0.12, { attack: 0.5, sweep: 1 }),
             ...bellNote(880, 1.2, 1.2, 0.24),
+            ...glints(9, 0.5, 1.0, 23, 2000, 3200),
         ],
         noise: [n(0.1, 1.5, 0.22, { filter: 'bandpass', freq: 400, freqTo: 1800, q: 1.4, attack: 0.6 })],
     },

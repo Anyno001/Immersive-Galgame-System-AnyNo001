@@ -14,9 +14,6 @@ const labels = {
     zoom: '局部特写框',
     mark: '局部贴片',
     spirit: '元神出窍',
-    shift: '现出原形',
-    tails: '九尾展开',
-    truemirror: '照妖镜',
 };
 
 const triggers = {
@@ -28,9 +25,6 @@ const triggers = {
     zoom: ['特写', '凑近', '放大'],
     mark: ['红晕', '吻痕', '咬痕', '契约'],
     spirit: ['元神', '出窍', '魂魄'],
-    shift: ['原形', '现形', '化形'],
-    tails: ['九尾', '尾巴'],
-    truemirror: ['照妖镜', '照妖', '妖镜'],
 };
 
 const promptLines = {
@@ -40,11 +34,8 @@ const promptLines = {
     frame: '[igs-fx:frame|监控/全息/回忆|角色]：角色出现在监控画面、全息投影或回忆画面里的一刻，写监控、全息、回忆之一；古代与魔法背景只会显示回忆框',
     warp: '[igs-fx:warp|角色|样式]：角色形象异常的一瞬，样式写故障、错位、负片、黑眼、颤抖之一，直接作用在立绘上；角色可省，样式可省',
     zoom: '[igs-fx:zoom|角色|手/唇/眼/颈]：镜头凑近角色某个部位的特写一刻，部位写手、唇、眼、颈、脸、腰之一；角色可省',
-    mark: '[igs-fx:mark|角色|部位|样式]：角色身上留下可见印记的一刻，样式写潮红、吻痕、咬痕、契约纹、汗、淤青之一，部位写脸颊、颈、额、唇、眼角之一，两项至少写一项',
+    mark: '[igs-fx:mark|角色|部位|样式]：角色身上留下可见印记的一刻，样式写潮红、吻痕、咬痕、契约纹、淤青之一，部位写脸颊、颈、额、唇、眼角之一，两项至少写一项',
     spirit: '[igs-fx:spirit|角色]：角色元神离体、魂魄飘出的一刻，本体失神下沉；角色可省',
-    shift: '[igs-fx:shift|角色|原形名]：妖魔现出原形或由兽形化回人形的一刻，原形名取自正文（如九尾狐、白蛇），决定兽影的部件与颜色；角色可省，原形名可省',
-    tails: '[igs-fx:tails|角色|数量]：妖狐等角色身后展开多条尾巴的一刻，数量写条数（一到九），省略为九；角色可省',
-    truemirror: '[igs-fx:truemirror|角色|原形名]：照妖镜照出原形的一刻，镜里是本人的黑影与兽影，镜外人形不变；原形名取自正文，可省；角色可省',
 };
 
 export const PACK = {
@@ -53,7 +44,7 @@ export const PACK = {
     when: '角色形象被镜子、玻璃、屏幕映出或发生变形时才用',
     era: null,
     defaultOn: true,
-    eraKinds: { spirit: 'ancient', shift: 'ancient', tails: 'ancient', truemirror: 'ancient' },
+    eraKinds: { spirit: 'ancient' },
     kinds: [...XF_KINDS],
     labels,
     triggers,

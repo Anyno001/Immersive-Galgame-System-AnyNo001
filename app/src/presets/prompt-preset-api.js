@@ -1,7 +1,7 @@
 import { previewPromptImport } from './prompt-preset-import.js';
 import { promptRevision, stagePromptImport, stagePromptSave } from './prompt-preset-operations.js';
 import { clonePromptData, validatePromptActivation } from './prompt-preset.js';
-import { stagePromptDefaultUpgrade, stagePromptDefaultRestore } from './prompt-default-operations.js';
+import { stagePromptDefaultUpgrade, stagePromptDefaultRestore, renameLegacyDefaultNames } from './prompt-default-operations.js';
 
 const TYPE = 'prompt-preset';
 const fail = (reason) => ({ ok: false, reason });
@@ -18,27 +18,53 @@ export function createPromptPresetApi({ read, commit, isReady }) {
         return saved.ok ? result : saved;
     };
     return {
-        ensureImagePromptDefault(preset) {
+        // 入参是内置预设或其数组（第一项为首选）：缺哪套补哪套，不改 current；current 是内置项时按它自己的版本升级。
+        ensureImagePromptDefault(input) {
             const blocked = ready();
             if (blocked) return blocked;
+            const presets = Array.isArray(input) ? input : [input];
+            const preset = presets[0];
             const next = read(), currentId = next.current[TYPE];
+            const shaped = (item) => item?.format === 'igs_preset_v1' && item?.type === TYPE && validId(item.id);
+            // 补入缺失的内置预设；已存在的（含用户改过的）一律不动。
+            const addMissing = (strict) => {
+                let added = false;
+                for (const item of presets) {
+                    if (!shaped(item)) { if (strict) return fail('invalid-prompt-default'); continue; }
+                    if (next.items[TYPE]?.[item.id]) continue;
+                    const checked = validatePromptActivation(item.data);
+                    if (!checked.ok) { if (strict) return { ok: false, reason: 'prompt-not-activatable', errors: checked.errors }; continue; }
+                    next.items[TYPE] ||= {};
+                    next.items[TYPE][item.id] = clonePromptData(item);
+                    added = true;
+                }
+                return added;
+            };
             if (currentId) {
                 const current = next.items[TYPE]?.[currentId];
                 if (current?.data?.usage !== 'imagegen') return fail('prompt-current-not-imagegen');
-                if (currentId === preset?.id) {
-                    const upgraded = finish(stagePromptDefaultUpgrade(next, preset));
-                    return { ...upgraded, presetId: currentId };
+                const added = addMissing(false);
+                const renamed = renameLegacyDefaultNames(next, presets);
+                const own = presets.find(item => shaped(item) && item.id === currentId);
+                let working = next, changed = added === true || renamed, item;
+                if (own) {
+                    const staged = stagePromptDefaultUpgrade(next, own);
+                    if (!staged.ok) return { ...staged, presetId: currentId };
+                    if (staged.changed !== false) { working = staged.next; changed = true; item = staged.item; }
                 }
-                return { ok: true, changed: false, presetId: currentId };
+                if (!changed) return { ok: true, changed: false, presetId: currentId };
+                return { ...finish({ ok: true, next: working, changed: true, ...(item && { item }) }), presetId: currentId };
             }
-            if (preset?.format !== 'igs_preset_v1' || preset?.type !== TYPE || !validId(preset.id))
-                return fail('invalid-prompt-default');
+            if (!shaped(preset)) return fail('invalid-prompt-default');
+            renameLegacyDefaultNames(next, presets);
             const existing = next.items[TYPE]?.[preset.id];
             const candidate = existing || preset;
             const checked = validatePromptActivation(candidate.data);
             if (!checked.ok) return { ok: false, reason: 'prompt-not-activatable', errors: checked.errors };
             next.items[TYPE] ||= {};
             next.items[TYPE][preset.id] = clonePromptData(candidate);
+            const others = addMissing(true);
+            if (others?.ok === false) return others;
             next.current[TYPE] = preset.id;
             return finish({ ok: true, next, changed: true, presetId: preset.id });
         },

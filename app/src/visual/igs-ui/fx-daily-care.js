@@ -4,6 +4,7 @@
 import { esc } from './reader-value-utils.js';
 import { make } from './fx-daily-kit.js';
 import { spriteElOf } from './stage-snapshot.js';
+import { SPRITE_ACTION_FRAMES } from './sprite-actions.js';
 import { bodyAnchor, castFigures, clamp, lifeOf, round1, safeAnimate, seeded } from './fx-daily-r3-kit.js';
 
 const TEND_ICONS = Object.freeze({
@@ -32,19 +33,25 @@ function swing(el, env, frames, life) {
 }
 
 export const CARE_BUILDERS = {
-    // 开门礼让：一扇木门在画面一侧被推开，门缝里的暖光漫出来，立绘退后半步侧身让出路，小牌上写着这一下的动作。
+    // 开门礼让：门不画出来，只有暖光从一侧画面边缘漫进来；立绘侧身让出路，结尾轻点一下头，小牌上写着这一下的动作。
     opendoor(item, env) {
         const life = lifeOf('opendoor', env);
         const b = bodyAnchor(env, item.who);
         const doorLeft = b.x >= 50 ? 8 : 70;
         const dir = doorLeft < b.x ? -1 : 1;
         const node = make(env.doc, 'igs-dfx igs-dfx-opendoor',
-            `<div class="igs-dfx-opendoor-door" style="left:${doorLeft}%"><i class="igs-dfx-opendoor-glow"></i><i class="igs-dfx-opendoor-frame"></i><i class="igs-dfx-opendoor-leaf"></i></div>${card(item.act, `left:${doorLeft + 11}%;top:6%`)}`);
-        swing(spriteElOf(env, item.who), env, [
+            `<i class="igs-dfx-opendoor-light ${dir < 0 ? 'is-left' : 'is-right'}"></i>${card(item.act, `left:${doorLeft + 11}%;top:6%`)}`);
+        const sprite = spriteElOf(env, item.who);
+        swing(sprite, env, [
             { transform: 'translate(0,0) rotate(0deg)', offset: 0 }, { transform: `translate(${-dir * 3}%,0) rotate(${-dir * 0.8}deg)`, offset: 0.3 },
             { transform: `translate(${-dir * 3}%,0) rotate(${-dir * 0.8}deg)`, offset: 0.7 }, { transform: 'translate(0,0) rotate(0deg)', offset: 1 },
         ], life);
-        return { layer: 'stage', life, sounds: ['door'], node };
+        if (!env.reduced) {
+            safeAnimate(sprite, SPRITE_ACTION_FRAMES.nod.frames.map((transform) => ({ transform })), {
+                duration: SPRITE_ACTION_FRAMES.nod.duration, delay: Math.round(life * 0.7), easing: SPRITE_ACTION_FRAMES.nod.easing, composite: 'add',
+            });
+        }
+        return { layer: 'stage', life, sounds: ['door-handle', 'door'], node };
     },
 
     // 护在身前：来袭的流矢般的细光从一侧射来，撞上立绘身前一道弧形盾光后偏折散开；被护者一侧亮起暖光，立绘向前顿一下。

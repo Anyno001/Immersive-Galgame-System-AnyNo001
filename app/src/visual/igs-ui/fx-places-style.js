@@ -5,9 +5,9 @@ const L = 'var(--igs-dfx-life)';
 const O = '#igs-overlay';
 
 export const PLACES_AMBIENCE_HTML = Object.freeze({
-    plpolice: '<i class="igs-pl-pol-tape is-top"></i><i class="igs-pl-pol-tape is-bottom"></i><i class="igs-pl-pol-beacon is-r"></i><i class="igs-pl-pol-beacon is-b"></i>',
-    plhospital: '<i class="igs-pl-hos-tint"></i><i class="igs-pl-hos-tube"></i><i class="igs-pl-hos-mon"><svg viewBox="0 0 120 40" aria-hidden="true"><polyline pathLength="1" points="0,22 28,22 34,22 38,8 44,34 50,22 70,22 76,22 80,12 86,30 90,22 120,22"/></svg></i>',
-    plkonbini: '<i class="igs-pl-kon-light"></i><i class="igs-pl-kon-sign"></i>',
+    plpolice: '<i class="igs-pl-pol-beacon is-r"></i><i class="igs-pl-pol-beacon is-b"></i>',
+    plhospital: '<i class="igs-pl-hos-tint"></i><i class="igs-pl-hos-tube"></i>',
+    plkonbini: '<i class="igs-pl-kon-light"></i>',
     plkitchen: '<i class="igs-pl-kit-warm"></i><i class="igs-pl-kit-steam"></i><i class="igs-pl-kit-steam is-b"></i>',
     plmansion: '<i class="igs-pl-man-dark"></i><i class="igs-pl-man-shaft"></i><i class="igs-pl-man-candle"></i><i class="igs-pl-man-candle is-b"></i>',
     plneonrain: '<i class="igs-pl-neo-pink"></i><i class="igs-pl-neo-cyan"></i><i class="igs-pl-neo-rain"></i>',
@@ -17,23 +17,15 @@ export const PLACES_AMBIENCE_HTML = Object.freeze({
 });
 
 const AMBIENCE_CSS = `
-${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-tape{left:-4%;right:-4%;height:20px;background:repeating-linear-gradient(-45deg,#f2c500 0 18px,#15130c 18px 36px);box-shadow:0 3px 8px rgba(0,0,0,.5);}
-${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-tape.is-top{top:5%;transform:rotate(-2.2deg);}
-${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-tape.is-bottom{bottom:calc(var(--igs-fx-safe) + var(--igs-fx-vis) * .3);transform:rotate(1.6deg);}
-${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-beacon{top:-10%;width:60%;height:70%;}
-${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-beacon.is-r{left:-14%;background:radial-gradient(ellipse at 40% 30%,rgba(235,40,50,.32),transparent 66%);animation:igs-pl-beacon-r 1.4s steps(1,end) infinite;}
-${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-beacon.is-b{right:-14%;background:radial-gradient(ellipse at 60% 30%,rgba(50,110,255,.32),transparent 66%);animation:igs-pl-beacon-b 1.4s steps(1,end) infinite;}
-@keyframes igs-pl-beacon-r{0%{opacity:1}12%{opacity:.15}24%{opacity:1}36%{opacity:.15}50%,100%{opacity:0}}
-@keyframes igs-pl-beacon-b{0%,50%{opacity:0}62%{opacity:1}74%{opacity:.15}86%{opacity:1}98%,100%{opacity:.15}}
+${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-beacon{top:0;bottom:0;width:44%;opacity:0;}
+${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-beacon.is-r{left:-8%;background:radial-gradient(ellipse at 0% 42%,rgba(214,92,100,.18),transparent 70%);animation:igs-pl-beacon-r 1.4s ease-in-out infinite;}
+${O} .igs-dfx-amb.is-plpolice .igs-pl-pol-beacon.is-b{right:-8%;background:radial-gradient(ellipse at 100% 42%,rgba(96,138,226,.18),transparent 70%);animation:igs-pl-beacon-b 1.4s ease-in-out infinite;}
+@keyframes igs-pl-beacon-r{0%{opacity:0}14%{opacity:1}30%{opacity:.25}40%{opacity:.9}56%,100%{opacity:0}}
+@keyframes igs-pl-beacon-b{0%,50%{opacity:0}64%{opacity:1}80%{opacity:.25}90%{opacity:.9}100%{opacity:0}}
 ${O} .igs-dfx-amb.is-plhospital .igs-pl-hos-tint{inset:0;background:linear-gradient(180deg,rgba(214,238,232,.16),rgba(214,238,232,.04) 40%,rgba(140,190,190,.12));}
 ${O} .igs-dfx-amb.is-plhospital .igs-pl-hos-tube{left:18%;right:18%;top:0;height:5px;background:#eefaf6;box-shadow:0 0 26px 10px rgba(226,250,244,.38);animation:igs-pl-tube 7s linear infinite;}
 @keyframes igs-pl-tube{0%,86%,90%,100%{opacity:1}88%{opacity:.55}93%{opacity:.8}}
-${O} .igs-dfx-amb.is-plhospital .igs-pl-hos-mon{right:4%;top:8%;width:120px;height:44px;background:#05140f;border:3px solid #2c3a36;border-radius:4px;overflow:hidden;}
-${O} .igs-dfx-amb.is-plhospital .igs-pl-hos-mon svg{position:absolute;inset:0;width:100%;height:100%;}
-${O} .igs-dfx-amb.is-plhospital .igs-pl-hos-mon polyline{fill:none;stroke:#4dff9a;stroke-width:1.6;stroke-linejoin:round;stroke-dasharray:1;animation:igs-pl-ecg 1.9s linear infinite;}
-@keyframes igs-pl-ecg{from{stroke-dashoffset:1}to{stroke-dashoffset:-1}}
-${O} .igs-dfx-amb.is-plkonbini .igs-pl-kon-light{left:0;right:0;top:0;height:46%;background:linear-gradient(180deg,rgba(236,255,244,.2),rgba(236,255,244,.05) 60%,transparent);}
-${O} .igs-dfx-amb.is-plkonbini .igs-pl-kon-sign{left:0;right:0;top:0;height:7px;background:linear-gradient(90deg,#1aa04b 0 33.3%,#f08a1c 33.3% 66.6%,#2a62d8 66.6%);opacity:.9;}
+${O} .igs-dfx-amb.is-plkonbini .igs-pl-kon-light{left:0;right:0;top:0;height:46%;background:linear-gradient(180deg,rgba(226,240,255,.2),rgba(226,240,255,.05) 60%,transparent);}
 ${O} .igs-dfx-amb.is-plkitchen .igs-pl-kit-warm{inset:0;background:radial-gradient(ellipse at 50% 100%,rgba(255,196,110,.22),transparent 70%),linear-gradient(180deg,rgba(255,226,170,.06),rgba(120,70,20,.1));}
 ${O} .igs-dfx-amb.is-plkitchen .igs-pl-kit-steam{left:12%;bottom:calc(var(--igs-fx-safe) + var(--igs-fx-vis) * .26);width:16%;height:36%;background:radial-gradient(ellipse at 50% 100%,rgba(255,255,255,.2),transparent 70%);filter:blur(6px);animation:igs-pl-rise 5.4s ease-out infinite;}
 ${O} .igs-dfx-amb.is-plkitchen .igs-pl-kit-steam.is-b{left:auto;right:16%;bottom:calc(var(--igs-fx-safe) + var(--igs-fx-vis) * .22);animation-delay:2.4s;}
@@ -49,13 +41,13 @@ ${O} .igs-dfx-amb.is-plneonrain .igs-pl-neo-cyan{right:-10%;bottom:-8%;width:56%
 ${O} .igs-dfx-amb.is-plneonrain .igs-pl-neo-rain{inset:-120px -46px 0 0;will-change:transform;background:repeating-linear-gradient(104deg,transparent 0 22px,rgba(200,220,255,.1) 22px 23px);background-size:46px 100%;animation:igs-pl-rain 1.6s linear infinite;}
 @keyframes igs-pl-rain{to{transform:translate3d(-46px,120px,0)}}
 ${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-glow{inset:0;background:linear-gradient(180deg,rgba(255,120,40,.18),transparent 42%);}
-${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-lanterns{left:0;right:0;top:0;height:14%;}
-${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-lanterns b{position:absolute;top:-4px;width:30px;height:40px;border-radius:14px;background:#d6361f;box-shadow:0 0 22px 6px rgba(255,150,60,.5),inset 0 0 0 3px #f6c06a;transform-origin:50% -4px;animation:igs-pl-lantern 4.6s ease-in-out infinite;}
+${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-lanterns{left:0;right:0;top:0;height:22%;}
+${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-lanterns b{position:absolute;top:-10%;width:18%;height:100%;border-radius:50%;background:radial-gradient(closest-side,rgba(255,174,92,.3),transparent);animation:igs-pl-lantern 4.6s ease-in-out infinite;}
 ${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-lanterns b:nth-child(1){left:12%}
 ${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-lanterns b:nth-child(2){left:36%;animation-delay:-1.2s}
 ${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-lanterns b:nth-child(3){left:62%;animation-delay:-2.4s}
 ${O} .igs-dfx-amb.is-plshrine .igs-pl-shr-lanterns b:nth-child(4){left:86%;animation-delay:-3.4s}
-@keyframes igs-pl-lantern{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+@keyframes igs-pl-lantern{0%,100%{transform:translateX(-2px);opacity:.9}50%{transform:translateX(2px);opacity:1}}
 ${O} .igs-dfx-amb.is-plgym .igs-pl-gym-flood{top:-6%;left:8%;right:8%;height:48%;background:linear-gradient(180deg,rgba(255,250,226,.2),transparent);clip-path:polygon(18% 0,82% 0,100% 100%,0 100%);}
 ${O} .igs-dfx-amb.is-plgym .igs-pl-gym-floor{left:0;right:0;bottom:0;height:24%;background:linear-gradient(180deg,transparent,rgba(210,150,70,.22));}
 ${O} .igs-dfx-amb.is-pldungeon .igs-pl-dun-dark{inset:0;background:radial-gradient(ellipse at 50% 52%,transparent 30%,rgba(6,6,10,.62));}
@@ -68,7 +60,7 @@ ${O} .igs-dfx-amb.is-pldungeon.is-magic .igs-pl-dun-torch{background:radial-grad
 ${O} .igs-dfx-amb.is-plmansion.is-magic .igs-pl-man-candle{background:radial-gradient(ellipse at 50% 60%,rgba(150,170,255,.3),transparent 70%);}
 ${O} .igs-dfx-amb.is-reduced [class*="igs-pl-"],${O}[data-igs-quality="low"] .igs-dfx-amb [class*="igs-pl-"],${O}[data-igs-quality="low"] .igs-dfx-amb [class*="igs-pl-"] b{animation:none!important;}
 ${O}[data-igs-quality="low"] .igs-dfx-amb.is-plkitchen .igs-pl-kit-steam,${O}[data-igs-quality="low"] .igs-dfx-amb.is-plpolice .igs-pl-pol-beacon.is-b{display:none;}
-${O} .igs-dfx-amb.is-plhospital .igs-pl-hos-mon polyline{stroke-dashoffset:0;}
+${O} .igs-dfx-amb.is-reduced.is-plpolice .igs-pl-pol-beacon,${O}[data-igs-quality="low"] .igs-dfx-amb.is-plpolice .igs-pl-pol-beacon.is-r{opacity:.7;}
 `;
 
 const CARD_CSS = `
@@ -83,20 +75,18 @@ ${O} .igs-pl-elev-arrow{width:9px;height:9px;border-left:1.5px solid #ffd9a8;bor
 ${O} .igs-pl-elev-arrow.is-down{transform:translateY(-2px) rotate(225deg);}
 @keyframes igs-pl-arrow{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes igs-pl-lampfx{0%{opacity:0;transform:translateY(-14px)}8%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0}}
-${O} .igs-pl-door{position:absolute;top:0;bottom:0;width:50%;background:linear-gradient(90deg,#1a1d23,#272b33);}
-${O} .igs-pl-door.is-l{left:0;border-right:1px solid rgba(255,255,255,.22);animation:igs-pl-door-l ${L} cubic-bezier(.55,.05,.3,1) both;}
-${O} .igs-pl-door.is-r{right:0;border-left:1px solid rgba(255,255,255,.22);animation:igs-pl-door-r ${L} cubic-bezier(.55,.05,.3,1) both;}
+${O} .igs-pl-door{position:absolute;top:0;bottom:0;width:50%;background:#000;}
+${O} .igs-pl-door.is-l{left:0;animation:igs-pl-door-l ${L} cubic-bezier(.55,.05,.3,1) both;}
+${O} .igs-pl-door.is-r{right:0;animation:igs-pl-door-r ${L} cubic-bezier(.55,.05,.3,1) both;}
 @keyframes igs-pl-door-l{0%{opacity:0;transform:none}8%{opacity:1}44%{transform:none}66%,100%{transform:translateX(-102%);opacity:1}}
 @keyframes igs-pl-door-r{0%{opacity:0;transform:none}8%{opacity:1}44%{transform:none}66%,100%{transform:translateX(102%);opacity:1}}
 ${O} .igs-pl-elevator.is-reduced .igs-pl-door{display:none;}
-${O} .igs-pl-elevator.is-ancient .igs-pl-door{background:linear-gradient(90deg,#241a14,#33241b);}
 ${O} .igs-pl-elevator.is-ancient .igs-pl-elev-window{color:#e8c987;text-shadow:0 0 12px rgba(200,150,60,.5);}
-${O} .igs-pl-crack{position:absolute;top:0;bottom:0;width:50%;background:#0a0807;}
-${O} .igs-pl-crack.is-l{left:0;transform:translateX(-5.5%);animation:igs-pl-crack-l ${L} cubic-bezier(.3,.7,.3,1) both;}
-${O} .igs-pl-crack.is-r{right:0;transform:translateX(5.5%);animation:igs-pl-crack-r ${L} cubic-bezier(.3,.7,.3,1) both;}
-@keyframes igs-pl-crack-l{0%{opacity:0;transform:translateX(0)}10%{opacity:1;transform:translateX(0)}28%{transform:translateX(-5.5%)}84%{transform:translateX(-5.5%);opacity:1}100%{transform:translateX(0);opacity:0}}
-@keyframes igs-pl-crack-r{0%{opacity:0;transform:translateX(0)}10%{opacity:1;transform:translateX(0)}28%{transform:translateX(5.5%)}84%{transform:translateX(5.5%);opacity:1}100%{transform:translateX(0);opacity:0}}
-${O} .igs-pl-crack-light{position:absolute;top:0;bottom:0;left:44.5%;width:11%;background:linear-gradient(90deg,rgba(255,214,150,.2),rgba(255,226,180,.05) 50%,rgba(255,214,150,.2));animation:igs-pl-fadeio ${L} ease both;}
+${O} .igs-pl-crack{position:absolute;top:0;bottom:0;width:50%;}
+${O} .igs-pl-crack.is-l{left:0;background:linear-gradient(90deg,#000 calc(100% - 8px),transparent);transform:translateX(-5.5%);animation:igs-pl-crack-l ${L} cubic-bezier(.3,.7,.3,1) both;}
+${O} .igs-pl-crack.is-r{right:0;background:linear-gradient(270deg,#000 calc(100% - 8px),transparent);transform:translateX(5.5%);animation:igs-pl-crack-r ${L} cubic-bezier(.3,.7,.3,1) both;}
+@keyframes igs-pl-crack-l{0%{opacity:0;transform:translateX(0)}10%{opacity:.94;transform:translateX(0)}28%{transform:translateX(-5.5%)}84%{transform:translateX(-5.5%);opacity:.94}100%{transform:translateX(0);opacity:0}}
+@keyframes igs-pl-crack-r{0%{opacity:0;transform:translateX(0)}10%{opacity:.94;transform:translateX(0)}28%{transform:translateX(5.5%)}84%{transform:translateX(5.5%);opacity:.94}100%{transform:translateX(0);opacity:0}}
 ${O} .igs-pl-heard{position:absolute;left:50%;bottom:calc(var(--igs-fx-safe) + var(--igs-fx-vis) * .34);transform:translateX(-50%);max-width:70%;padding:5px 18px;color:#f0e6d4;font-family:var(--pl-serif);letter-spacing:.16em;text-align:center;background:linear-gradient(90deg,transparent,rgba(10,8,7,.82) 20%,rgba(10,8,7,.82) 80%,transparent);filter:blur(.5px);animation:igs-pl-heard ${L} ease both;}
 @keyframes igs-pl-heard{0%,20%{opacity:0}34%{opacity:.82}70%{opacity:.82}88%,100%{opacity:0}}
 @keyframes igs-pl-fadeio{0%{opacity:0}12%{opacity:1}84%{opacity:1}100%{opacity:0}}

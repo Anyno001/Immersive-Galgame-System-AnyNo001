@@ -163,3 +163,41 @@ function addNode(ctx, kind, extra) {
     ctx.nodes.push(n);
     return n;
 }
+
+test('默认音频环境按播放场景开大缓冲，不支持参数时退回无参构造', () => {
+    const previous = globalThis.AudioContext;
+    const seen = [];
+    try {
+        globalThis.AudioContext = function Fake(options) { seen.push(options); return fakeContext(); };
+        resetAudioBusForTest();
+        assert.ok(getAudioBus());
+        assert.deepEqual(seen, [{ latencyHint: 'playback' }]);
+
+        seen.length = 0;
+        globalThis.AudioContext = function Old(options) {
+            seen.push(options);
+            if (options) throw new TypeError('no options');
+            return fakeContext();
+        };
+        resetAudioBusForTest();
+        assert.ok(getAudioBus(), '旧浏览器不认 latencyHint 也能建出总线');
+        assert.deepEqual(seen, [{ latencyHint: 'playback' }, undefined]);
+    } finally {
+        globalThis.AudioContext = previous;
+        resetAudioBusForTest();
+    }
+});
+
+test('朗读限幅只在音量超过 100% 时接入', async () => {
+    const { buildBarkChain } = await import('../src/visual/igs-ui/voice-bark.js');
+    const compressors = (volume) => {
+        const ctx = fakeContext();
+        buildBarkChain(ctx, ctx.destination, { volume, limit: true, gainCap: 2 }, []);
+        return ctx.nodes.filter((node) => node.kind === 'compressor');
+    };
+    assert.equal(compressors(1).length, 0, '100% 不压，免得每个字都被压变形');
+    assert.equal(compressors(0.6).length, 0);
+    const loud = compressors(1.6);
+    assert.equal(loud.length, 1, '放大时末端限幅防削波');
+    assert.equal(loud[0].attack.value, 0.003);
+});

@@ -1,11 +1,11 @@
 // 双语台词：正文写作 原文〖译文〗，每个〖〗注音它前面那一段原文（从上一个〗或行首算起）。
-export const BILINGUAL_DISPLAYS = Object.freeze(['ruby', 'source', 'translation']);
-export const BILINGUAL_DISPLAY_LABELS = Object.freeze({ ruby: '注音', source: '仅原文', translation: '仅译文' });
-// 注音排版：交错＝整段译文随原文逐行交错（默认）；译文在上＝完整译文小字放在原文上方；按分句＝长句按分句各自注音。
+// ruby＝译文注音（原文正文、译文小字）；ruby-source＝原文注音（译文正文、原文小字）。
+export const BILINGUAL_DISPLAYS = Object.freeze(['ruby', 'ruby-source', 'source', 'translation']);
+export const BILINGUAL_DISPLAY_LABELS = Object.freeze({ ruby: '译文注音', 'ruby-source': '原文注音', source: '仅原文', translation: '仅译文' });
+// 注音排版：交错＝整段注音随正文逐行交错（默认）；注音在上＝完整注音小字放在正文上方；按分句＝长句按分句各自注音。
 export const BILINGUAL_LAYOUTS = Object.freeze(['interleave', 'stack', 'clause']);
-export const BILINGUAL_LAYOUT_LABELS = Object.freeze({ interleave: '交错', stack: '译文在上', clause: '按分句' });
-export const BILINGUAL_FOREIGN_LABELS = Object.freeze({ auto: '按角色设定', ja: '日语', en: '英语' });
-export const BILINGUAL_TARGET_LABELS = Object.freeze({ 'zh-Hans': '简体中文', 'zh-Hant': '繁体中文' });
+export const BILINGUAL_LAYOUT_LABELS = Object.freeze({ interleave: '交错', stack: '注音在上', clause: '按分句' });
+export const isBilingualRuby = (display) => display === 'ruby' || display === 'ruby-source';
 
 // 译文单独成行时的标记类；打字机按 <rt> 同样对待它：不逐字揭示、不发打字音。
 export const BILINGUAL_NOTE_CLASS = 'igs-bi-note';
@@ -16,10 +16,10 @@ const TAG_SPLIT_RE = /(<[^>]*>)/;
 const LEAD_RE = /^(?:\s|&quot;|[、。，,.!?！？…—～~「」『』“”‘’'（）()：:；])*/;
 // 分句尾标点。半角分号不算：已转义 HTML 的实体以它结尾。
 const CLAUSE_RE = /[^、，,。．.！!？?；…～~]+[、，,。．.！!？?；…～~]*\s*/g;
+const CLOSE_RE = /(?:&quot;|[」』”’）)])*$/;
 // 按分句排版时，超过这个长度的注音按分句拆开。
 const SPLIT_MIN_LENGTH = 14;
 
-const FOREIGN_PHRASES = Object.freeze({ auto: '各自设定的母语（如日语、英语）', ja: '日语', en: '英语' });
 const SEGMENT_EXAMPLES = Object.freeze({
     ja: '[igs-char:アリス|微笑|制服|おはよう。今日はいい天気ですね〖早上好。今天天气真好呢〗]',
     en: '[igs-char:Alice|微笑|制服|Morning! Lovely weather today, isn\'t it?〖早上好！今天天气真好，对吧？〗]',
@@ -35,8 +35,6 @@ export function normalizeBilingualSettings(value) {
         enabled: source.enabled === true,
         display: BILINGUAL_DISPLAYS.includes(source.display) ? source.display : 'ruby',
         layout: BILINGUAL_LAYOUTS.includes(source.layout) ? source.layout : 'interleave',
-        foreign: Object.hasOwn(BILINGUAL_FOREIGN_LABELS, source.foreign) ? source.foreign : 'auto',
-        target: Object.hasOwn(BILINGUAL_TARGET_LABELS, source.target) ? source.target : 'zh-Hans',
     };
 }
 
@@ -71,15 +69,30 @@ function clausePairs(base, translation) {
 function renderPair(base, translation, display, layout) {
     if (display === 'source') return base;
     if (display === 'translation') return translation;
-    if (!base) return translation ? `<span class="igs-bi-loose">${translation}</span>` : '';
+    const swap = display === 'ruby-source';
+    if (!base) return translation ? (swap ? translation : `<span class="igs-bi-loose">${translation}</span>`) : '';
     if (!translation) return base;
-    if (layout === 'stack') return stackHtml(base, translation);
-    // 交错：整段原文配整段译文，能折行的内核里译文随原文逐行交错；不能折行的由 fitBilingualRuby 改成译文在上。
-    if (layout !== 'clause') return `<ruby class="igs-bi">${base}<rt>${translation}</rt></ruby>`;
+    // 原文做注音时收尾的引号留在译文正文后面，不进注音。
+    const close = swap ? base.match(CLOSE_RE)[0] : '';
+    if (close && close.length < base.length) return renderAnnotated(base.slice(0, -close.length), translation, swap, layout) + close;
+    return renderAnnotated(base, translation, swap, layout);
+}
+
+function renderAnnotated(base, translation, swap, layout) {
+    // 原文注音：译文做正文、原文进注音，其余排版与译文注音一致。
+    const pair = (body, note) => (swap ? [note, body] : [body, note]);
+    if (layout === 'stack') return stackHtml(...pair(base, translation));
+    // 交错：整段正文配整段注音，能折行的内核里注音随正文逐行交错；不能折行的由 fitBilingualRuby 改成注音在上。
+    if (layout !== 'clause') return rubyHtml(...pair(base, translation));
     return clausePairs(base, translation).map(([part, text]) => {
         const body = part.replace(/\s+$/, '');
-        return `<ruby class="igs-bi">${body}<rt>${text}</rt></ruby>${part.slice(body.length)}`;
+        const tail = part.slice(body.length);
+        return rubyHtml(...pair(body, text)) + tail;
     }).join('');
+}
+
+function rubyHtml(body, note) {
+    return `<ruby class="igs-bi">${body}<rt>${note}</rt></ruby>`;
 }
 
 function stackHtml(base, translation) {
@@ -156,19 +169,18 @@ export function fitBilingualRuby(textEl) {
 
 export function bilingualGrammarBlock(settings) {
     const s = normalizeBilingualSettings(settings);
-    const lang = FOREIGN_PHRASES[s.foreign];
-    const target = BILINGUAL_TARGET_LABELS[s.target];
+    const lang = '各自设定的母语（如日语、英语）';
     const clause = s.layout === 'clause';
     const examples = clause ? CLAUSE_EXAMPLES : SEGMENT_EXAMPLES;
-    const example = examples[s.foreign] || examples.ja;
+    const example = examples.ja;
     const unit = clause
         ? '- 每个分句或短句后紧跟一个〖〗，不要整段只在末尾标一次；〖〗内只写译文，不嵌套、不换行'
         : '- 一段连续的台词或心里话只在末尾跟一个〖〗，写这一整段的完整译文，不要一句一个；被旁白、动作或换行隔开的各段各跟一个〖〗\n- 〖〗内只写译文，不嵌套、不换行';
-    return `【双语台词】所有角色（包括主角）的对白和心里话都要双语书写。写作 ${lang}原文后${clause ? '按分句' : ''}紧跟〖${target}译文〗：
+    return `【双语台词】所有角色（包括主角）的对白和心里话都要双语书写。写作 ${lang}原文后${clause ? '按分句' : ''}紧跟〖译文〗：
 - 写在 [igs-char] 的对白栏和 [igs-thought] 的心里话栏里；不用这些标签时，写在正文的台词和心里话里。如 ${example}
 ${unit}
-- 旁白照常用${target}书写，不加〖〗；角色名、表情、服装、选项和其他标签字段也不写〖〗
-- 本来就是${target}的话不加〖〗；其他行内标记只包住原文，不要跨过〖〗`;
+- 译文与旁白使用同一种语言（即本对话的主要叙述语言），旁白照常书写，不加〖〗；角色名、表情、服装、选项和其他标签字段也不写〖〗
+- 本来就是该语言的话不加〖〗；其他行内标记只包住原文，不要跨过〖〗`;
 }
 
 export function resolveBilingualPromptRule(settings) {
