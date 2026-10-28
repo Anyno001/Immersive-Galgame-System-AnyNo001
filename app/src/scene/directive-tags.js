@@ -70,11 +70,13 @@ export const IGS_DIRECTIVE_CLOSE_SOURCE = `\\[\\s*igs-(?:${NAMES})\\s*:[^\\]\\n]
 // 分页阶段需要从正文剥离的纯标记类指令（scene、fx、战斗 combat 与恐怖档位 dread 不承载可见文字）。
 // scene 沿用既有剥离规则；fx 字段不跨行，漏写 "]" 时以行尾收口。
 // combat 是否生效由 scene/combat-directives.js 判定，显示上一律剥离，同样以行尾收口。
+// check（正文 d20 判定）由 scene/check-rolls.js 复算，标签本身剥离，结果以阅读器徽记显示。
 const SCENE_INLINE_RE = /\[igs-scene:[^\]]*\]/g;
 const FX_INLINE_RE = /\[igs-fx:[^\]\n]*(?:\]|$)/gm;
 const COMBAT_INLINE_RE = /\[igs-combat:[^\]\n]*(?:\]|$)/gm;
+const CHECK_INLINE_RE = /\[igs-check:[^\]\n]*\]/g;
 const DREAD_INLINE_RE = /\[igs-dread:[^\]\n]*\]/g;
-const MARKER_LINE_RE = /^\[igs-(?:scene:[^\]]*\]|fx:|combat:|dread:)/;
+const MARKER_LINE_RE = /^\[igs-(?:scene:[^\]]*\]|fx:|combat:|check:|dread:)/;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));
@@ -107,7 +109,7 @@ export function normalizeIgsDirectiveLayout(text) {
 }
 
 export function stripMarkerDirectives(text) {
-    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(DREAD_INLINE_RE, '');
+    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(CHECK_INLINE_RE, '').replace(DREAD_INLINE_RE, '');
 }
 
 export function isMarkerDirectiveLine(line) {

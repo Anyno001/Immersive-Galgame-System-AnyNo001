@@ -4,6 +4,7 @@ import { isValidOutfitName } from '../../scene/character-outfits.js';
 import { savedExpressionTemplate, bindAutoSpriteOutfitNames } from './character-prompt-task.js';
 import { checkPromptOutput, checkPromptTask } from '../../schemas/prompt-recipe.js';
 import { DNA_WEIGHT_RULE, OUTFIT_HALF_BODY_RULE } from '../prompt-tasks/common.js';
+import { DNA_COMBAT_RULE } from '../prompt-tasks/dna.js';
 
 export const SPRITE_DATA_RULE = [
     '仅 outputs.format 为 sprite-data 或 expression-fragments 时执行本段：只提取可复用资料，不生成 scene、char、构图、姿势、背景或完整绘图提示词。其他格式不执行本段。',
@@ -16,6 +17,7 @@ export const SPRITE_DATA_RULE = [
     '仅 sprite 任务且 personality 字段缺失时另写 personality: 独立英文性格特点；只描述稳定性格，无依据留空，不写外貌、衣装、动作或当次心情。不得把性格复制进各景别。已有性格可省略或逐字保留，显式空值不补建。derived 衣装提取不输出身份和性格。',
     '每份写 outfit_name 和 outfit_description。衣装原名逐字沿用输入，已保存说明逐字复用；缺说明时建立纯英文 TAG 服装 DNA，逐件绑定颜色、款式及适用长度，材质、剪裁及细节也只用标签，首次未指定细节协调补全。不写自然语言、人物身份、表情、动作或背景。',
     'expression-fragments 每份仅写 slotid、character、expression、expression_uc；只写指定表情的眼、眉、嘴等可见变化，可按性格表现，不写身份、衣装、身体姿势、道具、背景、镜头、底色或质量词。expression 非空，expression_uc 可空。',
+    DNA_COMBAT_RULE,
     '不输出占位符、JSON、代码围栏、分析或思考正文，不照搬剧情的坐姿、动作和地点。',
 ].join('\n');
 const fail = (field, issue = 'invalid', where = {}) => ({ ok: false, reason: 'SPRITE_DATA_INVALID',
@@ -23,6 +25,26 @@ const fail = (field, issue = 'invalid', where = {}) => ({ ok: false, reason: 'SP
     diagnostic: { stage: 'prompt-parse', field, issue, ...where } });
 const validText = value => typeof value === 'string' && value.length <= 4096 && !/<<\s*(?:dna|outfit)/i.test(value);
 const viewFields = CHARACTER_DNA_VIEWS.flatMap(view => [`dna_${view}`, `dna_uc_${view}`]);
+const combatFields = { combat_class: 'className', combat_role: 'role', combat_major: 'major', combat_minor: 'minor', combat_weak: 'weak' };
+
+// 战斗资料是独立结果，不进入外貌候选；单个角色的可选字段错误不使整批 DNA 失败。
+function readCombatInit(row, meta) {
+    const present = Object.keys(combatFields).some(key => Object.hasOwn(row, key));
+    const requested = meta.imagePromptTask === 'dna' && Boolean(meta.outputs?.combatInit);
+    if (!present && !requested) return {};
+    const diagnostic = (field, problem) => ({ combatInitDiagnostics: [{ code: 'combat-init-invalid',
+        characterKey: row.character, slotId: row.slotId, field, problem }] });
+    if (!requested) return diagnostic('', 'unexpected');
+    if (row.combatIssue) return diagnostic(row.combatIssue.field, row.combatIssue.problem);
+    if (!present) return diagnostic('', 'missing');
+    if (typeof meta.parseCombatInit !== 'function') return diagnostic('', 'validator-unavailable');
+    const raw = Object.fromEntries(Object.entries(combatFields)
+        .filter(([key]) => Object.hasOwn(row, key)).map(([key, field]) => [field, row[key]]));
+    let parsed;
+    try { parsed = meta.parseCombatInit(raw); } catch { return diagnostic('', 'validation-failed'); }
+    return parsed?.ok === true ? { combatInit: { characterKey: row.character, value: parsed.value } }
+        : diagnostic(parsed?.field || '', parsed?.problem || 'invalid');
+}
 
 function locateFailure(result, row) {
     const field = result.diagnostic?.field || '';
@@ -48,7 +70,7 @@ export function parseSpriteData(text, meta) {
         && slots.length === 1 && slots[0].tokens.length === 1
         && slots[0].tokens[0] === task.value.characters[0].token ? slots[0] : undefined;
     const allowed = new Set(['slotid', 'character', ...(fragments ? ['expression', 'expression_uc']
-        : ['outfit_name', 'outfit_description', 'outfit_half_body', 'personality', ...viewFields])]);
+        : ['outfit_name', 'outfit_description', 'outfit_half_body', 'personality', ...viewFields, ...Object.keys(combatFields)])]);
     const rows = new Map();
     let row;
     for (const [index, line] of String(text || '').split(/\r?\n/).entries()) {
@@ -66,6 +88,13 @@ export function parseSpriteData(text, meta) {
             if (!row) {
                 if (!implicitSlot || rows.size || key !== 'character') return fail('slotid', 'missing', where);
                 row = { slotId: implicitSlot.slotId, lines: {} }; rows.set(row.slotId, row);
+            }
+            if (Object.hasOwn(combatFields, key)) {
+                if (Object.hasOwn(row, key) || !validText(value)) {
+                    row.combatIssue = { field: combatFields[key], problem: Object.hasOwn(row, key) ? 'duplicate' : 'invalid' };
+                }
+                row[key] = value; row.lines[key] = index + 1;
+                continue;
             }
             if (Object.hasOwn(row, key)) return fail(key, 'duplicate', where);
             if (!viewFields.includes(key) && !validText(value)) return fail(key, 'invalid', where);
@@ -98,7 +127,7 @@ function assembleSpriteData(rows, meta, fragments, slots) {
         const entry = bindAutoSpriteOutfitNames(built.value, task, meta.autoSpriteOutfitNames);
         const checked = checkPromptOutput(entry, entry.promptTask, [source]);
         if (!checked.ok) return locateFailure(checked, row);
-        captions.push({ ...entry, ...checked.value });
+        captions.push({ ...entry, ...checked.value, ...(!fragments && readCombatInit(row, meta)) });
     }
     return { ok: true, ...captions[0], captions };
 }

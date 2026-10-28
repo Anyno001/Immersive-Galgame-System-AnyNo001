@@ -1,9 +1,9 @@
 import { getTavernHelper } from './tavern-helper-adapter.js';
 
 // 战报楼在聊天界面里折叠为「战斗记录」：只注册 display 目标，prompt 目标不处理，主模型看到原文。
-// 战报是程序发出的用户楼，所以只作用于 user_input；战报块后面程序附带的 exp 标签行一并折叠。
+// 战报是程序发出的用户楼，所以只作用于 user_input；战报块后面程序附带的 exp 与 loot 标签行一并折叠。
 export const COMBAT_REPORT_REGEX_ID = 'igs-combat-report-display';
-export const COMBAT_REPORT_FIND = '/<igs-combat-report\\b[^>]*>[\\s\\S]*?<\\/igs-combat-report>(?:\\n\\[igs-combat:exp\\|[^\\]\\n]*\\])*/gi';
+export const COMBAT_REPORT_FIND = '/<igs-combat-report\\b[^>]*>[\\s\\S]*?<\\/igs-combat-report>(?:\\n\\[igs-combat:(?:exp|loot)\\|[^\\]\\n]*\\])*/gi';
 export const COMBAT_REPORT_REPLACE = '<details><summary>战斗记录</summary>\n\n{{match}}\n\n</details>';
 
 export function combatReportRegex() {

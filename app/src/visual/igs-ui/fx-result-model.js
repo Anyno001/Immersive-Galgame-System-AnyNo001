@@ -121,6 +121,23 @@ export function buildResultFxPlan(detail) {
         };
     }
     if (detail.kind === 'pool') return poolPlan(detail);
+    // d20 检定：骰面 1–20，副行写加值与 DC，结论沿用大成功 / 成功 / 失败 / 大失败。
+    if (detail.kind === 'd20') {
+        const die = Number(detail.die);
+        const bonus = Number(detail.bonus);
+        if (!Number.isInteger(die) || die < 1 || die > 20 || !Number.isFinite(bonus)) return null;
+        const face = { ...reel('1d20', die, `${bonus >= 0 ? '+' : ''}${bonus} · DC ${detail.dc ?? ''}`), die: 20 };
+        return {
+            type: 'dice',
+            title: `${detail.actor || ''}·${detail.attribute || ''}`,
+            reels: [face],
+            verdict: `${String(detail.outcome || '')} · 总值 ${detail.total ?? die + bonus}`,
+            tone: toneOfTier(detail.tier, detail.success === true),
+            tier: tierKeyOf(detail.tier, detail.success === true),
+            rollMs: RESULT_FX_ROLL_MS,
+            holdMs: RESULT_FX_HOLD_MS,
+        };
+    }
     return null;
 }
 

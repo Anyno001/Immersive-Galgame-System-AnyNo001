@@ -14,6 +14,7 @@ import { createCombatDeckPanelController } from './combat-deck-panel.js';
 import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { growthTagsByPage, planGrowthFx } from './combat-growth-fx-model.js';
 import { cancelGrowthFx } from './combat-growth-fx.js';
+import { cancelCheckBadges, checksByPage } from './combat-check-badge.js';
 import { resolveCombatEntry, syncCombatEntry } from './combat-entry.js';
 import { createRecoveryNotice } from './recovery-notice.js';
 import { handleSettingsAction } from './settings-actions.js';
@@ -45,7 +46,7 @@ import { mergeItemEvents, normalizeItemFxSettings } from './fx-item-model.js';
 import { applyEatToItems } from './fx-eat-model.js';
 import { normalizeDailyFxSettings } from './fx-daily-model.js';
 import { cancelDailyFx } from './fx-daily.js';
-import { cancelSceneAudio, skipBgmTrack } from './scene-audio.js';
+import { cancelSceneAudio, setBgmMoodOverride, skipBgmTrack } from './scene-audio.js';
 import { applyBgmNoteToDom, toggleBgmNote } from './bgm-note.js';
 import { parkAudioBus, unparkAudioBus } from './audio-bus.js';
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
@@ -57,7 +58,9 @@ import { parseHtmlCardMarker } from '../../scene/html-cards.js';
 import { isGeneratedAssetUrl, bindGeneratedBackground, bindGeneratedSprite } from '../../scene/asset-match.js';
 import { STAGE_CAST_MAX_SEATS, pickCastMembers } from '../../scene/stage-cast.js';
 import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
-import { normalizeStageCastSettings } from './stage-direction-settings.js';
+import { normalizeSpriteMotionSettings, normalizeStageCastSettings } from './stage-direction-settings.js';
+import { normalizeFxSoundSettings } from './fx-settings.js';
+import { playBattleSfx } from './fx-battle-sfx.js';
 import { SPRITE_BACK_MOOD } from './sprite-turn.js';
 import { isReactMoodHit } from '../../scene/react-mood.js';
 
@@ -89,6 +92,7 @@ import { createImageResourceCache } from '../../media/resource-cache.js';
 import { collectFloorAssetUrls } from './floor-asset-prefetch.js';
 import { createChatStreamObserver, isUserFloorNode } from '../../host/chat-stream-observer.js';
 import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
+import { abilitiesForName } from '../../combat/ledger.js';
 import { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } from './fx-result-model.js';
 import { cancelResultFx, playResultFx } from './fx-result.js';
 import { pickFxAccent } from './fx-symbols.js';
@@ -744,6 +748,30 @@ export function createIgsReaderHost(options = {}) {
         if (plan.items.length) pageFx.growth = plan;
     }
 
+    // 正文 d20 判定徽记（v3 §3.9）：以本楼排版原文复算（下标与页偏移同源），按页归位；复算不可用时不出徽记，不当作没有判定。
+    // 复算结果按「成长缓存对象 + 原文」缓存在 prepared 上，属性刷新后自然重算。
+    function decorateCheckBadges(pageFx, payload, index, prepared, readerSettings) {
+        if (!pageFx || !normalizeCombatExpansionSettings(readerSettings && readerSettings.combatExpansion).enabled) return;
+        if (typeof options.getCombatCheckReplay !== 'function' || !/\[igs-check:/.test(String(prepared.source || ''))) return;
+        const messageId = Number(firstDefined(payload.messageId, payload.message && payload.message.id, null));
+        if (!Number.isInteger(messageId)) return;
+        const identity = state.activeReader && Number(state.activeReader.payload.messageId) === messageId && state.activeReader.illustrationIdentity
+            ? state.activeReader.illustrationIdentity : readIllustrationIdentity(messageId);
+        if (!identity || !identity.chatId) return;
+        const growth = typeof options.getCombatGrowth === 'function' ? options.getCombatGrowth() : null;
+        if (prepared.checkGrowth !== growth || prepared.checkMessageId !== messageId) {
+            let replay = null;
+            try { replay = options.getCombatCheckReplay(messageId, prepared.source); } catch (error) { replay = null; }
+            prepared.checkGrowth = growth;
+            prepared.checkMessageId = messageId;
+            prepared.checkPages = replay && replay.ok === true && replay.chatId === identity.chatId
+                ? checksByPage(replay.results, (prepared.pages || []).map((p) => p.fxOffset)) : null;
+        }
+        const items = prepared.checkPages && prepared.checkPages[index];
+        if (!items || !items.length) return;
+        pageFx.checks = { items, identity: [identity.chatId, messageId, Number(identity.swipeId) || 0, index, items.map((r) => `${r.order}:${r.total}:${r.tier}`).join(',')].join('|') };
+    }
+
     function readIllustrationIdentity(messageId) {
         const floor = messageId != null && typeof options.getIllustrationSource === 'function'
             ? options.getIllustrationSource(messageId) : null;
@@ -982,6 +1010,7 @@ export function createIgsReaderHost(options = {}) {
         if (current.dom && current.dom.overlay) cancelDailyFx(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelResultFx(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelGrowthFx(current.dom.overlay);
+        if (current.dom && current.dom.overlay) cancelCheckBadges(current.dom.overlay);
         if (current.dom && current.dom.overlay) cancelSceneAudio(current.dom.overlay);
         parkAudioBus();
         if (typeof current.stopStagePause === 'function') current.stopStagePause();
@@ -1922,9 +1951,11 @@ export function createIgsReaderHost(options = {}) {
         if (!check) return fallback;
         const global = options.global || globalThis;
         const context = getSillyTavernContext(global);
+        const userName = context && context.name1 ? String(context.name1) : '';
         const result = await resolveDiceCommand(check.dice, findAcuDice(global), {
             random: options.random,
-            userName: context && context.name1 ? String(context.name1) : '',
+            userName,
+            readAbilities: optionAbilityReader(userName),
         });
         if (!result || !result.ok) {
             writeToastSafe(`检定未执行：${result && result.reason || '未知原因'}，已按原命令发送`);
@@ -1932,6 +1963,20 @@ export function createIgsReaderHost(options = {}) {
         }
         await playOptionResultFx(result);
         return formatCheckMessage(check.display, result.line);
+    }
+
+    // DC= 新写法的六维来源：仅战斗扩展开启且注入了账本时可用；否则不提供，检定按原命令降级。
+    function optionAbilityReader(userName) {
+        const current = state.activeReader;
+        const readerSettings = current && current.snapshot && current.snapshot.readerSettings;
+        if (!normalizeCombatExpansionSettings(readerSettings && readerSettings.combatExpansion).enabled) return undefined;
+        if (typeof options.getCombatLedger !== 'function') return undefined;
+        return async (name) => {
+            const ledger = options.getCombatLedger();
+            if (!ledger || typeof ledger.effectiveState !== 'function') return null;
+            const st = await ledger.effectiveState();
+            return abilitiesForName(st, name, userName);
+        };
     }
 
     // 掷骰展示默认关闭；开启后等结论定格再发送，被关闭阅读器等取消时立即继续，不阻塞发送。
@@ -2135,6 +2180,15 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'consistency-cg') {
             return redrawCurrentConsistency();
+        }
+        // 工具栏「人物状态」：战斗扩展开启时打开人物状态面板（与资料菜单「人物状态」项同一面板）；已有面板打开时不叠开。
+        if (normalizedAction === 'combat-status') {
+            const current = state.activeReader;
+            if (!normalizeCombatExpansionSettings(current.snapshot?.readerSettings?.combatExpansion).enabled) return { ok: false, reason: 'combat-disabled' };
+            if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
+            const overlay = current.dom?.overlay;
+            if (!overlay || !current.dom?.combatDeckController) return { ok: false, reason: 'combat-entry-missing' };
+            return current.dom.combatDeckController.open(overlay);
         }
         if (normalizedAction === 'cg-gallery') {
             return openCgGallery();
@@ -3659,6 +3713,7 @@ export function createIgsReaderHost(options = {}) {
         const pageFx = cloneData(page.fx);
         decorateItemFx(pageFx, payload, segments, normalizedIndex, prepared, readerSettings);
         decorateGrowthFx(pageFx, payload, normalizedIndex, prepared, readerSettings);
+        decorateCheckBadges(pageFx, payload, normalizedIndex, prepared, readerSettings);
         // 食物被吃掉 / 喝掉：表格少了食物、AI 写「使用」食物、或本页有进食标签时，角落卡片换成吃掉 / 喝掉。
         const dailyForEat = normalizeDailyFxSettings(readerSettings && readerSettings.dailyFx);
         applyEatToItems(pageFx, { itemOn: normalizeItemFxSettings(readerSettings && readerSettings.itemFx).enabled, eatOn: dailyForEat.enabled && dailyForEat.eat });
@@ -4136,7 +4191,8 @@ export function createIgsReaderHost(options = {}) {
             if (mapPanel?.isOpen() || recordPanel?.isOpen() || combatPanel?.isOpen() || deckPanel?.isOpen()) {
                 if (event.key === 'Escape') {
                     event.preventDefault(); event.stopPropagation?.();
-                    if (combatPanel?.isOpen()) combatPanel.close(); else if (deckPanel?.isOpen()) deckPanel.close(); else if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
+                    // 战斗面板里有选中的牌 / 技能时，Esc 先撤销选中，再按一次才关闭面板。
+                    if (combatPanel?.isOpen()) { if (!combatPanel.cancelSelection?.()) combatPanel.close(); } else if (deckPanel?.isOpen()) deckPanel.close(); else if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
                 } else if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.stopPropagation?.();
                 return;
             }
@@ -4232,14 +4288,52 @@ export function createIgsReaderHost(options = {}) {
             getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
             resolvePortrait: (name) => resolveCombatPortrait(name),
+            // 演出速度（原速 / 二倍速）记在 localStorage，跨战斗保留。
+            storage: (options.global || globalThis).localStorage,
+            // 手牌卡面只读本聊天本地缓存；无图时渲染层用线条 SVG，图片补载完成后经订阅刷新。
+            resolveCardImage: (cardId) => (options.cardImages && typeof options.cardImages.imageUrlFor === 'function' ? options.cardImages.imageUrlFor(cardId) : ''),
+            subscribeCardImages: (handler) => (typeof options.onCardImageUpdated === 'function' ? options.onCardImageUpdated(handler) : null),
+            // 战斗单位呼吸跟随「立绘活动」总开关与其中的「待机呼吸」，读当前阅读器快照的设置。
+            breathing: () => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                const motion = normalizeSpriteMotionSettings(rs && rs.spriteMotion);
+                return motion.enabled && motion.breathing;
+            },
+            // 战斗演出：世界观决定音效变体；音效按「演出音效」开关与音量合成，与阅读器正文战斗同一套。
+            getFxSkin: () => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                return { worldview: String((rs && rs._worldview) || '') };
+            },
+            playSfx: (kind) => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                return playBattleSfx(kind, normalizeFxSoundSettings(rs && rs.fxSound));
+            },
+            // 战斗音乐：面板打开时把本阅读器的配乐临时切到 battle 情绪（沿用 BGM 开关与曲库），关闭后放回原来那首剧情曲。
+            setBattleMusic: (overlay, on) => setBgmMoodOverride(overlay, on ? 'battle' : ''),
         });
-        // 卡组构筑面板：资料菜单「战斗」项打开；账本、会话与手动生成都由 bootstrap 注入。
+        // 人物状态面板：工具栏「人物状态」按钮与资料菜单「人物状态」项打开；账本、会话与手动生成都由 bootstrap 注入。
         const combatDeckController = createCombatDeckPanelController(doc, {
             getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
             generateDeckProfile: typeof options.generateCombatDeckProfile === 'function' ? (input, opts) => options.generateCombatDeckProfile(input, opts) : null,
+            regenerateDeck: typeof options.regenerateCombatDeck === 'function' ? (opts) => options.regenerateCombatDeck(opts) : null,
+            respecClass: typeof options.respecCombatClass === 'function' ? (opts) => options.respecCombatClass(opts) : null,
+            ascendClass: typeof options.ascendCombatClass === 'function' ? (opts) => options.ascendCombatClass(opts) : null,
+            drawTrait: typeof options.drawCombatTrait === 'function' ? (opts) => options.drawCombatTrait(opts) : null,
+            pickTrait: typeof options.pickCombatTrait === 'function' ? (opts) => options.pickCombatTrait(opts) : null,
+
             getGrowth: () => (typeof options.getCombatGrowth === 'function' ? options.getCombatGrowth() : null),
             retryGrowth: typeof options.retryCombatGrowth === 'function' ? () => options.retryCombatGrowth() : null,
+            setAllyTier: typeof options.setCombatAllyTier === 'function' ? (id, tier) => options.setCombatAllyTier(id, tier) : null,
+            // 主角卡组预生成：状态只读、订阅后重绘；「重试」手动触发。建表只在面板内二次确认后执行。
+            getProtagonist: () => (typeof options.getCombatProtagonist === 'function' ? options.getCombatProtagonist() : null),
+            retryProtagonist: typeof options.retryCombatProtagonist === 'function' ? () => options.retryCombatProtagonist() : null,
+            onProtagonistUpdated: (handler) => (typeof options.onCombatProtagonistUpdated === 'function' ? options.onCombatProtagonistUpdated(handler) : null),
+            ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
+            // 卡面：getCardArt 只读本地状态；generateCardArt 只由「生成卡面」按钮调用。
+            getCardArt: (cardId) => (options.cardImages && typeof options.cardImages.stateFor === 'function' ? options.cardImages.stateFor(cardId) : null),
+            generateCardArt: options.cardImages && typeof options.cardImages.generate === 'function' ? (card) => options.cardImages.generate(card) : null,
+            subscribeCardImages: (handler) => (typeof options.onCardImageUpdated === 'function' ? options.onCardImageUpdated(handler) : null),
         });
         const domState = {
             root,
@@ -4542,7 +4636,8 @@ export function createIgsReaderHost(options = {}) {
         const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: isReaderLastPage(snapshot), sourceFilter: current.payload && current.payload.sourceFilter }) : null;
         state.combatAutoOpened ||= new Set();
         const auto = syncCombatEntry(overlay, entry, { seen: state.combatAutoOpened, onOpen: () => openCombatPanel(current, entry) });
-        if (auto) openCombatPanel(current, entry);
+        // 自动弹出只记成功打开的：地图、资料或构筑面板开着时不记，等下一次渲染再弹。
+        if (auto && openCombatPanel(current, entry)?.ok === true) state.combatAutoOpened.add(entry.key);
     }
 
     function openCombatPanel(current, entry) {

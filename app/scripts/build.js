@@ -53,7 +53,7 @@ const withVoice = withBgm.replace(VOICE_ASSET_RE, (_match, file) => {
 });
 if (!voiceAssets.size) throw new Error('Voice bark clips are missing from bundle.');
 const skinAssets = await externalizeSkinAssets(withVoice, { srcRoot, distRoot });
-const bundle = inlineTypewriterAudio(skinAssets.bundle);
+const bundle = inlineEnemyAtlases(inlineTypewriterAudio(skinAssets.bundle));
 
 const roundedFontWeights = [300, 400, 500, 700];
 const dialogFontAssets = [
@@ -215,7 +215,7 @@ fs.writeFileSync(path.join(distRoot, 'igs.bundle.debug.js'), bundle, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.js'), await minifyBundle(bundle), 'utf8');
 fs.writeFileSync(path.join(distRoot, 'igs.bundle.css'), css, 'utf8');
 fs.writeFileSync(path.join(distRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-if (bundle.includes('__IGS_TYPEWRITER_AUDIO__')) {
+if (bundle.includes('__IGS_TYPEWRITER_AUDIO__') || bundle.includes('__IGS_ENEMY_ATLAS__')) {
     throw new Error('Build output contains unresolved asset placeholders.');
 }
 verifySkinAssets(bundle, distRoot);
@@ -328,6 +328,26 @@ async function minifyBundle(source) {
     const result = await esbuild.transform(source, { minify: true, format: 'esm', legalComments: 'none', charset: 'utf8' });
     const header = source.split('\n').slice(0, 2).join('\n');
     return `${header}\n${result.code}`;
+}
+
+// 通用敌人图集（visual/igs-ui/combat-enemy-art.js）：占位符内嵌为 data URL，原生 loader 与本地导入件都不依赖外部文件。
+// 缺图、不是 WebP 或超出体积预算时构建失败。本函数刻意放在本地打包脚本截取的编译器片段之外。
+function inlineEnemyAtlases(bundle) {
+    const budgets = { western: 220000, urban: 115000, wuxia: 115000 };
+    let result = bundle;
+    for (const [name, limit] of Object.entries(budgets)) {
+        const placeholder = `__IGS_ENEMY_ATLAS__${name}.webp__`;
+        if (!result.includes(placeholder)) throw new Error(`Enemy atlas placeholder is missing: ${name}`);
+        const file = path.join(appRoot, 'assets', 'enemies', `${name}.webp`);
+        if (!fs.existsSync(file)) throw new Error(`Enemy atlas is missing: ${file}`);
+        const bytes = fs.readFileSync(file);
+        if (bytes.subarray(0, 4).toString('ascii') !== 'RIFF' || bytes.subarray(8, 12).toString('ascii') !== 'WEBP') {
+            throw new Error(`Enemy atlas is not WebP: ${file}`);
+        }
+        if (bytes.length > limit) throw new Error(`Enemy atlas exceeds ${limit} bytes: ${file} (${bytes.length})`);
+        result = result.replaceAll(placeholder, `data:image/webp;base64,${bytes.toString('base64')}`);
+    }
+    return result;
 }
 
 function inlineTypewriterAudio(bundle) {

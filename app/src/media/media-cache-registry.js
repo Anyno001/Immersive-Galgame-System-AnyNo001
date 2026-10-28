@@ -5,6 +5,7 @@ export const MEDIA_CACHE_POLICIES = Object.freeze({
     messages: { purpose: '消息与图片的对应关系', maxEntries: 128 },
     'asset-records': { purpose: '当前聊天按需素材记录与分页索引', maxEntries: 512, maxScopes: 1, retention: 'lru' },
     'item-records': { purpose: '当前聊天按需物品记录与分页索引', maxEntries: 512, maxScopes: 1, retention: 'lru' },
+    'card-records': { purpose: '当前聊天按需卡面记录', maxEntries: 256, maxScopes: 1, retention: 'lru' },
     'cg-states': { purpose: 'CG 槽位状态与短期缺图结果', maxEntries: 320, failureTtlMs: 1000, ttlFor: value => value.hasImage ? 0 : 1000 },
     maps: { purpose: '地图生成任务和结果索引', maxEntries: 4, failureTtlMs: 30000, ttlFor: value => value.status === 'failed' ? 30000 : 0 },
     'sprite-geometry': { purpose: '立绘尺寸、头部和脚底探测结果', maxEntries: 48 },
@@ -18,7 +19,7 @@ export const MEDIA_CACHE_POLICIES = Object.freeze({
 });
 
 const OWNER_BYTE_BUDGETS = Object.freeze({
-    messages: 512 * 1024, 'asset-records': 4 * 1024 * 1024, 'item-records': 4 * 1024 * 1024,
+    messages: 512 * 1024, 'asset-records': 4 * 1024 * 1024, 'item-records': 4 * 1024 * 1024, 'card-records': 1024 * 1024,
     'cg-states': 512 * 1024, maps: 128 * 1024, 'sprite-geometry': 64 * 1024,
     'sprite-failures': 64 * 1024, 'sprite-probes': 64 * 1024, 'asset-image-failures': 64 * 1024, 'cg-failures': 256 * 1024,
     'cg-catalogue': 8 * 1024 * 1024, directories: 512 * 1024, 'reader-sources': 256 * 1024,

@@ -32,8 +32,13 @@ export function cardView(state, inst) {
     const base = ref && state.catalog[ref.owner]?.[ref.cardId];
     if (!base) return null;
     const { upgraded, ...rest } = base;
-    if (!ref.upgraded || !upgraded) return { ...rest, inst, upgraded: false };
-    return { ...rest, inst, upgraded: true, cost: upgraded.cost ?? base.cost, effects: upgraded.effects ?? base.effects };
+    const view = !ref.upgraded || !upgraded
+        ? { ...rest, inst, upgraded: false }
+        : { ...rest, inst, upgraded: true, cost: upgraded.cost ?? base.cost, effects: upgraded.effects ?? base.effects };
+    // 本回合手牌费用修正（觉醒「决意」等）：数字费用下调、最低 0，X 费不受影响；baseCost 只在修正生效时出现。
+    const mod = state.units?.[ref.owner]?.handCost || 0;
+    if (!mod || typeof view.cost !== 'number') return view;
+    return { ...view, cost: Math.max(0, view.cost + mod), baseCost: view.cost };
 }
 
 export function canAfford(card, energy) {
@@ -46,10 +51,15 @@ export function effectsNeedTarget(effects) {
         || (e.op === 'conditional' && (e.when?.kind === 'target-has' || effectsNeedTarget(e.then))));
 }
 
-export function computeDamage(attacker, target, base) {
+// 「为一名队友」类效果：不需要敌方目标时，玩家可以指定一名存活的己方单位；不指定时引擎仍按生命比例最低者结算（兼容旧记录）。
+export function effectsPickAlly(effects) {
+    return (effects || []).some((e) => e.target === 'ally' || (e.op === 'conditional' && effectsPickAlly(e.then)));
+}
+
+export function computeDamage(attacker, target, base, strengthScale = 1) {
     let amount = base;
     if (attacker) {
-        amount = Math.round(amount * (attacker.damageScale || 1)) + (attacker.statuses.strength || 0);
+        amount = Math.round(amount * (attacker.damageScale || 1)) + (attacker.statuses.strength || 0) * (strengthScale || 1);
         if (attacker.statuses.weak > 0) amount = Math.floor(amount * 0.75);
     }
     if (target?.statuses.vulnerable > 0) amount = Math.floor(amount * 1.5);
@@ -74,7 +84,11 @@ export function estimateDamage(state, actor, target, effects, primaryId) {
         if (e.op === 'damage') {
             const spec = e.target || 'enemy';
             const hitsTarget = spec === 'all-enemies' || (spec === 'enemy' && primaryId === target.id);
-            if (hitsTarget) total += (e.hits || 1) * computeDamage(actor, target, e.amount);
+            if (hitsTarget) total += (e.hits || 1) * computeDamage(actor, target, e.amount, e.strengthScale);
+        } else if (e.op === 'damage-from-block') {
+            const spec = e.target || 'enemy';
+            const hitsTarget = spec === 'all-enemies' || (spec === 'enemy' && primaryId === target.id);
+            if (hitsTarget && actor.block > 0) total += computeDamage(actor, target, actor.block);
         } else if (e.op === 'conditional' && conditionHolds(state, actor, e.when, primaryId)) {
             total += estimateDamage(state, actor, target, e.then, primaryId);
         }

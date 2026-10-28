@@ -46,16 +46,20 @@ const CUTIN_HEAD_SPAN = 2.4;
 
 // 纯函数：按头部标定（相对原图）算出 background-size（占分格宽度 %）与 background-position（%），
 // 让头部落在分格中心。只做 CSS 换算，不读像素。aspect 为原图高宽比，缺失时按常见立绘 1.6。
-export function resolveCutinCrop(head, aspect, ratio = CUTIN_RATIO) {
+// focus 可选：{ span, line } 改放大倍数与纵向对焦点（头顶 0 → 下巴 1），并把位置夹在图像覆盖分格的范围内；不传时结果与旧版一致。
+export function resolveCutinCrop(head, aspect, ratio = CUTIN_RATIO, focus = null) {
     const h = head && Number(head.w) > 0 ? head : FALLBACK_HEAD;
     const a = Number(aspect) > 0 ? Number(aspect) : 1.6;
-    const k = 1 / (Math.max(0.02, Number(h.w)) * CUTIN_HEAD_SPAN);
+    const span = focus && Number(focus.span) > 0 ? Number(focus.span) : CUTIN_HEAD_SPAN;
+    const line = focus && Number(focus.line) >= 0 ? Number(focus.line) : 0.5;
+    const k = 1 / (Math.max(0.02, Number(h.w)) * span);
     const imgH = k * a;
     const px = Math.abs(1 - k) < 1e-6 ? 50 : ((0.5 - Number(h.x) * k) / (1 - k)) * 100;
-    const centerY = Number(h.top) * imgH + Number(h.w) * k * HEAD_ASPECT / 2;
+    const centerY = Number(h.top) * imgH + Number(h.w) * k * HEAD_ASPECT * line;
     const py = Math.abs(ratio - imgH) < 1e-6 ? 50 : ((ratio / 2 - centerY) / (ratio - imgH)) * 100;
     const round = (n) => Math.round(n * 100) / 100;
-    return { size: round(k * 100), x: round(px), y: round(py) };
+    const fit = (n) => (focus ? Math.min(100, Math.max(0, n)) : n);
+    return { size: round(k * 100), x: round(fit(px)), y: round(fit(py)) };
 }
 const RANGE_ATTRS = Object.freeze(['data-igs-fx-era', 'data-igs-fx-flashback', 'data-igs-fx-dream', 'data-igs-fx-letterbox', 'data-igs-fx-whisper', 'data-igs-fx-movie', 'data-igs-fx-lightsoff', 'data-igs-fx-umbrella', 'data-igs-fx-call', 'data-igs-fx-call-remote', 'data-igs-fx-call-sprite', 'data-igs-fx-call-split', 'data-igs-fx-motion', 'data-igs-fx-busy', 'data-igs-fx-presentation', 'data-igs-fx-eat', 'data-igs-fx-state', 'data-igs-fx-state-level']);
 // 进食分镜的立绘动作：挂在 #igs-stage-motion 上，时长与 fx-eat-style 的动画一致。

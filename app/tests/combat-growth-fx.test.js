@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCombatLedger } from '../src/combat/ledger.js';
-import { growthTagsByPage, planGrowthFx, GROWTH_FX_PAGE_MAX } from '../src/visual/igs-ui/combat-growth-fx-model.js';
+import { growthItemText, growthTagsByPage, planGrowthFx, GROWTH_FX_PAGE_MAX } from '../src/visual/igs-ui/combat-growth-fx-model.js';
 import { applyGrowthFxToDom, cancelGrowthFx, renderGrowthFx } from '../src/visual/igs-ui/combat-growth-fx.js';
 import { makeStage, makeTimers } from './helpers/fake-dom.js';
 
@@ -113,4 +113,17 @@ test('渲染适配：扩展关闭时清理已挂演出；NSFW、聊天页、卡�
     assert.equal(root.querySelector('#igs-fx-front').querySelectorAll('.igs-growth-fx').length, 1);
     assert.equal(renderGrowthFx(root, { readerSettings: {}, content: { fx: { growth: plan } } }, ctx).reason, 'disabled');
     assert.equal(root.querySelector('#igs-fx-front').querySelectorAll('.igs-growth-fx').length, 0);
+});
+
+test('属性提升等级：主角跨过 4 级时升级条目显示「属性提升 +2」；无 asiPoints 时文案与旧版一致', () => {
+    const anchor = { messageId: 3, swipeId: 0, tagHash: 'h', occurrence: 0 };
+    const keys = new Set(['h#0']);
+    const growth = [
+        { id: 'e1', type: 'exp', character: 'pc', characterName: '我', anchor, amount: 30, name: '', levelBefore: 3, levelAfter: 4, asiPoints: 2 },
+        { id: 'e2', type: 'exp', character: 'sc', characterName: '白露', anchor, amount: 30, name: '', levelBefore: 3, levelAfter: 4 },
+    ];
+    const plan = planGrowthFx({ growth, messageId: 3, swipeId: 0, keys });
+    const levels = plan.items.filter((i) => i.kind === 'level');
+    assert.deepEqual(levels.map((i) => growthItemText(i).line), ['我 Lv4 · 属性提升 +2', '白露 Lv4']);
+    assert.equal(Object.hasOwn(levels[1], 'asiPoints'), false);
 });

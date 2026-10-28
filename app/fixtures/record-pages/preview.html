@@ -230,7 +230,7 @@ async function openCombat() {
   for (let i = 0; want === 'end' && i < 400 && combat.view()?.status === 'battle'; i += 1) {
     const card = combat.view().battle.hand.find(c => c.playable);
     if (!card) { combat.invoke('end-turn'); continue; }
-    if (!combat.invoke('card', card.inst).ok) combat.invoke('target', card.targets[0]);
+    if (!combat.invoke('card', card.inst).ok) combat.invoke('target', card.targets[0] ?? card.affects[0]);
   }
   combatState.ready = true;
 }

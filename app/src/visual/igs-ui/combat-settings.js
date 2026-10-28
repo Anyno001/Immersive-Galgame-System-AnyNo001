@@ -13,7 +13,6 @@ export function normalizeCombatExpansionSettings(value) {
     const src = plain(value);
     return {
         enabled: src.enabled === true,
-        autoOpen: src.autoOpen === true,
         difficulty: COMBAT_DIFFICULTIES.includes(src.difficulty) ? src.difficulty : 'normal',
         reportDetail: COMBAT_REPORT_DETAILS.includes(src.reportDetail) ? src.reportDetail : 'normal',
     };

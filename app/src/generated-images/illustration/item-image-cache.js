@@ -1,11 +1,12 @@
 import { requireMediaCache } from '../../media/media-cache-owner.js';
 import { createAssetRecordCache } from '../../media/asset-record-cache.js';
-// 物品图记录与图片的按聊天缓存：只读本地存储，不联网；同步取图未命中时异步补载并发事件通知重绘。
-export function createItemRecordCache({ store, type, emit, mediaCache, onError }) {
-    const images = requireMediaCache(mediaCache, 'item-records');
+// 物品图 / 卡面图记录与图片的按聊天缓存：只读本地存储，不联网；同步取图未命中时异步补载并发事件通知重绘。
+// owner 是媒体缓存登记名（物品 item-records、卡面 card-records），两类记录各占一份预算，互不清理。
+export function createItemRecordCache({ store, type, emit, mediaCache, onError, owner = 'item-records' }) {
+    const images = requireMediaCache(mediaCache, owner);
     const keyOf = id => `asset:${id}`;
     const pending = new Set();
-    const metadata = createAssetRecordCache({ store, mediaCache: images, owner: 'item-records',
+    const metadata = createAssetRecordCache({ store, mediaCache: images, owner,
         onChanged: chatId => emit({ chatId, reason: 'hydrated' }),
         onClear: () => pending.clear(), pendingCount: () => pending.size, onError,
     });

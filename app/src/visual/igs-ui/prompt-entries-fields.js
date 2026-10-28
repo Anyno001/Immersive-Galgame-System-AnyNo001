@@ -1,4 +1,4 @@
-import { normalizePromptEntries, PROMPT_ENTRY_DEPTH_MAX, PROMPT_ENTRY_KEYS, PROMPT_ENTRY_LABELS, PROMPT_POSITION_LABELS } from '../../scene/prompt-entries.js';
+import { defaultPromptEntryMode, normalizePromptEntries, PROMPT_ENTRY_DEPTH_MAX, PROMPT_ENTRY_KEYS, PROMPT_ENTRY_LABELS, PROMPT_POSITION_LABELS } from '../../scene/prompt-entries.js';
 import { defaultPromptKeywords, describePromptTrigger } from '../../scene/prompt-triggers.js';
 import { esc } from './reader-value-utils.js';
 import { FX_PROMPT_KEYS, normalizeFxPromptsSettings } from './fx-settings.js';
@@ -95,7 +95,7 @@ function entryRow(key, entry, ctx) {
     const text = (ownText ? entry.text : fx[key]) || builtin[key] || '';
     const available = Boolean(text);
     // 功能没开、又没改过设置的条目不列出，免得列表里全是用不到的行。
-    if (!available && entry.mode === 'auto' && !entry.keys && !entry.position && !entry.text) return '';
+    if (!available && entry.mode === defaultPromptEntryMode(key) && !entry.keys && !entry.position && !entry.text) return '';
     const purpose = entryPurpose(key, PROMPT_ENTRY_LABELS[key]);
     const hint = entry.mode === 'off' ? `已关闭 · ${purpose}` : !available ? `功能未开启 · ${purpose}` : purpose;
     let body = '';

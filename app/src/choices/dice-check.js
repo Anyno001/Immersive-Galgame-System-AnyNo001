@@ -2,10 +2,44 @@
 // 掷骰与属性查询交给 AcuDice 公开 API，使检定历史与统计面板保持一致；
 // 公开 API 不支持奖惩骰，带奖惩时只向 AcuDice 取属性值、在本地掷骰。
 
+import { ABILITY_LABELS, abilityKeyOf, abilityMod } from '../combat/abilities.js';
 export const DICE_RESULT_TAG = 'meta:检定结果';
 
 const DIFFICULTY_LEVEL = Object.freeze({ 普通: 0, 困难: 1, 极难: 2 });
 const DIFFICULTY_DIVISOR = Object.freeze({ 0: 1, 1: 2, 2: 5 });
+
+// d20 检定（v3 §3.9）：d20 + 属性调整值 + 熟练加值（主擅长或次擅长时计入）≥ DC；20 大成功、1 大失败。
+export const D20_DC_RANGE = Object.freeze([5, 30]);
+
+export function d20Bonus(attr, key) {
+    const score = Number(attr?.scores?.[key]);
+    if (!Number.isFinite(score)) return null;
+    const prefs = attr?.prefs || {};
+    const proficient = key === prefs.major || key === prefs.minor;
+    return abilityMod(score) + (proficient ? Number(attr?.proficiency) || 0 : 0);
+}
+
+export function d20Outcome(die, bonus, dc) {
+    const total = die + bonus;
+    if (die === 20) return { total, success: true, tier: '大成功' };
+    if (die === 1) return { total, success: false, tier: '大失败' };
+    return { total, success: total >= dc, tier: total >= dc ? '成功' : '失败' };
+}
+
+const OLD_CHECK_KEYS = Object.freeze(['难度', '奖惩']);
+const CONTEST_KEYS = Object.freeze(['难度', '奖惩', '平局']);
+const TIE_RE = /^(发起方(?:成功|胜|失败|败|负)|平局)$/;
+
+// 旧写法参数校验：未知参数或非法取值直接失败，不再静默按普通难度判定。
+function paramProblem(params, allowed) {
+    for (const [key, value] of Object.entries(params)) {
+        if (!allowed.includes(key)) return `无法识别的参数：${key}=${value}`;
+        if (key === '难度' && !Object.hasOwn(DIFFICULTY_LEVEL, String(value).trim())) return `难度只写 普通/困难/极难：${value}`;
+        if (key === '奖惩' && !/^(奖励|惩罚)[12]?$/.test(String(value).trim())) return `奖惩只写 奖励1/奖励2/惩罚1/惩罚2：${value}`;
+        if (key === '平局' && !TIE_RE.test(String(value).trim())) return `平局只写 发起方成功/发起方失败/平局：${value}`;
+    }
+    return null;
+}
 
 function normalizeCommandText(raw) {
     let text = String(raw ?? '')
@@ -91,10 +125,26 @@ export function parseDiceCommand(raw) {
         const { rest, params } = extractParams(text.slice(3));
         const actor = splitActor(rest);
         if (!actor) return { kind: 'invalid', reason: '普通检定命令格式应为：检定 <角色> <属性>', raw };
+        const dcKey = Object.keys(params).find((k) => /^dc$/i.test(k));
+        if (dcKey !== undefined) {
+            // 新写法：本系统六维 + d20，只接受 DC 一个参数。
+            const extra = Object.keys(params).find((k) => k !== dcKey);
+            if (extra !== undefined) return { kind: 'invalid', reason: `DC 检定只接受 DC 参数，无法识别：${extra}=${params[extra]}`, raw };
+            const dc = Number(params[dcKey]);
+            const [lo, hi] = D20_DC_RANGE;
+            if (!Number.isInteger(dc) || dc < lo || dc > hi) return { kind: 'invalid', reason: `DC 应为 ${lo}–${hi} 的整数：${params[dcKey]}`, raw };
+            const key = abilityKeyOf(actor.attribute);
+            if (!key) return { kind: 'invalid', reason: `DC 检定的属性只写 力量/敏捷/体质/智力/感知/魅力：${actor.attribute}`, raw };
+            return { kind: 'd20', name: actor.name, attribute: key, dc };
+        }
+        const problem = paramProblem(params, OLD_CHECK_KEYS);
+        if (problem) return { kind: 'invalid', reason: problem, raw };
         return { kind: 'check', name: actor.name, attribute: actor.attribute, ...parseModifiers(params) };
     }
     if (text.startsWith('对抗 ')) {
         const { rest, params } = extractParams(text.slice(3));
+        const problem = paramProblem(params, CONTEST_KEYS);
+        if (problem) return { kind: 'invalid', reason: problem, raw };
         const sides = rest
             .replace(/\s*[VvＶｖ][SsＳｓ]\s*/g, ' vs ')
             .replace(/\s+(?:对|对抗)\s+/g, ' vs ')
@@ -178,6 +228,23 @@ async function resolveNormalCheck(command, acuDice, context) {
     return { ok: true, success, roll, target, line, detail };
 }
 
+// 本地 d20：属性由注入的 readAbilities(角色名) 读取（返回属性视图 { scores, prefs, proficiency }），不依赖 AcuDice、不占每楼骰序。
+async function resolveD20Check(command, context) {
+    const who = displayName(command.name, context.userName);
+    if (typeof context.readAbilities !== 'function') return { ok: false, reason: '六维属性不可用（需开启战斗扩展）' };
+    let attr = null;
+    try { attr = await context.readAbilities(command.name); } catch (error) { attr = null; }
+    const bonus = d20Bonus(attr, command.attribute);
+    if (bonus === null) return { ok: false, reason: `未找到 ${who} 的六维属性` };
+    const die = 1 + Math.floor(context.random() * 20);
+    const r = d20Outcome(die, bonus, command.dc);
+    const label = ABILITY_LABELS[command.attribute];
+    const sign = bonus >= 0 ? `+${bonus}` : `${bonus}`;
+    const line = `元叙事：${who}发起了【${label}】检定，1d20${sign}=${die}${sign}=${r.total}，DC ${command.dc}，【${r.tier}】。`;
+    const detail = { kind: 'd20', actor: who, attribute: label, ability: command.attribute, die, bonus, total: r.total, dc: command.dc, tier: r.tier, outcome: r.tier, success: r.success };
+    return { ok: true, success: r.success, roll: die, line, detail };
+}
+
 async function resolveContest(command, acuDice, context) {
     const leftName = displayName(command.left.name, context.userName);
     const rightName = displayName(command.right.name, context.userName);
@@ -253,11 +320,19 @@ function resolvePool(command, context) {
 // 返回 { ok, line }：line 为空表示无需检定。ok=false 时 reason 说明原因，调用方按原命令降级。
 export async function resolveDiceCommand(raw, acuDice, context = {}) {
     const command = parseDiceCommand(raw);
-    const ctx = { random: context.random || Math.random, userName: context.userName || '' };
+    const ctx = { random: context.random || Math.random, userName: context.userName || '', readAbilities: context.readAbilities };
     if (command.kind === 'invalid') return { ok: false, reason: command.reason };
     if (command.kind === 'none') return { ok: true, line: '' };
     if (command.kind === 'fixed') return { ok: true, success: command.success, line: `元叙事：无需投骰，【${command.success ? '必定成功' : '必定失败'}】。` };
     if (command.kind === 'pool') return resolvePool(command, ctx);
+    // DC 新写法本地掷 d20，不依赖 AcuDice。
+    if (command.kind === 'd20') {
+        try {
+            return await resolveD20Check(command, ctx);
+        } catch (error) {
+            return { ok: false, reason: String(error && error.message || error || '检定执行失败') };
+        }
+    }
     if (!isAcuDice(acuDice)) return { ok: false, reason: '骰子系统未就绪' };
     try {
         return command.kind === 'check'

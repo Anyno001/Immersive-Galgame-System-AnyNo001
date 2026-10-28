@@ -57,6 +57,40 @@ export const BATTLE_SFX_PARTIALS = Object.freeze({
         p('square', 440, 440, 0.16, 0.06, 0.12, { attack: 0.002 }),
         p('sine', 900, 300, 0.26, 0.3, 0.16, { attack: 0.01, sweep: 1 }),
     ]),
+    // 卡牌战斗面板：己方出牌的挥出声（短促风切 + 轻响），特写进场的斩切声与余鸣，觉醒的上扬鸣响与低频托底。
+    'battle-card': Object.freeze([
+        p('noise', 2400, 600, 0, 0.16, 0.22, { filter: 'bandpass', q: 0.8, attack: 0.004, sweep: 1 }),
+        p('triangle', 660, 990, 0, 0.08, 0.12, { attack: 0.002, sweep: 1 }),
+    ]),
+    'battle-cutin': Object.freeze([
+        p('noise', 4000, 900, 0, 0.22, 0.26, { filter: 'bandpass', q: 0.7, attack: 0.003, sweep: 1 }),
+        p('sawtooth', 1800, 240, 0.02, 0.16, 0.16, { attack: 0.002, sweep: 1 }),
+        p('triangle', 1760, 1760, 0.18, 0.4, 0.16, { attack: 0.003 }),
+        p('sine', 110, 50, 0.2, 0.32, 0.6, { attack: 0.003, sweep: 1 }),
+    ]),
+    'battle-awaken': Object.freeze([
+        p('sine', 220, 880, 0, 0.6, 0.22, { attack: 0.03, sweep: 1 }),
+        p('triangle', 440, 440, 0.5, 0.9, 0.24, { attack: 0.01 }),
+        p('triangle', 554, 554, 0.5, 0.9, 0.2, { attack: 0.01 }),
+        p('triangle', 659, 659, 0.5, 0.9, 0.2, { attack: 0.01 }),
+        p('sine', 80, 40, 0.5, 0.6, 0.8, { attack: 0.004, sweep: 1 }),
+    ]),
+    // 卡牌战斗面板：稀有 / 史诗 / 神话（专属卡同神话档）出牌命中的分档冲击声，逐档加厚高频撕裂与低频托底。
+    'battle-impact-rare': Object.freeze([
+        p('triangle', 1320, 880, 0, 0.12, 0.16, { attack: 0.002, sweep: 1 }),
+        p('sine', 160, 70, 0, 0.2, 0.55, { attack: 0.002, sweep: 1 }),
+    ]),
+    'battle-impact-epic': Object.freeze([
+        p('noise', 2600, 700, 0, 0.18, 0.24, { filter: 'bandpass', q: 0.9, attack: 0.002, sweep: 1 }),
+        p('triangle', 1568, 1046, 0.02, 0.2, 0.16, { attack: 0.002, sweep: 1 }),
+        p('sine', 120, 45, 0.02, 0.32, 0.75, { attack: 0.002, sweep: 1 }),
+    ]),
+    'battle-impact-mythic': Object.freeze([
+        p('sawtooth', 1800, 120, 0, 0.22, 0.2, { attack: 0.002, sweep: 1 }),
+        p('noise', 3200, 500, 0.02, 0.36, 0.3, { filter: 'bandpass', q: 0.8, attack: 0.002, sweep: 1 }),
+        p('triangle', 2093, 2093, 0.12, 0.5, 0.12, { attack: 0.004 }),
+        p('sine', 90, 32, 0.03, 0.55, 0.9, { attack: 0.002, sweep: 1 }),
+    ]),
     // 魔法世界：拔杖对峙为上扬泛音，命中为咒光划过的下扫频，护盾为长鸣的晶质和弦。
     'battle-encounter-magic': Object.freeze([
         p('sine', 330, 1320, 0, 0.4, 0.22, { attack: 0.02, sweep: 1 }),

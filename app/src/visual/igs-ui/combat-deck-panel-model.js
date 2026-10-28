@@ -1,7 +1,52 @@
-import { COMBAT_RULES, validateDeck } from '../../combat/rules.js';
+import { COMBAT_RULES, cardCopyLimit, validateDeck } from '../../combat/rules.js';
+import { scaleCard } from '../../combat/card-scaling.js';
+import { ABILITY_KEYS, ABILITY_LABELS, REL_TIERS, abilityMod } from '../../combat/abilities.js';
+import { characterCombatStats } from '../../combat/session.js';
+import { describeEffects } from './combat-card-art.js';
+import { sellPrice } from '../../combat/points.js';
+
+// 构筑面板按当前六维预览卡牌性能：固定卡或没有属性视图时不带字段。
+function scalingPreview(card, attr) {
+    const s = card && attr?.scores ? scaleCard(card, attr).scaling : null;
+    return s ? { scaling: { ability: s.ability, label: ABILITY_LABELS[s.ability] || s.ability, required: s.required, multiplier: s.multiplier } } : {};
+}
 
 // 卡组构筑面板的纯视图模型：账本归并状态 → 角色列表 / 详情 / 构筑草稿校验；不操作 DOM、不写表。
 export const DECK_KIND_LABELS = Object.freeze({ 'deck-character': '卡组', 'skill-character': '技能' });
+export const GEAR_SLOT_LABELS = Object.freeze({ weapon: '武器', armor: '防具', accessory: '饰品', treasure: '宝物' });
+// 人物状态面板的五页：状态、加点、装备、卡组（技能角色为技能）、背包。
+export const DECK_PAGES = Object.freeze(['status', 'alloc', 'gear', 'deck', 'collection']);
+export const DECK_PAGE_LABELS = Object.freeze({ status: '状态', alloc: '加点', gear: '装备', deck: '卡组', collection: '背包' });
+const signed = (n) => (n >= 0 ? `+${n}` : `${n}`);
+
+// 六维与加点：attr 为角色属性视图，picks 为加点草稿（属性 → 点数）。可编辑 = 主角 + 属性表已建 + 不在战斗中；
+// 每行给出计入草稿后的属性值、调整值与能否再加 / 减（剩余点数、属性上限）。没有属性视图时返回 null。
+export function allocView(attr, picks = null, { readonly = false } = {}) {
+    if (!attr?.scores) return null;
+    const draft = picks || {};
+    const used = ABILITY_KEYS.reduce((sum, k) => sum + (draft[k] || 0), 0);
+    const balance = attr.balance || 0;
+    const left = Math.max(0, balance - used);
+    const editable = attr.protagonist === true && attr.table === 'ok' && !readonly;
+    const rows = ABILITY_KEYS.map((key) => {
+        const add = draft[key] || 0;
+        const score = attr.scores[key] + add;
+        const mod = add ? abilityMod(score) : attr.mods?.[key] ?? abilityMod(score);
+        return { key, label: ABILITY_LABELS[key] || key, score, add, modText: signed(mod), canAdd: editable && left > 0 && score < attr.cap, canRemove: editable && add > 0 };
+    });
+    return { protagonist: attr.protagonist === true, table: attr.table, balance, used, left, cap: attr.cap, editable, dirty: used > 0, rows };
+}
+
+// 装备栏、背包与道具：四个部位按固定顺序列出（空部位也列出），背包为已拥有未装备的装备（带稀有度与售价，在背包页列出）。
+function gearView(view) {
+    const slots = view.gear?.slots || {};
+    return {
+        slots: Object.entries(GEAR_SLOT_LABELS).map(([slot, label]) => ({ slot, label, item: slots[slot] ? { gearId: slots[slot].gearId, name: slots[slot].name, text: slots[slot].passive?.description || '' } : null })),
+        bag: (view.gear?.bag || []).map((g) => ({ gearId: g.gearId, name: g.name, slot: g.slot, slotLabel: GEAR_SLOT_LABELS[g.slot] || g.slot,
+            rarity: g.rarity || '', price: sellPrice(g.rarity, g.gearId), text: g.passive?.description || '' })),
+        items: (view.items || []).map((i) => ({ itemId: i.itemId, name: i.name, count: i.count })),
+    };
+}
 // 会话处于这些状态时战斗仍在进行，构筑面板只读。
 const BUSY_SESSION = Object.freeze(['preparing', 'battle', 'ended', 'send-failed']);
 
@@ -12,8 +57,9 @@ export function isCombatBusy(sessionState) {
 export function deckRosterView(state) {
     if (!state?.ok) return [];
     const list = [...state.characters.values()].map((v) => ({
-        id: v.id, kind: v.kind, kindLabel: DECK_KIND_LABELS[v.kind] || v.kind, name: v.name, level: v.level,
-        exp: v.exp, into: v.into, next: v.next, className: v.className || '',
+        id: v.id, kind: v.kind, kindLabel: DECK_KIND_LABELS[v.kind] || v.kind, name: v.name, level: v.attributes?.level ?? v.level,
+        exp: v.exp, into: v.into, next: v.next, className: v.attributes?.className || v.className || '',
+        protagonist: v.attributes?.protagonist === true,
         deckSize: v.kind === 'deck-character' ? v.deck.length : 0,
         needsAdjust: v.kind === 'deck-character' && v.deckNeedsAdjust === true,
         pendingRewards: v.kind === 'deck-character' ? v.pendingRewards.length : 0,
@@ -25,19 +71,29 @@ export function deckRosterView(state) {
 // 构筑草稿校验：张数、同名上限、拥有数与未知卡；返回按卡归并的错误，供界面在对应卡上标错。
 export function validateDraft(view, draft) {
     const cards = Array.isArray(draft) ? draft : [];
-    const check = validateDeck(cards, view.owned);
-    const unknown = [...new Set(cards.filter((id) => !view.catalog.has(id)))].map((cardId) => ({ path: 'cards', reason: 'unknown-card', cardId }));
-    const errors = [...check.errors, ...unknown];
+    const check = validateDeck(cards, view.owned, view.catalog);
+    const errors = check.errors;
     const byCard = new Map();
     for (const e of errors) if (e.cardId) byCard.set(e.cardId, [...(byCard.get(e.cardId) || []), e.reason]);
     return { ok: errors.length === 0, size: cards.length, min: COMBAT_RULES.deckMin, max: COMBAT_RULES.deckMax, errors, byCard };
 }
 
+// 人物特性（P-d）：名称、稀有度、来历、联动与被动说明（被动数值已按稀有度加强）。
+const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, origin: t.origin || '', link: t.link || null, text: t.passive ? describeEffects(t.passive.effects) : '' });
+
 export function deckDetailView(view, draft) {
     if (!view) return null;
-    const base = { id: view.id, kind: view.kind, name: view.name, level: view.level, exp: view.exp, into: view.into, next: view.next };
+    const base = { id: view.id, kind: view.kind, name: view.name, level: view.attributes?.level ?? view.level,
+        exp: view.exp, into: view.into, next: view.next, attributes: view.attributes,
+        combat: characterCombatStats(view), traits: (view.traits || []).map(traitView), pendingTrait: view.pendingTrait ? traitView(view.pendingTrait) : null,
+        collection: (view.collection || []).map((k) => ({ ...k, price: sellPrice(k.rarity, k.lootId) })), points: view.points ?? 0, canSell: view.attributes?.protagonist === true,
+        relLabel: REL_TIERS[view.attributes?.tier]?.label || '',
+        abilities: allocView(view.attributes)?.rows || [] };
     if (view.kind === 'skill-character') {
-        return { ...base, className: view.className || '', skills: view.skills.map((s) => ({ id: s.id, name: s.name, intent: s.intent })),
+        const tier = Object.hasOwn(COMBAT_RULES.allyTiers, view.profile?.tier) ? view.profile.tier : COMBAT_RULES.defaultAllyTier;
+        return { ...base, gear: gearView(view), className: view.attributes?.className || view.className || '', tier, tierLabel: COMBAT_RULES.allyTiers[tier].label,
+            tiers: Object.entries(COMBAT_RULES.allyTiers).map(([key, t]) => ({ key, label: t.label })),
+            skills: view.skills.map((s) => ({ id: s.id, name: s.name, intent: s.intent })),
             passives: (view.passives || []).map((p) => ({ id: p.id, name: p.name })) };
     }
     const cards = draft || view.deck;
@@ -46,16 +102,20 @@ export function deckDetailView(view, draft) {
     for (const id of cards) inDeck.set(id, (inDeck.get(id) || 0) + 1);
     const owned = [...view.owned.entries()].filter(([, n]) => n > 0).map(([id, n]) => {
         const card = view.catalog.get(id);
-        return { cardId: id, name: card?.name || id, type: card?.type || '', cost: card?.cost ?? '', owned: n,
+        return { cardId: id, name: card?.name || id, type: card?.type || '', cost: card?.cost ?? '', rarity: card?.rarity || '', owned: n,
             upgraded: view.upgraded.get(id) || 0, inDeck: inDeck.get(id) || 0, errors: check.byCard.get(id) || [],
-            canAdd: (inDeck.get(id) || 0) < Math.min(n, COMBAT_RULES.copyLimit) };
+            canAdd: (inDeck.get(id) || 0) < Math.min(n, cardCopyLimit(card?.rarity)), ...scalingPreview(card, view.attributes) };
     }).sort((a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : Number(a.cost) - Number(b.cost)));
     const profile = view.profile || {};
+    // 专属卡：档案登记的全部列出，未经剧情解锁的标为锁定（只展示名称与费用，不可加入卡组）。
+    const signature = (profile.signatureCards || []).map((c) => ({ cardId: c.id, name: c.name, cost: c.cost, type: c.type, unlocked: (view.owned.get(c.id) || 0) > 0 }));
     return {
-        ...base, className: view.className || '', hpMax: view.hpMax,
-        classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name } : null,
-        personalPassive: profile.personalPassive ? { name: profile.personalPassive.name } : null,
-        owned, deck: cards, check, dirty: Boolean(draft) && draft.join('|') !== view.deck.join('|'),
+        ...base, gear: gearView(view), className: view.attributes?.className || view.className || '', hpMax: view.hpMax,
+        // 职业阶（P-c）：classTier 一阶起，tierName 为阶名；expLevel 为按 EXP 推导的等级，升阶门槛按它判断（与账本归并一致）。
+        classRef: view.classRef ?? null, classTier: view.classTier || 1, tierName: view.tierName || '', expLevel: view.level ?? 1,
+        classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name, text: describeEffects(view.classProfile.classPassive.effects) } : null,
+        personalPassive: profile.personalPassive ? { name: profile.personalPassive.name, text: describeEffects(profile.personalPassive.effects) } : null,
+        owned, signature, deck: cards, check, dirty: Boolean(draft) && draft.join('|') !== view.deck.join('|'),
         pendingRewards: [...view.pendingRewards],
     };
 }

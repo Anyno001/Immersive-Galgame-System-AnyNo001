@@ -31,16 +31,30 @@ export const PROMPT_ENTRY_TEXT_MAX = 6000;
 // 排除词、次要词、黏性、冷却、扫描范围的界面已移除：旧存档里的这些值在规范化时丢弃，按「无排除、无次要、不黏、不冷却、扫用户输入 + AI 上 1 楼」运行。
 export const DEFAULT_PROMPT_ENTRY = Object.freeze({ mode: 'auto', keys: '', position: '', depth: PROMPT_ENTRY_DEPTH_DEFAULT, text: '' });
 
+// 条目缺省模式：卡牌战斗随扩展开启默认常驻，其余按需。
+export const PROMPT_ENTRY_DEFAULT_MODES = Object.freeze({ combat: 'always' });
+
+export function defaultPromptEntryMode(key) {
+    return PROMPT_ENTRY_DEFAULT_MODES[key] || 'auto';
+}
+
 function clampInt(value, min, max, fallback) {
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(min, Math.min(max, Math.round(n)));
 }
 
-export function normalizePromptEntry(value) {
+// key 决定缺省模式。缺省不是 auto 的条目：旧存档里规范化时补齐的 auto 不算用户选择，回到缺省；
+// 在设置里亲手切成按需的带 modeChosen，才按 auto 运行。off / always 一律按存档。
+export function normalizePromptEntry(value, key = '') {
     const v = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const fallback = defaultPromptEntryMode(key);
+    const stored = PROMPT_ENTRY_MODES.includes(v.mode) ? v.mode : '';
+    const chosenAuto = stored === 'auto' && (fallback === 'auto' || v.modeChosen === true);
+    const mode = stored && (stored !== 'auto' || chosenAuto) ? stored : fallback;
     return {
-        mode: PROMPT_ENTRY_MODES.includes(v.mode) ? v.mode : 'auto',
+        mode,
+        ...(fallback !== 'auto' && mode === 'auto' ? { modeChosen: true } : {}),
         keys: String(v.keys || '').trim(),
         position: PROMPT_ENTRY_POSITIONS.includes(v.position) ? v.position : '',
         depth: clampInt(v.depth, 0, PROMPT_ENTRY_DEPTH_MAX, PROMPT_ENTRY_DEPTH_DEFAULT),
@@ -52,7 +66,7 @@ export function normalizePromptEntry(value) {
 // 只保留认识的块，返回新对象，入参不被改动。
 export function normalizePromptEntries(value) {
     const v = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    return Object.fromEntries(PROMPT_ENTRY_KEYS.map((key) => [key, normalizePromptEntry(v[key])]));
+    return Object.fromEntries(PROMPT_ENTRY_KEYS.map((key) => [key, normalizePromptEntry(v[key], key)]));
 }
 
 export function isPromptEntryKey(key) {

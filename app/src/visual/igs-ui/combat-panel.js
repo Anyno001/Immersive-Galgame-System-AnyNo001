@@ -2,17 +2,76 @@ import { setStagePauseReason } from './stage-pause.js';
 import { planBattleFx, safePortraitUrl } from './fx-battle-model.js';
 import { applyBattleFxToDom, cancelBattleFx } from './fx-battle.js';
 import { prefersReducedMotion } from './reduced-motion.js';
-import { battleView, combatFxSource, endView, lobbyView, resolvePlay, rewardChoices } from './combat-panel-model.js';
-import { combatReasonText, renderCombatPanelHtml } from './combat-panel-render.js';
+import { peekSpriteHead, probeSpriteHead, waitSpriteHead } from './fx-anchor.js';
+import { COMBAT_CUTIN_MS, buildCutinFigure, buildOpeningCutin, buildSkillCutin } from './combat-cutin.js';
+import { battleSfxKind } from './fx-battle-sfx.js';
+import { ensureFxLayers } from './fx-layer.js';
+import { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
+import { HERO_SKILL_SELECTION, battleView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, lobbyView, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, volleyTargets } from './combat-panel-model.js';
+import { combatReasonText, renderCombatPanelHtml, tintTriplet } from './combat-panel-render.js';
+import { actionProgress } from '../../combat/engine.js';
+import { enemyArtCell } from './combat-enemy-art.js';
 
 // 卡牌战斗面板。挂在 #igs-overlay 直属层（不进 #igs-stage-motion），避免阅读器自己的演出层查到面板内的演出节点。
 // 会话由 options.getSession() 注入；面板只转发动作、渲染快照，不自行结算。
 export const COMBAT_PANEL_ID = 'igs-combat-panel';
 const PAUSE_REASON = 'panel:combat';
+// 逐单位演出的最短间隔：没有命中演出的出手（如格挡、强化）也停留这么久，让行动顺序看得清。
+const ACT_GAP_MS = 900;
+// 面板命中演出的停留倍率：出招间隔、命中停留、击倒与结算一起放慢；段时长按放慢后的 totalMs 累计，无特写段与时间轴保持一致。
+// 只作用于战斗面板，阅读器正文里的 [igs-fx:battle] 仍按演出风格的停留档位。
+export const COMBAT_FX_HOLD_SCALE = 1.35;
+// 相邻特写的进场间隔占前一个特写时长的比例：后一个在前一个开始淡出时进场。
+const CUTIN_OVERLAP = 0.85;
+// 行动条头像每段前进的时长（与样式里 left 过渡一致）；减少动态效果时为 0。
+const TRACK_MOVE_MS = 500;
+// 演出进行中卡面图到达时，隔多久再看一次演出是否结束。
+const ART_REFRESH_DELAY_MS = 400;
+// 鞭尸期间打空最后一名敌人：演出放完、倒下显示后停顿这么久，再自动结束回合判胜。
+const COMBAT_FINISH_BEAT_MS = 700;
+// 结果横幅（胜利 / 败北 / 撤退）在战斗面板里只是换结算画面的过渡：最后一次命中落下（含稀有度停顿）后隔 BEAT 出现，最多停留 LIFE（不随停留倍率放大）；
+// 放到 SWAP 时换成结算画面，横幅叠在结算画面上淡出、结算标题同时落定，不等横幅完全消失再硬切。结算入场动画只在第一次画出结算后的 INTRO 内播。
+const COMBAT_RESULT_BEAT_MS = 600;
+const COMBAT_RESULT_LIFE_MS = 1700;
+const COMBAT_RESULT_SWAP = 0.7;
+const COMBAT_RESULT_INTRO_MS = 1300;
+
+// 只改这一份演出计划里的结果横幅：提前到最后一次命中落下之后、缩短停留；没有命中的计划（鞭尸后自动结束回合）横幅时刻不变。阅读器正文的 [igs-fx:battle] 仍按原时长。
+// landing 为 combatLandings 的结果（时刻从命中演出开始起算，与计划里的 at 同一起点），hold 为这一段的稀有度停顿。
+export function combatResultBeat(plan, landing, hold = 0) {
+    const events = Array.isArray(plan?.events) ? plan.events : [];
+    const i = events.findIndex((e) => e.type === 'result');
+    if (i < 0) return plan;
+    const hits = events.some((e) => e.type === 'hit');
+    const next = events.map((e, j) => {
+        if (j !== i) return e;
+        const at = hits ? Math.min(e.at, Math.round(Math.max(0, Number(landing?.last) || 0) + (Number(hold) || 0) + COMBAT_RESULT_BEAT_MS)) : e.at;
+        return { ...e, at, life: Math.min(e.life, COMBAT_RESULT_LIFE_MS) };
+    });
+    return { ...plan, events: next, totalMs: Math.max(0, ...next.map((e) => e.at + e.life)) };
+}
+// 连续出牌的衔接：己方出牌最后一次命中落下（含稀有度停顿）后再隔这么久，排队的下一张开始结算；与受击反馈同长，上一击的抖动播完下一击才落。
+export const COMBAT_CHAIN_MS = COMBAT_HIT_REACT_MS;
+
+// 演出速度：1 原速、2 二倍速，由右上角按钮切换并记在 options.storage（键 igs:combat-fx-speed:v1，读写失败按原速）。
+// 二倍速时 JS 时间轴（later 与 fx-battle 的计时）按倍率缩短，面板内有限次的样式动画、过渡与 WAAPI 动画按同一倍率播放，节点与动画同时结束。
+export const COMBAT_FX_SPEEDS = Object.freeze([1, 2]);
+const FX_SPEED_KEY = 'igs:combat-fx-speed:v1';
+function readFxSpeed(storage) {
+    try {
+        const n = Number(storage?.getItem?.(FX_SPEED_KEY));
+        return COMBAT_FX_SPEEDS.includes(n) ? n : 1;
+    } catch (error) { return 1; }
+}
+function writeFxSpeed(storage, speed) {
+    try { storage?.setItem?.(FX_SPEED_KEY, String(speed)); } catch (error) { /* 存不上只影响下次打开时的默认速度 */ }
+}
 
 export function createCombatPanelController(doc, options = {}) {
     let root = null;
     let stage = null;
+    let fxSpeed = readFxSpeed(options.storage);
+    let speedWatch = null;
     let pageOverlay = null;
     let previousFocus = null;
     let messageId = null;
@@ -20,15 +79,81 @@ export function createCombatPanelController(doc, options = {}) {
     let pending = '';
     let notice = '';
     let selected = null;
+    // 炉石式拖牌：drag 为按住中的手牌（拖过阈值后 live）；dropFrom 为松手打出时影子卡的位置；dragClickUntil 吞掉拖动结束后补发的 click。
+    let drag = null;
+    let dropFrom = null;
+    let dragClickUntil = 0;
     let controlledId = null;
     let fxSeq = 0;
     let rewards = null;
-    let confirming = '';
     let abort = null;
+    // 上次渲染时的能量液面（0–1）；重绘后从这里过渡到新液面。
+    let lastFill = null;
+    // 卡面图订阅（打开时订阅、关闭时退订）：本地图片补载或生成完成后重绘手牌。
+    let offCardArt = null;
+    // 面板尺寸变化只移动原控件，不整块重绘或复制按钮。
+    let stopDockWatch = null;
+    // 紧凑横屏控件上次量得的坐标：手牌打空、量不到牌顶时沿用，不跳回保底位置。
+    let heroCtrlPos = null;
+    // 点开的牌面数字加成详情（挂在面板根节点上，同一时刻最多一个）。
+    let scaleTip = null;
+    // 演出进行中推迟的卡面刷新（同一时刻最多一个计时器；不进 cutinTimers，清演出时不受影响）。
+    let artTimer = null;
+    const cutinTimers = new Set();
+    const cutinNodes = new Set();
+    // 打击感：命中落下前各单位显示的暂存血量（unitId → { hp, maxHp, alive, refs }）；整块重绘后按它补画。
+    // 连续出牌时多条时间轴可能同时在播：同一单位只暂存一份，各条时间轴的命中按增量落到它上面；refs 为还没播完、动到它的时间轴条数，减到 0 才放回真实值。
+    const held = new Map();
+    // 上次画出的各单位意图、格挡与行动条头像：鞭尸期间被击倒、还没显示倒下的单位按它补画（引擎在倒下时已清掉这些）。
+    const drawnLook = new Map();
+    // 每次动作递增，作为动作身份：结算收尾（settle）与自动行动演出锁只认对应的那次动作；更早动作的时间轴照常播完、照常落下。
+    let hitGen = 0;
+    // 正在播的时间轴条数，以及排队等着播的时间轴：连续出牌与结束回合后的阶段按动作顺序逐条播放（引擎已逐个立即结算）。
+    let live = 0;
+    // 还没交棒的时间轴条数（见 playFx）：排队的动作等它归零才开始。
+    let busy = 0;
+    const waiting = [];
+    // 结束战斗的那次动作：演出时间轴走完前仍按战斗画面重绘（敌方单位还在，最后一击的命中与飘字落得下去），走完后才换成结算画面；关闭面板时放弃。
+    let settling = false;
+    // 自动行动（队友与敌人）演出播放中：引擎在结束回合时已一次结算完，面板逐段回放；播完前不接受新的己方动作，免得旧演出接在新出牌之后播。
+    // 己方出牌不加锁，不等上一张的演出播完就能出下一张；结束回合时立即加锁。值为该次动作的 hitGen，-1 表示空闲。
+    let autoGen = -1;
+    // 本次打开后是否已画过战前：只有第一次带入场动画（data-intro），选角色等重绘不重播；开合时重置。
+    let lobbyShown = false;
+    // 会话订阅（打开时订阅、关闭时退订）：后台准备结束、留档写入等异步变化到达时，状态或留档提示有变才重绘。
+    let offSession = null;
+    let drawnStatus = '';
+    let drawnRecordError = '';
+    // 翻牌进度只改 flip、不改状态：记下画过的翻牌视图，异步读到 offer、翻牌写入后有变化才重绘。
+    let drawnFlip = '';
+    // 已朝上的翻牌位置（按本场与套别）：只给刚翻开的牌出光效，重开面板、换上备用套后首次画出不出光效。
+    let flipShown = null;
+    // 本场结算画面第一次画出的时刻（按本场与结果）：入场动画据此只播一次，期间重绘按已过时间接着播；开合时重置。
+    let resultShown = null;
+    const flipSig = (v) => ((v?.status === 'ended' || v?.status === 'send-failed') && v.flip ? JSON.stringify(v.flip) : '');
 
     const session = () => (typeof options.getSession === 'function' ? options.getSession() : null);
     const reduced = () => {
         try { return typeof options.reducedMotion === 'function' ? options.reducedMotion() === true : prefersReducedMotion(); } catch (error) { return false; }
+    };
+    // 演出音效：宿主注入 playSfx(kind)（按「演出音效」开关与音量合成）；减少动态效果时与阅读器战斗演出一致，不出声。
+    const sfx = (kind) => {
+        if (!kind || typeof options.playSfx !== 'function' || reduced()) return;
+        try { options.playSfx(kind); } catch (error) { /* 音效失败不影响演出 */ }
+    };
+    // 战斗音乐：打开时请宿主把配乐切到 battle 情绪，关闭时放回剧情配乐（options.setBattleMusic(overlay, on)；未注入时不动配乐）。
+    const battleMusic = (overlay, on) => {
+        if (!overlay || typeof options.setBattleMusic !== 'function') return;
+        try { options.setBattleMusic(overlay, on); } catch (error) { /* 配乐失败不影响面板 */ }
+    };
+    const lowQuality = () => pageOverlay?.getAttribute?.('data-igs-quality') === 'low';
+    // 按 data-unit 找单位块，不把 id 拼进选择器。
+    const unitEl = (id) => [...(root?.querySelectorAll?.('.igs-combat-unit') || [])].find((n) => n.getAttribute?.('data-unit') === id) || null;
+    // 按 data-combat-id 找手牌（影子卡去掉了该属性，不会被找到）。
+    const cardEl = (inst) => [...(root?.querySelectorAll?.('.igs-combat-card') || [])].find((n) => n.getAttribute?.('data-combat-id') === String(inst)) || null;
+    // 单位呼吸跟随 IGS「立绘活动 → 待机呼吸」（options.breathing 由宿主按阅读器设置给出）；减少动态效果时不呼吸，低画质由样式层按 #igs-overlay[data-igs-quality="low"] 停。
+    const breathing = () => {
+        try { return typeof options.breathing === 'function' && options.breathing() === true && !reduced(); } catch (error) { return false; }
     };
     // 立绘地址由宿主按素材库解析（options.resolvePortrait），这里只过滤协议；取不到时渲染层用剪影。
     const portraitsFor = (names) => {
@@ -41,51 +166,944 @@ export function createCombatPanelController(doc, options = {}) {
         }
         return out;
     };
+    // 手牌卡面只读本地缓存（options.resolveCardImage，按卡 ID），同样只过滤协议；取不到时渲染层用线条 SVG。
+    const cardArtFor = (cardId) => {
+        let url = '';
+        try { url = typeof options.resolveCardImage === 'function' ? options.resolveCardImage(cardId) : ''; } catch (error) { url = ''; }
+        return safePortraitUrl(url);
+    };
+    // 没有素材库立绘的敌人用通用敌人图集的一格；题材随宿主注入的世界观（getFxSkin().worldview），按名字去重，批量敌人共用原名推断的格位。
+    const worldviewOf = () => {
+        try { return String((typeof options.getFxSkin === 'function' ? options.getFxSkin() : null)?.worldview || ''); } catch (error) { return ''; }
+    };
+    const enemyArtFor = (foes, pics) => {
+        const out = {};
+        const worldview = worldviewOf();
+        for (const u of foes) {
+            if (!u?.name || pics[u.name] || Object.hasOwn(out, u.name)) continue;
+            out[u.name] = enemyArtCell({ art: u.art, name: u.name, tier: u.tier, worldview });
+        }
+        return out;
+    };
+
+    // 暂存中的单位（命中还没落完，或鞭尸期间被击倒、还没显示倒下）按暂存血量与存活画进视图：重绘不提前露出结算后的血量或倒下；
+    // 引擎在倒下时清掉的意图、格挡与行动条头像沿用上次画出的。
+    function shownHeld(b) {
+        const shown = (u) => {
+            const e = held.get(u.id);
+            if (!e) return u;
+            const look = drawnLook.get(u.id);
+            const revived = e.alive && !u.alive ? { intent: u.intent || look?.intent || null, block: look?.block || 0 } : {};
+            return { ...u, hp: e.hp, alive: e.alive, ...revived };
+        };
+        b.allies = b.allies.map(shown);
+        b.enemies = b.enemies.map(shown);
+        for (const [id, e] of held) {
+            const dot = drawnLook.get(id)?.dot;
+            if (e.alive && dot && !b.track.some((t) => t.id === id)) b.track.push(dot);
+        }
+    }
 
     function snapshot() {
         const s = session();
         const cur = s ? s.state() : { status: 'unavailable' };
-        const view = { status: cur.status, reason: cur.reason || '', notice, pending, selected, controlledId, confirming, rewards };
+        // 留档写入失败只提示、不阻断：面板自己没有提示时显示留档原因。
+        const view = { status: cur.status, reason: cur.reason || '', notice: notice || (cur.recordError ? combatReasonText(cur.recordError) : ''), pending, selected, controlledId, rewards };
+        if (cur.status === 'blocked' && Array.isArray(cur.rejected)) {
+            const lead = cur.rejected.find((r) => r?.fallback?.kind === 'blocked') || cur.rejected[0];
+            view.cause = lead?.errors?.[0]?.reason || '';
+        }
         if (cur.status === 'lobby') view.lobby = lobbyView(cur);
         if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal);
-        if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle);
+        // 只在取到图时追加 artUrl：未生成卡面时手牌视图形状不变。
+        if (view.battle) view.battle.hand = view.battle.hand.map((c) => { const artUrl = cardArtFor(c.id); return artUrl ? { ...c, artUrl } : c; });
+        if (view.battle && held.size) shownHeld(view.battle);
+        if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events);
+        if (settling) view.settling = true;
+        // 演出速度只在二倍速时写进视图：原速时视图形状不变。
+        if (fxSpeed > 1) view.fxSpeed = fxSpeed;
         const names = view.battle ? [...view.battle.allies, ...view.battle.enemies].map((u) => u.name)
             : view.lobby ? [...view.lobby.allies.map((a) => a.name), ...view.lobby.enemies.map((e) => e.name)] : [];
         view.portraits = portraitsFor(names);
+        const foes = view.battle ? view.battle.enemies : view.lobby ? view.lobby.enemies : [];
+        view.enemyArt = enemyArtFor(foes, view.portraits);
+        // 我方立绘框色调：取立绘探测缓存里的 tint（整幅压到 25×25 后取最亮的不透明像素）；只在取到时追加 tints，未探测的由 probeTints 在绘制后补。
+        if (view.lobby) {
+            const tints = {};
+            for (const a of view.lobby.allies) {
+                const tint = cachedSprite(view.portraits[a.name])?.tint;
+                if (tintTriplet(tint)) tints[a.name] = tint;
+            }
+            if (Object.keys(tints).length) view.tints = tints;
+        }
         if (cur.status === 'send-failed' || cur.status === 'done') view.report = cur.report ? { result: cur.report.result } : null;
+        // 胜利翻牌：读取中、读取失败、读到 offer 时追加 flip；没有 offer 时不追加（视图形状不变）。
+        if ((cur.status === 'ended' || cur.status === 'send-failed') && cur.flip && cur.flip.status !== 'none') view.flip = cur.flip;
         view.encounter = cur.start?.encounter || cur.record?.encounter || '';
         return view;
+    }
+
+    function freshFlip(flip, combatId) {
+        const key = `${combatId}|${flip.set}`;
+        const up = flip.cards.filter((c) => c.faceUp).map((c) => c.position);
+        const hit = flip.cards.filter((c) => c.flipped).map((c) => c.position);
+        const prev = flipShown?.key === key ? flipShown : null;
+        flipShown = { key, up, hit };
+        // fresh：刚朝上（翻面入场）；struck：刚被自己翻开（出稀有度光效，透视已亮出的牌也算）。
+        const fresh = prev ? up.filter((p) => !prev.up.includes(p)) : [];
+        const struck = prev ? hit.filter((p) => !prev.hit.includes(p)) : [];
+        return fresh.length || struck.length ? { ...flip, fresh, struck } : flip;
+    }
+
+    // 整块重绘会换掉单位块：重绘前把单位块上还在播的演出（飘字、受击形态）与受击反馈收起来，重绘后挂回同一单位的新节点，
+    // 并按挪动前的播放进度接上（样式动画换了位置会从头再播）；连续出牌时上一张牌的演出不被下一张的重绘清掉。
+    const UNIT_FX = '.igs-combat-float, .igs-combat-rarity-fx';
+    const animationsOf = (n, subtree) => { try { return (subtree ? n?.getAnimations?.({ subtree: true }) : n?.getAnimations?.()) || []; } catch (error) { return []; } };
+    function liftUnitFx() {
+        const out = [];
+        for (const el of root?.querySelectorAll?.('.igs-combat-unit') || []) {
+            const id = el.getAttribute?.('data-unit');
+            if (!id) continue;
+            const nodes = [...(el.querySelectorAll?.(UNIT_FX) || [])].filter((n) => n.parentNode === el);
+            const react = el.getAttribute?.(COMBAT_HIT_REACT_ATTR) || '';
+            if (!nodes.length && !react) continue;
+            const inside = (t) => nodes.some((n) => n === t || n.contains?.(t));
+            out.push({
+                id, react,
+                nodes: nodes.map((n) => ({ n, times: animationsOf(n, true).map((a) => a.currentTime) })),
+                own: react ? animationsOf(el, true).filter((a) => a.animationName && !inside(a.effect?.target)).map((a) => [a.animationName, a.currentTime]) : [],
+            });
+        }
+        return out;
+    }
+    function restoreUnitFx(list) {
+        const resume = (a, t) => { try { if (Number.isFinite(t)) a.currentTime = t; } catch (error) { /* 接不上就从头播 */ } };
+        for (const item of list) {
+            const el = unitEl(item.id);
+            if (!el) continue;
+            if (item.react) {
+                el.setAttribute?.(COMBAT_HIT_REACT_ATTR, item.react);
+                const saved = new Map();
+                for (const [name, t] of item.own) { if (!saved.has(name)) saved.set(name, []); saved.get(name).push(t); }
+                for (const a of animationsOf(el, true)) if (saved.get(a.animationName)?.length) resume(a, saved.get(a.animationName).shift());
+                const react = item.react;
+                later(() => { if (el.getAttribute?.(COMBAT_HIT_REACT_ATTR) === react) el.removeAttribute?.(COMBAT_HIT_REACT_ATTR); }, COMBAT_HIT_REACT_MS);
+            }
+            for (const { n, times } of item.nodes) {
+                el.appendChild(n);
+                animationsOf(n, true).forEach((a, i) => resume(a, times[i]));
+            }
+        }
     }
 
     function render() {
         if (!root) return;
         const body = root.querySelector?.('.igs-combat-body');
         if (!body) return;
-        // 整块重绘会销毁当前焦点按钮：按 data-combat-act + data-combat-id 找回同一控件；找不到时落到关闭按钮，焦点不丢出面板。
+        // 整块重绘会销毁当前焦点按钮：按 data-combat-act + data-combat-id 找回同一控件；找不到时落回面板本身（tabindex=-1，不画焦点环），焦点不丢出面板。
         const active = doc.activeElement;
         const had = Boolean(active && root.contains?.(active));
         const act = had ? active.getAttribute?.('data-combat-act') : null;
         const id = had ? active.getAttribute?.('data-combat-id') || '' : '';
-        body.innerHTML = renderCombatPanelHtml(snapshot());
+        // 呼吸开关每次重绘按当前设置刷新（设置可能在面板打开期间改动）；属性值不变时不会让动画重新起步。
+        if (breathing()) root.setAttribute?.('data-igs-combat-breathe', ''); else root.removeAttribute?.('data-igs-combat-breathe');
+        // 减少动态效果：结算标题与光芒静态显示、不放粒子（样式层按根节点的 data-igs-combat-reduced 停动画）。
+        if (reduced()) root.setAttribute?.('data-igs-combat-reduced', ''); else root.removeAttribute?.('data-igs-combat-reduced');
+        const view = snapshot();
+        if (view.flip?.status === 'ready') view.flip = freshFlip(view.flip, session()?.state().combatId);
+        // 结算入场：根节点 data-igs-combat-result-in 期间样式层播入场动画，--igs-cb-result-t 为负的已过毫秒（重绘时动画与光芒旋转接着播，不从头来）；减少动态效果时不播。
+        if (view.status === 'ended' && view.battle && view.end && !view.settling) {
+            const key = `${session()?.state().combatId || ''}|${view.end.outcome}`;
+            if (resultShown?.key !== key) resultShown = { key, at: Date.now() };
+            const t = Math.max(0, Date.now() - resultShown.at);
+            root.style?.setProperty?.('--igs-cb-result-t', `${-t}ms`);
+            if (!reduced() && t < COMBAT_RESULT_INTRO_MS) root.setAttribute?.('data-igs-combat-result-in', '');
+            else root.removeAttribute?.('data-igs-combat-result-in');
+        } else root.removeAttribute?.('data-igs-combat-result-in');
+        drawnStatus = view.status;
+        if (view.battle) {
+            drawnLook.clear();
+            for (const u of [...view.battle.allies, ...view.battle.enemies]) drawnLook.set(u.id, { intent: u.intent, block: u.block, dot: view.battle.track.find((t) => t.id === u.id) || null });
+        }
+        try { const st = session()?.state(); drawnRecordError = st?.recordError || ''; drawnFlip = flipSig(st); } catch (error) { drawnRecordError = ''; drawnFlip = ''; }
+        const lobbyDrawn = Boolean(view.lobby) && view.pending !== 'prepare';
+        // 入场只在本次打开后第一次画战前时播；减少动态效果时不播（只留静态斜切）。
+        if (lobbyDrawn && !lobbyShown && !reduced()) view.intro = true;
+        hideScaleTip();
+        const lifted = liftUnitFx();
+        // 暂存中的单位已在 snapshot 里按暂存血量写进视图：新节点首帧就是显示值，不会先按结算后的血量算一次样式再补画（那样受击前血条会先跌再回弹）。
+        body.innerHTML = renderCombatPanelHtml(view);
+        restoreUnitFx(lifted);
+        syncControlDock();
+        if (view.intro) flashScreen();
+        // 自己翻开神话：短暂停顿后全屏白闪（低画质不挂，减少动态效果时不闪）。
+        if (!reduced() && view.flip?.struck?.some((p) => view.flip.cards.some((c) => c.position === p && c.slot?.rarity === 'mythic'))) flashScreen();
+        if (lobbyDrawn) lobbyShown = true;
+        if (view.lobby) probeTints(view);
+        animateEnergy(body);
+        markDrag();
         if (!had) return;
         const same = act ? [...(body.querySelectorAll?.(`[data-combat-act="${act}"]`) || [])].find((n) => (n.getAttribute('data-combat-id') || '') === id) : null;
-        (same || body.querySelector?.('[data-combat-act="close"]'))?.focus?.();
+        (same || root)?.focus?.();
+    }
+
+    function syncControlDock() {
+        if (!root) return;
+        const dock = root.querySelector('.igs-combat-dock');
+        const core = root.querySelector('.igs-combat-hero-core');
+        const figure = root.querySelector('.igs-combat-hero-figure');
+        const width = root.clientWidth;
+        const narrow = width > 0 && width <= 720;
+        if (narrow) root.setAttribute('data-igs-combat-docked', '');
+        else root.removeAttribute('data-igs-combat-docked');
+        if (!dock || !core || !figure) return;
+        const energy = root.querySelector('.igs-combat-energy');
+        const controls = root.querySelector('.igs-combat-controls');
+        const active = doc.activeElement;
+        const restoreFocus = Boolean(active && controls?.contains?.(active));
+        let moved = false;
+        if (energy && energy.parentNode !== (narrow ? dock : figure)) {
+            (narrow ? dock : figure).insertBefore(energy, (narrow ? dock : figure).firstChild);
+            moved = true;
+        }
+        if (controls && controls.parentNode !== (narrow ? dock : core)) {
+            (narrow ? dock : core).appendChild(controls);
+            moved = true;
+        }
+        if (moved && restoreFocus) active.focus?.();
+        placeHeroControls(controls, figure);
+    }
+
+    // 布局坐标（不含 transform）：沿 offsetParent 链累加；受击抖动、抬牌、震屏与宿主缩放都不影响。
+    function layoutPos(el) {
+        let x = 0;
+        let y = 0;
+        for (let n = el; n; n = n.offsetParent) { x += n.offsetLeft || 0; y += n.offsetTop || 0; }
+        return { x, y };
+    }
+
+    // 紧凑横屏有队友时，样式把控件改为绝对定位：底边落在静止牌顶上方，首个圆钮沿主战者圆框外沿贴住，技能名向右展开；
+    // 矮面板里控件升进敌方一排的高度时，右缘限到该高度内最左一名敌人的左缘（--igs-hero-ctrl-w），技能名在限宽内省略。
+    // 不是绝对定位（宽屏、窄屏、无队友）或量不到时清掉坐标，回落到样式里的保底位置；手牌打空时沿用上次坐标。
+    function placeHeroControls(controls, figure) {
+        const style = controls?.style;
+        if (!style) return;
+        const CARD_GAP = 4;
+        const RING_GAP = 4;
+        const view = doc.defaultView;
+        const clear = () => { heroCtrlPos = null; for (const k of ['x', 'y', 'w']) style.removeProperty?.(`--igs-hero-ctrl-${k}`); };
+        const apply = (pos) => {
+            heroCtrlPos = pos;
+            style.setProperty?.('--igs-hero-ctrl-x', `${pos.x}px`);
+            style.setProperty?.('--igs-hero-ctrl-y', `${pos.y}px`);
+            if (pos.w) style.setProperty?.('--igs-hero-ctrl-w', `${pos.w}px`); else style.removeProperty?.('--igs-hero-ctrl-w');
+        };
+        if (typeof view?.getComputedStyle !== 'function' || view.getComputedStyle(controls).position !== 'absolute') { clear(); return; }
+        const zone = root.querySelector('.igs-combat-hero');
+        const portrait = figure?.querySelector?.('.igs-combat-portrait');
+        const orb = controls.querySelector?.('.igs-combat-awaken-orb, .igs-combat-hero-skill-orb, .igs-combat-item-orb');
+        const cards = [...(root.querySelectorAll('.igs-combat-hand .igs-combat-card') || [])];
+        if (!zone || !portrait?.offsetWidth || !orb?.offsetWidth) { clear(); return; }
+        if (!cards.length) { if (heroCtrlPos) apply(heroCtrlPos); else clear(); return; }
+        const z = layoutPos(zone);
+        const p = layoutPos(portrait);
+        const o = layoutPos(orb);
+        const c = layoutPos(controls);
+        const restTop = Math.min(...cards.map((n) => layoutPos(n).y)) - z.y;
+        const top = restTop - CARD_GAP - controls.offsetHeight;
+        const ringR = Math.min(portrait.offsetWidth, portrait.offsetHeight) / 2;
+        const orbR = orb.offsetWidth / 2;
+        const reach = ringR + orbR + RING_GAP;
+        const dy = (p.y - z.y + portrait.offsetHeight / 2) - (top + (o.y - c.y) + orb.offsetHeight / 2);
+        const dx = Math.abs(dy) < reach ? Math.sqrt(reach * reach - dy * dy) : 0;
+        const left = (p.x - z.x + portrait.offsetWidth / 2) + dx - orbR - (o.x - c.x);
+        const x = Math.round(left);
+        const y = Math.round(top);
+        apply({ x, y, w: foeRoom(z, x, y, controls.offsetHeight, orb.offsetWidth) });
+    }
+
+    // 控件行（zone 内坐标 left / top、高 height）与敌方单位纵向重叠时，可用宽度 = 重叠者中最左一名的左缘 − 间隙 − left，至少留一颗圆钮宽；不重叠返回 0（不限宽）。
+    function foeRoom(zone, left, top, height, min) {
+        const FOE_GAP = 8;
+        let edge = Infinity;
+        for (const unit of root.querySelectorAll('.igs-combat-side.is-enemy .igs-combat-unit') || []) {
+            if (!unit.offsetWidth || !unit.offsetHeight) continue;
+            const u = layoutPos(unit);
+            const uTop = u.y - zone.y;
+            if (uTop < top + height && uTop + unit.offsetHeight > top) edge = Math.min(edge, u.x - zone.x);
+        }
+        return Number.isFinite(edge) ? Math.max(min, Math.floor(edge - FOE_GAP - left)) : 0;
+    }
+
+    function watchControlDock() {
+        const host = root;
+        const win = doc.defaultView;
+        const sync = () => { if (root === host) syncControlDock(); };
+        if (typeof win?.ResizeObserver === 'function') {
+            const observer = new win.ResizeObserver(sync);
+            observer.observe(host);
+            stopDockWatch = () => observer.disconnect();
+        } else if (win?.addEventListener) {
+            win.addEventListener('resize', sync);
+            stopDockWatch = () => win.removeEventListener('resize', sync);
+        }
+    }
+
+    function cachedSprite(url) {
+        if (!url) return null;
+        try { return peekSpriteHead(url, doc); } catch (error) { return null; }
+    }
+
+    // 战前我方框补色：缓存里没有的立绘各探测一次（探测按地址去重，读不到图的不再重试）；结果到了只给本次打开中仍显示同一张图的框写色调变量，不整块重绘，入场动画与焦点不受影响。
+    function probeTints(view) {
+        const mine = token;
+        for (const a of view.lobby.allies) {
+            const url = view.portraits[a.name];
+            if (!url || cachedSprite(url)) continue;
+            let job;
+            try { job = probeSpriteHead(url, doc); } catch (error) { continue; }
+            Promise.resolve(job).then((probed) => paintTint(mine, url, probed && probed.tint), () => null);
+        }
+    }
+
+    function paintTint(mine, url, tint) {
+        const value = tintTriplet(tint);
+        if (!value || !root || token !== mine) return;
+        for (const fig of root.querySelectorAll?.('.igs-combat-lobby-figure[data-side="ally"]') || []) {
+            if (fig.querySelector?.('img')?.getAttribute?.('src') === url) fig.style?.setProperty?.('--igs-combat-ally-tint', value);
+        }
+    }
+
+    // 能量液面：整块重绘会重建节点，CSS 过渡不起作用；用 WAAPI 从上次液面过渡到新液面（用掉多少降多少）。
+    // 减少动态效果、低画质或首次渲染时直接到位；动画不留填充，结束后由样式里的 --fill 决定液面。
+    function animateEnergy(body) {
+        const orb = body.querySelector?.('.igs-combat-energy-orb');
+        const liquid = orb?.querySelector?.('.igs-combat-energy-liquid');
+        const fill = orb ? Number(orb.style?.getPropertyValue?.('--fill')) : NaN;
+        const prev = lastFill;
+        lastFill = Number.isFinite(fill) ? fill : null;
+        if (!liquid || lastFill === null || prev === null || prev === lastFill || typeof liquid.animate !== 'function') return;
+        if (reduced() || pageOverlay?.getAttribute?.('data-igs-quality') === 'low') return;
+        const sink = orb.parentNode?.classList?.contains?.('is-empty') ? 8 : 0;
+        try {
+            liquid.animate([{ transform: `translateY(${((1 - prev) * 100).toFixed(1)}%)` }, { transform: `translateY(calc(${((1 - lastFill) * 100).toFixed(1)}% + ${sink}px))` }],
+                { duration: 520, easing: 'cubic-bezier(.4,0,.2,1)' });
+        } catch (error) { /* 不支持时直接到位 */ }
     }
 
     const say = (r) => { notice = r && r.ok === false ? combatReasonText(r.reason) : ''; };
 
-    // 引擎事件 → fx-battle 演出。每次演出用递增页号作身份，保证连续两次出手都会播。
-    function playFx(events, { start = false } = {}) {
+    // 演出计时：按当前演出速度缩短（原速时毫秒数不变）；fx-battle 的命中演出用同一个 fxSchedule。
+    const baseSchedule = (f, t) => (typeof options.schedule === 'function' ? options.schedule(f, t) : setTimeout(f, t));
+    const fxSchedule = (f, t) => baseSchedule(f, fxSpeed > 1 && Number.isFinite(t) ? Math.round(t / fxSpeed) : t);
+    const later = (fn, ms) => {
+        const timer = fxSchedule(() => { cutinTimers.delete(timer); fn(); }, ms);
+        cutinTimers.add(timer);
+        return timer;
+    };
+
+    // 二倍速：面板内有限次的样式动画、过渡与 WAAPI 动画（含伪元素）按倍率播放，无限循环的（呼吸、条纹等）保持原速；
+    // 打开期间观察面板子树，新节点、类名与属性变化后补设。环境不支持 getAnimations / MutationObserver 时只缩短计时。
+    function boostAnimations() {
+        if (!root || typeof root.getAnimations !== 'function') return;
+        let list = [];
+        try { list = root.getAnimations({ subtree: true }); } catch (error) { return; }
+        for (const a of list) {
+            try {
+                const rate = a.effect?.getTiming?.().iterations === Infinity ? 1 : fxSpeed;
+                if (a.playbackRate !== rate) a.playbackRate = rate;
+            } catch (error) { /* 单个动画设不上不影响其余 */ }
+        }
+    }
+
+    function syncSpeedWatch() {
+        const Observer = doc.defaultView?.MutationObserver || globalThis.MutationObserver;
+        if (fxSpeed > 1 && root && !speedWatch && typeof Observer === 'function') {
+            speedWatch = new Observer(() => boostAnimations());
+            speedWatch.observe(root, { childList: true, subtree: true, attributes: true });
+        } else if (fxSpeed <= 1 && speedWatch) {
+            speedWatch.disconnect();
+            speedWatch = null;
+        }
+        boostAnimations();
+    }
+
+    // 演出速度按钮：原速与二倍速切换并记住；演出进行中也能切换（不受演出锁限制）。正在播的动画立即换速，已排上的计时按排时的倍率走完。
+    // 只改按钮状态、不整块重绘，避免打断正在播的演出。
+    function toggleSpeed() {
+        fxSpeed = fxSpeed > 1 ? 1 : 2;
+        writeFxSpeed(options.storage, fxSpeed);
+        root?.querySelector?.('[data-combat-act="speed"]')?.setAttribute?.('aria-pressed', fxSpeed > 1 ? 'true' : 'false');
+        syncSpeedWatch();
+        return { ok: true, speed: fxSpeed };
+    }
+
+    // 卡面图到达时刷新手牌：结算中不刷新（结算结束的重绘会带上新卡面）；演出计时器未走完时整块重绘会打断行动条与特写，推迟到演出结束。
+    function onCardArtUpdated() {
+        if (!root || pending || artTimer !== null) return;
+        if (!cutinTimers.size) { render(); return; }
+        const schedule = typeof options.schedule === 'function' ? options.schedule : (f, t) => setTimeout(f, t);
+        artTimer = schedule(() => { artTimer = null; onCardArtUpdated(); }, ART_REFRESH_DELAY_MS);
+    }
+
+    // 会话异步变化（后台准备结束、留档写入结果）：面板自己的动作进行中时由那次动作收尾重绘；结算演出未走完时由结算收尾重绘；
+    // 状态与留档提示都没变时不重绘，有演出计时器时与卡面刷新一样推迟到演出结束。
+    function onSessionChanged(v) {
+        if (!root || pending) return;
+        if (v?.lobby && !controlledId) controlledId = v.lobby.heroId;
+        if (v?.status === drawnStatus && (v?.recordError || '') === drawnRecordError && flipSig(v) === drawnFlip) return;
+        if (settling) return;
+        onCardArtUpdated();
+        if (v?.status === 'done') loadRewards();
+    }
+
+    function clearCutins() {
+        const clear = typeof options.clear === 'function' ? options.clear : (t) => clearTimeout(t);
+        for (const timer of cutinTimers) clear(timer);
+        cutinTimers.clear();
+        live = 0;
+        busy = 0;
+        waiting.length = 0;
+        for (const n of cutinNodes) n.remove?.();
+        cutinNodes.clear();
+        root?.removeAttribute?.('data-igs-combat-hold');
+        root?.removeAttribute?.('data-igs-combat-shake');
+        if (stage) markCaption(stage, null);
+    }
+
+    // 战前入场白闪：挂在面板根节点（与 .igs-combat-body / .igs-combat-fx 并列），铺满整个面板而不只是舞台；
+    // 低画质不挂，减少动态效果时不会进入这里（不播入场）；播完（样式延迟 .48s + 时长 .42s）移除，关闭面板时随演出节点一起清掉。
+    function flashScreen() {
+        if (!root || lowQuality() || typeof doc.createElement !== 'function') return;
+        const el = doc.createElement('span');
+        el.className = 'igs-combat-lobby-flash';
+        el.setAttribute?.('aria-hidden', 'true');
+        root.appendChild(el);
+        cutinNodes.add(el);
+        later(() => { el.remove?.(); cutinNodes.delete(el); }, 900);
+    }
+
+    // 特写：独立命名空间的二次元式 cut-in（combat-cutin.js），不复用阅读器 [igs-fx:cutin] 的节点与样式。
+    // 技能特写：暗幕 + 速度线 + 斜向色带 + 半身立绘运镜 + 角色名与招式名；主角人物技能与队友技能各播一次（敌方技能不播），没有立绘时不播。
+    function showCutin(host, c, url, probed) {
+        if (stage !== host) return;
+        const layers = ensureFxLayers(host);
+        if (!layers?.front) return;
+        const low = pageOverlay?.getAttribute?.('data-igs-quality') === 'low';
+        const el = buildSkillCutin(doc, { name: c.name, skill: c.skill, url, probed, reduced: reduced(), low });
+        layers.front.appendChild(el);
+        sfx('battle-cutin');
+        cutinNodes.add(el);
+        later(() => { el.remove?.(); cutinNodes.delete(el); }, COMBAT_CUTIN_MS.skill);
+    }
+
+    // 觉醒特写：全屏情绪色幕 + 情绪纹样与粒子 + 居中半身立绘 + 类型名与台词；没有立绘时只放色幕与台词。台词来自正文，只经 textContent 写入。
+    function showAwakenCutin(host, c, url, probed) {
+        if (stage !== host) return;
+        const layers = ensureFxLayers(host);
+        if (!layers?.front) return;
+        const life = COMBAT_CUTIN_MS.awaken;
+        const isReduced = reduced();
+        const low = pageOverlay?.getAttribute?.('data-igs-quality') === 'low';
+        const el = doc.createElement('div');
+        el.className = `igs-combat-awaken-cutin${isReduced ? ' is-reduced' : ''}${low ? ' is-low' : ''}`;
+        el.setAttribute?.('data-awaken', String(c.awakenType || ''));
+        el.setAttribute?.('aria-hidden', 'true');
+        el.style?.setProperty?.('--igs-fx-life', `${life}ms`);
+        const fx = doc.createElement('div');
+        fx.className = 'igs-combat-awaken-fx';
+        el.appendChild(fx);
+        if (url) el.appendChild(buildCutinFigure(doc, url, probed, { awaken: true }));
+        const cap = doc.createElement('div');
+        cap.className = 'igs-combat-awaken-cap';
+        const label = doc.createElement('span');
+        label.className = 'igs-combat-awaken-label';
+        label.textContent = `${c.name} 觉醒·${c.skill || ''}`;
+        cap.appendChild(label);
+        if (c.line) {
+            const line = doc.createElement('span');
+            line.className = 'igs-combat-awaken-line';
+            line.textContent = `「${c.line}」`;
+            cap.appendChild(line);
+        }
+        el.appendChild(cap);
+        layers.front.appendChild(el);
+        sfx('battle-awaken');
+        cutinNodes.add(el);
+        later(() => { el.remove?.(); cutinNodes.delete(el); }, life);
+    }
+
+    // 开战过场：「开战」大字停留 COMBAT_CUTIN_MS.opening，返回停留时长；减少动态效果或没有演出层时不播，返回 0。不画速度线；低画质不闪白。
+    function showOpening() {
+        if (reduced() || !stage) return 0;
+        const layers = ensureFxLayers(stage);
+        if (!layers?.front) return 0;
+        const el = buildOpeningCutin(doc, { low: lowQuality() });
+        layers.front.appendChild(el);
+        cutinNodes.add(el);
+        later(() => { el.remove?.(); cutinNodes.delete(el); }, COMBAT_CUTIN_MS.opening);
+        return COMBAT_CUTIN_MS.opening;
+    }
+
+    // 本段要播的特写与时间轴：觉醒总是播放，技能特写只在取到立绘时播放；逐个首尾相接（后一个在前一个开始淡出时进场）。
+    // span 为整段特写占用的时长；lead 为命中演出相对出手的延后，落在最后一个特写开始淡出时。没有特写时二者为 0，节奏与旧版一致。
+    function planCutins(events, battle) {
+        const items = [];
+        let t = 0;
+        for (const c of combatCutins(events, battle)) {
+            const url = portraitsFor([c.name])[c.name];
+            if (c.kind !== 'awaken' && !url) continue;
+            const ms = c.kind === 'awaken' ? COMBAT_CUTIN_MS.awaken : COMBAT_CUTIN_MS.skill;
+            items.push({ c, url, delay: t, ms });
+            t += Math.round(ms * CUTIN_OVERLAP);
+        }
+        const last = items[items.length - 1];
+        return { items, span: last ? last.delay + last.ms : 0, lead: last ? last.delay + Math.round(last.ms * CUTIN_OVERLAP) : 0 };
+    }
+
+    // 时间轴从出手起算，不等立绘探测：出手时先发起头位探测（结果按地址缓存），到点时取缓存；仍未就绪最多再等 waitSpriteHead 的上限，
+    // 超时或失败按默认头位取较宽景。面板关闭或重开后，到点的计时器与迟到的探测结果都丢弃。
+    function playCutins(cuts, host, my) {
+        const live = () => my === token && stage === host;
+        const show = (c, url, probed) => {
+            if (!live()) return;
+            if (c.kind === 'awaken') showAwakenCutin(host, c, url, probed); else showCutin(host, c, url, probed);
+        };
+        for (const { url } of cuts.items) {
+            if (!url) continue;
+            try { Promise.resolve(probeSpriteHead(url, doc)).catch(() => null); } catch (error) { /* 到点时按默认头位 */ }
+        }
+        for (const { c, url, delay } of cuts.items) {
+            const fire = () => {
+                if (!live()) return;
+                if (!url) { show(c, url, null); return; }
+                let wait;
+                try { wait = waitSpriteHead(url, doc, later); } catch (error) { show(c, url, null); return; }
+                Promise.resolve(wait).then((probed) => show(c, url, probed || null), () => show(c, url, null));
+            };
+            if (delay > 0) later(fire, delay); else fire();
+        }
+    }
+
+    // 出手分段：引擎在每个自动行动单位出手前发 act 事件，操控角色回合开始发 turn-start；按这两种边界切成逐单位的段，段内带该时刻的行动条进度快照。
+    function fxSegments(events) {
+        const segs = [];
+        let cur = { actor: null, track: null, events: [] };
+        for (const e of events) {
+            const boundary = e.type === 'act' || (e.type === 'turn-start' && cur.actor);
+            if (boundary && cur.events.length) { segs.push(cur); cur = { actor: null, track: null, events: [] }; }
+            if (e.type === 'act') cur.actor = e.unitId;
+            if ((e.type === 'act' || e.type === 'turn-start') && e.track) cur.track = e.track;
+            cur.events.push(e);
+        }
+        if (cur.events.length) segs.push(cur);
+        return segs;
+    }
+
+    // 行动条头像：动画开始时取当前节点；之后整块重绘会换掉节点，旧动画只作用在已脱离的节点上，不干扰新画面。
+    function trackDots() {
+        const map = new Map();
+        for (const n of root?.querySelectorAll?.('.igs-combat-track-dot') || []) map.set(n.getAttribute?.('data-unit'), n);
+        return map;
+    }
+
+    // 把头像移到进度快照位置；animate 为 false 时瞬移（出手者回到起点、动画起点就位）。
+    function placeDots(dots, snap, animate) {
+        for (const [id, p] of Object.entries(snap || {})) {
+            const n = dots.get(id);
+            if (!n?.style?.setProperty) continue;
+            n.classList?.toggle?.('is-snap', !animate);
+            n.style.setProperty('--p', String(p));
+            if (!animate) void n.offsetWidth;
+        }
+    }
+
+    // 正在出手的单位（立绘与行动条头像）外发光；actor 为 null 时清除。
+    function markActing(actor) {
+        for (const n of root?.querySelectorAll?.('.igs-combat-unit.is-acting') || []) n.classList?.remove('is-acting');
+        for (const n of root?.querySelectorAll?.('.igs-combat-track-dot.is-acting') || []) n.classList?.remove('is-acting');
+        if (!actor) return;
+        root?.querySelector?.(`.igs-combat-unit[data-unit="${actor}"]`)?.classList?.add('is-acting');
+        root?.querySelector?.(`.igs-combat-track-dot[data-unit="${actor}"]`)?.classList?.add('is-acting');
+    }
+
+    function rarityNodes(host, fx, phase) {
+        const nodes = showRarityFx(doc, host, fx, phase, { schedule: (fn, ms) => later(() => {
+            fn(); for (const node of nodes) cutinNodes.delete(node);
+        }, ms) });
+        for (const node of nodes) cutinNodes.add(node);
+    }
+
+    // 前摇节点挂在演出前层中间，由面板登记清理。
+    function windupNodes(host, windup, aim) {
+        const front = ensureFxLayers(host)?.front;
+        const nodes = showWindupFx(doc, front, windup, { ...aim, schedule: (fn, ms) => later(() => {
+            fn(); for (const node of nodes) cutinNodes.delete(node);
+        }, ms) });
+        for (const node of nodes) cutinNodes.add(node);
+    }
+
+    // 前摇朝向：前摇开始时量（飞卡已落定），从演出前层的前摇中心指向受击单位。angle / reach 指向各受击单位的平均中心；
+    // 受击单位不止一个时 rays 为每个单位各自的朝向与距离（射击一单位一道弹道）；多段攻击一段一道，带该段相对第一段的错开时长（landing 见 combatLandings）。
+    // 量不到时敌方出手朝下、我方朝上。
+    function windupAim(host, marks, actorId, landing) {
+        const box = ensureFxLayers(host)?.front?.getBoundingClientRect?.();
+        const rects = marks.filter((m) => m.unitId !== actorId).map((m) => unitEl(m.unitId)?.getBoundingClientRect?.()).filter((r) => r?.width);
+        if (box?.width && rects.length) {
+            const cx = box.left + box.width / 2;
+            const cy = box.top + box.height * 0.46;
+            const toward = (x, y) => ({ angle: (Math.atan2(y, x) * 180) / Math.PI, reach: Math.hypot(x, y) });
+            const x = rects.reduce((s, r) => s + r.left + r.width / 2, 0) / rects.length - cx;
+            const y = rects.reduce((s, r) => s + r.top + r.height / 2, 0) / rects.length - cy;
+            const aim = toward(x, y);
+            const centerOf = (id) => {
+                const r = unitEl(id)?.getBoundingClientRect?.();
+                return r?.width ? toward(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy) : null;
+            };
+            const waves = volleyTargets(marks, landing, actorId);
+            if (waves.length) aim.rays = waves.map((w) => { const t = centerOf(w.unitId); return t ? { ...t, delay: w.delay } : null; }).filter(Boolean);
+            else if (rects.length > 1) aim.rays = rects.map((r) => toward(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy));
+            return aim;
+        }
+        const actor = session()?.state()?.battle?.units?.[actorId];
+        return { angle: actor?.side === 'enemy' ? 90 : -90, reach: 0 };
+    }
+
+    // 招式条按稀有度上色：舞台带 data-igs-rarity 与 --igs-rarity-caption 时，fx-battle 的招式名取稀有度色；普通牌、没有命中的段与段结束时清掉。
+    function markCaption(host, fx) {
+        if (!host) return;
+        if (fx?.rank && fx.color) {
+            host.setAttribute('data-igs-rarity', fx.rarity);
+            host.style?.setProperty?.('--igs-rarity-caption', fx.color);
+        } else {
+            host.removeAttribute('data-igs-rarity');
+            host.style?.removeProperty?.('--igs-rarity-caption');
+        }
+    }
+
+    // 命中停顿与定向震屏：稀有及以上的牌第一次命中时，受击立绘停在受击首帧 hold 毫秒（data-igs-combat-hold，样式只暂停受击动画）；
+    // 停顿结束后整面板朝出手方向推一下再回弹（--igs-shake-x / -y 为方向，--shake 为幅度），同时出分档冲击声。低画质不震屏，减少动态效果不停顿、不震、不出声。
+    function rarityImpact(fx, targetId) {
+        if (!root || !fx?.rank) return;
+        const el = root;
+        if (fx.hold) {
+            el.setAttribute('data-igs-combat-hold', '');
+            later(() => el.removeAttribute('data-igs-combat-hold'), fx.hold);
+        }
+        later(() => {
+            if (root !== el) return;
+            if (fx.shake) {
+                const dir = strikeDirection(fx.unitId, targetId);
+                el.removeAttribute('data-igs-combat-shake');
+                el.style?.setProperty?.('--igs-shake-x', dir.x.toFixed(2));
+                el.style?.setProperty?.('--igs-shake-y', dir.y.toFixed(2));
+                el.style?.setProperty?.('--shake', `${fx.shake}px`);
+                void el.offsetWidth;
+                el.setAttribute('data-igs-combat-shake', String(fx.rank));
+                later(() => el.removeAttribute('data-igs-combat-shake'), 380);
+            }
+            sfx(fx.sfx);
+        }, fx.hold);
+    }
+
+    // 震屏方向：出手单位中心指向受击单位中心的单位向量；量不到时按受击方是敌人（在上）或我方（在下）给斜向默认值。
+    function strikeDirection(fromId, toId) {
+        const a = fromId ? unitEl(fromId)?.getBoundingClientRect?.() : null;
+        const b = toId ? unitEl(toId)?.getBoundingClientRect?.() : null;
+        if (a?.width && b?.width) {
+            const dx = (b.left + b.width / 2) - (a.left + a.width / 2);
+            const dy = (b.top + b.height / 2) - (a.top + a.height / 2);
+            const len = Math.hypot(dx, dy);
+            if (len > 1) return { x: dx / len, y: dy / len };
+        }
+        const foe = session()?.state()?.battle?.units?.[toId]?.side === 'enemy';
+        return foe ? { x: 0.6, y: -0.8 } : { x: -0.6, y: 0.8 };
+    }
+
+    // 引擎事件 → 行动条推进 + fx-battle 演出。逐段串行：头像沿线前进到该段快照（出手者到达出手点）→ 暂停移动、播出手演出（至少 ACT_GAP_MS）→ 出手者回到起点 → 下一段。
+    // from 为动作前的进度（结束回合时操控角色已回到起点）；fly 为出牌飞行卡的时长（第一段命中等它飞到再落下）；每段演出用递增页号作身份。
+    // gen 为这次动作的身份（hitGen），ids 为这次动作暂存的单位（holdUnits 的返回值），时间轴走完时各减一次引用。
+    function playFx(events, { start = false, from = null, fly = 0, gen = hitGen, held: ids = [] } = {}) {
         const cur = session()?.state();
-        if (!stage || !cur?.battle || !events?.length) return;
+        // 没有演出可播：照样收尾，并让排在后面的时间轴接着播。
+        if (!stage || !cur?.battle || !events?.length) { if (autoGen === gen) setAuto(-1); releaseHeld(ids); if (!busy) advance(); settle(gen); return; }
         const foe = cur.start?.enemies?.[0]?.name || '';
-        const fx = combatFxSource(events, cur.battle, { start, foe, title: cur.start?.encounter || '' });
-        fxSeq += 1;
-        const plan = planBattleFx(fx, { settings: { enabled: true, letterbox: false }, identity: { chatId: 'igs-combat', messageId: cur.combatId || '', swipeId: 0, page: fxSeq } });
         const skin = typeof options.getFxSkin === 'function' ? options.getFxSkin() || {} : {};
-        try {
-            applyBattleFxToDom(stage, plan, { ...skin, reducedMotion: reduced(), schedule: options.schedule, clear: options.clear });
-        } catch (error) { /* 演出失败不影响结算 */ }
+        const my = token;
+        const host = stage;
+        // 开局演出（start）不进出牌队列：开战标题还在播时出的牌照常立即演出；其余时间轴按动作顺序逐条播放。
+        const counted = !start;
+        if (counted) { live += 1; busy += 1; }
+        const dots = trackDots();
+        const move = reduced() ? 0 : TRACK_MOVE_MS;
+        if (from && dots.size) placeDots(dots, from, false);
+        let at = 0;
+        // 结束战斗的那次动作：结果横幅放到 COMBAT_RESULT_SWAP 时换结算画面的时刻（-1 为这条时间轴没有结果横幅）。
+        let swapAt = -1;
+        const segs = fxSegments(events);
+        const fxOptions = { reduced: reduced(), low: lowQuality() };
+        // 队友与敌人出手的演出加锁（含开局敌方先手）；己方出牌不加锁。
+        const auto = segs.some(g => g.actor);
+        if (auto) setAuto(gen);
+        // 交棒时刻（己方出牌）：各段最后一次命中落下、停顿之后再隔 COMBAT_CHAIN_MS；有特写或中间横幅时等它们播完。
+        let handoff = 0;
+        segs.forEach((seg, i) => {
+            const fx = combatFxSource(seg.events, cur.battle, { start: start && i === 0, foe, title: cur.start?.encounter || '' });
+            fxSeq += 1;
+            const plan = planBattleFx(fx, { settings: { enabled: true, letterbox: false }, holdScale: COMBAT_FX_HOLD_SCALE, identity: { chatId: 'igs-combat', messageId: cur.combatId || '', swipeId: 0, page: fxSeq } });
+            if (seg.track && dots.size) {
+                if (i === 0 && !seg.actor) placeDots(dots, seg.track, false);
+                else {
+                    const snap = seg.track;
+                    later(() => { if (my === token) placeDots(dots, snap, true); }, Math.max(at, 1));
+                    at += move;
+                }
+            }
+            // 有特写时先播特写，命中演出在最后一个特写开始淡出时落下；这一段的停留时长覆盖特写与命中两者。
+            // 出牌飞行卡只在第一段：命中等影子卡飞到目标后落下。没有特写也不飞时 lead / span 为 0，节奏与旧版一致。
+            const cuts = planCutins(seg.events, cur.battle);
+            const marks = combatHitMarks(seg.events);
+            const rarity = playedCardFx(seg.events, cur.battle, fxOptions);
+            // 本段有命中演出时招式条（顶部卡名）已报出卡名，只给它按稀有度上色，不在画面中间重复横幅；没有命中（格挡、强化等）才用中间横幅。
+            const caption = (plan.events || []).some(e => e.type === 'hit');
+            const banner = rarity.banner && !caption;
+            // 远程、施法与范围攻击：飞卡、特写与横幅之后在画面中间出前摇（射击 / 吟唱 / 横扫），前摇结束时命中落到受击单位上；
+            // 单体近战没有前摇，命中直接落在受击单位上。减少动态效果与低画质没有前摇。
+            const windup = windupFx(rarity);
+            const before = Math.max(cuts.lead, i === 0 ? fly : 0, banner ? 300 : 0);
+            const lead = before + (windup ? windup.ms : 0);
+            // 命中落点：多段攻击按段依次落下，最后一次落下可能晚于计划里最后一次命中（landing.extra）。
+            const landing = combatLandings(fx, plan);
+            const lastHit = landing.last;
+            const shown = combatResultBeat(plan, landing, rarity.hold || 0);
+            // 停顿发生在第一次命中落下时，段长覆盖最后一次落下 + 停顿 + 命中光效。
+            const span = Math.max(cuts.span, i === 0 ? fly : 0, rarity.life ? lead + lastHit + rarity.hold + rarity.life : 0);
+            // 多段攻击第二段起每段补一声命中（第一段的声音由命中演出发出）。
+            const onWave = (event, list) => sfx(battleSfxKind({ ...event, result: list.some((m) => m.kind === 'damage' || m.kind === 'ko') ? 'hit' : 'guard' }, String(skin.worldview || '')));
+            const hit = () => {
+                if (my !== token || stage !== host) return;
+                try { applyBattleFxToDom(stage, shown, { ...skin, reducedMotion: reduced(), schedule: fxSchedule, clear: options.clear, onEvent: (event) => sfx(battleSfxKind(event, String(skin.worldview || ''))) }); } catch (error) { /* 演出失败不影响结算 */ }
+                // overkill 战斗里己方出牌的击倒推迟到全部演出放完才显示（鞭尸）。
+                try { landMarks(marks, landing, my, rarity, onWave, !seg.actor && cur.battle.overkill === true); } catch (error) { /* 演出失败不影响结算 */ }
+            };
+            const run = () => {
+                if (my !== token || stage !== host) return;
+                try {
+                    markActing(seg.actor);
+                    playCutins(cuts, host, my);
+                    markCaption(host, caption ? rarity : null);
+                    if (banner) rarityNodes(ensureFxLayers(host).front, rarity, 'play');
+                    if (windup) {
+                        const show = () => {
+                            if (my !== token || stage !== host) return;
+                            try { windupNodes(host, windup, windupAim(host, marks, rarity.unitId, landing)); } catch (error) {/* 演出失败不影响结算 */ }
+                        };
+                        if (before) later(show, before); else show();
+                    }
+                } catch (error) { /* 演出失败不影响结算 */ }
+                if (lead) later(hit, lead); else hit();
+            };
+            if (at === 0) run(); else later(run, at);
+            const body = lead + (shown.totalMs || 0) + landing.extra;
+            const ribbon = (shown.events || []).find((e) => e.type === 'result');
+            if (ribbon) swapAt = at + lead + ribbon.at + Math.round(ribbon.life * COMBAT_RESULT_SWAP);
+            handoff = Math.max(handoff, at + Math.max(lead + lastHit + (rarity.hold || 0) + COMBAT_CHAIN_MS, cuts.span, banner ? span : 0));
+            at += seg.actor ? Math.max(ACT_GAP_MS, body, span) : Math.max(body, span);
+            if (seg.actor && dots.size) {
+                const actor = seg.actor;
+                later(() => { if (my === token) placeDots(dots, { [actor]: 0 }, false); }, Math.max(at, 1));
+            }
+        });
+        // 横幅放到 COMBAT_RESULT_SWAP 就换结算画面（横幅在结算画面上淡出）；时间轴走完时的 settle 不再重复换。
+        if (swapAt >= 0) later(() => { if (my === token && stage === host) settle(gen); }, Math.max(swapAt, 1));
+        // 交棒：这条时间轴的命中都已落下，放回暂存血量，排队的下一条随即开始；自己的招式条、飘字与受击反馈照常播完。
+        // 己方出牌在 handoff 交棒，含队友或敌人出手的时间轴走完才交棒；只交一次。
+        let handed = !counted;
+        const handOver = () => {
+            if (handed) return;
+            handed = true;
+            releaseHeld(ids);
+            busy = Math.max(0, busy - 1);
+            if (!busy) advance();
+        };
+        if (counted && !auto && handoff < at) later(() => { if (my === token && stage === host) handOver(); }, Math.max(handoff, 1));
+        later(() => {
+            if (autoGen === gen) setAuto(-1);
+            if (my !== token || stage !== host) return;
+            if (counted) { handOver(); finishTimeline(); }
+            else { releaseHeld(ids); if (!live) { markActing(null); markCaption(stage, null); } }
+            settle(gen);
+        }, Math.max(at, 1));
+    }
+
+    // 自动行动演出锁：根节点带 data-igs-combat-auto 时底栏不接收点击（样式层），act 拒绝新动作。
+    function setAuto(gen) {
+        autoGen = gen;
+        if (gen >= 0) root?.setAttribute?.('data-igs-combat-auto', '');
+        else root?.removeAttribute?.('data-igs-combat-auto');
+    }
+
+    // 一条时间轴播完：都播完时清掉出手外发光与招式条颜色（排队的下一条已在交棒时开始，队列放完由 advance 走 drained）。
+    function finishTimeline() {
+        live = Math.max(0, live - 1);
+        if (live) return;
+        markActing(null);
+        if (stage) markCaption(stage, null);
+    }
+
+    function advance() {
+        const next = waiting.shift();
+        if (!next) { drained(); return; }
+        // 排在后面的是结束回合 / 撤退：出牌的演出已全部放完，先让鞭尸期间被击倒的单位倒下，停顿片刻再播后面的阶段（否则直接判胜会跳过倒下）。
+        if (next.reveal && revealDowns()) {
+            const my = token;
+            later(() => { if (my === token) next(); }, reduced() ? 0 : COMBAT_FINISH_BEAT_MS);
+        } else next();
+    }
+
+    // 鞭尸期间被击倒、还没显示倒下的单位此时倒下：重绘（不再能被选为目标）并出「击倒」飘字；返回是否有单位倒下。
+    function revealDowns() {
+        const downs = [...held].filter(([, e]) => e.ko && !(e.refs > 0)).map(([id]) => id);
+        if (!downs.length) return false;
+        for (const id of downs) held.delete(id);
+        render();
+        for (const id of downs) showHitFloats(doc, unitEl(id), [{ kind: 'ko' }], { reduced: reduced(), schedule: later });
+        return true;
+    }
+
+    // 演出全部放完：鞭尸期间被击倒的单位倒下；敌人已全灭时停顿片刻后自动结束回合判胜。
+    function drained() {
+        revealDowns();
+        maybeFinish();
+    }
+
+    // overkill 战斗在出牌阶段敌人已全灭、没有演出在播：加演出锁，停顿后发出结束回合（引擎据此判胜）；中途关掉面板时重开后照常收尾。
+    function maybeFinish() {
+        if (!root || busy || waiting.length || (autoGen >= 0 && autoGen === hitGen)) return;
+        const cur = session()?.state();
+        const b = cur?.status === 'battle' ? cur.battle : null;
+        if (!b || b.outcome || b.phase !== 'player' || b.overkill !== true) return;
+        if (Object.values(b.units).some((u) => u.side === 'enemy' && u.alive)) return;
+        const my = token;
+        const gen = hitGen;
+        setAuto(gen);
+        later(() => {
+            if (my !== token || gen !== hitGen || !root) return;
+            setAuto(-1);
+            act({ type: 'end-turn' });
+        }, reduced() ? 0 : COMBAT_FINISH_BEAT_MS);
+    }
+
+    // 命中落点（时刻从命中演出开始起算，见 combatLandings）：带段号的变化在该段落下的时刻落下，同一段的各单位同时、各段依次；
+    // 其余变化在本段命中演出里同名目标出现的时刻落下；都没有对应命中的（格挡、中毒、荆棘等）在本段命中开始时落下。
+    // 落下时更新暂存血条、飘字与受击反馈；多段攻击每段各出一次受击形态，停顿与震屏只在第一次落下时出。面板关闭或战斗结束收掉旧时间轴后不再落。
+    // defer：击倒先只把血条落到 0，倒下与「击倒」飘字等全部演出放完再出（drained）；这期间该单位仍可被选为目标（鞭尸）。
+    function landMarks(marks, landing, my, rarity, onWave, defer = false) {
+        if (!marks.length) return;
+        const units = session()?.state()?.battle?.units || {};
+        const named = landing?.named || [];
+        const strikes = landing?.strikes || new Map();
+        const sounded = new Set();
+        let impacted = false;
+        for (const { unitId, marks: all } of marks) {
+            const name = String(units[unitId]?.name || '').trim();
+            let match;
+            const buckets = new Map();
+            for (const mark of all) {
+                const wave = mark.strike ? strikes.get(mark.strike) : null;
+                if (!wave && match === undefined) {
+                    match = name ? named.find((h) => !h.used && h.target === name) || null : null;
+                    if (match) match.used = true;
+                }
+                const key = wave ? `s${mark.strike}` : 'rest';
+                if (!buckets.has(key)) buckets.set(key, { at: wave ? wave.at : match?.at || 0, wave, list: [] });
+                buckets.get(key).list.push(mark);
+            }
+            for (const { at, wave, list } of buckets.values()) {
+                const land = () => {
+                    if (my !== token || !root) return;
+                    const entry = held.get(unitId);
+                    const el = unitEl(unitId);
+                    // 受击形态只落在出手者以外、本次被打中（掉血或全挡）的单位上：普通卡与技能画基础形态，稀有及以上另加光晕、停顿与震屏。
+                    const struck = Boolean(rarity?.rank || rarity?.strike) && unitId !== rarity.unitId && list.some(mark => mark.kind === 'damage' || mark.kind === 'guard' || mark.kind === 'overkill');
+                    const stop = struck && !impacted ? rarity.hold : 0;
+                    const ko = defer && entry && list.some((mark) => mark.kind === 'ko');
+                    const shown = ko ? list.filter((mark) => mark.kind !== 'ko') : list;
+                    if (entry) { applyHitMarks(entry, shown); if (ko) { entry.hp = 0; entry.ko = true; } paintUnitHp(el, entry); }
+                    showHitFloats(doc, el, shown, { reduced: reduced(), schedule: later, rarity });
+                    // 停顿期间受击动画暂停，摘除受击反馈的计时顺延同样时长，动画不被截短。
+                    reactUnit(el, list, { reduced: reduced() || lowQuality(), schedule: stop ? (fn, ms) => later(fn, ms + stop) : later });
+                    if (struck) {
+                        rarityNodes(el, rarity, 'hit');
+                        if (!impacted) { impacted = true; rarityImpact(rarity, unitId); }
+                    }
+                    if (wave && !wave.first && typeof onWave === 'function' && !sounded.has(wave)) { sounded.add(wave); onWave(wave.event, list); }
+                };
+                if (at > 0) later(land, at); else land();
+            }
+        }
+    }
+
+    // 一条时间轴走完：它暂存的单位各减一次引用；没有别的时间轴还在动它时按会话里的真实血量落笔并移出暂存，之后的重绘直接用真实值。
+    function releaseHeld(ids) {
+        if (!ids?.length || !held.size) return;
+        const units = session()?.state()?.battle?.units || {};
+        for (const id of ids) {
+            const entry = held.get(id);
+            if (!entry) continue;
+            entry.refs = (entry.refs || 1) - 1;
+            if (entry.refs > 0) continue;
+            // 鞭尸期间被击倒、还没显示倒下：留在暂存里，等全部演出放完再倒下（drained）。
+            if (entry.ko) continue;
+            held.delete(id);
+            const u = units[id];
+            if (u) paintUnitHp(unitEl(id), { hp: Math.max(0, u.hp), maxHp: u.maxHp, alive: u.alive !== false });
+        }
+    }
+
+    // 结算等待结束（时间轴走完，或这次动作没有演出可播）：换成结算画面；只认结束战斗那次动作的时间轴（gen），更早动作的收尾不提前换。
+    function settle(gen) {
+        if (!settling || gen !== hitGen) return;
+        settling = false;
+        render();
+    }
+
+    // 动作结算后、重绘前：本次有变化的单位先按动作前血量显示，命中落下时再落到新值；已在暂存中的（更早动作还没落完）沿用当前暂存值、加一次引用。
+    // 返回本次暂存的单位，减少动态效果时不暂存，直接显示结果。
+    function holdUnits(prior, events) {
+        if (!prior || reduced()) return [];
+        const ids = [];
+        for (const { unitId } of combatHitMarks(events)) {
+            const entry = held.get(unitId);
+            if (entry) { entry.refs = (entry.refs || 1) + 1; ids.push(unitId); continue; }
+            const p = prior.get(unitId);
+            if (p) { held.set(unitId, { ...p, refs: 1 }); ids.push(unitId); }
+        }
+        return ids;
+    }
+
+    // 出牌飞行卡：结算前取被打出的手牌位置与影子（重绘后原节点即被替换）；减少动态效果或低画质不飞。
+    function captureCard(inst) {
+        if (inst == null || reduced() || lowQuality()) return null;
+        const el = cardEl(inst);
+        // 拖牌打出：影子卡从松手处飞出，不回到手牌原位。
+        const rect = dropFrom && String(dropFrom.inst) === String(inst) ? dropFrom.rect : el?.getBoundingClientRect?.();
+        if (!el || !rect?.width) return null;
+        const ghost = cloneCardGhost(el);
+        return ghost ? { rect, ghost } : null;
+    }
+
+    // 影子卡飞向目标：选了目标的飞向目标；不选目标的飞向第一个有变化的单位（如给自己加格挡），都没有时飞向敌方第一人。返回飞行时长，不飞为 0。
+    function flyCard(card, action, events) {
+        if (!card || !stage) return 0;
+        const first = combatHitMarks(events)[0]?.unitId;
+        const target = (action?.targetId && unitEl(action.targetId)) || (first && unitEl(first)) || root?.querySelector?.('.igs-combat-side.is-enemy .igs-combat-unit');
+        const ms = launchCardGhost(stage, card.ghost, card.rect, target?.getBoundingClientRect?.(), {
+            schedule: (fn, t) => later(() => { fn(); cutinNodes.delete(card.ghost); }, t),
+            rarity: playedCardFx(events, session()?.state()?.battle, { reduced: reduced(), low: lowQuality() }),
+        });
+        if (ms) cutinNodes.add(card.ghost);
+        return ms;
     }
 
     async function prepare() {
@@ -127,30 +1145,138 @@ export function createCombatPanelController(doc, options = {}) {
     function act(action) {
         const s = session();
         if (!s || pending) return { ok: false, reason: pending ? 'combat-busy' : 'combat-session-unavailable' };
+        const was = s.state().battle;
+        if (autoGen >= 0 && autoGen === hitGen) return { ok: false, reason: 'combat-busy' };
+        // 结束回合：记下动作前的行动条进度，操控角色出手完毕回到起点，演出从这里开始推进。
+        const before = action?.type === 'end-turn' ? was : null;
+        const from = before ? { ...actionProgress(before), [before.controlledId]: 0 } : null;
+        // 打击感：结算前记下各单位血量与被打出的牌（重绘会替换节点）。
+        const prior = was && !reduced() ? hpSnapshot(was) : null;
+        const card = action?.type === 'play' ? captureCard(action.inst) : null;
         const r = s.act(action);
         selected = null;
         say(r);
+        // 新动作：引擎已立即结算，演出按动作顺序逐条播放——前面的时间轴还没播完时排到它们之后（拼手速可以一口气打出多张），命中按增量落到同一份暂存血量上；
+        // 本次有变化、还没暂存的单位按本次动作前的血量暂存。这次动作结束了战斗：减少动态效果时收掉旧演出、直接显示结算画面；
+        // 否则排在前面的演出照常播完，这次的演出走完再换结算画面（settle）。
+        const ended = r.ok && s.state().status === 'ended';
+        if (ended && reduced()) { clearCutins(); held.clear(); }
+        let ids = [];
+        if (r.ok) { hitGen += 1; ids = holdUnits(prior, r.events); settling = ended && !reduced(); }
         render();
-        if (r.ok) playFx(r.events);
+        if (r.ok) {
+            // 有队友或敌人出手（结束回合）：立即加演出锁；前面的演出还没播完时，行动条先停在结束回合前的进度。
+            const gen = hitGen;
+            const auto = fxSegments(r.events).some((g) => g.actor);
+            if (auto) setAuto(gen);
+            // 出手即反馈：己方出牌 / 人物技能 / 道具立即一声挥出、影子卡立即飞向目标；特效与伤害按动作顺序排队依次结算，命中音随命中演出落下。
+            if (['play', 'hero-skill', 'item'].includes(action?.type)) sfx('battle-card');
+            const fly = flyCard(card, action, r.events);
+            const queued = busy > 0 || waiting.length > 0;
+            // 排队的动作：影子卡落地时记下；轮到它时已落地就直接开演，还在飞就占住队列等落地（后面的动作不越过它）。
+            let landed = !queued || !fly;
+            let onLand = null;
+            if (!landed) {
+                later(() => {
+                    landed = true;
+                    const go = onLand;
+                    onLand = null;
+                    go?.();
+                }, fly);
+            }
+            const start = () => {
+                if (!queued) { playFx(r.events, { from, fly, gen, held: ids }); return; }
+                if (landed) { playFx(r.events, { from, gen, held: ids }); return; }
+                busy += 1;
+                onLand = () => {
+                    busy = Math.max(0, busy - 1);
+                    playFx(r.events, { from, gen, held: ids });
+                };
+            };
+            start.reveal = action?.type === 'end-turn' || action?.type === 'escape';
+            if (queued) {
+                const dots = trackDots();
+                if (auto && from && dots.size) placeDots(dots, from, false);
+                waiting.push(start);
+            } else start();
+        }
         return r;
     }
 
+    // 当前选中的牌 / 人物技能的视图（含 targets 可选目标与 affects 承受方）。
+    function selectionView(sel) {
+        const st = session().state();
+        const view = st.battle ? battleView(st.battle, st.legal) : null;
+        return sel === HERO_SKILL_SELECTION ? view?.heroSkill : view?.hand.find((c) => c.inst === sel);
+    }
+    // 既无可选目标也无承受方可点（正常牌不会出现）：只有这种情况下再点一次牌才算确认，避免牌卡在选中态。
+    const nothingToClick = (v) => Boolean(v) && !v.targets.length && !v.affects.length;
+
+    // 点牌只进入选中态，不直接打出：要选目标的牌点高亮的敌人；对自己用的牌点主战者，可对队友用的点我方单位，全体效果点承受方任一个；
+    // 再点一次已选中的牌、取消按钮或 Esc 撤销。返回 combat-target-required 表示已选中、等待点角色。
     function pickCard(inst) {
         const pick = resolvePlay(session().state().legal, inst);
-        if (pick.ok) return act(pick.action);
-        selected = pick.reason === 'combat-target-required' ? inst : null;
-        notice = selected ? '' : combatReasonText(pick.reason);
-        render();
-        return pick;
+        if (!pick.ok && pick.reason !== 'combat-target-required') {
+            selected = null; notice = combatReasonText(pick.reason); render();
+            return pick;
+        }
+        if (selected === inst) {
+            if (pick.ok && nothingToClick(selectionView(inst))) return act(pick.action);
+            selected = null; render();
+            return { ok: true, reason: 'combat-selection-cleared' };
+        }
+        selected = inst; notice = ''; render();
+        return { ok: false, reason: 'combat-target-required', targets: pick.targets || [] };
     }
 
+    // 选中后点单位：要选目标的按该目标打出；不选目标的只接受高亮的承受方，必须点到角色才打出。
     function pickTarget(targetId) {
         if (!selected) return { ok: false, reason: 'combat-card-unselected' };
-        const pick = resolvePlay(session().state().legal, selected, targetId);
+        const legal = session().state().legal;
+        const skill = selected === HERO_SKILL_SELECTION;
+        const picked = selectionView(selected);
+        if (!picked) { selected = null; render(); return { ok: false, reason: skill ? 'combat-hero-skill-unusable' : 'combat-card-unplayable' }; }
+        const free = !picked.targets.length;
+        if (free && !nothingToClick(picked) && !picked.affects.includes(targetId)) { say({ ok: false, reason: 'combat-target-invalid' }); render(); return { ok: false, reason: 'combat-target-invalid' }; }
+        const id = free ? undefined : targetId;
+        const pick = skill ? resolveHeroSkill(legal, id) : resolvePlay(legal, selected, id);
         if (pick.ok) return act(pick.action);
         say(pick);
         render();
         return pick;
+    }
+
+    // 人物技能：与出牌同一套选中 / 确认 / 取消流程，共用 selected。
+    function pickHeroSkill() {
+        const pick = resolveHeroSkill(session().state().legal);
+        if (!pick.ok && pick.reason !== 'combat-target-required') {
+            selected = null; notice = combatReasonText(pick.reason); render();
+            return pick;
+        }
+        if (selected === HERO_SKILL_SELECTION) {
+            if (pick.ok && nothingToClick(selectionView(HERO_SKILL_SELECTION))) return act(pick.action);
+            selected = null; render();
+            return { ok: true, reason: 'combat-selection-cleared' };
+        }
+        selected = HERO_SKILL_SELECTION; notice = ''; render();
+        return { ok: false, reason: 'combat-target-required', targets: pick.targets || [] };
+    }
+
+    // Esc：有选中的牌 / 技能时先撤销选中，返回 true；没有时返回 false，由宿主关闭面板。
+    // 道具：模板道具都不需要选敌方目标，点一次直接使用；不可用时用提示说明原因。
+    function useItem(itemId) {
+        const pick = resolveItem(session().state().legal, itemId);
+        if (pick.ok) return act(pick.action);
+        selected = null; notice = combatReasonText(pick.reason); render();
+        return pick;
+    }
+
+    function cancelSelection() {
+        endDrag();
+        if (!root || !selected) return false;
+        selected = null;
+        render();
+        return true;
     }
 
     // 升级三选一：账本里仍有未领取的等级奖励时逐级给出；只接受本次给出的选项。
@@ -187,19 +1313,27 @@ export function createCombatPanelController(doc, options = {}) {
         return r;
     }
 
-    async function createTables() {
-        if (typeof options.ensureTables !== 'function') return { ok: false, reason: 'combat-table-host-unsupported' };
-        confirming = '';
-        const r = await runAsync('tables', () => options.ensureTables());
-        return r.ok ? prepare() : r;
+    // 「重试」：阻断原因来自数据库表（缺表、未载入、建表失败等）时，先经服务再补建一次（清掉上次建表失败的记忆），再重新准备。
+    async function retryPrepare() {
+        let reason = '';
+        try { reason = String(session()?.state().reason || ''); } catch (error) { reason = ''; }
+        if (reason.startsWith('combat-table-') && typeof options.ensureTables === 'function') {
+            const my = token;
+            await runAsync('tables', () => options.ensureTables());
+            if (my !== token || !root) return { ok: false, reason: 'request-stale' };
+        }
+        return prepare();
     }
 
     function invoke(name, id = '') {
         if (name === 'close') return close();
+        // 演出速度不受演出锁限制：演出进行中也能切换。
+        if (name === 'speed') return root ? toggleSpeed() : { ok: false, reason: 'combat-panel-closed' };
         const s = session();
         if (!root || !s) return { ok: false, reason: root ? 'combat-session-unavailable' : 'combat-panel-closed' };
+        if (autoGen >= 0 && autoGen === hitGen) return { ok: false, reason: 'combat-busy' };
         switch (name) {
-            case 'retry-prepare': return prepare();
+            case 'retry-prepare': return retryPrepare();
             case 'pick':
                 if (!s.state().lobby?.controllable.includes(id)) return { ok: false, reason: 'combat-controlled-invalid' };
                 controlledId = id;
@@ -209,31 +1343,202 @@ export function createCombatPanelController(doc, options = {}) {
                 const r = s.start({ controlledId: controlledId ?? undefined });
                 say(r);
                 render();
-                if (r.ok) playFx(r.events, { start: true });
+                if (r.ok) {
+                    // 开战过场走完再播开局演出；过场期间已有新动作（hitGen 变了）或面板已关闭时不再补播。
+                    const lead = showOpening();
+                    const my = token;
+                    const gen = hitGen;
+                    if (lead) later(() => { if (my === token && gen === hitGen) playFx(r.events, { start: true }); }, lead);
+                    else playFx(r.events, { start: true });
+                }
                 return r;
             }
             case 'card': return pickCard(id);
+            case 'hero-skill': return pickHeroSkill();
+            case 'awaken': return act({ type: 'awaken' });
+            case 'item': return useItem(id);
             case 'target': return pickTarget(id);
-            case 'cancel': selected = null; confirming = ''; render(); return { ok: true };
+            case 'cancel': selected = null; render(); return { ok: true };
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
             case 'finish': return runAsync('send', () => s.finish());
             case 'retry-send': return runAsync('send', () => s.retrySend());
+            case 'flip':
+            case 'choose': {
+                const position = /^\d+$/.test(id) ? Number(id) : -1;
+                if (position < 0) return { ok: false, reason: 'combat-flip-position-invalid' };
+                return runAsync('flip', () => (name === 'flip' ? s.flip(position) : s.choose(position)));
+            }
+            case 'reroll': return runAsync('flip', () => s.reroll());
+            case 'retry-reward': return runAsync('reward', () => s.retryReward());
             case 'skip': return runAsync('skip', () => s.skip());
             case 'reward': return claimReward(id);
-            case 'confirm-tables': confirming = 'tables'; render(); return { ok: true };
-            case 'create-tables': return createTables();
             default: return { ok: false, reason: 'combat-action-unknown' };
         }
     }
 
     function onClick(event) {
         event.stopPropagation?.();
+        // 拖牌松手后浏览器补发的 click 不当作点选。
+        if (dragClickUntil && Date.now() < dragClickUntil) { dragClickUntil = 0; event.preventDefault?.(); return; }
+        // 牌面上带加成 / 减益的数字：弹出（再点收起）加成详情，不选中、不打出这张牌；点面板其他地方先收起详情。
+        const tipAnchor = event.target?.closest?.('[data-scale-tip]');
+        if (tipAnchor && root?.contains?.(tipAnchor)) {
+            event.preventDefault?.();
+            if (scaleTip?.anchor === tipAnchor) hideScaleTip(); else showScaleTip(tipAnchor);
+            return;
+        }
+        hideScaleTip();
         const control = event.target?.closest?.('[data-combat-act]');
         if (!control || !root?.contains?.(control)) return;
         event.preventDefault?.();
-        if (control.getAttribute('aria-disabled') === 'true' && control.getAttribute('data-combat-act') !== 'card') return;
+        // 不可用的牌与人物技能仍响应点击，用提示说明原因；其余禁用控件不响应。
+        if (control.getAttribute('aria-disabled') === 'true' && !['card', 'hero-skill', 'awaken', 'item'].includes(control.getAttribute('data-combat-act'))) return;
         invoke(control.getAttribute('data-combat-act'), control.getAttribute('data-combat-id') || '');
+    }
+
+    function onDragStart(event) {
+        event.preventDefault?.();
+    }
+
+    // 炉石式拖牌：按住手牌拖过 DRAG_SLOP 后按点选流程选中这张牌，影子卡跟随指针；松在高亮的承受方上按点选同一条路径打出（影子卡从松手处飞出），松在别处撤销选中。
+    // 不可出的牌照常给出原因提示；点选、取消按钮与 Esc 不变，Esc 在拖动中同样撤销。
+    const DRAG_SLOP = 8;
+    function onPointerDown(event) {
+        dragClickUntil = 0;
+        if (drag || event.isPrimary === false || (event.button ?? 0) !== 0) return;
+        const el = event.target?.closest?.('.igs-combat-hand [data-combat-act="card"]');
+        if (!el || !root?.contains?.(el)) return;
+        drag = { id: event.pointerId, inst: el.getAttribute('data-combat-id') || '', x: event.clientX, y: event.clientY,
+            rect: el.getBoundingClientRect?.() || null, live: false, dead: false, ghost: null, k: 1, target: '' };
+    }
+
+    function liftCard(event) {
+        const inst = drag.inst;
+        if (selected !== inst) pickCard(inst);
+        if (selected !== inst) { drag.dead = true; return; }
+        drag.live = true;
+        const el = cardEl(inst);
+        const base = stage?.getBoundingClientRect?.();
+        const ghost = el && base?.width && drag.rect?.width ? cloneCardGhost(el) : null;
+        if (ghost) {
+            // 影子卡挂在演出层（与出牌飞行卡同层），坐标按面板自身尺寸换算（宿主缩放不影响）。
+            const k = stage.offsetWidth ? base.width / stage.offsetWidth : 1;
+            const s = ghost.style;
+            ghost.className = `${ghost.className} is-held`;
+            s?.setProperty?.('left', `${Math.round((drag.rect.left - base.left) / k)}px`);
+            s?.setProperty?.('top', `${Math.round((drag.rect.top - base.top) / k)}px`);
+            s?.setProperty?.('width', `${Math.round(drag.rect.width / k)}px`);
+            s?.setProperty?.('height', `${Math.round(drag.rect.height / k)}px`);
+            stage.appendChild(ghost);
+            drag.ghost = ghost;
+            drag.k = k;
+        }
+        root.setAttribute?.('data-igs-combat-dragging', '');
+        try { root.setPointerCapture?.(event.pointerId); } catch (error) { /* 指针已抬起 */ }
+        markDrag();
+    }
+
+    // 指针下高亮的承受方（.is-targetable 单位）；影子卡不接收指针，命中的是底下的单位。
+    function dropTarget(event) {
+        const hit = typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(event.clientX, event.clientY) : null;
+        const unit = hit?.closest?.('.igs-combat-unit.is-targetable');
+        return unit && root?.contains?.(unit) ? unit.getAttribute('data-unit') || '' : '';
+    }
+
+    function onPointerMove(event) {
+        if (!drag || drag.dead || event.pointerId !== drag.id) return;
+        const dx = event.clientX - drag.x;
+        const dy = event.clientY - drag.y;
+        if (!drag.live) {
+            if (Math.hypot(dx, dy) < DRAG_SLOP) return;
+            liftCard(event);
+            if (!drag?.live) return;
+        }
+        event.preventDefault?.();
+        // 位移写独立的 translate 属性：它在 scale 之外生效，放大 / 瞄准缩小时影子卡中心仍贴着指针。
+        drag.ghost?.style?.setProperty?.('translate', `${Math.round(dx / drag.k)}px ${Math.round(dy / drag.k)}px`);
+        const target = dropTarget(event);
+        if (target !== drag.target) { drag.target = target; markDrag(); }
+    }
+
+    function onPointerUp(event) {
+        if (!drag || event.pointerId !== drag.id) return;
+        const live = drag;
+        if (!live.live && !live.dead) { drag = null; return; }
+        // 拖动过的手势不再当作点击：吞掉随后补发的 click。
+        dragClickUntil = Date.now() + 400;
+        if (!live.live) { drag = null; return; }
+        event.preventDefault?.();
+        const target = dropTarget(event);
+        const rect = live.ghost?.getBoundingClientRect?.() || null;
+        endDrag();
+        if (selected !== live.inst) return;
+        if (!target) { cancelSelection(); return; }
+        dropFrom = rect?.width ? { inst: live.inst, rect } : null;
+        const r = pickTarget(target);
+        dropFrom = null;
+        if (!r.ok && selected === live.inst) cancelSelection();
+    }
+
+    function onPointerCancel(event) {
+        if (!drag || event.pointerId !== drag.id) return;
+        const { live, inst } = drag;
+        endDrag();
+        if (live && selected === inst) cancelSelection();
+    }
+
+    function endDrag() {
+        const live = drag;
+        drag = null;
+        if (!live) return;
+        live.ghost?.remove?.();
+        if (live.live) {
+            try { root?.releasePointerCapture?.(live.id); } catch (error) { /* 已释放 */ }
+            root?.removeAttribute?.('data-igs-combat-dragging');
+        }
+        markDrag();
+    }
+
+    // 重绘会换掉手牌与单位节点：拖动中每次重绘后补回原牌隐藏、目标悬停与影子卡瞄准标记；拖动结束时清掉。
+    function markDrag() {
+        if (!root) return;
+        for (const n of root.querySelectorAll?.('.is-lifted, .is-drop-hover') || []) { n.classList?.remove('is-lifted'); n.classList?.remove('is-drop-hover'); }
+        const live = drag?.live ? drag : null;
+        live?.ghost?.classList?.toggle?.('is-armed', Boolean(live.target));
+        if (!live) return;
+        cardEl(live.inst)?.classList?.add('is-lifted');
+        if (live.target) unitEl(live.target)?.classList?.add('is-drop-hover');
+    }
+
+    const dragListeners = [['pointerdown', onPointerDown], ['pointermove', onPointerMove], ['pointerup', onPointerUp], ['pointercancel', onPointerCancel]];
+
+    function hideScaleTip() {
+        scaleTip?.node?.remove?.();
+        scaleTip = null;
+    }
+
+    // 详情水平对准数字中心并夹在面板内，上方放不下时放到数字下方；坐标按面板自身尺寸换算（宿主缩放不影响）；量不到时用样式里的保底位置。
+    function showScaleTip(anchor) {
+        hideScaleTip();
+        if (!root || typeof doc.createElement !== 'function') return;
+        const node = doc.createElement('div');
+        node.className = 'igs-combat-scale-tip';
+        node.setAttribute?.('role', 'tooltip');
+        node.textContent = anchor.getAttribute('data-scale-tip') || '';
+        root.appendChild(node);
+        scaleTip = { node, anchor };
+        const a = anchor.getBoundingClientRect?.();
+        const r = root.getBoundingClientRect?.();
+        if (!a?.width || !r?.width) return;
+        const k = root.offsetWidth ? r.width / root.offsetWidth : 1;
+        const w = r.width / k;
+        const half = (node.offsetWidth || 0) / 2;
+        const x = Math.min(Math.max((a.left - r.left + a.width / 2) / k, half + 8), w - half - 8);
+        const below = (a.top - r.top) / k < (node.offsetHeight || 0) + 16;
+        node.style?.setProperty?.('--tip-x', `${Math.round(x)}px`);
+        node.style?.setProperty?.('--tip-y', `${Math.round(((below ? a.bottom : a.top) - r.top) / k)}px`);
+        if (below) node.setAttribute('data-below', '');
     }
 
     // messageId 为开战楼。未结束的战斗优先：同一时刻只推进一场，其余开战楼只显示当前这场。
@@ -243,7 +1548,7 @@ export function createCombatPanelController(doc, options = {}) {
         const s = session();
         if (!s) return { ok: false, reason: 'combat-session-unavailable' };
         messageId = Number.isInteger(openOptions.messageId) ? openOptions.messageId : null;
-        notice = ''; pending = ''; selected = null; controlledId = null; rewards = null; confirming = '';
+        notice = ''; pending = ''; selected = null; controlledId = null; rewards = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         token += 1;
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
@@ -251,7 +1556,8 @@ export function createCombatPanelController(doc, options = {}) {
         root.id = COMBAT_PANEL_ID;
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-modal', 'true');
-        root.setAttribute('aria-label', '卡牌战斗');
+        root.setAttribute('aria-label', '战斗');
+        root.setAttribute('tabindex', '-1');
         const body = doc.createElement('div');
         body.className = 'igs-combat-body';
         stage = doc.createElement('div');
@@ -262,37 +1568,70 @@ export function createCombatPanelController(doc, options = {}) {
         root.appendChild(body);
         root.appendChild(stage);
         root.addEventListener('click', onClick);
+        // 战斗演出全程（战前、开战过场、战斗、结算）不拖动立绘、卡面等素材；框选文字由样式层禁止。
+        root.addEventListener('dragstart', onDragStart);
+        // 拖牌的指针事件挂在根节点：拖动中指针捕获到根节点，移出手牌区也能跟随。
+        for (const [type, fn] of dragListeners) root.addEventListener(type, fn);
+        offCardArt = typeof options.subscribeCardImages === 'function' ? options.subscribeCardImages(() => onCardArtUpdated()) : null;
+        offSession = typeof s.subscribe === 'function' ? s.subscribe(onSessionChanged) : null;
         overlay.appendChild(root);
         overlay.classList?.toggle('igs-record-screen-open', true);
         // 战斗期间隐藏背后的剧情文字（对话层），背景与立绘保留。
         overlay.setAttribute?.('data-igs-combat-open', '');
         setStagePauseReason(overlay, PAUSE_REASON, true);
+        battleMusic(overlay, true);
         const cur = s.state();
         if (cur.lobby) controlledId = cur.lobby.heroId;
         const busy = ['battle', 'ended', 'send-failed', 'preparing'].includes(cur.status);
         const same = cur.anchor?.messageId === messageId && ['lobby', 'blocked', 'done', 'skipped'].includes(cur.status);
         render();
+        watchControlDock();
+        syncSpeedWatch();
+        // 鞭尸中途关掉面板：重开时敌人已全灭，停顿后照常结束回合判胜。
+        maybeFinish();
         if (messageId !== null && !busy && !same) prepare();
         else if (cur.status === 'done') loadRewards();
-        root.querySelector?.('[data-combat-act="close"]')?.focus?.();
+        // 焦点落在面板本身而不是关闭按钮：打开时右上角不画焦点环，按 Tab 仍从关闭按钮开始。
+        root.focus?.();
         return { ok: true };
     }
 
     function close() {
         if (!root) return { ok: true, reason: 'not-open' };
         token += 1;
+        stopDockWatch?.();
+        stopDockWatch = null;
+        heroCtrlPos = null;
         try { abort?.abort(); } catch (error) { /* 已结束 */ }
         abort = null;
+        clearCutins();
+        endDrag();
+        hideScaleTip();
+        held.clear(); drawnLook.clear();
+        hitGen += 1;
         if (stage) cancelBattleFx(stage);
+        if (speedWatch) { speedWatch.disconnect(); speedWatch = null; }
         root.removeEventListener?.('click', onClick);
+        root.removeEventListener?.('dragstart', onDragStart);
+        for (const [type, fn] of dragListeners) root.removeEventListener?.(type, fn);
+        try { if (typeof offCardArt === 'function') offCardArt(); } catch (error) { /* 宿主已卸载 */ }
+        offCardArt = null;
+        try { if (typeof offSession === 'function') offSession(); } catch (error) { /* 会话已丢弃 */ }
+        offSession = null;
+        drawnStatus = ''; drawnRecordError = '';
+        if (artTimer !== null) {
+            try { (typeof options.clear === 'function' ? options.clear : (t) => clearTimeout(t))(artTimer); } catch (error) { /* 已触发 */ }
+            artTimer = null;
+        }
         root.remove();
         root = null;
         stage = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
         pageOverlay?.removeAttribute?.('data-igs-combat-open');
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
+        battleMusic(pageOverlay, false);
         pageOverlay = null;
-        pending = ''; rewards = null; selected = null; confirming = '';
+        pending = ''; rewards = null; selected = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();
@@ -300,7 +1639,7 @@ export function createCombatPanelController(doc, options = {}) {
     }
 
     return {
-        open, close, dispose: close, invoke,
+        open, close, dispose: close, invoke, cancelSelection,
         isOpen: () => Boolean(root),
         refresh: render,
         view: () => (root ? snapshot() : null),

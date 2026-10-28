@@ -33,6 +33,10 @@
 - 统一定位聊天楼层、当前楼层、输入框、发送按钮和消息图片。
 - 副 LLM 请求（`secondary-llm.js`）。
 - `illustration-message-host.readCharacterLore` 按本轮角色筛选并完整收集角色卡、用户人设及匹配的世界书条目，不按每人或总字符数截断；`includeWorldInfo:false` 仍由内置预设的原生世界书扫描负责参考。
+- `combat-story-context.js` 的 `createCombatStoryContext(global, { resolveWorldInfo })` 给卡牌战斗生成提供剧情与世界书参考：最近 3 楼 AI 正文去掉 IGS 标签、HTML 与插图标记后取末尾 ≤1600 字作 `story`；世界书经注入的 `resolveWorldInfo`（bootstrap 注入 `image-world-info.js` 的原生扫描，与写词同一链路，扫描串行并恢复作者注释）按剧情与角色名触发，取 ≤3000 字作 `worldInfo`。扫描不可用、失败或已取消时只返回读到的部分，不阻断生成；不全量读取世界书。
+- `combat-chat-record.js` 的 `createCombatChatRecord(global)` → `read(anchor, combatId) / write(anchor, combatId, patch)`：按 combatId 读写开战楼的 `extra.igsCombat`，同时写当前 swipe 的 `swipe_info[swipeId].extra`；不改正文 `mes`、不重绘。楼层不在或已换 swipe 时 `read` 返回 `value:null`（那是另一场），格式不对返回 `combat-record-corrupt`。`write` 需要宿主 `saveChat`（否则 `combat-record-unsupported`）；楼层不符返回 `combat-record-stale`；保存失败撤回内存改动并返回 `combat-record-save-failed`；写后读回不一致返回 `combat-record-unverified`。宿主换 swipe、删楼、重新载入聊天后 extra 是否保留，需真机核实。
+
+
 - 自动插图楼层读写、生成事件订阅及 `[igs-img]` 标记对外隐藏（`illustration-message-host.js`）。
 - 战报显示折叠（`combat-report-regex.js`）：`ensureCombatReportRegex` 只注册作用于用户楼的 display 正则，prompt 目标保留原文；注册幂等，保留其他全局正则，缺少酒馆助手正则接口时返回 `regex-api-missing`。
 - 自动插图 `writeFloor(messageId, text, expectedFloor)` 写回前复核聊天、楼层、swipe、最新 AI 身份与原文；发生变化返回 `stale`，不写入。宿主 API 未提供原子条件写入，复核与实际调用之间的极窄竞态仍需真机验证。

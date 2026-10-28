@@ -27,6 +27,7 @@ import { applyDanmakuToDom } from './danmaku-runtime.js';
 import { applyItemMentionMarkup, itemMentionsOf, renderItemFx, showItemMention } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
 import { renderGrowthFx } from './combat-growth-fx.js';
+import { renderCheckBadges } from './combat-check-badge.js';
 import { repositionBattleImpacts } from './fx-battle.js';
 import { renderDailyFx } from './fx-daily.js';
 import { enabledPackIds } from './fx-daily-model.js';
@@ -493,6 +494,8 @@ export function applyToolbarState(root, current) {
     const hiddenSet = new Set(Array.isArray(readerSettings.hiddenBtns) ? readerSettings.hiddenBtns : []);
     // 「重听这句」只在开了台词朗读时显示。
     if (!normalizeTtsSettings(readerSettings.tts).enabled) hiddenSet.add('tts-replay');
+    // 「人物状态」只在卡牌战斗扩展开启时显示；用户的排序、隐藏与固定照常生效。
+    if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled) hiddenSet.add('combat-status');
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
     // 默认顶部固定：只有明确选了「紧贴对话框」才是 float。
@@ -958,7 +961,7 @@ const statusHudKeys = new WeakMap();
 function statusHudKey(root, snapshot, hud, radius) {
     const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     const optionsVisible = Boolean(root.classList && root.classList.contains('igs-options-visible'));
-    // 资料菜单的「战斗」项随扩展开关增减，开关必须进重建签名。
+    // 资料菜单的「人物状态」项随扩展开关增减，开关必须进重建签名。
     const combat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
     try {
         return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size] : null, optionsVisible, radius, combat]);
@@ -1097,10 +1100,10 @@ export function applyStatusHudToDom(root, snapshot) {
     if (!recordMenuOpen) menu.setAttribute('hidden', '');
     // 好感总览入口只在当前 HUD 已有好感度条时出现；数据仍来自状态栏所选表。
     const hasFavorBar = hasMetrics && hud.metrics.some(metric => /好感/.test(String(metric?.label || '')));
-    // 战斗分类只在卡牌战斗扩展开启时出现。
+    // 「人物状态」项只在卡牌战斗扩展开启时出现。
     const hasCombat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
     const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : []), ...(hasCombat ? ['combat'] : [])];
-    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度', combat: '战斗' })[name]])) {
+    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度', combat: '人物状态' })[name]])) {
         const button = doc.createElement('button');
         button.type = 'button';
         button.className = 'igs-hud-entry-item';
@@ -1369,6 +1372,9 @@ export function syncSpriteTextWait(current, text, { page, pending = false, sched
 }
 
 const ROOT_TOGGLED_CLASSES = new Set(['igs-default-reader-chrome', 'igs-gradient-veil-active', 'igs-scene-nsfw']);
+// 盖住舞台的面板（资料 / 地图 / 战斗 / 卡组构筑共用 igs-record-screen-open，楼层目录用 igs-turn-index-open）自己挂在根节点上的开关类，
+// 不在快照里；整串改写类名时必须原样保留，否则面板打开期间一次重渲染就会让工具栏、对话层、状态栏重新露出来。
+const PANEL_OPEN_CLASSES = Object.freeze(['igs-record-screen-open', 'igs-turn-index-open']);
 
 export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     const comicActive = isComicModeActive(snapshot.readerSettings);
@@ -1385,6 +1391,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     // applyReaderSettingsToDom 随后还会 toggle 这两个类：先按同样条件带上，免得每次翻页先删后加、整页样式失效。
     if (snapshot.mode !== 'embedded' && snapshot.readerSettings.toolbarDock !== 'float') rootClasses.push('igs-toolbar-top');
     if (snapshot.readerSettings.cinemaBars === true) rootClasses.push('igs-cinema-bars');
+    if (root.classList) for (const name of PANEL_OPEN_CLASSES) if (root.classList.contains(name)) rootClasses.push(name);
     const rootClassName = rootClasses.join(' ');
     if (root.className !== rootClassName) root.className = rootClassName;
     root.setAttribute('data-igs-igs-ui', 'true');
@@ -1932,6 +1939,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     renderItemFx(root, snapshot, { resolveItemImage: ctx.resolveItemImage, chatId: ctx.chatId, theme: fxTheme });
     // 卡牌战斗成长演出：只播已入库的成长事件，同页重绘不重播。
     renderGrowthFx(root, snapshot);
+    // 正文 d20 判定徽记：只显示程序复算结果，本页常驻，换页撤下。
+    renderCheckBadges(root, snapshot);
     // 战斗演出：默认关闭；只读 igs-fx:battle / hit 标签，不显示数值。
     renderBattleFx(root, snapshot, {
         chatId: ctx.chatId,

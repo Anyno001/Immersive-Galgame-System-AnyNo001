@@ -21,19 +21,30 @@ test('扩展关闭时 battle 块的组装结果不变', () => {
     assert.deepEqual(before.expanded, ['battle']);
 });
 
-test('扩展开启时出现 combat 块、没有 battle 块，按需展开', () => {
+test('扩展开启时出现 combat 块、没有 battle 块；缺省常驻，亲手切成按需后按触发展开', () => {
     assert.ok(keys(COMBAT_ON).includes('combat'));
     assert.ok(!keys(COMBAT_ON).includes('battle'));
-    const idle = buildTagGrammar({ readerSettings: COMBAT_ON });
+    const resident = buildTagGrammar({ readerSettings: COMBAT_ON });
+    assert.deepEqual([resident.expanded, resident.indexed], [[], []]);
+    const quiet = resolvePromptTriggers({ userText: '', recentAiTexts: [] }).report;
+    assert.deepEqual([quiet.combat.reason, quiet.battle.active], ['always', false]);
+    // 旧存档里规范化补齐的 auto 不算用户选择，仍按缺省常驻；off 照旧整块去掉。
+    assert.deepEqual(buildTagGrammar({ readerSettings: COMBAT_ON, entries: { combat: { mode: 'auto' } } }).indexed, []);
+    assert.ok(!('combat' in buildTagGrammar({ readerSettings: COMBAT_ON, entries: { combat: { mode: 'off' } } }).sizes));
+    const auto = { combat: { mode: 'auto', modeChosen: true } };
+    const idle = buildTagGrammar({ readerSettings: COMBAT_ON, entries: auto });
     assert.deepEqual([idle.expanded, idle.indexed], [[], ['combat']]);
-    const hits = resolvePromptTriggers({ userText: '他们拔刀开战', recentAiTexts: [] }).hits;
+    assert.notEqual(idle.system, resident.system);
+    const hits = resolvePromptTriggers({ userText: '他们拔刀开战', recentAiTexts: [], entries: auto }).hits;
     assert.ok(hits.has('combat'));
-    const shown = buildTagGrammar({ readerSettings: COMBAT_ON, expand: hits });
+    const shown = buildTagGrammar({ readerSettings: COMBAT_ON, expand: hits, entries: auto });
     assert.deepEqual(shown.expanded, ['combat']);
     assert.ok(shown.depth0.length > 0);
     assert.equal(idle.system, shown.system);
-    const tagged = resolvePromptTriggers({ userText: '', recentAiTexts: ['正文[igs-combat:exp|爱丽丝|10]'] }).hits;
-    assert.ok(tagged.has('combat'));
+    for (const tag of ['exp|爱丽丝|10', 'awaken|我|怒火|到此为止', 'equip|我|铁剑|武器|旧剑', 'unequip|我|铁剑', 'item|我|药剂|1|回血']) {
+        const tagged = resolvePromptTriggers({ userText: '', recentAiTexts: [`正文[igs-combat:${tag}]`], entries: auto }).hits;
+        assert.ok(tagged.has('combat'), tag);
+    }
     assert.equal(isPromptEntryKey('combat'), true);
     assert.deepEqual(keys({ combatExpansion: { enabled: true } }), ['combat']);
 });
@@ -69,4 +80,24 @@ test('普通发送时以输入框为准：战报尚未落入聊天也能识别',
     const empty = collectPromptContext({ chat: [{ is_user: true, mes: report('lose') }] }, { document: { querySelector: () => ({ value: '' }) } });
     assert.deepEqual([empty.inputText, empty.userText], ['', report('lose')]);
     assert.equal(findPendingCombatReport(empty.history, { generationType: 'normal', inputText: empty.inputText })?.result, 'lose');
+});
+
+
+import { CHECK_ROLLS_SEGMENT_ID, checkCorrections, checkRollsFor, resolveCheckRollsSegment } from '../src/scene/check-rolls.js';
+
+test('每楼骰序段只在战斗扩展开启且骰序完整时注入 depth0；更正与在场加值进入同一段', () => {
+    const rolls = checkRollsFor('chat-1', 3);
+    assert.equal(resolveCheckRollsSegment(BATTLE_ON, { rolls }), null);
+    assert.equal(resolveCheckRollsSegment(COMBAT_ON, { rolls: null }), null);
+    assert.equal(resolveCheckRollsSegment(COMBAT_ON, { rolls: rolls.slice(0, 9) }), null);
+    const seg = resolveCheckRollsSegment(COMBAT_ON, { rolls });
+    assert.deepEqual([seg.id, seg.position, seg.depth, seg.rolls], [CHECK_ROLLS_SEGMENT_ID, 'depth0', 0, rolls]);
+    const hero = { scores: { str: 16, dex: 10, con: 12, int: 8, wis: 10, cha: 10 }, prefs: { major: 'str', minor: 'con' }, proficiency: 2 };
+    const withActors = resolveCheckRollsSegment(COMBAT_ON, { rolls, actors: [{ name: '我', attr: hero }] });
+    assert.notEqual(withActors.content, seg.content);
+    // 属性视图不完整的人物不列加值，与没有在场人物时一致。
+    assert.equal(resolveCheckRollsSegment(COMBAT_ON, { rolls, actors: [{ name: '路人', attr: { scores: { str: 10 } } }] }).content, seg.content);
+    const corrections = checkCorrections([{ mismatch: true, actor: '我', label: '力量', dc: 12, die: 5, bonus: 5, total: 10, tier: '失败', written: '成功' }, { mismatch: false }]);
+    assert.equal(corrections.length, 1);
+    assert.notEqual(resolveCheckRollsSegment(COMBAT_ON, { rolls, corrections }).content, seg.content);
 });

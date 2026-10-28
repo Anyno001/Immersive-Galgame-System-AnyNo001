@@ -15,13 +15,13 @@ function applyDisplay(rule, text) {
     return text.replace(new RegExp(m[1], m[2]), (hit) => rule.replace_string.replace('{{match}}', hit));
 }
 
-test('战报正则只折叠显示、不改发送原文，并带上后面的 exp 标签行', () => {
+test('战报正则只折叠显示、不改发送原文，并带上后面的 exp 与 loot 标签行', () => {
     const rule = combatReportRegex();
     assert.deepEqual([rule.destination, rule.source.user_input, rule.source.ai_output], [{ display: true, prompt: false }, true, false]);
-    const report = '（战斗结束）\n<igs-combat-report id="r1" result="win" encounter="狭路">\n第1回合：……\n</igs-combat-report>\n[igs-combat:exp|主角|20|战斗:r1]';
+    const report = '（战斗结束）\n<igs-combat-report id="r1" result="win" encounter="狭路">\n第1回合：……\n</igs-combat-report>\n[igs-combat:exp|主角|20|战斗:r1]\n[igs-combat:loot|主角|r1|0|main]';
     const shown = applyDisplay(rule, report);
     assert.ok(shown.startsWith('（战斗结束）\n<details><summary>战斗记录</summary>'));
-    assert.ok(shown.includes('[igs-combat:exp|主角|20|战斗:r1]\n\n</details>'));
+    assert.ok(shown.includes('[igs-combat:exp|主角|20|战斗:r1]\n[igs-combat:loot|主角|r1|0|main]\n\n</details>'));
     assert.equal(applyDisplay(rule, '普通输入'), '普通输入');
 });
 

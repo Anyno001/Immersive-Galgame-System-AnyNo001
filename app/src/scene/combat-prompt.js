@@ -12,16 +12,22 @@ export function combatExpansionEnabled(readerSettings) {
     return plain(plain(readerSettings).combatExpansion).enabled === true;
 }
 
-export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/exp/learn/upgrade/class';
+export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/equip/unequip/item/rel/stat';
 
 export function resolveCombatPromptRule(readerSettings) {
     if (!combatExpansionEnabled(readerSettings)) return '';
     return `【战斗】战斗由前端卡牌系统结算，正文只负责引出遭遇和记录成长，标签写作 [igs-combat:类型|参数]：
 - [igs-combat:start|遭遇名|敌方|友方|等级]：剧情真正进入交战的那一刻写在本层正文的最后一行，写完立即结束本层，不再写任何正文；敌方写 名称 或 名称*数量，逗号分隔，合计最多5个；友方写同行参战的角色名，逗号分隔，最多3人，主角不用写；等级只写 普通/精英/首领，可省略；每层最多一个
+- [igs-combat:awaken|角色|类型|台词]：只在重大情绪节点写（同伴在眼前倒下、立誓守护、绝境不退、宿敌当前等），平常战斗不写；必须紧挨在开战标签的上一行，开战标签仍是最后一行；角色写主角（「我」或主角名）；类型只写 怒火/守护/悲恸/决意/羁绊/极限/复仇/不屈 之一；台词是此刻喊出的一句话，不超过30字；每场最多一个
 - [igs-combat:exp|角色|数值|原因]：剧情中获得历练时写，每层每个角色合计不超过50
 - [igs-combat:learn|角色|技能名|简述]：剧情中习得新技能
 - [igs-combat:upgrade|角色|技能名|简述]：已有技能得到精进
 - [igs-combat:class|角色|职业]：转职或觉醒
+- [igs-combat:equip|角色|名称|部位|简述]：剧情中得到并装备武器、防具、饰品或宝物时写；部位只写 武器/防具/饰品/宝物；每个部位只装一件，新装备会顶替旧装备
+- [igs-combat:unequip|角色|名称]：剧情中卸下、丢失或交出某件装备
+- [igs-combat:item|角色|名称|数量|简述]：剧情中得到能在战斗中使用一次的道具（药剂、符咒、暗器等）；数量 1–3
+- [igs-combat:rel|角色|档]：每层给本层登场的非主角各写一个，主角不写；档只写 远逊/稍弱/相当/稍强/强敌/碾压 之一，表示此人此刻相对主角的强弱；强弱没变就照写原档
+- [igs-combat:stat|角色|属性|点数|原因]：只在剧情确实让主角锻炼、领悟、服药等而提升某项属性时写，角色只写主角；属性只写 力量/敏捷/体质/智力/感知/魅力 之一；点数 1–2，每层合计不超过2
 
 语法要求：
 1. 开战标签之后由前端接管，不要自行写出战斗过程和胜负；战斗结束后会以战报的形式发回，届时再按战报续写
@@ -29,7 +35,7 @@ export function resolveCombatPromptRule(readerSettings) {
 3. 成长标签只在剧情确实发生时写，主角写「我」以外的名字时用角色名`;
 }
 
-const NARRATION_COMMON = `【战斗续写】上一条用户消息中的 <igs-combat-report> 是刚刚结束的战斗记录。按其中的回合进程，用小说笔法完整写出这场战斗：技能名可以作为招式名出现；不得出现卡牌、手牌、费用、能量、抽牌或具体的血量数值；不得改变胜负与击倒的先后顺序；本层不写开战标签，也不重复写战报里的 exp 标签。`;
+const NARRATION_COMMON = `【战斗续写】上一条用户消息中的 <igs-combat-report> 是刚刚结束的战斗记录。按其中的回合进程，用小说笔法完整写出这场战斗：技能名可以作为招式名出现；不得出现卡牌、手牌、费用、能量、抽牌、稀有度或具体的血量数值；不得改变胜负与击倒的先后顺序；本层不写任何 [igs-combat:…] 标签（开战、觉醒、exp、loot、learn、upgrade、class、rel、stat 等一律不写）：这场战斗的历练与收获已由战报结算，续写只负责叙述。战报里有「战利品：」一行时，在结尾把这件收获自然写进剧情：新招式写领悟、装备写得到或缴获、道具写拾得、零碎小物写顺手捡到。`;
 
 const NARRATION_BY_RESULT = Object.freeze({
     win: '结局是胜利：写到最后一个敌人倒下，结尾自然过渡到战后。',

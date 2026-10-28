@@ -436,3 +436,39 @@ function createFakeMatteDom() {
     doc.getElementById = (id) => find(doc.head, id) || find(doc.body, id);
     return { doc, win };
 }
+
+
+import { d20Outcome } from '../src/choices/dice-check.js';
+import { buildResultFxPlan, resultDetailOf } from '../src/visual/igs-ui/fx-result-model.js';
+
+test('gate:choices:dice-dc-d20-local-and-unknown-params-fail-closed', async () => {
+    assert.deepEqual(parseDiceCommand('检定 我 力量 DC=14'), { kind: 'd20', name: '我', attribute: 'str', dc: 14 });
+    assert.equal(parseDiceCommand('检定 我 力量 dc=40').kind, 'invalid');
+    assert.equal(parseDiceCommand('检定 我 灵巧 DC=14').kind, 'invalid');
+    assert.equal(parseDiceCommand('检定 我 力量 DC=14 难度=困难').kind, 'invalid');
+    assert.equal(parseDiceCommand('检定 我 侦查 难度=超难').kind, 'invalid');
+    assert.equal(parseDiceCommand('检定 我 侦查 速度=快').kind, 'invalid');
+    assert.equal(parseDiceCommand('对抗 我 力量 vs 他 力量 规则=x').kind, 'invalid');
+    // 旧写法照旧走 AcuDice d100。
+    assert.deepEqual(parseDiceCommand('检定 我 侦查 难度=困难 奖惩=奖励1'), { kind: 'check', name: '我', attribute: '侦查', difficulty: 1, bonus: 1, penalty: 0 });
+    const mock = createAcuDiceMock({ '我.侦查': 60 }, [30]);
+    const old = await resolveDiceCommand('检定 我 侦查', mock);
+    assert.deepEqual([old.ok, old.detail.kind, old.roll], [true, 'check', 30]);
+
+    // 新写法本地掷 d20，不调用 AcuDice；力量 16（+3）为主擅长，熟练 +2。
+    const attr = { scores: { str: 16, dex: 12, con: 14, int: 8, wis: 10, cha: 10 }, prefs: { major: 'str', minor: 'con', weak: 'int' }, proficiency: 2 };
+    const ctx = (r) => ({ random: () => r, readAbilities: async () => attr });
+    const hit = await resolveDiceCommand('检定 我 力量 DC=14', null, ctx(0.5));
+    assert.deepEqual([hit.ok, hit.detail.die, hit.detail.bonus, hit.detail.total, hit.detail.tier], [true, 11, 5, 16, '成功']);
+    assert.ok(hit.line.includes('1d20+5=11+5=16'));
+    const plan = buildResultFxPlan(resultDetailOf(hit));
+    assert.deepEqual([plan.reels[0].value, plan.tone], [11, 'success']);
+    assert.equal((await resolveDiceCommand('检定 我 力量 DC=30', null, ctx(0.99))).detail.tier, '大成功');
+    assert.equal((await resolveDiceCommand('检定 我 力量 DC=5', null, ctx(0))).detail.tier, '大失败');
+    // 非主次擅长不计熟练。
+    assert.equal((await resolveDiceCommand('检定 我 魅力 DC=10', null, ctx(0.5))).detail.bonus, 0);
+    assert.deepEqual(d20Outcome(9, 5, 14), { total: 14, success: true, tier: '成功' });
+    // 未注入六维或读不到时不掷骰，调用方按原命令降级。
+    assert.equal((await resolveDiceCommand('检定 我 力量 DC=14', null, {})).ok, false);
+    assert.equal((await resolveDiceCommand('检定 我 力量 DC=14', null, { readAbilities: async () => null })).ok, false);
+});

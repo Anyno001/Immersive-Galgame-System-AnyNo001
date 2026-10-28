@@ -120,9 +120,9 @@ const BLOCK_TRIGGERS = Object.freeze({
         open: /\[igs-fx:battle[|\]]/g,
         close: /\[igs-fx:battle-end[|\]]/g,
     },
-    // 卡牌战斗：扩展开启时替代 battle 块，沿用同一份战斗词表；最近几层出现战斗标签也展开。
+    // 卡牌战斗：扩展开启时替代 battle 块，缺省常驻；切成按需时沿用同一份战斗词表，最近几层出现任一战斗标签也展开。
     combat: {
-        tag: /\[igs-combat:(?:start|exp|learn|upgrade|class)[|\]]/,
+        tag: /\[igs-combat:(?:start|awaken|exp|learn|upgrade|class|equip|unequip|item|rel|stat)[|\]]|\[igs-check:/,
         words: BATTLE_TRIGGER_WORDS,
     },
     romance: {

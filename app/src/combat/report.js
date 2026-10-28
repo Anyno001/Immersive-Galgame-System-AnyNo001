@@ -1,18 +1,38 @@
 import { COMBAT_RULES, combatExpReward } from './rules.js';
 import { hashString } from './random.js';
+import { COMBAT_AWAKEN_TYPES } from '../scene/combat-directives.js';
 
 // 战报：把引擎事件压缩成按回合的叙事要点。只写技能名与相对伤势，不出现卡牌、费用、能量或具体数值。
 // 胜利时在战报块之后附 EXP 标签，失败与撤退不附。
 export const REPORT_RESULT = Object.freeze({ victory: 'win', defeat: 'lose', escape: 'escape' });
 export const REPORT_DETAIL = Object.freeze({ brief: 2, normal: 4 });
 const MIDDLE_MERGE_AFTER = 8;
-const STATUS_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '力量', dexterity: '敏捷', poison: '中毒', regen: '再生', thorns: '荆棘' });
+const STATUS_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '力量', dexterity: '敏捷', poison: '中毒', regen: '再生', thorns: '荆棘', intangible: '无形', 'no-draw': '禁抽', endure: '不屈' });
 const SELF_BUFFS = new Set(['strength', 'dexterity', 'regen', 'thorns']);
 const END_LINES = Object.freeze({ win: '终局：我方获胜。', lose: '终局：我方力竭落败。', escape: '终局：我方撤离战场，敌人仍在。' });
+// 觉醒键 → 中文类型名（与开战标签同一张表）。
+export const AWAKEN_TYPE_NAMES = Object.freeze(Object.fromEntries(Object.entries(COMBAT_AWAKEN_TYPES).map(([name, key]) => [key, name])));
 
 // 战报 ID 不含「|」，可以直接写进成长标签的原因栏。
 export const reportIdFor = (combatId) => `r${hashString(combatId)}`;
 const clean = (value) => String(value ?? '').replace(/["<>\[\]|\n]/g, '').trim();
+
+// 战利品：胜利且已翻牌时，在战报块末尾加一行「战利品：……」供续写叙述，块后附 loot 标签（与 EXP 标签同一位置），由账本扫描战报楼兑现。
+// 已附过的不再重复；没有战报块时原样返回。loot = { character, reportId, index, set: 'main' | 'reserve', slot }。
+const LOOT_VERBS = Object.freeze({ card: '领悟了', gear: '得到了', item: '拾得', keepsake: '顺手捡到' });
+const LOOT_TAG_RE = /\[igs-combat:loot\|/;
+export const hasLoot = (text) => LOOT_TAG_RE.test(String(text || ''));
+export function attachLoot(text, loot) {
+    const body = String(text || '');
+    if (!loot?.slot || hasLoot(body) || !body.includes('</igs-combat-report>')) return body;
+    const who = clean(loot.character);
+    const s = loot.slot;
+    const count = s.kind === 'item' && s.item?.count > 1 ? `×${s.item.count}` : '';
+    const line = `战利品：${who}${LOOT_VERBS[s.kind] || '得到了'}「${clean(s.name)}」${count}。`;
+    const tag = `[igs-combat:loot|${who}|${loot.reportId}|${loot.index}|${loot.set === 'reserve' ? 'reserve' : 'main'}]`;
+    return `${body.replace('</igs-combat-report>', `${line}\n</igs-combat-report>`)}\n${tag}`;
+}
+
 
 export function injuryLevel(unit) {
     if (!unit || !unit.alive || unit.hp <= 0) return '倒下';
@@ -46,7 +66,7 @@ function describe(action, units) {
 }
 
 const blankTarget = () => ({ hpLoss: 0, blocked: 0, heal: 0, block: 0, statuses: [], defeated: false });
-const ACTION_SOURCES = new Set(['card', 'skill']);
+const ACTION_SOURCES = new Set(['card', 'skill', 'hero-skill', 'item']);
 
 // 引擎事件 → 按回合的出手列表。只有卡牌与技能开启一次出手；被动、中毒等效果不单列，击倒归到最后一次伤害的出手。
 export function collectTurns(events, units = {}) {
@@ -71,7 +91,7 @@ export function collectTurns(events, units = {}) {
             ensureTurn();
             continue;
         }
-        if (ev.type === 'card' || ev.type === 'skill') {
+        if (ev.type === 'card' || ev.type === 'skill' || ev.type === 'hero-skill' || ev.type === 'item') {
             const actor = units[ev.unitId];
             const ratio = actor ? (hp[ev.unitId] ?? actor.maxHp) / actor.maxHp : 1;
             action = { actorId: ev.unitId, skill: ev.type === 'card' ? (ev.skillRef || ev.name) : ev.name, targets: new Map(), desperate: ratio < 0.3 };
@@ -81,6 +101,8 @@ export function collectTurns(events, units = {}) {
         if (ev.type === 'damage') {
             if (ev.target in hp) hp[ev.target] = Math.max(0, hp[ev.target] - (ev.hpLoss || 0));
             if (!owned(ev)) continue;
+            // 鞭尸 / 超杀：打在倒下的敌人身上不掉血，不写进战报；只有这类命中的出手在收尾时去掉。
+            if (ev.overkill) { action.whipped = true; continue; }
             const t = targetOf(ev.target);
             t.hpLoss += ev.hpLoss || 0;
             t.blocked += ev.blocked || 0;
@@ -103,8 +125,11 @@ export function collectTurns(events, units = {}) {
             } else ensureTurn().fallen = [...(turn.fallen || []), ev.unitId];
         } else if (ev.type === 'escape') {
             ensureTurn().escape = ev.unitId;
+        } else if (ev.type === 'awaken') {
+            ensureTurn().awaken = { unitId: ev.unitId, type: ev.awakenType, line: ev.line || '' };
         }
     }
+    for (const t of turns) t.actions = t.actions.filter((a) => !(a.whipped && !a.targets.size));
     return turns;
 }
 
@@ -123,7 +148,14 @@ function importance(action, first, last) {
 function turnLine(turn, units, perTurn, first, last) {
     const ranked = turn.actions.map((a, i) => ({ a, i, s: importance(a, first, last) }))
         .sort((x, y) => y.s - x.s || x.i - y.i).slice(0, perTurn).sort((x, y) => x.i - y.i);
-    const parts = ranked.map(({ a }) => `${describe(a, units)}${a.desperate ? '（绝境反击）' : ''}`);
+    const parts = [];
+    // 觉醒是这一回合的情绪节点，写在最前，供续写呼应台词。
+    if (turn.awaken) {
+        const aw = turn.awaken;
+        const line = clean(aw.line);
+        parts.push(`${clean(units[aw.unitId]?.name || aw.unitId)} 觉醒：${AWAKEN_TYPE_NAMES[aw.type] || clean(aw.type)}${line ? `『${line}』` : ''}`);
+    }
+    parts.push(...ranked.map(({ a }) => `${describe(a, units)}${a.desperate ? '（绝境反击）' : ''}`));
     for (const id of turn.fallen || []) parts.push(`${clean(units[id]?.name || id)} 力竭倒下`);
     if (turn.escape) parts.push(`${clean(units[turn.escape]?.name || turn.escape)} 带领众人撤离`);
     return parts.length ? `第${turn.index}回合：${parts.join('；')}。` : '';
@@ -155,7 +187,7 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
     if (!result) return { ok: false, reason: 'combat-not-finished' };
     const units = state.units;
     const perTurn = REPORT_DETAIL[detail] || REPORT_DETAIL.normal;
-    const turns = collectTurns(events, units).filter((t) => t.actions.length || t.fallen || t.escape);
+    const turns = collectTurns(events, units).filter((t) => t.actions.length || t.fallen || t.escape || t.awaken);
     const all = turns.flatMap((t) => t.actions);
     const first = all[0];
     const last = result === 'win' ? [...all].reverse().find((a) => [...a.targets.values()].some((t) => t.defeated)) : all.at(-1);

@@ -8,7 +8,7 @@ import { imageTaskConfig } from '../builtin-image-task-runtime.js';
 
 const stale = () => ({ ok: false, reason: 'stale-target', cancelled: true, stopGeneration: true, error: '原角色卡或聊天目标已结束' });
 
-export function createExternalSpriteDnaPreparation({ llm, readSettings, isExternal, isBuiltin = () => false, captureTarget, readChat, isStopped, readLore }) {
+export function createExternalSpriteDnaPreparation({ llm, readSettings, isExternal, isBuiltin = () => false, captureTarget, readChat, isStopped, readLore, captureCombatInit }) {
     const pending = new Map();
     const configOf = settings => {
         const config = imageTaskConfig({ imageApi: settings.imageApi, autoIllustration: settings.auto });
@@ -22,6 +22,7 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
         const globalCurrent = () => !isStopped() && readChat() === chat;
         const current = () => globalCurrent() && !signal?.aborted && (!shouldStart || shouldStart() === true);
         if (!current()) return stale();
+        const combat = captureCombatInit?.() || null;
         const rows = [], seen = new Map();
         for (const source of characters) {
             const target = typeof source.onSaveDna === 'function' ? null : captureTarget?.(source.name);
@@ -30,7 +31,7 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
                 note: source.note ?? settings.sceneAssets.characterSpriteNotes?.[name] ?? '',
                 save: source.onSaveDna || target?.save, current,
                 targetCurrent: () => !target || target.isCurrent() };
-            row.key = JSON.stringify([chat, target?.key || name, normalizeCharacterDna(row.dna), row.note, config]);
+            row.key = JSON.stringify([chat, target?.key || name, normalizeCharacterDna(row.dna), row.note, config, Boolean(combat)]);
             const existing = seen.get(row.key);
             if (existing) { rows.push({ sourceName: source.name, row: existing }); continue; }
             seen.set(row.key, row);
@@ -55,7 +56,7 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
             entry.consumers.add(row);
             row.entry = entry; consumers.push(row);
         }
-        if (fresh.length) startJob(fresh, settings, { globalCurrent, numberedText, previousText, onProgress });
+        if (fresh.length) startJob(fresh, settings, { globalCurrent, numberedText, previousText, onProgress, combat });
         const cancelUnused = () => {
             for (const job of new Set(consumers.map(row => row.entry.job))) job.cancelUnused();
         };
@@ -66,6 +67,8 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
                 if (!result.ok) { row.failure = result; return result; }
                 row.dna = result.dna;
                 row.targetCurrent = result.shouldStart;
+                row.combatInit = result.combatInit;
+                row.combatInitDiagnostics = result.combatInitDiagnostics;
                 return { ok: true };
             }));
             const failed = completed.find(result => !result.ok);
@@ -74,7 +77,9 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
             const valid = () => current() && [...seen.values()].map(rowCurrent).some(Boolean);
             if (!valid()) return stale();
             return { ok: true, characters: rows.map(({ sourceName, row }) => ({ name: sourceName,
-                characterKey: row.name, dna: row.dna, ...(row.failure && { failure: row.failure }) })),
+                characterKey: row.name, dna: row.dna, ...(row.failure && { failure: row.failure }),
+                ...(row.combatInit && { combatInit: row.combatInit }),
+                ...(row.combatInitDiagnostics?.length && { combatInitDiagnostics: row.combatInitDiagnostics }) })),
                 shouldStart: valid, shouldStartFor: name => current() && rows.some(row => row.sourceName === name && rowCurrent(row.row)) };
         } finally {
             signal?.removeEventListener('abort', cancelUnused);
@@ -107,7 +112,7 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
         }
     }
 
-    async function generateBatch(entries, settings, { signal, numberedText, previousText, onProgress, current, active, globalCurrent }) {
+    async function generateBatch(entries, settings, { signal, numberedText, previousText, onProgress, current, active, globalCurrent, combat }) {
         try {
             if (!current()) return stale();
             const rows = entries.map(entry => entry.row);
@@ -120,7 +125,9 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
             const context = rows.flatMap(row => singleCharacterContext(row.name, row.dna, undefined, settings.sceneAssets));
             const task = characterPromptTask(context, 'sprite', 'half_body', rows.map(row => [row.name]));
             const written = await writeTemplateCaptionsWithLlm(llm, settings.auto.llm, { ...task,
-                imagePromptTask: 'dna', outputs: { format: 'sprite-data' }, userPrompts: BUILTIN_PROMPTS.sprite,
+                imagePromptTask: 'dna', outputs: { format: 'sprite-data', ...(combat && { combatInit: combat.outputs }) },
+                ...(combat && { parseCombatInit: combat.parse }),
+                userPrompts: BUILTIN_PROMPTS.sprite,
                 description: '一次补齐本轮全部角色的三景别外貌 DNA 与独立性格，供外部写词采用为角色设定。按各槽 slotid 与规范角色键逐份交付，不遗漏或混用角色；保留已有景别及明确设定，首次缺设定时协调设计普通外貌。衣装资料与身份分开，本次只保存身份与性格。角色补充要求：'
                     + JSON.stringify(rows.map(row => ({ characterKey: row.name, note: row.note }))),
                 ...(numberedText !== undefined && { numberedText }), ...(previousText !== undefined && { previousText }),
@@ -156,6 +163,20 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
                     const targetCurrent = owner.targetCurrent;
                     entry.saved = { ok: true, dna: saved.dna || prepared[index].dna,
                         shouldStart: () => globalCurrent() && targetCurrent() };
+                    const caption = written.captions?.find(item => item.dnaCandidates?.characters?.some(c => c.characterKey === owner.name));
+                    const diagnostics = caption?.combatInitDiagnostics || [];
+                    if (diagnostics.length) entry.saved.combatInitDiagnostics = diagnostics;
+                    const init = caption?.combatInit;
+                    if (init && combat && current() && active(entry)) {
+                        const shouldStart = () => current() && Boolean(active(entry));
+                        let result;
+                        try { result = await combat.write(init.characterKey, init.value, { signal, shouldStart }); }
+                        catch { result = { ok: false, reason: 'combat-init-write-failed' }; }
+                        entry.saved.combatInit = result;
+                        if (result?.ok !== true) entry.saved.combatInitDiagnostics = [...diagnostics, {
+                            code: result?.reason || 'combat-init-write-failed', characterKey: init.characterKey,
+                        }];
+                    }
                 } finally { entry.job.saving = false; }
             }
             return current() ? { ok: true } : stale();
@@ -169,7 +190,10 @@ export function createExternalSpriteDnaPreparation({ llm, readSettings, isExtern
         ? llm.runImageTask(request, guarded => prepareBatch(guarded)) : prepareBatch(request);
     const single = async (request = {}) => {
         const result = await batch({ ...request, characters: [request] });
-        return result.ok ? result.characters[0].failure || { ok: true, dna: result.characters[0].dna, shouldStart: result.shouldStart } : result;
+        if (!result.ok) return result;
+        const row = result.characters[0];
+        return row.failure || { ok: true, dna: row.dna, shouldStart: result.shouldStart,
+            ...(row.combatInit && { combatInit: row.combatInit }), ...(row.combatInitDiagnostics?.length && { combatInitDiagnostics: row.combatInitDiagnostics }) };
     };
     single.batch = batch;
     return single;

@@ -238,7 +238,8 @@ export function buildTagGrammar({
     moodWord = '',
     entries = null,
 } = {}) {
-    const normalizedEntries = entries ? normalizePromptEntries(entries) : null;
+    // 没存过条目也按各条缺省模式走（卡牌战斗缺省常驻），与 resolvePromptTriggers 的口径一致。
+    const normalizedEntries = normalizePromptEntries(entries);
     const blocks = applyFxPromptSettings(applyPromptEntries(collectGrammarBlocks(readerSettings, { ancient }), normalizedEntries), readerSettings, normalizedEntries);
     if (!sceneRule && !blocks.length) return { system: '', depth0: '', expanded: [], indexed: [], sizes: {}, segments: [], placements: {} };
     const rs = plain(readerSettings);

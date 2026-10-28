@@ -35,7 +35,7 @@ export const RANGE_FX_STYLE_TEXT = `
 .igs-fx-flash{animation-duration:1.4s;}
 .igs-fx-cut-flash{position:absolute;inset:0;background:#fff;animation:igs-fx-cut-flash .2s steps(2,end) both;}
 @keyframes igs-fx-cut-flash{0%{opacity:1;}50%{opacity:0;}75%{opacity:.8;}100%{opacity:0;}}
-.igs-fx-cutin{background:var(--igs-fx-accent,#e8445f);border-top-color:#fff;}
+.igs-fx-cutin{background:var(--igs-fx-cutin-bg,var(--igs-fx-accent,#e8445f));border-top-color:#fff;}
 .igs-fx-cutin::before{content:'';position:absolute;left:-20%;right:-20%;top:-20%;bottom:-20%;background:repeating-linear-gradient(90deg,transparent 0 22px,rgba(255,255,255,.28) 22px 24px,transparent 24px 41px,rgba(255,255,255,.18) 41px 42px);animation:igs-fx-cutin-lines .45s linear infinite;}
 .igs-fx-cutin-face{position:relative;transform-origin:50% 40%;animation:igs-fx-cutin-pop .42s cubic-bezier(.2,1.4,.4,1) both;}
 @keyframes igs-fx-cutin-lines{to{transform:translateX(-41px);}}

@@ -127,8 +127,156 @@ test('战斗标签从显示中剥离，不进入正文与场景指令', () => {
     assert.ok(readerBodyText('正文。\n【igs-combat：exp｜爱丽丝｜10】').includes('[igs-combat:exp|爱丽丝|10]'));
 });
 
+const AWAKEN = '[igs-combat:awaken|我|怒火|绝不让你们得逞！]';
+
+test('觉醒标签紧邻开战标签上一行时并入 start，不改开战锚点、不进成长账本', () => {
+    const plain = extractCombatStart(`正文。\n${START}`).start;
+    const r = extractCombatStart(`正文。\n${AWAKEN}\n\n${START}\n`);
+    assert.deepEqual(r.diagnostics, []);
+    assert.deepEqual([r.start.awaken.character, r.start.awaken.type, r.start.awaken.line], ['我', 'rage', '绝不让你们得逞！']);
+    assert.deepEqual([r.start.tagHash, r.start.occurrence, r.start.encounter], [plain.tagHash, plain.occurrence, plain.encounter]);
+    assert.equal(plain.awaken, undefined);
+    assert.equal(extractCombatStart(`正文。\n[igs-combat:awaken|我|rage]\n${START}`).start.awaken.line, '');
+    assert.equal(extractCombatStart(`正文。\n【igs-combat：awaken｜我｜决意｜到此为止】\n${START}`).start.awaken.type, 'resolve');
+    assert.deepEqual(extractGrowthDirectives(`${AWAKEN}\n${START}`), { directives: [], diagnostics: [] });
+});
+
+test('觉醒标签不紧邻、多写或栏位非法时不生效，只记诊断，开战照常', () => {
+    const run = (text) => {
+        const r = extractCombatStart(text);
+        assert.ok(r.start, text);
+        return [r.start.awaken?.type ?? null, r.diagnostics.map((d) => (d.field ? `${d.code}:${d.field}:${d.problem}` : d.code))];
+    };
+    assert.deepEqual(run(`${AWAKEN}\n正文。\n${START}`), [null, ['combat-awaken-misplaced']]);
+    assert.deepEqual(run(`正文。${AWAKEN}\n${START}`), [null, ['combat-awaken-misplaced']]);
+    assert.deepEqual(run(`[igs-combat:awaken|我|守护]\n${AWAKEN}\n${START}`), ['rage', ['combat-awaken-misplaced']]);
+    assert.deepEqual(run(`[igs-combat:awaken|我|狂暴]\n${START}`), [null, ['combat-awaken-invalid:type:unknown-type']]);
+    assert.deepEqual(run(`[igs-combat:awaken|我]\n${START}`), [null, ['combat-awaken-invalid:type:required']]);
+    assert.deepEqual(run(`[igs-combat:awaken||怒火]\n${START}`), [null, ['combat-awaken-invalid:character:required']]);
+    assert.deepEqual(run(`[igs-combat:awaken|我|怒火|${'喝'.repeat(31)}]\n${START}`), [null, ['combat-awaken-invalid:line:too-long']]);
+    assert.deepEqual(run(`[igs-combat:awaken|我|怒火|喝|多余]\n${START}`), [null, ['combat-awaken-invalid:fields:too-many-fields']]);
+    assert.equal(extractCombatStart(`${START}\n${AWAKEN}`).start, null);
+});
+
+
 test('标签上限与 COMBAT_RULES 保持一致', () => {
     assert.equal(COMBAT_TAG_LIMITS.maxEnemies, COMBAT_RULES.maxEnemies);
     assert.equal(COMBAT_TAG_LIMITS.maxAllies, COMBAT_RULES.maxAllies);
     assert.equal(COMBAT_TAG_LIMITS.storyExpCapPerFloor, COMBAT_RULES.storyExpCapPerFloor);
+});
+
+test('六维与相对档词表与 combat/abilities.js 一致', () => {
+    for (const [word, key] of Object.entries(COMBAT_ABILITY_WORDS)) {
+        if (key === 'free') continue;
+        assert.equal(abilityKeyOf(word), key, word);
+    }
+    assert.deepEqual(new Set(Object.values(COMBAT_ABILITY_WORDS).filter((k) => k !== 'free')), new Set(ABILITY_KEYS));
+    for (const [word, key] of Object.entries(COMBAT_REL_TIERS)) assert.equal(relTierOf(word), key, word);
+    assert.deepEqual(new Set(Object.values(COMBAT_REL_TIERS)), new Set(Object.keys(REL_TIERS)));
+});
+
+test('rel 与 stat 标签：解析档位与属性，未知值只记诊断，stat 每楼每角色合计不超过 2', () => {
+    const text = [
+        '[igs-combat:rel|黑衣人|强敌]',
+        '[igs-combat:rel|小贩|无敌]',
+        '[igs-combat:stat|爱丽丝|力量|1|晨练]',
+        '[igs-combat:stat|爱丽丝|体质|2|服药]',
+        '[igs-combat:stat|爱丽丝|速度|1]',
+        '[igs-combat:stat|鲍勃|自由|3]',
+    ].join('\n');
+    const { directives, diagnostics } = extractGrowthDirectives(text, { raw: true });
+    assert.deepEqual(directives.map((d) => [d.kind, d.character, d.tier ?? d.ability, d.amount]), [
+        ['rel', '黑衣人', 'formidable', undefined],
+        ['stat', '爱丽丝', 'str', 1],
+        ['stat', '爱丽丝', 'con', 1],
+    ]);
+    assert.equal(directives[1].reason, '晨练');
+    assert.deepEqual(diagnostics.map((d) => [d.code, d.field ?? d.granted, d.problem ?? d.requested]), [
+        ['combat-tag-invalid', 'tier', 'unknown-tier'],
+        ['combat-stat-capped', 1, 2],
+        ['combat-tag-invalid', 'ability', 'unknown-ability'],
+        ['combat-tag-invalid', 'amount', 'invalid-amount'],
+    ]);
+});
+
+import { COMBAT_ABILITY_WORDS, COMBAT_REL_TIERS } from '../src/scene/combat-directives.js';
+import { ABILITY_KEYS, REL_TIERS, abilityKeyOf, relTierOf } from '../src/combat/abilities.js';
+
+
+test('装备与道具标签：部位与数量解析，非法部位与超量只记诊断', () => {
+    const text = [
+        '[igs-combat:equip|我|青锋剑|武器|削铁如泥]',
+        '[igs-combat:equip|爱丽丝|月环|accessory]',
+        '[igs-combat:unequip|我|旧剑]',
+        '[igs-combat:item|我|回春丹]',
+        '[igs-combat:item|我|爆炎符|３|火]',
+        '[igs-combat:equip|我|腰带|腰部]',
+        '[igs-combat:item|我|毒针|4]',
+        '[igs-combat:equip|我|剑]',
+    ].join('\n');
+    const { directives, diagnostics } = extractGrowthDirectives(text);
+    assert.deepEqual(directives.map((d) => [d.kind, d.character, d.name, d.slot ?? d.count ?? null]), [
+        ['equip', '我', '青锋剑', 'weapon'], ['equip', '爱丽丝', '月环', 'accessory'], ['unequip', '我', '旧剑', null], ['item', '我', '回春丹', 1], ['item', '我', '爆炎符', 3],
+    ]);
+    assert.equal(directives[0].description, '削铁如泥');
+    assert.deepEqual(diagnostics.map((d) => `${d.code}:${d.kind}:${d.field}:${d.problem}`),
+        ['combat-tag-invalid:equip:slot:unknown-slot', 'combat-tag-invalid:item:count:invalid-count', 'combat-tag-invalid:equip:slot:required']);
+});
+test('loot 标签：战报 ID、槽位与套别（缺省 main）；非法栏位只记诊断', () => {
+    const text = [
+        '[igs-combat:loot|我|r1a2b|0|main]', '[igs-combat:loot|我|r1a2b|3|reserve]', '[igs-combat:loot|我|r1a2b|1]',
+        '[igs-combat:loot|我|c1|0]', '[igs-combat:loot|我|r1a2b|4]', '[igs-combat:loot|我|r1a2b|0|spare]',
+    ].join('\n');
+    const { directives, diagnostics } = extractGrowthDirectives(text, { raw: true, expCap: false });
+    assert.deepEqual(directives.map((d) => [d.kind, d.character, d.reportId, d.slot, d.set]), [
+        ['loot', '我', 'r1a2b', 0, 'main'], ['loot', '我', 'r1a2b', 3, 'reserve'], ['loot', '我', 'r1a2b', 1, 'main'],
+    ]);
+    assert.deepEqual(diagnostics.map((d) => `${d.code}:${d.field}:${d.problem}`),
+        ['combat-tag-invalid:reportId:invalid-report-id', 'combat-tag-invalid:slot:invalid-slot', 'combat-tag-invalid:set:unknown-set']);
+});
+
+
+
+
+import { CHECK_ROLL_COUNT, checkRollsFor, floorCheckOrdinal, replayChecks, upcomingCheckOrdinal } from '../src/scene/check-rolls.js';
+import { d20Outcome } from '../src/choices/dice-check.js';
+
+test('正文判定楼号：同楼 swipe / 重新生成同号，新楼 +1，代写与静默不出骰序', () => {
+    const chat = [{ is_user: false, mes: '开场' }, { is_user: true, mes: '出发' }, { is_user: false, mes: '前文', is_system: true }];
+    assert.equal(upcomingCheckOrdinal(chat, 'normal'), 3);
+    assert.equal(upcomingCheckOrdinal(chat, 'swipe'), 2);
+    // 宿主在事件前后删除被重写楼两种情形都得到同一楼号。
+    assert.equal(upcomingCheckOrdinal(chat, 'regenerate'), 2);
+    assert.equal(upcomingCheckOrdinal(chat.slice(0, 2), 'regenerate'), 2);
+    assert.equal(upcomingCheckOrdinal(chat, 'quiet'), null);
+    assert.equal(upcomingCheckOrdinal(chat, 'impersonate'), null);
+    assert.deepEqual([floorCheckOrdinal(chat, 2), floorCheckOrdinal(chat, 1), floorCheckOrdinal(chat, 9)], [2, null, null]);
+    const rolls = checkRollsFor('chat-1', 2);
+    assert.equal(rolls.length, CHECK_ROLL_COUNT);
+    assert.ok(rolls.every((d) => Number.isInteger(d) && d >= 1 && d <= 20));
+    assert.deepEqual(checkRollsFor('chat-1', 2), rolls);
+    assert.notDeepEqual(checkRollsFor('chat-1', 3), rolls);
+    assert.notDeepEqual(checkRollsFor('chat-2', 2), rolls);
+    assert.deepEqual([checkRollsFor('', 2), checkRollsFor('chat-1', 0)], [null, null]);
+});
+
+test('正文判定复算：按出现顺序取骰，非法标签占序号，第 11 次起不计，写法不符记诊断', () => {
+    const rolls = checkRollsFor('chat-1', 2);
+    const hero = { scores: { str: 16, dex: 10, con: 12, int: 8, wis: 10, cha: 10 }, prefs: { major: 'str', minor: 'con' }, proficiency: 2 };
+    const tags = Array.from({ length: 11 }, (_, i) => (i === 1 ? '[igs-check:我|运气|12]' : `[igs-check:我|力量|${10 + i}]`));
+    const body = `${tags[0]}成功推开石门。${tags.slice(1).join('。')}。[igs-check:路人|敏捷|10]`;
+    const { results, diagnostics } = replayChecks({ body, rolls, readAbilities: (name) => (name === '我' ? hero : null) });
+    assert.deepEqual(results.map((r) => [r.order, r.die, r.bonus, r.dc]), [1, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, rolls[n - 1], 5, 10 + n - 1]));
+    const first = d20Outcome(rolls[0], 5, 10);
+    assert.deepEqual([results[0].written, results[0].mismatch, results[0].tier], ['成功', !first.success, first.tier]);
+    assert.deepEqual(diagnostics.filter((d) => d.code !== 'check-mismatch').map((d) => [d.code, d.order]), [
+        ['check-tag-invalid', 2], ['check-over-limit', 11], ['check-over-limit', 12],
+    ]);
+    assert.equal(diagnostics.some((d) => d.code === 'check-mismatch'), !first.success);
+    const unknown = replayChecks({ body: '[igs-check:路人|敏捷|10]', rolls, readAbilities: () => null });
+    assert.deepEqual([unknown.results, unknown.diagnostics.map((d) => d.code)], [[], ['check-actor-unknown']]);
+    assert.deepEqual(replayChecks({ body: tags[0], rolls: null }).diagnostics.map((d) => d.code), ['check-rolls-missing']);
+    assert.deepEqual(replayChecks({ body: '没有判定', rolls }), { results: [], diagnostics: [] });
+    assert.equal(stripMarkerDirectives(`他推门${tags[0]}成功了。`), '他推门成功了。');
+    assert.equal(isMarkerDirectiveLine(tags[0]), true);
 });

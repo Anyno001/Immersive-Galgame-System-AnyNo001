@@ -2,7 +2,8 @@ import { scanCombatTags } from '../../scene/combat-directives.js';
 
 // 成长演出的纯模型：只读账本已入库的成长事件，按「楼层 + swipe + 本页标签」挑出本页要播的条目；不操作 DOM、不写表。
 export const GROWTH_FX_PAGE_MAX = 3;
-const GROWTH_KINDS = new Set(['exp', 'learn', 'upgrade', 'class']);
+// equip / item 在副 LLM 生成前作为「整理中」显示；unequip 直接落账，不播成长演出。
+const GROWTH_KINDS = new Set(['exp', 'learn', 'upgrade', 'class', 'equip', 'item']);
 const KIND_RANK = Object.freeze({ level: 0, class: 1, learn: 2, upgrade: 3, exp: 4, pending: 5 });
 
 const tagKey = (tagHash, occurrence) => `${tagHash}#${occurrence}`;
@@ -48,17 +49,18 @@ export function planGrowthFx({ growth, pending, messageId, swipeId = 0, keys, id
         if (!onPage(g.anchor)) continue;
         if (g.type === 'exp') {
             const prev = exp.get(g.character);
-            if (prev) { prev.amount += g.amount; prev.ids.push(g.id); prev.levelAfter = g.levelAfter; }
-            else exp.set(g.character, { kind: 'exp', ids: [g.id], character: g.character, name: g.characterName, amount: g.amount, levelBefore: g.levelBefore, levelAfter: g.levelAfter });
+            if (prev) { prev.amount += g.amount; prev.ids.push(g.id); prev.levelAfter = g.levelAfter; prev.asiPoints += g.asiPoints || 0; }
+            else exp.set(g.character, { kind: 'exp', ids: [g.id], character: g.character, name: g.characterName, amount: g.amount, levelBefore: g.levelBefore, levelAfter: g.levelAfter, asiPoints: g.asiPoints || 0 });
         } else items.push({ kind: g.type, ids: [g.id], character: g.character, name: g.characterName, skill: g.name });
     }
     for (const e of exp.values()) {
         items.push({ kind: 'exp', ids: e.ids, character: e.character, name: e.name, amount: e.amount });
-        if (e.levelAfter > e.levelBefore) items.push({ kind: 'level', ids: e.ids.map((id) => `level|${id}`), character: e.character, name: e.name, level: e.levelAfter });
+        // 主角跨过属性提升等级时升级条目带 asiPoints；没有时条目形状与旧版一致。
+        if (e.levelAfter > e.levelBefore) items.push({ kind: 'level', ids: e.ids.map((id) => `level|${id}`), character: e.character, name: e.name, level: e.levelAfter, ...(e.asiPoints ? { asiPoints: e.asiPoints } : {}) });
     }
     for (const p of Array.isArray(pending) ? pending : []) {
         if (!onPage(p.anchor)) continue;
-        items.push({ kind: 'pending', ids: [`pending|${p.kind}|${p.anchor.tagHash}|${p.anchor.occurrence}`], name: p.character || '', skill: p.skill || p.className || '' });
+        items.push({ kind: 'pending', ids: [`pending|${p.kind}|${p.anchor.tagHash}|${p.anchor.occurrence}`], name: p.character || '', skill: p.skill || p.className || p.name || '' });
     }
     if (!items.length) return empty;
     items.sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
@@ -69,7 +71,7 @@ const KIND_TEXT = Object.freeze({ learn: '习得', upgrade: '精进', class: '�
 
 export function growthItemText(item) {
     if (item.kind === 'exp') return { cap: 'EXP', line: `${item.name} +${item.amount}` };
-    if (item.kind === 'level') return { cap: '升级', line: `${item.name} Lv${item.level}` };
+    if (item.kind === 'level') return { cap: '升级', line: `${item.name} Lv${item.level}${item.asiPoints ? ` · 属性提升 +${item.asiPoints}` : ''}` };
     if (item.kind === 'pending') return { cap: '整理中', line: `${item.name}${item.skill ? ` · ${item.skill}` : ''}` };
     return { cap: KIND_TEXT[item.kind] || item.kind, line: `${item.name}${item.skill ? ` · ${item.skill}` : ''}` };
 }

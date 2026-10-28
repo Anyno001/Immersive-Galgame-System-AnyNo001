@@ -263,7 +263,31 @@ function readAlpha(img, doc) {
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
-    return { head: scanHeadFromAlpha(data, w, h), feet: scanFeetFromAlpha(data, w, h) };
+    let tint = '';
+    try { tint = readTint(img, doc); } catch { tint = ''; }
+    return { head: scanHeadFromAlpha(data, w, h), feet: scanFeetFromAlpha(data, w, h), tint };
+}
+
+// 立绘配色：整幅压到 25×25 后取最亮的不透明像素（按亮度），给必杀特写当底色；全透明时返回空串。
+const TINT_SIZE = 25;
+function readTint(img, doc) {
+    const canvas = doc.createElement('canvas');
+    canvas.width = TINT_SIZE;
+    canvas.height = TINT_SIZE;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return '';
+    ctx.drawImage(img, 0, 0, TINT_SIZE, TINT_SIZE);
+    return brightestColor(ctx.getImageData(0, 0, TINT_SIZE, TINT_SIZE).data);
+}
+
+export function brightestColor(data, alphaMin = ALPHA_MIN) {
+    let best = -1, rgb = '';
+    for (let i = 0; i + 3 < data.length; i += 4) {
+        if (data[i + 3] < alphaMin) continue;
+        const l = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+        if (l > best) { best = l; rgb = `rgb(${data[i]},${data[i + 1]},${data[i + 2]})`; }
+    }
+    return rgb;
 }
 
 
@@ -303,7 +327,7 @@ export function probeSpriteHead(url, doc) {
             return null;
         }
         const feet = metrics && Number(metrics.feet) > 0 ? Number(metrics.feet) : 1;
-        return remember(url, { naturalW: img.naturalWidth, naturalH: img.naturalHeight, head: (metrics && metrics.head) || FALLBACK_HEAD, feet }, headCache);
+        return remember(url, { naturalW: img.naturalWidth, naturalH: img.naturalHeight, head: (metrics && metrics.head) || FALLBACK_HEAD, feet, tint: (metrics && metrics.tint) || '' }, headCache);
     })().finally(() => { if (pending.get(key)?.promise === job) pending.delete(key); });
     pending.set(key, { status: 'pending', promise: job, controller });
     return job;

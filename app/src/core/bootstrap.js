@@ -47,6 +47,7 @@ import { createPromptInjector } from '../host/prompt-injector.js';
 import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
 import { createSecondaryLlm } from '../host/secondary-llm.js';
 import { createImageWorldInfoSource } from '../host/image-world-info.js';
+import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { createImagePromptLlm } from '../generated-images/image-prompt-runtime.js';
 import { createBuiltinImageTaskRuntime } from '../generated-images/builtin-image-task-runtime.js';
 import { createImageBackend, mergeLegacyNaiSettings } from '../generated-images/image-backend.js';
@@ -71,7 +72,9 @@ import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from 
 import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { combatExpansionEnabled, resolveCombatNarrationSegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
+import { resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { createCombatServices } from './combat-services.js';
+import { createCombatChatRecord } from '../host/combat-chat-record.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
 const IGS_VERSION = '0.36.115';
@@ -252,6 +255,7 @@ export function bootstrapIGS(options = {}) {
             const target = characterDnaStore.capture(name);
             return app.igsUi?.withCharacterDnaDraftSync?.(target) || target;
         },
+        captureCombatInit: () => combatServices.captureCombatInit(),
         store: generatedAssetStore,
         mediaCache,
         readProtectedImageIds: () => protectedAssetImageIds({
@@ -350,6 +354,8 @@ export function bootstrapIGS(options = {}) {
     const combatServices = options.combatServices || createCombatServices({
         global: globalObject,
         storage: storageLike,
+        // 开战楼聊天记录留档：准备与战斗结果按 combatId 写进开战楼 extra，防止重复生成与重打。
+        chatRecord: createCombatChatRecord(globalObject),
         send: (text) => typeAndSend(text),
         request: (req, llm) => secondaryLlm.request(req, llm),
         getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
@@ -357,11 +363,22 @@ export function bootstrapIGS(options = {}) {
         getSourceFilter: () => readImageBridge().sourceFilter,
         getChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
         getUserName: () => (typeof illustrationMessageHost.getUserName === 'function' ? illustrationMessageHost.getUserName() : ''),
+        // 战斗档案生成的角色设定：只取用户人设与角色卡；世界书改由 readStoryContext 经原生扫描按剧情触发，不全量读取。
+        readLore: (names) => (typeof illustrationMessageHost.readCharacterLore === 'function'
+            ? illustrationMessageHost.readCharacterLore(names, { includeWorldInfo: false }) : []),
+        // 剧情与世界书参考：最近几楼 AI 正文节选 + 与写词同一链路的原生世界书扫描，二者都有长度上限；读取失败不阻断生成。
+        readStoryContext: createCombatStoryContext(globalObject, { resolveWorldInfo: createImageWorldInfoSource(globalObject) }),
     });
-    // 设置变更（含扩展开关）与启动时：注册战报折叠正则，并补扫当前聊天的成长标签、刷新成长演出缓存。
-    const offCombatRegex = events.on('igs:legacy-settings-updated', () => { combatServices.syncRegex(); combatServices.refreshGrowth(); });
+    // 设置变更（含扩展开关）与启动时：注册战报折叠正则，补扫当前聊天的成长标签、刷新成长演出缓存，并在后台预生成主角卡组。
+    const prepareCombatProtagonist = () => { if (typeof combatServices.prepareProtagonist === 'function') combatServices.prepareProtagonist(); };
+    const offCombatRegex = events.on('igs:legacy-settings-updated', () => { combatServices.syncRegex(); combatServices.refreshGrowth(); prepareCombatProtagonist(); });
     combatServices.syncRegex();
     combatServices.refreshGrowth();
+    prepareCombatProtagonist();
+    // 主生成结束后的最新 AI 楼带开战标签时，在后台开始战斗准备（不等面板打开）；dry-run、quiet、中止与换聊天沿用 onImageFloorReady 的过滤。
+    const offCombatAutoPrepare = typeof illustrationMessageHost.onImageFloorReady === 'function' && typeof combatServices.autoPrepare === 'function'
+        ? illustrationMessageHost.onImageFloorReady((messageId) => { combatServices.autoPrepare(messageId); })
+        : () => {};
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
         media,
@@ -386,6 +403,8 @@ export function bootstrapIGS(options = {}) {
         cgGallery: itemCg.cgGallery,
         onItemImageUpdated: itemCg.onItemImageUpdated,
         itemLedger: itemCg.itemLedger,
+        cardImages: itemCg.cardImages,
+        onCardImageUpdated: itemCg.onCardImageUpdated,
         requestMoodClassification({ system, user }, llmSettings) {
             return secondaryLlm.request({ system, user }, llmSettings);
         },
@@ -400,10 +419,22 @@ export function bootstrapIGS(options = {}) {
         getCombatLedger: () => combatServices.getLedger(),
         ensureCombatTables: () => combatServices.ensureTables(),
         generateCombatDeckProfile: (input, opts) => combatServices.generateDeckProfile(input, opts),
+        regenerateCombatDeck: (opts) => combatServices.regenerateDeck(opts),
+        respecCombatClass: (opts) => combatServices.respecClass(opts),
+        ascendCombatClass: (opts) => combatServices.ascendClass(opts),
+        drawCombatTrait: (opts) => combatServices.drawTrait(opts),
+        pickCombatTrait: (opts) => combatServices.pickTrait(opts),
+
+        setCombatAllyTier: (id, tier) => combatServices.setAllyTier(id, tier),
         getCombatGrowth: () => combatServices.getGrowth(),
+        getCombatCheckReplay: (messageId, body) => (typeof combatServices.checkReplayFor === 'function' ? combatServices.checkReplayFor(messageId, body) : null),
         onCombatGrowthUpdated: (handler) => combatServices.onGrowthUpdated(handler),
         refreshCombatGrowth: () => combatServices.refreshGrowth(),
         retryCombatGrowth: () => combatServices.retryGrowth(),
+        getCombatProtagonist: () => (typeof combatServices.getProtagonist === 'function' ? combatServices.getProtagonist() : null),
+        retryCombatProtagonist: () => (typeof combatServices.prepareProtagonist === 'function'
+            ? combatServices.prepareProtagonist({ manual: true }) : Promise.resolve({ ok: false, reason: 'combat-generate-unavailable' })),
+        onCombatProtagonistUpdated: (handler) => (typeof combatServices.onProtagonistUpdated === 'function' ? combatServices.onProtagonistUpdated(handler) : () => {}),
         resumeReply: () => hostAdapter.resumeReply?.() || { ok: false, reason: 'reply-host-not-ready' },
         setInputText(text) {
             return typeof hostAdapter.setInputText === 'function' ? hostAdapter.setInputText(text) : { ok: false, reason: 'missing-input-api' };
@@ -853,8 +884,13 @@ export function bootstrapIGS(options = {}) {
             sourceFilter: unified.bridge?.sourceFilter, virtualRegex: unified.bridge?.virtualRegex };
         // 战报待续写时（最近一条用户楼是战报、其后还没有 AI 楼）在 depth 0 追加 combat-narration 段；扩展关闭时为 null。
         const combatNarration = resolveCombatNarrationSegment(readerSettings, promptContext.history, { generationType, inputText: promptContext.inputText });
+        // 每楼 d20 骰序（v3 §3.9）：按「聊天 ID + 即将生成的楼号」确定，同楼 swipe / 重新生成同一组；扩展关闭或代写 / 静默时为 null。
+        let checkInput = null;
+        try { checkInput = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(generationType) : null; } catch (error) { checkInput = null; }
+        const checkRolls = checkInput ? resolveCheckRollsSegment(readerSettings, checkInput) : null;
+        const combatSegments = [combatNarration, checkRolls].filter(Boolean);
         if (sceneAssets && sceneAssets.promptAdaptive === false) {
-            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatNarration });
+            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatSegments });
         }
         if (generationType === 'impersonate' || generationType === 'quiet') {
             promptInjector.clear();
@@ -882,12 +918,12 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'scene-assets-disabled' };
         }
         const depth0Content = [placement === 'system' ? DEPTH0_REMINDER : '', grammar.depth0].filter(Boolean).join('\n\n');
-        const segments = combatNarration ? [...grammar.segments, combatNarration] : grammar.segments;
+        const segments = combatSegments.length ? [...grammar.segments, ...combatSegments] : grammar.segments;
         return promptInjector.inject(grammar.system, { placement, depth0Content, segments });
     }
 
     // 关闭按需注入时的旧行为：各块完整拼接；未自定义的场景规则用改版前的长版原文。
-    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatNarration = null }) {
+    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatSegments = [] }) {
         const rules = [];
         // 场景规则自带 [igs标签语法] 头部（含通用机制）；没有它时，若后面有演出规则就补一次兜底，
         // 因为各演出块已把通用机制抽到头部、自身不再复述。
@@ -939,7 +975,7 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'scene-assets-disabled' };
         }
         const depth0Content = split ? [DEPTH0_REMINDER, metaDigestRule].filter(Boolean).join('\n\n') : '';
-        return promptInjector.inject(rules.join('\n\n'), combatNarration ? { placement, depth0Content, segments: [combatNarration] } : { placement, depth0Content });
+        return promptInjector.inject(rules.join('\n\n'), combatSegments.length ? { placement, depth0Content, segments: combatSegments } : { placement, depth0Content });
     }
 
     function syncSceneAssetsInjectionWithRetry(attempt) {
@@ -999,10 +1035,11 @@ export function bootstrapIGS(options = {}) {
             if (state.destroyed) return;
             syncSceneAssetsInjectionWithRetry(1);
         };
-        // 换聊天：丢弃旧聊天的战斗会话，下次取用时按新聊天的存档续战。
+        // 换聊天：丢弃旧聊天的战斗会话，下次取用时按新聊天的存档续战；为新聊天的主角预生成卡组。
         const onChatChanged = () => {
             combatServices.resetChat();
             combatServices.refreshGrowth();
+            prepareCombatProtagonist();
             resync();
         };
         // 生成结束：剧情楼的成长标签补扫入库，刷新成长演出缓存。
@@ -1104,10 +1141,12 @@ export function bootstrapIGS(options = {}) {
         close(() => illustrationService.stop());
         close(() => assetGenerationService.stop());
         close(() => itemCg.itemImages.stop());
+        close(() => itemCg.cardImages.stop());
         close(() => itemCg.itemLedger.stop());
         close(offMediaClear);
         close(offRecoveryWake);
         close(offCombatRegex);
+        close(offCombatAutoPrepare);
         close(() => readerImageService.destroy?.());
         close(() => app.igsUi?.destroy?.());
         close(() => app.magicWandEntry?.destroy?.());

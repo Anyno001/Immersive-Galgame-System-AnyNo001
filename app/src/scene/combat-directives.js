@@ -6,8 +6,30 @@ import { stripIllustrationMarkers } from './scene-directives.js';
 // 战斗标签 [igs-combat:类型|栏位…]。开战标签只在正文最后一个非空行生效；成长标签可出现在正文任意位置。
 // 依赖方向是 combat → scene，这里不导入 combat；上限与 COMBAT_RULES 的一致性由 combat-directives.test.js 锁定。
 export const COMBAT_TAG_LIMITS = Object.freeze({ maxEnemies: 5, maxAllies: 3, storyExpCapPerFloor: 50, expMax: 1000 });
-export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class']);
+// loot 只由程序写在胜利战报块之后（翻牌兑现），账本只认战报楼里的 loot；主模型不写。
+export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot']);
+const REPORT_ID_RE = /^r[0-9a-z]{1,13}$/;
+// 六维：中文名或内部键 → 内部键（与 combat/abilities.js 一致，由测试锁定）。stat 点数 1–2，每楼每角色合计不超过 2。
+export const COMBAT_ABILITY_WORDS = Object.freeze({
+    力量: 'str', 敏捷: 'dex', 体质: 'con', 智力: 'int', 感知: 'wis', 魅力: 'cha',
+    str: 'str', dex: 'dex', con: 'con', int: 'int', wis: 'wis', cha: 'cha', 自由: 'free', free: 'free',
+});
+export const COMBAT_STAT_CAP_PER_FLOOR = 2;
+// 相对强度档：中文名或内部键 → 内部键（与 combat/abilities.js 的 REL_TIERS 一致，由测试锁定）。
+export const COMBAT_REL_TIERS = Object.freeze({
+    远逊: 'outclassed', 稍弱: 'weaker', 相当: 'even', 稍强: 'stronger', 强敌: 'formidable', 碾压: 'overwhelming',
+    outclassed: 'outclassed', weaker: 'weaker', even: 'even', stronger: 'stronger', formidable: 'formidable', overwhelming: 'overwhelming',
+});
+// 装备部位：中文名或内部键 → 内部键；每部位同时只装 1 件。一次性道具每条标签数量 1–3。
+export const COMBAT_GEAR_SLOTS = Object.freeze({ 武器: 'weapon', 防具: 'armor', 饰品: 'accessory', 宝物: 'treasure', weapon: 'weapon', armor: 'armor', accessory: 'accessory', treasure: 'treasure' });
+export const COMBAT_ITEM_COUNT_MAX = 3;
 export const COMBAT_TIERS = Object.freeze({ 普通: 'normal', normal: 'normal', 精英: 'elite', elite: 'elite', 首领: 'boss', boss: 'boss' });
+// 觉醒类型：中文名 → 内部键。台词上限 30 字。
+export const COMBAT_AWAKEN_TYPES = Object.freeze({
+    怒火: 'rage', 守护: 'guard', 悲恸: 'grief', 决意: 'resolve', 羁绊: 'bond', 极限: 'limit', 复仇: 'vengeance', 不屈: 'unyielding',
+});
+const AWAKEN_LOOKUP = Object.freeze(Object.fromEntries(Object.entries(COMBAT_AWAKEN_TYPES).flatMap(([name, key]) => [[name, key], [key, key]])));
+const AWAKEN_LINE_MAX = 30;
 
 const TAG_RE = /\[igs-combat:([^\]\n]*)\]/g;
 const LIST_SPLIT_RE = /[,，、;；]+/;
@@ -118,13 +140,44 @@ function parseStart(fields) {
     return { ok: true, value: { encounter: encounter.value, enemies: enemies.value, allies: allies.value, tier } };
 }
 
-const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 3, upgrade: 3, class: 2 });
+const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 3, upgrade: 3, class: 2, equip: 4, unequip: 2, item: 4, rel: 2, stat: 4, loot: 4 });
+
+// equip|角色|名称|部位|简述、unequip|角色|名称、item|角色|名称|数量|简述（数量缺省为 1）。
+function parseGear(kind, base, fields) {
+    const name = textIn('name', fields[1], NAME_MAX, true);
+    if (!name.ok) return name;
+    const value = { ...base, name: name.value };
+    if (kind === 'unequip') return { ok: true, value };
+    if (kind === 'equip') {
+        const word = String(fields[2] ?? '').trim().toLowerCase();
+        if (!word) return invalid('slot', 'required');
+        if (!Object.hasOwn(COMBAT_GEAR_SLOTS, word)) return invalid('slot', 'unknown-slot');
+        const description = textIn('description', fields[3], TEXT_MAX, false);
+        return description.ok ? { ok: true, value: { ...value, slot: COMBAT_GEAR_SLOTS[word], description: description.value } } : description;
+    }
+    const rawCount = String(fields[2] ?? '').trim();
+    const count = rawCount ? intIn(rawCount, 1, COMBAT_ITEM_COUNT_MAX) : 1;
+    if (count === null) return invalid('count', 'invalid-count');
+    const description = textIn('description', fields[3], TEXT_MAX, false);
+    return description.ok ? { ok: true, value: { ...value, count, description: description.value } } : description;
+}
 
 function parseGrowth(kind, fields) {
     if (fields.length > GROWTH_FIELD_MAX[kind]) return invalid('fields', 'too-many-fields');
     const character = textIn('character', fields[0], NAME_MAX, true);
     if (!character.ok) return character;
     const base = { character: character.value };
+    if (kind === 'equip' || kind === 'unequip' || kind === 'item') return parseGear(kind, base, fields);
+    // loot|角色|战报ID|槽位|main 或 reserve（缺省 main）。
+    if (kind === 'loot') {
+        const reportId = String(fields[1] ?? '').trim();
+        if (!REPORT_ID_RE.test(reportId)) return invalid('reportId', 'invalid-report-id');
+        const slot = intIn(fields[2], 0, 3);
+        if (slot === null) return invalid('slot', 'invalid-slot');
+        const set = String(fields[3] ?? '').trim() || 'main';
+        if (set !== 'main' && set !== 'reserve') return invalid('set', 'unknown-set');
+        return { ok: true, value: { ...base, reportId, slot, set } };
+    }
     if (kind === 'exp') {
         const amount = intIn(fields[1], 1, COMBAT_TAG_LIMITS.expMax);
         if (amount === null) return invalid('amount', 'invalid-amount');
@@ -135,10 +188,37 @@ function parseGrowth(kind, fields) {
         const className = textIn('className', fields[1], CLASS_MAX, true);
         return className.ok ? { ok: true, value: { ...base, className: className.value } } : className;
     }
+    // rel|角色|档、stat|角色|属性|点数|原因。
+    if (kind === 'rel') {
+        const word = String(fields[1] ?? '').trim().toLowerCase();
+        if (!word) return invalid('tier', 'required');
+        return Object.hasOwn(COMBAT_REL_TIERS, word) ? { ok: true, value: { ...base, tier: COMBAT_REL_TIERS[word] } } : invalid('tier', 'unknown-tier');
+    }
+    if (kind === 'stat') {
+        const word = String(fields[1] ?? '').trim().toLowerCase();
+        if (!word) return invalid('ability', 'required');
+        if (!Object.hasOwn(COMBAT_ABILITY_WORDS, word)) return invalid('ability', 'unknown-ability');
+        const amount = intIn(fields[2], 1, COMBAT_STAT_CAP_PER_FLOOR);
+        if (amount === null) return invalid('amount', 'invalid-amount');
+        const reason = textIn('reason', fields[3], TEXT_MAX, false);
+        return reason.ok ? { ok: true, value: { ...base, ability: COMBAT_ABILITY_WORDS[word], amount, reason: reason.value } } : reason;
+    }
     const skill = textIn('skill', fields[1], NAME_MAX, true);
     if (!skill.ok) return skill;
     const description = textIn('description', fields[2], TEXT_MAX, false);
     return description.ok ? { ok: true, value: { ...base, skill: skill.value, description: description.value } } : description;
+}
+
+function parseAwaken(fields) {
+    if (fields.length > 3) return invalid('fields', 'too-many-fields');
+    const character = textIn('character', fields[0], NAME_MAX, true);
+    if (!character.ok) return character;
+    const word = String(fields[1] ?? '').trim().toLowerCase();
+    if (!word) return invalid('type', 'required');
+    if (!Object.hasOwn(AWAKEN_LOOKUP, word)) return invalid('type', 'unknown-type');
+    const line = textIn('line', fields[2], AWAKEN_LINE_MAX, false);
+    if (!line.ok) return line;
+    return { ok: true, value: { character: character.value, type: AWAKEN_LOOKUP[word], line: line.value } };
 }
 
 const anchorOf = (tag) => ({ tagHash: tag.tagHash, occurrence: tag.occurrence, index: tag.index });
@@ -149,11 +229,32 @@ function lastNonEmptyLine(body) {
     return '';
 }
 
+// 觉醒标签：只认开战标签上一非空行恰为一条完整 awaken 标签的那一条（同楼、每场最多一个）；
+// 其余 awaken 记 combat-awaken-misplaced，栏位非法记 combat-awaken-invalid。不影响开战标签本身的锚点。
+function awakenAbove(body, tags, start, diagnostics) {
+    const awakens = tags.filter((tag) => tag.kind === 'awaken');
+    if (!awakens.length) return null;
+    const before = body.slice(0, start.index).trimEnd();
+    const cand = awakens.at(-1);
+    const adjacent = cand.index < start.index && cand.index + cand.raw.length === before.length && lastNonEmptyLine(before) === cand.raw;
+    for (const tag of awakens) {
+        if (tag !== cand || !adjacent) diagnostics.push({ code: 'combat-awaken-misplaced', ...anchorOf(tag) });
+    }
+    if (!adjacent) return null;
+    const parsed = parseAwaken(cand.fields);
+    if (!parsed.ok) {
+        diagnostics.push({ code: 'combat-awaken-invalid', field: parsed.field, problem: parsed.problem, ...anchorOf(cand) });
+        return null;
+    }
+    return { ...parsed.value, ...anchorOf(cand) };
+}
+
 // 开战标签：只有正文最后一个非空行恰好是一条完整的 [igs-combat:start|…] 才生效；其余开战标签只记诊断。
 // 是否为最新 AI 楼由调用方判断，这里只看正文。
 export function extractCombatStart(raw, options = {}) {
     const body = combatBodyText(raw, options);
-    const starts = scanCombatTags(body).filter((tag) => tag.kind === 'start');
+    const tags = scanCombatTags(body);
+    const starts = tags.filter((tag) => tag.kind === 'start');
     const diagnostics = [];
     const tail = lastNonEmptyLine(body);
     const last = starts.at(-1);
@@ -167,7 +268,10 @@ export function extractCombatStart(raw, options = {}) {
         diagnostics.push({ code: 'combat-start-invalid', field: parsed.field, problem: parsed.problem, ...anchorOf(last) });
         return { start: null, diagnostics };
     }
-    return { start: { ...parsed.value, ...anchorOf(last) }, diagnostics };
+    const start = { ...parsed.value, ...anchorOf(last) };
+    const awaken = awakenAbove(body, tags, last, diagnostics);
+    if (awaken) start.awaken = awaken;
+    return { start, diagnostics };
 }
 
 // 成长标签：按正文顺序解析。剧情 EXP 每楼每角色累计封顶，超出部分截断并记诊断；
@@ -176,10 +280,12 @@ export function extractGrowthDirectives(raw, options = {}) {
     const body = options.raw === true ? String(raw || '') : combatBodyText(raw, options);
     const cap = options.expCap === false ? Infinity : COMBAT_TAG_LIMITS.storyExpCapPerFloor;
     const used = new Map();
+    const statUsed = new Map();
     const directives = [];
     const diagnostics = [];
     for (const tag of scanCombatTags(body)) {
-        if (tag.kind === 'start') continue;
+        // 开战与觉醒标签由 extractCombatStart 处理，不进成长账本。
+        if (tag.kind === 'start' || tag.kind === 'awaken') continue;
         if (!COMBAT_GROWTH_KINDS.includes(tag.kind)) {
             diagnostics.push({ code: 'combat-tag-unknown', kind: tag.kind, ...anchorOf(tag) });
             continue;
@@ -196,6 +302,14 @@ export function extractGrowthDirectives(raw, options = {}) {
             if (granted < value.amount) diagnostics.push({ code: 'combat-exp-capped', character: value.character, requested: value.amount, granted, ...anchorOf(tag) });
             if (!granted) continue;
             used.set(value.character, spent + granted);
+            value.amount = granted;
+        }
+        if (tag.kind === 'stat') {
+            const spent = statUsed.get(value.character) || 0;
+            const granted = Math.min(value.amount, Math.max(0, COMBAT_STAT_CAP_PER_FLOOR - spent));
+            if (granted < value.amount) diagnostics.push({ code: 'combat-stat-capped', character: value.character, requested: value.amount, granted, ...anchorOf(tag) });
+            if (!granted) continue;
+            statUsed.set(value.character, spent + granted);
             value.amount = granted;
         }
         directives.push(value);

@@ -78,6 +78,8 @@ export function chooseSkillIntent(state, unitId, roll) {
     const cooldowns = state.cooldowns?.[unitId] || {};
     const repeated = repeatedSkill(state.history?.[unitId] || []);
     const ready = unit.skills.filter((skill) => !(cooldowns[skill.id] > 0));
+    // 强度档绝招：冷却结束即优先使用；旧战斗的技能不带 ultimate 标记，行为不变（roll 仍照常消耗，重放确定）。
+    const ultimate = ready.find((skill) => skill.ultimate === true);
     const fresh = ready.filter((skill) => skill.id !== repeated);
     const pool = fresh.length ? fresh : (ready.length ? ready : unit.skills);
     const weightOf = (skill) => skill.weight || 1;
@@ -88,6 +90,7 @@ export function chooseSkillIntent(state, unitId, roll) {
         pick -= weightOf(skill);
         if (pick < 0) { chosen = skill; break; }
     }
+    if (ultimate) chosen = ultimate;
     const targetId = effectsNeedTarget(chosen.effects) ? weakestId(state, opposite(unit.side)) : null;
     return { skillId: chosen.id, targetId };
 }
