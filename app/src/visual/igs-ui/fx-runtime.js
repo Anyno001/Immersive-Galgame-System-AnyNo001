@@ -275,7 +275,7 @@ function setFlag(el, name, on, value = '1') {
 function getState(root, options) {
     let state = states.get(root);
     if (!state) {
-        state = { memory: createFxMemory(), timers: new Set(), sounds: [], pageKey: '', busy: 0, rangeBusy: false, busyOn: false, presentation: 0, presentationOn: false, motion: null, accent: null, callStart: null, timerKey: '', pipSig: '', pipLast: null, split: null, video: null, ring: null, logKey: '', callLog: new Map() };
+        state = { memory: createFxMemory(), timers: new Set(), sounds: [], pageKey: '', busy: 0, rangeBusy: false, busyOn: false, presentation: 0, presentationOn: false, notice: 0, noticeOn: false, motion: null, accent: null, callStart: null, timerKey: '', pipSig: '', pipLast: null, split: null, video: null, ring: null, logKey: '', callLog: new Map() };
         states.set(root, state);
     }
     state.schedule = typeof options.schedule === 'function' ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -304,6 +304,25 @@ function syncPresentation(state) {
     if (on === state.presentationOn || !state.motion) return;
     state.presentationOn = on;
     setFlag(state.motion, 'data-igs-fx-presentation', on);
+}
+
+function syncNotice(state) {
+    const on = state.notice > 0;
+    if (on === state.noticeOn || !state.motion) return;
+    state.noticeOn = on;
+    setFlag(state.motion, 'data-igs-fx-notice', on);
+}
+
+// 顶部通知卡（短信、广告、外卖、留言、加好友）：在场期间暂隐左上状态栏，右上工具栏只留关闭键。
+function spawnNotice(state, layer, el, lifeMs) {
+    spawn(state, layer, el, lifeMs);
+    state.notice += 1;
+    syncNotice(state);
+    track(state, () => {
+        state.notice = Math.max(0, state.notice - 1);
+        syncNotice(state);
+    }, lifeMs);
+    return el;
 }
 
 function spawn(state, layer, el, lifeMs, busy = false, presentation = false) {
@@ -339,6 +358,8 @@ function clearTransients(state, layers) {
     state.busy = 0;
     state.presentation = 0;
     syncPresentation(state);
+    state.notice = 0;
+    syncNotice(state);
     if (layers.motion && typeof layers.motion.removeAttribute === 'function') layers.motion.removeAttribute(EAT_MOTION_ATTR);
     for (const layer of [layers.stage, layers.front]) {
         if (!layer) continue;
@@ -688,12 +709,12 @@ function playEffect(effect, ctx) {
         el.appendChild(node(doc, 'igs-fx-notify-text', effect.text));
         // 广告只会发到手机上：古代带着随身手机也套广告样式。
         if ((!ctx.ancient || ctx.snapshot.readerSettings._carryPhone === true) && spamAllowed(ctx.snapshot.readerSettings)) applySpamCard(doc, el, effect);
-        spawn(state, layers.front, el, life);
+        spawnNotice(state, layers.front, el, life);
         sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
     } else if (effect.type === 'delivery') {
         // 外卖 / 快递：顶部配送卡片；下单只响通知音，送到时按门铃「叮咚」。
         const el = renderDeliveryCard(doc, effect, ctx.worldSkin || '');
-        spawn(state, layers.front, el, life);
+        spawnNotice(state, layers.front, el, life);
         sound(state, effect.stage === 'order' ? 'notify' : 'doorbell', plan.sound, options);
     } else if (effect.type === 'nickname') {
         const el = node(doc, 'igs-fx-nick-card');
@@ -716,7 +737,7 @@ function playEffect(effect, ctx) {
         head.appendChild(node(doc, 'igs-fx-voicemail-sender', effect.sender ? `${effect.sender} 的语音留言` : '语音留言'));
         el.appendChild(head);
         el.appendChild(node(doc, 'igs-fx-voicemail-text', effect.text));
-        spawn(state, layers.front, el, life);
+        spawnNotice(state, layers.front, el, life);
         sound(state, 'notify', plan.sound, options);
     } else if (effect.type === 'contact') {
         // 「已添加好友」卡片：只播放演出，不写线上聊天联系人（那是用户持久化设置）。
@@ -725,7 +746,7 @@ function playEffect(effect, ctx) {
         el.appendChild(callFace(doc, effect.name, resolveAvatar(effect.name, snapshot, options)));
         el.appendChild(node(doc, 'igs-fx-notify-sender', effect.name));
         el.appendChild(node(doc, 'igs-fx-notify-text', '已添加为好友'));
-        spawn(state, layers.front, el, life);
+        spawnNotice(state, layers.front, el, life);
         sound(state, 'notify', plan.sound, options);
     } else if (effect.type === 'cutin') {
         // 本期只支持当前说话人：写了别的角色或没有立绘时不播放，不用占位图。
@@ -1257,6 +1278,7 @@ export function cancelFxEffects(root) {
     const layers = root ? findFxLayers(root) : null;
     if (!layers) return Boolean(state);
     for (const name of RANGE_ATTRS) layers.motion.removeAttribute(name);
+    layers.motion.removeAttribute('data-igs-fx-notice');
     for (const layer of [layers.stage, layers.front]) {
         if (!layer) continue;
         for (const el of Array.from(layer.querySelectorAll('.igs-fx-transient'))) el.remove();
