@@ -518,7 +518,7 @@ function forbidProvidedReads(input) {
     return input;
 }
 
-test('中转地址单人图把角色词并入场景段，官方地址与多人图保持分段', async () => {
+test('中转地址把角色词按顺序并入场景段，官方地址保持分段', async () => {
     const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
     const wires = [];
     const nai = createNaiOfficialClient({ fetch: async (_url, init) => {
@@ -531,12 +531,22 @@ test('中转地址单人图把角色词并入场景段，官方地址与多人�
     const relay = { apiKey: 'k', endpoint: 'https://my-relay.example.com/ai/generate-image' };
     assert.equal((await nai.generate(solo, relay)).ok, true);
     let wire = wires.at(-1);
-    assert.equal(wire.input, 'solo, standing, 1girl, black_hair');
-    assert.equal(wire.parameters.v4_prompt.caption.base_caption, 'solo, standing, 1girl, black_hair');
-    assert.equal(wire.parameters.negative_prompt, 'text, white_hair');
+    assert.equal(wire.input, '1girl, black_hair, solo, standing');
+    assert.equal(wire.parameters.v4_prompt.caption.base_caption, '1girl, black_hair, solo, standing');
+    assert.equal(wire.parameters.negative_prompt, 'white_hair, text');
     assert.equal(wire.parameters.v4_prompt.caption.char_captions[0].char_caption, '1girl, black_hair');
     await nai.generate(duo, relay);
-    assert.equal(wires.at(-1).input, 'solo, standing');
+    wire = wires.at(-1);
+    assert.equal(wire.input, '1girl, black_hair, 1boy, solo, standing');
+    assert.equal(wire.parameters.negative_prompt, 'white_hair, text');
+    assert.equal(wire.parameters.v4_prompt.caption.char_captions.length, 2);
+    // 画师串保持最前，角色词紧随其后；前缀只按整段标签匹配。
+    await nai.generate(solo, { ...relay, artistPrefix: 'artist:a, artist:b', artistNegativePrefix: 'lowres' });
+    wire = wires.at(-1);
+    assert.equal(wire.input, 'artist:a, artist:b, 1girl, black_hair, solo, standing');
+    assert.equal(wire.parameters.negative_prompt, 'lowres, white_hair, text');
+    await nai.generate({ ...solo, scene: 'artist:abc, standing' }, { ...relay, artistPrefix: 'artist:a' });
+    assert.equal(wires.at(-1).input, 'artist:a, 1girl, black_hair, artist:abc, standing');
     await nai.generate(solo, { apiKey: 'k' });
     assert.equal(wires.at(-1).input, 'solo, standing');
     await nai.generate(solo, { apiKey: 'k', endpoint: 'https://image.novelai.net/ai/generate-image' });

@@ -87,6 +87,7 @@ const IMAGE_SOURCE_TEMPLATE = `
       {{externalSpriteDnaField}}
     </div>
     <div class="igs-settings-sub" data-image-feature="sprite-matte-color">
+      {{autoMatteField}}
       {{spriteMatteColorField}}
     </div>
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>

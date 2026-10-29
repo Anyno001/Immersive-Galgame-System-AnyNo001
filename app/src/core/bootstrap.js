@@ -84,7 +84,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.51';
+const IGS_VERSION = '0.37.52';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -174,6 +174,11 @@ export function bootstrapIGS(options = {}) {
         const bridge = (getUnifiedSettingsSnapshot() || {}).bridge || {};
         return { ...bridge, autoIllustration: mergeLegacyNaiSettings(bridge.autoIllustration, bridge.imageApi) };
     };
+    // 自动抠图总开关：对所有图像来源生效；关闭时立绘、表情差分、物品图保留原图。设置页的手动重新抠图不受影响。
+    const alphaMatte = options.alphaMatte || createAlphaMatte(globalObject);
+    const autoMatte = (dataUrl, matteOptions) => ((readImageBridge().imageApi || {}).autoMatte === false
+        ? Promise.resolve(matteOptions && matteOptions.detailed ? { dataUrl, alphaMaskDataUrl: '' } : dataUrl)
+        : alphaMatte(dataUrl, matteOptions));
     const imageTaskRuntime = createBuiltinImageTaskRuntime({ readBridge: readImageBridge, registry: presetRegistry, global: globalObject,
         subscribeSettings: handler => events.on('igs:legacy-settings-updated', handler) });
     const secondaryLlm = createImagePromptLlm(options.secondaryLlm
@@ -293,7 +298,7 @@ export function bootstrapIGS(options = {}) {
             readSceneAssets: () => readImageBridge().sceneAssets || {},
             storage: storageLike, illustrationStore,
         }),
-        matte: options.alphaMatte || createAlphaMatte(globalObject),
+        matte: autoMatte,
         getPromptScheme: createPromptSchemeReader(presetRegistry),
         getSettings: () => {
             const bridge = readImageBridge();
@@ -331,7 +336,7 @@ export function bootstrapIGS(options = {}) {
         clearIllustration: (query) => illustrationService.clearIllustration(query),
         getBridge: readImageBridge,
         events,
-        matte: options.alphaMatte || createAlphaMatte(globalObject),
+        matte: autoMatte,
         report: reportImageJob,
         itemImageService: options.itemImageService,
         cgGalleryService: options.cgGalleryService,
@@ -420,7 +425,7 @@ export function bootstrapIGS(options = {}) {
         storyOutfits,
         // 遮罩修复编辑器的 AI 局部重绘：只经 describeEdit/edit 显式调用，不影响普通生成。
         imageEditBackend: imageBackend,
-        alphaMatte: options.alphaMatte || createAlphaMatte(globalObject),
+        alphaMatte,
         onGeneratedAssetUpdated: (handler) => events.on(GENERATED_ASSET_UPDATED_EVENT, handler),
         onSettingsUpdated: (handler) => events.on('igs:legacy-settings-updated', handler),
         itemImages: itemCg.itemImages,

@@ -101,6 +101,7 @@ export function normalizeImageApi(value) {
         : [];
     normalized.dbgenSpriteTransparent = normalized.dbgenSpriteTransparent !== false;
     normalized.naiSpriteTransparent = normalized.naiSpriteTransparent !== false;
+    normalized.autoMatte = normalized.autoMatte !== false;
     normalized.spriteMatteColor = SPRITE_MATTE_COLORS.includes(normalized.spriteMatteColor) ? normalized.spriteMatteColor : 'auto';
     normalized.externalSpriteDna = normalized.externalSpriteDna === true;
     normalized.worldInfoExclude = normalizeWorldInfoExclude(normalized.worldInfoExclude);

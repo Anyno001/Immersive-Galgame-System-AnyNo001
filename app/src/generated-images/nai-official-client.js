@@ -35,16 +35,26 @@ function isOfficialNaiEndpoint(endpoint) {
 const joinTags = (...parts) => parts.map((p) => String(p || '').trim().replace(/^,+|,+$/g, '').trim())
     .filter(Boolean).join(', ');
 
-// 部分中转只转发场景段、丢弃 V4 角色段；单人图把角色词并入场景段，多人保持分段以免串特征。
-export function foldSoloCharForRelay(body, endpoint) {
+// 角色词插在画师串之后、场景词之前：靠前的词权重高，总长超限时截掉的是末尾的场景词而不是外貌。
+function insertAfterHead(base, heads, chars) {
+    const text = String(base || '').trim();
+    const head = heads.map(h => String(h || '').trim()).filter(Boolean).sort((a, b) => b.length - a.length)
+        .find(h => text.startsWith(h) && /^\s*(?:,|$)/.test(text.slice(h.length)));
+    return head ? joinTags(head, ...chars, text.slice(head.length)) : joinTags(...chars, text);
+}
+
+// 部分中转只转发场景段、丢弃 V4 角色段；角色词按顺序并入场景段，角色段原样保留。
+// 多人并词可能串特征，但丢角色段时外貌整段缺失，代价更大。
+export function foldCharsForRelay(body, settings = {}) {
     const p = body && body.parameters;
     const pos = p?.v4_prompt?.caption, neg = p?.v4_negative_prompt?.caption;
-    if (isOfficialNaiEndpoint(endpoint) || !pos || !Array.isArray(pos.char_captions) || pos.char_captions.length !== 1)
+    if (isOfficialNaiEndpoint(settings.endpoint) || !pos || !Array.isArray(pos.char_captions) || !pos.char_captions.length)
         return body;
-    const charPos = pos.char_captions[0]?.char_caption;
-    const charNeg = Array.isArray(neg?.char_captions) ? neg.char_captions[0]?.char_caption : '';
-    const base = joinTags(pos.base_caption, charPos);
-    const negBase = neg ? joinTags(neg.base_caption, charNeg) : '';
+    const charPos = pos.char_captions.map(c => c?.char_caption);
+    const charNeg = Array.isArray(neg?.char_captions) ? neg.char_captions.map(c => c?.char_caption) : [];
+    const base = insertAfterHead(pos.base_caption, [settings.finalArtist?.positivePrompt, settings.artistPrefix], charPos);
+    const negBase = neg ? insertAfterHead(neg.base_caption,
+        [settings.finalArtist?.negativePrompt, settings.artistNegativePrefix], charNeg) : '';
     return { ...body, input: base, parameters: { ...p,
         v4_prompt: { ...p.v4_prompt, caption: { ...pos, base_caption: base } },
         ...(neg && { negative_prompt: negBase,
@@ -129,14 +139,16 @@ export function createNaiOfficialClient(deps = {}) {
         const deadline = Date.now() + timeoutMs;
         // 分段计时写进生图排查日志：排队（同 Key 串行锁）、等服务器响应、下载解析。
         const p = body?.parameters || {};
+        const wire = foldCharsForRelay(body, inputSettings);
         const timing = { queuedAt: Date.now(), params: `${body?.model || '?'} ${p.width}x${p.height} ${p.steps}步 采样${p.sampler}`
             + `${p.straight_alpha ? ' 透明底' : ''} 角色段${p.v4_prompt?.caption?.char_captions?.length || 0}`
-            + ` ${inputSettings.endpoint && !isOfficialNaiEndpoint(inputSettings.endpoint) ? '中转' : '官网'}·${transport === 'st-proxy' ? '酒馆代理' : '直连'}` };
+            + ` ${inputSettings.endpoint && !isOfficialNaiEndpoint(inputSettings.endpoint) ? '中转' : '官网'}·${transport === 'st-proxy' ? '酒馆代理' : '直连'}`
+            + `${wire !== body ? ` 并词正${wire.input.length}字/负${wire.parameters.negative_prompt?.length || 0}字` : ''}` };
         settings.timing = timing;
         try {
             const result = await queue.run(settings.apiKey, () => {
                 timing.startedAt = Date.now();
-                return sendWithRetry(body, settings, deadline);
+                return sendWithRetry(wire, settings, deadline);
             }, settings);
             timing.doneAt = Date.now();
             if (result && typeof result === 'object') result.timing = timing;
@@ -173,7 +185,7 @@ export function createNaiOfficialClient(deps = {}) {
                     Accept: 'application/zip, application/octet-stream, application/json, image/png',
                     Authorization: `Bearer ${settings.apiKey}`,
                 },
-                body: JSON.stringify(toNaiWireBody(foldSoloCharForRelay(body, settings.endpoint))),
+                body: JSON.stringify(toNaiWireBody(body)),
                 mode: direct ? 'cors' : 'same-origin',
                 credentials: direct ? 'omit' : 'same-origin',
                 signal: settings.signal,

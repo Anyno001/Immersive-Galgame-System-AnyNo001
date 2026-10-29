@@ -7,6 +7,10 @@ export const INTIMATE_STYLE_TEXT = `
 #igs-overlay[data-igs-sd-closeup] #igs-stage-motion[data-igs-rm-sway] #igs-bg{scale:1.06;}
 #igs-overlay #igs-stage-motion[data-igs-rm-sway] #igs-sprite:not(.igs-sprite-editing){translate:calc(var(--igs-sd-tx,0px) + var(--igs-rm-dx,0%) + var(--igs-rm-sx,0px)) calc(var(--igs-sd-ty,0px) + var(--igs-rm-sy,0px));rotate:var(--igs-rm-sr,0deg);transition:scale 1.6s cubic-bezier(.3,.7,.2,1);}
 #igs-overlay #igs-stage-motion[data-igs-rm-sway] #igs-cast{translate:calc(var(--igs-sd-px,0) * -12px + var(--igs-rm-sx,0px)) calc(var(--igs-sd-py,0) * -5px + var(--igs-rm-sy,0px));rotate:var(--igs-rm-sr,0deg);transition:filter 1.2s ease;}
+/* 逐帧写 translate / rotate 时要钉在自己的图层上，否则每帧整张重画；CG 页的 will-change:filter 会顶掉 transform 提示，这里一并写上。 */
+#igs-overlay #igs-stage-motion[data-igs-rm-sway] #igs-bg{will-change:transform,translate,rotate;}
+#igs-overlay #igs-stage-motion[data-igs-cg][data-igs-rm-sway] #igs-bg{will-change:filter,translate,rotate;}
+#igs-overlay #igs-stage-motion[data-igs-rm-sway] #igs-sprite:not(.igs-sprite-editing),#igs-overlay #igs-stage-motion[data-igs-rm-sway] #igs-cast{will-change:translate,rotate;}
 #igs-stage-motion[data-igs-rm-asset] .igs-rm-back{-webkit-mask-image:radial-gradient(ellipse 72% 68% at 50% 46%,transparent 52%,#000 100%);mask-image:radial-gradient(ellipse 72% 68% at 50% 46%,transparent 52%,#000 100%);}
 #igs-stage-motion .igs-rm-front{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:hidden;}
 #igs-stage-motion .igs-rm-front>div{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity 1.6s ease,visibility 0s linear 1.6s;}
@@ -15,14 +19,14 @@ export const INTIMATE_STYLE_TEXT = `
 #igs-stage-motion .igs-rm-front[data-igs-rm-gobo] .igs-rm-gobo{opacity:.8;visibility:visible;transition-delay:0s;animation-play-state:running;}
 #igs-stage-motion .igs-rm-vig{background:radial-gradient(ellipse 78% 74% at 50% 46%,transparent 52%,rgba(70,12,34,.62) 100%);}
 #igs-stage-motion[data-igs-rm-tone="moon"] .igs-rm-vig{background:radial-gradient(ellipse 78% 74% at 50% 46%,transparent 52%,rgba(18,20,58,.66) 100%);}
-#igs-stage-motion .igs-rm-front[data-igs-rm-vig] .igs-rm-vig{opacity:calc(.34 + var(--igs-rm-pulse,0) * .3);visibility:visible;transition:opacity .3s ease-out,visibility 0s;}
+#igs-stage-motion .igs-rm-front[data-igs-rm-vig] .igs-rm-vig{opacity:calc(.34 + var(--igs-rm-pulse,0) * .3);visibility:visible;transition:opacity .3s ease-out,visibility 0s;will-change:opacity;}
 #igs-stage-motion .igs-rm-front[data-igs-rm-vig][data-igs-rm-level="3"] .igs-rm-vig{opacity:calc(.5 + var(--igs-rm-pulse,0) * .32);}
 #igs-stage-motion .igs-rm-haze{display:none;-webkit-backdrop-filter:blur(2.4px);backdrop-filter:blur(2.4px);-webkit-mask-image:radial-gradient(ellipse 66% 62% at 50% 45%,transparent 50%,#000 90%);mask-image:radial-gradient(ellipse 66% 62% at 50% 45%,transparent 50%,#000 90%);animation:igs-rm-haze 3.4s ease-in-out infinite alternate;}
 #igs-stage-motion .igs-rm-front[data-igs-rm-haze] .igs-rm-haze{display:block;opacity:var(--igs-rm-haze,0);visibility:visible;transition-delay:0s;}
 #igs-stage-motion .igs-rm-fringe::before,#igs-stage-motion .igs-rm-fringe::after{content:"";position:absolute;inset:0;mix-blend-mode:screen;}
 #igs-stage-motion .igs-rm-fringe::before{background:radial-gradient(ellipse 70% 66% at 48.5% 46%,transparent 58%,rgba(255,40,90,.34) 100%);}
 #igs-stage-motion .igs-rm-fringe::after{background:radial-gradient(ellipse 70% 66% at 51.5% 46%,transparent 58%,rgba(40,210,255,.26) 100%);}
-#igs-stage-motion .igs-rm-front[data-igs-rm-fringe] .igs-rm-fringe{opacity:calc(var(--igs-rm-fringe,0) * .5);visibility:visible;transition:opacity .35s ease-out,visibility 0s;}
+#igs-stage-motion .igs-rm-front[data-igs-rm-fringe] .igs-rm-fringe{opacity:calc(var(--igs-rm-fringe,0) * .5);visibility:visible;transition:opacity .35s ease-out,visibility 0s;will-change:opacity;}
 #igs-stage-motion .igs-rm-veil{transition:none;}
 #igs-stage-motion .igs-rm-veil[data-igs-rm-veil="flash"]{visibility:visible;background:radial-gradient(ellipse at 50% 45%,#fff 30%,rgba(255,236,226,.96) 100%);animation:igs-rm-flash 2.4s ease-out both;}
 #igs-stage-motion .igs-rm-veil[data-igs-rm-veil="dark"]{visibility:visible;background:#000;animation:igs-rm-dark 2.6s ease-in-out both;}

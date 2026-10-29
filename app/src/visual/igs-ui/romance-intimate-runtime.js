@@ -42,8 +42,9 @@ const NOISE_DUCK_MS = 2600;
 // 独处的呼吸：像捂着嘴，高频压低；呼气时偶尔憋住不出声。
 const SOLO_BREATH_LOWPASS = 1100;
 const SOLO_BREATH_HOLD = 0.25;
-// 触屏设备的画面更新限到约 30 帧。
+// 触屏设备的画面更新限到约 30 帧；没有晃动、只剩暗角心跳时限到约 15 帧（暗角自带 .3s 透明度过渡，看不出差别）。
 const COARSE_FRAME_MS = 32;
+const COARSE_PULSE_FRAME_MS = 66;
 const SWAY_TARGETS = Object.freeze([['#igs-bg', BG_SWAY], ['#igs-sprite', 1], ['#igs-cast', CAST_SWAY]]);
 const SWAY_VARS = Object.freeze(['--igs-rm-sx', '--igs-rm-sy', '--igs-rm-sr']);
 const RHYTHM_MATERIALS = new Set(['wood', 'metal', 'sofa']);
@@ -493,7 +494,8 @@ function loop(state) {
             return;
         }
         state.frame = null;
-        if (!state.coarse || !(ts - state.lastFrame < COARSE_FRAME_MS)) {
+        const gap = (state.plan && state.plan.sway) || state.swayFade > 0.01 ? COARSE_FRAME_MS : COARSE_PULSE_FRAME_MS;
+        if (!state.coarse || !(ts - state.lastFrame < gap)) {
             state.lastFrame = ts;
             drawFrame(state);
         }
