@@ -406,8 +406,19 @@ const STATS_TEMPLATE = `
   <div class="igs-settings-sub"{{statsHidden}}>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">规则</div>
-      <div class="igs-settings-section">{{autoSkillField}}{{intimacyField}}</div>
-      <div class="igs-source-filter-grid">{{registerField}}{{hudLabelField}}</div>
+      <div class="igs-source-filter-grid">{{rulesetField}}{{storyCheckField}}</div>
+      <div class="igs-source-filter-note">{{rulesetNote}}</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{checkFxField}}{{optionChanceField}}{{dndNaturalField}}{{intimacyField}}</div>
+      <div class="igs-source-filter-grid">{{newChatField}}{{registerField}}{{hudLabelField}}</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">角色数值</div>
+      <div class="igs-source-filter-grid">{{sheetGenField}}{{backfillField}}</div>
+      <div class="igs-source-filter-note">新角色的数值与新技能的补全由辅助模型给出档位，脚本换算成数值；需要在自动插图设置里接好写词模型。</div>
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="stats-op:generate" type="button">为缺卡角色生成数值</button>
+        <button class="igs-settings-action" data-action="stats-op:backfill" type="button">补全新技能</button>
+      </div>
     </div>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">生活条</div>

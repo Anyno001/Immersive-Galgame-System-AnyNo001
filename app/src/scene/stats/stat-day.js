@@ -87,9 +87,18 @@ export function settleDay(state, { random, changes = [] } = {}) {
     };
     pushBarChanges(bars, nextBars, changes, '日结算');
     let next = withBars(state, nextBars);
-    next = withSkills(next, growSkills(next.protagonist.skills, random, changes));
+    next = grow(next, random, changes);
     next = { ...next, characters: coolCharacters(next.characters, day, 1, changes) };
     return withClock(next, { day, floorsSinceDay: 0, stayedUp: false });
+}
+
+// 成长次数累计进 protagonist.growth（D&D 资历档由它推出，v2 §4.2）。
+function grow(state, random, changes) {
+    const before = changes.length;
+    const next = withSkills(state, growSkills(state.protagonist.skills, random, changes));
+    const gained = changes.slice(before).filter((c) => c.note === '成长').length;
+    if (!gained) return next;
+    return { ...next, protagonist: { ...next.protagonist, growth: (Number(next.protagonist.growth) || 0) + gained } };
 }
 
 // 时间跳跃：体力、生命回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
@@ -99,7 +108,7 @@ export function settleSkip(state, days, { random, changes = [] } = {}) {
     const nextBars = { ...bars, stamina: 100, health: 100 };
     pushBarChanges(bars, nextBars, changes, `跳过${days}天`);
     let next = withBars(state, nextBars);
-    next = withSkills(next, growSkills(next.protagonist.skills, random, changes));
+    next = grow(next, random, changes);
     next = { ...next, characters: coolCharacters(next.characters, day, days, changes) };
     return withClock(next, { day, floorsSinceDay: 0, stayedUp: false });
 }

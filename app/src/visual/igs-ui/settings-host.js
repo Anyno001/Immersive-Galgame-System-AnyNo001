@@ -630,15 +630,57 @@ export function createSettingsHost(deps) {
         return result;
     }
 
+    const STATS_ATTRIBUTES = ['健康', '力量', '敏捷', '理智', '观察', '魅力'];
+    async function runStatsOp(spec) {
+        const op = typeof options.statsOp === 'function' ? options.statsOp : null;
+        if (!op) return { ok: false, reason: 'stats-runtime-missing' };
+        const [kind, raw = ''] = spec.split(/:(.*)/s);
+        const name = raw ? decodeURIComponent(raw) : '';
+        let result;
+        try {
+            if (kind === 'generate' || kind === 'backfill' || kind === 'backup') result = await op(kind);
+            else if (kind === 'skill-attr') {
+                const attribute = await settingsDialogs.choose(`「${name}」归入哪项属性？`, STATS_ATTRIBUTES.map((value) => ({ value, label: value })));
+                result = attribute ? await op('skill', 'edit', name, { attribute }) : { ok: true, cancelled: true };
+            } else if (kind === 'skill-rename') {
+                const to = String((await settingsDialogs.prompt(`把「${name}」改名为：`, name)) || '').trim();
+                result = to && to !== name ? await op('skill', 'edit', name, { name: to }) : { ok: true, cancelled: true };
+            } else if (kind === 'skill-merge') {
+                const to = String((await settingsDialogs.prompt(`把「${name}」合并到哪项技能（填技能名）：`, '')) || '').trim();
+                result = to ? await op('skill', 'merge', name, { to }) : { ok: true, cancelled: true };
+            } else if (kind === 'skill-remove') {
+                result = await settingsDialogs.confirm(`删除剧情技能「${name}」？主角已有的数值保留。`) ? await op('skill', 'remove', name) : { ok: true, cancelled: true };
+            } else if (kind === 'sheet-edit') {
+                const text = String((await settingsDialogs.prompt(`修改「${name}」的一项数值，格式：项目 档位（如「话术 精通」「敏捷 出众」）。技能档：未学、入门、熟练、精通、大师；属性档：很弱、偏弱、普通、出众、顶尖。`, '')) || '').trim();
+                const [skill, tier] = text.split(/\s+/);
+                result = skill && tier ? await op('sheet', 'edit', name, { skill, tier }) : { ok: true, cancelled: true };
+            } else if (kind === 'sheet-regen') {
+                result = await settingsDialogs.confirm(`重新生成「${name}」的数值？手改过的内容会被覆盖。`) ? await op('sheet', 'regen', name) : { ok: true, cancelled: true };
+            } else if (kind === 'sheet-remove') {
+                result = await settingsDialogs.confirm(`删除「${name}」的角色卡？之后按普通人参与检定。`) ? await op('sheet', 'remove', name) : { ok: true, cancelled: true };
+            } else result = { ok: false, reason: 'stats-op-unknown' };
+        } catch (error) {
+            result = { ok: false, reason: 'stats-op-threw', thrown: error };
+        }
+        if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。' }[result.reason];
+            if (text) await settingsDialogs.alert(text);
+        }
+        if (state.activeSettings) rerenderSettings();
+        return result || { ok: false };
+    }
+
     const recoveringSettingsActions = new Map();
     function handleSettingsAction(action) {
         if (String(action).startsWith('live2d-edit:')) return Promise.resolve(openLive2dManager?.(decodeURIComponent(String(action).slice('live2d-edit:'.length))));
         // 数值系统提示词「恢复默认」：清空覆盖值，规范化后回到默认模板（§9）。
         if (String(action).startsWith('stats-prompt-reset:')) {
             const id = String(action).slice('stats-prompt-reset:'.length);
-            if (!/^[a-z]+$/.test(id)) return Promise.resolve({ ok: false, reason: 'stats-prompt-unknown' });
+            if (!/^[a-zA-Z]+$/.test(id)) return Promise.resolve({ ok: false, reason: 'stats-prompt-unknown' });
             return Promise.resolve(updateSettingsValue(`bridge.stats.prompts.${id}`, ''));
         }
+        // 数值 v2 存档区操作（角色卡、剧情技能、补全、旧版备份）：交给运行时，结束后重绘。
+        if (String(action).startsWith('stats-op:')) return runStatsOp(String(action).slice('stats-op:'.length));
         // 适配版表格模板下载（§8C）。
         // 推送映射「确认映射」：给当前模板指纹写一个空覆盖，之后不再提示「新的表格模板」（§8B 第 5 条）。
         if (String(action).startsWith('stats-mapping-confirm:')) {

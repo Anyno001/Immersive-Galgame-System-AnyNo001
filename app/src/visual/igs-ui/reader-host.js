@@ -30,6 +30,7 @@ import { createReadingProgress, resolvePositionFloor, resolvePositionPage, segme
 import { createTurnIndexPanel, positionLabel } from './turn-index-panel.js';
 import { createGenerationStrip } from './generation-strip.js';
 import { createMissedHint, detectMissedAssets } from './missed-assets.js';
+import { createStatsChip } from './stats-chip.js';
 import { cancelFxEffects } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
@@ -253,6 +254,18 @@ export function createIgsReaderHost(options = {}) {
     const missedHint = createMissedHint({
         getDialog: () => (state.activeReader && state.activeReader.dom && state.activeReader.dom.dialog) || null,
         onRetry: () => runManualIllustration(),
+    });
+    // 数值系统提示条（v2 §6.4、§9.5）：开局引导、新角色生成数值、手动掷骰的掷骰键。
+    const statsChip = createStatsChip({
+        timers: options.autoPlayTimers || globalThis,
+        getDialog: () => (state.activeReader && state.activeReader.dom && state.activeReader.dom.dialog) || null,
+        getNotices: () => { try { return typeof options.statsNotices === 'function' ? options.statsNotices() : []; } catch (error) { return []; } },
+        onAction: async (id, act) => {
+            if (typeof options.statsNoticeAction !== 'function') return;
+            let result = null;
+            try { result = await options.statsNoticeAction(id, act); } catch (error) { result = null; }
+            if (result && result.openSettings) openSettings({ tab: result.openSettings, mode: state.activeReader ? state.activeReader.mode : undefined });
+        },
     });
     // 新手引导：会话标记与当前步骤挂在宿主实例上，状态只存独立的 localStorage 键。
     const onboarding = createOnboardingController({
@@ -615,6 +628,13 @@ export function createIgsReaderHost(options = {}) {
             if (!state.activeReader || !generationStrip.getDialogReady()) return false;
             imageNotice(level, message);
             return true;
+        },
+        // 数值系统：提示条有变化时重画；检定掷骰卡（v2 §9.1）。阅读器没开时不补播。
+        syncStatsNotices() {
+            if (state.activeReader) statsChip.sync();
+        },
+        playStatsCheck(detail) {
+            return playOptionResultFx({ ok: true, detail }, { force: true });
         },
         getReaderSnapshotContract() {
             return {
@@ -2088,6 +2108,17 @@ export function createIgsReaderHost(options = {}) {
             bubble.type = 'button';
             bubble.className = 'igs-option-bubble igs-bubble';
             bubble.textContent = display;
+            // 数值系统：带检定的选项显示预估成功率（v2 §5.1）。
+            if (dice && typeof options.statsDiceChance === 'function') {
+                let est = null;
+                try { est = options.statsDiceChance(dice); } catch (error) { est = null; }
+                if (est && Number.isFinite(est.chance)) {
+                    const tag = doc.createElement('span');
+                    tag.className = 'igs-option-chance';
+                    tag.textContent = `${est.skill}${est.difficulty && est.difficulty !== '普通' ? `·${est.difficulty}` : ''} 约 ${Math.round(est.chance * 100)}%`;
+                    bubble.appendChild(tag);
+                }
+            }
             bubble.addEventListener('pointerenter', () => playReaderUiSfx('hover'));
             bubble.addEventListener('click', (event) => {
                 if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
@@ -2155,23 +2186,25 @@ export function createIgsReaderHost(options = {}) {
         if (!check) return fallback;
         const global = options.global || globalThis;
         const context = getSillyTavernContext(global);
-        const result = await resolveDiceCommand(check.dice, findAcuDice(global), {
-            random: options.random,
-            userName: context && context.name1 ? String(context.name1) : '',
-        });
+        const userName = context && context.name1 ? String(context.name1) : '';
+        // 数值系统启用时选项骰子走 IGS 引擎（v2 §5.1）；返回 null 表示未接管，照旧交给 AcuDice。
+        let result = null;
+        try { result = typeof options.statsDice === 'function' ? options.statsDice(check.dice, { userName }) : null; } catch (error) { result = null; }
+        if (!result) result = await resolveDiceCommand(check.dice, findAcuDice(global), { random: options.random, userName });
         if (!result || !result.ok) {
             writeToastSafe(`检定未执行：${result && result.reason || '未知原因'}，已按原命令发送`);
             return fallback;
         }
-        await playOptionResultFx(result);
+        await playOptionResultFx(result, { force: Boolean(result.statsFx) });
         return formatCheckMessage(check.display, result.line);
     }
 
     // 掷骰展示默认关闭；开启后等结论定格再发送，被关闭阅读器等取消时立即继续，不阻塞发送。
-    async function playOptionResultFx(result) {
+    // force：数值系统的检定按数值设置里的「掷骰卡」播放，不看这里的开关。
+    async function playOptionResultFx(result, { force = false } = {}) {
         const current = state.activeReader;
         const readerSettings = current && current.snapshot && current.snapshot.readerSettings;
-        if (!readerSettings || !normalizeResultFxSettings(readerSettings.resultFx).enabled) return;
+        if (!readerSettings || (!force && !normalizeResultFxSettings(readerSettings.resultFx).enabled)) return;
         const overlay = current.dom && current.dom.overlay;
         const plan = buildResultFxPlan(resultDetailOf(result));
         if (!overlay || !plan) return;
@@ -4659,6 +4692,7 @@ export function createIgsReaderHost(options = {}) {
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
             // 数值系统接管已登记角色的人物数值；未接管时返回 null，人际关系页照旧读表格。
             statsLookup: () => (typeof options.statsLookup === 'function' ? options.statsLookup() : null),
+            statsGenerate: (name) => (typeof options.statsOp === 'function' ? options.statsOp('generate', '', name) : null),
         });
         const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
             mediaCache: options.media?.cache,
@@ -4968,6 +5002,7 @@ export function createIgsReaderHost(options = {}) {
             bound: content.imageBoundCount,
         }) : { missed: false };
         missedHint.sync(detection, floor ? `${floor.chatId}:${floor.messageId}:${floor.swipeId}:${detection.reason}` : '');
+        statsChip.sync();
     }
 
     // 第 0 层之后有没有 AI 楼层：决定「开始」先进世界观页还是直接重播，以及出不出「继续」。

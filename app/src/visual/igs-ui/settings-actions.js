@@ -1075,7 +1075,7 @@ export async function handleSettingsAction(action, ctx) {
 
     if (normalizedAction === 'copy-page-diagnostic') {
         const mediaStats = await Promise.resolve(options.media?.stats?.()).catch(() => null);
-        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)), promptReport: getLastPromptReport(), mediaStats, ttsSkip: getTtsSkipReason(), ttsDecision: getTtsLastDecision() });
+        const text = buildPageDiagnostic(state.activeReader && state.activeReader.snapshot, { version: options.version, worldview: resolveWorldview(draftEffectiveAssets(settingsState)), promptReport: getLastPromptReport(), mediaStats, ttsSkip: getTtsSkipReason(), ttsDecision: getTtsLastDecision(), statsLine: (() => { const snap = state.activeReader && state.activeReader.snapshot; const mid = snap && snap.content ? (snap.content.messageId ?? snap.messageId) : null; try { return mid != null && typeof options.statsDiagnose === 'function' ? options.statsDiagnose(mid) : ''; } catch (error) { return ''; } })() });
         if (!text) {
             if (typeof dialogs.view === 'function') await dialogs.view('请先打开阅读器并翻到出现问题的页面，再从工具栏的「设置」进入并复制。');
             return rerenderSettings();

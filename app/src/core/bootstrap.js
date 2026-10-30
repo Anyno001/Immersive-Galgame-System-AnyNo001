@@ -55,6 +55,8 @@ import { normalizeStatsSettings } from '../scene/stats/stat-settings.js';
 import { createShujukuClient } from '../data/shujuku/client.js';
 import { describeStatMappings } from '../data/shujuku/stats-push.js';
 import { buildInitialState } from '../scene/stats/stat-build.js';
+import { createSheetStore } from '../scene/stats/stat-sheet-store.js';
+import { isBackgroundGenerationActive } from '../host/background-generation.js';
 import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
 import { createSecondaryLlm } from '../host/secondary-llm.js';
 import { createImageWorldInfoSource } from '../host/image-world-info.js';
@@ -84,7 +86,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.54';
+const IGS_VERSION = '0.37.55';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -398,6 +400,22 @@ export function bootstrapIGS(options = {}) {
             const api = globalObject.AutoCardUpdaterAPI;
             return api ? describeStatMappings(createShujukuClient(api).readTables(), overridesByFingerprint || {}) : null;
         },
+        // 数值 v2：选项骰子走 IGS 引擎（未启用时返回 null，交回 AcuDice）、选项成功率、阅读器提示条、诊断与存档区操作。
+        statsDice: (raw, ctx) => (app.statsRuntime ? app.statsRuntime.resolveDice(raw, ctx) : null),
+        statsDiceChance: (raw) => (app.statsRuntime ? app.statsRuntime.diceChance(raw) : null),
+        statsNotices: () => (app.statsRuntime ? app.statsRuntime.notices() : []),
+        statsNoticeAction: (id, action) => (app.statsRuntime ? app.statsRuntime.noticeAction(id, action) : { ok: false, reason: 'stats-runtime-missing' }),
+        statsDiagnose: (messageId) => (app.statsRuntime ? app.statsRuntime.diagnose(messageId) : ''),
+        statsOp: (kind, op, name, payload) => {
+            const rt = app.statsRuntime;
+            if (!rt) return { ok: false, reason: 'stats-runtime-missing' };
+            if (kind === 'sheet') return rt.sheetOp(op, name, payload);
+            if (kind === 'skill') return rt.skillOp(op, name, payload);
+            if (kind === 'generate') return rt.generateSheets(name ? [name] : null);
+            if (kind === 'backfill') return rt.runBackfill();
+            if (kind === 'backup') return rt.dropBackup();
+            return { ok: false, reason: 'stats-op-unknown' };
+        },
         statsChatAction: (kind, payload) => {
             if (!app.statsRuntime) return { ok: false, reason: 'stats-runtime-missing' };
             if (kind !== 'enable') return app.statsRuntime.disableForChat();
@@ -673,17 +691,50 @@ export function bootstrapIGS(options = {}) {
     attachChatChangedReinjection();
     attachMetaDigestSync();
     // 数值系统：总开关关闭时 sync() 不挂任何监听；设置保存后重新同步（易错点 H1）。
+    const statsWorldInfo = createImageWorldInfoSource(globalObject, { readExclude: readWorldInfoExclude });
+    // 角色资料（v2 §6.4）：主角读人设，NPC 读角色卡与按名字扫到的世界书条目；只取摘要，不带聊天正文。
+    const describeStatsPeople = async (names) => {
+        const c = resolveTavernContext();
+        const cards = (c && Array.isArray(c.characters)) ? c.characters : [];
+        const out = [];
+        for (const name of names) {
+            if (name === '主角') {
+                out.push({ name, summary: String((c && c.powerUserSettings && c.powerUserSettings.persona_description) || '') });
+                continue;
+            }
+            const card = cards.find((ch) => ch && ch.name === name);
+            let summary = card ? [card.description, card.personality].filter(Boolean).join(' ') : '';
+            if (summary.length < 200) {
+                try {
+                    const wi = await statsWorldInfo({ description: name });
+                    if (wi && wi.ok && wi.text) summary = `${summary} ${wi.text}`.trim();
+                } catch (error) { /* 世界书读不到时只用角色卡 */ }
+            }
+            out.push({ name, summary });
+        }
+        return out;
+    };
+    const statsSheetStore = createSheetStore(() => storageLike);
     const statsRuntime = createStatsRuntime({
         getContext: resolveTavernContext,
         readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats,
         getPushClient: () => (globalObject.AutoCardUpdaterAPI ? createShujukuClient(globalObject.AutoCardUpdaterAPI) : null),
-        // 词表冲突时的辅助模型（§4.1、G1/G2）：只用独立 API。生成开始事件会被宿主等待，此时再走酒馆 generateRaw 等于嵌套主生成，可能互相阻塞，因此沿用酒馆 API 时不启用，按无需检定继续。
-        getModelRequest: () => {
+        // 插件自己的后台请求也会触发全局生成事件，数值系统一律跳过（v2 N2）。
+        isBackground: () => isBackgroundGenerationActive(),
+        // 角色卡生成与批量补全（v2 §6）：只在生成结束后发，独立 API 与酒馆 API 都可用（N1）。
+        getBackgroundRequest: () => {
             const auto = ((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration || {};
-            const llm = auto.llm;
-            if (!llm || llm.source !== 'openai' || !describeLlmReady(llm).ok) return null;
+            const llm = auto.llm || { source: 'tavern' };
+            if (!describeLlmReady(llm).ok) return null;
             return (prompt) => secondaryLlm.request({ system: prompt.system, user: prompt.user }, llm);
         },
+        describePeople: describeStatsPeople,
+        sheetStore: statsSheetStore,
+        worldviewOf: () => resolveWorldview(((getUnifiedSettingsSnapshot() || {}).bridge || {}).sceneAssets),
+        resumeReply: () => hostAdapter.resumeReply?.(),
+        // 掷骰卡（v2 §9.1）：阅读器开着时播放，没开不补播。
+        onCheck: ({ detail }) => { try { app.igsUi && typeof app.igsUi.playStatsCheck === 'function' && app.igsUi.playStatsCheck(detail); } catch (error) { /* */ } },
+        onNotices: () => { try { app.igsUi && typeof app.igsUi.syncStatsNotices === 'function' && app.igsUi.syncStatsNotices(); } catch (error) { /* */ } },
         onChange: (statsState, entry, info) => {
             // 换聊天时清掉上一个聊天的吃醋情敌，同名角色不串（§5.3 修罗场联动）。
             if (info && info.chatChanged) clearStatsRivals();

@@ -2,6 +2,7 @@
 // 组合词需「动作词 + 对象词」同时命中（防止「做作业」判成烹饪）；否定、假设、引号台词、回忆梦境、旁观他人不触发。
 import { BASE_ATTRIBUTES, DEFAULT_SPECIAL_SKILLS } from './stat-state.js';
 import { WORLD_SKILL_LEXICON } from './stat-world-skills.js';
+import { CORE_SKILL_NAMES } from './stat-registry.js';
 
 const COMBO_WINDOW = 6;
 const NEGATION = /(不想|不会|不要|不能|没有|没|别|不|如果|要是|假如|假设|打算|万一)/;
@@ -22,16 +23,30 @@ export const BASE_LEXICON = Object.freeze({
     运动: { actions: ['打', '踢'], objects: ['篮球', '足球', '网球', '羽毛球', '排球'], solo: ['锻炼', '健身', '晨跑', '跑步', '游泳'] },
     艺术: { actions: ['画', '弹', '唱', '拉', '拍', '写'], objects: ['钢琴', '吉他', '歌', '小提琴', '照片', '曲子', '诗'], solo: ['作画', '演奏', '绘画', '素描', '写生', '画画', '画像'] },
     话术: { solo: ['说服', '劝说', '讨价还价', '砍价', '谈判', '套话', '辩论', '忽悠', '哄她', '哄他'] },
-    照顾: { solo: ['照顾', '照料', '护理', '喂药', '包扎', '看护'] },
+    照顾: { solo: ['照顾', '照料', '护理', '喂药', '看护'] },
     应变: { solo: ['急中生智', '随机应变', '打圆场', '补救', '救场'] },
     力量: { solo: ['扛起', '举起', '推开', '撬开', '搬起', '拽住'] },
-    敏捷: { solo: ['翻过', '攀爬', '爬上', '溜进', '潜入', '躲开', '闪开', '接住'] },
-    观察: { solo: ['侦查', '搜查', '调查', '寻找线索', '仔细打量', '留意'] },
-    魅力: { solo: ['搭讪', '表白', '告白', '约她', '约他', '示好', '撩她', '撩他'] },
+    敏捷: { solo: ['接住', '扑过去', '抓住'] },
+    观察: { solo: ['仔细打量', '留意', '环顾四周', '端详'] },
+    魅力: { solo: ['搭讪', '表白', '告白', '约她', '约他', '示好'] },
     理智: { solo: ['冷静下来', '忍住', '克制住', '压住火'] },
+    // v2 附录 A：从属性词表拆出的技能，D&D 下才能体现熟练加值。
+    侦查: { solo: ['侦查', '搜查', '调查', '寻找线索', '搜寻'] },
+    聆听: { solo: ['偷听', '听动静', '侧耳细听', '竖起耳朵'] },
+    心理学: { solo: ['看穿', '识破', '察言观色', '揣摩她', '揣摩他'] },
+    潜行: { solo: ['溜进', '潜入', '蹑手蹑脚', '悄悄靠近', '躲藏'] },
+    闪避: { solo: ['躲开', '闪开', '躲闪'] },
+    攀爬: { solo: ['翻过', '攀爬', '爬上', '翻墙'] },
+    格斗: { solo: ['打架', '出拳', '搏斗', '扭打'] },
+    射击: { solo: ['开枪', '射箭', '开火'] },
+    急救: { solo: ['包扎', '止血'] },
+    恐吓: { solo: ['威胁', '恐吓', '吓唬'] },
+    魅惑: { solo: ['撩她', '撩他', '调情', '勾引'] },
+    开锁: { solo: ['撬锁', '开锁'] },
+    驾驶: { solo: ['开车', '驾车'] },
 });
 
-export const DEFAULT_SKILL_LIST = Object.freeze([...BASE_ATTRIBUTES, ...DEFAULT_SPECIAL_SKILLS]);
+export const DEFAULT_SKILL_LIST = Object.freeze([...BASE_ATTRIBUTES, ...DEFAULT_SPECIAL_SKILLS, ...CORE_SKILL_NAMES]);
 
 // 词表优先级：用户词条 2 > 内置 1 > 学习表 0；同一个词只保留优先级最高的归属（易错点 G3）。
 function buildLexicon(skills, extra, learned) {
@@ -51,8 +66,8 @@ function buildLexicon(skills, extra, learned) {
     };
     for (const [word, skill] of Object.entries(learned || {})) put(word, skill, 0);
     for (const [skill, entry] of Object.entries(BASE_LEXICON)) addEntry(skill, entry, 1);
-    // 世界观附加技能词条：allowed 过滤，只有存档里真有该技能时才会命中。
-    for (const [skill, entry] of Object.entries(WORLD_SKILL_LEXICON)) if (!Object.hasOwn(BASE_LEXICON, skill)) addEntry(skill, entry, 1);
+    // 世界观附加技能词条：allowed 过滤，只有存档里真有该技能时才会命中；与核心同名的（急救、潜行、驾驶）合并词条。
+    for (const [skill, entry] of Object.entries(WORLD_SKILL_LEXICON)) addEntry(skill, entry, 1);
     // 玩家自定义技能没有词条：按技能名本身命中（基础属性不按名字触发，避免「很健康」误判）。
     for (const skill of skills) if (!BASE_ATTRIBUTES.includes(skill) && !Object.hasOwn(BASE_LEXICON, skill) && !Object.hasOwn(WORLD_SKILL_LEXICON, skill)) put(skill, skill, 1);
     for (const [skill, entry] of Object.entries(extra || {})) addEntry(skill, entry, 2);

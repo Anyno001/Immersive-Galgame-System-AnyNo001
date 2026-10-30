@@ -50,16 +50,31 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
 }
 
 // 与 createCharacterMetricsLookup 同形；未登记的名字返回空，调用方可按原逻辑退回表格。
-export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'stage', nsfw = false } = {}) {
+// sheets：聊天级 NPC 角色卡（v2 §9.3）；有卡时返回 sheet 段：资历、擅长项、是否待定。
+export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'stage', nsfw = false, sheets = null, engine = null } = {}) {
     return (name) => {
         const key = state && resolve(String(name || '').trim());
         const c = key && state.characters[key];
         if (!c) return { metrics: [], stages: [] };
-        return {
+        const out = {
             metrics: characterStatMetrics(c, { hudLabel, nsfw }),
             stages: [{ label: '关系阶段', value: stageOf(c.dims.好感).name }],
         };
+        if (sheets) out.sheet = sheetSummary(key, sheets[key], engine);
+        return out;
     };
+}
+
+function sheetSummary(name, sheet, engine) {
+    if (!sheet) return { name, missing: true };
+    const strong = Object.entries(sheet.skills || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([skill, v]) => {
+        if (engine && engine.ruleset.ID === 'dnd5e') {
+            const prof = v >= 75 ? '专精' : v >= 50 ? '熟练' : '';
+            return `${skill}${prof ? ` ${prof}` : ''}`;
+        }
+        return `${skill} ${Math.round(v)}`;
+    });
+    return { name, rank: sheet.rank || '普通人', strong, provisional: Object.keys(sheet.provisional || {}).length > 0 };
 }
 
 // 数值系统开启时 IGS 为唯一真值（易错点 H3）：已登记角色只用 IGS 数据，未登记的人才退回表格 lookup。

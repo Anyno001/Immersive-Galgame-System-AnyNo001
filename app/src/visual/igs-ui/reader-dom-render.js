@@ -2337,6 +2337,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
                 || event.target.closest('#igs-dialog-bar')
                 || event.target.closest('#igs-gen-strip')
                 || event.target.closest('#igs-missed-hint')
+                || event.target.closest('#igs-stats-chip')
                 || event.target.closest('#igs-ctrl-bar')
                 || event.target.closest('#igs-settings')
             )) {

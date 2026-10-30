@@ -9,10 +9,20 @@ import { esc } from './reader-value-utils.js';
 export const STAT_PROMPT_LABELS = Object.freeze({
     source: '数值来源声明',
     protagonist: '主角状态',
+    skills: '主角技能',
+    perception: '主角感知',
     present: '在场角色',
+    sheets: '在场角色的本事',
     check: '本轮检定',
+    roll: '本轮骰运（预掷）',
     tags: '标签说明',
     mandates: '强制事项',
+});
+// 不单独开关的模板：手动掷骰规则随「本轮骰运」一起开关；后台请求不进主生成。
+export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
+    rollManual: '手动掷骰规则',
+    sheetGen: '角色卡生成（后台请求）',
+    backfill: '新技能补全（后台请求）',
 });
 
 function textOf(map, key) {
@@ -35,6 +45,13 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
             + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-prompt-reset:${esc(id)}" type="button"${custom ? '' : ' disabled'}>恢复默认</button></div>`
             + '</div>';
     }).join('');
+    const extras = Object.entries(STAT_EXTRA_PROMPT_LABELS).map(([id, label]) => {
+        const custom = textOf(prompts, id);
+        return `<div class="igs-settings-section" data-stats-prompt="${esc(id)}">`
+            + field(`bridge.stats.prompts.${id}`, label, textareaInput(`bridge.stats.prompts.${id}`, custom || DEFAULT_STAT_PROMPTS[id], ''))
+            + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-prompt-reset:${esc(id)}" type="button"${custom ? '' : ' disabled'}>恢复默认</button></div>`
+            + '</div>';
+    }).join('');
     const stages = Object.keys(DEFAULT_STAGE_TEXT).map((name) => field(
         `bridge.stats.stageText.${name}`,
         name,
@@ -44,6 +61,7 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
         + '<summary>高级：注入给 AI 的提示词</summary>'
         + '<div class="igs-source-filter-note">框里是当前生效的提示词，可直接修改；点「恢复默认」回到内置内容。模板里的 {{变量}} 写错时会原样保留，不会中断。</div>'
         + rows
+        + extras
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-stage-text"${advancedOpen('stats-stage-text')}><summary>关系阶段文案</summary><div class="igs-source-filter-grid">${stages}</div></details>`
         + '</details>';
 }
@@ -136,11 +154,39 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
             return `<div class="igs-source-filter-note"><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</div>`;
         }).join('')
         : '<div class="igs-source-filter-note">还没有登记的角色。</div>';
-    const skills = model.skills.map((s) => `${esc(s.name)} ${n(s.value)}${s.marked ? '✓' : ''}`).join(' · ');
+    const skills = model.skills.map((s) => `${esc(s.name)} ${esc(s.display ?? String(Math.round(s.value)))}${s.marked ? '✓' : ''}`).join(' · ');
     const log = model.log.length
         ? model.log.map((r) => `<div class="igs-source-filter-note">#${n(r.messageId)} ${esc(r.target)} ${esc(r.key)} ${n(r.from)}→${n(r.to)}${r.note ? `（${esc(r.note)}）` : ''}</div>`).join('')
         : '<div class="igs-source-filter-note">暂无变动。</div>';
+    const checks = (model.checks || []).length
+        ? model.checks.map((c) => `<div class="igs-source-filter-note">#${n(c.messageId)} ${esc(c.skill)}${c.difficulty !== '普通' ? `（${esc(c.difficulty)}）` : ''} ${esc(c.detail)} → ${esc(c.outcome)}${c.ruleset === 'dnd5e' ? ' · D&D' : ''}</div>`).join('')
+        : '<div class="igs-source-filter-note">暂无检定。</div>';
+    const story = (model.story || []).length
+        ? model.story.map((s) => `<div class="igs-settings-field"><span>${esc(s.name)}（${esc(s.attribute)}${s.guessed ? '，猜测' : ''}）</span><div class="igs-mood-word-list">`
+            + `<button class="igs-settings-action" data-action="stats-op:skill-attr:${esc(encodeURIComponent(s.name))}" type="button">改属性</button>`
+            + `<button class="igs-settings-action" data-action="stats-op:skill-rename:${esc(encodeURIComponent(s.name))}" type="button">改名</button>`
+            + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${esc(encodeURIComponent(s.name))}" type="button">合并</button>`
+            + `<button class="igs-settings-action" data-action="stats-op:skill-remove:${esc(encodeURIComponent(s.name))}" type="button">删除</button></div></div>`).join('')
+        : '<div class="igs-source-filter-note">剧情里还没有出现新技能。</div>';
+    const sheets = (model.sheets || []).length
+        ? model.sheets.map((s) => {
+            const attrs = s.attributes.map((a) => `${esc(a.name)} ${esc(a.display)}`).join(' · ');
+            const own = s.skills.map((k) => `${esc(k.name)} ${esc(k.display)}${k.provisional ? '（待定）' : ''}`).join(' · ');
+            const id = esc(encodeURIComponent(s.name));
+            return `<div class="igs-source-filter-note"><b>${esc(s.name)}</b>　${esc(s.rank)}${s.source === 'user' ? '　已手改' : ''}</div>`
+                + `<div class="igs-source-filter-note">${attrs}${own ? `<br>${own}` : ''}</div>`
+                + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-op:sheet-edit:${id}" type="button">编辑</button>`
+                + `<button class="igs-settings-action" data-action="stats-op:sheet-regen:${id}" type="button">重新生成</button>`
+                + `<button class="igs-settings-action" data-action="stats-op:sheet-remove:${id}" type="button">删除角色卡</button></div>`;
+        }).join('')
+        : '<div class="igs-source-filter-note">还没有生成角色卡。</div>';
+    const pending = (model.pendingPeople || []).length ? `<div class="igs-source-filter-note">待生成：${model.pendingPeople.map(esc).join('、')}</div>` : '';
+    const backup = model.hasBackup ? '<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-op:backup" type="button">删除旧版备份</button></div>' : '';
     return head + people
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>主角技能（✓ 表示今天有成长机会）</summary><div class="igs-source-filter-note">${skills || '无'}</div></details>`
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-log"${advancedOpen('stats-log')}><summary>变动记录（最近 ${n(model.log.length)} / 共 ${n(model.total)} 条）</summary>${log}</details>`;
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-sheets"${advancedOpen('stats-sheets')}><summary>角色卡（${n((model.sheets || []).length)} 张）</summary>${pending}${sheets}</details>`
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-story-skills"${advancedOpen('stats-story-skills')}><summary>剧情技能（${n((model.story || []).length)} 项）</summary>${story}</details>`
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-checks"${advancedOpen('stats-checks')}><summary>检定记录（最近 ${n((model.checks || []).length)} 次）</summary>${checks}</details>`
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-log"${advancedOpen('stats-log')}><summary>变动记录（最近 ${n(model.log.length)} / 共 ${n(model.total)} 条）</summary>${log}</details>`
+        + backup;
 }

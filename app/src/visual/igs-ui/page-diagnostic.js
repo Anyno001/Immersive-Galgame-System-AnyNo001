@@ -121,7 +121,7 @@ function ttsVoiceLine(c, snapshot, decision) {
     return `朗读声音 说话人 ${decision.speaker || '-'} → 主名 ${decision.name || '-'} · 性别 ${gender} · 来源 ${decision.source || '-'} · 声音 ${voice} · 语速 ${Number(decision.rate).toFixed(2)}`;
 }
 
-export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null, ttsDecision = null } = {}) {
+export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null, ttsDecision = null, statsLine = '' } = {}) {
     if (!snapshot || !snapshot.content) return '';
     const c = snapshot.content;
     const rs = snapshot.readerSettings || {};
@@ -148,6 +148,8 @@ export function buildPageDiagnostic(snapshot, { version = '', worldview = '', pr
     const voiceLine = ttsVoiceLine(c, snapshot, ttsDecision);
     if (voiceLine) lines.push(voiceLine);
     lines.push(`非人角色 ${creatureLine(c, rs)}`);
+    // 数值系统：本楼检定来源，没有检定时写原因（v2 §9.4）。
+    if (statsLine) lines.push(statsLine);
     lines.push(...promptLines(promptReport));
     if (mediaStats) lines.push(`图片资源 ${describeMediaUsage(mediaStats)}`);
     let local = '';

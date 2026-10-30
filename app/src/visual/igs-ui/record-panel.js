@@ -427,6 +427,12 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const index = INVENTORY_SORTS.findIndex(([key]) => key === invSort);
             invSort = INVENTORY_SORTS[(index + 1) % INVENTORY_SORTS.length][0];
         }
+        if (action === 'stats-sheet' && category === 'relationships' && typeof options.statsGenerate === 'function') {
+            button.disabled = true;
+            button.textContent = '生成中…';
+            Promise.resolve(options.statsGenerate(id)).catch(() => null).finally(() => { if (root) reload(); });
+            return;
+        }
         if (action === 'person' && category === 'relationships') {
             const person = relationshipPeople().find(item => item.id === id);
             if (person) relationshipPersonId = person.id;
@@ -569,9 +575,13 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         }).join('');
         const graphHtml = chosen ? `<div class="igs-record-relationship-graph" aria-label="${escapeHtml(chosen.name)}的局部关系图"><svg class="igs-record-relationship-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lineHtml}</svg>${labelHtml}${graphNodes.map(node =>
             `<button type="button" class="igs-record-relationship-node${node.person.id === chosen.id ? ' is-current' : ''}" style="left:${node.x}%;top:${node.y}%" data-record-act="person" data-record-id="${escapeHtml(node.person.id)}" aria-label="查看${escapeHtml(node.person.name)}" ${node.person.id === relationshipPersonId ? 'aria-current="true"' : ''}><span class="igs-record-node-avatar" aria-hidden="true">${personInitial(node.person.name)}</span><span class="igs-record-node-name">${escapeHtml(node.person.name)}</span></button>`).join('')}</div>` : '<p class="igs-record-relationship-empty">当前来源没有可识别的人物记录。</p>';
-        const { metrics, stages } = chosen ? metricsOf(chosen.name) : { metrics: [], stages: [] };
+        const { metrics, stages, sheet } = chosen ? metricsOf(chosen.name) : { metrics: [], stages: [] };
+        // 数值系统的角色卡（v2 §9.3）：资历与擅长项；没有卡时给「生成数值」。
+        const sheetHtml = !sheet ? '' : sheet.missing
+            ? `<p class="igs-record-stage"><span>角色数值</span><strong>未生成</strong></p><button type="button" class="igs-rp-btn" data-record-act="stats-sheet" data-record-id="${escapeHtml(sheet.name)}">生成数值</button>`
+            : `<p class="igs-record-stage"><span>资历</span><strong>${escapeHtml(sheet.rank)}${sheet.provisional ? '（部分待定）' : ''}</strong></p>${sheet.strong.length ? `<p class="igs-record-stage"><span>擅长</span><strong>${escapeHtml(sheet.strong.join('、'))}</strong></p>` : ''}`;
         const metricsHtml = metrics.length || stages.length ? `<section class="igs-record-metrics" aria-label="${escapeHtml(chosen.name)}的数值">${stages.map(stage =>
-            `<p class="igs-record-stage"><span>${escapeHtml(stage.label)}</span><strong>${escapeHtml(stage.value)}</strong></p>`).join('')}${metrics.map(metric =>
+            `<p class="igs-record-stage"><span>${escapeHtml(stage.label)}</span><strong>${escapeHtml(stage.value)}</strong></p>`).join('')}${sheetHtml}${metrics.map(metric =>
             `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</section>` : '';
         const age = chosen?.profile?.find(field => field.key === 'age')?.value || '';
         const tags = [chosen?.role, age && (/^\d+$/.test(age) ? `${age}岁` : age)].filter(Boolean);
