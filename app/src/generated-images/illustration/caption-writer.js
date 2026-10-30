@@ -13,7 +13,8 @@ import { creatureOf } from '../../scene/creature-profile.js';
 import { prepareImageWritingRequest } from '../image-prompt-runtime.js';
 import { imageWritingContext } from '../image-prompt-context.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
-import { buildCgOutfitCatalog } from './cg-outfit-catalog.js';
+import { buildCgOutfitCatalog, CG_NUDE_OUTFIT_RULE } from './cg-outfit-catalog.js';
+import { isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
 import { spriteSchemeOf, livelyCgLines } from '../prompt-scheme.js';
 import { imageTaskState } from '../image-task-runtime.js';
 import { CHARACTER_DNA_VIEWS, readCharacterDnaView } from '../../scene/character-dna.js';
@@ -216,7 +217,11 @@ async function writeTemplateCaptions(llm, llmSettings, meta, taskState = null) {
     const frozenContext = structuredClone(meta.characterContext);
     const outfitData = task.value.purpose === 'derived' && meta.imagePromptTask === 'outfit'
         && meta.outputs?.format === 'sprite-data';
-    const outfitCatalog = task.value.outfitSelection === 'catalog' ? buildCgOutfitCatalog(frozenContext) : undefined;
+    const nsfwCg = task.value.purpose === 'cg' && meta.cgHints?.nsfw === true;
+    const outfitCatalog = task.value.outfitSelection === 'catalog'
+        ? buildCgOutfitCatalog(frozenContext, { nsfw: nsfwCg }) : undefined;
+    if (nsfwCg && outfitCatalog?.some(row => isBuiltinNudeOutfit(row.name)))
+        description = [CG_NUDE_OUTFIT_RULE, description].join('\n');
     const writingContext = outfitCatalog
         ? frozenContext.map(({ characterKey, dna }) => ({ characterKey,
             availableFrames: CHARACTER_DNA_VIEWS.filter(frame => readCharacterDnaView(dna, frame).ok) }))

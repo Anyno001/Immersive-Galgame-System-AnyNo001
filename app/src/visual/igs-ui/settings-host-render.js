@@ -46,6 +46,7 @@ import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLa
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { CREATURE_DISPLAY_RANGE, normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
+import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { renderStatsArchive, renderStatsBuildFields, renderStatsMappingFields, renderStatsPromptFields } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
@@ -216,7 +217,16 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 statsToggle: checkbox('bridge.stats.enabled', stats.enabled, '启用数值系统'),
                 statsOffNoteHidden: hiddenAttr(stats.enabled),
                 statsHidden: hiddenAttr(!stats.enabled),
-                autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '自动判断检定技能（关闭后不做先掷后写）'),
+                autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
+                rulesetField: field('bridge.stats.ruleset', '规则体系', selectInput('bridge.stats.ruleset', stats.ruleset, rulesetOptions())),
+                rulesetNote: '切换后从下一次检定起生效；已有数值按新规则换算显示，存档不变，可随时切回。',
+                storyCheckField: field('bridge.stats.storyCheck', '故事中检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '预掷（按数值自动判定）'], ['manual', '手动掷骰（多一次续写）'], ['off', '关闭']])),
+                newChatField: field('bridge.stats.newChat', '新聊天', selectInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动快速开始'], ['off', '不启用']])),
+                sheetGenField: field('bridge.stats.sheetGen', '新角色数值', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['prompt', '提醒'], ['auto', '自动生成'], ['off', '不生成']])),
+                backfillField: field('bridge.stats.backfill', '新技能补全', selectInput('bridge.stats.backfill', stats.backfill, [['auto', '每楼结束后自动'], ['manual', '手动'], ['off', '关闭']])),
+                checkFxField: checkbox('bridge.stats.checkFx', stats.checkFx, '掷骰卡'),
+                optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项显示成功率'),
+                dndNaturalField: stats.ruleset === 'dnd5e' ? checkbox('bridge.stats.dndNatural', stats.dndNatural, '自然20/1视为大成功/大失败') : '',
                 intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '亲密门槛（好感与信任不够时角色会拒绝）'),
                 registerField: field('bridge.stats.register', '重要角色登记', selectInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']])),
                 hudLabelField: field('bridge.stats.hudLabel', '好感条右侧', selectInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']])),
@@ -329,6 +339,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 spriteMatteColorField: field('bridge.imageApi.spriteMatteColor', '抠图底色', segmentedInput('bridge.imageApi.spriteMatteColor',
                     imageApi.spriteMatteColor || 'auto', [['auto', '自动'], ['white', '白底'], ['grey', '灰底'], ['green', '绿底'], ['purple', '紫底']], '抠图底色'),
                     '立绘与物品图未出透明底时按此底色出图后抠除，角色主色与底色相近时可更换。自动：内置NAI与数据库生图用白底，其余用浅灰底。'),
+                autoMatteField: checkbox('bridge.imageApi.autoMatte', imageApi.autoMatte !== false, '自动抠图（关闭后保留原图底色）'),
                 externalSpriteDnaField: checkbox('bridge.imageApi.externalSpriteDna', imageApi.externalSpriteDna === true, '外部生图前补齐角色 DNA'),
                 naiSpriteTransparentField: checkbox('bridge.imageApi.naiSpriteTransparent', imageApi.naiSpriteTransparent !== false, '立绘透明底'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭）'),

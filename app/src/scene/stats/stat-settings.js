@@ -1,8 +1,10 @@
-// 数值系统设置（§1、§10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from './stat-prompt.js';
+// 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_PROMPT_SEGMENTS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
+import { DEFAULT_RULESET, hasRuleset } from './rulesets/index.js';
 
 const PROMPT_MAX = 4000;
+export const STAT_PROMPT_KEYS = Object.freeze([...STAT_PROMPT_SEGMENTS, 'rollManual', ...STAT_BACKGROUND_PROMPTS]);
 
 export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     enabled: false,
@@ -10,15 +12,31 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     register: 'auto',
     hudLabel: 'stage',
     intimacyGate: true,
+    ruleset: DEFAULT_RULESET,
+    newChat: 'ask',
+    storyCheck: 'preroll',
+    checkFx: true,
+    optionChance: true,
+    sheetGen: 'prompt',
+    backfill: 'auto',
+    dndNatural: false,
     bars: Object.freeze({ stamina: true, money: true, stress: true }),
     push: Object.freeze({ enabled: false }),
 });
 
 const REGISTER_MODES = new Set(['auto', 'manual']);
 const HUD_LABELS = new Set(['stage', 'number', 'both']);
+const NEW_CHAT = new Set(['ask', 'auto', 'off']);
+const STORY_CHECK = new Set(['preroll', 'manual', 'off']);
+const SHEET_GEN = new Set(['prompt', 'auto', 'off']);
+const BACKFILL = new Set(['auto', 'manual', 'off']);
 
 function bool(value, fallback) {
     return typeof value === 'boolean' ? value : fallback;
+}
+
+function pick(set, value, fallback) {
+    return set.has(value) ? value : fallback;
 }
 
 // 用户覆盖的文本：只收已登记的键与非空字符串（超长截断）；留空表示用默认值（§9）。
@@ -66,16 +84,24 @@ export function normalizeStatsSettings(raw) {
     return {
         enabled: bool(src.enabled, d.enabled),
         autoSkill: bool(src.autoSkill, d.autoSkill),
-        register: REGISTER_MODES.has(src.register) ? src.register : d.register,
-        hudLabel: HUD_LABELS.has(src.hudLabel) ? src.hudLabel : d.hudLabel,
+        register: pick(REGISTER_MODES, src.register, d.register),
+        hudLabel: pick(HUD_LABELS, src.hudLabel, d.hudLabel),
         intimacyGate: bool(src.intimacyGate, d.intimacyGate),
+        ruleset: typeof src.ruleset === 'string' && hasRuleset(src.ruleset) ? src.ruleset : d.ruleset,
+        newChat: pick(NEW_CHAT, src.newChat, d.newChat),
+        storyCheck: pick(STORY_CHECK, src.storyCheck, d.storyCheck),
+        checkFx: bool(src.checkFx, d.checkFx),
+        optionChance: bool(src.optionChance, d.optionChance),
+        sheetGen: pick(SHEET_GEN, src.sheetGen, d.sheetGen),
+        backfill: pick(BACKFILL, src.backfill, d.backfill),
+        dndNatural: bool(src.dndNatural, d.dndNatural),
         bars: {
             stamina: bool(bars.stamina, d.bars.stamina),
             money: bool(bars.money, d.bars.money),
             stress: bool(bars.stress, d.bars.stress),
         },
         push: { enabled: bool(push.enabled, d.push.enabled), mappings: mappingMap(push.mappings) },
-        prompts: textMap(src.prompts, STAT_PROMPT_SEGMENTS, DEFAULT_STAT_PROMPTS),
+        prompts: textMap(src.prompts, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS),
         segments: segmentMap(src.segments),
         stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT), DEFAULT_STAGE_TEXT),
         // 建卡分配（Q5：点数分配可在设置中修改）；「按分配启用」时用它生成本聊天初始数值。

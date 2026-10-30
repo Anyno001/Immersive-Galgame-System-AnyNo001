@@ -1,12 +1,51 @@
-// 直播全屏：整个屏幕就是直播画面。对话框的文字流照常跑，只是换成直播字幕的样子（样式全在 danmaku-style.js，
+// 直播全屏：整个屏幕就是直播画面。对话框的文字流照常跑，只是换成平台自动字幕（CC）的样子（样式全在 danmaku-style.js，
 // 这里只负责挂标记）；系统状态栏隐藏，工具栏保留。收起、下播、切楼、切到手机形态时清掉所有标记。
 
 export const LIVE_FULL_ATTR = 'data-igs-live-full';
 export const LIVE_SUB_ATTR = 'data-igs-live-sub';
 export const LIVE_NPOS_ATTR = 'data-igs-live-npos';
 export const SUB_NAME_ATTR = 'data-igs-sub-name';
-export const LIVE_SUBTITLE_MAX_LINES = 5;
+// 换人说话：自动字幕行首的「>>」。
+export const SUB_TURN_ATTR = 'data-igs-sub-turn';
+// 自动字幕的版式：wide 横屏（字幕偏右，评论在左下）；tall 竖屏（字幕居中、压在评论区上方）。
+export const LIVE_CC_ATTR = 'data-igs-live-cc';
+export const LIVE_SUBTITLE_MAX_LINES = 3;
 export const LIVE_FIT_ATTR = 'data-igs-live-fit';
+const CC_WIDE_RATIO = 1.15;
+const CC_GAP = 12;
+const CC_PAD_Y = 6;
+
+// 自动字幕几何：横竖屏版式、字号（px）、字幕底边与评论区下沿。纯函数，由每页唯一一次几何读取后的舞台尺寸算出。
+// floor：评论区与输入行的下沿离舞台底边的距离；ccBottom：字幕底边离舞台底边的距离；ccClear：字幕顶边离舞台底边的距离。
+export function liveCcGeometry(stage, { interact = false } = {}) {
+    const w = Math.max(1, Number(stage && stage.stageW) || 0);
+    const h = Math.max(1, Number(stage && stage.stageH) || 0);
+    const wide = w / h >= CC_WIDE_RATIO;
+    const fs = Math.round(Math.max(14, Math.min(22, w * (wide ? 0.022 : 0.042))));
+    const floor = 12;
+    // 按常见的两行估字幕高度，用来把右下角名次卡和点赞抬到字幕之上。
+    const ccH = Math.round(2 * 1.5 * fs + CC_PAD_Y * 2);
+    const listTop = floor + (interact ? 56 : 0) + Math.round(h * 0.22);
+    const ccBottom = wide ? floor + (interact ? 56 : 0) + 10 : listTop + CC_GAP;
+    return { mode: wide ? 'wide' : 'tall', fs, floor, ccBottom, ccClear: ccBottom + ccH };
+}
+
+export function applyLiveCcGeometry(root, geo) {
+    if (!root || !root.style || !geo) return;
+    root.setAttribute(LIVE_CC_ATTR, geo.mode);
+    root.style.setProperty('--igs-cc-fs', `${geo.fs}px`);
+    root.style.setProperty('--igs-cc-bottom', `${geo.ccBottom}px`);
+}
+
+// 换人判定：同一页重渲染不改结果；只有翻到新的一页、说话人与上一页不同时才算换人。
+export function nextSubtitleTurn(prev, { pageKey, speaker }) {
+    const who = String(speaker == null ? '' : speaker).trim();
+    if (prev && prev.pageKey === pageKey) return prev;
+    const last = (prev && prev.speaker) || '';
+    // 旁白页不算说话人，记住上一个开口的人，旁白前后同一人说话不算换人。
+    if (!who) return { pageKey, speaker: last, turn: false };
+    return { pageKey, speaker: who, turn: Boolean(last && last !== who) };
+}
 
 // 直播全屏状态：full 形态、手机还在（没被收起 / 不在回忆梦境里）。
 export function isLiveFullActive({ layout, visible }) {
@@ -22,7 +61,7 @@ export function classifySubtitle({ speaker, textType, hostName, userName }) {
     return 'other';
 }
 
-// 字幕最多 5 行（底边固定、向上增高）：高度除以行高四舍五入后超过就算超。
+// 字幕最多 3 行（底边固定、向上增高）：高度除以行高四舍五入后超过就算超。
 export function exceedsSubtitleLines(height, lineHeight, max = LIVE_SUBTITLE_MAX_LINES) {
     const h = Number(height);
     const lh = Number(lineHeight);
@@ -38,15 +77,18 @@ export function resolveLiveFullMode({ fullText, narrationPos, kind }) {
     return 'subtitle';
 }
 
-export function applyLiveFull(root, { fullText, narrationPos, kind, speaker, textEl, pageKey }) {
+// narrationPos 为 chat 时旁白进评论区（字幕位置留空，文字流照常跑以保持翻页与打字节奏）。turn：本页换人说话。
+export function applyLiveFull(root, { fullText, narrationPos, kind, speaker, textEl, turn = false }) {
     if (!root || typeof root.setAttribute !== 'function') return;
     const mode = resolveLiveFullMode({ fullText, narrationPos, kind });
     root.setAttribute(LIVE_FULL_ATTR, mode);
     root.setAttribute(LIVE_SUB_ATTR, kind);
-    root.setAttribute(LIVE_NPOS_ATTR, narrationPos === 'name' ? 'name' : 'above');
+    root.setAttribute(LIVE_NPOS_ATTR, narrationPos === 'name' || narrationPos === 'chat' ? narrationPos : 'above');
     if (!textEl || typeof textEl.setAttribute !== 'function') return;
     if (kind === 'other' && speaker) textEl.setAttribute(SUB_NAME_ATTR, String(speaker));
     else if (typeof textEl.removeAttribute === 'function') textEl.removeAttribute(SUB_NAME_ATTR);
+    if (turn && kind !== 'narration') textEl.setAttribute(SUB_TURN_ATTR, '1');
+    else if (typeof textEl.removeAttribute === 'function') textEl.removeAttribute(SUB_TURN_ATTR);
 }
 
 export function clearLiveFull(root, textEl) {
@@ -55,11 +97,15 @@ export function clearLiveFull(root, textEl) {
         root.removeAttribute(LIVE_SUB_ATTR);
         root.removeAttribute(LIVE_NPOS_ATTR);
         root.removeAttribute(LIVE_FIT_ATTR);
+        root.removeAttribute(LIVE_CC_ATTR);
     }
-    if (textEl && typeof textEl.removeAttribute === 'function') textEl.removeAttribute(SUB_NAME_ATTR);
+    if (textEl && typeof textEl.removeAttribute === 'function') {
+        textEl.removeAttribute(SUB_NAME_ATTR);
+        textEl.removeAttribute(SUB_TURN_ATTR);
+    }
 }
 
-// 字幕样式下量文字高度：超过 5 行先逐级缩小字号（0.92 倍、0.85 倍），再不行字幕框内部滚动（level 3）；返回是否做了调整。
+// 字幕样式下量文字高度：超过 3 行先逐级缩小字号（0.92 倍、0.85 倍），再不行字幕框内部滚动（level 3）；返回是否做了调整。
 // 每次从原始字号重新量，翻页或重排都不会把上一页的缩放带过来；同一个同步任务内完成，不会闪。
 export function refreshLiveFullOverflow(root, textEl) {
     if (!root || typeof root.getAttribute !== 'function') return false;

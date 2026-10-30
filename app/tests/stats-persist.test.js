@@ -41,7 +41,7 @@ test('聊天元数据存储：缺元数据与没有存档分开报告，写入�
     let saved = 0;
     const ctx = { chatMetadata: {}, saveMetadata() { saved += 1; } };
     const store = createChatStatsStore(() => ctx);
-    assert.deepEqual(store.read(), { ok: true, raw: null });
+    assert.deepEqual(store.read(), { ok: true, raw: null, declined: false, hasBackup: false });
     assert.equal(store.write({ version: 1 }).ok, true);
     assert.equal(saved, 1);
     assert.deepEqual(ctx.chatMetadata[STATS_METADATA_KEY], { version: 1 });

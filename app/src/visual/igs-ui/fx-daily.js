@@ -49,7 +49,7 @@ function getState(root, ctx) {
     let state = states.get(root);
     if (!state) {
         state = {
-            pageKey: '', visitKey: '', visitSeen: new Set(), seen: new Set(), transients: new Set(), timers: new Set(),
+            pageKey: '', visitKey: '', visitSeen: new Set(), seen: new Set(), transients: new Set(), timers: new Set(), notices: new Set(), noticeHost: null,
             mainBusy: false, mainGen: 0, mainQueue: [], fireworks: null, petals: null, petalKind: '', sky: null, petalLayer: null, ambience: null, ambienceKey: '',
         };
         states.set(root, state);
@@ -73,6 +73,27 @@ function clearTransients(state) {
     for (const node of state.transients) removeNode(node);
     state.transients.clear();
     releaseHolds(state);
+    state.notices.clear();
+    syncNotice(state);
+}
+
+// 顶部广播条在场期间暂隐左上状态栏，右上工具栏只留关闭键。
+function syncNotice(state) {
+    const host = state.noticeHost;
+    if (!host) return;
+    if (state.notices.size > 0) host.setAttribute('data-igs-dfx-notice', '1');
+    else host.removeAttribute('data-igs-dfx-notice');
+}
+
+function holdNotice(state, host, node, life) {
+    if (!host) return;
+    state.noticeHost = host;
+    state.notices.add(node);
+    syncNotice(state);
+    later(state, () => {
+        state.notices.delete(node);
+        syncNotice(state);
+    }, life);
 }
 
 // 主卡类演出（占画面中央的大卡 / 整屏演出）：同页只允许一张在场，后到者排队等前者退场。
@@ -329,7 +350,7 @@ const BUILDERS = {
         const n = chars(item.text).length;
         const life = DAILY_FX_LIFETIME_MS.broadcastBase + Math.round(Math.max(DAILY_FX_LIFETIME_MS.broadcastMin, n * DAILY_FX_LIFETIME_MS.broadcastPerChar) * env.hold);
         return {
-            layer: 'front', life, sounds: ['broadcast'],
+            layer: 'front', life, sounds: ['broadcast'], notice: true,
             node: make(env.doc, 'igs-dfx igs-dfx-broadcast', `<div class="igs-dfx-banner"><span class="igs-dfx-spk">${SPEAKER_SVG}</span><span class="igs-dfx-banner-label">广播</span><span class="igs-dfx-banner-text" style="--igs-bc-n:${n};--igs-bc-t:${Math.min(n * 70, 2400)}ms">${esc(item.text)}</span></div>`),
         };
     },
@@ -1056,6 +1077,7 @@ export function renderDailyFx(root, snapshot, ctx = {}) {
             if (reduced && built.node.classList) built.node.classList.add('is-reduced');
             if (worldSkin) built.node.className = `${String(built.node.className || '')} ${worldSkin}`.trim();
             spawn(state, parent, built.node, built.life);
+            if (built.notice) holdNotice(state, layers.motion, built.node, built.life);
             for (const kind of built.sounds) play(kind);
             return built.life;
         };

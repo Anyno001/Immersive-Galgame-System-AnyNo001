@@ -109,8 +109,12 @@ function renderLetterRow(doc, m) {
     return row;
 }
 
-function renderRow(doc, m, ancient = false) {
-    if (ancient && m.kind === 'msg') return renderLetterRow(doc, m);
+function renderRow(doc, m, ancient = false, ttsIndex = -1) {
+    if (ancient && m.kind === 'msg') {
+        const row = renderLetterRow(doc, m);
+        if (ttsIndex >= 0) row.appendChild(renderTtsControls(doc, ttsIndex));
+        return row;
+    }
     if (m.kind === 'time' || m.kind === 'lapse') {
         const row = el(doc, 'div', 'igs-chat-row is-time');
         row.appendChild(el(doc, 'span', 'igs-chat-time', ancient && m.ancientText ? m.ancientText : m.text));
@@ -138,37 +142,43 @@ function renderRow(doc, m, ancient = false) {
     if (m.initial) row.appendChild(renderAvatar(doc, m));
     const body = el(doc, 'div', 'igs-chat-body');
     if (m.showName) body.appendChild(el(doc, 'div', 'igs-chat-name', m.displayName));
-    body.appendChild(renderBubble(doc, m));
+    if (ttsIndex >= 0) {
+        // 播放键与气泡同排，按气泡高度居中。
+        const line = el(doc, 'div', 'igs-chat-line');
+        line.appendChild(renderBubble(doc, m));
+        line.appendChild(renderTtsControls(doc, ttsIndex));
+        body.appendChild(line);
+    } else {
+        body.appendChild(renderBubble(doc, m));
+    }
     if (m.type === 'voice' && m.text) body.appendChild(el(doc, 'div', 'igs-chat-voice-text', m.text));
     if (m.read) body.appendChild(el(doc, 'div', 'igs-chat-read', READ_LABEL.modern));
     row.appendChild(body);
     return row;
 }
 
-// 气泡旁的「播放 / 重新生成」：朗读开着才显示（data-igs-chat-tts），重新生成只在接口来源时显示。
+// 气泡旁的播放键：朗读开着才显示（data-igs-chat-tts）。
 function renderTtsControls(doc, index) {
     const wrap = el(doc, 'div', 'igs-chat-tts');
-    for (const [act, title, icon] of [['play', '播放这条', ORIGINAL_READER_ICONS.replay], ['reroll', '重新生成这条', ORIGINAL_READER_ICONS.ttsReroll]]) {
-        const button = el(doc, 'button', `igs-chat-tts-btn is-${act}`);
-        button.type = 'button';
-        button.setAttribute('data-igs-chat-tts', act);
-        button.setAttribute('data-index', String(index));
-        button.setAttribute('title', title);
-        button.setAttribute('aria-label', title);
-        button.innerHTML = icon;
-        wrap.appendChild(button);
-    }
+    const button = el(doc, 'button', 'igs-chat-tts-btn is-play');
+    button.type = 'button';
+    button.setAttribute('data-igs-chat-tts', 'play');
+    button.setAttribute('data-index', String(index));
+    button.setAttribute('title', '播放这条');
+    button.setAttribute('aria-label', '播放这条');
+    button.innerHTML = ORIGINAL_READER_ICONS.replay;
+    wrap.appendChild(button);
     return wrap;
 }
 
 // 手动重播某一条：掐掉正在念的那条（等它的下一条随即放行），记为已念，之后不再自动念。
-function speakBubbleAgain(state, index, fresh) {
+function speakBubbleAgain(state, index) {
     if (!state || !state.tts || !state.ttsSettings) return;
     const line = speechLine(state, state.chat.messages[index], index);
     if (!line) return;
     stopSpeech(state);
     state.spoken.add(line.key);
-    try { state.tts.speak(line, state.ttsSettings, state.sceneAssets, { fresh }); } catch { /* ignore */ }
+    try { state.tts.speak(line, state.ttsSettings, state.sceneAssets); } catch { /* ignore */ }
 }
 
 function applyTheme(layer, theme) {
@@ -191,8 +201,8 @@ function renderRows(layer, chat, ancient = false) {
     clearChildren(list);
     applyTheme(layer, chat.theme || null);
     return chat.messages.map((m, index) => {
-        const row = renderRow(doc, m, ancient);
-        if (m.kind === 'msg' && m.text && SPOKEN_TYPES.has(m.type || 'text')) row.appendChild(renderTtsControls(doc, index));
+        const spoken = m.kind === 'msg' && m.text && SPOKEN_TYPES.has(m.type || 'text');
+        const row = renderRow(doc, m, ancient, spoken ? index : -1);
         row.hidden = true;
         list.appendChild(row);
         return row;
@@ -474,7 +484,7 @@ function bindLayer(layer, ctx) {
         const ttsButton = event && event.target && typeof event.target.closest === 'function' ? event.target.closest('.igs-chat-tts-btn') : null;
         if (ttsButton) {
             if (typeof event.stopPropagation === 'function') event.stopPropagation();
-            speakBubbleAgain(states.get(layer), Number(ttsButton.getAttribute('data-index')), ttsButton.getAttribute('data-igs-chat-tts') === 'reroll');
+            speakBubbleAgain(states.get(layer), Number(ttsButton.getAttribute('data-index')));
             return;
         }
         const rect = typeof layer.getBoundingClientRect === 'function' ? layer.getBoundingClientRect() : { left: 0, width: 0 };
@@ -665,9 +675,11 @@ export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer .igs-chat-note{padding:3px 10px;border-radius:8px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.78);font-size:12px;line-height:1.5;text-align:center;}
 #igs-chat-layer .igs-chat-row.is-typing-slot{display:none;}
 #igs-chat-layer .igs-chat-read{margin:2px 6px 0;color:rgba(255,255,255,.62);font-size:11px;line-height:1.3;}
-#igs-chat-layer .igs-chat-tts{display:none;flex:none;flex-direction:column;align-self:flex-end;gap:2px;}
+#igs-chat-layer .igs-chat-line{display:flex;align-items:center;gap:4px;max-width:100%;}
+#igs-chat-layer .igs-chat-row.is-right .igs-chat-line{flex-direction:row-reverse;}
+#igs-chat-layer .igs-chat-line>.igs-chat-bubble{min-width:0;}
+#igs-chat-layer .igs-chat-tts{display:none;flex:none;align-items:center;align-self:center;}
 #igs-chat-layer[data-igs-chat-tts] .igs-chat-tts{display:flex;}
-#igs-chat-layer:not([data-igs-chat-tts="api"]) .igs-chat-tts-btn.is-reroll{display:none;}
 #igs-chat-layer .igs-chat-tts-btn{display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:rgba(255,255,255,.82);opacity:.45;cursor:pointer;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));transition:opacity .15s;}
 #igs-chat-layer .igs-chat-tts-btn svg{width:15px;height:15px;}
 #igs-chat-layer .igs-chat-row:hover .igs-chat-tts-btn{opacity:.75;}

@@ -4,6 +4,7 @@ import { isStagePaused } from './stage-pause.js';
 import { DANMAKU_SPEED_SECONDS, LIVE_DENSITY, LIVE_FONT_SCALE, normalizeLivePortrait } from './danmaku-settings.js';
 import { estimateTextWidth, occupyTrack, pickScrollTrack } from './danmaku-lanes.js';
 import { faceVars, liveFaceBox, moveFaceBox, resizeFaceBox } from './live-face.js';
+import { liveCcGeometry } from './live-full.js';
 import { LIVE_BAN_SUB, LIVE_BAN_TITLE, LIVE_WARN_CARD_MS, LIVE_WARN_FLY_PAUSE_MS, LIVE_WARN_MEME_DELAY_MS, LIVE_WARN_TITLE, warningCardText, warningCooldownOk } from './live-warning.js';
 import { peekSpriteHead, probeSpriteHead } from './fx-anchor.js';
 import {
@@ -142,7 +143,10 @@ function buildPhone(doc, live, now, layout) {
         watchingText = el(doc, 'span', '', '0');
         watching.append(watchingText, el(doc, 'span', '', ' 人正在看'));
         chips.appendChild(watching);
-        extras = [chips];
+        // 自动字幕标签：只在字幕模式下显示（样式按 data-sub 控制）。
+        const ccTag = el(doc, 'div', 'igs-live-cc-tag');
+        ccTag.append(el(doc, 'b', '', 'CC'), el(doc, 'span', '', '中文（自动生成）'));
+        extras = [chips, ccTag];
     }
     // 右侧人气榜名次卡（小广告）：全屏在输入行上方、手机在底栏上方右侧，两种形态都显示。
     const seed = stableHash(`${live.name}|${live.title}`);
@@ -213,12 +217,32 @@ function medal(state, user) {
     return node;
 }
 
+// 旁白钉在评论区最新一条的位置：新评论插在它上面，裁剪时不删它。
 function appendLine(state, line) {
     if (state.chat === 'fly') return;
     const { list } = state.els;
-    list.appendChild(line);
+    const pin = state.narrationPin && state.narrationPin.parentNode === list ? state.narrationPin : null;
+    if (pin) list.insertBefore(line, pin);
+    else list.appendChild(line);
     const limit = state.listLimit || liveListLimit(state.layout, state.view);
-    while (list.children.length > limit) list.children[0].remove();
+    while (list.children.length > limit && list.children[0] !== pin) list.children[0].remove();
+}
+
+// 全屏字幕模式的旁白进评论区：同一页只钉一次；换成台词页时解除钉住，旧旁白随评论自然滚走。
+export function setLiveNarration(host, { pageKey = '', text = '' } = {}) {
+    const state = host && lives.get(host);
+    if (!state) return;
+    const body = String(text || '').trim();
+    const key = body ? `${pageKey}|${body}` : '';
+    if (state.narrationKey === key) return;
+    state.narrationKey = key;
+    if (state.narrationPin) state.narrationPin.classList.remove('is-pinned');
+    state.narrationPin = null;
+    if (!body || state.chat === 'fly') return;
+    const line = el(state.doc, 'div', 'igs-live-line is-narration is-pinned', body);
+    line.setAttribute('data-type', 'narration');
+    appendLine(state, line);
+    state.narrationPin = line;
 }
 
 function chatLine(state, msg, extraClass = '') {
@@ -355,8 +379,10 @@ export function renderLiveMessage(state, raw) {
     if (state.chat !== 'fly') appendLine(state, chatLine(state, { ...msg, medal: msg.type !== 'admin' && (msg.ai || state.rng() < 0.5) }));
 }
 
-// 这些来源的弹幕靠 delay 在批次内错开发出（刷屏潮、复读、房管与回应）；其余的放进缓冲区，每个 tick 取一条。
-const TIMED_CHATTER = /^(wave|repeat|keeper|keeperRebut|admin|banReact|defend|answer)/;
+// 这些来源的弹幕靠 delay 在批次内错开发出（刷屏潮、复读、房管与回应、对本页的即时反应）；其余的放进缓冲区，每个 tick 取一条。
+const TIMED_CHATTER = /^(wave|repeat|keeper|keeperRebut|admin|banReact|defend|answer|host|react)/;
+// 本页反应等打字机打完再发：打字期间只出进场 / 礼物这类不看内容的氛围；最多等这么久（打字机暂停、卡住时兜底）。
+const REACT_HOLD_MAX_MS = 9000;
 const GUARD_NAME = Object.freeze({ captain: '舰长', admiral: '提督', governor: '总督' });
 
 function rememberName(state, user) {
@@ -371,12 +397,13 @@ function emitChatter(state, entry) {
 }
 
 // 缓冲区空了就按本页场合规划一批；需要定时的补发走调度器，其余按 tick 一条一条取。
+// 新一页的第一批在打字结束时规划（react），带上对本页的即时反应；之后的补批只是闲聊。
 function planChatterBatch(state) {
     const ch = state.chatCtx;
     const fresh = state.chatFresh;
     state.chatFresh = false;
     const batch = planLiveChatter({
-        title: ch.title, text: ch.text, pageInLive: state.pageInLive, ending: ch.ending, hour: ch.hour, mood: ch.mood,
+        title: ch.title, text: ch.text, context: state.chatTrail.join('\n'), react: fresh, pageInLive: state.pageInLive, ending: ch.ending, hour: ch.hour, mood: ch.mood,
         aiLines: fresh ? ch.aiLines : [], hostSaid: fresh ? ch.hostSaid : '', userName: ch.userName, hostName: ch.hostName, hostGender: ch.hostGender,
         tone: ch.tone, tier: ch.tier, emoji: ch.emoji, blockHostile: ch.blockHostile, custom: ch.custom, recentNames: state.recentNames,
     }, state.rng);
@@ -400,6 +427,41 @@ function nextChatter(state) {
     if (!entry) return null;
     rememberName(state, entry.user);
     return { type: 'text', user: entry.user, text: entry.text };
+}
+
+function isTyping(state) {
+    const el = state.typingEl;
+    return Boolean(el && el.isConnected !== false && el.dataset && el.dataset.igsTypewriter === 'running');
+}
+
+// 新一页还在打字：反应按住不发。打完（或等满上限）就放行，并立刻排下一拍。
+function holdingReaction(state) {
+    if (!state.reactPending) return false;
+    if (isTyping(state) && state.now() - state.reactSince < REACT_HOLD_MAX_MS) return true;
+    state.reactPending = false;
+    return false;
+}
+
+// 打字中的氛围：只出进场与小礼物，不出看内容的文字弹幕。
+function holdMessage(state) {
+    const roll = state.rng();
+    if (roll < 0.55) return null;
+    if (roll < 0.85) return { type: 'enter' };
+    return { type: 'gift', text: randomItem(LIVE_AMBIENT_GIFTS, state.rng), extra: '1' };
+}
+
+// 打字机状态变了（running -> complete）马上叫醒，不靠轮询。
+function watchTyping(state, el) {
+    if (state.typingEl === el) return;
+    if (state.typingObs) state.typingObs.disconnect();
+    state.typingObs = null;
+    state.typingEl = el || null;
+    const view = el && el.ownerDocument && el.ownerDocument.defaultView;
+    if (!el || !view || typeof view.MutationObserver !== 'function') return;
+    state.typingObs = new view.MutationObserver(() => {
+        if (state.reactPending && !isTyping(state) && state.els.root.isConnected) arm(state, 120);
+    });
+    state.typingObs.observe(el, { attributes: true, attributeFilter: ['data-igs-typewriter'] });
 }
 
 function ambientMessage(state) {
@@ -442,10 +504,13 @@ function tick(state) {
         return;
     }
     if (state.visible && !isStagePaused(state.els.root)) {
-        // AI 弹幕与本地氛围弹幕混播：队列里有 AI 弹幕时也随机插一条本地的，不先把 AI 一股脑排空。
-        const msg = state.queue.length
-            ? (state.rng() < 0.55 ? (ambientMessage(state) || state.queue.shift()) : state.queue.shift())
-            : ambientMessage(state);
+        // 打字中：AI 弹幕和看内容的路人弹幕都按住，只出进场 / 礼物。
+        // 打完后 AI 弹幕优先，偶尔（20%）插一条本地的，免得 AI 句连成一串太整齐。
+        const holding = holdingReaction(state);
+        const msg = holding ? holdMessage(state)
+            : state.queue.length
+                ? (state.rng() < 0.2 ? (ambientMessage(state) || state.queue.shift()) : state.queue.shift())
+                : ambientMessage(state);
         if (msg) {
             renderLiveMessage(state, msg);
             // 用户亲自发出的文字真正上屏后，才走与 AI 弹幕共用的复读、扣1、刷屏等跟风规划。
@@ -500,13 +565,15 @@ function arm(state, delay) {
     if (state.timer) state.clear(state.timer);
     const density = state.tier ? liveEconomy(state.tier).densityMul : 1;
     const wait = delay != null ? delay
-        : state.queue.length ? 250 + state.rng() * 150
+        : state.queue.length && !state.reactPending ? 250 + state.rng() * 150
             : (1100 + state.rng() * 1300) * (state.reduced ? 1.6 : 1) / density * (LIVE_DENSITY[state.density] || LIVE_DENSITY.medium).wait;
     state.timer = state.schedule(() => tick(state), wait);
 }
 
 function stopState(state) {
     wakeFromSleep(state);
+    if (state.typingObs) state.typingObs.disconnect();
+    state.typingObs = null;
     if (state.timer) state.clear(state.timer);
     state.timer = null;
     for (const timer of state.timers) state.clear(timer);
@@ -561,7 +628,8 @@ export function syncLivePhone(host, live, ctx) {
             medal: fanMedalName(live.name),
             popularity: 800 + (stableHash(live.name) % 48000),
             hostName: live.name, tone: 'modern', tier: null, emoji: true, popTarget: null,
-            pageInLive: -1, chatPage: '', chatSig: '', chatBuf: [], chatGen: 0, chatFresh: false, chatCtx: null, recentNames: [],
+            pageInLive: -1, chatPage: '', chatSig: '', chatBuf: [], chatGen: 0, chatFresh: false, chatCtx: null, recentNames: [], chatTrail: [],
+            reactPending: false, reactSince: 0, typingEl: null, typingObs: null, narrationPin: null, narrationKey: '',
             startedAt: now() - (stableHash(`${live.name}${live.title}`) % 1800) * 1000,
             visible: true, banned: false, warnAt: 0, flyPausedUntil: 0, faceGuard: true, faceBox: null, faceKey: '', faceDims: null, faceStage: null, faceProbing: new Set(), reduced: false, coverUrl: '', cgUrl: '', portraitUrl: '', avatarUrl: '', fit: null, model: '', size: '',
         };
@@ -590,6 +658,7 @@ export function syncLivePhone(host, live, ctx) {
     state.schedule = ctx.schedule;
     state.clear = ctx.clear;
     syncChatterContext(state, ctx.chatter, false);
+    watchTyping(state, ctx.typingEl || null);
     state.faceGuard = ctx.faceGuard !== false;
     state.speed = ctx.speed || 'medium';
     state.density = ctx.density || 'medium';
@@ -639,11 +708,17 @@ export function syncLivePhone(host, live, ctx) {
 // 规模（tier）决定人气基数、节奏、醒目留言和上舰；没有规模信息时一切保持旧行为。
 function syncChatterContext(state, ch, creating) {
     if (!ch) return;
+    const prev = state.chatCtx;
     state.chatCtx = ch;
     state.tone = ch.tone || 'modern';
     state.emoji = ch.emoji !== false;
     state.hostName = ch.hostName || state.hostName;
     if (state.chatPage !== ch.pageKey) {
+        // 场合 / 话题看最近 3 页：上一页的正文进轨迹，本页正文由 planLiveChatter 单独加权。
+        if (prev && prev.text) {
+            state.chatTrail.push(prev.text);
+            if (state.chatTrail.length > 2) state.chatTrail.shift();
+        }
         state.chatPage = ch.pageKey;
         state.pageInLive += 1;
         // 换页：还没播的旧页 AI 弹幕作废（带页标记的才丢）。
@@ -654,6 +729,9 @@ function syncChatterContext(state, ch, creating) {
         state.chatBuf.length = 0;
         state.chatGen += 1;
         state.chatFresh = true;
+        // 新内容：反应等这页字打完再发。
+        state.reactPending = true;
+        state.reactSince = state.now();
     }
     state.medal = resolveFanMedal({ streamer: state.hostName, fromText: ch.fan, customMap: ch.customMap });
     if (ch.tier && ch.tier !== state.tier) {
@@ -961,19 +1039,23 @@ export function setPhoneSink(phone, sink) {
 export function fitLivePhone(host, stage) {
     const state = lives.get(host);
     if (!state || !stage) return null;
-    const floor = Math.min(stage.dialogTop, stage.stageH) - 10;
     if (state.layout === 'full') {
+        // 全屏字幕：对话框变成自动字幕、不再占底边，评论区与输入行贴到舞台底部；字幕位置由 liveCcGeometry 算，返回给调用方写到舞台根节点。
+        const sub = state.sub === true;
+        const interact = state.els.root.getAttribute('data-interact') === '1';
+        const cc = sub ? liveCcGeometry(stage, { interact }) : null;
+        const floor = cc ? stage.stageH - cc.floor : Math.min(stage.dialogTop, stage.stageH) - 10;
         const inset = Math.round(Math.max(0, stage.stageH - floor));
         if (state.inset !== inset) {
             state.inset = inset;
             state.els.phone.style.setProperty('--igs-live-floor', `${inset}px`);
         }
-        // 全屏字幕：横飞只走舞台高 15% 到 60%，不进字幕区；名牌贴在工具栏下沿 + 8px。
-        const sub = state.sub === true;
+        if (cc) state.els.phone.style.setProperty('--igs-cc-clear', `${cc.ccClear}px`);
         // 评论列表占 22% 舞台高（互动开着再抬 56px）：横飞下沿扣到列表顶边之上；列表条数按实际高度 / 行高（约 32px）算。
+        // 字幕模式下横飞再扣到字幕顶边之上，最多到舞台高 60%。
         const listH = stage.stageH * 0.22;
-        const listTop = floor - (state.els.root.getAttribute('data-interact') === '1' ? 56 : 0) - listH;
-        const flyBase = sub ? stage.stageH * 0.6 : floor - 8;
+        const listTop = floor - (interact ? 56 : 0) - listH;
+        const flyBase = cc ? Math.min(stage.stageH * 0.6, stage.stageH - cc.ccClear - 8) : floor - 8;
         state.listLimit = Math.max(2, Math.min(5, Math.floor(listH / 32)));
         setFlyGeometry(state, stage.stageW, stage.stageH * (sub ? 0.15 : 0.16), state.chat === 'fly' ? flyBase : Math.min(flyBase, listTop - 6), Math.round(Math.max(16, Math.min(22, stage.stageW * 0.022))));
         const nameTop = Math.round((Number(stage.topInset) || 0) + 8);
@@ -981,7 +1063,7 @@ export function fitLivePhone(host, stage) {
             state.nameTop = nameTop;
             state.els.phone.style.setProperty('--igs-live-name-top', `${nameTop}px`);
         }
-        return { layout: 'full', floor: inset };
+        return { layout: 'full', floor: inset, cc };
     }
     // 底栏、弹幕与点赞整体抬到对话框之上（under）。
     const { top, height, width, under } = phoneGeometry(stage, state.model, state.size);

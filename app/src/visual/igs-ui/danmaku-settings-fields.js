@@ -30,8 +30,9 @@ export function renderDanmakuFields(reader, more = collapsible, { liveBlocked = 
     const s = normalizeDanmakuSettings(reader);
     const p = 'readerSettings';
     const live = featureRow(more, 'live-fx', `${p}.liveFx.enabled`, s.live.enabled, '直播间', liveBlocked ? '此世界观需开随身手机' : '', field(`${p}.liveFx.layout`, '形态', segmentedInput(`${p}.liveFx.layout`, s.live.layout, [['phone', '手机'], ['full', '全屏']], '直播间形态'))
-        + field(`${p}.liveFx.fullText`, '全屏台词', segmentedInput(`${p}.liveFx.fullText`, s.live.fullText, [['subtitle', '字幕'], ['dialog', '对话框']], '全屏直播台词'))
-        + field(`${p}.liveFx.narrationPos`, '旁白位置', segmentedInput(`${p}.liveFx.narrationPos`, s.live.narrationPos, [['above', '字幕上方'], ['name', '名牌下方'], ['dialog', '对话框']], '全屏直播旁白位置'))
+        + field(`${p}.liveFx.fullText`, '全屏台词', segmentedInput(`${p}.liveFx.fullText`, s.live.fullText, [['subtitle', '自动字幕'], ['dialog', '对话框']], '全屏直播台词'))
+        + field(`${p}.liveFx.narrationPos`, '旁白位置', segmentedInput(`${p}.liveFx.narrationPos`, s.live.narrationPos, [['chat', '评论区'], ['above', '字幕位置'], ['name', '名牌下方'], ['dialog', '对话框']], '全屏直播旁白位置'))
+        + checkbox(`${p}.liveFx.ccTypos`, s.live.ccTypos, '自动字幕识别错字')
         + checkbox(`${p}.liveFx.faceGuard`, s.live.faceGuard, '弹幕防挡脸')
         + checkbox(`${p}.liveFx.blockHostile`, s.live.blockHostile, '屏蔽内置攻击性弹幕')
         + checkbox(`${p}.liveFx.adminWarn`, s.live.adminWarn, '超管警告演出')
