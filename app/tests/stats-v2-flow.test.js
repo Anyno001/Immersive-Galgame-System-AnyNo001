@@ -175,8 +175,7 @@ test('新角色出现时提醒生成数值；生成请求只收档位，写进�
     assert.equal(r.ok, true);
     const sheet = rt.getCatalog().sheets.小雪;
     assert.equal(sheet.rank, '老手');
-    assert.ok(sheet.attributes.观察 >= 60 && sheet.attributes.观察 <= 70);
-    assert.ok(sheet.attributes.力量 >= 45 && sheet.attributes.力量 <= 55);
+    assert.equal(sheet.attributes, undefined);
     assert.ok(sheet.skills.话术 >= 75);
     assert.ok(rt.getCatalog().story.some((s) => s.name === '茶艺'));
     assert.ok(stored.has('小雪|小雪'));
@@ -187,7 +186,8 @@ test('角色卡解析：整份坏 JSON 不写；数字档位整格丢弃；同�
     assert.equal(parseSheetReply('不是 JSON', { names: ['甲'], registry }).ok, false);
     const r = parseSheetReply('{"甲":{"属性":{"敏捷":"80"},"技能":{"潜行":"熟练"}}}', { names: ['甲'], registry });
     assert.equal(r.ok, true);
-    assert.deepEqual(r.sheets.甲.attributes, {});
+    assert.equal(r.sheets.甲.attributes, undefined);
+    assert.equal(r.sheets.甲.skills.潜行, '熟练');
     const a = sheetFromTiers('甲', r.sheets.甲, { chatSeed: 'c' });
     const b = sheetFromTiers('甲', r.sheets.甲, { chatSeed: 'c' });
     assert.deepEqual(a, b);
@@ -205,7 +205,7 @@ test('批量补全：已有非临时值不改，只填空；主角最多补到�
 test('剧情技能上限：每聊天 24 个，一楼 2 个；已知名字与别名归并', () => {
     let catalog = {};
     assert.equal(registerStorySkill(catalog, '搜查').name, '侦查');
-    assert.equal(registerStorySkill(catalog, '洞察').name, '观察');
+    assert.equal(registerStorySkill(catalog, '洞察').name, '感知');
     for (let i = 0; i < STORY_SKILL_MAX; i += 1) catalog = registerStorySkill(catalog, `技能${String.fromCharCode(0x4e00 + i)}`).catalog;
     assert.equal(registerStorySkill(catalog, '再来一个').reason, 'capped');
     assert.equal(registerStorySkill({}, '炼丹', { createdThisFloor: 2 }).reason, 'floor-capped');
@@ -228,5 +228,6 @@ test('战斗按 D&D：攻击检定对 AC，闪避为敏捷豁免；战败不死�
     const r = settleFloorText(createStatsState({ money: 100 }), '[igs-stat:battle|杂兵]', { random: () => 0.01, engine });
     assert.equal(r.meta.events.find((e) => e.kind === 'battle').ruleset, 'dnd5e');
     assert.equal(r.meta.flags.battle.outcome, '败');
-    assert.ok(r.state.protagonist.bars.health > 0);
+    assert.equal(r.meta.flags.battleHurt, '轻伤');
+    assert.equal(r.state.protagonist.bars.health, undefined);
 });

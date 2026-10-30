@@ -39,10 +39,16 @@ export function characterStatMetrics(character, { hudLabel = 'stage', nsfw = fal
     return out;
 }
 
-export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true } } = {}) {
+// 生命条读战斗生命视图（合并计划 Q4）：vitals 为 { hp, maxHp, down }，缺省不画生命条；体力、压力仍按生活条。
+export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null } = {}) {
     const out = [];
-    for (const key of ['health', 'stamina', 'stress']) {
-        if (key !== 'health' && enabledBars[key] === false) continue;
+    if (vitals && Number(vitals.maxHp) > 0) {
+        const hp = vitals.down ? 0 : Math.max(0, Math.round(Number(vitals.hp) || 0));
+        const maxHp = Math.round(Number(vitals.maxHp));
+        out.push({ label: BAR_LABEL.health, percent: Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100))), display: `${hp}/${maxHp}`, colorKey: 'health', sourceUid: 'igs-stats' });
+    }
+    for (const key of ['stamina', 'stress']) {
+        if (enabledBars[key] === false) continue;
         const v = Math.round(Number(bars && bars[key]) || 0);
         out.push({ label: BAR_LABEL[key], percent: Math.max(0, Math.min(100, v)), display: String(v), colorKey: key, sourceUid: 'igs-stats' });
     }

@@ -7,7 +7,8 @@ export const CATEGORY_BASE = Object.freeze({ daily: 25, general: 15, pro: 5, rar
 export const CATEGORY_LABEL = Object.freeze({ daily: '日常', general: '通用', pro: '专业', rare: '稀有' });
 export const STORY_SKILL_MAX = 24;
 export const STORY_SKILL_PER_FLOOR = 2;
-export const ATTRIBUTE_DND_LABEL = Object.freeze({ 健康: '体质', 力量: '力量', 敏捷: '敏捷', 理智: '智力', 观察: '感知', 魅力: '魅力' });
+// 旧存档六维 → 战斗六维（合并计划 Q1）：只用于读入旧数据时换算，不再作为属性名。
+export const LEGACY_ATTRIBUTE_MAP = Object.freeze({ 健康: '体质', 力量: '力量', 敏捷: '敏捷', 理智: '智力', 观察: '感知', 魅力: '魅力' });
 const NAME = /^[^\s0-9０-９.\[\]{}<>|:："'`\\/]{1,8}$/;
 const RESERVED = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -15,24 +16,24 @@ const e = (attribute, category, extra = {}) => Object.freeze({ attribute, catego
 
 // base：官方表里有的同名技能用官方基础值；'half-dex' 为闪避（敏捷 / 2）。
 const CORE = {
-    烹饪: e('理智', 'daily', { aliases: ['厨艺', '做菜'] }),
-    家务: e('健康', 'daily'),
-    学习: e('理智', 'daily'),
+    烹饪: e('智力', 'daily', { aliases: ['厨艺', '做菜'] }),
+    家务: e('体质', 'daily'),
+    学习: e('智力', 'daily'),
     运动: e('力量', 'daily', { aliases: ['体育', '游泳'] }),
     艺术: e('魅力', 'general', { aliases: ['表演', '演奏', '绘画'] }),
     话术: e('魅力', 'general', { social: true, opposedBy: '心理学', aliases: ['说服', '劝说', '谈判', '口才', '交涉', '欺骗', '哄骗'] }),
-    照顾: e('观察', 'daily', { aliases: ['看护', '护理'] }),
-    应变: e('理智', 'general', { aliases: ['急智', '随机应变'] }),
-    侦查: e('观察', 'general', { base: 25, aliases: ['搜查', '调查', '搜索', '察觉', '侦察'] }),
-    聆听: e('观察', 'general', { base: 20, aliases: ['倾听', '偷听'] }),
-    心理学: e('观察', 'general', { base: 10, aliases: ['洞悉', '察言观色', '看穿', '识破'] }),
+    照顾: e('感知', 'daily', { aliases: ['看护', '护理'] }),
+    应变: e('智力', 'general', { aliases: ['急智', '随机应变'] }),
+    侦查: e('感知', 'general', { base: 25, aliases: ['搜查', '调查', '搜索', '察觉', '侦察'] }),
+    聆听: e('感知', 'general', { base: 20, aliases: ['倾听', '偷听'] }),
+    心理学: e('感知', 'general', { base: 10, aliases: ['洞悉', '察言观色', '看穿', '识破'] }),
     潜行: e('敏捷', 'general', { base: 20, opposedBy: '侦查', aliases: ['隐匿', '潜入', '躲藏'] }),
     闪避: e('敏捷', 'general', { base: 'half-dex', aliases: ['躲闪'] }),
     攀爬: e('力量', 'general', { base: 20, aliases: ['攀登', '爬墙', '运动能力'] }),
     格斗: e('力量', 'general', { base: 25, opposedBy: '闪避', aliases: ['斗殴', '搏斗', '肉搏', '近战'] }),
     射击: e('敏捷', 'general', { base: 20, opposedBy: '闪避', aliases: ['射箭', '弓术'] }),
-    急救: e('理智', 'general', { base: 30, aliases: ['包扎', '止血'] }),
-    恐吓: e('魅力', 'general', { base: 15, social: true, opposedBy: '理智', aliases: ['威胁', '威吓'] }),
+    急救: e('智力', 'general', { base: 30, aliases: ['包扎', '止血'] }),
+    恐吓: e('魅力', 'general', { base: 15, social: true, opposedBy: '感知', aliases: ['威胁', '威吓'] }),
     魅惑: e('魅力', 'general', { base: 15, social: true, opposedBy: '心理学', aliases: ['勾引', '调情', '诱惑'] }),
     开锁: e('敏捷', 'pro', { base: 1, aliases: ['撬锁'] }),
     驾驶: e('敏捷', 'general', { base: 20, aliases: ['开车', '驾车', '汽车驾驶'] }),
@@ -41,28 +42,28 @@ const CORE = {
 // 世界观附加技能：与核心同名的（急救、潜行、驾驶）沿用核心条目。
 const WORLD_META = {
     武艺: e('力量', 'general', { opposedBy: '闪避', aliases: ['武功', '武术'] }),
-    医术: e('理智', 'pro', { aliases: ['医学', '中医'] }),
+    医术: e('智力', 'pro', { aliases: ['医学', '中医'] }),
     书画: e('魅力', 'general'),
     礼仪: e('魅力', 'general', { social: true }),
     剑术: e('力量', 'general', { opposedBy: '闪避' }),
-    魔法: e('理智', 'rare', { opposedBy: '闪避', aliases: ['法术', '施法'] }),
+    魔法: e('智力', 'rare', { opposedBy: '闪避', aliases: ['法术', '施法'] }),
     骑术: e('敏捷', 'general', { aliases: ['骑马'] }),
-    野外求生: e('健康', 'general', { aliases: ['生存'] }),
-    咒语: e('理智', 'rare', { opposedBy: '闪避' }),
-    魔药: e('理智', 'pro', { aliases: ['炼金', '药剂'] }),
+    野外求生: e('体质', 'general', { aliases: ['生存'] }),
+    咒语: e('智力', 'rare', { opposedBy: '闪避' }),
+    魔药: e('智力', 'pro', { aliases: ['炼金', '药剂'] }),
     飞行: e('敏捷', 'pro'),
-    占卜: e('观察', 'rare'),
-    骇入: e('理智', 'pro', { aliases: ['黑客', '入侵'] }),
-    机械: e('理智', 'pro', { aliases: ['机械维修', '维修'] }),
-    医疗: e('理智', 'pro', { aliases: ['医学'] }),
-    求生: e('健康', 'general', { aliases: ['生存'] }),
+    占卜: e('感知', 'rare'),
+    骇入: e('智力', 'pro', { aliases: ['黑客', '入侵'] }),
+    机械: e('智力', 'pro', { aliases: ['机械维修', '维修'] }),
+    医疗: e('智力', 'pro', { aliases: ['医学'] }),
+    求生: e('体质', 'general', { aliases: ['生存'] }),
     枪械: e('敏捷', 'general', { opposedBy: '闪避', aliases: ['枪法'] }),
-    茶道: e('观察', 'pro'),
+    茶道: e('感知', 'pro'),
     剑道: e('力量', 'general', { opposedBy: '闪避' }),
-    文学: e('理智', 'general'),
+    文学: e('智力', 'general'),
     礼法: e('魅力', 'general', { social: true }),
-    驱邪: e('理智', 'rare'),
-    灵感: e('观察', 'rare'),
+    驱邪: e('智力', 'rare'),
+    灵感: e('感知', 'rare'),
 };
 
 function buildBuiltin() {
@@ -72,7 +73,7 @@ function buildBuiltin() {
     for (const table of Object.values(WORLDVIEW_SPECIAL_SKILLS)) {
         for (const name of Object.keys(table)) {
             if (out[name]) continue;
-            out[name] = Object.freeze({ ...(WORLD_META[name] || e('理智', 'general')), origin: 'world' });
+            out[name] = Object.freeze({ ...(WORLD_META[name] || e('智力', 'general')), origin: 'world' });
         }
     }
     return Object.freeze(out);
@@ -86,8 +87,8 @@ export const COMBAT_SKILLS = Object.freeze(['格斗', '射击', '武艺', '剑�
 export const DODGE_SKILLS = Object.freeze(['闪避', '敏捷']);
 
 const ATTRIBUTE_ALIASES = Object.freeze({
-    体质: '健康', 体力: '健康', 身体: '健康', 力气: '力量', 体能: '力量', 灵巧: '敏捷', 身手: '敏捷', 速度: '敏捷',
-    智力: '理智', 智慧: '理智', 冷静: '理智', 意志: '理智', 感知: '观察', 洞察: '观察', 外貌: '魅力', 魅惑力: '魅力',
+    健康: '体质', 体力: '体质', 身体: '体质', 力气: '力量', 体能: '力量', 灵巧: '敏捷', 身手: '敏捷', 速度: '敏捷',
+    理智: '智力', 智慧: '智力', 冷静: '智力', 意志: '感知', 观察: '感知', 洞察: '感知', 外貌: '魅力', 魅惑力: '魅力',
 });
 
 export function normalizeAttribute(raw) {
@@ -105,10 +106,10 @@ export function validSkillName(raw) {
 const GUESS = [
     [/剑|刀|拳|武|搏|斗|摔|举|扛|砍|劈/, '力量'],
     [/射|枪|弓|驾|骑|偷|盗|锁|躲|潜|爬|跳|舞|手|飞/, '敏捷'],
-    [/医|药|学|算|修|骇|机|术|法|咒|文|史|识|计|阵|符|炼/, '理智'],
-    [/察|看|听|侦|搜|追|感|觉|卜/, '观察'],
+    [/医|药|学|算|修|骇|机|术|法|咒|文|史|识|计|阵|符|炼/, '智力'],
+    [/察|看|听|侦|搜|追|感|觉|卜/, '感知'],
     [/说|骗|谈|演|唱|魅|诱|吓|礼|交|歌|讲/, '魅力'],
-    [/跑|游|耐|忍|酒|饮|扛/, '健康'],
+    [/跑|游|耐|忍|酒|饮|扛/, '体质'],
 ];
 
 export function guessAttribute(name) {

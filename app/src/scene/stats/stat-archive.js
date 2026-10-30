@@ -2,7 +2,7 @@
 // 变动记录取自当前生效的各楼快照（active swipe），切换 swipe、删楼后自动一致，不依赖单独维护的日志。
 import { stageOf } from './stat-favor.js';
 import { currentStatsState, ledgerKey } from './stat-ledger.js';
-import { PROTAGONIST, profileOf } from './stat-engine.js';
+import { PROTAGONIST, profileOf, protagonistVitals } from './stat-engine.js';
 
 export const ARCHIVE_LOG_MAX = 30;
 
@@ -51,6 +51,8 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
     return {
         day: state.clock ? state.clock.day : null,
         bars: { ...((state.protagonist && state.protagonist.bars) || {}) },
+        // 生命读战斗生命视图（合并计划 Q4）；读不到时不显示。
+        vitals: engine ? protagonistVitals(engine) : null,
         skills,
         characters,
         log: rows.slice(-logMax).reverse(),

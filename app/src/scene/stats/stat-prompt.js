@@ -10,15 +10,15 @@ export const STAT_BACKGROUND_PROMPTS = Object.freeze(['sheetGen', 'backfill']);
 
 export const DEFAULT_STAT_PROMPTS = Object.freeze({
     source: '【数值来源】角色关系与主角状态以本段为准；表格里的数值仅作展示，与本段不一致时以本段为准。',
-    protagonist: '【主角状态】生命{{生命}}/100，体力{{体力}}/100，压力{{压力}}/100，金钱{{金钱}}。{{状态描述}}',
+    protagonist: '【主角状态】生命{{生命}}，体力{{体力}}/100，压力{{压力}}/100，金钱{{金钱}}。{{状态描述}}',
     skills: '【主角技能】{{技能档位}}。未列出的技能按未学。',
     perception: '【主角感知】{{感知档位}}：据此决定主角能注意到什么，不需要检定。',
     present: '【{{角色}}】关系阶段：{{阶段}}。{{阶段文案}}{{组合描述}}{{突破提示}}{{亲密约束}}',
     sheets: '【{{角色}}的本事】{{资历}}；擅长：{{擅长}}。',
     check: '【本轮检定】{{技能}}{{难度}}：{{明细}}，结果【{{结果}}】。按此结果描写，不得改判。',
-    roll: '【本轮骰运】若主角本轮要做有不确定性、失败有后果的事，按下表写结果，不得改判；毫无悬念的事不检定，一轮最多检定一次，用不到就不检定。\n{{结果表}}\n难度：简单＝普通人多半能做到；普通＝需要一定本事；困难＝内行也要认真对待；极难＝只有高手才有机会，少用。技能必须贴合行动。失败也要推进剧情，只是付出代价。\n用过后在正文末尾写 [igs-stat:roll|技能|难度]；对抗在场角色写 [igs-stat:roll|技能|难度|对抗:角色名]；表里没有的新技能写 [igs-stat:roll|技能|难度|所属属性]，属性只能是健康、力量、敏捷、理智、观察、魅力之一。',
+    roll: '【本轮骰运】若主角本轮要做有不确定性、失败有后果的事，按下表写结果，不得改判；毫无悬念的事不检定，一轮最多检定一次，用不到就不检定。\n{{结果表}}\n难度：简单＝普通人多半能做到；普通＝需要一定本事；困难＝内行也要认真对待；极难＝只有高手才有机会，少用。技能必须贴合行动。失败也要推进剧情，只是付出代价。\n用过后在正文末尾写 [igs-stat:roll|技能|难度]；对抗在场角色写 [igs-stat:roll|技能|难度|对抗:角色名]；表里没有的新技能写 [igs-stat:roll|技能|难度|所属属性]，属性只能是力量、敏捷、体质、智力、感知、魅力之一。',
     rollManual: '【检定规则】主角要做有不确定性、失败有后果的事时，写到行动发起处就停，不写结果，在正文末尾写 [igs-stat:roll|技能|难度]，对抗在场角色加 |对抗:角色名，新技能加 |所属属性。难度：简单、普通、困难、极难（少用）。毫无悬念的事不检定。',
-    sheetGen: '你是跑团数值设计。按角色资料给每个角色分配数值，只输出档位词，不输出任何数字。\n属性档：很弱、偏弱、普通、出众、顶尖（非人可用「超凡」）。技能档：未学、入门、熟练、精通、大师。资历：普通人、老手、精英、大师、传奇。\n只列与「普通 / 未学」不同的项。招牌技能最多 3 个，可以是清单外的新技能，并写所属属性（健康、力量、敏捷、理智、观察、魅力之一）。\n只输出 JSON：{"角色名":{"资历":"","属性":{"属性名":"档"},"技能":{"技能名":"档"},"招牌技能":[{"名":"","属性":""}]}}',
+    sheetGen: '你是跑团数值设计。按角色资料给每个角色分配资历与技能，只输出档位词，不输出任何数字；属性另有来源，不要输出。\n技能档：未学、入门、熟练、精通、大师。资历：普通人、老手、精英、大师、传奇。\n只列与「未学」不同的技能。招牌技能最多 3 个，可以是清单外的新技能，并写所属属性（力量、敏捷、体质、智力、感知、魅力之一）。\n只输出 JSON：{"角色名":{"资历":"","技能":{"技能名":"档"},"招牌技能":[{"名":"","属性":""}]}}',
     backfill: '你是跑团数值设计。剧情里出现了新技能，请按角色资料给每个角色补一个技能档位，只输出档位词，不输出任何数字。\n技能档：未学、入门、熟练、精通、大师。没有相关经历一律写「未学」。\n只输出 JSON：{"角色名":{"技能名":"档"}}',
     tags: '【数值标签】正文末尾按需输出以下标签，只写档位，不写任何数字：\n[igs-stat:favor|角色名|{{好感档位}}]\n[igs-stat:trust|角色名|上升/下降]\n[igs-stat:stamina|{{体力档位}}]\n[igs-stat:money|收入/花费|{{金钱档位}}]\n[igs-stat:stress|上升/下降]\n[igs-stat:hurt|{{伤势档位}}]\n[igs-stat:sleep]（入睡）\n[igs-stat:event|角色名|约会/告白/共患难]\n[igs-stat:gift|角色名|礼物类别]\n[igs-stat:skip|7天]（时间跳跃）',
     mandates: '【本轮必须写出】{{事项}}',
@@ -46,14 +46,22 @@ export function fillTemplate(template, vars, diagnostics = []) {
     });
 }
 
-export function describeProtagonist(bars, { shortfall = false } = {}) {
+// vitals：战斗生命视图 { hp, maxHp, down }；缺省按满血、不写伤势。
+export function describeProtagonist(bars, { shortfall = false, vitals = null } = {}) {
     const notes = [];
-    const health = healthStatus(bars.health);
-    if (health !== '正常') notes.push(`主角处于${health}状态`);
+    const health = healthStatus(vitals);
+    if (health === '倒下') notes.push('主角已倒下，无法行动');
+    else if (health !== '正常') notes.push(`主角处于${health}状态`);
     if (bars.stamina < STAMINA_LOW) notes.push('主角很疲惫，动作迟缓');
     if (bars.stress > STRESS_HIGH) notes.push('主角压力很大，容易烦躁');
     if (shortfall) notes.push('主角买不起刚才想买的东西，请写出钱不够');
     return notes.length ? `${notes.join('；')}。` : '';
+}
+
+// 生命视图读不到（战斗日志未就绪或读取失败）时写「未知」，不把缺数据当满血告诉模型。
+export function vitalsText(vitals) {
+    if (!vitals || !(Number(vitals.maxHp) > 0)) return '未知';
+    return `${vitals.down ? 0 : Math.round(Number(vitals.hp) || 0)}/${Math.round(Number(vitals.maxHp))}`;
 }
 
 // 维度组合描述：小表，不穷举（§5.1）。
@@ -86,7 +94,7 @@ function intimacyNote(character, { nsfw, intimacyGate }) {
 }
 
 // opts：{ prompts, disabled, stageText, present, check, mandates, shortfall, nsfw, intimacyGate,
-//         skillsLine, perceptionLine, sheetLines: [{ name, rank, strong }], rollTable: [行], manualRoll }
+//         skillsLine, perceptionLine, sheetLines: [{ name, rank, strong }], rollTable: [行], manualRoll, vitals }
 export function buildStatsPrompt(state, opts = {}) {
     const diagnostics = [];
     const prompts = { ...DEFAULT_STAT_PROMPTS, ...(opts.prompts || {}) };
@@ -97,8 +105,8 @@ export function buildStatsPrompt(state, opts = {}) {
     const push = (id, text) => { if (!disabled.has(id) && text) parts.push({ id, text }); };
     push('source', fillTemplate(prompts.source, {}, diagnostics));
     push('protagonist', fillTemplate(prompts.protagonist, {
-        生命: bars.health, 体力: bars.stamina, 压力: bars.stress, 金钱: bars.money,
-        状态描述: describeProtagonist(bars, { shortfall: opts.shortfall }),
+        生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 金钱: bars.money,
+        状态描述: describeProtagonist(bars, { shortfall: opts.shortfall, vitals: opts.vitals }),
     }, diagnostics));
     if (opts.skillsLine) push('skills', fillTemplate(prompts.skills, { 技能档位: opts.skillsLine }, diagnostics));
     if (opts.perceptionLine) push('perception', fillTemplate(prompts.perception, { 感知档位: opts.perceptionLine }, diagnostics));
@@ -137,12 +145,12 @@ export function buildStatsPrompt(state, opts = {}) {
     return { content: parts.map((p) => p.text).join('\n'), segments: parts, diagnostics };
 }
 
-// 强制事项（§9）：由上一楼结算标记推出。
-export function mandatesFromFlags(flags = {}, bars = {}) {
+// 强制事项（§9）：由上一楼结算标记推出。主角倒下时要求写出被救、被俘或醒来（N3：剧情倒下同战斗倒下）。
+export function mandatesFromFlags(flags = {}, vitals = null) {
     const out = [];
     if (flags.battle) out.push(`刚才的战斗结果为【${flags.battle.outcome}】，按此写出战斗结局，不得改判`);
     if (flags.work) out.push(`刚才的工作结果为【${flags.work.tier}】${flags.work.income ? `，收入档位${flags.work.income}` : '，没有收入'}`);
     if (flags.forcedRest) out.push('主角体力耗尽，写出主角昏睡或休息');
-    if (Number(bars.health) <= 0) out.push('主角昏迷，写出被救、被俘或醒来的情节');
+    if (healthStatus(vitals) === '倒下') out.push('主角已倒下，写出被救、被俘或醒来的情节');
     return out;
 }

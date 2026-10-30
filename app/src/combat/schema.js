@@ -21,13 +21,15 @@ export const SKILL_INTENTS = Object.freeze(['attack', 'defend', 'buff', 'debuff'
 export const PASSIVE_TRIGGERS = Object.freeze(['battle-start', 'turn-start', 'turn-end', 'on-hit', 'on-low-hp',
     'card-played', 'discard', 'exhaust', 'kill', 'shuffle', 'hp-loss', 'block-gain', 'foe-card-played']);
 export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
-export const LEDGER_TYPES = Object.freeze(['profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer', 'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal']);
+export const LEDGER_TYPES = Object.freeze(['profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer', 'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt']);
 // 装备部位（每部位同时 1 件）与一次性道具单条数量上限；单次消耗上限覆盖一场战斗内的累计用量。
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 export const ITEM_GAIN_MAX = 3;
 export const ITEM_CONSUME_MAX = 30;
 // 剧情回血（heal 条目）：flat 为点数（1–9999），percent 为最近一场战后记录的生命上限的百分比（1–100）。
 export const HEAL_MODES = Object.freeze(['flat', 'percent']);
+// 剧情受伤（hurt 条目，合并计划 N3）的档位。
+export const HURT_TIER_KEYS = Object.freeze(['轻伤', '中伤', '重伤']);
 // 准备阶段奖励（offer，v3 §5）：每场 3 槽（再翻 4 槽）；来历不超过 30 字。类别：卡牌、装备（含宝物部位）、一次性道具、杂物（只有名称与来历）。
 export const REWARD_KINDS = Object.freeze(['card', 'gear', 'item', 'keepsake']);
 export const REWARD_SLOT_COUNT = 3;
@@ -812,6 +814,15 @@ function payloadAt(type, raw, path, ctx) {
             const mode = oneOf(raw.mode, p('mode'), ctx, HEAL_MODES);
             const amount = int(raw.amount, p('amount'), ctx, 1, mode === 'percent' ? 100 : 9999);
             return { amount, mode, scale: int(raw.scale, p('scale'), ctx, 1, 100), reason: text(raw.reason, p('reason'), ctx, 80, '') };
+        }
+        // 剧情受伤（合并计划 N3）：正文 [igs-stat:hurt|档位]；pct 为扣除的生命上限百分比，maxHp 为写入时的生命上限（之后升级不影响已记的伤势）。
+        case 'hurt': {
+            checkKeys(raw, ['tier', 'pct', 'maxHp'], path, ctx);
+            return {
+                tier: oneOf(raw.tier, p('tier'), ctx, HURT_TIER_KEYS),
+                pct: int(raw.pct, p('pct'), ctx, 1, 100),
+                maxHp: int(raw.maxHp, p('maxHp'), ctx, 1, 9999),
+            };
         }
         default:
             return undefined;

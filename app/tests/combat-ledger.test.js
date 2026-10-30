@@ -1130,3 +1130,69 @@ test('持续伤势：wound 记最近一场战后生命（战报 ID 不符不生�
     await c.ledger.append([c.wound({ hp: 80, maxHp: 80, down: false, reportId: 'r3' })]);
     assert.equal(await c.woundOf(), null);
 });
+
+
+test('剧情受伤（合并计划 N3 / N2）：没有档案的主角按战士生命基数换算上限；hurt 按上限扣 15/30/50%、可扣到 0 记倒下；换 swipe 回退；回血恢复；补扫幂等', async () => {
+    const { vitalsForName } = await import('../src/combat/ledger.js');
+    const { heroBaseStats, HERO_BASE_HP } = await import('../src/combat/vitals.js');
+    assert.equal(HERO_BASE_HP, 80);
+    const tables = memoryTables([]);
+    const ref = { chat: [user('出发'), ai('被划了一刀。[igs-stat:hurt|中伤]'), ai('又挨了一拳。[igs-stat:hurt|轻伤]')] };
+    const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '阿遥', now: () => 7 });
+    const vit = async () => vitalsForName(await ledger.effectiveState(), '阿遥', '阿遥');
+    const full = await vit();
+    assert.deepEqual(full, { hp: full.maxHp, maxHp: full.maxHp, down: false });
+    const s0 = await ledger.effectiveState();
+    assert.equal(full.maxHp, heroBaseStats(s0.characters.size ? null : (await import('../src/combat/ledger.js')).abilitiesForName(s0, '阿遥', '阿遥')).hp);
+    const M = full.maxHp;
+    assert.equal((await ledger.scanLife()).ok, true);
+    assert.equal(tables.ledger.filter((e) => e.type === 'hurt').length, 2);
+    const afterMid = M - Math.round(M * 0.3);
+    assert.deepEqual(await vit(), { hp: afterMid - Math.round(M * 0.15), maxHp: M, down: false });
+    // 再扫一次不重复入账。
+    await ledger.scanLife();
+    assert.equal(tables.ledger.filter((e) => e.type === 'hurt').length, 2);
+    // 中伤那一楼换 swipe：该次伤势回退，只剩轻伤。
+    ref.chat[1] = ai('躲开了。', 1);
+    assert.deepEqual(await vit(), { hp: M - Math.round(M * 0.15), maxHp: M, down: false });
+    // 两次重伤扣到 0，记为倒下；回血后不再倒下。
+    ref.chat.push(ai('[igs-stat:hurt|重伤]'), ai('[igs-stat:hurt|重伤][igs-stat:hurt|重伤]'));
+    await ledger.scanLife();
+    assert.deepEqual(await vit(), { hp: 0, maxHp: M, down: true });
+    ref.chat.push(ai('被人救起。[igs-combat:heal|我|50%|包扎]'));
+    await ledger.scanLife();
+    const healed = await vit();
+    assert.equal(healed.down, false);
+    assert.ok(healed.hp > 0 && healed.hp < M);
+    // 用户楼里的标签不计。
+    ref.chat.push(user('[igs-stat:hurt|重伤]'));
+    await ledger.scanLife();
+    assert.deepEqual(await vit(), healed);
+});
+
+test('同楼剧情受伤与回血：先记伤势再记回血，与标签先后无关', async () => {
+    const { vitalsForName } = await import('../src/combat/ledger.js');
+    const tables = memoryTables([]);
+    const ref = { chat: [user('出发'), ai('先包扎，又被划了一刀。[igs-combat:heal|我|10|包扎][igs-stat:hurt|中伤]')] };
+    const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '阿遥', now: () => 7 });
+    assert.equal((await ledger.scanLife()).ok, true);
+    const v = vitalsForName(await ledger.effectiveState(), '阿遥', '阿遥');
+    assert.equal(v.hp, v.maxHp - Math.round(v.maxHp * 0.3) + 10);
+});
+
+test('速算伤势只在给出 battleHurts 时入账，一楼只记第一场', async () => {
+    const { vitalsForName } = await import('../src/combat/ledger.js');
+    const tables = memoryTables([]);
+    const ref = { chat: [user('出发'), ai('打了一架。[igs-stat:battle|杂兵][igs-stat:battle|精英]')] };
+    const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '阿遥', now: () => 7 });
+    await ledger.scanLife();
+    assert.equal(tables.ledger.length, 0);
+    await ledger.scanLife({ messageIds: [1], battleHurts: new Map([[1, '轻伤']]) });
+    assert.deepEqual(tables.ledger.map((e) => e.payload.tier), ['轻伤']);
+    const v = vitalsForName(await ledger.effectiveState(), '阿遥', '阿遥');
+    assert.equal(v.hp, v.maxHp - Math.round(v.maxHp * 0.15));
+    // 删掉 battle 标签（编辑正文）后伤势失效。
+    ref.chat[1] = ai('打了一架。');
+    const after = vitalsForName(await ledger.effectiveState(), '阿遥', '阿遥');
+    assert.equal(after.hp, after.maxHp);
+});

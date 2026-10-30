@@ -1,6 +1,6 @@
 import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, validateDeck } from './rules.js';
 import { hash32, hashString } from './random.js';
-import { ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities, isAsiLevel, levelCap, parseCombatInit, relLevel, relOffset } from './abilities.js';
+import { ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities, isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset } from './abilities.js';
 import { buildCardCatalog, effectsDamage, gearIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } from './schema.js';
 import { combatBodyText, extractGrowthDirectives, scanCombatTags } from '../scene/combat-directives.js';
 import { combatReportResult } from '../scene/combat-prompt.js';
@@ -8,6 +8,9 @@ import { reportIdFor, reportIdOf } from './report.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
 import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
+import { HERO_BASE_ARCHETYPE, characterCombatStats, heroBaseStats, vitalsOf } from './vitals.js';
+import { scanStatLifeTags } from '../scene/stats/stat-directives.js';
+import { HURT_PCT } from '../scene/stats/stat-vocab.js';
 
 // 成长账本：只读归并 shujuku 两张战斗表，按锚点决定哪些条目当前生效；不修改表，写入只经注入的 tables。
 // chat 由调用方传入按 messageId 下标排列的消息快照 [{ mes, swipe_id, is_user, is_system }]，combat 不读宿主。
@@ -43,7 +46,8 @@ const isMessage = (m) => Boolean(m) && typeof m === 'object';
 // 归并顺序：楼层升序；同楼先记 EXP 再处理职业、技能、奖励与卡组（奖励要核对当时等级），再按 occurrence。
 // 装备与道具排在卡组之后：同楼先取得、再卸下，战报楼的消耗最后结算。
 // 战报楼的战利品排在奖励与卡组之前（同楼保存的卡组可以带上新卡）。
-const TYPE_RANK = Object.freeze({ exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18, wound: 19, heal: 19 });
+// 同楼生命条目先记伤势（战后 wound、剧情 hurt）再记回血：hurt 与 heal 的锚点来自两套标签，occurrence 不可比，按类型定序。
+const TYPE_RANK = Object.freeze({ exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18, wound: 19, hurt: 19, heal: 19.5 });
 // 构筑面板换装、背包卖出、重新生成基础卡组、转职、职业升阶及同楼在其后的卡组保存与奖励（tagHash = GEAR / SELL / REBUILD / RESPEC / ASCEND / PANEL）是用户在该楼之后的操作：
 // 同楼排在全部标签条目（含战利品）之后，彼此共用一个 occurrence 序列、按写入先后归并（同楼先卸下再卖出、先卖出再重新生成或转职、先升阶再领取追加卡才成立）。
 const PANEL_TAGS = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH]);
@@ -203,7 +207,9 @@ function floorReader(chat, sourceFilter) {
             const report = result ? { ...result, reportId: reportIdOf(text) } : null;
             // 用户自己输入的楼不产生成长；只有程序生成的战报楼才计标签。
             const tags = user && !report ? [] : scanCombatTags(user ? text : combatBodyText(text, { sourceFilter }));
-            floor = { swipeId: swipeOf(m), keys: new Set(tags.map((tag) => `${tag.tagHash}#${tag.occurrence}`)), report };
+            // 数值标签里会改生命的（剧情受伤、整场速算）同样作为锚点；与数值结算一样读原文，用户楼不扫。
+            const life = user ? [] : scanStatLifeTags(text);
+            floor = { swipeId: swipeOf(m), keys: new Set([...tags, ...life].map((tag) => `${tag.tagHash}#${tag.occurrence}`)), report };
         }
         cache.set(messageId, floor);
         return floor;
@@ -382,6 +388,13 @@ const HANDLERS = Object.freeze({
         const raw = p.mode === 'percent' ? Math.ceil((w.maxHp * p.amount) / 100) : p.amount;
         const hp = Math.min(w.maxHp, w.hp + Math.max(1, Math.round((raw * p.scale) / 100)));
         c.wound = hp >= w.maxHp ? null : { hp, maxHp: w.maxHp, down: false };
+        return null;
+    },
+    // 剧情受伤（合并计划 N3）：按伤势记录的上限（没有伤势时按写入时的生命上限）扣 pct%，至少 1 点，可以扣到 0；扣到 0 记为倒下，回血后恢复。
+    hurt(c, p) {
+        const w = c.wound || { hp: p.maxHp, maxHp: p.maxHp, down: false };
+        const hp = Math.max(0, w.hp - Math.max(1, Math.round((w.maxHp * p.pct) / 100)));
+        c.wound = { hp, maxHp: w.maxHp, down: hp <= 0 };
         return null;
     },
     // 升级奖励：只能领取已达到的等级，每级一次；新卡须在图鉴里，升级须有未升级的副本且卡有升级形态。
@@ -687,11 +700,12 @@ const EMPTY_ATTR_CTX = Object.freeze({ fold: new Map(), heroLevel: 1, table: 'mi
 
 // 角色属性视图：有 init 时取其职业名、定位与倾向；缺 init 时定位取职业原型或按名字散列，倾向用默认。
 // 主角等级由 EXP 决定；非主角取最近一条有效 rel（档位生效楼的主角等级 + 偏移），从未打档按「相当」跟随主角当前等级。
-function attributeView({ key, name, protagonist, exp = 0, archetype, className = '', gearBonuses = [] }, ctx) {
+// fallbackPrefs：没有 init 时的倾向（只开数值系统时主角建卡选的主擅长 / 次擅长 / 短板，合并计划 N1）。
+function attributeView({ key, name, protagonist, exp = 0, archetype, className = '', gearBonuses = [], fallbackPrefs = null }, ctx) {
     const f = ctx.fold.get(key) || emptyFold();
     const init = f.init;
     const role = init?.role ?? fallbackRole(name, archetype);
-    const prefs = init ? { major: init.major, minor: init.minor, weak: init.weak } : defaultPrefs(role);
+    const prefs = init ? { major: init.major, minor: init.minor, weak: init.weak } : normalizePrefs(fallbackPrefs) || defaultPrefs(role);
     const rel = protagonist ? null : (f.rel[f.rel.length - 1]?.payload ?? null);
     const tier = protagonist ? null : (rel?.tier ?? DEFAULT_REL_TIER);
     const level = protagonist ? expProgress(exp).level
@@ -706,16 +720,19 @@ function attributeView({ key, name, protagonist, exp = 0, archetype, className =
     return { className: init?.className || className, role, prefs, initialized: Boolean(init), protagonist: Boolean(protagonist), tier, relTagged: Boolean(rel), level, ...derived, balance, table: ctx.table };
 }
 
-// 未登记为角色档案的人物（敌人、路人）按名字键取属性；state 为 computeEffectiveState 的结果。
-export function attributeViewFor(state, name, { archetype } = {}) {
+// 未登记为角色档案的人物（敌人、路人、尚无档案的主角）按名字键取属性；state 为 computeEffectiveState 的结果。
+// protagonist：尚无档案的主角（等级取名字键上的剧情 EXP），prefs 为没有 init 时的倾向。
+export function attributeViewFor(state, name, { archetype, protagonist = false, prefs = null } = {}) {
     if (!state || state.ok !== true || !state.attributes) return null;
     const clean = String(name || '').trim();
     const { fold, heroLevel, table } = state.attributes;
-    return attributeView({ key: nameKey(clean), name: clean, protagonist: false, archetype }, { fold, heroLevel, table });
+    const exp = protagonist ? state.unassignedExp?.get(nameKey(clean)) || 0 : 0;
+    return attributeView({ key: nameKey(clean), name: clean, protagonist, exp, archetype, fallbackPrefs: protagonist ? prefs : null }, { fold, heroLevel, table });
 }
 
 // 按名字取属性视图（检定用）：主角别名与 <user> 归到 userName；已登记角色取档案视图，其余按名字键推导。
-export function abilitiesForName(state, name, userName = '') {
+// heroPrefs：主角尚无档案也没有 init 时的倾向（合并计划 N1）。
+export function abilitiesForName(state, name, userName = '', { heroPrefs = null } = {}) {
     if (!state || state.ok !== true) return null;
     const raw = String(name || '').replace(/<user>|\{\{user\}\}/gi, (m) => userName || m).trim();
     const clean = effectiveName(raw, userName);
@@ -723,7 +740,22 @@ export function abilitiesForName(state, name, userName = '') {
     for (const c of state.characters.values()) {
         if (c.name === clean || (c.profile?.aliases || []).includes(clean)) return c.attributes || null;
     }
-    return attributeViewFor(state, clean);
+    return attributeViewFor(state, clean, userName && clean === userName ? { protagonist: true, prefs: heroPrefs, archetype: HERO_BASE_ARCHETYPE } : {});
+}
+
+// 按名字取生命视图 { hp, maxHp, down }（合并计划 Q4 / N2）：已登记角色按开战换算的上限与持续伤势；
+// 尚无档案的主角按默认职业原型（战士）生命基数与六维换算，伤势取名字键上的剧情受伤 / 回血；其余人物返回 null。
+export function vitalsForName(state, name, userName = '', { heroPrefs = null } = {}) {
+    if (!state || state.ok !== true) return null;
+    const raw = String(name || '').replace(/<user>|\{\{user\}\}/gi, (m) => userName || m).trim();
+    const clean = effectiveName(raw, userName);
+    if (!clean) return null;
+    for (const c of state.characters.values()) {
+        if (c.name === clean || (c.profile?.aliases || []).includes(clean)) return vitalsOf(characterCombatStats(c).hp, c.wound);
+    }
+    if (!userName || clean !== userName) return null;
+    const attributes = attributeViewFor(state, clean, { protagonist: true, prefs: heroPrefs, archetype: HERO_BASE_ARCHETYPE });
+    return vitalsOf(heroBaseStats(attributes).hp, state.looseVitals?.get(nameKey(clean))?.wound ?? null);
 }
 
 
@@ -743,6 +775,8 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     const seen = new Set();
     const offers = new Map();
     const loots = new Map();
+    // 尚无档案的人物（只开数值系统时的主角）的生命：按名字键记 hurt / heal，档案登记后由 ownerOf 归到档案。
+    const looseVitals = new Map();
     // 最近一场战斗的我方成员：最后一批生效的 wound 条目（同一战报楼）的角色，按写入顺序；正文注入主角团状态用（计划 5.8）。
     let lastParty = null;
     // 主角按 userName 识别：成长演出标记属性提升等级，属性视图据此区分主角。
@@ -768,6 +802,11 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         if (!owner) {
             if (e.type === 'exp') {
                 unassignedExp.set(e.character, (unassignedExp.get(e.character) || 0) + e.payload.amount);
+                applied.push(e.id);
+            } else if (e.type === 'hurt' || e.type === 'heal') {
+                const loose = looseVitals.get(e.character) || { wound: null };
+                HANDLERS[e.type](loose, e.payload);
+                looseVitals.set(e.character, loose);
                 applied.push(e.id);
             } else diag(diagnostics, 'combat-character-missing', e);
             continue;
@@ -797,7 +836,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     const characters = new Map([...state].map(([id, c]) => [id, characterView(c, { heroId, actx })]));
     const attributes = { table: actx.table, heroId, heroLevel: actx.heroLevel, fold: folded.fold, inactive: folded.inactive };
     // profileMeta：档案 ID → { version 档案表当前最高版本（日志里的 profile 条目为 -1）, createdAt 登记时间 }，供补技能写新版本档案时沿用登记时间（名字归属按登记先后）。
-    return { ok: true, characters, classes: index.classes, enemies: index.enemies, profileMeta: new Map([...snapshot.profiles].map(([id, r]) => [id, { version: r.version, createdAt: r.createdAt }])), unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty };
+    return { ok: true, characters, classes: index.classes, enemies: index.enemies, profileMeta: new Map([...snapshot.profiles].map(([id, r]) => [id, { version: r.version, createdAt: r.createdAt }])), unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty, looseVitals };
 }
 
 // 成长演出只读的事件：已生效的标签类成长条目，带接手角色、楼层锚点与条目生效前后的等级。
@@ -929,6 +968,8 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
                 else scanAttributeDirective(d, anchor, messageId, attrScan);
                 continue;
             }
+            // 只扫属性标签（数值系统单开时，合并计划 P2：stat / rel 为数值系统常驻标签）。
+            if (options.attributesOnly) continue;
             if (d.kind === 'loot') {
                 if (known(['loot'], d.character, anchor)) continue;
                 const built = buildLootEntry(state, index, d, anchor, report, text, userName, now);
@@ -966,6 +1007,52 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
         }
     }
     return { ok: true, entries, pendingGeneration, diagnostics, attributes };
+}
+
+// 生命条目扫描（合并计划 Q4 / N3）：只读，不写表，数值系统单开时也用。AI 楼的 [igs-stat:hurt] 与「受伤」体力事件按档位记主角 hurt；
+// [igs-stat:battle] 只在数值结算给出该楼速算伤势（battleHurts：messageId → 档位）时记 hurt；heal 标签与成长扫描同一 ID，已入库的跳过。
+// maxHp 取扫描时主角的生命上限（heroPrefs：主角尚无档案也没有 init 时的倾向）。
+export function scanLifeTags(snapshot, chat, options = {}) {
+    if (!snapshot || snapshot.ok !== true) return snapshot?.ok === false ? snapshot : { ok: false, reason: 'combat-ledger-read-failed' };
+    const list = Array.isArray(chat) ? chat : [];
+    const userName = options.userName || '';
+    if (!userName) return { ok: false, reason: 'combat-user-missing' };
+    const index = indexProfiles(snapshot.profiles, []);
+    const ids = Array.isArray(options.messageIds) ? options.messageIds : list.map((_, i) => i);
+    const now = Number.isInteger(options.now) ? options.now : 0;
+    const healScale = Math.min(100, Math.max(1, Math.round(100 * (Number(options.healScale) || 1))));
+    const battleHurts = options.battleHurts instanceof Map ? options.battleHurts : new Map();
+    const state = computeEffectiveState(snapshot, list, { sourceFilter: options.sourceFilter, userName });
+    if (!state.ok) return state;
+    const maxHp = vitalsForName(state, userName, userName, { heroPrefs: options.heroPrefs })?.maxHp;
+    if (!(maxHp > 0)) return { ok: false, reason: 'combat-vitals-unavailable' };
+    const hero = characterKeyFor(index, userName, userName);
+    const entries = [];
+    const known = (kind, name, anchor) => candidateIds(index, kind, name, userName, anchor).some((id) => snapshot.ids.has(id) || entries.some((e) => e.id === id));
+    for (const messageId of ids) {
+        const m = list[messageId];
+        if (!isMessage(m) || m.is_user === true) continue;
+        const text = messageText(m);
+        // 一楼最多结算一场速算（与 settleCombat 一致），只有第一个 battle 标签记伤势。
+        let battleSeen = false;
+        for (const tag of scanStatLifeTags(text)) {
+            if (tag.kind === 'battle' && battleSeen) continue;
+            if (tag.kind === 'battle') battleSeen = true;
+            const tier = tag.kind === 'hurt' ? tag.tier : battleHurts.get(messageId);
+            if (!Object.hasOwn(HURT_PCT, tier || '')) continue;
+            const anchor = floorAnchor(m, messageId, tag);
+            if (known('hurt', userName, anchor)) continue;
+            entries.push({ id: ledgerEntryId('hurt', hero, anchor), type: 'hurt', character: hero, anchor, payload: { tier, pct: HURT_PCT[tier], maxHp }, createdAt: now });
+        }
+        for (const d of extractGrowthDirectives(text, { sourceFilter: options.sourceFilter }).directives) {
+            if (d.kind !== 'heal') continue;
+            const anchor = floorAnchor(m, messageId, d);
+            if (known('heal', d.character, anchor)) continue;
+            const character = characterKeyFor(index, d.character, userName);
+            entries.push({ id: ledgerEntryId('heal', character, anchor), type: 'heal', character, anchor, payload: { amount: d.amount, mode: d.mode, scale: healScale, reason: d.reason }, createdAt: now });
+        }
+    }
+    return { ok: true, entries };
 }
 
 // 卡组保存条目：锚点取当前最新楼层；同楼同 swipe 多次保存时 occurrence 递增，后存的在归并中后生效。
@@ -1159,6 +1246,25 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return { ...found, ok, write, attributeWrite };
     }
 
+    // 生命条目补扫（合并计划 Q4 / N3）：剧情受伤、速算伤势（battleHurts）与回血入库，按记录 ID 幂等；只开数值系统时也调用。
+    async function scanLife({ messageIds, battleHurts, heroPrefs } = {}) {
+        const snapshot = await read();
+        if (!snapshot.ok) return snapshot;
+        const found = scanLifeTags(snapshot, chatOf(), { userName: userOf(), sourceFilter: filterOf(), messageIds, now: now(), healScale: healScaleOf(), battleHurts, heroPrefs });
+        if (!found.ok) return found;
+        const write = found.entries.length ? await append(found.entries) : null;
+        // stat / rel 属性标签同样入属性表（按记录 ID 幂等；属性表缺失时不写、不判失败，与成长补扫一致）。
+        const attrs = scanGrowthTags(snapshot, chatOf(), { userName: userOf(), sourceFilter: filterOf(), messageIds, now: now(), attributesOnly: true });
+        let attributeWrite = null;
+        if (attrs.ok && attrs.attributes.length) {
+            attributeWrite = snapshot.attributeTable === 'ok'
+                ? await appendAttributes(attrs.attributes)
+                : { ok: false, reason: 'combat-attribute-table-missing', skipped: attrs.attributes.length };
+        }
+        const attrOk = attributeWrite === null || attributeWrite.ok === true || attributeWrite.reason === 'combat-attribute-table-missing';
+        return { ...found, ok: (write === null || write.ok === true) && attrOk, write, attributeWrite };
+    }
+
     // 属性表写入：只追加通过 schema 的记录；全部非法时不调用写入。
     async function appendAttributes(records, options) {
         const valid = [];
@@ -1328,6 +1434,6 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return writeHeroPanel(characterId, 'trait-slot', { slot, cost });
     }
 
-    return { read, effectiveState, append, appendAttributes, scan, saveDeck, claimReward, setGear, allocate, writeInit, sellKeepsake, sellGear, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot };
+    return { read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, allocate, writeInit, sellKeepsake, sellGear, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot };
 }
 

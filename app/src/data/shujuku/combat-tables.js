@@ -45,9 +45,22 @@ export const COMBAT_TABLE_SPECS = Object.freeze({
         jsonOf: (r) => r.payload,
         fromCells: (c, json) => ({ id: c['记录ID'], type: c['类型'], character: c['角色'], anchor: c['锚点'] ? JSON.parse(c['锚点']) : null, createdAt: num(c['时间']), change: c['变化'], payload: json }),
     }),
+    // 数值系统的增量日志：建卡初始状态、每楼结算与聊天级登记（技能、角色卡、学习表），列与属性表相同。
+    // 对战斗是可选表；数值系统读写时缺表即阻断（由数值运行时判断）。
+    stats: Object.freeze({
+        name: 'IGS数值·日志',
+        uid: 'sheet_igsstatlog',
+        optional: true,
+        columns: Object.freeze(['记录ID', '角色', '类型', '锚点', '时间', '变化', SEGMENT_COLUMN, '载荷JSON']),
+        jsonColumn: '载荷JSON',
+        keyOf: (cells) => cells['记录ID'],
+        toCells: (r) => ({ '记录ID': text(r.id), '角色': text(r.character), '类型': text(r.type), '锚点': r.anchor ? JSON.stringify(r.anchor) : '', '时间': text(r.createdAt), '变化': text(r.change) }),
+        jsonOf: (r) => r.payload,
+        fromCells: (c, json) => ({ id: c['记录ID'], type: c['类型'], character: c['角色'], anchor: c['锚点'] ? JSON.parse(c['锚点']) : null, createdAt: num(c['时间']), change: c['变化'], payload: json }),
+    }),
 });
 
-const SHEET_NOTES = Object.freeze({ profile: '角色与职业档案', ledger: '成长日志', attribute: '属性记录' });
+const SHEET_NOTES = Object.freeze({ profile: '角色与职业档案', ledger: '成长日志', attribute: '属性记录', stats: '数值系统日志' });
 
 export function probeCombatTableSupport(api) {
     const missing = COMBAT_TABLE_REQUIRED_API.filter((name) => !api || typeof api[name] !== 'function');

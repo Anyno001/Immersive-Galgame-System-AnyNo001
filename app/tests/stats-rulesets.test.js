@@ -82,11 +82,13 @@ test('切换体系不改存档：同一状态两套体系都能检定，底数�
 
 test('未学技能：CoC 用基础值（侦查 25、开锁 1、闪避 敏捷/2），D&D 只加属性修正', () => {
     const state = createStatsState();
-    const coc = createEngine({}, { ruleset: 'coc7' });
+    // 六维来自战斗属性视图（合并计划 Q1）：主角敏捷 8（引擎内 ×5 = 40）。
+    const readAbilities = (name) => (name === PROTAGONIST ? { scores: { dex: 8 } } : null);
+    const coc = createEngine({}, { ruleset: 'coc7' }, undefined, { readAbilities });
     assert.equal(resolveCheck(coc, state, { actor: PROTAGONIST, skill: '侦查' }, () => 0.1).value, 25);
     assert.equal(resolveCheck(coc, state, { actor: PROTAGONIST, skill: '开锁' }, () => 0.1).value, 1);
     assert.equal(resolveCheck(coc, state, { actor: PROTAGONIST, skill: '闪避' }, () => 0.1).value, 20);
-    const dnd = createEngine({}, { ruleset: 'dnd5e' });
+    const dnd = createEngine({}, { ruleset: 'dnd5e' }, undefined, { readAbilities });
     assert.equal(resolveCheck(dnd, state, { actor: PROTAGONIST, skill: '开锁' }, () => 0.1).bonus, -1);
 });
 
@@ -101,21 +103,24 @@ test('好感影响社交检定：深爱给奖励骰 / 优势，仇恨给 2 颗�
     assert.equal(resolveCheck(createEngine({}, { ruleset: 'dnd5e' }), hate, { actor: PROTAGONIST, skill: '话术', toward: '小雪' }, () => 0.5).edge, -1);
 });
 
-test('对抗 NPC：按对方被动值定难度（CoC）/ DC（D&D）；没卡的 NPC 按普通人', () => {
+test('对抗 NPC：按对方被动值定难度（CoC）/ DC（D&D）；六维读战斗属性视图，角色卡只给技能；没卡的 NPC 按普通人', () => {
     const state = createStatsState();
-    const sheets = { 林晚: { rank: '普通人', attributes: { 观察: 80 }, skills: { 心理学: 70 }, provisional: {} } };
-    const coc = resolveCheck(createEngine({ sheets }, { ruleset: 'coc7' }), state, { actor: PROTAGONIST, skill: '话术', against: '林晚' }, () => 0.1);
+    const sheets = { 林晚: { rank: '普通人', skills: { 心理学: 70 }, provisional: {} } };
+    const readAbilities = (name) => (name === '林晚' ? { scores: { wis: 16 } } : null);
+    const coc = resolveCheck(createEngine({ sheets }, { ruleset: 'coc7' }, undefined, { readAbilities }), state, { actor: PROTAGONIST, skill: '话术', against: '林晚' }, () => 0.1);
     assert.equal(coc.threshold, 25);
     assert.equal(coc.opposed.skill, '心理学');
-    const dnd = resolveCheck(createEngine({ sheets }, { ruleset: 'dnd5e' }), state, { actor: PROTAGONIST, skill: '话术', against: '林晚' }, () => 0.1);
+    const dnd = resolveCheck(createEngine({ sheets }, { ruleset: 'dnd5e' }, undefined, { readAbilities }), state, { actor: PROTAGONIST, skill: '话术', against: '林晚' }, () => 0.1);
     assert.equal(dnd.dc, 10 + 3 + 2);
     const nobody = resolveCheck(createEngine({}, { ruleset: 'coc7' }), state, { actor: PROTAGONIST, skill: '话术', against: '路人' }, () => 0.1);
     assert.equal(nobody.threshold, 50);
 });
 
 test('主动对抗：两边各掷一次', () => {
-    // 同一颗骰：主角力量 40（−1）输给普通人 50（+0）。
-    const r = contestCheck(createEngine({}, { ruleset: 'dnd5e' }), createStatsState(), { actor: PROTAGONIST, skill: '力量' }, { actor: '阿强', skill: '力量' }, () => 0.5);
+    // 同一颗骰：主角力量 8（−1）输给力量 10（+0）的阿强。
+    const scores = { [PROTAGONIST]: { str: 8 }, 阿强: { str: 10 } };
+    const readAbilities = (name) => (scores[name] ? { scores: scores[name] } : null);
+    const r = contestCheck(createEngine({}, { ruleset: 'dnd5e' }, undefined, { readAbilities }), createStatsState(), { actor: PROTAGONIST, skill: '力量' }, { actor: '阿强', skill: '力量' }, () => 0.5);
     assert.equal(r.left.roll, r.right.roll);
     assert.equal(r.winner, 'right');
 });

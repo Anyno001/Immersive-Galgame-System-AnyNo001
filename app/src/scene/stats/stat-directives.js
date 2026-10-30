@@ -88,6 +88,37 @@ export function parseStatDirectives(text) {
     return { directives, diagnostics };
 }
 
+// FNV-1a 32 位转 36 进制（满足战斗日志锚点 tagHash 的 ID 格式）；前缀 sh 与战斗标签的锚点区分开。
+function hashOf(text) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i += 1) {
+        h ^= text.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+    }
+    return `sh${(h >>> 0).toString(36)}`;
+}
+
+// 生命（合并计划 N3 / Q5）：剧情受伤 [igs-stat:hurt|档位]、体力事件「受伤」（按轻伤）与整场速算 [igs-stat:battle|…]。
+// 返回 [{ kind: 'hurt' | 'battle', tier?, tagHash, occurrence }]：tagHash 按规范化栏位计算，occurrence 为同一 tagHash 在本楼的序号，
+// 作为战斗日志 hurt 条目的锚点；删楼、换 swipe、编辑去掉标签后锚点失效，伤势不再计入。
+export function scanStatLifeTags(text) {
+    const out = [];
+    const counts = new Map();
+    const add = (entry, key) => {
+        const tagHash = hashOf(key);
+        const occurrence = counts.get(tagHash) || 0;
+        counts.set(tagHash, occurrence + 1);
+        out.push({ ...entry, tagHash, occurrence });
+    };
+    for (const match of String(text ?? '').matchAll(tagPattern())) {
+        const d = parseFields(match[1].split(/[|｜]/).map((field) => field.replace(/\s+/g, ' ').trim()));
+        if (d && d.kind === 'battle') { add({ kind: 'battle' }, `battle|${d.tier}|${d.count}|${d.ally || ''}`); continue; }
+        const tier = d && d.kind === 'hurt' ? d.value : d && d.kind === 'stamina' && d.value === '受伤' ? '轻伤' : null;
+        if (tier) add({ kind: 'hurt', tier }, `hurt|${tier}`);
+    }
+    return out;
+}
+
 // 阅读器、语音、漫画泡、弹幕统一用剔除后的文本（易错点 C4；出口接入在 P1.5 之后）。
 export function stripStatDirectives(text) {
     const source = String(text ?? '');

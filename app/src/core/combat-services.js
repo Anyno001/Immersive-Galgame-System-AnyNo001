@@ -1,5 +1,5 @@
 import { createCombatTables } from '../data/shujuku/combat-tables.js';
-import { abilitiesForName, createCombatLedger } from '../combat/ledger.js';
+import { abilitiesForName, createCombatLedger, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
 import { checkCorrections, checkRollsFor, floorCheckOrdinal, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal } from '../scene/check-rolls.js';
@@ -128,6 +128,44 @@ export function createCombatServices(deps = {}) {
         return ledger;
     }
 
+    // 生命与六维来源（合并计划 Q1 / Q4）：数值系统用，战斗扩展关闭时同样可用（只读写战斗日志与属性表，缺表按需补建）。
+    // 读取同步取本聊天最近一次归并的缓存；refresh 串行执行，write 时先补扫生命条目（剧情受伤、速算伤势、回血）再归并。
+    let lifeCache = null;
+    let lifeQueue = Promise.resolve();
+    function refreshLife({ write = false, messageIds, battleHurts, heroPrefs } = {}) {
+        const run = lifeQueue.then(async () => {
+            const id = chatId();
+            if (!id) { lifeCache = null; return { ok: false, reason: 'combat-generate-unavailable' }; }
+            ensureBase();
+            const impl = ledger;
+            let scan = null;
+            if (write) {
+                try { scan = await impl.scanLife({ messageIds, battleHurts, heroPrefs }); } catch (error) { scan = { ok: false, reason: 'combat-ledger-scan-failed' }; }
+            }
+            let state;
+            try { state = await impl.effectiveState(); } catch (error) { state = { ok: false, reason: 'combat-ledger-read-failed' }; }
+            if (chatId() !== id) return { ok: false, reason: 'request-stale' };
+            lifeCache = { chatId: id, state };
+            if (!state.ok) return { ok: false, reason: state.reason || 'combat-ledger-read-failed' };
+            return scan && scan.ok !== true ? { ok: false, reason: scan.reason || 'combat-life-write-failed', scan } : { ok: true, scan };
+        });
+        lifeQueue = run.catch(() => {});
+        return run;
+    }
+
+    // 同步读取口：缓存不属于当前聊天或归并失败时 ready 为 false，读取返回 null（调用方不得当作满血或默认属性落账）。
+    function lifeSource() {
+        const id = chatId();
+        const state = lifeCache && lifeCache.chatId === id && lifeCache.state?.ok === true ? lifeCache.state : null;
+        return {
+            ready: Boolean(state),
+            reason: state ? '' : (lifeCache && lifeCache.chatId === id ? lifeCache.state?.reason || 'combat-ledger-read-failed' : 'combat-life-cache-missing'),
+            readAbilities: (name, opts) => (state ? abilitiesForName(state, name, userName(), opts) : null),
+            readVitals: (name, opts) => (state ? vitalsForName(state, name, userName(), opts) : null),
+            refresh: refreshLife,
+        };
+    }
+
     // 资料请求捕获聊天身份；解析器留在本地，模型只接收可选字段的值域。
     function captureCombatInit() {
         if (!settings().enabled || !chatId()) return null;
@@ -171,6 +209,7 @@ export function createCombatServices(deps = {}) {
         session = null;
         sessionChat = null;
         growthCache = null;
+        lifeCache = null;
         tableFailure = null;
         stopProtagonist();
     }
@@ -194,6 +233,8 @@ export function createCombatServices(deps = {}) {
                 let state;
                 try { state = await ledgerImpl.effectiveState(); } catch (error) { state = { ok: false, reason: 'combat-ledger-read-failed' }; }
                 if (chatId() !== id) { result = { ok: false, reason: 'request-stale' }; continue; }
+                // 同一次归并也刷新数值系统读取的生命 / 六维缓存（战报写入的伤势、回血随之可见）。
+                lifeCache = { chatId: id, state };
                 // 同一次归并的属性读取（检定徽记与骰序提示同步使用）；names 为已登记角色名，用于挑在场人物。
                 // party：正文注入的主角团状态（主角 + 最近一场参战的队友，计划 5.8）；算不出时记原因，提示词不注入。
                 let party = null;
@@ -701,6 +742,6 @@ export function createCombatServices(deps = {}) {
         return Promise.resolve(run).catch(() => ({ ok: false, reason: 'combat-action-threw' }));
     }
 
-    return { getSession, getLedger, ensureTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier,
+    return { getSession, getLedger, ensureTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit };
 }

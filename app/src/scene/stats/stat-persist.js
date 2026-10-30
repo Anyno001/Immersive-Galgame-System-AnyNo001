@@ -2,7 +2,6 @@
 // 只存结算后状态与种子；结算前状态加载时按上一楼重建。格式不合法或版本更新时拒收并返回原因，不覆盖原数据。
 // v2（数值 v2 §3.5）：新增聊天级 catalog（剧情技能、NPC 角色卡、补全队列），每楼保存检定 meta；v1 读入时迁移。
 import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat-ledger.js';
-import { BASE_ATTRIBUTES } from './stat-state.js';
 import { validSkillName } from './stat-registry.js';
 
 export const STATS_METADATA_KEY = 'igs_stats';
@@ -30,16 +29,15 @@ function sanitizeLearned(raw) {
 const num = (v, lo, hi) => (Number.isFinite(Number(v)) ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : null);
 const plainObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
+// 角色卡只存资历、技能与招牌技能；旧卡里的属性由战斗属性视图取代，读入时丢弃（合并计划 P2）。
 function sanitizeSheet(raw) {
     if (!plainObject(raw)) return null;
-    const attributes = {};
-    for (const name of BASE_ATTRIBUTES) { const v = num(raw.attributes && raw.attributes[name], 1, 99); if (v) attributes[name] = v; }
     const skills = {};
     for (const [k, v] of Object.entries(plainObject(raw.skills) ? raw.skills : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) skills[name] = n; }
     const provisional = {};
     for (const [k, v] of Object.entries(plainObject(raw.provisional) ? raw.provisional : {})) if (v === true && skills[k]) provisional[k] = true;
     return {
-        rank: typeof raw.rank === 'string' ? raw.rank.slice(0, 8) : '普通人', attributes, skills, provisional,
+        rank: typeof raw.rank === 'string' ? raw.rank.slice(0, 8) : '普通人', skills, provisional,
         signature: Array.isArray(raw.signature) ? raw.signature.filter((s) => typeof s === 'string').slice(0, 3) : [],
         source: ['llm', 'default', 'user', 'carried'].includes(raw.source) ? raw.source : 'default',
     };

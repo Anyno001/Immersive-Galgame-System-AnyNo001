@@ -10,6 +10,7 @@ import { splitMigrationWords } from '../../scene/outfit-migration.js';
 import { cgReasonText } from '../../media/cg-library.js';
 import { setStagePauseReason } from './stage-pause.js';
 import { checkCombatExpansionReady } from './combat-settings.js';
+import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { fileGeneratedHoldings, normalizeGeneratedLibrary, collectGeneratedImageIds } from '../../scene/asset-match.js';
 import { CHARACTER_DNA_EDIT_FIELDS, editCharacterDnaField, resolveCharacterDna } from '../../scene/character-dna.js';
@@ -514,6 +515,16 @@ export function createSettingsHost(deps) {
                 return { ok: false, reason: ready.reason, missing: ready.missing };
             }
         }
+        // 数值系统依赖数据库插件（合并计划 Q7）：开启前检查表接口，不满足时保持关闭并提示原因。
+        if (path === 'bridge.stats.enabled' && value === true) {
+            const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+            const support = probeCombatTableSupport(api);
+            if (!support.ok) {
+                setPath(draft, path, false);
+                showSettingsNotice(api ? `数据库不支持数值系统所需的表：缺少 ${support.missing.join('、')}` : '未检测到数据库（shujuku），无法开启数值系统');
+                return { ok: false, reason: support.reason, missing: support.missing };
+            }
+        }
         materializeStatsBuild(draft, path);
         setPath(draft, path, normalizeSettingsValue(path, value));
         if (path === 'readerSettings.skinDialogScale') setPath(draft, 'readerSettings.dialogAutoHeight', false);
@@ -640,7 +651,7 @@ export function createSettingsHost(deps) {
         return result;
     }
 
-    const STATS_ATTRIBUTES = ['健康', '力量', '敏捷', '理智', '观察', '魅力'];
+    const STATS_ATTRIBUTES = ['力量', '敏捷', '体质', '智力', '感知', '魅力'];
     async function runStatsOp(spec) {
         const op = typeof options.statsOp === 'function' ? options.statsOp : null;
         if (!op) return { ok: false, reason: 'stats-runtime-missing' };
@@ -661,7 +672,7 @@ export function createSettingsHost(deps) {
             } else if (kind === 'skill-remove') {
                 result = await settingsDialogs.confirm(`删除剧情技能「${name}」？主角已有的数值保留。`) ? await op('skill', 'remove', name) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-edit') {
-                const text = String((await settingsDialogs.prompt(`修改「${name}」的一项数值，格式：项目 档位（如「话术 精通」「敏捷 出众」）。技能档：未学、入门、熟练、精通、大师；属性档：很弱、偏弱、普通、出众、顶尖。`, '')) || '').trim();
+                const text = String((await settingsDialogs.prompt(`修改「${name}」的一项技能，格式：技能 档位（如「话术 精通」）。技能档：未学、入门、熟练、精通、大师。`, '')) || '').trim();
                 const [skill, tier] = text.split(/\s+/);
                 result = skill && tier ? await op('sheet', 'edit', name, { skill, tier }) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-regen') {
@@ -673,7 +684,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「技能 档位」。', 'stats-sheet-attribute-readonly': '六维由战斗属性决定，不能在角色卡里改。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();

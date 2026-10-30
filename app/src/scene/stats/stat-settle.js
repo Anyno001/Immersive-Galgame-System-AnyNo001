@@ -96,6 +96,7 @@ function settleCharacters(before, directives, ctx) {
 }
 
 // 23 点以后的行动每天额外记一次熬夜；体力归零时标记强制休息，并按入睡处理。
+// 剧情受伤不改生活条（合并计划 N3）：伤势由战斗账本扫描同一标签、按生命上限百分比入账。
 function settleBars(state, directives, hour, ctx) {
     const list = directives.filter((d) => BAR_KINDS.has(d.kind));
     let stayedUp = state.clock.stayedUp || list.some((d) => d.kind === 'stamina' && d.value === '熬夜');
@@ -138,7 +139,8 @@ function checkFromRollTag(before, tag, opts, ctx) {
         const r = registerStorySkill(opts.catalog || {}, tag.skill, { attribute: tag.attribute, floor: opts.floor });
         if (r.created) {
             ctx.newSkills.push(r.entry);
-            engine = createEngine({ ...(opts.catalog || {}), story: r.catalog.story }, opts.settings || {}, engine.ruleset.ID);
+            engine = createEngine({ ...(opts.catalog || {}), story: r.catalog.story }, opts.settings || {}, engine.ruleset.ID,
+                { readAbilities: engine.readAbilities, readVitals: engine.readVitals, userName: engine.userName });
             skill = r.name;
         } else if (r.reason === 'capped' || r.reason === 'floor-capped') {
             ctx.diagnostics.push({ code: 'stats-skill-cap', name: tag.skill });

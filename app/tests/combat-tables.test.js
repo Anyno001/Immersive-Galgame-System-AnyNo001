@@ -78,12 +78,12 @@ test('缺表直接补建（不经确认）、保留已有表、不参与自动�
     const api = fakeApi();
     const tables = createCombatTables({ api });
     const created = await tables.ensure();
-    assert.deepEqual(created, { ok: true, created: ['profile', 'ledger', 'attribute'] });
+    assert.deepEqual(created, { ok: true, created: ['profile', 'ledger', 'attribute', 'stats'] });
     const { template, options } = api.calls.imports[0];
     assert.deepEqual(options, { scope: 'chat', dataMode: 'seed' });
     assert.ok(template.sheet_user);
     assert.equal(template.mate.updateConfigUiSentinel, -1);
-    for (const kind of ['profile', 'ledger', 'attribute']) {
+    for (const kind of ['profile', 'ledger', 'attribute', 'stats']) {
         const sheet = Object.values(template).find((s) => s && s.name === COMBAT_TABLE_SPECS[kind].name);
         assert.equal(sheet.updateConfig.updateFrequency, 0);
         assert.deepEqual([sheet.exportConfig.enabled, sheet.exportConfig.injectIntoWorldbook], [false, false]);
@@ -116,9 +116,9 @@ test('模板与当前聊天的表不一致时不导入整份模板（导入会�
     const tables = createCombatTables({ api });
     const base = api.getTableTemplate;
     api.getTableTemplate = () => { const t = base(); delete t.sheet_user; return t; };
-    assert.deepEqual(await tables.ensure(), { ok: false, reason: 'combat-table-template-diverged', missing: ['profile', 'ledger', 'attribute'], hidden: ['角色表'] });
+    assert.deepEqual(await tables.ensure(), { ok: false, reason: 'combat-table-template-diverged', missing: ['profile', 'ledger', 'attribute', 'stats'], hidden: ['角色表'] });
     api.getTableTemplate = () => ({ ...base(), sheet_note: { uid: 'sheet_note', name: '备忘表', content: [['row_id', '内容']], orderNo: 4 } });
-    assert.deepEqual(await tables.ensure(), { ok: false, reason: 'combat-table-template-diverged', missing: ['profile', 'ledger', 'attribute'], extra: ['备忘表'] });
+    assert.deepEqual(await tables.ensure(), { ok: false, reason: 'combat-table-template-diverged', missing: ['profile', 'ledger', 'attribute', 'stats'], extra: ['备忘表'] });
     assert.equal(api.calls.imports.length, 0);
 });
 
@@ -127,7 +127,7 @@ test('导入成功但宿主报运行时未就绪（runtimeReady:false）时按�
     const importOnce = api.importTemplateFromData;
     api.importTemplateFromData = async (template, options) => ({ ...(await importOnce(template, options)), runtimeReady: false, postCommitWarning: '模板已保存，但 SQLite 运行时重建失败' });
     const tables = createCombatTables({ api });
-    assert.deepEqual(await tables.ensure(), { ok: false, reason: 'combat-table-runtime-not-ready', created: ['profile', 'ledger', 'attribute'], detail: '模板已保存，但 SQLite 运行时重建失败' });
+    assert.deepEqual(await tables.ensure(), { ok: false, reason: 'combat-table-runtime-not-ready', created: ['profile', 'ledger', 'attribute', 'stats'], detail: '模板已保存，但 SQLite 运行时重建失败' });
 });
 
 test('写入后读回核对；重复写入同一记录不再插行，批次只刷新一次', async () => {

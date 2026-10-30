@@ -1,28 +1,34 @@
 // 检定引擎（数值 v2 §2、§4、§5）：所有掷骰都从这里进，按设置取规则体系；底数只读不改。
 // actor 为 PROTAGONIST 时读主角存档，其余读聊天级 NPC 角色卡（没有卡按普通人默认）。纯函数，random 由调用方给。
+// 六维来自战斗属性视图（合并计划 Q1）：readAbilities(name) 给出 { scores }；读不到时主角按建卡倾向、NPC 按「相当」档推导。
+// 属性在引擎内按「分值 × 5」进入原有百分制底数，规则体系的换算（分值 = 底数 / 5）因此与战斗分值一致。
 import { getRuleset } from './rulesets/index.js';
 import { BUILTIN_SKILLS, COMBAT_SKILLS, CATEGORY_BASE, baseValueOf, createSkillRegistry, guessAttribute } from './stat-registry.js';
-import { BASE_ATTRIBUTES, clamp, withSkills } from './stat-state.js';
+import { clamp, withSkills } from './stat-state.js';
 import { stageOf } from './stat-favor.js';
 import { checkModifiers } from './stat-bars.js';
+import { ABILITY_KEYS, ABILITY_LABELS, deriveAbilities } from '../../combat/abilities.js';
 
 export const PROTAGONIST = '主角';
 export const DIFFICULTIES = Object.freeze(['简单', '普通', '困难', '极难']);
 export const RANKS = Object.freeze(['普通人', '老手', '精英', '大师', '传奇']);
 export const GROWTH_RANK_AT = Object.freeze([0, 10, 25, 45, 70]);
-const NPC_DEFAULT_ATTRIBUTE = 50;
 const FAVOR_EDGE = Object.freeze({ 深爱: 1, 强烈在意: 1, 厌烦排斥: -1, 强烈反感: -1, 仇恨: -2 });
 const SOCIAL_SKILLS = new Set(['话术', '魅惑', '恐吓', '魅力']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角|我|user)$/i;
 
 // catalog：{ story, merged, sheets, protagonistBase }。settings：normalizeStatsSettings 的结果。
-export function createEngine(catalog = {}, settings = {}, ruleset = settings.ruleset) {
+// sources：{ readAbilities(name) → { scores } | null, readVitals(name) → { hp, maxHp, down } | null, userName }。
+export function createEngine(catalog = {}, settings = {}, ruleset = settings.ruleset, { readAbilities = null, readVitals = null, userName = '' } = {}) {
     return {
         ruleset: getRuleset(ruleset),
         registry: createSkillRegistry(catalog),
         sheets: catalog.sheets && typeof catalog.sheets === 'object' ? catalog.sheets : {},
         protagonistBase: catalog.protagonistBase && typeof catalog.protagonistBase === 'object' ? catalog.protagonistBase : {},
         natural: Boolean(settings.dndNatural),
+        readAbilities: typeof readAbilities === 'function' ? readAbilities : null,
+        readVitals: typeof readVitals === 'function' ? readVitals : null,
+        userName: String(userName || ''),
     };
 }
 
@@ -44,14 +50,34 @@ function entryOf(engine, skill) {
     return { kind: 'skill', attribute: guessAttribute(skill) || '敏捷', category: 'general', aliases: [], origin: 'custom' };
 }
 
-function protagonistAttributes(state) {
-    const skills = (state && state.protagonist && state.protagonist.skills) || {};
-    return Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Number(skills[name] && skills[name].value) || 50]));
+function safeRead(fn, name) {
+    if (!fn) return null;
+    try { return fn(name) || null; } catch (error) { return null; }
 }
 
-function npcAttributes(sheet) {
-    const own = (sheet && sheet.attributes) || {};
-    return Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Number(own[name]) || NPC_DEFAULT_ATTRIBUTE]));
+function attributesOfScores(scores) {
+    return Object.fromEntries(ABILITY_KEYS.map((k) => [ABILITY_LABELS[k], (Number(scores && scores[k]) || 10) * 5]));
+}
+
+// 主角：战斗属性视图优先；没有时按存档里的建卡倾向用标准数组推导（N1），倾向缺省按默认职业原型。
+function protagonistAttributes(engine, state) {
+    const view = safeRead(engine.readAbilities, engine.userName || PROTAGONIST);
+    if (view && view.scores) return attributesOfScores(view.scores);
+    const prefs = (state && state.protagonist && state.protagonist.prefs) || null;
+    return attributesOfScores(deriveAbilities({ prefs, name: engine.userName || PROTAGONIST, protagonist: true }).scores);
+}
+
+// NPC：战斗属性视图（rel 档位）为准；没有记录时按「相当」档与默认倾向推导，数值角色卡不再给属性。
+function npcAttributes(engine, actor) {
+    const view = safeRead(engine.readAbilities, actor);
+    if (view && view.scores) return attributesOfScores(view.scores);
+    return attributesOfScores(deriveAbilities({ name: actor, protagonist: false }).scores);
+}
+
+// 主角生命视图（战斗生命上限与伤势）；读不到返回 null（提示词写「未知」、状态栏不画生命条、检定不加伤势惩罚）。
+export function protagonistVitals(engine) {
+    const v = safeRead(engine.readVitals, engine.userName || PROTAGONIST);
+    return v && Number(v.maxHp) > 0 ? v : null;
 }
 
 // 没有该技能的 NPC 按所属属性估临时值（§6.2 第一层）：属性很高给「熟练」中值，较高给「入门」中值。
@@ -66,7 +92,7 @@ export function provisionalSkillValue(attributeValue, base) {
 export function profileOf(engine, state, actor, skill) {
     const entry = entryOf(engine, skill);
     if (isProtagonist(actor)) {
-        const attrs = protagonistAttributes(state);
+        const attrs = protagonistAttributes(engine, state);
         const owned = state && state.protagonist && state.protagonist.skills[skill];
         const rank = rankOfGrowth(state && state.protagonist && state.protagonist.growth);
         if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };
@@ -75,7 +101,7 @@ export function profileOf(engine, state, actor, skill) {
         return { skill, kind: 'skill', value, learned: Boolean(owned) || backfilled > 0, attributeValue: attrs[entry.attribute], rank, entry };
     }
     const sheet = engine.sheets[actor] || null;
-    const attrs = npcAttributes(sheet);
+    const attrs = npcAttributes(engine, actor);
     const rank = (sheet && sheet.rank) || RANKS[0];
     if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };
     const own = sheet && sheet.skills && Number(sheet.skills[skill]);
@@ -96,7 +122,7 @@ export function modifiersOf(engine, state, { actor, skill, toward, ally, edge = 
     let net = Number(edge) || 0;
     let shift = 0;
     if (isProtagonist(actor) && state && state.protagonist) {
-        const mods = checkModifiers(state.protagonist.bars);
+        const mods = checkModifiers(state.protagonist.bars, protagonistVitals(engine));
         if (mods.penalty) {
             net -= engine.ruleset.EDGE_MAX > 1 ? mods.penalty : 1;
             notes.push('状态不佳');

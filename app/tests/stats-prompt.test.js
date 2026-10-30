@@ -22,7 +22,9 @@ test('模板变量缺失时原样保留并记诊断，不中断（§9）', () =>
 test('默认注入段：来源声明、主角状态、标签说明；没有在场角色与检定时不出对应段', () => {
     const r = buildStatsPrompt(createStatsState());
     assert.deepEqual(r.segments.map((s) => s.id), ['source', 'protagonist', 'tags']);
-    assert.match(r.content, /生命100\/100，体力100\/100/);
+    // 生命视图未就绪时写「未知」，不当满血。
+    assert.match(r.content, /生命未知，体力100\/100/);
+    assert.match(buildStatsPrompt(createStatsState(), { vitals: { hp: 56, maxHp: 80, down: false } }).content, /生命56\/80，/);
     assert.match(r.content, /\[igs-stat:favor\|角色名\|开心\/感动/);
     assert.deepEqual(r.diagnostics, []);
 });
@@ -55,22 +57,23 @@ test('亲密门槛：NSFW 开启且未达标时要求拒绝或回避；关闭 NS
 test('本轮检定段、强制事项段；可单独关闭；用户模板覆盖优先', () => {
     const r = buildStatsPrompt(createStatsState(), {
         check: { skill: '烹饪', roll: 33, threshold: 25, outcome: '失败' },
-        mandates: mandatesFromFlags({ forcedRest: true }, { health: 0 }),
+        mandates: mandatesFromFlags({ forcedRest: true }, { hp: 0, maxHp: 80, down: true }),
         disabled: ['source', 'tags'],
         prompts: { protagonist: '体力{{体力}}{{不存在}}' },
     });
     assert.deepEqual(r.segments.map((s) => s.id), ['protagonist', 'check', 'mandates']);
     assert.match(r.content, /1d100=33，需≤25，结果【失败】/);
-    assert.match(r.content, /昏睡或休息；主角昏迷/);
+    assert.match(r.content, /昏睡或休息；主角已倒下/);
     assert.equal(r.segments[0].text, '体力100{{不存在}}');
     assert.equal(r.diagnostics[0].name, '不存在');
 });
 
 test('主角状态描述：疲惫、重伤、压力大、买不起', () => {
-    const text = describeProtagonist({ health: 10, stamina: 20, stress: 80, money: 0 }, { shortfall: true });
+    const text = describeProtagonist({ stamina: 20, stress: 80, money: 0 }, { shortfall: true, vitals: { hp: 10, maxHp: 80, down: false } });
     assert.match(text, /重伤/);
     assert.match(text, /疲惫/);
     assert.match(text, /压力很大/);
     assert.match(text, /买不起/);
-    assert.equal(describeProtagonist({ health: 100, stamina: 100, stress: 0 }), '');
+    assert.equal(describeProtagonist({ stamina: 100, stress: 0 }), '');
+    assert.match(describeProtagonist({ stamina: 100, stress: 0 }, { vitals: { hp: 0, maxHp: 80, down: true } }), /已倒下/);
 });

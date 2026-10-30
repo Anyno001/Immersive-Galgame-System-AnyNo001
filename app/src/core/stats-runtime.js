@@ -17,7 +17,7 @@ import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, regi
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
 import {
     PROTAGONIST, chanceOf, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, createEngine, isProtagonist,
-    isSocialSkill, prerollTable, profileOf, resolveCheck, resolveDiceRequest, rollPreroll,
+    isSocialSkill, prerollTable, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, rollPreroll,
 } from '../scene/stats/stat-engine.js';
 import {
     PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, ATTRIBUTE_TIERS, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
@@ -61,13 +61,15 @@ function defaultResolver(c, register) {
     };
 }
 
-const ATTRIBUTE_WORD = (v) => (v >= 75 ? '顶尖' : v >= 60 ? '出众' : v >= 45 ? '普通' : v >= 35 ? '偏弱' : '很弱');
 const PERCEPTION_WORD = ['迟钝，常漏掉细节', '普通，明显的变化能注意到', '敏锐，能察觉异样', '很敏锐，能发现藏起来的线索', '极其敏锐，几乎不会漏掉什么'];
+// 属性加值：引擎内属性值 = 战斗分值 × 5，加值按 D&D 调整值 floor((分值 − 10) / 2)。
+const signed = (n) => (n >= 0 ? `+${n}` : String(n));
+const abilityModOfValue = (v) => Math.floor((Math.round((Number(v) || 50) / 5) - 10) / 2);
 
-// 主角技能档位一行（v2 §8 skills 段）：属性写档位词，技能只列入门以上，不写数字。
+// 主角技能档位一行（v2 §8 skills 段）：六维写加值（战斗属性视图），技能只列入门以上。
 function skillsLineOf(engine, state) {
     const skills = state.protagonist.skills;
-    const attrs = BASE_ATTRIBUTES.map((name) => `${name}${ATTRIBUTE_WORD(Number(skills[name] && skills[name].value) || 50)}`);
+    const attrs = BASE_ATTRIBUTES.map((name) => `${name}${signed(abilityModOfValue(profileOf(engine, state, PROTAGONIST, name).value))}`);
     const learned = Object.entries(skills).filter(([name]) => !BASE_ATTRIBUTES.includes(name))
         .map(([name, s]) => [name, Number(s && s.value) || 0]).filter(([, v]) => v >= 25)
         .sort((a, b) => b[1] - a[1]).slice(0, SKILLS_LINE_MAX).map(([name, v]) => `${name}${skillTierOfValue(v)}`);
@@ -75,7 +77,7 @@ function skillsLineOf(engine, state) {
 }
 
 function perceptionLineOf(engine, state) {
-    const p = profileOf(engine, state, PROTAGONIST, Number(state.protagonist.skills.侦查 && state.protagonist.skills.侦查.value) > Number(state.protagonist.skills.观察 && state.protagonist.skills.观察.value) ? '侦查' : '观察');
+    const p = profileOf(engine, state, PROTAGONIST, state.protagonist.skills.侦查 ? '侦查' : '感知');
     if (engine.ruleset.ID === 'dnd5e') {
         const passive = engine.ruleset.passiveValue(p);
         return PERCEPTION_WORD[passive >= 18 ? 4 : passive >= 15 ? 3 : passive >= 12 ? 2 : passive >= 9 ? 1 : 0];
@@ -88,6 +90,8 @@ export function createStatsRuntime({
     getContext, readSettings, resolveCharacter, isNsfw = () => false, presentOf = null, onChange = () => {},
     getPushClient = () => null, pushOptions = {}, isBackground = () => false, getBackgroundRequest = () => null,
     describePeople = null, sheetStore = null, onCheck = () => {}, onNotices = () => {}, resumeReply = null, worldviewOf = () => '',
+    // 战斗账本提供的六维与生命（合并计划 Q1/Q4）：() → { ready, readAbilities(name, { heroPrefs }), readVitals(name, { heroPrefs }), refresh({ write, messageIds, battleHurts, heroPrefs }) } | null。
+    combatSource = () => null,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -110,7 +114,27 @@ export function createStatsRuntime({
     const ctx = () => { try { return getContext(); } catch (error) { return null; } };
     const settings = () => normalizeStatsSettings(readSettings ? readSettings() : null);
     const active = () => Boolean(settings().enabled && chatEnabled && ledger);
-    const engineOf = (ruleset) => createEngine(catalog, settings(), ruleset);
+    const source = () => { try { return combatSource() || null; } catch (error) { return null; } };
+    const heroPrefs = () => (ledger ? currentStatsState(ledger).protagonist.prefs || null : null);
+    const engineOf = (ruleset) => {
+        const src = source();
+        const read = (fn) => (src && typeof fn === 'function' ? (name) => fn(name, { heroPrefs: heroPrefs() }) : null);
+        return createEngine(catalog, settings(), ruleset, {
+            readAbilities: read(src && src.readAbilities), readVitals: read(src && src.readVitals),
+            userName: (ctx() && ctx().name1) || '',
+        });
+    };
+    // 生命条目同步（合并计划 N3）：结算后把本楼剧情受伤 / 速算伤势 / 回血写进战斗日志，换 swipe、删楼后只重新归并；完成后通知界面刷新。
+    // 写入失败只记诊断，不改数值存档（伤势以战斗日志为准，下次结算或换聊天时补扫）。
+    function syncLife(opts = {}) {
+        const src = source();
+        if (!src || typeof src.refresh !== 'function') { diag('stats-life-source-missing'); return Promise.resolve({ ok: false, reason: 'stats-life-source-missing' }); }
+        return Promise.resolve().then(() => src.refresh({ ...opts, heroPrefs: heroPrefs() })).then((r) => {
+            if (!r || r.ok !== true) diag('stats-life-sync-failed', { reason: r && r.reason });
+            if (r && r.reason !== 'request-stale' && ledger) onChange(currentStatsState(ledger), null);
+            return r;
+        }, (error) => { diag('stats-life-sync-threw', { error: String(error && error.message || error) }); return { ok: false, reason: 'stats-life-sync-threw' }; });
+    }
     const diag = (code, extra = {}) => { diagnostics.push({ code, ...extra }); if (diagnostics.length > DIAG_MAX) diagnostics.shift(); };
     const background = () => { try { return Boolean(isBackground()); } catch (error) { return false; } };
     const present = (state) => {
@@ -165,12 +189,20 @@ export function createStatsRuntime({
         let client = null;
         try { client = getPushClient(); } catch (error) { client = null; }
         if (!client) return Promise.resolve({ ok: false, reason: 'stats-push-no-client' });
-        const run = () => pushStats(client, currentStatsState(ledger), { ...pushOptions, overridesByFingerprint: settings().push.mappings }).then((r) => {
+        // 基础属性只在属性视图已就绪时推送战斗六维分值；未就绪时不写，避免把默认推导值当真值写进表格。
+        const baseAttributesOf = (state) => {
+            const src = source();
+            if (!src || src.ready !== true) return null;
+            const engine = engineOf();
+            return Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Math.round((Number(profileOf(engine, state, PROTAGONIST, name).value) || 50) / 5)]));
+        };
+        const run = () => { const state = currentStatsState(ledger); return pushStats(client, state, { ...pushOptions, overridesByFingerprint: settings().push.mappings, baseAttributes: baseAttributesOf(state) }); };
+        const runLogged = () => run().then((r) => {
             if (!r.ok) diag(r.reason || 'stats-push-partial', { failures: (r.failures || []).length });
             (r.diagnostics || []).forEach((d) => diag(d.code, d));
             return r;
         }, (error) => { diag('stats-push-threw', { error: String(error && error.message || error) }); return { ok: false, reason: 'stats-push-threw' }; });
-        pushing = (pushing || Promise.resolve()).then(run, run);
+        pushing = (pushing || Promise.resolve()).then(runLogged, runLogged);
         return pushing;
     }
 
@@ -255,8 +287,9 @@ export function createStatsRuntime({
         const engine = engineOf(g.ruleset);
         const names = present(state);
         const table = g.preroll && !g.check ? prerollTable(engine, state, g.preroll, { present: names.slice(0, PRESENT_MAX) }) : null;
+        const vitals = protagonistVitals(engine);
         const built = buildStatsPrompt(state, {
-            present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars),
+            present: names, shortfall: flags.shortfall,mandates: mandatesFromFlags(flags, vitals), vitals,
             nsfw: isNsfw(), intimacyGate: s.intimacyGate, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
@@ -313,6 +346,8 @@ export function createStatsRuntime({
         onChange(currentStatsState(ledger), r.entry);
         push();
         const meta = r.entry.meta || {};
+        const battleHurt = meta.flags && meta.flags.battleHurt;
+        syncLife({ write: true, messageIds: [messageId], battleHurts: new Map(battleHurt ? [[messageId, battleHurt]] : []) });
         if (meta.check && meta.check.source === 'roll' && !redo) playCheck(meta.check, messageId);
         if (meta.pendingRoll && s.storyCheck === 'manual') offerManualRoll(r.entry);
         detectNewCharacters();
@@ -371,6 +406,7 @@ export function createStatsRuntime({
         persist();
         onChange(currentStatsState(ledger), null);
         push();
+        syncLife();
     }
 
     function onDeleted() {
@@ -381,6 +417,7 @@ export function createStatsRuntime({
         persist();
         onChange(currentStatsState(ledger), null);
         push();
+        syncLife();
     }
 
     // 编辑正文：只重算这一楼，从本楼结算前快照出发，不级联（易错点 A5）。
@@ -399,6 +436,7 @@ export function createStatsRuntime({
         autoEnable();
         onChange(ledger ? currentStatsState(ledger) : null, null, { chatChanged: true });
         refreshOnboarding();
+        if (active()) syncLife();
     }
 
     function detach() {
@@ -432,7 +470,7 @@ export function createStatsRuntime({
     // 设置变化后调用：总开关开就挂监听并读存档，关就全部解绑（易错点 H1）。
     function sync() {
         const on = settings().enabled;
-        if (on && !offs.length) { if (attach()) { load(); autoEnable(); refreshOnboarding(); } }
+        if (on && !offs.length) { if (attach()) { load(); autoEnable(); refreshOnboarding(); if (active()) syncLife(); } }
         else if (!on && offs.length) { detach(); notices.clear(); emitNotices(); }
         return { attached: offs.length > 0 };
     }
@@ -730,7 +768,8 @@ export function createStatsRuntime({
             const skill = engineOf().registry.resolve(payload.skill) || String(payload.skill || '').trim();
             const tier = String(payload.tier || '').trim();
             const chatSeed = chatIdOf(ctx());
-            if (BASE_ATTRIBUTES.includes(skill) && ATTRIBUTE_TIERS[tier]) sheets[name] = { ...cur, attributes: { ...cur.attributes, [skill]: bandValue(ATTRIBUTE_TIERS[tier], `${chatSeed}|${name}|${skill}`) }, source: 'user' };
+            // 六维以战斗属性视图为准（合并计划 P2），角色卡不再存属性。
+            if (BASE_ATTRIBUTES.includes(skill)) return { ok: false, reason: 'stats-sheet-attribute-readonly' };
             else if (skill && Object.hasOwn(SKILL_TIERS, tier)) {
                 const skills = { ...cur.skills };
                 const v = bandValue(SKILL_TIERS[tier], `${chatSeed}|${name}|${skill}`);

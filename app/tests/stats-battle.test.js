@@ -25,21 +25,21 @@ test('敌人档：杂兵 1 次、精英 2 次、头目 3 次对抗（§6A）', (
     }
 });
 
-test('大胜：小耗体力、拿战利品、给对抗技能打成长勾', () => {
+test('大胜：小耗体力、拿战利品、不记伤势', () => {
     const r = settle('[igs-stat:battle|杂兵|1]', stateWith(), seq(0.15, 0.15, 0.99, 0.99));
     assert.equal(r.meta.flags.battle.outcome, '大胜');
     assert.equal(r.state.protagonist.bars.stamina, 95);
     assert.equal(r.state.protagonist.bars.money, 20);
-    assert.equal(r.state.protagonist.skills.力量.marked, true);
+    assert.equal(r.meta.flags.battleHurt, undefined);
 });
 
-test('战败不会死亡：按敌人档受伤、体力 −30、丢两成金钱，并要求 AI 写出结局', () => {
+test('战败：伤势档位交给战斗日志（不改生活条）、体力 −30、丢两成金钱，并要求 AI 写出结局', () => {
     const r = settle('[igs-stat:battle|杂兵]', stateWith({ money: 100 }), high);
     assert.equal(r.meta.flags.battle.outcome, '败');
+    assert.equal(r.meta.flags.battleHurt, '轻伤');
     const bars = r.state.protagonist.bars;
-    assert.deepEqual([bars.health, bars.stamina, bars.money], [85, 70, 80]);
-    assert.ok(bars.health > 0);
-    assert.match(mandatesFromFlags(r.meta.flags, bars).join(''), /【败】/);
+    assert.deepEqual([bars.health, bars.stamina, bars.money], [undefined, 70, 80]);
+    assert.match(mandatesFromFlags(r.meta.flags).join(''), /【败】/);
 });
 
 test('队友并肩取胜算「共患难」，可突破好感关口；解析不了的队友名记诊断并去掉', () => {

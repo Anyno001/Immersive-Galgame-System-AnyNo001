@@ -1,5 +1,6 @@
 // NPC 角色卡与批量补全（数值 v2 §6.2–§6.4）：LLM 只给档位词，脚本按「聊天种子 + 角色名 + 项目名」在档位区间里取底数。
 // 解析只收白名单档位；出现数字整格丢弃；整份解析失败时返回 ok:false，不写半份数据（易错点 N3/N4）。
+// 六维以战斗属性视图为准（合并计划 P2）：角色卡只存资历、技能与招牌技能；回复里的「属性」忽略不计。
 import { BASE_ATTRIBUTES } from './stat-state.js';
 import { normalizeAttribute, validSkillName } from './stat-registry.js';
 import { RANKS } from './stat-engine.js';
@@ -84,7 +85,7 @@ export function buildSheetRequest(people, { worldview = '', skills = [], prompt 
     };
 }
 
-// 返回 { ok, sheets: { 名: { rank, attributes: {名: 档}, skills: {名: 档}, signature: [{ name, attribute }] } }, diagnostics }
+// 返回 { ok, sheets: { 名: { rank, skills: {名: 档}, signature: [{ name, attribute }] } }, diagnostics }
 export function parseSheetReply(reply, { names = [], registry } = {}) {
     const obj = extractJson(reply);
     const diagnostics = [];
@@ -93,13 +94,6 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
     for (const name of names) {
         const raw = obj[name];
         if (!raw || typeof raw !== 'object') continue;
-        const attributes = {};
-        for (const [k, v] of Object.entries(raw.属性 || raw.attributes || {})) {
-            const attr = normalizeAttribute(k);
-            const tier = attributeTier(v);
-            if (attr && tier) attributes[attr] = tier;
-            else diagnostics.push({ code: 'stats-sheet-cell-dropped', name, key: k });
-        }
         const skills = {};
         for (const [k, v] of Object.entries(raw.技能 || raw.skills || {})) {
             const skill = registry ? registry.resolve(k) : validSkillName(k);
@@ -113,7 +107,7 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
             const skillName = validSkillName(item && (item.名 || item.name));
             if (skillName && signature.length < 3) signature.push({ name: skillName, attribute: normalizeAttribute(item.属性 || item.attribute) });
         }
-        sheets[name] = { rank: rankWord(raw.资历 || raw.rank) || RANKS[0], attributes, skills, signature };
+        sheets[name] = { rank: rankWord(raw.资历 || raw.rank) || RANKS[0], skills, signature };
     }
     if (!Object.keys(sheets).length) return { ok: false, reason: 'stats-sheet-empty', sheets, diagnostics };
     return { ok: true, sheets, diagnostics };
@@ -121,11 +115,6 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
 
 // 档位 → 底数。chatSeed 为聊天 id，保证切换体系、重开都不变（N4）。
 export function sheetFromTiers(name, tiers, { chatSeed = '' } = {}) {
-    const attributes = {};
-    for (const attr of BASE_ATTRIBUTES) {
-        const tier = tiers.attributes[attr] || '普通';
-        attributes[attr] = bandValue(ATTRIBUTE_TIERS[tier], `${chatSeed}|${name}|${attr}`);
-    }
     const skills = {};
     for (const [skill, tier] of Object.entries(tiers.skills || {})) {
         const v = bandValue(SKILL_TIERS[tier], `${chatSeed}|${name}|${skill}`);
@@ -134,7 +123,7 @@ export function sheetFromTiers(name, tiers, { chatSeed = '' } = {}) {
     for (const sig of tiers.signature || []) {
         if (!skills[sig.name]) skills[sig.name] = bandValue(SKILL_TIERS.精通, `${chatSeed}|${name}|${sig.name}`);
     }
-    return { rank: tiers.rank || RANKS[0], attributes, skills, signature: (tiers.signature || []).map((s) => s.name), source: 'llm', provisional: {} };
+    return { rank: tiers.rank || RANKS[0], skills, signature: (tiers.signature || []).map((s) => s.name), source: 'llm', provisional: {} };
 }
 
 // people：[{ name, summary }]（含主角，名字为「主角」）；skills：待补的技能名。
@@ -166,7 +155,7 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
 
 // 补全写回 NPC 卡：已有的非临时值不改，只填空（§6.2 第三层）。返回新卡。
 export function applyBackfillToSheet(sheet, fill, { name, chatSeed = '' } = {}) {
-    const base = sheet || { rank: RANKS[0], attributes: {}, skills: {}, signature: [], source: 'default', provisional: {} };
+    const base = sheet || { rank: RANKS[0], skills: {}, signature: [], source: 'default', provisional: {} };
     const skills = { ...(base.skills || {}) };
     const provisional = { ...(base.provisional || {}) };
     let changed = false;

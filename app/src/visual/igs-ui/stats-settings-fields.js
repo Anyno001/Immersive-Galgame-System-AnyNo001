@@ -1,9 +1,8 @@
 // 数值系统提示词编辑（§9）：每段一个可编辑模板，可单独关闭，可恢复默认；阶段文案同样可改。
 // 留空表示使用默认值（默认值作为占位提示显示），整块默认折叠在高级分区里。
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
-import { BUILD_CUSTOM_MAX, BUILD_MAX, BUILD_MIN, BUILD_SPECIAL_COUNT, buildSummary, normalizeBuild, specialCandidates } from '../../scene/stats/stat-build.js';
-import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
-import { checkbox, field, numberInput, selectInput, textareaInput } from './settings-fields.js';
+import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_SPECIAL_COUNT, buildSummary, normalizeBuild, specialCandidates } from '../../scene/stats/stat-build.js';
+import { checkbox, field, selectInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
 
 export const STAT_PROMPT_LABELS = Object.freeze({
@@ -67,12 +66,12 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
 }
 
 // 存档区（§10）：当前数值一目了然；技能与变动记录折叠，低频信息不平铺。model 为 statsArchiveModel 的结果。
-const MAPPING_TARGETS = Object.freeze({ health: '生命', stamina: '体力', money: '金钱', stress: '压力', base: '基础属性', special: '特有属性' });
+const MAPPING_TARGETS = Object.freeze({ stamina: '体力', money: '金钱', stress: '压力', base: '基础属性', special: '特有属性' });
 
 // 建卡区提示文案与可用状态：渲染和输入时就地刷新共用同一份计算。
 export function statsBuildStatus(build, worldview) {
     const s = buildSummary(build, { worldview });
-    const pointNote = s.left < 0 ? `超出 ${-s.left} 点，请调低几项。` : `剩余 ${s.left} 点（每项 ${BUILD_MIN}–${BUILD_MAX}）`;
+    const pointNote = s.errors.includes('stats-build-prefs-duplicate') ? '主擅长、次擅长、短板须是三项不同的属性。' : '主擅长 15、次擅长 14、短板 8，其余三项 13 / 12 / 10。';
     const specialNote = s.picked.length > BUILD_SPECIAL_COUNT
         ? `特有技能最多选 ${BUILD_SPECIAL_COUNT} 项（已选 ${s.picked.length} 项）。`
         : `特有技能已选 ${s.picked.length}/${BUILD_SPECIAL_COUNT}，每项 50 起步。`;
@@ -93,11 +92,11 @@ export function refreshStatsBuildStatus(root, build, worldview) {
     return true;
 }
 
-// 建卡分配（§6、§10A）：默认折叠；超点或多选时「按分配启用」禁用并说明原因。
+// 建卡（合并计划 N1）：默认折叠；倾向重复或多选技能时「按分配启用」禁用并说明原因。
 export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview } = {}) {
     const b = normalizeBuild(build);
     const st = statsBuildStatus(b, worldview);
-    const base = BASE_ATTRIBUTES.map((name) => field(`bridge.stats.build.base.${name}`, name, numberInput(`bridge.stats.build.base.${name}`, b.base[name], BUILD_MIN, BUILD_MAX))).join('');
+    const base = BUILD_PREF_FIELDS.map((f) => field(`bridge.stats.build.prefs.${f}`, BUILD_PREF_LABELS[f], selectInput(`bridge.stats.build.prefs.${f}`, b.prefs[f], BUILD_ABILITY_OPTIONS))).join('');
     // 技能选择沿用原有开关样式：默认 8 项、世界观附加与自定义技能同一种开关，不加附注、不加容器。
     const special = specialCandidates(b, { worldview }).map((name) => checkbox(`bridge.stats.build.special.${name}`, b.special[name], name)).join('');
     // 自定义技能已在上方开关列表里，下方这一行只放增删按钮，不重复列名字。
@@ -109,7 +108,7 @@ export function renderStatsBuildFields(build, advancedOpen = () => '', { worldvi
         : '';
     const customRow = `<div class="igs-settings-field igs-stats-custom-row"><span>自定义技能</span><div class="igs-mood-word-list">${addSkill}${removeSkill}</div></div>`;
     return `<details class="igs-settings-sub igs-settings-advanced" data-stats-worldview="${esc(worldview || 'modern')}" data-advanced="stats-build"${advancedOpen('stats-build')}>`
-        + '<summary>分配点数（基础属性各 40 起，另有 60 点）</summary>'
+        + '<summary>建卡（六维倾向与特有技能）</summary>'
         + `<div class="igs-source-filter-note" data-result="stats-build">${esc(st.pointNote)}</div>`
         + `<div class="igs-source-filter-grid">${base}</div>`
         + `<div class="igs-source-filter-note" data-result="stats-build-special">${esc(st.specialNote)}</div>`
@@ -147,7 +146,7 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
     const n = (v) => esc(String(Math.round(Number(v) || 0)));
     const bars = model.bars || {};
-    const head = `<div class="igs-source-filter-note">${model.day != null ? `第 ${n(model.day)} 天 · ` : ''}生命 ${n(bars.health)} · 体力 ${n(bars.stamina)} · 压力 ${n(bars.stress)} · 金钱 ${n(bars.money)}</div>`;
+    const head = `<div class="igs-source-filter-note">${model.day != null ? `第 ${n(model.day)} 天 · ` : ''}${model.vitals ? `生命 ${n(model.vitals.down ? 0 : model.vitals.hp)}/${n(model.vitals.maxHp)} · ` : ''}体力 ${n(bars.stamina)} · 压力 ${n(bars.stress)} · 金钱 ${n(bars.money)}</div>`;
     const people = model.characters.length
         ? model.characters.map((c) => {
             const dims = Object.entries(c.dims).map(([k, v]) => `${esc(k)} ${n(v)}`).join(' · ');
