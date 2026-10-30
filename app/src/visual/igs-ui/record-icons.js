@@ -1,6 +1,8 @@
 // Project-owned, static SVG paths; database values never enter SVG markup.
 // 统一细线描边：24 网格、圆角端点，粗细由样式层 stroke-width 控制（默认 1.3）。
 const svg = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+// 同规格外壳给战斗卡面纹样、意图箭头复用；body 只能是程序常量。
+export const lineIconSvg = svg;
 
 const ITEM_ICONS = Object.freeze({
     key: svg('<circle cx="7.5" cy="16.5" r="3.5"/><path d="M10 14 20 4M16.5 7.5 19 10M18.5 5.5l2 2"/>'),

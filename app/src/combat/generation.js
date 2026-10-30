@@ -1,16 +1,17 @@
-import { COMBAT_RULES, combatSpeedFor } from './rules.js';
+import { ALLY_FILL_COMPOSITE_LEVEL, COMBAT_RULES, allyFillCap, combatSpeedFor } from './rules.js';
 import { hashString } from './random.js';
-import { REWARD_ORIGIN_MAX, effectsDamage, ledgerEntryId, normalizeCard, normalizeLedgerEntry, normalizeProfile, normalizeSkill, profileIdFor, validateStarterDeck } from './schema.js';
-import { templateCatalogText } from './card-templates.js';
+import { REWARD_ORIGIN_MAX, effectsDamage, gearIdFor, ledgerEntryId, normalizeCard, normalizeLedgerEntry, normalizeProfile, normalizeSkill, profileIdFor, validateStarterDeck } from './schema.js';
+import { CARD_TEMPLATES, COMPOSITE_SKILL_KEYS, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, nearestTemplateCost, passiveAtRarity, templateCatalogText } from './card-templates.js';
+import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { enemyArtCatalogText } from './enemy-art.js';
-import { CARD_COST_SLOTS, assembleClass, assembleClassTier, assembleDeck, assembleEnemy, assembleGear, assembleGrowth, assembleItem, assembleReward, assembleSkillCharacter, assembleTrait, costSlotsFor } from './generation-assembly.js';
+import { CARD_COST_SLOTS, assembleClass, assembleClassTier, assembleDeck, assembleEnemy, assembleGear, assembleGrowth, assembleItem, assembleReward, assembleSkillCharacter, assembleSkillFill, assembleTrait, costSlotsFor } from './generation-assembly.js';
 import { parseCombatInit } from './abilities.js';
 import { planRewardSlots } from './rewards.js';
 
 // 副 LLM 生成：程序构造请求、解析 JSON、逐实体校验；不合格实体最多定向修正 MAX_FIX_ROUNDS 轮，已通过的不再提交。
 // request 与 llm 配置由调用方注入（createSecondaryLlm().request），combat 不读宿主、不落账。
 // 这条链路只证明解析与校验正确，不证明模型生成质量。
-export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait']);
+export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait', 'skill-fill']);
 export const MAX_FIX_ROUNDS = 2;
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -77,13 +78,14 @@ export const GENERATION_SYSTEM = [
     '- profile-deck：{"classRef"?:"没有 input.classRef 时可选 existingClasses 中合适职业的 id；省略则使用同一请求里本角色的 class","aliases"?:[≤5 个称呼],"hp"?:所用职业原型在 input.archetypeHp 中的范围,"passive":个人被动,"skill":["人物技能名","卡牌模板键"]——人物技能，第二项必须取自卡牌模板目录（技能模板键在这里无效）；按这个角色本人的设定、性格与招式设计，每人不同，不要与职业特性重复；战斗中每回合可主动用一次,"cards":[4–6 张个人卡牌],"signature"?:[0–2 张专属卡]——这个角色最具代表性的绝技或成名招式，名称就是剧情里会出现的招式名，开局不持有，剧情中习得同名技能时解锁；主角与重要角色应给 2 张}',
     '- profile-skill：{"aliases"?:[≤5 个称呼],"className"?:"≤12 字","hp"?:20–120,"tier"?:"support|peer|ace|legend——按该角色在剧情中的实力地位相对主角选择：support 弱于主角、peer 相当、ace 明显强于主角（可靠的强力同伴）、legend 碾压级；拿不准时选 peer","skills":[3–5 个技能],"passives":[1–2 个被动]}',
     `- enemy：{"art"?:"外观格位键，按敌人名称与剧情形象选最接近的一格。${enemyArtCatalogText()}","hp"?:input.hpRange 范围内,"skills":[2–4 个技能],"passives"?:[0–2 个被动]}；input.tier 为 boss 时可另给 "enrage":技能，半血后加入。`,
-    '- skill-to-card：{"name"?:"默认 input.skill","template":"input.output 为 card 时填卡牌模板键，为 skill 时填技能模板键","cost"?:卡牌费用 0–3}；input.mode 为 upgrade 时另填 "targetId"：从 input.candidates 选出被精进的那一项，找不到时填 ""。',
-    '- equip-to-passive：{"template":"被动模板键"}——按 input.name、input.slot（weapon 武器 / armor 防具 / accessory 饰品 / treasure 宝物）与 input.description 选最贴合这件装备的被动；名称与数值由程序给定。',
-    '- item-to-consumable：{"template":"道具模板键"}——按 input.name 与 input.description 选最贴合这件一次性道具的效果；名称、数量与数值由程序给定。',
+    '- skill-to-card：{"name"?:"默认 input.skill","template":"input.output 为 card 时填卡牌模板键，为 skill 时填技能模板键","cost"?:卡牌费用 0–3}；input.mode 为 upgrade 时另填 "targetId"：从 input.candidates 选出被精进的那一项，找不到时填 ""。input.templates 存在时（卡牌带 input.rarity）模板只能从其中选，可另填 "values":[整数…]——按 input.templateVars 中所选模板各变量的范围依次给数值，程序按费用 × 稀有度预算校验，不合格会要你修改；省略 values 则由程序求解。',
+    '- equip-to-passive：{"template":"被动模板键"}——按 input.name、input.slot（weapon 武器 / armor 防具 / accessory 饰品 / treasure 宝物）与 input.description 选最贴合这件装备的被动；名称与数值由程序给定。input.rarity 存在时改回 {"ability":"六维键 str/dex/con/int/wis/cha，按名称与简述选这件装备加成的一项","template":"被动模板键，只能从 input.templates 中选"}；没有 input.templates 时这件装备没有被动，只回 ability。',
+    '- item-to-consumable：{"template":"道具模板键"}——按 input.name 与 input.description 选最贴合这件一次性道具的效果；input.templates 存在时只能从其中选（数值按 input.rarity 由程序放大）；名称、数量与数值由程序给定。',
     `- battle-reward：{"slots":[按 input.slots 的顺序每槽一项 ["名称","模板键","来历"]],"reserve":[按 input.reserve 的顺序同样每槽一项]}——slots、reserve 的项数分别与 input.slots、input.reserve 相同；reserve 是翻牌重抽时换上的备用一套，名称不与 slots 重复。来历 ≤${REWARD_ORIGIN_MAX} 字，写这件东西从哪来，贴合 input.encounter、input.enemies 与剧情（context.story、context.worldInfo）。按该槽的 kind 填模板键：card 填卡牌模板键（费用为该槽的 cost，0 费只能用「0 费槽可用」的模板）；gear 填被动模板键，名称贴合该槽的 gearSlot（weapon 武器 / armor 防具 / accessory 饰品 / treasure 宝物）；item 是一次性道具，填道具模板键；keepsake 是没有战斗效果的杂物（如褪色的发绳、半块桂花糕），模板键填 null。每槽都必须起名，名称与来历的品相贴合该槽的 rarity（common 普通、uncommon 罕见、rare 稀有、epic 史诗、mythic 神话）。稀有度、数值与数量由程序给定。`,
     '- class-tier：{"tierName":"职业 input.className 第 input.tier 阶的阶名，≤12 字，按本故事的世界观起名，与 input.className 及 input.previousTierName（存在时）衔接、不重复","cards":[恰好 3 张卡牌]}——升阶后追加进该职业池的卡，第 i 张的费用是 input.costSlots[i]，体现职业原型 input.archetype 的进阶招式，名称不与 existingClasses 里该职业已有的卡重名；稀有度（input.rarity）、数值与 ID 由程序给定。',
     `input.combatInit 为 true 时，在 value 中另附 init：{"className":"自由职业显示名，最多12字，可空","role":"${Object.keys(COMBAT_RULES.archetypes).join('|')}","major":"主擅长六维键","minor":"次擅长六维键","weak":"短板六维键"}；六维键为 str/dex/con/int/wis/cha，三项互异，依据角色设定与剧情，不输出属性数值。profile-init 只返回 {"init":{...}}，不重写档案；这组字段可整组省略。`,
-    `- trait：{"name":"人物特性名，≤20 字","template":"被动模板键","origin":"来历，≤${REWARD_ORIGIN_MAX} 字"}——角色 input.name 的人物特性：名称与来历依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo），写这个人为何有这种特质；品相贴合 input.rarity（common 普通、uncommon 罕见、rare 稀有、epic 史诗、mythic 神话）；不与 input.existing（存在时）里已有的特性重名。稀有度、数值与 ID 由程序给定。`,
+    `- trait：{"name":"人物特性名，≤20 字","template":"被动模板键","origin":"来历，≤${REWARD_ORIGIN_MAX} 字"}——角色 input.name 的人物特性：名称与来历依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo），写这个人为何有这种特质；品相贴合 input.rarity（common 普通、uncommon 罕见、rare 稀有、epic 史诗、mythic 神话）；不与 input.existing（存在时）里已有的特性重名。input.effect 存在时效果已由程序定好（input.kind 为 active 时是战斗中每回合可主动用一次的技能，passive 为被动），只回 name 与 origin，名称与来历贴合这个效果，不写 template。稀有度、数值与 ID 由程序给定。`,
+    '- skill-fill：{"skills":[恰好 input.count 个技能]}——给已有的角色或敌人 input.name 补技能，技能写成 ["技能名","技能模板键"]；名称不与 input.existing 里已有的技能重复，依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo）设计，与已有技能风格一致、效果互补；input.tier 存在时这是该档位的敌人；input.templates 存在时技能模板键只能从其中选。数值与 ID 由程序给定。',
     '带 previousErrors 的实体上一轮被拒收：按其中的字段路径（指向你上一轮的回复）和原因修改 previous，其余保持不变。',
 ].join('\n');
 
@@ -133,12 +135,14 @@ export function classTierEntity({ character, cls, tier, rarity, tierName = '', m
 }
 
 // 人物特性（P-d）：traitId 与稀有度由程序给定（稀有度按主角 ID 与已生效抽取次数确定）；模型只起名、选被动模板、写来历。existing 为已装与待定特性，避免重名。
-export function traitEntity({ character, rarity, traitId, existing = [] }) {
+// shape（v4 特性池，trait-pool.js planTraitShape）存在时效果由程序抽定：input 带 kind 与效果说明，模型只起名、写来历。
+export function traitEntity({ character, rarity, traitId, existing = [], shape = null }) {
     const names = existing.map((t) => t?.name).filter(Boolean);
+    const effect = shape ? (shape.kind === 'active' ? `${shape.skill.cost} 费主动技能：${shape.skill.description}` : shape.passive.description) : null;
     return {
         key: `trait:${character.id}`, kind: 'trait', role: 'trait', owner: character.id,
-        input: { name: character.name, rarity, ...(names.length ? { existing: names } : {}) },
-        fixed: { traitId, rarity },
+        input: { name: character.name, rarity, ...(names.length ? { existing: names } : {}), ...(shape ? { kind: shape.kind, effect } : {}) },
+        fixed: { traitId, rarity, ...(shape ? { shape } : {}) },
     };
 }
 
@@ -156,16 +160,17 @@ export function withCombatInitialization(entities, names) {
 }
 
 // 角色设定参考：read 由调用方注入（宿主的 readCharacterLore），combat 只调用、不直接读宿主。
-// 只给 profile-deck / profile-skill / profile-init / trait 附 input.lore，读到内容才加字段；读取失败或为空时实体保持原样。
+// 只给 profile-deck / profile-skill / profile-init / trait / skill-fill 附 input.lore，读到内容才加字段；读取失败或为空时实体保持原样。
+const LORE_KINDS = new Set(['profile-deck', 'profile-skill', 'profile-init', 'trait', 'skill-fill']);
 export async function withCharacterLore(entities, read) {
     const list = Array.isArray(entities) ? entities : [];
-    const names = [...new Set(list.filter((e) => ['profile-deck', 'profile-skill', 'profile-init', 'trait'].includes(e.kind)).map((e) => e.input?.name).filter(Boolean))];
+    const names = [...new Set(list.filter((e) => LORE_KINDS.has(e.kind)).map((e) => e.input?.name).filter(Boolean))];
     if (typeof read !== 'function' || !names.length) return list;
     let lore = [];
     try { lore = await read(names); } catch (error) { lore = []; }
     const byName = new Map((Array.isArray(lore) ? lore : []).filter((l) => l && typeof l.text === 'string' && l.text.trim()).map((l) => [l.name, l.text.trim()]));
     if (!byName.size) return list;
-    return list.map((e) => (['profile-deck', 'profile-skill', 'profile-init', 'trait'].includes(e.kind) && byName.has(e.input?.name)
+    return list.map((e) => (LORE_KINDS.has(e.kind) && byName.has(e.input?.name)
         ? { ...e, input: { ...e.input, lore: byName.get(e.input.name) } } : e));
 }
 
@@ -184,6 +189,21 @@ export async function withStoryContext(context, read, { names = [], signal } = {
 
 export function skillProfileEntity({ name, id = profileIdFor('skill-character', name), role = 'ally' } = {}) {
     return { key: `skill:${id}`, kind: 'profile-skill', role, owner: id, input: { name }, fixed: { kind: 'skill-character', id, name } };
+}
+
+// 补技能（计划 5.4）：已有档案（技能角色或副 LLM 生成的敌人）的技能少于 skillTarget 时补 count 个；通过后写同 ID 的 version 版档案。
+// role 为 fill：被拒收时没有回落（带现有技能参战），不影响参战与开战。
+// existing：已有技能名（技能角色含习得的技能），缺省取档案技能；createdAt：沿用档案登记时间（名字归属按登记先后），缺省时写入时取当前时间。
+// level（D10）：技能角色队友的属性视图等级。Lv6 起伤害折算上限按 allyFillCap 放大（写在 fixed.cap，模型不可见），并只给复合技能模板候选；
+// 缺省或 Lv1–5 时请求与旧路径一致；敌人不受影响。
+export function skillFillEntity({ profile, count, version, existing, createdAt, level }) {
+    const names = Array.isArray(existing) ? existing : profile.skills.map((s) => s.name);
+    const ally = profile.kind !== 'enemy' && Number.isFinite(Number(level));
+    const cap = ally ? allyFillCap(level) : COMBAT_RULES.allySkillDamageCap;
+    const composite = ally && Number(level) >= ALLY_FILL_COMPOSITE_LEVEL;
+    return { key: `fill:${profile.id}`, kind: 'skill-fill', role: 'fill', owner: profile.id,
+        input: { name: profile.name, count, existing: names, ...(profile.kind === 'enemy' ? { tier: profile.tier } : {}), ...(composite ? { templates: [...COMPOSITE_SKILL_KEYS] } : {}) },
+        fixed: { profile, version, ...(Number.isFinite(createdAt) ? { createdAt } : {}), ...(cap !== COMBAT_RULES.allySkillDamageCap ? { cap } : {}) } };
 }
 
 // 敌人：同名同档位复用已有档案，批量杂兵共享一份。返回 { entities, reused }。
@@ -212,11 +232,11 @@ export function enemyEntities({ enemies, tier = 'normal', existing, partyLevel =
 }
 
 // 胜利翻牌奖励（v3 §5.1）：程序先定 EXP 与槽位，模型只给名称、模板键与来历；通过后为锚定开战楼的 offer 条目。
-// character 为领取奖励的角色视图（默认主角）；links 为准备时的翻牌联动（第 12 步接入）。返回 { entity, plan }。
+// character 为领取奖励的角色视图（默认主角）；links 为准备时的翻牌联动（第 12 步接入）；difficulty 为准备时的难度键（高难度爆率）。返回 { entity, plan }。
 // 主套 slots 与备用套 reserve（翻牌花积分重抽时换上）在同一实体里一次生成，两套同成同败。
-export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links } = {}) {
+export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty } = {}) {
     if (!combatId || !anchor || !character?.id) return { error: 'combat-reward-input-missing' };
-    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links });
+    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty });
     // 模型只需类别、稀有度与命名线索（费用、部位）；数量留在 fixed 里由程序组装。
     const hints = (list) => list.map(({ index, count, ...hint }) => hint);
     const names = [...new Set((Array.isArray(enemies) ? enemies : []).map((e) => String(e?.name || '').trim()).filter(Boolean))];
@@ -238,7 +258,15 @@ export function growthEntity(pending, character, { classes, now = 0 } = {}) {
     // 装备与道具走各自的生成类型，模型只选被动 / 道具模板键，不落到卡牌生成路径。
     if (pending.kind === 'equip' || pending.kind === 'item') {
         const equip = pending.kind === 'equip';
-        const input = { characterName: character.name, name: pending.name, description: pending.description || '', ...(equip ? { slot: pending.slot } : { count: pending.count }) };
+        // 标签带稀有度时才写 input.rarity（D6）；省略时请求形状与旧路径一致。
+        const input = { characterName: character.name, name: pending.name, description: pending.description || '', ...(equip ? { slot: pending.slot } : { count: pending.count }), ...(pending.rarity ? { rarity: pending.rarity } : {}) };
+        // 带稀有度的道具：程序按名称与简述筛 3–5 个候选模板（D8）。
+        if (!equip && pending.rarity) input.templates = templateCandidates(Object.keys(ITEM_TEMPLATES), (k) => ITEM_TEMPLATES[k].label, `${input.name} ${input.description}`, key);
+        // 带稀有度的装备：被动按装备 ID 种子与 30% / 60% / 100% 抽定（D7），抽中时筛 3–5 个按该稀有度加强后不超伤害上限的被动候选。
+        if (equip && pending.rarity && gearHasPassive(gearIdFor(pending.name), pending.rarity)) {
+            const keys = Object.keys(GEAR_PASSIVE_TEMPLATES).filter((k) => effectsDamage(passiveAtRarity(k, pending.rarity)?.effects) <= COMBAT_RULES.allySkillDamageCap);
+            input.templates = templateCandidates(keys, (k) => GEAR_PASSIVE_TEMPLATES[k].label, `${input.name} ${input.description}`, key);
+        }
         return { entity: { key, kind: equip ? 'equip-to-passive' : 'item-to-consumable', role: 'growth', owner: character.id, anchor, input } };
     }
     if (pending.kind === 'class') {
@@ -266,9 +294,19 @@ export function growthEntity(pending, character, { classes, now = 0 } = {}) {
         entity: {
             key, kind: 'skill-to-card', role: 'growth', owner: character.id, anchor,
             learnedId: learnedIdFor(character.id, pending.skill, anchor),
-            input: { characterName: character.name, skill: pending.skill, description: pending.description || '', mode: pending.kind, output, ...(pending.kind === 'upgrade' ? { candidates } : {}) },
+            // 卡组角色学会的卡牌取标签稀有度（D9）；技能角色学技能没有稀有度。
+            input: { characterName: character.name, skill: pending.skill, description: pending.description || '', mode: pending.kind, output, ...(pending.kind === 'upgrade' ? { candidates } : {}),
+                ...(pending.kind === 'learn' && output === 'card' && pending.rarity ? learnCardChoices(pending, key) : {}) },
         },
     };
+}
+
+// 带稀有度的学会卡（D9）：候选为该稀有度下有解的卡牌模板（3–5 个，按技能名与简述排序），附各模板变量范围供模型给数值。
+function learnCardChoices(pending, key) {
+    const rarity = pending.rarity;
+    const keys = Object.keys(CARD_TEMPLATES).filter((k) => nearestTemplateCost(k, 1, rarity) !== null);
+    const templates = templateCandidates(keys, (k) => CARD_TEMPLATES[k].label, `${pending.skill} ${pending.description || ''}`, key);
+    return { rarity, templates, templateVars: Object.fromEntries(templates.map((k) => [k, CARD_TEMPLATES[k].vars.map((r) => [...r])])) };
 }
 
 const nameNorm = (s) => String(s || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
@@ -357,6 +395,11 @@ function validateEntity(entity, value, ctx) {
         const shape = validateStarterDeck(n.profile, cls);
         return shape.ok ? withInitResult(entity, value, { ok: true, result: { profile: n.profile }, diagnostics: n.diagnostics }) : { ok: false, errors: shape.errors };
     }
+    if (entity.kind === 'skill-fill') {
+        const n = normalizedProfile(assembleSkillFill(value, opts));
+        const kept = Number.isFinite(entity.fixed.createdAt) ? { createdAt: entity.fixed.createdAt } : {};
+        return n.ok ? { ok: true, result: { profile: n.profile, version: entity.fixed.version, ...kept }, diagnostics: n.diagnostics } : n;
+    }
     if (entity.kind === 'profile-skill' || entity.kind === 'enemy') {
         const n = normalizedProfile(entity.kind === 'enemy' ? assembleEnemy(value, opts) : assembleSkillCharacter(value, opts));
         return n.ok ? withInitResult(entity, value, { ok: true, result: { profile: n.profile }, diagnostics: n.diagnostics }) : n;
@@ -367,7 +410,7 @@ function validateEntity(entity, value, ctx) {
         if (built.errors) return { ok: false, errors: built.errors };
         const n = normalizeLedgerEntry(growthEntry(entity, equip ? 'equip' : 'item', built.value, ctx.now));
         if (!n.ok) return { ok: false, errors: n.errors.map((e) => ({ ...e, path: String(e.path || '').replace(/^payload\.?/, '') })) };
-        if (equip && effectsDamage(n.value.payload.passive.effects) > COMBAT_RULES.allySkillDamageCap) return { ok: false, errors: [err('template', 'damage-cap')] };
+        if (equip && effectsDamage(n.value.payload.passive?.effects) > COMBAT_RULES.allySkillDamageCap) return { ok: false, errors: [err('template', 'damage-cap')] };
         return { ok: true, result: { entry: n.value }, diagnostics: built.diagnostics };
     }
     if (entity.kind === 'battle-reward') return validateReward(entity, value, ctx);
@@ -384,11 +427,11 @@ function validateEntity(entity, value, ctx) {
         if (errors.length) return { ok: false, errors };
         return { ok: true, result: { tier: { classRef: entity.fixed.classRef, tier: entity.fixed.tier, tierName: built.value.tierName, cards } }, diagnostics: built.diagnostics };
     }
-    // 人物特性：组装后核对被动伤害上限（与装备同一上限）；错误路径指向回复的 template。
+    // 人物特性：组装后核对伤害上限（与装备同一上限；主动特性取技能效果）；错误路径指向回复的 template。
     if (entity.kind === 'trait') {
         const built = assembleTrait(value, opts);
         if (built.errors) return { ok: false, errors: built.errors };
-        if (effectsDamage(built.value.passive.effects) > COMBAT_RULES.allySkillDamageCap) return { ok: false, errors: [err('template', 'damage-cap')] };
+        if (effectsDamage((built.value.passive || built.value.skill).effects) > COMBAT_RULES.allySkillDamageCap) return { ok: false, errors: [err('template', 'damage-cap')] };
         return { ok: true, result: { trait: built.value }, diagnostics: built.diagnostics };
     }
     const built = assembleGrowth(value, { key: entity.key, input: entity.input });
@@ -438,7 +481,7 @@ function validateGrowth(entity, value, ctx) {
     const payload = mode === 'upgrade' ? { targetId: id, [field]: n.value } : { [field]: n.value };
     return { ok: true, result: { entry: growthEntry(entity, mode, payload, ctx.now) }, diagnostics };
 }
-const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10 });
+const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11 });
 const cancelled = (accepted) => ({ ok: false, reason: 'request-stale', accepted: [], rejected: [], diagnostics: [], discarded: accepted.size });
 
 // 本轮回复 → key 到 value；重复 key 只认第一次，请求以外的 key 只记诊断。
@@ -539,7 +582,14 @@ export async function generateEntities(entities, { request, llm = {}, signal, co
             if (!outcome.ok) next.push({ entity: slot.entity, previous: slot.value, errors: outcome.errors });
         }
         if (lastRound) {
-            for (const slot of next) rejected.push(rejection(slot.entity, slot.errors));
+            for (const slot of next) {
+                // D9：带稀有度的学会卡修正用完时，去掉模型给的数值改用程序求解；仍不合格才拒收。
+                if (slot.entity.kind === 'skill-to-card' && slot.entity.input?.rarity && isObj(slot.previous) && slot.previous.values !== undefined) {
+                    const { values: _values, ...rest } = slot.previous;
+                    if (settle(slot.entity, rest).ok) { diagnostics.push({ code: 'combat-values-solved', key: slot.entity.key }); continue; }
+                }
+                rejected.push(rejection(slot.entity, slot.errors));
+            }
             active = [];
         } else active = next;
     }
@@ -558,12 +608,12 @@ export async function generateEntities(entities, { request, llm = {}, signal, co
     };
 }
 
-// 待落账内容：通过的档案进档案表，成长条目进日志表；模板敌人不入库，由会话在内存中使用。
+// 待落账内容：通过的档案进档案表（补技能带新版本号），成长条目进日志表；模板敌人不入库，由会话在内存中使用。
 export function generationWrites(result, { createdAt = 0 } = {}) {
     const profiles = [];
     const entries = [];
     for (const item of result?.accepted || []) {
-        if (item.profile) profiles.push(profileRecord(item.profile, { createdAt }));
+        if (item.profile) profiles.push(profileRecord(item.profile, { createdAt: Number.isFinite(item.createdAt) ? item.createdAt : createdAt, ...(Number.isInteger(item.version) ? { version: item.version } : {}) }));
         if (item.entry) entries.push(item.entry);
     }
     return { profiles, entries };

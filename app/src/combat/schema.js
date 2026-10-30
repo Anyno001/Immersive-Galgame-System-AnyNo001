@@ -1,13 +1,14 @@
-import { BASIC_CARDS, BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, cardCopyLimit, evaluateCardBudget } from './rules.js';
+import { ALLY_SKILL_CAP_MAX, BASIC_CARDS, BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, SKILL_COUNT_MAX, TOKEN_KEYS, cardCopyLimit, evaluateCardBudget } from './rules.js';
 import { hashString } from './random.js';
 import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS } from './abilities.js';
-import { TRAIT_LINKS, TRAIT_RARITIES } from './traits.js';
+import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 
 export const SCHEMA_VERSION = 1;
 export const EFFECT_OPS = Object.freeze(['damage', 'block', 'heal', 'draw', 'energy', 'status', 'exhaust-self', 'conditional',
-    'damage-from-block', 'self-damage', 'double', 'next-turn', 'each-turn', 'hand-cost', 'cleanse']);
-export const STATUSES = Object.freeze(['vulnerable', 'weak', 'strength', 'dexterity', 'poison', 'regen', 'thorns', 'intangible', 'no-draw', 'endure']);
+    'damage-from-block', 'self-damage', 'double', 'next-turn', 'each-turn', 'hand-cost', 'cleanse',
+    'discard', 'discard-hand', 'copy', 'create', 'repeat-last', 'replay-next', 'grow', 'cost-mod', 'buff']);
+export const STATUSES = Object.freeze(['vulnerable', 'weak', 'strength', 'dexterity', 'poison', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact', 'frail']);
 export const DOUBLE_STATS = Object.freeze(['poison', 'block', 'strength']);
 export const NEXT_TURN_GAINS = Object.freeze(['draw', 'energy']);
 export const OFFENSE_TARGETS = Object.freeze(['enemy', 'all-enemies', 'random-enemy']);
@@ -16,21 +17,36 @@ export const CARD_TYPES = Object.freeze(['attack', 'skill', 'power']);
 export const RARITIES = Object.freeze(['basic', 'common', 'uncommon', 'rare', 'epic', 'mythic', 'personal', 'signature']);
 export const CARD_COSTS = Object.freeze([0, 1, 2, 3, 'X']);
 export const SKILL_INTENTS = Object.freeze(['attack', 'defend', 'buff', 'debuff', 'heal', 'special']);
-export const PASSIVE_TRIGGERS = Object.freeze(['battle-start', 'turn-start', 'turn-end', 'on-hit', 'on-low-hp']);
+// v4 触发总线：出牌（可限牌型）、被弃（效果弃牌，回合末弃牌不算）、被消耗、击杀、洗牌、失去生命、获得格挡；对方出牌（可限牌型，只给被动）。
+export const PASSIVE_TRIGGERS = Object.freeze(['battle-start', 'turn-start', 'turn-end', 'on-hit', 'on-low-hp',
+    'card-played', 'discard', 'exhaust', 'kill', 'shuffle', 'hp-loss', 'block-gain', 'foe-card-played']);
 export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
-export const LEDGER_TYPES = Object.freeze(['profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer', 'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick']);
+export const LEDGER_TYPES = Object.freeze(['profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer', 'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal']);
 // 装备部位（每部位同时 1 件）与一次性道具单条数量上限；单次消耗上限覆盖一场战斗内的累计用量。
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 export const ITEM_GAIN_MAX = 3;
 export const ITEM_CONSUME_MAX = 30;
+// 剧情回血（heal 条目）：flat 为点数（1–9999），percent 为最近一场战后记录的生命上限的百分比（1–100）。
+export const HEAL_MODES = Object.freeze(['flat', 'percent']);
 // 准备阶段奖励（offer，v3 §5）：每场 3 槽（再翻 4 槽）；来历不超过 30 字。类别：卡牌、装备（含宝物部位）、一次性道具、杂物（只有名称与来历）。
 export const REWARD_KINDS = Object.freeze(['card', 'gear', 'item', 'keepsake']);
 export const REWARD_SLOT_COUNT = 3;
 export const REWARD_ORIGIN_MAX = 30;
 
 const ALL_TARGETS = Object.freeze([...OFFENSE_TARGETS, ...SUPPORT_TARGETS]);
-const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'intangible', 'no-draw', 'endure']);
-const CONDITION_KINDS = Object.freeze(['target-has', 'self-hp-below', 'cards-played-gte']);
+const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact']);
+// self-has：自身带某状态（助手 10-28，如「虚弱时回合开始多抽 1 张」）。
+// v4 计数条件按本回合此前的计数判定（不含正在结算的这张）：已出攻击 / 技能张数、同名牌已出次数、效果弃牌张数。
+const CONDITION_KINDS = Object.freeze(['target-has', 'self-has', 'self-hp-below', 'cards-played-gte',
+    'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte']);
+const COUNT_CONDITIONS = new Set(['cards-played-gte', 'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte']);
+const DISCARD_MODES = Object.freeze(['choose', 'random']);
+const PICK_MODES = Object.freeze(['self', 'choose', 'random']);
+const COPY_TO = Object.freeze(['hand', 'discard', 'draw']);
+const COST_SCOPES = Object.freeze(['turn', 'combat']);
+const EACH_TURN_AT = Object.freeze(['turn-start', 'turn-end']);
+// 限时触发 BUFF 可挂的时机（与 rules.js 的 BUFF_RATE 一致）。
+export const BUFF_TRIGGERS = Object.freeze(['card-played', 'discard', 'exhaust', 'kill', 'hp-loss', 'block-gain', 'turn-start', 'turn-end']);
 const POOL_RARITIES = Object.freeze(['common', 'uncommon', 'rare', 'epic', 'mythic']);
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const ENTRY_ID_RE = /^[A-Za-z0-9_|:.-]{1,200}$/;
@@ -99,13 +115,22 @@ function conditionAt(raw, path, ctx) {
     checkKeys(raw, ['kind', 'value'], path, ctx);
     const kind = oneOf(raw.kind, join(path, 'kind'), ctx, CONDITION_KINDS);
     const valuePath = join(path, 'value');
-    if (kind === 'target-has') return { kind, value: oneOf(raw.value, valuePath, ctx, STATUSES) };
+    if (kind === 'target-has' || kind === 'self-has') return { kind, value: oneOf(raw.value, valuePath, ctx, STATUSES) };
     if (kind === 'self-hp-below') return { kind, value: int(raw.value, valuePath, ctx, 1, 99) };
-    if (kind === 'cards-played-gte') return { kind, value: int(raw.value, valuePath, ctx, 1, 10) };
+    if (COUNT_CONDITIONS.has(kind)) return { kind, value: int(raw.value, valuePath, ctx, 1, 10) };
     return undefined;
 }
 
-function effectAt(raw, path, ctx, depth = 0) {
+// 选牌方式：choose 只能写在卡牌顶层效果（打出时暂停等玩家选）；self 只能写在卡牌效果里；被动、能力、限时触发、被弃时等其余场合只能 random。
+function pickAt(raw, path, ctx, allowed, where) {
+    const mode = oneOf(raw, path, ctx, allowed);
+    if (mode === 'choose' && where !== 'top') return fail(ctx, path, 'choose-not-top-level');
+    if (mode === 'self' && !where) return fail(ctx, path, 'card-only');
+    return mode;
+}
+
+// where：'top' 为卡牌顶层效果，'card' 为卡牌条件分支内，缺省为其余场合。
+function effectAt(raw, path, ctx, depth = 0, where) {
     if (!objectAt(raw, path, ctx)) return undefined;
     const op = oneOf(raw.op, join(path, 'op'), ctx, EFFECT_OPS);
     const p = (key) => join(path, key);
@@ -140,7 +165,8 @@ function effectAt(raw, path, ctx, depth = 0) {
             checkKeys(raw, ['op', 'when', 'then'], path, ctx);
             if (depth > 0) return fail(ctx, path, 'nested-conditional');
             const when = conditionAt(raw.when, p('when'), ctx);
-            const then = list(raw.then, p('then'), ctx, 1, 3, (e, ep, c) => effectAt(e, ep, c, depth + 1));
+            // 卡牌里的条件分支仍算卡牌效果（可写 self / grow），但不能暂停选牌。
+            const then = list(raw.then, p('then'), ctx, 1, 3, (e, ep, c) => effectAt(e, ep, c, depth + 1, where ? 'card' : undefined));
             return { op, when, then };
         }
         case 'damage-from-block':
@@ -161,10 +187,12 @@ function effectAt(raw, path, ctx, depth = 0) {
             return { op, gain, amount: int(raw.amount, p('amount'), ctx, 1, gain === 'energy' ? 3 : 5) };
         }
         case 'each-turn': {
-            checkKeys(raw, ['op', 'then'], path, ctx);
+            checkKeys(raw, ['op', 'then', 'at'], path, ctx);
             if (depth > 0) return fail(ctx, path, 'nested-each-turn');
             const then = list(raw.then, p('then'), ctx, 1, 2, (e, ep, c) => effectAt(e, ep, c, depth + 1));
-            return { op, then };
+            // at 缺省为回合开始；turn-end 时在本单位回合结束、弃牌前结算。缺省不写字段，旧卡形状不变。
+            const at = oneOf(raw.at, p('at'), ctx, EACH_TURN_AT, 'turn-start');
+            return at === 'turn-end' ? { op, then, at } : { op, then };
         }
         case 'hand-cost':
             checkKeys(raw, ['op', 'amount'], path, ctx);
@@ -173,6 +201,49 @@ function effectAt(raw, path, ctx, depth = 0) {
         case 'cleanse':
             checkKeys(raw, ['op', 'target'], path, ctx);
             return { op, target: oneOf(raw.target, p('target'), ctx, SUPPORT_TARGETS, 'self') };
+        // v4：弃牌（choose 只在卡牌顶层，其余场合随机；托管角色按估值最低自动选）。
+        case 'discard':
+            checkKeys(raw, ['op', 'amount', 'mode'], path, ctx);
+            return { op, amount: int(raw.amount, p('amount'), ctx, 1, 5), mode: raw.mode === undefined ? 'random' : pickAt(raw.mode, p('mode'), ctx, DISCARD_MODES, where) };
+        // 弃全手：redraw 为弃完再抽同样张数。
+        case 'discard-hand':
+            checkKeys(raw, ['op', 'redraw'], path, ctx);
+            if (raw.redraw !== undefined && typeof raw.redraw !== 'boolean') return fail(ctx, p('redraw'), 'expected-boolean');
+            return raw.redraw ? { op, redraw: true } : { op };
+        // 复制：from 为 self（本张）或手牌中一张（choose / random）；复制出的牌是临时牌，只在本场存在。
+        case 'copy':
+            checkKeys(raw, ['op', 'amount', 'from', 'to'], path, ctx);
+            return { op, amount: int(raw.amount, p('amount'), ctx, 1, 3), from: pickAt(raw.from, p('from'), ctx, PICK_MODES, where), to: oneOf(raw.to, p('to'), ctx, COPY_TO, 'hand') };
+        // 生成：内置临时牌（rules.js 的 TOKEN_CARDS）。
+        case 'create':
+            checkKeys(raw, ['op', 'card', 'amount', 'to'], path, ctx);
+            return { op, card: oneOf(raw.card, p('card'), ctx, TOKEN_KEYS), amount: int(raw.amount, p('amount'), ctx, 1, 3, 1), to: oneOf(raw.to, p('to'), ctx, COPY_TO, 'hand') };
+        // 重复上一张：再结算本回合上一张已打出的牌的效果 amount 次，不付费、不移动那张牌。
+        case 'repeat-last':
+            checkKeys(raw, ['op', 'amount'], path, ctx);
+            return { op, amount: int(raw.amount, p('amount'), ctx, 1, 2, 1) };
+        // 下一张多结算：本回合下一张（可限牌型）打出的牌额外结算 amount 次。
+        case 'replay-next':
+            checkKeys(raw, ['op', 'amount', 'cardType'], path, ctx);
+            return { op, amount: int(raw.amount, p('amount'), ctx, 1, 2, 1), ...(raw.cardType === undefined ? {} : { cardType: oneOf(raw.cardType, p('cardType'), ctx, CARD_TYPES) }) };
+        // 本场成长：这张牌的顶层伤害本场永久 +amount，只写在卡牌效果里。
+        case 'grow':
+            checkKeys(raw, ['op', 'amount'], path, ctx);
+            if (!where) return fail(ctx, path, 'card-only');
+            return { op, amount: int(raw.amount, p('amount'), ctx, 1, 5) };
+        // 单张减费：mode 为选牌方式，scope 为本回合或本场。
+        case 'cost-mod':
+            checkKeys(raw, ['op', 'amount', 'mode', 'scope'], path, ctx);
+            return { op, amount: int(raw.amount, p('amount'), ctx, -3, -1), mode: pickAt(raw.mode, p('mode'), ctx, PICK_MODES, where), scope: oneOf(raw.scope, p('scope'), ctx, COST_SCOPES, 'turn') };
+        // 限时触发 BUFF（助手 10-28 第 8 点）：turns 回合内（含本回合）每次 trigger 就结算 then；card-played 可限牌型。
+        case 'buff': {
+            checkKeys(raw, ['op', 'trigger', 'cardType', 'turns', 'then'], path, ctx);
+            if (depth > 0) return fail(ctx, path, 'nested-buff');
+            const trigger = oneOf(raw.trigger, p('trigger'), ctx, BUFF_TRIGGERS);
+            if (raw.cardType !== undefined && trigger !== 'card-played') return fail(ctx, p('cardType'), 'unknown-field');
+            const then = list(raw.then, p('then'), ctx, 1, 2, (e, ep, c) => effectAt(e, ep, c, depth + 1));
+            return { op, trigger, ...(raw.cardType === undefined ? {} : { cardType: oneOf(raw.cardType, p('cardType'), ctx, CARD_TYPES) }), turns: int(raw.turns, p('turns'), ctx, 1, 5), then };
+        }
         default:
             return undefined;
     }
@@ -182,39 +253,54 @@ export function effectsDamage(effects) {
     let total = 0;
     for (const effect of Array.isArray(effects) ? effects : []) {
         if (effect?.op === 'damage') total += effect.amount * (effect.hits || 1);
-        else if (effect?.op === 'conditional' || effect?.op === 'each-turn') total += effectsDamage(effect.then);
+        else if (effect?.op === 'conditional' || effect?.op === 'each-turn' || effect?.op === 'buff') total += effectsDamage(effect.then);
         // 伤害随格挡变化、无法静态封顶：技能伤害上限校验按超限处理（fail-closed）。
         else if (effect?.op === 'damage-from-block') total += 999;
     }
     return total;
 }
 
+// 卡牌顶层效果：可写 choose（打出时暂停等玩家选牌）、self、grow。
+const topEffectAt = (e, ep, c) => effectAt(e, ep, c, 0, 'top');
+// 卡牌关键字（布尔，只在为真时落字段，旧卡形状不变）：保留、固有、虚无、不能打出。
+const CARD_FLAGS = Object.freeze(['retain', 'innate', 'ethereal', 'unplayable']);
+
 function cardAt(raw, path, ctx, rarities = RARITIES) {
     if (!objectAt(raw, path, ctx)) return undefined;
     const before = ctx.errors.length;
     const p = (key) => join(path, key);
-    checkKeys(raw, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', 'retain'], path, ctx);
+    checkKeys(raw, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard'], path, ctx);
     const name = text(raw.name, p('name'), ctx, 20);
+    // 不能打出的牌没有打出效果（effects 为空数组），价值全在被弃时效果。
+    const unplayable = raw.unplayable === true;
     const card = {
         id: idOf(raw.id, p('id'), ctx),
         name,
         type: oneOf(raw.type, p('type'), ctx, CARD_TYPES),
         cost: oneOf(raw.cost, p('cost'), ctx, CARD_COSTS),
         rarity: oneOf(raw.rarity, p('rarity'), ctx, rarities),
-        effects: list(raw.effects, p('effects'), ctx, 1, 4, effectAt),
+        effects: list(raw.effects, p('effects'), ctx, unplayable ? 0 : 1, unplayable ? 0 : 4, topEffectAt),
         flavor: text(raw.flavor, p('flavor'), ctx, 80, ''),
         skillRef: text(raw.skillRef, p('skillRef'), ctx, 20, name || ''),
     };
-    if (raw.retain !== undefined) {
-        if (typeof raw.retain !== 'boolean') fail(ctx, p('retain'), 'expected-boolean');
-        else if (raw.retain) card.retain = true;
+    for (const flag of CARD_FLAGS) {
+        if (raw[flag] === undefined) continue;
+        if (typeof raw[flag] !== 'boolean') fail(ctx, p(flag), 'expected-boolean');
+        else if (raw[flag]) card[flag] = true;
     }
-    if (raw.upgraded !== undefined && objectAt(raw.upgraded, p('upgraded'), ctx)) {
+    // 被弃时：只有效果弃牌触发，回合末弃手牌不触发（助手 10-28）；不能写选牌与本张专属效果。
+    if (raw.onDiscard !== undefined) card.onDiscard = list(raw.onDiscard, p('onDiscard'), ctx, 1, 2, effectAt);
+    if (unplayable) {
+        if (raw.cost !== 0) fail(ctx, p('cost'), 'unplayable-cost');
+        if (raw.onDiscard === undefined) fail(ctx, p('onDiscard'), 'unplayable-needs-on-discard');
+        if (raw.upgraded !== undefined) fail(ctx, p('upgraded'), 'unplayable-upgrade');
+    }
+    if (raw.upgraded !== undefined && !unplayable && objectAt(raw.upgraded, p('upgraded'), ctx)) {
         const up = p('upgraded');
         checkKeys(raw.upgraded, ['cost', 'effects'], up, ctx);
         const upgraded = {};
         if (raw.upgraded.cost !== undefined) upgraded.cost = oneOf(raw.upgraded.cost, join(up, 'cost'), ctx, CARD_COSTS);
-        if (raw.upgraded.effects !== undefined) upgraded.effects = list(raw.upgraded.effects, join(up, 'effects'), ctx, 1, 4, effectAt);
+        if (raw.upgraded.effects !== undefined) upgraded.effects = list(raw.upgraded.effects, join(up, 'effects'), ctx, 1, 4, topEffectAt);
         if (raw.upgraded.cost === undefined && raw.upgraded.effects === undefined) fail(ctx, up, 'empty-upgrade');
         card.upgraded = upgraded;
     }
@@ -243,14 +329,20 @@ function skillAt(raw, path, ctx) {
 function passiveAt(raw, path, ctx) {
     if (!objectAt(raw, path, ctx)) return undefined;
     const p = (key) => join(path, key);
-    checkKeys(raw, ['id', 'name', 'trigger', 'effects', 'description'], path, ctx);
-    return {
+    checkKeys(raw, ['id', 'name', 'trigger', 'cardType', 'effects', 'description'], path, ctx);
+    const passive = {
         id: idOf(raw.id, p('id'), ctx),
         name: text(raw.name, p('name'), ctx, 20),
         trigger: oneOf(raw.trigger, p('trigger'), ctx, PASSIVE_TRIGGERS),
         effects: list(raw.effects, p('effects'), ctx, 1, 3, effectAt),
         description: text(raw.description, p('description'), ctx, 80, ''),
     };
+    // cardType 只用于出牌与对方出牌触发（限定牌型）；缺省不写字段，旧被动形状不变。
+    if (raw.cardType !== undefined) {
+        if (passive.trigger !== 'card-played' && passive.trigger !== 'foe-card-played') fail(ctx, p('cardType'), 'unknown-field');
+        else passive.cardType = oneOf(raw.cardType, p('cardType'), ctx, CARD_TYPES);
+    }
+    return passive;
 }
 
 function phaseAt(raw, path, ctx) {
@@ -303,6 +395,26 @@ function heroSkillAt(raw, path, ctx) {
     };
     if (ctx.errors.length === before) {
         const budget = evaluateCardBudget({ cost: COMBAT_RULES.heroSkillCost, rarity: 'personal', effects: skill.effects });
+        if (!budget.ok) fail(ctx, join(path, budget.path), budget.reason, budget.detail);
+    }
+    return skill;
+}
+
+// 抽到的主动特性（v4，助手 10-28）：效果按自身费用（1 或 2）× 特性稀有度的卡牌预算校验，不带升级版；与人物技能一样不能写选牌与本牌专属效果。
+function traitSkillAt(raw, path, ctx, rarity) {
+    if (!objectAt(raw, path, ctx)) return undefined;
+    const p = (key) => join(path, key);
+    checkKeys(raw, ['id', 'name', 'cost', 'effects', 'description'], path, ctx);
+    const before = ctx.errors.length;
+    const skill = {
+        id: idOf(raw.id, p('id'), ctx),
+        name: text(raw.name, p('name'), ctx, 20),
+        cost: oneOf(raw.cost, p('cost'), ctx, TRAIT_SKILL_COSTS),
+        effects: list(raw.effects, p('effects'), ctx, 1, 4, effectAt),
+        description: text(raw.description, p('description'), ctx, 80, ''),
+    };
+    if (ctx.errors.length === before) {
+        const budget = evaluateCardBudget({ cost: skill.cost, rarity, effects: skill.effects });
         if (!budget.ok) fail(ctx, join(path, budget.path), budget.reason, budget.detail);
     }
     return skill;
@@ -369,13 +481,15 @@ function skillCharacterAt(raw, path, ctx) {
         aliases: aliasesAt(raw.aliases, join(path, 'aliases'), ctx),
         className: text(raw.className, join(path, 'className'), ctx, 12, ''),
         base: { hp: int(base.hp, join(path, 'base.hp'), ctx, 20, 120), ...speedAt(base, path, ctx) },
-        skills: list(raw.skills, join(path, 'skills'), ctx, 3, 5, skillAt),
+        // 3–SKILL_COUNT_MAX：参战准备按等级补技能后写新版本档案（计划 5.4）；旧档 3–5 仍合法。
+        skills: list(raw.skills, join(path, 'skills'), ctx, 3, SKILL_COUNT_MAX, skillAt),
         passives: list(raw.passives, join(path, 'passives'), ctx, 1, 2, passiveAt),
     };
     // 强度档（可选，旧档案没有时不补字段，由 session 按 defaultAllyTier 读取）。
     if (raw.tier !== undefined) profile.tier = oneOf(raw.tier, join(path, 'tier'), ctx, Object.keys(COMBAT_RULES.allyTiers));
     uniqueIds(profile.skills, join(path, 'skills'), ctx);
-    capDamage(profile.skills, join(path, 'skills'), ctx, COMBAT_RULES.allySkillDamageCap);
+    // 按等级补的技能可到最高一档（D10，ALLY_SKILL_CAP_MAX）；新档案与剧情习得的技能仍由生成 / 账本按 allySkillDamageCap 拒收。
+    capDamage(profile.skills, join(path, 'skills'), ctx, ALLY_SKILL_CAP_MAX);
     return profile;
 }
 function enemyAt(raw, path, ctx) {
@@ -395,7 +509,8 @@ function enemyAt(raw, path, ctx) {
         // art 可选：外观格位键（enemy-art.js）；旧档案没有时不补字段，非法值拒收。
         ...(raw.art === undefined ? {} : { art: oneOf(raw.art, join(path, 'art'), ctx, ENEMY_ART_KEYS) }),
         base: { hp: int(base.hp, join(path, 'base.hp'), ctx, hpMin, hpMax), ...speedAt(base, path, ctx) },
-        skills: list(raw.skills, join(path, 'skills'), ctx, 2, 5, skillAt),
+        // 2–SKILL_COUNT_MAX：参战准备按等级补技能后写新版本档案（计划 5.4）；旧档 2–5 仍合法。
+        skills: list(raw.skills, join(path, 'skills'), ctx, 2, SKILL_COUNT_MAX, skillAt),
         passives: raw.passives === undefined ? [] : list(raw.passives, join(path, 'passives'), ctx, 0, 2, passiveAt),
         phases: raw.phases === undefined ? [] : list(raw.phases, join(path, 'phases'), ctx, 0, 2, phaseAt),
         generated: raw.generated === false ? false : true,
@@ -489,11 +604,26 @@ function anchorAt(raw, path, ctx, required) {
 function gearAt(raw, path, ctx) {
     if (!objectAt(raw, path, ctx)) return undefined;
     const p = (key) => join(path, key);
-    checkKeys(raw, ['gearId', 'name', 'slot', 'passive', 'description'], path, ctx);
+    checkKeys(raw, ['gearId', 'name', 'slot', 'passive', 'description', 'rarity', 'bonus'], path, ctx);
+    // 正文获得的带稀有度装备（D7）：rarity 与六维加成 bonus 可选；普通 / 罕见及未抽中被动的装备没有 passive。
+    // 旧条目（无 rarity）必须带被动，形状不变。
+    const rarity = raw.rarity === undefined ? undefined : oneOf(raw.rarity, p('rarity'), ctx, POOL_RARITIES);
+    const passive = raw.passive === undefined && raw.rarity !== undefined ? undefined : passiveAt(raw.passive, p('passive'), ctx);
     return {
         gearId: idOf(raw.gearId, p('gearId'), ctx), name: text(raw.name, p('name'), ctx, 20), slot: oneOf(raw.slot, p('slot'), ctx, GEAR_SLOTS),
-        passive: passiveAt(raw.passive, p('passive'), ctx), description: text(raw.description, p('description'), ctx, 80, ''),
+        ...(passive === undefined ? {} : { passive }), description: text(raw.description, p('description'), ctx, 80, ''),
+        ...(rarity === undefined ? {} : { rarity }),
+        ...(raw.bonus === undefined ? {} : { bonus: gearBonusAt(raw.bonus, p('bonus'), ctx) }),
     };
+}
+
+// 装备六维加成：{ ability: 六维键, amount: 1–5 }（普通 +1 … 神话 +5，D7）。
+export const GEAR_BONUS_BY_RARITY = Object.freeze({ common: 1, uncommon: 2, rare: 3, epic: 4, mythic: 5 });
+function gearBonusAt(raw, path, ctx) {
+    if (!objectAt(raw, path, ctx)) return undefined;
+    const p = (key) => join(path, key);
+    checkKeys(raw, ['ability', 'amount'], path, ctx);
+    return { ability: oneOf(raw.ability, p('ability'), ctx, ABILITY_KEYS), amount: int(raw.amount, p('amount'), ctx, 1, 5) };
 }
 
 function gainItemAt(raw, path, ctx) {
@@ -639,19 +769,50 @@ function payloadAt(type, raw, path, ctx) {
             if (('lootId' in raw) === ('gearId' in raw)) return fail(ctx, path, 'sell-target-invalid');
             return 'gearId' in raw ? { gearId: idOf(raw.gearId, p('gearId'), ctx) } : { lootId: idOf(raw.lootId, p('lootId'), ctx, ENTRY_ID_RE) };
         // 人物特性（P-d）：抽取成功写 trait（traitId 由程序给定；passive 复用被动模板按稀有度加强；link 为可选的翻牌联动；cost 为花费的积分，由归并核对）。
+        // v4（助手 10-28）：kind 缺省为被动（旧条目没有 kind，形状不变）；主动特性写 kind: 'active' 与 skill，不带 passive。
         // 已满时新特性待定，再写 trait-pick 决定 drop：已装特性的 ID 为替换它，新特性自己的 ID 为放弃；被 drop 的永久消失。
-        case 'trait':
-            checkKeys(raw, ['traitId', 'name', 'origin', 'rarity', 'passive', 'link', 'cost'], path, ctx);
-            return {
+        case 'trait': {
+            checkKeys(raw, ['traitId', 'name', 'origin', 'rarity', 'kind', 'passive', 'skill', 'link', 'cost'], path, ctx);
+            const kind = raw.kind === undefined ? 'passive' : oneOf(raw.kind, p('kind'), ctx, TRAIT_KINDS);
+            const out = {
                 traitId: idOf(raw.traitId, p('traitId'), ctx), name: text(raw.name, p('name'), ctx, 20),
                 origin: text(raw.origin, p('origin'), ctx, REWARD_ORIGIN_MAX, ''), rarity: oneOf(raw.rarity, p('rarity'), ctx, TRAIT_RARITIES),
-                passive: passiveAt(raw.passive, p('passive'), ctx),
-                ...(raw.link === undefined ? {} : { link: oneOf(raw.link, p('link'), ctx, TRAIT_LINKS) }),
+            };
+            if (kind === 'active') {
+                if (raw.passive !== undefined) fail(ctx, p('passive'), 'unknown-field');
+                Object.assign(out, { kind, skill: traitSkillAt(raw.skill, p('skill'), ctx, out.rarity) });
+            } else {
+                if (raw.skill !== undefined) fail(ctx, p('skill'), 'unknown-field');
+                Object.assign(out, raw.kind === undefined ? {} : { kind }, { passive: passiveAt(raw.passive, p('passive'), ctx) });
+            }
+            return {
+                ...out, ...(raw.link === undefined ? {} : { link: oneOf(raw.link, p('link'), ctx, TRAIT_LINKS) }),
                 cost: int(raw.cost, p('cost'), ctx, 0, 100000),
             };
+        }
         case 'trait-pick':
             checkKeys(raw, ['traitId', 'drop'], path, ctx);
             return { traitId: idOf(raw.traitId, p('traitId'), ctx), drop: idOf(raw.drop, p('drop'), ctx) };
+        // 解锁特性槽（v4，助手 10-28）：slot 为要解锁的槽（须为下一个，由归并核对），cost 为该槽价格（traits.js 的 TRAIT_SLOT_COSTS，由归并核对）。
+        case 'trait-slot':
+            checkKeys(raw, ['slot', 'cost'], path, ctx);
+            return { slot: int(raw.slot, p('slot'), ctx, TRAIT_BASE_SLOTS + 1, TRAIT_SLOT_MAX), cost: int(raw.cost, p('cost'), ctx, 0, 100000) };
+        // 持续伤势（v4，助手 10-29）：战报楼落楼后按我方每名角色的战后生命写入，锚定战报用户楼；reportId 须与楼里的战报一致（由归并核对）；down 为本场倒下。
+        case 'wound': {
+            checkKeys(raw, ['hp', 'maxHp', 'down', 'reportId'], path, ctx);
+            const maxHp = int(raw.maxHp, p('maxHp'), ctx, 1, 9999);
+            const hp = int(raw.hp, p('hp'), ctx, 0, 9999);
+            if (Number.isInteger(hp) && Number.isInteger(maxHp) && hp > maxHp) fail(ctx, p('hp'), 'out-of-range', { min: 0, max: maxHp });
+            if (typeof raw.down !== 'boolean') fail(ctx, p('down'), 'expected-boolean');
+            return { hp, maxHp, down: raw.down === true, reportId: text(raw.reportId, p('reportId'), ctx, 40) };
+        }
+        // 剧情回血：正文 heal 标签；scale 为写入时难度的回血倍率（百分比，噩梦 50），之后改难度不影响已记的回血。
+        case 'heal': {
+            checkKeys(raw, ['amount', 'mode', 'scale', 'reason'], path, ctx);
+            const mode = oneOf(raw.mode, p('mode'), ctx, HEAL_MODES);
+            const amount = int(raw.amount, p('amount'), ctx, 1, mode === 'percent' ? 100 : 9999);
+            return { amount, mode, scale: int(raw.scale, p('scale'), ctx, 1, 100), reason: text(raw.reason, p('reason'), ctx, 80, '') };
+        }
         default:
             return undefined;
     }

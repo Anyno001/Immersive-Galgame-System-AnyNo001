@@ -1,21 +1,28 @@
-import { COMBAT_RULES } from './rules.js';
+import { COMBAT_RULES, TOKEN_CARDS, isCompatibleRulesVersion } from './rules.js';
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
-    LOW_HP_RATIO, canAfford, cardView, computeBlock, computeDamage, conditionHolds,
+    LOW_HP_RATIO, canAfford, cardCountKey, cardView, computeBlock, computeDamage, conditionHolds,
     effectsNeedTarget, effectsPickAlly, livingIds, lowestRatioId, opposite, weakestId,
 } from './battle-state.js';
-import { chooseAllyPlay, chooseSkillIntent } from './policy.js';
+import { chooseAllyPlay, chooseSkillIntent, pickCards } from './policy.js';
+import { TRAIT_ACTIVE_MAX, TRAIT_KINDS, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 
 export const ENGINE_VERSION = 1;
 const MAX_AUTO_PLAYS = 30;
 const MAX_TIMELINE_STEPS = 64;
+// 操控角色倒下后时间轴的步数上限倍数（防止双方都打不动时死循环）。
+const WIPE_STEP_FACTOR = 30;
 const AV_SCALE = 1000000;
 const MAX_PASSIVE_DEPTH = 2;
 const SIDES = Object.freeze(['ally', 'enemy']);
 const UNIT_KINDS = Object.freeze(['deck', 'skill']);
-const ACTION_TYPES = Object.freeze(['play', 'end-turn', 'escape', 'hero-skill', 'awaken', 'item']);
-// 每次本单位回合结束衰减 1 层：易伤、虚弱；禁抽只持续本回合（1 层）。无形在本单位下次回合开始时衰减，才能覆盖其间的敌方行动。
-const DECAYING = Object.freeze(['vulnerable', 'weak', 'no-draw']);
+const ACTION_TYPES = Object.freeze(['play', 'end-turn', 'escape', 'hero-skill', 'awaken', 'item', 'choose']);
+// v4：每个单位回合内总线触发（出牌、被弃、消耗、击杀、洗牌、失去生命、获得格挡、限时 BUFF、被弃时效果）最多结算次数，防止互相触发的循环。
+const MAX_BUS_TRIGGERS = 40;
+// 本场成长（grow）累计上限。
+const GROW_MAX = 20;
+// 每次本单位回合结束衰减 1 层：易伤、虚弱、脆弱；禁抽只持续本回合（1 层）。无形在本单位下次回合开始时衰减，才能覆盖其间的敌方行动。
+const DECAYING = Object.freeze(['vulnerable', 'weak', 'no-draw', 'frail']);
 const UNIT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const RESERVED_IDS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -58,10 +65,21 @@ function setStatus(unit, key, value) {
     else delete unit.statuses[key];
 }
 
-const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns']);
+const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'artifact']);
 const DEFAULT_TARGET = Object.freeze({ damage: 'enemy', block: 'self', heal: 'self', 'heal-pct': 'self', 'damage-from-block': 'enemy', cleanse: 'self' });
-// 净化可移除的减益。
-const CLEANSABLE = Object.freeze(['weak', 'vulnerable', 'poison', 'no-draw']);
+// 减益：净化可移除，人工制品可抵消。
+const CLEANSABLE = Object.freeze(['weak', 'vulnerable', 'poison', 'no-draw', 'frail']);
+
+// 施加状态：承受方有人工制品时减益被抵消，消耗 1 层人工制品并发 artifact 事件；其余照常叠层。
+function addStatus(c, t, status, stacks, source) {
+    if (CLEANSABLE.includes(status) && (t.statuses.artifact || 0) > 0) {
+        setStatus(t, 'artifact', t.statuses.artifact - 1);
+        emit(c, { type: 'artifact', source, target: t.id, status });
+        return;
+    }
+    setStatus(t, status, (t.statuses[status] || 0) + stacks);
+    emit(c, { type: 'status', source, target: t.id, status, stacks });
+}
 
 // 效果的承受方（缺省值按 op / 状态推导）；面板据此高亮不需要选目标的牌的承受方。
 export function targetSpec(effect) {
@@ -73,6 +91,17 @@ export function targetSpec(effect) {
 function catalogObject(catalog) {
     if (catalog instanceof Map) return Object.fromEntries(catalog);
     return catalog && typeof catalog === 'object' ? catalog : {};
+}
+
+// v4：人物特性（setup 可选，旧 setup 没有）：面板展示用的元数据，kind 为 active / passive，最多 TRAIT_SLOT_MAX 个、其中主动最多 TRAIT_ACTIVE_MAX 个；
+// 抽到的主动特性带 skill（费用为 TRAIT_SKILL_COSTS 之一，每回合各限一次）。
+function traitsError(traits) {
+    if (!Array.isArray(traits) || traits.length > TRAIT_SLOT_MAX) return true;
+    if (traits.filter((t) => t?.kind === 'active').length > TRAIT_ACTIVE_MAX) return true;
+    const skillIds = traits.filter((t) => t?.skill).map((t) => t.skill.id);
+    if (new Set(skillIds).size !== skillIds.length) return true;
+    return traits.some((t) => !safeId(t?.id) || !TRAIT_KINDS.includes(t.kind) || (t.skill !== undefined
+        && (t.kind !== 'active' || !safeId(t.skill?.id) || !Array.isArray(t.skill.effects) || !t.skill.effects.length || !TRAIT_SKILL_COSTS.includes(t.skill.cost))));
 }
 
 function unitError(u, path) {
@@ -96,6 +125,7 @@ function unitError(u, path) {
     if (hs !== undefined && hs !== null && (!safeId(hs?.id) || !Array.isArray(hs.effects) || !hs.effects.length)) {
         return { reason: 'invalid-hero-skill', detail: { path } };
     }
+    if (u.traits !== undefined && traitsError(u.traits)) return { reason: 'invalid-traits', detail: { path } };
     if (!Array.isArray(u.deck) || !u.deck.length) return { reason: 'empty-deck', detail: { path } };
     const catalog = catalogObject(u.catalog);
     for (const entry of u.deck) {
@@ -124,13 +154,16 @@ function itemsError(list) {
 
 function setupError(setup) {
     if (!setup || typeof setup !== 'object' || !Array.isArray(setup.units)) return { reason: 'invalid-setup' };
-    if (setup.rulesVersion !== undefined && setup.rulesVersion !== COMBAT_RULES.version) {
+    // v3 setup 不含 v4 字段，可在当前引擎上重放（进行中的 v3 战斗继续有效）。
+    if (setup.rulesVersion !== undefined && !isCompatibleRulesVersion(setup.rulesVersion)) {
         return { reason: 'rules-version-mismatch', detail: { expected: COMBAT_RULES.version, actual: setup.rulesVersion } };
     }
     if (setup.awaken !== undefined && awakenError(setup.awaken)) return { reason: 'invalid-awaken' };
     if (setup.items !== undefined && itemsError(setup.items)) return { reason: 'invalid-items' };
     // setup.overkill 可选（布尔）：为 true 时开鞭尸与超杀（见 isWhipping / checkOutcome）；旧 setup 不带时规则不变，重放结果不变。
     if (setup.overkill !== undefined && typeof setup.overkill !== 'boolean') return { reason: 'invalid-setup' };
+    // setup.wipe 可选（布尔，助手 10-29）：为 true 时操控角色倒下后队友继续托管作战，我方全员倒下才判负；旧 setup 不带时规则不变。
+    if (setup.wipe !== undefined && typeof setup.wipe !== 'boolean') return { reason: 'invalid-setup' };
     const ids = new Set();
     for (const [i, u] of setup.units.entries()) {
         const path = `units[${i}]`;
@@ -198,7 +231,8 @@ function finish(c, outcome) {
 function checkOutcome(c) {
     const s = c.s;
     if (s.outcome) return;
-    if (!s.units[s.controlledId].alive) finish(c, 'defeat');
+    const lost = s.wipe === true ? !livingIds(s, 'ally').length : !s.units[s.controlledId].alive;
+    if (lost) finish(c, 'defeat');
     // overkill 战斗在己方出牌阶段打空最后一名敌人：不立即判胜，还可以继续出牌鞭尸（超杀），结束回合时判胜。
     else if (!livingIds(s, 'enemy').length && !(s.overkill === true && s.phase === 'player')) finish(c, 'victory');
 }
@@ -234,6 +268,10 @@ function loseHp(c, unit, amount, source, kind, blockable, strike = 0) {
         afterHpLoss(c, unit);
     }
     checkOutcome(c);
+    // 触发总线：攻击击杀给出手方「击杀」；存活且失去生命给承受方「失去生命」。
+    const killer = source?.unitId != null ? c.s.units[source.unitId] : null;
+    if (!unit.alive && kind === 'attack' && killer && killer.side !== unit.side) fireBus(c, killer, 'kill', null);
+    else if (unit.alive && hpLoss > 0) fireBus(c, unit, 'hp-loss', null);
     return hpLoss;
 }
 
@@ -280,6 +318,29 @@ function triggerPassives(c, unit, trigger, primaryId) {
     c.depth -= 1;
 }
 
+// v4 触发总线：出牌、被弃、被消耗、击杀、洗牌、失去生命、获得格挡由被动与限时 BUFF 接收；回合开始 / 结束只给限时 BUFF（被动仍走 triggerPassives）。
+// 没有匹配的被动或 BUFF 时不发事件、不计数，旧战斗结算不变；嵌套深度沿用被动上限，每个单位回合内总次数有上限。
+const BUFF_ONLY_TRIGGERS = new Set(['turn-start', 'turn-end']);
+const busOpen = (c) => c.depth < MAX_PASSIVE_DEPTH && (c.s.busTriggers || 0) < MAX_BUS_TRIGGERS;
+
+function fireBus(c, unit, trigger, primaryId, meta = {}) {
+    if (!unit?.alive || c.s.outcome) return;
+    const matches = (x) => x.trigger === trigger && (!x.cardType || x.cardType === meta.cardType);
+    const passives = BUFF_ONLY_TRIGGERS.has(trigger) ? [] : (unit.passives || []).filter(matches);
+    const buffs = (unit.buffs || []).filter(matches);
+    if ((!passives.length && !buffs.length) || !busOpen(c)) return;
+    c.depth += 1;
+    const run = (kind, x, effects, extra) => {
+        if (!unit.alive || c.s.outcome || (c.s.busTriggers || 0) >= MAX_BUS_TRIGGERS) return;
+        c.s.busTriggers = (c.s.busTriggers || 0) + 1;
+        emit(c, { type: kind === 'passive' ? 'passive' : 'buff-trigger', unitId: unit.id, ...extra, trigger });
+        applyEffects(c, unit, effects, primaryId, { unitId: unit.id, kind, id: x.id });
+    };
+    for (const p of passives) run('passive', p, p.effects, { passiveId: p.id });
+    for (const b of buffs) run('buff', b, b.then, { buffId: b.id });
+    c.depth -= 1;
+}
+
 function applyEffects(c, actor, effects, primaryId, source) {
     for (const effect of effects || []) {
         if (c.s.outcome || !actor.alive) return;
@@ -295,9 +356,10 @@ function applyEffect(c, actor, e, primaryId, source) {
             return;
         case 'block':
             for (const t of targets()) {
-                const gained = computeBlock(actor, e.amount);
+                const gained = computeBlock(actor, e.amount, t);
                 t.block += gained;
                 emit(c, { type: 'block', source, target: t.id, amount: gained });
+                if (gained > 0) fireBus(c, t, 'block-gain', null);
             }
             return;
         case 'heal':
@@ -312,16 +374,14 @@ function applyEffect(c, actor, e, primaryId, source) {
             emit(c, { type: 'energy', unitId: actor.id, amount: e.amount });
             return;
         case 'status':
-            for (const t of targets()) {
-                setStatus(t, e.status, (t.statuses[e.status] || 0) + e.stacks);
-                emit(c, { type: 'status', source, target: t.id, status: e.status, stacks: e.stacks });
-            }
+            for (const t of targets()) addStatus(c, t, e.status, e.stacks, source);
             return;
         case 'exhaust-self':
             if (source.kind === 'card') c.exhaust = true;
             return;
         case 'conditional':
-            if (conditionHolds(c.s, actor, e.when, primaryId)) applyEffects(c, actor, e.then, primaryId, source);
+            // 同名连出条件取正在结算的卡牌 ID（只在卡牌效果里成立）。
+            if (conditionHolds(c.s, actor, e.when, primaryId, source?.kind === 'card' ? source.id : null)) applyEffects(c, actor, e.then, primaryId, source);
             return;
         case 'heal-pct':
             for (const t of targets()) healUnit(c, t, Math.max(1, Math.round((t.maxHp * e.pct) / 100)), source);
@@ -338,6 +398,7 @@ function applyEffect(c, actor, e, primaryId, source) {
                     const gained = t.block;
                     t.block += gained;
                     emit(c, { type: 'block', source, target: t.id, amount: gained });
+                    if (gained > 0) fireBus(c, t, 'block-gain', null);
                 } else {
                     const cur = t.statuses[e.stat] || 0;
                     if (cur <= 0) continue;
@@ -351,7 +412,8 @@ function applyEffect(c, actor, e, primaryId, source) {
             emit(c, { type: 'next-turn', unitId: actor.id, gain: e.gain });
             return;
         case 'each-turn':
-            actor.powers.push({ id: source.id, effects: clone(e.then) });
+            // at 为 turn-end 的能力在回合结束、弃牌前结算；缺省为回合开始。
+            actor.powers.push(e.at === 'turn-end' ? { id: source.id, effects: clone(e.then), at: 'turn-end' } : { id: source.id, effects: clone(e.then) });
             return;
         case 'hand-cost':
             if (actor.kind !== 'deck') return;
@@ -364,6 +426,62 @@ function applyEffect(c, actor, e, primaryId, source) {
                 for (const k of cleared) setStatus(t, k, 0);
                 if (cleared.length) emit(c, { type: 'cleanse', source, target: t.id, statuses: cleared });
             }
+            return;
+        // v4 第一批：弃牌、弃全手、复制、生成、重复上一张、下一张多结算、本场成长、单张减费、限时触发。
+        case 'discard': {
+            if (actor.kind !== 'deck') return;
+            const hand = c.s.piles[actor.id].hand;
+            for (const inst of pickFor(c, e.mode, hand.slice(), Math.min(e.amount, hand.length), 'discard')) discardCard(c, actor, inst);
+            return;
+        }
+        case 'discard-hand': {
+            if (actor.kind !== 'deck') return;
+            const all = c.s.piles[actor.id].hand.slice();
+            for (const inst of all) discardCard(c, actor, inst);
+            if (e.redraw && all.length && actor.alive && !c.s.outcome) drawCards(c, actor, all.length);
+            return;
+        }
+        case 'copy': {
+            if (actor.kind !== 'deck') return;
+            const from = e.from === 'self' ? selfInst(c) : pickFor(c, e.from, c.s.piles[actor.id].hand.slice(), 1, 'copy');
+            for (const inst of from) for (let i = 0; i < e.amount; i += 1) copyCard(c, actor, inst, e.to);
+            return;
+        }
+        case 'create':
+            // 卡组单位生成进自己的牌堆；技能单位（敌人、队友）只能生成状态牌，塞进对方卡组单位的牌堆。
+            if (actor.kind === 'deck') {
+                for (let i = 0; i < e.amount; i += 1) createToken(c, actor, e.card, e.to);
+            } else if (TOKEN_CARDS[e.card]?.unplayable) {
+                const t = statusCardTarget(c, actor, primaryId);
+                if (t) for (let i = 0; i < e.amount; i += 1) createToken(c, t, e.card, e.to);
+            }
+            return;
+        case 'repeat-last':
+            repeatLast(c, actor, e.amount, primaryId);
+            return;
+        case 'replay-next':
+            if (actor.kind !== 'deck') return;
+            if (!actor.replayNext) actor.replayNext = [];
+            actor.replayNext.push(e.cardType ? { amount: e.amount, cardType: e.cardType } : { amount: e.amount });
+            emit(c, { type: 'replay-next', unitId: actor.id, amount: e.amount, cardType: e.cardType || null });
+            return;
+        case 'grow':
+            for (const inst of selfInst(c)) {
+                const ref = c.s.cards[inst];
+                ref.grow = Math.min(GROW_MAX, (ref.grow || 0) + e.amount);
+                emit(c, { type: 'grow', unitId: actor.id, inst, grow: ref.grow });
+            }
+            return;
+        case 'cost-mod': {
+            if (actor.kind !== 'deck') return;
+            const insts = e.mode === 'self' ? selfInst(c) : pickFor(c, e.mode, costable(c.s, actor), 1, 'cost');
+            for (const inst of insts) modCost(c, actor, inst, e.amount, e.scope);
+            return;
+        }
+        case 'buff':
+            if (!actor.buffs) actor.buffs = [];
+            actor.buffs.push({ id: source.id, trigger: e.trigger, ...(e.cardType ? { cardType: e.cardType } : {}), turns: e.turns, then: clone(e.then) });
+            emit(c, { type: 'buff', unitId: actor.id, buffId: source.id, trigger: e.trigger, turns: e.turns });
             return;
         default:
     }
@@ -406,11 +524,167 @@ function drawCards(c, unit, n) {
             pile.draw = shuffleInPlace(c.s, pile.discard);
             pile.discard = [];
             emit(c, { type: 'reshuffle', unitId: unit.id, count: pile.draw.length });
+            // 洗牌触发可能再抽牌：回来后重新检查手牌上限与牌库。
+            fireBus(c, unit, 'shuffle', null);
+            if (pile.hand.length >= COMBAT_RULES.handLimit || !pile.draw.length) break;
         }
         pile.hand.push(pile.draw.pop());
         drawn += 1;
     }
     if (drawn) emit(c, { type: 'draw', unitId: unit.id, count: drawn });
+}
+
+// ── v4 牌实例层：本回合计数、选牌、被弃、消耗、临时牌、重复上一张、单张减费 ──
+// 本回合计数（同名牌键见 cardCountKey）；按需创建，单位回合开始时清空。
+const freshTurnStats = () => ({ attack: 0, skill: 0, power: 0, discards: 0, temps: 0, byCard: {} });
+function turnStatsOf(unit) {
+    if (!unit.turnStats) unit.turnStats = freshTurnStats();
+    return unit.turnStats;
+}
+
+// 本张：正在结算的卡牌实例（重复上一张时为被重复的那张）；卡牌以外的场合为空。
+const selfInst = (c) => (c.inst ? [c.inst] : []);
+// 可减费的手牌：数字费用且大于 0。
+const costable = (s, unit) => s.piles[unit.id].hand.filter((inst) => {
+    const card = cardView(s, inst);
+    return card && typeof card.cost === 'number' && card.cost > 0;
+});
+
+// 选牌：choose 取玩家在待选阶段给出的选择（c.chosen）；不能暂停的场合（托管角色、重复结算）按策略自动选；random 按种子抽。
+// 候选不多于要选的张数时全部选中，不消耗随机数。
+function pickFor(c, mode, options, count, purpose) {
+    if (mode === 'choose' && c.chosen) {
+        const chosen = c.chosen;
+        c.chosen = null;
+        return chosen;
+    }
+    if (count <= 0 || !options.length) return [];
+    if (count >= options.length) return options.slice();
+    if (mode === 'choose') return pickCards(c.s, options, count, purpose);
+    const pool = options.slice();
+    const out = [];
+    for (let i = 0; i < count; i += 1) out.push(pool.splice(roll(c.s, pool.length), 1)[0]);
+    return out;
+}
+
+// 需要玩家选牌的顶层效果：写 choose 且候选多于要选的张数时返回候选与张数，否则自动结算。
+function choiceFor(s, unit, e) {
+    if (unit.kind !== 'deck') return null;
+    const hand = s.piles[unit.id].hand;
+    let options = null;
+    let count = 1;
+    if (e.op === 'discard' && e.mode === 'choose') { options = hand.slice(); count = Math.min(e.amount, hand.length); }
+    else if (e.op === 'copy' && e.from === 'choose') options = hand.slice();
+    else if (e.op === 'cost-mod' && e.mode === 'choose') options = costable(s, unit);
+    return options && count > 0 && options.length > count ? { options, count } : null;
+}
+
+// 效果弃牌：移入弃牌堆并计数，结算这张牌的被弃时效果，再给被动与限时 BUFF 发「被弃」。回合末弃手牌不走这里（助手 10-28）。
+function discardCard(c, unit, inst) {
+    const pile = c.s.piles[unit.id];
+    const at = pile.hand.indexOf(inst);
+    if (at < 0) return;
+    pile.hand.splice(at, 1);
+    pile.discard.push(inst);
+    turnStatsOf(unit).discards += 1;
+    const card = cardView(c.s, inst);
+    emit(c, { type: 'discard', unitId: unit.id, inst, cardId: card?.id ?? null });
+    // 被弃时效果与总线共用深度和次数上限，防止「弃牌→抽牌→再弃」的循环。
+    if (card?.onDiscard && unit.alive && !c.s.outcome && busOpen(c)) {
+        c.s.busTriggers = (c.s.busTriggers || 0) + 1;
+        c.depth += 1;
+        applyEffects(c, unit, card.onDiscard, null, { unitId: unit.id, kind: 'on-discard', id: card.id });
+        c.depth -= 1;
+    }
+    fireBus(c, unit, 'discard', null, { cardType: card?.type });
+}
+
+// 消耗：移入消耗堆；trigger 为假时（能力牌打出后进消耗堆）不发「被消耗」。
+function exhaustCard(c, unit, inst, trigger = true) {
+    c.s.piles[unit.id].exhaust.push(inst);
+    emit(c, { type: 'exhaust', unitId: unit.id, inst });
+    if (trigger) fireBus(c, unit, 'exhaust', null, { cardType: cardView(c.s, inst)?.type });
+}
+
+// 临时牌（复制、生成）：只在本场存在，不入卡组与账本；每个单位每回合最多 tempCardsPerTurn 张。实例号按全场顺序递增，重放确定。
+// 去手牌而手牌已满时改进弃牌堆；去牌库时插入随机位置。
+function newTempInst(c, unit, ref, to) {
+    const stats = turnStatsOf(unit);
+    if (stats.temps >= COMBAT_RULES.tempCardsPerTurn) return null;
+    stats.temps += 1;
+    c.s.tempSeq = (c.s.tempSeq || 0) + 1;
+    const inst = `${unit.id}#t${c.s.tempSeq}`;
+    c.s.cards[inst] = { owner: unit.id, ...ref, temp: true };
+    const pile = c.s.piles[unit.id];
+    const at = to === 'hand' && pile.hand.length >= COMBAT_RULES.handLimit ? 'discard' : to;
+    if (at === 'hand') pile.hand.push(inst);
+    else if (at === 'draw') pile.draw.splice(roll(c.s, pile.draw.length + 1), 0, inst);
+    else pile.discard.push(inst);
+    emit(c, { type: 'card-created', unitId: unit.id, inst, cardId: ref.cardId, to: at });
+    return inst;
+}
+
+// 复制：带上升级、本场成长与本场减费；本回合减费不带。
+function copyCard(c, unit, inst, to) {
+    const ref = c.s.cards[inst];
+    if (!ref) return;
+    const copy = { cardId: ref.cardId, upgraded: ref.upgraded === true };
+    if (ref.grow) copy.grow = ref.grow;
+    if (ref.costMod) copy.costMod = ref.costMod;
+    newTempInst(c, unit, copy, to);
+}
+
+// 生成内置临时牌：首次生成时把牌面登记进本单位图鉴；图鉴里同 ID 已是别的牌时不生成。
+function createToken(c, unit, key, to) {
+    const token = TOKEN_CARDS[key];
+    if (!token) return;
+    const catalog = c.s.catalog[unit.id];
+    if (!Object.hasOwn(catalog, token.id)) catalog[token.id] = clone(token);
+    else if (catalog[token.id].name !== token.name) return;
+    newTempInst(c, unit, { cardId: token.id, upgraded: false }, to);
+}
+
+// 状态牌的承受方：技能指定的对方卡组单位，否则对方的操控角色，再否则对方第一名存活的卡组单位；计入承受方本回合的临时牌上限。
+function statusCardTarget(c, actor, primaryId) {
+    const s = c.s;
+    const foe = opposite(actor.side);
+    const fits = (u) => Boolean(u?.alive) && u.side === foe && u.kind === 'deck';
+    const picked = primaryId != null && Object.hasOwn(s.units, primaryId) ? s.units[primaryId] : null;
+    if (fits(picked)) return picked;
+    if (fits(s.units[s.controlledId])) return s.units[s.controlledId];
+    const id = livingIds(s, foe).find((x) => s.units[x].kind === 'deck');
+    return id ? s.units[id] : null;
+}
+
+// 重复上一张：按本回合上一张已结算完的牌的当前效果再结算 amount 次；不付费、不移动那张牌、不算出牌、不能嵌套，选牌按策略自动选。
+// X 费牌按一次结算重复（不乘能量）。原目标已倒下时按效果缺省目标重选。
+function repeatLast(c, unit, amount, primaryId) {
+    const last = unit.lastPlayed;
+    if (c.repeating || !last || unit.kind !== 'deck') return;
+    const card = cardView(c.s, last.inst);
+    if (!card || card.unplayable) return;
+    const saved = { inst: c.inst, exhaust: c.exhaust };
+    const target = last.targetId != null && c.s.units[last.targetId]?.alive ? last.targetId : null;
+    c.repeating = true;
+    c.inst = last.inst;
+    emit(c, { type: 'repeat', unitId: unit.id, inst: last.inst, cardId: card.id, times: amount });
+    const source = { unitId: unit.id, kind: 'card', id: card.id };
+    for (let i = 0; i < amount && unit.alive && !c.s.outcome; i += 1) applyEffects(c, unit, card.effects, target ?? primaryId ?? null, source);
+    c.repeating = false;
+    c.inst = saved.inst;
+    c.exhaust = saved.exhaust;
+}
+
+// 单张减费：本场（写在牌实例上，复制时带走）或本回合（单位回合结束清空）；累计最多 -3，最终费用最低 0。
+function modCost(c, unit, inst, amount, scope) {
+    const ref = c.s.cards[inst];
+    if (!ref) return;
+    if (scope === 'combat') ref.costMod = Math.max(-3, (ref.costMod || 0) + amount);
+    else {
+        if (!unit.turnCostMod) unit.turnCostMod = {};
+        unit.turnCostMod[inst] = Math.max(-3, (unit.turnCostMod[inst] || 0) + amount);
+    }
+    emit(c, { type: 'cost-mod', unitId: unit.id, inst, amount, scope });
 }
 
 
@@ -455,6 +729,10 @@ function startUnit(c, unit) {
     if (s.outcome || !unit.alive) return;
     unit.block = 0;
     unit.cardsPlayed = 0;
+    // v4：本回合计数、上一张与单位回合内总线次数清零（缺省不补字段，旧战斗形状不变）。
+    delete unit.turnStats;
+    delete unit.lastPlayed;
+    delete s.busTriggers;
     if ((unit.statuses.intangible || 0) > 0) setStatus(unit, 'intangible', unit.statuses.intangible - 1);
     const poison = unit.statuses.poison || 0;
     if (poison > 0) {
@@ -470,6 +748,7 @@ function startUnit(c, unit) {
     if (unit.kind === 'deck') {
         unit.energy = unit.energyPerTurn;
         unit.heroSkillUsed = false;
+        if (unit.traitSkillsUsed) unit.traitSkillsUsed = [];
         // 一次性道具：操控角色每个己方回合限用 1 次。
         if (unit.id === s.controlledId && s.items) s.items.used = false;
     }
@@ -483,68 +762,140 @@ function startUnit(c, unit) {
             unit.energy += n.amount;
             emit(c, { type: 'energy', unitId: unit.id, amount: n.amount });
         } else if (n.gain === 'status') {
-            setStatus(unit, n.status, (unit.statuses[n.status] || 0) + n.stacks);
-            emit(c, { type: 'status', source: { unitId: unit.id, kind: 'next-turn', id: n.status }, target: unit.id, status: n.status, stacks: n.stacks });
+            addStatus(c, unit, n.status, n.stacks, { unitId: unit.id, kind: 'next-turn', id: n.status });
         }
     }
     triggerPassives(c, unit, 'turn-start', null);
     // 能力牌登记的每回合触发效果，按打出顺序结算。
     for (const p of unit.powers || []) {
         if (!unit.alive || s.outcome) return;
+        if (p.at === 'turn-end') continue;
         emit(c, { type: 'power-trigger', unitId: unit.id, cardId: p.id });
         applyEffects(c, unit, p.effects, null, { unitId: unit.id, kind: 'power', id: p.id });
     }
+    fireBus(c, unit, 'turn-start', null);
     if (unit.kind === 'deck' && unit.alive && !s.outcome) drawCards(c, unit, unit.drawPerTurn + extraDraw);
 }
 
 
+// 回合末弃手牌：保留的留在手里，虚无的消耗，其余进弃牌堆；不触发被弃时效果（助手 10-28）。
 function discardHand(c, unit) {
     const pile = c.s.piles[unit.id];
     const kept = [];
-    for (const inst of pile.hand) (cardView(c.s, inst)?.retain ? kept : pile.discard).push(inst);
+    const fading = [];
+    for (const inst of pile.hand) {
+        const card = cardView(c.s, inst);
+        if (card?.ethereal) fading.push(inst);
+        else (card?.retain ? kept : pile.discard).push(inst);
+    }
     pile.hand = kept;
+    for (const inst of fading) exhaustCard(c, unit, inst);
 }
 
-// 单位行动后：回合结束被动、卡组单位弃牌、易伤与虚弱衰减。
+// 单位行动后：回合结束被动、回合结束时机的能力与限时 BUFF、卡组单位弃牌、限时 BUFF 计时、易伤与虚弱衰减。
 function endUnit(c, unit) {
     if (c.s.outcome || !unit.alive) return;
     triggerPassives(c, unit, 'turn-end', null);
     if (!unit.alive) return;
+    for (const p of unit.powers || []) {
+        if (p.at !== 'turn-end') continue;
+        if (!unit.alive || c.s.outcome) return;
+        emit(c, { type: 'power-trigger', unitId: unit.id, cardId: p.id });
+        applyEffects(c, unit, p.effects, null, { unitId: unit.id, kind: 'power', id: p.id });
+    }
+    fireBus(c, unit, 'turn-end', null);
+    if (!unit.alive) return;
     if (unit.kind === 'deck') {
         discardHand(c, unit);
         delete unit.handCost;
+        delete unit.turnCostMod;
+        delete unit.replayNext;
     }
+    // 限时 BUFF：本单位每个回合结束减 1，到 0 移除（turns 含施加的这一回合）。
+    if (unit.buffs?.length) unit.buffs = unit.buffs.map((b) => ({ ...b, turns: b.turns - 1 })).filter((b) => b.turns > 0);
     for (const key of DECAYING) if (unit.statuses[key] > 0) setStatus(unit, key, unit.statuses[key] - 1);
 }
 
 
+// 出牌：付费、离开手牌后逐次结算效果。X 费按付出的能量重复；「下一张多结算」再乘次数。
+// 操控角色打出的牌，顶层效果需要选牌（候选多于要选的张数）时暂停：进度存在 s.play、候选在 s.pending，choose 动作给出选择后续算。
 function playCard(c, unit, inst, targetId) {
     const s = c.s;
     const pile = s.piles[unit.id];
     const card = cardView(s, inst);
     const spend = card.cost === 'X' ? unit.energy : card.cost;
-    const repeat = card.cost === 'X' ? spend : 1;
+    let runs = card.cost === 'X' ? spend : 1;
     pile.hand.splice(pile.hand.indexOf(inst), 1);
     unit.energy -= spend;
     emit(c, { type: 'card', unitId: unit.id, inst, cardId: card.id, name: card.name, skillRef: card.skillRef || card.name, targetId: targetId ?? null, cost: spend });
-    c.exhaust = false;
-    const source = { unitId: unit.id, kind: 'card', id: card.id };
-    for (let i = 0; i < repeat && !s.outcome && unit.alive; i += 1) applyEffects(c, unit, card.effects, targetId ?? null, source);
-    unit.cardsPlayed += 1;
-    if (card.type === 'power' || c.exhaust) {
-        pile.exhaust.push(inst);
-        emit(c, { type: 'exhaust', unitId: unit.id, inst });
-    } else {
-        pile.discard.push(inst);
+    const boost = (unit.replayNext || []).findIndex((r) => !r.cardType || r.cardType === card.type);
+    if (boost >= 0) {
+        const [r] = unit.replayNext.splice(boost, 1);
+        runs *= 1 + r.amount;
+        emit(c, { type: 'replay', unitId: unit.id, inst, times: r.amount });
     }
+    // 本次结算的效果在出牌时定下（同一张牌中途成长不影响本次）。
+    s.play = { unitId: unit.id, inst, cardId: card.id, effects: card.effects, targetId: targetId ?? null, runs, run: 0, index: 0, exhaust: false };
+    resumePlay(c);
+}
+
+function resumePlay(c) {
+    const s = c.s;
+    const play = s.play;
+    const unit = s.units[play.unitId];
+    const source = { unitId: unit.id, kind: 'card', id: play.cardId };
+    const pausable = unit.id === s.controlledId;
+    c.inst = play.inst;
+    c.exhaust = play.exhaust;
+    while (play.run < play.runs && !s.outcome && unit.alive) {
+        while (play.index < play.effects.length && !s.outcome && unit.alive) {
+            const e = play.effects[play.index];
+            const choice = pausable ? choiceFor(s, unit, e) : null;
+            play.index += 1;
+            if (choice) {
+                play.exhaust = c.exhaust;
+                s.pending = { kind: e.op, unitId: unit.id, inst: play.inst, count: choice.count, options: choice.options };
+                emit(c, { type: 'choose-start', unitId: unit.id, kind: e.op, count: choice.count, options: choice.options.slice() });
+                c.inst = null;
+                return;
+            }
+            applyEffect(c, unit, e, play.targetId, source);
+        }
+        if (s.outcome || !unit.alive) break;
+        play.run += 1;
+        play.index = 0;
+    }
+    finishPlay(c);
+}
+
+// 结算完：计数、进弃牌堆或消耗堆、记为本回合上一张，再给被动与限时 BUFF 发「出牌」。
+function finishPlay(c) {
+    const s = c.s;
+    const play = s.play;
+    delete s.play;
+    const unit = s.units[play.unitId];
+    const card = cardView(s, play.inst);
+    c.inst = null;
+    unit.cardsPlayed += 1;
+    const stats = turnStatsOf(unit);
+    stats[card.type] += 1;
+    const key = cardCountKey(card.id);
+    stats.byCard[key] = (stats.byCard[key] || 0) + 1;
+    if (card.type === 'power' || c.exhaust) exhaustCard(c, unit, play.inst, card.type !== 'power');
+    else s.piles[unit.id].discard.push(play.inst);
     c.exhaust = false;
+    unit.lastPlayed = { inst: play.inst, targetId: play.targetId };
     checkOutcome(c);
+    fireBus(c, unit, 'card-played', play.targetId, { cardType: card.type });
+    // 对方出牌：对侧存活单位的被动按行动顺序接收，主目标为出牌者；没有匹配被动时不发事件。
+    for (const id of livingIds(s, opposite(unit.side))) fireBus(c, s.units[id], 'foe-card-played', unit.id, { cardType: card.type });
 }
 
 function validatePlay(s, unit, inst, targetId) {
     if (typeof inst !== 'string' || !(s.piles[unit.id]?.hand || []).includes(inst)) return { reason: 'card-not-in-hand' };
     const card = cardView(s, inst);
     if (!card) return { reason: 'card-not-in-hand' };
+    if (card.unplayable) return { reason: 'card-unplayable' };
     if (!canAfford(card, unit.energy)) return { reason: 'insufficient-energy', detail: { cost: card.cost, energy: unit.energy } };
     return targetError(s, unit, card.effects, targetId);
 }
@@ -562,20 +913,26 @@ function targetError(s, unit, effects, targetId) {
     return null;
 }
 
-// 人物技能：每回合一次，耗 heroSkillCost 能量；目标规则与出牌相同。
-function validateHeroSkill(s, unit, targetId) {
-    if (!unit.heroSkill) return { reason: 'hero-skill-missing' };
-    if (unit.heroSkillUsed) return { reason: 'hero-skill-used' };
-    const cost = COMBAT_RULES.heroSkillCost;
-    if (unit.energy < cost) return { reason: 'insufficient-energy', detail: { cost, energy: unit.energy } };
-    return targetError(s, unit, unit.heroSkill.effects, targetId);
+// 人物技能与主动特性：skillId 缺省为固有人物技能（heroSkill，耗 heroSkillCost），否则为抽到的主动特性（耗 skill.cost）；各自每回合一次，目标规则与出牌相同。
+function activeSkill(unit, skillId) {
+    if (skillId === undefined) return unit.heroSkill ? { skill: unit.heroSkill, cost: COMBAT_RULES.heroSkillCost, used: unit.heroSkillUsed === true } : null;
+    const trait = (unit.traits || []).find((t) => t.skill?.id === skillId);
+    return trait ? { skill: trait.skill, cost: trait.skill.cost, used: (unit.traitSkillsUsed || []).includes(skillId) } : null;
 }
 
-function useHeroSkill(c, unit, targetId) {
-    const skill = unit.heroSkill;
-    const cost = COMBAT_RULES.heroSkillCost;
+function validateHeroSkill(s, unit, targetId, skillId) {
+    const active = activeSkill(unit, skillId);
+    if (!active) return { reason: 'hero-skill-missing' };
+    if (active.used) return { reason: 'hero-skill-used' };
+    if (unit.energy < active.cost) return { reason: 'insufficient-energy', detail: { cost: active.cost, energy: unit.energy } };
+    return targetError(s, unit, active.skill.effects, targetId);
+}
+
+function useHeroSkill(c, unit, targetId, skillId) {
+    const { skill, cost } = activeSkill(unit, skillId);
     unit.energy -= cost;
-    unit.heroSkillUsed = true;
+    if (skillId === undefined) unit.heroSkillUsed = true;
+    else unit.traitSkillsUsed = [...(unit.traitSkillsUsed || []), skillId];
     emit(c, { type: 'hero-skill', unitId: unit.id, skillId: skill.id, name: skill.name, targetId: targetId ?? null, cost });
     applyEffects(c, unit, skill.effects, targetId ?? null, { unitId: unit.id, kind: 'hero-skill', id: skill.id });
     checkOutcome(c);
@@ -676,7 +1033,10 @@ function beginHeroTurn(c, first = false) {
 function runTimeline(c) {
     const s = c.s;
     s.phase = 'auto';
-    for (let step = 0; step < MAX_TIMELINE_STEPS && !s.outcome; step += 1) {
+    // 操控角色已倒下（只有 wipe 战斗会出现）：队友与敌人一直自动行动到分出胜负。
+    // 步数上限只防双方都打不动的僵持：到上限仍未分出时判负（队友仍站着，战报写落败而不是全队覆灭）。
+    const heroDown = () => !s.units[s.controlledId].alive;
+    for (let step = 0; !s.outcome && step < (heroDown() ? MAX_TIMELINE_STEPS * WIPE_STEP_FACTOR : MAX_TIMELINE_STEPS); step += 1) {
         const id = nextActorId(s);
         if (!id) return;
         const unit = s.units[id];
@@ -689,7 +1049,20 @@ function runTimeline(c) {
         autoAct(c, unit);
         if (unit.alive) resetAv(s, unit);
     }
-    if (!s.outcome) beginHeroTurn(c);
+    if (s.outcome) return;
+    if (heroDown()) { finish(c, 'defeat'); return; }
+    beginHeroTurn(c);
+}
+
+// wipe 战斗里操控角色在自己的出牌阶段倒下（自伤、荆棘、回合开始的中毒等）：放弃待选，直接交给时间轴自动推进。
+// 先按自动阶段判一次胜负：overkill 战斗里操控角色打空最后一名敌人的同时倒下，此时应直接判胜，而不是交给打不到敌人的队友空转。
+function continueWithoutHero(c) {
+    const s = c.s;
+    if (s.wipe !== true || s.outcome || s.phase !== 'player' || s.units[s.controlledId].alive) return;
+    delete s.pending;
+    s.phase = 'auto';
+    checkOutcome(c);
+    if (!s.outcome) runTimeline(c);
 }
 
 function endTurn(c) {
@@ -783,6 +1156,11 @@ function buildUnit(u) {
         unit.drawPerTurn = u.draw ?? COMBAT_RULES.drawPerTurn;
         unit.heroSkillUsed = false;
         if (u.heroSkill) unit.heroSkill = clone(u.heroSkill);
+        // v4：人物特性随单位进局（setup 没有时不写字段）；有抽到的主动特性时才记本回合已用的特性技能。
+        if (Array.isArray(u.traits)) {
+            unit.traits = clone(u.traits);
+            if (unit.traits.some((t) => t.skill)) unit.traitSkillsUsed = [];
+        }
     }
     return unit;
 }
@@ -792,10 +1170,12 @@ export function createBattle(setup, seed) {
         || (Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff ? null : { reason: 'invalid-seed' });
     if (error) return { ok: false, state: null, events: [], error };
     const s = {
-        version: ENGINE_VERSION, rulesVersion: COMBAT_RULES.version, seed, rng: seed,
+        // 规则版本取 setup 的（v3 记录在 v4 引擎上重放时仍为 3，托管策略据此保持旧行为）；setup 不带时为当前版本。
+        version: ENGINE_VERSION, rulesVersion: setup.rulesVersion ?? COMBAT_RULES.version, seed, rng: seed,
         turn: 1, phase: 'player', outcome: null, controlledId: setup.controlledId, canEscape: setup.canEscape === true,
         order: [], units: {}, cards: {}, catalog: {}, piles: {}, intents: {}, cooldowns: {}, history: {}, avSeq: 0,
         ...(setup.overkill === true ? { overkill: true } : {}),
+        ...(setup.wipe === true ? { wipe: true } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((i) => ({ itemId: i.itemId, name: typeof i.name === 'string' ? i.name : i.itemId, count: i.count, effects: clone(i.effects) })) } } : {}),
     };
@@ -816,7 +1196,13 @@ export function createBattle(setup, seed) {
             return inst;
         });
         s.catalog[u.id] = owned;
-        s.piles[u.id] = { draw: shuffleInPlace(s, draw), hand: [], discard: [], exhaust: [] };
+        // 固有：洗牌后移到牌库顶（从末尾抽），保证进首手；固有张数多于每回合抽牌数时首回合多抽。没有固有牌时顺序与随机数消耗不变。
+        const shuffled = shuffleInPlace(s, draw);
+        const innate = shuffled.filter((inst) => owned[s.cards[inst].cardId]?.innate);
+        const piled = innate.length ? [...shuffled.filter((inst) => !innate.includes(inst)), ...innate] : shuffled;
+        s.piles[u.id] = { draw: piled, hand: [], discard: [], exhaust: [] };
+        const extra = innate.length - (u.draw ?? COMBAT_RULES.drawPerTurn);
+        if (extra > 0) s.units[u.id].nextTurn.push({ gain: 'draw', amount: extra });
     }
     emit(c, { type: 'battle-start', controlledId: s.controlledId });
     for (const id of s.order) if (s.units[id].kind === 'skill') pickIntent(c, s.units[id]);
@@ -827,7 +1213,46 @@ export function createBattle(setup, seed) {
         if (s.outcome) break;
         triggerPassives(c, s.units[id], 'battle-start', null);
     }
+    continueWithoutHero(c);
     return { ok: true, state: s, events: c.events };
+}
+
+// 选牌动作：insts 为不重复、来自候选、张数等于要求的实例列表。
+function validateChoose(s, insts) {
+    const p = s.pending;
+    if (!Array.isArray(insts) || insts.length !== p.count || new Set(insts).size !== insts.length
+        || insts.some((i) => !p.options.includes(i))) return { reason: 'invalid-choice', detail: { count: p.count } };
+    return null;
+}
+
+// 按玩家的选择结算暂停的那个效果，再续算这张牌的其余效果。
+function chooseCards(c, insts) {
+    const s = c.s;
+    const play = s.play;
+    const unit = s.units[play.unitId];
+    delete s.pending;
+    emit(c, { type: 'choose', unitId: unit.id, insts: insts.slice() });
+    c.inst = play.inst;
+    c.exhaust = play.exhaust;
+    c.chosen = insts.slice();
+    applyEffect(c, unit, play.effects[play.index - 1], play.targetId, { unitId: unit.id, kind: 'card', id: play.cardId });
+    c.chosen = null;
+    play.exhaust = c.exhaust;
+    resumePlay(c);
+}
+
+function combinations(items, k) {
+    const out = [];
+    const walk = (start, picked) => {
+        if (picked.length === k) { out.push(picked.slice()); return; }
+        for (let i = start; i <= items.length - (k - picked.length); i += 1) {
+            picked.push(items[i]);
+            walk(i + 1, picked);
+            picked.pop();
+        }
+    };
+    walk(0, []);
+    return out;
 }
 
 export function applyAction(state, action) {
@@ -835,11 +1260,19 @@ export function applyAction(state, action) {
     if (state.outcome) return reject(state, 'battle-ended', { outcome: state.outcome });
     if (!action || typeof action !== 'object' || !ACTION_TYPES.includes(action.type)) return reject(state, 'invalid-action');
     if (state.phase !== 'player') return reject(state, 'not-player-phase');
-    if (action.type === 'play') {
+    // 待选阶段只接受 choose；没有待选时不接受 choose。
+    if (state.pending) {
+        if (action.type !== 'choose') return reject(state, 'choice-pending', { kind: state.pending.kind });
+        const error = validateChoose(state, action.insts);
+        if (error) return reject(state, error.reason, error.detail);
+    } else if (action.type === 'choose') {
+        return reject(state, 'no-choice-pending');
+    } else if (action.type === 'play') {
         const error = validatePlay(state, state.units[state.controlledId], action.inst, action.targetId);
         if (error) return reject(state, error.reason, error.detail);
     } else if (action.type === 'hero-skill') {
-        const error = validateHeroSkill(state, state.units[state.controlledId], action.targetId);
+        if (action.skillId !== undefined && typeof action.skillId !== 'string') return reject(state, 'invalid-action');
+        const error = validateHeroSkill(state, state.units[state.controlledId], action.targetId, action.skillId);
         if (error) return reject(state, error.reason, error.detail);
     } else if (action.type === 'awaken') {
         const error = validateAwaken(state);
@@ -853,8 +1286,9 @@ export function applyAction(state, action) {
     }
     const s = clone(state);
     const c = { s, events: [], depth: 0, exhaust: false };
-    if (action.type === 'play') playCard(c, s.units[s.controlledId], action.inst, action.targetId ?? null);
-    else if (action.type === 'hero-skill') useHeroSkill(c, s.units[s.controlledId], action.targetId ?? null);
+    if (action.type === 'choose') chooseCards(c, action.insts);
+    else if (action.type === 'play') playCard(c, s.units[s.controlledId], action.inst, action.targetId ?? null);
+    else if (action.type === 'hero-skill') useHeroSkill(c, s.units[s.controlledId], action.targetId ?? null, action.skillId);
     else if (action.type === 'awaken') useAwaken(c, s.units[s.controlledId]);
     else if (action.type === 'item') useItem(c, s.units[s.controlledId], action.itemId, action.targetId ?? null);
     else if (action.type === 'end-turn') endTurn(c);
@@ -862,12 +1296,15 @@ export function applyAction(state, action) {
         emit(c, { type: 'escape', unitId: s.controlledId });
         finish(c, 'escape');
     }
+    continueWithoutHero(c);
     return { ok: true, state: s, events: c.events };
 }
 
 
 export function legalActions(state) {
     if (!state || state.outcome || state.phase !== 'player') return [];
+    // 待选阶段只列出合法的选牌组合。
+    if (state.pending) return combinations(state.pending.options, state.pending.count).map((insts) => ({ type: 'choose', insts }));
     const unit = state.units[state.controlledId];
     const actions = [];
     // 可选目标：需要敌方目标的给每名存活敌人（鞭尸时含倒下的敌人），「为一名队友」类给每名存活的己方单位，其余不带目标。
@@ -883,6 +1320,13 @@ export function legalActions(state) {
     const skillIds = unit.heroSkill ? pickable(unit.heroSkill.effects) : null;
     if (!skillIds) { if (!validateHeroSkill(state, unit, undefined)) actions.push({ type: 'hero-skill' }); }
     else for (const targetId of skillIds) if (!validateHeroSkill(state, unit, targetId)) actions.push({ type: 'hero-skill', targetId });
+    // 抽到的主动特性：动作带 skillId；固有人物技能的动作不带，旧记录形状不变。
+    for (const t of unit.traits || []) {
+        if (!t.skill) continue;
+        const ids = pickable(t.skill.effects);
+        if (!ids) { if (!validateHeroSkill(state, unit, undefined, t.skill.id)) actions.push({ type: 'hero-skill', skillId: t.skill.id }); }
+        else for (const targetId of ids) if (!validateHeroSkill(state, unit, targetId, t.skill.id)) actions.push({ type: 'hero-skill', skillId: t.skill.id, targetId });
+    }
     if (!validateAwaken(state)) actions.push({ type: 'awaken' });
     for (const it of state.items?.list || []) {
         const ids = pickable(it.effects);

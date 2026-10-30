@@ -1,5 +1,5 @@
 import { IGS_UI_BLUR, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FILL, IGS_UI_FONT_SANS, IGS_UI_INK, IGS_UI_NIGHT_RGB, IGS_UI_RADIUS, IGS_UI_THICKNESS, IGS_UI_WARM, igsUiSurface } from '../../styles/ui-material.js';
-import { COMBAT_CUTIN_STYLE_TEXT } from './combat-cutin-style.js';
+import { COMBAT_CUTIN_ART_FONT, COMBAT_CUTIN_STYLE_TEXT } from './combat-cutin-style.js';
 import { COMBAT_HIT_STYLE_TEXT } from './combat-hit-fx-style.js';
 import { COMBAT_ENEMY_ART_STYLE_TEXT } from './combat-enemy-art.js';
 
@@ -39,10 +39,11 @@ const C = '#igs-combat-panel';
 const P = '#igs-overlay #igs-combat-panel';
 const N = IGS_UI_NIGHT_RGB;
 
-// 觉醒情绪色：怒火红焰、守护盾光、悲恸冷蓝、决意金光、羁绊光丝、极限雷光、复仇暗红、不屈白焰。按钮与特写共用 --aw。
+// 觉醒情绪色：怒火红焰、守护盾光、悲恸冷蓝、决意金光、羁绊光丝、极限雷光、复仇暗红、不屈白焰。按钮与特写共用 --aw；--aw-ink 为情绪色字块上的墨色（深色配白字，其余配黑字）。
 const AWAKEN_COLORS = Object.freeze({ rage: '#ff6a3d', guard: '#7fd3ff', grief: '#7fa6e0', resolve: '#f2c46b', bond: '#ffb0cf', limit: '#c7b8ff', vengeance: '#c4303f', unyielding: '#f6f2e8' });
-const AWAKEN_VARS = Object.entries(AWAKEN_COLORS).map(([k, v]) => `[data-awaken="${k}"]{--aw:${v};}`).join('\n');
-// 情绪特效层（.igs-combat-awaken-fx）：::before 为母题纹样，::after 为粒子；低画质去粒子，减少动态效果全部静止。
+const AWAKEN_DARK = new Set(['vengeance']);
+const AWAKEN_VARS = Object.entries(AWAKEN_COLORS).map(([k, v]) => `[data-awaken="${k}"]{--aw:${v};--aw-ink:${AWAKEN_DARK.has(k) ? '#fff' : '#0b0b0d'};}`).join('\n');
+// 情绪母题纹样（.igs-combat-awaken-fx::before）与粒子（::after）；低画质去粒子，减少动态效果全部静止。
 const AWAKEN_PATTERN = Object.freeze({
     rage: 'radial-gradient(60% 40% at 50% 110%,color-mix(in srgb,var(--aw) 85%,transparent),transparent 70%),radial-gradient(30% 50% at 20% 105%,color-mix(in srgb,var(--aw) 60%,transparent),transparent 70%),radial-gradient(30% 50% at 80% 105%,color-mix(in srgb,var(--aw) 60%,transparent),transparent 70%)',
     guard: 'radial-gradient(circle at 50% 50%,transparent 34%,color-mix(in srgb,var(--aw) 55%,transparent) 36%,transparent 42%,transparent 54%,color-mix(in srgb,var(--aw) 30%,transparent) 56%,transparent 62%)',
@@ -54,24 +55,44 @@ const AWAKEN_PATTERN = Object.freeze({
     unyielding: 'radial-gradient(55% 45% at 50% 110%,color-mix(in srgb,var(--aw) 80%,transparent),transparent 70%),radial-gradient(25% 45% at 50% 100%,#fff,transparent 70%)',
 });
 const AWAKEN_PATTERNS = Object.entries(AWAKEN_PATTERN).map(([k, v]) => `.igs-combat-awaken-cutin[data-awaken="${k}"] .igs-combat-awaken-fx::before{background:${v};}`).join('\n');
-// 觉醒特写：全屏色幕（底色为情绪色的暗调）+ 情绪纹样 + 居中半身立绘（.igs-combat-cutin-figure.is-awaken，见 combat-cutin-style.js）+ 下方类型与台词；挂在特写层，按 --igs-fx-life 淡入淡出。
+
+// 觉醒特写（助手 10-29 方案 A，全长 --igs-fx-life）：有可信头位时先切眼部斜切条（--aw-lead，见 combat-cutin-style.js），再接主段。主段沿技能特写的布局加强：
+// 暗幕叠情绪色光（立绘一侧更亮）+ 情绪母题纹样与粒子 + 情绪色速度线 + 宽斜带（技能特写同款，更宽更亮）与反向细斜带交叉 + 右侧放大推近、带情绪色光晕的半身立绘
+// + 左侧字幕组（角色名、更大的拼贴字「觉醒·类型」、逐字出现的台词条）+ 开场与收尾两次闪白（收尾在 --aw-end，面板同时震一下，见 combat-panel.js）。
+// 主段各层按 --aw-lead 延后进场（--aw-main 为主段时长）。窄面板：立绘居中、字幕组压在下方居中。低画质去粒子、纹样与速度线静止、去投影、不震；
+// 减少动态效果不切眼部、不闪白、不震，整体淡入淡出、各层静止、台词整句显示。
 const AWAKEN_FX = `${AWAKEN_VARS}
-.igs-combat-awaken-cutin{position:absolute;inset:0;overflow:hidden;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(circle at 50% 45%,color-mix(in srgb,var(--aw) 30%,rgba(${N},.6)),rgba(${N},.88) 75%);animation:igs-combat-awaken-in var(--igs-fx-life,2400ms) ease-out both;}
+.igs-combat-awaken-cutin{--ct:var(--aw);--aw-main:calc(var(--igs-fx-life,3000ms) - var(--aw-lead,0ms));position:absolute;inset:0;overflow:hidden;pointer-events:none;background:radial-gradient(60% 75% at 72% 45%,color-mix(in srgb,var(--aw) 34%,transparent),transparent 70%),linear-gradient(90deg,rgba(${N},.88),rgba(${N},.5) 58%,rgba(${N},.78));animation:igs-combat-awaken-in var(--igs-fx-life,3000ms) ease-out both;}
 .igs-combat-awaken-fx{position:absolute;inset:0;}
-.igs-combat-awaken-fx::before{content:'';position:absolute;inset:-10%;opacity:.9;animation:igs-combat-awaken-drift 1.6s ease-in-out infinite alternate;}
+.igs-combat-awaken-fx::before{content:'';position:absolute;inset:-10%;opacity:.85;animation:igs-combat-awaken-drift 1.6s ease-in-out infinite alternate;}
 .igs-combat-awaken-fx::after{content:'';position:absolute;inset:0;background-image:radial-gradient(2px 2px at 12% 80%,var(--aw),transparent),radial-gradient(2px 2px at 28% 60%,#fff,transparent),radial-gradient(3px 3px at 46% 90%,var(--aw),transparent),radial-gradient(2px 2px at 64% 70%,#fff,transparent),radial-gradient(3px 3px at 82% 85%,var(--aw),transparent),radial-gradient(2px 2px at 92% 55%,var(--aw),transparent);animation:igs-combat-awaken-rise 1.4s linear infinite;}
 ${AWAKEN_PATTERNS}
-.igs-combat-awaken-cap{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;max-width:min(92%,640px);padding:0 16px;text-align:center;font-family:${IGS_UI_FONT_SANS};}
-.igs-combat-awaken-label{color:var(--aw);font-size:13px;font-weight:700;letter-spacing:.4em;text-shadow:0 0 10px color-mix(in srgb,var(--aw) 70%,transparent),0 1px 3px rgba(0,0,0,.8);}
-.igs-combat-awaken-line{color:#fff;font-size:clamp(18px,4.2vmin,30px);font-weight:700;letter-spacing:.08em;line-height:1.35;text-shadow:0 0 14px color-mix(in srgb,var(--aw) 75%,transparent),0 2px 4px rgba(0,0,0,.85);overflow-wrap:anywhere;}
-@keyframes igs-combat-awaken-in{0%{opacity:0;}10%,86%{opacity:1;}100%{opacity:0;}}
+.igs-combat-awaken-cutin .igs-combat-cutin-lines{opacity:.85;background:repeating-linear-gradient(-12deg,transparent 0 20px,color-mix(in srgb,var(--aw) 42%,transparent) 20px 23px,transparent 23px 52px);animation-duration:.35s;}
+.igs-combat-awaken-band{--r:-10deg;--d:-1;--b:color-mix(in srgb,var(--aw) 60%,var(--igs-combat-cutin-tint,var(--aw)));position:absolute;left:-14%;right:-14%;top:27%;height:46%;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--b) 66%,transparent) 14%,color-mix(in srgb,var(--b) 90%,#fff 10%) 50%,color-mix(in srgb,var(--b) 66%,transparent) 86%,transparent);box-shadow:0 0 64px color-mix(in srgb,var(--b) 60%,transparent);transform:rotate(var(--r));animation:igs-combat-awaken-band var(--aw-main,2400ms) cubic-bezier(.2,.8,.2,1) var(--aw-lead,0ms) both;}
+.igs-combat-awaken-band.is-cross{--r:5deg;--d:1;top:71%;height:6%;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--aw) 60%,#fff) 18%,color-mix(in srgb,var(--aw) 25%,#fff) 50%,color-mix(in srgb,var(--aw) 60%,#fff) 82%,transparent);box-shadow:0 0 30px color-mix(in srgb,var(--aw) 75%,transparent);animation-delay:calc(var(--aw-lead,0ms) + 80ms);}
+.igs-combat-awaken-cutin .igs-combat-cutin-flash{opacity:0;animation:igs-combat-cutin-flash .32s ease-out var(--aw-lead,0ms) forwards;}
+.igs-combat-awaken-cutin .igs-combat-cutin-flash.is-awaken-end{animation-delay:var(--aw-end,2550ms);}
+.igs-combat-awaken-cap{position:absolute;left:6%;top:50%;z-index:1;display:flex;flex-direction:column;align-items:flex-start;gap:clamp(6px,1.4cqh,12px);max-width:min(50%,640px);translate:0 -50%;font-family:${IGS_UI_FONT_SANS};animation:igs-combat-awaken-cap var(--aw-main,2400ms) cubic-bezier(.2,.8,.2,1) var(--aw-lead,0ms) both;}
+.igs-combat-awaken-label{display:flex;flex-direction:column;align-items:flex-start;gap:clamp(4px,1cqh,10px);}
+.igs-combat-awaken-name{padding:.25em .7em .25em .9em;border-radius:var(--igs-cb-r-s,4px);background:rgba(${N},.72);color:#fff;font-size:clamp(12px,1.7cqw,16px);font-weight:700;letter-spacing:.36em;text-shadow:0 0 10px color-mix(in srgb,var(--aw) 70%,transparent);}
+.igs-combat-awaken-kind{--ch-at:calc(var(--aw-lead,0ms) + 120ms);display:flex;flex-wrap:wrap;align-items:center;gap:.06em;font-family:${COMBAT_CUTIN_ART_FONT};font-size:clamp(32px,min(calc(52cqw / var(--len,5)),13cqh),92px);line-height:1;rotate:-5deg;transform-origin:0 50%;}
+.igs-combat-awaken-kind .igs-combat-cutin-ch[data-v="2"]{color:var(--aw-ink,#0b0b0d);box-shadow:-.06em .06em 0 #fff,.08em .1em 0 rgba(0,0,0,.6);}
+.igs-combat-awaken-line{margin-top:clamp(4px,1.2cqh,12px);max-width:min(100%,560px);padding:.36em .9em;background:linear-gradient(90deg,rgba(${N},.84),rgba(${N},.64) 80%,rgba(${N},.32));color:#fff;font-size:clamp(14px,min(2.4cqw,3.6cqh),24px);font-weight:700;letter-spacing:.06em;line-height:1.4;text-shadow:0 0 12px color-mix(in srgb,var(--aw) 70%,transparent),0 2px 4px rgba(0,0,0,.85);overflow-wrap:anywhere;clip-path:inset(-1em);animation:igs-combat-awaken-type calc(var(--aw-main,2400ms) * .4) steps(var(--n,12),end) calc(var(--aw-lead,0ms) + 420ms) both;}
+@keyframes igs-combat-awaken-in{0%{opacity:0;}4%,86%{opacity:1;}100%{opacity:0;}}
+@keyframes igs-combat-awaken-band{0%{opacity:0;transform:rotate(var(--r)) translateX(calc(var(--d) * 110%)) scaleY(.3);}12%{opacity:1;transform:rotate(var(--r)) translateX(0) scaleY(1.08);}18%{transform:rotate(var(--r)) translateX(0) scaleY(1);}86%{opacity:1;transform:rotate(var(--r)) translateX(calc(var(--d) * -3%)) scaleY(1);}100%{opacity:0;transform:rotate(var(--r)) translateX(calc(var(--d) * -110%)) scaleY(.5);}}
+@keyframes igs-combat-awaken-cap{0%{opacity:0;transform:translateX(-32px) skewX(-14deg);}14%{opacity:1;transform:translateX(0) skewX(-6deg);}86%{opacity:1;transform:translateX(6px) skewX(-6deg);}100%{opacity:0;transform:translateX(24px) skewX(-6deg);}}
+@keyframes igs-combat-awaken-type{from{clip-path:inset(-1em 100% -1em -1em);}to{clip-path:inset(-1em);}}
 @keyframes igs-combat-awaken-drift{from{transform:scale(1) translateY(0);}to{transform:scale(1.06) translateY(-2%);}}
 @keyframes igs-combat-awaken-rise{from{transform:translateY(12%);opacity:1;}to{transform:translateY(-18%);opacity:0;}}
+@container igs-combat (max-width:720px){.igs-combat-awaken-cutin{background:radial-gradient(70% 55% at 50% 38%,color-mix(in srgb,var(--aw) 34%,transparent),transparent 70%),linear-gradient(180deg,rgba(${N},.6),rgba(${N},.4) 45%,rgba(${N},.86));}.igs-combat-awaken-band{top:50%;height:30%;}.igs-combat-awaken-band.is-cross{top:80%;height:4%;}.igs-combat-awaken-cap{left:5%;right:5%;top:auto;bottom:7%;translate:none;max-width:none;align-items:center;text-align:center;}.igs-combat-awaken-label{align-items:center;}.igs-combat-awaken-kind{justify-content:center;transform-origin:50% 50%;font-size:clamp(28px,min(calc(86cqw / var(--len,5)),9cqh),68px);}.igs-combat-awaken-line{max-width:100%;}}
 .igs-combat-awaken-cutin.is-low .igs-combat-awaken-fx::after,#igs-overlay[data-igs-quality="low"] .igs-combat-awaken-fx::after{display:none;}
-.igs-combat-awaken-cutin.is-reduced{animation:igs-combat-cutin-fade var(--igs-fx-life,2600ms) linear both;}
+.igs-combat-awaken-cutin.is-low .igs-combat-awaken-fx::before,#igs-overlay[data-igs-quality="low"] .igs-combat-awaken-fx::before{animation:none;}
+.igs-combat-awaken-cutin.is-low .igs-combat-awaken-band,#igs-overlay[data-igs-quality="low"] .igs-combat-awaken-band{box-shadow:none;}
+.igs-combat-awaken-cutin.is-reduced{animation:igs-combat-cutin-fade var(--igs-fx-life,3000ms) linear both;}
 .igs-combat-awaken-cutin.is-reduced .igs-combat-awaken-fx::before{animation:none;}
 .igs-combat-awaken-cutin.is-reduced .igs-combat-awaken-fx::after{display:none;}
-@media (prefers-reduced-motion:reduce){.igs-combat-awaken-cutin{animation:igs-combat-cutin-fade var(--igs-fx-life,2600ms) linear both;}.igs-combat-awaken-fx::before{animation:none!important;}.igs-combat-awaken-fx::after{display:none;}}`;
+.igs-combat-awaken-cutin.is-reduced :is(.igs-combat-cutin-lines,.igs-combat-awaken-band,.igs-combat-awaken-cap,.igs-combat-awaken-line){animation:none;}
+@media (prefers-reduced-motion:reduce){.igs-combat-awaken-cutin{animation:igs-combat-cutin-fade var(--igs-fx-life,3000ms) linear both;}.igs-combat-awaken-fx::before{animation:none!important;}.igs-combat-awaken-fx::after{display:none;}.igs-combat-awaken-cutin :is(.igs-combat-cutin-lines,.igs-combat-awaken-band,.igs-combat-awaken-cap,.igs-combat-awaken-line){animation:none!important;}.igs-combat-awaken-eye{display:none;}}`;
 
 // 单位宽度随面板本身的尺寸放大（cqw / cqh 取 #igs-combat-panel，不看视口）；敌人放大以便横向散开，我方宽度即圆框头像直径，主战者大于队友。
 const SCALE_WIDE = `${C} .igs-combat-unit{--u-w:clamp(128px,min(28cqh,20cqw),240px);}
@@ -96,7 +117,12 @@ ${C} .igs-combat-result:has(>.igs-combat-loot)>.igs-combat-result-team{grid-area
 ${C} .igs-combat-result:has(>.igs-combat-loot)>.igs-combat-loot{grid-area:loot;align-self:center;align-items:flex-start;}
 ${C} .igs-combat-result:has(>.igs-combat-loot)>.igs-combat-actions{grid-area:actions;}
 ${C} .igs-combat-result:has(>.igs-combat-loot) .igs-combat-loot-row{--loot-w:min(21cqh,132px,calc((100% - (var(--n,3) - 1) * 12px) / var(--n,3)));justify-content:flex-start;}
-${C} .igs-combat-result:has(>.igs-combat-loot) .igs-combat-result-figure{width:min(var(--r-w),calc((100% - (var(--n,1) - 1) * 16px) / var(--n,1)));}`;
+${C} .igs-combat-result:has(>.igs-combat-loot) .igs-combat-result-figure{width:min(var(--r-w),calc((100% - (var(--n,1) - 1) * 16px) / var(--n,1)));}
+/* 横向面板（≥721px）右下角回合组竖排：撤退 / 取消在最上，抽牌 / 弃牌数量在中间，结束回合在最下的角落（turn-btns 不成盒，按 order 排）。 */
+${C} .igs-combat-turn-btns{display:contents;}
+${C} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="cancel"]){order:-1;}
+/* 撤退是透明底图标钮：收窄成 34px 方钮、右缘仍与结束回合对齐，图标更靠右。 */
+${C} .igs-combat-turn .igs-combat-turn-btns>.igs-combat-btn.is-icon[data-combat-act="escape"]{width:34px;}`;
 // 战前对阵竖排（竖向面板；不支持容器查询时按视口方向）：敌方在上、我方在下；敌方色块止于敌方区下缘（100% - --t），我方色块从我方一排上沿（--t）起铺，VS 所在一行不铺色块；入场改为上下冲入；底层色块在我方一排沿首框左斜边、末框右斜边裁掉，--t 是我方一排的上沿（舞台半高 + VS 半高 + 行距，与三行网格一致）。
 const LOBBY_STACK = `${C} .igs-combat-lobby-stage{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto minmax(0,1fr);grid-template-areas:"enemy" "vs" "ally";}
 ${C} .igs-combat-lobby{--vs:clamp(40px,min(9cqh,13cqw),64px);--cut:clamp(12px,4.5cqh,32px);}
@@ -113,9 +139,14 @@ ${C} .igs-combat-unit[data-size="lg"]{--u-w:clamp(150px,min(20cqh,26cqw),220px);
 ${LOBBY_STACK}
 ${C} .igs-combat-lobby{--l-foe:clamp(80px,min(22cqh,28cqw),220px);}`;
 // 窄面板（≤720px）：紧凑排布；支持容器查询时按面板宽度生效，否则回落到视口宽度。
-const NARROW = `${C} .igs-combat-head{min-height:40px;padding:4px 6px 0 14px;}
+const NARROW = `${C} .igs-combat-head{min-height:40px;gap:6px;padding:2px 6px 0 14px;}
+/* 窄面板顶栏：标题最多两行（超出省略）、每行至少两个字，不再被挤成竖排撑高顶栏；行动条按 100px 起算、占满剩余宽度，放得下时标题保持一行，行动条到 100px 后标题才折行；关闭 / 倍速按钮不被压窄；错误提示收紧。 */
+${C} .igs-combat-head>.igs-combat-icon-btn{flex:none;}
+${C} .igs-combat-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;min-width:2.2em;max-height:2.5em;overflow:hidden;font-size:13px;line-height:1.25;letter-spacing:.06em;}
+${C} .igs-combat-round{padding:2px 8px 2px calc(8px + .12em);}
+${C} .igs-combat-notice{margin:0 10px 4px;padding:6px 10px;font-size:12px;line-height:1.5;}
 ${C} .igs-combat-turn{gap:6px;}
-${C} .igs-combat-track{--dot:18px;flex-basis:min(52%,280px);min-width:120px;}
+${C} .igs-combat-track{--dot:18px;flex:1 1 100px;min-width:100px;}
 ${C} .igs-combat-main{gap:6px;padding:0 10px 6px;}
 ${C} .igs-combat-field{padding:0;}
 ${C} .igs-combat-side{gap:10px;}
@@ -131,10 +162,9 @@ ${C} .igs-combat-hero{justify-content:center;gap:8px;}
 ${C} .igs-combat-hero-core{gap:6px;}
 ${C} .igs-combat-hand{--igs-card-w:88px;padding:8px 14px 16px;}
 ${C} .igs-combat-unit[data-size="lg"] .igs-combat-unit-name{gap:2px;}
-${C} .igs-combat-hero-skill{gap:5px;font-size:11px;}
-${C} .igs-combat-hero-skill-orb{width:38px;height:38px;}
-${C} .igs-combat-hero-skill-orb svg{width:19px;height:19px;}
-${C} .igs-combat-hero-skill-cost{width:16px;height:16px;font-size:11px;}
+${C} :is(.igs-combat-hero-figure,.igs-combat-trait){--orb:30px;}
+${C} .igs-combat-trait-orb svg{width:16px;height:16px;}
+${C} .igs-combat-trait-cost{right:-3px;top:-3px;width:14px;height:14px;font-size:10px;}
 ${C} .igs-combat-energy{gap:5px;}
 ${C} .igs-combat-energy-orb{width:32px;height:32px;}
 ${C} .igs-combat-energy-orb b{font-size:15px;}
@@ -142,6 +172,9 @@ ${C} .igs-combat-turn .igs-combat-btn.is-icon{width:46px;min-height:30px;height:
 ${C} .igs-combat-turn .igs-combat-btn.is-icon.is-primary{width:62px;}
 ${C} .igs-combat-btn.is-icon svg{width:18px;height:18px;}
 ${C} .igs-combat-card{min-height:112px;gap:3px;padding:5px 6px 6px;}
+/* 窄面板手牌：关键字与效果说明同排，说明最多两行（超出以省略号截断，全文在读屏标签里），牌高与普通牌一致，手牌区不被长说明撑高、回合按钮不被挤出面板。 */
+${C} .igs-combat-card-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;}
+${C} .igs-combat-card-kw{display:inline;margin-right:.35em;}
 ${C} .igs-combat-card-cost{width:22px;height:22px;font-size:12px;}
 ${C} .igs-combat-card-art{height:24px;}
 ${C} .igs-combat-card-art svg{width:20px;height:20px;}
@@ -167,29 +200,32 @@ ${C} .igs-combat-unit{--u-w:clamp(84px,min(32cqw,17cqh),200px);}
 ${C} .igs-combat-unit[data-size="lg"]{--u-w:clamp(108px,min(34cqw,18cqh),200px);}
 ${C} .igs-combat-unit[data-size="sm"]{--u-w:clamp(50px,min(16cqw,8cqh),92px);}
 ${C} .igs-combat-lobby{--l-foe:clamp(84px,min(20cqh,34cqw),200px);}`;
-// 紧凑横屏（721–1279px）：有助战时控件绝对定位在主战者头像右上方，底边高于静止牌顶、首个圆钮贴住圆框外沿（坐标由面板实测后写入 --igs-hero-ctrl-x / -y，未量到时用保底位置），技能名完整显示；矮面板里控件升进敌方一排高度时，面板按最左敌人左缘写入 --igs-hero-ctrl-w 限宽，技能名省略。没有助战时控件放在主战者上方。撤退在结束回合上方，更宽面板不变。
+// 紧凑横屏（721–1279px）：排布同宽面板、间距收紧。
 const FOOT_COMPACT = `${C} .igs-combat-foot{gap:10px;}
 ${C} .igs-combat-hero{gap:10px;}
-${C} .igs-combat-hero-core{flex-direction:column-reverse;align-items:flex-start;gap:6px;}
-${C} .igs-combat-controls{flex-direction:row;flex-wrap:wrap;align-items:center;}
-${C} .igs-combat-hero:has(>.igs-combat-side.is-ally){position:relative;display:grid;grid-template-columns:auto auto;grid-template-rows:1fr auto;grid-template-areas:"figure controls" "figure mates";gap:6px 10px;}
-${C} .igs-combat-hero:has(>.igs-combat-side.is-ally)>.igs-combat-hero-core{display:contents;}
-${C} .igs-combat-hero:has(>.igs-combat-side.is-ally) .igs-combat-hero-figure{grid-area:figure;}
-${C} .igs-combat-hero:has(>.igs-combat-side.is-ally) .igs-combat-controls{grid-area:auto;position:absolute;left:var(--igs-hero-ctrl-x,calc(100% - 124px));top:var(--igs-hero-ctrl-y,-32px);z-index:2;flex-wrap:nowrap;width:max-content;}
-${C} .igs-combat-hero:has(>.igs-combat-side.is-ally) :is(.igs-combat-hero-skill-name,.igs-combat-awaken-name){max-width:9em;}
-${C} .igs-combat-hero:has(>.igs-combat-side.is-ally) .igs-combat-controls{max-width:var(--igs-hero-ctrl-w,none);}
-${C} .igs-combat-hero:has(>.igs-combat-side.is-ally) .igs-combat-controls>:is(.igs-combat-hero-skill,.igs-combat-awaken){flex:0 1 auto;min-width:0;}
-${C} .igs-combat-hero>.igs-combat-side.is-ally{grid-area:mates;}
-${C} .igs-combat-turn-btns{flex-direction:column;align-items:flex-end;gap:6px;}`;
+${C} .igs-combat-hero-core{gap:6px;}`;
 // 竖向面板的我方一排：不用圆框，与敌人一样是 3:4 半身立绘（下沿渐隐），主战者与队友同宽（按我方人数 --n 均分，不换行）；
-// 队友按奇偶分到主战者左右，主战者居中，人物技能仍贴在主战者右侧（不叠到头像上方，免得多占一行纵向空间），均分宽度时扣掉技能列；选中 / 出手 / 可选目标不画外环，沿用立绘外发光。
+// 队友按奇偶分到主战者左右，主战者居中，觉醒与道具在主战者左侧、底边对齐（不叠到头像上），均分宽度时扣掉这一列；选中 / 出手 / 可选目标不画外环，沿用立绘外发光。
 const PORTRAIT_ALLIES = `${C} .igs-combat-foot .igs-combat-hero{flex-wrap:nowrap;justify-content:center;align-items:flex-end;gap:8px;}
 ${C} .igs-combat-hero>.igs-combat-side.is-ally{display:contents;}
 ${C} .igs-combat-hero .igs-combat-side.is-ally>.igs-combat-unit:nth-child(odd){order:-1;}
 ${C} .igs-combat-hero .igs-combat-unit[data-side="ally"][data-size]{--u-w:min(clamp(64px,13cqh,140px),calc((100cqw - 40px - var(--hero-controls-space,74px) - (var(--n,1) - 1) * 8px) / var(--n,1)));--crop:1;flex:none;}
 ${C} .igs-combat-hero .igs-combat-unit[data-side="ally"][data-size] .igs-combat-portrait{aspect-ratio:3/4;border-radius:0;background:none;box-shadow:none;-webkit-mask-image:linear-gradient(180deg,#000 70%,transparent);mask-image:linear-gradient(180deg,#000 70%,transparent);}
 ${C} .igs-combat-hero .igs-combat-unit[data-side="ally"][data-size] .igs-combat-portrait :is(img,svg,.igs-combat-art){transform:none;object-position:50% 0;}
-${C} .igs-combat-hero .igs-combat-unit[data-side="ally"][data-size] .igs-combat-unit-info{margin-top:-14px;}`;
+${C} .igs-combat-hero .igs-combat-unit[data-side="ally"][data-size] .igs-combat-unit-info{margin-top:-14px;}
+/* 竖向半身立绘没有圆框：主动特性圆球并排挨着（间距 4px）在主战者立绘上沿外侧（间隙 3px），右缘与立绘右缘对齐，比两侧队友头顶稍高；
+   我方一排顶部留出一颗圆球高，免得压到敌方；不另占一列，我方均分宽度不受影响，没有队友时也不在右侧留空。 */
+${C} .igs-combat-hero:has(.igs-combat-trait-ring){padding-top:calc(var(--orb,44px) + 6px);}
+${C} .igs-combat-hero .igs-combat-trait-ring{aspect-ratio:3/4;}
+${C} .igs-combat-hero .igs-combat-trait-ring>.igs-combat-trait{left:auto;right:0;top:calc(-3px - var(--orb,44px));margin-left:0;translate:none;}
+${C} .igs-combat-hero .igs-combat-trait-ring>.igs-combat-trait:not(:last-child){right:calc(var(--orb,44px) + 4px);}
+${C} .igs-combat-hero:not(:has(>.igs-combat-side.is-ally)) .igs-combat-hero-figure:has(>.igs-combat-trait-ring){margin-right:0;}
+/* 竖向半身立绘没有圆框：觉醒 / 道具竖排在主战者立绘左侧外沿（间隙 6px）、底边与单位块齐平；立绘左侧留出按钮宽，均分我方宽度时扣掉这一列。 */
+${C} .igs-combat-hero{--hero-controls-space:40px;}
+${C} .igs-combat-hero-figure>.igs-combat-controls{left:auto;right:calc(100% + 6px);top:auto;bottom:0;display:flex;aspect-ratio:auto;}
+${C} .igs-combat-hero-figure>.igs-combat-controls>*{position:relative;right:auto;top:auto;}
+${C} .igs-combat-hero-figure>.igs-combat-controls>.igs-combat-awaken{right:auto;top:auto;}
+${C} .igs-combat-hero .igs-combat-hero-figure:has(>.igs-combat-controls){margin-left:40px;}`;
 
 // 战斗面板：扁平、无描边；场景背景保留并压暗，单位以站立立绘呈现；手牌重叠成扇形握牌、不滚动，悬停 / 聚焦 / 选中抬起。面板自带的演出层不受 panel:combat 暂停影响。
 export const COMBAT_PANEL_STYLE_TEXT = `
@@ -374,17 +410,20 @@ ${C}[data-igs-combat-reduced] .igs-combat-lobby-flash,#igs-overlay[data-igs-qual
 ${C} .igs-combat-foot{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"hero hand turn";align-items:end;gap:14px;padding:2px 16px 12px;background:linear-gradient(180deg,rgba(${N},0),rgba(${N},.5));}
 ${C} .igs-combat-foot.is-ended{display:flex;justify-content:center;}
 ${C} .igs-combat-dock{display:none;}
-/* 窄面板操作区：原能量槽与技能移入手牌下方左列，回合操作保留右列。 */
+/* 窄面板操作区：能量槽、主动特性圆球组与觉醒 / 道具依次移入手牌下方左列（竖向一排没有余高放头像上方的圆球），回合操作保留右列。 */
 ${C}[data-igs-combat-docked] .igs-combat-foot:not(.is-ended){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"hero hero" "hand hand" "dock turn";}
 ${C}[data-igs-combat-docked] .igs-combat-hero{--hero-controls-space:0px;}
 ${C}[data-igs-combat-docked] .igs-combat-dock{grid-area:dock;display:flex;align-items:center;gap:10px;min-width:0;padding-top:6px;}
 ${C}[data-igs-combat-docked] .igs-combat-dock>.igs-combat-energy{position:static;flex:none;}
-${C}[data-igs-combat-docked] .igs-combat-dock>.igs-combat-controls{flex:1 1 0;min-width:0;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;}
+${C}[data-igs-combat-docked] .igs-combat-dock>.igs-combat-controls{flex:none;}
+${C}[data-igs-combat-docked] .igs-combat-dock>.igs-combat-trait-ring{position:static;flex:none;display:flex;gap:4px;aspect-ratio:auto;}
+${C}[data-igs-combat-docked] .igs-combat-dock>.igs-combat-trait-ring>.igs-combat-trait{position:relative;left:auto;right:auto;top:auto;margin:0;translate:none;}
 /* 队友与敌人的自动行动演出播放中（根节点 data-igs-combat-auto）：底栏不接收点击，播完再出牌。 */
 ${C}[data-igs-combat-auto] .igs-combat-foot{pointer-events:none;}
 ${C} .igs-combat-hero{grid-area:hero;display:flex;align-items:flex-end;gap:14px;min-width:0;}
-/* 主战者一组：圆框半身像在左（能量叠在左上角），人物技能 / 牌堆竖排贴在头像右侧；回合按钮在右下角 .igs-combat-turn。 */
+/* 主战者一组：圆框半身像靠左（能量叠在左上角，主动特性圆球在头像右上方外侧，觉醒 / 道具两块小长方形按钮在头像左下方圆框外沿），回合按钮在右下角 .igs-combat-turn。 */
 ${C} .igs-combat-hero-core{flex:none;display:flex;align-items:center;gap:8px;}
+${C} .igs-combat-hero-figure:has(>.igs-combat-controls){margin-left:10px;}
 /* 能量圆标叠在主战者圆框头像左上角（方框角落在圆外）。 */
 ${C} .igs-combat-hero-figure{position:relative;flex:none;}
 ${C} .igs-combat-hero-figure>.igs-combat-energy{position:absolute;left:-6px;top:-6px;z-index:2;flex-direction:column;gap:2px;}
@@ -426,35 +465,69 @@ ${C} .igs-combat-hero .igs-combat-side{gap:8px;flex-wrap:nowrap;}
 ${C} .igs-combat-hero>.igs-combat-side.is-ally{flex:0 1 auto;min-width:0;}
 ${C} .igs-combat-hero .igs-combat-side.is-ally .igs-combat-unit{flex:0 1 auto;min-width:0;}
 
-/* 人物技能徽章：圆形深色底 + 暖色细描环 + 程序图标，左上角暖色费用圆标，右侧单行技能名；整颗按钮 ≥44px 高，触屏可点。 */
-${C} .igs-combat-hero-skill{position:relative;flex:none;display:inline-flex;align-items:center;gap:7px;max-width:100%;padding:0;border:0;background:none;color:var(--igs-cb-ink);font:inherit;font-size:12px;font-weight:600;letter-spacing:.04em;line-height:1.2;text-align:left;text-shadow:0 1px 2px rgba(0,0,0,.75);cursor:pointer;}
-${C} .igs-combat-hero-skill-orb{position:relative;flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:${igsUiSurface(IGS_UI_THICKNESS.thick)};color:var(--igs-cb-warm);box-shadow:0 0 0 1.5px rgba(242,212,155,.38),0 8px 18px -8px rgba(0,0,0,.75),${IGS_UI_EDGE_NIGHT};transition:transform .18s var(--igs-cb-ease),filter .18s var(--igs-cb-ease),box-shadow .18s var(--igs-cb-ease);}
-${C} .igs-combat-hero-skill-orb svg{width:22px;height:22px;stroke-width:1.5;}
-${C} .igs-combat-hero-skill:not(.is-disabled):hover .igs-combat-hero-skill-orb{filter:brightness(1.15);transform:translateY(-1px);}
-${C} .igs-combat-hero-skill.is-selected .igs-combat-hero-skill-orb{transform:translateY(-1px);box-shadow:0 0 0 2px var(--igs-cb-warm),0 0 14px rgba(242,212,155,.45),0 8px 16px -8px rgba(0,0,0,.75);}
-${C} .igs-combat-hero-skill.is-disabled{opacity:.5;}
-${C} .igs-combat-hero-skill.is-used .igs-combat-hero-skill-orb svg{opacity:.4;}
-${C} .igs-combat-hero-skill-cost{position:absolute;left:-4px;top:-4px;display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--igs-cb-warm);color:#1b1d21;font-size:12px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;text-shadow:none;box-shadow:0 0 0 2px rgba(242,212,155,.18);}
-${C} .igs-combat-hero-skill-name{min-width:0;max-width:6.5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-/* 觉醒按钮：与人物技能徽章同材质的圆形深色底，细环与图标取情绪色（--aw），可用时环光缓慢呼吸；每场一次，用后不再渲染。 */
-${C} .igs-combat-awaken{position:relative;flex:none;display:inline-flex;align-items:center;gap:7px;max-width:100%;padding:0;border:0;background:none;color:var(--igs-cb-ink);font:inherit;font-size:12px;font-weight:600;letter-spacing:.04em;line-height:1.2;text-align:left;text-shadow:0 1px 2px rgba(0,0,0,.75);cursor:pointer;}
-${C} .igs-combat-awaken-orb{position:relative;flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:${igsUiSurface(IGS_UI_THICKNESS.thick)};color:var(--aw);box-shadow:0 0 0 1.5px color-mix(in srgb,var(--aw) 60%,transparent),0 8px 18px -8px rgba(0,0,0,.75),${IGS_UI_EDGE_NIGHT};transition:transform .18s var(--igs-cb-ease),filter .18s var(--igs-cb-ease);}
-${C} .igs-combat-awaken-orb svg{width:22px;height:22px;stroke-width:1.5;}
-${C} .igs-combat-awaken:not(.is-disabled) .igs-combat-awaken-orb{animation:igs-combat-awaken-pulse 2.4s ease-in-out infinite;}
-${C} .igs-combat-awaken:not(.is-disabled):hover .igs-combat-awaken-orb{filter:brightness(1.15);transform:translateY(-1px);}
-${C} .igs-combat-awaken.is-disabled{opacity:.5;}
-${C} .igs-combat-awaken-name{min-width:0;max-width:6.5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:color-mix(in srgb,var(--aw) 45%,var(--igs-cb-ink));}
-@keyframes igs-combat-awaken-pulse{0%,100%{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--aw) 60%,transparent),0 8px 18px -8px rgba(0,0,0,.75);}50%{box-shadow:0 0 0 2px var(--aw),0 0 16px color-mix(in srgb,var(--aw) 55%,transparent),0 8px 18px -8px rgba(0,0,0,.75);}}
-#igs-overlay[data-igs-quality="low"] ${C} .igs-combat-awaken-orb{animation:none;}
-/* 道具栏：一排 34px 圆钮（与人物技能徽章同材质），右上角暖色余量圆标；按钮间距 6px，超出时换行。 */
-${C} .igs-combat-items{display:flex;flex-wrap:wrap;gap:6px;max-width:160px;}
-${C} .igs-combat-item{position:relative;flex:none;padding:0;border:0;background:none;color:var(--igs-cb-life);cursor:pointer;}
-${C} .igs-combat-item-orb{position:relative;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:${igsUiSurface(IGS_UI_THICKNESS.thick)};box-shadow:0 0 0 1.5px rgba(85,199,149,.4),0 6px 14px -6px rgba(0,0,0,.7),${IGS_UI_EDGE_NIGHT};transition:transform .18s var(--igs-cb-ease),filter .18s var(--igs-cb-ease);}
-${C} .igs-combat-item-orb svg{width:18px;height:18px;stroke-width:1.5;}
-${C} .igs-combat-item:not(.is-disabled):hover .igs-combat-item-orb{filter:brightness(1.15);transform:translateY(-1px);}
+/* 主动特性圆球（助手 10-29，最多 2 颗）：都在主战者圆框头像右上方外沿、球的边缘贴着圆框（离框约 3px），落在队友头像稍上方；固有在前。
+   1 颗时球心在方位 -30.5°（球心距圆心 = 圆框半径 + 球半径 + 3px，--c / --s 为其余弦与正弦）；2 颗时以该方位为中线沿圆框切向各让开半颗球加 3px（--k 为 -1 / 1，间距 6px），
+   径向收进 2px 抵消切向偏出，两颗都贴着圆框、彼此挨着，不随头像大小拉开；不另占一栏、不挤队友，没有队友时头像右侧留出两颗球宽。
+   圆球组 .igs-combat-trait-ring 盖住头像区域、自身不接收指针（点头像仍弹单位详情）。
+   与卡面同材质的圆形深色底 + 按名称与效果匹配的卡面纹样，暖色图标 + 右上角暖色费用圆标；固有特性为暖色细环，抽到的特性细环取稀有度色（--rar）。点开的详情见 .igs-combat-scale-tip.is-trait。 */
+${C} .igs-combat-hero:not(:has(>.igs-combat-side.is-ally)) .igs-combat-hero-figure:has(>.igs-combat-trait-ring){margin-right:calc(var(--orb,44px) * 2 + 8px);}
+/* 只有 1 名队友时队友头像比两颗球窄：队友一栏至少两颗球宽，圆球不伸进手牌区（竖向面板队友一栏是 display:contents，不受影响；窄面板圆球组已移入停靠区）。 */
+${C} .igs-combat-hero:has(>.igs-combat-hero-core .igs-combat-trait-ring)>.igs-combat-side.is-ally{min-width:calc(var(--orb,44px) * 2 + 4px);}
+${C}{--orb:38px;}
+${C} .igs-combat-trait-ring{position:absolute;left:0;right:0;top:0;z-index:2;aspect-ratio:1;pointer-events:none;}
+${C} .igs-combat-trait-ring>.igs-combat-trait{--c:.8616;--s:-.5075;--k:0;position:absolute;left:calc(50% + (50% + var(--orb,44px) / 2 + 3px - 2px * var(--k) * var(--k)) * var(--c) - (var(--orb,44px) / 2 + 3px) * var(--k) * var(--s));top:calc(50% + (50% + var(--orb,44px) / 2 + 3px - 2px * var(--k) * var(--k)) * var(--s) + (var(--orb,44px) / 2 + 3px) * var(--k) * var(--c));translate:-50% -50%;pointer-events:auto;touch-action:none;}
+${C} .igs-combat-trait-ring>.igs-combat-trait:first-child:not(:only-child){--k:-1;}
+${C} .igs-combat-trait-ring>.igs-combat-trait+.igs-combat-trait{--k:1;}
+${C} .igs-combat-trait{--ring:rgba(242,212,155,.38);position:relative;flex:none;padding:0;border:0;border-radius:50%;background:none;color:var(--igs-cb-warm);font:inherit;cursor:pointer;}
+${C} .igs-combat-trait[data-rarity]{--ring:color-mix(in srgb,var(--rar) 70%,transparent);}
+${C} .igs-combat-trait-orb{position:relative;display:grid;place-items:center;width:var(--orb,44px);height:var(--orb,44px);border-radius:50%;background:${igsUiSurface(IGS_UI_THICKNESS.thick)};box-shadow:0 0 0 1.5px var(--ring),0 8px 18px -8px rgba(0,0,0,.75),${IGS_UI_EDGE_NIGHT};transition:transform .18s var(--igs-cb-ease),filter .18s var(--igs-cb-ease),box-shadow .18s var(--igs-cb-ease);}
+${C} .igs-combat-trait-orb svg{width:19px;height:19px;stroke-width:1.5;}
+${C} .igs-combat-trait:not(.is-disabled):hover .igs-combat-trait-orb{filter:brightness(1.15);transform:translateY(-1px);}
+${C} .igs-combat-trait.is-selected .igs-combat-trait-orb{transform:translateY(-1px);box-shadow:0 0 0 2px var(--igs-cb-warm),0 0 14px rgba(242,212,155,.45),0 8px 16px -8px rgba(0,0,0,.75);}
+${C} .igs-combat-trait.is-disabled{opacity:.5;}
+${C} .igs-combat-trait.is-used .igs-combat-trait-orb svg{opacity:.4;}
+${C} .igs-combat-trait-cost{position:absolute;right:-3px;top:-3px;display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--igs-cb-warm);color:#1b1d21;font-size:11px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;text-shadow:none;box-shadow:0 0 0 2px rgba(242,212,155,.18);}
+${combatRarityStyle(`${C} .igs-combat-trait`)}
+/* 主动特性圆球拖动发动（与拖牌同一套）：拖动中原圆球隐藏，影子圆球（演出层 .is-flying.is-held）跟随指针并放大，停在可承受的单位上时缩小示意松手即发动。 */
+${C} .igs-combat-trait.is-lifted{opacity:0;}
+/* 拖动中（拖牌或拖圆球）圆球不接收指针：松在主战者头像上时命中头像本身，不被盖在头像边界上的圆球挡住。 */
+${C}[data-igs-combat-dragging] .igs-combat-trait-ring>.igs-combat-trait{pointer-events:none;}
+${C} .igs-combat-fx .igs-combat-trait.is-flying{position:absolute;z-index:6;margin:0;translate:none;pointer-events:none;transform-origin:50% 50%;scale:1.12;transition:scale .14s var(--igs-cb-ease);}
+${C} .igs-combat-fx .igs-combat-trait.is-flying.is-armed{scale:.86;}
+/* 头像可点开单位详情：手形光标。 */
+${C} .igs-combat-portrait[data-combat-act="unit-info"]{cursor:pointer;}
+/* 觉醒 / 道具：主战者头像左下角外侧两块竖排的小长方形文字按钮（觉醒在上、道具在下），同宽、扁平无描边。
+   觉醒每场一次，只在可用时出现：底色取情绪色（--aw）暗调，背景里光点缓缓上浮、一道斜光扫过（.igs-combat-ctl-fx），低画质与减少动态效果时静止。
+   道具点开后在按钮组上方弹出道具列表（.igs-combat-item-menu：图标、名称、暖色余量），点一项直接使用；没有道具时置灰。 */
+${C} .igs-combat-controls{position:relative;flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:3px;}
+${C} .igs-combat-items{position:relative;display:block;}
+/* 圆框头像（横向面板）：按钮组是盖住头像区域的正方形层（与圆球组同法，自身不接收指针）。道具（下）右上角落在圆框外 3px、方位左下 44.8°（cos .709 / sin .705），
+   底边与头像底边齐平；觉醒（上）在它上方 3px、左移 17px，沿圆框外沿错开、整块仍在框外。主战者靠左，头像框左侧只留 10px。 */
+${C} .igs-combat-hero-figure>.igs-combat-controls{position:absolute;left:0;right:0;top:0;z-index:3;display:block;aspect-ratio:1;pointer-events:none;}
+${C} .igs-combat-hero-figure>.igs-combat-controls>*{position:absolute;right:calc(50% + (50% + 3px) * .709);top:calc(50% + (50% + 3px) * .705);pointer-events:auto;}
+${C} .igs-combat-hero-figure>.igs-combat-controls>.igs-combat-awaken{right:calc(50% + (50% + 3px) * .709 + 17px);top:calc(50% + (50% + 3px) * .705 - 23px);}
+${C} .igs-combat-ctl{position:relative;display:grid;place-items:center;width:34px;height:20px;padding:0;box-sizing:border-box;overflow:hidden;border:0;border-radius:5px;background:rgba(${N},.82);color:var(--igs-cb-ink);font:inherit;font-size:11px;font-weight:600;letter-spacing:.12em;text-indent:.12em;line-height:1;white-space:nowrap;cursor:pointer;transition:filter .18s var(--igs-cb-ease),background .18s var(--igs-cb-ease);}
+${C} .igs-combat-ctl:not(.is-disabled):hover,${C} .igs-combat-ctl.is-open{background:var(--igs-cb-fill-hover);}
+${C} .igs-combat-ctl.is-disabled{opacity:.45;cursor:default;}
+${C} .igs-combat-ctl.igs-combat-awaken{background:color-mix(in srgb,var(--aw) 34%,rgba(${N},.9));color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);}
+${C} .igs-combat-ctl.igs-combat-awaken:hover{filter:brightness(1.15);}
+${C} .igs-combat-ctl-label{position:relative;z-index:1;}
+${C} .igs-combat-ctl-fx{position:absolute;inset:0;pointer-events:none;background-image:radial-gradient(circle,color-mix(in srgb,var(--aw) 70%,#fff) 0 1px,transparent 1.6px),radial-gradient(circle,color-mix(in srgb,var(--aw) 50%,#fff) 0 .8px,transparent 1.3px);background-size:14px 16px,9px 12px;background-position:0 0,5px 3px;animation:igs-combat-ctl-rise 2.6s linear infinite;}
+${C} .igs-combat-ctl-fx::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,color-mix(in srgb,var(--aw) 55%,#fff) 50%,transparent 65%);background-size:240% 100%;opacity:.45;animation:igs-combat-ctl-sheen 2.8s ease-in-out infinite;}
+@keyframes igs-combat-ctl-rise{to{background-position:0 -16px,5px -9px;}}
+@keyframes igs-combat-ctl-sheen{0%{background-position:130% 0;}60%,100%{background-position:-30% 0;}}
+#igs-overlay[data-igs-quality="low"] ${C} .igs-combat-ctl-fx,#igs-overlay[data-igs-quality="low"] ${C} .igs-combat-ctl-fx::after,${C}[data-igs-combat-reduced] .igs-combat-ctl-fx,${C}[data-igs-combat-reduced] .igs-combat-ctl-fx::after{animation:none;}
+${C} .igs-combat-item-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:6;display:flex;flex-direction:column;gap:2px;width:max-content;min-width:132px;max-width:220px;padding:4px;box-sizing:border-box;border-radius:8px;background:${igsUiSurface(IGS_UI_THICKNESS.thick)};box-shadow:0 12px 24px -10px rgba(0,0,0,.8),${IGS_UI_EDGE_NIGHT};}
+${C} .igs-combat-item{display:flex;align-items:center;gap:6px;width:100%;padding:5px 8px;box-sizing:border-box;border:0;border-radius:6px;background:none;color:var(--igs-cb-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer;}
+/* 觉醒在道具上方时，道具列表再上移一块按钮高，不盖住觉醒。 */
+${C} .igs-combat-controls:has(>.igs-combat-awaken) .igs-combat-item-menu{bottom:calc(100% + 29px);}
+${C} .igs-combat-item:not(.is-disabled):hover{background:var(--igs-cb-fill-hover);}
 ${C} .igs-combat-item.is-disabled{opacity:.5;}
-${C} .igs-combat-item-count{position:absolute;right:-4px;top:-4px;display:grid;place-items:center;min-width:15px;height:15px;padding:0 3px;box-sizing:border-box;border-radius:8px;background:var(--igs-cb-warm);color:#1b1d21;font-size:10px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;}
-${C} .igs-combat-controls{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:6px;}
+${C} .igs-combat-item-icon{flex:none;display:grid;color:var(--igs-cb-life);}
+${C} .igs-combat-item-icon svg{width:16px;height:16px;stroke-width:1.5;}
+${C} .igs-combat-item-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+${C} .igs-combat-item-count{flex:none;display:grid;place-items:center;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--igs-cb-warm);color:#1b1d21;font-size:10px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;}
+
 ${C} .igs-combat-energy{flex:none;display:flex;align-items:center;gap:6px;}
 /* 能量槽：深色玻璃圆槽 + 暖色细环，里面是暖色液体。液面高度 = 当前 / 每回合（--fill，0–1），用掉多少降多少（控制器用 WAAPI 从上次液面过渡到新液面）；
    液面上两层波纹横向错速流动。空能量时液体沉到槽底以下（--sink）。低画质与减少动态效果时波纹静止、液面直接到位。 */
@@ -473,16 +546,19 @@ ${C} .igs-combat-piles b{margin-left:3px;color:var(--igs-cb-ink-soft);font-size:
 ${C} .igs-combat-btn.is-icon{width:52px;min-height:34px;height:34px;padding:0;}
 ${C} .igs-combat-btn.is-icon svg{width:20px;height:20px;stroke-width:1.6;}
 ${C} .igs-combat-btn.is-icon.is-primary{width:72px;padding:0;}
+/* 待选阶段的确认钮（「弃掉 k/N」）与图标按钮同高，文字不换行。 */
+${C} .igs-combat-turn [data-combat-act="choose-confirm"]{min-height:34px;height:34px;padding:0 16px;font-size:13px;letter-spacing:.06em;white-space:nowrap;}
 ${C} .igs-combat-hand{--igs-card-w:116px;grid-area:hand;position:relative;display:flex;justify-content:center;align-items:flex-end;min-width:0;overflow:visible;padding:20px 28px 2px;}
 ${C} .igs-combat-card{--igs-card-tint:var(--igs-cb-skill);position:relative;flex:none;display:flex;flex-direction:column;align-items:stretch;gap:4px;width:var(--igs-card-w);min-height:176px;padding:8px 8px 10px;box-sizing:border-box;border:0;border-radius:var(--igs-cb-r-l);background:${igsUiSurface(IGS_UI_THICKNESS.thick)};color:var(--igs-cb-ink);font:inherit;text-align:left;cursor:pointer;box-shadow:0 14px 28px -14px rgba(0,0,0,.7),${IGS_UI_EDGE_NIGHT};transform-origin:50% 130%;transform:translateY(var(--fan-y,0px)) rotate(var(--fan-r,0deg));transition:transform .18s var(--igs-cb-ease),margin .18s var(--igs-cb-ease),box-shadow .18s var(--igs-cb-ease);}
 ${C} .igs-combat-card[data-card-type="attack"]{--igs-card-tint:var(--igs-cb-attack);}
 ${C} .igs-combat-card[data-card-type="power"]{--igs-card-tint:var(--igs-cb-power);}
 ${C} .igs-combat-hand .igs-combat-card+.igs-combat-card{margin-left:min(-30px,calc((100% - var(--fan-n,1) * var(--igs-card-w)) / (var(--fan-n,2) - 1)));}
-${C} .igs-combat-card:is(:hover,:focus-visible,.is-selected){z-index:5;transform:translateY(-22px) rotate(0deg) scale(1.06);}
+${C} .igs-combat-card:is(:hover,:focus-visible,.is-selected,.is-hover,.is-chosen){z-index:5;transform:translateY(-22px) rotate(0deg) scale(1.06);}
 /* 抬起的牌离开了原来的位置：牌底下补一条透明命中区，盖住抬起让出的空档，指针停在牌下沿时不会因牌上移而失去悬停、来回抖动。 */
 ${C} .igs-combat-card-hit{position:absolute;left:0;right:0;top:100%;height:0;}
-${C} .igs-combat-card:is(:hover,:focus-visible,.is-selected) .igs-combat-card-hit{height:28px;}
-${C} .igs-combat-card.is-selected{box-shadow:0 0 0 2px var(--igs-cb-warm),0 18px 32px -14px rgba(0,0,0,.75);}
+${C} .igs-combat-card:is(:hover,:focus-visible,.is-selected,.is-hover,.is-chosen) .igs-combat-card-hit{height:28px;}
+/* 待选阶段：已选的候选牌与选中态同样抬起、暖色环；非候选牌按 is-disabled 置灰。 */
+${C} .igs-combat-card:is(.is-selected,.is-chosen){box-shadow:0 0 0 2px var(--igs-cb-warm),0 18px 32px -14px rgba(0,0,0,.75);}
 ${C} .igs-combat-card.is-disabled{opacity:.5;}
 /* 炉石式拖牌：手牌不让给浏览器平移手势；拖动中原牌隐藏，影子卡（演出层 .is-held）跟随指针并放大，停在可承受的单位上时缩小示意松手即打出。 */
 ${C} .igs-combat-hand .igs-combat-card{touch-action:none;}
@@ -500,12 +576,34 @@ ${C} .igs-combat-card-type::before{content:"";width:6px;height:6px;border-radius
 ${C} .igs-combat-card-text{font-size:11.5px;line-height:1.45;color:var(--igs-cb-ink-soft);}
 ${C} .igs-combat-card-text .igs-scale-up{color:#5fd0b8;font-weight:600;}
 ${C} .igs-combat-card-text .igs-scale-down{color:var(--igs-cb-ink-faint);}
+/* v4 关键字（不能打出、固有、虚无、临时、被丢弃时）单独成行排在效果前；减费的费用球转青绿；临时牌略降饱和度，与正常手牌区分（不加描边）。 */
+${C} .igs-combat-card-kw{display:block;color:var(--igs-cb-ink);font-weight:600;}
+${C} .igs-combat-card-cost.is-down{background:#5fd0b8;}
+${C} .igs-combat-card.is-temp{filter:saturate(.55);}
 /* 带加成 / 减益的数字：虚下划线提示可点；点开的详情浮在面板根节点上（.igs-combat-scale-tip，坐标由面板写入 --tip-x / --tip-y，上方放不下时 data-below 放到数字下方）。 */
 ${C} .igs-combat-card-text [data-scale-tip]{cursor:help;text-decoration:underline dotted;text-decoration-thickness:1px;text-underline-offset:2px;}
 ${C}>.igs-combat-scale-tip{position:absolute;left:var(--tip-x,50%);top:var(--tip-y,50%);z-index:6;translate:-50% calc(-100% - 8px);max-width:min(240px,calc(100% - 16px));padding:6px 10px;box-sizing:border-box;border-radius:var(--igs-cb-r-m);background:${igsUiSurface(IGS_UI_THICKNESS.thick)};color:var(--igs-cb-ink);font-size:12px;line-height:1.5;letter-spacing:.04em;white-space:pre-line;font-variant-numeric:tabular-nums;pointer-events:none;box-shadow:0 10px 24px -10px rgba(0,0,0,.8),${IGS_UI_EDGE_NIGHT};}
 ${C}>.igs-combat-scale-tip[data-below]{translate:-50% 8px;}
+/* 人物特性详情：名称与稀有度（固有为暖色）、主动的能量与次数或被动的触发时机、效果、来历。 */
+${C}>.igs-combat-scale-tip.is-trait{display:grid;gap:3px;max-width:min(260px,calc(100% - 16px));padding:8px 12px;white-space:normal;}
+${C} .igs-combat-trait-tip-name{display:flex;align-items:baseline;gap:8px;font-size:13px;}
+${C} .igs-combat-trait-tip-name i{font-style:normal;font-size:11px;font-weight:600;color:var(--rar);}
+${combatRarityStyle(`${C} .igs-combat-trait-tip-name i`)}
+${C} .igs-combat-trait-tip-name i[data-rarity="innate"]{--rar:var(--igs-cb-warm);}
+${C} :is(.igs-combat-trait-tip-meta,.igs-combat-trait-tip-origin){color:var(--igs-cb-ink-faint);font-size:11px;}
+/* 单位详情（点头像）：按组列出技能、被动与尚未触发的阶段；可能较长，限高在面板内、可滚动，面板写入上沿 --tip-y（data-free）。 */
+${C}>.igs-combat-scale-tip.is-unit{gap:8px;max-width:min(300px,calc(100% - 16px));max-height:calc(100% - 16px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;pointer-events:auto;}
+${C}>.igs-combat-scale-tip[data-free]{translate:-50% 0;}
+${C} .igs-combat-unit-tip-group{display:grid;gap:4px;}
+${C} .igs-combat-unit-tip-label{color:var(--igs-cb-warm);font-size:11px;font-weight:600;letter-spacing:.12em;}
+${C} .igs-combat-unit-tip-item{display:grid;gap:1px;color:var(--igs-cb-ink-soft);font-size:11.5px;}
+${C} .igs-combat-unit-tip-item b{display:flex;align-items:baseline;gap:6px;color:var(--igs-cb-ink);font-size:12px;font-weight:600;}
+${C} .igs-combat-unit-tip-item i{font-style:normal;font-size:10.5px;font-weight:600;color:var(--rar);}
+${combatRarityStyle(`${C} .igs-combat-unit-tip-item i`)}
+${C} .igs-combat-unit-tip-item i[data-rarity="innate"]{--rar:var(--igs-cb-warm);}
+${C} .igs-combat-unit-tip-meta{color:var(--igs-cb-ink-faint);font-size:11px;}
 ${C} .igs-combat-card.is-upgraded .igs-combat-card-name{color:var(--igs-cb-warm);}
-${C} .igs-combat-card[data-rarity]:not(:is([data-rarity="basic"],[data-rarity="epic"],[data-rarity="mythic"])):not(.is-selected){box-shadow:0 14px 28px -14px rgba(0,0,0,.7),inset 0 1.5px 0 var(--rar);}
+${C} .igs-combat-card[data-rarity]:not(:is([data-rarity="basic"],[data-rarity="epic"],[data-rarity="mythic"])):not(.is-selected,.is-chosen){box-shadow:0 14px 28px -14px rgba(0,0,0,.7),inset 0 1.5px 0 var(--rar);}
 ${C} .igs-combat-card[data-rarity]:not(:is([data-rarity="basic"],[data-rarity="epic"],[data-rarity="mythic"])) .igs-combat-card-cost{box-shadow:0 0 0 2px var(--rar);}
 ${C} .igs-combat-card[data-rarity]:not([data-rarity="basic"]) .igs-combat-card-art{background:radial-gradient(90% 55% at 50% 100%,color-mix(in srgb,var(--rar) 30%,transparent),transparent 72%),radial-gradient(70% 90% at 50% 40%,color-mix(in srgb,var(--igs-card-tint) 22%,transparent),transparent 72%),var(--igs-cb-fill);}
 ${C} .igs-combat-card[data-rarity="signature"]::before{content:"";position:absolute;left:10px;right:10px;top:0;height:1.5px;border-radius:1px;background:linear-gradient(90deg,transparent,#f2d49b 20%,#ff8a5c 80%,transparent);pointer-events:none;}
@@ -514,7 +612,7 @@ ${C} .igs-combat-card[data-rarity="signature"]::after{content:"";position:absolu
 @media (prefers-reduced-motion:reduce){${C} .igs-combat-card[data-rarity="signature"]::after{animation:none;background:none;}}
 #igs-overlay[data-igs-quality="low"] ${C} .igs-combat-card[data-rarity="signature"]::after{animation:none;background:none;}
 ${combatRarityStyle(`${C} .igs-combat-card`)}
-${C} .igs-combat-card:is([data-rarity="epic"],[data-rarity="mythic"]):not(.is-selected){box-shadow:0 14px 28px -14px rgba(0,0,0,.7);}
+${C} .igs-combat-card:is([data-rarity="epic"],[data-rarity="mythic"]):not(.is-selected,.is-chosen){box-shadow:0 14px 28px -14px rgba(0,0,0,.7);}
 ${C} .igs-combat-reward{display:flex;flex-direction:column;gap:12px;width:min(480px,100%);margin:12px auto 0;box-sizing:border-box;padding:20px 22px 18px;}
 /* 结算画面：铺在面板上、不走卡片。标题字号 --r-title、我方等大立绘宽 --r-w、败北 / 撤退时保留的敌人宽 --r-foe，容器查询按面板尺寸改写；内容自上而下拉开：标题置顶，「发送战报」在最下。 */
 ${C} .igs-combat-result{--r-tint:var(--igs-cb-ink);--r-title:44px;--r-w:128px;--r-foe:112px;position:relative;isolation:isolate;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:14px;min-height:min-content;overflow:hidden;padding:4px 0 6px;}
@@ -626,7 +724,7 @@ ${SCALE_NARROW}}
 @container igs-combat (orientation:portrait) and (min-height:700px){${TALL}}
 @container igs-combat (orientation:portrait){${PORTRAIT_ALLIES}}
 }
-@media (prefers-reduced-motion:reduce){${C} .igs-combat-hp-track i,${C} .igs-combat-card,${C} .igs-combat-hero-skill,${C} .igs-combat-awaken-orb{transition:none;animation:none!important;}}
+@media (prefers-reduced-motion:reduce){${C} .igs-combat-hp-track i,${C} .igs-combat-card,${C} .igs-combat-trait-orb,${C} .igs-combat-ctl-fx,${C} .igs-combat-ctl-fx::after{transition:none;animation:none!important;}}
 ${AWAKEN_FX}
 ${COMBAT_CUTIN_STYLE_TEXT}
 ${COMBAT_HIT_STYLE_TEXT}

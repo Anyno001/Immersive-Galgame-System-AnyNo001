@@ -122,7 +122,7 @@ const BLOCK_TRIGGERS = Object.freeze({
     },
     // 卡牌战斗：扩展开启时替代 battle 块，缺省常驻；切成按需时沿用同一份战斗词表，最近几层出现任一战斗标签也展开。
     combat: {
-        tag: /\[igs-combat:(?:start|awaken|exp|learn|upgrade|class|equip|unequip|item|rel|stat)[|\]]|\[igs-check:/,
+        tag: /\[igs-combat:(?:start|awaken|exp|learn|upgrade|class|equip|unequip|item|rel|stat|heal)[|\]]|\[igs-check:/,
         words: BATTLE_TRIGGER_WORDS,
     },
     // 非人角色：开关跟随战斗演出，条目设置与其他块相同。

@@ -20,7 +20,8 @@ const SCALED = Object.freeze({
     heal: Object.freeze({ key: 'amount', max: 60 }),
     status: Object.freeze({ key: 'stacks', max: 10 }),
 });
-const NESTED = new Set(['conditional', 'each-turn']);
+// 嵌套效果的内层数值同样换算（限时触发 BUFF 的 then 也算）；被弃时效果与生成牌不换算。
+const NESTED = new Set(['conditional', 'each-turn', 'buff']);
 
 const list = (effects) => (Array.isArray(effects) ? effects : []);
 

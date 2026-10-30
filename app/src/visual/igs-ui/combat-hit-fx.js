@@ -133,7 +133,7 @@ export function cloneCardGhost(cardEl) {
     ghost.setAttribute?.('aria-hidden', 'true');
     ghost.setAttribute?.('tabindex', '-1');
     ghost.disabled = true;
-    const keep = String(cardEl.className || '').split(/\s+/).filter((c) => c && c !== 'is-selected' && c !== 'is-disabled');
+    const keep = String(cardEl.className || '').split(/\s+/).filter((c) => c && c !== 'is-selected' && c !== 'is-disabled' && c !== 'is-hover');
     ghost.className = [...keep, 'is-flying'].join(' ');
     return ghost;
 }
@@ -165,7 +165,8 @@ function actionDef(event, battle) {
     const unit = battle?.units?.[event?.unitId];
     if (event?.type === 'card') return battle?.catalog?.[event.unitId]?.[event.cardId] || null;
     if (event?.type === 'skill') return unit?.skills?.find?.((s) => s.id === event.skillId) || { name: event.name };
-    if (event?.type === 'hero-skill') return unit?.heroSkill || { name: event.name };
+    // 人物技能与抽到的主动特性同为 hero-skill 事件：按 skillId 先查特性，再落回固有人物技能。
+    if (event?.type === 'hero-skill') return (unit?.traits || []).find((t) => t.skill?.id === event.skillId)?.skill || unit?.heroSkill || { name: event.name };
     if (event?.type === 'item') return battle?.items?.list?.find?.((i) => i.itemId === event.itemId) || { name: event.name };
     return null;
 }

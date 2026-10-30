@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BASIC_CARDS, COMBAT_RULES, estimateEffectsValue, evaluateCardBudget, expProgress, levelFromExp, validateDeck } from '../src/combat/rules.js';
-import { effectsDamage, ledgerEntryId, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } from '../src/combat/schema.js';
+import { effectsDamage, ledgerEntryId, normalizeCard, normalizeLedgerEntry, normalizeProfile, normalizeSkill, validateStarterDeck } from '../src/combat/schema.js';
 
 const attack = (id, amount = 6) => ({ id, name: `斩${id}`, type: 'attack', cost: 1, rarity: 'common', effects: [{ op: 'damage', amount }] });
 const guard = (id) => ({ id, name: `守${id}`, type: 'skill', cost: 1, rarity: 'common', effects: [{ op: 'block', amount: 5 }] });
@@ -199,8 +199,8 @@ test('专属卡与强度档为可选字段：旧档案不补字段，越界与�
 });
 
 
-test('combat-rules v3: new effect ops are valued and the version is 3', () => {
-    assert.equal(COMBAT_RULES.version, 3);
+test('combat-rules v3: new effect ops are valued; rules version is 4', () => {
+    assert.equal(COMBAT_RULES.version, 4);
     const v = (effects) => estimateEffectsValue(effects);
     assert.equal(v([{ op: 'damage-from-block', target: 'enemy' }]), 8);
     assert.equal(v([{ op: 'self-damage', amount: 3 }]), -4.5);
@@ -343,4 +343,87 @@ test('卡牌属性性能：按要求属性与稀有度换算新卡对象，夹 0
     assert.deepEqual(upView.textParts.filter((p) => p.mark).map((p) => [p.text, p.mark]), [['11', 'up']]);
     assert.deepEqual(cardScalingView(card), {});
     assert.equal(cardTextHtml({ text: describeEffects(card.effects) }), describeEffects(card.effects));
+});
+
+
+test('v4 schema：选牌只在卡牌顶层、本张专属效果只在卡牌里、不能打出的牌靠被弃时效果；新效果按收益估值', () => {
+    const reasons = (r) => r.errors.map((e) => e.reason);
+    const sk = (id, effects) => normalizeSkill({ id, name: id, intent: 'special', effects });
+    const cd = (id, extra) => normalizeCard({ id, name: id, type: 'skill', cost: 1, rarity: 'common', ...extra });
+    assert.ok(!reasons(cd('sift', { effects: [{ op: 'discard', amount: 1, mode: 'choose' }, { op: 'draw', amount: 2 }] })).includes('choose-not-top-level'));
+    const branch = cd('sift2', { effects: [{ op: 'conditional', when: { kind: 'self-has', value: 'weak' }, then: [{ op: 'discard', amount: 1, mode: 'choose' }] }] });
+    assert.ok(reasons(branch).includes('choose-not-top-level'));
+    assert.ok(reasons(sk('k1', [{ op: 'discard', amount: 1, mode: 'choose' }])).includes('choose-not-top-level'));
+    assert.ok(reasons(sk('k2', [{ op: 'grow', amount: 1 }])).includes('card-only'));
+    assert.ok(reasons(sk('k3', [{ op: 'copy', amount: 1, from: 'self' }])).includes('card-only'));
+    const buffInBranch = cd('b1', { effects: [{ op: 'conditional', when: { kind: 'self-has', value: 'weak' }, then: [{ op: 'buff', trigger: 'turn-end', turns: 1, then: [{ op: 'draw', amount: 1 }] }] }] });
+    assert.ok(reasons(buffInBranch).includes('nested-buff'));
+    assert.ok(reasons(cd('b2', { effects: [{ op: 'buff', trigger: 'turn-end', cardType: 'attack', turns: 1, then: [{ op: 'draw', amount: 1 }] }] })).includes('unknown-field'));
+    const lazy = { cost: 0, effects: [], unplayable: true };
+    assert.ok(reasons(cd('lazy', lazy)).includes('unplayable-needs-on-discard'));
+    assert.ok(reasons(cd('lazy2', { ...lazy, cost: 1, onDiscard: [{ op: 'energy', amount: 1 }] })).includes('unplayable-cost'));
+    assert.ok(!reasons(cd('lazy3', { ...lazy, onDiscard: [{ op: 'energy', amount: 1 }] })).some((r) => String(r).startsWith('unplayable')));
+    assert.equal(estimateEffectsValue([{ op: 'cost-mod', amount: -1, mode: 'choose', scope: 'turn' }]), 5);
+    assert.ok(estimateEffectsValue([{ op: 'discard', amount: 1, mode: 'random' }]) < 0);
+    assert.equal(estimateEffectsValue([{ op: 'buff', trigger: 'card-played', cardType: 'attack', turns: 2, then: [{ op: 'block', amount: 2 }] }]), 8);
+});
+
+
+test('敌人参战配置：技能数公式；常驻效果按身份与难度种子确定、首个削弱我方、数量随难度表；模板敌人按等级补技能，生成敌人只加难度追加；形状合 schema，开战生效', async () => {
+    const { skillTarget, SKILL_COUNT_MAX } = await import('../src/combat/rules.js');
+    const { ENEMY_AFFIXES, enemyAffixes, enemyFillSkills } = await import('../src/combat/enemy-loadout.js');
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const { createBattle, seedFor } = await import('../src/combat/engine.js');
+    const { unitDetailView } = await import('../src/visual/igs-ui/combat-panel-model.js');
+    assert.deepEqual([skillTarget(1, 'normal'), skillTarget(9, 'normal'), skillTarget(10, 'normal'), skillTarget(3, 'elite'), skillTarget(3, 'boss'), skillTarget(30, 'boss')], [3, 3, 4, 4, 5, SKILL_COUNT_MAX]);
+
+    const wolf = templateEnemy('狼', 'normal');
+    const elite = templateEnemy('狼头领', 'elite');
+    const boss = templateEnemy('狼王', 'boss');
+    assert.deepEqual(enemyAffixes(wolf, 'normal'), []);
+    assert.deepEqual(enemyAffixes(elite, 'normal'), enemyAffixes(elite, 'normal'));
+    for (const [p, diff, n] of [[elite, 'normal', 1], [boss, 'normal', 2], [boss, 'nightmare', 3], [elite, 'hard', 1], [wolf, 'brutal', 1], [boss, 'easy', 1]]) {
+        const list = enemyAffixes(p, diff);
+        assert.equal(list.length, n, `${p.tier}/${diff}`);
+        assert.ok(ENEMY_AFFIXES[list[0].id.slice(3)].debuff, '首个常驻效果削弱我方');
+        assert.equal(new Set(list.map((a) => a.id)).size, n);
+        assert.ok(list.every((a) => a.source === 'affix'));
+    }
+    assert.deepEqual(enemyAffixes(boss, 'insane'), enemyAffixes(boss, 'normal'));
+    for (const [key, a] of Object.entries(ENEMY_AFFIXES)) {
+        const passive = { id: `af-${key}`, name: a.name, trigger: a.trigger, ...(a.cardType ? { cardType: a.cardType } : {}), effects: a.effects };
+        const r = normalizeProfile({ ...wolf, passives: [passive] });
+        assert.equal(r.ok, true, `${key}: ${JSON.stringify(r.errors)}`);
+    }
+
+    const fills = enemyFillSkills(wolf, 1, 'normal');
+    assert.equal(fills.length, 1);
+    assert.deepEqual(enemyFillSkills(wolf, 1, 'normal'), fills);
+    assert.equal(enemyFillSkills(boss, 1, 'normal').length, 3);
+    assert.equal(enemyFillSkills(wolf, 12, 'normal').length, 2);
+    const night = enemyFillSkills(wolf, 1, 'nightmare');
+    assert.equal(night.length, 2);
+    assert.deepEqual(night.slice(0, 1), fills, '难度只追加，前面的不变');
+    const generated = { ...wolf, id: 'en-gen', generated: true, skills: [...wolf.skills, { ...wolf.skills[0], id: 'en-gen-s3', name: '撕咬' }] };
+    assert.deepEqual(enemyFillSkills(generated, 12, 'normal'), []);
+    assert.equal(enemyFillSkills(generated, 12, 'nightmare').length, 1);
+    const all = [...wolf.skills, ...enemyFillSkills(wolf, 30, 'nightmare')];
+    assert.equal(all.length, SKILL_COUNT_MAX);
+    assert.equal(new Set(all.map((s) => s.id)).size, all.length);
+    assert.equal(new Set(all.map((s) => s.name)).size, all.length);
+    const full = normalizeProfile({ ...wolf, skills: all });
+    assert.equal(full.ok, true, JSON.stringify(full.errors));
+
+    const passives = Object.keys(ENEMY_AFFIXES).map((k) => ({ id: `af-${k}`, name: ENEMY_AFFIXES[k].name, trigger: ENEMY_AFFIXES[k].trigger,
+        ...(ENEMY_AFFIXES[k].cardType ? { cardType: ENEMY_AFFIXES[k].cardType } : {}), effects: JSON.parse(JSON.stringify(ENEMY_AFFIXES[k].effects)), source: 'affix' }));
+    const heroUnit = { id: 'hero', name: '主角', side: 'ally', kind: 'deck', maxHp: 50, deck: Array(10).fill('basic-strike'), catalog: BASIC_CARDS };
+    const foeUnit = { id: 'foe', name: '狼', side: 'enemy', kind: 'skill', maxHp: 60, skills: wolf.skills, passives };
+    const battle = createBattle({ controlledId: 'hero', units: [heroUnit, foeUnit] }, seedFor('affix-test'));
+    assert.equal(battle.ok, true, JSON.stringify(battle.error));
+    const s = battle.state;
+    assert.deepEqual([s.units.hero.statuses.weak, s.units.hero.statuses.vulnerable, s.units.hero.statuses.frail], [2, 2, 2]);
+    assert.deepEqual([s.units.foe.statuses.artifact, s.units.foe.statuses.thorns], [2, 3]);
+    assert.equal(s.piles.hero.draw.filter((inst) => s.cards[inst].cardId === 'status-wound').length, 2);
+    const labels = unitDetailView(s, 'foe').groups.map((g) => g.label);
+    assert.ok(labels.includes('常驻效果') && !labels.includes('被动'), JSON.stringify(labels));
 });

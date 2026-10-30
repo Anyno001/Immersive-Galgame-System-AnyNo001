@@ -5,7 +5,7 @@ import { CARD_TYPE_LABELS, cardArtSvg, describeEffects } from './combat-card-art
 import { safePortraitUrl } from './fx-battle-model.js';
 import { ASI_POINTS } from '../../combat/abilities.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../../combat/points.js';
-import { planTrait, traitSeed } from '../../combat/traits.js';
+import { nextTraitSlot, planTrait, traitSeed, traitSwap } from '../../combat/traits.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 
 // 人物状态面板（状态、加点、装备、卡组、背包五页）：工具栏「人物状态」按钮与资料菜单「人物状态」项打开。账本、会话与手动生成由 options 注入；面板只编辑草稿、转发保存、换装、卖出与生成。
@@ -98,6 +98,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             canAscend: typeof options.ascendClass === 'function',
             canDrawTrait: typeof options.drawTrait === 'function',
             canPickTrait: typeof options.pickTrait === 'function',
+            canUnlockSlot: typeof options.unlockTraitSlot === 'function',
         };
     }
 
@@ -466,15 +467,31 @@ export function createCombatDeckPanelController(doc, options = {}) {
         return r;
     }
 
-    // 已满时的决定：drop 为被替换的已装特性 ID（新特性装上）或新特性自己的 ID（放弃）；被 drop 的永久消失，经注入的 pickTrait 写一条 trait-pick。
+    // 装不下时的决定：drop 为被替换的已装特性 ID、保留着的固有特性 ID（新特性装上）或新特性自己的 ID（放弃）；被 drop 的永久消失，经注入的 pickTrait 写一条 trait-pick。
     async function traitDrop(drop) {
         const g = heroAction('pickTrait', 'trait');
         if (!g.ok) return g;
         const fresh = g.view.pendingTrait;
-        if (!fresh || (drop !== fresh.traitId && !(g.view.traits || []).some((t) => t.traitId === drop))) return fail('combat-trait-pick-invalid');
+        if (!fresh) return fail('combat-trait-pick-invalid');
+        const swap = drop === fresh.traitId ? { blocked: false } : traitSwap(g.view, fresh, drop);
+        if (!swap) return fail('combat-trait-pick-invalid');
+        if (swap.blocked) return fail('combat-trait-pick-blocked');
         const r = await run('trait-pick', () => options.pickTrait({ drop }));
         if (r.stale) return r;
         if (r.ok === true) { reveal = null; await load(); } else render();
+        return r;
+    }
+
+    // 解锁特性槽（v4，只主角）：按顺序花积分永久解锁第 3 / 4 / 5 槽，经注入的 unlockTraitSlot 写一条 trait-slot，成功后重读；积分不足不可点。
+    async function traitSlot() {
+        const g = heroAction('unlockTraitSlot', 'trait-slot');
+        if (!g.ok) return g;
+        const next = nextTraitSlot(g.view);
+        if (!next) return fail('combat-trait-slot-invalid');
+        if ((g.view.points || 0) < next.cost) return fail('combat-points-insufficient');
+        const r = await run('trait-slot', () => options.unlockTraitSlot());
+        if (r.stale) return r;
+        if (r.ok === true) await load(); else render();
         return r;
     }
 
@@ -553,6 +570,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'trait-cancel': trait = false; notice = ''; render(); return { ok: true };
             case 'trait-done': reveal = null; notice = ''; render(); return { ok: true };
             case 'trait-drop': return traitDrop(id);
+            case 'trait-slot': return traitSlot();
             case 'card-art': return generateArt(id);
             case 'cancel': generate = null; notice = ''; render(); return { ok: true };
             case 'retry-protagonist': return retryProtagonist();

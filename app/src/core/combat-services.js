@@ -1,6 +1,6 @@
 import { createCombatTables } from '../data/shujuku/combat-tables.js';
 import { abilitiesForName, createCombatLedger } from '../combat/ledger.js';
-import { createCombatSession, locateCombatStart } from '../combat/session.js';
+import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
 import { checkCorrections, checkRollsFor, floorCheckOrdinal, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal } from '../scene/check-rolls.js';
 import { classTierEntity, deckProfileEntities, generationWrites, growthEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity, withCharacterLore, withStoryContext } from '../combat/generation.js';
@@ -8,7 +8,8 @@ import { generateWithRetry } from '../combat/generation-retry.js';
 import { normalizeProfile, profileIdFor } from '../combat/schema.js';
 import { COMBAT_RULES } from '../combat/rules.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../combat/points.js';
-import { TRAIT_SLOTS, planTrait, traitSeed } from '../combat/traits.js';
+import { TRAIT_BASE_SLOTS, keptInnateKinds, nextTraitSlot, planTrait, traitFits, traitSeed } from '../combat/traits.js';
+import { planTraitShape } from '../combat/trait-pool.js';
 import { ABILITY_KEYS, parseCombatInit } from '../combat/abilities.js';
 import { ensureCombatReportRegex } from '../host/combat-report-regex.js';
 import { normalizeCombatExpansionSettings } from '../visual/igs-ui/combat-settings.js';
@@ -44,6 +45,12 @@ export function createCombatServices(deps = {}) {
     let growthCache = null;
     let growthRun = null;
     const growthListeners = new Set();
+    // 服务层诊断（最近 20 条）：正文主角团状态读不到时记下原因，不注入。
+    const diagnostics = [];
+    const noteDiag = (code, extra = {}) => {
+        diagnostics.push({ code, at: Date.now(), ...extra });
+        if (diagnostics.length > 20) diagnostics.shift();
+    };
 
     // 战斗表数据（档案 / 日志 / 属性）以 shujuku 为唯一合法的本地数据源：读表发现缺表时直接补建后重读，不经界面确认，也不改用其他存储。
     // 同一聊天、同一数据库实例同一时刻只建一次；建表失败按聊天记住原因，之后的读取直接返回该原因、不反复导入模板，
@@ -89,7 +96,8 @@ export function createCombatServices(deps = {}) {
         const api = globalObject.AutoCardUpdaterAPI || null;
         if (!tables || tables.api !== api) {
             tables = { api, impl: autoCreating(createCombatTables({ api })) };
-            ledger = createCombatLedger({ tables: tables.impl, chat, userName, sourceFilter });
+            // difficulty 只用于扫描剧情回血标签时记下当时的回血倍率（噩梦减半）。
+            ledger = createCombatLedger({ tables: tables.impl, chat, userName, sourceFilter, difficulty: () => settings().difficulty });
             tableFailure = null;
         }
         return tables.impl;
@@ -187,10 +195,16 @@ export function createCombatServices(deps = {}) {
                 try { state = await ledgerImpl.effectiveState(); } catch (error) { state = { ok: false, reason: 'combat-ledger-read-failed' }; }
                 if (chatId() !== id) { result = { ok: false, reason: 'request-stale' }; continue; }
                 // 同一次归并的属性读取（检定徽记与骰序提示同步使用）；names 为已登记角色名，用于挑在场人物。
+                // party：正文注入的主角团状态（主角 + 最近一场参战的队友，计划 5.8）；算不出时记原因，提示词不注入。
+                let party = null;
+                let partyReason = '';
+                if (state.ok) {
+                    try { party = partyStatus(state, userName()); } catch (error) { partyReason = 'combat-party-status-failed'; }
+                }
                 growthCache = state.ok
                     ? { chatId: id, ok: true, growth: state.growth || [], pending: scan.ok ? scan.pendingGeneration || [] : [],
                         names: [...state.characters.values()].map((c) => c.name).filter(Boolean),
-                        readAbilities: (name) => abilitiesForName(state, name, userName()) }
+                        readAbilities: (name) => abilitiesForName(state, name, userName()), party, ...(partyReason && { partyReason }) }
                     : { chatId: id, ok: false, reason: state.reason, growth: [], pending: [] };
                 result = { ok: state.ok === true, scan, reason: state.reason };
                 for (const fn of growthListeners) { try { fn(growthCache); } catch (error) { /* 订阅者异常不影响其他订阅者 */ } }
@@ -199,6 +213,18 @@ export function createCombatServices(deps = {}) {
             return result;
         })();
         return run.promise;
+    }
+
+    // 生成开始时同步调用（计划 5.8）：返回主角团状态行；扩展关闭、代写 / 静默生成或没有可列的人时返回 null。
+    // 成长缓存不可用（未刷新、换了聊天、账本读取失败）或状态算不出时不注入，记诊断。
+    function partyPromptInput(generationType = null) {
+        if (!settings().enabled || generationType === 'impersonate' || generationType === 'quiet') return null;
+        const cache = getGrowth();
+        if (!cache || cache.ok !== true || !Array.isArray(cache.party)) {
+            noteDiag('combat-party-status-unavailable', { reason: cache?.partyReason || cache?.reason || 'combat-growth-cache-missing' });
+            return null;
+        }
+        return cache.party.length ? cache.party : null;
     }
 
     function getGrowth() {
@@ -477,9 +503,15 @@ export function createCombatServices(deps = {}) {
         if ((hero.points || 0) < TRAIT_DRAW_COST) return { ok: false, reason: 'combat-points-insufficient' };
         const ready = resolveCombatLlm(llm());
         if (!ready.ok) return { ok: false, reason: ready.reason, ...(ready.missing ? { missing: ready.missing } : {}) };
-        const { rarity } = planTrait(traitSeed(hero.id, hero.traitDraws));
+        // 稀有度与效果都按同一种子确定（v4 特性池，主动与被动同池）：楼层回退后再抽得到同一个特性效果，模型只起名、写来历。
+        const seed = traitSeed(hero.id, hero.traitDraws);
+        const { rarity } = planTrait(seed);
+        const shape = planTraitShape(seed, rarity);
         const traitId = `tr-${Date.now().toString(36)}`;
-        const entities = await withCharacterLore([traitEntity({ character: hero, rarity, traitId, existing: hero.traits || [] })], readLore);
+        // 已有的特性（保留着的固有人物技能与个人被动 + 抽到的）都给模型避重名。
+        const kept = keptInnateKinds(hero);
+        const innate = [kept.includes('active') ? hero.profile?.heroSkill : null, kept.includes('passive') ? hero.profile?.personalPassive : null].filter(Boolean);
+        const entities = await withCharacterLore([traitEntity({ character: hero, rarity, traitId, shape, existing: [...innate, ...(hero.traits || [])] })], readLore);
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
         const context = await withStoryContext({ protagonist: userName() }, readStoryContext, { names: [hero.name], signal });
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
@@ -490,7 +522,8 @@ export function createCombatServices(deps = {}) {
         if (!made) return { ok: false, reason: result.requestFailure ? 'combat-llm-request-failed' : 'combat-trait-generation-failed' };
         const written = await ledgerImpl.drawTrait(hero.id, made);
         if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
-        return { ok: true, id: hero.id, trait: made, pending: (hero.traits || []).length >= TRAIT_SLOTS, cost: TRAIT_DRAW_COST };
+        const pending = made.kind ? !traitFits(hero, made.kind) : (hero.traits || []).length >= TRAIT_BASE_SLOTS;
+        return { ok: true, id: hero.id, trait: made, pending, cost: TRAIT_DRAW_COST };
     }
 
     // 已满时的决定（P-d）：drop 为被替换的已装特性 ID（新特性装上）或新特性自己的 ID（放弃）；被 drop 的永久消失，积分不退。不请求副 LLM。
@@ -503,6 +536,19 @@ export function createCombatServices(deps = {}) {
         const written = await ledgerImpl.pickTrait(hero.id, pending.traitId, drop);
         if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
         return { ok: true, id: hero.id, traitId: pending.traitId, drop, discarded: drop === pending.traitId };
+    }
+
+    // 解锁特性槽（v4，助手 10-28）：主角花积分按顺序永久解锁第 3 / 4 / 5 槽（traits.js 的 TRAIT_SLOT_COSTS），经账本写一条 trait-slot（锚定最新楼层、扣分，随楼层回退）。不请求副 LLM。
+    async function unlockTraitSlot() {
+        const gate = await heroPanelReady('unlockTraitSlot', 'trait-slot', { needLlm: false });
+        if (!gate.ok) return gate;
+        const { ledgerImpl, hero } = gate;
+        const next = nextTraitSlot(hero);
+        if (!next) return { ok: false, reason: 'combat-trait-slot-invalid' };
+        if ((hero.points || 0) < next.cost) return { ok: false, reason: 'combat-points-insufficient' };
+        const written = await ledgerImpl.unlockTraitSlot(hero.id, next.slot);
+        if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
+        return { ok: true, id: hero.id, slot: next.slot, cost: next.cost };
     }
 
     // 主角卡组预生成：扩展开启、启动、换聊天与建表成功后，在后台为当前主角生成一次卡组档案，开战与构筑不必等待。
@@ -655,6 +701,6 @@ export function createCombatServices(deps = {}) {
         return Promise.resolve(run).catch(() => ({ ok: false, reason: 'combat-action-threw' }));
     }
 
-    return { getSession, getLedger, ensureTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, captureCombatInit };
+    return { getSession, getLedger, ensureTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier,
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit };
 }

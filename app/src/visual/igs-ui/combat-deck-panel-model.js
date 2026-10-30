@@ -1,9 +1,12 @@
 import { COMBAT_RULES, cardCopyLimit, validateDeck } from '../../combat/rules.js';
 import { scaleCard } from '../../combat/card-scaling.js';
 import { ABILITY_KEYS, ABILITY_LABELS, REL_TIERS, abilityMod } from '../../combat/abilities.js';
-import { characterCombatStats } from '../../combat/session.js';
+import { characterCombatStats, vitalsOf } from '../../combat/session.js';
+import { injuryLevel } from '../../combat/report.js';
 import { describeEffects } from './combat-card-art.js';
 import { sellPrice } from '../../combat/points.js';
+import { defaultHeroSkill } from '../../combat/card-templates.js';
+import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
 
 // 构筑面板按当前六维预览卡牌性能：固定卡或没有属性视图时不带字段。
 function scalingPreview(card, attr) {
@@ -38,12 +41,14 @@ export function allocView(attr, picks = null, { readonly = false } = {}) {
 }
 
 // 装备栏、背包与道具：四个部位按固定顺序列出（空部位也列出），背包为已拥有未装备的装备（带稀有度与售价，在背包页列出）。
+// 装备说明：六维加成（带稀有度的装备，D7）在前，被动说明在后；没有被动的装备只显示加成。
+const gearText = (g) => [g?.bonus ? `${ABILITY_LABELS[g.bonus.ability] || g.bonus.ability} +${g.bonus.amount}` : '', g?.passive?.description || ''].filter(Boolean).join('；');
 function gearView(view) {
     const slots = view.gear?.slots || {};
     return {
-        slots: Object.entries(GEAR_SLOT_LABELS).map(([slot, label]) => ({ slot, label, item: slots[slot] ? { gearId: slots[slot].gearId, name: slots[slot].name, text: slots[slot].passive?.description || '' } : null })),
+        slots: Object.entries(GEAR_SLOT_LABELS).map(([slot, label]) => ({ slot, label, item: slots[slot] ? { gearId: slots[slot].gearId, name: slots[slot].name, text: gearText(slots[slot]) } : null })),
         bag: (view.gear?.bag || []).map((g) => ({ gearId: g.gearId, name: g.name, slot: g.slot, slotLabel: GEAR_SLOT_LABELS[g.slot] || g.slot,
-            rarity: g.rarity || '', price: sellPrice(g.rarity, g.gearId), text: g.passive?.description || '' })),
+            rarity: g.rarity || '', price: sellPrice(g.rarity, g.gearId), text: gearText(g) })),
         items: (view.items || []).map((i) => ({ itemId: i.itemId, name: i.name, count: i.count })),
     };
 }
@@ -78,14 +83,39 @@ export function validateDraft(view, draft) {
     return { ok: errors.length === 0, size: cards.length, min: COMBAT_RULES.deckMin, max: COMBAT_RULES.deckMax, errors, byCard };
 }
 
-// 人物特性（P-d）：名称、稀有度、来历、联动与被动说明（被动数值已按稀有度加强）。
-const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, origin: t.origin || '', link: t.link || null, text: t.passive ? describeEffects(t.passive.effects) : '' });
+// 人物特性（P-d）：名称、稀有度、来历、联动与效果说明（被动数值已按稀有度加强）；v4 主动特性（kind: 'active'）另给费用，说明取技能效果。
+const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, origin: t.origin || '', link: t.link || null,
+    ...(t.kind === 'active' && t.skill ? { kind: 'active', cost: t.skill.cost } : {}),
+    text: t.passive ? describeEffects(t.passive.effects) : t.skill ? describeEffects(t.skill.effects) : '' });
+
+// v4 特性槽（助手 10-28，只主角）：slots 为当前槽数、max 为上限；innate 为保留着的固有特性（人物技能 / 个人被动，可被替换）；
+// locked 为未解锁的槽与价格（第一个即下一个可解锁的）；有待定特性时 replaceable 列出替换后不挤掉其他固有特性、主动不超上限的特性 ID。
+function traitSlotView(view) {
+    const kept = keptInnateKinds(view);
+    const ids = innateTraitIds(view.profile, view.id);
+    const skill = view.profile?.heroSkill || defaultHeroSkill(view.classProfile?.archetype, view.id);
+    const own = view.profile?.personalPassive;
+    const innate = kept.map((k) => (k === 'active'
+        ? { traitId: ids.active, name: skill.name, kind: 'active', innate: true, cost: COMBAT_RULES.heroSkillCost, text: describeEffects(skill.effects) }
+        : { traitId: ids.passive, name: own.name, kind: 'passive', innate: true, text: describeEffects(own.effects) }));
+    const slots = traitSlots(view);
+    const locked = [];
+    for (let slot = slots + 1; slot <= TRAIT_SLOT_MAX; slot += 1) locked.push({ slot, cost: TRAIT_SLOT_COSTS[slot] });
+    const pending = view.pendingTrait;
+    const ownIds = [...innate.map((t) => t.traitId), ...(view.traits || []).map((t) => t.traitId)];
+    const replaceable = pending ? ownIds.filter((id) => traitSwap(view, pending, id)?.blocked === false) : [];
+    return { slots, max: TRAIT_SLOT_MAX, innate, locked, replaceable };
+}
 
 export function deckDetailView(view, draft) {
     if (!view) return null;
+    // 开战换算加持续伤势：当前生命 / 上限与伤势词（倒下、无伤、轻伤、重创、濒死）；没有伤势记录时为满血。
+    const stats = characterCombatStats(view);
+    const vitals = vitalsOf(stats.hp, view.wound);
+    const combat = { ...stats, current: vitals.hp, injury: injuryLevel({ alive: !vitals.down, hp: vitals.hp, maxHp: vitals.maxHp }) };
     const base = { id: view.id, kind: view.kind, name: view.name, level: view.attributes?.level ?? view.level,
         exp: view.exp, into: view.into, next: view.next, attributes: view.attributes,
-        combat: characterCombatStats(view), traits: (view.traits || []).map(traitView), pendingTrait: view.pendingTrait ? traitView(view.pendingTrait) : null,
+        combat, traits: (view.traits || []).map(traitView), pendingTrait: view.pendingTrait ? traitView(view.pendingTrait) : null,
         collection: (view.collection || []).map((k) => ({ ...k, price: sellPrice(k.rarity, k.lootId) })), points: view.points ?? 0, canSell: view.attributes?.protagonist === true,
         relLabel: REL_TIERS[view.attributes?.tier]?.label || '',
         abilities: allocView(view.attributes)?.rows || [] };
@@ -100,17 +130,20 @@ export function deckDetailView(view, draft) {
     const check = validateDraft(view, cards);
     const inDeck = new Map();
     for (const id of cards) inDeck.set(id, (inDeck.get(id) || 0) + 1);
+    // X 费排在 3 费之后（Number('X') 为 NaN，会打乱排序）。
+    const costRank = (c) => (c === 'X' ? 4 : Number(c));
     const owned = [...view.owned.entries()].filter(([, n]) => n > 0).map(([id, n]) => {
         const card = view.catalog.get(id);
         return { cardId: id, name: card?.name || id, type: card?.type || '', cost: card?.cost ?? '', rarity: card?.rarity || '', owned: n,
             upgraded: view.upgraded.get(id) || 0, inDeck: inDeck.get(id) || 0, errors: check.byCard.get(id) || [],
             canAdd: (inDeck.get(id) || 0) < Math.min(n, cardCopyLimit(card?.rarity)), ...scalingPreview(card, view.attributes) };
-    }).sort((a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : Number(a.cost) - Number(b.cost)));
+    }).sort((a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : costRank(a.cost) - costRank(b.cost)));
     const profile = view.profile || {};
     // 专属卡：档案登记的全部列出，未经剧情解锁的标为锁定（只展示名称与费用，不可加入卡组）。
     const signature = (profile.signatureCards || []).map((c) => ({ cardId: c.id, name: c.name, cost: c.cost, type: c.type, unlocked: (view.owned.get(c.id) || 0) > 0 }));
     return {
         ...base, gear: gearView(view), className: view.attributes?.className || view.className || '', hpMax: view.hpMax,
+        traitSlots: base.canSell ? traitSlotView(view) : null,
         // 职业阶（P-c）：classTier 一阶起，tierName 为阶名；expLevel 为按 EXP 推导的等级，升阶门槛按它判断（与账本归并一致）。
         classRef: view.classRef ?? null, classTier: view.classTier || 1, tierName: view.tierName || '', expLevel: view.level ?? 1,
         classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name, text: describeEffects(view.classProfile.classPassive.effects) } : null,

@@ -1,4 +1,4 @@
-import { combatExpReward } from './rules.js';
+import { combatExpReward, difficultyRule } from './rules.js';
 import { GEAR_SLOTS, REWARD_SLOT_COUNT } from './schema.js';
 import { hash32, nextRandom } from './random.js';
 
@@ -43,8 +43,20 @@ export const victoryExpFor = (enemyTiers) => Math.min(combatExpReward(enemyTiers
 const normLinks = (links) => ({ reveal: links?.reveal === 2 ? 2 : links?.reveal ? 1 : 0, reflip: links?.reflip === true, fortune: links?.fortune === true });
 const bump = (slot) => { slot.rarity = RARITY_STEPS[Math.min(RARITY_STEPS.length - 1, rank(slot.rarity) + 1)]; };
 
+// 高难度爆率（助手 10-29 D4）：每个翻牌槽按难度表 loot 概率稀有度上调一档（卡牌不超 cardCap，已是最高档不变）。
+// 用独立种子序列逐槽判定，不改变类别、稀有度、费用与部位的既有抽取顺序；轻松 / 标准档不判定。
+function lootBump(slots, table, loot) {
+    if (!loot) return;
+    const rng = sequence(loot.seed);
+    for (const s of slots) {
+        if (rng() >= loot.chance) continue;
+        if (s.kind === 'card' && table.cardCap && rank(s.rarity) >= rank(table.cardCap)) continue;
+        bump(s);
+    }
+}
+
 // 一套槽位：按 rng 依次抽类别、稀有度、费用与部位。
-function drawSlots(rng, table, kinds, count, fortune) {
+function drawSlots(rng, table, kinds, count, fortune, loot = null) {
     const slots = [];
     for (let index = 0; index < count; index += 1) {
         if (index >= table.guaranteed && rng() < table.keepsake) {
@@ -69,15 +81,17 @@ function drawSlots(rng, table, kinds, count, fortune) {
         const open = ranked.filter((s) => rank(s.rarity) < RARITY_STEPS.length - 1);
         if (open.length) bump(open[pickIndex(rng, open.length)]);
     }
+    lootBump(slots, table, loot);
     // 一次性道具数量：史诗以上 2，其余 1。
     for (const s of ranked) if (s.kind === 'item') s.count = atLeast(s.rarity, 'epic') ? 2 : 1;
     return slots;
 }
 
-// 槽位计划：同一 combatId 与角色重算得到同一计划。tier 为遭遇档位；links 为准备时生效的翻牌联动 { reveal:0|1|2, reflip, fortune }（第 12 步接入，开战后换装不影响本场）。
+// 槽位计划：同一 combatId、角色与难度重算得到同一计划。tier 为遭遇档位；links 为准备时生效的翻牌联动 { reveal:0|1|2, reflip, fortune }（第 12 步接入，开战后换装不影响本场）；
+// difficulty 为准备时的难度键（缺省按标准档，不上调）。
 // 返回 { seed, tier, exp, links, slots, reserve }，槽位形如 { index, kind:'keepsake'|'card'|'gear'|'item', rarity, cost?, gearSlot?, count? }；宝物是 gearSlot 为 treasure 的 gear。
 // reserve 是翻牌花积分重抽时换上的备用套：规则、槽位数与联动同主套，种子由主套派生。
-export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links } = {}) {
+export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty } = {}) {
     const key = Object.hasOwn(REWARD_TABLES, tier) ? tier : 'normal';
     const table = REWARD_TABLES[key];
     const link = normLinks(links);
@@ -86,8 +100,10 @@ export function planRewardSlots({ combatId, tier, enemyTiers = [], character = n
     const deck = character?.kind === 'deck-character';
     const kinds = table.kinds.filter(([kind]) => kind !== 'card' || deck);
     const count = REWARD_SLOT_COUNT + (link.reflip ? 1 : 0);
-    const slots = drawSlots(sequence(seed), table, kinds, count, link.fortune);
-    const reserve = drawSlots(sequence(`${seed}|reserve`), table, kinds, count, link.fortune);
+    const chance = difficultyRule(difficulty).loot;
+    const lootFor = (s) => (chance > 0 ? { chance, seed: `${s}|loot` } : null);
+    const slots = drawSlots(sequence(seed), table, kinds, count, link.fortune, lootFor(seed));
+    const reserve = drawSlots(sequence(`${seed}|reserve`), table, kinds, count, link.fortune, lootFor(`${seed}|reserve`));
     return { seed, tier: key, exp: victoryExpFor(enemyTiers), links: link, slots, reserve };
 }
 

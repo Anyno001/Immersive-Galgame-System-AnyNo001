@@ -1,6 +1,8 @@
 import { BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, combatSpeedFor } from './rules.js';
-import { CARD_TEMPLATES, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, PASSIVE_TEMPLATES, SKILL_TEMPLATES, gearPassiveFromTemplate, heroSkillFromTemplate, itemFromTemplate, nearestTemplateCost, passiveAtRarity, passiveFromTemplate, skillFromTemplate, solveCardTemplate } from './card-templates.js';
-import { REWARD_ORIGIN_MAX, gearIdFor, itemIdFor, profileIdFor } from './schema.js';
+import { CARD_TEMPLATES, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, PASSIVE_TEMPLATES, SKILL_TEMPLATES, cardFromValues, gearPassiveFromTemplate, heroSkillFromTemplate, itemAtRarity, itemFromTemplate, fixedTemplateCost, nearestTemplateCost, passiveAtRarity, passiveFromTemplate, skillFromTemplate, solveCardTemplate } from './card-templates.js';
+import { forbiddenCombos } from './combos.js';
+import { GEAR_BONUS_BY_RARITY, REWARD_ORIGIN_MAX, gearIdFor, itemIdFor, profileIdFor } from './schema.js';
+import { ABILITY_KEYS, abilityKeyOf } from './abilities.js';
 import { hash32, hashString, nextRandom } from './random.js';
 import { isEnemyArtKey } from './enemy-art.js';
 
@@ -114,11 +116,18 @@ function templateKey(raw, path, a, table) {
     if (typeof key === 'string' && Object.hasOwn(table, key)) return key;
     return a.fail(path, 'invalid-template', { allowed: Object.keys(table) });
 }
+// 带稀有度的正文获得物（D7–D9）：input.templates 是程序筛出的候选键，模型只能从中选；缺省时用整张表（旧路径）。
+function candidateTable(table, keys) {
+    if (!Array.isArray(keys) || !keys.length) return table;
+    const picked = keys.filter((k) => typeof k === 'string' && Object.hasOwn(table, k));
+    return picked.length ? Object.fromEntries(picked.map((k) => [k, table[k]])) : table;
+}
 
-// 职业卡锁定费用槽；其他卡保留最近有解费用规则。无槽位的成长卡取回复费用。
-function buildCard(nameRaw, keyRaw, costRaw, paths, a, { id, rarity, slot, fixedCost = false }) {
+// 职业卡锁定费用槽（X 费模板放在 1–3 费位置时改为 X 费）；其他卡保留最近有解费用规则。无槽位的成长卡取回复费用。
+// table：可选模板的范围（带稀有度的学会卡只给候选）；values：模型给的模板变量数值（D9），缺省时由程序求解。
+function buildCard(nameRaw, keyRaw, costRaw, paths, a, { id, rarity, slot, fixedCost = false, table = CARD_TEMPLATES, values, valuesPath = 'values' }) {
     const name = nameOf(nameRaw, paths[0], a, 20);
-    const key = templateKey(keyRaw, paths[1], a, CARD_TEMPLATES);
+    const key = templateKey(keyRaw, paths[1], a, table);
     let wanted;
     if (slot !== undefined) {
         wanted = slot;
@@ -127,12 +136,24 @@ function buildCard(nameRaw, keyRaw, costRaw, paths, a, { id, rarity, slot, fixed
         wanted = intOf(costRaw, paths[2], a, 0, COST_MAX, 1);
     }
     if (!name || !key || wanted === undefined) return undefined;
-    const cost = fixedCost ? wanted : nearestTemplateCost(key, wanted, rarity);
+    const cost = fixedCost ? fixedTemplateCost(key, wanted) : nearestTemplateCost(key, wanted, rarity);
     if (cost === null) return a.fail(paths[1], 'template-unsolvable');
     if (cost !== wanted) a.note(paths[2], wanted, cost);
-    const solved = solveCardTemplate(key, cost, rarity);
-    if (!solved) return a.fail(paths[1], 'template-unsolvable', { cost, rarity });
-    return { id, name, type: solved.type, cost, rarity, effects: solved.effects, ...(solved.upgraded ? { upgraded: solved.upgraded } : {}) };
+    let solved;
+    if (values === undefined) {
+        solved = solveCardTemplate(key, cost, rarity);
+        if (!solved) return a.fail(paths[1], 'template-unsolvable', { cost, rarity });
+    } else {
+        const given = cardFromValues(key, cost, rarity, values);
+        if (given.error) return a.fail(valuesPath, given.error, given.detail);
+        solved = given.card;
+    }
+    // 内部禁止组合名单（combos.js）：与人物特性抽取共用同一判定，命中时按模板键路径拒收，定向修正换模板。
+    const combos = forbiddenCombos({ cost, effects: solved.effects, onDiscard: solved.onDiscard });
+    if (combos.length) return a.fail(paths[1], 'forbidden-combo', { combos });
+    // 关键字（innate / ethereal / unplayable）与被弃时效果随模板带出，字段名与 schema 卡牌一致。
+    const { type, effects, upgraded, ...keywords } = solved;
+    return { id, name, type, cost, rarity, ...keywords, effects, ...(upgraded ? { upgraded } : {}) };
 }
 
 function cardOf(raw, path, a, opts) {
@@ -151,15 +172,15 @@ function passiveOf(raw, path, a, id) {
     return name ? { id, name, ...passiveFromTemplate(key) } : undefined;
 }
 
-function buildSkill(nameRaw, keyRaw, paths, a, id, cap) {
+function buildSkill(nameRaw, keyRaw, paths, a, id, cap, table = SKILL_TEMPLATES) {
     const name = nameOf(nameRaw, paths[0], a, 20);
-    const key = templateKey(keyRaw, paths[1], a, SKILL_TEMPLATES);
+    const key = templateKey(keyRaw, paths[1], a, table);
     return name && key ? { id, name, ...skillFromTemplate(key, cap) } : undefined;
 }
 
-function skillOf(raw, path, a, id, cap) {
+function skillOf(raw, path, a, id, cap, table) {
     const t = tupleOf(raw, path, a, ['name', 'template']);
-    return t ? buildSkill(t[0], t[1], [at(path, 0), at(path, 1)], a, id, cap) : undefined;
+    return t ? buildSkill(t[0], t[1], [at(path, 0), at(path, 1)], a, id, cap, table) : undefined;
 }
 const requireObject = (value) => (isObj(value) ? null : { errors: [{ path: '', reason: 'expected-object' }] });
 const passivesIn = (value) => value.passives ?? (value.passive !== undefined && value.passive !== null ? [value.passive] : undefined);
@@ -314,14 +335,42 @@ export function assembleEnemy(value, { key, fixed }) {
     return finish(a, profile);
 }
 
+// skill-fill：{ skills:[[名, 模板键], ...恰好 input.count 个] } → 在 fixed.profile 末尾追加技能（计划 5.4，只增不删）。
+// ID 接着现有技能数用 -k 序号（不与生成时的 -s 序号和首领阶段技能撞号）；名称不得与已有技能（档案技能与 input.existing）或同批补充的重复；伤害按档案类型封顶。
+export function assembleSkillFill(value, { key, fixed, input }) {
+    const bad = requireObject(value);
+    if (bad) return bad;
+    const a = createAssembly(key);
+    const { profile } = fixed;
+    // 队友按等级补技能（D10）：fixed.cap 为按等级放大的折算上限，input.templates 为 Lv6 起的复合技能候选；缺省时与旧路径一致。
+    const enemy = profile.kind === 'enemy';
+    const cap = enemy ? (COMBAT_RULES.tiers[profile.tier]?.damageCap ?? COMBAT_RULES.allySkillDamageCap) : (fixed.cap ?? COMBAT_RULES.allySkillDamageCap);
+    const table = enemy ? SKILL_TEMPLATES : candidateTable(SKILL_TEMPLATES, input.templates);
+    const start = profile.skills.length;
+    const added = listOf(value.skills, 'skills', a, input.count, input.count, (v, p, i) => skillOf(v, p, a, `${profile.id}-k${start + i + 1}`, cap, table)) || [];
+    const names = new Set([...profile.skills.map((s) => s.name), ...(Array.isArray(input.existing) ? input.existing : [])]);
+    added.forEach((s, i) => {
+        if (!s) return;
+        if (names.has(s.name)) a.fail(`${at('skills', i)}[0]`, 'skill-name-exists');
+        names.add(s.name);
+    });
+    return finish(a, { ...profile, skills: [...profile.skills, ...added] });
+}
+
+
 // skill-to-card：{ name?, template, cost?, targetId? } → { card | skill, targetId? }；ID 由调用方分配。
 export function assembleGrowth(value, { key, input }) {
     const bad = requireObject(value);
     if (bad) return bad;
     const a = createAssembly(key);
     const name = value.name === undefined || value.name === null || value.name === '' ? String(input.skill || '').trim() : value.name;
+    // 卡组角色学会的卡牌（D9）：input.rarity 存在时取该稀有度、只能选 input.templates 候选、可给 values；否则照旧按个人稀有度求解。
+    const tagged = input.output === 'card' && input.rarity;
+    const cardOpts = tagged
+        ? { id: undefined, rarity: input.rarity, table: candidateTable(CARD_TEMPLATES, input.templates), ...(value.values !== undefined ? { values: value.values } : {}) }
+        : { id: undefined, rarity: 'personal' };
     const item = input.output === 'card'
-        ? buildCard(name, value.template, value.cost, ['name', 'template', 'cost'], a, { id: undefined, rarity: 'personal' })
+        ? buildCard(name, value.template, value.cost, ['name', 'template', 'cost'], a, cardOpts)
         : buildSkill(name, value.template, ['name', 'template'], a, undefined, COMBAT_RULES.allySkillDamageCap);
     if (a.errors.length) return { errors: a.errors };
     return { value: { [input.output]: item, ...(value.targetId !== undefined ? { targetId: value.targetId } : {}) }, diagnostics: a.diagnostics };
@@ -330,42 +379,65 @@ export function assembleGrowth(value, { key, input }) {
 const textOr = (raw, fallback, max) => (String(raw || '').trim() || String(fallback || '')).slice(0, max);
 
 // equip-to-passive：{ template:"被动模板键" } → equip 载荷；名称、部位、gearId 由程序给定，宝物按 rare 口径加强。
+// 带 input.rarity（D7）：{ ability:"六维键", template?:"被动模板键" } → 六维加成按稀有度（+1…+5）；
+// 被动只在 input.templates 存在（程序已按装备 ID 抽中）时出现，只能从候选里选，强度按装备稀有度（passiveAtRarity），宝物不再另加强。
 export function assembleGear(value, { key, input }) {
     const bad = requireObject(value);
     if (bad) return bad;
     const a = createAssembly(key);
-    const tpl = templateKey(value.template, 'template', a, GEAR_PASSIVE_TEMPLATES);
-    if (!tpl) return { errors: a.errors };
     const gearId = gearIdFor(input.name);
     const name = String(input.name || '').trim().slice(0, 20);
+    if (input.rarity) {
+        const ability = abilityKeyOf(value.ability);
+        if (!ability || !ABILITY_KEYS.includes(ability)) a.fail('ability', 'invalid-ability', { allowed: [...ABILITY_KEYS] });
+        const withPassive = Array.isArray(input.templates) && input.templates.length > 0;
+        const tpl = withPassive ? templateKey(value.template, 'template', a, candidateTable(GEAR_PASSIVE_TEMPLATES, input.templates)) : null;
+        if (a.errors.length) return { errors: a.errors };
+        const passive = tpl ? { id: `${gearId}-p`, name, ...passiveAtRarity(tpl, input.rarity) } : null;
+        const bonus = { ability, amount: GEAR_BONUS_BY_RARITY[input.rarity] };
+        return { value: { gearId, name, slot: input.slot, ...(passive ? { passive } : {}), description: textOr(input.description, passive?.description, 80), rarity: input.rarity, bonus }, diagnostics: a.diagnostics };
+    }
+    const tpl = templateKey(value.template, 'template', a, GEAR_PASSIVE_TEMPLATES);
+    if (!tpl) return { errors: a.errors };
     const passive = { id: `${gearId}-p`, name, ...gearPassiveFromTemplate(tpl, input.slot) };
     return { value: { gearId, name, slot: input.slot, passive, description: textOr(input.description, passive.description, 80) }, diagnostics: a.diagnostics };
 }
 
 // item-to-consumable：{ template:"道具模板键" } → item 载荷；数量取标签，itemId 由名称推导。
+// 带 input.rarity 时只能选 input.templates 里的候选，数值按稀有度放大（itemAtRarity，D8）；载荷形状不变。
 export function assembleItem(value, { key, input }) {
     const bad = requireObject(value);
     if (bad) return bad;
     const a = createAssembly(key);
-    const tpl = templateKey(value.template, 'template', a, ITEM_TEMPLATES);
+    const rarity = input.rarity;
+    const tpl = templateKey(value.template, 'template', a, rarity ? candidateTable(ITEM_TEMPLATES, input.templates) : ITEM_TEMPLATES);
     if (!tpl) return { errors: a.errors };
-    const made = itemFromTemplate(tpl);
+    const made = rarity ? itemAtRarity(tpl, rarity) : itemFromTemplate(tpl);
     const name = String(input.name || '').trim().slice(0, 20);
     return { value: { itemId: itemIdFor(input.name), name, count: input.count, effects: made.effects, description: textOr(input.description, made.description, 80) }, diagnostics: a.diagnostics };
 }
 
 // trait（人物特性，P-d）：{ name, template:"被动模板键", origin } → 特性；traitId 与稀有度由程序给定（fixed），被动按稀有度加强（passiveAtRarity）。
+// v4 特性池（trait-pool.js）：fixed.shape 存在时效果已由程序抽定（主动技能或被动），模型只回 name 与 origin，template 不读。
 export function assembleTrait(value, { key, fixed = {} } = {}) {
     const bad = requireObject(value);
     if (bad) return bad;
     const a = createAssembly(key);
+    const shape = fixed.shape || null;
     const name = nameOf(value.name, 'name', a, 20);
-    const tpl = templateKey(value.template, 'template', a, GEAR_PASSIVE_TEMPLATES);
-    if (!name || !tpl) return { errors: a.errors };
+    const tpl = shape ? null : templateKey(value.template, 'template', a, GEAR_PASSIVE_TEMPLATES);
+    if (!name || (!shape && !tpl)) return { errors: a.errors };
     const origin = typeof value.origin === 'string' ? value.origin.trim() : '';
     if (origin.length > REWARD_ORIGIN_MAX) a.note('origin', origin.length, REWARD_ORIGIN_MAX);
-    const passive = { id: `${fixed.traitId}-p`, name, ...passiveAtRarity(tpl, fixed.rarity) };
-    return { value: { traitId: fixed.traitId, name, origin: origin.slice(0, REWARD_ORIGIN_MAX), rarity: fixed.rarity, passive }, diagnostics: a.diagnostics };
+    const head = { traitId: fixed.traitId, name, origin: origin.slice(0, REWARD_ORIGIN_MAX), rarity: fixed.rarity };
+    const copy = (v) => JSON.parse(JSON.stringify(v));
+    if (shape?.kind === 'active') {
+        const { cost, effects, description } = shape.skill;
+        return { value: { ...head, kind: 'active', skill: { id: `${fixed.traitId}-s`, name, cost, effects: copy(effects), description } }, diagnostics: a.diagnostics };
+    }
+    const passive = { id: `${fixed.traitId}-p`, name, ...(shape ? copy(shape.passive) : passiveAtRarity(tpl, fixed.rarity)) };
+    // v4：新抽到的特性带 kind（合计上限按固有 + 抽到的计，traits.js）。
+    return { value: { ...head, kind: 'passive', passive }, diagnostics: a.diagnostics };
 }
 
 // battle-reward：{ slots:[["名称","模板键","来历"], …], reserve:[…] }，与 input.slots / input.reserve 逐位对应 → offer 槽位。

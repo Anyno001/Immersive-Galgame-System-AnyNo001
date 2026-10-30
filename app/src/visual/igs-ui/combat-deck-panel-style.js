@@ -76,6 +76,7 @@ ${P} .igs-deck-collection{display:flex;flex-direction:column;gap:2px;margin:0;pa
 ${P} .igs-deck-keepsake{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;min-height:40px;padding:8px 10px;box-sizing:border-box;border-radius:var(--igs-cb-r-m);}
 ${P} .igs-deck-keepsake:hover{background:var(--igs-cb-fill);}
 ${P} .igs-deck-bag-acts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;}
+${P} .igs-deck-name.is-empty,${P} .igs-deck-name.is-locked{opacity:.55;}
 /* 抽人物特性揭晓（P-f）：蓄力时背面卡居中呼吸，光圈旋转、粒子向中心聚拢，颜色取预定稀有度（--rar）；第一次翻开（data-fresh）翻面爆光，神话另加震屏与整面板闪白；之后重绘为静止终态。 */
 ${P} .igs-deck-reveal{display:flex;flex-direction:column;align-items:center;gap:14px;padding:12px 0 4px;}
 ${P} .igs-deck-reveal-stage{position:relative;display:grid;place-items:center;width:min(220px,60vw);aspect-ratio:1;perspective:900px;}

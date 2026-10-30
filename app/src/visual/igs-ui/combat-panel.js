@@ -3,12 +3,12 @@ import { planBattleFx, safePortraitUrl } from './fx-battle-model.js';
 import { applyBattleFxToDom, cancelBattleFx } from './fx-battle.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 import { peekSpriteHead, probeSpriteHead, waitSpriteHead } from './fx-anchor.js';
-import { COMBAT_CUTIN_MS, buildCutinFigure, buildOpeningCutin, buildSkillCutin } from './combat-cutin.js';
+import { COMBAT_AWAKEN_END, COMBAT_CUTIN_MS, buildAwakenCutin, buildOpeningCutin, buildSkillCutin, preloadCutinFonts } from './combat-cutin.js';
 import { battleSfxKind } from './fx-battle-sfx.js';
 import { ensureFxLayers } from './fx-layer.js';
 import { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
-import { HERO_SKILL_SELECTION, battleView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, lobbyView, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, volleyTargets } from './combat-panel-model.js';
-import { combatReasonText, renderCombatPanelHtml, tintTriplet } from './combat-panel-render.js';
+import { battleView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, volleyTargets } from './combat-panel-model.js';
+import { combatReasonText, renderCombatPanelHtml, tintTriplet, traitTipHtml, unitTipHtml } from './combat-panel-render.js';
 import { actionProgress } from '../../combat/engine.js';
 import { enemyArtCell } from './combat-enemy-art.js';
 
@@ -79,10 +79,17 @@ export function createCombatPanelController(doc, options = {}) {
     let pending = '';
     let notice = '';
     let selected = null;
+    // v4 待选阶段：已选的候选牌实例（只在引擎 pending 属于操控角色时有内容）。
+    let chosen = [];
     // 炉石式拖牌：drag 为按住中的手牌（拖过阈值后 live）；dropFrom 为松手打出时影子卡的位置；dragClickUntil 吞掉拖动结束后补发的 click。
     let drag = null;
     let dropFrom = null;
     let dragClickUntil = 0;
+    // 指针所在的手牌（鼠标 / 触控笔悬停，触摸不记）：整块重绘换掉手牌节点后，新节点在浏览器补发悬停前没有 :hover，牌会先落回扇形再抬起；
+    // 重绘时给这张牌加 .is-hover（与 :hover 同一抬起样式），指针离开手牌或面板时清掉。
+    let hoverInst = '';
+    // 道具按钮点开的道具列表（界面状态，不进会话）：点列表以外的地方、Esc、用掉道具或关闭面板时收起。
+    let itemsOpen = false;
     let controlledId = null;
     let fxSeq = 0;
     let rewards = null;
@@ -93,8 +100,6 @@ export function createCombatPanelController(doc, options = {}) {
     let offCardArt = null;
     // 面板尺寸变化只移动原控件，不整块重绘或复制按钮。
     let stopDockWatch = null;
-    // 紧凑横屏控件上次量得的坐标：手牌打空、量不到牌顶时沿用，不跳回保底位置。
-    let heroCtrlPos = null;
     // 点开的牌面数字加成详情（挂在面板根节点上，同一时刻最多一个）。
     let scaleTip = null;
     // 演出进行中推迟的卡面刷新（同一时刻最多一个计时器；不进 cutinTimers，清演出时不受影响）。
@@ -215,6 +220,10 @@ export function createCombatPanelController(doc, options = {}) {
         }
         if (cur.status === 'lobby') view.lobby = lobbyView(cur);
         if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal);
+        // 待选阶段：只保留仍在候选里的已选牌；不在待选阶段时清空，视图不写 chosen。
+        const choice = view.battle?.choice;
+        if (!choice) chosen = [];
+        else { chosen = chosen.filter((i) => choice.options.includes(i)); view.chosen = chosen.slice(); }
         // 只在取到图时追加 artUrl：未生成卡面时手牌视图形状不变。
         if (view.battle) view.battle.hand = view.battle.hand.map((c) => { const artUrl = cardArtFor(c.id); return artUrl ? { ...c, artUrl } : c; });
         if (view.battle && held.size) shownHeld(view.battle);
@@ -329,8 +338,12 @@ export function createCombatPanelController(doc, options = {}) {
         const lobbyDrawn = Boolean(view.lobby) && view.pending !== 'prepare';
         // 入场只在本次打开后第一次画战前时播；减少动态效果时不播（只留静态斜切）。
         if (lobbyDrawn && !lobbyShown && !reduced()) view.intro = true;
+        // 点开的头像详情重绘后保持（选中的主动特性另由下面补上）。
+        const keepUnit = scaleTip?.unit || null;
         hideScaleTip();
         const lifted = liftUnitFx();
+        if (view.battle && hoverInst) view.hovered = hoverInst;
+        if (view.battle && itemsOpen) view.itemsOpen = true;
         // 暂存中的单位已在 snapshot 里按暂存血量写进视图：新节点首帧就是显示值，不会先按结算后的血量算一次样式再补画（那样受击前血条会先跌再回弹）。
         body.innerHTML = renderCombatPanelHtml(view);
         restoreUnitFx(lifted);
@@ -342,6 +355,9 @@ export function createCombatPanelController(doc, options = {}) {
         if (view.lobby) probeTints(view);
         animateEnergy(body);
         markDrag();
+        // 人物特性详情：选中的主动特性重绘后在圆球旁重新弹出（4b：点选即选中并弹详情；拖动圆球途中不弹）；否则点开的头像详情保持（单位此时可选为目标、头像不可点时收起）。
+        if (view.battle && isSkillSelection(selected)) { if (!drag?.live) showTraitTip((t) => t.kind === 'active' && t.skillId === selectionSkillId(selected)); }
+        else if (view.battle && keepUnit) showUnitTip(keepUnit);
         if (!had) return;
         const same = act ? [...(body.querySelectorAll?.(`[data-combat-act="${act}"]`) || [])].find((n) => (n.getAttribute('data-combat-id') || '') === id) : null;
         (same || root)?.focus?.();
@@ -359,80 +375,26 @@ export function createCombatPanelController(doc, options = {}) {
         if (!dock || !core || !figure) return;
         const energy = root.querySelector('.igs-combat-energy');
         const controls = root.querySelector('.igs-combat-controls');
+        const ring = root.querySelector('.igs-combat-trait-ring');
         const active = doc.activeElement;
-        const restoreFocus = Boolean(active && controls?.contains?.(active));
+        const restoreFocus = Boolean(active && (controls?.contains?.(active) || ring?.contains?.(active)));
         let moved = false;
         if (energy && energy.parentNode !== (narrow ? dock : figure)) {
             (narrow ? dock : figure).insertBefore(energy, (narrow ? dock : figure).firstChild);
             moved = true;
         }
-        if (controls && controls.parentNode !== (narrow ? dock : core)) {
-            (narrow ? dock : core).appendChild(controls);
+        // 主动特性按钮组：宽面板挂在头像框节点里（样式排到头像右上方外侧）；窄面板竖向一排没有余高，移到停靠区能量之后、觉醒 / 道具之前。
+        if (ring && ring.parentNode !== (narrow ? dock : figure)) {
+            if (narrow) dock.insertBefore(ring, energy?.parentNode === dock ? energy.nextSibling : dock.firstChild);
+            else figure.appendChild(ring);
+            moved = true;
+        }
+        // 觉醒 / 道具：宽面板挂在头像框节点里（主动特性圆球组之后，样式排到头像左下方圆框外沿），窄面板移到停靠区最后。
+        if (controls && controls.parentNode !== (narrow ? dock : figure)) {
+            (narrow ? dock : figure).appendChild(controls);
             moved = true;
         }
         if (moved && restoreFocus) active.focus?.();
-        placeHeroControls(controls, figure);
-    }
-
-    // 布局坐标（不含 transform）：沿 offsetParent 链累加；受击抖动、抬牌、震屏与宿主缩放都不影响。
-    function layoutPos(el) {
-        let x = 0;
-        let y = 0;
-        for (let n = el; n; n = n.offsetParent) { x += n.offsetLeft || 0; y += n.offsetTop || 0; }
-        return { x, y };
-    }
-
-    // 紧凑横屏有队友时，样式把控件改为绝对定位：底边落在静止牌顶上方，首个圆钮沿主战者圆框外沿贴住，技能名向右展开；
-    // 矮面板里控件升进敌方一排的高度时，右缘限到该高度内最左一名敌人的左缘（--igs-hero-ctrl-w），技能名在限宽内省略。
-    // 不是绝对定位（宽屏、窄屏、无队友）或量不到时清掉坐标，回落到样式里的保底位置；手牌打空时沿用上次坐标。
-    function placeHeroControls(controls, figure) {
-        const style = controls?.style;
-        if (!style) return;
-        const CARD_GAP = 4;
-        const RING_GAP = 4;
-        const view = doc.defaultView;
-        const clear = () => { heroCtrlPos = null; for (const k of ['x', 'y', 'w']) style.removeProperty?.(`--igs-hero-ctrl-${k}`); };
-        const apply = (pos) => {
-            heroCtrlPos = pos;
-            style.setProperty?.('--igs-hero-ctrl-x', `${pos.x}px`);
-            style.setProperty?.('--igs-hero-ctrl-y', `${pos.y}px`);
-            if (pos.w) style.setProperty?.('--igs-hero-ctrl-w', `${pos.w}px`); else style.removeProperty?.('--igs-hero-ctrl-w');
-        };
-        if (typeof view?.getComputedStyle !== 'function' || view.getComputedStyle(controls).position !== 'absolute') { clear(); return; }
-        const zone = root.querySelector('.igs-combat-hero');
-        const portrait = figure?.querySelector?.('.igs-combat-portrait');
-        const orb = controls.querySelector?.('.igs-combat-awaken-orb, .igs-combat-hero-skill-orb, .igs-combat-item-orb');
-        const cards = [...(root.querySelectorAll('.igs-combat-hand .igs-combat-card') || [])];
-        if (!zone || !portrait?.offsetWidth || !orb?.offsetWidth) { clear(); return; }
-        if (!cards.length) { if (heroCtrlPos) apply(heroCtrlPos); else clear(); return; }
-        const z = layoutPos(zone);
-        const p = layoutPos(portrait);
-        const o = layoutPos(orb);
-        const c = layoutPos(controls);
-        const restTop = Math.min(...cards.map((n) => layoutPos(n).y)) - z.y;
-        const top = restTop - CARD_GAP - controls.offsetHeight;
-        const ringR = Math.min(portrait.offsetWidth, portrait.offsetHeight) / 2;
-        const orbR = orb.offsetWidth / 2;
-        const reach = ringR + orbR + RING_GAP;
-        const dy = (p.y - z.y + portrait.offsetHeight / 2) - (top + (o.y - c.y) + orb.offsetHeight / 2);
-        const dx = Math.abs(dy) < reach ? Math.sqrt(reach * reach - dy * dy) : 0;
-        const left = (p.x - z.x + portrait.offsetWidth / 2) + dx - orbR - (o.x - c.x);
-        const x = Math.round(left);
-        const y = Math.round(top);
-        apply({ x, y, w: foeRoom(z, x, y, controls.offsetHeight, orb.offsetWidth) });
-    }
-
-    // 控件行（zone 内坐标 left / top、高 height）与敌方单位纵向重叠时，可用宽度 = 重叠者中最左一名的左缘 − 间隙 − left，至少留一颗圆钮宽；不重叠返回 0（不限宽）。
-    function foeRoom(zone, left, top, height, min) {
-        const FOE_GAP = 8;
-        let edge = Infinity;
-        for (const unit of root.querySelectorAll('.igs-combat-side.is-enemy .igs-combat-unit') || []) {
-            if (!unit.offsetWidth || !unit.offsetHeight) continue;
-            const u = layoutPos(unit);
-            const uTop = u.y - zone.y;
-            if (uTop < top + height && uTop + unit.offsetHeight > top) edge = Math.min(edge, u.x - zone.x);
-        }
-        return Number.isFinite(edge) ? Math.max(min, Math.floor(edge - FOE_GAP - left)) : 0;
     }
 
     function watchControlDock() {
@@ -590,6 +552,7 @@ export function createCombatPanelController(doc, options = {}) {
         const layers = ensureFxLayers(host);
         if (!layers?.front) return;
         const low = pageOverlay?.getAttribute?.('data-igs-quality') === 'low';
+        preloadCutinFonts(doc, c.skill || c.name);
         const el = buildSkillCutin(doc, { name: c.name, skill: c.skill, url, probed, reduced: reduced(), low });
         layers.front.appendChild(el);
         sfx('battle-cutin');
@@ -597,7 +560,8 @@ export function createCombatPanelController(doc, options = {}) {
         later(() => { el.remove?.(); cutinNodes.delete(el); }, COMBAT_CUTIN_MS.skill);
     }
 
-    // 觉醒特写：全屏情绪色幕 + 情绪纹样与粒子 + 居中半身立绘 + 类型名与台词；没有立绘时只放色幕与台词。台词来自正文，只经 textContent 写入。
+    // 觉醒特写（方案 A，节点见 combat-cutin.js 的 buildAwakenCutin）：头位可信时先切眼部斜切条再接主段，全长 COMBAT_CUTIN_MS.awaken；没有立绘时只放色幕、斜带与字幕。
+    // 收尾闪白时整面板向下震一下（减少动态效果与低画质不震）。台词来自正文，只经 textContent 写入。
     function showAwakenCutin(host, c, url, probed) {
         if (stage !== host) return;
         const layers = ensureFxLayers(host);
@@ -605,31 +569,15 @@ export function createCombatPanelController(doc, options = {}) {
         const life = COMBAT_CUTIN_MS.awaken;
         const isReduced = reduced();
         const low = pageOverlay?.getAttribute?.('data-igs-quality') === 'low';
-        const el = doc.createElement('div');
-        el.className = `igs-combat-awaken-cutin${isReduced ? ' is-reduced' : ''}${low ? ' is-low' : ''}`;
-        el.setAttribute?.('data-awaken', String(c.awakenType || ''));
-        el.setAttribute?.('aria-hidden', 'true');
-        el.style?.setProperty?.('--igs-fx-life', `${life}ms`);
-        const fx = doc.createElement('div');
-        fx.className = 'igs-combat-awaken-fx';
-        el.appendChild(fx);
-        if (url) el.appendChild(buildCutinFigure(doc, url, probed, { awaken: true }));
-        const cap = doc.createElement('div');
-        cap.className = 'igs-combat-awaken-cap';
-        const label = doc.createElement('span');
-        label.className = 'igs-combat-awaken-label';
-        label.textContent = `${c.name} 觉醒·${c.skill || ''}`;
-        cap.appendChild(label);
-        if (c.line) {
-            const line = doc.createElement('span');
-            line.className = 'igs-combat-awaken-line';
-            line.textContent = `「${c.line}」`;
-            cap.appendChild(line);
-        }
-        el.appendChild(cap);
+        preloadCutinFonts(doc, `觉醒·${c.skill || ''}`);
+        const el = buildAwakenCutin(doc, { name: c.name, skill: c.skill, line: c.line, awakenType: c.awakenType, url, probed, reduced: isReduced, low });
         layers.front.appendChild(el);
         sfx('battle-awaken');
         cutinNodes.add(el);
+        const panelEl = root;
+        if (!isReduced && !low && panelEl) {
+            later(() => { if (root === panelEl && stage === host) shakePanel(panelEl, { x: 0, y: 1 }, 6, 'awaken'); }, Math.round(life * COMBAT_AWAKEN_END));
+        }
         later(() => { el.remove?.(); cutinNodes.delete(el); }, life);
     }
 
@@ -792,18 +740,20 @@ export function createCombatPanelController(doc, options = {}) {
         }
         later(() => {
             if (root !== el) return;
-            if (fx.shake) {
-                const dir = strikeDirection(fx.unitId, targetId);
-                el.removeAttribute('data-igs-combat-shake');
-                el.style?.setProperty?.('--igs-shake-x', dir.x.toFixed(2));
-                el.style?.setProperty?.('--igs-shake-y', dir.y.toFixed(2));
-                el.style?.setProperty?.('--shake', `${fx.shake}px`);
-                void el.offsetWidth;
-                el.setAttribute('data-igs-combat-shake', String(fx.rank));
-                later(() => el.removeAttribute('data-igs-combat-shake'), 380);
-            }
+            if (fx.shake) shakePanel(el, strikeDirection(fx.unitId, targetId), fx.shake, fx.rank);
             sfx(fx.sfx);
         }, fx.hold);
+    }
+
+    // 整面板朝 dir 方向推一下再回弹（--igs-shake-x / -y 为方向，--shake 为幅度，data-igs-combat-shake 为档位，380ms 后撤掉）；稀有命中与觉醒收尾共用。
+    function shakePanel(el, dir, px, rank) {
+        el.removeAttribute('data-igs-combat-shake');
+        el.style?.setProperty?.('--igs-shake-x', dir.x.toFixed(2));
+        el.style?.setProperty?.('--igs-shake-y', dir.y.toFixed(2));
+        el.style?.setProperty?.('--shake', `${px}px`);
+        void el.offsetWidth;
+        el.setAttribute('data-igs-combat-shake', String(rank));
+        later(() => el.removeAttribute('data-igs-combat-shake'), 380);
     }
 
     // 震屏方向：出手单位中心指向受击单位中心的单位向量；量不到时按受击方是敌人（在上）或我方（在下）给斜向默认值。
@@ -1154,7 +1104,7 @@ export function createCombatPanelController(doc, options = {}) {
         const prior = was && !reduced() ? hpSnapshot(was) : null;
         const card = action?.type === 'play' ? captureCard(action.inst) : null;
         const r = s.act(action);
-        selected = null;
+        selected = null; chosen = [];
         say(r);
         // 新动作：引擎已立即结算，演出按动作顺序逐条播放——前面的时间轴还没播完时排到它们之后（拼手速可以一口气打出多张），命中按增量落到同一份暂存血量上；
         // 本次有变化、还没暂存的单位按本次动作前的血量暂存。这次动作结束了战斗：减少动态效果时收掉旧演出、直接显示结算画面；
@@ -1203,18 +1153,44 @@ export function createCombatPanelController(doc, options = {}) {
         return r;
     }
 
-    // 当前选中的牌 / 人物技能的视图（含 targets 可选目标与 affects 承受方）。
+    // 当前选中的牌 / 人物技能 / 主动特性 / 道具的视图（含 targets 可选目标与 affects 承受方）。
     function selectionView(sel) {
         const st = session().state();
         const view = st.battle ? battleView(st.battle, st.legal) : null;
-        return sel === HERO_SKILL_SELECTION ? view?.heroSkill : view?.hand.find((c) => c.inst === sel);
+        if (isItemSelection(sel)) return selectedItemView(view, sel);
+        return isSkillSelection(sel) ? selectedSkillView(view, sel) : view?.hand.find((c) => c.inst === sel);
     }
     // 既无可选目标也无承受方可点（正常牌不会出现）：只有这种情况下再点一次牌才算确认，避免牌卡在选中态。
     const nothingToClick = (v) => Boolean(v) && !v.targets.length && !v.affects.length;
 
     // 点牌只进入选中态，不直接打出：要选目标的牌点高亮的敌人；对自己用的牌点主战者，可对队友用的点我方单位，全体效果点承受方任一个；
-    // 再点一次已选中的牌、取消按钮或 Esc 撤销。返回 combat-target-required 表示已选中、等待点角色。
+    // 再点一次已选中的牌、取消按钮或 Esc 撤销（重绘时指针所在的手牌保持抬起，见 hoverInst）。返回 combat-target-required 表示已选中、等待点角色。
+    // 待选阶段（v4 选牌）：点候选牌切换已选，最多选 count 张；只选 1 张时点另一张直接换选。回合按钮显示「弃掉 k/N」。
+    function toggleChoice(inst) {
+        const choice = pendingChoice(session().state().battle);
+        if (!choice.options.includes(inst)) { notice = combatReasonText('combat-choice-invalid'); render(); return { ok: false, reason: 'combat-choice-invalid' }; }
+        if (chosen.includes(inst)) chosen = chosen.filter((i) => i !== inst);
+        else if (choice.count === 1) chosen = [inst];
+        else if (chosen.length >= choice.count) { notice = combatReasonText('combat-choice-full'); render(); return { ok: false, reason: 'combat-choice-full' }; }
+        else chosen = [...chosen, inst];
+        notice = ''; render();
+        return { ok: true, reason: 'combat-choice-picked', chosen: chosen.slice() };
+    }
+
+    // 待选阶段确认：已选张数等于 count 时，按引擎 legal 里的同一组合派发 choose（经 session.act 记入动作、可重放）；张数不对给原因，不派发。
+    function confirmChoice() {
+        const st = session().state();
+        const choice = pendingChoice(st.battle);
+        if (!choice) return { ok: false, reason: 'no-choice-pending' };
+        if (chosen.length !== choice.count) { notice = combatReasonText('combat-choice-count'); render(); return { ok: false, reason: 'combat-choice-count' }; }
+        const want = new Set(chosen);
+        const action = (st.legal || []).find((a) => a.type === 'choose' && a.insts.length === want.size && a.insts.every((i) => want.has(i)))
+            || { type: 'choose', insts: chosen.slice() };
+        return act(action);
+    }
+
     function pickCard(inst) {
+        if (pendingChoice(session().state().battle)) return toggleChoice(inst);
         const pick = resolvePlay(session().state().legal, inst);
         if (!pick.ok && pick.reason !== 'combat-target-required') {
             selected = null; notice = combatReasonText(pick.reason); render();
@@ -1233,48 +1209,114 @@ export function createCombatPanelController(doc, options = {}) {
     function pickTarget(targetId) {
         if (!selected) return { ok: false, reason: 'combat-card-unselected' };
         const legal = session().state().legal;
-        const skill = selected === HERO_SKILL_SELECTION;
+        const skill = isSkillSelection(selected);
+        const itemSel = isItemSelection(selected);
         const picked = selectionView(selected);
-        if (!picked) { selected = null; render(); return { ok: false, reason: skill ? 'combat-hero-skill-unusable' : 'combat-card-unplayable' }; }
+        if (!picked) { selected = null; render(); return { ok: false, reason: itemSel ? 'combat-item-unusable' : skill ? 'combat-hero-skill-unusable' : 'combat-card-unplayable' }; }
         const free = !picked.targets.length;
         if (free && !nothingToClick(picked) && !picked.affects.includes(targetId)) { say({ ok: false, reason: 'combat-target-invalid' }); render(); return { ok: false, reason: 'combat-target-invalid' }; }
         const id = free ? undefined : targetId;
-        const pick = skill ? resolveHeroSkill(legal, id) : resolvePlay(legal, selected, id);
-        if (pick.ok) return act(pick.action);
+        const pick = itemSel ? resolveItem(legal, selectionItemId(selected), id)
+            : skill ? resolveHeroSkill(legal, id, selectionSkillId(selected)) : resolvePlay(legal, selected, id);
+        if (pick.ok) { if (itemSel) itemsOpen = false; return act(pick.action); }
         say(pick);
         render();
         return pick;
     }
 
-    // 人物技能：与出牌同一套选中 / 确认 / 取消流程，共用 selected。
-    function pickHeroSkill() {
-        const pick = resolveHeroSkill(session().state().legal);
+    // 人物技能与主动特性（skillId 缺省为固有人物技能）：与出牌同一套选中 / 确认 / 取消流程，共用 selected；选中后详情由 render 弹在圆球旁。
+    function pickHeroSkill(skillId) {
+        const sel = skillSelection(skillId);
+        const shown = scaleTip?.trait;
+        const pick = resolveHeroSkill(session().state().legal, undefined, skillId);
         if (!pick.ok && pick.reason !== 'combat-target-required') {
             selected = null; notice = combatReasonText(pick.reason); render();
+            // 不可用时也弹出详情（再点同一颗收起），能看到效果与本回合是否已用。
+            const t = findTrait((x) => x.kind === 'active' && x.skillId === skillId);
+            if (t && shown !== t.id) showTraitTip((x) => x.id === t.id);
             return pick;
         }
-        if (selected === HERO_SKILL_SELECTION) {
-            if (pick.ok && nothingToClick(selectionView(HERO_SKILL_SELECTION))) return act(pick.action);
+        if (selected === sel) {
+            if (pick.ok && nothingToClick(selectionView(sel))) return act(pick.action);
             selected = null; render();
             return { ok: true, reason: 'combat-selection-cleared' };
         }
-        selected = HERO_SKILL_SELECTION; notice = ''; render();
+        selected = sel; notice = ''; render();
         return { ok: false, reason: 'combat-target-required', targets: pick.targets || [] };
     }
 
+    // 人物特性详情浮层：按圆球的 data-trait 找重绘后的节点，内容取当前视图（选中的主动特性重绘后由 render 重新弹出）。
+    function findTrait(pred) {
+        const st = session()?.state();
+        const view = st?.battle ? battleView(st.battle, st.legal) : null;
+        return (view?.traits || []).find(pred) || null;
+    }
+    function showTraitTip(pred) {
+        const t = findTrait(pred);
+        const anchor = t ? [...(root?.querySelectorAll?.('.igs-combat-trait') || [])].find((n) => n.getAttribute?.('data-trait') === t.id) : null;
+        if (!anchor) return false;
+        showScaleTip(anchor, traitTipHtml(t));
+        if (scaleTip) scaleTip.trait = t.id;
+        return true;
+    }
+
+    // 单位详情浮层（点头像，助手 10-28）：按头像的 data-unit-info 找重绘后的节点，内容取当前战斗状态（unitDetailView）；
+    // 单位此时可选为目标（头像整块是目标、不带 data-unit-info）或已不在场时不弹。
+    function showUnitTip(unitId) {
+        const battle = session()?.state()?.battle;
+        const detail = battle ? unitDetailView(battle, unitId) : null;
+        const anchor = detail ? [...(root?.querySelectorAll?.('[data-unit-info]') || [])].find((n) => n.getAttribute?.('data-unit-info') === unitId) : null;
+        if (!anchor) return false;
+        showScaleTip(anchor, unitTipHtml(detail), 'is-unit');
+        if (scaleTip) scaleTip.unit = unitId;
+        return true;
+    }
+    // 点头像弹出详情，再点同一头像收起；只看不动，演出锁与待选阶段都可点。
+    function toggleUnitTip(unitId) {
+        if (scaleTip?.unit === unitId) { hideScaleTip(); return { ok: true, reason: 'combat-unit-tip-closed' }; }
+        return showUnitTip(unitId) ? { ok: true, reason: 'combat-unit-tip-open' } : { ok: false, reason: 'combat-unit-missing' };
+    }
+
     // Esc：有选中的牌 / 技能时先撤销选中，返回 true；没有时返回 false，由宿主关闭面板。
-    // 道具：模板道具都不需要选敌方目标，点一次直接使用；不可用时用提示说明原因。
+    // 道具：不需要选目标或只剩一个可选目标时点一次直接使用；回复 / 格挡 / 净化有多名存活的己方单位、单体攻击有多名敌人时，
+    // 进入与出牌同一套选中态（selected 为 item:<itemId>），高亮可选单位，点单位使用；再点同一道具撤销。不可用时用提示说明原因。
     function useItem(itemId) {
         const pick = resolveItem(session().state().legal, itemId);
-        if (pick.ok) return act(pick.action);
+        if (pick.ok) { itemsOpen = false; return act(pick.action); }
+        const sel = itemSelection(itemId);
+        if (pick.reason === 'combat-target-required') {
+            if (selected === sel) { selected = null; render(); return { ok: true, reason: 'combat-selection-cleared' }; }
+            itemsOpen = false; selected = sel; notice = ''; render();
+            return pick;
+        }
         selected = null; notice = combatReasonText(pick.reason); render();
         return pick;
     }
 
+    // 道具按钮：点开 / 收起道具列表，只改界面状态，不派发引擎动作；没有道具时给出原因。
+    function toggleItems() {
+        const has = (session()?.state().battle?.items?.list || []).some((i) => i.count > 0);
+        if (!has) { itemsOpen = false; notice = combatReasonText('combat-items-empty'); render(); return { ok: false, reason: 'combat-items-empty' }; }
+        itemsOpen = !itemsOpen;
+        render();
+        return { ok: true, open: itemsOpen };
+    }
+
+    // 收起道具列表：移除列表节点并改类名，不整块重绘（随后的点击还要命中原节点）。
+    function closeItems() {
+        itemsOpen = false;
+        const box = root?.querySelector?.('.igs-combat-items');
+        box?.querySelector?.('.igs-combat-item-menu')?.remove?.();
+        if (box) box.className = 'igs-combat-items';
+        const btn = root?.querySelector?.('[data-combat-act="items"]');
+        if (btn) { btn.className = String(btn.className || '').replace(/\s*\bis-open\b/g, ''); btn.setAttribute?.('aria-expanded', 'false'); }
+    }
+
     function cancelSelection() {
         endDrag();
-        if (!root || !selected) return false;
-        selected = null;
+        if (root && itemsOpen) { itemsOpen = false; render(); return true; }
+        if (!root || (!selected && !chosen.length)) return false;
+        selected = null; chosen = [];
         render();
         return true;
     }
@@ -1325,15 +1367,24 @@ export function createCombatPanelController(doc, options = {}) {
         return prepare();
     }
 
+    // 待选阶段不派发的回合操作：点了只给出「先选完牌」。
+    const CHOICE_BLOCKED = new Set(['hero-skill', 'awaken', 'item', 'target', 'end-turn', 'escape']);
+
     function invoke(name, id = '') {
         if (name === 'close') return close();
         // 演出速度不受演出锁限制：演出进行中也能切换。
         if (name === 'speed') return root ? toggleSpeed() : { ok: false, reason: 'combat-panel-closed' };
         const s = session();
         if (!root || !s) return { ok: false, reason: root ? 'combat-session-unavailable' : 'combat-panel-closed' };
+        // 单位详情（点头像）只看不动，不受演出锁与待选阶段限制。
+        if (name === 'unit-info') return toggleUnitTip(id);
         if (autoGen >= 0 && autoGen === hitGen) return { ok: false, reason: 'combat-busy' };
         switch (name) {
             case 'retry-prepare': return retryPrepare();
+            default: break;
+        }
+        if (CHOICE_BLOCKED.has(name) && pendingChoice(s.state().battle)) { notice = combatReasonText('combat-choice-pending'); render(); return { ok: false, reason: 'combat-choice-pending' }; }
+        switch (name) {
             case 'pick':
                 if (!s.state().lobby?.controllable.includes(id)) return { ok: false, reason: 'combat-controlled-invalid' };
                 controlledId = id;
@@ -1354,11 +1405,13 @@ export function createCombatPanelController(doc, options = {}) {
                 return r;
             }
             case 'card': return pickCard(id);
-            case 'hero-skill': return pickHeroSkill();
+            case 'hero-skill': return pickHeroSkill(id || undefined);
             case 'awaken': return act({ type: 'awaken' });
+            case 'items': return toggleItems();
             case 'item': return useItem(id);
             case 'target': return pickTarget(id);
-            case 'cancel': selected = null; render(); return { ok: true };
+            case 'cancel': selected = null; chosen = []; render(); return { ok: true };
+            case 'choose-confirm': return confirmChoice();
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
             case 'finish': return runAsync('send', () => s.finish());
@@ -1388,12 +1441,16 @@ export function createCombatPanelController(doc, options = {}) {
             if (scaleTip?.anchor === tipAnchor) hideScaleTip(); else showScaleTip(tipAnchor);
             return;
         }
-        hideScaleTip();
+        // 点在头像详情浮层里（可滚动阅读）不收起；点特性圆球或头像时由它们自己切换详情（再点同一个收起），不先收起。
+        const inTip = scaleTip?.node && event.target?.closest?.('.igs-combat-scale-tip') === scaleTip.node;
+        if (inTip) return;
+        if (itemsOpen && !event.target?.closest?.('.igs-combat-items')) closeItems();
+        if (!event.target?.closest?.('[data-trait]') && !event.target?.closest?.('[data-unit-info]')) hideScaleTip();
         const control = event.target?.closest?.('[data-combat-act]');
         if (!control || !root?.contains?.(control)) return;
         event.preventDefault?.();
         // 不可用的牌与人物技能仍响应点击，用提示说明原因；其余禁用控件不响应。
-        if (control.getAttribute('aria-disabled') === 'true' && !['card', 'hero-skill', 'awaken', 'item'].includes(control.getAttribute('data-combat-act'))) return;
+        if (control.getAttribute('aria-disabled') === 'true' && !['card', 'hero-skill', 'awaken', 'items', 'item'].includes(control.getAttribute('data-combat-act'))) return;
         invoke(control.getAttribute('data-combat-act'), control.getAttribute('data-combat-id') || '');
     }
 
@@ -1402,23 +1459,41 @@ export function createCombatPanelController(doc, options = {}) {
     }
 
     // 炉石式拖牌：按住手牌拖过 DRAG_SLOP 后按点选流程选中这张牌，影子卡跟随指针；松在高亮的承受方上按点选同一条路径打出（影子卡从松手处飞出），松在别处撤销选中。
-    // 不可出的牌照常给出原因提示；点选、取消按钮与 Esc 不变，Esc 在拖动中同样撤销。
+    // 主动特性圆球同样可拖（助手 10-28）：拖过阈值按点选流程选中这项技能，影子圆球跟随指针，松在高亮的承受方上发动，不选目标的技能松在战场上也发动，松在别处撤销。
+    // 不可出的牌与不可用的技能照常给出原因提示；点选、取消按钮与 Esc 不变，Esc 在拖动中同样撤销。drag.sel 为对应的选中标记（牌为实例 ID，技能为 skillSelection）。
     const DRAG_SLOP = 8;
+    const DRAG_SOURCES = '.igs-combat-hand [data-combat-act="card"], .igs-combat-trait-ring [data-combat-act="hero-skill"]';
+    // 按 data-trait 找主动特性圆球（影子圆球去掉了交互属性，但保留 data-trait，只在 .igs-combat-trait-ring 里找）。
+    const orbEl = (traitId) => [...(root?.querySelectorAll?.('.igs-combat-trait-ring .igs-combat-trait') || [])].find((n) => n.getAttribute?.('data-trait') === traitId) || null;
+    const dragEl = (d) => (d.skill ? orbEl(d.trait) : cardEl(d.inst));
     function onPointerDown(event) {
         dragClickUntil = 0;
         if (drag || event.isPrimary === false || (event.button ?? 0) !== 0) return;
-        const el = event.target?.closest?.('.igs-combat-hand [data-combat-act="card"]');
+        const el = event.target?.closest?.(DRAG_SOURCES);
         if (!el || !root?.contains?.(el)) return;
-        drag = { id: event.pointerId, inst: el.getAttribute('data-combat-id') || '', x: event.clientX, y: event.clientY,
-            rect: el.getBoundingClientRect?.() || null, live: false, dead: false, ghost: null, k: 1, target: '' };
+        // 待选阶段不拖：点候选牌走点击切换已选。
+        const s = session();
+        if (s && pendingChoice(s.state().battle)) return;
+        const skill = el.getAttribute('data-combat-act') === 'hero-skill';
+        const id = el.getAttribute('data-combat-id') || '';
+        drag = { id: event.pointerId, skill, inst: skill ? '' : id, skillId: skill ? id : '', trait: skill ? el.getAttribute('data-trait') || '' : '',
+            sel: skill ? skillSelection(id || undefined) : id, x: event.clientX, y: event.clientY,
+            rect: el.getBoundingClientRect?.() || null, live: false, dead: false, ghost: null, k: 1, target: '', free: false, loose: false };
     }
 
     function liftCard(event) {
-        const inst = drag.inst;
-        if (selected !== inst) pickCard(inst);
-        if (selected !== inst) { drag.dead = true; return; }
+        const sel = drag.sel;
+        if (selected !== sel) {
+            if (drag.skill) pickHeroSkill(drag.skillId || undefined);
+            else pickCard(drag.inst);
+        }
+        if (selected !== sel) { drag.dead = true; return; }
         drag.live = true;
-        const el = cardEl(inst);
+        // 不选目标的牌 / 技能（没有可选目标）：牌拖出手牌区、技能拖到战场上松在空处也打出 / 发动。
+        drag.free = !selectionView(sel)?.targets?.length;
+        // 拖动中不弹选中技能的详情浮层（render 也不补弹），松手或撤销后照常。
+        if (drag.skill) hideScaleTip();
+        const el = dragEl(drag);
         const base = stage?.getBoundingClientRect?.();
         const ghost = el && base?.width && drag.rect?.width ? cloneCardGhost(el) : null;
         if (ghost) {
@@ -1446,6 +1521,16 @@ export function createCombatPanelController(doc, options = {}) {
         return unit && root?.contains?.(unit) ? unit.getAttribute('data-unit') || '' : '';
     }
 
+    // 不选目标的牌松在手牌区外的空处（不在承受方上）即打出；松回手牌区撤销。不选目标的技能松在战场（.igs-combat-field）上即发动。
+    // 量不到手牌区 / 战场时不算，宁可撤销也不误打出。
+    function looseDrop(d, event, target) {
+        if (!d?.free || target) return false;
+        const r = root?.querySelector?.(d.skill ? '.igs-combat-field' : '.igs-combat-hand')?.getBoundingClientRect?.();
+        if (!r?.width || !r?.height) return false;
+        const outside = event.clientX < r.left || event.clientX > r.left + r.width || event.clientY < r.top || event.clientY > r.top + r.height;
+        return d.skill ? !outside : outside;
+    }
+
     function onPointerMove(event) {
         if (!drag || drag.dead || event.pointerId !== drag.id) return;
         const dx = event.clientX - drag.x;
@@ -1459,7 +1544,8 @@ export function createCombatPanelController(doc, options = {}) {
         // 位移写独立的 translate 属性：它在 scale 之外生效，放大 / 瞄准缩小时影子卡中心仍贴着指针。
         drag.ghost?.style?.setProperty?.('translate', `${Math.round(dx / drag.k)}px ${Math.round(dy / drag.k)}px`);
         const target = dropTarget(event);
-        if (target !== drag.target) { drag.target = target; markDrag(); }
+        const loose = looseDrop(drag, event, target);
+        if (target !== drag.target || loose !== drag.loose) { drag.target = target; drag.loose = loose; markDrag(); }
     }
 
     function onPointerUp(event) {
@@ -1471,21 +1557,24 @@ export function createCombatPanelController(doc, options = {}) {
         if (!live.live) { drag = null; return; }
         event.preventDefault?.();
         const target = dropTarget(event);
+        const loose = looseDrop(live, event, target);
         const rect = live.ghost?.getBoundingClientRect?.() || null;
         endDrag();
-        if (selected !== live.inst) return;
-        if (!target) { cancelSelection(); return; }
-        dropFrom = rect?.width ? { inst: live.inst, rect } : null;
-        const r = pickTarget(target);
+        if (selected !== live.sel) return;
+        if (!target && !loose) { cancelSelection(); return; }
+        // 拖牌打出时影子卡从松手处飞出；技能不飞卡。
+        dropFrom = !live.skill && rect?.width ? { inst: live.inst, rect } : null;
+        // 空处松手：不选目标的牌 / 技能不带 targetId，按承受方任一个走点选同一路径。
+        const r = pickTarget(target || selectionView(live.sel)?.affects?.[0] || '');
         dropFrom = null;
-        if (!r.ok && selected === live.inst) cancelSelection();
+        if (!r.ok && selected === live.sel) cancelSelection();
     }
 
     function onPointerCancel(event) {
         if (!drag || event.pointerId !== drag.id) return;
-        const { live, inst } = drag;
+        const { live, sel } = drag;
         endDrag();
-        if (live && selected === inst) cancelSelection();
+        if (live && selected === sel) cancelSelection();
     }
 
     function endDrag() {
@@ -1500,32 +1589,50 @@ export function createCombatPanelController(doc, options = {}) {
         markDrag();
     }
 
-    // 重绘会换掉手牌与单位节点：拖动中每次重绘后补回原牌隐藏、目标悬停与影子卡瞄准标记；拖动结束时清掉。
+    // 重绘会换掉手牌、圆球与单位节点：拖动中每次重绘后补回原牌 / 原圆球隐藏、目标悬停与影子瞄准标记；拖动结束时清掉。
     function markDrag() {
         if (!root) return;
         for (const n of root.querySelectorAll?.('.is-lifted, .is-drop-hover') || []) { n.classList?.remove('is-lifted'); n.classList?.remove('is-drop-hover'); }
         const live = drag?.live ? drag : null;
-        live?.ghost?.classList?.toggle?.('is-armed', Boolean(live.target));
+        live?.ghost?.classList?.toggle?.('is-armed', Boolean(live?.target || live?.loose));
         if (!live) return;
-        cardEl(live.inst)?.classList?.add('is-lifted');
+        dragEl(live)?.classList?.add('is-lifted');
         if (live.target) unitEl(live.target)?.classList?.add('is-drop-hover');
     }
 
-    const dragListeners = [['pointerdown', onPointerDown], ['pointermove', onPointerMove], ['pointerup', onPointerUp], ['pointercancel', onPointerCancel]];
+    function setHover(inst) {
+        if (inst === hoverInst) return;
+        if (hoverInst) cardEl(hoverInst)?.classList?.remove?.('is-hover');
+        hoverInst = inst;
+    }
+    function onPointerOver(event) {
+        if (event.pointerType === 'touch') return;
+        const el = event.target?.closest?.('.igs-combat-hand [data-combat-act="card"]');
+        setHover(el && root?.contains?.(el) ? el.getAttribute('data-combat-id') || '' : '');
+    }
+    function onPointerOut(event) {
+        const to = event.relatedTarget;
+        if (!to || !root?.contains?.(to)) setHover('');
+    }
+
+    // 拖牌与手牌悬停的指针事件都挂在根节点。
+    const pointerListeners = [['pointerdown', onPointerDown], ['pointermove', onPointerMove], ['pointerup', onPointerUp], ['pointercancel', onPointerCancel],
+        ['pointerover', onPointerOver], ['pointerout', onPointerOut]];
 
     function hideScaleTip() {
         scaleTip?.node?.remove?.();
         scaleTip = null;
     }
 
-    // 详情水平对准数字中心并夹在面板内，上方放不下时放到数字下方；坐标按面板自身尺寸换算（宿主缩放不影响）；量不到时用样式里的保底位置。
-    function showScaleTip(anchor) {
+    // 详情水平对准数字中心并夹在面板内，上方放不下时放到数字下方；坐标按面板自身尺寸换算（宿主缩放不影响）；量不到时用样式里的保底位置。kind 为附加样式类（头像详情 is-unit）。
+    // 头像详情可能较高：上方放不下就放下方，两边都放不下时整块夹在面板内（data-free，--tip-y 为上沿），样式层限高可滚动。
+    function showScaleTip(anchor, html = '', kind = '') {
         hideScaleTip();
         if (!root || typeof doc.createElement !== 'function') return;
         const node = doc.createElement('div');
-        node.className = 'igs-combat-scale-tip';
+        node.className = html ? `igs-combat-scale-tip is-trait${kind ? ` ${kind}` : ''}` : 'igs-combat-scale-tip';
         node.setAttribute?.('role', 'tooltip');
-        node.textContent = anchor.getAttribute('data-scale-tip') || '';
+        if (html) node.innerHTML = html; else node.textContent = anchor.getAttribute('data-scale-tip') || '';
         root.appendChild(node);
         scaleTip = { node, anchor };
         const a = anchor.getBoundingClientRect?.();
@@ -1535,8 +1642,18 @@ export function createCombatPanelController(doc, options = {}) {
         const w = r.width / k;
         const half = (node.offsetWidth || 0) / 2;
         const x = Math.min(Math.max((a.left - r.left + a.width / 2) / k, half + 8), w - half - 8);
-        const below = (a.top - r.top) / k < (node.offsetHeight || 0) + 16;
         node.style?.setProperty?.('--tip-x', `${Math.round(x)}px`);
+        if (kind === 'is-unit') {
+            const hgt = node.offsetHeight || 0;
+            const total = r.height / k;
+            const above = (a.top - r.top) / k - hgt - 8;
+            const under = (a.bottom - r.top) / k + 8;
+            const top = above >= 8 ? above : under + hgt <= total - 8 ? under : Math.max(8, total - hgt - 8);
+            node.style?.setProperty?.('--tip-y', `${Math.round(top)}px`);
+            node.setAttribute('data-free', '');
+            return;
+        }
+        const below = (a.top - r.top) / k < (node.offsetHeight || 0) + 16;
         node.style?.setProperty?.('--tip-y', `${Math.round(((below ? a.bottom : a.top) - r.top) / k)}px`);
         if (below) node.setAttribute('data-below', '');
     }
@@ -1548,9 +1665,11 @@ export function createCombatPanelController(doc, options = {}) {
         const s = session();
         if (!s) return { ok: false, reason: 'combat-session-unavailable' };
         messageId = Number.isInteger(openOptions.messageId) ? openOptions.messageId : null;
-        notice = ''; pending = ''; selected = null; controlledId = null; rewards = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
+        notice = ''; pending = ''; selected = null; chosen = []; controlledId = null; rewards = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         token += 1;
         pageOverlay = overlay;
+        // 拼贴艺术字（招式名与「觉醒·类型」）按字切片：开面板时先请求固定的「觉醒·」，播特写时再按实际文字补请求。
+        preloadCutinFonts(doc, '觉醒·');
         previousFocus = doc.activeElement || null;
         root = doc.createElement('div');
         root.id = COMBAT_PANEL_ID;
@@ -1571,7 +1690,7 @@ export function createCombatPanelController(doc, options = {}) {
         // 战斗演出全程（战前、开战过场、战斗、结算）不拖动立绘、卡面等素材；框选文字由样式层禁止。
         root.addEventListener('dragstart', onDragStart);
         // 拖牌的指针事件挂在根节点：拖动中指针捕获到根节点，移出手牌区也能跟随。
-        for (const [type, fn] of dragListeners) root.addEventListener(type, fn);
+        for (const [type, fn] of pointerListeners) root.addEventListener(type, fn);
         offCardArt = typeof options.subscribeCardImages === 'function' ? options.subscribeCardImages(() => onCardArtUpdated()) : null;
         offSession = typeof s.subscribe === 'function' ? s.subscribe(onSessionChanged) : null;
         overlay.appendChild(root);
@@ -1601,19 +1720,20 @@ export function createCombatPanelController(doc, options = {}) {
         token += 1;
         stopDockWatch?.();
         stopDockWatch = null;
-        heroCtrlPos = null;
         try { abort?.abort(); } catch (error) { /* 已结束 */ }
         abort = null;
         clearCutins();
         endDrag();
         hideScaleTip();
         held.clear(); drawnLook.clear();
+        hoverInst = '';
+        itemsOpen = false;
         hitGen += 1;
         if (stage) cancelBattleFx(stage);
         if (speedWatch) { speedWatch.disconnect(); speedWatch = null; }
         root.removeEventListener?.('click', onClick);
         root.removeEventListener?.('dragstart', onDragStart);
-        for (const [type, fn] of dragListeners) root.removeEventListener?.(type, fn);
+        for (const [type, fn] of pointerListeners) root.removeEventListener?.(type, fn);
         try { if (typeof offCardArt === 'function') offCardArt(); } catch (error) { /* 宿主已卸载 */ }
         offCardArt = null;
         try { if (typeof offSession === 'function') offSession(); } catch (error) { /* 会话已丢弃 */ }
@@ -1631,7 +1751,7 @@ export function createCombatPanelController(doc, options = {}) {
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         battleMusic(pageOverlay, false);
         pageOverlay = null;
-        pending = ''; rewards = null; selected = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
+        pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();

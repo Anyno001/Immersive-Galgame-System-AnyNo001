@@ -1,4 +1,4 @@
-import { COMBAT_RULES, cardCopyLimit, expProgress, validateDeck } from './rules.js';
+import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, validateDeck } from './rules.js';
 import { hash32, hashString } from './random.js';
 import { ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities, isAsiLevel, levelCap, parseCombatInit, relLevel, relOffset } from './abilities.js';
 import { buildCardCatalog, effectsDamage, gearIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } from './schema.js';
@@ -7,7 +7,7 @@ import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportIdFor, reportIdOf } from './report.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
-import { TRAIT_SLOTS } from './traits.js';
+import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
 
 // 成长账本：只读归并 shujuku 两张战斗表，按锚点决定哪些条目当前生效；不修改表，写入只经注入的 tables。
 // chat 由调用方传入按 messageId 下标排列的消息快照 [{ mes, swipe_id, is_user, is_system }]，combat 不读宿主。
@@ -18,6 +18,8 @@ export const DECK_TAG_HASH = 'deck';
 export const REWARD_TAG_HASH = 'reward';
 // consume 条目由战报落楼后写入，锚定战报用户楼，同样不来自标签。
 export const CONSUME_TAG_HASH = 'consume';
+// wound 条目（持续伤势）同样由战报落楼后写入、锚定战报用户楼，不来自标签。
+export const WOUND_TAG_HASH = 'wound';
 // 构筑面板换装写的 equip / unequip 不来自标签，锚点 tagHash 固定为此值，只核对楼层与 swipe。
 export const GEAR_TAG_HASH = 'gear';
 // 背包卖出（杂物或未装备的装备）写的 sell 不来自标签，锚定卖出时的最新楼层，只核对楼层与 swipe。
@@ -30,7 +32,7 @@ export const ASCEND_TAG_HASH = 'ascend';
 export const TRAIT_TAG_HASH = 'trait';
 export const PANEL_TAG_HASH = 'panel';
 // offer 条目锚定开战楼（开战标签锚点），只核对楼层与 swipe：开战楼换 swipe 或删楼即作废。
-const TAGLESS_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick']);
+const TAGLESS_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound']);
 const ANCHORLESS_TYPES = new Set(['profile', 'revoke']);
 const CHARACTER_KINDS = new Set(['deck-character', 'skill-character']);
 
@@ -41,7 +43,7 @@ const isMessage = (m) => Boolean(m) && typeof m === 'object';
 // 归并顺序：楼层升序；同楼先记 EXP 再处理职业、技能、奖励与卡组（奖励要核对当时等级），再按 occurrence。
 // 装备与道具排在卡组之后：同楼先取得、再卸下，战报楼的消耗最后结算。
 // 战报楼的战利品排在奖励与卡组之前（同楼保存的卡组可以带上新卡）。
-const TYPE_RANK = Object.freeze({ exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17 });
+const TYPE_RANK = Object.freeze({ exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18, wound: 19, heal: 19 });
 // 构筑面板换装、背包卖出、重新生成基础卡组、转职、职业升阶及同楼在其后的卡组保存与奖励（tagHash = GEAR / SELL / REBUILD / RESPEC / ASCEND / PANEL）是用户在该楼之后的操作：
 // 同楼排在全部标签条目（含战利品）之后，彼此共用一个 occurrence 序列、按写入先后归并（同楼先卸下再卖出、先卖出再重新生成或转职、先升阶再领取追加卡才成立）。
 const PANEL_TAGS = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH]);
@@ -219,6 +221,8 @@ function anchorProblem(entry, floorOf) {
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
     // loot 只认胜利战报楼，且楼里战报块的 ID 与条目一致。
     if (entry.type === 'loot' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'loot-report-invalid';
+    // wound 只认战报楼（胜、败、撤退都算），且楼里战报块的 ID 与条目一致。
+    if (entry.type === 'wound' && floor.report?.reportId !== entry.payload.reportId) return 'wound-report-invalid';
     return null;
 }
 
@@ -238,8 +242,10 @@ function deckState(profile, classProfile) {
 function initCharacter(index, profile, diagnostics) {
     // gear：拥有的装备（含背包）与各部位当前装备；items：一次性道具余量；keepsakes：收藏的杂物（键为 loot 条目 ID）。卡组角色与技能角色都可持有。
     // points：积分余额，只有主角有收支。
-    // traits：装着的人物特性（最多 TRAIT_SLOTS 个）；pendingTrait：已满时抽到、尚未决定替换或放弃的特性；traitDraws：已生效的抽取次数。
-    const base = { id: profile.id, kind: profile.kind, name: profile.name, profile, exp: 0, gear: { owned: new Map(), slots: {} }, items: new Map(), keepsakes: new Map(), points: 0, traits: [], pendingTrait: null, traitDraws: 0 };
+    // traits：装着的抽到的人物特性；pendingTrait：装不下时抽到、尚未决定替换或放弃的特性；traitDraws：已生效的抽取次数。
+    // innateDropped：被玩家替换掉的固有特性种类（active 人物技能 / passive 个人被动，traits.js），永久不再出现；slotUnlocks：已解锁的额外特性槽数（trait-slot 条目）。
+    // wound：持续伤势，最近一场战后的生命 { hp, maxHp, down }（满血为 null），由 wound 条目写入、heal 条目恢复。
+    const base = { id: profile.id, kind: profile.kind, name: profile.name, profile, exp: 0, gear: { owned: new Map(), slots: {} }, items: new Map(), keepsakes: new Map(), points: 0, traits: [], pendingTrait: null, traitDraws: 0, innateDropped: [], slotUnlocks: 0, wound: null };
     if (profile.kind === 'skill-character') return { ...base, className: profile.className, skills: [...profile.skills], passives: profile.passives };
     const classProfile = resolveClass(index, profile.classRef);
     if (!classProfile) diagnostics.push({ code: 'combat-class-missing', id: profile.id, classRef: profile.classRef });
@@ -341,7 +347,9 @@ const HANDLERS = Object.freeze({
             c.gear.slots[owned.slot] = p.gearId;
             return null;
         }
-        c.gear.owned.set(p.gearId, { gearId: p.gearId, name: p.name, slot: p.slot, passive: p.passive, description: p.description });
+        // 带稀有度的装备（D7）可能没有被动，并带 rarity 与六维加成 bonus；旧装备记录形状不变。
+        c.gear.owned.set(p.gearId, { gearId: p.gearId, name: p.name, slot: p.slot, ...(p.passive ? { passive: p.passive } : {}), description: p.description,
+            ...(p.rarity ? { rarity: p.rarity } : {}), ...(p.bonus ? { bonus: p.bonus } : {}) });
         c.gear.slots[p.slot] = p.gearId;
         return null;
     },
@@ -360,6 +368,20 @@ const HANDLERS = Object.freeze({
         const cur = c.items.get(p.itemId);
         if (!cur || cur.count < p.count) return 'combat-item-insufficient';
         cur.count -= p.count;
+        return null;
+    },
+    // 持续伤势：wound 覆盖为最近一场的战后生命，满血且没倒下时清空；倒下记 0 点。
+    wound(c, p) {
+        c.wound = p.hp >= p.maxHp && !p.down ? null : { hp: p.down ? 0 : p.hp, maxHp: p.maxHp, down: p.down };
+        return null;
+    },
+    // 剧情回血：点数或按记录上限的百分比，乘写入时的难度倍率，至少 1 点；没有伤势时不起作用；回血后不再算倒下，回满时清空。
+    heal(c, p) {
+        const w = c.wound;
+        if (!w) return null;
+        const raw = p.mode === 'percent' ? Math.ceil((w.maxHp * p.amount) / 100) : p.amount;
+        const hp = Math.min(w.maxHp, w.hp + Math.max(1, Math.round((raw * p.scale) / 100)));
+        c.wound = hp >= w.maxHp ? null : { hp, maxHp: w.maxHp, down: false };
         return null;
     },
     // 升级奖励：只能领取已达到的等级，每级一次；新卡须在图鉴里，升级须有未升级的副本且卡有升级形态。
@@ -501,8 +523,8 @@ const HANDLERS = Object.freeze({
         c.points -= p.cost;
         return null;
     },
-    // 人物特性（P-d）：只主角（卡组角色），cost 须为 TRAIT_DRAW_COST、余额足够；有待定特性（已满时还没决定替换或放弃）时不能再抽。
-    // 未满 TRAIT_SLOTS 时直接装上，已满时成为待定，由 trait-pick 决定；被动受队友技能伤害上限约束。
+    // 人物特性（P-d）：只主角（卡组角色），cost 须为 TRAIT_DRAW_COST、余额足够；有待定特性（装不下时还没决定替换或放弃）时不能再抽。被动受队友技能伤害上限约束。
+    // v4 条目（带 kind）装得下（traitFits：有空槽且主动不超上限）时直接装上，否则待定，由 trait-pick 决定；旧条目（没有 kind）照旧只数抽到的特性，满 TRAIT_BASE_SLOTS 个才待定。
     trait(c, p, { heroId }) {
         if (c.kind !== 'deck-character') return 'combat-trait-kind-mismatch';
         if (heroId && c.id !== heroId) return 'combat-points-not-protagonist';
@@ -514,21 +536,41 @@ const HANDLERS = Object.freeze({
         const { cost, ...trait } = p;
         c.traitDraws += 1;
         c.points -= cost;
-        if (c.traits.length < TRAIT_SLOTS) c.traits = [...c.traits, trait];
+        if (p.kind ? traitFits(c, p.kind) : c.traits.length < TRAIT_BASE_SLOTS) c.traits = [...c.traits, trait];
         else c.pendingTrait = trait;
         return null;
     },
-    // 已满时的决定：drop 为被替换的已装特性（待定特性装上）或待定特性自己（放弃）；被 drop 的永久消失，积分不退。
+    // 装不下时的决定：drop 为被替换的已装特性（待定特性装上）、保留着的固有特性（人物技能或个人被动的 ID，记入 innateDropped）或待定特性自己（放弃）；被 drop 的永久消失，积分不退。
+    // 替换不能让其他保留着的固有特性暂停，主动特性不能超过 TRAIT_ACTIVE_MAX，否则拒收（combat-trait-pick-blocked）。
     'trait-pick'(c, p, { heroId }) {
         if (heroId && c.id !== heroId) return 'combat-points-not-protagonist';
         const pending = c.pendingTrait;
         if (!pending || pending.traitId !== p.traitId) return 'combat-trait-pick-invalid';
         if (p.drop !== pending.traitId) {
-            const at = c.traits.findIndex((t) => t.traitId === p.drop);
-            if (at < 0) return 'combat-trait-pick-invalid';
-            c.traits = c.traits.map((t, i) => (i === at ? pending : t));
+            const next = traitSwap(c, pending, p.drop);
+            if (!next) return 'combat-trait-pick-invalid';
+            if (next.blocked) return 'combat-trait-pick-blocked';
+            c.traits = next.traits;
+            c.innateDropped = next.innateDropped;
         }
         c.pendingTrait = null;
+        return null;
+    },
+    // 解锁特性槽（v4，助手 10-28）：只主角，slot 须为下一个可解锁的槽（nextTraitSlot）、cost 须为该槽价格、余额足够；永久生效，随楼层回退。
+    // 暂停的固有特性随之按序回来；之后仍装得下待定特性时，待定特性直接装上。
+    'trait-slot'(c, p, { heroId }) {
+        if (c.kind !== 'deck-character') return 'combat-trait-slot-kind-mismatch';
+        if (heroId && c.id !== heroId) return 'combat-points-not-protagonist';
+        const next = nextTraitSlot(c);
+        if (!next || p.slot !== next.slot) return 'combat-trait-slot-invalid';
+        if (p.cost !== next.cost) return 'combat-trait-slot-cost-invalid';
+        if (c.points < p.cost) return 'combat-points-insufficient';
+        c.points -= p.cost;
+        c.slotUnlocks += 1;
+        if (c.pendingTrait && traitFits(c, c.pendingTrait.kind)) {
+            c.traits = [...c.traits, c.pendingTrait];
+            c.pendingTrait = null;
+        }
         return null;
     },
 });
@@ -550,12 +592,15 @@ function characterView(c, opts = {}) {
         bag: [...c.gear.owned.values()].filter((g) => !equipped.has(g.gearId)),
     };
     const items = [...c.items.values()].filter((i) => i.count > 0).map((i) => ({ ...i }));
-    const attributes = attributeView({ key: c.id, name: c.name, protagonist: c.id === opts.heroId, exp: c.exp, archetype: c.classProfile?.archetype, className: c.classProfile?.className ?? c.className ?? '' }, opts.actx || EMPTY_ATTR_CTX);
+    // 装着的装备六维加成（D7）计入属性视图：检定、卡牌属性换算与开战快照都读这里；卸下即不再计入。
+    const gearBonuses = Object.values(gear.slots).map((g) => g?.bonus).filter(Boolean);
+    const attributes = attributeView({ key: c.id, name: c.name, protagonist: c.id === opts.heroId, exp: c.exp, archetype: c.classProfile?.archetype, className: c.classProfile?.className ?? c.className ?? '', gearBonuses }, opts.actx || EMPTY_ATTR_CTX);
     // collection：收藏的杂物 { lootId, name, origin, rarity }；points：积分余额（只主角有收支）。
     const collection = [...c.keepsakes.values()].map((k) => ({ ...k }));
-    // traits / pendingTrait：装着的与待定的人物特性（拷贝）；traitDraws：已生效的抽取次数（稀有度种子用）。
+    // traits / pendingTrait：装着的与待定的人物特性（拷贝）；traitDraws：已生效的抽取次数（稀有度种子用）；slotUnlocks：已解锁的额外特性槽数。
+    // wound：持续伤势（拷贝），没有伤势时为 null。
     const traits = c.traits.map((t) => ({ ...t }));
-    const base = { id: c.id, kind: c.kind, name: c.name, profile: c.profile, exp: c.exp, level: progress.level, into: progress.into, next: progress.next, gear, items, attributes, collection, points: c.points, traits, pendingTrait: c.pendingTrait ? { ...c.pendingTrait } : null, traitDraws: c.traitDraws };
+    const base = { id: c.id, kind: c.kind, name: c.name, profile: c.profile, exp: c.exp, level: progress.level, into: progress.into, next: progress.next, gear, items, attributes, collection, points: c.points, traits, pendingTrait: c.pendingTrait ? { ...c.pendingTrait } : null, traitDraws: c.traitDraws, innateDropped: [...c.innateDropped], slotUnlocks: c.slotUnlocks, wound: c.wound ? { ...c.wound } : null };
     if (c.kind === 'skill-character') return { ...base, className: c.className, skills: c.skills, passives: c.passives };
     const left = new Map(c.upgraded);
     const deckEntries = c.deck.map((cardId) => {
@@ -642,7 +687,7 @@ const EMPTY_ATTR_CTX = Object.freeze({ fold: new Map(), heroLevel: 1, table: 'mi
 
 // 角色属性视图：有 init 时取其职业名、定位与倾向；缺 init 时定位取职业原型或按名字散列，倾向用默认。
 // 主角等级由 EXP 决定；非主角取最近一条有效 rel（档位生效楼的主角等级 + 偏移），从未打档按「相当」跟随主角当前等级。
-function attributeView({ key, name, protagonist, exp = 0, archetype, className = '' }, ctx) {
+function attributeView({ key, name, protagonist, exp = 0, archetype, className = '', gearBonuses = [] }, ctx) {
     const f = ctx.fold.get(key) || emptyFold();
     const init = f.init;
     const role = init?.role ?? fallbackRole(name, archetype);
@@ -653,7 +698,8 @@ function attributeView({ key, name, protagonist, exp = 0, archetype, className =
         : rel ? clampInt(rel.anchorLevel + rel.offset, 1, levelCap(false))
             : relLevel({ name, tier: DEFAULT_REL_TIER, anchorLevel: ctx.heroLevel });
     const allocations = f.alloc.flatMap(r => r.payload.picks || [r.payload]);
-    const adjustments = [...pointsOf(f.story), ...pointsOf(f.reward), ...allocations];
+    // 装备加成与其他调整同样受属性上限约束（abilities.js）。
+    const adjustments = [...pointsOf(f.story), ...pointsOf(f.reward), ...allocations, ...gearBonuses];
     const derived = deriveAbilities({ prefs, name, level, protagonist: Boolean(protagonist), tier: tier ?? DEFAULT_REL_TIER, adjustments });
     const spent = allocations.reduce((sum, pick) => sum + pick.amount, 0);
     const balance = protagonist ? Math.max(0, asiCountAt(level, true) * ASI_POINTS + freeOf(f.story) + freeOf(f.reward) - spent) : 0;
@@ -697,6 +743,8 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     const seen = new Set();
     const offers = new Map();
     const loots = new Map();
+    // 最近一场战斗的我方成员：最后一批生效的 wound 条目（同一战报楼）的角色，按写入顺序；正文注入主角团状态用（计划 5.8）。
+    let lastParty = null;
     // 主角按 userName 识别：成长演出标记属性提升等级，属性视图据此区分主角。
     const userName = options.userName || '';
     const heroId = userName ? resolveCharacterId(index, userName, userName) : null;
@@ -736,6 +784,10 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         else {
             applied.push(e.id);
             if (GROWTH_FX_TYPES.has(e.type)) growth.push(growthEvent(e, c, levelBefore, index, heroId));
+            if (e.type === 'wound') {
+                if (lastParty?.messageId !== e.anchor.messageId) lastParty = { messageId: e.anchor.messageId, reportId: e.payload.reportId, ids: [] };
+                if (!lastParty.ids.includes(owner)) lastParty.ids.push(owner);
+            }
         }
     }
     // 属性：主角按 userName 识别；属性表缺失时按默认推导（table: 'missing'），不阻断。
@@ -744,7 +796,8 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     const actx = { fold: folded.fold, heroLevel: hero ? expProgress(hero.exp).level : 1, table: snapshot.attributeTable || 'missing' };
     const characters = new Map([...state].map(([id, c]) => [id, characterView(c, { heroId, actx })]));
     const attributes = { table: actx.table, heroId, heroLevel: actx.heroLevel, fold: folded.fold, inactive: folded.inactive };
-    return { ok: true, characters, classes: index.classes, enemies: index.enemies, unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots };
+    // profileMeta：档案 ID → { version 档案表当前最高版本（日志里的 profile 条目为 -1）, createdAt 登记时间 }，供补技能写新版本档案时沿用登记时间（名字归属按登记先后）。
+    return { ok: true, characters, classes: index.classes, enemies: index.enemies, profileMeta: new Map([...snapshot.profiles].map(([id, r]) => [id, { version: r.version, createdAt: r.createdAt }])), unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty };
 }
 
 // 成长演出只读的事件：已生效的标签类成长条目，带接手角色、楼层锚点与条目生效前后的等级。
@@ -848,6 +901,8 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
     const index = indexProfiles(snapshot.profiles, []);
     const ids = Array.isArray(options.messageIds) ? options.messageIds : list.map((_, i) => i);
     const now = Number.isInteger(options.now) ? options.now : 0;
+    // 剧情回血倍率按扫描时的难度记进条目（百分比），之后改难度不影响已记的回血。
+    const healScale = Math.min(100, Math.max(1, Math.round(100 * (Number(options.healScale) || 1))));
     const entries = [];
     const pendingGeneration = [];
     const diagnostics = [];
@@ -893,6 +948,15 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
                 if (known(['unequip'], d.character, anchor)) continue;
                 const character = characterKeyFor(index, d.character, userName);
                 entries.push({ id: ledgerEntryId('unequip', character, anchor), type: 'unequip', character, anchor, payload: { gearId: gearIdFor(d.name) }, createdAt: now });
+            } else if (d.kind === 'heal') {
+                // 战报续写段不回血；出现时只记诊断。
+                if (report) {
+                    diagnostics.push({ code: 'combat-heal-tag-in-report', messageId, character: d.character });
+                    continue;
+                }
+                if (known(['heal'], d.character, anchor)) continue;
+                const character = characterKeyFor(index, d.character, userName);
+                entries.push({ id: ledgerEntryId('heal', character, anchor), type: 'heal', character, anchor, payload: { amount: d.amount, mode: d.mode, scale: healScale, reason: d.reason }, createdAt: now });
             } else if (GENERATED_KINDS.has(d.kind)) {
                 // upgrade 找不到对应项时可能按 learn 入库，两种 ID 都算已处理。
                 if (known(d.kind === 'upgrade' ? ['upgrade', 'learn'] : [d.kind], d.character, anchor)) continue;
@@ -986,7 +1050,8 @@ export function buildGearEntry(snapshot, chat, view, gearId, equip, now = 0) {
     const occurrence = panelOccurrence(snapshot, view.id, messageId, swipeId);
     const anchor = { messageId, swipeId, tagHash: GEAR_TAG_HASH, occurrence };
     const type = equip ? 'equip' : 'unequip';
-    const payload = equip ? { gearId, name: bag.name, slot: bag.slot, passive: bag.passive, description: bag.description || '' } : { gearId };
+    const payload = equip ? { gearId, name: bag.name, slot: bag.slot, ...(bag.passive ? { passive: bag.passive } : {}), description: bag.description || '',
+        ...(bag.bonus ? { rarity: bag.rarity, bonus: bag.bonus } : {}) } : { gearId };
     const n = normalizeLedgerEntry({ id: ledgerEntryId(type, view.id, anchor), type, character: view.id, anchor, payload, createdAt: now });
     return n.ok ? { ok: true, entry: n.value } : { ok: false, reason: 'combat-entry-invalid', errors: n.errors };
 }
@@ -1024,8 +1089,8 @@ export function buildSellEntry(snapshot, chat, state, target, now = 0) {
 
 // 主角付费面板操作（重新生成 rebuild / 转职 respec / 职业升阶 ascend）的条目：锚点取当前最新楼层，tagHash 为该类型的面板标记，与换装、卖出共用 occurrence 序列；
 // 只主角（卡组角色），余额须够载荷里的 cost。载荷整份写入，合规性由归并核对。
-// 抽人物特性 trait 与已满时的决定 trait-pick 同走此口；trait-pick 没有 cost。
-const HERO_PANEL_TAGS = Object.freeze({ rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH });
+// 抽人物特性 trait、装不下时的决定 trait-pick 与解锁特性槽 trait-slot 同走此口；trait-pick 没有 cost。
+const HERO_PANEL_TAGS = Object.freeze({ rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH, 'trait-slot': TRAIT_TAG_HASH });
 export function buildHeroPanelEntry(snapshot, chat, state, characterId, type, payload, now = 0) {
     if (!snapshot || snapshot.ok !== true) return { ok: false, reason: snapshot?.reason || 'combat-ledger-read-failed' };
     if (!Object.hasOwn(HERO_PANEL_TAGS, type)) return { ok: false, reason: 'combat-entry-invalid' };
@@ -1044,10 +1109,12 @@ export function buildHeroPanelEntry(snapshot, chat, state, characterId, type, pa
 }
 
 // 每次调用都重读表与聊天，不缓存；读失败一律 ok:false，不当作空账本。
-export function createCombatLedger({ tables, chat, userName = '', sourceFilter, now = () => Date.now() } = {}) {
+// difficulty：当前难度键（值或函数），只用于扫描时给剧情回血条目记下难度倍率。
+export function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficulty, now = () => Date.now() } = {}) {
     const chatOf = () => (typeof chat === 'function' ? chat() : chat) || [];
     const userOf = () => (typeof userName === 'function' ? userName() : userName);
     const filterOf = () => (typeof sourceFilter === 'function' ? sourceFilter() : sourceFilter);
+    const healScaleOf = () => difficultyRule(typeof difficulty === 'function' ? difficulty() : difficulty).healScale;
 
     async function read() {
         try {
@@ -1079,7 +1146,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     async function scan({ messageIds } = {}) {
         const snapshot = await read();
         if (!snapshot.ok) return snapshot;
-        const found = scanGrowthTags(snapshot, chatOf(), { userName: userOf(), sourceFilter: filterOf(), messageIds, now: now() });
+        const found = scanGrowthTags(snapshot, chatOf(), { userName: userOf(), sourceFilter: filterOf(), messageIds, now: now(), healScale: healScaleOf() });
         const write = found.entries.length ? await append(found.entries) : null;
         // 属性表缺失时属性记录不写、不判失败（建表后补扫入库）。
         let attributeWrite = null;
@@ -1247,14 +1314,20 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         if (!rule) return Promise.resolve({ ok: false, reason: 'combat-ascend-tier-invalid' });
         return writeHeroPanel(characterId, 'ascend', { classRef, tier, tierName, cards, cost: rule.cost });
     }
-    // 人物特性（P-d）：trait 为生成好的 { traitId, name, origin, rarity, passive, link? }，扣 TRAIT_DRAW_COST；已满时新特性待定，再用 pickTrait 决定 drop。
+    // 人物特性（P-d）：trait 为生成好的 { traitId, name, origin, rarity, kind?, passive | skill, link? }，扣 TRAIT_DRAW_COST；已满时新特性待定，再用 pickTrait 决定 drop。
     function drawTrait(characterId, trait = {}) {
-        const { traitId, name, origin = '', rarity, passive, link } = trait;
-        return writeHeroPanel(characterId, 'trait', { traitId, name, origin, rarity, passive, ...(link ? { link } : {}), cost: TRAIT_DRAW_COST });
+        const { traitId, name, origin = '', rarity, kind, passive, skill, link } = trait;
+        return writeHeroPanel(characterId, 'trait', { traitId, name, origin, rarity, ...(kind ? { kind } : {}), passive, ...(skill ? { skill } : {}), ...(link ? { link } : {}), cost: TRAIT_DRAW_COST });
     }
     // 已满时的决定：drop 为被替换的已装特性 ID（新特性装上）或新特性自己的 ID（放弃）；被 drop 的永久消失，积分不退。
     const pickTrait = (characterId, traitId, drop) => writeHeroPanel(characterId, 'trait-pick', { traitId, drop });
+    // 解锁特性槽（v4）：slot 为下一个可解锁的槽（traits.js 的 nextTraitSlot），扣 TRAIT_SLOT_COSTS[slot]；没有价格的槽直接拒绝、不读表。
+    function unlockTraitSlot(characterId, slot) {
+        const cost = TRAIT_SLOT_COSTS[slot];
+        if (!cost) return Promise.resolve({ ok: false, reason: 'combat-trait-slot-invalid' });
+        return writeHeroPanel(characterId, 'trait-slot', { slot, cost });
+    }
 
-    return { read, effectiveState, append, appendAttributes, scan, saveDeck, claimReward, setGear, allocate, writeInit, sellKeepsake, sellGear, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait };
+    return { read, effectiveState, append, appendAttributes, scan, saveDeck, claimReward, setGear, allocate, writeInit, sellKeepsake, sellGear, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot };
 }
 

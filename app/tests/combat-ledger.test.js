@@ -491,6 +491,33 @@ test('装备与道具：equip / item 进待生成队列，unequip 直接落账�
     assert.deepEqual([hero(s).gear.slots.weapon.name, hero(s).gear.bag.length, hero(s).items.map((i) => i.count)], ['青锋剑', 0, [2]]);
     assert.ok(codes(s).includes('combat-gear-missing'));
 });
+test('带稀有度装备（D7）：没有被动也能入账；装着时六维加成计入属性视图（受上限约束），面板卸下即撤回、装回恢复且载荷带 rarity 与 bonus', async () => {
+    const { scanCombatTags } = await import('../src/scene/combat-directives.js');
+    const { gearIdFor, ledgerEntryId } = await import('../src/combat/schema.js');
+    const floor0 = '得到铜戒。[igs-combat:equip|我|铜戒|饰品|温润|罕见]';
+    const { ledger } = setup(undefined, [ai(floor0), ai('之后的楼层。')]);
+    const before = hero(await ledger.effectiveState()).attributes;
+    const [t0] = scanCombatTags(floor0);
+    const anchor = { messageId: 0, swipeId: 0, tagHash: t0.tagHash, occurrence: t0.occurrence };
+    const gearId = gearIdFor('铜戒');
+    const payload = { gearId, name: '铜戒', slot: 'accessory', description: '温润', rarity: 'uncommon', bonus: { ability: 'con', amount: 2 } };
+    const w = await ledger.append([{ id: ledgerEntryId('equip', 'pc-hero', anchor), type: 'equip', character: 'pc-hero', anchor, payload, createdAt: 7 }]);
+    assert.equal(w.ok, true, JSON.stringify(w.rejected));
+    const want = Math.min(before.cap, before.scores.con + 2);
+    let s = await ledger.effectiveState();
+    assert.deepEqual([hero(s).gear.slots.accessory?.name, hero(s).gear.slots.accessory?.passive, hero(s).attributes.scores.con], ['铜戒', undefined, want]);
+    assert.equal(hero(s).attributes.scores.str, before.scores.str);
+    const off = await ledger.setGear('pc-hero', gearId, false);
+    assert.equal(off.ok, true, JSON.stringify(off));
+    s = await ledger.effectiveState();
+    assert.equal(hero(s).attributes.scores.con, before.scores.con);
+    const on = await ledger.setGear('pc-hero', gearId, true);
+    assert.equal(on.ok, true, JSON.stringify(on));
+    assert.deepEqual([on.entry.payload.rarity, on.entry.payload.bonus, Object.hasOwn(on.entry.payload, 'passive')], ['uncommon', { ability: 'con', amount: 2 }, false]);
+    s = await ledger.effectiveState();
+    assert.equal(hero(s).attributes.scores.con, want);
+});
+
 
 test('构筑面板换装不重建装备：来源标签楼换 swipe 后，后续面板 equip 不复活装备并记 combat-gear-missing；切回恢复', async () => {
     const { scanCombatTags } = await import('../src/scene/combat-directives.js');
@@ -997,4 +1024,109 @@ test('traits：稀有度按主角 ID 与已生效抽取次数确定、分布贴�
     const p = { id: 'x-p' };
     assert.deepEqual(traitPassives({ traits: [{ passive: p }, {}], pendingTrait: { passive: { id: 'y-p' } } }), [p]);
     assert.deepEqual(traitPassives({}), []);
+});
+
+// v4 特性夹具：主动为 1 费伤害技能，被动沿用 traitOf 并带 kind。
+const activeOf = (traitId) => ({ traitId, name: `技${traitId}`, origin: '自幼习武', rarity: 'rare', kind: 'active',
+    skill: { id: `${traitId}-s`, name: `技${traitId}`, cost: 1, effects: [{ op: 'damage', amount: 6 }], description: '造成伤害' } });
+const passiveOf = (traitId) => traitOf(traitId, { kind: 'passive' });
+
+test('trait-slot：固有人物技能与个人被动占满基础 2 槽，新主动待定且只能替换主动；第 3 槽按顺序花 500 解锁、待定特性随之装上；待定被动可替换主动或固有被动；抽取楼换 swipe 时槽位与特性全部回退', async () => {
+    const { combats, chat, profiles } = classGrowthFixture();
+    const { ref, ledger, tables } = setup(profiles, chat);
+    for (const c of combats) await ledger.append(c.offer);
+    await ledger.scan();
+    for (const e of tables.ledger.filter((x) => x.type === 'loot')) assert.equal((await ledger.sellKeepsake(e.id)).ok, true);
+    ref.chat = [...ref.chat, ai('又过了一天。')];
+    const points0 = hero(await ledger.effectiveState()).points;
+    assert.ok(points0 >= 1000, String(points0));
+    const ids = (s) => hero(s).traits.map((t) => t.traitId);
+
+    assert.equal((await ledger.drawTrait('pc-hero', activeOf('a1'))).ok, true);
+    let s = await ledger.effectiveState();
+    assert.deepEqual([ids(s), hero(s).pendingTrait?.traitId, hero(s).slotUnlocks], [[], 'a1', 0]);
+    const count = tables.ledger.length;
+    assert.equal((await ledger.pickTrait('pc-hero', 'a1', 'pp-pc-hero')).reason, 'combat-trait-pick-blocked');
+    assert.equal(tables.ledger.length, count);
+    assert.equal((await ledger.pickTrait('pc-hero', 'a1', 'pc-hero-h0')).ok, true);
+    s = await ledger.effectiveState();
+    assert.deepEqual([ids(s), hero(s).pendingTrait, hero(s).innateDropped], [['a1'], null, ['active']]);
+
+    assert.equal((await ledger.drawTrait('pc-hero', passiveOf('p1'))).ok, true);
+    assert.equal(hero(await ledger.effectiveState()).pendingTrait?.traitId, 'p1');
+    for (const n of [2, 4, 6]) assert.equal((await ledger.unlockTraitSlot('pc-hero', n)).reason, 'combat-trait-slot-invalid');
+    assert.equal((await ledger.unlockTraitSlot('nobody', 3)).reason, 'combat-points-not-protagonist');
+    assert.equal(tables.ledger.length, count + 2);
+    const slot = await ledger.unlockTraitSlot('pc-hero', 3);
+    assert.deepEqual([slot.ok, slot.cost, slot.entry.type, slot.entry.anchor.tagHash, slot.entry.payload], [true, 500, 'trait-slot', 'trait', { slot: 3, cost: 500 }]);
+    s = await ledger.effectiveState();
+    assert.deepEqual([ids(s), hero(s).pendingTrait, hero(s).slotUnlocks, hero(s).points], [['a1', 'p1'], null, 1, points0 - 700]);
+    assert.equal((await ledger.unlockTraitSlot('pc-hero', 3)).reason, 'combat-trait-slot-invalid');
+
+    assert.equal((await ledger.drawTrait('pc-hero', activeOf('a2'))).ok, true);
+    assert.equal((await ledger.pickTrait('pc-hero', 'a2', 'p1')).reason, 'combat-trait-pick-blocked');
+    assert.equal((await ledger.pickTrait('pc-hero', 'a2', 'pp-pc-hero')).reason, 'combat-trait-pick-blocked');
+    assert.equal((await ledger.pickTrait('pc-hero', 'a2', 'pc-hero-h0')).reason, 'combat-trait-pick-invalid');
+    assert.equal((await ledger.pickTrait('pc-hero', 'a2', 'a1')).ok, true);
+    assert.equal((await ledger.drawTrait('pc-hero', passiveOf('p2'))).ok, true);
+    assert.equal((await ledger.pickTrait('pc-hero', 'p2', 'a2')).ok, true);
+    assert.equal((await ledger.drawTrait('pc-hero', passiveOf('p3'))).ok, true);
+    assert.equal((await ledger.pickTrait('pc-hero', 'p3', 'pp-pc-hero')).ok, true);
+    s = await ledger.effectiveState();
+    assert.deepEqual([ids(s), hero(s).pendingTrait, hero(s).innateDropped, hero(s).traitDraws, hero(s).points],
+        [['p2', 'p1', 'p3'], null, ['active', 'passive'], 5, points0 - 1000]);
+
+    ref.chat = [...ref.chat.slice(0, -1), ai('又过了一天。', 1)];
+    s = await ledger.effectiveState();
+    assert.deepEqual([ids(s), hero(s).pendingTrait, hero(s).slotUnlocks, hero(s).innateDropped, hero(s).points], [[], null, 0, [], points0]);
+});
+
+
+test('持续伤势：wound 记最近一场战后生命（战报 ID 不符不生效，满血清空，倒下记 0）；heal 按点数或上限百分比恢复，乘写入时的难度倍率，没有伤势时不起作用；战报续写段的 heal 只记诊断', async () => {
+    const { WOUND_TAG_HASH } = await import('../src/combat/ledger.js');
+    const report = (id, extra = '') => `<igs-combat-report id="${id}" result="lose">战报${extra}</igs-combat-report>`;
+    const build = (difficulty, reportText) => {
+        const tables = memoryTables(baseProfiles());
+        const ref = { chat: [user('出发'), ai('遇敌。'), user(reportText)] };
+        const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '主角', now: () => 7, difficulty });
+        const wound = (payload, occurrence = 0) => {
+            const anchor = { messageId: 2, swipeId: 0, tagHash: WOUND_TAG_HASH, occurrence };
+            return { id: ledgerEntryId('wound', 'pc-hero', anchor), type: 'wound', character: 'pc-hero', anchor, payload, createdAt: 7 };
+        };
+        const woundOf = async () => (await ledger.effectiveState()).characters.get('pc-hero').wound;
+        return { tables, ref, ledger, wound, woundOf };
+    };
+
+    const a = build('normal', report('r1'));
+    assert.equal((await a.ledger.append([a.wound({ hp: 30, maxHp: 80, down: false, reportId: 'r1' }), a.wound({ hp: 5, maxHp: 80, down: false, reportId: 'r9' }, 1)])).ok, true);
+    const s = await a.ledger.effectiveState();
+    assert.deepEqual(s.characters.get('pc-hero').wound, { hp: 30, maxHp: 80, down: false });
+    assert.ok(s.inactive.some((x) => x.reason === 'wound-report-invalid'));
+    a.ref.chat.push(ai('他们在营地休整。[igs-combat:heal|我|20|包扎]'));
+    await a.ledger.scan();
+    assert.deepEqual(a.tables.ledger.filter((e) => e.type === 'heal').map((e) => [e.payload.amount, e.payload.mode, e.payload.scale]), [[20, 'flat', 100]]);
+    assert.deepEqual(await a.woundOf(), { hp: 50, maxHp: 80, down: false });
+    a.ref.chat.push(ai('服下灵药。[igs-combat:heal|我|50%|灵药]'));
+    await a.ledger.scan();
+    assert.equal(await a.woundOf(), null);
+    a.ref.chat.push(ai('又歇了一夜。[igs-combat:heal|我|10]'));
+    await a.ledger.scan();
+    assert.equal(await a.woundOf(), null);
+    // 50% 那一楼换 swipe：该次回血回退，其余两次照常（30 + 20 + 10）。
+    a.ref.chat[4] = ai('另一个版本。', 1);
+    assert.deepEqual(await a.woundOf(), { hp: 60, maxHp: 80, down: false });
+
+    const b = build('nightmare', report('r2', '[igs-combat:heal|我|20]'));
+    await b.ledger.append([b.wound({ hp: 0, maxHp: 80, down: true, reportId: 'r2' })]);
+    assert.deepEqual(await b.woundOf(), { hp: 0, maxHp: 80, down: true });
+    const inReport = await b.ledger.scan();
+    assert.ok(inReport.diagnostics.some((d) => d.code === 'combat-heal-tag-in-report'));
+    b.ref.chat.push(ai('包扎伤口。[igs-combat:heal|我|20]'));
+    await b.ledger.scan();
+    assert.deepEqual(b.tables.ledger.filter((e) => e.type === 'heal').map((e) => e.payload.scale), [50]);
+    assert.deepEqual(await b.woundOf(), { hp: 10, maxHp: 80, down: false });
+
+    const c = build('normal', report('r3'));
+    await c.ledger.append([c.wound({ hp: 80, maxHp: 80, down: false, reportId: 'r3' })]);
+    assert.equal(await c.woundOf(), null);
 });

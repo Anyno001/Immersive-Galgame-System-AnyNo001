@@ -83,13 +83,13 @@ import { createAlphaMatte } from '../media/alpha-matte.js';
 import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from '../scene/prompt-rule-content.js';
 import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
-import { combatExpansionEnabled, resolveCombatNarrationSegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
+import { combatExpansionEnabled, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { createCombatServices } from './combat-services.js';
 import { createCombatChatRecord } from '../host/combat-chat-record.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.50';
+const IGS_VERSION = '0.38.0';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -488,6 +488,7 @@ export function bootstrapIGS(options = {}) {
         ascendCombatClass: (opts) => combatServices.ascendClass(opts),
         drawCombatTrait: (opts) => combatServices.drawTrait(opts),
         pickCombatTrait: (opts) => combatServices.pickTrait(opts),
+        unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
 
         setCombatAllyTier: (id, tier) => combatServices.setAllyTier(id, tier),
         getCombatGrowth: () => combatServices.getGrowth(),
@@ -1001,7 +1002,13 @@ export function bootstrapIGS(options = {}) {
         let checkInput = null;
         try { checkInput = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(generationType) : null; } catch (error) { checkInput = null; }
         const checkRolls = checkInput ? resolveCheckRollsSegment(readerSettings, checkInput) : null;
-        const combatSegments = [combatNarration, checkRolls].filter(Boolean);
+        // 主角团状态（计划 5.8）：读成长缓存，读不到时不注入（服务层记诊断）；战报续写时状态尚未刷新，不注入。
+        let partyInput = null;
+        if (!combatNarration) {
+            try { partyInput = typeof combatServices.partyPromptInput === 'function' ? combatServices.partyPromptInput(generationType) : null; } catch (error) { partyInput = null; }
+        }
+        const combatParty = partyInput ? resolveCombatPartySegment(readerSettings, partyInput) : null;
+        const combatSegments = [combatNarration, combatParty, checkRolls].filter(Boolean);
         if (sceneAssets && sceneAssets.promptAdaptive === false) {
             return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatSegments });
         }

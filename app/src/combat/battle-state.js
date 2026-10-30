@@ -32,16 +32,22 @@ export function cardView(state, inst) {
     const base = ref && state.catalog[ref.owner]?.[ref.cardId];
     if (!base) return null;
     const { upgraded, ...rest } = base;
-    const view = !ref.upgraded || !upgraded
+    let view = !ref.upgraded || !upgraded
         ? { ...rest, inst, upgraded: false }
         : { ...rest, inst, upgraded: true, cost: upgraded.cost ?? base.cost, effects: upgraded.effects ?? base.effects };
-    // 本回合手牌费用修正（觉醒「决意」等）：数字费用下调、最低 0，X 费不受影响；baseCost 只在修正生效时出现。
-    const mod = state.units?.[ref.owner]?.handCost || 0;
+    // 本场成长（grow）：顶层伤害 +grow；临时牌（复制 / 生成）标 temp。缺省不写字段，旧视图形状不变。
+    if (ref.grow) view = { ...view, effects: view.effects.map((e) => (e.op === 'damage' ? { ...e, amount: Math.min(99, e.amount + ref.grow) } : e)), grow: ref.grow };
+    if (ref.temp) view.temp = true;
+    // 费用修正：本回合手牌费用（觉醒「决意」等）+ 单张本场减费（costMod）+ 单张本回合减费（turnCostMod）；数字费用下调、最低 0，X 费不受影响；baseCost 只在修正生效时出现。
+    const owner = state.units?.[ref.owner];
+    const mod = (owner?.handCost || 0) + (ref.costMod || 0) + (owner?.turnCostMod?.[inst] || 0);
     if (!mod || typeof view.cost !== 'number') return view;
     return { ...view, cost: Math.max(0, view.cost + mod), baseCost: view.cost };
 }
 
 export function canAfford(card, energy) {
+    // 不能打出的牌只能被弃掉（触发被弃时效果）。
+    if (card.unplayable) return false;
     return card.cost === 'X' ? energy > 0 : card.cost <= energy;
 }
 
@@ -66,15 +72,30 @@ export function computeDamage(attacker, target, base, strengthScale = 1) {
     return Math.max(0, amount);
 }
 
-export function computeBlock(actor, base) {
-    return Math.max(0, base + (actor?.statuses.dexterity || 0));
+// 获得格挡：出手方敏捷加成；承受方脆弱时 ×0.75 向下取整（缺省承受方为出手方）。
+export function computeBlock(actor, base, target = actor) {
+    const amount = base + (actor?.statuses.dexterity || 0);
+    return Math.max(0, target?.statuses.frail > 0 ? Math.floor(amount * 0.75) : amount);
 }
 
-export function conditionHolds(state, actor, when, targetId) {
-    if (when?.kind === 'target-has') return (state.units[targetId]?.statuses[when.value] || 0) > 0;
-    if (when?.kind === 'self-hp-below') return actor.hp * 100 < actor.maxHp * when.value;
-    if (when?.kind === 'cards-played-gte') return actor.cardsPlayed >= when.value;
-    return false;
+// 同名牌计数键加前缀，避免卡牌 ID 与对象原型属性同名。
+export const cardCountKey = (cardId) => `c:${cardId}`;
+
+// cardId：正在结算的牌（同名连出条件用）；估算伤害等不带时同名条件不成立。
+export function conditionHolds(state, actor, when, targetId, cardId) {
+    const t = actor.turnStats;
+    switch (when?.kind) {
+        case 'target-has': return (state.units[targetId]?.statuses[when.value] || 0) > 0;
+        case 'self-has': return (actor.statuses[when.value] || 0) > 0;
+        case 'self-hp-below': return actor.hp * 100 < actor.maxHp * when.value;
+        case 'cards-played-gte': return actor.cardsPlayed >= when.value;
+        // v4 计数：本回合此前的计数，不含正在结算的这张。
+        case 'attacks-played-gte': return (t?.attack || 0) >= when.value;
+        case 'skills-played-gte': return (t?.skill || 0) >= when.value;
+        case 'same-card-gte': return cardId != null && (t?.byCard?.[cardCountKey(cardId)] || 0) >= when.value;
+        case 'discarded-gte': return (t?.discards || 0) >= when.value;
+        default: return false;
+    }
 }
 
 export function estimateDamage(state, actor, target, effects, primaryId) {

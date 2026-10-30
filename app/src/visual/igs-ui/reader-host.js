@@ -4825,6 +4825,7 @@ export function createIgsReaderHost(options = {}) {
             ascendClass: typeof options.ascendCombatClass === 'function' ? (opts) => options.ascendCombatClass(opts) : null,
             drawTrait: typeof options.drawCombatTrait === 'function' ? (opts) => options.drawCombatTrait(opts) : null,
             pickTrait: typeof options.pickCombatTrait === 'function' ? (opts) => options.pickCombatTrait(opts) : null,
+            unlockTraitSlot: typeof options.unlockCombatTraitSlot === 'function' ? () => options.unlockCombatTraitSlot() : null,
 
             getGrowth: () => (typeof options.getCombatGrowth === 'function' ? options.getCombatGrowth() : null),
             retryGrowth: typeof options.retryCombatGrowth === 'function' ? () => options.retryCombatGrowth() : null,

@@ -263,8 +263,13 @@ test('成长缓存：refreshGrowth 补扫入库并缓存已生效成长与待生
     let notified = 0;
     const off = h.services.onGrowthUpdated(() => { notified += 1; });
     assert.equal(h.services.getGrowth(), null);
+    // 主角团状态：缓存未刷新时不注入并记诊断；刷新后列出主角（还没有战斗，没有队友）。
+    assert.equal(h.services.partyPromptInput(), null);
+    assert.deepEqual(h.services.getDiagnostics().map((d) => [d.code, d.reason]), [['combat-party-status-unavailable', 'combat-growth-cache-missing']]);
     const r = await h.services.refreshGrowth();
     assert.equal(r.ok, true);
+    assert.deepEqual(h.services.partyPromptInput().map((p) => [p.name, p.down, p.hp === p.maxHp, p.injury]), [['主角', false, true, '无伤']]);
+    assert.equal(h.services.partyPromptInput('quiet'), null);
     const g = h.services.getGrowth();
     assert.deepEqual([g.chatId, g.growth.map((x) => [x.type, x.amount]), g.pending.map((p) => [p.kind, p.skill])], ['chat-1', [['exp', 30]], [['learn', '裂空斩']]]);
     assert.equal(notified, 1);
@@ -288,8 +293,10 @@ test('成长缓存：refreshGrowth 补扫入库并缓存已生效成长与待生
 test('后台自动准备：最新 AI 楼带开战标签时直接准备到战前、不等面板；同一场不重跑；用户楼、无标签、扩展关闭时不准备', async () => {
     const h = growthServices();
     h.host.chat = [user('出发'), ai('前方有动静。\n[igs-combat:start|狭路|狼]')];
+    // 三个技能：已达 1 级普通档的技能数目标，准备时不补技能。
     const wolf = { kind: 'enemy', id: enemyIdFor('狼', 'normal'), name: '狼', tier: 'normal', base: { hp: 40 },
-        skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount: 4 }] }, { id: 'e2', name: '扑击', intent: 'attack', effects: [{ op: 'damage', amount: 4 }] }] };
+        skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount: 4 }] }, { id: 'e2', name: '扑击', intent: 'attack', effects: [{ op: 'damage', amount: 4 }] },
+            { id: 'e3', name: '猛扑', intent: 'attack', effects: [{ op: 'damage', amount: 4 }] }] };
     assert.equal((await h.tables.ensure()).ok, true);
     assert.equal((await h.tables.append('profile', [row(classDef, 1), row(heroDef, 2), row(wolf, 3)])).ok, true);
     const r = await h.services.autoPrepare(1);

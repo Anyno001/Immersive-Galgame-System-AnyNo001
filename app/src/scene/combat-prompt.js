@@ -12,7 +12,7 @@ export function combatExpansionEnabled(readerSettings) {
     return plain(plain(readerSettings).combatExpansion).enabled === true;
 }
 
-export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/equip/unequip/item/rel/stat';
+export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/equip/unequip/item/rel/stat/heal';
 
 export function resolveCombatPromptRule(readerSettings) {
     if (!combatExpansionEnabled(readerSettings)) return '';
@@ -20,14 +20,15 @@ export function resolveCombatPromptRule(readerSettings) {
 - [igs-combat:start|遭遇名|敌方|友方|等级]：剧情真正进入交战的那一刻写在本层正文的最后一行，写完立即结束本层，不再写任何正文；敌方写 名称 或 名称*数量，逗号分隔，合计最多5个；友方写同行参战的角色名，逗号分隔，最多3人，主角不用写；等级只写 普通/精英/首领，可省略；每层最多一个
 - [igs-combat:awaken|角色|类型|台词]：只在重大情绪节点写（同伴在眼前倒下、立誓守护、绝境不退、宿敌当前等），平常战斗不写；必须紧挨在开战标签的上一行，开战标签仍是最后一行；角色写主角（「我」或主角名）；类型只写 怒火/守护/悲恸/决意/羁绊/极限/复仇/不屈 之一；台词是此刻喊出的一句话，不超过30字；每场最多一个
 - [igs-combat:exp|角色|数值|原因]：剧情中获得历练时写，每层每个角色合计不超过50
-- [igs-combat:learn|角色|技能名|简述]：剧情中习得新技能
+- [igs-combat:learn|角色|技能名|简述|稀有度]：剧情中习得新技能；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按这门技能在剧情中的分量写，可省略
 - [igs-combat:upgrade|角色|技能名|简述]：已有技能得到精进
 - [igs-combat:class|角色|职业]：转职或觉醒
-- [igs-combat:equip|角色|名称|部位|简述]：剧情中得到并装备武器、防具、饰品或宝物时写；部位只写 武器/防具/饰品/宝物；每个部位只装一件，新装备会顶替旧装备
+- [igs-combat:equip|角色|名称|部位|简述|稀有度]：剧情中得到并装备武器、防具、饰品或宝物时写；部位只写 武器/防具/饰品/宝物；每个部位只装一件，新装备会顶替旧装备；稀有度同上，按这件装备的品相写，可省略
 - [igs-combat:unequip|角色|名称]：剧情中卸下、丢失或交出某件装备
-- [igs-combat:item|角色|名称|数量|简述]：剧情中得到能在战斗中使用一次的道具（药剂、符咒、暗器等）；数量 1–3
+- [igs-combat:item|角色|名称|数量|简述|稀有度]：剧情中得到能在战斗中使用一次的道具（药剂、符咒、暗器等）；数量 1–3；稀有度同上，可省略
 - [igs-combat:rel|角色|档]：每层给本层登场的非主角各写一个，主角不写；档只写 远逊/稍弱/相当/稍强/强敌/碾压 之一，表示此人此刻相对主角的强弱；强弱没变就照写原档
 - [igs-combat:stat|角色|属性|点数|原因]：只在剧情确实让主角锻炼、领悟、服药等而提升某项属性时写，角色只写主角；属性只写 力量/敏捷/体质/智力/感知/魅力 之一；点数 1–2，每层合计不超过2
+- [igs-combat:heal|角色|恢复量|原因]：战斗留下的伤势会带到下一场；剧情中角色休息、接受治疗、服药等恢复生命时写；恢复量写点数（如 20）或生命上限的百分比（如 50%）；倒下的同伴要靠它恢复后才能再参战
 
 语法要求：
 1. 开战标签之后由前端接管，不要自行写出战斗过程和胜负；战斗结束后会以战报的形式发回，届时再按战报续写
@@ -35,7 +36,7 @@ export function resolveCombatPromptRule(readerSettings) {
 3. 成长标签只在剧情确实发生时写，主角写「我」以外的名字时用角色名`;
 }
 
-const NARRATION_COMMON = `【战斗续写】上一条用户消息中的 <igs-combat-report> 是刚刚结束的战斗记录。按其中的回合进程，用小说笔法完整写出这场战斗：技能名可以作为招式名出现；不得出现卡牌、手牌、费用、能量、抽牌、稀有度或具体的血量数值；不得改变胜负与击倒的先后顺序；本层不写任何 [igs-combat:…] 标签（开战、觉醒、exp、loot、learn、upgrade、class、rel、stat 等一律不写）：这场战斗的历练与收获已由战报结算，续写只负责叙述。战报里有「战利品：」一行时，在结尾把这件收获自然写进剧情：新招式写领悟、装备写得到或缴获、道具写拾得、零碎小物写顺手捡到。`;
+const NARRATION_COMMON = `【战斗续写】上一条用户消息中的 <igs-combat-report> 是刚刚结束的战斗记录。按其中的回合进程，用小说笔法完整写出这场战斗：技能名可以作为招式名出现；不得出现卡牌、手牌、费用、能量、抽牌、稀有度或具体的血量数值；不得改变胜负与击倒的先后顺序；本层不写任何 [igs-combat:…] 标签（开战、觉醒、exp、loot、learn、upgrade、class、rel、stat、heal 等一律不写）：这场战斗的历练与收获已由战报结算，战后的伤势会带到之后的剧情，续写只负责叙述。战报里有「战利品：」一行时，在结尾把这件收获自然写进剧情：新招式写领悟、装备写得到或缴获、道具写拾得、零碎小物写顺手捡到。`;
 
 const NARRATION_BY_RESULT = Object.freeze({
     win: '结局是胜利：写到最后一个敌人倒下，结尾自然过渡到战后。',
@@ -77,4 +78,24 @@ export function resolveCombatNarrationSegment(readerSettings, history, options =
         keys: ['combat-narration'],
         result: pending.result,
     };
+}
+
+// 主角团状态（计划 5.8）：主角与最近一场并肩作战的同伴，每人一行：名字、等级、生命（当前 / 上限与伤势词）、六维；附剧情回血标签写法。
+// party 由 combat-services 的成长缓存给出（session.js partyStatus）；扩展关闭或没有可列的人时为 null。
+export const COMBAT_PARTY_SEGMENT_ID = 'igs-combat-party';
+const oneLine = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+function partyLine(p) {
+    // 倒下：同伴回血前不能参战；主角仍会参战，只剩 1 点生命。
+    const life = p.down ? `倒下（生命 0/${p.maxHp}），${p.hero ? '再遇战斗只剩 1 点生命' : '回血前不能参战'}` : `生命 ${p.hp}/${p.maxHp}（${oneLine(p.injury)}）`;
+    const abilities = (Array.isArray(p.abilities) ? p.abilities : []).map(([label, value]) => `${oneLine(label)}${value}`).join(' ');
+    return `- ${oneLine(p.name)} Lv${p.level} ${life}${abilities ? `；${abilities}` : ''}`;
+}
+export function resolveCombatPartySegment(readerSettings, party) {
+    if (!combatExpansionEnabled(readerSettings) || !Array.isArray(party) || !party.length) return null;
+    const content = [
+        '【主角团状态】主角与最近一场并肩作战的同伴此刻的状态，战斗留下的伤势会带到下一场。正文对伤势与体力的描写与此一致，不写具体数值：',
+        ...party.map(partyLine),
+        '剧情中有人休息、接受治疗、服药等恢复生命时写 [igs-combat:heal|角色|恢复量|原因]，恢复量写点数（如 20）或生命上限的百分比（如 50%）；没有恢复就不写。',
+    ].join('\n');
+    return { id: COMBAT_PARTY_SEGMENT_ID, position: 'depth0', depth: 0, content, keys: ['combat-party'] };
 }

@@ -1,6 +1,7 @@
 import {
     canAfford, cardView, effectsNeedTarget, estimateBlock, estimateDamage, livingIds, opposite, weakestId,
 } from './battle-state.js';
+import { estimateEffectsValue } from './rules.js';
 
 export const POWER_TURNS = 2;
 export const MAX_SKILL_REPEAT = 2;
@@ -35,6 +36,16 @@ function play(state, unit, card, targetId) {
     return id ? { inst: card.inst, targetId: id } : null;
 }
 
+// 此刻会落空的效果不计价：本回合还没打过牌时的「重复上一张」，手里没有可接的牌时的「下一张多结算」。
+function liveEffects(state, unit, card) {
+    const rest = (state.piles[unit.id]?.hand || []).filter((i) => i !== card.inst).map((i) => cardView(state, i)).filter(Boolean);
+    return card.effects.filter((e) => {
+        if (e.op === 'repeat-last') return Boolean(unit.lastPlayed);
+        if (e.op === 'replay-next') return rest.some((c) => !c.unplayable && (!e.cardType || c.type === e.cardType));
+        return true;
+    });
+}
+
 export function chooseAllyPlay(state, unitId) {
     const unit = state.units[unitId];
     if (!unit?.alive || unit.kind !== 'deck' || state.outcome) return null;
@@ -63,7 +74,25 @@ export function chooseAllyPlay(state, unitId) {
     const targetId = weakestId(state, opposite(unit.side));
     const target = state.units[targetId];
     const attack = best(cards, (card) => perCost(card, estimateDamage(state, unit, target, card.effects, targetId)));
-    return play(state, unit, attack || cards[0], targetId);
+    if (attack) return play(state, unit, attack, targetId);
+    // v3 战斗（含在 v4 引擎上重放的 v3 记录）保持按手牌顺序回退，重放结果不变。
+    if (!(state.rulesVersion >= 4)) return play(state, unit, cards[0], targetId);
+    // v4：没有伤害牌时按效果估值 / 费用挑牌；没有值得打的牌就结束回合，不空耗能量。
+    const useful = best(cards, (card) => perCost(card, estimateEffectsValue(liveEffects(state, unit, card))));
+    return useful ? play(state, unit, useful, targetId) : null;
+}
+
+// 自动选牌（托管角色、重复结算等不能暂停的场合）：弃牌先弃估值最低的（不能打出的、带被弃时效果的优先），复制与减费取估值最高的；同值按手牌顺序。
+export function pickCards(state, options, count, purpose) {
+    const score = (inst) => {
+        const card = cardView(state, inst);
+        if (!card) return 0;
+        const v = card.unplayable ? -5 : estimateEffectsValue(card.effects);
+        return purpose === 'discard' && card.onDiscard ? v - estimateEffectsValue(card.onDiscard) : v;
+    };
+    const ranked = options.map((inst, i) => ({ inst, i, v: score(inst) }))
+        .sort((a, b) => (purpose === 'discard' ? a.v - b.v : b.v - a.v) || a.i - b.i);
+    return ranked.slice(0, count).map((r) => r.inst);
 }
 
 function repeatedSkill(recent) {

@@ -354,8 +354,131 @@ test('装备与道具生成：模型只选被动 / 道具模板键，名称、�
     assert.deepEqual([w.gearId, w.name, w.slot, w.description, w.passive.effects[0].stacks], [gearIdFor('青锋剑'), '青锋剑', 'weapon', '削铁如泥', 1]);
     assert.deepEqual([t.slot, t.passive.effects[0].amount], ['treasure', 10]);
     assert.match(t.description, /宝物加强/);
-    assert.deepEqual([it.itemId, it.name, it.count, it.effects], [itemIdFor('回春丹'), '回春丹', 2, [{ op: 'heal', amount: 12, target: 'self' }]]);
+    assert.deepEqual([it.itemId, it.name, it.count, it.effects], [itemIdFor('回春丹'), '回春丹', 2, [{ op: 'heal', amount: 12, target: 'ally' }]]);
 });
+test('正文获得道具带稀有度（D8）：程序筛 3–5 个候选模板，模型选候选外的键定向修正；数值按稀有度与普通档之比放大；不带稀有度时请求形状不变', async () => {
+    const anchor = { messageId: 4, swipeId: 0, tagHash: 'r1', occurrence: 0 };
+    const hero = { kind: 'deck-character', id: 'pc-hero', name: '主角', owned: new Map(), catalog: new Map() };
+    const plain = growthEntity({ kind: 'item', character: '我', name: '回春丹', count: 1, description: '', anchor }, hero).entity;
+    assert.equal(Object.hasOwn(plain.input, 'rarity'), false);
+    assert.equal(Object.hasOwn(plain.input, 'templates'), false);
+    const rare = growthEntity({ kind: 'item', character: '我', name: '回春丹', count: 2, description: '疗伤回复生命', rarity: 'rare', anchor: { ...anchor, tagHash: 'r2' } }, hero).entity;
+    assert.equal(rare.input.rarity, 'rare');
+    assert.ok(rare.input.templates.length >= 3 && rare.input.templates.length <= 5, String(rare.input.templates));
+    assert.ok(rare.input.templates.includes('potion'));
+    assert.equal(rare.input.templates.includes('tonic'), false);
+    assert.deepEqual(growthEntity({ kind: 'item', character: '我', name: '回春丹', count: 2, description: '疗伤回复生命', rarity: 'rare', anchor: { ...anchor, tagHash: 'r2' } }, hero).entity.input.templates, rare.input.templates);
+    const request = fakeRequest([reply([[rare.key, { template: 'tonic' }]]), reply([[rare.key, { template: 'potion' }]])]);
+    const result = await generateEntities([rare], { request, llm: LLM, now: 9 });
+    assert.equal(result.ok, true, JSON.stringify(result.rejected));
+    const bad = request.seen[1].payload.entities[0].previousErrors.find((e) => e.path === 'template');
+    assert.equal(bad.reason, 'invalid-template');
+    assert.deepEqual(bad.detail.allowed, rare.input.templates);
+    const [entry] = generationWrites(result).entries;
+    assert.equal(normalizeLedgerEntry(entry).ok, true);
+    assert.deepEqual([entry.payload.count, entry.payload.effects], [2, [{ op: 'heal', amount: 15, target: 'ally' }]]);
+});
+test('正文获得装备带稀有度（D7）：六维加成按稀有度 +1…+5；神话必有被动、只能从 3–5 个候选里选并按神话加强；普通没有被动、只回 ability；非法六维定向修正', async () => {
+    const { passiveAtRarity } = await import('../src/combat/card-templates.js');
+    const anchor = { messageId: 5, swipeId: 0, tagHash: 'q1', occurrence: 0 };
+    const hero = { kind: 'deck-character', id: 'pc-hero', name: '主角', owned: new Map(), catalog: new Map() };
+    const plain = growthEntity({ kind: 'equip', character: '我', name: '青锋剑', slot: 'weapon', description: '', anchor }, hero).entity;
+    assert.equal(Object.hasOwn(plain.input, 'rarity'), false);
+    assert.equal(Object.hasOwn(plain.input, 'templates'), false);
+    const myth = growthEntity({ kind: 'equip', character: '我', name: '龙鳞甲', slot: 'treasure', description: '龙鳞所制', rarity: 'mythic', anchor: { ...anchor, tagHash: 'q2' } }, hero).entity;
+    const ring = growthEntity({ kind: 'equip', character: '我', name: '铜戒', slot: 'accessory', description: '', rarity: 'common', anchor: { ...anchor, tagHash: 'q3' } }, hero).entity;
+    assert.ok(myth.input.templates.length >= 3 && myth.input.templates.length <= 5, String(myth.input.templates));
+    assert.equal(Object.hasOwn(ring.input, 'templates'), false);
+    const tpl = myth.input.templates[0];
+    const request = fakeRequest([
+        reply([[myth.key, { ability: '体质', template: tpl }], [ring.key, { ability: '运气' }]]),
+        reply([[ring.key, { ability: 'dex' }]]),
+    ]);
+    const result = await generateEntities([myth, ring], { request, llm: LLM, now: 9 });
+    assert.equal(result.ok, true, JSON.stringify(result.rejected));
+    const retry = request.seen[1].payload.entities;
+    assert.deepEqual(retry.map((e) => e.key), [ring.key]);
+    assert.ok(retry[0].previousErrors.some((e) => e.path === 'ability' && e.reason === 'invalid-ability'));
+    const [m, r] = generationWrites(result).entries.map((e) => { assert.equal(normalizeLedgerEntry(e).ok, true, e.id); return e.payload; });
+    assert.deepEqual([m.rarity, m.bonus, m.passive.effects], ['mythic', { ability: 'con', amount: 5 }, passiveAtRarity(tpl, 'mythic').effects]);
+    assert.equal(/宝物加强/.test(m.passive.description), false);
+    assert.deepEqual([r.rarity, r.bonus, Object.hasOwn(r, 'passive')], ['common', { ability: 'dex', amount: 1 }, false]);
+});
+
+
+
+
+test('正文学会卡牌带稀有度（D9）：卡牌稀有度取标签、只能选 3–5 个候选模板；模型可给数值并按费用 × 稀有度窗口校验；修正用完改用程序求解；不带稀有度仍按个人稀有度', async () => {
+    const { CARD_TEMPLATES, solveCardTemplate } = await import('../src/combat/card-templates.js');
+    const { assembleGrowth } = await import('../src/combat/generation-assembly.js');
+    const anchor = { messageId: 6, swipeId: 0, tagHash: 'l1', occurrence: 0 };
+    const hero = { kind: 'deck-character', id: 'pc-hero', name: '主角', owned: new Map(), catalog: new Map() };
+    const plain = growthEntity({ kind: 'learn', character: '我', skill: '火球术', description: '', anchor }, hero).entity;
+    for (const k of ['rarity', 'templates', 'templateVars']) assert.equal(Object.hasOwn(plain.input, k), false, k);
+    const learn = growthEntity({ kind: 'learn', character: '我', skill: '裂空斩', description: '斩击并护身', rarity: 'rare', anchor: { ...anchor, tagHash: 'l2' } }, hero).entity;
+    const { templates, templateVars } = learn.input;
+    assert.equal(learn.input.rarity, 'rare');
+    assert.ok(templates.length >= 3 && templates.length <= 5, String(templates));
+    assert.deepEqual(Object.keys(templateVars), templates);
+    const outside = Object.keys(CARD_TEMPLATES).find((k) => !templates.includes(k));
+    const tpl = templates[0];
+    const request = fakeRequest([
+        reply([[learn.key, { template: outside, cost: 1 }]]),
+        reply([[learn.key, { template: tpl, cost: 1, values: [] }]]),
+        reply([[learn.key, { template: tpl, cost: 1, values: [] }]]),
+    ]);
+    const result = await generateEntities([learn], { request, llm: LLM, now: 9 });
+    assert.equal(result.ok, true, JSON.stringify(result.rejected));
+    assert.equal(request.seen.length, 3);
+    assert.ok(request.seen[1].payload.entities[0].previousErrors.some((e) => e.path === 'template' && e.reason === 'invalid-template'));
+    assert.ok(request.seen[2].payload.entities[0].previousErrors.some((e) => e.path === 'values' && e.reason === 'values-length'));
+    assert.ok(result.diagnostics.some((d) => d.code === 'combat-values-solved' && d.key === learn.key));
+    const [entry] = generationWrites(result).entries;
+    assert.equal(normalizeLedgerEntry(entry).ok, true);
+    const card = entry.payload.card;
+    assert.equal(card.rarity, 'rare');
+    assert.deepEqual(card.effects, solveCardTemplate(tpl, card.cost, 'rare').effects);
+    // 模型给的合法数值照用；超出窗口的数值按 values 路径拒收。
+    const strikeAt = solveCardTemplate('strike', 1, 'rare').effects[0].amount;
+    const input = { skill: '重斩', output: 'card', rarity: 'rare', templates: ['strike'] };
+    const ok = assembleGrowth({ template: 'strike', cost: 1, values: [strikeAt] }, { key: 'k', input });
+    assert.deepEqual([ok.value.card.rarity, ok.value.card.effects[0].amount], ['rare', strikeAt]);
+    const over = assembleGrowth({ template: 'strike', cost: 1, values: [40] }, { key: 'k', input });
+    assert.ok(over.errors.some((e) => e.path === 'values' && e.reason === 'values-out-of-window'));
+    const old = assembleGrowth({ template: 'strike', cost: 1 }, { key: 'k', input: { skill: '重斩', output: 'card' } });
+    assert.equal(old.value.card.rarity, 'personal');
+});
+
+
+test('队友按等级补技能（D10）：Lv1–5 请求与旧路径一致；Lv6 起只给复合技能候选、伤害折算上限 21，Lv11 起 25；敌人不受等级影响；放大后的技能档案仍合法', async () => {
+    const { skillFillEntity } = await import('../src/combat/generation.js');
+    const { assembleSkillFill } = await import('../src/combat/generation-assembly.js');
+    const { COMPOSITE_SKILL_KEYS, skillFromTemplate } = await import('../src/combat/card-templates.js');
+    const skills = [1, 2, 3].map((n) => ({ id: `sc-a-s${n}`, name: `招${n}`, intent: 'attack', effects: [{ op: 'damage', amount: 4 }] }));
+    const profile = { kind: 'skill-character', v: 1, id: 'sc-a', name: '甲', aliases: [], className: '', base: { hp: 60 }, skills,
+        passives: [{ id: 'sc-a-p1', name: '剑意', trigger: 'battle-start', effects: [{ op: 'status', status: 'strength', stacks: 1 }] }] };
+    const low = skillFillEntity({ profile, count: 1, version: 2, level: 3 });
+    const old = skillFillEntity({ profile, count: 1, version: 2 });
+    assert.deepEqual([low.input, low.fixed], [old.input, old.fixed]);
+    assert.equal(Object.hasOwn(low.input, 'templates'), false);
+    assert.equal(Object.hasOwn(low.fixed, 'cap'), false);
+    const mid = skillFillEntity({ profile, count: 1, version: 2, level: 8 });
+    const high = skillFillEntity({ profile, count: 1, version: 2, level: 12 });
+    assert.deepEqual([mid.input.templates, mid.fixed.cap, high.fixed.cap], [[...COMPOSITE_SKILL_KEYS], 21, 25]);
+    const wolf = { ...profile, kind: 'enemy', id: 'en-wolf', tier: 'normal' };
+    const enemy = skillFillEntity({ profile: wolf, count: 1, version: 2, level: 12 });
+    assert.deepEqual([Object.hasOwn(enemy.input, 'templates'), Object.hasOwn(enemy.fixed, 'cap')], [false, false]);
+    const plain = assembleSkillFill({ skills: [['补一', 'slash']] }, high);
+    assert.ok(plain.errors.some((e) => e.path === 'skills[0][1]' && e.reason === 'invalid-template'), JSON.stringify(plain.errors));
+    const built = assembleSkillFill({ skills: [['补一', 'punish']] }, high);
+    assert.equal(built.errors, undefined, JSON.stringify(built.errors));
+    assert.deepEqual(built.profile.skills[3].effects, skillFromTemplate('punish', 25).effects);
+    assert.notDeepEqual(skillFromTemplate('punish', 25).effects, skillFromTemplate('punish', 18).effects);
+    assert.equal(normalizeProfile(built.profile).ok, true, JSON.stringify(normalizeProfile(built.profile).errors));
+    const lowBuilt = assembleSkillFill({ skills: [['补一', 'slash']] }, low);
+    assert.deepEqual(lowBuilt.profile.skills[3].effects, skillFromTemplate('slash', 18).effects);
+});
+
 
 
 test('自动重试：只重发上游明确拒绝的请求（HTTP 503 等）；400、发送状态未知、504 与普通错误不重发；重试耗尽带回状态；等待中取消返回 request-stale', async () => {
@@ -482,7 +605,7 @@ test('奖励组装：卡牌按槽位费用 × 稀有度求解，装备 / 宝物�
     assert.deepEqual([gear.gear.gearId, gear.gear.slot, gear.gear.passive.effects[0].stacks], [gearIdFor('狼牙刃'), 'weapon', 2]);
     assert.match(gear.gear.description, /加强/);
     assert.deepEqual([relic.gear.slot, relic.gear.passive.effects[0].stacks], ['treasure', 2]);
-    assert.deepEqual([item.item.itemId, item.item.count, item.item.effects], [itemIdFor('回春丹'), 2, [{ op: 'heal', amount: 12, target: 'self' }]]);
+    assert.deepEqual([item.item.itemId, item.item.count, item.item.effects], [itemIdFor('回春丹'), 2, [{ op: 'heal', amount: 12, target: 'ally' }]]);
     assert.deepEqual(Object.keys(keepsake).sort(), ['index', 'kind', 'name', 'origin', 'rarity']);
     assert.deepEqual([keepsake.name, keepsake.rarity, keepsake.origin.length], ['褪色的发绳', 'mythic', 30]);
     assert.ok(built.diagnostics.some((d) => d.code === 'combat-value-clamped' && d.path === 'slots[4][2]'));
@@ -610,4 +733,165 @@ test('华而不实被动（P-e）：人物特性、装备与奖励装备槽可�
     assert.ok(loot.value, JSON.stringify(loot.errors));
     assert.deepEqual(loot.value.slots[0].gear.passive.effects, passiveAtRarity('flair-glint', 'epic').effects);
     rejects(assembleReward({ slots: [['流光', 'flair-glint', ''], ['回春丹', 'flair-glint', '']] }, { key: 'r', input: plan }), 'slots[1][1]');
+});
+
+
+test('v4 卡牌模板：职业卡带出关键字与被弃时效果，X 费模板放在 1–3 费位置改为 X 费，费用不符的限定模板拒收', () => {
+    const slots = [0, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3];
+    const cards = [['反手', 'reflex'], ['掠击', 'glance'], ['流光', 'fleeting'], ['先机', 'opener'], ['斩五', 'strike'], ['斩六', 'strike'], ['回旋', 'whirl'], ['斩八', 'strike'], ['斩九', 'strike'], ['坚壁', 'xguard'], ['斩终', 'strike']];
+    const build = (list) => assembleClass({ ...classValue(), cards: list }, { key: 'v4', owner: 'pc-v4', input: { costSlots: slots } });
+    const cls = build(cards);
+    assert.equal(cls.errors, undefined, JSON.stringify(cls.errors));
+    const pool = cls.profile.classPool;
+    assert.deepEqual([pool[0].unplayable, pool[0].cost, pool[0].effects, pool[0].onDiscard[0].op], [true, 0, [], 'draw']);
+    assert.deepEqual(pool[1].onDiscard, [{ op: 'draw', amount: 1 }]);
+    assert.deepEqual([pool[2].ethereal, pool[3].innate], [true, true]);
+    assert.deepEqual([pool[6].cost, pool[9].cost], ['X', 'X']);
+    assert.ok(cls.diagnostics.some((d) => d.path === 'cards[6][2]'), JSON.stringify(cls.diagnostics));
+    for (const key of ['innate', 'ethereal', 'unplayable', 'retain', 'onDiscard']) assert.equal(Object.hasOwn(pool[4], key), false, key);
+    assert.equal(normalizeProfile(cls.profile).ok, true, JSON.stringify(normalizeProfile(cls.profile).errors));
+    const swap = (i, card) => cards.map((c, n) => (n === i ? card : c));
+    const x0 = build(swap(0, ['回旋二', 'whirl']));
+    assert.ok(x0.errors.some((e) => e.path === 'cards[0][1]' && e.reason === 'template-unsolvable' && e.detail.cost === 0), JSON.stringify(x0.errors));
+    const r1 = build(swap(1, ['反手二', 'reflex']));
+    assert.ok(r1.errors.some((e) => e.path === 'cards[1][1]' && e.reason === 'template-unsolvable' && e.detail.cost === 1), JSON.stringify(r1.errors));
+});
+
+test('v4 卡牌模板目录：限定费用模板在每个声明费用都有可解稀有度、求解结果过 schema；本牌专属与关键字模板不能用作人物技能', async () => {
+    const { CARD_TEMPLATES, heroSkillFromTemplate, nearestTemplateCost, solveCardTemplate, templateCosts } = await import('../src/combat/card-templates.js');
+    const { COMBAT_RULES } = await import('../src/combat/rules.js');
+    const { normalizeCard } = await import('../src/combat/schema.js');
+    const rarities = Object.keys(COMBAT_RULES.rarityWindows);
+    for (const [key, t] of Object.entries(CARD_TEMPLATES)) {
+        const costs = templateCosts(key);
+        const solvable = costs.filter((cost) => rarities.some((rarity) => solveCardTemplate(key, cost, rarity)));
+        if (t.costs) assert.deepEqual(solvable, costs, key);
+        else assert.ok(solvable.length, key);
+        for (const cost of solvable) for (const rarity of rarities) {
+            const solved = solveCardTemplate(key, cost, rarity);
+            if (!solved) continue;
+            const res = normalizeCard({ id: `c-${key}`, name: key, cost, rarity, ...solved });
+            assert.equal(res.ok, true, `${key}|${cost}|${rarity} ${JSON.stringify(res.errors)}`);
+        }
+    }
+    for (const key of ['mimic', 'rampage', 'hone', 'chain', 'whirl', 'xguard', 'reflex', 'glance', 'fleeting', 'opener', 'scrap', 'forge', 'cull', 'toss', 'replicate', 'temper']) {
+        assert.equal(heroSkillFromTemplate(key, { id: 'h', name: '技' }), null, key);
+    }
+    const ward = heroSkillFromTemplate('talisman', { id: 'h', name: '护符' });
+    assert.equal(evaluateCardBudget({ cost: COMBAT_RULES.heroSkillCost, rarity: 'personal', effects: ward.effects }).ok, true);
+    assert.deepEqual([nearestTemplateCost('whirl', 2, 'personal'), nearestTemplateCost('reflex', 2, 'personal'), nearestTemplateCost('mimic', 0, 'personal')], ['X', 0, 1]);
+});
+
+
+test('补技能 skill-fill：恰好 count 个、ID 接着现有技能数、名称不与已有技能（含 input.existing）重复；通过后按新版本写档案并沿用登记时间；拒收没有回落', async () => {
+    const { skillFillEntity } = await import('../src/combat/generation.js');
+    const wolf = { kind: 'enemy', id: enemyIdFor('狼', 'normal'), name: '狼', tier: 'normal', base: { hp: 40 }, generated: true,
+        skills: [{ id: 'w-s1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount: 5 }] }, { id: 'w-s2', name: '扑击', intent: 'attack', effects: [{ op: 'damage', amount: 5 }] }] };
+    const entity = skillFillEntity({ profile: wolf, count: 2, version: 3, existing: ['撕咬', '扑击', '嚎叫'], createdAt: 7 });
+    assert.deepEqual([entity.key, entity.kind, entity.role, entity.input.count, entity.input.tier, entity.input.existing],
+        [`fill:${wolf.id}`, 'skill-fill', 'fill', 2, 'normal', ['撕咬', '扑击', '嚎叫']]);
+    const request = fakeRequest([
+        reply([[entity.key, { skills: [['嚎叫', 'guard'], ['裂爪', 'slash']] }]]),
+        reply([[entity.key, { skills: [['低吼', 'guard'], ['裂爪', 'slash']] }]]),
+    ]);
+    const result = await generateEntities([entity], { request, llm: LLM });
+    assert.deepEqual([result.ok, result.requests], [true, 2]);
+    assert.ok(request.seen[1].payload.entities[0].previousErrors.some((e) => e.reason === 'skill-name-exists'));
+    assert.deepEqual(result.accepted[0].profile.skills.map((s) => [s.id, s.name]),
+        [['w-s1', '撕咬'], ['w-s2', '扑击'], [`${wolf.id}-k3`, '低吼'], [`${wolf.id}-k4`, '裂爪']]);
+    const writes = generationWrites(result, { createdAt: 99 });
+    assert.deepEqual(writes.profiles.map((p) => [p.id, p.version, p.createdAt, p.definition.skills.length]), [[wolf.id, 3, 7, 4]]);
+    // 数量不对拒收；修正耗尽时没有回落（带现有技能参战由会话处理）。
+    const short = await generateEntities([entity], { request: fakeRequest([reply([[entity.key, { skills: [['低吼', 'guard']] }]]), reply([[entity.key, { skills: [] }]]), reply([[entity.key, {}]])]), llm: LLM });
+    assert.deepEqual([short.ok, short.accepted.length, short.rejected[0].kind, Object.hasOwn(short.rejected[0], 'fallback')], [false, 0, 'skill-fill', false]);
+    assert.deepEqual(generationWrites(short), { profiles: [], entries: [] });
+});
+
+
+test('内部禁止组合（计划 3.4）：7 条规则逐条命中，正常形状不命中；常驻弃牌得能量另计卡组里的弃全手再抽；模板目录各费用 × 稀有度的解都不命中', async () => {
+    const { FORBIDDEN_COMBOS, forbiddenCombos } = await import('../src/combat/combos.js');
+    const { CARD_TEMPLATES, solveCardTemplate, templateCosts } = await import('../src/combat/card-templates.js');
+    const copySelf = { op: 'copy', amount: 1, from: 'self', to: 'hand' };
+    const repeat = { op: 'repeat-last', amount: 1 };
+    const draw = { op: 'draw', amount: 1 };
+    const energy = { op: 'energy', amount: 1 };
+    const create = { op: 'create', card: 'shard', amount: 1, to: 'hand' };
+    const cases = [
+        ['copy-self-repeat', { cost: 1, effects: [copySelf, repeat] }],
+        ['zero-cost-copy-self', { cost: 0, effects: [copySelf] }],
+        ['discard-draw-loop', { cost: 1, effects: [{ op: 'buff', trigger: 'discard', turns: 2, then: [draw] }], onDiscard: [draw] }],
+        ['play-create', { trigger: 'card-played', effects: [create] }],
+        ['grow-repeat', { cost: 1, effects: [{ op: 'grow', amount: 2 }, repeat] }],
+        ['redraw-discard-energy', { cost: 1, effects: [{ op: 'discard-hand', redraw: true }], onDiscard: [energy] }],
+        ['play-buff-copy', { cost: 1, effects: [{ op: 'buff', trigger: 'card-played', turns: 2, then: [{ op: 'copy', amount: 1, from: 'choose', to: 'hand' }] }] }],
+    ];
+    assert.deepEqual(FORBIDDEN_COMBOS.map((r) => r.id).sort(), cases.map(([id]) => id).sort());
+    for (const [id, shape] of cases) assert.ok(forbiddenCombos(shape).includes(id), id);
+    assert.deepEqual(forbiddenCombos({ cost: 1, effects: [copySelf] }), []);
+    assert.deepEqual(forbiddenCombos({ cost: 1, effects: [{ op: 'damage', amount: 6, hits: 1, target: 'enemy' }, draw] }), []);
+    assert.deepEqual(forbiddenCombos({ trigger: 'discard', effects: [energy] }), []);
+    assert.ok(forbiddenCombos({ trigger: 'discard', effects: [energy] }, { withDeck: true }).includes('redraw-discard-energy'));
+    const hits = [];
+    for (const key of Object.keys(CARD_TEMPLATES)) for (const cost of templateCosts(key)) for (const rarity of ['common', 'uncommon', 'rare', 'epic', 'mythic', 'personal']) {
+        const s = solveCardTemplate(key, cost, rarity);
+        if (s && forbiddenCombos({ cost, effects: s.effects, onDiscard: s.onDiscard }).length) hits.push(`${key}@${cost}/${rarity}`);
+    }
+    assert.deepEqual(hits, []);
+});
+
+
+test('人物特性池（计划 3.5）：各稀有度池里主动与被动都有；同种子同结果；主动 1 / 2 费，被动字段数不超过稀有度上限、神话等多字段档能抽到多字段；不命中禁止组合、不超队友伤害上限；组装后过账本 schema', async () => {
+    const { traitPool, planTraitShape, TRAIT_FIELD_COUNTS } = await import('../src/combat/trait-pool.js');
+    const { forbiddenCombos } = await import('../src/combat/combos.js');
+    const { effectsDamage } = await import('../src/combat/schema.js');
+    const { COMBAT_RULES } = await import('../src/combat/rules.js');
+    const { assembleTrait } = await import('../src/combat/generation-assembly.js');
+    const anchor = { messageId: 1, swipeId: 0, tagHash: 'trait', occurrence: 0 };
+    for (const rarity of Object.keys(TRAIT_FIELD_COUNTS)) {
+        const pool = traitPool(rarity);
+        assert.ok(pool.some((e) => e.kind === 'active') && pool.some((e) => e.kind === 'passive'), rarity);
+        let multi = 0;
+        for (let i = 0; i < 60; i += 1) {
+            const seed = `s${i}`;
+            const shape = planTraitShape(seed, rarity);
+            assert.deepEqual(planTraitShape(seed, rarity), shape);
+            const body = shape.kind === 'active' ? shape.skill : shape.passive;
+            assert.ok(body, `${rarity} ${seed}`);
+            if (shape.kind === 'active') assert.ok([1, 2].includes(body.cost), `${rarity} ${seed}`);
+            else if (!shape.template) {
+                assert.ok(body.effects.length <= TRAIT_FIELD_COUNTS[rarity], `${rarity} ${seed}`);
+                if (body.effects.length > 1) multi += 1;
+            }
+            const probe = shape.kind === 'active' ? { cost: body.cost, effects: body.effects } : { trigger: body.trigger, effects: body.effects };
+            assert.deepEqual(forbiddenCombos(probe, { withDeck: shape.kind === 'passive' }), [], `${rarity} ${seed}`);
+            assert.ok(effectsDamage(body.effects) <= COMBAT_RULES.allySkillDamageCap, `${rarity} ${seed}`);
+            const built = assembleTrait({ name: '特性', origin: '' }, { key: 'k', fixed: { traitId: `tr-${i}`, rarity, shape } });
+            assert.ok(built.value, JSON.stringify(built.errors));
+            const n = normalizeLedgerEntry({ id: 'trait|pc|1|0|trait|0', type: 'trait', character: 'pc-hero', anchor, payload: { ...built.value, cost: 100 }, createdAt: 9 });
+            assert.equal(n.ok, true, `${rarity} ${seed} ${JSON.stringify(n.errors)}`);
+        }
+        if (TRAIT_FIELD_COUNTS[rarity] > 1) assert.ok(multi > 0, rarity);
+    }
+});
+
+test('特性池生成：shape 存在时请求带 input.kind 与 input.effect，模型只回 name 与 origin（不写 template）一轮通过，效果取程序抽定的形状', async () => {
+    const { traitEntity } = await import('../src/combat/generation.js');
+    const { planTraitShape } = await import('../src/combat/trait-pool.js');
+    for (const kind of ['active', 'passive']) {
+        let shape = null;
+        for (let i = 0; !shape && i < 300; i += 1) {
+            const s = planTraitShape(`k${i}`, 'rare');
+            if (s.kind === kind && (kind === 'active' || !s.template)) shape = s;
+        }
+        assert.ok(shape, kind);
+        const entity = traitEntity({ character: { id: 'pc-hero', name: '主角' }, rarity: 'rare', traitId: `tr-${kind}`, shape });
+        assert.deepEqual([entity.input.kind, typeof entity.input.effect], [kind, 'string']);
+        const request = fakeRequest([reply([[entity.key, { name: '不灭战意', origin: '边关守城三年' }]])]);
+        const result = await generateEntities([entity], { request, llm: LLM, now: 9 });
+        assert.equal(result.ok, true, JSON.stringify(result.rejected));
+        assert.equal(request.seen.length, 1);
+        const trait = result.accepted[0].trait;
+        assert.equal(trait.kind, kind);
+        assert.deepEqual((trait.skill || trait.passive).effects, (shape.skill || shape.passive).effects);
+    }
 });

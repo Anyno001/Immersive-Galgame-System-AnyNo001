@@ -1,10 +1,11 @@
 import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
 import { resolveCombatLlm } from '../../combat/generation.js';
+import { COMBAT_DIFFICULTY_KEYS } from '../../combat/rules.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 
-// 战斗扩展设置 readerSettings.combatExpansion：默认关闭；非法值一律回到默认。
+// 战斗扩展设置 readerSettings.combatExpansion：默认关闭；非法值一律回到默认。难度五档（easy / normal / hard / brutal / nightmare）取自难度表，旧设置的三档键不变。
 // 开启前的宿主能力（shujuku 战斗表、副 LLM 配置）检查由设置动作负责，这里只做形状归一化。
-export const COMBAT_DIFFICULTIES = Object.freeze(['easy', 'normal', 'hard']);
+export const COMBAT_DIFFICULTIES = COMBAT_DIFFICULTY_KEYS;
 export const COMBAT_REPORT_DETAILS = Object.freeze(['brief', 'normal']);
 
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});

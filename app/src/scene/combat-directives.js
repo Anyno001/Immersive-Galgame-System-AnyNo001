@@ -7,7 +7,7 @@ import { stripIllustrationMarkers } from './scene-directives.js';
 // 依赖方向是 combat → scene，这里不导入 combat；上限与 COMBAT_RULES 的一致性由 combat-directives.test.js 锁定。
 export const COMBAT_TAG_LIMITS = Object.freeze({ maxEnemies: 5, maxAllies: 3, storyExpCapPerFloor: 50, expMax: 1000 });
 // loot 只由程序写在胜利战报块之后（翻牌兑现），账本只认战报楼里的 loot；主模型不写。
-export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot']);
+export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot', 'heal']);
 const REPORT_ID_RE = /^r[0-9a-z]{1,13}$/;
 // 六维：中文名或内部键 → 内部键（与 combat/abilities.js 一致，由测试锁定）。stat 点数 1–2，每楼每角色合计不超过 2。
 export const COMBAT_ABILITY_WORDS = Object.freeze({
@@ -23,6 +23,11 @@ export const COMBAT_REL_TIERS = Object.freeze({
 // 装备部位：中文名或内部键 → 内部键；每部位同时只装 1 件。一次性道具每条标签数量 1–3。
 export const COMBAT_GEAR_SLOTS = Object.freeze({ 武器: 'weapon', 防具: 'armor', 饰品: 'accessory', 宝物: 'treasure', weapon: 'weapon', armor: 'armor', accessory: 'accessory', treasure: 'treasure' });
 export const COMBAT_ITEM_COUNT_MAX = 3;
+// 正文获得物稀有度（equip / item / learn 末栏，可省略）：中文名或内部键 → 内部键（与 combat 的五档池稀有度一致，由测试锁定）。
+export const COMBAT_RARITY_WORDS = Object.freeze({
+    普通: 'common', 罕见: 'uncommon', 稀有: 'rare', 史诗: 'epic', 神话: 'mythic',
+    common: 'common', uncommon: 'uncommon', rare: 'rare', epic: 'epic', mythic: 'mythic',
+});
 export const COMBAT_TIERS = Object.freeze({ 普通: 'normal', normal: 'normal', 精英: 'elite', elite: 'elite', 首领: 'boss', boss: 'boss' });
 // 觉醒类型：中文名 → 内部键。台词上限 30 字。
 export const COMBAT_AWAKEN_TYPES = Object.freeze({
@@ -140,9 +145,19 @@ function parseStart(fields) {
     return { ok: true, value: { encounter: encounter.value, enemies: enemies.value, allies: allies.value, tier } };
 }
 
-const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 3, upgrade: 3, class: 2, equip: 4, unequip: 2, item: 4, rel: 2, stat: 4, loot: 4 });
+const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 4, heal: 3 });
+// 剧情回血点数上限（百分比为 1–100）；不设每楼上限（助手 10-29）。
+const HEAL_MAX = 9999;
 
-// equip|角色|名称|部位|简述、unequip|角色|名称、item|角色|名称|数量|简述（数量缺省为 1）。
+// 末栏稀有度：留空时不带 rarity 键（走旧路径），写了未登记的稀有度整条拒收。
+function rarityIn(value) {
+    const word = String(value ?? '').trim().toLowerCase();
+    if (!word) return { ok: true, value: null };
+    return Object.hasOwn(COMBAT_RARITY_WORDS, word) ? { ok: true, value: COMBAT_RARITY_WORDS[word] } : invalid('rarity', 'unknown-rarity');
+}
+const withRarity = (value, rarity) => (rarity ? { ...value, rarity } : value);
+
+// equip|角色|名称|部位|简述|稀有度、unequip|角色|名称、item|角色|名称|数量|简述|稀有度（数量缺省为 1，稀有度可省略）。
 function parseGear(kind, base, fields) {
     const name = textIn('name', fields[1], NAME_MAX, true);
     if (!name.ok) return name;
@@ -153,13 +168,17 @@ function parseGear(kind, base, fields) {
         if (!word) return invalid('slot', 'required');
         if (!Object.hasOwn(COMBAT_GEAR_SLOTS, word)) return invalid('slot', 'unknown-slot');
         const description = textIn('description', fields[3], TEXT_MAX, false);
-        return description.ok ? { ok: true, value: { ...value, slot: COMBAT_GEAR_SLOTS[word], description: description.value } } : description;
+        if (!description.ok) return description;
+        const rarity = rarityIn(fields[4]);
+        return rarity.ok ? { ok: true, value: withRarity({ ...value, slot: COMBAT_GEAR_SLOTS[word], description: description.value }, rarity.value) } : rarity;
     }
     const rawCount = String(fields[2] ?? '').trim();
     const count = rawCount ? intIn(rawCount, 1, COMBAT_ITEM_COUNT_MAX) : 1;
     if (count === null) return invalid('count', 'invalid-count');
     const description = textIn('description', fields[3], TEXT_MAX, false);
-    return description.ok ? { ok: true, value: { ...value, count, description: description.value } } : description;
+    if (!description.ok) return description;
+    const rarity = rarityIn(fields[4]);
+    return rarity.ok ? { ok: true, value: withRarity({ ...value, count, description: description.value }, rarity.value) } : rarity;
 }
 
 function parseGrowth(kind, fields) {
@@ -177,6 +196,15 @@ function parseGrowth(kind, fields) {
         const set = String(fields[3] ?? '').trim() || 'main';
         if (set !== 'main' && set !== 'reserve') return invalid('set', 'unknown-set');
         return { ok: true, value: { ...base, reportId, slot, set } };
+    }
+    // heal|角色|恢复量|原因：恢复量写点数，或带 % 写生命上限的百分比（全角数字与 ％ 都认）。
+    if (kind === 'heal') {
+        const raw = toHalfDigits(fields[1] ?? '').trim().replace(/％/g, '%');
+        const percent = raw.endsWith('%');
+        const amount = intIn(percent ? raw.slice(0, -1) : raw, 1, percent ? 100 : HEAL_MAX);
+        if (amount === null) return invalid('amount', 'invalid-amount');
+        const reason = textIn('reason', fields[2], TEXT_MAX, false);
+        return reason.ok ? { ok: true, value: { ...base, amount, mode: percent ? 'percent' : 'flat', reason: reason.value } } : reason;
     }
     if (kind === 'exp') {
         const amount = intIn(fields[1], 1, COMBAT_TAG_LIMITS.expMax);
@@ -206,7 +234,11 @@ function parseGrowth(kind, fields) {
     const skill = textIn('skill', fields[1], NAME_MAX, true);
     if (!skill.ok) return skill;
     const description = textIn('description', fields[2], TEXT_MAX, false);
-    return description.ok ? { ok: true, value: { ...base, skill: skill.value, description: description.value } } : description;
+    if (!description.ok) return description;
+    const value = { ...base, skill: skill.value, description: description.value };
+    if (kind !== 'learn') return { ok: true, value };
+    const rarity = rarityIn(fields[3]);
+    return rarity.ok ? { ok: true, value: withRarity(value, rarity.value) } : rarity;
 }
 
 function parseAwaken(fields) {

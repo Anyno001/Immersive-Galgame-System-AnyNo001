@@ -5,7 +5,8 @@ import { COMBAT_RULES, cardCopyLimit } from '../../combat/rules.js';
 import { hash32 } from '../../combat/random.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { AWAKEN_TYPE_NAMES, injuryLevel } from '../../combat/report.js';
-import { CARD_TYPE_LABELS, cardArtSvg, describeEffectParts, describeEffects } from './combat-card-art.js';
+import { CARD_TYPE_LABELS, cardArtSvg, describeEffectParts, describeEffects, describeKeywordParts, describeTrigger } from './combat-card-art.js';
+import { cardMotifSvg } from './combat-card-motifs.js';
 import { scalingMarks } from '../../combat/card-scaling.js';
 import { ABILITY_LABELS } from '../../combat/abilities.js';
 
@@ -32,9 +33,17 @@ export function cardScalingView(card) {
     };
 }
 
+// 牌面效果说明片段：换算过的卡沿用 cardScalingView；未换算的卡只在说明里有带注释的关键字（消耗）时给 textParts，其余卡手牌视图形状不变。
+export function cardTextView(card) {
+    const scaled = cardScalingView(card);
+    if (scaled.textParts) return scaled;
+    const parts = describeEffectParts(card?.effects);
+    return parts.some((p) => p.tip) ? { textParts: parts } : {};
+}
+
 // 战斗面板的纯视图模型：会话快照 → 战前 / 对局 / 结算所需字段；不操作 DOM。
 // 是否可出牌只以引擎 legalActions 为准，界面不另算规则。
-export const COMBAT_STATUS_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '力量', dexterity: '敏捷', poison: '中毒', regen: '再生', thorns: '荆棘', intangible: '无形', 'no-draw': '禁抽', endure: '不屈' });
+export const COMBAT_STATUS_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '攻击力', dexterity: '防御力', poison: '中毒', regen: '再生', thorns: '荆棘', intangible: '无形', 'no-draw': '禁抽', endure: '不屈', artifact: '人工制品', frail: '脆弱' });
 export const COMBAT_INTENT_LABELS = Object.freeze({ attack: '攻击', defend: '防御', buff: '强化', debuff: '削弱', heal: '治疗', special: '特殊' });
 export const COMBAT_OUTCOME_LABELS = Object.freeze({ victory: '胜利', defeat: '败北', escape: '撤退' });
 // 战斗成就牌子：标题与台词（判定见 combat/feats.js）。
@@ -85,26 +94,99 @@ export function unitView(state, id) {
     };
 }
 
+// v4 待选阶段：引擎 state.pending 属于操控角色时返回 { kind 用途, count 选几张, options 候选手牌实例 }，否则 null。
+export function pendingChoice(state) {
+    const p = state?.pending;
+    return p && p.unitId === state.controlledId && Array.isArray(p.options)
+        ? { kind: p.kind, count: p.count, options: p.options.slice() } : null;
+}
+
+// v4 人物特性圆球（助手 10-28）：只放操控角色的主动特性（固有人物技能与抽到的主动，最多 2 个），固有在前；旧战斗没有 traits 时只有人物技能一颗。
+// 费用、本回合已用、可用（来自 legal，抽到的带 skillId）与选目标信息，与人物技能同口径；icon 按名称与效果模糊匹配卡面纹样。被动等其他技能在头像详情里（unitDetailView）。
+function traitOrbs(state, hero, legal) {
+    const list = Array.isArray(hero.traits) ? hero.traits
+        : hero.heroSkill ? [{ id: hero.heroSkill.id, kind: 'active', innate: true, name: hero.heroSkill.name }] : [];
+    return list.filter((t) => t.kind === 'active').map((t) => {
+        const base = { id: t.id, kind: t.kind, name: t.name || '', rarity: t.rarity || '', innate: t.innate === true, origin: t.origin || '' };
+        const skill = t.skill || hero.heroSkill;
+        if (!skill) return null;
+        const skillId = t.skill ? t.skill.id : undefined;
+        const acts = legal.filter((a) => a.type === 'hero-skill' && a.skillId === skillId);
+        const targets = acts.map((a) => a.targetId).filter((x) => x !== undefined);
+        return {
+            ...base, ...(skillId ? { skillId } : {}), cost: t.skill ? t.skill.cost : COMBAT_RULES.heroSkillCost, text: describeEffects(skill.effects),
+            used: t.skill ? (hero.traitSkillsUsed || []).includes(skillId) : hero.heroSkillUsed === true, needsTarget: effectsNeedTarget(skill.effects),
+            targets, affects: targets.length ? [] : affectedIds(state, hero, skill.effects), usable: acts.length > 0,
+            icon: cardMotifSvg({ id: skill.id, name: base.name || skill.name, type: 'skill', effects: skill.effects }),
+        };
+    }).filter(Boolean);
+}
+
+// 单位详情（助手 10-28：点头像阅读）：卡组角色的被动按人物特性（个人被动与抽到的被动特性）/ 职业 / 装备分组（setup 的被动带 source；旧战斗没有时归入「被动」），
+// 非操控的卡组角色另列主动；技能角色与敌人列技能（意图、绝招、冷却）、被动与常驻效果（source 为 affix），另列尚未触发的阶段。rarity 为 innate（固有）或特性稀有度。
+const PASSIVE_SOURCES = Object.freeze(['personal', 'trait', 'class', 'gear']);
+const passiveItem = (p, t) => ({ name: p.name || t?.name || '', meta: describeTrigger(p.trigger, p.cardType), text: describeEffects(p.effects),
+    ...(t ? { rarity: t.innate ? 'innate' : t.rarity || '' } : {}) });
+const skillItem = (s) => ({ name: s.name || '', text: describeEffects(s.effects),
+    meta: [COMBAT_INTENT_LABELS[s.intent] || '', s.ultimate ? '绝招' : '', s.cooldown ? `冷却 ${s.cooldown} 回合` : ''].filter(Boolean).join(' · ') });
+export function unitDetailView(state, unitId) {
+    const u = state?.units?.[unitId];
+    if (!u) return null;
+    const groups = [];
+    const add = (label, items) => { if (items.length) groups.push({ label, items }); };
+    const traitOf = new Map((u.traits || []).filter((t) => t.passiveId).map((t) => [t.passiveId, t]));
+    const sourceOf = (p) => p.source || (traitOf.has(p.id) ? (traitOf.get(p.id).innate ? 'personal' : 'trait') : 'other');
+    const passives = u.passives || [];
+    if (u.kind === 'deck') {
+        if (unitId !== state.controlledId) {
+            add('主动', traitOrbs(state, u, []).map((t) => ({ name: t.name, meta: `消耗 ${t.cost} 点能量`, text: t.text, rarity: t.innate ? 'innate' : t.rarity })));
+        }
+        const of = (...sources) => passives.filter((p) => sources.includes(sourceOf(p)));
+        add('人物特性', of('personal', 'trait').map((p) => passiveItem(p, traitOf.get(p.id))));
+        add('职业', of('class').map((p) => passiveItem(p)));
+        add('装备', of('gear').map((p) => passiveItem(p)));
+        add('被动', passives.filter((p) => !PASSIVE_SOURCES.includes(sourceOf(p))).map((p) => passiveItem(p)));
+    } else {
+        add('技能', (u.skills || []).map(skillItem));
+        add('被动', passives.filter((p) => p.source !== 'affix').map((p) => passiveItem(p)));
+        add('常驻效果', passives.filter((p) => p.source === 'affix').map((p) => passiveItem(p)));
+    }
+    const phases = (u.phases || []).slice(u.phasesApplied || 0);
+    add('阶段', phases.map((ph) => ({ name: `生命低于 ${ph.hpBelowPct}%`, meta: '',
+        text: [...(ph.addSkills || []), ...(ph.passives || [])].map((x) => x.name).filter(Boolean).join('、') })));
+    return { id: u.id, name: u.name, side: u.side, groups };
+}
+
 export function battleView(state, legal = []) {
     const hero = state.units[state.controlledId];
     const pile = state.piles[hero.id] || { draw: [], hand: [], discard: [], exhaust: [] };
     const plays = legal.filter((a) => a.type === 'play');
+    const choice = pendingChoice(state);
+    const choosable = new Set(choice ? choice.options : []);
     const hand = pile.hand.map((inst) => {
         const card = cardView(state, inst);
         if (!card) return null;
         const mine = plays.filter((a) => a.inst === inst);
         const targets = mine.map((a) => a.targetId).filter((t) => t !== undefined);
+        // v4：关键字与被弃时说明（keywordParts 带可点注释）、临时牌标记、减费前的原费用；没有时不写字段，旧手牌视图形状不变。
+        const keywordParts = describeKeywordParts(card);
+        const keywords = keywordParts.map((p) => p.text).join('');
         return {
             inst, id: card.id, name: card.name, type: card.type, cost: card.cost, upgraded: card.upgraded, rarity: card.rarity || '',
             typeLabel: CARD_TYPE_LABELS[card.type] || '', text: describeEffects(card.effects), art: cardArtSvg(card),
             affordable: canAfford(card, hero.energy), needsTarget: effectsNeedTarget(card.effects),
             targets, affects: targets.length ? [] : affectedIds(state, hero, card.effects), playable: mine.length > 0,
-            ...cardScalingView(card),
+            ...(keywords ? { keywords, keywordParts } : {}), ...(card.temp ? { temp: true } : {}),
+            // 待选阶段的候选牌；不在待选阶段时不写字段。
+            ...(choosable.has(inst) ? { choosable: true } : {}),
+            // 费用确有变化时才给原费用（0 费牌被减费仍是 0，不显示）。
+            ...(card.baseCost !== undefined && card.baseCost !== card.cost ? { baseCost: card.baseCost } : {}),
+            ...cardTextView(card),
         };
     }).filter(Boolean);
     const side = (s) => state.order.filter((id) => state.units[id].side === s).map((id) => unitView(state, id));
     // 人物技能：可用与否只看 legal 里的 hero-skill 动作；旧档案没有技能时为 null。
-    const skillActs = legal.filter((a) => a.type === 'hero-skill');
+    const skillActs = legal.filter((a) => a.type === 'hero-skill' && a.skillId === undefined);
     const hs = hero.heroSkill;
     const skillTargets = skillActs.map((a) => a.targetId).filter((t) => t !== undefined);
     const heroSkill = hs ? {
@@ -122,10 +204,19 @@ export function battleView(state, legal = []) {
         turn: state.turn, phase: state.phase, outcome: state.outcome, energy: hero.energy, energyPerTurn: hero.energyPerTurn,
         piles: { draw: pile.draw.length, discard: pile.discard.length, exhaust: pile.exhaust.length },
         hand, allies: side('ally'), enemies: side('enemy'), heroId: hero.id, heroSkill, awaken,
+        // v4 人物特性圆球：操控角色的主动与被动特性（固有在前）。
+        traits: traitOrbs(state, hero, legal),
         // 一次性道具：只在 setup 带道具时给出；可用与否只看 legal 里的 item 动作（每回合 1 次、余量 > 0）。
-        items: state.items ? state.items.list.map((i) => ({ itemId: i.itemId, name: i.name, count: i.count, text: describeEffects(i.effects),
-            usable: legal.some((a) => a.type === 'item' && a.itemId === i.itemId) })) : [],
+        // targets 为可选目标（对敌方的单体道具为敌人，回复 / 格挡 / 净化为存活的己方单位）；没有可选目标时 affects 为承受方。
+        items: state.items ? state.items.list.map((i) => {
+            const acts = legal.filter((a) => a.type === 'item' && a.itemId === i.itemId);
+            const targets = acts.map((a) => a.targetId).filter((x) => x !== undefined);
+            return { itemId: i.itemId, name: i.name, count: i.count, text: describeEffects(i.effects),
+                targets, affects: targets.length ? [] : affectedIds(state, hero, i.effects), usable: acts.length > 0 };
+        }) : [],
         canEndTurn: legal.some((a) => a.type === 'end-turn'), canEscape: legal.some((a) => a.type === 'escape'),
+        // 待选阶段（打出弃牌 / 复制 / 减费且要玩家选牌时）：没有待选时不写字段，旧视图形状不变。
+        ...(choice ? { choice } : {}),
         // 行动顺序槽：引擎按行动值推演的接下来几次出手（出牌阶段首位为操控角色），同一单位可出现多次。
         order: upcomingActors(state, COMBAT_ORDER_COUNT).map((id) => ({ id, name: state.units[id].name, side: state.units[id].side, controlled: id === state.controlledId })),
         // 行动条：每个存活单位沿线的进度（0 起点、1 出手点），面板按此定位头像；出牌阶段操控角色停在出手点。
@@ -133,8 +224,30 @@ export function battleView(state, legal = []) {
     };
 }
 
-// 选中标记：人物技能等待选目标时用这个值占 selected，与卡牌实例 ID（含 #）不会冲突。
+// 选中标记：人物技能等待选目标时用这个值占 selected，与卡牌实例 ID（含 #）不会冲突；抽到的主动特性为 `hero-skill:<skillId>`。
 export const HERO_SKILL_SELECTION = 'hero-skill';
+export const skillSelection = (skillId) => (skillId ? `${HERO_SKILL_SELECTION}:${skillId}` : HERO_SKILL_SELECTION);
+export const isSkillSelection = (sel) => sel === HERO_SKILL_SELECTION || (typeof sel === 'string' && sel.startsWith(`${HERO_SKILL_SELECTION}:`));
+export const selectionSkillId = (sel) => (isSkillSelection(sel) && sel !== HERO_SKILL_SELECTION ? sel.slice(HERO_SKILL_SELECTION.length + 1) : undefined);
+
+// 选中的主动特性的视图（含 targets 与 affects）：固有人物技能没有 traits 圆球时回落到 heroSkill。
+export function selectedSkillView(battle, sel) {
+    if (!isSkillSelection(sel)) return null;
+    const skillId = selectionSkillId(sel);
+    return (battle?.traits || []).find((t) => t.kind === 'active' && t.skillId === skillId)
+        || (skillId === undefined ? battle?.heroSkill || null : null);
+}
+
+// 道具等待选目标时的选中标记 `item:<itemId>`（与卡牌实例 ID、人物技能标记不冲突）。
+export const ITEM_SELECTION = 'item';
+export const itemSelection = (itemId) => `${ITEM_SELECTION}:${itemId}`;
+export const isItemSelection = (sel) => typeof sel === 'string' && sel.startsWith(`${ITEM_SELECTION}:`);
+export const selectionItemId = (sel) => (isItemSelection(sel) ? sel.slice(ITEM_SELECTION.length + 1) : undefined);
+// 选中的道具的视图（含 targets 与 affects）。
+export function selectedItemView(battle, sel) {
+    const itemId = selectionItemId(sel);
+    return itemId === undefined ? null : (battle?.items || []).find((i) => i.itemId === itemId) || null;
+}
 
 // 道具请求 → 合法动作；只剩一个目标（或不需要目标）时直接选中。
 export function resolveItem(legal, itemId, targetId) {
@@ -147,9 +260,9 @@ export function resolveItem(legal, itemId, targetId) {
     return hit ? { ok: true, action: hit } : { ok: false, reason: 'combat-target-invalid' };
 }
 
-// 人物技能请求 → 合法动作。规则同出牌：只剩一个目标时自动选中。
-export function resolveHeroSkill(legal, targetId) {
-    const acts = (legal || []).filter((a) => a.type === 'hero-skill');
+// 人物技能 / 主动特性请求 → 合法动作（skillId 缺省为固有人物技能）。规则同出牌：只剩一个目标时自动选中。
+export function resolveHeroSkill(legal, targetId, skillId) {
+    const acts = (legal || []).filter((a) => a.type === 'hero-skill' && a.skillId === skillId);
     if (!acts.length) return { ok: false, reason: 'combat-hero-skill-unusable' };
     if (targetId === undefined || targetId === null || targetId === '') {
         return acts.length === 1 ? { ok: true, action: acts[0] } : { ok: false, reason: 'combat-target-required', targets: acts.map((a) => a.targetId) };
@@ -173,7 +286,9 @@ export function resolvePlay(legal, inst, targetId) {
 export function lobbyView(session) {
     const lobby = session?.lobby;
     if (!lobby) return null;
-    const allies = lobby.allies.map((v) => ({ id: v.id, name: v.name, level: v.level, kind: v.kind, className: v.className || '', controllable: lobby.controllable.includes(v.id) }));
+    // 开战生命（持续伤势与难度上限已计入）：会话没有 vitals（旧会话）时不带字段。
+    const vitalsOf = (id) => { const x = lobby.vitals?.[id]; return x ? { hp: x.hp, maxHp: x.maxHp } : {}; };
+    const allies = lobby.allies.map((v) => ({ id: v.id, name: v.name, level: v.level, kind: v.kind, className: v.className || '', controllable: lobby.controllable.includes(v.id), ...vitalsOf(v.id) }));
     // 敌人外观格位：与开战后 session 的 enemyUnits 同一规则（档案 art 优先，否则按原名与档位推断）。
     const profileOf = (name) => (lobby.enemies instanceof Map ? lobby.enemies.get(name) : null);
     // 每个敌人带自己的档位（档案优先，否则取开战标签的档位）：战前首领档放大只看这一项。
@@ -185,7 +300,7 @@ export function lobbyView(session) {
     const tierLabel = Object.hasOwn(COMBAT_RULES.tiers, encounterTier) ? COMBAT_RULES.tiers[encounterTier].label : '';
     // 胜利奖励（会话 reward：ready / pending / failed）；没有时不加字段。
     const reward = session.reward ? { reward: { ...session.reward } } : {};
-    return { encounter: session.start?.encounter || '', tier: encounterTier, tierLabel, heroId: lobby.heroId, allies, enemies, absent: [...lobby.absent], skipped: [...(session.skipped || [])], ...reward };
+    return { encounter: session.start?.encounter || '', tier: encounterTier, tierLabel, heroId: lobby.heroId, allies, enemies, absent: [...lobby.absent], downed: [...(lobby.downed || [])], skipped: [...(session.skipped || [])], ...reward };
 }
 
 // events 为本场引擎事件：只用来推导成就，取到成就时才追加 feats（每项带标题与台词）。

@@ -8,6 +8,7 @@ import { collectGrammarBlocks } from './tag-grammar.js';
 import { COMIC_TONE_KINDS, COMIC_TONE_LABELS } from './comic-settings.js';
 import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
+import { COMBAT_DIFFICULTY_KEYS, COMBAT_RULES } from '../../combat/rules.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -88,7 +89,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
     const itemFx = featureRow(more, 'item-fx', `${p}.itemFx.enabled`, s.itemFx.enabled, '获得物品演出', '', checkbox(`${p}.itemFx.mention`, s.itemFx.mention, '正文里点亮已获得的物品名'));
     const battleFx = featureRow(more, 'battle-fx', `${p}.battleFx.enabled`, s.battleFx.enabled, '战斗演出', s.combatExpansion.enabled ? '已由战斗扩展接管' : '', checkbox(`${p}.battleFx.letterbox`, s.battleFx.letterbox, '战斗时加电影黑边') + checkbox(`${p}.battleFx.dash`, s.battleFx.dash, '出手冲刺'));
     const cx = s.combatExpansion;
-    const combat = featureRow(more, 'combat-expansion', `${p}.combatExpansion.enabled`, cx.enabled, '卡牌战斗', '', field(`${p}.combatExpansion.difficulty`, '难度', segmentedInput(`${p}.combatExpansion.difficulty`, cx.difficulty, [['easy', '简单'], ['normal', '普通'], ['hard', '困难']], '难度'))
+    const combat = featureRow(more, 'combat-expansion', `${p}.combatExpansion.enabled`, cx.enabled, '卡牌战斗', '', field(`${p}.combatExpansion.difficulty`, '难度', selectInput(`${p}.combatExpansion.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
         + field(`${p}.combatExpansion.reportDetail`, '战报详略', segmentedInput(`${p}.combatExpansion.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略')));
     // 非人演出跟随战斗演出：总开关关闭时置灰，不另计入档位。
     const battleCreature = perfItem(more, 'battle-creature', checkbox(`${p}.battleFx.creature`, s.battleFx.creature, '非人演出', !s.battleFx.enabled));

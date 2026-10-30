@@ -1,6 +1,6 @@
 import { esc } from './reader-value-utils.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
-import { HERO_SKILL_SELECTION } from './combat-panel-model.js';
+import { isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
 import { LIVE_ICONS } from './danmaku-icons.js';
 import { RECORD_ICONS } from './record-icons.js';
 
@@ -65,6 +65,7 @@ const REASON_TEXT = Object.freeze({
     'item-empty': '这个道具已经用完',
     'item-unavailable': '本场没有这个道具',
     'combat-item-unusable': '本回合已经用过道具或道具已用完',
+    'combat-items-empty': '没有可用的道具',
     'insufficient-energy': '能量不足',
     'combat-target-invalid': '目标无效',
     'combat-reward-unavailable': '没有可领取的奖励',
@@ -88,6 +89,13 @@ const REASON_TEXT = Object.freeze({
     'combat-reroll-used': '本场已经重抽过',
     'combat-reroll-unavailable': '本场不能重抽',
     'combat-points-insufficient': '积分不足',
+    'combat-choice-pending': '先选完牌',
+    'combat-choice-invalid': '这张牌不能选',
+    'combat-choice-full': '已选够张数，先取消一张',
+    'combat-choice-count': '还没选够张数',
+    'choice-pending': '先选完牌',
+    'invalid-choice': '选牌无效',
+    'no-choice-pending': '现在不需要选牌',
 });
 
 export function combatReasonText(reason) {
@@ -148,7 +156,8 @@ const statusesHtml = (list) => (list.length
 
 // 立绘：素材库有图时用 <img>（地址已经 safePortraitUrl 过滤）；没有图的敌人用通用敌人图集的一格（cell 只给图集与格位坐标，图集地址在样式表里）；其余用程序剪影。
 const artHtml = (cell) => `<span class="igs-combat-art" data-atlas="${esc(cell.atlas)}" style="--ea-x:${esc(cell.x)};--ea-y:${esc(cell.y)}" aria-hidden="true"></span>`;
-const portraitHtml = (name, side, url, cell = null) => `<div class="igs-combat-portrait" data-side="${esc(side)}">${url
+// attrs：战斗中不在选目标时头像可点开单位详情（unit-info）；战前对阵不带。
+const portraitHtml = (name, side, url, cell = null, attrs = '') => `<div class="igs-combat-portrait" data-side="${esc(side)}"${attrs}>${url
     ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : cell ? artHtml(cell) : portraitSilhouetteSvg(name)}</div>`;
 // 我方立绘框色调：只认 rgb(r,g,b)（各分量为 0–255 的整数），转成 CSS 变量用的「r,g,b」；其余输入一律返回空串，框用默认暖金。
 export function tintTriplet(value) {
@@ -165,44 +174,78 @@ function intentHtml(it) {
 }
 
 // 单位块：敌人是站立立绘、意图浮在上方；我方是圆框头像（样式层按 size 裁成主战者半身 / 队友头肩）。名字 / 格挡 / 血条 / 状态在下方。size 为 sm（队友）/ md（敌人）/ lg（主战者）。
+// 不在选目标时点头像弹出该单位的被动、技能与阶段（助手 10-28）；选目标时整块是目标。
 function unitHtml(u, { targetable = false, portrait = '', art = null, size = 'md' } = {}) {
     const intent = u.intent ? intentHtml(u.intent) : '';
     const block = u.block ? `<span class="igs-combat-block" role="img" aria-label="格挡 ${u.block}">${RECORD_ICONS.armor}${u.block}</span>` : '';
     const statuses = statusesHtml(u.statuses);
     const badges = block || statuses ? `<div class="igs-combat-unit-badges">${block}${statuses}</div>` : '';
     const attrs = targetable ? ` data-combat-act="target" data-combat-id="${esc(u.id)}" role="button" tabindex="0"` : '';
+    const info = targetable ? '' : ` data-combat-act="unit-info" data-combat-id="${esc(u.id)}" data-unit-info="${esc(u.id)}" role="button" tabindex="0" aria-label="${esc(`查看${u.name}的技能与被动`)}"`;
     return `<div class="igs-combat-unit${u.alive ? '' : ' is-down'}${u.controlled ? ' is-controlled' : ''}${targetable ? ' is-targetable' : ''}" data-unit="${esc(u.id)}" data-side="${esc(u.side)}" data-size="${esc(size)}"${attrs}>`
         + intent
-        + portraitHtml(u.name, u.side, portrait, art)
+        + portraitHtml(u.name, u.side, portrait, art, info)
         + `<div class="igs-combat-unit-info">${badges}<div class="igs-combat-unit-name"><span>${esc(u.name)}</span></div>${hpBar(u)}</div></div>`;
 }
 
-// 人物技能徽章：主战者半身像右侧一列的最上方，圆形深色底（与卡面同材质）+ 程序图标，左上角是与卡牌、能量相同的暖色费用圆标，右侧为技能名；效果放在 aria-label / title；可用与否只看视图里的 usable（来自 legal）。
-function heroSkillHtml(hs, selected) {
-    if (!hs) return '';
-    const cls = `igs-combat-hero-skill${hs.usable ? '' : ' is-disabled'}${hs.used ? ' is-used' : ''}${selected ? ' is-selected' : ''}`;
-    const label = `人物技能 ${hs.name} 消耗 ${hs.cost} 点能量 ${hs.text}${hs.used ? ' 本回合已使用' : ''}`;
-    const tip = `${hs.name}（消耗 ${hs.cost} 点能量）${hs.used ? '本回合已使用' : hs.text}`;
-    return `<button type="button" class="${cls}" data-combat-act="hero-skill"${hs.usable ? '' : ' aria-disabled="true"'} aria-label="${esc(label)}" title="${esc(tip)}">`
-        + `<span class="igs-combat-hero-skill-orb" aria-hidden="true">${RECORD_ICONS.sparkle}<span class="igs-combat-hero-skill-cost">${esc(hs.cost)}</span></span>`
-        + `<span class="igs-combat-hero-skill-name" aria-hidden="true">${esc(hs.name)}</span></button>`;
+// 主动特性按钮（助手 10-28）：只放主动特性（最多 2 个），在主战者头像右上方外侧并排，固有在前；圆角方形深色底（与卡面同材质）+ 按名称与效果匹配的卡面纹样，抽到的特性细环按稀有度着色。
+// 右上角暖色费用圆标，点选即选中（选目标与出牌共用 selected / 取消）并弹出详情，也可像手牌一样拖到目标上发动；可用与否只看 usable（来自 legal）。被动在头像详情里。
+function traitOrbHtml(t, selected) {
+    const rarity = t.rarity ? ` data-rarity="${esc(t.rarity)}"` : '';
+    const head = `${t.innate ? '固有' : LOOT_RARITY_LABELS[t.rarity] || ''}主动特性 ${t.name}`;
+    const icon = `<span class="igs-combat-trait-orb" aria-hidden="true">${t.icon || RECORD_ICONS.sparkle}`;
+    const cls = `igs-combat-trait is-active${t.usable ? '' : ' is-disabled'}${t.used ? ' is-used' : ''}${selected === skillSelection(t.skillId) ? ' is-selected' : ''}`;
+    const label = `${head} 消耗 ${t.cost} 点能量 ${t.text}${t.used ? ' 本回合已使用' : ''}`;
+    return `<button type="button" class="${cls}" data-combat-act="hero-skill"${t.skillId ? ` data-combat-id="${esc(t.skillId)}"` : ''} data-trait="${esc(t.id)}"${rarity}${t.usable ? '' : ' aria-disabled="true"'} aria-label="${esc(label)}">`
+        + `${icon}<span class="igs-combat-trait-cost">${esc(t.cost)}</span></span></button>`;
 }
 
-// 觉醒按钮：人物技能徽章上方，每场 1 次、不耗能量，用后消失；按类型着色（data-awaken）；台词与效果放在 aria-label / title；可用与否只看 usable（来自 legal）。
-// 道具栏：人物技能下方一排小圆钮，右上角为余量；用完的不再渲染；每回合 1 次，可用与否只看 usable（来自 legal）。
-function itemsHtml(items) {
+// 按钮组与主战者单位块并列放在头像框节点（.igs-combat-hero-figure）里、盖住头像区域（不嵌进可选为目标的单位块）；data-orbs 为颗数（纯数字），样式层把按钮并排在头像右上方外侧。
+function traitsHtml(traits, selected) {
+    const list = (Array.isArray(traits) ? traits : []).filter((t) => t.kind === 'active');
+    return list.length ? `<div class="igs-combat-trait-ring" role="group" aria-label="主动特性" data-orbs="${list.length}">${list.map((t) => traitOrbHtml(t, selected)).join('')}</div>` : '';
+}
+
+// 主动特性圆球的详情浮层（挂在圆球旁）：名称与稀有度（固有特性标「固有」）、能量与次数、效果、来历。被动在头像详情里（unitTipHtml）。
+export function traitTipHtml(t) {
+    if (!t) return '';
+    const tier = t.innate ? '固有' : LOOT_RARITY_LABELS[t.rarity] || '';
+    const meta = `主动 · 消耗 ${t.cost} 点能量 · 每回合一次${t.used ? ' · 本回合已使用' : ''}`;
+    return `<b class="igs-combat-trait-tip-name">${esc(t.name)}${tier ? `<i data-rarity="${esc(t.innate ? 'innate' : t.rarity)}">${esc(tier)}</i>` : ''}</b>`
+        + `<span class="igs-combat-trait-tip-meta">${esc(meta)}</span><span class="igs-combat-trait-tip-text">${esc(t.text)}</span>`
+        + (t.origin ? `<span class="igs-combat-trait-tip-origin">${esc(t.origin)}</span>` : '');
+}
+
+// 单位详情浮层（点头像，助手 10-28）：单位名，下面按组（人物特性 / 职业 / 装备 / 被动 / 主动 / 技能 / 阶段）列出；每项名称（特性标稀有度或「固有」）、时机或意图、效果。
+export function unitTipHtml(d) {
+    if (!d) return '';
+    const item = (x) => {
+        const tier = x.rarity === 'innate' ? '固有' : LOOT_RARITY_LABELS[x.rarity] || '';
+        return `<span class="igs-combat-unit-tip-item"><b>${esc(x.name)}${tier ? `<i data-rarity="${esc(x.rarity)}">${esc(tier)}</i>` : ''}</b>`
+            + `${x.meta ? `<span class="igs-combat-unit-tip-meta">${esc(x.meta)}</span>` : ''}${x.text ? `<span>${esc(x.text)}</span>` : ''}</span>`;
+    };
+    const groups = d.groups.map((g) => `<span class="igs-combat-unit-tip-group"><span class="igs-combat-unit-tip-label">${esc(g.label)}</span>${g.items.map(item).join('')}</span>`).join('');
+    return `<b class="igs-combat-trait-tip-name">${esc(d.name)}</b>${groups || '<span class="igs-combat-unit-tip-meta">没有被动或技能</span>'}`;
+}
+
+// 觉醒 / 道具：主战者头像左下角外侧两块竖排的小长方形文字按钮（觉醒在上、道具在下）。
+// 道具按钮点开 / 收起上方的道具列表（open 为面板记下的界面状态）：每项图标、名称、余量，点了直接使用；用完的不列；没有道具时按钮置灰；每回合 1 次，可用与否只看 usable（来自 legal）。
+function itemsHtml(items, open = false) {
     const list = (items || []).filter((i) => i.count > 0);
-    if (!list.length) return '';
-    return `<div class="igs-combat-items">${list.map((i) => `<button type="button" class="igs-combat-item${i.usable ? '' : ' is-disabled'}" data-combat-act="item" data-combat-id="${esc(i.itemId)}"${i.usable ? '' : ' aria-disabled="true"'}`
+    const shown = Boolean(open) && list.length > 0;
+    const menu = shown ? `<div class="igs-combat-item-menu" role="menu" aria-label="道具">${list.map((i) => `<button type="button" role="menuitem" class="igs-combat-item${i.usable ? '' : ' is-disabled'}" data-combat-act="item" data-combat-id="${esc(i.itemId)}"${i.usable ? '' : ' aria-disabled="true"'}`
         + ` aria-label="${esc(`道具 ${i.name} 剩余 ${i.count} 个 ${i.text}，不消耗能量，每回合一次`)}" title="${esc(`${i.name} ×${i.count}：${i.text}`)}">`
-        + `<span class="igs-combat-item-orb" aria-hidden="true">${RECORD_ICONS.potion}<span class="igs-combat-item-count">${esc(i.count)}</span></span></button>`).join('')}</div>`;
+        + `<span class="igs-combat-item-icon" aria-hidden="true">${RECORD_ICONS.potion}</span><span class="igs-combat-item-name">${esc(i.name)}</span><span class="igs-combat-item-count">${esc(i.count)}</span></button>`).join('')}</div>` : '';
+    return `<div class="igs-combat-items${shown ? ' is-open' : ''}">${menu}<button type="button" class="igs-combat-ctl${shown ? ' is-open' : ''}${list.length ? '' : ' is-disabled'}" data-combat-act="items" aria-haspopup="menu" aria-expanded="${shown ? 'true' : 'false'}"${list.length ? '' : ' aria-disabled="true"'}>`
+        + '<span class="igs-combat-ctl-label">道具</span></button></div>';
 }
 
+// 觉醒：每场 1 次、不耗能量，只在可用（usable 来自 legal）时出现，用后或不可用时不渲染；按类型着色（data-awaken），背景里有浮动特效层；台词与效果放在 aria-label / title。
 function awakenHtml(aw) {
-    if (!aw || aw.used) return '';
+    if (!aw || aw.used || !aw.usable) return '';
     const tip = `觉醒·${aw.label}${aw.line ? `『${aw.line}』` : ''}：${aw.text}`;
-    return `<button type="button" class="igs-combat-awaken${aw.usable ? '' : ' is-disabled'}" data-combat-act="awaken" data-awaken="${esc(aw.type)}"${aw.usable ? '' : ' aria-disabled="true"'} aria-label="${esc(`${tip}，不消耗能量，每场一次`)}" title="${esc(tip)}">`
-        + `<span class="igs-combat-awaken-orb" aria-hidden="true">${RECORD_ICONS.flame}</span><span class="igs-combat-awaken-name" aria-hidden="true">觉醒·${esc(aw.label)}</span></button>`;
+    return `<button type="button" class="igs-combat-ctl igs-combat-awaken" data-combat-act="awaken" data-awaken="${esc(aw.type)}" aria-label="${esc(`${tip}，不消耗能量，每场一次`)}" title="${esc(tip)}">`
+        + '<span class="igs-combat-ctl-fx" aria-hidden="true"></span><span class="igs-combat-ctl-label">觉醒</span></button>';
 }
 
 // 握牌扇形：以手牌中点为轴，越靠两侧旋转越大、位置越低；张数越多每张的角度越小。只输出数值，不含档案文本。
@@ -213,22 +256,33 @@ function fanStyle(i, n) {
     return `--fan-r:${rot.toFixed(1)}deg;--fan-y:${Math.round(rot * rot * 0.1)}px;--fan-n:${n}`;
 }
 
-function cardHtml(c, selected, i = 0, n = 1) {
-    const cls = `igs-combat-card${c.playable ? '' : ' is-disabled'}${selected === c.inst ? ' is-selected' : ''}${c.upgraded ? ' is-upgraded' : ''}`;
-    const label = `${c.name} 消耗 ${c.cost} 点能量 ${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
+// hovered：面板记录的指针所在手牌，重绘后的牌带 .is-hover 保持抬起。picks：待选阶段已选的候选牌实例（.is-chosen）；候选牌不置灰（.is-choosable）。
+function cardHtml(c, selected, i = 0, n = 1, hovered = '', picks = []) {
+    const live = c.playable || c.choosable;
+    const chosen = Boolean(c.choosable) && picks.includes(c.inst);
+    const cls = `igs-combat-card${live ? '' : ' is-disabled'}${selected === c.inst ? ' is-selected' : ''}${c.choosable ? ' is-choosable' : ''}${chosen ? ' is-chosen' : ''}${c.upgraded ? ' is-upgraded' : ''}${c.temp ? ' is-temp' : ''}${hovered && hovered === c.inst ? ' is-hover' : ''}`;
+    // 减费时附原费用；关键字（不能打出、固有、虚无、临时、被丢弃时）排在效果说明前。旧卡没有这些字段，标记与读屏文本不变。
+    const costNote = c.baseCost !== undefined ? `（原 ${c.baseCost}）` : '';
+    const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
     // 卡图 SVG 由 combat-card-art 只用程序常量与数值生成，不含档案文本，可直接拼入；
     // 本地卡面图（artUrl）已在面板层过滤协议，这里转义后写入 src：有图用图，无图回退 SVG。
-    return `<button type="button" class="${cls}" style="${fanStyle(i, n)}" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}${c.playable ? '' : ' aria-disabled="true"'} aria-label="${esc(label)}">`
-        + `<span class="igs-combat-card-cost" title="${esc(`消耗 ${c.cost} 点能量`)}">${esc(c.cost)}</span><span class="igs-combat-card-name">${esc(c.name)}${c.upgraded ? '+' : ''}</span>`
+    return `<button type="button" class="${cls}" style="${fanStyle(i, n)}" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}">`
+        + `<span class="igs-combat-card-cost${c.baseCost !== undefined && c.cost < c.baseCost ? ' is-down' : ''}" title="${esc(`消耗 ${c.cost} 点能量${costNote}`)}">${esc(c.cost)}</span><span class="igs-combat-card-name">${esc(c.name)}${c.upgraded ? '+' : ''}</span>`
         + `<span class="igs-combat-card-art">${c.artUrl ? `<img src="${esc(c.artUrl)}" alt="" decoding="async">` : c.art || ''}</span><span class="igs-combat-card-type">${esc(c.typeLabel || '')}</span>`
-        + `<span class="igs-combat-card-text">${cardTextHtml(c)}</span><span class="igs-combat-card-hit" aria-hidden="true"></span></button>`;
+        + `<span class="igs-combat-card-text">${c.keywords ? `<span class="igs-combat-card-kw">${Array.isArray(c.keywordParts) ? c.keywordParts.map(partHtml).join('') : esc(c.keywords)}</span>` : ''}${cardTextHtml(c)}</span><span class="igs-combat-card-hit" aria-hidden="true"></span></button>`;
 }
 
-// 卡牌属性性能：增强的数字青绿、减弱的数字灰色，带 data-scale-tip（点数字由面板弹出加成详情）；没有 textParts 时按原文本输出。
+// 牌面说明片段：增强的数字青绿、减弱的数字灰色；带 tip 的数字与关键字（固有、消耗等）带 data-scale-tip，点开由面板弹出加成详情或关键字注释。
+function partHtml(p) {
+    const tip = p.tip ? ` data-scale-tip="${esc(p.tip)}"` : '';
+    if (p.mark === 'up' || p.mark === 'down') return `<span class="igs-scale-${p.mark}"${tip}>${esc(p.text)}</span>`;
+    return tip ? `<span${tip}>${esc(p.text)}</span>` : esc(p.text);
+}
+
+// 没有 textParts 时按原文本输出。
 export function cardTextHtml(c) {
     if (!Array.isArray(c.textParts)) return esc(c.text || '');
-    return c.textParts.map((p) => (p.mark === 'up' || p.mark === 'down'
-        ? `<span class="igs-scale-${p.mark}"${p.tip ? ` data-scale-tip="${esc(p.tip)}"` : ''}>${esc(p.text)}</span>` : esc(p.text))).join('');
+    return c.textParts.map(partHtml).join('');
 }
 
 // 战前对阵（格斗游戏式）：铺满面板，顶部是遭遇名斜切横幅（带档位），中间 我方 · VS · 敌方（横屏左右、竖屏敌上我下，由样式层按面板方向切换），底部「跳过」与大号「开始战斗」。
@@ -239,7 +293,8 @@ const LOBBY_FOE_MAX = 5;
 // 敌人数达到此值时分前后两排，每排保持原立绘宽度。
 const LOBBY_FOE_ROWS_AT = 4;
 // 我方名牌一行：名字、Lv、职业各自成段，放不下的段整段换到被裁掉的第二行（样式层 .igs-combat-plate-row），不出现截断残片。
-const plateMeta = (a) => `<small>Lv${esc(a.level)}</small>${a.className ? `<small>${esc(a.className)}</small>` : ''}`;
+// 开战生命（持续伤势已计入）紧跟 Lv；没有生命数据时不画。
+const plateMeta = (a) => `<small>Lv${esc(a.level)}</small>${a.maxHp ? `<small data-hp="">生命 ${esc(a.hp)}/${esc(a.maxHp)}</small>` : ''}${a.className ? `<small>${esc(a.className)}</small>` : ''}`;
 const plateRow = (a) => `<span class="igs-combat-plate-row"><b>${esc(a.name)}</b>${plateMeta(a)}</span>`;
 // 胜利奖励：生成成功不显示；失败（生成失败、写库失败、重开未生成）只显示「奖励生成失败」与「重试」，不阻断开战；重试进行中显示「奖励生成中」。
 function lobbyRewardHtml(r, pending) {
@@ -280,15 +335,21 @@ function lobbyHtml(v) {
         + `<div class="igs-combat-lobby-vs" aria-hidden="true"><b>VS</b></div>`
         + `<div class="igs-combat-lobby-side is-enemy" data-n="${n}"${rows ? ' data-rows="2"' : ''} style="--n:${n};--k:${k}">${enemies}</div></div>`
         + lobbyRewardHtml(l.reward, v.pending)
+        // 倒下的队友：剧情回血前不参战，与未参战分两行列出。
+        + (l.downed?.length ? `<div class="igs-combat-row igs-combat-lobby-absent" data-kind="down"><span class="igs-combat-label">倒下</span>${l.downed.map((name) => `<span class="igs-combat-chip">${esc(name)}</span>`).join('')}</div>` : '')
         + (absent.length ? `<div class="igs-combat-row igs-combat-lobby-absent"><span class="igs-combat-label">未参战</span>${absent.map((name) => `<span class="igs-combat-chip">${esc(name)}</span>`).join('')}</div>` : '')
         + `<div class="igs-combat-actions">${btn('skip', '跳过战斗', { disabled: Boolean(v.pending) })}${btn('start', '开始战斗', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
 }
 
+// 待选阶段确认钮上的用途动词（引擎 pending.kind）。
+const CHOICE_VERB = Object.freeze({ discard: '弃掉', copy: '复制', 'cost-mod': '减费' });
+
 function battleHtml(v) {
     const b = v.battle;
-    const skillPicked = v.selected === HERO_SKILL_SELECTION;
-    // 选中后可点的单位：要选目标的牌 / 技能为可选目标；不选目标的为承受方（点其中任一个确认）。
-    const picked = skillPicked ? b.heroSkill : v.selected ? b.hand.find((c) => c.inst === v.selected) : null;
+    const skillPicked = isSkillSelection(v.selected);
+    // 选中后可点的单位：要选目标的牌 / 技能 / 道具为可选目标；不选目标的为承受方（点其中任一个确认）。
+    const picked = skillPicked ? selectedSkillView(b, v.selected) : isItemSelection(v.selected) ? selectedItemView(b, v.selected)
+        : v.selected ? b.hand.find((c) => c.inst === v.selected) : null;
     const targets = new Set(picked ? (picked.targets?.length ? picked.targets : picked.affects || []) : []);
     const pickable = (u) => !b.outcome && u.alive && targets.has(u.id);
     const ended = Boolean(b.outcome);
@@ -296,24 +357,33 @@ function battleHtml(v) {
     const arts = v.enemyArt || {};
     const hero = b.allies.find((u) => u.id === b.heroId) || b.allies.find((u) => u.controlled) || null;
     const mates = b.allies.filter((u) => u !== hero);
-    const hand = b.hand.map((c, i) => cardHtml(c, v.selected, i, b.hand.length)).join('');
+    // 待选阶段：v.chosen 为面板记下的已选候选牌（实例 ID）；回合按钮换成「弃掉 k/N」确认钮，选够张数才可点。
+    const choice = b.choice || null;
+    const picks = choice && Array.isArray(v.chosen) ? v.chosen : [];
+    const hand = b.hand.map((c, i) => cardHtml(c, v.selected, i, b.hand.length, v.hovered, picks)).join('');
     const foes = b.enemies.map((u) => unitHtml(u, { targetable: pickable(u), portrait: pics[u.name] || '', art: arts[u.name] || null })).join('');
     const matesHtml = mates.length ? `<div class="igs-combat-side is-ally">${mates.map((u) => unitHtml(u, { targetable: pickable(u), portrait: pics[u.name] || '', size: 'sm' })).join('')}</div>` : '';
-    const skillHtml = ended ? '' : heroSkillHtml(b.heroSkill, skillPicked);
+    // 旧视图没有 traits 时把人物技能当作一颗固有主动特性。
+    const skillHtml = ended ? '' : traitsHtml(b.traits || (b.heroSkill ? [{ ...b.heroSkill, kind: 'active', innate: true }] : []), v.selected);
     // 能量球是装着暖色液体的圆槽：液面高度 = 当前 / 每回合（--fill），用掉多少液面就降多少，液面有波纹；「能量 x/y」只在 aria-label。
-    // 能量圆标叠在主战者头像左上角；主战者右侧是人物技能徽章；牌堆数量在右下角回合组上方。
+    // 能量圆标叠在主战者头像左上角；主动特性按钮在主战者头像右上方外侧（挂在头像框节点里，窄面板停靠时控制器移到停靠区）；牌堆数量在右下角回合组上方。
     const fill = Number(b.energyPerTurn) > 0 ? Math.min(1, Math.max(0, Number(b.energy) / Number(b.energyPerTurn))) : 0;
     const energy = ended ? '' : `<div class="igs-combat-energy${Number(b.energy) > 0 ? '' : ' is-empty'}" role="img" aria-label="${esc(`能量 ${b.energy}/${b.energyPerTurn}`)}">`
         + `<span class="igs-combat-energy-orb" style="--fill:${fill.toFixed(3)}"><i class="igs-combat-energy-liquid" aria-hidden="true"></i><b>${esc(b.energy)}</b></span></div>`;
-    const controls = ended ? '' : `<div class="igs-combat-controls">${awakenHtml(b.awaken)}${skillHtml}${itemsHtml(b.items)}</div>`;
+    // 觉醒与道具都没有时不出空的控件列。
+    const ctrl = ended ? '' : `${awakenHtml(b.awaken)}${itemsHtml(b.items, v.itemsOpen)}`;
+    const controls = ctrl ? `<div class="igs-combat-controls">${ctrl}</div>` : '';
     const piles = `<div class="igs-combat-piles"><span>抽牌<b>${esc(b.piles.draw)}</b></span><span>弃牌<b>${esc(b.piles.discard)}</b></span></div>`;
-    // 主战者一组：圆框半身像（能量在左上）与技能 / 牌堆（贴在头像右侧）；队友小圆头像排在这一组之后。
-    const heroCore = `<div class="igs-combat-hero-core"><div class="igs-combat-hero-figure">${energy}${hero ? unitHtml(hero, { targetable: pickable(hero), portrait: pics[hero.name] || '', size: 'lg' }) : ''}</div>${controls}</div>`;
+    // 主战者一组：圆框半身像（能量在左上、主动特性圆球在右上方外侧、觉醒 / 道具在左下方圆框外沿，都挂在头像框节点里，不占一栏）；队友小圆头像排在这一组之后。
+    const heroCore = `<div class="igs-combat-hero-core"><div class="igs-combat-hero-figure">${energy}${hero ? unitHtml(hero, { targetable: pickable(hero), portrait: pics[hero.name] || '', size: 'lg' }) + skillHtml : ''}${controls}</div></div>`;
     // --n 是我方人数（纯数字）：竖向面板按它均分我方一排的立绘宽度。
     const heroZone = `<div class="igs-combat-hero" style="--n:${b.allies.length || 1}">${heroCore}${matesHtml}</div>`;
-    // 右下角回合操作组：撤退（透明底，只在允许撤退时出现）或选目标期间的取消，最右是结束回合；作为底栏网格区，不压手牌。
-    const side = v.selected ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? iconBtn('escape', '撤退', RECORD_ICONS.retreat) : '';
-    const turn = ended ? '' : `<div class="igs-combat-turn">${piles}<div class="igs-combat-turn-btns">${side}${iconBtn('end-turn', '结束回合', RECORD_ICONS.turnEnd, { primary: true, disabled: !b.canEndTurn })}</div></div>`;
+    // 右下角回合操作组：撤退（透明底，只在允许撤退时出现）或选目标期间的取消、抽牌 / 弃牌数量、结束回合；作为底栏网格区，不压手牌。
+    // 横向面板样式层竖排为撤退 / 取消、牌堆数量、结束回合；竖向 / 窄面板牌堆数量在上，撤退与结束回合同排。
+    const side = v.selected || picks.length ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? iconBtn('escape', '撤退', RECORD_ICONS.retreat) : '';
+    const turnBtn = choice ? btn('choose-confirm', `${CHOICE_VERB[choice.kind] || '选择'} ${picks.length}/${choice.count}`, { primary: true, disabled: picks.length !== choice.count })
+        : iconBtn('end-turn', '结束回合', RECORD_ICONS.turnEnd, { primary: true, disabled: !b.canEndTurn });
+    const turn = ended ? '' : `<div class="igs-combat-turn">${piles}<div class="igs-combat-turn-btns">${side}${turnBtn}</div></div>`;
     const foot = `<footer class="igs-combat-foot${ended ? ' is-ended' : ''}">${heroZone}${ended ? '' : `<div class="igs-combat-hand">${hand}</div><div class="igs-combat-dock"></div>`}${turn}</footer>`;
     // --n / data-n 是敌人数量（纯数字）：样式层按面板宽度与数量限制每个敌人的宽度，宽屏 1–2 名敌人按面板高度放大，竖屏多敌人时不换行溢出。
     const n = b.enemies.length || 1;

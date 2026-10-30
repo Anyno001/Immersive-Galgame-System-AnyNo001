@@ -20,8 +20,10 @@ const classDef = { kind: 'class', id: 'cls-blade', className: '剑士', archetyp
     classPool: [1, 2, 5, 6].map((n) => attack(`c${n}`)).concat([3, 4, 7, 8].map((n) => guard(`c${n}`))) };
 const heroDef = { kind: 'deck-character', id: 'pc-hero', name: '主角', classRef: 'cls-blade', base: { hp: 80 },
     personalPassive: passive('p-will', 'on-low-hp'), personalPool: [attack('m1'), guard('m2'), attack('m3'), guard('m4')], starterDeck: [...STARTER] };
+// 三个技能：已达 1 级普通档的技能数目标（skillTarget），准备时不补技能；补技能另有专门用例。
 const enemyDef = (name, amount) => ({ kind: 'enemy', id: enemyIdFor(name, 'normal'), name, tier: 'normal', base: { hp: 40 },
-    skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount }] }, { id: 'e2', name: '扑击', intent: 'attack', effects: [{ op: 'damage', amount }] }] });
+    skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount }] }, { id: 'e2', name: '扑击', intent: 'attack', effects: [{ op: 'damage', amount }] },
+        { id: 'e3', name: '猛扑', intent: 'attack', effects: [{ op: 'damage', amount }] }] });
 const row = (def, createdAt) => ({ id: def.id, name: def.name || def.className, kind: def.kind, className: def.className || '', version: 1, createdAt, definition: def });
 const ai = (mes, swipe_id = 0) => ({ mes, swipe_id, is_user: false });
 const user = (mes) => ({ mes, is_user: true });
@@ -135,11 +137,14 @@ test('胜利：完整流程产出战报并自动回传，EXP 标签经账本扫�
     assert.doesNotMatch(block, NO_TABLE_TERMS);
     assert.match(block, /击倒狼/);
     assert.deepEqual([stored(h, sessionKeyFor('chat-1')), stored(h, outboxKeyFor('chat-1'))], [null, null]);
-    assert.equal(h.tables.ledger.length, 1);
+    // 胜利写 EXP 与战后生命（wound，锚定战报楼）。
+    assert.deepEqual(h.tables.ledger.map((e) => e.type).sort(), ['exp', 'wound']);
+    const wound = h.tables.ledger.find((e) => e.type === 'wound');
+    assert.deepEqual([wound.character, wound.anchor.messageId, wound.payload.down, wound.payload.reportId], ['pc-hero', h.chat.length - 1, false, text.match(/id="(r[0-9a-z]+)"/)[1]]);
     assert.equal((await h.ledger.effectiveState()).characters.get('pc-hero').exp, 20);
 });
 
-test('失败与撤退：战报照常回传，但不附 EXP、不产生成长条目', async () => {
+test('失败与撤退：战报照常回传，不附 EXP，只记战后生命；倒下记 0 点', async () => {
     const lose = harness({ enemy: '熊' });
     const s1 = lose.session();
     await s1.prepare(1);
@@ -148,7 +153,9 @@ test('失败与撤退：战报照常回传，但不附 EXP、不产生成长条�
     assert.equal((await s1.finish()).ok, true);
     assert.match(lose.sent[0], /result="lose"/);
     assert.doesNotMatch(lose.sent[0], /igs-combat:exp/);
-    assert.equal(lose.tables.ledger.length, 0);
+    const [down] = lose.tables.ledger;
+    assert.deepEqual(lose.tables.ledger.map((e) => [e.type, e.character, e.payload.hp, e.payload.down]), [['wound', 'pc-hero', 0, true]]);
+    assert.deepEqual((await lose.ledger.effectiveState()).characters.get('pc-hero').wound, { hp: 0, maxHp: down.payload.maxHp, down: true });
 
     const run = harness();
     const s2 = run.session();
@@ -159,7 +166,7 @@ test('失败与撤退：战报照常回传，但不附 EXP、不产生成长条�
     assert.equal((await s2.finish()).ok, true);
     assert.match(run.sent[0], /result="escape"/);
     assert.doesNotMatch(run.sent[0], /igs-combat:exp/);
-    assert.equal(run.tables.ledger.length, 0);
+    assert.deepEqual(run.tables.ledger.map((e) => [e.type, e.payload.down]), [['wound', false]]);
 });
 
 test('刷新后断点续战：同一 seed 重放动作得到相同战局', async () => {
@@ -214,7 +221,7 @@ test('发送失败保留待回传、不自动重发；手动重试成功后已�
     const retried = await reopened.retrySend();
     assert.deepEqual([retried.ok, retried.session.status, h.sent.length], [true, 'done', 2]);
     assert.equal(stored(h, outboxKeyFor('chat-1')), null);
-    assert.equal(h.tables.ledger.length, 1);
+    assert.deepEqual(h.tables.ledger.map((e) => e.type).sort(), ['exp', 'wound']);
     assert.equal((await reopened.retrySend()).reason, 'combat-nothing-to-send');
 
     const later = h.session();
@@ -566,4 +573,126 @@ test('人物特性：准备时按主角装着的特性汇总翻牌联动——�
     assert.equal(s.start().ok, true);
     const unit = s.state().record.setup.units.find((u) => u.id === 'pc-hero');
     assert.deepEqual(['t1-p', 't2-p'].map((id) => unit.passives.some((p) => p.id === id)), [true, true]);
+});
+
+
+// 补技能夹具：按请求里的 skill-fill 实体逐个给 input.count 个技能，名称带序号避免与已有技能重名；其余实体不作答。
+// 请求带 input.templates（队友 Lv6 起只给复合技能，D10）时轮流取候选，否则按 slash / guard 交替。
+const fillKey = (e, i) => (Array.isArray(e.input.templates) && e.input.templates.length ? e.input.templates[i % e.input.templates.length] : i % 2 ? 'guard' : 'slash');
+const fillReply = (req) => JSON.stringify({ entities: JSON.parse(req.user).entities.filter((e) => e.kind === 'skill-fill')
+    .map((e) => ({ key: e.key, value: { skills: Array.from({ length: e.input.count }, (_, i) => [`补${e.input.name}${i + 1}`, fillKey(e, i)]) } })) });
+const fillsOf = (req) => JSON.parse(req.user).entities.filter((e) => e.kind === 'skill-fill');
+
+test('补技能：生成的敌人技能少于目标时与奖励同批请求，通过后写新版本档案（沿用登记时间）并带新技能开战；拒收、请求不可用、写失败都不阻断，带现有技能参战并记诊断；已准备的场次不请求', async () => {
+    const wolfId = enemyIdFor('狼', 'normal');
+    const twoSkill = { ...enemyDef('狼', 4), skills: enemyDef('狼', 4).skills.slice(0, 2) };
+    const profiles = [row(classDef, 1), row(heroDef, 2), row(twoSkill, 3)];
+    const fills = [];
+    const h = harness({ profiles, request: async (req) => { fills.push(...fillsOf(req)); return fillReply(req); } });
+    const s = h.session();
+    const prepared = await s.prepare(1);
+    assert.deepEqual([prepared.ok, prepared.session.status, prepared.session.fillDiagnostics], [true, 'lobby', undefined]);
+    assert.deepEqual(fills.map((e) => [e.key, e.input.count, e.input.tier, e.input.existing]), [[`fill:${wolfId}`, 1, 'normal', ['撕咬', '扑击']]]);
+    assert.deepEqual(h.tables.profile.filter((r) => r.id === wolfId).map((r) => [r.version, r.createdAt, r.definition.skills.length]), [[1, 3, 2], [2, 3, 3]]);
+    // 技能已达目标：再次准备不再请求补技能。
+    assert.equal((await h.session().prepare(1)).ok, true);
+    assert.equal(fills.length, 1);
+    assert.equal(s.start().ok, true);
+    const unit = s.state().record.setup.units.find((u) => u.id === wolfId);
+    assert.deepEqual(unit.skills.map((sk) => sk.name), ['撕咬', '扑击', '补狼1']);
+
+    const bad = harness({ profiles, request: async () => '{}' });
+    const rejected = await bad.session().prepare(1);
+    assert.deepEqual([rejected.ok, rejected.session.status, rejected.session.fillDiagnostics.map((d) => [d.code, d.owner])], [true, 'lobby', [['combat-skill-fill-failed', wolfId]]]);
+    assert.deepEqual(bad.tables.profile.map((r) => r.version), [1, 1, 1]);
+
+    const offline = await harness({ profiles }).session().prepare(1);
+    assert.deepEqual([offline.ok, offline.session.status, offline.session.fillDiagnostics], [true, 'lobby', [{ code: 'combat-llm-unavailable', owner: wolfId }]]);
+
+    const broken = harness({ profiles, request: async (req) => fillReply(req) });
+    const append = broken.tables.append;
+    broken.tables.append = async (kind, records) => (kind === 'profile' ? { ok: false, reason: 'combat-table-write-failed' } : append(kind, records));
+    const unsaved = await broken.session().prepare(1);
+    assert.deepEqual([unsaved.ok, unsaved.session.status, unsaved.session.fillDiagnostics], [true, 'lobby', [{ code: 'combat-skill-fill-write-failed', owners: [wolfId] }]]);
+    assert.equal(broken.tables.profile.length, 3);
+
+    let asked = 0;
+    const again = harness({ record: true, profiles, request: async (req) => { asked += fillsOf(req).length; return fillReply(req); } });
+    const { combatId } = locateCombatStart(again.chat, 1);
+    again.chat[1].extra = { igsCombat: { [combatId]: { prepared: { at: 1 } } } };
+    assert.equal((await again.session().prepare(1)).session.status, 'lobby');
+    assert.equal(asked, 0);
+});
+
+test('补技能：技能角色队友按属性视图等级补到目标数，请求带已有技能名，写新版本档案并带新技能开战', async () => {
+    const { relOffset } = await import('../src/combat/abilities.js');
+    const { skillTarget } = await import('../src/combat/rules.js');
+    const name = ['白露', '青岚', '玄霜', '赤羽', '墨言', '苏荷', '林间', '月华'].find((n) => relOffset(n, 'overwhelming') >= 9);
+    assert.ok(name, '候选名里应有碾压档偏移不小于 9 的');
+    const level = 1 + relOffset(name, 'overwhelming');
+    const ally = { kind: 'skill-character', id: 'sc-ally', name, base: { hp: 60 }, passives: [passive('a-p')],
+        skills: [1, 2, 3].map((n) => ({ id: `a-s${n}`, name: `招${n}`, intent: 'attack', effects: [{ op: 'damage', amount: 4 }] })) };
+    const fills = [];
+    const h = harness({ profiles: [row(classDef, 1), row(heroDef, 2), row(enemyDef('狼', 4), 3), row(ally, 4)],
+        request: async (req) => { fills.push(...fillsOf(req)); return fillReply(req); } });
+    h.chat = [user('出发'), ai(`${name}挡在前面。\n[igs-combat:rel|${name}|碾压]`), user('走'), ai(`前方有动静。\n[igs-combat:start|狭路|狼|${name}]`)];
+    h.tables.attribute = [];
+    await h.ledger.scan();
+    assert.equal((await h.ledger.effectiveState()).characters.get('sc-ally').attributes.level, level);
+    const s = h.session();
+    const prepared = await s.prepare(3);
+    assert.deepEqual([prepared.ok, prepared.session.status, prepared.session.fillDiagnostics], [true, 'lobby', undefined]);
+    const count = skillTarget(level) - 3;
+    assert.ok(count > 0);
+    assert.deepEqual(fills.map((e) => [e.key, e.input.count, e.input.existing, Object.hasOwn(e.input, 'tier')]), [['fill:sc-ally', count, ['招1', '招2', '招3'], false]]);
+    assert.deepEqual(h.tables.profile.filter((r) => r.id === 'sc-ally').map((r) => [r.version, r.createdAt, r.definition.skills.length]), [[1, 4, 3], [2, 4, 3 + count]]);
+    assert.equal(s.start().ok, true);
+    const unit = s.state().record.setup.units.find((u) => u.id === 'sc-ally');
+    assert.ok(unit.skills.some((sk) => sk.name === `补${name}1`), JSON.stringify(unit.skills.map((sk) => sk.name)));
+});
+
+
+test('持续伤势：倒下的队友在剧情回血前不参战、战前列入「倒下」；主角倒下后下一场按 1 点生命开战；回血后队友带着剩余生命参战', async () => {
+    const { ledgerEntryId } = await import('../src/combat/schema.js');
+    const { WOUND_TAG_HASH } = await import('../src/combat/ledger.js');
+    const ally = { kind: 'skill-character', id: 'sc-ally', name: '白露', base: { hp: 60 }, passives: [passive('a-p')],
+        skills: [1, 2, 3].map((n) => ({ id: `a-s${n}`, name: `招${n}`, intent: 'attack', effects: [{ op: 'damage', amount: 4 }] })) };
+    const report = '<igs-combat-report id="r0" result="lose" encounter="旧战">我方全员倒下。</igs-combat-report>';
+    const make = (between = []) => {
+        const h = harness({ profiles: [row(classDef, 1), row(heroDef, 2), row(enemyDef('狼', 4), 3), row(ally, 4)] });
+        h.chat = [user('出发'), ai('遇敌。'), user(report), ...between, ai('前方有动静。\n[igs-combat:start|狭路|狼|白露]')];
+        for (const [character, maxHp, occurrence] of [['pc-hero', 80, 0], ['sc-ally', 60, 1]]) {
+            const anchor = { messageId: 2, swipeId: 0, tagHash: WOUND_TAG_HASH, occurrence };
+            h.tables.ledger.push({ id: ledgerEntryId('wound', character, anchor), type: 'wound', character, anchor, payload: { hp: 0, maxHp, down: true, reportId: 'r0' }, createdAt: 3 });
+        }
+        return h;
+    };
+    const down = make();
+    const s = down.session();
+    const prepared = await s.prepare(down.chat.length - 1);
+    assert.equal(prepared.ok, true, JSON.stringify(prepared));
+    const lobby = prepared.session.lobby;
+    assert.deepEqual([lobby.downed, lobby.allies.map((v) => v.id), lobby.vitals['pc-hero'].hp], [['白露'], ['pc-hero'], 1]);
+    assert.equal(s.start().ok, true);
+    assert.deepEqual(s.state().record.setup.units.filter((u) => u.side === 'ally').map((u) => [u.id, u.hp]), [['pc-hero', 1]]);
+
+    const healed = make([ai('两人在营地休整。[igs-combat:heal|白露|50%|包扎]')]);
+    await healed.ledger.scan();
+    const s2 = healed.session();
+    const again = await s2.prepare(healed.chat.length - 1);
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.deepEqual([again.session.lobby.downed, again.session.lobby.allies.map((v) => v.id)], [[], ['pc-hero', 'sc-ally']]);
+    assert.equal(s2.start().ok, true);
+    const back = s2.state().record.setup.units.find((u) => u.id === 'sc-ally');
+    assert.equal(back.hp, Math.max(1, back.maxHp - 30));
+    assert.equal(again.session.lobby.vitals['sc-ally'].hp, back.hp);
+    // 主角团状态（正文注入用）：主角 + 最近一场参战的队友，生命与人物状态同口径。
+    const { partyStatus } = await import('../src/combat/session.js');
+    const party = partyStatus(await healed.ledger.effectiveState(), '主角');
+    assert.deepEqual(party.map((p) => [p.id, p.down]), [['pc-hero', true], ['sc-ally', false]]);
+    assert.equal(party[0].injury, '倒下');
+    assert.ok(['轻伤', '重创', '濒死'].includes(party[1].injury), party[1].injury);
+    assert.deepEqual([party[0].hp, party[1].hp], [0, Math.max(1, party[1].maxHp - 30)]);
+    assert.ok(party.every((p) => Array.isArray(p.abilities)));
+    assert.deepEqual(partyStatus(await harness().ledger.effectiveState(), '主角').map((p) => p.id), ['pc-hero']);
 });

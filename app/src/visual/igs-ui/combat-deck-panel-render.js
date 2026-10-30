@@ -66,6 +66,12 @@ const REASON_TEXT = Object.freeze({
     'combat-trait-pick-invalid': '特性已变化，请重试',
     'combat-trait-duplicate': '特性已存在，请重试',
     'combat-trait-damage-cap': '特性被动超出上限，请重试',
+    'combat-trait-pick-blocked': '替换后会挤掉其他固有特性或主动特性超出上限',
+    'combat-trait-slot-unavailable': '当前无法解锁特性槽',
+    'combat-trait-slot-invalid': '特性槽已变化，请重试',
+    'combat-trait-slot-cost-invalid': '特性槽价格已变化，请重试',
+    'combat-trait-slot-kind-mismatch': '只有卡组角色可以解锁特性槽',
+    'combat-trait-slot-no-floor': '当前聊天没有楼层，无法解锁特性槽',
 });
 export const deckReasonText = (reason) => REASON_TEXT[reason] || combatReasonText(reason);
 const CARD_ERROR = Object.freeze({ 'copy-limit': '同名超过上限', 'not-owned': '未拥有', 'owned-exceeded': '超过拥有数', 'unknown-card': '图鉴中没有' });
@@ -190,18 +196,32 @@ function abilityGrid(rows, editable, busy = false) {
 
 const passiveChip = (label, p) => `<span class="igs-deck-chip"${p.text ? ` title="${esc(p.text)}"` : ''}>${esc(label)} · ${esc(p.name)}</span>`;
 
-// 人物特性（只主角有）：装着的特性按稀有度标色，写名称、被动与联动，来历放在名称提示里。主角不在战斗中时给「抽人物特性」，点后在原处确认或取消，积分不足置灰；
-// 已满时抽到的新特性列在「新特性」，已装的每个给「替换」、新特性给「放弃」，被替换或放弃的永久消失。
+// 人物特性（只主角有）：特性槽（v4）逐槽列出保留着的固有特性（人物技能 / 个人被动）、抽到的特性、空槽与未解锁的槽；按稀有度标色，写名称、种类、效果与联动，来历放在名称提示里。
+// 下一个未解锁的槽给「解锁 · 价格」，积分不足置灰。主角不在战斗中时给「抽人物特性」，点后在原处确认或取消，积分不足置灰；
+// 装不下时抽到的新特性列在「新特性」，每个特性给「替换」（替换后会挤掉其他固有特性或主动超上限的置灰）、新特性给「放弃」，被替换或放弃的永久消失。
+const traitTags = (t) => [t.innate ? '固有' : '', t.kind === 'active' ? `主动 · ${t.cost}费` : ''].filter(Boolean);
 const traitHead = (t) => `<span class="igs-deck-name"${t.origin ? ` title="${esc(t.origin)}"` : ''}>${esc(t.name)}</span>`
-    + `<span class="igs-deck-count">${esc([t.text, t.link ? TRAIT_LINK_LABELS[t.link] : ''].filter(Boolean).join(' · '))}</span>`;
+    + `<span class="igs-deck-count">${esc([...traitTags(t), t.text, t.link ? TRAIT_LINK_LABELS[t.link] : ''].filter(Boolean).join(' · '))}</span>`;
+const ownTraits = (d) => [...(d.traitSlots?.innate || []), ...(d.traits || [])];
+const replaceableOf = (d, own) => new Set(d.traitSlots ? d.traitSlots.replaceable : own.map((t) => t.traitId));
 function traitsHtml(v, d) {
     const hero = d.canSell && d.kind === 'deck-character';
-    const list = d.traits || [];
+    const slots = hero ? d.traitSlots : null;
+    const list = hero ? ownTraits(d) : d.traits || [];
     const fresh = hero ? d.pendingTrait : null;
     const busy = v.readonly || Boolean(v.pending);
     const canPick = Boolean(fresh) && !v.readonly && v.canPickTrait;
+    const ok = replaceableOf(slots ? d : {}, list);
+    const rows = list.map((t) => bagRow(t.rarity, traitHead(t), canPick ? btn('trait-drop', '替换', { id: t.traitId, disabled: busy || !ok.has(t.traitId) }) : ''));
+    if (slots) {
+        for (let i = list.length; i < slots.slots; i += 1) rows.push(bagRow('', '<span class="igs-deck-name is-empty">空槽</span>', ''));
+        slots.locked.forEach((s, i) => {
+            const unlock = i === 0 && !v.readonly && v.canUnlockSlot ? btn('trait-slot', `解锁 · ${s.cost} 积分`, { id: String(s.slot), disabled: busy || (d.points || 0) < s.cost }) : '';
+            rows.push(bagRow('', `<span class="igs-deck-name is-locked">第 ${s.slot} 槽</span><span class="igs-deck-count">${esc(`未解锁 · ${s.cost} 积分`)}</span>`, unlock));
+        });
+    }
     const parts = [];
-    if (list.length) parts.push(row('特性', `<ul class="igs-deck-collection">${list.map((t) => bagRow(t.rarity, traitHead(t), canPick ? btn('trait-drop', '替换', { id: t.traitId, disabled: busy }) : '')).join('')}</ul>`));
+    if (rows.length) parts.push(row(slots ? `特性 ${list.length}/${slots.slots}` : '特性', `<ul class="igs-deck-collection">${rows.join('')}</ul>`));
     if (fresh) parts.push(row('新特性', `<ul class="igs-deck-collection">${bagRow(fresh.rarity, traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
     if (hero && !fresh && !v.readonly && v.canDrawTrait) {
         const inner = v.trait
@@ -238,27 +258,31 @@ function revealHtml(v) {
     const fx = r.fresh ? `<span class="igs-deck-reveal-burst" aria-hidden="true"></span>${dots('igs-deck-reveal-sparks')}` : '';
     const line = traitLine(t);
     const info = `<div class="igs-deck-reveal-info">${line ? `<p class="igs-deck-reveal-text">${esc(line)}</p>` : ''}${t.origin ? `<p class="igs-deck-reveal-origin">${esc(t.origin)}</p>` : ''}</div>`;
+    const own = ownTraits(d);
+    const ok = replaceableOf(d, own);
     const slots = waiting
-        ? `<ul class="igs-deck-reveal-slots">${(d.traits || []).map((x) => `<li class="igs-deck-reveal-slot" data-rarity="${esc(x.rarity)}"><span class="igs-deck-name"${x.origin ? ` title="${esc(x.origin)}"` : ''}>${esc(x.name)}</span>`
-            + `<span class="igs-deck-count">${esc(traitLine(x))}</span>${canPick ? btn('trait-drop', '替换', { id: x.traitId, disabled: busy }) : ''}</li>`).join('')}</ul>`
+        ? `<ul class="igs-deck-reveal-slots">${own.map((x) => `<li class="igs-deck-reveal-slot"${x.rarity ? ` data-rarity="${esc(x.rarity)}"` : ''}><span class="igs-deck-name"${x.origin ? ` title="${esc(x.origin)}"` : ''}>${esc(x.name)}</span>`
+            + `<span class="igs-deck-count">${esc([...traitTags(x), traitLine(x)].filter(Boolean).join(' · '))}</span>${canPick ? btn('trait-drop', '替换', { id: x.traitId, disabled: busy || !ok.has(x.traitId) }) : ''}</li>`).join('')}</ul>`
         : '';
     const acts = canPick ? btn('trait-drop', '放弃', { id: t.traitId, disabled: busy }) : btn('trait-done', '确定', { primary: true, disabled: Boolean(v.pending) });
     return `<section class="igs-deck-reveal" data-phase="open" data-rarity="${esc(t.rarity)}"${r.fresh ? ' data-fresh' : ''}${still}>`
         + `<div class="igs-deck-reveal-stage"><div class="igs-deck-reveal-card">${r.fresh ? REVEAL_BACK : ''}${face}</div>${fx}</div>${info}${slots}<div class="igs-deck-actions">${acts}</div></section>`;
 }
 
-// 状态页：相对档（非主角）、开战换算、六维与调整值、熟练加值、被动与人物特性。
+// 状态页：相对档（非主角）、开战换算、六维与调整值、熟练加值、被动与人物特性。主角的个人被动占特性槽，只在特性槽里列（被替换后不再出现）。
 function statusPage(v, d) {
     const a = d.attributes;
     const parts = [];
     if (a && !a.protagonist && d.relLabel) parts.push(row('相对', chip(d.relLabel)));
-    if (d.combat) parts.push(row('开战', chip(`生命 ${d.combat.hp}`) + chip(`速度 ${d.combat.speed}`)));
+    // 生命：当前 / 上限（持续伤势已计入）与伤势词；满血时只写上限。
+    const hp = d.combat && (d.combat.current ?? d.combat.hp) < d.combat.hp ? `生命 ${d.combat.current}/${d.combat.hp}` : `生命 ${d.combat?.hp}`;
+    if (d.combat) parts.push(row('开战', chip(hp) + (d.combat.injury && d.combat.injury !== '无伤' ? chip(d.combat.injury) : '') + chip(`速度 ${d.combat.speed}`)));
     if (a?.table === 'missing') parts.push(row('属性', chip('属性表未创建')));
     parts.push(abilityGrid(d.abilities, false));
     if (a && Number.isFinite(a.proficiency)) parts.push(row('熟练', chip(`+${a.proficiency}`)));
     const passives = d.kind === 'skill-character'
         ? (d.passives || []).map((p) => chip(p.name)).join('')
-        : [d.classPassive && passiveChip('职业', d.classPassive), d.personalPassive && passiveChip('个人', d.personalPassive)].filter(Boolean).join('');
+        : [d.classPassive && passiveChip('职业', d.classPassive), d.personalPassive && !d.traitSlots && passiveChip('个人', d.personalPassive)].filter(Boolean).join('');
     if (passives) parts.push(row('被动', passives));
     const traits = traitsHtml(v, d);
     if (traits) parts.push(traits);

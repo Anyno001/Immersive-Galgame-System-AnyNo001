@@ -78,7 +78,7 @@ test('成长标签解析各栏位，非法与未知标签只记诊断', () => {
         '中间的正文。[igs-combat:upgrade|爱丽丝|冰棱术]',
         '[igs-combat:class|鲍勃|圣骑士]',
         '[igs-combat:exp|鲍勃|很多]',
-        '[igs-combat:heal|鲍勃|10]',
+        '[igs-combat:mend|鲍勃|10]',
         '[igs-combat:start|伏击|狼]',
     ].join('\n');
     const { directives, diagnostics } = extractGrowthDirectives(text);
@@ -87,7 +87,16 @@ test('成长标签解析各栏位，非法与未知标签只记诊断', () => {
     ]);
     assert.equal(directives[0].description, '从古籍中领悟');
     assert.equal(directives[1].description, '');
-    assert.deepEqual(diagnostics.map((d) => `${d.code}:${d.kind}`), ['combat-tag-invalid:exp', 'combat-tag-unknown:heal']);
+    assert.deepEqual(diagnostics.map((d) => `${d.code}:${d.kind}`), ['combat-tag-invalid:exp', 'combat-tag-unknown:mend']);
+});
+
+test('剧情回血标签：点数或百分比（全角数字与 ％ 都认），不设每楼上限；非法恢复量只记诊断', () => {
+    const text = '[igs-combat:heal|我|20|包扎]正文[igs-combat:heal|鲍勃|５０％]\n[igs-combat:heal|我|9999]\n[igs-combat:heal|我|0]\n[igs-combat:heal|我|101%]\n[igs-combat:heal|我]';
+    const { directives, diagnostics } = extractGrowthDirectives(text);
+    assert.deepEqual(directives.map((d) => [d.kind, d.character, d.amount, d.mode, d.reason]), [
+        ['heal', '我', 20, 'flat', '包扎'], ['heal', '鲍勃', 50, 'percent', ''], ['heal', '我', 9999, 'flat', ''],
+    ]);
+    assert.deepEqual(diagnostics.map((d) => `${d.code}:${d.field}:${d.problem}`), Array(3).fill('combat-tag-invalid:amount:invalid-amount'));
 });
 
 test('剧情 EXP 每楼每角色封顶截断，战报楼可跳过封顶', () => {
@@ -222,6 +231,27 @@ test('装备与道具标签：部位与数量解析，非法部位与超量只�
     assert.deepEqual(diagnostics.map((d) => `${d.code}:${d.kind}:${d.field}:${d.problem}`),
         ['combat-tag-invalid:equip:slot:unknown-slot', 'combat-tag-invalid:item:count:invalid-count', 'combat-tag-invalid:equip:slot:required']);
 });
+test('获得物稀有度末栏：equip / item / learn 可省略，中文与内部键都认；未登记稀有度与 upgrade 多栏只记诊断', () => {
+    const text = [
+        '[igs-combat:equip|我|龙鳞甲|防具|龙鳞所制|史诗]',
+        '[igs-combat:equip|我|青锋剑|武器|削铁如泥]',
+        '[igs-combat:item|我|回春丹|2|疗伤|rare]',
+        '[igs-combat:item|我|爆炎符|1||]',
+        '[igs-combat:learn|我|冰棱术|从古籍中领悟|神话]',
+        '[igs-combat:learn|我|火球术|自学]',
+        '[igs-combat:equip|我|腰带|饰品|旧物|传说]',
+        '[igs-combat:upgrade|我|冰棱术|更冷|稀有]',
+    ].join('\n');
+    const { directives, diagnostics } = extractGrowthDirectives(text);
+    assert.deepEqual(directives.map((d) => [d.kind, d.name ?? d.skill, d.rarity ?? null]), [
+        ['equip', '龙鳞甲', 'epic'], ['equip', '青锋剑', null], ['item', '回春丹', 'rare'], ['item', '爆炎符', null], ['learn', '冰棱术', 'mythic'], ['learn', '火球术', null],
+    ]);
+    assert.equal(Object.hasOwn(directives[1], 'rarity'), false);
+    assert.equal(Object.hasOwn(directives[5], 'rarity'), false);
+    assert.deepEqual(diagnostics.map((d) => `${d.code}:${d.kind}:${d.field}:${d.problem}`),
+        ['combat-tag-invalid:equip:rarity:unknown-rarity', 'combat-tag-invalid:upgrade:fields:too-many-fields']);
+});
+
 test('loot 标签：战报 ID、槽位与套别（缺省 main）；非法栏位只记诊断', () => {
     const text = [
         '[igs-combat:loot|我|r1a2b|0|main]', '[igs-combat:loot|我|r1a2b|3|reserve]', '[igs-combat:loot|我|r1a2b|1]',

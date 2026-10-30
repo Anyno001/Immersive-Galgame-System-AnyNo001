@@ -43,7 +43,7 @@ test('扩展开启时出现 combat 块、没有 battle 块；缺省常驻，亲�
     assert.deepEqual(shown.expanded, ['combat']);
     assert.ok(shown.depth0.length > 0);
     assert.equal(idle.system, shown.system);
-    for (const tag of ['exp|爱丽丝|10', 'awaken|我|怒火|到此为止', 'equip|我|铁剑|武器|旧剑', 'unequip|我|铁剑', 'item|我|药剂|1|回血']) {
+    for (const tag of ['exp|爱丽丝|10', 'awaken|我|怒火|到此为止', 'equip|我|铁剑|武器|旧剑', 'unequip|我|铁剑', 'item|我|药剂|1|回血', 'heal|我|20|包扎']) {
         const tagged = resolvePromptTriggers({ userText: '', recentAiTexts: [`正文[igs-combat:${tag}]`], entries: auto }).hits;
         assert.ok(tagged.has('combat'), tag);
     }

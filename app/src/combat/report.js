@@ -7,9 +7,11 @@ import { COMBAT_AWAKEN_TYPES } from '../scene/combat-directives.js';
 export const REPORT_RESULT = Object.freeze({ victory: 'win', defeat: 'lose', escape: 'escape' });
 export const REPORT_DETAIL = Object.freeze({ brief: 2, normal: 4 });
 const MIDDLE_MERGE_AFTER = 8;
-const STATUS_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '力量', dexterity: '敏捷', poison: '中毒', regen: '再生', thorns: '荆棘', intangible: '无形', 'no-draw': '禁抽', endure: '不屈' });
-const SELF_BUFFS = new Set(['strength', 'dexterity', 'regen', 'thorns']);
+const STATUS_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '攻击力', dexterity: '防御力', poison: '中毒', regen: '再生', thorns: '荆棘', intangible: '无形', 'no-draw': '禁抽', endure: '不屈', artifact: '人工制品', frail: '脆弱' });
+const SELF_BUFFS = new Set(['strength', 'dexterity', 'regen', 'thorns', 'artifact']);
 const END_LINES = Object.freeze({ win: '终局：我方获胜。', lose: '终局：我方力竭落败。', escape: '终局：我方撤离战场，敌人仍在。' });
+// wipe 战斗（助手 10-29）：我方全员倒下才判负，终局写全队覆灭。
+const WIPE_LINE = '终局：我方全员倒下，全队覆灭。';
 // 觉醒键 → 中文类型名（与开战标签同一张表）。
 export const AWAKEN_TYPE_NAMES = Object.freeze(Object.fromEntries(Object.entries(COMBAT_AWAKEN_TYPES).map(([name, key]) => [key, name])));
 
@@ -199,7 +201,10 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
         lines.push(summaryLine(turns.slice(3, -3), units));
         lines.push(...tail.map((t) => turnLine(t, units, perTurn, first, last)));
     } else lines.push(...turns.map((t) => turnLine(t, units, perTurn, first, last)));
-    lines.push(`${END_LINES[result]}我方：${sideStatus(units, 'ally')}。敌方：${sideStatus(units, 'enemy')}。`);
+    // 全队覆灭只在我方确实无人站着时写；僵持到步数上限判负时队友仍站着，照常写落败。
+    const wiped = result === 'lose' && state.wipe === true && !Object.values(units).some((u) => u.side === 'ally' && u.alive);
+    const ending = wiped ? WIPE_LINE : END_LINES[result];
+    lines.push(`${ending}我方：${sideStatus(units, 'ally')}。敌方：${sideStatus(units, 'enemy')}。`);
     const reportId = reportIdFor(combatId);
     const amount = result === 'win' ? Math.min(combatExpReward(enemyTiers), 1000) : 0;
     const exp = amount > 0 ? [...new Set(expTargets.map(clean).filter(Boolean))].map((name) => ({ name, amount })) : [];

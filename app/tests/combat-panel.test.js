@@ -41,10 +41,10 @@ export function memoryTables(profile) {
     return t;
 }
 
-export function combatHarness({ enemy = '狼' } = {}) {
+export function combatHarness({ enemy = '狼', hero = heroDef } = {}) {
     const h = { chat: [user('出发'), ai(`前方有动静。\n[igs-combat:start|狭路|${enemy}]`)], sent: [] };
     h.storage = createMemoryStorage();
-    h.tables = memoryTables([row(classDef, 1), row(heroDef, 2), row(enemyDef('狼', 4), 3)]);
+    h.tables = memoryTables([row(classDef, 1), row(hero, 2), row(enemyDef('狼', 4), 3)]);
     h.ledger = createCombatLedger({ tables: h.tables, chat: () => h.chat, userName: '主角', now: () => 5 });
     h.send = async (text) => { h.sent.push(text); h.chat.push(user(text)); return { ok: true, messageId: h.chat.length - 1 }; };
     h.session = createCombatSession({ ledger: h.ledger, tables: h.tables, llm: { source: 'tavern' }, send: h.send,
@@ -99,8 +99,8 @@ test('视图模型：引擎事件转成演出标签形状，结束后给出结�
 
 
 // 面板控制器：FakeEl 假 DOM，overlay 以 #igs-overlay 身份承载暂停原因。
-function panelHarness(extra = {}) {
-    const h = combatHarness();
+function panelHarness(extra = {}, harness = {}) {
+    const h = combatHarness(harness);
     const doc = { createElement: (tag) => new FakeEl(doc, tag), activeElement: null };
     const overlay = new FakeEl(doc, 'div');
     overlay.id = 'igs-overlay';
@@ -227,6 +227,22 @@ test('战前对阵：我方 · VS · 敌方三段；我方等大、立绘下选�
     assert.match(html, /未参战[\s\S]*青岚/);
     assert.match(html, /data-combat-act="skip"[\s\S]*data-combat-act="start"/);
     assert.match(renderCombatPanelHtml({ ...view, intro: true }), /data-tier="boss" data-intro="">/);
+});
+
+test('战前持续伤势：名牌在 Lv 后写开战生命；倒下的队友单列「倒下」行，在未参战之前；没有伤势时生命满值', async () => {
+    const view = { status: 'lobby', pending: '', notice: '', controlledId: 'h', portraits: {}, enemyArt: {},
+        lobby: { encounter: '狭路', tier: 'normal', tierLabel: '普通', heroId: 'h', absent: ['青岚'], downed: ['赤羽'], skipped: [],
+            allies: [{ id: 'h', name: '主角', level: 3, controllable: true, hp: 1, maxHp: 80 }], enemies: [{ name: '狼', count: 1, templated: false, tier: 'normal' }] } };
+    const html = renderCombatPanelHtml(view);
+    assert.match(html, /<b>主角<\/b><small>Lv3<\/small><small data-hp="">生命 1\/80<\/small>/);
+    assert.match(html, /data-kind="down"><span class="igs-combat-label">倒下<\/span><span class="igs-combat-chip">赤羽<\/span>[\s\S]*未参战[\s\S]*青岚/);
+    assert.doesNotMatch(renderCombatPanelHtml({ ...view, lobby: { ...view.lobby, downed: [] } }), /倒下/);
+    const h = combatHarness();
+    const prepared = await h.session.prepare(1);
+    const model = lobbyView(prepared.session);
+    assert.deepEqual(model.downed, []);
+    assert.ok(model.allies[0].maxHp > 0);
+    assert.equal(model.allies[0].hp, model.allies[0].maxHp);
 });
 
 test('战前奖励行：会话奖励进大厅视图；生成成功不显示；失败只显示「奖励生成失败」与「重试」，忙碌时置灰；重试进行中显示生成中；没有奖励时不出该行', async () => {
@@ -481,7 +497,8 @@ test('窄屏操作区：随面板宽度移动同一份能量与技能，切回�
     const core = node('igs-combat-hero-core', body);
     const figure = node('igs-combat-hero-figure', core);
     const energy = node('igs-combat-energy', figure);
-    const controls = node('igs-combat-controls', core);
+    const ring = node('igs-combat-trait-ring', figure);
+    const controls = node('igs-combat-controls', figure);
     const skill = node('igs-combat-hero-skill', controls);
     const dock = node('igs-combat-dock', body);
     controls.contains = (el) => controls.descendants().includes(el);
@@ -492,15 +509,16 @@ test('窄屏操作区：随面板宽度移动同一份能量与技能，切回�
     Object.defineProperty(root, 'clientWidth', { get: () => width });
     const before = structuredClone(p.session.state());
     sync();
-    assert.deepEqual(dock.children, [energy, controls]);
+    assert.deepEqual(dock.children, [energy, ring, controls]);
     assert.equal(root.getAttribute('data-igs-combat-docked'), '');
     assert.equal(focused, 1);
     width = 720; sync();
-    assert.deepEqual(dock.children, [energy, controls]);
+    assert.deepEqual(dock.children, [energy, ring, controls]);
     assert.equal(focused, 1);
     width = 721; sync();
     assert.equal(energy.parentNode, figure);
-    assert.equal(controls.parentNode, core);
+    assert.deepEqual(figure.children, [energy, ring, controls]);
+    assert.equal(controls.parentNode, figure);
     assert.equal(dock.children.length, 0);
     assert.equal(root.getAttribute('data-igs-combat-docked'), null);
     assert.equal(focused, 2);
@@ -508,12 +526,13 @@ test('窄屏操作区：随面板宽度移动同一份能量与技能，切回�
     width = 430; sync();
     assert.equal(root.querySelectorAll('.igs-combat-energy').length, 1);
     assert.equal(root.querySelectorAll('.igs-combat-controls').length, 1);
+    assert.equal(root.querySelectorAll('.igs-combat-trait-ring').length, 1);
     p.panel.close();
     assert.equal(disconnected, true);
     assert.doesNotThrow(() => sync());
 });
 
-test('面板：点牌先选中不打出；取消按钮、Esc 与再点一次牌撤销；己方牌必须点高亮的承受方才打出；攻击牌点敌人打出', async () => {
+test('面板：点牌先选中不打出；取消按钮、Esc 与再点一次牌撤销，重绘时指针所在的手牌保持抬起；己方牌必须点高亮的承受方才打出；攻击牌点敌人打出', async () => {
     const p = panelHarness();
     p.panel.open(p.overlay, { messageId: 1 });
     await until(() => p.panel.view().status === 'lobby');
@@ -536,8 +555,29 @@ test('面板：点牌先选中不打出；取消按钮、Esc 与再点一次牌�
     assert.equal(p.panel.cancelSelection(), true);
     assert.equal(p.panel.view().selected, null);
     assert.equal(p.panel.cancelSelection(), false);
+    // 再点一次已选中的牌撤销；重绘时指针（鼠标）所在的手牌带 .is-hover，撤销后仍保持抬起；指针离开或触摸时不带。
+    const panelRoot = p.overlay.querySelector('#igs-combat-panel');
+    panelRoot.contains = () => true;
+    const stub = { getAttribute: (k) => (k === 'data-combat-id' ? String(guard.inst) : null) };
+    const over = (pointerType) => ({ pointerType, target: { closest: (sel) => (sel.includes('data-combat-act="card"') ? stub : null) } });
+    const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const cardCls = () => html().match(new RegExp(`class="([^"]*)" style="[^"]*" data-combat-act="card" data-combat-id="${reEsc(guard.inst)}"`))?.[1] || '';
+    panelRoot.fire('pointerover', over('mouse'));
     p.panel.invoke('card', guard.inst);
+    assert.match(cardCls(), /is-selected/);
+    assert.match(cardCls(), /is-hover/);
     assert.equal(p.panel.invoke('card', guard.inst).reason, 'combat-selection-cleared');
+    assert.deepEqual([p.panel.view().selected, count()], [null, before]);
+    assert.doesNotMatch(cardCls(), /is-selected/);
+    assert.match(cardCls(), /is-hover/);
+    panelRoot.fire('pointerout', { relatedTarget: null });
+    p.panel.invoke('card', guard.inst);
+    assert.doesNotMatch(cardCls(), /is-hover/);
+    p.panel.invoke('card', guard.inst);
+    panelRoot.fire('pointerover', over('touch'));
+    p.panel.invoke('card', guard.inst);
+    assert.doesNotMatch(cardCls(), /is-hover/);
+    p.panel.invoke('card', guard.inst);
     assert.equal(p.panel.view().selected, null);
     assert.equal(count(), before);
     p.panel.invoke('card', guard.inst);
@@ -585,7 +625,7 @@ test('面板：点牌先选中不打出；取消按钮、Esc 与再点一次牌�
     p.panel.close();
 });
 
-test('拖牌出牌：按住手牌拖过阈值才选中；松在承受方上按点选同一路径打出，随后补发的点击不再选牌；松在别处、Esc 与指针取消都撤销选中', async () => {
+test('拖牌出牌：按住手牌拖过阈值才选中；松在承受方上按点选同一路径打出，随后补发的点击不再选牌；不选目标的牌松在手牌区外也打出；松回手牌区、打出被拒、Esc 与指针取消都撤销选中', async () => {
     const p = panelHarness();
     p.panel.open(p.overlay, { messageId: 1 });
     await until(() => p.panel.view().status === 'lobby');
@@ -600,6 +640,10 @@ test('拖牌出牌：按住手牌拖过阈值才选中；松在承受方上按�
     const at = (x, y) => ({ pointerId: 1, clientX: x, clientY: y });
     let under = '';
     p.doc.elementFromPoint = () => (under ? { closest: () => ({ getAttribute: () => under }) } : null);
+    // 手牌区：x 0–400、y 450–650（按下点 (100,500) 在区内）。
+    const handRect = { left: 0, top: 450, width: 400, height: 200 };
+    const query = root.querySelector.bind(root);
+    root.querySelector = (sel) => (sel === '.igs-combat-hand' ? { getBoundingClientRect: () => handRect } : query(sel));
     const lift = (c) => { root.fire('pointerdown', press(c)); root.fire('pointermove', at(160, 300)); };
     const guard = view().battle.hand.find((c) => !c.needsTarget && c.playable);
     assert.ok(guard, '起手应有不选目标的牌');
@@ -610,7 +654,9 @@ test('拖牌出牌：按住手牌拖过阈值才选中；松在承受方上按�
     assert.equal(view().selected, null);
     root.fire('pointermove', at(160, 300));
     assert.deepEqual([view().selected, root.getAttribute('data-igs-combat-dragging')], [guard.inst, '']);
-    root.fire('pointerup', at(160, 300));
+    // 松回手牌区：撤销，不打出。
+    root.fire('pointermove', at(160, 520));
+    root.fire('pointerup', at(160, 520));
     assert.deepEqual([view().selected, count(), root.getAttribute('data-igs-combat-dragging')], [null, before, null]);
     root.fire('click', { target: { closest: (sel) => (sel === '[data-combat-act]' ? cardStub(guard) : null) } });
     assert.equal(view().selected, null);
@@ -637,16 +683,106 @@ test('拖牌出牌：按住手牌拖过阈值才选中；松在承受方上按�
     root.fire('pointerup', at(170, 260));
     assert.deepEqual([view().selected, count()], [null, before + 1]);
 
+    // 空处松手：不选目标的牌拖出手牌区、松在没有角色的地方也打出。
+    under = '';
+    const loose = view().battle.hand.find((c) => !c.needsTarget && c.playable);
+    assert.ok(loose, '还应有不选目标、能打出的牌');
+    lift(loose);
+    root.fire('pointerup', at(160, 300));
+    assert.deepEqual([view().selected, count()], [null, before + 2]);
+
     const atk = view().battle.hand.find((c) => c.needsTarget && c.playable);
     if (atk) {
         lift(atk);
         under = atk.targets[0];
         root.fire('pointermove', at(200, 120));
         root.fire('pointerup', at(200, 120));
-        assert.deepEqual([view().selected, count()], [null, before + 2]);
+        assert.deepEqual([view().selected, count()], [null, before + 3]);
     }
     p.panel.close();
 });
+
+test('主动特性圆球：放在主战者头像框里（觉醒 / 道具列不再放圆球）；拖过阈值按点选选中技能，松在可选目标上发动，松在空处、指针取消与 Esc 撤销；点头像弹出单位详情，点浮层内不收起、点别处或再点头像收起', async () => {
+    const { unitDetailView } = await import('../src/visual/igs-ui/combat-panel-model.js');
+    const p = panelHarness();
+    p.panel.open(p.overlay, { messageId: 1 });
+    await until(() => p.panel.view().status === 'lobby');
+    p.panel.invoke('start');
+    const root = p.overlay.querySelector('#igs-combat-panel');
+    root.contains = () => true;
+    const body = () => root.querySelector('.igs-combat-body');
+    const count = () => p.session.state().record.actions.length;
+    const view = () => p.panel.view();
+    const heroId = view().battle.heroId;
+    const orb = view().battle.traits.find((t) => t.kind === 'active');
+    assert.ok(orb?.usable, '起手应有可用的主动特性');
+
+    const html = body().innerHTML;
+    const lg = html.indexOf('data-size="lg"');
+    const ring = html.indexOf('<div class="igs-combat-trait-ring" role="group" aria-label="主动特性" data-orbs="1">');
+    const ctrl = html.indexOf('igs-combat-controls');
+    const hand = html.indexOf('igs-combat-hand');
+    assert.ok(html.indexOf('igs-combat-hero-figure') >= 0 && lg > 0 && ring > lg && ring < hand && (ctrl < 0 || ring < ctrl), '圆球组紧跟主战者单位块、在头像框里');
+    assert.ok(ctrl < 0 || !html.slice(ctrl, hand).includes('igs-combat-trait'), '控件列不再放圆球');
+    assert.ok(html.includes(`data-combat-act="unit-info" data-combat-id="${heroId}"`), '主战者头像可点开详情');
+
+    const orbStub = { getAttribute: (k) => ({ 'data-combat-act': 'hero-skill', 'data-combat-id': orb.skillId || '', 'data-trait': orb.id })[k] ?? null,
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 44, height: 44 }) };
+    const press = { pointerId: 2, isPrimary: true, button: 0, clientX: 100, clientY: 400, target: { closest: (sel) => (sel.includes('data-combat-act="hero-skill"') ? orbStub : null) } };
+    const at = (x, y) => ({ pointerId: 2, clientX: x, clientY: y });
+    const lift = () => { root.fire('pointerdown', press); root.fire('pointermove', at(160, 250)); };
+    let under = '';
+    p.doc.elementFromPoint = () => (under ? { closest: () => ({ getAttribute: () => under }) } : null);
+    const sel = orb.skillId ? `hero-skill:${orb.skillId}` : 'hero-skill';
+    const before = count();
+
+    root.fire('pointerdown', press);
+    root.fire('pointermove', at(103, 398));
+    assert.equal(view().selected, null);
+    root.fire('pointermove', at(160, 250));
+    assert.deepEqual([view().selected, root.getAttribute('data-igs-combat-dragging')], [sel, '']);
+    root.fire('pointerup', at(160, 250));
+    assert.deepEqual([view().selected, count(), root.getAttribute('data-igs-combat-dragging')], [null, before, null]);
+    root.fire('click', { target: { closest: (s) => (s === '[data-combat-act]' ? orbStub : null) } });
+    assert.equal(view().selected, null);
+
+    lift();
+    root.fire('pointercancel', at(160, 250));
+    assert.deepEqual([view().selected, count()], [null, before]);
+    lift();
+    assert.equal(p.panel.cancelSelection(), true);
+    root.fire('pointerup', at(160, 250));
+    assert.deepEqual([view().selected, count(), root.getAttribute('data-igs-combat-dragging')], [null, before, null]);
+
+    lift();
+    under = orb.targets[0] ?? orb.affects[0];
+    root.fire('pointermove', at(170, 200));
+    root.fire('pointerup', at(170, 200));
+    assert.deepEqual([view().selected, count(), p.session.state().record.actions.at(-1).type], [null, before + 1, 'hero-skill']);
+
+    const battle = p.session.state().battle;
+    const enemyId = view().battle.enemies[0].id;
+    assert.equal(unitDetailView(battle, heroId).name, view().battle.allies.find((u) => u.id === heroId).name);
+    assert.ok(unitDetailView(battle, enemyId).groups.some((g) => g.label === '技能'), '敌人详情列出技能');
+    assert.equal(unitDetailView(battle, 'nobody'), null);
+    const anchor = p.doc.createElement('div');
+    anchor.setAttribute('data-unit-info', enemyId);
+    body().appendChild(anchor);
+    const tip = () => root.querySelector('.igs-combat-scale-tip');
+    assert.deepEqual(p.panel.invoke('unit-info', enemyId), { ok: true, reason: 'combat-unit-tip-open' });
+    assert.equal(tip()?.className, 'igs-combat-scale-tip is-trait is-unit');
+    assert.match(tip().innerHTML, /igs-combat-unit-tip-label">技能</);
+    root.fire('click', { target: { closest: (s) => (s === '.igs-combat-scale-tip' ? tip() : null) } });
+    assert.ok(tip(), '点浮层内不收起');
+    root.fire('click', { target: { closest: () => null } });
+    assert.equal(tip(), null);
+    p.panel.invoke('unit-info', enemyId);
+    assert.deepEqual(p.panel.invoke('unit-info', enemyId), { ok: true, reason: 'combat-unit-tip-closed' });
+    assert.equal(tip(), null);
+    assert.deepEqual(p.panel.invoke('unit-info', 'nobody'), { ok: false, reason: 'combat-unit-missing' });
+    p.panel.close();
+});
+
 
 
 
@@ -654,11 +790,11 @@ test('设置：combatExpansion 非法值回到默认，经 normalizeReaderSettin
     const { normalizeCombatExpansionSettings } = await import('../src/visual/igs-ui/combat-settings.js');
     const { normalizeReaderSettings } = await import('../src/visual/igs-ui/settings-host-normalize.js');
     const defaults = { enabled: false, difficulty: 'normal', reportDetail: 'normal' };
-    assert.deepEqual(normalizeCombatExpansionSettings({ enabled: 'true', difficulty: 'nightmare', reportDetail: 'full' }), defaults);
+    assert.deepEqual(normalizeCombatExpansionSettings({ enabled: 'true', difficulty: 'insane', reportDetail: 'full' }), defaults);
     assert.deepEqual(normalizeCombatExpansionSettings(null), defaults);
     assert.deepEqual(normalizeReaderSettings({}).combatExpansion, defaults);
     // 旧设置里的 autoOpen 已取消（翻到开战页总是自动打开），读取时丢弃。
-    const kept = { enabled: true, difficulty: 'hard', reportDetail: 'brief' };
+    const kept = { enabled: true, difficulty: 'nightmare', reportDetail: 'brief' };
     assert.deepEqual(normalizeReaderSettings({ combatExpansion: { ...kept, autoOpen: false } }).combatExpansion, kept);
 });
 
@@ -731,8 +867,32 @@ test('觉醒：视图给出按钮与台词，用后标记已用；特写为觉�
     assert.equal(battleView(ps.battle, ps.legal).awaken, null);
 });
 
+test('道具选目标（助手 10-30）：回复道具在多名存活己方单位时列出全部可选目标，不带目标时要求选目标，带队友目标得到对应动作；选中态高亮可选单位', async () => {
+    const { createBattle, legalActions, seedFor } = await import('../src/combat/engine.js');
+    const { BASIC_CARDS } = await import('../src/combat/rules.js');
+    const { resolveItem, itemSelection } = await import('../src/visual/igs-ui/combat-panel-model.js');
+    const idle = { id: 'idle', name: '蓄势', intent: 'buff', effects: [{ op: 'heal', amount: 1, target: 'self' }] };
+    const created = createBattle({ controlledId: 'hero', units: [
+        { id: 'hero', name: '主角', side: 'ally', kind: 'deck', maxHp: 50, hp: 20, deck: Array(5).fill('basic-defend'), catalog: BASIC_CARDS },
+        { id: 'mate', name: '白露', side: 'ally', kind: 'skill', maxHp: 30, hp: 10, skills: [idle] },
+        { id: 'foe', name: '狼', side: 'enemy', kind: 'skill', maxHp: 40, skills: [idle] },
+    ], items: [{ itemId: 'it-potion', name: '回春丹', count: 1, effects: [{ op: 'heal', amount: 12, target: 'ally' }] }] }, seedFor('chat-1|items'));
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    const legal = legalActions(created.state);
+    const view = battleView(created.state, legal);
+    assert.deepEqual([...view.items[0].targets].sort(), ['hero', 'mate']);
+    assert.deepEqual(view.items[0].affects, []);
+    assert.equal(resolveItem(legal, 'it-potion').reason, 'combat-target-required');
+    assert.deepEqual(resolveItem(legal, 'it-potion', 'mate').action, { type: 'item', itemId: 'it-potion', targetId: 'mate' });
+    assert.equal(resolveItem(legal, 'it-potion', 'foe').reason, 'combat-target-invalid');
+    const html = renderCombatPanelHtml({ status: 'battle', pending: '', notice: '', controlledId: 'hero', selected: itemSelection('it-potion'), battle: view, portraits: {}, enemyArt: {} });
+    assert.match(html, /is-targetable" data-unit="mate"/);
+    assert.doesNotMatch(html, /is-targetable" data-unit="foe"/);
+});
 
-test('道具栏：持有道具时显示按钮与余量，点击直接使用、不耗能量；同回合再点给出原因；无道具时不显示', async () => {
+
+
+test('道具栏：点「道具」展开列表与余量，点一项直接使用、不耗能量并收起；同回合再点给出原因；无道具时点「道具」给出原因', async () => {
     const { scanCombatTags } = await import('../src/scene/combat-directives.js');
     const { itemIdFor, ledgerEntryId } = await import('../src/combat/schema.js');
     const p = panelHarness();
@@ -746,11 +906,15 @@ test('道具栏：持有道具时显示按钮与余量，点击直接使用、�
     await until(() => p.panel.view().status === 'lobby');
     assert.equal(p.panel.invoke('start').ok, true);
     const html = () => p.overlay.querySelector('.igs-combat-body').innerHTML;
+    assert.match(html(), /data-combat-act="items" aria-haspopup="menu" aria-expanded="false"/);
+    assert.equal(p.panel.invoke('items').ok, true);
+    assert.match(html(), /igs-combat-items is-open/);
     assert.match(html(), /data-combat-act="item" data-combat-id="it-/);
     assert.match(html(), /igs-combat-item-count">2</);
     const used = p.panel.invoke('item', itemIdFor('回春丹'));
     assert.equal(used.ok, true);
     assert.ok(used.events.some((e) => e.type === 'item'));
+    assert.doesNotMatch(html(), /igs-combat-items is-open/);
     const b = p.panel.view().battle;
     assert.deepEqual([b.energy, b.items[0].count, b.items[0].usable], [3, 1, false]);
     const again = p.panel.invoke('item', itemIdFor('回春丹'));
@@ -762,6 +926,8 @@ test('道具栏：持有道具时显示按钮与余量，点击直接使用、�
     await until(() => plain.panel.view().status === 'lobby');
     plain.panel.invoke('start');
     assert.doesNotMatch(plain.overlay.querySelector('.igs-combat-body').innerHTML, /data-combat-act="item"/);
+    const empty = plain.panel.invoke('items');
+    assert.deepEqual([empty.ok, empty.reason], [false, 'combat-items-empty']);
     plain.panel.close();
 });
 
@@ -791,7 +957,7 @@ test('面板：手牌有本地卡面时用图，无图或协议被拒时回退�
 
 
 test('战斗 cut-in：独立 .igs-combat-cutin-* 命名空间，名称只经 textContent，立绘地址按 CSS 字符串转义；减少动态效果不闪白，无立绘不画分格；裁切不放大到露空', async () => {
-    const { buildSkillCutin, combatCutinCrop, COMBAT_CUTIN_MS } = await import('../src/visual/igs-ui/combat-cutin.js');
+    const { buildSkillCutin, buildAwakenCutin, combatCutinCrop, combatEyeCrop, COMBAT_AWAKEN_EYE_MS, COMBAT_CUTIN_MS } = await import('../src/visual/igs-ui/combat-cutin.js');
     const { FALLBACK_HEAD } = await import('../src/visual/igs-ui/fx-anchor.js');
     const doc = { createElement: (tag) => new FakeEl(doc, tag) };
     const probed = { naturalW: 400, naturalH: 800, head: { x: 0.5, top: 0.08, w: 0.25 }, tint: 'rgb(240,212,196)' };
@@ -822,6 +988,28 @@ test('战斗 cut-in：独立 .igs-combat-cutin-* 命名空间，名称只经 tex
     assert.ok(combatCutinCrop(null).crop.size < combatCutinCrop({ naturalW: 400, naturalH: 800, head: { ...FALLBACK_HEAD } }).crop.size);
     // 头很宽时放大倍数封顶在整幅图铺满分格宽度（size ≥ 100%），两侧不露空。
     assert.ok(combatCutinCrop({ naturalW: 400, naturalH: 800, head: { x: 0.5, top: 0.02, w: 0.9 } }).crop.size >= 100);
+    // 觉醒特写（方案 A）：头位可信时先切眼部斜切条（--aw-lead），默认头位、减少动态效果或没有立绘时不切；减少动态效果不闪白；台词只经 textContent，--n 为字数。
+    const aw = buildAwakenCutin(doc, { name: '林夕', skill: '怒火', line: '<i>到此为止</i>', awakenType: 'rage', url: 'https://example.test/a.png', probed });
+    assert.equal(aw.getAttribute('data-awaken'), 'rage');
+    assert.equal(aw.style.vars['--igs-fx-life'], `${COMBAT_CUTIN_MS.awaken}ms`);
+    assert.equal(aw.style.vars['--aw-lead'], `${COMBAT_AWAKEN_EYE_MS}ms`);
+    assert.equal(aw.querySelectorAll('.igs-combat-awaken-eye-strip').length, 1);
+    assert.equal(aw.querySelectorAll('.igs-combat-cutin-flash').length, 2);
+    assert.equal(aw.querySelector('.igs-combat-awaken-kind').textContent, '觉醒·怒火');
+    const awLine = aw.querySelector('.igs-combat-awaken-line');
+    assert.equal(awLine.textContent, '「<i>到此为止</i>」');
+    assert.equal(awLine.children.length, 0);
+    assert.equal(awLine.style.vars['--n'], String(Array.from('「<i>到此为止</i>」').length));
+    const eyeCrop = combatEyeCrop(probed);
+    assert.ok(eyeCrop && [eyeCrop.x, eyeCrop.y].every((n) => n >= 0 && n <= 100));
+    assert.equal(combatEyeCrop({ naturalW: 400, naturalH: 800, head: FALLBACK_HEAD }), null);
+    const guessedAw = buildAwakenCutin(doc, { name: '林夕', url: 'https://example.test/a.png', probed: { naturalW: 400, naturalH: 800, head: FALLBACK_HEAD } });
+    assert.equal(guessedAw.querySelector('.igs-combat-awaken-eye'), null);
+    assert.equal(guessedAw.style.vars['--aw-lead'], '0ms');
+    const stillAw = buildAwakenCutin(doc, { name: '林夕', url: 'https://example.test/a.png', probed, reduced: true });
+    assert.equal(stillAw.querySelector('.igs-combat-awaken-eye'), null);
+    assert.equal(stillAw.querySelector('.igs-combat-cutin-flash'), null);
+    assert.equal(buildAwakenCutin(doc, { name: '林夕', probed }).querySelector('.igs-combat-cutin-figure'), null);
 });
 
 test('面板：人物技能先播 cut-in，命中演出在特写开始淡出时落下，特写到时移除；立绘读不到时按较宽取景；没有立绘时不播特写、命中照旧立即落下', async () => {
@@ -871,7 +1059,7 @@ test('面板：人物技能先播 cut-in，命中演出在特写开始淡出时�
     p.panel.close();
 });
 
-test('面板：觉醒特写为居中半身立绘（不再有眼部窄条），关闭面板清掉特写节点与计时器，迟到的立绘探测不再挂节点', async () => {
+test('面板：觉醒特写为放大的半身立绘，减少动态效果时不切眼部斜切条；关闭面板清掉特写节点与计时器，迟到的立绘探测不再挂节点', async () => {
     const setup = async (url) => {
         const p = panelHarness({ resolvePortrait: (name) => (name === '主角' ? url : '') });
         p.chat[1] = ai('前方有动静。\n[igs-combat:awaken|我|决意|到此为止]\n[igs-combat:start|狭路|狼]');
@@ -887,7 +1075,7 @@ test('面板：觉醒特写为居中半身立绘（不再有眼部窄条），�
     const cut = p.overlay.querySelector('.igs-combat-awaken-cutin');
     assert.equal(cut.getAttribute('data-awaken'), 'resolve');
     assert.match(cut.className, /is-reduced/);
-    assert.equal(cut.querySelectorAll('.igs-combat-awaken-face').length, 0);
+    assert.equal(cut.querySelectorAll('.igs-combat-awaken-eye').length, 0);
     assert.match(cut.querySelector('.igs-combat-cutin-figure').className, /is-awaken/);
     assert.equal(cut.querySelector('.igs-combat-awaken-line').textContent, '「到此为止」');
     p.panel.close();
@@ -1603,4 +1791,188 @@ test('战报未发送：重新发送前同样要先选定战利品；读取失�
     assert.match(locked, /data-combat-act="retry-send">重新发送</);
     assert.doesNotMatch(locked, /data-combat-act="(?:flip|choose|reroll)"/);
     assert.equal((locked.match(/class="igs-combat-loot-card is-face/g) || []).length, 3);
+});
+
+
+test('v4 手牌视图：关键字、临时牌与原费用只在有值时出现；新事件不打断战报、成就与演出', async () => {
+    const { createBattle, applyAction, legalActions } = await import('../src/combat/engine.js');
+    const { collectTurns } = await import('../src/combat/report.js');
+    const { combatFeats } = await import('../src/combat/feats.js');
+    const { BASIC_CARDS } = await import('../src/combat/rules.js');
+    const skill = (id, cost, effects, extra = {}) => ({ id, name: id, type: 'skill', cost, rarity: 'common', effects, ...extra });
+    const catalog = { ...BASIC_CARDS,
+        lead: skill('lead', 1, [{ op: 'block', amount: 2, target: 'self' }], { innate: true }),
+        dud: skill('dud', 0, [], { unplayable: true, onDiscard: [{ op: 'draw', amount: 1 }] }),
+        forge: skill('forge', 1, [{ op: 'create', card: 'token-shard', amount: 1, to: 'hand' }]) };
+    const units = [{ id: 'hero', name: '主角', side: 'ally', kind: 'deck', maxHp: 50, deck: ['lead', 'dud', 'forge', 'basic-strike', 'basic-defend'], catalog },
+        { id: 'foe', name: '狼', side: 'enemy', kind: 'skill', maxHp: 40, skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount: 3 }] }] }];
+    const begun = createBattle({ controlledId: 'hero', units }, 7);
+    assert.equal(begun.ok, true, JSON.stringify(begun.error));
+    const find = (view, id) => view.hand.find((c) => c.id === id);
+    let view = battleView(begun.state, legalActions(begun.state));
+    const strike = find(view, 'basic-strike');
+    for (const key of ['keywords', 'temp', 'baseCost']) assert.equal(Object.hasOwn(strike, key), false, key);
+    assert.equal(find(view, 'lead').keywords, '固有');
+    assert.deepEqual([find(view, 'dud').keywords, find(view, 'dud').playable], ['不能打出。被丢弃时：抽 1 张牌', false]);
+    const played = applyAction(begun.state, { type: 'play', inst: find(view, 'forge').inst });
+    assert.equal(played.error, undefined, JSON.stringify(played.error));
+    view = battleView(played.state, legalActions(played.state));
+    const shard = view.hand.find((c) => c.temp);
+    assert.deepEqual([shard?.temp, shard?.keywords], [true, '临时']);
+    played.state.units.hero.handCost = -1;
+    view = battleView(played.state, legalActions(played.state));
+    assert.deepEqual([find(view, 'lead').cost, find(view, 'lead').baseCost], [0, 1]);
+    assert.equal(Object.hasOwn(find(view, 'dud'), 'baseCost'), false);
+    const events = [...begun.events, ...played.events];
+    assert.ok(events.some((e) => e.type === 'card-created'), JSON.stringify(events.map((e) => e.type)));
+    assert.doesNotThrow(() => {
+        collectTurns(events, played.state.units);
+        combatFeats(events, played.state);
+        combatFxSource(events, played.state, {});
+    });
+});
+
+
+test('v4 牌面关键字注释：固有、临时与效果里的消耗带 data-scale-tip；不能打出与被丢弃时不带注释；普通卡视图形状不变', async () => {
+    const { createBattle, applyAction, legalActions } = await import('../src/combat/engine.js');
+    const { BASIC_CARDS } = await import('../src/combat/rules.js');
+    const { KEYWORD_TIPS } = await import('../src/visual/igs-ui/combat-card-art.js');
+    const { cardTextHtml } = await import('../src/visual/igs-ui/combat-panel-render.js');
+    const skill = (id, cost, effects, extra = {}) => ({ id, name: id, type: 'skill', cost, rarity: 'common', effects, ...extra });
+    const catalog = { ...BASIC_CARDS,
+        lead: skill('lead', 1, [{ op: 'block', amount: 2, target: 'self' }], { innate: true }),
+        dud: skill('dud', 0, [], { unplayable: true, onDiscard: [{ op: 'draw', amount: 1 }] }),
+        forge: skill('forge', 1, [{ op: 'create', card: 'token-shard', amount: 1, to: 'hand' }]) };
+    const units = [{ id: 'hero', name: '主角', side: 'ally', kind: 'deck', maxHp: 50, deck: ['lead', 'dud', 'forge', 'basic-strike', 'basic-defend'], catalog },
+        { id: 'foe', name: '狼', side: 'enemy', kind: 'skill', maxHp: 40, skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount: 3 }] }] }];
+    const begun = createBattle({ controlledId: 'hero', units }, 7);
+    const find = (view, id) => view.hand.find((c) => c.id === id);
+    let view = battleView(begun.state, legalActions(begun.state));
+    for (const key of ['keywordParts', 'textParts']) assert.equal(Object.hasOwn(find(view, 'basic-strike'), key), false, key);
+    assert.deepEqual(find(view, 'lead').keywordParts, [{ text: '固有', tip: KEYWORD_TIPS.innate }]);
+    const dud = find(view, 'dud');
+    assert.equal(dud.keywordParts.map((p) => p.text).join(''), dud.keywords);
+    assert.equal(dud.keywordParts.some((p) => Object.hasOwn(p, 'tip')), false);
+    assert.equal(cardTextHtml({ textParts: dud.keywordParts }), '不能打出。被丢弃时：抽 1 张牌');
+    const played = applyAction(begun.state, { type: 'play', inst: find(view, 'forge').inst });
+    view = battleView(played.state, legalActions(played.state));
+    const shard = view.hand.find((c) => c.temp);
+    assert.deepEqual(shard.keywordParts, [{ text: '临时', tip: KEYWORD_TIPS.temp }]);
+    assert.equal(shard.textParts.map((p) => p.text).join(''), shard.text);
+    assert.ok(cardTextHtml(shard).endsWith(`<span data-scale-tip="${KEYWORD_TIPS.exhaust}">消耗</span>`), cardTextHtml(shard));
+});
+
+
+test('卡面纹样：先按卡名匹配（不受牌型限制），同分看效果结构，名字没命中才按本类型回退；同一张卡同一纹样；卡名不进 SVG；临时牌带残影', async () => {
+    const { cardArtSvg } = await import('../src/visual/igs-ui/combat-card-art.js');
+    const { cardMotifKey } = await import('../src/visual/igs-ui/combat-card-motifs.js');
+    const { TOKEN_CARDS } = await import('../src/combat/rules.js');
+    const card = (id, name, type, effects, extra = {}) => ({ id, name, type, cost: 1, rarity: 'common', effects, ...extra });
+    const hit = (extra = {}) => ({ op: 'damage', amount: 6, hits: 1, target: 'enemy', ...extra });
+    const cases = [
+        [card('a1', '寒冰护盾', 'skill', [{ op: 'block', amount: 6, target: 'self' }]), 'ward'],
+        [card('a2', '腐蚀', 'skill', [{ op: 'status', status: 'poison', stacks: 4, target: 'enemy' }]), 'vial'],
+        [card('a3', '旋风斩', 'attack', [hit({ target: 'all-enemies' })], { cost: 'X' }), 'whirl'],
+        [card('a4', '连抓', 'attack', [hit({ hits: 3 })]), 'claw'],
+        [card('a5', '铸刃', 'skill', [{ op: 'create', card: 'token-shard', amount: 1, to: 'hand' }]), 'anvil'],
+        [card('a6', '霸气', 'power', [{ op: 'each-turn', then: [{ op: 'status', status: 'strength', stacks: 1, target: 'self' }] }]), 'crown'],
+        [card('a7', '流光', 'attack', [hit()]), 'comet'],
+        [card('a8', '烈焰', 'skill', [{ op: 'block', amount: 6, target: 'self' }]), 'flame'],
+        [TOKEN_CARDS['token-shard'], 'shard'], [TOKEN_CARDS['token-ward'], 'talisman'], [TOKEN_CARDS['token-spark'], 'spark'],
+    ];
+    assert.deepEqual(cases.map(([c]) => cardMotifKey(c)), cases.map(([, k]) => k));
+    const strike = card('s1', '打击', 'attack', [hit()]);
+    assert.equal(cardArtSvg(strike), cardArtSvg(JSON.parse(JSON.stringify(strike))));
+    assert.equal(cardMotifKey({ ...strike, upgraded: true, effects: [hit({ amount: 9 })] }), cardMotifKey(strike));
+    const plain = Array.from({ length: 12 }, (_, i) => cardMotifKey(card(`p${i}`, '无名', 'attack', [hit()])));
+    assert.ok(new Set(plain).size >= 3, plain.join());
+    const evil = cardArtSvg(card('<x>', '<script>alert(1)</script>"斩', 'attack', [hit()]));
+    assert.match(evil, /^<svg viewBox="0 0 24 24" [^>]*aria-hidden="true">/);
+    assert.doesNotMatch(evil, /script|alert|<x>|斩/);
+    const base = cardArtSvg(strike);
+    const temp = cardArtSvg({ ...strike, temp: true });
+    assert.doesNotMatch(base, /stroke-dasharray/);
+    assert.match(temp, /stroke-dasharray/);
+    assert.ok(temp.includes(base.replace(/^<svg[^>]*>|<\/svg>$/g, '')));
+    for (const odd of [null, {}, card('o1', '', 'curse', [])]) assert.match(cardArtSvg(odd), /^<svg [\s\S]*<\/svg>$/);
+});
+
+
+test('v4 待选阶段：打出选牌弃牌后视图给出 choice 与候选牌，确认钮显示「弃掉 k/N」、选够才可点、替换结束回合；没有待选时视图不写 choice', async () => {
+    const { createBattle, applyAction, legalActions } = await import('../src/combat/engine.js');
+    const { BASIC_CARDS } = await import('../src/combat/rules.js');
+    const skill = (id, cost, effects, extra = {}) => ({ id, name: id, type: 'skill', cost, rarity: 'common', effects, ...extra });
+    const catalog = { ...BASIC_CARDS, sift: skill('sift', 1, [{ op: 'draw', amount: 2 }, { op: 'discard', amount: 1, mode: 'choose' }], { innate: true }) };
+    const deck = ['sift', 'basic-strike', 'basic-strike', 'basic-defend', 'basic-defend', 'basic-strike', 'basic-defend', 'basic-strike'];
+    const units = [{ id: 'hero', name: '主角', side: 'ally', kind: 'deck', maxHp: 50, deck, catalog },
+        { id: 'foe', name: '狼', side: 'enemy', kind: 'skill', maxHp: 40, skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount: 3 }] }] }];
+    const begun = createBattle({ controlledId: 'hero', units }, 7);
+    assert.equal(begun.ok, true, JSON.stringify(begun.error));
+    const idle = battleView(begun.state, legalActions(begun.state));
+    assert.equal(Object.hasOwn(idle, 'choice'), false);
+    assert.equal(idle.hand.some((c) => Object.hasOwn(c, 'choosable')), false);
+    const played = applyAction(begun.state, { type: 'play', inst: idle.hand.find((c) => c.id === 'sift').inst });
+    assert.equal(played.ok, true, JSON.stringify(played.error));
+    const view = battleView(played.state, legalActions(played.state));
+    assert.deepEqual([view.choice.kind, view.choice.count], ['discard', 1]);
+    assert.deepEqual(view.hand.filter((c) => c.choosable).map((c) => c.inst), view.choice.options);
+    assert.deepEqual([view.hand.some((c) => c.playable), view.canEndTurn], [false, false]);
+    const base = { status: 'battle', pending: '', notice: '', selected: null, battle: view };
+    const confirm = (html) => html.match(/<button[^>]*data-combat-act="choose-confirm"[^>]*>[^<]*<\/button>/)?.[0] || '';
+    const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const cardTag = (html, inst) => html.match(new RegExp(`<button type="button" class="[^"]*" style="[^"]*" data-combat-act="card" data-combat-id="${reEsc(inst)}"[^>]*>`))?.[0] || '';
+    const none = renderCombatPanelHtml({ ...base, chosen: [] });
+    assert.match(confirm(none), /aria-disabled="true">弃掉 0\/1</);
+    assert.doesNotMatch(none, /data-combat-act="end-turn"/);
+    const pick = view.choice.options[0];
+    assert.match(cardTag(none, pick), /is-choosable/);
+    assert.doesNotMatch(cardTag(none, pick), /is-disabled|is-chosen|aria-disabled/);
+    assert.match(cardTag(none, pick), /aria-pressed="false"/);
+    const one = renderCombatPanelHtml({ ...base, chosen: [pick] });
+    assert.match(confirm(one), />弃掉 1\/1</);
+    assert.doesNotMatch(confirm(one), /aria-disabled/);
+    assert.match(cardTag(one, pick), /is-chosen[^"]*"[\s\S]*aria-pressed="true"/);
+    assert.match(renderCombatPanelHtml({ ...base, battle: idle }), /data-combat-act="end-turn"/);
+});
+
+test('v4 选牌确认：打出选牌弃牌后点候选牌选中，确认钮按 legal 派发 choose 并记入会话动作；张数不够与待选期间结束回合给原因；只选 1 张时点另一张换选，Esc 清空已选', async () => {
+    const sift = { id: 'm2', name: '筛选', type: 'skill', cost: 1, rarity: 'personal', innate: true, effects: [{ op: 'draw', amount: 2 }, { op: 'discard', amount: 1, mode: 'choose' }] };
+    const hero = { ...clone(heroDef), personalPool: [attack('m1'), sift, attack('m3'), guard('m4')] };
+    const p = panelHarness({}, { hero });
+    p.panel.open(p.overlay, { messageId: 1 });
+    await until(() => p.panel.view().status === 'lobby');
+    assert.equal(p.panel.invoke('start').ok, true);
+    const count = () => p.session.state().record.actions.length;
+    const card = p.panel.view().battle.hand.find((c) => c.name === '筛选');
+    assert.ok(card, '固有的「筛选」应在首手');
+    assert.equal(p.panel.invoke('card', card.inst).reason, 'combat-target-required');
+    const played = card.affects.length ? p.panel.invoke('target', card.affects[0]) : p.panel.invoke('card', card.inst);
+    assert.equal(played.ok, true, JSON.stringify(played));
+    const choice = p.panel.view().battle.choice;
+    assert.deepEqual([choice.kind, choice.count], ['discard', 1]);
+    assert.ok(choice.options.length > 1);
+    const [a, b] = choice.options;
+    const before = count();
+    assert.equal(p.panel.invoke('end-turn').reason, 'combat-choice-pending');
+    assert.equal(p.panel.invoke('choose-confirm').reason, 'combat-choice-count');
+    assert.deepEqual(p.panel.invoke('card', a).chosen, [a]);
+    assert.deepEqual(p.panel.invoke('card', b).chosen, [b]);
+    assert.equal(p.panel.cancelSelection(), true);
+    assert.deepEqual(p.panel.view().chosen, []);
+    assert.equal(count(), before);
+    p.panel.invoke('card', a);
+    const discardBefore = p.panel.view().battle.piles.discard;
+    const r = p.panel.invoke('choose-confirm');
+    assert.equal(r.ok, true, JSON.stringify(r.reason));
+    assert.equal(count(), before + 1);
+    assert.deepEqual(p.session.state().record.actions.at(-1), { type: 'choose', insts: [a] });
+    const after = p.panel.view();
+    assert.equal(Object.hasOwn(after.battle, 'choice'), false);
+    assert.equal(Object.hasOwn(after, 'chosen'), false);
+    assert.equal(after.battle.hand.some((c) => c.inst === a), false);
+    // 选中的牌被弃掉，「筛选」本身结算完也进弃牌堆：弃牌堆多 2 张。
+    const pile = p.session.state().battle.piles[after.battle.heroId];
+    assert.deepEqual([pile.discard.includes(a), pile.discard.includes(card.inst)], [true, true]);
+    assert.equal(after.battle.piles.discard, discardBefore + 2);
+    p.panel.close();
 });
