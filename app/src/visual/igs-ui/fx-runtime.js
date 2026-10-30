@@ -1113,7 +1113,8 @@ function playPageClashes(ctx, settings) {
     const userName = text(options.userName);
     const fx = content.fx || {};
     const list = pageClashes(fx.clashes, content.displayText, {
-        auto: config.auto,
+        // 回忆、梦境页不自动识别：那不是此刻的人在动手；写了 clash 标签照常播。
+        auto: config.auto && fx.flashback !== true && fx.dream !== true,
         people: Object.keys(assets.characters || {}).map((key) => ({ key, aliases: (assets.characterAliases || {})[key], gender: characterDnaGender(assets, key) })),
         onStage,
         userNames: userName ? [userName] : [],
@@ -1244,6 +1245,12 @@ export function applyFxToDom(root, snapshot, options = {}) {
     if (castMarks.length && state.castMarkKey !== plan.pageKey) {
         const targets = new Map((Array.isArray(options.cast) ? options.cast : []).filter(Boolean).map((t) => [t.character, t]));
         for (const mark of castMarks) {
+            // 说话人本人看到社区新帖：mark.speaker 为真时落在说话人立绘上（不带陪衬目标）。
+            if (mark && mark.speaker === true && options.sprite && options.sprite.url) {
+                playEffect({ type: 'symbol', kind: mark.kind }, ctx);
+                castPlayed.push(`castSymbol:${mark.character}:${mark.kind}`);
+                continue;
+            }
             const castTarget = mark && targets.get(mark.character);
             if (!castTarget || !castTarget.url) continue;
             playEffect({ type: 'symbol', kind: mark.kind, castTarget }, ctx);

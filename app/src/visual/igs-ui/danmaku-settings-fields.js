@@ -1,5 +1,6 @@
-import { checkbox, field, segmentedInput, textInput, textareaInput } from './settings-fields.js';
+import { checkbox, disabledAttr, field, segmentedInput, textInput, textareaInput } from './settings-fields.js';
 import { LIVE_ROLE_LINES } from './danmaku-pools.js';
+import { LIVE_SKINS, LIVE_SKIN_LABELS, LIVE_TERMINAL_TONES, LIVE_TERMINAL_TONE_LABELS, livePlatformPromptOf } from './live-skin.js';
 import { collapsible, featureRow, perfSubhead, renderWordListField } from './fx-settings-fields.js';
 import {
     DANMAKU_PERSONAS,
@@ -42,6 +43,12 @@ export function renderDanmakuFields(reader, more = collapsible, { liveBlocked = 
         + field(`${p}.liveFx.chat`, '弹幕', segmentedInput(`${p}.liveFx.chat`, s.live.chat, [['roll', '翻滚'], ['fly', '横飞'], ['both', '同时']], '直播弹幕'))
         + field(`${p}.liveFx.fontSize`, '弹幕字号', segmentedInput(`${p}.liveFx.fontSize`, s.live.fontSize, [['small', '小'], ['medium', '中'], ['large', '大']], '直播弹幕字号'))
         + field(`${p}.liveFx.density`, '弹幕密度', segmentedInput(`${p}.liveFx.density`, s.live.density, [['sparse', '稀'], ['medium', '中'], ['dense', '密']], '直播弹幕密度'))
+        + perfSubhead('暗网直播间')
+        + checkbox(`${p}.liveFx.darkAll`, s.live.darkAll, '所有直播固定用暗网皮肤')
+        + field(`${p}.liveFx.darkSkin`, '暗网默认风格', segmentedInput(`${p}.liveFx.darkSkin`, s.live.darkSkin, LIVE_SKINS.map((key) => [key, LIVE_SKIN_LABELS[key]]), '暗网默认风格'))
+        + field(`${p}.liveFx.terminalTone`, '终端配色', segmentedInput(`${p}.liveFx.terminalTone`, s.live.terminalTone, LIVE_TERMINAL_TONES.map((key) => [key, LIVE_TERMINAL_TONE_LABELS[key]]), '终端配色'))
+        + field(`${p}.liveFx.platformPrompt`, '平台栏写法', textareaInput(`${p}.liveFx.platformPrompt`, livePlatformPromptOf(s.live), '清空恢复默认')
+            + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="live-platform-prompt-reset"${disabledAttr(!s.live.platformPrompt)}>恢复默认</button></div>`)
         + checkbox(`${p}.liveFx.interact`, s.live.interact, '直播互动（发弹幕、打赏）')
         + checkbox(`${p}.liveFx.followTheme`, s.live.followTheme, '跟随对话框风格')
         + checkbox(`${p}.liveFx.muteOnNsfw`, s.live.muteOnNsfw, 'NSFW场景收起直播间'));

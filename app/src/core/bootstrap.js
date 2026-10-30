@@ -31,7 +31,7 @@ import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/
 import { resolveBgmPromptRule, resolveDlcFxPromptRule, resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
 import { resolveDanmakuPromptRule } from '../visual/igs-ui/danmaku-prompt.js';
 import { resolveFeedPromptRule } from '../visual/igs-ui/feed-prompt.js';
-import { mentionedFeedPlatforms } from '../scene/feed-platforms.js';
+import { hasFeedPeekHint, mentionedFeedPlatforms } from '../scene/feed-platforms.js';
 import { resolveTextFxPromptRule } from '../visual/igs-ui/text-fx.js';
 import { resolveBilingualPromptRule } from '../visual/igs-ui/bilingual-text.js';
 import { resolveDailyFxPromptRule } from '../visual/igs-ui/fx-daily-prompt.js';
@@ -86,7 +86,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.56';
+const IGS_VERSION = '0.37.57';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -1002,7 +1002,12 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'generation-type-skipped' };
         }
         // 社区平台写法只展开最近提到的平台，其余只列名字。
-        if (readerSettings && readerSettings.feedFx) readerSettings.feedFx.mentioned = mentionedFeedPlatforms([promptContext.userText, ...(promptContext.recentAiTexts || []).slice(-2)]);
+        // 偷看专用平台（搜索记录、备忘录、相册、聊天列表）只在有偷看迹象时进名单。
+        if (readerSettings && readerSettings.feedFx) {
+            const feedContext = [promptContext.userText, ...(promptContext.recentAiTexts || []).slice(-2)];
+            readerSettings.feedFx.mentioned = mentionedFeedPlatforms(feedContext);
+            readerSettings.feedFx.peekHint = hasFeedPeekHint(feedContext);
+        }
         const sceneOn = Boolean(sceneAssets && sceneAssets.enabled && scenePromptRuleEnabled(sceneAssets) && sceneAssets.promptRule);
         const entries = sceneAssets && sceneAssets.promptEntries;
         const triggers = resolvePromptTriggers({ ...promptContext, entries });

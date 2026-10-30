@@ -23,7 +23,7 @@ export const FEED_STYLE_TEXT = `
 .igs-feed-icon{display:inline-flex;flex:none;width:16px;height:16px;}
 .igs-feed-head .igs-feed-icon{width:20px;height:20px;}
 .igs-feed-icon svg{width:100%;height:100%;display:block;}
-.igs-feed-list{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:8px 8px calc(34px + var(--igs-phone-sink,0px));overflow:hidden;contain:layout paint;}
+.igs-feed-list{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:8px 8px calc(34px + var(--igs-phone-sink,0px));overflow:hidden;contain:layout paint;}
 .igs-feed-post{flex:none;display:flex;gap:10px;padding:10px;border-radius:6px;background:var(--fp-card);box-sizing:border-box;}
 .igs-feed-post[data-fresh]{animation:igs-feed-in .38s ease-out both;}
 .igs-feed-avatar{flex:none;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--fp-av,#9aa0aa);color:#fff;font-size:14px;font-weight:700;}
@@ -43,12 +43,20 @@ export const FEED_STYLE_TEXT = `
 .igs-feed-star.is-on{color:#f5a300;}
 .igs-feed-text{font-size:14px;line-height:1.6;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden;}
 .igs-feed-hl{color:var(--fp-accent);}
+.igs-feed-stage[data-skin="phone"] .is-dm{cursor:pointer;text-decoration:underline dashed var(--fp-accent);text-decoration-thickness:1px;text-underline-offset:3px;}
 .igs-feed-meta{display:flex;align-items:center;gap:18px;margin-top:2px;color:var(--fp-sub);font-size:11px;line-height:1.3;}
 .igs-feed-stat{display:inline-flex;align-items:center;gap:3px;}
 .igs-feed-replies{display:flex;flex-direction:column;gap:4px;margin-top:2px;padding:6px 8px;border-radius:3px;background:var(--fp-reply);}
 .igs-feed-reply{display:flex;gap:4px;font-size:12.5px;line-height:1.5;}
 .igs-feed-rname{flex:none;color:var(--fp-name);font-weight:600;}
 .igs-feed-rname::after{content:"：";font-weight:400;}
+.igs-feed-rname.is-to{flex:0 1 auto;max-width:70%;overflow-wrap:anywhere;}
+.igs-feed-rarrow{margin:0 .3em;color:var(--fp-sub);font-weight:400;}
+.igs-feed-pics{margin-top:8px;}
+.igs-feed-pic{display:block;width:100%;height:auto;max-height:150px;object-fit:cover;border-radius:4px;}
+.igs-feed-thumb,.igs-feed-cover-block,.igs-feed-photo{position:relative;overflow:hidden;}
+.igs-feed-pic-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+.igs-feed-cover-block[data-img] .igs-feed-cover-title,.igs-feed-photo[data-img] .igs-feed-photo-icon{visibility:hidden;}
 .igs-feed-rtext{min-width:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
 .igs-feed-hot,.igs-feed-badge{display:none;}
 .igs-feed-stage[data-platform="news"]{--fp-bg:#fff;--fp-bar:#d7263d;--fp-status:#fff;--fp-head-ink:#fff;--fp-app:#fff;--fp-head-line:#d7263d;--fp-name:#8a8f98;--fp-reply:#f6f6f6;}
@@ -111,8 +119,7 @@ export const FEED_STYLE_TEXT = `
 .igs-feed-wb-more{align-self:flex-start;width:18px;height:18px;margin-top:2px;color:#c4c4c4;}
 .igs-feed-stage[data-platform="weibo"] .igs-feed-text{display:block;margin-top:8px;font-size:16px;line-height:1.5;font-weight:400;color:var(--fp-ink);overflow:visible;-webkit-line-clamp:unset;}
 .igs-feed-stage[data-platform="weibo"] .igs-feed-hl{color:var(--fp-link);font-weight:400;}
-.igs-feed-pics{margin-top:8px;}
-.igs-feed-pic{display:block;width:66%;height:auto;max-height:260px;object-fit:cover;border-radius:4px;}
+.igs-feed-stage[data-platform="weibo"] .igs-feed-pic{width:66%;max-height:260px;}
 .igs-feed-stage[data-platform="weibo"] .igs-feed-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:0;height:40px;margin-top:10px;border-top:.5px solid var(--fp-line);font-size:13px;line-height:1;color:var(--fp-sub);}
 .igs-feed-stage[data-platform="weibo"] .igs-feed-stat{justify-content:center;gap:5px;}
 .igs-feed-stage[data-platform="weibo"] .igs-feed-stat .igs-feed-icon{width:18px;height:18px;}
@@ -366,11 +373,11 @@ export const FEED_STYLE_TEXT = `
 .igs-feed-lock-pin-dot{width:11px;height:11px;border-radius:50%;box-sizing:border-box;border:1.5px solid #fff;opacity:.45;transition:transform .16s ease,opacity .16s ease;}
 .igs-feed-lock-pin-dot[data-on]{background:#fff;opacity:1;transform:scale(1.2);}
 /* 回看入口：与观众弹幕入口同位同尺寸，开着观众弹幕时排在它右边 */
-.igs-feed-entry{--igs-aud-entry:38px;order:1;width:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));height:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));padding:0;border:0;background:transparent;color:#f4f1ec;opacity:.55;cursor:pointer;pointer-events:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));transition:opacity .2s ease;}
+.igs-feed-entry{--igs-aud-entry:28px;order:1;width:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));height:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));padding:0;border:0;background:transparent;color:#f4f1ec;opacity:.55;cursor:pointer;pointer-events:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));transition:opacity .2s ease;}
 .igs-feed-entry[hidden]{display:none;}
 .igs-feed-entry svg{display:block;width:100%;height:100%;}
-.igs-feed-entry[data-size="small"]{--igs-aud-entry:30px;}
-.igs-feed-entry[data-size="large"]{--igs-aud-entry:46px;}
+.igs-feed-entry[data-size="small"]{--igs-aud-entry:24px;}
+.igs-feed-entry[data-size="large"]{--igs-aud-entry:34px;}
 .igs-feed-entry:hover,.igs-feed-entry:focus-visible{opacity:1;}
 .igs-feed-entry:focus-visible{outline:2px solid #f4e3ad;outline-offset:2px;border-radius:8px;}
 .igs-feed-entry-dot{position:absolute;top:-1px;right:-2px;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1.5px #14161a;}
@@ -379,7 +386,13 @@ export const FEED_STYLE_TEXT = `
 .igs-feed-review-host{position:absolute;inset:0;pointer-events:none;}
 .igs-feed-review .igs-live-phone,.igs-feed-review .igs-feed-paper{pointer-events:auto;}
 .igs-feed-review .igs-feed-stage .igs-feed-list{overflow-y:auto;overscroll-behavior:contain;}
-.igs-feed-review-close{position:absolute;top:14px;right:14px;width:38px;height:38px;padding:8px;box-sizing:border-box;border:0;border-radius:50%;background:#22262e;color:#f4f1ec;cursor:pointer;}
+.igs-feed-review-tabs{position:absolute;z-index:1;top:var(--igs-review-top,14px);left:60px;right:60px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;pointer-events:auto;}
+.igs-feed-review-tabs::-webkit-scrollbar{display:none;}
+.igs-feed-review-tabs[hidden]{display:none;}
+.igs-feed-review-tab{flex:none;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 11px;box-sizing:border-box;border:0;border-radius:14px;background:#22262e;color:#c9c6c0;font-size:12px;cursor:pointer;}
+.igs-feed-review-tab[aria-selected="true"]{background:#f4f1ec;color:#18191c;font-weight:700;}
+.igs-feed-review-tab-dot{width:8px;height:8px;border-radius:50%;}
+.igs-feed-review-close{position:absolute;z-index:1;top:var(--igs-review-top,14px);right:14px;width:38px;height:38px;padding:8px;box-sizing:border-box;border:0;border-radius:50%;background:#22262e;color:#f4f1ec;cursor:pointer;}
 .igs-feed-review-close svg{display:block;width:100%;height:100%;}
 @media (prefers-reduced-motion: reduce){
 .igs-feed-post[data-fresh],.igs-feed-paper{animation:none;}

@@ -27,6 +27,27 @@ export function unmountEntry(front, entry) {
     if (dock && !dock.firstChild) dock.remove();
 }
 
+// 独占面板：同一个前层同时只开一个面板（回看弹窗、通知栏）。打开前 claim，会先关掉已开的另一个；关闭时 release。
+// close 要传同一个函数引用，release 只在登记的还是它自己时才清，不会误删后开的那个。
+const openPanels = new WeakMap();
+
+export function claimPanel(front, close) {
+    const prev = openPanels.get(front);
+    openPanels.set(front, close);
+    if (prev && prev !== close) prev();
+}
+
+export function releasePanel(front, close) {
+    if (openPanels.get(front) === close) openPanels.delete(front);
+}
+
+// 社区 / 风暴手机在场标记：CSS 据此让通知入口让位。值没变不写。
+export function setPhoneOn(front, on) {
+    const has = front.hasAttribute('data-igs-phone-on');
+    if (on && !has) front.setAttribute('data-igs-phone-on', '1');
+    else if (!on && has) front.removeAttribute('data-igs-phone-on');
+}
+
 // 坞顶边（舞台像素）；没变化不写。
 export function placeEntryDock(front, top) {
     const value = `${Math.round(top)}px`;

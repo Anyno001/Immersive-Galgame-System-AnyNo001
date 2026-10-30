@@ -24,6 +24,7 @@ import { normalizeFxSoundSettings } from './fx-settings.js';
 import { normalizeSpriteMotionSettings, normalizeStageCastSettings } from './stage-direction-settings.js';
 import { applyFxToDom, repositionFxSymbols } from './fx-runtime.js';
 import { applyDanmakuToDom } from './danmaku-runtime.js';
+import { feedMarksForSnapshot } from './feed-extras.js';
 import { applyItemMentionMarkup, itemMentionsOf, renderItemFx, showItemMention } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
 import { repositionBattleImpacts } from './fx-battle.js';
@@ -2039,10 +2040,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         playSfx: () => playCameraImpactSfx(normalizeFxSoundSettings(snapshot.readerSettings && snapshot.readerSettings.fxSound)),
     });
     const fxTheme = resolveActiveTheme(snapshot);
+    // 社区手机里牵涉到在场角色的新帖：该角色头顶冒一个漫符（已有陪衬反应符号的角色不重复）。
+    const feedMarks = feedMarksForSnapshot(snapshot, { userName: ctx.userName, speakerKey: castSpeakerKey, members: castFxTargets.map((t) => t.character) })
+        .filter((mark) => !castReactMarks.some((m) => m.character === mark.character));
     const fxResult = applyFxToDom(root, snapshot, {
         sprite: fxSprite,
         cast: castFxTargets,
-        castMarks: castReactMarks,
+        castMarks: feedMarks.length ? [...castReactMarks, ...feedMarks] : castReactMarks,
         resolveAssetUrl,
         theme: fxTheme,
         userName: ctx.userName,
@@ -2057,10 +2061,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         cast: castFxTargets,
         resolveAssetUrl,
     });
-    const dailyFxResult = renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
+    // 照片记下拍摄时场景是否 NSFW，锁屏壁纸只用明确不是 NSFW 的照片。
+    const onDailyPhoto = typeof ctx.onDailyPhoto === 'function'
+        ? (photo) => ctx.onDailyPhoto({ ...photo, nsfw: Boolean(snapshot.content && (snapshot.content.sceneNsfw === true || snapshot.content.cgNsfw === true)) })
+        : ctx.onDailyPhoto;
+    const dailyFxResult = renderDailyFx(root, snapshot, { onPhoto: onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
     // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
-    applyDanmakuToDom(root, snapshot, { autoPlay: Boolean(current && current.autoPlay && current.autoPlay.enabled), sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove });
+    applyDanmakuToDom(root, snapshot, { autoPlay: Boolean(current && current.autoPlay && current.autoPlay.enabled), sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove, albumWallUrl: ctx.albumWallUrl });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');

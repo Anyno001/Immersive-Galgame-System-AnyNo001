@@ -9,6 +9,7 @@ import { extractFxDirectives, createFxPageResolver } from '../../scene/fx-direct
 import { applyDiceToHits } from '../../scene/battle-context.js';
 import { parseChatMarker } from '../../scene/chat-blocks.js';
 import { liveFallbackOf, withLiveFallback } from '../../scene/live-context.js';
+import { withLiveSkin } from './live-skin.js';
 import { withStormCarry } from '../../scene/storm-context.js';
 import { stripBilingualTranslation } from './bilingual-text.js';
 import { isSystemRole } from './system-role.js';
@@ -550,6 +551,8 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
         }
         pages[i].fxOffset = at;
         pages[i].fx = fxForPage(at, prev, feedNext, paged);
+        // 直播平台栏 + 设置 → 皮肤（暗网终端 / 监控 / 拍卖）；换成新对象，不回写进跨页共用的区间状态。
+        if (pages[i].fx.live) pages[i].fx = { ...pages[i].fx, live: withLiveSkin(pages[i].fx.live, readerSettings.liveFx) };
         if (battleContext) pages[i].fx.userName = userName;
     }
     const illustrations = prepareIllustrationPages({ source, offsets, segments, holdPages: readerSettings.cgHoldPages,

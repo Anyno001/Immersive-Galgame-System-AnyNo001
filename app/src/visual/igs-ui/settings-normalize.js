@@ -63,6 +63,7 @@ export function normalizeSettingsValue(path, value) {
             || (path.startsWith('readerSettings.') && isPackSwitchPath(path.slice('readerSettings.'.length)))
             || /^readerSettings\.(liveFx|audienceFx|innerFx|feedFx)\.(enabled|muteOnNsfw|ambient|useThought|interact|followTheme)$/.test(path)
             || path === 'readerSettings.liveFx.blockHostile'
+            || path === 'readerSettings.liveFx.darkAll'
             || /^readerSettings\.feedFx\.platforms\.[a-z]+\.enabled$/.test(path)
             || path === 'readerSettings.feedFx.storm.enabled'
             || path === 'readerSettings.cameraPackFx.sound'

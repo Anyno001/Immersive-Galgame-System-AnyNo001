@@ -6,6 +6,7 @@ import { MAP_LIGHT_LAYER_STYLE_TEXT } from './map-light-layers.js';
 import { WEATHER_FX_STYLE_TEXT } from './weather-fx-style.js';
 import { FX_STYLE_TEXT } from './fx-style.js';
 import { DANMAKU_STYLE_TEXT } from './danmaku-style.js';
+import { LIVE_SKIN_STYLE_TEXT } from './live-skin-style.js';
 import { FEED_STYLE_TEXT } from './feed-style.js';
 import { STORM_STYLE_TEXT } from './storm-style.js';
 import { NOTIFY_CENTER_STYLE_TEXT } from './notify-center-style.js';
@@ -453,6 +454,7 @@ ${CLASH_STYLE_TEXT}
 ${INNER_DEMON_STYLE_TEXT}
 ${RESULT_FX_STYLE_TEXT}
 ${DANMAKU_STYLE_TEXT}
+${LIVE_SKIN_STYLE_TEXT}
 ${FEED_STYLE_TEXT}
 ${STORM_STYLE_TEXT}
 ${NOTIFY_CENTER_STYLE_TEXT}

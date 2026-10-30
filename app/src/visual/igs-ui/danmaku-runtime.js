@@ -23,11 +23,14 @@ import { applyCaptionText, clearCaptionText } from './live-cc-text.js';
 import { applyLiveCcGeometry, applyLiveFull, classifySubtitle, clearLiveFull, nextSubtitleTurn, refreshLiveFullOverflow } from './live-full.js';
 import { enterFocus, exitFocus, focusOn, holdFocusText, isNewAppearance, phoneIdentity, setFocusHooks } from './phone-focus.js';
 import { normalizeFeedFxSettings } from './feed-settings.js';
-import { placeEntryDock } from './entry-dock.js';
+import { placeEntryDock, setPhoneOn } from './entry-dock.js';
+import { FEED_VIEW_MAX } from '../../scene/feed-platforms.js';
 import { isFeedEntryShown, stopFeedReview, syncFeedReview } from './feed-review.js';
 import { phoneStatusFor } from './phone-sense.js';
 import { collectNotices, isNotifyEntryShown, noticeStoreFor, normalizeNotifyCenterSettings, recordNotices, stopNotify, syncNotify } from './notify-center.js';
 import { LIVE_HOST_ATTR, setStageCovered } from './stage-pause.js';
+import { feedPageOf } from './feed-extras.js';
+import { feedPingKind, feedStageIdle, playFeedPing, shouldFeedPing } from './feed-ping.js';
 
 // 弹幕运行时：直播间（掏出手机看直播）、观众弹幕（HUD 下方小手机入口，点开看）、内心弹幕（立绘周围爆发）。
 // 性能约束：全关零开销；运动只用 transform/opacity 的 CSS 动画，没有逐帧 JS；
@@ -404,6 +407,44 @@ function liveContext(ctx, live) {
     };
 }
 
+const RECALL_SEGMENTS = 3;
+const recallKeyOf = (p) => `${p.author}|${p.text}|${p.extra}`;
+
+// 纯函数：把这次刷到的区间并进回看段列表（旧到新）。同平台同主人接着上一段，否则另起一段；不改传入的帖子对象。
+export function recallFeeds(prev, feed, picRef) {
+    const segs = Array.isArray(prev) ? prev : [];
+    const owner = feed.owner || '';
+    const last = segs[segs.length - 1];
+    const same = Boolean(last && last.platform === feed.platform && last.owner === owner);
+    const old = same ? last.posts : [];
+    const oldRef = new Map(old.map((p) => [recallKeyOf(p), p.picRef]));
+    const fresh = (feed.posts || []).filter(Boolean).map((p) => ({ ...p, picRef: oldRef.has(recallKeyOf(p)) ? oldRef.get(recallKeyOf(p)) : picRef }));
+    const keys = new Set(fresh.map(recallKeyOf));
+    const posts = [...old.filter((p) => !keys.has(recallKeyOf(p))), ...fresh].slice(-FEED_VIEW_MAX);
+    const seg = { platform: feed.platform, owner, posts };
+    return same ? [...segs.slice(0, -1), seg] : [...segs, seg].slice(-RECALL_SEGMENTS);
+}
+
+// 社区手机提示音：手机首次亮出或换页后本页有新帖时响一声（按平台分音色）；偷看别人手机、纸面皮肤、收起后不响。
+function pingFeed(state, root, feed, feedPhone, pageKey, options, sound) {
+    const kind = feedPhone && feedPhone.els.phone && !feedPhone.owner && feed ? feedPingKind(feed.platform) : '';
+    if (!kind) {
+        state.feedPing = null;
+        return;
+    }
+    const prev = state.feedPing;
+    const key = `${feed.platform}|${feedPhone.owner}`;
+    const appeared = !prev || prev.key !== key;
+    const newPage = !prev || prev.pageKey !== pageKey;
+    const fresh = (feed.posts || []).some((p) => p && p.fresh === true);
+    const now = state.now();
+    const ring = shouldFeedPing({
+        kind, appeared, fresh, newPage, skipping: options.skipping === true, idle: feedStageIdle(root), last: prev && prev.at, now,
+    });
+    if (ring) playFeedPing(kind, sound);
+    state.feedPing = { key, pageKey, at: ring ? now : (prev && prev.key === key ? prev.at : undefined) };
+}
+
 function clearPage(state, host) {
     for (const timer of state.timers) state.clear(timer);
     state.timers.clear();
@@ -464,19 +505,25 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     // 社区手机：开关开、本页在区间内、非 NSFW 静音、非回忆 / 梦境 / 聊天页才亮出；亮出时直播手机与观众入口让位。
     const content = snapshot.content || {};
     const fx = content.fx || {};
-    const feedAllowed = feedFx.enabled && !(feedFx.muteOnNsfw && content.sceneNsfw === true)
-        && content.chatPage !== true && content.htmlCardPage !== true && fx.flashback !== true && fx.dream !== true;
     // 舆论风暴优先：风暴期间社区与直播手机都让位。
-    const storm = feedAllowed && feedFx.storm && feedFx.storm.enabled !== false && fx.storm ? fx.storm : null;
-    const feed = feedAllowed && !storm && fx.feed ? fx.feed : null;
+    const { allowed: feedAllowed, storm, feed } = feedPageOf(content, feedFx);
     const coverUrl = content.backgroundImage && typeof options.resolveAssetUrl === 'function' ? options.resolveAssetUrl(content.backgroundImage) || '' : content.backgroundImage || '';
+    const feedPicBlocked = content.sceneNsfw === true || content.cgNsfw === true;
+    // 锁屏壁纸的相册图：开着社区就让宿主按需刷新（宿主自己节流），只取已缓存的地址；NSFW 场景与 CG 不用。
+    const albumWall = feedFx.enabled && !feedPicBlocked && typeof options.albumWallUrl === 'function' ? text(options.albumWallUrl()) : '';
     // 手机里的人认得卡内角色：能拿到头像就算熟人。
     const feedCtx = {
         doc: ctx.doc, reduced, schedule: state.schedule, now: state.now,
         look: ctx.look,
-        coverUrl,
-        // 锁屏壁纸：合照在渲染侧拿不到地址（存相册是异步的）；默认用当前场景背景，可在「我的手机」换。
-        wallpaperUrl: phoneWallUrl(ctx.look, coverUrl),
+        // 朋友圈封面：NSFW 页不用当前画面。
+        coverUrl: feedPicBlocked ? '' : coverUrl,
+        pageKey: plan.pageKey,
+        // 帖子配图：content.backgroundImage 本页有 CG（插图 / 事件 CG）时就是 CG 地址，否则是场景背景，一份地址两种情况都覆盖；NSFW 场景与 CG 不上帖子。
+        picUrl: feedPicBlocked ? '' : coverUrl,
+        resolvePic: (ref) => (ref && typeof options.resolveAssetUrl === 'function' ? options.resolveAssetUrl(ref) || '' : ref || ''),
+        // 锁屏壁纸：「我的手机」自选 > 相册里最近一张合照 / CG（宿主传入）> 当前场景背景。
+        // NSFW 页（含 NSFW CG）锁屏不回落到当前画面，只用「我的手机」自选或纯色。
+        wallpaperUrl: phoneWallUrl(ctx.look, feedPicBlocked ? '' : coverUrl, albumWall),
         status: ctx.status,
         messageId: snapshot.messageId,
         userName: text(options.userName),
@@ -486,17 +533,15 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         onDismiss: () => applyDanmakuToDom(root, snapshot, options),
     };
     const feedPhone = syncFeedPhone(host, feed, feedCtx);
+    pingFeed(state, root, feed, feedPhone, plan.pageKey, options, snapshot.readerSettings && snapshot.readerSettings.fxSound);
     if (feedPhone) {
-        // 回看攒下同一平台这次刷到的全部帖子（解析每页只给最近 3 条），最多 9 条。
-        const prev = state.feedRecall && state.feedRecall.platform === feed.platform && state.feedRecall.owner === (feed.owner || '') ? state.feedRecall.posts : [];
-        const keyOf = (p) => `${p.author}|${p.text}|${p.extra}`;
-        const merged = [...prev.filter((p) => !(feed.posts || []).some((q) => q && keyOf(q) === keyOf(p))), ...(feed.posts || []).filter(Boolean)];
-        state.feedRecall = { platform: feed.platform, owner: feed.owner || '', posts: merged.slice(-9) };
+        // 回看攒最近 3 段（不同平台或不同主人算不同段），每段最多 FEED_VIEW_MAX 条；帖子盖上当时的背景引用，回看时配图不串到别的场景。
+        state.feedRecall = recallFeeds(state.feedRecall, feed, feedPicBlocked ? '' : text(content.backgroundImage));
     }
     const stormPhone = syncStorm(host, storm, {
         doc: ctx.doc, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng, reduced,
         worldview: (snapshot.readerSettings && snapshot.readerSettings._worldview) || 'modern',
-        look: ctx.look, coverUrl: phoneWallUrl(ctx.look, coverUrl),
+        look: ctx.look, coverUrl: phoneWallUrl(ctx.look, feedPicBlocked ? '' : coverUrl),
         onDismiss: () => applyDanmakuToDom(root, snapshot, options),
     });
     if (feedPhone || stormPhone) {
@@ -594,7 +639,7 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     const entryShown = isAudienceEntryShown(front);
     if (feedFx.enabled) {
         syncFeedReview(front, {
-            feed: state.feedRecall, visible: feedAllowed && !feedPhone && !stormPhone, beside: entryShown, size: settings.audience.entrySize,
+            segments: state.feedRecall, visible: feedAllowed && !feedPhone && !stormPhone, beside: entryShown, size: settings.audience.entrySize,
         }, feedCtx);
     } else {
         state.feedRecall = null;
@@ -606,6 +651,8 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     if (notices) syncNotify(front, { store: notices, size: settings.audience.entrySize }, { doc: ctx.doc });
     else stopNotify(front);
     const notifyShown = isNotifyEntryShown(front);
+    // 社区 / 风暴手机在场时通知入口让位（CSS 按这个标记隐藏），收起后恢复；通知照常记录。
+    setPhoneOn(front, Boolean(feedPhone || stormPhone));
     if (!(phone || feedPhone || stormPhone)) unwatchPhoneStage(state);
     if (plan.inner || entryShown || reviewShown || notifyShown || feedPhone || stormPhone || (phone && plan.liveVisible)) {
         // 本次渲染唯一一次几何读取：推迟到下一帧，全部读完才写。

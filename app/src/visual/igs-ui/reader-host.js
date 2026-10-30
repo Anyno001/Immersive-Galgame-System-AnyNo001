@@ -458,6 +458,8 @@ export function createIgsReaderHost(options = {}) {
     const itemEventsShown = new Set();
     const ROMANCE_MEMORY_KEYS = 'igs-romance-memory-keys';
     const ROMANCE_MEMORY_KEYS_LIMIT = 300;
+    const ALBUM_WALL_GAP_MS = 60000;
+    const albumWall = { chatId: '', stamp: '', url: '', at: 0, busy: false };
     // 生图从 IndexedDB 一张张异步补回，每张都会发 image-loaded。按窗口合并成一次重绘，
     // 否则 N 张图触发 N 次整页重绘、每次又带上已到的全部 dataUrl，开销随张数平方增长。
     const IMAGE_REFRESH_BATCH_MS = 120;
@@ -3021,6 +3023,32 @@ export function createIgsReaderHost(options = {}) {
         return snapshot && snapshot.content ? snapshot.content.progress : '';
     }
 
+    // 社区手机锁屏壁纸：本聊天相册里最近一张合照 / CG。渲染同步取缓存地址，缓存由这里按需异步刷新（最短隔 ALBUM_WALL_GAP_MS），
+    // 拿不到（没有相册、没有图、读取失败）就返回空串，锁屏照旧用场景背景。只留最新一张的地址，换聊天或有更新的图时重取。
+    function albumWallUrl() {
+        const album = options.cgGallery;
+        if (!album || typeof album.readIndex !== 'function' || typeof album.readFull !== 'function') return '';
+        const chatId = typeof options.getCurrentChatId === 'function' ? String(options.getCurrentChatId() || '') : '';
+        if (albumWall.chatId !== chatId) Object.assign(albumWall, { chatId, stamp: '', url: '', at: 0 });
+        const nowMs = Date.now();
+        if (!albumWall.busy && nowMs - albumWall.at >= ALBUM_WALL_GAP_MS) {
+            albumWall.busy = true;
+            albumWall.at = nowMs;
+            Promise.resolve(album.readIndex()).then(async (index) => {
+                // 只用拍照时明确不是 NSFW 的照片：剧情 CG 与旧照片没有分级标记，不拿来当锁屏壁纸。
+                const list = ((index && index.entries) || []).filter((e) => e && e.ready && !e.hidden && e.chatId === chatId && e.kind === 'photo' && e.nsfw === false);
+                list.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+                const top = list[0];
+                if (!top) { albumWall.stamp = ''; albumWall.url = ''; return; }
+                const stamp = `${top.key}|${top.updatedAt}`;
+                if (stamp === albumWall.stamp) return;
+                const got = await album.readFull(top);
+                if (albumWall.chatId === chatId && got && got.ok && got.dataUrl) Object.assign(albumWall, { stamp, url: String(got.dataUrl) });
+            }).catch(() => null).finally(() => { albumWall.busy = false; });
+        }
+        return albumWall.url;
+    }
+
     // 日常演出拍照：合成当前背景与立绘存入相册（CG 库中的照片），失败静默。
     function saveDailyPhoto(photo) {
         const album = options.cgGallery;
@@ -3895,6 +3923,7 @@ export function createIgsReaderHost(options = {}) {
             payload.inheritedSceneState, payload.inheritedOutfits, payload.inheritedDread,
             payload.liveContext, payload.stormContext, payload.battleContext, readerSettings._sceneAssets,
             JSON.stringify(readerSettings.systemRole), readerSettings.liveFx?.enabled === true,
+            JSON.stringify([readerSettings.liveFx?.darkAll, readerSettings.liveFx?.darkSkin, readerSettings.liveFx?.terminalTone]),
             readerSettings.feedFx?.enabled === true, readerSettings.feedFx?.storm?.enabled !== false,
             readerSettings.cgHoldPages, userName, chatId,
             JSON.stringify([readerSettings._live2d?.enabled, Object.keys(readerSettings._live2d?.bindings || {})]),
@@ -4970,6 +4999,7 @@ export function createIgsReaderHost(options = {}) {
             // 用户角色名：直播主播名与之相同时自动切主播视角；用 getter 跟随切换角色。
             get userName() { return String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''); },
             onDailyPhoto: saveDailyPhoto,
+            albumWallUrl,
             onRomanceMemory: saveRomanceMemory,
             onCgPortraitMove: (statusHud) => saveReaderSettingsPatch({ statusHud }),
             onLivePortraitMove: (liveFx) => saveReaderSettingsPatch({ liveFx }),

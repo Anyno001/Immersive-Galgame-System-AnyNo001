@@ -1,5 +1,5 @@
 import { LIVE_ICONS } from './danmaku-icons.js';
-import { mountEntry, unmountEntry } from './entry-dock.js';
+import { claimPanel, mountEntry, releasePanel, unmountEntry } from './entry-dock.js';
 import { feedPlatformById } from '../../scene/feed-platforms.js';
 import { spamAllowed, spamBrandColor, spamKindOf } from '../../scene/spam-sms.js';
 
@@ -206,11 +206,15 @@ function closePanel(view) {
     view.overlay.remove();
     view.overlay = null;
     view.list = null;
+    if (view.closer) releasePanel(view.front, view.closer);
 }
 
 function openPanel(view) {
     if (view.overlay || !view.store.items.length) return;
     const { doc } = view;
+    // 回看弹窗开着就先关掉，两个面板不同时盖在舞台上。
+    if (!view.closer) view.closer = () => closePanel(view);
+    claimPanel(view.front, view.closer);
     const overlay = el(doc, 'div', 'igs-nc');
     const panel = el(doc, 'div', 'igs-nc-panel');
     const bar = el(doc, 'div', 'igs-nc-bar');

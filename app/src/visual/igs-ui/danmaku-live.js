@@ -20,6 +20,8 @@ import {
     stableHash,
 } from './danmaku-pools.js';
 import { liveEconomy, liveUserName, medalLevelBias, planLiveChatter, planLiveUserFollowups, resolveFanMedal } from './live-chatter.js';
+import { skinFlavorLine, skinLabel, skinOf } from './live-skin.js';
+import { attachLiveSkin, disposeLiveSkin, skinTip, skinWake, syncSkinCounts, syncSkinHost } from './live-skin-nodes.js';
 
 // 「掏出手机」看 B 站竖屏直播：舞台压暗、手机从下方抬起停在画面正中，直播结束时收回。整台手机只有一个驱动计时器：每拍吐一条弹幕（AI 弹幕优先，其余由本地词池补），
 // 顺带推人气、走时钟、飘点赞；隐藏、页面不可见、舞台暂停（面板打开等）时空转不写 DOM。文字一律 textContent，图标只用静态 SVG。
@@ -251,12 +253,14 @@ function chatLine(state, msg, extraClass = '') {
     line.setAttribute('data-type', msg.type);
     if (msg.ai) line.setAttribute('data-ai', '1');
     if (msg.mine) line.setAttribute('data-mine', '1');
+    // 终端皮肤的日志行以已播时长（mm:ss）打头。
+    if (state.skin === 'terminal') line.appendChild(el(doc, 'span', 'igs-live-ts', clock(state.now() - state.startedAt)));
     // 全屏形态在粉丝牌前加 B 站粉丝等级标。
     if (state.layout === 'full' && msg.type !== 'admin' && msg.type !== 'host') line.appendChild(el(doc, 'span', 'igs-live-lv', String((stableHash(`${msg.user}#lv`) % 40) + 1)));
     if (msg.type === 'admin') line.appendChild(el(doc, 'span', 'igs-live-tag', '房管'));
     else if (msg.type === 'host') line.appendChild(el(doc, 'span', 'igs-live-tag is-host', '主播'));
     else if (msg.medal) line.appendChild(medal(state, msg.user));
-    line.appendChild(el(doc, 'span', 'igs-live-name', `${msg.user}：`));
+    line.appendChild(el(doc, 'span', 'igs-live-name', state.skin ? msg.user : `${msg.user}：`));
     line.appendChild(el(doc, 'span', 'igs-live-text', msg.text));
     return line;
 }
@@ -315,6 +319,8 @@ function bump(state, amount) {
 export function renderLiveMessage(state, raw) {
     const { doc, els } = state;
     const msg = { ...raw, user: raw.user || liveUserName(state.rng, { tone: state.tone, tier: state.tier, emoji: state.emoji !== false, host: state.hostName }) };
+    // 暗网皮肤：观众名一律换成稳定代号（弹幕内容不动）。
+    if (state.skin) msg.user = skinLabel(state.skin, msg);
     if (msg.type === 'enter') {
         const line = el(doc, 'div', 'igs-live-line is-note');
         line.setAttribute('data-type', 'enter');
@@ -339,6 +345,7 @@ export function renderLiveMessage(state, raw) {
         line.textContent = `${msg.user} 投喂 ${gift} ×${count}`;
         appendLine(state, line);
         bump(state, count * 5);
+        if (state.skinUi) skinTip(state, msg);
         return;
     }
     if (msg.type === 'guard') {
@@ -355,6 +362,7 @@ export function renderLiveMessage(state, raw) {
         line.textContent = `${msg.user} 开通了${level}${msg.text ? `：${msg.text}` : ''}`;
         appendLine(state, line);
         bump(state, 2000);
+        if (state.skinUi) skinTip(state, msg);
         return;
     }
     if (msg.type === 'sc') {
@@ -373,6 +381,7 @@ export function renderLiveMessage(state, raw) {
             appendLine(state, line);
         }
         bump(state, amount * 10);
+        if (state.skinUi) skinTip(state, msg);
         return;
     }
     if (state.chat !== 'roll') spawnFlyer(state, msg, msg.type === 'host' ? ' is-host' : '');
@@ -418,6 +427,9 @@ function planChatterBatch(state) {
 }
 
 function nextChatter(state) {
+    // 暗网皮肤：按概率换成该子风格的本地口吻（攻击性的受「屏蔽内置攻击性弹幕」控制）。
+    const flavor = state.skin ? skinFlavorLine(state.skin, state.rng, Boolean(state.chatCtx && state.chatCtx.blockHostile)) : '';
+    if (flavor) return { type: 'text', text: flavor };
     if (!state.chatCtx) {
         const pool = state.view === 'host' && state.rng() < 0.35 ? LIVE_HOST_AMBIENT_LINES : LIVE_AMBIENT_LINES;
         return { type: 'text', text: randomItem(pool, state.rng) };
@@ -535,6 +547,10 @@ function tick(state) {
         // 规模变了：人气平滑过渡到新基数。
         if (state.popTarget != null) bump(state, Math.round((state.popTarget - state.popularity) * 0.08));
         state.els.viewersText.textContent = formatPopularity(Math.round(state.popularity / 9));
+        if (state.skinUi) {
+            syncSkinCounts(state);
+            skinWake(state);
+        }
         if (state.els.watchingText) state.els.watchingText.textContent = formatPopularity(Math.round(state.popularity / 40));
         if (state.view === 'host') state.els.clockEl.textContent = clock(state.now() - state.startedAt);
         if (!state.reduced && state.view === 'watch' && state.beat % 3 === 0) spawnHeart(state);
@@ -608,7 +624,9 @@ function setImage(state, key, url) {
 export function syncLivePhone(host, live, ctx) {
     let state = lives.get(host);
     const layout = ctx && ctx.layout === 'full' ? 'full' : 'phone';
-    const key = live ? `${live.name}|${live.title}|${live.view}|${layout}` : '';
+    const skin = skinOf(live);
+    const tone = skin === 'terminal' && live.tone === 'amber' ? 'amber' : '';
+    const key = live ? `${live.name}|${live.title}|${live.view}|${layout}|${skin}|${tone}` : '';
     let carried = null;
     if (state && state.key !== key) {
         // 只是切视角 / 版式（同一主播同一标题）：未播完的 AI 弹幕带给新状态，不丢。
@@ -627,7 +645,7 @@ export function syncLivePhone(host, live, ctx) {
             schedule: ctx.schedule, clear: ctx.clear, rng: ctx.rng || Math.random, now,
             medal: fanMedalName(live.name),
             popularity: 800 + (stableHash(live.name) % 48000),
-            hostName: live.name, tone: 'modern', tier: null, emoji: true, popTarget: null,
+            hostName: live.name, title: live.title || '', skin, skinTone: tone, skinUi: null, tone: 'modern', tier: null, emoji: true, popTarget: null,
             pageInLive: -1, chatPage: '', chatSig: '', chatBuf: [], chatGen: 0, chatFresh: false, chatCtx: null, recentNames: [], chatTrail: [],
             reactPending: false, reactSince: 0, typingEl: null, typingObs: null, narrationPin: null, narrationKey: '',
             startedAt: now() - (stableHash(`${live.name}${live.title}`) % 1800) * 1000,
@@ -635,6 +653,7 @@ export function syncLivePhone(host, live, ctx) {
         };
         syncChatterContext(state, ctx.chatter, true);
         els.popText.textContent = formatPopularity(state.popularity);
+        attachLiveSkin(state);
         host.appendChild(els.root);
         lives.set(host, state);
         arm(state, 400);
@@ -701,6 +720,7 @@ export function syncLivePhone(host, live, ctx) {
     // 编辑中重渲染：保留未保存的取景。
     if (!state.editing) setPortraitFrame(state, normalizeLivePortrait(ctx.portrait));
     refreshFace(state);
+    syncSkinHost(state);
     return state;
 }
 
@@ -1103,6 +1123,7 @@ export function likeLive(host, count = 4) {
 // 收起手机：停掉计时器，播完下滑动画再移除；没有调度器（关闭阅读器）时立即移除。
 function retire(state, schedule) {
     stopState(state);
+    disposeLiveSkin(state);
     const { root } = state.els;
     if (typeof schedule !== 'function' || root.hidden) {
         root.remove();
