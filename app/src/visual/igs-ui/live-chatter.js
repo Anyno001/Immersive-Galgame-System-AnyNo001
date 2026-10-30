@@ -7,6 +7,7 @@ import {
     LIVE_WARN_MEME_LINES, LIVE_DRAMA_BY_KIND, LIVE_ANIME_BY_KIND, LIVE_NEWAGE_MEME_LINES, LIVE_TONE_EXTRA, LIVE_ADMIN_BAN_REACT_LINES, LIVE_ADMIN_LINES, LIVE_KEEPER_PEACE_LINES,
     LIVE_KEEPER_REBUT_LINES, LIVE_TONE_ORDER, VARIETY_HOT_LINES, fanMedalNameFor,
 } from './danmaku-pools.js';
+import { LIVE_EXTRA_TOPIC_BUCKETS, LIVE_MOOD_REACT_LINES, LIVE_SAY_FORM_LINES, classifySayForm } from './live-react-pools.js';
 
 const f = (list) => Object.freeze(list.slice());
 
@@ -81,13 +82,16 @@ export const LIVE_TOPIC_BUCKETS = Object.freeze([
         '别打脸，别打脸，留点面子', '打完记得和好，不然下集尴尬', '倒下的人千万别是主线角色',
     ])],
 ]);
-export function classifyLiveTopic(text) {
+// context：前几页正文，命中按半分算；本页命中算 1 分。前几页定下的话题在没关键词的一页里仍然延续。
+export function classifyLiveTopic(text, context = '') {
     const body = clean(text);
-    if (!body) return null;
+    const prior = clean(context);
+    if (!body && !prior) return null;
     let best = null;
     let bestScore = 0;
-    for (const [name, re, lines] of LIVE_TOPIC_BUCKETS) {
-        const score = (body.match(new RegExp(re.source, 'g')) || []).length;
+    for (const [name, re, lines] of [...LIVE_TOPIC_BUCKETS, ...LIVE_EXTRA_TOPIC_BUCKETS]) {
+        const hits = (src) => (src ? (src.match(new RegExp(re.source, 'g')) || []).length : 0);
+        const score = hits(body) + hits(prior) * 0.5;
         if (score > bestScore) {
             best = { name, lines };
             bestScore = score;
@@ -200,12 +204,13 @@ const pickWeighted = (entries, rng) => {
     return entries[entries.length - 1][0];
 };
 
-export function classifyLiveScene({ title = '', text = '', pageInLive, ending = false, hour } = {}) {
+// context：前几页正文，与本页一起计分，一页只有一句话时场合也能凑够命中数。
+export function classifyLiveScene({ title = '', text = '', context = '', pageInLive, ending = false, hour } = {}) {
     const late = Number.isFinite(hour) && (hour >= LATE_FROM || hour <= LATE_TO);
     if (ending) return { scene: 'ending', late };
     if (Number.isFinite(pageInLive) && pageInLive <= 1) return { scene: 'opening', late };
     const scoreTitle = !Number.isFinite(pageInLive) || pageInLive <= TITLE_SCORED_PAGES;
-    const haystack = `${scoreTitle ? clean(title) : ''}\n${clean(text)}`;
+    const haystack = `${scoreTitle ? clean(title) : ''}\n${clean(context)}\n${clean(text)}`;
     let best = 'chat';
     let bestScore = 0;
     for (const [scene, re] of SCENE_KEYWORDS) {
@@ -351,12 +356,12 @@ export function planLiveUserFollowups(text, opts = {}, rng = Math.random) {
 
 export function planLiveChatter(opts = {}, rng = Math.random) {
     const {
-        title, text, pageInLive, ending, hour, mood, aiLines, hostSaid, userName, tone = 'modern', custom, count, hostName, hostGender, tier,
+        title, text, context = '', pageInLive, ending, hour, mood, aiLines, hostSaid, userName, tone = 'modern', custom, count, hostName, hostGender, tier,
     } = opts;
     const blockHostile = opts.blockHostile === true;
     const hot = mood === 'love' || Boolean(opts.spicy);
     const emoji = opts.emoji !== false;
-    const classified = classifyLiveScene({ title, text, pageInLive, ending, hour });
+    const classified = classifyLiveScene({ title, text, context, pageInLive, ending, hour });
     const scene = opts.scene || classified.scene;
     const late = opts.late ?? classified.late;
     const customLines = custom && typeof custom === 'object' ? custom : {};
@@ -365,7 +370,7 @@ export function planLiveChatter(opts = {}, rng = Math.random) {
     const out = [];
     const nameOpts = { tone: pools.tone, tier, emoji, host: hostName, recent: opts.recentNames };
     const used = nameMaker(rng, new Set(), nameOpts, true);
-    const matchedTopic = pools.tone === 'modern' ? classifyLiveTopic(text) : null;
+    const matchedTopic = pools.tone === 'modern' ? classifyLiveTopic(text, context) : null;
     const topic = blockHostile && matchedTopic?.name === 'conflict' ? null : matchedTopic;
     const quotes = liveQuoteFragments(text, [hostName, userName]);
     const wavesOf = () => nameMaker(rng, new Set(), nameOpts);
@@ -467,10 +472,36 @@ export function planLiveChatter(opts = {}, rng = Math.random) {
         push(used(), line, delay, src);
     }
 
+    // 即时反应：新一页字刚打完时，先由几个人接本页的话题 / 原话，1~2 秒内刷出来；之后才是随机闲聊。
+    if (opts.react === true) {
+        const reactor = wavesOf();
+        let at = 150 + rng() * 300;
+        const lines = [];
+        const topicLines = topic ? builtInLines(topic.lines, blockHostile) : [];
+        if (topicLines.length) lines.push([pick(topicLines, rng), `react:topic:${topic.name}`]);
+        if (quotes.length) lines.push([liveQuoteLine(pick(quotes, rng), pools.tone, rng), 'react:quote']);
+        if (topicLines.length > 1 && rng() < 0.5) lines.push([pick(topicLines, rng), `react:topic:${topic.name}`]);
+        // 本页有情绪：没话题时补一条情绪反应；有话题时也有一半机会跟一句。现代口吻专用。
+        const moodLines = pools.tone === 'modern' ? LIVE_MOOD_REACT_LINES[mood] : null;
+        if (moodLines && (!lines.length || rng() < 0.5)) lines.push([pick(moodLines, rng), `react:mood:${mood}`]);
+        if (!lines.length && mood && AUDIENCE_AMBIENT_LINES[mood]) lines.push([pick(AUDIENCE_AMBIENT_LINES[mood], rng), `react:mood:${mood}`]);
+        for (const [line, src] of lines) {
+            if (!line) continue;
+            push(reactor(), line, at, src);
+            at += 300 + rng() * 500;
+        }
+    }
+
     const said = clean(hostSaid);
     if (said) {
         const n = between(1, 2, rng);
-        for (let i = 0; i < n; i += 1) push(used(), pick(pools.host, rng), 600 + rng() * 2200, 'host');
+        // 先按主播这句话的说法接（提问就有人回答、结巴就有人催），其余用通用接话；第一条来得快。
+        const form = pools.tone === 'modern' ? classifySayForm(said) : '';
+        const formLines = form ? builtInLines(LIVE_SAY_FORM_LINES[form], blockHostile) : [];
+        for (let i = 0; i < n; i += 1) {
+            const byForm = formLines.length && (i === 0 || rng() < 0.5);
+            push(used(), byForm ? pick(formLines, rng) : pick(pools.host, rng), i === 0 ? 300 + rng() * 900 : 900 + rng() * 1800, byForm ? `host:${form}` : 'host');
+        }
     }
 
     if (rng() < MENTION_HOST) push(used(), `@${clean(hostName) || '主播'} 看我`, rng() * 2400, 'mention');
