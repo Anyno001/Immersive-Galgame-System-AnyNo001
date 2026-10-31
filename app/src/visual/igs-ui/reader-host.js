@@ -934,10 +934,11 @@ export function createIgsReaderHost(options = {}) {
         if (plan.items.length) pageFx.growth = plan;
     }
 
-    // 正文 d20 判定徽记（v3 §3.9）：以本楼排版原文复算（下标与页偏移同源），按页归位；复算不可用时不出徽记，不当作没有判定。
+    // 正文 d20 判定徽记（v3 §3.9、合并计划 P3）：以本楼排版原文复算（下标与页偏移同源），按页归位；复算不可用时不出徽记，不当作没有判定。
+    // 战斗扩展与数值系统各自决定是否复算（都未启用时复算口返回 null），这里不再只看战斗开关。
     // 复算结果按「成长缓存对象 + 原文」缓存在 prepared 上，属性刷新后自然重算。
     function decorateCheckBadges(pageFx, payload, index, prepared, readerSettings) {
-        if (!pageFx || !normalizeCombatExpansionSettings(readerSettings && readerSettings.combatExpansion).enabled) return;
+        if (!pageFx) return;
         if (typeof options.getCombatCheckReplay !== 'function' || !/\[igs-check:/.test(String(prepared.source || ''))) return;
         const messageId = Number(firstDefined(payload.messageId, payload.message && payload.message.id, null));
         if (!Number.isInteger(messageId)) return;
