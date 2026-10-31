@@ -18,6 +18,7 @@
 <style>
 @font-face{font-family:"Source Han Serif CN";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/SourceHanSerifCN-Regular.otf") format("opentype");}
 @font-face{font-family:"Cormorant Garamond";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/CormorantGaramond-Regular.woff2") format("woff2");}
+@font-face{font-family:"IGS-PangMen";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/PangMenZhengDao-CuShu.ttf") format("truetype");}
 html,body{margin:0;height:100%;background:#0b0d10;color:#d8d5cf;font-family:"Source Han Serif CN",serif;}
 #stage{position:relative;margin:0 auto;overflow:hidden;background:#16181a;background-image:url("./assets/scene-demo-clean-night.png");background-size:cover;background-position:center;}
 #stage[data-bg="none"]{background-image:none;}
@@ -53,6 +54,7 @@ import { inventoryFixture, combatInventoryFixture } from './fixtures/inventory.f
 import { relationshipsFixture } from './fixtures/relationships.fixture.js';
 import { createCombatPreview } from './fixtures/combat.fixture.js';
 import { createCombatPanelController } from '../../src/visual/igs-ui/combat-panel.js';
+import { buildSkillCutin, buildAwakenCutin } from '../../src/visual/igs-ui/combat-cutin.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
 
@@ -264,6 +266,25 @@ async function openCombat() {
     const card = combat.view().battle.hand.find(c => c.playable);
     if (!card) { combat.invoke('end-turn'); continue; }
     if (!combat.invoke('card', card.inst).ok) combat.invoke('target', card.targets[0] ?? card.affects[0]);
+  }
+  // ?cutin=skill|awaken：挂一张真实技能 / 觉醒特写并停在中段，用于看字号与位置；&skill= 换招式名（觉醒为类型），&awaken= 情绪（rage guard grief resolve bond limit vengeance unyielding），&line= 台词；
+  // &portrait=<文件名> 读本机 tools/local-preview/assets/<文件名>.png 作立绘（该目录不随仓库提交），不传时不画立绘。
+  const cq = new URLSearchParams(location.search);
+  if (['skill', 'awaken'].includes(cq.get('cutin'))) {
+    const host = document.querySelector('#igs-combat-panel .igs-combat-fx');
+    if (host) {
+      const awaken = cq.get('cutin') === 'awaken';
+      const freeze = document.createElement('style');
+      freeze.textContent = awaken
+        ? '.igs-combat-awaken-cutin,.igs-combat-awaken-cutin *{animation-play-state:paused!important;animation-delay:-1700ms!important;}'
+        : '.igs-combat-cutin,.igs-combat-cutin *{animation-play-state:paused!important;animation-delay:-900ms!important;}';
+      document.head.appendChild(freeze);
+      const pick = cq.get('portrait');
+      const url = pick && pick !== 'none' ? new URL('../../tools/local-preview/assets/' + encodeURIComponent(pick) + '.png', location.href).href : '';
+      host.appendChild(awaken
+        ? buildAwakenCutin(document, { name: cq.get('name') || '林夏', skill: cq.get('skill') || '决意', line: cq.get('line') || '这一次，我不会再退后半步。', awakenType: cq.get('awaken') || 'resolve', url })
+        : buildSkillCutin(document, { name: cq.get('name') || '林夏', skill: cq.get('skill') || '星落·破晓斩', url }));
+    }
   }
   combatState.ready = true;
 }

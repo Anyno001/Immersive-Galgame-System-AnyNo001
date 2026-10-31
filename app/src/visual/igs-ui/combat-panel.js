@@ -1678,7 +1678,7 @@ export function createCombatPanelController(doc, options = {}) {
         notice = ''; pending = ''; selected = null; chosen = []; controlledId = null; rewards = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         token += 1;
         pageOverlay = overlay;
-        // 拼贴艺术字（招式名与「觉醒·类型」）按字切片：开面板时先请求固定的「觉醒·」，播特写时再按实际文字补请求。
+        // 招式名与「觉醒·类型」的庞门正道字体按字切片：开面板时先请求固定的「觉醒·」，播特写时再按实际文字补请求。
         preloadCutinFonts(doc, '觉醒·');
         previousFocus = doc.activeElement || null;
         root = doc.createElement('div');

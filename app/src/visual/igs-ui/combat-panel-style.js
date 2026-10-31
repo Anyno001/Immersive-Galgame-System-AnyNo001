@@ -39,10 +39,9 @@ const C = '#igs-combat-panel';
 const P = '#igs-overlay #igs-combat-panel';
 const N = IGS_UI_NIGHT_RGB;
 
-// 觉醒情绪色：怒火红焰、守护盾光、悲恸冷蓝、决意金光、羁绊光丝、极限雷光、复仇暗红、不屈白焰。按钮与特写共用 --aw；--aw-ink 为情绪色字块上的墨色（深色配白字，其余配黑字）。
+// 觉醒情绪色：怒火红焰、守护盾光、悲恸冷蓝、决意金光、羁绊光丝、极限雷光、复仇暗红、不屈白焰。按钮与特写共用 --aw。
 const AWAKEN_COLORS = Object.freeze({ rage: '#ff6a3d', guard: '#7fd3ff', grief: '#7fa6e0', resolve: '#f2c46b', bond: '#ffb0cf', limit: '#c7b8ff', vengeance: '#c4303f', unyielding: '#f6f2e8' });
-const AWAKEN_DARK = new Set(['vengeance']);
-const AWAKEN_VARS = Object.entries(AWAKEN_COLORS).map(([k, v]) => `[data-awaken="${k}"]{--aw:${v};--aw-ink:${AWAKEN_DARK.has(k) ? '#fff' : '#0b0b0d'};}`).join('\n');
+const AWAKEN_VARS = Object.entries(AWAKEN_COLORS).map(([k, v]) => `[data-awaken="${k}"]{--aw:${v};}`).join('\n');
 // 情绪母题纹样（.igs-combat-awaken-fx::before）与粒子（::after）；低画质去粒子，减少动态效果全部静止。
 const AWAKEN_PATTERN = Object.freeze({
     rage: 'radial-gradient(60% 40% at 50% 110%,color-mix(in srgb,var(--aw) 85%,transparent),transparent 70%),radial-gradient(30% 50% at 20% 105%,color-mix(in srgb,var(--aw) 60%,transparent),transparent 70%),radial-gradient(30% 50% at 80% 105%,color-mix(in srgb,var(--aw) 60%,transparent),transparent 70%)',
@@ -58,7 +57,7 @@ const AWAKEN_PATTERNS = Object.entries(AWAKEN_PATTERN).map(([k, v]) => `.igs-com
 
 // 觉醒特写（助手 10-29 方案 A，全长 --igs-fx-life）：有可信头位时先切眼部斜切条（--aw-lead，见 combat-cutin-style.js），再接主段。主段沿技能特写的布局加强：
 // 暗幕叠情绪色光（立绘一侧更亮）+ 情绪母题纹样与粒子 + 情绪色速度线 + 宽斜带（技能特写同款，更宽更亮）与反向细斜带交叉 + 右侧放大推近、带情绪色光晕的半身立绘
-// + 左侧字幕组（角色名、更大的拼贴字「觉醒·类型」、逐字出现的台词条）+ 开场与收尾两次闪白（收尾在 --aw-end，面板同时震一下，见 combat-panel.js）。
+// + 左侧字幕组（角色名、更大的庞门正道纯字「觉醒·类型」、逐字出现的台词条）+ 开场与收尾两次闪白（收尾在 --aw-end，面板同时震一下，见 combat-panel.js）。
 // 主段各层按 --aw-lead 延后进场（--aw-main 为主段时长）。窄面板：立绘居中、字幕组压在下方居中。低画质去粒子、纹样与速度线静止、去投影、不震；
 // 减少动态效果不切眼部、不闪白、不震，整体淡入淡出、各层静止、台词整句显示。
 const AWAKEN_FX = `${AWAKEN_VARS}
@@ -76,7 +75,6 @@ ${AWAKEN_PATTERNS}
 .igs-combat-awaken-label{display:flex;flex-direction:column;align-items:flex-start;gap:clamp(4px,1cqh,10px);}
 .igs-combat-awaken-name{padding:.25em .7em .25em .9em;border-radius:var(--igs-cb-r-s,4px);background:rgba(${N},.72);color:#fff;font-size:clamp(12px,1.7cqw,16px);font-weight:700;letter-spacing:.36em;text-shadow:0 0 10px color-mix(in srgb,var(--aw) 70%,transparent);}
 .igs-combat-awaken-kind{--ch-at:calc(var(--aw-lead,0ms) + 120ms);display:flex;flex-wrap:wrap;align-items:center;gap:.06em;font-family:${COMBAT_CUTIN_ART_FONT};font-size:clamp(32px,min(calc(52cqw / var(--len,5)),13cqh),92px);line-height:1;rotate:-5deg;transform-origin:0 50%;}
-.igs-combat-awaken-kind .igs-combat-cutin-ch[data-v="2"]{color:var(--aw-ink,#0b0b0d);box-shadow:-.06em .06em 0 #fff,.08em .1em 0 rgba(0,0,0,.6);}
 .igs-combat-awaken-line{margin-top:clamp(4px,1.2cqh,12px);max-width:min(100%,560px);padding:.36em .9em;background:linear-gradient(90deg,rgba(${N},.84),rgba(${N},.64) 80%,rgba(${N},.32));color:#fff;font-size:clamp(14px,min(2.4cqw,3.6cqh),24px);font-weight:700;letter-spacing:.06em;line-height:1.4;text-shadow:0 0 12px color-mix(in srgb,var(--aw) 70%,transparent),0 2px 4px rgba(0,0,0,.85);overflow-wrap:anywhere;clip-path:inset(-1em);animation:igs-combat-awaken-type calc(var(--aw-main,2400ms) * .4) steps(var(--n,12),end) calc(var(--aw-lead,0ms) + 420ms) both;}
 @keyframes igs-combat-awaken-in{0%{opacity:0;}4%,86%{opacity:1;}100%{opacity:0;}}
 @keyframes igs-combat-awaken-band{0%{opacity:0;transform:rotate(var(--r)) translateX(calc(var(--d) * 110%)) scaleY(.3);}12%{opacity:1;transform:rotate(var(--r)) translateX(0) scaleY(1.08);}18%{transform:rotate(var(--r)) translateX(0) scaleY(1);}86%{opacity:1;transform:rotate(var(--r)) translateX(calc(var(--d) * -3%)) scaleY(1);}100%{opacity:0;transform:rotate(var(--r)) translateX(calc(var(--d) * -110%)) scaleY(.5);}}

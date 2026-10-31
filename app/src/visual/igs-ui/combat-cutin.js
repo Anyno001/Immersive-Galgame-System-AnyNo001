@@ -3,8 +3,8 @@ import { FALLBACK_HEAD } from './fx-anchor.js';
 import { COMBAT_CUTIN_ART_FAMILIES, COMBAT_CUTIN_FRAME, COMBAT_EYE_FRAME } from './combat-cutin-style.js';
 
 // 战斗 cut-in 的 DOM 构造（纯 DOM，无计时）：独立命名空间 .igs-combat-cutin-*，不复用阅读器 [igs-fx:cutin] 的节点与样式。
-// 技能特写：暗幕 + 速度线 + 斜向色带 + 半身立绘（运镜由样式完成）+ 角色名与拼贴字招式名 + 一次闪白。
-// 名称与招式名只经 textContent 写入（拼贴字逐字一个 span）；立绘地址由调用方经 safePortraitUrl 过滤后传入。
+// 技能特写：暗幕 + 速度线 + 斜向色带 + 半身立绘（运镜由样式完成）+ 角色名与庞门正道纯字招式名 + 一次闪白。
+// 名称与招式名只经 textContent 写入（招式名逐字一个 span）；立绘地址由调用方经 safePortraitUrl 过滤后传入。
 // opening 为开战过场（「开战」大字）的停留时长；awaken 为觉醒特写全长（眼部切入 + 主段）。
 export const COMBAT_CUTIN_MS = Object.freeze({ skill: 1800, awaken: 3000, opening: 800 });
 // 觉醒特写：眼部斜切条切入的时长；收尾闪白与面板震动落在全长的这一比例处（主段开始退场时）。
@@ -19,24 +19,22 @@ export const COMBAT_EYE_FOCUS = Object.freeze({ span: 1.45, line: 0.5 });
 
 const cssUrl = (url) => `url("${String(url).replace(/[\r\n]/g, '').replace(/["\\]/g, (ch) => `\\${ch}`)}")`;
 
-// 拼贴字（剪报式字块）：逐字一个 span，按字序轮换四种字块（data-v：白底黑字 / 黑底白字明朝 / 情绪色底 / 描边黑体），
-// 间隔号与空白单独成小块（data-sep）；--i 为字序（逐字盖章的延时），容器 --len 为字数（字号随字数收小）。只经 textContent 写入。
-function appendRansom(doc, parent, text) {
+// 招式名与「觉醒·类型」：逐字一个 span（.igs-combat-cutin-ch），间隔号与空白标 data-sep；
+// --i 为字序（逐字盖章的延时），容器 --len 为字数（字号随字数收小）。只经 textContent 写入。
+function appendArtText(doc, parent, text) {
     const chars = Array.from(String(text || ''));
     parent.style?.setProperty?.('--len', String(Math.max(2, chars.length)));
-    let k = 0;
     chars.forEach((ch, i) => {
         const s = doc.createElement('span');
         s.className = 'igs-combat-cutin-ch';
         if (ch === '·' || /\s/.test(ch)) s.setAttribute?.('data-sep', '');
-        else s.setAttribute?.('data-v', String(k++ % 4));
         s.style?.setProperty?.('--i', String(i));
         s.textContent = ch;
         parent.appendChild(s);
     });
 }
 
-// 拼贴字用到的切片字体按实际文字预载（浏览器只拉这几个字所在的切片）；没有 FontFaceSet 或加载失败时按回退字体显示。
+// 招式名与「觉醒·类型」的切片字体按实际文字预载（浏览器只拉这几个字所在的切片）；没有 FontFaceSet 或加载失败时按回退字体显示。
 export function preloadCutinFonts(doc, text) {
     const fonts = doc?.fonts;
     const sample = String(text || '');
@@ -105,7 +103,7 @@ export function buildSkillCutin(doc, { name = '', skill = '', url = '', probed =
     who.textContent = String(name || '');
     const move = doc.createElement('span');
     move.className = 'igs-combat-cutin-skill';
-    appendRansom(doc, move, skill || name);
+    appendArtText(doc, move, skill || name);
     cap.appendChild(who);
     cap.appendChild(move);
     el.appendChild(cap);
@@ -120,7 +118,7 @@ export function buildSkillCutin(doc, { name = '', skill = '', url = '', probed =
 // 觉醒特写节点（助手 10-29 方案 A）：全长 COMBAT_CUTIN_MS.awaken。有立绘、头位可信且未减少动态效果时，先放 COMBAT_AWAKEN_EYE_MS 的眼部斜切条切入
 // （.igs-combat-awaken-eye：黑幕劈出斜线后张开为横贯整屏的眼部斜条），主段各层按 --aw-lead 延后进场；否则主段占满全程。
 // 主段沿技能特写的布局加强：暗幕叠情绪色光 + 情绪母题纹样与粒子 + 情绪色速度线 + 宽斜带与反向细斜带 + 右侧放大推近的半身立绘（情绪色光晕）
-// + 左侧字幕组（角色名、拼贴字「觉醒·类型」、逐字出现的台词，--n 为台词字数）+ 开场与收尾两次闪白（收尾在 --aw-end）。名称、类型与台词只经 textContent 写入；立绘地址由调用方经 safePortraitUrl 过滤后传入；没有立绘时不画立绘与眼部。
+// + 左侧字幕组（角色名、庞门正道纯字「觉醒·类型」、逐字出现的台词，--n 为台词字数）+ 开场与收尾两次闪白（收尾在 --aw-end）。名称、类型与台词只经 textContent 写入；立绘地址由调用方经 safePortraitUrl 过滤后传入；没有立绘时不画立绘与眼部。
 export function buildAwakenCutin(doc, { name = '', skill = '', line = '', awakenType = '', url = '', probed = null, reduced = false, low = false } = {}) {
     const life = COMBAT_CUTIN_MS.awaken;
     const eye = url && !reduced ? combatEyeCrop(probed) : null;
@@ -150,7 +148,7 @@ export function buildAwakenCutin(doc, { name = '', skill = '', line = '', awaken
     label.appendChild(who);
     const kind = doc.createElement('span');
     kind.className = 'igs-combat-awaken-kind';
-    appendRansom(doc, kind, `觉醒·${skill || ''}`);
+    appendArtText(doc, kind, `觉醒·${skill || ''}`);
     label.appendChild(kind);
     cap.appendChild(label);
     if (line) {
