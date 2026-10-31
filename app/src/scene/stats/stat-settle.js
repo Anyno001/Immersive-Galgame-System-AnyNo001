@@ -1,5 +1,5 @@
 // 一楼的事后结算（§4.2、§7、v2 §5.2 / §7.2）：检定 → 标签 → 角色维度 → 生活条 → 熬夜 → 跨天。
-// 纯函数，random 由账本按本楼种子提供；检定走 opts.engine（缺省为 CoC 空注册表）。
+// 纯函数，random 由账本按本楼种子提供；检定走 opts.engine（缺省为 d20 空注册表）。
 // 返回 { state, changes, meta }，可直接作为 stat-ledger-settle 的 settle 回调结果。
 import { parseStatDirectives } from './stat-directives.js';
 import { FLOOR_GAIN_MAX, applyDim, baseDelta } from './stat-favor.js';
@@ -8,12 +8,15 @@ import { DEFAULT_MONEY_TABLE, applyBarDirective } from './stat-bars.js';
 import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } from './stat-day.js';
 import { createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
 import { settleCombat } from './stat-battle.js';
-import { PROTAGONIST, checkFromPreroll, createEngine, markGrowth, resolveCheck } from './stat-engine.js';
+import { PROTAGONIST, createEngine, markGrowth, resolveCheck } from './stat-engine.js';
 import { registerStorySkill } from './stat-registry.js';
 
 const CHARACTER_KINDS = new Set(['favor', 'dim', 'gift', 'event']);
 const BAR_KINDS = new Set(['stamina', 'hurt', 'stress', 'money']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角)$/i;
+const ROLL_COUNT = 10;
+const ROLL_TAG_AT = /[\[【]\s*igs-stat\s*[:：]\s*(?:roll|检定)\s*[|｜]/i;
+const CHECK_TAG_AT = /\[igs-check:/g;
 // 社交检定失败时，本楼对该角色的正向好感标签降一档（§7.2）。
 const FAVOR_DOWNGRADE = Object.freeze({ 心动: '开心', 感动: '开心', 开心: '平淡' });
 
@@ -131,8 +134,24 @@ function settleClock(state, narration, directives, hour, ctx) {
     return Number.isInteger(hour) ? withClock(next, { lastHour: hour }) : next;
 }
 
-// roll 标签 + 预掷骰面 → 本楼检定（§5.2）。新技能先登记进本楼的临时目录，结果随 meta.newSkills 交给运行时合并。
-function checkFromRollTag(before, tag, opts, ctx) {
+// 旧写法 roll 标签取第几对骰（合并计划 P3「读取时转换」）：排在它前面的正文检定标签各占一对，它取下一对。
+function rollPairIndex(text) {
+    const source = String(text ?? '');
+    const at = source.search(ROLL_TAG_AT);
+    if (at < 0) return 0;
+    return Math.min(ROLL_COUNT - 1, (source.slice(0, at).match(CHECK_TAG_AT) || []).length);
+}
+
+// 本楼骰面：旧存档里留下的预掷 d20（编辑重算沿用原骰）优先，其次本楼骰对；都没有时返回 null。
+function rollRawOf(text, opts) {
+    const pre = opts.preroll && opts.preroll.raw;
+    if (pre && Array.isArray(pre.d20) && pre.d20.length === 2) return { d20: [...pre.d20] };
+    const pair = Array.isArray(opts.rollPairs) ? opts.rollPairs[rollPairIndex(text)] : null;
+    return Array.isArray(pair) && pair.length === 2 ? { d20: [...pair] } : null;
+}
+
+// roll 标签 + 本楼骰面 → 本楼检定（§5.2）。新技能先登记进本楼的临时目录，结果随 meta.newSkills 交给运行时合并。
+function checkFromRollTag(before, tag, raw, opts, ctx) {
     let engine = ctx.engine;
     let skill = engine.registry.resolve(tag.skill);
     if (!skill) {
@@ -154,11 +173,13 @@ function checkFromRollTag(before, tag, opts, ctx) {
         if (!against) ctx.diagnostics.push({ code: 'stat-unknown-character', name: tag.against });
     }
     const opposedSkill = tag.opposedSkill ? engine.registry.resolve(tag.opposedSkill) : null;
-    return checkFromPreroll(engine, before, opts.preroll, { skill, difficulty: tag.difficulty, against, opposedSkill });
+    return resolveCheck(engine, before, { actor: PROTAGONIST, skill, difficulty: tag.difficulty, against, opposedSkill, raw, source: 'roll' }, null);
 }
 
-// opts：{ random, hour, nsfw, resolveCharacter, moneyTable, engine, check, preroll, catalog, settings, floor }
-// check：本楼已定的检定（选项、输入匹配、手动掷骰）；没有时按 roll 标签与预掷骰面重算。
+// opts：{ random, hour, nsfw, resolveCharacter, moneyTable, engine, check, preroll, rollPairs, storyChecks, catalog, settings, floor }
+// check：本楼已定的检定（选项、输入匹配、手动掷骰）；没有时按旧写法 roll 标签与本楼骰面重算。
+// storyChecks：运行时按每楼骰对复算的主角正文检定（[igs-check:…]，与徽记同一次复算）；成功的技能打成长勾，
+// 第一个社交检定在没有其他检定时用于好感约束与大成功加成。
 export function settleFloorText(before, text, opts = {}) {
     const { random, hour = null, nsfw = false, resolveCharacter, moneyTable = DEFAULT_MONEY_TABLE } = opts;
     const parsed = parseStatDirectives(text);
@@ -171,19 +192,24 @@ export function settleFloorText(before, text, opts = {}) {
     let check = opts.check || null;
     let pendingRoll = null;
     if (!check && rollTag) {
-        if (opts.preroll) check = checkFromRollTag(before, rollTag, { ...opts, resolveTarget: resolve }, ctx);
+        const raw = rollRawOf(text, opts);
+        if (raw) check = checkFromRollTag(before, rollTag, raw, { ...opts, resolveTarget: resolve }, ctx);
         else pendingRoll = { skill: rollTag.skill, difficulty: rollTag.difficulty, against: rollTag.against || null, opposedSkill: rollTag.opposedSkill || null, attribute: rollTag.attribute || null };
     }
-    if (check && check.social && check.success && check.ladder === 'crit') ctx.critTarget = check.against || check.toward || '*';
+    const storyChecks = (Array.isArray(opts.storyChecks) ? opts.storyChecks : []).filter((c) => c && c.skill);
+    const primary = check || storyChecks.find((c) => c.social) || null;
+    if (primary && primary.social && primary.success && primary.ladder === 'crit') ctx.critTarget = primary.against || primary.toward || '*';
     const merged = [...parsed.directives.filter((d) => d.kind !== 'roll'), ...fallbackDirectives(narration, parsed.directives)];
-    const directives = constrainFavor(dedupeDims(resolveTargets(merged, resolve, diagnostics)), check);
+    const directives = constrainFavor(dedupeDims(resolveTargets(merged, resolve, diagnostics)), primary);
     let state = markGrowth(before, check);
+    for (const c of storyChecks) state = markGrowth(state, c);
     state = settleCharacters(state, directives, ctx);
     state = settleCombat(state, directives, ctx);
     state = settleBars(state, directives, hour, ctx);
     state = settleClock(state, narration, directives, hour, ctx);
     const meta = { diagnostics, events: ctx.events, flags: ctx.flags };
     if (check) meta.check = check;
+    if (storyChecks.length) meta.checks = storyChecks.map((c) => ({ skill: c.skill, dc: c.dc, roll: c.roll, total: c.total, tier: c.tier, success: c.success }));
     if (pendingRoll) meta.pendingRoll = pendingRoll;
     if (ctx.newSkills.length) meta.newSkills = ctx.newSkills;
     if (rollTag) meta.rollTag = { skill: rollTag.skill, difficulty: rollTag.difficulty };
