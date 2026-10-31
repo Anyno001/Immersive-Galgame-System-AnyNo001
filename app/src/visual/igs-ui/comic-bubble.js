@@ -249,6 +249,11 @@ function watchText(root, state, items, metrics) {
             return Math.abs(item.text.offsetWidth - m.w) > 1 || Math.abs(item.text.offsetHeight - m.h) > 1;
         });
         if (!drift) return;
+        // 同一页最多因尺寸漂移重排两次：贴边的横排泡放好后可能又换行，不设上限会每帧重排一次。
+        const page = state.pageKey || '';
+        if (state.driftPage !== page) { state.driftPage = page; state.driftCount = 0; }
+        if (state.driftCount >= 2) return;
+        state.driftCount += 1;
         queued = true;
         view.requestAnimationFrame(() => {
             if (state.watch !== watch || !state.last || !root.isConnected) return;

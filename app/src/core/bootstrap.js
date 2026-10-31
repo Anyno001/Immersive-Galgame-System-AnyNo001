@@ -49,6 +49,7 @@ import { createReaderImageService } from '../generated-images/reader-image-servi
 import { createPromptInjector } from '../host/prompt-injector.js';
 import { createStatsRuntime } from './stats-runtime.js';
 import { createOriginRuntime, originLegacyActive } from './origin-runtime.js';
+import { createModelProfilesStore } from '../storage/model-profiles-file.js';
 import { describeLlmReady } from '../generated-images/illustration/caption-writer.js';
 import { statsFxOf, statsNoticeLines } from '../scene/stats/stat-fx.js';
 import { clearStatsRivals, registerStatsRivals } from '../visual/igs-ui/romance-runtime.js';
@@ -87,7 +88,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.58';
+const IGS_VERSION = '0.37.59';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -765,6 +766,7 @@ export function bootstrapIGS(options = {}) {
         getContext: resolveTavernContext,
         readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).origin,
         readLlm: () => (((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration || {}).llm,
+        readProfiles: () => createModelProfilesStore(globalObject).read(),
         secondaryLlm,
         notice: (level, text) => { const notice = app.igsUi && app.igsUi.showImageNotice; if (typeof notice === 'function') notice.call(app.igsUi, level, text); },
         openSettings: () => publicApi.openSettings({ tab: 'origin' }),
@@ -1134,6 +1136,8 @@ export function bootstrapIGS(options = {}) {
     function shouldRetrySceneAssetsInjection(result, attempt) {
         if (!result || result.ok !== false) return false;
         if (state.destroyed) return false;
+        // 退避到 30 秒后最多再试十来次；之后靠设置变化、切聊天等事件重新同步，不无限每 30 秒空跑。
+        if (attempt >= 16) return false;
         return result.reason !== 'empty-content';
     }
 

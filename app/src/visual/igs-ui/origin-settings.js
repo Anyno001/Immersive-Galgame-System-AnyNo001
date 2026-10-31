@@ -54,9 +54,13 @@ export const ORIGIN_SETTINGS_DEFAULTS = Object.freeze({
     personaText: '',
     mods: Object.freeze({ stat: true, bag: true, shop: true, gacha: true, ach: true, chat: true }),
     // 「系统」类型的模型分配（替代原插件的 chatMode 与独立 API 三项）：
-    // tavern = 跟随酒馆当前连接（默认）；llm = 走「备用模型」页的连接，model 非空时覆盖备用模型的模型名。
+    // tavern = 跟随酒馆当前连接（默认）；llm = 走备用模型：llmProfile 为「模型预设」里副 LLM 预设的 id，空则用「备用模型」页当前连接。
+    // model 是旧版手填的模型名，界面已不再提供，留着兼容旧设置。
     route: 'tavern',
+    llmProfile: '',
     model: '',
+    // 每楼存档只保留最近 N 个 AI 楼（0 = 全部保留）；更早的楼合成一份底稿，那些楼不能再切换回复重算。
+    keepFloors: 30,
 });
 
 const TASK_SOURCES = new Set(['auto', 'direction', 'manual']);
@@ -109,16 +113,35 @@ export function normalizeOriginSettings(raw) {
         personaText: text(src.personaText, d.personaText, 1200),
         mods: Object.fromEntries(ORIGIN_MODS.map((id) => [id, bool(mods[id], d.mods[id])])),
         route: ORIGIN_ROUTES.includes(src.route) ? src.route : d.route,
+        llmProfile: text(src.llmProfile, d.llmProfile, 80).trim(),
         model: text(src.model, d.model, 120).trim(),
+        keepFloors: int(src.keepFloors, 0, 9999, d.keepFloors),
     };
 }
 
-// 宿主 generate(kind, prompt) 用：系统请求走哪条连接。llmConfig 是 bridge.autoIllustration.llm。
-// 返回 { via: 'tavern' } 或 { via: 'llm', llm }（llm 为浅拷，model 已按「系统」类型覆盖）；备用模型来源本身是酒馆时也回落 tavern。
-export function originRequestRoute(settings, llmConfig) {
+const LLM_PROFILE_PREFIX = 'bridge.autoIllustration.llm.';
+
+// 副 LLM 预设（storage/model-profiles-file.js 的条目）→ 备用模型连接字段。
+export function llmFromProfile(profile, base) {
+    if (!profile || profile.kind !== 'llm' || !profile.values) return null;
+    const out = { ...(base && typeof base === 'object' ? base : {}), source: 'openai' };
+    for (const [path, value] of Object.entries(profile.values)) {
+        if (path.startsWith(LLM_PROFILE_PREFIX)) out[path.slice(LLM_PROFILE_PREFIX.length)] = value;
+    }
+    return out;
+}
+
+// 宿主 generate(kind, prompt) 用：系统请求走哪条连接。llmConfig 是 bridge.autoIllustration.llm，profiles 是模型预设列表。
+// 选了预设：用预设的地址、密钥、模型（预设已删时回落「备用模型」页当前连接）。
+// 返回 { via: 'tavern' } 或 { via: 'llm', llm }（llm 为新对象或原对象，不改入参）；没有可用的备用连接时回落 tavern。
+export function originRequestRoute(settings, llmConfig, profiles) {
     const s = normalizeOriginSettings(settings);
     const llm = llmConfig && typeof llmConfig === 'object' ? llmConfig : null;
-    if (s.route !== 'llm' || !llm || llm.source !== 'openai') return { via: 'tavern' };
+    if (s.route !== 'llm') return { via: 'tavern' };
+    const profile = s.llmProfile && Array.isArray(profiles) ? profiles.find((p) => p && p.kind === 'llm' && p.id === s.llmProfile) : null;
+    const picked = llmFromProfile(profile, llm);
+    if (picked) return { via: 'llm', llm: picked };
+    if (!llm || llm.source !== 'openai') return { via: 'tavern' };
     return { via: 'llm', llm: s.model ? { ...llm, model: s.model } : llm };
 }
 

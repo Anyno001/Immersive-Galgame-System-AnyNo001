@@ -51,6 +51,8 @@ export function decideClick({ focus, inPhone, motion, phoneControl, otherControl
 
 const PHONE_UI = '.igs-live-phone,.igs-live-ctl,.igs-live-switch,#igs-sprite-edit-bar';
 const CONTROL = 'button,input,textarea,select,a,[data-act],[data-view],[data-se]';
+// 前层的入口坞与浮窗（随身系统、通知栏、回看）盖在手机之上：点在它们上面不算点手机，焦点也不动。
+const FRONT_PANEL = '.igs-entry-dock,.igs-or-win,.igs-nc,.igs-feed-review';
 
 function closest(target, selector) {
     return target && typeof target.closest === 'function' ? target.closest(selector) : null;
@@ -151,6 +153,7 @@ function bind(state, root, focus) {
         const phone = visiblePhone(hooks.host);
         if (!phone && !focus.on) return;
         const target = event.target;
+        if (closest(target, FRONT_PANEL)) return;
         const control = closest(target, CONTROL);
         const motion = focus.last;
         focus.last = 'tap';

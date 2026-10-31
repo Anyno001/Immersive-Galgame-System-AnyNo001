@@ -96,13 +96,14 @@ export function relocateLegacyCard(sceneAssets, key, legacyKey) {
 
 // 读路径不改入参（存储里的配置是共享只读的）：旧头像名分卡只在视图里挪，真正迁移由设置草稿 / 写路径完成。
 // 翻页时素材库没变就复用上一次的合并结果：每页把几千个名字重新叠一遍很费。结果按只读用，存储配置改了引用就变。
-let contextAssetsMemo = null;
+// 按素材库对象分开记：阅读器、设置器、立绘编辑交替传入不同的库时互相不挤掉；库对象被丢弃后记录随之回收。
+const contextAssetsMemo = new WeakMap();
 export function sceneAssetsForContext(sceneAssets, ctx) {
     const scope = resolveAssetScope(ctx);
-    const memo = contextAssetsMemo;
-    if (memo && sceneAssets && memo.src === sceneAssets && memo.key === scope.key && memo.legacyKey === scope.legacyKey) return memo.value;
+    const memo = sceneAssets && typeof sceneAssets === 'object' ? contextAssetsMemo.get(sceneAssets) : null;
+    if (memo && memo.key === scope.key && memo.legacyKey === scope.legacyKey) return memo.value;
     const value = mergeAssetsForScope(sceneAssets, scope);
-    contextAssetsMemo = sceneAssets && typeof sceneAssets === 'object' ? { src: sceneAssets, key: scope.key, legacyKey: scope.legacyKey, value } : null;
+    if (sceneAssets && typeof sceneAssets === 'object') contextAssetsMemo.set(sceneAssets, { key: scope.key, legacyKey: scope.legacyKey, value });
     return value;
 }
 

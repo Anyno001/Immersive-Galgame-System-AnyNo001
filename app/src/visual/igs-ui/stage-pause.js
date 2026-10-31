@@ -21,9 +21,13 @@ export const STAGE_REST_ATTR = 'data-igs-stage-rest';
 const REST_LAYERS = '#igs-bg-blur,#igs-bg,#igs-sprite,#igs-cast,#igs-effect-layer,#igs-effect-front-layer,.igs-dfx-sky,.igs-dfx-amb,.igs-grade-layer,.igs-sd-ghost';
 const RESTING = `#${OVERLAY_ID}[${STAGE_REST_ATTR}] :is(${REST_LAYERS})`;
 
-export const STAGE_PAUSE_STYLE_TEXT = `${[PAUSED, `${PAUSED}::before`, `${PAUSED}::after`, `${PAUSED} *`, `${PAUSED} *::before`, `${PAUSED} *::after`].join(',')}{animation-play-state:paused!important;}`
-    + `${[COVERED, `${COVERED}::before`, `${COVERED}::after`, `${COVERED} *`, `${COVERED} *::before`, `${COVERED} *::after`].join(',')}{animation-play-state:paused!important;}`
-    + `${[RESTING, `${RESTING}::before`, `${RESTING}::after`, `${RESTING} *`, `${RESTING} *::before`, `${RESTING} *::after`].join(',')}{animation-play-state:paused!important;}`;
+// 静置时界面层的常驻 CSS 动画也停住：对话框皮肤装饰（科幻扫光、恐怖 / 人鱼纹样）、晃动 / 波浪字、点击等待标记、状态栏 BGM 跳条。
+// 只停 CSS 动画；打字机走 WAAPI，不受影响（静置要 20 秒无操作，此时一句早已打完）。不进 STAGE_LAYERS，暂停判定与粒子循环不认这些层。
+const REST_UI_LAYERS = '#igs-dialog-layer,#igs-status-hud,#igs-toolbar-layer';
+const RESTING_UI = `#${OVERLAY_ID}[${STAGE_REST_ATTR}] :is(${REST_UI_LAYERS})`;
+
+const pauseRule = (sel) => `${[sel, `${sel}::before`, `${sel}::after`, `${sel} *`, `${sel} *::before`, `${sel} *::after`].join(',')}{animation-play-state:paused!important;}`;
+export const STAGE_PAUSE_STYLE_TEXT = pauseRule(PAUSED) + pauseRule(COVERED) + pauseRule(RESTING) + pauseRule(RESTING_UI);
 
 // 直播手机盖住舞台、且这个角色就是主播时：立绘已收起，他的头顶小字和漫画泡不再画（台词已在手机评论里）。
 export function isLiveHostCovered(target, character) {

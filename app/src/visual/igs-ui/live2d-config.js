@@ -47,6 +47,20 @@ export function readLive2dConfig(storage, scope = '') {
     try { return normalizeLive2dConfig(JSON.parse(storage?.getItem(LIVE2D_STORAGE_KEY + scope) || '{}')); }
     catch { return normalizeLive2dConfig(); }
 }
+// 阅读器每次翻页都读：存储原文没变就复用上次的结果（只读，调用方不得原地改），不再每页 JSON.parse + 规范化。
+// 设置页、Live2D 面板要改配置，仍用 readLive2dConfig 拿新对象。
+const live2dReadMemo = new Map();
+export function readLive2dConfigShared(storage, scope = '') {
+    let raw = null;
+    try { raw = storage?.getItem(LIVE2D_STORAGE_KEY + scope) ?? null; } catch { raw = null; }
+    const hit = live2dReadMemo.get(scope);
+    if (hit && hit.storage === storage && hit.raw === raw) return hit.value;
+    let value;
+    try { value = normalizeLive2dConfig(JSON.parse(raw || '{}')); } catch { value = normalizeLive2dConfig(); }
+    if (live2dReadMemo.size > 16) live2dReadMemo.clear();
+    live2dReadMemo.set(scope, { storage, raw, value });
+    return value;
+}
 export function saveLive2dConfig(storage, scope, config) {
     const normalized = normalizeLive2dConfig(config);
     if (!storage?.setItem) throw new Error('浏览器存储不可用，未保存');

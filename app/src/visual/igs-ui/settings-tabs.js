@@ -502,12 +502,14 @@ const ORIGIN_TEMPLATE = `
     </div>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">存档</div>
+      <div class="igs-source-filter-grid">{{originKeepFloorsField}}</div>
+      <div class="igs-source-filter-note">逐楼存档只保留最近若干个回复楼，更早的楼合并为一份底稿；底稿之前的楼切换回复、编辑或重算都不再影响系统数值。</div>
       <div class="igs-settings-row">
         <button class="igs-settings-action" data-action="origin-op:recalc" type="button">按全部楼层重算</button>
         <button class="igs-settings-action" data-action="origin-op:reset" type="button">清空本聊天存档</button>
         <button class="igs-settings-action" data-action="origin-op:import" type="button"{{originLegacyHidden}}>导入原版存档</button>
       </div>
-      <div class="igs-source-filter-note">重算按当前规则从第一楼起补账；清空后任务、积分、属性与记录都会移除。</div>
+      <div class="igs-source-filter-note">重算按当前规则从底稿之后（未合并时从第一楼）起补账；清空后任务、积分、属性与记录都会移除。</div>
     </div>
   </div>
   <div class="igs-origin-credit">{{originCredit}}</div>

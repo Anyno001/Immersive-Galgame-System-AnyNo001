@@ -190,16 +190,19 @@ export function createTavernSettingsSync(globalObject, { storage, onRestored, on
     // 配置散在各模块直接写 localStorage，只在本机这个 Storage 上、命中全局配置键时才记一笔。
     function hook() {
         if (!proto || proto === Object.prototype || typeof rawSet !== 'function' || typeof rawRemove !== 'function') return null;
+        // 先判键：页面上所有脚本的写入都会经过这里，不是全局配置键就直接写，不多读两遍（大值读一次就是一次同步 IO）。
         const setItem = function setItem(key, value) {
+            if (this !== storage || !isGlobalSettingKey(key)) return rawSet.call(this, key, value);
             const previous = this.getItem(key);
             const result = rawSet.call(this, key, value);
-            if (this === storage && isGlobalSettingKey(key) && previous !== this.getItem(key)) markChanged(key);
+            if (previous !== this.getItem(key)) markChanged(key);
             return result;
         };
         const removeItem = function removeItem(key) {
+            if (this !== storage || !isGlobalSettingKey(key)) return rawRemove.call(this, key);
             const previous = this.getItem(key);
             const result = rawRemove.call(this, key);
-            if (this === storage && isGlobalSettingKey(key) && previous !== null) markChanged(key, true);
+            if (previous !== null) markChanged(key, true);
             return result;
         };
         proto.setItem = setItem;

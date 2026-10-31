@@ -10,7 +10,7 @@ import { createCx, applyManual } from './origin-apply.js';
 import { buildInjection, injectInto } from './origin-inject.js';
 import { flatChat, gachaPrompt, rpChatPrompt, shopPrompt, stripHtml, sysChatPrompt, taskPrompt } from './origin-gen.js';
 import {
-    bindPending, buildPath, createLedger, deserializeLedger, dropFloor, getEntry, makeEntry, pendingFor, recordOp, replay, serializeLedger, setEntry, truncate,
+    bindPending, buildPath, compact, createLedger, removeFloors, deserializeLedger, dropFloor, getEntry, makeEntry, pendingFor, recordOp, relocateBase, replay, serializeLedger, setEntry, truncate,
 } from './origin-ledger.js';
 
 export const ORIGIN_ENGINE_SYMBOL = Symbol.for('origin.engine');
@@ -72,7 +72,8 @@ export function createOriginEngine(host) {
         const m = c && (c.chatMetadata || c.chat_metadata);
         return m && typeof m === 'object' ? m : null;
     };
-    const notify = (kind, text) => { try { if (host.notify) host.notify({ kind, text }); } catch (e) { /* */ } };
+    // extra：结构化字段（抽奖带 tier / name / desc，给翻牌演出用）；只认 text 的宿主照旧。
+    const notify = (kind, text, extra) => { try { if (host.notify) host.notify({ kind, text, ...(extra || {}) }); } catch (e) { /* */ } };
     // 宿主插件自己发起的后台请求（写词、副模型等）也会触发全局生成事件，不注入、不记生成类型。
     const isBackground = () => { try { return typeof host.isBackground === 'function' && Boolean(host.isBackground()); } catch (e) { return false; } };
 
@@ -84,7 +85,7 @@ export function createOriginEngine(host) {
         meta = { world: '', direction: '' };
         const md = metaOf(c);
         const raw = md ? md[ORIGIN_META_KEY] : undefined;
-        if (raw == null) { ledger = createLedger(chatId, null); return; }
+        if (raw == null) { ledger = createLedger(chatId, null); remember(); return; }
         const r = deserializeLedger(raw, chatId);
         if (!r.ok) {
             blocked = r.reason;
@@ -94,6 +95,7 @@ export function createOriginEngine(host) {
         }
         ledger = r.ledger;
         meta = { world: r.world, direction: r.direction };
+        remember();
     }
     function ensure() {
         if (!ledger || idOf(ctx()) !== chatId) load();
@@ -148,7 +150,7 @@ export function createOriginEngine(host) {
             else if (n.kind === 'broadcast') notify('broadcast', n.text);
             else if (n.kind === 'achieve') notify('achieve', '解锁成就：' + n.name + (n.desc ? '（' + n.desc + '）' : ''));
         }
-        for (const d of res.draws || []) notify('gacha', '抽中' + (d.tier ? '[' + d.tier + ']' : '') + d.name);
+        for (const d of res.draws || []) notify('gacha', '抽中' + (d.tier ? '[' + d.tier + ']' : '') + d.name, { tier: d.tier || '', name: d.name || '', desc: d.desc || '' });
         for (const k of res.skipped || []) notify('warn', k.text || '有一条操作在当前版本里不成立，已跳过');
     }
     function notifyFloor(idx) {
@@ -164,6 +166,8 @@ export function createOriginEngine(host) {
         const chat = c && c.chat;
         const m = Array.isArray(chat) ? chat[idx] : null;
         if (!m || !isAiMsg(m) || m.is_system) return null;
+        // 已并进底稿的楼不再结算（改它、切它的回复都不影响状态）。
+        if (ledger.base && idx <= ledger.base.floor) return null;
         const sw = swipeOf(m);
         const text = String(m.mes || '');
         const sp = splitBlock(text);
@@ -199,6 +203,7 @@ export function createOriginEngine(host) {
             }
             ensure();
             if (blocked) return;
+            remember();
             const chat = (ctx() || {}).chat || [];
             const last = chat[chat.length - 1];
             // 重新生成 / 滑动时，酒馆会把最后一条 AI 楼从提示词里拿掉，状态也要退到它之前。
@@ -220,19 +225,41 @@ export function createOriginEngine(host) {
         if (!settings().enabled) return;
         ensure();
         if (blocked) return;
+        remember();
         const chat = (ctx() || {}).chat || [];
         const n = Number(messageId);
         const idx = Number.isInteger(n) && chat[n] ? n : chat.length - 1;
         const r = settleAt(idx);
         if (!r || !r.changed) return;
-        persist();
         emit('settle', { messageId: idx });
         notifyFloor(idx);
+        compactOld();
+        persist();
+    }
+    // 正文指纹（与 makeEntry 的 fp 同算法），给底稿当锚点。
+    function fpAt(i) {
+        const m = ((ctx() || {}).chat || [])[i];
+        if (!m) return '';
+        const sp = splitBlock(m.mes);
+        return hash53(String(sp.block != null ? sp.text : (m.mes || '')).trim());
+    }
+    // 楼层保留：超出的旧楼并进底稿，消息里存的数据块原文一并清掉（聊天文件变小）。
+    function compactOld() {
+        const c = ctx();
+        const chat = (c && c.chat) || [];
+        const cut = compact(ledger, buildPath(chat, isAiMsg, false), settings(), settings().keepFloors, fpAt);
+        if (cut < 0) return;
+        for (let i = 0; i <= cut; i += 1) {
+            const m = chat[i];
+            if (m && m.extra && m.extra.origin) delete m.extra.origin;
+        }
+        cache = null;
     }
     function onSwiped(messageId) {
         if (!settings().enabled) return;
         ensure();
         if (blocked) return;
+        remember();
         const chat = (ctx() || {}).chat || [];
         const idx = Number(messageId);
         const m = chat[idx];
@@ -242,21 +269,48 @@ export function createOriginEngine(host) {
         }
         emit('swipe', { messageId: idx });
     }
+    // 上次见到的楼层对象（浅拷引用）。删楼事件只给新长度，靠它找出删的是哪几楼。
+    let known = [];
+    const remember = () => { known = ((ctx() || {}).chat || []).slice(); };
+    // 删掉的是中间连续一段：返回 { d, k }；删的是末尾或认不出时返回 null。
+    function deletedGap(chat) {
+        const n = Math.min(chat.length, known.length);
+        let d = 0;
+        while (d < n && chat[d] === known[d]) d += 1;
+        if (d >= chat.length) return null;
+        const j = known.indexOf(chat[d], d + 1);
+        if (j < 0) return null;
+        const k = j - d;
+        for (let i = d; i < chat.length && i + k < known.length; i += 1) if (chat[i] !== known[i + k]) return null;
+        return { d, k };
+    }
     function onDeleted() {
         if (!settings().enabled) return;
         ensure();
         if (blocked) return;
         const chat = (ctx() || {}).chat || [];
+        const gap = deletedGap(chat);
+        if (gap) {
+            // 删的是中间几楼：这几楼连同挂在其后的手动操作一起删，后面的楼带着存档、种子、手动操作整体前移。
+            removeFloors(ledger, gap.d, gap.k);
+        } else {
+            // 认不出删了哪几楼（例如引擎关着时删过）：底稿按锚点找回位置，再按长度截断。
+            relocateBase(ledger, fpAt, chat.length);
+            truncate(ledger, chat.length);
+        }
         truncate(ledger, chat.length);
-        // 删的不是最后一楼时后面的楼整体前移：指纹对不上的楼丢掉旧存档，按现有正文重结算。
-        for (let i = 0; i < chat.length; i += 1) {
+        // 兜底：指纹对不上的楼丢掉旧存档，按现有正文重结算；认不出删了哪几楼时，没有存档的 AI 楼也补结算一次。
+        const from = ledger.base ? ledger.base.floor + 1 : 0;
+        for (let i = from; i < chat.length; i += 1) {
             const m = chat[i];
             if (!isAiMsg(m) || m.is_system) continue;
             const e = getEntry(ledger, i, swipeOf(m));
-            if (!e || !e.fp) continue;
+            if (!e) { if (!gap && String(m.mes || '').trim()) settleAt(i); continue; }
+            if (!e.fp) continue;
             const sp = splitBlock(m.mes);
             if (hash53(String(sp.block != null ? sp.text : (m.mes || '')).trim()) !== e.fp) { dropFloor(ledger, i); settleAt(i); }
         }
+        remember();
         persist();
         emit('delete');
     }
@@ -264,6 +318,7 @@ export function createOriginEngine(host) {
         if (!settings().enabled || generating) return;
         ensure();
         if (blocked) return;
+        remember();
         const idx = Number(messageId);
         const r = settleAt(idx);
         if (r && r.changed) { persist(); emit('edit', { messageId: idx }); }
@@ -475,7 +530,7 @@ export function createOriginEngine(host) {
         const chat = (ctx() || {}).chat || [];
         truncate(ledger, chat.length);
         let n = 0;
-        for (let i = 0; i < chat.length; i += 1) {
+        for (let i = ledger.base ? ledger.base.floor + 1 : 0; i < chat.length; i += 1) {
             const m = chat[i];
             if (!isAiMsg(m) || m.is_system) continue;
             n += 1;
@@ -498,11 +553,17 @@ export function createOriginEngine(host) {
 
     // ---------- 旧存档导入：原插件的 chatMetadata.origin + 楼层 extra.originBlocks / originBase，不覆盖原数据 ----------
     const legacyOf = () => { const md = metaOf(ctx()); const o = md && md[ORIGIN_LEGACY_KEY]; return o && typeof o === 'object' ? o : null; };
+    // 面板每次重绘都会问一次：按聊天与楼数缓存，不每次扫整个聊天。
+    let legacyMemo = null;
     function legacyDetected() {
         ensure();
         if (!ledger || ledger.legacyDone) return false;
         if (legacyOf()) return true;
-        return ((ctx() || {}).chat || []).some((m) => isAiMsg(m) && m.extra && m.extra.originBlocks && Object.keys(m.extra.originBlocks).length);
+        const chat = (ctx() || {}).chat || [];
+        if (legacyMemo && legacyMemo.ledger === ledger && legacyMemo.len === chat.length) return legacyMemo.hit;
+        const hit = chat.some((m) => isAiMsg(m) && m.extra && m.extra.originBlocks && Object.keys(m.extra.originBlocks).length);
+        legacyMemo = { ledger, len: chat.length, hit };
+        return hit;
     }
     function legacyInitial(old, chat) {
         const st = createInitialState();

@@ -9,7 +9,7 @@ import { runBackgroundGeneration, isBackgroundGenerationActive } from '../host/b
 // 核心的通知类别 → 阅读器细线的级别。
 const NOTICE_LEVEL = Object.freeze({ warn: 'warn', info: 'info' });
 
-export function createOriginRuntime({ getContext, readSettings, readLlm, secondaryLlm, notice, openSettings, saveSetting, legacyActive }) {
+export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive }) {
     const ctx = () => { try { return getContext() || null; } catch (error) { return null; } };
 
     async function viaTavern(prompt) {
@@ -25,21 +25,35 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, seconda
         throw new Error('当前酒馆不支持后台生成');
     }
 
+    // 设置快照引用不变就复用上次规范化的结果：核心按引用缓存 fillSettings，每次给新对象会让它每次都重新序列化比对。
+    let lastRaw;
+    let lastNorm = null;
     const host = {
         getContext: ctx,
         // 核心内部 fillSettings 会返回新对象，不会改这里给出的快照。
-        settings: () => normalizeOriginSettings(readSettings()),
+        settings: () => {
+            const raw = readSettings();
+            if (!lastNorm || raw !== lastRaw) { lastRaw = raw; lastNorm = Object.freeze(normalizeOriginSettings(raw)); }
+            return lastNorm;
+        },
         saveMetadata: () => {
             const c = ctx();
             const save = c && (c.saveMetadataDebounced || c.saveMetadata);
             if (typeof save === 'function') save.call(c);
         },
-        // 插件自己发起的后台请求也会触发全局生成事件；包在 runBackgroundGeneration 里，核心据 isBackground 跳过。
-        generate: (kind, prompt) => runBackgroundGeneration(() => {
-            const route = originRequestRoute(readSettings(), readLlm());
+        // 经酒馆发起的后台请求会触发全局生成事件；包在 runBackgroundGeneration 里，核心据 isBackground 跳过。
+        generate: async (kind, prompt) => {
+            const s = normalizeOriginSettings(readSettings());
+            // 选了副 LLM 预设才读预设文件；读失败按没选处理（回落「备用模型」页当前连接）。
+            let profiles = null;
+            if (s.route === 'llm' && s.llmProfile && typeof readProfiles === 'function') {
+                try { profiles = await readProfiles(); } catch (error) { profiles = null; }
+            }
+            const route = originRequestRoute(s, readLlm(), profiles);
+            // 备用模型直接发请求，不触发酒馆生成事件，不必标后台；标了反而会让这期间用户正常发的消息漏掉注入。
             if (route.via === 'llm' && secondaryLlm) return secondaryLlm.request({ system: '', user: prompt }, route.llm);
-            return viaTavern(prompt);
-        }),
+            return runBackgroundGeneration(() => viaTavern(prompt));
+        },
         isBackground: () => isBackgroundGenerationActive(),
         notify: ({ kind, text }) => {
             if (!text || typeof notice !== 'function') return;

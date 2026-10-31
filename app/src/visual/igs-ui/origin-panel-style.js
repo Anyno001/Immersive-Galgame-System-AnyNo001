@@ -13,6 +13,8 @@ import { getSettingsThemePalette } from './settings-theme.js';
 const ORIGIN_OK = '#5f9a6e';
 export const ORIGIN_BASE_THEME = 'cream';
 const base = getSettingsThemePalette(ORIGIN_BASE_THEME).tokens;
+// 设置器外壳投影带一条 inset 顶部高光（看起来像描边）；悬浮窗只取外投影。
+const SHADOW = String(base['shell-shadow']).split(/,(?![^(]*\))/).filter((part) => !/\binset\b/.test(part)).join(',');
 const LINE = '--igs-or-line:color-mix(in srgb,var(--igs-or-ink) 8%,var(--igs-or-bg));';
 // 皮肤只给三色时的派生规则（与基础配色的层级关系一致：字三档、底三档）。
 export const ORIGIN_DERIVED_TOKENS = '--igs-or-ink-2:color-mix(in srgb,var(--igs-or-ink) 72%,var(--igs-or-bg));--igs-or-ink-3:color-mix(in srgb,var(--igs-or-ink) 52%,var(--igs-or-bg));'
@@ -20,7 +22,7 @@ export const ORIGIN_DERIVED_TOKENS = '--igs-or-ink-2:color-mix(in srgb,var(--igs
     + LINE;
 const BASE_TOKENS = `--igs-or-bg:${base.panel};--igs-or-ink:${base.ink};--igs-or-ink-2:${base['ink-2']};--igs-or-ink-3:${base['ink-3']};`
     + `--igs-or-field:${base.field};--igs-or-highlight:${base.highlight};--igs-or-raised:${base.raised};${LINE}`
-    + `--igs-or-acc:${base['ink-2']};--igs-or-ok:${ORIGIN_OK};--igs-or-shadow:${base['shell-shadow']};--igs-or-menu-shadow:0 8px 24px color-mix(in srgb,var(--igs-or-ink) 16%,transparent);`
+    + `--igs-or-acc:${base['ink-2']};--igs-or-ok:${ORIGIN_OK};--igs-or-shadow:${SHADOW};--igs-or-menu-shadow:0 8px 24px color-mix(in srgb,var(--igs-or-ink) 16%,transparent);`
     + `--igs-or-font:${IGS_UI_FONT_SANS};--igs-or-font-body:${IGS_UI_FONT_SERIF};--igs-or-r-s:${IGS_UI_RADIUS.small};--igs-or-r-m:${IGS_UI_RADIUS.control};--igs-or-r-l:${IGS_UI_RADIUS.card};`;
 
 export const ORIGIN_PANEL_STYLE_TEXT = `

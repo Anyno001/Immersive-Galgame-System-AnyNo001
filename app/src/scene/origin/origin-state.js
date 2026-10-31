@@ -1,9 +1,10 @@
 // Origin 系统核心 · 常量、默认值与状态工具。
 // 来源：vicliaaa/origin-sillytavern v1.5（作者已授权移植）；IGS 与天音共用，两份逐字相同。不碰 DOM、不碰酒馆全局。
-export const ORIGIN_CORE_VER = 'v1.5-core.1';
+export const ORIGIN_CORE_VER = 'v1.5-core.2';
 export const ORIGIN_META_KEY = 'origin_v2';
 export const ORIGIN_LEGACY_KEY = 'origin';
-export const ORIGIN_SAVE_VERSION = 1;
+// 2：加入楼层保留的底稿（base）。旧核心读到 2 会拒收而不是丢掉底稿。
+export const ORIGIN_SAVE_VERSION = 2;
 
 export const DEFAULT_GACHA = [
     { name: '普通物资', tier: 'N', weight: 50, desc: '一点日常用度', effect: '积分+50' },
@@ -32,6 +33,8 @@ export const SETTING_DEFAULTS = {
     sysName: 'Origin', personality: '冷澈', personaText: '', rewardPref: '', penaltyPref: '', bindTo: '宿主',
     autoEcon: false, budget: 1400, drawCost: 300, limitMin: 0, limitMax: 0, punishEvent: true, achieveOn: true,
     shopRefresh: 0, gachaRefresh: 0, chatToStory: true, rpChat: 'auto',
+    // 逐楼存档只留最近几个 AI 楼（原插件 keepAll 关闭时留 15 楼）；0 = 全部保留。
+    keepFloors: 30,
 };
 export const MOD_KEYS = ['stat', 'bag', 'shop', 'gacha', 'ach', 'chat'];
 // 会被结算原地改写的列表字段；写时浅拷要逐条拷。
@@ -42,11 +45,13 @@ const filledCache = new WeakMap();
 export function fillSettings(s) {
     if (!s || typeof s !== 'object') return { ...SETTING_DEFAULTS, mods: defaultMods() };
     const hit = filledCache.get(s);
-    if (hit && hit.src === JSON.stringify(s)) return hit.out;
+    // 冻结的入参不会变，按引用命中即可；没冻结的宿主可能原地改过，再比一次内容。
+    const frozen = Object.isFrozen(s);
+    if (hit && (frozen || hit.src === JSON.stringify(s))) return hit.out;
     const out = { ...SETTING_DEFAULTS, ...s };
     for (const k of Object.keys(SETTING_DEFAULTS)) if (out[k] === undefined) out[k] = SETTING_DEFAULTS[k];
     out.mods = { ...defaultMods(), ...(s.mods && typeof s.mods === 'object' ? s.mods : {}) };
-    filledCache.set(s, { src: JSON.stringify(s), out });
+    filledCache.set(s, { src: frozen ? '' : JSON.stringify(s), out });
     return out;
 }
 function defaultMods() {

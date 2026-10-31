@@ -16,10 +16,11 @@ export function floorKey(chatId, messageId, swipeId) {
     return `${chatId}|${messageId}|${Number(swipeId) || 0}`;
 }
 
+// base：保留楼数之外的楼合成的底稿 { floor, turn, state, anchor }。floor 及之前的楼不再回放，状态从 base.state 起算；anchor = 该楼正文指纹，删楼后据此找回位置。
 export function createLedger(chatId, initial) {
     return {
         chatId, initial: deepFreeze(initial || createInitialState()), initialCustom: Boolean(initial),
-        entries: new Map(), ops: [], nextOpId: 1, memo: new Map(), checkpoints: [], rev: 0, legacyDone: false,
+        entries: new Map(), ops: [], nextOpId: 1, memo: new Map(), checkpoints: [], rev: 0, legacyDone: false, base: null,
     };
 }
 
@@ -51,6 +52,33 @@ export function recordOp(ledger, op, after, seed) {
 }
 
 // 删楼：该楼及之后的存档、挂在这些楼之后的手动操作一起回退；绑到被删用户楼的输入退回「未发出」。
+// 删掉中间连续 k 楼（从 d 起）：这几楼的存档和挂在它们之后的手动操作一起删（删到那楼就当它没发生过）；
+// 后面的楼连同存档、种子、手动操作整体前移 k 格，抽奖结果不变。底稿落在被删段里时退到被删段之前。
+export function removeFloors(ledger, d, k) {
+    const end = d + k;
+    const moved = [...ledger.entries.values()];
+    ledger.entries.clear();
+    for (const e of moved) {
+        if (e.messageId >= d && e.messageId < end) continue;
+        const id = e.messageId >= end ? e.messageId - k : e.messageId;
+        ledger.entries.set(floorKey(ledger.chatId, id, e.swipeId), id === e.messageId ? e : { ...e, messageId: id });
+    }
+    ledger.ops = ledger.ops.filter((o) => !(o.after >= d && o.after < end));
+    for (const o of ledger.ops) {
+        if (o.after >= end) o.after -= k;
+        if (o.boundTo != null) {
+            if (o.boundTo >= d && o.boundTo < end) o.boundTo = null;
+            else if (o.boundTo >= end) o.boundTo -= k;
+        }
+    }
+    const b = ledger.base;
+    if (b) { if (b.floor >= end) b.floor -= k; else if (b.floor >= d) b.floor = d - 1; }
+    ledger.memo.clear();
+    ledger.checkpoints = [];
+    ledger.rev += 1;
+}
+
+// 删到底稿之前时底稿不回退（那些楼的逐楼存档已合并，无从重算），只是不再有后续楼。
 export function truncate(ledger, keepCount) {
     for (const [k, e] of ledger.entries) if (e.messageId >= keepCount) ledger.entries.delete(k);
     ledger.ops = ledger.ops.filter((o) => o.after < keepCount);
@@ -60,6 +88,53 @@ export function truncate(ledger, keepCount) {
 export function dropFloor(ledger, messageId) {
     for (const [k, e] of ledger.entries) if (e.messageId === messageId) ledger.entries.delete(k);
     ledger.rev += 1;
+}
+
+// 楼层保留：当前路径上的 AI 楼超过 keep + slack 个时，把最近 keep 个之前的楼合成底稿，删掉它们的存档与挂在其后的手动操作。
+// keep = 0 不合并。返回合并到的楼 id（没合并返回 -1）；调用方负责清掉这些楼消息里存的数据块。
+export const COMPACT_SLACK = 10;
+export function compact(ledger, path, s, keep, fpOf) {
+    const k = Number(keep) || 0;
+    if (k <= 0) return -1;
+    const from = ledger.base ? ledger.base.floor : -1;
+    const ai = path.filter((it) => it.kind === 'ai' && it.id > from);
+    if (ai.length <= k + COMPACT_SLACK) return -1;
+    const cut = ai[ai.length - k - 1].id;
+    const head = path.filter((it) => it.id <= cut);
+    const rep = replay(ledger, head, s);
+    ledger.base = { floor: cut, turn: rep.turn, state: rep.state, anchor: typeof fpOf === 'function' ? fpOf(cut) : '' };
+    for (const [key, e] of ledger.entries) if (e.messageId <= cut) ledger.entries.delete(key);
+    ledger.ops = ledger.ops.filter((o) => o.after > cut);
+    ledger.memo.clear();
+    ledger.checkpoints = [];
+    ledger.rev += 1;
+    return cut;
+}
+
+// 删的是底稿之前的楼时，底稿位置跟着前移：按锚点指纹在原位置附近找回。找不到（锚点楼本身被删）就退一格。
+export function relocateBase(ledger, fpOf, length) {
+    const base = ledger.base;
+    if (!base) return false;
+    const was = base.floor;
+    const top = Math.min(was, length - 1);
+    let found = -2;
+    if (base.anchor && typeof fpOf === 'function') {
+        for (let i = top; i >= 0 && i >= was - 50; i -= 1) if (fpOf(i) === base.anchor) { found = i; break; }
+    }
+    // 找不到锚点：锚点楼被删了（或聊天变短），底稿退到它前一格。
+    base.floor = found >= -1 ? found : (base.anchor ? Math.min(was - 1, top) : top);
+    if (base.floor === was) return false;
+    const shift = was - base.floor;
+    // 底稿之后的存档与操作整体跟着前移。
+    const moved = [...ledger.entries.values()];
+    ledger.entries.clear();
+    for (const e of moved) { const id = e.messageId - shift; if (id > base.floor) ledger.entries.set(floorKey(ledger.chatId, id, e.swipeId), { ...e, messageId: id }); }
+    for (const o of ledger.ops) { o.after -= shift; if (o.boundTo != null) o.boundTo -= shift; }
+    ledger.ops = ledger.ops.filter((o) => o.after > base.floor);
+    ledger.memo.clear();
+    ledger.checkpoints = [];
+    ledger.rev += 1;
+    return true;
 }
 
 // 发出提示词时，把还没绑定的手动操作绑到本次的用户楼上；之后无论 roll 多少次都带同一批输入。
@@ -77,18 +152,38 @@ export function settingsKey(s) {
 // path：[{ id, kind:'ai'|'user'|'other', swipeId }]，当前聊天路径（每楼取当前选中的 swipe）。
 function buildSteps(ledger, path) {
     const steps = [];
-    let turn = 0;
+    const base = ledger.base;
+    const from = base ? base.floor : -1;
+    let turn = base ? base.turn : 0;
+    // 手动操作按 after 分组，路径每楼只取自己那组（原来每楼扫一遍全部操作）。
+    const byAfter = new Map();
+    for (const rec of ledger.ops) {
+        if (base && rec.after <= from) continue;
+        const list = byAfter.get(rec.after);
+        if (list) list.push(rec); else byAfter.set(rec.after, [rec]);
+    }
     const push = (rec) => steps.push({ type: 'op', rec, turn, token: `o${rec.id}:${rec.after}` });
-    for (const rec of ledger.ops) if (rec.after === -1) push(rec);
+    for (const rec of byAfter.get(-1) || []) push(rec);
     for (const it of path) {
+        if (it.id <= from) continue;
         if (it.kind === 'ai') {
             turn += 1;
             const entry = getEntry(ledger, it.id, it.swipeId) || EMPTY_ENTRY;
             steps.push({ type: 'floor', id: it.id, swipeId: it.swipeId, turn, entry, token: `f${it.id}:${it.swipeId}:${entry.h}` });
         }
-        for (const rec of ledger.ops) if (rec.after === it.id) push(rec);
+        for (const rec of byAfter.get(it.id) || []) push(rec);
     }
     return { steps, turn };
+}
+
+// 回放起点：有底稿用底稿，否则用初始状态。起点的 JSON 按对象引用缓存，不必每次回放都序列化一遍。
+function rootOf(ledger) {
+    const root = ledger.base ? ledger.base.state : ledger.initial;
+    if (ledger.rootRef !== root) {
+        ledger.rootRef = root;
+        ledger.rootJson = (ledger.base ? 'b' + ledger.base.floor + ':' + ledger.base.turn + ':' : '') + JSON.stringify(root);
+    }
+    return { root, json: ledger.rootJson };
 }
 
 function finish(st, cx, skipped) {
@@ -133,14 +228,15 @@ function saveCheckpoint(ledger, sig, turn, state) {
 // 回放当前路径。命中缓存的前缀直接复用，只算后面的。返回 { state, turn, lastAi, steps, results, skipped }。
 export function replay(ledger, path, s) {
     const { steps, turn } = buildSteps(ledger, path);
-    const baseSig = hash53(ORIGIN_CORE_VER + settingsKey(s) + JSON.stringify(ledger.initial));
+    const start = rootOf(ledger);
+    const baseSig = hash53(ORIGIN_CORE_VER + settingsKey(s) + start.json);
     const sigs = [];
     let acc = baseSig;
     for (const st of steps) { acc = hash53(acc + '>' + st.token); sigs.push(acc); }
     let lastAi = -1;
     for (let i = steps.length - 1; i >= 0; i -= 1) if (steps[i].type === 'floor') { lastAi = i; break; }
     let from = 0;
-    let prev = ledger.initial;
+    let prev = start.root;
     for (let i = steps.length - 1; i >= 0; i -= 1) {
         const m = ledger.memo.get(sigs[i]);
         if (!m) continue;
@@ -185,6 +281,7 @@ export function serializeLedger(ledger, meta = {}) {
         initial: ledger.initialCustom ? ledger.initial : null,
         entries, ops: ledger.ops, nextOpId: ledger.nextOpId,
         checkpoints: ledger.checkpoints, legacyDone: ledger.legacyDone,
+        base: ledger.base,
         world: meta.world || '', direction: meta.direction || '',
     };
 }
@@ -201,8 +298,13 @@ function validOp(o) {
 export function deserializeLedger(raw, chatId) {
     if (!raw || typeof raw !== 'object') return { ok: false, reason: 'origin-save-invalid' };
     if (Number(raw.version) > ORIGIN_SAVE_VERSION) return { ok: false, reason: 'origin-save-newer', version: raw.version };
-    if (Number(raw.version) !== ORIGIN_SAVE_VERSION || !Array.isArray(raw.entries) || !Array.isArray(raw.ops)) return { ok: false, reason: 'origin-save-invalid' };
+    // 版本 1 没有底稿，按版本 2 读即可。
+    if (!(Number(raw.version) >= 1) || !Array.isArray(raw.entries) || !Array.isArray(raw.ops)) return { ok: false, reason: 'origin-save-invalid' };
     const ledger = createLedger(chatId, raw.initial && typeof raw.initial === 'object' ? raw.initial : null);
+    const b = raw.base;
+    if (b && typeof b === 'object' && Number.isInteger(b.floor) && Number.isInteger(b.turn) && b.state && typeof b.state === 'object') {
+        ledger.base = { floor: b.floor, turn: b.turn, state: deepFreeze(b.state), anchor: typeof b.anchor === 'string' ? b.anchor : '' };
+    }
     const dropped = [];
     for (const e of raw.entries) {
         if (!validEntry(e)) { dropped.push(e && e.messageId); continue; }

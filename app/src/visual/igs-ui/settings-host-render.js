@@ -253,6 +253,14 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         });
 
         // 随身系统页：总开关关闭时下方整块隐藏，只留一行说明。本聊天状态由宿主 options.originChat() 给出（没接引擎时为 null）。
+        // 「备用模型预设」下拉：副 LLM 类型的模型预设；已选的预设被删时保留一项提示，运行时回落当前连接。
+        const originProfileChoices = (selected) => {
+            const profiles = asyncState.modelProfiles;
+            const list = profiles && Array.isArray(profiles.list) ? profiles.list.filter((item) => item.kind === 'llm') : [];
+            const choices = [['', '「备用模型」页当前连接'], ...list.map((item) => [item.id, item.name])];
+            if (selected && !list.some((item) => item.id === selected)) choices.push([selected, profiles && profiles.status === 'loading' ? '读取中…' : '预设已删除（按当前连接）']);
+            return choices;
+        };
         const originValues = memo(() => {
             const origin = normalizeOriginSettings(bridge.origin);
             let chat = null;
@@ -295,10 +303,11 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 originAutoEconField: checkbox('bridge.origin.autoEcon', origin.autoEcon, '允许角色自主使用系统（购买、抽奖、使用道具）'),
                 originChatToStoryField: checkbox('bridge.origin.chatToStory', origin.chatToStory, '宿主与系统的对话结果写入剧情'),
                 originRouteField: field('bridge.origin.route', '系统请求', selectInput('bridge.origin.route', origin.route, [['tavern', '跟随酒馆当前连接'], ['llm', '使用备用模型']])),
-                originModelField: field('bridge.origin.model', '系统模型', textInput('bridge.origin.model', origin.model, '留空沿用备用模型的模型')),
-                originRouteNote: esc(origin.route === 'llm' && llmSource !== 'openai' ? '「备用模型」页的来源为酒馆当前API，系统请求仍跟随酒馆当前连接。' : '派发任务、刷新商城与奖池、系统对话与私聊都按这里的分配发送请求。'),
+                originModelField: field('bridge.origin.llmProfile', '备用模型预设', selectInput('bridge.origin.llmProfile', origin.llmProfile, originProfileChoices(origin.llmProfile))),
+                originRouteNote: esc(origin.route === 'llm' && !origin.llmProfile && llmSource !== 'openai' ? '「备用模型」页的来源为酒馆当前API，系统请求仍跟随酒馆当前连接。' : '派发任务、刷新商城与奖池、系统对话与私聊都按这里的分配发送请求；预设在「备用模型」页存取。'),
                 originModelHidden: hiddenAttr(origin.route !== 'llm'),
                 originLegacyHidden: hiddenAttr(!(chatReady && chat.legacy)),
+                originKeepFloorsField: intField('keepFloors', '保留楼数', 0, 9999, '0表示全部保留'),
                 originCredit: `${esc(ORIGIN_CREDIT)}　<a class="igs-origin-credit-link" href="${esc(ORIGIN_REPO_URL)}" target="_blank" rel="noopener noreferrer">${esc(ORIGIN_REPO_URL)}</a>`,
             };
         });

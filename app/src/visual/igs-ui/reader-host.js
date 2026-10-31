@@ -1,7 +1,7 @@
 import { recoverOperation, linkRecoverySignals, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 import { applyOperationEdits } from '../../storage/operation-edits.js';
 import { appendInputDraft } from '../../host/input-channel.js';
-import { readLive2dConfig, resolveCharacterLive2dBinding } from './live2d-config.js';
+import { readLive2dConfigShared, resolveCharacterLive2dBinding } from './live2d-config.js';
 import { disposeLive2dStage } from './live2d-stage.js';
 import { openLive2dPanel } from './live2d-panel.js';
 import { createMediaLeaseScope } from '../../media/media-lease-scope.js';
@@ -509,7 +509,8 @@ export function createIgsReaderHost(options = {}) {
                 if (settings) readerStaleBehindSettings = true;
                 if (imageLoaded) {
                     if (waitStage.isOpen() || !settings) scheduleImageRefresh({ reader: true });
-                } else if (!settings) rerenderActiveReader();
+                // 生成完成 / 状态变化也合并重绘：批量出图、整批读回时一张一次整页重渲染太费。
+                } else if (!settings) scheduleImageRefresh({ reader: true });
             }
             if (!settings) return;
             if (imageLoaded) {
@@ -5647,7 +5648,7 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._live2dScope = resolveAssetScope(getSillyTavernContext(options.global || globalThis)).key;
         let live2dStorage;
         try { live2dStorage = (options.global || globalThis).localStorage; } catch { /* 存储不可用时默认关闭绑定 */ }
-        readerSettings._live2d = readLive2dConfig(live2dStorage, readerSettings._live2dScope);
+        readerSettings._live2d = readLive2dConfigShared(live2dStorage, readerSettings._live2dScope);
         // 还没入库的生成立绘的 tag：立绘默认高度据此判断没有 DNA 的角色性别与老人 / 儿童。
         const spriteTagService = options.generatedAssets;
         readerSettings._tempSpriteTags = spriteTagService && typeof spriteTagService.tempSpriteTags === 'function'

@@ -1,12 +1,13 @@
 // 测试对照用：vicliaaa/origin-sillytavern v1.5 index.js 的结算函数，原样改成能在 node 里跑的形式（状态与设置显式传入，去掉 DOM 与酒馆全局）。
 // 只用于断言新核心与原插件行为一致，不属于产品代码。函数体保持原文，仅把 meta()/settings()/curTurn() 换成闭包变量。
-export function createRef(S, random = Math.random) {
+// opts.panel=true：模拟悬浮窗已挂载（原插件 mountUI 后面板元素常在，renderPanel 每次都会先跑 checkExpiry）。
+export function createRef(S, random = Math.random, opts = {}) {
     let st = null;
     let TURN = 0;
     const settings = () => S;
     const curTurn = () => TURN;
     const saveMeta = () => {};
-    const renderPanel = () => {};
+    const renderPanel = () => { if(opts.panel && st) checkExpiry(); };
     const markNew = () => {};
     const meta = () => st;
 
@@ -188,7 +189,59 @@ export function createRef(S, random = Math.random) {
       }
       return n;
     }
-    // 一楼的完整结算（原 applyMessage 里「数据块 + 正文积分 + 正文背包 + 正文技能」；奖励流水、正文权限、阶段任务这几段没有对照）
+    function tRemain(t){ if(!t.limit || t.limit<=0) return null; const elapsed=curTurn()-(t.startTurn||t.turn||curTurn()); return t.limit - elapsed; }
+    function checkExpiry(){ const st=meta(); if(!st||st.paused) return; let ch=false; for(const t of st.tasks){ if(t.status==='active'){ const r=tRemain(t); if(r!==null && r<=0){ t.status='failed'; applyEffects(st,t.penalty,-1); pushLog(st,'任务「'+t.title+'」超时失败'+(t.penalty?'　'+t.penalty:''),'!'); if(settings().punishEvent){ st.pendingEvent=st.pendingEvent||[]; st.pendingEvent.push('任务「'+t.title+'」超时失败'+(t.penalty?'（'+t.penalty+'）':'')+'，请让剧情出现一个相称的不利后果'+(settings().penaltyPref?'（后果倾向：'+settings().penaltyPref+'）':'')); } ch=true; } } } if(ch) saveMeta(); }
+    function _okTitle(t){ t=String(t||'').trim().replace(/^[「『【"']+|[」』】"'。.]+$/g,'').trim(); return t && !/^(积分|奖励|惩罚|要求|条件|进度|完成|失败|发放|结算)/.test(t) && !/[×x]\s*\d/.test(t) && !/^[+-]?\d+$/.test(t) ? t : ''; }
+    function extractProseTitle(text){ if(!text) return ''; text=String(text); let m,r;
+      m=text.match(/任务[一二三四五六七八九十\d]{1,3}\s*[：:]\s*([^。！？\n】]{2,40})/); if(m && (r=_okTitle(m[1]))) return r;
+      m=text.match(/任务\s*[「『]([^」』\n]{2,30})[」』]/); if(m && (r=_okTitle(m[1]))) return r;
+      m=text.match(/【[^】]{0,10}任务(?!奖励|惩罚|进度|完成|要求|条件|结算|失败)[^：:】]{0,8}[：:]\s*([^】\n]{2,40})】/); if(m && (r=_okTitle(m[1]))) return r;
+      m=text.match(/任务(?!奖励|惩罚|进度|完成|要求|条件|结算|失败)\s*[：:]\s*([^。！？\n】]{2,40})/); if(m && (r=_okTitle(m[1]))) return r;
+      return ''; }
+    function proseNewTasks(prose){ const out=[]; if(!prose) return out; prose=String(prose);
+      for(const m of prose.matchAll(/(主线|支线|日常)?\s*任务\s*阶段\s*([一二三四五六七八九十百零\d]+)\s*已?生成/g)){
+        const type=m[1]||'主线', stage=m[2], title=type+'任务·阶段'+stage;
+        const after=prose.slice(m.index+m[0].length, m.index+m[0].length+400);
+        const d=after.match(/(?:任务要求|要求|需要|目标)[：:]?\s*([^。\n]{4,80})/);
+        out.push({type,title,desc:d?d[1].trim():'',stage});
+      }
+      return out; }
+    function proseCompletions(prose){ const out=[]; if(!prose) return out; prose=String(prose);
+      for(const m of prose.matchAll(/阶段\s*([一二三四五六七八九十百零\d]+)\s*(?:已达成|已完成)/g)) out.push(m[1]);
+      return out; }
+
+    // 原 applyMessage 第三段：奖励流水 + 正文权限/称号（原文照搬，m.mes 换成 text）
+    function settleRewards(text, _paused){
+      try{ const _s4=meta(); if(_s4 && !_paused){ const plain=String(text).replace(/<[^>]+>/g,' '); let c=0;
+        for(const r of plain.matchAll(/【\s*(任务奖励|奖励已发放|奖励发放|系统奖励|结算奖励|奖励结算|奖励)\s*[：:]\s*([^】\n]{1,200})】/g)){ if(addRewardLog(_s4,r[2].trim(),/发放|结算/.test(r[1])?'发放':'预告')) c++; }
+        for(const r of plain.matchAll(/(?:^|[。\n])\s*奖励(?:已)?发放\s*[：:]\s*([^。\n】]{1,200})/g)){ if(addRewardLog(_s4,r[1].trim(),'发放')) c++; }
+        const pre=(_s4.rewardsLog||[]).filter(r=>r.turn===curTurn() && r.kind==='预告');
+        if(pre.length){ for(const t of _s4.tasks){ if(t.status==='active' && !t.reward && t.turn===curTurn()){ t.reward=pre[pre.length-1].text; c++; } } }
+        for(const r of (_s4.rewardsLog||[]).filter(r=>r.turn===curTurn() && r.kind==='发放')){ for(const q of r.text.matchAll(/([^「」『』【】\n，,。；;：:、]{2,24}?(?:权限|特权|资格|功能|称号|头衔))(?:已)?(?:开启|解锁|激活)?/g)){ if(addPerk(_s4,q[1],'')) c++; } }
+        for(const q of plain.matchAll(/(?:开启|解锁|激活|授予)(?:了)?\s*[「『【]?([^「」『』【】\n，,。；;：:、]{2,24}?(?:权限|特权|资格|功能|称号|头衔))[」』】]?/g)){ const seg=plain.slice(Math.max(0,q.index-40),q.index+40); if(/(任务奖励|完成后|达成后|可获得|将获得|即可)/.test(seg) && !/(发放|已开启|已解锁|已激活)/.test(seg)) continue; if(addPerk(_s4,q[1],'')) c++; }
+        if(c) saveMeta(); } }catch(_){}
+    }
+    // 原 applyMessage 第五段：阶段任务（任务阶段N已生成 / 阶段N已达成）
+    function settleStages(text, block, _paused){
+      try{ const _s2=meta(); if(_s2 && !_paused){ const _hasNew=!!(block && /新任务\|/.test(block)); let _chg=false;
+        if(!_hasNew){ for(const nt of proseNewTasks(text||'')){ if(_s2.tasks.some(t=>t.title===nt.title)) continue; for(const t of _s2.tasks){ if(t.status==='active' && /阶段/.test(t.title)) completeTask(_s2,t); } const t={id:_s2.nextId++, type:nt.type, owner:((settings().bindTo&&settings().bindTo!=='宿主')?settings().bindTo:'宿主'), title:nt.title, desc:nt.desc||nt.title, cond:nt.desc||'', reward:'', penalty:'', limit:0, progress:0, status:'active', turn:curTurn(), startTurn:curTurn()}; _s2.tasks.push(t); _s2.lastTaskTurn=curTurn(); pushLog(_s2,'（按正文建任务）'+t.title,'·'); _chg=true; } }
+        for(const sg of proseCompletions(text||'')){ const t=_s2.tasks.find(x=>x.status==='active' && x.title.indexOf('阶段'+sg)>=0); if(t){ completeTask(_s2,t); _chg=true; } }
+        if(_chg) saveMeta(); } }catch(_){}
+    }
+    // 原 applyMessage 全文顺序：数据块 → 正文积分 → 奖励流水/权限 → 正文背包/技能 → 阶段任务。text 为已剪掉块的正文（原插件 harvest 先剪块再调 applyMessage）。
+    function settleFloorFull(turn, text, block){
+      TURN=turn;
+      const _pt=extractProseTitle(text);
+      const _paused=!!st.paused; const _prevPoints=st.points;
+      if(!_paused && block && block!=='无') applyBlock(block, _pt);
+      try{ if(!_paused){ const _had=!!(block && /(^|\n)\s*积分\|/.test(block)); if(syncPointsFromProse(st, text, _had, _prevPoints)) saveMeta(); } }catch(_){}
+      settleRewards(text, _paused);
+      try{ if(!_paused){ let c=0; c+=syncBagFromProse(st, text, !!(block && /(^|\n)\s*获得\|/.test(block))); c+=syncSkillsFromProse(st, text); if(c) saveMeta(); } }catch(_){}
+      settleStages(text, block, _paused);
+      renderPanel();
+    }
+
+    // 一楼的完整结算（原 applyMessage 里「数据块 + 正文积分 + 正文背包 + 正文技能」；奖励流水、正文权限、阶段任务见 settleFloorFull）
     function settleFloor(turn, text, block, title){
       TURN=turn; st._grantT=undefined;
       const prev=st.points;
@@ -199,6 +252,7 @@ export function createRef(S, random = Math.random) {
     }
     return {
       init(initial){ st=initial; return st; }, get state(){ return st; }, setTurn(n){ TURN=n; },
-      extractBlock, applyBlock, settleFloor, drawCore, completeTask, addItem, findTask, checkAchievements,
+      extractBlock, applyBlock, settleFloor, settleFloorFull, drawCore, completeTask, addItem, findTask, checkAchievements, checkExpiry,
+      extractProseTitle, proseNewTasks, proseCompletions,
     };
 }

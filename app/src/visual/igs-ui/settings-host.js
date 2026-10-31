@@ -199,7 +199,7 @@ export function createSettingsHost(deps) {
         const snapshot = buildSettingsSnapshot(state.activeSettings);
         state.activeSettings.snapshot = snapshot;
         updateMountedSettings(snapshot);
-        if (['source', 'llm'].includes(state.activeSettings.asyncState.page)) {
+        if (['source', 'llm', 'origin'].includes(state.activeSettings.asyncState.page)) {
             ensureModelProfilesLoaded(state.activeSettings, { global: options.global || globalThis, onChange: (panel) => { if (state.activeSettings === panel) rerenderSettings(); } });
         }
         return {

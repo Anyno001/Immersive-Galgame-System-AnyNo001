@@ -138,12 +138,9 @@ export async function runOriginAction(name, el, ctx) {
     case 'task-direction': {
         const direction = await ask('下一个任务的大致方向，例如：一个复仇任务、让他吃醋', state.direction || '');
         if (direction === null) return { ok: true, cancelled: true };
-        // 原插件同时把任务来源切到「按我给的方向」：核心 setDirection 已写设置并 saveSettings，这里再经 saveSetting 同步设置器草稿。
+        // 方向存在本聊天里；注入只区分「只手写」与其余来源，不必改任务来源设置。
         const result = dispatch(OP.setDirection(trim(direction)));
-        if (result && result.ok) {
-            ctx.saveSetting('taskSource', 'direction');
-            ctx.notice('info', '方向已记下，下次派发任务时采用。');
-        }
+        if (result && result.ok) ctx.notice('info', '方向已记下，下次派发任务时采用。');
         return result;
     }
 
