@@ -54,7 +54,8 @@ import { inventoryFixture, combatInventoryFixture } from './fixtures/inventory.f
 import { relationshipsFixture } from './fixtures/relationships.fixture.js';
 import { createCombatPreview } from './fixtures/combat.fixture.js';
 import { createCombatPanelController } from '../../src/visual/igs-ui/combat-panel.js';
-import { buildSkillCutin, buildAwakenCutin } from '../../src/visual/igs-ui/combat-cutin.js';
+import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/visual/igs-ui/combat-cutin.js';
+import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
 
@@ -298,12 +299,22 @@ async function openCombat() {
       freeze.textContent = awaken
         ? '.igs-combat-awaken-cutin,.igs-combat-awaken-cutin *{animation-play-state:paused!important;animation-delay:-1700ms!important;}'
         : '.igs-combat-cutin,.igs-combat-cutin *{animation-play-state:paused!important;animation-delay:-900ms!important;}';
-      document.head.appendChild(freeze);
+      // &loop=1：不定格，整段特写反复重播；默认定格在中段（背景纹样与粒子是伪元素，定格时照常动）。
+      const loop = cq.get('loop') === '1';
+      if (!loop) document.head.appendChild(freeze);
       const pick = cq.get('portrait');
       const url = pick && pick !== 'none' ? new URL('../../tools/local-preview/assets/' + encodeURIComponent(pick) + '.png', location.href).href : '';
-      host.appendChild(awaken
-        ? buildAwakenCutin(document, { name: cq.get('name') || '林夏', skill: cq.get('skill') || '决意', line: cq.get('line') || '这一次，我不会再退后半步。', awakenType: cq.get('awaken') || 'resolve', url })
-        : buildSkillCutin(document, { name: cq.get('name') || '林夏', skill: cq.get('skill') || '星落·破晓斩', url }));
+      // 与战斗面板同一条探测：头位、眼部裁切与色调（立绘缩到 25×25 后取最亮的不透明像素）都来自 probeSpriteHead。
+      const probed = url ? await probeSpriteHead(url, document).catch(() => null) : null;
+      const mount = () => {
+        const el = awaken
+          ? buildAwakenCutin(document, { name: cq.get('name') || '林夏', skill: cq.get('skill') || '决意', line: cq.get('line') || '这一次，我不会再退后半步。', awakenType: cq.get('awaken') || 'resolve', url, probed })
+          : buildSkillCutin(document, { name: cq.get('name') || '林夏', skill: cq.get('skill') || '星落·破晓斩', url, probed });
+        host.appendChild(el);
+        return el;
+      };
+      let shown = mount();
+      if (loop) setInterval(() => { shown.remove(); shown = mount(); }, (awaken ? COMBAT_CUTIN_MS.awaken : COMBAT_CUTIN_MS.skill) + 700);
     }
   }
   combatState.ready = true;

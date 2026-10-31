@@ -42,18 +42,23 @@ const N = IGS_UI_NIGHT_RGB;
 // 觉醒情绪色：怒火红焰、守护盾光、悲恸冷蓝、决意金光、羁绊光丝、极限雷光、复仇暗红、不屈白焰。按钮与特写共用 --aw。
 const AWAKEN_COLORS = Object.freeze({ rage: '#ff6a3d', guard: '#7fd3ff', grief: '#7fa6e0', resolve: '#f2c46b', bond: '#ffb0cf', limit: '#c7b8ff', vengeance: '#c4303f', unyielding: '#f6f2e8' });
 const AWAKEN_VARS = Object.entries(AWAKEN_COLORS).map(([k, v]) => `[data-awaken="${k}"]{--aw:${v};}`).join('\n');
-// 情绪母题纹样（.igs-combat-awaken-fx::before）与粒子（::after）；低画质去粒子，减少动态效果全部静止。
+// 情绪母题纹样（.igs-combat-awaken-fx::before）与粒子（::after）；低画质去粒子，减少动态效果全部静止。决意不用纹样，改为下方 AWAKEN_EMBERS 的升腾火星。
 const AWAKEN_PATTERN = Object.freeze({
     rage: 'radial-gradient(60% 40% at 50% 110%,color-mix(in srgb,var(--aw) 85%,transparent),transparent 70%),radial-gradient(30% 50% at 20% 105%,color-mix(in srgb,var(--aw) 60%,transparent),transparent 70%),radial-gradient(30% 50% at 80% 105%,color-mix(in srgb,var(--aw) 60%,transparent),transparent 70%)',
     guard: 'radial-gradient(circle at 50% 50%,transparent 34%,color-mix(in srgb,var(--aw) 55%,transparent) 36%,transparent 42%,transparent 54%,color-mix(in srgb,var(--aw) 30%,transparent) 56%,transparent 62%)',
     grief: 'repeating-linear-gradient(90deg,transparent 0 46px,color-mix(in srgb,var(--aw) 35%,transparent) 46px 47px,transparent 47px 91px)',
-    resolve: 'repeating-conic-gradient(from 0deg at 50% 50%,color-mix(in srgb,var(--aw) 40%,transparent) 0 4deg,transparent 4deg 18deg)',
     bond: 'repeating-linear-gradient(120deg,transparent 0 30px,color-mix(in srgb,var(--aw) 45%,transparent) 30px 31px,transparent 31px 60px),repeating-linear-gradient(60deg,transparent 0 44px,color-mix(in srgb,var(--aw) 30%,transparent) 44px 45px,transparent 45px 88px)',
     limit: 'linear-gradient(105deg,transparent 46%,var(--aw) 47%,#fff 48%,var(--aw) 49%,transparent 50%),linear-gradient(75deg,transparent 62%,color-mix(in srgb,var(--aw) 70%,transparent) 63%,transparent 64%)',
     vengeance: 'radial-gradient(circle at 50% 50%,transparent 30%,color-mix(in srgb,var(--aw) 55%,transparent) 75%,rgba(0,0,0,.6) 100%)',
     unyielding: 'radial-gradient(55% 45% at 50% 110%,color-mix(in srgb,var(--aw) 80%,transparent),transparent 70%),radial-gradient(25% 45% at 50% 100%,#fff,transparent 70%)',
 });
 const AWAKEN_PATTERNS = Object.entries(AWAKEN_PATTERN).map(([k, v]) => `.igs-combat-awaken-cutin[data-awaken="${k}"] .igs-combat-awaken-fx::before{background:${v};}`).join('\n');
+// 决意·升腾火星（助手 10-31 选定）：两层光点自下而上循环飘升、越往上越淡，细碎亮点一层、大颗虚化一层；替换纹样层与通用粒子层。
+// 低画质与减少动态效果沿用下方通用规则（选择器同权重、位置在后）：去掉虚化层，亮点层静止。
+const AWAKEN_EMBERS = `.igs-combat-awaken-cutin[data-awaken="resolve"] .igs-combat-awaken-fx::before{inset:0;opacity:1;background:radial-gradient(3px 3px at 18% 22%,#fff,transparent),radial-gradient(4px 4px at 62% 48%,var(--aw),transparent),radial-gradient(2px 2px at 40% 78%,#fff,transparent),radial-gradient(5px 5px at 86% 12%,color-mix(in srgb,var(--aw) 70%,#fff),transparent),radial-gradient(3px 3px at 8% 64%,var(--aw),transparent),radial-gradient(2px 2px at 74% 90%,#fff,transparent);background-size:170px 210px;filter:drop-shadow(0 0 3px var(--aw));-webkit-mask-image:linear-gradient(0deg,#000 35%,transparent 95%);mask-image:linear-gradient(0deg,#000 35%,transparent 95%);animation:igs-combat-awaken-ember 2.2s linear infinite;}
+.igs-combat-awaken-cutin[data-awaken="resolve"] .igs-combat-awaken-fx::after{opacity:.8;transform:none;background:radial-gradient(9px 9px at 26% 34%,color-mix(in srgb,var(--aw) 55%,transparent),transparent),radial-gradient(12px 12px at 72% 70%,color-mix(in srgb,var(--aw) 45%,transparent),transparent),radial-gradient(7px 7px at 50% 8%,rgba(255,255,255,.5),transparent);background-size:320px 380px;filter:blur(1.5px);animation:igs-combat-awaken-ember-slow 4.6s linear infinite;}
+@keyframes igs-combat-awaken-ember{from{background-position:0 0;}to{background-position:0 -210px;}}
+@keyframes igs-combat-awaken-ember-slow{from{background-position:0 0;}to{background-position:0 -380px;}}`;
 
 // 觉醒特写（助手 10-29 方案 A，全长 --igs-fx-life）：有可信头位时先切眼部斜切条（--aw-lead，见 combat-cutin-style.js），再接主段。主段沿技能特写的布局加强：
 // 暗幕叠情绪色光（立绘一侧更亮）+ 情绪母题纹样与粒子 + 情绪色速度线 + 宽斜带（技能特写同款，更宽更亮）与反向细斜带交叉 + 右侧放大推近、带情绪色光晕的半身立绘
@@ -66,6 +71,7 @@ const AWAKEN_FX = `${AWAKEN_VARS}
 .igs-combat-awaken-fx::before{content:'';position:absolute;inset:-10%;opacity:.85;animation:igs-combat-awaken-drift 1.6s ease-in-out infinite alternate;}
 .igs-combat-awaken-fx::after{content:'';position:absolute;inset:0;background-image:radial-gradient(2px 2px at 12% 80%,var(--aw),transparent),radial-gradient(2px 2px at 28% 60%,#fff,transparent),radial-gradient(3px 3px at 46% 90%,var(--aw),transparent),radial-gradient(2px 2px at 64% 70%,#fff,transparent),radial-gradient(3px 3px at 82% 85%,var(--aw),transparent),radial-gradient(2px 2px at 92% 55%,var(--aw),transparent);animation:igs-combat-awaken-rise 1.4s linear infinite;}
 ${AWAKEN_PATTERNS}
+${AWAKEN_EMBERS}
 .igs-combat-awaken-cutin .igs-combat-cutin-lines{opacity:.85;background:repeating-linear-gradient(-12deg,transparent 0 20px,color-mix(in srgb,var(--aw) 42%,transparent) 20px 23px,transparent 23px 52px);animation-duration:.35s;}
 .igs-combat-awaken-band{--r:-10deg;--d:-1;--b:color-mix(in srgb,var(--aw) 60%,var(--igs-combat-cutin-tint,var(--aw)));position:absolute;left:-14%;right:-14%;top:27%;height:46%;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--b) 66%,transparent) 14%,color-mix(in srgb,var(--b) 90%,#fff 10%) 50%,color-mix(in srgb,var(--b) 66%,transparent) 86%,transparent);box-shadow:0 0 64px color-mix(in srgb,var(--b) 60%,transparent);transform:rotate(var(--r));animation:igs-combat-awaken-band var(--aw-main,2400ms) cubic-bezier(.2,.8,.2,1) var(--aw-lead,0ms) both;}
 .igs-combat-awaken-band.is-cross{--r:5deg;--d:1;top:71%;height:6%;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--aw) 60%,#fff) 18%,color-mix(in srgb,var(--aw) 25%,#fff) 50%,color-mix(in srgb,var(--aw) 60%,#fff) 82%,transparent);box-shadow:0 0 30px color-mix(in srgb,var(--aw) 75%,transparent);animation-delay:calc(var(--aw-lead,0ms) + 80ms);}
