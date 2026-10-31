@@ -49,7 +49,7 @@ import { createRecordPanelController } from '../../src/visual/igs-ui/record-pane
 import { createMapPanelController } from '../../src/visual/igs-ui/map-panel.js';
 import { mapFixture } from './fixtures/map.fixture.js';
 import { diaryFixture } from './fixtures/diary.fixture.js';
-import { inventoryFixture } from './fixtures/inventory.fixture.js';
+import { inventoryFixture, combatInventoryFixture } from './fixtures/inventory.fixture.js';
 import { relationshipsFixture } from './fixtures/relationships.fixture.js';
 import { createCombatPreview } from './fixtures/combat.fixture.js';
 import { createCombatPanelController } from '../../src/visual/igs-ui/combat-panel.js';
@@ -80,9 +80,12 @@ const diarySheet = {
   content: [['写作角色','篇名','发生日期','正文'],
     ...diaryFixture.entries.map(entry => [entry.author || '', entry.chapterTitle || '', entry.date || '', entry.body || ''])]
 };
+// ?gear=1：战斗开启时的背包——物品表多出装备、道具、杂物，背包页拿到主角背包投影。
+const gearPreview = new URLSearchParams(location.search).get('gear') === '1';
 const inventorySheet = {
   uid: inventoryFixture.uid, name: inventoryFixture.tableName,
   content: [['物品名称','数量','描述'],
+    ...(gearPreview ? combatInventoryFixture.items : []).map(item => [item.name, String(item.quantity), item.description]),
     ...inventoryFixture.items.map(item => [item.name, item.quantity === null ? '' : String(item.quantity), item.description])]
 };
 const relationshipsSheet = {
@@ -109,7 +112,37 @@ const globalShim = { AutoCardUpdaterAPI: api, localStorage: window.localStorage 
 
 const overlay = document.getElementById('igs-overlay');
 const stage = document.getElementById('stage');
-const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }));
+const heroInventory = gearPreview ? { ...structuredClone(combatInventoryFixture.view), others: inventoryFixture.items.map(item => ({ name: item.name, count: item.quantity })) } : null;
+// 预览用的换装与使用：只改内存里的投影和示例物品表；装上时同部位已有装备被顶回背包。
+const previewGear = (gearId, equip) => {
+  const gear = heroInventory.gear;
+  if (equip) {
+    const index = gear.bag.findIndex(item => item.gearId === gearId);
+    if (index < 0) return { ok: false, reason: 'combat-gear-missing' };
+    const [item] = gear.bag.splice(index, 1);
+    if (gear.slots[item.slot]) gear.bag.push(gear.slots[item.slot]);
+    gear.slots[item.slot] = item;
+    return { ok: true };
+  }
+  const slot = Object.keys(gear.slots).find(key => gear.slots[key]?.gearId === gearId);
+  if (!slot) return { ok: false, reason: 'combat-gear-missing' };
+  gear.bag.push(gear.slots[slot]);
+  delete gear.slots[slot];
+  return { ok: true };
+};
+const previewUse = name => {
+  const item = heroInventory.items.find(entry => entry.name === name);
+  if (!item) return { ok: false, reason: 'combat-use-not-item', draft: true };
+  const row = inventorySheet.content.find(cells => cells[0] === name);
+  const left = Number(row?.[1]) - 1;
+  item.count = left;
+  if (left > 0) row[1] = String(left);
+  else { inventorySheet.content.splice(inventorySheet.content.indexOf(row), 1); heroInventory.items.splice(heroInventory.items.indexOf(item), 1); }
+  return { ok: true };
+};
+const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }), heroInventory
+  ? { getHeroInventory: () => heroInventory, setHeroGear: async (id, equip) => previewGear(id, equip), useInventoryItem: async name => previewUse(name) }
+  : {});
 const map = createMapPanelController(document, globalShim, async () => ({ ok: true }), { getChatId: () => 'preview-chat' });
 const SIZES = {
   desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768],

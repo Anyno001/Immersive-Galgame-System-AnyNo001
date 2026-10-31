@@ -517,6 +517,8 @@ export function bootstrapIGS(options = {}) {
         unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
         setCombatGear: typeof combatServices.setGear === 'function' ? (id, gearId, equip) => combatServices.setGear(id, gearId, equip) : undefined,
         useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (name) => combatServices.useInventoryItem(name) : undefined,
+        getCombatHeroInventory: typeof combatServices.heroInventory === 'function' ? () => combatServices.heroInventory() : undefined,
+        setCombatHeroGear: typeof combatServices.setHeroGear === 'function' ? (gearId, equip) => combatServices.setHeroGear(gearId, equip) : undefined,
 
         setCombatAllyTier: (id, tier) => combatServices.setAllyTier(id, tier),
         getCombatGrowth: () => combatServices.getGrowth(),

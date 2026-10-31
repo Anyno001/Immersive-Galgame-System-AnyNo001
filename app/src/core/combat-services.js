@@ -197,6 +197,30 @@ export function createCombatServices(deps = {}) {
         });
     }
 
+    // 背包页（P7e）：主角背包投影（物品表 + 装配表，与 inventory-view.js 同形）；扩展关闭、没有主角或物品表读取失败时为 null，背包页退回按名称分组。
+    async function heroInventory() {
+        const ledgerImpl = getLedger();
+        if (!ledgerImpl) return null;
+        let state;
+        try { state = await ledgerImpl.effectiveState(); } catch (error) { return null; }
+        const heroId = state?.ok ? state.attributes?.heroId : null;
+        const hero = heroId ? state.characters.get(heroId) : null;
+        if (!hero || hero.inventory?.ok !== true) return null;
+        return { ok: true, gear: hero.gear, items: hero.items || [], collection: hero.collection || [], others: hero.others || [] };
+    }
+
+    // 背包页换装：按当前主角走 setGear（同样先写最新 AI 楼正文说明、战斗进行中只读）。
+    async function setHeroGear(gearId, equip) {
+        const ledgerImpl = getLedger();
+        if (!ledgerImpl) return { ok: false, reason: 'combat-disabled' };
+        let state;
+        try { state = await ledgerImpl.effectiveState(); } catch (error) { state = null; }
+        if (!state?.ok) return { ok: false, reason: state?.reason || 'combat-ledger-read-failed' };
+        const heroId = state.attributes?.heroId;
+        if (!heroId || !state.characters.get(heroId)) return { ok: false, reason: 'combat-points-not-protagonist' };
+        return setGear(heroId, gearId, equip === true);
+    }
+
     // 生命与六维来源（合并计划 Q1 / Q4）：数值系统用，战斗扩展关闭时同样可用（只读写战斗日志与属性表，缺表按需补建）。
     // 读取同步取本聊天最近一次归并的缓存；refresh 串行执行，write 时先补扫生命条目（剧情受伤、速算伤势、回血）再归并。
     let lifeCache = null;
@@ -832,5 +856,5 @@ export function createCombatServices(deps = {}) {
     }
 
     return { getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, useInventoryItem, setGear };
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, useInventoryItem, setGear, heroInventory, setHeroGear };
 }
