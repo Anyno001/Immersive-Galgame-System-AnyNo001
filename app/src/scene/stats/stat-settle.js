@@ -200,7 +200,10 @@ export function settleFloorText(before, text, opts = {}) {
     const primary = check || storyChecks.find((c) => c.social) || null;
     if (primary && primary.social && primary.success && primary.ladder === 'crit') ctx.critTarget = primary.against || primary.toward || '*';
     const merged = [...parsed.directives.filter((d) => d.kind !== 'roll'), ...fallbackDirectives(narration, parsed.directives)];
-    const directives = constrainFavor(dedupeDims(resolveTargets(merged, resolve, diagnostics)), primary);
+    // 卡牌战斗开启时整场速算不结算（合并计划 P6 / Q5），只记诊断；打工照常。
+    const kept = opts.noBattle ? merged.filter((d) => d.kind !== 'battle') : merged;
+    if (kept.length !== merged.length) diagnostics.push({ code: 'stats-battle-skipped-combat' });
+    const directives = constrainFavor(dedupeDims(resolveTargets(kept, resolve, diagnostics)), primary);
     let state = markGrowth(before, check);
     for (const c of storyChecks) state = markGrowth(state, c);
     state = settleCharacters(state, directives, ctx);

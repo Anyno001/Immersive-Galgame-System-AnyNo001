@@ -206,16 +206,18 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         // 数值系统页：总开关关闭时下方整块隐藏，只留一行说明（§10）。
         const statsValues = memo(() => {
             const stats = normalizeStatsSettings(bridge.stats);
+            // 卡牌战斗开启时数值系统视为开启（合并计划 P6），旧存档里总开关未写入时也按开启显示。
+            const statsOn = stats.enabled || Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true);
             let chat = null;
             try { chat = typeof options.statsChat === 'function' && !idx ? options.statsChat() : null; } catch (error) { chat = null; }
-            const chatReady = Boolean(stats.enabled && chat && chat.hasChat && !chat.blocked);
+            const chatReady = Boolean(statsOn && chat && chat.hasChat && !chat.blocked);
             const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里启用。'
                 : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
                     : chat.enabled ? '本聊天已启用。暂停后数值冻结、不结算，存档保留。' : '本聊天尚未启用数值系统。';
             return {
-                statsToggle: checkbox('bridge.stats.enabled', stats.enabled, '启用数值系统'),
-                statsOffNoteHidden: hiddenAttr(stats.enabled),
-                statsHidden: hiddenAttr(!stats.enabled),
+                statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
+                statsOffNoteHidden: hiddenAttr(statsOn),
+                statsHidden: hiddenAttr(!statsOn),
                 autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
                 storyCheckField: field('bridge.stats.storyCheck', '故事中检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动（每楼 10 对骰）'], ['manual', '手动掷骰（多一次续写）'], ['off', '关闭']])),
                 newChatField: field('bridge.stats.newChat', '新聊天', selectInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动快速开始'], ['off', '不启用']])),

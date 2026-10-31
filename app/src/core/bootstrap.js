@@ -811,6 +811,8 @@ export function bootstrapIGS(options = {}) {
             }
             return { enabled: true, check, party };
         },
+        // 开关联动（合并计划 P6）：卡牌战斗开启时数值系统总开关与本聊天开关视为开启，速算不结算。
+        combatEnabled: () => combatExpansionEnabled((getUnifiedSettingsSnapshot() || {}).readerSettings),
         worldviewOf: () => resolveWorldview(((getUnifiedSettingsSnapshot() || {}).bridge || {}).sceneAssets),
         resumeReply: () => hostAdapter.resumeReply?.(),
         // 掷骰卡（v2 §9.1）：阅读器开着时播放，没开不补播。

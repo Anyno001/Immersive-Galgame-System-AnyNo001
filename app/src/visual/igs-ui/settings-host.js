@@ -514,6 +514,15 @@ export function createSettingsHost(deps) {
                 showSettingsNotice(ready.message);
                 return { ok: false, reason: ready.reason, missing: ready.missing };
             }
+            // 开关联动（合并计划 P6）：开启卡牌战斗时同时开启数值系统总开关（战斗的数据库检查已覆盖数值表）。
+            setPath(draft, 'bridge.stats.enabled', true);
+        }
+        // 卡牌战斗开着时数值系统不能单独关闭；关闭战斗不影响数值系统。
+        if (path === 'bridge.stats.enabled' && value !== true && draft.readerSettings && draft.readerSettings.combatExpansion && draft.readerSettings.combatExpansion.enabled === true) {
+            setPath(draft, path, true);
+            showSettingsNotice('卡牌战斗开启时数值系统不能单独关闭');
+            rerenderSettings();
+            return { ok: false, reason: 'stats-combat-locked' };
         }
         // 数值系统依赖数据库插件（合并计划 Q7）：开启前检查表接口，不满足时保持关闭并提示原因。
         if (path === 'bridge.stats.enabled' && value === true) {

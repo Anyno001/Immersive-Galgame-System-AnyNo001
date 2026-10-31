@@ -225,3 +225,27 @@ test('学习表随聊天走：旧存档的学习表导入日志表，本地匹�
     host.ctx.chat.push({ is_user: true, mes: '我熬魔药' });
     assert.match(generate(host, '锅里冒泡。').injected, /【本轮检定】烹饪：/);
 });
+
+
+test('卡牌战斗开启时（合并计划 P6）：数值视为开启、新聊天直接启用不询问、本聊天不能单独关闭、速算不结算并记诊断', async () => {
+    const host = fakeHost();
+    const settings = { enabled: false, newChat: 'ask' };
+    const db = fakeStatsTables();
+    let combat = true;
+    const rt = createStatsRuntime({ getContext: () => host.ctx, readSettings: () => settings, statsTables: db.statsTables, combatEnabled: () => combat });
+    rt.sync();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await rt.whenSaved();
+    assert.equal(rt.isChatEnabled(), true);
+    assert.ok(!rt.notices().some((n) => n.id === 'onboarding'));
+    assert.equal(rt.disableForChat().reason, 'stats-combat-locked');
+    assert.equal(rt.isChatEnabled(), true);
+    const { id } = generate(host, '打了一架。[igs-stat:battle|杂兵]');
+    const entry = rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 0));
+    assert.equal(entry.meta.flags.battle, undefined);
+    assert.ok(entry.meta.diagnostics.some((d) => d.code === 'stats-battle-skipped-combat'));
+    // 关闭战斗不关闭数值系统；此后本聊天可以单独暂停。
+    combat = false;
+    settings.enabled = true;
+    assert.equal(rt.disableForChat().ok, true);
+});

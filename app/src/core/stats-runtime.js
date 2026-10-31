@@ -105,6 +105,8 @@ export function createStatsRuntime({
     statsTables = () => null,
     // 卡牌战斗侧的提示词输入（合并计划 P5）：(generationType) → { enabled, check, party } | null；check 为战斗侧骰序输入，party 为主角团状态。
     combatPrompt = () => null,
+    // 卡牌战斗是否开启（合并计划 P6）：开启时数值系统总开关与本聊天开关视为开启、本聊天不能单独关闭，新聊天直接启用，速算不结算。
+    combatEnabled = () => false,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -131,7 +133,11 @@ export function createStatsRuntime({
     const diagnostics = [];
 
     const ctx = () => { try { return getContext(); } catch (error) { return null; } };
-    const settings = () => normalizeStatsSettings(readSettings ? readSettings() : null);
+    const combatOn = () => { try { return combatEnabled() === true; } catch (error) { return false; } };
+    const settings = () => {
+        const s = normalizeStatsSettings(readSettings ? readSettings() : null);
+        return combatOn() && !s.enabled ? { ...s, enabled: true } : s;
+    };
     const active = () => Boolean(settings().enabled && chatEnabled && ledger);
     const source = () => { try { return combatSource() || null; } catch (error) { return null; } };
     const heroPrefs = () => (ledger ? currentStatsState(ledger).protagonist.prefs || null : null);
@@ -552,6 +558,7 @@ export function createStatsRuntime({
             const r = settleFloorText(before, text, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
                 check, preroll: p.preroll || null, rollPairs, storyChecks, catalog, settings: s, floor: messageId,
+                noBattle: combatOn(),
             });
             const meta = { ...r.meta };
             if (p.preroll) meta.preroll = p.preroll;
@@ -701,6 +708,8 @@ export function createStatsRuntime({
     function sync() {
         const on = settings().enabled;
         if (on && !offs.length) { if (attach()) { load(); autoEnable(); refreshOnboarding(); if (active()) syncLife(); } }
+        // 已挂着监听时打开卡牌战斗：本聊天随之启用，收起「是否启用」询问。
+        else if (on && offs.length && combatOn()) { autoEnable(); refreshOnboarding(); }
         else if (!on && offs.length) { detach(); notices.clear(); emitNotices(); }
         return { attached: offs.length > 0 };
     }
@@ -742,13 +751,16 @@ export function createStatsRuntime({
     // 新聊天「自动快速开始」：只对从未启用也未拒绝的聊天生效；暂停过的聊天不自动开（v2 §9.5）。
     function autoEnable() {
         const s = settings();
-        if (!s.enabled || s.newChat !== 'auto' || ledger || blocked || unready || declined || !chatIdOf(ctx())) return;
+        if (!s.enabled || blocked || unready || !chatIdOf(ctx())) return;
+        // 卡牌战斗开启时：新聊天、拒绝过或暂停过的聊天一律启用（合并计划 P6）。
+        if (combatOn()) { if (!ledger || !chatEnabled) Promise.resolve(enableForChat()).catch(() => {}); return; }
+        if (s.newChat !== 'auto' || ledger || declined) return;
         Promise.resolve(enableForChat()).catch(() => {});
     }
 
     function refreshOnboarding() {
         const s = settings();
-        const show = s.enabled && s.newChat === 'ask' && !ledger && !blocked && !unready && !declined && Boolean(chatIdOf(ctx()));
+        const show = s.enabled && !combatOn() && s.newChat === 'ask' && !ledger && !blocked && !unready && !declined && Boolean(chatIdOf(ctx()));
         setNotice('onboarding', show ? {
             kind: 'onboarding', text: '数值系统：本聊天是否启用？',
             actions: [['quick', '快速开始'], ['build', '建卡'], ['decline', '本聊天不用']],
@@ -1091,6 +1103,7 @@ export function createStatsRuntime({
         // 本聊天关闭：数值冻结，不清存档（§10A）。
         disableForChat() {
             reloadCold();
+            if (combatOn()) return { ok: false, reason: 'stats-combat-locked' };
             if (blocked) return { ok: false, reason: blocked };
             if (unready) return { ok: false, reason: unready };
             chatEnabled = false;
