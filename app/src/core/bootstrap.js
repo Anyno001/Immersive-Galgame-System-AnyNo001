@@ -424,8 +424,12 @@ export function bootstrapIGS(options = {}) {
     combatServices.refreshGrowth();
     prepareCombatProtagonist();
     // 主生成结束后的最新 AI 楼带开战标签时，在后台开始战斗准备（不等面板打开）；dry-run、quiet、中止与换聊天沿用 onImageFloorReady 的过滤。
+    // 同一时机自动处理本楼待生成的成长项（计划 P8）：副 LLM 未就绪时只记诊断，失败的项留在人物状态页「重试」。
     const offCombatAutoPrepare = typeof illustrationMessageHost.onImageFloorReady === 'function' && typeof combatServices.autoPrepare === 'function'
-        ? illustrationMessageHost.onImageFloorReady((messageId) => { combatServices.autoPrepare(messageId); })
+        ? illustrationMessageHost.onImageFloorReady((messageId) => {
+            combatServices.autoPrepare(messageId);
+            if (typeof combatServices.autoGrowth === 'function') combatServices.autoGrowth(messageId);
+        })
         : () => {};
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,

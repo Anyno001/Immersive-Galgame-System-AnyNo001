@@ -325,6 +325,7 @@ export function createCombatServices(deps = {}) {
         lifeCache = null;
         tableFailure = null;
         stopProtagonist();
+        stopGrowthGen();
     }
 
     // 补扫入库后刷新缓存：扫描按记录 ID 幂等；读表失败或缺表时不写、不清旧缓存以外的状态，缓存标记为不可用。
@@ -440,7 +441,8 @@ export function createCombatServices(deps = {}) {
 
     // 待整理的成长标签（learn / upgrade / class）重新扫描后交副 LLM 生成并落账；职业已登记的 class 标签直接落账。
     // 角色尚无档案的项跳过并计入 skipped；取消返回 request-stale，不落账；写入后刷新成长缓存。
-    async function retryGrowth({ signal } = {}) {
+    // messageIds 只处理这些楼层（anchor.messageId）的待生成项；不传时处理全部。
+    async function generateGrowth({ signal, messageIds = null } = {}) {
         if (!settings().enabled) return { ok: false, reason: 'combat-disabled' };
         const ledgerImpl = getLedger();
         if (!ledgerImpl) return { ok: false, reason: 'combat-generate-unavailable' };
@@ -451,7 +453,9 @@ export function createCombatServices(deps = {}) {
         const entities = [];
         const entries = [];
         let skipped = 0;
+        const scope = Array.isArray(messageIds) ? new Set(messageIds.map(Number)) : null;
         for (const p of scan.pendingGeneration || []) {
+            if (scope && !scope.has(Number(p.anchor?.messageId))) continue;
             const character = p.characterId ? state.characters.get(p.characterId) : null;
             const g = growthEntity(p, character, { classes: state.classes, now: Date.now() });
             if (g.entry) entries.push(g.entry);
@@ -475,6 +479,7 @@ export function createCombatServices(deps = {}) {
             rejected = result.rejected;
             requestFailed = Boolean(result.requestFailure);
         }
+        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
         if (profiles.length) {
             const written = await ensureBase().append('profile', profiles);
             if (written?.ok !== true) return { ok: false, reason: 'combat-profile-write-failed', write: written };
@@ -486,6 +491,63 @@ export function createCombatServices(deps = {}) {
         await refreshGrowth();
         const complete = rejected.length === 0 && skipped === 0;
         return { ok: complete, written: entries.length, skipped, rejected, ...(complete ? {} : { reason: requestFailed ? 'combat-llm-request-failed' : 'combat-growth-incomplete' }) };
+    }
+
+    // 人物状态页「重试」：处理本聊天全部待生成项；正文后自动处理在途时先等它结束，不对同一批项重复请求。
+    async function retryGrowth({ signal } = {}) {
+        const inFlight = growthGen?.promise;
+        if (inFlight) { try { await inFlight; } catch (error) { /* 自动处理失败不影响手动重试 */ } }
+        return generateGrowth({ signal });
+    }
+
+    // 正文后自动处理（计划 P8 / Q8）：主生成结束、本楼成长标签补扫入库后，本楼有待生成项且副 LLM 就绪时自动生成并落账。
+    // 只处理本楼（anchor.messageId）的待生成项：旧楼失败的项留在待生成、由人物状态页「重试」，不随每次生成重复计费。
+    // 单飞：进行中再触发时把楼层并入下一轮补跑；换聊天（resetChat）中止在途请求；取消与过期返回 request-stale，不落账。失败记诊断，项留在待生成。
+    let growthGen = null;
+    function stopGrowthGen() {
+        const run = growthGen;
+        growthGen = null;
+        if (run) { try { run.controller?.abort(); } catch (error) { /* 已结束 */ } }
+    }
+    function autoGrowth(messageId) {
+        if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        const id = Number(messageId);
+        if (!Number.isSafeInteger(id) || id < 0) return Promise.resolve({ ok: false, reason: 'combat-floor-missing' });
+        const key = chatId();
+        if (!key) return Promise.resolve({ ok: false, reason: 'combat-session-unavailable' });
+        if (growthGen && growthGen.key === key) { growthGen.queued.add(id); return growthGen.promise; }
+        if (growthGen) stopGrowthGen();
+        const run = { key, queued: new Set([id]), controller: typeof AbortController === 'function' ? new AbortController() : null, promise: null };
+        growthGen = run;
+        const live = () => growthGen === run && chatId() === key && settings().enabled && !run.controller?.signal.aborted;
+        run.promise = (async () => {
+            let result = { ok: true, unchanged: true };
+            try {
+                while (run.queued.size && live()) {
+                    const ids = [...run.queued];
+                    run.queued.clear();
+                    await refreshGrowth();
+                    if (!live()) break;
+                    const pending = (getGrowth()?.pending || []).filter((p) => ids.includes(Number(p.anchor?.messageId)));
+                    if (!pending.length) continue;
+                    const ready = resolveCombatLlm(llm());
+                    if (typeof request !== 'function' || !ready.ok) {
+                        result = { ok: false, reason: ready.ok ? 'combat-llm-unavailable' : ready.reason };
+                        noteDiag('combat-growth-auto-skipped', { reason: result.reason, messageIds: ids });
+                        break;
+                    }
+                    result = await generateGrowth({ signal: run.controller?.signal, messageIds: ids });
+                    if (!result.ok && result.reason !== 'request-stale') noteDiag('combat-growth-auto-failed', { reason: result.reason, messageIds: ids });
+                }
+                if (!live() && result.ok) result = { ok: false, reason: 'request-stale' };
+            } catch (error) {
+                result = { ok: false, reason: 'combat-action-threw' };
+            } finally {
+                if (growthGen === run) growthGen = null;
+            }
+            return result;
+        })();
+        return run.promise;
     }
 
     // 为角色生成卡组档案（设计 A2）：classRef 指向已登记职业时沿用其职业特性，请求里不含职业部分。
@@ -856,5 +918,5 @@ export function createCombatServices(deps = {}) {
     }
 
     return { getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, useInventoryItem, setGear, heroInventory, setHeroGear };
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, useInventoryItem, setGear, heroInventory, setHeroGear };
 }
