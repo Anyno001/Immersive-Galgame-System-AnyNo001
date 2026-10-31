@@ -2933,10 +2933,26 @@ export function createIgsReaderHost(options = {}) {
             log.rows = logRowsOf(floor.pages, {
                 keyOf: floor.keyOf, userKey: floor.userKey, inherited: floor.inheritedSceneState,
                 showSystemName: normalizeSystemRoleSettings(rs.systemRole).showName,
-                solo: (i) => parseHtmlCardMarker(floor.segments[i]) >= 0 || (chatOn && parseChatMarker(floor.segments[i]) >= 0),
+                // 聊天页、HTML 卡片页由原渲染接管，列表里留一个重播按钮；没开聊天演出时聊天块照对话框转成文字。
+                solo: (i) => (parseHtmlCardMarker(floor.segments[i]) >= 0 ? '重看卡片' : chatOn && logChatOf(floor, i) && !logChatSystemOnly(logChatOf(floor, i), rs) ? '重播聊天' : ''),
+                textOf: (i) => {
+                    const chat = logChatOf(floor, i);
+                    if (!chat) return parseChatMarker(floor.segments[i]) >= 0 ? '' : null;
+                    if (logChatSystemOnly(chat, rs)) return chat.messages.map((m) => m.text).filter(Boolean).join('\n');
+                    return chatOn ? '' : formatChatBlockAsText(chat);
+                },
             });
         }
         return log;
+    }
+
+    function logChatOf(floor, i) {
+        const at = parseChatMarker(floor.segments[i]);
+        return at >= 0 ? floor.chats[at] || null : null;
+    }
+    // 整段没有真人消息、只有系统角色：与对话框一致，按旁白显示，不开聊天页。
+    function logChatSystemOnly(chat, rs) {
+        return chat.messages.every((m) => m.kind !== 'msg' || isSystemRole(m.sender, rs.systemRole));
     }
 
     // 头颈肩头像：跟本页衣服与情绪取立绘（与舞台同一套查找），没有立绘时用状态栏头像。
@@ -3187,6 +3203,7 @@ ${row.key}`;
                 void handleReaderAction('next');
             },
             onPlay: (i) => logSpeak(i),
+            onReplay: (i) => { if (state.activeReader === current) jumpReaderSegment(i); },
             onSceneRow: (i) => logSceneRow(current, i),
             onSaveAdjust: (adjust) => saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), adjust } }),
         });

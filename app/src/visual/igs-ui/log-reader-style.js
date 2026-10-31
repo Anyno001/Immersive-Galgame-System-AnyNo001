@@ -15,16 +15,18 @@ const PERCENT_RULES = LOG_PERCENTS.map((n) => `#igs-log[data-veil="${n}"]{--igs-
 // 作用域：#igs-overlay[data-igs-log-reader="on"]。背景、CG、天气、调色照常；立绘、同屏、对话框正文让给 log 列表。
 // 配色变量挂在 overlay 上（列表与底部输入框共用）：默认值在前，逐皮肤规则同特异性、排在后面覆盖。
 export const LOG_READER_STYLE_TEXT = `
-${ON}{--igs-log-veil:18 18 20;--igs-log-ink:#f4f1f6;--igs-log-narr:#d9d3e0;--igs-log-thought:#c9bfe0;--igs-log-sub:#a9a3b2;--igs-log-line:#34323a;--igs-log-plate:#26242b;--igs-log-acc:var(--igs-cw-color,var(--igs-log-ink));--igs-log-h:85%;--igs-log-fs:15px;--igs-log-foot:64px;}
+${ON}{--igs-log-edge:18px;--igs-log-veil:18 18 20;--igs-log-ink:#f4f1f6;--igs-log-narr:#d9d3e0;--igs-log-thought:#c9bfe0;--igs-log-sub:#a9a3b2;--igs-log-line:#34323a;--igs-log-plate:#26242b;--igs-log-acc:var(--igs-cw-color,var(--igs-log-ink));--igs-log-h:85%;--igs-log-fs:15px;--igs-log-foot:64px;}
 ${logThemeStyleText()}
 ${CHIP_HUES}
+${ON}[data-igs-log-edge="flush"]{--igs-log-edge:8px;}
+${ON}[data-igs-log-edge="wide"]{--igs-log-edge:28px;}
 #igs-log{display:none;}
 ${ON} #igs-log{display:block;position:absolute;inset:0;z-index:1;pointer-events:none;}
 ${PERCENT_RULES}
-${ON} :is(#igs-sprite,#igs-cast,#igs-giant,#igs-gradient-veil,.igs-cg-portrait){display:none!important;}
+${ON} :is(#igs-sprite,#igs-cast,#igs-giant,#igs-gradient-veil,.igs-cg-portrait,.igs-fx-video){display:none!important;}
 ${ON} #igs-stage-motion.igs-stage-shake-active{animation:none!important;}
 ${ON} #igs-fx-front .igs-fx-flash{display:none!important;}
-${ON} #igs-dialog-layer .igs-dialog{left:0!important;right:0!important;bottom:0!important;top:auto!important;width:auto!important;max-width:none!important;height:auto!important;min-height:0!important;max-height:none!important;margin:0!important;padding:8px 18px max(12px,env(safe-area-inset-bottom))!important;transform:none!important;background:none!important;background-image:none!important;border:0!important;border-image:none!important;border-radius:0!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;z-index:2;}
+${ON} #igs-dialog-layer .igs-dialog{left:0!important;right:0!important;bottom:0!important;top:auto!important;width:auto!important;max-width:none!important;height:auto!important;min-height:0!important;max-height:none!important;margin:0!important;padding:8px var(--igs-log-edge) max(12px,env(safe-area-inset-bottom))!important;transform:none!important;background:none!important;background-image:none!important;border:0!important;border-image:none!important;border-radius:0!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;z-index:2;}
 ${ON} #igs-dialog-layer .igs-dialog::before,${ON} #igs-dialog-layer .igs-dialog::after{display:none!important;}
 ${ON} #igs-dialog-layer .igs-dialog>:not(.igs-controls):not(#igs-dialog-bar){display:none!important;}
 ${ON} #igs-dialog-layer .igs-dialog #igs-dialog-bar{color:var(--igs-log-sub);}
@@ -37,7 +39,7 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log .igs-log-flash{position:absolute;inset:0;background:#fff;opacity:0;}
 #igs-log .igs-log-flash.is-on{animation:igs-log-flash .8s ease-out both;}
 @keyframes igs-log-flash{0%{opacity:.85;}100%{opacity:0;}}
-#igs-log .igs-log-scroll{position:absolute;left:0;right:0;bottom:var(--igs-log-foot);top:calc(100% - var(--igs-log-h) + 40px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;display:flex;flex-direction:column;padding:0 18px;pointer-events:auto;cursor:pointer;-webkit-mask:linear-gradient(to bottom,transparent 0,#000 56px);mask:linear-gradient(to bottom,transparent 0,#000 56px);user-select:none;-webkit-user-select:none;}
+#igs-log .igs-log-scroll{position:absolute;left:0;right:0;bottom:var(--igs-log-foot);top:calc(100% - var(--igs-log-h) + 40px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;display:flex;flex-direction:column;padding:0 var(--igs-log-edge);pointer-events:auto;cursor:pointer;-webkit-mask:linear-gradient(to bottom,transparent 0,#000 56px);mask:linear-gradient(to bottom,transparent 0,#000 56px);user-select:none;-webkit-user-select:none;}
 #igs-log .igs-log-scroll::-webkit-scrollbar{display:none;}
 #igs-log .igs-log-list{margin-top:auto;display:flex;flex-direction:column;padding-top:56px;}
 #igs-log,#igs-log .igs-log-scroll{transition:opacity .35s;}
@@ -66,7 +68,8 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log[data-shape="break"] .igs-log-av:not(.is-letter){background:none;}
 #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)::before{content:"";position:absolute;left:0;right:0;bottom:0;height:${BREAK.plate}px;border-radius:14px;background:var(--igs-log-plate);}
 #igs-log .igs-log-cut{display:none;}
-#igs-log[data-shape="break"] .igs-log-cut{display:block;position:absolute;left:0;right:0;bottom:0;height:${BREAK.h}px;border-radius:0 0 14px 14px;background-repeat:no-repeat;}
+/* 破框：头像层比框高出 room，头顶伸出底板不被切；叠在框线之上，框线不会横过脸。 */
+#igs-log[data-shape="break"] .igs-log-cut{display:block;position:absolute;z-index:1;left:0;right:0;bottom:0;height:${BREAK.h + BREAK.room}px;border-radius:0 0 14px 14px;background-repeat:no-repeat;pointer-events:none;}
 #igs-log[data-shape="break"] .igs-log-av{margin-top:${CARD.h - BREAK.h}px;height:${BREAK.h}px;}
 #igs-log[data-shape="break"] .igs-log-av.is-letter{margin-top:${CARD.h - BREAK.plate}px;height:${BREAK.plate}px;}
 #igs-log .igs-log-body{grid-column:2;min-width:0;transition:opacity .35s;}
@@ -83,7 +86,7 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-body:has(>.igs-log-play){text-align:right;}
 #igs-log .igs-log-play svg{width:16px;height:16px;}
 
-#igs-log .igs-log-text{font-family:var(--igs-log-font,inherit);font-size:var(--igs-log-fs);line-height:1.75;color:var(--igs-log-ink);word-break:break-word;text-align:justify;paint-order:stroke fill;-webkit-text-stroke:var(--igs-log-stroke,0 transparent);text-shadow:var(--igs-log-shadow,none);}
+#igs-log .igs-log-text{font-family:var(--igs-log-font,inherit);font-size:var(--igs-log-fs);line-height:1.75;color:var(--igs-log-ink);word-break:break-word;text-align:justify;text-shadow:var(--igs-log-shadow,none);}
 #igs-log .igs-log-text .igs-thought{color:var(--igs-log-thought)!important;}
 /* 情绪胶囊：名字后的实色小底两字词，不带符号。 */
 /* 情绪大小：--igs-log-mk 大 1 / 中 .75 / 小 .5；大号胶囊与名字行同高（22px），符号同步缩放。 */
@@ -100,7 +103,9 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-body{grid-column:1;grid-row:1;padding-right:0;}
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-name{justify-content:flex-end;}
 /* User 靠右：重播键放在名字左边。 */
-#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-name .igs-log-play{order:-1;margin:0 -2px 0 0;}
+#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-name .igs-log-play{order:-2;margin:0 -2px 0 0;}
+#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-name .igs-log-chip{order:-1;}
+#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-av>.igs-fx-symbol{left:calc(var(--igs-log-sym-xl,calc(0px - 12px * var(--igs-log-mk) + var(--igs-fx-size) * .6)) - var(--igs-fx-size) * .6);}
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-text{text-align:right;}
 
 /* 旁白：通栏等宽；段首放句末等待符号（跟随皮肤与用户选的形状）。 */
@@ -113,6 +118,11 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log .igs-log-row.is-thought .igs-log-text{color:var(--igs-log-thought);}
 #igs-log .igs-log-row.is-thought:not(.is-narr) .igs-log-text::before{content:"（";}
 #igs-log .igs-log-row.is-thought:not(.is-narr) .igs-log-text::after{content:"）";}
+/* 聊天页 / 卡片页：一行重播按钮，实色小底、不描边，点了回到那一页。 */
+#igs-log .igs-log-row.is-replay{display:flex;justify-content:center;grid-template-columns:none;}
+#igs-log .igs-log-row.is-replay::before{display:none;}
+#igs-log .igs-log-replay{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 14px;border:0;border-radius:999px;background:var(--igs-log-plate);color:var(--igs-log-sub);font:inherit;font-size:12.5px;cursor:pointer;}
+#igs-log .igs-log-replay svg{width:12px;height:12px;fill:currentColor;}
 /* 换场景：一条分隔线。 */
 #igs-log .igs-log-scene{display:flex;align-items:center;justify-content:center;gap:12px;padding:28px 0 14px;font-size:11px;letter-spacing:.3em;color:var(--igs-log-sub);opacity:0;transition:opacity .5s;}
 #igs-log .igs-log-scene.is-in{opacity:1;}
@@ -150,7 +160,8 @@ ${getLogFrameStyleText()}
 /* 调整立绘：头像描一圈强调色，可拖动、滚轮 / 双指缩放。 */
 #igs-log[data-editing] .igs-log-av:not(.is-letter){box-shadow:0 0 0 2px var(--igs-log-acc);cursor:grab;touch-action:none;}
 #igs-log[data-editing] .igs-log-row.is-cont .igs-log-av{visibility:hidden;}
-#igs-log-edit-bar{position:absolute;left:50%;bottom:max(16px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:4px;max-width:calc(100% - 24px);padding:4px 4px 4px 14px;border-radius:18px;background:rgb(var(--igs-log-veil));color:var(--igs-log-ink);font-size:12px;line-height:1;pointer-events:auto;}
+/* 编辑条放在输入框上方，不被输入框盖住。 */
+#igs-log-edit-bar{position:absolute;left:50%;bottom:calc(var(--igs-log-foot) + 12px);transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:4px;max-width:calc(100% - 24px);padding:4px 4px 4px 14px;border-radius:18px;background:rgb(var(--igs-log-veil));color:var(--igs-log-ink);font-size:12px;line-height:1;pointer-events:auto;}
 #igs-log-edit-bar span{margin-right:6px;color:var(--igs-log-sub);white-space:nowrap;}
 #igs-log-edit-bar button{height:28px;min-width:52px;padding:0 12px;border:0;border-radius:999px;background:var(--igs-log-plate);color:inherit;font:inherit;cursor:pointer;white-space:nowrap;}
 #igs-log-edit-bar button[data-log-edit="save"]{background:var(--igs-log-acc);color:rgb(var(--igs-log-veil));font-weight:600;}

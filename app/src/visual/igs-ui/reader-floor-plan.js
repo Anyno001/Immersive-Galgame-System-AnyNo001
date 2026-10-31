@@ -564,7 +564,7 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
         if (!itemTargets.has(name)) itemTargets.set(name, Math.max(0, segments.findIndex(text => String(text || '').includes(name))));
         return itemTargets.get(name);
     };
-    return { text, segments, source, sceneDirectives, outfitDirectives, inheritedSceneState, pages, offsets,
+    return { text, segments, chats: Array.isArray(extracted.chats) ? extracted.chats : [], source, sceneDirectives, outfitDirectives, inheritedSceneState, pages, offsets,
         sceneAt, locator, keyOf, castCharacters, castAliases, selfNames: selfAll, carriesAcross: carriesAt, carryOf, sceneOfPage, sceneLeads, presentOf, genderOf, userName, userKey, userSource: userCharKey ? 'manual' : userKey ? 'name' : '', sceneSpeaker: scene.speaker, latestSpeechByPage, fxDirectives, illustrations, eventCgs,
         tagItems, tagNames: new Set(tagItems.map(item => normalizeItemName(item.name))), itemPageFor, assets: null, tablesRevision: -1 };
 }
