@@ -20,6 +20,7 @@ import { normalizeRomanceFxSettings } from './romance-settings.js';
 import { normalizeMetaFxSettings } from './meta-settings.js';
 import { normalizeResultFxSettings } from './fx-result-model.js';
 import { COMIC_WORD_LIST_PATHS, normalizeComicModeSettings } from './comic-settings.js';
+import { normalizeLogReaderSettings } from './log-reader-settings.js';
 import { MANGA_BACK_WORD_LIST_PATHS, normalizeMangaBackSettings } from './manga-back.js';
 import { normalizeCrowdFxSettings } from './crowd-fx.js';
 import { normalizeFeedFxSettings } from './feed-settings.js';
@@ -227,6 +228,8 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     resultFx: normalizeResultFxSettings,
     // 漫画演出模式独立渲染（comic-bubble），不进入 FX_FEATURE_KEYS。
     comicMode: normalizeComicModeSettings,
+    // 窄屏阅读模式独立渲染（log-reader-layer），不进入 FX_FEATURE_KEYS。
+    logReader: normalizeLogReaderSettings,
     // 漫画背景与特效、人群剪影独立渲染（manga-back / crowd-fx），不进入 FX_FEATURE_KEYS。
     mangaBack: normalizeMangaBackSettings,
     crowdFx: normalizeCrowdFxSettings,

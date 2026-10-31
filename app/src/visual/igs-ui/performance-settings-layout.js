@@ -63,6 +63,7 @@ function extraSwitches(reader, extras) {
         text: [
             ['漫画演出模式', on('comicMode')],
             ['双语台词', on('bilingual')],
+            ['窄屏阅读模式', on('logReader')],
             extras.sentencePaging ? ['旁白按句号分页', extras.sentencePagingOn === true] : null,
             extras.dialogueSentencePaging ? ['对白／心理话也按句分页', extras.dialogueSentencePagingOn === true] : null,
         ],
@@ -77,7 +78,7 @@ function extraSwitches(reader, extras) {
 
 // 组标题旁的固定概括（不再罗列已开启的功能名，开得多时会很长）。
 const GROUP_BRIEFS = Object.freeze({
-    text: '打字机 · 字效 · 双语',
+    text: '打字机 · 字效 · 双语 · 窄屏',
     stage: '镜头 · 天气 · 立绘',
     story: '情绪 · 提示 · 事件',
     special: '日常 · 直播 · 社区 · 亲密 · Meta',
@@ -133,7 +134,7 @@ function buildPerformanceBodies(src, extras, isOpen) {
         more,
         fx,
         bodies: {
-            get text() { return [host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.waitStage, stage.clickWaitMark, stage.textFx, stage.bilingual, host('sentence-paging', extras.sentencePaging), host('dialogue-sentence-paging', extras.dialogueSentencePaging)]; },
+            get text() { return [host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.waitStage, stage.clickWaitMark, stage.textFx, stage.bilingual, fx.logReader, host('sentence-paging', extras.sentencePaging), host('dialogue-sentence-paging', extras.dialogueSentencePaging)]; },
             get stage() { return [
                 section('镜头与环境', [stage.transition, stage.cgEntrance, stage.tint, stage.camera, host('weather', extras.weatherFx, '雨雪雾粒子'), fx.crowd, host('stage-shake', extras.stageShake, '冲击时晃屏'), renderPackFields(src, more, { ids: ['camera'] }), renderPackFields(src, more, { ids: ['places'] }), host('cinema-bars', extras.cinemaBars, '只盖背景，CG时收起'), fx.comic, renderPanelSkinField(src, more)]),
                 section('立绘', [stage.motion, stage.actions, stage.turn, stage.cast, renderPackFields(src, more, { ids: ['transform'] }), fx.innerDemon, host('narration-filter', extras.narrationFilter)]),

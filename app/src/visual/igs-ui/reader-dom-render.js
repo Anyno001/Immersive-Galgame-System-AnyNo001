@@ -504,6 +504,8 @@ export function applyToolbarState(root, current) {
     if (!ttsConfig.enabled || (ttsConfig.provider !== 'api' && !ttsConfig.narratorApi.enabled)) hiddenSet.add('tts-reroll');
     // 「小游戏」要等独立的小游戏脚本装上才有东西可玩。
     if (!getWaitStageGamePack()) hiddenSet.add('mini-games');
+    // 窄屏阅读模式：列表盖住大半画面，「隐藏对话框」总要放出来，才能看清背景和 CG。
+    if (current.logReaderActive) hiddenSet.delete('hide');
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
     // 默认顶部固定：只有明确选了「紧贴对话框」才是 float。

@@ -113,6 +113,15 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.comicMode.inputStyle`, '输入框', segmentedInput(`${p}.comicMode.inputStyle`, s.comicMode.inputStyle, [['comic', '漫画框'], ['plain', '对话框']], '输入框'))
         + perfSubhead('泡的外形 · 触发情绪')
         + toneWords(COMIC_TONE_KINDS));
+    const lr = s.logReader;
+    const logReader = featureRow(more, 'log-reader', `${p}.logReader.enabled`, lr.enabled, '窄屏阅读模式', '手机与内嵌长屏改为对话列表', field(`${p}.logReader.avatarShape`, '头像样式', segmentedInput(`${p}.logReader.avatarShape`, lr.avatarShape, [['card', '圆角方'], ['circle', '圆形'], ['break', '破框']], '头像样式'))
+        + field(`${p}.logReader.perTap`, '每次显示', segmentedInput(`${p}.logReader.perTap`, lr.perTap, [[3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
+        + field(`${p}.logReader.reveal`, '文字出现', segmentedInput(`${p}.logReader.reveal`, lr.reveal, [['flow', '流水展开'], ['type', '打字机'], ['fade', '整句淡入']], '文字出现'))
+        + field(`${p}.logReader.emotion`, '情绪符号', segmentedInput(`${p}.logReader.emotion`, lr.emotion, [['once', '播一遍'], ['loop', '循环'], ['off', '关闭']], '情绪符号'))
+        + field(`${p}.logReader.veil`, '渐变高度', segmentedInput(`${p}.logReader.veil`, lr.veil, [[75, '75%'], [85, '85%'], [90, '90%']], '渐变高度'))
+        + field(`${p}.logReader.userSide`, 'User位置', segmentedInput(`${p}.logReader.userSide`, lr.userSide, [['same', '与角色同侧'], ['right', '靠右']], 'User位置'))
+        + checkbox(`${p}.logReader.chip`, lr.chip, '名字后显示情绪')
+        + checkbox(`${p}.logReader.userAvatar`, lr.userAvatar, '显示User头像'));
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));
     const crowd = featureRow(more, 'crowd-fx', `${p}.crowdFx.enabled`, s.crowdFx.enabled, '人群氛围', '人多的地点', checkbox(`${p}.crowdFx.react`, s.crowdFx.react, '正文写到鼓掌、欢呼时整群反应'));
     const notifyCenter = featureRow(more, 'notify-center', `${p}.notifyCenter.enabled`, s.notifyCenter.enabled, '通知中心', '攒下没点开的消息');
@@ -123,5 +132,5 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
     const dlc = dlcDefs.length
         ? perfItem(more, 'dlc-fx', `<span>扩展演出（DLC）</span>`, { hint: `${dlcDefs.length}个`, detail: grid(dlcDefs.map((def) => checkbox(`${p}.dlcFx.${def.kind}`, dlcOff[def.kind] !== false, def.label)).join('')) })
         : '';
-    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, battleCreature, resultFx, tags, clash, innerDemon, dlc, sound, comic, mangaBack, crowd, notifyCenter };
+    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, battleCreature, resultFx, tags, clash, innerDemon, dlc, sound, comic, logReader, mangaBack, crowd, notifyCenter };
 }

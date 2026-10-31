@@ -56,6 +56,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'consistency-strength', label: '一致性重绘强度', aliases: ['强度', '角色一致性', '重绘', 'strength'], page: 'source', path: 'bridge.autoIllustration.consistencyStrength' },
     { id: 'my-phone', label: '我的手机', group: 'special', open: ['perf-my-phone'], aliases: ['手机壳', '机型', '壁纸', '铃声', '手机外观', '壳色', '折叠屏', '刘海屏', '平板'] },
     { id: 'comic-mode', label: '漫画演出模式', group: 'stage', open: ['perf-comic-mode'], path: 'readerSettings.comicMode.enabled', aliases: ['漫画', '对话泡', '气泡', '竖排', '黑白', '漫画模式', '吹き出し'] },
+    { id: 'log-reader', label: '窄屏阅读模式', group: 'text', open: ['perf-log-reader'], path: 'readerSettings.logReader.enabled', aliases: ['窄屏', '手机阅读', '对话列表', '列表模式', 'log', '回想式', '头像', '破框', '流水展开', '每次显示'] },
     { id: 'cinema-bars', label: '电影黑边', group: 'stage', open: [], path: 'readerSettings.cinemaBars', aliases: ['黑边', '宽银幕', '上下黑条'] },
     { id: 'cg-hold', label: '日常CG停留', group: 'rhythm', open: [], path: 'readerSettings.cgHoldPages', aliases: ['cg', '插图', '停留', '几页'] },
     { id: 'render-quality', label: '画质 / 省电模式', aliases: ['卡', '卡顿', '发热', '耗电', '低画质', '省电', '掉帧'], page: 'dash' },

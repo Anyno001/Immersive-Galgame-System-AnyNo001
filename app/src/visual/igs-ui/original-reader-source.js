@@ -49,6 +49,7 @@ import { STAGE_PAUSE_STYLE_TEXT } from './stage-pause.js';
 import { COMIC_STYLE_TEXT } from './comic-style.js';
 import { MANGA_BACK_STYLE_TEXT } from './manga-back.js';
 import { CROWD_STYLE_TEXT } from './crowd-fx.js';
+import { LOG_READER_STYLE_TEXT } from './log-reader-style.js';
 
 import { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } from './settings-theme.js';
 import { STATUS_HUD_PHONE_MEDIA } from '../../data/shujuku/status-hud-model.js';
@@ -470,6 +471,7 @@ ${DIALOG_BAR_STYLE_TEXT}
 ${GENERATION_STRIP_STYLE_TEXT}
 ${INVENTORY_IMAGE_STYLE_TEXT}
 ${STAGE_PAUSE_STYLE_TEXT}
+${LOG_READER_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `
