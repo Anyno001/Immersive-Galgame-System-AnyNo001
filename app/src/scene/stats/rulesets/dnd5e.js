@@ -55,9 +55,14 @@ function ladderOf(success, margin, natural, nat) {
 
 // opts：{ difficulty, edge, shift, dc, natural }。dc 优先于难度档（对抗被动值）。
 export function resolve(profile, opts = {}, raw) {
+    return resolveTotal(bonusOf(profile, opts.shift), opts, raw);
+}
+
+// 已知加值的 d20 判定（正文检定复算用：加值由属性视图与熟练给出）。opts 同 resolve，shift 不再折算。
+export function resolveTotal(bonusValue, opts = {}, raw) {
     const edge = clampEdge(opts.edge);
     const dc = Number.isFinite(Number(opts.dc)) && opts.dc !== null && opts.dc !== undefined ? Math.round(Number(opts.dc)) : (DC[opts.difficulty] || DC.普通);
-    const bonus = bonusOf(profile, opts.shift);
+    const bonus = Math.round(Number(bonusValue) || 0);
     const nat = face(raw, edge);
     const total = nat + bonus;
     let success = total >= dc;

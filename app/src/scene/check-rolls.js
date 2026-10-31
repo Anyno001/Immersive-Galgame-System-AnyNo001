@@ -11,6 +11,7 @@ export const CHECK_ROLLS_SEGMENT_ID = 'igs-check-rolls';
 export const CHECK_ACTOR_MAX = 6;
 const CHECK_TAG_RE = /\[igs-check:([^\]\n]*)\]/g;
 const CHECK_WRITTEN_CHARS = 40;
+const SKILL_TEXT_MAX = 20;
 const TIER_RE = /大成功|大失败|成功|失败/;
 const REWRITE_TYPES = new Set(['swipe', 'regenerate', 'continue']);
 const SKIP_TYPES = new Set(['impersonate', 'quiet']);
@@ -106,7 +107,8 @@ const validDie = (d) => Number.isInteger(d) && d >= 1 && d <= 20;
 const validRolls = (rolls) => Array.isArray(rolls) && rolls.length === CHECK_ROLL_COUNT
     && rolls.every((p) => (Array.isArray(p) ? p.length === 2 && p.every(validDie) : validDie(p)));
 
-// 解析本楼 [igs-check:角色|属性|DC] 或 [igs-check:角色|属性|DC|优势/劣势]，按正文出现顺序编号（1 起）；
+// 解析本楼 [igs-check:角色|属性或技能|DC] 或 [igs-check:角色|属性或技能|DC|优势/劣势]，按正文出现顺序编号（1 起）；
+// 第二栏不是六维时记为技能（skill），复算时交给 resolveSkill 换算，换算不了才算非法（合并计划 P3）。
 // 栏位非法的标签照样占一个序号（与模型所见顺序一致），只记诊断。第 4 栏缺省为无优劣势。
 export function scanCheckTags(body) {
     const tags = [];
@@ -115,25 +117,29 @@ export function scanCheckTags(body) {
         const fields = m[1].split('|').map((f) => f.trim());
         const [actor = '', abilityText = '', dcText = '', edgeText = ''] = fields;
         const ability = abilityKeyOf(abilityText);
+        const skill = !ability && abilityText && abilityText.length <= SKILL_TEXT_MAX && !/[0-9０-９]/.test(abilityText) ? abilityText : null;
         const dc = Number(halfDigits(dcText).replace(/^dc\s*[=＝:：]?\s*/i, ''));
         const edge = edgeText ? EDGE_WORD[edgeText] : 0;
         let problem = null;
         if (fields.length < 3 || fields.length > 4) problem = 'field-count';
         else if (!actor) problem = 'actor-missing';
-        else if (!ability) problem = 'unknown-ability';
+        else if (!ability && !skill) problem = 'unknown-ability';
         else if (!dcText || !Number.isInteger(dc) || dc < D20_DC_RANGE[0] || dc > D20_DC_RANGE[1]) problem = 'invalid-dc';
         else if (edge === undefined) problem = 'invalid-edge';
         const order = tags.length + 1;
-        tags.push({ order, actor, ability, dc: problem ? null : dc, edge: problem ? 0 : edge, valid: !problem, raw: m[0], index: m.index, end: m.index + m[0].length });
+        tags.push({ order, actor, ability, skill, dc: problem ? null : dc, edge: problem ? 0 : edge, valid: !problem, raw: m[0], index: m.index, end: m.index + m[0].length });
         if (problem) diagnostics.push({ code: 'check-tag-invalid', problem, order, raw: m[0], index: m.index });
     }
     return { tags, diagnostics };
 }
 
 // 复算：第 n 个判定取 rolls[n-1]（一对 d20，按标签的优劣势取值；旧调用给单颗时两颗视为相同）；第 11 次起不计。
-// readAbilities(角色名) 同步返回属性视图，读不到记 check-actor-unknown。
+// readAbilities(角色名) 同步返回属性视图，读不到记 check-actor-unknown。技能标签用 resolveSkill(角色, 技能, 属性视图) → { ability, bonus }
+// 换算（所属属性加值 + 熟练加值）；未提供或换算不了时按非法标签记 check-tag-invalid / unknown-ability。
+// edgeOf(角色, 标签) 返回数字时为程序判定的优劣势（权威，覆盖正文第 4 栏，不一致记 check-edge-mismatch）；返回 null 时按第 4 栏。
+// shiftOf(角色, 标签) 返回额外加减值（数值系统的压力修正），缺省 0。
 // 标签之后到下一个判定标签之前的前 40 字里出现的结果词与复算成败不符时记 check-mismatch（大成功算成功、大失败算失败）。
-export function replayChecks({ body, rolls, readAbilities } = {}) {
+export function replayChecks({ body, rolls, readAbilities, resolveSkill, edgeOf, shiftOf } = {}) {
     const text = String(body || '');
     const { tags, diagnostics } = scanCheckTags(text);
     const results = [];
@@ -143,17 +149,35 @@ export function replayChecks({ body, rolls, readAbilities } = {}) {
         if (tag.order > CHECK_ROLL_COUNT) { diagnostics.push({ code: 'check-over-limit', order: tag.order, raw: tag.raw, index: tag.index }); return; }
         if (!tag.valid) return;
         const pair = rolls[tag.order - 1];
-        const die = pickDie(pair, tag.edge);
+        let edge = tag.edge;
+        let forced = null;
+        try { forced = typeof edgeOf === 'function' ? edgeOf(tag.actor, tag) : null; } catch (error) { forced = null; }
+        if (forced !== null && forced !== undefined && Number.isFinite(Number(forced))) {
+            edge = Math.sign(Number(forced));
+            if (edge !== tag.edge) diagnostics.push({ code: 'check-edge-mismatch', order: tag.order, actor: tag.actor, written: tag.edge, edge, index: tag.index });
+        }
+        const die = pickDie(pair, edge);
         let attr = null;
         try { attr = typeof readAbilities === 'function' ? readAbilities(tag.actor) : null; } catch (error) { attr = null; }
-        const bonus = d20Bonus(attr, tag.ability);
+        let ability = tag.ability;
+        let bonus = null;
+        if (tag.skill) {
+            let mapped = null;
+            try { mapped = typeof resolveSkill === 'function' ? resolveSkill(tag.actor, tag.skill, attr) : null; } catch (error) { mapped = null; }
+            if (!mapped || !abilityKeyOf(mapped.ability) || !Number.isFinite(Number(mapped.bonus))) { diagnostics.push({ code: 'check-tag-invalid', problem: 'unknown-ability', order: tag.order, raw: tag.raw, index: tag.index }); return; }
+            ability = abilityKeyOf(mapped.ability);
+            bonus = attr ? Math.round(Number(mapped.bonus)) : null;
+        } else bonus = d20Bonus(attr, ability);
         if (bonus === null) { diagnostics.push({ code: 'check-actor-unknown', actor: tag.actor, order: tag.order, index: tag.index }); return; }
+        let shift = 0;
+        try { shift = typeof shiftOf === 'function' ? Math.round(Number(shiftOf(tag.actor, tag)) || 0) : 0; } catch (error) { shift = 0; }
+        bonus += shift;
         const r = d20Outcome(die, bonus, tag.dc);
         const stop = i + 1 < tags.length ? tags[i + 1].index : text.length;
         const written = text.slice(tag.end, Math.min(stop, tag.end + CHECK_WRITTEN_CHARS)).match(TIER_RE)?.[0] || null;
         const mismatch = written !== null && written.includes('成功') !== r.success;
         const dice = Array.isArray(pair) ? [...pair] : [pair, pair];
-        const result = { order: tag.order, actor: tag.actor, ability: tag.ability, label: ABILITY_LABELS[tag.ability], dc: tag.dc, edge: tag.edge, dice, die, bonus, total: r.total, tier: r.tier, success: r.success, written, mismatch, index: tag.index };
+        const result = { order: tag.order, actor: tag.actor, ability, skill: tag.skill, label: tag.skill || ABILITY_LABELS[ability], dc: tag.dc, edge, dice, die, bonus, total: r.total, tier: r.tier, success: r.success, written, mismatch, index: tag.index };
         results.push(result);
         if (mismatch) diagnostics.push({ code: 'check-mismatch', order: tag.order, actor: tag.actor, written, tier: r.tier, index: tag.index });
     });
