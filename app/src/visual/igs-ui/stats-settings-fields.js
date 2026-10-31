@@ -13,11 +13,11 @@ export const STAT_PROMPT_LABELS = Object.freeze({
     present: '在场角色',
     sheets: '在场角色的本事',
     check: '本轮检定',
-    roll: '本轮骰运（预掷）',
+    roll: '掷骰规则（手动掷骰档）',
     tags: '标签说明',
     mandates: '强制事项',
 });
-// 不单独开关的模板：手动掷骰规则随「本轮骰运」一起开关；后台请求不进主生成。
+// 不单独开关的模板：手动掷骰规则随「掷骰规则」一起开关；后台请求不进主生成。
 export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
     rollManual: '手动掷骰规则',
     sheetGen: '角色卡生成（后台请求）',
