@@ -700,6 +700,8 @@ export function createSettingsHost(deps) {
             if (!/^[a-zA-Z]+$/.test(id)) return Promise.resolve({ ok: false, reason: 'stats-prompt-unknown' });
             return Promise.resolve(updateSettingsValue(`bridge.stats.prompts.${id}`, ''));
         }
+        // 旧版提示词覆盖失效提示「知道了」：记为已看过，之后不再显示（合并计划 P5）。
+        if (action === 'stats-prompt-stale-ack') return Promise.resolve(updateSettingsValue('bridge.stats.staleNoticeSeen', true));
         // 数值 v2 存档区操作（角色卡、剧情技能、补全、旧版备份）：交给运行时，结束后重绘。
         if (String(action).startsWith('stats-op:')) return runStatsOp(String(action).slice('stats-op:'.length));
         // 适配版表格模板下载（§8C）。

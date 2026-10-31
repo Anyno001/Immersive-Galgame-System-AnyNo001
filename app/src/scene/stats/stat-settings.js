@@ -1,10 +1,10 @@
 // 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_PROMPT_SEGMENTS } from './stat-prompt.js';
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
 import { DEFAULT_RULESET, hasRuleset } from './rulesets/index.js';
 
 const PROMPT_MAX = 4000;
-export const STAT_PROMPT_KEYS = Object.freeze([...STAT_PROMPT_SEGMENTS, 'rollManual', ...STAT_BACKGROUND_PROMPTS]);
+export const STAT_PROMPT_KEYS = Object.freeze([...STAT_PROMPT_SEGMENTS, 'diceManual', ...STAT_BACKGROUND_PROMPTS]);
 
 export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     enabled: false,
@@ -52,6 +52,23 @@ function textMap(raw, keys, defaults = {}) {
     return out;
 }
 
+// 旧覆盖失效（合并计划 P5）：版本低于 STAT_PROMPTS_VERSION 的存档里，已删除或改义段的覆盖移入 stalePrompts 保存、不再生效；
+// 已是当前版本时 stalePrompts 原样保留，设置页据此提示一次（staleNoticeSeen 记已看过）。
+function promptMaps(src) {
+    const raw = src.prompts && typeof src.prompts === 'object' && !Array.isArray(src.prompts) ? src.prompts : {};
+    const stale = textMap(src.stalePrompts, STAT_STALE_PROMPT_KEYS);
+    if (src.promptsVersion === STAT_PROMPTS_VERSION) return { prompts: textMap(raw, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS), stale };
+    const kept = { ...raw };
+    for (const key of STAT_STALE_PROMPT_KEYS) {
+        delete kept[key];
+        const value = raw[key];
+        if (typeof value !== 'string' || !value.trim()) continue;
+        if (typeof DEFAULT_STAT_PROMPTS[key] === 'string' && value.trim() === DEFAULT_STAT_PROMPTS[key].trim()) continue;
+        stale[key] = value.slice(0, PROMPT_MAX);
+    }
+    return { prompts: textMap(kept, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS), stale };
+}
+
 // 每段注入是否开启：未写或非布尔一律视为开启。
 function segmentMap(raw) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -80,6 +97,7 @@ export function normalizeStatsSettings(raw) {
     const d = STATS_SETTINGS_DEFAULTS;
     const bars = src.bars && typeof src.bars === 'object' ? src.bars : {};
     const push = src.push && typeof src.push === 'object' ? src.push : {};
+    const maps = promptMaps(src);
     return {
         enabled: bool(src.enabled, d.enabled),
         autoSkill: bool(src.autoSkill, d.autoSkill),
@@ -99,7 +117,10 @@ export function normalizeStatsSettings(raw) {
             stress: bool(bars.stress, d.bars.stress),
         },
         push: { enabled: bool(push.enabled, d.push.enabled), mappings: mappingMap(push.mappings) },
-        prompts: textMap(src.prompts, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS),
+        promptsVersion: STAT_PROMPTS_VERSION,
+        prompts: maps.prompts,
+        stalePrompts: maps.stale,
+        staleNoticeSeen: bool(src.staleNoticeSeen, false),
         segments: segmentMap(src.segments),
         stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT), DEFAULT_STAGE_TEXT),
         // 建卡分配（Q5：点数分配可在设置中修改）；「按分配启用」时用它生成本聊天初始数值。

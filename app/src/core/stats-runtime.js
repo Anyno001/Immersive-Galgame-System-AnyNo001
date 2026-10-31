@@ -4,7 +4,8 @@
 import { activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
 import { hash32 } from '../combat/random.js';
-import { checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
+import { checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, formatActorBonuses, mergeCheckInputs, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
+import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { settleFloorText } from '../scene/stats/stat-settle.js';
 import { createChatStatsStore, emptyCatalog, sanitizeCatalog } from '../scene/stats/stat-persist.js';
@@ -102,6 +103,8 @@ export function createStatsRuntime({
     combatSource = () => null,
     // 数值日志表（合并计划 P4 / Q7）：() → { ok, read(), append(records), ensure() } | { ok:false, reason }。缺失时数值系统不可用（fail-closed）。
     statsTables = () => null,
+    // 卡牌战斗侧的提示词输入（合并计划 P5）：(generationType) → { enabled, check, party } | null；check 为战斗侧骰序输入，party 为主角团状态。
+    combatPrompt = () => null,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -394,13 +397,28 @@ export function createStatsRuntime({
         const engine = engineOf(g.ruleset);
         const names = present(state);
         const vitals = protagonistVitals(engine);
+        // 「数值与战斗」合并段（合并计划 P5）：本楼骰序、战斗标签与主角团状态由本段一并给出，bootstrap 不再另注入。
+        let combat = null;
+        try { combat = typeof combatPrompt === 'function' ? combatPrompt(g.type) : null; } catch (error) { combat = null; }
+        const combatOn = Boolean(combat && combat.enabled);
+        let own = null;
+        try { own = checkPromptInput(g.type); } catch (error) { own = null; }
+        const checkInput = mergeCheckInputs(own, combat && combat.check);
+        const srcs = storyCheckSources(engine, state);
+        const bonusOf = (name) => { if (!srcs.ok) return ''; try { return formatActorBonuses(srcs.readAbilities(name)); } catch (error) { return ''; } };
+        const heroName = userNameNow() || PROTAGONIST;
+        const sheetNames = names.filter((n) => catalog.sheets[n]);
+        // 主角与有角色卡的在场人物已在 skills / sheets 写出加值，骰序段只列其余人物。
+        const covered = new Set([heroName, PROTAGONIST, ...sheetNames]);
+        const dice = checkInput ? { ...checkInput, actors: (checkInput.actors || []).filter((a) => a && !covered.has(a.name) && !isHero(a.name)) } : null;
         const built = buildStatsPrompt(state, {
             present: names, shortfall: flags.shortfall,mandates: mandatesFromFlags(flags, vitals), vitals,
             nsfw: isNsfw(), intimacyGate: s.intimacyGate, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
-            sheetLines: names.filter((n) => catalog.sheets[n]).map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n]) })),
+            sheetLines: sheetNames.map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n]), bonus: bonusOf(n) })),
             manualRoll: Boolean(g.manual),
+            dice, combatOn, partyLines: combatOn ? combatPartyLines(combat.party) : [],
         });
         built.diagnostics.forEach((d) => diag(d.code, d));
         if (built.content && typeof c.setExtensionPrompt === 'function') {
@@ -1040,6 +1058,8 @@ export function createStatsRuntime({
         pushNow: push,
         resolveDice,
         checkPromptInput,
+        // 本次生成是否由「数值与战斗」段接管骰序、战斗标签与主角团状态（合并计划 P5）；与 onStarted 的跳过条件一致。
+        promptActive: (generationType = null) => Boolean(active() && !SKIP_TYPES.has(generationType) && !background()),
         checkReplayFor,
         diceChance,
         notices: () => [...notices.values()],

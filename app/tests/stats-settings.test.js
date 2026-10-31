@@ -47,3 +47,30 @@ test('规范化后的设置直接驱动注入：关闭的段不出、覆盖文�
     assert.deepEqual(r.segments.map((x) => x.id), ['source', 'protagonist']);
     assert.equal(r.segments[0].text, '自定义来源');
 });
+
+test('旧版提示词覆盖（合并计划 P5）：已删除或改义段的覆盖移入 stalePrompts、不再生效；其余覆盖照常；规范化可重复', () => {
+    const legacy = { prompts: { source: '自定义来源', roll: '旧骰运', rollManual: '旧手动', protagonist: '生命{{生命}}/100', sheets: '旧本事', sheetGen: '旧建卡', skills: '自定义技能' } };
+    const s = normalizeStatsSettings(legacy);
+    assert.equal(s.promptsVersion, 2);
+    assert.deepEqual(s.prompts, { source: '自定义来源', skills: '自定义技能' });
+    assert.deepEqual(Object.keys(s.stalePrompts).sort(), ['protagonist', 'roll', 'rollManual', 'sheetGen', 'sheets']);
+    assert.equal(s.staleNoticeSeen, false);
+    // 保存后再读（已是当前版本）：失效覆盖原样保留，新写的 protagonist 覆盖生效。
+    const again = normalizeStatsSettings({ ...s, prompts: { ...s.prompts, protagonist: '新状态{{体力}}' } });
+    assert.deepEqual(again.stalePrompts, s.stalePrompts);
+    assert.equal(again.prompts.protagonist, '新状态{{体力}}');
+    assert.deepEqual(normalizeStatsSettings(again), again);
+    // 旧段名的开关不再登记。
+    assert.ok(!('roll' in normalizeStatsSettings({ segments: { roll: false } }).segments));
+});
+
+test('设置页：有失效覆盖时提示一次并给出「知道了」；看过后不再显示', () => {
+    const s = normalizeStatsSettings({ prompts: { roll: '旧骰运', sheetGen: '旧建卡' } });
+    const html = renderStatsPromptFields(s);
+    assert.match(html, /data-stats-prompt-stale/);
+    assert.match(html, /掷骰规则、角色卡生成/);
+    assert.match(html, /data-action="stats-prompt-stale-ack"/);
+    assert.doesNotMatch(renderStatsPromptFields({ ...s, staleNoticeSeen: true }), /data-stats-prompt-stale/);
+    assert.doesNotMatch(renderStatsPromptFields(normalizeStatsSettings({})), /data-stats-prompt-stale/);
+    assert.match(html, /data-switch="bridge\.stats\.segments\.dice"/);
+});

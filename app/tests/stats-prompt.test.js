@@ -77,3 +77,23 @@ test('主角状态描述：疲惫、重伤、压力大、买不起', () => {
     assert.equal(describeProtagonist({ stamina: 100, stress: 0 }), '');
     assert.match(describeProtagonist({ stamina: 100, stress: 0 }, { vitals: { hp: 0, maxHp: 80, down: true } }), /已倒下/);
 });
+
+import { checkRollsFor } from '../src/scene/check-rolls.js';
+
+test('「数值与战斗」合并段（合并计划 P5）：骰序进 dice 段；战斗开启时追加 combat 与 party；段可单独关闭', () => {
+    const rolls = checkRollsFor('chat-1', 2);
+    const base = buildStatsPrompt(createStatsState(), { dice: { rolls } });
+    assert.deepEqual(base.segments.map((s) => s.id), ['source', 'protagonist', 'dice', 'tags']);
+    const merged = buildStatsPrompt(createStatsState(), { dice: { rolls }, combatOn: true, partyLines: ['- 我 Lv1 生命 80/80（无伤）'] });
+    assert.deepEqual(merged.segments.map((s) => s.id), ['source', 'protagonist', 'dice', 'tags', 'combat', 'party']);
+    // 战斗关闭时不出主角团；没有同伴行时不出空段。
+    assert.ok(!buildStatsPrompt(createStatsState(), { partyLines: ['- 我'] }).segments.some((s) => s.id === 'party'));
+    assert.ok(!buildStatsPrompt(createStatsState(), { combatOn: true }).segments.some((s) => s.id === 'party'));
+    const off = buildStatsPrompt(createStatsState(), { dice: { rolls }, combatOn: true, disabled: ['dice', 'combat'] });
+    assert.deepEqual(off.segments.map((s) => s.id), ['source', 'protagonist', 'tags']);
+    // 骰序不完整时不出 dice 段；手动掷骰档与骰序同时存在时并在同一段。
+    assert.ok(!buildStatsPrompt(createStatsState(), { dice: { rolls: rolls.slice(0, 3) } }).segments.some((s) => s.id === 'dice'));
+    const both = buildStatsPrompt(createStatsState(), { dice: { rolls }, manualRoll: true });
+    assert.equal(both.segments.filter((s) => s.id === 'dice').length, 1);
+    assert.deepEqual(merged.diagnostics, []);
+});

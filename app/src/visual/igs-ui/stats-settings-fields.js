@@ -13,16 +13,27 @@ export const STAT_PROMPT_LABELS = Object.freeze({
     present: '在场角色',
     sheets: '在场角色的本事',
     check: '本轮检定',
-    roll: '掷骰规则（手动掷骰档）',
+    dice: '骰序与检定写法',
     tags: '标签说明',
+    combat: '战斗标签（卡牌战斗开启时）',
+    party: '主角团状态（卡牌战斗开启时）',
     mandates: '强制事项',
 });
-// 不单独开关的模板：手动掷骰规则随「掷骰规则」一起开关；后台请求不进主生成。
+// 不单独开关的模板：手动掷骰规则随「骰序与检定写法」一起开关；后台请求不进主生成。
 export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
-    rollManual: '手动掷骰规则',
+    diceManual: '手动掷骰规则',
     sheetGen: '角色卡生成（后台请求）',
     backfill: '新技能补全（后台请求）',
 });
+// 已失效的旧覆盖（合并计划 P5）：提示里用的段名。
+const STALE_PROMPT_LABELS = Object.freeze({
+    roll: '掷骰规则', rollManual: '手动掷骰规则', protagonist: '主角状态', sheets: '在场角色的本事', sheetGen: '角色卡生成',
+});
+
+export function staleStatsPromptNames(stats) {
+    const stale = (stats && stats.stalePrompts) || {};
+    return Object.keys(stale).filter((key) => typeof stale[key] === 'string' && stale[key].trim()).map((key) => STALE_PROMPT_LABELS[key] || key);
+}
 
 function textOf(map, key) {
     const value = map && typeof map[key] === 'string' ? map[key] : '';
@@ -56,7 +67,11 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
         name,
         textareaInput(`bridge.stats.stageText.${name}`, textOf(stageText, name) || DEFAULT_STAGE_TEXT[name], ''),
     )).join('');
-    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-prompts"${advancedOpen('stats-prompts')}>`
+    const staleNames = stats && stats.staleNoticeSeen === true ? [] : staleStatsPromptNames(stats);
+    const staleNotice = staleNames.length
+        ? `<div class="igs-settings-row" data-stats-prompt-stale><span class="igs-source-filter-note">旧版提示词覆盖已失效，改用内置内容：${esc(staleNames.join('、'))}</span><button class="igs-settings-action" data-action="stats-prompt-stale-ack" type="button">知道了</button></div>`
+        : '';
+    return staleNotice + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-prompts"${advancedOpen('stats-prompts')}>`
         + '<summary>高级：注入给 AI 的提示词</summary>'
         + '<div class="igs-source-filter-note">框里是当前生效的提示词，可直接修改；点「恢复默认」回到内置内容。模板里的 {{变量}} 写错时会原样保留，不会中断。</div>'
         + rows

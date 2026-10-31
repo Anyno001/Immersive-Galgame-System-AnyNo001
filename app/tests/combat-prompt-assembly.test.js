@@ -104,3 +104,15 @@ test('每楼骰序段只在战斗扩展开启且骰序完整时注入 depth0；�
     assert.equal(corrections.length, 1);
     assert.notEqual(resolveCheckRollsSegment(COMBAT_ON, { rolls, corrections }).content, seg.content);
 });
+
+test('数值段接管注入时（combatMerged）combat 块仍在、只留装备与道具，索引随之收窄；未接管时与原组装一致', () => {
+    const full = buildTagGrammar({ readerSettings: COMBAT_ON });
+    const merged = buildTagGrammar({ readerSettings: { ...COMBAT_ON, combatMerged: true } });
+    assert.ok('combat' in merged.sizes);
+    assert.ok(merged.sizes.combat < full.sizes.combat);
+    const block = collectGrammarBlocks({ ...COMBAT_ON, combatMerged: true }).find((b) => b.key === 'combat');
+    assert.ok(!/igs-combat:start\|/.test(block.full));
+    assert.ok(/igs-combat:equip\|/.test(block.full));
+    assert.ok(!/start|heal/.test(block.index));
+    assert.deepEqual(buildTagGrammar({ readerSettings: { ...COMBAT_ON, combatMerged: false } }), full);
+});

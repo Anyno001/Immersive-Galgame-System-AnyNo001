@@ -12,7 +12,7 @@ import { feedGrammarBlocks } from './feed-prompt.js';
 import { isPromptEntryKey, normalizePromptEntries, resolveEntryPlacement } from '../../scene/prompt-entries.js';
 import { CAMPUS_FX_KINDS, COURTESY_FX_KINDS, PLAY_FX_KINDS, WARDROBE_FX_KINDS } from '../../scene/daily-fx-directives.js';
 import { FX_PACKS_ACTIVE, isPackKind, packBlockKey, packOfKind, packRequiresMet } from '../../scene/fx-packs.js';
-import { COMBAT_BLOCK_KEY, COMBAT_GRAMMAR_INDEX, combatExpansionEnabled, resolveCombatPromptRule } from '../../scene/combat-prompt.js';
+import { COMBAT_BLOCK_KEY, COMBAT_GRAMMAR_INDEX, COMBAT_MERGED_GRAMMAR_INDEX, combatExpansionEnabled, combatPromptMerged, resolveCombatPromptRule } from '../../scene/combat-prompt.js';
 import { INNER_DEMON_GRAMMAR_LINE, normalizeInnerDemonSettings } from '../../scene/inner-demon.js';
 
 export const PROMPT_PLACEMENTS = Object.freeze(['system', 'depth0']);
@@ -115,8 +115,9 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
         blocks.push({ key: packBlockKey(pack.id), adaptive: true, full: fxBlock(`${pack.label}演出`, packLines, `，${pack.when}`), index: `${pack.label} igs-fx:${own.join('/')}` });
     }
     // 战斗扩展开启时由 combat 块（开战与成长标签）替代旧的 battle 演出块；关闭时保持原样。
+    // 数值系统本聊天接管注入时（combatMerged），开战、成长与生命标签移入「数值与战斗」段，combat 块只留装备与道具。
     if (combatExpansionEnabled(rs)) {
-        blocks.push({ key: COMBAT_BLOCK_KEY, adaptive: true, full: resolveCombatPromptRule(rs), index: COMBAT_GRAMMAR_INDEX });
+        blocks.push({ key: COMBAT_BLOCK_KEY, adaptive: true, full: resolveCombatPromptRule(rs), index: combatPromptMerged(rs) ? COMBAT_MERGED_GRAMMAR_INDEX : COMBAT_GRAMMAR_INDEX });
     } else if (plain(rs.battleFx).enabled === true) {
         blocks.push({ key: 'battle', adaptive: true, full: fxBlock('战斗', BATTLE_GRAMMAR_LINES, '，只有画面效果不显示数值，非战斗场景不用'), index: '战斗 igs-fx:battle/battle-end/hit' });
     }

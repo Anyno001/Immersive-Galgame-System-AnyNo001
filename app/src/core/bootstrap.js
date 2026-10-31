@@ -85,8 +85,8 @@ import { createAlphaMatte } from '../media/alpha-matte.js';
 import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from '../scene/prompt-rule-content.js';
 import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
-import { combatExpansionEnabled, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
-import { resolveCheckRollsSegment } from '../scene/check-rolls.js';
+import { combatExpansionEnabled, findPendingCombatReport, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
+import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { createCombatServices } from './combat-services.js';
 import { createCombatChatRecord } from '../host/combat-chat-record.js';
 import { collectPromptContext } from '../host/prompt-context.js';
@@ -798,6 +798,19 @@ export function bootstrapIGS(options = {}) {
         combatSource: () => (typeof combatServices.lifeSource === 'function' ? combatServices.lifeSource() : null),
         // 数值真值在 IGS数值·日志（合并计划 P4 / Q7），与战斗表共用同一个受控写入方。
         statsTables: () => (typeof combatServices.statsTables === 'function' ? combatServices.statsTables() : null),
+        // 「数值与战斗」合并段（合并计划 P5）：卡牌战斗开启时，战斗侧骰序输入与主角团状态交给数值段一并注入；战报续写时不列主角团。
+        combatPrompt: (generationType) => {
+            const rs = (getUnifiedSettingsSnapshot() || {}).readerSettings;
+            if (!combatExpansionEnabled(rs)) return null;
+            let check = null;
+            try { check = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(generationType) : null; } catch (error) { check = null; }
+            let party = null;
+            const pc = collectPromptContext(resolveTavernContext(), { document: globalObject.document });
+            if (!findPendingCombatReport(pc.history, { generationType, inputText: pc.inputText })) {
+                try { party = typeof combatServices.partyPromptInput === 'function' ? combatServices.partyPromptInput(generationType) : null; } catch (error) { party = null; }
+            }
+            return { enabled: true, check, party };
+        },
         worldviewOf: () => resolveWorldview(((getUnifiedSettingsSnapshot() || {}).bridge || {}).sceneAssets),
         resumeReply: () => hostAdapter.resumeReply?.(),
         // 掷骰卡（v2 §9.1）：阅读器开着时播放，没开不补播。
@@ -1052,8 +1065,11 @@ export function bootstrapIGS(options = {}) {
         const eraRule = [resolveWorldviewPromptRule(worldview, sceneAssets), carryPhoneRule].filter(Boolean).join('\n');
         const worldviewSettings = applyFxWorldview(unified.readerSettings, worldview, { carryPhone: Boolean(carryPhoneRule) });
         // 手机社区按世界观换平台：把世界观写进传给提示词的快照（新对象，不改原设置）。
+        // 数值系统本聊天接管注入时（合并计划 P5），骰序、开战 / 成长 / 生命标签与主角团状态由「数值与战斗」段给出，这里只留战报续写段，combat 块只留装备与道具。
+        let statsOwns = false;
+        try { statsOwns = typeof statsRuntime.promptActive === 'function' && statsRuntime.promptActive(generationType) === true; } catch (error) { statsOwns = false; }
         const readerSettings = worldviewSettings && typeof worldviewSettings === 'object'
-            ? { ...worldviewSettings, feedFx: { ...(worldviewSettings.feedFx || {}), worldview } }
+            ? { ...worldviewSettings, feedFx: { ...(worldviewSettings.feedFx || {}), worldview }, ...(statsOwns ? { combatMerged: true } : {}) }
             : worldviewSettings;
         const placement = normalizePromptPlacement(sceneAssets && sceneAssets.promptPlacement);
         // 交互摘要：只在有待送出的事件时注入，生成结束后清空（见 attachMetaDigestSync）。
@@ -1066,23 +1082,17 @@ export function bootstrapIGS(options = {}) {
         const combatNarration = resolveCombatNarrationSegment(readerSettings, promptContext.history, { generationType, inputText: promptContext.inputText });
         // 每楼 10 对 d20（v3 §3.9、合并计划 P3）：按「聊天 ID + 楼号 + swipe」确定；代写 / 静默时为 null。
         // 数值系统本聊天启用时以它的输入为准（含主角持续的优劣势与修正，与结算同一套），在场人物再并入战斗侧的加值。
-        let checkInput = null;
         let combatCheckInput = null;
-        try { combatCheckInput = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(generationType) : null; } catch (error) { combatCheckInput = null; }
         let statsCheckInput = null;
-        try { statsCheckInput = typeof statsRuntime.checkPromptInput === 'function' ? statsRuntime.checkPromptInput(generationType) : null; } catch (error) { statsCheckInput = null; }
-        if (statsCheckInput) {
-            const seen = new Set((statsCheckInput.actors || []).map((a) => a.name));
-            const extra = ((combatCheckInput && combatCheckInput.actors) || []).filter((a) => a && !seen.has(a.name));
-            const corrections = statsCheckInput.corrections && statsCheckInput.corrections.length ? statsCheckInput.corrections : ((combatCheckInput && combatCheckInput.corrections) || []);
-            checkInput = { ...statsCheckInput, actors: [...(statsCheckInput.actors || []), ...extra], corrections };
-        } else {
-            checkInput = combatCheckInput;
+        if (!statsOwns) {
+            try { combatCheckInput = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(generationType) : null; } catch (error) { combatCheckInput = null; }
+            try { statsCheckInput = typeof statsRuntime.checkPromptInput === 'function' ? statsRuntime.checkPromptInput(generationType) : null; } catch (error) { statsCheckInput = null; }
         }
+        const checkInput = mergeCheckInputs(statsCheckInput, combatCheckInput);
         const checkRolls = checkInput ? resolveCheckRollsSegment(readerSettings, checkInput) : null;
         // 主角团状态（计划 5.8）：读成长缓存，读不到时不注入（服务层记诊断）；战报续写时状态尚未刷新，不注入。
         let partyInput = null;
-        if (!combatNarration) {
+        if (!combatNarration && !statsOwns) {
             try { partyInput = typeof combatServices.partyPromptInput === 'function' ? combatServices.partyPromptInput(generationType) : null; } catch (error) { partyInput = null; }
         }
         const combatParty = partyInput ? resolveCombatPartySegment(readerSettings, partyInput) : null;

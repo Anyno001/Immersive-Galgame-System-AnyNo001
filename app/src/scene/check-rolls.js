@@ -205,14 +205,38 @@ export function checkCorrections(results) {
 
 const pairText = (p) => (Array.isArray(p) ? `${p[0]}/${p[1]}` : String(p));
 
-// 正文提示词段：战斗扩展开启或数值系统本聊天启用（statsActive）且骰序完整时产出。
+// 一个人物的六维加值写法（「力量+3 敏捷+0 …」，已含熟练）；属性视图不完整时为空串。
+export function formatActorBonuses(attr) {
+    const b = checkActorBonuses(attr);
+    return b ? ABILITY_KEYS.map((k) => `${ABILITY_LABELS[k]}${signed(b[k])}`).join(' ') : '';
+}
+
+// 数值系统与战斗两侧的检定输入合并：以数值侧为准（含主角持续的优劣势与修正），在场人物再并入战斗侧的加值。
+export function mergeCheckInputs(stats, combat) {
+    if (!stats) return combat || null;
+    const seen = new Set((stats.actors || []).map((a) => a.name));
+    const extra = ((combat && combat.actors) || []).filter((a) => a && !seen.has(a.name));
+    const corrections = stats.corrections && stats.corrections.length ? stats.corrections : ((combat && combat.corrections) || []);
+    return { ...stats, actors: [...(stats.actors || []), ...extra], corrections };
+}
+
+// 骰序段模板：{{骰序}} {{优劣势}} {{在场加值}} {{更正}}；含变量且填完为空的整行去掉。独立骰序段与「数值与战斗」合并段共用。
+export const CHECK_ROLLS_TEMPLATE = [
+    `【检定】本层出现需要掷骰的行动时，在行动处写 [igs-check:角色|属性或技能|DC]，本次行动另有优势或劣势时写 [igs-check:角色|属性或技能|DC|优势] 或 [igs-check:角色|属性或技能|DC|劣势]：属性只写 力量/敏捷/体质/智力/感知/魅力 之一，技能写其名称（按所属属性加值，学过的再加熟练）；DC 写 ${D20_DC_RANGE[0]}–${D20_DC_RANGE[1]} 的整数（10 容易、15 中等、20 困难、25 极难）。本层骰序（每个判定一对 d20，按判定出现顺序依次取用，第 1 个判定用第 1 对）：{{骰序}}。`,
+    `取值：没有优劣势用斜线前的骰值；优势取两颗中较大的，劣势取较小的；优势与劣势同时成立时互相抵消。结果 = 取用的骰值 + 该角色该属性或技能的加值，达到 DC 为成功；骰值 20 为大成功、1 为大失败。标签后紧接着按结果写剧情走向，成功与失败都推进剧情；每层最多 ${CHECK_ROLL_COUNT} 个判定，不必每层都写；正文不写骰值和算式。`,
+    '{{优劣势}}',
+    '{{在场加值}}',
+    '{{更正}}',
+].join('\n');
+
+// 骰序段的模板变量；骰序不完整时返回 null。
 // actors 为 [{ name, attr }]；edges 为 [{ name, edge, reasons }]（当前持续的优劣势及原因，由数值系统给出）；corrections 为 checkCorrections 的结果。
-export function resolveCheckRollsSegment(readerSettings, { rolls, actors = [], edges = [], corrections = [], statsActive = false } = {}) {
-    if ((!combatExpansionEnabled(readerSettings) && statsActive !== true) || !validRolls(rolls)) return null;
+export function checkRollsVars({ rolls, actors = [], edges = [], corrections = [] } = {}) {
+    if (!validRolls(rolls)) return null;
     const lines = [];
     for (const a of (Array.isArray(actors) ? actors : []).slice(0, CHECK_ACTOR_MAX)) {
-        const b = a && a.name ? checkActorBonuses(a.attr) : null;
-        if (b) lines.push(`${a.name}：${ABILITY_KEYS.map((k) => `${ABILITY_LABELS[k]}${signed(b[k])}`).join(' ')}`);
+        const text = a && a.name ? formatActorBonuses(a.attr) : '';
+        if (text) lines.push(`${a.name}：${text}`);
     }
     const edgeLines = (Array.isArray(edges) ? edges : []).filter((e) => e && e.name && (Math.sign(Number(e.edge) || 0) || Math.round(Number(e.shift) || 0)))
         .slice(0, CHECK_ACTOR_MAX)
@@ -221,12 +245,33 @@ export function resolveCheckRollsSegment(readerSettings, { rolls, actors = [], e
             const parts = [edgeText(Math.sign(Number(e.edge) || 0)), shift ? `检定${signed(shift)}` : ''].filter(Boolean).join('、');
             return `${e.name}${parts}${Array.isArray(e.reasons) && e.reasons.length ? `（${e.reasons.join('、')}）` : ''}`;
         });
-    const content = [
-        `【检定】本层出现需要掷骰的行动时，在行动处写 [igs-check:角色|属性或技能|DC]，本次行动另有优势或劣势时写 [igs-check:角色|属性或技能|DC|优势] 或 [igs-check:角色|属性或技能|DC|劣势]：属性只写 力量/敏捷/体质/智力/感知/魅力 之一，技能写其名称（按所属属性加值，学过的再加熟练）；DC 写 ${D20_DC_RANGE[0]}–${D20_DC_RANGE[1]} 的整数（10 容易、15 中等、20 困难、25 极难）。本层骰序（每个判定一对 d20，按判定出现顺序依次取用，第 1 个判定用第 1 对）：${rolls.map(pairText).join('、')}。`,
-        `取值：没有优劣势用斜线前的骰值；优势取两颗中较大的，劣势取较小的；优势与劣势同时成立时互相抵消。结果 = 取用的骰值 + 该角色该属性或技能的加值，达到 DC 为成功；骰值 20 为大成功、1 为大失败。标签后紧接着按结果写剧情走向，成功与失败都推进剧情；每层最多 ${CHECK_ROLL_COUNT} 个判定，不必每层都写；正文不写骰值和算式。`,
-        edgeLines.length ? `持续的优劣势（前端自动计入这些人物本层的每次检定，与第 4 栏叠加，相反时抵消；第 4 栏不必重复写）：${edgeLines.join('；')}。` : '',
-        lines.length ? `在场人物加值（已含熟练）：\n${lines.join('\n')}\n未列出的人物由前端按其强弱估算。` : '',
-        Array.isArray(corrections) && corrections.length ? `更正：上一层${corrections.join('；')}；以前端结果为准，本层剧情按实际结果衔接。` : '',
-    ].filter(Boolean).join('\n');
+    return {
+        骰序: rolls.map(pairText).join('、'),
+        优劣势: edgeLines.length ? `持续的优劣势（前端自动计入这些人物本层的每次检定，与第 4 栏叠加，相反时抵消；第 4 栏不必重复写）：${edgeLines.join('；')}。` : '',
+        在场加值: lines.length ? `在场人物加值（已含熟练）：\n${lines.join('\n')}\n未列出的人物由前端按其强弱估算。` : '',
+        更正: Array.isArray(corrections) && corrections.length ? `更正：上一层${corrections.join('；')}；以前端结果为准，本层剧情按实际结果衔接。` : '',
+    };
+}
+
+// 逐行填入骰序段变量：含已登记变量且填完为空的行去掉；未登记的变量原样保留。
+export function fillCheckRolls(template, vars) {
+    const values = vars || {};
+    return String(template ?? '').split('\n').map((line) => {
+        let had = false;
+        const out = line.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (whole, name) => {
+            if (!Object.hasOwn(values, name)) return whole;
+            had = true;
+            return String(values[name] ?? '');
+        });
+        return had && !out.trim() ? null : out;
+    }).filter((line) => line !== null).join('\n');
+}
+
+// 正文提示词段：战斗扩展开启或数值系统本聊天启用（statsActive）且骰序完整时产出。
+export function resolveCheckRollsSegment(readerSettings, input = {}) {
+    const src = input || {};
+    const { rolls, statsActive = false } = src;
+    if ((!combatExpansionEnabled(readerSettings) && statsActive !== true) || !validRolls(rolls)) return null;
+    const content = fillCheckRolls(CHECK_ROLLS_TEMPLATE, checkRollsVars(src));
     return { id: CHECK_ROLLS_SEGMENT_ID, position: 'depth0', depth: 0, content, keys: ['check-rolls'], rolls: rolls.map((p) => (Array.isArray(p) ? [...p] : p)) };
 }

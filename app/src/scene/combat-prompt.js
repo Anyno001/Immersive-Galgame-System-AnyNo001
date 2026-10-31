@@ -14,8 +14,7 @@ export function combatExpansionEnabled(readerSettings) {
 
 export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/equip/unequip/item/rel/stat/heal';
 
-export function resolveCombatPromptRule(readerSettings) {
-    if (!combatExpansionEnabled(readerSettings)) return '';
+function fullCombatRule() {
     return `【战斗】战斗由前端卡牌系统结算，正文只负责引出遭遇和记录成长，标签写作 [igs-combat:类型|参数]：
 - [igs-combat:start|遭遇名|敌方|友方|等级]：剧情真正进入交战的那一刻写在本层正文的最后一行，写完立即结束本层，不再写任何正文；敌方写 名称 或 名称*数量，逗号分隔，合计最多5个；友方写同行参战的角色名，逗号分隔，最多3人，主角不用写；等级只写 普通/精英/首领，可省略；每层最多一个
 - [igs-combat:awaken|角色|类型|台词]：只在重大情绪节点写（同伴在眼前倒下、立誓守护、绝境不退、宿敌当前等），平常战斗不写；必须紧挨在开战标签的上一行，开战标签仍是最后一行；角色写主角（「我」或主角名）；类型只写 怒火/守护/悲恸/决意/羁绊/极限/复仇/不屈 之一；台词是此刻喊出的一句话，不超过30字；每场最多一个
@@ -35,6 +34,33 @@ export function resolveCombatPromptRule(readerSettings) {
 2. 不写伤害数字或血量，不使用 [igs-fx:battle] 与 [igs-fx:hit]
 3. 成长标签只在剧情确实发生时写，主角写「我」以外的名字时用角色名`;
 }
+
+// 完整规则按标签类型拆行，供「数值与战斗」合并段复用；未合并时 combat 块仍输出完整原文。
+const ruleLines = (kinds) => fullCombatRule().split('\n').filter((line) => kinds.some((k) => line.startsWith(`- [igs-combat:${k}|`)));
+export const COMBAT_RULE_HEAD = fullCombatRule().split('\n')[0];
+export const COMBAT_STORY_LINES = Object.freeze(ruleLines(['start', 'awaken', 'exp', 'learn', 'upgrade', 'class']));
+export const COMBAT_GEAR_LINES = Object.freeze(ruleLines(['equip', 'unequip', 'item']));
+export const COMBAT_GROWTH_LINES = Object.freeze(ruleLines(['rel', 'stat', 'heal']));
+export const COMBAT_SYNTAX_LINES = Object.freeze(fullCombatRule().split('\n').filter((line) => /^\d\. /.test(line)));
+export const COMBAT_MERGED_GRAMMAR_INDEX = '战斗 igs-combat:equip/unequip/item';
+
+// 数值系统本聊天接管注入时（bootstrap 写入 readerSettings.combatMerged），开战、成长与生命标签改由「数值与战斗」段给出，
+// system 里的 combat 块只留装备与道具写法。
+export function combatPromptMerged(readerSettings) {
+    return plain(readerSettings).combatMerged === true;
+}
+
+export function resolveCombatPromptRule(readerSettings) {
+    if (!combatExpansionEnabled(readerSettings)) return '';
+    if (!combatPromptMerged(readerSettings)) return fullCombatRule();
+    return [
+        '【战斗·装备与道具】标签写作 [igs-combat:类型|参数]：',
+        ...COMBAT_GEAR_LINES,
+        '',
+        '语法要求：装备与道具标签只在剧情确实发生时写，主角写「我」以外的名字时用角色名',
+    ].join('\n');
+}
+
 
 const NARRATION_COMMON = `【战斗续写】上一条用户消息中的 <igs-combat-report> 是刚刚结束的战斗记录。按其中的回合进程，用小说笔法完整写出这场战斗：技能名可以作为招式名出现；不得出现卡牌、手牌、费用、能量、抽牌、稀有度或具体的血量数值；不得改变胜负与击倒的先后顺序；本层不写任何 [igs-combat:…] 标签（开战、觉醒、exp、loot、learn、upgrade、class、rel、stat、heal 等一律不写）：这场战斗的历练与收获已由战报结算，战后的伤势会带到之后的剧情，续写只负责叙述。战报里有「战利品：」一行时，在结尾把这件收获自然写进剧情：新招式写领悟、装备写得到或缴获、道具写拾得、零碎小物写顺手捡到。`;
 
@@ -89,6 +115,10 @@ function partyLine(p) {
     const life = p.down ? `倒下（生命 0/${p.maxHp}），${p.hero ? '再遇战斗只剩 1 点生命' : '回血前不能参战'}` : `生命 ${p.hp}/${p.maxHp}（${oneLine(p.injury)}）`;
     const abilities = (Array.isArray(p.abilities) ? p.abilities : []).map(([label, value]) => `${oneLine(label)}${value}`).join(' ');
     return `- ${oneLine(p.name)} Lv${p.level} ${life}${abilities ? `；${abilities}` : ''}`;
+}
+// 主角团每人一行（与 combat-party 段同一写法），供「数值与战斗」合并段的 party 模板使用。
+export function combatPartyLines(party) {
+    return (Array.isArray(party) ? party : []).filter(Boolean).map(partyLine);
 }
 export function resolveCombatPartySegment(readerSettings, party) {
     if (!combatExpansionEnabled(readerSettings) || !Array.isArray(party) || !party.length) return null;
