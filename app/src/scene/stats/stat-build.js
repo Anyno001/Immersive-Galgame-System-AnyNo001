@@ -2,7 +2,8 @@
 // 特有技能最多选 3 项，每项 50 起步，未选的不进存档。候选 = 默认 8 项 + 当前世界观附加项 + 玩家自定义项。纯函数，不改入参。
 import { BASE_ATTRIBUTES, DEFAULT_SPECIAL_SKILLS, createStatsState, withSkills } from './stat-state.js';
 import { WORLD_SKILL_LEXICON, worldSkillNames } from './stat-world-skills.js';
-import { ABILITY_KEYS, ABILITY_LABELS, abilityKeyOf, defaultPrefs, normalizePrefs } from '../../combat/abilities.js';
+import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, abilityKeyOf, defaultPrefs, normalizeManualScores, normalizePrefs, prefsFromScores } from '../../combat/abilities.js';
+import { COMBAT_RULES } from '../../combat/rules.js';
 
 export const BUILD_PREF_FIELDS = Object.freeze(['major', 'minor', 'weak']);
 export const BUILD_PREF_LABELS = Object.freeze({ major: '主擅长', minor: '次擅长', weak: '短板' });
@@ -16,6 +17,8 @@ const RESERVED = new Set(['__proto__', 'constructor', 'prototype']);
 const KNOWN_SPECIAL = new Set([...DEFAULT_SPECIAL_SKILLS, ...Object.keys(WORLD_SKILL_LEXICON)]);
 
 export const BUILD_ABILITY_OPTIONS = Object.freeze(ABILITY_KEYS.map((k) => [k, ABILITY_LABELS[k]]));
+// 手动建档（P8c 2A）的定位选项：职业原型键与中文名。
+export const BUILD_ROLE_OPTIONS = Object.freeze(Object.entries(COMBAT_RULES.archetypes).map(([k, a]) => [k, a.label || k]));
 
 // 校验单个自定义技能名；返回规范名或 null。与六维、默认特有技能重名的不收（已有）。
 export function validCustomSkillName(raw) {
@@ -56,7 +59,15 @@ export function normalizeBuild(raw) {
         if (!Object.hasOwn(special, name) && (KNOWN_SPECIAL.has(name) || custom.includes(name))) special[name] = value === true;
     }
     for (const name of custom) if (!Object.hasOwn(special, name)) special[name] = false;
-    return { prefs, special, custom };
+    // 手动建档（P8c 2A）：六项分值原样保留（超限由 manualBuildSummary 判定），缺省为底分；定位缺省战士，职业名最多 12 字。
+    const scoresSrc = src.scores && typeof src.scores === 'object' && !Array.isArray(src.scores) ? src.scores : {};
+    const scores = Object.fromEntries(ABILITY_KEYS.map((k) => {
+        const n = scoresSrc[k] === '' || scoresSrc[k] == null ? NaN : Math.round(Number(scoresSrc[k]));
+        return [k, Number.isFinite(n) ? n : MANUAL_BUILD.base];
+    }));
+    const role = Object.hasOwn(COMBAT_RULES.archetypes, src.role) ? src.role : 'warrior';
+    const className = typeof src.className === 'string' ? src.className.trim().slice(0, 12) : '';
+    return { prefs, special, custom, scores, role, className };
 }
 
 // 当前可选的特有技能：默认 8 项 → 世界观附加 → 自定义，去重保序。
@@ -74,9 +85,31 @@ export function buildSummary(build, { worldview } = {}) {
     return { prefs: b.prefs, picked, errors, ok: errors.length === 0 };
 }
 
-// 返回 { ok, state } 或 { ok: false, reason }；倾向重复或多选时不建卡。
-export function buildInitialState(build, { worldview } = {}) {
+// 手动建档的建卡汇总：总分不超过 72、单项 3–18；擅长项按分值推导（同分按六维键序）。
+export function manualBuildSummary(build, { worldview } = {}) {
     const b = normalizeBuild(build);
+    const total = ABILITY_KEYS.reduce((sum, k) => sum + b.scores[k], 0);
+    const valid = normalizeManualScores(b.scores);
+    const picked = specialCandidates(b, { worldview }).filter((name) => b.special[name] === true);
+    const errors = [];
+    if (!valid) errors.push(total > MANUAL_TOTAL ? 'stats-build-over-total' : 'stats-build-score-range');
+    if (picked.length > BUILD_SPECIAL_COUNT) errors.push('stats-build-too-many-special');
+    return { scores: b.scores, total, max: MANUAL_TOTAL, left: MANUAL_TOTAL - total, prefs: valid ? prefsFromScores(valid) : null,
+        role: b.role, className: b.className, picked, errors, ok: errors.length === 0 };
+}
+
+// 返回 { ok, state } 或 { ok: false, reason }；倾向重复或多选时不建卡。
+// mode 为 manual 时按手动分值建卡，另返回 manual: { className, role, scores } 供写属性表 init。
+export function buildInitialState(build, { worldview, mode } = {}) {
+    const b = normalizeBuild(build);
+    if (mode === 'manual') {
+        const m = manualBuildSummary(b, { worldview });
+        if (!m.ok) return { ok: false, reason: m.errors[0], summary: m };
+        const skills = {};
+        for (const name of m.picked) skills[name] = { value: BUILD_SPECIAL_VALUE, marked: false };
+        return { ok: true, state: withSkills(createStatsState({ prefs: m.prefs }), skills), summary: m,
+            manual: { className: m.className, role: m.role, scores: { ...m.scores } } };
+    }
     const summary = buildSummary(b, { worldview });
     if (!summary.ok) return { ok: false, reason: summary.errors[0], summary };
     const skills = {};

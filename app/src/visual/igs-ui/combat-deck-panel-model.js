@@ -1,6 +1,6 @@
 import { COMBAT_RULES, cardCopyLimit, validateDeck } from '../../combat/rules.js';
 import { scaleCard } from '../../combat/card-scaling.js';
-import { ABILITY_KEYS, ABILITY_LABELS, REL_TIERS, abilityMod } from '../../combat/abilities.js';
+import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, REL_TIERS, abilityMod, normalizeManualScores, prefsFromScores } from '../../combat/abilities.js';
 import { characterCombatStats, vitalsOf } from '../../combat/session.js';
 import { injuryLevel } from '../../combat/report.js';
 import { describeEffects } from './combat-card-art.js';
@@ -38,6 +38,25 @@ export function allocView(attr, picks = null, { readonly = false } = {}) {
         return { key, label: ABILITY_LABELS[key] || key, score, add, modText: signed(mod), canAdd: editable && left > 0 && score < attr.cap, canRemove: editable && add > 0 };
     });
     return { protagonist: attr.protagonist === true, table: attr.table, balance, used, left, cap: attr.cap, editable, dirty: used > 0, rows };
+}
+
+// 手动建档（P8c）：尚无 init 的角色逐项分配六维（底分 8、总分不超过 72、单项 3–18），选定位与职业名；擅长项按分值推导（同分按六维键序）。
+// draft 为 { className, role, scores }；已建档或没有属性视图时返回 null。
+export function manualBuildView(attr, draft, { readonly = false } = {}) {
+    if (!attr || attr.initialized) return null;
+    const d = draft || {};
+    const scores = Object.fromEntries(ABILITY_KEYS.map((k) => [k, Number.isInteger(d.scores?.[k]) ? d.scores[k] : MANUAL_BUILD.base]));
+    const total = ABILITY_KEYS.reduce((sum, k) => sum + scores[k], 0);
+    const left = MANUAL_TOTAL - total;
+    const role = Object.hasOwn(COMBAT_RULES.archetypes, d.role) ? d.role : attr.role;
+    const editable = !readonly && attr.table === 'ok';
+    const prefs = prefsFromScores(scores);
+    const rows = ABILITY_KEYS.map((key) => ({ key, label: ABILITY_LABELS[key] || key, score: scores[key], add: scores[key] - MANUAL_BUILD.base, modText: signed(abilityMod(scores[key])),
+        canAdd: editable && left > 0 && scores[key] < MANUAL_BUILD.max, canRemove: editable && scores[key] > MANUAL_BUILD.min }));
+    return { editable, table: attr.table, left, total, max: MANUAL_TOTAL, role, className: String(d.className ?? attr.className ?? ''), scores, rows, dirty: Boolean(draft),
+        roles: Object.entries(COMBAT_RULES.archetypes).map(([key, a]) => ({ key, label: a.label || key })),
+        prefLabels: { major: ABILITY_LABELS[prefs.major], minor: ABILITY_LABELS[prefs.minor], weak: ABILITY_LABELS[prefs.weak] },
+        ok: editable && Boolean(normalizeManualScores(scores)) };
 }
 
 // 装备栏、背包与道具：四个部位按固定顺序列出（空部位也列出），背包为已拥有未装备的装备（带稀有度与售价，在背包页列出）。

@@ -313,6 +313,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-stats-chip .igs-stats-chip-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.86;}
 #igs-stats-chip .igs-stats-chip-btn{flex:none;padding:1px 9px;border:1px solid currentColor;border-radius:999px;background:transparent;color:inherit;font:inherit;cursor:pointer;opacity:.82;}
 #igs-stats-chip .igs-stats-chip-btn:hover{opacity:1;}
+#igs-stats-chip .igs-stats-chip-btn[aria-pressed="true"]{opacity:1;background:rgba(255,255,255,.18);font-weight:600;}
+
 #igs-stats-chip[data-kind="info"],#igs-stats-chip[data-kind="busy"]{padding-right:10px;}
 .igs-option-bubble .igs-option-chance{margin-left:.5em;font-size:.82em;opacity:.62;}
 #igs-send-status{display:none;flex:1;align-items:center;gap:8px;padding:8px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;font-size:13px;color:rgba(255,255,255,.55);letter-spacing:.3px;}

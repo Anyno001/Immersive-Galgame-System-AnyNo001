@@ -249,3 +249,53 @@ test('卡牌战斗开启时（合并计划 P6）：数值视为开启、新聊�
     settings.enabled = true;
     assert.equal(rt.disableForChat().ok, true);
 });
+
+
+test('建档方式（P8c）：本聊天未启用时暂存，启用时沿用；未选时状态不带建档字段；非法方式拒绝', async () => {
+    const { rt } = setup();
+    assert.equal(rt.chatStatus().buildMode, undefined);
+    assert.equal(rt.setBuildMode('bogus').reason, 'stats-build-mode-invalid');
+    const pending = rt.setBuildMode('manual');
+    assert.deepEqual([pending.ok, pending.pending], [true, true]);
+    assert.equal(rt.chatStatus().pendingMode, 'manual');
+    assert.equal(rt.getBuildMode(), null);
+    assert.equal((await rt.enableForChat()).ok, true);
+    assert.equal(rt.getBuildMode(), 'manual');
+    assert.equal(rt.chatStatus().buildMode, 'manual');
+    assert.equal(rt.chatStatus().pendingMode, undefined);
+    assert.equal(rt.setBuildMode('relative').ok, true);
+    assert.equal(rt.getBuildMode(), 'relative');
+});
+
+
+test('手动建档逐角色询问（P8c）：主角先问；自动 / 跳过按聊天记下后问下一位；填写转去面板且本次不再问；建好的不问；非手动不问', async () => {
+    const host = fakeHost();
+    host.ctx.name1 = '阿明';
+    const db = fakeStatsTables();
+    const inited = new Set();
+    const src = { ready: true, readAbilities: (name) => ({ initialized: inited.has(name) }), readVitals: () => null, names: () => ['剑士小雪'], refresh: async () => ({ ok: true }) };
+    const rt = createStatsRuntime({ getContext: () => host.ctx, readSettings: () => ({ enabled: true }), statsTables: db.statsTables, combatSource: () => src });
+    rt.sync();
+    const ask = () => rt.notices().find((n) => n.id === 'build-ask') || null;
+    assert.equal((await rt.enableForChat()).ok, true);
+    assert.equal(ask(), null);
+    assert.equal(rt.setBuildMode('manual').ok, true);
+    assert.equal(ask().name, '阿明');
+    assert.deepEqual(ask().actions.map((a) => a[0]), ['fill', 'auto', 'skip']);
+    assert.equal(rt.noticeAction('build-ask', 'skip').choice, 'skip');
+    assert.equal(rt.getBuildChoices().阿明, 'skip');
+    assert.equal(ask().name, '剑士小雪');
+    const fill = rt.noticeAction('build-ask', 'fill');
+    assert.deepEqual([fill.ok, fill.openPanel, fill.name], [true, 'build', '剑士小雪']);
+    assert.equal(rt.getBuildChoices().剑士小雪, undefined);
+    assert.equal(ask(), null);
+    assert.equal(rt.setBuildChoice('阿明', null).ok, true);
+    inited.add('阿明');
+    rt.refreshBuildAsk();
+    assert.equal(ask(), null);
+    inited.delete('阿明');
+    rt.refreshBuildAsk();
+    assert.equal(ask().name, '阿明');
+    assert.equal(rt.setBuildMode('auto').ok, true);
+    assert.equal(ask(), null);
+});

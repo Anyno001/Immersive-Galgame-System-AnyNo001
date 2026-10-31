@@ -728,6 +728,17 @@ export function createSettingsHost(deps) {
             catch (error) { result = { ok: false, reason: 'stats-template-download-threw', thrown: error }; }
             return Promise.resolve(result);
         }
+        // 本聊天的建档方式（P8c）：交给运行时按聊天保存（本聊天未启用时暂存到启用），不写全局设置。
+        if (String(action).startsWith('stats-build-mode:')) {
+            let result;
+            try {
+                result = typeof options.statsChatAction === 'function'
+                    ? options.statsChatAction('mode', { mode: String(action).slice('stats-build-mode:'.length) })
+                    : { ok: false, reason: 'stats-runtime-missing' };
+            } catch (error) { result = { ok: false, reason: 'stats-chat-action-threw', thrown: error }; }
+            if (state.activeSettings) rerenderSettings();
+            return Promise.resolve(result || { ok: false, reason: 'stats-runtime-missing' });
+        }
         // 数值系统「本聊天」启用 / 暂停：直接交给运行时，结果重绘后反映到按钮与状态说明。
         if (action === 'stats-chat-enable' || action === 'stats-chat-disable' || action === 'stats-chat-enable-build') {
             let result;
@@ -746,6 +757,11 @@ export function createSettingsHost(deps) {
                 result = { ok: false, reason: 'stats-chat-action-threw', thrown: error };
             }
             if (state.activeSettings) rerenderSettings();
+            // 补建数值日志表、手动建档先写主角 init 时结果是异步的：完成后再重绘一次。
+            if (result && typeof result.then === 'function') {
+                const panel = state.activeSettings;
+                return result.then((r) => { if (panel && state.activeSettings === panel) rerenderSettings(); return r || { ok: false, reason: 'stats-runtime-missing' }; });
+            }
             return Promise.resolve(result || { ok: false, reason: 'stats-runtime-missing' });
         }
         if (recoveringSettingsActions.has(action)) return recoveringSettingsActions.get(action);

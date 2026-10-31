@@ -6,7 +6,7 @@ import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js
 import { hash32 } from '../combat/random.js';
 import { checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, formatActorBonuses, mergeCheckInputs, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
 import { combatPartyLines } from '../scene/combat-prompt.js';
-import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
+import { ABILITY_LABELS, BUILD_MODES, abilityKeyOf } from '../combat/abilities.js';
 import { settleFloorText } from '../scene/stats/stat-settle.js';
 import { createChatStatsStore, emptyCatalog, sanitizeCatalog } from '../scene/stats/stat-persist.js';
 import { BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, statTagHash, verifyStatImport } from '../scene/stats/stat-log.js';
@@ -133,6 +133,8 @@ export function createStatsRuntime({
     let sheetJob = null;
     let backfillJob = null;
     const notices = new Map();
+    // 手动建档逐角色询问（P8c）：本次会话里点过「填写」的角色不再问，换聊天时清空。
+    const askHeld = new Set();
     const diagnostics = [];
 
     const ctx = () => { try { return getContext(); } catch (error) { return null; } };
@@ -160,6 +162,7 @@ export function createStatsRuntime({
         return Promise.resolve().then(() => src.refresh({ ...opts, heroPrefs: heroPrefs() })).then((r) => {
             if (!r || r.ok !== true) diag('stats-life-sync-failed', { reason: r && r.reason });
             if (r && r.reason !== 'request-stale' && ledger) onChange(currentStatsState(ledger), null);
+            if (r && r.reason !== 'request-stale') refreshBuildAsk();
             return r;
         }, (error) => { diag('stats-life-sync-threw', { error: String(error && error.message || error) }); return { ok: false, reason: 'stats-life-sync-threw' }; });
     }
@@ -746,11 +749,13 @@ export function createStatsRuntime({
             extra.push(initRecord(ledger.initial, { createdAt: Date.now() }));
         }
         chatEnabled = true;
-        if (!buildMode && normalizeBuildMode(mode)) buildMode = mode;
+        const chosen = normalizeBuildMode(mode) || (onboardPicked ? onboardMode : null);
+        if (!buildMode && chosen) buildMode = chosen;
+        onboardPicked = false;
         if (declined) { store.setDeclined(false); declined = false; }
         persist(extra);
         onChange(currentStatsState(ledger), null);
-        setNotice('onboarding', null);
+        refreshOnboarding();
         detectNewCharacters();
         return { ok: true };
     }
@@ -765,12 +770,53 @@ export function createStatsRuntime({
         Promise.resolve(enableForChat()).catch(() => {});
     }
 
+    // 开局引导（P8c）：只开数值系统时，建档方式与「快速开始 / 建卡 / 本聊天不用」在同一条提示里先选；
+    // 本聊天已启用但还没选过建档方式（战斗开启时直接启用、或从设置页建卡启用）时只问建档方式，选定后不再询问。
+    // onboardMode：提示里当前选中的建档方式；onboardPicked：用户在提示里点了「建卡」，设置页启用时沿用所选方式。换聊天时重置。
+    let onboardMode = 'auto';
+    let onboardPicked = false;
+    let onboardChat = null;
+    const BUILD_MODE_LABELS = Object.freeze({ auto: '自动生成', manual: '手动建档', relative: '相对数值' });
     function refreshOnboarding() {
         const s = settings();
-        const show = s.enabled && !combatOn() && s.newChat === 'ask' && !ledger && !blocked && !unready && !declined && Boolean(chatIdOf(ctx()));
+        const chatNow = chatIdOf(ctx()) || null;
+        if (chatNow !== onboardChat) { onboardChat = chatNow; onboardMode = 'auto'; onboardPicked = false; askHeld.clear(); }
+        const ready = s.enabled && !blocked && !unready && Boolean(chatIdOf(ctx()));
+        const show = ready && !combatOn() && s.newChat === 'ask' && !ledger && !declined;
         setNotice('onboarding', show ? {
             kind: 'onboarding', text: '数值系统：本聊天是否启用？',
-            actions: [['quick', '快速开始'], ['build', '建卡'], ['decline', '本聊天不用']],
+            actions: [...BUILD_MODES.map((m) => [`mode:${m}`, BUILD_MODE_LABELS[m], m === onboardMode]),
+                ['quick', '快速开始'], ['build', '建卡'], ['decline', '本聊天不用']],
+        } : null);
+        const askMode = ready && Boolean(ledger) && chatEnabled && !buildMode;
+        setNotice('build-mode', askMode ? {
+            kind: 'onboarding', text: '本聊天的建档方式',
+            actions: BUILD_MODES.map((m) => [`pick:${m}`, BUILD_MODE_LABELS[m]]),
+        } : null);
+        refreshBuildAsk();
+    }
+
+    // 手动建档的逐角色询问（P8c）：本聊天建档方式为「手动」时，主角与数值系统登记的角色里第一位尚无建档、也没选过「自动 / 跳过」的，
+    // 在提示条问「填写 / 自动 / 跳过」，一次一位。敌人没有名字登记，不会被问；六维来源未就绪时不问。
+    function buildAskTarget() {
+        if (!active() || buildMode !== 'manual') return null;
+        const src = source();
+        if (!src || src.ready !== true || typeof src.readAbilities !== 'function') return null;
+        const state = currentStatsState(ledger);
+        const combatNames = typeof src.names === 'function' ? (() => { try { return src.names() || []; } catch (error) { return []; } })() : [];
+        for (const name of [...new Set([userNameNow() || PROTAGONIST, ...combatNames, ...Object.keys(state.characters || {})])]) {
+            if (!name || askHeld.has(name) || Object.hasOwn(buildChoices, name)) continue;
+            let attr = null;
+            try { attr = src.readAbilities(name, { heroPrefs: heroPrefs() }); } catch (error) { attr = null; }
+            if (attr && attr.initialized === false) return name;
+        }
+        return null;
+    }
+    function refreshBuildAsk() {
+        const name = buildAskTarget();
+        setNotice('build-ask', name ? {
+            kind: 'onboarding', text: `${name}：建档`, name,
+            actions: [['fill', '填写'], ['auto', '自动'], ['skip', '跳过']],
         } : null);
     }
 
@@ -988,9 +1034,35 @@ export function createStatsRuntime({
         const n = notices.get(id);
         if (!n) return { ok: false, reason: 'stats-notice-gone' };
         if (id === 'onboarding') {
-            if (action === 'quick') return enableForChat();
+            if (action.startsWith('mode:')) {
+                const m = normalizeBuildMode(action.slice(5));
+                if (!m) return { ok: false, reason: 'stats-build-mode-invalid' };
+                onboardMode = m;
+                refreshOnboarding();
+                return { ok: true };
+            }
+            if (action === 'quick') return enableForChat({ buildMode: onboardMode });
             if (action === 'decline') { declined = true; store.setDeclined(true); setNotice('onboarding', null); return { ok: true }; }
-            if (action === 'build') { setNotice('onboarding', null); return { ok: true, openSettings: 'stats' }; }
+            if (action === 'build') { onboardPicked = true; setNotice('onboarding', null); return { ok: true, openSettings: 'stats' }; }
+        }
+        if (id === 'build-mode' && action.startsWith('pick:')) {
+            const m = normalizeBuildMode(action.slice(5));
+            if (!m) return { ok: false, reason: 'stats-build-mode-invalid' };
+            if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
+            buildMode = m;
+            persist();
+            refreshOnboarding();
+            return { ok: true, buildMode: m };
+        }
+        // 手动建档逐角色询问（P8c）：「填写」打开人物状态面板的建档页（本次会话不再问这一位）；「自动」「跳过」按聊天记下。
+        if (id === 'build-ask' && (action === 'fill' || action === 'auto' || action === 'skip')) {
+            const name = String(n.name || '');
+            if (!name || !ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
+            if (action === 'fill') { askHeld.add(name); refreshBuildAsk(); return { ok: true, openPanel: 'build', name }; }
+            buildChoices = { ...buildChoices, [name]: action };
+            persist();
+            refreshBuildAsk();
+            return { ok: true, choice: action };
         }
         if (id === 'sheets' && action === 'generate') { setNotice('sheets', null); return generateSheets(); }
         if (id === 'roll' && action === 'roll') return manualRoll();
@@ -1069,6 +1141,8 @@ export function createStatsRuntime({
         sync,
         destroy: detach,
         isActive: active,
+        // 手动建档写入后由宿主调用，重算逐角色询问（P8c）。
+        refreshBuildAsk,
         getState: () => (ledger ? currentStatsState(ledger) : null),
         getLedger: () => ledger,
         getCatalog: () => catalog,
@@ -1083,9 +1157,18 @@ export function createStatsRuntime({
             if (unready) return { ok: false, reason: unready };
             const m = normalizeBuildMode(mode);
             if (!m) return { ok: false, reason: 'stats-build-mode-invalid' };
-            if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
+            if (!ledger) {
+                // 本聊天尚未启用：暂存到启用时沿用；换聊天时 refreshOnboarding 清掉。先同步一次聊天身份，避免刚暂存就被当成换聊天清空。
+                if (!chatIdOf(ctx())) return { ok: false, reason: 'stats-no-chat' };
+                refreshOnboarding();
+                onboardMode = m;
+                onboardPicked = true;
+                refreshOnboarding();
+                return { ok: true, pending: true };
+            }
             buildMode = m;
             persist();
+            refreshOnboarding();
             return { ok: true };
         },
         // 手动建档下的逐角色选择：auto 改用自动生成，skip 本聊天不再询问；null 清除。
@@ -1127,7 +1210,12 @@ export function createStatsRuntime({
         // 设置页「本聊天」区块用。未挂监听（总开关启动时关闭）时先从元数据重读，避免拿旧状态或空账本覆盖存档。
         chatStatus() {
             reloadCold();
-            return { enabled: chatEnabled, blocked: blocked || unready, hasChat: Boolean(chatIdOf(ctx())) };
+            // buildMode：本聊天已选的建档方式；pendingMode：在开局提示里选了方式并点「建卡」时，设置页沿用的方式。
+            // 两个字段只在有值时追加，未选方式时保持旧的返回形状。
+            const status = { enabled: chatEnabled, blocked: blocked || unready, hasChat: Boolean(chatIdOf(ctx())) };
+            if (buildMode) status.buildMode = buildMode;
+            if (onboardPicked && onboardMode) status.pendingMode = onboardMode;
+            return status;
         },
         // 状态栏 / 人际关系页的数据源：只有总开关与本聊天都启用时才接管，否则返回 null 让调用方读表格（易错点 H3）。
         metricsLookup() {

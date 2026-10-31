@@ -258,6 +258,8 @@ export function createCombatServices(deps = {}) {
             reason: state ? '' : (lifeCache && lifeCache.chatId === id ? lifeCache.state?.reason || 'combat-ledger-read-failed' : 'combat-life-cache-missing'),
             readAbilities: (name, opts) => (state ? abilitiesForName(state, name, userName(), opts) : null),
             readVitals: (name, opts) => (state ? vitalsForName(state, name, userName(), opts) : null),
+            // 已登记的卡组 / 技能角色名（手动建档逐角色询问用，P8c）；敌人档案不在其中。
+            names: () => (state ? [...state.characters.values()].map((c) => c.name).filter(Boolean) : []),
             refresh: refreshLife,
         };
     }
@@ -301,6 +303,36 @@ export function createCombatServices(deps = {}) {
             if (settings().enabled) await refreshGrowth();
         }
         return result;
+    }
+
+    // 手动建档候选（P8c）：已登记的卡组 / 技能角色、主角与数值系统登记的角色里尚无 init 的，按此顺序去重；敌人档案不在其中。
+    // 只读，不要求战斗开关（缺属性表时按读表补建）；换聊天时返回 request-stale。
+    async function buildCandidates(names = []) {
+        const id = chatId();
+        if (!id) return { ok: false, reason: 'combat-generate-unavailable' };
+        ensureBase();
+        const impl = ledger;
+        let state;
+        try { state = await impl.effectiveState(); } catch (error) { state = { ok: false, reason: 'combat-ledger-read-failed' }; }
+        if (chatId() !== id || ledger !== impl) return { ok: false, reason: 'request-stale' };
+        if (!state || state.ok !== true) return { ok: false, reason: state?.reason || 'combat-ledger-read-failed' };
+        const user = userName().trim();
+        const list = [];
+        const seen = new Set();
+        let heroSeen = false;
+        const add = (name) => {
+            const clean = String(name || '').trim();
+            if (!clean || seen.has(clean)) return;
+            seen.add(clean);
+            const attributes = abilitiesForName(state, clean, user);
+            if (!attributes) return;
+            if (attributes.protagonist) { if (heroSeen) return; heroSeen = true; }
+            if (!attributes.initialized) list.push({ name: clean, protagonist: attributes.protagonist === true, attributes });
+        };
+        for (const c of state.characters.values()) add(c.name);
+        add(user || PROTAGONIST_ALIASES[2]);
+        for (const n of Array.isArray(names) ? names : []) add(n);
+        return { ok: true, list, table: state.attributes?.table || 'missing' };
     }
 
     // 数值日志表读写口（合并计划 P4）：与战斗表共用同一个受控写入方（同一条 FIFO 队列、逐条读回核对），战斗扩展关闭时同样可用。
@@ -945,5 +977,5 @@ export function createCombatServices(deps = {}) {
     }
 
     return { getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, writeManualInit, useInventoryItem, setGear, heroInventory, setHeroGear };
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear, heroInventory, setHeroGear };
 }

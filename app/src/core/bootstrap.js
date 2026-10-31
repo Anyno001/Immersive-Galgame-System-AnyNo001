@@ -463,13 +463,23 @@ export function bootstrapIGS(options = {}) {
         },
         statsChatAction: (kind, payload) => {
             if (!app.statsRuntime) return { ok: false, reason: 'stats-runtime-missing' };
+            // 建档方式（P8c）：按聊天保存；本聊天未启用时暂存，启用时沿用。
+            if (kind === 'mode') return app.statsRuntime.setBuildMode(payload && payload.mode);
             if (kind !== 'enable') return app.statsRuntime.disableForChat();
             // 按分配启用：超点或多选时不建卡，返回原因；已有存档（之前暂停过）时沿用冻结的数值，分配不覆盖（§10A）。
             if (payload && Object.hasOwn(payload, 'build')) {
+                const status = app.statsRuntime.chatStatus();
+                const mode = (status && (status.buildMode || status.pendingMode)) || null;
                 // 世界观附加技能只在当前世界观下计入；与设置页显示的候选保持一致。
-                const built = buildInitialState(payload.build, { worldview: payload.worldview });
+                const built = buildInitialState(payload.build, { worldview: payload.worldview, mode });
                 if (!built.ok) return { ok: false, reason: built.reason };
-                return app.statsRuntime.enableForChat({ initial: built.state });
+                if (!built.manual) return app.statsRuntime.enableForChat({ initial: built.state });
+                // 手动建档（P8c 2A）：先写主角 init 再启用；启用失败后重试时 init 首写为准返回 unchanged，不会写出两份。
+                const heroName = (typeof illustrationMessageHost.getUserName === 'function' && String(illustrationMessageHost.getUserName() || '').trim()) || '主角';
+                return Promise.resolve().then(() => combatServices.writeManualInit(heroName, built.manual)).then((write) => {
+                    if (!write || write.ok !== true) return { ok: false, reason: (write && write.reason) || 'combat-init-write-failed' };
+                    return app.statsRuntime.enableForChat({ initial: built.state, buildMode: 'manual' });
+                }, () => ({ ok: false, reason: 'combat-init-write-failed' }));
             }
             return app.statsRuntime.enableForChat();
         },
@@ -515,6 +525,15 @@ export function bootstrapIGS(options = {}) {
         getCombatSession: () => combatServices.getSession(),
         getCombatLedger: () => combatServices.getLedger(),
         ensureCombatTables: () => combatServices.ensureTables(),
+        // 手动建档写入成功后，数值运行时重算逐角色询问（建好的不再问）。
+        writeCombatManualInit: (name, raw, opts) => Promise.resolve(combatServices.writeManualInit(name, raw, opts)).then((r) => {
+            if (r && r.ok === true) { try { app.statsRuntime?.refreshBuildAsk?.(); } catch (error) { /* 询问刷新失败不影响写入结果 */ } }
+            return r;
+        }),
+        statsBuildMode: () => (app.statsRuntime && typeof app.statsRuntime.getBuildMode === 'function' ? app.statsRuntime.getBuildMode() : null),
+        // 人物状态面板的建档页（P8c）：只开数值系统、本聊天为手动建档时也能打开；候选为卡组 / 技能角色、主角与数值系统登记的角色里尚无建档的。
+        statsBuildEntry: () => Boolean(app.statsRuntime && app.statsRuntime.isActive() && app.statsRuntime.getBuildMode() === 'manual'),
+        getCombatBuildCandidates: () => combatServices.buildCandidates(Object.keys((app.statsRuntime && app.statsRuntime.getState() && app.statsRuntime.getState().characters) || {})),
         generateCombatDeckProfile: (input, opts) => combatServices.generateDeckProfile(input, opts),
         regenerateCombatDeck: (opts) => combatServices.regenerateDeck(opts),
         respecCombatClass: (opts) => combatServices.respecClass(opts),

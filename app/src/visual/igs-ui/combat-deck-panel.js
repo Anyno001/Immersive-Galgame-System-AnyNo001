@@ -1,5 +1,5 @@
 import { setStagePauseReason } from './stage-pause.js';
-import { allocView, classChoices, DECK_PAGES, deckDetailView, deckRosterView, isCombatBusy, validateDraft } from './combat-deck-panel-model.js';
+import { allocView, classChoices, DECK_PAGES, deckDetailView, deckRosterView, isCombatBusy, manualBuildView, validateDraft } from './combat-deck-panel-model.js';
 import { deckReasonText, renderCombatDeckPanelHtml } from './combat-deck-panel-render.js';
 import { CARD_TYPE_LABELS, cardArtSvg, describeEffects } from './combat-card-art.js';
 import { safePortraitUrl } from './fx-battle-model.js';
@@ -31,6 +31,13 @@ export function createCombatDeckPanelController(doc, options = {}) {
     // 分页与加点草稿（属性 → 点数）：换角色时清空加点草稿、保留当前页；每次打开回到状态页。
     let page = 'status';
     let allocDraft = null;
+    // 手动建档草稿（P8c）：{ className, role, scores }；只在本聊天建档方式为「手动」、角色尚无建档记录时使用。换角色、重读与开关面板时清空。
+    let manualDraft = null;
+    // 待建档角色（P8c）：手动建档时，主角、队友与数值系统登记的角色里尚无建档、也没有卡组 / 技能档案的，[{ name, protagonist, attributes }]。
+    // selectedBuild 为选中的名字（与 selectedId 互斥）；wantBuild 为打开时要直接定位的名字（提示条「填写」）。只开数值系统时名单是唯一内容。
+    let builds = [];
+    let selectedBuild = null;
+    let wantBuild = null;
     let generate = null;
     // 背包卖出待确认的那一件：{ kind: 'gear' | 'keepsake', id }；换角色、换页、重读与开关面板时清空。
     let sell = null;
@@ -58,7 +65,15 @@ export function createCombatDeckPanelController(doc, options = {}) {
     const reduced = () => {
         try { return typeof options.reducedMotion === 'function' ? options.reducedMotion() === true : prefersReducedMotion(); } catch (error) { return false; }
     };
-    const selectedView = () => (state?.ok && selectedId ? state.characters.get(selectedId) || null : null);
+    const selectedView = () => (!selectedBuild && state?.ok && selectedId ? state.characters.get(selectedId) || null : null);
+    const manualOn = () => {
+        if (typeof options.writeManualInit !== 'function') return false;
+        try { return typeof options.buildMode === 'function' && options.buildMode() === 'manual'; } catch (error) { return false; }
+    };
+    const buildEntryOn = () => { try { return typeof options.buildEntry === 'function' && options.buildEntry() === true; } catch (error) { return false; } };
+    const selectedBuildView = () => (selectedBuild ? builds.find((c) => c.name === selectedBuild) || null : null);
+    const manualTarget = () => selectedBuildView() || selectedView();
+    const manualOf = (t) => (t && manualOn() ? manualBuildView(t.attributes, manualDraft, { readonly: isCombatBusy(sessionState()) }) : null);
     // 待整理项来自成长缓存（扫描得到、尚未入库的 learn / upgrade / class）；缓存不可用时不显示。
     const pendingOf = () => {
         let g = null;
@@ -98,12 +113,14 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const still = reduced();
         return {
             status, reason, notice, pending, selectedId, generate, page, sell, rebuild, respec, ascend, trait,
+            selectedBuild, builds: builds.map((c) => ({ name: c.name, protagonist: c.protagonist })),
             reveal: reveal ? { phase: reveal.phase, rarity: reveal.rarity, traitId: reveal.traitId, fresh: reveal.phase === 'open' && !reveal.played && !still } : null,
             reduced: still,
             readonly,
             roster: deckRosterView(state), classes: classChoices(state),
             detail: view ? withItemArt(withCardArt(view, deckDetailView(view, view.kind === 'deck-character' ? draft : null))) : null,
             alloc: view ? allocView(view.attributes, allocDraft, { readonly }) : null,
+            manual: manualOf(manualTarget()),
             pendingGeneration: pendingOf(),
             sendFailed: ss?.status === 'send-failed',
             protagonist: protagonistOf(), canRetryProtagonist: typeof options.retryProtagonist === 'function',
@@ -153,30 +170,50 @@ export function createCombatDeckPanelController(doc, options = {}) {
         return r;
     }
 
-    // 每次打开与写入后都从账本重读；读取失败显示原因，不当作空列表。
+    // 每次打开与写入后都从账本重读；读取失败显示原因，不当作空列表。手动建档时另读待建档名单（P8c），只开数值系统时只有这份名单。
     async function load() {
         const l = ledger();
-        if (!l) { status = 'unavailable'; state = null; render(); return { ok: false, reason: 'combat-disabled' }; }
+        const wantBuilds = manualOn() && typeof options.getBuildCandidates === 'function';
+        if (!l && !wantBuilds) { status = 'unavailable'; state = null; builds = []; selectedBuild = null; render(); return { ok: false, reason: 'combat-disabled' }; }
         const my = token;
-        if (!state) { status = 'loading'; render(); }
-        let st;
-        try { st = await l.effectiveState(); } catch (error) { st = { ok: false, reason: 'combat-ledger-read-failed' }; }
+        if (!state && !builds.length) { status = 'loading'; render(); }
+        let st = null;
+        if (l) { try { st = await l.effectiveState(); } catch (error) { st = { ok: false, reason: 'combat-ledger-read-failed' }; } }
+        let b = null;
+        if (wantBuilds) { try { b = await options.getBuildCandidates(); } catch (error) { b = { ok: false, reason: 'combat-ledger-read-failed' }; } }
         if (my !== token) return { ok: false, reason: 'request-stale' };
-        draft = null; allocDraft = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false;
-        if (!st || st.ok !== true) {
-            state = null; status = 'error'; reason = st?.reason || 'combat-ledger-read-failed';
+        draft = null; allocDraft = null; manualDraft = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false;
+        const bad = l ? (st?.ok === true ? '' : st?.reason || 'combat-ledger-read-failed') : (b?.ok === true ? '' : b?.reason || 'combat-ledger-read-failed');
+        if (bad) {
+            state = null; builds = []; selectedBuild = null; status = 'error'; reason = bad;
             render();
             return { ok: false, reason };
         }
-        state = st; status = 'ready'; reason = '';
-        if (!selectedId || !st.characters.has(selectedId)) selectedId = deckRosterView(st)[0]?.id || null;
+        state = l ? st : null; status = 'ready'; reason = '';
+        // 战斗开启时名单读取失败不当作没有待建档：在提示条写明原因，档案角色照常列出。
+        if (wantBuilds && b?.ok !== true) notice = deckReasonText(b?.reason || 'combat-ledger-read-failed');
+        // 已有档案的角色按档案列出，待建档只列其余的。
+        const known = new Set(state ? [...state.characters.values()].map((c) => c.name) : []);
+        builds = b?.ok === true ? b.list.filter((c) => !known.has(c.name)) : [];
+        if (wantBuild && builds.some((c) => c.name === wantBuild)) { selectedBuild = wantBuild; page = 'alloc'; }
+        wantBuild = null;
+        if (selectedBuild && !builds.some((c) => c.name === selectedBuild)) selectedBuild = null;
+        if (!state || !selectedId || !state.characters.has(selectedId)) selectedId = deckRosterView(state)[0]?.id || null;
+        if (!selectedBuild && !selectedId) selectedBuild = builds[0]?.name || null;
         render();
         return { ok: true };
     }
 
     function select(id) {
         if (!state?.ok || !state.characters.has(id)) return { ok: false, reason: 'combat-character-missing' };
-        if (id !== selectedId) { selectedId = id; draft = null; allocDraft = null; generate = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
+        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
+        render();
+        return { ok: true };
+    }
+
+    function selectBuild(name) {
+        if (!builds.some((c) => c.name === name)) return { ok: false, reason: 'combat-character-missing' };
+        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
@@ -246,6 +283,49 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const my = token;
         const r = await run('alloc', () => l.allocate(view.id, picks, { shouldStart: () => my === token && Boolean(root) }));
         if (r.ok === true && !r.stale) { allocDraft = null; await load(); }
+        return r;
+    }
+
+    // 手动建档（P8c）：逐点调整六维（总分与单项上下限由视图模型给出可否）、选定位；「确认建档」经注入的 writeManualInit 写属性表 init 后重读。
+    function manualEdit(key, delta) {
+        const m = manualOf(manualTarget());
+        if (!m) return { ok: false, reason: 'combat-character-missing' };
+        if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
+        const row = m.rows.find((r) => r.key === key);
+        if (!row || !(delta > 0 ? row.canAdd : row.canRemove)) return { ok: false, reason: 'combat-manual-invalid' };
+        manualDraft = { className: m.className, role: m.role, scores: { ...m.scores, [key]: m.scores[key] + delta } };
+        notice = '';
+        render();
+        return { ok: true, left: m.left - delta };
+    }
+
+    function manualRole(role) {
+        const m = manualOf(manualTarget());
+        if (!m) return { ok: false, reason: 'combat-character-missing' };
+        if (!m.editable) return fail(isCombatBusy(sessionState()) ? 'combat-deck-readonly' : 'combat-attribute-table-missing');
+        if (!m.roles.some((r) => r.key === role)) return { ok: false, reason: 'combat-manual-invalid' };
+        manualDraft = { className: m.className, role, scores: m.scores };
+        notice = '';
+        render();
+        return { ok: true };
+    }
+
+    // 职业名输入只改草稿、不重绘（保留焦点与输入法状态）。
+    function onInput(event) {
+        if (event.target?.getAttribute?.('data-deck-input') !== 'manual-class') return;
+        const m = manualOf(manualTarget());
+        if (!m || !m.editable) return;
+        manualDraft = { className: String(event.target.value || '').slice(0, 12), role: m.role, scores: m.scores };
+    }
+
+    async function manualConfirm() {
+        const view = manualTarget();
+        const m = manualOf(view);
+        if (!m) return { ok: false, reason: 'combat-character-missing' };
+        if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
+        if (!m.ok) return fail('combat-manual-invalid');
+        const r = await run('manual', () => options.writeManualInit(view.name, { className: m.className.trim(), role: m.role, scores: { ...m.scores } }));
+        if (r.ok === true && !r.stale) { manualDraft = null; await load(); }
         return r;
     }
 
@@ -551,6 +631,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         switch (name) {
             case 'reload': return load();
             case 'select': return select(id);
+            case 'select-build': return selectBuild(id);
             case 'add': return edit(id, 1);
             case 'remove': return edit(id, -1);
             case 'reset': draft = null; notice = ''; render(); return { ok: true };
@@ -563,6 +644,11 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'alloc-remove': return allocEdit(id, -1);
             case 'alloc-reset': allocDraft = null; notice = ''; render(); return { ok: true };
             case 'alloc-confirm': return allocConfirm();
+            case 'manual-add': return manualEdit(id, 1);
+            case 'manual-remove': return manualEdit(id, -1);
+            case 'manual-role': return manualRole(id);
+            case 'manual-reset': manualDraft = null; notice = ''; render(); return { ok: true };
+            case 'manual-confirm': return manualConfirm();
             case 'generate-open': return openGenerate(id);
             case 'generate-class': return pickClass(id);
             case 'generate': return runGenerate();
@@ -621,12 +707,14 @@ export function createCombatDeckPanelController(doc, options = {}) {
         invoke(control.getAttribute('data-deck-act'), control.getAttribute('data-deck-id') || '');
     }
 
-    function open(overlay) {
+    // build：打开后直接定位到这位待建档角色的建档页（提示条「填写」）。只开数值系统时，本聊天为手动建档才可打开。
+    function open(overlay, { build = null } = {}) {
         if (root) return { ok: true, reason: 'already-open' };
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-combat-container' };
-        if (!ledger()) return { ok: false, reason: 'combat-disabled' };
+        if (!ledger() && !(buildEntryOn() && manualOn())) return { ok: false, reason: 'combat-disabled' };
         token += 1;
-        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null;
+        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null;
+        builds = []; selectedBuild = null; wantBuild = build ? String(build) : null;
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
         root = doc.createElement('div');
@@ -638,11 +726,12 @@ export function createCombatDeckPanelController(doc, options = {}) {
         body.className = 'igs-deck-body';
         root.appendChild(body);
         root.addEventListener('click', onClick);
+        root.addEventListener('input', onInput);
         offCardArt = typeof options.subscribeCardImages === 'function' ? options.subscribeCardImages(() => { if (root) render(); }) : null;
         offItemArt = typeof options.subscribeItemImages === 'function' ? options.subscribeItemImages(() => { if (root) render(); }) : null;
         // 主角卡组就绪时重读账本列出新档案；有未保存的草稿或动作进行中时只重绘，不丢草稿。
         offProtagonist = typeof options.onProtagonistUpdated === 'function'
-            ? options.onProtagonistUpdated((p) => { if (!root) return; if (p?.status === 'ready' && !draft && !allocDraft && !pending) load(); else render(); }) : null;
+            ? options.onProtagonistUpdated((p) => { if (!root) return; if (p?.status === 'ready' && !draft && !allocDraft && !manualDraft && !pending) load(); else render(); }) : null;
         overlay.appendChild(root);
         overlay.classList?.toggle('igs-record-screen-open', true);
         setStagePauseReason(overlay, PAUSE_REASON, true);
@@ -659,6 +748,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         try { abort?.abort(); } catch (error) { /* 已结束 */ }
         abort = null;
         root.removeEventListener?.('click', onClick);
+        root.removeEventListener?.('input', onInput);
         try { if (typeof offCardArt === 'function') offCardArt(); } catch (error) { /* 宿主已卸载 */ }
         offCardArt = null;
         try { if (typeof offItemArt === 'function') offItemArt(); } catch (error) { /* 宿主已卸载 */ }
@@ -670,7 +760,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         pageOverlay?.classList?.remove('igs-record-screen-open');
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         pageOverlay = null;
-        pending = ''; draft = null; allocDraft = null; generate = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null;
+        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; selectedBuild = null; wantBuild = null;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();

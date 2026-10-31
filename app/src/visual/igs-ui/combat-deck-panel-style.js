@@ -35,6 +35,8 @@ ${P} .igs-deck-btn{display:inline-flex;align-items:center;justify-content:center
 ${P} .igs-deck-btn:hover{background:var(--igs-cb-fill-hover);color:var(--igs-cb-ink);}
 ${P} .igs-deck-btn[aria-pressed="true"]:not(.is-primary){background:var(--igs-cb-fill-active);color:var(--igs-cb-ink);font-weight:600;}
 ${P} .igs-deck-btn.is-primary{min-height:40px;padding:9px 24px;background:var(--igs-cb-ink);color:var(--igs-cb-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;}
+${P} .igs-deck-input{flex:1 1 160px;min-width:0;max-width:240px;min-height:32px;padding:6px 10px;box-sizing:border-box;border:0;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);color:var(--igs-cb-ink);font:inherit;outline:none;}
+${P} .igs-deck-input:focus{background:var(--igs-cb-fill-hover);}
 ${P} .igs-deck-btn.is-primary:hover{opacity:.88;}
 ${P} :is(.igs-deck-btn,.igs-deck-icon-btn,.igs-deck-tab):active{transform:scale(.97);}
 ${P} [aria-disabled="true"]{opacity:.45;cursor:default;}

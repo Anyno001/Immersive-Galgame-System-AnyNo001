@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildInitialState, buildSummary, normalizeBuild } from '../src/scene/stats/stat-build.js';
+import { buildInitialState, buildSummary, manualBuildSummary, normalizeBuild } from '../src/scene/stats/stat-build.js';
 import { normalizeStatsSettings } from '../src/scene/stats/stat-settings.js';
 import { defaultPrefs } from '../src/combat/abilities.js';
-import { refreshStatsBuildStatus, renderStatsBuildFields } from '../src/visual/igs-ui/stats-settings-fields.js';
+import { refreshStatsBuildStatus, renderStatsBuildFields, renderStatsBuildModeField } from '../src/visual/igs-ui/stats-settings-fields.js';
 
 test('默认建卡：倾向取默认职业原型，默认选前 3 项特有技能（合并计划 N1）', () => {
     const s = buildSummary(undefined);
@@ -63,4 +63,52 @@ test('建卡区就地刷新：提示与按分配启用同步更新，不依赖�
     assert.match(special.textContent, /最多选 3 项（已选 4 项）/);
     assert.equal(button.disabled, true);
     assert.equal(refreshStatsBuildStatus(null, {}), false);
+});
+
+test('手动建档（P8c 2A）：缺省底分 8、定位战士；总分不超过 72、单项 3–18；擅长项按分值推导', () => {
+    const d = normalizeBuild(null);
+    assert.deepEqual(d.scores, { str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 });
+    assert.equal(d.role, 'warrior');
+    const base = manualBuildSummary(null);
+    assert.deepEqual([base.ok, base.total, base.left], [true, 48, 24]);
+    const full = manualBuildSummary({ scores: { str: 18, dex: 14, con: 10, int: 8, wis: 12, cha: 10 } });
+    assert.deepEqual([full.ok, full.total, full.left], [true, 72, 0]);
+    assert.deepEqual(full.prefs, { major: 'str', minor: 'dex', weak: 'int' });
+    const over = manualBuildSummary({ scores: { str: 18, dex: 18, con: 18, int: 18 } });
+    assert.deepEqual([over.ok, over.errors[0], over.prefs], [false, 'stats-build-over-total', null]);
+    const low = manualBuildSummary({ scores: { str: 2 } });
+    assert.deepEqual([low.ok, low.errors[0]], [false, 'stats-build-score-range']);
+    const high = manualBuildSummary({ scores: { cha: 19 } });
+    assert.deepEqual([high.ok, high.errors[0]], [false, 'stats-build-score-range']);
+});
+
+test('手动建档建卡：返回 manual 载荷供写 init，存档倾向由分值推导；超点不建卡；不改入参', () => {
+    const input = { scores: { str: 8, dex: 16, con: 10, int: 14, wis: 12, cha: 12 }, role: 'mage', className: '  见习法师  ' };
+    const frozen = JSON.stringify(input);
+    const r = buildInitialState(input, { mode: 'manual' });
+    assert.equal(JSON.stringify(input), frozen);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.manual, { className: '见习法师', role: 'mage', scores: input.scores });
+    assert.deepEqual(r.state.protagonist.prefs, { major: 'dex', minor: 'int', weak: 'str' });
+    const bad = buildInitialState({ scores: { str: 18, dex: 18, con: 18, int: 18 } }, { mode: 'manual' });
+    assert.deepEqual([bad.ok, bad.reason], [false, 'stats-build-over-total']);
+    assert.equal(buildInitialState(input).manual, undefined);
+});
+
+test('手动建档表单：六维加点替代三项倾向；建档方式分段按钮发 stats-build-mode；就地刷新按手动规则', () => {
+    const html = renderStatsBuildFields(undefined, () => '', { mode: 'manual' });
+    assert.match(html, /data-stats-mode="manual"/);
+    assert.match(html, /data-path="bridge\.stats\.build\.scores\.str"/);
+    assert.match(html, /data-path="bridge\.stats\.build\.role"/);
+    assert.doesNotMatch(html, /bridge\.stats\.build\.prefs\.major/);
+    assert.match(html, /剩余 24 点 · 总分 48\/72/);
+    assert.doesNotMatch(renderStatsBuildFields(undefined), /data-stats-mode/);
+    assert.match(renderStatsBuildModeField('manual'), /data-action="stats-build-mode:manual"/);
+    const point = { textContent: '' };
+    const button = { disabled: false };
+    const holder = { getAttribute: (n) => ({ 'data-stats-mode': 'manual', 'data-stats-worldview': 'modern' })[n] || null };
+    const nodes = { '[data-advanced="stats-build"]': holder, '[data-result="stats-build"]': point, '[data-action="stats-chat-enable-build"]': button };
+    refreshStatsBuildStatus({ querySelector: (s) => nodes[s] || null }, { scores: { str: 18, dex: 18, con: 18, int: 18 } });
+    assert.match(point.textContent, /总分超过 72/);
+    assert.equal(button.disabled, true);
 });

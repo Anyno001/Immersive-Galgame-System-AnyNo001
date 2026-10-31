@@ -34,6 +34,9 @@ const REASON_TEXT = Object.freeze({
     'combat-alloc-invalid': '加点无效',
     'combat-alloc-no-floor': '当前聊天没有楼层，无法加点',
     'combat-alloc-unavailable': '当前无法分配属性点',
+    'combat-manual-invalid': '加点无效',
+    'combat-init-invalid': '建档内容无效',
+    'combat-init-write-failed': '建档写入失败',
     'combat-page-invalid': '没有这一页',
     'combat-gear-equipped': '穿戴中的装备要先卸下才能卖出',
     'combat-keepsake-missing': '背包里没有这件物品',
@@ -92,7 +95,8 @@ const chip = (text) => `<span class="igs-deck-chip">${esc(text)}</span>`;
 const expText = (d) => (d.next ? `Lv${d.level} · ${d.into}/${d.next}` : `Lv${d.level} · 满级`);
 
 function rosterHtml(v) {
-    return `<nav class="igs-deck-roster" aria-label="角色">${v.roster.map((r) => btn('select', `${r.name}　${r.kindLabel} · ${expText(r)}${r.needsAdjust ? ' · 需调整' : ''}`, { id: r.id, pressed: r.id === v.selectedId })).join('')}</nav>`;
+    const builds = (v.builds || []).map((b) => btn('select-build', `${b.name}　待建档`, { id: b.name, pressed: b.name === v.selectedBuild })).join('');
+    return `<nav class="igs-deck-roster" aria-label="角色">${v.roster.map((r) => btn('select', `${r.name}　${r.kindLabel} · ${expText(r)}${r.needsAdjust ? ' · 需调整' : ''}`, { id: r.id, pressed: !v.selectedBuild && r.id === v.selectedId })).join('')}${builds}</nav>`;
 }
 
 const PENDING_KIND = Object.freeze({ learn: '习得', upgrade: '精进', class: '转职' });
@@ -198,11 +202,11 @@ const tablesRetryBtn = (v) => (v.canEnsureTables
 // 六维格：属性名、当前值（加点草稿已计入）与调整值；editable 时两侧给 − / + 逐点加减，动作进行中置灰。
 const stepBtn = (act, r, text, label, disabled) =>
     `<button type="button" class="igs-deck-btn is-step" data-deck-act="${act}" data-deck-id="${esc(r.key)}" aria-label="${esc(`${r.label}${label}`)}"${disabled ? ' aria-disabled="true"' : ''}>${text}</button>`;
-function abilityGrid(rows, editable, busy = false) {
+function abilityGrid(rows, editable, busy = false, prefix = 'alloc') {
     if (!rows?.length) return '';
     return `<ul class="igs-deck-abilities${editable ? ' is-alloc' : ''}">${rows.map((r) => `<li class="igs-deck-ability${r.add ? ' is-added' : ''}" data-ability="${esc(r.key)}">`
-        + `<span class="igs-deck-ability-name">${esc(r.label)}</span>${editable ? stepBtn('alloc-remove', r, '−', '减一点', busy || !r.canRemove) : ''}`
-        + `<span class="igs-deck-ability-score">${esc(r.score)}</span>${editable ? stepBtn('alloc-add', r, '+', '加一点', busy || !r.canAdd) : ''}`
+        + `<span class="igs-deck-ability-name">${esc(r.label)}</span>${editable ? stepBtn(`${prefix}-remove`, r, '−', '减一点', busy || !r.canRemove) : ''}`
+        + `<span class="igs-deck-ability-score">${esc(r.score)}</span>${editable ? stepBtn(`${prefix}-add`, r, '+', '加一点', busy || !r.canAdd) : ''}`
         + `<span class="igs-deck-ability-mod">${esc(r.modText)}</span></li>`).join('')}</ul>`;
 }
 
@@ -301,8 +305,27 @@ function statusPage(v, d) {
     return parts.join('');
 }
 
+// 手动建档（P8c）：尚无建档记录的角色逐项分配六维，选定位、填职业名；擅长项按分值推导，「确认建档」写入属性表 init。
+function manualPage(v) {
+    const m = v.manual;
+    if (m.table !== 'ok') {
+        const retry = v.readonly ? '' : tablesRetryBtn(v);
+        return `${row('属性', chip('属性表未创建'))}${retry ? `<div class="igs-deck-actions">${retry}</div>` : ''}`;
+    }
+    const busy = Boolean(v.pending);
+    const off = busy || !m.editable;
+    const roles = m.roles.map((r) => btn('manual-role', r.label, { id: r.key, pressed: r.key === m.role, disabled: off })).join('');
+    const name = `<input type="text" class="igs-deck-input" data-deck-input="manual-class" maxlength="12" value="${esc(m.className)}" aria-label="职业名"${m.editable ? '' : ' disabled'}>`;
+    const prefs = chip(`主擅长 ${m.prefLabels.major}`) + chip(`次擅长 ${m.prefLabels.minor}`) + chip(`短板 ${m.prefLabels.weak}`);
+    const actions = v.readonly ? chip('战斗进行中 · 只读')
+        : `${btn('manual-reset', '还原', { disabled: !m.dirty || busy })}${btn('manual-confirm', v.pending === 'manual' ? '保存中' : '确认建档', { primary: true, disabled: !m.ok || busy })}`;
+    return `${row('点数', `<span class="igs-deck-size" role="status">剩余 ${m.left} 点 · 总分 ${m.total}/${m.max}</span>`)}${row('职业名', name)}${row('定位', roles)}`
+        + `${abilityGrid(m.rows, m.editable, busy, 'manual')}${row('擅长', prefs)}<div class="igs-deck-actions">${actions}</div>`;
+}
+
 // 加点页：主角逐点分配属性提升点，「确认加点」后写一条 alloc 记录；非主角与战斗进行中只读；缺属性表（自动补建未成）时给「重试」。
 function allocPage(v) {
+    if (v.manual) return manualPage(v);
     const a = v.alloc;
     if (!a) return '';
     if (a.table !== 'ok') {
@@ -354,6 +377,7 @@ function tabsHtml(page, d) {
 }
 
 function detailHtml(v) {
+    if (v.selectedBuild) return buildDetailHtml(v);
     const d = v.detail;
     if (!d) return '';
     const classText = d.className && d.tierName ? `${d.className} · ${d.tierName}` : d.className;
@@ -361,6 +385,12 @@ function detailHtml(v) {
     const page = DECK_PAGES.includes(v.page) ? v.page : 'status';
     return `<section class="igs-deck-detail">${head}${tabsHtml(page, d)}`
         + `<div class="igs-deck-page" id="igs-deck-page" role="tabpanel" aria-labelledby="igs-deck-tab-${page}" data-page="${page}">${PAGE_HTML[page](v, d)}</div></section>`;
+}
+
+// 待建档角色（P8c）：只有建档页（逐项加点、定位与职业名），确认后写属性表 init，之后按档案或数值系统角色列出。
+function buildDetailHtml(v) {
+    if (!v.manual) return '';
+    return `<section class="igs-deck-detail">${row(v.selectedBuild, chip('待建档'))}<div class="igs-deck-page" id="igs-deck-page" data-page="build">${manualPage(v)}</div></section>`;
 }
 
 // 主角卡组预生成：生成中 / 自动重试中只显示状态；失败显示原因与手动重试。就绪或未开始时不显示。
@@ -401,7 +431,7 @@ export function renderCombatDeckPanelHtml(v) {
     }
     else if (v.status !== 'ready') main = `<p class="igs-deck-state"${v.status === 'loading' ? ' aria-busy="true"' : ''}>${esc(STATE_TEXT[v.status] || '')}</p>`;
     else if (stage) main = stage;
-    else if (!v.roster.length) main = `<p class="igs-deck-state">还没有角色档案</p>${pendingHtml(v)}`;
+    else if (!v.roster.length && !(v.builds || []).length) main = `<p class="igs-deck-state">还没有角色档案</p>${pendingHtml(v)}`;
     else main = `${pendingHtml(v)}<div class="igs-deck-layout">${rosterHtml(v)}${detailHtml(v)}</div>`;
     // 神话第一次翻开：整面板闪白，挂在主区之外以铺满面板（低画质与减少动态效果不出）。
     const flash = stage && v.reveal.fresh && v.reveal.rarity === 'mythic' ? '<span class="igs-deck-reveal-flash" aria-hidden="true"></span>' : '';

@@ -37,6 +37,7 @@ html,body{margin:0;height:100%;background:#0b0d10;color:#d8d5cf;font-family:"Sou
   <button data-page="inventory">背包</button>
   <button data-page="relationships">关系</button>
   <button data-page="combat">战斗</button>
+  <button data-page="deck-build">建档</button>
   <button data-page="settings-scene">素材设置</button>
 </div>
 <div id="stage"><div id="igs-overlay"><div id="igs-db-layer"></div></div></div>
@@ -54,6 +55,7 @@ import { inventoryFixture, combatInventoryFixture } from './fixtures/inventory.f
 import { relationshipsFixture } from './fixtures/relationships.fixture.js';
 import { createCombatPreview } from './fixtures/combat.fixture.js';
 import { createCombatPanelController } from '../../src/visual/igs-ui/combat-panel.js';
+import { createCombatDeckPanelController } from '../../src/visual/igs-ui/combat-deck-panel.js';
 import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/visual/igs-ui/combat-cutin.js';
 import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
@@ -319,10 +321,23 @@ async function openCombat() {
   }
   combatState.ready = true;
 }
+// 人物状态面板 · 只开数值系统（P8c）：不注入战斗账本，本聊天为手动建档；名单为尚无建档的主角与带关系的角色，确认建档只改内存。
+// 可选 ?build=<名字> 打开后直接定位到这位角色（同提示条「填写」）。
+const buildAttr = { initialized: false, table: 'ok', role: 'warrior', className: '' };
+const buildDone = new Set();
+const deckBuild = createCombatDeckPanelController(document, {
+  getLedger: () => null,
+  buildMode: () => 'manual',
+  buildEntry: () => true,
+  writeManualInit: async (name) => { buildDone.add(name); return { ok: true }; },
+  getBuildCandidates: async () => ({ ok: true, table: 'ok', list: [['阿明', true], ['林夏', false], ['陈屿', false]]
+    .filter(([name]) => !buildDone.has(name)).map(([name, protagonist]) => ({ name, protagonist, attributes: buildAttr })) }),
+});
 function openPage(page) {
   current?.close?.();
   if (page === 'settings-scene' || isSettingsPage(page)) current = openSettingsScene();
   else if (page === 'combat') { current = combat; openCombat(); }
+  else if (page === 'deck-build') { current = deckBuild; deckBuild.open(overlay, { build: new URLSearchParams(location.search).get('build') || null }); }
   else if (page === 'map') current = map, map.open(overlay, { weatherFx: { enabled: true } }, '临河街道', new URLSearchParams(location.search).get('time') || '', new URLSearchParams(location.search).get('weather') || '');
   else current = record, record.open(overlay, {}, page);
   document.querySelectorAll('#hud button').forEach(btn =>
@@ -352,7 +367,7 @@ document.getElementById('hud').addEventListener('click', event => {
   const page = event.target?.dataset?.page;
   if (page) openPage(page);
 });
-window.__preview = { openPage, setSize, record, map, combat, combatState, combatStats: combatPreview.stats, stats };
+window.__preview = { openPage, setSize, record, map, combat, deckBuild, combatState, combatStats: combatPreview.stats, stats };
 </script>
 </body>
 </html>

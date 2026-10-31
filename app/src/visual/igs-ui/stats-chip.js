@@ -43,11 +43,12 @@ export function createStatsChip(options = {}) {
         text.className = 'igs-stats-chip-text';
         text.textContent = notice.text || '';
         el.appendChild(text);
-        for (const [act, label] of notice.actions || []) {
+        for (const [act, label, pressed] of notice.actions || []) {
             const b = doc.createElement('button');
             b.type = 'button';
             b.className = 'igs-stats-chip-btn';
             b.setAttribute('data-stats-act', act);
+            if (typeof pressed === 'boolean') b.setAttribute('aria-pressed', String(pressed));
             b.textContent = label;
             el.appendChild(b);
         }
@@ -61,7 +62,7 @@ export function createStatsChip(options = {}) {
         const el = element(Boolean(notice));
         if (!el) return Boolean(notice);
         if (!notice) { el.setAttribute('hidden', ''); shown = ''; return false; }
-        const key = `${notice.id}:${notice.text}:${(notice.actions || []).length}`;
+        const key = `${notice.id}:${notice.text}:${(notice.actions || []).map((a) => `${a[0]}${a[2] === true ? '*' : ''}`).join(',')}`;
         if (key !== shown) { render(el, notice); shown = key; }
         el.removeAttribute('hidden');
         if (notice.kind === 'info') {

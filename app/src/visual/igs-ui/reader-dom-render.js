@@ -506,8 +506,9 @@ export function applyToolbarState(root, current) {
     if (!ttsConfig.enabled || (ttsConfig.provider !== 'api' && !ttsConfig.narratorApi.enabled)) hiddenSet.add('tts-reroll');
     // 「小游戏」要等独立的小游戏脚本装上才有东西可玩。
     if (!getWaitStageGamePack()) hiddenSet.add('mini-games');
-    // 「人物状态」只在卡牌战斗扩展开启时显示；用户的排序、隐藏与固定照常生效。
-    if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled) hiddenSet.add('combat-status');
+    // 「人物状态」在卡牌战斗扩展开启时显示；只开数值系统、本聊天为手动建档时也显示（P8c，只有建档页）。用户的排序、隐藏与固定照常生效。
+    const buildEntry = typeof current.buildEntry === 'function' && current.buildEntry() === true;
+    if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled && !buildEntry) hiddenSet.add('combat-status');
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
     // 默认顶部固定：只有明确选了「紧贴对话框」才是 float。

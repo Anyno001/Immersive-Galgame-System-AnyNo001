@@ -280,6 +280,12 @@ export function createIgsReaderHost(options = {}) {
             let result = null;
             try { result = await options.statsNoticeAction(id, act); } catch (error) { result = null; }
             if (result && result.openSettings) openSettings({ tab: result.openSettings, mode: state.activeReader ? state.activeReader.mode : undefined });
+            // 手动建档逐角色询问「填写」（P8c）：打开人物状态面板并定位到这位角色的建档页；已有面板打开时不叠开。
+            if (result && result.openPanel === 'build') {
+                const current = state.activeReader;
+                const overlay = current?.dom?.overlay;
+                if (overlay && current.dom.combatDeckController && !anyPanelOpen(current.dom)) current.dom.combatDeckController.open(overlay, { build: result.name });
+            }
         },
     });
     // 新手引导：会话标记与当前步骤挂在宿主实例上，状态只存独立的 localStorage 键。
@@ -764,6 +770,8 @@ export function createIgsReaderHost(options = {}) {
             lastAction: '',
             toastMessage: '',
             snapshot,
+            // 人物状态入口（P8c）：只开数值系统、本聊天为手动建档时也显示，面板只有建档页。
+            buildEntry: () => { try { return typeof options.statsBuildEntry === 'function' && options.statsBuildEntry() === true; } catch (error) { return false; } },
             controller,
             dom: domState,
             floatingState: {
@@ -2519,7 +2527,7 @@ export function createIgsReaderHost(options = {}) {
         // 工具栏「人物状态」：战斗扩展开启时打开人物状态面板（与资料菜单「人物状态」项同一面板）；已有面板打开时不叠开。
         if (normalizedAction === 'combat-status') {
             const current = state.activeReader;
-            if (!normalizeCombatExpansionSettings(current.snapshot?.readerSettings?.combatExpansion).enabled) return { ok: false, reason: 'combat-disabled' };
+            if (!normalizeCombatExpansionSettings(current.snapshot?.readerSettings?.combatExpansion).enabled && !current.buildEntry?.()) return { ok: false, reason: 'combat-disabled' };
             if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
             const overlay = current.dom?.overlay;
             if (!overlay || !current.dom?.combatDeckController) return { ok: false, reason: 'combat-entry-missing' };
@@ -4877,6 +4885,12 @@ export function createIgsReaderHost(options = {}) {
             pickTrait: typeof options.pickCombatTrait === 'function' ? (opts) => options.pickCombatTrait(opts) : null,
             unlockTraitSlot: typeof options.unlockCombatTraitSlot === 'function' ? () => options.unlockCombatTraitSlot() : null,
             setGear: typeof options.setCombatGear === 'function' ? (id, gearId, equip) => options.setCombatGear(id, gearId, equip) : null,
+            // 手动建档（P8c）：本聊天建档方式为「手动」时，加点页给尚无建档记录的角色逐项加点，确认后写属性表 init。
+            writeManualInit: typeof options.writeCombatManualInit === 'function' ? (name, raw) => options.writeCombatManualInit(name, raw) : null,
+            buildMode: () => (typeof options.statsBuildMode === 'function' ? options.statsBuildMode() : null),
+            // 待建档名单与只开数值系统时的入口（P8c）。
+            buildEntry: () => (typeof options.statsBuildEntry === 'function' ? options.statsBuildEntry() === true : false),
+            getBuildCandidates: typeof options.getCombatBuildCandidates === 'function' ? () => options.getCombatBuildCandidates() : null,
 
             getGrowth: () => (typeof options.getCombatGrowth === 'function' ? options.getCombatGrowth() : null),
             retryGrowth: typeof options.retryCombatGrowth === 'function' ? () => options.retryCombatGrowth() : null,

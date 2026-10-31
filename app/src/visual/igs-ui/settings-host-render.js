@@ -46,7 +46,7 @@ import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLa
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { CREATURE_DISPLAY_RANGE, normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
-import { renderStatsArchive, renderStatsBuildFields, renderStatsMappingFields, renderStatsPromptFields } from './stats-settings-fields.js';
+import { renderStatsArchive, renderStatsBuildFields, renderStatsBuildModeField, renderStatsMappingFields, renderStatsPromptFields } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
@@ -243,7 +243,10 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 statsChatNote: esc(chatNote),
                 statsChatEnableHidden: hiddenAttr(!chatReady || chat.enabled),
                 statsChatDisableHidden: hiddenAttr(!chatReady || !chat.enabled),
-                statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen, { worldview: resolveWorldview(worldviewAssets) }),
+                // 建档方式（P8c）：按聊天保存；本聊天未启用时选的方式暂存到启用。手动建档时建卡区改为逐项加点。
+                statsBuildModeField: chatReady ? renderStatsBuildModeField(chat.buildMode || chat.pendingMode) : '',
+                statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen, { worldview: resolveWorldview(worldviewAssets),
+                    mode: chatReady ? (chat.buildMode || chat.pendingMode || null) : null }),
                 statsBuildHidden: hiddenAttr(!chatReady || chat.enabled),
             };
         });

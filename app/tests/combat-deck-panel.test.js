@@ -956,3 +956,40 @@ test('人物特性服务：扩展关闭直接拒绝；积分不足与没有待�
     assert.equal((await on.services.pickTrait({ drop: 'x' })).reason, 'combat-trait-pick-invalid');
     assert.deepEqual([off.seen.length, on.seen.length], [0, 0]);
 });
+
+
+test('人物状态面板 · 只开数值系统（P8c）：手动建档时可打开、只列待建档角色并定位；确认建档写 init 后重读；不是手动建档时拒绝打开', async () => {
+    const doc = { createElement: (tag) => new FakeEl(doc, tag), activeElement: null };
+    const overlay = new FakeEl(doc, 'div');
+    overlay.id = 'igs-overlay';
+    let mode = 'manual';
+    const written = [];
+    const attr = { initialized: false, table: 'ok', role: 'warrior', className: '' };
+    const panel = createCombatDeckPanelController(doc, {
+        getLedger: () => null,
+        buildMode: () => mode,
+        buildEntry: () => mode === 'manual',
+        writeManualInit: async (name, raw) => { written.push([name, raw]); return { ok: true }; },
+        getBuildCandidates: async () => ({ ok: true, list: [{ name: '阿明', protagonist: true, attributes: attr }, { name: '小雪', protagonist: false, attributes: attr }]
+            .filter((c) => !written.some(([n]) => n === c.name)) }),
+    });
+    const html = () => overlay.querySelector('.igs-deck-body').innerHTML;
+    assert.equal(panel.open(overlay, { build: '小雪' }).ok, true);
+    await until(() => panel.view()?.status === 'ready');
+    assert.equal(panel.view().selectedBuild, '小雪');
+    assert.deepEqual(panel.view().builds.map((b) => b.name), ['阿明', '小雪']);
+    assert.match(html(), /data-deck-act="select-build"/);
+    assert.match(html(), /剩余 24 点 · 总分 48\/72/);
+    assert.doesNotMatch(html(), /data-deck-act="page"/);
+    assert.equal(panel.invoke('manual-add', 'str').ok, true);
+    assert.equal(panel.invoke('manual-role', 'mage').ok, true);
+    const r = await panel.invoke('manual-confirm');
+    assert.equal(r.ok, true);
+    assert.equal(written[0][0], '小雪');
+    assert.deepEqual([written[0][1].role, written[0][1].scores.str], ['mage', 9]);
+    assert.deepEqual(panel.view().builds.map((b) => b.name), ['阿明']);
+    assert.equal(panel.view().selectedBuild, '阿明');
+    panel.close();
+    mode = 'auto';
+    assert.equal(panel.open(overlay).reason, 'combat-disabled');
+});
