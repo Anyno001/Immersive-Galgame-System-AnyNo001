@@ -217,7 +217,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 statsOffNoteHidden: hiddenAttr(stats.enabled),
                 statsHidden: hiddenAttr(!stats.enabled),
                 autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
-                storyCheckField: field('bridge.stats.storyCheck', '故事中检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '预掷（按数值自动判定）'], ['manual', '手动掷骰（多一次续写）'], ['off', '关闭']])),
+                storyCheckField: field('bridge.stats.storyCheck', '故事中检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动（每楼 10 对骰）'], ['manual', '手动掷骰（多一次续写）'], ['off', '关闭']])),
                 newChatField: field('bridge.stats.newChat', '新聊天', selectInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动快速开始'], ['off', '不启用']])),
                 sheetGenField: field('bridge.stats.sheetGen', '新角色数值', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['prompt', '提醒'], ['auto', '自动生成'], ['off', '不生成']])),
                 backfillField: field('bridge.stats.backfill', '新技能补全', selectInput('bridge.stats.backfill', stats.backfill, [['auto', '每楼结束后自动'], ['manual', '手动'], ['off', '关闭']])),

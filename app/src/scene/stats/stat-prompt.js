@@ -94,7 +94,7 @@ function intimacyNote(character, { nsfw, intimacyGate }) {
 }
 
 // opts：{ prompts, disabled, stageText, present, check, mandates, shortfall, nsfw, intimacyGate,
-//         skillsLine, perceptionLine, sheetLines: [{ name, rank, strong }], rollTable: [行], manualRoll, vitals }
+//         skillsLine, perceptionLine, sheetLines: [{ name, rank, strong }], manualRoll, vitals }
 export function buildStatsPrompt(state, opts = {}) {
     const diagnostics = [];
     const prompts = { ...DEFAULT_STAT_PROMPTS, ...(opts.prompts || {}) };
@@ -132,8 +132,6 @@ export function buildStatsPrompt(state, opts = {}) {
             技能: ck.skill, 难度: ck.difficulty && ck.difficulty !== '普通' ? `（${ck.difficulty}）` : '',
             明细: ck.detail || `1d100=${ck.roll}，需≤${threshold}`, 点数: ck.roll, 目标: threshold, 结果: ck.outcome || ck.tier,
         }, diagnostics));
-    } else if (opts.rollTable && opts.rollTable.length) {
-        push('roll', fillTemplate(prompts.roll, { 结果表: opts.rollTable.join('\n') }, diagnostics));
     } else if (opts.manualRoll) {
         push('roll', fillTemplate(prompts.rollManual, {}, diagnostics));
     }

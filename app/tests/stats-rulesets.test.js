@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as dnd5e from '../src/scene/stats/rulesets/dnd5e.js';
 import { DEFAULT_RULESET, getRuleset, hasRuleset } from '../src/scene/stats/rulesets/index.js';
 import { normalizeStatsSettings } from '../src/scene/stats/stat-settings.js';
-import { createEngine, resolveCheck, contestCheck, prerollTable, rollPreroll, checkFromPreroll, markGrowth, PROTAGONIST, chanceOf } from '../src/scene/stats/stat-engine.js';
+import { createEngine, resolveCheck, PROTAGONIST } from '../src/scene/stats/stat-engine.js';
 import { createStatsState, createCharacter } from '../src/scene/stats/stat-state.js';
 
 const p = (value, extra = {}) => ({ kind: 'skill', value, learned: true, attributeValue: 50, rank: '普通人', entry: { attribute: '敏捷' }, ...extra });

@@ -841,7 +841,7 @@ export function createStatsRuntime({
         'no-input': '没有找到玩家输入', 'auto-skill-off': '已关闭玩家输入匹配', 'story-check-off': '已关闭故事中检定',
         'stats-roll-skipped': 'AI 没有打 roll 标签', 'roll-unresolved': 'roll 标签里的技能无法识别',
     });
-    const SOURCE_TEXT = Object.freeze({ option: '选项', input: '输入匹配', roll: '预掷', manual: '手动掷骰', preroll: '预掷', 'manual-rule': '手动掷骰', none: '无' });
+    const SOURCE_TEXT = Object.freeze({ option: '选项', input: '输入匹配', roll: '自动', story: '正文检定', manual: '手动掷骰', preroll: '自动', 'manual-rule': '手动掷骰', none: '无' });
 
     function diagnose(messageId) {
         const s = settings();
@@ -851,7 +851,7 @@ export function createStatsRuntime({
         const id = Number(messageId);
         const m = c && Array.isArray(c.chat) ? c.chat[id] : null;
         const entry = m ? ledger.entries.get(ledgerKey(ledger, id, Number(m.swipe_id) || 0)) : null;
-        const head = `数值 d20 · 故事中检定 ${{ preroll: '预掷', manual: '手动掷骰', off: '关闭' }[s.storyCheck]}`;
+        const head = `数值 d20 · 故事中检定 ${{ preroll: '自动', manual: '手动掷骰', off: '关闭' }[s.storyCheck]}`;
         if (!entry) return `${head} · 本楼没有结算记录`;
         const meta = entry.meta || {};
         const note = meta.note || {};

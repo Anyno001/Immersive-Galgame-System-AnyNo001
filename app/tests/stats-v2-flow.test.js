@@ -72,7 +72,7 @@ test('自动档：不再注入预掷骰运表；旧写法 roll 标签按本楼�
     assert.equal(entry.meta.check.source, 'roll');
     assert.equal(entry.meta.note.source, 'roll');
     assert.equal(checks.length, 1);
-    assert.match(rt.diagnose(id), /检定来源 预掷 · 侦查/);
+    assert.match(rt.diagnose(id), /检定来源 自动 · 侦查/);
 });
 
 test('预掷：AI 没打标签按无检定，诊断写明原因；故事中检定关闭时不注入骰运表', () => {

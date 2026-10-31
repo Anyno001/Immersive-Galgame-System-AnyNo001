@@ -191,50 +191,6 @@ export function chanceOf(engine, state, request) {
     return engine.ruleset.chance(profile, opts);
 }
 
-// 预掷（§5.2）：生成开始时掷一颗骰，存原始骰面；结算时按标签用同一颗骰重算。
-export function rollPreroll(engine, random) {
-    return { ruleset: engine.ruleset.ID, raw: engine.ruleset.rawRoll(random, engine.ruleset.EDGE_MAX || 0) };
-}
-
-function passTier(engine, state, request, raw) {
-    for (const difficulty of ['极难', '困难', '普通', '简单']) {
-        if (resolveCheck(engine, state, { ...request, difficulty, raw }, null).success) return difficulty;
-    }
-    return null;
-}
-
-const TIER_LINE = Object.freeze({ 极难: '能过到极难', 困难: '能过到困难', 普通: '能过普通', 简单: '只能过简单' });
-
-// 预掷结果表：只给结论不给骰面。present：在场已登记角色（最多 3 个）。
-export function prerollTable(engine, state, preroll, { present = [] } = {}) {
-    if (!preroll || preroll.ruleset !== engine.ruleset.ID) return null;
-    const raw = preroll.raw;
-    const groups = { 极难: [], 困难: [], 普通: [], 简单: [], 失败: [] };
-    const owned = Object.keys((state && state.protagonist && state.protagonist.skills) || {});
-    for (const skill of owned) groups[passTier(engine, state, { actor: PROTAGONIST, skill }, raw) || '失败'].push(skill);
-    const lines = [];
-    for (const key of ['极难', '困难', '普通', '简单']) if (groups[key].length) lines.push(`${TIER_LINE[key]}：${groups[key].join('、')}`);
-    if (groups.失败.length) lines.push(`失败：${groups.失败.join('、')}`);
-    lines.push('未学的技能：按所属属性那一项算');
-    for (const name of present.slice(0, 3)) {
-        const offense = [];
-        for (const skill of ['话术', '魅惑', '潜行']) {
-            const r = resolveCheck(engine, state, { actor: PROTAGONIST, skill, against: name, raw }, null);
-            offense.push(`${skill}${r.success ? '成功' : '失败'}`);
-        }
-        const see = resolveCheck(engine, state, { actor: PROTAGONIST, skill: '心理学', against: name, opposedSkill: '话术', raw }, null);
-        const dodge = resolveCheck(engine, state, { actor: PROTAGONIST, skill: '闪避', against: name, opposedSkill: '格斗', raw }, null);
-        lines.push(`对${name}：${offense.join('，')}；${name}骗主角时主角${see.success ? '能识破' : '识不破'}，${name}动手时主角${dodge.success ? '能躲开' : '躲不开'}`);
-    }
-    return { lines };
-}
-
-// 按预掷骰面与 roll 标签重算（结算时用）。tag：{ skill, difficulty, against, opposedSkill }。
-export function checkFromPreroll(engine, state, preroll, tag) {
-    if (!preroll || !tag || !tag.skill) return null;
-    return resolveCheck(engine, state, { actor: tag.actor || PROTAGONIST, skill: tag.skill, difficulty: tag.difficulty, against: tag.against, opposedSkill: tag.opposedSkill, raw: preroll.raw, source: 'roll' }, null);
-}
-
 // 主角检定成功打成长勾；未学技能成功后登记进存档（「用过就会」），起点为当时的检定底数（§6.1）。
 export function markGrowth(state, check) {
     if (!check || !check.success || !isProtagonist(check.actor) || !state || !state.protagonist) return state;
