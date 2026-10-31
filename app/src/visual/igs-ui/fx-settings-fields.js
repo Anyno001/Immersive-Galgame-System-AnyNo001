@@ -8,6 +8,7 @@ import { collectGrammarBlocks } from './tag-grammar.js';
 import { COMIC_TONE_KINDS, COMIC_TONE_LABELS } from './comic-settings.js';
 import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
+import { LOG_PERCENTS } from './log-reader-settings.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
@@ -114,12 +115,15 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + perfSubhead('泡的外形 · 触发情绪')
         + toneWords(COMIC_TONE_KINDS));
     const lr = s.logReader;
-    const logReader = featureRow(more, 'log-reader', `${p}.logReader.enabled`, lr.enabled, '窄屏阅读模式', '手机与内嵌长屏改为对话列表', field(`${p}.logReader.avatarShape`, '头像样式', segmentedInput(`${p}.logReader.avatarShape`, lr.avatarShape, [['card', '圆角方'], ['circle', '圆形'], ['break', '破框']], '头像样式'))
-        + field(`${p}.logReader.perTap`, '每次显示', segmentedInput(`${p}.logReader.perTap`, lr.perTap, [[3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
+    const logReader = featureRow(more, 'log-reader', `${p}.logReader.on`, lr.on, '窄屏阅读模式', '手机与内嵌长屏改为对话列表', field(`${p}.logReader.avatarShape`, '头像样式', segmentedInput(`${p}.logReader.avatarShape`, lr.avatarShape, [['card', '圆角方'], ['circle', '圆形'], ['break', '破框']], '头像样式'))
+        + field(`${p}.logReader.perTap`, '每次显示', segmentedInput(`${p}.logReader.perTap`, lr.perTap, [[1, '1条'], [2, '2条'], [3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
         + field(`${p}.logReader.reveal`, '文字出现', segmentedInput(`${p}.logReader.reveal`, lr.reveal, [['flow', '流水展开'], ['type', '打字机'], ['fade', '整句淡入']], '文字出现'))
         + field(`${p}.logReader.emotion`, '情绪符号', segmentedInput(`${p}.logReader.emotion`, lr.emotion, [['once', '播一遍'], ['loop', '循环'], ['off', '关闭']], '情绪符号'))
-        + field(`${p}.logReader.veil`, '渐变高度', segmentedInput(`${p}.logReader.veil`, lr.veil, [[75, '75%'], [85, '85%'], [90, '90%']], '渐变高度'))
+        + field(`${p}.logReader.moodSize`, '情绪大小', segmentedInput(`${p}.logReader.moodSize`, lr.moodSize, [['l', '大'], ['m', '中'], ['s', '小']], '情绪大小'))
+        + field(`${p}.logReader.veil`, '渐变高度', selectInput(`${p}.logReader.veil`, lr.veil, LOG_PERCENTS.map((n) => [n, `${n}%`])))
+        + field(`${p}.logReader.density`, '渐变浓度', selectInput(`${p}.logReader.density`, lr.density, LOG_PERCENTS.map((n) => [n, `${n}%`])))
         + field(`${p}.logReader.userSide`, 'User位置', segmentedInput(`${p}.logReader.userSide`, lr.userSide, [['same', '与角色同侧'], ['right', '靠右']], 'User位置'))
+        + checkbox(`${p}.logReader.chain`, lr.chain, '连续播放（关闭后点一下只出一条）')
         + checkbox(`${p}.logReader.chip`, lr.chip, '名字后显示情绪')
         + checkbox(`${p}.logReader.userAvatar`, lr.userAvatar, '显示User头像'));
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));

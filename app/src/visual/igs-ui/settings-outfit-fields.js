@@ -517,6 +517,10 @@ export const OUTFIT_SETTINGS_STYLE_TEXT = `
 .igs-char-info-row.is-block{flex-direction:column;align-items:stretch;gap:6px;padding-top:6px;border-top:1px solid var(--igs-settings-line)}
 .igs-char-info-row>.igs-mood-word-list,.igs-char-info-value{flex:1;min-width:0}
 .igs-char-info-value{display:flex;align-items:center;gap:6px}
+.igs-char-name-color-row input[type="color"]{width:42px;height:30px;padding:2px;border:0;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);cursor:pointer}
+.igs-char-name-color-row input[type="color"]::-webkit-color-swatch-wrapper{padding:0}
+.igs-char-name-color-row input[type="color"]::-webkit-color-swatch{border:0;border-radius:var(--igs-settings-radius-small)}
+.igs-char-name-color-row .igs-char-name-color-auto{font-size:11px;color:var(--igs-settings-ink-4)}
 .igs-char-info-label{flex:0 0 72px;font-size:12px;color:var(--igs-settings-ink-3)}
 .igs-char-info-row.igs-char-height-row{margin-bottom:6px}
 .igs-char-info-row.igs-char-height-row>.igs-asset-move{flex:0 0 76px;width:76px;cursor:text}

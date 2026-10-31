@@ -78,6 +78,7 @@ import { revertProfileWrite } from '../../scene/profile-write.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
+import { normalizeCharacterNameColors } from './character-name-color.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
 import { TTS_VOICE_MAX, editTtsVoices, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice, toggleVoicePool } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
@@ -3009,9 +3010,10 @@ export async function handleSettingsAction(action, ctx) {
     }
 
     // 角色学院、声线存在根素材库（和角色卡素材库分开），按主名记。
-    if (normalizedAction.startsWith('char-house:') || normalizedAction.startsWith('char-voice:')) {
+    if (normalizedAction.startsWith('char-house:') || normalizedAction.startsWith('char-voice:') || normalizedAction.startsWith('char-name-color:')) {
         const voice = normalizedAction.startsWith('char-voice:');
-        const parts = normalizedAction.slice(voice ? 'char-voice:'.length : 'char-house:'.length).split(':');
+        const nameColor = normalizedAction.startsWith('char-name-color:');
+        const parts = normalizedAction.slice(voice ? 'char-voice:'.length : nameColor ? 'char-name-color:'.length : 'char-house:'.length).split(':');
         const field = voice ? parts.shift() : 'house';
         const charName = decodeSeg(parts[0]);
         const value = decodeSeg(parts[1]);
@@ -3025,6 +3027,11 @@ export async function handleSettingsAction(action, ctx) {
             const next = normalizeCharacterVoices({ [charName]: entry })[charName];
             if (next) voices[charName] = next;
             else delete voices[charName];
+        } else if (nameColor) {
+            const colors = normalizeCharacterNameColors(assets.characterNameColors);
+            if (/^#[0-9a-f]{6}$/i.test(value)) colors[charName] = value.toLowerCase();
+            else delete colors[charName];
+            assets.characterNameColors = colors;
         } else {
             const houses = assets.characterHouses = normalizeCharacterHouses(assets.characterHouses);
             if (value) houses[charName] = value;
@@ -4155,7 +4162,7 @@ export async function handleSettingsAction(action, ctx) {
                 library.generated[field] = remaining;
             }
         }
-        for (const field of [...CHARACTER_FIELDS, 'characterHouses', 'characterVoices',
+        for (const field of [...CHARACTER_FIELDS, 'characterHouses', 'characterNameColors', 'characterVoices',
             'characterSpriteScales', 'characterSpriteNotes', 'characterMoodTiers', 'characterMoodNotes']) {
             if (!library[field] || !Object.hasOwn(library[field], name)) continue;
             library[field] = { ...library[field] };
@@ -4355,6 +4362,11 @@ export async function handleSettingsAction(action, ctx) {
             }
             if (!hasGlobalNamesake && rootAssets !== sceneAssets && rootAssets.characterHouses && typeof rootAssets.characterHouses === 'object') {
                 rootAssets.characterHouses = reorderKey(rootAssets.characterHouses, oldName, newName);
+            }
+            for (const assets of new Set(hasGlobalNamesake ? [sceneAssets] : [sceneAssets, rootAssets])) {
+                if (assets && assets.characterNameColors && typeof assets.characterNameColors === 'object') {
+                    assets.characterNameColors = reorderKey(assets.characterNameColors, oldName, newName);
+                }
             }
             // 角色声线、立绘高度和学院一样存在根素材库，按主名记。
             for (const assets of new Set(hasGlobalNamesake ? [sceneAssets] : [sceneAssets, rootAssets])) {
@@ -5326,6 +5338,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
         mergeAssetFolderScope(storage, isLayeredPreset(preset) ? folderScope(name, layer.key) : name, layer.key);
     }
     root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
+    root.characterNameColors = { ...(root.characterNameColors || {}), ...normalizeCharacterNameColors(pack.characterNameColors) };
     root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
     root.characterSpriteScales = { ...(root.characterSpriteScales || {}), ...normalizeCharacterSpriteScales(pack.characterSpriteScales) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
@@ -5375,6 +5388,7 @@ async function importLegacyPreset(settingsState, options, dialogs, persistSettin
     mergeLegacyLibrary(target, pack);
     if (pack.worldview) applyWorldview(target, pack.worldview);
     root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
+    root.characterNameColors = { ...(root.characterNameColors || {}), ...normalizeCharacterNameColors(pack.characterNameColors) };
     root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
     root.characterSpriteScales = { ...(root.characterSpriteScales || {}), ...normalizeCharacterSpriteScales(pack.characterSpriteScales) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);

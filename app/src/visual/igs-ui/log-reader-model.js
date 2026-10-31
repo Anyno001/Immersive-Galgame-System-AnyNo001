@@ -2,7 +2,7 @@ import { stripWrappingQuotes } from './reader-floor-plan.js';
 import { FALLBACK_HEAD } from './fx-anchor.js';
 import { normalizeLogReaderSettings } from './log-reader-settings.js';
 
-export { LOG_AVATAR_SHAPES, LOG_EMOTIONS, LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_REVEALS, LOG_VEILS, clampLogAdjust, normalizeLogReaderSettings } from './log-reader-settings.js';
+export { LOG_AVATAR_SHAPES, LOG_EMOTIONS, LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_PERCENTS, LOG_REVEALS, clampLogAdjust, normalizeLogReaderSettings } from './log-reader-settings.js';
 
 // 窄屏阅读模式：窄屏或楼层内嵌的长屏上，对话框换成自下而上的 log 列表（头颈肩头像 + 台词），点一下出 3~5 条。
 // 窄屏判断与状态栏同一口径（宽 ≤640）；内嵌楼层按阅读器高宽比判断长屏。
@@ -90,12 +90,22 @@ export function logRowsOf(pages, ctx = {}) {
     return rows;
 }
 
-// 连着同一人说话：只有组头显示头像与名字。
+// 连着同一人、同一情绪说话：只有组头显示头像与名字。换情绪另起一组，头像换成该情绪的差分；没写情绪的行沿用上一行。
 export function isContinuation(rows, i) {
     const row = rows[i];
     const prev = rows[i - 1];
     return Boolean(row && prev && row.key && !row.scene && !row.solo && !prev.solo
-        && prev.key === row.key && prev.kind !== 'narr' && row.kind !== 'narr');
+        && prev.key === row.key && prev.kind !== 'narr' && row.kind !== 'narr'
+        && (!row.mood || row.mood === groupMoodOf(rows, i - 1)));
+}
+
+// 一组的情绪：从 i 往前找到组里最近写了情绪的一行。
+function groupMoodOf(rows, i) {
+    for (let at = i; at >= 0; at--) {
+        if (rows[at].mood) return rows[at].mood;
+        if (!isContinuation(rows, at)) return '';
+    }
+    return '';
 }
 
 // 一批的结束（不含）：最多 per 条；下一行要换场景、或遇到聊天 / 卡片页时提前收批。单独成批的聊天 / 卡片页自己算一批。

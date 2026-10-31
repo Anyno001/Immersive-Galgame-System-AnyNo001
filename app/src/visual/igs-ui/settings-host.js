@@ -1270,6 +1270,11 @@ export function createSettingsHost(deps) {
                 controller.invoke(`char-house:${encodeURIComponent(charHouse)}:${encodeURIComponent(charSelect.value || '')}`);
                 return;
             }
+            const charNameColor = charSelect ? charSelect.getAttribute('data-char-name-color') : null;
+            if (charNameColor) {
+                controller.invoke(`char-name-color:${encodeURIComponent(charNameColor)}:${encodeURIComponent(charSelect.value || '')}`);
+                return;
+            }
             // 声音库条目：改完（失焦或回车）才保存。
             const voiceLib = charSelect ? charSelect.getAttribute('data-tts-voice') : null;
             if (voiceLib) {

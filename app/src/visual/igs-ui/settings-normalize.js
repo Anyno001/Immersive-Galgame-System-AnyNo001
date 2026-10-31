@@ -82,8 +82,8 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.creatureDisplay\.(enabled|giantFill)$/.test(path) || path === 'readerSettings.battleFx.creature') return !(value === false || value === 'false' || value === 0 || value === '0');
         const creatureScale = path.match(/^readerSettings\.creatureDisplay\.(small|medium|large)$/);
         if (creatureScale) return normalizeCreatureDisplaySettings({ [creatureScale[1]]: value })[creatureScale[1]];
-        if (/^readerSettings\.logReader\.(enabled|userAvatar|chip)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
-        if (/^readerSettings\.logReader\.(perTap|veil)$/.test(path)) return Number(value);
+        if (/^readerSettings\.logReader\.(on|userAvatar|chip|chain)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.logReader\.(perTap|veil|density)$/.test(path)) return Number(value);
         if (path === 'readerSettings.comicMode.palette') return value === 'color' ? 'color' : 'mono';
         if (path === 'readerSettings.comicMode.line') return ['thin', 'medium', 'bold'].includes(value) ? value : 'medium';
         if (path === 'readerSettings.comicMode.inputStyle') return value === 'plain' ? 'plain' : 'comic';

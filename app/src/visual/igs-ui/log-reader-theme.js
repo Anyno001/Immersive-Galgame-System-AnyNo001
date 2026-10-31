@@ -9,7 +9,9 @@ export const LOG_READER_THEMES = Object.freeze({
     default: { tone: 'dark', veil: '#1c1c1e', ink: '#f2f2f4', narr: '#d6d6db', thought: '#c4cbe0', sub: '#9e9ea6', line: '#38383c', plate: '#2c2c2f' },
     'western-classic': { tone: 'dark', veil: '#121212', ink: '#f2e5c4', narr: '#ddd3b8', thought: '#c9b98f', sub: '#a39a86', line: '#33302a', plate: '#24221e' },
     'elegant-european': { tone: 'dark', veil: '#1f1e2b', ink: '#eeeaf3', narr: '#d4cfdc', thought: '#c3b4e6', sub: '#a29fb3', line: '#3a3850', plate: '#2c2a3e' },
-    'magic-academy': { tone: 'dark', veil: '#141a3a', ink: '#ecebf7', narr: '#c9c7dd', thought: '#b8c3ff', sub: '#9a9cc4', line: '#2c3460', plate: '#1c2248' },
+    // 魔法星夜两套：星银（默认与各学院色）用靛蓝夜空，墨夜用微冷近黑。
+    'magic-academy': { tone: 'dark', veil: '#16173a', ink: '#ecebf7', narr: '#c9c7dd', thought: '#b8c3ff', sub: '#9a9cc4', line: '#2c2e5a', plate: '#212350' },
+    'magic-academy-obsidian': { tone: 'dark', veil: '#121319', ink: '#ecebf5', narr: '#cbc9d8', thought: '#c9c0e8', sub: '#9d9cb0', line: '#2b2c3a', plate: '#20212c' },
     'mermaid-deep': { tone: 'dark', veil: '#0b1a33', ink: '#eaf1fb', narr: '#c2cde0', thought: '#b6cdf4', sub: '#8fa3c2', line: '#1f3558', plate: '#142844' },
     'xianxia-ink': { tone: 'dark', veil: '#121212', ink: '#eae2d1', narr: '#c4bcae', thought: '#9fc0c8', sub: '#9a958c', line: '#33322f', plate: '#242423' },
     'wuxia-ink': { tone: 'dark', veil: '#121212', ink: '#ece7dd', narr: '#c7c1b6', thought: '#a39e95', sub: '#98948c', line: '#33322f', plate: '#242423' },

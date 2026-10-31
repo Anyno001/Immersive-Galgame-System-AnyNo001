@@ -422,6 +422,7 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['next-turn', '下一轮'],
     ['auto-play', '自动播放'],
     ['tts-replay', '重听这句'],
+    ['log-chain', '连续播放（窄屏）'],
     ['tts-reroll', '重新生成这句'],
     ['quick-save', '快速存档'],
     ['quick-load', '快速读档'],

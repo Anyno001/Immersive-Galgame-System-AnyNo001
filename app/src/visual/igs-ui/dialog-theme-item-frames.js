@@ -238,6 +238,29 @@ export function getDialogThemeItemFrameStyleText(skin) {
     return rules.join('\n');
 }
 
+// 窄屏阅读模式借同一套框：头像描皮肤的框线（圆角方再借圆角），换场景卡与物品小卡片用皮肤卡片；正文区不加装饰。
+const ringOf = (icon) => (/box-shadow:([^;]+);/.exec(icon) || [])[1] || '';
+const radiusOf = (icon) => (/border-radius:([^;]+);/.exec(icon) || [])[1] || '';
+export function getLogFrameStyleText() {
+    return Object.entries(FRAMES).map(([skin, f]) => {
+        const root = skin === DEFAULT_SKIN ? ['#igs-overlay:not([data-igs-dialog-skin])', '#igs-overlay[data-igs-dialog-skin="default"]'] : [`#igs-overlay[data-igs-dialog-skin="${skin}"]`];
+        const at = (sel) => root.map((r) => `${r} #igs-log ${sel}`).join(',');
+        const ring = ringOf(f.icon);
+        const radius = radiusOf(f.icon);
+        const card = f.card.replace(/padding(?:-[a-z]+)?:[^;]+;/g, '');
+        return [
+            ring ? `${at('.igs-log-av:not(.is-letter)')},${at('.igs-log-av.is-letter')}{box-shadow:${ring};}` : '',
+            radius ? `${root.map((r) => `${r} #igs-log:not([data-shape]) .igs-log-av,${r} #igs-log[data-shape="card"] .igs-log-av`).join(',')}{border-radius:${radius};}` : '',
+            // 破框：框线描在底板上（头伸出底板，不框头）。
+            `${at('[data-shape="break"] .igs-log-av:not(.is-letter)')}{box-shadow:none;}`,
+            ring ? `${root.map((r) => `${r} #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)::after`).join(',')}{content:"";position:absolute;left:0;right:0;bottom:0;height:var(--igs-log-plate-h);border-radius:${radius || '14px'};box-shadow:${ring};pointer-events:none;}` : '',
+            `${at('.igs-log-scene-card')},${at('.igs-log-card')}{position:relative;${card}color:${f.ink};}`,
+            f.after ? `${at('.igs-log-scene-card::after')},${at('.igs-log-card::after')}{content:"";position:absolute;pointer-events:none;${f.after}}` : '',
+            `${at('.igs-log-card b')}{color:${f.mention};}`,
+        ].filter(Boolean).join('\n');
+    }).join('\n');
+}
+
 // 系统/任务与古代纸面共用物品小弹窗的框元素；只借视觉，不借物品点击/背包状态机。
 // 保留原卡片的尺寸、竖排、卷轴、印章、寿命与减少动态效果分支。
 const PANEL_SURFACES = [

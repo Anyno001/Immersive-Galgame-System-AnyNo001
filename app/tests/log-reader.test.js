@@ -6,15 +6,22 @@ import { normalizeFxReaderSettings } from '../src/visual/igs-ui/fx-settings.js';
 import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.js';
 import { LOG_AVATAR_BOX, batchStartsUpTo, isContinuation, isLogReaderActive, logAvatarCrop, logRowsOf, logTextOf, nextBatchEnd, normalizeLogReaderSettings, sceneLabelOf } from '../src/visual/igs-ui/log-reader-model.js';
 import { LOG_READER_THEMES, logThemeStyleText, resolveLogSkin } from '../src/visual/igs-ui/log-reader-theme.js';
-import { logCardsOf, logRenderSnapshot } from '../src/visual/igs-ui/log-reader-view.js';
+import { getLogFrameStyleText } from '../src/visual/igs-ui/dialog-theme-item-frames.js';
+import { logCardsOf, logRenderSnapshot, logSettingsOf, logSkinOf } from '../src/visual/igs-ui/log-reader-view.js';
 import { LOG_READER_STYLE_TEXT } from '../src/visual/igs-ui/log-reader-style.js';
 import { finishLogReveal, syncLogReader, toggleLogEdit } from '../src/visual/igs-ui/log-reader-layer.js';
 
 const page = (textType, segmentBody, extra = {}) => ({ textType, segmentBody, bubbleSpeaker: '', bubbleMood: '', sceneStateForBg: null, ...extra });
 
-test('设置默认值：默认开、圆角方、流水展开、每次 4 条、渐变 85%', () => {
+test('设置默认值：默认关、圆角方、流水展开、每次 4 条、渐变 85%', () => {
     const s = normalizeLogReaderSettings(null);
-    assert.equal(s.enabled, true);
+    assert.equal(s.enabled, false);
+    assert.equal(s.density, 100);
+    assert.equal(s.moodSize, 'm');
+    assert.equal(normalizeLogReaderSettings({ veil: 55, density: 50 }).veil, 55);
+    assert.equal(normalizeLogReaderSettings({ enabled: true }).enabled, false, 'v0.37.61 默认开时存下的 enabled 不再生效');
+    assert.equal(normalizeLogReaderSettings({ on: true }).enabled, true);
+    assert.equal(normalizeLogReaderSettings({ density: 70 }).density, 70);
     assert.equal(s.avatarShape, 'card');
     assert.equal(s.reveal, 'flow');
     assert.equal(s.emotion, 'once');
@@ -23,19 +30,20 @@ test('设置默认值：默认开、圆角方、流水展开、每次 4 条、�
     assert.equal(s.userSide, 'same');
     assert.deepEqual(normalizeLogReaderSettings({ perTap: 9, veil: 50, avatarShape: 'x', adjust: { 阿吒: { x: 9, z: 0 } } }).adjust.阿吒, { x: 1.5, y: 0, z: 0.5 });
     assert.equal(normalizeLogReaderSettings({ perTap: 9 }).perTap, 5);
-    assert.equal(normalizeFxReaderSettings({}).logReader.enabled, true);
+    assert.equal(normalizeLogReaderSettings({ perTap: 1 }).perTap, 1);
+    assert.equal(normalizeFxReaderSettings({}).logReader.enabled, false);
     assert.equal(normalizeSettingsValue('readerSettings.logReader.perTap', '3'), 3);
     assert.equal(normalizeSettingsValue('readerSettings.logReader.chip', 'false'), false);
 });
 
 test('只在窄屏或内嵌长屏生效，漫画模式优先', () => {
-    assert.equal(isLogReaderActive({ settings: {}, width: 390, height: 844 }), true);
-    assert.equal(isLogReaderActive({ settings: {}, width: 1280, height: 800 }), false);
-    assert.equal(isLogReaderActive({ settings: {}, width: 1280, height: 800, phone: true }), true);
-    assert.equal(isLogReaderActive({ settings: {}, mode: 'embedded', embedded: true, width: 600, height: 900 }), true);
-    assert.equal(isLogReaderActive({ settings: {}, mode: 'embedded', embedded: true, width: 600, height: 400, phone: true }), false);
-    assert.equal(isLogReaderActive({ settings: { enabled: false }, width: 390, height: 844 }), false);
-    assert.equal(isLogReaderActive({ settings: {}, width: 390, height: 844, comic: true }), false);
+    assert.equal(isLogReaderActive({ settings: { on: true }, width: 390, height: 844 }), true);
+    assert.equal(isLogReaderActive({ settings: { on: true }, width: 1280, height: 800 }), false);
+    assert.equal(isLogReaderActive({ settings: { on: true }, width: 1280, height: 800, phone: true }), true);
+    assert.equal(isLogReaderActive({ settings: { on: true }, mode: 'embedded', embedded: true, width: 600, height: 900 }), true);
+    assert.equal(isLogReaderActive({ settings: { on: true }, mode: 'embedded', embedded: true, width: 600, height: 400, phone: true }), false);
+    assert.equal(isLogReaderActive({ settings: {}, width: 390, height: 844 }), false);
+    assert.equal(isLogReaderActive({ settings: { on: true }, width: 390, height: 844, comic: true }), false);
 });
 
 test('分页计划转行：台词去引号、心里话去星号与名字、User 识别、换场景分隔线', () => {
@@ -102,7 +110,10 @@ test('配色表覆盖全部内置皮肤，全是实色，深色底不是棕色',
 test('样式只作用在 log 模式下，不写死背景色到对话框之外', () => {
     assert.ok(LOG_READER_STYLE_TEXT.includes('#igs-overlay[data-igs-log-reader="on"] #igs-log{display:block'));
     assert.ok(LOG_READER_STYLE_TEXT.includes('igs-log-chip[data-kind="heart"]'));
-    assert.ok(!/border:1px solid/.test(LOG_READER_STYLE_TEXT.replace(/border-top:1px (solid|dashed)/g, '')));
+    // 基础样式不描边；皮肤框（头像框、换场景卡、物品卡）借各皮肤自己的框线语言，另算。
+    const base = LOG_READER_STYLE_TEXT.replace(getLogFrameStyleText(), '');
+    assert.ok(!/border:1px solid/.test(base.replace(/border-top:1px (solid|dashed)/g, '')));
+    assert.ok(getLogFrameStyleText().includes('[data-igs-dialog-skin="western-classic"] #igs-log .igs-log-scene-card'));
 });
 
 test('渲染副本：去立绘与同屏，关打字机、运镜、漫画泡、碰撞、来电大窗；不改原快照', () => {
@@ -160,6 +171,29 @@ test('DOM：同一人连续只显示一次头像，没开朗读不出 ▶，情�
     assert.equal(overlay.querySelectorAll('.igs-log-play').length, 0, '已渲染的行不重建');
 });
 
+test('换情绪另起一组出差分头像，同情绪续行不重复胶囊', () => {
+    const { overlay } = mountDom();
+    const rows = logRowsOf([
+        page('dialogue', '一', { bubbleSpeaker: '小雪', bubbleMood: '喜悦' }),
+        page('dialogue', '二', { bubbleSpeaker: '小雪', bubbleMood: '喜悦' }),
+        page('dialogue', '三', { bubbleSpeaker: '小雪' }),
+        page('dialogue', '四', { bubbleSpeaker: '小雪', bubbleMood: '得意' }),
+    ], { keyOf: (n) => n });
+    assert.deepEqual(rows.map((_, i) => isContinuation(rows, i)), [false, true, true, false]);
+    syncLogReader(overlay, viewOf(rows, { view: { textEffect: { stroke: '1.6px rgba(0,0,0,0.2)', shadow: '' } } }));
+    assert.deepEqual([...overlay.querySelectorAll('.igs-log-chip')].map((c) => c.textContent), ['喜悦', '得意']);
+    assert.equal(overlay.querySelectorAll('.igs-log-row.is-cont .igs-log-name').length, 0);
+    assert.ok(overlay.querySelectorAll('.igs-log-row')[3].classList.contains('is-same'), '同一人换情绪不画分割线');
+    assert.equal(overlay.querySelector('#igs-log').getAttribute('data-mood-size'), 'm');
+    assert.equal(overlay.querySelector('.igs-log-caret'), null, '窄屏不出批末符号');
+    assert.equal(overlay.querySelector('#igs-log').style.getPropertyValue('--igs-log-stroke'), '1.6px rgba(0,0,0,0.2)');
+    const plays = [];
+    syncLogReader(overlay, viewOf(rows, { canSpeak: () => true, onPlay: (i) => plays.push(i), view: { floorKey: 'm1:2' } }));
+    assert.equal(overlay.querySelectorAll('.igs-log-play').length, 2, '一组只有一个重播键');
+    overlay.querySelector('.igs-log-play').dispatchEvent(new overlay.ownerDocument.defaultView.MouseEvent('click', { bubbles: true }));
+    assert.deepEqual(plays, [[0, 1, 2]], '连播整组');
+});
+
 test('DOM：有朗读时出 ▶ 并回调；点列表空白交给 host；退批删掉多出的行', () => {
     const { overlay, dom } = mountDom();
     const rows = logRowsOf([page('dialogue', '一', { bubbleSpeaker: 'A' }), page('dialogue', '二', { bubbleSpeaker: 'B' }), page('dialogue', '三', { bubbleSpeaker: 'C' })], { keyOf: (n) => n });
@@ -169,7 +203,7 @@ test('DOM：有朗读时出 ▶ 并回调；点列表空白交给 host；退批�
     const play = overlay.querySelectorAll('.igs-log-play');
     assert.equal(play.length, 3);
     play[1].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    assert.deepEqual(played, [1]);
+    assert.deepEqual(played, [[1]]);
     assert.equal(taps, 0);
     overlay.querySelector('.igs-log-text').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     assert.equal(taps, 1);
@@ -194,4 +228,34 @@ test('DOM：出字可以被下一次点按补完；调整立绘保存才回调',
     overlay.querySelector('[data-log-edit="save"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     assert.equal(saved.length, 1);
     assert.equal(overlay.querySelector('#igs-log-edit-bar'), null);
+});
+
+test('魔法星夜：非魔法世界只有星银、墨夜两色，窄屏底色跟着配色走', async () => {
+    const { magicHouseChoices, magicHouseFor } = await import('../src/visual/igs-ui/dialog-theme-css-skins.js');
+    assert.deepEqual(magicHouseChoices('modern').map((h) => h.id), ['starlight', 'obsidian']);
+    assert.equal(magicHouseChoices('magic').length > 2, true);
+    assert.equal(magicHouseFor('scarlet', 'modern'), 'starlight');
+    assert.equal(magicHouseFor('scarlet', 'magic'), 'scarlet');
+    assert.equal(logSkinOf({ dialogSkin: 'magic-academy', magicHouse: 'obsidian' }).skin, 'magic-academy-obsidian');
+    assert.equal(logSkinOf({ dialogSkin: 'magic-academy', magicHouse: 'scarlet', _worldview: 'magic' }).skin, 'magic-academy');
+});
+
+test('关了连续播放：点一下只出一条', () => {
+    assert.equal(logSettingsOf({ logReader: { perTap: 4 } }).perTap, 4);
+    assert.equal(logSettingsOf({ logReader: { perTap: 4, chain: false } }).perTap, 1);
+});
+
+test('往回翻：越过中线的场景报给 host，滑到底报最新一行', async () => {
+    const { overlay, dom } = mountDom();
+    const rows = logRowsOf([
+        page('narration', 'A', { sceneStateForBg: { scene: '教室' } }),
+        page('narration', 'B', { sceneStateForBg: { scene: '街角' } }),
+    ], { keyOf: (n) => n, inherited: { scene: '走廊' } });
+    const seen = [];
+    syncLogReader(overlay, viewOf(rows, { view: { onSceneRow: (i) => seen.push(i) } }));
+    const scroll = overlay.querySelector('.igs-log-scroll');
+    scroll.dataset.autoUntil = '0';
+    scroll.dispatchEvent(new dom.window.Event('scroll'));
+    await new Promise((r) => setTimeout(r, 40));
+    assert.deepEqual(seen, [1], 'jsdom 无布局，等同停在底部：报最新一行');
 });

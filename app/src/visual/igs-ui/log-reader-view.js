@@ -3,6 +3,7 @@ import { normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDispla
 import { ITEM_FX_ACTION_LABELS, normalizeItemFxSettings } from './fx-item-model.js';
 import { normalizeFxTagsSettings } from './fx-settings.js';
 import { normalizeLogReaderSettings } from './log-reader-settings.js';
+import { magicHouseFor } from './dialog-theme-css-skins.js';
 import { LOG_READER_THEMES, resolveLogSkin } from './log-reader-theme.js';
 
 const off = (value) => ({ ...(value && typeof value === 'object' ? value : {}), enabled: false });
@@ -28,7 +29,9 @@ export function logRenderSnapshot(snapshot) {
 }
 
 export function logSkinOf(readerSettings) {
-    const skin = resolveLogSkin(readerSettings && readerSettings.dialogSkin);
+    const rs = readerSettings || {};
+    const base = resolveLogSkin(rs.dialogSkin);
+    const skin = base === 'magic-academy' && magicHouseFor(rs.magicHouse, rs._worldview) === 'obsidian' ? 'magic-academy-obsidian' : base;
     return { skin, tone: LOG_READER_THEMES[skin].tone };
 }
 
@@ -72,6 +75,8 @@ export function logCardsOf(page, readerSettings) {
     return cards;
 }
 
+// 关了连续播放：每批只有一条。
 export function logSettingsOf(readerSettings) {
-    return normalizeLogReaderSettings(readerSettings && readerSettings.logReader);
+    const s = normalizeLogReaderSettings(readerSettings && readerSettings.logReader);
+    return s.chain ? s : { ...s, perTap: 1 };
 }

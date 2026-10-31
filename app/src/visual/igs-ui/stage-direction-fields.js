@@ -67,7 +67,7 @@ function renderStageFields(s, more) {
 function renderTextFields(textFx, clickWait, waitStage, more) {
     const tfx = featureRow(more, 'text-fx', `${P}.textFx.enabled`, textFx.enabled, '行内文字效果', '抖动、吼叫等字效');
     const glyphs = Object.entries(CLICK_WAIT_MARK_LABELS);
-    const clickWaitMark = featureRow(more, 'click-wait', `${P}.clickWaitMark.enabled`, clickWait.enabled, '句末等待符号', '', field(`${P}.clickWaitMark.glyph`, '符号样式', selectInput(`${P}.clickWaitMark.glyph`, clickWait.glyph, glyphs)));
+    const clickWaitMark = featureRow(more, 'click-wait', `${P}.clickWaitMark.enabled`, clickWait.enabled, '提示符号', '宽屏放在句末，窄屏阅读模式放在旁白段首', field(`${P}.clickWaitMark.glyph`, '符号样式', selectInput(`${P}.clickWaitMark.glyph`, clickWait.glyph, glyphs)));
     const wait = featureRow(more, 'wait-stage', `${P}.waitStage.enabled`, waitStage.enabled, '等待过场', '等回复时轮换一句台词', grid(
         checkbox(`${P}.waitStage.games`, waitStage.games, '等的时候能玩小游戏（需另装小游戏脚本）')
         + checkbox(`${P}.waitStage.voice`, waitStage.voice, '回放角色台词时带一声语气音'))

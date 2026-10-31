@@ -77,6 +77,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'next-turn', group: 'nav', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
     { id: 'auto-play', group: 'nav', title: '自动播放', html: ORIGINAL_READER_ICONS.play },
     { id: 'tts-replay', group: 'nav', title: '重听这句', html: ORIGINAL_READER_ICONS.replay },
+    { id: 'log-chain', group: 'nav', title: '连续播放：开', html: ORIGINAL_READER_ICONS.chainOn },
     { id: 'tts-reroll', group: 'nav', title: '重新生成这句', html: ORIGINAL_READER_ICONS.ttsReroll },
     { id: 'quick-save', group: 'nav', title: '快速存档', html: ORIGINAL_READER_ICONS.quickSave },
     { id: 'quick-load', group: 'nav', title: '快速读档', html: ORIGINAL_READER_ICONS.quickLoad },

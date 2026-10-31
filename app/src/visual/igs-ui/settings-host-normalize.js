@@ -28,6 +28,7 @@ import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.
 import { CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, normalizeClassicDialogWidthPercent, normalizeDialogSkin } from './classic-dialog-skin.js';
 import { MAGIC_ACCENT_DEFAULT, MAGIC_HOUSE_DEFAULT, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { normalizeCharacterHouses } from './magic-house.js';
+import { normalizeCharacterNameColors } from './character-name-color.js';
 import { normalizeCharacterVoices, normalizeVoiceBarkSettings } from './voice-bark.js';
 import { normalizeTtsSettings } from './tts.js';
 import { HORROR_DREAD_CAP_DEFAULT, normalizeHorrorDreadCap } from './horror-dread.js';
@@ -171,6 +172,7 @@ export function normalizeSceneAssets(value) {
         normalized.characterDefaultOutfits = normalizeCharacterDefaultOutfits(normalized.characterDefaultOutfits);
     }
     normalized.characterHouses = normalizeCharacterHouses(normalized.characterHouses);
+    if (Object.hasOwn(normalized, 'characterNameColors')) normalized.characterNameColors = normalizeCharacterNameColors(normalized.characterNameColors);
     normalized.characterVoices = normalizeCharacterVoices(normalized.characterVoices);
     normalized.characterSpriteScales = normalizeCharacterSpriteScales(normalized.characterSpriteScales);
     // 指定为 USER 立绘的角色名，空 = 不指定。

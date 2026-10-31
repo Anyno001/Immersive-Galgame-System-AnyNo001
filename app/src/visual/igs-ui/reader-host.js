@@ -134,6 +134,8 @@ import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.
 import { comicContentKey, isComicModeActive } from './comic-settings.js';
 import { batchStartsUpTo, isLogReaderActive, logRowsOf, nextBatchEnd } from './log-reader-model.js';
 import { createLogHtml, logCardsOf, logFontsOf, logRenderSnapshot, logSettingsOf, logSkinOf } from './log-reader-view.js';
+import { dialogTextEffectCss } from './dialog-text-effect.js';
+import { manualNameColor } from './character-name-color.js';
 import { finishLogReveal, isLogEditing, syncLogReader, toggleLogEdit } from './log-reader-layer.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
@@ -2434,6 +2436,10 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'tts-replay') {
             return replayTts();
         }
+        if (normalizedAction === 'log-chain') {
+            const rs = state.activeReader.snapshot.readerSettings || {};
+            return saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), chain: !logSettingsOf(rs).chain } });
+        }
         if (normalizedAction === 'tts-reroll') {
             return rerollTts();
         }
@@ -2960,6 +2966,26 @@ export function createIgsReaderHost(options = {}) {
         return found;
     }
 
+    // 名字色的来源：资料里设的主色；没设时取默认服装的默认立绘（所有衣服同一个色），再退到状态栏头像。
+    function logNameColorOf(current, snapshot, row) {
+        const assets = (snapshot.readerSettings && snapshot.readerSettings._sceneAssets) || {};
+        const color = manualNameColor(assets, row.key);
+        if (color) return { color };
+        const log = current.logReader;
+        const cacheKey = `name
+${row.key}`;
+        if (log.avatars.has(cacheKey)) return log.avatars.get(cacheKey);
+        let raw = '';
+        if (assets.enabled && log.floor.assets) { try { raw = log.floor.assets.sprite(row.speaker, '').url || ''; } catch (_) { raw = ''; } }
+        const generated = options.generatedAssets || null;
+        let url = raw && isGeneratedAssetUrl(raw) ? (generated ? generated.resolveUrl(raw) : '') : raw;
+        if (raw && !url) return null;
+        if (!url) url = resolveStatusAvatar(assets.statusAvatars, row.key) || '';
+        const found = url ? { url: resolveReaderAssetUrl(url, current) } : null;
+        log.avatars.set(cacheKey, found);
+        return found;
+    }
+
     function logTtsLine(row) {
         return { key: '', textType: row.kind === 'narr' ? (row.thought ? 'thought' : 'narration') : row.thought ? 'thought' : 'dialogue', speaker: row.speaker, text: row.text, nsfw: row.nsfw };
     }
@@ -2972,12 +2998,57 @@ export function createIgsReaderHost(options = {}) {
         return Boolean(plan && !plan.skip);
     }
 
-    function logSpeak(index) {
+    // 往回翻时背景跟着越过中线的那段场景：记下那段的起始行，与当前页同一段就不覆盖。
+    function logSceneStart(rows, i) {
+        let at = Math.max(0, Math.min(rows.length - 1, i));
+        while (at > 0 && !rows[at].scene) at--;
+        return at;
+    }
+    function logSceneRow(current, index) {
+        const log = current.logReader;
+        if (!log || !log.rows || state.activeReader !== current) return;
+        const here = logSceneStart(log.rows, Number(current.index) || 0);
+        const start = logSceneStart(log.rows, index);
+        const next = start === here ? -1 : start;
+        if (next === (log.bgFor === log.key ? log.bgRow : -1)) return;
+        log.bgRow = next;
+        log.bgFor = log.key;
+        rerenderActiveReader();
+    }
+    // 背景、时段、天气、地点、恐怖度换成那段场景的；CG、演出、配乐仍按当前页。
+    const LOG_SCENE_FIELDS = ['backgroundImage', 'backgroundTimed', 'sceneTime', 'sceneWeather', 'sceneLocation', 'sceneDread'];
+    function logSceneSnapshot(current, snapshot) {
+        const log = current.logReader;
+        if (!log || log.bgFor !== log.key || !(log.bgRow >= 0) || log.bgRow === Number(current.index)) return snapshot;
+        const cacheKey = `${log.key}:${log.bgRow}`;
+        let other = log.bgCache && log.bgCache.key === cacheKey ? log.bgCache.snapshot : null;
+        if (!other) {
+            try { other = buildReaderSnapshot(current.payload, current.mode, snapshot.readerSettings, log.bgRow); } catch (_) { other = null; }
+            log.bgCache = { key: cacheKey, snapshot: other };
+        }
+        if (!other || !other.content) return snapshot;
+        const content = { ...snapshot.content };
+        for (const field of LOG_SCENE_FIELDS) content[field] = other.content[field];
+        return { ...snapshot, content };
+    }
+
+    // 重播一组：组头与续行依次念，前一句念完再念下一句；再点别的 ▶ 时这一组停下。
+    let logSpeakToken = 0;
+    async function logSpeak(indices) {
         const current = state.activeReader;
-        const row = current && current.logReader && current.logReader.rows[index];
-        if (!row) return;
+        const log = current && current.logReader;
+        if (!log) return;
+        const token = ++logSpeakToken;
         const rs = current.snapshot.readerSettings || {};
-        speakTtsLine(logTtsLine(row), rs.tts, rs._sceneAssets);
+        const list = (Array.isArray(indices) ? indices : [indices]).map((i) => log.rows[i]).filter((row) => row && logCanSpeak(row));
+        for (let n = 0; n < list.length; n++) {
+            if (token !== logSpeakToken || state.activeReader !== current) return;
+            speakTtsLine(logTtsLine(list[n]), rs.tts, rs._sceneAssets);
+            if (n === list.length - 1) return;
+            const start = Date.now();
+            while (!isTtsSpeaking() && token === logSpeakToken && Date.now() - start < LOG_TTS_START_MS) await logWait(80);
+            while (isTtsSpeaking() && token === logSpeakToken && Date.now() - start < LOG_TTS_MAX_MS) await logWait(120);
+        }
     }
 
     // 出字完后等朗读：先等它起声（接口可能要先取音频），再等念完；批次中再点一下直接放行。
@@ -2997,6 +3068,7 @@ export function createIgsReaderHost(options = {}) {
         const key = log.key;
         log.running = true;
         log.skip = false;
+        log.bgRow = -1;
         log.batchStart = from;
         log.batchStartFor = key;
         current.autoPlayer?.refresh();
@@ -3096,8 +3168,11 @@ export function createIgsReaderHost(options = {}) {
             more: index < log.rows.length - 1,
             settings, skin, tone,
             fonts: logFontsOf(snapshot),
+            textEffect: dialogTextEffectCss(rs),
             hidden: Boolean(current.hidden),
             avatarOf: (row) => logAvatarOf(current, snapshot, row),
+            nameColorOf: (row) => logNameColorOf(current, snapshot, row),
+            nameColorSig: JSON.stringify((rs._sceneAssets && rs._sceneAssets.characterNameColors) || {}),
             symbolOf: (row) => (settings.emotion === 'off' || row.nsfw || !row.mood ? '' : pickMangaSymbol(row.mood, manga)),
             chipKindOf: (row) => (row.mood ? pickMangaSymbol(row.mood, anyManga) : ''),
             htmlOf: html,
@@ -3112,6 +3187,7 @@ export function createIgsReaderHost(options = {}) {
                 void handleReaderAction('next');
             },
             onPlay: (i) => logSpeak(i),
+            onSceneRow: (i) => logSceneRow(current, i),
             onSaveAdjust: (adjust) => saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), adjust } }),
         });
         log.revealing = result.revealing;
@@ -5230,7 +5306,7 @@ export function createIgsReaderHost(options = {}) {
                 if (state.activeReader === current && current.logReader === logRows) void runLogBatch(current, 0);
             }, 0);
         }
-        const renderSnapshot = current.logReaderActive ? logRenderSnapshot(snapshot) : snapshot;
+        const renderSnapshot = current.logReaderActive ? logRenderSnapshot(logSceneSnapshot(current, snapshot)) : snapshot;
         if (current.dom.overlay) applyReaderSnapshotToDom(current.dom.overlay, renderSnapshot, current, {
             hasActiveSettings: () => Boolean(state.activeSettings),
             closeSettings,
