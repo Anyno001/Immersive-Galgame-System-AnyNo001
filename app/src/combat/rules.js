@@ -18,7 +18,9 @@ export const COMBAT_RULES = Object.freeze({
     starterDeckShape: Object.freeze({ basicAttack: 3, basicDefend: 3, classCards: 10, personalCards: 4 }),
     storyExpCapPerFloor: 50,
     maxLevel: 20,
-    maxEnemies: 5,
+    // 敌人（P8b）：开战标签合计最多 maxEnemies，场上同时最多 maxEnemiesOnField，其余在场外按序补上。
+    maxEnemies: 50,
+    maxEnemiesOnField: 5,
     maxAllies: 3,
     // 速度：行动间隔与速度成反比；按职业原型 / 敌人档位给基准，再按档案 ID 散列浮动 ±speedJitter。
     defaultSpeed: 100,

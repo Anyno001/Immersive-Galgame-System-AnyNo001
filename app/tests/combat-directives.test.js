@@ -62,8 +62,8 @@ test('开战栏位缺失或超限时拒收，并指出栏位', () => {
     };
     assert.equal(fail('[igs-combat:start]'), 'encounter:required');
     assert.equal(fail('[igs-combat:start|伏击]'), 'enemies:required');
-    assert.equal(fail('[igs-combat:start|伏击|狼*6]'), 'enemies:too-many');
-    assert.equal(fail('[igs-combat:start|伏击|狼*3,熊*3]'), 'enemies:too-many');
+    assert.equal(fail('[igs-combat:start|伏击|狼*51]'), 'enemies:too-many');
+    assert.equal(fail('[igs-combat:start|伏击|狼*30,熊*21]'), 'enemies:too-many');
     assert.equal(fail('[igs-combat:start|伏击|狼*0]'), 'enemies:invalid-count');
     assert.equal(fail('[igs-combat:start|伏击|狼|甲,乙,丙,丁]'), 'allies:too-many');
     assert.equal(fail('[igs-combat:start|伏击|狼||传说]'), 'tier:unknown-tier');

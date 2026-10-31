@@ -5,7 +5,7 @@ import { stripIllustrationMarkers } from './scene-directives.js';
 
 // 战斗标签 [igs-combat:类型|栏位…]。开战标签只在正文最后一个非空行生效；成长标签可出现在正文任意位置。
 // 依赖方向是 combat → scene，这里不导入 combat；上限与 COMBAT_RULES 的一致性由 combat-directives.test.js 锁定。
-export const COMBAT_TAG_LIMITS = Object.freeze({ maxEnemies: 5, maxAllies: 3, storyExpCapPerFloor: 50, expMax: 1000 });
+export const COMBAT_TAG_LIMITS = Object.freeze({ maxEnemies: 50, maxAllies: 3, storyExpCapPerFloor: 50, expMax: 1000 });
 // loot 只由程序写在胜利战报块之后（翻牌兑现），账本只认战报楼里的 loot；主模型不写。
 export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot', 'heal']);
 const REPORT_ID_RE = /^r[0-9a-z]{1,13}$/;

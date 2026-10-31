@@ -11,6 +11,7 @@ import { ledgerEntryId, profileIdFor } from './schema.js';
 import { defaultHeroSkill, itemEffectsForBattle, ultimateSkill } from './card-templates.js';
 import { enemyArtKeyFor } from './enemy-art.js';
 import { enemyLoadout } from './enemy-loadout.js';
+import { hash32 } from './random.js';
 import { extractCombatStart } from '../scene/combat-directives.js';
 import { chooseCard, emptyPick, flipCard, flipView, laterPick, lootOf, normalizePick, rerollPick } from './flip.js';
 import { REROLL_COST } from './points.js';
@@ -356,7 +357,18 @@ export function lobbyVitals(lobby, difficulty = 'normal') {
     return Object.fromEntries(allyUnits(lobby, difficulty).map((u) => [u.id, { hp: u.hp ?? u.maxHp, maxHp: u.maxHp }]));
 }
 
-export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', userName } = {}) {
+// 场上 / 场外（P8b）：敌人超过场上上限时，首领先排，其余各按本场种子排序；排在前面的上场，其余按序进场外队列（首领排不下时在场外队首）。
+// 同一场重开结果不变；没有超过上限时返回 null，setup 不带 reserve，形状与旧版一致。
+function enemyReserve(foes, tiers, combatId) {
+    if (foes.length <= COMBAT_RULES.maxEnemiesOnField) return null;
+    const seed = `reserve:${combatId}`;
+    const rank = (list) => list.map((u) => [u.id, hash32(`${seed}|${u.id}`)]).sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1)).map(([id]) => id);
+    const bosses = foes.filter((u, i) => tiers[i] === 'boss');
+    const others = foes.filter((u, i) => tiers[i] !== 'boss');
+    return [...rank(bosses), ...rank(others)].slice(COMBAT_RULES.maxEnemiesOnField);
+}
+
+export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', userName, combatId = '' } = {}) {
     const id = controlledId ?? lobby.heroId;
     if (!lobby.controllable.includes(id)) return { ok: false, reason: 'combat-controlled-invalid' };
     const partyLevel = averageLevel(lobby.allies);
@@ -372,6 +384,8 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     // overkill：新开的战斗允许鞭尸与超杀（打空最后一名敌人后到结束回合才判胜）；旧记录的 setup 不带该字段，重放规则不变。
     // wipe（助手 10-29）：操控角色倒下后队友继续托管，全员倒下才判负字段，重放规则不变。
     const setup = { rulesVersion: COMBAT_RULES.version, controlledId: id, canEscape: start.tier !== 'boss', overkill: true, wipe: true, units: [...allies, ...foes] };
+    const reserve = enemyReserve(foes, tiers, combatId);
+    if (reserve) setup.reserve = reserve;
     const controlled = lobby.allies.find((v) => v.id === id);
     const awaken = awakenFor(start, controlled, lobby.heroId, userName);
     if (awaken) setup.awaken = awaken;
@@ -796,7 +810,7 @@ export function createCombatSession(deps = {}) {
     function start({ controlledId } = {}) {
         if (cur.status !== 'lobby') return fail('combat-session-not-ready');
         if (!anchorValid(cur)) return invalidate();
-        const built = buildSetup(cur.lobby, cur.start, { controlledId, difficulty: valueOf(deps.difficulty) || 'normal', userName: userOf() });
+        const built = buildSetup(cur.lobby, cur.start, { controlledId, difficulty: valueOf(deps.difficulty) || 'normal', userName: userOf(), combatId: cur.combatId });
         if (!built.ok) return fail(built.reason);
         const seed = seedFor(cur.combatId);
         const created = createBattle(built.setup, seed);

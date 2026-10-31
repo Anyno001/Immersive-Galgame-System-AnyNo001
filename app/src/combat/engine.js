@@ -176,6 +176,12 @@ function setupError(setup) {
     const enemies = setup.units.filter((u) => u.side === 'enemy').length;
     if (!enemies || enemies === setup.units.length) return { reason: 'missing-side' };
     if (enemies > COMBAT_RULES.maxEnemies) return { reason: 'too-many-enemies', detail: { max: COMBAT_RULES.maxEnemies } };
+    // setup.reserve 可选（P8b）：场外敌人 ID 队列，场上敌人倒下时按序补上；不带时全部敌人在场上，旧 setup 规则不变。
+    const reserve = setup.reserve ?? [];
+    const enemyId = (id) => setup.units.some((u) => u.id === id && u.side === 'enemy');
+    if (!Array.isArray(reserve) || reserve.length >= enemies
+        || reserve.some((id, i) => typeof id !== 'string' || reserve.indexOf(id) !== i || !enemyId(id))) return { reason: 'invalid-reserve' };
+    if (enemies - reserve.length > COMBAT_RULES.maxEnemiesOnField) return { reason: 'too-many-enemies', detail: { max: COMBAT_RULES.maxEnemiesOnField } };
     const controlled = setup.units.find((u) => u.id === setup.controlledId);
     if (!controlled || controlled.side !== 'ally' || controlled.kind !== 'deck') return { reason: 'invalid-controlled' };
     return null;
@@ -237,6 +243,21 @@ function checkOutcome(c) {
     else if (!livingIds(s, 'enemy').length && !(s.overkill === true && s.phase === 'player')) finish(c, 'victory');
 }
 
+// 场外补位（P8b）：场上敌人倒下时，场外队首接替它在行动顺序里的位置（场上不超过上限，判胜逻辑不变）；
+// 补上的敌人重新计时（下一轮才行动）、公示意图并触发自己的开战被动。场外没有敌人时什么都不做，旧战斗结算不变。
+function reinforce(c, fallen) {
+    const s = c.s;
+    if (fallen.side !== 'enemy' || !s.reserve?.length) return;
+    const id = s.reserve.shift();
+    if (!s.reserve.length) delete s.reserve;
+    s.order[s.order.indexOf(fallen.id)] = id;
+    const unit = s.units[id];
+    emit(c, { type: 'reinforce', unitId: id, replaced: fallen.id });
+    resetAv(s, unit);
+    if (unit.kind === 'skill') pickIntent(c, unit);
+    triggerPassives(c, unit, 'battle-start', null);
+}
+
 // strike：攻击伤害的段号（同一批事件内递增，见 applyDamage），只有提供时才写进伤害事件；其余伤害（中毒、荆棘等）不带。
 function loseHp(c, unit, amount, source, kind, blockable, strike = 0) {
     if (c.s.outcome || !unit.alive || amount <= 0) return 0;
@@ -264,6 +285,7 @@ function loseHp(c, unit, amount, source, kind, blockable, strike = 0) {
         unit.block = 0;
         delete c.s.intents[unit.id];
         emit(c, { type: 'defeated', unitId: unit.id });
+        reinforce(c, unit);
     } else if (hpLoss > 0) {
         afterHpLoss(c, unit);
     }
@@ -1169,6 +1191,7 @@ export function createBattle(setup, seed) {
     const error = setupError(setup) || passivesError(setup)
         || (Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff ? null : { reason: 'invalid-seed' });
     if (error) return { ok: false, state: null, events: [], error };
+    const reserved = new Set(setup.reserve || []);
     const s = {
         // 规则版本取 setup 的（v3 记录在 v4 引擎上重放时仍为 3，托管策略据此保持旧行为）；setup 不带时为当前版本。
         version: ENGINE_VERSION, rulesVersion: setup.rulesVersion ?? COMBAT_RULES.version, seed, rng: seed,
@@ -1178,10 +1201,12 @@ export function createBattle(setup, seed) {
         ...(setup.wipe === true ? { wipe: true } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((i) => ({ itemId: i.itemId, name: typeof i.name === 'string' ? i.name : i.itemId, count: i.count, effects: clone(i.effects) })) } } : {}),
+        ...(reserved.size ? { reserve: [...setup.reserve] } : {}),
     };
     const c = { s, events: [], depth: 0, exhaust: false };
     for (const u of setup.units) {
-        s.order.push(u.id);
+        // 场外敌人（P8b）只进 units，不进行动顺序、不公示意图、不计时；倒下补位时由 reinforce 接入。
+        if (!reserved.has(u.id)) s.order.push(u.id);
         s.units[u.id] = buildUnit(u);
         s.cooldowns[u.id] = {};
         s.history[u.id] = [];
@@ -1209,7 +1234,8 @@ export function createBattle(setup, seed) {
     // 开局操控角色先出牌；其余单位按出场顺序开始计时，同速时先出场的先动。
     for (const id of s.order) if (id !== s.controlledId) resetAv(s, s.units[id]);
     beginHeroTurn(c, true);
-    for (const id of s.order) {
+    // 遍历副本：开战被动击倒敌人触发补位（P8b）时会改写 s.order，补上的敌人已在 reinforce 里触发过开战被动。
+    for (const id of [...s.order]) {
         if (s.outcome) break;
         triggerPassives(c, s.units[id], 'battle-start', null);
     }
