@@ -2,7 +2,7 @@ import { createCombatTables } from '../data/shujuku/combat-tables.js';
 import { abilitiesForName, createCombatLedger, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
-import { checkCorrections, checkRollsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
+import { checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
 import { classTierEntity, deckProfileEntities, generationWrites, growthEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity, withCharacterLore, withStoryContext } from '../combat/generation.js';
 import { generateWithRetry } from '../combat/generation-retry.js';
 import { normalizeProfile, profileIdFor } from '../combat/schema.js';
@@ -280,7 +280,7 @@ export function createCombatServices(deps = {}) {
         const id = chatId();
         const list = chat();
         const ordinal = floorCheckOrdinal(list, messageId);
-        const rolls = ordinal ? checkRollsFor(id, ordinal, floorCheckSwipe(list, messageId)) : null;
+        const rolls = ordinal ? checkRollPairsFor(id, ordinal, floorCheckSwipe(list, messageId)) : null;
         if (!rolls) return { ok: false, reason: 'check-floor-unavailable' };
         const cache = getGrowth();
         if (!cache || cache.ok !== true || typeof cache.readAbilities !== 'function') return { ok: false, reason: cache?.reason || 'check-abilities-unavailable' };
@@ -297,7 +297,7 @@ export function createCombatServices(deps = {}) {
         const id = chatId();
         const list = chat();
         const ordinal = upcomingCheckOrdinal(list, generationType);
-        const rolls = ordinal ? checkRollsFor(id, ordinal, upcomingCheckSwipe(list, generationType)) : null;
+        const rolls = ordinal ? checkRollPairsFor(id, ordinal, upcomingCheckSwipe(list, generationType)) : null;
         if (!rolls) return null;
         const cache = getGrowth();
         const read = cache && cache.ok === true && typeof cache.readAbilities === 'function' ? cache.readAbilities : null;

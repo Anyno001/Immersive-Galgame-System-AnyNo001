@@ -320,3 +320,22 @@ test('正文判定复算：按出现顺序取骰，非法标签占序号，第 1
     assert.equal(stripMarkerDirectives(`他推门${tags[0]}成功了。`), '他推门成功了。');
     assert.equal(isMarkerDirectiveLine(tags[0]), true);
 });
+
+test('每楼 10 对 d20（合并计划 P3 选 B）：第一颗与旧骰序一致；第 4 栏优势取大、劣势取小，非法写法记诊断', async () => {
+    const { checkRollPairsFor, pickDie, resolveCheckRollsSegment } = await import('../src/scene/check-rolls.js');
+    const pairs = checkRollPairsFor('chat-1', 2);
+    assert.deepEqual(pairs.map((p) => p[0]), checkRollsFor('chat-1', 2));
+    assert.ok(pairs.every((p) => p.length === 2 && p.every((d) => Number.isInteger(d) && d >= 1 && d <= 20)));
+    assert.deepEqual(checkRollPairsFor('chat-1', 2, 1), checkRollPairsFor('chat-1', 2, 1));
+    assert.notDeepEqual(checkRollPairsFor('chat-1', 2, 1), pairs);
+    assert.deepEqual([pickDie([3, 18], 1), pickDie([3, 18], -1), pickDie([3, 18], 0), pickDie(7, 1)], [18, 3, 3, 7]);
+    const hero = { scores: { str: 16, dex: 10, con: 12, int: 8, wis: 10, cha: 10 }, prefs: { major: 'str', minor: 'con' }, proficiency: 2 };
+    const { results, diagnostics } = replayChecks({ body: '[igs-check:我|力量|10|优势][igs-check:我|力量|10|劣势][igs-check:我|力量|10|很好]', rolls: pairs, readAbilities: () => hero });
+    assert.deepEqual(results.map((r) => [r.edge, r.die]), [[1, Math.max(...pairs[0])], [-1, Math.min(...pairs[1])]]);
+    assert.deepEqual(diagnostics.map((d) => [d.code, d.problem]), [['check-tag-invalid', 'invalid-edge']]);
+    assert.equal(resolveCheckRollsSegment({}, { rolls: pairs }), null);
+    const seg = resolveCheckRollsSegment({}, { rolls: pairs, statsActive: true, edges: [{ name: '我', edge: -1, reasons: ['状态不佳'] }] });
+    assert.ok(seg.content.includes(`${pairs[0][0]}/${pairs[0][1]}`));
+    assert.ok(seg.content.includes('我劣势（状态不佳）'));
+});
+

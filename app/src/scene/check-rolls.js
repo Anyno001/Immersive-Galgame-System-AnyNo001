@@ -81,39 +81,69 @@ export function checkRollsFor(chatId, ordinal, swipeId = 0) {
     return rolls;
 }
 
-// 解析本楼 [igs-check:角色|属性|DC]，按正文出现顺序编号（1 起）；栏位非法的标签照样占一个序号（与模型所见顺序一致），只记诊断。
+// 每楼 10 对 d20（合并计划 P3，助手选 B）：第一颗与 checkRollsFor 相同（无优劣势时结果与旧版一致），第二颗另起一条同种子派生的序列。
+// 无优劣势取第一颗，优势取较大、劣势取较小。
+export function checkRollPairsFor(chatId, ordinal, swipeId = 0) {
+    const first = checkRollsFor(chatId, ordinal, swipeId);
+    if (!first) return null;
+    const swipe = Number.isSafeInteger(swipeId) && swipeId > 0 ? swipeId : 0;
+    let state = hash32(`igs-check-b|${String(chatId).trim()}|${ordinal}|s${swipe}`);
+    return first.map((a) => {
+        const r = randomInt(state, 20);
+        state = r.state;
+        return [a, r.value + 1];
+    });
+}
+
+// 骰对取值：edge > 0 取大、< 0 取小、0 取第一颗。旧调用给单颗骰值时两颗视为相同。
+export function pickDie(pair, edge = 0) {
+    const [a, b] = Array.isArray(pair) ? pair : [pair, pair];
+    return edge > 0 ? Math.max(a, b) : edge < 0 ? Math.min(a, b) : a;
+}
+
+const EDGE_WORD = Object.freeze({ 优势: 1, 优: 1, 劣势: -1, 劣: -1 });
+const validDie = (d) => Number.isInteger(d) && d >= 1 && d <= 20;
+const validRolls = (rolls) => Array.isArray(rolls) && rolls.length === CHECK_ROLL_COUNT
+    && rolls.every((p) => (Array.isArray(p) ? p.length === 2 && p.every(validDie) : validDie(p)));
+
+// 解析本楼 [igs-check:角色|属性|DC] 或 [igs-check:角色|属性|DC|优势/劣势]，按正文出现顺序编号（1 起）；
+// 栏位非法的标签照样占一个序号（与模型所见顺序一致），只记诊断。第 4 栏缺省为无优劣势。
 export function scanCheckTags(body) {
     const tags = [];
     const diagnostics = [];
     for (const m of String(body || '').matchAll(CHECK_TAG_RE)) {
         const fields = m[1].split('|').map((f) => f.trim());
-        const [actor = '', abilityText = '', dcText = ''] = fields;
+        const [actor = '', abilityText = '', dcText = '', edgeText = ''] = fields;
         const ability = abilityKeyOf(abilityText);
         const dc = Number(halfDigits(dcText).replace(/^dc\s*[=＝:：]?\s*/i, ''));
+        const edge = edgeText ? EDGE_WORD[edgeText] : 0;
         let problem = null;
-        if (fields.length !== 3) problem = 'field-count';
+        if (fields.length < 3 || fields.length > 4) problem = 'field-count';
         else if (!actor) problem = 'actor-missing';
         else if (!ability) problem = 'unknown-ability';
         else if (!dcText || !Number.isInteger(dc) || dc < D20_DC_RANGE[0] || dc > D20_DC_RANGE[1]) problem = 'invalid-dc';
+        else if (edge === undefined) problem = 'invalid-edge';
         const order = tags.length + 1;
-        tags.push({ order, actor, ability, dc: problem ? null : dc, valid: !problem, raw: m[0], index: m.index, end: m.index + m[0].length });
+        tags.push({ order, actor, ability, dc: problem ? null : dc, edge: problem ? 0 : edge, valid: !problem, raw: m[0], index: m.index, end: m.index + m[0].length });
         if (problem) diagnostics.push({ code: 'check-tag-invalid', problem, order, raw: m[0], index: m.index });
     }
     return { tags, diagnostics };
 }
 
-// 复算：第 n 个判定取 rolls[n-1]；第 11 次起不计。readAbilities(角色名) 同步返回属性视图，读不到记 check-actor-unknown。
+// 复算：第 n 个判定取 rolls[n-1]（一对 d20，按标签的优劣势取值；旧调用给单颗时两颗视为相同）；第 11 次起不计。
+// readAbilities(角色名) 同步返回属性视图，读不到记 check-actor-unknown。
 // 标签之后到下一个判定标签之前的前 40 字里出现的结果词与复算成败不符时记 check-mismatch（大成功算成功、大失败算失败）。
 export function replayChecks({ body, rolls, readAbilities } = {}) {
     const text = String(body || '');
     const { tags, diagnostics } = scanCheckTags(text);
     const results = [];
     if (!tags.length) return { results, diagnostics };
-    if (!Array.isArray(rolls) || rolls.length !== CHECK_ROLL_COUNT) return { results, diagnostics: [...diagnostics, { code: 'check-rolls-missing' }] };
+    if (!validRolls(rolls)) return { results, diagnostics: [...diagnostics, { code: 'check-rolls-missing' }] };
     tags.forEach((tag, i) => {
         if (tag.order > CHECK_ROLL_COUNT) { diagnostics.push({ code: 'check-over-limit', order: tag.order, raw: tag.raw, index: tag.index }); return; }
         if (!tag.valid) return;
-        const die = rolls[tag.order - 1];
+        const pair = rolls[tag.order - 1];
+        const die = pickDie(pair, tag.edge);
         let attr = null;
         try { attr = typeof readAbilities === 'function' ? readAbilities(tag.actor) : null; } catch (error) { attr = null; }
         const bonus = d20Bonus(attr, tag.ability);
@@ -122,7 +152,8 @@ export function replayChecks({ body, rolls, readAbilities } = {}) {
         const stop = i + 1 < tags.length ? tags[i + 1].index : text.length;
         const written = text.slice(tag.end, Math.min(stop, tag.end + CHECK_WRITTEN_CHARS)).match(TIER_RE)?.[0] || null;
         const mismatch = written !== null && written.includes('成功') !== r.success;
-        const result = { order: tag.order, actor: tag.actor, ability: tag.ability, label: ABILITY_LABELS[tag.ability], dc: tag.dc, die, bonus, total: r.total, tier: r.tier, success: r.success, written, mismatch, index: tag.index };
+        const dice = Array.isArray(pair) ? [...pair] : [pair, pair];
+        const result = { order: tag.order, actor: tag.actor, ability: tag.ability, label: ABILITY_LABELS[tag.ability], dc: tag.dc, edge: tag.edge, dice, die, bonus, total: r.total, tier: r.tier, success: r.success, written, mismatch, index: tag.index };
         results.push(result);
         if (mismatch) diagnostics.push({ code: 'check-mismatch', order: tag.order, actor: tag.actor, written, tier: r.tier, index: tag.index });
     });
@@ -140,25 +171,34 @@ export function checkActorBonuses(attr) {
     return out;
 }
 
+const edgeText = (edge) => (edge > 0 ? '优势' : edge < 0 ? '劣势' : '');
+
 // 上一楼复算与正文写法不符的条目，转成提示词里的一句更正。
 export function checkCorrections(results) {
     return (Array.isArray(results) ? results : []).filter((r) => r && r.mismatch)
-        .map((r) => `${r.actor}的${r.label}检定（DC ${r.dc}）实际为 ${r.die}${signed(r.bonus)}=${r.total}【${r.tier}】，正文写成了「${r.written}」`);
+        .map((r) => `${r.actor}的${r.label}检定（DC ${r.dc}${r.edge ? `，${edgeText(r.edge)}` : ''}）实际为 ${r.die}${signed(r.bonus)}=${r.total}【${r.tier}】，正文写成了「${r.written}」`);
 }
 
-// 正文提示词段：仅战斗扩展开启且骰序可用时产出。actors 为 [{ name, attr }]，corrections 为 checkCorrections 的结果。
-export function resolveCheckRollsSegment(readerSettings, { rolls, actors = [], corrections = [] } = {}) {
-    if (!combatExpansionEnabled(readerSettings) || !Array.isArray(rolls) || rolls.length !== CHECK_ROLL_COUNT) return null;
+const pairText = (p) => (Array.isArray(p) ? `${p[0]}/${p[1]}` : String(p));
+
+// 正文提示词段：战斗扩展开启或数值系统本聊天启用（statsActive）且骰序完整时产出。
+// actors 为 [{ name, attr }]；edges 为 [{ name, edge, reasons }]（当前持续的优劣势及原因，由数值系统给出）；corrections 为 checkCorrections 的结果。
+export function resolveCheckRollsSegment(readerSettings, { rolls, actors = [], edges = [], corrections = [], statsActive = false } = {}) {
+    if ((!combatExpansionEnabled(readerSettings) && statsActive !== true) || !validRolls(rolls)) return null;
     const lines = [];
     for (const a of (Array.isArray(actors) ? actors : []).slice(0, CHECK_ACTOR_MAX)) {
         const b = a && a.name ? checkActorBonuses(a.attr) : null;
         if (b) lines.push(`${a.name}：${ABILITY_KEYS.map((k) => `${ABILITY_LABELS[k]}${signed(b[k])}`).join(' ')}`);
     }
+    const edgeLines = (Array.isArray(edges) ? edges : []).filter((e) => e && e.name && Math.sign(Number(e.edge) || 0))
+        .slice(0, CHECK_ACTOR_MAX)
+        .map((e) => `${e.name}${edgeText(Math.sign(e.edge))}${Array.isArray(e.reasons) && e.reasons.length ? `（${e.reasons.join('、')}）` : ''}`);
     const content = [
-        `【检定】本层出现需要掷骰的行动时，在行动处写 [igs-check:角色|属性|DC]：属性只写 力量/敏捷/体质/智力/感知/魅力 之一；DC 写 ${D20_DC_RANGE[0]}–${D20_DC_RANGE[1]} 的整数（10 容易、15 中等、20 困难、25 极难）。本层骰序（d20，按判定出现顺序依次取用，第 1 个判定用第 1 个骰值）：${rolls.join('、')}。`,
-        `结果 = 骰值 + 该角色该属性加值，达到 DC 为成功；骰值 20 为大成功、1 为大失败。标签后紧接着按结果写剧情走向，成功与失败都推进剧情；每层最多 ${CHECK_ROLL_COUNT} 个判定，不必每层都写；正文不写骰值和算式。`,
+        `【检定】本层出现需要掷骰的行动时，在行动处写 [igs-check:角色|属性|DC]，有优势或劣势时写 [igs-check:角色|属性|DC|优势] 或 [igs-check:角色|属性|DC|劣势]：属性只写 力量/敏捷/体质/智力/感知/魅力 之一；DC 写 ${D20_DC_RANGE[0]}–${D20_DC_RANGE[1]} 的整数（10 容易、15 中等、20 困难、25 极难）。本层骰序（每个判定一对 d20，按判定出现顺序依次取用，第 1 个判定用第 1 对）：${rolls.map(pairText).join('、')}。`,
+        `取值：没有优劣势用斜线前的骰值；优势取两颗中较大的，劣势取较小的；优势与劣势同时成立时互相抵消。结果 = 取用的骰值 + 该角色该属性加值，达到 DC 为成功；骰值 20 为大成功、1 为大失败。标签后紧接着按结果写剧情走向，成功与失败都推进剧情；每层最多 ${CHECK_ROLL_COUNT} 个判定，不必每层都写；正文不写骰值和算式。`,
+        edgeLines.length ? `当前优劣势（这些人物本层检定都按此写第 4 栏）：${edgeLines.join('；')}。` : '',
         lines.length ? `在场人物加值（已含熟练）：\n${lines.join('\n')}\n未列出的人物由前端按其强弱估算。` : '',
         Array.isArray(corrections) && corrections.length ? `更正：上一层${corrections.join('；')}；以前端结果为准，本层剧情按实际结果衔接。` : '',
     ].filter(Boolean).join('\n');
-    return { id: CHECK_ROLLS_SEGMENT_ID, position: 'depth0', depth: 0, content, keys: ['check-rolls'], rolls: [...rolls] };
+    return { id: CHECK_ROLLS_SEGMENT_ID, position: 'depth0', depth: 0, content, keys: ['check-rolls'], rolls: rolls.map((p) => (Array.isArray(p) ? [...p] : p)) };
 }
