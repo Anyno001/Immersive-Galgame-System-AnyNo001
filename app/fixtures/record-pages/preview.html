@@ -142,9 +142,29 @@ const previewUse = name => {
   else { inventorySheet.content.splice(inventorySheet.content.indexOf(row), 1); heroInventory.items.splice(heroInventory.items.indexOf(item), 1); }
   return { ok: true };
 };
-const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }), heroInventory
-  ? { getHeroInventory: () => heroInventory, setHeroGear: async (id, equip) => previewGear(id, equip), useInventoryItem: async name => previewUse(name) }
-  : {});
+// ?itemart=1：给每件物品画一张示意物品图（canvas 转 data:image/png，按名字配色），用于看背包详情头的点击放大；不读任何本地素材。
+const itemArtPreview = new URLSearchParams(location.search).get('itemart') === '1';
+const itemArtCache = new Map();
+const previewItemArt = name => {
+  if (!itemArtPreview || !name) return '';
+  if (itemArtCache.has(name)) return itemArtCache.get(name);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 512;
+  const g = canvas.getContext('2d');
+  const hue = Array.from(name).reduce((sum, ch) => sum + ch.codePointAt(0), 0) % 360;
+  const bg = g.createRadialGradient(256, 220, 40, 256, 256, 300);
+  bg.addColorStop(0, `hsl(${hue} 70% 62%)`); bg.addColorStop(1, `hsl(${(hue + 40) % 360} 45% 18%)`);
+  g.fillStyle = bg; g.fillRect(0, 0, 512, 512);
+  g.fillStyle = 'rgba(255,255,255,.9)'; g.font = '700 220px "Source Han Serif CN",serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(Array.from(name)[0], 256, 270);
+  const url = canvas.toDataURL('image/png');
+  itemArtCache.set(name, url);
+  return url;
+};
+const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }), {
+  ...(heroInventory ? { getHeroInventory: () => heroInventory, setHeroGear: async (id, equip) => previewGear(id, equip), useInventoryItem: async name => previewUse(name) } : {}),
+  ...(itemArtPreview ? { resolveItemImage: previewItemArt } : {}),
+});
 const map = createMapPanelController(document, globalShim, async () => ({ ok: true }), { getChatId: () => 'preview-chat' });
 const SIZES = {
   desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768],

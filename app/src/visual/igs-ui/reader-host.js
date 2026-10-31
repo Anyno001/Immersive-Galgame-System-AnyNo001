@@ -32,6 +32,7 @@ import { overlayStatsMetrics } from '../../scene/stats/stat-metrics.js';
 import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
+import { closeItemImageViewer } from './item-image-viewer.js';
 import { createRewindController, REWIND_NOTICE } from './rewind.js';
 import { createReadingProgress, resolvePositionFloor, resolvePositionPage, segmentText, textHash, textHead, READING_METADATA_KEY } from './reading-progress.js';
 import { createTurnIndexPanel, positionLabel } from './turn-index-panel.js';
@@ -4724,7 +4725,8 @@ export function createIgsReaderHost(options = {}) {
                 if (event.key === 'Escape') {
                     event.preventDefault(); event.stopPropagation?.();
                     // 战斗面板里有选中的牌 / 技能时，Esc 先撤销选中，再按一次才关闭面板。
-                    if (combatPanel?.isOpen()) { if (!combatPanel.cancelSelection?.()) combatPanel.close(); } else if (deckPanel?.isOpen()) deckPanel.close(); else if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
+                    // 物品大图开着时 Esc 只收起大图，再按一次才关面板。
+                    if (closeItemImageViewer(doc)) { /* 已收起物品大图 */ } else if (combatPanel?.isOpen()) { if (!combatPanel.cancelSelection?.()) combatPanel.close(); } else if (deckPanel?.isOpen()) deckPanel.close(); else if (mapPanel?.isOpen()) mapPanel.close(); else recordPanel.close();
                 } else if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.stopPropagation?.();
                 return;
             }

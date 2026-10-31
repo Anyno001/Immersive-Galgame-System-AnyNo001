@@ -39,6 +39,7 @@ import { CG_GALLERY_STYLE_TEXT } from './cg-gallery-panel.js';
 import { TURN_INDEX_STYLE_TEXT } from './turn-index-panel.js';
 import { GENERATION_STRIP_STYLE_TEXT } from './generation-strip.js';
 import { INVENTORY_IMAGE_STYLE_TEXT } from './inventory-slot-image.js';
+import { ITEM_IMAGE_VIEWER_STYLE_TEXT } from './item-image-viewer.js';
 import { ITEM_CG_ICONS } from './item-cg-icons.js';
 import { ASSET_REVIEW_STYLE_TEXT } from './asset-review-panel.js';
 import { RECORD_PANEL_STYLE_TEXT } from './record-panel-style.js';
@@ -475,6 +476,7 @@ ${TURN_INDEX_STYLE_TEXT}
 ${DIALOG_BAR_STYLE_TEXT}
 ${GENERATION_STRIP_STYLE_TEXT}
 ${INVENTORY_IMAGE_STYLE_TEXT}
+${ITEM_IMAGE_VIEWER_STYLE_TEXT}
 ${STAGE_PAUSE_STYLE_TEXT}
 `.trim();
 

@@ -11,7 +11,8 @@ import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
 import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
-import { inventoryIconHtml } from './inventory-slot-image.js';
+import { inventoryIconHtml, resolveInventoryImage } from './inventory-slot-image.js';
+import { openItemImageViewer, closeItemImageViewer } from './item-image-viewer.js';
 import { recoverMediaOperation } from '../../media/tavern-media-http.js';
 import { deckReasonText } from './combat-deck-panel-render.js';
 import { STOCK_RARITY_LABELS, STOCK_SLOT_LABELS } from '../../combat/inventory-writes.js';
@@ -149,6 +150,11 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     let unsubscribeItemImages = null;
     const readItemIconMode = () => { try { return options.getItemIconMode?.() || 'image'; } catch (_) { return 'image'; } };
     const itemIcon = name => inventoryIconHtml(name, RECORD_ICONS[inventoryIconKey(name)], options.resolveItemImage, readItemIconMode());
+    // 详情头的物品图可点开大图：只在设置为「生图」且本聊天已有物品图时给按钮；点击时按物品名现取地址，不读 DOM 里的 src。
+    const zoomUrl = name => (readItemIconMode() === 'svg' ? '' : resolveInventoryImage(options.resolveItemImage, name));
+    const detailIconHtml = name => (zoomUrl(name)
+        ? `<button type="button" class="igs-record-item-detail-icon" data-record-zoom="${escapeHtml(name)}" aria-label="放大查看${escapeHtml(name)}">${itemIcon(name)}</button>`
+        : `<div class="igs-record-item-detail-icon" aria-hidden="true">${itemIcon(name)}</div>`);
     const onItemImagesChanged = () => {
         if (!root || category !== 'inventory') return;
         // 正在输入搜索词时不重绘，避免打断输入；图片在下一次渲染时出现。
@@ -278,6 +284,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     function close() {
         tableReadController?.abort(); tableReadController = null;
         if (!root) return { ok: true, reason: 'not-open' };
+        closeItemImageViewer(doc);
         unwatchLayout?.();
         unwatchLayout = null;
         const body = root.querySelector?.('.igs-record-diary-detail .igs-record-body');
@@ -452,6 +459,13 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         if (event.target === root) return close();
         const typing = event.target?.closest?.('.igs-record-body[data-igs-typewriter="running"]');
         if (typing) { cancelTypewriter(typing); return; }
+        const zoom = event.target?.closest?.('[data-record-zoom]');
+        if (zoom && root?.contains(zoom)) {
+            event.preventDefault?.();
+            const name = zoom.getAttribute('data-record-zoom') || '';
+            openItemImageViewer(doc, pageOverlay, { src: zoomUrl(name), name });
+            return;
+        }
         const button = event.target?.closest?.('[data-record-act]');
         if (!button || !root?.contains(button)) return;
         event.preventDefault?.();
@@ -564,7 +578,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const useButton = chosenMeta?.kind === 'gear' ? wearButton
                 : ((useService || typeof fillDraft === 'function') && quantity !== '0'
                     ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button>${useService ? '' : `<small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small>`}</div>` : '');
-            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head"><div class="igs-record-item-detail-icon" aria-hidden="true">${itemIcon(chosen.title)}</div><div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemKicker(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${wornTag(chosen)}${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
+            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head">${detailIconHtml(chosen.title)}<div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemKicker(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${wornTag(chosen)}${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
         }
         // 未选物品且战斗未开启时不留右栏；战斗开启时右栏常驻当前装备映射。
         const pane = detail + (heroInv ? gearMapHtml() : '');

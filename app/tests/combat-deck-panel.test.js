@@ -555,7 +555,7 @@ test('人物状态面板装备栏（P7d）：有本聊天物品图时部位标�
     assert.doesNotMatch(html(), /igs-deck-chip-art/);
     images.set('青锋剑', 'data:image/png;base64,QUFB');
     for (const fn of [...listeners]) fn();
-    assert.match(html(), /<img class="igs-deck-chip-art" src="data:image\/png;base64,QUFB"/);
+    assert.match(html(), /<button type="button" class="igs-deck-chip-art" data-deck-zoom="青锋剑"[^>]*><img src="data:image\/png;base64,QUFB"/);
     panel.close();
     assert.equal(listeners.size, 0);
 });

@@ -167,7 +167,8 @@ function deckHtml(v, d) {
 
 // 装备栏：四个部位各一行内的标签，已装备的可卸下（卸下后进背包页）；道具只列余量。
 // 有本聊天物品图（P7d，与背包同键）时标签前加小图，没有时形状不变。
-const itemArt = (x) => (x?.imageUrl ? `<img class="igs-deck-chip-art" src="${esc(x.imageUrl)}" alt="" decoding="async">` : '');
+// 小图是按钮：点开放大查看（面板按物品名现取地址，不读这里的 src）。
+const itemArt = (x) => (x?.imageUrl ? `<button type="button" class="igs-deck-chip-art" data-deck-zoom="${esc(x.name)}" aria-label="${esc(`放大查看${x.name}`)}"><img src="${esc(x.imageUrl)}" alt="" decoding="async"></button>` : '');
 function gearHtml(v, d) {
     const g = d.gear;
     if (!g) return '';

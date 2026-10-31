@@ -7,6 +7,7 @@ import { ASI_POINTS } from '../../combat/abilities.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../../combat/points.js';
 import { nextTraitSlot, planTrait, traitSeed, traitSwap } from '../../combat/traits.js';
 import { prefersReducedMotion } from './reduced-motion.js';
+import { openItemImageViewer, closeItemImageViewer } from './item-image-viewer.js';
 
 // 人物状态面板（状态、加点、装备、卡组、背包五页）：工具栏「人物状态」按钮与资料菜单「人物状态」项打开。账本、会话与手动生成由 options 注入；面板只编辑草稿、转发保存、换装、卖出与生成。
 export const COMBAT_DECK_PANEL_ID = 'igs-combat-deck-panel';
@@ -606,6 +607,13 @@ export function createCombatDeckPanelController(doc, options = {}) {
 
     function onClick(event) {
         event.stopPropagation?.();
+        const zoom = event.target?.closest?.('[data-deck-zoom]');
+        if (zoom && root?.contains?.(zoom)) {
+            event.preventDefault?.();
+            const name = zoom.getAttribute('data-deck-zoom') || '';
+            openItemImageViewer(doc, pageOverlay, { src: itemArtOf(name), name });
+            return;
+        }
         const control = event.target?.closest?.('[data-deck-act]');
         if (!control || !root?.contains?.(control)) return;
         event.preventDefault?.();
@@ -646,6 +654,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
 
     function close() {
         if (!root) return { ok: true, reason: 'not-open' };
+        closeItemImageViewer(doc);
         token += 1;
         try { abort?.abort(); } catch (error) { /* 已结束 */ }
         abort = null;
