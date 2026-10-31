@@ -575,7 +575,8 @@ export function createCombatServices(deps = {}) {
         const entities = await withCharacterLore(deckProfileEntities({ name: characterName, id, role, classRef: ref, classes: state.classes }), readLore);
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
         try { onStart?.(); } catch (error) { /* 订阅者异常不影响生成 */ }
-        const context = await withStoryContext({ protagonist: userName() }, readStoryContext, { names: [characterName, userName()], signal });
+        // 卡组生成（P8a）：整段剧情与世界书；队友另附用户人设（主角的人设已在 input.lore）。
+        const context = await withStoryContext({ protagonist: userName() }, readStoryContext, { names: [characterName, userName()], signal, full: true, persona: characterName !== userName() });
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
         const result = await generateWithRetry(entities, {
             request, llm: llm(), signal, classes: state.classes, now: Date.now(), context, retryDelays, onRetry,
@@ -633,7 +634,7 @@ export function createCombatServices(deps = {}) {
         if (!ready.ok) return { ok: false, reason: ready.reason, ...(ready.missing ? { missing: ready.missing } : {}) };
         const entities = await withCharacterLore(deckProfileEntities({ name: hero.name, id: hero.id, role: 'protagonist', classRef: hero.classRef, classes: state.classes }), readLore);
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
-        const context = await withStoryContext({ protagonist: userName() }, readStoryContext, { names: [hero.name], signal });
+        const context = await withStoryContext({ protagonist: userName() }, readStoryContext, { names: [hero.name], signal, full: true });
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
         const result = await generateWithRetry(entities, { request, llm: llm(), signal, classes: state.classes, now: Date.now(), context, retryDelays });
         if (result.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };

@@ -73,6 +73,7 @@ export const GENERATION_SYSTEM = [
     '卡牌写成 ["卡名","卡牌模板键"]：费用由程序按卡牌在列表中的位置固定——class 与 profile-deck 的 cards 第 i 张的费用是 input.costSlots[i]（超出长度后从头循环），signature 第 i 张是 input.signatureSlots[i]；按该位置的费用挑选合适的模板，费用为 0 的位置只能用「0 费槽可用」的模板；skill-to-card 仍可写第三项费用 0–3。profile-skill 与 enemy 的 skills 写成 ["技能名","技能模板键"]；被动写成 ["被动名","被动模板键"]。名称不超过 20 字，贴合角色与剧情；复合效果模板优先。',
     'input.lore 存在时是该角色的设定参考（用户人设 / 角色卡）：人物技能、个人被动、技能与卡牌名称都依据其中的性格、能力与经历设计；没有 lore 时按名字与剧情推断。',
     'context.story 存在时是最近的剧情节选，context.worldInfo 存在时是按剧情触发的世界书条目：职业名、人物技能、卡牌与敌人招式的名称和模板选择都贴合其中的世界观、势力、能力体系与正在发生的事件，不照抄原文，不与之矛盾。',
+    'context.userPersona 存在时是用户（context.protagonist）的人设，用来理解这名角色与用户的关系；卡组仍按 input.name 本人设计，不把用户的能力写成这名角色的。',
     '各 kind 的 value：',
     `- class：{"className":"职业名，≤12 字，按本故事的世界观起名，不照搬原型名；input.className 存在时照用，不得与 existingClasses 同名","archetype":"${Object.keys(COMBAT_RULES.archetypes).join('|')}","passive":职业特性（被动，同职业的人共享）,"cards":[恰好 11 张卡牌]}；稀有度由程序独立分配，模型不选择。`,
     '- profile-deck：{"classRef"?:"没有 input.classRef 时可选 existingClasses 中合适职业的 id；省略则使用同一请求里本角色的 class","aliases"?:[≤5 个称呼],"hp"?:所用职业原型在 input.archetypeHp 中的范围,"passive":个人被动,"skill":["人物技能名","卡牌模板键"]——人物技能，第二项必须取自卡牌模板目录（技能模板键在这里无效）；按这个角色本人的设定、性格与招式设计，每人不同，不要与职业特性重复；战斗中每回合可主动用一次,"cards":[4–6 张个人卡牌],"signature"?:[0–2 张专属卡]——这个角色最具代表性的绝技或成名招式，名称就是剧情里会出现的招式名，开局不持有，剧情中习得同名技能时解锁；主角与重要角色应给 2 张}',
@@ -175,16 +176,18 @@ export async function withCharacterLore(entities, read) {
 }
 
 // 剧情与世界书参考：read 由调用方注入（宿主的 combat-story-context，世界书经原生扫描器按剧情触发），combat 只调用、不直接读宿主。
-// 只在读到非空内容时给 context 加 story / worldInfo；未注入、读取失败或为空时 context 原样返回，请求形状与旧版一致。
-export async function withStoryContext(context, read, { names = [], signal } = {}) {
+// 只在读到非空内容时给 context 加 story / worldInfo / userPersona；未注入、读取失败或为空时 context 原样返回，请求形状与旧版一致。
+// full（卡组生成）要求整段剧情与世界书不截断；persona（队友卡组）另取用户人设。两项只在为 true 时传给读取器。
+export async function withStoryContext(context, read, { names = [], signal, full = false, persona = false } = {}) {
     const base = isObj(context) ? context : {};
     if (typeof read !== 'function') return base;
     let got = null;
-    try { got = await read({ names, signal }); } catch (error) { got = null; }
+    try { got = await read({ names, signal, ...(full ? { full: true } : {}), ...(persona ? { persona: true } : {}) }); } catch (error) { got = null; }
     const story = typeof got?.story === 'string' ? got.story.trim() : '';
     const worldInfo = typeof got?.worldInfo === 'string' ? got.worldInfo.trim() : '';
-    if (!story && !worldInfo) return base;
-    return { ...base, ...(story ? { story } : {}), ...(worldInfo ? { worldInfo } : {}) };
+    const userPersona = persona && typeof got?.userPersona === 'string' ? got.userPersona.trim() : '';
+    if (!story && !worldInfo && !userPersona) return base;
+    return { ...base, ...(story ? { story } : {}), ...(worldInfo ? { worldInfo } : {}), ...(userPersona ? { userPersona } : {}) };
 }
 
 export function skillProfileEntity({ name, id = profileIdFor('skill-character', name), role = 'ally' } = {}) {

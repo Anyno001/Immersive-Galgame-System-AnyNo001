@@ -678,7 +678,8 @@ export function createCombatSession(deps = {}) {
         let generation = null;
         if (entities.length) {
             // 剧情与世界书参考按参战者名字触发；未注入读取器或读不到时 context 与旧版一致。
-            const context = await withStoryContext({ encounter: found.start.encounter, tier: found.start.tier, protagonist: userName }, deps.readStoryContext, { names, signal });
+            // 本批含卡组档案（首战缺主角）时整段给出、不截断，同批敌人、奖励与补技能共用这份 context（P8a 方案 A）。
+            const context = await withStoryContext({ encounter: found.start.encounter, tier: found.start.tier, protagonist: userName }, deps.readStoryContext, { names, signal, full: entities.some((e) => e.kind === 'profile-deck') });
             generation = await generateWithRetry(await withCharacterLore(entities, deps.readLore), {
                 request, llm: valueOf(deps.llm), signal, classes: state.classes, now: now(),
                 context, retryDelays: deps.retryDelays,
