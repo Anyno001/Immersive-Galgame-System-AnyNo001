@@ -227,7 +227,7 @@ async function writeTemplateCaptions(llm, llmSettings, meta, taskState = null) {
             availableFrames: CHARACTER_DNA_VIEWS.filter(frame => readCharacterDnaView(dna, frame).ok) }))
         : characterWritingContext(frozenContext, { targetOutfitOnly: outfitData });
     const input = structuredClone({ promptTask: task.value, characterContext: writingContext,
-        ...(outfitCatalog && { outfitCatalog: outfitCatalog.map(({ id, characterKey, name }) => ({ id, characterKey, name })) }),
+        ...(outfitCatalog && { outfitCatalog: outfitCatalog.map(({ id, characterKey, name, description }) => ({ id, characterKey, name, description })) }),
         ...(meta.contextMode !== undefined && { contextMode: meta.contextMode }),
         ...(meta.originalPrompt !== undefined && { originalPrompt: meta.originalPrompt }),
         ...(meta.layout !== undefined && { layout: meta.layout }),

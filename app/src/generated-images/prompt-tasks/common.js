@@ -43,10 +43,10 @@ export const IDENTITY_RULE = [
 ].join('\n');
 export const outfitRule = ({ outfitSelection } = {}) => [
     outfitSelection === 'catalog'
-        ? '本轮 outfitCatalog 只列编号 id、角色 characterKey 和衣装名称 name。按实际画面选择属于本人的衣装编号，名称沿用该条名称；没有合适的保存衣装时编号显式留空，按剧情交付当次衣装名称。编号不能跨轮复用或借用他人衣装。不用 默认、原装、__proto__、constructor、prototype，不含 |、] 或换行。'
+        ? '本轮 outfitCatalog 列出编号 id、角色 characterKey、衣装名称 name 与保存说明 description。按实际画面选择属于本人的衣装编号，名称沿用该条名称；整套换成没有保存的衣装时编号显式留空，按剧情交付当次衣装名称。编号不能跨轮复用或借用他人衣装。不用 默认、原装、__proto__、constructor、prototype，不含 |、] 或换行。'
         : '衣装原名是绑定键：本次 outfit.name 或对应正文服装栏有名称时逐字沿用，不翻译、不扩写、不因缺说明另起名。仅两者均未命名时才命名；不用 默认、原装、__proto__、constructor、prototype，不含 |、] 或换行。',
     outfitSelection === 'catalog'
-        ? '每个 named 都写非空衣装名称与纯英文 TAG 衣装描述，Char 使用本人的 <<outfit:token>>。meta_outfit_id 填本轮属于本人的衣柜编号；选择当次衣装时竖线后留空。描述依据本次角色设定、剧情和衣装名称，不猜写未提供的保存资料。'
+        ? '每个 named 都写非空衣装名称与纯英文 TAG 衣装描述，Char 使用本人的 <<outfit:token>>。meta_outfit_id 填本轮属于本人的衣柜编号；选择当次衣装时竖线后留空。选了编号且衣装状态与保存时相同，描述逐字照抄该条 description；正文写明这套衣装破损、脏污、湿透、染血等状态变化时，以该条 description 为底，只改受影响衣物的标签并补上状态 TAG，其余标签与权重逐字保留。编号留空的当次衣装依据本次角色设定、剧情和衣装名称描述。'
         : '已保存衣装说明逐字复用。首次缺说明的新衣装保留全部已知设定，即使只提供衣装名称，也应为未限定的主要衣物确定具体颜色、材质、剪裁、领袖、开合、层次和必要普通配件，形成完整可复用设计；符合世界观、职业与场合，不把补全冒充原文事实。只有用户明确要求“不设计、仅照录已有细节”时才保留未限定项；本轮“资料提取”或“不生成画面”仅限定交付形式，不禁止细化衣装。',
     '【服装 DNA 表达】新服装说明全部使用英文 TAG，颜色、款式、长度、材质和细节均按标签表达；不写 wears...、with...、layered over... 等自然语言补述。已有保存说明仍逐字复用，不自动转换。',
     DNA_TAG_RULE,
