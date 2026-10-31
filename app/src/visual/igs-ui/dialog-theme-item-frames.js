@@ -252,7 +252,7 @@ export function getLogFrameStyleText() {
             ring ? `${at('.igs-log-av:not(.is-letter)')},${at('.igs-log-av.is-letter')}{box-shadow:${ring};}` : '',
             radius ? `${root.map((r) => `${r} #igs-log:not([data-shape]) .igs-log-av,${r} #igs-log[data-shape="card"] .igs-log-av`).join(',')}{border-radius:${radius};}` : '',
             // 破框：框线描在底板上（头伸出底板，不框头）。
-            `${at('[data-shape="break"] .igs-log-av:not(.is-letter)')}{box-shadow:none;}`,
+            `${root.map((r) => `${r} #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)`).join(',')}{box-shadow:none;}`,
             ring ? `${root.map((r) => `${r} #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)::after`).join(',')}{content:"";position:absolute;left:0;right:0;bottom:0;height:var(--igs-log-plate-h);border-radius:${radius || '14px'};box-shadow:${ring};pointer-events:none;}` : '',
             `${at('.igs-log-card')}{position:relative;${card}color:${f.ink};}`,
             f.after ? `${at('.igs-log-card::after')}{content:"";position:absolute;pointer-events:none;${f.after}}` : '',

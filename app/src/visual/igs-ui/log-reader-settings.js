@@ -4,6 +4,7 @@ export const LOG_REVEALS = Object.freeze(['flow', 'type', 'fade']);
 export const LOG_EMOTIONS = Object.freeze(['once', 'loop', 'off']);
 // 情绪符号与胶囊的大小：大 = 与名字同高，小 = 名字的一半。
 export const LOG_MOOD_SIZES = Object.freeze(['l', 'm', 's']);
+export const LOG_EDGES = Object.freeze(['flush', 'normal', 'wide']);
 // 渐变高度（占画面高度）与渐变浓度（整层不透明度）共用一组档位：50%～100%，每档 5%。
 export const LOG_PERCENTS = Object.freeze([50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]);
 export const LOG_PER_TAP_MIN = 1;
@@ -53,6 +54,8 @@ export function normalizeLogReaderSettings(value) {
         // 连续播放：开着时点一下出一批（每次显示几条），逐条出字、念完接着出下一条；关了点一下只出一条。
         chain: src.chain !== false,
         moodSize: LOG_MOOD_SIZES.includes(src.moodSize) ? src.moodSize : 'm',
+        // 离屏幕边缘：贴边 / 标准 / 宽松。
+        edge: LOG_EDGES.includes(src.edge) ? src.edge : 'normal',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'flow',
         perTap: Math.round(clamp(src.perTap, LOG_PER_TAP_MIN, LOG_PER_TAP_MAX, 4)),
         veil: LOG_PERCENTS.includes(Number(src.veil)) ? Number(src.veil) : 85,

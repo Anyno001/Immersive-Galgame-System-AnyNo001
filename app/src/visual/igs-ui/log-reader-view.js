@@ -8,11 +8,12 @@ import { LOG_READER_THEMES, resolveLogSkin } from './log-reader-theme.js';
 
 const off = (value) => ({ ...(value && typeof value === 'object' ? value : {}), enabled: false });
 
-// log 模式的渲染副本：不出立绘、同屏、漫画泡、运镜、立绘碰撞、物品大卡、来电大窗、换场景过场与地点标题卡（列表里有分隔线，背景直接切）；打字机不跑（出字交给 log 层）。
+// log 模式的渲染副本：不出立绘、同屏、漫画泡、运镜、立绘碰撞、物品大卡、通话立绘与视频窗、换场景过场与地点标题卡（列表里有分隔线，背景直接切）；打字机不跑（出字交给 log 层）。
 // 只换顶层与 readerSettings 的浅拷贝，不改共享的快照与设置。
 export function logRenderSnapshot(snapshot) {
     const rs = snapshot.readerSettings || {};
-    const fxTags = rs.fxTags && typeof rs.fxTags === 'object' ? { ...rs.fxTags, clash: false, call: false } : rs.fxTags;
+    // 通话照常（来电屏、通话中徽章、挂断记录、对方声音走听筒），只是不在舞台上放对方立绘。
+    const fxTags = rs.fxTags && typeof rs.fxTags === 'object' ? { ...rs.fxTags, clash: false, callSprite: 'hide' } : rs.fxTags;
     return {
         ...snapshot,
         content: {

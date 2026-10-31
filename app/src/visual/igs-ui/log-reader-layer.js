@@ -6,6 +6,7 @@ import { LOG_AVATAR_BOX, LOG_LOOP_LIMIT, clampLogAdjust, isContinuation, logAvat
 // 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view。
 const states = new WeakMap();
 import { VOICE_ICON } from './voice-icon.js';
+const REPLAY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>';
 import { cachedSpriteNameColor, spriteNameColor } from './character-name-color.js';
 const FLOW_STEP_MS = 18;
 const FLOW_FADE_MS = 260;
@@ -67,6 +68,11 @@ function bindLog(overlay, log) {
         if (editBtn) { event.stopPropagation(); finishEdit(overlay, editBtn.getAttribute('data-log-edit')); return; }
         if (s.editing) return;
         const row = target.closest('.igs-log-row');
+        if (row && target.closest('.igs-log-replay')) {
+            event.stopPropagation();
+            if (s.view && s.view.onReplay) s.view.onReplay(Number(row.dataset.index));
+            return;
+        }
         if (row && target.closest('.igs-log-play')) {
             event.stopPropagation();
             if (s.view && s.view.onPlay) s.view.onPlay(groupIndicesOf(row));
@@ -185,13 +191,18 @@ function paintAvatar(overlay, av) {
     const crop = logAvatarCrop(probed && probed.head, aspect, box, adjustFor(s, av.dataset.key));
     target.style.backgroundImage = `url("${cssUrl(url)}")`;
     target.style.backgroundSize = `${crop.size}px auto`;
-    target.style.backgroundPosition = `${crop.x}px ${crop.y}px`;
+    // 破框的头像层往上多出 room：同一取景整体下移 room。
+    const lift = shape === 'break' ? (LOG_AVATAR_BOX.break.room || 0) : 0;
+    target.style.backgroundPosition = `${crop.x}px ${crop.y + lift}px`;
     // 情绪符号锚在头顶右侧（与舞台上的符号同一口径）；取景框外的部分收回框边。
     const head = probed && probed.head;
     if (head && aspect > 0) {
         const x = Math.max(box.w * 0.5, Math.min(box.w + 6, crop.x + (Number(head.x) + Number(head.w) * 0.35) * crop.size));
+        // 靠右的 User：符号挂在头顶左侧（镜像）。
+        const xl = Math.max(-6, Math.min(box.w * 0.5, crop.x + (Number(head.x) - Number(head.w) * 0.35) * crop.size));
         const y = Math.max(0, Math.min(box.h * 0.6, crop.y + Number(head.top) * aspect * crop.size));
         av.style.setProperty('--igs-log-sym-x', `${Math.round(x)}px`);
+        av.style.setProperty('--igs-log-sym-xl', `${Math.round(xl)}px`);
         av.style.setProperty('--igs-log-sym-y', `${Math.round(y)}px`);
     }
     if (!probed && !av.dataset.probing) {
@@ -212,6 +223,18 @@ function buildRow(overlay, rows, i, view, live) {
         const scene = el(doc, 'div', 'igs-log-scene' + (live ? '' : ' is-in'));
         scene.textContent = row.scene;
         frag.append(scene);
+    }
+    // 聊天页 / 卡片页：列表里只留一个按钮，点了回到那一页由原渲染重放。
+    if (row.solo) {
+        const node = el(doc, 'div', 'igs-log-row is-replay' + (live ? '' : ' is-in'));
+        node.dataset.index = String(row.index);
+        const btn = el(doc, 'button', 'igs-log-replay');
+        btn.type = 'button';
+        btn.innerHTML = `${REPLAY_SVG}<span></span>`;
+        btn.querySelector('span').textContent = row.replay || '重播';
+        node.append(btn);
+        frag.append(node);
+        return { frag, node, text: null };
     }
     const cont = isContinuation(rows, i);
     const node = el(doc, 'div', 'igs-log-row' + (live ? '' : ' is-in'));
@@ -444,6 +467,7 @@ function applyLogAttrs(overlay, log, view) {
     set('data-tone', view.tone);
     set('data-shape', view.settings.avatarShape);
     set('data-mood-size', view.settings.moodSize);
+    set('data-igs-log-edge', view.settings.edge, overlay);
     set('data-user-side', view.settings.userSide);
     set('data-veil', String(view.settings.veil));
     set('data-density', String(view.settings.density));
@@ -493,7 +517,7 @@ export function syncLogReader(overlay, view) {
         for (const av of built.node.querySelectorAll('.igs-log-av[data-url]')) paintAvatar(overlay, av);
         observeRow(overlay, log, built.node);
         placeSymbol(overlay, built.node, { done: !live });
-        if (live) {
+        if (live && built.text) {
             const node = built.node;
             const scene = node.previousElementSibling && node.previousElementSibling.classList.contains('igs-log-scene') ? node.previousElementSibling : null;
             timersOf(overlay).requestAnimationFrame(() => { node.classList.add('is-in'); if (scene) scene.classList.add('is-in'); });
@@ -545,7 +569,8 @@ export function toggleLogEdit(overlay) {
     const s = overlay ? states.get(overlay) : null;
     const log = overlay && overlay.querySelector('#igs-log');
     if (!s || !log || !s.view) return false;
-    if (s.editing) { finishEdit(overlay, 'cancel'); return true; }
+    // 编辑中再点一次「调整立绘」：保存（与舞台上的调整立绘一致）。
+    if (s.editing) { finishEdit(overlay, 'save'); return true; }
     s.editing = { adjust: JSON.parse(JSON.stringify(s.view.settings.adjust || {})) };
     log.setAttribute('data-editing', '');
     const bar = el(overlay.ownerDocument, 'div');

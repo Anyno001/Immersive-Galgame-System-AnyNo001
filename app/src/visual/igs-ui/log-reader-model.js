@@ -14,7 +14,8 @@ export const LOG_LOOP_LIMIT = 2;
 // 头像取景框（px）：样式与裁切共用。faceY 是脸中心离框顶的距离；破框的底板只占框底 plate 高，头顶伸出底板。
 export const LOG_AVATAR_BOX = Object.freeze({
     card: Object.freeze({ w: 56, h: 56, faceY: 24 }),
-    break: Object.freeze({ w: 56, h: 80, faceY: 44, plate: 44 }),
+    // room：破框时头顶往上再留的空间，头发、发饰不被切掉（只往上伸，不占行高）。
+    break: Object.freeze({ w: 56, h: 80, faceY: 44, plate: 44, room: 28 }),
 });
 // 头颈肩取景宽度（头宽的倍数）。头位探测会把长发、帽子、武器算进头宽，算缩放前先封顶。
 export const LOG_BUST_SPAN = 2.3;
@@ -54,11 +55,13 @@ export function sceneLabelOf(state, prev) {
     return [time !== prevTime ? time : '', scene].filter(Boolean).join(' · ');
 }
 
-// 分页计划 → log 行。ctx：keyOf（名字 → 主名）、userKey、showSystemName、solo(i)（聊天页 / HTML 卡片页由原渲染接管）、inherited（上一楼场景）。
+// 分页计划 → log 行。ctx：keyOf（名字 → 主名）、userKey、showSystemName、solo(i)（聊天页 / HTML 卡片页由原渲染接管，返回按钮文字）、
+// textOf(i)（聊天块没开聊天演出时转成的文字，与对话框一致）、inherited（上一楼场景）。
 // kind：dialogue / thought / narr；scene 为本行前要插的换场景分隔线文字。
 export function logRowsOf(pages, ctx = {}) {
     const keyOf = typeof ctx.keyOf === 'function' ? ctx.keyOf : (name) => name;
     const solo = typeof ctx.solo === 'function' ? ctx.solo : () => false;
+    const textOf = typeof ctx.textOf === 'function' ? ctx.textOf : () => null;
     const rows = [];
     let prevState = ctx.inherited || null;
     for (let i = 0; i < (pages || []).length; i++) {
@@ -81,9 +84,10 @@ export function logRowsOf(pages, ctx = {}) {
             label: type === 'system' && ctx.showSystemName ? String(page.systemSpeaker || '') : '',
             mood: speaker ? String(page.bubbleMood || '') : '',
             user: Boolean(key && ctx.userKey && key === ctx.userKey),
-            text: logTextOf(page),
+            text: textOf(i) ?? logTextOf(page),
             scene: i === 0 && !ctx.inherited ? '' : scene,
             solo: Boolean(solo(i)),
+            replay: typeof solo(i) === 'string' ? solo(i) : '',
             nsfw: Boolean(state && state.nsfw),
         });
     }

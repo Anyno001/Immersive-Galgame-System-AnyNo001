@@ -117,7 +117,7 @@ test('样式只作用在 log 模式下，不写死背景色到对话框之外', 
     assert.ok(!getLogFrameStyleText().includes('igs-log-scene'), '换场景保持细线');
 });
 
-test('渲染副本：去立绘与同屏，关打字机、运镜、漫画泡、碰撞、来电大窗；不改原快照', () => {
+test('渲染副本：去立绘与同屏，关打字机、运镜、漫画泡、碰撞；通话照常只不放立绘；不改原快照', () => {
     const snapshot = { content: { spriteImage: 'a.png', castSprites: [{}] }, readerSettings: { typewriter: { enabled: true, speed: 3 }, fxTags: { enabled: true, call: true, clash: true }, stageCast: { enabled: true } } };
     const copy = logRenderSnapshot(snapshot);
     assert.equal(copy.content.spriteImage, null);
@@ -125,7 +125,8 @@ test('渲染副本：去立绘与同屏，关打字机、运镜、漫画泡、�
     assert.equal(copy.readerSettings.typewriter.enabled, false);
     assert.equal(copy.readerSettings.titleCard.enabled, false, '不放地点标题卡');
     assert.equal(copy.readerSettings.typewriter.speed, 3);
-    assert.equal(copy.readerSettings.fxTags.call, false);
+    assert.equal(copy.readerSettings.fxTags.call, true, '通话不吞');
+    assert.equal(copy.readerSettings.fxTags.callSprite, 'hide');
     assert.equal(copy.readerSettings.stageCast.enabled, false);
     assert.equal(snapshot.content.spriteImage, 'a.png');
     assert.equal(snapshot.readerSettings.typewriter.enabled, true);
@@ -260,4 +261,49 @@ test('往回翻：越过中线的场景报给 host，滑到底报最新一行', 
     scroll.dispatchEvent(new dom.window.Event('scroll'));
     await new Promise((r) => setTimeout(r, 40));
     assert.deepEqual(seen, [1], 'jsdom 无布局，等同停在底部：报最新一行');
+});
+
+test('聊天页 / 卡片页：列表里是重播按钮，不漏占位符；没开聊天演出时转成文字', () => {
+    const { overlay, dom } = mountDom();
+    const pages = [page('narration', '[igs-chat#0]'), page('narration', '[igs-card#0]'), page('narration', '[igs-chat#1]')];
+    const segs = ['[igs-chat#0]', '[igs-card#0]', '[igs-chat#1]'];
+    const rows = logRowsOf(pages, { keyOf: (n) => n,
+        solo: (i) => (i === 0 ? '重播聊天' : i === 1 ? '重看卡片' : ''),
+        textOf: (i) => (i === 2 ? '小雪：在吗' : i === 0 ? '' : null) });
+    assert.equal(rows[0].replay, '重播聊天');
+    assert.equal(rows[2].text, '小雪：在吗');
+    const jumped = [];
+    syncLogReader(overlay, viewOf(rows, { view: { onReplay: (i) => jumped.push(i) } }));
+    assert.equal(overlay.querySelectorAll('.igs-log-replay').length, 2);
+    assert.ok(!overlay.querySelector('#igs-log').textContent.includes('[igs-'), '占位符不进列表');
+    overlay.querySelector('.igs-log-replay').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.deepEqual(jumped, [0]);
+    assert.equal(segs.length, 3);
+});
+
+test('离边距离：贴边 / 标准 / 宽松，默认标准', () => {
+    assert.equal(normalizeLogReaderSettings({}).edge, 'normal');
+    assert.equal(normalizeLogReaderSettings({ edge: 'flush' }).edge, 'flush');
+    const { overlay } = mountDom();
+    syncLogReader(overlay, viewOf(logRowsOf([page('narration', 'A')], {}), { settings: { edge: 'wide' } }));
+    assert.equal(overlay.getAttribute('data-igs-log-edge'), 'wide');
+});
+
+test('调整立绘：编辑中再点一次工具栏按钮就保存', () => {
+    const { overlay } = mountDom();
+    const saved = [];
+    syncLogReader(overlay, viewOf(logRowsOf([page('dialogue', '一', { bubbleSpeaker: 'A' })], { keyOf: (n) => n }), { onSaveAdjust: (a) => saved.push(a) }));
+    assert.equal(toggleLogEdit(overlay), true);
+    assert.equal(toggleLogEdit(overlay), true);
+    assert.equal(saved.length, 1);
+    assert.equal(overlay.querySelector('#igs-log-edit-bar'), null);
+});
+
+test('文字增强：描边画在字外（八向阴影），不用会吃进字形的 text-stroke', async () => {
+    const { dialogTextEffectCss } = await import('../src/visual/igs-ui/dialog-text-effect.js');
+    const fx = dialogTextEffectCss({ dialogTextEffect: 'outline', dialogTextEffectColor: '#000000', dialogTextEffectStrength: 20, dialogTextEffectSize: 0.8 });
+    assert.equal(fx.stroke, '');
+    assert.equal(fx.shadow.split('),').length, 8);
+    assert.match(fx.shadow, /^0\.8px 0px 0 rgba\(0,0,0,0\.2\)/);
+    assert.equal(dialogTextEffectCss({ dialogTextEffect: 'off' }).shadow, '');
 });
