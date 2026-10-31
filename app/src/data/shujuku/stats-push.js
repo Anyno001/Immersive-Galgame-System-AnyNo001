@@ -4,6 +4,7 @@ import { parseTables } from './table-parser.js';
 import { columnLooksTextual, formatNumberCell, readAttributeCell, scaleValue, suspectRange, writeAttributeCell } from '../../scene/stats/stat-cell-format.js';
 import { stageOf } from '../../scene/stats/stat-favor.js';
 import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
+import { LEGACY_ATTRIBUTE_MAP } from '../../scene/stats/stat-registry.js';
 
 export const PUSH_TIMEOUT_MS = 3000;
 // updateCell 的行号含表头：数据行下标 + 1（与 shujuku-panel 的 toShujukuApiRowIndex、AcuDice 一致）。
@@ -131,7 +132,8 @@ export function planStatsPush(state, tables, mappings, { characterKey = (name) =
                 const updates = attrUpdates(state.protagonist.skills, m.group, baseAttributes);
                 const current = readAttributeCell(from);
                 const changed = Object.keys(updates).some((k) => current[k] !== updates[k]);
-                if (changed) push(m, i, from, writeAttributeCell(from, updates));
+                // 基础属性格里的旧六维名（健康 / 理智 / 观察）原位换成战斗六维名（合并计划 P4）。
+                if (changed) push(m, i, from, writeAttributeCell(from, updates, m.group === 'base' ? { renames: LEGACY_ATTRIBUTE_MAP } : undefined));
             } else {
                 push(m, i, from, cellValue(m, from, state.protagonist.bars[m.key]));
             }

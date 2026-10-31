@@ -51,11 +51,11 @@ test('只写有变化的目标格，其余单元格与同格其它属性逐字�
     assert.deepEqual(v[1], ['小雪', '34%', '-20%', '5%', '秘密A']);
     assert.deepEqual(v[2], ['路人', '5%', '0%', '0%', '']);
     const m = api.raw.sheet_m.content[1];
-    assert.equal(m[1], '健康:60；力量:15；敏捷:13；体质:14；智力:8；感知:12；魅力:10；');
+    assert.equal(m[1], '体质:14；力量:15；敏捷:13；智力:8；感知:12；魅力:10；');
     assert.match(m[2], /^烹饪:50；/);
     assert.equal(m[3], '近况原文');
     const rr = api.raw.sheet_r.content;
-    assert.match(rr[1][2], /^健康:60；力量:15；/);
+    assert.match(rr[1][2], /^体质:14；力量:15；/);
     assert.equal(rr[2][2], '健康:50；');
     assert.ok(api.calls.update.every((c) => c.colName !== '已知秘密' && c.colName !== '近况'));
 });

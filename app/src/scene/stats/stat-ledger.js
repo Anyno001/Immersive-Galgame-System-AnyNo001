@@ -33,6 +33,11 @@ function latestActive(ledger, below = Infinity) {
     return best ? ledger.entries.get(ledgerKey(ledger, best.messageId, best.swipeId)) || null : null;
 }
 
+// messageId 之前最近的生效楼层条目（新结算的基准记录）；没有时为 null（基准是 initial）。
+export function activeEntryBefore(ledger, messageId) {
+    return latestActive(ledger, messageId);
+}
+
 export function stateBefore(ledger, messageId) {
     const entry = latestActive(ledger, messageId);
     return entry ? entry.after : ledger.initial;

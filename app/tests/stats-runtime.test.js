@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { STATS_PROMPT_KEY, createStatsRuntime } from '../src/core/stats-runtime.js';
-import { STATS_METADATA_KEY } from '../src/scene/stats/stat-persist.js';
-import { ledgerKey } from '../src/scene/stats/stat-ledger.js';
+import { STATS_METADATA_KEY, serializeLedger } from '../src/scene/stats/stat-persist.js';
+import { createStatsLedger, ledgerKey } from '../src/scene/stats/stat-ledger.js';
+import { createStatsState } from '../src/scene/stats/stat-state.js';
+import { fakeStatsTables } from './helpers/fake-stats-db.js';
 
 const T = { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', GENERATION_STOPPED: 'gx', MESSAGE_SWIPED: 'sw', MESSAGE_DELETED: 'del', MESSAGE_UPDATED: 'upd', CHAT_CHANGED: 'chat' };
 
@@ -27,9 +29,10 @@ function fakeHost() {
 function setup(enabled = true) {
     const host = fakeHost();
     const settings = { enabled };
-    const rt = createStatsRuntime({ getContext: () => host.ctx, readSettings: () => settings });
+    const db = fakeStatsTables();
+    const rt = createStatsRuntime({ getContext: () => host.ctx, readSettings: () => settings, statsTables: db.statsTables });
     rt.sync();
-    return { host, rt, settings };
+    return { host, rt, settings, db };
 }
 
 function reply(host, text, swipeId = 0) {
@@ -67,15 +70,17 @@ test('本聊天未启用时不注入、不结算（易错点 H2）', () => {
     assert.equal(host.ctx.chatMetadata[STATS_METADATA_KEY], undefined);
 });
 
-test('正常发送：生成前注入、结束后清除并结算一次，存进聊天元数据（易错点 A3/A6/B2）', () => {
-    const { host, rt } = setup();
+test('正常发送：生成前注入、结束后清除并结算一次，写进数值日志表、不再写聊天元数据（易错点 A3/A6/B2）', async () => {
+    const { host, rt, db } = setup();
     rt.enableForChat();
     const { injected } = generate(host, '她笑了。[igs-stat:favor|小雪|开心]');
     assert.match(injected, /主角状态/);
     assert.equal(host.ctx.extensionPrompts[STATS_PROMPT_KEY], undefined);
     assert.ok(favor(rt) >= 1);
-    assert.equal(host.ctx.chatMetadata[STATS_METADATA_KEY].chatEnabled, true);
-    assert.ok(host.saves() >= 2);
+    await rt.whenSaved();
+    const types = db.raw.read().stats.map((r) => r.type);
+    assert.ok(types.includes('init') && types.includes('floor') && types.includes('chat'));
+    assert.equal(host.ctx.chatMetadata[STATS_METADATA_KEY], undefined);
     const before = favor(rt);
     host.eventSource.emit('ge', 1);
     assert.equal(favor(rt), before);
@@ -129,18 +134,21 @@ test('编辑 AI 楼正文后只重算该楼（易错点 A5）', () => {
     assert.equal(favor(rt), -6);
 });
 
-test('换聊天后从元数据读回；读不懂的新版本存档拒绝覆盖', () => {
+test('换聊天后从数值日志表读回；旧存档版本更新时拒绝导入、不覆盖', async () => {
     const { host, rt } = setup();
     rt.enableForChat();
     generate(host, '[igs-stat:favor|小雪|受伤]');
+    await rt.whenSaved();
     host.eventSource.emit('chat');
     assert.equal(rt.isChatEnabled(), true);
     assert.equal(favor(rt), -6);
-    host.ctx.chatMetadata[STATS_METADATA_KEY] = { version: 99 };
-    host.eventSource.emit('chat');
-    assert.equal(rt.enableForChat().reason, 'stats-save-newer');
-    assert.deepEqual(host.ctx.chatMetadata[STATS_METADATA_KEY], { version: 99 });
-    assert.ok(rt.getDiagnostics().some((d) => d.code === 'stats-save-newer'));
+    const fresh = setup();
+    fresh.host.ctx.chatMetadata[STATS_METADATA_KEY] = { version: 99 };
+    fresh.host.eventSource.emit('chat');
+    assert.equal(fresh.rt.enableForChat().reason, 'stats-save-newer');
+    assert.deepEqual(fresh.host.ctx.chatMetadata[STATS_METADATA_KEY], { version: 99 });
+    assert.ok(fresh.rt.getDiagnostics().some((d) => d.code === 'stats-save-newer'));
+    assert.deepEqual(fresh.db.raw.read().stats, []);
 });
 
 test('本聊天关闭后数值冻结，生成不结算', () => {
@@ -164,13 +172,14 @@ test('人物数值数据源：本聊天启用时接管已登记角色，未启�
     assert.equal(rt.metricsLookup(), null);
 });
 
-test('总开关关闭时在设置页启用本聊天：先读存档，不用空账本覆盖', () => {
-    const { host, rt, settings } = setup();
+test('总开关关闭时在设置页启用本聊天：先读存档，不用空账本覆盖', async () => {
+    const { host, rt, settings, db } = setup();
     rt.enableForChat();
     generate(host, '[igs-stat:favor|小雪|受伤]');
+    await rt.whenSaved();
     settings.enabled = false;
     rt.sync();
-    const cold = createStatsRuntime({ getContext: () => host.ctx, readSettings: () => ({ enabled: false }) });
+    const cold = createStatsRuntime({ getContext: () => host.ctx, readSettings: () => ({ enabled: false }), statsTables: db.statsTables });
     cold.sync();
     assert.equal(host.eventSource.count(), 0);
     assert.deepEqual(cold.chatStatus(), { enabled: true, blocked: '', hasChat: true });
@@ -205,18 +214,14 @@ test('先掷后写：命中技能时生成前掷骰并注入检定段，结算�
     assert.doesNotMatch(generate(host, '聊了很久。').injected, /本轮检定/);
 });
 
-test('学习表随聊天元数据存取：本地匹配使用学习词；坏条目丢弃并记诊断；旧存档没有学习表时按空表（§4.1A）', () => {
-    const { host, rt } = setup();
-    rt.enableForChat();
-    const save = host.ctx.chatMetadata[STATS_METADATA_KEY];
-    assert.deepEqual(save.learned, {});
-    delete save.learned;
+test('学习表随聊天走：旧存档的学习表导入日志表，本地匹配使用学习词；坏条目丢弃并记诊断（§4.1A）', async () => {
+    const { host, rt, db } = setup();
+    host.ctx.chatMetadata[STATS_METADATA_KEY] = { ...serializeLedger(createStatsLedger('chat-1', createStatsState()), { chatEnabled: true }), learned: { 熬魔药: '烹饪', 熬3锅: '烹饪', 乱写: 42 } };
     host.eventSource.emit('chat');
+    await rt.whenSaved();
     assert.equal(rt.isChatEnabled(), true);
-    host.ctx.chatMetadata[STATS_METADATA_KEY] = { ...host.ctx.chatMetadata[STATS_METADATA_KEY], learned: { 熬魔药: '烹饪', 熬3锅: '烹饪', 乱写: 42 } };
-    host.eventSource.emit('chat');
     assert.ok(rt.getDiagnostics().some((d) => d.code === 'stats-learned-dropped' && d.count === 2));
+    assert.ok(db.raw.read().stats.some((r) => r.type === 'learned' && r.payload.key === 'learned:熬魔药'));
     host.ctx.chat.push({ is_user: true, mes: '我熬魔药' });
     assert.match(generate(host, '锅里冒泡。').injected, /【本轮检定】烹饪：/);
-    assert.deepEqual(host.ctx.chatMetadata[STATS_METADATA_KEY].learned, { 熬魔药: '烹饪' });
 });

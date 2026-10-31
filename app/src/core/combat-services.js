@@ -95,7 +95,8 @@ export function createCombatServices(deps = {}) {
     function ensureBase() {
         const api = globalObject.AutoCardUpdaterAPI || null;
         if (!tables || tables.api !== api) {
-            tables = { api, impl: autoCreating(createCombatTables({ api })) };
+            const raw = createCombatTables({ api });
+            tables = { api, raw, impl: autoCreating(raw) };
             // difficulty 只用于扫描剧情回血标签时记下当时的回血倍率（噩梦减半）。
             ledger = createCombatLedger({ tables: tables.impl, chat, userName, sourceFilter, difficulty: () => settings().difficulty });
             tableFailure = null;
@@ -180,6 +181,26 @@ export function createCombatServices(deps = {}) {
                 const result = await getLedger().writeInit(name, raw, { signal, shouldStart: current });
                 if (result.ok && current()) await refreshGrowth();
                 return result;
+            },
+        };
+    }
+
+    // 数值日志表读写口（合并计划 P4）：与战斗表共用同一个受控写入方（同一条 FIFO 队列、逐条读回核对），战斗扩展关闭时同样可用。
+    // read 同步且不补建；ensure 只在本聊天要写数值时调用（缺表补建，与战斗读表触发的补建共用同一次在途导入）。宿主表接口不全时 ok:false。
+    function statsTables() {
+        ensureBase();
+        const raw = tables.raw;
+        const support = raw.probe();
+        if (!support.ok) return { ok: false, reason: support.reason, missing: support.missing };
+        return {
+            ok: true,
+            read: () => raw.read(),
+            append: (records, options) => raw.append('stats', records, options),
+            ensure: () => {
+                const key = chatId();
+                if (!key) return Promise.resolve({ ok: false, reason: 'stats-no-chat' });
+                tableFailure = null;
+                return createMissingTables(tables.impl, key);
             },
         };
     }
@@ -742,6 +763,6 @@ export function createCombatServices(deps = {}) {
         return Promise.resolve(run).catch(() => ({ ok: false, reason: 'combat-action-threw' }));
     }
 
-    return { getSession, getLedger, ensureTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
+    return { getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit };
 }

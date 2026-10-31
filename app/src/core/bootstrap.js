@@ -796,6 +796,8 @@ export function bootstrapIGS(options = {}) {
         sheetStore: statsSheetStore,
         // 六维与生命来自战斗日志与属性表（合并计划 Q1 / Q4），战斗扩展关闭时同样读写。
         combatSource: () => (typeof combatServices.lifeSource === 'function' ? combatServices.lifeSource() : null),
+        // 数值真值在 IGS数值·日志（合并计划 P4 / Q7），与战斗表共用同一个受控写入方。
+        statsTables: () => (typeof combatServices.statsTables === 'function' ? combatServices.statsTables() : null),
         worldviewOf: () => resolveWorldview(((getUnifiedSettingsSnapshot() || {}).bridge || {}).sceneAssets),
         resumeReply: () => hostAdapter.resumeReply?.(),
         // 掷骰卡（v2 §9.1）：阅读器开着时播放，没开不补播。

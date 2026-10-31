@@ -14,7 +14,7 @@ const QUEUE_MAX = 24;
 // 学习表（§4.1A）：「动作词 → 技能」，可选字段，旧存档没有时按空表读取（版本号不变）。
 const LEARNED_WORD = /^[^0-9０-９]{1,8}$/;
 
-function sanitizeLearned(raw) {
+export function sanitizeLearned(raw) {
     const learned = {};
     let dropped = 0;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { learned, dropped: raw == null ? 0 : 1 };

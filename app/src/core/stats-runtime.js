@@ -1,13 +1,14 @@
 // 数值系统运行时装配（§3、§4.2、§10A；v2 §5、§6；易错点 A1–A6、B1–B3、H1/H2、N1/N2/N5–N7）。
 // 只协调宿主事件、账本、注入与后台请求；结算规则在 scene/stats，正文解析不在这里做。
 // 总开关关闭时不挂任何监听（sync 解绑）；本聊天未启用时不注入、不结算，数值冻结。
-import { createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, seededRandom, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
+import { activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
 import { hash32 } from '../combat/random.js';
 import { checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { settleFloorText } from '../scene/stats/stat-settle.js';
-import { createChatStatsStore, deserializeLedger, emptyCatalog, sanitizeCatalog, serializeLedger } from '../scene/stats/stat-persist.js';
+import { createChatStatsStore, emptyCatalog, sanitizeCatalog } from '../scene/stats/stat-persist.js';
+import { chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, statTagHash, verifyStatImport } from '../scene/stats/stat-log.js';
 import { normalizeStatsSettings } from '../scene/stats/stat-settings.js';
 import { createStatsState } from '../scene/stats/stat-state.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
@@ -99,6 +100,8 @@ export function createStatsRuntime({
     describePeople = null, sheetStore = null, onCheck = () => {}, onNotices = () => {}, resumeReply = null, worldviewOf = () => '',
     // 战斗账本提供的六维与生命（合并计划 Q1/Q4）：() → { ready, readAbilities(name, { heroPrefs }), readVitals(name, { heroPrefs }), refresh({ write, messageIds, battleHurts, heroPrefs }) } | null。
     combatSource = () => null,
+    // 数值日志表（合并计划 P4 / Q7）：() → { ok, read(), append(records), ensure() } | { ok:false, reason }。缺失时数值系统不可用（fail-closed）。
+    statsTables = () => null,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -112,7 +115,13 @@ export function createStatsRuntime({
     let pushing = null;
     let pendingOption = null;
     let manualCheck = null;
-    let migratedRaw = null;
+    // 日志表状态：blocked 为不可恢复的阻断（宿主不支持、存档版本更新、导入失败）；unready 为暂时不可读（数据库未载入、读表失败、导入中）。
+    let unready = '';
+    let baseline = new Map();
+    let writeSeq = 0;
+    let lastSave = Promise.resolve();
+    let importJob = null;
+    let importFailure = null;
     let sheetJob = null;
     let backfillJob = null;
     const notices = new Map();
@@ -158,35 +167,125 @@ export function createStatsRuntime({
         emitNotices();
     }
 
-    function load() {
-        ledger = null; chatEnabled = false; blocked = ''; learned = {}; catalog = emptyCatalog(); declined = false; migratedRaw = null;
-        pendingOption = null; manualCheck = null;
-        notices.clear();
-        const read = store.read();
-        if (!read.ok) { diag('stats-read-failed', { reason: read.reason }); return; }
-        declined = read.declined === true;
-        if (!read.raw) return;
-        const r = deserializeLedger(read.raw, chatIdOf(ctx()));
-        // 读不懂的存档不覆盖：留给新版本或用户处理（持久化边界，拒绝须可诊断）。
-        if (!r.ok) { blocked = r.reason; diag(r.reason); return; }
-        if (r.dropped.length) diag('stats-save-entries-dropped', { count: r.dropped.length });
-        if (r.learnedDropped) diag('stats-learned-dropped', { count: r.learnedDropped });
-        if (r.migrated && !read.hasBackup) migratedRaw = read.raw;
-        ledger = r.ledger; chatEnabled = r.chatEnabled;
-        learned = r.learned || {};
-        catalog = r.catalog || emptyCatalog();
+    const chatOf = (c) => (c && Array.isArray(c.chat) ? c.chat : []);
+    const dbOf = () => {
+        let db = null;
+        try { db = statsTables(); } catch (error) { db = null; }
+        return db && db.ok === true ? db : { ok: false, reason: (db && db.reason) || 'stats-db-missing' };
+    };
+
+    function adopt(merged) {
+        ledger = merged.ledger;
+        chatEnabled = merged.chatEnabled;
+        catalog = merged.catalog;
+        learned = merged.learned;
+        baseline = merged.baseline;
     }
 
-    function persist() {
-        if (!ledger || blocked) return;
-        // v1 存档迁移：首次写回前留一份原样备份（v2 §3.5 第 4 条）。
-        if (migratedRaw) {
-            const b = store.backup(migratedRaw);
-            if (!b.ok) diag('stats-backup-failed', { reason: b.reason });
-            migratedRaw = null;
+    // 读档（合并计划 P4）：真值在 IGS数值·日志。表里有 init 即按日志归并；没有 init 而聊天元数据留有旧 igs_stats 时一次性导入（异步，期间不可用）。
+    // 读表失败、数据库未载入记为 unready（不当作没有存档）；宿主不支持、存档版本更新、导入失败记为 blocked，不写任何东西。
+    function load() {
+        ledger = null; chatEnabled = false; blocked = ''; unready = ''; learned = {}; catalog = emptyCatalog(); declined = false; baseline = new Map();
+        pendingOption = null; manualCheck = null;
+        notices.clear();
+        const meta = store.read();
+        if (!meta.ok) { unready = meta.reason; diag('stats-read-failed', { reason: meta.reason }); return; }
+        declined = meta.declined === true;
+        const db = dbOf();
+        if (!db.ok) { blocked = db.reason; diag(db.reason); return; }
+        const read = db.read();
+        if (!read || read.ok !== true) { unready = (read && read.reason) || 'stats-log-read-failed'; diag('stats-log-read-failed', { reason: unready }); return; }
+        const c = ctx();
+        const id = chatIdOf(c);
+        if (Array.isArray(read.stats)) {
+            const merged = mergeStatLog(read.stats, { chatId: id, chat: chatOf(c) });
+            merged.diagnostics.forEach((d) => diag(d.code, d));
+            if (merged.ledger) { adopt(merged); return; }
         }
-        const r = store.write(serializeLedger(ledger, { chatEnabled, learned, catalog }));
-        if (!r.ok) diag('stats-write-failed', { reason: r.reason });
+        if (!meta.raw) return;
+        if (importFailure && importFailure.chatId === id) {
+            blocked = importFailure.reason;
+            setNotice('import', { kind: 'info', text: `旧数值存档导入失败：${importFailure.reason}` });
+            return;
+        }
+        startImport(meta.raw, db, !Array.isArray(read.stats));
+    }
+
+    // 旧 igs_stats 导入：全部写入并逐条读回核对后才切换；原元数据不删除，失败时保持旧档不动并显示原因。
+    function startImport(raw, db, missingTable) {
+        const c = ctx();
+        const id = chatIdOf(c);
+        const plan = importLegacyStats(raw, { chatId: id, chat: chatOf(c), createdAt: Date.now() });
+        // 读不懂的存档不覆盖：留给新版本或用户处理（持久化边界，拒绝须可诊断）。
+        if (!plan.ok) { blocked = plan.reason; diag(plan.reason); return; }
+        unready = 'stats-importing';
+        if (importJob && importJob.chatId === id) return;
+        const job = { chatId: id, promise: null };
+        job.promise = (async () => {
+            if (missingTable) {
+                const made = await db.ensure();
+                if (!made || made.ok !== true) return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' };
+            }
+            const w = await db.append(plan.records);
+            if (!w || w.ok !== true || (w.pending || []).length) return { ok: false, reason: (w && (w.reason || (w.rejected && w.rejected[0] && w.rejected[0].reason))) || 'stats-import-write-failed' };
+            const back = db.read();
+            if (!back || back.ok !== true || !Array.isArray(back.stats)) return { ok: false, reason: (back && back.reason) || 'stats-import-readback-failed' };
+            return verifyStatImport(mergeStatLog(back.stats, { chatId: id, chat: chatOf(ctx()) }), plan);
+        })().catch(() => ({ ok: false, reason: 'stats-import-threw' })).then((r) => {
+            if (importJob === job) importJob = null;
+            if (chatIdOf(ctx()) !== id) return r;
+            if (r.ok) {
+                diag('stats-import-done', { skipped: plan.skipped.length });
+                if (plan.dropped.length) diag('stats-save-entries-dropped', { count: plan.dropped.length });
+                if (plan.learnedDropped) diag('stats-learned-dropped', { count: plan.learnedDropped });
+            }
+            else { importFailure = { chatId: id, reason: r.reason }; diag('stats-import-failed', { reason: r.reason }); }
+            load();
+            if (r.ok) setNotice('import', { kind: 'info', text: '已导入旧数值存档', ttl: true });
+            onChange(ledger ? currentStatsState(ledger) : null, null);
+            refreshOnboarding();
+            if (active()) syncLife();
+            return r;
+        });
+        importJob = job;
+    }
+
+    // 写入失败：记诊断并提示；聊天级基线按表里实际内容重建，下次写入补上缺的键。
+    function failWrite(r) {
+        const reason = (r && (r.reason || (r.rejected && r.rejected[0] && r.rejected[0].reason))) || 'stats-log-write-failed';
+        diag('stats-log-write-failed', { reason });
+        setNotice('save', { kind: 'info', text: `数值记录未写入数据库：${reason}` });
+        const db = dbOf();
+        const read = db.ok ? db.read() : null;
+        if (read && read.ok === true && Array.isArray(read.stats)) baseline = mergeStatLog(read.stats, { chatId: chatIdOf(ctx()), chat: chatOf(ctx()) }).baseline;
+    }
+
+    // 追加本次变化：楼层 / init 记录（extra）+ 聊天级数据与基线的差异。写入排进数据库的受控队列，结果异步核对。
+    function persist(extra = []) {
+        if (!ledger || blocked || unready) return null;
+        const db = dbOf();
+        if (!db.ok) { failWrite({ reason: db.reason }); return null; }
+        const next = chatEntries({ chatEnabled, catalog, learned });
+        writeSeq += 1;
+        const records = [...extra, ...diffChatRecords(baseline, next, { tag: `${Date.now().toString(36)}${writeSeq}`, createdAt: Date.now() })];
+        baseline = next;
+        if (!records.length) return null;
+        pendingWrites += 1;
+        pendingChat = chatIdOf(ctx());
+        const run = Promise.resolve().then(() => db.append(records)).then((r) => { if (!r || r.ok !== true) failWrite(r); return r; },
+            () => { const r = { ok: false, reason: 'stats-log-write-threw' }; failWrite(r); return r; })
+            .finally(() => { pendingWrites -= 1; });
+        lastSave = Promise.all([lastSave, run]).then(() => undefined);
+        return run;
+    }
+
+    // 未挂监听时（总开关关闭、设置页操作）每次调用前重读日志表；本运行时对同一聊天还有未完成的写入时沿用内存状态，不拿表里的旧内容覆盖。
+    let pendingWrites = 0;
+    let pendingChat = '';
+    function reloadCold() {
+        if (offs.length) return;
+        if (pendingWrites > 0 && pendingChat === chatIdOf(ctx())) return;
+        load();
     }
 
     // 单向推送到表格（§8A）：子开关关或没装表格插件时什么都不做；失败只记诊断，不影响结算。
@@ -448,7 +547,14 @@ export function createStatsRuntime({
         if (r.reused) return r;
         if (r.entry.meta && r.entry.meta.note && r.entry.meta.note.reason === 'stats-roll-skipped') diag('stats-roll-skipped', { messageId });
         for (const entry of (r.entry.meta && r.entry.meta.newSkills) || []) commitSkill(entry.name, { attribute: entry.attribute, floor: messageId });
-        persist();
+        // 本楼记录的基准：重算沿用原基准；新结算取下面最近的生效楼层（没有时为 init）。
+        const below = activeEntryBefore(ledger, messageId);
+        const baseId = prior && Object.hasOwn(prior, 'baseId') ? prior.baseId : (below ? below.recordId ?? null : null);
+        const rec = floorRecord({ messageId, swipeId: floor.swipeId, tagHash: statTagHash(text), baseId, seed: r.entry.seed,
+            before: r.entry.before, after: r.entry.after, changes: r.entry.changes, meta: r.entry.meta, createdAt: Date.now() });
+        r.entry.recordId = rec.id;
+        r.entry.baseId = baseId;
+        persist([rec]);
         onChange(currentStatsState(ledger), r.entry);
         push();
         const meta = r.entry.meta || {};
@@ -471,6 +577,8 @@ export function createStatsRuntime({
     }
 
     function onStarted(type, params, dryRun) {
+        // 换聊天时数据库尚未载入：生成前再读一次（导入中不重读）。
+        if (!ledger && unready && unready !== 'stats-importing' && dryRun !== true) { load(); autoEnable(); }
         if (dryRun === true || SKIP_TYPES.has(type) || background() || !active()) return;
         const c = ctx();
         if (!c) return;
@@ -509,7 +617,6 @@ export function createStatsRuntime({
         const m = c && Array.isArray(c.chat) ? c.chat[id] : null;
         if (!m) return;
         selectSwipe(ledger, id, Number(m.swipe_id) || 0);
-        persist();
         onChange(currentStatsState(ledger), null);
         push();
         syncLife();
@@ -520,7 +627,6 @@ export function createStatsRuntime({
         const c = ctx();
         if (!c || !Array.isArray(c.chat)) return;
         deleteFloorsFrom(ledger, c.chat.length);
-        persist();
         onChange(currentStatsState(ledger), null);
         push();
         syncLife();
@@ -581,14 +687,34 @@ export function createStatsRuntime({
         return { attached: offs.length > 0 };
     }
 
+    // 启用本聊天：首次启用写 init（建卡初始状态）与聊天开关；数值日志表缺失时先补建再写（返回 Promise）。
+    let enabling = false;
     function enableForChat({ initial } = {}) {
-        if (!offs.length) load();
+        reloadCold();
         if (blocked) return { ok: false, reason: blocked };
-        if (!chatIdOf(ctx())) return { ok: false, reason: 'stats-no-chat' };
-        if (!ledger) ledger = createStatsLedger(chatIdOf(ctx()), initial || createStatsState());
+        if (unready) return { ok: false, reason: unready };
+        const id = chatIdOf(ctx());
+        if (!id) return { ok: false, reason: 'stats-no-chat' };
+        const extra = [];
+        if (!ledger) {
+            const db = dbOf();
+            const read = db.ok ? db.read() : db;
+            if (!read || read.ok !== true) return { ok: false, reason: (read && read.reason) || 'stats-log-read-failed' };
+            if (!Array.isArray(read.stats)) {
+                if (enabling) return { ok: false, reason: 'stats-log-create-unverified' };
+                enabling = true;
+                return Promise.resolve().then(() => db.ensure()).then((made) => {
+                    if (!made || made.ok !== true) { diag('stats-log-create-failed', { reason: made && made.reason }); return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' }; }
+                    load();
+                    return enableForChat({ initial });
+                }, () => ({ ok: false, reason: 'stats-log-create-failed' })).finally(() => { enabling = false; });
+            }
+            ledger = createStatsLedger(id, initial || createStatsState());
+            extra.push(initRecord(ledger.initial, { createdAt: Date.now() }));
+        }
         chatEnabled = true;
         if (declined) { store.setDeclined(false); declined = false; }
-        persist();
+        persist(extra);
         onChange(currentStatsState(ledger), null);
         setNotice('onboarding', null);
         detectNewCharacters();
@@ -598,13 +724,13 @@ export function createStatsRuntime({
     // 新聊天「自动快速开始」：只对从未启用也未拒绝的聊天生效；暂停过的聊天不自动开（v2 §9.5）。
     function autoEnable() {
         const s = settings();
-        if (!s.enabled || s.newChat !== 'auto' || ledger || blocked || declined || !chatIdOf(ctx())) return;
-        enableForChat();
+        if (!s.enabled || s.newChat !== 'auto' || ledger || blocked || unready || declined || !chatIdOf(ctx())) return;
+        Promise.resolve(enableForChat()).catch(() => {});
     }
 
     function refreshOnboarding() {
         const s = settings();
-        const show = s.enabled && s.newChat === 'ask' && !ledger && !blocked && !declined && Boolean(chatIdOf(ctx()));
+        const show = s.enabled && s.newChat === 'ask' && !ledger && !blocked && !unready && !declined && Boolean(chatIdOf(ctx()));
         setNotice('onboarding', show ? {
             kind: 'onboarding', text: '数值系统：本聊天是否启用？',
             actions: [['quick', '快速开始'], ['build', '建卡'], ['decline', '本聊天不用']],
@@ -927,13 +1053,13 @@ export function createStatsRuntime({
         dropBackup: () => store.dropBackup(),
         // 设置页「存档」区用；未挂监听时同样先从元数据重读。暂停的聊天也显示冻结的数值。
         archive() {
-            if (!offs.length) load();
+            reloadCold();
             return ledger ? statsArchiveModel(ledger, { catalog, engine: engineOf(), hasBackup: store.read().hasBackup }) : null;
         },
         // 设置页「本聊天」区块用。未挂监听（总开关启动时关闭）时先从元数据重读，避免拿旧状态或空账本覆盖存档。
         chatStatus() {
-            if (!offs.length) load();
-            return { enabled: chatEnabled, blocked, hasChat: Boolean(chatIdOf(ctx())) };
+            reloadCold();
+            return { enabled: chatEnabled, blocked: blocked || unready, hasChat: Boolean(chatIdOf(ctx())) };
         },
         // 状态栏 / 人际关系页的数据源：只有总开关与本聊天都启用时才接管，否则返回 null 让调用方读表格（易错点 H3）。
         metricsLookup() {
@@ -944,12 +1070,15 @@ export function createStatsRuntime({
         enableForChat,
         // 本聊天关闭：数值冻结，不清存档（§10A）。
         disableForChat() {
-            if (!offs.length) load();
+            reloadCold();
             if (blocked) return { ok: false, reason: blocked };
+            if (unready) return { ok: false, reason: unready };
             chatEnabled = false;
             clearPrompt();
             persist();
             return { ok: true };
         },
+        // 等待已排队的数值日志写入完成（设置页与测试用）；导入进行中时一并等待。
+        whenSaved: () => Promise.all([lastSave, importJob ? importJob.promise : null]).then(() => undefined),
     };
 }

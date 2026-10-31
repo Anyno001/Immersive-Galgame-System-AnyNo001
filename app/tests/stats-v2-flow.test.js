@@ -11,6 +11,7 @@ import { createSkillRegistry, registerStorySkill, STORY_SKILL_MAX } from '../src
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
 import { stripMarkerDirectives } from '../src/scene/directive-tags.js';
 import { hash32 } from '../src/combat/random.js';
+import { fakeStatsTables } from './helpers/fake-stats-db.js';
 
 const T = { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', GENERATION_STOPPED: 'gx', MESSAGE_SWIPED: 'sw', MESSAGE_DELETED: 'del', MESSAGE_UPDATED: 'upd', CHAT_CHANGED: 'chat' };
 
@@ -34,9 +35,10 @@ function setup(extra = {}, opts = {}) {
     const settings = { enabled: true, ...extra };
     const checks = [];
     const notices = [];
-    const rt = createStatsRuntime({ getContext: () => h.ctx, readSettings: () => settings, onCheck: (c) => checks.push(c), onNotices: (n) => notices.push(n), ...opts });
+    const db = fakeStatsTables();
+    const rt = createStatsRuntime({ getContext: () => h.ctx, readSettings: () => settings, onCheck: (c) => checks.push(c), onNotices: (n) => notices.push(n), statsTables: db.statsTables, ...opts });
     rt.sync();
-    return { h, rt, settings, checks, notices };
+    return { h, rt, settings, checks, notices, db };
 }
 
 function generate(h, text, type = 'normal') {
@@ -130,27 +132,27 @@ test('数值系统未启用时选项骰子返回 null，交回 AcuDice', () => {
     assert.equal(rt.resolveDice('检定 <user> 侦查'), null);
 });
 
-test('v1 存档自动迁移：底数不变，首次写回前留一份备份，只备份一次（§3.5）', () => {
-    const { h, rt } = setup();
+test('旧 igs_stats（v1）一次性导入数值日志表：写入并读回核对后才切换；原元数据不动、不另留备份；再次打开不重复导入（合并计划 P4）', async () => {
+    const { h, rt, db } = setup();
     const ledger = createStatsLedger('chat-1', createStatsState());
     const v1 = { ...serializeLedger(ledger, { chatEnabled: true }), version: 1 };
     delete v1.catalog;
+    const kept = JSON.parse(JSON.stringify(v1));
     h.ctx.chatMetadata[STATS_METADATA_KEY] = v1;
     h.eventSource.emit('chat');
+    assert.equal(rt.isChatEnabled(), false);
+    await rt.whenSaved();
     assert.equal(rt.isChatEnabled(), true);
+    assert.deepEqual(h.ctx.chatMetadata[STATS_METADATA_KEY], kept);
+    assert.equal(h.ctx.chatMetadata[STATS_BACKUP_KEY], undefined);
     h.ctx.chat.push({ is_user: true, mes: '你好' });
     generate(h, '[igs-stat:favor|小雪|开心]');
-    assert.equal(h.ctx.chatMetadata[STATS_BACKUP_KEY].version, 1);
-    assert.equal(h.ctx.chatMetadata[STATS_METADATA_KEY].version, 2);
-    assert.deepEqual(h.ctx.chatMetadata[STATS_METADATA_KEY].catalog.story, emptyCatalog().story);
-    assert.deepEqual(h.ctx.chatMetadata[STATS_METADATA_KEY].catalog.sheets, {});
-    h.ctx.chatMetadata[STATS_BACKUP_KEY] = 'kept';
+    await rt.whenSaved();
     h.eventSource.emit('chat');
-    generate(h, '[igs-stat:favor|小雪|开心]');
-    assert.equal(h.ctx.chatMetadata[STATS_BACKUP_KEY], 'kept');
-    const back = deserializeLedger(h.ctx.chatMetadata[STATS_METADATA_KEY], 'chat-1');
-    assert.equal(back.ok, true);
-    assert.equal(back.migrated, false);
+    await rt.whenSaved();
+    assert.ok(rt.getState().characters.小雪.dims.好感 >= 1);
+    assert.equal(db.raw.read().stats.filter((r) => r.type === 'init').length, 1);
+    assert.deepEqual(rt.getCatalog().story, emptyCatalog().story);
 });
 
 test('开局引导：总开关开、本聊天未定时出提示；选「本聊天不用」后不再出；「自动快速开始」直接启用（§9.5）', () => {
