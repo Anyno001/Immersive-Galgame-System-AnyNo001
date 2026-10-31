@@ -10,6 +10,7 @@ import { parseSheetReply, sheetFromTiers, parseBackfillReply, applyBackfillToShe
 import { createSkillRegistry, registerStorySkill, STORY_SKILL_MAX } from '../src/scene/stats/stat-registry.js';
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
 import { stripMarkerDirectives } from '../src/scene/directive-tags.js';
+import { hash32 } from '../src/combat/random.js';
 
 const T = { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', GENERATION_STOPPED: 'gx', MESSAGE_SWIPED: 'sw', MESSAGE_DELETED: 'del', MESSAGE_UPDATED: 'upd', CHAT_CHANGED: 'chat' };
 
@@ -230,4 +231,20 @@ test('战斗按 D&D：攻击检定对 AC，闪避为敏捷豁免；战败不死�
     assert.equal(r.meta.flags.battle.outcome, '败');
     assert.equal(r.meta.flags.battleHurt, '轻伤');
     assert.equal(r.state.protagonist.bars.health, undefined);
+});
+
+
+test('本楼随机按「聊天 ID + AI 楼序号 + swipe」定种子：同一 swipe 结果可复现，换 swipe 换种子（合并计划 P3）', () => {
+    const { h, rt } = setup();
+    rt.enableForChat();
+    const { id } = generate(h, '[igs-stat:favor|小雪|开心]');
+    const entry = rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 0));
+    assert.equal(entry.seed, hash32('igs-stat-settle|chat-1|1|s0'));
+    h.eventSource.emit('gs', 'swipe', {}, false);
+    h.ctx.chat[id].swipe_id = 1;
+    h.ctx.chat[id].mes = '[igs-stat:favor|小雪|开心]';
+    h.eventSource.emit('ge', id);
+    const other = rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 1));
+    assert.equal(other.seed, hash32('igs-stat-settle|chat-1|1|s1'));
+    assert.notEqual(other.seed, entry.seed);
 });

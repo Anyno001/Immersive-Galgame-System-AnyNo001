@@ -1,8 +1,10 @@
 // 数值系统运行时装配（§3、§4.2、§10A；v2 §5、§6；易错点 A1–A6、B1–B3、H1/H2、N1/N2/N5–N7）。
 // 只协调宿主事件、账本、注入与后台请求；结算规则在 scene/stats，正文解析不在这里做。
 // 总开关关闭时不挂任何监听（sync 解绑）；本聊天未启用时不注入、不结算，数值冻结。
-import { createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
+import { createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, seededRandom, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
+import { hash32 } from '../combat/random.js';
+import { floorCheckOrdinal, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
 import { settleFloorText } from '../scene/stats/stat-settle.js';
 import { createChatStatsStore, deserializeLedger, emptyCatalog, sanitizeCatalog, serializeLedger } from '../scene/stats/stat-persist.js';
 import { normalizeStatsSettings } from '../scene/stats/stat-settings.js';
@@ -43,6 +45,14 @@ function lastUserText(c) {
 function chatIdOf(c) {
     try { if (c && typeof c.getCurrentChatId === 'function') return String(c.getCurrentChatId() ?? ''); } catch (error) { /* */ }
     return String((c && c.chatId) || '');
+}
+
+// 本楼种子（合并计划 P3）：聊天 ID + AI 楼序号 + swipe 序号；同一 swipe 重算、重开聊天结果不变，换 swipe 换一组。
+// 没有聊天 ID 或楼号时返回 null（调用方退回加密随机）。
+function floorSeedOf(chatId, ordinal, swipeId, kind = 'settle') {
+    const id = String(chatId || '').trim();
+    if (!id || !Number.isSafeInteger(ordinal) || ordinal < 1) return null;
+    return hash32(`igs-stat-${kind}|${id}|${ordinal}|s${Number.isSafeInteger(swipeId) && swipeId > 0 ? swipeId : 0}`);
 }
 
 function cardOf(c) {
@@ -313,6 +323,7 @@ export function createStatsRuntime({
         const m = c && Array.isArray(c.chat) ? c.chat[messageId] : null;
         if (!m || m.is_user || m.is_system) return null;
         const floor = { messageId, swipeId: Number(m.swipe_id) || 0 };
+        const seed = floorSeedOf(chatIdOf(c), floorCheckOrdinal(c.chat, messageId), floor.swipeId);
         const s = settings();
         const resolve = resolveCharacter || defaultResolver(c, s.register);
         const prior = ledger.entries.get(ledgerKey(ledger, messageId, floor.swipeId));
@@ -334,7 +345,7 @@ export function createStatsRuntime({
             if (Object.keys(note).length) meta.note = note;
             return { ...r, meta };
         };
-        const r = redo ? resettleFloor(ledger, floor, settle) : settleFloor(ledger, floor, settle);
+        const r = redo ? resettleFloor(ledger, floor, settle) : settleFloor(ledger, floor, settle, seed === null ? undefined : seed);
         if (r.reused) return r;
         if (r.entry.meta && r.entry.meta.note && r.entry.meta.note.reason === 'stats-roll-skipped') diag('stats-roll-skipped', { messageId });
         for (const entry of (r.entry.meta && r.entry.meta.newSkills) || []) commitSkill(entry.name, { attribute: entry.attribute, floor: messageId });
