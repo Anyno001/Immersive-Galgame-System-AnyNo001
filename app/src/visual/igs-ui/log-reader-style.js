@@ -76,12 +76,11 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log[data-tone="light"] .igs-log-name{color:color-mix(in oklab,var(--igs-log-hue) 55%,var(--igs-log-ink));}
 /* 重播键：目录回想同款喇叭，无底板。台词紧跟名字（靠右的 User 在名字左边）；旁白浮在末行右端。 */
 #igs-log .igs-log-play{flex:none;width:24px;height:22px;margin-left:-2px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--igs-log-sub);display:grid;place-items:center;cursor:pointer;}
-/* 旁白没有名字行：键浮在末行右端，末行放不下就落到下一行。 */
+/* 旁白没有名字行：键紧跟在句末最后一个字后面（不靠边，免得和点画面翻页抢位置）。 */
 #igs-log .igs-log-row.is-narr .igs-log-body{font-size:calc(var(--igs-log-fs) - .5px);}
-#igs-log .igs-log-body>.igs-log-play{float:right;margin:calc((var(--igs-log-fs) * 1.75 - 22px) / 2) 0 0 8px;}
+#igs-log .igs-log-body>.igs-log-play{display:inline-grid;vertical-align:-5px;margin:0 0 0 4px;}
 #igs-log .igs-log-body:has(>.igs-log-play)>.igs-log-text{display:inline;}
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-body:has(>.igs-log-play){text-align:right;}
-#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-body>.igs-log-play{float:left;margin-left:0;margin-right:8px;}
 #igs-log .igs-log-play svg{width:16px;height:16px;}
 
 #igs-log .igs-log-text{font-family:var(--igs-log-font,inherit);font-size:var(--igs-log-fs);line-height:1.75;color:var(--igs-log-ink);word-break:break-word;text-align:justify;paint-order:stroke fill;-webkit-text-stroke:var(--igs-log-stroke,0 transparent);text-shadow:var(--igs-log-shadow,none);}
@@ -119,7 +118,6 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log .igs-log-scene.is-in{opacity:1;}
 #igs-log .igs-log-scene::before,#igs-log .igs-log-scene::after{content:"";width:46px;border-top:1px solid var(--igs-log-line);}
 #igs-log .igs-log-scene+.igs-log-row::before{display:none;}
-#igs-log .igs-log-scene-card{display:inline-block;padding:6px 16px;border-radius:999px;background:var(--igs-log-plate);color:var(--igs-log-sub);letter-spacing:.3em;}
 /* 物品、来电：列表里的小卡片。 */
 #igs-log .igs-log-card{display:flex;align-items:center;gap:8px;margin:0 0 14px ${CARD.w + 14}px;padding:8px 12px;border-radius:12px;background:var(--igs-log-plate);color:var(--igs-log-ink);font-size:12.5px;line-height:1.4;}
 #igs-log .igs-log-card b{color:var(--igs-log-acc);font-weight:600;}

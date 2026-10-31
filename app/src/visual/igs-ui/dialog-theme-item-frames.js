@@ -238,7 +238,7 @@ export function getDialogThemeItemFrameStyleText(skin) {
     return rules.join('\n');
 }
 
-// 窄屏阅读模式借同一套框：头像描皮肤的框线（圆角方再借圆角），换场景卡与物品小卡片用皮肤卡片；正文区不加装饰。
+// 窄屏阅读模式借同一套框：头像描皮肤的框线（圆角方再借圆角），物品小卡片用皮肤卡片；换场景仍是细线，正文区不加装饰。
 const ringOf = (icon) => (/box-shadow:([^;]+);/.exec(icon) || [])[1] || '';
 const radiusOf = (icon) => (/border-radius:([^;]+);/.exec(icon) || [])[1] || '';
 export function getLogFrameStyleText() {
@@ -254,8 +254,8 @@ export function getLogFrameStyleText() {
             // 破框：框线描在底板上（头伸出底板，不框头）。
             `${at('[data-shape="break"] .igs-log-av:not(.is-letter)')}{box-shadow:none;}`,
             ring ? `${root.map((r) => `${r} #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)::after`).join(',')}{content:"";position:absolute;left:0;right:0;bottom:0;height:var(--igs-log-plate-h);border-radius:${radius || '14px'};box-shadow:${ring};pointer-events:none;}` : '',
-            `${at('.igs-log-scene-card')},${at('.igs-log-card')}{position:relative;${card}color:${f.ink};}`,
-            f.after ? `${at('.igs-log-scene-card::after')},${at('.igs-log-card::after')}{content:"";position:absolute;pointer-events:none;${f.after}}` : '',
+            `${at('.igs-log-card')}{position:relative;${card}color:${f.ink};}`,
+            f.after ? `${at('.igs-log-card::after')}{content:"";position:absolute;pointer-events:none;${f.after}}` : '',
             `${at('.igs-log-card b')}{color:${f.mention};}`,
         ].filter(Boolean).join('\n');
     }).join('\n');

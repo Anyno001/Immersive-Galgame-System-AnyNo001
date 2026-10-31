@@ -210,9 +210,7 @@ function buildRow(overlay, rows, i, view, live) {
     const frag = doc.createDocumentFragment();
     if (row.scene) {
         const scene = el(doc, 'div', 'igs-log-scene' + (live ? '' : ' is-in'));
-        const card = el(doc, 'span', 'igs-log-scene-card');
-        card.textContent = row.scene;
-        scene.append(card);
+        scene.textContent = row.scene;
         frag.append(scene);
     }
     const cont = isContinuation(rows, i);

@@ -113,7 +113,8 @@ test('样式只作用在 log 模式下，不写死背景色到对话框之外', 
     // 基础样式不描边；皮肤框（头像框、换场景卡、物品卡）借各皮肤自己的框线语言，另算。
     const base = LOG_READER_STYLE_TEXT.replace(getLogFrameStyleText(), '');
     assert.ok(!/border:1px solid/.test(base.replace(/border-top:1px (solid|dashed)/g, '')));
-    assert.ok(getLogFrameStyleText().includes('[data-igs-dialog-skin="western-classic"] #igs-log .igs-log-scene-card'));
+    assert.ok(getLogFrameStyleText().includes('[data-igs-dialog-skin="western-classic"] #igs-log .igs-log-card'));
+    assert.ok(!getLogFrameStyleText().includes('igs-log-scene'), '换场景保持细线');
 });
 
 test('渲染副本：去立绘与同屏，关打字机、运镜、漫画泡、碰撞、来电大窗；不改原快照', () => {
@@ -122,6 +123,7 @@ test('渲染副本：去立绘与同屏，关打字机、运镜、漫画泡、�
     assert.equal(copy.content.spriteImage, null);
     assert.deepEqual(copy.content.castSprites, []);
     assert.equal(copy.readerSettings.typewriter.enabled, false);
+    assert.equal(copy.readerSettings.titleCard.enabled, false, '不放地点标题卡');
     assert.equal(copy.readerSettings.typewriter.speed, 3);
     assert.equal(copy.readerSettings.fxTags.call, false);
     assert.equal(copy.readerSettings.stageCast.enabled, false);
