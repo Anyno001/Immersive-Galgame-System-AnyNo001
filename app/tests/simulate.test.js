@@ -1392,3 +1392,25 @@ test('gate:simulation:outfit-scene-bound-expires-after-scene-change', async () =
         vn.destroy();
     }
 });
+
+test('酒馆主界面没进对话：阅读器不开并提醒进入对话，设置器照常打开', async () => {
+    const document = createFakeDocument();
+    const toasts = [];
+    const global = { document, localStorage: createMemoryStorage({}),
+        toastr: { warning: (text) => toasts.push(text) },
+        SillyTavern: { getContext: () => ({ name2: 'SillyTavern System', getCurrentChatId: () => undefined }) } };
+    let read = 0;
+    const vn = bootstrapIGS({ global, autoAttachMagicWand: false,
+        hostAdapter: { getCurrentMessage: async () => { read += 1; return { id: 1, text: '你好。' }; }, typeAndSend: async () => ({ ok: true }) } });
+    try {
+        const opened = await vn.openLatestAvailable('pc');
+        assert.equal(opened.reason, 'no-chat');
+        assert.equal(read, 0);
+        assert.deepEqual(toasts, ['当前无法启用阅读器，请进入对话后再生成。']);
+        assert.equal(vn.getState().igsUi.activeReader, null);
+        const settings = vn.openSettings({});
+        assert.notEqual(settings && settings.ok, false);
+    } finally {
+        vn.destroy();
+    }
+});

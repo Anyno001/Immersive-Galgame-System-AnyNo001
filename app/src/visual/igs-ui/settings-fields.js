@@ -9,6 +9,7 @@ import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
 import { SLOT_ICONS, menuItem, transferIcons, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions } from './settings-outfit-fields.js';
 import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
+import { manualNameColor } from './character-name-color.js';
 import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions, creatureVoiceLabel } from './voice-bark.js';
 import { TTS_CHARACTER_VOLUMES, findSystemVoice, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceOptions } from './tts.js';
 import { renderCharacterCreatureMenuItem, renderCharacterCreatureRows, renderCharacterCreatureTag } from './creature-settings.js';
@@ -479,6 +480,7 @@ export function renderCharacterAssetList(characters, options = {}) {
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
         const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${avatarStored ? '' : esc(avatarUrl)}" placeholder="${avatarStored ? '已上传到本机，也可改填https://...' : 'https://... 或data:image/...'}">${transferIcons(avatarUrl, `${charName}-头像.png`, [`status-avatar-pick:${encSeg(charName)}`, '上传头像'])}<button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成Q版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
         const houseHtml = magicHouse ? renderCharacterHouseRow(charName, magicHouse) : '';
+        const nameColorHtml = renderCharacterNameColorRow(charName, options.sceneAssets);
         const voiceHtml = voiceRow ? renderCharacterVoiceRow(charName, voiceRow) : '';
         const dna = Object.prototype.hasOwnProperty.call(dnaMap, charName) ? dnaMap[charName] : null;
         const dnaOpen = isOpen(`char-dna:${charName}`);
@@ -564,6 +566,7 @@ export function renderCharacterAssetList(characters, options = {}) {
                 profile: [
                     `<div class="igs-char-info-row"><span class="igs-char-info-label">别名</span>${aliasesHtml}</div>`,
                     `<div class="igs-char-info-row"><span class="igs-char-info-label">状态栏头像</span>${avatarHtml}</div>`,
+                    nameColorHtml,
                     houseHtml,
                 ].join(''),
                 look: renderCharacterCreatureRows(charName, dna),
@@ -584,6 +587,13 @@ function renderCharacterHouseRow(charName, { sceneAssets, fallback }) {
     const opts = [['', autoText], ...MAGIC_HOUSES.map((house) => [house.id, house.label])]
         .map(([id, label]) => `<option value="${esc(id)}"${id === manual ? ' selected' : ''}>${esc(label)}</option>`).join('');
     return `<div class="igs-char-info-row igs-char-house-row"><span class="igs-char-info-label">学院</span><select class="igs-asset-move" data-char-house="${esc(charName)}" aria-label="角色学院">${opts}</select></div>`;
+}
+
+// 名字颜色：窄屏阅读模式等处的名字用色，所有衣服通用；未设置时从默认立绘取色。
+function renderCharacterNameColorRow(charName, sceneAssets) {
+    const manual = manualNameColor(sceneAssets, charName);
+    const reset = manual ? `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="char-name-color:${encSeg(charName)}:">恢复自动</button>` : '<span class="igs-char-name-color-auto">自动（从默认立绘取色）</span>';
+    return `<div class="igs-char-info-row igs-char-name-color-row"><span class="igs-char-info-label">名字颜色</span><div class="igs-char-info-value"><input type="color" data-char-name-color="${esc(charName)}" value="${esc(manual || '#9a9aa2')}" aria-label="名字颜色">${reset}</div></div>`;
 }
 
 const VOICE_GENDER_GROUPS = [['female', '女声'], ['male', '男声 / 少年'], ['', '其他']];

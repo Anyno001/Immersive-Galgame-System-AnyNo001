@@ -124,6 +124,15 @@ export const MAGIC_HOUSE_DEFAULT = 'starlight';
 export function normalizeMagicHouse(value) {
     return MAGIC_HOUSES.some((house) => house.id === value) ? value : MAGIC_HOUSE_DEFAULT;
 }
+// 非魔法世界观的魔法星夜只当星空框用：配色只有星银、墨夜两种，存着学院色的回落到星银。
+export const MAGIC_PLAIN_HOUSES = Object.freeze(['starlight', 'obsidian']);
+export function magicHouseChoices(worldview) {
+    return worldview === 'magic' ? MAGIC_HOUSES : MAGIC_HOUSES.filter((house) => MAGIC_PLAIN_HOUSES.includes(house.id));
+}
+export function magicHouseFor(value, worldview) {
+    const id = normalizeMagicHouse(value);
+    return worldview === 'magic' || MAGIC_PLAIN_HOUSES.includes(id) ? id : MAGIC_HOUSE_DEFAULT;
+}
 export function magicHouseVars(value, accent) {
     const house = MAGIC_HOUSES.find((item) => item.id === normalizeMagicHouse(value));
     if (house.custom && accent) {

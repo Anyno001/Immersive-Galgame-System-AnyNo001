@@ -1,5 +1,5 @@
 // 手机社区（纯数据 + 纯函数）：平台登记表、世界观换皮、标签解析、从原文收帖子（目录用）。
-// 标签：[igs-fx:app|平台|主人(可省)] … [igs-fx:app-end] 包住看社区的一段；[igs-fx:post|作者|内容|附加] 一条帖子；[igs-fx:reply|作者|内容] 上一条帖子下的评论。
+// 标签：[igs-fx:app|平台|主人(可省)] … [igs-fx:app-end] 包住看社区的一段；[igs-fx:post|作者|内容|附加] 一条帖子；[igs-fx:reply|作者|内容|回复谁(可省)] 上一条帖子下的评论。
 // 内容全部来自正文，前端不补任何本地文字；点赞、转发等数字由前端按内容稳定生成。
 
 // skin：phone 在手机里显示（现代 / 科幻），paper 显示成纸面 / 布告（其他世界观）。
@@ -116,7 +116,7 @@ export const FEED_TAG_KINDS = Object.freeze(['app', 'post', 'reply', 'storm', 'm
 export const STORM_MENTION_MAX = 12;
 // 舆论风暴的默认写法（用户可改，留空用这里的默认）。
 export const STORM_DEFAULT_PROMPT = '{{user}}爆红或被骂上热搜才用；每层3~6条，红夸黑骂，平息写storm-end';
-export const FEED_VIEW_MAX = 3;
+export const FEED_VIEW_MAX = 12;
 export const FEED_REPLY_MAX = 3;
 const NAME_MAX = 24;
 const TEXT_MAX = 140;
@@ -138,13 +138,12 @@ export function parseFeedBody(body) {
         const owner = cut(parts[2], NAME_MAX);
         return platform ? { kind: 'app', end: false, args: owner ? [platform.id, owner] : [platform.id] } : null;
     }
-    if (head === 'post') {
-        const text = cut(parts[2], TEXT_MAX);
-        return text ? { kind: 'post', end: false, args: [cut(parts[1], NAME_MAX) || '匿名', text, cut(parts[3], EXTRA_MAX)] } : null;
-    }
-    if (head === 'reply') {
-        const text = cut(parts[2], TEXT_MAX);
-        return text ? { kind: 'reply', end: false, args: [cut(parts[1], NAME_MAX) || '匿名', text] } : null;
+    // 内容里误写了「|」：第 3 栏起到倒数第 2 栏拼回内容，最后一栏当附加（post）或回复谁（reply）。
+    if (head === 'post' || head === 'reply') {
+        const extra = parts.length > 4;
+        const tail = cut(extra ? parts[parts.length - 1] : parts[3], head === 'post' ? EXTRA_MAX : NAME_MAX);
+        const text = cut(extra ? parts.slice(2, -1).join('|') : parts[2], TEXT_MAX);
+        return text ? { kind: head, end: false, args: [cut(parts[1], NAME_MAX) || '匿名', text, tail] } : null;
     }
     // 舆论风暴：storm|平台|红或黑|热搜词；写错红黑按红，认不出平台留空。
     if (head === 'storm-end') return { kind: 'storm', end: true, args: [] };
@@ -173,6 +172,15 @@ export function foldStormDirectives(directives, offset = Infinity, from = -1) {
     return storm;
 }
 
+// 把一条 post / reply 指令收进帖子列表：post 新增一条，reply 挂到上一条帖子（最多 FEED_REPLY_MAX 条，风暴评论不挂）。其他指令忽略。
+function absorbFeedTag(list, d, offset, extra = null) {
+    if (d.kind === 'post') list.push({ ...extra, author: d.args[0], text: d.args[1], extra: d.args[2], replies: [], offset });
+    else if (d.kind === 'reply') {
+        const last = list[list.length - 1];
+        if (last && last.kind !== 'storm' && last.replies.length < FEED_REPLY_MAX) last.replies.push({ author: d.args[0], text: d.args[1], to: d.args[2] || '' });
+    }
+}
+
 // 按指令顺序累积：app 开区间时清空，post 进当前平台，reply 挂到上一条帖子。
 // 返回 { platform, owner, posts }（owner 为空是玩家自己的手机；posts 为该区间到 offset 为止的全部帖子），区间外返回 null。
 // nextOffset 为下一页起点：offset 处没有开着的区间时，若有整块 app 区间落在本页与下一页之间（区间内没写叙述，没有任何页起点落进去），把它挂到本页。
@@ -182,11 +190,7 @@ export function foldFeedDirectives(directives, offset = Infinity, nextOffset = o
     for (const d of list) {
         if (d.offset > offset) break;
         if (d.kind === 'app') feed = d.end ? null : { platform: d.args[0], owner: d.args[1] || '', posts: [] };
-        else if (d.kind === 'post' && feed) feed.posts.push({ author: d.args[0], text: d.args[1], extra: d.args[2], replies: [], offset: d.offset });
-        else if (d.kind === 'reply' && feed && feed.posts.length) {
-            const last = feed.posts[feed.posts.length - 1];
-            if (last.replies.length < FEED_REPLY_MAX) last.replies.push({ author: d.args[0], text: d.args[1] });
-        }
+        else if (feed) absorbFeedTag(feed.posts, d, d.offset);
     }
     if (feed || !(nextOffset > offset)) return feed;
     const open = list.find((d) => d.kind === 'app' && !d.end && d.offset > offset && d.offset < nextOffset);
@@ -195,11 +199,7 @@ export function foldFeedDirectives(directives, offset = Infinity, nextOffset = o
     for (const d of list) {
         if (d.offset <= open.offset) continue;
         if (d.offset >= nextOffset || d.kind === 'app') break;
-        if (d.kind === 'post') feed.posts.push({ author: d.args[0], text: d.args[1], extra: d.args[2], replies: [], offset: d.offset });
-        else if (d.kind === 'reply' && feed.posts.length) {
-            const last = feed.posts[feed.posts.length - 1];
-            if (last.replies.length < FEED_REPLY_MAX) last.replies.push({ author: d.args[0], text: d.args[1] });
-        }
+        absorbFeedTag(feed.posts, d, d.offset);
     }
     return feed.posts.length ? feed : null;
 }
@@ -223,8 +223,7 @@ export function collectFeedPosts(source) {
             continue;
         }
         if (d.kind === 'app') { platform = d.end ? '' : d.args[0]; owner = d.end ? '' : d.args[1] || ''; }
-        else if (d.kind === 'post' && platform) out.push({ platform, owner, author: d.args[0], text: d.args[1], extra: d.args[2], replies: [], offset: m.index });
-        else if (d.kind === 'reply' && platform && out.length && out[out.length - 1].kind !== 'storm' && out[out.length - 1].replies.length < FEED_REPLY_MAX) out[out.length - 1].replies.push({ author: d.args[0], text: d.args[1] });
+        else if (platform) absorbFeedTag(out, d, m.index, { platform, owner });
     }
     return out;
 }
@@ -234,6 +233,18 @@ export function feedStableCount(seed, min, max) {
     let h = 2166136261;
     for (const ch of String(seed)) h = Math.imul(h ^ ch.codePointAt(0), 16777619) >>> 0;
     return min + (h % Math.max(1, max - min + 1));
+}
+
+// 偷看专用平台：只在偷看别人手机时用。
+export const FEED_PEEK_IDS = Object.freeze(['search', 'memo', 'album', 'chats']);
+// 偷看别人手机的迹象：正文或玩家的话里出现这些说法。
+export const FEED_PEEK_RE = /偷看|翻.{0,4}手机|解锁.{0,6}手机|密码|拿起.{0,4}的手机/;
+
+// 最近上下文是否有偷看迹象：已点名偷看专用平台，或文本含 FEED_PEEK_RE。
+export function hasFeedPeekHint(texts) {
+    const joined = (Array.isArray(texts) ? texts : [texts]).map((t) => String(t || '')).join('\n');
+    if (!joined) return false;
+    return FEED_PEEK_RE.test(joined) || mentionedFeedPlatforms(joined).some((id) => FEED_PEEK_IDS.includes(id));
 }
 
 // 提示词按需：最近正文或玩家的话里提到的平台（名字、别名或 app 标签），只这些平台展开写法。

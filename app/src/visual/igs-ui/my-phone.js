@@ -50,10 +50,11 @@ export function myPhoneOf(reader) {
 }
 
 // 屏幕底图实际地址：scene 用当前场景背景，none 与未填的自定义为空。
-export function phoneWallUrl(look, sceneUrl = '') {
+// 锁屏壁纸还可传 albumUrl（相册里最近一张合照 / CG）：优先级 自选图片 > 最近合照 / CG > 场景背景；选了纯色则都不用。
+export function phoneWallUrl(look, sceneUrl = '', albumUrl = '') {
     const wall = look && look.wallpaper;
     if (wall === 'none' || wall === 'custom') return '';
-    if (!wall || wall === 'scene') return sceneUrl || '';
+    if (!wall || wall === 'scene') return albumUrl || sceneUrl || '';
     return wall;
 }
 

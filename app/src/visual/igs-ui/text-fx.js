@@ -142,8 +142,8 @@ export const TEXT_FX_STYLE_TEXT = `
 @keyframes igs-tfx-wave{0%,100%{transform:translateY(0);}50%{transform:translateY(-.24em);}}
 #igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx{white-space:inherit;}
 #igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-ch{display:inline-block;white-space:pre;}
-#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-shake .igs-tfx-ch{will-change:transform;animation:igs-tfx-shake .36s linear infinite;animation-delay:calc(var(--i,0) * -137ms);}
-#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-wave .igs-tfx-ch{will-change:transform;animation:igs-tfx-wave 1.4s ease-in-out infinite;animation-delay:calc(var(--i,0) * 90ms - 4.2s);}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-shake .igs-tfx-ch{animation:igs-tfx-shake .36s linear infinite;animation-delay:calc(var(--i,0) * -137ms);}
+#igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-wave .igs-tfx-ch{animation:igs-tfx-wave 1.4s ease-in-out infinite;animation-delay:calc(var(--i,0) * 90ms - 4.2s);}
 @keyframes igs-tfx-pop{0%{opacity:.25;transform:scale(1.4);}60%{opacity:1;transform:scale(.96);}100%{opacity:1;transform:none;}}
 @keyframes igs-tfx-roar{0%{opacity:0;transform:scale(2.2);}34%{opacity:1;transform:scale(.9);}46%{transform:scale(1.06) translate(-.06em,.03em);}58%{transform:scale(1) translate(.06em,-.03em);}70%{transform:translate(-.04em,.02em);}84%{transform:translate(.02em,0);}100%{opacity:1;transform:none;}}
 #igs-overlay :is(#igs-text,.igs-comic-text) .igs-tfx-big{display:inline-block;font-size:1.32em;font-weight:700;line-height:1;transform-origin:50% 65%;}

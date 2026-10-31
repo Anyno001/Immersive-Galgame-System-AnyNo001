@@ -312,6 +312,9 @@ export function applyCastToDom(root, members = [], motion = {}) {
     const entrances = motion.entrances && typeof motion.entrances === 'object' ? motion.entrances : {};
     // ready：贴底重排完成的信号（探测未就绪时由渲染层传入）；只有新上台的陪衬等它，超时兜底后照常滑入。
     const ready = motion.ready && typeof motion.ready.then === 'function' ? motion.ready : null;
+    // 舞台尺寸循环前读一次：循环里每人都先写滤镜再读尺寸，会一人强制布局一次。
+    const layerW = layer.clientWidth;
+    const layerH = layer.clientHeight;
     const existing = new Map();
     for (const el of Array.from(layer.children || [])) {
         const key = el.getAttribute && el.getAttribute('data-igs-cast-char');
@@ -363,7 +366,7 @@ export function applyCastToDom(root, members = [], motion = {}) {
         const probed = peekSpriteHead(m.url, el.ownerDocument);
         // 图还没换上时先藏起来再读尺寸。空着的全屏层带滤镜，这一读会把黑帧画出来。
         if (el.style.backgroundImage !== image) el.style.visibility = 'hidden';
-        const widthPct = spriteWidthPercent(host && host.clientWidth, host && host.clientHeight, { posX: m.posX, posY: m.posY, scale: m.scale, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH });
+        const widthPct = spriteWidthPercent(host === layer ? layerW : host && host.clientWidth, host === layer ? layerH : host && host.clientHeight, { posX: m.posX, posY: m.posY, scale: m.scale, naturalW: probed && probed.naturalW, naturalH: probed && probed.naturalH });
         setStyleProp(el, '--igs-cast-origin-x', `${flipped ? castFlipOriginX(m.posX, widthPct) : m.posX}%`);
         const wasFlipped = el.hasAttribute('data-igs-cast-flip');
         setStyleProp(el, 'scale', flipped ? '-1 1' : '');

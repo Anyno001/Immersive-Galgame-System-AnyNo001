@@ -23,11 +23,15 @@ import { applyCaptionText, clearCaptionText } from './live-cc-text.js';
 import { applyLiveCcGeometry, applyLiveFull, classifySubtitle, clearLiveFull, nextSubtitleTurn, refreshLiveFullOverflow } from './live-full.js';
 import { enterFocus, exitFocus, focusOn, holdFocusText, isNewAppearance, phoneIdentity, setFocusHooks } from './phone-focus.js';
 import { normalizeFeedFxSettings } from './feed-settings.js';
-import { placeEntryDock } from './entry-dock.js';
+import { DOCK_GAP, DOCK_WIDTH, ENTRY_SELECTOR, placeEntryDock, setPhoneOn, syncEntryFold } from './entry-dock.js';
+import { isOriginEntryShown, resolveOriginBinding, stopOrigin, syncOrigin } from './origin-panel.js';
+import { FEED_VIEW_MAX } from '../../scene/feed-platforms.js';
 import { isFeedEntryShown, stopFeedReview, syncFeedReview } from './feed-review.js';
 import { phoneStatusFor } from './phone-sense.js';
 import { collectNotices, isNotifyEntryShown, noticeStoreFor, normalizeNotifyCenterSettings, recordNotices, stopNotify, syncNotify } from './notify-center.js';
 import { LIVE_HOST_ATTR, setStageCovered } from './stage-pause.js';
+import { feedPageOf } from './feed-extras.js';
+import { feedPingKind, feedStageIdle, playFeedPing, shouldFeedPing } from './feed-ping.js';
 
 // 弹幕运行时：直播间（掏出手机看直播）、观众弹幕（HUD 下方小手机入口，点开看）、内心弹幕（立绘周围爆发）。
 // 性能约束：全关零开销；运动只用 transform/opacity 的 CSS 动画，没有逐帧 JS；
@@ -35,11 +39,14 @@ import { LIVE_HOST_ATTR, setStageCovered } from './stage-pause.js';
 const AUDIENCE_FILL = Object.freeze({ sparse: 1, medium: 3, dense: 6 });
 const AUDIENCE_AMBIENT_CHANCE = Object.freeze({ sparse: 0, medium: 0.3, dense: 0.6 });
 const faceProbed = new Set();
-const ENTRY_GAP = 8;
+// 入口之间的竖向间距，与入口坞的 gap 一致（entry-dock.js）。
+const ENTRY_GAP = DOCK_GAP;
 const ENTRY_TOP = 14;
-// 与 .igs-aud-entry 的 left / 边长一致。
+// 与入口坞的 left / 宽度一致：坞宽 38px，与状态栏折叠按钮同宽。
 const ENTRY_LEFT = 14;
-const ENTRY_SIZE = 38;
+const ENTRY_SIZE = DOCK_WIDTH;
+// 坞内单个入口图标的边长（中档电脑 28px），量不到入口时的估值；实际边长随档位与视口由 entrySizeOf 量出。
+const ENTRY_ICON_PX = 28;
 export const INNER_WORD_CAP = 16;
 const INNER_LIFE = 3200;
 const INNER_BURST_AT = 2600;
@@ -404,6 +411,44 @@ function liveContext(ctx, live) {
     };
 }
 
+const RECALL_SEGMENTS = 3;
+const recallKeyOf = (p) => `${p.author}|${p.text}|${p.extra}`;
+
+// 纯函数：把这次刷到的区间并进回看段列表（旧到新）。同平台同主人接着上一段，否则另起一段；不改传入的帖子对象。
+export function recallFeeds(prev, feed, picRef) {
+    const segs = Array.isArray(prev) ? prev : [];
+    const owner = feed.owner || '';
+    const last = segs[segs.length - 1];
+    const same = Boolean(last && last.platform === feed.platform && last.owner === owner);
+    const old = same ? last.posts : [];
+    const oldRef = new Map(old.map((p) => [recallKeyOf(p), p.picRef]));
+    const fresh = (feed.posts || []).filter(Boolean).map((p) => ({ ...p, picRef: oldRef.has(recallKeyOf(p)) ? oldRef.get(recallKeyOf(p)) : picRef }));
+    const keys = new Set(fresh.map(recallKeyOf));
+    const posts = [...old.filter((p) => !keys.has(recallKeyOf(p))), ...fresh].slice(-FEED_VIEW_MAX);
+    const seg = { platform: feed.platform, owner, posts };
+    return same ? [...segs.slice(0, -1), seg] : [...segs, seg].slice(-RECALL_SEGMENTS);
+}
+
+// 社区手机提示音：手机首次亮出或换页后本页有新帖时响一声（按平台分音色）；偷看别人手机、纸面皮肤、收起后不响。
+function pingFeed(state, root, feed, feedPhone, pageKey, options, sound) {
+    const kind = feedPhone && feedPhone.els.phone && !feedPhone.owner && feed ? feedPingKind(feed.platform) : '';
+    if (!kind) {
+        state.feedPing = null;
+        return;
+    }
+    const prev = state.feedPing;
+    const key = `${feed.platform}|${feedPhone.owner}`;
+    const appeared = !prev || prev.key !== key;
+    const newPage = !prev || prev.pageKey !== pageKey;
+    const fresh = (feed.posts || []).some((p) => p && p.fresh === true);
+    const now = state.now();
+    const ring = shouldFeedPing({
+        kind, appeared, fresh, newPage, skipping: options.skipping === true, idle: feedStageIdle(root), last: prev && prev.at, now,
+    });
+    if (ring) playFeedPing(kind, sound);
+    state.feedPing = { key, pageKey, at: ring ? now : (prev && prev.key === key ? prev.at : undefined) };
+}
+
 function clearPage(state, host) {
     for (const timer of state.timers) state.clear(timer);
     state.timers.clear();
@@ -443,7 +488,9 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         }));
         if (store.items.length) notices = store;
     }
-    if (!(isDanmakuActive(settings) || feedFx.enabled || notices) || options.suspended === true) {
+    // 随身系统：宿主给出引擎且总开关开着才有入口（接入点见 origin-panel.js 的 resolveOriginBinding）。
+    const originBinding = options.suspended === true ? null : resolveOriginBinding(options);
+    if (!(isDanmakuActive(settings) || feedFx.enabled || notices || originBinding) || options.suspended === true) {
         if (states.has(root)) cancelDanmaku(root);
         return { live: false, audience: 0, inner: false };
     }
@@ -464,19 +511,25 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     // 社区手机：开关开、本页在区间内、非 NSFW 静音、非回忆 / 梦境 / 聊天页才亮出；亮出时直播手机与观众入口让位。
     const content = snapshot.content || {};
     const fx = content.fx || {};
-    const feedAllowed = feedFx.enabled && !(feedFx.muteOnNsfw && content.sceneNsfw === true)
-        && content.chatPage !== true && content.htmlCardPage !== true && fx.flashback !== true && fx.dream !== true;
     // 舆论风暴优先：风暴期间社区与直播手机都让位。
-    const storm = feedAllowed && feedFx.storm && feedFx.storm.enabled !== false && fx.storm ? fx.storm : null;
-    const feed = feedAllowed && !storm && fx.feed ? fx.feed : null;
+    const { allowed: feedAllowed, storm, feed } = feedPageOf(content, feedFx);
     const coverUrl = content.backgroundImage && typeof options.resolveAssetUrl === 'function' ? options.resolveAssetUrl(content.backgroundImage) || '' : content.backgroundImage || '';
+    const feedPicBlocked = content.sceneNsfw === true || content.cgNsfw === true;
+    // 锁屏壁纸的相册图：开着社区就让宿主按需刷新（宿主自己节流），只取已缓存的地址；NSFW 场景与 CG 不用。
+    const albumWall = feedFx.enabled && !feedPicBlocked && typeof options.albumWallUrl === 'function' ? text(options.albumWallUrl()) : '';
     // 手机里的人认得卡内角色：能拿到头像就算熟人。
     const feedCtx = {
         doc: ctx.doc, reduced, schedule: state.schedule, now: state.now,
         look: ctx.look,
-        coverUrl,
-        // 锁屏壁纸：合照在渲染侧拿不到地址（存相册是异步的）；默认用当前场景背景，可在「我的手机」换。
-        wallpaperUrl: phoneWallUrl(ctx.look, coverUrl),
+        // 朋友圈封面：NSFW 页不用当前画面。
+        coverUrl: feedPicBlocked ? '' : coverUrl,
+        pageKey: plan.pageKey,
+        // 帖子配图：content.backgroundImage 本页有 CG（插图 / 事件 CG）时就是 CG 地址，否则是场景背景，一份地址两种情况都覆盖；NSFW 场景与 CG 不上帖子。
+        picUrl: feedPicBlocked ? '' : coverUrl,
+        resolvePic: (ref) => (ref && typeof options.resolveAssetUrl === 'function' ? options.resolveAssetUrl(ref) || '' : ref || ''),
+        // 锁屏壁纸：「我的手机」自选 > 相册里最近一张合照 / CG（宿主传入）> 当前场景背景。
+        // NSFW 页（含 NSFW CG）锁屏不回落到当前画面，只用「我的手机」自选或纯色。
+        wallpaperUrl: phoneWallUrl(ctx.look, feedPicBlocked ? '' : coverUrl, albumWall),
         status: ctx.status,
         messageId: snapshot.messageId,
         userName: text(options.userName),
@@ -486,17 +539,15 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         onDismiss: () => applyDanmakuToDom(root, snapshot, options),
     };
     const feedPhone = syncFeedPhone(host, feed, feedCtx);
+    pingFeed(state, root, feed, feedPhone, plan.pageKey, options, snapshot.readerSettings && snapshot.readerSettings.fxSound);
     if (feedPhone) {
-        // 回看攒下同一平台这次刷到的全部帖子（解析每页只给最近 3 条），最多 9 条。
-        const prev = state.feedRecall && state.feedRecall.platform === feed.platform && state.feedRecall.owner === (feed.owner || '') ? state.feedRecall.posts : [];
-        const keyOf = (p) => `${p.author}|${p.text}|${p.extra}`;
-        const merged = [...prev.filter((p) => !(feed.posts || []).some((q) => q && keyOf(q) === keyOf(p))), ...(feed.posts || []).filter(Boolean)];
-        state.feedRecall = { platform: feed.platform, owner: feed.owner || '', posts: merged.slice(-9) };
+        // 回看攒最近 3 段（不同平台或不同主人算不同段），每段最多 FEED_VIEW_MAX 条；帖子盖上当时的背景引用，回看时配图不串到别的场景。
+        state.feedRecall = recallFeeds(state.feedRecall, feed, feedPicBlocked ? '' : text(content.backgroundImage));
     }
     const stormPhone = syncStorm(host, storm, {
         doc: ctx.doc, schedule: state.schedule, clear: state.clear, now: state.now, rng: state.rng, reduced,
         worldview: (snapshot.readerSettings && snapshot.readerSettings._worldview) || 'modern',
-        look: ctx.look, coverUrl: phoneWallUrl(ctx.look, coverUrl),
+        look: ctx.look, coverUrl: phoneWallUrl(ctx.look, feedPicBlocked ? '' : coverUrl),
         onDismiss: () => applyDanmakuToDom(root, snapshot, options),
     });
     if (feedPhone || stormPhone) {
@@ -594,7 +645,7 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     const entryShown = isAudienceEntryShown(front);
     if (feedFx.enabled) {
         syncFeedReview(front, {
-            feed: state.feedRecall, visible: feedAllowed && !feedPhone && !stormPhone, beside: entryShown, size: settings.audience.entrySize,
+            segments: state.feedRecall, visible: feedAllowed && !feedPhone && !stormPhone, beside: entryShown, size: settings.audience.entrySize,
         }, feedCtx);
     } else {
         state.feedRecall = null;
@@ -606,8 +657,16 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     if (notices) syncNotify(front, { store: notices, size: settings.audience.entrySize }, { doc: ctx.doc });
     else stopNotify(front);
     const notifyShown = isNotifyEntryShown(front);
+    // 随身系统入口排在铃铛后；窗口位置尺寸按舞台量出的像素夹住。
+    if (originBinding) syncOrigin(front, originBinding, { doc: ctx.doc, size: settings.audience.entrySize, getStage: () => state.liveStage });
+    else stopOrigin(front);
+    const originShown = isOriginEntryShown(front);
+    // 社区 / 风暴手机在场时通知入口让位（CSS 按这个标记隐藏），收起后恢复；通知照常记录。
+    setPhoneOn(front, Boolean(feedPhone || stormPhone));
+    // 入口增减后先按当前状态收拢一次（手机上 3 个及以上收成一个按钮）；几何读完后下一帧再校一次全屏标记。
+    syncEntryFold(front);
     if (!(phone || feedPhone || stormPhone)) unwatchPhoneStage(state);
-    if (plan.inner || entryShown || reviewShown || notifyShown || feedPhone || stormPhone || (phone && plan.liveVisible)) {
+    if (plan.inner || entryShown || reviewShown || notifyShown || originShown || feedPhone || stormPhone || (phone && plan.liveVisible)) {
         // 本次渲染唯一一次几何读取：推迟到下一帧，全部读完才写。
         nextFrame(ctx.doc, () => {
             if (states.get(root) !== state || state.pageKey !== plan.pageKey) return;
@@ -615,8 +674,9 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
             refreshLiveFullOverflow(root, root.querySelector('#igs-text'));
             const stage = measureStage(layers.motion);
             if (!stage) return;
-            let top = entryShown || reviewShown || notifyShown ? entryTop(root, layers.motion, stage.stageH) : 0;
-            const left = entryShown || reviewShown || notifyShown ? entryLeft(root, layers.motion, stage.stageH) : ENTRY_LEFT;
+            const anyEntry = entryShown || reviewShown || notifyShown || originShown;
+            let top = anyEntry ? entryTop(root, layers.motion, stage.stageH) : 0;
+            const left = anyEntry ? entryLeft(root, layers.motion, stage.stageH) : ENTRY_LEFT;
             state.liveStage = stage;
             placeLiveFullName(root, stage);
             const liveFit = phone ? fitLivePhone(host, stage) : null;
@@ -633,9 +693,11 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
             if (feedPhone) fitFeedPhone(host, stage);
             if (stormPhone) fitStorm(host, stage, phoneGeometry(stage, ctx.look.model, ctx.look.size));
             watchPhoneStage(state, ctx, layers.motion, refit, Boolean(phone || feedPhone || stormPhone));
-            // 三个入口共用一个纵向排列的坞；全屏直播时坞向上多留出 (个数 - 1) 格，让最后一个仍落在名次卡上方。
-            const count = (entryShown ? 1 : 0) + (reviewShown ? 1 : 0) + (notifyShown ? 1 : 0);
+            // 四个入口共用一个纵向排列的坞；全屏直播时坞向上多留出 (个数 - 1) 格，让最后一个仍落在名次卡上方。
+            const count = (entryShown ? 1 : 0) + (reviewShown ? 1 : 0) + (notifyShown ? 1 : 0) + (originShown ? 1 : 0);
             if (count) placeEntryDock(front, top - Math.max(0, count - 1) * step);
+            // 全屏直播标记（data-entry-full）刚写好：全屏时入口不收拢，这里按最新标记再校一次。
+            syncEntryFold(front);
             if (plan.inner) playInner(ctx, plan.inner, stage);
         });
     }
@@ -665,7 +727,7 @@ function fitFaceFor(host, stage, sprite, doc, refit) {
 export function entryPlacement(stage, fit, top, card, size, left = ENTRY_LEFT) {
     const base = { left, top };
     if (stage && fit && fit.layout === 'full') {
-        const box = size > 0 ? size : ENTRY_SIZE;
+        const box = size > 0 ? size : ENTRY_ICON_PX;
         const stageW = Number(stage.stageW) || 0;
         const stageH = Number(stage.stageH) || 0;
         const right = card && Number.isFinite(card.right) ? card.right : stageW - 16;
@@ -689,11 +751,11 @@ function liveCardRect(host, motion, stage) {
 
 // 当前显示着的入口浮钮边长（小 / 中 / 大三档，再乘 HUD 缩放）。
 function entrySizeOf(front, motion, stage) {
-    const node = front && front.querySelector ? front.querySelector('.igs-aud-entry:not([hidden]),.igs-feed-entry:not([hidden]),.igs-nc-entry:not([hidden])') : null;
-    if (!node || typeof node.getBoundingClientRect !== 'function' || typeof motion.getBoundingClientRect !== 'function') return ENTRY_SIZE;
+    const node = front && front.querySelector ? front.querySelector(ENTRY_SELECTOR.split(',').map((sel) => `${sel}:not([hidden])`).join(',')) : null;
+    if (!node || typeof node.getBoundingClientRect !== 'function' || typeof motion.getBoundingClientRect !== 'function') return ENTRY_ICON_PX;
     const w = node.getBoundingClientRect().width;
     const m = motion.getBoundingClientRect();
-    return w > 0 && m.height > 0 ? w * (stage.stageH / m.height) : ENTRY_SIZE;
+    return w > 0 && m.height > 0 ? w * (stage.stageH / m.height) : ENTRY_ICON_PX;
 }
 
 // 全屏字幕「名牌下方」的旁白位置：工具栏下沿 + 8px 再让出名牌的高度。
@@ -771,6 +833,7 @@ export function cancelDanmaku(root) {
         stopAudience(front);
         stopFeedReview(front);
         stopNotify(front);
+        stopOrigin(front);
         front.remove();
     }
     return Boolean(state);

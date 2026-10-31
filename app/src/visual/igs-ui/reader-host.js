@@ -1,7 +1,7 @@
 import { recoverOperation, linkRecoverySignals, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 import { applyOperationEdits } from '../../storage/operation-edits.js';
 import { appendInputDraft } from '../../host/input-channel.js';
-import { readLive2dConfig, resolveCharacterLive2dBinding } from './live2d-config.js';
+import { readLive2dConfigShared, resolveCharacterLive2dBinding } from './live2d-config.js';
 import { disposeLive2dStage } from './live2d-stage.js';
 import { openLive2dPanel } from './live2d-panel.js';
 import { createMediaLeaseScope } from '../../media/media-lease-scope.js';
@@ -73,7 +73,7 @@ import { clearCastDom } from './stage-cast-render.js';
 import { hasGroupSuffix, sameFoeName, splitFoeNames } from '../../scene/creature-battle.js';
 import { foeIsDown } from './creature-battle-model.js';
 import { CREATURE_FOE_SLOTS, composeCreatureStage, creatureProfileOf, isGiantCreature, resolveCreatureFoes } from './creature-layout.js';
-import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe } from '../../scene/character-outfits.js';
+import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, spriteIdentity } from '../../scene/character-outfits.js';
 import { isStrictBackgroundMatch, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -120,7 +120,7 @@ import { createDbPanelController } from '../../shujuku-panel/panel-controller.js
 import { createMapPanelController } from './map-panel.js';
 import { createRecordPanelController } from './record-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
-import { buildStatusHudModel, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
+import { STATUS_HUD_PHONE_MEDIA, buildStatusHudModel, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
 import { buildItemActionText, extractBodyChoices, listPresentNames, normalizeOptionSources, splitQuickActions } from '../../choices/option-sources.js';
 import { buildItemCatalog } from '../../data/shujuku/item-catalog.js';
@@ -143,11 +143,22 @@ import { resolveChatTheme } from './chat-themes.js';
 import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import { comicContentKey, isComicModeActive } from './comic-settings.js';
+import { batchStartsUpTo, isLogReaderActive, logRowsOf, nextBatchEnd } from './log-reader-model.js';
+import { createLogHtml, logCardsOf, logFontsOf, logRenderSnapshot, logSettingsOf, logSkinOf } from './log-reader-view.js';
+import { dialogTextEffectCss } from './dialog-text-effect.js';
+import { manualNameColor } from './character-name-color.js';
+import { finishLogReveal, isLogEditing, syncLogReader, toggleLogEdit } from './log-reader-layer.js';
+import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
 
 import { applyReaderSnapshotToDom, applyToolbarState, buildFallbackReaderOverlay, buildFallbackSettingsOverlay, normalizeReaderStableLayers, pinEmbeddedHostFrame, watchTitleEmbeddedFrame } from './reader-dom-render.js';
 
 const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
+// 窄屏阅读模式一批里逐行推进：出字完等朗读起声（最多 LOG_TTS_START_MS）、念完（最多 LOG_TTS_MAX_MS），行间停 LOG_ROW_GAP_MS。
+const LOG_TTS_START_MS = 2500;
+const LOG_TTS_MAX_MS = 20000;
+const LOG_ROW_GAP_MS = 180;
+const logWait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 盖住舞台的面板（地图、资料、战斗、卡组构筑）同一时刻只开一个。
 const anyPanelOpen = (dom) => Boolean(dom && (dom.mapController?.isOpen() || dom.recordController?.isOpen()
@@ -484,6 +495,8 @@ export function createIgsReaderHost(options = {}) {
     const itemEventsShown = new Set();
     const ROMANCE_MEMORY_KEYS = 'igs-romance-memory-keys';
     const ROMANCE_MEMORY_KEYS_LIMIT = 300;
+    const ALBUM_WALL_GAP_MS = 60000;
+    const albumWall = { chatId: '', stamp: '', url: '', at: 0, busy: false };
     // 生图从 IndexedDB 一张张异步补回，每张都会发 image-loaded。按窗口合并成一次重绘，
     // 否则 N 张图触发 N 次整页重绘、每次又带上已到的全部 dataUrl，开销随张数平方增长。
     const IMAGE_REFRESH_BATCH_MS = 120;
@@ -533,7 +546,8 @@ export function createIgsReaderHost(options = {}) {
                 if (settings) readerStaleBehindSettings = true;
                 if (imageLoaded) {
                     if (waitStage.isOpen() || !settings) scheduleImageRefresh({ reader: true });
-                } else if (!settings) rerenderActiveReader();
+                // 生成完成 / 状态变化也合并重绘：批量出图、整批读回时一张一次整页重渲染太费。
+                } else if (!settings) scheduleImageRefresh({ reader: true });
             }
             if (!settings) return;
             if (imageLoaded) {
@@ -805,13 +819,13 @@ export function createIgsReaderHost(options = {}) {
                 return {
                     closed: state.activeReader !== current,
                     page: `${current.snapshot.messageId}:${current.index}:${chat?.revealed || 0}`,
-                    blocked: current.hidden || current.streamPhase !== 'idle' || current.spriteEditMode
+                    blocked: current.hidden || current.streamPhase !== 'idle' || current.spriteEditMode || isLogEditing(overlay)
                         || Boolean(current.titleGate)
                         || Boolean(state.activeSettings) || isStagePaused(overlay)
                         || Boolean(overlay?.ownerDocument?.hidden)
                         || Boolean(overlay?.classList?.contains('igs-options-visible')),
                     // 台词朗读没念完也算忙，念完再翻页。
-                    busy: current.dom?.text?.dataset?.igsTypewriter === 'running' || isTtsSpeaking()
+                    busy: current.dom?.text?.dataset?.igsTypewriter === 'running' || isTtsSpeaking() || Boolean(current.logReader?.running)
                         || Boolean(chatUnfinished && chat.pending),
                     last: isReaderLastPage(current.snapshot) && !chatUnfinished,
                 };
@@ -2476,7 +2490,8 @@ export function createIgsReaderHost(options = {}) {
             return state.activeReader.controller.toggleToolbar();
         }
         if (normalizedAction === 'prev') {
-            return moveReaderSegment(-1);
+            const batch = state.activeReader.logBase ? logPrev(state.activeReader) : null;
+            return batch || moveReaderSegment(-1);
         }
         if (normalizedAction === 'next') {
             const current = state.activeReader;
@@ -2493,6 +2508,11 @@ export function createIgsReaderHost(options = {}) {
             }
             if (isReaderLastPage(current.snapshot) && handleOptionBubbleBlankClick(current, current.snapshot)) {
                 return { ok: true, moved: false, reason: 'option-bubbles-toggled', index: current.index };
+            }
+            // 窄屏阅读模式：一次出一批；楼尾照旧进下一楼。
+            if (current.logBase) {
+                const batch = logNext(current);
+                if (batch) return batch;
             }
             // 读到最后一页：后面还有楼就接着进下一楼。不只看 turnOffset：新楼生成时阅读器没跟过去（设置开着、
             // 生成没走阅读器等），turnOffset 仍是 0，后面却已经有楼了。
@@ -2545,6 +2565,10 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'tts-replay') {
             return replayTts();
         }
+        if (normalizedAction === 'log-chain') {
+            const rs = state.activeReader.snapshot.readerSettings || {};
+            return saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), chain: !logSettingsOf(rs).chain } });
+        }
         if (normalizedAction === 'tts-reroll') {
             return rerollTts();
         }
@@ -2585,6 +2609,8 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'sprite-edit') {
             const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
+            // 窄屏阅读模式没有立绘：调整的是 log 头像的取景。
+            if (overlay && state.activeReader.logReaderActive && toggleLogEdit(overlay)) return { ok: true, log: true };
             if (overlay && !enterLivePortraitEdit(overlay, buildSpriteEditContext()) && !enterCgPortraitEdit(overlay, buildSpriteEditContext()) && !enterCastSlotEdit(overlay, state.activeReader, buildSpriteEditContext())) enterSpriteEditMode(overlay, state.activeReader, buildSpriteEditContext());
             return { ok: true };
         }
@@ -3009,6 +3035,293 @@ export function createIgsReaderHost(options = {}) {
         return url ? { url, crop: resolveRegionCrop({ url }, 'face', 1, doc) } : null;
     }
 
+    // ── 窄屏阅读模式（log 列表）：取数、翻批、朗读在这里，DOM 在 log-reader-layer。──
+    // 窄屏或内嵌长屏、开关开着、没开漫画模式时为 true（不看当前页是不是聊天 / 卡片页）。
+    function logReaderBase(current, snapshot) {
+        const overlay = current.dom && current.dom.overlay;
+        if (!overlay || !snapshot || !snapshot.readerSettings) return false;
+        const rect = overlay.getBoundingClientRect ? overlay.getBoundingClientRect() : { width: 0, height: 0 };
+        const win = overlay.ownerDocument && overlay.ownerDocument.defaultView;
+        const phone = Boolean(win && typeof win.matchMedia === 'function' && win.matchMedia(STATUS_HUD_PHONE_MEDIA).matches);
+        return isLogReaderActive({ settings: snapshot.readerSettings.logReader, mode: snapshot.mode, embedded: isEmbeddedReaderMode(snapshot.mode),
+            width: rect.width, height: rect.height, phone, comic: isComicModeActive(snapshot.readerSettings) });
+    }
+
+    // 本楼的 log 行：按分页计划算一次，楼层原文变了（流式、重新生成）才重算。
+    function logRowsFor(current, snapshot) {
+        const floor = snapshot[preparedFloorKey];
+        if (!floor) return null;
+        const log = current.logReader || (current.logReader = { rev: 0 });
+        if (log.floor !== floor) {
+            const rs = snapshot.readerSettings || {};
+            const chatOn = normalizeChatShowSettings(rs.chatShow).enabled;
+            log.floor = floor;
+            log.rev += 1;
+            log.key = `${snapshot.messageId}:${log.rev}`;
+            log.avatars = new Map();
+            log.rows = logRowsOf(floor.pages, {
+                keyOf: floor.keyOf, userKey: floor.userKey, inherited: floor.inheritedSceneState,
+                showSystemName: normalizeSystemRoleSettings(rs.systemRole).showName,
+                solo: (i) => parseHtmlCardMarker(floor.segments[i]) >= 0 || (chatOn && parseChatMarker(floor.segments[i]) >= 0),
+            });
+        }
+        return log;
+    }
+
+    // 头颈肩头像：跟本页衣服与情绪取立绘（与舞台同一套查找），没有立绘时用状态栏头像。
+    function logAvatarOf(current, snapshot, row) {
+        const log = current.logReader;
+        const floor = log.floor;
+        const assets = (snapshot.readerSettings && snapshot.readerSettings._sceneAssets) || {};
+        let outfit = '';
+        try { outfit = assets.enabled && floor.assets ? floor.assets.outfitFor(row.index, row.speaker).outfit || '' : ''; } catch (_) { outfit = ''; }
+        const id = spriteIdentity(row.key, outfit);
+        const cacheKey = `${id}\n${row.mood}`;
+        if (log.avatars.has(cacheKey)) return log.avatars.get(cacheKey);
+        let found = null;
+        if (assets.enabled && floor.assets) {
+            let raw = '';
+            try { raw = floor.assets.sprite(row.speaker, row.mood, outfit).url || ''; } catch (_) { raw = ''; }
+            const generated = options.generatedAssets || null;
+            const url = isGeneratedAssetUrl(raw) ? (generated ? generated.resolveUrl(raw) : '') : raw;
+            if (url) found = { url: resolveReaderAssetUrl(url, current), adjustKey: id };
+        }
+        if (!found) {
+            const status = resolveStatusAvatar(assets.statusAvatars, row.key);
+            if (status) found = { url: resolveReaderAssetUrl(status, current), adjustKey: id, cover: true };
+        }
+        // 生成图还没读回时不记，下次渲染再查。
+        if (found) log.avatars.set(cacheKey, found);
+        return found;
+    }
+
+    // 名字色的来源：资料里设的主色；没设时取默认服装的默认立绘（所有衣服同一个色），再退到状态栏头像。
+    function logNameColorOf(current, snapshot, row) {
+        const assets = (snapshot.readerSettings && snapshot.readerSettings._sceneAssets) || {};
+        const color = manualNameColor(assets, row.key);
+        if (color) return { color };
+        const log = current.logReader;
+        const cacheKey = `name
+${row.key}`;
+        if (log.avatars.has(cacheKey)) return log.avatars.get(cacheKey);
+        let raw = '';
+        if (assets.enabled && log.floor.assets) { try { raw = log.floor.assets.sprite(row.speaker, '').url || ''; } catch (_) { raw = ''; } }
+        const generated = options.generatedAssets || null;
+        let url = raw && isGeneratedAssetUrl(raw) ? (generated ? generated.resolveUrl(raw) : '') : raw;
+        if (raw && !url) return null;
+        if (!url) url = resolveStatusAvatar(assets.statusAvatars, row.key) || '';
+        const found = url ? { url: resolveReaderAssetUrl(url, current) } : null;
+        log.avatars.set(cacheKey, found);
+        return found;
+    }
+
+    function logTtsLine(row) {
+        return { key: '', textType: row.kind === 'narr' ? (row.thought ? 'thought' : 'narration') : row.thought ? 'thought' : 'dialogue', speaker: row.speaker, text: row.text, nsfw: row.nsfw };
+    }
+
+    // 没开朗读、或这一行按设置不念（旁白关了、User 不念等）时不出 ▶。
+    function logCanSpeak(row) {
+        const rs = (state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings) || {};
+        if (!row.text || !normalizeTtsSettings(rs.tts).enabled) return false;
+        const plan = decideTts({}, logTtsLine(row), rs.tts, { sceneAssets: rs._sceneAssets, voices: listSystemVoices(), record: false });
+        return Boolean(plan && !plan.skip);
+    }
+
+    // 往回翻时背景跟着越过中线的那段场景：记下那段的起始行，与当前页同一段就不覆盖。
+    function logSceneStart(rows, i) {
+        let at = Math.max(0, Math.min(rows.length - 1, i));
+        while (at > 0 && !rows[at].scene) at--;
+        return at;
+    }
+    function logSceneRow(current, index) {
+        const log = current.logReader;
+        if (!log || !log.rows || state.activeReader !== current) return;
+        const here = logSceneStart(log.rows, Number(current.index) || 0);
+        const start = logSceneStart(log.rows, index);
+        const next = start === here ? -1 : start;
+        if (next === (log.bgFor === log.key ? log.bgRow : -1)) return;
+        log.bgRow = next;
+        log.bgFor = log.key;
+        rerenderActiveReader();
+    }
+    // 背景、时段、天气、地点、恐怖度换成那段场景的；CG、演出、配乐仍按当前页。
+    const LOG_SCENE_FIELDS = ['backgroundImage', 'backgroundTimed', 'sceneTime', 'sceneWeather', 'sceneLocation', 'sceneDread'];
+    function logSceneSnapshot(current, snapshot) {
+        const log = current.logReader;
+        if (!log || log.bgFor !== log.key || !(log.bgRow >= 0) || log.bgRow === Number(current.index)) return snapshot;
+        const cacheKey = `${log.key}:${log.bgRow}`;
+        let other = log.bgCache && log.bgCache.key === cacheKey ? log.bgCache.snapshot : null;
+        if (!other) {
+            try { other = buildReaderSnapshot(current.payload, current.mode, snapshot.readerSettings, log.bgRow); } catch (_) { other = null; }
+            log.bgCache = { key: cacheKey, snapshot: other };
+        }
+        if (!other || !other.content) return snapshot;
+        const content = { ...snapshot.content };
+        for (const field of LOG_SCENE_FIELDS) content[field] = other.content[field];
+        return { ...snapshot, content };
+    }
+
+    // 重播一组：组头与续行依次念，前一句念完再念下一句；再点别的 ▶ 时这一组停下。
+    let logSpeakToken = 0;
+    async function logSpeak(indices) {
+        const current = state.activeReader;
+        const log = current && current.logReader;
+        if (!log) return;
+        const token = ++logSpeakToken;
+        const rs = current.snapshot.readerSettings || {};
+        const list = (Array.isArray(indices) ? indices : [indices]).map((i) => log.rows[i]).filter((row) => row && logCanSpeak(row));
+        for (let n = 0; n < list.length; n++) {
+            if (token !== logSpeakToken || state.activeReader !== current) return;
+            speakTtsLine(logTtsLine(list[n]), rs.tts, rs._sceneAssets);
+            if (n === list.length - 1) return;
+            const start = Date.now();
+            while (!isTtsSpeaking() && token === logSpeakToken && Date.now() - start < LOG_TTS_START_MS) await logWait(80);
+            while (isTtsSpeaking() && token === logSpeakToken && Date.now() - start < LOG_TTS_MAX_MS) await logWait(120);
+        }
+    }
+
+    // 出字完后等朗读：先等它起声（接口可能要先取音频），再等念完；批次中再点一下直接放行。
+    async function waitLogTts(current, row) {
+        if (!logCanSpeak(row)) return;
+        const log = current.logReader;
+        const start = Date.now();
+        while (!isTtsSpeaking() && !log.skip && Date.now() - start < LOG_TTS_START_MS) await logWait(80);
+        while (isTtsSpeaking() && !log.skip && Date.now() - start < LOG_TTS_MAX_MS) await logWait(120);
+    }
+    // 一批：逐页前进（每页照常放配乐、音效、朗读），出字、念完再走下一页；中途再点一下直接跳到批末。
+    async function runLogBatch(current, from) {
+        const log = current.logReader;
+        if (!log || log.running) return;
+        const per = logSettingsOf(current.snapshot.readerSettings).perTap;
+        const end = nextBatchEnd(log.rows, from, per);
+        const key = log.key;
+        log.running = true;
+        log.skip = false;
+        log.bgRow = -1;
+        log.batchStart = from;
+        log.batchStartFor = key;
+        current.autoPlayer?.refresh();
+        try {
+            for (let i = from; i < end; i++) {
+                if (state.activeReader !== current || log.key !== key) return;
+                if (log.skip) {
+                    log.live = -1;
+                    current.index = end - 1;
+                    rerenderActiveReader();
+                    break;
+                }
+                log.live = log.rows[i].solo ? -1 : i;
+                if (current.index !== i) {
+                    current.index = i;
+                    current.pageRenderAt = Date.now();
+                    rerenderActiveReader();
+                } else syncLogLayer(current, current.snapshot);
+                if (log.revealing) await log.revealing;
+                log.live = -1;
+                if (log.rows[i].solo) break;
+                await waitLogTts(current, log.rows[i]);
+                if (i < end - 1 && !log.skip) await logWait(LOG_ROW_GAP_MS);
+            }
+        } finally {
+            log.running = false;
+            log.skip = false;
+            log.live = -1;
+            if (state.activeReader === current) {
+                syncLogLayer(current, current.snapshot);
+                current.autoPlayer?.refresh();
+            }
+        }
+    }
+
+    // 下一批；批次中再点一下补完当前出字并跳到批末。返回 null 表示交回原翻页（楼尾进下一楼等）。
+    function logNext(current) {
+        const log = current.logReader;
+        if (!log || !log.rows) return null;
+        if (log.running) {
+            log.skip = true;
+            finishLogReveal(current.dom && current.dom.overlay);
+            return { ok: true, moved: false, reason: 'log-batch-skipped', index: current.index };
+        }
+        const from = Number(current.index) + 1;
+        if (from >= log.rows.length) return null;
+        playReaderUiSfx('page');
+        void runLogBatch(current, from);
+        return { ok: true, moved: true, reason: 'log-batch', index: from };
+    }
+
+    // 上一批：退回上一批的起点，列表删到那一批末尾。第一批里再退交回原翻页（提示已是第一段）。
+    function logPrev(current) {
+        const log = current.logReader;
+        if (!log || !log.rows) return null;
+        if (log.running) return logNext(current);
+        const per = logSettingsOf(current.snapshot.readerSettings).perTap;
+        const starts = batchStartsUpTo(log.rows, Number(current.index) || 0, per);
+        if (starts.length < 2) return null;
+        const target = starts[starts.length - 1] - 1;
+        log.batchStart = starts[starts.length - 2];
+        log.batchStartFor = log.key;
+        current.index = target;
+        current.autoPlayer?.refresh();
+        rerenderActiveReader();
+        playReaderUiSfx('page');
+        return { ok: true, moved: true, reason: 'log-batch-back', index: target };
+    }
+
+    // 每次渲染后同步 log 层。当前页是聊天 / 卡片页时让开，交给原渲染。
+    function syncLogLayer(current, snapshot) {
+        const overlay = current.dom && current.dom.overlay;
+        const log = current.logReader;
+        if (!overlay || !log || !log.rows || !current.logBase) { syncLogReader(overlay, null); return; }
+        const index = Math.max(0, Math.min(log.rows.length - 1, Number(current.index) || 0));
+        if (log.rows[index] && log.rows[index].solo) { syncLogReader(overlay, null); return; }
+        const rs = snapshot.readerSettings || {};
+        const settings = logSettingsOf(rs);
+        const manga = normalizeMangaFxSettings(rs.mangaFx);
+        const anyManga = { ...manga, enabled: true };
+        const html = createLogHtml(snapshot);
+        // 跳页（目录、续读、最后一页）后没有批次记录：按当前页推出所在那一批的起点。
+        const inBatch = log.batchStart <= index && index < nextBatchEnd(log.rows, log.batchStart, settings.perTap);
+        if (!inBatch || log.batchStartFor !== log.key) {
+            const starts = batchStartsUpTo(log.rows, index, settings.perTap);
+            log.batchStart = starts[starts.length - 1];
+            log.batchStartFor = log.key;
+        }
+        const { skin, tone } = logSkinOf(rs);
+        const result = syncLogReader(overlay, {
+            floorKey: log.key,
+            rows: log.rows,
+            upto: log.fresh ? -1 : index,
+            batchStart: log.batchStart,
+            live: log.live == null ? -1 : log.live,
+            running: Boolean(log.running),
+            more: index < log.rows.length - 1,
+            settings, skin, tone,
+            fonts: logFontsOf(snapshot),
+            textEffect: dialogTextEffectCss(rs),
+            hidden: Boolean(current.hidden),
+            avatarOf: (row) => logAvatarOf(current, snapshot, row),
+            nameColorOf: (row) => logNameColorOf(current, snapshot, row),
+            nameColorSig: JSON.stringify((rs._sceneAssets && rs._sceneAssets.characterNameColors) || {}),
+            symbolOf: (row) => (settings.emotion === 'off' || row.nsfw || !row.mood ? '' : pickMangaSymbol(row.mood, manga)),
+            chipKindOf: (row) => (row.mood ? pickMangaSymbol(row.mood, anyManga) : ''),
+            htmlOf: html,
+            canSpeak: logCanSpeak,
+            cardsOf: (row) => logCardsOf(log.floor.pages[row.index], rs),
+            onTap: () => {
+                const live = state.activeReader;
+                if (live !== current || overlay.getAttribute('data-igs-cg-only') === '1') return;
+                if (current.hidden) { current.controller.toggleHidden(); return; }
+                if (state.activeSettings) { closeSettings(); return; }
+                if (handleOptionBubbleBlankClick(current, current.snapshot)) return;
+                void handleReaderAction('next');
+            },
+            onPlay: (i) => logSpeak(i),
+            onSceneRow: (i) => logSceneRow(current, i),
+            onSaveAdjust: (adjust) => saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), adjust } }),
+        });
+        log.revealing = result.revealing;
+    }
+
     function currentReadingPosition() {
         const current = state.activeReader;
         const content = current && current.snapshot && current.snapshot.content;
@@ -3148,6 +3461,32 @@ export function createIgsReaderHost(options = {}) {
     function formatReaderProgress(snapshot) {
         if (!snapshot || !snapshot.readerSettings || !snapshot.readerSettings.showStatusLine) return '';
         return snapshot && snapshot.content ? snapshot.content.progress : '';
+    }
+
+    // 社区手机锁屏壁纸：本聊天相册里最近一张合照 / CG。渲染同步取缓存地址，缓存由这里按需异步刷新（最短隔 ALBUM_WALL_GAP_MS），
+    // 拿不到（没有相册、没有图、读取失败）就返回空串，锁屏照旧用场景背景。只留最新一张的地址，换聊天或有更新的图时重取。
+    function albumWallUrl() {
+        const album = options.cgGallery;
+        if (!album || typeof album.readIndex !== 'function' || typeof album.readFull !== 'function') return '';
+        const chatId = typeof options.getCurrentChatId === 'function' ? String(options.getCurrentChatId() || '') : '';
+        if (albumWall.chatId !== chatId) Object.assign(albumWall, { chatId, stamp: '', url: '', at: 0 });
+        const nowMs = Date.now();
+        if (!albumWall.busy && nowMs - albumWall.at >= ALBUM_WALL_GAP_MS) {
+            albumWall.busy = true;
+            albumWall.at = nowMs;
+            Promise.resolve(album.readIndex()).then(async (index) => {
+                // 只用拍照时明确不是 NSFW 的照片：剧情 CG 与旧照片没有分级标记，不拿来当锁屏壁纸。
+                const list = ((index && index.entries) || []).filter((e) => e && e.ready && !e.hidden && e.chatId === chatId && e.kind === 'photo' && e.nsfw === false);
+                list.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+                const top = list[0];
+                if (!top) { albumWall.stamp = ''; albumWall.url = ''; return; }
+                const stamp = `${top.key}|${top.updatedAt}`;
+                if (stamp === albumWall.stamp) return;
+                const got = await album.readFull(top);
+                if (albumWall.chatId === chatId && got && got.ok && got.dataUrl) Object.assign(albumWall, { stamp, url: String(got.dataUrl) });
+            }).catch(() => null).finally(() => { albumWall.busy = false; });
+        }
+        return albumWall.url;
     }
 
     // 日常演出拍照：合成当前背景与立绘存入相册（CG 库中的照片），失败静默。
@@ -4024,6 +4363,7 @@ export function createIgsReaderHost(options = {}) {
             payload.inheritedSceneState, payload.inheritedOutfits, payload.inheritedDread,
             payload.liveContext, payload.stormContext, payload.battleContext, readerSettings._sceneAssets,
             JSON.stringify(readerSettings.systemRole), readerSettings.liveFx?.enabled === true,
+            JSON.stringify([readerSettings.liveFx?.darkAll, readerSettings.liveFx?.darkSkin, readerSettings.liveFx?.terminalTone]),
             readerSettings.feedFx?.enabled === true, readerSettings.feedFx?.storm?.enabled !== false,
             readerSettings.cgHoldPages, userName, chatId,
             JSON.stringify([readerSettings._live2d?.enabled, Object.keys(readerSettings._live2d?.bindings || {})]),
@@ -5163,7 +5503,22 @@ export function createIgsReaderHost(options = {}) {
             }
             dropTitleGate(current);
         }
-        if (current.dom.overlay) applyReaderSnapshotToDom(current.dom.overlay, snapshot, current, {
+        // 窄屏阅读模式：先定下这次是不是 log 模式，渲染用去掉立绘 / 运镜 / 打字机的副本；聊天 / 卡片页照原样渲染。
+        current.logBase = logReaderBase(current, snapshot);
+        const logRows = current.logBase ? logRowsFor(current, snapshot) : null;
+        const logPage = logRows && logRows.rows[Math.max(0, Number(current.index) || 0)];
+        current.logReaderActive = Boolean(logRows && logPage && !logPage.solo);
+        if (logRows && logRows.enteredKey !== logRows.key) {
+            // 刚进这一楼、停在楼首且不在生成中：自动播第一批（第一行也走出字）。
+            logRows.enteredKey = logRows.key;
+            logRows.fresh = Number(current.index) === 0 && !logRows.running && !current.awaitingReply && current.streamPhase === 'idle';
+            if (logRows.fresh) setTimeout(() => {
+                logRows.fresh = false;
+                if (state.activeReader === current && current.logReader === logRows) void runLogBatch(current, 0);
+            }, 0);
+        }
+        const renderSnapshot = current.logReaderActive ? logRenderSnapshot(logSceneSnapshot(current, snapshot)) : snapshot;
+        if (current.dom.overlay) applyReaderSnapshotToDom(current.dom.overlay, renderSnapshot, current, {
             hasActiveSettings: () => Boolean(state.activeSettings),
             closeSettings,
             handleReaderAction,
@@ -5181,10 +5536,17 @@ export function createIgsReaderHost(options = {}) {
             // 用户角色名：直播主播名与之相同时自动切主播视角；用 getter 跟随切换角色。
             get userName() { return String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''); },
             onDailyPhoto: saveDailyPhoto,
+            albumWallUrl,
             onRomanceMemory: saveRomanceMemory,
             onCgPortraitMove: (statusHud) => saveReaderSettingsPatch({ statusHud }),
             onLivePortraitMove: (liveFx) => saveReaderSettingsPatch({ liveFx }),
         });
+        syncLogLayer(current, snapshot);
+        // 首次挂载时阅读器可能还没量出尺寸：量出来后判断变了就补渲染一次（每次打开只补一次）。
+        if (!current.logBase && !current.logRecheck && logReaderBase(current, snapshot)) {
+            current.logRecheck = true;
+            setTimeout(() => { if (state.activeReader === current) rerenderActiveReader(); }, 0);
+        }
         current.assetLeases?.end();
         if (current.dom.progress) {
             const progressText = formatReaderProgress(snapshot);
@@ -5853,7 +6215,7 @@ export function createIgsReaderHost(options = {}) {
         readerSettings._live2dScope = resolveAssetScope(getSillyTavernContext(options.global || globalThis)).key;
         let live2dStorage;
         try { live2dStorage = (options.global || globalThis).localStorage; } catch { /* 存储不可用时默认关闭绑定 */ }
-        readerSettings._live2d = readLive2dConfig(live2dStorage, readerSettings._live2dScope);
+        readerSettings._live2d = readLive2dConfigShared(live2dStorage, readerSettings._live2dScope);
         // 还没入库的生成立绘的 tag：立绘默认高度据此判断没有 DNA 的角色性别与老人 / 儿童。
         const spriteTagService = options.generatedAssets;
         readerSettings._tempSpriteTags = spriteTagService && typeof spriteTagService.tempSpriteTags === 'function'

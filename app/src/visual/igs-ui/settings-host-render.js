@@ -46,6 +46,8 @@ import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLa
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { CREATURE_DISPLAY_RANGE, normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
+import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORIGIN_PERSONALITIES, ORIGIN_REPO_URL, normalizeOriginSettings } from './origin-settings.js';
+import { originChatStatus } from './origin-attach.js';
 import { renderStatsArchive, renderStatsBuildFields, renderStatsBuildModeField, renderStatsMappingFields, renderStatsPromptFields } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
@@ -56,7 +58,7 @@ import { loadMoodReview } from '../../scene/mood-review-store.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS, DIALOG_SKIN_GRADIENT_VEIL, DIALOG_SKIN_WESTERN_CLASSIC, isIllustratedDialogSkin, supportsDialogAutoHeight } from './classic-dialog-skin.js';
 import { dialogSkinLabel, getDialogSkinChoices } from './dialog-skin-catalog.js';
 import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
-import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
+import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, magicHouseChoices, magicHouseFor, normalizeMagicAccent } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
 import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CACHE_LIMIT, TTS_THOUGHT_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, TTS_VOICE_MAX, findSystemVoice, hasNaturalSystemVoice, listSystemVoices, normalizeTtsSettings, parseVoicePool, systemVoiceOptions, ttsApiVoiceOptions, ttsMixedContentRisk, ttsNarratorVoiceOptions, ttsVoiceEntries } from './tts.js';
 import { normalizeBilingualSettings } from './bilingual-text.js';
@@ -248,6 +250,66 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen, { worldview: resolveWorldview(worldviewAssets),
                     mode: chatReady ? (chat.buildMode || chat.pendingMode || null) : null }),
                 statsBuildHidden: hiddenAttr(!chatReady || chat.enabled),
+            };
+        });
+
+        // 随身系统页：总开关关闭时下方整块隐藏，只留一行说明。本聊天状态由宿主 options.originChat() 给出（没接引擎时为 null）。
+        // 「备用模型预设」下拉：副 LLM 类型的模型预设；已选的预设被删时保留一项提示，运行时回落当前连接。
+        const originProfileChoices = (selected) => {
+            const profiles = asyncState.modelProfiles;
+            const list = profiles && Array.isArray(profiles.list) ? profiles.list.filter((item) => item.kind === 'llm') : [];
+            const choices = [['', '「备用模型」页当前连接'], ...list.map((item) => [item.id, item.name])];
+            if (selected && !list.some((item) => item.id === selected)) choices.push([selected, profiles && profiles.status === 'loading' ? '读取中…' : '预设已删除（按当前连接）']);
+            return choices;
+        };
+        const originValues = memo(() => {
+            const origin = normalizeOriginSettings(bridge.origin);
+            let chat = null;
+            // 宿主没给 originChat 时读接入点登记的引擎（origin-attach.js）。
+            try { chat = idx ? null : typeof options.originChat === 'function' ? options.originChat() : originChatStatus(); } catch (error) { chat = null; }
+            const llmSource = (bridge.autoIllustration && bridge.autoIllustration.llm && bridge.autoIllustration.llm.source) || 'tavern';
+            const chatReady = Boolean(origin.enabled && chat && chat.hasChat && !chat.blocked);
+            const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里暂停或恢复。'
+                : chat.blocked ? `本聊天的系统存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
+                    : chat.paused ? '本聊天已暂停：系统退出剧情，不派任务、不计时，存档保留。' : '本聊天正在运行。暂停后时限冻结，恢复时顺延。';
+            const intField = (key, label, min, max, note) => field(`bridge.origin.${key}`, label, numberInput(`bridge.origin.${key}`, origin[key], min, max), note);
+            return {
+                originToggle: checkbox('bridge.origin.enabled', origin.enabled, '启用随身系统'),
+                originOffNoteHidden: hiddenAttr(origin.enabled),
+                originHidden: hiddenAttr(!origin.enabled),
+                originChatNote: esc(chatNote),
+                originWorldText: esc(chat && chat.world ? chat.world : '未设定'),
+                originWorldHidden: hiddenAttr(!chatReady),
+                originResumeHidden: hiddenAttr(!chatReady || !chat.paused),
+                originPauseHidden: hiddenAttr(!chatReady || chat.paused),
+                originFreqField: intField('freq', '任务频率（回合）', 1, 10, '每隔几回合最多派发一个任务'),
+                originTaskSourceField: field('bridge.origin.taskSource', '任务来源', selectInput('bridge.origin.taskSource', origin.taskSource, [['auto', '自动'], ['direction', '按指定方向'], ['manual', '只手写']])),
+                originLimitMinField: intField('limitMin', '时限下限（回合）', 0, 99, '0表示不强制时限'),
+                originLimitMaxField: intField('limitMax', '时限上限（回合）', 0, 99),
+                originBlockField: checkbox('bridge.origin.blockWhenUnfinished', origin.blockWhenUnfinished, '上一个主线或支线未完成时不派发新任务'),
+                originPunishField: checkbox('bridge.origin.punishEvent', origin.punishEvent, '任务失败时触发剧情惩罚事件'),
+                originAchieveField: checkbox('bridge.origin.achieveOn', origin.achieveOn, '启用成就系统'),
+                originRewardPrefField: field('bridge.origin.rewardPref', '奖励偏好', textInput('bridge.origin.rewardPref', origin.rewardPref, '例如：多给道具、偏情感向')),
+                originPenaltyPrefField: field('bridge.origin.penaltyPref', '惩罚偏好', textInput('bridge.origin.penaltyPref', origin.penaltyPref, '例如：不动好感度、惩罚偏物质')),
+                originShopRefreshField: intField('shopRefresh', '商城更新间隔', 0, 99),
+                originGachaRefreshField: intField('gachaRefresh', '奖池更新间隔', 0, 99),
+                originDrawCostField: intField('drawCost', '单次抽奖积分', 0, 99999),
+                originModFields: ORIGIN_MODS.map((id) => checkbox(`bridge.origin.mods.${id}`, origin.mods[id], ORIGIN_MOD_LABELS[id])).join(''),
+                originSysNameField: field('bridge.origin.sysName', '系统名', textInput('bridge.origin.sysName', origin.sysName, ORIGIN_DEFAULT_NAME)),
+                originPersonalityField: field('bridge.origin.personality', '人格腔调', selectInput('bridge.origin.personality', origin.personality, ORIGIN_PERSONALITIES.map((name) => [name, name]))),
+                originFourthWallField: intField('fourthWall', '第四面墙几率（%）', 0, 100),
+                originPersonaTextField: field('bridge.origin.personaText', '自定义人格', textareaInput('bridge.origin.personaText', origin.personaText, '填写后覆盖上面的人格腔调'), '留空使用人格腔调'),
+                originBindToField: field('bridge.origin.bindTo', '系统绑定对象', textInput('bridge.origin.bindTo', origin.bindTo, '宿主')),
+                originRpChatField: field('bridge.origin.rpChat', '反串私聊', selectInput('bridge.origin.rpChat', origin.rpChat, [['auto', '随正文生成'], ['manual', '仅手动生成']])),
+                originAutoEconField: checkbox('bridge.origin.autoEcon', origin.autoEcon, '允许角色自主使用系统（购买、抽奖、使用道具）'),
+                originChatToStoryField: checkbox('bridge.origin.chatToStory', origin.chatToStory, '宿主与系统的对话结果写入剧情'),
+                originRouteField: field('bridge.origin.route', '系统请求', selectInput('bridge.origin.route', origin.route, [['tavern', '跟随酒馆当前连接'], ['llm', '使用备用模型']])),
+                originModelField: field('bridge.origin.llmProfile', '备用模型预设', selectInput('bridge.origin.llmProfile', origin.llmProfile, originProfileChoices(origin.llmProfile))),
+                originRouteNote: esc(origin.route === 'llm' && !origin.llmProfile && llmSource !== 'openai' ? '「备用模型」页的来源为酒馆当前API，系统请求仍跟随酒馆当前连接。' : '派发任务、刷新商城与奖池、系统对话与私聊都按这里的分配发送请求；预设在「备用模型」页存取。'),
+                originModelHidden: hiddenAttr(origin.route !== 'llm'),
+                originLegacyHidden: hiddenAttr(!(chatReady && chat.legacy)),
+                originKeepFloorsField: intField('keepFloors', '保留楼数', 0, 9999, '0表示全部保留'),
+                originCredit: `${esc(ORIGIN_CREDIT)}　<a class="igs-origin-credit-link" href="${esc(ORIGIN_REPO_URL)}" target="_blank" rel="noopener noreferrer">${esc(ORIGIN_REPO_URL)}</a>`,
             };
         });
 
@@ -795,7 +857,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     ? `<div class="igs-source-filter-note igs-card-skin-note">当前角色卡在主界面选定了「${esc(dialogSkinLabel(worldviewAssets.dialogSkin))}」，阅读这张卡时以此为准，上方选项仅对其他角色卡生效。<button type="button" class="igs-settings-action" data-action="card-dialog-skin-clear">跟随上方</button></div>`
                     : ''); },
             get gradientVeilFields() { return gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认风格'], ['plain-text', '纯文字']])) + '</div>' : ''; },
-            get magicHouseField() { return reader.dialogSkin === DIALOG_SKIN_XIANXIA_INK ? field('readerSettings.xianxiaSpeaker', '姓名排布', selectInput('readerSettings.xianxiaSpeaker', reader.xianxiaSpeaker === 'center' ? 'center' : 'left', [['left', '左侧落款'], ['center', '居中（名字+剑气下划线）']])) : reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', normalizeMagicHouse(reader.magicHouse), MAGIC_HOUSES.map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === normalizeMagicHouse(reader.magicHouse)).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : ''; },
+            get magicHouseField() { return reader.dialogSkin === DIALOG_SKIN_XIANXIA_INK ? field('readerSettings.xianxiaSpeaker', '姓名排布', selectInput('readerSettings.xianxiaSpeaker', reader.xianxiaSpeaker === 'center' ? 'center' : 'left', [['left', '左侧落款'], ['center', '居中（名字+剑气下划线）']])) : reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', magicHouseFor(reader.magicHouse, resolveWorldview(bridge.sceneAssets)), magicHouseChoices(resolveWorldview(bridge.sceneAssets)).map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === magicHouseFor(reader.magicHouse, resolveWorldview(bridge.sceneAssets))).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : ''; },
             get classicDialogWidthPercentField() { return classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : ''; },
             // 「自适应」是 dialogAutoHeight 的入口（字少变矮），选它时高度比例保持不变；选具体比例即关掉自适应。
             get skinDialogScaleField() { return classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.dialogAutoHeight === true && supportsDialogAutoHeight(reader.dialogSkin) ? 'auto' : reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]).concat(supportsDialogAutoHeight(reader.dialogSkin) ? [['auto', '自适应']] : []))) : ''; },
@@ -1003,6 +1065,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             return pageTabs() + renderTemplate(getPageTemplate(page), parseValues());
         case 'stats':
             return pageTabs() + renderTemplate(getPageTemplate(page), statsValues());
+        case 'origin':
+            return pageTabs() + renderTemplate(getPageTemplate(page), originValues());
         case 'source':
         case 'kinds':
         case 'llm':
@@ -1030,6 +1094,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 scenes: `${sizeOf(assets.scenes)}个背景`,
                 ai: sources[normalizeImageSourceMode(imageApi.mode)] || '',
                 stats: normalizeStatsSettings(bridge.stats).enabled ? '已开启' : '未开启',
+                origin: normalizeOriginSettings(bridge.origin).enabled ? '已开启' : '未开启',
                 data: '备份 · 日志',
             };
             const storage = (options.global || globalThis).localStorage;

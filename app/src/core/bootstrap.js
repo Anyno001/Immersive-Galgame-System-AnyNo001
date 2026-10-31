@@ -31,7 +31,7 @@ import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/
 import { resolveBgmPromptRule, resolveDlcFxPromptRule, resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
 import { resolveDanmakuPromptRule } from '../visual/igs-ui/danmaku-prompt.js';
 import { resolveFeedPromptRule } from '../visual/igs-ui/feed-prompt.js';
-import { mentionedFeedPlatforms } from '../scene/feed-platforms.js';
+import { hasFeedPeekHint, mentionedFeedPlatforms } from '../scene/feed-platforms.js';
 import { resolveTextFxPromptRule } from '../visual/igs-ui/text-fx.js';
 import { resolveBilingualPromptRule } from '../visual/igs-ui/bilingual-text.js';
 import { resolveDailyFxPromptRule } from '../visual/igs-ui/fx-daily-prompt.js';
@@ -48,6 +48,8 @@ import { createExtensionPanel } from '../host/extension-panel.js';
 import { createReaderImageService } from '../generated-images/reader-image-service.js';
 import { createPromptInjector } from '../host/prompt-injector.js';
 import { createStatsRuntime } from './stats-runtime.js';
+import { createOriginRuntime, originLegacyActive } from './origin-runtime.js';
+import { createModelProfilesStore } from '../storage/model-profiles-file.js';
 import { describeLlmReady } from '../generated-images/illustration/caption-writer.js';
 import { statsFxOf, statsNoticeLines } from '../scene/stats/stat-fx.js';
 import { clearStatsRivals, registerStatsRivals } from '../visual/igs-ui/romance-runtime.js';
@@ -125,7 +127,14 @@ export function createImageJobReporter(globalObject, getBridge, log, getReaderNo
 const OPEN_FAILURE_TEXT = Object.freeze({
     'no-readable-text': '本楼未读取到可显示的正文，阅读器未打开。请检查正文标签设置。',
     'no-message': '当前聊天没有可读取的楼层。',
+    'no-chat': '当前无法启用阅读器，请进入对话后再生成。',
 });
+
+// 酒馆主界面（没进任何对话）：阅读器不开，设置器照常。
+function noChatOpen(globalObject) {
+    const ctx = getSillyTavernContext(globalObject);
+    return Boolean(ctx && typeof ctx.getCurrentChatId === 'function' && ctx.getCurrentChatId() == null);
+}
 
 function notifyOpenFailure(globalObject, reason) {
     const text = OPEN_FAILURE_TEXT[reason] || `阅读器未打开（${reason || '未知原因'}）。`;
@@ -628,11 +637,14 @@ export function bootstrapIGS(options = {}) {
     });
     publicApi = createPublicApi(app);
     // QR 按钮经 loader 直接调用此入口，失败时 loader 只写控制台，表现为点击无反应；失败原因在此提示。
-    const openLatestQuiet = publicApi.openLatestAvailable;
+    const openLatestAny = publicApi.openLatestAvailable;
+    const openLatestQuiet = (...args) => (noChatOpen(globalObject)
+        ? (notifyOpenFailure(globalObject, 'no-chat'), Promise.resolve({ ok: false, reason: 'no-chat', notified: true }))
+        : openLatestAny(...args));
     publicApi.openLatestAvailable = (...args) => Promise.resolve()
         .then(() => openLatestQuiet(...args))
         .then((result) => {
-            if (result && result.ok === false) notifyOpenFailure(globalObject, result.reason);
+            if (result && result.ok === false && !result.notified) notifyOpenFailure(globalObject, result.reason);
             return result;
         }, (error) => {
             notifyOpenFailure(globalObject, error && error.message || String(error));
@@ -875,6 +887,20 @@ export function bootstrapIGS(options = {}) {
     app.statsRuntime = statsRuntime;
     state.statsSettingsOff = events.on('igs:legacy-settings-updated', () => statsRuntime.sync());
     statsRuntime.sync();
+    // 随身系统（Origin 系统 原作 vicliaaa，经授权移植）：总开关默认关，关着时不挂任何监听。
+    const originRuntime = createOriginRuntime({
+        getContext: resolveTavernContext,
+        readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).origin,
+        readLlm: () => (((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration || {}).llm,
+        readProfiles: () => createModelProfilesStore(globalObject).read(),
+        secondaryLlm,
+        notice: (level, text) => { const notice = app.igsUi && app.igsUi.showImageNotice; if (typeof notice === 'function') notice.call(app.igsUi, level, text); },
+        openSettings: () => publicApi.openSettings({ tab: 'origin' }),
+        legacyActive: () => originLegacyActive(globalObject),
+    });
+    app.originRuntime = originRuntime;
+    state.originSettingsOff = events.on('igs:legacy-settings-updated', () => originRuntime.sync());
+    originRuntime.sync();
     events.emit('igs:ready', publicApi);
 
     return publicApi;
@@ -1140,7 +1166,12 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'generation-type-skipped' };
         }
         // 社区平台写法只展开最近提到的平台，其余只列名字。
-        if (readerSettings && readerSettings.feedFx) readerSettings.feedFx.mentioned = mentionedFeedPlatforms([promptContext.userText, ...(promptContext.recentAiTexts || []).slice(-2)]);
+        // 偷看专用平台（搜索记录、备忘录、相册、聊天列表）只在有偷看迹象时进名单。
+        if (readerSettings && readerSettings.feedFx) {
+            const feedContext = [promptContext.userText, ...(promptContext.recentAiTexts || []).slice(-2)];
+            readerSettings.feedFx.mentioned = mentionedFeedPlatforms(feedContext);
+            readerSettings.feedFx.peekHint = hasFeedPeekHint(feedContext);
+        }
         const sceneOn = Boolean(sceneAssets && sceneAssets.enabled && scenePromptRuleEnabled(sceneAssets) && sceneAssets.promptRule);
         const entries = sceneAssets && sceneAssets.promptEntries;
         const triggers = resolvePromptTriggers({ ...promptContext, entries });
@@ -1258,6 +1289,8 @@ export function bootstrapIGS(options = {}) {
     function shouldRetrySceneAssetsInjection(result, attempt) {
         if (!result || result.ok !== false) return false;
         if (state.destroyed) return false;
+        // 退避到 30 秒后最多再试十来次；之后靠设置变化、切聊天等事件重新同步，不无限每 30 秒空跑。
+        if (attempt >= 16) return false;
         return result.reason !== 'empty-content';
     }
 
@@ -1385,6 +1418,8 @@ export function bootstrapIGS(options = {}) {
         state.metaDigestCleanup = null;
         close(() => state.statsSettingsOff?.());
         close(() => app.statsRuntime?.destroy());
+        close(() => state.originSettingsOff?.());
+        close(() => app.originRuntime?.destroy());
         close(() => imageTaskRuntime.dispose());
         close(() => promptInjector.clear());
         close(() => storyOutfits?.dispose());

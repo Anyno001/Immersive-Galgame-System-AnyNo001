@@ -83,3 +83,21 @@ test('cg-library:keep-photo-stores-a-finished-image-as-is', async () => {
     const full = await library.readFull({ kind: 'photo', photoId: kept.photo.id, key: `photo|${kept.photo.id}` });
     assert.deepEqual(full, { ok: true, dataUrl: image });
 });
+
+test('照片条目带拍摄时的 NSFW 标记，旧照片不带', async () => {
+    const { cgEntryFromPhoto } = await import('../src/media/cg-library.js');
+    assert.equal(cgEntryFromPhoto({ id: 'a', dataUrl: 'x', nsfw: false }).nsfw, false);
+    assert.equal(cgEntryFromPhoto({ id: 'b', dataUrl: 'x', nsfw: true }).nsfw, true);
+    assert.equal('nsfw' in cgEntryFromPhoto({ id: 'c', dataUrl: 'x' }), false);
+});
+
+test('照片的 NSFW 标记经过相册存储进到目录条目', async () => {
+    const { library, photoStore } = await setup();
+    await photoStore.put({ id: 'safe', chatId: 'chat', messageId: 10, dataUrl: 'data:image/jpeg;base64,S', createdAt: at(7), nsfw: false });
+    await photoStore.put({ id: 'lewd', chatId: 'chat', messageId: 11, dataUrl: 'data:image/jpeg;base64,L', createdAt: at(8), nsfw: true });
+    const { entries } = await library.syncIndex();
+    const byKey = new Map(entries.map((e) => [e.key, e]));
+    assert.equal(byKey.get('photo|safe').nsfw, false);
+    assert.equal(byKey.get('photo|lewd').nsfw, true);
+    assert.equal('nsfw' in byKey.get('photo|p1'), false);
+});

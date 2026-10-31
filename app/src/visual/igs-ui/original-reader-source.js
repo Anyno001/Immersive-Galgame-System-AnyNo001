@@ -6,9 +6,11 @@ import { MAP_LIGHT_LAYER_STYLE_TEXT } from './map-light-layers.js';
 import { WEATHER_FX_STYLE_TEXT } from './weather-fx-style.js';
 import { FX_STYLE_TEXT } from './fx-style.js';
 import { DANMAKU_STYLE_TEXT } from './danmaku-style.js';
+import { LIVE_SKIN_STYLE_TEXT } from './live-skin-style.js';
 import { FEED_STYLE_TEXT } from './feed-style.js';
 import { STORM_STYLE_TEXT } from './storm-style.js';
 import { NOTIFY_CENTER_STYLE_TEXT } from './notify-center-style.js';
+import { ORIGIN_PANEL_STYLE_TEXT } from './origin-panel-style.js';
 import { SPAM_SMS_STYLE_TEXT } from './spam-sms-style.js';
 import { STAGE_DIRECTION_STYLE_TEXT } from './stage-direction-style.js';
 import { STAGE_CAST_STYLE_TEXT } from './stage-cast-render.js';
@@ -52,6 +54,7 @@ import { STAGE_PAUSE_STYLE_TEXT } from './stage-pause.js';
 import { COMIC_STYLE_TEXT } from './comic-style.js';
 import { MANGA_BACK_STYLE_TEXT } from './manga-back.js';
 import { CROWD_STYLE_TEXT } from './crowd-fx.js';
+import { LOG_READER_STYLE_TEXT } from './log-reader-style.js';
 
 import { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } from './settings-theme.js';
 import { STATUS_HUD_PHONE_MEDIA } from '../../data/shujuku/status-hud-model.js';
@@ -79,6 +82,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'next-turn', group: 'nav', title: '下一轮', html: ORIGINAL_READER_ICONS.nextTurn },
     { id: 'auto-play', group: 'nav', title: '自动播放', html: ORIGINAL_READER_ICONS.play },
     { id: 'tts-replay', group: 'nav', title: '重听这句', html: ORIGINAL_READER_ICONS.replay },
+    { id: 'log-chain', group: 'nav', title: '连续播放：开', html: ORIGINAL_READER_ICONS.chainOn },
     { id: 'tts-reroll', group: 'nav', title: '重新生成这句', html: ORIGINAL_READER_ICONS.ttsReroll },
     { id: 'quick-save', group: 'nav', title: '快速存档', html: ORIGINAL_READER_ICONS.quickSave },
     { id: 'quick-load', group: 'nav', title: '快速读档', html: ORIGINAL_READER_ICONS.quickLoad },
@@ -163,7 +167,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay.igs-mode-embedded #igs-status-hud{top:14px;left:12px;--igs-hud-edge-x:12px;width:calc(320px * var(--igs-hud-scale,1));}
 #igs-overlay #igs-status-hud[data-igs-hud-pos]{z-index:6;--igs-hud-px:var(--igs-hud-x,0);--igs-hud-py:var(--igs-hud-y,0);top:calc(14px + (100% - 28px) * var(--igs-hud-py) / 100);left:calc(var(--igs-hud-edge-x,14px) + (100% - var(--igs-hud-edge-x,14px) * 2) * var(--igs-hud-px) / 100);transform:translate(calc(var(--igs-hud-px) * -1%),calc(var(--igs-hud-py) * -1%));}
 #igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-no-metrics{width:max-content;}
-/* 折叠态与左列入口同为固定 38px：--igs-hud-scale 只挂在状态栏上，入口坞拿不到它，跟着缩放会让两者中心错开。 */
+/* 折叠态与入口坞同宽 38px，坞内入口（电脑 28px、手机 24px）按中线居中：--igs-hud-scale 只挂在状态栏上，入口坞拿不到它，跟着缩放会让两者中心错开。 */
 #igs-overlay #igs-status-hud.igs-hud-collapsed,#igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-collapsed{width:38px;height:38px;padding:0;}
 @media ${STATUS_HUD_PHONE_MEDIA}{#igs-overlay #igs-status-hud[data-igs-hud-pos]{--igs-hud-px:var(--igs-hud-mx,0);--igs-hud-py:var(--igs-hud-my,0);}}
 #igs-status-hud.igs-hud-suppressed{opacity:0;}
@@ -466,9 +470,11 @@ ${CLASH_STYLE_TEXT}
 ${INNER_DEMON_STYLE_TEXT}
 ${RESULT_FX_STYLE_TEXT}
 ${DANMAKU_STYLE_TEXT}
+${LIVE_SKIN_STYLE_TEXT}
 ${FEED_STYLE_TEXT}
 ${STORM_STYLE_TEXT}
 ${NOTIFY_CENTER_STYLE_TEXT}
+${ORIGIN_PANEL_STYLE_TEXT}
 ${SPAM_SMS_STYLE_TEXT}
 ${COMIC_STYLE_TEXT}
 ${MANGA_BACK_STYLE_TEXT}
@@ -480,6 +486,7 @@ ${GENERATION_STRIP_STYLE_TEXT}
 ${INVENTORY_IMAGE_STYLE_TEXT}
 ${ITEM_IMAGE_VIEWER_STYLE_TEXT}
 ${STAGE_PAUSE_STYLE_TEXT}
+${LOG_READER_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `

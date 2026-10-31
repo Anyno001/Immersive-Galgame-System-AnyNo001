@@ -2,7 +2,8 @@
 const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 
 // 各入口按钮共用的小手机图标（观众弹幕入口、社区回看入口）：32 视框，纯描边随 currentColor，无半透明底。
-export const PHONE_ENTRY_ICON = '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="9" y="3.2" width="14" height="25.6" rx="3.6" stroke="currentColor" stroke-width="1.6"/><path d="M13.8 6.6h4.4M14 25.4h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+// 入口坞四个图标统一规格：32 视框、1.6 线宽、圆角端点，图形收在 5 到 27 的留白内（电话高 22，铃铛与圆环不超过它）。
+export const PHONE_ENTRY_ICON = '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9.5" y="5" width="13" height="22" rx="3.2"/><path d="M13.8 8.2h4.4M14 23.8h4"/></svg>';
 
 export const LIVE_ICONS = Object.freeze({
     close: svg('<path d="M7 7l10 10M17 7 7 17"/>'),

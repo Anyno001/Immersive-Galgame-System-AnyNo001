@@ -1,6 +1,6 @@
 // 直播上下文（纯函数）：AI 漏写 live 标签时按正文里的开播 / 下播词兜底，并跨楼层继承未下播的直播。
 // 宿主读取由 api/igs-compat.js 负责，这里只处理文本与指令。
-import { extractFxDirectives } from './fx-directives.js';
+import { LIVE_PLATFORM_SKINS, extractFxDirectives } from './fx-directives.js';
 
 // 向前最多看 20 条消息（含用户楼层，玩家常在输入里写「开直播」）；上一个 AI 楼层不提直播即视为已下播，漏写 live-end 时手机不再多挂。
 export const LIVE_CHAIN_MAX_MESSAGES = 20;
@@ -19,7 +19,8 @@ export function liveFallbackOf(userName = '') {
 
 function liveArgs(live) {
     live = live || {};
-    return [String(live.name || ''), String(live.title || ''), live.view === 'host' ? 'host' : 'watch'];
+    const platform = LIVE_PLATFORM_SKINS.includes(live.platform) ? [live.platform] : [];
+    return [String(live.name || ''), String(live.title || ''), live.view === 'host' ? 'host' : 'watch', ...platform];
 }
 
 // 正文里的开播 / 下播词转成与 live 标签同形的指令（按出现位置排序）。
@@ -42,7 +43,7 @@ export function readLiveCarry(text, fallback) {
     const list = [...tags, ...cuesBeside(tags, text, fallback)].sort((a, b) => a.offset - b.offset);
     const last = list[list.length - 1];
     if (!last) return null;
-    return { live: last.end ? null : { name: last.args[0], title: last.args[1], view: last.args[2] } };
+    return { live: last.end ? null : { name: last.args[0], title: last.args[1], view: last.args[2], ...(last.args[3] ? { platform: last.args[3] } : {}) } };
 }
 
 // 逐条喂入本楼之前的消息（近的在前：{ isUser, text }），push 返回 true 表示已有结论、宿主可停止读取。

@@ -5,6 +5,7 @@
 import { setStagePauseReason } from './stage-pause.js';
 import { READING_SLOT_LIMIT } from './reading-progress.js';
 import { RECORD_ICONS } from './record-icons.js';
+import { VOICE_ICON } from './voice-icon.js';
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
 import { RECORD_PAGE_SHELL_STYLE_TEXT } from './record-page-shell-style.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
@@ -25,7 +26,6 @@ const STATE_LABEL = { read: '已读', partial: '读了一半', unread: '未读' 
 const OPEN_CLASS = 'igs-turn-index-open';
 const BOOKMARK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h11v17L12 16.5l-5.5 4Z"/></svg>';
 const FEED_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-7l-4.5 3.5V16.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z"/></svg>';
-const VOICE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3Z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
 const MENU_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4.5 7h15M4.5 12h15M4.5 17h9"/></svg>';
 // 左缘右滑拉出抽屉的起点范围、开合判定距离（px）。
 const SWIPE_EDGE = 28;

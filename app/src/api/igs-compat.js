@@ -402,11 +402,11 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     const unifiedSettings = typeof app.getUnifiedSettingsSnapshot === 'function'
         ? app.getUnifiedSettingsSnapshot({ mode: readerMode })
         : null;
-    const bridge = cloneData(
-        unifiedSettings && unifiedSettings.bridge && typeof unifiedSettings.bridge === 'object'
-            ? unifiedSettings.bridge
-            : readAppConfig(app),
-    );
+    const rawBridge = unifiedSettings && unifiedSettings.bridge && typeof unifiedSettings.bridge === 'object'
+        ? unifiedSettings.bridge
+        : readAppConfig(app);
+    // 只拷会随 payload 交出去的两个小字段；素材库按引用读（共享只读）。整份深拷贝会让下游按引用记的素材缓存每次切楼都失效、整楼重做。
+    const bridge = { ...rawBridge, sourceFilter: cloneData(rawBridge.sourceFilter), virtualRegex: cloneData(rawBridge.virtualRegex) };
     const sceneAssets = sceneAssetsForContext(bridge.sceneAssets, getSillyTavernContext(app.global));
     const visualNovelText = buildIgsTextPayload(message, {
         sourceFilter: bridge.sourceFilter,

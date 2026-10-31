@@ -45,3 +45,34 @@ test('角色卡同名资料盖住全局，卡里没有的名字仍用全局', ()
     assert.equal(effectiveSceneAssets(assets, '').scenes.教室.url, 'global-room');
     assert.equal(assets.scenes.教室.url, 'global-room');
 });
+
+test('没打开角色卡时的占位名算全局，旧版记在占位名下的素材并回全局', () => {
+    assert.equal(resolveAssetScope({ name2: 'SillyTavern System' }).key, '');
+    assert.equal(resolveAssetScope({ name2: 'Assistant', characters: [] }).key, '');
+    assert.equal(resolveAssetScope({ characterId: 0, characters: [{ name: 'Assistant' }], name2: 'Assistant' }).key, 'card:Assistant');
+    const assets = {
+        characters: { 林: { 默认: 'global-lin' } },
+        generated: { scenes: {}, characters: {}, characterAliases: {}, expressionNotes: {} },
+        cards: {
+            'card:SillyTavern System': {
+                characters: { 小雪: { 默认: 'stray-snow' }, 林: { 默认: 'stray-lin' } },
+                characterDna: { 小雪: { tags: 'white hair' } },
+                generated: { scenes: { 天台: { url: 'stray-roof' } }, characters: {}, characterAliases: {}, expressionNotes: {} },
+            },
+            'card:小雪': { scenes: { 教室: { url: 'card-room' } } },
+        },
+    };
+    const effective = effectiveSceneAssets(assets, 'card:小雪');
+    assert.equal(effective.characters.小雪.默认, 'stray-snow');
+    assert.equal(effective.characters.林.默认, 'global-lin');
+    assert.equal(effective.characterDna.小雪.tags, 'white hair');
+    assert.equal(effective.generated.scenes.天台.url, 'stray-roof');
+    assert.equal(effective.scenes.教室.url, 'card-room');
+    assert.equal(assetOwnerKey(assets, 'card:小雪', 'characters', '小雪'), '');
+    assert.ok(assets.cards['card:SillyTavern System']);
+    normalizeAssetCards(assets);
+    assert.equal(assets.cards['card:SillyTavern System'], undefined);
+    assert.equal(assets.characters.小雪.默认, 'stray-snow');
+    assert.equal(assets.characters.林.默认, 'global-lin');
+    assert.ok(assets.cards['card:小雪']);
+});

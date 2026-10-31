@@ -88,6 +88,7 @@ export function cgEntryFromPhoto(photo) {
         slot: '照片',
         photoId: String(photo.id),
         updatedAt: String(photo.createdAt || ''),
+        ...(typeof photo.nsfw === 'boolean' && { nsfw: photo.nsfw }),
         ready: Boolean(photo.dataUrl),
         hidden: photo.hidden === true,
         favorite: photo.favorite === true,
@@ -467,7 +468,8 @@ export function createCgLibrary(deps = {}) {
     async function keepPhoto(shot = {}) {
         if (!photoStore) return { ok: false, reason: 'store-unavailable' };
         const { dataUrl } = shot;
-        const photo = { id: makeId(), chatId: shot.chatId, messageId: shot.messageId, caption: shot.caption, dataUrl, createdAt: now() };
+        // nsfw：拍照时场景是否为 NSFW；只有明确为 false 的照片才可拿去当锁屏壁纸等外显用途。
+        const photo = { id: makeId(), chatId: shot.chatId, messageId: shot.messageId, caption: shot.caption, dataUrl, createdAt: now(), ...(typeof shot.nsfw === 'boolean' && { nsfw: shot.nsfw }) };
         const result = await recover(() => photoStore.put(photo));
         if (result && result.ok) {
             const entry = cgEntryFromPhoto(result.photo);

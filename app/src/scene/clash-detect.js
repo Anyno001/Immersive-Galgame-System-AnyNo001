@@ -16,6 +16,21 @@ const DETECT_RULES = Object.freeze([
 
 const NEGATE_RE = /没有?|没能|未曾|未|不(?![禁由住停断])|别|莫|差点|差一点|险些|几乎|想要?|打算|准备|试图|企图|恨不得|作势|假装|佯装|不敢|是否|会不会/;
 const HYPO_RE = /如果|假如|要是|若是?|万一|假使|倘若|的话/;
+// 不是此刻发生的。画面框（回忆、梦、照片 / 屏幕里）管整句；时间与转述（想起、上次、听说……）只管动作所在的分句，
+// 「她想起昨天的事，抬手扇了他一巴掌」后一分句照常算。
+const NOT_NOW_FRAME_RE = /回忆|记忆|梦[见到里中]|(?:照片|相片|屏幕|视频|电影|电视|画面|镜头|手机)(?:里|上|中)/;
+const NOT_NOW_CLAUSE_RE = /想起|想到|那年|当年|曾经|以前|从前|上次|昨天|前天|听说|据说|说(?:她|他|自己|过|起)|告诉/;
+// 比喻：「像一记耳光」「仿佛被揍了一拳」。
+const SIMILE_RE = /像|仿佛|好像|似乎|如同|宛如|犹如|好似/;
+// 动作词与受方之间只允许这些字：「扇了我」「扇在我脸上」「一拳打向我」；隔着别的话就不是打到这个人。
+const OBJECT_GAP_RE = /^[了着向在到住上中往朝进打砸挥抽甩]{0,4}$/;
+// 受方后面紧跟这些：撞上的是目光、扑到的是面前，不是碰到人。
+const ABSTRACT_AFTER_RE = /^[^，,；;]{0,5}?(?:目光|视线|眼神|眸光|视野)|^的?(?:面前|跟前|身边|身旁|旁边|身后|对面)/;
+// 「我的X」只认身体部位；「我的心」「我的话」不算碰到人。
+const BODY_AFTER_RE = /^的(?:头|脑袋|额|脑门|脸|面颊|侧脸|肩|背|胸|腰|身|肚|小腹|腹|胃|肋|手|胳膊|臂|腿|膝|脚|屁股|后脑|下巴|嘴|唇|怀)/;
+// 单字称呼的词内误认：我们、自我、其他、吉他……
+const WORD_BEFORE_RE = /[自忘本无其吉利]$/;
+const WORD_AFTER_RE = /^们/;
 const USER_WORDS = Object.freeze(['你', '我']);
 const PRONOUNS = Object.freeze({ 她: 'female', 他: 'male' });
 const SENTENCE_RE = /[。！？!?…\n]+/;
@@ -31,9 +46,11 @@ function marksOf(sentence, people, userNames) {
     const marks = [];
     const free = (s) => !marks.some((m) => s.start < m.end && m.start < s.end);
     const add = (word, mark) => {
+        const single = word.length === 1;
         for (let at = sentence.indexOf(word); at >= 0; at = sentence.indexOf(word, at + word.length)) {
             const span = { start: at, end: at + word.length, ...mark };
-            if (free(span)) marks.push(span);
+            const inWord = single && (WORD_BEFORE_RE.test(sentence.slice(0, at)) || WORD_AFTER_RE.test(sentence.slice(span.end)));
+            if (!inWord && free(span)) marks.push(span);
         }
     };
     const named = people.flatMap((p) => p.names.map((n) => ({ n, key: p.key }))).sort((a, b) => b.n.length - a.n.length);
@@ -70,13 +87,20 @@ function scanSentence(sentence, ctx) {
         if (rule.need && !rule.need.test(sentence.slice(end))) continue;
         const from = clauseStart(sentence, at);
         if (NEGATE_RE.test(sentence.slice(from, at)) || HYPO_RE.test(sentence.slice(0, at))) continue;
+        if (NOT_NOW_FRAME_RE.test(sentence.slice(0, at)) || NOT_NOW_CLAUSE_RE.test(sentence.slice(from, at)) || SIMILE_RE.test(sentence.slice(from, at)) || /^过/.test(sentence.slice(end))) continue;
         const before = marks.filter((m) => m.end <= at);
         const clauseEnd = (() => { const rest = sentence.slice(end).search(CLAUSE_RE); return rest < 0 ? sentence.length : end + rest; })();
         let subject = null;
-        let object = marks.find((m) => m.start >= end && m.start < clauseEnd) || null;
+        let object = marks.find((m) => m.start >= end && m.start < clauseEnd && OBJECT_GAP_RE.test(sentence.slice(end, m.start))) || null;
         const last = before[before.length - 1];
         const leadIn = last ? sentence.slice(Math.max(from, last.start - 1), last.start) : '';
-        if (last && last.start >= from && /[把将]$/.test(leadIn)) {
+        // 「给了我一拳」：受方在动作词前，紧挨着「给（了）」。
+        const given = last && last.start >= from && /给了?$/.test(sentence.slice(from, last.start)) && /^[^，,；;]{0,2}$/.test(sentence.slice(last.end, at));
+        if (given && !object) {
+            object = last;
+            const idx = subjectOf(sentence, marks, last.start);
+            subject = idx >= 0 && marks[idx] !== last ? marks[idx] : null;
+        } else if (last && last.start >= from && /[把将]$/.test(leadIn)) {
             object = last;
             const idx = subjectOf(sentence, marks, last.start);
             subject = idx >= 0 && marks[idx] !== last ? marks[idx] : null;
@@ -93,6 +117,8 @@ function scanSentence(sentence, ctx) {
             subject = idx >= 0 ? marks[idx] : null;
         }
         if (!subject || !object || subject === object) continue;
+        const afterObject = sentence.slice(object.end);
+        if (ABSTRACT_AFTER_RE.test(afterObject) || (/^的/.test(afterObject) && !BODY_AFTER_RE.test(afterObject))) continue;
         const attackerFirst = subject.kind !== 'pronoun' ? resolveMark(subject, ctx) : null;
         const target = resolveMark(object, { ...ctx, exclude: attackerFirst && attackerFirst.key });
         const attacker = attackerFirst || resolveMark(subject, { ...ctx, exclude: target && target.key });

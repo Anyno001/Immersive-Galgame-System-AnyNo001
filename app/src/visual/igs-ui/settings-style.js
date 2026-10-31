@@ -566,6 +566,13 @@ ${touchSel('::after')}{content:"";position:absolute;left:0;right:0;top:50%;heigh
 .igs-form-badge.is-other{background:#8a6cc0}
 }`;
 
+const ORIGIN_SETTINGS_STYLE_TEXT = `
+.igs-origin-world{flex:1;min-width:0;font-size:13px;color:var(--igs-settings-ink-2);overflow-wrap:anywhere}
+.igs-origin-credit{margin-top:6px;padding:10px 2px 2px;font-size:11px;line-height:16px;color:var(--igs-settings-ink-4);overflow-wrap:anywhere}
+.igs-origin-credit-link{color:var(--igs-settings-accent);text-decoration:none}
+.igs-origin-credit-link:hover,.igs-origin-credit-link:focus-visible{text-decoration:underline}
+`;
+
 export function getSettingsStyleText() {
-    return `${SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}`;
+    return `${SETTINGS_STYLE_TEXT}\n${ORIGIN_SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}`;
 }

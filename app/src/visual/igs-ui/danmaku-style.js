@@ -10,12 +10,11 @@ export const DANMAKU_STYLE_TEXT = `
 @keyframes igs-dm-top{0%{opacity:0;transform:translate(-50%,-4px);}8%{opacity:1;transform:translate(-50%,0);}88%{opacity:1;}100%{opacity:0;transform:translate(-50%,0);}}
 @keyframes igs-aud-nudge{0%,100%{transform:none;}20%{transform:rotate(-12deg);}40%{transform:rotate(10deg);}60%{transform:rotate(-6deg);}80%{transform:rotate(3deg);}}
 @keyframes igs-aud-nudge-b{0%,100%{transform:none;}20%{transform:rotate(-12deg);}40%{transform:rotate(10deg);}60%{transform:rotate(-6deg);}80%{transform:rotate(3deg);}}
-.igs-aud-entry{--igs-aud-entry:38px;order:0;width:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));height:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));padding:0;border:0;background:transparent;color:#f4f1ec;opacity:.55;cursor:pointer;pointer-events:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));transition:opacity .2s ease;}
+/* 入口尺寸、悬停与描边统一写在 entry-dock.js 的 ENTRY_DOCK_CSS；这里只留顺序与收进手机顶栏时用的基础样式。 */
+.igs-aud-entry{order:0;padding:0;border:0;background:transparent;color:#f4f1ec;opacity:.55;cursor:pointer;pointer-events:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));transition:opacity .2s ease;}
 .igs-live-tools .igs-aud-entry[data-docked]{position:relative;left:auto;top:auto;width:15px;height:15px;padding:6px;margin:-6px 0 -6px -6px;box-sizing:content-box;opacity:.55;filter:none;}
 .igs-live-tools .igs-aud-entry[data-docked]:hover,.igs-live-tools .igs-aud-entry[data-docked][data-unread="1"]{opacity:1;}
 .igs-aud-entry svg{display:block;width:100%;height:100%;}
-.igs-aud-entry[data-size="small"]{--igs-aud-entry:30px;}
-.igs-aud-entry[data-size="large"]{--igs-aud-entry:46px;}
 .igs-aud-entry:hover,.igs-aud-entry:focus-visible,.igs-aud-entry[data-unread="1"]{opacity:1;}
 .igs-aud-entry:focus-visible{outline:2px solid #f4e3ad;outline-offset:2px;border-radius:8px;}
 .igs-aud-entry[data-pulse="1"]{animation:igs-aud-nudge .6s ease-in-out 1;}

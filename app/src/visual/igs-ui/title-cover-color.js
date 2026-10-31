@@ -106,7 +106,8 @@ export function coverPaletteOf(img, url) {
     } catch (error) {
         palette = null;
     }
-    if (key) cache.set(key, palette);
+    // 只留最近 24 张封面：key 可能是 data: 地址，不设上限会长期占着大字符串。
+    if (key) { cache.set(key, palette); if (cache.size > 24) cache.delete(cache.keys().next().value); }
     return palette;
 }
 

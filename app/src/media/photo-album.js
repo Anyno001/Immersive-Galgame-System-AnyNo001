@@ -23,6 +23,8 @@ export function normalizePhoto(value) {
         createdAt: String(src.createdAt || ''),
         favorite: src.favorite === true,
         hidden: src.hidden === true,
+        // 拍照时场景是否 NSFW；旧照片没有这个字段，外显用途（锁屏壁纸）一律当作不可用。
+        ...(typeof src.nsfw === 'boolean' && { nsfw: src.nsfw }),
     };
 }
 

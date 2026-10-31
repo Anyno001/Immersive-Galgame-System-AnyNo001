@@ -1,11 +1,17 @@
 import { normalizeDanmakuSettings, resolveAudiencePersona } from './danmaku-settings.js';
+import { livePlatformPromptOf } from './live-skin.js';
 
 // 内心弹幕是纯本地演出，不向 AI 注入任何规则；直播间与观众弹幕各一块。
-const LIVE_GRAMMAR_LINES = Object.freeze([
-    'live|主播名|直播间标题|视角 … live-end：包住整段直播；视角写 观看（{{user}}在看别人直播，默认）或 主播（主播本人看到的后台）；{{user}}自己开播时主播名写{{user}}、视角写 主播，下播写 live-end',
+const LIVE_GRAMMAR_REST = Object.freeze([
     'dm|观众名|弹幕内容：一条直播弹幕，观众名你自己取（像弹幕网站的网名、口语化、每条尽量不重复，别用现实真名），弹幕内容你自己写，放在它出现时机的正文之前，可连续多行；主播说的话照常用[igs-char]',
     'dm|观众名|内容|类型|附加：特殊弹幕，类型写 醒目留言（附加写金额如30/100/1000）、礼物（内容写礼物名，附加写数量）、上舰（附加写 舰长/提督/总督）、进场（内容留空）、房管',
 ]);
+// 第一行带可省的第 4 栏「平台」，写法说明取设置里的平台栏写法；「所有直播固定用暗网皮肤」开着时由前端决定，不再向 AI 要这一栏。
+function liveGrammarLines(live) {
+    const fixed = live && live.darkAll === true;
+    const head = `live|主播名|直播间标题|视角${fixed ? '' : '|平台'} … live-end：包住整段直播；视角写 观看（{{user}}在看别人直播，默认）或 主播（主播本人看到的后台）；{{user}}自己开播时主播名写{{user}}、视角写 主播，下播写 live-end`;
+    return [fixed ? head : `${head}；${livePlatformPromptOf(live)}`, ...LIVE_GRAMMAR_REST];
+}
 const LIVE_INTRO = '，人气与点赞由前端自动生成；弹幕的观众名和内容都由你写（既写与剧情相关或有梗的关键弹幕，也写几条凑热闹的路人闲聊，前端会把它们和自带的路人弹幕混在一起播），每层 dm 不超过12条；弹幕要引用本层台词和情节里的具体词（人物的话、动作、道具、事件），别泛泛喊称呼、套情境；不在直播时不用 dm';
 
 function audienceLine(audience) {
@@ -17,7 +23,7 @@ export function danmakuGrammarBlocks(readerSettings, fxBlock) {
     const s = normalizeDanmakuSettings(readerSettings);
     const blocks = [];
     if (s.live.enabled) {
-        blocks.push({ key: 'live', adaptive: true, full: fxBlock('直播间', LIVE_GRAMMAR_LINES, LIVE_INTRO), index: '直播 igs-fx:live/live-end/dm' });
+        blocks.push({ key: 'live', adaptive: true, full: fxBlock('直播间', liveGrammarLines(s.live), LIVE_INTRO), index: '直播 igs-fx:live/live-end/dm' });
     }
     if (s.audience.enabled) {
         blocks.push({ key: 'audience', full: fxBlock('观众弹幕', [audienceLine(s.audience)]), index: '观众弹幕 igs-fx:danmaku' });
@@ -29,7 +35,7 @@ export function danmakuGrammarBlocks(readerSettings, fxBlock) {
 export function liveDetailedBlock(readerSettings) {
     const s = normalizeDanmakuSettings(readerSettings);
     if (!s.live.enabled) return '';
-    const lines = LIVE_GRAMMAR_LINES.map((line, i) => `${i + 1}. [igs-fx:${line.replace(' … ', '] … [igs-fx:').replace('：', ']：')}`);
+    const lines = liveGrammarLines(s.live).map((line, i) => `${i + 1}. [igs-fx:${line.replace(' … ', '] … [igs-fx:').replace('：', ']：')}`);
     return `【直播间】角色开直播、或{{user}}在手机上看角色直播时，用以下标签写这一段，完整写法照抄方括号格式：
 ${lines.join('\n')}
 使用约束：
@@ -51,7 +57,7 @@ export function resolveDanmakuPromptRule(readerSettings, { live = null, audience
     const pick = (override, builtin) => (override === false ? '' : (typeof override === 'string' && override.trim()) || builtin());
     const rules = [];
     if (s.live.enabled) {
-        rules.push(pick(live, () => `【直播间】角色开直播、或{{user}}在手机上看角色直播时使用${LIVE_INTRO}：\n${LIVE_GRAMMAR_LINES.map((line, i) => `${i + 1}. [igs-fx:${line.replace(' … ', '] … [igs-fx:').replace('：', ']：')}`).join('\n')}`));
+        rules.push(pick(live, () => `【直播间】角色开直播、或{{user}}在手机上看角色直播时使用${LIVE_INTRO}：\n${liveGrammarLines(s.live).map((line, i) => `${i + 1}. [igs-fx:${line.replace(' … ', '] … [igs-fx:').replace('：', ']：')}`).join('\n')}`));
     }
     if (s.audience.enabled) {
         rules.push(pick(audience, () => `【观众弹幕】想象这段故事正被屏幕外的观众观看，写他们的弹幕时使用：\n[igs-fx:${audienceLine(s.audience).replace('：', ']：')}`));

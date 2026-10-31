@@ -95,7 +95,7 @@ export const FX_CALL_END_REASONS = Object.freeze({
 });
 const FX_VIDEO_MARKS = Object.freeze(['视频', 'video']);
 // 弹幕标签：独立于 FX_TAG_KINDS，开关归 liveFx / audienceFx。
-// 直播区间 [igs-fx:live|主播|标题|视角] … [igs-fx:live-end]，视角写 主播 为主播后台，其余为观看；
+// 直播区间 [igs-fx:live|主播|标题|视角|平台] … [igs-fx:live-end]，视角写 主播 为主播后台，其余为观看；平台可省，写 暗网 / 暗网·终端 / 暗网·监控 / 暗网·拍卖；
 // 直播弹幕 [igs-fx:dm|观众|内容|类型|附加]，类型写错按普通弹幕；观众弹幕 [igs-fx:danmaku|甲/乙|样式]。
 export const DANMAKU_TAG_KINDS = Object.freeze(['live', 'dm', 'danmaku']);
 export const DM_TYPES = Object.freeze({
@@ -106,6 +106,20 @@ export const DM_TYPES = Object.freeze({
     admin: 'admin', 房管: 'admin', 管理: 'admin',
 });
 const LIVE_HOST_VIEWS = Object.freeze(['host', '主播', '主播视角', '后台']);
+// 直播第 4 栏「平台」：只认暗网。写「暗网」为 dark（用设置里的默认子风格），「暗网·终端 / 监控 / 拍卖」直接指定；其余写法一律当没写。
+const LIVE_DARK_HEAD_RE = /^(?:暗网|darkweb)(?:直播间?)?\s*[·・•.\-－—/:：、]?\s*(.*)$/i;
+const LIVE_DARK_SUBS = Object.freeze({
+    终端: 'terminal', 黑客: 'terminal', 终端风: 'terminal', terminal: 'terminal', hacker: 'terminal',
+    监控: 'cctv', 偷拍: 'cctv', 监控风: 'cctv', cctv: 'cctv', camera: 'cctv',
+    拍卖: 'auction', 会所: 'auction', 拍卖会: 'auction', 地下会所: 'auction', auction: 'auction',
+});
+export const LIVE_PLATFORM_SKINS = Object.freeze(['dark', 'terminal', 'cctv', 'auction']);
+export function parseLivePlatform(value) {
+    const match = LIVE_DARK_HEAD_RE.exec(String(value == null ? '' : value).trim());
+    if (!match) return '';
+    const sub = String(match[1] || '').trim().toLowerCase();
+    return Object.hasOwn(LIVE_DARK_SUBS, sub) ? LIVE_DARK_SUBS[sub] : 'dark';
+}
 export const DANMAKU_STYLES = Object.freeze(['scroll', 'top', 'flood', 'color']);
 export const FX_DM_PAGE_MAX = 12;
 export const FX_DANMAKU_PAGE_MAX = 4;
@@ -158,7 +172,8 @@ function parseDanmakuBody(kind, isEnd, parts) {
     if (kind === 'live') {
         if (isEnd) return { kind, end: true, args: [] };
         if (!parts[1]) return null;
-        return { kind, end: false, args: [parts[1], parts[2] || '', LIVE_HOST_VIEWS.includes(String(parts[3] || '').toLowerCase()) ? 'host' : 'watch'] };
+        const platform = parseLivePlatform(parts[4]);
+        return { kind, end: false, args: [parts[1], parts[2] || '', LIVE_HOST_VIEWS.includes(String(parts[3] || '').toLowerCase()) ? 'host' : 'watch', ...(platform ? [platform] : [])] };
     }
     if (isEnd) return null;
     if (kind === 'dm') {
@@ -462,7 +477,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         else if (d.kind === 'hit' && d.args[3] === 'ko' && d.args[1] && result.battle) result.battle = { ...result.battle, down: [...(result.battle.down || []), d.args[1]].slice(0, FOE_DOWN_MAX) };
         else if (d.kind === 'daily' && d.args[0] === 'subdue' && d.args[2] && result.battle) result.battle = { ...result.battle, down: [...(result.battle.down || []), d.args[2]].slice(0, FOE_DOWN_MAX) };
         else if (d.kind === 'phase') { if (result.battle) result.battle = { ...result.battle, frenzy: addFrenzy(result.battle.frenzy, d.args[0], result.battle.foe) }; }
-        else if (d.kind === 'live') result.live = d.end ? null : { name: d.args[0], title: d.args[1], view: d.args[2] };
+        else if (d.kind === 'live') result.live = d.end ? null : { name: d.args[0], title: d.args[1], view: d.args[2], ...(d.args[3] ? { platform: d.args[3] } : {}) };
         else if (d.kind === 'bgm') result.bgmMood = d.args[0];
         else if (d.kind === 'romance') {
             result.romance = d.end ? '' : d.args[0];
@@ -560,7 +575,7 @@ export function resolveFxAtPage(directives, offset, prevOffset = -1, initial = n
         seen.add(instant.kind);
         result.instants.push(instant);
     }
-    // 手机社区：区间内取最近几条帖子，本页新出现的标 fresh。
+    // 手机社区：区间内到本页为止的帖子（最多 FEED_VIEW_MAX 条），本页新出现的标 fresh。
     const feed = foldFeedDirectives(prepared?.feed || directives, at, Number(nextOffset));
     result.feed = feed ? { platform: feed.platform, owner: feed.owner, posts: feed.posts.slice(-FEED_VIEW_MAX).map((post) => ({ ...post, fresh: post.offset > from })) } : null;
     // 舆论风暴：区间内累积到当前页的 @ 评论，本页新出现的标 fresh。

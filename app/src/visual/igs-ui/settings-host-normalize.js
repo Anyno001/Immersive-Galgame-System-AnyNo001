@@ -28,6 +28,7 @@ import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.
 import { CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, normalizeClassicDialogWidthPercent, normalizeDialogSkin } from './classic-dialog-skin.js';
 import { MAGIC_ACCENT_DEFAULT, MAGIC_HOUSE_DEFAULT, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { normalizeCharacterHouses } from './magic-house.js';
+import { normalizeCharacterNameColors } from './character-name-color.js';
 import { normalizeCharacterVoices, normalizeVoiceBarkSettings } from './voice-bark.js';
 import { normalizeTtsSettings } from './tts.js';
 import { HORROR_DREAD_CAP_DEFAULT, normalizeHorrorDreadCap } from './horror-dread.js';
@@ -41,6 +42,7 @@ import { normalizeSystemRoleSettings } from './system-role.js';
 import { normalizePromptPlacement } from './tag-grammar.js';
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
+import { normalizeOriginSettings } from './origin-settings.js';
 
 export function normalizeBridgeConfig(bridge) {
     // 不改入参、不深拷：入参可能是存储里共享的只读配置。改到哪层就浅拷哪层，没动的子树（素材库）原样共享。
@@ -63,6 +65,7 @@ export function normalizeBridgeConfig(bridge) {
     normalized.optionBubble = normalizeOptionBubble(normalized.optionBubble);
     normalized.autoIllustration = normalizeAutoIllustrationSettings(normalized.autoIllustration);
     normalized.stats = normalizeStatsSettings(normalized.stats);
+    normalized.origin = normalizeOriginSettings(normalized.origin);
     return normalized;
 }
 
@@ -169,6 +172,7 @@ export function normalizeSceneAssets(value) {
         normalized.characterDefaultOutfits = normalizeCharacterDefaultOutfits(normalized.characterDefaultOutfits);
     }
     normalized.characterHouses = normalizeCharacterHouses(normalized.characterHouses);
+    if (Object.hasOwn(normalized, 'characterNameColors')) normalized.characterNameColors = normalizeCharacterNameColors(normalized.characterNameColors);
     normalized.characterVoices = normalizeCharacterVoices(normalized.characterVoices);
     normalized.characterSpriteScales = normalizeCharacterSpriteScales(normalized.characterSpriteScales);
     // 指定为 USER 立绘的角色名，空 = 不指定。

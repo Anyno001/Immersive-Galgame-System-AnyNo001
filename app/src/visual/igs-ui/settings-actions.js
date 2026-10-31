@@ -78,6 +78,7 @@ import { revertProfileWrite } from '../../scene/profile-write.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
 
 import { normalizeCharacterHouses } from './magic-house.js';
+import { normalizeCharacterNameColors } from './character-name-color.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
 import { TTS_VOICE_MAX, editTtsVoices, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice, toggleVoicePool } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
@@ -859,6 +860,7 @@ const RISKY_ACTIONS = [
     ['feed-prompt-reset:', () => '这个平台的写法恢复默认？当前修改过的内容将被覆盖。'],
     ['prompt-entry-reset:', () => '这条写法恢复默认？关键词、位置、深度和正文都会恢复默认。'],
     ['feed-storm-prompt-reset', () => '舆论风暴的写法恢复默认？当前修改过的内容将被覆盖。'],
+    ['live-platform-prompt-reset', () => '直播平台栏的写法恢复默认？当前修改过的内容将被覆盖。'],
     ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
     ['image-log-clear', () => '清空生图日志？'],
     ['purge-asset-cache', () => '清素材缓存？浏览器里缓存的图片与设置页缩略图都会清空；酒馆上的原图还在，下次查看会重新读取。'],
@@ -2626,6 +2628,15 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 直播提示词里平台栏的写法恢复默认（自定义留空即用默认）。
+    if (normalizedAction === 'live-platform-prompt-reset') {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        readerDraft.liveFx = { ...(readerDraft.liveFx || {}), platformPrompt: '' };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'feed-storm-prompt-reset') {
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
         const current = normalizeFeedFxSettings(readerDraft.feedFx);
@@ -3001,9 +3012,10 @@ export async function handleSettingsAction(action, ctx) {
     }
 
     // 角色学院、声线存在根素材库（和角色卡素材库分开），按主名记。
-    if (normalizedAction.startsWith('char-house:') || normalizedAction.startsWith('char-voice:')) {
+    if (normalizedAction.startsWith('char-house:') || normalizedAction.startsWith('char-voice:') || normalizedAction.startsWith('char-name-color:')) {
         const voice = normalizedAction.startsWith('char-voice:');
-        const parts = normalizedAction.slice(voice ? 'char-voice:'.length : 'char-house:'.length).split(':');
+        const nameColor = normalizedAction.startsWith('char-name-color:');
+        const parts = normalizedAction.slice(voice ? 'char-voice:'.length : nameColor ? 'char-name-color:'.length : 'char-house:'.length).split(':');
         const field = voice ? parts.shift() : 'house';
         const charName = decodeSeg(parts[0]);
         const value = decodeSeg(parts[1]);
@@ -3017,6 +3029,11 @@ export async function handleSettingsAction(action, ctx) {
             const next = normalizeCharacterVoices({ [charName]: entry })[charName];
             if (next) voices[charName] = next;
             else delete voices[charName];
+        } else if (nameColor) {
+            const colors = normalizeCharacterNameColors(assets.characterNameColors);
+            if (/^#[0-9a-f]{6}$/i.test(value)) colors[charName] = value.toLowerCase();
+            else delete colors[charName];
+            assets.characterNameColors = colors;
         } else {
             const houses = assets.characterHouses = normalizeCharacterHouses(assets.characterHouses);
             if (value) houses[charName] = value;
@@ -4147,7 +4164,7 @@ export async function handleSettingsAction(action, ctx) {
                 library.generated[field] = remaining;
             }
         }
-        for (const field of [...CHARACTER_FIELDS, 'characterHouses', 'characterVoices',
+        for (const field of [...CHARACTER_FIELDS, 'characterHouses', 'characterNameColors', 'characterVoices',
             'characterSpriteScales', 'characterSpriteNotes', 'characterMoodTiers', 'characterMoodNotes']) {
             if (!library[field] || !Object.hasOwn(library[field], name)) continue;
             library[field] = { ...library[field] };
@@ -4347,6 +4364,11 @@ export async function handleSettingsAction(action, ctx) {
             }
             if (!hasGlobalNamesake && rootAssets !== sceneAssets && rootAssets.characterHouses && typeof rootAssets.characterHouses === 'object') {
                 rootAssets.characterHouses = reorderKey(rootAssets.characterHouses, oldName, newName);
+            }
+            for (const assets of new Set(hasGlobalNamesake ? [sceneAssets] : [sceneAssets, rootAssets])) {
+                if (assets && assets.characterNameColors && typeof assets.characterNameColors === 'object') {
+                    assets.characterNameColors = reorderKey(assets.characterNameColors, oldName, newName);
+                }
             }
             // 角色声线、立绘高度和学院一样存在根素材库，按主名记。
             for (const assets of new Set(hasGlobalNamesake ? [sceneAssets] : [sceneAssets, rootAssets])) {
@@ -5318,6 +5340,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
         mergeAssetFolderScope(storage, isLayeredPreset(preset) ? folderScope(name, layer.key) : name, layer.key);
     }
     root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
+    root.characterNameColors = { ...(root.characterNameColors || {}), ...normalizeCharacterNameColors(pack.characterNameColors) };
     root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
     root.characterSpriteScales = { ...(root.characterSpriteScales || {}), ...normalizeCharacterSpriteScales(pack.characterSpriteScales) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
@@ -5367,6 +5390,7 @@ async function importLegacyPreset(settingsState, options, dialogs, persistSettin
     mergeLegacyLibrary(target, pack);
     if (pack.worldview) applyWorldview(target, pack.worldview);
     root.characterHouses = { ...(root.characterHouses || {}), ...cloneData(pack.characterHouses) };
+    root.characterNameColors = { ...(root.characterNameColors || {}), ...normalizeCharacterNameColors(pack.characterNameColors) };
     root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
     root.characterSpriteScales = { ...(root.characterSpriteScales || {}), ...normalizeCharacterSpriteScales(pack.characterSpriteScales) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);

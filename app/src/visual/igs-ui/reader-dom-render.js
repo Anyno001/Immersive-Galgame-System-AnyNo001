@@ -1,5 +1,5 @@
 import { syncLive2dStage } from './live2d-stage.js';
-import { magicHouseVars } from './dialog-theme-css-skins.js';
+import { magicHouseFor, magicHouseVars } from './dialog-theme-css-skins.js';
 import { mermaidToneVars } from './dialog-theme-mermaid.js';
 import { resolveSpeakerMagicHouse } from './magic-house.js';
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
@@ -25,6 +25,7 @@ import { normalizeFxSoundSettings } from './fx-settings.js';
 import { normalizeSpriteMotionSettings, normalizeStageCastSettings } from './stage-direction-settings.js';
 import { applyFxToDom, repositionFxSymbols } from './fx-runtime.js';
 import { applyDanmakuToDom } from './danmaku-runtime.js';
+import { feedMarksForSnapshot } from './feed-extras.js';
 import { applyItemMentionMarkup, itemMentionsOf, renderItemFx, showItemMention } from './fx-item-render.js';
 import { renderBattleFx } from './fx-battle-render.js';
 import { renderGrowthFx } from './combat-growth-fx.js';
@@ -52,6 +53,7 @@ import { applySceneAudio } from './scene-audio.js';
 import { applyBgmNoteToDom } from './bgm-note.js';
 import { isConfessionLine } from './bgm-library.js';
 import { applyTextFxMarkup, armTextFx, disarmTextFx } from './text-fx.js';
+import { dialogTextEffectCss } from './dialog-text-effect.js';
 import { fitBilingualRuby, isBilingualRuby, normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
 import { getReferenceDialogTypography, preloadDialogFonts, resolveDialogFontMetrics } from './dialog-theme-typography.js';
 import { loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
@@ -509,6 +511,23 @@ export function applyToolbarState(root, current) {
     // 「人物状态」在卡牌战斗扩展开启时显示；只开数值系统、本聊天为手动建档时也显示（P8c，只有建档页）。用户的排序、隐藏与固定照常生效。
     const buildEntry = typeof current.buildEntry === 'function' && current.buildEntry() === true;
     if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled && !buildEntry) hiddenSet.add('combat-status');
+    // 窄屏阅读模式：列表盖住大半画面，「隐藏对话框」总要放出来，才能看清背景和 CG；「自动播放」也总放出来（一批出完、念完再出下一批）。
+    if (current.logReaderActive) { hiddenSet.delete('hide'); hiddenSet.delete('auto-play'); }
+    // 「连续播放」开关只在窄屏阅读模式出现。
+    if (!current.logReaderActive) hiddenSet.add('log-chain');
+    const chainButton = root.querySelector('#igs-btn-log-chain');
+    if (chainButton) {
+        const on = (readerSettings.logReader || {}).chain !== false;
+        const key = on ? 'on' : 'off';
+        if (chainButton.getAttribute('data-igs-icon') !== key) {
+            chainButton.innerHTML = on ? ORIGINAL_READER_ICONS.chainOn : ORIGINAL_READER_ICONS.chainOff;
+            chainButton.setAttribute('data-igs-icon', key);
+        }
+        const title = on ? '连续播放：开（点一下出一批）' : '连续播放：关（点一下只出一条）';
+        setAttrIfChanged(chainButton, 'title', title);
+        setAttrIfChanged(chainButton, 'aria-label', title);
+        setAttrIfChanged(chainButton, 'aria-pressed', String(on));
+    }
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
     // 默认顶部固定：只有明确选了「紧贴对话框」才是 float。
@@ -793,7 +812,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         const content = snapshot.content || {};
         const byCharacter = readerSettings._worldview === 'magic' && content.textType !== 'narration' && content.textType !== 'system';
         const speaker = byCharacter ? (content.spriteCharacter || content.speaker) : '';
-        const house = resolveSpeakerMagicHouse(readerSettings._sceneAssets, speaker, readerSettings.magicHouse);
+        const house = magicHouseFor(resolveSpeakerMagicHouse(readerSettings._sceneAssets, speaker, readerSettings.magicHouse), readerSettings._worldview);
         for (const [name, value] of Object.entries(magicHouseVars(house, readerSettings.magicAccent))) root.style.setProperty(name, value);
         for (const [name, value] of Object.entries(mermaidToneVars(readerSettings.mermaidTone, readerSettings.mermaidAccent))) root.style.setProperty(name, value);
     }
@@ -1956,25 +1975,10 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         }
         applyDialogTextSize(textEl, snapshot.readerSettings.fontSize);
         textEl.style.fontWeight = snapshot.readerSettings.dialogFontWeight == null ? '' : String(snapshot.readerSettings.dialogFontWeight);
-        const textEffect = snapshot.readerSettings.dialogTextEffect;
-        const effectColor = snapshot.readerSettings.dialogTextEffectColor;
-        const effectStrength = Number(snapshot.readerSettings.dialogTextEffectStrength);
-        const effectSize = Number(snapshot.readerSettings.dialogTextEffectSize);
-        if ((textEffect === 'outline' || textEffect === 'shadow')
-            && /^#[0-9a-fA-F]{6}$/.test(effectColor)
-            && Number.isFinite(effectStrength) && Number.isFinite(effectSize)) {
-            const rgb = [1, 3, 5].map((index) => parseInt(effectColor.slice(index, index + 2), 16)).join(',');
-            const ink = `rgba(${rgb},${Math.max(5, Math.min(50, effectStrength)) / 100})`;
-            const size = Math.max(0.4, Math.min(2, effectSize));
-            // 先绘制描边再绘制填充：内侧半圈由原字色盖住，描边只在字形外侧可见。
-            textEl.style.paintOrder = textEffect === 'outline' ? 'stroke fill' : '';
-            textEl.style.webkitTextStroke = textEffect === 'outline' ? `${size * 2}px ${ink}` : '';
-            textEl.style.textShadow = textEffect === 'shadow' ? `0 ${size * 1.25}px ${size * 2.5}px ${ink}` : 'none';
-        } else {
-            textEl.style.paintOrder = '';
-            textEl.style.webkitTextStroke = '';
-            textEl.style.textShadow = '';
-        }
+        const textEffect = dialogTextEffectCss(snapshot.readerSettings);
+        textEl.style.paintOrder = textEffect.paintOrder;
+        textEl.style.webkitTextStroke = textEffect.stroke;
+        textEl.style.textShadow = textEffect.shadow || (textEffect.stroke ? 'none' : '');
         textEl.style.marginTop = '';
         textEl.style.paddingTop = '';
         const isNarration = textType === 'narration';
@@ -2053,10 +2057,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         playSfx: () => playCameraImpactSfx(normalizeFxSoundSettings(snapshot.readerSettings && snapshot.readerSettings.fxSound)),
     });
     const fxTheme = resolveActiveTheme(snapshot);
+    // 社区手机里牵涉到在场角色的新帖：该角色头顶冒一个漫符（已有陪衬反应符号的角色不重复）。
+    const feedMarks = feedMarksForSnapshot(snapshot, { userName: ctx.userName, speakerKey: castSpeakerKey, members: castFxTargets.map((t) => t.character) })
+        .filter((mark) => !castReactMarks.some((m) => m.character === mark.character));
     const fxResult = applyFxToDom(root, snapshot, {
         sprite: fxSprite,
         cast: castFxTargets,
-        castMarks: castReactMarks,
+        castMarks: feedMarks.length ? [...castReactMarks, ...feedMarks] : castReactMarks,
         resolveAssetUrl,
         theme: fxTheme,
         userName: ctx.userName,
@@ -2075,10 +2082,14 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         cast: castFxTargets,
         resolveAssetUrl,
     });
-    const dailyFxResult = renderDailyFx(root, snapshot, { onPhoto: ctx.onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
+    // 照片记下拍摄时场景是否 NSFW，锁屏壁纸只用明确不是 NSFW 的照片。
+    const onDailyPhoto = typeof ctx.onDailyPhoto === 'function'
+        ? (photo) => ctx.onDailyPhoto({ ...photo, nsfw: Boolean(snapshot.content && (snapshot.content.sceneNsfw === true || snapshot.content.cgNsfw === true)) })
+        : ctx.onDailyPhoto;
+    const dailyFxResult = renderDailyFx(root, snapshot, { onPhoto: onDailyPhoto, sprite: fxSprite, cast: castFxTargets });
     // 弹幕：直播间 / 观众弹幕 / 内心弹幕，默认全关，全关时不建层。
     // userName 为用户角色名：直播主播名与之相同时自动切主播视角。
-    applyDanmakuToDom(root, snapshot, { autoPlay: Boolean(current && current.autoPlay && current.autoPlay.enabled), sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove });
+    applyDanmakuToDom(root, snapshot, { autoPlay: Boolean(current && current.autoPlay && current.autoPlay.enabled), sprite: fxSprite, resolveAssetUrl, userName: ctx.userName, chatId: ctx.chatId, onLivePortraitMove: ctx.onLivePortraitMove, albumWallUrl: ctx.albumWallUrl });
     applyHtmlCardToDom(root, snapshot.content, ctx);
     applyChatToDom(root, snapshot, ctx);
     const effectLayer = root.querySelector('#igs-effect-layer');

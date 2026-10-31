@@ -1,6 +1,7 @@
 import { normalizeEmotionList } from './stage-shake-runtime.js';
 import { normalizeFaceBox } from './live-face.js';
 import { normalizeFanMedalMap, normalizeLiveCustomLines } from './live-chatter.js';
+import { normalizeLiveSkinSettings } from './live-skin.js';
 
 // 弹幕三件套，各自一个顶层开关以便挂进演出档位：
 // liveFx 直播间（掏出手机看 B 站直播）、audienceFx 观众弹幕（HUD 下方小手机，点开看）、innerFx 内心弹幕（情绪触发的纯演出）。
@@ -105,6 +106,8 @@ export function normalizeLiveFxSettings(value) {
         interact: src.interact !== false,
         // 手机里立绘的取景（「调整立绘」编辑）：x / y 为屏幕宽高的百分比偏移，zoom 为百分比缩放。
         portrait: normalizeLivePortrait(src.portrait),
+        // 暗网直播间皮肤：默认子风格、终端配色、所有直播固定暗网、直播提示词里平台栏的写法。
+        ...normalizeLiveSkinSettings(src),
     };
 }
 
