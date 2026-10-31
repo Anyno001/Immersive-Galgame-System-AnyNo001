@@ -48,6 +48,7 @@ import { createExtensionPanel } from '../host/extension-panel.js';
 import { createReaderImageService } from '../generated-images/reader-image-service.js';
 import { createPromptInjector } from '../host/prompt-injector.js';
 import { createStatsRuntime } from './stats-runtime.js';
+import { createOriginRuntime, originLegacyActive } from './origin-runtime.js';
 import { describeLlmReady } from '../generated-images/illustration/caption-writer.js';
 import { statsFxOf, statsNoticeLines } from '../scene/stats/stat-fx.js';
 import { clearStatsRivals, registerStatsRivals } from '../visual/igs-ui/romance-runtime.js';
@@ -86,7 +87,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.57';
+const IGS_VERSION = '0.37.58';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -759,6 +760,19 @@ export function bootstrapIGS(options = {}) {
     app.statsRuntime = statsRuntime;
     state.statsSettingsOff = events.on('igs:legacy-settings-updated', () => statsRuntime.sync());
     statsRuntime.sync();
+    // 随身系统（Origin 系统 原作 vicliaaa，经授权移植）：总开关默认关，关着时不挂任何监听。
+    const originRuntime = createOriginRuntime({
+        getContext: resolveTavernContext,
+        readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).origin,
+        readLlm: () => (((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration || {}).llm,
+        secondaryLlm,
+        notice: (level, text) => { const notice = app.igsUi && app.igsUi.showImageNotice; if (typeof notice === 'function') notice.call(app.igsUi, level, text); },
+        openSettings: () => publicApi.openSettings({ tab: 'origin' }),
+        legacyActive: () => originLegacyActive(globalObject),
+    });
+    app.originRuntime = originRuntime;
+    state.originSettingsOff = events.on('igs:legacy-settings-updated', () => originRuntime.sync());
+    originRuntime.sync();
     events.emit('igs:ready', publicApi);
 
     return publicApi;
@@ -1234,6 +1248,8 @@ export function bootstrapIGS(options = {}) {
         state.metaDigestCleanup = null;
         close(() => state.statsSettingsOff?.());
         close(() => app.statsRuntime?.destroy());
+        close(() => state.originSettingsOff?.());
+        close(() => app.originRuntime?.destroy());
         close(() => imageTaskRuntime.dispose());
         close(() => promptInjector.clear());
         close(() => storyOutfits?.dispose());

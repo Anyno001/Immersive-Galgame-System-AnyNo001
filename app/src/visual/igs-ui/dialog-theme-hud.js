@@ -8,6 +8,7 @@ import { DIALOG_SKIN_FAIRY_TALE, FAIRY_HUD_THEME } from './dialog-theme-fairytal
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_HUD_THEME, PSYCH_HUD_THEME } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HUD_THEME } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_HUD_THEME } from './dialog-theme-wasteland.js';
+import { ORIGIN_DERIVED_TOKENS } from './origin-panel-style.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -255,6 +256,32 @@ export function getDialogThemeToastStyleText(skin) {
 export function getDialogThemeHudStyleText(skin) {
     const theme = HUD_THEMES[skin];
     return theme ? hudThemeRules(skin, theme) : '';
+}
+
+// 随身系统悬浮窗换装：整窗底必须是实色。面板第一条声明是实色就沿用，否则按墨色深浅在深 / 浅两种实底里选；
+// 强调色（进度条）取墨色；主按钮一律墨色底、窗口底色字。字三档、底三档与分隔线由 ORIGIN_DERIVED_TOKENS 从这三色派生。
+// 两个实底兜底色与对话框默认面板同色，只在皮肤面板是渐变或贴图时用。
+const ORIGIN_SOLID_LIGHT = '#f4f1ec';
+const ORIGIN_SOLID_DARK = '#1b1e25';
+const ORIGIN_RAISE_LIGHT = '#ffffff';
+const hexLuma = (hex) => {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex);
+    if (!m) return 0;
+    const v = m[1].length === 3 ? m[1].replace(/./g, (c) => c + c) : m[1];
+    return (0.299 * parseInt(v.slice(0, 2), 16) + 0.587 * parseInt(v.slice(2, 4), 16) + 0.114 * parseInt(v.slice(4, 6), 16)) / 255;
+};
+function originThemeRules(skin, theme) {
+    if (!theme.ink) return '';
+    const solid = /^background:(#[0-9a-f]{3,8});/i.exec(theme.panel || '');
+    const bg = solid ? solid[1] : (hexLuma(theme.ink) < 0.5 ? ORIGIN_SOLID_LIGHT : ORIGIN_SOLID_DARK);
+    // 浅底皮肤：选中项要比底色更亮才算「浮起」（同设置器浅色配色的 raised），往白里混；深底沿用派生规则往墨色里混。
+    const lightRaised = hexLuma(theme.ink) < 0.5 ? `--igs-or-raised:color-mix(in srgb,var(--igs-or-bg) 30%,${ORIGIN_RAISE_LIGHT});` : '';
+    return `#igs-overlay[data-igs-dialog-skin="${skin}"] .igs-or-win{--igs-or-bg:${bg};--igs-or-ink:${theme.ink};--igs-or-acc:${theme.ink};${ORIGIN_DERIVED_TOKENS}${lightRaised}}`;
+}
+
+export function getDialogThemeOriginStyleText(skin) {
+    const theme = HUD_THEMES[skin];
+    return theme ? originThemeRules(skin, theme) : '';
 }
 
 export function getDialogThemeItemFxStyleText(skin) {

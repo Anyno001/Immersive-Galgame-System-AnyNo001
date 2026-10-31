@@ -10,6 +10,7 @@ import { LIVE_SKIN_STYLE_TEXT } from './live-skin-style.js';
 import { FEED_STYLE_TEXT } from './feed-style.js';
 import { STORM_STYLE_TEXT } from './storm-style.js';
 import { NOTIFY_CENTER_STYLE_TEXT } from './notify-center-style.js';
+import { ORIGIN_PANEL_STYLE_TEXT } from './origin-panel-style.js';
 import { SPAM_SMS_STYLE_TEXT } from './spam-sms-style.js';
 import { STAGE_DIRECTION_STYLE_TEXT } from './stage-direction-style.js';
 import { STAGE_CAST_STYLE_TEXT } from './stage-cast-render.js';
@@ -157,7 +158,7 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay.igs-mode-embedded #igs-status-hud{top:14px;left:12px;--igs-hud-edge-x:12px;width:calc(320px * var(--igs-hud-scale,1));}
 #igs-overlay #igs-status-hud[data-igs-hud-pos]{z-index:6;--igs-hud-px:var(--igs-hud-x,0);--igs-hud-py:var(--igs-hud-y,0);top:calc(14px + (100% - 28px) * var(--igs-hud-py) / 100);left:calc(var(--igs-hud-edge-x,14px) + (100% - var(--igs-hud-edge-x,14px) * 2) * var(--igs-hud-px) / 100);transform:translate(calc(var(--igs-hud-px) * -1%),calc(var(--igs-hud-py) * -1%));}
 #igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-no-metrics{width:max-content;}
-/* 折叠态与左列入口同为固定 38px：--igs-hud-scale 只挂在状态栏上，入口坞拿不到它，跟着缩放会让两者中心错开。 */
+/* 折叠态与入口坞同宽 38px，坞内入口（电脑 28px、手机 24px）按中线居中：--igs-hud-scale 只挂在状态栏上，入口坞拿不到它，跟着缩放会让两者中心错开。 */
 #igs-overlay #igs-status-hud.igs-hud-collapsed,#igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-collapsed{width:38px;height:38px;padding:0;}
 @media ${STATUS_HUD_PHONE_MEDIA}{#igs-overlay #igs-status-hud[data-igs-hud-pos]{--igs-hud-px:var(--igs-hud-mx,0);--igs-hud-py:var(--igs-hud-my,0);}}
 #igs-status-hud.igs-hud-suppressed{opacity:0;}
@@ -458,6 +459,7 @@ ${LIVE_SKIN_STYLE_TEXT}
 ${FEED_STYLE_TEXT}
 ${STORM_STYLE_TEXT}
 ${NOTIFY_CENTER_STYLE_TEXT}
+${ORIGIN_PANEL_STYLE_TEXT}
 ${SPAM_SMS_STYLE_TEXT}
 ${COMIC_STYLE_TEXT}
 ${MANGA_BACK_STYLE_TEXT}

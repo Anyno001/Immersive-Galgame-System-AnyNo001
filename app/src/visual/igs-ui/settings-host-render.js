@@ -46,6 +46,8 @@ import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLa
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { CREATURE_DISPLAY_RANGE, normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
+import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORIGIN_PERSONALITIES, ORIGIN_REPO_URL, normalizeOriginSettings } from './origin-settings.js';
+import { originChatStatus } from './origin-attach.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { renderStatsArchive, renderStatsBuildFields, renderStatsMappingFields, renderStatsPromptFields } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
@@ -247,6 +249,57 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 statsChatDisableHidden: hiddenAttr(!chatReady || !chat.enabled),
                 statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen, { worldview: resolveWorldview(worldviewAssets) }),
                 statsBuildHidden: hiddenAttr(!chatReady || chat.enabled),
+            };
+        });
+
+        // 随身系统页：总开关关闭时下方整块隐藏，只留一行说明。本聊天状态由宿主 options.originChat() 给出（没接引擎时为 null）。
+        const originValues = memo(() => {
+            const origin = normalizeOriginSettings(bridge.origin);
+            let chat = null;
+            // 宿主没给 originChat 时读接入点登记的引擎（origin-attach.js）。
+            try { chat = idx ? null : typeof options.originChat === 'function' ? options.originChat() : originChatStatus(); } catch (error) { chat = null; }
+            const llmSource = (bridge.autoIllustration && bridge.autoIllustration.llm && bridge.autoIllustration.llm.source) || 'tavern';
+            const chatReady = Boolean(origin.enabled && chat && chat.hasChat && !chat.blocked);
+            const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里暂停或恢复。'
+                : chat.blocked ? `本聊天的系统存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
+                    : chat.paused ? '本聊天已暂停：系统退出剧情，不派任务、不计时，存档保留。' : '本聊天正在运行。暂停后时限冻结，恢复时顺延。';
+            const intField = (key, label, min, max, note) => field(`bridge.origin.${key}`, label, numberInput(`bridge.origin.${key}`, origin[key], min, max), note);
+            return {
+                originToggle: checkbox('bridge.origin.enabled', origin.enabled, '启用随身系统'),
+                originOffNoteHidden: hiddenAttr(origin.enabled),
+                originHidden: hiddenAttr(!origin.enabled),
+                originChatNote: esc(chatNote),
+                originWorldText: esc(chat && chat.world ? chat.world : '未设定'),
+                originWorldHidden: hiddenAttr(!chatReady),
+                originResumeHidden: hiddenAttr(!chatReady || !chat.paused),
+                originPauseHidden: hiddenAttr(!chatReady || chat.paused),
+                originFreqField: intField('freq', '任务频率（回合）', 1, 10, '每隔几回合最多派发一个任务'),
+                originTaskSourceField: field('bridge.origin.taskSource', '任务来源', selectInput('bridge.origin.taskSource', origin.taskSource, [['auto', '自动'], ['direction', '按指定方向'], ['manual', '只手写']])),
+                originLimitMinField: intField('limitMin', '时限下限（回合）', 0, 99, '0表示不强制时限'),
+                originLimitMaxField: intField('limitMax', '时限上限（回合）', 0, 99),
+                originBlockField: checkbox('bridge.origin.blockWhenUnfinished', origin.blockWhenUnfinished, '上一个主线或支线未完成时不派发新任务'),
+                originPunishField: checkbox('bridge.origin.punishEvent', origin.punishEvent, '任务失败时触发剧情惩罚事件'),
+                originAchieveField: checkbox('bridge.origin.achieveOn', origin.achieveOn, '启用成就系统'),
+                originRewardPrefField: field('bridge.origin.rewardPref', '奖励偏好', textInput('bridge.origin.rewardPref', origin.rewardPref, '例如：多给道具、偏情感向')),
+                originPenaltyPrefField: field('bridge.origin.penaltyPref', '惩罚偏好', textInput('bridge.origin.penaltyPref', origin.penaltyPref, '例如：不动好感度、惩罚偏物质')),
+                originShopRefreshField: intField('shopRefresh', '商城更新间隔', 0, 99),
+                originGachaRefreshField: intField('gachaRefresh', '奖池更新间隔', 0, 99),
+                originDrawCostField: intField('drawCost', '单次抽奖积分', 0, 99999),
+                originModFields: ORIGIN_MODS.map((id) => checkbox(`bridge.origin.mods.${id}`, origin.mods[id], ORIGIN_MOD_LABELS[id])).join(''),
+                originSysNameField: field('bridge.origin.sysName', '系统名', textInput('bridge.origin.sysName', origin.sysName, ORIGIN_DEFAULT_NAME)),
+                originPersonalityField: field('bridge.origin.personality', '人格腔调', selectInput('bridge.origin.personality', origin.personality, ORIGIN_PERSONALITIES.map((name) => [name, name]))),
+                originFourthWallField: intField('fourthWall', '第四面墙几率（%）', 0, 100),
+                originPersonaTextField: field('bridge.origin.personaText', '自定义人格', textareaInput('bridge.origin.personaText', origin.personaText, '填写后覆盖上面的人格腔调'), '留空使用人格腔调'),
+                originBindToField: field('bridge.origin.bindTo', '系统绑定对象', textInput('bridge.origin.bindTo', origin.bindTo, '宿主')),
+                originRpChatField: field('bridge.origin.rpChat', '反串私聊', selectInput('bridge.origin.rpChat', origin.rpChat, [['auto', '随正文生成'], ['manual', '仅手动生成']])),
+                originAutoEconField: checkbox('bridge.origin.autoEcon', origin.autoEcon, '允许角色自主使用系统（购买、抽奖、使用道具）'),
+                originChatToStoryField: checkbox('bridge.origin.chatToStory', origin.chatToStory, '宿主与系统的对话结果写入剧情'),
+                originRouteField: field('bridge.origin.route', '系统请求', selectInput('bridge.origin.route', origin.route, [['tavern', '跟随酒馆当前连接'], ['llm', '使用备用模型']])),
+                originModelField: field('bridge.origin.model', '系统模型', textInput('bridge.origin.model', origin.model, '留空沿用备用模型的模型')),
+                originRouteNote: esc(origin.route === 'llm' && llmSource !== 'openai' ? '「备用模型」页的来源为酒馆当前API，系统请求仍跟随酒馆当前连接。' : '派发任务、刷新商城与奖池、系统对话与私聊都按这里的分配发送请求。'),
+                originModelHidden: hiddenAttr(origin.route !== 'llm'),
+                originLegacyHidden: hiddenAttr(!(chatReady && chat.legacy)),
+                originCredit: `${esc(ORIGIN_CREDIT)}　<a class="igs-origin-credit-link" href="${esc(ORIGIN_REPO_URL)}" target="_blank" rel="noopener noreferrer">${esc(ORIGIN_REPO_URL)}</a>`,
             };
         });
 
@@ -1002,6 +1055,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             return pageTabs() + renderTemplate(getPageTemplate(page), parseValues());
         case 'stats':
             return pageTabs() + renderTemplate(getPageTemplate(page), statsValues());
+        case 'origin':
+            return pageTabs() + renderTemplate(getPageTemplate(page), originValues());
         case 'source':
         case 'kinds':
         case 'llm':
@@ -1029,6 +1084,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 scenes: `${sizeOf(assets.scenes)}个背景`,
                 ai: sources[normalizeImageSourceMode(imageApi.mode)] || '',
                 stats: normalizeStatsSettings(bridge.stats).enabled ? '已开启' : '未开启',
+                origin: normalizeOriginSettings(bridge.origin).enabled ? '已开启' : '未开启',
                 data: '备份 · 日志',
             };
             const storage = (options.global || globalThis).localStorage;

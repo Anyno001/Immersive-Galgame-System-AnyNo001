@@ -19,9 +19,9 @@ const ICONS = Object.freeze({
     chat: svg('<path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.2a1.5 1.5 0 0 1-1.5 1.5h-7l-4.2 3v-3H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/>'),
     storm: svg('<path d="M12 21.4c3.5 0 5.9-2.3 5.9-5.7 0-2.6-1.5-4.5-2.9-6.1-.4 1.5-1.2 2.5-2.3 2.9.5-2.9-.6-6-3.1-8.3-.2 3.1-1.8 4.9-3.1 6.5-1.2 1.4-2.3 3-2.3 5 0 3.4 2.4 5.7 5.8 5.7z"/>'),
 });
-// 左列入口按钮上的铃铛：与手机入口同规格（32 视框、1.6 描边、铺满 38px 方块），
-// 图形横竖都以 16 为中心，与手机图标落在同一条竖线、同一条水平中线上。
-const ENTRY_BELL_ICON = '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.6 20.5V12.9a7.4 7.4 0 0 1 14.8 0v7.6l2 2.4H6.6z"/><path d="M13.4 25.3a3.4 3.4 0 0 0 5.2 0"/></svg>';
+// 入口坞上的铃铛：与手机入口同规格（32 视框、1.6 描边），图形收在 5 到 27 的留白内，
+// 高约 19.4、宽约 16.4，视觉大小与高 22 的手机图标相当，两者落在同一条竖线上。
+export const ENTRY_BELL_ICON = '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.6 19.5V13a6.4 6.4 0 0 1 12.8 0v6.5l1.8 2.1H7.8z"/><path d="M13.6 24.4a2.6 2.6 0 0 0 4.8 0"/></svg>';
 const FIXED_APPS = Object.freeze({
     notify: { name: '通知', accent: '#4c8bf5', icon: 'bell' },
     call: { name: '电话', accent: '#2fb36d', icon: 'phone' },

@@ -23,7 +23,8 @@ import { applyCaptionText, clearCaptionText } from './live-cc-text.js';
 import { applyLiveCcGeometry, applyLiveFull, classifySubtitle, clearLiveFull, nextSubtitleTurn, refreshLiveFullOverflow } from './live-full.js';
 import { enterFocus, exitFocus, focusOn, holdFocusText, isNewAppearance, phoneIdentity, setFocusHooks } from './phone-focus.js';
 import { normalizeFeedFxSettings } from './feed-settings.js';
-import { placeEntryDock, setPhoneOn } from './entry-dock.js';
+import { DOCK_GAP, DOCK_WIDTH, ENTRY_SELECTOR, placeEntryDock, setPhoneOn, syncEntryFold } from './entry-dock.js';
+import { isOriginEntryShown, resolveOriginBinding, stopOrigin, syncOrigin } from './origin-panel.js';
 import { FEED_VIEW_MAX } from '../../scene/feed-platforms.js';
 import { isFeedEntryShown, stopFeedReview, syncFeedReview } from './feed-review.js';
 import { phoneStatusFor } from './phone-sense.js';
@@ -38,11 +39,14 @@ import { feedPingKind, feedStageIdle, playFeedPing, shouldFeedPing } from './fee
 const AUDIENCE_FILL = Object.freeze({ sparse: 1, medium: 3, dense: 6 });
 const AUDIENCE_AMBIENT_CHANCE = Object.freeze({ sparse: 0, medium: 0.3, dense: 0.6 });
 const faceProbed = new Set();
-const ENTRY_GAP = 8;
+// 入口之间的竖向间距，与入口坞的 gap 一致（entry-dock.js）。
+const ENTRY_GAP = DOCK_GAP;
 const ENTRY_TOP = 14;
-// 与 .igs-aud-entry 的 left / 边长一致。
+// 与入口坞的 left / 宽度一致：坞宽 38px，与状态栏折叠按钮同宽。
 const ENTRY_LEFT = 14;
-const ENTRY_SIZE = 38;
+const ENTRY_SIZE = DOCK_WIDTH;
+// 坞内单个入口图标的边长（中档电脑 28px），量不到入口时的估值；实际边长随档位与视口由 entrySizeOf 量出。
+const ENTRY_ICON_PX = 28;
 export const INNER_WORD_CAP = 16;
 const INNER_LIFE = 3200;
 const INNER_BURST_AT = 2600;
@@ -484,7 +488,9 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
         }));
         if (store.items.length) notices = store;
     }
-    if (!(isDanmakuActive(settings) || feedFx.enabled || notices) || options.suspended === true) {
+    // 随身系统：宿主给出引擎且总开关开着才有入口（接入点见 origin-panel.js 的 resolveOriginBinding）。
+    const originBinding = options.suspended === true ? null : resolveOriginBinding(options);
+    if (!(isDanmakuActive(settings) || feedFx.enabled || notices || originBinding) || options.suspended === true) {
         if (states.has(root)) cancelDanmaku(root);
         return { live: false, audience: 0, inner: false };
     }
@@ -651,10 +657,16 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
     if (notices) syncNotify(front, { store: notices, size: settings.audience.entrySize }, { doc: ctx.doc });
     else stopNotify(front);
     const notifyShown = isNotifyEntryShown(front);
+    // 随身系统入口排在铃铛后；窗口位置尺寸按舞台量出的像素夹住。
+    if (originBinding) syncOrigin(front, originBinding, { doc: ctx.doc, size: settings.audience.entrySize, getStage: () => state.liveStage });
+    else stopOrigin(front);
+    const originShown = isOriginEntryShown(front);
     // 社区 / 风暴手机在场时通知入口让位（CSS 按这个标记隐藏），收起后恢复；通知照常记录。
     setPhoneOn(front, Boolean(feedPhone || stormPhone));
+    // 入口增减后先按当前状态收拢一次（手机上 3 个及以上收成一个按钮）；几何读完后下一帧再校一次全屏标记。
+    syncEntryFold(front);
     if (!(phone || feedPhone || stormPhone)) unwatchPhoneStage(state);
-    if (plan.inner || entryShown || reviewShown || notifyShown || feedPhone || stormPhone || (phone && plan.liveVisible)) {
+    if (plan.inner || entryShown || reviewShown || notifyShown || originShown || feedPhone || stormPhone || (phone && plan.liveVisible)) {
         // 本次渲染唯一一次几何读取：推迟到下一帧，全部读完才写。
         nextFrame(ctx.doc, () => {
             if (states.get(root) !== state || state.pageKey !== plan.pageKey) return;
@@ -662,8 +674,9 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
             refreshLiveFullOverflow(root, root.querySelector('#igs-text'));
             const stage = measureStage(layers.motion);
             if (!stage) return;
-            let top = entryShown || reviewShown || notifyShown ? entryTop(root, layers.motion, stage.stageH) : 0;
-            const left = entryShown || reviewShown || notifyShown ? entryLeft(root, layers.motion, stage.stageH) : ENTRY_LEFT;
+            const anyEntry = entryShown || reviewShown || notifyShown || originShown;
+            let top = anyEntry ? entryTop(root, layers.motion, stage.stageH) : 0;
+            const left = anyEntry ? entryLeft(root, layers.motion, stage.stageH) : ENTRY_LEFT;
             state.liveStage = stage;
             placeLiveFullName(root, stage);
             const liveFit = phone ? fitLivePhone(host, stage) : null;
@@ -680,9 +693,11 @@ export function applyDanmakuToDom(root, snapshot, options = {}) {
             if (feedPhone) fitFeedPhone(host, stage);
             if (stormPhone) fitStorm(host, stage, phoneGeometry(stage, ctx.look.model, ctx.look.size));
             watchPhoneStage(state, ctx, layers.motion, refit, Boolean(phone || feedPhone || stormPhone));
-            // 三个入口共用一个纵向排列的坞；全屏直播时坞向上多留出 (个数 - 1) 格，让最后一个仍落在名次卡上方。
-            const count = (entryShown ? 1 : 0) + (reviewShown ? 1 : 0) + (notifyShown ? 1 : 0);
+            // 四个入口共用一个纵向排列的坞；全屏直播时坞向上多留出 (个数 - 1) 格，让最后一个仍落在名次卡上方。
+            const count = (entryShown ? 1 : 0) + (reviewShown ? 1 : 0) + (notifyShown ? 1 : 0) + (originShown ? 1 : 0);
             if (count) placeEntryDock(front, top - Math.max(0, count - 1) * step);
+            // 全屏直播标记（data-entry-full）刚写好：全屏时入口不收拢，这里按最新标记再校一次。
+            syncEntryFold(front);
             if (plan.inner) playInner(ctx, plan.inner, stage);
         });
     }
@@ -712,7 +727,7 @@ function fitFaceFor(host, stage, sprite, doc, refit) {
 export function entryPlacement(stage, fit, top, card, size, left = ENTRY_LEFT) {
     const base = { left, top };
     if (stage && fit && fit.layout === 'full') {
-        const box = size > 0 ? size : ENTRY_SIZE;
+        const box = size > 0 ? size : ENTRY_ICON_PX;
         const stageW = Number(stage.stageW) || 0;
         const stageH = Number(stage.stageH) || 0;
         const right = card && Number.isFinite(card.right) ? card.right : stageW - 16;
@@ -736,11 +751,11 @@ function liveCardRect(host, motion, stage) {
 
 // 当前显示着的入口浮钮边长（小 / 中 / 大三档，再乘 HUD 缩放）。
 function entrySizeOf(front, motion, stage) {
-    const node = front && front.querySelector ? front.querySelector('.igs-aud-entry:not([hidden]),.igs-feed-entry:not([hidden]),.igs-nc-entry:not([hidden])') : null;
-    if (!node || typeof node.getBoundingClientRect !== 'function' || typeof motion.getBoundingClientRect !== 'function') return ENTRY_SIZE;
+    const node = front && front.querySelector ? front.querySelector(ENTRY_SELECTOR.split(',').map((sel) => `${sel}:not([hidden])`).join(',')) : null;
+    if (!node || typeof node.getBoundingClientRect !== 'function' || typeof motion.getBoundingClientRect !== 'function') return ENTRY_ICON_PX;
     const w = node.getBoundingClientRect().width;
     const m = motion.getBoundingClientRect();
-    return w > 0 && m.height > 0 ? w * (stage.stageH / m.height) : ENTRY_SIZE;
+    return w > 0 && m.height > 0 ? w * (stage.stageH / m.height) : ENTRY_ICON_PX;
 }
 
 // 全屏字幕「名牌下方」的旁白位置：工具栏下沿 + 8px 再让出名牌的高度。
@@ -818,6 +833,7 @@ export function cancelDanmaku(root) {
         stopAudience(front);
         stopFeedReview(front);
         stopNotify(front);
+        stopOrigin(front);
         front.remove();
     }
     return Boolean(state);

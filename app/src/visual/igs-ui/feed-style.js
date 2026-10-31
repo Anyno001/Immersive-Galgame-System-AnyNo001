@@ -373,15 +373,9 @@ export const FEED_STYLE_TEXT = `
 .igs-feed-lock-pin-dot{width:11px;height:11px;border-radius:50%;box-sizing:border-box;border:1.5px solid #fff;opacity:.45;transition:transform .16s ease,opacity .16s ease;}
 .igs-feed-lock-pin-dot[data-on]{background:#fff;opacity:1;transform:scale(1.2);}
 /* 回看入口：与观众弹幕入口同位同尺寸，开着观众弹幕时排在它右边 */
-.igs-feed-entry{--igs-aud-entry:28px;order:1;width:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));height:calc(var(--igs-aud-entry) * var(--igs-hud-scale,1));padding:0;border:0;background:transparent;color:#f4f1ec;opacity:.55;cursor:pointer;pointer-events:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));transition:opacity .2s ease;}
-.igs-feed-entry[hidden]{display:none;}
-.igs-feed-entry svg{display:block;width:100%;height:100%;}
-.igs-feed-entry[data-size="small"]{--igs-aud-entry:24px;}
-.igs-feed-entry[data-size="large"]{--igs-aud-entry:34px;}
-.igs-feed-entry:hover,.igs-feed-entry:focus-visible{opacity:1;}
-.igs-feed-entry:focus-visible{outline:2px solid #f4e3ad;outline-offset:2px;border-radius:8px;}
-.igs-feed-entry-dot{position:absolute;top:-1px;right:-2px;width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1.5px #14161a;}
-@media (pointer:coarse){.igs-feed-entry::after{content:"";position:absolute;inset:-8px;}}
+/* 入口尺寸、悬停与描边统一写在 entry-dock.js 的 ENTRY_DOCK_CSS。 */
+.igs-feed-entry{order:1;}
+.igs-feed-entry-dot{position:absolute;top:-1px;right:-2px;width:9px;height:9px;border-radius:50%;box-shadow:0 0 0 1.5px #14161a;}
 .igs-feed-review{position:absolute;inset:0;z-index:2;pointer-events:auto;}
 .igs-feed-review-host{position:absolute;inset:0;pointer-events:none;}
 .igs-feed-review .igs-live-phone,.igs-feed-review .igs-feed-paper{pointer-events:auto;}

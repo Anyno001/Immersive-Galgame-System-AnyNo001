@@ -452,7 +452,70 @@ const STATS_TEMPLATE = `
 </div>
 `.trim();
 
+// 随身系统（Origin 系统移植）：总开关在最上；关闭时下方整块隐藏，只留一行说明。署名在页面底部。
+const ORIGIN_TEMPLATE = `
+<div class="igs-settings-grid" data-settings-pane="origin">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">随身系统</div>
+    <div class="igs-settings-row">{{originToggle}}</div>
+    <div class="igs-source-filter-note"{{originOffNoteHidden}}>开启后，阅读器左上角出现随身系统入口，系统会在剧情中派发任务、结算积分，并提供背包、商城、抽奖与成就。</div>
+  </div>
+  <div class="igs-settings-sub"{{originHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">本聊天</div>
+      <div class="igs-source-filter-note" data-result="origin-chat">{{originChatNote}}</div>
+      <div class="igs-settings-row"{{originWorldHidden}}><span class="igs-origin-world">当前世界：{{originWorldText}}</span><button class="igs-settings-action" data-action="origin-op:world" type="button">修改</button></div>
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="origin-chat-resume" type="button"{{originResumeHidden}}>恢复本聊天</button>
+        <button class="igs-settings-action" data-action="origin-chat-pause" type="button"{{originPauseHidden}}>暂停本聊天</button>
+      </div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">任务</div>
+      <div class="igs-source-filter-grid">{{originFreqField}}{{originTaskSourceField}}</div>
+      <div class="igs-source-filter-grid">{{originLimitMinField}}{{originLimitMaxField}}</div>
+      <div class="igs-settings-section">{{originBlockField}}{{originPunishField}}{{originAchieveField}}</div>
+      <div class="igs-source-filter-grid">{{originRewardPrefField}}{{originPenaltyPrefField}}</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">商城与抽奖</div>
+      <div class="igs-source-filter-grid">{{originShopRefreshField}}{{originGachaRefreshField}}{{originDrawCostField}}</div>
+      <div class="igs-source-filter-note">更新间隔以回合计，0表示不自动更新。</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">模块</div>
+      <div class="igs-settings-section">{{originModFields}}</div>
+      <div class="igs-source-filter-note">关闭的模块不显示页签，也不写入提示词。</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">系统人格</div>
+      <div class="igs-source-filter-grid">{{originSysNameField}}{{originPersonalityField}}{{originFourthWallField}}</div>
+      <div class="igs-settings-full">{{originPersonaTextField}}</div>
+      <div class="igs-source-filter-grid">{{originBindToField}}{{originRpChatField}}</div>
+      <div class="igs-settings-section">{{originAutoEconField}}{{originChatToStoryField}}</div>
+      <div class="igs-source-filter-note">绑定对象填「宿主」时系统为用户派发任务；填角色名时系统归该角色，用户旁观，对话页改为角色与系统的私聊。</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">模型</div>
+      <div class="igs-source-filter-grid">{{originRouteField}}<div class="igs-settings-sub"{{originModelHidden}}>{{originModelField}}</div></div>
+      <div class="igs-source-filter-note">{{originRouteNote}}</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">存档</div>
+      <div class="igs-settings-row">
+        <button class="igs-settings-action" data-action="origin-op:recalc" type="button">按全部楼层重算</button>
+        <button class="igs-settings-action" data-action="origin-op:reset" type="button">清空本聊天存档</button>
+        <button class="igs-settings-action" data-action="origin-op:import" type="button"{{originLegacyHidden}}>导入原版存档</button>
+      </div>
+      <div class="igs-source-filter-note">重算按当前规则从第一楼起补账；清空后任务、积分、属性与记录都会移除。</div>
+    </div>
+  </div>
+  <div class="igs-origin-credit">{{originCredit}}</div>
+</div>
+`.trim();
+
 const PAGE_TEMPLATES = Object.freeze({
+    origin: ORIGIN_TEMPLATE,
     style: READER_DIALOG_TEMPLATE,
     text: READER_TEXT_TEMPLATE,
     'ui-reader': READER_UI_READER_TEMPLATE,

@@ -91,6 +91,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'auto-outfit-sprite', label: '新衣装自动入库并生成立绘', aliases: ['服装DNA', '新服装', '自动换装', '衣柜入库'], page: 'kinds', path: 'bridge.autoIllustration.assets.outfitAutoGenerate' },
     { id: 'prompt-rule-inject', label: '自动注入格式规则', aliases: ['格式规则', '规则提示词', '提示词', '注入', '关闭注入', '酒馆预设', '复制提示词', '复制到预设', '复制到酒馆预设', '复制预设'], page: 'rules', path: 'bridge.sceneAssets.promptRuleEnabled' },
     { id: 'fx-prompts', label: '演出写法', aliases: ['演出提示词', '提示词正文', '触发关键词', '关键词', '常驻', '注入位置', '插入深度', '深度', '世界书', '写法'], page: 'rules' },
+    { id: 'origin-system', label: '随身系统', aliases: ['Origin', 'origin', '系统流', '金手指', '任务系统', '积分', '商城', '抽奖', '成就', '背包'], page: 'origin', path: 'bridge.origin.enabled' },
     { id: 'backup-model', label: '备用模型', aliases: ['副llm', '副 llm', '副api', '副 api', '副模型', 'llm', 'openai', '规划模型'], page: 'llm' },
     { id: 'export-config', label: '导出 / 导入配置', aliases: ['备份', '导出素材', '导入素材', '导出本卡素材', '导入素材包', '导出配置', '导入配置', '迁移', '本页诊断', '诊断'], page: 'data' },
 ]);

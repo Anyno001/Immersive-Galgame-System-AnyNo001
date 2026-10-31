@@ -13,6 +13,7 @@ export const SETTINGS_CATEGORIES = Object.freeze([
     Object.freeze(['scenes', '场景']),
     Object.freeze(['ai', '生图与AI']),
     Object.freeze(['stats', '数值系统']),
+    Object.freeze(['origin', '随身系统']),
     Object.freeze(['data', '数据']),
 ]);
 
@@ -43,6 +44,7 @@ export const SETTINGS_PAGES = Object.freeze([
     Object.freeze(['rules', '写法规则', 'ai']),
     Object.freeze(['parse', '正文解析', 'ai']),
     Object.freeze(['stats', '数值系统', 'stats']),
+    Object.freeze(['origin', '随身系统', 'origin']),
     Object.freeze(['data', '备份', 'data']),
     Object.freeze(['logs', '日志', 'data']),
 ]);

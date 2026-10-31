@@ -49,6 +49,7 @@ import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
 import { normalizeBuild } from '../../scene/stats/stat-build.js';
 import { refreshStatsBuildStatus } from './stats-settings-fields.js';
+import { originChatStatus, runAttachedOriginOp } from './origin-attach.js';
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
 const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
@@ -670,8 +671,38 @@ export function createSettingsHost(deps) {
         return result || { ok: false };
     }
 
+    // 随身系统存档区操作（重算、清空）与本聊天暂停 / 恢复：交给宿主 options.originOp，结束后重绘。引擎未接入时返回 origin-engine-missing。
+    async function runOriginOp(kind) {
+        // 宿主没给 originOp 时走接入点登记的引擎（origin-attach.js）；也没登记时返回 origin-engine-missing。
+        const op = typeof options.originOp === 'function' ? options.originOp : runAttachedOriginOp;
+        let result;
+        try {
+            if (kind === 'recalc') result = await op('recalc');
+            else if (kind === 'reset') result = await settingsDialogs.confirm('清空本聊天的随身系统存档？任务、积分、属性与记录都会移除。') ? await op('reset') : { ok: true, cancelled: true };
+            else if (kind === 'pause' || kind === 'resume' || kind === 'import') result = await op(kind);
+            else if (kind === 'world') {
+                const current = (typeof options.originChat === 'function' ? options.originChat() : originChatStatus()) || {};
+                const next = await settingsDialogs.prompt('本聊天的世界名或简述', current.world || '');
+                result = next === null ? { ok: true, cancelled: true } : await op('world', next);
+            }
+            else result = { ok: false, reason: 'origin-op-unknown' };
+        } catch (error) {
+            result = { ok: false, reason: 'origin-op-threw', thrown: error };
+        }
+        if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
+            const text = (typeof result.text === 'string' && result.text.trim())
+                || { 'origin-engine-missing': '随身系统尚未就绪，请打开一个聊天后再试。', busy: '系统正在处理上一项请求，请稍后再试。', disabled: '请先开启随身系统。' }[result.reason];
+            if (text) await settingsDialogs.alert(text);
+        }
+        if (state.activeSettings) rerenderSettings();
+        return result || { ok: false };
+    }
+
     const recoveringSettingsActions = new Map();
     function handleSettingsAction(action) {
+        if (String(action).startsWith('origin-op:')) return runOriginOp(String(action).slice('origin-op:'.length));
+        if (action === 'origin-chat-pause') return runOriginOp('pause');
+        if (action === 'origin-chat-resume') return runOriginOp('resume');
         if (String(action).startsWith('live2d-edit:')) return Promise.resolve(openLive2dManager?.(decodeURIComponent(String(action).slice('live2d-edit:'.length))));
         // 数值系统提示词「恢复默认」：清空覆盖值，规范化后回到默认模板（§9）。
         if (String(action).startsWith('stats-prompt-reset:')) {
