@@ -515,7 +515,13 @@ export function bootstrapIGS(options = {}) {
 
         setCombatAllyTier: (id, tier) => combatServices.setAllyTier(id, tier),
         getCombatGrowth: () => combatServices.getGrowth(),
-        getCombatCheckReplay: (messageId, body) => (typeof combatServices.checkReplayFor === 'function' ? combatServices.checkReplayFor(messageId, body) : null),
+        // 正文检定徽记：数值系统本聊天启用时用它的复算（含主角持续优劣势与修正，与结算一致），否则用战斗侧复算。
+        getCombatCheckReplay: (messageId, body) => {
+            let stats = null;
+            try { stats = typeof statsRuntime.checkReplayFor === 'function' ? statsRuntime.checkReplayFor(messageId, body) : null; } catch (error) { stats = null; }
+            if (stats && stats.ok === true) return stats;
+            return typeof combatServices.checkReplayFor === 'function' ? combatServices.checkReplayFor(messageId, body) : null;
+        },
         onCombatGrowthUpdated: (handler) => combatServices.onGrowthUpdated(handler),
         refreshCombatGrowth: () => combatServices.refreshGrowth(),
         retryCombatGrowth: () => combatServices.retryGrowth(),
@@ -1056,9 +1062,21 @@ export function bootstrapIGS(options = {}) {
             sourceFilter: unified.bridge?.sourceFilter, virtualRegex: unified.bridge?.virtualRegex };
         // 战报待续写时（最近一条用户楼是战报、其后还没有 AI 楼）在 depth 0 追加 combat-narration 段；扩展关闭时为 null。
         const combatNarration = resolveCombatNarrationSegment(readerSettings, promptContext.history, { generationType, inputText: promptContext.inputText });
-        // 每楼 d20 骰序（v3 §3.9）：按「聊天 ID + 即将生成的楼号」确定，同楼 swipe / 重新生成同一组；扩展关闭或代写 / 静默时为 null。
+        // 每楼 10 对 d20（v3 §3.9、合并计划 P3）：按「聊天 ID + 楼号 + swipe」确定；代写 / 静默时为 null。
+        // 数值系统本聊天启用时以它的输入为准（含主角持续的优劣势与修正，与结算同一套），在场人物再并入战斗侧的加值。
         let checkInput = null;
-        try { checkInput = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(generationType) : null; } catch (error) { checkInput = null; }
+        let combatCheckInput = null;
+        try { combatCheckInput = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(generationType) : null; } catch (error) { combatCheckInput = null; }
+        let statsCheckInput = null;
+        try { statsCheckInput = typeof statsRuntime.checkPromptInput === 'function' ? statsRuntime.checkPromptInput(generationType) : null; } catch (error) { statsCheckInput = null; }
+        if (statsCheckInput) {
+            const seen = new Set((statsCheckInput.actors || []).map((a) => a.name));
+            const extra = ((combatCheckInput && combatCheckInput.actors) || []).filter((a) => a && !seen.has(a.name));
+            const corrections = statsCheckInput.corrections && statsCheckInput.corrections.length ? statsCheckInput.corrections : ((combatCheckInput && combatCheckInput.corrections) || []);
+            checkInput = { ...statsCheckInput, actors: [...(statsCheckInput.actors || []), ...extra], corrections };
+        } else {
+            checkInput = combatCheckInput;
+        }
         const checkRolls = checkInput ? resolveCheckRollsSegment(readerSettings, checkInput) : null;
         // 主角团状态（计划 5.8）：读成长缓存，读不到时不注入（服务层记诊断）；战报续写时状态尚未刷新，不注入。
         let partyInput = null;

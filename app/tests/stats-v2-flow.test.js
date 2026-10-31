@@ -58,12 +58,12 @@ test('roll 标签解析：难度、对抗、新技能属性顺序不限；所有
     assert.equal(stripMarkerDirectives('她点头。[igs-stat:roll|侦查|困难]').trim(), '她点头。');
 });
 
-test('预掷：没有输入匹配时注入骰运表；AI 打 roll 标签后按同一颗骰结算并播放掷骰卡（§5.2）', () => {
+test('自动档：不再注入预掷骰运表；旧写法 roll 标签按本楼骰对结算并播放掷骰卡（合并计划 P3）', () => {
     const { h, rt, checks } = setup();
     rt.enableForChat();
     h.ctx.chat.push({ is_user: true, mes: '我们继续往前走' });
     const { id, injected } = generate(h, '你屏住呼吸观察四周。[igs-stat:roll|侦查|普通]');
-    assert.match(injected, /【本轮骰运】/);
+    assert.doesNotMatch(injected, /【本轮骰运】/);
     assert.match(injected, /【主角技能】属性：/);
     assert.match(injected, /【主角感知】/);
     assert.doesNotMatch(injected, /1d100=/);
@@ -247,4 +247,40 @@ test('本楼随机按「聊天 ID + AI 楼序号 + swipe」定种子：同一 sw
     const other = rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 1));
     assert.equal(other.seed, hash32('igs-stat-settle|chat-1|1|s1'));
     assert.notEqual(other.seed, entry.seed);
+});
+
+
+test('只开数值系统：生成前给出本楼 10 对骰与主角持续优劣势；正文 [igs-check] 按骰对复算，技能按所属属性换算并打成长勾（合并计划 P3）', () => {
+    const hero = { scores: { str: 14, dex: 12, con: 12, int: 10, wis: 10, cha: 10 }, prefs: { major: 'str', minor: 'con' }, proficiency: 2 };
+    const combatSource = () => ({ ready: true, readAbilities: () => hero, readVitals: () => ({ hp: 80, maxHp: 80, down: false }), refresh: async () => ({ ok: true }) });
+    const { h, rt } = setup({}, { combatSource });
+    rt.enableForChat();
+    h.ctx.chat.push({ is_user: true, mes: '做饭' });
+    const input = rt.checkPromptInput('normal');
+    assert.equal(input.statsActive, true);
+    assert.equal(input.rolls.length, 10);
+    assert.ok(input.rolls.every((p) => Array.isArray(p) && p.length === 2));
+    assert.deepEqual(input.actors.map((a) => a.name), ['阿明']);
+    assert.equal(rt.checkPromptInput('quiet'), null);
+    const { id } = generate(h, '你系上围裙。[igs-check:阿明|烹饪|10]做得不错。');
+    const meta = rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 0)).meta;
+    assert.equal(meta.checks.length, 1);
+    assert.equal(meta.checks[0].skill, '烹饪');
+    assert.equal(rt.getState().protagonist.skills.烹饪.marked, meta.checks[0].success);
+    const replay = rt.checkReplayFor(id);
+    assert.equal(replay.ok, true);
+    assert.equal(replay.results[0].die, replay.rolls[0][0]);
+    assert.equal(replay.results[0].total, meta.checks[0].total);
+});
+
+test('只开数值系统但属性视图未就绪：不复算、不打成长勾，记诊断（fail-closed）', () => {
+    const combatSource = () => ({ ready: false, reason: 'combat-life-cache-missing', readAbilities: () => null, readVitals: () => null, refresh: async () => ({ ok: false }) });
+    const { h, rt } = setup({}, { combatSource });
+    rt.enableForChat();
+    const { id } = generate(h, '[igs-check:阿明|烹饪|10]成功了。');
+    const meta = rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 0)).meta;
+    assert.equal(meta.checks, undefined);
+    assert.equal(rt.getState().protagonist.skills.烹饪.marked, false);
+    assert.ok(rt.getDiagnostics().some((d) => d.code === 'stats-check-replay-unavailable'));
+    assert.equal(rt.checkReplayFor(id).ok, false);
 });

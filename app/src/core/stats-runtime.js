@@ -4,7 +4,8 @@
 import { createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, seededRandom, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
 import { hash32 } from '../combat/random.js';
-import { floorCheckOrdinal, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
+import { checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
+import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { settleFloorText } from '../scene/stats/stat-settle.js';
 import { createChatStatsStore, deserializeLedger, emptyCatalog, sanitizeCatalog, serializeLedger } from '../scene/stats/stat-persist.js';
 import { normalizeStatsSettings } from '../scene/stats/stat-settings.js';
@@ -19,7 +20,7 @@ import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, regi
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
 import {
     PROTAGONIST, chanceOf, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, createEngine, isProtagonist,
-    isSocialSkill, prerollTable, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, rollPreroll,
+    isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest,
 } from '../scene/stats/stat-engine.js';
 import {
     PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, ATTRIBUTE_TIERS, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
@@ -279,7 +280,8 @@ export function createStatsRuntime({
             }
             reason = hit.reason || reason;
         } else if (!s.autoSkill) reason = 'auto-skill-off';
-        if (s.storyCheck === 'preroll') return { preroll: rollPreroll(engine, cryptoRandom), note: { source: 'preroll', reason } };
+        // 自动档（合并计划 P3）：不再预掷，正文检定用每楼 10 对骰（checkPromptInput 注入、结算时复算）。
+        if (s.storyCheck === 'preroll') return { note: { source: 'preroll', reason } };
         if (s.storyCheck === 'manual') return { manual: true, note: { source: 'manual-rule', reason } };
         return { note: { source: 'none', reason: reason === 'no-match' ? 'story-check-off' : reason } };
     }
@@ -292,7 +294,6 @@ export function createStatsRuntime({
         const s = settings();
         const engine = engineOf(g.ruleset);
         const names = present(state);
-        const table = g.preroll && !g.check ? prerollTable(engine, state, g.preroll, { present: names.slice(0, PRESENT_MAX) }) : null;
         const vitals = protagonistVitals(engine);
         const built = buildStatsPrompt(state, {
             present: names, shortfall: flags.shortfall,mandates: mandatesFromFlags(flags, vitals), vitals,
@@ -300,7 +301,7 @@ export function createStatsRuntime({
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
             sheetLines: names.filter((n) => catalog.sheets[n]).map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n]) })),
-            rollTable: table ? table.lines : null, manualRoll: Boolean(g.manual),
+            manualRoll: Boolean(g.manual),
         });
         built.diagnostics.forEach((d) => diag(d.code, d));
         if (built.content && typeof c.setExtensionPrompt === 'function') {
@@ -318,12 +319,104 @@ export function createStatsRuntime({
         try { onCheck({ detail, check, messageId }); } catch (error) { /* 演出出错不影响结算 */ }
     }
 
+    // ---- 正文 d20 检定（合并计划 P3，助手选 B）：每楼 10 对骰；主角的优劣势与压力修正由程序给出，复算以此为准 ----
+    const userNameNow = () => String((ctx() && ctx().name1) || '');
+    const isHero = (name) => isProtagonist(name) || (Boolean(userNameNow()) && String(name || '').trim() === userNameNow());
+
+    // 复算所需的读取口：属性视图来自战斗日志（未就绪时 fail-closed，不拿默认值冒充）；技能按所属属性 + 熟练换算。
+    function storyCheckSources(engine, state) {
+        const src = source();
+        if (!src || src.ready !== true || typeof src.readAbilities !== 'function') return { ok: false, reason: (src && src.reason) || 'stats-life-source-missing' };
+        const readAbilities = (name) => src.readAbilities(isHero(name) ? (userNameNow() || PROTAGONIST) : name, { heroPrefs: heroPrefs() });
+        const skillOf = (raw) => engine.registry.resolve(raw) || String(raw || '').trim();
+        const resolveSkill = (actor, skill) => {
+            const p = profileOf(engine, state, isHero(actor) ? PROTAGONIST : actor, skillOf(skill));
+            const ability = abilityKeyOf(p.entry && p.entry.attribute);
+            return ability ? { ability, bonus: engine.ruleset.bonusOf(p) } : null;
+        };
+        const heroMods = (tag) => modifiersOf(engine, state, { actor: PROTAGONIST, skill: tag.skill ? skillOf(tag.skill) : ABILITY_LABELS[tag.ability], edge: tag.edge });
+        const edgeOf = (actor, tag) => (isHero(actor) ? heroMods(tag).edge : null);
+        const shiftOf = (actor, tag) => (isHero(actor) ? Math.round((heroMods(tag).shift || 0) / 5) : 0);
+        return { ok: true, readAbilities, resolveSkill, edgeOf, shiftOf };
+    }
+
+    function storyReplay(messageId, body, state) {
+        const c = ctx();
+        const list = c && Array.isArray(c.chat) ? c.chat : [];
+        const ordinal = floorCheckOrdinal(list, messageId);
+        const rolls = ordinal ? checkRollPairsFor(chatIdOf(c), ordinal, floorCheckSwipe(list, messageId)) : null;
+        if (!rolls) return { ok: false, reason: 'check-floor-unavailable' };
+        const srcs = storyCheckSources(engineOf(), state);
+        if (!srcs.ok) return srcs;
+        let replay;
+        try { replay = replayChecks({ body, rolls, readAbilities: srcs.readAbilities, resolveSkill: srcs.resolveSkill, edgeOf: srcs.edgeOf, shiftOf: srcs.shiftOf }); } catch (error) { return { ok: false, reason: 'check-replay-threw' }; }
+        return { ok: true, chatId: chatIdOf(c), messageId: Number(messageId), ordinal, rolls, ...replay };
+    }
+
+    // 主角的复算结果转成数值检定（成长勾、好感约束、大成功加成用）；其他人物只出徽记，不进数值结算。
+    function storyChecksOf(results, engine, state) {
+        return (results || []).filter((r) => isHero(r.actor)).map((r) => {
+            const skill = r.skill ? (engine.registry.resolve(r.skill) || r.skill) : ABILITY_LABELS[r.ability];
+            const p = profileOf(engine, state, PROTAGONIST, skill);
+            return {
+                actor: PROTAGONIST, skill, kind: p.kind, value: p.value, learned: p.learned, dc: r.dc, roll: r.die, total: r.total, tier: r.tier, success: r.success,
+                ladder: r.tier === '大成功' ? 'crit' : r.tier === '大失败' ? 'fumble' : r.success ? 'pass' : 'fail',
+                social: isSocialSkill(engine, skill), toward: null, against: null, source: 'story',
+            };
+        });
+    }
+
+    // 生成开始时同步调用：本楼 10 对骰、主角加值、主角持续的优劣势与原因、上一楼更正。自动档以外、本聊天未启用或代写 / 静默时为 null。
+    function checkPromptInput(generationType = null) {
+        if (!active() || settings().storyCheck !== 'preroll' || SKIP_TYPES.has(generationType)) return null;
+        const c = ctx();
+        const list = c && Array.isArray(c.chat) ? c.chat : [];
+        const ordinal = upcomingCheckOrdinal(list, generationType);
+        const rolls = ordinal ? checkRollPairsFor(chatIdOf(c), ordinal, upcomingCheckSwipe(list, generationType)) : null;
+        if (!rolls) return null;
+        const state = generationType === 'continue' ? stateBefore(ledger, list.length - 1) : currentStatsState(ledger);
+        const engine = engineOf();
+        const srcs = storyCheckSources(engine, state);
+        const actors = [];
+        const edges = [];
+        let corrections = [];
+        if (srcs.ok) {
+            const name = userNameNow() || PROTAGONIST;
+            const mods = modifiersOf(engine, state, { actor: PROTAGONIST });
+            const shift = Math.round((mods.shift || 0) / 5);
+            if (mods.edge || shift) edges.push({ name, edge: mods.edge, shift, reasons: [...mods.notes, ...(shift < 0 ? ['压力很大'] : [])] });
+            let attr = null;
+            try { attr = srcs.readAbilities(name); } catch (error) { attr = null; }
+            if (attr) actors.push({ name, attr });
+            const prevIndex = ordinal > 1 ? floorIndexOfOrdinal(list, ordinal - 1) : -1;
+            const prevText = prevIndex >= 0 ? String(list[prevIndex].mes ?? '') : '';
+            if (/\[igs-check:/.test(prevText)) {
+                const prev = storyReplay(prevIndex, prevText, stateBefore(ledger, prevIndex));
+                if (prev.ok) corrections = checkCorrections(prev.results);
+            }
+        } else diag('stats-check-sources-unavailable', { reason: srcs.reason });
+        return { ordinal, rolls, actors, edges, corrections, statsActive: true };
+    }
+
+    // 阅读器徽记用的复算（与结算同一套修正）；本聊天未启用或楼层不可用时返回 null / ok:false。
+    function checkReplayFor(messageId, body) {
+        if (!active()) return null;
+        const c = ctx();
+        const id = Number(messageId);
+        const m = c && Array.isArray(c.chat) ? c.chat[id] : null;
+        if (!m || m.is_user) return { ok: false, reason: 'check-floor-unavailable' };
+        return storyReplay(id, body == null ? String(m.mes ?? '') : String(body), stateBefore(ledger, id));
+    }
+
     function settleAt(messageId, { redo = false, plan = null } = {}) {
         const c = ctx();
         const m = c && Array.isArray(c.chat) ? c.chat[messageId] : null;
         if (!m || m.is_user || m.is_system) return null;
         const floor = { messageId, swipeId: Number(m.swipe_id) || 0 };
-        const seed = floorSeedOf(chatIdOf(c), floorCheckOrdinal(c.chat, messageId), floor.swipeId);
+        const ordinal = floorCheckOrdinal(c.chat, messageId);
+        const seed = floorSeedOf(chatIdOf(c), ordinal, floor.swipeId);
+        const rollPairs = ordinal ? checkRollPairsFor(chatIdOf(c), ordinal, floor.swipeId) : null;
+        const text = String(m.mes ?? '');
         const s = settings();
         const resolve = resolveCharacter || defaultResolver(c, s.register);
         const prior = ledger.entries.get(ledgerKey(ledger, messageId, floor.swipeId));
@@ -333,15 +426,21 @@ export function createStatsRuntime({
         const ruleset = p.ruleset || (check && check.ruleset) || s.ruleset;
         const engine = engineOf(ruleset);
         const settle = (before, random) => {
-            const r = settleFloorText(before, String(m.mes ?? ''), {
+            let storyChecks = [];
+            if (s.storyCheck === 'preroll' && /\[igs-check:/.test(text)) {
+                const rep = storyReplay(messageId, text, before);
+                if (rep.ok) storyChecks = storyChecksOf(rep.results, engine, before);
+                else diag('stats-check-replay-unavailable', { messageId, reason: rep.reason });
+            }
+            const r = settleFloorText(before, text, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, catalog, settings: s, floor: messageId,
+                check, preroll: p.preroll || null, rollPairs, storyChecks, catalog, settings: s, floor: messageId,
             });
             const meta = { ...r.meta };
             if (p.preroll) meta.preroll = p.preroll;
             const note = { ...(p.note || {}) };
             if (meta.check && !check) note.source = 'roll';
-            if (!meta.check && p.preroll) note.reason = r.meta.rollTag ? 'roll-unresolved' : 'stats-roll-skipped';
+            if (!meta.check && !storyChecks.length && (p.preroll || note.source === 'preroll')) note.reason = r.meta.rollTag ? 'roll-unresolved' : 'stats-roll-skipped';
             if (Object.keys(note).length) meta.note = note;
             return { ...r, meta };
         };
@@ -814,6 +913,8 @@ export function createStatsRuntime({
         isChatEnabled: () => chatEnabled,
         pushNow: push,
         resolveDice,
+        checkPromptInput,
+        checkReplayFor,
         diceChance,
         notices: () => [...notices.values()],
         noticeAction,
