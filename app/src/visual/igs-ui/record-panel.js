@@ -13,6 +13,7 @@ import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-th
 import { applyTypewriterEffect, cancelTypewriter } from './typewriter-runtime.js';
 import { inventoryIconHtml } from './inventory-slot-image.js';
 import { recoverMediaOperation } from '../../media/tavern-media-http.js';
+import { deckReasonText } from './combat-deck-panel-render.js';
 
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度' });
 const pageTitles = Object.freeze({ diary: '珍藏心事', inventory: '你的背包', relationships: '人际关系', favor: '好感总览' });
@@ -365,8 +366,23 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
 
     async function useItem() {
         const item = (model?.entries || []).find(entry => entry.id === selectedId);
-        if (!item?.title || typeof fillDraft !== 'function') return;
+        if (!item?.title) return;
         const target = root;
+        // 有装配定义的回复道具走场外使用（数量减一、恢复伤势，先写最新 AI 楼说明）；服务返回 draft 时照旧填「使用X」草稿。
+        if (typeof options.useInventoryItem === 'function') {
+            message = '正在使用'; render();
+            let result;
+            try { result = await options.useInventoryItem(item.title); } catch (_) { result = { ok: false, reason: 'combat-action-threw' }; }
+            if (root !== target) return;
+            if (!result?.draft) {
+                const ok = result?.ok === true;
+                if (ok) reload();
+                message = ok ? `已使用${item.title}` : `${deckReasonText(result?.reason)}${result?.floorRollback === 'failed' ? '；正文说明未能撤回，请检查最新楼层' : ''}`;
+                render();
+                return;
+            }
+        }
+        if (typeof fillDraft !== 'function') { message = ''; render(); return; }
         message = '正在填入草稿'; render();
         const result = await recoverMediaOperation(global || globalThis, () => fillDraft(`使用${item.title}`), {
             signal: controller.signal, isActive: () => root === target });
@@ -482,8 +498,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const descriptionCell = (chosen.detailCells || []).find(cell => ['描述', '说明', '内容', '详情'].includes(String(cell.label || '').trim()));
             const extraCells = (chosen.detailCells || []).filter(cell => cell !== descriptionCell);
             const quantity = String(chosen.quantity ?? '').trim();
-            const useButton = typeof fillDraft === 'function' && quantity !== '0'
-                ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button><small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small></div>` : '';
+            const useService = typeof options.useInventoryItem === 'function';
+            const useButton = (useService || typeof fillDraft === 'function') && quantity !== '0'
+                ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button>${useService ? '' : `<small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small>`}</div>` : '';
             detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head"><div class="igs-record-item-detail-icon" aria-hidden="true">${itemIcon(chosen.title)}</div><div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemGroup(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
         }
         return `<div class="igs-record-inventory"><section class="igs-record-inventory-main">${tools}<div class="igs-record-slots" aria-label="物品栏">${slotsHtml(items)}</div></section><aside class="igs-record-item-pane">${detail}</aside></div>`;

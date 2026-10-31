@@ -72,6 +72,15 @@ const REASON_TEXT = Object.freeze({
     'combat-trait-slot-cost-invalid': '特性槽价格已变化，请重试',
     'combat-trait-slot-kind-mismatch': '只有卡组角色可以解锁特性槽',
     'combat-trait-slot-no-floor': '当前聊天没有楼层，无法解锁特性槽',
+    'combat-character-missing': '没有这个角色',
+    'combat-item-insufficient': '道具数量不足',
+    'combat-use-battle-only': '这件道具只能在战斗中使用',
+    'combat-use-full-hp': '没有伤势，不需要使用',
+    'combat-use-unavailable': '当前无法使用道具',
+    'combat-use-no-floor': '最新楼层不是 AI 回复，无法写入说明',
+    'combat-floor-stale': '最新楼层已变化，请重试',
+    'combat-floor-unverified': '正文写入后未能读回确认',
+    'floor-note-unsafe': '无法在正文中安全写入说明',
 });
 export const deckReasonText = (reason) => REASON_TEXT[reason] || combatReasonText(reason);
 const CARD_ERROR = Object.freeze({ 'copy-limit': '同名超过上限', 'not-owned': '未拥有', 'owned-exceeded': '超过拥有数', 'unknown-card': '图鉴中没有' });

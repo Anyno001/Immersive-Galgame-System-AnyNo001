@@ -413,6 +413,9 @@ export function bootstrapIGS(options = {}) {
             ? illustrationMessageHost.readCharacterLore(names, { includeWorldInfo: false }) : []),
         // 剧情与世界书参考：最近几楼 AI 正文节选 + 与写词同一链路的原生世界书扫描，二者都有长度上限；读取失败不阻断生成。
         readStoryContext: createCombatStoryContext(globalObject, { resolveWorldInfo: createImageWorldInfoSource(globalObject) }),
+        // 背包使用与换装先写最新 AI 楼正文说明（P7c）：读写口带 stale 校验，写表失败时据此撤回。
+        readFloor: (messageId) => illustrationMessageHost.readFloor(messageId),
+        writeFloor: (messageId, text, expected, opts) => illustrationMessageHost.writeFloor(messageId, text, expected, opts),
     });
     // 设置变更（含扩展开关）与启动时：注册战报折叠正则，补扫当前聊天的成长标签、刷新成长演出缓存，并在后台预生成主角卡组。
     const prepareCombatProtagonist = () => { if (typeof combatServices.prepareProtagonist === 'function') combatServices.prepareProtagonist(); };
@@ -512,6 +515,8 @@ export function bootstrapIGS(options = {}) {
         drawCombatTrait: (opts) => combatServices.drawTrait(opts),
         pickCombatTrait: (opts) => combatServices.pickTrait(opts),
         unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
+        setCombatGear: typeof combatServices.setGear === 'function' ? (id, gearId, equip) => combatServices.setGear(id, gearId, equip) : undefined,
+        useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (name) => combatServices.useInventoryItem(name) : undefined,
 
         setCombatAllyTier: (id, tier) => combatServices.setAllyTier(id, tier),
         getCombatGrowth: () => combatServices.getGrowth(),

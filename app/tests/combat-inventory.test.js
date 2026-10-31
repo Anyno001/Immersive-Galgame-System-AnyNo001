@@ -179,3 +179,34 @@ test('heroInventoryView：同部位多件标记装备时只认先出现的一件
     assert.equal(heroInventoryView({ ok: false, reason: 'inventory-table-missing' }).ok, false);
 });
 
+
+test('场外使用（P7c）：回复道具数量减一并恢复主角伤势；纯战斗道具与满血时拒绝、不改表；扣数量失败时撤销回血', async () => {
+    const h = harness();
+    assert.equal((await h.ledger.append([h.itemEntry()])).ok, true);
+    h.inv.items.push({ name: '爆炎符', quantity: 1 });
+    h.inv.gear.push({ name: '爆炎符', category: '消耗品', rarity: '', slot: '', equipped: false, definition: { kind: 'item', effects: [{ op: 'damage', amount: 6 }], description: '' } });
+    const potion = itemIdFor('回春丹');
+    const fire = itemIdFor('爆炎符');
+    assert.equal((await h.ledger.useItem(potion)).reason, 'combat-use-full-hp');
+    h.chat.push({ mes: '被划了一刀。[igs-stat:hurt|重伤]', swipe_id: 0, is_user: false });
+    assert.equal((await h.ledger.scanLife()).ok, true);
+    const hurt = (await h.hero()).wound;
+    assert.ok(hurt && hurt.hp < hurt.maxHp, JSON.stringify(hurt));
+    assert.equal((await h.ledger.useItem(fire)).reason, 'combat-use-battle-only');
+    assert.equal(h.inv.qty('爆炎符'), 1);
+    const before = h.tables.ledger.length;
+    h.inv.failChange = true;
+    const failed = await h.ledger.useItem(potion, { messageId: 2 });
+    assert.equal(failed.ok, false);
+    assert.equal(failed.revoked, true);
+    assert.equal(h.inv.qty('回春丹'), 2);
+    assert.deepEqual((await h.hero()).wound, hurt);
+    assert.ok(h.tables.ledger.length > before);
+    h.inv.failChange = false;
+    const used = await h.ledger.useItem(potion, { messageId: 2 });
+    assert.equal(used.ok, true, JSON.stringify(used));
+    assert.equal(h.inv.qty('回春丹'), 1);
+    const healed = (await h.hero()).wound;
+    assert.ok(healed === null || healed.hp > hurt.hp, JSON.stringify(healed));
+});
+

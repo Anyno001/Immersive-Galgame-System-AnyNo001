@@ -3,10 +3,11 @@ import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
 import { abilitiesForName, createCombatLedger, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
+import { withFloorNote } from '../combat/floor-note.js';
 import { checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
 import { classTierEntity, deckProfileEntities, generationWrites, growthEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity, withCharacterLore, withStoryContext } from '../combat/generation.js';
 import { generateWithRetry } from '../combat/generation-retry.js';
-import { normalizeProfile, profileIdFor } from '../combat/schema.js';
+import { itemIdFor, normalizeProfile, profileIdFor } from '../combat/schema.js';
 import { COMBAT_RULES } from '../combat/rules.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../combat/points.js';
 import { TRAIT_BASE_SLOTS, keptInnateKinds, nextTraitSlot, planTrait, traitFits, traitSeed } from '../combat/traits.js';
@@ -130,6 +131,70 @@ export function createCombatServices(deps = {}) {
         if (!settings().enabled) return null;
         ensureBase();
         return ledger;
+    }
+
+    // 背包使用与换装（P7c）：先在最新 AI 楼正文写一行说明（插在开战 / 觉醒标签之前），再写日志与表格；
+    // 正文 stale 时不改表，写表失败时撤回正文（combat/floor-note.js 的 withFloorNote）。串行执行；战斗进行中只读。
+    let floorActionQueue = Promise.resolve();
+    function floorAction(task) {
+        const run = floorActionQueue.then(task);
+        floorActionQueue = run.catch(() => {});
+        return run;
+    }
+    function sessionBusy() {
+        let status = '';
+        try { status = getSession()?.state()?.status || ''; } catch (error) { status = ''; }
+        return PANEL_BUSY.includes(status);
+    }
+    async function floorActionState() {
+        const ledgerImpl = getLedger();
+        if (!ledgerImpl) return { ok: false, reason: 'combat-disabled' };
+        let state;
+        try { state = await ledgerImpl.effectiveState(); } catch (error) { state = { ok: false, reason: 'combat-ledger-read-failed' }; }
+        if (!state?.ok) return { ok: false, reason: state?.reason || 'combat-ledger-read-failed' };
+        return { ok: true, ledgerImpl, state };
+    }
+    function runFloorAction(note, action) {
+        if (typeof deps.readFloor !== 'function' || typeof deps.writeFloor !== 'function') return { ok: false, reason: 'combat-use-unavailable' };
+        if (sessionBusy()) return { ok: false, reason: 'combat-deck-readonly' };
+        const messageId = chat().length - 1;
+        if (messageId < 0) return { ok: false, reason: 'combat-use-no-floor' };
+        return withFloorNote({ readFloor: deps.readFloor, writeFloor: deps.writeFloor, messageId, note, sourceFilter: sourceFilter(), action: () => action(messageId) });
+    }
+
+    // 背包页「使用」：主角背包里有装配定义的道具走场外使用（只限带回复效果、主角有伤势；纯战斗道具拒绝）；
+    // 其余（没有装配定义的剧情物品、装备、杂物、扩展关闭、没有主角档案）返回 draft:true，由背包页照旧填「使用X」草稿。
+    function useInventoryItem(name) {
+        return floorAction(async () => {
+            const gate = await floorActionState();
+            if (!gate.ok) return gate.reason === 'combat-disabled' ? { ...gate, draft: true } : gate;
+            const heroId = gate.state.attributes?.heroId;
+            const hero = heroId ? gate.state.characters.get(heroId) : null;
+            if (!hero) return { ok: false, reason: 'combat-points-not-protagonist', draft: true };
+            if (hero.inventory?.ok !== true) return { ok: false, reason: hero.inventory?.reason || 'inventory-table-read-failed' };
+            const key = itemIdFor(name);
+            const item = (hero.items || []).find((i) => i.itemId === key);
+            if (!item) return { ok: false, reason: 'combat-use-not-item', draft: true };
+            if (!(item.effects || []).some((e) => e.op === 'heal' && Number(e.amount) > 0)) return { ok: false, reason: 'combat-use-battle-only' };
+            if (!hero.wound) return { ok: false, reason: 'combat-use-full-hp' };
+            const result = await runFloorAction(`（${hero.name || userName()}使用了${item.name}）`, (messageId) => gate.ledgerImpl.useItem(item.itemId, { messageId }));
+            if (result.ok) void refreshLife();
+            return result;
+        });
+    }
+
+    // 人物状态面板换装：主角改装配表穿戴状态，队友写账本；同样先写正文说明。
+    function setGear(characterId, gearId, equip) {
+        return floorAction(async () => {
+            const gate = await floorActionState();
+            if (!gate.ok) return gate;
+            const view = gate.state.characters.get(characterId);
+            if (!view) return { ok: false, reason: 'combat-character-missing' };
+            const gear = equip ? (view.gear?.bag || []).find((g) => g.gearId === gearId)
+                : Object.values(view.gear?.slots || {}).find((g) => g?.gearId === gearId);
+            if (!gear) return { ok: false, reason: 'combat-gear-missing' };
+            return runFloorAction(`（${view.name || ''}${equip ? '装上了' : '卸下了'}${gear.name}）`, () => gate.ledgerImpl.setGear(characterId, gearId, equip === true));
+        });
     }
 
     // 生命与六维来源（合并计划 Q1 / Q4）：数值系统用，战斗扩展关闭时同样可用（只读写战斗日志与属性表，缺表按需补建）。
@@ -767,5 +832,5 @@ export function createCombatServices(deps = {}) {
     }
 
     return { getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit };
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, useInventoryItem, setGear };
 }

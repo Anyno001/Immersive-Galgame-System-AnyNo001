@@ -36,6 +36,8 @@ export const ASCEND_TAG_HASH = 'ascend';
 // 抽人物特性写的 trait 与已满时决定替换或放弃写的 trait-pick 同样锚定写入时的最新楼层，与面板操作同序归并。
 export const TRAIT_TAG_HASH = 'trait';
 export const PANEL_TAG_HASH = 'panel';
+// 背包场外使用道具（P7c）：consume 与回血 heal 锚定写入说明的最新 AI 楼，只核对楼层与 swipe，与面板操作同序归并。
+export const USE_TAG_HASH = 'use';
 // offer 条目锚定开战楼（开战标签锚点），只核对楼层与 swipe：开战楼换 swipe 或删楼即作废。
 const TAGLESS_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound']);
 const ANCHORLESS_TYPES = new Set(['profile', 'revoke']);
@@ -52,7 +54,7 @@ const isMessage = (m) => Boolean(m) && typeof m === 'object';
 const TYPE_RANK = Object.freeze({ exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18, wound: 19, hurt: 19, heal: 19.5 });
 // 构筑面板换装、背包卖出、重新生成基础卡组、转职、职业升阶及同楼在其后的卡组保存与奖励（tagHash = GEAR / SELL / REBUILD / RESPEC / ASCEND / PANEL）是用户在该楼之后的操作：
 // 同楼排在全部标签条目（含战利品）之后，彼此共用一个 occurrence 序列、按写入先后归并（同楼先卸下再卖出、先卖出再重新生成或转职、先升阶再领取追加卡才成立）。
-const PANEL_TAGS = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH]);
+const PANEL_TAGS = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
 const rankOf = (e) => (PANEL_TAGS.has(e.anchor?.tagHash) ? 20 : TYPE_RANK[e.type]);
 const panelOccurrence = (snapshot, characterId, messageId, swipeId) => snapshot.entries.filter((e) => PANEL_TAGS.has(e.anchor?.tagHash)
     && e.character === characterId && e.anchor.messageId === messageId && e.anchor.swipeId === swipeId).length;
@@ -224,7 +226,8 @@ function anchorProblem(entry, floorOf) {
     const floor = floorOf(anchor.messageId);
     if (!floor) return 'message-missing';
     if (floor.swipeId !== anchor.swipeId) return 'swipe-changed';
-    const tagless = TAGLESS_TYPES.has(entry.type) || ((entry.type === 'equip' || entry.type === 'unequip') && anchor.tagHash === GEAR_TAG_HASH);
+    const tagless = TAGLESS_TYPES.has(entry.type) || ((entry.type === 'equip' || entry.type === 'unequip') && anchor.tagHash === GEAR_TAG_HASH)
+        || (entry.type === 'heal' && anchor.tagHash === USE_TAG_HASH);
     if (!tagless && !floor.keys.has(`${anchor.tagHash}#${anchor.occurrence}`)) return 'tag-missing';
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
     // loot 只认胜利战报楼，且楼里战报块的 ID 与条目一致。
@@ -1567,6 +1570,52 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     const sellKeepsake = (lootId) => sellFromBag({ lootId });
     const sellGear = (gearId) => sellFromBag({ gearId });
 
+    // 背包场外使用（P7c，助手 1B）：只限带回复效果的道具（纯战斗道具记 combat-use-battle-only），主角没有伤势时记 combat-use-full-hp。
+    // 写 heal（回复量为道具各回复效果之和，乘写入时难度倍率）与 consume（经主角背包写口从物品表减一），锚定 messageId 楼（写说明的最新 AI 楼，缺省为最后一楼）、tagHash = USE_TAG_HASH；
+    // heal 先写，consume 未生效或 heal 未写成时写 revoke 撤销 heal，不白得回复。
+    function useItem(itemId, { messageId } = {}) {
+        return serialPanel(async () => {
+            if (!inventory) return { ok: false, reason: 'combat-use-unavailable' };
+            const snapshot = await read();
+            if (!snapshot.ok) return snapshot;
+            const chat = chatOf();
+            const state = computeEffectiveState(snapshot, chat, stateOpts());
+            if (!state.ok) return state;
+            const heroId = state.attributes.heroId;
+            const view = heroId ? state.characters.get(heroId) : null;
+            if (!view) return { ok: false, reason: 'combat-points-not-protagonist' };
+            if (view.inventory?.ok !== true) return { ok: false, reason: view.inventory?.reason || 'inventory-table-read-failed' };
+            const item = view.items.find((i) => i.itemId === itemId);
+            if (!item) return { ok: false, reason: 'combat-item-insufficient' };
+            const amount = (item.effects || []).filter((e) => e.op === 'heal').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            if (!(amount > 0)) return { ok: false, reason: 'combat-use-battle-only' };
+            if (!view.wound) return { ok: false, reason: 'combat-use-full-hp' };
+            const at = Number.isInteger(messageId) ? messageId : chat.length - 1;
+            if (!chat[at]) return { ok: false, reason: 'combat-use-no-floor' };
+            const swipeId = swipeOf(chat[at]);
+            const occ = panelOccurrence(snapshot, heroId, at, swipeId);
+            const anchorAt = (occurrence) => ({ messageId: at, swipeId, tagHash: USE_TAG_HASH, occurrence });
+            const scale = Math.min(100, Math.max(1, Math.round(100 * (Number(healScaleOf()) || 1))));
+            const heal = normalizeLedgerEntry({ id: ledgerEntryId('heal', heroId, anchorAt(occ)), type: 'heal', character: heroId, anchor: anchorAt(occ),
+                payload: { amount: Math.min(9999, amount), mode: 'flat', scale, reason: `使用${item.name}`.slice(0, 80) }, createdAt: now() });
+            const consume = normalizeLedgerEntry({ id: ledgerEntryId('consume', heroId, anchorAt(occ + 1)), type: 'consume', character: heroId, anchor: anchorAt(occ + 1),
+                payload: { itemId, count: 1, reportId: '' }, createdAt: now() });
+            if (!heal.ok || !consume.ok) return { ok: false, reason: 'combat-entry-invalid' };
+            let healed;
+            try { healed = await tables.append('ledger', [heal.value]); } catch { healed = { ok: false, reason: 'combat-ledger-insert-failed' }; }
+            if (!(healed.written || []).includes(heal.value.id)) {
+                const reason = healed.reason || 'combat-ledger-insert-failed';
+                return { ok: false, reason, revoked: await revokeStock(heal.value, reason) };
+            }
+            const used = await appendStock([consume.value]);
+            if (!(used.stock || []).some((s) => s.ok === true)) {
+                const reason = used.stock?.[0]?.reason || used.reason || 'combat-use-failed';
+                return { ok: false, reason, revoked: await revokeStock(heal.value, reason) };
+            }
+            return { ok: true, item: item.name, amount, entries: [heal.value, consume.value] };
+        });
+    }
+
     // 主角付费面板操作（重新生成 / 转职 / 升阶）：写前按「当前状态 + 本条」试归并，本条会被拒收（不合规、ID 相撞、积分不够、等级未到等）时不写表、返回原因（不扣分）；cost 为本次花费。
     function writeHeroPanel(characterId, type, payload) {
         return serialPanel(async () => {
@@ -1607,6 +1656,6 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return writeHeroPanel(characterId, 'trait-slot', { slot, cost });
     }
 
-    return { read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, allocate, writeInit, sellKeepsake, sellGear, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot };
+    return { read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, allocate, writeInit, sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot };
 }
 

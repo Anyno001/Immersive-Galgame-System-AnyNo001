@@ -4818,6 +4818,8 @@ export function createIgsReaderHost(options = {}) {
             // 数值系统接管已登记角色的人物数值；未接管时返回 null，人际关系页照旧读表格。
             statsLookup: () => (typeof options.statsLookup === 'function' ? options.statsLookup() : null),
             statsGenerate: (name) => (typeof options.statsOp === 'function' ? options.statsOp('generate', '', name) : null),
+            // 背包「使用」（P7c）：有装配定义的回复道具走场外使用；返回 draft 时照旧填草稿。
+            useInventoryItem: typeof options.useCombatInventoryItem === 'function' ? (name) => options.useCombatInventoryItem(name) : null,
         });
         const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
             mediaCache: options.media?.cache,
@@ -4866,6 +4868,7 @@ export function createIgsReaderHost(options = {}) {
             drawTrait: typeof options.drawCombatTrait === 'function' ? (opts) => options.drawCombatTrait(opts) : null,
             pickTrait: typeof options.pickCombatTrait === 'function' ? (opts) => options.pickCombatTrait(opts) : null,
             unlockTraitSlot: typeof options.unlockCombatTraitSlot === 'function' ? () => options.unlockCombatTraitSlot() : null,
+            setGear: typeof options.setCombatGear === 'function' ? (id, gearId, equip) => options.setCombatGear(id, gearId, equip) : null,
 
             getGrowth: () => (typeof options.getCombatGrowth === 'function' ? options.getCombatGrowth() : null),
             retryGrowth: typeof options.retryCombatGrowth === 'function' ? () => options.retryCombatGrowth() : null,
