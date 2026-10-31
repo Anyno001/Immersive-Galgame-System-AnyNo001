@@ -116,7 +116,8 @@ export function deckDetailView(view, draft) {
     const base = { id: view.id, kind: view.kind, name: view.name, level: view.attributes?.level ?? view.level,
         exp: view.exp, into: view.into, next: view.next, attributes: view.attributes,
         combat, traits: (view.traits || []).map(traitView), pendingTrait: view.pendingTrait ? traitView(view.pendingTrait) : null,
-        collection: (view.collection || []).map((k) => ({ ...k, price: sellPrice(k.rarity, k.lootId) })), points: view.points ?? 0, canSell: view.attributes?.protagonist === true,
+        // 杂物键：账本背包为 lootId；主角背包投影（P7b）为 itemId（同名叠数量）。
+        collection: (view.collection || []).map((k) => ({ ...k, key: k.lootId || k.itemId, price: sellPrice(k.rarity, k.lootId || k.itemId) })), points: view.points ?? 0, canSell: view.attributes?.protagonist === true,
         relLabel: REL_TIERS[view.attributes?.tier]?.label || '',
         abilities: allocView(view.attributes)?.rows || [] };
     if (view.kind === 'skill-character') {

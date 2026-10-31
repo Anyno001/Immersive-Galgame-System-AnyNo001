@@ -1,4 +1,5 @@
 import { createCombatTables } from '../data/shujuku/combat-tables.js';
+import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
 import { abilitiesForName, createCombatLedger, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
@@ -96,9 +97,11 @@ export function createCombatServices(deps = {}) {
         const api = globalObject.AutoCardUpdaterAPI || null;
         if (!tables || tables.api !== api) {
             const raw = createCombatTables({ api });
-            tables = { api, raw, impl: autoCreating(raw) };
+            // 物品表与装配表（P7b）：主角背包的唯一来源，与战斗表共用写入队列。
+            const inventory = createInventoryTables({ api, serial: raw.serial });
+            tables = { api, raw, impl: autoCreating(raw), inventory };
             // difficulty 只用于扫描剧情回血标签时记下当时的回血倍率（噩梦减半）。
-            ledger = createCombatLedger({ tables: tables.impl, chat, userName, sourceFilter, difficulty: () => settings().difficulty });
+            ledger = createCombatLedger({ tables: tables.impl, chat, userName, sourceFilter, difficulty: () => settings().difficulty, inventory });
             tableFailure = null;
         }
         return tables.impl;

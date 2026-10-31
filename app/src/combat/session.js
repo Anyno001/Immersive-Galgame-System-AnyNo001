@@ -375,13 +375,14 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     const controlled = lobby.allies.find((v) => v.id === id);
     const awaken = awakenFor(start, controlled, lobby.heroId, userName);
     if (awaken) setup.awaken = awaken;
-    // 一次性道具：被操控者当前持有的道具带入本场；没有道具时不写字段，setup 形状与旧版一致。
+    // 一次性道具（P7b，助手 2A）：不论操控谁，一律带主角背包里的道具（注入物品表时来自物品表）；用量记到主角名下（record.itemOwner）。没有道具时不写字段，setup 形状与旧版一致。
     // 回复、格挡、净化对己方参战角色使用（itemEffectsForBattle 把旧道具的 self 换成 ally，只影响新开的战斗）。
-    const items = (controlled?.items || []).filter((i) => i.count > 0).slice(0, 12)
+    const owner = lobby.allies.find((v) => v.id === lobby.heroId);
+    const items = (owner?.items || []).filter((i) => i.count > 0).slice(0, 12)
         .map((i) => ({ itemId: i.itemId, name: i.name, count: Math.min(99, i.count), effects: itemEffectsForBattle(i.effects) }));
     if (items.length) setup.items = items;
     const dropped = start.awaken && !awaken ? { awakenDropped: 'combat-awaken-not-controlled' } : {};
-    return { ok: true, setup, tiers, expTargets: lobby.allies.map((v) => v.name), ...dropped };
+    return { ok: true, setup, tiers, expTargets: lobby.allies.map((v) => v.name), ...(items.length ? { itemOwner: lobby.heroId } : {}), ...dropped };
 }
 // 会话门面。每个对外方法返回 { ok, session, reason? }；session 为当前状态快照，带可用动作 legal。
 export function createCombatSession(deps = {}) {
@@ -446,7 +447,8 @@ export function createCombatSession(deps = {}) {
     // 本场道具用量与操控角色：随战报一起留档，重发同一份战报时照样扣除，删战报楼后重发不会退回道具。
     const usageOf = (c) => {
         const used = consumedItems(c.record, c.battle);
-        const character = c.record?.setup?.controlledId;
+        // 道具属于主角背包（record.itemOwner，P7b）；旧记录没有该字段时按被操控者。
+        const character = c.record?.itemOwner || c.record?.setup?.controlledId;
         return used.length && character ? { used, character } : {};
     };
     // 持续伤势：出结果时记下我方每名角色的战后生命（倒下为 0），随战报留档；战报楼落楼后写 wound 条目，胜、败、撤退都记。
@@ -801,6 +803,7 @@ export function createCombatSession(deps = {}) {
         const record = {
             v: SESSION_VERSION, combatId: cur.combatId, anchor: cur.anchor, seed, setup: built.setup, actions: [],
             encounter: cur.start.encounter, tiers: built.tiers, expTargets: built.expTargets,
+            ...(built.itemOwner ? { itemOwner: built.itemOwner } : {}),
         };
         if (!writeJson(storage, sessionKey(), record)) return fail('combat-session-save-failed');
         set({ ...cur, status: 'battle', record, battle: created.state, events: created.events });
@@ -838,7 +841,7 @@ export function createCombatSession(deps = {}) {
             let consume = null;
             // 用量与操控角色优先取战报自带的（出结果时记下、随聊天记录留档），没有时按本场记录计算。
             const used = Array.isArray(item.used) ? item.used : consumedItems(cur.record, cur.battle);
-            const character = item.character || cur.record?.setup?.controlledId;
+            const character = item.character || cur.record?.itemOwner || cur.record?.setup?.controlledId;
             if (Number.isInteger(messageId) && used.length && character && ledger?.append) {
                 const m = chatOf()[messageId];
                 const swipeId = Number.isInteger(m?.swipe_id) ? m.swipe_id : 0;

@@ -306,7 +306,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!view) return { ok: false, reason: 'combat-character-missing' };
         if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
         if (view.attributes?.protagonist !== true) return fail('combat-points-not-protagonist');
-        const has = kind === 'gear' ? (view.gear?.bag || []).some((g) => g.gearId === id) : (view.collection || []).some((k) => k.lootId === id);
+        const has = kind === 'gear' ? (view.gear?.bag || []).some((g) => g.gearId === id) : (view.collection || []).some((k) => (k.lootId || k.itemId) === id);
         if (!has) return fail(kind === 'gear' ? 'combat-gear-missing' : 'combat-keepsake-missing');
         sell = { kind, id };
         notice = '';

@@ -767,9 +767,15 @@ function payloadAt(type, raw, path, ctx) {
             };
         // 背包卖出：杂物写 lootId（指向那件杂物的 loot 条目），装备写 gearId，二者恰有其一；积分由程序按稀有度与物品身份计算，不写进载荷。
         case 'sell':
-            checkKeys(raw, ['lootId', 'gearId'], path, ctx);
-            if (('lootId' in raw) === ('gearId' in raw)) return fail(ctx, path, 'sell-target-invalid');
-            return 'gearId' in raw ? { gearId: idOf(raw.gearId, p('gearId'), ctx) } : { lootId: idOf(raw.lootId, p('lootId'), ctx, ENTRY_ID_RE) };
+        // 主角背包（P7b）：卖物品表里的道具或杂物写 itemId；主角条目带卖出时的稀有度 rarity（物品表与装配表随楼回退，归并时按它计价）。lootId / gearId / itemId 恰有其一。
+        {
+            checkKeys(raw, ['lootId', 'gearId', 'itemId', 'rarity'], path, ctx);
+            if (['lootId', 'gearId', 'itemId'].filter((k) => k in raw).length !== 1) return fail(ctx, path, 'sell-target-invalid');
+            const rarity = raw.rarity === undefined ? {} : { rarity: oneOf(raw.rarity, p('rarity'), ctx, POOL_RARITIES) };
+            if ('gearId' in raw) return { gearId: idOf(raw.gearId, p('gearId'), ctx), ...rarity };
+            if ('itemId' in raw) return { itemId: idOf(raw.itemId, p('itemId'), ctx), ...rarity };
+            return { lootId: idOf(raw.lootId, p('lootId'), ctx, ENTRY_ID_RE), ...rarity };
+        }
         // 人物特性（P-d）：抽取成功写 trait（traitId 由程序给定；passive 复用被动模板按稀有度加强；link 为可选的翻牌联动；cost 为花费的积分，由归并核对）。
         // v4（助手 10-28）：kind 缺省为被动（旧条目没有 kind，形状不变）；主动特性写 kind: 'active' 与 skill，不带 passive。
         // 已满时新特性待定，再写 trait-pick 决定 drop：已装特性的 ID 为替换它，新特性自己的 ID 为放弃；被 drop 的永久消失。

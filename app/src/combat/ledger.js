@@ -11,6 +11,8 @@ import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap
 import { HERO_BASE_ARCHETYPE, characterCombatStats, heroBaseStats, vitalsOf } from './vitals.js';
 import { scanStatLifeTags } from '../scene/stats/stat-directives.js';
 import { HURT_PCT } from '../scene/stats/stat-vocab.js';
+import { heroInventoryView } from './inventory-view.js';
+import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 
 // 成长账本：只读归并 shujuku 两张战斗表，按锚点决定哪些条目当前生效；不修改表，写入只经注入的 tables。
 // chat 由调用方传入按 messageId 下标排列的消息快照 [{ mes, swipe_id, is_user, is_system }]，combat 不读宿主。
@@ -238,6 +240,25 @@ function ownerOf(index, character) {
     return index.byNameKey.get(character) ?? null;
 }
 
+// 被 revoke 撤销的条目 ID（P7b：主角背包写入失败时撤销已入账标记）；已入账 ID 按基础 ID 计（去掉重试后缀「|rN」），撤销的不算。
+const RETRY_SUFFIX_RE = /\|r\d+$/;
+const revokedIds = (snapshot) => new Set(snapshot.entries.filter((e) => e.type === 'revoke').map((e) => e.payload.targetEntryId));
+function liveEntryIds(snapshot) {
+    const revoked = revokedIds(snapshot);
+    return new Set(snapshot.entries.filter((e) => !revoked.has(e.id)).map((e) => e.id.replace(RETRY_SUFFIX_RE, '')));
+}
+
+// 主角背包条目的写入 ID：基础 ID 未用过时用它；已用且被撤销时依次取「基础ID|r1」「|r2」…；已用且未撤销视为已入账（present）。
+export function stockEntryId(snapshot, id) {
+    const revoked = revokedIds(snapshot);
+    for (let n = 0; n < 50; n += 1) {
+        const v = n ? `${id}|r${n}` : id;
+        if (!snapshot.ids.has(v)) return { id: v };
+        if (!revoked.has(v)) return { present: v };
+    }
+    return { error: 'combat-stock-retry-exhausted' };
+}
+
 // 卡组角色的可变成长状态：图鉴（基础卡 + 历任职业池 + 个人池 + 习得卡）、拥有张数、升级张数、当前卡组、已领奖励等级。
 function deckState(profile, classProfile) {
     const owned = new Map();
@@ -269,10 +290,14 @@ function addOwned(c, cardId) {
 const skillOverCap = (skill) => effectsDamage(skill?.effects) > COMBAT_RULES.allySkillDamageCap;
 // 换到另一个职业时阶数回到一阶；升阶追加的卡已进图鉴，按「已有卡牌保留」留下。
 const resetTier = (c) => { c.classTier = 1; c.tierName = ''; c.tierCards = []; };
+// 主角背包投影是否生效（computeEffectiveState 注入 heroStock，P7b）：生效时主角的装备 / 道具 / 杂物条目只作已入账标记，数量与定义在物品表与装配表。
+const stockOf = (c, ctx) => ctx?.heroStock === true && Boolean(ctx.heroId) && c.id === ctx.heroId;
 
 // 战利品落到角色身上：卡牌按领悟进图鉴与卡组；装备只进背包、不自动穿上（带上槽位稀有度，卖出按它计价），已有同名装备时拒收；道具累加；杂物进背包，键为 loot 条目 ID（卖出时按它找）。
-function grantLoot(c, slot, entry) {
+// stock 为真时装备、道具与杂物只核对伤害上限，由写口写进物品表与装配表。
+function grantLoot(c, slot, entry, stock = false) {
     if (slot.kind === 'card') return HANDLERS.learn(c, { card: slot.card });
+    if (stock) return slot.kind === 'gear' && effectsDamage(slot.gear.passive?.effects) > COMBAT_RULES.allySkillDamageCap ? 'combat-gear-damage-cap' : null;
     if (slot.kind === 'item') return HANDLERS.item(c, slot.item);
     if (slot.kind === 'gear') {
         if (c.gear.owned.has(slot.gear.gearId)) return 'combat-loot-gear-owned';
@@ -345,8 +370,10 @@ const HANDLERS = Object.freeze({
     },
     // 装备：同部位已有装备时顶替，旧装备留在 owned 里（即背包），可在构筑面板换回。
     // 构筑面板换装（tagHash = GEAR_TAG_HASH）只能装上已拥有的装备，不改写装备记录：来源标签楼换 swipe / 删楼后，面板条目不能把装备重新带回。
-    equip(c, p, { entry } = {}) {
+    equip(c, p, ctx = {}) {
+        const { entry } = ctx;
         if (effectsDamage(p.passive?.effects) > COMBAT_RULES.allySkillDamageCap) return 'combat-gear-damage-cap';
+        if (stockOf(c, ctx)) return null;
         if (entry?.anchor?.tagHash === GEAR_TAG_HASH) {
             const owned = c.gear.owned.get(p.gearId);
             if (!owned) return 'combat-gear-missing';
@@ -359,18 +386,21 @@ const HANDLERS = Object.freeze({
         c.gear.slots[p.slot] = p.gearId;
         return null;
     },
-    unequip(c, p) {
+    unequip(c, p, ctx) {
+        if (stockOf(c, ctx)) return null;
         if (!c.gear.owned.has(p.gearId)) return 'combat-gear-missing';
         for (const [slot, id] of Object.entries(c.gear.slots)) if (id === p.gearId) delete c.gear.slots[slot];
         return null;
     },
-    item(c, p) {
+    item(c, p, ctx) {
+        if (stockOf(c, ctx)) return null;
         const cur = c.items.get(p.itemId);
         c.items.set(p.itemId, { itemId: p.itemId, name: p.name, effects: p.effects, description: p.description, count: (cur?.count || 0) + p.count });
         return null;
     },
     // 消耗超过余量时整条拒收，不扣成负数。
-    consume(c, p) {
+    consume(c, p, ctx) {
+        if (stockOf(c, ctx)) return null;
         const cur = c.items.get(p.itemId);
         if (!cur || cur.count < p.count) return 'combat-item-insufficient';
         cur.count -= p.count;
@@ -443,7 +473,7 @@ const HANDLERS = Object.freeze({
     },
     // 翻牌兑现：每场只认最先生效的一条；开战楼 offer 须仍有效、属于同一角色，槽位与 offer 一致，发放的奖励以 offer 为准。
     // 备用套（cost > 0）由主角积分支付，余额不足整条拒收；主套不花分。奖励发放失败时不扣分。
-    loot(c, p, { entry, offers, loots, heroId }) {
+    loot(c, p, { entry, offers, loots, heroId, heroStock }) {
         if (loots.has(p.combatId)) return 'combat-loot-duplicate';
         const offer = offers.get(p.combatId);
         if (!offer) return 'combat-loot-offer-missing';
@@ -454,7 +484,7 @@ const HANDLERS = Object.freeze({
         if ((p.set === 'reserve') !== (p.cost > 0)) return 'combat-loot-cost-invalid';
         if (p.cost > 0 && heroId && c.id !== heroId) return 'combat-points-not-protagonist';
         if (c.points < p.cost) return 'combat-points-insufficient';
-        const reason = grantLoot(c, slot, entry);
+        const reason = grantLoot(c, slot, entry, heroStock === true && c.id === heroId);
         if (reason) return reason;
         c.points -= p.cost;
         loots.set(p.combatId, { entryId: entry.id, character: c.id, set: p.set, index: p.slot.index });
@@ -462,8 +492,16 @@ const HANDLERS = Object.freeze({
     },
     // 背包卖出：只主角。杂物须仍在背包里（对应 loot 已失效或已卖出时拒收）；装备须仍拥有且未装备（穿戴中拒收，须先卸下）。
     // 售价按稀有度基准与物品身份确定性浮动（points.js 的 sellPrice），不写进载荷。
-    sell(c, p, { heroId }) {
+    sell(c, p, ctx = {}) {
+        const { heroId } = ctx;
         if (heroId && c.id !== heroId) return 'combat-points-not-protagonist';
+        // 主角背包（P7b）：物品已由写口从物品表扣掉，条目带卖出时的稀有度，按它与物品身份计价；不带稀有度的旧条目对应的旧背包已丢弃，拒收。
+        if (stockOf(c, ctx)) {
+            if (!p.rarity) return 'combat-sell-legacy';
+            c.points += sellPrice(p.rarity, p.itemId || p.gearId || p.lootId);
+            return null;
+        }
+        if (p.itemId) return 'combat-sell-target-invalid';
         if (p.gearId) {
             const gear = c.gear.owned.get(p.gearId);
             if (!gear) return 'combat-gear-missing';
@@ -599,21 +637,26 @@ function tieredClass(c) {
 
 function characterView(c, opts = {}) {
     const progress = expProgress(c.exp);
+    // 主角背包（P7b）：注入物品表投影时，主角的装备、道具与杂物取自物品表与装配表（inventory-view.js），账本条目只作已入账标记。
+    const inv = opts.heroInventory && c.id === opts.heroId ? opts.heroInventory : null;
     const equipped = new Set(Object.values(c.gear.slots));
-    const gear = {
+    const gear = inv ? { slots: Object.fromEntries(Object.entries(inv.gear.slots).map(([slot, g]) => [slot, { ...g }])), bag: inv.gear.bag.map((g) => ({ ...g })) } : {
         slots: Object.fromEntries(Object.entries(c.gear.slots).map(([slot, id]) => [slot, c.gear.owned.get(id)])),
         bag: [...c.gear.owned.values()].filter((g) => !equipped.has(g.gearId)),
     };
-    const items = [...c.items.values()].filter((i) => i.count > 0).map((i) => ({ ...i }));
+    const items = (inv ? inv.items : [...c.items.values()]).filter((i) => i.count > 0).map((i) => ({ ...i }));
     // 装着的装备六维加成（D7）计入属性视图：检定、卡牌属性换算与开战快照都读这里；卸下即不再计入。
     const gearBonuses = Object.values(gear.slots).map((g) => g?.bonus).filter(Boolean);
     const attributes = attributeView({ key: c.id, name: c.name, protagonist: c.id === opts.heroId, exp: c.exp, archetype: c.classProfile?.archetype, className: c.classProfile?.className ?? c.className ?? '', gearBonuses }, opts.actx || EMPTY_ATTR_CTX);
     // collection：收藏的杂物 { lootId, name, origin, rarity }；points：积分余额（只主角有收支）。
-    const collection = [...c.keepsakes.values()].map((k) => ({ ...k }));
+    // 主角背包投影下杂物为 { itemId, name, origin, rarity, count }（同名叠数量）。
+    const collection = (inv ? inv.collection : [...c.keepsakes.values()]).map((k) => ({ ...k }));
     // traits / pendingTrait：装着的与待定的人物特性（拷贝）；traitDraws：已生效的抽取次数（稀有度种子用）；slotUnlocks：已解锁的额外特性槽数。
     // wound：持续伤势（拷贝），没有伤势时为 null。
     const traits = c.traits.map((t) => ({ ...t }));
     const base = { id: c.id, kind: c.kind, name: c.name, profile: c.profile, exp: c.exp, level: progress.level, into: progress.into, next: progress.next, gear, items, attributes, collection, points: c.points, traits, pendingTrait: c.pendingTrait ? { ...c.pendingTrait } : null, traitDraws: c.traitDraws, innateDropped: [...c.innateDropped], slotUnlocks: c.slotUnlocks, wound: c.wound ? { ...c.wound } : null };
+    // others：物品表里没有装配定义的剧情物品（只显示、不可卖）；inventory：物品表读取状态，失败时写口 fail-closed。
+    if (inv) Object.assign(base, { others: inv.others.map((o) => ({ ...o })), inventory: inv.ok ? { ok: true } : { ok: false, reason: inv.reason } });
     if (c.kind === 'skill-character') return { ...base, className: c.className, skills: c.skills, passives: c.passives };
     const left = new Map(c.upgraded);
     const deckEntries = c.deck.map((cardId) => {
@@ -782,6 +825,8 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     // 主角按 userName 识别：成长演出标记属性提升等级，属性视图据此区分主角。
     const userName = options.userName || '';
     const heroId = userName ? resolveCharacterId(index, userName, userName) : null;
+    // 主角背包投影（P7b）：注入时主角的装备、道具与杂物取自物品表与装配表，账本条目只作已入账标记。
+    const heroStock = Boolean(heroId && options.heroInventory);
     const timeline = snapshot.entries.filter((e) => !ANCHORLESS_TYPES.has(e.type)).sort(byAnchor);
     for (const e of timeline) {
         const problem = revoked.has(e.id) ? 'revoked' : anchorProblem(e, floorOf);
@@ -818,7 +863,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         }
         const c = state.get(owner);
         const levelBefore = expProgress(c.exp).level;
-        const reason = HANDLERS[e.type](c, e.payload, { index, entry: e, diagnostics, offers, loots, heroId });
+        const reason = HANDLERS[e.type](c, e.payload, { index, entry: e, diagnostics, offers, loots, heroId, heroStock });
         if (reason) diag(diagnostics, reason, e);
         else {
             applied.push(e.id);
@@ -833,7 +878,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     const folded = foldAttributes(snapshot.attributes || [], index, floorOf, diagnostics);
     const hero = heroId ? state.get(heroId) : null;
     const actx = { fold: folded.fold, heroLevel: hero ? expProgress(hero.exp).level : 1, table: snapshot.attributeTable || 'missing' };
-    const characters = new Map([...state].map(([id, c]) => [id, characterView(c, { heroId, actx })]));
+    const characters = new Map([...state].map(([id, c]) => [id, characterView(c, { heroId, actx, ...(heroStock ? { heroInventory: options.heroInventory } : {}) })]));
     const attributes = { table: actx.table, heroId, heroLevel: actx.heroLevel, fold: folded.fold, inactive: folded.inactive };
     // profileMeta：档案 ID → { version 档案表当前最高版本（日志里的 profile 条目为 -1）, createdAt 登记时间 }，供补技能写新版本档案时沿用登记时间（名字归属按登记先后）。
     return { ok: true, characters, classes: index.classes, enemies: index.enemies, profileMeta: new Map([...snapshot.profiles].map(([id, r]) => [id, { version: r.version, createdAt: r.createdAt }])), unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty, looseVitals };
@@ -945,7 +990,9 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
     const entries = [];
     const pendingGeneration = [];
     const diagnostics = [];
-    const known = (kinds, name, anchor) => kinds.some((kind) => candidateIds(index, kind, name, userName, anchor).some((id) => snapshot.ids.has(id)));
+    // 已入账：条目在日志里且未被撤销；重试条目按基础 ID 计（P7b）。
+    const live = liveEntryIds(snapshot);
+    const known = (kinds, name, anchor) => kinds.some((kind) => candidateIds(index, kind, name, userName, anchor).some((id) => live.has(id)));
     const attributes = [];
     const knownAttr = (kind, name, anchor) => candidateIds(index, kind, name, userName, anchor).some((id) => snapshot.attributeIds?.has(id) === true);
     const state = computeEffectiveState(snapshot, list, { sourceFilter: options.sourceFilter, userName });
@@ -1156,17 +1203,21 @@ export function buildSellEntry(snapshot, chat, state, target, now = 0) {
     const t = typeof target === 'string' ? { lootId: target } : target || {};
     let payload;
     let price;
+    // 主角背包投影（P7b）：装备按背包里的那件计价（穿着一件、背包另有同名时可卖背包的），杂物按 itemId 找；载荷带稀有度。
+    const stock = Boolean(view.inventory);
+    if (stock && view.inventory.ok !== true) return { ok: false, reason: view.inventory.reason || 'inventory-table-read-failed' };
     if (t.gearId) {
-        if (Object.values(view.gear?.slots || {}).some((g) => g?.gearId === t.gearId)) return { ok: false, reason: 'combat-gear-equipped' };
         const gear = (view.gear?.bag || []).find((g) => g.gearId === t.gearId);
+        if (!gear && Object.values(view.gear?.slots || {}).some((g) => g?.gearId === t.gearId)) return { ok: false, reason: 'combat-gear-equipped' };
         if (!gear) return { ok: false, reason: 'combat-gear-missing' };
-        payload = { gearId: t.gearId };
+        payload = { gearId: t.gearId, ...(stock ? { rarity: gear.rarity || 'common' } : {}) };
         price = sellPrice(gear.rarity, t.gearId);
     } else {
-        const keepsake = view.collection.find((k) => k.lootId === t.lootId);
+        const id = t.itemId || t.lootId;
+        const keepsake = view.collection.find((k) => (stock ? k.itemId : k.lootId) === id);
         if (!keepsake) return { ok: false, reason: 'combat-keepsake-missing' };
-        payload = { lootId: t.lootId };
-        price = sellPrice(keepsake.rarity, t.lootId);
+        payload = stock ? { itemId: id, rarity: keepsake.rarity || 'common' } : { lootId: id };
+        price = sellPrice(keepsake.rarity, id);
     }
     const swipeId = swipeOf(list[messageId]);
     const anchor = { messageId, swipeId, tagHash: SELL_TAG_HASH, occurrence: panelOccurrence(snapshot, heroId, messageId, swipeId) };
@@ -1197,10 +1248,19 @@ export function buildHeroPanelEntry(snapshot, chat, state, characterId, type, pa
 
 // 每次调用都重读表与聊天，不缓存；读失败一律 ok:false，不当作空账本。
 // difficulty：当前难度键（值或函数），只用于扫描时给剧情回血条目记下难度倍率。
-export function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficulty, now = () => Date.now() } = {}) {
+// inventory（可选，P7b）：data/shujuku/inventory-tables 的实例；注入时主角的装备、道具与杂物由物品表与装配表投影（inventory-view.js），未注入时账本行为不变。
+export function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null } = {}) {
     const chatOf = () => (typeof chat === 'function' ? chat() : chat) || [];
     const userOf = () => (typeof userName === 'function' ? userName() : userName);
     const filterOf = () => (typeof sourceFilter === 'function' ? sourceFilter() : sourceFilter);
+    // 归并参数：每次归并都重读物品表（同步读，不缓存）；读失败时投影 ok:false，主角视图带 inventory.ok=false，写口据此 fail-closed。
+    const stateOpts = () => {
+        const base = { sourceFilter: filterOf(), userName: userOf() };
+        if (!inventory || typeof inventory.read !== 'function') return base;
+        let read;
+        try { read = inventory.read(); } catch { read = { ok: false, reason: 'inventory-table-read-failed' }; }
+        return { ...base, heroInventory: heroInventoryView(read) };
+    };
     const healScaleOf = () => difficultyRule(typeof difficulty === 'function' ? difficulty() : difficulty).healScale;
 
     async function read() {
@@ -1212,7 +1272,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     }
 
     async function effectiveState() {
-        return computeEffectiveState(await read(), chatOf(), { sourceFilter: filterOf(), userName: userOf() });
+        return computeEffectiveState(await read(), chatOf(), stateOpts());
     }
 
     // 只追加通过 schema 的条目；全部非法时不调用写入。写入结果原样透传（written / present / rejected / pending）。
@@ -1225,8 +1285,121 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             else invalid.push({ id: raw?.id ?? null, reason: 'combat-entry-invalid', errors: n.errors.slice(0, 5) });
         }
         if (!valid.length) return { ok: invalid.length === 0, written: [], present: [], rejected: invalid, pending: [] };
-        const result = await tables.append('ledger', valid);
+        // 注入物品表时（P7b）主角的装备 / 道具 / 杂物条目逐条走 appendStock；其余条目照旧一次写入。
+        const stock = inventory ? valid.filter((e) => STOCK_TYPES.includes(e.type)) : [];
+        const plain = valid.filter((e) => !stock.includes(e));
+        let result = plain.length ? await tables.append('ledger', plain) : { ok: true, written: [], present: [], rejected: [], pending: [] };
+        if (stock.length) result = mergeWrites(result, await appendStock(stock));
         return invalid.length ? { ...result, ok: false, rejected: [...(result.rejected || []), ...invalid] } : result;
+    }
+
+    // 写入结果合并：失败原因取先失败的一方；stock 为主角背包条目的逐条结果（含跳过原因）。
+    function mergeWrites(a, b) {
+        const failed = a.ok === false ? a : b.ok === false ? b : null;
+        return { ...a, ...(failed?.reason ? { reason: failed.reason } : {}), ok: a.ok !== false && b.ok !== false,
+            written: [...(a.written || []), ...(b.written || [])], present: [...(a.present || []), ...(b.present || [])],
+            rejected: [...(a.rejected || []), ...(b.rejected || [])], pending: b.pending || a.pending || [], stock: [...(a.stock || []), ...(b.stock || [])] };
+    }
+
+    // 主角背包条目（P7b）：串行逐条处理。每条先按「当前状态 + 本条」试归并，拒收（锚点失效、offer 不符、积分不够等）或背包计划不成立时跳过、不写；
+    // 通过后先写日志标记（已入账），再写装配行与物品表数量；标记未写成或数量写失败时写 revoke 撤销标记，补扫按「基础ID|rN」重试。
+    // 跳过只记在 stock 里，不判整批失败（同一标签下次补扫照样再试）；读写失败判失败。
+    let stockWrite = Promise.resolve();
+    function appendStock(list) {
+        const run = stockWrite.then(async () => {
+            let out = { ok: true, written: [], present: [], rejected: [], pending: [], stock: [] };
+            for (const e of list) out = mergeWrites(out, await appendStockOne(e));
+            return out;
+        });
+        stockWrite = run.catch(() => {});
+        return run;
+    }
+
+    const skipStock = (entry, reason) => ({ ok: true, written: [], present: [], rejected: [], pending: [], stock: [{ id: entry.id, ok: false, skipped: true, reason }] });
+    const failStock = (entry, reason, extra = {}) => ({ ok: false, reason, written: [], present: [], rejected: [{ id: entry.id, reason }], pending: [], stock: [{ id: entry.id, ok: false, reason, ...extra }] });
+
+    async function appendStockOne(entry) {
+        const snapshot = await read();
+        if (!snapshot.ok) return failStock(entry, snapshot.reason || 'combat-ledger-read-failed');
+        const index = indexProfiles(snapshot.profiles, []);
+        const user = userOf();
+        const heroId = user ? resolveCharacterId(index, user, user) : null;
+        // 队友（及尚无档案的角色）的装备与道具照旧记在账本角色状态里，不进背包。
+        if (!heroId || ownerOf(index, entry.character) !== heroId) return tables.append('ledger', [entry]);
+        const ensured = await ensureStock();
+        if (ensured) return failStock(entry, ensured);
+        const chat = chatOf();
+        const opts = stateOpts();
+        const state = computeEffectiveState(snapshot, chat, opts);
+        if (!state.ok) return failStock(entry, state.reason || 'combat-ledger-read-failed');
+        const view = state.characters.get(heroId);
+        if (view?.inventory?.ok !== true) return failStock(entry, view?.inventory?.reason || 'inventory-table-read-failed');
+        const slot = stockEntryId(snapshot, entry.id);
+        if (slot.present) return { ok: true, written: [], present: [slot.present], rejected: [], pending: [], stock: [] };
+        if (slot.error) return failStock(entry, slot.error);
+        const e = slot.id === entry.id ? entry : { ...entry, id: slot.id };
+        const plan = stockPlan(e, view, { panelTag: GEAR_TAG_HASH });
+        if (plan === null) return tables.append('ledger', [e]);
+        if (!plan.ok) return skipStock(e, plan.reason);
+        const trial = computeEffectiveState({ ...snapshot, entries: [...snapshot.entries, e] }, chat, opts);
+        const problem = trial.ok ? (trial.inactive.find((x) => x.id === e.id)?.reason || trial.diagnostics.find((d) => d.id === e.id)?.code) : (trial.reason || 'combat-ledger-read-failed');
+        if (problem) return skipStock(e, problem);
+        let marked;
+        try { marked = await tables.append('ledger', [e]); } catch { marked = { ok: false, reason: 'combat-ledger-insert-failed' }; }
+        if ((marked.present || []).includes(e.id)) return { ...marked, stock: [] };
+        if (!(marked.written || []).includes(e.id)) {
+            // 标记可能仍留在待写队列里稍后写成：同队列后面追加撤销，二者按序落表，不会出现没改表的已入账标记。
+            const reason = marked.reason || 'combat-ledger-insert-failed';
+            const revoked = await revokeStock(e, reason);
+            return { ...marked, ok: false, reason, stock: [{ id: e.id, ok: false, reason, revoked }] };
+        }
+        let failed;
+        try { failed = await applyStock(plan); } catch { failed = 'inventory-write-failed'; }
+        if (failed) {
+            const revoked = await revokeStock(e, failed);
+            return failStock(e, revoked ? failed : 'combat-stock-revoke-failed', { detail: failed, revoked });
+        }
+        return { ...marked, stock: [{ id: e.id, ok: true }] };
+    }
+
+    // 物品表或装配表缺失时先按默认结构补建（inventory.ensure，宿主模板导入）；补建失败时不写标记、不改表。
+    async function ensureStock() {
+        let pre;
+        try { pre = inventory.read(); } catch { return 'inventory-table-read-failed'; }
+        const missing = pre?.reason === 'inventory-table-missing' || (pre?.ok === true && !pre.gear);
+        if (!missing) return null;
+        if (typeof inventory.ensure !== 'function') return 'inventory-ensure-unavailable';
+        let made;
+        try { made = await inventory.ensure(); } catch { made = { ok: false, reason: 'inventory-ensure-failed' }; }
+        return made?.ok === true ? null : made?.reason || 'inventory-ensure-failed';
+    }
+
+    // 背包计划执行：rows（本物品的装配定义）→ changes（物品表数量）→ after（被顶替的装备卸下、用尽删行）。
+    // 只刷新世界书失败不算写入失败；after 写失败不撤销已改的数量（视图按部位冲突与孤儿行诊断兜底）。
+    const written = (r) => r?.ok === true || r?.reason === 'inventory-refresh-failed';
+    async function applyStock(plan) {
+        for (const r of plan.rows) {
+            const w = await inventory.setGearRow(r.name, r.record);
+            if (!written(w)) return w?.reason || 'gear-write-failed';
+        }
+        if (plan.changes.length) {
+            const c = await inventory.changeQuantities(plan.changes);
+            if (!written(c) && (c?.applied?.length || 0) < plan.changes.length) return c?.reason || 'inventory-write-failed';
+        }
+        for (const r of plan.after) {
+            try { await inventory.setGearRow(r.name, r.record); } catch { /* 视图诊断兜底 */ }
+        }
+        return null;
+    }
+
+    // 撤销已入账标记：revoke 条目不绑定楼层，ID 为「revoke|目标ID」，按记录 ID 幂等。
+    async function revokeStock(e, reason) {
+        const n = normalizeLedgerEntry({ id: `revoke|${e.id}`, type: 'revoke', character: e.character, anchor: null, payload: { targetEntryId: e.id, reason: String(reason || '').slice(0, 80) }, createdAt: now() });
+        if (!n.ok) return false;
+        try {
+            const w = await tables.append('ledger', [n.value]);
+            return (w.written || []).includes(n.value.id) || (w.present || []).includes(n.value.id);
+        } catch { return false; }
     }
 
     // 生成结束后传 { messageIds: [最新楼] }；打开聊天补扫不传，扫全部楼层。按记录 ID 幂等。
@@ -1291,7 +1464,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             const snapshot = await read();
             if (!current()) return { ok: false, reason: 'request-stale' };
             if (!snapshot.ok) return snapshot;
-            const state = computeEffectiveState(snapshot, chat, { sourceFilter: filterOf(), userName: userOf() });
+            const state = computeEffectiveState(snapshot, chat, stateOpts());
             const built = buildAllocEntries(snapshot, chat, state, characterId, items, now());
             if (!built.ok) return built;
             const write = await appendAttributes(built.entries, { shouldStart: current });
@@ -1348,7 +1521,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     async function claimReward(characterId, level, choice) {
         const snapshot = await read();
         if (!snapshot.ok) return snapshot;
-        const view = computeEffectiveState(snapshot, chatOf(), { sourceFilter: filterOf(), userName: userOf() }).characters?.get(characterId);
+        const view = computeEffectiveState(snapshot, chatOf(), stateOpts()).characters?.get(characterId);
         if (!view || view.kind !== 'deck-character' || !view.pendingRewards.includes(level)) return { ok: false, reason: 'combat-reward-unavailable' };
         const built = buildRewardEntry(snapshot, chatOf(), characterId, level, choice, now());
         if (!built.ok) return built;
@@ -1370,7 +1543,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             const snapshot = await read();
             if (!snapshot.ok) return snapshot;
             const chat = chatOf();
-            const view = computeEffectiveState(snapshot, chat, { sourceFilter: filterOf(), userName: userOf() }).characters?.get(characterId);
+            const view = computeEffectiveState(snapshot, chat, stateOpts()).characters?.get(characterId);
             const built = buildGearEntry(snapshot, chat, view, gearId, equip === true, now());
             if (!built.ok) return built;
             const write = await append([built.entry]);
@@ -1384,7 +1557,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             const snapshot = await read();
             if (!snapshot.ok) return snapshot;
             const chat = chatOf();
-            const state = computeEffectiveState(snapshot, chat, { sourceFilter: filterOf(), userName: userOf() });
+            const state = computeEffectiveState(snapshot, chat, stateOpts());
             const built = buildSellEntry(snapshot, chat, state, target, now());
             if (!built.ok) return built;
             const write = await append([built.entry]);
@@ -1400,7 +1573,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             const snapshot = await read();
             if (!snapshot.ok) return snapshot;
             const chat = chatOf();
-            const opts = { sourceFilter: filterOf(), userName: userOf() };
+            const opts = stateOpts();
             const state = computeEffectiveState(snapshot, chat, opts);
             const built = buildHeroPanelEntry(snapshot, chat, state, characterId, type, payload, now());
             if (!built.ok) return built;

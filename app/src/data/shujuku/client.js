@@ -43,10 +43,22 @@ export function createShujukuClient(api) {
             return typeof result === 'number' ? { ok: true, rowIndex: result } : { ok: true };
         },
 
-        async deleteRow(tableName, rowIndex) {
+        // rowIndex 为宿主表内容下标（表头为 0，首条数据为 1）；options 只在调用方传入时使用对象参数形式（如 skipNotify），不传时保持位置参数调用。
+        async updateRow(tableName, rowIndex, patch, options) {
+            if (!api || typeof api.updateRow !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            const result = options && typeof options === 'object'
+                ? await api.updateRow({ ...options, tableName, rowIndex, data: patch })
+                : await api.updateRow(tableName, rowIndex, patch);
+            return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'update-failed' };
+        },
+
+        async deleteRow(tableName, rowIndex, options) {
             if (!api || typeof api.deleteRow !== 'function')
                 return { ok: false, reason: 'missing-api' };
-            const result = await api.deleteRow(tableName, rowIndex);
+            const result = options && typeof options === 'object'
+                ? await api.deleteRow({ ...options, tableName, rowIndex })
+                : await api.deleteRow(tableName, rowIndex);
             return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'delete-failed' };
         },
 

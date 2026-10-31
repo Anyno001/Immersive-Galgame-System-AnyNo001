@@ -330,7 +330,7 @@ function bagPage(v, d) {
     const gearRows = gear.map((g) => bagRow(g.rarity, `<span class="igs-deck-name"${g.text ? ` title="${esc(g.text)}"` : ''}>${esc(g.name)}</span><span class="igs-deck-count">${esc(g.slotLabel)}</span>`,
         (v.readonly ? '' : btn('equip', '装上', { id: g.gearId, disabled: busy })) + sellAction(v, d, 'gear', g.gearId, g.price)));
     const keepRows = list.map((c) => bagRow(c?.rarity, `<span class="igs-deck-name">${esc(c?.name || '')}</span>${c?.origin ? `<span class="igs-deck-count">${esc(c.origin)}</span>` : ''}`,
-        sellAction(v, d, 'keepsake', c?.lootId, c?.price)));
+        sellAction(v, d, 'keepsake', c?.key, c?.price)));
     return `${points}<ul class="igs-deck-collection">${[...gearRows, ...keepRows].join('')}</ul>`;
 }
 

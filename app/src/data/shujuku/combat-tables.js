@@ -70,13 +70,14 @@ export function probeCombatTableSupport(api) {
 const PLACEMENT = (order) => ({ position: 'at_depth_as_system', depth: 2, order });
 
 // 战斗表定义：updateFrequency 0 不参与自动填表；exportConfig 关闭且 injectIntoWorldbook=false，不进世界书。
-export function buildCombatSheet(kind, orderNo, uid = COMBAT_TABLE_SPECS[kind].uid) {
-    const spec = COMBAT_TABLE_SPECS[kind];
+// IGS 自维护表的通用定义（战斗表、装配表与 IGS 新建的物品表共用）。
+export function buildIgsSheet({ name, columns, note }, orderNo, uid) {
+    const spec = { name, columns };
     return {
         uid,
         name: spec.name,
         sourceData: {
-            note: `IGS 战斗扩展的${SHEET_NOTES[kind]}，由 IGS 程序维护。AI 不得填写、修改或删除此表。`,
+            note: `${note}，由 IGS 程序维护。AI 不得填写、修改或删除此表。`,
             initNode: '禁止。',
             deleteNode: '禁止。',
             updateNode: '禁止。',
@@ -105,6 +106,11 @@ export function buildCombatSheet(kind, orderNo, uid = COMBAT_TABLE_SPECS[kind].u
         },
         orderNo,
     };
+}
+
+export function buildCombatSheet(kind, orderNo, uid = COMBAT_TABLE_SPECS[kind].uid) {
+    const spec = COMBAT_TABLE_SPECS[kind];
+    return buildIgsSheet({ name: spec.name, columns: spec.columns, note: `IGS 战斗扩展的${SHEET_NOTES[kind]}` }, orderNo, uid);
 }
 
 const sheetEntries = (template) => Object.entries(template || {}).filter(([, v]) => v && typeof v === 'object' && typeof v.uid === 'string');
@@ -393,6 +399,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
         return queue.map((item) => ({ kind: item.kind, key: encodeCombatRecord(item.kind, item.record, cellMax).key, reason: item.reason }));
     }
 
-    return { probe, read, ensure, append, flush, pending, isWriting: () => writing };
+    // serial：同一宿主实例的写入串行队列，供物品表写入方（inventory-tables）共用，避免两路模板导入交错。
+    return { probe, read, ensure, append, flush, pending, serial, isWriting: () => writing };
 }
 
