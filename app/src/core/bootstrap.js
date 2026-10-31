@@ -88,7 +88,7 @@ import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacem
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.37.59';
+const IGS_VERSION = '0.37.60';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -122,7 +122,14 @@ export function createImageJobReporter(globalObject, getBridge, log, getReaderNo
 const OPEN_FAILURE_TEXT = Object.freeze({
     'no-readable-text': '本楼未读取到可显示的正文，阅读器未打开。请检查正文标签设置。',
     'no-message': '当前聊天没有可读取的楼层。',
+    'no-chat': '当前无法启用阅读器，请进入对话后再生成。',
 });
+
+// 酒馆主界面（没进任何对话）：阅读器不开，设置器照常。
+function noChatOpen(globalObject) {
+    const ctx = getSillyTavernContext(globalObject);
+    return Boolean(ctx && typeof ctx.getCurrentChatId === 'function' && ctx.getCurrentChatId() == null);
+}
 
 function notifyOpenFailure(globalObject, reason) {
     const text = OPEN_FAILURE_TEXT[reason] || `阅读器未打开（${reason || '未知原因'}）。`;
@@ -533,11 +540,14 @@ export function bootstrapIGS(options = {}) {
     });
     publicApi = createPublicApi(app);
     // QR 按钮经 loader 直接调用此入口，失败时 loader 只写控制台，表现为点击无反应；失败原因在此提示。
-    const openLatestQuiet = publicApi.openLatestAvailable;
+    const openLatestAny = publicApi.openLatestAvailable;
+    const openLatestQuiet = (...args) => (noChatOpen(globalObject)
+        ? (notifyOpenFailure(globalObject, 'no-chat'), Promise.resolve({ ok: false, reason: 'no-chat', notified: true }))
+        : openLatestAny(...args));
     publicApi.openLatestAvailable = (...args) => Promise.resolve()
         .then(() => openLatestQuiet(...args))
         .then((result) => {
-            if (result && result.ok === false) notifyOpenFailure(globalObject, result.reason);
+            if (result && result.ok === false && !result.notified) notifyOpenFailure(globalObject, result.reason);
             return result;
         }, (error) => {
             notifyOpenFailure(globalObject, error && error.message || String(error));

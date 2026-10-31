@@ -149,7 +149,7 @@ export function createMagicWandEntry(options = {}) {
 
         const result = open(mode);
         Promise.resolve(result).then((resolved) => {
-            if (!resolved || resolved.ok === false) {
+            if (!resolved || (resolved.ok === false && !resolved.notified)) {
                 notify(`IGS 阅读器打开失败：${resolveErrorMessage(resolved)}`, 'error');
             }
         }).catch((error) => {

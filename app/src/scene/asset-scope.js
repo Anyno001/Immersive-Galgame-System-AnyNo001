@@ -14,6 +14,10 @@ export function snapshotAssetLibrary(source = {}) {
     return JSON.parse(JSON.stringify({ ...Object.fromEntries(fields.map(field => [field, plain(source[field])])), generated: plain(source.generated) }));
 }
 
+// 酒馆没打开角色卡时 name2 是占位名（删卡后 / 欢迎页是 SillyTavern System，临时对话是 Assistant），不算角色卡。
+const PLACEHOLDER_CARD_NAMES = new Set(['SillyTavern System', 'Assistant']);
+const PLACEHOLDER_CARD_KEYS = [...PLACEHOLDER_CARD_NAMES].map(name => `card:${name}`);
+
 export function resolveAssetScope(ctx) {
     if (!ctx || typeof ctx !== 'object') return { key: '', legacyKey: '', kind: 'global', label: '全局' };
     if (ctx.groupId != null && String(ctx.groupId) !== '') {
@@ -25,8 +29,9 @@ export function resolveAssetScope(ctx) {
     const characters = Array.isArray(ctx.characters) ? ctx.characters : [];
     const card = ctx.characterId != null ? characters[ctx.characterId] : null;
     const avatar = card && card.avatar ? String(card.avatar).trim() : '';
+    const fallback = typeof ctx.name2 === 'string' ? ctx.name2.trim() : '';
     const name = (card && card.name && String(card.name).trim())
-        || (typeof ctx.name2 === 'string' ? ctx.name2.trim() : '');
+        || (PLACEHOLDER_CARD_NAMES.has(fallback) ? '' : fallback);
     if (name) {
         return {
             key: `card:${name}`,
@@ -81,6 +86,29 @@ export function libraryHasContent(card) {
         if (Object.keys(plain(generated[field])).length) return true;
     }
     return false;
+}
+
+// 旧版在没打开角色卡时把素材记到了占位名下（card:SillyTavern System 等），进真实对话就看不到。
+// 这些条目本该是全局的：并回根上，同名时根上的优先。不改入参，没有占位卡时原样返回。
+function foldPlaceholderCards(sceneAssets) {
+    const cards = sceneAssets && plain(sceneAssets.cards);
+    const stray = cards ? PLACEHOLDER_CARD_KEYS.map(key => cards[key]).filter(card => card && typeof card === 'object' && !Array.isArray(card)) : [];
+    if (!stray.length) return sceneAssets;
+    const rest = { ...cards };
+    for (const key of PLACEHOLDER_CARD_KEYS) delete rest[key];
+    const out = { ...sceneAssets, cards: rest };
+    for (const field of LIBRARY_FIELDS) {
+        if (stray.some(card => Object.keys(plain(card[field])).length)) out[field] = stack([...stray.map(card => card[field]), sceneAssets[field]]);
+    }
+    const generated = plain(sceneAssets.generated);
+    const nextGenerated = { ...generated };
+    for (const group of ['scenes', 'characters', 'characterAliases', 'expressionNotes']) {
+        if (stray.some(card => Object.keys(plain(plain(card.generated)[group])).length)) {
+            nextGenerated[group] = stack([...stray.map(card => plain(card.generated)[group]), generated[group]]);
+        }
+    }
+    out.generated = nextGenerated;
+    return out;
 }
 
 // 早期按头像文件名分卡。头像名换一台酒馆就会变，读的时候挪到角色卡名字下。
@@ -155,7 +183,7 @@ function stack(sources) {
 // 读路径用的合并结果。不带 cards，避免下游再扫到别的角色卡。本卡盖在全局上，不借用别的卡。
 export function effectiveSceneAssets(sceneAssets, scopeKey) {
     if (!sceneAssets || typeof sceneAssets !== 'object') return sceneAssets || null;
-    const { cards, ...rest } = sceneAssets;
+    const { cards, ...rest } = foldPlaceholderCards(sceneAssets);
     const key = String(scopeKey || '');
     if (!key) return rest;
     const found = cards && typeof cards === 'object' ? cards[key] : null;
@@ -204,6 +232,8 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
 
 export function normalizeAssetCards(sceneAssets) {
     if (!sceneAssets || typeof sceneAssets !== 'object') return sceneAssets;
+    const folded = foldPlaceholderCards(sceneAssets);
+    if (folded !== sceneAssets) Object.assign(sceneAssets, folded);
     const cards = plain(sceneAssets.cards);
     const out = {};
     for (const [key, value] of Object.entries(cards)) {
@@ -321,7 +351,8 @@ export function assetOwnerKey(sceneAssets, cardKey, collections, name) {
     if (!label || !list.length) return key;
     const card = plain(plain(plain(sceneAssets).cards)[key]);
     if (list.some((field) => holds(card, field, label))) return key;
-    if (list.some((field) => holds(sceneAssets, field, label))) return '';
+    const root = foldPlaceholderCards(plain(sceneAssets));
+    if (list.some((field) => holds(root, field, label))) return '';
     return key;
 }
 
