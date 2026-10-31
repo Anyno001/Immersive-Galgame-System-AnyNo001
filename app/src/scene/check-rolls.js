@@ -18,6 +18,8 @@ const SKIP_TYPES = new Set(['impersonate', 'quiet']);
 const listOf = (chat) => (Array.isArray(chat) ? chat : []);
 const isAi = (m) => Boolean(m) && typeof m === 'object' && !(m.is_user ?? m.user);
 const signed = (n) => (n >= 0 ? `+${n}` : `${n}`);
+// 楼层当前 swipe 序号；缺省或非法按 0（与战斗日志锚点的 swipeOf 一致）。
+const swipeIdOf = (m) => (Number.isSafeInteger(m?.swipe_id) && m.swipe_id > 0 ? m.swipe_id : 0);
 const halfDigits = (s) => String(s ?? '').replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
 
 // 即将生成的楼号：重写类生成且末尾是 AI 楼时取该楼号，否则为下一楼；代写与静默生成返回 null。
@@ -37,6 +39,22 @@ export function floorCheckOrdinal(chat, messageId) {
     return list.slice(0, id + 1).filter(isAi).length;
 }
 
+// 即将生成的楼所在 swipe（合并计划 Q3）：swipe / 继续时宿主已把末尾 AI 楼切到目标 swipe，取其 swipe_id；其余（新楼、重新生成）为 0。
+export function upcomingCheckSwipe(chat, generationType = null) {
+    if (SKIP_TYPES.has(generationType)) return null;
+    const last = listOf(chat).at(-1);
+    if ((generationType === 'swipe' || generationType === 'continue') && isAi(last)) return swipeIdOf(last);
+    return 0;
+}
+
+// 已有楼层的 swipe 序号；该楼是用户楼或不存在时返回 null。
+export function floorCheckSwipe(chat, messageId) {
+    const list = listOf(chat);
+    const id = Number(messageId);
+    if (!Number.isSafeInteger(id) || id < 0 || id >= list.length || !isAi(list[id])) return null;
+    return swipeIdOf(list[id]);
+}
+
 // 指定楼号所在的 chat 下标；没有时返回 -1。
 export function floorIndexOfOrdinal(chat, ordinal) {
     let seen = 0;
@@ -47,11 +65,13 @@ export function floorIndexOfOrdinal(chat, ordinal) {
     return -1;
 }
 
-// 种子 = 聊天 ID + 楼号；没有聊天 ID 或楼号时不产出骰序（调用方据此不注入、不复算）。
-export function checkRollsFor(chatId, ordinal) {
+// 种子 = 聊天 ID + 楼号 + swipe 序号（合并计划 Q3：换 swipe 换一组骰，继续生成沿用本 swipe 这组）；
+// swipe 0 的种子与旧版一致，已有楼层的骰序不变。没有聊天 ID 或楼号时不产出骰序（调用方据此不注入、不复算）。
+export function checkRollsFor(chatId, ordinal, swipeId = 0) {
     const id = String(chatId ?? '').trim();
     if (!id || !Number.isSafeInteger(ordinal) || ordinal < 1) return null;
-    let state = hash32(`igs-check|${id}|${ordinal}`);
+    const swipe = Number.isSafeInteger(swipeId) && swipeId > 0 ? swipeId : 0;
+    let state = hash32(swipe ? `igs-check|${id}|${ordinal}|s${swipe}` : `igs-check|${id}|${ordinal}`);
     const rolls = [];
     for (let i = 0; i < CHECK_ROLL_COUNT; i += 1) {
         const r = randomInt(state, 20);

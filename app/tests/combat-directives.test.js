@@ -268,7 +268,7 @@ test('loot 标签：战报 ID、槽位与套别（缺省 main）；非法栏位�
 
 
 
-import { CHECK_ROLL_COUNT, checkRollsFor, floorCheckOrdinal, replayChecks, upcomingCheckOrdinal } from '../src/scene/check-rolls.js';
+import { CHECK_ROLL_COUNT, checkRollsFor, floorCheckOrdinal, floorCheckSwipe, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../src/scene/check-rolls.js';
 import { d20Outcome } from '../src/choices/dice-check.js';
 
 test('正文判定楼号：同楼 swipe / 重新生成同号，新楼 +1，代写与静默不出骰序', () => {
@@ -288,6 +288,16 @@ test('正文判定楼号：同楼 swipe / 重新生成同号，新楼 +1，代�
     assert.notDeepEqual(checkRollsFor('chat-1', 3), rolls);
     assert.notDeepEqual(checkRollsFor('chat-2', 2), rolls);
     assert.deepEqual([checkRollsFor('', 2), checkRollsFor('chat-1', 0)], [null, null]);
+});
+
+test('骰序种子含 swipe（合并计划 Q3）：swipe 0 与旧版相同；换 swipe 换一组，继续生成沿用本 swipe', () => {
+    const base = checkRollsFor('chat-1', 2);
+    assert.deepEqual(checkRollsFor('chat-1', 2, 0), base);
+    assert.notDeepEqual(checkRollsFor('chat-1', 2, 1), base);
+    assert.deepEqual(checkRollsFor('chat-1', 2, 1), checkRollsFor('chat-1', 2, 1));
+    const chat = [{ is_user: false, mes: '开场' }, { is_user: true, mes: '出发' }, { is_user: false, mes: '新 swipe', swipe_id: 2 }];
+    assert.deepEqual([upcomingCheckSwipe(chat, 'swipe'), upcomingCheckSwipe(chat, 'continue'), upcomingCheckSwipe(chat, 'normal'), upcomingCheckSwipe(chat, 'regenerate'), upcomingCheckSwipe(chat, 'quiet')], [2, 2, 0, 0, null]);
+    assert.deepEqual([floorCheckSwipe(chat, 2), floorCheckSwipe(chat, 0), floorCheckSwipe(chat, 1)], [2, 0, null]);
 });
 
 test('正文判定复算：按出现顺序取骰，非法标签占序号，第 11 次起不计，写法不符记诊断', () => {
