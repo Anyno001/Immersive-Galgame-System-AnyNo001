@@ -136,7 +136,7 @@ export function scanCheckTags(body) {
 // 复算：第 n 个判定取 rolls[n-1]（一对 d20，按标签的优劣势取值；旧调用给单颗时两颗视为相同）；第 11 次起不计。
 // readAbilities(角色名) 同步返回属性视图，读不到记 check-actor-unknown。技能标签用 resolveSkill(角色, 技能, 属性视图) → { ability, bonus }
 // 换算（所属属性加值 + 熟练加值）；未提供或换算不了时按非法标签记 check-tag-invalid / unknown-ability。
-// edgeOf(角色, 标签) 返回数字时为程序判定的优劣势（权威，覆盖正文第 4 栏，不一致记 check-edge-mismatch）；返回 null 时按第 4 栏。
+// edgeOf(角色, 标签) 返回数字时为程序给出的最终优劣势（数值系统：持续优劣势与第 4 栏叠加、相反抵消）；返回 null 时按第 4 栏。
 // shiftOf(角色, 标签) 返回额外加减值（数值系统的压力修正），缺省 0。
 // 标签之后到下一个判定标签之前的前 40 字里出现的结果词与复算成败不符时记 check-mismatch（大成功算成功、大失败算失败）。
 export function replayChecks({ body, rolls, readAbilities, resolveSkill, edgeOf, shiftOf } = {}) {
@@ -154,7 +154,6 @@ export function replayChecks({ body, rolls, readAbilities, resolveSkill, edgeOf,
         try { forced = typeof edgeOf === 'function' ? edgeOf(tag.actor, tag) : null; } catch (error) { forced = null; }
         if (forced !== null && forced !== undefined && Number.isFinite(Number(forced))) {
             edge = Math.sign(Number(forced));
-            if (edge !== tag.edge) diagnostics.push({ code: 'check-edge-mismatch', order: tag.order, actor: tag.actor, written: tag.edge, edge, index: tag.index });
         }
         const die = pickDie(pair, edge);
         let attr = null;
@@ -162,11 +161,12 @@ export function replayChecks({ body, rolls, readAbilities, resolveSkill, edgeOf,
         let ability = tag.ability;
         let bonus = null;
         if (tag.skill) {
+            if (!attr) { diagnostics.push({ code: 'check-actor-unknown', actor: tag.actor, order: tag.order, index: tag.index }); return; }
             let mapped = null;
             try { mapped = typeof resolveSkill === 'function' ? resolveSkill(tag.actor, tag.skill, attr) : null; } catch (error) { mapped = null; }
             if (!mapped || !abilityKeyOf(mapped.ability) || !Number.isFinite(Number(mapped.bonus))) { diagnostics.push({ code: 'check-tag-invalid', problem: 'unknown-ability', order: tag.order, raw: tag.raw, index: tag.index }); return; }
             ability = abilityKeyOf(mapped.ability);
-            bonus = attr ? Math.round(Number(mapped.bonus)) : null;
+            bonus = Math.round(Number(mapped.bonus));
         } else bonus = d20Bonus(attr, ability);
         if (bonus === null) { diagnostics.push({ code: 'check-actor-unknown', actor: tag.actor, order: tag.order, index: tag.index }); return; }
         let shift = 0;
@@ -214,13 +214,17 @@ export function resolveCheckRollsSegment(readerSettings, { rolls, actors = [], e
         const b = a && a.name ? checkActorBonuses(a.attr) : null;
         if (b) lines.push(`${a.name}：${ABILITY_KEYS.map((k) => `${ABILITY_LABELS[k]}${signed(b[k])}`).join(' ')}`);
     }
-    const edgeLines = (Array.isArray(edges) ? edges : []).filter((e) => e && e.name && Math.sign(Number(e.edge) || 0))
+    const edgeLines = (Array.isArray(edges) ? edges : []).filter((e) => e && e.name && (Math.sign(Number(e.edge) || 0) || Math.round(Number(e.shift) || 0)))
         .slice(0, CHECK_ACTOR_MAX)
-        .map((e) => `${e.name}${edgeText(Math.sign(e.edge))}${Array.isArray(e.reasons) && e.reasons.length ? `（${e.reasons.join('、')}）` : ''}`);
+        .map((e) => {
+            const shift = Math.round(Number(e.shift) || 0);
+            const parts = [edgeText(Math.sign(Number(e.edge) || 0)), shift ? `检定${signed(shift)}` : ''].filter(Boolean).join('、');
+            return `${e.name}${parts}${Array.isArray(e.reasons) && e.reasons.length ? `（${e.reasons.join('、')}）` : ''}`;
+        });
     const content = [
-        `【检定】本层出现需要掷骰的行动时，在行动处写 [igs-check:角色|属性|DC]，有优势或劣势时写 [igs-check:角色|属性|DC|优势] 或 [igs-check:角色|属性|DC|劣势]：属性只写 力量/敏捷/体质/智力/感知/魅力 之一；DC 写 ${D20_DC_RANGE[0]}–${D20_DC_RANGE[1]} 的整数（10 容易、15 中等、20 困难、25 极难）。本层骰序（每个判定一对 d20，按判定出现顺序依次取用，第 1 个判定用第 1 对）：${rolls.map(pairText).join('、')}。`,
-        `取值：没有优劣势用斜线前的骰值；优势取两颗中较大的，劣势取较小的；优势与劣势同时成立时互相抵消。结果 = 取用的骰值 + 该角色该属性加值，达到 DC 为成功；骰值 20 为大成功、1 为大失败。标签后紧接着按结果写剧情走向，成功与失败都推进剧情；每层最多 ${CHECK_ROLL_COUNT} 个判定，不必每层都写；正文不写骰值和算式。`,
-        edgeLines.length ? `当前优劣势（这些人物本层检定都按此写第 4 栏）：${edgeLines.join('；')}。` : '',
+        `【检定】本层出现需要掷骰的行动时，在行动处写 [igs-check:角色|属性或技能|DC]，本次行动另有优势或劣势时写 [igs-check:角色|属性或技能|DC|优势] 或 [igs-check:角色|属性或技能|DC|劣势]：属性只写 力量/敏捷/体质/智力/感知/魅力 之一，技能写其名称（按所属属性加值，学过的再加熟练）；DC 写 ${D20_DC_RANGE[0]}–${D20_DC_RANGE[1]} 的整数（10 容易、15 中等、20 困难、25 极难）。本层骰序（每个判定一对 d20，按判定出现顺序依次取用，第 1 个判定用第 1 对）：${rolls.map(pairText).join('、')}。`,
+        `取值：没有优劣势用斜线前的骰值；优势取两颗中较大的，劣势取较小的；优势与劣势同时成立时互相抵消。结果 = 取用的骰值 + 该角色该属性或技能的加值，达到 DC 为成功；骰值 20 为大成功、1 为大失败。标签后紧接着按结果写剧情走向，成功与失败都推进剧情；每层最多 ${CHECK_ROLL_COUNT} 个判定，不必每层都写；正文不写骰值和算式。`,
+        edgeLines.length ? `持续的优劣势（前端自动计入这些人物本层的每次检定，与第 4 栏叠加，相反时抵消；第 4 栏不必重复写）：${edgeLines.join('；')}。` : '',
         lines.length ? `在场人物加值（已含熟练）：\n${lines.join('\n')}\n未列出的人物由前端按其强弱估算。` : '',
         Array.isArray(corrections) && corrections.length ? `更正：上一层${corrections.join('；')}；以前端结果为准，本层剧情按实际结果衔接。` : '',
     ].filter(Boolean).join('\n');
