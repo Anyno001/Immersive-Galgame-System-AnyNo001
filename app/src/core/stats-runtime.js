@@ -9,7 +9,7 @@ import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { settleFloorText } from '../scene/stats/stat-settle.js';
 import { createChatStatsStore, emptyCatalog, sanitizeCatalog } from '../scene/stats/stat-persist.js';
-import { chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, statTagHash, verifyStatImport } from '../scene/stats/stat-log.js';
+import { BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, statTagHash, verifyStatImport } from '../scene/stats/stat-log.js';
 import { normalizeStatsSettings } from '../scene/stats/stat-settings.js';
 import { createStatsState } from '../scene/stats/stat-state.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
@@ -111,6 +111,9 @@ export function createStatsRuntime({
     const store = createChatStatsStore(getContext);
     let ledger = null;
     let chatEnabled = false;
+    // 建档方式（P8c）：按聊天保存在数值日志的聊天级键；null 为未选（按自动处理）。buildChoices：手动建档下逐角色的「自动」或「跳过」。
+    let buildMode = null;
+    let buildChoices = {};
     let learned = {};
     let catalog = emptyCatalog();
     let blocked = '';
@@ -186,6 +189,8 @@ export function createStatsRuntime({
     function adopt(merged) {
         ledger = merged.ledger;
         chatEnabled = merged.chatEnabled;
+        buildMode = merged.buildMode ?? null;
+        buildChoices = merged.buildChoices || {};
         catalog = merged.catalog;
         learned = merged.learned;
         baseline = merged.baseline;
@@ -194,7 +199,7 @@ export function createStatsRuntime({
     // 读档（合并计划 P4）：真值在 IGS数值·日志。表里有 init 即按日志归并；没有 init 而聊天元数据留有旧 igs_stats 时一次性导入（异步，期间不可用）。
     // 读表失败、数据库未载入记为 unready（不当作没有存档）；宿主不支持、存档版本更新、导入失败记为 blocked，不写任何东西。
     function load() {
-        ledger = null; chatEnabled = false; blocked = ''; unready = ''; learned = {}; catalog = emptyCatalog(); declined = false; baseline = new Map();
+        ledger = null; chatEnabled = false; buildMode = null; buildChoices = {}; blocked = ''; unready = ''; learned = {}; catalog = emptyCatalog(); declined = false; baseline = new Map();
         pendingOption = null; manualCheck = null;
         notices.clear();
         const meta = store.read();
@@ -274,7 +279,7 @@ export function createStatsRuntime({
         if (!ledger || blocked || unready) return null;
         const db = dbOf();
         if (!db.ok) { failWrite({ reason: db.reason }); return null; }
-        const next = chatEntries({ chatEnabled, catalog, learned });
+        const next = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices });
         writeSeq += 1;
         const records = [...extra, ...diffChatRecords(baseline, next, { tag: `${Date.now().toString(36)}${writeSeq}`, createdAt: Date.now() })];
         baseline = next;
@@ -716,7 +721,8 @@ export function createStatsRuntime({
 
     // 启用本聊天：首次启用写 init（建卡初始状态）与聊天开关；数值日志表缺失时先补建再写（返回 Promise）。
     let enabling = false;
-    function enableForChat({ initial } = {}) {
+    // buildMode（P8c）：开局询问时一并选定的建档方式；本聊天已选过时不覆盖（之后改用 setBuildMode）。
+    function enableForChat({ initial, buildMode: mode } = {}) {
         reloadCold();
         if (blocked) return { ok: false, reason: blocked };
         if (unready) return { ok: false, reason: unready };
@@ -733,13 +739,14 @@ export function createStatsRuntime({
                 return Promise.resolve().then(() => db.ensure()).then((made) => {
                     if (!made || made.ok !== true) { diag('stats-log-create-failed', { reason: made && made.reason }); return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' }; }
                     load();
-                    return enableForChat({ initial });
+                    return enableForChat({ initial, buildMode: mode });
                 }, () => ({ ok: false, reason: 'stats-log-create-failed' })).finally(() => { enabling = false; });
             }
             ledger = createStatsLedger(id, initial || createStatsState());
             extra.push(initRecord(ledger.initial, { createdAt: Date.now() }));
         }
         chatEnabled = true;
+        if (!buildMode && normalizeBuildMode(mode)) buildMode = mode;
         if (declined) { store.setDeclined(false); declined = false; }
         persist(extra);
         onChange(currentStatsState(ledger), null);
@@ -1067,6 +1074,35 @@ export function createStatsRuntime({
         getCatalog: () => catalog,
         getDiagnostics: () => diagnostics.slice(),
         isChatEnabled: () => chatEnabled,
+        // 建档方式（P8c）：按聊天保存；改动只影响之后新出现的角色，已建档的不变（init 首写为准）。
+        getBuildMode: () => buildMode,
+        getBuildChoices: () => ({ ...buildChoices }),
+        setBuildMode(mode) {
+            reloadCold();
+            if (blocked) return { ok: false, reason: blocked };
+            if (unready) return { ok: false, reason: unready };
+            const m = normalizeBuildMode(mode);
+            if (!m) return { ok: false, reason: 'stats-build-mode-invalid' };
+            if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
+            buildMode = m;
+            persist();
+            return { ok: true };
+        },
+        // 手动建档下的逐角色选择：auto 改用自动生成，skip 本聊天不再询问；null 清除。
+        setBuildChoice(name, choice) {
+            reloadCold();
+            if (blocked) return { ok: false, reason: blocked };
+            if (unready) return { ok: false, reason: unready };
+            const clean = String(name || '').trim();
+            if (!clean || clean.length > 40) return { ok: false, reason: 'stats-build-choice-invalid' };
+            if (choice !== null && !BUILD_CHOICES.includes(choice)) return { ok: false, reason: 'stats-build-choice-invalid' };
+            if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
+            const next = { ...buildChoices };
+            if (choice === null) delete next[clean]; else next[clean] = choice;
+            buildChoices = next;
+            persist();
+            return { ok: true };
+        },
         pushNow: push,
         resolveDice,
         checkPromptInput,

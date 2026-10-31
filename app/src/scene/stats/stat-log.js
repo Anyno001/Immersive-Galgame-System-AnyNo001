@@ -3,7 +3,7 @@
 // 载荷为相对基准记录的状态差量 ops 与检定 meta）；聊天级 chat / skill-def / skill-merge / sheet / base / queue / notified / learned（不锚定，同键取最后一条）。
 // 归并：每楼取锚点仍有效的最后一条 floor，按基准链还原状态；删楼、换 swipe、编辑改了标签后该条不计，状态回到更早的有效楼层。
 import { hash32 } from '../../combat/random.js';
-import { abilityKeyOf } from '../../combat/abilities.js';
+import { BUILD_CHOICES, BUILD_MODES, abilityKeyOf } from '../../combat/abilities.js';
 import { STATS_LOG_MAX, activeEntryBefore, createStatsLedger, currentStatsState, ledgerKey } from './stat-ledger.js';
 import { deserializeLedger, sanitizeCatalog, sanitizeLearned } from './stat-persist.js';
 import { LEGACY_ATTRIBUTE_MAP } from './stat-registry.js';
@@ -87,10 +87,22 @@ export function initRecord(state, { legacy = null, createdAt = 0 } = {}) {
     return { id: `si|${short(JSON.stringify(payload))}`, type: 'init', character: STAT_LOG_CHARACTER, anchor: null, createdAt, change: legacy ? '旧存档导入' : '建卡', payload };
 }
 
-// 聊天级数据展开成键值：chat:enabled、skill:技能、merge:旧名、sheet:角色、base:技能、queue:skills|people、notified:all、learned:动作词。
-export function chatEntries({ chatEnabled = false, catalog = null, learned = {} } = {}) {
+// 建档方式（P8c）：自动生成 / 手动建档 / 相对数值；未选时为 null（按自动处理，界面询问一次）。
+// 建档选择：手动建档下逐角色的「改用自动生成」或「跳过」（跳过后本聊天不再询问该角色）。
+export { BUILD_CHOICES, BUILD_MODES };
+export const normalizeBuildMode = (v) => (BUILD_MODES.includes(v) ? v : null);
+export function normalizeBuildChoices(raw) {
+    if (!isObj(raw)) return {};
+    return Object.fromEntries(Object.entries(raw).filter(([n, v]) => n && n.length <= 40 && BUILD_CHOICES.includes(v)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+// 聊天级数据展开成键值：chat:enabled、chat:buildMode、chat:buildChoices、skill:技能、merge:旧名、sheet:角色、base:技能、queue:skills|people、notified:all、learned:动作词。
+export function chatEntries({ chatEnabled = false, catalog = null, learned = {}, buildMode = null, buildChoices = {} } = {}) {
     const cat = sanitizeCatalog(catalog);
     const out = new Map([['chat:enabled', Boolean(chatEnabled)]]);
+    if (normalizeBuildMode(buildMode)) out.set('chat:buildMode', buildMode);
+    const choices = normalizeBuildChoices(buildChoices);
+    if (Object.keys(choices).length) out.set('chat:buildChoices', choices);
     for (const s of cat.story) out.set(`skill:${s.name}`, s);
     for (const [from, to] of Object.entries(cat.merged)) out.set(`merge:${from}`, to);
     for (const [name, sheet] of Object.entries(cat.sheets)) out.set(`sheet:${name}`, sheet);
@@ -122,11 +134,15 @@ export function restoreChat(map) {
     const raw = { story: [], merged: {}, sheets: {}, protagonistBase: {}, queue: { skills: [], people: [] }, notified: [] };
     const learned = {};
     let chatEnabled = false;
+    let buildMode = null;
+    let buildChoices = {};
     for (const [key, value] of map) {
         const at = key.indexOf(':');
         const kind = key.slice(0, at);
         const name = key.slice(at + 1);
         if (kind === 'chat' && name === 'enabled') chatEnabled = value === true;
+        else if (kind === 'chat' && name === 'buildMode') buildMode = normalizeBuildMode(value);
+        else if (kind === 'chat' && name === 'buildChoices') buildChoices = normalizeBuildChoices(value);
         else if (kind === 'skill') raw.story.push(value);
         else if (kind === 'merge') raw.merged[name] = value;
         else if (kind === 'sheet') raw.sheets[name] = value;
@@ -135,7 +151,7 @@ export function restoreChat(map) {
         else if (kind === 'notified') raw.notified = value;
         else if (kind === 'learned') learned[name] = value;
     }
-    return { chatEnabled, catalog: sanitizeCatalog(raw), learned: sanitizeLearned(learned).learned };
+    return { chatEnabled, buildMode, buildChoices, catalog: sanitizeCatalog(raw), learned: sanitizeLearned(learned).learned };
 }
 
 // 归并：records 为表里的数值记录（表内顺序），chat 为当前聊天楼层（判锚点与当前 swipe）。

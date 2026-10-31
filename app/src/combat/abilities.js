@@ -87,6 +87,31 @@ export function baseScores(prefs, name) {
     return Object.fromEntries(ABILITY_KEYS.map((k) => [k, scores[k]]));
 }
 
+// 手动建档（P8c）：六项同一底分 8，另有 24 点自由分配，单项 3–18（调低可退回点数），总分不超过 72（与标准数组持平）。
+export const MANUAL_BUILD = Object.freeze({ base: 8, pool: 24, min: 3, max: 18 });
+export const MANUAL_TOTAL = MANUAL_BUILD.base * ABILITY_KEYS.length + MANUAL_BUILD.pool;
+
+// 手动分值：恰好六维键、整数、单项在 3–18、总分不超过 72；不合法返回 null。
+export function normalizeManualScores(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (Object.keys(raw).some((k) => !ABILITY_KEYS.includes(k))) return null;
+    const out = {};
+    for (const k of ABILITY_KEYS) {
+        const n = raw[k];
+        if (!Number.isInteger(n) || n < MANUAL_BUILD.min || n > MANUAL_BUILD.max) return null;
+        out[k] = n;
+    }
+    return Object.values(out).reduce((sum, n) => sum + n, 0) > MANUAL_TOTAL ? null : out;
+}
+
+// 手动分值推导擅长项（P8c 1A）：最高两项为主擅长、次擅长，其余里最低一项为短板；同分按六维键序（力、敏、体、智、感、魅）。
+export function prefsFromScores(scores) {
+    const at = (k) => ABILITY_KEYS.indexOf(k);
+    const [major, minor] = [...ABILITY_KEYS].sort((a, b) => scores[b] - scores[a] || at(a) - at(b));
+    const weak = ABILITY_KEYS.filter((k) => k !== major && k !== minor).sort((a, b) => scores[a] - scores[b] || at(a) - at(b))[0];
+    return { major, minor, weak };
+}
+
 // 相对档偏移：区间内按「角色名 + 档」散列取定值。
 export function relOffset(name, tier) {
     const rule = REL_TIERS[tier] || REL_TIERS[DEFAULT_REL_TIER];
@@ -118,9 +143,11 @@ export function autoAllocate(scores, prefs, count, cap) {
 
 // 当前六维：基础 + 档位修正（仅非主角）+ 属性提升 + 有效记录（[{ ability, amount }]）；限 1..上限。
 // 主角的属性提升来自 alloc 记录（已在 adjustments 里），非主角自动分配。
-export function deriveAbilities({ prefs, name, level = 1, protagonist = false, tier = DEFAULT_REL_TIER, adjustments = [] } = {}) {
+// base：手动建档的六项分值（P8c），给出时代替标准数组；档位修正、属性提升与调整照常叠加。
+export function deriveAbilities({ prefs, name, level = 1, protagonist = false, tier = DEFAULT_REL_TIER, adjustments = [], base = null } = {}) {
     const cap = abilityCap(protagonist);
-    let scores = baseScores(prefs, name);
+    const manual = base ? normalizeManualScores(base) : null;
+    let scores = manual ? { ...manual } : baseScores(prefs, name);
     if (!protagonist) {
         const mod = (REL_TIERS[tier] || REL_TIERS[DEFAULT_REL_TIER]).mod;
         scores = Object.fromEntries(ABILITY_KEYS.map((k) => [k, clamp(scores[k] + mod, ABILITY_MIN, cap)]));
@@ -144,7 +171,8 @@ export const isAsiLevel = (level, protagonist = true) => (protagonist ? ASI_LEVE
 
 // 初始化字段（立绘 DNA 补档与开战档案请求共用）：职业名可空、≤12 字；定位写原型键或其中文名；
 // 主擅长 / 次擅长 / 短板写六维键或中文名且互不相同。返回 { ok, value } 或 { ok:false, field, problem }。
-export function parseCombatInit(raw) {
+// allowScores：只有手动建档写口（P8c）传 true 时才收六项分值；副 LLM 的初始化忽略 scores，与旧版一致。
+export function parseCombatInit(raw, { allowScores = false } = {}) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, field: '', problem: 'expected-object' };
     for (const field of ['className', 'role', 'major', 'minor', 'weak']) {
         if (raw[field] !== undefined && typeof raw[field] !== 'string') return { ok: false, field, problem: 'expected-string' };
@@ -155,6 +183,12 @@ export function parseCombatInit(raw) {
     const archetypes = COMBAT_RULES.archetypes;
     const role = Object.hasOwn(archetypes, roleText) ? roleText : Object.keys(archetypes).find((k) => archetypes[k].label === roleText) || null;
     if (!role) return { ok: false, field: 'role', problem: 'unknown-role' };
+    // 手动建档（P8c）：带 scores 时擅长项由分值推导，传入的倾向不计；不带时返回形状与旧版一致。
+    if (allowScores && raw.scores !== undefined) {
+        const scores = normalizeManualScores(raw.scores);
+        if (!scores) return { ok: false, field: 'scores', problem: 'invalid-scores' };
+        return { ok: true, value: { className, role, ...prefsFromScores(scores), scores } };
+    }
     const prefs = {};
     for (const field of ['major', 'minor', 'weak']) {
         const key = abilityKeyOf(raw[field]);
@@ -163,5 +197,15 @@ export function parseCombatInit(raw) {
     }
     if (new Set([prefs.major, prefs.minor, prefs.weak]).size !== 3) return { ok: false, field: 'prefs', problem: 'prefs-duplicate' };
     return { ok: true, value: { className, role, ...prefs } };
+}
+// 建档方式（P8c）：auto 自动生成 / manual 手动建档 / relative 相对数值；choice 为手动建档下逐角色的 auto（改用自动生成）或 skip（跳过）。
+export const BUILD_MODES = Object.freeze(['auto', 'manual', 'relative']);
+export const BUILD_CHOICES = Object.freeze(['auto', 'skip']);
+
+// 尚未建档的角色是否由副 LLM 自动给初始化：相对数值只给主角（主角没有相对档）；手动建档只给敌人与选了「自动」的角色；未选或自动生成时都给。
+export function wantsAutoInit({ mode = null, choice = null, protagonist = false, enemy = false } = {}) {
+    if (mode === 'relative') return Boolean(protagonist);
+    if (mode === 'manual') return Boolean(enemy) || choice === 'auto';
+    return true;
 }
 

@@ -1,6 +1,6 @@
 import { createCombatTables } from '../data/shujuku/combat-tables.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
-import { abilitiesForName, createCombatLedger, vitalsForName } from '../combat/ledger.js';
+import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
 import { withFloorNote } from '../combat/floor-note.js';
@@ -12,7 +12,7 @@ import { COMBAT_RULES } from '../combat/rules.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../combat/points.js';
 import { TRAIT_BASE_SLOTS, keptInnateKinds, nextTraitSlot, planTrait, traitFits, traitSeed } from '../combat/traits.js';
 import { planTraitShape } from '../combat/trait-pool.js';
-import { ABILITY_KEYS, parseCombatInit } from '../combat/abilities.js';
+import { ABILITY_KEYS, parseCombatInit, wantsAutoInit } from '../combat/abilities.js';
 import { ensureCombatReportRegex } from '../host/combat-report-regex.js';
 import { normalizeCombatExpansionSettings } from '../visual/igs-ui/combat-settings.js';
 import { normalizeAutoIllustrationSettings } from '../generated-images/illustration/auto-illustration-settings.js';
@@ -38,6 +38,8 @@ export function createCombatServices(deps = {}) {
     const readStoryContext = typeof deps.readStoryContext === 'function' ? deps.readStoryContext : undefined;
     // 生成请求的自动重试间隔（毫秒）；未注入时用 COMBAT_GENERATION_RETRY_DELAYS。
     const retryDelays = Array.isArray(deps.retryDelays) ? deps.retryDelays : undefined;
+    // 建档方式（P8c）：() → { mode, choices } | null，由数值运行时按聊天保存；未注入或读取出错时按自动处理。
+    const buildModeOf = () => { try { return typeof deps.buildMode === 'function' ? deps.buildMode() || null : null; } catch (error) { return null; } };
     let tables = null;
     let ledger = null;
     let session = null;
@@ -119,6 +121,7 @@ export function createCombatServices(deps = {}) {
                 ledger, tables: tables.impl, request, send, storage, chat, getChatId: chatId, userName,
                 chatRecord: deps.chatRecord,
                 llm, sourceFilter, readLore, readStoryContext, now: () => Date.now(),
+                buildMode: buildModeOf,
                 difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail,
                 retryDelays, awaitProtagonist: () => (protagonistRun && protagonistRun.key === protagonistKey() ? protagonistRun.promise : null),
             });
@@ -270,11 +273,34 @@ export function createCombatServices(deps = {}) {
                 const current = () => settings().enabled && chatId() === id && globalObject.AutoCardUpdaterAPI === api
                     && !signal?.aborted && (!shouldStart || shouldStart() === true);
                 if (!current()) return { ok: false, reason: 'request-stale' };
+                // 建档方式（P8c）：手动建档下未选「自动」的角色、相对数值下的非主角不写 init（之后手动建档或按定位推导）。
+                const clean = String(name || '').trim();
+                const build = buildModeOf();
+                const hero = PROTAGONIST_ALIASES.includes(clean) || (Boolean(userName()) && clean === userName());
+                if (!wantsAutoInit({ mode: build?.mode ?? null, choice: build?.choices?.[clean] ?? null, protagonist: hero })) return { ok: true, unchanged: true, skipped: 'build-mode' };
                 const result = await getLedger().writeInit(name, raw, { signal, shouldStart: current });
                 if (result.ok && current()) await refreshGrowth();
                 return result;
             },
         };
+    }
+
+    // 手动建档写口（P8c）：{ className, role, scores } 写属性表 init（擅长项由分值推导，首写为准）；只开数值系统时同样可用（不要求战斗开关）。
+    // 写成后刷新六维缓存；换聊天或取消时返回 request-stale，不写。
+    async function writeManualInit(name, raw, { signal } = {}) {
+        const id = chatId();
+        if (!id) return { ok: false, reason: 'combat-generate-unavailable' };
+        ensureBase();
+        const impl = ledger;
+        const current = () => chatId() === id && ledger === impl && !signal?.aborted;
+        let result;
+        try { result = await impl.writeInit(name, raw, { signal, shouldStart: current, manual: true }); }
+        catch (error) { result = { ok: false, reason: 'combat-init-write-failed' }; }
+        if (result?.ok === true && current()) {
+            await refreshLife();
+            if (settings().enabled) await refreshGrowth();
+        }
+        return result;
     }
 
     // 数值日志表读写口（合并计划 P4）：与战斗表共用同一个受控写入方（同一条 FIFO 队列、逐条读回核对），战斗扩展关闭时同样可用。
@@ -919,5 +945,5 @@ export function createCombatServices(deps = {}) {
     }
 
     return { getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, useInventoryItem, setGear, heroInventory, setHeroGear };
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput, getDiagnostics: () => diagnostics.map((d) => ({ ...d })), captureCombatInit, writeManualInit, useInventoryItem, setGear, heroInventory, setHeroGear };
 }

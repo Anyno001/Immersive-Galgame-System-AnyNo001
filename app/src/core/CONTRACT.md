@@ -6,6 +6,8 @@
 
 - 主角卡组预生成与生成重试：返回值另有 `prepareProtagonist({ manual }) / getProtagonist / onProtagonistUpdated`。bootstrap 在启动、设置变更、换聊天时调用 `prepareProtagonist()`，缺表补建成功（读表自动补建或 `ensureTables`）后也在后台调用一次。只在战斗表已存在、当前主角（按名字或称呼匹配卡组角色）没有卡组档案时以 `role:'protagonist'` 生成一次；不代为建表，缺表或读表失败记 `idle`，不当作没有档案。状态按「聊天ID + 主角名」记录：`generating / retrying（attempt）/ ready / failed / idle`；换聊天或关闭扩展中止在途请求。已发出请求后失败（重试或修正耗尽、写入未核实）不再自动重发，只有 `manual:true` 重查并重发；请求发出前失败（如 `combat-llm-config-incomplete`）下次触发时自动重查。开战准备进行中不另起请求；会话经注入的 `awaitProtagonist` 先等在途预生成结束。同一档案已有未核实的写入留在队列时先补写（失败返回 `combat-profile-write-pending`），不重新生成。`generateDeckProfile / retryGrowth / 预生成` 都经 `combat/generation-retry.js` 的 `generateWithRetry`；请求本身失败返回 `combat-llm-request-failed`。`deps.retryDelays` 可覆盖重试间隔（测试用）。
 
+- 建档方式（P8c）：`createCombatServices` 可注入 `buildMode: () → { mode, choices } | null`（bootstrap 按需读 `statsRuntime.getBuildMode / getBuildChoices`，未启用数值系统时为 null，按自动处理），传给会话并用于 `captureCombatInit().write`：按 `wantsAutoInit` 不该自动建档的角色返回 `{ ok: true, unchanged: true, skipped: 'build-mode' }`，不写 init。新增 `writeManualInit(name, { className, role, scores }, { signal })`：不要求战斗开关，经 `ledger.writeInit(..., { manual: true })` 写属性表 init，换聊天或取消返回 `request-stale`；成功后刷新六维缓存（`refreshLife`），战斗开启时再刷新成长缓存。`stats-runtime.js` 新增 `getBuildMode / getBuildChoices / setBuildMode(mode) / setBuildChoice(name, 'auto' | 'skip' | null)` 与 `enableForChat({ initial, buildMode })`：存档不可读或本聊天未建卡时拒绝（`stats-chat-not-enabled`），非法值拒绝；`enableForChat` 只在本聊天尚未选过时采用传入的建档方式。
+
 
 - 0.36.90：人物参考补全传播 DNA 失败，固定角色资料保存显式续存；不在准备失败后假装就绪继续出图。恢复状态仅由视觉层呈现，core 不操作 DOM。
 

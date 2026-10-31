@@ -416,6 +416,9 @@ export function bootstrapIGS(options = {}) {
         // 背包使用与换装先写最新 AI 楼正文说明（P7c）：读写口带 stale 校验，写表失败时据此撤回。
         readFloor: (messageId) => illustrationMessageHost.readFloor(messageId),
         writeFloor: (messageId, text, expected, opts) => illustrationMessageHost.writeFloor(messageId, text, expected, opts),
+        // 建档方式（P8c）：数值运行时在其后创建，这里按需读取；本聊天未启用数值系统时为 null（按自动处理）。
+        buildMode: () => (app.statsRuntime && typeof app.statsRuntime.getBuildMode === 'function'
+            ? { mode: app.statsRuntime.getBuildMode(), choices: app.statsRuntime.getBuildChoices() } : null),
     });
     // 设置变更（含扩展开关）与启动时：注册战报折叠正则，补扫当前聊天的成长标签、刷新成长演出缓存，并在后台预生成主角卡组。
     const prepareCombatProtagonist = () => { if (typeof combatServices.prepareProtagonist === 'function') combatServices.prepareProtagonist(); };

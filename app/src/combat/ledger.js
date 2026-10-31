@@ -768,7 +768,8 @@ function attributeView({ key, name, protagonist, exp = 0, archetype, className =
     const allocations = f.alloc.flatMap(r => r.payload.picks || [r.payload]);
     // 装备加成与其他调整同样受属性上限约束（abilities.js）。
     const adjustments = [...pointsOf(f.story), ...pointsOf(f.reward), ...allocations, ...gearBonuses];
-    const derived = deriveAbilities({ prefs, name, level, protagonist: Boolean(protagonist), tier: tier ?? DEFAULT_REL_TIER, adjustments });
+    // 手动建档（P8c）的 init 带六项分值时以其为底分；旧 init 只有倾向，按标准数组。
+    const derived = deriveAbilities({ prefs, name, level, protagonist: Boolean(protagonist), tier: tier ?? DEFAULT_REL_TIER, adjustments, ...(init?.scores ? { base: init.scores } : {}) });
     const spent = allocations.reduce((sum, pick) => sum + pick.amount, 0);
     const balance = protagonist ? Math.max(0, asiCountAt(level, true) * ASI_POINTS + freeOf(f.story) + freeOf(f.reward) - spent) : 0;
     return { className: init?.className || className, role, prefs, initialized: Boolean(init), protagonist: Boolean(protagonist), tier, relTagged: Boolean(rel), level, ...derived, balance, table: ctx.table };
@@ -1505,11 +1506,13 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return run;
     }
 
-    async function writeInitOnce(name, raw, { signal, shouldStart } = {}) {
+    // manual（P8c 手动建档）：必须带六项分值，擅长项由分值推导；其余调用不收 scores，与旧版一致。首写为准的规则相同。
+    async function writeInitOnce(name, raw, { signal, shouldStart, manual = false } = {}) {
         const current = () => !signal?.aborted && (!shouldStart || shouldStart() === true);
         const stale = () => ({ ok: false, reason: 'request-stale' });
         if (!current()) return stale();
-        const parsed = parseCombatInit(raw);
+        if (manual && raw?.scores === undefined) return { ok: false, reason: 'combat-init-invalid', field: 'scores', problem: 'required' };
+        const parsed = parseCombatInit(raw, { allowScores: manual });
         if (!parsed.ok) return { ok: false, reason: 'combat-init-invalid', field: parsed.field, problem: parsed.problem };
         const clean = String(name || '').trim();
         if (!clean) return { ok: false, reason: 'combat-init-invalid', field: 'name', problem: 'required' };

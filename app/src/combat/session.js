@@ -5,7 +5,7 @@ import { generateWithRetry } from './generation-retry.js';
 import { attachLoot, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
 import { CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName } from './ledger.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
-import { ABILITY_KEYS, ABILITY_LABELS, REL_TIERS } from './abilities.js';
+import { ABILITY_KEYS, ABILITY_LABELS, REL_TIERS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
 import { ledgerEntryId, profileIdFor } from './schema.js';
 import { defaultHeroSkill, itemEffectsForBattle, ultimateSkill } from './card-templates.js';
@@ -668,7 +668,11 @@ export function createCombatSession(deps = {}) {
         const names = heroOnly ? [userName] : [userName, ...found.start.allies, ...found.start.enemies.map(e => e.name)];
         if (state.attributes?.table === 'ok') {
             const canonical = [...new Set(names.map(name => PROTAGONIST_ALIASES.includes(name) ? userName : findCharacter(state, name)?.name || name))];
-            entities = withCombatInitialization(entities, canonical.filter(name => !abilitiesForName(state, name, userName)?.initialized));
+            // 建档方式（P8c，deps.buildMode → { mode, choices } | null）：手动建档只给敌人与选了「自动」的角色补初始化，相对数值只给主角；未选时照旧全部补。
+            const build = valueOf(deps.buildMode) || null;
+            const enemyNames = new Set(found.start.enemies.map(e => e.name));
+            const autoInit = (name) => wantsAutoInit({ mode: build?.mode ?? null, choice: build?.choices?.[name] ?? null, protagonist: name === userName, enemy: enemyNames.has(name) });
+            entities = withCombatInitialization(entities, canonical.filter(name => !abilitiesForName(state, name, userName)?.initialized && autoInit(name)));
         }
         // 补技能：已有档案的技能角色队友与副 LLM 生成的敌人技能不足时同批请求；已准备过的场次与队友、敌人生成一样不再请求。
         const filled = new Set();

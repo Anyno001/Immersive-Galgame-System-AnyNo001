@@ -1,7 +1,7 @@
 import { ALLY_SKILL_CAP_MAX, BASIC_CARDS, BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, SKILL_COUNT_MAX, TOKEN_KEYS, cardCopyLimit, evaluateCardBudget } from './rules.js';
 import { hashString } from './random.js';
 import { ENEMY_ART_KEYS } from './enemy-art.js';
-import { ABILITY_KEYS, REL_TIERS } from './abilities.js';
+import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 
 export const SCHEMA_VERSION = 1;
@@ -871,7 +871,7 @@ function attributePayloadAt(type, raw, path, ctx) {
     const p = (key) => join(path, key);
     switch (type) {
         case 'init': {
-            checkKeys(raw, ['className', 'role', 'major', 'minor', 'weak'], path, ctx);
+            checkKeys(raw, ['className', 'role', 'major', 'minor', 'weak', 'scores'], path, ctx);
             const out = {
                 className: text(raw.className, p('className'), ctx, 12, ''),
                 role: oneOf(raw.role, p('role'), ctx, Object.keys(COMBAT_RULES.archetypes)),
@@ -880,6 +880,16 @@ function attributePayloadAt(type, raw, path, ctx) {
                 weak: oneOf(raw.weak, p('weak'), ctx, ABILITY_KEYS),
             };
             if (new Set([out.major, out.minor, out.weak]).size !== 3) fail(ctx, path, 'prefs-duplicate');
+            // 手动建档（P8c）：可选六项分值，须合手动刻度，且倾向与分值推导一致；旧 init 不带 scores，照旧读取。
+            if (Object.hasOwn(raw, 'scores')) {
+                const scores = normalizeManualScores(raw.scores);
+                if (!scores) fail(ctx, p('scores'), 'invalid-scores');
+                else {
+                    const derived = prefsFromScores(scores);
+                    if (derived.major !== out.major || derived.minor !== out.minor || derived.weak !== out.weak) fail(ctx, p('scores'), 'prefs-mismatch');
+                    out.scores = scores;
+                }
+            }
             return out;
         }
         case 'rel':
