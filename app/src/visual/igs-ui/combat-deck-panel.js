@@ -46,6 +46,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
     let reveal = null;
     // 卡面图订阅（打开时订阅、关闭时退订）：生成进度、结果与本地图片补载后重绘。
     let offCardArt = null;
+    // 物品图订阅（P7d）：装备栏与道具的物品图补载或生成完成后重绘。
+    let offItemArt = null;
     // 主角卡组预生成状态订阅：生成中 / 重试中 / 失败在面板内显示并可手动重试；就绪后重读账本。
     let offProtagonist = null;
 
@@ -75,6 +77,18 @@ export function createCombatDeckPanelController(doc, options = {}) {
             error: String(s?.error || ''), canGenerate: typeof options.generateCardArt === 'function' };
     };
     const withCardArt = (view, detail) => (detail?.owned ? { ...detail, owned: detail.owned.map((c) => ({ ...c, art: cardArtOf(view, c.cardId) })) } : detail);
+    // 装备栏、背包装备与道具：按物品名读本聊天物品图本地缓存（与背包页同键），只在取到图时追加 imageUrl。
+    const itemArtOf = (name) => {
+        let url = '';
+        try { url = typeof options.resolveItemImage === 'function' ? options.resolveItemImage(name) : ''; } catch (error) { url = ''; }
+        return safePortraitUrl(url);
+    };
+    const withItemArt = (detail) => {
+        const g = detail?.gear;
+        if (!g) return detail;
+        const art = (x) => { const imageUrl = itemArtOf(x.name); return imageUrl ? { ...x, imageUrl } : x; };
+        return { ...detail, gear: { ...g, slots: g.slots.map((s) => (s.item ? { ...s, item: art(s.item) } : s)), bag: g.bag.map(art), items: g.items.map(art) } };
+    };
 
     function snapshot() {
         const ss = sessionState();
@@ -87,7 +101,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             reduced: still,
             readonly,
             roster: deckRosterView(state), classes: classChoices(state),
-            detail: view ? withCardArt(view, deckDetailView(view, view.kind === 'deck-character' ? draft : null)) : null,
+            detail: view ? withItemArt(withCardArt(view, deckDetailView(view, view.kind === 'deck-character' ? draft : null))) : null,
             alloc: view ? allocView(view.attributes, allocDraft, { readonly }) : null,
             pendingGeneration: pendingOf(),
             sendFailed: ss?.status === 'send-failed',
@@ -617,6 +631,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         root.appendChild(body);
         root.addEventListener('click', onClick);
         offCardArt = typeof options.subscribeCardImages === 'function' ? options.subscribeCardImages(() => { if (root) render(); }) : null;
+        offItemArt = typeof options.subscribeItemImages === 'function' ? options.subscribeItemImages(() => { if (root) render(); }) : null;
         // 主角卡组就绪时重读账本列出新档案；有未保存的草稿或动作进行中时只重绘，不丢草稿。
         offProtagonist = typeof options.onProtagonistUpdated === 'function'
             ? options.onProtagonistUpdated((p) => { if (!root) return; if (p?.status === 'ready' && !draft && !allocDraft && !pending) load(); else render(); }) : null;
@@ -637,6 +652,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
         root.removeEventListener?.('click', onClick);
         try { if (typeof offCardArt === 'function') offCardArt(); } catch (error) { /* 宿主已卸载 */ }
         offCardArt = null;
+        try { if (typeof offItemArt === 'function') offItemArt(); } catch (error) { /* 宿主已卸载 */ }
+        offItemArt = null;
         try { if (typeof offProtagonist === 'function') offProtagonist(); } catch (error) { /* 宿主已卸载 */ }
         offProtagonist = null;
         root.remove();

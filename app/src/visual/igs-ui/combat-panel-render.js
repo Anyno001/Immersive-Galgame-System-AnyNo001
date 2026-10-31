@@ -235,7 +235,7 @@ function itemsHtml(items, open = false) {
     const shown = Boolean(open) && list.length > 0;
     const menu = shown ? `<div class="igs-combat-item-menu" role="menu" aria-label="道具">${list.map((i) => `<button type="button" role="menuitem" class="igs-combat-item${i.usable ? '' : ' is-disabled'}" data-combat-act="item" data-combat-id="${esc(i.itemId)}"${i.usable ? '' : ' aria-disabled="true"'}`
         + ` aria-label="${esc(`道具 ${i.name} 剩余 ${i.count} 个 ${i.text}，不消耗能量，每回合一次`)}" title="${esc(`${i.name} ×${i.count}：${i.text}`)}">`
-        + `<span class="igs-combat-item-icon" aria-hidden="true">${RECORD_ICONS.potion}</span><span class="igs-combat-item-name">${esc(i.name)}</span><span class="igs-combat-item-count">${esc(i.count)}</span></button>`).join('')}</div>` : '';
+        + `<span class="igs-combat-item-icon" aria-hidden="true">${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" decoding="async">` : RECORD_ICONS.potion}</span><span class="igs-combat-item-name">${esc(i.name)}</span><span class="igs-combat-item-count">${esc(i.count)}</span></button>`).join('')}</div>` : '';
     return `<div class="igs-combat-items${shown ? ' is-open' : ''}">${menu}<button type="button" class="igs-combat-ctl${shown ? ' is-open' : ''}${list.length ? '' : ' is-disabled'}" data-combat-act="items" aria-haspopup="menu" aria-expanded="${shown ? 'true' : 'false'}"${list.length ? '' : ' aria-disabled="true"'}>`
         + '<span class="igs-combat-ctl-label">道具</span></button></div>';
 }

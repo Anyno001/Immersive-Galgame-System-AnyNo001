@@ -166,14 +166,16 @@ function deckHtml(v, d) {
 }
 
 // 装备栏：四个部位各一行内的标签，已装备的可卸下（卸下后进背包页）；道具只列余量。
+// 有本聊天物品图（P7d，与背包同键）时标签前加小图，没有时形状不变。
+const itemArt = (x) => (x?.imageUrl ? `<img class="igs-deck-chip-art" src="${esc(x.imageUrl)}" alt="" decoding="async">` : '');
 function gearHtml(v, d) {
     const g = d.gear;
     if (!g) return '';
     const busy = v.readonly || Boolean(v.pending);
     const slots = g.slots.map((s) => (s.item
-        ? `<span class="igs-deck-chip" data-slot="${esc(s.slot)}"${s.item.text ? ` title="${esc(s.item.text)}"` : ''}>${esc(s.label)} · ${esc(s.item.name)}</span>${v.readonly ? '' : btn('unequip', '卸下', { id: s.item.gearId, disabled: busy })}`
+        ? `<span class="igs-deck-chip" data-slot="${esc(s.slot)}"${s.item.text ? ` title="${esc(s.item.text)}"` : ''}>${itemArt(s.item)}${esc(s.label)} · ${esc(s.item.name)}</span>${v.readonly ? '' : btn('unequip', '卸下', { id: s.item.gearId, disabled: busy })}`
         : `<span class="igs-deck-chip is-empty" data-slot="${esc(s.slot)}">${esc(s.label)} · 空</span>`)).join('');
-    const items = g.items.length ? row('道具', g.items.map((i) => chip(`${i.name} ×${i.count}`)).join('')) : '';
+    const items = g.items.length ? row('道具', g.items.map((i) => (i.imageUrl ? `<span class="igs-deck-chip">${itemArt(i)}${esc(`${i.name} ×${i.count}`)}</span>` : chip(`${i.name} ×${i.count}`))).join('')) : '';
     return `${row('装备', slots)}${items}`;
 }
 

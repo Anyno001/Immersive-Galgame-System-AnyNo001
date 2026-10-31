@@ -29,6 +29,7 @@ ${P} .igs-deck-row,${P} .igs-deck-actions{display:flex;flex-wrap:wrap;align-item
 ${P} .igs-deck-actions{justify-content:flex-end;}
 ${P} .igs-deck-label{min-width:3.5em;color:var(--igs-cb-ink-faint);font-size:11px;font-weight:500;letter-spacing:.16em;}
 ${P} .igs-deck-chip{display:inline-flex;align-items:center;min-height:28px;padding:4px 10px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);color:var(--igs-cb-ink-soft);font-size:13px;font-weight:500;letter-spacing:.04em;}
+${P} .igs-deck-chip-art{flex:none;width:20px;height:20px;margin-right:6px;object-fit:contain;}
 ${P} .igs-deck-btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:6px 12px;border:0;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);color:var(--igs-cb-ink-soft);font:inherit;font-size:13px;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:background .18s var(--igs-cb-ease),color .18s var(--igs-cb-ease),opacity .18s var(--igs-cb-ease),transform .12s var(--igs-cb-ease);}
 ${P} .igs-deck-btn:hover{background:var(--igs-cb-fill-hover);color:var(--igs-cb-ink);}
 ${P} .igs-deck-btn[aria-pressed="true"]:not(.is-primary){background:var(--igs-cb-fill-active);color:var(--igs-cb-ink);font-weight:600;}

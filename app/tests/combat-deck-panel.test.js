@@ -526,6 +526,41 @@ test('构筑面板：卡面只在点「生成卡面」时请求且只生成被�
     assert.equal(listeners.size, 0);
 });
 
+test('人物状态面板装备栏（P7d）：有本聊天物品图时部位标签前显示小图，没有时形状不变；物品图更新经订阅重绘，关闭退订', async () => {
+    const { gearIdFor } = await import('../src/combat/schema.js');
+    const text = '得到宝剑。[igs-combat:equip|我|青锋剑|武器|削铁如泥|稀有]';
+    const chat = [user('出发'), ai(text)];
+    const tables = memoryTables([row(classDef, 1), row(heroDef, 2)]);
+    const ledger = createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7 });
+    const tagHash = scanCombatTags(text)[0].tagHash;
+    const anchor = { messageId: 1, swipeId: 0, tagHash, occurrence: 0 };
+    await ledger.append([{ id: `equip|pc-hero|1|0|${tagHash}|0`, type: 'equip', character: 'pc-hero', anchor,
+        payload: { gearId: gearIdFor('青锋剑'), name: '青锋剑', slot: 'weapon', description: '削铁如泥', rarity: 'rare' }, createdAt: 7 }]);
+    const images = new Map();
+    const listeners = new Set();
+    const doc = { createElement: (tag) => new FakeEl(doc, tag), activeElement: null };
+    const overlay = new FakeEl(doc, 'div');
+    overlay.id = 'igs-overlay';
+    const panel = createCombatDeckPanelController(doc, {
+        getLedger: () => ledger, getSession: () => ({ state: () => ({ status: 'idle' }) }),
+        resolveItemImage: (name) => images.get(name) || '',
+        subscribeItemImages: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+    });
+    panel.open(overlay);
+    await until(() => panel.view().status === 'ready');
+    panel.invoke('page', 'gear');
+    const html = () => overlay.querySelector('.igs-deck-body').innerHTML;
+    assert.equal(listeners.size, 1);
+    assert.match(html(), /武器 · 青锋剑/);
+    assert.doesNotMatch(html(), /igs-deck-chip-art/);
+    images.set('青锋剑', 'data:image/png;base64,QUFB');
+    for (const fn of [...listeners]) fn();
+    assert.match(html(), /<img class="igs-deck-chip-art" src="data:image\/png;base64,QUFB"/);
+    panel.close();
+    assert.equal(listeners.size, 0);
+});
+
+
 
 // 主角卡组预生成：服务层宿主聊天与主角名可切换；请求按顺序取回复（函数可抛出错误模拟上游拒绝），自动重试不等待。
 function protagonistServices({ replies = [], enabled = true } = {}) {

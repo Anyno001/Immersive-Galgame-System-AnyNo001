@@ -4839,6 +4839,9 @@ export function createIgsReaderHost(options = {}) {
             // 手牌卡面只读本聊天本地缓存；无图时渲染层用线条 SVG，图片补载完成后经订阅刷新。
             resolveCardImage: (cardId) => (options.cardImages && typeof options.cardImages.imageUrlFor === 'function' ? options.cardImages.imageUrlFor(cardId) : ''),
             subscribeCardImages: (handler) => (typeof options.onCardImageUpdated === 'function' ? options.onCardImageUpdated(handler) : null),
+            // 道具菜单图标：物品图只读本聊天本地缓存（与背包同键），补载完成后经订阅刷新。
+            resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
+            subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
             // 战斗单位呼吸跟随「立绘活动」总开关与其中的「待机呼吸」，读当前阅读器快照的设置。
             breathing: () => {
                 const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
@@ -4882,6 +4885,9 @@ export function createIgsReaderHost(options = {}) {
             getCardArt: (cardId) => (options.cardImages && typeof options.cardImages.stateFor === 'function' ? options.cardImages.stateFor(cardId) : null),
             generateCardArt: options.cardImages && typeof options.cardImages.generate === 'function' ? (card) => options.cardImages.generate(card) : null,
             subscribeCardImages: (handler) => (typeof options.onCardImageUpdated === 'function' ? options.onCardImageUpdated(handler) : null),
+            // 装备栏与道具的物品图：只读本聊天本地缓存，补载完成后经订阅重绘。
+            resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
+            subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
         });
         const domState = {
             root,

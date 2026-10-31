@@ -525,6 +525,7 @@ ${C} .igs-combat-item:not(.is-disabled):hover{background:var(--igs-cb-fill-hover
 ${C} .igs-combat-item.is-disabled{opacity:.5;}
 ${C} .igs-combat-item-icon{flex:none;display:grid;color:var(--igs-cb-life);}
 ${C} .igs-combat-item-icon svg{width:16px;height:16px;stroke-width:1.5;}
+${C} .igs-combat-item-icon img{width:16px;height:16px;object-fit:contain;}
 ${C} .igs-combat-item-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 ${C} .igs-combat-item-count{flex:none;display:grid;place-items:center;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--igs-cb-warm);color:#1b1d21;font-size:10px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;}
 

@@ -98,6 +98,8 @@ export function createCombatPanelController(doc, options = {}) {
     let lastFill = null;
     // 卡面图订阅（打开时订阅、关闭时退订）：本地图片补载或生成完成后重绘手牌。
     let offCardArt = null;
+    // 物品图订阅（P7d）：道具菜单显示本聊天物品图，补载或生成完成后与卡面同样重绘。
+    let offItemArt = null;
     // 面板尺寸变化只移动原控件，不整块重绘或复制按钮。
     let stopDockWatch = null;
     // 点开的牌面数字加成详情（挂在面板根节点上，同一时刻最多一个）。
@@ -177,6 +179,12 @@ export function createCombatPanelController(doc, options = {}) {
         try { url = typeof options.resolveCardImage === 'function' ? options.resolveCardImage(cardId) : ''; } catch (error) { url = ''; }
         return safePortraitUrl(url);
     };
+    // 道具菜单图标：按物品名读本聊天物品图本地缓存（与背包同键），取不到时渲染层用线条图标。
+    const itemArtFor = (name) => {
+        let url = '';
+        try { url = typeof options.resolveItemImage === 'function' ? options.resolveItemImage(name) : ''; } catch (error) { url = ''; }
+        return safePortraitUrl(url);
+    };
     // 没有素材库立绘的敌人用通用敌人图集的一格；题材随宿主注入的世界观（getFxSkin().worldview），按名字去重，批量敌人共用原名推断的格位。
     const worldviewOf = () => {
         try { return String((typeof options.getFxSkin === 'function' ? options.getFxSkin() : null)?.worldview || ''); } catch (error) { return ''; }
@@ -226,6 +234,8 @@ export function createCombatPanelController(doc, options = {}) {
         else { chosen = chosen.filter((i) => choice.options.includes(i)); view.chosen = chosen.slice(); }
         // 只在取到图时追加 artUrl：未生成卡面时手牌视图形状不变。
         if (view.battle) view.battle.hand = view.battle.hand.map((c) => { const artUrl = cardArtFor(c.id); return artUrl ? { ...c, artUrl } : c; });
+        // 道具同样只在取到物品图时追加 imageUrl。
+        if (view.battle) view.battle.items = view.battle.items.map((i) => { const imageUrl = itemArtFor(i.name); return imageUrl ? { ...i, imageUrl } : i; });
         if (view.battle && held.size) shownHeld(view.battle);
         if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events);
         if (settling) view.settling = true;
@@ -1713,6 +1723,7 @@ export function createCombatPanelController(doc, options = {}) {
         // 焦点落在面板本身而不是关闭按钮：打开时右上角不画焦点环，按 Tab 仍从关闭按钮开始。
         root.focus?.();
         return { ok: true };
+        offItemArt = typeof options.subscribeItemImages === 'function' ? options.subscribeItemImages(() => onCardArtUpdated()) : null;
     }
 
     function close() {
@@ -1757,6 +1768,8 @@ export function createCombatPanelController(doc, options = {}) {
         focus?.focus?.();
         return { ok: true };
     }
+        try { if (typeof offItemArt === 'function') offItemArt(); } catch (error) { /* 宿主已卸载 */ }
+        offItemArt = null;
 
     return {
         open, close, dispose: close, invoke, cancelSelection,
