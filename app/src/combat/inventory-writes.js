@@ -4,7 +4,7 @@ import { ABILITY_LABELS } from './abilities.js';
 // 主角背包写入计划（P7b，纯函数）：一条主角的装备 / 道具 / 杂物条目 + 当前背包投影（inventory-view.js）→ 要写的装配表行与物品表数量变化。
 // 账本写口按计划执行：先写日志条目（已入账标记），再写装配行（按名称整行覆盖，可重放），最后改数量；数量写失败时撤销标记。
 // 返回 null 表示不是背包条目（如战利品里的卡牌），走普通日志写入；{ ok:false, reason } 表示不写标记、不改表。
-export const STOCK_TYPES = Object.freeze(['equip', 'unequip', 'item', 'consume', 'loot', 'sell']);
+export const STOCK_TYPES = Object.freeze(['equip', 'unequip', 'item', 'consume', 'loot', 'sell', 'keepsake']);
 export const STOCK_RARITY_LABELS = Object.freeze({ common: '普通', uncommon: '罕见', rare: '稀有', epic: '史诗', mythic: '神话' });
 export const STOCK_SLOT_LABELS = Object.freeze({ weapon: '武器', armor: '防具', accessory: '饰品', treasure: '宝物' });
 const CATEGORY = Object.freeze({ gear: '装备', item: '消耗品', keepsake: '杂物' });
@@ -65,8 +65,11 @@ export function stockPlan(entry, view, { panelTag } = {}) {
             const bad = conflict(view, p.name, 'gear');
             if (bad) return bad;
             const owned = stockKindOf(view, p.name) === 'gear';
-            const w = wear(view, p, gearDef(p));
-            return plan(w.own, owned ? [] : [{ name: p.name, delta: 1, description: p.description || '', category: CATEGORY.gear }], w.displaced);
+            // 正文获得的装备（N5）：该部位空着或穿着的就是这件时自动装上；已穿着别的装备时只进背包，不顶替。
+            const def = gearDef(p);
+            const worn = view.gear.slots[def.slot];
+            const own = [{ name: p.name, record: gearRecord(def, !worn || same(worn.name, p.name)) }];
+            return plan(own, owned ? [] : [{ name: p.name, delta: 1, description: p.description || '', category: CATEGORY.gear }]);
         }
         case 'unequip': {
             const g = Object.values(view.gear.slots).find((x) => x.gearId === p.gearId);
@@ -76,6 +79,14 @@ export function stockPlan(entry, view, { panelTag } = {}) {
             const i = view.items.find((x) => x.itemId === p.itemId);
             if (!i || i.count < p.count) return { ok: false, reason: 'combat-item-insufficient' };
             return plan([], [{ name: i.name, delta: -p.count }], dropRow(i.name, i.count, -p.count));
+        }
+        // 剧情获得的杂物（P7d）：物品表数量 +1，第一次得到时写装配行（kind keepsake，描述作来历）。
+        case 'keepsake': {
+            const bad = conflict(view, p.name, 'keepsake');
+            if (bad) return bad;
+            const def = { kind: 'keepsake', origin: p.origin || '', ...(p.rarity ? { rarity: p.rarity } : {}) };
+            const rows = stockKindOf(view, p.name) === 'keepsake' ? [] : [{ name: p.name, record: keepsakeRecord(def) }];
+            return plan(rows, [{ name: p.name, delta: 1, description: def.origin, category: CATEGORY.keepsake }]);
         }
         case 'loot': {
             const slot = p.slot;

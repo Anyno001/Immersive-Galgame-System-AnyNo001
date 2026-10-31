@@ -1164,7 +1164,8 @@ export function bootstrapIGS(options = {}) {
         if (normalizeChatShowSettings(chatShow).enabled) pushFx('chat', resolveChatShowPromptRule(chatShow, { ancient: phoneAncient }));
         pushFx('fx', resolveFxPromptRule(rs.fxTags, { ancient: phoneAncient }));
         pushFx('dlc', resolveDlcFxPromptRule(rs.dlcFx));
-        pushFx('item', resolveItemFxPromptRule(Boolean(rs.itemFx && rs.itemFx.enabled)));
+        // 战斗开启时获得物写法带类别与稀有度（N5）；物品演出关着时这条由战斗块给出。
+        pushFx('item', resolveItemFxPromptRule(Boolean(rs.itemFx && rs.itemFx.enabled), { combat: combatExpansionEnabled(rs) }));
         pushFx('text', resolveTextFxPromptRule(Boolean(rs.textFx && rs.textFx.enabled)));
         pushFx('bilingual', resolveBilingualPromptRule(rs.bilingual));
         pushFx('daily', resolveDailyFxPromptRule(rs.dailyFx));

@@ -12,9 +12,21 @@ export function combatExpansionEnabled(readerSettings) {
     return plain(plain(readerSettings).combatExpansion).enabled === true;
 }
 
-export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/equip/unequip/item/rel/stat/heal';
+export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/unequip/rel/stat/heal';
 
-function fullCombatRule() {
+// 战斗开启时的统一获得物写法（合并计划 N5 / P7d）：装备、道具、杂物都写这一条，程序记入统一背包。
+// 物品演出开着时由【物品】块给出（fx-prompt 的战斗写法），关着时放进战斗块，二者不重复。
+export const COMBAT_GAIN_LINE = '- [igs-fx:item|获得|名称|描述|类别|稀有度]：剧情中主角真的得到一件具体物品时写；类别只写 武器/防具/饰品/宝物/道具/杂物 之一（武器、防具、饰品、宝物是可装备的装备，道具是能在战斗中用一次的药剂、符咒、暗器等，其余写杂物）；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按物品品相写，可省略；对应部位空着时新装备会自动装上';
+
+export function itemFxPromptEnabled(readerSettings) {
+    return plain(plain(readerSettings).itemFx).enabled === true;
+}
+
+export function combatGainInCombatBlock(readerSettings) {
+    return combatExpansionEnabled(readerSettings) && !itemFxPromptEnabled(readerSettings);
+}
+
+function fullCombatRule(gain = false) {
     return `【战斗】战斗由前端卡牌系统结算，正文只负责引出遭遇和记录成长，标签写作 [igs-combat:类型|参数]：
 - [igs-combat:start|遭遇名|敌方|友方|等级]：剧情真正进入交战的那一刻写在本层正文的最后一行，写完立即结束本层，不再写任何正文；敌方写 名称 或 名称*数量，逗号分隔，合计最多5个；友方写同行参战的角色名，逗号分隔，最多3人，主角不用写；等级只写 普通/精英/首领，可省略；每层最多一个
 - [igs-combat:awaken|角色|类型|台词]：只在重大情绪节点写（同伴在眼前倒下、立誓守护、绝境不退、宿敌当前等），平常战斗不写；必须紧挨在开战标签的上一行，开战标签仍是最后一行；角色写主角（「我」或主角名）；类型只写 怒火/守护/悲恸/决意/羁绊/极限/复仇/不屈 之一；台词是此刻喊出的一句话，不超过30字；每场最多一个
@@ -22,9 +34,7 @@ function fullCombatRule() {
 - [igs-combat:learn|角色|技能名|简述|稀有度]：剧情中习得新技能；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按这门技能在剧情中的分量写，可省略
 - [igs-combat:upgrade|角色|技能名|简述]：已有技能得到精进
 - [igs-combat:class|角色|职业]：转职或觉醒
-- [igs-combat:equip|角色|名称|部位|简述|稀有度]：剧情中得到并装备武器、防具、饰品或宝物时写；部位只写 武器/防具/饰品/宝物；每个部位只装一件，新装备会顶替旧装备；稀有度同上，按这件装备的品相写，可省略
-- [igs-combat:unequip|角色|名称]：剧情中卸下、丢失或交出某件装备
-- [igs-combat:item|角色|名称|数量|简述|稀有度]：剧情中得到能在战斗中使用一次的道具（药剂、符咒、暗器等）；数量 1–3；稀有度同上，可省略
+- [igs-combat:unequip|角色|名称]：剧情中卸下、丢失或交出某件装备${gain ? `\n${COMBAT_GAIN_LINE}` : ''}
 - [igs-combat:rel|角色|档]：每层给本层登场的非主角各写一个，主角不写；档只写 远逊/稍弱/相当/稍强/强敌/碾压 之一，表示此人此刻相对主角的强弱；强弱没变就照写原档
 - [igs-combat:stat|角色|属性|点数|原因]：只在剧情确实让主角锻炼、领悟、服药等而提升某项属性时写，角色只写主角；属性只写 力量/敏捷/体质/智力/感知/魅力 之一；点数 1–2，每层合计不超过2
 - [igs-combat:heal|角色|恢复量|原因]：战斗留下的伤势会带到下一场；剧情中角色休息、接受治疗、服药等恢复生命时写；恢复量写点数（如 20）或生命上限的百分比（如 50%）；倒下的同伴要靠它恢复后才能再参战
@@ -39,10 +49,10 @@ function fullCombatRule() {
 const ruleLines = (kinds) => fullCombatRule().split('\n').filter((line) => kinds.some((k) => line.startsWith(`- [igs-combat:${k}|`)));
 export const COMBAT_RULE_HEAD = fullCombatRule().split('\n')[0];
 export const COMBAT_STORY_LINES = Object.freeze(ruleLines(['start', 'awaken', 'exp', 'learn', 'upgrade', 'class']));
-export const COMBAT_GEAR_LINES = Object.freeze(ruleLines(['equip', 'unequip', 'item']));
+export const COMBAT_GEAR_LINES = Object.freeze(ruleLines(['unequip']));
 export const COMBAT_GROWTH_LINES = Object.freeze(ruleLines(['rel', 'stat', 'heal']));
 export const COMBAT_SYNTAX_LINES = Object.freeze(fullCombatRule().split('\n').filter((line) => /^\d\. /.test(line)));
-export const COMBAT_MERGED_GRAMMAR_INDEX = '战斗 igs-combat:equip/unequip/item';
+export const COMBAT_MERGED_GRAMMAR_INDEX = '战斗 igs-combat:unequip igs-fx:item获得';
 
 // 数值系统本聊天接管注入时（bootstrap 写入 readerSettings.combatMerged），开战、成长与生命标签改由「数值与战斗」段给出，
 // system 里的 combat 块只留装备与道具写法。
@@ -52,10 +62,12 @@ export function combatPromptMerged(readerSettings) {
 
 export function resolveCombatPromptRule(readerSettings) {
     if (!combatExpansionEnabled(readerSettings)) return '';
-    if (!combatPromptMerged(readerSettings)) return fullCombatRule();
+    const gain = combatGainInCombatBlock(readerSettings);
+    if (!combatPromptMerged(readerSettings)) return fullCombatRule(gain);
     return [
         '【战斗·装备与道具】标签写作 [igs-combat:类型|参数]：',
         ...COMBAT_GEAR_LINES,
+        ...(gain ? [COMBAT_GAIN_LINE] : []),
         '',
         '语法要求：装备与道具标签只在剧情确实发生时写，主角写「我」以外的名字时用角色名',
     ].join('\n');

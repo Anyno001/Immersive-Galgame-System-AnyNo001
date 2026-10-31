@@ -21,7 +21,7 @@ export const SKILL_INTENTS = Object.freeze(['attack', 'defend', 'buff', 'debuff'
 export const PASSIVE_TRIGGERS = Object.freeze(['battle-start', 'turn-start', 'turn-end', 'on-hit', 'on-low-hp',
     'card-played', 'discard', 'exhaust', 'kill', 'shuffle', 'hp-loss', 'block-gain', 'foe-card-played']);
 export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
-export const LEDGER_TYPES = Object.freeze(['profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer', 'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt']);
+export const LEDGER_TYPES = Object.freeze(['profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer', 'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake']);
 // 装备部位（每部位同时 1 件）与一次性道具单条数量上限；单次消耗上限覆盖一场战斗内的累计用量。
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 export const ITEM_GAIN_MAX = 3;
@@ -735,6 +735,11 @@ function payloadAt(type, raw, path, ctx) {
             return { gearId: idOf(raw.gearId, p('gearId'), ctx) };
         case 'item':
             return gainItemAt(raw, path, ctx);
+        // 剧情获得的杂物（P7d，统一获得物标签类别「杂物」）：没有战斗效果，只进主角背包；itemId 由名称推导，稀有度可省。
+        case 'keepsake':
+            checkKeys(raw, ['itemId', 'name', 'origin', 'rarity'], path, ctx);
+            return { itemId: idOf(raw.itemId, p('itemId'), ctx), name: text(raw.name, p('name'), ctx, 20), origin: text(raw.origin, p('origin'), ctx, 80, ''),
+                ...(raw.rarity === undefined ? {} : { rarity: oneOf(raw.rarity, p('rarity'), ctx, POOL_RARITIES) }) };
         // 消耗：战报楼落楼后按本场实际用量写入，锚定战报用户楼；战报楼换 swipe 或删除时自然回退。
         case 'consume':
             checkKeys(raw, ['itemId', 'count', 'reportId'], path, ctx);

@@ -40,8 +40,10 @@ function memoryTables(profile) {
 
 // 内存版背包（read 形状与 inventory-tables.read() 一致）：failChange 时数量写入失败、不改表。
 function memoryInventory() {
-    const inv = { items: [], gear: [], failChange: false };
+    const inv = { items: [], gear: [], failChange: false, failEnsure: '', ensureCalls: 0 };
     const key = normalizeItemName;
+    // 与 inventory-tables.ensure() 同形：已接管时无改动；failEnsure 模拟模板导入失败。
+    inv.ensure = async () => { inv.ensureCalls += 1; return inv.failEnsure ? { ok: false, reason: inv.failEnsure } : { ok: true, changes: [] }; };
     inv.read = () => ({ ok: true,
         inventory: { name: '背包物品表', items: inv.items.map((i, n) => ({ rowIndex: n + 1, name: i.name, key: key(i.name), quantity: i.quantity, description: i.description || '', category: i.category || '' })) },
         gear: { name: 'IGS战斗·装配', rows: inv.gear.map((r, n) => ({ rowIndex: n + 1, name: r.name, key: key(r.name), category: r.category, rarity: r.rarity, slot: r.slot, equipped: r.equipped, definition: clone(r.definition) })) },
@@ -108,6 +110,17 @@ test('主角背包：获得先写日志标记再改物品表，重复入账幂�
     assert.equal((await h.ledger.append([h.consume(1, 2)])).ok, true);
     assert.equal(h.inv.qty('回春丹'), 0);
     assert.equal(h.inv.gear.some((r) => r.name === '回春丹'), false);
+});
+
+test('主角背包：每次写入前先经 inventory.ensure 接管物品表；接管失败时不写日志标记、不改物品表与装配表', async () => {
+    const h = harness();
+    h.inv.failEnsure = 'inventory-template-import-failed';
+    const blocked = await h.ledger.append([h.itemEntry()]);
+    assert.deepEqual([blocked.ok, blocked.reason, h.inv.ensureCalls], [false, 'inventory-template-import-failed', 1]);
+    assert.deepEqual([h.inv.qty('回春丹'), h.inv.gear.length, h.tables.ledger.length], [0, 0, 0]);
+    h.inv.failEnsure = '';
+    assert.equal((await h.ledger.append([h.itemEntry()])).ok, true);
+    assert.deepEqual([h.inv.qty('回春丹'), h.inv.ensureCalls], [2, 2]);
 });
 
 test('主角背包：数量写失败时撤销已入账标记，补扫重新列出该标签，重试以「基础ID|r1」入账一次', async () => {
@@ -208,5 +221,36 @@ test('场外使用（P7c）：回复道具数量减一并恢复主角伤势；�
     assert.equal(h.inv.qty('回春丹'), 1);
     const healed = (await h.hero()).wound;
     assert.ok(healed === null || healed.hp > hurt.hp, JSON.stringify(healed));
+});
+
+
+test('正文获得装备（N5）：部位空着时自动装上，已穿着别的装备时只进背包不顶替；剧情杂物数量 +1 并写杂物定义', async () => {
+    const { stockPlan } = await import('../src/combat/inventory-writes.js');
+    const empty = { gear: { slots: {}, bag: [] }, items: [], collection: [], others: [] };
+    const equip = (name) => ({ type: 'equip', anchor: { tagHash: 'tagx' }, payload: { gearId: gearIdFor(name), name, slot: 'weapon', description: '', rarity: 'rare', bonus: { ability: 'str', amount: 3 } } });
+    const first = stockPlan(equip('青锋剑'), empty, { panelTag: 'gear' });
+    assert.deepEqual([first.rows[0].record.equipped, first.changes.map((c) => c.delta), first.after], [true, [1], []]);
+    const worn = { ...empty, gear: { slots: { weapon: { gearId: gearIdFor('青锋剑'), name: '青锋剑', slot: 'weapon' } }, bag: [] } };
+    const second = stockPlan(equip('玄铁剑'), worn, { panelTag: 'gear' });
+    assert.deepEqual([second.rows.map((r) => [r.name, r.record.equipped]), second.changes.map((c) => c.delta), second.after], [[['玄铁剑', false]], [1], []]);
+    const again = stockPlan(equip('青锋剑'), worn, { panelTag: 'gear' });
+    assert.deepEqual([again.rows[0].record.equipped, again.changes], [true, []]);
+    const keep = stockPlan({ type: 'keepsake', payload: { itemId: itemIdFor('旧发绳'), name: '旧发绳', origin: '母亲留下的', rarity: 'uncommon' } }, empty);
+    assert.deepEqual([keep.rows[0].record.definition, keep.changes], [{ kind: 'keepsake', origin: '母亲留下的', rarity: 'uncommon' }, [{ name: '旧发绳', delta: 1, description: '母亲留下的', category: '杂物' }]]);
+});
+
+test('统一获得物端到端：扫描到「杂物」获得标签时写 keepsake 标记并经物品表 +1，补扫幂等；换 swipe 后标记失效', async () => {
+    const h = harness();
+    h.chat[1] = { mes: '顺手捡起一根发绳。\n[igs-fx:item|获得|旧发绳|母亲留下的|杂物]', swipe_id: 0, is_user: false };
+    await h.ledger.scan();
+    assert.equal(h.inv.qty('旧发绳'), 1);
+    assert.equal(h.inv.gear.find((r) => r.name === '旧发绳').definition.kind, 'keepsake');
+    assert.deepEqual(h.tables.ledger.filter((e) => e.type === 'keepsake').map((e) => [e.character, e.payload.name]), [['pc-hero', '旧发绳']]);
+    assert.deepEqual((await h.hero()).collection.map((k) => [k.name, k.count]), [['旧发绳', 1]]);
+    await h.ledger.scan();
+    assert.equal(h.inv.qty('旧发绳'), 1);
+    h.chat[1] = { ...h.chat[1], swipe_id: 1 };
+    const state = await h.ledger.effectiveState();
+    assert.deepEqual(state.inactive.filter((x) => x.id.startsWith('keepsake|')).map((x) => x.reason), ['swipe-changed']);
 });
 

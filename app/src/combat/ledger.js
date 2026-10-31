@@ -1,8 +1,8 @@
 import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, validateDeck } from './rules.js';
 import { hash32, hashString } from './random.js';
 import { ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities, isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset } from './abilities.js';
-import { buildCardCatalog, effectsDamage, gearIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } from './schema.js';
-import { combatBodyText, extractGrowthDirectives, scanCombatTags } from '../scene/combat-directives.js';
+import { buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } from './schema.js';
+import { combatBodyText, extractGainDirectives, extractGrowthDirectives, scanCombatTags, scanGainTags } from '../scene/combat-directives.js';
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportIdFor, reportIdOf } from './report.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, sellPrice } from './points.js';
@@ -210,7 +210,9 @@ function floorReader(chat, sourceFilter) {
             const result = user ? combatReportResult(text) : null;
             const report = result ? { ...result, reportId: reportIdOf(text) } : null;
             // 用户自己输入的楼不产生成长；只有程序生成的战报楼才计标签。
-            const tags = user && !report ? [] : scanCombatTags(user ? text : combatBodyText(text, { sourceFilter }));
+            const body = user ? text : combatBodyText(text, { sourceFilter });
+            // 统一获得物标签（P7d）只在 AI 楼正文里，同样作为锚点。
+            const tags = user && !report ? [] : [...scanCombatTags(body), ...(user ? [] : scanGainTags(body))];
             // 数值标签里会改生命的（剧情受伤、整场速算）同样作为锚点；与数值结算一样读原文，用户楼不扫。
             const life = user ? [] : scanStatLifeTags(text);
             floor = { swipeId: swipeOf(m), keys: new Set([...tags, ...life].map((tag) => `${tag.tagHash}#${tag.occurrence}`)), report };
@@ -399,6 +401,12 @@ const HANDLERS = Object.freeze({
         if (stockOf(c, ctx)) return null;
         const cur = c.items.get(p.itemId);
         c.items.set(p.itemId, { itemId: p.itemId, name: p.name, effects: p.effects, description: p.description, count: (cur?.count || 0) + p.count });
+        return null;
+    },
+    // 剧情获得的杂物（P7d）：主角背包投影生效时只作已入账标记；否则记进收藏，键为条目 ID。
+    keepsake(c, p, ctx) {
+        if (stockOf(c, ctx)) return null;
+        c.keepsakes.set(ctx.entry.id, { lootId: ctx.entry.id, name: p.name, origin: p.origin, rarity: p.rarity || 'common' });
         return null;
     },
     // 消耗超过余量时整条拒收，不扣成负数。
@@ -1055,6 +1063,21 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
                 pendingGeneration.push({ ...fields, characterId: resolveCharacterId(index, d.character, userName), anchor });
             }
         }
+        // 统一获得物（P7d）：战报楼与只扫属性时不扫；装备 / 道具进待生成队列，杂物直接入账。
+        if (report || options.attributesOnly) continue;
+        const gains = extractGainDirectives(text, { sourceFilter: options.sourceFilter });
+        diagnostics.push(...gains.diagnostics.map((d) => ({ ...d, messageId })));
+        for (const d of gains.directives) {
+            const anchor = floorAnchor(m, messageId, d);
+            if (known([d.kind], d.character, anchor)) continue;
+            if (d.kind === 'keepsake') {
+                const character = characterKeyFor(index, d.character, userName);
+                entries.push({ id: ledgerEntryId('keepsake', character, anchor), type: 'keepsake', character, anchor, payload: { itemId: itemIdFor(d.name), name: d.name, origin: d.origin, ...(d.rarity ? { rarity: d.rarity } : {}) }, createdAt: now });
+                continue;
+            }
+            const { index: _index, tagHash: _hash, occurrence: _occ, ...fields } = d;
+            pendingGeneration.push({ ...fields, characterId: resolveCharacterId(index, d.character, userName), anchor });
+        }
     }
     return { ok: true, entries, pendingGeneration, diagnostics, attributes };
 }
@@ -1365,13 +1388,10 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return { ...marked, stock: [{ id: e.id, ok: true }] };
     }
 
-    // 物品表或装配表缺失时先按默认结构补建（inventory.ensure，宿主模板导入）；补建失败时不写标记、不改表。
+    // 主角背包写入前先确认当前聊天的物品表由程序维护（inventory.ensure：缺表补建；物品表未接管时经宿主模板导入改为 updateFrequency 0、增删改节点「禁止。」，
+    // 关闭数据库自动填表；已接管时不导入）。接管或补建失败时不写标记、不改表（fail-closed），避免与自动填表双写数量。
     async function ensureStock() {
-        let pre;
-        try { pre = inventory.read(); } catch { return 'inventory-table-read-failed'; }
-        const missing = pre?.reason === 'inventory-table-missing' || (pre?.ok === true && !pre.gear);
-        if (!missing) return null;
-        if (typeof inventory.ensure !== 'function') return 'inventory-ensure-unavailable';
+        if (typeof inventory?.ensure !== 'function') return 'inventory-ensure-unavailable';
         let made;
         try { made = await inventory.ensure(); } catch { made = { ok: false, reason: 'inventory-ensure-failed' }; }
         return made?.ok === true ? null : made?.reason || 'inventory-ensure-failed';

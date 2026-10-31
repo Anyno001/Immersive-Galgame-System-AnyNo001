@@ -339,3 +339,26 @@ test('每楼 10 对 d20（合并计划 P3 选 B）：第一颗与旧骰序一致
     assert.ok(seg.content.includes('我劣势（状态不佳）'));
 });
 
+
+
+test('统一获得物：带类别的获得标签解析为装备 / 道具 / 杂物并归主角；没有类别的旧写法与失去不入账；稀有度写错只记诊断', async () => {
+    const { extractGainDirectives, scanGainTags } = await import('../src/scene/combat-directives.js');
+    const text = [
+        '[igs-fx:item|获得|青锋剑|削铁如泥|武器|稀有]',
+        '[igs-fx:item|获得|回春丹|疗伤|道具]',
+        '[igs-fx:item|获得|旧发绳|母亲留下的|杂物]',
+        '[igs-fx:item|获得|黄铜钥匙|旧钥匙]',
+        '[igs-fx:item|失去|青锋剑||武器]',
+        '[igs-fx:item|获得|龙鳞甲||防具|传说]',
+    ].join('\n');
+    const { directives, diagnostics } = extractGainDirectives(text);
+    assert.deepEqual(directives.map((d) => [d.kind, d.character, d.name, d.slot ?? d.count ?? d.origin, d.rarity ?? null]), [
+        ['equip', '我', '青锋剑', 'weapon', 'rare'], ['item', '我', '回春丹', 1, null], ['keepsake', '我', '旧发绳', '母亲留下的', null],
+    ]);
+    assert.deepEqual(diagnostics.map((d) => [d.code, d.field]), [['combat-gain-invalid', 'rarity']]);
+    const tags = scanGainTags(text);
+    assert.equal(tags.length, 4);
+    // 获得标签的锚点与 igs-combat 标签分属不同命名空间。
+    assert.ok(!scanCombatTags(text).length);
+    assert.equal(new Set(tags.map((t) => t.tagHash)).size, 4);
+});

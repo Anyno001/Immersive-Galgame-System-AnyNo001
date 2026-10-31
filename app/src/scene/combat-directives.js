@@ -348,4 +348,49 @@ export function extractGrowthDirectives(raw, options = {}) {
     }
     return { directives, diagnostics };
 }
+// 战斗开启时的统一获得物 [igs-fx:item|获得|名称|描述|类别|稀有度]（合并计划 N5 / P7d）：只认动作为获得、第 4 栏是登记类别的写法，物品归主角。
+// 旧的四 / 五栏物品标签（没有类别）不在这里入账，照旧只给物品演出。tagHash 以 fx-item 开头计算，不与 igs-combat 标签相撞。
+export const COMBAT_GAIN_CATEGORIES = Object.freeze({
+    武器: Object.freeze({ kind: 'equip', slot: 'weapon' }), 防具: Object.freeze({ kind: 'equip', slot: 'armor' }),
+    饰品: Object.freeze({ kind: 'equip', slot: 'accessory' }), 宝物: Object.freeze({ kind: 'equip', slot: 'treasure' }),
+    道具: Object.freeze({ kind: 'item' }), 杂物: Object.freeze({ kind: 'keepsake' }),
+});
+const FX_ITEM_TAG_RE = /\[igs-fx:item\|([^\]\n]*)\]/gi;
+const GAIN_ACTION_WORDS = new Set(['获得', '得到', 'gain']);
 
+export function scanGainTags(body) {
+    const counts = new Map();
+    const tags = [];
+    for (const match of String(body || '').matchAll(FX_ITEM_TAG_RE)) {
+        const fields = match[1].split('|').map((field) => field.trim());
+        if (!GAIN_ACTION_WORDS.has(fields[0].toLowerCase()) || !Object.hasOwn(COMBAT_GAIN_CATEGORIES, fields[3] || '')) continue;
+        const tagHash = tagHashOf(['fx-item', ...fields].join('|'));
+        const occurrence = counts.get(tagHash) || 0;
+        counts.set(tagHash, occurrence + 1);
+        tags.push({ kind: 'gain', fields, raw: match[0], index: match.index, tagHash, occurrence });
+    }
+    return tags;
+}
+
+// 统一获得物 → 与旧 equip / item 同形的指令（装备带部位，道具数量 1），杂物为 keepsake（描述作来历）；栏位非法只记诊断。
+export function extractGainDirectives(raw, options = {}) {
+    const body = combatBodyText(raw, options);
+    const directives = [];
+    const diagnostics = [];
+    for (const tag of scanGainTags(body)) {
+        const bad = (field, problem) => diagnostics.push({ code: 'combat-gain-invalid', field, problem, ...anchorOf(tag) });
+        if (tag.fields.length > 5) { bad('fields', 'too-many-fields'); continue; }
+        const name = textIn('name', tag.fields[1], NAME_MAX, true);
+        if (!name.ok) { bad(name.field, name.problem); continue; }
+        const description = textIn('description', tag.fields[2], TEXT_MAX, false);
+        if (!description.ok) { bad(description.field, description.problem); continue; }
+        const rarity = rarityIn(tag.fields[4]);
+        if (!rarity.ok) { bad(rarity.field, rarity.problem); continue; }
+        const category = COMBAT_GAIN_CATEGORIES[tag.fields[3]];
+        const base = { character: '我', name: name.value, ...anchorOf(tag) };
+        if (category.kind === 'equip') directives.push(withRarity({ kind: 'equip', ...base, slot: category.slot, description: description.value }, rarity.value));
+        else if (category.kind === 'item') directives.push(withRarity({ kind: 'item', ...base, count: 1, description: description.value }, rarity.value));
+        else directives.push(withRarity({ kind: 'keepsake', ...base, origin: description.value }, rarity.value));
+    }
+    return { directives, diagnostics };
+}

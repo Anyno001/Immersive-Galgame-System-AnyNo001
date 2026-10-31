@@ -1,4 +1,4 @@
-import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, dlcFxGrammarLines, fxDetailedBlock, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, resolveBgmPromptRule, resolveCameraPromptRule, resolveDlcFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
+import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, dlcFxGrammarLines, fxDetailedBlock, fxGrammarLines, ITEM_FX_COMBAT_GRAMMAR_LINE, ITEM_FX_GRAMMAR_LINE, resolveBgmPromptRule, resolveCameraPromptRule, resolveDlcFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
 import { campusDetailedBlock, campusGrammarLines, courtesyDetailedBlock, courtesyGrammarLines,dailyDetailedBlock, dailyGrammarLines, packDetailedBlock, packGrammarLines, playDetailedBlock, playGrammarLines, wardrobeDetailedBlock, wardrobeGrammarLines } from './fx-daily-prompt.js';
 import { BATTLE_GRAMMAR_LINES, resolveBattleFxPromptRule } from './fx-battle-model.js';
 import { CREATURE_GRAMMAR_LINES, resolveCreatureFxPromptRule } from './fx-creature-model.js';
@@ -71,7 +71,7 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
         blocks.push({ key: 'dlc', full: fxBlock('扩展演出', dlcLines), index: `扩展演出 igs-fx:${dlcLines.map((line) => line.split(/[|\s（]/)[0]).join('/')}` });
     }
     if (plain(rs.itemFx).enabled === true) {
-        blocks.push({ key: 'item', full: fxBlock('物品', [ITEM_FX_GRAMMAR_LINE]), index: '物品 igs-fx:item' });
+        blocks.push({ key: 'item', full: fxBlock('物品', [combatExpansionEnabled(rs) ? ITEM_FX_COMBAT_GRAMMAR_LINE : ITEM_FX_GRAMMAR_LINE]), index: '物品 igs-fx:item' });
     }
     if (bgmMoodTagEnabled(rs.bgm)) {
         blocks.push({ key: 'bgm', full: fxBlock('配乐', [BGM_GRAMMAR_LINE]), index: '配乐 igs-fx:bgm' });
@@ -153,7 +153,7 @@ const DETAILED_BUILDERS = Object.freeze({
     text: () => resolveTextFxPromptRule(true),
     fx: (rs, ancient) => fxDetailedBlock(rs.fxTags, { ancient }),
     dlc: (rs) => resolveDlcFxPromptRule(rs.dlcFx),
-    item: () => resolveItemFxPromptRule(true),
+    item: (rs) => resolveItemFxPromptRule(true, { combat: combatExpansionEnabled(rs) }),
     bgm: (rs) => resolveBgmPromptRule(rs.bgm),
     chat: (rs, ancient) => resolveChatShowPromptRule(rs.chatShow, { ancient }),
     daily: (rs) => dailyDetailedBlock(rs.dailyFx),
