@@ -74,7 +74,7 @@ export function createStatsMetricsLookup(state, { resolve = (name) => name, hudL
 function sheetSummary(name, sheet, engine) {
     if (!sheet) return { name, missing: true };
     const strong = Object.entries(sheet.skills || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([skill, v]) => {
-        if (engine && engine.ruleset.ID === 'dnd5e') {
+        if (engine) {
             const prof = v >= 75 ? '专精' : v >= 50 ? '熟练' : '';
             return `${skill}${prof ? ` ${prof}` : ''}`;
         }

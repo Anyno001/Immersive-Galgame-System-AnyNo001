@@ -8,9 +8,9 @@ export const ARCHIVE_LOG_MAX = 30;
 
 export const CHECK_LOG_MAX = 50;
 
-// 技能显示（v2 §9.3）：CoC 显示百分值；D&D 显示属性值 / 修正与熟练标记。
+// 技能显示（v2 §9.3）：属性显示分值 / 修正，技能显示加值与熟练标记（合并计划 Q2：只有 d20）。
 export function displaySkill(engine, profile) {
-    if (!engine || engine.ruleset.ID !== 'dnd5e') return String(Math.round(Number(profile.value) || 0));
+    if (!engine) return String(Math.round(Number(profile.value) || 0));
     const r = engine.ruleset;
     if (profile.kind === 'attribute') {
         const m = r.modOf(profile.value);
@@ -33,7 +33,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
             rows.push({ messageId, target: String(c.target ?? ''), key: String(c.key ?? ''), from: c.from, to: c.to, note: String(c.note ?? '') });
         }
         const ck = entry && entry.meta && entry.meta.check;
-        if (ck) checks.push({ messageId, skill: ck.skill, difficulty: ck.difficulty || '普通', detail: ck.detail || `1d100=${ck.roll}`, outcome: ck.outcome || ck.tier, ruleset: ck.ruleset || 'coc7', source: ck.source || '' });
+        if (ck) checks.push({ messageId, skill: ck.skill, difficulty: ck.difficulty || '普通', detail: ck.detail || (ck.die === 20 ? `d20(${ck.roll})` : `1d100=${ck.roll}`), outcome: ck.outcome || ck.tier, source: ck.source || '' });
     }
     const characters = Object.entries(state.characters || {}).map(([name, c]) => ({
         name, stage: stageOf(Number(c.dims && c.dims.好感) || 0).name, dims: { ...(c.dims || {}) },
@@ -62,7 +62,6 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
         sheets,
         pendingPeople: ((cat.queue && cat.queue.people) || []).slice(),
         pendingSkills: ((cat.queue && cat.queue.skills) || []).slice(),
-        ruleset: engine ? engine.ruleset.ID : 'coc7',
         hasBackup: Boolean(hasBackup),
     };
 }

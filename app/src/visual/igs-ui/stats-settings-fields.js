@@ -158,7 +158,7 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
         ? model.log.map((r) => `<div class="igs-source-filter-note">#${n(r.messageId)} ${esc(r.target)} ${esc(r.key)} ${n(r.from)}→${n(r.to)}${r.note ? `（${esc(r.note)}）` : ''}</div>`).join('')
         : '<div class="igs-source-filter-note">暂无变动。</div>';
     const checks = (model.checks || []).length
-        ? model.checks.map((c) => `<div class="igs-source-filter-note">#${n(c.messageId)} ${esc(c.skill)}${c.difficulty !== '普通' ? `（${esc(c.difficulty)}）` : ''} ${esc(c.detail)} → ${esc(c.outcome)}${c.ruleset === 'dnd5e' ? ' · D&D' : ''}</div>`).join('')
+        ? model.checks.map((c) => `<div class="igs-source-filter-note">#${n(c.messageId)} ${esc(c.skill)}${c.difficulty !== '普通' ? `（${esc(c.difficulty)}）` : ''} ${esc(c.detail)} → ${esc(c.outcome)}</div>`).join('')
         : '<div class="igs-source-filter-note">暂无检定。</div>';
     const story = (model.story || []).length
         ? model.story.map((s) => `<div class="igs-settings-field"><span>${esc(s.name)}（${esc(s.attribute)}${s.guessed ? '，猜测' : ''}）</span><div class="igs-mood-word-list">`

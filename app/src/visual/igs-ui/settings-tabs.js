@@ -406,9 +406,8 @@ const STATS_TEMPLATE = `
   <div class="igs-settings-sub"{{statsHidden}}>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">规则</div>
-      <div class="igs-source-filter-grid">{{rulesetField}}{{storyCheckField}}</div>
-      <div class="igs-source-filter-note">{{rulesetNote}}</div>
-      <div class="igs-settings-section">{{autoSkillField}}{{checkFxField}}{{optionChanceField}}{{dndNaturalField}}{{intimacyField}}</div>
+      <div class="igs-source-filter-grid">{{storyCheckField}}</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{checkFxField}}{{optionChanceField}}{{intimacyField}}</div>
       <div class="igs-source-filter-grid">{{newChatField}}{{registerField}}{{hudLabelField}}</div>
     </div>
     <div class="igs-source-filter">

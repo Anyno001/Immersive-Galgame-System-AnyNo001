@@ -1,10 +1,9 @@
-// 规则体系登记表（数值 v2 §2）：本期内置 CoC 第七版与 D&D 第五版；第三方可经 registerRuleset 追加。
-// 每个体系提供 resolve / contest / passiveOpposition / chance / rawRoll / rawNeed，均为纯函数。
-import * as coc7 from './coc7.js';
+// 规则体系登记表（合并计划 Q2）：日常检定统一为 d20（保留优势 / 劣势双骰），CoC 百分骰已移除。
+// 旧存档里记为 coc7 的检定读取时按 d20 体系处理；第三方仍可经 registerRuleset 追加。
 import * as dnd5e from './dnd5e.js';
 
-const REGISTRY = new Map([[coc7.ID, coc7], [dnd5e.ID, dnd5e]]);
-export const DEFAULT_RULESET = coc7.ID;
+const REGISTRY = new Map([[dnd5e.ID, dnd5e]]);
+export const DEFAULT_RULESET = dnd5e.ID;
 const REQUIRED = ['resolve', 'contest', 'passiveOpposition', 'chance', 'rawRoll', 'rawNeed'];
 
 export function registerRuleset(ruleset) {
@@ -20,8 +19,4 @@ export function getRuleset(id) {
 
 export function hasRuleset(id) {
     return REGISTRY.has(id);
-}
-
-export function rulesetOptions() {
-    return [...REGISTRY.values()].map((r) => [r.ID, r.LABEL || r.ID]);
 }

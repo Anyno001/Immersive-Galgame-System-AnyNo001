@@ -78,12 +78,8 @@ function skillsLineOf(engine, state) {
 
 function perceptionLineOf(engine, state) {
     const p = profileOf(engine, state, PROTAGONIST, state.protagonist.skills.侦查 ? '侦查' : '感知');
-    if (engine.ruleset.ID === 'dnd5e') {
-        const passive = engine.ruleset.passiveValue(p);
-        return PERCEPTION_WORD[passive >= 18 ? 4 : passive >= 15 ? 3 : passive >= 12 ? 2 : passive >= 9 ? 1 : 0];
-    }
-    const v = Number(p.value) || 0;
-    return PERCEPTION_WORD[v >= 85 ? 4 : v >= 65 ? 3 : v >= 50 ? 2 : v >= 30 ? 1 : 0];
+    const passive = engine.ruleset.passiveValue(p);
+    return PERCEPTION_WORD[passive >= 18 ? 4 : passive >= 15 ? 3 : passive >= 12 ? 2 : passive >= 9 ? 1 : 0];
 }
 
 export function createStatsRuntime({
@@ -745,7 +741,7 @@ export function createStatsRuntime({
         const id = Number(messageId);
         const m = c && Array.isArray(c.chat) ? c.chat[id] : null;
         const entry = m ? ledger.entries.get(ledgerKey(ledger, id, Number(m.swipe_id) || 0)) : null;
-        const head = `数值 ${s.ruleset === 'dnd5e' ? 'D&D第五版' : 'CoC第七版'} · 故事中检定 ${{ preroll: '预掷', manual: '手动掷骰', off: '关闭' }[s.storyCheck]}`;
+        const head = `数值 d20 · 故事中检定 ${{ preroll: '预掷', manual: '手动掷骰', off: '关闭' }[s.storyCheck]}`;
         if (!entry) return `${head} · 本楼没有结算记录`;
         const meta = entry.meta || {};
         const note = meta.note || {};

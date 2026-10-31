@@ -5,9 +5,10 @@ import { settleFloorText } from '../src/scene/stats/stat-settle.js';
 import { mandatesFromFlags } from '../src/scene/stats/stat-prompt.js';
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
 
-// rollD100 先取个位再取十位：0.15 → 11，0.99 → 99。
+// d20 每次取两个随机值（优势 / 劣势取高 / 低，无优劣取第一个）：0.15 → 4，0.75 → 16，0.99 → 20。
 function seq(...values) { let i = 0; return () => values[i++ % values.length]; }
 const high = () => 0.99;
+const low = () => 0.15;
 const resolveCharacter = (name) => (name === '小雪' ? '小雪' : null);
 
 function stateWith({ money = 0, favor = null } = {}) {
@@ -26,7 +27,7 @@ test('敌人档：杂兵 1 次、精英 2 次、头目 3 次对抗（§6A）', (
 });
 
 test('大胜：小耗体力、拿战利品、不记伤势', () => {
-    const r = settle('[igs-stat:battle|杂兵|1]', stateWith(), seq(0.15, 0.15, 0.99, 0.99));
+    const r = settle('[igs-stat:battle|杂兵|1]', stateWith(), high);
     assert.equal(r.meta.flags.battle.outcome, '大胜');
     assert.equal(r.state.protagonist.bars.stamina, 95);
     assert.equal(r.state.protagonist.bars.money, 20);
@@ -34,7 +35,7 @@ test('大胜：小耗体力、拿战利品、不记伤势', () => {
 });
 
 test('战败：伤势档位交给战斗日志（不改生活条）、体力 −30、丢两成金钱，并要求 AI 写出结局', () => {
-    const r = settle('[igs-stat:battle|杂兵]', stateWith({ money: 100 }), high);
+    const r = settle('[igs-stat:battle|杂兵]', stateWith({ money: 100 }), low);
     assert.equal(r.meta.flags.battle.outcome, '败');
     assert.equal(r.meta.flags.battleHurt, '轻伤');
     const bars = r.state.protagonist.bars;
@@ -43,8 +44,7 @@ test('战败：伤势档位交给战斗日志（不改生活条）、体力 −3
 });
 
 test('队友并肩取胜算「共患难」，可突破好感关口；解析不了的队友名记诊断并去掉', () => {
-    const win = seq(0.15, 0.15, 0.15, 0.99, 0.99, 0.15, 0.15, 0.15, 0.15, 0.15);
-    const r = settle('[igs-stat:battle|杂兵|1|小雪]', stateWith({ favor: 25 }), win);
+    const r = settle('[igs-stat:battle|杂兵|1|小雪]', stateWith({ favor: 25 }), high);
     assert.equal(r.meta.flags.battle.ally, '小雪');
     assert.equal(r.state.characters.小雪.dims.好感, 26);
     assert.deepEqual(r.state.characters.小雪.unlocked, ['gate-25']);
@@ -54,7 +54,7 @@ test('队友并肩取胜算「共患难」，可突破好感关口；解析不�
 });
 
 test('打工：成功等级决定收入档，扣体力，成功时打成长勾', () => {
-    const r = settle('[igs-stat:work|打工]', stateWith(), () => 0.15);
+    const r = settle('[igs-stat:work|打工]', stateWith(), () => 0.75);
     assert.deepEqual(r.meta.flags.work, { skill: '烹饪', tier: '困难成功', income: '普通' });
     assert.equal(r.state.protagonist.bars.money, 100);
     assert.equal(r.state.protagonist.bars.stamina, 85);

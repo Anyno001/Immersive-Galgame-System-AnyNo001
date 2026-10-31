@@ -1,5 +1,5 @@
 // 战斗整场速算（§6A、v2 §7.3）与打工检定（§4.2 work）。胜负、伤势、战利品由脚本决定；逐招动作由 AI 正文决定。
-// 掷骰走检定引擎：CoC 为对抗（主角反击时同级攻击方胜），D&D 为攻击检定对 AC、闪避为敏捷豁免。
+// 掷骰走检定引擎（合并计划 Q2/Q5：只有 d20）：每回合攻击检定对 AC，闪避为敏捷豁免；保留优势 / 劣势。
 import { applyBarDirective, workIncomeTier } from './stat-bars.js';
 import { applyKeyEvent } from './stat-favor-events.js';
 import { matchSkill } from './stat-skill-match.js';
@@ -35,44 +35,33 @@ function outcomeOf(wins, rounds, dodged) {
     return '败';
 }
 
-// 敌人一方：已有角色卡的 NPC 用卡里最高的战斗技能，AC 按其敏捷（战斗属性视图）；否则按档位值。
+// 敌人一方：已有角色卡的 NPC，AC 按其敏捷（战斗属性视图）；否则按档位值。
 function foeProfile(engine, state, enemy, foeName) {
     const sheet = foeName ? engine.sheets[foeName] : null;
     if (sheet) {
-        const profile = ['格斗', '射击', '武艺', '剑术', '魔法', '力量'].map((skill) => profileOf(engine, state, foeName, skill)).sort((a, b) => b.value - a.value)[0];
         const dex = Number(profileOf(engine, state, foeName, '敏捷').value) || 50;
-        return { profile, ac: engine.ruleset.ID === 'dnd5e' ? 10 + engine.ruleset.modOf(dex) : enemy.ac, save: enemy.save };
+        return { ac: 10 + engine.ruleset.modOf(dex), save: enemy.save };
     }
-    return { profile: { kind: 'skill', value: enemy.value, learned: true, attributeValue: enemy.value, rank: '普通人', entry: { attribute: '力量' } }, ac: enemy.ac, save: enemy.save };
+    return { ac: enemy.ac, save: enemy.save };
 }
 
-// CoC：每回合主角最佳战斗技能对敌人对抗，同级算主角（反击方）胜；闪避单独掷一次。
-function cocRound(engine, state, attack, foe, mods, random) {
-    const me = resolveCheck(engine, state, { actor: PROTAGONIST, skill: attack.name, edge: mods.edge, ally: mods.ally }, random);
-    const enemy = engine.ruleset.resolve(foe.profile, { difficulty: '普通', edge: 0 }, engine.ruleset.rawRoll(random, 0));
-    const winner = engine.ruleset.contest(me, enemy, { tieWinner: 'left' });
-    return { roll: me.roll, tier: me.tier, foeRoll: enemy.roll, foeTier: enemy.tier, win: winner === 'left' };
-}
-
-// D&D：每回合主角攻击检定对敌人 AC；闪避为一次敏捷豁免，DC 按敌人档。
-function dndRound(engine, state, attack, foe, mods, random) {
+// 每回合主角攻击检定对敌人 AC；闪避为一次敏捷豁免，DC 按敌人档。
+function attackRound(engine, state, attack, foe, mods, random) {
     const bonus = engine.ruleset.bonusOf(profileOf(engine, state, PROTAGONIST, attack.name));
     const net = Math.sign(mods.edge + (mods.ally ? 1 : 0));
     const r = engine.ruleset.attack(bonus, foe.ac, engine.ruleset.rawRoll(random), net);
     return { roll: r.roll, tier: r.hit ? (r.crit ? '大成功' : '命中') : '未命中', total: r.total, ac: foe.ac, win: r.hit };
 }
 
-// 杂兵 1 回合、精英 2 回合、头目 3 回合；敌人每多一个给 1 颗惩罚骰 / 劣势，队友参战给奖励骰 / 优势。
+// 杂兵 1 回合、精英 2 回合、头目 3 回合；敌人多于一个给劣势，队友参战给优势（两者抵消）。
 export function resolveBattle(state, { tier, count = 1, ally = null, foe: foeName = null }, random, engine = createEngine()) {
     const enemy = ENEMY_TABLE[tier];
     const attack = bestCombatSkill(engine, state);
-    const dodgeSkill = bestCombatSkill(engine, state, DODGE_SKILLS);
     const mods = { edge: -Math.min(2, Math.max(0, count - 1)), ally: Boolean(ally) };
     const foe = foeProfile(engine, state, enemy, foeName);
-    const dnd = engine.ruleset.ID === 'dnd5e';
-    const rounds = Array.from({ length: enemy.rounds }, () => (dnd ? dndRound(engine, state, attack, foe, mods, random) : cocRound(engine, state, attack, foe, mods, random)));
-    const dodge = resolveCheck(engine, state, { actor: PROTAGONIST, skill: dnd ? '敏捷' : dodgeSkill.name, edge: mods.edge, ally: mods.ally }, random);
-    const dodged = dnd ? dodge.total >= foe.save : dodge.success;
+    const rounds = Array.from({ length: enemy.rounds }, () => attackRound(engine, state, attack, foe, mods, random));
+    const dodge = resolveCheck(engine, state, { actor: PROTAGONIST, skill: '敏捷', edge: mods.edge, ally: mods.ally }, random);
+    const dodged = dodge.total >= foe.save;
     const wins = rounds.filter((r) => r.win).length;
     return { tier, count, ally, attack: attack.name, rounds, dodge: { roll: dodge.roll, success: dodged }, wins, outcome: outcomeOf(wins, rounds.length, dodged), ruleset: engine.ruleset.ID };
 }

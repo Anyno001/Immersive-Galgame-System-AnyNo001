@@ -186,13 +186,13 @@ test('先掷后写：命中技能时生成前掷骰并注入检定段，结算�
     rt.enableForChat();
     host.ctx.chat.push({ is_user: true, mes: '我给她做一顿寿司' });
     const { id, injected } = generate(host, '她尝了一口。');
-    assert.match(injected, /【本轮检定】烹饪：1d100=\d+，需≤\d+，结果【[^】]+】/);
+    assert.match(injected, /【本轮检定】烹饪：(?:d20\(\d+\)|优势 \d+\/\d+→\d+|劣势 \d+\/\d+→\d+)[+-]\d+=-?\d+，DC\d+，结果【[^】]+】/);
     const checkOf = () => rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 0)).meta.check;
     const check = checkOf();
     assert.equal(check.skill, '烹饪');
     assert.equal(Boolean(rt.getState().protagonist.skills.烹饪.marked), check.success);
     const cont = generate(host, '她又笑了。', 'continue');
-    assert.match(cont.injected, new RegExp(`1d100=${check.roll}，`));
+    assert.ok(cont.injected.includes(`${check.detail}，结果【${check.outcome}】`));
     assert.deepEqual(checkOf(), check);
     host.ctx.chat[id].mes += '（改）';
     host.eventSource.emit('upd', id);

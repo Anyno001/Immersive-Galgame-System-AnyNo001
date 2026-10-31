@@ -19,7 +19,6 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     optionChance: true,
     sheetGen: 'prompt',
     backfill: 'auto',
-    dndNatural: false,
     bars: Object.freeze({ stamina: true, money: true, stress: true }),
     push: Object.freeze({ enabled: false }),
 });
@@ -94,7 +93,6 @@ export function normalizeStatsSettings(raw) {
         optionChance: bool(src.optionChance, d.optionChance),
         sheetGen: pick(SHEET_GEN, src.sheetGen, d.sheetGen),
         backfill: pick(BACKFILL, src.backfill, d.backfill),
-        dndNatural: bool(src.dndNatural, d.dndNatural),
         bars: {
             stamina: bool(bars.stamina, d.bars.stamina),
             money: bool(bars.money, d.bars.money),

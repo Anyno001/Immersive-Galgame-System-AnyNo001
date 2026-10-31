@@ -1,9 +1,9 @@
-// 检定引擎（数值 v2 §2、§4、§5）：所有掷骰都从这里进，按设置取规则体系；底数只读不改。
+// 检定引擎（数值 v2 §2、§4、§5）：所有掷骰都从这里进，只有 d20 一套（合并计划 Q2，保留优势 / 劣势）；底数只读不改。
 // actor 为 PROTAGONIST 时读主角存档，其余读聊天级 NPC 角色卡（没有卡按普通人默认）。纯函数，random 由调用方给。
 // 六维来自战斗属性视图（合并计划 Q1）：readAbilities(name) 给出 { scores }；读不到时主角按建卡倾向、NPC 按「相当」档推导。
-// 属性在引擎内按「分值 × 5」进入原有百分制底数，规则体系的换算（分值 = 底数 / 5）因此与战斗分值一致。
+// 属性在引擎内按「分值 × 5」进入原有百分制底数，d20 换算（分值 = 底数 / 5）因此与战斗分值一致。
 import { getRuleset } from './rulesets/index.js';
-import { BUILTIN_SKILLS, COMBAT_SKILLS, CATEGORY_BASE, baseValueOf, createSkillRegistry, guessAttribute } from './stat-registry.js';
+import { BUILTIN_SKILLS, COMBAT_SKILLS, baseValueOf, createSkillRegistry, guessAttribute } from './stat-registry.js';
 import { clamp, withSkills } from './stat-state.js';
 import { stageOf } from './stat-favor.js';
 import { checkModifiers } from './stat-bars.js';
@@ -25,7 +25,8 @@ export function createEngine(catalog = {}, settings = {}, ruleset = settings.rul
         registry: createSkillRegistry(catalog),
         sheets: catalog.sheets && typeof catalog.sheets === 'object' ? catalog.sheets : {},
         protagonistBase: catalog.protagonistBase && typeof catalog.protagonistBase === 'object' ? catalog.protagonistBase : {},
-        natural: Boolean(settings.dndNatural),
+        // 合并计划 Q2：骰面 20 / 1 一律为大成功 / 大失败（与正文 d20 判定、战斗一致），不再设开关。
+        natural: true,
         readAbilities: typeof readAbilities === 'function' ? readAbilities : null,
         readVitals: typeof readVitals === 'function' ? readVitals : null,
         userName: String(userName || ''),
@@ -139,9 +140,9 @@ export function modifiersOf(engine, state, { actor, skill, toward, ally, edge = 
     return { edge: clamp(net, -max, max), shift, notes };
 }
 
-function rawFor(engine, random, edge, difficulty) {
-    const extra = engine.ruleset.ID === 'coc7' ? engine.ruleset.rawNeed(difficulty, edge) : 0;
-    return engine.ruleset.rawRoll(random, extra);
+// d20 每次掷两颗（优势 / 劣势取高 / 低，无优劣时取第一颗）。
+function rawFor(engine, random) {
+    return engine.ruleset.rawRoll(random);
 }
 
 // request：{ actor, skill, difficulty, against, opposedSkill, toward, ally, edge, raw, source }
@@ -160,7 +161,7 @@ export function resolveCheck(engine, state, request, random) {
         Object.assign(opts, engine.ruleset.passiveOpposition(other));
         opposed = { actor: request.against, skill: opposedSkill, value: other.value };
     }
-    const raw = request.raw || rawFor(engine, random, opts.edge, opts.difficulty);
+    const raw = request.raw || rawFor(engine, random);
     const r = engine.ruleset.resolve(profile, opts, raw);
     return {
         ...r,
@@ -214,19 +215,7 @@ export function prerollTable(engine, state, preroll, { present = [] } = {}) {
     const lines = [];
     for (const key of ['极难', '困难', '普通', '简单']) if (groups[key].length) lines.push(`${TIER_LINE[key]}：${groups[key].join('、')}`);
     if (groups.失败.length) lines.push(`失败：${groups.失败.join('、')}`);
-    if (engine.ruleset.ID === 'coc7') {
-        const parts = [];
-        for (const category of ['daily', 'general', 'pro']) {
-            const probe = { kind: 'skill', attribute: '敏捷', category, aliases: [] };
-            const value = CATEGORY_BASE[category];
-            const r = engine.ruleset.resolve({ kind: 'skill', value, learned: false, attributeValue: 50, rank: RANKS[0], entry: probe }, { difficulty: '普通', edge: 0 }, raw);
-            const easy = engine.ruleset.resolve({ kind: 'skill', value, learned: false, attributeValue: 50, rank: RANKS[0], entry: probe }, { difficulty: '简单', edge: 0 }, raw);
-            parts.push(`${{ daily: '日常类', general: '通用类', pro: '专业类' }[category]}${r.success ? '能过普通' : easy.success ? '只能过简单' : '失败'}`);
-        }
-        lines.push(`未学的技能：${parts.join('，')}`);
-    } else {
-        lines.push('未学的技能：按所属属性那一项算');
-    }
+    lines.push('未学的技能：按所属属性那一项算');
     for (const name of present.slice(0, 3)) {
         const offense = [];
         for (const skill of ['话术', '魅惑', '潜行']) {
@@ -265,7 +254,7 @@ export function bestCombatSkill(engine, state, names = COMBAT_SKILLS) {
         const owned = state.protagonist.skills[name];
         if (entry && entry.kind !== 'attribute' && !owned) continue;
         const p = profileOf(engine, state, PROTAGONIST, name);
-        const score = engine.ruleset.ID === 'dnd5e' ? engine.ruleset.bonusOf(p) : p.value;
+        const score = engine.ruleset.bonusOf(p);
         if (!best || score > best.score) best = { name, score, value: p.value };
     }
     return best || { name: '力量', score: 0, value: 50 };
