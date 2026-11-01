@@ -6,6 +6,8 @@ import { promptSnapshotFromBody } from './final-caption.js';
 import { inspectPngDataUrl, validatePngEncoding } from '../media/png-validation.js';
 import { CG_PIXEL_CAP } from './illustration/cg-pixel-cap.js';
 import { naiRequestQueue } from './nai-request-queue.js';
+import { createNaiCloudQueue } from './nai-cloud-queue.js';
+import { normalizeNaiCloudQueue } from './nai-cloud-queue-settings.js';
 import { globalArtist } from './prompt-artists.js';
 import { resetTavernProxyProbe, resolveTavernTransport, tavernProxyFailure, tavernProxyUrl,
     TAVERN_BACKEND_UNREACHABLE_HINT, TAVERN_PROXY_DISABLED_HINT } from '../host/tavern-cors-proxy.js';
@@ -119,6 +121,7 @@ export function createNaiOfficialClient(deps = {}) {
     const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     const random = deps.random || Math.random;
     const queue = deps.queue || naiRequestQueue;
+    const cloudQueue = deps.cloudQueue || createNaiCloudQueue({ fetch: fetchImpl });
     const stale = () => ({ ok: false, reason: 'request-stale', stopGeneration: true,
         error: '任务已取消或配置失效；上游请求可能仍在执行' });
     const allowed = settings => {
@@ -135,8 +138,7 @@ export function createNaiOfficialClient(deps = {}) {
         const abort = () => controller.abort();
         inputSettings.signal?.addEventListener('abort', abort, { once: true });
         if (inputSettings.signal?.aborted) abort();
-        const timer = setTimeout(() => { try { inputSettings.onSlow?.(); } catch { /* 展示不改变请求状态。 */ } }, timeoutMs);
-        const deadline = Date.now() + timeoutMs;
+        let timer;
         // 分段计时写进生图排查日志：排队（同 Key 串行锁）、等服务器响应、下载解析。
         const p = body?.parameters || {};
         const wire = foldCharsForRelay(body, inputSettings);
@@ -146,10 +148,28 @@ export function createNaiOfficialClient(deps = {}) {
             + `${wire !== body ? ` 并词正${wire.input.length}字/负${wire.parameters.negative_prompt?.length || 0}字` : ''}` };
         settings.timing = timing;
         try {
-            const result = await queue.run(settings.apiKey, () => {
-                timing.startedAt = Date.now();
-                return sendWithRetry(wire, settings, deadline);
-            }, settings);
+            const result = await queue.run(settings.apiKey, async () => {
+                const cloud = normalizeNaiCloudQueue(settings.cloudQueue);
+                if (cloud.enabled) {
+                    const acquired = await cloudQueue.acquire(settings.apiKey, cloud, settings);
+                    if (!acquired.ok) return acquired;
+                    settings.cloudLease = acquired.lease;
+                }
+                try {
+                    if (settings.cloudLease) {
+                        const verified = await settings.cloudLease.verify();
+                        if (!verified.ok) return verified;
+                    }
+                    timing.startedAt = Date.now();
+                    // 本机/云端排队和冷却不消耗真正发送后的超时预算。
+                    timer = setTimeout(() => { try { inputSettings.onSlow?.(); } catch { /* 展示不改变请求状态。 */ } }, timeoutMs);
+                    return await sendWithRetry(wire, settings, Date.now() + timeoutMs);
+                } finally {
+                    if (settings.cloudLease) timing.responseDoneAt = Date.now();
+                    clearTimeout(timer);
+                    await settings.cloudLease?.finish(!settings.cloudSent || settings.cloudResponseKnown === true);
+                }
+            }, { ...settings, wasSent: () => settings.cloudSent === true });
             timing.doneAt = Date.now();
             if (result && typeof result === 'object') result.timing = timing;
             return allowed(settings) ? result : stale();
@@ -178,6 +198,8 @@ export function createNaiOfficialClient(deps = {}) {
         const target = resolveNaiEndpoint(settings.endpoint);
         const url = direct ? target : tavernProxyUrl(target);
         if (!allowed(settings)) return null;
+        settings.cloudSent = true;
+        settings.cloudResponseKnown = false;
         return fetchImpl(url, {
                 method: 'POST',
                 headers: {
@@ -196,9 +218,14 @@ export function createNaiOfficialClient(deps = {}) {
     async function sendWithRetry(body, settings, deadline) {
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
             if (!allowed(settings)) return stale();
+            if (settings.cloudLease && attempt > 0) {
+                const verified = await settings.cloudLease.verify();
+                if (!verified.ok) return verified;
+            }
             let response;
             try {
                 response = await send(body, settings);
+                settings.cloudResponseKnown = Boolean(response);
                 if (settings.timing) settings.timing.headersAt = Date.now();
             } catch (error) {
                 if (!allowed(settings)) return stale();
@@ -236,8 +263,11 @@ export function createNaiOfficialClient(deps = {}) {
                 return { ok: false, reason: 'nai-response-no-image', status: response.status, error: 'NAI 返回中没有图片；未自动补发' };
             }
             if (RETRYABLE.has(response.status) && attempt < MAX_ATTEMPTS - 1) {
-                const delay = retryDelayMs(response, attempt);
-                if (delay > MAX_BACKOFF_MS || Date.now() + delay >= deadline)
+                const retryDelay = retryDelayMs(response, attempt);
+                const interval = Math.max(0, Math.min(60000, Math.round(Number(settings.minIntervalMs)) || 0));
+                // 自动重试也不能比用户设置的最小间隔更快。
+                const delay = Math.max(retryDelay, interval);
+                if (retryDelay > MAX_BACKOFF_MS || Date.now() + delay >= deadline)
                     return { ok: false, reason: 'nai-retry-budget-exhausted', status: response.status,
                         error: 'NAI 要求的等待时间超过本次重试上限，未提前补发' };
                 try { await response.body?.cancel(); } catch { /* 已结束的错误响应不影响取消 */ }
@@ -278,7 +308,7 @@ export function createNaiOfficialClient(deps = {}) {
 
     // 所选模型存在 inpainting 版本时才支持局部重绘。
     function supportsEdit(naiSettings = {}) {
-        return Boolean(resolveNaiInpaintModel(Object.hasOwn(naiSettings, 'model') ? naiSettings.model : NAI_DEFAULT_SETTINGS.model));
+        return Boolean(resolveNaiInpaintModel(Object.hasOwn(naiSettings, 'model') ? naiSettings.model : NAI_DEFAULT_SETTINGS.model, naiSettings.effort));
     }
 
     async function edit(request = {}, naiSettings = {}) {

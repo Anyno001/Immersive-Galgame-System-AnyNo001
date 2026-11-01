@@ -43,7 +43,8 @@ function reportNaiTiming(report, method, enteredAt, readyAt, result) {
     const t = result?.timing;
     if (typeof report !== 'function' || !t?.queuedAt) return;
     const parts = [`就绪检查 ${secs(readyAt - enteredAt)}`, `排队 ${secs((t.startedAt || t.doneAt) - t.queuedAt)}`];
-    if (t.startedAt && t.headersAt) parts.push(`等服务器 ${secs(t.headersAt - t.startedAt)}`, `下载解析 ${secs((t.doneAt || t.headersAt) - t.headersAt)}`);
+    if (t.startedAt && t.headersAt) parts.push(`等服务器 ${secs(t.headersAt - t.startedAt)}`, `下载解析 ${secs((t.responseDoneAt || t.doneAt || t.headersAt) - t.headersAt)}`);
+    if (t.responseDoneAt && t.doneAt) parts.push(`队列收尾 ${secs(t.doneAt - t.responseDoneAt)}`);
     parts.push(`合计 ${secs((t.doneAt || Date.now()) - enteredAt)}`);
     if (t.params) parts.push(`参数 ${t.params}`);
     report('info', `NAI 计时（${method === 'edit' ? '局部重绘' : '生图'}${result?.ok ? '' : '·失败'}）：${parts.join('，')}`);
@@ -287,7 +288,8 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                 ...(guarded.shouldStart && { shouldStart: guarded.shouldStart }),
             };
             const result = await retryRun('nai', () => nai[method](method === 'edit' ? { ...prepared, ...controls } : prepared,
-                { ...frozen, ...controls, onSlow: () => report?.('info', 'NAI 仍在处理同一次请求，继续接收原结果') }), guarded,
+                { ...frozen, ...controls, onQueueEvent: (level, message) => report?.(level, message),
+                    onSlow: () => report?.('info', 'NAI 仍在处理同一次请求，继续接收原结果') }), guarded,
             result => {
                 if (![400, 401, 402, 403, 422].includes(result?.status)) return { changed: false };
                 const latestBridge = getBridge?.() || {};
@@ -856,7 +858,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         const naiSettings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
         const explicitModel = Object.hasOwn(request, 'model');
         if (explicitModel) naiSettings.model = request.model;
-        if (!resolveNaiInpaintModel(naiSettings.model)
+        if (!resolveNaiInpaintModel(naiSettings.model, naiSettings.effort)
             || (typeof nai.supportsEdit === 'function' && !nai.supportsEdit(naiSettings))) {
             return { supported: false, reason: 'image-edit-unsupported', message: '当前 NAI 模型没有已适配的局部重绘版本，请选择 V4／V4.5 或 V5 Full' };
         }
