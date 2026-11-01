@@ -939,7 +939,9 @@ export function createCombatSession(deps = {}) {
         }
         sending = true;
         let result;
-        try { result = await send(item.text); } catch (error) { result = { ok: false, reason: 'combat-send-error' }; } finally { sending = false; }
+        // 回执按战报 ID 认领：酒馆落楼时可能经正则 / 宏改写正文，全文相等会一直等不到回执。
+        const matches = (body) => reportIdOf(body) === item.reportId;
+        try { result = await send(item.text, { matches }); } catch (error) { result = { ok: false, reason: 'combat-send-error' }; } finally { sending = false; }
         if (result?.ok === true) {
             const id = Number(result.messageId);
             return settle(Number.isInteger(id) ? id : null);

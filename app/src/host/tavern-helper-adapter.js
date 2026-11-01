@@ -176,16 +176,22 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
             return { ok: false, reason: 'missing-readable-input' };
         },
 
-        async typeAndSend(text) {
+        // matches 可选：调用方按稳定身份认领回执（如战报 ID）。酒馆落楼前可能经正则 / 宏改写正文，全文相等会永远等不到回执。
+        // 不传时仍按去首尾空白后的全文相等认领。
+        async typeAndSend(text, { matches } = {}) {
             const before = getChatMessageEntries(globalObject);
             const afterId = before.reduce((last, entry) => Math.max(last, Number(entry.id)), -1);
             const chat = getSillyTavernContext(globalObject);
             const chatId = chat?.getCurrentChatId?.() ?? chat?.chatId;
             let dispatched = false;
+            const claims = (body) => {
+                if (typeof matches !== 'function') return body.trim() === String(text).trim();
+                try { return matches(body) === true; } catch (error) { return false; }
+            };
             const receipt = () => getChatMessageEntries(globalObject).find(entry => Number(entry.id) > afterId
                 && (entry.message?.is_user || entry.message?.role === 'user')
                 // 酒馆聊天楼正文在 mes；TavernHelper.getChatMessages 的行正文在 message。
-                && String(entry.message?.mes ?? entry.message?.message ?? entry.message?.text ?? '').trim() === String(text).trim());
+                && claims(String(entry.message?.mes ?? entry.message?.message ?? entry.message?.text ?? '')));
             const observed = () => {
                 const received = receipt();
                 if (received) return { completed: true, value: { ok: true, sent: true, messageId: received.id } };

@@ -61,12 +61,23 @@ export function combatCutinCrop(probed) {
 
 // 眼部斜切条裁切：只在头位是真实探测结果时给出；头位只是默认猜测（不透明立绘或读不到像素）时放大到眼部会对不上脸，返回 null 跳过切入。
 // 探测到脸部（probed.face：脸中心 x、眼线 eye、脸宽 w，均相对原图）时按脸取景，眼线对在斜条中线；发髻、马尾与发饰不再把取景顶高。
+// 脸部结果先与头位互相印证：脸宽不到头宽的 FACE_MIN_OF_HEAD、脸中心落在头宽之外或眼线高过头顶时，多半是把发带、发髻高光认成了脸，
+// 按脸取景会放大到一小块头发上，这时退回按头位取景。
+const FACE_MIN_OF_HEAD = 0.4;
+function faceFits(face, head) {
+    const w = Number(face?.w), x = Number(face?.x), eye = Number(face?.eye);
+    if (!(w > 0) || !(eye > 0) || !Number.isFinite(x)) return false;
+    const hw = Number(head.w), hx = Number(head.x), top = Number(head.top);
+    if (w < hw * FACE_MIN_OF_HEAD) return false;
+    if (Math.abs(x - hx) > hw / 2) return false;
+    return !(Number.isFinite(top) && eye <= top);
+}
 export function combatEyeCrop(probed) {
     const head = probed?.head;
     if (!head || head === FALLBACK_HEAD || !(Number(head.w) > 0)) return null;
     const aspect = Number(probed?.naturalW) > 0 ? Number(probed.naturalH) / Number(probed.naturalW) : 0;
     const face = probed?.face;
-    if (face && Number(face.w) > 0 && Number(face.eye) > 0) {
+    if (face && faceFits(face, head)) {
         const span = Math.min(COMBAT_EYE_FACE_FOCUS.span, 1 / Math.max(0.02, Number(face.w)));
         return resolveCutinCrop({ x: Number(face.x), top: Number(face.eye), w: Number(face.w) }, aspect, COMBAT_EYE_FRAME, { span, line: 0 });
     }

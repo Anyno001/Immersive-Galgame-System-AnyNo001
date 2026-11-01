@@ -1170,16 +1170,15 @@ export function createCombatPanelController(doc, options = {}) {
         return r;
     }
 
-    // 战报发送成功后离开战斗面板，露出阅读器里的新楼层；有升级三选一时先领完（或跳过）再离开。
-    // 只由本面板的「发送战报 / 重新发送」触发：手动重开已发送的面板不会自动关掉。
-    let leaveAfterReport = false;
-    function closeIfReportSettled() {
-        if (!leaveAfterReport || !root || pending || rewards) return;
-        let status = '';
-        try { status = session()?.state().status || ''; } catch (error) { status = ''; }
-        if (status !== 'done') return;
-        leaveAfterReport = false;
+    // 「发送战报 / 重新发送」：点下就关闭面板、露出阅读器，不等发送返回；发送由会话层在后台继续（会话不随面板关闭而取消）。
+    // 发送失败时会话进入 send-failed，重开面板可重新发送；升级三选一在重开面板时领取。
+    function sendAndLeave(fn) {
+        if (pending) return { ok: false, reason: 'combat-busy' };
+        let job;
+        try { job = Promise.resolve(fn()); } catch (error) { job = Promise.resolve({ ok: false, reason: 'combat-action-threw' }); }
+        job = job.catch(() => ({ ok: false, reason: 'combat-action-threw' }));
         close();
+        return job;
     }
 
     async function runAsync(kind, fn) {
@@ -1194,13 +1193,7 @@ export function createCombatPanelController(doc, options = {}) {
         pending = '';
         say(r);
         render();
-        if (r.ok && r.session?.status === 'done') {
-            if (kind === 'send') {
-                leaveAfterReport = true;
-                await loadRewards();
-                if (my === token) closeIfReportSettled();
-            } else loadRewards();
-        }
+        if (r.ok && r.session?.status === 'done') loadRewards();
         return r;
     }
 
@@ -1483,7 +1476,6 @@ export function createCombatPanelController(doc, options = {}) {
         const r = await runAsync('reward', () => ledger.claimReward(rewards.characterId, rewards.level, choice));
         if (r.ok) {
             await loadRewards();
-            closeIfReportSettled();
         }
         return r;
     }
@@ -1550,8 +1542,8 @@ export function createCombatPanelController(doc, options = {}) {
             case 'choose-confirm': return confirmChoice();
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
-            case 'finish': return runAsync('send', () => s.finish());
-            case 'retry-send': return runAsync('send', () => s.retrySend());
+            case 'finish': return sendAndLeave(() => s.finish());
+            case 'retry-send': return sendAndLeave(() => s.retrySend());
             case 'flip':
             case 'choose': {
                 const position = /^\d+$/.test(id) ? Number(id) : -1;
@@ -1894,7 +1886,6 @@ export function createCombatPanelController(doc, options = {}) {
         battleMusic(pageOverlay, false);
         pageOverlay = null;
         pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
-        leaveAfterReport = false;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();

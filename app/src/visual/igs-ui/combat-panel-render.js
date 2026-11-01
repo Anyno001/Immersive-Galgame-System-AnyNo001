@@ -453,7 +453,7 @@ function lootHtml(v) {
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
         + `${reroll ? `<div class="igs-combat-loot-tools">${reroll}</div>` : ''}</section>`;
 }
-// 有 offer 时选定战利品前不能发战报：读取中或未选定置灰；读取失败时仍可点（发送前再读一次，读不到照样拦下并提示原因）。
+// 有 offer 时选定战利品前不能发战报：读取中或未选定时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
 const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && !f.done));
 
 function resultHtml(v) {
@@ -468,7 +468,7 @@ function resultHtml(v) {
     const team = e.allies.map((a) => `<figure class="igs-combat-result-figure">${portraitHtml(a.name, 'ally', pics[a.name] || '')}<figcaption><span>${esc(a.name)}</span><span>${esc(a.injury)}</span></figcaption></figure>`).join('');
     return `<section class="igs-combat-result" data-outcome="${esc(e.outcome)}"><div class="igs-combat-result-head">${fx}<div class="igs-combat-result-title">${esc(e.label)}</div></div>${featsHtml(e.feats)}${foes}`
         + `<div class="igs-combat-result-team" style="--n:${e.allies.length || 1}">${team}</div>`
-        + `${lootHtml(v)}<div class="igs-combat-actions">${!won && v.canRestart ? btn('restart', v.pending === 'restart' ? '重开中' : '重新开始', { disabled: Boolean(v.pending) }) : ''}${btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) || lootBlocksSend(v.flip) })}</div></section>`;
+        + `${lootHtml(v)}<div class="igs-combat-actions">${!won && v.canRestart ? btn('restart', v.pending === 'restart' ? '重开中' : '重新开始', { disabled: Boolean(v.pending) }) : ''}${lootBlocksSend(v.flip) ? '' : btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
 }
 // 对局中的「重新开始」：标题栏图标钮，点一次换成「确认重新开始 / 取消」，再点才放弃本局从头打。
 const restartCtl = (v) => (v.restartArmed
@@ -505,7 +505,7 @@ export function renderCombatPanelHtml(v) {
     else if ((status === 'battle' || status === 'ended') && v.battle) main = battleHtml(v);
     else if (status === 'blocked') main = `<p class="igs-combat-state">${esc(combatReasonText(v.reason))}${v.cause ? `：${esc(generationCauseText(v.cause))}` : ''}</p>${blockedHtml(v)}`;
     else if (status === 'stale') main = `<p class="igs-combat-state">${esc(combatReasonText(v.reason))}</p>`;
-    else if (status === 'send-failed') main = `<p class="igs-combat-state">${STATUS_LINE['send-failed']}</p>${lootHtml(v)}<div class="igs-combat-actions">${btn('retry-send', v.pending === 'send' ? '发送中' : '重新发送', { primary: true, disabled: Boolean(v.pending) || lootBlocksSend(v.flip) })}</div>`;
+    else if (status === 'send-failed') main = `<p class="igs-combat-state">${STATUS_LINE['send-failed']}</p>${lootHtml(v)}<div class="igs-combat-actions">${lootBlocksSend(v.flip) ? '' : btn('retry-send', v.pending === 'send' ? '发送中' : '重新发送', { primary: true, disabled: Boolean(v.pending) })}</div>`;
     else if (status === 'done') main = `<p class="igs-combat-state">${STATUS_LINE.done}</p>${rewardHtml(v.rewards, v.pending)}`;
     else if (status === 'preparing') main = `<p class="igs-combat-state" aria-busy="true">${STATUS_LINE.preparing}</p>`;
     else main = STATUS_LINE[status] ? `<p class="igs-combat-state">${STATUS_LINE[status]}</p>` : '';

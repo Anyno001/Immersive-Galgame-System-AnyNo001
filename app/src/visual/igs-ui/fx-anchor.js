@@ -244,31 +244,53 @@ export function scanFeetFromAlpha(data, width, height) {
 }
 
 // 脸部探测（只给觉醒眼部斜条用，v0.39.2）：发髻、马尾、发饰与蓬松头发会让透明轮廓的头位偏高或偏宽，
-// 这里改找肤色：图像上部 45% 内第一段成片的肤色行作为脸顶（刘海下沿附近），往下一小段里肤色最宽的一行作为脸宽与中心，
+// 这里改找肤色：图像上部 45% 内第一处连续三行都有成段肤色、且中心不漂移的位置作为脸顶（刘海下沿附近），往下一小段里肤色段最宽的一行作为脸宽与中心，
 // 眼线取脸顶往下 FACE_EYE_DROP 个脸宽。找不到成片肤色（非人、暗色皮肤被判不中、整幅不透明）时返回 null，调用方退回头位。
+// 每行只取最长的一段肤色（段内允许眼睛、睫毛这类小缺口）：棕发高光、发带反光是零散的肤色像素，按整行计数会把发髻误当脸顶，脸宽也被算得很窄、斜条放大过头。
 export const FACE_PROBE_W = 96;
 const FACE_EYE_DROP = 0.2;
+const FACE_GAP = 0.03;
+const FACE_MIN_RUN = 0.06;
+const FACE_STEADY_ROWS = 3;
+const FACE_DRIFT = 0.08;
 function isSkin(r, g, b) {
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     return r > 95 && g > 40 && b > 20 && max - min > 15 && r > g && r > b && r - g > 6;
 }
+// 一行里最长的一段肤色：缺口不超过 gap 像素时并入同一段。n 为段内肤色像素数，minX / maxX 为段的左右端。
+function skinRun(data, width, y) {
+    const gap = Math.max(2, Math.round(width * FACE_GAP));
+    let best = { n: 0, minX: width, maxX: -1 };
+    let cur = null;
+    let miss = 0;
+    for (let x = 0; x < width; x += 1) {
+        const i = (y * width + x) * 4;
+        if (data[i + 3] > 200 && isSkin(data[i], data[i + 1], data[i + 2])) {
+            if (!cur) cur = { n: 0, minX: x, maxX: x };
+            cur.n += 1;
+            cur.maxX = x;
+            miss = 0;
+        } else if (cur && ++miss > gap) {
+            if (cur.n > best.n) best = cur;
+            cur = null;
+            miss = 0;
+        }
+    }
+    if (cur && cur.n > best.n) best = cur;
+    return best;
+}
 export function scanFaceFromAlpha(data, width, height) {
     const limit = Math.max(1, Math.floor(height * 0.45));
-    const minRun = Math.max(2, Math.round(width * 0.04));
+    const minRun = Math.max(3, Math.round(width * FACE_MIN_RUN));
     const rows = [];
-    for (let y = 0; y < limit; y += 1) {
-        let n = 0; let minX = width; let maxX = -1;
-        for (let x = 0; x < width; x += 1) {
-            const i = (y * width + x) * 4;
-            if (data[i + 3] <= 200 || !isSkin(data[i], data[i + 1], data[i + 2])) continue;
-            n += 1;
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-        }
-        rows.push({ n, minX, maxX });
-    }
-    const top = rows.findIndex((r) => r.n >= minRun);
+    for (let y = 0; y < limit; y += 1) rows.push(skinRun(data, width, y));
+    const center = (r) => (r.minX + r.maxX + 1) / 2;
+    const steady = (y) => {
+        for (let d = 0; d < FACE_STEADY_ROWS; d += 1) if (!rows[y + d] || rows[y + d].n < minRun) return false;
+        return Math.abs(center(rows[y]) - center(rows[y + FACE_STEADY_ROWS - 1])) <= width * FACE_DRIFT;
+    };
+    const top = rows.findIndex((r, y) => steady(y));
     if (top < 0) return null;
     const span = Math.max(3, Math.round(width * 0.12));
     let best = null;

@@ -410,7 +410,7 @@ export function bootstrapIGS(options = {}) {
         storage: storageLike,
         // 开战楼聊天记录留档：准备与战斗结果按 combatId 写进开战楼 extra，防止重复生成与重打。
         chatRecord: createCombatChatRecord(globalObject),
-        send: (text) => typeAndSend(text),
+        send: (text, options) => typeAndSend(text, options),
         request: (req, llm) => secondaryLlm.request(req, llm),
         getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
         getAutoIllustration: () => readImageBridge().autoIllustration,
@@ -945,9 +945,9 @@ export function bootstrapIGS(options = {}) {
         return { ok: true, scene: renderedScene, render: renderResult };
     }
 
-    async function typeAndSend(text) {
+    async function typeAndSend(text, options) {
         ensureAlive();
-        return inputChannel.typeAndSend(text);
+        return inputChannel.typeAndSend(text, options);
     }
 
     function generateImage(request, generateOptions = {}) {

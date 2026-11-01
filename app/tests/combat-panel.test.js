@@ -396,11 +396,12 @@ test('面板：打到结束后发送战报，已回传的开战楼再打开只�
     p.panel.invoke('start');
     playToEnd(p);
     assert.equal(p.panel.view().end.outcome, 'victory');
-    const sent = await p.panel.invoke('finish');
+    // 点「发送战报」即关闭面板、露出阅读器，不等发送返回；发送在会话层后台完成。
+    const job = p.panel.invoke('finish');
+    assert.equal(p.panel.isOpen(), false);
+    const sent = await job;
     assert.equal(sent.ok, true);
     assert.equal(p.sent.length, 1);
-    // 战报送达且没有待领的升级奖励时，面板自动关闭，露出阅读器里的新楼层。
-    assert.equal(p.panel.isOpen(), false);
     p.panel.open(p.overlay, { messageId: 1 });
     await until(() => p.panel.view().status === 'done');
     assert.doesNotMatch(p.overlay.querySelector('.igs-combat-body').innerHTML, /data-combat-act="start"/);
@@ -433,7 +434,9 @@ test('结算：结束战斗的那次动作先按战斗画面播完演出再换�
     assert.match(html(), /igs-combat-result-rays[\s\S]*igs-combat-result-sparks/);
     assert.doesNotMatch(html(), /data-side="enemy"|igs-combat-field/);
     assert.equal((html().match(/class="igs-combat-result-figure"/g) || []).length, p.panel.view().end.allies.length);
-    assert.match(html(), /data-combat-act="finish"/);
+    // 战利品还在读取（未选定）：不出「发送战报」。
+    assert.match(html(), /<section class="igs-combat-loot" aria-busy="true">/);
+    assert.doesNotMatch(html(), /data-combat-act="finish"/);
     assert.equal(p.overlay.querySelector('#igs-combat-panel').getAttribute('data-igs-combat-reduced'), null);
     // 更早动作没播完的时间轴已被最后一击收掉：走完所有计时器后，对手名牌不会重新挂回结算画面，画面仍是结算。
     p.timers.advance(20000);
@@ -1711,7 +1714,7 @@ async function winFlip(t) {
     assert.equal(t.p.panel.view().status, 'ended');
 }
 
-test('翻牌：胜利后卡背一律相同、不带稀有度与名称，未选定时发送置灰；翻一张即选定，自己翻开的按稀有度出光效、其余随后翻开降一档；选定后才出重新抽取、积分不足置灰；减少动态效果不闪白；重绘与重开不重播光效', async () => {
+test('翻牌：胜利后卡背一律相同、不带稀有度与名称，未选定时不出发送；翻一张即选定，自己翻开的按稀有度出光效、其余随后翻开降一档；选定后才出重新抽取、积分不足置灰；减少动态效果不闪白；重绘与重开不重播光效', async () => {
     const t = flipHarness({ slots: LOOT_MAIN, reserve: LOOT_RESERVE, points: 12 });
     await winFlip(t);
     const v0 = t.p.panel.view().flip;
@@ -1719,7 +1722,7 @@ test('翻牌：胜利后卡背一律相同、不带稀有度与名称，未选�
     assert.equal(t.cards().length, 3);
     assert.ok(t.cards().every((c) => /data-combat-act="flip"/.test(c) && !/data-rarity|data-fx|is-face/.test(c)));
     assert.doesNotMatch(t.html(), /褪色的发绳|银狼牙|月下狼魂/);
-    assert.match(t.html(), /data-combat-act="finish" aria-disabled="true">发送战报</);
+    assert.doesNotMatch(t.html(), /data-combat-act="finish"/);
     assert.match(t.html(), /<div class="igs-combat-loot-cap">战利品<\/div>/);
     assert.doesNotMatch(t.html(), /data-combat-act="reroll"/);
     const before = t.flashes();
@@ -1754,11 +1757,11 @@ test('翻牌：胜利后卡背一律相同、不带稀有度与名称，未选�
 const LOOT_FOUR = [lootSlot(0, 'common', '旧绳结'), lootSlot(1, 'uncommon', '狼毛围巾'), lootSlot(2, 'rare', '灰烬护符'), lootSlot(3, 'epic', '暗月刃')];
 const LOOT_FOUR_RESERVE = [lootSlot(0, 'common', '碎石'), lootSlot(1, 'rare', '星砂瓶'), lootSlot(2, 'uncommon', '旧地图'), lootSlot(3, 'mythic', '狼神之眼')];
 const LOOT_TIER = { common: 1, uncommon: 1, rare: 2, epic: 3, mythic: 4 };
-test('再翻与透视：读取中发送置灰，读到后状态不变也重绘；透视亮出的牌朝上仍可翻、翻开时出光效；翻两张后只能在两张里选；重抽可用时换上备用套重新翻，用过后不再出重抽', async () => {
+test('再翻与透视：读取中不出发送，读到后状态不变也重绘；透视亮出的牌朝上仍可翻、翻开时出光效；翻两张后只能在两张里选；重抽可用时换上备用套重新翻，用过后不再出重抽', async () => {
     const t = flipHarness({ slots: LOOT_FOUR, reserve: LOOT_FOUR_RESERVE, reveal: 1, points: 40, ready: false });
     await winFlip(t);
     assert.match(t.html(), /<section class="igs-combat-loot" aria-busy="true">/);
-    assert.match(t.html(), /data-combat-act="finish" aria-disabled="true"/);
+    assert.doesNotMatch(t.html(), /data-combat-act="finish"/);
     t.p.timers.advance(20000);
     t.f.ready = true;
     t.f.emit();
@@ -1779,7 +1782,7 @@ test('再翻与透视：读取中发送置灰，读到后状态不变也重绘�
     assert.doesNotMatch(t.html(), /data-combat-act="flip"/);
     assert.match(t.cards()[q], new RegExp(`class="igs-combat-loot-card is-face is-fresh" data-rarity="${slotAt(q).rarity}" data-fx="${LOOT_TIER[slotAt(q).rarity]}" data-combat-act="choose" data-combat-id="${q}"`));
     assert.doesNotMatch(t.cards()[rp], /data-fx/);
-    assert.match(t.html(), /data-combat-act="finish" aria-disabled="true"/);
+    assert.doesNotMatch(t.html(), /data-combat-act="finish"/);
     const other = [0, 1, 2, 3].find((i) => i !== rp && i !== q);
     const bad = await t.p.panel.invoke('choose', String(other));
     assert.deepEqual([bad.ok, bad.reason], [false, 'combat-flip-position-invalid']);
@@ -1795,7 +1798,7 @@ test('再翻与透视：读取中发送置灰，读到后状态不变也重绘�
     assert.deepEqual([v3.set, v3.done, v3.cards.filter((c) => c.faceUp).length], ['reserve', false, 1]);
     assert.doesNotMatch(t.html(), /is-fresh|data-fx|data-combat-act="reroll"/);
     assert.equal((t.html().match(/data-combat-act="flip"/g) || []).length, 4);
-    assert.match(t.html(), /data-combat-act="finish" aria-disabled="true"/);
+    assert.doesNotMatch(t.html(), /data-combat-act="finish"/);
     assert.deepEqual(t.f.calls, [['flip', rp], ['flip', q], ['choose', other], ['choose', q], ['reroll']]);
     t.p.panel.close();
 });
@@ -1820,7 +1823,7 @@ test('战报未发送：重新发送前同样要先选定战利品；读取失�
     const base = { status: 'send-failed', pending: '', notice: '' };
     assert.match(renderCombatPanelHtml(base), /<p class="igs-combat-state">战报未发送<\/p><div class="igs-combat-actions"><button type="button" class="igs-combat-btn is-primary" data-combat-act="retry-send">重新发送<\/button><\/div>/);
     const open = renderCombatPanelHtml({ ...base, flip: flipView(offer, emptyPick(), { payer: false }) });
-    assert.match(open, /data-combat-act="retry-send" aria-disabled="true">重新发送</);
+    assert.doesNotMatch(open, /data-combat-act="retry-send"/);
     assert.equal((open.match(/data-combat-act="flip"/g) || []).length, 3);
     assert.doesNotMatch(open, /data-combat-act="reroll"/);
     const failed = renderCombatPanelHtml({ ...base, flip: { status: 'error', reason: 'combat-ledger-read-failed' } });
