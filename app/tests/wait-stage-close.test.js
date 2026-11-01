@@ -29,3 +29,22 @@ test('gate:wait-stage:play-mode-close-folds-the-layer-not-the-reader', () => {
     assert.equal(runtime.isPlaying(), false, '只收起小游戏层');
     assert.equal(runtime.isOpen(), false);
 });
+
+test('等待页菜单：纯三点和内嵌也保留入口，已关闭层的按钮不再触发', () => {
+    const doc = { createElement(tag) { return new FakeEl(doc, tag); } };
+    const calls = [];
+    const runtime = createWaitStageRuntime({ doc,
+        onSettings: (root) => calls.push(['settings', root]),
+        onDirectory: (root) => calls.push(['directory', root]),
+    });
+    const root = runtime.open(doc.createElement('div'), { embedded: true, settings: { enabled: false } });
+    const settings = root.querySelector('[data-igs-waitstage-settings]');
+    assert.equal(settings.getAttribute('aria-label'), '设置');
+    assert.equal(root.querySelector('[data-igs-waitstage-directory]').getAttribute('aria-label'), '目录');
+    settings.fire('click');
+    root.querySelector('[data-igs-waitstage-directory]').fire('click');
+    assert.deepEqual(calls, [['settings', root], ['directory', root]]);
+    runtime.close();
+    settings.fire('click');
+    assert.equal(calls.length, 2);
+});

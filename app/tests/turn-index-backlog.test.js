@@ -241,3 +241,28 @@ test('自动朗读：运行中点别行重播键从该行重来，手动选楼�
     await panel.whenAutoReadIdle();
     assert.equal(panel.getState().autoReading, false);
 });
+
+test('目录：内嵌换宿主后保留已选楼层，关闭时移除面板', async () => {
+    const { doc, panel, host } = setup();
+    await panel.open(host);
+    const selected = panel.getState().selectedId;
+    const element = doc.querySelector('#igs-turn-index');
+    const next = doc.createElement('div');
+    doc.body.appendChild(next);
+    host.remove();
+    await panel.open(next);
+    assert.equal(doc.querySelector('#igs-turn-index'), element);
+    assert.equal(element.parentNode, next);
+    assert.equal(panel.getState().selectedId, selected);
+    panel.close();
+    assert.equal(doc.querySelector('#igs-turn-index'), null);
+});
+
+test('目录：打开后新增的楼层也能通过最新按钮跳转', async () => {
+    const turns = [{ id: 4, text: '原来的最新楼。' }];
+    const { panel, host, jumps } = setup({ listTurns: async () => turns.slice() });
+    await panel.open(host);
+    turns.push({ id: 6, text: '刚生成的新楼。' });
+    await panel.act('latest');
+    assert.deepEqual(jumps.at(-1), { id: 6, page: 0 });
+});
