@@ -6,6 +6,10 @@ import { getPath, normalizeSettingsValue, setPath } from './settings-normalize.j
 const PROFILE_PATHS = Object.freeze({
     image: [
         'bridge.autoIllustration.nai.transport', 'bridge.autoIllustration.nai.endpoint', 'bridge.autoIllustration.nai.apiKey',
+        'bridge.autoIllustration.nai.minIntervalMs',
+        'bridge.autoIllustration.nai.effort',
+        'bridge.autoIllustration.nai.cloudQueue.enabled', 'bridge.autoIllustration.nai.cloudQueue.endpoint',
+        'bridge.autoIllustration.nai.cloudQueue.timeoutMs',
         'bridge.autoIllustration.nai.model', 'bridge.imageApi.mode', 'bridge.imageApi.cgModel', 'bridge.imageApi.spriteModel',
         'bridge.imageApi.backgroundModel', 'bridge.imageApi.itemModel',
     ],
@@ -15,7 +19,7 @@ const PROFILE_PATHS = Object.freeze({
 const KIND_LABEL = Object.freeze({ image: '生图', llm: '副 LLM' });
 
 // 这些字段在 change 事件后立即落盘：后台生图任务读的是已保存配置。
-const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model)|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
+const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model|minIntervalMs|effort|cloudQueue\.(?:enabled|endpoint|timeoutMs))|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
 export function isImmediateSavePath(path) {
     return IMMEDIATE_SAVE_PATH.test(String(path || ''));
 }
@@ -30,6 +34,10 @@ export function collectProfileValues(kind, draft) {
 }
 
 export function applyProfileValues(kind, values, draft) {
+    if (kind === 'image' && !Object.hasOwn(values || {}, 'bridge.autoIllustration.nai.effort'))
+        setPath(draft, 'bridge.autoIllustration.nai.effort', 'high');
+    if (kind === 'image' && !Object.hasOwn(values || {}, 'bridge.autoIllustration.nai.cloudQueue.enabled'))
+        setPath(draft, 'bridge.autoIllustration.nai.cloudQueue.enabled', false);
     for (const path of PROFILE_PATHS[kind] || []) {
         if (Object.hasOwn(values || {}, path)) setPath(draft, path, normalizeSettingsValue(path, values[path]));
     }
