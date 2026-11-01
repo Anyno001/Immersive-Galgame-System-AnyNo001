@@ -467,7 +467,7 @@ function bootstrapIGS(options = {}) {
         storage: storageLike,
         // 开战楼聊天记录留档：准备与战斗结果按 combatId 写进开战楼 extra，防止重复生成与重打。
         chatRecord: createCombatChatRecord(globalObject),
-        send: (text) => typeAndSend(text),
+        send: (text, options) => typeAndSend(text, options),
         request: (req, llm) => secondaryLlm.request(req, llm),
         getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
         getAutoIllustration: () => readImageBridge().autoIllustration,
@@ -1002,9 +1002,9 @@ function bootstrapIGS(options = {}) {
         return { ok: true, scene: renderedScene, render: renderResult };
     }
 
-    async function typeAndSend(text) {
+    async function typeAndSend(text, options) {
         ensureAlive();
-        return inputChannel.typeAndSend(text);
+        return inputChannel.typeAndSend(text, options);
     }
 
     function generateImage(request, generateOptions = {}) {
@@ -6813,31 +6813,53 @@ function scanFeetFromAlpha(data, width, height) {
 }
 
 // 脸部探测（只给觉醒眼部斜条用，v0.39.2）：发髻、马尾、发饰与蓬松头发会让透明轮廓的头位偏高或偏宽，
-// 这里改找肤色：图像上部 45% 内第一段成片的肤色行作为脸顶（刘海下沿附近），往下一小段里肤色最宽的一行作为脸宽与中心，
+// 这里改找肤色：图像上部 45% 内第一处连续三行都有成段肤色、且中心不漂移的位置作为脸顶（刘海下沿附近），往下一小段里肤色段最宽的一行作为脸宽与中心，
 // 眼线取脸顶往下 FACE_EYE_DROP 个脸宽。找不到成片肤色（非人、暗色皮肤被判不中、整幅不透明）时返回 null，调用方退回头位。
+// 每行只取最长的一段肤色（段内允许眼睛、睫毛这类小缺口）：棕发高光、发带反光是零散的肤色像素，按整行计数会把发髻误当脸顶，脸宽也被算得很窄、斜条放大过头。
 const FACE_PROBE_W = 96;
 const FACE_EYE_DROP = 0.2;
+const FACE_GAP = 0.03;
+const FACE_MIN_RUN = 0.06;
+const FACE_STEADY_ROWS = 3;
+const FACE_DRIFT = 0.08;
 function isSkin(r, g, b) {
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     return r > 95 && g > 40 && b > 20 && max - min > 15 && r > g && r > b && r - g > 6;
 }
+// 一行里最长的一段肤色：缺口不超过 gap 像素时并入同一段。n 为段内肤色像素数，minX / maxX 为段的左右端。
+function skinRun(data, width, y) {
+    const gap = Math.max(2, Math.round(width * FACE_GAP));
+    let best = { n: 0, minX: width, maxX: -1 };
+    let cur = null;
+    let miss = 0;
+    for (let x = 0; x < width; x += 1) {
+        const i = (y * width + x) * 4;
+        if (data[i + 3] > 200 && isSkin(data[i], data[i + 1], data[i + 2])) {
+            if (!cur) cur = { n: 0, minX: x, maxX: x };
+            cur.n += 1;
+            cur.maxX = x;
+            miss = 0;
+        } else if (cur && ++miss > gap) {
+            if (cur.n > best.n) best = cur;
+            cur = null;
+            miss = 0;
+        }
+    }
+    if (cur && cur.n > best.n) best = cur;
+    return best;
+}
 function scanFaceFromAlpha(data, width, height) {
     const limit = Math.max(1, Math.floor(height * 0.45));
-    const minRun = Math.max(2, Math.round(width * 0.04));
+    const minRun = Math.max(3, Math.round(width * FACE_MIN_RUN));
     const rows = [];
-    for (let y = 0; y < limit; y += 1) {
-        let n = 0; let minX = width; let maxX = -1;
-        for (let x = 0; x < width; x += 1) {
-            const i = (y * width + x) * 4;
-            if (data[i + 3] <= 200 || !isSkin(data[i], data[i + 1], data[i + 2])) continue;
-            n += 1;
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-        }
-        rows.push({ n, minX, maxX });
-    }
-    const top = rows.findIndex((r) => r.n >= minRun);
+    for (let y = 0; y < limit; y += 1) rows.push(skinRun(data, width, y));
+    const center = (r) => (r.minX + r.maxX + 1) / 2;
+    const steady = (y) => {
+        for (let d = 0; d < FACE_STEADY_ROWS; d += 1) if (!rows[y + d] || rows[y + d].n < minRun) return false;
+        return Math.abs(center(rows[y]) - center(rows[y + FACE_STEADY_ROWS - 1])) <= width * FACE_DRIFT;
+    };
+    const top = rows.findIndex((r, y) => steady(y));
     if (top < 0) return null;
     const span = Math.max(3, Math.round(width * 0.12));
     let best = null;
@@ -29879,16 +29901,22 @@ function createTavernHelperAdapter(globalObject = globalThis.window || globalThi
             return { ok: false, reason: 'missing-readable-input' };
         },
 
-        async typeAndSend(text) {
+        // matches 可选：调用方按稳定身份认领回执（如战报 ID）。酒馆落楼前可能经正则 / 宏改写正文，全文相等会永远等不到回执。
+        // 不传时仍按去首尾空白后的全文相等认领。
+        async typeAndSend(text, { matches } = {}) {
             const before = getChatMessageEntries(globalObject);
             const afterId = before.reduce((last, entry) => Math.max(last, Number(entry.id)), -1);
             const chat = getSillyTavernContext(globalObject);
             const chatId = chat?.getCurrentChatId?.() ?? chat?.chatId;
             let dispatched = false;
+            const claims = (body) => {
+                if (typeof matches !== 'function') return body.trim() === String(text).trim();
+                try { return matches(body) === true; } catch (error) { return false; }
+            };
             const receipt = () => getChatMessageEntries(globalObject).find(entry => Number(entry.id) > afterId
                 && (entry.message?.is_user || entry.message?.role === 'user')
                 // 酒馆聊天楼正文在 mes；TavernHelper.getChatMessages 的行正文在 message。
-                && String(entry.message?.mes ?? entry.message?.message ?? entry.message?.text ?? '').trim() === String(text).trim());
+                && claims(String(entry.message?.mes ?? entry.message?.message ?? entry.message?.text ?? '')));
             const observed = () => {
                 const received = receipt();
                 if (received) return { completed: true, value: { ok: true, sent: true, messageId: received.id } };
@@ -30642,11 +30670,12 @@ function createInputChannel(hostAdapter) {
     }
 
     return {
-        async typeAndSend(text) {
+        // options 原样透传给宿主适配层（如 matches 回执认领）；不传时调用形状与旧版一致。
+        async typeAndSend(text, options) {
             if (typeof text !== 'string' || !text.trim()) {
                 return { ok: false, reason: 'empty-input' };
             }
-            return hostAdapter.typeAndSend(text);
+            return options === undefined ? hostAdapter.typeAndSend(text) : hostAdapter.typeAndSend(text, options);
         },
         async typeIntoInputAndSend(text) {
             return this.typeAndSend(text);
@@ -152446,16 +152475,15 @@ function createCombatPanelController(doc, options = {}) {
         return r;
     }
 
-    // 战报发送成功后离开战斗面板，露出阅读器里的新楼层；有升级三选一时先领完（或跳过）再离开。
-    // 只由本面板的「发送战报 / 重新发送」触发：手动重开已发送的面板不会自动关掉。
-    let leaveAfterReport = false;
-    function closeIfReportSettled() {
-        if (!leaveAfterReport || !root || pending || rewards) return;
-        let status = '';
-        try { status = session()?.state().status || ''; } catch (error) { status = ''; }
-        if (status !== 'done') return;
-        leaveAfterReport = false;
+    // 「发送战报 / 重新发送」：点下就关闭面板、露出阅读器，不等发送返回；发送由会话层在后台继续（会话不随面板关闭而取消）。
+    // 发送失败时会话进入 send-failed，重开面板可重新发送；升级三选一在重开面板时领取。
+    function sendAndLeave(fn) {
+        if (pending) return { ok: false, reason: 'combat-busy' };
+        let job;
+        try { job = Promise.resolve(fn()); } catch (error) { job = Promise.resolve({ ok: false, reason: 'combat-action-threw' }); }
+        job = job.catch(() => ({ ok: false, reason: 'combat-action-threw' }));
         close();
+        return job;
     }
 
     async function runAsync(kind, fn) {
@@ -152470,13 +152498,7 @@ function createCombatPanelController(doc, options = {}) {
         pending = '';
         say(r);
         render();
-        if (r.ok && r.session?.status === 'done') {
-            if (kind === 'send') {
-                leaveAfterReport = true;
-                await loadRewards();
-                if (my === token) closeIfReportSettled();
-            } else loadRewards();
-        }
+        if (r.ok && r.session?.status === 'done') loadRewards();
         return r;
     }
 
@@ -152759,7 +152781,6 @@ function createCombatPanelController(doc, options = {}) {
         const r = await runAsync('reward', () => ledger.claimReward(rewards.characterId, rewards.level, choice));
         if (r.ok) {
             await loadRewards();
-            closeIfReportSettled();
         }
         return r;
     }
@@ -152826,8 +152847,8 @@ function createCombatPanelController(doc, options = {}) {
             case 'choose-confirm': return confirmChoice();
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
-            case 'finish': return runAsync('send', () => s.finish());
-            case 'retry-send': return runAsync('send', () => s.retrySend());
+            case 'finish': return sendAndLeave(() => s.finish());
+            case 'retry-send': return sendAndLeave(() => s.retrySend());
             case 'flip':
             case 'choose': {
                 const position = /^\d+$/.test(id) ? Number(id) : -1;
@@ -153170,7 +153191,6 @@ function createCombatPanelController(doc, options = {}) {
         battleMusic(pageOverlay, false);
         pageOverlay = null;
         pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
-        leaveAfterReport = false;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();
@@ -153256,12 +153276,23 @@ function combatCutinCrop(probed) {
 
 // 眼部斜切条裁切：只在头位是真实探测结果时给出；头位只是默认猜测（不透明立绘或读不到像素）时放大到眼部会对不上脸，返回 null 跳过切入。
 // 探测到脸部（probed.face：脸中心 x、眼线 eye、脸宽 w，均相对原图）时按脸取景，眼线对在斜条中线；发髻、马尾与发饰不再把取景顶高。
+// 脸部结果先与头位互相印证：脸宽不到头宽的 FACE_MIN_OF_HEAD、脸中心落在头宽之外或眼线高过头顶时，多半是把发带、发髻高光认成了脸，
+// 按脸取景会放大到一小块头发上，这时退回按头位取景。
+const FACE_MIN_OF_HEAD = 0.4;
+function faceFits(face, head) {
+    const w = Number(face?.w), x = Number(face?.x), eye = Number(face?.eye);
+    if (!(w > 0) || !(eye > 0) || !Number.isFinite(x)) return false;
+    const hw = Number(head.w), hx = Number(head.x), top = Number(head.top);
+    if (w < hw * FACE_MIN_OF_HEAD) return false;
+    if (Math.abs(x - hx) > hw / 2) return false;
+    return !(Number.isFinite(top) && eye <= top);
+}
 function combatEyeCrop(probed) {
     const head = probed?.head;
     if (!head || head === FALLBACK_HEAD || !(Number(head.w) > 0)) return null;
     const aspect = Number(probed?.naturalW) > 0 ? Number(probed.naturalH) / Number(probed.naturalW) : 0;
     const face = probed?.face;
-    if (face && Number(face.w) > 0 && Number(face.eye) > 0) {
+    if (face && faceFits(face, head)) {
         const span = Math.min(COMBAT_EYE_FACE_FOCUS.span, 1 / Math.max(0.02, Number(face.w)));
         return resolveCutinCrop({ x: Number(face.x), top: Number(face.eye), w: Number(face.w) }, aspect, COMBAT_EYE_FRAME, { span, line: 0 });
     }
@@ -156318,7 +156349,7 @@ function lootHtml(v) {
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
         + `${reroll ? `<div class="igs-combat-loot-tools">${reroll}</div>` : ''}</section>`;
 }
-// 有 offer 时选定战利品前不能发战报：读取中或未选定置灰；读取失败时仍可点（发送前再读一次，读不到照样拦下并提示原因）。
+// 有 offer 时选定战利品前不能发战报：读取中或未选定时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
 const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && !f.done));
 
 function resultHtml(v) {
@@ -156333,7 +156364,7 @@ function resultHtml(v) {
     const team = e.allies.map((a) => `<figure class="igs-combat-result-figure">${portraitHtml(a.name, 'ally', pics[a.name] || '')}<figcaption><span>${esc(a.name)}</span><span>${esc(a.injury)}</span></figcaption></figure>`).join('');
     return `<section class="igs-combat-result" data-outcome="${esc(e.outcome)}"><div class="igs-combat-result-head">${fx}<div class="igs-combat-result-title">${esc(e.label)}</div></div>${featsHtml(e.feats)}${foes}`
         + `<div class="igs-combat-result-team" style="--n:${e.allies.length || 1}">${team}</div>`
-        + `${lootHtml(v)}<div class="igs-combat-actions">${!won && v.canRestart ? btn('restart', v.pending === 'restart' ? '重开中' : '重新开始', { disabled: Boolean(v.pending) }) : ''}${btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) || lootBlocksSend(v.flip) })}</div></section>`;
+        + `${lootHtml(v)}<div class="igs-combat-actions">${!won && v.canRestart ? btn('restart', v.pending === 'restart' ? '重开中' : '重新开始', { disabled: Boolean(v.pending) }) : ''}${lootBlocksSend(v.flip) ? '' : btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
 }
 // 对局中的「重新开始」：标题栏图标钮，点一次换成「确认重新开始 / 取消」，再点才放弃本局从头打。
 const restartCtl = (v) => (v.restartArmed
@@ -156369,7 +156400,7 @@ function renderCombatPanelHtml(v) {
     else if ((status === 'battle' || status === 'ended') && v.battle) main = battleHtml(v);
     else if (status === 'blocked') main = `<p class="igs-combat-state">${esc(combatReasonText(v.reason))}${v.cause ? `：${esc(generationCauseText(v.cause))}` : ''}</p>${blockedHtml(v)}`;
     else if (status === 'stale') main = `<p class="igs-combat-state">${esc(combatReasonText(v.reason))}</p>`;
-    else if (status === 'send-failed') main = `<p class="igs-combat-state">${STATUS_LINE['send-failed']}</p>${lootHtml(v)}<div class="igs-combat-actions">${btn('retry-send', v.pending === 'send' ? '发送中' : '重新发送', { primary: true, disabled: Boolean(v.pending) || lootBlocksSend(v.flip) })}</div>`;
+    else if (status === 'send-failed') main = `<p class="igs-combat-state">${STATUS_LINE['send-failed']}</p>${lootHtml(v)}<div class="igs-combat-actions">${lootBlocksSend(v.flip) ? '' : btn('retry-send', v.pending === 'send' ? '发送中' : '重新发送', { primary: true, disabled: Boolean(v.pending) })}</div>`;
     else if (status === 'done') main = `<p class="igs-combat-state">${STATUS_LINE.done}</p>${rewardHtml(v.rewards, v.pending)}`;
     else if (status === 'preparing') main = `<p class="igs-combat-state" aria-busy="true">${STATUS_LINE.preparing}</p>`;
     else main = STATUS_LINE[status] ? `<p class="igs-combat-state">${STATUS_LINE[status]}</p>` : '';
@@ -158268,7 +158299,9 @@ function createCombatSession(deps = {}) {
         }
         sending = true;
         let result;
-        try { result = await send(item.text); } catch (error) { result = { ok: false, reason: 'combat-send-error' }; } finally { sending = false; }
+        // 回执按战报 ID 认领：酒馆落楼时可能经正则 / 宏改写正文，全文相等会一直等不到回执。
+        const matches = (body) => reportIdOf(body) === item.reportId;
+        try { result = await send(item.text, { matches }); } catch (error) { result = { ok: false, reason: 'combat-send-error' }; } finally { sending = false; }
         if (result?.ok === true) {
             const id = Number(result.messageId);
             return settle(Number.isInteger(id) ? id : null);
