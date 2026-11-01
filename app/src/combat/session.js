@@ -373,15 +373,17 @@ export function lobbyVitals(lobby, difficulty = 'normal') {
     return Object.fromEntries(allyUnits(lobby, difficulty).map((u) => [u.id, { hp: u.hp ?? u.maxHp, maxHp: u.maxHp }]));
 }
 
-// 场上 / 场外（P8b）：敌人超过场上上限时，首领先排，其余各按本场种子排序；排在前面的上场，其余按序进场外队列（首领排不下时在场外队首）。
+// 场上 / 场外（P8b）：敌人超过场上上限时，按首领 → 精英 → 普通排位，同档内按本场种子排序；排在前面的上场，其余按同一顺序进场外队列
+// （首领、精英排不下时排在场外队首，先于普通怪补位）。
 // 同一场重开结果不变；没有超过上限时返回 null，setup 不带 reserve，形状与旧版一致。
 function enemyReserve(foes, tiers, combatId) {
     if (foes.length <= COMBAT_RULES.maxEnemiesOnField) return null;
     const seed = `reserve:${combatId}`;
     const rank = (list) => list.map((u) => [u.id, hash32(`${seed}|${u.id}`)]).sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1)).map(([id]) => id);
     const bosses = foes.filter((u, i) => tiers[i] === 'boss');
-    const others = foes.filter((u, i) => tiers[i] !== 'boss');
-    return [...rank(bosses), ...rank(others)].slice(COMBAT_RULES.maxEnemiesOnField);
+    const elites = foes.filter((u, i) => tiers[i] === 'elite');
+    const others = foes.filter((u, i) => tiers[i] !== 'boss' && tiers[i] !== 'elite');
+    return [...rank(bosses), ...rank(elites), ...rank(others)].slice(COMBAT_RULES.maxEnemiesOnField);
 }
 
 export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', userName, combatId = '' } = {}) {

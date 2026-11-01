@@ -152166,6 +152166,13 @@ function createCombatPanelController(doc, options = {}) {
                     at += move;
                 }
             }
+            // 补位怪轮到出手而格子还画着倒下的旧敌人：先换上它（入场演出），再播它的出手；不让场外怪隐身打人。
+            if (seg.actor && swaps.has(seg.actor) && !reduced()) {
+                const id = seg.actor;
+                const enter = () => { if (my === token) forceSwap(id); };
+                if (at === 0) enter(); else later(enter, at);
+                at += COMBAT_SWAP_MS.in;
+            }
             // 有特写时先播特写，命中演出在最后一个特写开始淡出时落下；这一段的停留时长覆盖特写与命中两者。
             // 出牌飞行卡只在第一段：命中等影子卡飞到目标后落下。没有特写也不飞时 lead / span 为 0，节奏与旧版一致。
             const cuts = planCutins(seg.events, cur.battle);
@@ -152323,6 +152330,22 @@ function createCombatPanelController(doc, options = {}) {
             entering.delete(e.replaced);
             swaps.set(e.unitId, { oldId: prev ? prev.oldId : e.replaced, phase: 'hold' });
         }
+    }
+
+    // 立即完成补位：倒下的旧敌人不再暂存停留，新敌人直接入场；补位怪出手前调用。
+    function forceSwap(id) {
+        const sw = swaps.get(id);
+        if (!sw) return;
+        swaps.delete(id);
+        held.delete(sw.oldId);
+        entering.set(id, Date.now());
+        render();
+        const my = token;
+        later(() => {
+            if (my !== token || !entering.has(id)) return;
+            entering.delete(id);
+            unitEl(id)?.removeAttribute?.('data-swap');
+        }, COMBAT_SWAP_MS.in);
     }
 
     // overkill 战斗在出牌阶段敌人已全灭、没有演出在播：加演出锁，停顿后发出结束回合（引擎据此判胜）；中途关掉面板时重开后照常收尾。
@@ -157734,15 +157757,17 @@ function lobbyVitals(lobby, difficulty = 'normal') {
     return Object.fromEntries(allyUnits(lobby, difficulty).map((u) => [u.id, { hp: u.hp ?? u.maxHp, maxHp: u.maxHp }]));
 }
 
-// 场上 / 场外（P8b）：敌人超过场上上限时，首领先排，其余各按本场种子排序；排在前面的上场，其余按序进场外队列（首领排不下时在场外队首）。
+// 场上 / 场外（P8b）：敌人超过场上上限时，按首领 → 精英 → 普通排位，同档内按本场种子排序；排在前面的上场，其余按同一顺序进场外队列
+// （首领、精英排不下时排在场外队首，先于普通怪补位）。
 // 同一场重开结果不变；没有超过上限时返回 null，setup 不带 reserve，形状与旧版一致。
 function enemyReserve(foes, tiers, combatId) {
     if (foes.length <= COMBAT_RULES.maxEnemiesOnField) return null;
     const seed = `reserve:${combatId}`;
     const rank = (list) => list.map((u) => [u.id, hash32(`${seed}|${u.id}`)]).sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1)).map(([id]) => id);
     const bosses = foes.filter((u, i) => tiers[i] === 'boss');
-    const others = foes.filter((u, i) => tiers[i] !== 'boss');
-    return [...rank(bosses), ...rank(others)].slice(COMBAT_RULES.maxEnemiesOnField);
+    const elites = foes.filter((u, i) => tiers[i] === 'elite');
+    const others = foes.filter((u, i) => tiers[i] !== 'boss' && tiers[i] !== 'elite');
+    return [...rank(bosses), ...rank(elites), ...rank(others)].slice(COMBAT_RULES.maxEnemiesOnField);
 }
 function buildSetup(lobby, start, { controlledId, difficulty = 'normal', userName, combatId = '' } = {}) {
     const id = controlledId ?? lobby.heroId;

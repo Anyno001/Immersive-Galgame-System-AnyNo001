@@ -861,6 +861,13 @@ export function createCombatPanelController(doc, options = {}) {
                     at += move;
                 }
             }
+            // 补位怪轮到出手而格子还画着倒下的旧敌人：先换上它（入场演出），再播它的出手；不让场外怪隐身打人。
+            if (seg.actor && swaps.has(seg.actor) && !reduced()) {
+                const id = seg.actor;
+                const enter = () => { if (my === token) forceSwap(id); };
+                if (at === 0) enter(); else later(enter, at);
+                at += COMBAT_SWAP_MS.in;
+            }
             // 有特写时先播特写，命中演出在最后一个特写开始淡出时落下；这一段的停留时长覆盖特写与命中两者。
             // 出牌飞行卡只在第一段：命中等影子卡飞到目标后落下。没有特写也不飞时 lead / span 为 0，节奏与旧版一致。
             const cuts = planCutins(seg.events, cur.battle);
@@ -1018,6 +1025,22 @@ export function createCombatPanelController(doc, options = {}) {
             entering.delete(e.replaced);
             swaps.set(e.unitId, { oldId: prev ? prev.oldId : e.replaced, phase: 'hold' });
         }
+    }
+
+    // 立即完成补位：倒下的旧敌人不再暂存停留，新敌人直接入场；补位怪出手前调用。
+    function forceSwap(id) {
+        const sw = swaps.get(id);
+        if (!sw) return;
+        swaps.delete(id);
+        held.delete(sw.oldId);
+        entering.set(id, Date.now());
+        render();
+        const my = token;
+        later(() => {
+            if (my !== token || !entering.has(id)) return;
+            entering.delete(id);
+            unitEl(id)?.removeAttribute?.('data-swap');
+        }, COMBAT_SWAP_MS.in);
     }
 
     // overkill 战斗在出牌阶段敌人已全灭、没有演出在播：加演出锁，停顿后发出结束回合（引擎据此判胜）；中途关掉面板时重开后照常收尾。
