@@ -24,15 +24,33 @@ const schema = orig('src/combat/schema.js');
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const sortedKeys = (mod) => Object.keys(mod).sort();
 
+// 系统提示的有意改动：v0.39.1 新增 encounter-theme / profile-gear 两行，v0.39.2 新增 signature-card 一行；
+// v0.39.2 改写了「卡牌写成」「profile-deck」两行（专属卡改为按等级另行生成）。比对时去掉新增行、改写行换回原包写法。
+const ADDED_SYSTEM_LINES = ['- encounter-theme：', '- profile-gear：', '- signature-card：'];
+const REWRITTEN_SYSTEM_LINES = ['卡牌写成 ', '- profile-deck：'];
+function asOriginalSystem(system) {
+    const original = oGen.GENERATION_SYSTEM.split('\n');
+    return system.split('\n')
+        .filter((line) => !ADDED_SYSTEM_LINES.some((head) => line.startsWith(head)))
+        .map((line) => {
+            const head = REWRITTEN_SYSTEM_LINES.find((prefix) => line.startsWith(prefix));
+            return head ? original.find((old) => old.startsWith(head)) : line;
+        })
+        .join('\n');
+}
+
 test('导出清单与原包一致', () => {
-    assert.deepEqual(sortedKeys(generation), sortedKeys(oGen));
-    assert.deepEqual(sortedKeys(assembly), sortedKeys(oAsm));
+    // v0.39.1 / v0.39.2 新增的导出、实体种类与提示词行，原包没有；其余逐项照旧比对。
+    const addedGeneration = new Set(['encounterThemeEntity', 'profileGearEntity', 'signatureEntity']);
+    const addedAssembly = new Set(['INITIAL_GEAR_MAX', 'assembleInitialGear', 'assembleSignature']);
+    assert.deepEqual(sortedKeys(generation).filter((key) => !addedGeneration.has(key)), sortedKeys(oGen));
+    assert.deepEqual(sortedKeys(assembly).filter((key) => !addedAssembly.has(key)), sortedKeys(oAsm));
     assert.deepEqual(sortedKeys({ generateWithRetry, isRetryableGeneration, COMBAT_GENERATION_RETRY_DELAYS }), sortedKeys(oRetry));
     assert.deepEqual(sortedKeys({ heroInventoryView, INVENTORY_DEF_KINDS }), sortedKeys(oView));
     assert.deepEqual(sortedKeys({ STOCK_TYPES, STOCK_RARITY_LABELS, STOCK_SLOT_LABELS, stockKindOf, stockPlan }), sortedKeys(oWrites));
-    assert.deepEqual(generation.GENERATION_KINDS, oGen.GENERATION_KINDS);
+    assert.deepEqual(generation.GENERATION_KINDS.filter((kind) => !['encounter-theme', 'profile-gear', 'signature-card'].includes(kind)), oGen.GENERATION_KINDS);
     assert.equal(generation.MAX_FIX_ROUNDS, oGen.MAX_FIX_ROUNDS);
-    assert.equal(generation.GENERATION_SYSTEM, oGen.GENERATION_SYSTEM);
+    assert.equal(asOriginalSystem(generation.GENERATION_SYSTEM), oGen.GENERATION_SYSTEM);
     assert.deepEqual(assembly.CARD_COST_SLOTS, oAsm.CARD_COST_SLOTS);
     assert.deepEqual(COMBAT_GENERATION_RETRY_DELAYS, oRetry.COMBAT_GENERATION_RETRY_DELAYS);
     assert.deepEqual(STOCK_TYPES, oWrites.STOCK_TYPES);
@@ -357,8 +375,13 @@ test('generation：实体构造函数与原包一致', () => {
         ['enemyEntities', [undefined]],
         ['withCombatInitialization', [[{ key: 'a', kind: 'profile-deck', input: { name: '甲' } }, { key: 'b', kind: 'class', input: {} }, { key: 'c', kind: 'enemy', input: { name: '狼' } }], ['甲', '乙', '狼']]],
     ];
+    // v0.39.2：卡组档案请求不再带 signatureSlots（专属卡到解锁等级另行生成），比对时从原包结果里去掉这一字段。
+    const withoutSignatureSlots = (value) => (Array.isArray(value)
+        ? value.map((entity) => (entity?.kind === 'profile-deck' && entity.input ? { ...entity, input: Object.fromEntries(Object.entries(entity.input).filter(([key]) => key !== 'signatureSlots')) } : entity))
+        : value);
     for (const [fn, args] of cases) {
-        assert.deepEqual(generation[fn](...args), oGen[fn](...args), `${fn} ${JSON.stringify(args).slice(0, 200)}`);
+        const expected = fn === 'deckProfileEntities' ? withoutSignatureSlots(oGen[fn](...args)) : oGen[fn](...args);
+        assert.deepEqual(generation[fn](...args), expected, `${fn} ${JSON.stringify(args).slice(0, 200)}`);
     }
 });
 
@@ -411,7 +434,10 @@ test('generation：rewardEntity / growthEntity / templateEnemy / buildGeneration
     const withRetry = [{ entity: entities[0], previous: { hp: 1 }, errors: [{ path: 'hp', reason: 'bad' }] }, { entity: { ...entities[0], key: 'k2', optional: true } }, entities[0]];
     for (const items of [[entities[0]], withRetry]) {
         for (const options of [undefined, { context: { story: 's' }, classes: new Map([['class-1', { ...classes[0], archetype: 'warrior', classPool: [] }]]) }]) {
-            assert.deepEqual(generation.buildGenerationRequest(items, options), oGen.buildGenerationRequest(items, options));
+            const built = generation.buildGenerationRequest(items, options);
+            // 系统提示里 v0.39.1 / v0.39.2 的有意改动按原包写法还原，其余逐字相同。
+            const system = asOriginalSystem(built.system);
+            assert.deepEqual({ ...built, system }, oGen.buildGenerationRequest(items, options));
         }
     }
     const profile = { id: 'p1', name: '甲', kind: 'enemy' };

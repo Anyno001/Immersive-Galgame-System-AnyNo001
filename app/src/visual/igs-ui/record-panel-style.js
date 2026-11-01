@@ -27,9 +27,14 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-slot-icon{display:grid;place-items:center;width:44%;aspect-ratio:1/1;}
 #igs-record-panel .igs-record-slot-icon svg{width:100%;height:100%;stroke-width:1.3;}
 #igs-record-panel .igs-record-slot-name{position:absolute;left:10px;right:32px;bottom:9px;font-size:12px;font-weight:500;line-height:1.3;color:inherit;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:left;}
+#igs-record-panel .igs-record-slot-unsellable{margin-left:2px;font-size:10px;font-weight:400;opacity:.62;}
+#igs-record-panel .igs-record-points{flex:none;padding:0 4px;color:var(--igs-rp-text-faint);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+
 #igs-record-panel .igs-record-slot-quantity{position:absolute;right:10px;bottom:9px;font-size:11px;line-height:1.3;color:inherit;opacity:.66;font-variant-numeric:tabular-nums;}
+#igs-record-panel .igs-record-slot-worn{position:absolute;top:8px;left:8px;padding:1px 6px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill-active);color:var(--igs-rp-accent,var(--igs-rp-text));font-size:10px;font-weight:600;line-height:16px;letter-spacing:.04em;}
 #igs-record-panel .igs-record-slots-empty{grid-column:1/-1;margin:24px 0;color:var(--igs-rp-text-faint);text-align:center;}
-#igs-record-panel .igs-record-item-pane{position:sticky;top:0;min-width:0;}
+#igs-record-panel .igs-record-item-pane{position:sticky;top:0;display:flex;flex-direction:column;gap:14px;min-width:0;}
+#igs-record-panel .igs-record-inventory.is-solo{grid-template-columns:minmax(0,1fr);}
 #igs-record-panel .igs-record-item-detail,#igs-record-panel .igs-record-item-empty{box-sizing:border-box;padding:24px 24px 22px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);}
 #igs-record-panel .igs-record-item-head{display:flex;align-items:center;gap:18px;min-width:0;}
 #igs-record-panel .igs-record-item-title{min-width:0;}
@@ -48,6 +53,19 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-item-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:220px;color:var(--igs-rp-text-faint);}
 #igs-record-panel .igs-record-item-empty p{margin:0;font-size:13px;letter-spacing:.08em;}
 #igs-record-panel .igs-record-item-empty-icon svg{width:24px;height:24px;opacity:.6;}
+#igs-record-panel .igs-record-gear-map{box-sizing:border-box;padding:18px 18px 16px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);}
+#igs-record-panel .igs-record-gear-map h3{margin:0 0 10px;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.16em;}
+#igs-record-panel .igs-record-gear-map ul{display:grid;gap:4px;margin:0;padding:0;list-style:none;}
+#igs-record-panel .igs-record-gear-map li{display:grid;grid-template-columns:3em minmax(0,1fr);align-items:center;gap:10px;min-height:40px;}
+#igs-record-panel .igs-record-gear-slot{color:var(--igs-rp-text-faint);font-size:12px;letter-spacing:.08em;}
+#igs-record-panel .igs-record-gear-map button{display:flex;align-items:center;gap:10px;min-width:0;padding:6px 10px;border:0;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text);text-align:left;transition:background .18s var(--igs-rp-ease);}
+#igs-record-panel .igs-record-gear-map button:hover,#igs-record-panel .igs-record-gear-map button[aria-current="true"]{background:var(--igs-rp-fill-active);}
+#igs-record-panel .igs-record-gear-icon{display:grid;place-items:center;flex:none;width:26px;height:26px;}
+#igs-record-panel .igs-record-gear-icon svg{width:22px;height:22px;stroke-width:1.3;}
+#igs-record-panel .igs-record-gear-icon img{width:100%;height:100%;object-fit:contain;border-radius:4px;}
+#igs-record-panel .igs-record-gear-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;}
+#igs-record-panel .igs-record-gear-map small{flex:none;color:var(--igs-rp-text-faint);font-size:11px;}
+#igs-record-panel .igs-record-gear-empty{padding:6px 10px;color:var(--igs-rp-text-faint);font-size:12px;}
 
 #igs-record-panel .igs-record-diary{display:grid;grid-template-columns:minmax(250px,30%) minmax(0,1fr);gap:clamp(20px,3vw,40px);height:100%;min-height:0;}
 #igs-record-panel .igs-record-diary-side{display:flex;flex-direction:column;gap:12px;min-width:0;min-height:0;overflow:auto;padding-bottom:12px;}
@@ -166,6 +184,7 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel th{color:var(--igs-rp-text-faint);font-size:12px;font-weight:500;}
 
 #igs-record-panel.igs-rp-mid .igs-record-inventory{grid-template-columns:minmax(0,1fr) minmax(250px,38%);}
+#igs-record-panel.igs-rp-mid .igs-record-inventory.is-solo{grid-template-columns:minmax(0,1fr);}
 #igs-record-panel.igs-rp-mid .igs-record-relationships{grid-template-columns:minmax(0,1fr) minmax(280px,.9fr);}
 #igs-record-panel.igs-rp-narrow .igs-record-scroll{padding:4px 14px 20px;}
 #igs-record-panel.igs-rp-narrow .igs-record-inventory{display:flex;flex-direction:column;align-items:stretch;gap:16px;}
@@ -178,6 +197,7 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel.igs-rp-narrow .igs-record-slot-icon{width:44%;}
 #igs-record-panel.igs-rp-narrow .igs-record-slot-name{left:7px;right:22px;bottom:6px;font-size:11px;-webkit-line-clamp:1;}
 #igs-record-panel.igs-rp-narrow .igs-record-slot-quantity{right:7px;bottom:6px;font-size:10px;}
+#igs-record-panel.igs-rp-narrow .igs-record-slot-worn{top:5px;left:5px;padding:0 4px;font-size:9px;line-height:14px;}
 #igs-record-panel.igs-rp-narrow .igs-record-item-pane{position:static;}
 #igs-record-panel.igs-rp-narrow .igs-record-item-detail{padding:18px 16px;}
 #igs-record-panel.igs-rp-narrow .igs-record-item-head{gap:14px;}

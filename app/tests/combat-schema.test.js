@@ -132,7 +132,8 @@ function fuzz(label, fixture, fnName, count = 120) {
 }
 
 test('导出名集合与常量一致', () => {
-    assert.deepStrictEqual(Object.keys(mine).sort(), Object.keys(orig).sort());
+    // v0.39.1 新增导出，原版没有
+    assert.deepStrictEqual(Object.keys(mine).filter((key) => key !== 'INIT_GEAR_TAG_HASH').sort(), Object.keys(orig).sort());
     for (const k of Object.keys(orig)) {
         if (typeof orig[k] === 'function') continue;
         assert.deepStrictEqual(mine[k], orig[k], k);

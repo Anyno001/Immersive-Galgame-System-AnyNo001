@@ -192,6 +192,7 @@ export function createAssetGenerationService(deps) {
     const prepareExternalSpriteDna = createExternalSpriteDnaPreparation({ llm, readSettings,
         isExternal: externalSource, isBuiltin: signal => describeTask(signal).mode === 'nai', isStopped: () => stopped, readChat: () => messageHost.getChatId(),
         captureTarget: deps.captureCharacterDnaTarget,
+        captureCombatInit: deps.captureCombatInit,
         readLore: names => typeof messageHost.readCharacterLore === 'function'
             ? messageHost.readCharacterLore(names, { includeWorldInfo: typeof llm?.prepareImagePrompt !== 'function' }) : [],
     });

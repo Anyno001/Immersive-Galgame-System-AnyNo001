@@ -37,7 +37,7 @@ import { collectPromptContext } from '../../host/prompt-context.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
 import { fxPromptsCopyText } from './fx-settings-fields.js';
-import { isPromptEntryKey, normalizePromptEntry } from '../../scene/prompt-entries.js';
+import { defaultPromptEntryMode, isPromptEntryKey, normalizePromptEntry } from '../../scene/prompt-entries.js';
 import { getLastPromptReport } from '../../scene/prompt-triggers.js';
 import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } from '../../scene/mood-review-store.js';
 import { loadStoryOutfitCandidates } from '../../scene/outfit-review-store.js';
@@ -2578,17 +2578,19 @@ export async function handleSettingsAction(action, ctx) {
     }
 
     // 演出写法条目：启用 / 常驻两个开关写在 mode 里（关闭 off、常驻 always、其余 auto）。
+    // 重新启用回到该条目的缺省模式；缺省为常驻的条目被亲手切成按需时记 modeChosen，免得规范化又拨回常驻。
     const entryFlag = normalizedAction.match(/^prompt-entry-flag:([a-z]+):(enabled|always)$/);
     if (entryFlag) {
         if (!isPromptEntryKey(entryFlag[1])) return rerenderSettings();
         const bridge = settingsState.draft.bridge = settingsState.draft.bridge || {};
         const sceneAssets = bridge.sceneAssets = { ...(bridge.sceneAssets || {}) };
         const entries = { ...(sceneAssets.promptEntries || {}) };
-        const current = normalizePromptEntry(entries[entryFlag[1]]);
+        const { modeChosen, ...current } = normalizePromptEntry(entries[entryFlag[1]], entryFlag[1]);
+        const fallback = defaultPromptEntryMode(entryFlag[1]);
         const mode = entryFlag[2] === 'enabled'
-            ? (current.mode === 'off' ? 'auto' : 'off')
+            ? (current.mode === 'off' ? fallback : 'off')
             : (current.mode === 'always' ? 'auto' : 'always');
-        entries[entryFlag[1]] = { ...current, mode };
+        entries[entryFlag[1]] = { ...current, mode, ...(mode === 'auto' && fallback !== 'auto' ? { modeChosen: true } : {}) };
         sceneAssets.promptEntries = entries;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;

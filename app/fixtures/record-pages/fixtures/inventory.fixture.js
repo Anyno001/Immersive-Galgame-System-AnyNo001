@@ -16,3 +16,37 @@ export const inventoryFixture = {
   ]
 };
 // 覆盖点：未知图标走通用回退；缺数量不补 ×1；零数量如实显示；长名称格位最多两行、详情显示全名。
+
+// 战斗开启时的背包预览（?gear=1）：在上面十件剧情物品之外加入装备、道具、杂物，并给出主角背包投影。
+// 投影与 combat/inventory-view.js 的 heroInventoryView 同形；数量仍以物品表为准，others 由预览页按上面十件补齐。
+export const combatInventoryFixture = {
+  items: [
+    { name: '旧式短剑', quantity: 1, description: '护手刻着褪色的家纹，刃口仍然锋利。' },
+    { name: '皮革轻甲', quantity: 1, description: '贴身的鞣皮短甲，肩部有修补过的针脚。' },
+    { name: '铁护手', quantity: 1, description: '沉重的铁制护手，和轻甲同属防具，只能换着穿。' },
+    { name: '月光吊坠', quantity: 1, description: '夜里会泛起微光的银色吊坠。' },
+    { name: '疗伤药', quantity: 3, description: '涂抹后能止血镇痛的药膏。' },
+    { name: '烟雾弹', quantity: 1, description: '摔碎后迅速弥漫白烟。' },
+    { name: '褪色徽章', quantity: 1, description: '某支早已解散的护卫队的徽章。' }
+  ],
+  view: {
+    ok: true,
+    gear: {
+      slots: {
+        weapon: { gearId: 'gear-preview-sword', name: '旧式短剑', slot: 'weapon', rarity: 'rare', count: 1 },
+        armor: { gearId: 'gear-preview-leather', name: '皮革轻甲', slot: 'armor', rarity: 'uncommon', count: 1 }
+      },
+      bag: [
+        { gearId: 'gear-preview-gauntlet', name: '铁护手', slot: 'armor', rarity: 'common', count: 1 },
+        { gearId: 'gear-preview-pendant', name: '月光吊坠', slot: 'accessory', rarity: 'epic', count: 1 }
+      ]
+    },
+    items: [
+      { itemId: 'item-preview-salve', name: '疗伤药', count: 3 },
+      { itemId: 'item-preview-smoke', name: '烟雾弹', count: 1 }
+    ],
+    collection: [{ itemId: 'item-preview-badge', name: '褪色徽章', origin: '旧护卫队', rarity: 'rare', count: 1 }],
+    others: [],
+    diagnostics: []
+  }
+};

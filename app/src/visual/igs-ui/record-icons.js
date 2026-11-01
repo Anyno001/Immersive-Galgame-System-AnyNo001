@@ -1,6 +1,8 @@
 // Project-owned, static SVG paths; database values never enter SVG markup.
 // 统一细线描边：24 网格、圆角端点，粗细由样式层 stroke-width 控制（默认 1.3）。
 const svg = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+// 同规格外壳给战斗卡面纹样、意图箭头复用；body 只能是程序常量。
+export const lineIconSvg = svg;
 
 const ITEM_ICONS = Object.freeze({
     key: svg('<circle cx="7.5" cy="16.5" r="3.5"/><path d="M10 14 20 4M16.5 7.5 19 10M18.5 5.5l2 2"/>'),
@@ -54,6 +56,7 @@ export const RECORD_ICONS = Object.freeze({
     inventory: svg('<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m-4 0v14"/>'),
     relationships: svg('<circle cx="7" cy="8" r="3"/><circle cx="17" cy="8" r="3"/><path d="M2 20v-2a5 5 0 0 1 10 0v2m0 0v-2a5 5 0 0 1 10 0v2"/>'),
     favor: svg('<path d="M12 20s-7.5-4.6-7.5-10.1A4.2 4.2 0 0 1 12 7.4a4.2 4.2 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20Z"/>'),
+    combat: svg('<path d="M14.5 17.5 3.5 6.5v-3h3l11 11M13 19l6-6M16 16l3.5 3.5"/><path d="M9.5 17.5 20.5 6.5v-3h-3l-11 11M11 19l-6-6M8 16l-3.5 3.5"/>'),
     zoomIn: svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/>'),
     zoomOut: svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M8 11h6"/>'),
     locate: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>'),
@@ -65,6 +68,11 @@ export const RECORD_ICONS = Object.freeze({
     sparkle: svg('<path d="M12 3.5c.6 4.2 2.3 5.9 6.5 6.5-4.2.6-5.9 2.3-6.5 6.5-.6-4.2-2.3-5.9-6.5-6.5 4.2-.6 5.9-2.3 6.5-6.5Z"/>'),
     shuffle: svg('<path d="M3 7h3.5c4.5 0 6.5 10 11 10H21M3 17h3.5c1.6 0 2.8-1.3 3.8-3M14 9.4c1-1.4 2.1-2.4 3.5-2.4H21M18.5 4.5 21 7l-2.5 2.5M18.5 14.5 21 17l-2.5 2.5"/>'),
     layers: svg('<path d="m12 3.5 9 4.5-9 4.5L3 8Z"/><path d="m3 12.5 9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"/>'),
+    // 战斗回合操作：结束回合（沙漏）、撤退（奔跑的小人）、取消选目标（回退箭头）、重新开始（环形箭头）。
+    turnEnd: svg('<path d="M6.5 3.5h11M6.5 20.5h11"/><path d="M7.5 3.5c0 4.5 4.5 5.5 4.5 8.5s-4.5 4-4.5 8.5M16.5 3.5c0 4.5-4.5 5.5-4.5 8.5s4.5 4 4.5 8.5"/>'),
+    retreat: svg('<circle cx="14.5" cy="4.5" r="2"/><path d="M13.5 8.5 11 14.5M12.8 10 9.5 10.8 7.5 13.5M12.8 10l2.7 2.6 3 .4M11 14.5l3.2 2.3v4.2M11 14.5l-2.3 3.4-3.7.6"/>'),
+    undo: svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
+    restart: svg('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/>'),
 });
 
 // 物品名关键词 → 图标与展示分组；分组只在表格没有「类别」列时作为浏览归类，不改写物品属性。

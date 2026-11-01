@@ -60,12 +60,12 @@ test('连续 30 楼不跨天时软跨天：只清每日上限（易错点 D2）'
     assert.equal(r.state.protagonist.bars.stamina, 40);
 });
 
-test('时间跳跃上限 30 天，体力生命回满（易错点 D4）', () => {
-    const r = settle('[igs-stat:skip|十年后]', {}, stateWith({ stamina: 10, health: 30 }));
+test('时间跳跃上限 30 天，体力回满；生命不在生活条里，不随跳跃恢复（易错点 D4、合并计划 Q4）', () => {
+    const r = settle('[igs-stat:skip|十年后]', {}, stateWith({ stamina: 10 }));
     assert.equal(r.state.clock.day, 31);
     assert.equal(r.meta.flags.skipCapped, true);
     assert.equal(r.state.protagonist.bars.stamina, 100);
-    assert.equal(r.state.protagonist.bars.health, 100);
+    assert.equal(r.state.protagonist.bars.health, undefined);
 });
 
 test('23 点后每天只记一次熬夜，当夜入睡体力只恢复到 70', () => {

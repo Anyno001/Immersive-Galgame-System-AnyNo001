@@ -2,15 +2,16 @@
 // 按模板表解算成完整的职业、卡牌、技能、被动、敌人、装备、物品、特质与奖励。
 // 每个 assemble* 函数返回 { profile/value, diagnostics } 或 { errors }，
 // 错误与数值夹取记录都带路径，供上层写诊断或要求模型重写。
-import { BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, combatSpeedFor } from './rules.js';
+import { BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, combatSpeedFor, signatureSlotOf } from './rules.js';
 import {
     CARD_TEMPLATES, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, PASSIVE_TEMPLATES, SKILL_TEMPLATES, cardFromValues, gearPassiveFromTemplate,
     heroSkillFromTemplate, itemAtRarity, itemFromTemplate, fixedTemplateCost, nearestTemplateCost, passiveAtRarity, passiveFromTemplate,
     skillFromTemplate, solveCardTemplate,
 } from './card-templates.js';
 import { forbiddenCombos } from './combos.js';
-import { GEAR_BONUS_BY_RARITY, REWARD_ORIGIN_MAX, gearIdFor, itemIdFor, profileIdFor } from './schema.js';
+import { GEAR_BONUS_BY_RARITY, GEAR_SLOTS, REWARD_ORIGIN_MAX, effectsDamage, gearIdFor, itemIdFor, profileIdFor } from './schema.js';
 import { ABILITY_KEYS, abilityKeyOf } from './abilities.js';
+import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { hash32, hashString, nextRandom } from './random.js';
 import { isEnemyArtKey } from './enemy-art.js';
 
@@ -330,6 +331,32 @@ export function assembleDeck(raw, { key, fixed, cls, input = {} }) {
     return finish(collector, profile);
 }
 
+// 专属卡到期生成（signature-card，v0.39.2）：{ cards:[[名, 卡牌模板键], …] }，与 input.slots 逐位对应；
+// ID 为「档案ID-g<槽位>」，费用按 input.costSlots 固定，稀有度 signature；名称不得与档案已有的专属卡重复。
+// 结果是追加了这几张卡（按槽位排序）的同 ID 档案，由调用方写成新版本。
+export function assembleSignature(raw, { key, fixed, input = {} }) {
+    const invalid = expectObject(raw);
+    if (invalid) return invalid;
+    const collector = createCollector(key);
+    const profile = fixed.profile;
+    const slots = Array.isArray(input.slots) ? input.slots : [];
+    const costs = validSlots(input.costSlots, slots.map((slot) => CARD_COST_SLOTS.signature[slot - 1] ?? CARD_COST_SLOTS.signature[0]));
+    const cards = mapList(raw.cards, 'cards', collector, slots.length, slots.length, (item, itemPath, index) => cardFromTriple(item, itemPath, collector, {
+        id: `${profile.id}-g${slots[index]}`, rarity: 'signature', slot: costs[index % costs.length],
+    }));
+    const seen = new Set((profile.signatureCards || []).map((card) => card.name));
+    (Array.isArray(cards) ? cards : []).forEach((card, index) => {
+        if (!card) return;
+        if (seen.has(card.name)) collector.fail(indexPath(indexPath('cards', index), 0), 'name-duplicate');
+        seen.add(card.name);
+    });
+    if (collector.errors.length) return { errors: collector.errors };
+    const fresh = new Set(cards.map((card) => card.id));
+    const merged = [...(profile.signatureCards || []).filter((card) => !fresh.has(card.id)), ...cards];
+    const ordered = merged.map((card, index) => [signatureSlotOf(card, index), card]).sort((a, b) => a[0] - b[0]).map(([, card]) => card);
+    return finish(collector, { ...profile, signatureCards: ordered });
+}
+
 // 技能型角色（不用卡牌）：3~5 个技能、1~2 个被动，可带档位 tier
 export function assembleSkillCharacter(raw, { key, fixed }) {
     const invalid = expectObject(raw);
@@ -449,6 +476,46 @@ export function assembleGear(raw, { key, input }) {
     if (!template) return { errors: collector.errors };
     const passive = { id: `${gearId}-p`, name, ...gearPassiveFromTemplate(template, input.slot) };
     return { value: { gearId, name, slot: input.slot, passive, description: describe(input.description, passive.description, 80) }, diagnostics: collector.diagnostics };
+}
+
+// profile-gear（初始装备，v0.39.2）：{ gear:[[名称, 部位, 稀有度, 简述?], …] } → equip 载荷列表（0–4 件，每部位至多 1 件）。
+// 模型只定名称、部位与稀有度；加成量按稀有度，加成六维按装备 ID 种子抽定；是否带被动同正文获得物（gearHasPassive），
+// 带被动时取按名称与简述排序、按该稀有度加强后不超队友伤害上限的候选模板中的第一个。input.required（主角）时至少 1 件。
+export const INITIAL_GEAR_MAX = 4;
+const gearAbilityOf = (gearId) => ABILITY_KEYS[hash32(`gear-ability:${gearId}`) % ABILITY_KEYS.length];
+function gearPassiveTemplate(gearId, rarity, text) {
+    const allowed = Object.keys(GEAR_PASSIVE_TEMPLATES).filter((name) => effectsDamage(passiveAtRarity(name, rarity)?.effects) <= COMBAT_RULES.allySkillDamageCap);
+    return templateCandidates(allowed, (name) => GEAR_PASSIVE_TEMPLATES[name].label, text, gearId)[0] || null;
+}
+export function assembleInitialGear(raw, { key, input } = {}) {
+    const invalid = expectObject(raw);
+    if (invalid) return invalid;
+    const collector = createCollector(key);
+    const list = raw.gear ?? [];
+    if (!Array.isArray(list) || list.length > INITIAL_GEAR_MAX) return { errors: [{ path: 'gear', reason: 'invalid-length', detail: { max: INITIAL_GEAR_MAX } }] };
+    if (input?.required && !list.length) return { errors: [{ path: 'gear', reason: 'invalid-length', detail: { min: 1, max: INITIAL_GEAR_MAX } }] };
+    const rarities = Object.keys(GEAR_BONUS_BY_RARITY);
+    const slots = new Set();
+    const ids = new Set();
+    const out = [];
+    list.forEach((item, i) => {
+        const at = (n) => `gear[${i}][${n}]`;
+        if (!Array.isArray(item)) { collector.fail(`gear[${i}]`, 'expected-array'); return; }
+        const name = requiredText(item[0], at(0), collector, 20);
+        const slot = GEAR_SLOTS.includes(item[1]) ? item[1] : collector.fail(at(1), 'invalid-enum', { allowed: [...GEAR_SLOTS] });
+        const rarity = rarities.includes(item[2]) ? item[2] : collector.fail(at(2), 'invalid-enum', { allowed: rarities });
+        if (!name || !slot || !rarity) return;
+        const gearId = gearIdFor(name);
+        if (slots.has(slot)) { collector.fail(at(1), 'slot-duplicate'); return; }
+        if (ids.has(gearId)) { collector.fail(at(0), 'name-duplicate'); return; }
+        slots.add(slot);
+        ids.add(gearId);
+        const text = typeof item[3] === 'string' ? item[3] : '';
+        const template = gearHasPassive(gearId, rarity) ? gearPassiveTemplate(gearId, rarity, `${name} ${text}`) : null;
+        const passive = template ? { id: `${gearId}-p`, name, ...passiveAtRarity(template, rarity) } : null;
+        out.push({ gearId, name, slot, ...(passive ? { passive } : {}), description: describe(text, passive?.description, 80), rarity, bonus: { ability: gearAbilityOf(gearId), amount: GEAR_BONUS_BY_RARITY[rarity] } });
+    });
+    return collector.errors.length ? { errors: collector.errors } : { value: out, diagnostics: collector.diagnostics };
 }
 
 // 物品：给了稀有度时按稀有度（可限制模板），否则用模板默认

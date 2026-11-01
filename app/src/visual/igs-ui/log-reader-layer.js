@@ -8,12 +8,15 @@ const states = new WeakMap();
 import { VOICE_ICON } from './voice-icon.js';
 const REPLAY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>';
 import { cachedSpriteNameColor, spriteNameColor } from './character-name-color.js';
+import { armTextFx, disarmTextFx } from './text-fx.js';
 const FLOW_STEP_MS = 18;
 const FLOW_FADE_MS = 260;
 const TYPE_STEP_MS = 30;
 const TYPE_PAUSE_MS = 120;
 const FADE_MS = 260;
 const ONCE_MS = 1600;
+// 「吼」的弹出时长（text-fx 里 igs-tfx-roar .56s），出字计时至少等它播完。
+const TFX_POP_MS = 560;
 const PAUSE_CHARS = /[，。！？…,.!?]/;
 
 function stateOf(overlay) {
@@ -419,12 +422,18 @@ function reveal(overlay, text, mode) {
         total = splitChars(doc, text, (ch) => (PAUSE_CHARS.test(ch) ? TYPE_PAUSE_MS : TYPE_STEP_MS));
         for (const span of text.querySelectorAll('.igs-log-fl')) span.style.animationDuration = '1ms';
     } else total = splitChars(doc, text, () => FLOW_STEP_MS) + FLOW_FADE_MS;
+    // 「大」「吼」在出到该段的那一刻弹出；播完换回原 HTML 前先解除，旧行不再重播。
+    armTextFx(text, (pop) => parseFloat(pop.querySelector('.igs-log-fl')?.style.animationDelay) || 0);
+    for (const pop of text.querySelectorAll('.igs-tfx-big,.igs-tfx-roar')) {
+        total = Math.max(total, (parseFloat(pop.style.getPropertyValue('--igs-tfx-delay')) || 0) + TFX_POP_MS);
+    }
     return new Promise((resolve) => {
         const finish = () => {
             if (s.reveal !== job) return;
             s.reveal = null;
             timers.clearTimeout(job.timer);
             text.classList.remove('igs-log-fade');
+            disarmTextFx(text);
             text.innerHTML = html;
             resolve();
         };

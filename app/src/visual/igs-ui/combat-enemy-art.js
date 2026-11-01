@@ -1,7 +1,7 @@
 // 战斗敌人立绘：按图集格子取图。导出名与 v0.39.0 一致。
 // 图集不再内嵌 base64，样式只引用 CSS 变量 --igs-enemy-atlas-<主题>（由 combat-enemy-atlas.js 在安装后写到根节点）。
 // 对应图集未安装时，enemyArtCell 返回 atlas: 'none'，面板显示中性剪影。
-import { ENEMY_ART_BASE_COUNT, ENEMY_ART_KEYS, enemyArtKeyFor } from '../../combat/enemy-art.js';
+import { ENEMY_ART_BASE_COUNT, ENEMY_ART_KEYS, enemyArtKeyFor, isEnemyArtTheme } from '../../combat/enemy-art.js';
 import { ENEMY_ATLAS_COLS, ENEMY_ATLAS_ROWS, enemyAtlasUrlOf, enemyAtlasVarName } from './combat-enemy-atlas.js';
 
 const PANEL = '#igs-combat-panel';
@@ -10,14 +10,32 @@ const THEME_BY_WORLDVIEW = Object.freeze({ fantasy: 'western', magic: 'western',
 export const enemyArtThemeOf = worldview => THEME_BY_WORLDVIEW[String(worldview || '')] || 'urban';
 const percent = (index, count) => `${count > 1 ? Math.round(index / (count - 1) * 1e4) / 100 : 0}%`;
 
-export function enemyArtCell({ art, name, tier, worldview } = {}) {
+// 每格立绘看得见的头顶（占格高的比例，上方是透明留白）。人形几乎顶格记 0；兽类、龙蛇等矮身形头顶偏下。
+// 由图集透明通道量出，图集换图后要重量。皮肤用它让头顶信息（意图、名字血条）贴着看得见的头顶，不悬在空处。
+const ART_TOP = Object.freeze({
+    western: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0.22, 0, 0.22, 0.5, 0.51, 0.49, 0.33, 0.52, 0, 0.34, 0.12, 0, 0.22, 0, 0.25, 0.32, 0, 0, 0, 0.11, 0.15, 0],
+    urban: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.46, 0, 0, 0, 0.07, 0.4],
+    wuxia: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.52, 0, 0, 0.32, 0.17, 0.51],
+});
+
+// 基础格的题材：本场遭遇标注（theme，战斗准备时生成）合法时优先，否则按世界观；西幻独有格不受影响。
+export function enemyArtCell({ art, name, tier, worldview, theme: encounterTheme } = {}) {
     const index = Math.max(0, ENEMY_ART_KEYS.indexOf(enemyArtKeyFor({ art, name, tier })));
-    const theme = index < ENEMY_ART_BASE_COUNT ? enemyArtThemeOf(worldview) : 'western';
+    const baseTheme = isEnemyArtTheme(encounterTheme) ? encounterTheme : enemyArtThemeOf(worldview);
+    const theme = index < ENEMY_ART_BASE_COUNT ? baseTheme : 'western';
     const x = percent(index % ENEMY_ATLAS_COLS, ENEMY_ATLAS_COLS);
     const y = percent(Math.floor(index / ENEMY_ATLAS_COLS), ENEMY_ATLAS_ROWS[theme]);
     // 图集未安装：返回占位格，位置字段保持同样的结构。
     if (!enemyAtlasUrlOf(theme)) return { atlas: 'none', x: '0%', y: '0%' };
     return { atlas: theme, x, y };
+}
+
+// 格子看得见的头顶比例（见 ART_TOP）；不是图集格（素材库图、剪影）时为 0。
+export function enemyArtTopOf(cell) {
+    if (!cell || !ART_TOP[cell.atlas]) return 0;
+    const col = Math.round(parseFloat(cell.x) / 100 * (ENEMY_ATLAS_COLS - 1));
+    const row = Math.round(parseFloat(cell.y) / 100 * (ENEMY_ATLAS_ROWS[cell.atlas] - 1));
+    return ART_TOP[cell.atlas][row * ENEMY_ATLAS_COLS + col] || 0;
 }
 
 // 中性剪影：只用主题变量着色，形状是一个简单的头肩轮廓蒙版。

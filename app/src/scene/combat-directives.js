@@ -3,6 +3,7 @@
 // 纯函数。标签文本为 AI 输出，一律按不可信输入处理：长度、数量、枚举都在此校验。
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards, parseHtmlCardMarker } from './html-cards.js';
 import { extractChatBlocks, parseChatMarker } from './chat-blocks.js';
+import { stripMarkerDirectives } from './directive-tags.js';
 import { readerBodyText } from './message-source.js';
 import { stripIllustrationMarkers } from './scene-directives.js';
 
@@ -291,15 +292,29 @@ function pickAwaken(body, tags, startTag, diagnostics) {
     return null;
 }
 
-// 提取开战指令：只认正文最后一行的最后一个 start 标签，其余记「不在末尾」诊断。
+// 开战标签之后只剩纯标记行（数值 stat、成长 rel / exp、判定、恐怖档位等，不含开战与觉醒标签）时视同末行（v0.39.2）：
+// 模型常把这些结算标签写在开战标签后面，它们不承载正文；后面还有任何正文时仍判 combat-start-not-tail。
+const START_OR_AWAKEN_RE = /\[igs-combat:\s*(?:start|awaken)\s*[|\]]/i;
+function withoutTrailingMarkers(body) {
+    const lines = String(body || '').split('\n');
+    while (lines.length) {
+        const line = lines[lines.length - 1].trim();
+        if (line && (START_OR_AWAKEN_RE.test(line) || stripMarkerDirectives(line).trim())) break;
+        lines.pop();
+    }
+    return lines.join('\n');
+}
+
+// 提取开战指令：只认正文最后一行（忽略其后的纯标记行）的最后一个 start 标签，其余记「不在末尾」诊断。
 export function extractCombatStart(raw, options = {}) {
     const body = combatBodyText(raw, options);
     const tags = scanCombatTags(body);
     const starts = tags.filter((tag) => tag.kind === 'start');
     const diagnostics = [];
-    const lastLine = lastNonEmptyLine(body);
+    const head = withoutTrailingMarkers(body);
+    const lastLine = lastNonEmptyLine(head);
     const last = starts.at(-1);
-    const atTail = !!last && lastLine === last.raw && body.trimEnd().endsWith(last.raw);
+    const atTail = !!last && lastLine === last.raw && head.trimEnd().endsWith(last.raw);
     for (const tag of starts) if (tag !== last || !atTail) diagnostics.push({ code: 'combat-start-not-tail', ...locateOf(tag) });
     if (!atTail) return { start: null, diagnostics };
     const parsed = parseStartFields(last.fields);

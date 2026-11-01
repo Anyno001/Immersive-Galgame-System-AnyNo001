@@ -4,21 +4,21 @@
 // 键名与内容格式与 v0.39 完全一致，刷新页面后 resume 可按种子+动作序列重放出同一局。
 // 写盘优化：会话记录每次出牌都整条重写，这里改为内存里始终保存最新值，实际 setItem 合并延后（默认 300ms）；
 // 页面隐藏、卸载、会话结束、发件箱写入前立即落盘；读取时先看内存里尚未落盘的值。存储格式不变。
-import { COMBAT_RULES, CURSE_CARD, SKILL_COUNT_MAX, combatSpeedFor, difficultyRule, isCompatibleRulesVersion, scaleEnemyStats, skillTarget } from './rules.js';
+import { COMBAT_RULES, CURSE_CARD, SKILL_COUNT_MAX, combatSpeedFor, crowdScaleFor, difficultyRule, isCompatibleRulesVersion, scaleEnemyStats, skillTarget } from './rules.js';
 import { applyAction, createBattle, legalActions, replayBattle, seedFor } from './engine.js';
 import {
     deckProfileEntities, enemyEntities, enemyIdFor, generationWrites, rewardEntity, skillFillEntity, skillProfileEntity,
-    templateEnemy, withCharacterLore, withStoryContext, withCombatInitialization,
+    templateEnemy, withCharacterLore, withStoryContext, withCombatInitialization, encounterThemeEntity, profileGearEntity,
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
 import { attachLoot, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
-import { CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName } from './ledger.js';
+import { CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear } from './ledger.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
 import { ABILITY_KEYS, ABILITY_LABELS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
 import { ledgerEntryId, profileIdFor } from './schema.js';
 import { defaultHeroSkill, itemEffectsForBattle, ultimateSkill } from './card-templates.js';
-import { enemyArtKeyFor } from './enemy-art.js';
+import { enemyArtKeyFor, isEnemyArtTheme } from './enemy-art.js';
 import { enemyLoadout } from './enemy-loadout.js';
 import { hash32 } from './random.js';
 import { extractCombatStart } from '../scene/combat-directives.js';
@@ -142,15 +142,26 @@ function skillUnit(character) {
     const tier = skillTierFor(character);
     const scaled = scaleSkills(character.skills, character.attributes);
     const skills = tier.skill === 1 ? scaled : scaled.map((skill) => ({ ...skill, effects: skill.effects.map((effect) => scaleEffect(effect, tier.skill)) }));
-    const ultimates = tier.ultimateCooldown > 0
-        ? [ultimateSkill(Math.round(COMBAT_RULES.allySkillDamageCap * tier.skill), { id: `${character.id}-u1`, cooldown: tier.ultimateCooldown })]
-        : [];
+    const ultimates = tier.ultimateCooldown > 0 ? [ownUltimate(character.id, skills, tier)] : [];
     const stats = characterCombatStats(character);
     return {
         id: character.id, name: character.name, side: 'ally', kind: 'skill', maxHp: stats.hp, speed: stats.speed,
+        // 助战两动：每次轮到出手连续使用两次技能，行动间隔不变；只进新建 setup，旧战斗按已存 setup 重放。
+        actions: 2,
         skills: [...skills, ...ultimates], passives: [...(character.passives || []), ...gearPassives(character)],
         ...abilityFields(character.attributes),
     };
+}
+
+// 技能的总伤害（各伤害效果 数值 × 段数）
+const skillDamage = (skill) => (skill.effects || []).reduce((sum, effect) => sum + (effect.op === 'damage' ? (Number(effect.amount) || 0) * (Number(effect.hits) || 1) : 0), 0);
+
+// 强度档绝招（v0.39.2）：取角色自己伤害最高的技能（已按六维与档位换算），同名、数值 ×1.5、带冷却；
+// 没有技能时才回落通用绝招。只进新建 setup，旧战斗按已存 setup 重放。
+function ownUltimate(id, skills, tier) {
+    const base = skills.reduce((best, skill) => (!best || skillDamage(skill) > skillDamage(best) ? skill : best), null);
+    if (!base) return ultimateSkill(Math.round(COMBAT_RULES.allySkillDamageCap * tier.skill), { id: `${id}-u1`, cooldown: tier.ultimateCooldown });
+    return { ...base, id: `${id}-u1`, effects: base.effects.map((effect) => scaleEffect(effect, 1.5)), cooldown: tier.ultimateCooldown, ultimate: true };
 }
 
 export { allyTierOf, characterCombatStats, vitalsOf };
@@ -166,6 +177,8 @@ function bossPhases(template, difficulty) {
 function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = new Map()) {
     const units = [];
     const tiers = [];
+    // 多敌折算：按本场在场敌人数折算单只生命与伤害；1 只时系数为 1，字段不变。
+    const crowd = crowdScaleFor(start.enemies.reduce((sum, enemy) => sum + (Number(enemy.count) || 0), 0));
     for (const { name, count } of start.enemies) {
         const template = templates.get(name);
         const attributes = enemyAttributes.get(name) || null;
@@ -175,11 +188,15 @@ function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = 
         const skills = loadout.skills.length ? [...template.skills, ...loadout.skills] : template.skills;
         const passives = loadout.passives.length ? [...(template.passives || []), ...loadout.passives] : template.passives;
         const vitals = applyAbilities(scaled.hp, template.base?.speed ?? combatSpeedFor({ tier: template.tier, id: template.id }), attributes);
+        // 生成敌人档位校准：生成敌人再乘 generatedScale，模板敌人（generated:false）不乘；乘积为 1 时字段不变。
+        const factor = crowd * (template.generated !== false ? (COMBAT_RULES.generatedScale[template.tier] ?? 1) : 1);
+        const maxHp = factor < 1 ? Math.max(1, Math.round(vitals.hp * factor)) : vitals.hp;
+        const damageScale = factor < 1 ? Math.min(5, Math.round(scaled.damageScale * factor * 100) / 100) : scaled.damageScale;
         for (let index = 0; index < count; index += 1) {
             units.push({
                 id: count > 1 ? `${template.id}-${index + 1}` : template.id,
                 name: count > 1 ? `${name}${ENEMY_SUFFIXES[index] || index + 1}` : name,
-                side: 'enemy', kind: 'skill', maxHp: vitals.hp, damageScale: scaled.damageScale, speed: vitals.speed,
+                side: 'enemy', kind: 'skill', maxHp, damageScale, speed: vitals.speed,
                 skills: scaleSkills(skills, attributes), passives, phases,
                 art: enemyArtKeyFor({ art: template.art, name, tier: template.tier }),
                 ...abilityFields(attributes),
@@ -292,7 +309,7 @@ function planReward(ledgerState, session, userName, difficulty) {
 }
 
 // 生成失败也不拦战斗的实体类别
-const SOFT_FAILURE_KINDS = new Set(['profile-init', 'battle-reward', 'skill-fill']);
+const SOFT_FAILURE_KINDS = new Set(['profile-init', 'battle-reward', 'skill-fill', 'encounter-theme', 'profile-gear']);
 const rewardFailureReason = (result) => result?.reason || ((result?.rejected || []).some((item) => item.kind === 'battle-reward') ? 'combat-reward-generation-failed' : '');
 
 // 奖励状态：账本里有该战斗的奖励 -> ready，否则 failed
@@ -370,7 +387,7 @@ export function lobbyVitals(lobby, difficulty = 'normal') {
     return Object.fromEntries(allyUnits(lobby, difficulty).map((unit) => [unit.id, { hp: unit.hp ?? unit.maxHp, maxHp: unit.maxHp }]));
 }
 
-// 敌人超出场上上限时，按战斗标识确定性地排出后备队列（首领优先上场）
+// 敌人超出场上上限时，按战斗标识确定性地排出后备队列（首领 → 精英 → 普通，同档内按种子；排不下的首领、精英先于普通怪补位）
 function reserveQueue(enemyUnitList, tiers, combatId) {
     if (enemyUnitList.length <= COMBAT_RULES.maxEnemiesOnField) return null;
     const salt = `reserve:${combatId}`;
@@ -379,8 +396,9 @@ function reserveQueue(enemyUnitList, tiers, combatId) {
         .sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1))
         .map(([id]) => id);
     const bosses = enemyUnitList.filter((unit, index) => tiers[index] === 'boss');
-    const others = enemyUnitList.filter((unit, index) => tiers[index] !== 'boss');
-    return [...order(bosses), ...order(others)].slice(COMBAT_RULES.maxEnemiesOnField);
+    const elites = enemyUnitList.filter((unit, index) => tiers[index] === 'elite');
+    const others = enemyUnitList.filter((unit, index) => tiers[index] !== 'boss' && tiers[index] !== 'elite');
+    return [...order(bosses), ...order(elites), ...order(others)].slice(COMBAT_RULES.maxEnemiesOnField);
 }
 
 // 由大厅 + 战斗起点 + 难度生成引擎的开局参数
@@ -396,7 +414,12 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
         hero.deck = [...hero.deck, ...Array.from({ length: curse }, () => ({ cardId: CURSE_CARD.id, upgraded: false }))];
         hero.catalog = { ...hero.catalog, [CURSE_CARD.id]: CURSE_CARD };
     }
-    const setup = { rulesVersion: COMBAT_RULES.version, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true, units: [...allies, ...enemies] };
+    // openingCharged（v0.39.2）：开局先手计入操控角色的行动条，速度快的主角首轮不再连动两回合；
+    // randomTargets（v0.39.2）：敌人在存活的我方单位中按种子随机选攻击对象。两者都只写进新建 setup，旧战斗按已存 setup 重放。
+    const setup = {
+        rulesVersion: COMBAT_RULES.version, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
+        openingCharged: true, randomTargets: true, units: [...allies, ...enemies],
+    };
     const reserve = reserveQueue(enemies, tiers, combatId);
     if (reserve) setup.reserve = reserve;
     const controlledAlly = lobby.allies.find((ally) => ally.id === controlled);
@@ -565,7 +588,7 @@ export function createCombatSession(options = {}) {
     const ok = (extra = {}) => ({ ok: true, ...extra, session: snapshot() });
     const fail = (reason, extra = {}) => ({ ok: false, reason, ...extra, session: snapshot() });
     const sessionKey = () => sessionKeyFor(getChatId());
-    const identityOf = (session) => ({ combatId: session.combatId, anchor: session.anchor, start: session.start, reportId: session.reportId, chatId: session.chatId });
+    const identityOf = (session) => ({ combatId: session.combatId, anchor: session.anchor, start: session.start, reportId: session.reportId, chatId: session.chatId, ...(session.theme ? { theme: session.theme } : {}) });
 
     // 会话记录读写：写入走节流，读取先看内存
     const readSession = () => persist.read(sessionKey());
@@ -615,7 +638,8 @@ export function createCombatSession(options = {}) {
         }
         if (read?.ok !== true) return { ok: false, reason: read?.reason || 'combat-record-read-failed' };
         const result = read.value?.result;
-        const corrupt = result !== undefined && (typeof result?.reportId !== 'string' || typeof result?.text !== 'string' || typeof result?.result !== 'string' || !validUsed(result) || !validWounds(result));
+        // result 为 null：「重新开始」撤掉了上一局的结果，按没有结果处理。
+        const corrupt = result !== undefined && result !== null && (typeof result?.reportId !== 'string' || typeof result?.text !== 'string' || typeof result?.result !== 'string' || !validUsed(result) || !validWounds(result));
         return corrupt ? { ok: false, reason: 'combat-record-corrupt' } : { ok: true, value: read.value || null };
     }
 
@@ -808,6 +832,8 @@ export function createCombatSession(options = {}) {
         if (findReportFloor(chat, messageId, session.reportId) >= 0) return ok({ session: setState({ ...session, status: 'done' }) });
         const chatRecord = readChatRecord(session);
         if (!chatRecord.ok) return blocked(session, chatRecord.reason);
+        // 敌人图集题材留档（encounter-theme）：合法时带进会话；非法值忽略，面板按世界观选图。
+        if (isEnemyArtTheme(chatRecord.value?.theme)) session.theme = chatRecord.value.theme;
         if (chatRecord.value?.result) {
             resultsSaved.add(session.combatId);
             setState({ ...session, status: 'send-failed', report: reportItemOf(chatRecord.value.result) });
@@ -845,6 +871,15 @@ export function createCombatSession(options = {}) {
         const rewardPlan = ledgerState.offers?.has(session.combatId) ? null : planReward(ledgerState, session, userName, difficultyOf());
         const wantsReward = !!rewardPlan?.entity && !alreadyPrepared;
         if (wantsReward) entities = [...entities, rewardPlan.entity];
+        // 敌人图集题材：第一次准备时与同批实体一起请求一条；已准备过或留档已有题材的场次不再请求。
+        const savedTheme = session.theme || '';
+        const wantsTheme = !alreadyPrepared && !savedTheme;
+        if (wantsTheme) entities = [...entities, encounterThemeEntity(located.start)];
+        let theme = savedTheme;
+        // 初始装备：只随主角卡组档案同批请求，主角至少 1 件（v0.39.2）；已有主角档案时不请求，助战在面板生成卡组时由服务层请求。
+        const gearNames = entities.some((entity) => entity.kind === 'profile-deck') ? [userName] : [];
+        if (gearNames.length) entities = [...entities, ...gearNames.map((name) => profileGearEntity(name, { required: true }))];
+        const gearDiagnostics = [];
         let rewardFailure = '';
         const initDiagnostics = [];
         const fillDiagnostics = [];
@@ -868,6 +903,9 @@ export function createCombatSession(options = {}) {
             initDiagnostics.push(...(generated.diagnostics || []).filter((item) => item.code === 'combat-init-invalid'));
             for (const rejected of generated.rejected || []) if (rejected.kind === 'profile-init') initDiagnostics.push({ code: 'combat-init-generation-failed', key: rejected.key });
             collectFillDiagnostics(generated, entities, fillDiagnostics);
+            if (wantsTheme) theme = (generated.accepted || []).find((item) => item.kind === 'encounter-theme')?.theme || '';
+            if (generated.reason && gearNames.length) gearDiagnostics.push({ code: generated.reason });
+            for (const rejected of generated.rejected || []) if (rejected.kind === 'profile-gear') gearDiagnostics.push({ code: 'combat-gear-generation-failed', key: rejected.key });
             let wrote = false;
             const writes = generationWrites(generated, { createdAt: now() });
             if (writes.profiles.length) {
@@ -899,6 +937,11 @@ export function createCombatSession(options = {}) {
                 ledgerState = await ledger.effectiveState();
                 if (!ledgerState.ok) return blocked(session, ledgerState.reason);
             }
+            // 初始装备：档案落库并读回后按开战楼锚点写 equip；写失败只记诊断，不阻断开战。
+            if (await grantGeneratedGear(ledger, generated, (name) => findCharacter(ledgerState, name)?.id, { anchor: session.anchor, diagnostics: gearDiagnostics })) {
+                ledgerState = await ledger.effectiveState();
+                if (!ledgerState.ok) return blocked(session, ledgerState.reason);
+            }
             const fillAgain = alreadyPrepared ? [] : skillFillEntities(ledgerState, located.start, userName, filledIds);
             if (fillAgain.length) {
                 const fillResult = await generateWithRetry(await withCharacterLore(fillAgain, options.readLore), {
@@ -922,11 +965,12 @@ export function createCombatSession(options = {}) {
         if (!lobby.ok) return blocked(session, lobby.reason);
         lobby.vitals = lobbyVitals(lobby, difficultyOf());
         const skipped = (generated?.rejected || []).filter((item) => item.fallback?.kind === 'skip').map((item) => item.owner);
-        if (!chatRecord.value?.prepared) await writeChatRecord(session, { prepared: { at: now() } });
+        const newTheme = theme && theme !== savedTheme ? { theme } : {};
+        if (!chatRecord.value?.prepared || newTheme.theme) await writeChatRecord(session, { ...(chatRecord.value?.prepared ? {} : { prepared: { at: now() } }), ...newTheme });
         return ok({
             session: setState({
-                ...session, status: 'lobby', lobby, skipped, reward: rewardStatus(ledgerState, session.combatId, rewardPlan?.plan, rewardFailure),
-                ...(initDiagnostics.length && { initDiagnostics }), ...(fillDiagnostics.length && { fillDiagnostics }),
+                ...session, ...(theme ? { theme } : {}), status: 'lobby', lobby, skipped, reward: rewardStatus(ledgerState, session.combatId, rewardPlan?.plan, rewardFailure),
+                ...(initDiagnostics.length && { initDiagnostics }), ...(fillDiagnostics.length && { fillDiagnostics }), ...(gearDiagnostics.length && { gearDiagnostics }),
             }),
         });
     }
@@ -997,7 +1041,8 @@ export function createCombatSession(options = {}) {
         if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
         const record = {
             v: SESSION_VERSION, combatId: current.combatId, anchor: current.anchor, seed, setup: built.setup, actions: [],
-            encounter: current.start.encounter, tiers: built.tiers, expTargets: built.expTargets, ...(built.itemOwner ? { itemOwner: built.itemOwner } : {}),
+            encounter: current.start.encounter, tiers: built.tiers, expTargets: built.expTargets,
+            ...(current.theme ? { theme: current.theme } : {}), ...(built.itemOwner ? { itemOwner: built.itemOwner } : {}),
         };
         if (!writeSession(record)) return fail('combat-session-save-failed');
         setState({ ...current, status: 'battle', record, battle: battle.state, events: battle.events });
@@ -1084,7 +1129,8 @@ export function createCombatSession(options = {}) {
         sending = true;
         let sent;
         try {
-            sent = await send(report.text);
+            // 回执按战报 ID 认领：酒馆落楼时正则 / 宏可能改写正文，全文相等会等不到回执
+            sent = await send(report.text, { matches: (body) => reportIdOf(body) === report.reportId });
         } catch {
             sent = { ok: false, reason: 'combat-send-error' };
         } finally {
@@ -1158,6 +1204,39 @@ export function createCombatSession(options = {}) {
         return ok();
     }
 
+    // 重新开始（v0.39.2）：对局中，或败北 / 撤退出结果后，用本场同一份 setup 换新种子从头打；胜利后不给（战利品已按本场生成）。
+    // 开战楼聊天记录里已写的结果先撤掉（写成 null），撤不掉就不重开，免得续战时读到旧战报；新对局存档写入成功后才切换。
+    async function restart() {
+        const allowed = () => current.status === 'battle' || (current.status === 'ended' && current.battle?.outcome !== 'victory');
+        if (!allowed()) return fail('combat-restart-unavailable');
+        if (!isCurrent(current)) return floorChanged();
+        const combatId = current.combatId;
+        const unchanged = () => current.combatId === combatId && allowed();
+        if (finalWrite) await finalWrite;
+        if (!unchanged()) return fail('combat-restart-unavailable');
+        const saved = readChatRecord(current);
+        if (!saved.ok) return fail(saved.reason);
+        if (saved.value?.result) {
+            const written = await writeChatRecord(identityOf(current), { result: null });
+            if (!written.ok) return fail('combat-restart-record-failed', { detail: written.reason });
+            if (!unchanged()) return fail('combat-restart-unavailable');
+        }
+        resultsSaved.delete(combatId);
+        const restarts = (Number.isInteger(current.record?.restarts) ? current.record.restarts : 0) + 1;
+        const seed = seedFor(`${combatId}#${restarts}`);
+        const battle = createBattle(current.record.setup, seed);
+        if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
+        const { flip: _flip, ...kept } = current.record;
+        const record = { ...kept, seed, actions: [], restarts };
+        if (!writeSession(record)) return fail('combat-session-save-failed');
+        persist.flush();
+        flipContext = null;
+        finalWrite = null;
+        const { final: _final, flip: _flipView, report: _report, ...rest } = current;
+        setState({ ...rest, status: 'battle', record, battle: battle.state, events: battle.events });
+        return ok({ events: battle.events });
+    }
+
     const afterResume = () => {
         if (canFlip()) loadFlip().catch(() => {});
         return ok();
@@ -1175,7 +1254,10 @@ export function createCombatSession(options = {}) {
             return fail('combat-rules-version-mismatch');
         }
         const located = locateCombatStart(getChat(), record.anchor?.messageId, getSourceFilter());
-        const session = { combatId: record.combatId, anchor: record.anchor, start: located.start, reportId: reportIdFor(record.combatId), chatId: getChatId() };
+        const session = {
+            combatId: record.combatId, anchor: record.anchor, start: located.start, reportId: reportIdFor(record.combatId), chatId: getChatId(),
+            ...(isEnemyArtTheme(record.theme) ? { theme: record.theme } : {}),
+        };
         if (!located.ok || !sameAnchor(located.anchor, record.anchor) || located.combatId !== record.combatId) {
             current = session;
             return floorChanged();
@@ -1214,7 +1296,7 @@ export function createCombatSession(options = {}) {
     }
 
     return {
-        prepare, start, act, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, resume, reset, subscribe, state: snapshot,
+        prepare, start, act, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
         // 以下为写盘节流新增：立即落盘、写盘统计、释放监听器
         flushPersist,
         getPersistStats: () => ({ ...persist.stats, pending: persist.hasPending() }),

@@ -1,5 +1,5 @@
 // 本轮目录只用于选择；解析后保存实际衣装来源，不跨轮复用数字编号。
-import { BUILTIN_NUDE_OUTFIT, isValidOutfitName } from '../../scene/character-outfits.js';
+import { BUILTIN_NUDE_OUTFIT, isBuiltinNudeOutfit, isValidOutfitName } from '../../scene/character-outfits.js';
 import { confirmedCreatureOf } from '../../scene/creature-profile.js';
 
 const NUDE_DESCRIPTION = 'completely nude';
@@ -41,7 +41,10 @@ export function resolveCgOutfit(id, proposal, binding, catalog) {
         return fail('mismatch', index);
     const selected = matches[0];
     if (!isValidOutfitName(selected.name) || !validDescription(selected.description)) return fail('invalid', index);
-    return { ok: true, value: { name: selected.name, description: selected.description, source: 'saved' } };
+    // 当次状态（破损、脏污、湿透、染血等）：本图描述与保存说明不同时以本图为准，只用于这张 CG，来源仍记 saved，不进衣装候选、不入柜。
+    const description = !isBuiltinNudeOutfit(selected.name) && proposal.description.trim() !== selected.description.trim()
+        ? proposal.description : selected.description;
+    return { ok: true, value: { name: selected.name, description, source: 'saved' } };
 }
 
 export function cgSelectedOutfitAnchor(entry, offset) {

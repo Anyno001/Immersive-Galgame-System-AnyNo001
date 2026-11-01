@@ -207,6 +207,20 @@ export function decodeCombatRows(kind, sheet) {
 // ---------------------------------------------------------------------------
 const CALLBACK_SAFETY_TTL_MS = 60000;
 
+// 同一宿主 api 上的所有缓存客户端共用一个版本号：任一客户端写入、导入或收到插件事件，其余客户端的缓存同时作废。
+// 否则战斗表与其他持有独立客户端的模块并存时，一方写入后另一方在 TTL 窗口内读到旧数据。
+const sharedStates = new WeakMap();
+const detachedState = { version: 0 };
+function sharedStateOf(api) {
+    if (!api || typeof api !== 'object') return detachedState;
+    let state = sharedStates.get(api);
+    if (!state) { state = { version: 0 }; sharedStates.set(api, state); }
+    return state;
+}
+
+// 导出结果是否可缓存：空对象表示数据库尚未载入，不缓存，载入后下一次读取立即生效。
+const cacheable = (data) => Boolean(data) && typeof data === 'object' && Object.keys(data).length > 0;
+
 function isSuccessful(result) {
     if (result == null || result === false || result === -1) return false;
     if (typeof result === 'object' && result.success === false) return false;
@@ -214,12 +228,12 @@ function isSuccessful(result) {
 }
 
 export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CACHE_TTL_MS } = {}) {
-    let version = 0;
+    const shared = sharedStateOf(api);
     let entry = null; // { version, at, data, sheets, decoded: Map }
     let subscribed = false;
     const stats = { exports: 0, hits: 0, decodes: 0, invalidations: 0 };
 
-    const bump = () => { version += 1; entry = null; stats.invalidations += 1; };
+    const bump = () => { shared.version += 1; entry = null; stats.invalidations += 1; };
     const onTableUpdated = () => bump();
 
     function subscribe() {
@@ -227,7 +241,7 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
         try { api.registerTableUpdateCallback(onTableUpdated); subscribed = true; } catch { /* 订阅失败则退回 TTL 模式 */ }
     }
 
-    const entryValid = () => entry && entry.version === version
+    const entryValid = () => entry && entry.version === shared.version
         && now() - entry.at < (subscribed ? CALLBACK_SAFETY_TTL_MS : ttlMs);
 
     // 读整表（带缓存）。失败结果不缓存。
@@ -242,7 +256,7 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
         } catch (error) {
             return { ok: false, reason: String((error && error.message) || 'read-failed') };
         }
-        entry = { version, at: now(), data, sheets: null, decoded: new Map() };
+        entry = cacheable(data) ? { version: shared.version, at: now(), data, sheets: null, decoded: new Map() } : null;
         return { ok: true, data };
     }
 
@@ -276,7 +290,7 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
 
     return {
         stats,
-        version: () => version,
+        version: () => shared.version,
         invalidate: bump,
         readTables,
         readSheets,
@@ -516,6 +530,8 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                 if (!support.ok) return { ...support, pending: pending() };
                 writing = true;
                 try {
+                    // 写前判重必须读新数据：缓存里的旧快照可能漏掉别处刚写入的同键记录，或掩盖当前的读取失败。
+                    client.invalidate?.();
                     const finished = new Set(); // 处理完毕、应出队的请求
                     const batch = [];           // 已插入、等待核对的请求
                     const insertedRaw = new Map(); // `${kind}\u0000${key}` -> raw，批内已插入的键
@@ -597,7 +613,8 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                                 finished.add(item);
                                 written.push(encoded.key);
                             } else {
-                                item.reason = 'combat-ledger-write-unverified';
+                                // 只有第一条未核实的记录标明原因；其后的记录同样留在队列，等下一次 flush 重新判定，标 queued（与逐条写入时停在首个失败处一致）。
+                                item.reason = failure ? 'queued' : 'combat-ledger-write-unverified';
                                 failure ||= { reason: item.reason, key: encoded.key };
                             }
                         }

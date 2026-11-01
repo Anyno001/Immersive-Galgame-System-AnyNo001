@@ -6,6 +6,9 @@ import { normalizeAutoIllustrationSettings } from '../../generated-images/illust
 
 export const COMBAT_DIFFICULTIES = COMBAT_DIFFICULTY_KEYS;
 export const COMBAT_REPORT_DETAILS = Object.freeze(['brief', 'normal']);
+// 战斗面板皮肤：initial 为共创原作者的面板外观（初始方案），veil 为渐变黑幕；开启战斗时默认黑幕。
+export const COMBAT_PANEL_SKINS = Object.freeze(['veil', 'comic', 'ink', 'tech', 'mystic', 'soft-a', 'soft-c', 'dark-a', 'dark-b', 'initial']);
+export const COMBAT_PANEL_SKIN_LABELS = Object.freeze({ veil: '黑幕', comic: '漫画', ink: '水墨', tech: '科幻', mystic: '星辉', 'soft-a': '圆润·野餐', 'soft-c': '圆润·绘本', 'dark-a': '恐怖·断帧', 'dark-b': '恐怖·无影灯', initial: '初始方案' });
 
 const asObject = value => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
@@ -15,6 +18,7 @@ export function normalizeCombatExpansionSettings(value) {
     enabled: source.enabled === true,
     difficulty: COMBAT_DIFFICULTIES.includes(source.difficulty) ? source.difficulty : 'normal',
     reportDetail: COMBAT_REPORT_DETAILS.includes(source.reportDetail) ? source.reportDetail : 'normal',
+    skin: COMBAT_PANEL_SKINS.includes(source.skin) ? source.skin : 'veil',
   };
 }
 

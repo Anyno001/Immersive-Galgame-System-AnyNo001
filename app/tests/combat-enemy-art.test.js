@@ -72,6 +72,7 @@ test('敌人图集 enemyArtCell 与 v0.39.0 原版一致（图集已安装）', 
 export const ENEMY_ART_KEYS = Object.freeze(${JSON.stringify(reference.allKeys)});
 export const ENEMY_ART_BASE_COUNT = ${reference.base};
 export const enemyArtKeyFor = input => keys[JSON.stringify(input ?? {})];
+export const isEnemyArtTheme = value => typeof value === 'string' && ['western', 'urban', 'wuxia'].includes(value);
 `);
     fs.copyFileSync(path.join(appRoot, ENTRY), path.join(tree, ENTRY));
     const load = file => import(pathToFileURL(path.join(tree, file)).href);

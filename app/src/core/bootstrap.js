@@ -93,7 +93,7 @@ import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { combatExpansionEnabled, findPendingCombatReport, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
-const IGS_VERSION = '0.37.65';
+const IGS_VERSION = '0.39.4';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -408,7 +408,7 @@ export function bootstrapIGS(options = {}) {
         global: globalObject,
         storage: storageLike,
         chatRecord: createCombatChatRecord(globalObject),
-        send: (text) => typeAndSend(text),
+        send: (text, options) => typeAndSend(text, options),
         request: (prompt, llm) => secondaryLlm.request(prompt, llm),
         getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
         getAutoIllustration: () => readImageBridge().autoIllustration,
@@ -428,7 +428,9 @@ export function bootstrapIGS(options = {}) {
     });
     app.combatServices = combatServices;
     const prepareCombatProtagonist = () => { if (typeof combatServices.prepareProtagonist === 'function') combatServices.prepareProtagonist(); };
-    const syncCombat = () => { combatServices.syncRegex(); combatServices.refreshGrowth(); prepareCombatProtagonist(); };
+    // 战斗扩展开启时同一时机接管当前聊天的物品表（关闭数据库自动填表，v0.39.2）。
+    const takeoverCombatInventory = () => { if (typeof combatServices.takeoverInventory === 'function') void combatServices.takeoverInventory(); };
+    const syncCombat = () => { combatServices.syncRegex(); combatServices.refreshGrowth(); prepareCombatProtagonist(); takeoverCombatInventory(); };
     state.combatSettingsOff = events.on('igs:legacy-settings-updated', syncCombat);
     syncCombat();
     state.combatFloorOff = typeof illustrationMessageHost.onImageFloorReady === 'function' && typeof combatServices.autoPrepare === 'function'
@@ -545,6 +547,8 @@ export function bootstrapIGS(options = {}) {
         useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (item) => combatServices.useInventoryItem(item) : undefined,
         getCombatHeroInventory: typeof combatServices.heroInventory === 'function' ? () => combatServices.heroInventory() : undefined,
         setCombatHeroGear: typeof combatServices.setHeroGear === 'function' ? (slot, itemId) => combatServices.setHeroGear(slot, itemId) : undefined,
+        // 背包卖出（v0.39.2）：kind 为 gear / keepsake。
+        sellCombatHeroItem: typeof combatServices.sellHeroItem === 'function' ? (kind, id) => combatServices.sellHeroItem(kind, id) : undefined,
         setCombatAllyTier: (name, tier) => combatServices.setAllyTier(name, tier),
         getCombatGrowth: () => combatServices.getGrowth(),
         // 检定回放先问数值系统，数值系统没有结果再回落战斗自己的。
@@ -927,9 +931,9 @@ export function bootstrapIGS(options = {}) {
         return { ok: true, scene: renderedScene, render: renderResult };
     }
 
-    async function typeAndSend(text) {
+    async function typeAndSend(text, options) {
         ensureAlive();
-        return inputChannel.typeAndSend(text);
+        return inputChannel.typeAndSend(text, options);
     }
 
     function generateImage(request, generateOptions = {}) {
@@ -1320,6 +1324,13 @@ export function bootstrapIGS(options = {}) {
             combatServices.resetChat();
             combatServices.refreshGrowth();
             prepareCombatProtagonist();
+            takeoverCombatInventory();
+            // 只要战斗开关开着，进聊天即准备（v0.39.2）：换聊天瞬间聊天 ID / 主角名可能尚未就绪，2 秒后再触发一次（两者都幂等）。
+            setTimeout(() => {
+                if (state.destroyed) return;
+                prepareCombatProtagonist();
+                takeoverCombatInventory();
+            }, 2000);
             resync();
         };
         const onGenerationEnded = () => {

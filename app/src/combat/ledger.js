@@ -9,14 +9,14 @@
 //   - 读表只解码账本用到的三种（档案、日志、属性），不解码数值日志。
 // 记忆化返回的对象在所有调用方之间共享，一律视为只读：调用方不得原地修改 read()/effectiveState() 的返回值。
 // 写入（append/useItem/setGear 等）会使表版本号变化，缓存自动作废。
-import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, validateDeck } from './rules.js';
+import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, signatureCardAt, signatureUnlockLevel, validateDeck } from './rules.js';
 import { hash32, hashString } from './random.js';
 import {
     ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities,
     isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset,
 } from './abilities.js';
 import {
-    buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry,
+    GEAR_SLOTS, INIT_GEAR_TAG_HASH, buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry,
     normalizeProfile, validateStarterDeck,
 } from './schema.js';
 import { combatBodyText, extractGainDirectives, extractGrowthDirectives, scanCombatTags, scanGainTags } from '../scene/combat-directives.js';
@@ -266,6 +266,7 @@ function inactiveReason(entry, scanFloor) {
     if (floor.swipeId !== anchor.swipeId) return 'swipe-changed';
     const needsTag = !(FLOOR_ONLY_TYPES.has(entry.type)
         || ((entry.type === 'equip' || entry.type === 'unequip') && anchor.tagHash === GEAR_TAG_HASH)
+        || (entry.type === 'equip' && anchor.tagHash === INIT_GEAR_TAG_HASH)
         || (entry.type === 'heal' && anchor.tagHash === USE_TAG_HASH));
     if (needsTag && !floor.keys.has(`${anchor.tagHash}#${anchor.occurrence}`)) return 'tag-missing';
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
@@ -336,6 +337,28 @@ function addCard(state, cardId) {
     state.owned.set(cardId, (state.owned.get(cardId) || 0) + 1);
     const inDeck = state.deck.filter((id) => id === cardId).length;
     if (state.deck.length < COMBAT_RULES.deckMax && inDeck < cardCopyLimit(state.catalog.get(cardId)?.rarity)) state.deck.push(cardId);
+}
+
+// 专属卡按等级解锁（v0.39.2）：EXP 记录让卡组角色跨过某槽位的解锁等级时，档案里登记的那张计入拥有（剧情 learn 已提前解锁的不重复计）；
+// 档案还没有该槽位的卡时记下跨级的锚点（signatureDue），由成长补扫交副 LLM 生成。EXP 记录失效、等级退回时不再跨级，卡随之锁上。
+function unlockSignatures(state, levelBefore, anchor) {
+    if (state.kind !== 'deck-character') return;
+    const level = expProgress(state.exp).level;
+    COMBAT_RULES.signatureUnlockLevels.forEach((need, index) => {
+        const slot = index + 1;
+        if (levelBefore >= need || level < need) return;
+        const card = signatureCardAt(state.profile, slot);
+        if (!card) {
+            if (!state.signatureDue) state.signatureDue = new Map();
+            if (!state.signatureDue.has(slot)) state.signatureDue.set(slot, { ...anchor });
+            return;
+        }
+        // 旧档案预生成的卡（ID 不带「-g<槽位>」）沿用旧规则：只由剧情 learn 解锁，升级不自动给
+        if (!/-g\d+$/.test(String(card.id || ''))) return;
+        if ((state.owned.get(card.id) || 0) > 0) return;
+        if (!state.catalog.has(card.id)) state.catalog.set(card.id, card);
+        addCard(state, card.id);
+    });
 }
 
 // 技能/被动的伤害是否超过盟友技能上限。
@@ -735,7 +758,22 @@ function presentCharacter(state, options = {}) {
         deckRevision: state.deckRevision ?? null, deckErrors: deckCheck.errors,
         deckNeedsAdjust: state.deckNeedsAdjust === true || !deckCheck.ok,
         claimedLevels: [...state.claimed].sort((a, b) => a - b), pendingRewards,
+        // 已到解锁等级、档案还没有对应专属卡的槽位（待生成）；没有时不写字段，旧视图形状不变。
+        ...(state.signatureDue?.size ? { signatureDue: [...state.signatureDue].map(([slot, anchor]) => ({ slot, level: signatureUnlockLevel(slot), anchor: { ...anchor } })) } : {}),
     };
+}
+
+// 专属卡待生成项（v0.39.2）：已到解锁等级、档案还没有对应专属卡的卡组角色每人一项（同时到期的槽位并入同一项、写同一版档案），
+// 锚定最早跨级的 EXP 记录；服务层把它并入成长待生成项，交副 LLM 按剧情生成名称与效果。
+export function signaturePending(effective) {
+    const result = [];
+    if (!effective?.ok || !(effective.characters instanceof Map)) return result;
+    for (const character of effective.characters.values()) {
+        if (!Array.isArray(character?.signatureDue) || !character.signatureDue.length) continue;
+        const due = [...character.signatureDue].sort((a, b) => a.slot - b.slot);
+        result.push({ kind: 'signature', character: character.name, characterId: character.id, slots: due.map((item) => item.slot), skill: '专属卡', anchor: { ...due[0].anchor } });
+    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -932,6 +970,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         const failure = handlers[entry.type](state, entry.payload, { index, entry, diagnostics, offers, loots, heroId, heroStock });
         if (failure) { pushDiagnostic(diagnostics, failure, entry); continue; }
         applied.push(entry.id);
+        if (entry.type === 'exp') unlockSignatures(state, levelBefore, entry.anchor);
         if (GROWTH_TYPES.has(entry.type)) growth.push(growthRecord(entry, state, levelBefore, index, heroId));
         if (entry.type === 'wound') {
             // 同一楼的受伤记录归到同一份「上一场队伍」
@@ -1288,6 +1327,48 @@ export function buildGearEntry(snapshot, chat, character, gearId, equip, now = 0
         : { gearId };
     const normalized = normalizeLedgerEntry({ id: ledgerEntryId(type, character.id, anchor), type, character: character.id, anchor, payload, createdAt: now });
     return normalized.ok ? { ok: true, entry: normalized.value } : invalidEntry(normalized);
+}
+
+// 按剧情给的初始装备（profile-gear）：每件一条 equip，锚点 tagHash = INIT_GEAR_TAG_HASH、occurrence 为部位序号，ID 确定、重复写幂等。
+// anchor 缺省时取当前最新楼层（同构筑面板换装）；开战准备传开战楼锚点。归并时只核对楼层与 swipe。
+export function buildInitialGearEntries(chat, characterId, items, now = 0, anchor = null) {
+    const floors = Array.isArray(chat) ? chat : [];
+    const base = anchor || (floors.length ? { messageId: floors.length - 1, swipeId: swipeOf(floors[floors.length - 1]) } : null);
+    if (!base) return { ok: false, reason: 'combat-deck-no-floor' };
+    if (!characterId) return { ok: false, reason: 'combat-character-missing' };
+    const entries = [];
+    for (const gear of Array.isArray(items) ? items : []) {
+        const at = { messageId: base.messageId, swipeId: base.swipeId, tagHash: INIT_GEAR_TAG_HASH, occurrence: GEAR_SLOTS.indexOf(gear?.slot) };
+        const normalized = normalizeLedgerEntry({ id: ledgerEntryId('equip', characterId, at), type: 'equip', character: characterId, anchor: at, payload: gear, createdAt: now });
+        if (!normalized.ok) return invalidEntry(normalized);
+        entries.push(normalized.value);
+    }
+    return { ok: true, entries };
+}
+
+// profile-gear 生成结果落账：按名字解析角色 ID 后经 ledger.grantInitialGear 写入；返回是否尝试过写入（调用方据此重读状态）。
+// 找不到角色或写失败只记诊断，不阻断。
+export async function grantGeneratedGear(ledgerImpl, generation, ownerOf, { anchor = null, diagnostics = [] } = {}) {
+    let wrote = false;
+    for (const item of generation?.accepted || []) {
+        if (item.kind !== 'profile-gear' || !item.gear?.items?.length) continue;
+        const owner = typeof ownerOf === 'function' ? ownerOf(item.gear.name) : null;
+        if (!owner) {
+            diagnostics.push({ code: 'combat-character-missing', name: item.gear.name });
+            continue;
+        }
+        let result;
+        try {
+            result = typeof ledgerImpl?.grantInitialGear === 'function'
+                ? await ledgerImpl.grantInitialGear(owner, item.gear.items, { anchor })
+                : { ok: false, reason: 'combat-gear-unavailable' };
+        } catch {
+            result = null;
+        }
+        if (result?.ok !== true) diagnostics.push({ code: result?.reason || 'combat-gear-write-failed', name: item.gear.name });
+        wrote = true;
+    }
+    return wrote;
 }
 
 // 出售装备或纪念品换点数，只有主角能卖。target 为字符串时当作 lootId。
@@ -1800,6 +1881,17 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         });
     }
 
+    // 初始装备落账（profile-gear）：items 为组装好的 equip 载荷；anchor 缺省取最新楼层。没有装备时不写。
+    function grantInitialGear(characterId, items, { anchor = null } = {}) {
+        return queueAction(async () => {
+            const built = buildInitialGearEntries(getChat(), characterId, items, now(), anchor);
+            if (!built.ok) return built;
+            if (!built.entries.length) return { ok: true, written: [], present: [], rejected: [], pending: [], entries: [] };
+            const written = await append(built.entries);
+            return { ...written, entries: built.entries };
+        });
+    }
+
     function sell(target) {
         return queueAction(async () => {
             const snapshot = await readSnapshot();
@@ -1901,7 +1993,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     }
 
     return {
-        read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, allocate, writeInit,
+        read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,
         sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot,
         stats: readStats,
     };

@@ -176,15 +176,22 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
             return { ok: false, reason: 'missing-readable-input' };
         },
 
-        async typeAndSend(text) {
+        // matches 可选：调用方按稳定身份认领回执（如战报 ID）。酒馆落楼前可能经正则 / 宏改写正文，全文相等会永远等不到回执。
+        // 不传时仍按去首尾空白后的全文相等认领。
+        async typeAndSend(text, { matches } = {}) {
             const before = getChatMessageEntries(globalObject);
             const afterId = before.reduce((last, entry) => Math.max(last, Number(entry.id)), -1);
             const chat = getSillyTavernContext(globalObject);
             const chatId = chat?.getCurrentChatId?.() ?? chat?.chatId;
             let dispatched = false;
+            const claims = (body) => {
+                if (typeof matches !== 'function') return body.trim() === String(text).trim();
+                try { return matches(body) === true; } catch (error) { return false; }
+            };
             const receipt = () => getChatMessageEntries(globalObject).find(entry => Number(entry.id) > afterId
                 && (entry.message?.is_user || entry.message?.role === 'user')
-                && String(entry.message?.mes ?? entry.message?.text ?? '').trim() === String(text).trim());
+                // 酒馆聊天楼正文在 mes；TavernHelper.getChatMessages 的行正文在 message。
+                && claims(String(entry.message?.mes ?? entry.message?.message ?? entry.message?.text ?? '')));
             const observed = () => {
                 const received = receipt();
                 if (received) return { completed: true, value: { ok: true, sent: true, messageId: received.id } };
@@ -201,16 +208,21 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
                 if (received) return { ok: true, sent: true, messageId: received.id };
                 if (dispatched) return { ok: false, reason: 'host-send-awaiting-receipt' };
                 const helper = getTavernHelper(globalObject);
+                // 派发成功不等于已落楼：只有聊天里出现同文的新用户楼才算发送成功，否则交给 observe 等回执。
+                const settled = () => {
+                    const landed = receipt();
+                    return landed ? { ok: true, sent: true, messageId: landed.id } : { ok: false, reason: 'host-send-awaiting-receipt' };
+                };
                 if (helper && typeof helper.typeAndSend === 'function') {
                     dispatched = true;
                     const result = await helper.typeAndSend(text);
                     if (result?.sent === false) dispatched = false;
                     if (result === false || result?.ok === false) return result || { ok: false, reason: 'host-send-pending' };
-                    return { ok: true, via: 'TavernHelper' };
+                    return settled();
                 }
                 const result = sendViaHostDom(globalObject, text);
                 dispatched = result.ok || result.reason === 'host-dom-send-failed';
-                return result;
+                return result.ok ? settled() : result;
             }, { global: globalObject, initialDelayMs: 500, observe: observed, passiveObservation: true,
                 waitFor: () => ({ message: dispatched
                     ? '消息已交给酒馆，正在读取原消息的发送回执；确认后自动继续，本条消息保持单次发送。'

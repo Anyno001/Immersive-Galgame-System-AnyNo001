@@ -28,8 +28,8 @@ test('选世界观技能建卡：只在该世界观下计入；切换世界观�
 
 test('自定义技能：名字校验、去重；选中后写进存档；按技能名触发检定', () => {
     assert.equal(validCustomSkillName(' 钓鱼 '), '钓鱼');
-    for (const bad of ['', '健康', '烹饪', 'a.b', '射击3', '__proto__', '一二三四五六七八九']) assert.equal(validCustomSkillName(bad), null, bad);
-    const b = normalizeBuild({ custom: ['钓鱼', '钓鱼', '健康'], special: { 钓鱼: true, 烹饪: false } });
+    for (const bad of ['', '体质', '烹饪', 'a.b', '射击3', '__proto__', '一二三四五六七八九']) assert.equal(validCustomSkillName(bad), null, bad);
+    const b = normalizeBuild({ custom: ['钓鱼', '钓鱼', '体质'], special: { 钓鱼: true, 烹饪: false } });
     assert.deepEqual(b.custom, ['钓鱼']);
     const r = buildInitialState(b);
     assert.equal(r.ok, true);

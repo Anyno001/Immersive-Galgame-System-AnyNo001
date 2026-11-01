@@ -18,6 +18,7 @@
 <style>
 @font-face{font-family:"Source Han Serif CN";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/SourceHanSerifCN-Regular.otf") format("opentype");}
 @font-face{font-family:"Cormorant Garamond";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/CormorantGaramond-Regular.woff2") format("woff2");}
+@font-face{font-family:"IGS-PangMen";font-style:normal;font-weight:400;font-display:swap;src:url("../../src/visual/igs-ui/assets/fonts/PangMenZhengDao-CuShu.ttf") format("truetype");}
 html,body{margin:0;height:100%;background:#0b0d10;color:#d8d5cf;font-family:"Source Han Serif CN",serif;}
 #stage{position:relative;margin:0 auto;overflow:hidden;background:#16181a;background-image:url("./assets/scene-demo-clean-night.png");background-size:cover;background-position:center;}
 #stage[data-bg="none"]{background-image:none;}
@@ -35,6 +36,8 @@ html,body{margin:0;height:100%;background:#0b0d10;color:#d8d5cf;font-family:"Sou
   <button data-page="diary">心事</button>
   <button data-page="inventory">背包</button>
   <button data-page="relationships">关系</button>
+  <button data-page="combat">战斗</button>
+  <button data-page="deck-build">建档</button>
   <button data-page="settings-scene">素材设置</button>
 </div>
 <div id="stage"><div id="igs-overlay"><div id="igs-db-layer"></div></div></div>
@@ -48,8 +51,13 @@ import { createRecordPanelController } from '../../src/visual/igs-ui/record-pane
 import { createMapPanelController } from '../../src/visual/igs-ui/map-panel.js';
 import { mapFixture } from './fixtures/map.fixture.js';
 import { diaryFixture } from './fixtures/diary.fixture.js';
-import { inventoryFixture } from './fixtures/inventory.fixture.js';
+import { inventoryFixture, combatInventoryFixture } from './fixtures/inventory.fixture.js';
 import { relationshipsFixture } from './fixtures/relationships.fixture.js';
+import { createCombatPreview } from './fixtures/combat.fixture.js';
+import { createCombatPanelController } from '../../src/visual/igs-ui/combat-panel.js';
+import { createCombatDeckPanelController } from '../../src/visual/igs-ui/combat-deck-panel.js';
+import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/visual/igs-ui/combat-cutin.js';
+import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
 
@@ -77,9 +85,12 @@ const diarySheet = {
   content: [['写作角色','篇名','发生日期','正文'],
     ...diaryFixture.entries.map(entry => [entry.author || '', entry.chapterTitle || '', entry.date || '', entry.body || ''])]
 };
+// ?gear=1：战斗开启时的背包——物品表多出装备、道具、杂物，背包页拿到主角背包投影。
+const gearPreview = new URLSearchParams(location.search).get('gear') === '1';
 const inventorySheet = {
   uid: inventoryFixture.uid, name: inventoryFixture.tableName,
   content: [['物品名称','数量','描述'],
+    ...(gearPreview ? combatInventoryFixture.items : []).map(item => [item.name, String(item.quantity), item.description]),
     ...inventoryFixture.items.map(item => [item.name, item.quantity === null ? '' : String(item.quantity), item.description])]
 };
 const relationshipsSheet = {
@@ -106,7 +117,57 @@ const globalShim = { AutoCardUpdaterAPI: api, localStorage: window.localStorage 
 
 const overlay = document.getElementById('igs-overlay');
 const stage = document.getElementById('stage');
-const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }));
+const heroInventory = gearPreview ? { ...structuredClone(combatInventoryFixture.view), others: inventoryFixture.items.map(item => ({ name: item.name, count: item.quantity })) } : null;
+// 预览用的换装与使用：只改内存里的投影和示例物品表；装上时同部位已有装备被顶回背包。
+const previewGear = (gearId, equip) => {
+  const gear = heroInventory.gear;
+  if (equip) {
+    const index = gear.bag.findIndex(item => item.gearId === gearId);
+    if (index < 0) return { ok: false, reason: 'combat-gear-missing' };
+    const [item] = gear.bag.splice(index, 1);
+    if (gear.slots[item.slot]) gear.bag.push(gear.slots[item.slot]);
+    gear.slots[item.slot] = item;
+    return { ok: true };
+  }
+  const slot = Object.keys(gear.slots).find(key => gear.slots[key]?.gearId === gearId);
+  if (!slot) return { ok: false, reason: 'combat-gear-missing' };
+  gear.bag.push(gear.slots[slot]);
+  delete gear.slots[slot];
+  return { ok: true };
+};
+const previewUse = name => {
+  const item = heroInventory.items.find(entry => entry.name === name);
+  if (!item) return { ok: false, reason: 'combat-use-not-item', draft: true };
+  const row = inventorySheet.content.find(cells => cells[0] === name);
+  const left = Number(row?.[1]) - 1;
+  item.count = left;
+  if (left > 0) row[1] = String(left);
+  else { inventorySheet.content.splice(inventorySheet.content.indexOf(row), 1); heroInventory.items.splice(heroInventory.items.indexOf(item), 1); }
+  return { ok: true };
+};
+// ?itemart=1：给每件物品画一张示意物品图（canvas 转 data:image/png，按名字配色），用于看背包详情头的点击放大；不读任何本地素材。
+const itemArtPreview = new URLSearchParams(location.search).get('itemart') === '1';
+const itemArtCache = new Map();
+const previewItemArt = name => {
+  if (!itemArtPreview || !name) return '';
+  if (itemArtCache.has(name)) return itemArtCache.get(name);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 512;
+  const g = canvas.getContext('2d');
+  const hue = Array.from(name).reduce((sum, ch) => sum + ch.codePointAt(0), 0) % 360;
+  const bg = g.createRadialGradient(256, 220, 40, 256, 256, 300);
+  bg.addColorStop(0, `hsl(${hue} 70% 62%)`); bg.addColorStop(1, `hsl(${(hue + 40) % 360} 45% 18%)`);
+  g.fillStyle = bg; g.fillRect(0, 0, 512, 512);
+  g.fillStyle = 'rgba(255,255,255,.9)'; g.font = '700 220px "Source Han Serif CN",serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(Array.from(name)[0], 256, 270);
+  const url = canvas.toDataURL('image/png');
+  itemArtCache.set(name, url);
+  return url;
+};
+const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }), {
+  ...(heroInventory ? { getHeroInventory: () => heroInventory, setHeroGear: async (id, equip) => previewGear(id, equip), useInventoryItem: async name => previewUse(name) } : {}),
+  ...(itemArtPreview ? { resolveItemImage: previewItemArt } : {}),
+});
 const map = createMapPanelController(document, globalShim, async () => ({ ok: true }), { getChatId: () => 'preview-chat' });
 const SIZES = {
   desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768],
@@ -212,9 +273,71 @@ function openSettingsScene() {
   if (q.get('nav') === 'open') document.getElementById('igs-unified-settings')?.setAttribute('data-igs-nav', 'open');
   return { close: () => opened.controller?.close?.() };
 }
+// 战斗面板预览：内存战斗表与存档；?combat=battle 直接开战，?combat=end 打到结束。
+const combatPreview = createCombatPreview();
+const combat = createCombatPanelController(document, { getSession: () => combatPreview.session, getLedger: () => combatPreview.ledger });
+// 截图脚本以 combatReady 判定本场景已就绪，不以中间态（lobby 后尚未开战）截图。
+const combatState = { ready: false, want: '' };
+async function openCombat() {
+  combatState.ready = false;
+  combat.open(overlay, { messageId: combatPreview.messageId });
+  const want = new URLSearchParams(location.search).get('combat') || 'lobby';
+  combatState.want = want;
+  for (let i = 0; i < 40 && combat.view()?.status !== 'lobby'; i += 1) await new Promise(r => setTimeout(r, 25));
+  if (want !== 'lobby') combat.invoke('start');
+  for (let i = 0; want === 'end' && i < 400 && combat.view()?.status === 'battle'; i += 1) {
+    const card = combat.view().battle.hand.find(c => c.playable);
+    if (!card) { combat.invoke('end-turn'); continue; }
+    if (!combat.invoke('card', card.inst).ok) combat.invoke('target', card.targets[0] ?? card.affects[0]);
+  }
+  // ?cutin=skill|awaken：挂一张真实技能 / 觉醒特写并停在中段，用于看字号与位置；&skill= 换招式名（觉醒为类型），&awaken= 情绪（rage guard grief resolve bond limit vengeance unyielding），&line= 台词；
+  // &portrait=<文件名> 读本机 tools/local-preview/assets/<文件名>.png 作立绘（该目录不随仓库提交），不传时不画立绘。
+  const cq = new URLSearchParams(location.search);
+  if (['skill', 'awaken'].includes(cq.get('cutin'))) {
+    const host = document.querySelector('#igs-combat-panel .igs-combat-fx');
+    if (host) {
+      const awaken = cq.get('cutin') === 'awaken';
+      const freeze = document.createElement('style');
+      freeze.textContent = awaken
+        ? '.igs-combat-awaken-cutin,.igs-combat-awaken-cutin *{animation-play-state:paused!important;animation-delay:-1700ms!important;}'
+        : '.igs-combat-cutin,.igs-combat-cutin *{animation-play-state:paused!important;animation-delay:-900ms!important;}';
+      // &loop=1：不定格，整段特写反复重播；默认定格在中段（背景纹样与粒子是伪元素，定格时照常动）。
+      const loop = cq.get('loop') === '1';
+      if (!loop) document.head.appendChild(freeze);
+      const pick = cq.get('portrait');
+      const url = pick && pick !== 'none' ? new URL('../../tools/local-preview/assets/' + encodeURIComponent(pick) + '.png', location.href).href : '';
+      // 与战斗面板同一条探测：头位、眼部裁切与色调（立绘缩到 25×25 后取最亮的不透明像素）都来自 probeSpriteHead。
+      const probed = url ? await probeSpriteHead(url, document).catch(() => null) : null;
+      const mount = () => {
+        const el = awaken
+          ? buildAwakenCutin(document, { name: cq.get('name') || '林夏', skill: cq.get('skill') || '决意', line: cq.get('line') || '这一次，我不会再退后半步。', awakenType: cq.get('awaken') || 'resolve', url, probed })
+          : buildSkillCutin(document, { name: cq.get('name') || '林夏', skill: cq.get('skill') || '星落·破晓斩', url, probed });
+        host.appendChild(el);
+        return el;
+      };
+      let shown = mount();
+      if (loop) setInterval(() => { shown.remove(); shown = mount(); }, (awaken ? COMBAT_CUTIN_MS.awaken : COMBAT_CUTIN_MS.skill) + 700);
+    }
+  }
+  combatState.ready = true;
+}
+// 人物状态面板 · 只开数值系统（P8c）：不注入战斗账本，本聊天为手动建档；名单为尚无建档的主角与带关系的角色，确认建档只改内存。
+// 可选 ?build=<名字> 打开后直接定位到这位角色（同提示条「填写」）。
+const buildAttr = { initialized: false, table: 'ok', role: 'warrior', className: '' };
+const buildDone = new Set();
+const deckBuild = createCombatDeckPanelController(document, {
+  getLedger: () => null,
+  buildMode: () => 'manual',
+  buildEntry: () => true,
+  writeManualInit: async (name) => { buildDone.add(name); return { ok: true }; },
+  getBuildCandidates: async () => ({ ok: true, table: 'ok', list: [['阿明', true], ['林夏', false], ['陈屿', false]]
+    .filter(([name]) => !buildDone.has(name)).map(([name, protagonist]) => ({ name, protagonist, attributes: buildAttr })) }),
+});
 function openPage(page) {
   current?.close?.();
   if (page === 'settings-scene' || isSettingsPage(page)) current = openSettingsScene();
+  else if (page === 'combat') { current = combat; openCombat(); }
+  else if (page === 'deck-build') { current = deckBuild; deckBuild.open(overlay, { build: new URLSearchParams(location.search).get('build') || null }); }
   else if (page === 'map') current = map, map.open(overlay, { weatherFx: { enabled: true } }, '临河街道', new URLSearchParams(location.search).get('time') || '', new URLSearchParams(location.search).get('weather') || '');
   else current = record, record.open(overlay, {}, page);
   document.querySelectorAll('#hud button').forEach(btn =>
@@ -244,7 +367,7 @@ document.getElementById('hud').addEventListener('click', event => {
   const page = event.target?.dataset?.page;
   if (page) openPage(page);
 });
-window.__preview = { openPage, setSize, record, map, stats };
+window.__preview = { openPage, setSize, record, map, combat, deckBuild, combatState, combatStats: combatPreview.stats, stats };
 </script>
 </body>
 </html>

@@ -135,7 +135,8 @@ function validateUnit(unit, path) {
     if (!intInRange(unit.maxHp, 1, 9999)) return fail('invalid-hp');
     if (unit.hp !== undefined && !intInRange(unit.hp, 1, unit.maxHp)) return fail('invalid-hp');
     const badScale = unit.damageScale !== undefined && !(typeof unit.damageScale === 'number' && unit.damageScale > 0 && unit.damageScale <= 5);
-    if ((unit.energy !== undefined && !intInRange(unit.energy, 0, 10)) || (unit.draw !== undefined && !intInRange(unit.draw, 0, 10)) || badScale || (unit.speed !== undefined && !intInRange(unit.speed, 1, 999))) return fail('invalid-stat');
+    const badActions = unit.actions !== undefined && !(unit.kind === 'skill' && intInRange(unit.actions, 1, 2));
+    if ((unit.energy !== undefined && !intInRange(unit.energy, 0, 10)) || (unit.draw !== undefined && !intInRange(unit.draw, 0, 10)) || badScale || badActions || (unit.speed !== undefined && !intInRange(unit.speed, 1, 999))) return fail('invalid-stat');
     if (unit.kind === 'skill') {
         if (!Array.isArray(unit.skills) || !unit.skills.length) return fail('missing-skills');
         const phaseSkills = (Array.isArray(unit.phases) ? unit.phases : []).flatMap((phase) => phase?.addSkills || []);
@@ -176,6 +177,9 @@ function validateSetup(setup) {
     if (setup.items !== undefined && itemsInvalid(setup.items)) return { reason: 'invalid-items' };
     if (setup.overkill !== undefined && typeof setup.overkill !== 'boolean') return { reason: 'invalid-setup' };
     if (setup.wipe !== undefined && typeof setup.wipe !== 'boolean') return { reason: 'invalid-setup' };
+    // openingCharged（v0.39.2）：开局先手计入操控角色的行动条；randomTargets（v0.39.2）：敌人随机选攻击对象。旧 setup 不带时规则不变。
+    if (setup.openingCharged !== undefined && typeof setup.openingCharged !== 'boolean') return { reason: 'invalid-setup' };
+    if (setup.randomTargets !== undefined && typeof setup.randomTargets !== 'boolean') return { reason: 'invalid-setup' };
     const ids = new Set();
     for (const [index, unit] of setup.units.entries()) {
         const path = `units[${index}]`;
@@ -336,8 +340,8 @@ function resolveTargets(ctx, source, spec, aimId, allowDead = false) {
     switch (spec) {
         case 'enemy': {
             if (aimId == null) {
-                const weakest = weakestId(state, foeSide);
-                return weakest ? [state.units[weakest]] : [];
+                const picked = attackTargetId(ctx, source);
+                return picked ? [state.units[picked]] : [];
             }
             const aimed = Object.hasOwn(state.units, aimId) ? state.units[aimId] : null;
             return aimed && aimed.side === foeSide && (aimed.alive || allowDead) ? [aimed] : [];
@@ -852,6 +856,16 @@ function modifyCost(ctx, unit, inst, amount, scope) {
 
 // ---------- 敌人意图与技能 ----------
 
+// 默认攻击对象：setup.randomTargets 时敌方单位在存活的对方单位中按种子随机挑一个（消耗一次随机数）；
+// 否则（含我方托管单位）取生命 + 格挡最低者，不消耗随机数。
+function attackTargetId(ctx, unit) {
+    const state = ctx.state;
+    const foeSide = opposite(unit.side);
+    if (state.randomTargets !== true || unit.side !== 'enemy') return weakestId(state, foeSide);
+    const ids = livingIds(state, foeSide);
+    return ids.length ? ids[rollInt(state, ids.length)] : null;
+}
+
 // 为技能单位规划下一次行动；没有可选技能则清掉意图。
 function planIntent(ctx, unit) {
     const intent = chooseSkillIntent(ctx.state, unit.id, rollFloat(ctx.state));
@@ -859,6 +873,7 @@ function planIntent(ctx, unit) {
         delete ctx.state.intents[unit.id];
         return;
     }
+    if (intent.targetId != null && ctx.state.randomTargets === true && unit.side === 'enemy') intent.targetId = attackTargetId(ctx, unit);
     ctx.state.intents[unit.id] = intent;
     emit(ctx, { type: 'intent', unitId: unit.id, skillId: intent.skillId, targetId: intent.targetId });
 }
@@ -873,7 +888,7 @@ function takeSkillTurn(ctx, unit) {
         return;
     }
     let targetId = intent.targetId ?? null;
-    if (targetId !== null && !state.units[targetId]?.alive) targetId = weakestId(state, opposite(unit.side));
+    if (targetId !== null && !state.units[targetId]?.alive) targetId = attackTargetId(ctx, unit);
     delete state.intents[unit.id];
     emit(ctx, { type: 'skill', unitId: unit.id, skillId: skill.id, name: skill.name, targetId });
     runEffects(ctx, unit, skill.effects, targetId, { unitId: unit.id, kind: 'skill', id: skill.id });
@@ -1180,7 +1195,7 @@ export function upcomingActors(state, count = 6) {
     if (state.phase === 'player' && slots[heroId]) {
         result.push(heroId);
         seq += 1;
-        slots[heroId].av = slots[heroId].delay;
+        slots[heroId].av = slots[heroId].delay * (state.openingDebt ? 2 : 1);
         slots[heroId].seq = seq;
     }
     while (result.length < count) {
@@ -1215,7 +1230,9 @@ function takeAutoTurn(ctx, unit) {
             playCard(ctx, unit, choice.inst, choice.targetId);
         }
     } else {
-        takeSkillTurn(ctx, unit);
+        // 技能单位每次出手用技能的次数：setup 带 actions 时按它（技能队友 2 次），没有字段时 1 次，旧战斗重放不变。
+        const uses = unit.actions || 1;
+        for (let n = 0; n < uses && unit.alive && !state.outcome; n += 1) takeSkillTurn(ctx, unit);
     }
     endUnitTurn(ctx, unit);
 }
@@ -1273,6 +1290,11 @@ function endPlayerTurn(ctx) {
     endUnitTurn(ctx, hero);
     if (!state.outcome) {
         scheduleUnit(state, hero);
+        // 开局先手计入行动条（setup.openingCharged）：先手那一手占掉一个行动间隔，下一次出手再顺延一个间隔，首轮不再连动两回合。
+        if (state.openingDebt) {
+            hero.av += actionDelay(hero);
+            delete state.openingDebt;
+        }
         runAutoPhase(ctx);
     }
 }
@@ -1305,6 +1327,8 @@ function buildUnit(def) {
         powers: [],
     };
     if (typeof def.art === 'string' && def.art) unit.art = def.art;
+    // 每次出手连用技能次数（只技能单位）：大于 1 时才写字段，旧战斗形状不变。
+    if (def.kind === 'skill' && Number.isInteger(def.actions) && def.actions > 1) unit.actions = def.actions;
     if (def.kind === 'deck') {
         unit.energy = 0;
         unit.energyPerTurn = def.energy ?? COMBAT_RULES.energyPerTurn;
@@ -1345,6 +1369,8 @@ export function createBattle(setup, seed) {
         avSeq: 0,
         ...(setup.overkill === true ? { overkill: true } : {}),
         ...(setup.wipe === true ? { wipe: true } : {}),
+        ...(setup.openingCharged === true ? { openingDebt: true } : {}),
+        ...(setup.randomTargets === true ? { randomTargets: true } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((item) => ({ itemId: item.itemId, name: typeof item.name === 'string' ? item.name : item.itemId, count: item.count, effects: deepCopy(item.effects) })) } } : {}),
         ...(reserve.size ? { reserve: [...setup.reserve] } : {}),

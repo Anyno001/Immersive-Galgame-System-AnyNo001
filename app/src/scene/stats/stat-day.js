@@ -75,14 +75,14 @@ function pushBarChanges(from, to, changes, note) {
     }
 }
 
-// 日结算：体力恢复（熬夜后只到 70）、生命 +15、压力 −10、技能成长、好感冷却、每日上限清零。
+// 日结算：体力恢复（熬夜后只到 70）、压力 −10、技能成长、好感冷却、每日上限清零。
+// 生命不随过夜恢复（合并计划 Q4）：只有回复标签与战斗结果改变伤势。
 export function settleDay(state, { random, changes = [] } = {}) {
     const day = state.clock.day + 1;
     const { bars } = state.protagonist;
     const nextBars = {
         ...bars,
         stamina: Math.max(bars.stamina, state.clock.stayedUp ? 70 : 100),
-        health: clamp(bars.health + 15, 0, 100),
         stress: clamp(bars.stress - 10, 0, 100),
     };
     pushBarChanges(bars, nextBars, changes, '日结算');
@@ -101,11 +101,11 @@ function grow(state, random, changes) {
     return { ...next, protagonist: { ...next.protagonist, growth: (Number(next.protagonist.growth) || 0) + gained } };
 }
 
-// 时间跳跃：体力、生命回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
+// 时间跳跃：体力回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
 export function settleSkip(state, days, { random, changes = [] } = {}) {
     const day = state.clock.day + days;
     const { bars } = state.protagonist;
-    const nextBars = { ...bars, stamina: 100, health: 100 };
+    const nextBars = { ...bars, stamina: 100 };
     pushBarChanges(bars, nextBars, changes, `跳过${days}天`);
     let next = withBars(state, nextBars);
     next = grow(next, random, changes);

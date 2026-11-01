@@ -9,7 +9,7 @@ function messageText(message) {
 
 export function collectPromptContext(context, { document: doc = null, lookback = PAIR_TRIGGER_LOOKBACK } = {}) {
     const chat = context && Array.isArray(context.chat) ? context.chat : null;
-    if (!chat) return { recentAiTexts: [], userText: '', presentText: null, history: [], previousAiTexts: null };
+    if (!chat) return { recentAiTexts: [], userText: '', inputText: '', presentText: null, history: [], previousAiTexts: null };
     const visible = chat.filter((m) => m && !m.is_system);
     const previousAiTexts = visible.filter((m) => !m.is_user).map(messageText);
     const recentAiTexts = previousAiTexts.slice(-lookback);
@@ -18,6 +18,8 @@ export function collectPromptContext(context, { document: doc = null, lookback =
         const box = doc && typeof doc.querySelector === 'function' ? doc.querySelector('#send_textarea') : null;
         userText = box && typeof box.value === 'string' ? box.value : '';
     } catch (error) { /* */ }
+    // 输入框原文：宿主在生成开始事件之后才把它写成用户楼，需要区分「正要发送」与「已发送」时用这个字段。
+    const inputText = userText;
     if (!userText.trim()) {
         const lastUser = [...visible].reverse().find((m) => m.is_user);
         userText = messageText(lastUser);
@@ -35,5 +37,5 @@ export function collectPromptContext(context, { document: doc = null, lookback =
     } catch (error) { /* */ }
     const presentText = [...names.filter(Boolean), ...visible.slice(-PRESENT_LOOKBACK).map(messageText), userText].join('\n');
     const history = visible.map((m) => ({ user: Boolean(m.is_user), text: messageText(m) }));
-    return { recentAiTexts, userText, presentText, history, previousAiTexts };
+    return { recentAiTexts, userText, inputText, presentText, history, previousAiTexts };
 }

@@ -5,7 +5,7 @@ import { resolveDateAmbience } from '../../scene/date-ambience.js';
 import { CAMPUS_AUDIO_KIND, resolveCampusAmbience } from '../../scene/campus-fx.js';
 import { createCampusVoices } from './scene-audio-campus.js';
 import { FX_PACK_AMBIENT_KINDS, FX_PACK_AMBIENT_LABELS, createPackVoices, packAmbientCandidates } from '../../scene/fx-packs.js';
-import { bgmPackOfWorldview, inferBgmMood, normalizeBgmTags, resolveBgmMood, resolveBgmSilence, resolveBgmTransition, selectBgmTrack } from './bgm-library.js';
+import { bgmPackOfWorldview, inferBgmMood, normalizeBgmMood, normalizeBgmTags, resolveBgmMood, resolveBgmSilence, resolveBgmTransition, selectBgmTrack } from './bgm-library.js';
 
 // 场景音频：BGM 用 HTMLAudio 按情绪 / 关键词选曲并交叉淡入淡出，能跨域读取的曲目接进混音总线；环境音全部 WebAudio 实时合成，不依赖音频文件。
 export const AMBIENT_KINDS = Object.freeze([
@@ -194,6 +194,9 @@ const HIDE_FADE_MS = 300;
 
 const states = new WeakMap();
 const liveStates = new Set();
+// 临时情绪覆盖（root → { mood, saved }）与每个 root 最近一次的选项（覆盖变化时用它重放）；不依赖音频状态是否已建立。
+const bgmMoodOverrides = new WeakMap();
+const lastApplied = new WeakMap();
 const noiseBuffers = new WeakMap();
 const impulseBuffers = new WeakMap();
 // 进行中的闪避比例（可嵌套），取最低者生效。
@@ -310,13 +313,33 @@ function createBgmMemory() {
 }
 
 // 曲目带情绪分类（默认曲目包或用户勾过情绪）时走情绪池；全是旧式关键词曲目时保持原来的关键词打分。
-// 返回 { track, mood }；只配了关键词曲目时 mood 为空。
-function pickSceneBgm(bgm, context, memory, skip) {
+// 返回 { track, mood }；只配了关键词曲目时 mood 为空。override 为临时情绪覆盖：直接按它选曲，不写回情绪记忆。
+function pickSceneBgm(bgm, context, memory, skip, override = '') {
     if (!bgm.tracks.some((track) => track.moods)) return { track: pickBgmTrack(bgm.tracks, context), mood: '' };
     const ctx = plainObject(context);
     // 关掉情绪标签后连记住的情绪也不用，只按演出与时段推断。
-    const mood = bgm.moodTag ? resolveBgmMood({ ...ctx, mood: ctx.bgmMood }, memory) : inferBgmMood(ctx);
+    const mood = override || (bgm.moodTag ? resolveBgmMood({ ...ctx, mood: ctx.bgmMood }, memory) : inferBgmMood(ctx));
     return { track: selectBgmTrack(bgm.tracks, { ...ctx, mood, pack: bgmPackOfWorldview(ctx.worldview), skip }, memory), mood };
+}
+
+// 临时情绪覆盖（战斗面板打开时切到 battle）：按 root 记住，之后每次 applySceneAudio 都按覆盖的情绪选曲，不写回情绪记忆、不计留白页；
+// 清除时把选曲记录放回覆盖前的状态并用最近一次的选项重放，回到原来那首剧情曲。沿用 BGM 开关与曲库；只配了关键词曲目时不生效。
+// 返回重放结果；覆盖没有变化或还没有可重放的选项时返回 null。
+export function setBgmMoodOverride(root, mood) {
+    if (!root || typeof root !== 'object') return null;
+    const next = normalizeBgmMood(mood);
+    const prev = bgmMoodOverrides.get(root);
+    if ((prev ? prev.mood : '') === next) return null;
+    const memory = states.get(root)?.bgmMemory || null;
+    if (next) {
+        const saved = prev ? prev.saved : memory ? { sig: memory.sig, id: memory.id, played: [...(memory.played || [])] } : null;
+        bgmMoodOverrides.set(root, { mood: next, saved });
+    } else {
+        bgmMoodOverrides.delete(root);
+        if (prev && prev.saved && memory) Object.assign(memory, { sig: prev.saved.sig, id: prev.saved.id, played: [...prev.saved.played] });
+    }
+    const options = lastApplied.get(root);
+    return options ? applySceneAudio(root, options) : null;
 }
 
 // 地点栏 ♪ 的「换一首」：在当前候选池里换下一首；返回 { root, track }，没有在放的音乐时返回 null。
@@ -2538,12 +2561,14 @@ export function applySceneAudio(root, options = {}) {
     const ambient = normalizeAmbientSoundSettings(source.ambient);
     const live = root && typeof root === 'object' ? states.get(root) : null;
     const memory = live ? live.bgmMemory : createBgmMemory();
+    const override = root && typeof root === 'object' ? bgmMoodOverrides.get(root)?.mood || '' : '';
     // 留白：告白或 AI 写了「无声」时音乐停几页；留白期间不选曲，「换一首」也不起播。
-    const silent = active && bgm.enabled && resolveBgmSilence({
+    // 临时情绪覆盖期间不计留白（战斗面板打开时不按背后正文停音乐）。
+    const silent = active && bgm.enabled && !override && resolveBgmSilence({
         mood: bgm.moodTag ? context.bgmMood : '', confess: context.confess === true, confessText: context.confessText === true,
         location: context.location, pageKey: context.pageKey,
     }, memory);
-    const picked = active && bgm.enabled && !silent ? pickSceneBgm(bgm, context, memory, source.skip === true) : { track: null, mood: '' };
+    const picked = active && bgm.enabled && !silent ? pickSceneBgm(bgm, context, memory, source.skip === true, override) : { track: null, mood: '' };
     const track = picked.track;
     const plan = active ? resolveAmbientPlan(context, ambient, source.weatherSettings) : [];
     const tone = plan.length ? resolveAmbientTone(context) : '';
@@ -2551,6 +2576,7 @@ export function applySceneAudio(root, options = {}) {
     const bgmTone = track ? resolveAmbientTone(context) : '';
     const result = { track, ambient: plan, tone, space };
     if (!root || typeof root !== 'object') return result;
+    lastApplied.set(root, { ...source, skip: false });
     // 打字音与音效的空间混响跟着「场景声音」开关走；测试注入的 context 不碰共享总线。
     if (typeof source.contextFactory !== 'function') {
         const voiceTone = active && ambient.enabled ? resolveAmbientTone(context) : '';
@@ -2627,6 +2653,7 @@ function syncVoiceSpace(kind) {
 
 export function cancelSceneAudio(root) {
     syncVoiceSpace('');
+    if (root && typeof root === 'object') { bgmMoodOverrides.delete(root); lastApplied.delete(root); }
     const state = root && states.get(root);
     if (!state) return false;
     state.stopped = true;

@@ -1,5 +1,6 @@
 import { renderDialogueHtml, resolveActiveTheme } from './settings-normalize.js';
 import { normalizeBilingualSettings, renderBilingualHtml, resolveBilingualDisplay } from './bilingual-text.js';
+import { applyTextFxMarkup } from './text-fx.js';
 import { ITEM_FX_ACTION_LABELS, normalizeItemFxSettings } from './fx-item-model.js';
 import { normalizeFxTagsSettings } from './fx-settings.js';
 import { normalizeLogReaderSettings } from './log-reader-settings.js';
@@ -44,14 +45,15 @@ export function logFontsOf(snapshot) {
     return { text: font(theme.textFont), name: font(theme.nameFont), narration: font(theme.narrationFont), size: `${Math.max(13, Math.min(20, Math.round(size * 0.84 * 2) / 2))}px` };
 }
 
-// 正文 HTML：与对话框同一套心里话样式和双语注音，不带文字演出与物品点亮（列表里只读）。
+// 正文 HTML：与对话框同一套心里话样式、双语注音和文字演出（{吼:} 等），不带物品点亮（列表里只读）。
 export function createLogHtml(snapshot) {
     const rs = snapshot.readerSettings || {};
     const theme = resolveActiveTheme(snapshot);
     const sceneAssetsOn = Boolean(rs._sceneAssets && rs._sceneAssets.enabled);
     const display = resolveBilingualDisplay(rs.bilingual, rs._bilingualDisplay);
     const layout = normalizeBilingualSettings(rs.bilingual).layout;
-    return (row) => renderBilingualHtml(renderDialogueHtml(row.text, theme, sceneAssetsOn), display, layout);
+    const textFxOn = Boolean(rs.textFx && rs.textFx.enabled);
+    return (row) => applyTextFxMarkup(renderBilingualHtml(renderDialogueHtml(row.text, theme, sceneAssetsOn), display, layout), textFxOn);
 }
 
 // 物品与来电：列表里的小卡片，开关沿用原演出的设置。

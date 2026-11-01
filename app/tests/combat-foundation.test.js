@@ -46,25 +46,34 @@ const pick = (list) => list[Math.floor(rng() * list.length)];
 
 function sameExports(name, mine, path) {
     const old = V039(path);
-    assert.deepEqual(Object.keys(mine).sort(), Object.keys(old).sort(), `${name} 导出名一致`);
+    // v0.39.1 / v0.39.2 新增导出，原版没有
+    const added = new Set(['crowdScaleFor', 'signatureSlotOf', 'signatureUnlockLevel', 'signatureCardAt']);
+    assert.deepEqual(Object.keys(mine).filter((key) => !added.has(key)).sort(), Object.keys(old).sort(), `${name} 导出名一致`);
     return old;
 }
 
-// 逐个导出比较：函数用给定的参数组调用，常量直接 deepEqual。
-function compareAll(mine, old, argSets) {
+// 逐个导出比较：函数用给定的参数组调用，常量直接 deepEqual。normalize 把本版的结果换回原版写法再比（只用于登记过的有意改动）。
+function compareAll(mine, old, argSets, { normalize = (value) => value } = {}) {
     for (const key of Object.keys(old)) {
         if (typeof old[key] !== 'function') {
-            assert.deepEqual(mine[key], old[key], `常量 ${key}`);
+            // v0.39.1 在 COMBAT_RULES 新增 crowd、generatedScale，v0.39.2 新增 signatureUnlockLevels，原版没有；其余字段逐项相同。
+            const { crowd, generatedScale, signatureUnlockLevels, ...rest } = key === 'COMBAT_RULES' ? mine[key] : {};
+            assert.deepEqual(key === 'COMBAT_RULES' ? rest : normalize(mine[key]), old[key], `常量 ${key}`);
             continue;
         }
         const sets = argSets[key];
         assert.ok(sets, `缺少 ${key} 的参数组`);
         for (const args of sets) {
-            const run = (fn) => { try { return { ok: fn(...structuredClone(args)) }; } catch (error) { return { err: error.constructor.name }; } };
-            assert.deepEqual(run(mine[key]), run(old[key]), `${key}(${JSON.stringify(args)})`);
+            const run = (fn, fix = (value) => value) => { try { return { ok: fix(fn(...structuredClone(args))) }; } catch (error) { return { err: error.constructor.name }; } };
+            assert.deepEqual(run(mine[key], normalize), run(old[key]), `${key}(${JSON.stringify(args)})`);
         }
     }
 }
+
+// v0.39.2 开战规则新增一句「其他标签写在开战标签之前」，比对时去掉这一句。
+const V0392_START_HINT = '本层要写的其他标签（rel、stat 等）都写在它之前；';
+const withoutStartHint = (value) => (typeof value === 'string' ? value.split(V0392_START_HINT).join('')
+    : value && typeof value === 'object' ? JSON.parse(JSON.stringify(value).split(V0392_START_HINT).join('')) : value);
 
 const junk = [undefined, null, '', 'x', 0, 1, -5, 3.7, NaN, [], {}, '力量', ' STR ', '敏', '相当', '远逊', 'even'];
 const names = ['艾琳', 'Bob', '', '主角', '赵云-1'];
@@ -183,7 +192,9 @@ test('combat-prompt：全部导出', { skip }, () => {
         resolveCombatNarrationSegment: settingsList.flatMap((s) => msgLists.map((m) => [s, m, { generationType: pick([undefined, 'swipe', 'normal']), inputText: pick(['', reports[3]]) }])),
         combatPartyLines: members.map((m) => [m]),
         resolveCombatPartySegment: settingsList.flatMap((s) => members.map((m) => [s, m])),
-    });
+    }, { normalize: withoutStartHint });
+    // 有意改动本身：开战规则带上这一句。
+    assert.ok(prompt.resolveCombatPromptRule({ combatExpansion: { enabled: true } }).includes(V0392_START_HINT));
 });
 
 test('check-rolls：全部导出', { skip }, () => {

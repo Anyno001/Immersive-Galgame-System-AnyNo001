@@ -30,6 +30,10 @@ import { WAIT_STAGE_STYLE_TEXT } from './wait-stage.js';
 import { DAILY_FX_STYLE_TEXT } from './fx-daily-style.js';
 import { ITEM_FX_STYLE_TEXT } from './fx-item.js';
 import { BATTLE_FX_STYLE_TEXT } from './fx-battle.js';
+import { COMBAT_PANEL_STYLE_TEXT } from './combat-panel-style.js';
+import { COMBAT_DECK_PANEL_STYLE_TEXT } from './combat-deck-panel-style.js';
+import { GROWTH_FX_STYLE_TEXT } from './combat-growth-fx.js';
+import { CHECK_BADGE_STYLE_TEXT } from './combat-check-badge.js';
 import { CLASH_STYLE_TEXT } from './fx-clash.js';
 import { INNER_DEMON_STYLE_TEXT } from './fx-inner-demon.js';
 import { RESULT_FX_STYLE_TEXT } from './fx-result.js';
@@ -37,6 +41,7 @@ import { CG_GALLERY_STYLE_TEXT } from './cg-gallery-panel.js';
 import { TURN_INDEX_STYLE_TEXT } from './turn-index-panel.js';
 import { GENERATION_STRIP_STYLE_TEXT } from './generation-strip.js';
 import { INVENTORY_IMAGE_STYLE_TEXT } from './inventory-slot-image.js';
+import { ITEM_IMAGE_VIEWER_STYLE_TEXT } from './item-image-viewer.js';
 import { ITEM_CG_ICONS } from './item-cg-icons.js';
 import { ASSET_REVIEW_STYLE_TEXT } from './asset-review-panel.js';
 import { RECORD_PANEL_STYLE_TEXT } from './record-panel-style.js';
@@ -93,6 +98,8 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'hide', group: 'view', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
     { id: 'live2d-settings', group: 'view', title: 'Live2D 角色绑定', html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M8 1 15 5v6l-7 4-7-4V5Zm0 0v14M1 5l7 4 7-4"/></svg>' },
     { id: 'sprite-edit', group: 'view', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
+    // 人物状态：只在卡牌战斗扩展开启时显示（applyToolbarState 按设置隐藏），打开与资料菜单「人物状态」项同一面板。
+    { id: 'combat-status', group: 'view', title: '人物状态', html: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>' },
     { id: 'mini-games', group: 'view', title: '小游戏（立直麻将等，玩完回到当前楼）', html: ORIGINAL_READER_ICONS.games },
     { id: 'rescan', group: 'system', title: '重新加载', html: ORIGINAL_READER_ICONS.rescan },
     { id: 'settings', group: 'system', title: '设置', html: ORIGINAL_READER_ICONS.settings },
@@ -310,6 +317,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-stats-chip .igs-stats-chip-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.86;}
 #igs-stats-chip .igs-stats-chip-btn{flex:none;padding:1px 9px;border:1px solid currentColor;border-radius:999px;background:transparent;color:inherit;font:inherit;cursor:pointer;opacity:.82;}
 #igs-stats-chip .igs-stats-chip-btn:hover{opacity:1;}
+#igs-stats-chip .igs-stats-chip-btn[aria-pressed="true"]{opacity:1;background:rgba(255,255,255,.18);font-weight:600;}
+
 #igs-stats-chip[data-kind="info"],#igs-stats-chip[data-kind="busy"]{padding-right:10px;}
 .igs-option-bubble .igs-option-chance{margin-left:.5em;font-size:.82em;opacity:.62;}
 #igs-send-status{display:none;flex:1;align-items:center;gap:8px;padding:8px 14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;font-size:13px;color:rgba(255,255,255,.55);letter-spacing:.3px;}
@@ -453,6 +462,10 @@ ${WAIT_STAGE_STYLE_TEXT}
 ${DAILY_FX_STYLE_TEXT}
 ${ITEM_FX_STYLE_TEXT}
 ${BATTLE_FX_STYLE_TEXT}
+${COMBAT_PANEL_STYLE_TEXT}
+${COMBAT_DECK_PANEL_STYLE_TEXT}
+${GROWTH_FX_STYLE_TEXT}
+${CHECK_BADGE_STYLE_TEXT}
 ${CLASH_STYLE_TEXT}
 ${INNER_DEMON_STYLE_TEXT}
 ${RESULT_FX_STYLE_TEXT}
@@ -471,6 +484,7 @@ ${TURN_INDEX_STYLE_TEXT}
 ${DIALOG_BAR_STYLE_TEXT}
 ${GENERATION_STRIP_STYLE_TEXT}
 ${INVENTORY_IMAGE_STYLE_TEXT}
+${ITEM_IMAGE_VIEWER_STYLE_TEXT}
 ${STAGE_PAUSE_STYLE_TEXT}
 ${LOG_READER_STYLE_TEXT}
 `.trim();

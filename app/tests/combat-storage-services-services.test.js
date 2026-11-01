@@ -156,7 +156,9 @@ test('getStats 字段齐全，既有导出名不变', { skip }, async () => {
     const oldEnv = await ready(original);
     const oldNames = Object.keys(oldEnv.services).sort();
     const newNames = Object.keys(env.services).sort();
-    assert.deepEqual(newNames.filter((name) => name !== 'getStats'), oldNames);
+    // getStats 为本地新增；sellHeroItem / takeoverInventory 为 v0.39.2 新增（背包卖出、物品表接管）。
+    const added = new Set(['getStats', 'sellHeroItem', 'takeoverInventory']);
+    assert.deepEqual(newNames.filter((name) => !added.has(name)), oldNames);
     const stats = env.services.getStats();
     for (const key of ['tableExports', 'refreshLifeRuns', 'refreshGrowthRuns', 'notifies', 'sessionWrites']) assert.equal(typeof stats[key], 'number', key);
 });

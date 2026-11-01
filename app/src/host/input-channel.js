@@ -11,11 +11,12 @@ export function createInputChannel(hostAdapter) {
     }
 
     return {
-        async typeAndSend(text) {
+        // options 原样透传给宿主适配层（如 matches 回执认领）；不传时调用形状与旧版一致。
+        async typeAndSend(text, options) {
             if (typeof text !== 'string' || !text.trim()) {
                 return { ok: false, reason: 'empty-input' };
             }
-            return hostAdapter.typeAndSend(text);
+            return options === undefined ? hostAdapter.typeAndSend(text) : hostAdapter.typeAndSend(text, options);
         },
         async typeIntoInputAndSend(text) {
             return this.typeAndSend(text);

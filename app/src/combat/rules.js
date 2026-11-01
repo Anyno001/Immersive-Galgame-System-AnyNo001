@@ -41,6 +41,12 @@ export const COMBAT_RULES = Object.freeze({
     }),
     tierScalePerLevel: 0.05,
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
+    // 多敌折算：单只敌人生命与伤害 × 1 / (1 + perExtra × (在场人数 − 1))，不低于 floor；在场人数受 maxEnemiesOnField 限制，预备队不计。
+    // 按 scripts/combat-balance.mjs 校准（1 级标准档单主角普通敌人：2 只约 80%、3 只约 60%），只写进新建 setup，旧战斗按已存数值重放。
+    // v0.39.2 下限 0.55 → 0.65。
+    crowd: Object.freeze({ perExtra: 0.43, floor: 0.65 }),
+    // 生成敌人档位校准：副 LLM 生成的敌人（generated 不为 false）生命与伤害再 × 该值，模板敌人不变；首领按 scripts/combat-balance.mjs --generated 校准。
+    generatedScale: Object.freeze({ boss: 0.9 }),
     difficulty: Object.freeze({
         easy: difficultyTier({ label: '轻松', hp: 0.8, damage: 0.8, affixes: [0, 0, 1] }),
         normal: difficultyTier({ label: '标准', hp: 1, damage: 1, affixes: [0, 1, 2] }),
@@ -74,6 +80,8 @@ export const COMBAT_RULES = Object.freeze({
     upgradeAllowance: 1.3,
     signatureLimit: 2,
     signatureCopyLimit: 1,
+    // 专属卡按等级解锁（v0.39.2）：第 i 张在 signatureUnlockLevels[i] 级解锁，等级退回时重新锁上。
+    signatureUnlockLevels: Object.freeze([5, 10]),
     allyTiers: Object.freeze({
         support: Object.freeze({ label: '陪衬', hp: 0.8, skill: 0.85, ultimateCooldown: 0 }),
         peer: Object.freeze({ label: '并肩', hp: 1, skill: 1, ultimateCooldown: 0 }),
@@ -270,6 +278,21 @@ export function cardCopyLimit(rarity) {
     return rarity === 'mythic' ? 1 : COMBAT_RULES.copyLimit;
 }
 
+// 专属卡槽位（从 1 起）：ID 以「-g<槽位>」结尾时按槽位，否则按档案里的位置（兼容旧档案预生成的卡）。
+export function signatureSlotOf(card, index = 0) {
+    const match = /-g(\d+)$/.exec(String(card?.id || ''));
+    const slot = match ? Number(match[1]) : index + 1;
+    return slot >= 1 && slot <= COMBAT_RULES.signatureUnlockLevels.length ? slot : index + 1;
+}
+
+// 某槽位的解锁等级；槽位不存在时永不解锁。
+export const signatureUnlockLevel = (slot) => COMBAT_RULES.signatureUnlockLevels[slot - 1] ?? Infinity;
+
+// 档案里登记在该槽位的专属卡，没有返回 null。
+export function signatureCardAt(profile, slot) {
+    return (profile?.signatureCards || []).find((card, index) => signatureSlotOf(card, index) === slot) || null;
+}
+
 // 牌组校验：张数、同名上限、是否拥有。owned 可以是 Map 或普通对象，catalog 是 id 到牌定义的 Map。
 export function validateDeck(cardIds, owned, catalog) {
     const ids = Array.isArray(cardIds) ? cardIds : [];
@@ -328,6 +351,14 @@ export function scaleEnemyStats(template, level = 1, difficulty = 'normal', { ga
     const hp = Math.max(1, Math.round(template.base.hp * levelScale * gained(rule.hp) * (tier.hpScale ?? 1) * (1 + COMBAT_RULES.levelGap.hp * levelGap)));
     const damage = gained(rule.damage) * (tier.damageScale ?? 1) * (1 + COMBAT_RULES.levelGap.damage * levelGap);
     return { hp, damageScale: Math.min(5, Math.round(damage * 100) / 100) };
+}
+
+// 多敌折算系数：total 为本场敌人总数，按在场上限截断；1 只时为 1，setup 与旧版一致。
+export function crowdScaleFor(total) {
+    const n = Math.min(COMBAT_RULES.maxEnemiesOnField, Math.max(1, Math.floor(Number(total) || 1)));
+    if (n <= 1) return 1;
+    const { perExtra, floor } = COMBAT_RULES.crowd;
+    return Math.max(floor, 1 / (1 + perExtra * (n - 1)));
 }
 
 // 一组敌人的战斗经验合计。

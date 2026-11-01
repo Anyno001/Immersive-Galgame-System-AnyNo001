@@ -7,7 +7,7 @@
 //   - 同一事件内账本有效状态只取一次并传递。
 import { createCachedTableClient, createCombatTables } from '../data/shujuku/combat-tables.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
-import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, vitalsForName } from '../combat/ledger.js';
+import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
 import { withFloorNote } from '../combat/floor-note.js';
@@ -15,7 +15,7 @@ import {
     checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe,
 } from '../scene/check-rolls.js';
 import {
-    classTierEntity, deckProfileEntities, generationWrites, growthEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity,
+    classTierEntity, deckProfileEntities, generationWrites, growthEntity, profileGearEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity,
     withCharacterLore, withStoryContext,
 } from '../combat/generation.js';
 import { generateWithRetry } from '../combat/generation-retry.js';
@@ -307,7 +307,22 @@ export function createCombatServices(options = {}) {
         }
         const heroId = state?.ok ? state.attributes?.heroId : null;
         const hero = heroId ? state.characters.get(heroId) : null;
-        return !hero || hero.inventory?.ok !== true ? null : { ok: true, gear: hero.gear, items: hero.items || [], collection: hero.collection || [], others: hero.others || [] };
+        return !hero || hero.inventory?.ok !== true ? null : { ok: true, gear: hero.gear, items: hero.items || [], collection: hero.collection || [], others: hero.others || [], points: hero.points ?? 0 };
+    }
+
+    // 背包卖出（v0.39.2，人物状态面板的背包页取消后统一在阅读器背包卖）：只主角；装备须在背包里（穿戴中由账本拒收），杂物按 itemId。
+    // 售价按稀有度由账本计算，积分记在主角名下；战斗进行中只读。返回的 price 为本次所得。
+    function sellHeroItem(kind, id) {
+        return enqueue(async () => {
+            if (isDeckBusy()) return { ok: false, reason: 'combat-deck-readonly' };
+            const context = await ledgerContext();
+            if (!context.ok) return context;
+            const heroId = context.state.attributes?.heroId;
+            if (!heroId || !context.state.characters.get(heroId)) return { ok: false, reason: 'combat-points-not-protagonist' };
+            const write = kind === 'gear' ? context.ledgerImpl.sellGear : kind === 'keepsake' ? context.ledgerImpl.sellKeepsake : null;
+            if (typeof write !== 'function') return { ok: false, reason: 'combat-sell-unavailable' };
+            return write(String(id || ''));
+        });
     }
 
     async function setHeroGear(gearId, equip) {
@@ -609,7 +624,8 @@ export function createCombatServices(options = {}) {
         }
         growthCache = state.ok
             ? {
-                chatId, ok: true, growth: state.growth || [], pending: scan.ok ? scan.pendingGeneration || [] : [],
+                // 待生成项：正文扫描的成长标签 + 账本里已到解锁等级、尚无专属卡的槽位（v0.39.2）。
+                chatId, ok: true, growth: state.growth || [], pending: [...(scan.ok ? scan.pendingGeneration || [] : []), ...signaturePending(state)],
                 names: [...state.characters.values()].map((character) => character.name).filter(Boolean),
                 readAbilities: (name) => abilitiesForName(state, name, getUserName()), party, ...(partyReason && { partyReason }),
             }
@@ -739,10 +755,11 @@ export function createCombatServices(options = {}) {
         const entries = [];
         let skipped = 0;
         const wanted = Array.isArray(messageIds) ? new Set(messageIds.map(Number)) : null;
-        for (const pending of scan.pendingGeneration || []) {
+        // 专属卡到期项（v0.39.2）与成长标签同一套楼层范围：锚点是跨级的 EXP 记录。
+        for (const pending of [...(scan.pendingGeneration || []), ...signaturePending(state)]) {
             if (wanted && !wanted.has(Number(pending.anchor?.messageId))) continue;
             const character = pending.characterId ? state.characters.get(pending.characterId) : null;
-            const built = growthEntity(pending, character, { classes: state.classes, now: Date.now() });
+            const built = growthEntity(pending, character, { classes: state.classes, now: Date.now(), profileMeta: state.profileMeta });
             if (built.entry) entries.push(built.entry);
             else if (built.entity) entities.push(built.entity);
             else skipped += 1;
@@ -796,6 +813,17 @@ export function createCombatServices(options = {}) {
         }
     }
 
+    // 战报是用户楼，其中的 EXP（及由此到期的专属卡，v0.39.2）锚在用户楼：本楼之前紧邻的用户楼并入同一次处理。
+    // 用户楼只在其后的 AI 楼生成后处理一次，失败项照旧留给「重试」。
+    function withLeadingUserFloors(floors) {
+        const chat = getChat();
+        const result = new Set(floors);
+        for (const floor of floors) {
+            for (let i = floor - 1; i >= 0 && chat[i]?.is_user === true; i -= 1) result.add(i);
+        }
+        return [...result];
+    }
+
     // 新楼出现后自动成长：同聊天的多次触发合并进同一个队列
     function autoGrowth(messageId) {
         if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
@@ -815,7 +843,7 @@ export function createCombatServices(options = {}) {
             let result = { ok: true, unchanged: true };
             try {
                 while (run.queued.size && alive()) {
-                    const floors = [...run.queued];
+                    const floors = withLeadingUserFloors([...run.queued]);
                     run.queued.clear();
                     await refreshGrowth();
                     if (!alive()) break;
@@ -861,7 +889,9 @@ export function createCombatServices(options = {}) {
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return { ok: false, reason: llm.reason, ...(llm.missing ? { missing: llm.missing } : {}) };
         const usableClass = classRef && state.classes.has(classRef) ? classRef : null;
-        const entities = await withCharacterLore(deckProfileEntities({ name: target, id: characterId, role, classRef: usableClass, classes: state.classes }), readLore);
+        // 按剧情给初始装备：随卡组档案同批请求；可省略，失败不影响卡组档案。
+        // 主角的初始装备至少 1 件（v0.39.2），队友剧情没写到可为空。
+        const entities = await withCharacterLore([...deckProfileEntities({ name: target, id: characterId, role, classRef: usableClass, classes: state.classes }), profileGearEntity(target, { required: role === 'protagonist' })], readLore);
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
         try { onStart?.(); } catch { /* */ }
         const context = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [target, getUserName()], signal, full: true, persona: target !== getUserName() });
@@ -877,9 +907,11 @@ export function createCombatServices(options = {}) {
         if (written?.ok !== true) return { ok: false, reason: 'combat-profile-write-failed', write: written, requested: true };
         const after = await ledgerImpl.effectiveState();
         if (!after.ok) return { ok: false, reason: after.reason, requested: true };
-        return after.characters.get(characterId)?.kind !== 'deck-character'
-            ? { ok: false, reason: 'combat-profile-unverified', id: characterId, requested: true }
-            : { ok: true, id: characterId, reusedClass: !!usableClass };
+        if (after.characters.get(characterId)?.kind !== 'deck-character') return { ok: false, reason: 'combat-profile-unverified', id: characterId, requested: true };
+        // 初始装备：档案读回确认后锚定最新楼层写 equip；写失败只记诊断，卡组档案照常生效。
+        const gearDiagnostics = [];
+        if (!signal?.aborted) await grantGeneratedGear(ledgerImpl, generated, (owner) => (owner === target ? characterId : null), { diagnostics: gearDiagnostics });
+        return { ok: true, id: characterId, reusedClass: !!usableClass, ...(gearDiagnostics.length ? { gearDiagnostics } : {}) };
     }
 
     // 对外版本：去掉内部用的 requested 标记
@@ -1043,6 +1075,9 @@ export function createCombatServices(options = {}) {
     let protagonistState = { key: '', status: 'idle', reason: '', attempt: 0, requested: false };
     let protagonistTask = null; // { key, controller, promise }
     const protagonistListeners = new Set();
+    // 换聊天后数据库载入当前聊天需要时间：读表暂时失败（未载入 / 读失败）时每 1.5 秒重试，最多 8 次（约 12 秒）；测试可经 options 缩短。
+    const protagonistReadRetries = Number.isInteger(options.protagonistReadRetries) ? options.protagonistReadRetries : 8;
+    const protagonistReadDelayMs = Number.isFinite(options.protagonistReadDelayMs) ? options.protagonistReadDelayMs : 1500;
     // 主角键：聊天 + 用户名，缺一则无主角
     const protagonistKey = () => {
         const chatId = getChatId();
@@ -1113,11 +1148,16 @@ export function createCombatServices(options = {}) {
         const alive = () => protagonistTask === task && protagonistKey() === key && settings().enabled;
         task.promise = (async () => {
             try {
+                // 只要战斗开关开着，进聊天就开始准备（v0.39.2）：刚换聊天时数据库常未载入当前聊天，读表的暂时失败有限重试，不就此停在空闲。
                 let state;
-                try {
-                    state = await getLedger().effectiveState();
-                } catch {
-                    state = { ok: false, reason: 'combat-ledger-read-failed' };
+                for (let attempt = 0; ; attempt += 1) {
+                    try {
+                        state = await getLedger().effectiveState();
+                    } catch {
+                        state = { ok: false, reason: 'combat-ledger-read-failed' };
+                    }
+                    if (state?.ok || !TRANSIENT_TABLE_REASONS.has(state?.reason) || attempt >= protagonistReadRetries || !alive()) break;
+                    await new Promise((resolve) => setTimeout(resolve, protagonistReadDelayMs));
                 }
                 if (!alive()) return { ok: false, reason: 'request-stale' };
                 if (!state?.ok) {
@@ -1209,6 +1249,41 @@ export function createCombatServices(options = {}) {
         return Promise.resolve(prepared).catch(() => ({ ok: false, reason: 'combat-action-threw' }));
     }
 
+    // 物品表接管（v0.39.2）：战斗扩展开启时，进入聊天、启动与设置变更即把当前聊天的物品表改为程序维护（inventory.ensure：
+    // 关闭数据库自动填表），不再等到第一次写主角背包。数据库尚未载入当前聊天时有限重试；成功后本聊天不再重复；
+    // 失败只记诊断、不改表，下次触发再试。
+    const INVENTORY_TRANSIENT = new Set(['inventory-table-not-ready', 'inventory-table-read-failed', 'inventory-runtime-not-ready']);
+    let inventoryTakeover = null; // { key, promise }
+    function takeoverInventory({ attempts = 4, delayMs = 1500 } = {}) {
+        if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        const chatId = getChatId();
+        if (!chatId) return Promise.resolve({ ok: false, reason: 'combat-session-unavailable' });
+        if (inventoryTakeover?.key === chatId) return inventoryTakeover.promise;
+        const run = { key: chatId, promise: null };
+        inventoryTakeover = run;
+        const alive = () => inventoryTakeover === run && getChatId() === chatId && settings().enabled;
+        run.promise = (async () => {
+            let result = null;
+            for (let attempt = 0; attempt < attempts; attempt += 1) {
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                getTables();
+                try {
+                    result = await bundle.inventory.ensure();
+                } catch {
+                    result = { ok: false, reason: 'inventory-ensure-failed' };
+                }
+                if (result?.ok === true || !INVENTORY_TRANSIENT.has(result?.reason) || attempt === attempts - 1) break;
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+            if (result?.ok !== true) {
+                pushDiagnostic('combat-inventory-takeover-failed', { reason: result?.reason || 'inventory-ensure-failed' });
+                if (inventoryTakeover === run) inventoryTakeover = null;
+            }
+            return result || { ok: false, reason: 'inventory-ensure-failed' };
+        })();
+        return run.promise;
+    }
+
     // 切换聊天：丢弃会话与缓存，取消进行中的后台任务，让表客户端缓存失效
     function resetChat() {
         retireSession();
@@ -1219,6 +1294,7 @@ export function createCombatServices(options = {}) {
         lifeStamp = null;
         growthSnapshot = null;
         ensureFailure = null;
+        inventoryTakeover = null;
         for (const listener of growthListeners.keys()) growthListeners.set(listener, null);
         try { bundle?.client.invalidate(); } catch { /* */ }
         cancelProtagonist();
@@ -1248,7 +1324,7 @@ export function createCombatServices(options = {}) {
         drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
-        heroInventory, setHeroGear,
+        heroInventory, setHeroGear, sellHeroItem, takeoverInventory,
         // 以下为新增：计数快照（不改既有导出）
         getStats,
     };

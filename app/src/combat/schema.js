@@ -36,6 +36,8 @@ export const LEDGER_TYPES = Object.freeze([
     'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
+// 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
+export const INIT_GEAR_TAG_HASH = 'init-gear';
 export const ITEM_GAIN_MAX = 3;
 export const ITEM_CONSUME_MAX = 30;
 export const HEAL_MODES = Object.freeze(['flat', 'percent']);

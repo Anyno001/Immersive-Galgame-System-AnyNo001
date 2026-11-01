@@ -1,4 +1,4 @@
-import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, dlcFxGrammarLines, fxDetailedBlock, fxGrammarLines, ITEM_FX_GRAMMAR_LINE, resolveBgmPromptRule, resolveCameraPromptRule, resolveDlcFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
+import { BGM_GRAMMAR_LINE, bgmMoodTagEnabled, cameraGrammarLines, dlcFxGrammarLines, fxDetailedBlock, fxGrammarLines, ITEM_FX_COMBAT_GRAMMAR_LINE, ITEM_FX_GRAMMAR_LINE, resolveBgmPromptRule, resolveCameraPromptRule, resolveDlcFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule, romanceGrammarLines, stageCastGrammarLines } from './fx-prompt.js';
 import { campusDetailedBlock, campusGrammarLines, courtesyDetailedBlock, courtesyGrammarLines,dailyDetailedBlock, dailyGrammarLines, packDetailedBlock, packGrammarLines, playDetailedBlock, playGrammarLines, wardrobeDetailedBlock, wardrobeGrammarLines } from './fx-daily-prompt.js';
 import { BATTLE_GRAMMAR_LINES, resolveBattleFxPromptRule } from './fx-battle-model.js';
 import { CREATURE_GRAMMAR_LINES, resolveCreatureFxPromptRule } from './fx-creature-model.js';
@@ -12,6 +12,7 @@ import { feedGrammarBlocks } from './feed-prompt.js';
 import { isPromptEntryKey, normalizePromptEntries, resolveEntryPlacement } from '../../scene/prompt-entries.js';
 import { CAMPUS_FX_KINDS, COURTESY_FX_KINDS, PLAY_FX_KINDS, WARDROBE_FX_KINDS } from '../../scene/daily-fx-directives.js';
 import { FX_PACKS_ACTIVE, isPackKind, packBlockKey, packOfKind, packRequiresMet } from '../../scene/fx-packs.js';
+import { COMBAT_BLOCK_KEY, COMBAT_GRAMMAR_INDEX, COMBAT_MERGED_GRAMMAR_INDEX, combatExpansionEnabled, combatPromptMerged, resolveCombatPromptRule } from '../../scene/combat-prompt.js';
 import { INNER_DEMON_GRAMMAR_LINE, normalizeInnerDemonSettings } from '../../scene/inner-demon.js';
 
 export const PROMPT_PLACEMENTS = Object.freeze(['system', 'depth0']);
@@ -70,7 +71,7 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
         blocks.push({ key: 'dlc', full: fxBlock('扩展演出', dlcLines), index: `扩展演出 igs-fx:${dlcLines.map((line) => line.split(/[|\s（]/)[0]).join('/')}` });
     }
     if (plain(rs.itemFx).enabled === true) {
-        blocks.push({ key: 'item', full: fxBlock('物品', [ITEM_FX_GRAMMAR_LINE]), index: '物品 igs-fx:item' });
+        blocks.push({ key: 'item', full: fxBlock('物品', [combatExpansionEnabled(rs) ? ITEM_FX_COMBAT_GRAMMAR_LINE : ITEM_FX_GRAMMAR_LINE]), index: '物品 igs-fx:item' });
     }
     if (bgmMoodTagEnabled(rs.bgm)) {
         blocks.push({ key: 'bgm', full: fxBlock('配乐', [BGM_GRAMMAR_LINE]), index: '配乐 igs-fx:bgm' });
@@ -113,7 +114,11 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
         const own = dailyKinds.filter((k) => { const owner = packOfKind(k); return owner && owner.id === pack.id; });
         blocks.push({ key: packBlockKey(pack.id), adaptive: true, full: fxBlock(`${pack.label}演出`, packLines, `，${pack.when}`), index: `${pack.label} igs-fx:${own.join('/')}` });
     }
-    if (plain(rs.battleFx).enabled === true) {
+    // 战斗扩展开启时由 combat 块（开战与成长标签）替代旧的 battle 演出块；关闭时保持原样。
+    // 数值系统本聊天接管注入时（combatMerged），开战、成长与生命标签移入「数值与战斗」段，combat 块只留装备与道具。
+    if (combatExpansionEnabled(rs)) {
+        blocks.push({ key: COMBAT_BLOCK_KEY, adaptive: true, full: resolveCombatPromptRule(rs), index: combatPromptMerged(rs) ? COMBAT_MERGED_GRAMMAR_INDEX : COMBAT_GRAMMAR_INDEX });
+    } else if (plain(rs.battleFx).enabled === true) {
         blocks.push({ key: 'battle', adaptive: true, full: fxBlock('战斗', BATTLE_GRAMMAR_LINES, '，只有画面效果不显示数值，非战斗场景不用'), index: '战斗 igs-fx:battle/battle-end/hit' });
     }
     if (plain(rs.battleFx).enabled === true) {
@@ -148,7 +153,7 @@ const DETAILED_BUILDERS = Object.freeze({
     text: () => resolveTextFxPromptRule(true),
     fx: (rs, ancient) => fxDetailedBlock(rs.fxTags, { ancient }),
     dlc: (rs) => resolveDlcFxPromptRule(rs.dlcFx),
-    item: () => resolveItemFxPromptRule(true),
+    item: (rs) => resolveItemFxPromptRule(true, { combat: combatExpansionEnabled(rs) }),
     bgm: (rs) => resolveBgmPromptRule(rs.bgm),
     chat: (rs, ancient) => resolveChatShowPromptRule(rs.chatShow, { ancient }),
     daily: (rs) => dailyDetailedBlock(rs.dailyFx),
@@ -244,7 +249,8 @@ export function buildTagGrammar({
     moodWord = '',
     entries = null,
 } = {}) {
-    const normalizedEntries = entries ? normalizePromptEntries(entries) : null;
+    // 没存过条目也按各条缺省模式走（卡牌战斗缺省常驻），与 resolvePromptTriggers 的口径一致。
+    const normalizedEntries = normalizePromptEntries(entries);
     const blocks = applyFxPromptSettings(applyPromptEntries(collectGrammarBlocks(readerSettings, { ancient }), normalizedEntries), readerSettings, normalizedEntries);
     if (!sceneRule && !blocks.length) return { system: '', depth0: '', expanded: [], indexed: [], sizes: {}, segments: [], placements: {} };
     const rs = plain(readerSettings);

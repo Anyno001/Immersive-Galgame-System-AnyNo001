@@ -1,6 +1,8 @@
 // 物品图与 CG 库的服务装配：bootstrap 只调用这里，避免在入口堆业务逻辑。
 // 物品图默认关闭（itemImages.enabled=false）时服务入口短路，不读表、不联网；CG 库只读本地存储。
+// 卡面图与物品图共用写词、出图、抠图与存储依赖；只在构筑面板「生成卡面」按钮调用 generate 时联网，不跟随物品图开关。
 import { createItemImageService, ITEM_IMAGE_UPDATED_EVENT } from '../generated-images/illustration/item-image-service.js';
+import { createCardImageService, CARD_IMAGE_UPDATED_EVENT } from '../generated-images/illustration/card-image-service.js';
 import { createCgLibrary } from '../media/cg-library.js';
 import { ILLUSTRATION_UPDATED_EVENT } from '../generated-images/illustration/auto-illustration-service.js';
 import { createIndexedDbCgGalleryStore } from '../media/cg-gallery-store.js';
@@ -43,7 +45,12 @@ export function createItemAndCgServices(deps = {}) {
     });
     const onItemImageUpdated = (handler) => (events && typeof events.on === 'function' ? events.on(ITEM_IMAGE_UPDATED_EVENT, handler) : () => {});
     const itemLedger = createItemLedgerSync({ globalObject, messageHost, events, readTables, getReaderSettings: deps.getReaderSettings, ledger: deps.itemLedger });
-    return { itemImages, cgGallery, onItemImageUpdated, itemLedger };
+    const cardImages = deps.cardImageService || createCardImageService({
+        messageHost, llm, nai, store: generatedAssetStore, events, matte, report, mediaCache: deps.mediaCache,
+        getSettings: () => (typeof getBridge === 'function' ? getBridge() || {} : {}),
+    });
+    const onCardImageUpdated = (handler) => (events && typeof events.on === 'function' ? events.on(CARD_IMAGE_UPDATED_EVENT, handler) : () => {});
+    return { itemImages, cgGallery, onItemImageUpdated, itemLedger, cardImages, onCardImageUpdated };
 }
 
 // 物品演出的账本同步：物品表更新或最新 AI 楼渲染后比对表格，多出 / 少了的物品记成本楼的获得 / 失去事件。

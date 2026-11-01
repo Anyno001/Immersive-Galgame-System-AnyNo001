@@ -243,6 +243,89 @@ export function scanFeetFromAlpha(data, width, height) {
     return (bottom + 1) / height;
 }
 
+// 脸部探测（只给觉醒眼部斜条用，v0.39.2）：发髻、马尾、发饰与蓬松头发会让透明轮廓的头位偏高或偏宽，
+// 这里改找肤色：图像上部 45% 内第一处连续三行都有成段肤色、且中心不漂移的位置作为脸顶（刘海下沿附近），往下一小段里肤色段最宽的一行作为脸宽与中心，
+// 眼线取脸顶往下 FACE_EYE_DROP 个脸宽。找不到成片肤色（非人、暗色皮肤被判不中、整幅不透明）时返回 null，调用方退回头位。
+// 每行只取最长的一段肤色（段内允许眼睛、睫毛这类小缺口）：棕发高光、发带反光是零散的肤色像素，按整行计数会把发髻误当脸顶，脸宽也被算得很窄、斜条放大过头。
+export const FACE_PROBE_W = 96;
+const FACE_EYE_DROP = 0.2;
+const FACE_GAP = 0.03;
+const FACE_MIN_RUN = 0.06;
+const FACE_STEADY_ROWS = 3;
+const FACE_DRIFT = 0.08;
+function isSkin(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    return r > 95 && g > 40 && b > 20 && max - min > 15 && r > g && r > b && r - g > 6;
+}
+// 一行里最长的一段肤色：缺口不超过 gap 像素时并入同一段。n 为段内肤色像素数，minX / maxX 为段的左右端。
+function skinRun(data, width, y) {
+    const gap = Math.max(2, Math.round(width * FACE_GAP));
+    let best = { n: 0, minX: width, maxX: -1 };
+    let cur = null;
+    let miss = 0;
+    for (let x = 0; x < width; x += 1) {
+        const i = (y * width + x) * 4;
+        if (data[i + 3] > 200 && isSkin(data[i], data[i + 1], data[i + 2])) {
+            if (!cur) cur = { n: 0, minX: x, maxX: x };
+            cur.n += 1;
+            cur.maxX = x;
+            miss = 0;
+        } else if (cur && ++miss > gap) {
+            if (cur.n > best.n) best = cur;
+            cur = null;
+            miss = 0;
+        }
+    }
+    if (cur && cur.n > best.n) best = cur;
+    return best;
+}
+export function scanFaceFromAlpha(data, width, height) {
+    const limit = Math.max(1, Math.floor(height * 0.45));
+    const minRun = Math.max(3, Math.round(width * FACE_MIN_RUN));
+    const rows = [];
+    for (let y = 0; y < limit; y += 1) rows.push(skinRun(data, width, y));
+    const center = (r) => (r.minX + r.maxX + 1) / 2;
+    const steady = (y) => {
+        for (let d = 0; d < FACE_STEADY_ROWS; d += 1) if (!rows[y + d] || rows[y + d].n < minRun) return false;
+        return Math.abs(center(rows[y]) - center(rows[y + FACE_STEADY_ROWS - 1])) <= width * FACE_DRIFT;
+    };
+    const top = rows.findIndex((r, y) => steady(y));
+    if (top < 0) return null;
+    const span = Math.max(3, Math.round(width * 0.12));
+    let best = null;
+    for (let y = top; y < Math.min(rows.length, top + span); y += 1) if (!best || rows[y].n > best.n) best = rows[y];
+    const faceW = (best.maxX - best.minX + 1) / width;
+    if (!(faceW > 0.04)) return null;
+    const eye = scanEyeRow(data, width, height, top, best, rows) ?? (top / height + FACE_EYE_DROP * faceW * width / height);
+    return { x: (best.minX + best.maxX + 1) / 2 / width, eye, w: Math.min(0.6, faceW) };
+}
+
+// 眼线：脸顶往下约一个脸宽内，肤色行中间夹着的非肤色像素（眼睛、睫毛）最多的那一行（三行平滑）；
+// 额头外露（发髻、背头）时脸顶在额头上沿，固定比例会偏高，按眼睛本身定位。空洞太少时返回 null 用固定比例。
+function scanEyeRow(data, width, height, top, best, rows) {
+    const reach = Math.min(height, top + Math.round((best.maxX - best.minX + 1) * 1.1));
+    const gaps = [];
+    for (let y = top; y < reach; y += 1) {
+        const r = rows[y];
+        let n = 0;
+        if (r && r.maxX > r.minX) {
+            for (let x = Math.max(r.minX, best.minX); x <= Math.min(r.maxX, best.maxX); x += 1) {
+                const i = (y * width + x) * 4;
+                if (data[i + 3] > 200 && !isSkin(data[i], data[i + 1], data[i + 2])) n += 1;
+            }
+        }
+        gaps.push(n);
+    }
+    let at = -1, peak = 0;
+    for (let j = 1; j < gaps.length - 1; j += 1) {
+        const s = gaps[j - 1] + gaps[j] + gaps[j + 1];
+        if (s > peak) { peak = s; at = j; }
+    }
+    if (at < 0 || peak < Math.max(3, Math.round(width * 0.06))) return null;
+    return (top + at + 0.5) / height;
+}
+
 function remember(url, info, headCache) {
     const key = probeKey(url);
     headCache.set(key, info);
@@ -263,7 +346,46 @@ function readAlpha(img, doc) {
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
-    return { head: scanHeadFromAlpha(data, w, h), feet: scanFeetFromAlpha(data, w, h) };
+    let tint = '';
+    try { tint = readTint(img, doc); } catch { tint = ''; }
+    let face = null;
+    try { face = readFace(img, doc); } catch { face = null; }
+    return { head: scanHeadFromAlpha(data, w, h), feet: scanFeetFromAlpha(data, w, h), tint, face };
+}
+
+// 脸部探测用更宽的缩略图（48 宽时脸只有十来个像素，肤色行判不准）。
+function readFace(img, doc) {
+    const canvas = doc.createElement('canvas');
+    const w = FACE_PROBE_W;
+    const h = Math.max(1, Math.round(FACE_PROBE_W * img.naturalHeight / img.naturalWidth));
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, w, h);
+    return scanFaceFromAlpha(ctx.getImageData(0, 0, w, h).data, w, h);
+}
+
+// 立绘配色：整幅压到 25×25 后取最亮的不透明像素（按亮度），给必杀特写当底色；全透明时返回空串。
+const TINT_SIZE = 25;
+function readTint(img, doc) {
+    const canvas = doc.createElement('canvas');
+    canvas.width = TINT_SIZE;
+    canvas.height = TINT_SIZE;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return '';
+    ctx.drawImage(img, 0, 0, TINT_SIZE, TINT_SIZE);
+    return brightestColor(ctx.getImageData(0, 0, TINT_SIZE, TINT_SIZE).data);
+}
+
+export function brightestColor(data, alphaMin = ALPHA_MIN) {
+    let best = -1, rgb = '';
+    for (let i = 0; i + 3 < data.length; i += 4) {
+        if (data[i + 3] < alphaMin) continue;
+        const l = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+        if (l > best) { best = l; rgb = `rgb(${data[i]},${data[i + 1]},${data[i + 2]})`; }
+    }
+    return rgb;
 }
 
 
@@ -303,7 +425,10 @@ export function probeSpriteHead(url, doc) {
             return null;
         }
         const feet = metrics && Number(metrics.feet) > 0 ? Number(metrics.feet) : 1;
-        return remember(url, { naturalW: img.naturalWidth, naturalH: img.naturalHeight, head: (metrics && metrics.head) || FALLBACK_HEAD, feet }, headCache);
+        const info = { naturalW: img.naturalWidth, naturalH: img.naturalHeight, head: (metrics && metrics.head) || FALLBACK_HEAD, feet, tint: (metrics && metrics.tint) || '' };
+        // 脸部只在探测到时写入，缓存形状对其他读取方不变。
+        if (metrics && metrics.face) info.face = metrics.face;
+        return remember(url, info, headCache);
     })().finally(() => { if (pending.get(key)?.promise === job) pending.delete(key); });
     pending.set(key, { status: 'pending', promise: job, controller });
     return job;

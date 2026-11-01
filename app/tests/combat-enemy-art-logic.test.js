@@ -9,7 +9,8 @@ require('G:/奶龙Code/gal/v0.39.0拆解/igs-v039-modules.js');
 const orig = globalThis.__igsRequire('src/combat/enemy-art.js');
 
 test('导出名集合与常量一致', () => {
-    assert.deepStrictEqual(Object.keys(mine).sort(), Object.keys(orig).sort());
+    // v0.39.1 新增的题材导出，原版没有。
+    assert.deepStrictEqual(Object.keys(mine).filter((key) => key !== 'ENEMY_ART_THEMES' && key !== 'isEnemyArtTheme').sort(), Object.keys(orig).sort());
     assert.deepStrictEqual(mine.ENEMY_ART_KEYS, orig.ENEMY_ART_KEYS);
     assert.strictEqual(mine.ENEMY_ART_BASE_COUNT, orig.ENEMY_ART_BASE_COUNT);
     assert.strictEqual(mine.enemyArtCatalogText(), orig.enemyArtCatalogText());

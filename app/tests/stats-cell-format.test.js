@@ -17,6 +17,9 @@ test('多属性格只替换目标属性，其余逐字保留，缺的追加（�
     assert.equal(writeAttributeCell('烹饪:20；', { 烹饪: 30, 学习: 40 }), '烹饪:30；学习:40；');
     assert.deepEqual(readAttributeCell(cell).观察, 62);
     assert.equal(writeAttributeCell('', {}), '');
+    // 旧六维名原位改名；格内已有新名时不改名。
+    assert.equal(writeAttributeCell('健康:60；理智:50；', { 体质: 14, 智力: 8 }, { renames: { 健康: '体质', 理智: '智力' } }), '体质:14；智力:8；');
+    assert.equal(writeAttributeCell('健康:60；体质:12；', { 体质: 14 }, { renames: { 健康: '体质' } }), '健康:60；体质:14；');
 });
 
 test('文字列与范围异常识别（易错点 F10/F11）', () => {

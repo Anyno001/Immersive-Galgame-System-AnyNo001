@@ -7,8 +7,9 @@ import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.
 import { LOG_AVATAR_BOX, batchStartsUpTo, isContinuation, isLogReaderActive, logAvatarCrop, logRowsOf, logTextOf, nextBatchEnd, normalizeLogReaderSettings, sceneLabelOf } from '../src/visual/igs-ui/log-reader-model.js';
 import { LOG_READER_THEMES, logThemeStyleText, resolveLogSkin } from '../src/visual/igs-ui/log-reader-theme.js';
 import { getLogFrameStyleText } from '../src/visual/igs-ui/dialog-theme-item-frames.js';
-import { logCardsOf, logRenderSnapshot, logSettingsOf, logSkinOf } from '../src/visual/igs-ui/log-reader-view.js';
+import { createLogHtml, logCardsOf, logRenderSnapshot, logSettingsOf, logSkinOf } from '../src/visual/igs-ui/log-reader-view.js';
 import { LOG_READER_STYLE_TEXT } from '../src/visual/igs-ui/log-reader-style.js';
+import { TEXT_FX_STYLE_TEXT } from '../src/visual/igs-ui/text-fx.js';
 import { finishLogReveal, syncLogReader, toggleLogEdit } from '../src/visual/igs-ui/log-reader-layer.js';
 
 const page = (textType, segmentBody, extra = {}) => ({ textType, segmentBody, bubbleSpeaker: '', bubbleMood: '', sceneStateForBg: null, ...extra });
@@ -306,4 +307,23 @@ test('文字增强：描边画在字外（八向阴影），不用会吃进字�
     assert.equal(fx.shadow.split('),').length, 8);
     assert.match(fx.shadow, /^0\.8px 0px 0 rgba\(0,0,0,0\.2\)/);
     assert.equal(dialogTextEffectCss({ dialogTextEffect: 'off' }).shadow, '');
+});
+
+test('文字演出：{吼:} {大:} 在列表里放大，出到该段才弹出，播完不重播；弹出选项时列表让开', async () => {
+    const snap = { readerSettings: { textFx: { enabled: true } }, content: {} };
+    const html = createLogHtml(snap)({ text: '他喊：{吼:滚出去！}' });
+    assert.match(html, /class="igs-tfx igs-tfx-roar"/);
+    assert.equal(createLogHtml({ readerSettings: {}, content: {} })({ text: '{吼:滚出去！}' }), '滚出去！', '没开文字演出时去掉标记');
+    assert.match(TEXT_FX_STYLE_TEXT, /\.igs-log-text\)\s*\.igs-tfx-roar\{[^}]*font-size:1\.62em/);
+    const { overlay } = mountDom();
+    const rows = logRowsOf([page('dialogue', '他喊：{吼:滚出去！}', { bubbleSpeaker: 'A' })], { keyOf: (n) => n });
+    const result = syncLogReader(overlay, viewOf(rows, { view: { live: 0, htmlOf: createLogHtml(snap) } }));
+    const text = overlay.querySelector('.igs-log-text');
+    assert.equal(text.dataset.igsTfxArmed, '1');
+    assert.ok(parseFloat(text.querySelector('.igs-tfx-roar').style.getPropertyValue('--igs-tfx-delay')) > 0, '弹出对准该段出字的时刻');
+    finishLogReveal(overlay);
+    await result.revealing;
+    assert.equal(text.dataset.igsTfxArmed, undefined, '播完解除，旧行不再弹');
+    assert.ok(text.querySelector('.igs-tfx-roar'));
+    assert.match(LOG_READER_STYLE_TEXT, /\.igs-options-visible #igs-log :is\(\.igs-log-scroll,\.igs-log-veil\)\{opacity:0;/);
 });

@@ -40,8 +40,8 @@ async function run({ nsfw, lines }) {
 test('NSFW 楼层衣柜目录多一条「裸体」，选中后角色段是 completely nude 而非保存的衣服', async () => {
     const r = await run({ nsfw: true, lines: reply(2, '裸体', 'completely nude') });
     assert.equal(r.result.ok, true, JSON.stringify(r.result));
-    assert.deepEqual(r.writes[0].input.outfitCatalog, [{ id: 1, characterKey: 'Alice', name: 'Navy coat' },
-        { id: 2, characterKey: 'Alice', name: '裸体' }]);
+    assert.deepEqual(r.writes[0].input.outfitCatalog, [{ id: 1, characterKey: 'Alice', name: 'Navy coat', description: '1.2::navy coat::, long coat' },
+        { id: 2, characterKey: 'Alice', name: '裸体', description: 'completely nude' }]);
     assert.match(r.sent, /【NSFW 衣装】/);
     assert.match(r.wire, /completely nude/);
     assert.doesNotMatch(r.wire, /navy coat/);
@@ -58,7 +58,7 @@ test('NSFW 楼层穿着衣服时照选衣服编号，保存的衣服照常展开
 test('非 NSFW 楼层目录与写词不出现「裸体」', async () => {
     const r = await run({ nsfw: false, lines: reply(1, 'Navy coat', 'navy coat') });
     assert.equal(r.result.ok, true, JSON.stringify(r.result));
-    assert.deepEqual(r.writes[0].input.outfitCatalog, [{ id: 1, characterKey: 'Alice', name: 'Navy coat' }]);
+    assert.deepEqual(r.writes[0].input.outfitCatalog, [{ id: 1, characterKey: 'Alice', name: 'Navy coat', description: '1.2::navy coat::, long coat' }]);
     assert.doesNotMatch(r.sent, /【NSFW 衣装】/);
 });
 

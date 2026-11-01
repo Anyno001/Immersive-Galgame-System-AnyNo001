@@ -45,6 +45,8 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log,#igs-log .igs-log-scroll{transition:opacity .35s;}
 /* 隐藏对话：渐变与列表一起淡出，只留背景 / CG 与工具栏；点画面恢复。 */
 #igs-log[data-hidden] .igs-log-scroll,#igs-log[data-hidden] .igs-log-veil{opacity:0;pointer-events:none;}
+/* 弹出选项时同样只留背景，免得选项压在列表文字上。 */
+${ON}.igs-options-visible #igs-log :is(.igs-log-scroll,.igs-log-veil){opacity:0;pointer-events:none;}
 /* 两栏：头像列固定宽，正文列左右对齐到同一条线；▶ 钉在右上角，有 ▶ 的行正文让出一列。
    --igs-log-pt 是行顶留白，▶ 跟着它对齐首行；带头像的组头多留一截，情绪符号不贴分割线。 */
 #igs-log .igs-log-row{--igs-log-pt:22px;display:grid;grid-template-columns:${CARD.w}px 1fr;column-gap:14px;padding:var(--igs-log-pt) 0 22px;position:relative;opacity:0;transform:translateY(8px);transition:opacity .35s,transform .35s;}
@@ -153,6 +155,7 @@ ${getLogFrameStyleText()}
 #igs-log .igs-fx-symbol[data-kind="sweat"],#igs-log .igs-fx-symbol[data-kind="drool"]{--igs-log-loop:igs-log-drip;}
 #igs-log .igs-fx-symbol[data-kind="anger"],#igs-log .igs-fx-symbol[data-kind="fire"]{--igs-log-loop:igs-log-shake-sym;}
 #igs-overlay[data-igs-paused] #igs-log .igs-fx-symbol.is-loop,#igs-log .igs-log-row.is-off .igs-fx-symbol.is-loop{animation-play-state:paused;}
+#igs-overlay[data-igs-paused] #igs-log .igs-tfx-ch,#igs-log .igs-log-row.is-off .igs-tfx-ch{animation-play-state:paused;}
 @keyframes igs-log-pop{0%{transform:scale(.2);opacity:0;}100%{transform:scale(1);opacity:1;}}
 @keyframes igs-log-bob{0%,60%,100%{transform:none;}70%{transform:translateY(-4px) scale(1.08);}80%{transform:translateY(0) scale(.96,1.04);}}
 @keyframes igs-log-beat{0%,55%,100%{transform:none;}62%{transform:scale(1.18);}70%{transform:scale(.96);}78%{transform:scale(1.1);}88%{transform:none;}}

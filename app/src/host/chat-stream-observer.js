@@ -261,6 +261,9 @@ export function createChatStreamObserver(opts = {}) {
             observer = new MutationObserverCtor((records) => {
                 // 先做廉价的生成状态判断：非生成期间（阅读器演出、HUD 更新等）直接返回，不逐条检查节点归属。
                 if (lifecycleAvailable && !generationActive && !manualArmed) return;
+                // 已收到结束信号：之后的变更是别的插件改楼层按钮、正则重绘，不再推进版本号，
+                // 否则读楼期间被判过期、反复重读，等待层一直不退，只能手点打开阅读器。
+                if (lifecycleAvailable && !generationActive && completion) return;
                 const external = Array.isArray(records) && records.some((record) => !isInternalRecord(record, opts.isUserFloor));
                 if (!external) return;
                 scheduleActivity();

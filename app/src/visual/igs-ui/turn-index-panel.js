@@ -653,7 +653,12 @@ export function createTurnIndexPanel(doc, options = {}) {
         if (act === 'slot-select') { selectedSlot = value; render(); return null; }
         if (act === 'resume') { const last = progress.getLast(); return last ? jump({ pos: last }) : null; }
         if (act === 'first') return ids.length ? jump({ id: ids[0], page: 0 }) : null;
-        if (act === 'latest') return ids.length ? jump({ id: latestId(), page: 0 }) : null;
+        if (act === 'latest') {
+            // 目录打开期间可能刚写好新楼；「最新」以点击时的宿主列表为准。
+            const currentTurns = await options.listTurns?.() || turns;
+            const latest = currentTurns[currentTurns.length - 1];
+            return latest ? jump({ id: Number(latest.id), page: 0 }) : null;
+        }
         if (act === 'unread') {
             if (nextUnreadId() == null) return null;
             close();
@@ -809,8 +814,19 @@ export function createTurnIndexPanel(doc, options = {}) {
     }
 
     async function open(container) {
-        if (root) return { ok: true, reason: 'already-open' };
         if (!container || typeof container.appendChild !== 'function') return { ok: false, reason: 'no-container' };
+        if (root) {
+            // 内嵌换楼会重建宿主；保留正在看的目录和选楼状态，只移动现有面板。
+            if (container !== host) {
+                host?.classList?.toggle(OPEN_CLASS, false);
+                setStagePauseReason(host, 'panel:turn-index', false);
+                container.appendChild(root);
+                host = container;
+                host.classList?.toggle(OPEN_CLASS, true);
+                setStagePauseReason(host, 'panel:turn-index', true);
+            }
+            return { ok: true, reason: 'already-open' };
+        }
         previousFocus = doc.activeElement || null;
         try { theme = normalizeSettingsTheme(options.getTheme?.() || ''); } catch (_) { theme = normalizeSettingsTheme(''); }
         const savedPrefs = loadJson(TI_PREFS_KEY, {}) || {};
