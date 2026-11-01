@@ -93,9 +93,10 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
         {{autoNaiEndpointField}}{{autoNaiKeyField}}
-        {{autoNaiModelField}}{{autoNaiSizeField}}
-        {{autoNaiTransportField}}
+        {{autoNaiModelField}}{{autoNaiEffortField}}{{autoNaiSizeField}}
+        {{autoNaiTransportField}}{{autoNaiIntervalField}}
       </div>
+      <div class="igs-settings-sub">{{autoNaiCloudQueueFields}}</div>
       {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}

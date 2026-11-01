@@ -1,4 +1,5 @@
 import { readLive2dConfig } from './live2d-config.js';
+import { NAI_QUEUE_REFERENCE_ENDPOINT } from '../../generated-images/nai-cloud-queue-settings.js';
 import { renderLive2dLibrary } from './live2d-panel.js';
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
 import { DIALOG_SKIN_MERMAID, MERMAID_TONES, normalizeMermaidAccent, normalizeMermaidTone } from './dialog-theme-mermaid.js';
@@ -20,6 +21,7 @@ import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList, 
 import { NSFW_COUNT_MAX, CONSISTENCY_MODEL_OPTIONS, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { describeLlmReady } from '../../generated-images/illustration/caption-writer.js';
 import { normalizeImageSourceMode, mergeLegacyNaiSettings } from '../../generated-images/image-backend.js';
+import { isNaiMediumModel, resolveNaiEffortSettings, supportsNaiEffort } from '../../generated-images/nai-effort.js';
 import { getSettingsShellTemplate, renderSettingsNav } from './settings-shell.js';
 import { EVENTCG_TEMPLATE, SCENE_HEAD_TEMPLATE, WARDROBE_TEMPLATE, getPageTemplate } from './settings-tabs.js';
 import { PAGE_PERFORMANCE_GROUPS, SETTINGS_CATEGORIES, categoryLabel, categoryOfPage, currentSettingsPage, defaultPageOfCategory, pageLabel, pagesOfCategory } from './settings-pages.js';
@@ -359,6 +361,11 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const imageValues = memo(() => {
             const sourceMode = normalizeImageSourceMode(imageApi.mode);
             const auto = normalizeAutoIllustrationSettings(mergeLegacyNaiSettings(bridge.autoIllustration, imageApi));
+            const effectiveNai = resolveNaiEffortSettings(auto.nai);
+            const medium = isNaiMediumModel(effectiveNai.model);
+            const directMedium = isNaiMediumModel(auto.nai.model);
+            const hasEffortModel = directMedium || [auto.nai.model, auto.consistencyModel,
+                ...['cgModel', 'spriteModel', 'backgroundModel', 'itemModel'].map(key => imageApi[key])].some(supportsNaiEffort);
             const sourceNotes = {
                 nai: '用 NAI 生成剧情 CG、立绘与背景。',
                 dbgen: '提示词与 Key 由数据库生图插件管理。',
@@ -465,18 +472,23 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '每次写词请求最后插入')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
                 autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）'], ['auto', '自动（酒馆代理已开启时经酒馆转发）']])),
+                autoNaiIntervalField: field('bridge.autoIllustration.nai.minIntervalMs', '生图最小间隔（毫秒）', numberInput('bridge.autoIllustration.nai.minIntervalMs', auto.nai.minIntervalMs, 0, 60000), '同一密钥上次请求结束后再等待，默认 2000 毫秒；0 为不额外等待。仅作用于本页内置 NAI，生成与局部重绘共用。'),
+                autoNaiCloudQueueFields: checkbox('bridge.autoIllustration.nai.cloudQueue.enabled', auto.nai.cloudQueue.enabled, '启用云端队列')
+                    + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列服务地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, NAI_QUEUE_REFERENCE_ENDPOINT), '默认使用智绘姬公共队列，留空也恢复该地址；这不是 NAI 生图接口。共用密钥的人须使用同一节点。仅发送密钥的 SHA-256 标识和随机排队编号，不发送密钥原文、提示词或图片。')
+                    + field('bridge.autoIllustration.nai.cloudQueue.timeoutMs', '排队最长等待（毫秒）', numberInput('bridge.autoIllustration.nai.cloudQueue.timeoutMs', auto.nai.cloudQueue.timeoutMs, 10000, 900000), '默认 180000（3 分钟），不占用生图超时。队列不可用时停止本次生成。智绘姬公共节点源码的锁仅有效 15 秒且不能续租；慢图或未接队列的其它请求仍可能触发 429。'),
                 autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', 'NAI API 地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方，或填写中转生图接口')),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'API Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, '填写官方或中转服务的 Key')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
+                autoNaiEffortField: hasEffortModel ? field('bridge.autoIllustration.nai.effort', 'V5 Full 档位', selectInput('bridge.autoIllustration.nai.effort', directMedium ? 'medium' : auto.nai.effort, [['high', 'High（原档位）'], ['medium', 'Medium（14 步省算力）']], directMedium), directMedium ? '当前直接选择了 Medium 专模；要切回 High，请先把模型选为 nai-diffusion-5-full。' : '仅对实际使用的 V5 Full 及其局部重绘生效。Medium 固定 14 步和 Euler Ancestral；其它型号仍用原参数，切回 High 保留原设置。') : '',
                 modelProfileImageRow: renderModelProfileRow('image', asyncState.modelProfiles),
                 modelProfileLlmRow: renderModelProfileRow('llm', asyncState.modelProfiles),
                 autoNaiModelsMessage: esc(asyncState.naiModelsMessage || ''),
                 autoNaiSizeField: field('bridge.autoIllustration.nai.size', '尺寸', textInput('bridge.autoIllustration.nai.size', auto.nai.size, '832x1216')),
-                autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', auto.nai.steps, 1, 50)),
+                autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', effectiveNai.steps, 1, 50, medium)),
                 autoNaiScaleField: field('bridge.autoIllustration.nai.scale', 'CFG', numberInput('bridge.autoIllustration.nai.scale', auto.nai.scale, 0, 10, false, 'any')),
                 consistencyStrengthField: field('bridge.autoIllustration.consistencyStrength', '一致性重绘强度', numberInput('bridge.autoIllustration.consistencyStrength', auto.consistencyStrength, 0.1, 1, false, '0.05'), '0.1–1，越低越保留原图'),
                 consistencyModelField: field('bridge.autoIllustration.consistencyModel', '一致性重绘模型', selectInput('bridge.autoIllustration.consistencyModel', auto.consistencyModel, CONSISTENCY_MODEL_OPTIONS)),
-                autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', auto.nai.sampler, 'k_euler_ancestral')),
+                autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', effectiveNai.sampler, 'k_euler_ancestral', 'text', medium)),
             };
             const grid = (...items) => {
                 const body = items.filter(Boolean).join('');

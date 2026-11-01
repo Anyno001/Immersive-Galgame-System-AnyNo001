@@ -1,4 +1,6 @@
 import { normalizePhoneWallpaper } from './my-phone.js';
+import { normalizeNaiEffort } from '../../generated-images/nai-effort.js';
+import { normalizeNaiCloudQueue } from '../../generated-images/nai-cloud-queue-settings.js';
 import { normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizePromptEntry } from '../../scene/prompt-entries.js';
 import { isPackSwitchPath } from '../../scene/fx-packs.js';
@@ -34,6 +36,16 @@ export function normalizePerformanceSettings(value) {
 }
 
 export function normalizeSettingsValue(path, value) {
+    const cloudPrefix = 'bridge.autoIllustration.nai.cloudQueue.';
+    if (path.startsWith(cloudPrefix)) {
+        const key = path.slice(cloudPrefix.length);
+        return normalizeNaiCloudQueue({ [key]: value })[key];
+    }
+    if (path === 'bridge.autoIllustration.nai.effort') return normalizeNaiEffort(value);
+    if (path === 'bridge.autoIllustration.nai.minIntervalMs') {
+        const n = value === '' || value == null ? NaN : Number(value);
+        return Number.isFinite(n) ? Math.max(0, Math.min(60000, Math.round(n))) : 2000;
+    }
     if (path === 'readerMode' || path === 'bridge.openMode' || path === 'bridge.imageApi.mode' || path === 'bridge.imageApi.externalAdapter' || path === 'readerSettings.imgMode') {
         return String(value || '');
     }
