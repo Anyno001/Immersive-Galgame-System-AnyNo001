@@ -1,5 +1,6 @@
 import { CANVAS_SIZE, canvasFit } from './combat-skin-canvas.js';
 import { COMBAT_STAGE_FX_BASE_CSS, COMBAT_STAGE_FX_STYLE_CSS } from './combat-stage-fx-style.js';
+import { COMBAT_STAGE_FX_POLISH_CSS } from './combat-stage-fx-polish.js';
 
 // 战斗大节点演出（风格化皮肤）：开战黑屏对撞、技能切入、觉醒两段式、结算。照搬设计稿 fx.js / fx3.js 的节点与几何，样式见 combat-stage-fx-style.js（由设计稿 CSS 生成）。
 // 演出画在固定画布（竖屏 390×844、横屏 1280×720）里，整体按面板尺寸等比缩放（--cx-scale）；画布外的留边由外层铺底。
@@ -11,6 +12,8 @@ const STYLE_OF = Object.freeze({ comic: 'comic', veil: 'veil', ink: 'ink', tech:
 export const stageFxStyle = (skin) => STYLE_OF[String(skin || '')] || '';
 // VS 字样：水墨用单字「战」。
 const VS_TEXT = Object.freeze({ ink: '战' });
+// 特色层空节点数（花瓣、碎片等按序号 .d0…取用）。
+const DECO_N = 12;
 
 // 入场时间轴（毫秒，未乘演出倍速）：撞击、拉开、移除；DONE 为战斗演出可以开始的时刻。
 export const COMBAT_STAGE_TIMING = Object.freeze({ hit: 480, out: 1800, end: 2300, open: 2100 });
@@ -30,7 +33,7 @@ const WRAP_CSS = `
 #igs-overlay .igs-sfx .fig .igs-combat-art{position:absolute;inset:0;}
 #igs-overlay .igs-sfx .fig-char{position:absolute;inset:0;display:grid;place-items:center;color:var(--text);font:900 min(60%,180px)/1 var(--display);opacity:.45;}
 `;
-export const COMBAT_STAGE_FX_STYLE_TEXT = `${COMBAT_STAGE_FX_BASE_CSS}\n${Object.values(COMBAT_STAGE_FX_STYLE_CSS).join('\n')}\n${WRAP_CSS}`;
+export const COMBAT_STAGE_FX_STYLE_TEXT = `${COMBAT_STAGE_FX_BASE_CSS}\n${Object.values(COMBAT_STAGE_FX_STYLE_CSS).join('\n')}\n${WRAP_CSS}\n${COMBAT_STAGE_FX_POLISH_CSS}`;
 
 const cssUrl = (url) => `url("${String(url).replace(/[\r\n]/g, '').replace(/["\\]/g, (ch) => `\\${ch}`)}")`;
 const NS = 'http://www.w3.org/2000/svg';
@@ -76,6 +79,7 @@ export function buildStageShell(doc, { skin = '', width = 0, height = 0, kind = 
     const size = CANVAS_SIZE[fit.orient];
     const root = el(doc, 'div', `igs-sfx${fit.orient === 'land' ? ' land' : ''}${kind ? ` is-${kind}` : ''}`);
     root.setAttribute('data-sfx', style);
+    root.setAttribute('data-skin', String(skin || ''));
     root.setAttribute('aria-hidden', 'true');
     root.style?.setProperty?.('--cw', `${size.w}px`);
     root.style?.setProperty?.('--ch', `${size.h}px`);
@@ -88,6 +92,31 @@ export function buildStageShell(doc, { skin = '', width = 0, height = 0, kind = 
 const KEYS = {
     port: [[78, 0], [58, 30], [66, 38], [34, 64], [42, 70], [22, 100]],
     land: [[60, 0], [52, 30], [57, 40], [45, 62], [49, 70], [40, 100]],
+};
+// 按皮肤换接缝（百分比点列，自上而下）与撞点。没列的皮肤用 KEYS，撞点取第 3、4 点的中点。
+const line = (x0, x1) => [0, 30, 50, 70, 100].map((y) => [x0 + (x1 - x0) * y / 100, y]);
+// 平滑曲线：从 x0 斜到 x1，叠一段正弦（amp 振幅、waves 周期数）；撞点取 y=50 处。
+const curve = (x0, x1, amp, waves) => Array.from({ length: 21 }, (_, i) => {
+    const t = i / 20;
+    return [+(x0 + (x1 - x0) * t + amp * Math.sin(t * Math.PI * 2 * waves)).toFixed(2), t * 100];
+});
+const SEAM_KEYS = {
+    'dark-a': { port: line(62, 38), land: line(56, 44) },
+    'dark-b': { port: line(50, 50), land: line(50, 50) },
+    ink: { port: line(66, 34), land: line(57, 43) },
+    veil: { port: line(64, 36), land: line(56, 44) },
+    // 科技：直角台阶 + 一段 45° 斜冲，折角硬；星辉：星座连线式的直线折段（节点处有星点）。
+    tech: { port: [[70, 0], [70, 24], [60, 34], [60, 44], [40, 56], [40, 66], [30, 76], [30, 100]], land: [[58, 0], [58, 22], [54, 34], [54, 44], [46, 56], [46, 66], [42, 78], [42, 100]] },
+    mystic: { port: [[76, 0], [63, 22], [69, 36], [41, 62], [47, 74], [28, 100]], land: [[60, 0], [53, 22], [57, 38], [44, 62], [47, 76], [40, 100]] },
+    'soft-a': { port: curve(60, 40, 5, 1.5), land: curve(55, 45, 3, 1.5) },
+    'soft-c': { port: curve(60, 40, 5, 1.5), land: curve(55, 45, 3, 1.5) },
+};
+const seamOf = (skin, orient) => {
+    const pts = (SEAM_KEYS[skin] || KEYS)[orient];
+    if (!SEAM_KEYS[skin]) return { pts, at: [(pts[2][0] + pts[3][0]) / 2, (pts[2][1] + pts[3][1]) / 2] };
+    const i = pts.findIndex(([, y]) => y >= 50);
+    const [x0, y0] = pts[i - 1] || pts[i], [x1, y1] = pts[i];
+    return { pts, at: [y1 === y0 ? x1 : x0 + (x1 - x0) * (50 - y0) / (y1 - y0), 50] };
 };
 const poly = (pts) => `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(', ')})`;
 const rnd = (seed) => { let s = seed; return () => ((s = (s * 9301 + 49297) % 233280) / 233280); };
@@ -121,8 +150,8 @@ export function buildStageClash(doc, { skin = '', width = 0, height = 0, heroes 
     const sh = buildStageShell(doc, { skin, width, height, kind: 'clash' });
     const { canvas, W, H, orient, style } = sh;
     const clash = el(doc, 'div', 'clash', canvas);
-    const key = KEYS[orient];
-    const [ax, ay] = key[2], [bx, by] = key[3], ix = (ax + bx) / 2, iy = (ay + by) / 2, cx = ix / 100 * W, cy = iy / 100 * H;
+    const { pts: key, at: [ix, iy] } = seamOf(skin, orient);
+    const cx = ix / 100 * W, cy = iy / 100 * H;
     const seam = key.map(([x, y]) => `${(x / 100 * W).toFixed(1)},${(y / 100 * H).toFixed(1)}`).join(' ');
     const land = orient === 'land';
     const reach = Math.min(W, H) * (land ? 0.62 : 0.78), R = Math.min(W, H) * 0.55;
@@ -154,6 +183,9 @@ export function buildStageClash(doc, { skin = '', width = 0, height = 0, heroes 
             sp.style?.setProperty?.('--s', `${30 + (i * 13) % 40}px`);
         }
     }
+    // 各套特色层：空节点，形状与时序全由 combat-stage-fx-polish.js 按皮肤给出，没有规则的皮肤不显示。
+    const deco = el(doc, 'div', 'sfx-deco', shake);
+    for (let i = 0; i < DECO_N; i++) el(doc, 'i', `d${i}`, deco);
     el(doc, 'div', 'flash', shake);
     const nameOf = (cls, a, b, small) => {
         const n = el(doc, 'div', `name ${cls}`, shake);
@@ -249,7 +281,7 @@ export function resultStageHtml({ skin = '', orient = 'port', end = {}, order = 
     const fig = (cls, n) => (n ? `<i class="fig ${cls}"${pics[n] ? ` style="background-image:${esc(cssUrl(pics[n]))}"` : ''}>${pics[n] ? '' : `<b class="fig-char">${esc(Array.from(n)[0] || '')}</b>`}</i>` : '');
     const rows = [...(end.feats || []).map((f) => ['战功', f.title || '']), ...(end.allies || []).map((a) => [a.name, a.injury || ''])].slice(0, 3)
         .map(([h, v], i) => `<div class="row" style="--d:${1050 + i * 140}ms"><span>${esc(h)}</span><b>${esc(v)}</b></div>`).join('');
-    return `<section class="igs-sfx igs-sfx-result${orient === 'land' ? ' land' : ''}" data-sfx="${esc(style)}" data-outcome="${esc(end.outcome || '')}" style="--cw:${size.w}px;--ch:${size.h}px">`
+    return `<section class="igs-sfx igs-sfx-result${orient === 'land' ? ' land' : ''}" data-sfx="${esc(style)}" data-skin="${esc(skin)}" data-outcome="${esc(end.outcome || '')}" style="--cw:${size.w}px;--ch:${size.h}px">`
         + `<div class="sfx-canvas"><div class="result${won ? '' : ' lose'}"><div class="veil"></div><div class="hband"></div>${fig('mate', heroes[1])}${fig('lead', heroes[0])}`
         + `<div class="plate">${plateSvg()}</div><div class="big">${esc(end.label || '')}<small>${esc(ENGLISH[end.outcome] || '')}</small></div>`
         + `<div class="grade"><small>回合</small>${esc(end.turn ?? '')}</div><div class="rows">${rows}</div>`
