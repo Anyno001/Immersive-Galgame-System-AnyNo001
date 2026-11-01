@@ -19,5 +19,6 @@ export function inventoryIconHtml(name, fallbackIconHtml, resolveImage, mode = '
 }
 
 export const INVENTORY_IMAGE_STYLE_TEXT = `
-#igs-record-panel .igs-record-item-image{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;}
+/* 绝对定位铺满方形容器：竖长或横长的物品图按 contain 缩进框内，不按原始比例撑开容器。 */
+#igs-record-panel .igs-record-item-image{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;}
 `;

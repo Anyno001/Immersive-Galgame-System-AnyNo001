@@ -33,12 +33,12 @@ export const combatInventoryFixture = {
     ok: true,
     gear: {
       slots: {
-        weapon: { gearId: 'gear-preview-sword', name: '旧式短剑', slot: 'weapon', rarity: 'rare', count: 1 },
-        armor: { gearId: 'gear-preview-leather', name: '皮革轻甲', slot: 'armor', rarity: 'uncommon', count: 1 }
+        weapon: { gearId: 'gear-preview-sword', name: '旧式短剑', slot: 'weapon', rarity: 'rare', bonus: { ability: 'str', amount: 3 }, passive: { id: 'gear-preview-sword-p', name: '旧式短剑', description: '攻击时额外造成 2 点伤害。' }, count: 1 },
+        armor: { gearId: 'gear-preview-leather', name: '皮革轻甲', slot: 'armor', rarity: 'uncommon', bonus: { ability: 'con', amount: 2 }, count: 1 }
       },
       bag: [
-        { gearId: 'gear-preview-gauntlet', name: '铁护手', slot: 'armor', rarity: 'common', count: 1 },
-        { gearId: 'gear-preview-pendant', name: '月光吊坠', slot: 'accessory', rarity: 'epic', count: 1 }
+        { gearId: 'gear-preview-gauntlet', name: '铁护手', slot: 'armor', rarity: 'common', bonus: { ability: 'str', amount: 1 }, count: 1 },
+        { gearId: 'gear-preview-pendant', name: '月光吊坠', slot: 'accessory', rarity: 'epic', bonus: { ability: 'wis', amount: 4 }, passive: { id: 'gear-preview-pendant-p', name: '月光吊坠', description: '回合开始时回复 1 点体力。' }, count: 1 }
       ]
     },
     items: [

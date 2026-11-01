@@ -152,14 +152,17 @@ const previewItemArt = name => {
   if (!itemArtPreview || !name) return '';
   if (itemArtCache.has(name)) return itemArtCache.get(name);
   const canvas = document.createElement('canvas');
-  canvas.width = 512; canvas.height = 512;
+  // 名字带「剑」的物品画成竖长图（1:5），复现长剑生图在方形格位里的缩放。
+  const tall = /剑/.test(name);
+  const w = tall ? 128 : 512, h = tall ? 640 : 512;
+  canvas.width = w; canvas.height = h;
   const g = canvas.getContext('2d');
   const hue = Array.from(name).reduce((sum, ch) => sum + ch.codePointAt(0), 0) % 360;
-  const bg = g.createRadialGradient(256, 220, 40, 256, 256, 300);
+  const bg = g.createRadialGradient(w / 2, h * 0.43, 20, w / 2, h / 2, Math.max(w, h) * 0.6);
   bg.addColorStop(0, `hsl(${hue} 70% 62%)`); bg.addColorStop(1, `hsl(${(hue + 40) % 360} 45% 18%)`);
-  g.fillStyle = bg; g.fillRect(0, 0, 512, 512);
-  g.fillStyle = 'rgba(255,255,255,.9)'; g.font = '700 220px "Source Han Serif CN",serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(Array.from(name)[0], 256, 270);
+  g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(255,255,255,.9)'; g.font = `700 ${tall ? 100 : 220}px "Source Han Serif CN",serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(Array.from(name)[0], w / 2, h / 2 + 14);
   const url = canvas.toDataURL('image/png');
   itemArtCache.set(name, url);
   return url;
