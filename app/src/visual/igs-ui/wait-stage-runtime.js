@@ -620,6 +620,28 @@ export function createWaitStageRuntime(options = {}) {
                 });
                 root.appendChild(closeButton);
             }
+            const tools = mountNode(doc, 'igs-ws-tools');
+            tools.setAttribute('aria-label', '等待页菜单');
+            tools.setAttribute('role', 'group');
+            for (const [action, label, icon, callback] of [
+                ['settings', '设置', ORIGINAL_READER_ICONS.settings, options.onSettings],
+                ['directory', '目录', ORIGINAL_READER_ICONS.firstTurn, options.onDirectory],
+            ]) {
+                if (typeof callback !== 'function') continue;
+                const button = doc.createElement('button');
+                button.type = 'button';
+                button.className = 'igs-ws-chip';
+                button.innerHTML = `<span aria-hidden="true">${icon}</span>`;
+                button.title = label;
+                button.setAttribute('aria-label', label);
+                button.setAttribute(`data-igs-waitstage-${action}`, '1');
+                button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    if (root === openedRoot) callback(openedRoot);
+                });
+                tools.appendChild(button);
+            }
+            if (tools.children.length) root.appendChild(tools);
             root.appendChild(body);
             host.appendChild(root);
             syncGameAttr();

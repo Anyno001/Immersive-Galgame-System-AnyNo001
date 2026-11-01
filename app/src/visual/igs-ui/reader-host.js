@@ -469,6 +469,8 @@ export function createIgsReaderHost(options = {}) {
             exitEmbeddedLoading();
         },
         onClose: () => closeReader(),
+        onSettings: () => openSettings({ mode: state.activeReader?.mode }),
+        onDirectory: (root) => openTurnIndex(undefined, { host: root.parentNode, fromWait: !waitStage.isPlaying() }),
     });
     let pendingReplyMessage = null;
     // 最近一次分页的楼层（整楼预载朗读用）；ttsFloorToken 换楼即作废上一轮预载。
@@ -1802,6 +1804,7 @@ export function createIgsReaderHost(options = {}) {
         waitStage.close();
         teardownEmbeddedMount(current.dom.embeddedMount);
         current.dom.embeddedMount = mountEmbeddedRoot(doc, root, message, message && message.id);
+        if (turnIndexPanel?.isOpen()) turnIndexPanel.open(current.dom.embeddedMount?.host || current.dom.overlay);
         if (!current.dom.embeddedMount) {
             (doc.documentElement || doc.body).appendChild(root);
             return;
@@ -1838,6 +1841,7 @@ export function createIgsReaderHost(options = {}) {
             (doc.documentElement || doc.body).appendChild(root);
             teardownEmbeddedMount(current.dom.embeddedMount);
             current.dom.embeddedMount = null;
+            if (turnIndexPanel?.isOpen()) turnIndexPanel.open(current.dom.overlay);
             if (followsHostReply(mode)) {
                 streamObserver.start();
                 if (wasStreaming) enterReplyWait(current);
@@ -2820,7 +2824,7 @@ export function createIgsReaderHost(options = {}) {
 
     // 跳到某楼某页。target：{ id, page } / { edge: 'first'|'latest' } / { pos }（记下的位置：楼没了退到前一楼，按页首指纹找页）。
     // 只换阅读源，不调宿主跳楼。
-    async function jumpToPosition(target = {}) {
+    async function jumpToPosition(target = {}, { fromWait = false } = {}) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
         const turns = await listTurnsSafe();
@@ -2848,9 +2852,12 @@ export function createIgsReaderHost(options = {}) {
         if (state.activeReader !== current) return { ok: false, reason: 'reader-changed' };
         armReadingProgress(current);
         const targetId = ids[index];
-        if (targetId !== Number(currentTurnMessageId(current))) {
+        const returnToLatest = Number(current.turnOffset) > 0 && index === ids.length - 1;
+        if (targetId !== Number(currentTurnMessageId(current)) || fromWait || returnToLatest) {
             const toast = index === ids.length - 1 ? '已到最新楼' : index === 0 ? '已回到第一楼' : `已跳到第 ${targetId} 楼`;
-            const result = await openReaderTurn(current, turns[index], ids.length - 1 - index, toast);
+            // 等待时也允许重开当前已完成楼：把它作为历史阅读源，后续 token 不再盖回等待层。
+            const offset = Math.max(fromWait ? 1 : 0, ids.length - 1 - index);
+            const result = await openReaderTurn(current, turns[index], offset, toast);
             if (!result.moved) return result;
         }
         const reader = state.activeReader;
@@ -2898,7 +2905,7 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 跳到下一处没读过的地方：从 fromId（默认当前楼）往后找第一页没读的。
-    async function skipToUnread(fromId) {
+    async function skipToUnread(fromId, jumpOptions) {
         const current = state.activeReader;
         if (!current) return { ok: false, reason: 'reader-not-open' };
         const turns = await listTurnsSafe();
@@ -2907,13 +2914,13 @@ export function createIgsReaderHost(options = {}) {
         const partial = readingProgress.load().partial;
         for (const id of ids) {
             if (id < start || readingProgress.floorState(id) === 'read') continue;
-            return jumpToPosition({ id, page: partial[id] != null ? partial[id] + 1 : 0 });
+            return jumpToPosition({ id, page: partial[id] != null ? partial[id] + 1 : 0 }, jumpOptions);
         }
         writeToast('后面都读过了');
         return { ok: true, moved: false, reason: 'all-read' };
     }
 
-    function openTurnIndex(tab) {
+    function openTurnIndex(tab, { host, fromWait = false } = {}) {
         const current = state.activeReader;
         const overlay = current && current.dom && current.dom.overlay;
         if (!overlay || !overlay.ownerDocument) return { ok: false, reason: 'reader-not-open' };
@@ -2941,10 +2948,10 @@ export function createIgsReaderHost(options = {}) {
                 return speakTtsLine({ key: '', textType: line.textType, speaker: line.speaker, text: line.text, nsfw: line.nsfw === true }, readerSettings.tts, readerSettings._sceneAssets);
             },
             currentId:() => (state.activeReader ? currentTurnMessageId(state.activeReader) : null),
-            onJump: (target) => (state.activeReader ? jumpToPosition(target) : null),
+            onJump: (target) => (state.activeReader ? jumpToPosition(target, { fromWait }) : null),
             onUnread: () => {
                 const far = readingProgress.getFarthest();
-                return state.activeReader ? skipToUnread(far ? far.id : 0) : null;
+                return state.activeReader ? skipToUnread(far ? far.id : 0, { fromWait }) : null;
             },
             onRewind: (pos) => rewindFromPosition(pos),
             onSaveSlot: (key) => saveReadingSlot(key),
@@ -2954,7 +2961,8 @@ export function createIgsReaderHost(options = {}) {
             getTheme: () => readSettingsTheme(),
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
-        return turnIndexPanel.open(overlay);
+        // 内嵌等待时阅读器根节点被隐藏；目录挂在等待层的可见宿主上，回复到达收起等待层时也不会丢掉目录。
+        return turnIndexPanel.open(host || overlay);
     }
 
     // 该楼是否被隐藏（/hide 或总结插件隐藏的旧楼，阅读器照样能读）；查不到按未隐藏。
