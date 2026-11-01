@@ -27,6 +27,9 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-slot-icon{display:grid;place-items:center;width:44%;aspect-ratio:1/1;}
 #igs-record-panel .igs-record-slot-icon svg{width:100%;height:100%;stroke-width:1.3;}
 #igs-record-panel .igs-record-slot-name{position:absolute;left:10px;right:32px;bottom:9px;font-size:12px;font-weight:500;line-height:1.3;color:inherit;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:left;}
+#igs-record-panel .igs-record-slot-unsellable{margin-left:2px;font-size:10px;font-weight:400;opacity:.62;}
+#igs-record-panel .igs-record-points{flex:none;padding:0 4px;color:var(--igs-rp-text-faint);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+
 #igs-record-panel .igs-record-slot-quantity{position:absolute;right:10px;bottom:9px;font-size:11px;line-height:1.3;color:inherit;opacity:.66;font-variant-numeric:tabular-nums;}
 #igs-record-panel .igs-record-slot-worn{position:absolute;top:8px;left:8px;padding:1px 6px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill-active);color:var(--igs-rp-accent,var(--igs-rp-text));font-size:10px;font-weight:600;line-height:16px;letter-spacing:.04em;}
 #igs-record-panel .igs-record-slots-empty{grid-column:1/-1;margin:24px 0;color:var(--igs-rp-text-faint);text-align:center;}

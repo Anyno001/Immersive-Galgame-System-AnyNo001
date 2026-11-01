@@ -305,6 +305,33 @@ test('行动值时间轴：快的敌人在操控角色下一回合前出手两�
     assert.ok(Object.values(actionProgress(r.state)).every((p) => p >= 0 && p <= 1));
     assert.equal(createBattle({ controlledId: 'hero', units: [hero(filler, { speed: 0 }), foe()] }, SEED).error?.reason, 'invalid-stat');
 });
+test('开局先手计入行动条：速度快的主角首轮不再连动两回合，旧 setup 行为不变，顺序槽与实际一致', () => {
+    const units = () => [hero(filler, { speed: 150 }), foe({ speed: 100 })];
+    const legacy = start(units());
+    assert.deepEqual(upcomingActors(legacy, 3), ['hero', 'hero', 'foe']);
+    const old = applyAction(legacy, { type: 'end-turn' });
+    assert.deepEqual(old.events.filter((e) => e.type === 'act').map((e) => e.unitId), []);
+    const s = start(units(), { openingCharged: true });
+    assert.deepEqual(upcomingActors(s, 3), ['hero', 'foe', 'hero']);
+    const r = applyAction(s, { type: 'end-turn' });
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.events.filter((e) => e.type === 'act').map((e) => e.unitId), ['foe']);
+    assert.deepEqual([r.state.phase, r.state.turn, r.state.openingDebt], ['player', 2, undefined]);
+    assert.equal(createBattle({ controlledId: 'hero', openingCharged: 'yes', units: units() }, SEED).error?.reason, 'invalid-setup');
+});
+test('敌人随机选攻击对象（setup.randomTargets，v0.39.2）：开启时按种子在存活的我方单位中随机挑，同一种子重放一致；旧 setup 仍打生命 + 格挡最低者；非布尔值拒绝建局', () => {
+    const units = () => [hero(['basic-strike'], { maxHp: 50 }), { id: 'mate', name: '队友', side: 'ally', kind: 'skill', maxHp: 90, skills: [idle] }, foe({ skills: [claw(5)] })];
+    const seeds = Array.from({ length: 40 }, (_, i) => seedFor(`rt|${i}`));
+    const targetOf = (extra, seed) => { const r = createBattle({ controlledId: 'hero', units: units(), ...extra }, seed); assert.equal(r.ok, true, JSON.stringify(r.error)); return r.state.intents.foe?.targetId; };
+    assert.ok(seeds.every((seed) => targetOf({}, seed) === 'hero'));
+    const picked = new Set(seeds.map((seed) => targetOf({ randomTargets: true }, seed)));
+    assert.deepEqual([...picked].sort(), ['hero', 'mate']);
+    assert.equal(targetOf({ randomTargets: true }, seeds[3]), targetOf({ randomTargets: true }, seeds[3]));
+    assert.equal(createBattle({ controlledId: 'hero', randomTargets: 'yes', units: units() }, SEED).error?.reason, 'invalid-setup');
+});
+
+
+
 
 test('速度规则：按职业原型 / 敌人档位给基准，按 ID 确定性浮动；规则版本为 4', () => {
     assert.equal(COMBAT_RULES.version, 4);

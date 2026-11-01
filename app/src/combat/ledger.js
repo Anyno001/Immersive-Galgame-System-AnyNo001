@@ -1,4 +1,4 @@
-import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, validateDeck } from './rules.js';
+import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, signatureCardAt, signatureUnlockLevel, validateDeck } from './rules.js';
 import { hash32, hashString } from './random.js';
 import { ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities, isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset } from './abilities.js';
 import { GEAR_SLOTS, INIT_GEAR_TAG_HASH, buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } from './schema.js';
@@ -292,6 +292,26 @@ function addOwned(c, cardId) {
     c.owned.set(cardId, (c.owned.get(cardId) || 0) + 1);
     const copies = c.deck.filter((id) => id === cardId).length;
     if (c.deck.length < COMBAT_RULES.deckMax && copies < cardCopyLimit(c.catalog.get(cardId)?.rarity)) c.deck.push(cardId);
+}
+
+// 专属卡按等级解锁（v0.39.2，助手 11-01）：EXP 条目让卡组角色跨过某槽位的解锁等级时，档案已登记的那张计入拥有（剧情 learn 已提前解锁的不重复计）；
+// 档案还没有该槽位的卡时记下跨级的锚点（signatureDue），由成长补扫交副 LLM 按剧情生成。等级退回（EXP 条目失效）时本次归并不再跨级，卡随之锁上。
+function unlockSignatures(c, levelBefore, anchor) {
+    if (c.kind !== 'deck-character') return;
+    const level = expProgress(c.exp).level;
+    COMBAT_RULES.signatureUnlockLevels.forEach((need, i) => {
+        const slot = i + 1;
+        if (levelBefore >= need || level < need) return;
+        const card = signatureCardAt(c.profile, slot);
+        if (!card) {
+            if (!c.signatureDue) c.signatureDue = new Map();
+            if (!c.signatureDue.has(slot)) c.signatureDue.set(slot, { ...anchor });
+            return;
+        }
+        if ((c.owned.get(card.id) || 0) > 0) return;
+        if (!c.catalog.has(card.id)) c.catalog.set(card.id, card);
+        addOwned(c, card.id);
+    });
 }
 
 const skillOverCap = (skill) => effectsDamage(skill?.effects) > COMBAT_RULES.allySkillDamageCap;
@@ -700,8 +720,24 @@ function characterView(c, opts = {}) {
         deckNeedsAdjust: c.deckNeedsAdjust === true || !check.ok,
         claimedLevels: [...c.claimed].sort((a, b) => a - b),
         pendingRewards,
+        // 已到解锁等级、档案还没有对应专属卡的槽位（待生成）；没有时不写字段，旧视图形状不变。
+        ...(c.signatureDue?.size ? { signatureDue: [...c.signatureDue].map(([slot, anchor]) => ({ slot, level: signatureUnlockLevel(slot), anchor: { ...anchor } })) } : {}),
     };
 }
+
+// 专属卡待生成项（v0.39.2）：已到解锁等级、档案还没有对应专属卡的卡组角色，每人一项（同时到期的槽位并入同一项，写同一版档案），
+// 锚定最早跨级的 EXP 条目；成长补扫把它并入 pendingGeneration，交副 LLM 按剧情生成名称与效果。
+export function signaturePending(state) {
+    const out = [];
+    if (!state?.ok || !(state.characters instanceof Map)) return out;
+    for (const v of state.characters.values()) {
+        if (!Array.isArray(v?.signatureDue) || !v.signatureDue.length) continue;
+        const due = [...v.signatureDue].sort((a, b) => a.slot - b.slot);
+        out.push({ kind: 'signature', character: v.name, characterId: v.id, slots: due.map((d) => d.slot), skill: '专属卡', anchor: { ...due[0].anchor } });
+    }
+    return out;
+}
+
 
 // ---- 属性表折叠 ----
 // alloc 不来自标签，锚点 tagHash 固定为此值，只核对楼层与 swipe。
@@ -881,6 +917,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         if (reason) diag(diagnostics, reason, e);
         else {
             applied.push(e.id);
+            if (e.type === 'exp') unlockSignatures(c, levelBefore, e.anchor);
             if (GROWTH_FX_TYPES.has(e.type)) growth.push(growthEvent(e, c, levelBefore, index, heroId));
             if (e.type === 'wound') {
                 if (lastParty?.messageId !== e.anchor.messageId) lastParty = { messageId: e.anchor.messageId, reportId: e.payload.reportId, ids: [] };

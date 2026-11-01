@@ -1032,6 +1032,12 @@ test('战斗 cut-in：独立 .igs-combat-cutin-* 命名空间，名称只经 tex
     const eyeCrop = combatEyeCrop(probed);
     assert.ok(eyeCrop && [eyeCrop.x, eyeCrop.y].every((n) => n >= 0 && n <= 100));
     assert.equal(combatEyeCrop({ naturalW: 400, naturalH: 800, head: FALLBACK_HEAD }), null);
+    // 探测到脸部时按脸取景（眼线对斜条中线），头位只是默认猜测时仍然跳过。
+    const faceCrop = combatEyeCrop({ ...probed, face: { x: 0.5, eye: 0.12, w: 0.2 } });
+    assert.ok(faceCrop && [faceCrop.x, faceCrop.y].every((n) => n >= 0 && n <= 100));
+    assert.notDeepEqual(faceCrop, eyeCrop);
+    assert.equal(combatEyeCrop({ naturalW: 400, naturalH: 800, head: FALLBACK_HEAD, face: { x: 0.5, eye: 0.12, w: 0.2 } }), null);
+
     const guessedAw = buildAwakenCutin(doc, { name: '林夕', url: 'https://example.test/a.png', probed: { naturalW: 400, naturalH: 800, head: FALLBACK_HEAD } });
     assert.equal(guessedAw.querySelector('.igs-combat-awaken-eye'), null);
     assert.equal(guessedAw.style.vars['--aw-lead'], '0ms');
@@ -2008,4 +2014,67 @@ test('v4 选牌确认：打出选牌弃牌后点候选牌选中，确认钮按 l
     assert.deepEqual([pile.discard.includes(a), pile.discard.includes(card.inst)], [true, true]);
     assert.equal(after.battle.piles.discard, discardBefore + 2);
     p.panel.close();
+});
+
+
+test('场外补位（v0.39.2）：敌人倒下后这一格先画倒下的旧敌人，演出放完旧敌人退场（data-swap=out）、新敌人入场（data-swap=in）；减少动态效果时直接换上', async () => {
+    const settle = (p) => { for (let j = 0; j < 400 && autoBusy(p); j += 1) p.timers.advance(100); };
+    // 一直打可选目标，直到某次动作触发补位（行动顺序里同一格换了 ID）。
+    const untilSwap = (p) => {
+        p.trace = [];
+        for (let i = 0; i < 400 && p.session.state().status === 'battle'; i += 1) {
+            settle(p);
+            const before = [...p.session.state().battle.order];
+            const card = p.panel.view().battle.hand.find((c) => c.playable);
+            let r;
+            if (!card) r = p.panel.invoke('end-turn');
+            else { r = p.panel.invoke('card', card.inst); if (!r.ok) r = p.panel.invoke('target', card.targets[0] ?? card.affects[0]); }
+            p.trace.push(`${i}:${card ? 'card' : 'end'}:${r?.ok}:${r?.reason || ''}:${(p.session.state().battle?.reserve || []).length}`);
+            const after = p.session.state().battle?.order || [];
+            const at = after.findIndex((id, k) => id !== before[k]);
+            if (at >= 0) return { fresh: after[at], old: before[at] };
+        }
+        const b = p.session.state().battle;
+        p.trace.push(`status:${p.session.state().status}:${b?.outcome}:${Object.values(b?.units || {}).map((u) => `${u.side[0]}${u.hp}/${u.maxHp}${u.alive ? '' : 'x'}`).join(',')}`);
+        return null;
+    };
+    const enemyIds = (p) => p.panel.view().battle.enemies.map((u) => u.id);
+
+    const p = panelHarness({ reducedMotion: () => false }, { enemy: '狼*6', hero: { ...heroDef, base: { hp: 120 } } });
+    p.panel.open(p.overlay, { messageId: 1 });
+    await until(() => p.panel.view().status === 'lobby');
+    p.panel.invoke('start');
+    assert.ok(p.session.state().battle.reserve?.length, 'setup 应带场外敌人');
+    const swap = untilSwap(p);
+    assert.ok(swap, `应触发补位 ${p.trace.slice(-12).join(' | ')}`);
+    assert.ok(enemyIds(p).includes(swap.old) && !enemyIds(p).includes(swap.fresh), enemyIds(p).join(','));
+    assert.equal(p.panel.view().battle.track.some((t) => t.id === swap.fresh), false);
+    const seen = new Set();
+    const log = [];
+    const bodyHtml = (p) => p.overlay.querySelector('.igs-combat-body')?.innerHTML || '';
+    let outHtml = false;
+    for (let i = 0; i < 240; i += 1) {
+        p.timers.advance(50);
+        const foes = p.panel.view().battle?.enemies || [];
+        const o = foes.find((u) => u.id === swap.old)?.swap;
+        const n = foes.find((u) => u.id === swap.fresh)?.swap;
+        if (o) seen.add(`old:${o}`);
+        if (n) seen.add(`new:${n}`);
+        if (o === 'out' && bodyHtml(p).includes(`data-unit="${swap.old}"`) && bodyHtml(p).includes('data-swap="out"')) outHtml = true;
+        const sig = `${foes.some((u) => u.id === swap.old) ? 'O' : '-'}${o || ''}/${foes.some((u) => u.id === swap.fresh) ? 'N' : '-'}${n || ''}/busy:${autoBusy(p)}`;
+        if (log[log.length - 1]?.sig !== sig) log.push({ i, sig });
+    }
+    assert.deepEqual([...seen].sort(), ['new:in', 'old:out'], JSON.stringify(log));
+    assert.ok(outHtml, '退场时重绘出的单位块应带 data-swap="out"');
+    assert.ok(enemyIds(p).includes(swap.fresh) && !enemyIds(p).includes(swap.old));
+    assert.equal(p.panel.view().battle.enemies.find((u) => u.id === swap.fresh).swap, undefined);
+
+    const q = panelHarness({}, { enemy: '狼*6', hero: { ...heroDef, base: { hp: 120 } } });
+    q.panel.open(q.overlay, { messageId: 1 });
+    await until(() => q.panel.view().status === 'lobby');
+    q.panel.invoke('start');
+    const quiet = untilSwap(q);
+    assert.ok(quiet, '应触发补位');
+    assert.ok(enemyIds(q).includes(quiet.fresh) && !enemyIds(q).includes(quiet.old));
+    assert.equal(q.panel.view().battle.enemies.find((u) => u.id === quiet.fresh).swap, undefined);
 });

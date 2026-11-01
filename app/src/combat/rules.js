@@ -38,10 +38,10 @@ export const COMBAT_RULES = Object.freeze({
     // 敌人比我方平均等级高出的每一级（只算敌方更强的一侧，计划 S8）：生命与伤害再按比例上调，相对档「稍强 / 强敌」体现在敌人数值上。
     // 没有属性视图时等级差为 0。
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
-    // 多敌折算（v0.39.1，助手 10-31）：单只敌人生命与伤害 × 1 / (1 + perExtra × (在场人数 − 1))，不低于 floor。
+    // 多敌折算（v0.39.1，助手 10-31；v0.39.2 下限 0.55 → 0.65）：单只敌人生命与伤害 × 1 / (1 + perExtra × (在场人数 − 1))，不低于 floor。
     // 在场人数受 maxEnemiesOnField 限制，预备队不计；按 scripts/combat-balance.mjs 校准（1 级标准档单主角普通敌人：2 只约 80%、3 只约 60%），
     // 只写进新建 setup，旧战斗按已存数值重放。
-    crowd: Object.freeze({ perExtra: 0.43, floor: 0.55 }),
+    crowd: Object.freeze({ perExtra: 0.43, floor: 0.65 }),
     // 生成敌人档位校准（v0.39.1）：副 LLM 生成的敌人（generated 不为 false）生命与伤害再 × 该值，模板敌人不变；
     // 首领按 scripts/combat-balance.mjs --generated 校准到标准档单主角 1 / 10 级约 65%（5 级约 83%，统一倍率无法同时压进 55–70%）。
     generatedScale: Object.freeze({ boss: 0.9 }),
@@ -84,6 +84,8 @@ export const COMBAT_RULES = Object.freeze({
     // 专属卡：每名卡组角色最多 2 张，限 1 张副本，只靠剧情解锁。
     signatureLimit: 2,
     signatureCopyLimit: 1,
+    // 专属卡按等级解锁（v0.39.2，助手 11-01 选 1B）：第 i 张在 signatureUnlockLevels[i] 级解锁，等级退回时重新锁上。
+    signatureUnlockLevels: Object.freeze([5, 10]),
     // 技能角色强度档（暂定）：hp / skill 为生命与技能数值倍率，ultimateCooldown 为绝招冷却回合（0 表示没有绝招）。
     allyTiers: Object.freeze({
         support: Object.freeze({ label: '陪衬', hp: 0.8, skill: 0.85, ultimateCooldown: 0 }),
@@ -267,6 +269,18 @@ export function cardCopyLimit(rarity) {
     if (!hasRarity(rarity)) return 0;
     if (rarity === 'signature') return COMBAT_RULES.signatureCopyLimit;
     return rarity === 'mythic' ? 1 : COMBAT_RULES.copyLimit;
+}
+
+// 专属卡槽位（1 起）：ID 以「-g<槽位>」结尾时按槽位，否则按档案里的位置（旧档案预生成的卡）。
+export function signatureSlotOf(card, index = 0) {
+    const m = /-g(\d+)$/.exec(String(card?.id || ''));
+    const slot = m ? Number(m[1]) : index + 1;
+    return slot >= 1 && slot <= COMBAT_RULES.signatureUnlockLevels.length ? slot : index + 1;
+}
+export const signatureUnlockLevel = (slot) => COMBAT_RULES.signatureUnlockLevels[slot - 1] ?? Infinity;
+// 档案里登记在该槽位的专属卡，没有时为 null。
+export function signatureCardAt(profile, slot) {
+    return (profile?.signatureCards || []).find((c, i) => signatureSlotOf(c, i) === slot) || null;
 }
 
 // catalog 提供已登记卡牌的稀有度；缺失卡牌或未知稀有度拒收。

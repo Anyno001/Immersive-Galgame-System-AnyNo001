@@ -910,17 +910,22 @@ test('敌人图集题材（encounter-theme）：合法题材进结果；非法�
     assert.deepEqual([absent.ok, absent.accepted, absent.rejected], [true, [], []]);
 });
 
-test('初始装备（profile-gear）：按回复组装装备，加成随稀有度；空列表合法、不落账；同部位两件拒收并定向修正', async () => {
+test('初始装备（profile-gear）：模型只给名称、部位与稀有度，加成属性由程序抽定；空列表合法、不落账；主角空列表与同部位两件拒收并定向修正', async () => {
     const entity = profileGearEntity('陈默');
     assert.deepEqual([entity.kind, entity.optional, entity.input], ['profile-gear', true, { name: '陈默' }]);
-    const good = await generateEntities([entity], { request: async () => reply([[entity.key, { gear: [['青锋剑', 'weapon', 'rare', 'dex', 'opening-dexterity', '师门所赐']] }]]), llm: LLM });
+    const good = await generateEntities([entity], { request: async () => reply([[entity.key, { gear: [['青锋剑', 'weapon', 'rare', '师门所赐']] }]]), llm: LLM });
     assert.equal(good.ok, true);
     const items = good.accepted[0].gear.items;
-    assert.deepEqual([good.accepted[0].gear.name, items.length, items[0].slot, items[0].rarity, items[0].bonus], ['陈默', 1, 'weapon', 'rare', { ability: 'dex', amount: 3 }]);
+    assert.deepEqual([good.accepted[0].gear.name, items.length, items[0].slot, items[0].rarity, items[0].bonus.amount, items[0].description], ['陈默', 1, 'weapon', 'rare', 3, '师门所赐']);
+    assert.ok(['str', 'dex', 'con', 'int', 'wis', 'cha'].includes(items[0].bonus.ability));
     const none = await generateEntities([entity], { request: async () => reply([[entity.key, { gear: [] }]]), llm: LLM });
     assert.deepEqual([none.ok, none.accepted[0].gear.items], [true, []]);
     assert.deepEqual(generationWrites(none), { profiles: [], entries: [] });
-    const dup = await generateEntities([entity], { request: async () => reply([[entity.key, { gear: [['甲', 'weapon', 'common', 'str', null], ['乙', 'weapon', 'common', 'str', null]] }]]), llm: LLM });
+    const hero = profileGearEntity('陈默', { required: true });
+    const empty = await generateEntities([hero], { request: async () => reply([[hero.key, { gear: [] }]]), llm: LLM });
+    assert.equal(empty.ok, false);
+    assert.ok(empty.rejected[0].errors.some((e) => e.reason === 'invalid-length'));
+    const dup = await generateEntities([entity], { request: async () => reply([[entity.key, { gear: [['甲', 'weapon', 'common'], ['乙', 'weapon', 'common']] }]]), llm: LLM });
     assert.deepEqual([dup.ok, dup.requests], [false, 3]);
     assert.ok(dup.rejected[0].errors.some((e) => e.reason === 'slot-duplicate'));
 });

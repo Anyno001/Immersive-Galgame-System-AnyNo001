@@ -39,8 +39,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
     let selectedBuild = null;
     let wantBuild = null;
     let generate = null;
-    // 背包卖出待确认的那一件：{ kind: 'gear' | 'keepsake', id }；换角色、换页、重读与开关面板时清空。
-    let sell = null;
+
     // 重新生成基础卡组待确认（只主角）；换角色、换页、重读与开关面板时清空。
     let rebuild = false;
     // 转职待确认（只主角）：{ picked, classRef }，classRef 为 null 表示按剧情生成新职业；ascend 为职业升阶待确认。换角色、换页、重读与开关面板时清空。
@@ -112,7 +111,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const readonly = isCombatBusy(ss);
         const still = reduced();
         return {
-            status, reason, notice, pending, selectedId, generate, page, sell, rebuild, respec, ascend, trait,
+            status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait,
             selectedBuild, builds: builds.map((c) => ({ name: c.name, protagonist: c.protagonist })),
             reveal: reveal ? { phase: reveal.phase, rarity: reveal.rarity, traitId: reveal.traitId, fresh: reveal.phase === 'open' && !reveal.played && !still } : null,
             reduced: still,
@@ -182,7 +181,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         let b = null;
         if (wantBuilds) { try { b = await options.getBuildCandidates(); } catch (error) { b = { ok: false, reason: 'combat-ledger-read-failed' }; } }
         if (my !== token) return { ok: false, reason: 'request-stale' };
-        draft = null; allocDraft = null; manualDraft = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false;
+        draft = null; allocDraft = null; manualDraft = null; rebuild = false; respec = null; ascend = false; trait = false;
         const bad = l ? (st?.ok === true ? '' : st?.reason || 'combat-ledger-read-failed') : (b?.ok === true ? '' : b?.reason || 'combat-ledger-read-failed');
         if (bad) {
             state = null; builds = []; selectedBuild = null; status = 'error'; reason = bad;
@@ -206,14 +205,14 @@ export function createCombatDeckPanelController(doc, options = {}) {
 
     function select(id) {
         if (!state?.ok || !state.characters.has(id)) return { ok: false, reason: 'combat-character-missing' };
-        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
+        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
 
     function selectBuild(name) {
         if (!builds.some((c) => c.name === name)) return { ok: false, reason: 'combat-character-missing' };
-        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
+        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
@@ -397,36 +396,6 @@ export function createCombatDeckPanelController(doc, options = {}) {
         return r;
     }
 
-    // 背包卖出：点「卖出」只记下待确认的那一件（只主角、不在战斗中、物品仍在背包），该行换成「确认卖出 · 售价」与「取消」；
-    // 确认后经账本写一条 sell（锚定最新楼层，穿戴中的装备由账本拒收）并重读；结束后清空待确认，失败原因显示在提示条。
-    function sellOpen(kind, id) {
-        const view = selectedView();
-        if (!view) return { ok: false, reason: 'combat-character-missing' };
-        if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
-        if (view.attributes?.protagonist !== true) return fail('combat-points-not-protagonist');
-        const has = kind === 'gear' ? (view.gear?.bag || []).some((g) => g.gearId === id) : (view.collection || []).some((k) => (k.lootId || k.itemId) === id);
-        if (!has) return fail(kind === 'gear' ? 'combat-gear-missing' : 'combat-keepsake-missing');
-        sell = { kind, id };
-        notice = '';
-        render();
-        body?.querySelector?.('[data-deck-act="sell-confirm"]')?.focus?.();
-        return { ok: true };
-    }
-
-    async function sellConfirm() {
-        const view = selectedView();
-        const l = ledger();
-        if (!sell || !view || !l) return { ok: false, reason: 'combat-sell-unavailable' };
-        if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
-        const write = sell.kind === 'gear' ? l.sellGear : l.sellKeepsake;
-        if (typeof write !== 'function') return fail('combat-sell-unavailable');
-        const target = sell.id;
-        const r = await run('sell', () => write(target));
-        if (r.stale) return r;
-        sell = null;
-        if (r.ok === true) await load(); else render();
-        return r;
-    }
 
     // 重新生成基础卡组（只主角）：点按钮后在原处确认或取消；确认后经注入的 regenerateDeck 请副 LLM 生成并写一条 rebuild（扣 REBUILD_COST），成功后重读。
     // 战斗进行中只读，积分不足不可点；生成失败不扣分，原因显示在提示条；关闭面板时中止生成。
@@ -638,7 +607,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'save': return save();
             case 'page':
                 if (!DECK_PAGES.includes(id)) return fail('combat-page-invalid');
-                page = id; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; render();
+                page = id; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; render();
                 return { ok: true, page };
             case 'alloc-add': return allocEdit(id, 1);
             case 'alloc-remove': return allocEdit(id, -1);
@@ -655,10 +624,6 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'set-tier': return setTier(id);
             case 'equip': return setGear(id, true);
             case 'unequip': return setGear(id, false);
-            case 'sell-gear': return sellOpen('gear', id);
-            case 'sell-keepsake': return sellOpen('keepsake', id);
-            case 'sell-confirm': return sellConfirm();
-            case 'sell-cancel': sell = null; notice = ''; render(); return { ok: true };
             case 'rebuild-open': return rebuildOpen();
             case 'rebuild-confirm': return rebuildConfirm();
             case 'rebuild-cancel': rebuild = false; notice = ''; render(); return { ok: true };
@@ -713,7 +678,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-combat-container' };
         if (!ledger() && !(buildEntryOn() && manualOn())) return { ok: false, reason: 'combat-disabled' };
         token += 1;
-        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null;
+        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null;
         builds = []; selectedBuild = null; wantBuild = build ? String(build) : null;
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
@@ -760,7 +725,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         pageOverlay?.classList?.remove('igs-record-screen-open');
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         pageOverlay = null;
-        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; sell = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; selectedBuild = null; wantBuild = null;
+        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; selectedBuild = null; wantBuild = null;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();

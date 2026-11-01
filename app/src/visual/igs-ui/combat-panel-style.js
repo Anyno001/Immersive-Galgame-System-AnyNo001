@@ -293,6 +293,12 @@ ${C} .igs-combat-unit[data-side="ally"].is-controlled .igs-combat-portrait{box-s
 ${C} .igs-combat-unit[data-side="ally"] .igs-combat-portrait :is(img,svg,.igs-combat-art){object-position:50% 0;transform:scale(var(--crop));transform-origin:50% 0;filter:none;}
 ${C} .igs-combat-unit.is-controlled .igs-combat-unit-name>span{color:var(--igs-cb-warm);}
 ${C} .igs-combat-unit.is-down{opacity:.4;filter:grayscale(.8);}
+/* 场外补位（v0.39.2）：倒下的敌人下沉淡出，新敌人从右侧斜切冲入、闪亮后落定；时长与 COMBAT_SWAP_MS 一致；减少动态效果与低画质不播。 */
+${C} .igs-combat-unit[data-swap="out"]{animation:igs-combat-swap-out 520ms var(--igs-cb-ease) var(--swap-t,0ms) both;pointer-events:none;}
+${C} .igs-combat-unit[data-swap="in"]{animation:igs-combat-swap-in 620ms cubic-bezier(.2,.9,.25,1.15) var(--swap-t,0ms) both;}
+@keyframes igs-combat-swap-out{0%{opacity:.4;transform:none;filter:grayscale(.8);}100%{opacity:0;transform:translateY(18%) scale(.9);filter:grayscale(1) brightness(.5);}}
+@keyframes igs-combat-swap-in{0%{opacity:0;transform:translateX(40%) skewX(-12deg);filter:brightness(2.2);}60%{opacity:1;transform:translateX(-4%) skewX(2deg);filter:brightness(1.3);}100%{opacity:1;transform:none;filter:none;}}
+${C}[data-igs-combat-reduced] .igs-combat-unit[data-swap],#igs-overlay[data-igs-quality="low"] ${C} .igs-combat-unit[data-swap]{animation:none;}
 ${C} .igs-combat-unit.is-targetable{cursor:pointer;}
 ${C} .igs-combat-unit.is-targetable .igs-combat-portrait :is(img,svg,.igs-combat-art){filter:drop-shadow(0 0 4px rgba(242,212,155,.9)) drop-shadow(0 0 12px rgba(242,212,155,.55));}
 ${C} .igs-combat-unit.is-targetable:is(:hover,.is-drop-hover) .igs-combat-portrait :is(img,svg,.igs-combat-art){filter:drop-shadow(0 0 6px rgba(242,212,155,1)) drop-shadow(0 0 18px rgba(242,212,155,.7)) brightness(1.08);}

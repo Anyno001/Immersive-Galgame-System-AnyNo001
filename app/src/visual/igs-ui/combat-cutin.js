@@ -16,6 +16,8 @@ export const COMBAT_CUTIN_FOCUS = Object.freeze({ span: 2.6, line: 1.3 });
 export const COMBAT_CUTIN_FALLBACK_FOCUS = Object.freeze({ span: 3.2, line: 1.2 });
 // 眼部取景：头宽约占斜切条宽度 69%，纵向对在头顶往下约一半头高处（眼线）。
 export const COMBAT_EYE_FOCUS = Object.freeze({ span: 1.45, line: 0.5 });
+// 按脸取景：脸宽约占斜切条宽度 56%（脸比含头发的头位窄，倍数相应放大）。
+export const COMBAT_EYE_FACE_FOCUS = Object.freeze({ span: 1.8 });
 
 const cssUrl = (url) => `url("${String(url).replace(/[\r\n]/g, '').replace(/["\\]/g, (ch) => `\\${ch}`)}")`;
 
@@ -58,10 +60,16 @@ export function combatCutinCrop(probed) {
 }
 
 // 眼部斜切条裁切：只在头位是真实探测结果时给出；头位只是默认猜测（不透明立绘或读不到像素）时放大到眼部会对不上脸，返回 null 跳过切入。
+// 探测到脸部（probed.face：脸中心 x、眼线 eye、脸宽 w，均相对原图）时按脸取景，眼线对在斜条中线；发髻、马尾与发饰不再把取景顶高。
 export function combatEyeCrop(probed) {
     const head = probed?.head;
     if (!head || head === FALLBACK_HEAD || !(Number(head.w) > 0)) return null;
     const aspect = Number(probed?.naturalW) > 0 ? Number(probed.naturalH) / Number(probed.naturalW) : 0;
+    const face = probed?.face;
+    if (face && Number(face.w) > 0 && Number(face.eye) > 0) {
+        const span = Math.min(COMBAT_EYE_FACE_FOCUS.span, 1 / Math.max(0.02, Number(face.w)));
+        return resolveCutinCrop({ x: Number(face.x), top: Number(face.eye), w: Number(face.w) }, aspect, COMBAT_EYE_FRAME, { span, line: 0 });
+    }
     const focus = { ...COMBAT_EYE_FOCUS, span: Math.min(COMBAT_EYE_FOCUS.span, 1 / Math.max(0.02, Number(head.w))) };
     return resolveCutinCrop(head, aspect, COMBAT_EYE_FRAME, focus);
 }

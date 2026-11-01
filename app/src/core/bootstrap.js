@@ -93,7 +93,7 @@ import { createCombatServices } from './combat-services.js';
 import { createCombatChatRecord } from '../host/combat-chat-record.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 
-const IGS_VERSION = '0.39.1';
+const IGS_VERSION = '0.39.2';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -431,10 +431,13 @@ export function bootstrapIGS(options = {}) {
     });
     // 设置变更（含扩展开关）与启动时：注册战报折叠正则，补扫当前聊天的成长标签、刷新成长演出缓存，并在后台预生成主角卡组。
     const prepareCombatProtagonist = () => { if (typeof combatServices.prepareProtagonist === 'function') combatServices.prepareProtagonist(); };
-    const offCombatRegex = events.on('igs:legacy-settings-updated', () => { combatServices.syncRegex(); combatServices.refreshGrowth(); prepareCombatProtagonist(); });
+    // 战斗扩展开启时同一时机接管当前聊天的物品表（关闭数据库自动填表，v0.39.2）。
+    const takeoverCombatInventory = () => { if (typeof combatServices.takeoverInventory === 'function') void combatServices.takeoverInventory(); };
+    const offCombatRegex = events.on('igs:legacy-settings-updated', () => { combatServices.syncRegex(); combatServices.refreshGrowth(); prepareCombatProtagonist(); takeoverCombatInventory(); });
     combatServices.syncRegex();
     combatServices.refreshGrowth();
     prepareCombatProtagonist();
+    takeoverCombatInventory();
     // 主生成结束后的最新 AI 楼带开战标签时，在后台开始战斗准备（不等面板打开）；dry-run、quiet、中止与换聊天沿用 onImageFloorReady 的过滤。
     // 同一时机自动处理本楼待生成的成长项（计划 P8）：副 LLM 未就绪时只记诊断，失败的项留在人物状态页「重试」。
     const offCombatAutoPrepare = typeof illustrationMessageHost.onImageFloorReady === 'function' && typeof combatServices.autoPrepare === 'function'
@@ -554,6 +557,7 @@ export function bootstrapIGS(options = {}) {
         useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (name) => combatServices.useInventoryItem(name) : undefined,
         getCombatHeroInventory: typeof combatServices.heroInventory === 'function' ? () => combatServices.heroInventory() : undefined,
         setCombatHeroGear: typeof combatServices.setHeroGear === 'function' ? (gearId, equip) => combatServices.setHeroGear(gearId, equip) : undefined,
+        sellCombatHeroItem: typeof combatServices.sellHeroItem === 'function' ? (kind, id) => combatServices.sellHeroItem(kind, id) : undefined,
 
         setCombatAllyTier: (id, tier) => combatServices.setAllyTier(id, tier),
         getCombatGrowth: () => combatServices.getGrowth(),
@@ -1321,6 +1325,13 @@ export function bootstrapIGS(options = {}) {
             combatServices.resetChat();
             combatServices.refreshGrowth();
             prepareCombatProtagonist();
+            takeoverCombatInventory();
+            // 只要战斗开关开着，进聊天即准备（v0.39.2）：换聊天瞬间聊天 ID / 主角名可能尚未就绪，2 秒后再触发一次（两者均幂等，已就绪或在途时不重复请求）。
+            setTimeout(() => {
+                if (state.destroyed) return;
+                prepareCombatProtagonist();
+                takeoverCombatInventory();
+            }, 2000);
             resync();
         };
         // 生成结束：剧情楼的成长标签补扫入库，刷新成长演出缓存。

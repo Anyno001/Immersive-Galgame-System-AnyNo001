@@ -163,8 +163,9 @@ function deckHtml(v, d) {
     const actions = v.readonly ? chip('战斗进行中 · 只读')
         : `${btn('reset', '还原', { disabled: !d.dirty || Boolean(v.pending) })}${btn('save', v.pending === 'save' ? '保存中' : '保存卡组', { primary: true, disabled: !d.dirty || !c.ok || Boolean(v.pending) })}`;
     const locked = (d.signature || []).filter((s) => !s.unlocked);
+    // 未解锁的专属卡不透露名称、费用与类型，只标解锁等级（v0.39.2）。
     const sig = locked.length
-        ? row('专属', locked.map((s) => `<span class="igs-deck-chip is-locked" data-rarity="signature" data-card-type="${esc(s.type)}">${esc(s.cost)} · ${esc(s.name)} · 未解锁</span>`).join(''))
+        ? row('专属', locked.map((s) => `<span class="igs-deck-chip is-locked" data-rarity="signature">??? · Lv${esc(s.level)} 解锁</span>`).join(''))
         : '';
     return `<section class="igs-deck-build">${row('卡组', summary)}${sig}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly)).join('')}</ul><div class="igs-deck-actions">${actions}</div>${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
 }
@@ -181,7 +182,11 @@ function gearHtml(v, d) {
         ? `<span class="igs-deck-chip" data-slot="${esc(s.slot)}"${s.item.text ? ` title="${esc(s.item.text)}"` : ''}>${itemArt(s.item)}${esc(s.label)} · ${esc(s.item.name)}</span>${v.readonly ? '' : btn('unequip', '卸下', { id: s.item.gearId, disabled: busy })}`
         : `<span class="igs-deck-chip is-empty" data-slot="${esc(s.slot)}">${esc(s.label)} · 空</span>`)).join('');
     const items = g.items.length ? row('道具', g.items.map((i) => (i.imageUrl ? `<span class="igs-deck-chip">${itemArt(i)}${esc(`${i.name} ×${i.count}`)}</span>` : chip(`${i.name} ×${i.count}`))).join('')) : '';
-    return `${row('装备', slots)}${items}`;
+    // 背包页取消后（v0.39.2）：主角的物品统一在阅读器背包页查看、换装与卖出；队友没有外部背包，未装备的装备在这里列出并可装上。
+    const spare = !d.canSell && g.bag.length
+        ? row('可装备', g.bag.map((b) => `<span class="igs-deck-chip"${b.text ? ` title="${esc(b.text)}"` : ''}${b.rarity ? ` data-rarity="${esc(b.rarity)}"` : ''}>${itemArt(b)}${esc(b.slotLabel)} · ${esc(b.name)}</span>${v.readonly ? '' : btn('equip', '装上', { id: b.gearId, disabled: busy })}`).join(''))
+        : '';
+    return `${row('装备', slots)}${spare}${items}`;
 }
 
 function generateHtml(v, d) {
@@ -211,6 +216,10 @@ function abilityGrid(rows, editable, busy = false, prefix = 'alloc') {
 }
 
 const passiveChip = (label, p) => `<span class="igs-deck-chip"${p.text ? ` title="${esc(p.text)}"` : ''}>${esc(label)} · ${esc(p.name)}</span>`;
+
+// 列表行：稀有度标色、名称与说明、右侧操作；人物特性逐槽复用。
+const bagRow = (rarity, head, acts) => `<li class="igs-deck-keepsake"${rarity ? ` data-rarity="${esc(rarity)}"` : ''}>${head}${acts ? `<span class="igs-deck-bag-acts">${acts}</span>` : ''}</li>`;
+
 
 // 人物特性（只主角有）：特性槽（v4）逐槽列出保留着的固有特性（人物技能 / 个人被动）、抽到的特性、空槽与未解锁的槽；按稀有度标色，写名称、种类、效果与联动，来历放在名称提示里。
 // 下一个未解锁的槽给「解锁 · 价格」，积分不足置灰。主角不在战斗中时给「抽人物特性」，点后在原处确认或取消，积分不足置灰；
@@ -346,30 +355,7 @@ function deckPage(v, d) {
     return `${tiers}${row('技能', d.skills.map((s) => chip(s.name)).join(''))}${generateHtml(v, d)}`;
 }
 
-// 背包页：主角顶部显示积分；未装备的装备可「装上」，装备与杂物可「卖出」（只主角），点「卖出」后在该行确认售价或取消；战斗进行中只读。
-const sellAction = (v, d, kind, id, price) => {
-    if (v.readonly || !d.canSell) return '';
-    const busy = Boolean(v.pending);
-    if (v.sell?.kind === kind && v.sell.id === id) {
-        return btn('sell-confirm', v.pending === 'sell' ? '卖出中' : `确认卖出 · ${price} 积分`, { primary: true, disabled: busy }) + btn('sell-cancel', '取消', { disabled: busy });
-    }
-    return btn(`sell-${kind}`, '卖出', { id, disabled: busy });
-};
-const bagRow = (rarity, head, acts) => `<li class="igs-deck-keepsake"${rarity ? ` data-rarity="${esc(rarity)}"` : ''}>${head}${acts ? `<span class="igs-deck-bag-acts">${acts}</span>` : ''}</li>`;
-function bagPage(v, d) {
-    const gear = d.gear?.bag || [];
-    const list = d.collection || [];
-    const points = d.canSell ? row('积分', `<span class="igs-deck-size" role="status">${esc(d.points)}</span>`) : '';
-    if (!gear.length && !list.length) return `${points}<p class="igs-deck-state">背包是空的</p>`;
-    const busy = v.readonly || Boolean(v.pending);
-    const gearRows = gear.map((g) => bagRow(g.rarity, `<span class="igs-deck-name"${g.text ? ` title="${esc(g.text)}"` : ''}>${esc(g.name)}</span><span class="igs-deck-count">${esc(g.slotLabel)}</span>`,
-        (v.readonly ? '' : btn('equip', '装上', { id: g.gearId, disabled: busy })) + sellAction(v, d, 'gear', g.gearId, g.price)));
-    const keepRows = list.map((c) => bagRow(c?.rarity, `<span class="igs-deck-name">${esc(c?.name || '')}</span>${c?.origin ? `<span class="igs-deck-count">${esc(c.origin)}</span>` : ''}`,
-        sellAction(v, d, 'keepsake', c?.key, c?.price)));
-    return `${points}<ul class="igs-deck-collection">${[...gearRows, ...keepRows].join('')}</ul>`;
-}
-
-const PAGE_HTML = Object.freeze({ status: statusPage, alloc: allocPage, gear: gearHtml, deck: deckPage, collection: bagPage });
+const PAGE_HTML = Object.freeze({ status: statusPage, alloc: allocPage, gear: gearHtml, deck: deckPage });
 
 function tabsHtml(page, d) {
     return `<div class="igs-deck-tabs" role="tablist" aria-label="人物状态">${DECK_PAGES.map((p) => `<button type="button" class="igs-deck-tab" role="tab" id="igs-deck-tab-${p}" aria-controls="igs-deck-page" data-deck-act="page" data-deck-id="${p}" aria-selected="${p === page}">`

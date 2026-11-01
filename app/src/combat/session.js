@@ -135,8 +135,9 @@ function skillUnit(view) {
     // 先按六维换算技能数值，强度档倍率乘在换算后的数值上。
     const own = scaleSkills(view.skills, view.attributes);
     const skills = tier.skill === 1 ? own : own.map((s) => ({ ...s, effects: s.effects.map((e) => scaleEffect(e, tier.skill)) }));
-    const extra = tier.ultimateCooldown > 0
-        ? [ultimateSkill(Math.round(COMBAT_RULES.allySkillDamageCap * tier.skill), { id: `${view.id}-u1`, cooldown: tier.ultimateCooldown })] : [];
+    // 强度档绝招（v0.39.2）：取角色自己伤害最高的设定技能强化一档（同名、数值 ×1.5、带冷却），不再追加名为「绝招」的通用技能；
+    // 没有设定技能时才回落通用绝招。只进新建 setup，旧战斗按已存 setup 重放。
+    const extra = tier.ultimateCooldown > 0 ? [signatureUltimate(view.id, skills, tier)] : [];
     const fit = characterCombatStats(view);
     return {
         id: view.id, name: view.name, side: 'ally', kind: 'skill',
@@ -146,6 +147,13 @@ function skillUnit(view) {
         speed: fit.speed, skills: [...skills, ...extra], passives: [...(view.passives || []), ...gearPassives(view)],
         ...abilitySnapshot(view.attributes),
     };
+}
+
+const skillDamage = (s) => (s.effects || []).reduce((sum, e) => sum + (e.op === 'damage' ? (Number(e.amount) || 0) * (Number(e.hits) || 1) : 0), 0);
+function signatureUltimate(id, skills, tier) {
+    const base = skills.reduce((best, s) => (!best || skillDamage(s) > skillDamage(best) ? s : best), null);
+    if (!base) return ultimateSkill(Math.round(COMBAT_RULES.allySkillDamageCap * tier.skill), { id: `${id}-u1`, cooldown: tier.ultimateCooldown });
+    return { ...base, id: `${id}-u1`, effects: base.effects.map((e) => scaleEffect(e, 1.5)), cooldown: tier.ultimateCooldown, ultimate: true };
 }
 
 // 难度表的首领狂暴阈值：只改默认的半血阶段（hpBelowPct 50）；阈值仍为 50 时沿用原对象，setup 形状不变。
@@ -391,7 +399,9 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     }
     // overkill：新开的战斗允许鞭尸与超杀（打空最后一名敌人后到结束回合才判胜）；旧记录的 setup 不带该字段，重放规则不变。
     // wipe（助手 10-29）：操控角色倒下后队友继续托管，全员倒下才判负字段，重放规则不变。
-    const setup = { rulesVersion: COMBAT_RULES.version, controlledId: id, canEscape: start.tier !== 'boss', overkill: true, wipe: true, units: [...allies, ...foes] };
+    // openingCharged（v0.39.2）：开局先手计入操控角色的行动条，速度快的主角不会首轮连动两回合；只写进新建 setup，旧战斗按已存 setup 重放。
+    // randomTargets（v0.39.2，助手 11-01）：敌人在存活的我方单位中按种子随机选攻击对象，不再只打血最少的；同样只写进新建 setup。
+    const setup = { rulesVersion: COMBAT_RULES.version, controlledId: id, canEscape: start.tier !== 'boss', overkill: true, wipe: true, openingCharged: true, randomTargets: true, units: [...allies, ...foes] };
     const reserve = enemyReserve(foes, tiers, combatId);
     if (reserve) setup.reserve = reserve;
     const controlled = lobby.allies.find((v) => v.id === id);
@@ -494,7 +504,8 @@ export function createCombatSession(deps = {}) {
         try { r = rec.read(b.anchor, b.combatId); } catch (error) { return { ok: false, reason: 'combat-record-read-failed' }; }
         if (r?.ok !== true) return { ok: false, reason: r?.reason || 'combat-record-read-failed' };
         const result = r.value?.result;
-        if (result !== undefined && (typeof result?.reportId !== 'string' || typeof result?.text !== 'string' || typeof result?.result !== 'string' || !usedOk(result) || !woundsOk(result))) return { ok: false, reason: 'combat-record-corrupt' };
+        // result 为 null 表示「重新开始」撤掉了上一局的结果，按没有结果处理。
+        if (result !== undefined && result !== null && (typeof result?.reportId !== 'string' || typeof result?.text !== 'string' || typeof result?.result !== 'string' || !usedOk(result) || !woundsOk(result))) return { ok: false, reason: 'combat-record-corrupt' };
         return { ok: true, value: r.value || null };
     }
     async function writeRecord(b, patch) {
@@ -697,9 +708,9 @@ export function createCombatSession(deps = {}) {
         const askTheme = !heroOnly && !savedTheme;
         if (askTheme) entities = [...entities, encounterThemeEntity(found.start)];
         let theme = savedTheme;
-        // 按剧情给初始装备（助手 10-31）：只随主角卡组档案生成同批请求；已有主角档案时不请求，助战在面板生成卡组时由服务层请求。
+        // 初始装备（助手 10-31 / 11-01）：只随主角卡组档案生成同批请求，主角至少 1 件；已有主角档案时不请求，助战在面板生成卡组时由服务层请求。
         const gearNames = entities.some((e) => e.kind === 'profile-deck') ? [userName] : [];
-        if (gearNames.length) entities = [...entities, ...gearNames.map((name) => profileGearEntity(name))];
+        if (gearNames.length) entities = [...entities, ...gearNames.map((name) => profileGearEntity(name, { required: true }))];
         const gearDiagnostics = [];
         let rewardError = '';
         const initDiagnostics = [];
@@ -994,6 +1005,37 @@ export function createCombatSession(deps = {}) {
         return done();
     }
 
+    // 重新开始（v0.39.2）：对局中，或败北 / 撤退出结果后，用本场同一份 setup 换新种子从头再打；胜利后不给（战利品已按本场生成）。
+    // 开战楼聊天记录里已写的结果先撤掉（写成 null），撤不掉就不重开，避免续战时读到旧战报；新对局存档保存成功后才切换。
+    async function restart() {
+        const allowed = () => cur.status === 'battle' || (cur.status === 'ended' && cur.battle?.outcome !== 'victory');
+        if (!allowed()) return fail('combat-restart-unavailable');
+        if (!anchorValid(cur)) return invalidate();
+        const combatId = cur.combatId;
+        const same = () => cur.combatId === combatId && allowed();
+        if (resultWrite) await resultWrite;
+        if (!same()) return fail('combat-restart-unavailable');
+        const saved = readRecord(base(cur));
+        if (!saved.ok) return fail(saved.reason);
+        if (saved.value?.result) {
+            const w = await writeRecord(base(cur), { result: null });
+            if (!w.ok) return fail('combat-restart-record-failed', { detail: w.reason });
+            if (!same()) return fail('combat-restart-unavailable');
+        }
+        recordSaved.delete(combatId);
+        const restarts = (Number.isInteger(cur.record?.restarts) ? cur.record.restarts : 0) + 1;
+        const seed = seedFor(`${combatId}#${restarts}`);
+        const created = createBattle(cur.record.setup, seed);
+        if (!created.ok) return fail('combat-setup-invalid', { error: created.error });
+        const { flip: _flip, ...kept } = cur.record;
+        const record = { ...kept, seed, actions: [], restarts };
+        if (!writeJson(storage, sessionKey(), record)) return fail('combat-session-save-failed');
+        flipCtx = null;
+        const { final: _final, flip: _view, report: _report, ...rest } = cur;
+        set({ ...rest, status: 'battle', record, battle: created.state, events: created.events });
+        return done({ events: created.events });
+    }
+
     // 续战与重开落到「已出结果」时补读翻牌状态（异步，读完通知订阅者）。
     const resumed = () => {
         if (flipOpen()) loadFlip().catch(() => {});
@@ -1053,7 +1095,7 @@ export function createCombatSession(deps = {}) {
         return done();
     }
 
-    return { prepare, start, act, finish, retrySend, retryReward, loadFlip, flip: flipAt, choose: chooseAt, reroll, skip, resume, reset, subscribe, state: view };
+    return { prepare, start, act, finish, retrySend, retryReward, loadFlip, flip: flipAt, choose: chooseAt, reroll, skip, restart, resume, reset, subscribe, state: view };
 }
 
 

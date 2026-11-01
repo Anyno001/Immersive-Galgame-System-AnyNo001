@@ -434,6 +434,9 @@ test('专属卡：同名 learn 直接解锁、再次出现转为精进，伪造�
     assert.deepEqual(unit.skills.slice(0, 3).map((s) => s.effects[0].amount), expectedSkills);
     const ult = unit.skills.find((s) => s.ultimate);
     assert.deepEqual([ult.id, ult.cooldown], ['sc-ace-u1', 3]);
+    // 绝招取角色自己伤害最高的设定技能强化（同名、数值 ×1.5），不再是名为「绝招」的通用技能。
+    assert.equal(ult.name, '技s1');
+    assert.equal(ult.effects[0].amount, Math.min(99, Math.round(expectedSkills[0] * 1.5)));
     const battle = createBattle(built.setup, 1);
     assert.equal(battle.ok, true, JSON.stringify(battle.error));
     assert.equal(chooseSkillIntent(battle.state, 'sc-ace', 0.9).skillId, 'sc-ace-u1');
@@ -1247,4 +1250,57 @@ test('初始装备写失败不阻断：grantGeneratedGear 遇写失败、抛错�
     const d3 = [];
     assert.equal(await grantGeneratedGear(failing, generation, () => null, { diagnostics: d3 }), false);
     assert.deepEqual(d3, [{ code: 'combat-character-missing', name: '甲' }]);
+});
+
+
+test('专属卡按等级解锁（v0.39.2）：Lv5 / Lv10 解锁对应槽位、等级退回重新锁上；剧情提前解锁不重复计；档案没有该槽位时记待生成，写新版本档案后解锁', async () => {
+    const { signaturePending } = await import('../src/combat/ledger.js');
+    const { generateEntities, generationWrites, growthEntity } = await import('../src/combat/generation.js');
+    const expFor = (level) => { let n = 0; while (n <= 100000 && expProgress(n).level < level) n += 1; return n; };
+    const win = (amount) => user(report('win', `[igs-combat:exp|我|${amount}|大胜]`));
+    // 旧档案预生成的专属卡（ID 不带槽位后缀）按位置归到第 1 槽，名称与效果保留。
+    const legacy = { id: 'g1', name: '天翔一闪', type: 'attack', cost: 2, rarity: 'signature', effects: [{ op: 'damage', amount: 14 }] };
+    const legacyProfiles = () => [row(classDef('cls-blade'), 1), row({ ...heroDef(), signatureCards: [legacy] }, 2)];
+
+    const old = setup(legacyProfiles(), [win(expFor(5) - 1)]);
+    await old.ledger.scan();
+    assert.equal(hero(await old.ledger.effectiveState()).owned.get('g1') || 0, 0);
+    old.ref.chat = [win(expFor(5) - 1), win(1)];
+    await old.ledger.scan();
+    let s = await old.ledger.effectiveState();
+    assert.equal(hero(s).level, 5);
+    assert.equal(hero(s).owned.get('g1'), 1);
+    assert.ok(hero(s).deck.includes('g1'));
+    assert.equal(Object.hasOwn(hero(s), 'signatureDue'), false);
+    assert.deepEqual(signaturePending(s), []);
+    old.ref.chat = [win(expFor(5) - 1)];
+    s = await old.ledger.effectiveState();
+    assert.equal(hero(s).owned.get('g1') || 0, 0);
+
+    const early = setup(legacyProfiles(), [ai('剑光乍起。\n[igs-combat:learn|我|天翔一闪|拔刀即斩]'), win(expFor(5))]);
+    const learn = growthEntity((await early.ledger.scan()).pendingGeneration.find((p) => p.kind === 'learn'), hero(await early.ledger.effectiveState()), { now: 2 });
+    assert.equal((await early.ledger.append([learn.entry])).ok, true);
+    assert.equal(hero(await early.ledger.effectiveState()).owned.get('g1'), 1);
+
+    // 单条 EXP 上限 1000（schema），升到 Lv10 分两场战报：第 1 槽在第 0 楼跨级，第 2 槽在第 1 楼跨级。
+    const fresh = setup(undefined, [win(1000), win(expFor(10) - 1000)]);
+    await fresh.ledger.scan();
+    s = await fresh.ledger.effectiveState();
+    assert.equal(hero(s).level, 10);
+    assert.deepEqual(hero(s).signatureDue.map((d) => [d.slot, d.level, d.anchor.messageId]), [[1, 5, 0], [2, 10, 1]]);
+    const pending = signaturePending(s);
+    assert.deepEqual(pending.map((p) => [p.kind, p.characterId, p.slots, p.anchor.messageId]), [['signature', 'pc-hero', [1, 2], 0]]);
+    const { entity } = growthEntity(pending[0], hero(s), { profileMeta: s.profileMeta });
+    assert.deepEqual([entity.kind, entity.input.slots, entity.fixed.version], ['signature-card', [1, 2], 2]);
+    const request = async () => JSON.stringify({ entities: [{ key: entity.key, value: { cards: [['天翔一闪', 'strike'], ['终焉雷鸣', 'thunder']] } }] });
+    const result = await generateEntities([entity], { request, llm: { source: 'tavern' }, now: 9 });
+    assert.equal(result.ok, true, JSON.stringify(result.rejected));
+    const writes = generationWrites(result, { createdAt: 9 });
+    assert.deepEqual([writes.profiles.length, writes.entries.length, writes.profiles[0].version], [1, 0, 2]);
+    fresh.tables.profile.push(clone(writes.profiles[0]));
+    s = await fresh.ledger.effectiveState();
+    assert.deepEqual(['pc-hero-g1', 'pc-hero-g2'].map((id) => hero(s).owned.get(id)), [1, 1]);
+    assert.deepEqual(hero(s).profile.signatureCards.map((c) => [c.id, c.name, c.cost]), [['pc-hero-g1', '天翔一闪', 2], ['pc-hero-g2', '终焉雷鸣', 3]]);
+    assert.equal(Object.hasOwn(hero(s), 'signatureDue'), false);
+    assert.deepEqual(signaturePending(s), []);
 });

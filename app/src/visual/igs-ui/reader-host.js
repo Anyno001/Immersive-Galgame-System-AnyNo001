@@ -5190,6 +5190,8 @@ ${row.key}`;
             // 背包分组、已装备标记与装备映射（P7e）：战斗开启时读主角背包投影；装上 / 卸下走现有换装服务。
             getHeroInventory: typeof options.getCombatHeroInventory === 'function' ? () => options.getCombatHeroInventory() : null,
             setHeroGear: typeof options.setCombatHeroGear === 'function' ? (gearId, equip) => options.setCombatHeroGear(gearId, equip) : null,
+            // 背包卖出（v0.39.2）：人物状态面板的背包页已取消，主角装备与杂物统一在这里卖出。
+            sellHeroItem: typeof options.sellCombatHeroItem === 'function' ? (kind, id) => options.sellCombatHeroItem(kind, id) : null,
         });
         const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
             mediaCache: options.media?.cache,

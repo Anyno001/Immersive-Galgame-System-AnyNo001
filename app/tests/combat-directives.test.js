@@ -32,6 +32,28 @@ test('开战标签不在末尾时不触发，记录 combat-start-not-tail', () =
     assert.equal(inline.start, null);
     assert.deepEqual(codes(inline), ['combat-start-not-tail']);
 });
+test('开战标签后只剩数值 / 成长等纯标记行时仍生效（觉醒照常并入）；后面还有正文时仍不触发', () => {
+    const body = [
+        '铁面人抬起黑刀横在身前。',
+        '[igs-char:? ? ? |冷漠|玄色夜行衣|挡路的小辈。那就一起。]',
+        '[igs-combat:awaken|陈默|怒火|你伤了她，我就是拼了这条命也要把你留下！]',
+        '[igs-combat:start|暗夜偷袭・铁面刺客|铁面刺客|麟青砚|首领]',
+        '',
+        '[igs-stat:favor|麟青砚|受伤]',
+        '[igs-stat:hurt|重伤]',
+        '[igs-combat:rel|麟青砚|碾压]',
+        '[igs-combat:rel|铁面刺客|碾压]',
+    ].join('\n');
+    const { start, diagnostics } = extractCombatStart(body);
+    assert.equal(start?.encounter, '暗夜偷袭・铁面刺客', JSON.stringify(diagnostics));
+    assert.deepEqual([start.tier, start.allies, start.awaken?.type], ['boss', ['麟青砚'], 'rage']);
+    assert.equal(codes({ diagnostics }).includes('combat-start-not-tail'), false);
+    const prose = extractCombatStart(`${body}\n他还想说什么。`);
+    assert.equal(prose.start, null);
+    assert.ok(codes(prose).includes('combat-start-not-tail'));
+});
+
+
 
 test('末尾判定先剔除 HTML 卡片、生图标记与正文外的排除块', () => {
     const card = `正文。\n${START}\n<htm1fenge><div>状态卡</div></htm1fenge>`;

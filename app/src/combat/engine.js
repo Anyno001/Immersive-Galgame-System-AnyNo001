@@ -165,6 +165,10 @@ function setupError(setup) {
     if (setup.overkill !== undefined && typeof setup.overkill !== 'boolean') return { reason: 'invalid-setup' };
     // setup.wipe 可选（布尔，助手 10-29）：为 true 时操控角色倒下后队友继续托管作战，我方全员倒下才判负；旧 setup 不带时规则不变。
     if (setup.wipe !== undefined && typeof setup.wipe !== 'boolean') return { reason: 'invalid-setup' };
+    // setup.openingCharged 可选（布尔，v0.39.2）：开局先手计入操控角色的行动条；旧 setup 不带时规则不变。
+    if (setup.openingCharged !== undefined && typeof setup.openingCharged !== 'boolean') return { reason: 'invalid-setup' };
+    // setup.randomTargets 可选（布尔，v0.39.2，助手 11-01）：敌方单位在存活的我方单位中按种子随机选攻击对象，不再只打生命 + 格挡最低者；旧 setup 不带时规则不变。
+    if (setup.randomTargets !== undefined && typeof setup.randomTargets !== 'boolean') return { reason: 'invalid-setup' };
     const ids = new Set();
     for (const [i, u] of setup.units.entries()) {
         const path = `units[${i}]`;
@@ -203,7 +207,7 @@ function targetsFor(c, actor, spec, primaryId, whip = false) {
     switch (spec) {
         case 'enemy': {
             if (primaryId == null) {
-                const id = weakestId(s, foe);
+                const id = foeTarget(c, actor);
                 return id ? [s.units[id]] : [];
             }
             const t = Object.hasOwn(s.units, primaryId) ? s.units[primaryId] : null;
@@ -711,12 +715,22 @@ function modCost(c, unit, inst, amount, scope) {
 }
 
 
+// 敌方单位的攻击对象：setup.randomTargets 时在存活的对方单位中按种子随机挑一个（消耗一次随机数）；否则与旧版一样取生命 + 格挡最低者，不消耗随机数。
+// 我方托管单位（队友）始终取最低者。
+function foeTarget(c, unit) {
+    const s = c.s;
+    if (s.randomTargets !== true || unit.side !== 'enemy') return weakestId(s, opposite(unit.side));
+    const ids = livingIds(s, opposite(unit.side));
+    return ids.length ? ids[roll(s, ids.length)] : null;
+}
+
 function pickIntent(c, unit) {
     const intent = chooseSkillIntent(c.s, unit.id, rollFloat(c.s));
     if (!intent) {
         delete c.s.intents[unit.id];
         return;
     }
+    if (intent.targetId != null && c.s.randomTargets === true && unit.side === 'enemy') intent.targetId = foeTarget(c, unit);
     c.s.intents[unit.id] = intent;
     emit(c, { type: 'intent', unitId: unit.id, skillId: intent.skillId, targetId: intent.targetId });
 }
@@ -730,7 +744,7 @@ function useSkill(c, unit) {
         return;
     }
     let targetId = intent.targetId ?? null;
-    if (targetId !== null && !s.units[targetId]?.alive) targetId = weakestId(s, opposite(unit.side));
+    if (targetId !== null && !s.units[targetId]?.alive) targetId = foeTarget(c, unit);
     delete s.intents[unit.id];
     emit(c, { type: 'skill', unitId: unit.id, skillId: skill.id, name: skill.name, targetId });
     applyEffects(c, unit, skill.effects, targetId, { unitId: unit.id, kind: 'skill', id: skill.id });
@@ -1099,6 +1113,8 @@ function endTurn(c) {
     endUnit(c, hero);
     if (s.outcome) return;
     resetAv(s, hero);
+    // 开局先手计入行动条（setup.openingCharged）：先手那一手占掉操控角色的一个行动间隔，下一次出手顺延一个间隔，不再连动两回合。
+    if (s.openingDebt) { hero.av += avDistance(hero); delete s.openingDebt; }
     runTimeline(c);
 }
 
@@ -1116,7 +1132,7 @@ export function upcomingActors(state, count = 6) {
     if (state.phase === 'player' && sim[heroId]) {
         out.push(heroId);
         seq += 1;
-        sim[heroId].av = sim[heroId].d;
+        sim[heroId].av = sim[heroId].d * (state.openingDebt ? 2 : 1);
         sim[heroId].seq = seq;
     }
     while (out.length < count) {
@@ -1204,6 +1220,8 @@ export function createBattle(setup, seed) {
         order: [], units: {}, cards: {}, catalog: {}, piles: {}, intents: {}, cooldowns: {}, history: {}, avSeq: 0,
         ...(setup.overkill === true ? { overkill: true } : {}),
         ...(setup.wipe === true ? { wipe: true } : {}),
+        ...(setup.openingCharged === true ? { openingDebt: true } : {}),
+        ...(setup.randomTargets === true ? { randomTargets: true } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((i) => ({ itemId: i.itemId, name: typeof i.name === 'string' ? i.name : i.itemId, count: i.count, effects: clone(i.effects) })) } } : {}),
         ...(reserved.size ? { reserve: [...setup.reserve] } : {}),

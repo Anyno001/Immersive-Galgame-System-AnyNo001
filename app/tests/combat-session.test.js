@@ -728,7 +728,7 @@ test('初始装备随首战主角卡组同批请求：锚定开战楼写 equip �
     const CLASS_VALUE = { className: '游剑客', archetype: 'warrior', passive: ['锋锐', 'opening-strength'],
         cards: [['斩一', 'strike', 1], ['斩二', 'strike', 1], ['守三', 'guard', 1], ['守四', 'guard', 1], ['破五', 'bash', 2], ['裂六', 'rend', 1], ['守七', 'brace', 1], ['势八', 'might', 2], ['斩九', 'strike'], ['斩十', 'strike'], ['斩终', 'strike']] };
     const DECK_VALUE = { hp: 80, passive: ['意志', 'last-stand'], skill: ['闪光', 'quick'], cards: [['剑一', 'strike', 1], ['盾二', 'guard', 1], ['剑三', 'strike', 1], ['盾四', 'guard', 1]] };
-    const GEAR = { gear: [['家传宝剑', 'weapon', 'epic', 'str', 'opening-strength', '祖上传下的剑']] };
+    const GEAR = { gear: [['家传宝剑', 'weapon', 'epic', '祖上传下的剑']] };
     const asked = [];
     const request = async (req) => {
         const entities = JSON.parse(req.user).entities;
@@ -751,4 +751,37 @@ test('初始装备随首战主角卡组同批请求：锚定开战楼写 equip �
     assert.equal((await h.session().prepare(1)).ok, true);
     assert.equal(asked.includes('profile-gear'), false, JSON.stringify(asked));
     assert.equal(h.tables.ledger.filter((e) => e.type === 'equip').length, 1);
+});
+
+
+test('重新开始：对局中与败北后用同一 setup 换新种子从头打，撤掉聊天记录里的旧结果，续战读到新对局；胜利后不给', async () => {
+    const h = harness({ enemy: '熊', record: true });
+    const s = h.session();
+    await s.prepare(1);
+    const { combatId } = s.state();
+    assert.equal(s.start().ok, true);
+    const { setup, seed } = s.state().record;
+    assert.equal(s.act({ type: 'end-turn' }).ok, true);
+    const mid = await s.restart();
+    assert.equal(mid.ok, true, JSON.stringify(mid.reason));
+    const rec = s.state().record;
+    assert.deepEqual([s.state().status, rec.actions.length, rec.restarts], ['battle', 0, 1]);
+    assert.notEqual(rec.seed, seed);
+    assert.deepEqual(rec.setup, setup);
+    assert.equal(playOut(s, { passive: true }).battle.outcome, 'defeat');
+    await settled();
+    assert.equal(recordOf(h, combatId).result.result, 'lose');
+    assert.equal((await s.restart()).ok, true);
+    assert.equal(recordOf(h, combatId).result, null);
+    assert.deepEqual([s.state().status, s.state().record.restarts], ['battle', 2]);
+    const reopened = h.session();
+    assert.equal(reopened.resume().session.status, 'battle');
+    assert.equal(h.sent.length, 0);
+
+    const w = harness();
+    const ws = w.session();
+    await ws.prepare(1);
+    ws.start();
+    assert.equal(playOut(ws).battle.outcome, 'victory');
+    assert.equal((await ws.restart()).reason, 'combat-restart-unavailable');
 });

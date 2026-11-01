@@ -1,5 +1,6 @@
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards, parseHtmlCardMarker } from './html-cards.js';
 import { extractChatBlocks, parseChatMarker } from './chat-blocks.js';
+import { stripMarkerDirectives } from './directive-tags.js';
 import { readerBodyText } from './message-source.js';
 import { stripIllustrationMarkers } from './scene-directives.js';
 
@@ -281,16 +282,30 @@ function awakenAbove(body, tags, start, diagnostics) {
     return { ...parsed.value, ...anchorOf(cand) };
 }
 
-// 开战标签：只有正文最后一个非空行恰好是一条完整的 [igs-combat:start|…] 才生效；其余开战标签只记诊断。
+// 开战标签之后只剩纯标记行（数值 stat、成长 rel / exp、判定、恐怖档位等，不含开战与觉醒标签）时视同末行（v0.39.2）：
+// 模型常把这些结算标签写在开战标签后面，它们不承载正文；后面还有任何正文时仍判 combat-start-not-tail。
+const START_LINE_RE = /\[igs-combat:\s*(?:start|awaken)\s*[|\]]/i;
+function dropTrailingMarkers(body) {
+    const lines = String(body || '').split('\n');
+    while (lines.length) {
+        const line = lines[lines.length - 1].trim();
+        if (line && (START_LINE_RE.test(line) || stripMarkerDirectives(line).trim())) break;
+        lines.pop();
+    }
+    return lines.join('\n');
+}
+
+// 开战标签：只有正文最后一个非空行（忽略其后的纯标记行）恰好是一条完整的 [igs-combat:start|…] 才生效；其余开战标签只记诊断。
 // 是否为最新 AI 楼由调用方判断，这里只看正文。
 export function extractCombatStart(raw, options = {}) {
     const body = combatBodyText(raw, options);
     const tags = scanCombatTags(body);
     const starts = tags.filter((tag) => tag.kind === 'start');
     const diagnostics = [];
-    const tail = lastNonEmptyLine(body);
+    const head = dropTrailingMarkers(body);
+    const tail = lastNonEmptyLine(head);
     const last = starts.at(-1);
-    const atTail = Boolean(last) && tail === last.raw && body.trimEnd().endsWith(last.raw);
+    const atTail = Boolean(last) && tail === last.raw && head.trimEnd().endsWith(last.raw);
     for (const tag of starts) {
         if (tag !== last || !atTail) diagnostics.push({ code: 'combat-start-not-tail', ...anchorOf(tag) });
     }

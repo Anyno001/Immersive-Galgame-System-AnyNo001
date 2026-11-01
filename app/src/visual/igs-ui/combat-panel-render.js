@@ -7,6 +7,9 @@ import { RECORD_ICONS } from './record-icons.js';
 // 战斗面板的 HTML 片段：只输出字段、状态、错误与操作确认；动作统一走 data-combat-act / data-combat-id。
 const REASON_TEXT = Object.freeze({
     'combat-busy': '上一步还在进行中',
+    'combat-restart-unavailable': '现在不能重新开始',
+    'combat-restart-record-failed': '撤销上一局结果失败，未重新开始',
+    'combat-session-save-failed': '战斗存档保存失败',
     'combat-session-not-ready': '战斗尚未就绪',
     'combat-session-unavailable': '战斗会话不可用',
     'combat-floor-missing': '开战楼不存在',
@@ -182,7 +185,9 @@ function unitHtml(u, { targetable = false, portrait = '', art = null, size = 'md
     const badges = block || statuses ? `<div class="igs-combat-unit-badges">${block}${statuses}</div>` : '';
     const attrs = targetable ? ` data-combat-act="target" data-combat-id="${esc(u.id)}" role="button" tabindex="0"` : '';
     const info = targetable ? '' : ` data-combat-act="unit-info" data-combat-id="${esc(u.id)}" data-unit-info="${esc(u.id)}" role="button" tabindex="0" aria-label="${esc(`查看${u.name}的技能与被动`)}"`;
-    return `<div class="igs-combat-unit${u.alive ? '' : ' is-down'}${u.controlled ? ' is-controlled' : ''}${targetable ? ' is-targetable' : ''}" data-unit="${esc(u.id)}" data-side="${esc(u.side)}" data-size="${esc(size)}"${attrs}>`
+    // 场外补位：退场（out）/ 入场（in）中的格子带 data-swap，--swap-t 为负的已过时长（重绘时动画接着播）。
+    const swap = u.swap === 'out' || u.swap === 'in' ? ` data-swap="${u.swap}" style="--swap-t:${-Math.max(0, Math.round(Number(u.swapT) || 0))}ms"` : '';
+    return `<div class="igs-combat-unit${u.alive ? '' : ' is-down'}${u.controlled ? ' is-controlled' : ''}${targetable ? ' is-targetable' : ''}" data-unit="${esc(u.id)}" data-side="${esc(u.side)}" data-size="${esc(size)}"${swap}${attrs}>`
         + intent
         + portraitHtml(u.name, u.side, portrait, art, info)
         + `<div class="igs-combat-unit-info">${badges}<div class="igs-combat-unit-name"><span>${esc(u.name)}</span></div>${hpBar(u)}</div></div>`;
@@ -463,8 +468,12 @@ function resultHtml(v) {
     const team = e.allies.map((a) => `<figure class="igs-combat-result-figure">${portraitHtml(a.name, 'ally', pics[a.name] || '')}<figcaption><span>${esc(a.name)}</span><span>${esc(a.injury)}</span></figcaption></figure>`).join('');
     return `<section class="igs-combat-result" data-outcome="${esc(e.outcome)}"><div class="igs-combat-result-head">${fx}<div class="igs-combat-result-title">${esc(e.label)}</div></div>${featsHtml(e.feats)}${foes}`
         + `<div class="igs-combat-result-team" style="--n:${e.allies.length || 1}">${team}</div>`
-        + `${lootHtml(v)}<div class="igs-combat-actions">${btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) || lootBlocksSend(v.flip) })}</div></section>`;
+        + `${lootHtml(v)}<div class="igs-combat-actions">${!won && v.canRestart ? btn('restart', v.pending === 'restart' ? '重开中' : '重新开始', { disabled: Boolean(v.pending) }) : ''}${btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) || lootBlocksSend(v.flip) })}</div></section>`;
 }
+// 对局中的「重新开始」：标题栏图标钮，点一次换成「确认重新开始 / 取消」，再点才放弃本局从头打。
+const restartCtl = (v) => (v.restartArmed
+    ? `<span class="igs-combat-restart">${btn('restart', v.pending === 'restart' ? '重开中' : '确认重新开始', { primary: true, disabled: Boolean(v.pending) })}${btn('restart-cancel', '取消', { disabled: Boolean(v.pending) })}</span>`
+    : `<span class="igs-combat-restart">${iconBtn('restart', '重新开始', RECORD_ICONS.restart, { disabled: Boolean(v.pending) })}</span>`);
 
 function rewardHtml(r, pending) {
     if (!r) return '';
@@ -503,10 +512,11 @@ export function renderCombatPanelHtml(v) {
     // 状态行已经说明同一原因时不再重复提示条。
     const notice = v.notice && !((status === 'blocked' || status === 'stale') && v.notice === combatReasonText(v.reason)) ? v.notice : '';
     const track = status === 'battle' && v.battle && !v.battle.outcome ? trackHtml(v.battle, v.portraits || {}, v.enemyArt || {}) : '';
+    const restart = status === 'battle' && v.battle && !v.battle.outcome && v.canRestart ? restartCtl(v) : '';
     // 战前由斜切横幅显示遭遇名，标题栏退回默认标题；对局中标题后是回合横幅。
     const lobbyDrawn = status === 'lobby' && Boolean(v.lobby) && v.pending !== 'prepare';
     const round = status === 'battle' && v.battle && !v.battle.outcome ? Number(v.battle.turn) || 0 : 0;
     const speed = (status === 'battle' || (status === 'ended' && v.settling)) && v.battle ? v.fxSpeed || 1 : 0;
-    return `${head(lobbyDrawn ? '' : v.encounter, track, round, speed)}${noticeHtml(notice)}<div class="igs-combat-main" data-status="${esc(status)}">${main}</div>`;
+    return `${head(lobbyDrawn ? '' : v.encounter, track + restart, round, speed)}${noticeHtml(notice)}<div class="igs-combat-main" data-status="${esc(status)}">${main}</div>`;
 }
 

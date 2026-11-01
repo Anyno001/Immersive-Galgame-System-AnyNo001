@@ -383,9 +383,8 @@ test('装备栏：列出四个部位与背包、道具；装上背包装备顶�
     const html = () => overlay.querySelector('.igs-deck-body').innerHTML;
     assert.match(html(), /回春丹 ×2/);
     assert.doesNotMatch(html(), /data-deck-act="equip"/);
-    panel.invoke('page', 'collection');
-    assert.match(html(), /data-deck-act="equip" data-deck-id="gr-/);
-    panel.invoke('page', 'gear');
+    // 背包页取消（v0.39.2）：主角的背包、换装与卖出统一在阅读器背包页。
+    assert.equal(panel.invoke('page', 'collection').reason, 'combat-page-invalid');
     const r = await panel.invoke('equip', gearIdFor('青锋剑'));
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(r.entry.anchor.messageId, 2);
@@ -397,57 +396,6 @@ test('装备栏：列出四个部位与背包、道具；装上背包装备顶�
     sessionState.status = 'battle';
     assert.equal((await panel.invoke('equip', gearIdFor('玄铁剑'))).reason, 'combat-deck-readonly');
     assert.equal(tables.ledger.length, before);
-    panel.close();
-});
-
-test('背包页：主角顶部显示积分；未装备的装备可装上、可卖出，点卖出后在该行确认售价或取消，确认后写一条 sell 并移出背包；穿戴中的装备不在背包；战斗进行中只读', async () => {
-    const { gearIdFor, ledgerEntryId } = await import('../src/combat/schema.js');
-    const { sellPrice } = await import('../src/combat/points.js');
-    const floor1 = '得到宝剑。[igs-combat:equip|我|青锋剑|武器]';
-    const floor2 = '换上了更重的剑。[igs-combat:equip|我|玄铁剑|武器]';
-    const chat = [user('出发'), ai(floor1), ai(floor2)];
-    const tables = memoryTables([row(classDef, 1), row(heroDef, 2)]);
-    const ledger = createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7 });
-    const gp = (id) => ({ id, name: '剑意', trigger: 'battle-start', effects: [{ op: 'status', status: 'strength', stacks: 1, target: 'self' }], description: '开战获得 1 层力量' });
-    const equipEntry = (messageId, text, name, pid) => {
-        const [t] = scanCombatTags(text);
-        const anchor = { messageId, swipeId: 0, tagHash: t.tagHash, occurrence: t.occurrence };
-        return { id: ledgerEntryId('equip', 'pc-hero', anchor), type: 'equip', character: 'pc-hero', anchor, payload: { gearId: gearIdFor(name), name, slot: 'weapon', passive: gp(pid), description: '' }, createdAt: 7 };
-    };
-    await ledger.append([equipEntry(1, floor1, '青锋剑', 'g1'), equipEntry(2, floor2, '玄铁剑', 'g2')]);
-    const sessionState = { status: 'idle' };
-    const doc = { createElement: (tag) => new FakeEl(doc, tag), activeElement: null };
-    const overlay = new FakeEl(doc, 'div');
-    overlay.id = 'igs-overlay';
-    const panel = createCombatDeckPanelController(doc, { getLedger: () => ledger, getSession: () => ({ state: () => sessionState }) });
-    const html = () => overlay.querySelector('.igs-deck-body').innerHTML;
-    panel.open(overlay);
-    await until(() => panel.view().status === 'ready');
-    panel.invoke('page', 'collection');
-    const qing = gearIdFor('青锋剑');
-    const price = sellPrice(undefined, qing);
-    const d = () => panel.view().detail;
-    assert.match(html(), /aria-selected="true">背包</);
-    assert.deepEqual([d().points, d().canSell, d().gear.bag.map((b) => [b.name, b.price])], [0, true, [['青锋剑', price]]]);
-    assert.match(html(), new RegExp(`data-deck-act="equip" data-deck-id="${qing}"`));
-    assert.match(html(), new RegExp(`data-deck-act="sell-gear" data-deck-id="${qing}"`));
-    assert.equal(panel.invoke('sell-gear', gearIdFor('玄铁剑')).reason, 'combat-gear-missing');
-    assert.equal(panel.invoke('sell-gear', qing).ok, true);
-    assert.match(html(), new RegExp(`确认卖出 · ${price} 积分`));
-    assert.equal(panel.invoke('sell-cancel').ok, true);
-    assert.doesNotMatch(html(), /sell-confirm/);
-    sessionState.status = 'battle';
-    panel.invoke('select', 'pc-hero');
-    assert.doesNotMatch(html(), /data-deck-act="(sell-gear|equip)"/);
-    assert.equal(panel.invoke('sell-gear', qing).reason, 'combat-deck-readonly');
-    sessionState.status = 'idle';
-    panel.invoke('select', 'pc-hero');
-    assert.equal(panel.invoke('sell-gear', qing).ok, true);
-    const r = await panel.invoke('sell-confirm');
-    assert.equal(r.ok, true, JSON.stringify(r));
-    assert.deepEqual([r.price, tables.ledger.at(-1).type, tables.ledger.at(-1).payload], [price, 'sell', { gearId: qing }]);
-    assert.deepEqual([d().points, d().gear.bag.length, panel.view().sell], [price, 0, null]);
-    assert.match(html(), /背包是空的/);
     panel.close();
 });
 
@@ -738,7 +686,7 @@ test('人物状态五页：默认状态页、页签切换；主角加点逐点�
     assert.equal(panel.view().page, 'status');
     assert.match(html(), /data-page="status"/);
     assert.equal(panel.invoke('page', 'nope').reason, 'combat-page-invalid');
-    for (const p of ['gear', 'deck', 'collection', 'alloc']) assert.equal(panel.invoke('page', p).ok, true);
+    for (const p of ['gear', 'deck', 'alloc']) assert.equal(panel.invoke('page', p).ok, true);
     assert.match(html(), /data-page="alloc"/);
     const a = () => panel.view().alloc;
     assert.deepEqual([a().protagonist, a().table, a().balance, a().left, a().editable], [true, 'ok', 2, 2, true]);
@@ -999,7 +947,7 @@ test('人物状态面板 · 只开数值系统（P8c）：手动建档时可打�
 test('按剧情给初始装备：手动生成卡组时同批请求 profile-gear，档案读回后锚定最新楼层写 equip 并穿上；空列表不写；重复写幂等', async () => {
     const aliceId = profileIdFor('deck-character', '爱丽丝');
     const deckValue = { hp: 80, passive: ['意志', 'last-stand'], skill: ['闪光', 'quick'], cards: [['剑一', 'strike', 1], ['盾二', 'guard', 1], ['剑三', 'strike', 1], ['盾四', 'guard', 1]] };
-    const gear = { gear: [['家传宝剑', 'weapon', 'mythic', 'str', 'opening-strength', '祖上传下的剑'], ['布衣', 'armor', 'common', 'con', null]] };
+    const gear = { gear: [['家传宝剑', 'weapon', 'mythic', '祖上传下的剑'], ['布衣', 'armor', 'common']] };
     const h = growthServices({ replies: (p) => JSON.stringify({ entities: p.entities.map((e) => ({ key: e.key, value: e.kind === 'profile-gear' ? gear : deckValue })) }) });
     assert.equal((await h.tables.ensure()).ok, true);
     assert.equal((await h.tables.append('profile', [row(classDef, 1), row(heroDef, 2), row(aliceSkill, 3)])).ok, true);
@@ -1008,8 +956,8 @@ test('按剧情给初始装备：手动生成卡组时同批请求 profile-gear�
     const ledger = h.services.getLedger();
     const view = (await ledger.effectiveState()).characters.get(aliceId);
     const { weapon, armor } = view.gear.slots;
-    assert.deepEqual([weapon?.name, weapon?.rarity, weapon?.bonus, Boolean(weapon?.passive), armor?.name, Object.hasOwn(armor || {}, 'passive')],
-        ['家传宝剑', 'mythic', { ability: 'str', amount: 5 }, true, '布衣', false]);
+    assert.deepEqual([weapon?.name, weapon?.rarity, weapon?.bonus?.amount, Boolean(weapon?.passive), armor?.name, Object.hasOwn(armor || {}, 'passive')],
+        ['家传宝剑', 'mythic', 5, true, '布衣', false]);
     const equips = async () => (await h.tables.read()).ledger.filter((e) => e.type === 'equip').map((e) => e.id).sort();
     const last = h.host.chat.length - 1;
     assert.deepEqual(await equips(), [`equip|${aliceId}|${last}|0|init-gear|0`, `equip|${aliceId}|${last}|0|init-gear|1`]);

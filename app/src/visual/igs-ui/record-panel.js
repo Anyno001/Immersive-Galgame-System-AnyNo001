@@ -16,6 +16,7 @@ import { openItemImageViewer, closeItemImageViewer } from './item-image-viewer.j
 import { recoverMediaOperation } from '../../media/tavern-media-http.js';
 import { deckReasonText } from './combat-deck-panel-render.js';
 import { STOCK_RARITY_LABELS, STOCK_SLOT_LABELS } from '../../combat/inventory-writes.js';
+import { sellPrice } from '../../combat/points.js';
 
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度' });
 const pageTitles = Object.freeze({ diary: '珍藏心事', inventory: '你的背包', relationships: '人际关系', favor: '好感总览' });
@@ -30,11 +31,23 @@ const HERO_GROUP_ORDER = Object.freeze(Object.values(HERO_KIND_LABELS));
 function indexHeroInventory(view) {
     const index = new Map();
     if (!view) return index;
-    const put = (list, kind, extra = {}) => { for (const it of list || []) if (it?.name && !index.has(it.name)) index.set(it.name, { kind, slot: it.slot || '', rarity: it.rarity || '', gearId: kind === 'gear' ? String(it.gearId || '') : '', ...extra }); };
+    const put = (list, kind, extra = {}) => {
+        for (const it of list || []) {
+            if (!it?.name) continue;
+            // 同名装备穿着一件、背包还有余量时，背包里的那件可以卖。
+            if (index.has(it.name)) { if (kind === 'gear' && !extra.equipped) index.get(it.name).spare = true; continue; }
+            index.set(it.name, { kind, slot: it.slot || '', rarity: it.rarity || '', gearId: kind === 'gear' ? String(it.gearId || '') : '', itemId: kind === 'keepsake' ? String(it.itemId || '') : '', ...extra });
+        }
+    };
     put(Object.values(view.gear?.slots || {}), 'gear', { equipped: true });
     put(view.gear?.bag, 'gear'); put(view.items, 'item'); put(view.collection, 'keepsake'); put(view.others, 'other');
     return index;
 }
+// 可卖出：杂物，以及背包里（未穿着或有余量）的装备；道具与没有装配定义的剧情物品不可卖。售价按稀有度与物品身份确定。
+const sellKeyOf = meta => (meta?.kind === 'keepsake' ? meta.itemId : meta?.kind === 'gear' && (!meta.equipped || meta.spare) ? meta.gearId : '');
+const sellPriceOf = meta => sellPrice(meta?.rarity || 'common', sellKeyOf(meta));
+// 不可售出标记：道具与没有装配定义的剧情物品；装备穿着时卸下即可卖，只显示「已装备」，不标不可售。
+const unsellableOf = meta => Boolean(meta) && meta.kind !== 'gear' && !sellKeyOf(meta);
 const DIARY_PREFS_KEY = 'igs_record_diary_prefs';
 const DIARY_READ_KEY = 'igs_record_diary_read';
 const DIARY_READ_LIMIT = 2000;
@@ -121,6 +134,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     let message = '';
     let heroInv = null;
     let heroMeta = new Map();
+    // 背包卖出待确认的物品 ID（v0.39.2）：点「卖出」后在原处确认售价或取消；换物品、重读与开关面板时清空。
+    let sellPending = '';
     let metricsOf = () => ({ metrics: [], stages: [] });
     let readKeys = new Set();
     let previousFocus = null;
@@ -247,6 +262,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         invSort = 'default';
         invQuery = '';
         message = '';
+        sellPending = '';
         setHeroInventory(null);
         prefs = { ...DIARY_PREF_DEFAULTS, ...loadJson(DIARY_PREFS_KEY, {}) };
         prefs.fontSize = clampDiaryFontSize(prefs.fontSize);
@@ -454,6 +470,24 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         render();
     }
 
+    // 背包卖出（v0.39.2）：只主角背包里有装配定义的杂物与背包中的装备；确认后经宿主注入的 sellHeroItem 写一条 sell 并重读，积分按稀有度计入。
+    async function sellItem() {
+        const item = (model?.entries || []).find(entry => entry.id === selectedId);
+        const meta = item && heroInv ? heroOf(item) : null;
+        const key = sellKeyOf(meta);
+        sellPending = '';
+        if (!key || typeof options.sellHeroItem !== 'function') return;
+        const target = root;
+        message = '正在卖出'; render();
+        let result;
+        try { result = await options.sellHeroItem(meta.kind, key); } catch (_) { result = { ok: false, reason: 'combat-action-threw' }; }
+        if (root !== target) return;
+        const ok = result?.ok === true;
+        if (ok) reload();
+        message = ok ? `已卖出${item.title}，获得 ${result.price ?? sellPriceOf(meta)} 积分` : deckReasonText(result?.reason);
+        render();
+    }
+
     function onClick(event) {
         event.stopPropagation?.();
         if (event.target === root) return close();
@@ -476,6 +510,10 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         turn = '';
         if (action === 'use') { useItem(); return; }
         if (action === 'equip' || action === 'unequip') { wearItem(action === 'equip'); return; }
+        if (action === 'sell') { sellPending = selectedId; message = ''; render(); return; }
+        if (action === 'sell-confirm') { sellItem(); return; }
+        if (action === 'sell-cancel') { sellPending = ''; render(); return; }
+        if (action === 'select' && id !== selectedId) sellPending = '';
         if (action === 'theme') applyTheme(id);
         if (action !== 'toggle-prefs' && action !== 'pref' && action !== 'font-size') message = '';
         if (action === 'table' && model.tables.some(item => item.uid === id)) {
@@ -552,7 +590,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const badge = quantity && quantity !== '1';
             const selected = item.id === selectedId;
             const meta = heroInv ? heroOf(item) : null;
-            return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}${meta?.equipped ? '（已装备）' : ''}" ${selected ? 'aria-current="true"' : ''}>${meta?.equipped ? '<small class="igs-record-slot-worn" aria-hidden="true">已装备</small>' : ''}<span class="igs-record-slot-icon" aria-hidden="true">${itemIcon(item.title)}</span><span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}</span>${badge ? `<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small>` : ''}</button>`;
+            const unsellable = meta && unsellableOf(meta) ? '<small class="igs-record-slot-unsellable">(不可售出)</small>' : '';
+            return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}${meta?.equipped ? '（已装备）' : ''}${unsellable ? '（不可售出）' : ''}" ${selected ? 'aria-current="true"' : ''}>${meta?.equipped ? '<small class="igs-record-slot-worn" aria-hidden="true">已装备</small>' : ''}<span class="igs-record-slot-icon" aria-hidden="true">${itemIcon(item.title)}</span><span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}${unsellable}</span>${badge ? `<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small>` : ''}</button>`;
         }).join('');
     }
 
@@ -564,7 +603,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const chips = groups.length > 1 ? `<div class="igs-record-groups" role="group" aria-label="物品分类"><button type="button" class="igs-rp-chip" data-record-act="group" data-record-id="" aria-pressed="${invGroup ? 'false' : 'true'}">全部<small>${total}</small></button>${groups.map(label =>
             `<button type="button" class="igs-rp-chip" data-record-act="group" data-record-id="${escapeHtml(label)}" aria-pressed="${label === invGroup ? 'true' : 'false'}">${escapeHtml(label)}<small>${(model?.entries || []).filter(item => itemGroup(item) === label).length}</small></button>`).join('')}</div>` : '';
         const sortLabel = INVENTORY_SORTS.find(([key]) => key === invSort)?.[1] || '默认';
-        const tools = total ? `<div class="igs-record-inventory-tools">${chips}<div class="igs-record-inventory-actions"><label class="igs-rp-search">${RECORD_ICONS.search}<input type="search" data-record-input="query" value="${escapeHtml(invQuery)}" placeholder="搜索物品" aria-label="搜索物品" autocomplete="off"></label><button type="button" class="igs-rp-chip igs-rp-chip-icon" data-record-act="sort" aria-label="排序：${sortLabel}">${RECORD_ICONS.sort}<span>${sortLabel}</span></button></div></div>` : '';
+        const points = heroInv && Number.isFinite(Number(heroInv.points)) ? `<span class="igs-record-points" role="status">积分 ${escapeHtml(heroInv.points)}</span>` : '';
+        const tools = total || points ? `<div class="igs-record-inventory-tools">${chips}<div class="igs-record-inventory-actions">${points}<label class="igs-rp-search">${RECORD_ICONS.search}<input type="search" data-record-input="query" value="${escapeHtml(invQuery)}" placeholder="搜索物品" aria-label="搜索物品" autocomplete="off"></label><button type="button" class="igs-rp-chip igs-rp-chip-icon" data-record-act="sort" aria-label="排序：${sortLabel}">${RECORD_ICONS.sort}<span>${sortLabel}</span></button></div></div>` : '';
         let detail = '';
         if (chosen) {
             const descriptionCell = (chosen.detailCells || []).find(cell => ['描述', '说明', '内容', '详情'].includes(String(cell.label || '').trim()));
@@ -575,9 +615,16 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             // 战斗开启时装备不给「使用」：穿着的给「卸下」，背包里的给「装上」。
             const wearButton = chosenMeta?.gearId && typeof options.setHeroGear === 'function'
                 ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="${chosenMeta.equipped ? 'unequip' : 'equip'}">${chosenMeta.equipped ? '卸下' : '装上'}</button></div>` : '';
-            const useButton = chosenMeta?.kind === 'gear' ? wearButton
+            const sellKey = sellKeyOf(chosenMeta);
+            const sellButton = sellKey && typeof options.sellHeroItem === 'function'
+                ? (sellPending === chosen.id
+                    ? `<button type="button" class="igs-rp-btn is-primary" data-record-act="sell-confirm">确认卖出 · ${escapeHtml(sellPriceOf(chosenMeta))} 积分</button><button type="button" class="igs-rp-btn" data-record-act="sell-cancel">取消</button>`
+                    : `<button type="button" class="igs-rp-btn" data-record-act="sell">卖出</button>`) : '';
+            const baseButton = chosenMeta?.kind === 'gear' ? wearButton
                 : ((useService || typeof fillDraft === 'function') && quantity !== '0'
                     ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button>${useService ? '' : `<small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small>`}</div>` : '');
+            const useButton = !sellButton ? baseButton
+                : baseButton ? baseButton.replace(/<\/div>$/, `${sellButton}</div>`) : `<div class="igs-record-item-actions">${sellButton}</div>`;
             detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head">${detailIconHtml(chosen.title)}<div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemKicker(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${wornTag(chosen)}${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
         }
         // 未选物品且战斗未开启时不留右栏；战斗开启时右栏常驻当前装备映射。

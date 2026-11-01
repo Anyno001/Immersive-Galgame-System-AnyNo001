@@ -1,4 +1,4 @@
-import { COMBAT_RULES, cardCopyLimit, validateDeck } from '../../combat/rules.js';
+import { COMBAT_RULES, cardCopyLimit, signatureCardAt, signatureUnlockLevel, validateDeck } from '../../combat/rules.js';
 import { scaleCard } from '../../combat/card-scaling.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, REL_TIERS, abilityMod, normalizeManualScores, prefsFromScores } from '../../combat/abilities.js';
 import { characterCombatStats, vitalsOf } from '../../combat/session.js';
@@ -17,9 +17,9 @@ function scalingPreview(card, attr) {
 // 卡组构筑面板的纯视图模型：账本归并状态 → 角色列表 / 详情 / 构筑草稿校验；不操作 DOM、不写表。
 export const DECK_KIND_LABELS = Object.freeze({ 'deck-character': '卡组', 'skill-character': '技能' });
 export const GEAR_SLOT_LABELS = Object.freeze({ weapon: '武器', armor: '防具', accessory: '饰品', treasure: '宝物' });
-// 人物状态面板的五页：状态、加点、装备、卡组（技能角色为技能）、背包。
-export const DECK_PAGES = Object.freeze(['status', 'alloc', 'gear', 'deck', 'collection']);
-export const DECK_PAGE_LABELS = Object.freeze({ status: '状态', alloc: '加点', gear: '装备', deck: '卡组', collection: '背包' });
+// 人物状态面板的四页：状态、加点、装备、卡组（技能角色为技能）。背包与卖出统一在阅读器背包页（v0.39.2）。
+export const DECK_PAGES = Object.freeze(['status', 'alloc', 'gear', 'deck']);
+export const DECK_PAGE_LABELS = Object.freeze({ status: '状态', alloc: '加点', gear: '装备', deck: '卡组' });
 const signed = (n) => (n >= 0 ? `+${n}` : `${n}`);
 
 // 六维与加点：attr 为角色属性视图，picks 为加点草稿（属性 → 点数）。可编辑 = 主角 + 属性表已建 + 不在战斗中；
@@ -159,8 +159,13 @@ export function deckDetailView(view, draft) {
             canAdd: (inDeck.get(id) || 0) < Math.min(n, cardCopyLimit(card?.rarity)), ...scalingPreview(card, view.attributes) };
     }).sort((a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : costRank(a.cost) - costRank(b.cost)));
     const profile = view.profile || {};
-    // 专属卡：档案登记的全部列出，未经剧情解锁的标为锁定（只展示名称与费用，不可加入卡组）。
-    const signature = (profile.signatureCards || []).map((c) => ({ cardId: c.id, name: c.name, cost: c.cost, type: c.type, unlocked: (view.owned.get(c.id) || 0) > 0 }));
+    // 专属卡（v0.39.2）：按槽位列出，第 i 张在 signatureUnlockLevels[i] 级解锁；未解锁的不透露名称与效果，只给解锁等级。
+    const signature = COMBAT_RULES.signatureUnlockLevels.map((level, i) => {
+        const slot = i + 1;
+        const card = signatureCardAt(profile, slot);
+        const unlocked = Boolean(card) && (view.owned.get(card.id) || 0) > 0;
+        return unlocked ? { slot, level: signatureUnlockLevel(slot), unlocked, cardId: card.id, name: card.name, cost: card.cost, type: card.type } : { slot, level: signatureUnlockLevel(slot), unlocked };
+    });
     return {
         ...base, gear: gearView(view), className: view.attributes?.className || view.className || '', hpMax: view.hpMax,
         traitSlots: base.canSell ? traitSlotView(view) : null,
