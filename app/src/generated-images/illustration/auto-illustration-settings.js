@@ -2,6 +2,8 @@ import { NAI_DEFAULT_SETTINGS } from '../request-builders/nai-v4-builder.js';
 import { normalizeArtistByKind } from '../prompt-artists.js';
 import { normalizeArtistLibrary } from '../artist-library.js';
 import { DEFAULT_ASSET_TEMPLATES } from './prompt-kit.js';
+import { normalizeNaiEffort } from '../nai-effort.js';
+import { normalizeNaiCloudQueue } from '../nai-cloud-queue-settings.js';
 
 export const NSFW_COUNT_MAX = 16;
 
@@ -106,6 +108,7 @@ export function normalizeAutoIllustrationSettings(value) {
             endpoint: str(nai.endpoint),
             apiKey: str(nai.apiKey),
             model: str(nai.model, NAI_DEFAULT_SETTINGS.model) || NAI_DEFAULT_SETTINGS.model,
+            effort: normalizeNaiEffort(nai.effort),
             size: str(nai.size, NAI_DEFAULT_SETTINGS.size) || NAI_DEFAULT_SETTINGS.size,
             steps: clampInt(nai.steps, 1, 50, NAI_DEFAULT_SETTINGS.steps),
             scale: clampNum(nai.scale, 0, 10, NAI_DEFAULT_SETTINGS.scale),
@@ -118,6 +121,8 @@ export function normalizeAutoIllustrationSettings(value) {
             artistByKind: normalizeArtistByKind(nai.artistByKind),
             artistLibrary: normalizeArtistLibrary(nai.artistLibrary),
             timeoutMs: clampInt(nai.timeoutMs, 10000, 300000, NAI_DEFAULT_SETTINGS.timeoutMs),
+            minIntervalMs: clampInt(nai.minIntervalMs, 0, 60000, NAI_DEFAULT_SETTINGS.minIntervalMs),
+            cloudQueue: normalizeNaiCloudQueue(nai.cloudQueue),
             // 草稿首次归档会追加此标记；归一化保持相同顺序，避免无修改关闭重写存储。
             ...(nai.artistLibraryArchived === true && { artistLibraryArchived: true }),
         },
