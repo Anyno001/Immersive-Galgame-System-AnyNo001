@@ -712,7 +712,7 @@ function buildTagFilteredTextSource(raw, filter) {
     return source.trim();
 }
 
-function parseTagList(text) {
+export function parseTagList(text) {
     return String(text || '')
         .split(/[\n,，]+/)
         .map((tag) => tag.trim().replace(/^<+/, '').replace(/^\/+/, '').replace(/>+$/, '').replace(/\/+$/, '').trim())

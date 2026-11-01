@@ -1,6 +1,7 @@
 import { createPresetGroup, createPresetRegistry } from '../presets/preset-registry.js';
 import { createIgsCompatApi } from './igs-compat.js';
 import { DLC_API_VERSION, createStageFxApi, createUiSkinsApi, drainDlcQueue } from './dlc-api.js';
+import { createChatsApi } from './chat-api.js';
 import { createFeedsApi, createLiveApi } from './feed-api.js';
 import { attachWaitStageGames, createWaitGamesApi, detachWaitStageGames } from '../visual/igs-ui/wait-stage-games-api.js';
 
@@ -40,6 +41,7 @@ export function createPublicApi(app) {
     // 只读接口：正文里的社区帖子与直播弹幕，纯函数，没有调用方时不影响任何行为。
     groupedApi.feeds = createFeedsApi();
     groupedApi.live = createLiveApi();
+    groupedApi.chats = createChatsApi();
     groupedApi.version = DLC_API_VERSION;
     const igsCompatApi = createIgsCompatApi(app);
 
