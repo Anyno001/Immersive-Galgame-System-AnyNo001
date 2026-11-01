@@ -2,6 +2,7 @@ import { resolveImageSeed } from '../image-seed.js';
 import { clampPixelPair } from '../illustration/cg-pixel-cap.js';
 import { prefixFinalArtist } from '../final-caption.js';
 import { globalArtist } from '../prompt-artists.js';
+import { isNaiMediumModel, resolveNaiEffortSettings } from '../nai-effort.js';
 
 export const NAI_OFFICIAL_ENDPOINT = 'https://image.novelai.net/ai/generate-image';
 
@@ -17,6 +18,7 @@ export const NAI_DEFAULT_SETTINGS = Object.freeze({
     endpoint: '',
     apiKey: '',
     model: 'nai-diffusion-4-5-full',
+    effort: 'high',
     size: '832x1216',
     steps: 28,
     scale: 5,
@@ -25,6 +27,7 @@ export const NAI_DEFAULT_SETTINGS = Object.freeze({
     artistPrefix: '',
     negativePrompt: NAI_DEFAULT_NEGATIVE,
     timeoutMs: 120000,
+    minIntervalMs: 2000,
 });
 
 // NAI 官方没有模型列表接口；请求体是 V4 结构，只列 V4 及以后的模型。
@@ -94,7 +97,7 @@ function parseSize(size) {
 }
 
 export function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) {
-    const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
+    const settings = resolveNaiEffortSettings({ ...NAI_DEFAULT_SETTINGS, ...naiSettings });
     const final = slot?.captionMode === 'final';
     if (slot?.captionMode !== undefined && !final) throw new Error('PROMPT_MODE_CONFLICT');
     const finalArtist = settings.finalArtist !== undefined ? settings.finalArtist
@@ -131,8 +134,7 @@ export function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) 
             n_samples: 1,
             seed: resolveImageSeed(settings.seed, random),
             noise_schedule: resolveNoiseSchedule(settings.noiseSchedule, model),
-            cfg_rescale: 0,
-            skip_cfg_above_sigma: null,
+            ...(!isNaiMediumModel(model) && { cfg_rescale: 0, skip_cfg_above_sigma: null }),
             image_format: 'png',
             qualityToggle: !final,
             tag_hint_qt: !final,

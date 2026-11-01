@@ -4,17 +4,20 @@
 import { buildNaiV4Request, NAI_DEFAULT_SETTINGS } from './nai-v4-builder.js';
 import { CG_PIXEL_CAP } from '../illustration/cg-pixel-cap.js';
 import { inspectPngDataUrl } from '../../media/png-validation.js';
+import { resolveNaiEffortSettings } from '../nai-effort.js';
 
 const INPAINT_MODELS = Object.freeze({
     'nai-diffusion-5-full': 'nai-diffusion-5-full-inpainting',
+    'nai-diffusion-5-full-medium': 'nai-diffusion-5-full-medium-inpainting',
     'nai-diffusion-4-5-full': 'nai-diffusion-4-5-full-inpainting',
     'nai-diffusion-4-5-curated': 'nai-diffusion-4-5-curated-inpainting',
     'nai-diffusion-4-full': 'nai-diffusion-4-full-inpainting',
     'nai-diffusion-4-curated-preview': 'nai-diffusion-4-curated-inpainting',
 });
 
-export function resolveNaiInpaintModel(model) {
+export function resolveNaiInpaintModel(model, effort) {
     if (typeof model !== 'string') return '';
+    model = resolveNaiEffortSettings({ model, effort }).model;
     return Object.hasOwn(INPAINT_MODELS, model) ? INPAINT_MODELS[model]
         : Object.values(INPAINT_MODELS).includes(model) ? model : '';
 }
@@ -25,7 +28,7 @@ const validSide = (v) => Number.isInteger(v) && v >= 64 && v <= 4096 && v % 64 =
 export function buildNaiInpaintRequest(request = {}, naiSettings = {}, random = Math.random) {
     const baseModel = Object.hasOwn(request, 'model') ? request.model
         : Object.hasOwn(naiSettings, 'model') ? naiSettings.model : NAI_DEFAULT_SETTINGS.model;
-    const model = resolveNaiInpaintModel(baseModel);
+    const model = resolveNaiInpaintModel(baseModel, naiSettings.effort);
     if (!model) return { ok: false, reason: 'image-edit-unsupported' };
     const width = request.width, height = request.height;
     if (!validSide(width) || !validSide(height) || width * height > CG_PIXEL_CAP) return { ok: false, reason: 'invalid-size' };
