@@ -1196,3 +1196,55 @@ test('速算伤势只在给出 battleHurts 时入账，一楼只记第一场', a
     const after = vitalsForName(await ledger.effectiveState(), '阿遥', '阿遥');
     assert.equal(after.hp, after.maxHp);
 });
+
+
+test('多敌折算进 setup：同档敌人按人数乘 crowdScaleFor（预备队不计）；生成首领再乘 0.9，模板首领不变；单只与旧版一致', async () => {
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const { buildSetup } = await import('../src/combat/session.js');
+    const { crowdScaleFor } = await import('../src/combat/rules.js');
+    const { ledger } = setup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [user('出发'), ai('启程。')]);
+    const state = await ledger.effectiveState();
+    const foesOf = (profile, count, tier = 'normal') => {
+        const lobby = { heroId: 'pc-hero', controllable: ['pc-hero'], allies: [hero(state)], enemies: new Map([['狼', profile]]) };
+        const built = buildSetup(lobby, { enemies: [{ name: '狼', count }], tier });
+        assert.equal(built.ok, true, JSON.stringify(built));
+        return built.setup.units.filter((u) => u.side === 'enemy');
+    };
+    const wolf = templateEnemy('狼', 'normal');
+    const [one] = foesOf(wolf, 1);
+    for (const n of [2, 3, 8]) {
+        const k = crowdScaleFor(n);
+        const foes = foesOf(wolf, n);
+        assert.equal(foes.length, n);
+        for (const u of foes) {
+            assert.equal(u.maxHp, Math.max(1, Math.round(one.maxHp * k)), `n=${n}`);
+            assert.equal(u.damageScale, Math.min(5, Math.round(one.damageScale * k * 100) / 100), `n=${n}`);
+        }
+    }
+    const tBoss = templateEnemy('狼', 'boss');
+    const { generated: _g, ...gBoss } = tBoss;
+    const [t] = foesOf(tBoss, 1, 'boss');
+    const [g] = foesOf(gBoss, 1, 'boss');
+    assert.equal(g.maxHp, Math.max(1, Math.round(t.maxHp * 0.9)));
+    assert.equal(g.damageScale, Math.round(t.damageScale * 0.9 * 100) / 100);
+});
+
+
+test('初始装备写失败不阻断：grantGeneratedGear 遇写失败、抛错或缺角色只记诊断；空列表与非 profile-gear 不写', async () => {
+    const { grantGeneratedGear } = await import('../src/combat/ledger.js');
+    const items = [{ gearId: 'g', name: '剑', slot: 'weapon' }];
+    const generation = { accepted: [{ kind: 'profile-gear', gear: { name: '甲', items } }, { kind: 'profile-gear', gear: { name: '乙', items: [] } }, { kind: 'profile-deck' }] };
+    const calls = [];
+    const failing = { grantInitialGear: async (id, list, opts) => { calls.push([id, list.length, opts.anchor]); return { ok: false, reason: 'combat-ledger-insert-failed' }; } };
+    const anchor = { messageId: 1, swipeId: 0 };
+    const d1 = [];
+    assert.equal(await grantGeneratedGear(failing, generation, (n) => (n === '甲' ? 'id-a' : null), { anchor, diagnostics: d1 }), true);
+    assert.deepEqual(calls, [['id-a', 1, anchor]]);
+    assert.deepEqual(d1, [{ code: 'combat-ledger-insert-failed', name: '甲' }]);
+    const d2 = [];
+    await grantGeneratedGear({ grantInitialGear: async () => { throw new Error('x'); } }, generation, () => 'id-a', { diagnostics: d2 });
+    assert.deepEqual(d2, [{ code: 'combat-gear-write-failed', name: '甲' }]);
+    const d3 = [];
+    assert.equal(await grantGeneratedGear(failing, generation, () => null, { diagnostics: d3 }), false);
+    assert.deepEqual(d3, [{ code: 'combat-character-missing', name: '甲' }]);
+});

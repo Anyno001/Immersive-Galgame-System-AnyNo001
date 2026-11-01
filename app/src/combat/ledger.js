@@ -1,7 +1,7 @@
 import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, validateDeck } from './rules.js';
 import { hash32, hashString } from './random.js';
 import { ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities, isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset } from './abilities.js';
-import { buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } from './schema.js';
+import { GEAR_SLOTS, INIT_GEAR_TAG_HASH, buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } from './schema.js';
 import { combatBodyText, extractGainDirectives, extractGrowthDirectives, scanCombatTags, scanGainTags } from '../scene/combat-directives.js';
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportIdFor, reportIdOf } from './report.js';
@@ -223,12 +223,14 @@ function floorReader(chat, sourceFilter) {
 }
 
 // 锚点失效原因，有效时返回 null。deck / reward 不来自标签，只核对楼层与 swipe。
+// 按剧情给的初始装备（equip，tagHash = INIT_GEAR_TAG_HASH）锚定开战楼，同样只核对楼层与 swipe；occurrence 为部位序号。
 function anchorProblem(entry, floorOf) {
     const { anchor } = entry;
     const floor = floorOf(anchor.messageId);
     if (!floor) return 'message-missing';
     if (floor.swipeId !== anchor.swipeId) return 'swipe-changed';
     const tagless = TAGLESS_TYPES.has(entry.type) || ((entry.type === 'equip' || entry.type === 'unequip') && anchor.tagHash === GEAR_TAG_HASH)
+        || (entry.type === 'equip' && anchor.tagHash === INIT_GEAR_TAG_HASH)
         || (entry.type === 'heal' && anchor.tagHash === USE_TAG_HASH);
     if (!tagless && !floor.keys.has(`${anchor.tagHash}#${anchor.occurrence}`)) return 'tag-missing';
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
@@ -1217,6 +1219,38 @@ export function buildGearEntry(snapshot, chat, view, gearId, equip, now = 0) {
     return n.ok ? { ok: true, entry: n.value } : { ok: false, reason: 'combat-entry-invalid', errors: n.errors };
 }
 
+// 按剧情给的初始装备（profile-gear，助手 10-31）：每件一条 equip，锚点 tagHash = INIT_GEAR_TAG_HASH、occurrence 为部位序号，ID 确定、重复写幂等。
+// anchor 缺省时取当前最新楼层（同构筑面板换装）；开战准备传开战楼锚点。归并时只核对楼层与 swipe（anchorProblem）。
+export function buildInitialGearEntries(chat, characterId, items, now = 0, anchor = null) {
+    const list = Array.isArray(chat) ? chat : [];
+    const base = anchor || (list.length ? { messageId: list.length - 1, swipeId: swipeOf(list[list.length - 1]) } : null);
+    if (!base) return { ok: false, reason: 'combat-deck-no-floor' };
+    if (!characterId) return { ok: false, reason: 'combat-character-missing' };
+    const entries = [];
+    for (const g of Array.isArray(items) ? items : []) {
+        const at = { messageId: base.messageId, swipeId: base.swipeId, tagHash: INIT_GEAR_TAG_HASH, occurrence: GEAR_SLOTS.indexOf(g?.slot) };
+        const n = normalizeLedgerEntry({ id: ledgerEntryId('equip', characterId, at), type: 'equip', character: characterId, anchor: at, payload: g, createdAt: now });
+        if (!n.ok) return { ok: false, reason: 'combat-entry-invalid', errors: n.errors };
+        entries.push(n.value);
+    }
+    return { ok: true, entries };
+}
+
+// profile-gear 生成结果落账（助手 10-31）：按名字解析角色 ID 后经 ledger.grantInitialGear 写入；返回是否尝试过写入（调用方据此重读状态）。找不到角色或写失败只记诊断，不阻断。
+export async function grantGeneratedGear(ledgerImpl, generation, ownerOf, { anchor = null, diagnostics = [] } = {}) {
+    let wrote = false;
+    for (const item of generation?.accepted || []) {
+        if (item.kind !== 'profile-gear' || !item.gear?.items?.length) continue;
+        const owner = typeof ownerOf === 'function' ? ownerOf(item.gear.name) : null;
+        if (!owner) { diagnostics.push({ code: 'combat-character-missing', name: item.gear.name }); continue; }
+        let r;
+        try { r = typeof ledgerImpl?.grantInitialGear === 'function' ? await ledgerImpl.grantInitialGear(owner, item.gear.items, { anchor }) : { ok: false, reason: 'combat-gear-unavailable' }; } catch (error) { r = null; }
+        if (r?.ok !== true) diagnostics.push({ code: r?.reason || 'combat-gear-write-failed', name: item.gear.name });
+        wrote = true;
+    }
+    return wrote;
+}
+
 // 背包卖出条目：锚点取当前最新楼层（同卡组保存）；target 为 { lootId }（杂物）或 { gearId }（装备），传字符串按 lootId。
 // 只能卖主角背包里现有的杂物与未装备的装备；积分不写进载荷，归并时按 sellPrice 计算，price 为本次所得。
 export function buildSellEntry(snapshot, chat, state, target, now = 0) {
@@ -1577,6 +1611,17 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         });
     }
 
+    // 初始装备落账（profile-gear，助手 10-31）：items 为组装好的 equip 载荷；anchor 缺省取最新楼层。没有装备时不写。
+    function grantInitialGear(characterId, items, { anchor = null } = {}) {
+        return serialPanel(async () => {
+            const built = buildInitialGearEntries(chatOf(), characterId, items, now(), anchor);
+            if (!built.ok) return built;
+            if (!built.entries.length) return { ok: true, written: [], present: [], rejected: [], pending: [], entries: [] };
+            const write = await append(built.entries);
+            return { ...write, entries: built.entries };
+        });
+    }
+
     // 背包卖出：target 为 { lootId }（杂物）或 { gearId }（装备）；price 为本次所得积分。
     function sellFromBag(target) {
         return serialPanel(async () => {
@@ -1679,6 +1724,6 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return writeHeroPanel(characterId, 'trait-slot', { slot, cost });
     }
 
-    return { read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, allocate, writeInit, sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot };
+    return { read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit, sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot };
 }
 

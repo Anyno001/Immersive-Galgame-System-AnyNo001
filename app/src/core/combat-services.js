@@ -1,11 +1,11 @@
 import { createCombatTables } from '../data/shujuku/combat-tables.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
-import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, vitalsForName } from '../combat/ledger.js';
+import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
 import { withFloorNote } from '../combat/floor-note.js';
 import { checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe } from '../scene/check-rolls.js';
-import { classTierEntity, deckProfileEntities, generationWrites, growthEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity, withCharacterLore, withStoryContext } from '../combat/generation.js';
+import { classTierEntity, deckProfileEntities, generationWrites, growthEntity, profileGearEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity, withCharacterLore, withStoryContext } from '../combat/generation.js';
 import { generateWithRetry } from '../combat/generation-retry.js';
 import { itemIdFor, normalizeProfile, profileIdFor } from '../combat/schema.js';
 import { COMBAT_RULES } from '../combat/rules.js';
@@ -630,7 +630,8 @@ export function createCombatServices(deps = {}) {
         const ready = resolveCombatLlm(llm());
         if (!ready.ok) return { ok: false, reason: ready.reason, ...(ready.missing ? { missing: ready.missing } : {}) };
         const ref = classRef && state.classes.has(classRef) ? classRef : null;
-        const entities = await withCharacterLore(deckProfileEntities({ name: characterName, id, role, classRef: ref, classes: state.classes }), readLore);
+        // 按剧情给初始装备（助手 10-31）：随卡组档案同批请求；可省略，失败不影响卡组档案。
+        const entities = await withCharacterLore([...deckProfileEntities({ name: characterName, id, role, classRef: ref, classes: state.classes }), profileGearEntity(characterName)], readLore);
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
         try { onStart?.(); } catch (error) { /* 订阅者异常不影响生成 */ }
         // 卡组生成（P8a）：整段剧情与世界书；队友另附用户人设（主角的人设已在 input.lore）。
@@ -650,7 +651,10 @@ export function createCombatServices(deps = {}) {
         const after = await ledgerImpl.effectiveState();
         if (!after.ok) return { ok: false, reason: after.reason, requested: true };
         if (after.characters.get(id)?.kind !== 'deck-character') return { ok: false, reason: 'combat-profile-unverified', id, requested: true };
-        return { ok: true, id, reusedClass: Boolean(ref) };
+        // 初始装备：档案读回确认后锚定最新楼层写 equip；写失败只记诊断，卡组档案照常生效。
+        const gearDiagnostics = [];
+        if (!signal?.aborted) await grantGeneratedGear(ledgerImpl, result, (n) => (n === characterName ? id : null), { diagnostics: gearDiagnostics });
+        return { ok: true, id, reusedClass: Boolean(ref), ...(gearDiagnostics.length ? { gearDiagnostics } : {}) };
     }
 
     // 构筑面板手动生成（队友角色）：对外结果不带内部的 requested 字段。

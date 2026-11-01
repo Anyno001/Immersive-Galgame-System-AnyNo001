@@ -254,3 +254,18 @@ test('统一获得物端到端：扫描到「杂物」获得标签时写 keepsak
     assert.deepEqual(state.inactive.filter((x) => x.id.startsWith('keepsake|')).map((x) => x.reason), ['swipe-changed']);
 });
 
+
+
+test('初始装备经主角背包：grantInitialGear 的 equip 走物品表，空部位自动装上、数量 +1；重复写幂等', async () => {
+    const h = harness();
+    const weapon = { gearId: gearIdFor('家传宝剑'), name: '家传宝剑', slot: 'weapon', description: '祖上传下的剑', rarity: 'rare', bonus: { ability: 'str', amount: 3 } };
+    const first = await h.ledger.grantInitialGear('pc-hero', [weapon]);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(h.inv.qty('家传宝剑'), 1);
+    assert.equal(h.inv.gear.find((r) => r.name === '家传宝剑')?.equipped, true);
+    assert.equal((await h.hero()).gear.slots.weapon?.name, '家传宝剑');
+    const again = await h.ledger.grantInitialGear('pc-hero', [weapon]);
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.equal(h.inv.qty('家传宝剑'), 1);
+    assert.equal(h.tables.ledger.filter((e) => e.type === 'equip').length, 1);
+});

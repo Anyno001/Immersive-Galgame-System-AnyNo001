@@ -38,6 +38,13 @@ export const COMBAT_RULES = Object.freeze({
     // 敌人比我方平均等级高出的每一级（只算敌方更强的一侧，计划 S8）：生命与伤害再按比例上调，相对档「稍强 / 强敌」体现在敌人数值上。
     // 没有属性视图时等级差为 0。
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
+    // 多敌折算（v0.39.1，助手 10-31）：单只敌人生命与伤害 × 1 / (1 + perExtra × (在场人数 − 1))，不低于 floor。
+    // 在场人数受 maxEnemiesOnField 限制，预备队不计；按 scripts/combat-balance.mjs 校准（1 级标准档单主角普通敌人：2 只约 80%、3 只约 60%），
+    // 只写进新建 setup，旧战斗按已存数值重放。
+    crowd: Object.freeze({ perExtra: 0.43, floor: 0.55 }),
+    // 生成敌人档位校准（v0.39.1）：副 LLM 生成的敌人（generated 不为 false）生命与伤害再 × 该值，模板敌人不变；
+    // 首领按 scripts/combat-balance.mjs --generated 校准到标准档单主角 1 / 10 级约 65%（5 级约 83%，统一倍率无法同时压进 55–70%）。
+    generatedScale: Object.freeze({ boss: 0.9 }),
     // 难度档位（助手 10-28，参考杀戮尖塔进阶，高档包含低档的追加规则）：hp / damage 为敌人生命与伤害倍率；affixes 为普通 / 精英 / 首领的常驻效果数；
     // curse 为每场往主角牌堆加的不能打出的临时诅咒牌数；maxHpPct 为我方生命上限比例；extraSkills 为敌人追加技能数；
     // enrageAt 为首领狂暴阶段的生命阈值（%）；loot 为每个翻牌槽稀有度上调一档的概率；healScale 为剧情回血倍率（噩梦减半）。
@@ -328,6 +335,14 @@ export function scaleEnemyStats(profile, partyLevel = 1, difficulty = 'normal', 
     // 伤害倍率取两位小数、不超过引擎上限 5，setup 持久化后原样重放。
     const damage = gain(mode.damage) * (tier.damageScale ?? 1) * (1 + COMBAT_RULES.levelGap.damage * g);
     return { hp, damageScale: Math.min(5, Math.round(damage * 100) / 100) };
+}
+
+// 多敌折算系数：total 为本场敌人总数，按在场上限截断；1 只时为 1，setup 与旧版一致。
+export function crowdScaleFor(total) {
+    const n = Math.min(COMBAT_RULES.maxEnemiesOnField, Math.max(1, Math.floor(Number(total) || 1)));
+    if (n <= 1) return 1;
+    const { perExtra, floor } = COMBAT_RULES.crowd;
+    return Math.max(floor, 1 / (1 + perExtra * (n - 1)));
 }
 
 export function combatExpReward(enemyTiers) {

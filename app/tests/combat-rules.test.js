@@ -427,3 +427,16 @@ test('敌人参战配置：技能数公式；常驻效果按身份与难度种�
     const labels = unitDetailView(s, 'foe').groups.map((g) => g.label);
     assert.ok(labels.includes('常驻效果') && !labels.includes('被动'), JSON.stringify(labels));
 });
+
+test('多敌折算：1 只为 1；2 只约 0.70；3 只起不低于下限 0.55；按在场上限截断；非法输入按 1 只；生成首领倍率登记', async () => {
+    const { crowdScaleFor } = await import('../src/combat/rules.js');
+    assert.equal(crowdScaleFor(1), 1);
+    assert.equal(crowdScaleFor(0), 1);
+    assert.equal(crowdScaleFor(undefined), 1);
+    assert.ok(Math.abs(crowdScaleFor(2) - 1 / 1.43) < 1e-9, String(crowdScaleFor(2)));
+    for (const n of [3, 4, 5, 8, 50]) assert.equal(crowdScaleFor(n), COMBAT_RULES.crowd.floor, `n=${n}`);
+    assert.equal(COMBAT_RULES.crowd.floor, 0.55);
+    assert.equal(COMBAT_RULES.generatedScale.boss, 0.9);
+    assert.equal(COMBAT_RULES.generatedScale.normal, undefined);
+});
+

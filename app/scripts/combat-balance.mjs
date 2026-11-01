@@ -10,7 +10,7 @@ import { writeFileSync } from 'node:fs';
 import { applyAction, createBattle, legalActions } from '../src/combat/engine.js';
 import { chooseAllyPlay, pickCards } from '../src/combat/policy.js';
 import { COMBAT_RULES, expToNextLevel } from '../src/combat/rules.js';
-import { deckProfileEntities, generateEntities, generationWrites, templateEnemy } from '../src/combat/generation.js';
+import { deckProfileEntities, generateEntities, generationWrites, skillProfileEntity, templateEnemy } from '../src/combat/generation.js';
 import { enemyFillSkills } from '../src/combat/enemy-loadout.js';
 import { attributeViewFor, buildAllocEntries, createCombatLedger, normalizeSnapshot } from '../src/combat/ledger.js';
 import { ABILITY_KEYS } from '../src/combat/abilities.js';
@@ -28,6 +28,10 @@ const HERO_SKILL = process.argv.includes('--hero-skill');
 // --generated：敌人换成「生成敌人」近似形状（技能全部按模板在档位伤害上限求解、数量取 skillTarget，generated 不为 false），
 // 用来核对按模板敌人校准的倍率套到副 LLM 生成的敌人上是否偏强。
 const GENERATED = process.argv.includes('--generated');
+// --ally：阵容加一名技能型助战（模板技能，随主角同步 EXP）；--ally-single 删掉 setup 的 actions，对照两动前的强度。
+const ALLY = process.argv.includes('--ally') || process.argv.includes('--ally-single') ? '白露' : '';
+const ALLY_SINGLE = process.argv.includes('--ally-single');
+const ALLY_VALUE = { hp: 60, skills: [['斩', 'slash'], ['守', 'guard'], ['破', 'gash']], passives: [['坚', 'turn-guard']] };
 const OUT = arg('--out', '');
 const TRY = Object.fromEntries(String(arg('--try', '')).split(',').filter(Boolean).map((part) => {
     const [key, value] = part.split('=');
@@ -65,7 +69,8 @@ function memoryTables(profile) {
 
 async function heroProfiles() {
     const entities = deckProfileEntities({ name: HERO, role: 'protagonist', classes: [] });
-    const request = async (req) => JSON.stringify({ entities: JSON.parse(req.user).entities.map((e) => ({ key: e.key, value: e.kind === 'class' ? CLASS_VALUE : DECK_VALUE })) });
+    if (ALLY) entities.push(skillProfileEntity({ name: ALLY, role: 'ally' }));
+    const request = async (req) => JSON.stringify({ entities: JSON.parse(req.user).entities.map((e) => ({ key: e.key, value: e.kind === 'class' ? CLASS_VALUE : e.kind === 'profile-skill' ? ALLY_VALUE : DECK_VALUE })) });
     const result = await generateEntities(entities, { request, llm: { source: 'tavern' } });
     if (!result.ok) throw new Error(`模板卡组组装失败：${JSON.stringify(result.rejected).slice(0, 300)}`);
     return generationWrites(result, { createdAt: 1 }).profiles;
@@ -95,7 +100,7 @@ async function buildWorld(profiles, level, rel) {
     const chat = [user('开始')];
     let need = 0;
     for (let l = 1; l < level; l += 1) need += expToNextLevel(l);
-    for (; need > 0; need -= 50) chat.push(ai(`修炼有成。\n[igs-combat:exp|${HERO}|${Math.min(50, need)}|修炼]`));
+    for (; need > 0; need -= 50) chat.push(ai(`修炼有成。\n[igs-combat:exp|${HERO}|${Math.min(50, need)}|修炼]${ALLY ? `\n[igs-combat:exp|${ALLY}|${Math.min(50, need)}|修炼]` : ''}`));
     const relLabel = RELS.find((r) => r[0] === rel)?.[1];
     if (rel !== 'even') chat.push(ai(ENEMIES.map((n) => `[igs-combat:rel|${n}|${relLabel}]`).join('\n')));
     const ledger = createCombatLedger({ tables, chat, userName: HERO, now: () => 1 });
@@ -113,7 +118,9 @@ async function buildWorld(profiles, level, rel) {
     }
     const hero = state.characters.get(heroId);
     if (hero.level !== level || hero.deckNeedsAdjust) throw new Error(`主角状态异常：等级 ${hero.level}，卡组需调整 ${hero.deckNeedsAdjust}`);
-    return { state, hero };
+    const ally = ALLY ? [...state.characters.values()].find((v) => v.name === ALLY) : null;
+    if (ALLY && !ally) throw new Error('助战档案缺失');
+    return { state, hero, ally };
 }
 
 const PURPOSE = { discard: 'discard', copy: 'copy', 'cost-mod': 'cost' };
@@ -192,9 +199,10 @@ function simulateCell(world, level, rel, relLabel, tier, diff) {
     for (let run = 0; run < RUNS; run += 1) {
         const name = ENEMIES[run % ENEMIES.length];
         const attr = attributeViewFor(world.state, name);
-        const lobby = { heroId: world.hero.id, allies: [world.hero], controllable: [world.hero.id],
+        const lobby = { heroId: world.hero.id, allies: world.ally ? [world.hero, world.ally] : [world.hero], controllable: [world.hero.id],
             enemies: new Map([[name, enemyProfile(name, tier, attr?.level ?? world.hero.level)]]), enemyAttributes: attr ? new Map([[name, attr]]) : new Map() };
-        const built = buildSetup(lobby, { tier, allies: [], enemies: [{ name, count: COUNT }] }, { difficulty: diff, userName: HERO });
+        const built = buildSetup(lobby, { tier, allies: ALLY ? [ALLY] : [], enemies: [{ name, count: COUNT }] }, { difficulty: diff, userName: HERO });
+        if (built.ok && ALLY_SINGLE) for (const u of built.setup.units) delete u.actions;
         cell.runs += 1;
         if (!built.ok) { fail(built.reason); continue; }
         const g = attr ? Math.max(0, attr.level - world.hero.level) : 0;

@@ -1,15 +1,15 @@
-import { COMBAT_RULES, CURSE_CARD, SKILL_COUNT_MAX, combatSpeedFor, difficultyRule, isCompatibleRulesVersion, scaleEnemyStats, skillTarget } from './rules.js';
+import { COMBAT_RULES, CURSE_CARD, SKILL_COUNT_MAX, combatSpeedFor, crowdScaleFor, difficultyRule, isCompatibleRulesVersion, scaleEnemyStats, skillTarget } from './rules.js';
 import { applyAction, createBattle, legalActions, replayBattle, seedFor } from './engine.js';
-import { deckProfileEntities, enemyEntities, enemyIdFor, generationWrites, rewardEntity, skillFillEntity, skillProfileEntity, templateEnemy, withCharacterLore, withStoryContext, withCombatInitialization } from './generation.js';
+import { deckProfileEntities, enemyEntities, enemyIdFor, generationWrites, rewardEntity, skillFillEntity, skillProfileEntity, templateEnemy, withCharacterLore, withStoryContext, withCombatInitialization, encounterThemeEntity, profileGearEntity } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
 import { attachLoot, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
-import { CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName } from './ledger.js';
+import { CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear } from './ledger.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
 import { ABILITY_KEYS, ABILITY_LABELS, REL_TIERS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
 import { ledgerEntryId, profileIdFor } from './schema.js';
 import { defaultHeroSkill, itemEffectsForBattle, ultimateSkill } from './card-templates.js';
-import { enemyArtKeyFor } from './enemy-art.js';
+import { enemyArtKeyFor, isEnemyArtTheme } from './enemy-art.js';
 import { enemyLoadout } from './enemy-loadout.js';
 import { hash32 } from './random.js';
 import { extractCombatStart } from '../scene/combat-directives.js';
@@ -141,6 +141,8 @@ function skillUnit(view) {
     return {
         id: view.id, name: view.name, side: 'ally', kind: 'skill',
         maxHp: fit.hp,
+        // 助战两动（v0.39.1，助手 10-31）：每次轮到出手连续使用两次技能，行动间隔不变；只进新建 setup，旧战斗按已存 setup 重放。
+        actions: 2,
         speed: fit.speed, skills: [...skills, ...extra], passives: [...(view.passives || []), ...gearPassives(view)],
         ...abilitySnapshot(view.attributes),
     };
@@ -157,6 +159,8 @@ function enragePhases(profile, difficulty) {
 function enemyUnits(start, profiles, partyLevel, difficulty, attributes = new Map()) {
     const units = [];
     const tiers = [];
+    // 多敌折算（v0.39.1）：按本场在场敌人数折算单只生命与伤害；1 只时系数为 1，字段不变。
+    const crowd = crowdScaleFor(start.enemies.reduce((sum, e) => sum + (Number(e.count) || 0), 0));
     for (const { name, count } of start.enemies) {
         const profile = profiles.get(name);
         const attr = attributes.get(name) || null;
@@ -168,11 +172,15 @@ function enemyUnits(start, profiles, partyLevel, difficulty, attributes = new Ma
         const skills = loadout.skills.length ? [...profile.skills, ...loadout.skills] : profile.skills;
         const passives = loadout.passives.length ? [...(profile.passives || []), ...loadout.passives] : profile.passives;
         const fit = applyAbilities(scaled.hp, profile.base?.speed ?? combatSpeedFor({ tier: profile.tier, id: profile.id }), attr);
+        // 生成敌人档位校准（v0.39.1）：生成敌人再乘 generatedScale，模板敌人（generated:false）不乘；乘积为 1 时字段不变。
+        const k = crowd * (profile.generated !== false ? (COMBAT_RULES.generatedScale[profile.tier] ?? 1) : 1);
+        const maxHp = k < 1 ? Math.max(1, Math.round(fit.hp * k)) : fit.hp;
+        const damageScale = k < 1 ? Math.min(5, Math.round(scaled.damageScale * k * 100) / 100) : scaled.damageScale;
         for (let i = 0; i < count; i += 1) {
             units.push({
                 id: count > 1 ? `${profile.id}-${i + 1}` : profile.id,
                 name: count > 1 ? `${name}${ENEMY_SUFFIX[i] || i + 1}` : name,
-                side: 'enemy', kind: 'skill', maxHp: fit.hp, damageScale: scaled.damageScale,
+                side: 'enemy', kind: 'skill', maxHp, damageScale,
                 speed: fit.speed,
                 skills: scaleSkills(skills, attr), passives, phases,
                 // 外观格位：档案 art 优先，模板敌人与旧档案按原名推断；同名多只共用一格。
@@ -284,7 +292,7 @@ function rewardFor(state, b, userName, difficulty) {
     return rewardEntity({ combatId: b.combatId, anchor: b.anchor, tier: b.start.tier, enemyTiers, enemies: b.start.enemies, encounter: b.start.encounter, character, links: traitLinks(hero?.traits), difficulty });
 }
 // 只有这几类实体时请求失败不阻断开战：初始化与补技能记诊断（补技能失败带现有技能参战），奖励在大厅显示原因与重试。
-const NONBLOCKING_KINDS = new Set(['profile-init', 'battle-reward', 'skill-fill']);
+const NONBLOCKING_KINDS = new Set(['profile-init', 'battle-reward', 'skill-fill', 'encounter-theme', 'profile-gear']);
 const rewardReason = (generation) => generation?.reason || ((generation?.rejected || []).some((r) => r.kind === 'battle-reward') ? 'combat-reward-generation-failed' : '');
 // 大厅奖励状态：日志表已有本场 offer 为 ready（EXP 与翻牌数取 offer）；否则 failed（EXP 与翻牌数按计划，reason 只供诊断，大厅只显示「奖励生成失败」与重试）。
 function rewardView(state, combatId, plan, reason) {
@@ -427,7 +435,7 @@ export function createCombatSession(deps = {}) {
     const done = (extra = {}) => ({ ok: true, ...extra, session: view() });
     const fail = (reason, extra = {}) => ({ ok: false, reason, ...extra, session: view() });
     const sessionKey = () => sessionKeyFor(chatIdOf());
-    const base = (s) => ({ combatId: s.combatId, anchor: s.anchor, start: s.start, reportId: s.reportId, chatId: s.chatId });
+    const base = (s) => ({ combatId: s.combatId, anchor: s.anchor, start: s.start, reportId: s.reportId, chatId: s.chatId, ...(s.theme ? { theme: s.theme } : {}) });
 
     // 开战楼仍在、swipe 未变、末尾标签未变，且仍是同一聊天。
     const anchorValid = (s) => {
@@ -641,6 +649,8 @@ export function createCombatSession(deps = {}) {
         if (findReportFloor(chat, messageId, b.reportId) >= 0) return done({ session: set({ ...b, status: 'done' }) });
         const record = readRecord(b);
         if (!record.ok) return block(b, record.reason);
+        // 敌人图集题材留档（encounter-theme）：合法时带进会话；非法值忽略，面板按世界观选图。
+        if (isEnemyArtTheme(record.value?.theme)) b.theme = record.value.theme;
         if (record.value?.result) {
             recordSaved.add(b.combatId);
             set({ ...b, status: 'send-failed', report: itemOf(record.value.result) });
@@ -682,6 +692,15 @@ export function createCombatSession(deps = {}) {
         const reward = state.offers?.has(b.combatId) ? null : rewardFor(state, b, userName, valueOf(deps.difficulty) || 'normal');
         const askReward = Boolean(reward?.entity) && !heroOnly;
         if (askReward) entities = [...entities, reward.entity];
+        // 敌人图集题材：第一次准备时与同批实体一起请求一条；已准备过或留档已有题材的场次不再请求。
+        const savedTheme = b.theme || '';
+        const askTheme = !heroOnly && !savedTheme;
+        if (askTheme) entities = [...entities, encounterThemeEntity(found.start)];
+        let theme = savedTheme;
+        // 按剧情给初始装备（助手 10-31）：只随主角卡组档案生成同批请求；已有主角档案时不请求，助战在面板生成卡组时由服务层请求。
+        const gearNames = entities.some((e) => e.kind === 'profile-deck') ? [userName] : [];
+        if (gearNames.length) entities = [...entities, ...gearNames.map((name) => profileGearEntity(name))];
+        const gearDiagnostics = [];
         let rewardError = '';
         const initDiagnostics = [];
         // 补技能诊断：请求不可用、拒收或写失败时记下档案 ID，该角色带现有技能参战。
@@ -714,6 +733,9 @@ export function createCombatSession(deps = {}) {
             for (const rejected of generation.rejected || []) if (rejected.kind === 'profile-init')
                 initDiagnostics.push({ code: 'combat-init-generation-failed', key: rejected.key });
             noteFill(generation, entities);
+            if (askTheme) theme = (generation.accepted || []).find((item) => item.kind === 'encounter-theme')?.theme || '';
+            if (generation.reason && gearNames.length) gearDiagnostics.push({ code: generation.reason });
+            for (const r of generation.rejected || []) if (r.kind === 'profile-gear') gearDiagnostics.push({ code: 'combat-gear-generation-failed', key: r.key });
             const writes = generationWrites(generation, { createdAt: now() });
             if (writes.profiles.length) {
                 const written = await tables.append('profile', writes.profiles);
@@ -735,6 +757,11 @@ export function createCombatSession(deps = {}) {
             }
             state = await ledger.effectiveState();
             if (!state.ok) return block(b, state.reason);
+            // 初始装备：档案落库并读回后按开战楼锚点写 equip；写失败只记诊断，不阻断开战。
+            if (await grantGeneratedGear(ledger, generation, (name) => findCharacter(state, name)?.id, { anchor: b.anchor, diagnostics: gearDiagnostics })) {
+                state = await ledger.effectiveState();
+                if (!state.ok) return block(b, state.reason);
+            }
             // 本次新生成的队友与敌人技能仍不足时再补一轮（只含补技能，失败不阻断）。
             const late = heroOnly ? [] : fillEntities(state, found.start, userName, filled);
             if (late.length) {
@@ -758,8 +785,9 @@ export function createCombatSession(deps = {}) {
         lobby.vitals = lobbyVitals(lobby, valueOf(deps.difficulty) || 'normal');
         const skipped = (generation?.rejected || []).filter((r) => r.fallback?.kind === 'skip').map((r) => r.owner);
         // 第一次准备完成时留档；写失败不阻断开战，面板提示原因，下次准备时再写。
-        if (!record.value?.prepared) await writeRecord(b, { prepared: { at: now() } });
-        return done({ session: set({ ...b, status: 'lobby', lobby, skipped, reward: rewardView(state, b.combatId, reward?.plan, rewardError), ...(initDiagnostics.length && { initDiagnostics }), ...(fillDiagnostics.length && { fillDiagnostics }) }) });
+        const newTheme = theme && theme !== savedTheme ? { theme } : {};
+        if (!record.value?.prepared || newTheme.theme) await writeRecord(b, { ...(record.value?.prepared ? {} : { prepared: { at: now() } }), ...newTheme });
+        return done({ session: set({ ...b, ...(theme ? { theme } : {}), status: 'lobby', lobby, skipped, reward: rewardView(state, b.combatId, reward?.plan, rewardError), ...(initDiagnostics.length && { initDiagnostics }), ...(fillDiagnostics.length && { fillDiagnostics }), ...(gearDiagnostics.length && { gearDiagnostics }) }) });
     }
 
     // offer 写日志表；写失败不阻断开战，大厅显示原因与重试。
@@ -822,6 +850,7 @@ export function createCombatSession(deps = {}) {
         const record = {
             v: SESSION_VERSION, combatId: cur.combatId, anchor: cur.anchor, seed, setup: built.setup, actions: [],
             encounter: cur.start.encounter, tiers: built.tiers, expTargets: built.expTargets,
+            ...(cur.theme ? { theme: cur.theme } : {}),
             ...(built.itemOwner ? { itemOwner: built.itemOwner } : {}),
         };
         if (!writeJson(storage, sessionKey(), record)) return fail('combat-session-save-failed');
@@ -986,7 +1015,7 @@ export function createCombatSession(deps = {}) {
             return fail('combat-rules-version-mismatch');
         }
         const found = locateCombatStart(chatOf(), rec.anchor?.messageId, filterOf());
-        const b = { combatId: rec.combatId, anchor: rec.anchor, start: found.start, reportId: reportIdFor(rec.combatId), chatId: chatIdOf() };
+        const b = { combatId: rec.combatId, anchor: rec.anchor, start: found.start, reportId: reportIdFor(rec.combatId), chatId: chatIdOf(), ...(isEnemyArtTheme(rec.theme) ? { theme: rec.theme } : {}) };
         if (!found.ok || !sameAnchor(found.anchor, rec.anchor) || found.combatId !== rec.combatId) {
             cur = b;
             return invalidate();

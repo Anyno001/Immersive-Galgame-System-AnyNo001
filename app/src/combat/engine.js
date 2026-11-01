@@ -111,8 +111,9 @@ function unitError(u, path) {
     if (!isInt(u.maxHp, 1, 9999)) return { reason: 'invalid-hp', detail: { path } };
     if (u.hp !== undefined && !isInt(u.hp, 1, u.maxHp)) return { reason: 'invalid-hp', detail: { path } };
     const badScale = u.damageScale !== undefined && !(typeof u.damageScale === 'number' && u.damageScale > 0 && u.damageScale <= 5);
+    const badActions = u.actions !== undefined && !(u.kind === 'skill' && isInt(u.actions, 1, 2));
     if ((u.energy !== undefined && !isInt(u.energy, 0, 10)) || (u.draw !== undefined && !isInt(u.draw, 0, 10)) || badScale
-        || (u.speed !== undefined && !isInt(u.speed, 1, 999))) {
+        || badActions || (u.speed !== undefined && !isInt(u.speed, 1, 999))) {
         return { reason: 'invalid-stat', detail: { path } };
     }
     if (u.kind === 'skill') {
@@ -1039,7 +1040,9 @@ function autoAct(c, unit) {
             playCard(c, unit, choice.inst, choice.targetId);
         }
     } else {
-        useSkill(c, unit);
+        // 技能单位每次出手用技能的次数：setup 带 actions 时按它（技能队友 2 次，助手 10-31），没有字段时 1 次，旧战斗重放不变。
+        const uses = unit.actions || 1;
+        for (let n = 0; n < uses && unit.alive && !s.outcome; n += 1) useSkill(c, unit);
     }
     endUnit(c, unit);
 }
@@ -1172,6 +1175,8 @@ function buildUnit(u) {
     };
     // 外观格位只供面板取敌人图，不参与结算；setup 没有时不写字段。
     if (typeof u.art === 'string' && u.art) unit.art = u.art;
+    // 每次出手连用技能次数（只技能单位）：大于 1 时才写字段，旧战斗形状不变。
+    if (u.kind === 'skill' && Number.isInteger(u.actions) && u.actions > 1) unit.actions = u.actions;
     if (u.kind === 'deck') {
         unit.energy = 0;
         unit.energyPerTurn = u.energy ?? COMBAT_RULES.energyPerTurn;

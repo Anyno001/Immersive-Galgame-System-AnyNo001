@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    deckProfileEntities, enemyEntities, enemyIdFor, generateEntities, generationWrites, growthEntity, resolveCombatLlm, rewardEntity, skillProfileEntity, templateEnemy, withCombatInitialization,
+    deckProfileEntities, encounterThemeEntity, enemyEntities, enemyIdFor, generateEntities, generationWrites, growthEntity, profileGearEntity, resolveCombatLlm, rewardEntity, skillProfileEntity, templateEnemy, withCombatInitialization,
 } from '../src/combat/generation.js';
 import { CARD_COST_SLOTS, assembleClass, assembleDeck, assembleReward, assembleSkillCharacter, buildStarterDeck, classRaritiesFor, costSlotsFor } from '../src/combat/generation-assembly.js';
 import { REWARD_SLOT_COUNT, gearIdFor, itemIdFor, normalizeLedgerEntry, normalizeProfile, profileIdFor, validateStarterDeck } from '../src/combat/schema.js';
@@ -894,4 +894,33 @@ test('特性池生成：shape 存在时请求带 input.kind 与 input.effect，�
         assert.equal(trait.kind, kind);
         assert.deepEqual((trait.skill || trait.passive).effects, (shape.skill || shape.passive).effects);
     }
+});
+
+
+test('敌人图集题材（encounter-theme）：合法题材进结果；非法值记诊断、照常通过且不触发修正；模型未回该键时不拒收；不落账', async () => {
+    const entity = encounterThemeEntity({ encounter: '水巷伏击', enemies: [{ name: '神秘水贼', count: 4 }, { name: '神秘水贼头目', count: 1 }] });
+    assert.deepEqual([entity.key, entity.kind, entity.optional, entity.input], ['theme:encounter', 'encounter-theme', true, { encounter: '水巷伏击', enemies: ['神秘水贼', '神秘水贼头目'] }]);
+    const good = await generateEntities([entity], { request: async () => reply([[entity.key, { theme: 'wuxia' }]]), llm: LLM });
+    assert.deepEqual([good.ok, good.requests, good.accepted.map((a) => a.theme)], [true, 1, ['wuxia']]);
+    assert.deepEqual(generationWrites(good), { profiles: [], entries: [] });
+    const bad = await generateEntities([entity], { request: async () => reply([[entity.key, { theme: 'cyberpunk' }]]), llm: LLM });
+    assert.deepEqual([bad.ok, bad.requests, Object.hasOwn(bad.accepted[0], 'theme')], [true, 1, false]);
+    assert.ok(bad.diagnostics.some((d) => d.code === 'combat-theme-invalid' && d.key === entity.key));
+    const absent = await generateEntities([entity], { request: async () => reply([]), llm: LLM });
+    assert.deepEqual([absent.ok, absent.accepted, absent.rejected], [true, [], []]);
+});
+
+test('初始装备（profile-gear）：按回复组装装备，加成随稀有度；空列表合法、不落账；同部位两件拒收并定向修正', async () => {
+    const entity = profileGearEntity('陈默');
+    assert.deepEqual([entity.kind, entity.optional, entity.input], ['profile-gear', true, { name: '陈默' }]);
+    const good = await generateEntities([entity], { request: async () => reply([[entity.key, { gear: [['青锋剑', 'weapon', 'rare', 'dex', 'opening-dexterity', '师门所赐']] }]]), llm: LLM });
+    assert.equal(good.ok, true);
+    const items = good.accepted[0].gear.items;
+    assert.deepEqual([good.accepted[0].gear.name, items.length, items[0].slot, items[0].rarity, items[0].bonus], ['陈默', 1, 'weapon', 'rare', { ability: 'dex', amount: 3 }]);
+    const none = await generateEntities([entity], { request: async () => reply([[entity.key, { gear: [] }]]), llm: LLM });
+    assert.deepEqual([none.ok, none.accepted[0].gear.items], [true, []]);
+    assert.deepEqual(generationWrites(none), { profiles: [], entries: [] });
+    const dup = await generateEntities([entity], { request: async () => reply([[entity.key, { gear: [['甲', 'weapon', 'common', 'str', null], ['乙', 'weapon', 'common', 'str', null]] }]]), llm: LLM });
+    assert.deepEqual([dup.ok, dup.requests], [false, 3]);
+    assert.ok(dup.rejected[0].errors.some((e) => e.reason === 'slot-duplicate'));
 });

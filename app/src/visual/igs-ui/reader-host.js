@@ -5212,6 +5212,9 @@ ${row.key}`;
             // 道具菜单图标：物品图只读本聊天本地缓存（与背包同键），补载完成后经订阅刷新。
             resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
             subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
+            // 立绘读回：素材库立绘（igs-gen:）读回或丢失时通知面板重算立绘地址；生成进度等其他变化不转发。
+            subscribePortraits: (handler) => (typeof options.onGeneratedAssetUpdated === 'function'
+                ? options.onGeneratedAssetUpdated((detail) => { if (detail && (detail.reason === 'image-loaded' || detail.reason === 'image-lost')) handler(detail); }) : null),
             // 战斗单位呼吸跟随「立绘活动」总开关与其中的「待机呼吸」，读当前阅读器快照的设置。
             breathing: () => {
                 const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;

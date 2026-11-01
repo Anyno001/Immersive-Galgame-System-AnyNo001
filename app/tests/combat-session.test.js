@@ -72,8 +72,8 @@ function playOut(s, { passive = false } = {}) {
 
 const stored = (h, key) => h.storage.getItem(key) ?? null;
 const NO_TABLE_TERMS = /卡牌|手牌|费用|能量|抽牌|HP/;
-// 奖励实体与初始化同批请求；只核对初始化的用例里奖励不作答（本场奖励失败，不阻断开战）。
-const initEntities = (req) => JSON.parse(req.user).entities.filter((e) => e.kind !== 'battle-reward');
+// 奖励与敌人图集题材实体与初始化同批请求；只核对初始化的用例里两者不作答（奖励失败、题材缺省，都不阻断开战）。
+const initEntities = (req) => JSON.parse(req.user).entities.filter((e) => e.kind !== 'battle-reward' && e.kind !== 'encounter-theme');
 // 奖励回复：按 input.slots 与备用套 input.reserve 的类别逐槽给 [名称, 模板键, 来历]。
 const REWARD_TUPLES = { card: ['裂风', 'strike', '狼的爪痕'], gear: ['狼牙刃', 'opening-strength', ''], item: ['回春丹', 'potion', ''], keepsake: ['褪色的发绳', null, '狼窝里捡到'] };
 const rewardReply = (req) => JSON.stringify({ entities: JSON.parse(req.user).entities.filter((e) => e.kind === 'battle-reward')
@@ -695,4 +695,60 @@ test('持续伤势：倒下的队友在剧情回血前不参战、战前列入�
     assert.deepEqual([party[0].hp, party[1].hp], [0, Math.max(1, party[1].maxHp - 30)]);
     assert.ok(party.every((p) => Array.isArray(p.abilities)));
     assert.deepEqual(partyStatus(await harness().ledger.effectiveState(), '主角').map((p) => p.id), ['pc-hero']);
+});
+
+
+test('敌人图集题材：第一次准备同批请求一条并写进开战楼留档与会话；重开不再请求；开战写进会话存档，断点续战恢复', async () => {
+    const kinds = [];
+    const request = async (req) => {
+        const entities = JSON.parse(req.user).entities;
+        kinds.push(...entities.map((e) => e.kind));
+        return JSON.stringify({ entities: entities.filter((e) => e.kind === 'encounter-theme').map((e) => ({ key: e.key, value: { theme: 'wuxia' } })) });
+    };
+    const h = harness({ record: true, request });
+    const first = await h.session().prepare(1);
+    assert.deepEqual([first.ok, first.session.status, first.session.theme], [true, 'lobby', 'wuxia']);
+    assert.equal(kinds.filter((k) => k === 'encounter-theme').length, 1);
+    const { combatId } = locateCombatStart(h.chat, 1);
+    assert.equal(h.chat[1].extra.igsCombat[combatId].theme, 'wuxia');
+    kinds.length = 0;
+    const s = h.session();
+    const again = await s.prepare(1);
+    assert.deepEqual([again.session.status, again.session.theme, kinds.includes('encounter-theme')], ['lobby', 'wuxia', false]);
+    assert.equal(s.start().ok, true);
+    assert.equal(s.state().record.theme, 'wuxia');
+    const resumed = h.session();
+    assert.equal(resumed.resume().ok, true);
+    assert.deepEqual([resumed.state().status, resumed.state().theme], ['battle', 'wuxia']);
+});
+
+
+test('初始装备随首战主角卡组同批请求：锚定开战楼写 equip 并穿上，不锚最新楼；已有主角档案时不再请求', async () => {
+    const { profileIdFor } = await import('../src/combat/schema.js');
+    const CLASS_VALUE = { className: '游剑客', archetype: 'warrior', passive: ['锋锐', 'opening-strength'],
+        cards: [['斩一', 'strike', 1], ['斩二', 'strike', 1], ['守三', 'guard', 1], ['守四', 'guard', 1], ['破五', 'bash', 2], ['裂六', 'rend', 1], ['守七', 'brace', 1], ['势八', 'might', 2], ['斩九', 'strike'], ['斩十', 'strike'], ['斩终', 'strike']] };
+    const DECK_VALUE = { hp: 80, passive: ['意志', 'last-stand'], skill: ['闪光', 'quick'], cards: [['剑一', 'strike', 1], ['盾二', 'guard', 1], ['剑三', 'strike', 1], ['盾四', 'guard', 1]] };
+    const GEAR = { gear: [['家传宝剑', 'weapon', 'epic', 'str', 'opening-strength', '祖上传下的剑']] };
+    const asked = [];
+    const request = async (req) => {
+        const entities = JSON.parse(req.user).entities;
+        asked.push(...entities.map((e) => e.kind));
+        const value = (e) => (e.kind === 'class' ? CLASS_VALUE : e.kind === 'profile-deck' ? DECK_VALUE : e.kind === 'profile-gear' ? GEAR : null);
+        return JSON.stringify({ entities: entities.filter((e) => value(e)).map((e) => ({ key: e.key, value: value(e) })) });
+    };
+    const h = harness({ profiles: [row(classDef, 1), row(enemyDef('狼', 4), 3)], request });
+    h.chat.push(user('继续前进'));
+    const prepared = await h.session().prepare(1);
+    assert.equal(prepared.ok, true, JSON.stringify(prepared));
+    assert.ok(asked.includes('profile-deck') && asked.includes('profile-gear'), JSON.stringify(asked));
+    assert.equal(prepared.session.gearDiagnostics, undefined);
+    const heroId = profileIdFor('deck-character', '主角');
+    const equips = h.tables.ledger.filter((e) => e.type === 'equip');
+    assert.deepEqual(equips.map((e) => [e.id, e.anchor.messageId]), [[`equip|${heroId}|1|0|init-gear|0`, 1]]);
+    const view = (await h.ledger.effectiveState()).characters.get(heroId);
+    assert.deepEqual([view.gear.slots.weapon?.name, view.gear.slots.weapon?.rarity], ['家传宝剑', 'epic']);
+    asked.length = 0;
+    assert.equal((await h.session().prepare(1)).ok, true);
+    assert.equal(asked.includes('profile-gear'), false, JSON.stringify(asked));
+    assert.equal(h.tables.ledger.filter((e) => e.type === 'equip').length, 1);
 });

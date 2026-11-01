@@ -191,6 +191,34 @@ test('面板：打开加 panel:combat 暂停原因并进入战前，关闭只撤
     assert.equal(p.overlay.querySelector('#igs-combat-panel'), null);
 });
 
+test('面板：素材库立绘读回后经 subscribePortraits 重算，地址有变才重绘战前；关闭时退订', async () => {
+    let heroUrl = '';
+    let notify = null;
+    let offCalls = 0;
+    const p = panelHarness({
+        resolvePortrait: (name) => (name === '狼' ? 'https://example.test/wolf.png' : heroUrl),
+        subscribePortraits: (handler) => { notify = handler; return () => { offCalls += 1; notify = null; }; },
+    });
+    p.panel.open(p.overlay, { messageId: 1 });
+    await until(() => p.panel.view().status === 'lobby');
+    const body = () => p.overlay.querySelector('.igs-combat-body').innerHTML;
+    assert.equal(typeof notify, 'function');
+    assert.doesNotMatch(body(), /hero\.png/);
+    // 读回的不是当前显示的立绘：地址不变，不重绘。
+    const before = body();
+    notify({ imageId: 'other', reason: 'image-loaded' });
+    assert.equal(body(), before);
+    // 立绘读回：解析出地址后重绘，战前我方框换成立绘。
+    heroUrl = 'https://example.test/hero.png';
+    notify({ imageId: 'hero', reason: 'image-loaded' });
+    assert.match(body(), /<img src="https:\/\/example\.test\/hero\.png"/);
+    assert.equal(p.panel.view().portraits['主角'], 'https://example.test/hero.png');
+    p.panel.close();
+    assert.equal(offCalls, 1);
+    assert.equal(notify, null);
+});
+
+
 test('面板：后台准备进行中打开只显示准备中、不另发准备，准备结束经会话订阅刷新到战前并定好操控角色', async () => {
     const p = panelHarness();
     const background = p.session.prepare(1);
@@ -371,7 +399,8 @@ test('面板：打到结束后发送战报，已回传的开战楼再打开只�
     const sent = await p.panel.invoke('finish');
     assert.equal(sent.ok, true);
     assert.equal(p.sent.length, 1);
-    p.panel.close();
+    // 战报送达且没有待领的升级奖励时，面板自动关闭，露出阅读器里的新楼层。
+    assert.equal(p.panel.isOpen(), false);
     p.panel.open(p.overlay, { messageId: 1 });
     await until(() => p.panel.view().status === 'done');
     assert.doesNotMatch(p.overlay.querySelector('.igs-combat-body').innerHTML, /data-combat-act="start"/);
@@ -1217,6 +1246,10 @@ test('敌人图集：基础格随世界观换题材，西幻独有物种在各�
     assert.deepEqual(enemyArtCell({ art: 'boss-f', worldview: 'fantasy' }), { atlas: 'western', x: '100%', y: '20%' });
     assert.deepEqual(enemyArtCell({ art: 'dragon', worldview: 'modern' }), { atlas: 'western', x: '0%', y: '60%' });
     assert.deepEqual(enemyArtCell({ art: 'dwarf-f', worldview: 'ancient' }), { atlas: 'western', x: '100%', y: '100%' });
+    // 本场遭遇题材标注优先于世界观；非法值回落世界观；西幻独有格不受标注影响。
+    assert.deepEqual(enemyArtCell({ name: '神秘水贼', tier: 'normal', worldview: 'modern', theme: 'wuxia' }), enemyArtCell({ name: '神秘水贼', tier: 'normal', worldview: 'ancient' }));
+    assert.equal(enemyArtCell({ art: 'grunt-m', worldview: 'ancient', theme: 'bogus' }).atlas, 'wuxia');
+    assert.equal(enemyArtCell({ art: 'dragon', worldview: 'ancient', theme: 'urban' }).atlas, 'western');
 });
 
 test('面板：素材库立绘优先；没有立绘的敌人在战前、对局与行动条用通用图集一格，题材随世界观，我方不取图集', async () => {

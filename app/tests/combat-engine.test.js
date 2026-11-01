@@ -906,3 +906,42 @@ test('wipe + overkill：操控角色打空最后一名敌人的同时倒下，�
     assert.deepEqual([r.state.outcome, r.state.units.hero.alive, r.state.units.foe.alive], ['victory', false, false]);
     assert.ok(!r.events.some((e) => e.type === 'act'));
 });
+
+
+test('技能助战两动：setup 带 actions 2 时每次出手连用两次技能；旧 setup 与敌人仍一次，重放一致，非法取值拒收', () => {
+    const ally = (extra = {}) => ({ id: 'mate', name: '白露', side: 'ally', kind: 'skill', maxHp: 40, skills: [claw(3)], ...extra });
+    const units = (extra) => [hero(Array(5).fill('basic-defend')), ally(extra), foe({ maxHp: 300 })];
+    // 每次出手（act）到下一次 act 或主角回合开始之间，该单位使用技能的次数。
+    const usesPerAct = (events, unitId) => {
+        const out = [];
+        events.forEach((e, i) => {
+            if (e.type !== 'act' || e.unitId !== unitId) return;
+            let n = 0;
+            for (const x of events.slice(i + 1)) {
+                if (x.type === 'act' || x.type === 'turn-start') break;
+                if (x.type === 'skill' && x.unitId === unitId) n += 1;
+            }
+            out.push(n);
+        });
+        return out;
+    };
+    const setup = { controlledId: 'hero', units: units({ actions: 2 }) };
+    const created = createBattle(setup, SEED);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    assert.equal(created.state.units.mate.actions, 2);
+    const r = applyAction(created.state, { type: 'end-turn' });
+    assert.equal(r.ok, true, JSON.stringify(r.error));
+    const mateUses = usesPerAct(r.events, 'mate');
+    assert.ok(mateUses.length > 0 && mateUses.every((n) => n === 2), JSON.stringify(mateUses));
+    const foeUses = usesPerAct(r.events, 'foe');
+    assert.ok(foeUses.length > 0 && foeUses.every((n) => n === 1), JSON.stringify(foeUses));
+    assert.deepEqual(replayBattle(setup, SEED, [{ type: 'end-turn' }]).state, r.state);
+
+    const old = start(units());
+    assert.equal(old.units.mate.actions, undefined);
+    const oldUses = usesPerAct(applyAction(old, { type: 'end-turn' }).events, 'mate');
+    assert.ok(oldUses.length > 0 && oldUses.every((n) => n === 1), JSON.stringify(oldUses));
+
+    assert.equal(createBattle({ controlledId: 'hero', units: units({ actions: 3 }) }, SEED).error?.reason, 'invalid-stat');
+    assert.equal(createBattle({ controlledId: 'hero', units: [hero(Array(5).fill('basic-defend'), { actions: 2 }), ally(), foe()] }, SEED).error?.reason, 'invalid-stat');
+});

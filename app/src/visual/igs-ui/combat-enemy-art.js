@@ -1,4 +1,4 @@
-import { ENEMY_ART_BASE_COUNT, ENEMY_ART_KEYS, enemyArtKeyFor } from '../../combat/enemy-art.js';
+import { ENEMY_ART_BASE_COUNT, ENEMY_ART_KEYS, enemyArtKeyFor, isEnemyArtTheme } from '../../combat/enemy-art.js';
 
 // 通用敌人图集（app/assets/enemies/*.webp）：透明底 192×256 单格，每行 6 格，格序同 combat/enemy-art.js 的 ENEMY_ART_KEYS。
 // 西幻图集含全部格位；都市、武侠只有前 ENEMY_ART_BASE_COUNT 个基础格，其余物种与种族各题材共用西幻那一格。
@@ -17,10 +17,12 @@ export const enemyArtThemeOf = (worldview) => THEME_OF_WORLDVIEW[String(worldvie
 
 const pct = (i, n) => `${n > 1 ? Math.round((i / (n - 1)) * 10000) / 100 : 0}%`;
 
-// 敌人图格位：art 合法时用 art，否则按名字推断（combat/enemy-art.js）；返回图集与 background-position 百分比。同名、同世界观永远同一格。
-export function enemyArtCell({ art, name, tier, worldview } = {}) {
+// 敌人图格位：art 合法时用 art，否则按名字推断（combat/enemy-art.js）；返回图集与 background-position 百分比。同名、同题材永远同一格。
+// 基础格的题材：本场遭遇标注（theme，战斗准备时生成）合法时优先，否则按世界观；西幻独有格不受影响。
+export function enemyArtCell({ art, name, tier, worldview, theme } = {}) {
     const index = Math.max(0, ENEMY_ART_KEYS.indexOf(enemyArtKeyFor({ art, name, tier })));
-    const atlas = index < ENEMY_ART_BASE_COUNT ? enemyArtThemeOf(worldview) : 'western';
+    const base = isEnemyArtTheme(theme) ? theme : enemyArtThemeOf(worldview);
+    const atlas = index < ENEMY_ART_BASE_COUNT ? base : 'western';
     return { atlas, x: pct(index % COLUMNS, COLUMNS), y: pct(Math.floor(index / COLUMNS), ATLAS_ROWS[atlas]) };
 }
 

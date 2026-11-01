@@ -100,6 +100,8 @@ export function createCombatPanelController(doc, options = {}) {
     let offCardArt = null;
     // 物品图订阅（P7d）：道具菜单显示本聊天物品图，补载或生成完成后与卡面同样重绘。
     let offItemArt = null;
+    // 立绘读回订阅：素材库立绘（igs-gen:）按名字解析时可能还没读回，读回或丢失后显示中的立绘地址有变才重绘。
+    let offPortraits = null;
     // 面板尺寸变化只移动原控件，不整块重绘或复制按钮。
     let stopDockWatch = null;
     // 点开的牌面数字加成详情（挂在面板根节点上，同一时刻最多一个）。
@@ -133,6 +135,8 @@ export function createCombatPanelController(doc, options = {}) {
     let drawnRecordError = '';
     // 翻牌进度只改 flip、不改状态：记下画过的翻牌视图，异步读到 offer、翻牌写入后有变化才重绘。
     let drawnFlip = '';
+    // 画过的立绘地址（按名字）：立绘读回通知到达时与当前解析结果比较，相同不重绘。
+    let drawnPortraits = '';
     // 已朝上的翻牌位置（按本场与套别）：只给刚翻开的牌出光效，重开面板、换上备用套后首次画出不出光效。
     let flipShown = null;
     // 本场结算画面第一次画出的时刻（按本场与结果）：入场动画据此只播一次，期间重绘按已过时间接着播；开合时重置。
@@ -185,16 +189,16 @@ export function createCombatPanelController(doc, options = {}) {
         try { url = typeof options.resolveItemImage === 'function' ? options.resolveItemImage(name) : ''; } catch (error) { url = ''; }
         return safePortraitUrl(url);
     };
-    // 没有素材库立绘的敌人用通用敌人图集的一格；题材随宿主注入的世界观（getFxSkin().worldview），按名字去重，批量敌人共用原名推断的格位。
+    // 没有素材库立绘的敌人用通用敌人图集的一格；题材优先取本场遭遇标注（会话 theme），没有时随宿主注入的世界观（getFxSkin().worldview）；按名字去重，批量敌人共用原名推断的格位。
     const worldviewOf = () => {
         try { return String((typeof options.getFxSkin === 'function' ? options.getFxSkin() : null)?.worldview || ''); } catch (error) { return ''; }
     };
-    const enemyArtFor = (foes, pics) => {
+    const enemyArtFor = (foes, pics, theme) => {
         const out = {};
         const worldview = worldviewOf();
         for (const u of foes) {
             if (!u?.name || pics[u.name] || Object.hasOwn(out, u.name)) continue;
-            out[u.name] = enemyArtCell({ art: u.art, name: u.name, tier: u.tier, worldview });
+            out[u.name] = enemyArtCell({ art: u.art, name: u.name, tier: u.tier, worldview, theme });
         }
         return out;
     };
@@ -245,7 +249,7 @@ export function createCombatPanelController(doc, options = {}) {
             : view.lobby ? [...view.lobby.allies.map((a) => a.name), ...view.lobby.enemies.map((e) => e.name)] : [];
         view.portraits = portraitsFor(names);
         const foes = view.battle ? view.battle.enemies : view.lobby ? view.lobby.enemies : [];
-        view.enemyArt = enemyArtFor(foes, view.portraits);
+        view.enemyArt = enemyArtFor(foes, view.portraits, cur.theme);
         // 我方立绘框色调：取立绘探测缓存里的 tint（整幅压到 25×25 后取最亮的不透明像素）；只在取到时追加 tints，未探测的由 probeTints 在绘制后补。
         if (view.lobby) {
             const tints = {};
@@ -345,6 +349,7 @@ export function createCombatPanelController(doc, options = {}) {
             for (const u of [...view.battle.allies, ...view.battle.enemies]) drawnLook.set(u.id, { intent: u.intent, block: u.block, dot: view.battle.track.find((t) => t.id === u.id) || null });
         }
         try { const st = session()?.state(); drawnRecordError = st?.recordError || ''; drawnFlip = flipSig(st); } catch (error) { drawnRecordError = ''; drawnFlip = ''; }
+        drawnPortraits = JSON.stringify(view.portraits || {});
         const lobbyDrawn = Boolean(view.lobby) && view.pending !== 'prepare';
         // 入场只在本次打开后第一次画战前时播；减少动态效果时不播（只留静态斜切）。
         if (lobbyDrawn && !lobbyShown && !reduced()) view.intro = true;
@@ -516,6 +521,14 @@ export function createCombatPanelController(doc, options = {}) {
         if (!cutinTimers.size) { render(); return; }
         const schedule = typeof options.schedule === 'function' ? options.schedule : (f, t) => setTimeout(f, t);
         artTimer = schedule(() => { artTimer = null; onCardArtUpdated(); }, ART_REFRESH_DELAY_MS);
+    }
+
+    // 立绘读回（或丢失）通知：重算显示中的立绘地址，有变化才按卡面刷新的规则重绘；动作进行中、结算演出未走完时由那次收尾重绘。
+    function onPortraitsUpdated() {
+        if (!root || pending || settling) return;
+        let next = '';
+        try { next = JSON.stringify(snapshot().portraits || {}); } catch (error) { return; }
+        if (next !== drawnPortraits) onCardArtUpdated();
     }
 
     // 会话异步变化（后台准备结束、留档写入结果）：面板自己的动作进行中时由那次动作收尾重绘；结算演出未走完时由结算收尾重绘；
@@ -1086,6 +1099,18 @@ export function createCombatPanelController(doc, options = {}) {
         return r;
     }
 
+    // 战报发送成功后离开战斗面板，露出阅读器里的新楼层；有升级三选一时先领完（或跳过）再离开。
+    // 只由本面板的「发送战报 / 重新发送」触发：手动重开已发送的面板不会自动关掉。
+    let leaveAfterReport = false;
+    function closeIfReportSettled() {
+        if (!leaveAfterReport || !root || pending || rewards) return;
+        let status = '';
+        try { status = session()?.state().status || ''; } catch (error) { status = ''; }
+        if (status !== 'done') return;
+        leaveAfterReport = false;
+        close();
+    }
+
     async function runAsync(kind, fn) {
         if (pending) return { ok: false, reason: 'combat-busy' };
         const my = token;
@@ -1098,7 +1123,13 @@ export function createCombatPanelController(doc, options = {}) {
         pending = '';
         say(r);
         render();
-        if (r.ok && r.session?.status === 'done') loadRewards();
+        if (r.ok && r.session?.status === 'done') {
+            if (kind === 'send') {
+                leaveAfterReport = true;
+                await loadRewards();
+                if (my === token) closeIfReportSettled();
+            } else loadRewards();
+        }
         return r;
     }
 
@@ -1361,7 +1392,10 @@ export function createCombatPanelController(doc, options = {}) {
         if (!offered) return { ok: false, reason: 'combat-reward-choice-invalid' };
         const choice = kind === 'card' ? { kind, cardId: value } : kind === 'upgrade' ? { kind, targetId: value } : { kind: 'skip' };
         const r = await runAsync('reward', () => ledger.claimReward(rewards.characterId, rewards.level, choice));
-        if (r.ok) await loadRewards();
+        if (r.ok) {
+            await loadRewards();
+            closeIfReportSettled();
+        }
         return r;
     }
 
@@ -1702,6 +1736,8 @@ export function createCombatPanelController(doc, options = {}) {
         // 拖牌的指针事件挂在根节点：拖动中指针捕获到根节点，移出手牌区也能跟随。
         for (const [type, fn] of pointerListeners) root.addEventListener(type, fn);
         offCardArt = typeof options.subscribeCardImages === 'function' ? options.subscribeCardImages(() => onCardArtUpdated()) : null;
+        offItemArt = typeof options.subscribeItemImages === 'function' ? options.subscribeItemImages(() => onCardArtUpdated()) : null;
+        offPortraits = typeof options.subscribePortraits === 'function' ? options.subscribePortraits(() => onPortraitsUpdated()) : null;
         offSession = typeof s.subscribe === 'function' ? s.subscribe(onSessionChanged) : null;
         overlay.appendChild(root);
         overlay.classList?.toggle('igs-record-screen-open', true);
@@ -1723,7 +1759,6 @@ export function createCombatPanelController(doc, options = {}) {
         // 焦点落在面板本身而不是关闭按钮：打开时右上角不画焦点环，按 Tab 仍从关闭按钮开始。
         root.focus?.();
         return { ok: true };
-        offItemArt = typeof options.subscribeItemImages === 'function' ? options.subscribeItemImages(() => onCardArtUpdated()) : null;
     }
 
     function close() {
@@ -1747,9 +1782,13 @@ export function createCombatPanelController(doc, options = {}) {
         for (const [type, fn] of pointerListeners) root.removeEventListener?.(type, fn);
         try { if (typeof offCardArt === 'function') offCardArt(); } catch (error) { /* 宿主已卸载 */ }
         offCardArt = null;
+        try { if (typeof offItemArt === 'function') offItemArt(); } catch (error) { /* 宿主已卸载 */ }
+        offItemArt = null;
+        try { if (typeof offPortraits === 'function') offPortraits(); } catch (error) { /* 宿主已卸载 */ }
+        offPortraits = null;
         try { if (typeof offSession === 'function') offSession(); } catch (error) { /* 会话已丢弃 */ }
         offSession = null;
-        drawnStatus = ''; drawnRecordError = '';
+        drawnStatus = ''; drawnRecordError = ''; drawnPortraits = '';
         if (artTimer !== null) {
             try { (typeof options.clear === 'function' ? options.clear : (t) => clearTimeout(t))(artTimer); } catch (error) { /* 已触发 */ }
             artTimer = null;
@@ -1763,13 +1802,12 @@ export function createCombatPanelController(doc, options = {}) {
         battleMusic(pageOverlay, false);
         pageOverlay = null;
         pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
+        leaveAfterReport = false;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();
         return { ok: true };
     }
-        try { if (typeof offItemArt === 'function') offItemArt(); } catch (error) { /* 宿主已卸载 */ }
-        offItemArt = null;
 
     return {
         open, close, dispose: close, invoke, cancelSelection,

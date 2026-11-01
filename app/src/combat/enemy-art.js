@@ -11,6 +11,9 @@ export const ENEMY_ART_KEYS = Object.freeze([
 ]);
 export const ENEMY_ART_BASE_COUNT = 18;
 export const isEnemyArtKey = (value) => typeof value === 'string' && ENEMY_ART_KEYS.includes(value);
+// 敌人图集题材：每场遭遇一条，战斗准备时由副 LLM 按剧情与世界设定标注（encounter-theme）；只决定基础格取哪套图集，西幻独有格不受影响。
+export const ENEMY_ART_THEMES = Object.freeze({ western: '西方奇幻', urban: '现代都市', wuxia: '古代武侠' });
+export const isEnemyArtTheme = (value) => typeof value === 'string' && Object.hasOwn(ENEMY_ART_THEMES, value);
 
 // 需要加「-m / -f」的类型；其余是物种，不分性别。
 const GENDERED = Object.freeze({ grunt: '杂兵', elite: '精锐', caster: '术士', assassin: '刺客', chief: '头目', boss: '首领', elf: '精灵', fairy: '妖精', dwarf: '矮人' });

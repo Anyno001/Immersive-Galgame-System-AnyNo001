@@ -217,7 +217,8 @@ test('手动生成卡组档案：沿用已登记职业时请求不含职业部�
     assert.equal((await h.tables.append('profile', [row(classDef, 1), row(heroDef, 2), row(aliceSkill, 3)])).ok, true);
     const r = await h.services.generateDeckProfile({ name: '爱丽丝', classRef: 'cls-blade' });
     assert.deepEqual(r, { ok: true, id: aliceId, reusedClass: true });
-    assert.deepEqual(h.seen[0].entities.map((e) => e.key), [`deck:${aliceId}`]);
+    // 初始装备随卡组档案同批请求（profile-gear，可省略）；夹具不作答时不落账、不影响卡组档案。
+    assert.deepEqual(h.seen[0].entities.map((e) => e.key), [`deck:${aliceId}`, `gear:${profileIdFor('skill-character', '爱丽丝')}`]);
     const state = await h.services.getLedger().effectiveState();
     assert.equal(state.characters.get(aliceId).kind, 'deck-character');
     assert.equal(state.characters.get(aliceId).classRef, 'cls-blade');
@@ -301,8 +302,8 @@ test('后台自动准备：最新 AI 楼带开战标签时直接准备到战前�
     assert.equal((await h.tables.append('profile', [row(classDef, 1), row(heroDef, 2), row(wolf, 3)])).ok, true);
     const r = await h.services.autoPrepare(1);
     // 档案齐全时不重建档案；属性表已建、参战者缺 init，只发一次初始化补齐请求（9d，主角与敌人各一项）。
-    // 本场奖励（battle-reward）与初始化同批请求；夹具不作答，奖励失败不阻断，之后的修正轮只含奖励。
-    const inits = h.seen.map((p) => p.entities.filter((e) => e.kind !== 'battle-reward').map((e) => [e.kind, e.input.name])).filter((x) => x.length);
+    // 本场奖励（battle-reward）与敌人图集题材（encounter-theme）与初始化同批请求；夹具不作答，奖励失败、题材缺省都不阻断，之后的修正轮只含奖励。
+    const inits = h.seen.map((p) => p.entities.filter((e) => e.kind !== 'battle-reward' && e.kind !== 'encounter-theme').map((e) => [e.kind, e.input.name])).filter((x) => x.length);
     assert.deepEqual([r.ok, r.session?.status, inits, h.seen[0].entities.some((e) => e.kind === 'battle-reward'), r.session?.reward?.status], [true, 'lobby', [[['profile-init', '主角'], ['profile-init', '狼']]], true, 'failed']);
     const asked = h.seen.length;
     const again = await h.services.autoPrepare(1);
@@ -992,4 +993,27 @@ test('人物状态面板 · 只开数值系统（P8c）：手动建档时可打�
     panel.close();
     mode = 'auto';
     assert.equal(panel.open(overlay).reason, 'combat-disabled');
+});
+
+
+test('按剧情给初始装备：手动生成卡组时同批请求 profile-gear，档案读回后锚定最新楼层写 equip 并穿上；空列表不写；重复写幂等', async () => {
+    const aliceId = profileIdFor('deck-character', '爱丽丝');
+    const deckValue = { hp: 80, passive: ['意志', 'last-stand'], skill: ['闪光', 'quick'], cards: [['剑一', 'strike', 1], ['盾二', 'guard', 1], ['剑三', 'strike', 1], ['盾四', 'guard', 1]] };
+    const gear = { gear: [['家传宝剑', 'weapon', 'mythic', 'str', 'opening-strength', '祖上传下的剑'], ['布衣', 'armor', 'common', 'con', null]] };
+    const h = growthServices({ replies: (p) => JSON.stringify({ entities: p.entities.map((e) => ({ key: e.key, value: e.kind === 'profile-gear' ? gear : deckValue })) }) });
+    assert.equal((await h.tables.ensure()).ok, true);
+    assert.equal((await h.tables.append('profile', [row(classDef, 1), row(heroDef, 2), row(aliceSkill, 3)])).ok, true);
+    const r = await h.services.generateDeckProfile({ name: '爱丽丝', classRef: 'cls-blade' });
+    assert.deepEqual([r.ok, r.id, r.gearDiagnostics], [true, aliceId, undefined]);
+    const ledger = h.services.getLedger();
+    const view = (await ledger.effectiveState()).characters.get(aliceId);
+    const { weapon, armor } = view.gear.slots;
+    assert.deepEqual([weapon?.name, weapon?.rarity, weapon?.bonus, Boolean(weapon?.passive), armor?.name, Object.hasOwn(armor || {}, 'passive')],
+        ['家传宝剑', 'mythic', { ability: 'str', amount: 5 }, true, '布衣', false]);
+    const equips = async () => (await h.tables.read()).ledger.filter((e) => e.type === 'equip').map((e) => e.id).sort();
+    const last = h.host.chat.length - 1;
+    assert.deepEqual(await equips(), [`equip|${aliceId}|${last}|0|init-gear|0`, `equip|${aliceId}|${last}|0|init-gear|1`]);
+    assert.equal((await ledger.grantInitialGear(aliceId, [weapon])).ok, true);
+    assert.equal((await equips()).length, 2);
+    assert.deepEqual(await ledger.grantInitialGear(aliceId, []), { ok: true, written: [], present: [], rejected: [], pending: [], entries: [] });
 });

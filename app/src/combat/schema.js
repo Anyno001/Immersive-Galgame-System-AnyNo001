@@ -24,6 +24,8 @@ export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-ch
 export const LEDGER_TYPES = Object.freeze(['profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer', 'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake']);
 // 装备部位（每部位同时 1 件）与一次性道具单条数量上限；单次消耗上限覆盖一场战斗内的累计用量。
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
+// 按剧情给的初始装备（助手 10-31）锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
+export const INIT_GEAR_TAG_HASH = 'init-gear';
 export const ITEM_GAIN_MAX = 3;
 export const ITEM_CONSUME_MAX = 30;
 // 剧情回血（heal 条目）：flat 为点数（1–9999），percent 为最近一场战后记录的生命上限的百分比（1–100）。

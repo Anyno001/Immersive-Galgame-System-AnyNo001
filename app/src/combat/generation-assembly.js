@@ -1,8 +1,9 @@
 import { BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, combatSpeedFor } from './rules.js';
 import { CARD_TEMPLATES, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, PASSIVE_TEMPLATES, SKILL_TEMPLATES, cardFromValues, gearPassiveFromTemplate, heroSkillFromTemplate, itemAtRarity, itemFromTemplate, fixedTemplateCost, nearestTemplateCost, passiveAtRarity, passiveFromTemplate, skillFromTemplate, solveCardTemplate } from './card-templates.js';
 import { forbiddenCombos } from './combos.js';
-import { GEAR_BONUS_BY_RARITY, REWARD_ORIGIN_MAX, gearIdFor, itemIdFor, profileIdFor } from './schema.js';
+import { GEAR_BONUS_BY_RARITY, GEAR_SLOTS, REWARD_ORIGIN_MAX, gearIdFor, itemIdFor, profileIdFor } from './schema.js';
 import { ABILITY_KEYS, abilityKeyOf } from './abilities.js';
+import { gearHasPassive } from './acquire-candidates.js';
 import { hash32, hashString, nextRandom } from './random.js';
 import { isEnemyArtKey } from './enemy-art.js';
 
@@ -401,6 +402,42 @@ export function assembleGear(value, { key, input }) {
     if (!tpl) return { errors: a.errors };
     const passive = { id: `${gearId}-p`, name, ...gearPassiveFromTemplate(tpl, input.slot) };
     return { value: { gearId, name, slot: input.slot, passive, description: textOr(input.description, passive.description, 80) }, diagnostics: a.diagnostics };
+}
+
+// profile-gear（按剧情给初始装备，助手 10-31）：{ gear:[[名称, 部位, 稀有度, 六维键, 被动模板键|null, 简述?], …] } → equip 载荷列表（0–4 件、每部位至多 1 件）。
+// 剧情没写的角色回 { gear: [] }。稀有度由模型按剧情给，加成按稀有度（+1…+5）；是否带被动按装备 ID 种子与正文获得物同规则抽定（gearHasPassive），抽中时才采用模型给的模板键。
+export const INITIAL_GEAR_MAX = 4;
+export function assembleInitialGear(value, { key }) {
+    const bad = requireObject(value);
+    if (bad) return bad;
+    const a = createAssembly(key);
+    const list = value.gear ?? [];
+    if (!Array.isArray(list) || list.length > INITIAL_GEAR_MAX) return { errors: [{ path: 'gear', reason: 'invalid-length', detail: { max: INITIAL_GEAR_MAX } }] };
+    const rarities = Object.keys(GEAR_BONUS_BY_RARITY);
+    const slots = new Set();
+    const ids = new Set();
+    const out = [];
+    list.forEach((raw, i) => {
+        const at = (n) => `gear[${i}][${n}]`;
+        if (!Array.isArray(raw)) { a.fail(`gear[${i}]`, 'expected-array'); return; }
+        const name = nameOf(raw[0], at(0), a, 20);
+        const slot = GEAR_SLOTS.includes(raw[1]) ? raw[1] : a.fail(at(1), 'invalid-enum', { allowed: [...GEAR_SLOTS] });
+        const rarity = rarities.includes(raw[2]) ? raw[2] : a.fail(at(2), 'invalid-enum', { allowed: rarities });
+        const ability = abilityKeyOf(raw[3]);
+        if (!ability || !ABILITY_KEYS.includes(ability)) a.fail(at(3), 'invalid-ability', { allowed: [...ABILITY_KEYS] });
+        if (!name || !slot || !rarity || !ability || !ABILITY_KEYS.includes(ability)) return;
+        const gearId = gearIdFor(name);
+        if (slots.has(slot)) { a.fail(at(1), 'slot-duplicate'); return; }
+        if (ids.has(gearId)) { a.fail(at(0), 'name-duplicate'); return; }
+        slots.add(slot);
+        ids.add(gearId);
+        const withPassive = gearHasPassive(gearId, rarity);
+        const tpl = withPassive ? templateKey(raw[4], at(4), a, GEAR_PASSIVE_TEMPLATES) : null;
+        if (withPassive && !tpl) return;
+        const passive = tpl ? { id: `${gearId}-p`, name, ...passiveAtRarity(tpl, rarity) } : null;
+        out.push({ gearId, name, slot, ...(passive ? { passive } : {}), description: textOr(raw[5], passive?.description, 80), rarity, bonus: { ability, amount: GEAR_BONUS_BY_RARITY[rarity] } });
+    });
+    return a.errors.length ? { errors: a.errors } : { value: out, diagnostics: a.diagnostics };
 }
 
 // item-to-consumable：{ template:"道具模板键" } → item 载荷；数量取标签，itemId 由名称推导。

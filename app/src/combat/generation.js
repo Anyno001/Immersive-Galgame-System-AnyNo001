@@ -3,15 +3,15 @@ import { hashString } from './random.js';
 import { REWARD_ORIGIN_MAX, effectsDamage, gearIdFor, ledgerEntryId, normalizeCard, normalizeLedgerEntry, normalizeProfile, normalizeSkill, profileIdFor, validateStarterDeck } from './schema.js';
 import { CARD_TEMPLATES, COMPOSITE_SKILL_KEYS, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, nearestTemplateCost, passiveAtRarity, templateCatalogText } from './card-templates.js';
 import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
-import { enemyArtCatalogText } from './enemy-art.js';
-import { CARD_COST_SLOTS, assembleClass, assembleClassTier, assembleDeck, assembleEnemy, assembleGear, assembleGrowth, assembleItem, assembleReward, assembleSkillCharacter, assembleSkillFill, assembleTrait, costSlotsFor } from './generation-assembly.js';
+import { ENEMY_ART_THEMES, enemyArtCatalogText, isEnemyArtTheme } from './enemy-art.js';
+import { CARD_COST_SLOTS, assembleClass, assembleClassTier, assembleDeck, assembleEnemy, assembleGear, assembleGrowth, assembleInitialGear, assembleItem, assembleReward, assembleSkillCharacter, assembleSkillFill, assembleTrait, costSlotsFor } from './generation-assembly.js';
 import { parseCombatInit } from './abilities.js';
 import { planRewardSlots } from './rewards.js';
 
 // 副 LLM 生成：程序构造请求、解析 JSON、逐实体校验；不合格实体最多定向修正 MAX_FIX_ROUNDS 轮，已通过的不再提交。
 // request 与 llm 配置由调用方注入（createSecondaryLlm().request），combat 不读宿主、不落账。
 // 这条链路只证明解析与校验正确，不证明模型生成质量。
-export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait', 'skill-fill']);
+export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait', 'skill-fill', 'encounter-theme', 'profile-gear']);
 export const MAX_FIX_ROUNDS = 2;
 
 const isObj = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -87,6 +87,8 @@ export const GENERATION_SYSTEM = [
     `input.combatInit 为 true 时，在 value 中另附 init：{"className":"自由职业显示名，最多12字，可空","role":"${Object.keys(COMBAT_RULES.archetypes).join('|')}","major":"主擅长六维键","minor":"次擅长六维键","weak":"短板六维键"}；六维键为 str/dex/con/int/wis/cha，三项互异，依据角色设定与剧情，不输出属性数值。profile-init 只返回 {"init":{...}}，不重写档案；这组字段可整组省略。`,
     `- trait：{"name":"人物特性名，≤20 字","template":"被动模板键","origin":"来历，≤${REWARD_ORIGIN_MAX} 字"}——角色 input.name 的人物特性：名称与来历依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo），写这个人为何有这种特质；品相贴合 input.rarity（common 普通、uncommon 罕见、rare 稀有、epic 史诗、mythic 神话）；不与 input.existing（存在时）里已有的特性重名。input.effect 存在时效果已由程序定好（input.kind 为 active 时是战斗中每回合可主动用一次的技能，passive 为被动），只回 name 与 origin，名称与来历贴合这个效果，不写 template。稀有度、数值与 ID 由程序给定。`,
     '- skill-fill：{"skills":[恰好 input.count 个技能]}——给已有的角色或敌人 input.name 补技能，技能写成 ["技能名","技能模板键"]；名称不与 input.existing 里已有的技能重复，依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo）设计，与已有技能风格一致、效果互补；input.tier 存在时这是该档位的敌人；input.templates 存在时技能模板键只能从其中选。数值与 ID 由程序给定。',
+    `- encounter-theme：{"theme":"${Object.keys(ENEMY_ART_THEMES).join('|')}"}——本场敌人立绘用哪套题材：${Object.entries(ENEMY_ART_THEMES).map(([key, label]) => `${key} ${label}`).join('、')}。按剧情与世界书（context.story、context.worldInfo）以及 input.encounter、input.enemies 判断这些敌人的时代与装束：古代、江湖、仙侠选 wuxia，西方中世纪或魔法世界选 western，近现代与未来选 urban。`,
+    '- profile-gear：{"gear":[0–4 件，每件 ["装备名，≤20 字","weapon|armor|accessory|treasure","common|uncommon|rare|epic|mythic","加成的六维键 str/dex/con/int/wis/cha","被动模板键","简述，≤80 字，可省"]]}——角色 input.name 此刻已经带在身上的装备，每个部位至多 1 件。只列 input.lore、context.story、context.worldInfo 明确写到这个角色持有的装备，不按身份、职业或常识补发；一件都没写到时回 {"gear":[]}。稀有度按这件装备在剧情与设定中的分量判断：家传宝剑、神兵、成名法器可给 epic 或 mythic，寻常佩刀、布衣给 common。被动模板键每件都要填，是否带被动与数值由程序决定。',
     '带 previousErrors 的实体上一轮被拒收：按其中的字段路径（指向你上一轮的回复）和原因修改 previous，其余保持不变。',
 ].join('\n');
 
@@ -160,9 +162,20 @@ export function withCombatInitialization(entities, names) {
     return list;
 }
 
+// 敌人图集题材（每场遭遇一条，助手 10-31）：副 LLM 按剧情、世界书与敌人名称选题材；可省略，失败不阻断开战。
+export function encounterThemeEntity({ encounter = '', enemies = [] } = {}) {
+    return { key: 'theme:encounter', kind: 'encounter-theme', role: 'encounter', optional: true,
+        input: { encounter: String(encounter || ''), enemies: (Array.isArray(enemies) ? enemies : []).map((e) => e?.name).filter(Boolean) } };
+}
+
+// 按剧情给初始装备（助手 10-31）：每名首次参战、身上没有装备的我方角色一条；剧情没写到装备时回空列表。可省略，失败不阻断开战。
+export function profileGearEntity(name) {
+    return { key: `gear:${profileIdFor('skill-character', name)}`, kind: 'profile-gear', role: 'gear', optional: true, input: { name } };
+}
+
 // 角色设定参考：read 由调用方注入（宿主的 readCharacterLore），combat 只调用、不直接读宿主。
 // 只给 profile-deck / profile-skill / profile-init / trait / skill-fill 附 input.lore，读到内容才加字段；读取失败或为空时实体保持原样。
-const LORE_KINDS = new Set(['profile-deck', 'profile-skill', 'profile-init', 'trait', 'skill-fill']);
+const LORE_KINDS = new Set(['profile-deck', 'profile-skill', 'profile-init', 'trait', 'skill-fill', 'profile-gear']);
 export async function withCharacterLore(entities, read) {
     const list = Array.isArray(entities) ? entities : [];
     const names = [...new Set(list.filter((e) => LORE_KINDS.has(e.kind)).map((e) => e.input?.name).filter(Boolean))];
@@ -374,11 +387,29 @@ function withInitResult(entity, value, checked) {
     }] };
 }
 
+// encounter-theme：只认题材目录里的键；缺省或非法时记诊断、照常通过（不触发修正），面板回落到世界观。
+function themeResult(entity, value) {
+    const theme = isObj(value) ? value.theme : undefined;
+    if (isEnemyArtTheme(theme)) return { ok: true, result: { theme }, diagnostics: [] };
+    return { ok: true, result: {}, diagnostics: [{ code: 'combat-theme-invalid', key: entity.key }] };
+}
+
+// profile-gear：组装 0–4 件装备载荷（每部位至多 1 件）；被动受队友技能伤害上限约束。角色 ID 由会话在档案落库并读回后解析，这里不出账本条目。
+function validateInitialGear(entity, value, opts) {
+    const built = assembleInitialGear(value, opts);
+    if (built.errors) return { ok: false, errors: built.errors };
+    const capped = built.value.findIndex((g) => effectsDamage(g.passive?.effects) > COMBAT_RULES.allySkillDamageCap);
+    if (capped >= 0) return { ok: false, errors: [err(`gear[${capped}][4]`, 'damage-cap')] };
+    return { ok: true, result: { gear: { name: entity.input.name, items: built.value } }, diagnostics: built.diagnostics };
+}
+
 // 单个实体校验。返回 { ok:true, result, diagnostics } / { ok:false, errors } / { deferred:true }（等同批职业先有结论）。
 function validateEntity(entity, value, ctx) {
     if (entity.kind === 'profile-init') return withInitResult(entity, value, { ok: true, result: {} });
+    if (entity.kind === 'encounter-theme') return themeResult(entity, value);
     if (!isObj(value)) return { ok: false, errors: [err('', 'expected-object')] };
     const opts = { key: entity.key, owner: entity.owner, fixed: entity.fixed, input: entity.input };
+    if (entity.kind === 'profile-gear') return validateInitialGear(entity, value, opts);
     if (entity.kind === 'class') {
         const n = normalizedProfile(assembleClass(value, opts));
         if (!n.ok) return n;
@@ -484,7 +515,7 @@ function validateGrowth(entity, value, ctx) {
     const payload = mode === 'upgrade' ? { targetId: id, [field]: n.value } : { [field]: n.value };
     return { ok: true, result: { entry: growthEntry(entity, mode, payload, ctx.now) }, diagnostics };
 }
-const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11 });
+const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11, 'encounter-theme': 12, 'profile-gear': 13 });
 const cancelled = (accepted) => ({ ok: false, reason: 'request-stale', accepted: [], rejected: [], diagnostics: [], discarded: accepted.size });
 
 // 本轮回复 → key 到 value；重复 key 只认第一次，请求以外的 key 只记诊断。
