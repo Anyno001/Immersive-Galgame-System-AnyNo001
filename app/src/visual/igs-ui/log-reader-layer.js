@@ -510,6 +510,7 @@ export function syncLogReader(overlay, view) {
     if (adjustSig !== s.adjustSig) { s.adjustSig = adjustSig; repaintKey(overlay, ''); }
     const doc = overlay.ownerDocument;
     let revealing = null;
+    const before = s.rendered;
     for (let i = s.rendered; i <= view.upto && i < view.rows.length; i++) {
         const live = i === view.live;
         const built = buildRow(overlay, view.rows, i, view, live);
@@ -528,7 +529,8 @@ export function syncLogReader(overlay, view) {
     for (const row of list.querySelectorAll('.igs-log-row')) row.classList.toggle('is-old', Number(row.dataset.index) < view.batchStart);
     refreshLoops(overlay);
     syncStageEcho(overlay, log, list, view);
-    scrollEnd(log, Boolean(revealing));
+    // 只在出了新行时滚到底：往回翻时切背景等重渲染不能把列表拉回底部。
+    if (s.rendered !== before) scrollEnd(log, Boolean(revealing));
     return { revealing };
 }
 

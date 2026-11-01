@@ -1,6 +1,6 @@
 // D&D 第五版（数值 v2 §4.2）：属性值 = 底数 / 5，修正 = floor((属性值 − 10) / 2)；
 // 技能底数 50–74 熟练、75 以上专精（双倍熟练加值）；熟练加值看资历档。优势 / 劣势不叠加。
-// 自然 20 / 1 只对攻击检定生效；属性与技能检定的分档（超出 DC 多少）只用于演出与结算，不改官方成败。
+// 自然 20 / 1 常开（引擎传 natural:true）：技能检定里自然 20 必成、自然 1 必败；分档（超出 DC 多少）只用于演出与结算。
 
 export const ID = 'dnd5e';
 export const LABEL = 'D&D第五版（d20）';
@@ -55,9 +55,14 @@ function ladderOf(success, margin, natural, nat) {
 
 // opts：{ difficulty, edge, shift, dc, natural }。dc 优先于难度档（对抗被动值）。
 export function resolve(profile, opts = {}, raw) {
+    return resolveTotal(bonusOf(profile, opts.shift), opts, raw);
+}
+
+// 加值已算好时直接结算（正文检定回放、战斗侧传入现成加值）。
+export function resolveTotal(bonusValue, opts = {}, raw) {
     const edge = clampEdge(opts.edge);
     const dc = Number.isFinite(Number(opts.dc)) && opts.dc !== null && opts.dc !== undefined ? Math.round(Number(opts.dc)) : (DC[opts.difficulty] || DC.普通);
-    const bonus = bonusOf(profile, opts.shift);
+    const bonus = Math.round(Number(bonusValue) || 0);
     const nat = face(raw, edge);
     const total = nat + bonus;
     let success = total >= dc;

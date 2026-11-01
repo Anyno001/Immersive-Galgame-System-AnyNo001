@@ -3,8 +3,9 @@
 import * as coc7 from './coc7.js';
 import * as dnd5e from './dnd5e.js';
 
-const REGISTRY = new Map([[coc7.ID, coc7], [dnd5e.ID, dnd5e]]);
-export const DEFAULT_RULESET = coc7.ID;
+// 登记顺序即设置页下拉顺序：D&D 为默认，CoC 随后。
+const REGISTRY = new Map([[dnd5e.ID, dnd5e], [coc7.ID, coc7]]);
+export const DEFAULT_RULESET = dnd5e.ID;
 const REQUIRED = ['resolve', 'contest', 'passiveOpposition', 'chance', 'rawRoll', 'rawNeed'];
 
 export function registerRuleset(ruleset) {

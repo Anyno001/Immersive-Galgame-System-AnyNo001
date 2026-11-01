@@ -4,13 +4,15 @@ import { parseTables } from './table-parser.js';
 import { columnLooksTextual, formatNumberCell, readAttributeCell, scaleValue, suspectRange, writeAttributeCell } from '../../scene/stats/stat-cell-format.js';
 import { stageOf } from '../../scene/stats/stat-favor.js';
 import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
+import { LEGACY_ATTRIBUTE_MAP } from '../../scene/stats/stat-registry.js';
 
 export const PUSH_TIMEOUT_MS = 3000;
 // updateCell 的行号含表头：数据行下标 + 1（与 shujuku-panel 的 toShujukuApiRowIndex、AcuDice 一致）。
 export const SHUJUKU_ROW_OFFSET = 1;
 const NAME_COLUMNS = new Set(['姓名', '角色姓名', '角色名', '角色真实姓名', '调查员姓名', 'name', '名称']);
 const DIM_RULES = Object.freeze([['好感', /好感/], ['信任', /信任/], ['了解', /了解/]]);
-const BAR_RULES = Object.freeze([['health', /生命|^HP$|血量/i], ['stamina', /体力/], ['money', /^(?:金钱|金币|货币)$/], ['stress', /压力/]]);
+// 生命不再由数值侧推送（生命取自战斗 vitals），所以这里没有 health 规则。
+const BAR_RULES = Object.freeze([['stamina', /体力/], ['money', /^(?:金钱|金币|货币)$/], ['stress', /压力/]]);
 const ATTR_COLUMNS = Object.freeze({ 基础属性: 'base', 特有属性: 'special' });
 const TYPE_COLUMN = '角色类型';
 
@@ -92,17 +94,19 @@ function cellValue(m, current, value) {
     return formatNumberCell(current, scaleValue(value, m.range || {}), { percent: m.percent });
 }
 
-function attrUpdates(skills, group) {
+// 基础属性组取调用方给的六维（baseAttributes，战斗六维换算后的数值）；特有属性组取主角 skills 里非六维的技能。
+function attrUpdates(skills, group, baseAttributes) {
+    if (group === 'base') return baseAttributes && typeof baseAttributes === 'object' ? { ...baseAttributes } : {};
     const isBase = new Set(BASE_ATTRIBUTES);
     const out = {};
     for (const [name, skill] of Object.entries(skills || {})) {
-        if ((group === 'base') === isBase.has(name)) out[name] = skill.value;
+        if (!isBase.has(name)) out[name] = skill.value;
     }
     return out;
 }
 
 // 只产出与当前单元格不同的写入；rowOffset = 数据行下标到 updateCell 行号的偏移。
-export function planStatsPush(state, tables, mappings, { characterKey = (name) => name, rowOffset = SHUJUKU_ROW_OFFSET } = {}) {
+export function planStatsPush(state, tables, mappings, { characterKey = (name) => name, rowOffset = SHUJUKU_ROW_OFFSET, baseAttributes = null } = {}) {
     const byName = new Map(tables.map((t) => [t.name, t]));
     const writes = [];
     const diagnostics = [];
@@ -125,10 +129,11 @@ export function planStatsPush(state, tables, mappings, { characterKey = (name) =
             if (!row) { diagnostics.push({ code: 'stats-push-row-missing', table: m.table, row: i }); continue; }
             const from = String(row[m.col] ?? '');
             if (m.kind === 'attrs') {
-                const updates = attrUpdates(state.protagonist.skills, m.group);
+                const updates = attrUpdates(state.protagonist.skills, m.group, baseAttributes);
                 const current = readAttributeCell(from);
                 const changed = Object.keys(updates).some((k) => current[k] !== updates[k]);
-                if (changed) push(m, i, from, writeAttributeCell(from, updates));
+                // 基础属性组写回时带旧名映射：格内的「健康/理智/观察」改写成新六维名。
+                if (changed) push(m, i, from, writeAttributeCell(from, updates, m.group === 'base' ? { renames: LEGACY_ATTRIBUTE_MAP } : undefined));
             } else {
                 push(m, i, from, cellValue(m, from, state.protagonist.bars[m.key]));
             }
@@ -139,14 +144,14 @@ export function planStatsPush(state, tables, mappings, { characterKey = (name) =
 
 // client 为 createShujukuClient(api)。读失败与「没有可写的格子」分开报告（契约：失败不当空）；一批写完只刷新一次。
 // overridesByFingerprint：按模板指纹保存的映射覆盖（§8B 第 5 条），切换模板时自动换成该模板的映射。
-export async function pushStats(client, state, { overrides, overridesByFingerprint, characterKey, rowOffset = SHUJUKU_ROW_OFFSET } = {}) {
+export async function pushStats(client, state, { overrides, overridesByFingerprint, characterKey, rowOffset = SHUJUKU_ROW_OFFSET, baseAttributes = null } = {}) {
     const read = client.readTables();
     if (!read.ok) return { ok: false, reason: 'stats-push-read-failed', detail: read.reason, wrote: 0 };
     const tables = parseTables(read.data);
     const fingerprint = fingerprintTables(tables);
     const picked = overrides || (overridesByFingerprint && overridesByFingerprint[fingerprint]) || {};
     const detected = detectStatMappings(tables, { overrides: picked });
-    const plan = planStatsPush(state, tables, detected.mappings, { characterKey, rowOffset });
+    const plan = planStatsPush(state, tables, detected.mappings, { characterKey, rowOffset, baseAttributes });
     const failures = [];
     let wrote = 0;
     for (const w of plan.writes) {

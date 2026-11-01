@@ -35,13 +35,16 @@ function outcomeOf(wins, rounds, dodged) {
     return '败';
 }
 
-// 敌人一方：已有角色卡的 NPC 用卡里最高的战斗技能，AC 按卡里敏捷；否则按档位值。
+// 敌人一方：已有角色卡的 NPC，D&D 的 AC 取 10 + 敏捷修正；CoC 用卡里最高的战斗技能对抗；否则按档位值。
 function foeProfile(engine, state, enemy, foeName) {
     const sheet = foeName ? engine.sheets[foeName] : null;
     if (sheet) {
+        if (engine.ruleset.ID === 'dnd5e') {
+            const dex = Number(profileOf(engine, state, foeName, '敏捷').value) || 50;
+            return { profile: null, ac: 10 + engine.ruleset.modOf(dex), save: enemy.save };
+        }
         const profile = ['格斗', '射击', '武艺', '剑术', '魔法', '力量'].map((skill) => profileOf(engine, state, foeName, skill)).sort((a, b) => b.value - a.value)[0];
-        const dex = Number(sheet.attributes && sheet.attributes.敏捷) || 50;
-        return { profile, ac: engine.ruleset.ID === 'dnd5e' ? 10 + engine.ruleset.modOf(dex) : enemy.ac, save: enemy.save };
+        return { profile, ac: enemy.ac, save: enemy.save };
     }
     return { profile: { kind: 'skill', value: enemy.value, learned: true, attributeValue: enemy.value, rank: '普通人', entry: { attribute: '力量' } }, ac: enemy.ac, save: enemy.save };
 }
@@ -85,8 +88,10 @@ function shiftBar(bars, key, delta, changes, note) {
     return { ...bars, [key]: to };
 }
 
+// 伤势不再扣主角生命条：只把伤势档记进 flags.battleHurt，交战斗侧写入生命账本。
 function applyBar(bars, directive, ctx, note) {
     const r = applyBarDirective(bars, directive, ctx.moneyTable);
+    if (r.hurt) ctx.flags.battleHurt = r.hurt;
     if (r.change) ctx.changes.push({ source: 'battle', target: '主角', key: r.change.key, from: r.change.from, to: r.change.to, note });
     return r.bars;
 }

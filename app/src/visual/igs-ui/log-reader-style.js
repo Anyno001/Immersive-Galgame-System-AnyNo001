@@ -100,13 +100,14 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 #igs-log .igs-log-row.is-noav .igs-log-body{grid-column:1!important;}
 #igs-log[data-user-side="right"] .igs-log-row.is-user{grid-template-columns:1fr ${CARD.w}px;}
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-av{grid-column:2;}
-#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-body{grid-column:1;grid-row:1;padding-right:0;}
+#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-body{grid-column:1;grid-row:1;padding-right:0;padding-left:${CARD.w + 14}px;}
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-name{justify-content:flex-end;}
 /* User 靠右：重播键放在名字左边。 */
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-name .igs-log-play{order:-2;margin:0 -2px 0 0;}
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-name .igs-log-chip{order:-1;}
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-av>.igs-fx-symbol{left:calc(var(--igs-log-sym-xl,calc(0px - 12px * var(--igs-log-mk) + var(--igs-fx-size) * .6)) - var(--igs-fx-size) * .6);}
-#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-text{text-align:right;}
+/* 靠右：短句贴右，长句换行后仍左对齐（整块靠右），不出参差的左边。 */
+#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-text{display:table;margin-left:auto;text-align:left;}
 
 /* 旁白：通栏等宽；段首放句末等待符号（跟随皮肤与用户选的形状）。 */
 #igs-log .igs-log-row.is-narr{grid-template-columns:1fr;}

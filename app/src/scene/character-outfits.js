@@ -140,6 +140,32 @@ export function outfitNamesOf(characterOutfits, characterAliases, character) {
     return Object.keys(outfitsOfCharacter(characterOutfits, characterAliases, character).outfits);
 }
 
+// 在这张卡里隐藏的服装：hiddenOutfits = { 角色: [服装名] }，跟着角色卡存。
+// 隐藏只影响显示和写给 AI 的服装表；资料照旧保留，正文写到这套也不当作新衣服入库。
+export function isOutfitHidden(sceneAssets, character, outfit) {
+    const list = (plain(plain(sceneAssets) && sceneAssets.hiddenOutfits) || {})[character];
+    return Array.isArray(list) && list.includes(String(outfit || '').trim());
+}
+
+export function visibleOutfitsOf(sceneAssets, character, outfits) {
+    const map = plain(outfits) || {};
+    const list = (plain(plain(sceneAssets) && sceneAssets.hiddenOutfits) || {})[character];
+    if (!Array.isArray(list) || !list.length) return map;
+    const out = {};
+    for (const name of Object.keys(map)) if (!list.includes(name)) out[name] = map[name];
+    return out;
+}
+
+// 写给 AI 的服装表用：去掉每个角色隐藏的那几套。
+export function visibleCharacterOutfits(sceneAssets, characterOutfits) {
+    const hidden = plain(plain(sceneAssets) && sceneAssets.hiddenOutfits);
+    const map = plain(characterOutfits) || {};
+    if (!hidden || !Object.keys(hidden).length) return map;
+    const out = {};
+    for (const [character, outfits] of Object.entries(map)) out[character] = visibleOutfitsOf(sceneAssets, character, outfits);
+    return out;
+}
+
 // 服装栏写法归一：服装名或词池词 → 服装名；保留字「默认」原样返回；其余返回空串（按对白处理）。
 export function resolveOutfitToken(outfits, token) {
     const text = String(token || '').trim();
@@ -346,6 +372,8 @@ export function resolveSpriteOutfit({ directives, character, offset, inheritedOu
     const resolveKey = (name) => outfitsOfCharacter(assets.characterOutfits, assets.characterAliases, name).key || name;
     const tag = latestTagAt(directives, character, offset, inheritedOutfits, resolveKey);
     if (tag.value === OUTFIT_RESET) return { outfit: '', source: 'reset', reason: '' };
+    // 本卡隐藏的服装：正文写到也按「默认」处理，交给默认衣装解析。
+    if (tag.value && hasOwn(outfits, tag.value) && isOutfitHidden(assets, key, tag.value)) return { outfit: '', source: 'reset', reason: 'outfit-hidden' };
     let mismatch = '';
     if (tag.value && hasOwn(outfits, tag.value)) {
         const freshAfterScene = Number.isFinite(tag.offset) && tag.offset >= latestSceneOffset(directives, offset);
@@ -354,7 +382,7 @@ export function resolveSpriteOutfit({ directives, character, offset, inheritedOu
     } else if (tag.value) {
         return { outfit: tag.value, source: 'tag', reason: 'outfit-unregistered' };
     }
-    const allowed = filterOutfitsByScene(outfits, scene);
+    const allowed = filterOutfitsByScene(visibleOutfitsOf(assets, key, outfits), scene);
     if (!Object.keys(allowed).length) return { outfit: '', source: '', reason: mismatch };
     const aliases = plain(assets.characterAliases) || {};
     const names = [key || character, ...(Array.isArray(aliases[key]) ? aliases[key] : [])];

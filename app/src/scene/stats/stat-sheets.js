@@ -1,12 +1,18 @@
 // NPC 角色卡与批量补全（数值 v2 §6.2–§6.4）：LLM 只给档位词，脚本按「聊天种子 + 角色名 + 项目名」在档位区间里取底数。
 // 解析只收白名单档位；出现数字整格丢弃；整份解析失败时返回 ok:false，不写半份数据（易错点 N3/N4）。
 import { BASE_ATTRIBUTES } from './stat-state.js';
-import { normalizeAttribute, validSkillName } from './stat-registry.js';
-import { RANKS } from './stat-engine.js';
+import { LEGACY_ATTRIBUTE_MAP, normalizeAttribute, validSkillName } from './stat-registry.js';
+import { RANKS, SAN_ATTRIBUTE, profileOf } from './stat-engine.js';
 import { seededRandom } from './stat-ledger.js';
 import { DEFAULT_STAT_PROMPTS } from './stat-prompt.js';
 
+// 档位词 → 区间。六维存战斗分数（3–30，ABILITY_SCORE_TIERS）；理智值（SAN）仍是百分制（ATTRIBUTE_TIERS）。
 export const ATTRIBUTE_TIERS = Object.freeze({ 很弱: [20, 30], 偏弱: [35, 45], 普通: [45, 55], 出众: [60, 70], 顶尖: [75, 90], 超凡: [91, 99] });
+export const ABILITY_SCORE_TIERS = Object.freeze({ 很弱: [3, 6], 偏弱: [7, 9], 普通: [10, 11], 出众: [12, 14], 顶尖: [15, 17], 超凡: [18, 22] });
+export const SHEET_SCORE_MIN = 1;
+export const SHEET_SCORE_MAX = 30;
+export const SHEET_SAN_MIN = 1;
+export const SHEET_SAN_MAX = 99;
 export const SKILL_TIERS = Object.freeze({ 未学: null, 入门: [25, 45], 熟练: [50, 70], 精通: [75, 85], 大师: [90, 95] });
 export const SKILL_TIER_ORDER = Object.freeze(['未学', '入门', '熟练', '精通', '大师']);
 export const PROTAGONIST_BACKFILL_MAX = '熟练';
@@ -95,7 +101,8 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
         if (!raw || typeof raw !== 'object') continue;
         const attributes = {};
         for (const [k, v] of Object.entries(raw.属性 || raw.attributes || {})) {
-            const attr = normalizeAttribute(k);
+            // 理智是CoC的第七项属性，角色卡里始终记档（只有CoC体系读它）；其余名字照常归一，旧名也认。
+            const attr = String(k).trim() === SAN_ATTRIBUTE ? SAN_ATTRIBUTE : normalizeAttribute(k);
             const tier = attributeTier(v);
             if (attr && tier) attributes[attr] = tier;
             else diagnostics.push({ code: 'stats-sheet-cell-dropped', name, key: k });
@@ -120,12 +127,12 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
 }
 
 // 档位 → 底数。chatSeed 为聊天 id，保证切换体系、重开都不变（N4）。
+// 六维写战斗分数（scale:'score'）；理智按百分制档位另存 san。
 export function sheetFromTiers(name, tiers, { chatSeed = '' } = {}) {
     const attributes = {};
-    for (const attr of BASE_ATTRIBUTES) {
-        const tier = tiers.attributes[attr] || '普通';
-        attributes[attr] = bandValue(ATTRIBUTE_TIERS[tier], `${chatSeed}|${name}|${attr}`);
-    }
+    const tierOf = (attr) => (tiers.attributes && tiers.attributes[attr]) || '普通';
+    for (const attr of BASE_ATTRIBUTES) attributes[attr] = bandValue(ABILITY_SCORE_TIERS[tierOf(attr)], `${chatSeed}|${name}|${attr}`);
+    const san = bandValue(ATTRIBUTE_TIERS[tierOf(SAN_ATTRIBUTE)], `${chatSeed}|${name}|${SAN_ATTRIBUTE}`);
     const skills = {};
     for (const [skill, tier] of Object.entries(tiers.skills || {})) {
         const v = bandValue(SKILL_TIERS[tier], `${chatSeed}|${name}|${skill}`);
@@ -134,7 +141,60 @@ export function sheetFromTiers(name, tiers, { chatSeed = '' } = {}) {
     for (const sig of tiers.signature || []) {
         if (!skills[sig.name]) skills[sig.name] = bandValue(SKILL_TIERS.精通, `${chatSeed}|${name}|${sig.name}`);
     }
-    return { rank: tiers.rank || RANKS[0], attributes, skills, signature: (tiers.signature || []).map((s) => s.name), source: 'llm', provisional: {} };
+    return { rank: tiers.rank || RANKS[0], attributes, san, skills, signature: (tiers.signature || []).map((s) => s.name), source: 'llm', provisional: {}, scale: 'score' };
+}
+
+const clampInt = (value, min, max) => Math.min(max, Math.max(min, Math.round(value)));
+
+// 旧角色卡（没有 scale 标记，attributes 是百分制旧名）迁成新格式：旧名改名、值 ÷5 夹到 1–30；
+// 旧「理智」原值同时写进 san。已是新格式或没有属性的卡原样返回（不改入参）。
+export function migrateSheetAttributes(sheet) {
+    if (!sheet || typeof sheet !== 'object' || sheet.scale === 'score') return sheet;
+    const old = sheet.attributes && typeof sheet.attributes === 'object' && !Array.isArray(sheet.attributes) ? sheet.attributes : null;
+    if (!old || !Object.keys(old).length) {
+        const { attributes, san, ...rest } = sheet;
+        return rest;
+    }
+    const attributes = {};
+    let san = Number(sheet.san) > 0 ? clampInt(Number(sheet.san), SHEET_SAN_MIN, SHEET_SAN_MAX) : null;
+    for (const [key, raw] of Object.entries(old)) {
+        const value = Number(raw);
+        if (!Number.isFinite(value)) continue;
+        if (key === SAN_ATTRIBUTE && san === null) san = clampInt(value, SHEET_SAN_MIN, SHEET_SAN_MAX);
+        const name = BASE_ATTRIBUTES.includes(key) ? key : LEGACY_ATTRIBUTE_MAP[key];
+        if (name) attributes[name] = clampInt(value / 5, SHEET_SCORE_MIN, SHEET_SCORE_MAX);
+    }
+    for (const name of BASE_ATTRIBUTES) if (!Object.hasOwn(attributes, name)) attributes[name] = 10;
+    const next = { ...sheet, attributes, scale: 'score' };
+    if (san !== null) next.san = san;
+    return next;
+}
+
+// 手改属性：六维收档位词或 1–30 整数（返回分数），理智收档位词或 1–99 整数（返回百分制）。认不出返回 null。
+export function sheetAttributeInput(attribute, raw, seedText = '') {
+    const isSan = attribute === SAN_ATTRIBUTE;
+    if (!isSan && !BASE_ATTRIBUTES.includes(attribute)) return null;
+    const text = String(raw ?? '').trim();
+    if (/^\d+$/.test(text)) {
+        const n = Number(text);
+        const [min, max] = isSan ? [SHEET_SAN_MIN, SHEET_SAN_MAX] : [SHEET_SCORE_MIN, SHEET_SCORE_MAX];
+        return n >= min && n <= max ? n : null;
+    }
+    const tier = attributeTier(text);
+    return tier ? bandValue((isSan ? ATTRIBUTE_TIERS : ABILITY_SCORE_TIERS)[tier], seedText) : null;
+}
+
+// 角色六维（及CoC下的理智）一行，写进提示词 sheets 段：D&D 为检定加值，CoC 为百分制目标值。
+export function abilityLine(engine, state, actor) {
+    if (!engine || !engine.ruleset) return '';
+    const coc = engine.ruleset.ID === 'coc7';
+    const names = coc ? [...BASE_ATTRIBUTES, SAN_ATTRIBUTE] : BASE_ATTRIBUTES;
+    return names.map((name) => {
+        const profile = profileOf(engine, state, actor, name);
+        if (coc) return `${name}${Math.round(profile.value)}`;
+        const bonus = engine.ruleset.bonusOf(profile);
+        return `${name}${bonus >= 0 ? '+' : ''}${bonus}`;
+    }).join(' ');
 }
 
 // people：[{ name, summary }]（含主角，名字为「主角」）；skills：待补的技能名。

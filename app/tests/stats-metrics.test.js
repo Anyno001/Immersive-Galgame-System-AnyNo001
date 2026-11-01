@@ -30,7 +30,12 @@ test('lookup 与 character-metrics 同形；未登记角色返回空；生活条
     const lookup = createStatsMetricsLookup(stateWith({ 好感: 60 }));
     assert.equal(lookup('小雪').stages[0].value, '强烈在意');
     assert.deepEqual(lookup('路人'), { metrics: [], stages: [] });
-    assert.deepEqual(protagonistStatMetrics({ health: 80, stamina: 50, stress: 10 }, { enabledBars: { stamina: true, stress: false } }).map((x) => x.label), ['生命', '体力']);
+    const vitals = { hp: 18, maxHp: 24, down: false };
+    assert.deepEqual(protagonistStatMetrics({ stamina: 50, stress: 10 }, { enabledBars: { stamina: true, stress: false }, vitals }).map((x) => x.label), ['生命', '体力']);
+    assert.equal(protagonistStatMetrics({ stamina: 50, stress: 10 }, { vitals })[0].display, '18/24');
+    assert.equal(protagonistStatMetrics({ stamina: 50, stress: 10 }, { vitals: { hp: 5, maxHp: 24, down: true } })[0].percent, 0);
+    // 没有战斗生命数据时不出生命条。
+    assert.deepEqual(protagonistStatMetrics({ stamina: 50, stress: 10 }).map((x) => x.label), ['体力', '压力']);
 });
 
 test('已登记角色只用 IGS 数据，未登记的人退回表格；表格出错不影响已登记角色（易错点 H3）', () => {

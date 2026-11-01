@@ -14,7 +14,7 @@ import { renderWorldviewRow } from './worldview-fields.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { isGeneratedAssetUrl, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { createOutfitResolver, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
-import { readDefaultOutfit, pickOutfitSprite } from '../../scene/character-appearance.js';
+import { readVisibleDefaultOutfit, pickOutfitSprite } from '../../scene/character-appearance.js';
 import { renderEventCgList } from './settings-event-cg.js';
 import { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList, kindModelPicker, checkbox, colorInput, field, renderCharacterAssetList, renderMoodGroupList, renderMoodReviewList, renderPinnedButtons, renderShortcutSettings, renderSceneAssetList, renderGeneratedAssetPane, countGeneratedWaiting, renderStageShakeSettings, renderChatShowSettings, renderSystemRoleSettings, renderSystemRoleAdvanced, renderWeatherFxSettings, renderCustomFontManager, renderTemplate, rangeInput, secretInput, segmentedInput, selectInput, textInput, textareaInput, numberInput, hiddenAttr, modelPicker, tableMultiSelect } from './settings-fields.js';
 import { NSFW_COUNT_MAX, CONSISTENCY_MODEL_OPTIONS, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
@@ -49,7 +49,7 @@ import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
 import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORIGIN_PERSONALITIES, ORIGIN_REPO_URL, normalizeOriginSettings } from './origin-settings.js';
 import { originChatStatus } from './origin-attach.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
-import { renderStatsArchive, renderStatsBuildFields, renderStatsMappingFields, renderStatsPromptFields } from './stats-settings-fields.js';
+import { renderStatsArchive, renderStatsBuildFields, renderStatsBuildModeField, renderStatsMappingFields, renderStatsPromptFields, renderStatsRulesetField } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
@@ -211,24 +211,25 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const stats = normalizeStatsSettings(bridge.stats);
             let chat = null;
             try { chat = typeof options.statsChat === 'function' && !idx ? options.statsChat() : null; } catch (error) { chat = null; }
-            const chatReady = Boolean(stats.enabled && chat && chat.hasChat && !chat.blocked);
+            // 卡牌战斗开启时数值系统随之打开，页面按已启用显示。
+            const statsOn = stats.enabled || Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true);
+            const chatReady = Boolean(statsOn && chat && chat.hasChat && !chat.blocked);
             const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里启用。'
                 : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
                     : chat.enabled ? '本聊天已启用。暂停后数值冻结、不结算，存档保留。' : '本聊天尚未启用数值系统。';
             return {
-                statsToggle: checkbox('bridge.stats.enabled', stats.enabled, '启用数值系统'),
-                statsOffNoteHidden: hiddenAttr(stats.enabled),
-                statsHidden: hiddenAttr(!stats.enabled),
+                statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
+                statsOffNoteHidden: hiddenAttr(statsOn),
+                statsHidden: hiddenAttr(!statsOn),
                 autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
-                rulesetField: field('bridge.stats.ruleset', '规则体系', selectInput('bridge.stats.ruleset', stats.ruleset, rulesetOptions())),
+                rulesetField: renderStatsRulesetField(stats.ruleset),
                 rulesetNote: '切换后从下一次检定起生效；已有数值按新规则换算显示，存档不变，可随时切回。',
-                storyCheckField: field('bridge.stats.storyCheck', '故事中检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '预掷（按数值自动判定）'], ['manual', '手动掷骰（多一次续写）'], ['off', '关闭']])),
+                storyCheckField: field('bridge.stats.storyCheck', '故事中检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动（每楼 10 对骰）'], ['manual', '手动掷骰（多一次续写）'], ['off', '关闭']])),
                 newChatField: field('bridge.stats.newChat', '新聊天', selectInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动快速开始'], ['off', '不启用']])),
                 sheetGenField: field('bridge.stats.sheetGen', '新角色数值', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['prompt', '提醒'], ['auto', '自动生成'], ['off', '不生成']])),
                 backfillField: field('bridge.stats.backfill', '新技能补全', selectInput('bridge.stats.backfill', stats.backfill, [['auto', '每楼结束后自动'], ['manual', '手动'], ['off', '关闭']])),
                 checkFxField: checkbox('bridge.stats.checkFx', stats.checkFx, '掷骰卡'),
                 optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项显示成功率'),
-                dndNaturalField: stats.ruleset === 'dnd5e' ? checkbox('bridge.stats.dndNatural', stats.dndNatural, '自然20/1视为大成功/大失败') : '',
                 intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '亲密门槛（好感与信任不够时角色会拒绝）'),
                 registerField: field('bridge.stats.register', '重要角色登记', selectInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']])),
                 hudLabelField: field('bridge.stats.hudLabel', '好感条右侧', selectInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']])),
@@ -247,7 +248,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 statsChatNote: esc(chatNote),
                 statsChatEnableHidden: hiddenAttr(!chatReady || chat.enabled),
                 statsChatDisableHidden: hiddenAttr(!chatReady || !chat.enabled),
-                statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen, { worldview: resolveWorldview(worldviewAssets) }),
+                statsBuildModeField: chatReady ? renderStatsBuildModeField(chat.buildMode || chat.pendingMode) : '',
+                statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen, { worldview: resolveWorldview(worldviewAssets), mode: (chatReady && (chat.buildMode || chat.pendingMode)) || null }),
                 statsBuildHidden: hiddenAttr(!chatReady || chat.enabled),
             };
         });
@@ -637,7 +639,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 lead: scopeFilterBar('characters'),
                 renderList: (subset) => renderCharacterAssetList(subset, charListOptions),
                 thumbOf: (name, moods) => {
-                    const selected = readDefaultOutfit(sceneAssets, name);
+                    const selected = readVisibleDefaultOutfit(sceneAssets, name);
                     const sprite = selected.ok && pickOutfitSprite(selected.entry, '平和', sceneAssets);
                     return resolveGenerated(sprite?.url || firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]])));
                 },

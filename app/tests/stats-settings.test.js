@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeStatsSettings } from '../src/scene/stats/stat-settings.js';
+import { readStatsSettings, normalizeStatsSettings } from '../src/scene/stats/stat-settings.js';
 import { renderStatsPromptFields } from '../src/visual/igs-ui/stats-settings-fields.js';
-import { DEFAULT_STAT_PROMPTS } from '../src/scene/stats/stat-prompt.js';
+import { DEFAULT_STAT_PROMPTS, STAT_PROMPTS_VERSION } from '../src/scene/stats/stat-prompt.js';
 import { buildStatsPrompt } from '../src/scene/stats/stat-prompt.js';
 import { createStatsState } from '../src/scene/stats/stat-state.js';
 
@@ -46,4 +46,52 @@ test('规范化后的设置直接驱动注入：关闭的段不出、覆盖文�
     const r = buildStatsPrompt(createStatsState(), { prompts: s.prompts, disabled, stageText: s.stageText });
     assert.deepEqual(r.segments.map((x) => x.id), ['source', 'protagonist']);
     assert.equal(r.segments[0].text, '自定义来源');
+});
+
+test('规则体系：空设置默认 D&D；显式存了 CoC 保留；无 promptsVersion 的旧设置缺 ruleset 时按 CoC；未知值回落', () => {
+    assert.equal(normalizeStatsSettings(null).ruleset, 'dnd5e');
+    assert.equal(normalizeStatsSettings({}).ruleset, 'dnd5e');
+    assert.equal(normalizeStatsSettings({ ruleset: 'coc7' }).ruleset, 'coc7');
+    assert.equal(normalizeStatsSettings({ ruleset: 'coc7', promptsVersion: STAT_PROMPTS_VERSION }).ruleset, 'coc7');
+    assert.equal(normalizeStatsSettings({ enabled: true }).ruleset, 'coc7');
+    assert.equal(normalizeStatsSettings({ enabled: true, promptsVersion: STAT_PROMPTS_VERSION }).ruleset, 'dnd5e');
+    assert.equal(normalizeStatsSettings({ ruleset: 'nope', enabled: true }).ruleset, 'coc7');
+    assert.equal(normalizeStatsSettings({ ruleset: 'nope', promptsVersion: STAT_PROMPTS_VERSION }).ruleset, 'dnd5e');
+    assert.equal(Object.hasOwn(normalizeStatsSettings({ dndNatural: true }), 'dndNatural'), false);
+});
+
+test('readStatsSettings 按入参引用缓存；normalizeStatsSettings 不缓存（设置页草稿会原地改）', () => {
+    const raw = { enabled: true, prompts: { source: '甲' } };
+    const a = readStatsSettings(raw);
+    assert.equal(readStatsSettings(raw), a);
+    assert.notEqual(readStatsSettings({ ...raw }), a);
+    assert.notEqual(readStatsSettings(null), readStatsSettings(null));
+    assert.equal(a.promptsVersion, STAT_PROMPTS_VERSION);
+    const draft = { build: { custom: [] } };
+    normalizeStatsSettings(draft);
+    draft.build.custom.push('钓鱼');
+    assert.deepEqual(normalizeStatsSettings(draft).build.custom, ['钓鱼']);
+});
+
+test('提示词迁移：旧设置里 roll、rollManual、protagonist 的覆盖移进 stalePrompts，sheets、sheetGen 保留', () => {
+    const old = normalizeStatsSettings({ prompts: { roll: '旧骰运', rollManual: '旧手动', protagonist: '旧主角', sheets: '旧本事', sheetGen: '旧生成', source: '来源' } });
+    assert.deepEqual(old.prompts, { sheets: '旧本事', sheetGen: '旧生成', source: '来源' });
+    assert.deepEqual(old.stalePrompts, { roll: '旧骰运', rollManual: '旧手动', protagonist: '旧主角' });
+    assert.equal(old.promptsVersion, 3);
+    const now = normalizeStatsSettings({ promptsVersion: 3, prompts: { diceManual: '新手动' }, stalePrompts: old.stalePrompts });
+    assert.deepEqual(now.prompts, { diceManual: '新手动' });
+    assert.deepEqual(now.stalePrompts, old.stalePrompts);
+});
+
+test('v0.39 把 sheets、sheetGen 放进 stalePrompts 的设置：prompts 里没有时搬回，已有则以 prompts 为准', () => {
+    const v39 = normalizeStatsSettings({ promptsVersion: 3, stalePrompts: { sheets: '被误移的本事', sheetGen: '被误移的生成', roll: '旧骰运' } });
+    assert.equal(v39.prompts.sheets, '被误移的本事');
+    assert.equal(v39.prompts.sheetGen, '被误移的生成');
+    assert.deepEqual(v39.stalePrompts, { roll: '旧骰运' });
+    const both = normalizeStatsSettings({ promptsVersion: 3, prompts: { sheets: '现行' }, stalePrompts: { sheets: '旧的' } });
+    assert.equal(both.prompts.sheets, '现行');
+    assert.equal(Object.hasOwn(both.stalePrompts, 'sheets'), false);
+    // 与默认值相同的旧覆盖不算覆盖，不进失效清单。
+    const same = normalizeStatsSettings({ prompts: { protagonist: DEFAULT_STAT_PROMPTS.protagonist } });
+    assert.deepEqual([same.prompts, same.stalePrompts], [{}, {}]);
 });

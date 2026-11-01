@@ -88,6 +88,39 @@ export function parseStatDirectives(text) {
     return { directives, diagnostics };
 }
 
+// 短哈希（FNV-1a）：给生命类标签算 tagHash，战斗账本按它去重与对账。
+function shortHash(text) {
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i += 1) {
+        h ^= text.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return `sh${(h >>> 0).toString(36)}`;
+}
+
+// 只扫生命类标签（battle、hurt，以及体力「受伤」折成轻伤），给每个标签算 tagHash 与同哈希出现序号，交给战斗账本记伤势。
+export function scanStatLifeTags(text) {
+    const out = [];
+    const seen = new Map();
+    const push = (tag, key) => {
+        const tagHash = shortHash(key);
+        const occurrence = seen.get(tagHash) || 0;
+        seen.set(tagHash, occurrence + 1);
+        out.push({ ...tag, tagHash, occurrence });
+    };
+    for (const match of String(text ?? '').matchAll(tagPattern())) {
+        const directive = parseFields(match[1].split(/[|｜]/).map((field) => field.replace(/\s+/g, ' ').trim()));
+        if (directive && directive.kind === 'battle') {
+            push({ kind: 'battle' }, `battle|${directive.tier}|${directive.count}|${directive.ally || ''}`);
+            continue;
+        }
+        const tier = directive && directive.kind === 'hurt' ? directive.value
+            : directive && directive.kind === 'stamina' && directive.value === '受伤' ? '轻伤' : null;
+        if (tier) push({ kind: 'hurt', tier }, `hurt|${tier}`);
+    }
+    return out;
+}
+
 // 阅读器、语音、漫画泡、弹幕统一用剔除后的文本（易错点 C4；出口接入在 P1.5 之后）。
 export function stripStatDirectives(text) {
     const source = String(text ?? '');

@@ -7,6 +7,8 @@ export const STAMINA_EVENTS = Object.freeze(['轻', '中', '重', '熬夜', '受
 export const MONEY_FLOWS = Object.freeze(['收入', '花费']);
 export const MONEY_TIERS = Object.freeze(['少量', '普通', '昂贵', '巨额']);
 export const HURT_TIERS = Object.freeze(['轻伤', '中伤', '重伤']);
+// 伤势档占最大生命的百分比；伤势只交给战斗账本记录，不再扣数值侧生命条。
+export const HURT_PCT = Object.freeze({ 轻伤: 15, 中伤: 30, 重伤: 50 });
 export const ENEMY_TIERS = Object.freeze(['杂兵', '精英', '头目']);
 export const KEY_EVENTS = Object.freeze(['约会', '告白', '共患难']);
 export const ROLL_DIFFICULTIES = Object.freeze(['简单', '普通', '困难', '极难']);

@@ -1,5 +1,5 @@
 import { buildIgsTextPayload } from './message-source.js';
-import { appearanceCharacterKey, readDefaultOutfit } from './character-appearance.js';
+import { appearanceCharacterKey, readVisibleDefaultOutfit } from './character-appearance.js';
 import { collectLatestOutfits, isBuiltinNudeOutfit, resolveSpriteOutfit, resolveWardrobePrompt } from './character-outfits.js';
 
 export const PREVIOUS_OUTFIT_DNA_PLACEHOLDER = '{{previous_outfit_dna}}';
@@ -47,7 +47,7 @@ function describeOutfit(assets, character, { directive, scene }, previous) {
     let outfit = resolved.outfit;
     const prefix = `角色 ${quoted(character)}`;
     if (resolved.source === 'reset') {
-        const savedDefault = readDefaultOutfit(assets, character);
+        const savedDefault = readVisibleDefaultOutfit(assets, character);
         if (!savedDefault.ok) return '';
         outfit = savedDefault.outfitName;
     }

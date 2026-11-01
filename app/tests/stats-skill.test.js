@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { detectDifficulty, forgetSkillWord, learnSkillWord, matchSkill } from '../src/scene/stats/stat-skill-match.js';
-import { chooseSkillWithModel, parseModelSkillChoice } from '../src/scene/stats/stat-skill-model.js';
 import { POSITIVE, NEGATIVE } from './fixtures/stats-skill-corpus.js';
 
 test('语料验收：不少于 200 句、反例不少于一半；正例全中、反例零误触发（易错点 G4）', () => {
@@ -52,24 +51,4 @@ test('用户词条优先于学习表；学习表可删；技能清单外的技�
     assert.deepEqual(learnSkillWord({}, '熬魔药', '炼金'), {});
     assert.deepEqual(learnSkillWord({}, '熬3锅', '烹饪'), {});
     assert.equal(matchSkill('我下厨', { skills: ['学习'] }).skill, null);
-});
-
-test('辅助模型只能从清单里选；清单外、带数字、坏 JSON 作废为无需检定（易错点 G2）', () => {
-    const pool = ['烹饪', '学习'];
-    assert.deepEqual(parseModelSkillChoice('{"skill":"烹饪","difficulty":"困难"}', pool), { skill: '烹饪', difficulty: '困难', ok: true });
-    assert.equal(parseModelSkillChoice('{"skill":"炼金","difficulty":"普通"}', pool).skill, null);
-    assert.equal(parseModelSkillChoice('{"skill":"烹饪","difficulty":"75"}', pool).skill, null);
-    assert.equal(parseModelSkillChoice('不是 JSON', pool).reason, 'model-choice-invalid');
-    assert.equal(parseModelSkillChoice('{"skill":"","difficulty":"无需检定"}', pool).ok, true);
-});
-
-test('辅助模型超时、失败、未配置时按无需检定继续，不阻塞（易错点 G1）', async () => {
-    const hang = () => new Promise(() => {});
-    const timed = await chooseSkillWithModel('x', { skills: ['烹饪'], request: hang, timeoutMs: 20 });
-    assert.deepEqual([timed.skill, timed.reason], [null, 'model-timeout']);
-    const failed = await chooseSkillWithModel('x', { skills: ['烹饪'], request: () => { throw new Error('boom'); } });
-    assert.equal(failed.reason, 'model-failed');
-    assert.equal((await chooseSkillWithModel('x', { skills: ['烹饪'] })).reason, 'model-unavailable');
-    const ok = await chooseSkillWithModel('x', { skills: ['烹饪', '学习'], candidates: ['学习'], request: async (p) => { assert.match(p.user, /学习/); return { text: '{"skill":"学习","difficulty":"普通"}' }; } });
-    assert.equal(ok.skill, '学习');
 });

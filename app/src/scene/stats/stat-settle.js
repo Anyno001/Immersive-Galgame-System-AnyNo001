@@ -1,5 +1,5 @@
 // 一楼的事后结算（§4.2、§7、v2 §5.2 / §7.2）：检定 → 标签 → 角色维度 → 生活条 → 熬夜 → 跨天。
-// 纯函数，random 由账本按本楼种子提供；检定走 opts.engine（缺省为 CoC 空注册表）。
+// 纯函数，random 由账本按本楼种子提供；检定走 opts.engine（缺省为空注册表的默认规则体系）。
 // 返回 { state, changes, meta }，可直接作为 stat-ledger-settle 的 settle 回调结果。
 import { parseStatDirectives } from './stat-directives.js';
 import { FLOOR_GAIN_MAX, applyDim, baseDelta } from './stat-favor.js';
@@ -8,12 +8,16 @@ import { DEFAULT_MONEY_TABLE, applyBarDirective } from './stat-bars.js';
 import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } from './stat-day.js';
 import { createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
 import { settleCombat } from './stat-battle.js';
-import { PROTAGONIST, checkFromPreroll, createEngine, markGrowth, resolveCheck } from './stat-engine.js';
+import { PROTAGONIST, createEngine, markGrowth, resolveCheck } from './stat-engine.js';
 import { registerStorySkill } from './stat-registry.js';
 
 const CHARACTER_KINDS = new Set(['favor', 'dim', 'gift', 'event']);
 const BAR_KINDS = new Set(['stamina', 'hurt', 'stress', 'money']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角)$/i;
+// 标签位置：数「roll 标签」之前出现了几个正文检定标签，用来对应骰序里的第几对骰（最多 ROLL_PAIR_MAX 对）。
+const ROLL_PAIR_MAX = 10;
+const ROLL_TAG = /[\[【]\s*igs-stat\s*[:：]\s*(?:roll|检定)\s*[|｜]/i;
+const CHECK_TAG_OPEN = /\[igs-check:/g;
 // 社交检定失败时，本楼对该角色的正向好感标签降一档（§7.2）。
 const FAVOR_DOWNGRADE = Object.freeze({ 心动: '开心', 感动: '开心', 开心: '平淡' });
 
@@ -130,15 +134,36 @@ function settleClock(state, narration, directives, hour, ctx) {
     return Number.isInteger(hour) ? withClock(next, { lastHour: hour }) : next;
 }
 
-// roll 标签 + 预掷骰面 → 本楼检定（§5.2）。新技能先登记进本楼的临时目录，结果随 meta.newSkills 交给运行时合并。
-function checkFromRollTag(before, tag, opts, ctx) {
+// roll 标签取骰：标签前已有几个正文检定标签，就取骰序里对应的下一对。
+function rollTagIndex(text) {
+    const body = String(text ?? '');
+    const at = body.search(ROLL_TAG);
+    return at < 0 ? 0 : Math.min(ROLL_PAIR_MAX - 1, (body.slice(0, at).match(CHECK_TAG_OPEN) || []).length);
+}
+
+// 取 roll 标签对应的原始骰面，形状随规则体系：CoC 是 { unit, tens }，D&D 是 { d20: [a, b] }。
+// 旧预掷（opts.preroll.raw）形状与当前规则体系匹配时仍可用；否则按楼内骰序 rollPairs 取。
+function rawForRollTag(text, opts, rulesetId) {
+    const old = opts.preroll && opts.preroll.raw;
+    if (rulesetId === 'coc7') {
+        if (old && Number.isInteger(old.unit) && Array.isArray(old.tens) && old.tens.length) return { unit: old.unit, tens: [...old.tens] };
+        const pair = Array.isArray(opts.rollPairs) ? opts.rollPairs[rollTagIndex(text)] : null;
+        return pair && Number.isInteger(pair.unit) && Array.isArray(pair.tens) && pair.tens.length ? { unit: pair.unit, tens: [...pair.tens] } : null;
+    }
+    if (old && Array.isArray(old.d20) && old.d20.length === 2) return { d20: [...old.d20] };
+    const pair = Array.isArray(opts.rollPairs) ? opts.rollPairs[rollTagIndex(text)] : null;
+    return Array.isArray(pair) && pair.length === 2 ? { d20: [...pair] } : null;
+}
+
+// roll 标签 + 骰面 → 本楼检定（§5.2）。新技能先登记进本楼的临时目录，结果随 meta.newSkills 交给运行时合并。
+function checkFromRollTag(before, tag, raw, opts, ctx) {
     let engine = ctx.engine;
     let skill = engine.registry.resolve(tag.skill);
     if (!skill) {
         const r = registerStorySkill(opts.catalog || {}, tag.skill, { attribute: tag.attribute, floor: opts.floor });
         if (r.created) {
             ctx.newSkills.push(r.entry);
-            engine = createEngine({ ...(opts.catalog || {}), story: r.catalog.story }, opts.settings || {}, engine.ruleset.ID);
+            engine = createEngine({ ...(opts.catalog || {}), story: r.catalog.story }, opts.settings || {}, engine.ruleset.ID, { readAbilities: engine.readAbilities, readVitals: engine.readVitals, userName: engine.userName });
             skill = r.name;
         } else if (r.reason === 'capped' || r.reason === 'floor-capped') {
             ctx.diagnostics.push({ code: 'stats-skill-cap', name: tag.skill });
@@ -152,11 +177,13 @@ function checkFromRollTag(before, tag, opts, ctx) {
         if (!against) ctx.diagnostics.push({ code: 'stat-unknown-character', name: tag.against });
     }
     const opposedSkill = tag.opposedSkill ? engine.registry.resolve(tag.opposedSkill) : null;
-    return checkFromPreroll(engine, before, opts.preroll, { skill, difficulty: tag.difficulty, against, opposedSkill });
+    return resolveCheck(engine, before, { actor: PROTAGONIST, skill, difficulty: tag.difficulty, against, opposedSkill, raw, source: 'roll' }, null);
 }
 
-// opts：{ random, hour, nsfw, resolveCharacter, moneyTable, engine, check, preroll, catalog, settings, floor }
-// check：本楼已定的检定（选项、输入匹配、手动掷骰）；没有时按 roll 标签与预掷骰面重算。
+// opts：{ random, hour, nsfw, resolveCharacter, moneyTable, engine, check, rollPairs, preroll, storyChecks, noBattle, catalog, settings, floor }
+// check：本楼已定的检定（选项、输入匹配、手动掷骰）；没有时按 roll 标签与楼内骰序 rollPairs 重算。
+// storyChecks：正文 igs-check 的回放结果（主角的才会打成长勾；社交检定大成功可触发突破加成）。
+// noBattle：战斗扩展接管战斗时为真，丢弃 battle 标签。
 export function settleFloorText(before, text, opts = {}) {
     const { random, hour = null, nsfw = false, resolveCharacter, moneyTable = DEFAULT_MONEY_TABLE } = opts;
     const parsed = parseStatDirectives(text);
@@ -169,19 +196,26 @@ export function settleFloorText(before, text, opts = {}) {
     let check = opts.check || null;
     let pendingRoll = null;
     if (!check && rollTag) {
-        if (opts.preroll) check = checkFromRollTag(before, rollTag, { ...opts, resolveTarget: resolve }, ctx);
+        const raw = rawForRollTag(text, opts, engine.ruleset.ID);
+        if (raw) check = checkFromRollTag(before, rollTag, raw, { ...opts, resolveTarget: resolve }, ctx);
         else pendingRoll = { skill: rollTag.skill, difficulty: rollTag.difficulty, against: rollTag.against || null, opposedSkill: rollTag.opposedSkill || null, attribute: rollTag.attribute || null };
     }
-    if (check && check.social && check.success && check.ladder === 'crit') ctx.critTarget = check.against || check.toward || '*';
+    const storyChecks = (Array.isArray(opts.storyChecks) ? opts.storyChecks : []).filter((item) => item && item.skill);
+    const lead = check || storyChecks.find((item) => item.social) || null;
+    if (lead && lead.social && lead.success && lead.ladder === 'crit') ctx.critTarget = lead.against || lead.toward || '*';
     const merged = [...parsed.directives.filter((d) => d.kind !== 'roll'), ...fallbackDirectives(narration, parsed.directives)];
-    const directives = constrainFavor(dedupeDims(resolveTargets(merged, resolve, diagnostics)), check);
+    const allowed = opts.noBattle ? merged.filter((d) => d.kind !== 'battle') : merged;
+    if (allowed.length !== merged.length) diagnostics.push({ code: 'stats-battle-skipped-combat' });
+    const directives = constrainFavor(dedupeDims(resolveTargets(allowed, resolve, diagnostics)), lead);
     let state = markGrowth(before, check);
+    for (const item of storyChecks) state = markGrowth(state, item);
     state = settleCharacters(state, directives, ctx);
     state = settleCombat(state, directives, ctx);
     state = settleBars(state, directives, hour, ctx);
     state = settleClock(state, narration, directives, hour, ctx);
     const meta = { diagnostics, events: ctx.events, flags: ctx.flags };
     if (check) meta.check = check;
+    if (storyChecks.length) meta.checks = storyChecks.map((item) => ({ ruleset: item.ruleset, actor: item.actor, skill: item.skill, dc: item.dc, difficulty: item.difficulty, roll: item.roll ?? item.die, total: item.total, tier: item.tier, success: item.success }));
     if (pendingRoll) meta.pendingRoll = pendingRoll;
     if (ctx.newSkills.length) meta.newSkills = ctx.newSkills;
     if (rollTag) meta.rollTag = { skill: rollTag.skill, difficulty: rollTag.difficulty };

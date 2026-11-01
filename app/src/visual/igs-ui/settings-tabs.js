@@ -408,7 +408,7 @@ const STATS_TEMPLATE = `
       <div class="igs-source-filter-title">规则</div>
       <div class="igs-source-filter-grid">{{rulesetField}}{{storyCheckField}}</div>
       <div class="igs-source-filter-note">{{rulesetNote}}</div>
-      <div class="igs-settings-section">{{autoSkillField}}{{checkFxField}}{{optionChanceField}}{{dndNaturalField}}{{intimacyField}}</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{checkFxField}}{{optionChanceField}}{{intimacyField}}</div>
       <div class="igs-source-filter-grid">{{newChatField}}{{registerField}}{{hudLabelField}}</div>
     </div>
     <div class="igs-source-filter">
@@ -442,7 +442,7 @@ const STATS_TEMPLATE = `
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">本聊天</div>
       <div class="igs-source-filter-note" data-result="stats-chat">{{statsChatNote}}</div>
-      <div{{statsBuildHidden}}>{{statsBuildFields}}</div>
+      <div{{statsBuildHidden}}>{{statsBuildModeField}}{{statsBuildFields}}</div>
       <div class="igs-settings-row">
         <button class="igs-settings-action" data-action="stats-chat-enable" type="button"{{statsChatEnableHidden}}>快速开始（默认数值）</button>
         <button class="igs-settings-action" data-action="stats-chat-disable" type="button"{{statsChatDisableHidden}}>本聊天暂停（数值冻结）</button>

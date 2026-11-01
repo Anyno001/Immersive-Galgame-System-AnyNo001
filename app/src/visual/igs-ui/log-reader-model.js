@@ -15,7 +15,8 @@ export const LOG_LOOP_LIMIT = 2;
 export const LOG_AVATAR_BOX = Object.freeze({
     card: Object.freeze({ w: 56, h: 56, faceY: 24 }),
     // room：破框时头顶往上再留的空间，头发、发饰不被切掉（只往上伸，不占行高）。
-    break: Object.freeze({ w: 56, h: 80, faceY: 44, plate: 44, room: 28 }),
+    // zoom：破框默认放大，脸往上提，框底露到锁骨。
+    break: Object.freeze({ w: 56, h: 80, faceY: 36, plate: 44, room: 28, zoom: 1.3 }),
 });
 // 头颈肩取景宽度（头宽的倍数）。头位探测会把长发、帽子、武器算进头宽，算缩放前先封顶。
 export const LOG_BUST_SPAN = 2.3;
@@ -144,7 +145,7 @@ export function logAvatarCrop(head, aspect, box, adjust = null) {
     const span = Math.max(HEAD_W_MIN, Math.min(HEAD_W_MAX, Number(h.w))) * LOG_BUST_SPAN;
     const a = Number(aspect) > 0 ? Number(aspect) : 1.6;
     const z = adjust && Number(adjust.z) > 0 ? Number(adjust.z) : 1;
-    const imgW = (box.w / span) * z;
+    const imgW = (box.w / span) * z * (box.zoom || 1);
     const faceX = Number(h.x) * imgW;
     const faceY = (Number(h.top) * a + FACE_DROP * span) * imgW;
     const dx = adjust ? Number(adjust.x) || 0 : 0;

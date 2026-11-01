@@ -1,7 +1,7 @@
 import { isInnerDemonName } from './inner-demon.js';
 import { isImageSeed } from '../generated-images/image-seed.js';
 import { lookupSceneBackground, lookupSceneAssetUrls, resolveCharacterKey, lookupAssetValue, sceneTimeSlot } from './scene-directives.js';
-import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit, outfitsOfCharacter } from './character-outfits.js';
+import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit, isOutfitHidden, outfitsOfCharacter } from './character-outfits.js';
 import { promptProvenance } from '../generated-images/generation-prompt.js';
 import { characterPromptRecovery } from '../generated-images/illustration/character-prompt-task.js';
 import { appearanceCharacterKey, resolveCharacterAppearance } from './character-appearance.js';
@@ -419,11 +419,14 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
         };
         const selected = resolveCharacterAppearance({ characterKey: appearanceKey, requestedOutfit: outfit,
             mood, sceneAssets: userAssets, ownerScope: ctx.ownerScope || '', imageAvailability: availability });
-        if (!selected.ok) return { url: '', slot: '', character: appearanceKey, source: 'none', quality: 'none',
-            requestedOutfit: outfit, ...(selected.effectiveOutfit && { outfit: selected.effectiveOutfit }),
-            reason: selected.reason, fallbackReason: selected.fallbackReason || '',
-            needsGeneration: selected.reason === 'outfit-image-missing' };
-        return { url: selected.spriteImage.url, slot: selected.spriteImage.slot, character: appearanceKey,
+        // 默认那套在本卡隐藏、又没有别的可见衣装：有原装立绘就落到原装。
+        const hiddenToBase = !selected.ok && selected.reason === 'default-outfit-hidden' && hasLegacySprite;
+        if (!selected.ok) {
+            if (!hiddenToBase) return { url: '', slot: '', character: appearanceKey, source: 'none', quality: 'none',
+                requestedOutfit: outfit, ...(selected.effectiveOutfit && { outfit: selected.effectiveOutfit }),
+                reason: selected.reason, fallbackReason: selected.fallbackReason || '',
+                needsGeneration: selected.reason === 'outfit-image-missing' };
+        } else return { url: selected.spriteImage.url, slot: selected.spriteImage.slot, character: appearanceKey,
             requestedOutfit: selected.requestedOutfit, outfit: selected.effectiveOutfit,
             source: selected.selectionSource === 'requested' ? 'user-outfit' : 'user-default-outfit',
             selectionSource: selected.selectionSource, fallbackReason: selected.fallbackReason, reason: '',
@@ -432,7 +435,7 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     const outfitName = String(outfit || '').trim();
     // 服装内按当条表情找（精确 → 情绪组 → 模糊 → 同方向另一档）→ 裸体底图 → 这一套的「平和」→ 这一套任意一张；
     // 整套一张图都没有才退回原装——换了衣服却闪回原装的衣服比表情不准更违和。
-    if (outfitName && outfitName !== OUTFIT_RESET) {
+    if (outfitName && outfitName !== OUTFIT_RESET && !isOutfitHidden(userAssets, appearanceKey, outfitName)) {
         const found = outfitsOfCharacter(userAssets.characterOutfits, userAssets.characterAliases, name);
         const rawEntry = found.outfits[outfitName];
         // 已丢失的内部图槽先摘掉再查：命中已丢的槽不应挡住平和/任意槽/原装兜底。

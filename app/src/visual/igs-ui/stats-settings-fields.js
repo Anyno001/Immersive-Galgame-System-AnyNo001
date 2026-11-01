@@ -1,11 +1,13 @@
 // 数值系统提示词编辑（§9）：每段一个可编辑模板，可单独关闭，可恢复默认；阶段文案同样可改。
 // 留空表示使用默认值（默认值作为占位提示显示），整块默认折叠在高级分区里。
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
-import { BUILD_CUSTOM_MAX, BUILD_MAX, BUILD_MIN, BUILD_SPECIAL_COUNT, buildSummary, normalizeBuild, specialCandidates } from '../../scene/stats/stat-build.js';
-import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
-import { checkbox, field, numberInput, selectInput, textareaInput } from './settings-fields.js';
+import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_SPECIAL_COUNT, buildSummary, manualBuildSummary, normalizeBuild, specialCandidates } from '../../scene/stats/stat-build.js';
+import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abilities.js';
+import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
+import { checkbox, field, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
 
+// 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
 export const STAT_PROMPT_LABELS = Object.freeze({
     source: '数值来源声明',
     protagonist: '主角状态',
@@ -14,16 +16,29 @@ export const STAT_PROMPT_LABELS = Object.freeze({
     present: '在场角色',
     sheets: '在场角色的本事',
     check: '本轮检定',
-    roll: '本轮骰运（预掷）',
+    roll: '本轮检定骰面',
+    dice: '骰序与检定写法',
     tags: '标签说明',
+    combat: '战斗标签（卡牌战斗开启时）',
+    party: '主角团状态（卡牌战斗开启时）',
     mandates: '强制事项',
 });
-// 不单独开关的模板：手动掷骰规则随「本轮骰运」一起开关；后台请求不进主生成。
+// 不单独开关的模板：手动掷骰规则随检定骰面一起开关；后台请求不进主生成。sheets、sheetGen 已恢复为可编辑。
 export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
     rollManual: '手动掷骰规则',
+    diceManual: '手动掷骰规则',
     sheetGen: '角色卡生成（后台请求）',
     backfill: '新技能补全（后台请求）',
 });
+
+// 失效提示词的显示名：只有被新版本弃用的几项（STAT_STALE_PROMPT_KEYS）会进入 stalePrompts。
+const STALE_PROMPT_NAMES = Object.freeze({ roll: '掷骰规则', rollManual: '手动掷骰规则', protagonist: '主角状态' });
+
+// 设置里 stalePrompts 非空（且不为空串）的项 → 显示名列表；用于「旧版提示词覆盖已失效」提示。
+export function staleStatsPromptNames(stats) {
+    const stale = (stats && stats.stalePrompts) || {};
+    return Object.keys(stale).filter((key) => typeof stale[key] === 'string' && stale[key].trim()).map((key) => STALE_PROMPT_NAMES[key] || key);
+}
 
 function textOf(map, key) {
     const value = map && typeof map[key] === 'string' ? map[key] : '';
@@ -45,7 +60,7 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
             + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-prompt-reset:${esc(id)}" type="button"${custom ? '' : ' disabled'}>恢复默认</button></div>`
             + '</div>';
     }).join('');
-    const extras = Object.entries(STAT_EXTRA_PROMPT_LABELS).map(([id, label]) => {
+    const extras = Object.entries(STAT_EXTRA_PROMPT_LABELS).filter(([id]) => typeof DEFAULT_STAT_PROMPTS[id] === 'string').map(([id, label]) => {
         const custom = textOf(prompts, id);
         return `<div class="igs-settings-section" data-stats-prompt="${esc(id)}">`
             + field(`bridge.stats.prompts.${id}`, label, textareaInput(`bridge.stats.prompts.${id}`, custom || DEFAULT_STAT_PROMPTS[id], ''))
@@ -57,7 +72,11 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
         name,
         textareaInput(`bridge.stats.stageText.${name}`, textOf(stageText, name) || DEFAULT_STAGE_TEXT[name], ''),
     )).join('');
-    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-prompts"${advancedOpen('stats-prompts')}>`
+    const stale = stats && stats.staleNoticeSeen === true ? [] : staleStatsPromptNames(stats);
+    const staleRow = stale.length
+        ? `<div class="igs-settings-row" data-stats-prompt-stale><span class="igs-source-filter-note">旧版提示词覆盖已失效，改用内置内容：${esc(stale.join('、'))}</span><button class="igs-settings-action" data-action="stats-prompt-stale-ack" type="button">知道了</button></div>`
+        : '';
+    return staleRow + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-prompts"${advancedOpen('stats-prompts')}>`
         + '<summary>高级：注入给 AI 的提示词</summary>'
         + '<div class="igs-source-filter-note">框里是当前生效的提示词，可直接修改；点「恢复默认」回到内置内容。模板里的 {{变量}} 写错时会原样保留，不会中断。</div>'
         + rows
@@ -67,12 +86,24 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
 }
 
 // 存档区（§10）：当前数值一目了然；技能与变动记录折叠，低频信息不平铺。model 为 statsArchiveModel 的结果。
-const MAPPING_TARGETS = Object.freeze({ health: '生命', stamina: '体力', money: '金钱', stress: '压力', base: '基础属性', special: '特有属性' });
+const MAPPING_TARGETS = Object.freeze({ stamina: '体力', money: '金钱', stress: '压力', base: '基础属性', special: '特有属性' });
 
-// 建卡区提示文案与可用状态：渲染和输入时就地刷新共用同一份计算。
-export function statsBuildStatus(build, worldview) {
-    const s = buildSummary(build, { worldview });
-    const pointNote = s.left < 0 ? `超出 ${-s.left} 点，请调低几项。` : `剩余 ${s.left} 点（每项 ${BUILD_MIN}–${BUILD_MAX}）`;
+// 规则体系下拉（CoC第七版 / D&D第五版）：选项来自规则集登记表，value 为当前 ruleset id。
+export function renderStatsRulesetField(ruleset) {
+    return field('bridge.stats.ruleset', '规则体系', selectInput('bridge.stats.ruleset', ruleset, rulesetOptions()));
+}
+
+// 建卡区提示文案与可用状态：渲染和输入时就地刷新共用同一份计算。mode 为 'manual' 时按手动六维算。
+export function statsBuildStatus(build, worldview, mode = null) {
+    const s = mode === 'manual' ? manualBuildSummary(build, { worldview }) : buildSummary(build, { worldview });
+    let pointNote;
+    if (mode === 'manual') {
+        const problem = s.errors.includes('stats-build-over-total') ? `总分超过 ${s.max}` : s.errors.includes('stats-build-score-range') ? `单项须在 ${MANUAL_BUILD.min}–${MANUAL_BUILD.max}` : '';
+        const prefs = s.prefs ? ` · 主擅长 ${ABILITY_LABELS[s.prefs.major]} · 次擅长 ${ABILITY_LABELS[s.prefs.minor]} · 短板 ${ABILITY_LABELS[s.prefs.weak]}` : '';
+        pointNote = `剩余 ${Math.max(0, s.left)} 点 · 总分 ${s.total}/${s.max}${problem ? ` · ${problem}` : prefs}`;
+    } else {
+        pointNote = s.errors.includes('stats-build-prefs-duplicate') ? '主擅长、次擅长、短板须是三项不同的属性。' : '主擅长 15、次擅长 14、短板 8，其余三项 13 / 12 / 10。';
+    }
     const specialNote = s.picked.length > BUILD_SPECIAL_COUNT
         ? `特有技能最多选 ${BUILD_SPECIAL_COUNT} 项（已选 ${s.picked.length} 项）。`
         : `特有技能已选 ${s.picked.length}/${BUILD_SPECIAL_COUNT}，每项 50 起步。`;
@@ -82,8 +113,9 @@ export function statsBuildStatus(build, worldview) {
 // 数字框输入只写草稿、不整页重绘（保焦点）；剩余点数、技能提示与「按分配启用」在这里就地更新。
 export function refreshStatsBuildStatus(root, build, worldview) {
     if (!root || typeof root.querySelector !== 'function') return false;
-    const holder = worldview === undefined ? root.querySelector('[data-advanced="stats-build"]') : null;
-    const st = statsBuildStatus(build, holder && typeof holder.getAttribute === 'function' ? holder.getAttribute('data-stats-worldview') || undefined : worldview);
+    const holder = root.querySelector('[data-advanced="stats-build"]');
+    const attr = (name) => (holder && typeof holder.getAttribute === 'function' ? holder.getAttribute(name) || undefined : undefined);
+    const st = statsBuildStatus(build, worldview === undefined ? attr('data-stats-worldview') : worldview, attr('data-stats-mode') || null);
     const point = root.querySelector('[data-result="stats-build"]');
     if (point) point.textContent = st.pointNote;
     const special = root.querySelector('[data-result="stats-build-special"]');
@@ -93,11 +125,24 @@ export function refreshStatsBuildStatus(root, build, worldview) {
     return true;
 }
 
-// 建卡分配（§6、§10A）：默认折叠；超点或多选时「按分配启用」禁用并说明原因。
-export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview } = {}) {
+// 建档方式三选一（自动生成 / 手动建档 / 相对数值）：只切界面状态，由 data-action="stats-build-mode:<值>" 处理。
+export const STATS_BUILD_MODE_ITEMS = Object.freeze([['auto', '自动生成'], ['manual', '手动建档'], ['relative', '相对数值']]);
+
+export function renderStatsBuildModeField(mode) {
+    return field('', '建档方式', segmentedInput('', mode || 'auto', STATS_BUILD_MODE_ITEMS, '建档方式', { action: 'stats-build-mode' }));
+}
+
+// 建卡（§6、§10A）：默认折叠。自动/相对数值选六维倾向；手动建档填职业与六维加点（总分 72 以内）。
+// 超分或多选时「按分配启用」禁用并说明原因。
+export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview, mode = null } = {}) {
     const b = normalizeBuild(build);
-    const st = statsBuildStatus(b, worldview);
-    const base = BASE_ATTRIBUTES.map((name) => field(`bridge.stats.build.base.${name}`, name, numberInput(`bridge.stats.build.base.${name}`, b.base[name], BUILD_MIN, BUILD_MAX))).join('');
+    const manual = mode === 'manual';
+    const st = statsBuildStatus(b, worldview, manual ? 'manual' : null);
+    const base = manual
+        ? field('bridge.stats.build.className', '职业名', textInput('bridge.stats.build.className', b.className, ''))
+            + field('bridge.stats.build.role', '定位', selectInput('bridge.stats.build.role', b.role, BUILD_ROLE_OPTIONS))
+            + ABILITY_KEYS.map((key) => field(`bridge.stats.build.scores.${key}`, ABILITY_LABELS[key], numberInput(`bridge.stats.build.scores.${key}`, b.scores[key], MANUAL_BUILD.min, MANUAL_BUILD.max, false, 1))).join('')
+        : BUILD_PREF_FIELDS.map((key) => field(`bridge.stats.build.prefs.${key}`, BUILD_PREF_LABELS[key], selectInput(`bridge.stats.build.prefs.${key}`, b.prefs[key], BUILD_ABILITY_OPTIONS))).join('');
     // 技能选择沿用原有开关样式：默认 8 项、世界观附加与自定义技能同一种开关，不加附注、不加容器。
     const special = specialCandidates(b, { worldview }).map((name) => checkbox(`bridge.stats.build.special.${name}`, b.special[name], name)).join('');
     // 自定义技能已在上方开关列表里，下方这一行只放增删按钮，不重复列名字。
@@ -108,8 +153,8 @@ export function renderStatsBuildFields(build, advancedOpen = () => '', { worldvi
         ? '<button type="button" class="igs-btn-mgr-icon" data-action="stats-build-remove-skill" title="删除自定义技能" aria-label="删除自定义技能">−</button>'
         : '';
     const customRow = `<div class="igs-settings-field igs-stats-custom-row"><span>自定义技能</span><div class="igs-mood-word-list">${addSkill}${removeSkill}</div></div>`;
-    return `<details class="igs-settings-sub igs-settings-advanced" data-stats-worldview="${esc(worldview || 'modern')}" data-advanced="stats-build"${advancedOpen('stats-build')}>`
-        + '<summary>分配点数（基础属性各 40 起，另有 60 点）</summary>'
+    return `<details class="igs-settings-sub igs-settings-advanced" data-stats-worldview="${esc(worldview || 'modern')}"${manual ? ' data-stats-mode="manual"' : ''} data-advanced="stats-build"${advancedOpen('stats-build')}>`
+        + `<summary>${manual ? '建卡（六维加点与特有技能）' : '建卡（六维倾向与特有技能）'}</summary>`
         + `<div class="igs-source-filter-note" data-result="stats-build">${esc(st.pointNote)}</div>`
         + `<div class="igs-source-filter-grid">${base}</div>`
         + `<div class="igs-source-filter-note" data-result="stats-build-special">${esc(st.specialNote)}</div>`
@@ -147,7 +192,9 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
     const n = (v) => esc(String(Math.round(Number(v) || 0)));
     const bars = model.bars || {};
-    const head = `<div class="igs-source-filter-note">${model.day != null ? `第 ${n(model.day)} 天 · ` : ''}生命 ${n(bars.health)} · 体力 ${n(bars.stamina)} · 压力 ${n(bars.stress)} · 金钱 ${n(bars.money)}</div>`;
+    // 生命来自战斗 vitals（当前/最大）；没有数据时不显示这一项，避免出现「未知」或 0。
+    const life = model.vitals ? `生命 ${n(model.vitals.down ? 0 : model.vitals.hp)}/${n(model.vitals.maxHp)} · ` : '';
+    const head = `<div class="igs-source-filter-note">${model.day != null ? `第 ${n(model.day)} 天 · ` : ''}${life}体力 ${n(bars.stamina)} · 压力 ${n(bars.stress)} · 金钱 ${n(bars.money)}</div>`;
     const people = model.characters.length
         ? model.characters.map((c) => {
             const dims = Object.entries(c.dims).map(([k, v]) => `${esc(k)} ${n(v)}`).join(' · ');

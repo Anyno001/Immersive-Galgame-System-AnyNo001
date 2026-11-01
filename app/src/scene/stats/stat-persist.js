@@ -3,7 +3,12 @@
 // v2（数值 v2 §3.5）：新增聊天级 catalog（剧情技能、NPC 角色卡、补全队列），每楼保存检定 meta；v1 读入时迁移。
 import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat-ledger.js';
 import { BASE_ATTRIBUTES } from './stat-state.js';
-import { validSkillName } from './stat-registry.js';
+import * as registry from './stat-registry.js';
+
+const { validSkillName } = registry;
+// 旧属性名 → 战斗六维名。优先用注册表导出的 LEGACY_ATTRIBUTE_MAP（并行改造期间可能尚未导出，退回本地等价表）。
+const LEGACY_NAMES = registry.LEGACY_ATTRIBUTE_MAP || Object.freeze({ 健康: '体质', 理智: '智力', 观察: '感知' });
+const SAN_NAME = '理智';
 
 export const STATS_METADATA_KEY = 'igs_stats';
 export const STATS_BACKUP_KEY = 'igs_stats_v1_backup';
@@ -15,7 +20,7 @@ const QUEUE_MAX = 24;
 // 学习表（§4.1A）：「动作词 → 技能」，可选字段，旧存档没有时按空表读取（版本号不变）。
 const LEARNED_WORD = /^[^0-9０-９]{1,8}$/;
 
-function sanitizeLearned(raw) {
+export function sanitizeLearned(raw) {
     const learned = {};
     let dropped = 0;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { learned, dropped: raw == null ? 0 : 1 };
@@ -30,19 +35,47 @@ function sanitizeLearned(raw) {
 const num = (v, lo, hi) => (Number.isFinite(Number(v)) ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : null);
 const plainObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
+// NPC 角色卡（规格 §2）：attributes 为战斗六维分数（1–30，scale:'score'）；san 为百分制。
+// 没有 scale 标记的旧卡（百分制旧名）在这里迁移：旧名经映射改名，值 ÷5 四舍五入夹到 1–30，旧「理智」原值同时写进 san。
 function sanitizeSheet(raw) {
     if (!plainObject(raw)) return null;
     const attributes = {};
-    for (const name of BASE_ATTRIBUTES) { const v = num(raw.attributes && raw.attributes[name], 1, 99); if (v) attributes[name] = v; }
+    let san = num(raw.san, 1, 99);
+    const source = plainObject(raw.attributes) ? raw.attributes : {};
+    if (raw.scale === 'score') {
+        for (const name of BASE_ATTRIBUTES) { const v = num(source[name], 1, 30); if (v) attributes[name] = v; }
+    } else {
+        for (const [k, v] of Object.entries(source)) {
+            const name = LEGACY_NAMES[k] || (BASE_ATTRIBUTES.includes(k) ? k : null);
+            const n = num(v, 1, 99);
+            if (!name || !n) continue;
+            if (k === SAN_NAME && !san) san = n;
+            attributes[name] = num(Math.round(n / 5), 1, 30);
+        }
+    }
     const skills = {};
     for (const [k, v] of Object.entries(plainObject(raw.skills) ? raw.skills : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) skills[name] = n; }
     const provisional = {};
     for (const [k, v] of Object.entries(plainObject(raw.provisional) ? raw.provisional : {})) if (v === true && skills[k]) provisional[k] = true;
+    const hasAttributes = Object.keys(attributes).length > 0;
     return {
-        rank: typeof raw.rank === 'string' ? raw.rank.slice(0, 8) : '普通人', attributes, skills, provisional,
+        rank: typeof raw.rank === 'string' ? raw.rank.slice(0, 8) : '普通人', attributes, ...(san ? { san } : {}), ...(hasAttributes ? { scale: 'score' } : {}), skills, provisional,
         signature: Array.isArray(raw.signature) ? raw.signature.filter((s) => typeof s === 'string').slice(0, 3) : [],
         source: ['llm', 'default', 'user', 'carried'].includes(raw.source) ? raw.source : 'default',
     };
+}
+
+// NPC 属性档 → 战斗六维 { scores:{str..cha} }；仅新格式且六维齐全时返回，否则 null（战斗侧继续推导）。
+export function sheetAbilityScores(sheet) {
+    if (!plainObject(sheet) || sheet.scale !== 'score' || !plainObject(sheet.attributes)) return null;
+    const keys = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+    const scores = {};
+    for (let i = 0; i < keys.length; i += 1) {
+        const v = Number(sheet.attributes[BASE_ATTRIBUTES[i]]);
+        if (!Number.isFinite(v) || v < 1) return null;
+        scores[keys[i]] = v;
+    }
+    return { scores };
 }
 
 export function emptyCatalog() {
@@ -74,7 +107,7 @@ export function sanitizeCatalog(raw) {
 function metaToSave(meta) {
     if (!meta) return null;
     const out = {};
-    for (const key of ['check', 'preroll', 'note', 'flags', 'pendingRoll']) if (meta[key]) out[key] = meta[key];
+    for (const key of ['check', 'checks', 'preroll', 'note', 'flags', 'pendingRoll']) if (meta[key]) out[key] = meta[key];
     return Object.keys(out).length ? out : null;
 }
 

@@ -1,7 +1,8 @@
 // 数值系统存档模型（§3）：默认状态与写时浅拷 helper。
+// 六维属性取自战斗底座，不再存在 skills 里；skills 只放 8 个特有技能，prefs 记六维倾向（主擅长/次擅长/短板）。
 // 状态对象共享只读，修改只复制被改动的路径，不深拷整份存档（易错点 B4）。
-export const STATS_VERSION = 1;
-export const BASE_ATTRIBUTES = Object.freeze(['健康', '力量', '敏捷', '理智', '观察', '魅力']);
+export const STATS_VERSION = 2;
+export const BASE_ATTRIBUTES = Object.freeze(['力量', '敏捷', '体质', '智力', '感知', '魅力']);
 export const DEFAULT_SPECIAL_SKILLS = Object.freeze(['烹饪', '家务', '学习', '运动', '艺术', '话术', '照顾', '应变']);
 export const DEFAULT_DIMS = Object.freeze(['好感', '信任', '了解']);
 export const SKILL_MIN = 10;
@@ -17,13 +18,14 @@ function skillTable(names, value) {
     return Object.fromEntries(names.map((name) => [name, { value, marked: false }]));
 }
 
-export function createStatsState({ day = 1, base = 40, special = 50, money = 0 } = {}) {
+export function createStatsState({ day = 1, special = 50, money = 0, prefs = null } = {}) {
     return {
         version: STATS_VERSION,
         clock: { day, lastHour: null, floorsSinceDay: 0, stayedUp: false },
         protagonist: {
-            skills: { ...skillTable(BASE_ATTRIBUTES, base), ...skillTable(DEFAULT_SPECIAL_SKILLS, special) },
-            bars: { health: 100, stamina: 100, money, stress: 0 },
+            skills: skillTable(DEFAULT_SPECIAL_SKILLS, special),
+            prefs: prefs && typeof prefs === 'object' ? { ...prefs } : null,
+            bars: { stamina: 100, money, stress: 0 },
         },
         characters: {},
     };

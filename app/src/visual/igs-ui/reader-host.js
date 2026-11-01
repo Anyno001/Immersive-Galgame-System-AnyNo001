@@ -93,6 +93,8 @@ import { createImageResourceCache } from '../../media/resource-cache.js';
 import { collectFloorAssetUrls } from './floor-asset-prefetch.js';
 import { createChatStreamObserver, isUserFloorNode } from '../../host/chat-stream-observer.js';
 import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
+import { abilitiesForName } from '../../combat/ledger.js';
+import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } from './fx-result-model.js';
 import { cancelResultFx, playResultFx } from './fx-result.js';
 import { pickFxAccent } from './fx-symbols.js';
@@ -465,6 +467,11 @@ export function createIgsReaderHost(options = {}) {
         ? options.onItemImageUpdated(() => { if (state.activeReader) scheduleImageRefresh({ reader: true }); })
         : null;
     const offItemImageUpdated = typeof offItemImageUpdatedRaw === 'function' ? offItemImageUpdatedRaw : () => {};
+    // 战斗成长数据更新后重绘阅读器（成长提示、检定徽章据此刷新）；销毁时必须退订。
+    const offCombatGrowthRaw = typeof options.onCombatGrowthUpdated === 'function'
+        ? options.onCombatGrowthUpdated(() => { if (state.activeReader) scheduleImageRefresh({ reader: true }); })
+        : null;
+    const offCombatGrowth = typeof offCombatGrowthRaw === 'function' ? offCombatGrowthRaw : () => {};
     // 下面几项被 return host 之后的函数引用，必须声明在 return 之前，否则压缩时会被当作死代码删掉。
     const itemEventsShown = new Set();
     const ROMANCE_MEMORY_KEYS = 'igs-romance-memory-keys';
@@ -1201,6 +1208,7 @@ export function createIgsReaderHost(options = {}) {
         offStoryOutfits();
         if (!options.storyOutfits) storyOutfits?.dispose();
         offItemImageUpdated();
+        offCombatGrowth();
         offWaitGamePack();
         offImageJobLog();
         teardownStatusHudSubscription();
@@ -2195,6 +2203,17 @@ export function createIgsReaderHost(options = {}) {
         syncStatusHudOptionSuppression(container, true);
     }
 
+    // d20 检定的六维来源：卡牌战斗开启时读战斗账本；没开或账本不可用时返回 undefined，检定按「六维不可用」处理。
+    function combatAbilityReader(userName) {
+        const settings = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+        if (!normalizeCombatExpansionSettings(settings && settings.combatExpansion).enabled || typeof options.getCombatLedger !== 'function') return undefined;
+        return async (name) => {
+            const ledger = options.getCombatLedger();
+            if (!ledger || typeof ledger.effectiveState !== 'function') return null;
+            return abilitiesForName(await ledger.effectiveState(), name, userName);
+        };
+    }
+
     // 骰子命令在点击时才判定（fill 模式重点一次即重掷一次）；判定不可用时按原命令文本降级发送。
     async function resolveOptionSendText(fallback, check) {
         if (!check) return fallback;
@@ -2204,7 +2223,7 @@ export function createIgsReaderHost(options = {}) {
         // 数值系统启用时选项骰子走 IGS 引擎（v2 §5.1）；返回 null 表示未接管，照旧交给 AcuDice。
         let result = null;
         try { result = typeof options.statsDice === 'function' ? options.statsDice(check.dice, { userName }) : null; } catch (error) { result = null; }
-        if (!result) result = await resolveDiceCommand(check.dice, findAcuDice(global), { random: options.random, userName });
+        if (!result) result = await resolveDiceCommand(check.dice, findAcuDice(global), { random: options.random, userName, readAbilities: combatAbilityReader(userName) });
         if (!result || !result.ok) {
             writeToastSafe(`检定未执行：${result && result.reason || '未知原因'}，已按原命令发送`);
             return fallback;

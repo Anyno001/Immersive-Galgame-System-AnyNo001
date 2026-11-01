@@ -1,7 +1,7 @@
 import { extractSceneDirectives } from '../../scene/scene-directives.js';
 import { getMessagePrimaryText } from '../../scene/message-source.js';
-import { createOutfitResolver, isBuiltinNudeOutfit, outfitsOfCharacter } from '../../scene/character-outfits.js';
-import { outfitSpriteSlots, readDefaultOutfit } from '../../scene/character-appearance.js';
+import { createOutfitResolver, isBuiltinNudeOutfit, outfitsOfCharacter, visibleOutfitsOf } from '../../scene/character-outfits.js';
+import { outfitSpriteSlots, readVisibleDefaultOutfit } from '../../scene/character-appearance.js';
 import { moodFallbackChain, moodPresetWords } from '../../scene/mood-groups.js';
 import { HEAD_ASPECT, resolveSpriteHead } from './fx-anchor.js';
 import {
@@ -120,9 +120,10 @@ export function collectWaitStageCast(sceneAssets, options = {}) {
         .map((name) => String(name || '').trim()).filter(Boolean)));
     const cast = [];
     for (const name of names) {
-        const { outfits } = outfitsOfCharacter(assets.characterOutfits, assets.characterAliases, name);
+        const found = outfitsOfCharacter(assets.characterOutfits, assets.characterAliases, name);
+        const outfits = visibleOutfitsOf(assets, found.key || name, found.outfits);
         const keys = Object.keys(outfits || {});
-        const preferred = readDefaultOutfit(assets, name);
+        const preferred = readVisibleDefaultOutfit(assets, name);
         const lead = preferred.ok ? preferred.outfitName : (keys.find((key) => !isNudeOutfit(key, outfits[key])) || '');
         const wardrobe = [];
         for (const key of [lead, ...keys.filter((key) => key !== lead)]) {

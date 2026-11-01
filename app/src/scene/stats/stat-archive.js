@@ -4,6 +4,14 @@ import { stageOf } from './stat-favor.js';
 import { currentStatsState, ledgerKey } from './stat-ledger.js';
 import { PROTAGONIST, profileOf } from './stat-engine.js';
 
+// 主角战斗生命（{hp, maxHp, down}）；引擎没有读取器或没有数据时为 null。
+function vitalsOf(engine) {
+    if (!engine || typeof engine.readVitals !== 'function') return null;
+    let vitals = null;
+    try { vitals = engine.readVitals(engine.userName || PROTAGONIST); } catch (error) { vitals = null; }
+    return vitals && Number(vitals.maxHp) > 0 ? vitals : null;
+}
+
 export const ARCHIVE_LOG_MAX = 30;
 
 export const CHECK_LOG_MAX = 50;
@@ -33,7 +41,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
             rows.push({ messageId, target: String(c.target ?? ''), key: String(c.key ?? ''), from: c.from, to: c.to, note: String(c.note ?? '') });
         }
         const ck = entry && entry.meta && entry.meta.check;
-        if (ck) checks.push({ messageId, skill: ck.skill, difficulty: ck.difficulty || '普通', detail: ck.detail || `1d100=${ck.roll}`, outcome: ck.outcome || ck.tier, ruleset: ck.ruleset || 'coc7', source: ck.source || '' });
+        if (ck) checks.push({ messageId, skill: ck.skill, difficulty: ck.difficulty || '普通', detail: ck.detail || (ck.die === 20 ? `d20(${ck.roll})` : `1d100=${ck.roll}`), outcome: ck.outcome || ck.tier, ruleset: ck.ruleset || 'coc7', source: ck.source || '' });
     }
     const characters = Object.entries(state.characters || {}).map(([name, c]) => ({
         name, stage: stageOf(Number(c.dims && c.dims.好感) || 0).name, dims: { ...(c.dims || {}) },
@@ -51,6 +59,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
     return {
         day: state.clock ? state.clock.day : null,
         bars: { ...((state.protagonist && state.protagonist.bars) || {}) },
+        vitals: vitalsOf(engine),
         skills,
         characters,
         log: rows.slice(-logMax).reverse(),

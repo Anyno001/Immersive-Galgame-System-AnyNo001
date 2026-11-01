@@ -6,7 +6,7 @@ import { normalizeCharacterSeeds } from './generation-seeds.js';
 import { expressionNoteBelongsTo } from './expression-note-keys.js';
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
-export const ASSET_LIBRARY_MAP_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds', 'characterSpriteNotes', 'characterMoodNotes', 'characterMoodTiers', 'wardrobe', 'eventCgs', 'statusAvatars'];
+export const ASSET_LIBRARY_MAP_FIELDS = ['scenes', 'characters', 'characterAliases', 'characterDna', 'characterOutfits', 'characterDefaultOutfits', 'characterSeeds', 'characterSpriteNotes', 'characterMoodNotes', 'characterMoodTiers', 'wardrobe', 'eventCgs', 'statusAvatars', 'hiddenOutfits'];
 const LIBRARY_FIELDS = ASSET_LIBRARY_MAP_FIELDS;
 
 export function snapshotAssetLibrary(source = {}) {
@@ -221,6 +221,8 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
         characterSpriteNotes: characterField('characterSpriteNotes'),
         characterMoodNotes: characterField('characterMoodNotes'),
         characterMoodTiers: characterField('characterMoodTiers'),
+        // 隐藏哪几套跟着这张卡走：卡里写过某角色（含清空）就以卡为准，不随借来的角色写回原卡。
+        hiddenOutfits: over('hiddenOutfits'),
         generated: {
             scenes: stack([generated.scenes, cardGenerated.scenes]),
             characters: characterField('characters', generated, cardGenerated),
@@ -246,7 +248,7 @@ export function normalizeAssetCards(sceneAssets) {
             characterAliases: plain(card.characterAliases),
             characterDna: plain(card.characterDna),
             characterOutfits: plain(card.characterOutfits),
-            ...Object.fromEntries(['characterSpriteNotes', 'characterMoodNotes', 'characterMoodTiers']
+            ...Object.fromEntries(['characterSpriteNotes', 'characterMoodNotes', 'characterMoodTiers', 'hiddenOutfits']
                 .filter(field => Object.hasOwn(card, field)).map(field => [field, plain(card[field])])),
             ...(Object.hasOwn(card, 'characterSeeds') && { characterSeeds: normalizeCharacterSeeds(card.characterSeeds) }),
             ...(Object.hasOwn(card, 'characterDefaultOutfits') && {

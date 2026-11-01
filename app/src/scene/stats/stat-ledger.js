@@ -33,6 +33,11 @@ function latestActive(ledger, below = Infinity) {
     return best ? ledger.entries.get(ledgerKey(ledger, best.messageId, best.swipeId)) || null : null;
 }
 
+// 指定楼之前最近一条生效的账本条目（没有则 null）。
+export function activeEntryBefore(ledger, messageId) {
+    return latestActive(ledger, messageId);
+}
+
 export function stateBefore(ledger, messageId) {
     const entry = latestActive(ledger, messageId);
     return entry ? entry.after : ledger.initial;

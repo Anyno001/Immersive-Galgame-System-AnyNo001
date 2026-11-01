@@ -28,14 +28,30 @@ function host() {
     return { ctx, eventSource };
 }
 
+// 内存版数值日志表（和宿主 statsTables 同形）。
+function fakeTables() {
+    const t = { rows: [], version: 0 };
+    t.api = () => ({
+        ok: true,
+        get version() { return t.version; },
+        read() { return { ok: true, stats: t.rows.slice() }; },
+        append(records) { t.rows.push(...records); t.version += 1; return Promise.resolve({ ok: true }); },
+        ensure() { return Promise.resolve({ ok: true }); },
+    });
+    return t;
+}
+
 function setup(extra = {}, opts = {}) {
     const h = host();
-    const settings = { enabled: true, ...extra };
+    // 设置按引用缓存规范化结果：改设置要换新对象，不能原地改。
+    const holder = { cur: { enabled: true, ruleset: 'coc7', ...extra } };
+    const set = (patch) => { holder.cur = { ...holder.cur, ...patch }; };
+    const tables = fakeTables();
     const checks = [];
     const notices = [];
-    const rt = createStatsRuntime({ getContext: () => h.ctx, readSettings: () => settings, onCheck: (c) => checks.push(c), onNotices: (n) => notices.push(n), ...opts });
+    const rt = createStatsRuntime({ getContext: () => h.ctx, readSettings: () => holder.cur, statsTables: tables.api, onCheck: (c) => checks.push(c), onNotices: (n) => notices.push(n), ...opts });
     rt.sync();
-    return { h, rt, settings, checks, notices };
+    return { h, rt, set, tables, checks, notices };
 }
 
 function generate(h, text, type = 'normal') {
@@ -57,12 +73,12 @@ test('roll 标签解析：难度、对抗、新技能属性顺序不限；所有
     assert.equal(stripMarkerDirectives('她点头。[igs-stat:roll|侦查|困难]').trim(), '她点头。');
 });
 
-test('预掷：没有输入匹配时注入骰运表；AI 打 roll 标签后按同一颗骰结算并播放掷骰卡（§5.2）', () => {
+test('骰序：没有输入匹配时注入本层骰序；AI 打 roll 标签后按楼内骰序结算并播放掷骰卡（§5.2）', () => {
     const { h, rt, checks } = setup();
     rt.enableForChat();
     h.ctx.chat.push({ is_user: true, mes: '我们继续往前走' });
     const { id, injected } = generate(h, '你屏住呼吸观察四周。[igs-stat:roll|侦查|普通]');
-    assert.match(injected, /【本轮骰运】/);
+    assert.match(injected, /本层骰序/);
     assert.match(injected, /【主角技能】属性：/);
     assert.match(injected, /【主角感知】/);
     assert.doesNotMatch(injected, /1d100=/);
@@ -74,15 +90,15 @@ test('预掷：没有输入匹配时注入骰运表；AI 打 roll 标签后按�
     assert.match(rt.diagnose(id), /检定来源 预掷 · 侦查/);
 });
 
-test('预掷：AI 没打标签按无检定，诊断写明原因；故事中检定关闭时不注入骰运表', () => {
-    const { h, rt, settings } = setup();
+test('骰序：AI 没打标签按无检定，诊断写明原因；故事中检定关闭时不注入骰序', () => {
+    const { h, rt, set } = setup();
     rt.enableForChat();
     h.ctx.chat.push({ is_user: true, mes: '随便走走' });
     const { id } = generate(h, '天气很好。');
     assert.match(rt.diagnose(id), /AI 没有打 roll 标签/);
-    settings.storyCheck = 'off';
+    set({ storyCheck: 'off' });
     h.ctx.chat.push({ is_user: true, mes: '随便走走' });
-    assert.doesNotMatch(generate(h, '还是很好。').injected, /本轮骰运/);
+    assert.doesNotMatch(generate(h, '还是很好。').injected, /本层骰序/);
 });
 
 test('roll 标签里的新技能：登记进剧情技能、进补全队列，按未学基础值算（§6.1）', () => {
@@ -129,27 +145,23 @@ test('数值系统未启用时选项骰子返回 null，交回 AcuDice', () => {
     assert.equal(rt.resolveDice('检定 <user> 侦查'), null);
 });
 
-test('v1 存档自动迁移：底数不变，首次写回前留一份备份，只备份一次（§3.5）', () => {
-    const { h, rt } = setup();
+test('旧存档（igs_stats）首次加载时导入数据库表：校验通过后读回，旧快照不改、不再写备份（§5）', async () => {
+    const { h, rt, tables } = setup();
     const ledger = createStatsLedger('chat-1', createStatsState());
     const v1 = { ...serializeLedger(ledger, { chatEnabled: true }), version: 1 };
     delete v1.catalog;
     h.ctx.chatMetadata[STATS_METADATA_KEY] = v1;
     h.eventSource.emit('chat');
+    await rt.whenSaved();
     assert.equal(rt.isChatEnabled(), true);
+    assert.ok(tables.rows.some((r) => r.type === 'init'));
     h.ctx.chat.push({ is_user: true, mes: '你好' });
     generate(h, '[igs-stat:favor|小雪|开心]');
-    assert.equal(h.ctx.chatMetadata[STATS_BACKUP_KEY].version, 1);
-    assert.equal(h.ctx.chatMetadata[STATS_METADATA_KEY].version, 2);
-    assert.deepEqual(h.ctx.chatMetadata[STATS_METADATA_KEY].catalog.story, emptyCatalog().story);
-    assert.deepEqual(h.ctx.chatMetadata[STATS_METADATA_KEY].catalog.sheets, {});
-    h.ctx.chatMetadata[STATS_BACKUP_KEY] = 'kept';
-    h.eventSource.emit('chat');
-    generate(h, '[igs-stat:favor|小雪|开心]');
-    assert.equal(h.ctx.chatMetadata[STATS_BACKUP_KEY], 'kept');
-    const back = deserializeLedger(h.ctx.chatMetadata[STATS_METADATA_KEY], 'chat-1');
-    assert.equal(back.ok, true);
-    assert.equal(back.migrated, false);
+    await rt.whenSaved();
+    assert.equal(h.ctx.chatMetadata[STATS_BACKUP_KEY], undefined);
+    assert.equal(h.ctx.chatMetadata[STATS_METADATA_KEY].version, 1);
+    assert.ok(tables.rows.some((r) => r.type === 'floor'));
+    assert.deepEqual(rt.getCatalog().sheets, {});
 });
 
 test('开局引导：总开关开、本聊天未定时出提示；选「本聊天不用」后不再出；「自动快速开始」直接启用（§9.5）', () => {
@@ -165,7 +177,7 @@ test('开局引导：总开关开、本聊天未定时出提示；选「本聊�
 test('新角色出现时提醒生成数值；生成请求只收档位，写进聊天级角色卡并可跨聊天沿用（§6.4）', async () => {
     const stored = new Map();
     const sheetStore = { get: (card, name) => stored.get(`${card}|${name}`) || null, put: (card, name, sheet) => { stored.set(`${card}|${name}`, sheet); return { ok: true }; } };
-    const reply = JSON.stringify({ 小雪: { 资历: '老手', 属性: { 观察: '出众', 力量: 42 }, 技能: { 话术: '熟练', 说服: '精通' }, 招牌技能: [{ 名: '茶艺', 属性: '敏捷' }] } });
+    const reply = JSON.stringify({ 小雪: { 资历: '老手', 属性: { 感知: '出众', 力量: 42, 理智: '顶尖' }, 技能: { 话术: '熟练', 说服: '精通' }, 招牌技能: [{ 名: '茶艺', 属性: '敏捷' }] } });
     const { h, rt } = setup({}, { getBackgroundRequest: () => async () => reply, sheetStore });
     rt.enableForChat();
     h.ctx.chat.push({ is_user: true, mes: '你好' });
@@ -175,8 +187,10 @@ test('新角色出现时提醒生成数值；生成请求只收档位，写进�
     assert.equal(r.ok, true);
     const sheet = rt.getCatalog().sheets.小雪;
     assert.equal(sheet.rank, '老手');
-    assert.ok(sheet.attributes.观察 >= 60 && sheet.attributes.观察 <= 70);
-    assert.ok(sheet.attributes.力量 >= 45 && sheet.attributes.力量 <= 55);
+    assert.equal(sheet.scale, 'score');
+    assert.ok(sheet.attributes.感知 >= 12 && sheet.attributes.感知 <= 14);
+    assert.ok(sheet.attributes.力量 >= 10 && sheet.attributes.力量 <= 11);
+    assert.ok(sheet.san >= 75 && sheet.san <= 90);
     assert.ok(sheet.skills.话术 >= 75);
     assert.ok(rt.getCatalog().story.some((s) => s.name === '茶艺'));
     assert.ok(stored.has('小雪|小雪'));
@@ -205,7 +219,7 @@ test('批量补全：已有非临时值不改，只填空；主角最多补到�
 test('剧情技能上限：每聊天 24 个，一楼 2 个；已知名字与别名归并', () => {
     let catalog = {};
     assert.equal(registerStorySkill(catalog, '搜查').name, '侦查');
-    assert.equal(registerStorySkill(catalog, '洞察').name, '观察');
+    assert.equal(registerStorySkill(catalog, '洞察').name, '感知');
     for (let i = 0; i < STORY_SKILL_MAX; i += 1) catalog = registerStorySkill(catalog, `技能${String.fromCharCode(0x4e00 + i)}`).catalog;
     assert.equal(registerStorySkill(catalog, '再来一个').reason, 'capped');
     assert.equal(registerStorySkill({}, '炼丹', { createdThisFloor: 2 }).reason, 'floor-capped');
@@ -228,5 +242,6 @@ test('战斗按 D&D：攻击检定对 AC，闪避为敏捷豁免；战败不死�
     const r = settleFloorText(createStatsState({ money: 100 }), '[igs-stat:battle|杂兵]', { random: () => 0.01, engine });
     assert.equal(r.meta.events.find((e) => e.kind === 'battle').ruleset, 'dnd5e');
     assert.equal(r.meta.flags.battle.outcome, '败');
-    assert.ok(r.state.protagonist.bars.health > 0);
+    assert.equal(r.meta.flags.battleHurt, '轻伤');
+    assert.equal(r.state.protagonist.bars.health, undefined);
 });

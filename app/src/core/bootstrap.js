@@ -1,4 +1,4 @@
-import { normalizePromptEntries } from '../scene/prompt-entries.js';
+import { normalizePromptEntries, resolveEntryPlacement } from '../scene/prompt-entries.js';
 import { createMediaRuntime } from '../media/media-runtime.js';
 import { createPublicApi, attachPublicApi, detachPublicApi } from '../api/public-api.js';
 import { createTavernHelperAdapter, getSillyTavernContext } from '../host/tavern-helper-adapter.js';
@@ -87,6 +87,11 @@ import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from 
 import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
+import { createCombatServices } from './combat-services.js';
+import { createCombatChatRecord } from '../host/combat-chat-record.js';
+import { createCombatStoryContext } from '../host/combat-story-context.js';
+import { combatExpansionEnabled, findPendingCombatReport, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
+import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
 const IGS_VERSION = '0.37.65';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
@@ -398,6 +403,40 @@ export function bootstrapIGS(options = {}) {
     });
     let publicApi = null;
     let sceneAssetsInjectionTimer = null;
+    // 卡牌战斗服务：statsRuntime 在阅读器之后创建，buildMode 按需读取；设置变化与新楼出图就绪时同步。
+    const combatServices = options.combatServices || createCombatServices({
+        global: globalObject,
+        storage: storageLike,
+        chatRecord: createCombatChatRecord(globalObject),
+        send: (text) => typeAndSend(text),
+        request: (prompt, llm) => secondaryLlm.request(prompt, llm),
+        getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
+        getAutoIllustration: () => readImageBridge().autoIllustration,
+        getSourceFilter: () => readImageBridge().sourceFilter,
+        getChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
+        getUserName: () => (typeof illustrationMessageHost.getUserName === 'function' ? illustrationMessageHost.getUserName() : ''),
+        readLore: (name) => (typeof illustrationMessageHost.readCharacterLore === 'function'
+            ? illustrationMessageHost.readCharacterLore(name, { includeWorldInfo: false }) : []),
+        readStoryContext: createCombatStoryContext(globalObject, {
+            resolveWorldInfo: createImageWorldInfoSource(globalObject, { readExclude: readWorldInfoExclude }),
+        }),
+        readFloor: (id) => illustrationMessageHost.readFloor(id),
+        writeFloor: (id, text, floor, writeOptions) => illustrationMessageHost.writeFloor(id, text, floor, writeOptions),
+        buildMode: () => (app.statsRuntime && typeof app.statsRuntime.getBuildMode === 'function'
+            ? { mode: app.statsRuntime.getBuildMode(), choices: app.statsRuntime.getBuildChoices() } : null),
+        npcAbilities: (name) => (app.statsRuntime && typeof app.statsRuntime.npcAbilities === 'function' ? app.statsRuntime.npcAbilities(name) : null),
+    });
+    app.combatServices = combatServices;
+    const prepareCombatProtagonist = () => { if (typeof combatServices.prepareProtagonist === 'function') combatServices.prepareProtagonist(); };
+    const syncCombat = () => { combatServices.syncRegex(); combatServices.refreshGrowth(); prepareCombatProtagonist(); };
+    state.combatSettingsOff = events.on('igs:legacy-settings-updated', syncCombat);
+    syncCombat();
+    state.combatFloorOff = typeof illustrationMessageHost.onImageFloorReady === 'function' && typeof combatServices.autoPrepare === 'function'
+        ? illustrationMessageHost.onImageFloorReady((floor) => {
+            combatServices.autoPrepare(floor);
+            if (typeof combatServices.autoGrowth === 'function') combatServices.autoGrowth(floor);
+        })
+        : null;
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
         // statsRuntime 在阅读器之后创建，这里按需读取。
@@ -427,13 +466,23 @@ export function bootstrapIGS(options = {}) {
         },
         statsChatAction: (kind, payload) => {
             if (!app.statsRuntime) return { ok: false, reason: 'stats-runtime-missing' };
+            if (kind === 'mode') return app.statsRuntime.setBuildMode(payload && payload.mode);
             if (kind !== 'enable') return app.statsRuntime.disableForChat();
             // 按分配启用：超点或多选时不建卡，返回原因；已有存档（之前暂停过）时沿用冻结的数值，分配不覆盖（§10A）。
             if (payload && Object.hasOwn(payload, 'build')) {
                 // 世界观附加技能只在当前世界观下计入；与设置页显示的候选保持一致。
-                const built = buildInitialState(payload.build, { worldview: payload.worldview });
+                const status = app.statsRuntime.chatStatus();
+                const mode = (status && (status.buildMode || status.pendingMode)) || null;
+                const built = buildInitialState(payload.build, { worldview: payload.worldview, mode });
                 if (!built.ok) return { ok: false, reason: built.reason };
-                return app.statsRuntime.enableForChat({ initial: built.state });
+                if (!built.manual) return app.statsRuntime.enableForChat({ initial: built.state });
+                // 手动建档：先把主角六维与职业写进战斗表，成功后再启用数值系统。
+                const heroName = (typeof illustrationMessageHost.getUserName === 'function' && String(illustrationMessageHost.getUserName() || '').trim()) || '主角';
+                return Promise.resolve().then(() => combatServices.writeManualInit(heroName, built.manual))
+                    .then((written) => (!written || written.ok !== true
+                        ? { ok: false, reason: (written && written.reason) || 'combat-init-write-failed' }
+                        : app.statsRuntime.enableForChat({ initial: built.state, buildMode: 'manual' })),
+                    () => ({ ok: false, reason: 'combat-init-write-failed' }));
             }
             return app.statsRuntime.enableForChat();
         },
@@ -474,6 +523,43 @@ export function bootstrapIGS(options = {}) {
         getSettingsRevision: () => state.settingsRevision || 0,
         saveUnifiedSettings,
         typeAndSend,
+        // 卡牌战斗：只接数据与服务回调，战斗面板界面尚未接入。
+        getCombatSession: () => combatServices.getSession(),
+        getCombatLedger: () => combatServices.getLedger(),
+        ensureCombatTables: () => combatServices.ensureTables(),
+        writeCombatManualInit: (name, manual, writeOptions) => Promise.resolve(combatServices.writeManualInit(name, manual, writeOptions)).then((written) => {
+            if (written && written.ok === true) { try { app.statsRuntime?.refreshBuildAsk?.(); } catch (error) { /* */ } }
+            return written;
+        }),
+        statsBuildMode: () => (app.statsRuntime && typeof app.statsRuntime.getBuildMode === 'function' ? app.statsRuntime.getBuildMode() : null),
+        statsBuildEntry: () => Boolean(app.statsRuntime && app.statsRuntime.isActive() && app.statsRuntime.getBuildMode() === 'manual'),
+        getCombatBuildCandidates: () => combatServices.buildCandidates(Object.keys((app.statsRuntime && app.statsRuntime.getState() && app.statsRuntime.getState().characters) || {})),
+        generateCombatDeckProfile: (name, profileOptions) => combatServices.generateDeckProfile(name, profileOptions),
+        regenerateCombatDeck: (name) => combatServices.regenerateDeck(name),
+        respecCombatClass: (name) => combatServices.respecClass(name),
+        ascendCombatClass: (name) => combatServices.ascendClass(name),
+        drawCombatTrait: (name) => combatServices.drawTrait(name),
+        pickCombatTrait: (name) => combatServices.pickTrait(name),
+        unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
+        setCombatGear: typeof combatServices.setGear === 'function' ? (name, slot, itemId) => combatServices.setGear(name, slot, itemId) : undefined,
+        useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (item) => combatServices.useInventoryItem(item) : undefined,
+        getCombatHeroInventory: typeof combatServices.heroInventory === 'function' ? () => combatServices.heroInventory() : undefined,
+        setCombatHeroGear: typeof combatServices.setHeroGear === 'function' ? (slot, itemId) => combatServices.setHeroGear(slot, itemId) : undefined,
+        setCombatAllyTier: (name, tier) => combatServices.setAllyTier(name, tier),
+        getCombatGrowth: () => combatServices.getGrowth(),
+        // 检定回放先问数值系统，数值系统没有结果再回落战斗自己的。
+        getCombatCheckReplay: (messageId, body) => {
+            let own = null;
+            try { own = typeof app.statsRuntime?.checkReplayFor === 'function' ? app.statsRuntime.checkReplayFor(messageId, body) : null; } catch (error) { own = null; }
+            return own && own.ok === true ? own : (typeof combatServices.checkReplayFor === 'function' ? combatServices.checkReplayFor(messageId, body) : null);
+        },
+        onCombatGrowthUpdated: (handler) => combatServices.onGrowthUpdated(handler),
+        refreshCombatGrowth: () => combatServices.refreshGrowth(),
+        retryCombatGrowth: () => combatServices.retryGrowth(),
+        getCombatProtagonist: () => (typeof combatServices.getProtagonist === 'function' ? combatServices.getProtagonist() : null),
+        retryCombatProtagonist: () => (typeof combatServices.prepareProtagonist === 'function'
+            ? combatServices.prepareProtagonist({ manual: true }) : Promise.resolve({ ok: false, reason: 'combat-generate-unavailable' })),
+        onCombatProtagonistUpdated: (handler) => (typeof combatServices.onProtagonistUpdated === 'function' ? combatServices.onProtagonistUpdated(handler) : () => {}),
         resumeReply: () => hostAdapter.resumeReply?.() || { ok: false, reason: 'reply-host-not-ready' },
         setInputText(text) {
             return typeof hostAdapter.setInputText === 'function' ? hostAdapter.setInputText(text) : { ok: false, reason: 'missing-input-api' };
@@ -741,6 +827,22 @@ export function bootstrapIGS(options = {}) {
             return (prompt) => secondaryLlm.request({ system: prompt.system, user: prompt.user }, llm);
         },
         describePeople: describeStatsPeople,
+        // 卡牌战斗桥接：生命与六维取自战斗表，数值表读写走战斗的缓存客户端，检定提示词与队伍状态合并下发。
+        combatSource: () => (typeof combatServices.lifeSource === 'function' ? combatServices.lifeSource() : null),
+        statsTables: () => (typeof combatServices.statsTables === 'function' ? combatServices.statsTables() : null),
+        combatPrompt: (type) => {
+            const readerSettings = (getUnifiedSettingsSnapshot() || {}).readerSettings;
+            if (!combatExpansionEnabled(readerSettings)) return null;
+            let check = null;
+            try { check = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(type) : null; } catch (error) { check = null; }
+            let party = null;
+            const promptContext = collectPromptContext(resolveTavernContext(), { document: globalObject.document });
+            if (!findPendingCombatReport(promptContext.history, { generationType: type, inputText: promptContext.inputText })) {
+                try { party = typeof combatServices.partyPromptInput === 'function' ? combatServices.partyPromptInput(type) : null; } catch (error) { party = null; }
+            }
+            return { enabled: true, check, party };
+        },
+        combatEnabled: () => combatExpansionEnabled((getUnifiedSettingsSnapshot() || {}).readerSettings),
         sheetStore: statsSheetStore,
         worldviewOf: () => resolveWorldview(((getUnifiedSettingsSnapshot() || {}).bridge || {}).sceneAssets),
         resumeReply: () => hostAdapter.resumeReply?.(),
@@ -999,6 +1101,28 @@ export function bootstrapIGS(options = {}) {
         };
     }
 
+    // 卡牌战斗与检定的附加提示词段：战报续写、队伍状态、检定骰序。数值系统接管检定时，战斗不再重复下发。
+    function resolveCombatPromptSegments(readerSettings, generationType) {
+        let statsOwns = false;
+        try { statsOwns = typeof app.statsRuntime?.promptActive === 'function' && app.statsRuntime.promptActive(generationType) === true; } catch (error) { statsOwns = false; }
+        const promptContext = collectPromptContext(resolveTavernContext(), { document: globalObject.document });
+        const narration = resolveCombatNarrationSegment(readerSettings, promptContext.history, { generationType, inputText: promptContext.inputText });
+        let combatCheck = null;
+        let statsCheck = null;
+        if (!statsOwns) {
+            try { combatCheck = typeof combatServices.checkPromptInput === 'function' ? combatServices.checkPromptInput(generationType) : null; } catch (error) { combatCheck = null; }
+            try { statsCheck = typeof app.statsRuntime?.checkPromptInput === 'function' ? app.statsRuntime.checkPromptInput(generationType) : null; } catch (error) { statsCheck = null; }
+        }
+        const merged = mergeCheckInputs(statsCheck, combatCheck);
+        const checks = merged ? resolveCheckRollsSegment(readerSettings, merged) : null;
+        let partyInput = null;
+        if (!narration && !statsOwns) {
+            try { partyInput = typeof combatServices.partyPromptInput === 'function' ? combatServices.partyPromptInput(generationType) : null; } catch (error) { partyInput = null; }
+        }
+        const party = partyInput ? resolveCombatPartySegment(readerSettings, partyInput) : null;
+        return { statsOwns, segments: [narration, party, checks].filter(Boolean) };
+    }
+
     function syncSceneAssetsInjection(generationType = null) {
         const unified = getUnifiedSettingsSnapshot();
         const sceneAssets = sceneAssetsNow(unified.bridge && unified.bridge.sceneAssets);
@@ -1010,8 +1134,10 @@ export function bootstrapIGS(options = {}) {
         const eraRule = [resolveWorldviewPromptRule(worldview, sceneAssets), carryPhoneRule].filter(Boolean).join('\n');
         const worldviewSettings = applyFxWorldview(unified.readerSettings, worldview, { carryPhone: Boolean(carryPhoneRule) });
         // 手机社区按世界观换平台：把世界观写进传给提示词的快照（新对象，不改原设置）。
+        // 数值系统接管检定与队伍状态时，战斗规则只留装备与道具两类标签（combatMerged）。
+        const combatPrompt = resolveCombatPromptSegments(worldviewSettings, generationType);
         const readerSettings = worldviewSettings && typeof worldviewSettings === 'object'
-            ? { ...worldviewSettings, feedFx: { ...(worldviewSettings.feedFx || {}), worldview } }
+            ? { ...worldviewSettings, feedFx: { ...(worldviewSettings.feedFx || {}), worldview }, ...(combatPrompt.statsOwns ? { combatMerged: true } : {}) }
             : worldviewSettings;
         const placement = normalizePromptPlacement(sceneAssets && sceneAssets.promptPlacement);
         // 交互摘要：只在有待送出的事件时注入，生成结束后清空（见 attachMetaDigestSync）。
@@ -1021,7 +1147,7 @@ export function bootstrapIGS(options = {}) {
         const outfitContext = { previousAiTexts: promptContext.previousAiTexts,
             sourceFilter: unified.bridge?.sourceFilter, virtualRegex: unified.bridge?.virtualRegex };
         if (sceneAssets && sceneAssets.promptAdaptive === false) {
-            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext });
+            return injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatSegments: combatPrompt.segments });
         }
         if (generationType === 'impersonate' || generationType === 'quiet') {
             promptInjector.clear();
@@ -1054,11 +1180,20 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'scene-assets-disabled' };
         }
         const depth0Content = [placement === 'system' ? DEPTH0_REMINDER : '', grammar.depth0].filter(Boolean).join('\n\n');
-        return promptInjector.inject(grammar.system, { placement, depth0Content, segments: grammar.segments });
+        // 卡牌战斗规则按「卡牌战斗」条目的模式与位置单独成段；战斗开关关着时 resolveCombatPromptRule 返回空串。
+        const combatEntry = normalizePromptEntries(entries).combat;
+        const combatInject = normalizeFxPromptsSettings(readerSettings && readerSettings.fxPrompts).inject;
+        const combatRule = combatEntry.mode === 'off' || !combatInject ? '' : (combatEntry.text.trim() || resolveCombatPromptRule(readerSettings));
+        const combatPlace = resolveEntryPlacement(combatEntry);
+        const combatRuleSegment = combatRule
+            ? { id: 'igs-combat-rule', position: combatPlace ? combatPlace.position : 'system', depth: combatPlace ? combatPlace.depth : 0, content: combatRule, keys: ['combat'] }
+            : null;
+        const segments = [...(grammar.segments || []), combatRuleSegment, ...combatPrompt.segments].filter(Boolean);
+        return promptInjector.inject(grammar.system, { placement, depth0Content, segments });
     }
 
     // 关闭按需注入时的旧行为：各块完整拼接；未自定义的场景规则用改版前的长版原文。
-    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext }) {
+    function injectLegacyPromptRules(sceneAssets, readerSettings, { ancient, eraRule, placement, metaDigestRule, outfitContext, combatSegments = [] }) {
         const rules = [];
         // 场景规则自带 [igs标签语法] 头部（含通用机制）；没有它时，若后面有演出规则就补一次兜底，
         // 因为各演出块已把通用机制抽到头部、自身不再复述。
@@ -1088,7 +1223,9 @@ export function bootstrapIGS(options = {}) {
         pushFx('text', resolveTextFxPromptRule(Boolean(rs.textFx && rs.textFx.enabled)));
         pushFx('bilingual', resolveBilingualPromptRule(rs.bilingual));
         pushFx('daily', resolveDailyFxPromptRule(rs.dailyFx));
-        pushFx('battle', resolveBattleFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled)));
+        // 卡牌战斗开启时，战斗规则取代旧的战斗演出规则。
+        if (combatExpansionEnabled(rs)) { if (fxPrompts.inject) rules.push(resolveCombatPromptRule(rs)); }
+        else pushFx('battle', resolveBattleFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled)));
         // 非人角色标签：与 pushFx 同一注入条件（inject 打开且战斗演出开启）；条目关闭则不发，条目正文非空时用用户的覆盖文本。
         { const entry = normalizePromptEntries(sceneAssets && sceneAssets.promptEntries).creature;
             const creatureRule = resolveCreatureFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled && rs.battleFx.creature !== false) && creatureSystemEnabled());
@@ -1111,7 +1248,7 @@ export function bootstrapIGS(options = {}) {
             return { ok: true, reason: 'scene-assets-disabled' };
         }
         const depth0Content = split ? [DEPTH0_REMINDER, metaDigestRule].filter(Boolean).join('\n\n') : '';
-        return promptInjector.inject(rules.join('\n\n'), { placement, depth0Content });
+        return promptInjector.inject(rules.join('\n\n'), combatSegments.length ? { placement, depth0Content, segments: combatSegments } : { placement, depth0Content });
     }
 
     function syncSceneAssetsInjectionWithRetry(attempt) {
@@ -1177,10 +1314,23 @@ export function bootstrapIGS(options = {}) {
             if (state.destroyed) return;
             syncSceneAssetsInjection(typeof type === 'string' ? type : null);
         };
+        // 卡牌战斗：换聊天先清掉旧聊天的缓存再重读；生成结束后重读成长。
+        const onChatChanged = () => {
+            if (state.destroyed) return;
+            combatServices.resetChat();
+            combatServices.refreshGrowth();
+            prepareCombatProtagonist();
+            resync();
+        };
+        const onGenerationEnded = () => {
+            if (state.destroyed) return;
+            combatServices.refreshGrowth();
+            resync();
+        };
         const bindings = [
-            [eventTypes.CHAT_CHANGED, resync],
+            [eventTypes.CHAT_CHANGED, onChatChanged],
             [eventTypes.GENERATION_STARTED, onGenerationStarted],
-            [eventTypes.GENERATION_ENDED, resync],
+            [eventTypes.GENERATION_ENDED, onGenerationEnded],
             [eventTypes.GENERATION_STOPPED, resync],
         ].filter(([name]) => name);
         const bound = [];
@@ -1260,6 +1410,8 @@ export function bootstrapIGS(options = {}) {
         close(() => state.notesFile?.flush());
         close(() => state.metaDigestCleanup?.());
         state.metaDigestCleanup = null;
+        close(() => state.combatSettingsOff?.());
+        close(() => state.combatFloorOff?.());
         close(() => state.statsSettingsOff?.());
         close(() => app.statsRuntime?.destroy());
         close(() => state.originSettingsOff?.());

@@ -4163,7 +4163,7 @@ export async function handleSettingsAction(action, ctx) {
             }
         }
         for (const field of [...CHARACTER_FIELDS, 'characterHouses', 'characterNameColors', 'characterVoices',
-            'characterSpriteScales', 'characterSpriteNotes', 'characterMoodTiers', 'characterMoodNotes']) {
+            'characterSpriteScales', 'characterSpriteNotes', 'characterMoodTiers', 'characterMoodNotes', 'hiddenOutfits']) {
             if (!library[field] || !Object.hasOwn(library[field], name)) continue;
             library[field] = { ...library[field] };
             delete library[field][name];
@@ -4388,7 +4388,7 @@ export async function handleSettingsAction(action, ctx) {
             if (sceneAssets.characterSeeds) sceneAssets.characterSeeds = reorderKey(sceneAssets.characterSeeds, oldName, newName);
             migrateSpriteKeys(settingsState.draft.readerSettings, { character: oldName }, { character: newName });
             migrateExpressionNotes(sceneAssets, { character: oldName }, { character: newName });
-            for (const field of ['characterSpriteNotes', 'characterMoodTiers', 'characterMoodNotes']) {
+            for (const field of ['characterSpriteNotes', 'characterMoodTiers', 'characterMoodNotes', 'hiddenOutfits']) {
                 if (sceneAssets[field]) sceneAssets[field] = reorderKey(sceneAssets[field], oldName, newName);
             }
             if (sceneAssets.generated) {

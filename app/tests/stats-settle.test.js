@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { settleFloorText } from '../src/scene/stats/stat-settle.js';
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
+import { createEngine } from '../src/scene/stats/stat-engine.js';
 
 const high = () => 0.99;
 const resolveCharacter = (name) => (name === '小雪' || name === '雪' ? '小雪' : null);
@@ -99,4 +100,54 @@ test('日结算对打勾技能掷成长：通过则 +1d10 并清勾', () => {
     const r = settle('[igs-stat:sleep]', {}, state);
     assert.deepEqual(r.state.protagonist.skills.烹饪, { value: 30, marked: false });
     assert.ok(r.changes.some((c) => c.key === '烹饪' && c.note === '成长'));
+});
+
+const READERS = { readAbilities: () => ({ scores: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 } }) };
+const dnd = createEngine({}, {}, 'dnd5e', READERS);
+const coc = createEngine({}, {}, 'coc7', READERS);
+const D20_PAIRS = Array.from({ length: 10 }, () => [12, 3]);
+const COC_PAIRS = Array.from({ length: 10 }, () => ({ unit: 2, tens: [1, 5, 8] }));
+
+test('roll 标签取骰按规则体系分流：D&D 取 rollPairs 的 d20 对，CoC 取 { unit, tens }', () => {
+    const text = '她试了试。[igs-stat:roll|烹饪|普通]';
+    const d = settle(text, { engine: dnd, rollPairs: D20_PAIRS });
+    assert.equal(d.meta.check.ruleset, 'dnd5e');
+    assert.equal(d.meta.check.roll, 12);
+    assert.equal(d.meta.pendingRoll, undefined);
+    const c = settle(text, { engine: coc, rollPairs: COC_PAIRS });
+    assert.equal(c.meta.check.ruleset, 'coc7');
+    assert.equal(c.meta.check.roll, 12);
+    // 骰序形状与规则体系不符时当作没有骰序，转手动掷骰。
+    assert.ok(settle(text, { engine: coc, rollPairs: D20_PAIRS }).meta.pendingRoll);
+    assert.ok(settle(text, { engine: dnd, rollPairs: COC_PAIRS }).meta.pendingRoll);
+});
+
+test('roll 标签按前面出现的正文检定标签数取第几对骰；旧预掷形状匹配时仍可用', () => {
+    const pairs = Array.from({ length: 10 }, (_, i) => [i + 1, 1]);
+    const text = '[igs-check:甲|力量|10]。[igs-stat:roll|烹饪|普通]';
+    assert.equal(settle(text, { engine: dnd, rollPairs: pairs }).meta.check.roll, 2);
+    const old = settle('[igs-stat:roll|烹饪|普通]', { engine: dnd, preroll: { ruleset: 'dnd5e', raw: { d20: [9, 1] } } });
+    assert.equal(old.meta.check.roll, 9);
+    const oldCoc = settle('[igs-stat:roll|烹饪|普通]', { engine: coc, preroll: { ruleset: 'coc7', raw: { unit: 2, tens: [1, 5, 8] } } });
+    assert.equal(oldCoc.meta.check.roll, 12);
+    assert.ok(settle('[igs-stat:roll|烹饪|普通]', { engine: coc, preroll: { ruleset: 'dnd5e', raw: { d20: [9, 1] } } }).meta.pendingRoll);
+});
+
+test('storyChecks：主角成功的检定打成长勾并写进 meta.checks；社交大成功触发突破加成', () => {
+    const checks = [{ ruleset: 'dnd5e', actor: '主角', skill: '烹饪', kind: 'skill', value: 40, success: true, dc: 15, roll: 18, total: 19, tier: '大成功', ladder: 'crit' }];
+    const r = settle('闲聊。', { engine: dnd, storyChecks: checks });
+    assert.equal(r.state.protagonist.skills.烹饪.marked, true);
+    assert.equal(r.meta.checks.length, 1);
+    assert.equal(r.meta.checks[0].ruleset, 'dnd5e');
+    const other = settle('闲聊。', { engine: dnd, storyChecks: [{ ...checks[0], actor: '小雪' }] });
+    assert.equal(other.state.protagonist.skills.烹饪.marked, false);
+    const social = { ...checks[0], skill: '话术', social: true, against: '小雪' };
+    const r2 = settle('[igs-stat:favor|小雪|感动]', { engine: dnd, storyChecks: [social] });
+    assert.equal(r2.state.characters.小雪.dims.好感 >= 3, true);
+});
+
+test('noBattle：战斗扩展接管时 battle 标签被丢弃', () => {
+    const r = settle('[igs-stat:battle|杂兵]', { engine: dnd, noBattle: true });
+    assert.equal(r.meta.flags.battle, undefined);
+    assert.ok(r.meta.diagnostics.some((d) => d.code === 'stats-battle-skipped-combat'));
 });

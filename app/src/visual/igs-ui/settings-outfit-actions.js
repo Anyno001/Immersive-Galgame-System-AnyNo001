@@ -11,7 +11,7 @@ import { classifySceneKey } from '../../scene/scene-directives.js';
 import { clearOutfitReview, loadOutfitReview, removeOutfitReview } from '../../scene/outfit-review-store.js';
 import { migrateSpriteKeys } from './sprite-key-migration.js';
 import { migrateExpressionNotes } from '../../scene/expression-note-keys.js';
-import { draftAssetLibrary, draftEffectiveAssets, rememberAssetScope, effectiveSceneAssets } from '../../scene/asset-scope.js';
+import { draftAssetLibrary, draftEffectiveAssets, rememberAssetScope, effectiveSceneAssets, ensureCardLibrary } from '../../scene/asset-scope.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { createSettingsDialogs } from './settings-dialog.js';
 import { beginSettingsProgress, remountSettingsNotice, SETTINGS_NOTICE_MS } from './settings-notice.js';
@@ -51,6 +51,44 @@ function outfitTokenOwner(outfits, token, except = '') {
         if (name === token || (Array.isArray(entry && entry.words) && entry.words.includes(token))) return name;
     }
     return '';
+}
+
+// 本卡隐藏的服装记在当前角色卡上（没打开角色卡时记在全局），不写回借来角色的原卡。
+function hiddenOutfitLibraries(settingsState) {
+    const root = plain(settingsState.draft.bridge?.sceneAssets) || {};
+    return [root, ...Object.values(plain(root.cards) || {}).filter(plain)];
+}
+
+function snapshotHiddenOutfits(settingsState) {
+    return hiddenOutfitLibraries(settingsState).map(lib => [lib, lib.hiddenOutfits === undefined ? undefined : structuredClone(lib.hiddenOutfits)]);
+}
+
+function restoreHiddenOutfits(snapshot) {
+    for (const [lib, value] of snapshot) {
+        if (value === undefined) delete lib.hiddenOutfits;
+        else lib.hiddenOutfits = value;
+    }
+}
+
+function toggleHiddenOutfit(settingsState, charName, outfitName) {
+    const root = settingsState.draft.bridge.sceneAssets;
+    const cardKey = String(settingsState.asyncState?.assetScopeKey || '');
+    const lib = cardKey ? ensureCardLibrary(root, cardKey) : root;
+    const current = (plain(draftEffectiveAssets(settingsState).hiddenOutfits) || {})[charName];
+    const list = Array.isArray(current) ? current.filter(name => name !== outfitName) : [];
+    if (!(Array.isArray(current) && current.includes(outfitName))) list.push(outfitName);
+    // 卡里写空数组也保留：表示这张卡不沿用全局的隐藏。
+    lib.hiddenOutfits = { ...plain(lib.hiddenOutfits), [charName]: list };
+}
+
+// 服装改名 / 删除时，各卡的隐藏记录跟着改，免得改名后又冒出来或留下空名。
+function migrateHiddenOutfit(settingsState, charName, outfitName, nextName) {
+    for (const lib of hiddenOutfitLibraries(settingsState)) {
+        const list = (plain(lib.hiddenOutfits) || {})[charName];
+        if (!Array.isArray(list) || !list.includes(outfitName)) continue;
+        const next = list.flatMap(name => (name !== outfitName ? [name] : nextName ? [nextName] : []));
+        lib.hiddenOutfits = { ...lib.hiddenOutfits, [charName]: [...new Set(next)] };
+    }
 }
 
 async function ask(ctx, message, value = '') {
@@ -621,7 +659,7 @@ function handleOutfitReview(command, segs, ctx) {
     return rerenderSettings();
 }
 
-const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-promote-outfit|scene-set-default-outfit|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-(?:note|form)|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots|dna|half-dna)|scene-migrate-outfit(?:-(?:cancel|apply|skip|run))?|outfit-review-(?:assign|create|dismiss|clear|auto)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit|prompt|half-prompt))(?::(.*))?$/;
+const COMMAND_RE = /^(scene-(?:add|rename|remove)-outfit(?:-(?:mood|word|scene))?|scene-promote-outfit|scene-hide-outfit|scene-set-default-outfit|scene-set-outfit-(?:mood|avatar|wardrobe)-url|scene-set-outfit-(?:note|form)|scene-clear-outfit-avatar|scene-outfit-(?:tab|copy-slots|dna|half-dna)|scene-migrate-outfit(?:-(?:cancel|apply|skip|run))?|outfit-review-(?:assign|create|dismiss|clear|auto)|wardrobe-(?:add|rename|remove|generate-prompt|reference|nsfw|for-outfit|prompt|half-prompt))(?::(.*))?$/;
 
 // 服装区 action：返回 null 表示不归本模块处理。位置 / 头部标定 key 随改名迁移、随删除清理。
 // 地址编辑、槽删除和文件上传共用只读预检；调用方在真正写入前再次检查租约。
@@ -691,6 +729,7 @@ async function runOutfitAction(match, ctx) {
         characterDefaultOutfits: structuredClone(sceneAssets.characterDefaultOutfits),
         generated: structuredClone(sceneAssets.generated),
         readerSettings: structuredClone(readerSettings),
+        hiddenOutfits: snapshotHiddenOutfits(settingsState),
         outfitTabs: { ...settingsState.asyncState.outfitTabs } });
     let checkpoint;
     const isDefault = () => readDefaultOutfit(sceneAssets, charName).outfitName === outfitName;
@@ -709,6 +748,7 @@ async function runOutfitAction(match, ctx) {
                     else sceneAssets[key] = checkpoint[key];
                 }
                 draft.readerSettings = checkpoint.readerSettings;
+                restoreHiddenOutfits(checkpoint.hiddenOutfits);
                 settingsState.asyncState.outfitTabs = checkpoint.outfitTabs;
             }
             rerenderSettings();
@@ -835,12 +875,17 @@ async function runOutfitAction(match, ctx) {
         }
         migrateSpriteKeys(readerSettings, { character: charName, outfit: outfitName }, { outfit: name });
         migrateExpressionNotes(sceneAssets, { character: charName, outfit: outfitName }, { outfit: name });
+        migrateHiddenOutfit(settingsState, charName, outfitName, name);
         selectTab(settingsState, charName, name);
         return done();
     }
+    case 'scene-hide-outfit':
+        toggleHiddenOutfit(settingsState, charName, outfitName);
+        return done();
     case 'scene-remove-outfit':
         if (isDefault()) repairDefaultOutfit(sceneAssets, charName, outfitName);
         delete outfits[outfitName];
+        migrateHiddenOutfit(settingsState, charName, outfitName, '');
         migrateSpriteKeys(readerSettings, { character: charName, outfit: outfitName }, null);
         migrateExpressionNotes(sceneAssets, { character: charName, outfit: outfitName }, null);
         selectTab(settingsState, charName, '');

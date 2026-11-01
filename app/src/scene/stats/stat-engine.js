@@ -1,29 +1,96 @@
 // 检定引擎（数值 v2 §2、§4、§5）：所有掷骰都从这里进，按设置取规则体系；底数只读不改。
-// actor 为 PROTAGONIST 时读主角存档，其余读聊天级 NPC 角色卡（没有卡按普通人默认）。纯函数，random 由调用方给。
+// actor 为 PROTAGONIST 时读主角存档，其余读聊天级 NPC 角色卡（没有卡按战斗侧推导）。纯函数，random 由调用方给。
+// 六维取自战斗 abilities（分数 3–30），引擎内统一折成百分制（分数 × 5）：D&D 再除回去，CoC 直接当目标值。
 import { getRuleset } from './rulesets/index.js';
-import { BUILTIN_SKILLS, COMBAT_SKILLS, CATEGORY_BASE, baseValueOf, createSkillRegistry, guessAttribute } from './stat-registry.js';
+import { BUILTIN_SKILLS, COMBAT_SKILLS, baseValueOf, createSkillRegistry, guessAttribute, normalizeAttribute } from './stat-registry.js';
 import { BASE_ATTRIBUTES, clamp, withSkills } from './stat-state.js';
+
+const BASE_ATTRIBUTE_SET = new Set(BASE_ATTRIBUTES);
 import { stageOf } from './stat-favor.js';
 import { checkModifiers } from './stat-bars.js';
+import { ABILITY_KEYS, ABILITY_LABELS, deriveAbilities } from '../../combat/abilities.js';
 
 export const PROTAGONIST = '主角';
 export const DIFFICULTIES = Object.freeze(['简单', '普通', '困难', '极难']);
 export const RANKS = Object.freeze(['普通人', '老手', '精英', '大师', '传奇']);
 export const GROWTH_RANK_AT = Object.freeze([0, 10, 25, 45, 70]);
-const NPC_DEFAULT_ATTRIBUTE = 50;
+// CoC第七版的理智值（SAN）：第七项属性，百分制；其余规则体系下「理智」归一成智力。
+export const SAN_ATTRIBUTE = '理智';
+const SAN_ENTRY = Object.freeze({ kind: 'attribute', attribute: SAN_ATTRIBUTE, category: 'general', aliases: Object.freeze([]), origin: 'builtin' });
+const WILL_ATTRIBUTE = '感知';
 const FAVOR_EDGE = Object.freeze({ 深爱: 1, 强烈在意: 1, 厌烦排斥: -1, 强烈反感: -1, 仇恨: -2 });
 const SOCIAL_SKILLS = new Set(['话术', '魅惑', '恐吓', '魅力']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角|我|user)$/i;
 
-// catalog：{ story, merged, sheets, protagonistBase }。settings：normalizeStatsSettings 的结果。
-export function createEngine(catalog = {}, settings = {}, ruleset = settings.ruleset) {
+const EMPTY = Object.freeze({});
+const readerOf = (fn) => (typeof fn === 'function' ? fn : null);
+
+function buildEngine(catalog, settings, ruleset, readers) {
+    const { readAbilities = null, readVitals = null, userName = '' } = readers || {};
     return {
         ruleset: getRuleset(ruleset),
         registry: createSkillRegistry(catalog),
         sheets: catalog.sheets && typeof catalog.sheets === 'object' ? catalog.sheets : {},
         protagonistBase: catalog.protagonistBase && typeof catalog.protagonistBase === 'object' ? catalog.protagonistBase : {},
-        natural: Boolean(settings.dndNatural),
+        // 自然 20 / 1 常开（v0.39 起不再有开关）。
+        natural: true,
+        readAbilities: readerOf(readAbilities),
+        readVitals: readerOf(readVitals),
+        userName: String(userName || ''),
     };
+}
+
+// catalog：{ story, merged, sheets, protagonistBase }。settings：normalizeStatsSettings 的结果。
+// readers：{ readAbilities(name), readVitals(name), userName }，缺省时六维按名字与偏好推导、生命按「未知」。
+export function createEngine(catalog = {}, settings = {}, ruleset = settings.ruleset, readers = {}) {
+    return buildEngine(catalog || EMPTY, settings || EMPTY, ruleset, readers);
+}
+
+// 引擎缓存：catalog 引用 → settings 引用 → 规则体系+用户名。配置与目录共享只读，引用不变即复用；
+// readers 在运行时是稳定闭包，换了闭包才重建。返回的引擎不得原地修改。
+const ENGINE_CACHE = new WeakMap();
+
+export function engineFor(catalog, settings, ruleset, readers = {}) {
+    const cat = catalog && typeof catalog === 'object' ? catalog : EMPTY;
+    const set = settings && typeof settings === 'object' ? settings : EMPTY;
+    let bySettings = ENGINE_CACHE.get(cat);
+    if (!bySettings) { bySettings = new WeakMap(); ENGINE_CACHE.set(cat, bySettings); }
+    let byKey = bySettings.get(set);
+    if (!byKey) { byKey = new Map(); bySettings.set(set, byKey); }
+    const id = getRuleset(ruleset === undefined ? set.ruleset : ruleset).ID;
+    const key = `${id}|${(readers && readers.userName) || ''}`;
+    const found = byKey.get(key);
+    const readAbilities = readerOf(readers && readers.readAbilities);
+    const readVitals = readerOf(readers && readers.readVitals);
+    if (found && found.readAbilities === readAbilities && found.readVitals === readVitals) return found;
+    const engine = buildEngine(cat, set, id, readers);
+    byKey.set(key, engine);
+    return engine;
+}
+
+function memoizeByName(fn) {
+    if (!fn) return null;
+    const cache = new Map();
+    return (name, ...rest) => {
+        if (rest.length) return fn(name, ...rest);
+        if (!cache.has(name)) cache.set(name, fn(name));
+        return cache.get(name);
+    };
+}
+
+// 一次注入或结算内用：返回浅拷贝引擎，readAbilities / readVitals 按名字记忆化；缓存引擎本身不动。
+export function withAbilityMemo(engine) {
+    if (!engine || engine.memoized) return engine;
+    return { ...engine, readAbilities: memoizeByName(engine.readAbilities), readVitals: memoizeByName(engine.readVitals), memoized: true };
+}
+
+// CoC下的属性清单：六维加理智；其余体系只有六维。
+export function attributeNamesOf(engine) {
+    return engine && engine.ruleset && engine.ruleset.ID === 'coc7' ? [...BASE_ATTRIBUTES, SAN_ATTRIBUTE] : [...BASE_ATTRIBUTES];
+}
+
+function isSan(engine, skill) {
+    return skill === SAN_ATTRIBUTE && engine.ruleset.ID === 'coc7';
 }
 
 export function isProtagonist(actor) {
@@ -39,19 +106,50 @@ export function rankOfGrowth(growth) {
 
 // 主角自定义技能不在注册表里：按名字猜属性，类别算通用。
 function entryOf(engine, skill) {
+    if (isSan(engine, skill)) return SAN_ENTRY;
     const found = engine.registry.get(skill);
     if (found) return found;
     return { kind: 'skill', attribute: guessAttribute(skill) || '敏捷', category: 'general', aliases: [], origin: 'custom' };
 }
 
-function protagonistAttributes(state) {
-    const skills = (state && state.protagonist && state.protagonist.skills) || {};
-    return Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Number(skills[name] && skills[name].value) || 50]));
+function safeRead(fn, name) {
+    if (!fn) return null;
+    try {
+        return fn(name) || null;
+    } catch {
+        return null;
+    }
 }
 
-function npcAttributes(sheet) {
-    const own = (sheet && sheet.attributes) || {};
-    return Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Number(own[name]) || NPC_DEFAULT_ATTRIBUTE]));
+// 战斗六维（分数）折成百分制：分数 × 5。缺项按 10 分（普通）。
+function percentOf(scores) {
+    return Object.fromEntries(ABILITY_KEYS.map((key) => [ABILITY_LABELS[key], (Number(scores && scores[key]) || 10) * 5]));
+}
+
+// 主角六维：读战斗侧 → 按建卡偏好推导。
+function protagonistAttributes(engine, state) {
+    const name = engine.userName || PROTAGONIST;
+    const read = safeRead(engine.readAbilities, name);
+    if (read && read.scores) return percentOf(read.scores);
+    const prefs = (state && state.protagonist && state.protagonist.prefs) || null;
+    return percentOf(deriveAbilities({ prefs, name, protagonist: true }).scores);
+}
+
+// NPC 六维优先序：属性档（scale:'score' 且六维齐全）→ 战斗侧读取 → 按名字推导。
+function npcAttributes(engine, sheet, actor) {
+    const own = sheet && sheet.scale === 'score' && sheet.attributes;
+    if (own && BASE_ATTRIBUTES.every((name) => Number(own[name]) > 0)) return Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Number(own[name]) * 5]));
+    const read = safeRead(engine.readAbilities, actor);
+    if (read && read.scores) return percentOf(read.scores);
+    return percentOf(deriveAbilities({ name: actor, protagonist: false }).scores);
+}
+
+// CoC理智值（百分制）：主角取存档里成长过的理智，没有取 感知 × 5 的初值；NPC 取角色卡 san。
+function sanOf(attrs, owned, sheet) {
+    const stored = Number(owned && owned.value);
+    if (stored > 0) return stored;
+    const san = Number(sheet && sheet.san);
+    return san > 0 ? san : attrs[WILL_ATTRIBUTE];
 }
 
 // 没有该技能的 NPC 按所属属性估临时值（§6.2 第一层）：属性很高给「熟练」中值，较高给「入门」中值。
@@ -63,20 +161,25 @@ export function provisionalSkillValue(attributeValue, base) {
 }
 
 // 返回 { skill, kind, value, learned, attributeValue, rank, entry, provisional }。
-export function profileOf(engine, state, actor, skill) {
+export function profileOf(engine, state, actor, rawSkill) {
+    // 旧属性名（健康 / 观察，D&D 下的理智）先归一成六维，否则会被当成未登记的自定义技能。
+    const skill = BASE_ATTRIBUTE_SET.has(rawSkill) || isSan(engine, rawSkill) ? rawSkill : (normalizeAttribute(rawSkill) || rawSkill);
     const entry = entryOf(engine, skill);
+    const san = isSan(engine, skill);
     if (isProtagonist(actor)) {
-        const attrs = protagonistAttributes(state);
+        const attrs = protagonistAttributes(engine, state);
         const owned = state && state.protagonist && state.protagonist.skills[skill];
         const rank = rankOfGrowth(state && state.protagonist && state.protagonist.growth);
+        if (san) { const value = sanOf(attrs, owned, null); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
         if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };
         const backfilled = Number(engine.protagonistBase[skill]);
         const value = owned ? Number(owned.value) || 0 : (Number.isFinite(backfilled) && backfilled > 0 ? backfilled : baseValueOf(entry, attrs));
         return { skill, kind: 'skill', value, learned: Boolean(owned) || backfilled > 0, attributeValue: attrs[entry.attribute], rank, entry };
     }
     const sheet = engine.sheets[actor] || null;
-    const attrs = npcAttributes(sheet);
+    const attrs = npcAttributes(engine, sheet, actor);
     const rank = (sheet && sheet.rank) || RANKS[0];
+    if (san) { const value = sanOf(attrs, null, sheet); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
     if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };
     const own = sheet && sheet.skills && Number(sheet.skills[skill]);
     if (own > 0) return { skill, kind: 'skill', value: own, learned: true, attributeValue: attrs[entry.attribute], rank, entry, provisional: Boolean(sheet.provisional && sheet.provisional[skill]) };
@@ -90,13 +193,19 @@ export function isSocialSkill(engine, skill) {
     return Boolean(entry && entry.social) || SOCIAL_SKILLS.has(skill);
 }
 
+// 主角生命（战斗侧 vitals：{ hp, maxHp, down }）；读不到或没有上限时为 null。
+export function protagonistVitals(engine) {
+    const vitals = safeRead(engine.readVitals, engine.userName || PROTAGONIST);
+    return vitals && Number(vitals.maxHp) > 0 ? vitals : null;
+}
+
 // 修正（§4.6）：生活条惩罚、队友、好感、额外修正合成净优势值；压力折成 shift。D&D 只看符号。
 export function modifiersOf(engine, state, { actor, skill, toward, ally, edge = 0 } = {}) {
     const notes = [];
     let net = Number(edge) || 0;
     let shift = 0;
     if (isProtagonist(actor) && state && state.protagonist) {
-        const mods = checkModifiers(state.protagonist.bars);
+        const mods = checkModifiers(state.protagonist.bars, protagonistVitals(engine));
         if (mods.penalty) {
             net -= engine.ruleset.EDGE_MAX > 1 ? mods.penalty : 1;
             notes.push('状态不佳');
@@ -164,62 +273,6 @@ export function chanceOf(engine, state, request) {
     return engine.ruleset.chance(profile, opts);
 }
 
-// 预掷（§5.2）：生成开始时掷一颗骰，存原始骰面；结算时按标签用同一颗骰重算。
-export function rollPreroll(engine, random) {
-    return { ruleset: engine.ruleset.ID, raw: engine.ruleset.rawRoll(random, engine.ruleset.EDGE_MAX || 0) };
-}
-
-function passTier(engine, state, request, raw) {
-    for (const difficulty of ['极难', '困难', '普通', '简单']) {
-        if (resolveCheck(engine, state, { ...request, difficulty, raw }, null).success) return difficulty;
-    }
-    return null;
-}
-
-const TIER_LINE = Object.freeze({ 极难: '能过到极难', 困难: '能过到困难', 普通: '能过普通', 简单: '只能过简单' });
-
-// 预掷结果表：只给结论不给骰面。present：在场已登记角色（最多 3 个）。
-export function prerollTable(engine, state, preroll, { present = [] } = {}) {
-    if (!preroll || preroll.ruleset !== engine.ruleset.ID) return null;
-    const raw = preroll.raw;
-    const groups = { 极难: [], 困难: [], 普通: [], 简单: [], 失败: [] };
-    const owned = Object.keys((state && state.protagonist && state.protagonist.skills) || {});
-    for (const skill of owned) groups[passTier(engine, state, { actor: PROTAGONIST, skill }, raw) || '失败'].push(skill);
-    const lines = [];
-    for (const key of ['极难', '困难', '普通', '简单']) if (groups[key].length) lines.push(`${TIER_LINE[key]}：${groups[key].join('、')}`);
-    if (groups.失败.length) lines.push(`失败：${groups.失败.join('、')}`);
-    if (engine.ruleset.ID === 'coc7') {
-        const parts = [];
-        for (const category of ['daily', 'general', 'pro']) {
-            const probe = { kind: 'skill', attribute: '敏捷', category, aliases: [] };
-            const value = CATEGORY_BASE[category];
-            const r = engine.ruleset.resolve({ kind: 'skill', value, learned: false, attributeValue: 50, rank: RANKS[0], entry: probe }, { difficulty: '普通', edge: 0 }, raw);
-            const easy = engine.ruleset.resolve({ kind: 'skill', value, learned: false, attributeValue: 50, rank: RANKS[0], entry: probe }, { difficulty: '简单', edge: 0 }, raw);
-            parts.push(`${{ daily: '日常类', general: '通用类', pro: '专业类' }[category]}${r.success ? '能过普通' : easy.success ? '只能过简单' : '失败'}`);
-        }
-        lines.push(`未学的技能：${parts.join('，')}`);
-    } else {
-        lines.push('未学的技能：按所属属性那一项算');
-    }
-    for (const name of present.slice(0, 3)) {
-        const offense = [];
-        for (const skill of ['话术', '魅惑', '潜行']) {
-            const r = resolveCheck(engine, state, { actor: PROTAGONIST, skill, against: name, raw }, null);
-            offense.push(`${skill}${r.success ? '成功' : '失败'}`);
-        }
-        const see = resolveCheck(engine, state, { actor: PROTAGONIST, skill: '心理学', against: name, opposedSkill: '话术', raw }, null);
-        const dodge = resolveCheck(engine, state, { actor: PROTAGONIST, skill: '闪避', against: name, opposedSkill: '格斗', raw }, null);
-        lines.push(`对${name}：${offense.join('，')}；${name}骗主角时主角${see.success ? '能识破' : '识不破'}，${name}动手时主角${dodge.success ? '能躲开' : '躲不开'}`);
-    }
-    return { lines };
-}
-
-// 按预掷骰面与 roll 标签重算（结算时用）。tag：{ skill, difficulty, against, opposedSkill }。
-export function checkFromPreroll(engine, state, preroll, tag) {
-    if (!preroll || !tag || !tag.skill) return null;
-    return resolveCheck(engine, state, { actor: tag.actor || PROTAGONIST, skill: tag.skill, difficulty: tag.difficulty, against: tag.against, opposedSkill: tag.opposedSkill, raw: preroll.raw, source: 'roll' }, null);
-}
-
 // 主角检定成功打成长勾；未学技能成功后登记进存档（「用过就会」），起点为当时的检定底数（§6.1）。
 export function markGrowth(state, check) {
     if (!check || !check.success || !isProtagonist(check.actor) || !state || !state.protagonist) return state;
@@ -255,6 +308,7 @@ function actorKey(engine, state, name, resolveCharacter) {
 }
 
 function skillKey(engine, raw) {
+    if (isSan(engine, String(raw || '').trim())) return SAN_ATTRIBUTE;
     return engine.registry.resolve(raw) || String(raw || '').trim();
 }
 

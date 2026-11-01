@@ -1,10 +1,16 @@
 // 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_PROMPT_SEGMENTS } from './stat-prompt.js';
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
 import { DEFAULT_RULESET, hasRuleset } from './rulesets/index.js';
 
+// v0.39 之前的工作区默认规则体系。
+const LEGACY_RULESET = 'coc7';
+
 const PROMPT_MAX = 4000;
-export const STAT_PROMPT_KEYS = Object.freeze([...STAT_PROMPT_SEGMENTS, 'rollManual', ...STAT_BACKGROUND_PROMPTS]);
+// 曾被 v0.39 放进 stalePrompts 的键，这里仍是有效模板，迁移时搬回 prompts。
+const RESTORABLE_KEYS = Object.freeze(['sheets', 'sheetGen']);
+const STALE_STORE_KEYS = Object.freeze([...STAT_STALE_PROMPT_KEYS, ...RESTORABLE_KEYS]);
+export const STAT_PROMPT_KEYS = Object.freeze([...STAT_PROMPT_SEGMENTS, 'diceManual', ...STAT_BACKGROUND_PROMPTS]);
 
 export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     enabled: false,
@@ -19,7 +25,6 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     optionChance: true,
     sheetGen: 'prompt',
     backfill: 'auto',
-    dndNatural: false,
     bars: Object.freeze({ stamina: true, money: true, stress: true }),
     push: Object.freeze({ enabled: false }),
 });
@@ -53,6 +58,31 @@ function textMap(raw, keys, defaults = {}) {
     return out;
 }
 
+// 提示词覆盖按版本迁移：
+// - 版本已是当前：prompts 与 stalePrompts 各自过滤；v0.39 曾把 sheets、sheetGen 误放进 stalePrompts，prompts 里没有时搬回来。
+// - 版本较旧（含工作区旧设置，没有 promptsVersion）：失效清单里的键移进 stalePrompts，其余（含 sheets、sheetGen）原样保留；
+//   旧键 rollManual 的覆盖随失效清单移走，不再对应新键 diceManual。
+function migratePrompts(src) {
+    const prompts = src.prompts && typeof src.prompts === 'object' && !Array.isArray(src.prompts) ? src.prompts : {};
+    const stale = textMap(src.stalePrompts, STALE_STORE_KEYS);
+    const restore = {};
+    for (const key of RESTORABLE_KEYS) {
+        if (typeof stale[key] === 'string' && !(typeof prompts[key] === 'string' && prompts[key].trim())) restore[key] = stale[key];
+        delete stale[key];
+    }
+    const merged = { ...restore, ...prompts };
+    if (src.promptsVersion === STAT_PROMPTS_VERSION) return { prompts: textMap(merged, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS), stale: textMap(stale, STAT_STALE_PROMPT_KEYS) };
+    const kept = { ...merged };
+    for (const key of STAT_STALE_PROMPT_KEYS) {
+        delete kept[key];
+        const text = merged[key];
+        if (typeof text !== 'string' || !text.trim()) continue;
+        if (typeof DEFAULT_STAT_PROMPTS[key] === 'string' && text.trim() === DEFAULT_STAT_PROMPTS[key].trim()) continue;
+        stale[key] = text.slice(0, PROMPT_MAX);
+    }
+    return { prompts: textMap(kept, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS), stale: textMap(stale, STAT_STALE_PROMPT_KEYS) };
+}
+
 // 每段注入是否开启：未写或非布尔一律视为开启。
 function segmentMap(raw) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -76,37 +106,61 @@ function mappingMap(raw) {
     return out;
 }
 
+// readStatsSettings 的结果按入参对象引用缓存：已保存的配置共享只读、改动时整体换新对象，引用不变即复用；
+// 返回值调用方不得原地修改。入参非对象时不缓存。
+const NORMALIZED = new WeakMap();
+
+// 规则体系的旧默认：没有 promptsVersion 的是 v0.39 之前的工作区设置，当时默认 CoC第七版；显式存了的照旧保留。
+function rulesetOf(src, d) {
+    if (typeof src.ruleset === 'string' && hasRuleset(src.ruleset)) return src.ruleset;
+    return src.promptsVersion === undefined && Object.keys(src).length ? LEGACY_RULESET : d.ruleset;
+}
+
+// 运行时热路径用：读的是已保存的设置快照（写时浅拷，不会原地改），可按引用缓存。
+export function readStatsSettings(raw) {
+    if (!raw || typeof raw !== 'object') return normalizeStatsSettings(raw);
+    let result = NORMALIZED.get(raw);
+    if (!result) { result = normalizeStatsSettings(raw); NORMALIZED.set(raw, result); }
+    return result;
+}
+
+// 不缓存：设置页草稿会被原地改（如新增自定义技能），按引用缓存会读到旧值。
 export function normalizeStatsSettings(raw) {
-    const src = raw && typeof raw === 'object' ? raw : {};
+    const isObject = raw && typeof raw === 'object';
+    const src = isObject ? raw : {};
     const d = STATS_SETTINGS_DEFAULTS;
     const bars = src.bars && typeof src.bars === 'object' ? src.bars : {};
     const push = src.push && typeof src.push === 'object' ? src.push : {};
-    return {
+    const migrated = migratePrompts(src);
+    const result = {
         enabled: bool(src.enabled, d.enabled),
         autoSkill: bool(src.autoSkill, d.autoSkill),
         register: pick(REGISTER_MODES, src.register, d.register),
         hudLabel: pick(HUD_LABELS, src.hudLabel, d.hudLabel),
         intimacyGate: bool(src.intimacyGate, d.intimacyGate),
-        ruleset: typeof src.ruleset === 'string' && hasRuleset(src.ruleset) ? src.ruleset : d.ruleset,
+        ruleset: rulesetOf(src, d),
         newChat: pick(NEW_CHAT, src.newChat, d.newChat),
         storyCheck: pick(STORY_CHECK, src.storyCheck, d.storyCheck),
         checkFx: bool(src.checkFx, d.checkFx),
         optionChance: bool(src.optionChance, d.optionChance),
         sheetGen: pick(SHEET_GEN, src.sheetGen, d.sheetGen),
         backfill: pick(BACKFILL, src.backfill, d.backfill),
-        dndNatural: bool(src.dndNatural, d.dndNatural),
         bars: {
             stamina: bool(bars.stamina, d.bars.stamina),
             money: bool(bars.money, d.bars.money),
             stress: bool(bars.stress, d.bars.stress),
         },
         push: { enabled: bool(push.enabled, d.push.enabled), mappings: mappingMap(push.mappings) },
-        prompts: textMap(src.prompts, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS),
+        promptsVersion: STAT_PROMPTS_VERSION,
+        prompts: migrated.prompts,
+        stalePrompts: migrated.stale,
+        staleNoticeSeen: bool(src.staleNoticeSeen, false),
         segments: segmentMap(src.segments),
         stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT), DEFAULT_STAGE_TEXT),
-        // 建卡分配（Q5：点数分配可在设置中修改）；「按分配启用」时用它生成本聊天初始数值。
+        // 建卡（倾向 / 手动六维 / 职业 / 特有技能）；「按分配启用」时用它生成本聊天初始数值。
         build: normalizeBuild(src.build),
     };
+    return result;
 }
 
 // 总开关与本聊天开关都开着才运行（易错点 H1/H2）。

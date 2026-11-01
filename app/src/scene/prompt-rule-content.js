@@ -1,5 +1,5 @@
 import { buildCompactGroupsText, buildCompactMoodGroupsText, buildCompactSceneNamesText, buildMoodGroupsText, buildGroupsText, buildSceneGroupsText, MOOD_GROUPS_PLACEHOLDER, SCENE_GROUPS_PLACEHOLDER, TIME_GROUPS_PLACEHOLDER, WEATHER_GROUPS_PLACEHOLDER } from './mood-groups.js';
-import { buildOutfitGroupsText, buildScopedOutfitGroupsText, normalizeCharacterOutfits, OUTFIT_GROUPS_PLACEHOLDER } from './character-outfits.js';
+import { buildOutfitGroupsText, buildScopedOutfitGroupsText, normalizeCharacterOutfits, visibleCharacterOutfits, OUTFIT_GROUPS_PLACEHOLDER } from './character-outfits.js';
 import { buildPreviousOutfitDnaText, PREVIOUS_OUTFIT_DNA_PLACEHOLDER } from './previous-outfit-dna.js';
 
 // 素材页「自动注入格式规则」：缺省为开，只有明确存了 false 才不把场景规则发给聊天模型。
@@ -40,7 +40,7 @@ export function resolvePromptRuleContent(sceneAssets, { compact = false, present
         rule = rule.split(WEATHER_GROUPS_PLACEHOLDER).join(compact ? buildCompactGroupsText(sceneAssets.weatherGroups) : buildGroupsText(sceneAssets.weatherGroups));
     }
     if (rule.includes(OUTFIT_GROUPS_PLACEHOLDER)) {
-        const outfits = normalizeCharacterOutfits(sceneAssets.characterOutfits);
+        const outfits = visibleCharacterOutfits(sceneAssets, normalizeCharacterOutfits(sceneAssets.characterOutfits));
         rule = rule.split(OUTFIT_GROUPS_PLACEHOLDER).join(compact
             ? buildScopedOutfitGroupsText(outfits, { presentText, characterAliases: sceneAssets.characterAliases })
             : buildOutfitGroupsText(outfits));

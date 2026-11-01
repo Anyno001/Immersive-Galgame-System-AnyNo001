@@ -1,6 +1,6 @@
 // 命名衣装的默认选择与人物图解析；只读输入，不迁移旧原装或 DNA。
 import { resolveCharacterKey, lookupAssetValue } from './scene-directives.js';
-import { isValidOutfitName, isBuiltinNudeOutfit, resolveWardrobePrompt } from './character-outfits.js';
+import { isValidOutfitName, isBuiltinNudeOutfit, isOutfitHidden, resolveWardrobePrompt } from './character-outfits.js';
 
 const own = (o, k) => Boolean(o && Object.hasOwn(o, k));
 const plain = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
@@ -31,6 +31,19 @@ export function readDefaultOutfit(assets, character) {
     const outfits = plain(assets?.characterOutfits?.[characterKey]);
     if (!own(outfits, record.outfitName)) return fail('default-outfit-missing', { characterKey });
     return { ok: true, characterKey, outfitName: record.outfitName, entry: outfits[record.outfitName] };
+}
+
+// 显示用的默认衣装：默认那套在本卡隐藏时，改用第一套未隐藏且有图的；都没有就当作没设默认。
+// 存的默认记录不动（别的卡照常用），写入路径仍用 readDefaultOutfit。
+export function readVisibleDefaultOutfit(assets, character) {
+    const selected = readDefaultOutfit(assets, character);
+    const characterKey = selected.characterKey || appearanceCharacterKey(assets, character);
+    if (!selected.ok || !isOutfitHidden(assets, characterKey, selected.outfitName)) return selected;
+    const outfits = plain(assets?.characterOutfits?.[characterKey]);
+    const name = Object.keys(outfits).find(key => isValidOutfitName(key) && !isOutfitHidden(assets, characterKey, key)
+        && Object.keys(outfitSpriteSlots(outfits[key])).length);
+    if (name) return { ok: true, characterKey, outfitName: name, entry: outfits[name], substitute: true };
+    return fail('default-outfit-hidden', { characterKey });
 }
 
 export function outfitSpriteSlots(entry) {
@@ -100,14 +113,15 @@ export function resolveCharacterAppearance({ characterKey: character, requestedO
     const explicit = requested && !['默认', '原装'].includes(requested);
     const outfits = plain(sceneAssets.characterOutfits?.[characterKey]);
     let effectiveOutfit = explicit ? requested : '', fallbackReason = '';
-    let picked = explicit && own(outfits, requested)
+    const hidden = explicit && own(outfits, requested) && isOutfitHidden(sceneAssets, characterKey, requested);
+    let picked = explicit && own(outfits, requested) && !hidden
         ? pickOutfitSprite(outfits[requested], mood, sceneAssets, imageAvailability)
-        : fail(explicit ? 'outfit-unregistered' : 'default-requested');
+        : fail(hidden ? 'outfit-hidden' : explicit ? 'outfit-unregistered' : 'default-requested');
     if (!picked.ok) {
         if (['outfit-image-read-error', 'outfit-image-decode-error', 'outfit-image-pending'].includes(picked.reason))
             return fail(picked.reason, { characterKey, requestedOutfit: requested });
         fallbackReason = explicit ? picked.reason : '';
-        const selected = readDefaultOutfit(sceneAssets, characterKey);
+        const selected = readVisibleDefaultOutfit(sceneAssets, characterKey);
         if (!selected.ok) return { ...selected, requestedOutfit: requested, fallbackReason };
         effectiveOutfit = selected.outfitName;
         picked = pickOutfitSprite(selected.entry, mood, sceneAssets, imageAvailability);
@@ -120,10 +134,11 @@ export function resolveCharacterAppearance({ characterKey: character, requestedO
     if (purpose === 'consistency' && !outfitDescription.trim())
         return fail('outfit-dna-missing', { characterKey, requestedOutfit: requested, effectiveOutfit });
     const referenceImage = pickOutfitSprite(entry, '平和', sceneAssets, imageAvailability, true);
-    const confirmationRequired = Boolean(explicit && effectiveOutfit !== requested);
+    // 隐藏是用户自己定的，换成默认不再请用户确认。
+    const confirmationRequired = Boolean(explicit && !hidden && effectiveOutfit !== requested);
     return { ok: true, characterKey, requestedOutfit: requested, effectiveOutfit, outfitDescription,
         spriteImage: picked, referenceImage,
-        selectionSource: confirmationRequired ? 'default-fallback' : explicit ? 'requested' : 'default',
+        selectionSource: confirmationRequired ? 'default-fallback' : explicit && !hidden ? 'requested' : 'default',
         fallbackReason, confirmationRequired,
         // 私有等值快照，不得进入日志、模型请求或永久存储；变更后再改回由调用方租约拒收。
         sourceToken: JSON.stringify([ownerScope, characterKey, requested, effectiveOutfit,

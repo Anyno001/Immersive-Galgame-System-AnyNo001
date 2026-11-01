@@ -58,14 +58,22 @@ export function readAttributeCell(text) {
 }
 
 // 只替换格内目标属性的数值，其余属性与顺序逐字保留；格内没有的属性追加在末尾（易错点 F3）。
-export function writeAttributeCell(original, updates) {
+// renames：旧名 → 新名（如 健康→体质）。格内是旧名、updates 里是新名，且格内没有新名时，把旧名改写成新名。
+export function writeAttributeCell(original, updates, { renames = null } = {}) {
     const pairs = splitPairs(original);
     const pending = new Map(Object.entries(updates || {}).map(([k, v]) => [k, Math.round(Number(v) || 0)]));
+    const present = new Set(pairs.map((p) => p.name).filter(Boolean));
     const parts = pairs.map((p) => {
-        if (!p.name || !pending.has(p.name)) return p.raw;
-        const v = pending.get(p.name);
-        pending.delete(p.name);
-        return NUMBER.test(p.value) ? `${p.name}:${p.value.replace(NUMBER, String(v))}` : `${p.name}:${v}`;
+        let name = p.name;
+        const renamed = name && renames && Object.hasOwn(renames, name) ? renames[name] : null;
+        if (renamed && renamed !== name && pending.has(renamed) && !present.has(renamed)) {
+            present.add(renamed);
+            name = renamed;
+        }
+        if (!name || !pending.has(name)) return p.raw;
+        const v = pending.get(name);
+        pending.delete(name);
+        return NUMBER.test(p.value) ? `${name}:${p.value.replace(NUMBER, String(v))}` : `${name}:${v}`;
     });
     for (const [name, v] of pending) parts.push(`${name}:${v}`);
     return parts.length ? `${parts.join('；')}；` : '';

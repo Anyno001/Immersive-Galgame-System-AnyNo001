@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStatsLedger, currentStatsState } from '../src/scene/stats/stat-ledger.js';
 import { settleFloor } from '../src/scene/stats/stat-ledger-settle.js';
-import { STATS_METADATA_KEY, createChatStatsStore, deserializeLedger, serializeLedger } from '../src/scene/stats/stat-persist.js';
+import { STATS_METADATA_KEY, createChatStatsStore, deserializeLedger, sanitizeCatalog, serializeLedger, sheetAbilityScores } from '../src/scene/stats/stat-persist.js';
 import { STATS_SETTINGS_DEFAULTS, normalizeStatsSettings, statsActive } from '../src/scene/stats/stat-settings.js';
 
 const bump = (before) => ({ state: { n: (before.n || 0) + 1 }, changes: [{ key: 'n' }] });
@@ -59,4 +59,30 @@ test('设置规范化：默认关闭、非法值回退、不改入参；两级�
     assert.equal(statsActive(s, { chatEnabled: true }), true);
     assert.equal(statsActive(s, { chatEnabled: false }), false);
     assert.equal(statsActive(normalizeStatsSettings({}), { chatEnabled: true }), false);
+});
+
+test('角色卡属性档：新格式保留六维与理智，旧格式（百分制旧名）迁成六维分数并把旧理智写进 san', () => {
+    const fresh = sanitizeCatalog({ sheets: { 甲: { rank: '老手', scale: 'score', attributes: { 力量: 14, 敏捷: 99, 体质: 10, 智力: 11, 感知: 12, 魅力: 8 }, san: 55, skills: {} } } });
+    assert.equal(fresh.sheets.甲.scale, 'score');
+    assert.equal(fresh.sheets.甲.attributes.力量, 14);
+    assert.equal(fresh.sheets.甲.attributes.敏捷, 30);
+    assert.equal(fresh.sheets.甲.san, 55);
+    const old = sanitizeCatalog({ sheets: { 乙: { rank: '普通人', attributes: { 健康: 60, 力量: 50, 敏捷: 40, 理智: 80, 观察: 55, 魅力: 30 }, skills: {} } } });
+    assert.equal(old.sheets.乙.scale, 'score');
+    assert.equal(old.sheets.乙.attributes.体质, 12);
+    assert.equal(old.sheets.乙.attributes.智力, 16);
+    assert.equal(old.sheets.乙.attributes.感知, 11);
+    assert.equal(old.sheets.乙.san, 80);
+    // 迁移后再读一遍结果不变
+    assert.deepEqual(sanitizeCatalog({ sheets: old.sheets }).sheets.乙, old.sheets.乙);
+    // 没有属性的卡不带 scale
+    assert.equal(sanitizeCatalog({ sheets: { 丙: { rank: '老手', skills: {} } } }).sheets.丙.scale, undefined);
+});
+
+test('sheetAbilityScores：只有新格式且六维齐全才给出战斗六维', () => {
+    const full = { scale: 'score', attributes: { 力量: 14, 敏捷: 12, 体质: 10, 智力: 11, 感知: 9, 魅力: 8 } };
+    assert.deepEqual(sheetAbilityScores(full), { scores: { str: 14, dex: 12, con: 10, int: 11, wis: 9, cha: 8 } });
+    assert.equal(sheetAbilityScores({ ...full, scale: undefined }), null);
+    assert.equal(sheetAbilityScores({ scale: 'score', attributes: { 力量: 14 } }), null);
+    assert.equal(sheetAbilityScores(null), null);
 });

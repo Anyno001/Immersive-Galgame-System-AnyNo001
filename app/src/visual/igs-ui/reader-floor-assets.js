@@ -1,6 +1,6 @@
 import { resolveCharacterLive2dBinding } from './live2d-config.js';
 import { resolveSpriteAsset, resolveBackgroundAsset, resolveNudeSpriteAsset, isNonSpriteSpeaker, tempAssetKeyOf } from '../../scene/asset-match.js';
-import { resolveSpriteOutfit, outfitsOfCharacter, outfitAllowsScene } from '../../scene/character-outfits.js';
+import { resolveSpriteOutfit, outfitsOfCharacter, outfitAllowsScene, isOutfitHidden } from '../../scene/character-outfits.js';
 import { resolveCharacterDna } from '../../scene/character-dna.js';
 import { classifySceneKey } from '../../scene/scene-directives.js';
 import { createCastLeftTracker, otherNamesOf, namesOf, NARRATION_HOLD_PAGES } from '../../scene/narration-sprite.js';
@@ -288,7 +288,7 @@ export function prepareReaderFloorAssets(floor, { payload, readerSettings, asset
                 resolveDna: name => resolveCharacterDna(sceneAssets.characterDna, name)?.dna || null });
             // 仍落空就从衣柜挑一套适用本场景的，有图的优先，没图的也照选。
             if (!resolved.outfit && resolved.source !== 'reset' && found && defaultEmpty(character)) {
-                const names = Object.keys(outfits).filter(name => outfitAllowsScene(outfits[name], sceneNames));
+                const names = Object.keys(outfits).filter(name => outfitAllowsScene(outfits[name], sceneNames) && !isOutfitHidden(sceneAssets, key, name));
                 const hasArt = name => Object.values(outfits[name]?.moods || {}).some(v => String(v || '').trim()) || String(outfits[name]?.base || '').trim();
                 const pick = names.find(hasArt) || names[0];
                 if (pick) resolved = { outfit: pick, source: 'wardrobe', reason: 'no-default-sprite' };

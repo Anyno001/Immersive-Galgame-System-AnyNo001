@@ -4,6 +4,7 @@ import { checkCharacterMeta } from '../schemas/character-meta.js';
 import { resolveCharacterKey } from './scene-directives.js';
 import { resolveSpriteOutfit, resolveWardrobePrompt } from './character-outfits.js';
 import { savedCharacterOutfits, prepareOutfitAdoption } from './outfit-identity.js';
+import { readVisibleDefaultOutfit } from './character-appearance.js';
 
 // 沿用既有别名解析；请求内去重，不从 caption 顺序猜身份。
 export function buildCharacterContext(names, assets = {}, options) {
@@ -15,7 +16,9 @@ export function buildCharacterContext(names, assets = {}, options) {
         seen.add(characterKey);
         const dna = normalizeCharacterDna(assets.characterDna?.[characterKey]);
         const outfits = savedCharacterOutfits(assets, characterKey);
-        const original = outfits.find(o => o.default === true);
+        // 默认那套在本卡隐藏时，出图按顶替它的那套写。
+        const shown = readVisibleDefaultOutfit(assets, characterKey);
+        const original = shown.ok ? outfits.find(o => o.name === shown.outfitName) : undefined;
         let outfit = original ? { name: original.name, description: original.description } : { name: '', description: '' };
         if (options) {
             const resolved = resolveSpriteOutfit({ ...options, character: characterKey, sceneAssets: assets });

@@ -49,6 +49,9 @@ import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
 import { normalizeBuild } from '../../scene/stats/stat-build.js';
 import { refreshStatsBuildStatus } from './stats-settings-fields.js';
+import { checkCombatExpansionReady } from './combat-settings.js';
+import { createEnemyAtlasManager, getEnemyAtlas, setEnemyAtlas } from './combat-enemy-atlas.js';
+import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
 import { originChatStatus, runAttachedOriginOp } from './origin-attach.js';
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
@@ -505,6 +508,34 @@ export function createSettingsHost(deps) {
             setPath(draft, 'readerSettings.dialogAutoHeight', value === 'auto');
             return editOptions.liveInput ? { ok: true } : rerenderSettings();
         }
+        // 卡牌战斗开启前检查数据库表与副 LLM；通过后数值系统一并打开，战斗开着时数值系统不能单独关。
+        if (path === 'readerSettings.combatExpansion.enabled' && value === true) {
+            const ready = checkCombatExpansionReady({
+                api: (options.global || globalThis).AutoCardUpdaterAPI || null,
+                autoIllustration: draft.bridge && draft.bridge.autoIllustration,
+            });
+            if (!ready.ok) {
+                setPath(draft, path, false);
+                showSettingsNotice(ready.message);
+                return { ok: false, reason: ready.reason, missing: ready.missing };
+            }
+            setPath(draft, 'bridge.stats.enabled', true);
+        }
+        if (path === 'bridge.stats.enabled' && value !== true && draft.readerSettings && draft.readerSettings.combatExpansion && draft.readerSettings.combatExpansion.enabled === true) {
+            setPath(draft, path, true);
+            showSettingsNotice('卡牌战斗开启时数值系统不能单独关闭');
+            rerenderSettings();
+            return { ok: false, reason: 'stats-combat-locked' };
+        }
+        if (path === 'bridge.stats.enabled' && value === true) {
+            const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+            const support = probeCombatTableSupport(api);
+            if (!support.ok) {
+                setPath(draft, path, false);
+                showSettingsNotice(api ? `数据库不支持数值系统所需的表：缺少 ${support.missing.join('、')}` : '未检测到数据库（shujuku），无法开启数值系统');
+                return { ok: false, reason: support.reason, missing: support.missing };
+            }
+        }
         materializeStatsBuild(draft, path);
         setPath(draft, path, normalizeSettingsValue(path, value));
         if (path === 'readerSettings.skinDialogScale') setPath(draft, 'readerSettings.dialogAutoHeight', false);
@@ -709,6 +740,27 @@ export function createSettingsHost(deps) {
             const id = String(action).slice('stats-prompt-reset:'.length);
             if (!/^[a-zA-Z]+$/.test(id)) return Promise.resolve({ ok: false, reason: 'stats-prompt-unknown' });
             return Promise.resolve(updateSettingsValue(`bridge.stats.prompts.${id}`, ''));
+        }
+        // 敌人图集：只在用户点击时才下载或删除；管理器首次使用时才创建。
+        if (action === 'combat-enemy-atlas-download' || action === 'combat-enemy-atlas-remove') {
+            const atlas = getEnemyAtlas() || setEnemyAtlas(createEnemyAtlasManager({ globalObject: options.global || globalThis }));
+            const job = action === 'combat-enemy-atlas-download' ? atlas.download() : atlas.remove();
+            return Promise.resolve(job).then((result) => { if (state.activeSettings) rerenderSettings(); return result; });
+        }
+        // 失效提示词提醒「知道了」：之后不再显示。
+        if (action === 'stats-prompt-stale-ack') return Promise.resolve(updateSettingsValue('bridge.stats.staleNoticeSeen', true));
+        // 建档方式（快速 / 手动等）：交给运行时，结束后重绘。
+        if (String(action).startsWith('stats-build-mode:')) {
+            let result;
+            try {
+                result = typeof options.statsChatAction === 'function'
+                    ? options.statsChatAction('mode', { mode: String(action).slice('stats-build-mode:'.length) })
+                    : { ok: false, reason: 'stats-runtime-missing' };
+            } catch (error) {
+                result = { ok: false, reason: 'stats-chat-action-threw', thrown: error };
+            }
+            if (state.activeSettings) rerenderSettings();
+            return Promise.resolve(result || { ok: false, reason: 'stats-runtime-missing' });
         }
         // 数值 v2 存档区操作（角色卡、剧情技能、补全、旧版备份）：交给运行时，结束后重绘。
         if (String(action).startsWith('stats-op:')) return runStatsOp(String(action).slice('stats-op:'.length));

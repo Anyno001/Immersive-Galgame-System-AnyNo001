@@ -43,18 +43,19 @@ function stateWith(dims) {
 
 test('只写有变化的目标格，其余单元格与同格其它属性逐字不变，一批只刷新一次（易错点 F2/F3/F12/F13）', async () => {
     const api = fakeApi(baseSheets());
-    const r = await pushStats(createShujukuClient(api), stateWith({ 好感: 34, 信任: -20, 了解: 5 }));
+    const baseAttributes = { 力量: 40, 敏捷: 40, 体质: 40, 智力: 40, 感知: 40, 魅力: 40 };
+    const r = await pushStats(createShujukuClient(api), stateWith({ 好感: 34, 信任: -20, 了解: 5 }), { baseAttributes });
     assert.equal(r.ok, true);
     assert.equal(api.calls.refresh, 1);
     const v = api.raw.sheet_v.content;
     assert.deepEqual(v[1], ['小雪', '34%', '-20%', '5%', '秘密A']);
     assert.deepEqual(v[2], ['路人', '5%', '0%', '0%', '']);
     const m = api.raw.sheet_m.content[1];
-    assert.equal(m[1], '健康:40；力量:40；敏捷:40；理智:40；观察:40；魅力:40；');
+    assert.equal(m[1], '体质:40；力量:40；敏捷:40；智力:40；感知:40；魅力:40；');
     assert.match(m[2], /^烹饪:50；/);
     assert.equal(m[3], '近况原文');
     const rr = api.raw.sheet_r.content;
-    assert.match(rr[1][2], /^健康:40；/);
+    assert.match(rr[1][2], /^体质:40；/);
     assert.equal(rr[2][2], '健康:50；');
     assert.ok(api.calls.update.every((c) => c.colName !== '已知秘密' && c.colName !== '近况'));
 });

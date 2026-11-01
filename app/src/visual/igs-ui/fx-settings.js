@@ -15,6 +15,7 @@ import { normalizeWaitStageSettings } from './wait-stage.js';
 import { normalizeDailyFxSettings } from './fx-daily-model.js';
 import { FX_PACK_SETTING_GROUPS } from '../../scene/fx-packs.js';
 import { normalizeBattleFxSettings } from './fx-battle-model.js';
+import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizeRomanceFxSettings } from './romance-settings.js';
 import { normalizeMetaFxSettings } from './meta-settings.js';
@@ -201,6 +202,8 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     innerDemon: normalizeInnerDemonSettings,
     // 战斗演出同样独立渲染（fx-battle-render）。
     battleFx: normalizeBattleFxSettings,
+    // 卡牌战斗扩展：总开关、难度、战报详略；界面另行接入，设置数据先存。
+    combatExpansion: normalizeCombatExpansionSettings,
     // 非人角色显示设置：总开关、体型缩放、巨型铺满；由显示层与生成层读取，不进入 FX_FEATURE_KEYS。
     creatureDisplay: normalizeCreatureDisplaySettings,
     // 亲密演出独立渲染（romance-runtime）。

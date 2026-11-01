@@ -2,10 +2,49 @@
 // 掷骰与属性查询交给 AcuDice 公开 API，使检定历史与统计面板保持一致；
 // 公开 API 不支持奖惩骰，带奖惩时只向 AcuDice 取属性值、在本地掷骰。
 
+import { ABILITY_LABELS, abilityKeyOf, abilityMod } from '../combat/abilities.js';
+
 export const DICE_RESULT_TAG = 'meta:检定结果';
+// d20 检定的 DC 允许范围（含端点）。
+export const D20_DC_RANGE = Object.freeze([5, 30]);
 
 const DIFFICULTY_LEVEL = Object.freeze({ 普通: 0, 困难: 1, 极难: 2 });
 const DIFFICULTY_DIVISOR = Object.freeze({ 0: 1, 1: 2, 2: 5 });
+
+// d20 加值：属性修正，主擅长/次擅长的项再加熟练加值。abilities 形如 { scores:{str..}, prefs:{major,minor}, proficiency }；取不到分数返回 null。
+export function d20Bonus(abilities, key) {
+    // 没有属性表时返回 null（原写法 Number(null) 得 0，会误算出 -5）；属性表存在时与 v0.39 一致，单项按 Number 取值
+    if (!abilities || !abilities.scores) return null;
+    const score = Number(abilities.scores[key]);
+    if (!Number.isFinite(score)) return null;
+    const prefs = (abilities && abilities.prefs) || {};
+    const proficient = key === prefs.major || key === prefs.minor;
+    return abilityMod(score) + (proficient ? Number(abilities && abilities.proficiency) || 0 : 0);
+}
+
+// d20 结果：自然 20 必成、自然 1 必败，其余总值 ≥ DC 为成功。
+export function d20Outcome(die, bonus, dc) {
+    const total = die + bonus;
+    if (die === 20) return { total, success: true, tier: '大成功' };
+    if (die === 1) return { total, success: false, tier: '大失败' };
+    const success = total >= dc;
+    return { total, success, tier: success ? '成功' : '失败' };
+}
+
+const CHECK_PARAMS = Object.freeze(['难度', '奖惩']);
+const CONTEST_PARAMS = Object.freeze(['难度', '奖惩', '平局']);
+const TIE_VALUE = /^(发起方(?:成功|胜|失败|败|负)|平局)$/;
+
+// 参数白名单与取值校验：写错的参数明确报错，不静默当作默认值。
+function paramError(params, allowed) {
+    for (const [key, value] of Object.entries(params)) {
+        if (!allowed.includes(key)) return `无法识别的参数：${key}=${value}`;
+        if (key === '难度' && !Object.hasOwn(DIFFICULTY_LEVEL, String(value).trim())) return `难度只写 普通/困难/极难：${value}`;
+        if (key === '奖惩' && !/^(奖励|惩罚)[12]?$/.test(String(value).trim())) return `奖惩只写 奖励1/奖励2/惩罚1/惩罚2：${value}`;
+        if (key === '平局' && !TIE_VALUE.test(String(value).trim())) return `平局只写 发起方成功/发起方失败/平局：${value}`;
+    }
+    return null;
+}
 
 function normalizeCommandText(raw) {
     let text = String(raw ?? '')
@@ -91,10 +130,27 @@ export function parseDiceCommand(raw) {
         const { rest, params } = extractParams(text.slice(3));
         const actor = splitActor(rest);
         if (!actor) return { kind: 'invalid', reason: '普通检定命令格式应为：检定 <角色> <属性>', raw };
+        // 带 DC 的是 d20 检定：属性读战斗六维，参数只接受 DC。
+        const dcKey = Object.keys(params).find((key) => /^dc$/i.test(key));
+        if (dcKey !== undefined) {
+            const other = Object.keys(params).find((key) => key !== dcKey);
+            if (other !== undefined) return { kind: 'invalid', reason: `DC 检定只接受 DC 参数，无法识别：${other}=${params[other]}`, raw };
+            const dc = Number(params[dcKey]);
+            const [min, max] = D20_DC_RANGE;
+            if (!Number.isInteger(dc) || dc < min || dc > max) return { kind: 'invalid', reason: `DC 应为 ${min}–${max} 的整数：${params[dcKey]}`, raw };
+            const ability = abilityKeyOf(actor.attribute);
+            return ability
+                ? { kind: 'd20', name: actor.name, attribute: ability, dc }
+                : { kind: 'invalid', reason: `DC 检定的属性只写 力量/敏捷/体质/智力/感知/魅力：${actor.attribute}`, raw };
+        }
+        const bad = paramError(params, CHECK_PARAMS);
+        if (bad) return { kind: 'invalid', reason: bad, raw };
         return { kind: 'check', name: actor.name, attribute: actor.attribute, ...parseModifiers(params) };
     }
     if (text.startsWith('对抗 ')) {
         const { rest, params } = extractParams(text.slice(3));
+        const bad = paramError(params, CONTEST_PARAMS);
+        if (bad) return { kind: 'invalid', reason: bad, raw };
         const sides = rest
             .replace(/\s*[VvＶｖ][SsＳｓ]\s*/g, ' vs ')
             .replace(/\s+(?:对|对抗)\s+/g, ' vs ')
@@ -178,6 +234,27 @@ async function resolveNormalCheck(command, acuDice, context) {
     return { ok: true, success, roll, target, line, detail };
 }
 
+// d20 检定：六维读自 context.readAbilities（战斗底座），本地掷 d20。
+async function resolveD20(command, context) {
+    const who = displayName(command.name, context.userName);
+    if (typeof context.readAbilities !== 'function') return { ok: false, reason: '六维属性不可用（需开启战斗扩展）' };
+    let abilities = null;
+    try {
+        abilities = await context.readAbilities(command.name);
+    } catch (error) {
+        abilities = null;
+    }
+    const bonus = d20Bonus(abilities, command.attribute);
+    if (bonus === null) return { ok: false, reason: `未找到 ${who} 的六维属性` };
+    const die = 1 + Math.floor(context.random() * 20);
+    const outcome = d20Outcome(die, bonus, command.dc);
+    const label = ABILITY_LABELS[command.attribute];
+    const sign = bonus >= 0 ? `+${bonus}` : `${bonus}`;
+    const line = `元叙事：${who}发起了【${label}】检定，1d20${sign}=${die}${sign}=${outcome.total}，DC ${command.dc}，【${outcome.tier}】。`;
+    const detail = { kind: 'd20', actor: who, attribute: label, ability: command.attribute, die, bonus, total: outcome.total, dc: command.dc, tier: outcome.tier, outcome: outcome.tier, success: outcome.success };
+    return { ok: true, success: outcome.success, roll: die, line, detail };
+}
+
 async function resolveContest(command, acuDice, context) {
     const leftName = displayName(command.left.name, context.userName);
     const rightName = displayName(command.right.name, context.userName);
@@ -253,11 +330,18 @@ function resolvePool(command, context) {
 // 返回 { ok, line }：line 为空表示无需检定。ok=false 时 reason 说明原因，调用方按原命令降级。
 export async function resolveDiceCommand(raw, acuDice, context = {}) {
     const command = parseDiceCommand(raw);
-    const ctx = { random: context.random || Math.random, userName: context.userName || '' };
+    const ctx = { random: context.random || Math.random, userName: context.userName || '', readAbilities: context.readAbilities };
     if (command.kind === 'invalid') return { ok: false, reason: command.reason };
     if (command.kind === 'none') return { ok: true, line: '' };
     if (command.kind === 'fixed') return { ok: true, success: command.success, line: `元叙事：无需投骰，【${command.success ? '必定成功' : '必定失败'}】。` };
     if (command.kind === 'pool') return resolvePool(command, ctx);
+    if (command.kind === 'd20') {
+        try {
+            return await resolveD20(command, ctx);
+        } catch (error) {
+            return { ok: false, reason: String(error && error.message || error || '检定执行失败') };
+        }
+    }
     if (!isAcuDice(acuDice)) return { ok: false, reason: '骰子系统未就绪' };
     try {
         return command.kind === 'check'
