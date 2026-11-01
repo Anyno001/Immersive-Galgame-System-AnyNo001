@@ -281,8 +281,8 @@ const imageResponse = () => new Response(JSON.stringify({ image: 'data:image/png
     } });
     const png = pngFixture(64, 128).dataUrl;
     const edit = { prompt: 'A quiet room.', sourceDataUrl: png, maskDataUrl: png, width: 64, height: 128 };
-    const first = client.generate({ scene: 'room' }, { apiKey: 'fixture-a' });
-    const second = client.edit(edit, { apiKey: 'fixture-a' });
+    const first = client.generate({ scene: 'room' }, { apiKey: 'fixture-a', minIntervalMs: 0 });
+    const second = client.edit(edit, { apiKey: 'fixture-a', minIntervalMs: 0 });
     await new Promise(resolve => setTimeout(resolve, 40));
     assert.equal(releases.length, 1);
     releases[0].resolve(); assert.equal((await first).ok, true);
@@ -290,8 +290,8 @@ const imageResponse = () => new Response(JSON.stringify({ image: 'data:image/png
     assert.equal(releases.length, 2); releases[1].resolve();
     assert.equal((await second).ok, true); assert.equal(peak, 1);
     assert.deepEqual(actions, ['generate', 'infill']);
-    const third = client.generate({ scene: 'room' }, { apiKey: 'fixture-a' });
-    const fourth = client.generate({ scene: 'room' }, { apiKey: 'fixture-b' });
+    const third = client.generate({ scene: 'room' }, { apiKey: 'fixture-a', minIntervalMs: 0 });
+    const fourth = client.generate({ scene: 'room' }, { apiKey: 'fixture-b', minIntervalMs: 0 });
     await imageTick(); assert.equal(releases.length, 4); assert.equal(peak, 2);
     releases[2].resolve(); releases[3].resolve();
     assert.equal((await third).ok, true); assert.equal((await fourth).ok, true);
@@ -308,13 +308,13 @@ test('gate:image-runtime:排队取消零发送，在途取消拒收且实际结�
         await gate.promise; return imageResponse();
     } });
     const running = new AbortController(), queued = new AbortController();
-    const first = client.generate({ scene: 'room' }, { apiKey: 'fixture-a', signal: running.signal });
+    const first = client.generate({ scene: 'room' }, { apiKey: 'fixture-a', minIntervalMs: 0, signal: running.signal });
     await imageTick();
-    const second = client.generate({ scene: 'room' }, { apiKey: 'fixture-a', signal: queued.signal });
+    const second = client.generate({ scene: 'room' }, { apiKey: 'fixture-a', minIntervalMs: 0, signal: queued.signal });
     queued.abort(); assert.equal((await second).reason, 'request-stale');
     running.abort(); assert.equal((await first).reason, 'request-stale');
     assert.equal(signals[0].aborted, true);
-    const third = client.generate({ scene: 'room' }, { apiKey: 'fixture-a' });
+    const third = client.generate({ scene: 'room' }, { apiKey: 'fixture-a', minIntervalMs: 0 });
     await imageTick(); assert.equal(gates.length, 1, '忽略 abort 的传输尚未结束，不得双发');
     gates[0].resolve(); await imageTick();
     assert.equal(gates.length, 2); gates[1].resolve();
@@ -329,7 +329,7 @@ test('gate:image-runtime:异常释放队列且错误不回显载荷', { timeout:
         if (++sends === 1) throw new Error('fixture-a SECRET PAYLOAD');
         return imageResponse();
     } });
-    const results = await Promise.all([1, 2].map(() => client.generate({ scene: 'room' }, { apiKey: 'fixture-a' })));
+    const results = await Promise.all([1, 2].map(() => client.generate({ scene: 'room' }, { apiKey: 'fixture-a', minIntervalMs: 0 })));
     assert.equal(results[0].reason, 'nai-transport-unknown');
     assert.equal(results[1].ok, true); assert.equal(sends, 2);
     assert.equal(JSON.stringify(results[0]).includes('SECRET'), false);
