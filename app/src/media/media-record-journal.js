@@ -37,7 +37,7 @@ export function parseMediaBackup(file, legacyField) {
 export function createMediaRecordJournal(globalObject, { fileName, legacyField = 'records', list, get = async key => new Map(await list()).get(key), put, remove, beforeFlush = async () => {}, onApply = async () => {} }) {
     const state = mediaStateStoreFor(globalObject);
     const prefix = `${fileName}:`;
-    let queue = Promise.resolve(), restoring = null, restored = false, timer = null, lastError = '', stopped = false;
+    let queue = Promise.resolve(), restoring = null, flushing = null, restored = false, timer = null, lastError = '', stopped = false;
     let logicalTime = 0;
     let retryDelay = 2000;
     let retryAttempts = 0;
@@ -164,25 +164,36 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
             return result;
         });
     }
-    async function flush({ automatic = false, onlyPending = false } = {}) {
+    function flush(options = {}) {
+        if (!flushing) flushing = flushOnce(options).finally(() => { flushing = null; });
+        return flushing;
+    }
+    async function flushOnce({ automatic = false, onlyPending = false } = {}) {
         if (stopped) throw new Error('media-stopped');
         if (automatic) {
             if (retryAttempts >= RECOVERY_ATTEMPTS) return { ok: false, reason: 'media-backup-retry-exhausted', recoveryStopped: true };
             retryAttempts += 1;
         }
         await restore();
-        if (onlyPending && !Object.values(await localRows()).some(row => row.dirty || row.localOnly)) { resetRetry(); return { ok: true, skipped: true }; }
-        migrationFailures = await beforeFlush() || [];
-        const result = await serial(async () => {
+        // 同一备份文件仍串行读、合并、上传和核验，但网络等待不占本机提交锁。
+        const result = await withMediaLock(globalObject, `backup:${fileName}`, async () => {
             if (stopped) throw new Error('media-stopped');
+            if (onlyPending && !Object.values(await localRows()).some(row => row.dirty || row.localOnly)) return { ok: true, skipped: true };
+            migrationFailures = await beforeFlush() || [];
             const headers = tavernHeaders(globalObject);
             if (!headers) return { ok: false, reason: 'media-offline' };
             const remote = await readRemote();
             if (!remote) return { ok: false, reason: 'media-offline' };
-            await apply(remote);
-            const local = await localRows();
-            const records = { ...remote, ...Object.fromEntries(Object.entries(local).filter(([, row]) => !row.localOnly)) };
-            const changed = Object.entries(local).some(([key, row]) => !row.localOnly && !sameRecord(row, remote[key]));
+            const { records, changed } = await serial(async () => {
+                if (stopped) throw new Error('media-stopped');
+                await apply(remote);
+                const local = await localRows();
+                return {
+                    records: { ...remote, ...Object.fromEntries(Object.entries(local).filter(([, row]) => !row.localOnly)) },
+                    changed: Object.entries(local).some(([key, row]) => !row.localOnly && !sameRecord(row, remote[key])),
+                };
+            });
+            let verified = null;
             if (changed) {
                 const compatible = Object.fromEntries(Object.entries(records).filter(([, row]) => !row.deleted && row.value).map(([key, row]) => [key, row.value]));
                 const backup = { version: 2, savedAt: Date.now(), records };
@@ -190,17 +201,26 @@ export function createMediaRecordJournal(globalObject, { fileName, legacyField =
                 if (stopped) throw new Error('media-stopped');
                 const response = await mediaRequest(globalObject, '/api/files/upload', { method: 'POST', headers, body: JSON.stringify({ name: fileName, data: utf8Base64(JSON.stringify(backup), globalObject) }) });
                 if (!response?.ok) throw new Error('media-backup-upload-failed');
-                const verified = await readRemote();
+                verified = await readRemote();
                 if (!verified || Object.entries(records).some(([key, row]) => !verified[key] || newer(row, verified[key]))) throw new Error('media-backup-concurrent-write');
-                await apply(verified);
             }
-            // 只有脏行需要清标记；全量逐条 update 与记录总数成正比。
-            for (const row of Object.values(records)) if (row.dirty && row.id?.startsWith(prefix)) await state.update(row.id, current => current?.version === row.version ? { ...current, dirty: false } : current);
-            lastError = migrationFailures[0]?.error || '';
-            return { ok: !Object.values(local).some(row => row.localOnly), skipped: !changed, reason: Object.values(local).some(row => row.localOnly) ? 'media-pixels-pending-upload' : '' };
+            return serial(async () => {
+                if (stopped) throw new Error('media-stopped');
+                if (verified) await apply(verified);
+                // 只确认本次快照的版本；上传期间的新修改和删除继续保持待同步。
+                for (const row of Object.values(records)) if (row.dirty && row.id?.startsWith(prefix)) await state.update(row.id, current => current?.version === row.version ? { ...current, dirty: false } : current);
+                const local = Object.values(await localRows());
+                const pixelsPending = local.some(row => row.localOnly);
+                const recordsPending = local.some(row => row.dirty);
+                lastError = migrationFailures[0]?.error || '';
+                return { ok: !pixelsPending && !recordsPending, skipped: !changed,
+                    reason: pixelsPending ? 'media-pixels-pending-upload' : recordsPending ? 'media-backup-pending' : '' };
+            });
         });
         if (result.ok) resetRetry();
         else { lastError = result.reason || 'media-backup-failed'; if (!automatic) schedule(); }
+        // 成功核验的同时也可能有新事务提交，不能取消它安排的下一轮同步。
+        if (result.ok && !stopped && Object.values(await localRows()).some(row => row.dirty || row.localOnly)) schedule();
         return result;
     }
     const journal = { restore: () => track(restore()), write: (...args) => track(write(...args)), flush: options => {
