@@ -244,8 +244,18 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const stats = normalizeStatsSettings(bridge.stats);
             let chat = null;
             try { chat = typeof options.statsChat === 'function' && !idx ? options.statsChat() : null; } catch (error) { chat = null; }
-            // 卡牌战斗开启时数值系统随之打开，页面按已启用显示。
-import { buildStatsPageValues } from './stats-settings-fields.js';
+            const archive = (() => {
+                try { return typeof options.statsArchive === 'function' && !idx ? options.statsArchive() : null; } catch (error) { return null; }
+            })();
+            const mappings = (() => {
+                if (!stats.push.enabled || idx || typeof options.statsMappings !== 'function') return null;
+                try { return options.statsMappings(stats.push.mappings); } catch (error) { return { ok: false, reason: 'stats-push-read-failed', detail: String(error && error.message || error) }; }
+            })();
+            return buildStatsPageValues({
+                stats, chat, archive, mappings, advancedOpen,
+                combatOn: Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true),
+                worldview: resolveWorldview(worldviewAssets),
+            });
         });
 
         // 随身系统页：总开关关闭时下方整块隐藏，只留一行说明。本聊天状态由宿主 options.originChat() 给出（没接引擎时为 null）。
