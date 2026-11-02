@@ -429,6 +429,7 @@ export function bootstrapIGS(options = {}) {
         buildMode: () => (app.statsRuntime && typeof app.statsRuntime.getBuildMode === 'function'
             ? { mode: app.statsRuntime.getBuildMode(), choices: app.statsRuntime.getBuildChoices() } : null),
         npcAbilities: (name) => (app.statsRuntime && typeof app.statsRuntime.npcAbilities === 'function' ? app.statsRuntime.npcAbilities(name) : null),
+        getChallengeSnapshot: () => (app.statsRuntime && typeof app.statsRuntime.challengeSnapshot === 'function' ? app.statsRuntime.challengeSnapshot() : null),
     });
     app.combatServices = combatServices;
     const prepareCombatProtagonist = () => { if (typeof combatServices.prepareProtagonist === 'function') combatServices.prepareProtagonist(); };
@@ -443,7 +444,6 @@ export function bootstrapIGS(options = {}) {
             combatServices.autoPrepare(floor);
             if (typeof combatServices.autoGrowth === 'function') combatServices.autoGrowth(floor);
         })
-        getChallengeSnapshot: () => (app.statsRuntime && typeof app.statsRuntime.challengeSnapshot === 'function' ? app.statsRuntime.challengeSnapshot() : null),
         : null;
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
@@ -535,6 +535,8 @@ export function bootstrapIGS(options = {}) {
         typeAndSend,
         // 卡牌战斗：只接数据与服务回调，战斗面板界面尚未接入。
         getCombatSession: () => combatServices.getSession(),
+        getChallengeHistory: () => (typeof combatServices.challengeHistory === 'function' ? combatServices.challengeHistory() : null),
+        getChallengeQuota: (messageId) => (typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota(messageId) : null),
         getCombatLedger: () => combatServices.getLedger(),
         ensureCombatTables: () => combatServices.ensureTables(),
         writeCombatManualInit: (name, manual, writeOptions) => Promise.resolve(combatServices.writeManualInit(name, manual, writeOptions)).then((written) => {
@@ -550,8 +552,6 @@ export function bootstrapIGS(options = {}) {
         ascendCombatClass: (name) => combatServices.ascendClass(name),
         drawCombatTrait: (name) => combatServices.drawTrait(name),
         pickCombatTrait: (name) => combatServices.pickTrait(name),
-        getChallengeHistory: () => (typeof combatServices.challengeHistory === 'function' ? combatServices.challengeHistory() : null),
-        getChallengeQuota: (messageId) => (typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota(messageId) : null),
         unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
         setCombatGear: typeof combatServices.setGear === 'function' ? (name, slot, itemId) => combatServices.setGear(name, slot, itemId) : undefined,
         useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (item) => combatServices.useInventoryItem(item) : undefined,
