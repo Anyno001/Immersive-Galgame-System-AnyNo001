@@ -604,29 +604,19 @@ export function createWaitStageRuntime(options = {}) {
             actions.appendChild(backButton);
             actions.appendChild(nextButton);
             body.appendChild(actions);
-            if (onClose && !opts.embedded) {
-                const closeButton = doc.createElement('button');
-                closeButton.type = 'button';
-                closeButton.className = 'igs-ws-close';
-                closeButton.title = '关闭';
-                closeButton.setAttribute('aria-label', '关闭');
-                closeButton.setAttribute('data-igs-waitstage-close', '1');
-                closeButton.innerHTML = ORIGINAL_READER_ICONS.close;
-                closeButton.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    if (root !== openedRoot) return;
-                    // 主动来玩时只收起这一层回到阅读；等回复时才交给宿主关阅读器。
-                    if (play) closeRoot();
-                    else onClose();
-                });
-                root.appendChild(closeButton);
-            }
             const tools = mountNode(doc, 'igs-ws-tools');
             tools.setAttribute('aria-label', '等待页菜单');
             tools.setAttribute('role', 'group');
+            const closeCallback = onClose && !opts.embedded
+                ? () => {
+                    if (play) closeRoot();
+                    else onClose();
+                }
+                : null;
             for (const [action, label, icon, callback] of [
-                ['settings', '设置', ORIGINAL_READER_ICONS.settings, options.onSettings],
                 ['directory', '目录', ORIGINAL_READER_ICONS.firstTurn, options.onDirectory],
+                ['settings', '设置', ORIGINAL_READER_ICONS.settings, options.onSettings],
+                ['close', '关闭', ORIGINAL_READER_ICONS.close, closeCallback],
             ]) {
                 if (typeof callback !== 'function') continue;
                 const button = doc.createElement('button');
