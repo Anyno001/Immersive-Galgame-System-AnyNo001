@@ -22,7 +22,7 @@ const CFG = {
         land: { rx: 410, w: 390, lift: 80, back: 0.58, dim: 0.5, base: -54, pw: 330, hd: 25 },
     },
     hand: {
-        port: { cw: 62, ch: 94, step: 44, sw: 114, sh: 186, arc: 0.5, lean: 2, rot: 1.2, bottom: 6, hw: 382 },
+        port: { cw: 62, ch: 94, step: 38, sw: 114, sh: 186, arc: 0.5, lean: 2, rot: 1.2, bottom: 6, hw: 382 },
         land: { cw: 100, ch: 144, step: 108, left: true, sw: 142, sh: 224, arc: 1.0, lean: 3, rot: 1.2, bottom: 8, hw: 650 },
     },
     // 结束回合外圈（common.css .end .ring：按钮外扩 5px）
@@ -148,7 +148,7 @@ function trackHtml(b, v) {
     const list = (b.order || []).slice(0, 6);
     return `<div class="track" role="img" aria-label="${esc(`行动顺序：${list.map((o) => o.name).join('、')}`)}">${list.map((o, i) => {
         const pic = pics[o.name] ? `<img src="${esc(pics[o.name])}" alt="" loading="lazy" decoding="async">`
-            : arts[o.name] ? `<i class="igs-combat-art" data-atlas="${esc(arts[o.name].atlas)}" style="--ea-x:${esc(arts[o.name].x)};--ea-y:${esc(arts[o.name].y)}"></i>` : initial(o.name);
+            : arts[o.name] && arts[o.name].atlas !== 'none' ? `<i class="igs-combat-art" data-atlas="${esc(arts[o.name].atlas)}" style="--ea-x:${esc(arts[o.name].x)};--ea-y:${esc(arts[o.name].y)}"></i>` : initial(o.name);
         const side = o.side === 'ally' ? (o.id === b.heroId ? ' me' : ' ally') : ' en';
         return `<span class="who cx-dot${i === 0 ? ' now' : ''}${side}${pics[o.name] || arts[o.name] ? '' : ' face-i'}" style="--atop:${enemyArtTopOf(arts[o.name])}" data-unit="${esc(o.id)}" title="${esc(o.name)}">${pic}</span>`;
     }).join('')}</div>`;
@@ -237,6 +237,7 @@ ${S} .who img,${S} .face img,${S} .mface img{position:absolute;inset:0;width:100
 /* 行动顺序只露头像：立绘放大取头部，矮身形按看得见的头顶下移取景 */
 ${S} .track .who img{inset:auto;left:-50%;top:-6%;width:200%;height:200%;object-position:50% 0;border-radius:0;}
 ${S} .track .who .igs-combat-art{inset:auto;left:-32.5%;top:calc(6% - var(--atop,0) * 220%);width:165%;height:220%;}
+${S} .mface{position:relative;overflow:hidden;flex:none;}
 ${S} .who.face-i{position:relative;}
 ${S} .face{overflow:visible;cursor:pointer;}
 ${S} .face-i{background-color:#26272b;}
@@ -284,7 +285,7 @@ ${C} .energy .pips i{width:8px;height:8px;}
 ${C}.port .energy{left:auto;right:calc(16px + 88px);top:532px;width:100px;}
 ${C}.port .energy .v{font-size:40px;}
 ${C}.port .energy .v small{font-size:20px;}
-${C}.port :is(.opskill,.opbag){top:572px;}
+${C}.port :is(.opskill,.opbag){top:537px;}
 ${C}.port .opskill{left:16px;}
 ${C}.port .opskill.is-second{left:calc(16px + 56px);}
 ${C}.port .opbag{left:16px;}
@@ -314,8 +315,8 @@ ${C}.port .tray{top:auto;bottom:280px;}
 ${C}.land{--W:min(calc(var(--cx-w) - 40px),1360px);--L:calc((var(--cx-w) - var(--W)) / 2);--wi:clamp(280px,calc(var(--W) * .26),380px);--rl:calc(var(--L) + var(--wi) + 16px);--hl:calc(var(--rl) + 152px);--hwv:calc(var(--L) + var(--W) - var(--hl));}
 /* 横屏底部横条（扁宽饱满）：版心 W 水平居中，左→右紧挨：信息组、资源列、手牌；手牌上沿一行放抽牌弃牌（左）与结束回合（右） */
 ${C}.land .hand{left:var(--hl);width:calc(var(--hwv) / 1.15);transform:scale(1.15);transform-origin:0 100%;top:auto;bottom:44px;height:236px;}
+${C}.port .hand{transform:scale(1.2);transform-origin:50% 100%;}
 ${C}.land .end{left:auto;right:max(24px,calc(var(--L) - 80px));top:430px;width:152px;}
-${C}.land.has-sel .end{top:380px;}
 ${C}.land .lead{left:var(--L);top:508px;width:var(--wi);}
 ${C}.land .lead .face{width:72px;height:72px;}
 ${C}.land .lead .info{width:calc(var(--wi) - 84px);}

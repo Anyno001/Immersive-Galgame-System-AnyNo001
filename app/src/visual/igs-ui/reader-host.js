@@ -15,7 +15,7 @@ import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { growthTagsByPage, planGrowthFx } from './combat-growth-fx-model.js';
 import { cancelGrowthFx } from './combat-growth-fx.js';
 import { cancelCheckBadges, checksByPage } from './combat-check-badge.js';
-import { probeCombatStart, resolveCombatEntry, syncCombatEntry } from './combat-entry.js';
+import { probeCombatStart, resolveCombatEntry, sessionMatchesEntry, syncCombatEntry, unfinishedCombatState } from './combat-entry.js';
 import { createRecoveryNotice } from './recovery-notice.js';
 import { handleSettingsAction } from './settings-actions.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
@@ -5651,10 +5651,22 @@ ${row.key}`;
         }
         state.combatEntryProbe = probe;
         // 入口卡只是回头路：对阵界面没做选择就关闭、或自动打开失败时，才在原位置留「返回战斗 / 返回挑战」小标签。
-        const showTag = entry && state.combatReturnKey === entry.key ? entry : null;
+        // 持久会话里有同一开战楼的未结束战斗时同样留标签：刷新或重开后内存标记已丢，以存档为准；面板开着时不显示。
+        const panelOpen = Boolean(current.dom.combatController && current.dom.combatController.isOpen());
+        const persisted = Boolean(entry) && !panelOpen && sessionMatchesEntry(unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null), entry);
+        probe.returnTag = probe.returnTag || persisted;
+        const showTag = entry && (state.combatReturnKey === entry.key || persisted) ? entry : null;
         syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, entry), onFail: (r) => notifyCombatOpenFail(r) });
         // 开战标签翻到末页即自动打开对阵界面（战斗与日常挑战相同）；只记成功打开的，地图、资料或构筑面板开着时不记，等下一次渲染再弹。
-        if (entry && !state.combatAutoOpened.has(entry.key)) {
+        // 设置页「返回战斗」：同一开战楼有未结束会话时，不论是否自动打开过，都直接续打（2 分钟内有效）。
+        const wantResume = Boolean(state.combatResumeAt) && Date.now() - state.combatResumeAt < 120000;
+        if (wantResume && persisted && !state.combatAutoOpened.has(entry.key)) state.combatAutoOpened.add(entry.key);
+        if (wantResume && persisted) {
+            state.combatResumeAt = 0;
+            let resumed;
+            try { resumed = openCombatPanel(current, entry); } catch (error) { resumed = { ok: false, reason: 'combat-open-threw' }; }
+            if (resumed && resumed.ok === false) notifyCombatOpenFail(resumed);
+        } else if (entry && !state.combatAutoOpened.has(entry.key)) {
             let opened;
             try { opened = openCombatPanel(current, entry); } catch (error) { opened = { ok: false, reason: 'combat-open-threw', error: String(error && error.message || error) }; }
             probe.opened = opened ? { ok: opened.ok === true, reason: opened.reason || '', error: opened.error || '' } : { ok: false, reason: 'no-result' };

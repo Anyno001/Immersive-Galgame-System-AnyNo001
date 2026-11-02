@@ -71,3 +71,22 @@ export function syncCombatEntry(overlay, entry, { onOpen, onFail, seen, skin } =
     node.onFail = onFail;
     return Boolean(seen) && !seen.has(entry.key);
 }
+
+// 持久会话里「未结束」的战斗：已开打但还没发送战报（战斗中、已分胜负待发送、发送失败）。
+// 胜负已发送（done）、跳过、放弃、托管结束、失效（stale）、对阵界面未开打（lobby）都不算。
+export const COMBAT_UNFINISHED_STATUSES = Object.freeze(['battle', 'ended', 'send-failed']);
+
+export function unfinishedCombatState(session) {
+    try {
+        const st = session && typeof session.state === 'function' ? session.state() : null;
+        return st && COMBAT_UNFINISHED_STATUSES.includes(st.status) && st.anchor ? st : null;
+    } catch (error) { return null; }
+}
+
+// 会话锚点与入口是否同一开战楼（入口 key 以 chatId|楼|swipe|tagHash|occurrence 收尾，日常挑战前缀 ch）。
+export function sessionMatchesEntry(st, entry) {
+    if (!st || !st.anchor || !entry || !entry.key) return false;
+    const a = st.anchor;
+    if ((st.kind === 'challenge') !== (entry.kind === 'challenge')) return false;
+    return String(entry.key).endsWith(`|${[a.messageId, a.swipeId, a.tagHash, a.occurrence].join('|')}`);
+}

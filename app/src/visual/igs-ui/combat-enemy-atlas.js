@@ -150,6 +150,13 @@ export function createEnemyAtlasManager(options = {}) {
 let current = null;
 export function getEnemyAtlas() { return current; }
 export function setEnemyAtlas(manager) { current = manager || null; return current; }
+// 首次用到时创建管理器（读回已安装清单），并把图集变量写到文档根节点、随下载 / 删除更新；设置页与战斗面板共用同一个。
+export function ensureEnemyAtlas(globalObject = globalThis) {
+    if (current) return current;
+    const manager = setEnemyAtlas(createEnemyAtlasManager({ globalObject }));
+    bindEnemyAtlasVars(globalObject?.document?.documentElement, manager);
+    return manager;
+}
 export function enemyAtlasUrlOf(theme) { return current?.url(theme) || ''; }
 
 // 把已安装的图集地址写成根节点上的 CSS 变量，样式文本只引用变量，不内嵌图片。

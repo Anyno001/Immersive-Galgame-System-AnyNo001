@@ -13,6 +13,7 @@ import { combatIntroUiHtml, combatReasonText, renderCombatPanelHtml, ringFront, 
 import { actionProgress } from '../../combat/engine.js';
 import { autoTargetFor, openTargetPicker, skinPickerVars } from './combat-target-picker.js';
 import { enemyArtCell } from './combat-enemy-art.js';
+import { ensureEnemyAtlas } from './combat-enemy-atlas.js';
 import { SEL, canvasFit, canvasGhostWrap, isCanvasSkin } from './combat-skin-canvas.js';
 import { HX_BANNER_MS, HX_WINDUP_MS, hxBanner, hxCallout, hxCanvas, hxClaw, hxGuard, hxHeal, hxHit, hxKo, hxSkin, hxTrail, hxTurnBand, hxWindup } from './combat-hit-fx-skin.js';
 import { COMBAT_STAGE_TIMING, buildStageAwaken, buildStageClash, buildStageSkill, stageFxStyle, updateClashHeroes } from './combat-stage-fx.js';
@@ -241,6 +242,7 @@ export function createCombatPanelController(doc, options = {}) {
     const enemyArtFor = (foes, pics, theme) => {
         const out = {};
         const worldview = worldviewOf();
+        try { ensureEnemyAtlas(options.global || globalThis); } catch (error) { /* 读不到清单时按未安装处理 */ }
         for (const u of foes) {
             if (!u?.name || pics[u.name] || Object.hasOwn(out, u.name)) continue;
             out[u.name] = enemyArtCell({ art: u.art, name: u.name, tier: u.tier, worldview, theme });

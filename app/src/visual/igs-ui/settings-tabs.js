@@ -414,6 +414,8 @@ const COMBAT_TEMPLATE = `
     <div class="igs-source-filter">
       <div class="igs-source-filter-note">开启条件：已安装数据库（shujuku），并在自动插图设置里接好写词模型（副 LLM）。开启后数值系统随之启用。</div>
       <div class="igs-source-filter-grid">{{combatFields}}</div>
+      {{combatResumeField}}
+      {{combatAtlasField}}
     </div>
   </div>
   <div class="igs-settings-sub"{{combatDailyHidden}}>

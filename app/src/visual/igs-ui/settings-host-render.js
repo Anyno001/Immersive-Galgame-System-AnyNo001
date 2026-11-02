@@ -52,6 +52,8 @@ import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORI
 import { originChatStatus } from './origin-attach.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { COMBAT_DIFFICULTY_KEYS, COMBAT_RULES } from '../../combat/rules.js';
+import { ensureEnemyAtlas, renderCombatEnemyAtlasField } from './combat-enemy-atlas.js';
+import { unfinishedCombatState } from './combat-entry.js';
 import {
     COMBAT_KIND_LABELS, COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, COMBAT_PRESET_DAILY_ONLY, COMBAT_PRESET_PATH, DAILY_COOLDOWN_CHOICES, DAILY_STAKES, DAILY_STAKE_LABELS,
     BATTLE_MODES, BATTLE_MODE_LABELS, BATTLE_MODE_PATH, battleModeOf, normalizeCombatExpansionSettings,
@@ -236,6 +238,15 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + field(`${p}.difficulty`, '难度', selectInput(`${p}.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
                     + field(`${p}.reportDetail`, '战报详略', segmentedInput(`${p}.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略'))
                     + field(`${p}.skin`, '面板皮肤', selectInput(`${p}.skin`, cx.skin, COMBAT_PANEL_SKINS.map((k) => [k, COMBAT_PANEL_SKIN_LABELS[k]]))),
+                combatResumeField: (() => {
+                    let has = false;
+                    try { has = !idx && Boolean(unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null)); } catch (error) { has = false; }
+                    return '<div class="igs-settings-row">'
+                        + `<button class="igs-settings-action" data-action="combat-resume" type="button"${has ? '' : ' disabled'}>返回战斗</button>`
+                        + (has ? '' : '<span class="igs-source-filter-note">没有未完成的战斗</span>')
+                        + '</div>';
+                })(),
+                combatAtlasField: renderCombatEnemyAtlasField((() => { try { return ensureEnemyAtlas(); } catch (error) { return null; } })()),
             };
         });
 
