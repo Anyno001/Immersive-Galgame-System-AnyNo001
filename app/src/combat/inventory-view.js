@@ -6,7 +6,7 @@ import { gearIdFor, itemIdFor, normalizeLedgerEntry } from './schema.js';
 // 装备定义表里允许的 kind
 export const INVENTORY_DEF_KINDS = Object.freeze(['gear', 'item', 'keepsake']);
 
-const emptyView = () => ({ gear: { slots: {}, bag: [] }, items: [], collection: [], others: [] });
+const emptyView = () => ({ gear: { slots: {}, bag: [] }, items: [], collection: [], others: [], lost: [] });
 
 // 规范化探针用的占位锚点
 const PROBE_ANCHOR = Object.freeze({ messageId: 0, swipeId: 0, tagHash: 'inventory', occurrence: 0 });
@@ -63,6 +63,10 @@ export function heroInventoryView(table) {
         const row = definitionRows.get(item.key);
         const definition = row?.definition && typeof row.definition === 'object' ? row.definition : null;
         const plain = { name: item.name, count: item.quantity, description: item.description, category: item.category };
+        if (item.lost) {
+            view.lost.push({ name: item.name, itemId: itemIdFor(item.name), kind: definition?.kind || 'other', definition });
+            continue;
+        }
         // 没有定义行：当作普通杂项
         if (!row) {
             view.others.push(plain);

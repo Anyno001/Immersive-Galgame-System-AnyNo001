@@ -752,4 +752,10 @@ ${COMBAT_ENEMY_ART_STYLE_TEXT}
 ${COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT}
 ${COMBAT_PANEL_LAYOUT_STYLE_TEXT}
 ${CANVAS_STYLE_TEXT}
+${C} :is(.igs-combat-unit,.cx-unit)[data-swap="out"]{animation:igs-combat-swap-out 520ms var(--igs-cb-ease) var(--swap-t,0ms) both;pointer-events:none;}
+${C} :is(.igs-combat-unit,.cx-unit)[data-swap="in"]{animation:igs-combat-swap-in 620ms cubic-bezier(.2,.9,.25,1.15) var(--swap-t,0ms) both;}
+@keyframes igs-combat-swap-out{0%{opacity:.4;translate:0 0;}100%{opacity:0;translate:0 18%;}}
+@keyframes igs-combat-swap-in{0%{opacity:0;translate:40% 0;}60%{opacity:1;translate:-4% 0;}100%{opacity:1;translate:0 0;}}
+${C}[data-igs-combat-reduced] :is(.igs-combat-unit,.cx-unit)[data-swap],#igs-overlay[data-igs-quality="low"] ${C} :is(.igs-combat-unit,.cx-unit)[data-swap]{animation:none;}
+@media(prefers-reduced-motion:reduce){${C} :is(.igs-combat-unit,.cx-unit)[data-swap]{animation:none;}}
 `;

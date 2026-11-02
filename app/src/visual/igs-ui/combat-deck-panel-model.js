@@ -61,7 +61,8 @@ export function manualBuildView(attr, draft, { readonly = false } = {}) {
 
 // 装备栏、背包与道具：四个部位按固定顺序列出（空部位也列出），背包为已拥有未装备的装备（带稀有度与售价，在背包页列出）。
 // 装备说明：六维加成（带稀有度的装备，D7）在前，被动说明在后；没有被动的装备只显示加成。
-const gearText = (g) => [g?.bonus ? `${ABILITY_LABELS[g.bonus.ability] || g.bonus.ability} +${g.bonus.amount}` : '', g?.passive?.description || ''].filter(Boolean).join('；');
+export const gearBonusText = (g) => (g?.bonus ? `${ABILITY_LABELS[g.bonus.ability] || g.bonus.ability} +${g.bonus.amount}` : '');
+const gearText = (g) => [gearBonusText(g), g?.passive?.description || ''].filter(Boolean).join('；');
 function gearView(view) {
     const slots = view.gear?.slots || {};
     return {

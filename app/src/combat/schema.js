@@ -33,7 +33,7 @@ export const PASSIVE_TRIGGERS = Object.freeze([
 export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
-    'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake',
+    'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -763,6 +763,14 @@ function validateLedgerPayload(type, payload, path, state) {
                 name: textField(payload.name, at('name'), state, 20),
                 origin: textField(payload.origin, at('origin'), state, 80, ''),
                 ...(payload.rarity === undefined ? {} : { rarity: enumField(payload.rarity, at('rarity'), state, LOOT_RARITIES) }),
+            };
+        case 'lose':
+            checkKnownFields(payload, ['name', 'count', 'all', 'reason'], path, state);
+            if (payload.all !== undefined && payload.all !== true) addIssue(state, at('all'), 'invalid-value');
+            return {
+                name: textField(payload.name, at('name'), state, 20),
+                ...(payload.all === true ? { all: true } : { count: intField(payload.count, at('count'), state, 1, ITEM_CONSUME_MAX) }),
+                reason: textField(payload.reason, at('reason'), state, 80, ''),
             };
         case 'consume':
             checkKnownFields(payload, ['itemId', 'count', 'reportId'], path, state);

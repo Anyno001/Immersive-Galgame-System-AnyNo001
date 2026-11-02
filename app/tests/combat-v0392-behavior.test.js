@@ -9,6 +9,13 @@ import { createCombatLedger, signaturePending } from '../src/combat/ledger.js';
 import { generateEntities, generationWrites, growthEntity, profileGearEntity } from '../src/combat/generation.js';
 import { buildSetup } from '../src/combat/session.js';
 import { extractCombatStart } from '../src/scene/combat-directives.js';
+import { extractLossDirectives, scanLossTags, scanGainTags } from '../src/scene/combat-directives.js';
+import { gearIdFor, itemIdFor, ledgerEntryId, REWARD_SLOT_COUNT } from '../src/combat/schema.js';
+import { planRewardSlots, victoryExpFor } from '../src/combat/rewards.js';
+import { flipOrder } from '../src/combat/flip.js';
+import { createCombatTables } from '../src/data/shujuku/combat-tables.js';
+import { createInventoryTables } from '../src/data/shujuku/inventory-tables.js';
+import { createLedgerMockHost, userInventorySheet } from './helpers/combat-mock-host-ledger.js';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const codes = (result) => result.diagnostics.map((item) => item.code);
@@ -56,11 +63,12 @@ test('敌人随机选攻击对象（setup.randomTargets）：开启时按种子�
     assert.equal(createBattle({ controlledId: 'hero', randomTargets: 'yes', units: units() }, SEED).error?.reason, 'invalid-setup');
 });
 
-test('多敌折算：1 只为 1；2 只约 0.70；3 只起不低于下限 0.65', () => {
+test('多敌折算：1 只为 1；2 只约 0.70；3 只继续递减，4 只起封底 0.5', () => {
     assert.equal(crowdScaleFor(1), 1);
     assert.ok(Math.abs(crowdScaleFor(2) - 1 / 1.43) < 1e-9, String(crowdScaleFor(2)));
-    for (const n of [3, 4, 5, 8, 50]) assert.equal(crowdScaleFor(n), COMBAT_RULES.crowd.floor, `n=${n}`);
-    assert.equal(COMBAT_RULES.crowd.floor, 0.65);
+    assert.ok(crowdScaleFor(3) < crowdScaleFor(2) && crowdScaleFor(3) > 0.5);
+    for (const n of [4, 5, 8, 50]) assert.equal(crowdScaleFor(n), COMBAT_RULES.crowd.floor, `n=${n}`);
+    assert.equal(COMBAT_RULES.crowd.floor, 0.5);
 });
 
 test('专属卡槽位：ID 带 -g<n> 按槽位，否则按档案位置；Lv5 / Lv10 解锁', () => {
@@ -312,4 +320,193 @@ test('场外排位（v0.39.3）：首领 → 精英 → 普通，精英先于普
     assert.equal(built.setup.reserve.length, 3);
     assert.deepEqual(built.setup.reserve.map(tierOf), ['normal', 'normal', 'normal']);
     assert.deepEqual(buildSetup(lobby, start, { combatId: 'c-elite' }).setup.reserve, built.setup.reserve);
+});
+
+test('统一失去物：数量省略为1、全角数量、全部与角色默认值；非法标签只记诊断，获得与失去锚点不相撞', () => {
+    const text = [
+        '[igs-fx:item|失去|青锋剑|被缴械]',
+        '[igs-fx:item|失去|回春丹||２|爱丽丝]',
+        '[igs-fx:item|失去|火把||全部]',
+        '[igs-fx:item|失去|铜钱||很多]',
+        '[igs-fx:item|失去|||1]',
+        '[igs-fx:item|获得|青锋剑|被缴械|武器]',
+    ].join('\n');
+    const { directives, diagnostics } = extractLossDirectives(text);
+    assert.deepEqual(directives.map((d) => [d.character, d.name, d.count ?? 'all', d.reason]), [['我', '青锋剑', 1, '被缴械'], ['爱丽丝', '回春丹', 2, ''], ['我', '火把', 'all', '']]);
+    assert.deepEqual(diagnostics.map((d) => [d.code, d.field, d.problem]), [['combat-loss-invalid', 'count', 'not-integer'], ['combat-loss-invalid', 'name', 'required']]);
+    const losses = scanLossTags(text);
+    assert.equal(losses.length, 5);
+    assert.equal(new Set([...losses, ...scanGainTags(text)].map((tag) => tag.tagHash)).size, 6);
+});
+
+test('统一失去物（未注入背包）：装备卸下并移出持有，再获得保留原加成；失去楼换swipe后重放恢复', async () => {
+    const gain = '[igs-fx:item|获得|铁弓|猎户的弓|武器|稀有]';
+    const regain = '[igs-fx:item|获得|铁弓|夺回的弓|武器]';
+    const { ref, ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai(gain), ai('[igs-fx:item|失去|铁弓|被搜走]'), ai(regain)]);
+    const anchorOf = (messageId, text) => {
+        const [tag] = scanGainTags(text);
+        return { messageId, swipeId: 0, tagHash: tag.tagHash, occurrence: tag.occurrence };
+    };
+    const equip = (anchor, description, rarity, bonus) => ({ id: ledgerEntryId('equip', 'pc-hero', anchor), type: 'equip', character: 'pc-hero', anchor, createdAt: 1,
+        payload: { gearId: gearIdFor('铁弓'), name: '铁弓', slot: 'weapon', description, rarity, bonus } });
+    const bonus = { ability: 'dex', amount: 3 };
+    assert.equal((await ledger.append([equip(anchorOf(0, gain), '猎户的弓', 'rare', bonus)])).ok, true);
+    assert.equal((await ledger.scan()).ok, true);
+    let me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.gear.slots.weapon ?? null, me.gear.bag.length], [null, 0]);
+    assert.equal((await ledger.append([equip(anchorOf(2, regain), '夺回的弓', 'common', { ability: 'dex', amount: 1 })])).ok, true);
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.gear.slots.weapon?.description, me.gear.slots.weapon?.rarity, me.gear.slots.weapon?.bonus], ['猎户的弓', 'rare', bonus]);
+    ref.chat[1].swipe_id = 1;
+    assert.equal(heroOf(await ledger.effectiveState()).gear.slots.weapon?.description, '夺回的弓');
+});
+
+test('统一失去物：物品表扣减、已丢失不删行、装备卸下保留定义；补扫幂等，再获得恢复原加成', async () => {
+    const host = createLedgerMockHost();
+    host.sheets.sheet_userbag = userInventorySheet();
+    const tables = createCombatTables({ api: host.api });
+    const inventory = createInventoryTables({ api: host.api, client: tables.client, serial: tables.serial });
+    assert.equal((await tables.ensure()).ok, true);
+    assert.equal((await inventory.ensure()).ok, true);
+    assert.equal((await tables.append('profile', [row(classDef('cls-blade'), 1), row(heroDef(), 2)])).ok, true);
+    const gain = '[igs-fx:item|获得|回春丹|回复|道具]';
+    const chat = [ai(gain)];
+    const ledger = createCombatLedger({ tables, chat: () => chat, userName: '主角', inventory, now: () => 7 });
+    const ring = { gearId: gearIdFor('铜戒'), name: '铜戒', slot: 'accessory', description: '刻着家纹', rarity: 'epic', bonus: { ability: 'con', amount: 4 } };
+    assert.equal((await ledger.grantInitialGear('pc-hero', [ring], { anchor: { messageId: 0, swipeId: 0 } })).ok, true);
+    const [tag] = scanGainTags(gain);
+    const anchor = { messageId: 0, swipeId: 0, tagHash: tag.tagHash, occurrence: tag.occurrence };
+    assert.equal((await ledger.append([{ id: ledgerEntryId('item', 'pc-hero', anchor), type: 'item', character: 'pc-hero', anchor, createdAt: 1,
+        payload: { itemId: itemIdFor('回春丹'), name: '回春丹', count: 2, effects: [{ op: 'heal', amount: 10 }], description: '回复' } }])).ok, true);
+    assert.equal((await inventory.changeQuantities({ name: '火把', delta: 2, category: '杂物' })).ok, true);
+    chat.push(ai('[igs-fx:item|失去|铜戒|被搜走]\n[igs-fx:item|失去|回春丹|被抢走]\n[igs-fx:item|失去|火把||全部]'));
+    const scan = await ledger.scan();
+    assert.equal(scan.ok, true, JSON.stringify(scan));
+    const lost = inventory.read().inventory.items.filter((item) => item.lost);
+    assert.deepEqual(lost.map((item) => [item.name, item.quantity]), [['铜戒', 1], ['火把', 2]]);
+    assert.equal(host.calls.deleteRow, 0);
+    let me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.gear.slots.accessory ?? null, me.gear.bag.length, me.others.length, me.items.map((item) => [item.name, item.count])], [null, 0, 0, [['回春丹', 1]]]);
+    await ledger.scan();
+    assert.equal(tables.read().ledger.filter((entry) => entry.type === 'lose').length, 3);
+
+    const regained = '[igs-fx:item|获得|铜戒|夺回的戒指|饰品]';
+    chat.push(ai(regained));
+    const [again] = scanGainTags(regained);
+    const back = { messageId: 2, swipeId: 0, tagHash: again.tagHash, occurrence: again.occurrence };
+    const result = await ledger.append([{ id: ledgerEntryId('equip', 'pc-hero', back), type: 'equip', character: 'pc-hero', anchor: back, createdAt: 8,
+        payload: { ...ring, description: '普通的戒指', rarity: 'common', bonus: { ability: 'con', amount: 1 } } }]);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.gear.slots.accessory?.description, me.gear.slots.accessory?.rarity, me.gear.slots.accessory?.bonus], ['刻着家纹', 'epic', ring.bonus]);
+    const restored = inventory.read().inventory.items.find((item) => item.name === '铜戒');
+    assert.deepEqual([restored.quantity, restored.category, restored.lost], [1, '装备', undefined]);
+});
+
+test('奖励槽位：普通盲翻卡牌率为杂兵30%、精英40%、首领50%；保留保底槽、备用套和翻牌联动', () => {
+    const character = { kind: 'deck-character', id: 'pc-hero' };
+    const targets = { normal: 0.3, elite: 0.4, boss: 0.5 };
+    const hits = Object.fromEntries(Object.keys(targets).map((tier) => [tier, { main: 0, reserve: 0 }]));
+    const samples = 3000;
+    const rank = (rarity) => ['common', 'uncommon', 'rare', 'epic', 'mythic'].indexOf(rarity);
+    for (let i = 0; i < samples; i += 1) {
+        for (const tier of Object.keys(targets)) {
+            const combatId = `cb|${i}`;
+            const plan = planRewardSlots({ combatId, tier, enemyTiers: [tier], character });
+            assert.deepEqual([plan.exp, plan.slots.length, plan.reserve.length], [victoryExpFor([tier]), REWARD_SLOT_COUNT, REWARD_SLOT_COUNT]);
+            for (const [set, slots] of [['main', plan.slots], ['reserve', plan.reserve]]) {
+                const index = flipOrder({ combatId, slots: plan.slots, reserve: plan.reserve }, set)[0];
+                hits[tier][set] += slots[index].kind === 'card' ? 1 : 0;
+                for (const slot of slots) {
+                    assert.ok(rank(slot.rarity) >= 0);
+                    if (slot.kind === 'card') {
+                        assert.ok([0, 1, 2, 3].includes(slot.cost));
+                        if (tier === 'normal') assert.ok(rank(slot.rarity) <= 1);
+                    }
+                    if (slot.kind === 'item') assert.equal(slot.count, rank(slot.rarity) >= 3 ? 2 : 1);
+                }
+                if (tier !== 'normal') assert.notEqual(slots[0].kind, 'keepsake');
+                if (tier === 'boss') assert.ok(rank(slots[0].rarity) >= 3);
+            }
+        }
+    }
+    for (const tier of Object.keys(targets)) for (const set of ['main', 'reserve']) {
+        const rate = hits[tier][set] / samples;
+        assert.ok(Math.abs(rate - targets[tier]) < 0.035, `${tier} ${set} card ${rate}`);
+    }
+    const base = planRewardSlots({ combatId: 'cb|x', tier: 'elite', character });
+    assert.deepEqual(base, planRewardSlots({ combatId: 'cb|x', tier: 'elite', character }));
+    const reflip = planRewardSlots({ combatId: 'cb|x', tier: 'elite', character, links: { reflip: true } });
+    assert.deepEqual([reflip.slots.length, reflip.reserve.length], [REWARD_SLOT_COUNT + 1, REWARD_SLOT_COUNT + 1]);
+    const lucky = planRewardSlots({ combatId: 'cb|x', tier: 'elite', character, links: { fortune: true } });
+    for (const set of ['slots', 'reserve']) {
+        const steps = lucky[set].map((slot, i) => rank(slot.rarity) - rank(base[set][i].rarity));
+        assert.deepEqual([steps.filter((step) => step === 1).length, steps.every((step) => step === 0 || step === 1)], [1, true]);
+    }
+    for (let i = 0; i < 50; i += 1) {
+        const plan = planRewardSlots({ combatId: `cb|s${i}`, tier: 'boss', character: { kind: 'skill-character', id: 'sc-a' } });
+        assert.ok([...plan.slots, ...plan.reserve].every((slot) => slot.kind !== 'card'));
+    }
+});
+
+test('正文完成：普通正文和重复就绪通知都检查主角档案，仍转发开战准备与成长楼层', async t => {
+    const { bootstrapIGS } = await import('../src/index.js');
+    const { createMemoryStorage } = await import('../src/storage/preset-store.js');
+    const { createCombatServices } = await import('../src/core/combat-services.js');
+    const callbacks = new Set(), calls = [];
+    const global = { localStorage: createMemoryStorage() };
+    const services = { ...createCombatServices({ global }),
+        syncRegex() {}, refreshGrowth() {}, takeoverInventory() {},
+        prepareProtagonist() { calls.push(['protagonist']); },
+        autoPrepare(id) { calls.push(['prepare', id]); },
+        autoGrowth(id) { calls.push(['growth', id]); },
+    };
+    const vn = bootstrapIGS({ global, autoAttachMagicWand: false, combatServices: services,
+        illustrationMessageHost: {
+            getChatId: () => 'ordinary-story', readFloor: id => ({ messageId: id, text: '只是普通正文，没有开战或立绘标签。' }),
+            on: () => () => {}, readPreviousAiTexts: () => [], readCharacterLore: async () => [],
+            onImageFloorReady(fn) { callbacks.add(fn); return () => callbacks.delete(fn); },
+            attachPromptStrip() {}, ensureMarkerRegexes: async () => ({ ok: true }), destroy() {},
+        },
+        hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) },
+    });
+    t.after(() => vn.shutdown());
+    const notify = () => { for (const callback of callbacks) callback(7); };
+    assert.ok(callbacks.size > 0, '已订阅正文完成通知');
+    calls.length = 0;
+    notify(); notify();
+    assert.deepEqual(calls, [
+        ['protagonist'], ['prepare', 7], ['growth', 7],
+        ['protagonist'], ['prepare', 7], ['growth', 7],
+    ]);
+});
+
+test('背包装备详情：显示原六维加成与被动，物品描述保持文本转义', async t => {
+    const { JSDOM } = await import('jsdom');
+    const { createRecordPanelController } = await import('../src/visual/igs-ui/record-panel.js');
+    const { createMemoryStorage } = await import('../src/storage/preset-store.js');
+    const dom = new JSDOM('<div id="igs-overlay"></div>');
+    const host = createLedgerMockHost({ supportCallbacks: true });
+    host.sheets.sheet_userbag = { ...userInventorySheet(), content: [
+        ['row_id', '物品名称', '数量', '类别', '描述/效果'],
+        ['1', '铜戒', '1', '装备', '<img src=x onerror=alert(1)>'],
+    ] };
+    const gear = { gearId: gearIdFor('铜戒'), name: '铜戒', slot: 'accessory', rarity: 'rare',
+        bonus: { ability: 'str', amount: 3 }, passive: { name: '护心', description: '每回合获得2点格挡' }, count: 1 };
+    const inventory = { ok: true, points: 0, gear: { slots: {}, bag: [gear] }, items: [], collection: [], others: [] };
+    const panel = createRecordPanelController(dom.window.document,
+        { AutoCardUpdaterAPI: host.api, localStorage: createMemoryStorage() }, null,
+        { getHeroInventory: () => inventory });
+    t.after(() => { panel.close(); dom.window.close(); });
+    assert.equal(panel.open(dom.window.document.querySelector('#igs-overlay'), {}, 'inventory').ok, true);
+    assert.equal(panel.getState().model.status, 'ready');
+    const item = dom.window.document.querySelector('.igs-record-slots [data-record-act="select"]');
+    assert.ok(item, '物品表中的装备可选');
+    item.click();
+    const detail = dom.window.document.querySelector('.igs-record-item-detail');
+    assert.ok(detail);
+    assert.match(detail.textContent, /加成.*力量 \+3/);
+    assert.match(detail.textContent, /被动.*每回合获得2点格挡/);
+    assert.ok(detail.textContent.includes('<img src=x onerror=alert(1)>'));
+    assert.equal(detail.querySelector('img'), null);
 });

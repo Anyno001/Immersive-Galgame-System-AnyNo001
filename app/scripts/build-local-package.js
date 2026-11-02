@@ -9,7 +9,11 @@ const projectRoot = path.resolve(appRoot, '..');
 const loaderRoot = path.join(projectRoot, 'loader');
 const version = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8')).version;
 const repository = 'Anyno001/Immersive-Galgame-System-AnyNo001';
-const assetFile = `https://cdn.jsdelivr.net/gh/${repository}@v${version}/app/dist/igs.bundle.js`;
+const assetRefIndex = process.argv.indexOf('--asset-ref');
+const assetRef = assetRefIndex < 0 ? `v${version}` : process.argv[assetRefIndex + 1];
+if (!/^v\d+\.\d+\.\d+$/.test(assetRef || '')) throw new Error('--asset-ref 需要 vX.Y.Z 格式的静态资源版本。');
+const assetBase = `https://cdn.jsdelivr.net/gh/${repository}@${assetRef}/app/dist`;
+const assetFile = `${assetBase}/igs.bundle.js`;
 
 const bundlePath = path.join(appRoot, 'dist/igs.bundle.js');
 const cssPath = path.join(appRoot, 'dist/igs.bundle.css');
@@ -39,7 +43,7 @@ if (/url\((['"]?)\.\//.test(css)) throw new Error('样式里还有相对地址�
 const fingerprint = crypto.createHash('sha256').update(embeddedScript).digest('hex').slice(0, 16);
 const localConfig = {
     ref: `local-v${version}-${fingerprint}`,
-    base: `https://cdn.jsdelivr.net/gh/${repository}@v${version}/app/dist`,
+    base: assetBase,
     version,
     locked: true,
     cacheBust: false,
@@ -100,7 +104,7 @@ const localJson = {
     content,
     info: [
         `内置 v${version} 当前本地 JS 和 CSS，程序指纹 ${fingerprint}。不下载远程程序或自动更新。`,
-        `字体、默认背景等静态素材使用已发布 v${version} CDN。`,
+        `字体、默认背景等静态素材使用 ${assetRef} CDN，仍需网络加载。`,
         '等待小游戏已从主体拆出。需要游戏时再导入并启用同版本的「等待小游戏」脚本。',
     ].join('\n'),
     button: published.button,

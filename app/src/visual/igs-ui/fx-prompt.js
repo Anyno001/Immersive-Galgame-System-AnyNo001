@@ -68,7 +68,7 @@ ${lines.map((line, index) => `${index + 1}. ${line}`).join('\n')}
 // 物品事件标签独立于演出标签开关：只在物品演出开启时注入。
 export const ITEM_FX_PROMPT_LINE = '[igs-fx:item|获得|物品名|一句话描述]：角色获得、失去或使用一件具体物品时使用，动作只写 获得／失去／使用，描述可省略，如[igs-fx:item|获得|黄铜钥匙|刻着校徽的旧钥匙]；剧情关键物品获得时可在末尾加第5段「重要」，如[igs-fx:item|获得|星之坠饰|母亲留下的遗物|重要]';
 // 战斗开启时（合并计划 N5 / P7d）获得物统一带类别与稀有度，程序据此记入统一背包；失去 / 使用写法不变。
-export const ITEM_FX_COMBAT_PROMPT_LINE = '[igs-fx:item|获得|物品名|一句话描述|类别|稀有度]：主角获得一件具体物品时写，类别只写 武器／防具／饰品／宝物／道具／杂物 之一（武器、防具、饰品、宝物是可装备的装备，道具是能在战斗中用一次的药剂、符咒、暗器等，其余写杂物），稀有度只写 普通／罕见／稀有／史诗／神话 之一、可省略，如[igs-fx:item|获得|青锋剑|削铁如泥的长剑|武器|稀有]；失去或使用物品时写[igs-fx:item|失去|物品名|一句话描述]或[igs-fx:item|使用|物品名|一句话描述]';
+export const ITEM_FX_COMBAT_PROMPT_LINE = '[igs-fx:item|获得|物品名|一句话描述|类别|稀有度]：主角获得一件具体物品时写，类别只写 武器／防具／饰品／宝物／道具／杂物 之一（武器、防具、饰品、宝物是可装备的装备，道具是能在战斗中用一次的药剂、符咒、暗器等，其余写杂物），稀有度只写 普通／罕见／稀有／史诗／神话 之一、可省略，如[igs-fx:item|获得|青锋剑|削铁如泥的长剑|武器|稀有]；物品真的离开持有者时（被缴械、被夺走、损毁、交出、遗失）写[igs-fx:item|失去|物品名|一句话描述|数量|角色]，程序会从背包里扣掉，数量省略为 1、写「全部」表示持有的全部，角色是失去物品的人、主角可省略，只是收起或换下装备不写；使用物品时写[igs-fx:item|使用|物品名|一句话描述]';
 
 export function resolveItemFxPromptRule(enabled, { combat = false } = {}) {
     if (enabled !== true) return '';
@@ -159,7 +159,7 @@ export function fxGrammarLines(settings, { ancient = false } = {}) {
 }
 
 export const ITEM_FX_GRAMMAR_LINE = 'item|获得|物品名|一句话描述：角色获得、失去或使用具体物品，动作只写 获得/失去/使用，描述可省，物品名不写数量；推动剧情的关键物品在末尾加「重要」，每层最多1个';
-export const ITEM_FX_COMBAT_GRAMMAR_LINE = '[igs-fx:item|获得|物品名|一句话描述|类别|稀有度]：主角获得具体物品，类别只写 武器/防具/饰品/宝物/道具/杂物，稀有度只写 普通/罕见/稀有/史诗/神话、可省；失去或使用写[igs-fx:item|失去|物品名|描述]或[igs-fx:item|使用|物品名|描述]，物品名不写数量';
+export const ITEM_FX_COMBAT_GRAMMAR_LINE = '[igs-fx:item|获得|物品名|一句话描述|类别|稀有度]：主角获得具体物品，类别只写 武器/防具/饰品/宝物/道具/杂物，稀有度只写 普通/罕见/稀有/史诗/神话、可省；物品真的离开持有者时（被缴械、夺走、损毁、交出、遗失）写[igs-fx:item|失去|物品名|描述|数量|角色]，数量省略为1、写「全部」为全部，角色是失去者、主角可省，收起或换下装备不写；使用写[igs-fx:item|使用|物品名|描述]，物品名不写数量';
 
 export function romanceGrammarLines(settings) {
     const s = settings === true ? { enabled: true } : settings && typeof settings === 'object' ? settings : {};

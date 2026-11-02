@@ -8,7 +8,7 @@ import { COMBAT_AWAKEN_END, COMBAT_CUTIN_MS, buildAwakenCutin, buildOpeningCutin
 import { battleSfxKind } from './fx-battle-sfx.js';
 import { ensureFxLayers } from './fx-layer.js';
 import { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
-import { battleView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, volleyTargets } from './combat-panel-model.js';
+import { battleView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
 import { combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } from './combat-panel-render.js';
 import { actionProgress } from '../../combat/engine.js';
 import { enemyArtCell } from './combat-enemy-art.js';
@@ -33,6 +33,8 @@ const TRACK_MOVE_MS = 500;
 const ART_REFRESH_DELAY_MS = 400;
 // 鞭尸期间打空最后一名敌人：演出放完、倒下显示后停顿这么久，再自动结束回合判胜。
 const COMBAT_FINISH_BEAT_MS = 700;
+// 与补位样式同长；减少动态效果或低画质时直接显示新敌人。
+export const COMBAT_SWAP_MS = Object.freeze({ out: 520, in: 620, beat: 600 });
 // 结果横幅（胜利 / 败北 / 撤退）在战斗面板里只是换结算画面的过渡：最后一次命中落下（含稀有度停顿）后隔 BEAT 出现，最多停留 LIFE（不随停留倍率放大）；
 // 放到 SWAP 时换成结算画面，横幅叠在结算画面上淡出、结算标题同时落定，不等横幅完全消失再硬切。结算入场动画只在第一次画出结算后的 INTRO 内播。
 const COMBAT_RESULT_BEAT_MS = 600;
@@ -123,6 +125,9 @@ export function createCombatPanelController(doc, options = {}) {
     const held = new Map();
     // 上次画出的各单位意图、格挡与行动条头像：鞭尸期间被击倒、还没显示倒下的单位按它补画（引擎在倒下时已清掉这些）。
     const drawnLook = new Map();
+    // 补位先保留旧敌人，命中落完后退场；新敌人入场完成才能出手。
+    const swaps = new Map();
+    const entering = new Map();
     // 每次动作递增，作为动作身份：结算收尾（settle）与自动行动演出锁只认对应的那次动作；更早动作的时间轴照常播完、照常落下。
     let hitGen = 0;
     // 正在播的时间轴条数，以及排队等着播的时间轴：连续出牌与结束回合后的阶段按动作顺序逐条播放（引擎已逐个立即结算）。
@@ -245,6 +250,21 @@ export function createCombatPanelController(doc, options = {}) {
         }
     }
 
+    function swapView(b, state) {
+        const now = Date.now();
+        b.enemies = b.enemies.map((u) => {
+            const sw = swaps.get(u.id);
+            if (sw && state?.units?.[sw.oldId]) {
+                const old = unitView(state, sw.oldId);
+                return sw.phase === 'out' ? { ...old, swap: 'out', swapT: now - sw.at } : old;
+            }
+            return entering.has(u.id) ? { ...u, swap: 'in', swapT: now - entering.get(u.id) } : u;
+        });
+        if (!swaps.size) return;
+        b.track = b.track.filter((t) => !swaps.has(t.id));
+        b.order = b.order.filter((o) => !swaps.has(o.id));
+    }
+
     function snapshot() {
         const s = session();
         const cur = s ? s.state() : { status: 'unavailable' };
@@ -264,6 +284,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (view.battle) view.battle.hand = view.battle.hand.map((c) => { const artUrl = cardArtFor(c.id); return artUrl ? { ...c, artUrl } : c; });
         // 道具同样只在取到物品图时追加 imageUrl。
         if (view.battle) view.battle.items = view.battle.items.map((i) => { const imageUrl = itemArtFor(i.name); return imageUrl ? { ...i, imageUrl } : i; });
+        if (view.battle && (swaps.size || entering.size)) swapView(view.battle, cur.battle);
         if (view.battle && held.size) shownHeld(view.battle);
         if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events);
         if (settling) view.settling = true;
@@ -385,6 +406,13 @@ export function createCombatPanelController(doc, options = {}) {
         if (view.battle && itemsOpen) view.itemsOpen = true;
         // 暂存中的单位已在 snapshot 里按暂存血量写进视图：新节点首帧就是显示值，不会先按结算后的血量算一次样式再补画（那样受击前血条会先跌再回弹）。
         body.innerHTML = renderCombatPanelHtml(view);
+        // 画布皮肤共用控制器补位状态，不覆盖各套自身的站位与取景。
+        for (const u of view.battle?.enemies || []) {
+            if (u.swap !== 'out' && u.swap !== 'in') continue;
+            const el = unitEl(u.id);
+            el?.setAttribute?.('data-swap', u.swap);
+            el?.style?.setProperty?.('--swap-t', `${-Math.max(0, Math.round(Number(u.swapT) || 0))}ms`);
+        }
         restoreUnitFx(lifted);
         syncControlDock();
         if (view.intro) flashScreen();
@@ -946,6 +974,13 @@ export function createCombatPanelController(doc, options = {}) {
                     at += move;
                 }
             }
+            // 补位敌人先完成入场，再播放出手；引擎已结算，画面不能让场外单位隐身攻击。
+            if (seg.actor && swaps.has(seg.actor) && !reduced()) {
+                const id = seg.actor;
+                const enter = () => { if (my === token) forceSwap(id); };
+                if (at === 0) enter(); else later(enter, at);
+                at += COMBAT_SWAP_MS.in;
+            }
             // 有特写时先播特写，命中演出在最后一个特写开始淡出时落下；这一段的停留时长覆盖特写与命中两者。
             // 出牌飞行卡只在第一段：命中等影子卡飞到目标后落下。没有特写也不飞时 lead / span 为 0，节奏与旧版一致。
             const cuts = planCutins(seg.events, cur.battle);
@@ -1068,13 +1103,71 @@ export function createCombatPanelController(doc, options = {}) {
             showHitFloats(doc, unitEl(id), [{ kind: 'ko' }], { reduced: reduced(), schedule: later });
             hxHitCues(id, [{ kind: 'ko' }], { struck: false, rarity: null, enemyActs: false });
         }
+        const waitingSwaps = [...swaps.values()].filter((sw) => sw.phase === 'hold' && downs.includes(sw.oldId));
+        if (waitingSwaps.length) {
+            for (const sw of waitingSwaps) sw.beat = true;
+            const my = token;
+            later(() => {
+                if (my !== token) return;
+                for (const sw of waitingSwaps) sw.beat = false;
+                startLeaves();
+            }, COMBAT_SWAP_MS.beat);
+        }
         return true;
     }
 
     // 演出全部放完：鞭尸期间被击倒的单位倒下；敌人已全灭时停顿片刻后自动结束回合判胜。
     function drained() {
         revealDowns();
+        startLeaves();
         maybeFinish();
+    }
+
+    function enterSwap(id) {
+        const at = Date.now();
+        entering.set(id, at);
+        render();
+        const my = token;
+        later(() => {
+            if (my !== token || entering.get(id) !== at) return;
+            entering.delete(id);
+            unitEl(id)?.removeAttribute?.('data-swap');
+        }, COMBAT_SWAP_MS.in);
+    }
+
+    // 暂存命中与倒下已落完，旧敌人退场后换上新敌人。
+    function startLeaves() {
+        for (const [id, sw] of swaps) {
+            if (sw.phase !== 'hold' || sw.beat || held.has(sw.oldId)) continue;
+            sw.phase = 'out';
+            sw.at = Date.now();
+            render();
+            const my = token;
+            later(() => {
+                if (my !== token || swaps.get(id) !== sw) return;
+                swaps.delete(id);
+                enterSwap(id);
+            }, COMBAT_SWAP_MS.out);
+        }
+    }
+
+    function noteSwaps(events) {
+        for (const e of events || []) {
+            if (e.type !== 'reinforce' || !e.unitId || !e.replaced) continue;
+            const prev = swaps.get(e.replaced);
+            swaps.delete(e.replaced);
+            entering.delete(e.replaced);
+            swaps.set(e.unitId, { oldId: prev ? prev.oldId : e.replaced, phase: 'hold' });
+        }
+    }
+
+    // 出手段到达时强制完成旧敌人的替换，随后留足新敌人的入场时间。
+    function forceSwap(id) {
+        const sw = swaps.get(id);
+        if (!sw) return;
+        swaps.delete(id);
+        held.delete(sw.oldId);
+        enterSwap(id);
     }
 
     // overkill 战斗在出牌阶段敌人已全灭、没有演出在播：加演出锁，停顿后发出结束回合（引擎据此判胜）；中途关掉面板时重开后照常收尾。
@@ -1160,6 +1253,7 @@ export function createCombatPanelController(doc, options = {}) {
             const u = units[id];
             if (u) paintUnitHp(unitEl(id), { hp: Math.max(0, u.hp), maxHp: u.maxHp, alive: u.alive !== false });
         }
+        if (swaps.size) startLeaves();
     }
 
     // 结算等待结束（时间轴走完，或这次动作没有演出可播）：换成结算画面；只认结束战斗那次动作的时间轴（gen），更早动作的收尾不提前换。
@@ -1247,16 +1341,14 @@ export function createCombatPanelController(doc, options = {}) {
         return r;
     }
 
-    // 战报发送成功后离开战斗面板，露出阅读器里的新楼层；有升级三选一时先领完（或跳过）再离开。
-    // 只由本面板的「发送战报 / 重新发送」触发：手动重开已发送的面板不会自动关掉。
-    let leaveAfterReport = false;
-    function closeIfReportSettled() {
-        if (!leaveAfterReport || !root || pending || rewards) return;
-        let status = '';
-        try { status = session()?.state().status || ''; } catch (error) { status = ''; }
-        if (status !== 'done') return;
-        leaveAfterReport = false;
+    // 发送属于会话，不随面板关闭取消；失败可重开重发，升级奖励在重开时领取。
+    function sendAndLeave(fn) {
+        if (pending) return { ok: false, reason: 'combat-busy' };
+        let job;
+        try { job = Promise.resolve(fn()); } catch { job = Promise.resolve({ ok: false, reason: 'combat-action-threw' }); }
+        job = job.catch(() => ({ ok: false, reason: 'combat-action-threw' }));
         close();
+        return job;
     }
 
     async function runAsync(kind, fn) {
@@ -1271,13 +1363,7 @@ export function createCombatPanelController(doc, options = {}) {
         pending = '';
         say(r);
         render();
-        if (r.ok && r.session?.status === 'done') {
-            if (kind === 'send') {
-                leaveAfterReport = true;
-                await loadRewards();
-                if (my === token) closeIfReportSettled();
-            } else loadRewards();
-        }
+        if (r.ok && r.session?.status === 'done') loadRewards();
         return r;
     }
 
@@ -1302,6 +1388,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (ended && reduced()) { clearCutins(); held.clear(); }
         let ids = [];
         if (r.ok) { hitGen += 1; ids = holdUnits(prior, r.events); settling = ended && !reduced(); }
+        if (r.ok && !reduced() && !lowQuality()) noteSwaps(r.events);
         render();
         if (r.ok) {
             // 有队友或敌人出手（结束回合）：立即加演出锁；前面的演出还没播完时，行动条先停在结束回合前的进度。
@@ -1552,10 +1639,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (!offered) return { ok: false, reason: 'combat-reward-choice-invalid' };
         const choice = kind === 'card' ? { kind, cardId: value } : kind === 'upgrade' ? { kind, targetId: value } : { kind: 'skip' };
         const r = await runAsync('reward', () => ledger.claimReward(rewards.characterId, rewards.level, choice));
-        if (r.ok) {
-            await loadRewards();
-            closeIfReportSettled();
-        }
+        if (r.ok) await loadRewards();
         return r;
     }
 
@@ -1620,8 +1704,8 @@ export function createCombatPanelController(doc, options = {}) {
             case 'choose-confirm': return confirmChoice();
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
-            case 'finish': return runAsync('send', () => s.finish());
-            case 'retry-send': return runAsync('send', () => s.retrySend());
+            case 'finish': return sendAndLeave(() => s.finish());
+            case 'retry-send': return sendAndLeave(() => s.retrySend());
             case 'flip':
             case 'choose': {
                 const position = /^\d+$/.test(id) ? Number(id) : -1;
@@ -1969,7 +2053,7 @@ export function createCombatPanelController(doc, options = {}) {
         clearCutins();
         endDrag();
         hideScaleTip();
-        held.clear(); drawnLook.clear();
+        held.clear(); drawnLook.clear(); swaps.clear(); entering.clear();
         hoverInst = '';
         itemsOpen = false;
         hitGen += 1;
@@ -2000,7 +2084,6 @@ export function createCombatPanelController(doc, options = {}) {
         battleMusic(pageOverlay, false);
         pageOverlay = null;
         pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
-        leaveAfterReport = false;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();

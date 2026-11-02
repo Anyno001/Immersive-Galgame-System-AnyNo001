@@ -492,6 +492,7 @@ function bootstrapIGS(options = {}) {
     syncCombat();
     state.combatFloorOff = typeof illustrationMessageHost.onImageFloorReady === 'function' && typeof combatServices.autoPrepare === 'function'
         ? illustrationMessageHost.onImageFloorReady((floor) => {
+            prepareCombatProtagonist();
             combatServices.autoPrepare(floor);
             if (typeof combatServices.autoGrowth === 'function') combatServices.autoGrowth(floor);
         })
@@ -29923,8 +29924,8 @@ function createTavernHelperAdapter(globalObject = globalThis.window || globalThi
             return { ok: false, reason: 'missing-readable-input' };
         },
 
-        // matches 可选：调用方按稳定身份认领回执（如战报 ID）。酒馆落楼前可能经正则 / 宏改写正文，全文相等会永远等不到回执。
-        // 不传时仍按去首尾空白后的全文相等认领。
+        // matches 可选：未派发时按稳定身份认领回执（如战报 ID）。酒馆落楼前可能经正则 / 宏改写正文。
+        // 派发后认领基线之后的首条新用户楼，兼容数据库整体改写正文；仍受聊天身份和用户楼过滤约束。
         async typeAndSend(text, { matches } = {}) {
             const before = getChatMessageEntries(globalObject);
             const afterId = before.reduce((last, entry) => Math.max(last, Number(entry.id)), -1);
@@ -29932,8 +29933,11 @@ function createTavernHelperAdapter(globalObject = globalThis.window || globalThi
             const chatId = chat?.getCurrentChatId?.() ?? chat?.chatId;
             let dispatched = false;
             const claims = (body) => {
-                if (typeof matches !== 'function') return body.trim() === String(text).trim();
-                try { return matches(body) === true; } catch (error) { return false; }
+                if (dispatched) return true;
+                if (typeof matches === 'function') {
+                    try { return matches(body) === true; } catch (error) { return false; }
+                }
+                return body.trim() === String(text).trim();
             };
             const receipt = () => getChatMessageEntries(globalObject).find(entry => Number(entry.id) > afterId
                 && (entry.message?.is_user || entry.message?.role === 'user')
@@ -29955,7 +29959,7 @@ function createTavernHelperAdapter(globalObject = globalThis.window || globalThi
                 if (received) return { ok: true, sent: true, messageId: received.id };
                 if (dispatched) return { ok: false, reason: 'host-send-awaiting-receipt' };
                 const helper = getTavernHelper(globalObject);
-                // 派发成功不等于已落楼：只有聊天里出现同文的新用户楼才算发送成功，否则交给 observe 等回执。
+                // 派发成功不等于已落楼：只有聊天里出现可认领的新用户楼才算发送成功，否则交给 observe 等回执。
                 const settled = () => {
                     const landed = receipt();
                     return landed ? { ok: true, sent: true, messageId: landed.id } : { ok: false, reason: 'host-send-awaiting-receipt' };
@@ -37502,6 +37506,8 @@ __igsDefine(exports, "CURRENT_TIME_COLUMNS", () => CURRENT_TIME_COLUMNS);
 });
 __igsRegister("src/data/shujuku/record-model.js", function(module, exports, require) {
 const { selectRecordTables } = require("src/data/shujuku/record-tables.js");
+const INVENTORY_LOST_MARK = '已丢失';
+
 const FIELDS = Object.freeze({
     diary: { author: ['写作角色', '作者', '角色'], chapterTitle: ['篇名', '日记标题', '标题', '主题', '名称'], title: ['写作角色', '角色', '标题', '日记标题', '名称', '主题'], date: ['发生时间', '发生日期', '日期', '时间', '记录时间'], body: ['正文', '内容', '日记内容', '记录', '描述'], related: ['关联角色', '相关角色', '对象'] },
     inventory: { title: ['物品名称', '名称', '物品', '道具名称', '装备名称'], quantity: ['数量', '数目', '个数', '数量值', 'amount', 'count'], category: ['类别', '分类', '类型', '种类', '物品类别', '物品类型'], status: ['状态', '物品状态', '使用状态'] },
@@ -37680,7 +37686,7 @@ function buildRecordModel(readResult, category) {
         const detailCells = cells.filter(cell => !isHiddenDetailField(category, cell.label));
         return { id: `${table.uid}:${rowIndex}`, uid: table.uid, source: table.name, rowIndex,
             title, author, chapterTitle, date, body, quantity, related, category: itemCategory, status, cells, detailCells, fieldIssues: table.diagnostics };
-    }).filter(entry => entry.cells.length));
+    }).filter(entry => entry.cells.length && !(category === 'inventory' && entry.category === INVENTORY_LOST_MARK)));
     if (category === 'diary') {
         // Sort only within a source whose every visible entry has a canonical date.
         // Never reorder rows across sources or invent dates for undated entries.
@@ -37703,6 +37709,7 @@ function buildRecordModel(readResult, category) {
 __igsDefine(exports, "parseLooseDate", () => parseLooseDate);
 __igsDefine(exports, "buildRelationshipModel", () => buildRelationshipModel);
 __igsDefine(exports, "buildRecordModel", () => buildRecordModel);
+__igsDefine(exports, "INVENTORY_LOST_MARK", () => INVENTORY_LOST_MARK);
 __igsDefine(exports, "OUTFIT_CLUE_FIELDS", () => OUTFIT_CLUE_FIELDS);
 });
 __igsRegister("src/data/shujuku/record-tables.js", function(module, exports, require) {
@@ -65491,8 +65498,8 @@ const COMBAT_RULES = Object.freeze({
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
     // 多敌折算：单只敌人生命与伤害 × 1 / (1 + perExtra × (在场人数 − 1))，不低于 floor；在场人数受 maxEnemiesOnField 限制，预备队不计。
     // 按 scripts/combat-balance.mjs 校准（1 级标准档单主角普通敌人：2 只约 80%、3 只约 60%），只写进新建 setup，旧战斗按已存数值重放。
-    // v0.39.2 下限 0.55 → 0.65。
-    crowd: Object.freeze({ perExtra: 0.43, floor: 0.65 }),
+    // 多敌折算仅写入新建 setup，旧战斗沿用已保存数值。
+    crowd: Object.freeze({ perExtra: 0.43, floor: 0.5 }),
     // 生成敌人档位校准：副 LLM 生成的敌人（generated 不为 false）生命与伤害再 × 该值，模板敌人不变；首领按 scripts/combat-balance.mjs --generated 校准。
     generatedScale: Object.freeze({ boss: 0.9 }),
     difficulty: Object.freeze({
@@ -65918,7 +65925,7 @@ const PASSIVE_TRIGGERS = Object.freeze([
 const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
 const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
-    'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake',
+    'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose',
 ]);
 const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -66647,6 +66654,14 @@ function validateLedgerPayload(type, payload, path, state) {
                 name: textField(payload.name, at('name'), state, 20),
                 origin: textField(payload.origin, at('origin'), state, 80, ''),
                 ...(payload.rarity === undefined ? {} : { rarity: enumField(payload.rarity, at('rarity'), state, LOOT_RARITIES) }),
+            };
+        case 'lose':
+            checkKnownFields(payload, ['name', 'count', 'all', 'reason'], path, state);
+            if (payload.all !== undefined && payload.all !== true) addIssue(state, at('all'), 'invalid-value');
+            return {
+                name: textField(payload.name, at('name'), state, 20),
+                ...(payload.all === true ? { all: true } : { count: intField(payload.count, at('count'), state, 1, ITEM_CONSUME_MAX) }),
+                reason: textField(payload.reason, at('reason'), state, 80, ''),
             };
         case 'consume':
             checkKnownFields(payload, ['itemId', 'count', 'reportId'], path, state);
@@ -68654,11 +68669,11 @@ const atLeast = (rarity, floor) => rarityIndex(rarity) >= rarityIndex(floor);
 
 // 各敌人档位的掉落规则。keepsake 是非保底槽位出纪念品的概率；guaranteed 是保底槽位数
 // （这些槽位不出纪念品）；floor 是保底槽位的稀有度下限；cardCap 是卡牌稀有度上限。
-// rarity/kinds 是 [值, 权重] 表。
+// rarity/kinds 是 [值, 权重] 表；cardRate 是 3 槽盲翻一张的目标卡牌率，从杂物份额补足。
 const TIER_LOOT = Object.freeze({
-    normal: Object.freeze({ keepsake: 0.85, guaranteed: 0, cardCap: 'uncommon', rarity: Object.freeze([['common', 75], ['uncommon', 22], ['rare', 3]]), kinds: Object.freeze([['item', 4], ['card', 3], ['gear', 2], ['treasure', 1]]) }),
-    elite: Object.freeze({ keepsake: 0.8, guaranteed: 1, rarity: Object.freeze([['uncommon', 40], ['rare', 40], ['epic', 20]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['item', 2], ['treasure', 2]]) }),
-    boss: Object.freeze({ keepsake: 0.8, guaranteed: 1, floor: 'epic', rarity: Object.freeze([['rare', 50], ['epic', 40], ['mythic', 10]]), keepsakeRarity: Object.freeze([['rare', 20], ['epic', 50], ['mythic', 30]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['treasure', 3], ['item', 1]]) }),
+    normal: Object.freeze({ keepsake: 0.85, guaranteed: 0, cardCap: 'uncommon', cardRate: 0.3, rarity: Object.freeze([['common', 75], ['uncommon', 22], ['rare', 3]]), kinds: Object.freeze([['item', 4], ['card', 3], ['gear', 2], ['treasure', 1]]) }),
+    elite: Object.freeze({ keepsake: 0.8, guaranteed: 1, cardRate: 0.4, rarity: Object.freeze([['uncommon', 40], ['rare', 40], ['epic', 20]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['item', 2], ['treasure', 2]]) }),
+    boss: Object.freeze({ keepsake: 0.8, guaranteed: 1, floor: 'epic', cardRate: 0.5, rarity: Object.freeze([['rare', 50], ['epic', 40], ['mythic', 10]]), keepsakeRarity: Object.freeze([['rare', 20], ['epic', 50], ['mythic', 30]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['treasure', 3], ['item', 1]]) }),
 });
 // 卡牌费用的权重表。
 const CARD_COST_WEIGHTS = Object.freeze([[0, 1], [1, 3], [2, 3], [3, 2]]);
@@ -68706,8 +68721,25 @@ function applyLootBonus(slots, rule, loot) {
     }
 }
 
+function promoteKeepsakesToCards(slots, rule, kinds, seed) {
+    const cardWeight = kinds.find(([kind]) => kind === 'card')?.[1] || 0;
+    if (!cardWeight) return;
+    const share = rule.keepsake * (REWARD_SLOT_COUNT - rule.guaranteed) / REWARD_SLOT_COUNT;
+    const baseRate = (1 - share) * cardWeight / kinds.reduce((sum, [, weight]) => sum + weight, 0);
+    const chance = Math.min(1, Math.max(0, (rule.cardRate - baseRate) / share));
+    // 独立序列保留原装备、道具和保底槽，只替换抽中的杂物。
+    const random = randomFrom(`${seed}|cards`);
+    for (const slot of slots) {
+        if (slot.kind !== 'keepsake' || random() >= chance) continue;
+        let rarity = pickWeighted(random, rule.rarity);
+        if (rule.cardCap && rarityIndex(rarity) > rarityIndex(rule.cardCap)) rarity = rule.cardCap;
+        Object.assign(slot, { kind: 'card', rarity, cost: pickWeighted(random, CARD_COST_WEIGHTS) });
+    }
+}
+
 // 生成一组 count 个槽位。fortune 为真时随机一个非纪念品槽位升一档。
-function buildSlots(random, rule, kinds, count, fortune, loot = null) {
+function buildSlots(seed, rule, kinds, count, fortune, loot = null) {
+    const random = randomFrom(seed);
     const slots = [];
     for (let index = 0; index < count; index += 1) {
         if (index >= rule.guaranteed && random() < rule.keepsake) {
@@ -68726,6 +68758,7 @@ function buildSlots(random, rule, kinds, count, fortune, loot = null) {
         if (kind === 'treasure') slot.gearSlot = 'treasure';
         slots.push(slot);
     }
+    promoteKeepsakesToCards(slots, rule, kinds, seed);
     const nonKeepsake = slots.filter((slot) => slot.kind !== 'keepsake');
     if (fortune) {
         const upgradable = nonKeepsake.filter((slot) => rarityIndex(slot.rarity) < RARITY_ORDER.length - 1);
@@ -68749,8 +68782,8 @@ function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, li
     const count = REWARD_SLOT_COUNT + (normalLinks.reflip ? 1 : 0);
     const lootChance = difficultyRule(difficulty).loot;
     const lootFor = (key) => (lootChance > 0 ? { chance: lootChance, seed: `${key}|loot` } : null);
-    const slots = buildSlots(randomFrom(seed), rule, kinds, count, normalLinks.fortune, lootFor(seed));
-    const reserve = buildSlots(randomFrom(`${seed}|reserve`), rule, kinds, count, normalLinks.fortune, lootFor(`${seed}|reserve`));
+    const slots = buildSlots(seed, rule, kinds, count, normalLinks.fortune, lootFor(seed));
+    const reserve = buildSlots(`${seed}|reserve`, rule, kinds, count, normalLinks.fortune, lootFor(`${seed}|reserve`));
     return { seed, tier: tierKey, exp: victoryExpFor(enemyTiers), links: normalLinks, slots, reserve };
 }
 
@@ -81469,7 +81502,7 @@ ${lines.map((line, index) => `${index + 1}. ${line}`).join('\n')}
 // 物品事件标签独立于演出标签开关：只在物品演出开启时注入。
 const ITEM_FX_PROMPT_LINE = '[igs-fx:item|获得|物品名|一句话描述]：角色获得、失去或使用一件具体物品时使用，动作只写 获得／失去／使用，描述可省略，如[igs-fx:item|获得|黄铜钥匙|刻着校徽的旧钥匙]；剧情关键物品获得时可在末尾加第5段「重要」，如[igs-fx:item|获得|星之坠饰|母亲留下的遗物|重要]';
 // 战斗开启时（合并计划 N5 / P7d）获得物统一带类别与稀有度，程序据此记入统一背包；失去 / 使用写法不变。
-const ITEM_FX_COMBAT_PROMPT_LINE = '[igs-fx:item|获得|物品名|一句话描述|类别|稀有度]：主角获得一件具体物品时写，类别只写 武器／防具／饰品／宝物／道具／杂物 之一（武器、防具、饰品、宝物是可装备的装备，道具是能在战斗中用一次的药剂、符咒、暗器等，其余写杂物），稀有度只写 普通／罕见／稀有／史诗／神话 之一、可省略，如[igs-fx:item|获得|青锋剑|削铁如泥的长剑|武器|稀有]；失去或使用物品时写[igs-fx:item|失去|物品名|一句话描述]或[igs-fx:item|使用|物品名|一句话描述]';
+const ITEM_FX_COMBAT_PROMPT_LINE = '[igs-fx:item|获得|物品名|一句话描述|类别|稀有度]：主角获得一件具体物品时写，类别只写 武器／防具／饰品／宝物／道具／杂物 之一（武器、防具、饰品、宝物是可装备的装备，道具是能在战斗中用一次的药剂、符咒、暗器等，其余写杂物），稀有度只写 普通／罕见／稀有／史诗／神话 之一、可省略，如[igs-fx:item|获得|青锋剑|削铁如泥的长剑|武器|稀有]；物品真的离开持有者时（被缴械、被夺走、损毁、交出、遗失）写[igs-fx:item|失去|物品名|一句话描述|数量|角色]，程序会从背包里扣掉，数量省略为 1、写「全部」表示持有的全部，角色是失去物品的人、主角可省略，只是收起或换下装备不写；使用物品时写[igs-fx:item|使用|物品名|一句话描述]';
 function resolveItemFxPromptRule(enabled, { combat = false } = {}) {
     if (enabled !== true) return '';
     return `【物品】
@@ -81555,7 +81588,7 @@ function fxGrammarLines(settings, { ancient = false } = {}) {
     return enabledFxTagKinds(settings).map((kind) => (ancient && ANCIENT_FX_GRAMMAR_LINES[kind]) || FX_GRAMMAR_LINES[kind]);
 }
 const ITEM_FX_GRAMMAR_LINE = 'item|获得|物品名|一句话描述：角色获得、失去或使用具体物品，动作只写 获得/失去/使用，描述可省，物品名不写数量；推动剧情的关键物品在末尾加「重要」，每层最多1个';
-const ITEM_FX_COMBAT_GRAMMAR_LINE = '[igs-fx:item|获得|物品名|一句话描述|类别|稀有度]：主角获得具体物品，类别只写 武器/防具/饰品/宝物/道具/杂物，稀有度只写 普通/罕见/稀有/史诗/神话、可省；失去或使用写[igs-fx:item|失去|物品名|描述]或[igs-fx:item|使用|物品名|描述]，物品名不写数量';
+const ITEM_FX_COMBAT_GRAMMAR_LINE = '[igs-fx:item|获得|物品名|一句话描述|类别|稀有度]：主角获得具体物品，类别只写 武器/防具/饰品/宝物/道具/杂物，稀有度只写 普通/罕见/稀有/史诗/神话、可省；物品真的离开持有者时（被缴械、夺走、损毁、交出、遗失）写[igs-fx:item|失去|物品名|描述|数量|角色]，数量省略为1、写「全部」为全部，角色是失去者、主角可省，收起或换下装备不写；使用写[igs-fx:item|使用|物品名|描述]，物品名不写数量';
 function romanceGrammarLines(settings) {
     const s = settings === true ? { enabled: true } : settings && typeof settings === 'object' ? settings : {};
     if (s.enabled !== true) return [];
@@ -82315,6 +82348,7 @@ function combatExpansionEnabled(settings) {
 }
 const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/unequip/rel/stat/heal';
 const COMBAT_GAIN_LINE = '- [igs-fx:item|获得|名称|描述|类别|稀有度]：剧情中主角真的得到一件具体物品时写；类别只写 武器/防具/饰品/宝物/道具/杂物 之一（武器、防具、饰品、宝物是可装备的装备，道具是能在战斗中用一次的药剂、符咒、暗器等，其余写杂物）；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按物品品相写，可省略；对应部位空着时新装备会自动装上';
+const COMBAT_LOSE_LINE = '- [igs-fx:item|失去|名称|描述|数量|角色]：剧情中物品真的离开持有者时写（被缴械、被夺走、损毁、交出、遗失），程序会从背包里扣掉；数量写数字，省略为 1，写「全部」表示持有的全部；角色是失去物品的人，主角写「我」或省略，同伴写角色名；只是收起或换下装备不写';
 function itemFxPromptEnabled(settings) {
     return asObject(asObject(settings).itemFx).enabled === true;
 }
@@ -82333,8 +82367,9 @@ function buildRuleText(includeGain = false) {
 - [igs-combat:learn|角色|技能名|简述|稀有度]：剧情中习得新技能；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按这门技能在剧情中的分量写，可省略
 - [igs-combat:upgrade|角色|技能名|简述]：已有技能得到精进
 - [igs-combat:class|角色|职业]：转职或觉醒
-- [igs-combat:unequip|角色|名称]：剧情中卸下、丢失或交出某件装备${includeGain ? `
-${COMBAT_GAIN_LINE}` : ''}
+- [igs-combat:unequip|角色|名称]：剧情中卸下某件装备，装备仍归此人所有；被夺走、损毁或交出时改写失去标签${includeGain ? `
+${COMBAT_GAIN_LINE}
+${COMBAT_LOSE_LINE}` : ''}
 - [igs-combat:rel|角色|档]：每层给本层登场的非主角各写一个，主角不写；档只写 远逊/稍弱/相当/稍强/强敌/碾压 之一，表示此人此刻相对主角的强弱；强弱没变就照写原档
 - [igs-combat:stat|角色|属性|点数|原因]：只在剧情确实让主角锻炼、领悟、服药等而提升某项属性时写，角色只写主角；属性只写 力量/敏捷/体质/智力/感知/魅力 之一；点数 1–2，每层合计不超过2
 - [igs-combat:heal|角色|恢复量|原因]：战斗留下的伤势会带到下一场；剧情中角色休息、接受治疗、服药等恢复生命时写；恢复量写点数（如 20）或生命上限的百分比（如 50%）；倒下的同伴要靠它恢复后才能再参战
@@ -82354,7 +82389,7 @@ const COMBAT_STORY_LINES = Object.freeze(ruleLinesOf(['start', 'awaken', 'exp', 
 const COMBAT_GEAR_LINES = Object.freeze(ruleLinesOf(['unequip']));
 const COMBAT_GROWTH_LINES = Object.freeze(ruleLinesOf(['rel', 'stat', 'heal']));
 const COMBAT_SYNTAX_LINES = Object.freeze(buildRuleText().split('\n').filter((line) => /^\d\. /.test(line)));
-const COMBAT_MERGED_GRAMMAR_INDEX = '战斗 igs-combat:unequip igs-fx:item获得';
+const COMBAT_MERGED_GRAMMAR_INDEX = '战斗 igs-combat:unequip igs-fx:item获得/失去';
 
 // 合并模式：剧情类标签并入别处，这里只剩装备与道具。
 function combatPromptMerged(settings) {
@@ -82369,7 +82404,7 @@ function resolveCombatPromptRule(settings) {
     return [
         '【战斗·装备与道具】标签写作 [igs-combat:类型|参数]：',
         ...COMBAT_GEAR_LINES,
-        ...(gainHere ? [COMBAT_GAIN_LINE] : []),
+        ...(gainHere ? [COMBAT_GAIN_LINE, COMBAT_LOSE_LINE] : []),
         '',
         '语法要求：装备与道具标签只在剧情确实发生时写，主角写「我」以外的名字时用角色名',
     ].join('\n');
@@ -82445,6 +82480,7 @@ __igsDefine(exports, "COMBAT_PARTY_SEGMENT_ID", () => COMBAT_PARTY_SEGMENT_ID);
 __igsDefine(exports, "COMBAT_REPORT_RESULTS", () => COMBAT_REPORT_RESULTS);
 __igsDefine(exports, "COMBAT_GRAMMAR_INDEX", () => COMBAT_GRAMMAR_INDEX);
 __igsDefine(exports, "COMBAT_GAIN_LINE", () => COMBAT_GAIN_LINE);
+__igsDefine(exports, "COMBAT_LOSE_LINE", () => COMBAT_LOSE_LINE);
 __igsDefine(exports, "COMBAT_RULE_HEAD", () => COMBAT_RULE_HEAD);
 __igsDefine(exports, "COMBAT_STORY_LINES", () => COMBAT_STORY_LINES);
 __igsDefine(exports, "COMBAT_GEAR_LINES", () => COMBAT_GEAR_LINES);
@@ -119318,6 +119354,12 @@ ${COMBAT_ENEMY_ART_STYLE_TEXT}
 ${COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT}
 ${COMBAT_PANEL_LAYOUT_STYLE_TEXT}
 ${CANVAS_STYLE_TEXT}
+${C} :is(.igs-combat-unit,.cx-unit)[data-swap="out"]{animation:igs-combat-swap-out 520ms var(--igs-cb-ease) var(--swap-t,0ms) both;pointer-events:none;}
+${C} :is(.igs-combat-unit,.cx-unit)[data-swap="in"]{animation:igs-combat-swap-in 620ms cubic-bezier(.2,.9,.25,1.15) var(--swap-t,0ms) both;}
+@keyframes igs-combat-swap-out{0%{opacity:.4;translate:0 0;}100%{opacity:0;translate:0 18%;}}
+@keyframes igs-combat-swap-in{0%{opacity:0;translate:40% 0;}60%{opacity:1;translate:-4% 0;}100%{opacity:1;translate:0 0;}}
+${C}[data-igs-combat-reduced] :is(.igs-combat-unit,.cx-unit)[data-swap],#igs-overlay[data-igs-quality="low"] ${C} :is(.igs-combat-unit,.cx-unit)[data-swap]{animation:none;}
+@media(prefers-reduced-motion:reduce){${C} :is(.igs-combat-unit,.cx-unit)[data-swap]{animation:none;}}
 `;
 
 __igsDefine(exports, "COMBAT_UI_VARS", () => COMBAT_UI_VARS);
@@ -124668,12 +124710,59 @@ function extractGainDirectives(raw, options = {}) {
     return { directives, diagnostics };
 }
 
+const LOSS_ACTION_WORDS = new Set(['失去', 'lose']);
+const LOSS_ALL_WORDS = new Set(['全部', '所有', 'all']);
+const COMBAT_LOSS_MAX = 30;
+function scanLossTags(body) {
+    const counts = new Map();
+    const tags = [];
+    for (const match of String(body || '').matchAll(GAIN_TAG_PATTERN)) {
+        const fields = match[1].split('|').map((field) => field.trim());
+        if (!LOSS_ACTION_WORDS.has(fields[0].toLowerCase())) continue;
+        const tagHash = tagHashOf(['fx-item', ...fields].join('|'));
+        const occurrence = counts.get(tagHash) || 0;
+        counts.set(tagHash, occurrence + 1);
+        tags.push({ kind: 'lose', fields, raw: match[0], index: match.index, tagHash, occurrence });
+    }
+    return tags;
+}
+
+function lossCountIn(value) {
+    const word = toHalfWidthDigits(value ?? '').trim().toLowerCase();
+    if (!word) return { ok: true, value: 1 };
+    if (LOSS_ALL_WORDS.has(word)) return { ok: true, value: 'all' };
+    if (!DIGITS_PATTERN.test(word)) return { ok: false, field: 'count', problem: 'not-integer' };
+    const count = Number(word);
+    return count >= 1 && count <= COMBAT_LOSS_MAX
+        ? { ok: true, value: count }
+        : { ok: false, field: 'count', problem: 'out-of-range' };
+}
+function extractLossDirectives(raw, options = {}) {
+    const body = combatBodyText(raw, options);
+    const directives = [];
+    const diagnostics = [];
+    for (const tag of scanLossTags(body)) {
+        const reject = (field, problem) => diagnostics.push({ code: 'combat-loss-invalid', field, problem, ...locateOf(tag) });
+        if (tag.fields.length > 5) { reject('fields', 'too-many-fields'); continue; }
+        const name = textField('name', tag.fields[1], NAME_MAX, true);
+        if (!name.ok) { reject(name.field, name.problem); continue; }
+        const count = lossCountIn(tag.fields[3]);
+        if (!count.ok) { reject(count.field, count.problem); continue; }
+        const who = textField('character', tag.fields[4], NAME_MAX, false);
+        if (!who.ok) { reject(who.field, who.problem); continue; }
+        const reason = String(tag.fields[2] || '').trim().slice(0, DESC_MAX);
+        directives.push({ kind: 'lose', character: who.value || '我', name: name.value, ...(count.value === 'all' ? { all: true } : { count: count.value }), reason, ...locateOf(tag) });
+    }
+    return { directives, diagnostics };
+}
 __igsDefine(exports, "combatBodyText", () => combatBodyText);
 __igsDefine(exports, "scanCombatTags", () => scanCombatTags);
 __igsDefine(exports, "extractCombatStart", () => extractCombatStart);
 __igsDefine(exports, "extractGrowthDirectives", () => extractGrowthDirectives);
 __igsDefine(exports, "scanGainTags", () => scanGainTags);
 __igsDefine(exports, "extractGainDirectives", () => extractGainDirectives);
+__igsDefine(exports, "scanLossTags", () => scanLossTags);
+__igsDefine(exports, "extractLossDirectives", () => extractLossDirectives);
 __igsDefine(exports, "COMBAT_TAG_LIMITS", () => COMBAT_TAG_LIMITS);
 __igsDefine(exports, "COMBAT_GROWTH_KINDS", () => COMBAT_GROWTH_KINDS);
 __igsDefine(exports, "COMBAT_ABILITY_WORDS", () => COMBAT_ABILITY_WORDS);
@@ -124685,6 +124774,7 @@ __igsDefine(exports, "COMBAT_RARITY_WORDS", () => COMBAT_RARITY_WORDS);
 __igsDefine(exports, "COMBAT_TIERS", () => COMBAT_TIERS);
 __igsDefine(exports, "COMBAT_AWAKEN_TYPES", () => COMBAT_AWAKEN_TYPES);
 __igsDefine(exports, "COMBAT_GAIN_CATEGORIES", () => COMBAT_GAIN_CATEGORIES);
+__igsDefine(exports, "COMBAT_LOSS_MAX", () => COMBAT_LOSS_MAX);
 });
 __igsRegister("src/combat/card-scaling.js", function(module, exports, require) {
 // 卡牌随能力缩放：按角色六维相对稀有度门槛，给牌面数值乘一个 0.7~1.3 的倍率。纯函数。
@@ -135746,7 +135836,7 @@ const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-slots button:active{transform:scale(.97);}
 #igs-record-panel .igs-record-slots button[aria-current="true"]{background:var(--igs-rp-fill-active);box-shadow:inset 0 0 0 1.5px var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-text);}
 #igs-record-panel .igs-record-slots button[aria-current="true"] .igs-record-slot-icon{color:var(--igs-rp-accent,var(--igs-rp-text));}
-#igs-record-panel .igs-record-slot-icon{display:grid;place-items:center;width:44%;aspect-ratio:1/1;}
+#igs-record-panel .igs-record-slot-icon{position:relative;display:grid;place-items:center;width:44%;aspect-ratio:1/1;overflow:hidden;}
 #igs-record-panel .igs-record-slot-icon svg{width:100%;height:100%;stroke-width:1.3;}
 #igs-record-panel .igs-record-slot-name{position:absolute;left:10px;right:32px;bottom:9px;font-size:12px;font-weight:500;line-height:1.3;color:inherit;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:left;}
 #igs-record-panel .igs-record-slot-unsellable{margin-left:2px;font-size:10px;font-weight:400;opacity:.62;}
@@ -135760,7 +135850,7 @@ const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-item-detail,#igs-record-panel .igs-record-item-empty{box-sizing:border-box;padding:24px 24px 22px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);}
 #igs-record-panel .igs-record-item-head{display:flex;align-items:center;gap:18px;min-width:0;}
 #igs-record-panel .igs-record-item-title{min-width:0;}
-#igs-record-panel .igs-record-item-detail-icon{display:grid;place-items:center;flex:none;width:64px;height:64px;margin:0;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-fill);color:var(--igs-rp-text);}
+#igs-record-panel .igs-record-item-detail-icon{position:relative;display:grid;place-items:center;flex:none;width:64px;height:64px;margin:0;overflow:hidden;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-fill);color:var(--igs-rp-text);}
 #igs-record-panel .igs-record-item-detail-icon svg{width:34px;height:34px;stroke-width:1.3;}
 #igs-record-panel .igs-record-item-detail-copy{min-width:0;}
 #igs-record-panel .igs-record-item-kicker{margin:0;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.16em;}
@@ -135782,7 +135872,7 @@ const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-gear-slot{color:var(--igs-rp-text-faint);font-size:12px;letter-spacing:.08em;}
 #igs-record-panel .igs-record-gear-map button{display:flex;align-items:center;gap:10px;min-width:0;padding:6px 10px;border:0;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text);text-align:left;transition:background .18s var(--igs-rp-ease);}
 #igs-record-panel .igs-record-gear-map button:hover,#igs-record-panel .igs-record-gear-map button[aria-current="true"]{background:var(--igs-rp-fill-active);}
-#igs-record-panel .igs-record-gear-icon{display:grid;place-items:center;flex:none;width:26px;height:26px;}
+#igs-record-panel .igs-record-gear-icon{position:relative;display:grid;place-items:center;flex:none;width:26px;height:26px;overflow:hidden;}
 #igs-record-panel .igs-record-gear-icon svg{width:22px;height:22px;stroke-width:1.3;}
 #igs-record-panel .igs-record-gear-icon img{width:100%;height:100%;object-fit:contain;border-radius:4px;}
 #igs-record-panel .igs-record-gear-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;}
@@ -163658,7 +163748,7 @@ const { COMBAT_AWAKEN_END, COMBAT_CUTIN_MS, buildAwakenCutin, buildOpeningCutin,
 const { battleSfxKind } = require("src/visual/igs-ui/fx-battle-sfx.js");
 const { ensureFxLayers } = require("src/visual/igs-ui/fx-layer.js");
 const { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } = require("src/visual/igs-ui/combat-hit-fx.js");
-const { battleView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, volleyTargets } = require("src/visual/igs-ui/combat-panel-model.js");
+const { battleView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } = require("src/visual/igs-ui/combat-panel-model.js");
 const { combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } = require("src/visual/igs-ui/combat-panel-render.js");
 const { actionProgress } = require("src/combat/engine.js");
 const { enemyArtCell } = require("src/visual/igs-ui/combat-enemy-art.js");
@@ -163682,6 +163772,8 @@ const TRACK_MOVE_MS = 500;
 const ART_REFRESH_DELAY_MS = 400;
 // 鞭尸期间打空最后一名敌人：演出放完、倒下显示后停顿这么久，再自动结束回合判胜。
 const COMBAT_FINISH_BEAT_MS = 700;
+// 与补位样式同长；减少动态效果或低画质时直接显示新敌人。
+const COMBAT_SWAP_MS = Object.freeze({ out: 520, in: 620, beat: 600 });
 // 结果横幅（胜利 / 败北 / 撤退）在战斗面板里只是换结算画面的过渡：最后一次命中落下（含稀有度停顿）后隔 BEAT 出现，最多停留 LIFE（不随停留倍率放大）；
 // 放到 SWAP 时换成结算画面，横幅叠在结算画面上淡出、结算标题同时落定，不等横幅完全消失再硬切。结算入场动画只在第一次画出结算后的 INTRO 内播。
 const COMBAT_RESULT_BEAT_MS = 600;
@@ -163771,6 +163863,9 @@ function createCombatPanelController(doc, options = {}) {
     const held = new Map();
     // 上次画出的各单位意图、格挡与行动条头像：鞭尸期间被击倒、还没显示倒下的单位按它补画（引擎在倒下时已清掉这些）。
     const drawnLook = new Map();
+    // 补位先保留旧敌人，命中落完后退场；新敌人入场完成才能出手。
+    const swaps = new Map();
+    const entering = new Map();
     // 每次动作递增，作为动作身份：结算收尾（settle）与自动行动演出锁只认对应的那次动作；更早动作的时间轴照常播完、照常落下。
     let hitGen = 0;
     // 正在播的时间轴条数，以及排队等着播的时间轴：连续出牌与结束回合后的阶段按动作顺序逐条播放（引擎已逐个立即结算）。
@@ -163893,6 +163988,21 @@ function createCombatPanelController(doc, options = {}) {
         }
     }
 
+    function swapView(b, state) {
+        const now = Date.now();
+        b.enemies = b.enemies.map((u) => {
+            const sw = swaps.get(u.id);
+            if (sw && state?.units?.[sw.oldId]) {
+                const old = unitView(state, sw.oldId);
+                return sw.phase === 'out' ? { ...old, swap: 'out', swapT: now - sw.at } : old;
+            }
+            return entering.has(u.id) ? { ...u, swap: 'in', swapT: now - entering.get(u.id) } : u;
+        });
+        if (!swaps.size) return;
+        b.track = b.track.filter((t) => !swaps.has(t.id));
+        b.order = b.order.filter((o) => !swaps.has(o.id));
+    }
+
     function snapshot() {
         const s = session();
         const cur = s ? s.state() : { status: 'unavailable' };
@@ -163912,6 +164022,7 @@ function createCombatPanelController(doc, options = {}) {
         if (view.battle) view.battle.hand = view.battle.hand.map((c) => { const artUrl = cardArtFor(c.id); return artUrl ? { ...c, artUrl } : c; });
         // 道具同样只在取到物品图时追加 imageUrl。
         if (view.battle) view.battle.items = view.battle.items.map((i) => { const imageUrl = itemArtFor(i.name); return imageUrl ? { ...i, imageUrl } : i; });
+        if (view.battle && (swaps.size || entering.size)) swapView(view.battle, cur.battle);
         if (view.battle && held.size) shownHeld(view.battle);
         if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events);
         if (settling) view.settling = true;
@@ -164033,6 +164144,13 @@ function createCombatPanelController(doc, options = {}) {
         if (view.battle && itemsOpen) view.itemsOpen = true;
         // 暂存中的单位已在 snapshot 里按暂存血量写进视图：新节点首帧就是显示值，不会先按结算后的血量算一次样式再补画（那样受击前血条会先跌再回弹）。
         body.innerHTML = renderCombatPanelHtml(view);
+        // 画布皮肤共用控制器补位状态，不覆盖各套自身的站位与取景。
+        for (const u of view.battle?.enemies || []) {
+            if (u.swap !== 'out' && u.swap !== 'in') continue;
+            const el = unitEl(u.id);
+            el?.setAttribute?.('data-swap', u.swap);
+            el?.style?.setProperty?.('--swap-t', `${-Math.max(0, Math.round(Number(u.swapT) || 0))}ms`);
+        }
         restoreUnitFx(lifted);
         syncControlDock();
         if (view.intro) flashScreen();
@@ -164594,6 +164712,13 @@ function createCombatPanelController(doc, options = {}) {
                     at += move;
                 }
             }
+            // 补位敌人先完成入场，再播放出手；引擎已结算，画面不能让场外单位隐身攻击。
+            if (seg.actor && swaps.has(seg.actor) && !reduced()) {
+                const id = seg.actor;
+                const enter = () => { if (my === token) forceSwap(id); };
+                if (at === 0) enter(); else later(enter, at);
+                at += COMBAT_SWAP_MS.in;
+            }
             // 有特写时先播特写，命中演出在最后一个特写开始淡出时落下；这一段的停留时长覆盖特写与命中两者。
             // 出牌飞行卡只在第一段：命中等影子卡飞到目标后落下。没有特写也不飞时 lead / span 为 0，节奏与旧版一致。
             const cuts = planCutins(seg.events, cur.battle);
@@ -164716,13 +164841,71 @@ function createCombatPanelController(doc, options = {}) {
             showHitFloats(doc, unitEl(id), [{ kind: 'ko' }], { reduced: reduced(), schedule: later });
             hxHitCues(id, [{ kind: 'ko' }], { struck: false, rarity: null, enemyActs: false });
         }
+        const waitingSwaps = [...swaps.values()].filter((sw) => sw.phase === 'hold' && downs.includes(sw.oldId));
+        if (waitingSwaps.length) {
+            for (const sw of waitingSwaps) sw.beat = true;
+            const my = token;
+            later(() => {
+                if (my !== token) return;
+                for (const sw of waitingSwaps) sw.beat = false;
+                startLeaves();
+            }, COMBAT_SWAP_MS.beat);
+        }
         return true;
     }
 
     // 演出全部放完：鞭尸期间被击倒的单位倒下；敌人已全灭时停顿片刻后自动结束回合判胜。
     function drained() {
         revealDowns();
+        startLeaves();
         maybeFinish();
+    }
+
+    function enterSwap(id) {
+        const at = Date.now();
+        entering.set(id, at);
+        render();
+        const my = token;
+        later(() => {
+            if (my !== token || entering.get(id) !== at) return;
+            entering.delete(id);
+            unitEl(id)?.removeAttribute?.('data-swap');
+        }, COMBAT_SWAP_MS.in);
+    }
+
+    // 暂存命中与倒下已落完，旧敌人退场后换上新敌人。
+    function startLeaves() {
+        for (const [id, sw] of swaps) {
+            if (sw.phase !== 'hold' || sw.beat || held.has(sw.oldId)) continue;
+            sw.phase = 'out';
+            sw.at = Date.now();
+            render();
+            const my = token;
+            later(() => {
+                if (my !== token || swaps.get(id) !== sw) return;
+                swaps.delete(id);
+                enterSwap(id);
+            }, COMBAT_SWAP_MS.out);
+        }
+    }
+
+    function noteSwaps(events) {
+        for (const e of events || []) {
+            if (e.type !== 'reinforce' || !e.unitId || !e.replaced) continue;
+            const prev = swaps.get(e.replaced);
+            swaps.delete(e.replaced);
+            entering.delete(e.replaced);
+            swaps.set(e.unitId, { oldId: prev ? prev.oldId : e.replaced, phase: 'hold' });
+        }
+    }
+
+    // 出手段到达时强制完成旧敌人的替换，随后留足新敌人的入场时间。
+    function forceSwap(id) {
+        const sw = swaps.get(id);
+        if (!sw) return;
+        swaps.delete(id);
+        held.delete(sw.oldId);
+        enterSwap(id);
     }
 
     // overkill 战斗在出牌阶段敌人已全灭、没有演出在播：加演出锁，停顿后发出结束回合（引擎据此判胜）；中途关掉面板时重开后照常收尾。
@@ -164808,6 +164991,7 @@ function createCombatPanelController(doc, options = {}) {
             const u = units[id];
             if (u) paintUnitHp(unitEl(id), { hp: Math.max(0, u.hp), maxHp: u.maxHp, alive: u.alive !== false });
         }
+        if (swaps.size) startLeaves();
     }
 
     // 结算等待结束（时间轴走完，或这次动作没有演出可播）：换成结算画面；只认结束战斗那次动作的时间轴（gen），更早动作的收尾不提前换。
@@ -164895,16 +165079,14 @@ function createCombatPanelController(doc, options = {}) {
         return r;
     }
 
-    // 战报发送成功后离开战斗面板，露出阅读器里的新楼层；有升级三选一时先领完（或跳过）再离开。
-    // 只由本面板的「发送战报 / 重新发送」触发：手动重开已发送的面板不会自动关掉。
-    let leaveAfterReport = false;
-    function closeIfReportSettled() {
-        if (!leaveAfterReport || !root || pending || rewards) return;
-        let status = '';
-        try { status = session()?.state().status || ''; } catch (error) { status = ''; }
-        if (status !== 'done') return;
-        leaveAfterReport = false;
+    // 发送属于会话，不随面板关闭取消；失败可重开重发，升级奖励在重开时领取。
+    function sendAndLeave(fn) {
+        if (pending) return { ok: false, reason: 'combat-busy' };
+        let job;
+        try { job = Promise.resolve(fn()); } catch { job = Promise.resolve({ ok: false, reason: 'combat-action-threw' }); }
+        job = job.catch(() => ({ ok: false, reason: 'combat-action-threw' }));
         close();
+        return job;
     }
 
     async function runAsync(kind, fn) {
@@ -164919,13 +165101,7 @@ function createCombatPanelController(doc, options = {}) {
         pending = '';
         say(r);
         render();
-        if (r.ok && r.session?.status === 'done') {
-            if (kind === 'send') {
-                leaveAfterReport = true;
-                await loadRewards();
-                if (my === token) closeIfReportSettled();
-            } else loadRewards();
-        }
+        if (r.ok && r.session?.status === 'done') loadRewards();
         return r;
     }
 
@@ -164950,6 +165126,7 @@ function createCombatPanelController(doc, options = {}) {
         if (ended && reduced()) { clearCutins(); held.clear(); }
         let ids = [];
         if (r.ok) { hitGen += 1; ids = holdUnits(prior, r.events); settling = ended && !reduced(); }
+        if (r.ok && !reduced() && !lowQuality()) noteSwaps(r.events);
         render();
         if (r.ok) {
             // 有队友或敌人出手（结束回合）：立即加演出锁；前面的演出还没播完时，行动条先停在结束回合前的进度。
@@ -165200,10 +165377,7 @@ function createCombatPanelController(doc, options = {}) {
         if (!offered) return { ok: false, reason: 'combat-reward-choice-invalid' };
         const choice = kind === 'card' ? { kind, cardId: value } : kind === 'upgrade' ? { kind, targetId: value } : { kind: 'skip' };
         const r = await runAsync('reward', () => ledger.claimReward(rewards.characterId, rewards.level, choice));
-        if (r.ok) {
-            await loadRewards();
-            closeIfReportSettled();
-        }
+        if (r.ok) await loadRewards();
         return r;
     }
 
@@ -165268,8 +165442,8 @@ function createCombatPanelController(doc, options = {}) {
             case 'choose-confirm': return confirmChoice();
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
-            case 'finish': return runAsync('send', () => s.finish());
-            case 'retry-send': return runAsync('send', () => s.retrySend());
+            case 'finish': return sendAndLeave(() => s.finish());
+            case 'retry-send': return sendAndLeave(() => s.retrySend());
             case 'flip':
             case 'choose': {
                 const position = /^\d+$/.test(id) ? Number(id) : -1;
@@ -165617,7 +165791,7 @@ function createCombatPanelController(doc, options = {}) {
         clearCutins();
         endDrag();
         hideScaleTip();
-        held.clear(); drawnLook.clear();
+        held.clear(); drawnLook.clear(); swaps.clear(); entering.clear();
         hoverInst = '';
         itemsOpen = false;
         hitGen += 1;
@@ -165648,7 +165822,6 @@ function createCombatPanelController(doc, options = {}) {
         battleMusic(pageOverlay, false);
         pageOverlay = null;
         pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
-        leaveAfterReport = false;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();
@@ -165667,6 +165840,7 @@ __igsDefine(exports, "combatResultBeat", () => combatResultBeat);
 __igsDefine(exports, "createCombatPanelController", () => createCombatPanelController);
 __igsDefine(exports, "COMBAT_PANEL_ID", () => COMBAT_PANEL_ID);
 __igsDefine(exports, "COMBAT_FX_HOLD_SCALE", () => COMBAT_FX_HOLD_SCALE);
+__igsDefine(exports, "COMBAT_SWAP_MS", () => COMBAT_SWAP_MS);
 __igsDefine(exports, "COMBAT_CHAIN_MS", () => COMBAT_CHAIN_MS);
 __igsDefine(exports, "COMBAT_FX_SPEEDS", () => COMBAT_FX_SPEEDS);
 });
@@ -167290,7 +167464,8 @@ function manualBuildView(attr, draft, { readonly = false } = {}) {
 
 // 装备栏、背包与道具：四个部位按固定顺序列出（空部位也列出），背包为已拥有未装备的装备（带稀有度与售价，在背包页列出）。
 // 装备说明：六维加成（带稀有度的装备，D7）在前，被动说明在后；没有被动的装备只显示加成。
-const gearText = (g) => [g?.bonus ? `${ABILITY_LABELS[g.bonus.ability] || g.bonus.ability} +${g.bonus.amount}` : '', g?.passive?.description || ''].filter(Boolean).join('；');
+const gearBonusText = (g) => (g?.bonus ? `${ABILITY_LABELS[g.bonus.ability] || g.bonus.ability} +${g.bonus.amount}` : '');
+const gearText = (g) => [gearBonusText(g), g?.passive?.description || ''].filter(Boolean).join('；');
 function gearView(view) {
     const slots = view.gear?.slots || {};
     return {
@@ -167421,6 +167596,7 @@ __igsDefine(exports, "DECK_KIND_LABELS", () => DECK_KIND_LABELS);
 __igsDefine(exports, "GEAR_SLOT_LABELS", () => GEAR_SLOT_LABELS);
 __igsDefine(exports, "DECK_PAGES", () => DECK_PAGES);
 __igsDefine(exports, "DECK_PAGE_LABELS", () => DECK_PAGE_LABELS);
+__igsDefine(exports, "gearBonusText", () => gearBonusText);
 });
 __igsRegister("src/combat/session.js", function(module, exports, require) {
 // 战斗会话：一场战斗从「定位战斗标签」到「回写战报」的状态机。
@@ -168814,7 +168990,7 @@ const { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, signatureCardA
 const { hash32, hashString } = require("src/combat/random.js");
 const { ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities, isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset } = require("src/combat/abilities.js");
 const { GEAR_SLOTS, INIT_GEAR_TAG_HASH, buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry, normalizeProfile, validateStarterDeck } = require("src/combat/schema.js");
-const { combatBodyText, extractGainDirectives, extractGrowthDirectives, scanCombatTags, scanGainTags } = require("src/scene/combat-directives.js");
+const { combatBodyText, extractGainDirectives, extractGrowthDirectives, extractLossDirectives, scanCombatTags, scanGainTags, scanLossTags } = require("src/scene/combat-directives.js");
 const { combatReportResult } = require("src/scene/combat-prompt.js");
 const { reportIdFor, reportIdOf } = require("src/combat/report.js");
 const { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, sellPrice } = require("src/combat/points.js");
@@ -168856,7 +169032,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 
 // 同一楼内各类记录的重放顺序（数字小的先）。
 const TYPE_ORDER = Object.freeze({
-    exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10,
+    exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
     wound: 19, hurt: 19, heal: 19.5,
 });
@@ -169037,7 +169213,7 @@ function createFloorScanner(chat, sourceFilter) {
             const report = parsedReport ? { ...parsedReport, reportId: reportIdOf(text) } : null;
             const body = isUser ? text : combatBodyText(text, { sourceFilter });
             // 用户楼只有战报才有标签；AI 楼的标签 + 受伤等生活标签
-            const tags = isUser && !report ? [] : [...scanCombatTags(body), ...(isUser ? [] : scanGainTags(body))];
+            const tags = isUser && !report ? [] : [...scanCombatTags(body), ...(isUser ? [] : [...scanGainTags(body), ...scanLossTags(body)])];
             const lifeTags = isUser ? [] : scanStatLifeTags(text);
             scan = {
                 swipeId: swipeOf(floor),
@@ -169245,12 +169421,15 @@ const handlers = Object.freeze({
             state.gear.slots[owned.slot] = payload.gearId;
             return null;
         }
-        state.gear.owned.set(payload.gearId, {
+        const previous = state.lostGear?.get(payload.gearId);
+        if (previous) state.lostGear.delete(payload.gearId);
+        const gear = previous || {
             gearId: payload.gearId, name: payload.name, slot: payload.slot,
             ...(payload.passive ? { passive: payload.passive } : {}), description: payload.description,
             ...(payload.rarity ? { rarity: payload.rarity } : {}), ...(payload.bonus ? { bonus: payload.bonus } : {}),
-        });
-        state.gear.slots[payload.slot] = payload.gearId;
+        };
+        state.gear.owned.set(payload.gearId, gear);
+        state.gear.slots[gear.slot] = payload.gearId;
         return null;
     },
     unequip(state, payload, context) {
@@ -169262,15 +169441,43 @@ const handlers = Object.freeze({
     item(state, payload, context) {
         if (isHeroStock(state, context)) return null;
         const existing = state.items.get(payload.itemId);
+        const definition = existing?.lost ? existing : payload;
         state.items.set(payload.itemId, {
-            itemId: payload.itemId, name: payload.name, effects: payload.effects, description: payload.description,
+            itemId: payload.itemId, name: payload.name, effects: definition.effects, description: definition.description,
             count: (existing?.count || 0) + payload.count,
         });
         return null;
     },
     keepsake(state, payload, context) {
         if (!isHeroStock(state, context)) {
-            state.keepsakes.set(context.entry.id, { lootId: context.entry.id, name: payload.name, origin: payload.origin, rarity: payload.rarity || 'common' });
+            const previous = state.lostKeepsakes?.get(itemIdFor(payload.name));
+            if (previous) state.lostKeepsakes.delete(itemIdFor(payload.name));
+            state.keepsakes.set(context.entry.id, { lootId: context.entry.id, name: payload.name, origin: previous ? previous.origin : payload.origin, rarity: previous ? previous.rarity : (payload.rarity || 'common') });
+        }
+        return null;
+    },
+    lose(state, payload, context) {
+        if (isHeroStock(state, context)) return null;
+        const gearId = gearIdFor(payload.name);
+        const gear = state.gear.owned.get(gearId);
+        if (gear) {
+            state.gear.owned.delete(gearId);
+            for (const [slot, id] of Object.entries(state.gear.slots)) if (id === gearId) delete state.gear.slots[slot];
+            (state.lostGear ??= new Map()).set(gearId, gear);
+            return null;
+        }
+        const itemId = itemIdFor(payload.name);
+        const item = state.items.get(itemId);
+        if (item && item.count > 0) {
+            const count = payload.all ? 0 : Math.max(0, item.count - payload.count);
+            state.items.set(itemId, count > 0 ? { ...item, count } : { ...item, count: 0, lost: true });
+            return null;
+        }
+        const kept = [...state.keepsakes].filter(([, value]) => itemIdFor(value.name) === itemId).map(([id]) => id);
+        if (!kept.length) return 'combat-item-missing';
+        for (const id of payload.all ? kept : kept.slice(0, payload.count)) {
+            (state.lostKeepsakes ??= new Map()).set(itemId, state.keepsakes.get(id));
+            state.keepsakes.delete(id);
         }
         return null;
     },
@@ -169524,6 +169731,7 @@ function presentCharacter(state, options = {}) {
     if (stock) {
         Object.assign(view, {
             others: stock.others.map((item) => ({ ...item })),
+            ...(stock.lost?.length ? { lost: stock.lost.map((item) => ({ ...item })) } : {}),
             inventory: stock.ok ? { ok: true } : { ok: false, reason: stock.reason },
         });
     }
@@ -169965,6 +170173,18 @@ function scanGrowthTags(snapshot, chat, options = {}) {
                 continue;
             }
             queueGeneration(directive, anchor);
+        }
+        const losses = extractLossDirectives(text, { sourceFilter: options.sourceFilter });
+        diagnostics.push(...losses.diagnostics.map((item) => ({ ...item, messageId })));
+        for (const directive of losses.directives) {
+            const anchor = anchorOf(floor, messageId, directive);
+            if (alreadyWritten(['lose'], directive.character, anchor)) continue;
+            const key = characterKeyFor(index, directive.character, userName);
+            entries.push({
+                id: ledgerEntryId('lose', key, anchor), type: 'lose', character: key, anchor,
+                payload: { name: directive.name, ...(directive.all ? { all: true } : { count: directive.count }), reason: directive.reason },
+                createdAt: now,
+            });
         }
     }
     return { ok: true, entries, pendingGeneration, diagnostics, attributes };
@@ -171102,7 +171322,7 @@ const { gearIdFor, itemIdFor, normalizeLedgerEntry } = require("src/combat/schem
 // 装备定义表里允许的 kind
 const INVENTORY_DEF_KINDS = Object.freeze(['gear', 'item', 'keepsake']);
 
-const emptyView = () => ({ gear: { slots: {}, bag: [] }, items: [], collection: [], others: [] });
+const emptyView = () => ({ gear: { slots: {}, bag: [] }, items: [], collection: [], others: [], lost: [] });
 
 // 规范化探针用的占位锚点
 const PROBE_ANCHOR = Object.freeze({ messageId: 0, swipeId: 0, tagHash: 'inventory', occurrence: 0 });
@@ -171159,6 +171379,10 @@ function heroInventoryView(table) {
         const row = definitionRows.get(item.key);
         const definition = row?.definition && typeof row.definition === 'object' ? row.definition : null;
         const plain = { name: item.name, count: item.quantity, description: item.description, category: item.category };
+        if (item.lost) {
+            view.lost.push({ name: item.name, itemId: itemIdFor(item.name), kind: definition?.kind || 'other', definition });
+            continue;
+        }
         // 没有定义行：当作普通杂项
         if (!row) {
             view.others.push(plain);
@@ -171217,7 +171441,7 @@ __igsRegister("src/combat/inventory-writes.js", function(module, exports, requir
 //   after   changes 执行后才能确定的清理（数量归零时删除定义行）
 const { itemIdFor } = require("src/combat/schema.js");
 const { ABILITY_LABELS } = require("src/combat/abilities.js");
-const STOCK_TYPES = Object.freeze(['equip', 'unequip', 'item', 'consume', 'loot', 'sell', 'keepsake']);
+const STOCK_TYPES = Object.freeze(['equip', 'unequip', 'item', 'consume', 'loot', 'sell', 'keepsake', 'lose']);
 const STOCK_RARITY_LABELS = Object.freeze({ common: '普通', uncommon: '罕见', rare: '稀有', epic: '史诗', mythic: '神话' });
 const STOCK_SLOT_LABELS = Object.freeze({ weapon: '武器', armor: '防具', accessory: '饰品', treasure: '宝物' });
 const CATEGORY_LABELS = Object.freeze({ gear: '装备', item: '消耗品', keepsake: '杂物' });
@@ -171294,6 +171518,8 @@ const kindConflict = (inventory, name, expected) => {
 const plan = (rows, changes, after = []) => ({ ok: true, rows, changes, after });
 // 数量减到 0 以下时，清理对应的定义行
 const cleanupIfEmpty = (name, current, delta) => (current + delta <= 0 ? [{ name, record: null }] : []);
+// 再获得已丢失物品时保留原定义，不重置加成、被动与效果。
+const revive = (inventory, name, kind, definition) => (inventory.lost || []).find((entry) => entry.definition?.kind === kind && sameName(entry.name, name))?.definition || definition;
 
 // 为一条账本条目生成库存计划。不认识的类型返回 null。
 // panelTag：来自战斗面板的装备操作（背包里已有，直接穿上）。
@@ -171303,7 +171529,7 @@ function stockPlan(entry, inventory, { panelTag } = {}) {
         case 'item': {
             const conflict = kindConflict(inventory, payload.name, 'item');
             if (conflict) return conflict;
-            const rows = stockKindOf(inventory, payload.name) === 'item' ? [] : [{ name: payload.name, record: itemRecord({ kind: 'item', effects: payload.effects, description: payload.description || '' }) }];
+            const rows = stockKindOf(inventory, payload.name) === 'item' ? [] : [{ name: payload.name, record: itemRecord(revive(inventory, payload.name, 'item', { kind: 'item', effects: payload.effects, description: payload.description || '' })) }];
             return plan(rows, [{ name: payload.name, delta: payload.count, description: payload.description || '', category: CATEGORY_LABELS.item }]);
         }
         case 'equip': {
@@ -171317,7 +171543,7 @@ function stockPlan(entry, inventory, { panelTag } = {}) {
             const conflict = kindConflict(inventory, payload.name, 'gear');
             if (conflict) return conflict;
             const known = stockKindOf(inventory, payload.name) === 'gear';
-            const definition = gearDefinition(payload);
+            const definition = known ? gearDefinition(payload) : revive(inventory, payload.name, 'gear', gearDefinition(payload));
             const occupant = inventory.gear.slots[definition.slot];
             // 槽位空闲或本就是同名装备时才标记为已装备
             const rows = [{ name: payload.name, record: gearRecord(definition, !occupant || sameName(occupant.name, payload.name)) }];
@@ -171332,10 +171558,21 @@ function stockPlan(entry, inventory, { panelTag } = {}) {
             if (!item || item.count < payload.count) return { ok: false, reason: 'combat-item-insufficient' };
             return plan([], [{ name: item.name, delta: -payload.count }], cleanupIfEmpty(item.name, item.count, -payload.count));
         }
+        case 'lose': {
+            const kind = stockKindOf(inventory, payload.name);
+            if (!kind) return { ok: false, reason: 'combat-item-missing' };
+            const pool = kind === 'gear' ? allGear(inventory) : kind === 'item' ? inventory.items : kind === 'keepsake' ? inventory.collection : inventory.others;
+            const hits = pool.filter((item) => sameName(item.name, payload.name));
+            const have = hits.reduce((count, item) => count + (Number.isInteger(item.count) ? item.count : 1), 0);
+            const count = payload.all ? have : Math.min(payload.count, have);
+            if (!hits.length || count <= 0) return { ok: false, reason: 'combat-item-missing' };
+            const worn = kind === 'gear' && count >= have ? Object.values(inventory.gear.slots).find((gear) => sameName(gear.name, payload.name)) : null;
+            return plan(worn ? [{ name: worn.name, record: gearRecord(gearDefinition(worn), false) }] : [], [{ name: hits[0].name, delta: -count, lost: true }]);
+        }
         case 'keepsake': {
             const conflict = kindConflict(inventory, payload.name, 'keepsake');
             if (conflict) return conflict;
-            const definition = { kind: 'keepsake', origin: payload.origin || '', ...(payload.rarity ? { rarity: payload.rarity } : {}) };
+            const definition = revive(inventory, payload.name, 'keepsake', { kind: 'keepsake', origin: payload.origin || '', ...(payload.rarity ? { rarity: payload.rarity } : {}) });
             const rows = stockKindOf(inventory, payload.name) === 'keepsake' ? [] : [{ name: payload.name, record: keepsakeRecord(definition) }];
             return plan(rows, [{ name: payload.name, delta: 1, description: definition.origin, category: CATEGORY_LABELS.keepsake }]);
         }
@@ -180853,6 +181090,7 @@ const { inventoryIconHtml, resolveInventoryImage } = require("src/visual/igs-ui/
 const { openItemImageViewer, closeItemImageViewer } = require("src/visual/igs-ui/item-image-viewer.js");
 const { recoverMediaOperation } = require("src/media/tavern-media-http.js");
 const { deckReasonText } = require("src/visual/igs-ui/combat-deck-panel-render.js");
+const { gearBonusText } = require("src/visual/igs-ui/combat-deck-panel-model.js");
 const { STOCK_RARITY_LABELS, STOCK_SLOT_LABELS } = require("src/combat/inventory-writes.js");
 const { sellPrice } = require("src/combat/points.js");
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度' });
@@ -180873,7 +181111,8 @@ function indexHeroInventory(view) {
             if (!it?.name) continue;
             // 同名装备穿着一件、背包还有余量时，背包里的那件可以卖。
             if (index.has(it.name)) { if (kind === 'gear' && !extra.equipped) index.get(it.name).spare = true; continue; }
-            index.set(it.name, { kind, slot: it.slot || '', rarity: it.rarity || '', gearId: kind === 'gear' ? String(it.gearId || '') : '', itemId: kind === 'keepsake' ? String(it.itemId || '') : '', ...extra });
+            index.set(it.name, { kind, slot: it.slot || '', rarity: it.rarity || '', gearId: kind === 'gear' ? String(it.gearId || '') : '', itemId: kind === 'keepsake' ? String(it.itemId || '') : '',
+                ...(kind === 'gear' && it.bonus ? { bonus: it.bonus } : {}), ...(kind === 'gear' && it.passive ? { passive: it.passive } : {}), ...extra });
         }
     };
     put(Object.values(view.gear?.slots || {}), 'gear', { equipped: true });
@@ -181449,6 +181688,9 @@ function createRecordPanelController(doc, global, fillDraft, options = {}) {
             const quantity = String(chosen.quantity ?? '').trim();
             const useService = typeof options.useInventoryItem === 'function';
             const chosenMeta = heroInv ? heroOf(chosen) : null;
+            const bonusText = chosenMeta?.kind === 'gear' ? gearBonusText(chosenMeta) : '';
+            const passiveText = chosenMeta?.kind === 'gear' ? (chosenMeta.passive?.description || chosenMeta.passive?.name || '') : '';
+            const gearCells = [...(bonusText ? [{ label: '加成', value: bonusText }] : []), ...(passiveText ? [{ label: '被动', value: passiveText }] : [])];
             // 战斗开启时装备不给「使用」：穿着的给「卸下」，背包里的给「装上」。
             const wearButton = chosenMeta?.gearId && typeof options.setHeroGear === 'function'
                 ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="${chosenMeta.equipped ? 'unequip' : 'equip'}">${chosenMeta.equipped ? '卸下' : '装上'}</button></div>` : '';
@@ -181462,7 +181704,7 @@ function createRecordPanelController(doc, global, fillDraft, options = {}) {
                     ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button>${useService ? '' : `<small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small>`}</div>` : '');
             const useButton = !sellButton ? baseButton
                 : baseButton ? baseButton.replace(/<\/div>$/, `${sellButton}</div>`) : `<div class="igs-record-item-actions">${sellButton}</div>`;
-            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head">${detailIconHtml(chosen.title)}<div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemKicker(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${wornTag(chosen)}${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
+            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head">${detailIconHtml(chosen.title)}<div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemKicker(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${wornTag(chosen)}${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml([...extraCells, ...gearCells])}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
         }
         // 未选物品且战斗未开启时不留右栏；战斗开启时右栏常驻当前装备映射。
         const pane = detail + (heroInv ? gearMapHtml() : '');
@@ -200654,6 +200896,8 @@ __igsRegister("src/data/shujuku/inventory-tables.js", function(module, exports, 
 const { parseTables } = require("src/data/shujuku/table-parser.js");
 const { createCachedTableClient, buildIgsSheet } = require("src/data/shujuku/combat-tables.js");
 const { normalizeItemName } = require("src/data/shujuku/item-catalog.js");
+const { INVENTORY_LOST_MARK } = require("src/data/shujuku/record-model.js");
+__igsDefine(exports, "INVENTORY_LOST_MARK", () => INVENTORY_LOST_MARK);
 // 数据库插件必须提供的函数，缺任何一个都不能启用背包写入。
 const INVENTORY_REQUIRED_API = Object.freeze([
     'exportTableAsJson', 'insertRow', 'updateRow', 'deleteRow',
@@ -200923,10 +201167,11 @@ function buildInventorySnapshot(tables) {
         if (!(quantity > 0)) { diagnostics.push({ code: 'inventory-quantity-invalid', name, value: quantityText }); return; }
         if (seen.has(key)) { diagnostics.push({ code: 'inventory-name-duplicate', name }); return; }
         seen.add(key);
+        const category = index.category >= 0 ? trimmed(row[index.category]) : '';
         items.push({
             rowIndex: at + 1, name, key, quantity,
             description: index.description >= 0 ? trimmed(row[index.description]) : '',
-            category: index.category >= 0 ? trimmed(row[index.category]) : '',
+            category, ...(category === INVENTORY_LOST_MARK ? { lost: true } : {}),
         });
     });
     const gearTable = tables.find((candidate) => candidate.name === GEAR_TABLE.name) || null;
@@ -201027,20 +201272,32 @@ function createInventoryTables({ api, client = createCachedTableClient({ api }),
     }
 
     // 对一条物品变化：写表后立即重读核对。snapshot 是写前的快照。
-    async function applyQuantityChange(snapshot, { name, delta, description = '', category = '' }) {
+    // 剧情全部失去时保留数量列的正数约束，以类别标记不再持有；再获得时恢复类别与新数量。
+    async function applyQuantityChange(snapshot, { name, delta, description = '', category = '', lost = false }) {
         const key = normalizeItemName(name);
         const amount = Number(delta);
         if (!key || !Number.isInteger(amount) || amount === 0) return { ok: false, reason: 'inventory-change-invalid', name };
         const { inventory } = snapshot;
         const { columns } = inventory;
         const existing = inventory.items.find((item) => item.key === key);
-        const before = existing ? existing.quantity : 0;
+        const held = existing && !existing.lost ? existing : null;
+        const before = held ? held.quantity : 0;
         const after = before + amount;
-        if (after < 0 || (amount < 0 && !existing)) {
-            return { ok: false, reason: existing ? 'inventory-quantity-insufficient' : 'inventory-item-missing', name, have: before };
+        if (after < 0 || (amount < 0 && !held)) {
+            return { ok: false, reason: held ? 'inventory-quantity-insufficient' : 'inventory-item-missing', name, have: before };
+        }
+        const markLost = after === 0 && lost === true;
+        if ((markLost || existing?.lost) && inventory.index.category < 0) {
+            return { ok: false, reason: 'inventory-lost-column-missing', name };
         }
         let result;
-        if (existing) {
+        if (existing?.lost) {
+            result = await client.updateRow(inventory.name, existing.rowIndex, {
+                [columns[inventory.index.quantity]]: String(after), [columns[inventory.index.category]]: String(category || ''),
+            }, { skipNotify: true });
+        } else if (markLost) {
+            result = await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.category]]: INVENTORY_LOST_MARK }, { skipNotify: true });
+        } else if (existing) {
             result = after === 0
                 ? await client.deleteRow(inventory.name, existing.rowIndex, { skipNotify: true })
                 : await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.quantity]]: String(after) }, { skipNotify: true });
@@ -201054,9 +201311,9 @@ function createInventoryTables({ api, client = createCachedTableClient({ api }),
         // 写操作已使缓存作废，这里读到的是最新数据
         const verified = readInventoryTables(client);
         const found = verified.ok ? verified.inventory.items.find((item) => item.key === key) : null;
-        const confirmed = verified.ok && (after === 0 ? !found : found?.quantity === after);
+        const confirmed = verified.ok && (markLost ? found?.lost === true : after === 0 ? !found : found?.quantity === after && !found.lost);
         return confirmed
-            ? { ok: true, name: existing?.name || String(name).trim(), before, after, snapshot: verified }
+            ? { ok: true, name: existing?.name || String(name).trim(), before, after, ...(markLost ? { lost: true } : {}), snapshot: verified }
             : { ok: false, reason: 'inventory-write-unverified', name };
     }
 

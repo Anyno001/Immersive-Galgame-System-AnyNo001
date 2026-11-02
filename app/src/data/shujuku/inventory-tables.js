@@ -8,6 +8,9 @@
 import { parseTables } from './table-parser.js';
 import { createCachedTableClient, buildIgsSheet } from './combat-tables.js';
 import { normalizeItemName } from './item-catalog.js';
+import { INVENTORY_LOST_MARK } from './record-model.js';
+
+export { INVENTORY_LOST_MARK };
 
 // 数据库插件必须提供的函数，缺任何一个都不能启用背包写入。
 export const INVENTORY_REQUIRED_API = Object.freeze([
@@ -281,10 +284,11 @@ function buildInventorySnapshot(tables) {
         if (!(quantity > 0)) { diagnostics.push({ code: 'inventory-quantity-invalid', name, value: quantityText }); return; }
         if (seen.has(key)) { diagnostics.push({ code: 'inventory-name-duplicate', name }); return; }
         seen.add(key);
+        const category = index.category >= 0 ? trimmed(row[index.category]) : '';
         items.push({
             rowIndex: at + 1, name, key, quantity,
             description: index.description >= 0 ? trimmed(row[index.description]) : '',
-            category: index.category >= 0 ? trimmed(row[index.category]) : '',
+            category, ...(category === INVENTORY_LOST_MARK ? { lost: true } : {}),
         });
     });
     const gearTable = tables.find((candidate) => candidate.name === GEAR_TABLE.name) || null;
@@ -385,20 +389,32 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
     }
 
     // 对一条物品变化：写表后立即重读核对。snapshot 是写前的快照。
-    async function applyQuantityChange(snapshot, { name, delta, description = '', category = '' }) {
+    // 剧情全部失去时保留数量列的正数约束，以类别标记不再持有；再获得时恢复类别与新数量。
+    async function applyQuantityChange(snapshot, { name, delta, description = '', category = '', lost = false }) {
         const key = normalizeItemName(name);
         const amount = Number(delta);
         if (!key || !Number.isInteger(amount) || amount === 0) return { ok: false, reason: 'inventory-change-invalid', name };
         const { inventory } = snapshot;
         const { columns } = inventory;
         const existing = inventory.items.find((item) => item.key === key);
-        const before = existing ? existing.quantity : 0;
+        const held = existing && !existing.lost ? existing : null;
+        const before = held ? held.quantity : 0;
         const after = before + amount;
-        if (after < 0 || (amount < 0 && !existing)) {
-            return { ok: false, reason: existing ? 'inventory-quantity-insufficient' : 'inventory-item-missing', name, have: before };
+        if (after < 0 || (amount < 0 && !held)) {
+            return { ok: false, reason: held ? 'inventory-quantity-insufficient' : 'inventory-item-missing', name, have: before };
+        }
+        const markLost = after === 0 && lost === true;
+        if ((markLost || existing?.lost) && inventory.index.category < 0) {
+            return { ok: false, reason: 'inventory-lost-column-missing', name };
         }
         let result;
-        if (existing) {
+        if (existing?.lost) {
+            result = await client.updateRow(inventory.name, existing.rowIndex, {
+                [columns[inventory.index.quantity]]: String(after), [columns[inventory.index.category]]: String(category || ''),
+            }, { skipNotify: true });
+        } else if (markLost) {
+            result = await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.category]]: INVENTORY_LOST_MARK }, { skipNotify: true });
+        } else if (existing) {
             result = after === 0
                 ? await client.deleteRow(inventory.name, existing.rowIndex, { skipNotify: true })
                 : await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.quantity]]: String(after) }, { skipNotify: true });
@@ -412,9 +428,9 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
         // 写操作已使缓存作废，这里读到的是最新数据
         const verified = readInventoryTables(client);
         const found = verified.ok ? verified.inventory.items.find((item) => item.key === key) : null;
-        const confirmed = verified.ok && (after === 0 ? !found : found?.quantity === after);
+        const confirmed = verified.ok && (markLost ? found?.lost === true : after === 0 ? !found : found?.quantity === after && !found.lost);
         return confirmed
-            ? { ok: true, name: existing?.name || String(name).trim(), before, after, snapshot: verified }
+            ? { ok: true, name: existing?.name || String(name).trim(), before, after, ...(markLost ? { lost: true } : {}), snapshot: verified }
             : { ok: false, reason: 'inventory-write-unverified', name };
     }
 
