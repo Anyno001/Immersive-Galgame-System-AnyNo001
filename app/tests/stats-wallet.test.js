@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { createStatsRuntime } from '../src/core/stats-runtime.js';
 import { createCombatLedger } from '../src/combat/ledger.js';
 import { applyBarDirective, walletBalance } from '../src/scene/stats/stat-bars.js';
-import { protagonistStatMetrics, overlayStatsMetrics } from '../src/scene/stats/stat-metrics.js';
+import { composeStatsHud, protagonistStatMetrics, overlayStatsMetrics } from '../src/scene/stats/stat-metrics.js';
 import { buildStatsPrompt } from '../src/scene/stats/stat-prompt.js';
 import { createStatsState } from '../src/scene/stats/stat-state.js';
 import { settleFloorText } from '../src/scene/stats/stat-settle.js';
-import { applyFxToDom, cancelFxEffects, playStatsFeedback } from '../src/visual/igs-ui/fx-runtime.js';
+import { applyFxToDom, cancelFxEffects, playStatsFeedback, playStatsFeedbackWithHud } from '../src/visual/igs-ui/fx-runtime.js';
+import { createStatsLedger, currentStatsState, deleteFloorsFrom } from '../src/scene/stats/stat-ledger.js';
+import { settleFloor } from '../src/scene/stats/stat-ledger-settle.js';
 import { FakeEl, makeStage, makeTimers } from './helpers/fake-dom.js';
 
 if (!Object.getOwnPropertyDescriptor(FakeEl.prototype, 'classList')) {
@@ -210,4 +212,59 @@ test('运行时：bars 开关关掉的条不出现；总开关关闭或本聊天
     const idle = createStatsRuntime({ getContext: () => ({ chat: [], chatMetadata: {}, getCurrentChatId: () => 'c' }), readSettings: () => ({ enabled: false }) });
     assert.equal(idle.protagonistLookup(), null);
     assert.equal(idle.walletMoney(), 0);
+});
+
+// ---------- 状态栏开关：关着什么都不显示，开着主角区常驻 ----------
+test('状态栏开关：关着时主角区与数值反馈都不出现，开着时不论说话人主角区常驻、反馈照常', () => {
+    const rt = runtimeSetup({ combat: true, points: 120 });
+    const block = rt.protagonistBlock();
+    assert.equal(block.name, '阿明');
+    assert.deepEqual(block.metrics.map((m) => m.label), ['生命', '体力', '压力', '金钱']);
+    const lookup = rt.protagonistLookup();
+    const model = (enabled, character) => ({ enabled, character, metrics: [], hiddenCount: 0, relation: '' });
+    const compose = (enabled, speaker) => composeStatsHud(model(enabled, speaker), { lookup, heroLookup: lookup, heroBlock: block, speaker });
+    for (const speaker of ['', '小雪']) {
+        const off = model(false, speaker);
+        assert.equal(composeStatsHud(off, { lookup, heroLookup: lookup, heroBlock: block, speaker }), off);
+        assert.deepEqual(compose(true, speaker).hero.metrics, block.metrics);
+    }
+    assert.equal(compose(true, '阿明').hero, undefined);
+    assert.deepEqual(compose(true, '阿明').metrics, block.metrics);
+    const root = makeStage({ hud: true });
+    const timers = makeTimers();
+    const opts = (statusHud) => ({ readerSettings: { ...READER, statusHud }, speaker: '小雪', schedule: timers.schedule, clear: timers.clear });
+    assert.equal(playStatsFeedbackWithHud(root, fx, opts({ enabled: false })).played, 0);
+    assert.equal(playStatsFeedbackWithHud(root, fx, { ...opts(undefined) }).played, 0);
+    assert.equal(root.querySelector('.igs-fx-favor-stack'), null);
+    assert.equal(playStatsFeedbackWithHud(root, fx, opts({ enabled: true })).played, 3);
+    cancelFxEffects(root);
+});
+
+// ---------- 楼层回退：数值侧金钱与战斗侧积分各自回退 ----------
+test('金钱合并后楼层回退：bars.money 随数值账本回退，战斗积分流水随锚点楼回退，互不牵连', async () => {
+    const chat = [{ mes: '出发', is_user: true }, { mes: '她付了款。[igs-stat:money|收入|昂贵]', swipe_id: 0 }, { mes: '继续', is_user: true }, { mes: '又一笔。[igs-stat:money|收入|昂贵]', swipe_id: 0 }];
+    const stats = createStatsLedger('chat-r', createStatsState({ money: 0 }));
+    for (const messageId of [1, 3]) {
+        settleFloor(stats, { messageId, swipeId: 0 }, (before, random) => settleFloorText(before, chat[messageId].mes, { random }), messageId);
+    }
+    const money = () => currentStatsState(stats).protagonist.bars.money;
+    assert.equal(money(), 1000);
+    const tables = memoryTables([row(classDef('cls-blade'), 1), row(classDef('cls-mage'), 2), row(heroDef(), 3)]);
+    const combat = createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7, wallet: money });
+    const done = await combat.respecClass('pc-hero', 'cls-mage');
+    assert.equal(done.ok, true, JSON.stringify(done));
+    assert.equal(heroOf(await combat.effectiveState({ raw: true })).points, -150);
+    assert.equal(heroOf(await combat.effectiveState()).points, 850);
+    assert.equal(money(), 1000);
+
+    chat.splice(2, 2);
+    deleteFloorsFrom(stats, 2);
+    assert.equal(money(), 500);
+    assert.equal(heroOf(await combat.effectiveState({ raw: true })).points, 0);
+    assert.equal(heroOf(await combat.effectiveState()).points, 500);
+
+    chat.splice(0, 2);
+    deleteFloorsFrom(stats, 0);
+    assert.equal(money(), 0);
+    assert.equal(heroOf(await combat.effectiveState({ raw: true })).points, 0);
 });

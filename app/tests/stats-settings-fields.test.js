@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { STATS_BUILD_MODE_ITEMS, renderStatsBuildFields, renderStatsBuildModeField, renderStatsPromptFields, renderStatsRulesetField, staleStatsPromptNames, statsBuildStatus } from '../src/visual/igs-ui/stats-settings-fields.js';
 import { normalizeStatsSettings } from '../src/scene/stats/stat-settings.js';
 
-test('规则体系下拉：选项来自规则集登记表，当前值被选中', () => {
+test('骰子手感：页面只写百分骰与二十面骰，底层仍是规则体系 id，当前值被选中', () => {
     const html = renderStatsRulesetField('coc7');
-    assert.match(html, /data-path="bridge\.stats\.ruleset"/);
-    assert.match(html, /<option value="coc7" selected>/);
-    assert.match(html, /<option value="dnd5e">/);
+    assert.doesNotMatch(html, /CoC|D&D/);
+    assert.match(html, /data-segment-path="bridge.stats.ruleset" data-segment-value="coc7"/);
+    assert.match(html, /is-active" data-segment-path="bridge.stats.ruleset" data-segment-value="coc7"/);
+    assert.ok(html.indexOf('百分骰') < html.indexOf('二十面骰'));
+    assert.match(html, /data-segment-value="dnd5e"/);
 });
 
 test('建档方式三选一，只切界面状态；自动/相对数值选六维倾向，手动建档填职业与六维加点', () => {

@@ -4,7 +4,7 @@ import { prefersReducedMotion } from './reduced-motion.js';
 import { filterFxByKinds } from '../../scene/fx-directives.js';
 import { cancelDlcFx, hasDlcFx, syncDlcFx } from './dlc-fx-runtime.js';
 import { resolveCharacterKey } from '../../scene/scene-directives.js';
-import { resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
+import { normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import {
     FX_FEATURE_KEYS,
     FX_HOLD_SCALE,
@@ -173,7 +173,7 @@ export function playStatsFeedback(root, fx, options = {}) {
         const up = t.delta > 0;
         lines.push({ up, text: t.text === '♥' || t.text === '♡' ? `${t.target} ${t.text}` : `${t.target} 好感 ${up ? '↑ +' : '↓ '}${t.delta}` });
     }
-    for (const g of fx.growth || []) lines.push({ up: true, text: `${g.skill}成长 +${g.gain}` });
+    for (const g of fx.growth || []) lines.push({ up: true, text: `${g.target ? `${g.target}的` : ''}${g.skill}成长 +${g.gain}` });
     for (const sh of fx.stages || []) {
         if (speaker && text(sh.target) === speaker) lines.push({ up: true, text: `${sh.target}：${sh.from} → ${sh.to}` });
     }
@@ -186,6 +186,13 @@ export function playStatsFeedback(root, fx, options = {}) {
         spawn(state, stack, el, life);
     }
     return { played: lines.length };
+}
+
+// 阅读器入口：状态栏关着时数值反馈一律丢弃，什么都不显示；开着时照常播放。
+export function playStatsFeedbackWithHud(root, fx, options = {}) {
+    const settings = options.readerSettings;
+    if (!settings || !normalizeStatusHudSettings(settings.statusHud).enabled) return { played: 0 };
+    return playStatsFeedback(root, fx, options);
 }
 
 export function resetFavorBaseline() {

@@ -106,6 +106,17 @@ export function preferStatsLookup(statsLookup, tableLookup) {
     };
 }
 
+// 状态栏常驻主角区：状态栏关着（model.enabled 为假）时什么都不加；说话人是主角时已由叠加换成主角条，不再重复；其余情况（旁白、其他角色）在最前加一块。
+export function composeStatsHud(model, { lookup, heroLookup, heroBlock, speaker } = {}) {
+    if (!model || model.enabled !== true) return model;
+    const shown = overlayStatsMetrics(model, lookup, speaker);
+    if (!heroBlock || !Array.isArray(heroBlock.metrics) || !heroBlock.metrics.length) return shown;
+    let own = null;
+    try { own = speaker && typeof heroLookup === 'function' ? heroLookup(speaker) : null; } catch (error) { own = null; }
+    if (own) return shown;
+    return { ...shown, hero: { name: heroBlock.name, metrics: heroBlock.metrics } };
+}
+
 // 状态栏模型叠加（易错点 H3）：已登记角色的 HUD 条换成 IGS 数值，关系文字仍沿用表格；未登记或 lookup 出错时原样返回。
 export function overlayStatsMetrics(model, lookup, character) {
     if (!model || typeof lookup !== 'function' || !character) return model;

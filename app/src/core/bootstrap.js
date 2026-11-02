@@ -48,6 +48,8 @@ import { createExtensionPanel } from '../host/extension-panel.js';
 import { createReaderImageService } from '../generated-images/reader-image-service.js';
 import { createPromptInjector } from '../host/prompt-injector.js';
 import { createStatsRuntime } from './stats-runtime.js';
+import { normalizeStatusHudSettings } from '../data/shujuku/status-hud-model.js';
+import { createWorldRoles } from '../scene/stats/stat-world-roles.js';
 import { createOriginRuntime, originLegacyActive } from './origin-runtime.js';
 import { createModelProfilesStore } from '../storage/model-profiles-file.js';
 import { describeLlmReady } from '../generated-images/illustration/caption-writer.js';
@@ -447,6 +449,7 @@ export function bootstrapIGS(options = {}) {
         // statsRuntime 在阅读器之后创建，这里按需读取。
         statsLookup: () => (app.statsRuntime && typeof app.statsRuntime.metricsLookup === 'function' ? app.statsRuntime.metricsLookup() : null),
         statsProtagonistLookup: () => (app.statsRuntime && typeof app.statsRuntime.protagonistLookup === 'function' ? app.statsRuntime.protagonistLookup() : null),
+        statsProtagonistBlock: () => (app.statsRuntime && typeof app.statsRuntime.protagonistBlock === 'function' ? app.statsRuntime.protagonistBlock() : null),
         statsChat: () => (app.statsRuntime ? app.statsRuntime.chatStatus() : null),
         statsArchive: () => (app.statsRuntime ? app.statsRuntime.archive() : null),
         // 推送映射页：读当前表格，按草稿里的覆盖值标出每列状态；没装数据库插件时返回 null。
@@ -821,8 +824,17 @@ export function bootstrapIGS(options = {}) {
         return out;
     };
     const statsSheetStore = createSheetStore(() => storageLike);
+    // 世界书里有条目的角色按重要角色登记（多人世界书卡里卡名不是角色名）；读不到世界书时返回 null，不记入已查。
+    const statsWorldRoles = createWorldRoles({
+        lookup: async (name) => {
+            const wi = await statsWorldInfo({ description: name });
+            if (!wi || !wi.ok) return null;
+            return typeof wi.text === 'string' && wi.text.includes(name);
+        },
+    });
     const statsRuntime = createStatsRuntime({
         getContext: resolveTavernContext,
+        worldRoles: statsWorldRoles,
         readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats,
         getPushClient: () => (globalObject.AutoCardUpdaterAPI ? createShujukuClient(globalObject.AutoCardUpdaterAPI) : null),
         // 插件自己的后台请求也会触发全局生成事件，数值系统一律跳过（v2 N2）。
@@ -872,7 +884,9 @@ export function bootstrapIGS(options = {}) {
             // 成长与战斗结果走阅读器生成细线（不弹窗、不挡画面，§10）；阅读器未打开时 info 级不退回 toastr。
             const notice = app.igsUi && app.igsUi.showImageNotice;
             if (typeof notice === 'function') {
-                for (const line of statsNoticeLines(fx)) {
+                // 成长行带技能数值：状态栏关着时不显示。
+                const hudOn = normalizeStatusHudSettings(((getUnifiedSettingsSnapshot() || {}).readerSettings || {}).statusHud).enabled;
+                for (const line of statsNoticeLines(hudOn ? fx : { ...fx, growth: [] })) {
                     try { notice.call(app.igsUi, 'info', line); } catch (error) { /* 细线出错不影响结算 */ }
                 }
             }

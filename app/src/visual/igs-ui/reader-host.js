@@ -28,7 +28,7 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
-import { overlayStatsMetrics } from '../../scene/stats/stat-metrics.js';
+import { composeStatsHud } from '../../scene/stats/stat-metrics.js';
 import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
@@ -39,7 +39,7 @@ import { createTurnIndexPanel, positionLabel } from './turn-index-panel.js';
 import { createGenerationStrip } from './generation-strip.js';
 import { createMissedHint, detectMissedAssets } from './missed-assets.js';
 import { createStatsChip } from './stats-chip.js';
-import { cancelFxEffects, playStatsFeedback } from './fx-runtime.js';
+import { cancelFxEffects, playStatsFeedbackWithHud } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
 import { cancelSceneGrade } from './scene-grade.js';
@@ -684,9 +684,9 @@ export function createIgsReaderHost(options = {}) {
             const snapshot = current && current.snapshot;
             const overlay = current && current.dom && current.dom.overlay;
             const readerSettings = snapshot && snapshot.readerSettings;
-            if (!overlay || !readerSettings || !normalizeStatusHudSettings(readerSettings.statusHud).enabled) return false;
+            if (!overlay || !readerSettings) return false;
             const hud = snapshot.content && snapshot.content.statusHud;
-            return playStatsFeedback(overlay, fx, { readerSettings, speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
+            return playStatsFeedbackWithHud(overlay, fx, { readerSettings, speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
         },
         getReaderSnapshotContract() {
             return {
@@ -2462,7 +2462,7 @@ export function createIgsReaderHost(options = {}) {
             const host = overlay?.querySelector?.('#igs-status-hud');
             const arrow = host?.querySelector?.('.igs-hud-entry-arrow');
             const menu = host?.querySelector?.('#igs-hud-record-menu');
-            if (!hud?.enabled || (!hud.character && !hud.location) || settings?.statusHud?.collapsed || !current.toolbarCollapsed
+            if (!hud?.enabled || (!hud.character && !hud.location && !hud.hero) || settings?.statusHud?.collapsed || !current.toolbarCollapsed
                 || overlay?.classList?.contains('igs-options-visible') || !host || !menu || host.classList?.contains('igs-hud-collapsed'))
                 return { ok: false, reason: 'record-entry-not-visible' };
             if (normalizedAction === 'toggle-record-menu') {
@@ -4357,10 +4357,11 @@ ${row.key}`;
             const hud = buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor, parsedTables: statusHud.tables.length ? tableData.parsed() : [], rowFor: tableData.rowFor });
             // 数值系统接管时，已登记角色的 HUD 条以 IGS 为准（易错点 H3）。
             const tavernLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
-            // 说话人是主角时改读主角条（生命、体力、压力、金钱）；其余角色读好感等人际数值。
+            // 状态栏开着时主角区常驻（生命、体力、压力、金钱）；说话人是主角时只显示一块，其余角色读好感等人际数值。
             const protagonistLookup = tavernLookup && typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null;
             const statsLookup = protagonistLookup ? (name) => protagonistLookup(name) || tavernLookup(name) : tavernLookup;
-            return withConcreteAvatar(overlayStatsMetrics(hud, statsLookup, speaker));
+            const heroBlock = tavernLookup && typeof options.statsProtagonistBlock === 'function' ? options.statsProtagonistBlock() : null;
+            return withConcreteAvatar(composeStatsHud(hud, { lookup: statsLookup, heroLookup: protagonistLookup, heroBlock, speaker }));
         };
         const readStatusHudTables = () => tableData.read();
         const render = payload.render || {};

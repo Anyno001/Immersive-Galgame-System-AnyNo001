@@ -4,7 +4,7 @@ import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '
 import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_SPECIAL_COUNT, buildSummary, manualBuildSummary, normalizeBuild, specialCandidates } from '../../scene/stats/stat-build.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abilities.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
-import { checkbox, field, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
+import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
 
 // 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
@@ -88,9 +88,13 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
 // 存档区（§10）：当前数值一目了然；技能与变动记录折叠，低频信息不平铺。model 为 statsArchiveModel 的结果。
 const MAPPING_TARGETS = Object.freeze({ stamina: '体力', money: '金钱', stress: '压力', base: '基础属性', special: '特有属性' });
 
-// 规则体系下拉（CoC第七版 / D&D第五版）：选项来自规则集登记表，value 为当前 ruleset id。
+// 骰子手感：面向只懂 RPG 的玩家，底层仍是 bridge.stats.ruleset（coc7 百分骰 / dnd5e 二十面骰），选项来自规则集登记表。
+const DICE_FEEL = Object.freeze({ coc7: '百分骰（结果更看运气）', dnd5e: '二十面骰（属性越高越稳）' });
+
 export function renderStatsRulesetField(ruleset) {
-    return field('bridge.stats.ruleset', '规则体系', selectInput('bridge.stats.ruleset', ruleset, rulesetOptions()));
+    const rank = (id) => { const i = Object.keys(DICE_FEEL).indexOf(id); return i < 0 ? 99 : i; };
+    const items = rulesetOptions().sort(([x], [y]) => rank(x) - rank(y)).map(([id, label]) => [id, DICE_FEEL[id] || label]);
+    return field('bridge.stats.ruleset', '骰子手感', segmentedInput('bridge.stats.ruleset', ruleset, items, '骰子手感'));
 }
 
 // 建卡区提示文案与可用状态：渲染和输入时就地刷新共用同一份计算。mode 为 'manual' 时按手动六维算。
@@ -188,20 +192,29 @@ export function renderStatsMappingFields(described, advancedOpen = () => '', { p
     return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-mappings"${advancedOpen('stats-mappings')}><summary>高级：推送到哪张表哪一列</summary>${body}</details>`;
 }
 
-export function renderStatsArchive(model, advancedOpen = () => '') {
+// 「我的角色」已开始时的角色卡一览：天数与生命、体力、压力、金钱，六维，主角技能（折叠）。
+export function renderStatsHeroCard(model, advancedOpen = () => '') {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
     const n = (v) => esc(String(Math.round(Number(v) || 0)));
     const bars = model.bars || {};
     // 生命来自战斗 vitals（当前/最大）；没有数据时不显示这一项，避免出现「未知」或 0。
     const life = model.vitals ? `生命 ${n(model.vitals.down ? 0 : model.vitals.hp)}/${n(model.vitals.maxHp)} · ` : '';
     const head = `<div class="igs-source-filter-note">${model.day != null ? `第 ${n(model.day)} 天 · ` : ''}${life}体力 ${n(bars.stamina)} · 压力 ${n(bars.stress)} · 金钱 ${n(model.wallet ?? bars.money)}</div>`;
+    const attrs = (model.attributes || []).length ? `<div class="igs-source-filter-note">${model.attributes.map((a) => `${esc(a.name)} ${esc(a.display)}`).join(' · ')}</div>` : '';
+    const skills = model.skills.map((s) => `${esc(s.name)} ${esc(s.display ?? String(Math.round(s.value)))}${s.marked ? '✓' : ''}`).join(' · ');
+    return head + attrs
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary><div class="igs-source-filter-note">${skills || '无'}</div></details>`;
+}
+
+export function renderStatsArchive(model, advancedOpen = () => '') {
+    if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
+    const n = (v) => esc(String(Math.round(Number(v) || 0)));
     const people = model.characters.length
         ? model.characters.map((c) => {
             const dims = Object.entries(c.dims).map(([k, v]) => `${esc(k)} ${n(v)}`).join(' · ');
             return `<div class="igs-source-filter-note"><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</div>`;
         }).join('')
         : '<div class="igs-source-filter-note">还没有登记的角色。</div>';
-    const skills = model.skills.map((s) => `${esc(s.name)} ${esc(s.display ?? String(Math.round(s.value)))}${s.marked ? '✓' : ''}`).join(' · ');
     const log = model.log.length
         ? model.log.map((r) => `<div class="igs-source-filter-note">#${n(r.messageId)} ${esc(r.target)} ${esc(r.key)} ${n(r.from)}→${n(r.to)}${r.note ? `（${esc(r.note)}）` : ''}</div>`).join('')
         : '<div class="igs-source-filter-note">暂无变动。</div>';
@@ -229,11 +242,59 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
         : '<div class="igs-source-filter-note">还没有生成角色卡。</div>';
     const pending = (model.pendingPeople || []).length ? `<div class="igs-source-filter-note">待生成：${model.pendingPeople.map(esc).join('、')}</div>` : '';
     const backup = model.hasBackup ? '<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-op:backup" type="button">删除旧版备份</button></div>' : '';
-    return head + people
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>主角技能（✓ 表示今天有成长机会）</summary><div class="igs-source-filter-note">${skills || '无'}</div></details>`
+    return people
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-sheets"${advancedOpen('stats-sheets')}><summary>角色卡（${n((model.sheets || []).length)} 张）</summary>${pending}${sheets}</details>`
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-story-skills"${advancedOpen('stats-story-skills')}><summary>剧情技能（${n((model.story || []).length)} 项）</summary>${story}</details>`
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-checks"${advancedOpen('stats-checks')}><summary>检定记录（最近 ${n((model.checks || []).length)} 次）</summary>${checks}</details>`
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-log"${advancedOpen('stats-log')}><summary>变动记录（最近 ${n(model.log.length)} / 共 ${n(model.total)} 条）</summary>${log}</details>`
         + backup;
+}
+
+// 数值页的模板变量（settings-tabs.js 的 STATS_TEMPLATE）。版面自上而下：我的角色、玩法、其他角色、高级。
+// chat：statsChat() 的结果（可为 null）；archive：statsArchiveModel 的结果；mappings：推送映射的描述（可为 null）。
+export function buildStatsPageValues({ stats, chat = null, combatOn = false, archive = null, mappings = null, advancedOpen = () => '', worldview = 'modern' } = {}) {
+    const statsOn = Boolean(stats.enabled || combatOn);
+    const chatReady = Boolean(statsOn && chat && chat.hasChat && !chat.blocked);
+    const started = Boolean(chatReady && chat.enabled);
+    const mode = (chatReady && (chat.buildMode || chat.pendingMode)) || null;
+    const manual = chatReady && !started && mode === 'manual';
+    const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里开始。'
+        : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
+            : chat.enabled ? '本聊天已开始。暂停后数值冻结、不结算，存档保留。' : '本聊天尚未开始，可直接快速开始，或自己建卡。';
+    const buildOpen = (key) => (key === 'stats-build' && manual ? ' open' : advancedOpen(key));
+    const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode });
+    return {
+        statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
+        statsCombatNoteHidden: hiddenAttr(!combatOn),
+        statsHidden: hiddenAttr(!statsOn),
+        statsChatNote: esc(chatNote),
+        statsStartHidden: hiddenAttr(!chatReady || started),
+        statsMainBuildHidden: hiddenAttr(!manual),
+        statsMainBuildFields: manual ? build(buildOpen) : '',
+        statsHeroHidden: hiddenAttr(!started),
+        statsHeroCard: renderStatsHeroCard(archive, advancedOpen),
+        diceFeelField: renderStatsRulesetField(stats.ruleset),
+        storyCheckField: field('bridge.stats.storyCheck', '剧情中的检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动'], ['manual', '关键时刻手动掷骰'], ['off', '关闭']])),
+        optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项旁显示成功率'),
+        checkFxField: checkbox('bridge.stats.checkFx', stats.checkFx, '显示掷骰卡'),
+        intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '好感不够时角色会拒绝'),
+        favorModeField: field('bridge.stats.favorMode', '好感成长', segmentedInput('bridge.stats.favorMode', stats.favorMode, [['normal', '普通'], ['hard', '困难']], '好感成长'), '普通：单楼上限3、每日上限8；困难：单楼上限1、每日上限4。'),
+        barsFields: checkbox('bridge.stats.bars.stamina', stats.bars.stamina, '体力')
+            + checkbox('bridge.stats.bars.money', stats.bars.money, '金钱')
+            + checkbox('bridge.stats.bars.stress', stats.bars.stress, '压力'),
+        sheetGenField: field('bridge.stats.sheetGen', '新角色出场时', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['auto', '自动生成数值'], ['prompt', '提醒'], ['off', '不生成']])),
+        statsMoreOpen: advancedOpen('stats-more'),
+        pushField: checkbox('bridge.stats.push.enabled', stats.push.enabled, '同步到数据库表格（需要数据库插件）'),
+        statsMappingFields: renderStatsMappingFields(stats.push.enabled ? mappings : null, advancedOpen, { pushEnabled: stats.push.enabled }),
+        statsPromptFields: renderStatsPromptFields(stats, advancedOpen),
+        statsArchiveFields: renderStatsArchive(archive, advancedOpen),
+        newChatField: field('bridge.stats.newChat', '新聊天', selectInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动快速开始'], ['off', '不启用']])),
+        hudLabelField: field('bridge.stats.hudLabel', '好感条右侧显示', selectInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']])),
+        registerField: field('bridge.stats.register', '重要角色登记', selectInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']])),
+        backfillField: field('bridge.stats.backfill', '新技能补全方式', selectInput('bridge.stats.backfill', stats.backfill, [['auto', '每楼结束后自动'], ['manual', '手动'], ['off', '关闭']])),
+        autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
+        statsBuildAdvancedHidden: hiddenAttr(!chatReady || started),
+        statsBuildModeField: chatReady && !started ? renderStatsBuildModeField(mode) : '',
+        statsBuildFields: manual ? '' : build(advancedOpen),
+    };
 }

@@ -1357,6 +1357,13 @@ export function createStatsRuntime({
             const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() });
             return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
         }),
+        // 状态栏常驻主角区：与 protagonistLookup 同一份条目，名字取玩家名；没启用或没有可显示的条时为 null。
+        protagonistBlock: ev(() => {
+            if (!active()) return null;
+            const s = settings();
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() });
+            return metrics.length ? { name: userName() || PROTAGONIST, metrics } : null;
+        }),
         // 合并余额里数值侧的那一份（战斗账本的主角余额用）；没启用时为 0。
         walletMoney: () => (active() ? Number(currentStatsState(ledger).protagonist.bars.money) || 0 : 0),
         enableForChat: ev(enableForChat),

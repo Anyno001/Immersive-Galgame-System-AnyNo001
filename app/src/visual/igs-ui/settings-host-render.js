@@ -53,7 +53,7 @@ import { originChatStatus } from './origin-attach.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { COMBAT_DIFFICULTY_KEYS, COMBAT_RULES } from '../../combat/rules.js';
 import { COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, BATTLE_MODES, BATTLE_MODE_LABELS, BATTLE_MODE_PATH, battleModeOf, normalizeCombatExpansionSettings } from './combat-settings.js';
-import { renderStatsArchive, renderStatsBuildFields, renderStatsBuildModeField, renderStatsMappingFields, renderStatsPromptFields, renderStatsRulesetField } from './stats-settings-fields.js';
+import { buildStatsPageValues } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
 import { loadAssetFoldersFor } from './asset-folders.js';
@@ -229,54 +229,13 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             };
         });
 
-        // 数值系统页：总开关关闭时下方整块隐藏，只留一行说明（§10）。
+        // 数值系统页：总开关关闭时下方整块隐藏；模板变量由 buildStatsPageValues 生成（§10）。
         const statsValues = memo(() => {
             const stats = normalizeStatsSettings(bridge.stats);
             let chat = null;
             try { chat = typeof options.statsChat === 'function' && !idx ? options.statsChat() : null; } catch (error) { chat = null; }
             // 卡牌战斗开启时数值系统随之打开，页面按已启用显示。
-            const combatOn = Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true);
-            const statsOn = stats.enabled || combatOn;
-            const chatReady = Boolean(statsOn && chat && chat.hasChat && !chat.blocked);
-            const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里启用。'
-                : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
-                    : chat.enabled ? '本聊天已启用。暂停后数值冻结、不结算，存档保留。' : '本聊天尚未启用数值系统。';
-            return {
-                statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
-                statsOffNoteHidden: hiddenAttr(statsOn),
-                statsCombatNoteHidden: hiddenAttr(!combatOn),
-                statsHidden: hiddenAttr(!statsOn),
-                autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
-                rulesetField: renderStatsRulesetField(stats.ruleset),
-                rulesetNote: '切换后从下一次检定起生效；已有数值按新规则换算显示，存档不变，可随时切回。',
-                storyCheckField: field('bridge.stats.storyCheck', '故事中检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动（每楼 10 对骰）'], ['manual', '手动掷骰（多一次续写）'], ['off', '关闭']])),
-                newChatField: field('bridge.stats.newChat', '新聊天', selectInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动快速开始'], ['off', '不启用']])),
-                sheetGenField: field('bridge.stats.sheetGen', '新角色数值', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['prompt', '提醒'], ['auto', '自动生成'], ['off', '不生成']])),
-                backfillField: field('bridge.stats.backfill', '新技能补全', selectInput('bridge.stats.backfill', stats.backfill, [['auto', '每楼结束后自动'], ['manual', '手动'], ['off', '关闭']])),
-                checkFxField: checkbox('bridge.stats.checkFx', stats.checkFx, '掷骰卡'),
-                optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项显示成功率'),
-                intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '亲密门槛（好感与信任不够时角色会拒绝）'),
-                registerField: field('bridge.stats.register', '重要角色登记', selectInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']])),
-                hudLabelField: field('bridge.stats.hudLabel', '好感条右侧', selectInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']])),
-                barsFields: checkbox('bridge.stats.bars.stamina', stats.bars.stamina, '体力')
-                    + checkbox('bridge.stats.bars.money', stats.bars.money, '金钱')
-                    + checkbox('bridge.stats.bars.stress', stats.bars.stress, '压力'),
-                pushField: checkbox('bridge.stats.push.enabled', stats.push.enabled, '同步到数据库表格（需要数据库插件）'),
-                statsPromptFields: renderStatsPromptFields(stats, advancedOpen),
-                statsMappingFields: renderStatsMappingFields((() => {
-                    if (!stats.push.enabled || idx || typeof options.statsMappings !== 'function') return null;
-                    try { return options.statsMappings(stats.push.mappings); } catch (error) { return { ok: false, reason: 'stats-push-read-failed', detail: String(error && error.message || error) }; }
-                })(), advancedOpen, { pushEnabled: stats.push.enabled }),
-                statsArchiveFields: renderStatsArchive((() => {
-                    try { return typeof options.statsArchive === 'function' && !idx ? options.statsArchive() : null; } catch (error) { return null; }
-                })(), advancedOpen),
-                statsChatNote: esc(chatNote),
-                statsChatEnableHidden: hiddenAttr(!chatReady || chat.enabled),
-                statsChatDisableHidden: hiddenAttr(!chatReady || !chat.enabled),
-                statsBuildModeField: chatReady ? renderStatsBuildModeField(chat.buildMode || chat.pendingMode) : '',
-                statsBuildFields: renderStatsBuildFields(stats.build, advancedOpen, { worldview: resolveWorldview(worldviewAssets), mode: (chatReady && (chat.buildMode || chat.pendingMode)) || null }),
-                statsBuildHidden: hiddenAttr(!chatReady || chat.enabled),
-            };
+import { buildStatsPageValues } from './stats-settings-fields.js';
         });
 
         // 随身系统页：总开关关闭时下方整块隐藏，只留一行说明。本聊天状态由宿主 options.originChat() 给出（没接引擎时为 null）。

@@ -1053,8 +1053,9 @@ export function applyStatusHudToDom(root, snapshot) {
     const hasEmotion = Boolean(hud && hud.emotion);
     const hasLocation = Boolean(hud && hud.location);
     const hasMetrics = Boolean(hud && Array.isArray(hud.metrics) && hud.metrics.length);
+    const heroRows = hud && hud.hero && Array.isArray(hud.hero.metrics) ? hud.hero.metrics.slice(0, 4) : [];
     const grayscaleBars = Boolean(hud && hud.barColor === 'grayscale');
-    const shouldShow = Boolean(hud && hud.enabled && (hud.character || hasLocation));
+    const shouldShow = Boolean(hud && hud.enabled && (hud.character || hasLocation || heroRows.length));
     if (globalThis.__IGS_HUD_DEBUG__) {
         console.log('[HUD-PROBE]', JSON.stringify({ hud: hud ? { enabled: hud.enabled, character: hud.character, emotion: hud.emotion, location: hud.location, avatar: Boolean(hud.avatar), metrics: hud.metrics && hud.metrics.length } : null, hasEmotion, hasLocation, hasMetrics, shouldShow }));
     }
@@ -1068,7 +1069,7 @@ export function applyStatusHudToDom(root, snapshot) {
     if (hud.background === 'dialog' && hasMetrics) host.classList.add('igs-hud-bg-dialog');
     if (root.classList && root.classList.contains('igs-options-visible')) host.classList.add('igs-hud-suppressed');
     // 仅头像/情绪/地点、无 HUD 条时挂修饰类，anchor 恢复加菜单前的列式几何，情绪与头像间距回到旧值；有 HUD 条时保持现状。
-    host.classList.toggle('igs-hud-no-metrics', !hasMetrics);
+    host.classList.toggle('igs-hud-no-metrics', !hasMetrics && !heroRows.length);
     host.classList.toggle('igs-hud-character-emotion-only', Boolean(hud && hud.character && hasEmotion && !hasLocation && !hasMetrics));
     host.classList.toggle('igs-hud-character-emotion-with-metrics', Boolean(hud && hud.character && hasEmotion && hasMetrics));
     if (hudSettings && hudSettings.collapsed) host.classList.add('igs-hud-collapsed');
@@ -1160,36 +1161,46 @@ export function applyStatusHudToDom(root, snapshot) {
     identity.appendChild(entryAnchor);
     host.appendChild(identity);
 
-    const metrics = doc.createElement('div');
-    metrics.className = 'igs-hud-metrics';
-    const rows = hasMetrics ? hud.metrics.slice(0, 4) : [];
-    for (const metric of rows) {
-        const row = doc.createElement('div');
-        row.className = 'igs-hud-metric';
-        const label = doc.createElement('span');
-        label.className = 'igs-hud-metric-label';
-        label.textContent = metric.label;
-        const track = doc.createElement('div');
-        track.className = 'igs-hud-track';
-        const fill = doc.createElement('div');
-        fill.className = 'igs-hud-fill';
-        const color = STATUS_HUD_COLOR_VARS[metric.colorKey] || STATUS_HUD_COLOR_VARS['slot-1'];
-        fill.style.backgroundImage = grayscaleBars
-            ? 'linear-gradient(90deg, rgba(255,255,255,.46), rgba(255,255,255,.86))'
-            : `linear-gradient(90deg, color-mix(in srgb, ${color} 42%, #ffffff), ${color})`;
-        fill.style.width = `${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%`;
-        // 主题 HUD 用这个变量重绘填充；灰白模式交给主题自己的中性色。
-        fill.style.setProperty('--igs-hud-fill-color', grayscaleBars ? 'var(--igs-hud-fill-neutral,rgba(255,255,255,.8))' : color);
-        track.appendChild(fill);
-        const value = doc.createElement('span');
-        value.className = 'igs-hud-metric-value';
-        value.textContent = metric.display;
-        row.appendChild(label);
-        row.appendChild(track);
-        row.appendChild(value);
-        metrics.appendChild(row);
+    const appendMetricRows = (metrics, rows) => {
+        for (const metric of rows) {
+            const row = doc.createElement('div');
+            row.className = 'igs-hud-metric';
+            const label = doc.createElement('span');
+            label.className = 'igs-hud-metric-label';
+            label.textContent = metric.label;
+            const track = doc.createElement('div');
+            track.className = 'igs-hud-track';
+            const fill = doc.createElement('div');
+            fill.className = 'igs-hud-fill';
+            const color = STATUS_HUD_COLOR_VARS[metric.colorKey] || STATUS_HUD_COLOR_VARS['slot-1'];
+            fill.style.backgroundImage = grayscaleBars
+                ? 'linear-gradient(90deg, rgba(255,255,255,.46), rgba(255,255,255,.86))'
+                : `linear-gradient(90deg, color-mix(in srgb, ${color} 42%, #ffffff), ${color})`;
+            fill.style.width = `${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%`;
+            // 主题 HUD 用这个变量重绘填充；灰白模式交给主题自己的中性色。
+            fill.style.setProperty('--igs-hud-fill-color', grayscaleBars ? 'var(--igs-hud-fill-neutral,rgba(255,255,255,.8))' : color);
+            track.appendChild(fill);
+            const value = doc.createElement('span');
+            value.className = 'igs-hud-metric-value';
+            value.textContent = metric.display;
+            row.appendChild(label);
+            row.appendChild(track);
+            row.appendChild(value);
+            metrics.appendChild(row);
+        }
+    };
+    if (heroRows.length) {
+        const hero = doc.createElement('div');
+        hero.className = 'igs-hud-metrics igs-hud-hero';
+        appendMetricRows(hero, heroRows);
+        host.appendChild(hero);
     }
-    host.appendChild(metrics);
+    if (hasMetrics || !heroRows.length) {
+        const metrics = doc.createElement('div');
+        metrics.className = 'igs-hud-metrics';
+        appendMetricRows(metrics, hasMetrics ? hud.metrics.slice(0, 4) : []);
+        host.appendChild(metrics);
+    }
     const toggle = doc.createElement('button');
     toggle.className = 'igs-icon-btn igs-hud-toggle';
     toggle.setAttribute('data-act', 'toggle-status-hud');

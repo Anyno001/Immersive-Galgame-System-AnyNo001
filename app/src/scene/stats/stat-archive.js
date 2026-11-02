@@ -4,6 +4,7 @@ import { stageOf } from './stat-favor.js';
 import { currentStatsState, ledgerKey } from './stat-ledger.js';
 import { PROTAGONIST, profileOf } from './stat-engine.js';
 import { walletBalance } from './stat-bars.js';
+import { BASE_ATTRIBUTES } from './stat-state.js';
 
 // 主角战斗生命（{hp, maxHp, down}）；引擎没有读取器或没有数据时为 null。
 function vitalsOf(engine) {
@@ -63,6 +64,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
         // 金钱显示合并余额（数值侧金钱 + 战斗侧积分），bars.money 仍是数值侧原值。
         wallet: walletBalance(state.protagonist && state.protagonist.bars, walletExtra),
         vitals: vitalsOf(engine),
+        attributes: engine ? BASE_ATTRIBUTES.map((name) => ({ name, display: displaySkill(engine, profileOf(engine, state, PROTAGONIST, name)) })) : [],
         skills,
         characters,
         log: rows.slice(-logMax).reverse(),

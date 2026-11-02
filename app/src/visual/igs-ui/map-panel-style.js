@@ -7,6 +7,7 @@ export const MAP_PANEL_STYLE_TEXT = `
 #igs-status-hud .igs-hud-entry-anchor{position:relative;top:1.2px;z-index:1;grid-column:2;grid-row:1;align-self:center;justify-self:start;display:flex;align-items:center;gap:calc(3px * var(--igs-hud-scale,1));max-width:100%;min-width:0;pointer-events:none;}
 #igs-status-hud .igs-hud-emotion{flex:none;}
 #igs-status-hud .igs-hud-metrics{grid-column:1 / 3;grid-row:2;display:grid;grid-template-columns:max-content minmax(0,1fr) auto;align-items:center;justify-content:normal;align-self:auto;gap:calc(4px * var(--igs-hud-scale,1)) calc(5px * var(--igs-hud-scale,1));margin-top:calc(7px * var(--igs-hud-scale,1));}
+#igs-status-hud .igs-hud-hero + .igs-hud-metrics{grid-row:3;}
 #igs-status-hud .igs-hud-metric{display:contents;}
 #igs-status-hud.igs-hud-no-metrics .igs-hud-metrics{display:none;}
 #igs-status-hud .igs-hud-avatar-empty{box-sizing:border-box;padding:calc(9px * var(--igs-hud-scale,1));background:rgba(255,255,255,.16);color:rgba(255,255,255,.62);}
