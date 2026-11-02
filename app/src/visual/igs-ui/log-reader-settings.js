@@ -53,6 +53,8 @@ export function normalizeLogReaderSettings(value) {
         chip: src.chip !== false,
         // 连续播放：开着时点一下出一批（每次显示几条），逐条出字、念完接着出下一条；关了点一下只出一条。
         chain: src.chain !== false,
+        // 底边页码进度条（拖动跳页），默认关。
+        scrubber: src.scrubber === true,
         moodSize: LOG_MOOD_SIZES.includes(src.moodSize) ? src.moodSize : 'm',
         // 离屏幕边缘：贴边 / 标准 / 宽松。
         edge: LOG_EDGES.includes(src.edge) ? src.edge : 'normal',

@@ -2,6 +2,7 @@ import { createPresetGroup, createPresetRegistry } from '../presets/preset-regis
 import { createIgsCompatApi } from './igs-compat.js';
 import { DLC_API_VERSION, createStageFxApi, createUiSkinsApi, drainDlcQueue } from './dlc-api.js';
 import { createChatsApi } from './chat-api.js';
+import { createCharactersApi } from './character-api.js';
 import { createFeedsApi, createLiveApi } from './feed-api.js';
 import { attachWaitStageGames, createWaitGamesApi, detachWaitStageGames } from '../visual/igs-ui/wait-stage-games-api.js';
 
@@ -42,6 +43,8 @@ export function createPublicApi(app) {
     groupedApi.feeds = createFeedsApi();
     groupedApi.live = createLiveApi();
     groupedApi.chats = createChatsApi();
+    // 只读接口：角色外貌 DNA，读取器由 core 经 app.characterDnaReaders 注入。
+    groupedApi.characters = createCharactersApi(app.characterDnaReaders);
     groupedApi.version = DLC_API_VERSION;
     const igsCompatApi = createIgsCompatApi(app);
 

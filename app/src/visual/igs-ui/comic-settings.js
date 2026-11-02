@@ -52,6 +52,8 @@ export function normalizeComicModeSettings(value) {
         inputStyle: src.inputStyle === 'plain' ? 'plain' : 'comic',
         // 泡内字体：空串 = 跟随皮肤（黑白模式用默认黑体）；否则是字体下拉里的 font-family 串。
         font: typeof src.font === 'string' && src.font !== 'inherit' ? src.font.slice(0, 300) : '',
+        // 底边页码进度条（拖动跳页），默认关。
+        scrubber: src.scrubber === true,
         tones,
     };
 }

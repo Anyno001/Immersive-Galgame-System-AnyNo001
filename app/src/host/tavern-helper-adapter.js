@@ -722,7 +722,19 @@ function pickCurrentMessage(messages) {
     return readable[readable.length - 1] || null;
 }
 
-function isTurnCandidate(message) {
+// 只有聊天数据、没有 DOM 时的楼层标记，供 isTurnCandidate / isReadableTurn 判定，与阅读器口径一致。
+export function chatMessageFlags(message, id = null) {
+    if (!message || typeof message !== 'object') return null;
+    return {
+        isUser: isUserMessage(message, null),
+        isSystem: isSystemMessage(message, null),
+        isHidden: isHiddenMessage(message, id, null, null),
+        raw: message,
+    };
+}
+
+// 阅读器的「当前楼」：最新一条非用户、非系统、未隐藏的楼。
+export function isTurnCandidate(message) {
     return Boolean(
         message
         && !message.isSystem
@@ -734,7 +746,7 @@ function isTurnCandidate(message) {
 // 阅读器翻楼用：/hide 或数据库、总结插件隐藏的旧楼只是不发给模型，剧情照样能读；
 // 用户楼和旁白、注释这类真正的系统消息仍跳过。酒馆把隐藏也记成 is_system，所以只看旁白标记。
 const NON_STORY_SYSTEM_TYPES = new Set(['narrator', 'comment']);
-function isReadableTurn(message) {
+export function isReadableTurn(message) {
     if (!message || message.isUser) return false;
     const raw = message.raw && typeof message.raw === 'object' ? message.raw : null;
     if (!raw) return !message.isSystem || message.isHidden;

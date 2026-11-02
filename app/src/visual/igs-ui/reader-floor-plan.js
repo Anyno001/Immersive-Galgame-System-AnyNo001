@@ -350,15 +350,13 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
             if (exact) return exact;
             const probe = bodyKey.slice(0, 12);
             const pool = (speaker ? bySpeaker.get(speaker) || [] : charThoughtDirectives).filter((d) => !match.type || d.type === match.type);
-            for (const d of pool) {
-                if (match.strict) {
-                    if (textMatchesDirective(bodyKey, d)) return d;
-                    continue;
-                }
+            // 拆分后的短片段（如句末颜文字）可能同时出现在多条指令里，取本页之前最近的一条，不取全楼第一条。
+            const hits = pool.filter((d) => {
+                if (match.strict) return textMatchesDirective(bodyKey, d);
                 const src = fingerprints.get(d);
-                if (src && (src.includes(probe) || probe.includes(src.slice(0, 12)))) return d;
-            }
-            return null;
+                return !!src && (src.includes(probe) || probe.includes(src.slice(0, 12)));
+            });
+            return lastBefore(hits, offsets[normalizedIndex]) || hits[0] || null;
         };
         // 分页后的短心理话不足六字，不能靠全文子串匹配认领。仅从该
         // 指令的可见起始页连续消费 *…* 页；一旦越过原文或遇到旁白就停止。

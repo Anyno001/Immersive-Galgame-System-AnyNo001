@@ -110,6 +110,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + (s.comicMode.inkMode === 'custom' ? field(`${p}.comicMode.inkColor`, '自选描边色', colorInput(`${p}.comicMode.inkColor`, s.comicMode.inkColor)) : '')
         + field(`${p}.comicMode.gap`, '离头部', segmentedInput(`${p}.comicMode.gap`, s.comicMode.gap, [['near', '近'], ['medium', '中'], ['far', '远']], '离头部'))
         + checkbox(`${p}.comicMode.tail`, s.comicMode.tail, '对话泡尾巴')
+        + checkbox(`${p}.comicMode.scrubber`, s.comicMode.scrubber, '页码进度条（拖动跳页）')
         + field(`${p}.comicMode.inputStyle`, '输入框', segmentedInput(`${p}.comicMode.inputStyle`, s.comicMode.inputStyle, [['comic', '漫画框'], ['plain', '对话框']], '输入框'))
         + perfSubhead('泡的外形 · 触发情绪')
         + toneWords(COMIC_TONE_KINDS));
@@ -124,6 +125,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.logReader.density`, '渐变浓度', selectInput(`${p}.logReader.density`, lr.density, LOG_PERCENTS.map((n) => [n, `${n}%`])))
         + field(`${p}.logReader.userSide`, 'User位置', segmentedInput(`${p}.logReader.userSide`, lr.userSide, [['same', '与角色同侧'], ['right', '靠右']], 'User位置'))
         + checkbox(`${p}.logReader.chain`, lr.chain, '连续播放（关闭后点一下只出一条）')
+        + checkbox(`${p}.logReader.scrubber`, lr.scrubber, '页码进度条（拖动跳页）')
         + checkbox(`${p}.logReader.chip`, lr.chip, '名字后显示情绪')
         + checkbox(`${p}.logReader.userAvatar`, lr.userAvatar, '显示User头像'));
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));

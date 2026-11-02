@@ -144,6 +144,7 @@ import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import { comicContentKey, isComicModeActive } from './comic-settings.js';
 import { batchStartsUpTo, isLogReaderActive, logRowsOf, nextBatchEnd } from './log-reader-model.js';
+import { syncPageScrubber } from './page-scrubber.js';
 import { createLogHtml, logCardsOf, logFontsOf, logRenderSnapshot, logSettingsOf, logSkinOf } from './log-reader-view.js';
 import { dialogTextEffectCss } from './dialog-text-effect.js';
 import { manualNameColor } from './character-name-color.js';
@@ -3296,6 +3297,17 @@ ${row.key}`;
         return { ok: true, moved: true, reason: 'log-batch-back', index: target };
     }
 
+    // 页码进度条：窄屏阅读模式或漫画演出模式下、各自开关开着时显示；拖到哪页就跳到哪页。
+    function syncScrubber(current, snapshot) {
+        const rs = snapshot.readerSettings || {};
+        const on = current.logBase ? rs.logReader?.scrubber === true : isComicModeActive(rs) && rs.comicMode?.scrubber === true;
+        const total = (snapshot.content && snapshot.content.segments || []).length;
+        syncPageScrubber(current.dom.overlay, on && !current.hidden ? {
+            index: current.index, total,
+            onSeek: (page) => { if (state.activeReader === current) jumpReaderSegment(page); },
+        } : null);
+    }
+
     // 每次渲染后同步 log 层。当前页是聊天 / 卡片页时让开，交给原渲染。
     function syncLogLayer(current, snapshot) {
         const overlay = current.dom && current.dom.overlay;
@@ -5222,8 +5234,8 @@ ${row.key}`;
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
             getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
-            resolvePortrait: (name) => resolveCombatPortrait(name),
             challengeHistory: typeof options.getChallengeHistory === 'function' ? () => options.getChallengeHistory() : null,
+            resolvePortrait: (name) => resolveCombatPortrait(name),
             // 演出速度（原速 / 二倍速）记在 localStorage，跨战斗保留。
             storage: (options.global || globalThis).localStorage,
             // 手牌卡面只读本聊天本地缓存；无图时渲染层用线条 SVG，图片补载完成后经订阅刷新。
@@ -5587,6 +5599,7 @@ ${row.key}`;
             onLivePortraitMove: (liveFx) => saveReaderSettingsPatch({ liveFx }),
         });
         syncLogLayer(current, snapshot);
+        syncScrubber(current, snapshot);
         // 首次挂载时阅读器可能还没量出尺寸：量出来后判断变了就补渲染一次（每次打开只补一次）。
         if (!current.logBase && !current.logRecheck && logReaderBase(current, snapshot)) {
             current.logRecheck = true;
@@ -5615,7 +5628,7 @@ ${row.key}`;
             ? options.getIllustrationSource(messageId) : null;
         const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: isReaderLastPage(snapshot), sourceFilter: current.payload && current.payload.sourceFilter, challengeQuota: typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null }) : null;
         state.combatAutoOpened ||= new Set();
-        const auto = syncCombatEntry(overlay, entry, { seen: state.combatAutoOpened, onOpen: () => openCombatPanel(current, entry) });
+        const auto = syncCombatEntry(overlay, entry, { seen: state.combatAutoOpened, onOpen: () => openCombatPanel(current, entry), onAction: (kind) => openCombatPanel(current, entry, { then: kind }) });
         // 自动弹出只记成功打开的：地图、资料或构筑面板开着时不记，等下一次渲染再弹。
         if (auto && openCombatPanel(current, entry)?.ok === true) state.combatAutoOpened.add(entry.key);
     }

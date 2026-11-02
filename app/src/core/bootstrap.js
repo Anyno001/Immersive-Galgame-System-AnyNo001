@@ -57,6 +57,8 @@ import { statsFxOf, statsNoticeLines } from '../scene/stats/stat-fx.js';
 import { clearStatsRivals, registerStatsRivals } from '../visual/igs-ui/romance-runtime.js';
 import { normalizeStatsSettings } from '../scene/stats/stat-settings.js';
 import { createShujukuClient } from '../data/shujuku/client.js';
+import { parseTables } from '../data/shujuku/table-parser.js';
+import { collectOutfitClues } from '../data/shujuku/outfit-clues.js';
 import { describeStatMappings } from '../data/shujuku/stats-push.js';
 import { buildInitialState } from '../scene/stats/stat-build.js';
 import { createSheetStore } from '../scene/stats/stat-sheet-store.js';
@@ -373,6 +375,16 @@ export function bootstrapIGS(options = {}) {
 
     const app = {
         version: IGS_VERSION,
+        // 公开接口 IGS.api.characters 的只读读取器。
+        characterDnaReaders: {
+            readAssets: () => readImageBridge().sceneAssets,
+            readContext: () => getSillyTavernContext(globalObject),
+            // 数据库穿戴线索，仅在被调用时读一次。
+            readClues: (names) => {
+                const read = createShujukuClient(globalObject.AutoCardUpdaterAPI).readTables();
+                return collectOutfitClues(read, names, read.ok === false ? [] : parseTables(read.data));
+            },
+        },
         global: globalObject,
         media,
         events,
