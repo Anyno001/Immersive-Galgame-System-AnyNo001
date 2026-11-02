@@ -53,14 +53,19 @@ test('领域不在技能清单时降级为空而不拒收整条标签', () => {
     assert.equal(parseChallengeStart('正文\n[igs-challenge:终面|屠龙术]', { skills: ['屠龙术'] }).start.domain, '屠龙术');
 });
 
-test('第一阶段金钱与关系代价降级为压力并记诊断，保留原始请求', () => {
-    for (const word of ['金钱', '关系']) {
-        const result = parseChallengeStart(`正文\n[igs-challenge:和解|魅力|艰难|${word}]`);
-        assert.equal(result.start.stake, '压力');
-        assert.equal(result.start.requestedStake, word);
-        assert.deepEqual(codes(result), ['challenge-stake-degraded']);
-    }
-    assert.equal(parseChallengeStart('正文\n[igs-challenge:和解|魅力|艰难|金钱]', { enabledStakes: ['压力', '体力', '金钱'] }).start.stake, '金钱');
+test('金钱代价可用；关系代价需要对方，缺对方降级为压力并记诊断，保留原始请求', () => {
+    const money = parseChallengeStart('正文\n[igs-challenge:比赛|烹饪|艰难|金钱]');
+    assert.equal(money.start.stake, '金钱');
+    assert.deepEqual(codes(money), []);
+    const bare = parseChallengeStart('正文\n[igs-challenge:和解|魅力|艰难|关系]');
+    assert.equal(bare.start.stake, '压力');
+    assert.equal(bare.start.requestedStake, '关系');
+    assert.deepEqual(codes(bare), ['challenge-stake-degraded']);
+    assert.equal(parseChallengeStart('正文\n[igs-challenge:和解|魅力|艰难|关系|小雪]', { present: ['小雪'] }).start.stake, '关系');
+    const away = parseChallengeStart('正文\n[igs-challenge:和解|魅力|艰难|关系|小雪]', { present: ['阿梅'] });
+    assert.equal(away.start.stake, '压力');
+    assert.deepEqual(codes(away), ['challenge-counterpart-ignored', 'challenge-stake-degraded']);
+    assert.equal(parseChallengeStart('正文\n[igs-challenge:和解|魅力|艰难|金钱]', { enabledStakes: ['压力', '体力'] }).start.stake, '压力');
 });
 
 test('对方不在场或过长时忽略，只在给出在场名单时核对', () => {

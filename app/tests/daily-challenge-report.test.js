@@ -58,8 +58,8 @@ test('事件名里会破坏标记结构的字符被去掉；缺少标识或结�
 test('战报标记能被数值侧读回并合成 challenge 指令', () => {
     const report = buildChallengeReport({ ...base, outcome: '失败', tier: '艰难', stake: '体力' });
     const parsed = parseChallengeReport(`（前文）\n${report.text}`);
-    assert.deepEqual(parsed, { reportId: report.reportId, result: 'lose', outcome: '失败', tier: '艰难', stake: '体力', domain: '话术' });
-    assert.deepEqual(challengeDirectiveOf(parsed, 31), { kind: 'challenge', reportId: report.reportId, outcome: '失败', tier: '艰难', stake: '体力', domain: '话术', floor: 31 });
+    assert.deepEqual(parsed, { reportId: report.reportId, result: 'lose', outcome: '失败', tier: '艰难', stake: '体力', domain: '话术', foe: '', counterpart: '', allies: [] });
+    assert.deepEqual(challengeDirectiveOf(parsed, 31), { kind: 'challenge', reportId: report.reportId, outcome: '失败', tier: '艰难', stake: '体力', domain: '话术', floor: 31, counterpart: '', prize: null });
     assert.equal(parseChallengeReport('没有战报'), null);
     assert.equal(parseChallengeReport('<igs-challenge-report id="bad id" outcome="圆满">'), null);
     assert.equal(parseChallengeReport('<igs-challenge-report id="rabc1" outcome="大胜">'), null);

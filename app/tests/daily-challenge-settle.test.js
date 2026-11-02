@@ -86,13 +86,11 @@ test('压力、体力钳在 0 到 100，不出现 NaN', () => {
     for (const value of Object.values(junk.state.protagonist.bars)) assert.ok(Number.isFinite(value));
 });
 
-test('第一阶段金钱与关系代价按压力结算并记诊断，金钱不动', () => {
-    for (const stake of ['金钱', '关系']) {
-        const { state, ctx } = settle(withBars({ money: 500, stress: 0 }), directive({ stake }));
-        assert.equal(state.protagonist.bars.money, 500);
-        assert.equal(state.protagonist.bars.stress, 20);
-        assert.deepEqual(ctx.diagnostics.map((d) => d.code), ['challenge-stake-degraded']);
-    }
+test('未登记的代价类别按压力结算并记诊断', () => {
+    const { state, ctx } = settle(withBars({ money: 500, stress: 0 }), directive({ stake: '赔礼' }));
+    assert.equal(state.protagonist.bars.money, 500);
+    assert.equal(state.protagonist.bars.stress, 20);
+    assert.deepEqual(ctx.diagnostics.map((d) => d.code), ['challenge-stake-degraded']);
 });
 
 test('没有合法结局的指令不改变状态；旧存档缺少时钟字段时按零计', () => {

@@ -57,23 +57,59 @@ function buildCard(id, name, key, cost, rarity) {
     return solved ? { id, name, cost, rarity, ...solved } : null;
 }
 
+// 领域之外的相关技能：技能值不低于 RELATED_MIN 时，最多两项各顶替一张领域牌。
+export const RELATED_SKILLS = Object.freeze({
+    烹饪: Object.freeze(['应变', '家务', '照顾']),
+    话术: Object.freeze(['魅力', '应变', '学习']),
+    学习: Object.freeze(['话术', '艺术', '应变']),
+    应变: Object.freeze(['运动', '话术', '魅力']),
+    魅力: Object.freeze(['话术', '艺术', '照顾']),
+    照顾: Object.freeze(['家务', '魅力', '应变']),
+    艺术: Object.freeze(['学习', '魅力', '应变']),
+    运动: Object.freeze(['应变', '照顾', '家务']),
+    家务: Object.freeze(['烹饪', '照顾', '应变']),
+    [CHALLENGE_GENERAL_DOMAIN]: Object.freeze([]),
+});
+export const RELATED_MIN = 50;
+export const RELATED_MAX = 2;
+// 顶替的是领域的第几类牌位：第一项换掉一张进展牌，第二项换掉一张稳住牌，张数不变。
+const RELATED_REPLACES = Object.freeze(['push', 'hold']);
+
+function relatedPicks(key, otherSkills) {
+    const picks = [];
+    for (const name of RELATED_SKILLS[key] || []) {
+        const value = Number(otherSkills?.[name]?.value ?? otherSkills?.[name]);
+        if (Object.hasOwn(DOMAIN_CARDS, name) && value >= RELATED_MIN) picks.push({ name, value });
+    }
+    return picks.sort((a, b) => b.value - a.value).slice(0, RELATED_MAX);
+}
+
 // 领域不在映射表里时走通用牌组；技能值只决定稀有度档位与模板阶梯。
-export function buildChallengeDeck({ domain, skillValue } = {}) {
+// otherSkills 为 { 技能名: 值 } 或 { 技能名: { value } }，相关技能高时用其应急牌顶替领域牌，总数仍是 20 张。
+export function buildChallengeDeck({ domain, skillValue, otherSkills } = {}) {
     const key = domainKeyOf(domain);
     const def = DOMAIN_CARDS[key];
     const tier = challengeTierIndex(skillValue);
     const ladderAt = Math.min(tier, 2);
     const catalog = Object.fromEntries(Object.entries(BASIC_CARDS).map(([id, card]) => [id, JSON.parse(JSON.stringify(card))]));
     const deck = [...Array(COMBAT_RULES.starterDeckShape.basicAttack).fill(BASIC_STRIKE_ID), ...Array(COMBAT_RULES.starterDeckShape.basicDefend).fill(BASIC_DEFEND_ID)];
+    const swaps = relatedPicks(key, otherSkills).map((pick, index) => ({ ...pick, slot: RELATED_REPLACES[index] }));
     for (const [slot, spec] of Object.entries(SLOTS)) {
         const rarity = slot === 'ace' && tier === 3 ? 'epic' : CHALLENGE_RARITIES[ladderAt];
         const card = buildCard(`ch-${slot}`, def[slot], (def.ladders[slot] || spec.ladder)[ladderAt], spec.cost, rarity);
+        const swap = swaps.find((item) => item.slot === slot);
         catalog[card.id] = card;
-        deck.push(...Array(spec.copies).fill(card.id));
+        deck.push(...Array(spec.copies - (swap ? 1 : 0)).fill(card.id));
+        if (!swap) continue;
+        const other = DOMAIN_CARDS[swap.name];
+        const swapAt = Math.min(challengeTierIndex(swap.value), 2);
+        const swapCard = buildCard(`ch-rel-${slot}`, other.tempo, (other.ladders.tempo || SLOTS.tempo.ladder)[swapAt], SLOTS.tempo.cost, CHALLENGE_RARITIES[swapAt]);
+        catalog[swapCard.id] = swapCard;
+        deck.push(swapCard.id);
     }
     for (const life of LIFE_CARDS) {
         catalog[life.id] = buildCard(life.id, life.name, life.key, life.cost, 'common');
         deck.push(life.id);
     }
-    return { domain: key, rarity: CHALLENGE_RARITIES[tier], deck, catalog };
+    return { domain: key, rarity: CHALLENGE_RARITIES[tier], deck, catalog, related: swaps.map((swap) => swap.name) };
 }

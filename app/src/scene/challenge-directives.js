@@ -8,7 +8,7 @@ export const CHALLENGE_TIERS = Object.freeze({ 轻松: '轻松', easy: '轻松',
 export const CHALLENGE_STAKES = Object.freeze({
     压力: '压力', stress: '压力', 体力: '体力', stamina: '体力', 金钱: '金钱', money: '金钱', 关系: '关系', relation: '关系',
 });
-export const CHALLENGE_ENABLED_STAKES = Object.freeze(['压力', '体力']);
+export const CHALLENGE_ENABLED_STAKES = Object.freeze(['压力', '体力', '金钱', '关系']);
 export const CHALLENGE_DEFAULT_TIER = '普通';
 export const CHALLENGE_DEFAULT_STAKE = '压力';
 export const CHALLENGE_QUOTA = Object.freeze({ perDay: 1, perDayMax: 3, cooldownFloors: 8 });
@@ -112,12 +112,13 @@ function parseFields(fields, options, diagnostics, where) {
     }
     const requestedStake = stakeWord ? CHALLENGE_STAKES[stakeWord] : CHALLENGE_DEFAULT_STAKE;
     const enabled = options.enabledStakes || CHALLENGE_ENABLED_STAKES;
-    const stake = enabled.includes(requestedStake) ? requestedStake : CHALLENGE_DEFAULT_STAKE;
-    if (stake !== requestedStake) diagnostics.push({ code: 'challenge-stake-degraded', from: requestedStake, to: stake, ...where });
+    let stake = enabled.includes(requestedStake) ? requestedStake : CHALLENGE_DEFAULT_STAKE;
     let counterpart = fields[4] || '';
     if (counterpart && (counterpart.length > NAME_MAX || (Array.isArray(options.present) && !options.present.includes(counterpart)))) {
         diagnostics.push({ code: 'challenge-counterpart-ignored', name: counterpart.slice(0, NAME_MAX), ...where });
         counterpart = '';
     }
+    if (stake === '关系' && !counterpart) stake = CHALLENGE_DEFAULT_STAKE;
+    if (stake !== requestedStake) diagnostics.push({ code: 'challenge-stake-degraded', from: requestedStake, to: stake, ...where });
     return { ok: true, value: { event, domain, tier: tierWord ? CHALLENGE_TIERS[tierWord] : CHALLENGE_DEFAULT_TIER, stake, requestedStake, counterpart } };
 }

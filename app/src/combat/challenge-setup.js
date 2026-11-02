@@ -3,6 +3,7 @@ import { COMBAT_RULES, combatSpeedFor, scaleEnemyStats } from './rules.js';
 import { skillFromTemplate } from './card-templates.js';
 import { DOMAIN_CARDS, buildChallengeDeck } from './challenge-cards.js';
 import { CHALLENGE_FOES, pickFoe } from './challenge-foes.js';
+import { buildChallengeAllies, validateChallengeAllies } from './challenge-allies.js';
 
 export const CHALLENGE_HERO_ID = 'hero';
 export const CHALLENGE_FOE_ID = 'foe';
@@ -50,31 +51,39 @@ function resolveDomain(domain, skills) {
     return best ? best.name : '';
 }
 
-// state 为数值侧传入的主角快照 { bars: { stamina, stress }, skills: { 技能名: { value } } }，user 为 { name }。
-export function buildChallengeSetup({ start, state, user } = {}) {
+// state 为数值侧传入的主角快照 { bars: { stamina, stress }, skills: { 技能名: { value } }, present?: 在场人物名, favors?: { 人物名: 好感 } }，user 为 { name }。
+// start.foe / start.foeName 来自副模型选难关（键不在登记表时忽略）；allies 为请求的协助者名，按在场与好感校验后最多取两名。
+export function buildChallengeSetup({ start, state, user, allies = start?.allies } = {}) {
     if (!start?.event) return { ok: false, reason: 'challenge-start-missing' };
     const domain = resolveDomain(start.domain, state?.skills);
     const skillValue = Number(state?.skills?.[domain]?.value) || 0;
     const tier = Object.hasOwn(CHALLENGE_TIER_RULES, start.tier) ? start.tier : '普通';
-    const foeKey = pickFoe(start.event, domain);
+    const foeKey = Object.hasOwn(CHALLENGE_FOES, start.foe) ? start.foe : pickFoe(start.event, domain);
     const foe = CHALLENGE_FOES[foeKey];
     const thick = foeThickness(tier);
-    const { deck, catalog } = buildChallengeDeck({ domain, skillValue });
+    const { deck, catalog } = buildChallengeDeck({ domain, skillValue, otherSkills: state?.skills });
+    const helpers = validateChallengeAllies(allies, { present: state?.present, favors: state?.favors, exclude: start.counterpart ? [start.counterpart] : [] });
+    const extra = buildChallengeAllies(helpers.accepted);
+    for (const card of extra.cards) {
+        catalog[card.id] = card;
+        deck.push(card.id);
+    }
     const will = willFor(state?.bars);
     const setup = {
         controlledId: CHALLENGE_HERO_ID,
         canEscape: start.allowEscape !== false,
         units: [
             { id: CHALLENGE_HERO_ID, name: user?.name || '我', side: 'ally', kind: 'deck', maxHp: will, speed: COMBAT_RULES.defaultSpeed, deck, catalog },
+            ...extra.units,
             {
-                id: CHALLENGE_FOE_ID, name: start.counterpart || foe.name, side: 'enemy', kind: 'skill', maxHp: thick.hp, damageScale: thick.damageScale,
+                id: CHALLENGE_FOE_ID, name: start.counterpart || start.foeName || foe.name, side: 'enemy', kind: 'skill', maxHp: thick.hp, damageScale: thick.damageScale,
                 speed: combatSpeedFor({ tier: thick.engineTier, id: foeKey }),
                 skills: foe.skills.map(([name, template], index) => ({ id: `${foeKey}-s${index + 1}`, name, ...skillFromTemplate(template, thick.damageCap) })),
             },
         ],
-        challenge: { event: start.event, domain, tier, stake: start.stake || '压力', foe: foeKey, rounds: thick.rounds },
+        challenge: { event: start.event, domain, tier, stake: start.stake || '压力', foe: foeKey, rounds: thick.rounds, counterpart: start.counterpart || '', allies: helpers.accepted.map((ally) => ally.name) },
     };
-    return { ok: true, setup };
+    return { ok: true, setup, allies: helpers };
 }
 
 export function challengeProgress(state) {

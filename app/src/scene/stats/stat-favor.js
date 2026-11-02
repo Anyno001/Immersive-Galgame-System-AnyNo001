@@ -33,6 +33,7 @@ export function baseDelta(dim, value) {
     return delta > 0 ? Math.max(1, Math.floor(delta / 2)) : delta * 2;
 }
 
+    if (typeof value === 'number') return dim === '好感' && Number.isInteger(value) ? value : 0;
 export function gateKey(gate) {
     return `gate-${gate}`;
 }

@@ -18,6 +18,7 @@ import {
     CARD_COST_SLOTS, assembleClass, assembleClassTier, assembleDeck, assembleEnemy, assembleGear, assembleGrowth, assembleInitialGear, assembleItem, assembleReward, assembleSignature,
     assembleSkillCharacter, assembleSkillFill, assembleTrait, costSlotsFor,
 } from './generation-assembly.js';
+import { assembleChallengeFoe, pickFoe } from './challenge-foes.js';
 import { parseCombatInit } from './abilities.js';
 import { planRewardSlots } from './rewards.js';
 
@@ -508,6 +509,10 @@ function settleEntity(entity, value, state) {
     if (entity.kind === 'encounter-theme') return themeResult(entity, value);
     if (!isPlainObject(value)) return { ok: false, errors: [errorItem('', 'expected-object')] };
     const context = { key: entity.key, owner: entity.owner, fixed: entity.fixed, input: entity.input };
+    if (entity.kind === 'challenge-foe') {
+        const assembled = assembleChallengeFoe(value);
+        return assembled.errors ? { ok: false, errors: assembled.errors } : { ok: true, result: { challengeFoe: assembled.value }, diagnostics: assembled.diagnostics };
+    }
     if (entity.kind === 'profile-gear') return validateInitialGear(entity, value, context);
     if (entity.kind === 'class') {
         const assembled = normalizeAssembled(assembleClass(value, context));
@@ -616,7 +621,7 @@ function settleGrowth(entity, value, state) {
 }
 
 // 各种类的处理顺序：职业先于牌组，成长/奖励等靠后
-const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11, 'encounter-theme': 12, 'profile-gear': 13, 'signature-card': 14 });
+const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11, 'encounter-theme': 12, 'profile-gear': 13, 'signature-card': 14, 'challenge-foe': 15 });
 
 // 请求过期（被中止）的统一返回
 const staleResult = (accepted) => ({ ok: false, reason: 'request-stale', accepted: [], rejected: [], diagnostics: [], discarded: accepted.size });
@@ -639,7 +644,8 @@ function parseReply(reply, expectedKeys, diagnostics) {
 // 被拒收实体的记录与兜底：敌人用模板敌人，主角阻断，盟友跳过
 function rejection(entity, errors) {
     const record = { key: entity.key, kind: entity.kind, role: entity.role, owner: entity.owner, errors: errors.slice(0, 8) };
-    if (entity.kind === 'enemy') record.fallback = { kind: 'template-enemy', profile: templateEnemy(entity.fixed.name, entity.fixed.tier) };
+    if (entity.kind === 'challenge-foe') record.fallback = { kind: 'local-foe', foe: pickFoe(entity.input?.event, entity.input?.domain) };
+    else if (entity.kind === 'enemy') record.fallback = { kind: 'template-enemy', profile: templateEnemy(entity.fixed.name, entity.fixed.tier) };
     else if (entity.role === 'protagonist') record.fallback = { kind: 'blocked' };
     else if (entity.role === 'ally') record.fallback = { kind: 'skip' };
     return record;
