@@ -1,6 +1,6 @@
 // igs 行内指令名的唯一登记点：分段、正文清洗、DOM 对比与聊天块收口都从这里构造正则，
 // 新增指令只改这一处，避免标签漏进正文。聊天标签（igs-chat/msg）是块级结构，由 chat-blocks 单独处理。
-export const IGS_INLINE_DIRECTIVE_NAMES = Object.freeze(['scene', 'char', 'thought', 'img', 'fx', 'combat']);
+export const IGS_INLINE_DIRECTIVE_NAMES = Object.freeze(['scene', 'char', 'thought', 'img', 'fx', 'combat', 'challenge']);
 
 const NAMES = IGS_INLINE_DIRECTIVE_NAMES.join('|');
 const LOOSE_START_SOURCE = `[\\[［【]\\s*igs\\s*-?\\s*(${NAMES}|chat(?:-end|-time)?|msg)\\s*[:：]`;
@@ -73,12 +73,12 @@ export const IGS_DIRECTIVE_CLOSE_SOURCE = `\\[\\s*igs-(?:${NAMES})\\s*:[^\\]\\n]
 // check（正文 d20 判定）由 scene/check-rolls.js 复算，标签本身剥离，结果以阅读器徽记显示。
 const SCENE_INLINE_RE = /\[igs-scene:[^\]]*\]/g;
 const FX_INLINE_RE = /\[igs-fx:[^\]\n]*(?:\]|$)/gm;
-const COMBAT_INLINE_RE = /\[igs-combat:[^\]\n]*(?:\]|$)/gm;
+const COMBAT_INLINE_RE = /\[igs-(?:combat|challenge):[^\]\n]*(?:\]|$)/gm;
 const CHECK_INLINE_RE = /\[igs-check:[^\]\n]*\]/g;
 const DREAD_INLINE_RE = /\[igs-dread:[^\]\n]*\]/g;
 // 数值标签 [igs-stat:…] 只给脚本结算用，任何出口都不显示；容错写法与 scene/stats/stat-directives.js 一致（全角括号、全角冒号、字段可换行）。
 const STAT_INLINE_RE = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]/gi;
-const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|check:|dread:)|[\[【]\s*igs\s*-?\s*stat\s*[:：])/i;
+const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:)|[\[【]\s*igs\s*-?\s*stat\s*[:：])/i;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));

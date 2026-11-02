@@ -67,7 +67,7 @@
 
 ## 约束
 
-- 日常局不写伤势、不写战斗账本，不产出战利品、翻牌与成长标签；`setup.challenge` 存在时 `session.prepare` 不调用档案生成（会话接线随第一阶段下一步落地，届时在 `session.js` 与 `combat-services.js` 条目补一句）。
+- 日常局不写伤势、不写战斗账本，不产出战利品、翻牌与成长标签；`setup.challenge` 存在时 `session.prepare` 不调用档案生成。会话接线：`session.js` 的 `locateCombatStart(chat, id, filter, kinds)` 按对决类型认战斗或挑战标签（挑战 `combatId` 前缀 `ch`，会话带 `kind: 'challenge'`）；挑战备战只调副 LLM 选难关（失败退回本地），不读账本；`autoPlay` / `abandon` / `pickChallengeAllies` 为挑战专用入口；结束时不翻牌、不写伤势与物品消耗、不扫描战斗账本；圆满且难关登记了经验时战报发出后写一条挂在战报楼上的 `learn`（`ledger.js` 的 `CHALLENGE_REWARD_TAG_HASH`）。`combat-services.js` 的 `kinds()` 把对决类型传给会话，仅日常挑战时不预生成主角卡组、不接管物品表、不自动成长；`challengePromptQuota` 给提示词与入口做额度门禁，`challengeHistory` 只读聊天里的战报。
 - schema 校验只拒收不修正：未知字段、越界数值、超预算、未知效果一律返回 `{ ok: false, errors: [{ path, reason, detail? }] }`。可选字段只在缺省时取默认值。
 - 组装层只对模型给出的数值（费用、HP、每级 HP、列表长度、名称长度）夹回范围并记 `combat-value-clamped`；模板键、原型、必填被动等结构错误仍拒收并定向修正。组装产物必须再过 schema，组装不得绕过校验。
 - 副 LLM 不写效果原语：只从模板目录选键，效果由模板生成；旧档案（完整效果结构）照常按 schema 读取。

@@ -639,3 +639,14 @@
 
 
 
+## 日常挑战（本地，未提交，未升版本）
+
+设计稿：`docs/DAILY_CHALLENGE_DESIGN.md`（§9 开头记着用户的拍板结果）。把卡牌引擎当作「过程」使用，处理日常里成败攸关的一件事；引擎、模板与重放不改，只换入口、说法与后果。
+
+- 入口与设置：设置器「战斗」页选卡牌战斗后，增加「对决类型」（战斗 / 日常挑战 / 两者，缺省战斗，旧存档行为不变）、「仅日常挑战」预设与日常字段（每个游戏日次数、间隔楼数、失败代价轻重、允许放弃）；字段在 `combatExpansion.kind` 与 `combatExpansion.daily`，归一化在 `combat-settings.js`。皮肤沿用现有战斗皮肤，只换文案，不另画日常皮肤。
+- 标签与提示词：AI 在楼末写 `[igs-challenge:事件名|领域|难度|代价|对方]`，只含离散词，数值全部由脚本查表。语法行单独成段（`combat-prompt.js` 的 `resolveChallengePromptSegment`），不进战斗语法块；额度用完或冷却中时该段不出现。选「仅日常挑战」时战斗语法、战报续写段与队伍状态段都不注入。
+- 会话：`combat/session.js` 的 `locateCombatStart` 按对决类型认战斗或挑战标签，挑战的 `combatId` 前缀为 `ch`；备战不读账本、不写档案，副 LLM 只用来选难关（失败退回本地）；`autoPlay`（托管）、`abandon`（放弃，发出放弃战报）、`pickChallengeAllies`（大厅挑最多两名协助者）；结束时不翻牌、不写伤势、不扫描战斗账本；回合上限到时在适配层补胜负。
+- 面板与入口：楼底入口「迎接挑战：事件名」，旁边「放弃」（二次确认）与「交给托管」，不自动弹出；面板按 `view.challenge` 换文案（难关、意志、进展、稳住，状态名与出招别名取自 `challenge-labels.js`），九套画布皮肤只替换少数固定词；结束页展示奖金档位与经验牌；「挑战记录」页列出历史与成就（仅日常挑战时工具栏「人物状态」按钮打开它）。
+- 结算：战报是用户楼，由紧随其后的 AI 楼结算（`core/stats-runtime.js` 把战报合成的指令经 `settleFloorText` 的 `extraDirectives` 交给 `stat-challenge.js`），回退或重新生成该楼时一并撤销；按战报编号去重。
+- 经验牌：圆满且难关登记了经验时，战报发出后写一条挂在战报楼上的 `learn` 记录（`ledger.js` 的 `CHALLENGE_REWARD_TAG_HASH`，战报不是圆满即失效）；没有主角卡组档案时账本按缺角色记诊断，不入库。
+- 测试：`app/tests/daily-challenge-*.test.js`。

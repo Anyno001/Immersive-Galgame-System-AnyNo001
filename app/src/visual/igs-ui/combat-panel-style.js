@@ -741,6 +741,19 @@ ${COMBAT_STAGE_FX_STYLE_TEXT}
 ${COMBAT_HIT_STYLE_TEXT}
 ${COMBAT_ENEMY_ART_STYLE_TEXT}
 @media (prefers-reduced-motion:reduce){${C} .igs-combat-portrait :is(img,svg,.igs-combat-art),${C} .igs-combat-energy-liquid::before,${C} .igs-combat-energy-liquid::after,${C} .igs-combat-lobby :is(.igs-combat-lobby-side,.igs-combat-lobby-stage,.igs-combat-lobby-banner,.igs-combat-lobby-fx i),${C} .igs-combat-result :is(.igs-combat-result-title,.igs-combat-result-rays,.igs-combat-result-sparks i){animation:none!important;}${C} .igs-combat-lobby-flash{display:none;}}
+${C} .igs-challenge-allies{position:relative;z-index:1;justify-content:center;}
+${C} .igs-challenge-allies button.igs-combat-chip{border:0;font:inherit;font-size:13px;cursor:pointer;}
+${C} .igs-challenge-allies button.igs-combat-chip[aria-pressed="true"]{background:var(--igs-cb-warm);color:var(--igs-cb-on-ink);}
+${C} .igs-challenge-harvest{display:flex;flex-direction:column;gap:6px;align-items:center;padding:8px 0;}
+${C} .igs-challenge-harvest-row{display:flex;align-items:baseline;gap:10px;color:var(--igs-cb-ink);font-size:14px;}
+${C} .igs-challenge-harvest-row small{color:var(--igs-cb-ink-soft);font-size:12px;}
+${C} .igs-challenge-feats .igs-combat-chip[data-earned="false"]{color:var(--igs-cb-ink-faint);}
+${C} .igs-challenge-feats .igs-combat-chip[data-earned="true"]{color:var(--igs-cb-warm);}
+${C} .igs-challenge-history{display:flex;flex-direction:column;gap:2px;margin:6px 0;padding:0;list-style:none;overflow-y:auto;}
+${C} .igs-challenge-history-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,2fr) auto auto;gap:10px;align-items:baseline;padding:6px 10px;border-radius:var(--igs-cb-r-s);background:var(--igs-cb-fill);color:var(--igs-cb-ink-soft);font-size:13px;}
+${C} .igs-challenge-history-row b{color:var(--igs-cb-ink);font-weight:600;}
+${C} .igs-challenge-history-row em{font-style:normal;}
+${C} .igs-challenge-history-row small{color:var(--igs-cb-ink-faint);}
 #igs-combat-entry{position:absolute;left:50%;bottom:calc(var(--igs-dialog-height,30%) + 14px);z-index:7;transform:translateX(-50%);pointer-events:auto;}
 #igs-overlay.igs-record-screen-open #igs-combat-entry{display:none;}
 #igs-overlay[data-igs-combat-open] #igs-dialog-layer{visibility:hidden;}
@@ -749,6 +762,11 @@ ${COMBAT_ENEMY_ART_STYLE_TEXT}
 #igs-combat-entry .igs-combat-entry-name{font-size:18px;font-weight:600;letter-spacing:.2em;}
 #igs-combat-entry .igs-combat-entry-foes{font-size:12px;opacity:.8;letter-spacing:.1em;}
 #igs-combat-entry .igs-combat-entry-btn:focus-visible{outline:2px solid ${IGS_UI_WARM};outline-offset:2px;}
+#igs-combat-entry .igs-challenge-entry{display:flex;flex-direction:column;align-items:center;gap:6px;}
+#igs-combat-entry .igs-challenge-entry-actions{display:flex;gap:8px;}
+#igs-combat-entry .igs-challenge-entry-btn{padding:4px 16px;border:0;border-radius:${IGS_UI_RADIUS.small};background:rgb(${IGS_UI_NIGHT_RGB});color:${IGS_UI_INK.secondary};font:inherit;font-size:12px;letter-spacing:.1em;cursor:pointer;}
+#igs-combat-entry .igs-challenge-entry-btn[data-armed]{color:${IGS_UI_WARM};}
+#igs-combat-entry .igs-challenge-entry-btn:focus-visible{outline:2px solid ${IGS_UI_WARM};outline-offset:2px;}
 ${COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT}
 ${COMBAT_PANEL_LAYOUT_STYLE_TEXT}
 ${CANVAS_STYLE_TEXT}

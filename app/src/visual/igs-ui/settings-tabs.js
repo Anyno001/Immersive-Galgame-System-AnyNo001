@@ -416,6 +416,13 @@ const COMBAT_TEMPLATE = `
       <div class="igs-source-filter-grid">{{combatFields}}</div>
     </div>
   </div>
+  <div class="igs-settings-sub"{{combatDailyHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">日常挑战</div>
+      <div class="igs-source-filter-note">剧情里成败攸关的事用卡牌对决处理，每个游戏日的次数与间隔楼数在这里限制。选「仅日常挑战」时，提示词里不再写战斗标签。</div>
+      <div class="igs-source-filter-grid">{{combatDailyFields}}</div>
+    </div>
+  </div>
 </div>
 `.trim();
 

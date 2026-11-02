@@ -3,12 +3,21 @@ import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
 import { resolveCombatLlm } from '../../combat/generation.js';
 import { COMBAT_DIFFICULTY_KEYS } from '../../combat/rules.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { CHALLENGE_QUOTA } from '../../scene/challenge-directives.js';
+import { COMBAT_KINDS } from '../../scene/combat-prompt.js';
 
 export const COMBAT_DIFFICULTIES = COMBAT_DIFFICULTY_KEYS;
 export const COMBAT_REPORT_DETAILS = Object.freeze(['brief', 'normal']);
 // 战斗面板皮肤：initial 为共创原作者的面板外观（初始方案），veil 为渐变黑幕；开启战斗时默认黑幕。
 export const COMBAT_PANEL_SKINS = Object.freeze(['veil', 'comic', 'ink', 'tech', 'mystic', 'soft-a', 'soft-c', 'dark-a', 'dark-b', 'initial']);
 export const COMBAT_PANEL_SKIN_LABELS = Object.freeze({ veil: '黑幕', comic: '漫画', ink: '水墨', tech: '科幻', mystic: '星辉', 'soft-a': '圆润·野餐', 'soft-c': '圆润·绘本', 'dark-a': '恐怖·断帧', 'dark-b': '恐怖·无影灯', initial: '初始方案' });
+
+// 对决类型：战斗、日常挑战（仅日常）、两者；缺省为战斗，旧存档行为不变。
+export const COMBAT_KIND_LABELS = Object.freeze({ combat: '战斗', daily: '日常挑战', both: '两者' });
+export const DAILY_STAKES = Object.freeze(['light', 'normal', 'heavy']);
+export const DAILY_STAKE_LABELS = Object.freeze({ light: '轻', normal: '中', heavy: '重' });
+export const DAILY_COOLDOWN_CHOICES = Object.freeze([0, 4, 8, 12, 16, 24]);
+export const DAILY_DEFAULTS = Object.freeze({ perDay: CHALLENGE_QUOTA.perDay, cooldownFloors: CHALLENGE_QUOTA.cooldownFloors, stake: 'normal', allowEscape: true });
 
 const asObject = value => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
@@ -19,8 +28,25 @@ export function normalizeCombatExpansionSettings(value) {
     difficulty: COMBAT_DIFFICULTIES.includes(source.difficulty) ? source.difficulty : 'normal',
     reportDetail: COMBAT_REPORT_DETAILS.includes(source.reportDetail) ? source.reportDetail : 'normal',
     skin: COMBAT_PANEL_SKINS.includes(source.skin) ? source.skin : 'veil',
+    kind: COMBAT_KINDS.includes(source.kind) ? source.kind : 'combat',
+    daily: normalizeDailySettings(source.daily),
   };
 }
+
+export function normalizeDailySettings(value) {
+  const source = asObject(value);
+  const perDay = Math.floor(Number(source.perDay));
+  const cooldown = Math.floor(Number(source.cooldownFloors));
+  return {
+    perDay: Number.isFinite(perDay) ? Math.min(CHALLENGE_QUOTA.perDayMax, Math.max(1, perDay)) : DAILY_DEFAULTS.perDay,
+    cooldownFloors: Number.isFinite(cooldown) ? Math.min(99, Math.max(0, cooldown)) : DAILY_DEFAULTS.cooldownFloors,
+    stake: DAILY_STAKES.includes(source.stake) ? source.stake : DAILY_DEFAULTS.stake,
+    allowEscape: source.allowEscape !== false,
+  };
+}
+
+export const dailyChallengeOn = (settings) => settings.enabled && settings.kind !== 'combat';
+export const combatBattleOn = (settings) => settings.enabled && settings.kind !== 'daily';
 
 const LLM_FIELD_LABELS = Object.freeze({ endpoint: '地址', model: '模型' });
 
@@ -52,6 +78,15 @@ export function battleModeOf(reader) {
   const source = asObject(reader);
   if (asObject(source.combatExpansion).enabled === true) return 'card';
   return asObject(source.battleFx).enabled === true ? 'story' : 'off';
+}
+
+// 「仅日常挑战」预设：对决类型设为日常挑战，日常字段回到缺省；皮肤沿用现有战斗皮肤，不另设。
+export const COMBAT_PRESET_PATH = 'readerSettings.__combatPreset';
+export const COMBAT_PRESET_DAILY_ONLY = 'daily-only';
+export function planCombatPreset(preset) {
+  if (preset !== COMBAT_PRESET_DAILY_ONLY) return { ok: false, writes: [] };
+  const p = 'readerSettings.combatExpansion';
+  return { ok: true, writes: [[`${p}.kind`, 'daily'], [`${p}.daily`, { ...DAILY_DEFAULTS }]] };
 }
 
 // 返回要写入草稿的 [path, value] 列表。选「卡牌战斗」时 ready 未通过则不开启（combat 置 false、battleFx 不动），由调用方提示 message。

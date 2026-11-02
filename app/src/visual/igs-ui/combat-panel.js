@@ -8,7 +8,7 @@ import { COMBAT_AWAKEN_END, COMBAT_CUTIN_MS, buildAwakenCutin, buildOpeningCutin
 import { battleSfxKind } from './fx-battle-sfx.js';
 import { ensureFxLayers } from './fx-layer.js';
 import { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
-import { battleView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
+import { battleView, challengeLobbyView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
 import { combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } from './combat-panel-render.js';
 import { actionProgress } from '../../combat/engine.js';
 import { enemyArtCell } from './combat-enemy-art.js';
@@ -83,6 +83,8 @@ export function createCombatPanelController(doc, options = {}) {
     let messageId = null;
     let token = 0;
     let pending = '';
+    let followUp = '';
+    let historyOpen = false;
     let notice = '';
     let selected = null;
     // v4 待选阶段：已选的候选牌实例（只在引擎 pending 属于操控角色时有内容）。
@@ -274,8 +276,11 @@ export function createCombatPanelController(doc, options = {}) {
             const lead = cur.rejected.find((r) => r?.fallback?.kind === 'blocked') || cur.rejected[0];
             view.cause = lead?.errors?.[0]?.reason || '';
         }
-        if (cur.status === 'lobby') view.lobby = lobbyView(cur);
-        if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal);
+        const challenge = cur.kind === 'challenge';
+        if (historyOpen) { view.historyOpen = true; view.challenge = true; view.history = typeof options.challengeHistory === 'function' ? options.challengeHistory() : null; }
+        if (challenge) view.challenge = true;
+        if (cur.status === 'lobby') view.lobby = challenge ? challengeLobbyView(cur) : lobbyView(cur);
+        if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal, { challenge });
         // 待选阶段：只保留仍在候选里的已选牌；不在待选阶段时清空，视图不写 chosen。
         const choice = view.battle?.choice;
         if (!choice) chosen = [];
@@ -286,7 +291,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (view.battle) view.battle.items = view.battle.items.map((i) => { const imageUrl = itemArtFor(i.name); return imageUrl ? { ...i, imageUrl } : i; });
         if (view.battle && (swaps.size || entering.size)) swapView(view.battle, cur.battle);
         if (view.battle && held.size) shownHeld(view.battle);
-        if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events);
+        if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events, { challenge, summary: cur.challengeSummary });
         if (settling) view.settling = true;
         // 演出速度只在二倍速时写进视图：原速时视图形状不变。
         if (fxSpeed > 1) view.fxSpeed = fxSpeed;
@@ -294,7 +299,7 @@ export function createCombatPanelController(doc, options = {}) {
             : view.lobby ? [...view.lobby.allies.map((a) => a.name), ...view.lobby.enemies.map((e) => e.name)] : [];
         view.portraits = portraitsFor(names);
         const foes = view.battle ? view.battle.enemies : view.lobby ? view.lobby.enemies : [];
-        view.enemyArt = enemyArtFor(foes, view.portraits, cur.theme);
+        view.enemyArt = challenge ? {} : enemyArtFor(foes, view.portraits, cur.theme);
         // 我方立绘框色调：取立绘探测缓存里的 tint（整幅压到 25×25 后取最亮的不透明像素）；只在取到时追加 tints，未探测的由 probeTints 在绘制后补。
         if (view.lobby) {
             const tints = {};
@@ -307,7 +312,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (cur.status === 'send-failed' || cur.status === 'done') view.report = cur.report ? { result: cur.report.result } : null;
         // 胜利翻牌：读取中、读取失败、读到 offer 时追加 flip；没有 offer 时不追加（视图形状不变）。
         if ((cur.status === 'ended' || cur.status === 'send-failed') && cur.flip && cur.flip.status !== 'none') view.flip = cur.flip;
-        view.encounter = cur.start?.encounter || cur.record?.encounter || '';
+        view.encounter = cur.start?.encounter || cur.start?.event || cur.record?.encounter || '';
         return view;
     }
 
@@ -597,6 +602,7 @@ export function createCombatPanelController(doc, options = {}) {
     function onSessionChanged(v) {
         if (!root || pending) return;
         if (v?.lobby && !controlledId) controlledId = v.lobby.heroId;
+        if (followUp && v?.status === 'lobby') { runFollowUp(v); return; }
         if (v?.status === drawnStatus && (v?.recordError || '') === drawnRecordError && flipSig(v) === drawnFlip) return;
         if (settling) return;
         onCardArtUpdated();
@@ -1335,10 +1341,32 @@ export function createCombatPanelController(doc, options = {}) {
         pending = '';
         abort = null;
         say(r);
-        if (r.session?.lobby) controlledId = r.session.lobby.heroId;
+        if (r.session?.lobby) controlledId = r.session.lobby.heroId ?? 'hero';
         render();
         if (r.session?.status === 'done') loadRewards();
+        runFollowUp(r.session);
         return r;
+    }
+
+    // 大厅里点选协助者：已选的取消，没选的加入，满两名时提示；结果由会话按在场与好感校验后重建建局。
+    function toggleAlly(name) {
+        const s = session();
+        const lobby = s?.state().challengeSetup ? challengeLobbyView(s.state()) : null;
+        if (!lobby || pending) return { ok: false, reason: pending ? 'combat-busy' : 'combat-session-unavailable' };
+        const picked = lobby.candidates.filter((item) => item.picked).map((item) => item.name);
+        if (!picked.includes(name) && picked.length >= lobby.maxAllies) { notice = combatReasonText('combat-ally-full'); render(); return { ok: false, reason: 'combat-ally-full' }; }
+        const r = s.pickChallengeAllies(picked.includes(name) ? picked.filter((item) => item !== name) : [...picked, name]);
+        notice = '';
+        say(r);
+        render();
+        return r;
+    }
+
+    // 入口上的「放弃」「交给托管」：面板准备好大厅后接着执行一次，只对日常挑战有效。
+    function runFollowUp(cur) {
+        const next = followUp;
+        followUp = '';
+        if (next && cur?.kind === 'challenge' && cur.status === 'lobby') invoke(next);
     }
 
     // 发送属于会话，不随面板关闭取消；失败可重开重发，升级奖励在重开时领取。
@@ -1715,6 +1743,10 @@ export function createCombatPanelController(doc, options = {}) {
             case 'reroll': return runAsync('flip', () => s.reroll());
             case 'retry-reward': return runAsync('reward', () => s.retryReward());
             case 'skip': return runAsync('skip', () => s.skip());
+            case 'auto': return runAsync('auto', () => s.autoPlay());
+            case 'ally': return toggleAlly(id);
+            case 'history': historyOpen = !historyOpen; render(); return { ok: true };
+            case 'abandon': return sendAndLeave(() => s.abandon());
             case 'reward': return claimReward(id);
             default: return { ok: false, reason: 'combat-action-unknown' };
         }
@@ -1988,7 +2020,10 @@ export function createCombatPanelController(doc, options = {}) {
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-combat-container' };
         const s = session();
         if (!s) return { ok: false, reason: 'combat-session-unavailable' };
+        const cur0 = s.state();
         messageId = Number.isInteger(openOptions.messageId) ? openOptions.messageId : null;
+        followUp = ['auto', 'abandon'].includes(openOptions.then) ? openOptions.then : '';
+        historyOpen = openOptions.history === true;
         notice = ''; pending = ''; selected = null; chosen = []; controlledId = null; rewards = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         frontFoe = '';
         token += 1;
@@ -2000,7 +2035,7 @@ export function createCombatPanelController(doc, options = {}) {
         root.id = COMBAT_PANEL_ID;
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-modal', 'true');
-        root.setAttribute('aria-label', '战斗');
+        root.setAttribute('aria-label', cur0.kind === 'challenge' ? '挑战' : '战斗');
         root.setAttribute('tabindex', '-1');
         root.setAttribute('data-igs-combat-skin', skinOf());
         const body = doc.createElement('div');
@@ -2038,6 +2073,7 @@ export function createCombatPanelController(doc, options = {}) {
         maybeFinish();
         if (messageId !== null && !busy && !same) prepare();
         else if (cur.status === 'done') loadRewards();
+        else runFollowUp(cur);
         // 焦点落在面板本身而不是关闭按钮：打开时右上角不画焦点环，按 Tab 仍从关闭按钮开始。
         root.focus?.();
         return { ok: true };

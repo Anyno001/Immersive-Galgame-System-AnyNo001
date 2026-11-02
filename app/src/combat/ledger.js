@@ -22,6 +22,7 @@ import {
 import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extractLossDirectives, scanCombatTags, scanGainTags, scanLossTags } from '../scene/combat-directives.js';
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportIdFor, reportIdOf } from './report.js';
+import { parseChallengeReport } from './challenge-report.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
 import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
@@ -48,6 +49,8 @@ export const TRAIT_TAG_HASH = 'trait';
 export const PANEL_TAG_HASH = 'panel';
 export const USE_TAG_HASH = 'use';
 export const ALLOC_TAG_HASH = 'alloc';
+// 日常挑战圆满后的经验牌：挂在战报楼上，战报是圆满才有效，不对应正文里的标签。
+export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
 const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound']);
@@ -243,6 +246,7 @@ function createFloorScanner(chat, sourceFilter) {
             const isUser = floor.is_user === true;
             const parsedReport = isUser ? combatReportResult(text) : null;
             const report = parsedReport ? { ...parsedReport, reportId: reportIdOf(text) } : null;
+            const challenge = isUser && !report ? parseChallengeReport(text) : null;
             const body = isUser ? text : combatBodyText(text, { sourceFilter });
             // 用户楼只有战报才有标签；AI 楼的标签 + 受伤等生活标签
             const tags = isUser && !report ? [] : [...scanCombatTags(body), ...(isUser ? [] : [...scanGainTags(body), ...scanLossTags(body)])];
@@ -251,6 +255,7 @@ function createFloorScanner(chat, sourceFilter) {
                 swipeId: swipeOf(floor),
                 keys: new Set([...tags, ...lifeTags].map((tag) => `${tag.tagHash}#${tag.occurrence}`)),
                 report,
+                challenge,
             };
         }
         cache.set(messageId, scan);
@@ -264,11 +269,13 @@ function inactiveReason(entry, scanFloor) {
     const floor = scanFloor(anchor.messageId);
     if (!floor) return 'message-missing';
     if (floor.swipeId !== anchor.swipeId) return 'swipe-changed';
-    const needsTag = !(FLOOR_ONLY_TYPES.has(entry.type)
+    const challengeReward = entry.type === 'learn' && anchor.tagHash === CHALLENGE_REWARD_TAG_HASH;
+    const needsTag = !(FLOOR_ONLY_TYPES.has(entry.type) || challengeReward
         || ((entry.type === 'equip' || entry.type === 'unequip') && anchor.tagHash === GEAR_TAG_HASH)
         || (entry.type === 'equip' && anchor.tagHash === INIT_GEAR_TAG_HASH)
         || (entry.type === 'heal' && anchor.tagHash === USE_TAG_HASH));
     if (needsTag && !floor.keys.has(`${anchor.tagHash}#${anchor.occurrence}`)) return 'tag-missing';
+    if (challengeReward && floor.challenge?.outcome !== '圆满') return 'challenge-reward-invalid';
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
     if (entry.type === 'loot' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'loot-report-invalid';
     if (entry.type === 'wound' && floor.report?.reportId !== entry.payload.reportId) return 'wound-report-invalid';

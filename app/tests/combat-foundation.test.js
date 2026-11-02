@@ -47,7 +47,7 @@ const pick = (list) => list[Math.floor(rng() * list.length)];
 function sameExports(name, mine, path) {
     const old = V039(path);
     // v0.39.1 / v0.39.2 新增导出，原版没有
-    const added = new Set(['crowdScaleFor', 'signatureSlotOf', 'signatureUnlockLevel', 'signatureCardAt']);
+    const added = new Set(['crowdScaleFor', 'signatureSlotOf', 'signatureUnlockLevel', 'signatureCardAt', 'COMBAT_KINDS', 'combatKindOf', 'combatGrammarEnabled', 'dailyChallengeEnabled', 'CHALLENGE_SEGMENT_ID', 'CHALLENGE_GRAMMAR_LINE', 'resolveChallengePromptSegment']);
     assert.deepEqual(Object.keys(mine).filter((key) => !added.has(key)).sort(), Object.keys(old).sort(), `${name} 导出名一致`);
     return old;
 }

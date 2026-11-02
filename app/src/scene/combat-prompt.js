@@ -12,6 +12,24 @@ export function combatExpansionEnabled(settings) {
     return asObject(asObject(settings).combatExpansion).enabled === true;
 }
 
+// 对决类型：combat 只有战斗，daily 仅日常挑战，both 两者；缺省 combat，旧存档行为不变。
+export const COMBAT_KINDS = Object.freeze(['combat', 'daily', 'both']);
+export function combatKindOf(settings) {
+    const kind = asObject(asObject(settings).combatExpansion).kind;
+    return COMBAT_KINDS.includes(kind) ? kind : 'combat';
+}
+export const combatGrammarEnabled = (settings) => combatExpansionEnabled(settings) && combatKindOf(settings) !== 'daily';
+export const dailyChallengeEnabled = (settings) => combatExpansionEnabled(settings) && combatKindOf(settings) !== 'combat';
+
+export const CHALLENGE_SEGMENT_ID = 'igs-challenge-rule';
+export const CHALLENGE_GRAMMAR_LINE = '【日常挑战】[igs-challenge:事件名|领域|难度|代价|对方]：剧情走到一件成败攸关、值得认真对待的事时，在该楼正文最后一行写一次，随后停笔，不写结果；领域写技能名，难度写 轻松/普通/艰难，代价写 压力/体力/金钱/关系，对方写在场人物名（代价为关系时必须写），后三项可省略';
+
+// quota 为 challengeQuota 的结果；额度用完或冷却中时不放语法行。
+export function resolveChallengePromptSegment(settings, quota) {
+    if (!dailyChallengeEnabled(settings) || !quota || quota.ok !== true) return null;
+    return { id: CHALLENGE_SEGMENT_ID, position: 'depth0', depth: 0, content: CHALLENGE_GRAMMAR_LINE, keys: ['challenge'] };
+}
+
 export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/unequip/rel/stat/heal';
 export const COMBAT_GAIN_LINE = '- [igs-fx:item|获得|名称|描述|类别|稀有度]：剧情中主角真的得到一件具体物品时写；类别只写 武器/防具/饰品/宝物/道具/杂物 之一（武器、防具、饰品、宝物是可装备的装备，道具是能在战斗中用一次的药剂、符咒、暗器等，其余写杂物）；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按物品品相写，可省略；对应部位空着时新装备会自动装上';
 export const COMBAT_LOSE_LINE = '- [igs-fx:item|失去|名称|描述|数量|角色]：剧情中物品真的离开持有者时写（被缴械、被夺走、损毁、交出、遗失），程序会从背包里扣掉；数量写数字，省略为 1，写「全部」表示持有的全部；角色是失去物品的人，主角写「我」或省略，同伴写角色名；只是收起或换下装备不写';
@@ -66,7 +84,7 @@ export function combatPromptMerged(settings) {
 
 // 战斗规则段正文；战斗未开启返回空串。
 export function resolveCombatPromptRule(settings) {
-    if (!combatExpansionEnabled(settings)) return '';
+    if (!combatGrammarEnabled(settings)) return '';
     const gainHere = combatGainInCombatBlock(settings);
     if (!combatPromptMerged(settings)) return buildRuleText(gainHere);
     return [
@@ -103,7 +121,7 @@ export function findPendingCombatReport(messages, { generationType = null, input
 }
 
 export function resolveCombatNarrationSegment(settings, messages, options = {}) {
-    if (!combatExpansionEnabled(settings)) return null;
+    if (!combatGrammarEnabled(settings)) return null;
     const report = findPendingCombatReport(messages, options);
     return report
         ? { id: COMBAT_NARRATION_SEGMENT_ID, position: 'depth0', depth: 0, content: `${NARRATION_HEAD}\n${NARRATION_BY_RESULT[report.result]}`, keys: ['combat-narration'], result: report.result }
@@ -126,7 +144,7 @@ export function combatPartyLines(members) {
 }
 
 export function resolveCombatPartySegment(settings, members) {
-    if (!combatExpansionEnabled(settings) || !Array.isArray(members) || !members.length) return null;
+    if (!combatGrammarEnabled(settings) || !Array.isArray(members) || !members.length) return null;
     const content = [
         '【主角团状态】主角与最近一场并肩作战的同伴此刻的状态，战斗留下的伤势会带到下一场。正文对伤势与体力的描写与此一致，不写具体数值：',
         ...members.map(partyLine),

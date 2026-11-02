@@ -92,7 +92,7 @@ import { collectPromptContext } from '../host/prompt-context.js';
 import { createCombatServices } from './combat-services.js';
 import { createCombatChatRecord } from '../host/combat-chat-record.js';
 import { createCombatStoryContext } from '../host/combat-story-context.js';
-import { combatExpansionEnabled, findPendingCombatReport, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
+import { combatExpansionEnabled, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
 const IGS_VERSION = '0.39.5';
@@ -443,6 +443,7 @@ export function bootstrapIGS(options = {}) {
             combatServices.autoPrepare(floor);
             if (typeof combatServices.autoGrowth === 'function') combatServices.autoGrowth(floor);
         })
+        getChallengeSnapshot: () => (app.statsRuntime && typeof app.statsRuntime.challengeSnapshot === 'function' ? app.statsRuntime.challengeSnapshot() : null),
         : null;
     app.igsUi = options.igsUi || createIgsReaderHost({
         global: globalObject,
@@ -549,6 +550,8 @@ export function bootstrapIGS(options = {}) {
         ascendCombatClass: (name) => combatServices.ascendClass(name),
         drawCombatTrait: (name) => combatServices.drawTrait(name),
         pickCombatTrait: (name) => combatServices.pickTrait(name),
+        getChallengeHistory: () => (typeof combatServices.challengeHistory === 'function' ? combatServices.challengeHistory() : null),
+        getChallengeQuota: (messageId) => (typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota(messageId) : null),
         unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
         setCombatGear: typeof combatServices.setGear === 'function' ? (name, slot, itemId) => combatServices.setGear(name, slot, itemId) : undefined,
         useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (item) => combatServices.useInventoryItem(item) : undefined,
@@ -1144,7 +1147,11 @@ export function bootstrapIGS(options = {}) {
             try { partyInput = typeof combatServices.partyPromptInput === 'function' ? combatServices.partyPromptInput(generationType) : null; } catch (error) { partyInput = null; }
         }
         const party = partyInput ? resolveCombatPartySegment(readerSettings, partyInput) : null;
-        return { statsOwns, segments: [narration, party, checks].filter(Boolean) };
+        let challenge = null;
+        if (normalizeFxPromptsSettings(readerSettings && readerSettings.fxPrompts).inject) {
+            try { challenge = resolveChallengePromptSegment(readerSettings, typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota() : null); } catch (error) { challenge = null; }
+        }
+        return { statsOwns, segments: [narration, party, checks, challenge].filter(Boolean) };
     }
 
     function syncSceneAssetsInjection(generationType = null) {
@@ -1207,7 +1214,7 @@ export function bootstrapIGS(options = {}) {
         // 卡牌战斗规则按「卡牌战斗」条目的模式与位置单独成段；战斗开关关着时 resolveCombatPromptRule 返回空串。
         const combatEntry = normalizePromptEntries(entries).combat;
         const combatInject = normalizeFxPromptsSettings(readerSettings && readerSettings.fxPrompts).inject;
-        const combatRule = combatEntry.mode === 'off' || !combatInject ? '' : (combatEntry.text.trim() || resolveCombatPromptRule(readerSettings));
+        const combatRule = combatEntry.mode === 'off' || !combatInject || !combatGrammarEnabled(readerSettings) ? '' : (combatEntry.text.trim() || resolveCombatPromptRule(readerSettings));
         const combatPlace = resolveEntryPlacement(combatEntry);
         const combatRuleSegment = combatRule
             ? { id: 'igs-combat-rule', position: combatPlace ? combatPlace.position : 'system', depth: combatPlace ? combatPlace.depth : 0, content: combatRule, keys: ['combat'] }
@@ -1248,7 +1255,7 @@ export function bootstrapIGS(options = {}) {
         pushFx('bilingual', resolveBilingualPromptRule(rs.bilingual));
         pushFx('daily', resolveDailyFxPromptRule(rs.dailyFx));
         // 卡牌战斗开启时，战斗规则取代旧的战斗演出规则。
-        if (combatExpansionEnabled(rs)) { if (fxPrompts.inject) rules.push(resolveCombatPromptRule(rs)); }
+        if (combatExpansionEnabled(rs)) { if (fxPrompts.inject && combatGrammarEnabled(rs)) rules.push(resolveCombatPromptRule(rs)); }
         else pushFx('battle', resolveBattleFxPromptRule(Boolean(rs.battleFx && rs.battleFx.enabled)));
         // 非人角色标签：与 pushFx 同一注入条件（inject 打开且战斗演出开启）；条目关闭则不发，条目正文非空时用用户的覆盖文本。
         { const entry = normalizePromptEntries(sceneAssets && sceneAssets.promptEntries).creature;

@@ -25,8 +25,10 @@ import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../com
 import { TRAIT_BASE_SLOTS, keptInnateKinds, nextTraitSlot, planTrait, traitFits, traitSeed } from '../combat/traits.js';
 import { planTraitShape } from '../combat/trait-pool.js';
 import { ABILITY_KEYS, parseCombatInit, wantsAutoInit } from '../combat/abilities.js';
-import { ensureCombatReportRegex } from '../host/combat-report-regex.js';
-import { normalizeCombatExpansionSettings } from '../visual/igs-ui/combat-settings.js';
+import { ensureChallengeReportRegex, ensureCombatReportRegex } from '../host/combat-report-regex.js';
+import { challengeQuota } from '../scene/challenge-directives.js';
+import { deriveChallengeHistory } from '../combat/challenge-history.js';
+import { combatBattleOn, dailyChallengeOn, normalizeCombatExpansionSettings } from '../visual/igs-ui/combat-settings.js';
 import { normalizeAutoIllustrationSettings } from '../generated-images/illustration/auto-illustration-settings.js';
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 
@@ -72,6 +74,8 @@ export function createCombatServices(options = {}) {
     const { global = globalThis, storage, send, request } = options;
     const readerSettings = () => (typeof options.getReaderSettings === 'function' ? options.getReaderSettings() : {}) || {};
     const settings = () => normalizeCombatExpansionSettings(readerSettings().combatExpansion);
+    // 当前对决类型认的标签：战斗与日常挑战各自独立，缺省只认战斗。
+    const kinds = () => ({ combat: combatBattleOn(settings()), challenge: dailyChallengeOn(settings()) });
     const getChatId = () => String((typeof options.getChatId === 'function' ? options.getChatId() : '') || '');
     const getChat = () => {
         const context = getSillyTavernContext(global);
@@ -206,6 +210,12 @@ export function createCombatServices(options = {}) {
                 chatRecord: options.chatRecord, llm: getLlm, sourceFilter: getSourceFilter, readLore, readStoryContext, now: () => Date.now(),
                 buildMode: getBuildMode, difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays,
                 awaitProtagonist: () => (protagonistTask && protagonistTask.key === protagonistKey() ? protagonistTask.promise : null),
+                kinds,
+                challenge: {
+                    state: () => (typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null),
+                    allowEscape: () => settings().daily.allowEscape,
+                    stake: () => settings().daily.stake,
+                },
             });
             try {
                 session.resume();
@@ -548,13 +558,14 @@ export function createCombatServices(options = {}) {
         return ensureOnce(impl, chatKey);
     }
 
-    // 同步战斗战报的正则（只成功一次）
+    // 同步战斗战报的正则（只成功一次）；开启日常挑战时一并同步挑战战报的折叠正则
     async function syncRegex() {
         if (!settings().enabled || regexState === 'ok' || regexState === 'pending') return regexState;
         regexState = 'pending';
         let result;
         try {
             result = await ensureCombatReportRegex(global);
+            if (result.ok && dailyChallengeOn(settings())) result = await ensureChallengeReportRegex(global);
         } catch {
             result = { ok: false, reason: 'regex-write-failed' };
         }
@@ -830,7 +841,7 @@ export function createCombatServices(options = {}) {
 
     // 新楼出现后自动成长：同聊天的多次触发合并进同一个队列
     function autoGrowth(messageId) {
-        if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        if (!combatBattleOn(settings())) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
         const floor = Number(messageId);
         if (!Number.isSafeInteger(floor) || floor < 0) return Promise.resolve({ ok: false, reason: 'combat-floor-missing' });
         const chatId = getChatId();
@@ -1126,7 +1137,7 @@ export function createCombatServices(options = {}) {
     };
 
     function prepareProtagonist({ manual = false } = {}) {
-        if (!settings().enabled) {
+        if (!combatBattleOn(settings())) {
             cancelProtagonist();
             return Promise.resolve({ ok: false, reason: 'combat-disabled' });
         }
@@ -1227,6 +1238,20 @@ export function createCombatServices(options = {}) {
         return state.characters.get(profileId)?.profile?.tier !== tier ? { ok: false, reason: 'combat-profile-unverified', id: profileId } : { ok: true, id: profileId, tier };
     }
 
+    // 日常挑战额度与冷却：floor 缺省取下一楼（提示词用），给定楼号时按该楼算（入口用）；没有启用日常挑战返回 null，数值系统未就绪时不设限。
+    function challengePromptQuota(floor = getChat().length) {
+        const cfg = settings();
+        if (!dailyChallengeOn(cfg)) return null;
+        let snapshot = null;
+        try { snapshot = typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null; } catch { snapshot = null; }
+        return challengeQuota(snapshot ? { clock: snapshot.clock } : null, { perDay: cfg.daily.perDay, cooldownFloors: cfg.daily.cooldownFloors, floor });
+    }
+
+    // 挑战历史：只读聊天里用户楼的战报，不写任何存储。
+    function challengeHistory() {
+        return deriveChallengeHistory(getChat().map((message, floor) => ({ floor, text: message && message.is_user === true ? String(message.mes ?? '') : '' })));
+    }
+
     // 自动备战：给定楼层有战斗标签且会话空闲时开始备战
     function autoPrepare(messageId) {
         const activeSession = getSession();
@@ -1236,7 +1261,7 @@ export function createCombatServices(options = {}) {
         let located;
         let state;
         try {
-            located = locateCombatStart(getChat(), floor, getSourceFilter());
+            located = locateCombatStart(getChat(), floor, getSourceFilter(), kinds());
             state = activeSession.state();
         } catch {
             return Promise.resolve({ ok: false, reason: 'combat-action-threw' });
@@ -1259,7 +1284,7 @@ export function createCombatServices(options = {}) {
     const INVENTORY_TRANSIENT = new Set(['inventory-table-not-ready', 'inventory-table-read-failed', 'inventory-runtime-not-ready']);
     let inventoryTakeover = null; // { key, promise }
     function takeoverInventory({ attempts = 4, delayMs = 1500 } = {}) {
-        if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        if (!combatBattleOn(settings())) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
         const chatId = getChatId();
         if (!chatId) return Promise.resolve({ ok: false, reason: 'combat-session-unavailable' });
         if (inventoryTakeover?.key === chatId) return inventoryTakeover.promise;
@@ -1326,7 +1351,7 @@ export function createCombatServices(options = {}) {
     return {
         getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
         drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,
         // 以下为新增：计数快照（不改既有导出）

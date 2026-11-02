@@ -2556,6 +2556,8 @@ export function createIgsReaderHost(options = {}) {
             if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
             const overlay = current.dom?.overlay;
             if (!overlay || !current.dom?.combatDeckController) return { ok: false, reason: 'combat-entry-missing' };
+            // 仅日常挑战时没有人物卡组，同一个按钮打开挑战记录。
+            if (normalizeCombatExpansionSettings(current.snapshot?.readerSettings?.combatExpansion).kind === 'daily') return current.dom.combatController.open(overlay, { history: true });
             return current.dom.combatDeckController.open(overlay);
         }
         if (normalizedAction === 'cg-gallery') {
@@ -5221,6 +5223,7 @@ ${row.key}`;
             getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
             resolvePortrait: (name) => resolveCombatPortrait(name),
+            challengeHistory: typeof options.getChallengeHistory === 'function' ? () => options.getChallengeHistory() : null,
             // 演出速度（原速 / 二倍速）记在 localStorage，跨战斗保留。
             storage: (options.global || globalThis).localStorage,
             // 手牌卡面只读本聊天本地缓存；无图时渲染层用线条 SVG，图片补载完成后经订阅刷新。
@@ -5610,20 +5613,20 @@ ${row.key}`;
         const live = current.streamPhase !== 'streaming' && !(Number(current.turnOffset) > 0);
         const floor = live && messageId != null && typeof options.getIllustrationSource === 'function'
             ? options.getIllustrationSource(messageId) : null;
-        const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: isReaderLastPage(snapshot), sourceFilter: current.payload && current.payload.sourceFilter }) : null;
+        const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: isReaderLastPage(snapshot), sourceFilter: current.payload && current.payload.sourceFilter, challengeQuota: typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null }) : null;
         state.combatAutoOpened ||= new Set();
         const auto = syncCombatEntry(overlay, entry, { seen: state.combatAutoOpened, onOpen: () => openCombatPanel(current, entry) });
         // 自动弹出只记成功打开的：地图、资料或构筑面板开着时不记，等下一次渲染再弹。
         if (auto && openCombatPanel(current, entry)?.ok === true) state.combatAutoOpened.add(entry.key);
     }
 
-    function openCombatPanel(current, entry) {
+    function openCombatPanel(current, entry, { then = '' } = {}) {
         const dom = current && current.dom;
         if (!dom || !dom.overlay || !entry) return { ok: false, reason: 'combat-entry-missing' };
         if (dom.mapController.isOpen() || dom.recordController.isOpen() || dom.combatDeckController?.isOpen()) return { ok: false, reason: 'panel-open' };
         const menu = dom.overlay.querySelector?.('#igs-hud-record-menu');
         if (menu && !menu.hasAttribute('hidden')) menu.setAttribute('hidden', '');
-        return dom.combatController.open(dom.overlay, { messageId: entry.messageId });
+        return dom.combatController.open(dom.overlay, { messageId: entry.messageId, ...(then ? { then } : {}) });
     }
 
     function syncMissedAssetsHint(current, snapshot) {

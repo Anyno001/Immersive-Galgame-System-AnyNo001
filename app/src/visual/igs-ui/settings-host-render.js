@@ -52,7 +52,10 @@ import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORI
 import { originChatStatus } from './origin-attach.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { COMBAT_DIFFICULTY_KEYS, COMBAT_RULES } from '../../combat/rules.js';
-import { COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, BATTLE_MODES, BATTLE_MODE_LABELS, BATTLE_MODE_PATH, battleModeOf, normalizeCombatExpansionSettings } from './combat-settings.js';
+import {
+    COMBAT_KIND_LABELS, COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, COMBAT_PRESET_DAILY_ONLY, COMBAT_PRESET_PATH, DAILY_COOLDOWN_CHOICES, DAILY_STAKES, DAILY_STAKE_LABELS,
+    BATTLE_MODES, BATTLE_MODE_LABELS, BATTLE_MODE_PATH, battleModeOf, normalizeCombatExpansionSettings,
+} from './combat-settings.js';
 import { buildStatsPageValues } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
@@ -223,7 +226,14 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 battleStoryHidden: hiddenAttr(mode !== 'story'),
                 battleCardHidden: hiddenAttr(mode !== 'card'),
                 battleStoryFields: checkbox(`${bp}.letterbox`, fx.letterbox, '战斗时加电影黑边') + checkbox(`${bp}.dash`, fx.dash, '出手冲刺'),
-                combatFields: field(`${p}.difficulty`, '难度', selectInput(`${p}.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
+                combatDailyHidden: hiddenAttr(mode !== 'card' || cx.kind === 'combat'),
+                combatDailyFields: field(`${p}.daily.perDay`, '每个游戏日次数', selectInput(`${p}.daily.perDay`, cx.daily.perDay, [1, 2, 3].map((n) => [n, `${n} 次`])))
+                    + field(`${p}.daily.cooldownFloors`, '两次之间至少间隔', selectInput(`${p}.daily.cooldownFloors`, cx.daily.cooldownFloors, DAILY_COOLDOWN_CHOICES.map((n) => [n, n ? `${n} 楼` : '不限'])))
+                    + field(`${p}.daily.stake`, '失败代价', segmentedInput(`${p}.daily.stake`, cx.daily.stake, DAILY_STAKES.map((k) => [k, DAILY_STAKE_LABELS[k]]), '失败代价'))
+                    + checkbox(`${p}.daily.allowEscape`, cx.daily.allowEscape, '允许放弃'),
+                combatFields: field(`${p}.kind`, '对决类型', segmentedInput(`${p}.kind`, cx.kind, Object.entries(COMBAT_KIND_LABELS), '对决类型'))
+                    + field(COMBAT_PRESET_PATH, '预设', segmentedInput(COMBAT_PRESET_PATH, cx.kind === 'daily' ? COMBAT_PRESET_DAILY_ONLY : '', [[COMBAT_PRESET_DAILY_ONLY, '仅日常挑战']], '预设'))
+                    + field(`${p}.difficulty`, '难度', selectInput(`${p}.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
                     + field(`${p}.reportDetail`, '战报详略', segmentedInput(`${p}.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略'))
                     + field(`${p}.skin`, '面板皮肤', segmentedInput(`${p}.skin`, cx.skin, COMBAT_PANEL_SKINS.map((k) => [k, COMBAT_PANEL_SKIN_LABELS[k]]), '面板皮肤')),
             };

@@ -51,3 +51,39 @@ export async function ensureCombatReportRegex(host = globalThis) {
     }
     return { ok: true, changed: true };
 }
+
+export const CHALLENGE_REPORT_REGEX_ID = 'igs-challenge-report-display';
+export const CHALLENGE_REPORT_FIND = '/<igs-challenge-report\b[^>]*>[\s\S]*?<\/igs-challenge-report>/gi';
+export const CHALLENGE_REPORT_REPLACE = `<details><summary>挑战记录</summary>
+
+{{match}}
+
+</details>`;
+
+export function challengeReportRegex() {
+    return { ...combatReportRegex(), id: CHALLENGE_REPORT_REGEX_ID, script_name: 'IGS 日常挑战：折叠战报', find_regex: CHALLENGE_REPORT_FIND, replace_string: CHALLENGE_REPORT_REPLACE };
+}
+
+// 日常挑战战报的折叠正则，写法与 ensureCombatReportRegex 一致。
+export async function ensureChallengeReportRegex(host = globalThis) {
+    const helper = getTavernHelper(host);
+    if (!helper || typeof helper.getTavernRegexes !== 'function' || typeof helper.replaceTavernRegexes !== 'function') {
+        return { ok: false, reason: 'regex-api-missing' };
+    }
+    const wanted = challengeReportRegex();
+    let existing;
+    try {
+        existing = helper.getTavernRegexes({ scope: 'global' }) || [];
+    } catch {
+        return { ok: false, reason: 'regex-read-failed' };
+    }
+    const current = existing.find((item) => item && item.id === CHALLENGE_REPORT_REGEX_ID);
+    if (current && JSON.stringify(current) === JSON.stringify(wanted)) return { ok: true, changed: false };
+    const others = existing.filter((item) => item && item.id !== CHALLENGE_REPORT_REGEX_ID);
+    try {
+        await helper.replaceTavernRegexes([...others, wanted], { scope: 'global' });
+    } catch {
+        return { ok: false, reason: 'regex-write-failed' };
+    }
+    return { ok: true, changed: true };
+}

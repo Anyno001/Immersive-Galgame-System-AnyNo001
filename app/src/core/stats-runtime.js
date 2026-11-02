@@ -9,6 +9,7 @@ import {
     BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, statTagHash, verifyStatImport,
 } from '../scene/stats/stat-log.js';
 import { hash32 } from '../combat/random.js';
+import { challengeDirectiveOf, parseChallengeReport } from '../combat/challenge-report.js';
 import { BUILD_MODES } from '../combat/abilities.js';
 import { checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, mergeCheckInputs, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe, checkCorrections } from '../scene/check-rolls.js';
 import { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } from '../scene/stats/stat-coc-checks.js';
@@ -635,6 +636,16 @@ export function createStatsRuntime({
         const name = userName();
         const detail = check.left ? contestFxDetail(check, name) : checkFxDetail(check, name);
         try { onCheck({ detail, check, messageId }); } catch (error) { /* 演出出错不影响结算 */ }
+    }
+
+    // 日常挑战战报是用户楼：由紧随其后的 AI 楼结算，回退或重新生成该楼时一并撤销。
+    function challengeDirectivesBefore(list, messageId) {
+        const found = [];
+        for (let index = messageId - 1; index >= 0 && list[index] && list[index].is_user; index -= 1) {
+            const directive = challengeDirectiveOf(parseChallengeReport(String(list[index].mes ?? '')), index);
+            if (directive) found.unshift(directive);
+        }
+        return found;
     }
 
     function settleAt(messageId, { redo = false, plan = null } = {}) {
@@ -1357,6 +1368,16 @@ export function createStatsRuntime({
             const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() });
             return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
         }),
+        // 日常挑战建局与额度门禁用的只读快照：生活条、技能值与时钟；没有启用时为 null。
+        challengeSnapshot: () => {
+            if (!active()) return null;
+            const state = currentStatsState(ledger);
+            const names = present(state);
+            return {
+                bars: state.protagonist.bars, skills: state.protagonist.skills, clock: state.clock, present: names,
+                favors: Object.fromEntries(names.map((name) => [name, Number(state.characters[name].dims && state.characters[name].dims['好感']) || 0])),
+            };
+        },
         // 状态栏常驻主角区：与 protagonistLookup 同一份条目，名字取玩家名；没启用或没有可显示的条时为 null。
         protagonistBlock: ev(() => {
             if (!active()) return null;

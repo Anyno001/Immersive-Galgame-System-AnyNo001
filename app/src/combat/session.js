@@ -12,7 +12,7 @@ import {
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
 import { attachLoot, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
-import { CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear } from './ledger.js';
+import { CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear } from './ledger.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
 import { ABILITY_KEYS, ABILITY_LABELS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
@@ -22,6 +22,14 @@ import { enemyArtKeyFor, isEnemyArtTheme } from './enemy-art.js';
 import { enemyLoadout } from './enemy-loadout.js';
 import { hash32 } from './random.js';
 import { extractCombatStart } from '../scene/combat-directives.js';
+import { parseChallengeStart } from '../scene/challenge-directives.js';
+import { chooseAllyPlay } from './policy.js';
+import { buildChallengeSetup, challengeCombatIdFor, challengeOutcomeOf, challengeResultOf } from './challenge-setup.js';
+import { chooseChallengeFoe } from './challenge-foe-pick.js';
+import { eligibleChallengeAllies } from './challenge-allies.js';
+import { challengeHarvest } from './challenge-foes.js';
+import { planChallengeReward } from './challenge-reward.js';
+import { buildChallengeReport, parseChallengeReport } from './challenge-report.js';
 import { chooseCard, emptyPick, flipCard, flipView, laterPick, lootOf, normalizePick, rerollPick } from './flip.js';
 import { REROLL_COST } from './points.js';
 import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
@@ -42,21 +50,47 @@ const sameAnchor = (a, b) => !!(a && b) && a.messageId === b.messageId && a.swip
 // 选项值可以是函数（每次取最新）
 const resolveOption = (value) => (typeof value === 'function' ? value() : value);
 
-// 定位某楼里的战斗起点：该楼必须是非用户楼且含战斗标签
-export function locateCombatStart(chat, messageId, sourceFilter) {
+// 定位某楼里的战斗起点：该楼必须是非用户楼且含战斗标签；kinds.challenge 为真时，没有战斗标签再认日常挑战标签，kinds.combat 为假则不认战斗标签。
+export function locateCombatStart(chat, messageId, sourceFilter, kinds = {}) {
     const message = Array.isArray(chat) ? chat[messageId] : null;
     if (!message || typeof message !== 'object' || message.is_user === true) return { ok: false, reason: 'combat-floor-missing' };
-    const { start } = extractCombatStart(messageText(message), { sourceFilter });
-    if (!start) return { ok: false, reason: 'combat-start-missing' };
-    const anchor = { messageId, swipeId: swipeIdOf(message), tagHash: start.tagHash, occurrence: start.occurrence };
-    return { ok: true, start, anchor, combatId: combatIdFor(anchor) };
+    const text = messageText(message);
+    const { start } = kinds.combat === false ? { start: null } : extractCombatStart(text, { sourceFilter });
+    if (start) {
+        const anchor = { messageId, swipeId: swipeIdOf(message), tagHash: start.tagHash, occurrence: start.occurrence };
+        return { ok: true, start, anchor, combatId: combatIdFor(anchor) };
+    }
+    const challenge = kinds.challenge === true ? parseChallengeStart(text, { sourceFilter }).start : null;
+    if (!challenge) return { ok: false, reason: 'combat-start-missing' };
+    const anchor = { messageId, swipeId: swipeIdOf(message), tagHash: challenge.tagHash, occurrence: challenge.occurrence };
+    return { ok: true, challenge: true, start: challenge, anchor, combatId: challengeCombatIdFor(anchor) };
+}
+
+// 战报块里的标识：战斗战报与日常挑战战报都认。
+const anyReportIdOf = (text) => reportIdOf(text) ?? parseChallengeReport(text)?.reportId ?? null;
+const CHALLENGE_TIERS = Object.freeze(['轻松', '普通', '艰难']);
+const AUTO_STEP_LIMIT = 400;
+
+// 代价轻重设置（light / normal / heavy）：结算按难度档查表，轻与重各让代价所用的难度档低一档或高一档；难关厚度不变。
+export function challengeCostTier(tier, stake) {
+    const index = Math.max(0, CHALLENGE_TIERS.indexOf(tier));
+    const shift = stake === 'light' ? -1 : stake === 'heavy' ? 1 : 0;
+    return CHALLENGE_TIERS[Math.min(CHALLENGE_TIERS.length - 1, Math.max(0, index + shift))];
+}
+
+// 回合上限到时引擎仍无结局：在适配层补一个胜负，状态与事件都按引擎结束的形态补齐。
+function challengeEnd(state, setup, events = []) {
+    const result = challengeResultOf(state, setup?.challenge?.rounds);
+    if (!result || state.outcome) return { state, events, result };
+    const outcome = result.result === 'win' ? 'victory' : 'defeat';
+    return { state: { ...state, outcome, phase: 'ended' }, events: [...events, { type: 'battle-end', outcome }], result };
 }
 
 // 在战斗楼之后找带有该战报标识的用户楼，找不到返回 -1
 export function findReportFloor(chat, afterIndex, reportId) {
     const floors = Array.isArray(chat) ? chat : [];
     for (let index = afterIndex + 1; index < floors.length; index += 1) {
-        if (floors[index]?.is_user === true && reportIdOf(messageText(floors[index])) === reportId) return index;
+        if (floors[index]?.is_user === true && anyReportIdOf(messageText(floors[index])) === reportId) return index;
     }
     return -1;
 }
@@ -535,6 +569,7 @@ const reportItemOf = (report) => ({
 
 // 本场消耗物品字段
 function usedPart(session) {
+    if (session?.kind === 'challenge') return {};
     const used = usedItems(session.record, session.battle);
     const owner = session.record?.itemOwner || session.record?.setup?.controlledId;
     return used.length && owner ? { used, character: owner } : {};
@@ -542,6 +577,7 @@ function usedPart(session) {
 
 // 本场各己方单位的最终伤势字段
 function woundPart(session) {
+    if (session?.kind === 'challenge') return {};
     const allies = Object.values(session.battle?.units || {}).filter((unit) => unit?.side === 'ally');
     if (!allies.length) return {};
     return { wounds: allies.map((unit) => ({ character: unit.id, hp: Math.max(0, Math.min(unit.maxHp, unit.alive ? unit.hp : 0)), maxHp: unit.maxHp, down: !unit.alive })) };
@@ -555,6 +591,10 @@ export function createCombatSession(options = {}) {
     const getSourceFilter = () => resolveOption(options.sourceFilter);
     const now = typeof options.now === 'function' ? options.now : () => Date.now();
     const difficultyOf = () => resolveOption(options.difficulty) || 'normal';
+    const challengeOptions = options.challenge || {};
+    const kindsNow = () => ({ combat: resolveOption(options.kinds)?.combat !== false, challenge: resolveOption(options.kinds)?.challenge === true });
+    const locate = (messageId, kinds = kindsNow()) => locateCombatStart(getChat(), messageId, getSourceFilter(), kinds);
+    const isChallenge = (session) => session?.kind === 'challenge';
 
     // ---- 持久层（节流合并写盘） ----
     const globalObject = options.global || globalThis;
@@ -583,12 +623,12 @@ export function createCombatSession(options = {}) {
     let flipSaving = false;
     const listeners = new Set();
 
-    const snapshot = () => ({ ...current, ...(recordError ? { recordError } : {}), legal: current.status === 'battle' && current.battle ? legalActions(current.battle) : [] });
+    const snapshot = () => ({ ...current, ...(isChallenge(current) && current.challengeResult ? { challengeSummary: challengeSummary(current) } : {}), ...(recordError ? { recordError } : {}), legal: current.status === 'battle' && current.battle ? legalActions(current.battle) : [] });
     const setState = (next) => { current = next; return snapshot(); };
     const ok = (extra = {}) => ({ ok: true, ...extra, session: snapshot() });
     const fail = (reason, extra = {}) => ({ ok: false, reason, ...extra, session: snapshot() });
     const sessionKey = () => sessionKeyFor(getChatId());
-    const identityOf = (session) => ({ combatId: session.combatId, anchor: session.anchor, start: session.start, reportId: session.reportId, chatId: session.chatId, ...(session.theme ? { theme: session.theme } : {}) });
+    const identityOf = (session) => ({ combatId: session.combatId, anchor: session.anchor, start: session.start, reportId: session.reportId, chatId: session.chatId, ...(session.theme ? { theme: session.theme } : {}), ...(isChallenge(session) ? { kind: 'challenge' } : {}) });
 
     // 会话记录读写：写入走节流，读取先看内存
     const readSession = () => persist.read(sessionKey());
@@ -600,7 +640,7 @@ export function createCombatSession(options = {}) {
     // 战斗楼还是当时那一版吗（楼层被改/重写则作废）
     const isCurrent = (session) => {
         if (session.chatId !== undefined && session.chatId !== getChatId()) return false;
-        const located = locateCombatStart(getChat(), session.anchor?.messageId, getSourceFilter());
+        const located = locate(session.anchor?.messageId, isChallenge(session) ? { combat: false, challenge: true } : kindsNow());
         return located.ok && sameAnchor(located.anchor, session.anchor);
     };
     const floorChanged = () => {
@@ -621,10 +661,37 @@ export function createCombatSession(options = {}) {
         return () => listeners.delete(listener);
     }
 
-    const buildReport = (session) => buildCombatReport({
+    function buildChallengeReportFor(session) {
+        const challenge = session.record?.setup?.challenge;
+        const end = session.challengeResult;
+        if (!challenge || !end) return { ok: false, reason: 'challenge-report-invalid' };
+        return buildChallengeReport({
+            combatId: session.combatId, event: challenge.event, result: end.result, willRatio: end.willRatio, byLimit: end.byLimit,
+            tier: challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake)), stake: challenge.stake, domain: challenge.domain,
+            detail: resolveOption(options.reportDetail) || 'normal', foe: challenge.foe, counterpart: challenge.counterpart, allies: challenge.allies,
+        });
+    }
+
+    // 结局、奖金与经验牌：与战报同一份难度档，面板结束页展示，结算由战报楼驱动；同一场只算一次。
+    const summaryCache = new Map();
+    function challengeSummary(session) {
+        const challenge = session.record?.setup?.challenge;
+        const end = session.challengeResult;
+        if (!challenge || !end) return null;
+        const cached = summaryCache.get(session.combatId);
+        if (cached && cached.end === end) return cached.value;
+        const tier = challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake));
+        const outcome = challengeOutcomeOf(end.result, end.willRatio, { byLimit: end.byLimit });
+        const harvest = challengeHarvest(challenge.foe, outcome, tier);
+        const reward = harvest.card ? planChallengeReward({ combatId: session.combatId, outcome, tier, foe: challenge.foe, domain: challenge.domain }) : null;
+        const value = { outcome, prize: harvest.prize, card: reward?.ok ? reward.card : null };
+        summaryCache.set(session.combatId, { end, value });
+        return value;
+    }
+    const buildReport = (session) => (isChallenge(session) ? buildChallengeReportFor(session) : buildCombatReport({
         combatId: session.combatId, encounter: session.record.encounter, state: session.battle, events: session.events,
         enemyTiers: session.record.tiers, expTargets: session.record.expTargets, detail: resolveOption(options.reportDetail) || 'normal',
-    });
+    }));
 
     // ---- 聊天记录（战斗结果、翻牌选择随聊天走） ----
     function readChatRecord(session) {
@@ -688,7 +755,7 @@ export function createCombatSession(options = {}) {
     // ---- 翻牌奖励 ----
     const currentReport = () => current.final || current.report || null;
     const currentResult = () => currentReport()?.result ?? (current.battle?.outcome === 'victory' ? 'win' : null);
-    const canFlip = () => (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win';
+    const canFlip = () => !isChallenge(current) && (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win';
     const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text) });
 
     // 读取奖励候选并合并三处来源（内存记录、本地会话、聊天记录）里的已翻结果；同一战斗并发调用共用同一次读取
@@ -800,7 +867,7 @@ export function createCombatSession(options = {}) {
     // ---- 备战 ----
     // 备战：同一战斗并发调用共用一次；结束后通知监听者
     async function prepare(messageId, prepareOptions = {}) {
-        const located = locateCombatStart(getChat(), messageId, getSourceFilter());
+        const located = locate(messageId);
         if (!located.ok) return fail(located.reason);
         if (prepareTask && prepareTask.combatId === located.combatId) return prepareTask.promise;
         const task = { combatId: located.combatId, promise: null };
@@ -828,7 +895,7 @@ export function createCombatSession(options = {}) {
         const chat = getChat();
         const userName = getUserName();
         if (!userName) return fail('combat-user-name-missing');
-        const session = { combatId: located.combatId, anchor: located.anchor, start: located.start, reportId: reportIdFor(located.combatId), chatId: getChatId() };
+        const session = { combatId: located.combatId, anchor: located.anchor, start: located.start, reportId: reportIdFor(located.combatId), chatId: getChatId(), ...(located.challenge ? { kind: 'challenge' } : {}) };
         if (findReportFloor(chat, messageId, session.reportId) >= 0) return ok({ session: setState({ ...session, status: 'done' }) });
         const chatRecord = readChatRecord(session);
         if (!chatRecord.ok) return blocked(session, chatRecord.reason);
@@ -847,6 +914,7 @@ export function createCombatSession(options = {}) {
             await loadFlip();
             return ok();
         }
+        if (located.challenge) return prepareChallenge(session, signal);
         setState({ ...session, status: 'preparing' });
         const protagonistWait = typeof options.awaitProtagonist === 'function' ? options.awaitProtagonist() : null;
         if (protagonistWait) {
@@ -975,6 +1043,39 @@ export function createCombatSession(options = {}) {
         });
     }
 
+    // 日常挑战备战：不读账本、不调副 LLM，直接按数值侧快照建局；结果放进大厅状态供面板展示。
+    // 难关先请副模型挑，不可用或被拒收时退回本地登记，失败不拦开局；协助者由玩家在大厅里挑，默认不带。
+    async function prepareChallenge(session, signal) {
+        setState({ ...session, status: 'preparing' });
+        const challengeState = resolveOption(challengeOptions.state) || null;
+        const start = { ...session.start, allowEscape: resolveOption(challengeOptions.allowEscape) !== false };
+        let picked = { foe: '', name: '' };
+        try {
+            picked = await chooseChallengeFoe({ event: start.event, domain: start.domain, request, llm: resolveOption(options.llm), signal, retryDelays: [] });
+        } catch { /* 副模型出错时沿用本地难关 */ }
+        if (signal?.aborted || !isCurrent(session)) { setState({ status: 'idle' }); return fail('request-stale'); }
+        const challengeStart = { ...start, ...(picked.source === 'llm' ? { foe: picked.foe, foeName: picked.name } : {}) };
+        const built = buildChallengeSetup({ start: challengeStart, state: challengeState, user: { name: getUserName() }, allies: [] });
+        if (!built.ok) return blocked(session, built.reason);
+        const candidates = eligibleChallengeAllies({ present: challengeState?.present, favors: challengeState?.favors, exclude: challengeStart.counterpart ? [challengeStart.counterpart] : [] });
+        return ok({
+            session: setState({
+                ...session, status: 'lobby', challenge: built.setup.challenge, challengeSetup: built.setup, challengeStart, challengeState, challengeCandidates: candidates,
+                lobby: { challenge: true, heroId: built.setup.controlledId, controllable: [built.setup.controlledId] }, skipped: [],
+            }),
+        });
+    }
+
+    // 大厅里挑协助者：只拒收不修正，名单按在场与好感校验后重建建局；最多两名。
+    function pickChallengeAllies(names) {
+        if (!isChallenge(current) || current.status !== 'lobby' || !current.challengeStart) return fail('combat-session-not-ready');
+        const built = buildChallengeSetup({ start: current.challengeStart, state: current.challengeState, user: { name: getUserName() }, allies: Array.isArray(names) ? names : [] });
+        if (!built.ok) return fail(built.reason);
+        setState({ ...current, challenge: built.setup.challenge, challengeSetup: built.setup });
+        notify();
+        return ok({ rejected: built.allies.rejected });
+    }
+
     // 奖励候选写进账本（只写 offer 类条目）
     async function writeOffers(generated) {
         const offers = generationWrites(generated, { createdAt: now() }).entries.filter((entry) => entry.type === 'offer');
@@ -1031,9 +1132,21 @@ export function createCombatSession(options = {}) {
     }
 
     // ---- 开战与出牌 ----
+    function startChallenge() {
+        const setup = { rulesVersion: COMBAT_RULES.version, ...current.challengeSetup };
+        const seed = seedFor(current.combatId);
+        const battle = createBattle(setup, seed);
+        if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
+        const record = { v: SESSION_VERSION, combatId: current.combatId, anchor: current.anchor, seed, setup, actions: [], encounter: current.start.event, tiers: [], expTargets: [] };
+        if (!writeSession(record)) return fail('combat-session-save-failed');
+        setState({ ...current, status: 'battle', record, battle: battle.state, events: battle.events, challengeResult: null });
+        return ok({ events: battle.events });
+    }
+
     function start({ controlledId } = {}) {
         if (current.status !== 'lobby') return fail('combat-session-not-ready');
         if (!isCurrent(current)) return floorChanged();
+        if (isChallenge(current)) return startChallenge();
         const built = buildSetup(current.lobby, current.start, { controlledId, difficulty: difficultyOf(), userName: getUserName(), combatId: current.combatId });
         if (!built.ok) return fail(built.reason);
         const seed = seedFor(current.combatId);
@@ -1056,18 +1169,19 @@ export function createCombatSession(options = {}) {
         if (!applied.ok) return fail(applied.error.reason, { error: applied.error });
         const record = { ...current.record, actions: [...current.record.actions, action] };
         if (!writeSession(record)) return fail('combat-session-save-failed');
-        setState({ ...current, record, battle: applied.state, events: [...current.events, ...applied.events], status: applied.state.outcome ? 'ended' : 'battle' });
-        if (applied.state.outcome) {
+        const end = isChallenge(current) ? challengeEnd(applied.state, record.setup, applied.events) : { state: applied.state, events: applied.events, result: null };
+        setState({ ...current, record, battle: end.state, events: [...current.events, ...end.events], status: end.state.outcome ? 'ended' : 'battle', ...(isChallenge(current) ? { challengeResult: end.result } : {}) });
+        if (end.state.outcome) {
             persist.flush(); // 战斗结束的记录马上落盘
             const report = buildReport(current);
             if (report.ok) {
                 const final = { ...reportItemOf(report), ...usedPart(current), ...woundPart(current) };
                 setState({ ...current, final });
                 finalWrite = saveResult(identityOf(current), final, current.battle);
-                if (final.result === 'win') loadFlip().catch(() => {});
+                if (final.result === 'win' && !isChallenge(current)) loadFlip().catch(() => {});
             }
         }
-        return ok({ events: applied.events });
+        return ok({ events: end.events });
     }
 
     // ---- 战报发送 ----
@@ -1105,8 +1219,16 @@ export function createCombatSession(options = {}) {
                 woundResult = { ok: false, reason: 'combat-wound-write-failed' };
             }
         }
+        if (isChallenge(current) && Number.isInteger(reportMessageId) && ledger?.append) {
+            const card = challengeSummary(current)?.card;
+            if (card) {
+                const hero = profileIdFor('deck-character', getUserName());
+                const anchor = { messageId: reportMessageId, swipeId: swipeIdOf(getChat()[reportMessageId]), tagHash: CHALLENGE_REWARD_TAG_HASH, occurrence: 0 };
+                try { await ledger.append([{ id: ledgerEntryId('learn', hero, anchor), type: 'learn', character: hero, anchor, payload: { card }, createdAt: now() }]); } catch { /* 经验牌入库失败不影响战报收尾 */ }
+            }
+        }
         let scan = null;
-        if (Number.isInteger(reportMessageId) && ledger?.scan) {
+        if (Number.isInteger(reportMessageId) && ledger?.scan && !isChallenge(current)) {
             try {
                 scan = await ledger.scan({ messageIds: [reportMessageId] });
             } catch {
@@ -1157,7 +1279,7 @@ export function createCombatSession(options = {}) {
         if (finalWrite) await finalWrite;
         if (!resultsSaved.has(combatId) && current.combatId === combatId) await saveResult(identityOf(current), report, current.battle);
         if (current.status !== 'ended' || current.combatId !== combatId) return fail('combat-session-not-ended');
-        const looted = await resolveLoot(report);
+        const looted = isChallenge(current) ? { ok: true, item: report } : await resolveLoot(report);
         if (!looted.ok) return fail(looted.reason);
         if (current.status !== 'ended' || current.combatId !== combatId) return fail('combat-session-not-ended');
         report = looted.item;
@@ -1173,7 +1295,7 @@ export function createCombatSession(options = {}) {
         if (!resultsSaved.has(current.combatId)) await saveResult(identityOf(current), current.report, current.battle);
         if (current.status !== 'send-failed' || !current.report) return fail('combat-nothing-to-send');
         const combatId = current.combatId;
-        const looted = await resolveLoot(current.report);
+        const looted = isChallenge(current) ? { ok: true, item: current.report } : await resolveLoot(current.report);
         if (!looted.ok) return fail(looted.reason);
         if (current.status !== 'send-failed' || current.combatId !== combatId) return fail('combat-nothing-to-send');
         if (looted.item !== current.report) {
@@ -1186,7 +1308,7 @@ export function createCombatSession(options = {}) {
 
     // 放弃战斗：发一条「跳过」消息并清掉会话记录（abandon）
     async function skip() {
-        if (!['lobby', 'blocked'].includes(current.status)) return fail('combat-session-not-skippable');
+        if (!['lobby', 'blocked'].includes(current.status) || isChallenge(current)) return fail('combat-session-not-skippable');
         if (!isCurrent(current)) return floorChanged();
         if (sending || typeof send !== 'function') return fail(sending ? 'combat-report-sending' : 'combat-send-unavailable');
         sending = true;
@@ -1207,7 +1329,7 @@ export function createCombatSession(options = {}) {
     // 重新开始（v0.39.2）：对局中，或败北 / 撤退出结果后，用本场同一份 setup 换新种子从头打；胜利后不给（战利品已按本场生成）。
     // 开战楼聊天记录里已写的结果先撤掉（写成 null），撤不掉就不重开，免得续战时读到旧战报；新对局存档写入成功后才切换。
     async function restart() {
-        const allowed = () => current.status === 'battle' || (current.status === 'ended' && current.battle?.outcome !== 'victory');
+        const allowed = () => !isChallenge(current) && (current.status === 'battle' || (current.status === 'ended' && current.battle?.outcome !== 'victory'));
         if (!allowed()) return fail('combat-restart-unavailable');
         if (!isCurrent(current)) return floorChanged();
         const combatId = current.combatId;
@@ -1237,6 +1359,33 @@ export function createCombatSession(options = {}) {
         return ok({ events: battle.events });
     }
 
+    // 托管：沿用同伴出牌策略替主角出牌，没有可出的牌就结束回合；结算与手动完全相同。
+    function autoPlay() {
+        if (!isChallenge(current)) return fail('combat-auto-unavailable');
+        if (current.status === 'lobby') {
+            const started = start();
+            if (!started.ok) return started;
+        }
+        for (let step = 0; step < AUTO_STEP_LIMIT && current.status === 'battle'; step += 1) {
+            const pick = chooseAllyPlay(current.battle, current.battle.controlledId);
+            let result = pick ? act({ type: 'play', ...pick }) : null;
+            if (!result?.ok) result = act({ type: 'end-turn' });
+            if (!result.ok) return result;
+        }
+        return current.status === 'ended' ? ok() : fail('combat-auto-stalled');
+    }
+
+    // 放弃：记为放弃结局并发出战报，代价由结算按半数处理。
+    async function abandon() {
+        if (!isChallenge(current) || !['lobby', 'battle'].includes(current.status)) return fail('combat-abandon-unavailable');
+        if (current.status === 'lobby') {
+            const started = start();
+            if (!started.ok) return started;
+        }
+        const escaped = act({ type: 'escape' });
+        return escaped.ok ? finish() : escaped;
+    }
+
     const afterResume = () => {
         if (canFlip()) loadFlip().catch(() => {});
         return ok();
@@ -1253,10 +1402,10 @@ export function createCombatSession(options = {}) {
             setState({ combatId: record.combatId, anchor: record.anchor, status: 'stale', reason: 'combat-rules-version-mismatch' });
             return fail('combat-rules-version-mismatch');
         }
-        const located = locateCombatStart(getChat(), record.anchor?.messageId, getSourceFilter());
+        const located = locate(record.anchor?.messageId, record.setup?.challenge ? { combat: false, challenge: true } : kindsNow());
         const session = {
             combatId: record.combatId, anchor: record.anchor, start: located.start, reportId: reportIdFor(record.combatId), chatId: getChatId(),
-            ...(isEnemyArtTheme(record.theme) ? { theme: record.theme } : {}),
+            ...(isEnemyArtTheme(record.theme) ? { theme: record.theme } : {}), ...(record.setup?.challenge ? { kind: 'challenge' } : {}),
         };
         if (!located.ok || !sameAnchor(located.anchor, record.anchor) || located.combatId !== record.combatId) {
             current = session;
@@ -1280,7 +1429,11 @@ export function createCombatSession(options = {}) {
         }
         const replayed = replayBattle(record.setup, record.seed, record.actions);
         if (replayed.ok) {
-            setState({ ...session, status: replayed.state.outcome ? 'ended' : 'battle', record, battle: replayed.state, events: replayed.events });
+            const end = isChallenge(session) ? challengeEnd(replayed.state, record.setup, replayed.events) : { state: replayed.state, events: replayed.events, result: null };
+            setState({
+                ...session, status: end.state.outcome ? 'ended' : 'battle', record, battle: end.state, events: end.events,
+                ...(isChallenge(session) ? { challenge: record.setup.challenge, challengeResult: end.result } : {}),
+            });
             return afterResume();
         }
         setState({ ...session, status: 'stale', reason: 'combat-replay-failed', error: replayed.error });
@@ -1296,7 +1449,7 @@ export function createCombatSession(options = {}) {
     }
 
     return {
-        prepare, start, act, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
+        prepare, start, act, autoPlay, abandon, pickChallengeAllies, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
         // 以下为写盘节流新增：立即落盘、写盘统计、释放监听器
         flushPersist,
         getPersistStats: () => ({ ...persist.stats, pending: persist.hasPending() }),

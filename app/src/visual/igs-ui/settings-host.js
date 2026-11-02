@@ -49,7 +49,7 @@ import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
 import { normalizeBuild } from '../../scene/stats/stat-build.js';
 import { refreshStatsBuildStatus } from './stats-settings-fields.js';
-import { BATTLE_MODE_PATH, checkCombatExpansionReady, planBattleMode } from './combat-settings.js';
+import { BATTLE_MODE_PATH, COMBAT_PRESET_PATH, checkCombatExpansionReady, planBattleMode, planCombatPreset } from './combat-settings.js';
 import { createEnemyAtlasManager, getEnemyAtlas, setEnemyAtlas } from './combat-enemy-atlas.js';
 import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
 import { originChatStatus, runAttachedOriginOp } from './origin-attach.js';
@@ -518,6 +518,13 @@ export function createSettingsHost(deps) {
             if (!plan.ok && plan.message) showSettingsNotice(plan.message);
             rerenderSettings();
             return plan.ok ? { ok: true } : { ok: false, reason: plan.reason, missing: plan.missing };
+        }
+        // 「仅日常挑战」预设：虚拟 path，写对决类型与日常字段的缺省值。
+        if (path === COMBAT_PRESET_PATH) {
+            const plan = planCombatPreset(value);
+            for (const [writePath, writeValue] of plan.writes) setPath(draft, writePath, writeValue);
+            rerenderSettings();
+            return { ok: plan.ok };
         }
         // 卡牌战斗开启前检查数据库表与副 LLM；通过后数值系统一并打开，战斗开着时数值系统不能单独关。
         if (path === 'readerSettings.combatExpansion.enabled' && value === true) {

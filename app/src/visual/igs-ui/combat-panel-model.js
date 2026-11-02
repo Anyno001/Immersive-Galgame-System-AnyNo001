@@ -9,6 +9,7 @@ import { CARD_TYPE_LABELS, cardArtSvg, describeEffectParts, describeEffects, des
 import { cardMotifSvg } from './combat-card-motifs.js';
 import { scalingMarks } from '../../combat/card-scaling.js';
 import { ABILITY_LABELS } from '../../combat/abilities.js';
+import { CHALLENGE_LABELS, challengeStatusName } from '../../combat/challenge-labels.js';
 
 // 卡牌属性性能显示：换算过的卡给出带增减标记的描述片段；固定卡与旧战斗不带字段，形状与旧版一致。
 // 带标记的数字附 tip（要求属性、倍率与「原值 → 现值（差值）」，点数字由面板弹出）；scaleNote 是同样内容的整句，并入卡牌 aria-label 供读屏。
@@ -83,6 +84,18 @@ export function cardKeywordNames(card) {
 export const COMBAT_STATUS_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '攻击力', dexterity: '防御力', poison: '中毒', regen: '再生', thorns: '荆棘', intangible: '无形', 'no-draw': '禁抽', endure: '不屈', artifact: '人工制品', frail: '脆弱' });
 export const COMBAT_INTENT_LABELS = Object.freeze({ attack: '攻击', defend: '防御', buff: '强化', debuff: '削弱', heal: '治疗', special: '特殊' });
 export const COMBAT_OUTCOME_LABELS = Object.freeze({ victory: '胜利', defeat: '败北', escape: '撤退' });
+// 日常挑战只换显示：结局名取自说法映射表，意图类别与剩余意志的描述在这里补全，内部字段与引擎不变。
+export const CHALLENGE_OUTCOME_LABELS = Object.freeze({ victory: CHALLENGE_LABELS.victory, defeat: CHALLENGE_LABELS.defeat, escape: CHALLENGE_LABELS.escape });
+export const CHALLENGE_INTENT_LABELS = Object.freeze({ attack: '施压', defend: '拖延', buff: '强化', debuff: '刁难', heal: '调整', special: '特殊' });
+const CHALLENGE_WORDS = Object.freeze([
+    ...Object.keys(COMBAT_STATUS_NAMES).filter((key) => challengeStatusName(key)).map((key) => [COMBAT_STATUS_NAMES[key], challengeStatusName(key)]),
+    ['伤害', CHALLENGE_LABELS.damage], ['格挡', CHALLENGE_LABELS.block], ['生命', CHALLENGE_LABELS.hp], ['敌人', CHALLENGE_LABELS.enemy],
+]);
+const challengeWords = (text) => (typeof text === 'string' ? CHALLENGE_WORDS.reduce((out, [from, to]) => out.split(from).join(to), text) : text);
+const willWords = (unit) => {
+    const ratio = unit.maxHp ? unit.hp / unit.maxHp : 0;
+    return ratio >= 0.6 ? '从容' : ratio >= 0.3 ? '吃力' : '力竭';
+};
 // 战斗成就牌子：标题与台词（判定见 combat/feats.js）。
 export const COMBAT_FEAT_LABELS = Object.freeze({
     'honor-kill': Object.freeze({ title: '荣誉击杀', line: '计划通り——最后一滴血，分毫不差。' }),
@@ -92,8 +105,8 @@ export const COMBAT_REWARD_CARD_COUNT = 3;
 export const COMBAT_ORDER_COUNT = 6;
 const FX_HIT_LIMIT = 6;
 
-const statusList = (statuses) => Object.entries(statuses || {}).filter(([, v]) => v > 0)
-    .map(([key, stacks]) => ({ key, label: COMBAT_STATUS_NAMES[key] || key, stacks }));
+const statusList = (statuses, challenge = false) => Object.entries(statuses || {}).filter(([, v]) => v > 0)
+    .map(([key, stacks]) => ({ key, label: (challenge && challengeStatusName(key)) || COMBAT_STATUS_NAMES[key] || key, stacks }));
 
 // 不选目标的牌 / 技能的承受方：选中后高亮这些单位，点其中任一个（或再点一次牌）确认打出。只读推导，不参与结算。
 function affectedIds(state, unit, effects) {
@@ -114,18 +127,18 @@ function affectedIds(state, unit, effects) {
     return [...out];
 }
 
-function intentView(state, id) {
+function intentView(state, id, challenge = false) {
     const intent = describeIntent(state, id);
     if (!intent) return null;
-    return { name: intent.name, kind: intent.intent, label: COMBAT_INTENT_LABELS[intent.intent] || '', damage: intent.damage, targetName: intent.targetId ? state.units[intent.targetId]?.name || '' : '' };
+    return { name: intent.name, kind: intent.intent, label: (challenge ? CHALLENGE_INTENT_LABELS : COMBAT_INTENT_LABELS)[intent.intent] || '', ...(challenge ? { unit: CHALLENGE_LABELS.damage } : {}), damage: intent.damage, targetName: intent.targetId ? state.units[intent.targetId]?.name || '' : '' };
 }
 
-export function unitView(state, id) {
+export function unitView(state, id, challenge = false) {
     const u = state.units[id];
     return {
         id, name: u.name, side: u.side, kind: u.kind, hp: Math.max(0, u.hp), maxHp: u.maxHp, block: u.block, alive: u.alive,
-        controlled: id === state.controlledId, statuses: statusList(u.statuses),
-        intent: u.side === 'enemy' ? intentView(state, id) : null,
+        controlled: id === state.controlledId, statuses: statusList(u.statuses, challenge),
+        intent: u.side === 'enemy' ? intentView(state, id, challenge) : null,
         // 敌人外观格位（setup 带 art 时）：面板据此在通用敌人图集里取图；我方与旧战斗不带该字段。
         ...(u.side === 'enemy' && typeof u.art === 'string' && u.art ? { art: u.art } : {}),
     };
@@ -194,7 +207,7 @@ export function unitDetailView(state, unitId) {
     return { id: u.id, name: u.name, side: u.side, groups };
 }
 
-export function battleView(state, legal = []) {
+export function battleView(state, legal = [], { challenge = false } = {}) {
     const hero = state.units[state.controlledId];
     const pile = state.piles[hero.id] || { draw: [], hand: [], discard: [], exhaust: [] };
     const plays = legal.filter((a) => a.type === 'play');
@@ -227,7 +240,7 @@ export function battleView(state, legal = []) {
     const sameCount = new Map();
     for (const c of hand) { const k = `${c.id}|${c.upgraded ? 1 : 0}`; sameCount.set(k, (sameCount.get(k) || 0) + 1); }
     for (const c of hand) { const n = sameCount.get(`${c.id}|${c.upgraded ? 1 : 0}`); if (n >= 2) c.stack = n; }
-    const side = (s) => state.order.filter((id) => state.units[id].side === s).map((id) => unitView(state, id));
+    const side = (s) => state.order.filter((id) => state.units[id].side === s).map((id) => unitView(state, id, challenge));
     // 人物技能：可用与否只看 legal 里的 hero-skill 动作；旧档案没有技能时为 null。
     const skillActs = legal.filter((a) => a.type === 'hero-skill' && a.skillId === undefined);
     const hs = hero.heroSkill;
@@ -243,7 +256,7 @@ export function battleView(state, legal = []) {
         type: aw.type, label: AWAKEN_TYPE_NAMES[aw.type] || '', line: aw.line || '', used: aw.used === true,
         text: describeEffects(COMBAT_RULES.awakenEffects[aw.type]), usable: legal.some((a) => a.type === 'awaken'),
     } : null;
-    return {
+    const view = {
         turn: state.turn, phase: state.phase, outcome: state.outcome, energy: hero.energy, energyPerTurn: hero.energyPerTurn,
         piles: { draw: pile.draw.length, discard: pile.discard.length, exhaust: pile.exhaust.length },
         hand, allies: side('ally'), enemies: side('enemy'), heroId: hero.id, heroSkill, awaken,
@@ -264,6 +277,21 @@ export function battleView(state, legal = []) {
         order: upcomingActors(state, COMBAT_ORDER_COUNT).map((id) => ({ id, name: state.units[id].name, side: state.units[id].side, controlled: id === state.controlledId })),
         // 行动条：每个存活单位沿线的进度（0 起点、1 出手点），面板按此定位头像；出牌阶段操控角色停在出手点。
         track: Object.entries(actionProgress(state)).map(([id, p]) => ({ id, p, name: state.units[id].name, side: state.units[id].side, controlled: id === state.controlledId })),
+    };
+    return challenge ? challengeBattleView(view) : view;
+}
+
+// 日常挑战：牌面、技能与道具说明里的战斗词换成日常说法，只改文案字段。
+function challengeBattleView(view) {
+    const words = (obj, keys) => Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, keys.includes(key) ? challengeWords(value) : value]));
+    return {
+        ...view,
+        hand: view.hand.map((card) => ({
+            ...words(card, ['text', 'keywords', 'scaleNote', 'bonusNote']),
+            ...(card.textParts ? { textParts: card.textParts.map((part) => ({ ...part, text: challengeWords(part.text), ...(part.tip ? { tip: challengeWords(part.tip) } : {}) })) } : {}),
+        })),
+        heroSkill: view.heroSkill ? words(view.heroSkill, ['text']) : null,
+        items: view.items.map((item) => words(item, ['text'])),
     };
 }
 
@@ -347,11 +375,36 @@ export function lobbyView(session) {
 }
 
 // events 为本场引擎事件：只用来推导成就，取到成就时才追加 feats（每项带标题与台词）。
-export function endView(state, events = []) {
+export function endView(state, events = [], { challenge = false, summary = null } = {}) {
     if (!state?.outcome) return null;
-    const allies = state.order.filter((id) => state.units[id].side === 'ally').map((id) => ({ name: state.units[id].name, injury: injuryLevel(state.units[id]) }));
+    const allies = state.order.filter((id) => state.units[id].side === 'ally').map((id) => ({ name: state.units[id].name, injury: challenge ? willWords(state.units[id]) : injuryLevel(state.units[id]) }));
+    if (challenge) return { outcome: state.outcome, label: CHALLENGE_OUTCOME_LABELS[state.outcome] || state.outcome, turn: state.turn, allies, ...(summary ? { challengeOutcome: summary.outcome, harvest: harvestView(summary) } : {}) };
     const feats = combatFeats(events, state).map((f) => ({ ...f, ...COMBAT_FEAT_LABELS[f.id] }));
     return { outcome: state.outcome, label: COMBAT_OUTCOME_LABELS[state.outcome] || state.outcome, turn: state.turn, allies, ...(feats.length ? { feats } : {}) };
+}
+
+// 圆满后的收获：奖金只写档位词，经验牌给名称与说明；没有收获时为 null。
+function harvestView(summary) {
+    if (!summary || (!summary.prize && !summary.card)) return null;
+    return { prize: summary.prize || '', card: summary.card ? { name: summary.card.name, rarity: summary.card.rarity, cost: summary.card.cost, text: challengeWords(describeEffects(summary.card.effects)) } : null };
+}
+
+// 日常挑战的战前视图：主角与难关各一名，结构与 lobbyView 对齐（面板复用同一套对阵画面）；难关不用敌人图集，只显示名称与难度。
+export function challengeLobbyView(session) {
+    const challenge = session?.challenge;
+    const setup = session?.challengeSetup;
+    const hero = setup?.units?.find((unit) => unit.side === 'ally');
+    const foe = setup?.units?.find((unit) => unit.side === 'enemy');
+    if (!challenge || !hero || !foe) return null;
+    return {
+        challenge: true, encounter: challenge.event, tier: challenge.tier, tierLabel: challenge.tier, domain: challenge.domain, stake: challenge.stake,
+        heroId: hero.id,
+        allies: [{ id: hero.id, name: hero.name, level: 0, kind: 'deck', className: '', controllable: true, hp: hero.maxHp, maxHp: hero.maxHp },
+            ...setup.units.filter((unit) => unit.side === 'ally' && unit.id !== hero.id).map((unit) => ({ id: unit.id, name: unit.name, level: 0, kind: 'deck', className: '', controllable: false }))],
+        candidates: (session.challengeCandidates || []).map((item) => ({ name: item.name, picked: challenge.allies.includes(item.name) })), maxAllies: 2,
+        enemies: [{ name: foe.name, count: 1, templated: false, tier: 'normal', art: null }],
+        absent: [], downed: [], skipped: [], canEscape: setup.canEscape !== false,
+    };
 }
 
 // 升级三选一：新卡从图鉴里未满同名上限的非基础卡中按 seed 确定性抽 3 张；升级选有升级形态且还有未升级副本的卡；始终可跳过。

@@ -5,12 +5,21 @@ import { LIVE_ICONS } from './danmaku-icons.js';
 import { RECORD_ICONS } from './record-icons.js';
 import { isCanvasSkin } from './combat-skin-canvas.js';
 import { CANVAS_BATTLE } from './combat-skin-registry.js';
+import { CHALLENGE_LABELS } from '../../combat/challenge-labels.js';
+import { CHALLENGE_ACHIEVEMENTS } from '../../combat/challenge-history.js';
 import { resultStageHtml, stageFxStyle } from './combat-stage-fx.js';
 
 // 战斗面板的 HTML 片段：只输出字段、状态、错误与操作确认；动作统一走 data-combat-act / data-combat-id。
 const REASON_TEXT = Object.freeze({
     'combat-busy': '上一步还在进行中',
     'combat-restart-unavailable': '现在不能重新开始',
+    'combat-auto-unavailable': '现在不能交给托管',
+    'combat-ally-full': '协助者最多两名',
+    'combat-auto-stalled': '托管没有走完，请手动继续',
+    'combat-abandon-unavailable': '现在不能放弃',
+    'escape-unavailable': '这次挑战不能放弃',
+    'challenge-start-missing': '这一楼没有挑战标签',
+    'challenge-report-invalid': '挑战战报生成失败',
     'combat-restart-record-failed': '撤销上一局结果失败，未重新开始',
     'combat-session-save-failed': '战斗存档保存失败',
     'combat-session-not-ready': '战斗尚未就绪',
@@ -134,7 +143,7 @@ const iconBtn = (act, label, icon, { primary = false, disabled = false } = {}) =
 // round 为当前回合数（纯数字），画成标题后的斜切回合横幅；0 时不画。
 // speed 为演出速度（1 原速、2 二倍速）：对局与结算演出期间在关闭按钮前画切换按钮（aria-pressed 表示是否二倍速）；0 时不画。
 const speedBtn = (speed) => `<button type="button" class="igs-combat-icon-btn igs-combat-speed" data-combat-act="speed" aria-pressed="${speed > 1 ? 'true' : 'false'}" aria-label="演出二倍速" title="演出二倍速">×2</button>`;
-const head = (title, extra = '', round = 0, speed = 0) => `<header class="igs-combat-head"><span class="igs-combat-title">${esc(title || '战斗')}</span>${round ? `<span class="igs-combat-round">第 ${esc(round)} 回合</span>` : ''}${extra}${speed ? speedBtn(speed) : ''}<button type="button" class="igs-combat-icon-btn" data-combat-act="close" aria-label="关闭">${LIVE_ICONS.close}</button></header>`;
+const head = (title, extra = '', round = 0, speed = 0, challenge = false) => `<header class="igs-combat-head"><span class="igs-combat-title">${esc(title || (challenge ? CHALLENGE_LABELS.battle : '战斗'))}</span>${round ? `<span class="igs-combat-round">第 ${esc(round)} 回合</span>` : ''}${extra}${speed ? speedBtn(speed) : ''}<button type="button" class="igs-combat-icon-btn" data-combat-act="close" aria-label="关闭">${LIVE_ICONS.close}</button></header>`;
 
 // 行动条：一条 SVG 细线，右端菱形为出手点；参战单位的小圆头像按行动值进度（--p，0–1）沿线定位，我方在线上、敌方在线下。
 // 有立绘用立绘，没有立绘的敌人用通用敌人图集的一格，否则写名字首字；可访问名称给出引擎推演的接下来几次出手顺序。
@@ -175,7 +184,7 @@ export function tintTriplet(value) {
 // 敌方意图：深色底小标签，图标与数值按意图着色；有伤害时显示伤害数，否则显示意图类别，后接招式名。
 function intentHtml(it) {
     const head = it.damage ? `<b class="igs-combat-intent-value">${esc(it.damage)}</b>` : `<span class="igs-combat-intent-kind">${esc(it.label)}</span>`;
-    const tip = `${it.label}·${it.name}${it.damage ? `，${it.damage} 点伤害` : ''}`;
+    const tip = `${it.label}·${it.name}${it.damage ? `，${it.damage} 点${it.unit || '伤害'}` : ''}`;
     return `<div class="igs-combat-intent" data-intent="${esc(it.kind)}" title="${esc(tip)}"><span class="igs-combat-intent-icon">${intentIconSvg(it.kind)}</span>${head}<span class="igs-combat-intent-name">${esc(it.name)}</span></div>`;
 }
 
@@ -328,7 +337,33 @@ function lobbyRewardHtml(r, pending) {
     const retry = waiting ? '' : btn('retry-reward', '重试', { disabled: Boolean(pending) });
     return `<div class="igs-combat-row igs-combat-lobby-reward" data-state="${waiting ? 'pending' : 'failed'}"><span class="igs-combat-label">${waiting ? '奖励生成中' : '奖励生成失败'}</span>${retry}</div>`;
 }
+// 日常挑战的战前对阵：沿用战前对阵的版式与皮肤，主角与难关各一块，只换文案；难度与领域放在横幅里。
+const CHALLENGE_LOBBY_TIER = Object.freeze({ 轻松: 'normal', 普通: 'elite', 艰难: 'boss' });
+function challengeLobbyHtml(v) {
+    const l = v.lobby;
+    const pics = v.portraits || {};
+    const hero = l.allies[0];
+    const foe = l.enemies[0];
+    const tint = pics[hero.name] ? tintTriplet((v.tints || {})[hero.name]) : '';
+    const helperHtml = l.allies.slice(1).map((a) => `<figure class="igs-combat-lobby-figure" data-side="ally">${portraitHtml(a.name, 'ally', pics[a.name] || '')}<span class="igs-combat-plate"><span class="igs-combat-plate-row"><b>${esc(a.name)}</b><small>相助</small></span></span></figure>`).join('');
+    const allyRow = l.candidates && l.candidates.length
+        ? `<div class="igs-combat-row igs-challenge-allies"><span class="igs-combat-label">协助者</span>${l.candidates.map((c) => `<button type="button" class="igs-combat-chip" data-combat-act="ally" data-combat-id="${esc(c.name)}" aria-pressed="${c.picked ? 'true' : 'false'}"${v.pending ? ' aria-disabled="true"' : ''}>${esc(c.name)}</button>`).join('')}</div>` : '';
+    const heroHtml = `<figure class="igs-combat-lobby-figure" data-side="ally" data-picked=""${tint ? ` style="--igs-combat-ally-tint:${tint}"` : ''}>${portraitHtml(hero.name, 'ally', pics[hero.name] || '')}`
+        + `<span class="igs-combat-plate"><span class="igs-combat-plate-row"><b>${esc(hero.name)}</b>${hero.maxHp ? `<small data-hp="">${CHALLENGE_LABELS.hp} ${esc(hero.maxHp)}</small>` : ''}</span></span></figure>`;
+    const foeHtml = `<figure class="igs-combat-lobby-figure" data-side="enemy" data-tier="${esc(CHALLENGE_LOBBY_TIER[l.tier] || 'normal')}">${portraitHtml(foe.name, 'enemy', '', null)}`
+        + `<figcaption class="igs-combat-plate"><b>${esc(foe.name)}</b><small>${CHALLENGE_LABELS.enemy}</small></figcaption></figure>`;
+    const banner = `<div class="igs-combat-lobby-top"><div class="igs-combat-lobby-banner"><b class="igs-combat-lobby-name">${esc(l.encounter || CHALLENGE_LABELS.battle)}</b><span class="igs-combat-lobby-tier">${esc([l.tierLabel, l.domain].filter(Boolean).join(' · '))}</span></div></div>`;
+    return `<section class="igs-combat-lobby" data-tier="${esc(CHALLENGE_LOBBY_TIER[l.tier] || 'normal')}"${v.intro ? ' data-intro=""' : ''}>${banner}`
+        + '<div class="igs-combat-lobby-stage"><span class="igs-combat-lobby-fx" aria-hidden="true"><i class="is-ally"></i><i class="is-enemy"></i></span>'
+        + `<div class="igs-combat-lobby-side is-ally" style="--n:${l.allies.length}">${heroHtml}${helperHtml}</div>`
+        + '<div class="igs-combat-lobby-vs" aria-hidden="true"><b>对</b></div>'
+        + `<div class="igs-combat-lobby-side is-enemy" data-n="1" style="--n:1;--k:1">${foeHtml}</div></div>`
+        + allyRow
+        + `<div class="igs-combat-actions">${btn('history', '挑战记录', { disabled: Boolean(v.pending) })}${l.canEscape ? btn('abandon', CHALLENGE_LABELS.escape, { disabled: Boolean(v.pending) }) : ''}${btn('auto', '交给托管', { disabled: Boolean(v.pending) })}${btn('start', '开始挑战', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
+}
+
 function lobbyHtml(v) {
+    if (v.lobby.challenge) return challengeLobbyHtml(v);
     const l = v.lobby;
     const pics = v.portraits || {};
     const arts = v.enemyArt || {};
@@ -412,7 +447,7 @@ function battleHtml(v) {
     // 能量球是装着暖色液体的圆槽：液面高度 = 当前 / 每回合（--fill），用掉多少液面就降多少，液面有波纹；「能量 x/y」只在 aria-label。
     // 能量圆标叠在主战者头像左上角；主动特性按钮在主战者头像右上方外侧（挂在头像框节点里，窄面板停靠时控制器移到停靠区）；牌堆数量在右下角回合组上方。
     const fill = Number(b.energyPerTurn) > 0 ? Math.min(1, Math.max(0, Number(b.energy) / Number(b.energyPerTurn))) : 0;
-    const energy = ended ? '' : `<div class="igs-combat-energy${Number(b.energy) > 0 ? '' : ' is-empty'}" role="img" aria-label="${esc(`能量 ${b.energy}/${b.energyPerTurn}`)}">`
+    const energy = ended ? '' : `<div class="igs-combat-energy${Number(b.energy) > 0 ? '' : ' is-empty'}" role="img" aria-label="${esc(`${v.challenge ? CHALLENGE_LABELS.energy : '能量'} ${b.energy}/${b.energyPerTurn}`)}">`
         + `<span class="igs-combat-energy-orb" style="--fill:${fill.toFixed(3)}"><i class="igs-combat-energy-liquid" aria-hidden="true"></i><b>${esc(b.energy)}</b></span></div>`;
     // 觉醒与道具都没有时不出空的控件列。
     const ctrl = ended ? '' : `${awakenHtml(b.awaken)}${itemsHtml(b.items, v.itemsOpen)}`;
@@ -426,7 +461,7 @@ function battleHtml(v) {
     const heroZone = `<div class="igs-combat-hero" style="--n:${b.allies.length || 1}">${heroCore}${matesHtml}</div>`;
     // 右下角回合操作组：撤退（透明底，只在允许撤退时出现）或选目标期间的取消、抽牌 / 弃牌数量、结束回合；作为底栏网格区，不压手牌。
     // 横向面板样式层竖排为撤退 / 取消、牌堆数量、结束回合；竖向 / 窄面板牌堆数量在上，撤退与结束回合同排。
-    const side = v.selected || picks.length ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? iconBtn('escape', '撤退', RECORD_ICONS.retreat) : '';
+    const side = v.selected || picks.length ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? iconBtn('escape', v.challenge ? CHALLENGE_LABELS.escape : '撤退', RECORD_ICONS.retreat) : '';
     const turnBtn = choice ? btn('choose-confirm', `${CHOICE_VERB[choice.kind] || '选择'} ${picks.length}/${choice.count}`, { primary: true, disabled: picks.length !== choice.count })
         : iconBtn('end-turn', '结束回合', RECORD_ICONS.turnEnd, { primary: true, disabled: !b.canEndTurn });
     const turn = ended ? '' : `<div class="igs-combat-turn">${styled ? '' : piles}<div class="igs-combat-turn-btns">${side}${turnBtn}</div></div>`;
@@ -497,6 +532,15 @@ function lootHtml(v) {
 // 有 offer 时选定战利品前不能发战报：读取中或未选定时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
 const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && !f.done));
 
+// 圆满后的收获：奖金档位与经验牌，只在结算画面显示。
+function harvestHtml(e) {
+    const h = e.harvest;
+    if (!h) return '';
+    const prize = h.prize ? `<div class="igs-challenge-harvest-row"><span class="igs-combat-label">奖金</span><b>${esc(h.prize)}</b></div>` : '';
+    const card = h.card ? `<div class="igs-challenge-harvest-row" data-rarity="${esc(h.card.rarity)}"><span class="igs-combat-label">经验牌</span><b>${esc(h.card.name)}</b><small>${esc(h.card.text)}</small></div>` : '';
+    return `<section class="igs-challenge-harvest">${prize}${card}</section>`;
+}
+
 function resultHtml(v) {
     const e = v.end;
     const b = v.battle;
@@ -509,14 +553,14 @@ function resultHtml(v) {
     const team = e.allies.map((a) => `<figure class="igs-combat-result-figure">${portraitHtml(a.name, 'ally', pics[a.name] || '')}<figcaption><span>${esc(a.name)}</span><span>${esc(a.injury)}</span></figcaption></figure>`).join('');
     return `<section class="igs-combat-result" data-outcome="${esc(e.outcome)}"><div class="igs-combat-result-head">${fx}<div class="igs-combat-result-title">${esc(e.label)}</div></div>${featsHtml(e.feats)}${foes}`
         + `<div class="igs-combat-result-team" style="--n:${e.allies.length || 1}">${team}</div>`
-        + `${lootHtml(v)}<div class="igs-combat-actions">${!won && v.canRestart ? btn('restart', v.pending === 'restart' ? '重开中' : '重新开始', { disabled: Boolean(v.pending) }) : ''}${lootBlocksSend(v.flip) ? '' : btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
+        + `${harvestHtml(e)}${lootHtml(v)}<div class="igs-combat-actions">${!won && v.canRestart ? btn('restart', v.pending === 'restart' ? '重开中' : '重新开始', { disabled: Boolean(v.pending) }) : ''}${lootBlocksSend(v.flip) ? '' : btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
 }
 // 风格化皮肤的结算：照搬设计稿的结算版式（combat-stage-fx.js），战利品与按钮放在下方可点区；初始方案仍用 resultHtml。
 function stageResultHtml(v) {
     const won = v.end.outcome === 'victory';
     const order = [...v.battle.allies].sort((a, c) => Number(c.controlled) - Number(a.controlled)).map((u) => u.name);
     const actions = `<div class="igs-combat-actions">${!won && v.canRestart ? btn('restart', v.pending === 'restart' ? '重开中' : '重新开始', { disabled: Boolean(v.pending) }) : ''}${lootBlocksSend(v.flip) ? '' : btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) })}</div>`;
-    return resultStageHtml({ skin: v.skin, orient: v.orient === 'land' ? 'land' : 'port', end: v.end, order, pics: v.portraits || {}, ui: `${lootHtml(v)}${actions}`, esc });
+    return resultStageHtml({ skin: v.skin, orient: v.orient === 'land' ? 'land' : 'port', end: v.end, order, pics: v.portraits || {}, ui: `${harvestHtml(v.end)}${lootHtml(v)}${actions}`, esc });
 }
 // 对局中的「重新开始」：标题栏图标钮，点一次换成「确认重新开始 / 取消」，再点才放弃本局从头打。
 const restartCtl = (v) => (v.restartArmed
@@ -534,25 +578,51 @@ function rewardHtml(r, pending) {
 
 // 阻断：跳过或重试；数据库表原因的「重试」先补建表再准备（combat-panel.js retryPrepare）。
 function blockedHtml(v) {
-    return `<div class="igs-combat-actions">${btn('skip', '跳过战斗', { disabled: Boolean(v.pending) })}${btn('retry-prepare', '重试', { primary: true, disabled: Boolean(v.pending) })}</div>`;
+    return `<div class="igs-combat-actions">${v.challenge ? '' : btn('skip', '跳过战斗', { disabled: Boolean(v.pending) })}${btn('retry-prepare', '重试', { primary: true, disabled: Boolean(v.pending) })}</div>`;
 }
 
-const STATUS_LINE = Object.freeze({
+// 九套画布皮肤的版面固定在各自文件里：日常挑战只在输出上替换几处用户可见的战斗词，限定在带引号或尖括号的完整词与固定句式，事件名等正文不受影响。
+const CANVAS_WORDS = Object.freeze([
+    [/(["'>])撤退(["'<])/g, `$1${CHALLENGE_LABELS.escape}$2`], [/格挡 <b>/g, `${CHALLENGE_LABELS.block} <b>`],
+    [/点伤害/g, `点${CHALLENGE_LABELS.damage}`], [/点能量/g, `点${CHALLENGE_LABELS.energy}`], [/能量 (\d+\/\d+)/g, `${CHALLENGE_LABELS.energy} $1`],
+]);
+const challengeCanvasText = (html) => CANVAS_WORDS.reduce((out, [pattern, text]) => out.replace(pattern, text), String(html));
+
+// 挑战记录：由聊天里的战报楼只读推导，最近的在前。
+const OUTCOME_ORDER = Object.freeze(['圆满', '勉强', '失败', '放弃']);
+function historyHtml(v) {
+    const h = v.history;
+    if (!h) return '<p class="igs-combat-state">没有可读取的记录</p>';
+    const st = h.stats;
+    const summary = `<div class="igs-combat-row"><span class="igs-combat-label">总计</span><span class="igs-combat-chip">${esc(st.total)} 次</span>${OUTCOME_ORDER.map((name) => `<span class="igs-combat-chip">${name} ${esc(st.byOutcome[name])}</span>`).join('')}<span class="igs-combat-chip">最长连胜 ${esc(st.bestStreak)}</span></div>`;
+    const earned = new Set((h.achievements || []).map((item) => item.id));
+    const feats = `<div class="igs-combat-row igs-challenge-feats"><span class="igs-combat-label">成就</span>${Object.entries(CHALLENGE_ACHIEVEMENTS).map(([id, name]) => `<span class="igs-combat-chip" data-earned="${earned.has(id) ? 'true' : 'false'}">${esc(name)}</span>`).join('')}</div>`;
+    const rows = h.entries.slice().reverse().map((e) => `<li class="igs-challenge-history-row" data-outcome="${esc(e.outcome)}"><b>${esc(e.event || '挑战')}</b><span>${esc([e.tier, e.domain].filter(Boolean).join(' · '))}</span><em>${esc(e.outcome)}</em><small>第 ${esc(e.floor)} 楼</small></li>`).join('');
+    const list = h.entries.length ? `<ol class="igs-challenge-history">${rows}</ol>` : '<p class="igs-combat-state">还没有挑战记录</p>';
+    return `${summary}${feats}${list}<div class="igs-combat-actions">${v.status === 'idle' ? '' : btn('history', '返回', { primary: true })}</div>`;
+}
+
+const COMBAT_STATUS_LINE = Object.freeze({
     unavailable: '战斗会话不可用', idle: '', preparing: '正在准备战斗', skipped: '已跳过战斗', stale: '',
     done: '战报已发送', 'send-failed': '战报未发送',
 });
+
+const CHALLENGE_STATUS_LINE = Object.freeze({ ...COMBAT_STATUS_LINE, unavailable: '挑战会话不可用', preparing: '正在准备挑战', skipped: '已放弃挑战' });
 
 // 照搬概念稿的皮肤：战斗中画面换成该套的固定画布（标题栏、行动顺序都在画布里），其余阶段沿用下面的标记。
 
 export function renderCombatPanelHtml(v) {
     const status = v.status;
+    const STATUS_LINE = v.challenge ? CHALLENGE_STATUS_LINE : COMBAT_STATUS_LINE;
     if (isCanvasSkin(v.skin) && CANVAS_BATTLE[v.skin] && v.battle && v.pending !== 'prepare' && (status === 'battle' || (status === 'ended' && v.settling))) {
-        return `${noticeHtml(v.notice)}${CANVAS_BATTLE[v.skin](v, v.orient === 'land' ? 'land' : 'port')}`;
+        const canvas = CANVAS_BATTLE[v.skin](v, v.orient === 'land' ? 'land' : 'port');
+        return `${noticeHtml(v.notice)}${v.challenge ? challengeCanvasText(canvas) : canvas}`;
     }
     if (stageFxStyle(v.skin) && status === 'ended' && v.battle && v.end && !v.settling && v.pending !== 'prepare') return `${noticeHtml(v.notice)}${stageResultHtml(v)}`;
     let main = '';
+    if (v.historyOpen) main = historyHtml(v);
     // 准备进行中优先显示，不被上一次的阻塞原因遮挡（重试期间状态仍是 blocked）。
-    if (v.pending === 'prepare') main = `<p class="igs-combat-state" aria-busy="true">${STATUS_LINE.preparing}</p>`;
+    else if (v.pending === 'prepare') main = `<p class="igs-combat-state" aria-busy="true">${STATUS_LINE.preparing}</p>`;
     else if (status === 'lobby' && v.lobby) main = lobbyHtml(v);
     // 结束后先按战斗画面播完最后一段演出（settling），再换成结算画面。
     else if (status === 'ended' && v.battle && v.end && !v.settling) main = resultHtml(v);
@@ -571,6 +641,6 @@ export function renderCombatPanelHtml(v) {
     const lobbyDrawn = status === 'lobby' && Boolean(v.lobby) && v.pending !== 'prepare';
     const round = status === 'battle' && v.battle && !v.battle.outcome ? Number(v.battle.turn) || 0 : 0;
     const speed = (status === 'battle' || (status === 'ended' && v.settling)) && v.battle ? v.fxSpeed || 1 : 0;
-    return `${head(lobbyDrawn ? '' : v.encounter, track + restart, round, speed)}${noticeHtml(notice)}<div class="igs-combat-main" data-status="${esc(status)}">${main}</div>`;
+    return `${head(lobbyDrawn ? '' : v.encounter, track + restart, round, speed, v.challenge === true)}${noticeHtml(notice)}<div class="igs-combat-main" data-status="${esc(status)}">${main}</div>`;
 }
 
