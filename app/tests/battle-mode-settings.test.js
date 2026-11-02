@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { battleModeOf, planBattleMode } from '../src/visual/igs-ui/combat-settings.js';
 import { SETTINGS_PAGES, SETTINGS_CATEGORIES } from '../src/visual/igs-ui/settings-pages.js';
 import { SETTINGS_SEARCH_INDEX, searchSettings } from '../src/visual/igs-ui/settings-search.js';
+import { PERFORMANCE_PRESETS, applyPerformancePreset, detectPerformancePreset, capturePerformancePreset, restorePerformancePreset } from '../src/visual/igs-ui/performance-presets.js';
 
 test('三选一由两个字段推出：卡牌战斗优先，其次剧情演出，否则关闭', () => {
     assert.equal(battleModeOf({ combatExpansion: { enabled: true }, battleFx: { enabled: true } }), 'card');
@@ -35,10 +36,27 @@ test('战斗分类紧挨数值系统，搜索能找到', () => {
     for (const q of ['战斗', '卡牌战斗', '战斗演出']) assert.ok(searchSettings(q, SETTINGS_SEARCH_INDEX).some((e) => e.target.page === 'combat'), q);
 });
 
-test('卡牌战斗开启时，保留的 battleFx.enabled 不计入演出数量', async () => {
+test('演出数量不计入 battleFx', async () => {
     const { countEnabledPerformance } = await import('../src/visual/igs-ui/performance-settings-layout.js');
-    const base = { battleFx: { enabled: true } };
-    const story = countEnabledPerformance(base).performance;
-    assert.equal(countEnabledPerformance({ ...base, combatExpansion: { enabled: true } }).performance, story - 1);
-    assert.equal(countEnabledPerformance({ ...base, combatExpansion: { enabled: false } }).performance, story);
+    assert.equal(countEnabledPerformance({ battleFx: { enabled: true } }).performance, countEnabledPerformance({}).performance);
+});
+
+test('演出档位不读不写 battleFx：切档位保持原值，识别不受影响', () => {
+    for (const original of [true, false]) {
+        for (const [preset] of PERFORMANCE_PRESETS) {
+            const reader = { battleFx: { enabled: original, dash: 1 } };
+            assert.ok(applyPerformancePreset(reader, preset));
+            assert.equal(reader.battleFx.enabled, original);
+            assert.equal(reader.battleFx.dash, 1);
+            assert.equal(detectPerformancePreset(reader), preset);
+            reader.battleFx.enabled = !original;
+            assert.equal(detectPerformancePreset(reader), preset);
+        }
+    }
+    const reader = { battleFx: { enabled: true } };
+    const snapshot = capturePerformancePreset(reader);
+    assert.ok(!('battleFx' in snapshot));
+    applyPerformancePreset(reader, 'off');
+    assert.ok(restorePerformancePreset(reader, snapshot));
+    assert.equal(reader.battleFx.enabled, true);
 });
