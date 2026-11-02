@@ -14,6 +14,7 @@ export function combatExpansionEnabled(settings) {
 
 export const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/unequip/rel/stat/heal';
 export const COMBAT_GAIN_LINE = '- [igs-fx:item|获得|名称|描述|类别|稀有度]：剧情中主角真的得到一件具体物品时写；类别只写 武器/防具/饰品/宝物/道具/杂物 之一（武器、防具、饰品、宝物是可装备的装备，道具是能在战斗中用一次的药剂、符咒、暗器等，其余写杂物）；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按物品品相写，可省略；对应部位空着时新装备会自动装上';
+export const COMBAT_LOSE_LINE = '- [igs-fx:item|失去|名称|描述|数量|角色]：剧情中物品真的离开持有者时写（被缴械、被夺走、损毁、交出、遗失），程序会从背包里扣掉；数量写数字，省略为 1，写「全部」表示持有的全部；角色是失去物品的人，主角写「我」或省略，同伴写角色名；只是收起或换下装备不写';
 
 export function itemFxPromptEnabled(settings) {
     return asObject(asObject(settings).itemFx).enabled === true;
@@ -33,8 +34,9 @@ function buildRuleText(includeGain = false) {
 - [igs-combat:learn|角色|技能名|简述|稀有度]：剧情中习得新技能；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按这门技能在剧情中的分量写，可省略
 - [igs-combat:upgrade|角色|技能名|简述]：已有技能得到精进
 - [igs-combat:class|角色|职业]：转职或觉醒
-- [igs-combat:unequip|角色|名称]：剧情中卸下、丢失或交出某件装备${includeGain ? `
-${COMBAT_GAIN_LINE}` : ''}
+- [igs-combat:unequip|角色|名称]：剧情中卸下某件装备，装备仍归此人所有；被夺走、损毁或交出时改写失去标签${includeGain ? `
+${COMBAT_GAIN_LINE}
+${COMBAT_LOSE_LINE}` : ''}
 - [igs-combat:rel|角色|档]：每层给本层登场的非主角各写一个，主角不写；档只写 远逊/稍弱/相当/稍强/强敌/碾压 之一，表示此人此刻相对主角的强弱；强弱没变就照写原档
 - [igs-combat:stat|角色|属性|点数|原因]：只在剧情确实让主角锻炼、领悟、服药等而提升某项属性时写，角色只写主角；属性只写 力量/敏捷/体质/智力/感知/魅力 之一；点数 1–2，每层合计不超过2
 - [igs-combat:heal|角色|恢复量|原因]：战斗留下的伤势会带到下一场；剧情中角色休息、接受治疗、服药等恢复生命时写；恢复量写点数（如 20）或生命上限的百分比（如 50%）；倒下的同伴要靠它恢复后才能再参战
@@ -55,7 +57,7 @@ export const COMBAT_STORY_LINES = Object.freeze(ruleLinesOf(['start', 'awaken', 
 export const COMBAT_GEAR_LINES = Object.freeze(ruleLinesOf(['unequip']));
 export const COMBAT_GROWTH_LINES = Object.freeze(ruleLinesOf(['rel', 'stat', 'heal']));
 export const COMBAT_SYNTAX_LINES = Object.freeze(buildRuleText().split('\n').filter((line) => /^\d\. /.test(line)));
-export const COMBAT_MERGED_GRAMMAR_INDEX = '战斗 igs-combat:unequip igs-fx:item获得';
+export const COMBAT_MERGED_GRAMMAR_INDEX = '战斗 igs-combat:unequip igs-fx:item获得/失去';
 
 // 合并模式：剧情类标签并入别处，这里只剩装备与道具。
 export function combatPromptMerged(settings) {
@@ -70,7 +72,7 @@ export function resolveCombatPromptRule(settings) {
     return [
         '【战斗·装备与道具】标签写作 [igs-combat:类型|参数]：',
         ...COMBAT_GEAR_LINES,
-        ...(gainHere ? [COMBAT_GAIN_LINE] : []),
+        ...(gainHere ? [COMBAT_GAIN_LINE, COMBAT_LOSE_LINE] : []),
         '',
         '语法要求：装备与道具标签只在剧情确实发生时写，主角写「我」以外的名字时用角色名',
     ].join('\n');

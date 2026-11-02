@@ -435,6 +435,7 @@ export function bootstrapIGS(options = {}) {
     syncCombat();
     state.combatFloorOff = typeof illustrationMessageHost.onImageFloorReady === 'function' && typeof combatServices.autoPrepare === 'function'
         ? illustrationMessageHost.onImageFloorReady((floor) => {
+            prepareCombatProtagonist();
             combatServices.autoPrepare(floor);
             if (typeof combatServices.autoGrowth === 'function') combatServices.autoGrowth(floor);
         })

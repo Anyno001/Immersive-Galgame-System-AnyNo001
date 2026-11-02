@@ -15,6 +15,7 @@ import { inventoryIconHtml, resolveInventoryImage } from './inventory-slot-image
 import { openItemImageViewer, closeItemImageViewer } from './item-image-viewer.js';
 import { recoverMediaOperation } from '../../media/tavern-media-http.js';
 import { deckReasonText } from './combat-deck-panel-render.js';
+import { gearBonusText } from './combat-deck-panel-model.js';
 import { STOCK_RARITY_LABELS, STOCK_SLOT_LABELS } from '../../combat/inventory-writes.js';
 import { sellPrice } from '../../combat/points.js';
 
@@ -36,7 +37,8 @@ function indexHeroInventory(view) {
             if (!it?.name) continue;
             // 同名装备穿着一件、背包还有余量时，背包里的那件可以卖。
             if (index.has(it.name)) { if (kind === 'gear' && !extra.equipped) index.get(it.name).spare = true; continue; }
-            index.set(it.name, { kind, slot: it.slot || '', rarity: it.rarity || '', gearId: kind === 'gear' ? String(it.gearId || '') : '', itemId: kind === 'keepsake' ? String(it.itemId || '') : '', ...extra });
+            index.set(it.name, { kind, slot: it.slot || '', rarity: it.rarity || '', gearId: kind === 'gear' ? String(it.gearId || '') : '', itemId: kind === 'keepsake' ? String(it.itemId || '') : '',
+                ...(kind === 'gear' && it.bonus ? { bonus: it.bonus } : {}), ...(kind === 'gear' && it.passive ? { passive: it.passive } : {}), ...extra });
         }
     };
     put(Object.values(view.gear?.slots || {}), 'gear', { equipped: true });
@@ -612,6 +614,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const quantity = String(chosen.quantity ?? '').trim();
             const useService = typeof options.useInventoryItem === 'function';
             const chosenMeta = heroInv ? heroOf(chosen) : null;
+            const bonusText = chosenMeta?.kind === 'gear' ? gearBonusText(chosenMeta) : '';
+            const passiveText = chosenMeta?.kind === 'gear' ? (chosenMeta.passive?.description || chosenMeta.passive?.name || '') : '';
+            const gearCells = [...(bonusText ? [{ label: '加成', value: bonusText }] : []), ...(passiveText ? [{ label: '被动', value: passiveText }] : [])];
             // 战斗开启时装备不给「使用」：穿着的给「卸下」，背包里的给「装上」。
             const wearButton = chosenMeta?.gearId && typeof options.setHeroGear === 'function'
                 ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="${chosenMeta.equipped ? 'unequip' : 'equip'}">${chosenMeta.equipped ? '卸下' : '装上'}</button></div>` : '';
@@ -625,7 +630,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
                     ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button>${useService ? '' : `<small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small>`}</div>` : '');
             const useButton = !sellButton ? baseButton
                 : baseButton ? baseButton.replace(/<\/div>$/, `${sellButton}</div>`) : `<div class="igs-record-item-actions">${sellButton}</div>`;
-            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head">${detailIconHtml(chosen.title)}<div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemKicker(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${wornTag(chosen)}${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml(extraCells)}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
+            detail = `<section class="igs-record-item-detail"><header class="igs-record-item-head">${detailIconHtml(chosen.title)}<div class="igs-record-item-title"><p class="igs-record-item-kicker">${escapeHtml(itemKicker(chosen))}</p><h3>${escapeHtml(chosen.title || '未命名')}</h3><p class="igs-record-item-quantity"><span>${quantity ? `数量：×${escapeHtml(quantity)}` : '数量未记录'}</span>${wornTag(chosen)}${chosen.status ? `<span class="igs-record-tag">${escapeHtml(chosen.status)}</span>` : ''}</p></div></header><div class="igs-record-item-detail-copy">${descriptionCell ? `<p class="igs-record-item-description">${escapeHtml(descriptionCell.value)}</p>` : ''}${cellsHtml([...extraCells, ...gearCells])}${useButton}<p class="igs-record-feedback" role="status" aria-live="polite">${escapeHtml(message)}</p></div></section>`;
         }
         // 未选物品且战斗未开启时不留右栏；战斗开启时右栏常驻当前装备映射。
         const pane = detail + (heroInv ? gearMapHtml() : '');

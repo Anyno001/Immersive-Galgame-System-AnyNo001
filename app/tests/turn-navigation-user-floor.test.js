@@ -56,3 +56,21 @@ test('发送回执：TavernHelper.getChatMessages 的行正文在 message 字段
     assert.equal(sent.length, 1, '只发送一次');
 });
 
+
+for (const withMatcher of [false, true]) test(`发送回执：派发后正文被整体改写仍认领新用户楼，单次发送（matcher=${withMatcher}）`, async () => {
+    const original = '<igs-combat-report id="report-42">战报</igs-combat-report>';
+    const chat = [{ message_id: 0, role: 'user', is_hidden: false, message: original }];
+    const host = createHost(chat);
+    let sends = 0;
+    host.TavernHelper.typeAndSend = async () => {
+        sends += 1;
+        chat.push({ message_id: 1, role: 'assistant', is_hidden: false, message: '数据库处理完成' });
+        chat.push({ message_id: 2, role: 'user', is_hidden: false, message: '已存入数据库，原战报标签已移除' });
+        return { ok: true };
+    };
+    const adapter = createTavernHelperAdapter(host);
+    const options = withMatcher ? { matches: body => body.includes('report-42') } : undefined;
+    const result = await adapter.typeAndSend(original, options);
+    assert.deepEqual(result, { ok: true, sent: true, messageId: 2 });
+    assert.equal(sends, 1);
+});

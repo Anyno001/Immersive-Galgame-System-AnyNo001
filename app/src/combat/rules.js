@@ -43,8 +43,8 @@ export const COMBAT_RULES = Object.freeze({
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
     // 多敌折算：单只敌人生命与伤害 × 1 / (1 + perExtra × (在场人数 − 1))，不低于 floor；在场人数受 maxEnemiesOnField 限制，预备队不计。
     // 按 scripts/combat-balance.mjs 校准（1 级标准档单主角普通敌人：2 只约 80%、3 只约 60%），只写进新建 setup，旧战斗按已存数值重放。
-    // v0.39.2 下限 0.55 → 0.65。
-    crowd: Object.freeze({ perExtra: 0.43, floor: 0.65 }),
+    // 多敌折算仅写入新建 setup，旧战斗沿用已保存数值。
+    crowd: Object.freeze({ perExtra: 0.43, floor: 0.5 }),
     // 生成敌人档位校准：副 LLM 生成的敌人（generated 不为 false）生命与伤害再 × 该值，模板敌人不变；首领按 scripts/combat-balance.mjs --generated 校准。
     generatedScale: Object.freeze({ boss: 0.9 }),
     difficulty: Object.freeze({

@@ -1,5 +1,7 @@
 import { selectRecordTables } from './record-tables.js';
 
+export const INVENTORY_LOST_MARK = '已丢失';
+
 const FIELDS = Object.freeze({
     diary: { author: ['写作角色', '作者', '角色'], chapterTitle: ['篇名', '日记标题', '标题', '主题', '名称'], title: ['写作角色', '角色', '标题', '日记标题', '名称', '主题'], date: ['发生时间', '发生日期', '日期', '时间', '记录时间'], body: ['正文', '内容', '日记内容', '记录', '描述'], related: ['关联角色', '相关角色', '对象'] },
     inventory: { title: ['物品名称', '名称', '物品', '道具名称', '装备名称'], quantity: ['数量', '数目', '个数', '数量值', 'amount', 'count'], category: ['类别', '分类', '类型', '种类', '物品类别', '物品类型'], status: ['状态', '物品状态', '使用状态'] },
@@ -179,7 +181,7 @@ export function buildRecordModel(readResult, category) {
         const detailCells = cells.filter(cell => !isHiddenDetailField(category, cell.label));
         return { id: `${table.uid}:${rowIndex}`, uid: table.uid, source: table.name, rowIndex,
             title, author, chapterTitle, date, body, quantity, related, category: itemCategory, status, cells, detailCells, fieldIssues: table.diagnostics };
-    }).filter(entry => entry.cells.length));
+    }).filter(entry => entry.cells.length && !(category === 'inventory' && entry.category === INVENTORY_LOST_MARK)));
     if (category === 'diary') {
         // Sort only within a source whose every visible entry has a canonical date.
         // Never reorder rows across sources or invent dates for undated entries.

@@ -9,11 +9,11 @@ const atLeast = (rarity, floor) => rarityIndex(rarity) >= rarityIndex(floor);
 
 // 各敌人档位的掉落规则。keepsake 是非保底槽位出纪念品的概率；guaranteed 是保底槽位数
 // （这些槽位不出纪念品）；floor 是保底槽位的稀有度下限；cardCap 是卡牌稀有度上限。
-// rarity/kinds 是 [值, 权重] 表。
+// rarity/kinds 是 [值, 权重] 表；cardRate 是 3 槽盲翻一张的目标卡牌率，从杂物份额补足。
 const TIER_LOOT = Object.freeze({
-    normal: Object.freeze({ keepsake: 0.85, guaranteed: 0, cardCap: 'uncommon', rarity: Object.freeze([['common', 75], ['uncommon', 22], ['rare', 3]]), kinds: Object.freeze([['item', 4], ['card', 3], ['gear', 2], ['treasure', 1]]) }),
-    elite: Object.freeze({ keepsake: 0.8, guaranteed: 1, rarity: Object.freeze([['uncommon', 40], ['rare', 40], ['epic', 20]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['item', 2], ['treasure', 2]]) }),
-    boss: Object.freeze({ keepsake: 0.8, guaranteed: 1, floor: 'epic', rarity: Object.freeze([['rare', 50], ['epic', 40], ['mythic', 10]]), keepsakeRarity: Object.freeze([['rare', 20], ['epic', 50], ['mythic', 30]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['treasure', 3], ['item', 1]]) }),
+    normal: Object.freeze({ keepsake: 0.85, guaranteed: 0, cardCap: 'uncommon', cardRate: 0.3, rarity: Object.freeze([['common', 75], ['uncommon', 22], ['rare', 3]]), kinds: Object.freeze([['item', 4], ['card', 3], ['gear', 2], ['treasure', 1]]) }),
+    elite: Object.freeze({ keepsake: 0.8, guaranteed: 1, cardRate: 0.4, rarity: Object.freeze([['uncommon', 40], ['rare', 40], ['epic', 20]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['item', 2], ['treasure', 2]]) }),
+    boss: Object.freeze({ keepsake: 0.8, guaranteed: 1, floor: 'epic', cardRate: 0.5, rarity: Object.freeze([['rare', 50], ['epic', 40], ['mythic', 10]]), keepsakeRarity: Object.freeze([['rare', 20], ['epic', 50], ['mythic', 30]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['treasure', 3], ['item', 1]]) }),
 });
 // 卡牌费用的权重表。
 const CARD_COST_WEIGHTS = Object.freeze([[0, 1], [1, 3], [2, 3], [3, 2]]);
@@ -61,8 +61,25 @@ function applyLootBonus(slots, rule, loot) {
     }
 }
 
+function promoteKeepsakesToCards(slots, rule, kinds, seed) {
+    const cardWeight = kinds.find(([kind]) => kind === 'card')?.[1] || 0;
+    if (!cardWeight) return;
+    const share = rule.keepsake * (REWARD_SLOT_COUNT - rule.guaranteed) / REWARD_SLOT_COUNT;
+    const baseRate = (1 - share) * cardWeight / kinds.reduce((sum, [, weight]) => sum + weight, 0);
+    const chance = Math.min(1, Math.max(0, (rule.cardRate - baseRate) / share));
+    // 独立序列保留原装备、道具和保底槽，只替换抽中的杂物。
+    const random = randomFrom(`${seed}|cards`);
+    for (const slot of slots) {
+        if (slot.kind !== 'keepsake' || random() >= chance) continue;
+        let rarity = pickWeighted(random, rule.rarity);
+        if (rule.cardCap && rarityIndex(rarity) > rarityIndex(rule.cardCap)) rarity = rule.cardCap;
+        Object.assign(slot, { kind: 'card', rarity, cost: pickWeighted(random, CARD_COST_WEIGHTS) });
+    }
+}
+
 // 生成一组 count 个槽位。fortune 为真时随机一个非纪念品槽位升一档。
-function buildSlots(random, rule, kinds, count, fortune, loot = null) {
+function buildSlots(seed, rule, kinds, count, fortune, loot = null) {
+    const random = randomFrom(seed);
     const slots = [];
     for (let index = 0; index < count; index += 1) {
         if (index >= rule.guaranteed && random() < rule.keepsake) {
@@ -81,6 +98,7 @@ function buildSlots(random, rule, kinds, count, fortune, loot = null) {
         if (kind === 'treasure') slot.gearSlot = 'treasure';
         slots.push(slot);
     }
+    promoteKeepsakesToCards(slots, rule, kinds, seed);
     const nonKeepsake = slots.filter((slot) => slot.kind !== 'keepsake');
     if (fortune) {
         const upgradable = nonKeepsake.filter((slot) => rarityIndex(slot.rarity) < RARITY_ORDER.length - 1);
@@ -104,7 +122,7 @@ export function planRewardSlots({ combatId, tier, enemyTiers = [], character = n
     const count = REWARD_SLOT_COUNT + (normalLinks.reflip ? 1 : 0);
     const lootChance = difficultyRule(difficulty).loot;
     const lootFor = (key) => (lootChance > 0 ? { chance: lootChance, seed: `${key}|loot` } : null);
-    const slots = buildSlots(randomFrom(seed), rule, kinds, count, normalLinks.fortune, lootFor(seed));
-    const reserve = buildSlots(randomFrom(`${seed}|reserve`), rule, kinds, count, normalLinks.fortune, lootFor(`${seed}|reserve`));
+    const slots = buildSlots(seed, rule, kinds, count, normalLinks.fortune, lootFor(seed));
+    const reserve = buildSlots(`${seed}|reserve`, rule, kinds, count, normalLinks.fortune, lootFor(`${seed}|reserve`));
     return { seed, tier: tierKey, exp: victoryExpFor(enemyTiers), links: normalLinks, slots, reserve };
 }

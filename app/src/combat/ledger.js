@@ -19,7 +19,7 @@ import {
     GEAR_SLOTS, INIT_GEAR_TAG_HASH, buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry,
     normalizeProfile, validateStarterDeck,
 } from './schema.js';
-import { combatBodyText, extractGainDirectives, extractGrowthDirectives, scanCombatTags, scanGainTags } from '../scene/combat-directives.js';
+import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extractLossDirectives, scanCombatTags, scanGainTags, scanLossTags } from '../scene/combat-directives.js';
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportIdFor, reportIdOf } from './report.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, sellPrice } from './points.js';
@@ -62,7 +62,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 
 // 同一楼内各类记录的重放顺序（数字小的先）。
 const TYPE_ORDER = Object.freeze({
-    exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10,
+    exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
     wound: 19, hurt: 19, heal: 19.5,
 });
@@ -245,7 +245,7 @@ function createFloorScanner(chat, sourceFilter) {
             const report = parsedReport ? { ...parsedReport, reportId: reportIdOf(text) } : null;
             const body = isUser ? text : combatBodyText(text, { sourceFilter });
             // 用户楼只有战报才有标签；AI 楼的标签 + 受伤等生活标签
-            const tags = isUser && !report ? [] : [...scanCombatTags(body), ...(isUser ? [] : scanGainTags(body))];
+            const tags = isUser && !report ? [] : [...scanCombatTags(body), ...(isUser ? [] : [...scanGainTags(body), ...scanLossTags(body)])];
             const lifeTags = isUser ? [] : scanStatLifeTags(text);
             scan = {
                 swipeId: swipeOf(floor),
@@ -453,12 +453,15 @@ const handlers = Object.freeze({
             state.gear.slots[owned.slot] = payload.gearId;
             return null;
         }
-        state.gear.owned.set(payload.gearId, {
+        const previous = state.lostGear?.get(payload.gearId);
+        if (previous) state.lostGear.delete(payload.gearId);
+        const gear = previous || {
             gearId: payload.gearId, name: payload.name, slot: payload.slot,
             ...(payload.passive ? { passive: payload.passive } : {}), description: payload.description,
             ...(payload.rarity ? { rarity: payload.rarity } : {}), ...(payload.bonus ? { bonus: payload.bonus } : {}),
-        });
-        state.gear.slots[payload.slot] = payload.gearId;
+        };
+        state.gear.owned.set(payload.gearId, gear);
+        state.gear.slots[gear.slot] = payload.gearId;
         return null;
     },
     unequip(state, payload, context) {
@@ -470,15 +473,43 @@ const handlers = Object.freeze({
     item(state, payload, context) {
         if (isHeroStock(state, context)) return null;
         const existing = state.items.get(payload.itemId);
+        const definition = existing?.lost ? existing : payload;
         state.items.set(payload.itemId, {
-            itemId: payload.itemId, name: payload.name, effects: payload.effects, description: payload.description,
+            itemId: payload.itemId, name: payload.name, effects: definition.effects, description: definition.description,
             count: (existing?.count || 0) + payload.count,
         });
         return null;
     },
     keepsake(state, payload, context) {
         if (!isHeroStock(state, context)) {
-            state.keepsakes.set(context.entry.id, { lootId: context.entry.id, name: payload.name, origin: payload.origin, rarity: payload.rarity || 'common' });
+            const previous = state.lostKeepsakes?.get(itemIdFor(payload.name));
+            if (previous) state.lostKeepsakes.delete(itemIdFor(payload.name));
+            state.keepsakes.set(context.entry.id, { lootId: context.entry.id, name: payload.name, origin: previous ? previous.origin : payload.origin, rarity: previous ? previous.rarity : (payload.rarity || 'common') });
+        }
+        return null;
+    },
+    lose(state, payload, context) {
+        if (isHeroStock(state, context)) return null;
+        const gearId = gearIdFor(payload.name);
+        const gear = state.gear.owned.get(gearId);
+        if (gear) {
+            state.gear.owned.delete(gearId);
+            for (const [slot, id] of Object.entries(state.gear.slots)) if (id === gearId) delete state.gear.slots[slot];
+            (state.lostGear ??= new Map()).set(gearId, gear);
+            return null;
+        }
+        const itemId = itemIdFor(payload.name);
+        const item = state.items.get(itemId);
+        if (item && item.count > 0) {
+            const count = payload.all ? 0 : Math.max(0, item.count - payload.count);
+            state.items.set(itemId, count > 0 ? { ...item, count } : { ...item, count: 0, lost: true });
+            return null;
+        }
+        const kept = [...state.keepsakes].filter(([, value]) => itemIdFor(value.name) === itemId).map(([id]) => id);
+        if (!kept.length) return 'combat-item-missing';
+        for (const id of payload.all ? kept : kept.slice(0, payload.count)) {
+            (state.lostKeepsakes ??= new Map()).set(itemId, state.keepsakes.get(id));
+            state.keepsakes.delete(id);
         }
         return null;
     },
@@ -732,6 +763,7 @@ function presentCharacter(state, options = {}) {
     if (stock) {
         Object.assign(view, {
             others: stock.others.map((item) => ({ ...item })),
+            ...(stock.lost?.length ? { lost: stock.lost.map((item) => ({ ...item })) } : {}),
             inventory: stock.ok ? { ok: true } : { ok: false, reason: stock.reason },
         });
     }
@@ -1176,6 +1208,18 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
                 continue;
             }
             queueGeneration(directive, anchor);
+        }
+        const losses = extractLossDirectives(text, { sourceFilter: options.sourceFilter });
+        diagnostics.push(...losses.diagnostics.map((item) => ({ ...item, messageId })));
+        for (const directive of losses.directives) {
+            const anchor = anchorOf(floor, messageId, directive);
+            if (alreadyWritten(['lose'], directive.character, anchor)) continue;
+            const key = characterKeyFor(index, directive.character, userName);
+            entries.push({
+                id: ledgerEntryId('lose', key, anchor), type: 'lose', character: key, anchor,
+                payload: { name: directive.name, ...(directive.all ? { all: true } : { count: directive.count }), reason: directive.reason },
+                createdAt: now,
+            });
         }
     }
     return { ok: true, entries, pendingGeneration, diagnostics, attributes };

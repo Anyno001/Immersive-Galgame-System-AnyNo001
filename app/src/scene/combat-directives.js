@@ -432,3 +432,51 @@ export function extractGainDirectives(raw, options = {}) {
     }
     return { directives, diagnostics };
 }
+
+const LOSS_ACTION_WORDS = new Set(['失去', 'lose']);
+const LOSS_ALL_WORDS = new Set(['全部', '所有', 'all']);
+export const COMBAT_LOSS_MAX = 30;
+
+export function scanLossTags(body) {
+    const counts = new Map();
+    const tags = [];
+    for (const match of String(body || '').matchAll(GAIN_TAG_PATTERN)) {
+        const fields = match[1].split('|').map((field) => field.trim());
+        if (!LOSS_ACTION_WORDS.has(fields[0].toLowerCase())) continue;
+        const tagHash = tagHashOf(['fx-item', ...fields].join('|'));
+        const occurrence = counts.get(tagHash) || 0;
+        counts.set(tagHash, occurrence + 1);
+        tags.push({ kind: 'lose', fields, raw: match[0], index: match.index, tagHash, occurrence });
+    }
+    return tags;
+}
+
+function lossCountIn(value) {
+    const word = toHalfWidthDigits(value ?? '').trim().toLowerCase();
+    if (!word) return { ok: true, value: 1 };
+    if (LOSS_ALL_WORDS.has(word)) return { ok: true, value: 'all' };
+    if (!DIGITS_PATTERN.test(word)) return { ok: false, field: 'count', problem: 'not-integer' };
+    const count = Number(word);
+    return count >= 1 && count <= COMBAT_LOSS_MAX
+        ? { ok: true, value: count }
+        : { ok: false, field: 'count', problem: 'out-of-range' };
+}
+
+export function extractLossDirectives(raw, options = {}) {
+    const body = combatBodyText(raw, options);
+    const directives = [];
+    const diagnostics = [];
+    for (const tag of scanLossTags(body)) {
+        const reject = (field, problem) => diagnostics.push({ code: 'combat-loss-invalid', field, problem, ...locateOf(tag) });
+        if (tag.fields.length > 5) { reject('fields', 'too-many-fields'); continue; }
+        const name = textField('name', tag.fields[1], NAME_MAX, true);
+        if (!name.ok) { reject(name.field, name.problem); continue; }
+        const count = lossCountIn(tag.fields[3]);
+        if (!count.ok) { reject(count.field, count.problem); continue; }
+        const who = textField('character', tag.fields[4], NAME_MAX, false);
+        if (!who.ok) { reject(who.field, who.problem); continue; }
+        const reason = String(tag.fields[2] || '').trim().slice(0, DESC_MAX);
+        directives.push({ kind: 'lose', character: who.value || '我', name: name.value, ...(count.value === 'all' ? { all: true } : { count: count.value }), reason, ...locateOf(tag) });
+    }
+    return { directives, diagnostics };
+}

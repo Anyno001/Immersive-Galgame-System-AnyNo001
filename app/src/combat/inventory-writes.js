@@ -6,7 +6,7 @@
 import { itemIdFor } from './schema.js';
 import { ABILITY_LABELS } from './abilities.js';
 
-export const STOCK_TYPES = Object.freeze(['equip', 'unequip', 'item', 'consume', 'loot', 'sell', 'keepsake']);
+export const STOCK_TYPES = Object.freeze(['equip', 'unequip', 'item', 'consume', 'loot', 'sell', 'keepsake', 'lose']);
 
 export const STOCK_RARITY_LABELS = Object.freeze({ common: '普通', uncommon: '罕见', rare: '稀有', epic: '史诗', mythic: '神话' });
 export const STOCK_SLOT_LABELS = Object.freeze({ weapon: '武器', armor: '防具', accessory: '饰品', treasure: '宝物' });
@@ -84,6 +84,8 @@ const kindConflict = (inventory, name, expected) => {
 const plan = (rows, changes, after = []) => ({ ok: true, rows, changes, after });
 // 数量减到 0 以下时，清理对应的定义行
 const cleanupIfEmpty = (name, current, delta) => (current + delta <= 0 ? [{ name, record: null }] : []);
+// 再获得已丢失物品时保留原定义，不重置加成、被动与效果。
+const revive = (inventory, name, kind, definition) => (inventory.lost || []).find((entry) => entry.definition?.kind === kind && sameName(entry.name, name))?.definition || definition;
 
 // 为一条账本条目生成库存计划。不认识的类型返回 null。
 // panelTag：来自战斗面板的装备操作（背包里已有，直接穿上）。
@@ -93,7 +95,7 @@ export function stockPlan(entry, inventory, { panelTag } = {}) {
         case 'item': {
             const conflict = kindConflict(inventory, payload.name, 'item');
             if (conflict) return conflict;
-            const rows = stockKindOf(inventory, payload.name) === 'item' ? [] : [{ name: payload.name, record: itemRecord({ kind: 'item', effects: payload.effects, description: payload.description || '' }) }];
+            const rows = stockKindOf(inventory, payload.name) === 'item' ? [] : [{ name: payload.name, record: itemRecord(revive(inventory, payload.name, 'item', { kind: 'item', effects: payload.effects, description: payload.description || '' })) }];
             return plan(rows, [{ name: payload.name, delta: payload.count, description: payload.description || '', category: CATEGORY_LABELS.item }]);
         }
         case 'equip': {
@@ -107,7 +109,7 @@ export function stockPlan(entry, inventory, { panelTag } = {}) {
             const conflict = kindConflict(inventory, payload.name, 'gear');
             if (conflict) return conflict;
             const known = stockKindOf(inventory, payload.name) === 'gear';
-            const definition = gearDefinition(payload);
+            const definition = known ? gearDefinition(payload) : revive(inventory, payload.name, 'gear', gearDefinition(payload));
             const occupant = inventory.gear.slots[definition.slot];
             // 槽位空闲或本就是同名装备时才标记为已装备
             const rows = [{ name: payload.name, record: gearRecord(definition, !occupant || sameName(occupant.name, payload.name)) }];
@@ -122,10 +124,21 @@ export function stockPlan(entry, inventory, { panelTag } = {}) {
             if (!item || item.count < payload.count) return { ok: false, reason: 'combat-item-insufficient' };
             return plan([], [{ name: item.name, delta: -payload.count }], cleanupIfEmpty(item.name, item.count, -payload.count));
         }
+        case 'lose': {
+            const kind = stockKindOf(inventory, payload.name);
+            if (!kind) return { ok: false, reason: 'combat-item-missing' };
+            const pool = kind === 'gear' ? allGear(inventory) : kind === 'item' ? inventory.items : kind === 'keepsake' ? inventory.collection : inventory.others;
+            const hits = pool.filter((item) => sameName(item.name, payload.name));
+            const have = hits.reduce((count, item) => count + (Number.isInteger(item.count) ? item.count : 1), 0);
+            const count = payload.all ? have : Math.min(payload.count, have);
+            if (!hits.length || count <= 0) return { ok: false, reason: 'combat-item-missing' };
+            const worn = kind === 'gear' && count >= have ? Object.values(inventory.gear.slots).find((gear) => sameName(gear.name, payload.name)) : null;
+            return plan(worn ? [{ name: worn.name, record: gearRecord(gearDefinition(worn), false) }] : [], [{ name: hits[0].name, delta: -count, lost: true }]);
+        }
         case 'keepsake': {
             const conflict = kindConflict(inventory, payload.name, 'keepsake');
             if (conflict) return conflict;
-            const definition = { kind: 'keepsake', origin: payload.origin || '', ...(payload.rarity ? { rarity: payload.rarity } : {}) };
+            const definition = revive(inventory, payload.name, 'keepsake', { kind: 'keepsake', origin: payload.origin || '', ...(payload.rarity ? { rarity: payload.rarity } : {}) });
             const rows = stockKindOf(inventory, payload.name) === 'keepsake' ? [] : [{ name: payload.name, record: keepsakeRecord(definition) }];
             return plan(rows, [{ name: payload.name, delta: 1, description: definition.origin, category: CATEGORY_LABELS.keepsake }]);
         }

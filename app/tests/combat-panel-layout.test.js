@@ -1,9 +1,12 @@
 // 战斗面板风格化版式：卡面插槽数据（value / unit / stack / 加成明细 / 关键字全称）、敌人圆环站位、渲染标记与 initial 皮肤不变。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createBattle, legalActions, seedFor } from '../src/combat/engine.js';
+import { JSDOM } from 'jsdom';
+import { applyAction, createBattle, legalActions, seedFor } from '../src/combat/engine.js';
 import { battleView, cardKeywordNames, cardSlotView } from '../src/visual/igs-ui/combat-panel-model.js';
 import { renderCombatPanelHtml, ringFront, ringSlot } from '../src/visual/igs-ui/combat-panel-render.js';
+import { COMBAT_SWAP_MS, createCombatPanelController } from '../src/visual/igs-ui/combat-panel.js';
+import { COMBAT_PANEL_SKINS } from '../src/visual/igs-ui/combat-settings.js';
 
 const dmg = (amount, extra = {}) => ({ op: 'damage', amount, target: 'enemy', ...extra });
 const CATALOG = {
@@ -137,4 +140,124 @@ test('渲染：initial 皮肤与未给 skin 时没有圆环变量与停靠区内
     const plain = renderCombatPanelHtml(panelView('initial'));
     const labels = (h) => [...h.matchAll(/aria-label="([^"]*)"/g)].map((m) => m[1]);
     assert.deepEqual(labels(styled).filter((l) => l.includes('消耗 ')), labels(plain).filter((l) => l.includes('消耗 ')));
+});
+
+function controllerHarness(t, battle, extra = {}) {
+    const dom = new JSDOM('<div id="igs-overlay"></div>');
+    const doc = dom.window.document;
+    let clock = 0, sequence = 0;
+    const timers = new Map();
+    t.mock.method(Date, 'now', () => clock);
+    const schedule = (fn, ms) => { const id = ++sequence; timers.set(id, { at: clock + ms, fn }); return id; };
+    const advance = (ms) => {
+        const end = clock + ms;
+        for (let n = 0; n < 10000; n += 1) {
+            const due = [...timers].filter(([, v]) => v.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+            if (!due) { clock = end; return; }
+            timers.delete(due[0]); clock = due[1].at; due[1].fn();
+        }
+        assert.fail('演出计时未收敛');
+    };
+    const cur = { status: 'battle', combatId: 'controller-test', battle, legal: legalActions(battle), events: [] };
+    const session = {
+        state: () => cur,
+        act(action) {
+            const r = applyAction(cur.battle, action);
+            if (r.ok) { cur.battle = r.state; cur.legal = legalActions(r.state); cur.events.push(...r.events); }
+            return { ...r, session: cur };
+        },
+    };
+    const panel = createCombatPanelController(doc, { getSession: () => session, schedule, clear: id => timers.delete(id), reducedMotion: () => false, ...extra });
+    const overlay = doc.querySelector('#igs-overlay');
+    panel.open(overlay);
+    t.after(() => { panel.close(); dom.window.close(); });
+    return { panel, doc, overlay, cur, session, advance, now: () => clock };
+}
+
+function reserveBattle(withAlly = false) {
+    const r = createBattle({ controlledId: 'hero', openingCharged: true, reserve: ['fresh'], units: [
+        { id: 'hero', name: '主角', side: 'ally', kind: 'deck', maxHp: 1000, speed: withAlly ? 40 : 110,
+            deck: Array(6).fill('strike'), catalog: CATALOG },
+        ...(withAlly ? [{ id: 'mate', name: '同伴', side: 'ally', kind: 'skill', maxHp: 100, speed: 150,
+            skills: [{ id: 'assist', name: '同伴斩击', intent: 'attack', effects: [dmg(6)] }] }] : []),
+        { ...foe('old', '旧敌人'), maxHp: 1, hp: 1 },
+        { ...foe('fresh', '补位敌人'), maxHp: 500, hp: 500, speed: 200 },
+    ] }, seedFor('reserve-panel'));
+    assert.equal(r.ok, true, JSON.stringify(r.error));
+    return r.state;
+}
+
+for (const skin of COMBAT_PANEL_SKINS) test(`补位（${skin}）：旧敌人受击后退场，新敌人入场，关闭重开不残留`, t => {
+    const p = controllerHarness(t, reserveBattle(), { skin: () => skin });
+    const card = p.panel.view().battle.hand.find(c => c.playable);
+    p.panel.invoke('card', card.inst);
+    assert.equal(p.panel.invoke('target', 'old').ok, true);
+    assert.deepEqual(p.panel.view().battle.enemies.map(u => u.id), ['old']);
+    assert.equal(p.panel.view().battle.track.some(u => u.id === 'fresh'), false);
+    const seen = new Set();
+    for (let i = 0; i < 500; i += 1) {
+        p.advance(20);
+        const u = p.panel.view().battle.enemies[0];
+        if (u.swap) {
+            seen.add(`${u.id}:${u.swap}`);
+            assert.equal(p.doc.querySelector(`:is(.igs-combat-unit,.cx-unit)[data-unit="${u.id}"]`)?.getAttribute('data-swap'), u.swap);
+        }
+    }
+    assert.deepEqual([...seen].sort(), ['fresh:in', 'old:out']);
+    assert.equal(p.panel.view().battle.enemies[0].id, 'fresh');
+    assert.equal(p.panel.view().battle.enemies[0].swap, undefined);
+    p.panel.close(); p.panel.open(p.overlay);
+    assert.equal(p.panel.view().battle.enemies[0].swap, undefined);
+    assert.equal(p.doc.querySelector('[data-igs-combat-auto]'), null);
+});
+
+for (const skin of ['initial', 'veil']) test(`补位敌人（${skin}）：同一自动行动序列先入场至少620ms，再显示出手`, t => {
+    const p = controllerHarness(t, reserveBattle(true), { skin: () => skin });
+    const r = p.panel.invoke('end-turn');
+    assert.equal(r.ok, true);
+    assert.ok(r.events.some(e => e.type === 'reinforce' && e.unitId === 'fresh'));
+    assert.ok(r.events.some(e => e.type === 'act' && e.unitId === 'fresh'));
+    let entered = null, acted = null;
+    for (let i = 0; i < 3000 && acted === null; i += 1) {
+        p.advance(10);
+        const el = p.doc.querySelector(':is(.igs-combat-unit,.cx-unit)[data-unit="fresh"]');
+        if (el?.getAttribute('data-swap') === 'in' && entered === null) entered = p.now();
+        if (el?.classList.contains('is-acting')) acted = p.now();
+    }
+    assert.notEqual(entered, null, '补位敌人确实入场');
+    assert.notEqual(acted, null, '补位敌人确实出手');
+    assert.ok(acted - entered >= COMBAT_SWAP_MS.in, `${entered} -> ${acted}`);
+});
+
+for (const action of ['finish', 'retry-send']) test(`发送即收起：${action}不等待会话返回，失败可重开`, async t => {
+    const p = controllerHarness(t, reserveBattle());
+    p.cur.status = action === 'finish' ? 'ended' : 'send-failed';
+    let complete, calls = 0;
+    p.session[action === 'finish' ? 'finish' : 'retrySend'] = () => {
+        calls += 1;
+        return new Promise(resolve => { complete = resolve; });
+    };
+    const job = p.panel.invoke(action);
+    assert.equal(calls, 1);
+    assert.equal(p.panel.view(), null, '发送尚未完成，面板已经关闭');
+    assert.equal(p.overlay.hasAttribute('data-igs-combat-open'), false);
+    p.cur.status = 'send-failed';
+    complete({ ok: false, reason: 'host-send-failed' });
+    assert.equal((await job).ok, false);
+    p.panel.open(p.overlay);
+    assert.equal(p.panel.view().status, 'send-failed');
+});
+
+for (const mode of ['reduced', 'low']) test(`补位降级（${mode}）：直接显示新敌人，不保留退场或入场状态`, t => {
+    const p = controllerHarness(t, reserveBattle(), { reducedMotion: () => mode === 'reduced' });
+    if (mode === 'low') p.overlay.setAttribute('data-igs-quality', 'low');
+    const card = p.panel.view().battle.hand.find(c => c.playable);
+    p.panel.invoke('card', card.inst);
+    assert.equal(p.panel.invoke('target', 'old').ok, true);
+    assert.deepEqual(p.panel.view().battle.enemies.map(u => u.id), ['fresh']);
+    assert.equal(p.panel.view().battle.enemies[0].swap, undefined);
+    assert.equal(p.doc.querySelector('[data-swap]'), null);
+    p.advance(10000);
+    assert.deepEqual(p.panel.view().battle.enemies.map(u => u.id), ['fresh']);
+    assert.equal(p.doc.querySelector('[data-swap]'), null);
 });
