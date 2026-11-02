@@ -472,6 +472,8 @@ function bootstrapIGS(options = {}) {
         getSourceFilter: () => readImageBridge().sourceFilter,
         getChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
         getUserName: () => (typeof illustrationMessageHost.getUserName === 'function' ? illustrationMessageHost.getUserName() : ''),
+        // 战斗积分与数值侧金钱合并成一个钱包：主角余额里并入数值侧金钱（statsRuntime 在战斗服务之后创建，按需读取）。
+        getWallet: () => (app.statsRuntime && typeof app.statsRuntime.walletMoney === 'function' ? app.statsRuntime.walletMoney() : 0),
         readLore: (name) => (typeof illustrationMessageHost.readCharacterLore === 'function'
             ? illustrationMessageHost.readCharacterLore(name, { includeWorldInfo: false }) : []),
         readStoryContext: createCombatStoryContext(globalObject, {
@@ -501,6 +503,7 @@ function bootstrapIGS(options = {}) {
         global: globalObject,
         // statsRuntime 在阅读器之后创建，这里按需读取。
         statsLookup: () => (app.statsRuntime && typeof app.statsRuntime.metricsLookup === 'function' ? app.statsRuntime.metricsLookup() : null),
+        statsProtagonistLookup: () => (app.statsRuntime && typeof app.statsRuntime.protagonistLookup === 'function' ? app.statsRuntime.protagonistLookup() : null),
         statsChat: () => (app.statsRuntime ? app.statsRuntime.chatStatus() : null),
         statsArchive: () => (app.statsRuntime ? app.statsRuntime.archive() : null),
         // 推送映射页：读当前表格，按草稿里的覆盖值标出每列状态；没装数据库插件时返回 null。
@@ -934,6 +937,8 @@ function bootstrapIGS(options = {}) {
     });
     app.statsRuntime = statsRuntime;
     state.statsSettingsOff = events.on('igs:legacy-settings-updated', () => statsRuntime.sync());
+    // 状态栏关闭时阅读器直接丢弃；开启时把好感、成长、阶段变化接到现有飘字。
+    state.statsFxOff = events.on('igs:stats-fx', (fx) => { try { app.igsUi && typeof app.igsUi.playStatsFeedback === 'function' && app.igsUi.playStatsFeedback(fx); } catch (error) { /* 反馈出错不影响结算 */ } });
     statsRuntime.sync();
     // 随身系统（Origin 系统 原作 vicliaaa，经授权移植）：总开关默认关，关着时不挂任何监听。
     const originRuntime = createOriginRuntime({
@@ -1482,6 +1487,7 @@ function bootstrapIGS(options = {}) {
         close(() => state.combatSettingsOff?.());
         close(() => state.combatFloorOff?.());
         close(() => state.statsSettingsOff?.());
+        close(() => state.statsFxOff?.());
         close(() => app.statsRuntime?.destroy());
         close(() => state.originSettingsOff?.());
         close(() => app.originRuntime?.destroy());
@@ -44633,7 +44639,7 @@ const { createTurnIndexPanel, positionLabel } = require("src/visual/igs-ui/turn-
 const { createGenerationStrip } = require("src/visual/igs-ui/generation-strip.js");
 const { createMissedHint, detectMissedAssets } = require("src/visual/igs-ui/missed-assets.js");
 const { createStatsChip } = require("src/visual/igs-ui/stats-chip.js");
-const { cancelFxEffects } = require("src/visual/igs-ui/fx-runtime.js");
+const { cancelFxEffects, playStatsFeedback } = require("src/visual/igs-ui/fx-runtime.js");
 const { cancelDanmaku } = require("src/visual/igs-ui/danmaku-runtime.js");
 const { cancelStageDirection } = require("src/visual/igs-ui/stage-direction-runtime.js");
 const { cancelSceneGrade } = require("src/visual/igs-ui/scene-grade.js");
@@ -45263,6 +45269,16 @@ function createIgsReaderHost(options = {}) {
         },
         playStatsCheck(detail) {
             return playOptionResultFx({ ok: true, detail }, { force: true });
+        },
+        // 数值结算反馈（好感飘字、成长、关系阶段）：状态栏关着时直接丢弃，开着时用现有飘字样式；阅读器没开不补播。
+        playStatsFeedback(fx) {
+            const current = state.activeReader;
+            const snapshot = current && current.snapshot;
+            const overlay = current && current.dom && current.dom.overlay;
+            const readerSettings = snapshot && snapshot.readerSettings;
+            if (!overlay || !readerSettings || !normalizeStatusHudSettings(readerSettings.statusHud).enabled) return false;
+            const hud = snapshot.content && snapshot.content.statusHud;
+            return playStatsFeedback(overlay, fx, { readerSettings, speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
         },
         getReaderSnapshotContract() {
             return {
@@ -48932,7 +48948,10 @@ ${row.key}`;
             const info = sceneInfo && typeof sceneInfo === 'object' ? sceneInfo : {};
             const hud = buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor, parsedTables: statusHud.tables.length ? tableData.parsed() : [], rowFor: tableData.rowFor });
             // 数值系统接管时，已登记角色的 HUD 条以 IGS 为准（易错点 H3）。
-            const statsLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
+            const tavernLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
+            // 说话人是主角时改读主角条（生命、体力、压力、金钱）；其余角色读好感等人际数值。
+            const protagonistLookup = tavernLookup && typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null;
+            const statsLookup = protagonistLookup ? (name) => protagonistLookup(name) || tavernLookup(name) : tavernLookup;
             return withConcreteAvatar(overlayStatsMetrics(hud, statsLookup, speaker));
         };
         const readStatusHudTables = () => tableData.read();
@@ -115297,6 +115316,39 @@ function diffFavorMetrics(baseline, character, metrics) {
     while (baseline.size > FAVOR_LIMIT) baseline.delete(baseline.keys().next().value);
     return changes;
 }
+
+const favorFloorKey = (messageId, character) => `favor-floor:${messageId}:${character}`;
+
+// 数值系统结算反馈（igs:stats-fx）：复用页面飘字的 igs-fx-favor 样式。只在状态栏开着时由阅读器调用；
+// 好感与页面差分飘字去重，关系阶段只给当前说话人，成长不限人。返回播放的行数。
+function playStatsFeedback(root, fx, options = {}) {
+    if (!root || !fx) return { played: 0 };
+    const settings = normalizeFxReaderSettings(options.readerSettings);
+    if (!settings.favorToast.enabled) return { played: 0 };
+    const layers = ensureFxLayers(root);
+    if (!layers) return { played: 0 };
+    const state = getState(root, options);
+    const speaker = text(options.speaker);
+    const lines = [];
+    for (const t of fx.toasts || []) {
+        if (!t || !text(t.target) || !markOnce(state.memory, favorFloorKey(fx.messageId, text(t.target)))) continue;
+        const up = t.delta > 0;
+        lines.push({ up, text: t.text === '♥' || t.text === '♡' ? `${t.target} ${t.text}` : `${t.target} 好感 ${up ? '↑ +' : '↓ '}${t.delta}` });
+    }
+    for (const g of fx.growth || []) lines.push({ up: true, text: `${g.skill}成长 +${g.gain}` });
+    for (const sh of fx.stages || []) {
+        if (speaker && text(sh.target) === speaker) lines.push({ up: true, text: `${sh.target}：${sh.from} → ${sh.to}` });
+    }
+    if (!lines.length) return { played: 0 };
+    const life = Math.round(FX_LIFETIME_MS.favor * (FX_HOLD_SCALE[settings.fxStyle.hold] || 1));
+    const stack = persistent(layers.front, layers.doc, 'igs-fx-favor-stack');
+    for (const line of lines) {
+        const el = node(layers.doc, 'igs-fx-favor', line.text);
+        el.setAttribute('data-dir', line.up ? 'up' : 'down');
+        spawn(state, stack, el, life);
+    }
+    return { played: lines.length };
+}
 function resetFavorBaseline() {
     favorBaseline.clear();
 }
@@ -115348,6 +115400,8 @@ function planPageFx(snapshot, memory, baseline = favorBaseline, normalized = nul
 
     if (settings.favorToast.enabled && content.statusHud && content.statusHud.character) {
         for (const change of diffFavorMetrics(baseline, content.statusHud.character, content.statusHud.metrics)) {
+            // 同一楼同一角色的好感只飘一次（与 igs:stats-fx 的飘字共用记忆）。
+            if (change.label === '好感' && messageId != null && !markOnce(memory, favorFloorKey(messageId, change.character))) continue;
             effects.push({ type: 'favor', ...change });
         }
     }
@@ -116442,6 +116496,7 @@ __igsDefine(exports, "createFxMemory", () => createFxMemory);
 __igsDefine(exports, "enterPage", () => enterPage);
 __igsDefine(exports, "markPage", () => markPage);
 __igsDefine(exports, "diffFavorMetrics", () => diffFavorMetrics);
+__igsDefine(exports, "playStatsFeedback", () => playStatsFeedback);
 __igsDefine(exports, "resetFavorBaseline", () => resetFavorBaseline);
 __igsDefine(exports, "planPageFx", () => planPageFx);
 __igsDefine(exports, "nextFrame", () => nextFrame);
@@ -161197,7 +161252,7 @@ __igsRegister("src/scene/stats/stat-prompt.js", function(module, exports, requir
 // 数值系统提示词注入段（§9）：每段一个可编辑模板，用户覆盖优先，可单独关闭。
 // 模板变量写错或缺失时原样保留变量名并记诊断，不中断（§9 末条）。
 const { FAVOR_GATES, gateKey, stageOf } = require("src/scene/stats/stat-favor.js");
-const { healthStatus, STAMINA_LOW, STRESS_HIGH } = require("src/scene/stats/stat-bars.js");
+const { healthStatus, walletBalance, STAMINA_LOW, STRESS_HIGH } = require("src/scene/stats/stat-bars.js");
 const { FAVOR_DIRECTIONS, HURT_TIERS, MONEY_TIERS, STAMINA_EVENTS } = require("src/scene/stats/stat-vocab.js");
 const { CHECK_ROLLS_TEMPLATE, checkRollsVars, fillCheckRolls } = require("src/scene/check-rolls.js");
 const { COC_CHECK_ROLLS_TEMPLATE, cocRollsVars } = require("src/scene/stats/stat-coc-checks.js");
@@ -161300,7 +161355,7 @@ function intimacyNote(character, { nsfw, intimacyGate }) {
 }
 
 // opts：{ prompts, disabled, stageText, present, check, mandates, shortfall, nsfw, intimacyGate, vitals,
-//         skillsLine, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
+//         walletExtra（战斗侧积分，与金钱合并显示）, skillsLine, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
 //         dice: D&D 正文检定输入（check-rolls 的 checkRollsVars 入参），cocDice: CoC 正文检定输入（cocRollsVars 入参）,
 //         combatOn, partyLines }
 function buildStatsPrompt(state, opts = {}) {
@@ -161313,7 +161368,7 @@ function buildStatsPrompt(state, opts = {}) {
     const push = (id, text) => { if (!disabled.has(id) && text) parts.push({ id, text }); };
     push('source', fillTemplate(prompts.source, {}, diagnostics));
     push('protagonist', fillTemplate(prompts.protagonist, {
-        生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 金钱: bars.money,
+        生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 金钱: walletBalance(bars, opts.walletExtra),
         状态描述: describeProtagonist(bars, { shortfall: opts.shortfall, vitals: opts.vitals }),
     }, diagnostics));
     if (opts.skillsLine) push('skills', fillTemplate(prompts.skills, { 技能档位: opts.skillsLine }, diagnostics));
@@ -161970,14 +162025,19 @@ const HEALTH_SEVERE_PCT = 20;
 const HEALTH_LIGHT_PCT = 50;
 const STRESS_HIGH = 70;
 
-function shift(bars, key, delta, max = 100) {
+// 金钱与战斗积分合并成一个钱包：合并余额 = 数值侧金钱 + 战斗侧主角积分净流水（walletExtra，调用方传入，纯函数不读全局）。
+function walletBalance(bars, walletExtra = 0) {
+    return (Number(bars && bars.money) || 0) + (Number(walletExtra) || 0);
+}
+
+function shift(bars, key, delta, max = 100, min = 0) {
     const from = Number(bars[key]) || 0;
-    const to = clamp(from + delta, 0, max);
+    const to = clamp(from + delta, min, max);
     return to === from ? { bars, change: null } : { bars: { ...bars, [key]: to }, change: { key, from, to } };
 }
 
 // 体力事件「受伤」按轻伤、hurt 标签按原档位，都只返回 hurt 档交给战斗账本，不再改数值侧生命；花费超过余额时不扣钱，返回 shortfall。
-function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TABLE) {
+function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TABLE, walletExtra = 0) {
     switch (directive.kind) {
     case 'stamina':
         return directive.value === '受伤'
@@ -161987,8 +162047,9 @@ function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TABLE) {
     case 'stress': return shift(bars, 'stress', STRESS_DELTA[directive.value] || 0);
     case 'money': {
         const amount = Number(moneyTable[directive.value]) || 0;
-        if (directive.flow === '花费' && amount > (Number(bars.money) || 0)) return { bars, change: null, shortfall: true };
-        return shift(bars, 'money', directive.flow === '花费' ? -amount : amount, Infinity);
+        if (directive.flow === '花费' && amount > walletBalance(bars, walletExtra)) return { bars, change: null, shortfall: true };
+        // 扣款记在数值侧金钱上；战斗积分垫付的部分会让它为负，合并余额仍不小于零。
+        return shift(bars, 'money', directive.flow === '花费' ? -amount : amount, Infinity, -Infinity);
     }
     default: return { bars, change: null };
     }
@@ -162017,6 +162078,7 @@ function workIncomeTier(tier) {
     return tier === '失败' ? '少量' : null;
 }
 
+__igsDefine(exports, "walletBalance", () => walletBalance);
 __igsDefine(exports, "applyBarDirective", () => applyBarDirective);
 __igsDefine(exports, "healthStatus", () => healthStatus);
 __igsDefine(exports, "checkModifiers", () => checkModifiers);
@@ -166271,7 +166333,7 @@ const REASON_TEXT = Object.freeze({
     'combat-flip-position-invalid': '这张牌不能选',
     'combat-reroll-used': '本场已经重抽过',
     'combat-reroll-unavailable': '本场不能重抽',
-    'combat-points-insufficient': '积分不足',
+    'combat-points-insufficient': '金钱不足',
     'combat-choice-pending': '先选完牌',
     'combat-choice-invalid': '这张牌不能选',
     'combat-choice-full': '已选够张数，先取消一张',
@@ -166651,7 +166713,7 @@ function lootCardHtml(c, f, fresh, struck, pending) {
     const actLabel = act === 'choose' ? `选择 ${label}` : s ? `翻开 ${label}` : `翻开第 ${pos + 1} 张`;
     return `<button type="button" ${attrs} data-combat-act="${act}" data-combat-id="${pos}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(actLabel)}">${inner}</button>`;
 }
-// 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（积分不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
+// 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（金钱不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
 function lootHtml(v) {
     const f = v.flip;
     if (!f || f.status === 'none') return '';
@@ -166664,7 +166726,7 @@ function lootHtml(v) {
     const pause = f.cards.some((c) => struck.has(c.position) && c.slot?.rarity === 'mythic');
     const r = f.reroll;
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
-        ? btn('reroll', `重新抽取（消耗${r.cost}积分）`, { disabled: pending || !r.available }) : '';
+        ? btn('reroll', `重新抽取（消耗${r.cost}金钱）`, { disabled: pending || !r.available }) : '';
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
         + `${reroll ? `<div class="igs-combat-loot-tools">${reroll}</div>` : ''}</section>`;
@@ -169654,7 +169716,6 @@ const handlers = Object.freeze({
         if (!slot || slot.kind !== payload.slot.kind || slot.name !== payload.slot.name || slot.rarity !== payload.slot.rarity) return 'combat-loot-slot-mismatch';
         if ((payload.set === 'reserve') !== (payload.cost > 0)) return 'combat-loot-cost-invalid';
         if (payload.cost > 0 && heroId && state.id !== heroId) return 'combat-points-not-protagonist';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         const failure = applyLootSlot(state, slot, entry, heroStock === true && state.id === heroId);
         if (failure) return failure;
         state.points -= payload.cost;
@@ -169688,7 +169749,6 @@ const handlers = Object.freeze({
         if (state.kind !== 'deck-character') return 'combat-rebuild-kind-mismatch';
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         if (payload.cost !== REBUILD_COST) return 'combat-rebuild-cost-invalid';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         const rebuilt = { ...state.profile, personalPool: payload.personalPool, starterDeck: payload.starterDeck };
         if (!state.classProfile || !validateStarterDeck({ ...rebuilt, classRef: state.classProfile.id }, state.classProfile).ok) return 'combat-rebuild-invalid';
         const oldPoolIds = new Set((state.profile.personalPool || []).map((card) => card.id));
@@ -169715,7 +169775,6 @@ const handlers = Object.freeze({
         if (state.kind !== 'deck-character') return 'combat-respec-kind-mismatch';
         if (context.heroId && state.id !== context.heroId) return 'combat-points-not-protagonist';
         if (payload.cost !== RESPEC_COST) return 'combat-respec-cost-invalid';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         const classProfile = resolveClass(context.index, payload.classRef);
         if (!classProfile) return 'combat-class-missing';
         if (classProfile.id === state.classRef) return 'combat-respec-same-class';
@@ -169734,7 +169793,6 @@ const handlers = Object.freeze({
         if (expProgress(state.exp).level < tier.level) return 'combat-ascend-level-unreached';
         if (payload.cards.some((card) => card.rarity !== tier.rarity)) return 'combat-ascend-rarity-invalid';
         if (payload.cards.some((card) => state.catalog.has(card.id))) return 'combat-card-id-collision';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         for (const card of payload.cards) state.catalog.set(card.id, card);
         state.classTier = payload.tier;
         state.tierName = payload.tierName;
@@ -169746,7 +169804,6 @@ const handlers = Object.freeze({
         if (state.kind !== 'deck-character') return 'combat-trait-kind-mismatch';
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         if (payload.cost !== TRAIT_DRAW_COST) return 'combat-trait-cost-invalid';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         if (state.pendingTrait) return 'combat-trait-pending';
         if (state.traits.some((trait) => trait.traitId === payload.traitId)) return 'combat-trait-duplicate';
         if (effectsDamage(payload.passive?.effects) > COMBAT_RULES.allySkillDamageCap) return 'combat-trait-damage-cap';
@@ -169778,7 +169835,6 @@ const handlers = Object.freeze({
         const next = nextTraitSlot(state);
         if (!next || payload.slot !== next.slot) return 'combat-trait-slot-invalid';
         if (payload.cost !== next.cost) return 'combat-trait-slot-cost-invalid';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         state.points -= payload.cost;
         state.slotUnlocks += 1;
         if (state.pendingTrait && traitFits(state, state.pendingTrait.kind)) {
@@ -170517,7 +170573,8 @@ const PANEL_ACTION_TAGS = Object.freeze({
 });
 
 // 主角面板操作（改建卡组、转职、晋升、抽特质、选特质、解锁特质槽）。只有主角的卡组角色能做，点数要够。
-function buildHeroPanelEntry(snapshot, chat, effective, characterId, action, payload, now = 0) {
+// wallet：数值侧金钱余额，与战斗积分合并成一个钱包（战斗净流水可为负，余额判断只在这里做）。
+function buildHeroPanelEntry(snapshot, chat, effective, characterId, action, payload, now = 0, wallet = 0) {
     if (!snapshot || snapshot.ok !== true) return snapshotFailure(snapshot);
     if (!Object.hasOwn(PANEL_ACTION_TAGS, action)) return { ok: false, reason: 'combat-entry-invalid' };
     const floors = Array.isArray(chat) ? chat : [];
@@ -170527,7 +170584,7 @@ function buildHeroPanelEntry(snapshot, chat, effective, characterId, action, pay
     const hero = heroId && heroId === characterId ? effective.characters.get(heroId) : null;
     if (!hero) return { ok: false, reason: 'combat-points-not-protagonist' };
     if (hero.kind !== 'deck-character') return { ok: false, reason: `combat-${action}-kind-mismatch` };
-    if ((hero.points || 0) < (payload?.cost ?? 0)) return { ok: false, reason: 'combat-points-insufficient' };
+    if ((hero.points || 0) + (Number(wallet) || 0) < (payload?.cost ?? 0)) return { ok: false, reason: 'combat-points-insufficient' };
     const swipeId = swipeOf(floors[last]);
     const anchor = { messageId: last, swipeId, tagHash: PANEL_ACTION_TAGS[action], occurrence: countPanelEntries(snapshot, heroId, last, swipeId) };
     const normalized = normalizeLedgerEntry({ id: ledgerEntryId(action, heroId, anchor), type: action, character: heroId, anchor, payload, createdAt: now });
@@ -170589,10 +170646,12 @@ const LEDGER_KINDS = Object.freeze(['profile', 'ledger', 'attribute']);
 //   - 快照读取：同一表戳只读一次，并发调用共用同一个 Promise；
 //   - 有效状态：同一快照 + 楼层集合签名 + 用户名 + 来源过滤 + 背包表戳 + 难度只重放一次。
 // read()/effectiveState() 返回的对象在调用方之间共享，必须视为只读，不要原地修改。
-function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null } = {}) {
+function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null, wallet = 0 } = {}) {
     const getChat = () => (typeof chat === 'function' ? chat() : chat) || [];
     const getUserName = () => (typeof userName === 'function' ? userName() : userName);
     const getSourceFilter = () => (typeof sourceFilter === 'function' ? sourceFilter() : sourceFilter);
+    // 数值侧金钱（同步取值，取不到按 0）；只用于 effectiveState() 的主角余额与主角面板写口的预检。
+    const getWallet = () => { try { return Number(typeof wallet === 'function' ? wallet() : wallet) || 0; } catch { return 0; } };
     const getHealScale = () => difficultyRule(typeof difficulty === 'function' ? difficulty() : difficulty).healScale;
     const stats = { tableReads: 0, snapshotHits: 0, stateComputes: 0, stateHits: 0 };
 
@@ -170672,10 +170731,27 @@ function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficu
         return readSnapshot();
     }
 
-    async function effectiveState() {
+    // 主角的 points 并入数值侧金钱（合并余额）；换新对象不改共享的记忆化状态，同一状态与同一金额返回同一对象。
+    const walletViews = new WeakMap();
+    function withWallet(state) {
+        const extra = getWallet();
+        if (!extra || !state || state.ok !== true) return state;
+        const heroId = state.attributes && state.attributes.heroId;
+        const hero = heroId ? state.characters.get(heroId) : null;
+        if (!hero) return state;
+        const cached = walletViews.get(state);
+        if (cached && cached.extra === extra) return cached.view;
+        const view = { ...state, characters: new Map(state.characters).set(heroId, { ...hero, points: (hero.points || 0) + extra }) };
+        walletViews.set(state, { extra, view });
+        return view;
+    }
+
+    // raw：只要战斗侧自己的流水（缓存用，避免把会变的数值侧金钱缓存进去）。
+    async function effectiveState({ raw = false } = {}) {
         const snapshot = await readSnapshot();
         if (!snapshot.ok) return computeEffectiveState(snapshot, []);
-        return resolveState(snapshot, getChat(), true).state;
+        const state = resolveState(snapshot, getChat(), true).state;
+        return raw ? state : withWallet(state);
     }
 
     // 只读统计（测试用）：读表次数、快照缓存命中、重放次数、重放缓存命中。
@@ -171069,7 +171145,7 @@ function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficu
             if (!snapshot.ok) return snapshot;
             const floors = getChat();
             const { state, options } = resolveState(snapshot, floors, true);
-            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now());
+            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet());
             if (!built.ok) return built;
             const trial = computeEffectiveState({ ...snapshot, entries: [...snapshot.entries, built.entry] }, floors, options);
             const trialDiagnostic = trial.ok ? trial.diagnostics.find((item) => item.id === built.entry.id) : null;
@@ -172063,18 +172139,18 @@ function cardRow(c, readonly) {
         + '</li>';
 }
 
-// 重新生成基础卡组：只主角、不在战斗中且注入了生成能力时给按钮，积分不足置灰；点后在原处确认或取消。
+// 重新生成基础卡组：只主角、不在战斗中且注入了生成能力时给按钮，金钱不足置灰；点后在原处确认或取消。
 function rebuildHtml(v, d) {
     if (v.readonly || !v.canRebuild || !d.canSell) return '';
     const busy = Boolean(v.pending);
     const inner = v.rebuild
-        ? btn('rebuild-confirm', v.pending === 'rebuild' ? '生成中' : `确认重新生成 · ${REBUILD_COST} 积分`, { primary: true, disabled: busy }) + btn('rebuild-cancel', '取消', { disabled: busy })
-        : btn('rebuild-open', `重新生成基础卡组（消耗${REBUILD_COST}积分）`, { disabled: busy || (d.points || 0) < REBUILD_COST });
+        ? btn('rebuild-confirm', v.pending === 'rebuild' ? '生成中' : `确认重新生成 · ${REBUILD_COST} 金钱`, { primary: true, disabled: busy }) + btn('rebuild-cancel', '取消', { disabled: busy })
+        : btn('rebuild-open', `重新生成基础卡组（消耗${REBUILD_COST}金钱）`, { disabled: busy || (d.points || 0) < REBUILD_COST });
     return `<div class="igs-deck-actions">${inner}</div>`;
 }
 
 // 转职与职业升阶（只主角、不在战斗中且注入了对应能力时显示）：转职展开后列出其他已登记职业与「新职业」，选定后确认或取消；
-// 升阶按钮写下一阶的等级门槛与花费，已到三阶不显示，等级或积分不足置灰，点后在原处确认或取消。
+// 升阶按钮写下一阶的等级门槛与花费，已到三阶不显示，等级或金钱不足置灰，点后在原处确认或取消。
 function classActionsHtml(v, d) {
     if (v.readonly || !d.canSell || d.kind !== 'deck-character') return '';
     const busy = Boolean(v.pending);
@@ -172082,15 +172158,15 @@ function classActionsHtml(v, d) {
     if (v.respec && v.canRespec) {
         const picks = v.classes.filter((c) => c.id !== d.classRef).map((c) => btn('respec-pick', c.name, { id: c.id, pressed: v.respec.picked && v.respec.classRef === c.id, disabled: busy })).join('')
             + btn('respec-pick', '新职业', { pressed: v.respec.picked && !v.respec.classRef, disabled: busy });
-        const confirm = v.respec.picked ? btn('respec-confirm', v.pending === 'respec' ? '转职中' : `确认转职 · ${RESPEC_COST} 积分`, { primary: true, disabled: busy }) : '';
+        const confirm = v.respec.picked ? btn('respec-confirm', v.pending === 'respec' ? '转职中' : `确认转职 · ${RESPEC_COST} 金钱`, { primary: true, disabled: busy }) : '';
         return `${row('转职', picks)}<div class="igs-deck-actions">${confirm}${btn('respec-cancel', '取消', { disabled: busy })}</div>`;
     }
     if (v.ascend && v.canAscend && next) {
-        return `<div class="igs-deck-actions">${btn('ascend-confirm', v.pending === 'ascend' ? '生成中' : `确认升阶 · ${next.cost} 积分`, { primary: true, disabled: busy })}${btn('ascend-cancel', '取消', { disabled: busy })}</div>`;
+        return `<div class="igs-deck-actions">${btn('ascend-confirm', v.pending === 'ascend' ? '生成中' : `确认升阶 · ${next.cost} 金钱`, { primary: true, disabled: busy })}${btn('ascend-cancel', '取消', { disabled: busy })}</div>`;
     }
     const acts = [];
-    if (v.canRespec) acts.push(btn('respec-open', `转职（消耗${RESPEC_COST}积分）`, { disabled: busy || (d.points || 0) < RESPEC_COST }));
-    if (v.canAscend && next) acts.push(btn('ascend-open', `职业升阶（需 Lv${next.level} · 消耗${next.cost}积分）`, { disabled: busy || (d.expLevel || 1) < next.level || (d.points || 0) < next.cost }));
+    if (v.canRespec) acts.push(btn('respec-open', `转职（消耗${RESPEC_COST}金钱）`, { disabled: busy || (d.points || 0) < RESPEC_COST }));
+    if (v.canAscend && next) acts.push(btn('ascend-open', `职业升阶（需 Lv${next.level} · 消耗${next.cost}金钱）`, { disabled: busy || (d.expLevel || 1) < next.level || (d.points || 0) < next.cost }));
     return acts.length ? `<div class="igs-deck-actions">${acts.join('')}</div>` : '';
 }
 
@@ -172160,7 +172236,7 @@ const bagRow = (rarity, head, acts) => `<li class="igs-deck-keepsake"${rarity ? 
 
 
 // 人物特性（只主角有）：特性槽（v4）逐槽列出保留着的固有特性（人物技能 / 个人被动）、抽到的特性、空槽与未解锁的槽；按稀有度标色，写名称、种类、效果与联动，来历放在名称提示里。
-// 下一个未解锁的槽给「解锁 · 价格」，积分不足置灰。主角不在战斗中时给「抽人物特性」，点后在原处确认或取消，积分不足置灰；
+// 下一个未解锁的槽给「解锁 · 价格」，金钱不足置灰。主角不在战斗中时给「抽人物特性」，点后在原处确认或取消，金钱不足置灰；
 // 装不下时抽到的新特性列在「新特性」，每个特性给「替换」（替换后会挤掉其他固有特性或主动超上限的置灰）、新特性给「放弃」，被替换或放弃的永久消失。
 const traitTags = (t) => [t.innate ? '固有' : '', t.kind === 'active' ? `主动 · ${t.cost}费` : ''].filter(Boolean);
 const traitHead = (t) => `<span class="igs-deck-name"${t.origin ? ` title="${esc(t.origin)}"` : ''}>${esc(t.name)}</span>`
@@ -172179,8 +172255,8 @@ function traitsHtml(v, d) {
     if (slots) {
         for (let i = list.length; i < slots.slots; i += 1) rows.push(bagRow('', '<span class="igs-deck-name is-empty">空槽</span>', ''));
         slots.locked.forEach((s, i) => {
-            const unlock = i === 0 && !v.readonly && v.canUnlockSlot ? btn('trait-slot', `解锁 · ${s.cost} 积分`, { id: String(s.slot), disabled: busy || (d.points || 0) < s.cost }) : '';
-            rows.push(bagRow('', `<span class="igs-deck-name is-locked">第 ${s.slot} 槽</span><span class="igs-deck-count">${esc(`未解锁 · ${s.cost} 积分`)}</span>`, unlock));
+            const unlock = i === 0 && !v.readonly && v.canUnlockSlot ? btn('trait-slot', `解锁 · ${s.cost} 金钱`, { id: String(s.slot), disabled: busy || (d.points || 0) < s.cost }) : '';
+            rows.push(bagRow('', `<span class="igs-deck-name is-locked">第 ${s.slot} 槽</span><span class="igs-deck-count">${esc(`未解锁 · ${s.cost} 金钱`)}</span>`, unlock));
         });
     }
     const parts = [];
@@ -172188,8 +172264,8 @@ function traitsHtml(v, d) {
     if (fresh) parts.push(row('新特性', `<ul class="igs-deck-collection">${bagRow(fresh.rarity, traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
     if (hero && !fresh && !v.readonly && v.canDrawTrait) {
         const inner = v.trait
-            ? btn('trait-confirm', v.pending === 'trait' ? '生成中' : `确认抽取 · ${TRAIT_DRAW_COST} 积分`, { primary: true, disabled: busy }) + btn('trait-cancel', '取消', { disabled: busy })
-            : btn('trait-open', `抽人物特性（消耗${TRAIT_DRAW_COST}积分）`, { disabled: busy || (d.points || 0) < TRAIT_DRAW_COST });
+            ? btn('trait-confirm', v.pending === 'trait' ? '生成中' : `确认抽取 · ${TRAIT_DRAW_COST} 金钱`, { primary: true, disabled: busy }) + btn('trait-cancel', '取消', { disabled: busy })
+            : btn('trait-open', `抽人物特性（消耗${TRAIT_DRAW_COST}金钱）`, { disabled: busy || (d.points || 0) < TRAIT_DRAW_COST });
         parts.push(`<div class="igs-deck-actions">${inner}</div>`);
     }
     return parts.join('');
@@ -173207,8 +173283,13 @@ __igsRegister("src/scene/stats/stat-metrics.js", function(module, exports, requi
 // 输出与 status-hud-model 的 extractStatusHudMetrics 同形（label / percent / display / colorKey），
 // 与 character-metrics 的 lookup 同形（{ metrics, stages }），视觉层只换数据源、不换样式。
 const { stageOf } = require("src/scene/stats/stat-favor.js");
+const { DEFAULT_MONEY_TABLE, walletBalance } = require("src/scene/stats/stat-bars.js");
 const DIM_COLOR = Object.freeze({ 好感: 'favor', 信任: 'trust', 了解: 'know', 欲望: 'desire' });
-const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力' });
+const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '金钱' });
+// 状态栏条色沿用现有 slot 色板：生命红、体力绿、金钱黄、压力紫。
+const BAR_COLOR = Object.freeze({ health: 'slot-5', stamina: 'slot-2', money: 'slot-3', stress: 'slot-4' });
+// 金钱没有上限：条长按「巨额」档位折算，数字照实显示。
+const MONEY_FULL = DEFAULT_MONEY_TABLE.巨额;
 
 // 条长只表示正向程度：负值按 0 画，数字与阶段名照实显示。
 function percentOfDim(value) {
@@ -173242,17 +173323,22 @@ function characterStatMetrics(character, { hudLabel = 'stage', nsfw = false } = 
 }
 
 // 主角生命条取战斗 vitals（{hp, maxHp, down}），显示「当前/最大」；没有 vitals 就不出生命条。体力、压力仍按生活条。
-function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null } = {}) {
+// 金钱条只在 enabledBars.money 明确为真时出，显示合并余额（数值侧金钱 + walletExtra 战斗积分）。
+function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null, walletExtra = 0 } = {}) {
     const out = [];
     if (vitals && Number(vitals.maxHp) > 0) {
         const hp = vitals.down ? 0 : Math.max(0, Math.round(Number(vitals.hp) || 0));
         const max = Math.round(Number(vitals.maxHp));
-        out.push({ label: BAR_LABEL.health, percent: Math.max(0, Math.min(100, Math.round((hp / max) * 100))), display: `${hp}/${max}`, colorKey: 'health', sourceUid: 'igs-stats' });
+        out.push({ label: BAR_LABEL.health, percent: Math.max(0, Math.min(100, Math.round((hp / max) * 100))), display: `${hp}/${max}`, colorKey: BAR_COLOR.health, sourceUid: 'igs-stats' });
     }
     for (const key of ['stamina', 'stress']) {
         if (enabledBars[key] === false) continue;
         const v = Math.round(Number(bars && bars[key]) || 0);
-        out.push({ label: BAR_LABEL[key], percent: Math.max(0, Math.min(100, v)), display: String(v), colorKey: key, sourceUid: 'igs-stats' });
+        out.push({ label: BAR_LABEL[key], percent: Math.max(0, Math.min(100, v)), display: String(v), colorKey: BAR_COLOR[key], sourceUid: 'igs-stats' });
+    }
+    if (enabledBars.money === true) {
+        const wallet = Math.round(walletBalance(bars, walletExtra));
+        out.push({ label: BAR_LABEL.money, percent: Math.max(0, Math.min(100, Math.round((wallet / MONEY_FULL) * 100))), display: String(wallet), colorKey: BAR_COLOR.money, sourceUid: 'igs-stats' });
     }
     return out;
 }
@@ -181643,7 +181729,7 @@ function createRecordPanelController(doc, global, fillDraft, options = {}) {
         render();
     }
 
-    // 背包卖出（v0.39.2）：只主角背包里有装配定义的杂物与背包中的装备；确认后经宿主注入的 sellHeroItem 写一条 sell 并重读，积分按稀有度计入。
+    // 背包卖出（v0.39.2）：只主角背包里有装配定义的杂物与背包中的装备；确认后经宿主注入的 sellHeroItem 写一条 sell 并重读，金钱按稀有度计入。
     async function sellItem() {
         const item = (model?.entries || []).find(entry => entry.id === selectedId);
         const meta = item && heroInv ? heroOf(item) : null;
@@ -181657,7 +181743,7 @@ function createRecordPanelController(doc, global, fillDraft, options = {}) {
         if (root !== target) return;
         const ok = result?.ok === true;
         if (ok) reload();
-        message = ok ? `已卖出${item.title}，获得 ${result.price ?? sellPriceOf(meta)} 积分` : deckReasonText(result?.reason);
+        message = ok ? `已卖出${item.title}，获得 ${result.price ?? sellPriceOf(meta)} 金钱` : deckReasonText(result?.reason);
         render();
     }
 
@@ -181776,7 +181862,7 @@ function createRecordPanelController(doc, global, fillDraft, options = {}) {
         const chips = groups.length > 1 ? `<div class="igs-record-groups" role="group" aria-label="物品分类"><button type="button" class="igs-rp-chip" data-record-act="group" data-record-id="" aria-pressed="${invGroup ? 'false' : 'true'}">全部<small>${total}</small></button>${groups.map(label =>
             `<button type="button" class="igs-rp-chip" data-record-act="group" data-record-id="${escapeHtml(label)}" aria-pressed="${label === invGroup ? 'true' : 'false'}">${escapeHtml(label)}<small>${(model?.entries || []).filter(item => itemGroup(item) === label).length}</small></button>`).join('')}</div>` : '';
         const sortLabel = INVENTORY_SORTS.find(([key]) => key === invSort)?.[1] || '默认';
-        const points = heroInv && Number.isFinite(Number(heroInv.points)) ? `<span class="igs-record-points" role="status">积分 ${escapeHtml(heroInv.points)}</span>` : '';
+        const points = heroInv && Number.isFinite(Number(heroInv.points)) ? `<span class="igs-record-points" role="status">金钱 ${escapeHtml(heroInv.points)}</span>` : '';
         const tools = total || points ? `<div class="igs-record-inventory-tools">${chips}<div class="igs-record-inventory-actions">${points}<label class="igs-rp-search">${RECORD_ICONS.search}<input type="search" data-record-input="query" value="${escapeHtml(invQuery)}" placeholder="搜索物品" aria-label="搜索物品" autocomplete="off"></label><button type="button" class="igs-rp-chip igs-rp-chip-icon" data-record-act="sort" aria-label="排序：${sortLabel}">${RECORD_ICONS.sort}<span>${sortLabel}</span></button></div></div>` : '';
         let detail = '';
         if (chosen) {
@@ -181794,7 +181880,7 @@ function createRecordPanelController(doc, global, fillDraft, options = {}) {
             const sellKey = sellKeyOf(chosenMeta);
             const sellButton = sellKey && typeof options.sellHeroItem === 'function'
                 ? (sellPending === chosen.id
-                    ? `<button type="button" class="igs-rp-btn is-primary" data-record-act="sell-confirm">确认卖出 · ${escapeHtml(sellPriceOf(chosenMeta))} 积分</button><button type="button" class="igs-rp-btn" data-record-act="sell-cancel">取消</button>`
+                    ? `<button type="button" class="igs-rp-btn is-primary" data-record-act="sell-confirm">确认卖出 · ${escapeHtml(sellPriceOf(chosenMeta))} 金钱</button><button type="button" class="igs-rp-btn" data-record-act="sell-cancel">取消</button>`
                     : `<button type="button" class="igs-rp-btn" data-record-act="sell">卖出</button>`) : '';
             const baseButton = chosenMeta?.kind === 'gear' ? wearButton
                 : ((useService || typeof fillDraft === 'function') && quantity !== '0'
@@ -187490,7 +187576,7 @@ const { readStatsSettings } = require("src/scene/stats/stat-settings.js");
 const { createStatsState } = require("src/scene/stats/stat-state.js");
 const { buildStatsPrompt, mandatesFromFlags } = require("src/scene/stats/stat-prompt.js");
 const { pushStats, withTimeout } = require("src/data/shujuku/stats-push.js");
-const { createStatsMetricsLookup } = require("src/scene/stats/stat-metrics.js");
+const { createStatsMetricsLookup, protagonistStatMetrics } = require("src/scene/stats/stat-metrics.js");
 const { statsArchiveModel } = require("src/scene/stats/stat-archive.js");
 const { matchSkill } = require("src/scene/stats/stat-skill-match.js");
 const { cryptoRandom } = require("src/scene/stats/stat-rng.js");
@@ -187647,6 +187733,12 @@ function createStatsRuntime({
     const life = () => { try { return combatSource() || null; } catch (error) { return null; } };
     const heroPrefs = () => (ledger && currentStatsState(ledger).protagonist.prefs) || null;
     const userName = () => String((ctx() && ctx().name1) || '');
+    // 钱包：战斗侧主角积分净流水（战斗扩展开着且战斗数据已就绪才有，否则 0）；与数值侧金钱相加即合并余额。
+    const combatPoints = () => {
+        if (!combatOn()) return 0;
+        const s = life();
+        try { return s && typeof s.readPoints === 'function' ? Number(s.readPoints()) || 0 : 0; } catch (error) { return 0; }
+    };
     // 引擎读数闭包保持稳定（引用不变引擎缓存才命中）；每次调用时再取战斗源，userName 用 getter 随时取最新。
     const readers = {
         readAbilities: (name) => { const s = life(); return s && typeof s.readAbilities === 'function' ? s.readAbilities(name, { heroPrefs: heroPrefs() }) : null; },
@@ -188058,7 +188150,7 @@ function createStatsRuntime({
         const fromCombat = combat && combat.check ? { ...combat.check, actors: (combat.check.actors || []).filter((a) => a && !skip.has(a.name) && !isHero(a.name)) } : null;
         const dice = coc ? null : mergeCheckInputs(own, fromCombat);
         const prompt = buildStatsPrompt(state, {
-            present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
+            walletExtra: combatPoints(), present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
             nsfw: isNsfw(), intimacyGate: s.intimacyGate, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
@@ -188110,7 +188202,7 @@ function createStatsRuntime({
             }
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, catalog, settings: s, floor: messageId, noBattle: combatOn(),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(),
             });
             const meta = { ...r.meta };
             if (p.preroll) meta.preroll = p.preroll;
@@ -188772,6 +188864,15 @@ function createStatsRuntime({
             if (!active()) return null;
             return createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), sheets: catalog.sheets, engine: memoEngineOf() });
         }),
+        // 状态栏主角条（生命、体力、压力、金钱；金钱为合并余额）：只在总开关与本聊天都启用时返回 lookup，其余名字返回 null。
+        protagonistLookup: ev(() => {
+            if (!active()) return null;
+            const s = settings();
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() });
+            return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
+        }),
+        // 合并余额里数值侧的那一份（战斗账本的主角余额用）；没启用时为 0。
+        walletMoney: () => (active() ? Number(currentStatsState(ledger).protagonist.bars.money) || 0 : 0),
         enableForChat: ev(enableForChat),
         // 本聊天关闭：数值冻结，不清存档（§10A）。战斗开启时锁定为启用。
         disableForChat: ev(() => {
@@ -189021,7 +189122,7 @@ function settleBars(state, directives, hour, ctx) {
     if (isLateHour(hour) && !stayedUp) { list.push({ kind: 'stamina', value: '熬夜', late: true }); stayedUp = true; }
     let bars = state.protagonist.bars;
     for (const d of list) {
-        const r = applyBarDirective(bars, d, ctx.moneyTable);
+        const r = applyBarDirective(bars, d, ctx.moneyTable, ctx.walletExtra);
         if (r.shortfall) ctx.flags.shortfall = true;
         if (r.change) ctx.changes.push({ source: 'tag', target: '主角', key: r.change.key, from: r.change.from, to: r.change.to, note: d.late ? '23点后熬夜' : d.value });
         bars = r.bars;
@@ -189095,7 +189196,7 @@ function checkFromRollTag(before, tag, raw, opts, ctx) {
     return resolveCheck(engine, before, { actor: PROTAGONIST, skill, difficulty: tag.difficulty, against, opposedSkill, raw, source: 'roll' }, null);
 }
 
-// opts：{ random, hour, nsfw, resolveCharacter, moneyTable, engine, check, rollPairs, preroll, storyChecks, noBattle, catalog, settings, floor }
+// opts：{ random, hour, nsfw, resolveCharacter, moneyTable, walletExtra（战斗侧积分，并入金钱判断）, engine, check, rollPairs, preroll, storyChecks, noBattle, catalog, settings, floor }
 // check：本楼已定的检定（选项、输入匹配、手动掷骰）；没有时按 roll 标签与楼内骰序 rollPairs 重算。
 // storyChecks：正文 igs-check 的回放结果（主角的才会打成长勾；社交检定大成功可触发突破加成）。
 // noBattle：战斗扩展接管战斗时为真，丢弃 battle 标签。
@@ -189106,7 +189207,7 @@ function settleFloorText(before, text, opts = {}) {
     const narration = narrationOf(text);
     const resolve = resolveCharacter || ((name) => (Object.hasOwn(before.characters, name) ? name : null));
     const engine = opts.engine || createEngine();
-    const ctx = { random, nsfw, moneyTable, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null };
+    const ctx = { random, nsfw, moneyTable, walletExtra: Number(opts.walletExtra) || 0, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null };
     const rollTag = parsed.directives.find((d) => d.kind === 'roll') || null;
     let check = opts.check || null;
     let pendingRoll = null;
@@ -189324,7 +189425,7 @@ __igsDefine(exports, "SOFT_DAY_FLOORS", () => SOFT_DAY_FLOORS);
 __igsRegister("src/scene/stats/stat-battle.js", function(module, exports, require) {
 // 战斗整场速算（§6A、v2 §7.3）与打工检定（§4.2 work）。胜负、伤势、战利品由脚本决定；逐招动作由 AI 正文决定。
 // 掷骰走检定引擎：CoC 为对抗（主角反击时同级攻击方胜），D&D 为攻击检定对 AC、闪避为敏捷豁免。
-const { applyBarDirective, workIncomeTier } = require("src/scene/stats/stat-bars.js");
+const { applyBarDirective, walletBalance, workIncomeTier } = require("src/scene/stats/stat-bars.js");
 const { applyKeyEvent } = require("src/scene/stats/stat-favor-events.js");
 const { matchSkill } = require("src/scene/stats/stat-skill-match.js");
 const { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withSkills } = require("src/scene/stats/stat-state.js");
@@ -189406,7 +189507,7 @@ function resolveBattle(state, { tier, count = 1, ally = null, foe: foeName = nul
 
 function shiftBar(bars, key, delta, changes, note) {
     const from = Number(bars[key]) || 0;
-    const to = key === 'money' ? Math.max(0, from + delta) : clamp(from + delta, 0, 100);
+    const to = key === 'money' ? from + delta : clamp(from + delta, 0, 100);
     if (to === from) return bars;
     changes.push({ source: 'battle', target: '主角', key, from, to, note });
     return { ...bars, [key]: to };
@@ -189414,7 +189515,7 @@ function shiftBar(bars, key, delta, changes, note) {
 
 // 伤势不再扣主角生命条：只把伤势档记进 flags.battleHurt，交战斗侧写入生命账本。
 function applyBar(bars, directive, ctx, note) {
-    const r = applyBarDirective(bars, directive, ctx.moneyTable);
+    const r = applyBarDirective(bars, directive, ctx.moneyTable, ctx.walletExtra);
     if (r.hurt) ctx.flags.battleHurt = r.hurt;
     if (r.change) ctx.changes.push({ source: 'battle', target: '主角', key: r.change.key, from: r.change.from, to: r.change.to, note });
     return r.bars;
@@ -189435,7 +189536,8 @@ function applyBattle(state, directive, ctx) {
     if (result.outcome === '败') {
         bars = applyBar(bars, { kind: 'hurt', value: enemy.hurt }, ctx, note);
         bars = shiftBar(bars, 'stamina', DEFEAT_STAMINA, ctx.changes, note);
-        bars = shiftBar(bars, 'money', -Math.floor((Number(bars.money) || 0) * DEFEAT_MONEY_LOSS), ctx.changes, note);
+        // 两成按合并余额算（金钱 + 战斗积分），扣在数值侧金钱上。
+        bars = shiftBar(bars, 'money', -Math.floor(Math.max(0, walletBalance(bars, ctx.walletExtra)) * DEFEAT_MONEY_LOSS), ctx.changes, note);
     } else {
         bars = shiftBar(bars, 'stamina', WIN_STAMINA[result.outcome], ctx.changes, note);
         if (result.outcome === '险胜') bars = applyBar(bars, { kind: 'hurt', value: '轻伤' }, ctx, note);
@@ -200016,6 +200118,8 @@ function createCombatServices(options = {}) {
             ledger = createCombatLedger({
                 tables: bundle.impl, chat: getChat, userName: getUserName, sourceFilter: getSourceFilter,
                 difficulty: () => settings().difficulty, inventory,
+                // 数值侧金钱并入主角余额（积分与金钱合并成一个钱包）。
+                wallet: () => (typeof options.getWallet === 'function' ? options.getWallet() : 0),
             });
             ensureFailure = null;
             growthSnapshot = null;
@@ -200087,7 +200191,7 @@ function createCombatServices(options = {}) {
         const key = cacheKey();
         let state;
         try {
-            state = await ledgerImpl.effectiveState();
+            state = await ledgerImpl.effectiveState({ raw: true });
         } catch {
             state = { ok: false, reason: 'combat-ledger-read-failed' };
         }
@@ -200221,7 +200325,7 @@ function createCombatServices(options = {}) {
         }
         let state;
         try {
-            state = await ledgerImpl.effectiveState();
+            state = await ledgerImpl.effectiveState({ raw: true });
         } catch {
             state = { ok: false, reason: 'combat-ledger-read-failed' };
         }
@@ -200274,6 +200378,8 @@ function createCombatServices(options = {}) {
                 return sheet || (state ? abilitiesForName(state, name, getUserName(), extra) : null);
             },
             readVitals: (name, extra) => (state ? vitalsForName(state, name, getUserName(), extra) : null),
+            // 主角的战斗积分净流水（不含数值侧金钱）；战斗数据没就绪时按 0。
+            readPoints: () => { const heroId = state && state.attributes && state.attributes.heroId; const hero = heroId ? state.characters.get(heroId) : null; return hero ? Number(hero.points) || 0 : 0; },
             names: () => (state ? [...state.characters.values()].map((character) => character.name).filter(Boolean) : []),
             refresh: refreshLife,
         };
@@ -200329,7 +200435,7 @@ function createCombatServices(options = {}) {
         const ledgerImpl = ledger;
         let state;
         try {
-            state = await ledgerImpl.effectiveState();
+            state = await ledgerImpl.effectiveState({ raw: true });
         } catch {
             state = { ok: false, reason: 'combat-ledger-read-failed' };
         }
@@ -200447,7 +200553,7 @@ function createCombatServices(options = {}) {
         }
         let state;
         try {
-            state = await ledgerImpl.effectiveState();
+            state = await ledgerImpl.effectiveState({ raw: true });
         } catch {
             state = { ok: false, reason: 'combat-ledger-read-failed' };
         }

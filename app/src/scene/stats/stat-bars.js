@@ -12,14 +12,19 @@ export const HEALTH_SEVERE_PCT = 20;
 export const HEALTH_LIGHT_PCT = 50;
 export const STRESS_HIGH = 70;
 
-function shift(bars, key, delta, max = 100) {
+// 金钱与战斗积分合并成一个钱包：合并余额 = 数值侧金钱 + 战斗侧主角积分净流水（walletExtra，调用方传入，纯函数不读全局）。
+export function walletBalance(bars, walletExtra = 0) {
+    return (Number(bars && bars.money) || 0) + (Number(walletExtra) || 0);
+}
+
+function shift(bars, key, delta, max = 100, min = 0) {
     const from = Number(bars[key]) || 0;
-    const to = clamp(from + delta, 0, max);
+    const to = clamp(from + delta, min, max);
     return to === from ? { bars, change: null } : { bars: { ...bars, [key]: to }, change: { key, from, to } };
 }
 
 // 体力事件「受伤」按轻伤、hurt 标签按原档位，都只返回 hurt 档交给战斗账本，不再改数值侧生命；花费超过余额时不扣钱，返回 shortfall。
-export function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TABLE) {
+export function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TABLE, walletExtra = 0) {
     switch (directive.kind) {
     case 'stamina':
         return directive.value === '受伤'
@@ -29,8 +34,9 @@ export function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TA
     case 'stress': return shift(bars, 'stress', STRESS_DELTA[directive.value] || 0);
     case 'money': {
         const amount = Number(moneyTable[directive.value]) || 0;
-        if (directive.flow === '花费' && amount > (Number(bars.money) || 0)) return { bars, change: null, shortfall: true };
-        return shift(bars, 'money', directive.flow === '花费' ? -amount : amount, Infinity);
+        if (directive.flow === '花费' && amount > walletBalance(bars, walletExtra)) return { bars, change: null, shortfall: true };
+        // 扣款记在数值侧金钱上；战斗积分垫付的部分会让它为负，合并余额仍不小于零。
+        return shift(bars, 'money', directive.flow === '花费' ? -amount : amount, Infinity, -Infinity);
     }
     default: return { bars, change: null };
     }

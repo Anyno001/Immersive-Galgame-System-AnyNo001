@@ -155,6 +155,39 @@ export function diffFavorMetrics(baseline, character, metrics) {
     return changes;
 }
 
+const favorFloorKey = (messageId, character) => `favor-floor:${messageId}:${character}`;
+
+// 数值系统结算反馈（igs:stats-fx）：复用页面飘字的 igs-fx-favor 样式。只在状态栏开着时由阅读器调用；
+// 好感与页面差分飘字去重，关系阶段只给当前说话人，成长不限人。返回播放的行数。
+export function playStatsFeedback(root, fx, options = {}) {
+    if (!root || !fx) return { played: 0 };
+    const settings = normalizeFxReaderSettings(options.readerSettings);
+    if (!settings.favorToast.enabled) return { played: 0 };
+    const layers = ensureFxLayers(root);
+    if (!layers) return { played: 0 };
+    const state = getState(root, options);
+    const speaker = text(options.speaker);
+    const lines = [];
+    for (const t of fx.toasts || []) {
+        if (!t || !text(t.target) || !markOnce(state.memory, favorFloorKey(fx.messageId, text(t.target)))) continue;
+        const up = t.delta > 0;
+        lines.push({ up, text: t.text === '♥' || t.text === '♡' ? `${t.target} ${t.text}` : `${t.target} 好感 ${up ? '↑ +' : '↓ '}${t.delta}` });
+    }
+    for (const g of fx.growth || []) lines.push({ up: true, text: `${g.skill}成长 +${g.gain}` });
+    for (const sh of fx.stages || []) {
+        if (speaker && text(sh.target) === speaker) lines.push({ up: true, text: `${sh.target}：${sh.from} → ${sh.to}` });
+    }
+    if (!lines.length) return { played: 0 };
+    const life = Math.round(FX_LIFETIME_MS.favor * (FX_HOLD_SCALE[settings.fxStyle.hold] || 1));
+    const stack = persistent(layers.front, layers.doc, 'igs-fx-favor-stack');
+    for (const line of lines) {
+        const el = node(layers.doc, 'igs-fx-favor', line.text);
+        el.setAttribute('data-dir', line.up ? 'up' : 'down');
+        spawn(state, stack, el, life);
+    }
+    return { played: lines.length };
+}
+
 export function resetFavorBaseline() {
     favorBaseline.clear();
 }
@@ -206,6 +239,8 @@ export function planPageFx(snapshot, memory, baseline = favorBaseline, normalize
 
     if (settings.favorToast.enabled && content.statusHud && content.statusHud.character) {
         for (const change of diffFavorMetrics(baseline, content.statusHud.character, content.statusHud.metrics)) {
+            // 同一楼同一角色的好感只飘一次（与 igs:stats-fx 的飘字共用记忆）。
+            if (change.label === '好感' && messageId != null && !markOnce(memory, favorFloorKey(messageId, change.character))) continue;
             effects.push({ type: 'favor', ...change });
         }
     }

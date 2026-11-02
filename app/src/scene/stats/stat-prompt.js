@@ -1,7 +1,7 @@
 // 数值系统提示词注入段（§9）：每段一个可编辑模板，用户覆盖优先，可单独关闭。
 // 模板变量写错或缺失时原样保留变量名并记诊断，不中断（§9 末条）。
 import { FAVOR_GATES, gateKey, stageOf } from './stat-favor.js';
-import { healthStatus, STAMINA_LOW, STRESS_HIGH } from './stat-bars.js';
+import { healthStatus, walletBalance, STAMINA_LOW, STRESS_HIGH } from './stat-bars.js';
 import { FAVOR_DIRECTIONS, HURT_TIERS, MONEY_TIERS, STAMINA_EVENTS } from './stat-vocab.js';
 import { CHECK_ROLLS_TEMPLATE, checkRollsVars, fillCheckRolls } from '../check-rolls.js';
 import { COC_CHECK_ROLLS_TEMPLATE, cocRollsVars } from './stat-coc-checks.js';
@@ -108,7 +108,7 @@ function intimacyNote(character, { nsfw, intimacyGate }) {
 }
 
 // opts：{ prompts, disabled, stageText, present, check, mandates, shortfall, nsfw, intimacyGate, vitals,
-//         skillsLine, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
+//         walletExtra（战斗侧积分，与金钱合并显示）, skillsLine, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
 //         dice: D&D 正文检定输入（check-rolls 的 checkRollsVars 入参），cocDice: CoC 正文检定输入（cocRollsVars 入参）,
 //         combatOn, partyLines }
 export function buildStatsPrompt(state, opts = {}) {
@@ -121,7 +121,7 @@ export function buildStatsPrompt(state, opts = {}) {
     const push = (id, text) => { if (!disabled.has(id) && text) parts.push({ id, text }); };
     push('source', fillTemplate(prompts.source, {}, diagnostics));
     push('protagonist', fillTemplate(prompts.protagonist, {
-        生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 金钱: bars.money,
+        生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 金钱: walletBalance(bars, opts.walletExtra),
         状态描述: describeProtagonist(bars, { shortfall: opts.shortfall, vitals: opts.vitals }),
     }, diagnostics));
     if (opts.skillsLine) push('skills', fillTemplate(prompts.skills, { 技能档位: opts.skillsLine }, diagnostics));

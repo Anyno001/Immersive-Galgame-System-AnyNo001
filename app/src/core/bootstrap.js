@@ -415,6 +415,8 @@ export function bootstrapIGS(options = {}) {
         getSourceFilter: () => readImageBridge().sourceFilter,
         getChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
         getUserName: () => (typeof illustrationMessageHost.getUserName === 'function' ? illustrationMessageHost.getUserName() : ''),
+        // 战斗积分与数值侧金钱合并成一个钱包：主角余额里并入数值侧金钱（statsRuntime 在战斗服务之后创建，按需读取）。
+        getWallet: () => (app.statsRuntime && typeof app.statsRuntime.walletMoney === 'function' ? app.statsRuntime.walletMoney() : 0),
         readLore: (name) => (typeof illustrationMessageHost.readCharacterLore === 'function'
             ? illustrationMessageHost.readCharacterLore(name, { includeWorldInfo: false }) : []),
         readStoryContext: createCombatStoryContext(globalObject, {
@@ -444,6 +446,7 @@ export function bootstrapIGS(options = {}) {
         global: globalObject,
         // statsRuntime 在阅读器之后创建，这里按需读取。
         statsLookup: () => (app.statsRuntime && typeof app.statsRuntime.metricsLookup === 'function' ? app.statsRuntime.metricsLookup() : null),
+        statsProtagonistLookup: () => (app.statsRuntime && typeof app.statsRuntime.protagonistLookup === 'function' ? app.statsRuntime.protagonistLookup() : null),
         statsChat: () => (app.statsRuntime ? app.statsRuntime.chatStatus() : null),
         statsArchive: () => (app.statsRuntime ? app.statsRuntime.archive() : null),
         // 推送映射页：读当前表格，按草稿里的覆盖值标出每列状态；没装数据库插件时返回 null。
@@ -877,6 +880,8 @@ export function bootstrapIGS(options = {}) {
     });
     app.statsRuntime = statsRuntime;
     state.statsSettingsOff = events.on('igs:legacy-settings-updated', () => statsRuntime.sync());
+    // 状态栏关闭时阅读器直接丢弃；开启时把好感、成长、阶段变化接到现有飘字。
+    state.statsFxOff = events.on('igs:stats-fx', (fx) => { try { app.igsUi && typeof app.igsUi.playStatsFeedback === 'function' && app.igsUi.playStatsFeedback(fx); } catch (error) { /* 反馈出错不影响结算 */ } });
     statsRuntime.sync();
     // 随身系统（Origin 系统 原作 vicliaaa，经授权移植）：总开关默认关，关着时不挂任何监听。
     const originRuntime = createOriginRuntime({
@@ -1425,6 +1430,7 @@ export function bootstrapIGS(options = {}) {
         close(() => state.combatSettingsOff?.());
         close(() => state.combatFloorOff?.());
         close(() => state.statsSettingsOff?.());
+        close(() => state.statsFxOff?.());
         close(() => app.statsRuntime?.destroy());
         close(() => state.originSettingsOff?.());
         close(() => app.originRuntime?.destroy());

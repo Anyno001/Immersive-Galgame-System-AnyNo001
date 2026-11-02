@@ -18,7 +18,7 @@ import { readStatsSettings } from '../scene/stats/stat-settings.js';
 import { createStatsState } from '../scene/stats/stat-state.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
 import { pushStats, withTimeout } from '../data/shujuku/stats-push.js';
-import { createStatsMetricsLookup } from '../scene/stats/stat-metrics.js';
+import { createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
 import { statsArchiveModel } from '../scene/stats/stat-archive.js';
 import { matchSkill } from '../scene/stats/stat-skill-match.js';
 import { cryptoRandom } from '../scene/stats/stat-rng.js';
@@ -183,6 +183,12 @@ export function createStatsRuntime({
     const life = () => { try { return combatSource() || null; } catch (error) { return null; } };
     const heroPrefs = () => (ledger && currentStatsState(ledger).protagonist.prefs) || null;
     const userName = () => String((ctx() && ctx().name1) || '');
+    // 钱包：战斗侧主角积分净流水（战斗扩展开着且战斗数据已就绪才有，否则 0）；与数值侧金钱相加即合并余额。
+    const combatPoints = () => {
+        if (!combatOn()) return 0;
+        const s = life();
+        try { return s && typeof s.readPoints === 'function' ? Number(s.readPoints()) || 0 : 0; } catch (error) { return 0; }
+    };
     // 引擎读数闭包保持稳定（引用不变引擎缓存才命中）；每次调用时再取战斗源，userName 用 getter 随时取最新。
     const readers = {
         readAbilities: (name) => { const s = life(); return s && typeof s.readAbilities === 'function' ? s.readAbilities(name, { heroPrefs: heroPrefs() }) : null; },
@@ -594,7 +600,7 @@ export function createStatsRuntime({
         const fromCombat = combat && combat.check ? { ...combat.check, actors: (combat.check.actors || []).filter((a) => a && !skip.has(a.name) && !isHero(a.name)) } : null;
         const dice = coc ? null : mergeCheckInputs(own, fromCombat);
         const prompt = buildStatsPrompt(state, {
-            present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
+            walletExtra: combatPoints(), present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
             nsfw: isNsfw(), intimacyGate: s.intimacyGate, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
@@ -646,7 +652,7 @@ export function createStatsRuntime({
             }
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, catalog, settings: s, floor: messageId, noBattle: combatOn(),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(),
             });
             const meta = { ...r.meta };
             if (p.preroll) meta.preroll = p.preroll;
@@ -1308,6 +1314,15 @@ export function createStatsRuntime({
             if (!active()) return null;
             return createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), sheets: catalog.sheets, engine: memoEngineOf() });
         }),
+        // 状态栏主角条（生命、体力、压力、金钱；金钱为合并余额）：只在总开关与本聊天都启用时返回 lookup，其余名字返回 null。
+        protagonistLookup: ev(() => {
+            if (!active()) return null;
+            const s = settings();
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() });
+            return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
+        }),
+        // 合并余额里数值侧的那一份（战斗账本的主角余额用）；没启用时为 0。
+        walletMoney: () => (active() ? Number(currentStatsState(ledger).protagonist.bars.money) || 0 : 0),
         enableForChat: ev(enableForChat),
         // 本聊天关闭：数值冻结，不清存档（§10A）。战斗开启时锁定为启用。
         disableForChat: ev(() => {

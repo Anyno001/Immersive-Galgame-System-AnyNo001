@@ -125,18 +125,18 @@ function cardRow(c, readonly) {
         + '</li>';
 }
 
-// 重新生成基础卡组：只主角、不在战斗中且注入了生成能力时给按钮，积分不足置灰；点后在原处确认或取消。
+// 重新生成基础卡组：只主角、不在战斗中且注入了生成能力时给按钮，金钱不足置灰；点后在原处确认或取消。
 function rebuildHtml(v, d) {
     if (v.readonly || !v.canRebuild || !d.canSell) return '';
     const busy = Boolean(v.pending);
     const inner = v.rebuild
-        ? btn('rebuild-confirm', v.pending === 'rebuild' ? '生成中' : `确认重新生成 · ${REBUILD_COST} 积分`, { primary: true, disabled: busy }) + btn('rebuild-cancel', '取消', { disabled: busy })
-        : btn('rebuild-open', `重新生成基础卡组（消耗${REBUILD_COST}积分）`, { disabled: busy || (d.points || 0) < REBUILD_COST });
+        ? btn('rebuild-confirm', v.pending === 'rebuild' ? '生成中' : `确认重新生成 · ${REBUILD_COST} 金钱`, { primary: true, disabled: busy }) + btn('rebuild-cancel', '取消', { disabled: busy })
+        : btn('rebuild-open', `重新生成基础卡组（消耗${REBUILD_COST}金钱）`, { disabled: busy || (d.points || 0) < REBUILD_COST });
     return `<div class="igs-deck-actions">${inner}</div>`;
 }
 
 // 转职与职业升阶（只主角、不在战斗中且注入了对应能力时显示）：转职展开后列出其他已登记职业与「新职业」，选定后确认或取消；
-// 升阶按钮写下一阶的等级门槛与花费，已到三阶不显示，等级或积分不足置灰，点后在原处确认或取消。
+// 升阶按钮写下一阶的等级门槛与花费，已到三阶不显示，等级或金钱不足置灰，点后在原处确认或取消。
 function classActionsHtml(v, d) {
     if (v.readonly || !d.canSell || d.kind !== 'deck-character') return '';
     const busy = Boolean(v.pending);
@@ -144,15 +144,15 @@ function classActionsHtml(v, d) {
     if (v.respec && v.canRespec) {
         const picks = v.classes.filter((c) => c.id !== d.classRef).map((c) => btn('respec-pick', c.name, { id: c.id, pressed: v.respec.picked && v.respec.classRef === c.id, disabled: busy })).join('')
             + btn('respec-pick', '新职业', { pressed: v.respec.picked && !v.respec.classRef, disabled: busy });
-        const confirm = v.respec.picked ? btn('respec-confirm', v.pending === 'respec' ? '转职中' : `确认转职 · ${RESPEC_COST} 积分`, { primary: true, disabled: busy }) : '';
+        const confirm = v.respec.picked ? btn('respec-confirm', v.pending === 'respec' ? '转职中' : `确认转职 · ${RESPEC_COST} 金钱`, { primary: true, disabled: busy }) : '';
         return `${row('转职', picks)}<div class="igs-deck-actions">${confirm}${btn('respec-cancel', '取消', { disabled: busy })}</div>`;
     }
     if (v.ascend && v.canAscend && next) {
-        return `<div class="igs-deck-actions">${btn('ascend-confirm', v.pending === 'ascend' ? '生成中' : `确认升阶 · ${next.cost} 积分`, { primary: true, disabled: busy })}${btn('ascend-cancel', '取消', { disabled: busy })}</div>`;
+        return `<div class="igs-deck-actions">${btn('ascend-confirm', v.pending === 'ascend' ? '生成中' : `确认升阶 · ${next.cost} 金钱`, { primary: true, disabled: busy })}${btn('ascend-cancel', '取消', { disabled: busy })}</div>`;
     }
     const acts = [];
-    if (v.canRespec) acts.push(btn('respec-open', `转职（消耗${RESPEC_COST}积分）`, { disabled: busy || (d.points || 0) < RESPEC_COST }));
-    if (v.canAscend && next) acts.push(btn('ascend-open', `职业升阶（需 Lv${next.level} · 消耗${next.cost}积分）`, { disabled: busy || (d.expLevel || 1) < next.level || (d.points || 0) < next.cost }));
+    if (v.canRespec) acts.push(btn('respec-open', `转职（消耗${RESPEC_COST}金钱）`, { disabled: busy || (d.points || 0) < RESPEC_COST }));
+    if (v.canAscend && next) acts.push(btn('ascend-open', `职业升阶（需 Lv${next.level} · 消耗${next.cost}金钱）`, { disabled: busy || (d.expLevel || 1) < next.level || (d.points || 0) < next.cost }));
     return acts.length ? `<div class="igs-deck-actions">${acts.join('')}</div>` : '';
 }
 
@@ -222,7 +222,7 @@ const bagRow = (rarity, head, acts) => `<li class="igs-deck-keepsake"${rarity ? 
 
 
 // 人物特性（只主角有）：特性槽（v4）逐槽列出保留着的固有特性（人物技能 / 个人被动）、抽到的特性、空槽与未解锁的槽；按稀有度标色，写名称、种类、效果与联动，来历放在名称提示里。
-// 下一个未解锁的槽给「解锁 · 价格」，积分不足置灰。主角不在战斗中时给「抽人物特性」，点后在原处确认或取消，积分不足置灰；
+// 下一个未解锁的槽给「解锁 · 价格」，金钱不足置灰。主角不在战斗中时给「抽人物特性」，点后在原处确认或取消，金钱不足置灰；
 // 装不下时抽到的新特性列在「新特性」，每个特性给「替换」（替换后会挤掉其他固有特性或主动超上限的置灰）、新特性给「放弃」，被替换或放弃的永久消失。
 const traitTags = (t) => [t.innate ? '固有' : '', t.kind === 'active' ? `主动 · ${t.cost}费` : ''].filter(Boolean);
 const traitHead = (t) => `<span class="igs-deck-name"${t.origin ? ` title="${esc(t.origin)}"` : ''}>${esc(t.name)}</span>`
@@ -241,8 +241,8 @@ function traitsHtml(v, d) {
     if (slots) {
         for (let i = list.length; i < slots.slots; i += 1) rows.push(bagRow('', '<span class="igs-deck-name is-empty">空槽</span>', ''));
         slots.locked.forEach((s, i) => {
-            const unlock = i === 0 && !v.readonly && v.canUnlockSlot ? btn('trait-slot', `解锁 · ${s.cost} 积分`, { id: String(s.slot), disabled: busy || (d.points || 0) < s.cost }) : '';
-            rows.push(bagRow('', `<span class="igs-deck-name is-locked">第 ${s.slot} 槽</span><span class="igs-deck-count">${esc(`未解锁 · ${s.cost} 积分`)}</span>`, unlock));
+            const unlock = i === 0 && !v.readonly && v.canUnlockSlot ? btn('trait-slot', `解锁 · ${s.cost} 金钱`, { id: String(s.slot), disabled: busy || (d.points || 0) < s.cost }) : '';
+            rows.push(bagRow('', `<span class="igs-deck-name is-locked">第 ${s.slot} 槽</span><span class="igs-deck-count">${esc(`未解锁 · ${s.cost} 金钱`)}</span>`, unlock));
         });
     }
     const parts = [];
@@ -250,8 +250,8 @@ function traitsHtml(v, d) {
     if (fresh) parts.push(row('新特性', `<ul class="igs-deck-collection">${bagRow(fresh.rarity, traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
     if (hero && !fresh && !v.readonly && v.canDrawTrait) {
         const inner = v.trait
-            ? btn('trait-confirm', v.pending === 'trait' ? '生成中' : `确认抽取 · ${TRAIT_DRAW_COST} 积分`, { primary: true, disabled: busy }) + btn('trait-cancel', '取消', { disabled: busy })
-            : btn('trait-open', `抽人物特性（消耗${TRAIT_DRAW_COST}积分）`, { disabled: busy || (d.points || 0) < TRAIT_DRAW_COST });
+            ? btn('trait-confirm', v.pending === 'trait' ? '生成中' : `确认抽取 · ${TRAIT_DRAW_COST} 金钱`, { primary: true, disabled: busy }) + btn('trait-cancel', '取消', { disabled: busy })
+            : btn('trait-open', `抽人物特性（消耗${TRAIT_DRAW_COST}金钱）`, { disabled: busy || (d.points || 0) < TRAIT_DRAW_COST });
         parts.push(`<div class="igs-deck-actions">${inner}</div>`);
     }
     return parts.join('');

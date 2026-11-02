@@ -94,7 +94,7 @@ const REASON_TEXT = Object.freeze({
     'combat-flip-position-invalid': '这张牌不能选',
     'combat-reroll-used': '本场已经重抽过',
     'combat-reroll-unavailable': '本场不能重抽',
-    'combat-points-insufficient': '积分不足',
+    'combat-points-insufficient': '金钱不足',
     'combat-choice-pending': '先选完牌',
     'combat-choice-invalid': '这张牌不能选',
     'combat-choice-full': '已选够张数，先取消一张',
@@ -476,7 +476,7 @@ function lootCardHtml(c, f, fresh, struck, pending) {
     const actLabel = act === 'choose' ? `选择 ${label}` : s ? `翻开 ${label}` : `翻开第 ${pos + 1} 张`;
     return `<button type="button" ${attrs} data-combat-act="${act}" data-combat-id="${pos}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(actLabel)}">${inner}</button>`;
 }
-// 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（积分不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
+// 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（金钱不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
 function lootHtml(v) {
     const f = v.flip;
     if (!f || f.status === 'none') return '';
@@ -489,7 +489,7 @@ function lootHtml(v) {
     const pause = f.cards.some((c) => struck.has(c.position) && c.slot?.rarity === 'mythic');
     const r = f.reroll;
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
-        ? btn('reroll', `重新抽取（消耗${r.cost}积分）`, { disabled: pending || !r.available }) : '';
+        ? btn('reroll', `重新抽取（消耗${r.cost}金钱）`, { disabled: pending || !r.available }) : '';
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
         + `${reroll ? `<div class="igs-combat-loot-tools">${reroll}</div>` : ''}</section>`;

@@ -589,7 +589,6 @@ const handlers = Object.freeze({
         if (!slot || slot.kind !== payload.slot.kind || slot.name !== payload.slot.name || slot.rarity !== payload.slot.rarity) return 'combat-loot-slot-mismatch';
         if ((payload.set === 'reserve') !== (payload.cost > 0)) return 'combat-loot-cost-invalid';
         if (payload.cost > 0 && heroId && state.id !== heroId) return 'combat-points-not-protagonist';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         const failure = applyLootSlot(state, slot, entry, heroStock === true && state.id === heroId);
         if (failure) return failure;
         state.points -= payload.cost;
@@ -623,7 +622,6 @@ const handlers = Object.freeze({
         if (state.kind !== 'deck-character') return 'combat-rebuild-kind-mismatch';
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         if (payload.cost !== REBUILD_COST) return 'combat-rebuild-cost-invalid';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         const rebuilt = { ...state.profile, personalPool: payload.personalPool, starterDeck: payload.starterDeck };
         if (!state.classProfile || !validateStarterDeck({ ...rebuilt, classRef: state.classProfile.id }, state.classProfile).ok) return 'combat-rebuild-invalid';
         const oldPoolIds = new Set((state.profile.personalPool || []).map((card) => card.id));
@@ -650,7 +648,6 @@ const handlers = Object.freeze({
         if (state.kind !== 'deck-character') return 'combat-respec-kind-mismatch';
         if (context.heroId && state.id !== context.heroId) return 'combat-points-not-protagonist';
         if (payload.cost !== RESPEC_COST) return 'combat-respec-cost-invalid';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         const classProfile = resolveClass(context.index, payload.classRef);
         if (!classProfile) return 'combat-class-missing';
         if (classProfile.id === state.classRef) return 'combat-respec-same-class';
@@ -669,7 +666,6 @@ const handlers = Object.freeze({
         if (expProgress(state.exp).level < tier.level) return 'combat-ascend-level-unreached';
         if (payload.cards.some((card) => card.rarity !== tier.rarity)) return 'combat-ascend-rarity-invalid';
         if (payload.cards.some((card) => state.catalog.has(card.id))) return 'combat-card-id-collision';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         for (const card of payload.cards) state.catalog.set(card.id, card);
         state.classTier = payload.tier;
         state.tierName = payload.tierName;
@@ -681,7 +677,6 @@ const handlers = Object.freeze({
         if (state.kind !== 'deck-character') return 'combat-trait-kind-mismatch';
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         if (payload.cost !== TRAIT_DRAW_COST) return 'combat-trait-cost-invalid';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         if (state.pendingTrait) return 'combat-trait-pending';
         if (state.traits.some((trait) => trait.traitId === payload.traitId)) return 'combat-trait-duplicate';
         if (effectsDamage(payload.passive?.effects) > COMBAT_RULES.allySkillDamageCap) return 'combat-trait-damage-cap';
@@ -713,7 +708,6 @@ const handlers = Object.freeze({
         const next = nextTraitSlot(state);
         if (!next || payload.slot !== next.slot) return 'combat-trait-slot-invalid';
         if (payload.cost !== next.cost) return 'combat-trait-slot-cost-invalid';
-        if (state.points < payload.cost) return 'combat-points-insufficient';
         state.points -= payload.cost;
         state.slotUnlocks += 1;
         if (state.pendingTrait && traitFits(state, state.pendingTrait.kind)) {
@@ -1455,7 +1449,8 @@ const PANEL_ACTION_TAGS = Object.freeze({
 });
 
 // 主角面板操作（改建卡组、转职、晋升、抽特质、选特质、解锁特质槽）。只有主角的卡组角色能做，点数要够。
-export function buildHeroPanelEntry(snapshot, chat, effective, characterId, action, payload, now = 0) {
+// wallet：数值侧金钱余额，与战斗积分合并成一个钱包（战斗净流水可为负，余额判断只在这里做）。
+export function buildHeroPanelEntry(snapshot, chat, effective, characterId, action, payload, now = 0, wallet = 0) {
     if (!snapshot || snapshot.ok !== true) return snapshotFailure(snapshot);
     if (!Object.hasOwn(PANEL_ACTION_TAGS, action)) return { ok: false, reason: 'combat-entry-invalid' };
     const floors = Array.isArray(chat) ? chat : [];
@@ -1465,7 +1460,7 @@ export function buildHeroPanelEntry(snapshot, chat, effective, characterId, acti
     const hero = heroId && heroId === characterId ? effective.characters.get(heroId) : null;
     if (!hero) return { ok: false, reason: 'combat-points-not-protagonist' };
     if (hero.kind !== 'deck-character') return { ok: false, reason: `combat-${action}-kind-mismatch` };
-    if ((hero.points || 0) < (payload?.cost ?? 0)) return { ok: false, reason: 'combat-points-insufficient' };
+    if ((hero.points || 0) + (Number(wallet) || 0) < (payload?.cost ?? 0)) return { ok: false, reason: 'combat-points-insufficient' };
     const swipeId = swipeOf(floors[last]);
     const anchor = { messageId: last, swipeId, tagHash: PANEL_ACTION_TAGS[action], occurrence: countPanelEntries(snapshot, heroId, last, swipeId) };
     const normalized = normalizeLedgerEntry({ id: ledgerEntryId(action, heroId, anchor), type: action, character: heroId, anchor, payload, createdAt: now });
@@ -1527,10 +1522,12 @@ const LEDGER_KINDS = Object.freeze(['profile', 'ledger', 'attribute']);
 //   - 快照读取：同一表戳只读一次，并发调用共用同一个 Promise；
 //   - 有效状态：同一快照 + 楼层集合签名 + 用户名 + 来源过滤 + 背包表戳 + 难度只重放一次。
 // read()/effectiveState() 返回的对象在调用方之间共享，必须视为只读，不要原地修改。
-export function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null } = {}) {
+export function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null, wallet = 0 } = {}) {
     const getChat = () => (typeof chat === 'function' ? chat() : chat) || [];
     const getUserName = () => (typeof userName === 'function' ? userName() : userName);
     const getSourceFilter = () => (typeof sourceFilter === 'function' ? sourceFilter() : sourceFilter);
+    // 数值侧金钱（同步取值，取不到按 0）；只用于 effectiveState() 的主角余额与主角面板写口的预检。
+    const getWallet = () => { try { return Number(typeof wallet === 'function' ? wallet() : wallet) || 0; } catch { return 0; } };
     const getHealScale = () => difficultyRule(typeof difficulty === 'function' ? difficulty() : difficulty).healScale;
     const stats = { tableReads: 0, snapshotHits: 0, stateComputes: 0, stateHits: 0 };
 
@@ -1610,10 +1607,27 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return readSnapshot();
     }
 
-    async function effectiveState() {
+    // 主角的 points 并入数值侧金钱（合并余额）；换新对象不改共享的记忆化状态，同一状态与同一金额返回同一对象。
+    const walletViews = new WeakMap();
+    function withWallet(state) {
+        const extra = getWallet();
+        if (!extra || !state || state.ok !== true) return state;
+        const heroId = state.attributes && state.attributes.heroId;
+        const hero = heroId ? state.characters.get(heroId) : null;
+        if (!hero) return state;
+        const cached = walletViews.get(state);
+        if (cached && cached.extra === extra) return cached.view;
+        const view = { ...state, characters: new Map(state.characters).set(heroId, { ...hero, points: (hero.points || 0) + extra }) };
+        walletViews.set(state, { extra, view });
+        return view;
+    }
+
+    // raw：只要战斗侧自己的流水（缓存用，避免把会变的数值侧金钱缓存进去）。
+    async function effectiveState({ raw = false } = {}) {
         const snapshot = await readSnapshot();
         if (!snapshot.ok) return computeEffectiveState(snapshot, []);
-        return resolveState(snapshot, getChat(), true).state;
+        const state = resolveState(snapshot, getChat(), true).state;
+        return raw ? state : withWallet(state);
     }
 
     // 只读统计（测试用）：读表次数、快照缓存命中、重放次数、重放缓存命中。
@@ -2007,7 +2021,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             if (!snapshot.ok) return snapshot;
             const floors = getChat();
             const { state, options } = resolveState(snapshot, floors, true);
-            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now());
+            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet());
             if (!built.ok) return built;
             const trial = computeEffectiveState({ ...snapshot, entries: [...snapshot.entries, built.entry] }, floors, options);
             const trialDiagnostic = trial.ok ? trial.diagnostics.find((item) => item.id === built.entry.id) : null;

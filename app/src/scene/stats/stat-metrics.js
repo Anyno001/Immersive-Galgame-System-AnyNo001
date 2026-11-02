@@ -2,9 +2,14 @@
 // 输出与 status-hud-model 的 extractStatusHudMetrics 同形（label / percent / display / colorKey），
 // 与 character-metrics 的 lookup 同形（{ metrics, stages }），视觉层只换数据源、不换样式。
 import { stageOf } from './stat-favor.js';
+import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
 
 const DIM_COLOR = Object.freeze({ 好感: 'favor', 信任: 'trust', 了解: 'know', 欲望: 'desire' });
-const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力' });
+const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '金钱' });
+// 状态栏条色沿用现有 slot 色板：生命红、体力绿、金钱黄、压力紫。
+const BAR_COLOR = Object.freeze({ health: 'slot-5', stamina: 'slot-2', money: 'slot-3', stress: 'slot-4' });
+// 金钱没有上限：条长按「巨额」档位折算，数字照实显示。
+const MONEY_FULL = DEFAULT_MONEY_TABLE.巨额;
 
 // 条长只表示正向程度：负值按 0 画，数字与阶段名照实显示。
 export function percentOfDim(value) {
@@ -40,17 +45,22 @@ export function characterStatMetrics(character, { hudLabel = 'stage', nsfw = fal
 }
 
 // 主角生命条取战斗 vitals（{hp, maxHp, down}），显示「当前/最大」；没有 vitals 就不出生命条。体力、压力仍按生活条。
-export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null } = {}) {
+// 金钱条只在 enabledBars.money 明确为真时出，显示合并余额（数值侧金钱 + walletExtra 战斗积分）。
+export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null, walletExtra = 0 } = {}) {
     const out = [];
     if (vitals && Number(vitals.maxHp) > 0) {
         const hp = vitals.down ? 0 : Math.max(0, Math.round(Number(vitals.hp) || 0));
         const max = Math.round(Number(vitals.maxHp));
-        out.push({ label: BAR_LABEL.health, percent: Math.max(0, Math.min(100, Math.round((hp / max) * 100))), display: `${hp}/${max}`, colorKey: 'health', sourceUid: 'igs-stats' });
+        out.push({ label: BAR_LABEL.health, percent: Math.max(0, Math.min(100, Math.round((hp / max) * 100))), display: `${hp}/${max}`, colorKey: BAR_COLOR.health, sourceUid: 'igs-stats' });
     }
     for (const key of ['stamina', 'stress']) {
         if (enabledBars[key] === false) continue;
         const v = Math.round(Number(bars && bars[key]) || 0);
-        out.push({ label: BAR_LABEL[key], percent: Math.max(0, Math.min(100, v)), display: String(v), colorKey: key, sourceUid: 'igs-stats' });
+        out.push({ label: BAR_LABEL[key], percent: Math.max(0, Math.min(100, v)), display: String(v), colorKey: BAR_COLOR[key], sourceUid: 'igs-stats' });
+    }
+    if (enabledBars.money === true) {
+        const wallet = Math.round(walletBalance(bars, walletExtra));
+        out.push({ label: BAR_LABEL.money, percent: Math.max(0, Math.min(100, Math.round((wallet / MONEY_FULL) * 100))), display: String(wallet), colorKey: BAR_COLOR.money, sourceUid: 'igs-stats' });
     }
     return out;
 }

@@ -39,7 +39,7 @@ import { createTurnIndexPanel, positionLabel } from './turn-index-panel.js';
 import { createGenerationStrip } from './generation-strip.js';
 import { createMissedHint, detectMissedAssets } from './missed-assets.js';
 import { createStatsChip } from './stats-chip.js';
-import { cancelFxEffects } from './fx-runtime.js';
+import { cancelFxEffects, playStatsFeedback } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
 import { cancelSceneGrade } from './scene-grade.js';
@@ -677,6 +677,16 @@ export function createIgsReaderHost(options = {}) {
         },
         playStatsCheck(detail) {
             return playOptionResultFx({ ok: true, detail }, { force: true });
+        },
+        // 数值结算反馈（好感飘字、成长、关系阶段）：状态栏关着时直接丢弃，开着时用现有飘字样式；阅读器没开不补播。
+        playStatsFeedback(fx) {
+            const current = state.activeReader;
+            const snapshot = current && current.snapshot;
+            const overlay = current && current.dom && current.dom.overlay;
+            const readerSettings = snapshot && snapshot.readerSettings;
+            if (!overlay || !readerSettings || !normalizeStatusHudSettings(readerSettings.statusHud).enabled) return false;
+            const hud = snapshot.content && snapshot.content.statusHud;
+            return playStatsFeedback(overlay, fx, { readerSettings, speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
         },
         getReaderSnapshotContract() {
             return {
@@ -4346,7 +4356,10 @@ ${row.key}`;
             const info = sceneInfo && typeof sceneInfo === 'object' ? sceneInfo : {};
             const hud = buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor, parsedTables: statusHud.tables.length ? tableData.parsed() : [], rowFor: tableData.rowFor });
             // 数值系统接管时，已登记角色的 HUD 条以 IGS 为准（易错点 H3）。
-            const statsLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
+            const tavernLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
+            // 说话人是主角时改读主角条（生命、体力、压力、金钱）；其余角色读好感等人际数值。
+            const protagonistLookup = tavernLookup && typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null;
+            const statsLookup = protagonistLookup ? (name) => protagonistLookup(name) || tavernLookup(name) : tavernLookup;
             return withConcreteAvatar(overlayStatsMetrics(hud, statsLookup, speaker));
         };
         const readStatusHudTables = () => tableData.read();

@@ -472,7 +472,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         render();
     }
 
-    // 背包卖出（v0.39.2）：只主角背包里有装配定义的杂物与背包中的装备；确认后经宿主注入的 sellHeroItem 写一条 sell 并重读，积分按稀有度计入。
+    // 背包卖出（v0.39.2）：只主角背包里有装配定义的杂物与背包中的装备；确认后经宿主注入的 sellHeroItem 写一条 sell 并重读，金钱按稀有度计入。
     async function sellItem() {
         const item = (model?.entries || []).find(entry => entry.id === selectedId);
         const meta = item && heroInv ? heroOf(item) : null;
@@ -486,7 +486,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         if (root !== target) return;
         const ok = result?.ok === true;
         if (ok) reload();
-        message = ok ? `已卖出${item.title}，获得 ${result.price ?? sellPriceOf(meta)} 积分` : deckReasonText(result?.reason);
+        message = ok ? `已卖出${item.title}，获得 ${result.price ?? sellPriceOf(meta)} 金钱` : deckReasonText(result?.reason);
         render();
     }
 
@@ -605,7 +605,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const chips = groups.length > 1 ? `<div class="igs-record-groups" role="group" aria-label="物品分类"><button type="button" class="igs-rp-chip" data-record-act="group" data-record-id="" aria-pressed="${invGroup ? 'false' : 'true'}">全部<small>${total}</small></button>${groups.map(label =>
             `<button type="button" class="igs-rp-chip" data-record-act="group" data-record-id="${escapeHtml(label)}" aria-pressed="${label === invGroup ? 'true' : 'false'}">${escapeHtml(label)}<small>${(model?.entries || []).filter(item => itemGroup(item) === label).length}</small></button>`).join('')}</div>` : '';
         const sortLabel = INVENTORY_SORTS.find(([key]) => key === invSort)?.[1] || '默认';
-        const points = heroInv && Number.isFinite(Number(heroInv.points)) ? `<span class="igs-record-points" role="status">积分 ${escapeHtml(heroInv.points)}</span>` : '';
+        const points = heroInv && Number.isFinite(Number(heroInv.points)) ? `<span class="igs-record-points" role="status">金钱 ${escapeHtml(heroInv.points)}</span>` : '';
         const tools = total || points ? `<div class="igs-record-inventory-tools">${chips}<div class="igs-record-inventory-actions">${points}<label class="igs-rp-search">${RECORD_ICONS.search}<input type="search" data-record-input="query" value="${escapeHtml(invQuery)}" placeholder="搜索物品" aria-label="搜索物品" autocomplete="off"></label><button type="button" class="igs-rp-chip igs-rp-chip-icon" data-record-act="sort" aria-label="排序：${sortLabel}">${RECORD_ICONS.sort}<span>${sortLabel}</span></button></div></div>` : '';
         let detail = '';
         if (chosen) {
@@ -623,7 +623,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const sellKey = sellKeyOf(chosenMeta);
             const sellButton = sellKey && typeof options.sellHeroItem === 'function'
                 ? (sellPending === chosen.id
-                    ? `<button type="button" class="igs-rp-btn is-primary" data-record-act="sell-confirm">确认卖出 · ${escapeHtml(sellPriceOf(chosenMeta))} 积分</button><button type="button" class="igs-rp-btn" data-record-act="sell-cancel">取消</button>`
+                    ? `<button type="button" class="igs-rp-btn is-primary" data-record-act="sell-confirm">确认卖出 · ${escapeHtml(sellPriceOf(chosenMeta))} 金钱</button><button type="button" class="igs-rp-btn" data-record-act="sell-cancel">取消</button>`
                     : `<button type="button" class="igs-rp-btn" data-record-act="sell">卖出</button>`) : '';
             const baseButton = chosenMeta?.kind === 'gear' ? wearButton
                 : ((useService || typeof fillDraft === 'function') && quantity !== '0'

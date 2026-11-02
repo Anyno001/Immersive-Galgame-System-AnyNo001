@@ -106,7 +106,7 @@ function settleBars(state, directives, hour, ctx) {
     if (isLateHour(hour) && !stayedUp) { list.push({ kind: 'stamina', value: '熬夜', late: true }); stayedUp = true; }
     let bars = state.protagonist.bars;
     for (const d of list) {
-        const r = applyBarDirective(bars, d, ctx.moneyTable);
+        const r = applyBarDirective(bars, d, ctx.moneyTable, ctx.walletExtra);
         if (r.shortfall) ctx.flags.shortfall = true;
         if (r.change) ctx.changes.push({ source: 'tag', target: '主角', key: r.change.key, from: r.change.from, to: r.change.to, note: d.late ? '23点后熬夜' : d.value });
         bars = r.bars;
@@ -180,7 +180,7 @@ function checkFromRollTag(before, tag, raw, opts, ctx) {
     return resolveCheck(engine, before, { actor: PROTAGONIST, skill, difficulty: tag.difficulty, against, opposedSkill, raw, source: 'roll' }, null);
 }
 
-// opts：{ random, hour, nsfw, resolveCharacter, moneyTable, engine, check, rollPairs, preroll, storyChecks, noBattle, catalog, settings, floor }
+// opts：{ random, hour, nsfw, resolveCharacter, moneyTable, walletExtra（战斗侧积分，并入金钱判断）, engine, check, rollPairs, preroll, storyChecks, noBattle, catalog, settings, floor }
 // check：本楼已定的检定（选项、输入匹配、手动掷骰）；没有时按 roll 标签与楼内骰序 rollPairs 重算。
 // storyChecks：正文 igs-check 的回放结果（主角的才会打成长勾；社交检定大成功可触发突破加成）。
 // noBattle：战斗扩展接管战斗时为真，丢弃 battle 标签。
@@ -191,7 +191,7 @@ export function settleFloorText(before, text, opts = {}) {
     const narration = narrationOf(text);
     const resolve = resolveCharacter || ((name) => (Object.hasOwn(before.characters, name) ? name : null));
     const engine = opts.engine || createEngine();
-    const ctx = { random, nsfw, moneyTable, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null };
+    const ctx = { random, nsfw, moneyTable, walletExtra: Number(opts.walletExtra) || 0, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null };
     const rollTag = parsed.directives.find((d) => d.kind === 'roll') || null;
     let check = opts.check || null;
     let pendingRoll = null;

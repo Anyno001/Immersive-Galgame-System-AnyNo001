@@ -174,6 +174,8 @@ export function createCombatServices(options = {}) {
             ledger = createCombatLedger({
                 tables: bundle.impl, chat: getChat, userName: getUserName, sourceFilter: getSourceFilter,
                 difficulty: () => settings().difficulty, inventory,
+                // 数值侧金钱并入主角余额（积分与金钱合并成一个钱包）。
+                wallet: () => (typeof options.getWallet === 'function' ? options.getWallet() : 0),
             });
             ensureFailure = null;
             growthSnapshot = null;
@@ -245,7 +247,7 @@ export function createCombatServices(options = {}) {
         const key = cacheKey();
         let state;
         try {
-            state = await ledgerImpl.effectiveState();
+            state = await ledgerImpl.effectiveState({ raw: true });
         } catch {
             state = { ok: false, reason: 'combat-ledger-read-failed' };
         }
@@ -379,7 +381,7 @@ export function createCombatServices(options = {}) {
         }
         let state;
         try {
-            state = await ledgerImpl.effectiveState();
+            state = await ledgerImpl.effectiveState({ raw: true });
         } catch {
             state = { ok: false, reason: 'combat-ledger-read-failed' };
         }
@@ -432,6 +434,8 @@ export function createCombatServices(options = {}) {
                 return sheet || (state ? abilitiesForName(state, name, getUserName(), extra) : null);
             },
             readVitals: (name, extra) => (state ? vitalsForName(state, name, getUserName(), extra) : null),
+            // 主角的战斗积分净流水（不含数值侧金钱）；战斗数据没就绪时按 0。
+            readPoints: () => { const heroId = state && state.attributes && state.attributes.heroId; const hero = heroId ? state.characters.get(heroId) : null; return hero ? Number(hero.points) || 0 : 0; },
             names: () => (state ? [...state.characters.values()].map((character) => character.name).filter(Boolean) : []),
             refresh: refreshLife,
         };
@@ -487,7 +491,7 @@ export function createCombatServices(options = {}) {
         const ledgerImpl = ledger;
         let state;
         try {
-            state = await ledgerImpl.effectiveState();
+            state = await ledgerImpl.effectiveState({ raw: true });
         } catch {
             state = { ok: false, reason: 'combat-ledger-read-failed' };
         }
@@ -605,7 +609,7 @@ export function createCombatServices(options = {}) {
         }
         let state;
         try {
-            state = await ledgerImpl.effectiveState();
+            state = await ledgerImpl.effectiveState({ raw: true });
         } catch {
             state = { ok: false, reason: 'combat-ledger-read-failed' };
         }
