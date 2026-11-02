@@ -44379,6 +44379,11 @@ const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.llm.includeBody',
             'bridge.autoIllustration.llm.excludeBody',
             'bridge.autoIllustration.nai.transport',
+            'bridge.autoIllustration.nai.minIntervalMs',
+            'bridge.autoIllustration.nai.effort',
+            'bridge.autoIllustration.nai.cloudQueue.enabled',
+            'bridge.autoIllustration.nai.cloudQueue.endpoint',
+            'bridge.autoIllustration.nai.cloudQueue.timeoutMs',
             'bridge.autoIllustration.nai.endpoint',
             'bridge.autoIllustration.nai.apiKey',
             'bridge.autoIllustration.nai.model',
@@ -68795,6 +68800,8 @@ const { NAI_DEFAULT_SETTINGS } = require("src/generated-images/request-builders/
 const { normalizeArtistByKind } = require("src/generated-images/prompt-artists.js");
 const { normalizeArtistLibrary } = require("src/generated-images/artist-library.js");
 const { DEFAULT_ASSET_TEMPLATES } = require("src/generated-images/illustration/prompt-kit.js");
+const { normalizeNaiEffort } = require("src/generated-images/nai-effort.js");
+const { normalizeNaiCloudQueue } = require("src/generated-images/nai-cloud-queue-settings.js");
 const NSFW_COUNT_MAX = 16;
 
 const clampInt = (v, min, max, d) => {
@@ -68896,6 +68903,7 @@ function normalizeAutoIllustrationSettings(value) {
             endpoint: str(nai.endpoint),
             apiKey: str(nai.apiKey),
             model: str(nai.model, NAI_DEFAULT_SETTINGS.model) || NAI_DEFAULT_SETTINGS.model,
+            effort: normalizeNaiEffort(nai.effort),
             size: str(nai.size, NAI_DEFAULT_SETTINGS.size) || NAI_DEFAULT_SETTINGS.size,
             steps: clampInt(nai.steps, 1, 50, NAI_DEFAULT_SETTINGS.steps),
             scale: clampNum(nai.scale, 0, 10, NAI_DEFAULT_SETTINGS.scale),
@@ -68908,6 +68916,8 @@ function normalizeAutoIllustrationSettings(value) {
             artistByKind: normalizeArtistByKind(nai.artistByKind),
             artistLibrary: normalizeArtistLibrary(nai.artistLibrary),
             timeoutMs: clampInt(nai.timeoutMs, 10000, 300000, NAI_DEFAULT_SETTINGS.timeoutMs),
+            minIntervalMs: clampInt(nai.minIntervalMs, 0, 60000, NAI_DEFAULT_SETTINGS.minIntervalMs),
+            cloudQueue: normalizeNaiCloudQueue(nai.cloudQueue),
             // 草稿首次归档会追加此标记；归一化保持相同顺序，避免无修改关闭重写存储。
             ...(nai.artistLibraryArchived === true && { artistLibraryArchived: true }),
         },
@@ -68934,6 +68944,7 @@ const { resolveImageSeed } = require("src/generated-images/image-seed.js");
 const { clampPixelPair } = require("src/generated-images/illustration/cg-pixel-cap.js");
 const { prefixFinalArtist } = require("src/generated-images/final-caption.js");
 const { globalArtist } = require("src/generated-images/prompt-artists.js");
+const { isNaiMediumModel, resolveNaiEffortSettings } = require("src/generated-images/nai-effort.js");
 const NAI_OFFICIAL_ENDPOINT = 'https://image.novelai.net/ai/generate-image';
 const NAI_FIXED_STRUCTURE = Object.freeze({
     v4_prompt: Object.freeze({ use_coords: true, use_order: true }),
@@ -68945,6 +68956,7 @@ const NAI_DEFAULT_SETTINGS = Object.freeze({
     endpoint: '',
     apiKey: '',
     model: 'nai-diffusion-4-5-full',
+    effort: 'high',
     size: '832x1216',
     steps: 28,
     scale: 5,
@@ -68953,6 +68965,7 @@ const NAI_DEFAULT_SETTINGS = Object.freeze({
     artistPrefix: '',
     negativePrompt: NAI_DEFAULT_NEGATIVE,
     timeoutMs: 120000,
+    minIntervalMs: 2000,
 });
 
 // NAI 官方没有模型列表接口；请求体是 V4 结构，只列 V4 及以后的模型。
@@ -69020,7 +69033,7 @@ function parseSize(size) {
     return clampPixelPair(w, h);
 }
 function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) {
-    const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
+    const settings = resolveNaiEffortSettings({ ...NAI_DEFAULT_SETTINGS, ...naiSettings });
     const final = slot?.captionMode === 'final';
     if (slot?.captionMode !== undefined && !final) throw new Error('PROMPT_MODE_CONFLICT');
     const finalArtist = settings.finalArtist !== undefined ? settings.finalArtist
@@ -69057,8 +69070,7 @@ function buildNaiV4Request(slot, naiSettings = {}, random = Math.random) {
             n_samples: 1,
             seed: resolveImageSeed(settings.seed, random),
             noise_schedule: resolveNoiseSchedule(settings.noiseSchedule, model),
-            cfg_rescale: 0,
-            skip_cfg_above_sigma: null,
+            ...(!isNaiMediumModel(model) && { cfg_rescale: 0, skip_cfg_above_sigma: null }),
             image_format: 'png',
             qualityToggle: !final,
             tag_hint_qt: !final,
@@ -69094,6 +69106,7 @@ const naiV4Builder = Object.freeze({
     },
     validateRequest: validateNaiV4Request,
 });
+
 __igsDefine(exports, "resolveNaiNativeEndpoint", () => resolveNaiNativeEndpoint);
 __igsDefine(exports, "snapToNaiGrid", () => snapToNaiGrid);
 __igsDefine(exports, "supportsNaiTransparentBackground", () => supportsNaiTransparentBackground);
@@ -69252,6 +69265,29 @@ __igsDefine(exports, "normalizeArtistByKind", () => normalizeArtistByKind);
 __igsDefine(exports, "promptKindOf", () => promptKindOf);
 __igsDefine(exports, "kindArtist", () => kindArtist);
 __igsDefine(exports, "PROMPT_KINDS", () => PROMPT_KINDS);
+});
+__igsRegister("src/generated-images/nai-effort.js", function(module, exports, require) {
+const MEDIUM_MODELS = Object.freeze({
+    'nai-diffusion-5-full': 'nai-diffusion-5-full-medium',
+    'nai-diffusion-5-full-inpainting': 'nai-diffusion-5-full-medium-inpainting',
+});
+const normalizeNaiEffort = value => value === 'medium' ? 'medium' : 'high';
+const supportsNaiEffort = model => Object.hasOwn(MEDIUM_MODELS, model);
+const isNaiMediumModel = model => Object.values(MEDIUM_MODELS).includes(model);
+
+// 只转换本次实际选中的 V5 Full；原设置保留，切回 High 时恢复用户的步数和采样器。
+function resolveNaiEffortSettings(settings = {}) {
+    const model = normalizeNaiEffort(settings.effort) === 'medium' && supportsNaiEffort(settings.model)
+        ? MEDIUM_MODELS[settings.model] : settings.model;
+    return isNaiMediumModel(model)
+        ? { ...settings, model, steps: 14, sampler: 'k_euler_ancestral' }
+        : { ...settings, model };
+}
+
+__igsDefine(exports, "resolveNaiEffortSettings", () => resolveNaiEffortSettings);
+__igsDefine(exports, "normalizeNaiEffort", () => normalizeNaiEffort);
+__igsDefine(exports, "supportsNaiEffort", () => supportsNaiEffort);
+__igsDefine(exports, "isNaiMediumModel", () => isNaiMediumModel);
 });
 __igsRegister("src/generated-images/artist-library.js", function(module, exports, require) {
 // 画师库只保存文本；应用复制到既有配置，运行时不按库条目另行拼词。
@@ -71046,6 +71082,29 @@ __igsDefine(exports, "resolveTavernTransport", () => resolveTavernTransport);
 __igsDefine(exports, "tavernProxyFailure", () => tavernProxyFailure);
 __igsDefine(exports, "TAVERN_PROXY_DISABLED_HINT", () => TAVERN_PROXY_DISABLED_HINT);
 __igsDefine(exports, "TAVERN_BACKEND_UNREACHABLE_HINT", () => TAVERN_BACKEND_UNREACHABLE_HINT);
+});
+__igsRegister("src/generated-images/nai-cloud-queue-settings.js", function(module, exports, require) {
+const NAI_QUEUE_REFERENCE_ENDPOINT = 'https://st-chatu-novelai-queue.hf.space';
+function normalizeNaiCloudQueue(value) {
+    const n = Number(value?.timeoutMs);
+    const endpoint = typeof value?.endpoint === 'string' ? value.endpoint.trim().replace(/\/+$/, '') : '';
+    return {
+        enabled: value?.enabled === true || value?.enabled === 'true',
+        endpoint: endpoint || NAI_QUEUE_REFERENCE_ENDPOINT,
+        timeoutMs: value?.timeoutMs !== '' && value?.timeoutMs != null && Number.isFinite(n)
+            ? Math.max(10000, Math.min(900000, Math.round(n))) : 180000,
+    };
+}
+function validNaiQueueEndpoint(endpoint) {
+    try {
+        const url = new URL(endpoint);
+        return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+    } catch { return false; }
+}
+
+__igsDefine(exports, "normalizeNaiCloudQueue", () => normalizeNaiCloudQueue);
+__igsDefine(exports, "validNaiQueueEndpoint", () => validNaiQueueEndpoint);
+__igsDefine(exports, "NAI_QUEUE_REFERENCE_ENDPOINT", () => NAI_QUEUE_REFERENCE_ENDPOINT);
 });
 __igsRegister("src/visual/igs-ui/romance-settings.js", function(module, exports, require) {
 const { HEAD_ASPECT, spriteDrawRect, spriteWidthPercent } = require("src/visual/igs-ui/fx-anchor.js");
@@ -79764,6 +79823,8 @@ __igsDefine(exports, "resolveSpriteBaseScale", () => resolveSpriteBaseScale);
 });
 __igsRegister("src/visual/igs-ui/settings-normalize.js", function(module, exports, require) {
 const { normalizePhoneWallpaper } = require("src/visual/igs-ui/my-phone.js");
+const { normalizeNaiEffort } = require("src/generated-images/nai-effort.js");
+const { normalizeNaiCloudQueue } = require("src/generated-images/nai-cloud-queue-settings.js");
 const { normalizeCreatureDisplaySettings } = require("src/scene/creature-profile.js");
 const { normalizePromptEntry } = require("src/scene/prompt-entries.js");
 const { isPackSwitchPath } = require("src/scene/fx-packs.js");
@@ -79795,6 +79856,16 @@ function normalizePerformanceSettings(value) {
     return { ...src, quality: normalizeRenderQualitySetting(src.quality) };
 }
 function normalizeSettingsValue(path, value) {
+    const cloudPrefix = 'bridge.autoIllustration.nai.cloudQueue.';
+    if (path.startsWith(cloudPrefix)) {
+        const key = path.slice(cloudPrefix.length);
+        return normalizeNaiCloudQueue({ [key]: value })[key];
+    }
+    if (path === 'bridge.autoIllustration.nai.effort') return normalizeNaiEffort(value);
+    if (path === 'bridge.autoIllustration.nai.minIntervalMs') {
+        const n = value === '' || value == null ? NaN : Number(value);
+        return Number.isFinite(n) ? Math.max(0, Math.min(60000, Math.round(n))) : 2000;
+    }
     if (path === 'readerMode' || path === 'bridge.openMode' || path === 'bridge.imageApi.mode' || path === 'bridge.imageApi.externalAdapter' || path === 'readerSettings.imgMode') {
         return String(value || '');
     }
@@ -84799,7 +84870,8 @@ function reportNaiTiming(report, method, enteredAt, readyAt, result) {
     const t = result?.timing;
     if (typeof report !== 'function' || !t?.queuedAt) return;
     const parts = [`就绪检查 ${secs(readyAt - enteredAt)}`, `排队 ${secs((t.startedAt || t.doneAt) - t.queuedAt)}`];
-    if (t.startedAt && t.headersAt) parts.push(`等服务器 ${secs(t.headersAt - t.startedAt)}`, `下载解析 ${secs((t.doneAt || t.headersAt) - t.headersAt)}`);
+    if (t.startedAt && t.headersAt) parts.push(`等服务器 ${secs(t.headersAt - t.startedAt)}`, `下载解析 ${secs((t.responseDoneAt || t.doneAt || t.headersAt) - t.headersAt)}`);
+    if (t.responseDoneAt && t.doneAt) parts.push(`队列收尾 ${secs(t.doneAt - t.responseDoneAt)}`);
     parts.push(`合计 ${secs((t.doneAt || Date.now()) - enteredAt)}`);
     if (t.params) parts.push(`参数 ${t.params}`);
     report('info', `NAI 计时（${method === 'edit' ? '局部重绘' : '生图'}${result?.ok ? '' : '·失败'}）：${parts.join('，')}`);
@@ -85041,7 +85113,8 @@ function createImageBackend({ nai, getBridge, global: globalObject = globalThis,
                 ...(guarded.shouldStart && { shouldStart: guarded.shouldStart }),
             };
             const result = await retryRun('nai', () => nai[method](method === 'edit' ? { ...prepared, ...controls } : prepared,
-                { ...frozen, ...controls, onSlow: () => report?.('info', 'NAI 仍在处理同一次请求，继续接收原结果') }), guarded,
+                { ...frozen, ...controls, onQueueEvent: (level, message) => report?.(level, message),
+                    onSlow: () => report?.('info', 'NAI 仍在处理同一次请求，继续接收原结果') }), guarded,
             result => {
                 if (![400, 401, 402, 403, 422].includes(result?.status)) return { changed: false };
                 const latestBridge = getBridge?.() || {};
@@ -85610,7 +85683,7 @@ function createImageBackend({ nai, getBridge, global: globalObject = globalThis,
         const naiSettings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
         const explicitModel = Object.hasOwn(request, 'model');
         if (explicitModel) naiSettings.model = request.model;
-        if (!resolveNaiInpaintModel(naiSettings.model)
+        if (!resolveNaiInpaintModel(naiSettings.model, naiSettings.effort)
             || (typeof nai.supportsEdit === 'function' && !nai.supportsEdit(naiSettings))) {
             return { supported: false, reason: 'image-edit-unsupported', message: '当前 NAI 模型没有已适配的局部重绘版本，请选择 V4／V4.5 或 V5 Full' };
         }
@@ -85752,15 +85825,18 @@ __igsRegister("src/generated-images/request-builders/nai-inpaint-builder.js", fu
 const { buildNaiV4Request, NAI_DEFAULT_SETTINGS } = require("src/generated-images/request-builders/nai-v4-builder.js");
 const { CG_PIXEL_CAP } = require("src/generated-images/illustration/cg-pixel-cap.js");
 const { inspectPngDataUrl } = require("src/media/png-validation.js");
+const { resolveNaiEffortSettings } = require("src/generated-images/nai-effort.js");
 const INPAINT_MODELS = Object.freeze({
     'nai-diffusion-5-full': 'nai-diffusion-5-full-inpainting',
+    'nai-diffusion-5-full-medium': 'nai-diffusion-5-full-medium-inpainting',
     'nai-diffusion-4-5-full': 'nai-diffusion-4-5-full-inpainting',
     'nai-diffusion-4-5-curated': 'nai-diffusion-4-5-curated-inpainting',
     'nai-diffusion-4-full': 'nai-diffusion-4-full-inpainting',
     'nai-diffusion-4-curated-preview': 'nai-diffusion-4-curated-inpainting',
 });
-function resolveNaiInpaintModel(model) {
+function resolveNaiInpaintModel(model, effort) {
     if (typeof model !== 'string') return '';
+    model = resolveNaiEffortSettings({ model, effort }).model;
     return Object.hasOwn(INPAINT_MODELS, model) ? INPAINT_MODELS[model]
         : Object.values(INPAINT_MODELS).includes(model) ? model : '';
 }
@@ -85771,7 +85847,7 @@ const validSide = (v) => Number.isInteger(v) && v >= 64 && v <= 4096 && v % 64 =
 function buildNaiInpaintRequest(request = {}, naiSettings = {}, random = Math.random) {
     const baseModel = Object.hasOwn(request, 'model') ? request.model
         : Object.hasOwn(naiSettings, 'model') ? naiSettings.model : NAI_DEFAULT_SETTINGS.model;
-    const model = resolveNaiInpaintModel(baseModel);
+    const model = resolveNaiInpaintModel(baseModel, naiSettings.effort);
     if (!model) return { ok: false, reason: 'image-edit-unsupported' };
     const width = request.width, height = request.height;
     if (!validSide(width) || !validSide(height) || width * height > CG_PIXEL_CAP) return { ok: false, reason: 'invalid-size' };
@@ -100979,6 +101055,10 @@ const { getPath, normalizeSettingsValue, setPath } = require("src/visual/igs-ui/
 const PROFILE_PATHS = Object.freeze({
     image: [
         'bridge.autoIllustration.nai.transport', 'bridge.autoIllustration.nai.endpoint', 'bridge.autoIllustration.nai.apiKey',
+        'bridge.autoIllustration.nai.minIntervalMs',
+        'bridge.autoIllustration.nai.effort',
+        'bridge.autoIllustration.nai.cloudQueue.enabled', 'bridge.autoIllustration.nai.cloudQueue.endpoint',
+        'bridge.autoIllustration.nai.cloudQueue.timeoutMs',
         'bridge.autoIllustration.nai.model', 'bridge.imageApi.mode', 'bridge.imageApi.cgModel', 'bridge.imageApi.spriteModel',
         'bridge.imageApi.backgroundModel', 'bridge.imageApi.itemModel',
     ],
@@ -100988,7 +101068,7 @@ const PROFILE_PATHS = Object.freeze({
 const KIND_LABEL = Object.freeze({ image: '生图', llm: '副 LLM' });
 
 // 这些字段在 change 事件后立即落盘：后台生图任务读的是已保存配置。
-const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model)|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
+const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model|minIntervalMs|effort|cloudQueue\.(?:enabled|endpoint|timeoutMs))|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
 function isImmediateSavePath(path) {
     return IMMEDIATE_SAVE_PATH.test(String(path || ''));
 }
@@ -101001,6 +101081,10 @@ function collectProfileValues(kind, draft) {
     return values;
 }
 function applyProfileValues(kind, values, draft) {
+    if (kind === 'image' && !Object.hasOwn(values || {}, 'bridge.autoIllustration.nai.effort'))
+        setPath(draft, 'bridge.autoIllustration.nai.effort', 'high');
+    if (kind === 'image' && !Object.hasOwn(values || {}, 'bridge.autoIllustration.nai.cloudQueue.enabled'))
+        setPath(draft, 'bridge.autoIllustration.nai.cloudQueue.enabled', false);
     for (const path of PROFILE_PATHS[kind] || []) {
         if (Object.hasOwn(values || {}, path)) setPath(draft, path, normalizeSettingsValue(path, values[path]));
     }
@@ -157974,6 +158058,7 @@ __igsDefine(exports, "getDialogThemeTitleCardStyleText", () => getDialogThemeTit
 });
 __igsRegister("src/visual/igs-ui/settings-host-render.js", function(module, exports, require) {
 const { readLive2dConfig } = require("src/visual/igs-ui/live2d-config.js");
+const { NAI_QUEUE_REFERENCE_ENDPOINT } = require("src/generated-images/nai-cloud-queue-settings.js");
 const { renderLive2dLibrary } = require("src/visual/igs-ui/live2d-panel.js");
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
 const { DIALOG_SKIN_MERMAID, MERMAID_TONES, normalizeMermaidAccent, normalizeMermaidTone } = require("src/visual/igs-ui/dialog-theme-mermaid.js");
@@ -157995,6 +158080,7 @@ const { CHARACTER_ADD_MENU, renderDnaCandidateBar, renderDnaOnlyCharacterList, k
 const { NSFW_COUNT_MAX, CONSISTENCY_MODEL_OPTIONS, normalizeAutoIllustrationSettings } = require("src/generated-images/illustration/auto-illustration-settings.js");
 const { describeLlmReady } = require("src/generated-images/illustration/caption-writer.js");
 const { normalizeImageSourceMode, mergeLegacyNaiSettings } = require("src/generated-images/image-backend.js");
+const { isNaiMediumModel, resolveNaiEffortSettings, supportsNaiEffort } = require("src/generated-images/nai-effort.js");
 const { getSettingsShellTemplate, renderSettingsNav } = require("src/visual/igs-ui/settings-shell.js");
 const { EVENTCG_TEMPLATE, SCENE_HEAD_TEMPLATE, WARDROBE_TEMPLATE, getPageTemplate } = require("src/visual/igs-ui/settings-tabs.js");
 const { PAGE_PERFORMANCE_GROUPS, SETTINGS_CATEGORIES, categoryLabel, categoryOfPage, currentSettingsPage, defaultPageOfCategory, pageLabel, pagesOfCategory } = require("src/visual/igs-ui/settings-pages.js");
@@ -158331,6 +158417,11 @@ function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSet
         const imageValues = memo(() => {
             const sourceMode = normalizeImageSourceMode(imageApi.mode);
             const auto = normalizeAutoIllustrationSettings(mergeLegacyNaiSettings(bridge.autoIllustration, imageApi));
+            const effectiveNai = resolveNaiEffortSettings(auto.nai);
+            const medium = isNaiMediumModel(effectiveNai.model);
+            const directMedium = isNaiMediumModel(auto.nai.model);
+            const hasEffortModel = directMedium || [auto.nai.model, auto.consistencyModel,
+                ...['cgModel', 'spriteModel', 'backgroundModel', 'itemModel'].map(key => imageApi[key])].some(supportsNaiEffort);
             const sourceNotes = {
                 nai: '用 NAI 生成剧情 CG、立绘与背景。',
                 dbgen: '提示词与 Key 由数据库生图插件管理。',
@@ -158437,18 +158528,23 @@ function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSet
                 autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '每次写词请求最后插入')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
                 autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）'], ['auto', '自动（酒馆代理已开启时经酒馆转发）']])),
+                autoNaiIntervalField: field('bridge.autoIllustration.nai.minIntervalMs', '生图最小间隔（毫秒）', numberInput('bridge.autoIllustration.nai.minIntervalMs', auto.nai.minIntervalMs, 0, 60000), '同一密钥上次请求结束后再等待，默认 2000 毫秒；0 为不额外等待。仅作用于本页内置 NAI，生成与局部重绘共用。'),
+                autoNaiCloudQueueFields: checkbox('bridge.autoIllustration.nai.cloudQueue.enabled', auto.nai.cloudQueue.enabled, '启用云端队列')
+                    + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列服务地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, NAI_QUEUE_REFERENCE_ENDPOINT), '默认使用智绘姬公共队列，留空也恢复该地址；这不是 NAI 生图接口。共用密钥的人须使用同一节点。仅发送密钥的 SHA-256 标识和随机排队编号，不发送密钥原文、提示词或图片。')
+                    + field('bridge.autoIllustration.nai.cloudQueue.timeoutMs', '排队最长等待（毫秒）', numberInput('bridge.autoIllustration.nai.cloudQueue.timeoutMs', auto.nai.cloudQueue.timeoutMs, 10000, 900000), '默认 180000（3 分钟），不占用生图超时。队列不可用时停止本次生成。智绘姬公共节点源码的锁仅有效 15 秒且不能续租；慢图或未接队列的其它请求仍可能触发 429。'),
                 autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', 'NAI API 地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方，或填写中转生图接口')),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'API Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, '填写官方或中转服务的 Key')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
+                autoNaiEffortField: hasEffortModel ? field('bridge.autoIllustration.nai.effort', 'V5 Full 档位', selectInput('bridge.autoIllustration.nai.effort', directMedium ? 'medium' : auto.nai.effort, [['high', 'High（原档位）'], ['medium', 'Medium（14 步省算力）']], directMedium), directMedium ? '当前直接选择了 Medium 专模；要切回 High，请先把模型选为 nai-diffusion-5-full。' : '仅对实际使用的 V5 Full 及其局部重绘生效。Medium 固定 14 步和 Euler Ancestral；其它型号仍用原参数，切回 High 保留原设置。') : '',
                 modelProfileImageRow: renderModelProfileRow('image', asyncState.modelProfiles),
                 modelProfileLlmRow: renderModelProfileRow('llm', asyncState.modelProfiles),
                 autoNaiModelsMessage: esc(asyncState.naiModelsMessage || ''),
                 autoNaiSizeField: field('bridge.autoIllustration.nai.size', '尺寸', textInput('bridge.autoIllustration.nai.size', auto.nai.size, '832x1216')),
-                autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', auto.nai.steps, 1, 50)),
+                autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', effectiveNai.steps, 1, 50, medium)),
                 autoNaiScaleField: field('bridge.autoIllustration.nai.scale', 'CFG', numberInput('bridge.autoIllustration.nai.scale', auto.nai.scale, 0, 10, false, 'any')),
                 consistencyStrengthField: field('bridge.autoIllustration.consistencyStrength', '一致性重绘强度', numberInput('bridge.autoIllustration.consistencyStrength', auto.consistencyStrength, 0.1, 1, false, '0.05'), '0.1–1，越低越保留原图'),
                 consistencyModelField: field('bridge.autoIllustration.consistencyModel', '一致性重绘模型', selectInput('bridge.autoIllustration.consistencyModel', auto.consistencyModel, CONSISTENCY_MODEL_OPTIONS)),
-                autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', auto.nai.sampler, 'k_euler_ancestral')),
+                autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', effectiveNai.sampler, 'k_euler_ancestral', 'text', medium)),
             };
             const grid = (...items) => {
                 const body = items.filter(Boolean).join('');
@@ -159649,9 +159745,10 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
         {{autoNaiEndpointField}}{{autoNaiKeyField}}
-        {{autoNaiModelField}}{{autoNaiSizeField}}
-        {{autoNaiTransportField}}
+        {{autoNaiModelField}}{{autoNaiEffortField}}{{autoNaiSizeField}}
+        {{autoNaiTransportField}}{{autoNaiIntervalField}}
       </div>
+      <div class="igs-settings-sub">{{autoNaiCloudQueueFields}}</div>
       {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}
@@ -194482,6 +194579,8 @@ const { promptSnapshotFromBody } = require("src/generated-images/final-caption.j
 const { inspectPngDataUrl, validatePngEncoding } = require("src/media/png-validation.js");
 const { CG_PIXEL_CAP } = require("src/generated-images/illustration/cg-pixel-cap.js");
 const { naiRequestQueue } = require("src/generated-images/nai-request-queue.js");
+const { createNaiCloudQueue } = require("src/generated-images/nai-cloud-queue.js");
+const { normalizeNaiCloudQueue } = require("src/generated-images/nai-cloud-queue-settings.js");
 const { globalArtist } = require("src/generated-images/prompt-artists.js");
 const { resetTavernProxyProbe, resolveTavernTransport, tavernProxyFailure, tavernProxyUrl, TAVERN_BACKEND_UNREACHABLE_HINT, TAVERN_PROXY_DISABLED_HINT } = require("src/host/tavern-cors-proxy.js");
 __igsDefine(exports, "NAI_OFFICIAL_ENDPOINT", () => NAI_OFFICIAL_ENDPOINT);
@@ -194591,6 +194690,7 @@ function createNaiOfficialClient(deps = {}) {
     const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     const random = deps.random || Math.random;
     const queue = deps.queue || naiRequestQueue;
+    const cloudQueue = deps.cloudQueue || createNaiCloudQueue({ fetch: fetchImpl });
     const stale = () => ({ ok: false, reason: 'request-stale', stopGeneration: true,
         error: '任务已取消或配置失效；上游请求可能仍在执行' });
     const allowed = settings => {
@@ -194607,8 +194707,7 @@ function createNaiOfficialClient(deps = {}) {
         const abort = () => controller.abort();
         inputSettings.signal?.addEventListener('abort', abort, { once: true });
         if (inputSettings.signal?.aborted) abort();
-        const timer = setTimeout(() => { try { inputSettings.onSlow?.(); } catch { /* 展示不改变请求状态。 */ } }, timeoutMs);
-        const deadline = Date.now() + timeoutMs;
+        let timer;
         // 分段计时写进生图排查日志：排队（同 Key 串行锁）、等服务器响应、下载解析。
         const p = body?.parameters || {};
         const wire = foldCharsForRelay(body, inputSettings);
@@ -194618,10 +194717,28 @@ function createNaiOfficialClient(deps = {}) {
             + `${wire !== body ? ` 并词正${wire.input.length}字/负${wire.parameters.negative_prompt?.length || 0}字` : ''}` };
         settings.timing = timing;
         try {
-            const result = await queue.run(settings.apiKey, () => {
-                timing.startedAt = Date.now();
-                return sendWithRetry(wire, settings, deadline);
-            }, settings);
+            const result = await queue.run(settings.apiKey, async () => {
+                const cloud = normalizeNaiCloudQueue(settings.cloudQueue);
+                if (cloud.enabled) {
+                    const acquired = await cloudQueue.acquire(settings.apiKey, cloud, settings);
+                    if (!acquired.ok) return acquired;
+                    settings.cloudLease = acquired.lease;
+                }
+                try {
+                    if (settings.cloudLease) {
+                        const verified = await settings.cloudLease.verify();
+                        if (!verified.ok) return verified;
+                    }
+                    timing.startedAt = Date.now();
+                    // 本机/云端排队和冷却不消耗真正发送后的超时预算。
+                    timer = setTimeout(() => { try { inputSettings.onSlow?.(); } catch { /* 展示不改变请求状态。 */ } }, timeoutMs);
+                    return await sendWithRetry(wire, settings, Date.now() + timeoutMs);
+                } finally {
+                    if (settings.cloudLease) timing.responseDoneAt = Date.now();
+                    clearTimeout(timer);
+                    await settings.cloudLease?.finish(!settings.cloudSent || settings.cloudResponseKnown === true);
+                }
+            }, { ...settings, wasSent: () => settings.cloudSent === true });
             timing.doneAt = Date.now();
             if (result && typeof result === 'object') result.timing = timing;
             return allowed(settings) ? result : stale();
@@ -194650,6 +194767,8 @@ function createNaiOfficialClient(deps = {}) {
         const target = resolveNaiEndpoint(settings.endpoint);
         const url = direct ? target : tavernProxyUrl(target);
         if (!allowed(settings)) return null;
+        settings.cloudSent = true;
+        settings.cloudResponseKnown = false;
         return fetchImpl(url, {
                 method: 'POST',
                 headers: {
@@ -194668,9 +194787,14 @@ function createNaiOfficialClient(deps = {}) {
     async function sendWithRetry(body, settings, deadline) {
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
             if (!allowed(settings)) return stale();
+            if (settings.cloudLease && attempt > 0) {
+                const verified = await settings.cloudLease.verify();
+                if (!verified.ok) return verified;
+            }
             let response;
             try {
                 response = await send(body, settings);
+                settings.cloudResponseKnown = Boolean(response);
                 if (settings.timing) settings.timing.headersAt = Date.now();
             } catch (error) {
                 if (!allowed(settings)) return stale();
@@ -194708,8 +194832,11 @@ function createNaiOfficialClient(deps = {}) {
                 return { ok: false, reason: 'nai-response-no-image', status: response.status, error: 'NAI 返回中没有图片；未自动补发' };
             }
             if (RETRYABLE.has(response.status) && attempt < MAX_ATTEMPTS - 1) {
-                const delay = retryDelayMs(response, attempt);
-                if (delay > MAX_BACKOFF_MS || Date.now() + delay >= deadline)
+                const retryDelay = retryDelayMs(response, attempt);
+                const interval = Math.max(0, Math.min(60000, Math.round(Number(settings.minIntervalMs)) || 0));
+                // 自动重试也不能比用户设置的最小间隔更快。
+                const delay = Math.max(retryDelay, interval);
+                if (retryDelay > MAX_BACKOFF_MS || Date.now() + delay >= deadline)
                     return { ok: false, reason: 'nai-retry-budget-exhausted', status: response.status,
                         error: 'NAI 要求的等待时间超过本次重试上限，未提前补发' };
                 try { await response.body?.cancel(); } catch { /* 已结束的错误响应不影响取消 */ }
@@ -194750,7 +194877,7 @@ function createNaiOfficialClient(deps = {}) {
 
     // 所选模型存在 inpainting 版本时才支持局部重绘。
     function supportsEdit(naiSettings = {}) {
-        return Boolean(resolveNaiInpaintModel(Object.hasOwn(naiSettings, 'model') ? naiSettings.model : NAI_DEFAULT_SETTINGS.model));
+        return Boolean(resolveNaiInpaintModel(Object.hasOwn(naiSettings, 'model') ? naiSettings.model : NAI_DEFAULT_SETTINGS.model, naiSettings.effort));
     }
 
     async function edit(request = {}, naiSettings = {}) {
@@ -194785,13 +194912,23 @@ __igsRegister("src/generated-images/nai-request-queue.js", function(module, expo
 // 仅内存凭据锁：生成与 infill 共用；取消等待不代表上游已停止。
 const stale = () => ({ ok: false, reason: 'request-stale', error: '任务已取消或目标失效，停止发送' });
 const naiRequestQueue = createNaiRequestQueue();
-function createNaiRequestQueue() {
-    const active = new Set(), queue = [];
+
+function pause(ms, signal) {
+    return new Promise(resolve => {
+        const finish = () => { clearTimeout(timer); signal?.removeEventListener('abort', finish); resolve(); };
+        const timer = setTimeout(finish, ms);
+        signal?.addEventListener('abort', finish, { once: true });
+        if (signal?.aborted) finish();
+    });
+}
+function createNaiRequestQueue({ now = Date.now, sleep = pause } = {}) {
+    const active = new Set(), queue = [], finished = new Map();
     const allowed = entry => {
         try { return !entry.signal?.aborted && (!entry.shouldStart || entry.shouldStart() === true); }
         catch { return false; }
     };
     function drain() {
+        for (const [key, at] of finished) if (now() - at >= 60000) finished.delete(key);
         for (let i = 0; i < queue.length;) {
             const entry = queue[i];
             if (!allowed(entry)) {
@@ -194799,17 +194936,28 @@ function createNaiRequestQueue() {
             }
             if (active.has(entry.key)) { i++; continue; }
             queue.splice(i, 1); active.add(entry.key);
+            let sent = false;
             // 不因调用方取消而提前释放凭据；实际执行结束才释放，防止忽略 abort 的宿主双发。
-            Promise.resolve().then(() => allowed(entry) ? entry.execute() : stale())
+            Promise.resolve().then(async () => {
+                const wait = Math.max(0, (finished.get(entry.key) ?? -Infinity) + entry.minIntervalMs - now());
+                if (wait > 0) await sleep(wait, entry.signal);
+                if (!allowed(entry)) return stale();
+                sent = true;
+                return entry.execute();
+            })
                 .then(value => entry.resolve(allowed(entry) ? value : stale()), () => entry.resolve({
                     ok: false, reason: 'nai-request-failed', error: 'NAI 请求失败；发送状态未知，未自动补发' }))
-                .finally(() => { entry.cleanup(); active.delete(entry.key); drain(); });
+                .finally(() => {
+                    if (sent && (!entry.wasSent || entry.wasSent())) finished.set(entry.key, now());
+                    entry.cleanup(); active.delete(entry.key); drain();
+                });
         }
     }
     return {
-        run(key, execute, { signal, shouldStart } = {}) {
+        run(key, execute, { signal, shouldStart, minIntervalMs = 0, wasSent } = {}) {
             return new Promise(resolve => {
-                const entry = { key, execute, signal, shouldStart, resolve,
+                const entry = { key, execute, signal, shouldStart, resolve, wasSent,
+                    minIntervalMs: Math.max(0, Math.min(60000, Math.round(Number(minIntervalMs)) || 0)),
                     cleanup: () => signal?.removeEventListener('abort', cancel) };
                 const cancel = () => {
                     const index = queue.indexOf(entry);
@@ -194827,6 +194975,147 @@ function createNaiRequestQueue() {
 
 __igsDefine(exports, "createNaiRequestQueue", () => createNaiRequestQueue);
 __igsDefine(exports, "naiRequestQueue", () => naiRequestQueue);
+});
+__igsRegister("src/generated-images/nai-cloud-queue.js", function(module, exports, require) {
+const { imageSha256 } = require("src/media/image-sha256.js");
+const { normalizeNaiCloudQueue, validNaiQueueEndpoint } = require("src/generated-images/nai-cloud-queue-settings.js");
+const failure = (reason, error) => ({ ok: false, reason, error, recoveryStopped: true });
+const cancelled = () => failure('request-stale', '任务已取消或目标失效，已停止云端排队');
+const id = () => globalThis.crypto?.randomUUID?.() || `igs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+
+function wait(ms, signal) {
+    return new Promise(resolve => {
+        const finish = () => { clearTimeout(timer); signal?.removeEventListener('abort', finish); resolve(); };
+        const timer = setTimeout(finish, ms);
+        signal?.addEventListener('abort', finish, { once: true });
+        if (signal?.aborted) finish();
+    });
+}
+
+// 只传排队身份；不接收提示词、图片，不向队列发送 NAI Authorization。
+function createNaiCloudQueue({ fetch: fetchImpl = globalThis.fetch?.bind(globalThis),
+    now = Date.now, sleep = wait, makeId = id, requestTimeoutMs = 10000 } = {}) {
+    const userId = makeId();
+    async function acquire(apiKey, input, controls = {}) {
+        const config = normalizeNaiCloudQueue(input);
+        if (!validNaiQueueEndpoint(config.endpoint))
+            return failure('nai-cloud-queue-config', '请填写有效的云端队列服务地址（不含账号、查询参数或片段）');
+        const allowed = () => {
+            try { return !controls.signal?.aborted && (!controls.shouldStart || controls.shouldStart() === true); }
+            catch { return false; }
+        };
+        const report = (message, level = 'info') => { try { controls.onQueueEvent?.(level, message); } catch { /* 日志不改变任务。 */ } };
+        if (!allowed()) return cancelled();
+        const identity = { key_hash: await imageSha256(new TextEncoder().encode(String(apiKey).trim())),
+            user_id: userId, task_id: makeId() };
+        if (!allowed()) return cancelled();
+        let token = null, ended = false;
+        const deadline = now() + config.timeoutMs;
+
+        async function request(path, { signal, budget = requestTimeoutMs, cleanup = false } = {}) {
+            const controller = new AbortController();
+            let timer, stop;
+            const init = { method: path === '/my-turn' ? 'GET' : 'POST',
+                mode: 'cors', credentials: 'omit', redirect: 'error', signal: controller.signal };
+            let url = config.endpoint + path;
+            if (init.method === 'GET') url += `?${new URLSearchParams(identity)}`;
+            else {
+                init.headers = { 'Content-Type': 'application/json' };
+                init.body = JSON.stringify({ ...identity, ...(path === '/join-queue' ? { greeting: null } : { lock_token: token }) });
+            }
+            const stopped = new Promise((_, reject) => {
+                stop = () => { controller.abort(); reject(new Error('cancelled')); };
+                signal?.addEventListener('abort', stop, { once: true });
+                timer = setTimeout(() => { controller.abort(); reject(new Error('timeout')); }, Math.max(1, budget));
+                if (signal?.aborted) stop();
+            });
+            const pending = Promise.resolve().then(() => fetchImpl(url, init)).then(async response => {
+                if (!response.ok) throw new Error('queue-http');
+                const data = await response.json();
+                if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('queue-protocol');
+                // 加入回执在取消后才到达时，再退出同一任务，防止后端迟到入队。
+                if (path === '/join-queue' && ended && !cleanup) void leave();
+                return data;
+            });
+            try { return await Promise.race([pending, stopped]); }
+            finally { clearTimeout(timer); signal?.removeEventListener('abort', stop); }
+        }
+        async function leave() {
+            try {
+                const result = await request('/leave-queue', { cleanup: true });
+                if (result.status !== 'ok' && result.status !== 'ignored') throw new Error('queue-protocol');
+            } catch { report('云端队列退出未确认，将由服务端过期回收', 'warn'); }
+        }
+        const grant = data => typeof data.lock_token === 'string' && data.lock_token.length > 0
+            && data.lock_token.length <= 512;
+        const queueRequest = path => request(path, { signal: controls.signal,
+            budget: Math.min(requestTimeoutMs, deadline - now()) });
+        try {
+            report('云端队列：正在取号');
+            let data = await queueRequest('/join-queue');
+            let errors = 0, position = -1;
+            while (true) {
+                if (!allowed()) throw new Error('cancelled');
+                if (now() >= deadline) throw new Error('queue-timeout');
+                if ((data.is_my_turn === true || data.position === 0) && grant(data)) {
+                    token = data.lock_token;
+                    report('云端队列：已获放行，准备生成');
+                    await sleep(Math.min(1000, deadline - now()), controls.signal);
+                    if (!allowed()) throw new Error('cancelled');
+                    if (now() >= deadline) throw new Error('queue-timeout');
+                    break;
+                }
+                if (!Number.isInteger(data.position) || data.position < 0 || data.position === 0)
+                    throw new Error('queue-protocol');
+                if (position !== data.position) {
+                    position = data.position;
+                    report(`云端队列：正在等候，第 ${position + 1} 位`);
+                }
+                await sleep(Math.min(1000, deadline - now()), controls.signal);
+                if (!allowed()) throw new Error('cancelled');
+                if (now() >= deadline) throw new Error('queue-timeout');
+                try { data = await queueRequest('/my-turn'); errors = 0; }
+                catch (error) {
+                    if (!allowed() || now() >= deadline || ++errors >= 3) throw error;
+                }
+            }
+            return { ok: true, lease: {
+                // 公共协议没有续租；每次实际发送（含 429 重试）前检查原任务和 token。
+                async verify() {
+                    if (!allowed()) return cancelled();
+                    try {
+                        const data = await request('/my-turn', { signal: controls.signal });
+                        if (data.is_my_turn === true && data.lock_token === token && allowed()) return { ok: true };
+                    } catch { /* 不相信旧放行结果，不绕过队列发送。 */ }
+                    return allowed() ? failure('nai-cloud-queue-lock-lost', '云端队列锁已失效或无法确认，已停止发送；可稍后重新生成') : cancelled();
+                },
+                async finish(knownFinished = true) {
+                    if (ended) return;
+                    ended = true;
+                    if (!knownFinished) {
+                        report('NAI 发送状态未知，未提前释放云端锁，等待服务端过期回收', 'warn');
+                        return;
+                    }
+                    try {
+                        const result = await request('/complete', { cleanup: true });
+                        if (result.status !== 'ok') throw new Error('queue-protocol');
+                        report('云端队列：本次任务已结束');
+                    } catch { report('云端队列释放未确认，图片结果保留，将由服务端过期回收', 'warn'); }
+                },
+            } };
+        } catch {
+            ended = true;
+            await leave();
+            if (!allowed()) return cancelled();
+            return now() >= deadline
+                ? failure('nai-cloud-queue-timeout', '云端排队超时，已退出队列；未发送生图请求')
+                : failure('nai-cloud-queue-unavailable', '云端队列不可用或回复无效，已停止本次生成；未绕过队列发送');
+        }
+    }
+    return { acquire };
+}
+
+__igsDefine(exports, "createNaiCloudQueue", () => createNaiCloudQueue);
 });
 __igsRegister("src/media/cg-index-store.js", function(module, exports, require) {
 // CG 库目录（IndexedDB igs-cg-index）：每张楼层 CG / 照片一条轻记录，缩略图单独一张表。
