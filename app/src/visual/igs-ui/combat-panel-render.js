@@ -356,10 +356,10 @@ function challengeLobbyHtml(v) {
     return `<section class="igs-combat-lobby" data-tier="${esc(CHALLENGE_LOBBY_TIER[l.tier] || 'normal')}"${v.intro ? ' data-intro=""' : ''}>${banner}`
         + '<div class="igs-combat-lobby-stage"><span class="igs-combat-lobby-fx" aria-hidden="true"><i class="is-ally"></i><i class="is-enemy"></i></span>'
         + `<div class="igs-combat-lobby-side is-ally" style="--n:${l.allies.length}">${heroHtml}${helperHtml}</div>`
-        + '<div class="igs-combat-lobby-vs" aria-hidden="true"><b>对</b></div>'
+        + '<div class="igs-combat-lobby-vs" aria-hidden="true"><b>VS</b></div>'
         + `<div class="igs-combat-lobby-side is-enemy" data-n="1" style="--n:1;--k:1">${foeHtml}</div></div>`
         + allyRow
-        + `<div class="igs-combat-actions">${btn('history', '挑战记录', { disabled: Boolean(v.pending) })}${l.canEscape ? btn('abandon', CHALLENGE_LABELS.escape, { disabled: Boolean(v.pending) }) : ''}${btn('auto', '交给托管', { disabled: Boolean(v.pending) })}${btn('start', '开始挑战', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
+        + `<div class="igs-combat-actions">${btn('history', '挑战记录', { disabled: Boolean(v.pending) })}${l.canEscape ? btn('abandon', v.abandonArmed ? '确认放弃' : CHALLENGE_LABELS.escape, { disabled: Boolean(v.pending) }) : ''}${btn('auto', '交给托管', { disabled: Boolean(v.pending) })}${btn('start', '迎接挑战', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
 }
 
 function lobbyHtml(v) {
@@ -576,6 +576,32 @@ function rewardHtml(r, pending) {
         + `<div class="igs-combat-actions">${btn('reward', '跳过', { id: 'skip', disabled: Boolean(pending) })}</div></section>`;
 }
 
+// 准备中：三点动画 + 状态文字 + 取消（close 会中止进行中的准备请求）。
+const loadingHtml = (text) => `<div class="igs-combat-loading" role="status" aria-busy="true"><span class="igs-combat-loading-dots" aria-hidden="true"><i></i><i></i><i></i></span><p class="igs-combat-state">${text}</p><div class="igs-combat-actions">${btn('close', '取消')}</div></div>`;
+
+// 对撞定格画面上的操作层：关闭键、主按钮（开始战斗 / 迎接挑战）、次级按钮（跳过战斗；挑战为放弃与交给托管）；挑战另带协助者候选与奖励重试行。
+export function combatIntroUiHtml(v) {
+    const close = '<button type="button" class="igs-combat-intro-close" data-combat-act="close" aria-label="关闭" title="关闭">×</button>';
+    // 准备尚未完成（读记录、等主角档案、生成敌人档案等）：按钮位置只显示一行小字，不另起加载画面；完成后换成按钮，关闭会中止准备。
+    if (v.pending === 'prepare' || v.status === 'preparing' || !v.lobby && v.status !== 'blocked') {
+        return `${close}<div class="igs-combat-intro-actions"><p class="igs-combat-intro-status" role="status" aria-busy="true">${v.challenge ? '正在准备挑战' : '正在准备战斗'}</p></div>`;
+    }
+    // 被阻断：显示原因，给重试（战斗另有跳过）与关闭。
+    if (v.status === 'blocked') {
+        return `${close}<div class="igs-combat-intro-actions"><p class="igs-combat-intro-status">${esc(combatReasonText(v.reason))}${v.cause ? `：${esc(generationCauseText(v.cause))}` : ''}</p>`
+            + `${btn('retry-prepare', '重试', { primary: true })}${v.challenge ? '' : `<div class="igs-combat-intro-sub">${btn('skip', '跳过战斗')}</div>`}</div>`;
+    }
+    const l = v.lobby;
+    const off = Boolean(v.pending);
+    if (l.challenge) {
+        const allies = l.candidates && l.candidates.length
+            ? `<div class="igs-combat-row igs-challenge-allies"><span class="igs-combat-label">协助者</span>${l.candidates.map((c) => `<button type="button" class="igs-combat-chip" data-combat-act="ally" data-combat-id="${esc(c.name)}" aria-pressed="${c.picked ? 'true' : 'false'}"${off ? ' aria-disabled="true"' : ''}>${esc(c.name)}</button>`).join('')}</div>` : '';
+        return `${close}<div class="igs-combat-intro-actions">${allies}${btn('start', '迎接挑战', { primary: true, disabled: off })}`
+            + `<div class="igs-combat-intro-sub">${l.canEscape ? btn('abandon', v.abandonArmed ? '确认放弃' : CHALLENGE_LABELS.escape, { disabled: off }) : ''}${btn('auto', '交给托管', { disabled: off })}</div></div>`;
+    }
+    return `${close}<div class="igs-combat-intro-actions">${lobbyRewardHtml(l.reward, v.pending)}${btn('start', '开始战斗', { primary: true, disabled: off })}<div class="igs-combat-intro-sub">${btn('skip', '跳过战斗', { disabled: off })}</div></div>`;
+}
+
 // 阻断：跳过或重试；数据库表原因的「重试」先补建表再准备（combat-panel.js retryPrepare）。
 function blockedHtml(v) {
     return `<div class="igs-combat-actions">${v.challenge ? '' : btn('skip', '跳过战斗', { disabled: Boolean(v.pending) })}${btn('retry-prepare', '重试', { primary: true, disabled: Boolean(v.pending) })}</div>`;
@@ -622,16 +648,17 @@ export function renderCombatPanelHtml(v) {
     let main = '';
     if (v.historyOpen) main = historyHtml(v);
     // 准备进行中优先显示，不被上一次的阻塞原因遮挡（重试期间状态仍是 blocked）。
-    else if (v.pending === 'prepare') main = `<p class="igs-combat-state" aria-busy="true">${STATUS_LINE.preparing}</p>`;
-    else if (status === 'lobby' && v.lobby) main = lobbyHtml(v);
+    else if (v.pending === 'prepare') main = loadingHtml(STATUS_LINE.preparing);
+    // 九套画布皮肤的战前不再有阵容页：对撞过场定格后，按钮与头像由面板控制器叠在上面（combatIntroUiHtml）。初始方案沿用战前对阵页。
+    else if (status === 'lobby' && v.lobby) main = isCanvasSkin(v.skin) && CANVAS_BATTLE[v.skin] ? '' : lobbyHtml(v);
     // 结束后先按战斗画面播完最后一段演出（settling），再换成结算画面。
     else if (status === 'ended' && v.battle && v.end && !v.settling) main = resultHtml(v);
     else if ((status === 'battle' || status === 'ended') && v.battle) main = battleHtml(v);
-    else if (status === 'blocked') main = `<p class="igs-combat-state">${esc(combatReasonText(v.reason))}${v.cause ? `：${esc(generationCauseText(v.cause))}` : ''}</p>${blockedHtml(v)}`;
+    else if (status === 'blocked') main = `<div class="igs-combat-blocked"><p class="igs-combat-state">${esc(combatReasonText(v.reason))}${v.cause ? `：${esc(generationCauseText(v.cause))}` : ''}</p>${blockedHtml(v)}</div>`;
     else if (status === 'stale') main = `<p class="igs-combat-state">${esc(combatReasonText(v.reason))}</p>`;
     else if (status === 'send-failed') main = `<p class="igs-combat-state">${STATUS_LINE['send-failed']}</p>${lootHtml(v)}<div class="igs-combat-actions">${lootBlocksSend(v.flip) ? '' : btn('retry-send', v.pending === 'send' ? '发送中' : '重新发送', { primary: true, disabled: Boolean(v.pending) })}</div>`;
     else if (status === 'done') main = `<p class="igs-combat-state">${STATUS_LINE.done}</p>${rewardHtml(v.rewards, v.pending)}`;
-    else if (status === 'preparing') main = `<p class="igs-combat-state" aria-busy="true">${STATUS_LINE.preparing}</p>`;
+    else if (status === 'preparing') main = loadingHtml(STATUS_LINE.preparing);
     else main = STATUS_LINE[status] ? `<p class="igs-combat-state">${STATUS_LINE[status]}</p>` : '';
     // 状态行已经说明同一原因时不再重复提示条。
     const notice = v.notice && !((status === 'blocked' || status === 'stale') && v.notice === combatReasonText(v.reason)) ? v.notice : '';

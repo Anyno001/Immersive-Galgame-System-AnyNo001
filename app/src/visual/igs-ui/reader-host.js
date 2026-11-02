@@ -5232,6 +5232,12 @@ ${row.key}`;
         // 卡牌战斗面板：会话、账本与建表由 bootstrap 注入；扩展关闭或宿主不可用时 getSession 返回 null，面板不打开。
         const combatController = createCombatPanelController(doc, {
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
+            // 对阵界面没做选择就关闭：在入口位置留「返回战斗 / 返回挑战」标签；已开始、已放弃、已托管、已跳过则清除。
+            onClose: ({ dismissed }) => {
+                const entry = state.combatLastEntry;
+                state.combatReturnKey = dismissed && entry ? entry.key : '';
+                if (state.activeReader) setTimeout(() => { if (state.activeReader) rerenderActiveReader(); }, 0);
+            },
             getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
             challengeHistory: typeof options.getChallengeHistory === 'function' ? () => options.getChallengeHistory() : null,
@@ -5628,9 +5634,32 @@ ${row.key}`;
             ? options.getIllustrationSource(messageId) : null;
         const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: isReaderLastPage(snapshot), sourceFilter: current.payload && current.payload.sourceFilter, challengeQuota: typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null }) : null;
         state.combatAutoOpened ||= new Set();
-        const auto = syncCombatEntry(overlay, entry, { seen: state.combatAutoOpened, onOpen: () => openCombatPanel(current, entry), onAction: (kind) => openCombatPanel(current, entry, { then: kind }) });
-        // 自动弹出只记成功打开的：地图、资料或构筑面板开着时不记，等下一次渲染再弹。
-        if (auto && openCombatPanel(current, entry)?.ok === true) state.combatAutoOpened.add(entry.key);
+        const skin = normalizeCombatExpansionSettings(snapshot.readerSettings && snapshot.readerSettings.combatExpansion).skin;
+        // 入口卡只是回头路：对阵界面没做选择就关闭、或自动打开失败时，才在原位置留「返回战斗 / 返回挑战」小标签。
+        const showTag = entry && state.combatReturnKey === entry.key ? entry : null;
+        syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, entry), onFail: (r) => notifyCombatOpenFail(r) });
+        // 开战标签翻到末页即自动打开对阵界面（战斗与日常挑战相同）；只记成功打开的，地图、资料或构筑面板开着时不记，等下一次渲染再弹。
+        if (entry && !state.combatAutoOpened.has(entry.key)) {
+            const opened = openCombatPanel(current, entry);
+            if (opened?.ok === true) state.combatAutoOpened.add(entry.key);
+            else if (opened) {
+                // 打开失败：留「返回」标签；被其他面板占用会在下一次渲染重试，其余原因每个开战楼只提示一次。
+                if (state.combatReturnKey !== entry.key) { state.combatReturnKey = entry.key; setTimeout(() => { if (state.activeReader === current) rerenderActiveReader(); }, 0); }
+                if (opened.reason !== 'panel-open') {
+                    state.combatOpenNotified ||= new Set();
+                    if (!state.combatOpenNotified.has(entry.key)) { state.combatOpenNotified.add(entry.key); notifyCombatOpenFail(opened); }
+                } else if (!state.combatPanelOpenNotified?.has(entry.key)) {
+                    (state.combatPanelOpenNotified ||= new Set()).add(entry.key);
+                    notifyCombatOpenFail(opened);
+                }
+            }
+        }
+    }
+
+    // 入口卡打开战斗面板失败时的阅读器内提示。
+    function notifyCombatOpenFail(result) {
+        if (!result || result.ok !== false) return;
+        writeToastSafe(result.reason === 'panel-open' ? '请先关闭当前面板，再进入战斗' : '战斗面板暂时无法打开，请稍后重试');
     }
 
     function openCombatPanel(current, entry, { then = '' } = {}) {
@@ -5639,7 +5668,14 @@ ${row.key}`;
         if (dom.mapController.isOpen() || dom.recordController.isOpen() || dom.combatDeckController?.isOpen()) return { ok: false, reason: 'panel-open' };
         const menu = dom.overlay.querySelector?.('#igs-hud-record-menu');
         if (menu && !menu.hasAttribute('hidden')) menu.setAttribute('hidden', '');
-        return dom.combatController.open(dom.overlay, { messageId: entry.messageId, ...(then ? { then } : {}) });
+        state.combatLastEntry = entry;
+        // 开战标签里的名字先交给面板：对撞过场不等准备完成。
+        const preview = entry.kind === 'challenge'
+            ? { challenge: true, encounter: entry.event, enemies: [{ name: entry.event, count: 1 }] }
+            : { encounter: entry.encounter, enemies: Array.isArray(entry.enemies) ? entry.enemies.map((e) => ({ name: e.name, count: e.count })) : [] };
+        const result = dom.combatController.open(dom.overlay, { messageId: entry.messageId, preview, ...(then ? { then } : {}) });
+        if (result && result.ok === true && state.combatReturnKey === entry.key) state.combatReturnKey = '';
+        return result;
     }
 
     function syncMissedAssetsHint(current, snapshot) {

@@ -9,13 +9,26 @@ export const isCanvasSkin = (skin) => CANVAS_SKINS.has(String(skin || ''));
 
 export const CANVAS_SIZE = Object.freeze({ port: { w: 390, h: 844 }, land: { w: 1280, h: 720 } });
 
-// 面板宽高比大于 1 用横屏画布；缩放取宽高两向中较小的一个，画布居中。
+// 面板宽高比大于 1 用横屏画布；按高度缩放，画布宽度随面板伸展贴满左右（不窄于设计稿，更窄时退回整体等比缩小）。
+// 皮肤样式读根节点上的 --cx-w（画布逻辑宽，px），皮肤 JS 读 canvasW(orient)。
+let lastFit = null;
 export function canvasFit(width, height) {
     const orient = width > height ? 'land' : 'port';
     const { w, h } = CANVAS_SIZE[orient];
-    const scale = width > 0 && height > 0 ? Math.min(width / w, height / h) : 1;
-    return { orient, scale: Number(scale.toFixed(4)) };
+    if (!(width > 0 && height > 0)) return { orient, scale: 1, w };
+    const byHeight = height / h;
+    const scale = width / byHeight >= w ? byHeight : Math.min(width / w, byHeight);
+    const fit = { orient, scale: Number(scale.toFixed(4)), w: Math.max(w, Math.floor(width / scale)) };
+    lastFit = fit;
+    return fit;
 }
+export const canvasW = (orient) => (lastFit && lastFit.orient === orient ? lastFit.w : CANVAS_SIZE[orient === 'land' ? 'land' : 'port'].w);
+
+// 九套共用的技能、道具图标：两把刀尖交叉、细颈药瓶（细线、跟随 currentColor），各套只换颜色与按钮外形。
+export const SKILL_ICON_SVG = '<svg class="cx-skill-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M4 4l12 12M13 17.5l4.5-4.5M16.5 16.5l3 3"/><path d="M20 4L8 16M11 17.5L6.5 13M7.5 16.5l-3 3"/></svg>';
+export const ITEM_ICON_SVG = '<svg class="cx-item-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M9 3h6M10 3v5.5L5.5 17a3 3 0 0 0 2.7 4h7.6a3 3 0 0 0 2.7-4L14 8.5V3M7.5 14h9"/></svg>';
 
 // 两种 DOM 共用的节点选择器：原有标记用 igs-combat-* 类，画布标记用 cx-* 钩子类（不带原有类，避免原有样式套到画布上）。
 export const SEL = Object.freeze({

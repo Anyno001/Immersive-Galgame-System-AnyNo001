@@ -72,7 +72,7 @@ export const RELATED_SKILLS = Object.freeze({
 });
 export const RELATED_MIN = 50;
 export const RELATED_MAX = 2;
-// 顶替的是领域的第几类牌位：第一项换掉一张进展牌，第二项换掉一张稳住牌，张数不变。
+// 顶替的是领域的第几类牌位：第一项换掉一张进攻牌，第二项换掉一张防守牌，张数不变。
 const RELATED_REPLACES = Object.freeze(['push', 'hold']);
 
 function relatedPicks(key, otherSkills) {

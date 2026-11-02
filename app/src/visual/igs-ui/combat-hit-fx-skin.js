@@ -2,6 +2,7 @@
 // 命中光（光芒 + 光芯 + 光刃）、稀有度横幅、格挡护盾、击倒、敌方回合、爪痕、三种蓄力、治疗柔光、同伴出手。初始方案不创建这些节点。
 // 节点挂在演出前层里的「演出画布」（.igs-hx-canvas，与战斗画布同尺寸、同缩放，设计稿坐标原样可用）；治疗光挂在主角单位内。
 // 样式在 combat-hit-fx-skin-style.js（由设计稿 CSS 生成）与本文件末尾的补充样式；类名 hx- 前缀、变量 --hx- 前缀。
+import { canvasW } from './combat-skin-canvas.js';
 import { COMBAT_HIT_SKIN_STYLE_TEXT } from './combat-hit-fx-skin-style.js';
 
 export const HX_SKINS = Object.freeze(['comic', 'veil', 'ink', 'tech', 'mystic', 'soft-a', 'soft-c', 'dark-a', 'dark-b']);
@@ -32,7 +33,8 @@ export function hxCanvas(front, canvasEl) {
 
 const canvasScale = (c) => {
     const w = c.getBoundingClientRect?.().width;
-    return w ? w / (c.classList.contains('land') ? SIZE.land : SIZE.port) : 1;
+    const lw = c.offsetWidth || canvasW(c.classList.contains('land') ? 'land' : 'port');
+    return w ? w / lw : 1;
 };
 // 视口矩形换成演出画布内的设计稿坐标。
 export function hxRel(c, rect) {
@@ -207,8 +209,8 @@ export function hxHeal(unitEl, { schedule } = {}) {
 
 const SCOPE = '#igs-overlay #igs-combat-panel:not([data-igs-combat-skin="initial"])';
 const EXTRA = `
-#igs-overlay #igs-combat-panel .igs-hx-canvas{position:absolute;left:50%;top:50%;width:${SIZE.port}px;height:844px;transform:translate(-50%,-50%) scale(var(--cx-scale,1));transform-origin:50% 50%;pointer-events:none;overflow:visible;}
-#igs-overlay #igs-combat-panel .igs-hx-canvas.land{width:${SIZE.land}px;height:720px;}
+#igs-overlay #igs-combat-panel .igs-hx-canvas{position:absolute;left:50%;top:50%;width:var(--cx-w,${SIZE.port}px);height:844px;transform:translate(-50%,-50%) scale(var(--cx-scale,1));transform-origin:50% 50%;pointer-events:none;overflow:visible;}
+#igs-overlay #igs-combat-panel .igs-hx-canvas.land{width:var(--cx-w,${SIZE.land}px);height:720px;}
 #igs-overlay #igs-combat-panel .igs-hx-canvas>*{pointer-events:none;}
 @keyframes hx-sweep{0%{transform:scaleX(0);opacity:1;}60%{transform:scaleX(1);opacity:1;}100%{transform:scaleX(1);opacity:0;}}
 @keyframes hx-hurt{0%{filter:brightness(2.2) saturate(0);}30%{transform:translateX(10px) rotate(2deg);filter:brightness(1.35) saturate(.5);}60%{transform:translateX(-6px);filter:none;}100%{filter:none;}}

@@ -6,8 +6,8 @@ export const COMBAT_SKIN_SOFT_C_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) body.shot #bar{display: none;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) body.shot #wrap{padding: 0; justify-content: flex-start;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]){position: relative; overflow: hidden; flex: none; font-synthesis: none; user-select: none;}
-#igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]).port{width: 390px; height: 844px;}
-#igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]).land{width: 1280px; height: 720px;}
+#igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]).port{width: var(--cx-w); height: 844px;}
+#igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]).land{width: var(--cx-w); height: 720px;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]) button{font-family: inherit; cursor: pointer;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]) .stage{position: absolute; inset: 0;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]) .stage .bgi{position: absolute; inset: 0; background: none 38% center / cover; filter: brightness(.78) saturate(.7);}
@@ -154,7 +154,7 @@ export const COMBAT_SKIN_SOFT_C_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tcell.off{filter: brightness(.5) saturate(.5); cursor: default;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).tray-on .hand .card.sel{display: none;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .pick-tg .foes .foe.front .row2{outline: 3px solid var(--aim, #fff); outline-offset: 3px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .skill,#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .items{width: 38px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .skill,#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .items{width: 44px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .card .val em .ui{width: 13px !important; height: 13px !important;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .face .aw{bottom: -4px; height: 15px; line-height: 15px; font-size: 9px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .lead .face{top: 4px;}
@@ -171,59 +171,72 @@ export const COMBAT_SKIN_SOFT_C_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .track{position: absolute; z-index: 5; display: flex; align-items: center; gap: 7px; padding: 6px; border-radius: 999px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .track .who{width: 28px; height: 28px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .track .who.now{width: 34px; height: 34px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port{--hpw: 220px; --foes-top: 0px; --foes-h: 640px; --foe-b: 40px; --plate-drop: 40px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land{--hpw: 260px; --foes-top: 0px; --foes-h: 720px; --foe-b: 145px; --plate-drop: 40px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port{--HW: min(calc(var(--cx-w) - 32px), 400px); --HL: calc((var(--cx-w) - var(--HW)) / 2); --GW: min(calc(var(--cx-w) - 32px), 440px); --hpw: 220px; --foes-top: 0px; --foes-h: 640px; --foe-b: 40px; --plate-drop: 40px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land{--W: min(calc(var(--cx-w) - 40px), 1360px); --L: calc((var(--cx-w) - var(--W)) / 2); --IW: clamp(280px, calc(var(--W) * .26), 380px); --RX: calc(var(--L) + var(--IW) + 16px); --HX: calc(var(--RX) + 120px); --HWD: calc(var(--L) + var(--W) - var(--HX)); --hpw: 260px; --foes-top: 0px; --foes-h: 720px; --foe-b: 145px; --plate-drop: 40px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .track{left: 8px; top: 60px; flex-direction: column;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .topbar{left: 20px; right: 20px; top: 14px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .track{left: 300px; top: 10px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .party{left: 8px; top: 756px; width: 374px; height: 56px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .lead .face{left: 10px; top: 6px; width: 44px; height: 44px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .lead .info{left: 64px; top: 5px; width: 104px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .party{left: calc((var(--cx-w) - var(--GW)) / 2); top: 750px; width: var(--GW); height: 72px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .lead .face{left: 10px; top: 14px; width: 44px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .lead .info{left: 64px; top: 13px; width: calc(var(--GW) - 208px);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .lead .n{font-size: 14px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .lead .n .hp{font-size: 11px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .lead .hpbar{margin-top: 3px; height: 7px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .chips{margin-top: 3px; gap: 4px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .chip{height: 17px; padding: 0 7px; font-size: 10px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mates{left: 178px; top: 6px; width: 188px; gap: 4px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mate{flex-direction: column; gap: 3px; width: 60px; align-items: center;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mate .mface{width: 28px; height: 28px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mates{left: auto; right: 10px; top: 0; bottom: 0; width: 122px; flex-direction: column; justify-content: center; gap: 3px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mate{flex-direction: row; gap: 6px; width: 100%; align-items: center;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mate .mface{width: 20px; height: 20px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mate .mi{width: 100%;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mate .mn{font-size: 9px; text-align: center;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .hand{left: 0; top: 559px; width: 390px; height: 176px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy{left: 10px; top: 561px; width: 66px; height: 46px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy .v{font-size: 22px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy .v small{font-size: 12px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy .pips{margin-top: 3px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .mate .mn{font-size: 10px; text-align: left;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .hand{left: var(--HL); top: 545px; width: var(--HW); height: 176px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy{left: auto; right: calc(var(--HL) + 84px); top: 491px; width: 84px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy .v{font-size: 32px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy .v small{font-size: 16px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy .pips{margin-top: 2px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .energy .pips i{width: 6px; height: 6px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .skill{left: 84px; top: 561px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .items{left: 126px; top: 561px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .piles{left: 12px; top: 527px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .end{left: 326px; top: 557px; width: 52px; height: 52px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .tray{left: 10px; top: 461px; width: 370px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .party{left: 20px; top: 538px; width: 310px; height: 150px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .lead .face{left: 14px; top: 12px; width: 64px; height: 64px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .lead .info{left: 94px; top: 12px; width: 170px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .mates{left: 14px; top: 94px; width: 282px; gap: 8px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .mate{flex: 1; gap: 6px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .mate .mface{width: 28px; height: 28px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .mate .mn{font-size: 10px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .hand{left: 340px; top: 470px; width: 600px; height: 220px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .energy{left: 352px; top: 495px; width: 84px; height: 56px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .skill{left: 446px; top: 501px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .items{left: 500px; top: 501px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .piles{left: 354px; top: 461px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .end{left: 1170px; top: 596px; width: 60px; height: 60px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .tray{left: 340px; top: 381px; width: 440px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .skill{left: 1050px; top: 603px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .items{left: 1104px; top: 603px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .piles{left: 1050px; top: 664px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .tray{left: 790px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .skill{left: var(--HL); top: 543px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .items{left: calc(var(--HL) + 56px); top: 543px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .piles{display: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .pile{display: flex; flex-direction: row; align-items: baseline; gap: 5px; top: 725px; height: 18px; font-weight: 700; font-size: 12px; white-space: nowrap;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .pile-d{left: var(--HL);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .pile-x{left: auto; right: var(--HL);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .end{left: auto; right: var(--HL); top: 491px; width: 72px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .tray{left: 10px; top: 423px; width: calc(var(--cx-w) - 20px);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .track{left: 20px; top: 70px; flex-direction: column;}
-#igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]){--page: #1d1b1e; --surf: #2a272c; --card: #37323b; --cream: #f6f0e8; --dim: #b3aab0; --txt: #38333a; --pink: #f08a9a; --red: #e5586d; --butter: #f7dc9a; --mint: #8fd3b2; --green: #62c29c; --c-atk: #d9566b; --c-def: #4f86c6; --c-skl: #3d9c78; --c-pow: #8567c9; --ring: #ffffff; --ring-trk: #f2a9b6; --tray-ac: #f08a9a; --aim: #f08a9a; --pile: #f6f0e8; --pile-2: #8a808a; --cardbg: #37323b; --dupbg: #4a454d; --rare: #f7dc9a; --epic: #f7dc9a; --myth: #f08a9a; --tmp: #b3aab0; --boost: #f7dc9a; --crown: #d9a441; --fc-bg: #1d1b1e; --fc-blk: #a9c8ee; --fc-vul: #f2a1ac; --chg: #f08a9a; --chg-trk: #4a454d; --charge: .7; background: var(--page);}
-#igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]) .stage::after{content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(29,27,30,.6) 0, rgba(29,27,30,0) 12%, rgba(29,27,30,0) 52%, rgba(29,27,30,.85) 76%, #1d1b1e 90%);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .title{min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .round{flex: none; white-space: nowrap;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .ic{flex: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .pile{display: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .pile span{font-size: 12px; font-weight: 400; line-height: 1.2; white-space: nowrap;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .pile b{font-size: 18px; line-height: 1.1; color: var(--cream);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .pile{color: var(--cream); text-shadow: 0 1px 3px #121212;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .party{left: var(--L); top: 520px; width: var(--IW); height: 170px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .lead .face{left: 6px; top: 8px; width: 72px; height: 72px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .lead .info{left: 92px; top: 12px; width: calc(var(--IW) - 100px);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .lead .n{font-size: 16px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .lead .hpbar{margin-top: 6px; height: 12px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .mates{left: 6px; top: 112px; width: calc(var(--IW) - 12px); gap: 8px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .mate{flex: 1; gap: 6px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .mate .mface{width: 36px; height: 36px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .mate .mn{font-size: 13px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .energy{left: var(--RX); top: 588px; width: 100px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .skill{left: var(--RX); top: 640px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .items{left: calc(var(--RX) + 56px); top: 640px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .hand{left: var(--HX); top: 490px; width: var(--HWD); height: 210px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .end{left: auto; right: var(--L); top: 420px; width: 112px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .tray{left: var(--HX); top: 386px; width: 440px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .piles{display: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .pile{display: flex; flex-direction: row; align-items: baseline; gap: 6px; top: 514px; height: 28px; font-weight: 700; font-size: 14px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .pile-d{left: var(--HX);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .pile-x{left: calc(var(--HX) + 84px);}
+#igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]){--page: #1c1d21; --surf: #262a31; --card: #323844; --cream: #f7efe4; --dim: #aab2c0; --txt: #38333a; --pink: #8fb0d8; --pink-d: #4f74a8; --red: #e5586d; --butter: #f6dcc0; --mint: #b8a6e0; --green: #8fb0d8; --lilac: #b8a6e0; --c-atk: #5b84bd; --c-def: #86b4cf; --c-skl: #d9a578; --c-pow: #8d78c9; --ring: #ffffff; --ring-trk: #b9cbe8; --tray-ac: #8fb0d8; --aim: #8fb0d8; --pile: #f7efe4; --pile-2: #8a93a3; --cardbg: #323844; --dupbg: #3d4452; --rare: #f6dcc0; --epic: #f6dcc0; --myth: #8fb0d8; --tmp: #aab2c0; --boost: #f6dcc0; --crown: #d9a441; --fc-bg: #1c1d21; --fc-blk: #a9c8ee; --fc-vul: #f2a1ac; --chg: #8fb0d8; --chg-trk: #3d4452; --charge: .7; background: var(--page);}
+#igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]) .stage::after{content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(28,29,33,.6) 0, rgba(28,29,33,0) 12%, rgba(28,29,33,0) 52%, rgba(28,29,33,.85) 76%, #1c1d21 90%);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .topbar{top: 8px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .topbar{top: 12px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .title{padding: 5px 16px; border-radius: 999px; background: var(--pink); color: var(--page);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .title{position: relative;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .title::before{content: ""; position: absolute; inset: 3px; border-radius: 999px; border: 1.5px dashed #dde8f6; pointer-events: none;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .title b{font-size: 15px; letter-spacing: .08em;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .round{padding: 4px 12px; border-radius: 999px; background: var(--surf); font-size: 12px; font-weight: 700; color: var(--cream);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .topbar .ic{background: var(--surf); color: var(--cream);}
@@ -236,24 +249,24 @@ export const COMBAT_SKIN_SOFT_C_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .intent b{font-size: 17px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .intent svg{stroke-width: 2.6;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .row2{background: none; color: var(--cream); text-shadow: 0 1px 3px #121012, 0 0 6px #121012;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .row2 .hpbar{background: #2a272c; box-shadow: 0 0 0 1px #121012;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .row2 .hpbar i{background: var(--red);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .row2 .hpbar{background: #262a31; box-shadow: 0 0 0 1px #121012;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .row2 .hpbar i{background: var(--pink);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .fchip{background: #e1d6d0;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .fchip.blk{color: #3f6fae;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .fchip.vul{color: #c04258;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .foes .foe .art .igs-combat-art{filter: drop-shadow(0 8px 12px #121012);}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .party{color: var(--cream); background: var(--surf); border-radius: 29px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .party{color: var(--cream); background: var(--surf); border-radius: 29px; outline: 1.5px dashed #3d4452; outline-offset: -6px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .lead .face{box-shadow: 0 0 0 2px var(--surf);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .lead .face .aw{background: var(--pink); color: var(--page);}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .lead .hpbar{background: #4a454d;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .lead .hpbar{background: #3d4452;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .lead .hpbar i{background: var(--green);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .lead .n .hp{color: var(--dim);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .lead .n .hp b{color: var(--green);}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .chip{background: #4a454d; color: var(--cream);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .chip{background: #3d4452; color: var(--cream);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .chip svg{stroke: #8db8ee;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .mate .mface{box-shadow: 0 0 0 2px var(--surf), 0 0 0 3.5px var(--mint);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .mate .mn{color: var(--cream);}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .mate .hpbar{background: #4a454d;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .mate .hpbar{background: #3d4452;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .mate .hpbar i{background: var(--green);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .piles{color: #cfc6cb;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .piles b{color: var(--cream);}
@@ -276,18 +289,18 @@ export const COMBAT_SKIN_SOFT_C_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .energy{border-radius: 999px; background: var(--surf); color: var(--butter);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .energy .v small{color: var(--cream);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .energy .pips i{background: var(--butter);}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .energy .pips i.off{background: #4a454d;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .skill,#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .items{background: var(--surf); color: var(--cream); box-shadow: 0 0 0 2px #4a454d;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .energy .pips i.off{background: #3d4452;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .skill,#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .items{background: var(--surf); color: var(--cream); box-shadow: 0 0 0 2px #3d4452;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .skill .cnt,#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .items .cnt{color: var(--butter);}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tray{background: var(--surf); color: var(--cream); box-shadow: 0 0 0 2px #4a454d, 0 8px 18px rgba(10,9,10,.55);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tray{background: var(--surf); color: var(--cream); box-shadow: 0 0 0 2px #3d4452, 0 8px 18px rgba(10,9,10,.55);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tray .th em{color: var(--dim);}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tcell{background: #4a454d; color: var(--cream);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tcell{background: #3d4452; color: var(--cream);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tcell em{color: var(--butter);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tcell.pick{background: var(--pink); color: var(--page); box-shadow: 0 0 0 2px var(--surf), 0 0 0 4px var(--pink);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .tcell.pick em{color: var(--page);}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .end{border-radius: 16px; background: var(--red); color: #fff8f2; box-shadow: 0 4px 0 #b3394e; overflow: hidden;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .end{border-radius: 16px; background: var(--pink-d); color: #fff8f2; box-shadow: 0 4px 0 #3a5a88; overflow: hidden;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .end b{font-size: 13px; line-height: 1.12; text-align: center;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .end::before{content: ""; position: absolute; right: 0; bottom: 0; width: 15px; height: 15px; background: linear-gradient(135deg, #b3394e 0 50%, var(--butter) 50% 100%);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .end::before{content: ""; position: absolute; right: 0; bottom: 0; width: 15px; height: 15px; background: linear-gradient(135deg, #3a5a88 0 50%, var(--butter) 50% 100%);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .end b{font-size: 14px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .party{border-radius: 32px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]) .card{--petal: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cg fill='%23000'%3E%3Ccircle cx='20' cy='9.5' r='9'/%3E%3Ccircle cx='30' cy='16.8' r='9'/%3E%3Ccircle cx='26.2' cy='28.5' r='9'/%3E%3Ccircle cx='13.8' cy='28.5' r='9'/%3E%3Ccircle cx='10' cy='16.8' r='9'/%3E%3Ccircle cx='20' cy='20' r='10'/%3E%3C/g%3E%3C/svg%3E"); --print: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg fill='%23000'%3E%3Ccircle cx='4' cy='2.6' r='1.3'/%3E%3Ccircle cx='5.4' cy='3.8' r='1.3'/%3E%3Ccircle cx='4.8' cy='5.4' r='1.3'/%3E%3Ccircle cx='3.2' cy='5.4' r='1.3'/%3E%3Ccircle cx='2.6' cy='3.8' r='1.3'/%3E%3Ccircle cx='12' cy='10.6' r='1.3'/%3E%3Ccircle cx='13.4' cy='11.8' r='1.3'/%3E%3Ccircle cx='12.8' cy='13.4' r='1.3'/%3E%3Ccircle cx='11.2' cy='13.4' r='1.3'/%3E%3Ccircle cx='10.6' cy='11.8' r='1.3'/%3E%3C/g%3E%3C/svg%3E"); border-top: 0; padding: 0; display: block;}

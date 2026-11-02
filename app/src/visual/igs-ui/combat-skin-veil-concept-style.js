@@ -492,4 +492,11 @@ export const COMBAT_SKIN_VEIL_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="veil"],.igs-cx-ghost[data-cx="veil"]).land .topbar{align-items: flex-start;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="veil"],.igs-cx-ghost[data-cx="veil"]).land .topbar .title{font-size: 17px; letter-spacing: 8px; padding-left: 0;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="veil"],.igs-cx-ghost[data-cx="veil"]).land .topbar .tr{right: 0;}
+#igs-overlay #igs-cx-canvas:where([data-cx="veil"]):not(.land){width: var(--cx-w);}
+#igs-overlay #igs-cx-canvas:where([data-cx="veil"]).land{width: var(--cx-w);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="veil"],.igs-cx-ghost[data-cx="veil"]).port .hand{top: 542px; left: calc((var(--cx-w) - min(calc(var(--cx-w) - 32px), 400px)) / 2); width: min(calc(var(--cx-w) - 32px), 400px);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="veil"],.igs-cx-ghost[data-cx="veil"]) .topbar .title{min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="veil"],.igs-cx-ghost[data-cx="veil"]) .topbar .round{flex: none; white-space: nowrap;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="veil"],.igs-cx-ghost[data-cx="veil"]).port .topbar .tr{position: relative; right: auto; margin: 0 8px 0 auto; flex: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="veil"],.igs-cx-ghost[data-cx="veil"]).land .topbar .title{max-width: calc(100% - 220px);}
 `;

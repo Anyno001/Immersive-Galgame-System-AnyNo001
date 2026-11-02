@@ -7,8 +7,8 @@ export const COMBAT_SKIN_MYSTIC_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="mystic"],.igs-cx-ghost[data-cx="mystic"]){background: #0a0a0d; color: #ebe7da; font-family: "LXGW Neo ZhiSong", "Songti SC", serif;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="mystic"],.igs-cx-ghost[data-cx="mystic"]){display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 14px; min-height: 100vh;}
 #igs-overlay #igs-cx-canvas:where([data-cx="mystic"]){position: relative; overflow: hidden; background: #0f1015; flex: none; user-select: none; -webkit-user-select: none; --text: #ebe7da; --dim: #a8a595; --faint: #7a7888; --gold: #b9a46a; --gold-hi: #e3d49c; --gd: #8c7d4e; --red: #d06a68; --jade: #8fc4ae; --blue: #8fa8d8; --violet: #a897d6; --serif: "LXGW Neo ZhiSong", "Songti SC", serif; --title: "Tsanger YuYang", "LXGW Neo ZhiSong", serif; --num: "Cinzel", "LXGW Neo ZhiSong", serif; font-family: var(--serif); color: var(--text); font-synthesis: none;}
-#igs-overlay #igs-cx-canvas:where([data-cx="mystic"]).port{width: 390px; height: 844px;}
-#igs-overlay #igs-cx-canvas:where([data-cx="mystic"]).land{width: 1280px; height: 720px;}
+#igs-overlay #igs-cx-canvas:where([data-cx="mystic"]).port{width: var(--cx-w, 390px); height: 844px;}
+#igs-overlay #igs-cx-canvas:where([data-cx="mystic"]).land{width: var(--cx-w, 1280px); height: 720px;}
 #igs-overlay #igs-cx-canvas:where([data-cx="mystic"]) > *{position: absolute;}
 #igs-overlay #igs-cx-canvas:where([data-cx="mystic"]) button{font-family: inherit; color: inherit; background: none; border: 0; cursor: pointer;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="mystic"],.igs-cx-ghost[data-cx="mystic"]) .stage{inset: 0; background: #0f1015 none 50% 30% / cover no-repeat; filter: saturate(.8) brightness(.5);}

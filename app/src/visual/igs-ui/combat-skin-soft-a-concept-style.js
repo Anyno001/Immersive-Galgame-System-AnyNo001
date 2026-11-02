@@ -6,8 +6,8 @@ export const COMBAT_SKIN_SOFT_A_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) body.shot #bar{display: none;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) body.shot #wrap{padding: 0; justify-content: flex-start;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]){position: relative; overflow: hidden; flex: none; font-synthesis: none; user-select: none;}
-#igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]).port{width: 390px; height: 844px;}
-#igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]).land{width: 1280px; height: 720px;}
+#igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]).port{width: var(--cx-w); height: 844px;}
+#igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]).land{width: var(--cx-w); height: 720px;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]) button{font-family: inherit; cursor: pointer;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]) .stage{position: absolute; inset: 0;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]) .stage .bgi{position: absolute; inset: 0; background: none 38% center / cover; filter: brightness(.78) saturate(.7);}
@@ -154,7 +154,7 @@ export const COMBAT_SKIN_SOFT_A_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .tcell.off{filter: brightness(.5) saturate(.5); cursor: default;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).tray-on .hand .card.sel{display: none;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .pick-tg .foes .foe.front .row2{outline: 3px solid var(--aim, #fff); outline-offset: 3px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .skill,#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .items{width: 38px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .skill,#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .items{width: 44px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .card .val em .ui{width: 13px !important; height: 13px !important;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .face .aw{bottom: -4px; height: 15px; line-height: 15px; font-size: 9px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .lead .face{top: 4px;}
@@ -171,54 +171,65 @@ export const COMBAT_SKIN_SOFT_A_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .track{position: absolute; z-index: 5; display: flex; align-items: center; gap: 7px; padding: 6px; border-radius: 999px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .track .who{width: 28px; height: 28px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .track .who.now{width: 34px; height: 34px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port{--hpw: 220px; --foes-top: 0px; --foes-h: 640px; --foe-b: 40px; --plate-drop: 40px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land{--hpw: 260px; --foes-top: 0px; --foes-h: 720px; --foe-b: 145px; --plate-drop: 40px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port{--HW: min(calc(var(--cx-w) - 32px), 400px); --HL: calc((var(--cx-w) - var(--HW)) / 2); --GW: min(calc(var(--cx-w) - 32px), 440px); --hpw: 220px; --foes-top: 0px; --foes-h: 640px; --foe-b: 40px; --plate-drop: 40px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land{--W: min(calc(var(--cx-w) - 40px), 1360px); --L: calc((var(--cx-w) - var(--W)) / 2); --IW: clamp(280px, calc(var(--W) * .26), 380px); --RX: calc(var(--L) + var(--IW) + 16px); --HX: calc(var(--RX) + 120px); --HWD: calc(var(--L) + var(--W) - var(--HX)); --hpw: 260px; --foes-top: 0px; --foes-h: 720px; --foe-b: 145px; --plate-drop: 40px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .track{left: 8px; top: 60px; flex-direction: column;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .topbar{left: 20px; right: 20px; top: 14px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .track{left: 300px; top: 10px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .party{left: 8px; top: 756px; width: 374px; height: 56px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .lead .face{left: 10px; top: 6px; width: 44px; height: 44px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .lead .info{left: 64px; top: 5px; width: 104px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .party{left: calc((var(--cx-w) - var(--GW)) / 2); top: 750px; width: var(--GW); height: 72px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .lead .face{left: 10px; top: 14px; width: 44px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .lead .info{left: 64px; top: 13px; width: calc(var(--GW) - 208px);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .lead .n{font-size: 14px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .lead .n .hp{font-size: 11px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .lead .hpbar{margin-top: 3px; height: 7px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .chips{margin-top: 3px; gap: 4px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .chip{height: 17px; padding: 0 7px; font-size: 10px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mates{left: 178px; top: 6px; width: 188px; gap: 4px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mate{flex-direction: column; gap: 3px; width: 60px; align-items: center;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mate .mface{width: 28px; height: 28px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mates{left: auto; right: 10px; top: 0; bottom: 0; width: 122px; flex-direction: column; justify-content: center; gap: 3px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mate{flex-direction: row; gap: 6px; width: 100%; align-items: center;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mate .mface{width: 20px; height: 20px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mate .mi{width: 100%;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mate .mn{font-size: 9px; text-align: center;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .hand{left: 0; top: 559px; width: 390px; height: 176px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy{left: 10px; top: 561px; width: 66px; height: 46px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy .v{font-size: 22px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy .v small{font-size: 12px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy .pips{margin-top: 3px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .mate .mn{font-size: 10px; text-align: left;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .hand{left: var(--HL); top: 545px; width: var(--HW); height: 176px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy{left: auto; right: calc(var(--HL) + 84px); top: 491px; width: 84px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy .v{font-size: 32px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy .v small{font-size: 16px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy .pips{margin-top: 2px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .energy .pips i{width: 6px; height: 6px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .skill{left: 84px; top: 561px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .items{left: 126px; top: 561px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .piles{left: 12px; top: 527px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .end{left: 326px; top: 557px; width: 52px; height: 52px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .tray{left: 10px; top: 461px; width: 370px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .party{left: 20px; top: 538px; width: 310px; height: 150px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .lead .face{left: 14px; top: 12px; width: 64px; height: 64px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .lead .info{left: 94px; top: 12px; width: 170px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .mates{left: 14px; top: 94px; width: 282px; gap: 8px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .mate{flex: 1; gap: 6px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .mate .mface{width: 28px; height: 28px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .mate .mn{font-size: 10px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .hand{left: 340px; top: 470px; width: 600px; height: 220px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .energy{left: 352px; top: 495px; width: 84px; height: 56px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .skill{left: 446px; top: 501px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .items{left: 500px; top: 501px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .piles{left: 354px; top: 461px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .end{left: 1170px; top: 596px; width: 60px; height: 60px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .tray{left: 340px; top: 381px; width: 440px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .skill{left: 1050px; top: 603px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .items{left: 1104px; top: 603px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .piles{left: 1050px; top: 664px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .tray{left: 790px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .skill{left: var(--HL); top: 543px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .items{left: calc(var(--HL) + 56px); top: 543px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .piles{display: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .pile{display: flex; flex-direction: row; align-items: baseline; gap: 5px; top: 725px; height: 18px; font-weight: 700; font-size: 12px; white-space: nowrap;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .pile-d{left: var(--HL);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .pile-x{left: auto; right: var(--HL);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .end{left: auto; right: var(--HL); top: 491px; width: 72px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).port .tray{left: 10px; top: 423px; width: calc(var(--cx-w) - 20px);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .track{left: 20px; top: 70px; flex-direction: column;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .topbar .title{min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .topbar .round{flex: none; white-space: nowrap;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .topbar .ic{flex: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .pile{display: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .pile span{font-size: 12px; font-weight: 400; line-height: 1.2; white-space: nowrap;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .pile b{font-size: 18px; line-height: 1.1; color: var(--cream);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]) .pile{color: var(--cream); text-shadow: 0 1px 3px #121212;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .party{left: var(--L); top: 520px; width: var(--IW); height: 170px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .lead .face{left: 6px; top: 8px; width: 72px; height: 72px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .lead .info{left: 92px; top: 12px; width: calc(var(--IW) - 100px);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .lead .n{font-size: 16px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .lead .hpbar{margin-top: 6px; height: 12px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .mates{left: 6px; top: 112px; width: calc(var(--IW) - 12px); gap: 8px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .mate{flex: 1; gap: 6px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .mate .mface{width: 36px; height: 36px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .mate .mn{font-size: 13px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .energy{left: var(--RX); top: 588px; width: 100px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .skill{left: var(--RX); top: 640px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .items{left: calc(var(--RX) + 56px); top: 640px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .hand{left: var(--HX); top: 490px; width: var(--HWD); height: 210px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .end{left: auto; right: var(--L); top: 420px; width: 112px; height: 44px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .tray{left: var(--HX); top: 386px; width: 440px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .piles{display: none;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .pile{display: flex; flex-direction: row; align-items: baseline; gap: 6px; top: 514px; height: 28px; font-weight: 700; font-size: 14px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .pile-d{left: var(--HX);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .pile-x{left: calc(var(--HX) + 84px);}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]){--ink: #1d1b1e; --surf: #2a272c; --cream: #f6efe4; --cream-2: #e9e0d2; --txt: #38333a; --txt-2: #6f666e; --pink: #f2a1ac; --pink-d: #d9566b; --butter: #f7dc9a; --mint: #a8d8bf; --green: #3f9a78; --red: #e5586d; --c-atk: #d9566b; --c-def: #4f86c6; --c-skl: #3d9c78; --c-pow: #8567c9; --ring: #ffffff; --ring-trk: #f0b8c0; --tray-ac: #f2a1ac; --aim: #f2a1ac; --pile: #f6efe4; --pile-2: #8a808a; --cardbg: #f6efe4; --dupbg: #e9e0d2; --rare: #d9a441; --epic: #d9a441; --myth: #f0b93a; --tmp: #8a808a; --boost: #d9791f; --crown: #d9a441; --fc-bg: #1d1b1e; --fc-blk: #a9c8ee; --fc-vul: #f2a1ac; --chg: #f2a1ac; --chg-trk: #e9e0d2; --charge: .7; background: var(--ink);}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-a"]) .stage::after{content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(29,27,30,.6) 0, rgba(29,27,30,0) 12%, rgba(29,27,30,0) 52%, rgba(29,27,30,.85) 76%, #1d1b1e 90%);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-a"],.igs-cx-ghost[data-cx="soft-a"]).land .stage::after{background: linear-gradient(to bottom, rgba(29,27,30,.6) 0, rgba(29,27,30,0) 12%, rgba(29,27,30,0) 50%, rgba(29,27,30,.85) 76%, #1d1b1e 92%) !important;}

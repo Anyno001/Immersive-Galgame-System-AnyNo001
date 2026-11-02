@@ -3,7 +3,7 @@
 import { esc } from './reader-value-utils.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { battlePick, needsHold, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_INK_CONCEPT_CSS } from './combat-skin-ink-concept-style.js';
 
 // 牌面说明：与 combat-panel-render.js 的 cardTextHtml 同口径，不从渲染层引入，免得循环依赖。
@@ -15,11 +15,13 @@ const partHtml = (p) => {
 const cardTextHtml = (c) => (Array.isArray(c.textParts) ? c.textParts.map(partHtml).join('') : esc(c.text || ''));
 
 // 概念稿 定稿.html 的 INK.boot 参数
-const RING = { port: { rx: 130, w: 330, lift: 90, back: 0.42, dim: 0.45 }, land: { rx: 410, w: 390, lift: 90, back: 0.58, dim: 0.5 } };
+const RING_BASE = { port: { rx: 130, w: 330, lift: 90, back: 0.42, dim: 0.45 }, land: { rx: 410, w: 390, lift: 90, back: 0.58, dim: 0.5 } };
+// 画布比设计稿宽时，侧边敌人沿宽度同比外移（正前方大小不变）。
+const ringOf = (orient) => ({ ...RING_BASE[orient], rx: Math.round(RING_BASE[orient].rx * canvasW(orient) / (orient === 'land' ? 1280 : 390)) });
 // 手牌扇形：w 为手牌区宽度，cw 窄签宽，sw 放大牌宽（见定稿.css / 卡面.css）。
 const FAN = {
     port: { w: 362, cw: 62, sw: 100, step: 50, y0: 2, arc: 0.45, rot: 1.3, lift: 34 },
-    land: { w: 600, cw: 94, sw: 120, step: 82, y0: 2, arc: 0.8, rot: 1.2, lift: 56 },
+    land: { w: 760, cw: 108, sw: 138, step: 114, y0: 2, arc: 0.9, rot: 1.2, lift: 60 },
 };
 const CHOICE_VERB = { discard: '弃掉', copy: '复制', 'cost-mod': '减费' };
 
@@ -67,7 +69,7 @@ const unitData = (u) => ` data-unit="${esc(u.id)}" data-side="${esc(u.side)}"`;
 // 手牌扇形：照搬 _run.js layout()。
 function fanLayout(n, sel, F) {
     const step = n > 1 ? Math.min(F.step, (F.w - F.cw - 6) / (n - 1)) : 0;
-    const x0 = (F.w - (step * (n - 1) + F.cw)) / 2;
+    const x0 = F.w > 700 ? 0 : (F.w - (step * (n - 1) + F.cw)) / 2; // 横屏手牌左对齐、紧贴资源列
     return Array.from({ length: n }, (_, i) => {
         const o = i - (n - 1) / 2, on = i === sel;
         let left = Math.round(x0 + i * step);
@@ -151,7 +153,9 @@ const titleHtml = (name) => {
 export function inkBattleHtml(v, orient) {
     const b = v.battle;
     const land = orient === 'land';
-    const L = RING[orient], F = FAN[orient];
+    const L = ringOf(orient), F = { ...FAN[orient] };
+    if (!land) F.w = Math.min(canvasW('port') - 32, 400);
+    else { const W = Math.min(canvasW('land') - 40, 1360); F.w = Math.round(W - Math.min(380, Math.max(280, W * 0.26)) - 156); }
     const pick = battlePick(v);
     const ended = Boolean(b.outcome);
     const hero = b.allies.find((u) => u.id === b.heroId) || b.allies.find((u) => u.controlled) || null;
@@ -182,13 +186,13 @@ export function inkBattleHtml(v, orient) {
     const traits = (Array.isArray(b.traits) ? b.traits : b.heroSkill ? [{ ...b.heroSkill, kind: 'active', innate: true }] : []).filter((t) => t.kind === 'active').slice(0, 2);
     const skills = traits.map((t, k) => {
         const id = t.skillId ? `hero-skill:${t.skillId}` : 'hero-skill';
-        return `<button type="button" class="sq skill cx-trait${k ? ' is-second' : ''}${v.selected === id ? ' on' : ''}${t.usable ? '' : ' off'}" data-combat-act="hero-skill"${t.skillId ? ` data-combat-id="${esc(t.skillId)}"` : ''} data-trait="${esc(t.id)}"`
-            + `${t.usable ? '' : ' aria-disabled="true"'} aria-label="${esc(`主动特性 ${t.name} 消耗 ${t.cost} 点能量 ${t.text}${t.used ? ' 本回合已使用' : ''}`)}">${ICON.ring}<span>${esc(t.name)} <b>${esc(t.cost)}</b></span></button>`;
+        return `<button type="button" class="sq skill cx-trait${k ? ' is-second' : ''}${v.selected === id ? ' on' : ''}${t.usable ? '' : ' off'}" data-combat-act="hero-skill"${t.skillId ? ` data-combat-id="${esc(t.skillId)}"` : ''} data-trait="${esc(t.id)}" title="${esc(t.name)}"`
+            + `${t.usable ? '' : ' aria-disabled="true"'} aria-label="${esc(`主动特性 ${t.name} 消耗 ${t.cost} 点能量 ${t.text}${t.used ? ' 本回合已使用' : ''}`)}">${SKILL_ICON_SVG}${t.cost > 1 ? `<i class="bd">${esc(t.cost)}</i>` : ''}</button>`;
     }).join('');
     const items = (b.items || []).filter((i) => i.count > 0);
     const total = items.reduce((s, i) => s + i.count, 0);
     const trayOn = Boolean(v.itemsOpen && items.length);
-    const itemBtn = `<button type="button" class="sq items cx-items${items.length ? '' : ' off'}" data-combat-act="items" aria-haspopup="menu" aria-expanded="${trayOn ? 'true' : 'false'}"${items.length ? '' : ' aria-disabled="true"'} aria-label="道具">${ICON.pill}<span>道具 <b>${total}</b></span></button>`;
+    const itemBtn = `<button type="button" class="sq items cx-items${items.length ? '' : ' off'}" data-combat-act="items" aria-haspopup="menu" aria-expanded="${trayOn ? 'true' : 'false'}"${items.length ? '' : ' aria-disabled="true"'} aria-label="道具" title="道具">${ITEM_ICON_SVG}${total > 1 ? `<i class="bd">${total}</i>` : ''}</button>`;
     const aimItem = Boolean(pick.item && pick.picked?.targets?.length);
     const th = pick.item && pick.picked ? (aimItem ? '选择目标，点击敌人生效' : '点选后使用') : '选择道具';
     const tray = `<div class="tray" role="menu" aria-label="道具"><div class="th">${th}</div><div class="tg">${items.map((i) => `<button type="button" role="menuitem" class="ti${i.usable ? '' : ' off'}${v.selected === `item:${i.itemId}` ? ' on' : ''}" data-combat-act="item" data-combat-id="${esc(i.itemId)}"${i.usable ? '' : ' aria-disabled="true"'}`
@@ -197,14 +201,16 @@ export function inkBattleHtml(v, orient) {
         ? `<button type="button" class="end pick" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}><b>${esc(CHOICE_VERB[choice.kind] || '选择')} ${picks.length}/${esc(choice.count)}</b></button>`
         : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}><b>结束</b></button>`;
     const hand = `<div class="hand cx-hand${selIdx >= 0 ? ' has-sel' : ''}" style="--lift:${F.lift}px">${b.hand.map((c, i) => cardHtml(c, i, pos, v, picks, b.energy)).join('')}</div>`;
-    const piles = `<div class="piles"><span>抽牌 <b>${esc(b.piles.draw)}</b> · 弃牌 <b>${esc(b.piles.discard)}</b></span></div>`;
-    const ops = ended ? '' : `${pending}${energy}<i class="swipe"></i>${skills}${itemBtn}${tray}${endBtn}${hand}${piles}`;
+    const pileSt = (k, label, n) => `<div class="pdk ${k}" role="img" aria-label="${label} ${esc(n)}"><small>${label}</small><b>${esc(n)}</b></div>`;
+    const piles = pileSt('draw', '抽牌', b.piles.draw) + pileSt('disc', '弃牌', b.piles.discard);
+    const ops = ended ? '' : `${pending}<div class="oprow">${energy}<div class="tg"><i class="swipe"></i>${skills}${itemBtn}</div>${endBtn}</div>${tray}${hand}${piles}`;
+    const opsLand = ended ? '' : `${pending}<div class="oprow"><div class="pdk-t"><span>抽牌 <b>${esc(b.piles.draw)}</b></span><span>弃牌 <b>${esc(b.piles.discard)}</b></span></div>${endBtn}</div><div class="rescol">${energy}<div class="tg">${skills}${itemBtn}</div></div>${tray}${hand}`;
     const cls = `igs-cx-canvas ${land ? 'land' : 'port'}${traits.length === 2 ? ' two' : traits.length === 0 ? ' solo' : ''}${pick.card || pick.skill ? ' aiming' : ''}${aimItem ? ' aim' : ''}${trayOn ? ' tray-on' : ''}${ended ? ' is-ended' : ''}`;
     return `<div class="igs-cx-wrap"><div id="igs-cx-canvas" class="${cls}" data-cx="ink">`
         + '<div class="stage"></div>'
         + `<section class="foes cx-field" data-turn="${esc(b.turn)}">${foes}</section><i class="floor"></i><i class="seal">战</i>`
         + `${top}${live ? trackHtml(b, v) : ''}`
-        + `<div class="deck">${hero ? leadHtml(hero, v, pick) : ''}<div class="mates">${mates.map((u) => mateHtml(u, v, pick)).join('')}</div>${ops}</div>`
+        + `<div class="deck">${hero ? leadHtml(hero, v, pick) : ''}<div class="mates">${mates.map((u) => mateHtml(u, v, pick)).join('')}</div>${land ? opsLand : ops}</div>`
         + '</div></div>';
 }
 
@@ -278,10 +284,6 @@ ${S} .tl[aria-pressed="true"] svg,${S} .tl[aria-pressed="true"] span{color:var(-
 ${S} .tools.many .tl{width:34px;}
 ${S} .pending{position:absolute;z-index:2;font:12px/1 var(--font-song);color:var(--moon);letter-spacing:.08em;text-shadow:var(--halo);white-space:nowrap;}
 ${S} .pending b{color:var(--gilt);font-weight:700;}
-${C}.port .pending{left:80px;top:48px;} ${C}.land .pending{left:410px;top:4px;}
-${C}.port.two .piles{left:80px;top:48px;} ${C}.port.two .pending{left:80px;top:34px;}
-${C}.port.two .swipe{width:176px;} ${C}.port.two .skill.is-second{left:138px;} ${C}.port.two .items{left:196px;}
-${C}.port.solo .swipe{width:62px;} ${C}.port.solo .items{left:80px;} ${C}.port.solo .piles{left:150px;}
 ${S} .topbar .title.long b{font-size:15px;letter-spacing:.06em;}
 ${C}.port .topbar .title.long,${C}.land .topbar .title.long{height:auto;min-height:124px;padding-bottom:14px;}
 /* 长牌名（五字以上）：竖排窄签与放大牌都缩小字号，放大牌允许折成两行 */
@@ -289,15 +291,62 @@ ${C}.port .card:not(.sel) .name.n5{font-size:11px;line-height:12px;}
 ${C}.land .card:not(.sel) .name.n5{font-size:13px;line-height:15px;}
 ${C} .card.sel .name.n5{font-size:12px;line-height:15px;white-space:normal;right:4px;}
 ${C}.land .card.sel .name.n5{font-size:14px;line-height:17px;}
-/* 横屏操作区（第二轮规则）：能量在手牌左端旁；技能、道具、结束回合、牌堆在手牌右侧同一列；队友紧跟主战者下方、左缘对齐 */
-${C}.land .lead{width:300px;}
-${C}.land .mates{top:124px;gap:18px;}
-${C}.land .energy{left:346px;top:24px;}
-${C}.land .swipe{left:1032px;top:10px;width:128px;} ${C}.land .skill{left:1038px;top:20px;} ${C}.land .items{left:1098px;top:20px;}
-${C}.land .end{left:1040px;right:auto;top:96px;} ${C}.land .piles{left:1040px;top:172px;}
-${C}.land.two .swipe{width:172px;} ${C}.land.two .skill.is-second{left:1090px;} ${C}.land.two .items{left:1142px;}
-${C}.land.solo .swipe{width:70px;} ${C}.land.solo .items{left:1038px;}
-${C}.land .pending{left:410px;top:4px;}
+/* 统一布局（11-02）：手牌上沿一行 技能→道具→空白→结束回合；能量在行的左上；抽牌堆在手牌左侧、弃牌堆在右侧（底边对齐手牌）。
+   横屏：版心 W 居中，信息组左缘贴版心左缘，手牌右缘贴版心右缘；竖屏：手牌 + 两侧牌堆整组居中，底栏主战者与队友同一行居中成组 */
+${C}.land{--W:min(calc(var(--cx-w) - 48px),1120px);--L:calc((var(--cx-w) - var(--W)) / 2);--hw:600px;--hl:calc(var(--L) + var(--W) - var(--hw));--rl:var(--hl);--rw:var(--hw);--rt:-46px;--rh:60px;}
+${C}.port{--hw:min(calc(var(--cx-w) - 32px),400px);--hl:calc((var(--cx-w) - var(--hw)) / 2);--rl:var(--hl);--rw:var(--hw);--rt:-8px;--rh:56px;--gb:calc((var(--cx-w) - min(calc(var(--cx-w) - 32px),440px)) / 2);}
+${C}.land .lead{width:300px;left:var(--L);}
+${C}.land .mates{top:124px;gap:18px;left:var(--L);}
+${C}.port .lead{top:216px;left:var(--gb);width:calc(min(calc(var(--cx-w) - 32px),440px) - 142px);} ${C}.port .mates{right:var(--gb);left:auto;top:212px;width:130px;} ${C}.port .mate{width:130px;} ${C}.port .mate .hpbar{width:100%;}
+${C} .hand{left:var(--hl);width:var(--hw);}
+${C} .oprow{position:absolute;left:var(--rl);width:var(--rw);top:var(--rt);height:var(--rh);display:flex;align-items:center;gap:12px;z-index:5;}
+${C} .tg{position:relative;display:flex;align-items:center;gap:12px;margin:0 6px;}
+${C} .oprow .energy{position:static;transform:none;align-items:flex-start;flex:none;filter:drop-shadow(0 2px 6px #0a0e10) drop-shadow(0 0 1px #0a0e10);}
+${C}.port .oprow .energy{order:2;margin-left:auto;} ${C}.port .oprow .tg{order:1;} ${C}.port .oprow .end{order:3;margin-left:0;}
+${C}.port .oprow .energy .v{font-size:34px;} ${C}.port .oprow .energy small{font-size:18px;}
+${C} .tg .swipe{display:none;}
+${C} .tg .sq{width:44px;height:44px;min-width:44px;padding:0;} ${C} .tg .sq svg{width:22px;height:22px;} ${C} .tg .sq .bd{position:absolute;right:2px;top:2px;width:auto;height:auto;min-width:0;background:none;color:var(--gilt);font:700 12px/1 var(--font-song);}
+/* 技能、道具各自一块墨迹底（尺寸统一，底间距约 10px） */
+${C} .tg .sq::after{content:"";position:absolute;inset:-6px -6px;z-index:-1;pointer-events:none;background:#0a0f11;-webkit-mask:var(--dryw) center/100% 100% no-repeat;mask:var(--dryw) center/100% 100% no-repeat;}
+${C} .tg .sq{position:relative;z-index:1;left:auto;top:auto;}
+/* 第二轮（11-02）竖屏：技能、道具按钮放大，整行贴边 22px，技能道具靠左、结束回合靠右（横屏不动） */
+${C}.port .oprow{left:22px;width:calc(var(--cx-w) - 44px);}
+${C}.port .tg .sq{width:52px;height:52px;min-width:52px;} ${C}.port .tg .sq svg{width:26px;height:26px;}
+${C} .oprow .end{position:relative;left:auto;right:auto;top:auto;margin-left:auto;flex:none;}
+${C}.land .tray{left:var(--hl);right:auto;bottom:294px;} ${C}.port .tray{left:var(--rl);right:auto;width:var(--rw);bottom:312px;}
+${C}.land .pending{left:var(--hl);top:-70px;} ${C}.port .pending{left:calc(var(--rl) + 90px);top:-26px;}
+${C}.port .pdk{top:194px;bottom:auto;width:auto;flex-direction:row;align-items:baseline;gap:4px;} ${C}.port .pdk.draw{left:var(--hl);} ${C}.port .pdk.disc{left:auto;right:calc(var(--cx-w) - var(--hl) - var(--hw));}
+${C}.port .pdk :is(small,b){font-size:12px;}
+${C} .pdk small{font:12px/1 var(--font-song);color:var(--dim);} ${C} .pdk b{font:700 18px/1 var(--font-song);color:var(--moon);}
+${C} .pdk{position:absolute;display:flex;align-items:center;gap:8px;font:700 16px/1 var(--font-song);color:var(--moon);}
+/* 横屏底部横条（A3 扁宽饱满）：版心 W 居中；信息组 → 资源列（点数 + 技能道具）→ 手牌，组间距 16px；手牌上沿一行：左抽牌弃牌文字、右结束回合 */
+${C}.land{--W:min(calc(var(--cx-w) - 40px),1360px);--L:calc((var(--cx-w) - var(--W)) / 2);--iw:clamp(280px,calc(var(--W) * .26),380px);--hw:calc(var(--W) - var(--iw) - 156px);--hl:calc(var(--L) + var(--iw) + 156px);--rl:var(--hl);--rw:var(--hw);--rt:-10px;--rh:60px;}
+${C}.land .lead{left:var(--L);top:62px;width:var(--iw);gap:16px;}
+${C}.land .lead .face{width:72px;height:72px;font-size:28px;}
+${C}.land .lead .n{font-size:16px;} ${C}.land .lead .hpbar{height:9px;}
+${C}.land .mates{left:var(--L);top:150px;width:var(--iw);gap:10px;}
+${C}.land .mate{width:96px;} ${C}.land .mate .mface{width:34px;height:34px;font-size:16px;} ${C}.land .mate .mn{font-size:14px;}
+${C}.land .hand{top:58px;height:170px;}
+${C}.land .card{width:108px;height:161px;} ${C}.land .card.sel{width:138px;height:205px;}
+${C}.land .card .val b{font-size:31px;} ${C}.land .card:not(.sel) .name,${C}.land .card:not(.sel) .name.n4{font-size:17px;line-height:19px;left:46px;}
+${C}.land .card.sel .name,${C}.land .card.sel .name.n4{font-size:19px;line-height:22px;left:54px;} ${C}.land .card.sel .art{top:54px;width:48px;height:48px;margin-left:-24px;} ${C}.land .card.sel .val b{font-size:34px;} ${C}.land .card.sel .fx{top:104px;font-size:12px;}
+${C}.land .rescol{position:absolute;left:calc(var(--L) + var(--iw) + 16px);top:58px;width:124px;height:170px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;z-index:5;}
+${C}.land .rescol .energy{position:static;transform:none;align-items:center;flex:none;filter:drop-shadow(0 2px 6px #0a0e10) drop-shadow(0 0 1px #0a0e10);} ${C}.land .rescol .energy .v{font-size:32px;}
+${C}.land .rescol .tg{margin:0;} ${C} .tg .sq::after{inset:-3px;}
+${C}.land .pdk-t{display:flex;gap:16px;align-items:baseline;font:12px/1 var(--font-song);color:var(--dim);} ${C}.land .pdk-t b{font:700 18px/1 var(--font-song);color:var(--moon);}
+${C}.land .tray{left:var(--hl);right:auto;bottom:252px;} ${C}.land .pending{left:calc(var(--hl) + 170px);top:14px;}
+/* 横屏最小字号 12px */
+${C}.land :is(.foe .plate .tier,.sc,.tl span,.chips,.mate .mn,.card .fx,.sq span,.ti i,.card .ut,.cost s){font-size:12px;}
+${C}.land .sq .bd,${C}.land .card .bd{font-size:12px;min-width:16px;height:16px;line-height:16px;}
+/* 行动点数：固定尺寸块 100×44，数字与「/上限」同基线，点珠在数字正下方居中 */
+${C} .oprow .energy,${C}.land .rescol .energy{width:100px;height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
+${C} .energy .v{display:flex;align-items:baseline;justify-content:center;font-size:28px;line-height:28px;} ${C} .energy .v small{font-size:14px;} ${C} .energy .pips{justify-content:center;}
+${C}.land .rescol .energy .v,${C}.port .oprow .energy .v{font-size:28px;} ${C}.port .oprow .energy small{font-size:14px;}
+/* 技能可发动：流光（一道细光沿圆圈环绕，约 2.4s 一圈，只动 transform；不可发动不显示；减少动态效果 / 低画质改静态细光边） */
+${S} .sq.skill:not(.off)::before{content:"";position:absolute;left:50%;top:50%;width:54px;height:54px;border-radius:50%;pointer-events:none;background:conic-gradient(from 0deg,transparent 0 68%,var(--gilt) 100%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 1.5px),#000 calc(100% - 1.5px));mask:radial-gradient(farthest-side,transparent calc(100% - 1.5px),#000 calc(100% - 1.5px));transform:translate(-50%,-50%);animation:cx-ink-flow 2.4s linear infinite;}
+@keyframes cx-ink-flow{to{transform:translate(-50%,-50%) rotate(360deg);}}
+#igs-overlay[data-igs-quality="low"] ${S} .sq.skill:not(.off)::before,#igs-overlay [data-igs-combat-reduced] ${S} .sq.skill:not(.off)::before{animation:none;background:var(--gilt);opacity:.45;}
+@media (prefers-reduced-motion:reduce){${S} .sq.skill:not(.off)::before{animation:none;background:var(--gilt);opacity:.45;}}
 /* 第三轮：敌人尺寸（竖屏缩小露出后排、横屏放大放低）与矮身形抬高 */
 ${C}.port .foes{--base:300px;} ${C}.land .foes{--base:130px;}
 /* 与漫画统一的头顶位置：意图签顶边、血条中线按画布坐标对齐（竖屏 73 / 117，横屏 35 / 79） */

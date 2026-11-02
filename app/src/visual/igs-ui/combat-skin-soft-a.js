@@ -3,7 +3,7 @@
 import { esc } from './reader-value-utils.js';
 import { intentIconSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
-import { battlePick, needsHold, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { COMBAT_SKIN_SOFT_A_CONCEPT_CSS } from './combat-skin-soft-a-concept-style.js';
 
@@ -19,7 +19,7 @@ const cardTextHtml = (c) => (Array.isArray(c.textParts) ? c.textParts.map(partHt
 const RING = { port: { rx: 150, w: 330, lift: 90, back: 0.5, dim: 0.6 }, land: { rx: 430, w: 390, lift: 90, back: 0.55, dim: 0.5 } };
 const FAN = {
     port: { cw: 58, ch: 104, sw: 136, sh: 198, step: 44, gap: 10, dy: 0, arc: 1.2, rot: 1.1, w: 390, h: 176 },
-    land: { cw: 70, ch: 112, sw: 160, sh: 214, step: 70, gap: 8, dy: 0, arc: 1.2, rot: 2, w: 520, h: 220 },
+    land: { cw: 78, ch: 125, sw: 160, sh: 214, step: 80, gap: 8, lead: 6, dy: 0, arc: 1.2, rot: 2, w: 520, h: 210 },
 };
 
 const P = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
@@ -59,7 +59,7 @@ const unitData = (u) => ` data-unit="${esc(u.id)}" data-side="${esc(u.side)}"`;
 // 手牌：照搬 common.js layout()。收起是窄签沿弧排开，选中放大并抬起。
 function handLayout(n, selIdx, F) {
     const step = n > 1 ? Math.min(F.step, (F.w - F.cw - 4) / (n - 1)) : 0;
-    const x0 = (F.w - (step * (n - 1) + F.cw)) / 2;
+    const x0 = F.lead !== undefined ? F.lead : (F.w - (step * (n - 1) + F.cw)) / 2;
     return Array.from({ length: n }, (_, i) => {
         const o = i - (n - 1) / 2, sel = i === selIdx;
         const cx = x0 + i * step + F.cw / 2;
@@ -140,7 +140,9 @@ const textBtn = (act, label, extra = '') => `<button type="button" class="ic ret
 export function softBattleHtml(v, orient, key) {
     const b = v.battle;
     const land = orient === 'land';
-    const F = FAN[orient], L = RING[orient];
+    // 竖屏手牌区宽 = 画布逻辑宽（贴左右边）；横屏手牌区固定 520 居中偏右
+    const landW = (() => { const W = Math.min(canvasW('land') - 40, 1360); return W - Math.min(380, Math.max(280, W * 0.26)) - 288; })();
+    const F = orient === 'land' ? { ...FAN.land, w: landW } : { ...FAN.port, w: Math.min(canvasW('port') - 32, 400) }, L = RING[orient];
     const pick = battlePick(v);
     const ended = Boolean(b.outcome);
     const hero = b.allies.find((u) => u.id === b.heroId) || b.allies.find((u) => u.controlled) || null;
@@ -155,7 +157,7 @@ export function softBattleHtml(v, orient, key) {
     const live = !ended && v.status === 'battle';
     const retreat = live && b.canEscape ? `<button type="button" class="ic retreat" data-combat-act="escape" title="撤退" aria-label="撤退">${ICON.exit}</button>` : '';
     const speed = (v.status === 'battle' || v.settling) ? `<button type="button" class="ic spd" data-combat-act="speed" aria-pressed="${(v.fxSpeed || 1) > 1 ? 'true' : 'false'}" aria-label="演出二倍速">×2</button>` : '';
-    const top = `<div class="topbar"><span class="title"><b>${esc(v.encounter || '战斗')}</b></span>${live ? `<span class="round">第 ${esc(b.turn)} 回合</span>` : ''}`
+    const top = `<div class="topbar"><span class="title" title="${esc(v.encounter || '战斗')}"><b>${esc(v.encounter || '战斗')}</b></span>${live ? `<span class="round">第 ${esc(b.turn)} 回合</span>` : ''}`
         + `<span class="sp"></span>${speed}${retreat}<button type="button" class="ic" data-combat-act="close" aria-label="关闭">${ICON.close}</button></div>`;
     const sel = pick.item ? pick.picked : null;
     const pendingText = choice ? `选择${esc(CHOICE_VERB[choice.kind] || '')} <b>${picks.length}</b>/${esc(choice.count)}`
@@ -168,19 +170,20 @@ export function softBattleHtml(v, orient, key) {
     const skills = traits.map((t, k) => {
         const id = t.skillId ? `hero-skill:${t.skillId}` : 'hero-skill';
         return `<button type="button" class="skill cx-trait${k ? ' is-second' : traits.length > 1 ? ' is-lead2' : ''}${v.selected === id ? ' on' : ''}${t.usable ? '' : ' off'}" data-combat-act="hero-skill"${t.skillId ? ` data-combat-id="${esc(t.skillId)}"` : ''} data-trait="${esc(t.id)}"`
-            + `${t.usable ? '' : ' aria-disabled="true"'} title="${esc(t.name)}" aria-label="${esc(`主动特性 ${t.name} 消耗 ${t.cost} 点能量 ${t.text}${t.used ? ' 本回合已使用' : ''}`)}">${ICON.spark}<em class="cnt">${esc(t.cost)}</em></button>`;
+            + `${t.usable ? '' : ' aria-disabled="true"'} title="${esc(t.name)}" aria-label="${esc(`主动特性 ${t.name} 消耗 ${t.cost} 点能量 ${t.text}${t.used ? ' 本回合已使用' : ''}`)}">${SKILL_ICON_SVG}${Number(t.cost) > 1 ? `<em class="cnt">${esc(t.cost)}</em>` : ''}</button>`;
     }).join('');
     const items = (b.items || []).filter((i) => i.count > 0);
     const total = items.reduce((s, i) => s + i.count, 0);
     const open = Boolean(v.itemsOpen && items.length);
-    const itemBtn = `<button type="button" class="items${traits.length > 1 ? ' is-shift' : ''}${items.length ? '' : ' off'}" data-combat-act="items" aria-haspopup="menu" aria-expanded="${open ? 'true' : 'false'}"${items.length ? '' : ' aria-disabled="true"'} title="道具" aria-label="道具">${ICON.flask}${total ? `<em class="cnt">×${total}</em>` : ''}</button>`;
+    const itemBtn = `<button type="button" class="items${traits.length > 1 ? ' is-shift' : ''}${items.length ? '' : ' off'}" data-combat-act="items" aria-haspopup="menu" aria-expanded="${open ? 'true' : 'false'}"${items.length ? '' : ' aria-disabled="true"'} title="道具" aria-label="${esc(`道具 剩余 ${total} 个`)}">${ITEM_ICON_SVG}${total > 1 ? `<em class="cnt">${esc(total)}</em>` : ''}</button>`;
     const tray = `<div class="tray" role="menu" aria-label="道具"><div class="th">道具<em>选择道具，需目标的再点敌人</em></div><div class="tcells">${items.map((i) => `<button type="button" role="menuitem" class="tcell${i.usable ? '' : ' off'}${v.selected === `item:${i.itemId}` ? ' pick' : ''}" data-combat-act="item" data-combat-id="${esc(i.itemId)}"${i.usable ? '' : ' aria-disabled="true"'}`
         + ` aria-label="${esc(`道具 ${i.name} 剩余 ${i.count} 个 ${i.text}，不消耗能量，每回合一次`)}" title="${esc(`${i.name} ×${i.count}：${i.text}`)}">${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" decoding="async">` : ICON.flask}<b>${esc(i.name)}</b><em>×${esc(i.count)}</em>${i.targets?.length ? '<i class="tg"></i>' : ''}</button>`).join('')}</div></div>`;
     const endBtn = choice
         ? `<button type="button" class="end" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}><b>${esc(CHOICE_VERB[choice.kind] || '选择')} ${picks.length}/${esc(choice.count)}</b></button>`
         : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}><b>结束回合</b></button>`;
     const hand = `<div class="hand cx-hand">${b.hand.map((c, i) => cardHtml(c, pos[i], v, picks, b.energy)).join('')}</div>`;
-    const piles = `<div class="piles">抽牌 <b>${esc(b.piles.draw)}</b> · 弃牌 <b>${esc(b.piles.discard)}</b></div>`;
+    const pileBox = (cls, n, label) => `<div class="pile ${cls}" role="img" aria-label="${label} ${esc(n)}" title="${label}"><span>${label}</span><b>${esc(n)}</b></div>`;
+    const piles = pileBox('pile-d', b.piles.draw, '抽牌') + pileBox('pile-x', b.piles.discard, '弃牌') + `<div class="piles">抽牌 <b>${esc(b.piles.draw)}</b> · 弃牌 <b>${esc(b.piles.discard)}</b></div>`;
     const party = `<div class="party">${hero ? leadHtml(hero, v, pick) : ''}<div class="mates">${mates.map((u) => mateHtml(u, v, pick)).join('')}</div></div>`;
     const deck = ended ? `<div class="deck">${party}</div>` : `<div class="deck">${party}${hand}${piles}${energy}${skills}${itemBtn}${tray}${endBtn}${pending}</div>`;
     const cls = `igs-cx-canvas ${land ? 'land' : 'port'}${pick.card || pick.skill ? ' aiming' : ''}${pick.item && pick.picked ? ' item-aim' : ''}${open ? ' tray-on' : ''}${ended ? ' is-ended' : ''}`;
@@ -190,18 +193,23 @@ export function softBattleHtml(v, orient, key) {
         + '</div></div>';
 }
 
+const stamps = (S, rules) => Object.entries(rules).map(([t, c]) => `${S} .card.t-${t}{${c}}`).join(' ');
+const SOFT_A_STAMP = { atk: '--pale:#f1a0ad;', def: '--pale:#92b5e0;', skl: '--pale:#82c8a9;', pow: '--pale:#b29de0;' };
+// 绘本：卡面花形印章全换蓝系（攻击靛蓝、防御雾蓝、技能杏、能力淡紫），与野餐的粉绿区分
+const SOFT_C_STAMP = { atk: '--tc2:#6f95c8;--pale:#a9c3e6;', def: '--tc2:#92bdd6;--pale:#d3e6f1;', skl: '--tc2:#e3b48a;--pale:#f6dcc0;', pow: '--tc2:#b29de0;--pale:#d9cdf2;' };
+const stampCss = (S, key) => stamps(S, key === 'soft-c' ? SOFT_C_STAMP : SOFT_A_STAMP);
 // 接线样式：画布缩放居中、真实立绘与头像、目标 / 出手 / 拖动等交互状态；设计稿没有的状态沿用设计稿已有的色。两套共用，按皮肤键生成。
 function softTail(key) {
     const S = `#igs-overlay :where(.igs-cx-canvas[data-cx="${key}"],.igs-cx-ghost[data-cx="${key}"])`;
     const C = `#igs-overlay #igs-cx-canvas:where([data-cx="${key}"])`;
     const a = key === 'soft-a';
-    const END_BASE = a ? 'background:var(--cream);color:var(--txt);box-shadow:0 3px 0 var(--cream-2);' : 'background:var(--surf);color:var(--cream);box-shadow:0 0 0 2px #4a454d;';
-    const END_FILL = a ? 'var(--pink)' : '#74505c';
-    const COST_BG = a ? 'var(--ink)' : '#4a454d', COST_FG = 'var(--cream)';
-    const UNC = a ? '#b4a9b0' : '#8a808a', RARE = a ? '#e5586d' : '#f08a9a';
-    const TOP = a ? '#fbdde1' : '#4f4655';
-    const RARE_COST = a ? '#f2a1ac' : '#f08a9a', RARE_FG = '#1d1b1e';
-    const DUP2 = a ? '#d2c7b6' : '#5d5763';
+    const END_BASE = a ? 'background:var(--cream);color:var(--txt);box-shadow:0 3px 0 var(--cream-2);' : 'background:var(--surf);color:var(--cream);box-shadow:0 0 0 2px #3d4452;';
+    const END_FILL = a ? 'var(--pink)' : '#4f74a8';
+    const COST_BG = a ? 'var(--ink)' : '#3d4452', COST_FG = 'var(--cream)';
+    const UNC = a ? '#b4a9b0' : '#7d8696', RARE = a ? '#e5586d' : '#8fb0d8';
+    const TOP = a ? '#fbdde1' : '#3d4a60';
+    const RARE_COST = a ? '#f2a1ac' : '#8fb0d8', RARE_FG = '#1d1b1e';
+    const DUP2 = a ? '#d2c7b6' : '#46506a';
     const INTENT = a ? 'box-shadow:none;' : '';
     return `
 ${S} .foe .row2 .hpv{flex:none;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;}
@@ -210,7 +218,7 @@ ${S} .foe .art{transform:translateY(calc(var(--atop,0) * var(--w) * -0.95)) scal
 /* 敌人意图签：平的实色胶囊，不垫底部投影 */
 ${S} .foes .foe .intent{${INTENT}}
 /* 结束回合：和本套关卡名胶囊同一语言的圆角胶囊；按住时按 --hold 从左填色 */
-${C}.port .end{left:312px;top:562px;width:72px;height:44px;} ${C}.land .end{left:1148px;top:606px;width:112px;height:44px;}
+${C}.port .end{left:auto;right:var(--HL);top:491px;width:72px;height:44px;} ${C}.land .end{left:auto;right:var(--L);top:474px;width:112px;height:44px;}
 ${S} .end{border-radius:999px;overflow:hidden;${END_BASE}}
 ${S} .end::before{content:"";position:absolute;inset:0;width:auto;height:auto;margin:0;border-radius:inherit;background:${END_FILL};transform:scaleX(var(--hold,0));transform-origin:0 50%;}
 ${S} .end b{position:relative;z-index:1;font-size:14px;line-height:1;white-space:nowrap;letter-spacing:.04em;}
@@ -234,6 +242,7 @@ ${S} .card .val .fl{fill:#fff8f0;stroke:none;} ${S} .card .val .ln{fill:none;str
 }
 
 export function softWiringCss(key) {
+    const GLOW_A = key === 'soft-c' ? '#8fb0d8' : '#f2a1ac', GLOW_B = key === 'soft-c' ? '#dce8f7' : '#ffd9de', SKILL_BG = key === 'soft-c' ? 'var(--surf)' : 'var(--ink)';
     const S = `#igs-overlay :where(.igs-cx-canvas[data-cx="${key}"],.igs-cx-ghost[data-cx="${key}"])`;
     const C = `#igs-overlay #igs-cx-canvas:where([data-cx="${key}"])`;
     return `
@@ -249,20 +258,42 @@ ${S} .who{background:var(--cream);}
 ${S} .lead .face{display:grid;place-items:center;background:var(--mint);color:#1d1b1e;font-weight:700;font-size:18px;cursor:pointer;}
 ${S} .lead .face .aw{z-index:2;cursor:pointer;}
 ${S} .mface{display:grid;place-items:center;position:relative;overflow:hidden;background:var(--mint);color:#1d1b1e;font-weight:700;}
-${S} .mate{cursor:pointer;} ${C}.port .mate{flex:0 0 60px;min-width:0;} ${C}.land .mate{flex:0 0 88px;min-width:0;}
+${S} .mate{cursor:pointer;} ${C}.port .mate{flex:0 0 auto;min-width:0;} ${C}.land .mate{flex:1 1 0;min-width:0;}
 ${S} .foe .art .cx-art-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:50% 100%;filter:drop-shadow(0 8px 14px #121012);}
 ${S} .hpbar.cx-hp>i{width:var(--igs-combat-hp,0%);transition:width .3s;}
 ${S} .foe .intent svg{fill:none;}
 ${S} .topbar .ic{border:0;cursor:pointer;} ${S} .topbar .spd[aria-pressed="true"]{color:var(--butter);}
 ${S} .track .who{flex:none;}
-${S} .skill.off,${S} .items.off{opacity:.45;} ${S} .skill.on,${S} .items[aria-expanded="true"]{outline:2px solid var(--tray-ac);outline-offset:2px;}
-${C}.port .skill.is-second{left:126px;} ${C}.port .items.is-shift{left:168px;}
-${C}.land .skill{left:1044px;top:606px;} ${C}.land .skill.is-lead2{left:992px;} ${C}.land .skill.is-second{left:1044px;} ${C}.land .items,${C}.land .items.is-shift{left:1096px;top:606px;}
-${C}.land .piles{left:auto;right:20px;top:660px;text-align:right;}
-${C}.land .hand{left:460px;width:520px;}
-${C}.land .energy{left:378px;top:600px;width:70px;height:56px;}
+${S} .skill.off,${S} .items.off{opacity:.45;}
+/* 技能可发动：一道细光沿按钮边缘环绕（旋转的锥形渐变在底层，按钮底色盖住内部只露细边；只动 transform），不可发动不显示；减少动态效果时改静态细光边 */
+${S} .skill:not(.off){overflow:hidden;}
+${S} .skill:not(.off)>*{position:relative;z-index:2;}
+${S} .skill:not(.off)::before{content:"";position:absolute;inset:-50%;z-index:0;pointer-events:none;background:conic-gradient(transparent 0 60%,${GLOW_A} 84%,${GLOW_B} 100%);animation:cx-soft-flow 2.4s linear infinite;will-change:transform;}
+${S} .skill:not(.off)::after{content:"";position:absolute;inset:1.5px;z-index:1;pointer-events:none;border-radius:14.5px;background:${SKILL_BG};}
+@keyframes cx-soft-flow{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){${S} .skill:not(.off)::before{animation:none;inset:0;background:${GLOW_A};}} ${S} .skill.on,${S} .items[aria-expanded="true"]{outline:2px solid var(--tray-ac);outline-offset:2px;}
+${C}.port .skill,${C}.port .skill.is-lead2{left:20px;} ${C}.port .skill.is-second{left:76px;} ${C}.port .items{left:76px;} ${C}.port .items.is-shift{left:132px;} ${C}.port .end{right:20px;} ${C}.port .energy{right:calc(20px + 84px);}
+/* 横屏统一布局：手牌上沿一行 能量（无底框）→ 技能 → 道具 → 结束回合；位置取版心变量 --R / --L */
+${C}.land .skill,${C}.land .skill.is-lead2{left:calc(var(--RX) - 8px);top:630px;} ${C}.land .skill.is-second{left:calc(var(--RX) + 48px);top:630px;} ${C}.land .items{left:calc(var(--RX) + 48px);top:630px;} ${C}.land .items.is-shift{left:calc(var(--RX) + 104px);top:630px;}
+${C}.land .hand{left:var(--HX);top:470px;width:var(--HWD);height:210px;}
+${C}.port .energy{background:none;box-shadow:none;}
+${S} .energy{filter:drop-shadow(0 2px 6px #121212) drop-shadow(0 0 1px #121212);} ${S} .skill .cx-skill-ico{stroke-width:1.4;}
+/* 技能与道具：各自完整的 44 宽按钮，间距 12px；图标 20px，次数小字 12px */
+${S} :is(.skill,.items){width:44px;height:44px;} ${S} :is(.skill,.items) svg{width:22px;height:22px;}
+${S} :is(.skill,.items) .cnt{position:absolute;right:3px;top:2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;display:grid;place-items:center;font-size:12px;line-height:1;background:var(--pink);color:#1c1d21;}
+${S} .energy .v{display:flex;align-items:baseline;justify-content:center;} ${S} .energy .pips{justify-content:center;}
+${C}.land .energy{left:calc(var(--RX) - 8px);top:552px;width:100px;height:60px;background:none;box-shadow:none;} ${C}.land .energy .v{font-size:42px;line-height:1;} ${C}.land .energy .v small{font-size:22px;} ${C}.land .energy .pips{margin-top:4px;}
+/* 横屏底部：状态栏去底板，头像白圈 + 柔影，文字加阴影；手牌整体放大约 15%（选中牌保持原放大） */
+${C}.land .party{background:none;box-shadow:none;outline:none;color:var(--cream);text-shadow:0 1px 3px #121212,0 0 6px #121212;}
+${C}.land .lead .n .hp,${C}.land .mate .mn{color:var(--cream);} ${C}.land .lead .n .hp b{color:#fff;}
+${C}.land .lead .face,${C}.land .mate .mface{box-shadow:0 0 0 2px #fff,0 3px 10px rgba(18,18,18,.55);}
+${C}.land .hpbar{box-shadow:0 0 0 1px #121212;} ${C}.land :is(.face,.mface){text-shadow:none;}
+${C}.land .card:not(.sel){scale:1.15;}
+${S} .pile{display:none;} ${C}.land .pile,${C}.port .pile{display:flex;} ${C}.land .piles,${C}.port .piles{display:none;}
+${S} .pile{color:var(--cream);} ${C}.land .pile{top:482px;}
 /* 头顶信息贴顶栏、立绘放大上移（竖横屏） */
 ${C}.port{--foe-b:96px;--hpw:170px;} ${C}.land{--foe-b:130px;}
+${C}.land :is(.chip,.fchip,.intent em,.skill .cnt,.items .cnt,.badge,.kw,.face .aw,.tray .th em,.tcell em,.tcell b,.who,.pending span,.tipbox){font-size:12px;}
 /* 与漫画统一的头顶位置：信息条按立绘上沿定位（意图签顶边：竖屏 73 / 横屏 35；血条中线 117 / 79），去掉血条外的胶囊外框 */
 ${C} .foe .plate{bottom:auto;top:-42px;} ${C}.land .foe .plate{top:-48px;}
 ${C} .foe .intent{margin-bottom:1px;}
@@ -271,7 +302,7 @@ ${C} .foe .row2{height:auto;min-height:26px;padding-top:0;padding-bottom:0;align
 ${C}.land .track{left:20px;top:70px;flex-direction:column;} ${C}.port .track{left:8px;flex-direction:column;}
 /* 卡面：花朵在邮票区正中，碎花底纹减弱 */
 ${C}.port .card:not(.sel) .val{top:20px;} ${C}.land .card:not(.sel) .val{top:21px;}
-${S} .card.t-atk{--pale:#f1a0ad;} ${S} .card.t-def{--pale:#92b5e0;} ${S} .card.t-skl{--pale:#82c8a9;} ${S} .card.t-pow{--pale:#b29de0;}
+${stampCss(S, key)}
 ${S} .card .win::before{-webkit-mask-size:22px 22px;mask-size:22px 22px;}
 ${softTail(key)}
 ${S} .tcell img{width:20px;height:20px;object-fit:contain;}
@@ -282,13 +313,13 @@ ${S} .card.picked{box-shadow:0 0 0 3px var(--pink),0 12px 22px rgba(18,16,18,.6)
 ${S} .card.is-lifted{opacity:.35;}
 ${S} .pending{pointer-events:none;} ${S} .pending span{display:inline-block;padding:4px 12px;border-radius:999px;background:var(--surf);color:var(--cream);font-size:12px;font-weight:700;white-space:nowrap;}
 ${S} .pending b{color:var(--butter);}
-${C}.port .pending{left:126px;top:522px;} ${C}.land .pending{left:340px;top:436px;}
+${C}.port .pending{left:calc(var(--HL) + 100px);top:502px;} ${C}.land .pending{left:var(--HX);top:462px;}
 /* 选目标：可选的敌人（不止正前方）都提亮并在立绘上发光（不再给血条加外框） */
 ${C}.aiming .foe.is-targetable .art,${C}.item-aim .foe.is-targetable .art{filter:brightness(1.1) drop-shadow(0 0 14px var(--aim));}
 ${C}.pick-tg .foe.front .row2,${C}.aiming .foe.is-targetable .row2,${C}.item-aim .foe.is-targetable .row2{outline:none;}
 ${C}.pick-tg .foe.front .art{filter:brightness(1.1) drop-shadow(0 0 14px var(--aim));}
 ${S} .foe.is-drop-hover .art{filter:brightness(1.3) drop-shadow(0 0 18px rgba(229,88,109,.7));}
-${S} :is(.lead,.mate).is-targetable :is(.face,.mface){box-shadow:0 0 0 3px var(--green),0 0 14px 4px rgba(111,224,180,.6);}
+${S} :is(.lead,.mate).is-targetable :is(.face,.mface){box-shadow:0 0 0 3px var(--green),0 0 14px 4px ${key === 'soft-c' ? 'rgba(143,176,216,.6)' : 'rgba(111,224,180,.6)'};}
 ${S} :is(.lead,.mate).is-drop-hover :is(.face,.mface){box-shadow:0 0 0 3px var(--cream),0 0 18px 6px rgba(111,224,180,.8);}
 ${S} .foe.is-acting .art{filter:brightness(1.15) drop-shadow(0 0 16px rgba(229,88,109,.65));}
 ${S} :is(.lead,.mate).is-acting :is(.face,.mface){box-shadow:0 0 0 3px var(--butter),0 0 16px 5px rgba(247,220,154,.55);}

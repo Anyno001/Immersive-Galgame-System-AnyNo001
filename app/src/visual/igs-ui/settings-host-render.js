@@ -235,7 +235,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + field(COMBAT_PRESET_PATH, '预设', segmentedInput(COMBAT_PRESET_PATH, cx.kind === 'daily' ? COMBAT_PRESET_DAILY_ONLY : '', [[COMBAT_PRESET_DAILY_ONLY, '仅日常挑战']], '预设'))
                     + field(`${p}.difficulty`, '难度', selectInput(`${p}.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
                     + field(`${p}.reportDetail`, '战报详略', segmentedInput(`${p}.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略'))
-                    + field(`${p}.skin`, '面板皮肤', segmentedInput(`${p}.skin`, cx.skin, COMBAT_PANEL_SKINS.map((k) => [k, COMBAT_PANEL_SKIN_LABELS[k]]), '面板皮肤')),
+                    + field(`${p}.skin`, '面板皮肤', selectInput(`${p}.skin`, cx.skin, COMBAT_PANEL_SKINS.map((k) => [k, COMBAT_PANEL_SKIN_LABELS[k]]))),
             };
         });
 
@@ -1255,6 +1255,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
 
     return { buildSettingsSnapshot, renderSettingsBody, renderPageForIndex, renderImageJobLogList, buildRegexPreview, settingsLowQuality };
 }
+
 
 function renderVoiceRowConfig(reader, sceneAssets) {
     const tts = normalizeTtsSettings(reader.tts);

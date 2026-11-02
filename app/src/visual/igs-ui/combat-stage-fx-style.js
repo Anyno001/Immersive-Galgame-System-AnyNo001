@@ -13,7 +13,7 @@ export const COMBAT_STAGE_FX_BASE_CSS = `
 #igs-overlay .igs-sfx .clash .fig.mate { left: -30px; top: 30px; width: 300px; height: 454px; background-image: none;
   filter: brightness(.55) saturate(.8); z-index: 1; }
 #igs-overlay .igs-sfx .clash .fig.foe1 { right: -40px; top: 40px; width: 330px; height: 430px; z-index: 2; }
-#igs-overlay .igs-sfx .clash .fig.foe2 { right: 120px; top: 300px; width: 220px; height: 290px; filter: brightness(.55); z-index: 1; }
+#igs-overlay .igs-sfx .clash .fig.foe2 { right: calc(50% - 75px); top: 300px; width: 220px; height: 290px; filter: brightness(.55); z-index: 1; }
 #igs-overlay .igs-sfx .clash svg.fxsvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 #igs-overlay .igs-sfx .clash .seam { z-index: 3; clip-path: circle(0 at var(--ix) var(--iy)); animation: sfxb-ignite calc(240ms * var(--k)) ease-out calc(var(--hit) * var(--k)) forwards; }
 #igs-overlay .igs-sfx .clash .seam polyline { fill: none; stroke-linejoin: miter; stroke-linecap: square; }
@@ -39,9 +39,9 @@ export const COMBAT_STAGE_FX_BASE_CSS = `
   -webkit-text-stroke: calc(8px * var(--tstroke)) var(--edge); paint-order: stroke fill; animation: sfxb-slam calc(360ms * var(--k)) cubic-bezier(.2,1.4,.4,1) calc(640ms * var(--k)) both; }
 #igs-overlay .igs-sfx .clash .name small { display: block; margin-top: 10px; font-size: 13px; font-weight: 800; letter-spacing: .3em; color: var(--text); -webkit-text-stroke: calc(4px * var(--tstroke)) var(--edge); }
 #igs-overlay .igs-sfx .clash .name i { display: block; width: 64px; height: 8px; margin-top: 10px; transform: skewX(-24deg); box-shadow: 0 0 0 2px var(--edge); }
-#igs-overlay .igs-sfx .clash .name.h { left: 22px; bottom: 124px; font-size: 58px; }
+#igs-overlay .igs-sfx .clash .name.h { left: 34px; bottom: 186px; font-size: 58px; }
 #igs-overlay .igs-sfx .clash .name.h i { background: var(--jade); }
-#igs-overlay .igs-sfx .clash .name.f { right: 22px; top: 92px; font-size: 58px; text-align: right; }
+#igs-overlay .igs-sfx .clash .name.f { right: 34px; top: 206px; font-size: 58px; text-align: right; }
 #igs-overlay .igs-sfx .clash .name.f i { background: var(--red); margin-left: auto; }
 #igs-overlay .igs-sfx .clash .name .and { display: block; margin-top: 8px; font-size: 20px; letter-spacing: .1em; -webkit-text-stroke: calc(5px * var(--tstroke)) var(--edge); }
 #igs-overlay .igs-sfx .clash .vs { position: absolute; z-index: 6; left: var(--ix); top: var(--iy); width: 3.4em; height: 1.5em; margin: -.75em 0 0 -1.7em; font-size: 60px;
@@ -153,20 +153,20 @@ export const COMBAT_STAGE_FX_BASE_CSS = `
   background: linear-gradient(90deg, transparent, #fff 45%, transparent); filter: drop-shadow(0 0 8px var(--glow)); animation: sfxb-awPG calc(2400ms * var(--k)) cubic-bezier(.2,.8,.3,1) both; }
 #igs-overlay .igs-sfx.land .awaken .aw-cross { top: 220px; height: 90px; }
 #igs-overlay .igs-sfx.land .awaken .aw-cross.c2 { top: 330px; height: 50px; }
-#igs-overlay .igs-sfx.land .awaken .aw-plate-gleam { left: 360px; right: 360px; top: 516px; }
+#igs-overlay .igs-sfx.land .awaken .aw-plate-gleam { left: calc(50% - 280px); right: calc(50% - 280px); top: 516px; }
 #igs-overlay .igs-sfx .awaken .fig { -webkit-mask: linear-gradient(to bottom, #000 78%, transparent 98%); mask: linear-gradient(to bottom, #000 78%, transparent 98%); }
 #igs-overlay .igs-sfx.land .clash .fig.lead { left: 60px; bottom: -140px; width: 560px; height: 760px; }
 #igs-overlay .igs-sfx.land .clash .fig.mate { left: -60px; top: -20px; width: 380px; height: 575px; }
 #igs-overlay .igs-sfx.land .clash .fig.foe1 { right: 60px; top: 30px; width: 540px; height: 640px; }
-#igs-overlay .igs-sfx.land .clash .fig.foe2 { right: 420px; top: 300px; width: 300px; height: 390px; }
+#igs-overlay .igs-sfx.land .clash .fig.foe2 { right: calc(50% - 220px); top: 300px; width: 300px; height: 390px; }
 #igs-overlay .igs-sfx.land .clash .name { font-size: 78px; }
-#igs-overlay .igs-sfx.land .clash .name.h { left: 80px; bottom: 90px; }
-#igs-overlay .igs-sfx.land .clash .name.f { right: 80px; top: 80px; }
+#igs-overlay .igs-sfx.land .clash .name.h { left: 120px; bottom: 150px; }
+#igs-overlay .igs-sfx.land .clash .name.f { right: 120px; top: 150px; }
 #igs-overlay .igs-sfx.land .clash .vs { font-size: 88px; }
 #igs-overlay .igs-sfx.land .awaken .eye { top: 250px; height: 170px; }
 #igs-overlay .igs-sfx.land .awaken .fig { top: 20px; width: 500px; height: 682px; margin-left: -250px; }
 #igs-overlay .igs-sfx.land .awaken .line { left: 120px; top: 150px; }
-#igs-overlay .igs-sfx.land .awaken .plate { left: 360px; right: 360px; top: 470px; height: 96px; }
+#igs-overlay .igs-sfx.land .awaken .plate { left: calc(50% - 280px); right: calc(50% - 280px); top: 470px; height: 96px; }
 #igs-overlay .igs-sfx.land .awaken .big { top: 448px; font-size: 110px; }
 #igs-overlay .igs-sfx.land .cut .band { top: 250px; height: 200px; }
 #igs-overlay .igs-sfx.land .cut .fig { left: 80px; top: -10px; width: 460px; height: 628px; clip-path: inset(-300px -300px 172px -300px); }

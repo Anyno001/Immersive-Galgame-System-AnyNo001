@@ -3,8 +3,8 @@
 export const COMBAT_SKIN_INK_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) *{box-sizing: border-box; margin: 0; padding: 0;}
 #igs-overlay #igs-cx-canvas:where([data-cx="ink"]){position: relative; margin: 0 auto; overflow: hidden; background: var(--ink); font-family: var(--font-song); color: var(--text);}
-#igs-overlay #igs-cx-canvas:where([data-cx="ink"]).port{width: 390px; height: 844px;}
-#igs-overlay #igs-cx-canvas:where([data-cx="ink"]).land{width: 1280px; height: 720px;}
+#igs-overlay #igs-cx-canvas:where([data-cx="ink"]).port{width: var(--cx-w, 390px); height: 844px;}
+#igs-overlay #igs-cx-canvas:where([data-cx="ink"]).land{width: var(--cx-w, 1280px); height: 720px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) button{font: inherit; color: inherit; background: none; border: 0; cursor: pointer;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) svg{fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) .stage,#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) .foes,#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) .stage .bg{position: absolute; inset: 0;}
@@ -168,15 +168,15 @@ export const COMBAT_SKIN_INK_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .track::before{left: 50%; top: 0; bottom: 0; width: 1px; z-index: -1;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .track .who{width: 26px; height: 26px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .track .who.now{width: 34px; height: 34px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .deck{left: 0; top: 538px; width: 390px; height: 306px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .deck{left: 0; top: 538px; width: var(--cx-w, 390px); height: 306px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .energy{left: 14px; top: 0; width: 60px; flex-direction: column; align-items: flex-start; gap: 4px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .energy .v{font-size: 30px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .skill{left: 80px; top: 0;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .items{left: 132px; top: 0;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .piles{left: 192px; top: 4px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .piles{left: calc(var(--cx-w, 390px) - 198px); top: 4px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .end{right: 14px; top: 0; width: 76px; height: 44px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .tray{left: 12px; right: 12px; bottom: 318px; height: 114px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .hand{left: 14px; top: 68px; width: 362px; height: 118px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .hand{left: 14px; top: 68px; width: calc(var(--cx-w, 390px) - 28px); height: 118px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .card{width: 62px; height: 112px; top: 0;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .card.sel{width: 100px; height: 164px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .card.sel .name.n4{font-size: 14px; left: 32px;}
@@ -202,17 +202,17 @@ export const COMBAT_SKIN_INK_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .track::before{left: 0; right: 0; top: 50%; height: 1px; z-index: -1;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .track .who{width: 30px; height: 30px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .track .who.now{width: 40px; height: 40px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .deck{left: 0; top: 480px; width: 1280px; height: 240px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .deck{left: 0; top: 480px; width: var(--cx-w, 1280px); height: 240px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .lead{left: 30px; top: 44px; width: 330px; gap: 14px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .lead .face{width: 64px; height: 64px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .mates{left: 30px; top: 132px; width: 400px; flex-direction: row; gap: 18px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .mate .mface{width: 26px; height: 26px; font-size: 14px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .mate{width: 112px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .hand{left: 410px; top: 24px; width: 600px; height: 150px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .piles{left: 410px; top: 192px; flex-direction: row; gap: 16px; font-size: 12px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .energy{left: 1040px; top: 20px; flex-direction: column; align-items: flex-start; gap: 4px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .skill{left: 1112px; top: 20px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .items{left: 1166px; top: 20px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .hand{left: calc(50% - 300px); top: 24px; width: 600px; height: 150px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .piles{left: calc(50% - 230px); top: 192px; flex-direction: row; gap: 16px; font-size: 12px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .energy{left: calc(var(--cx-w, 1280px) - 240px); top: 20px; flex-direction: column; align-items: flex-start; gap: 4px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .skill{left: calc(var(--cx-w, 1280px) - 168px); top: 20px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .items{left: calc(var(--cx-w, 1280px) - 114px); top: 20px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .end{right: 40px; top: 96px; width: 110px; height: 48px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .end b{font-size: 20px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .tray{right: 40px; width: 320px; bottom: 228px; height: 114px;}
@@ -308,10 +308,10 @@ export const COMBAT_SKIN_INK_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .swipe{left: 76px; top: -8px; width: 118px; height: 62px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .skill{left: 80px; top: 0;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .items{left: 138px; top: 0;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .piles{left: 206px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .swipe{left: 1100px; top: 10px; width: 128px; height: 66px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .skill{left: 1106px; top: 20px;}
-#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .items{left: 1166px; top: 20px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).port .piles{left: calc(var(--cx-w, 390px) - 184px);}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .swipe{left: calc(var(--cx-w, 1280px) - 180px); top: 10px; width: 128px; height: 66px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .skill{left: calc(var(--cx-w, 1280px) - 174px); top: 20px;}
+#igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]).land .items{left: calc(var(--cx-w, 1280px) - 114px); top: 20px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) .foe .plate{flex-wrap: wrap; row-gap: 4px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) .foe .plate .pn{order: 1;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="ink"],.igs-cx-ghost[data-cx="ink"]) .foe .plate .tier{order: 2;}

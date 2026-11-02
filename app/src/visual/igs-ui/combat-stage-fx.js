@@ -1,9 +1,10 @@
 import { CANVAS_SIZE, canvasFit } from './combat-skin-canvas.js';
+import { portraitSilhouetteSvg } from './combat-card-art.js';
 import { COMBAT_STAGE_FX_BASE_CSS, COMBAT_STAGE_FX_STYLE_CSS } from './combat-stage-fx-style.js';
 import { COMBAT_STAGE_FX_POLISH_CSS } from './combat-stage-fx-polish.js';
 
 // 战斗大节点演出（风格化皮肤）：开战黑屏对撞、技能切入、觉醒两段式、结算。照搬设计稿 fx.js / fx3.js 的节点与几何，样式见 combat-stage-fx-style.js（由设计稿 CSS 生成）。
-// 演出画在固定画布（竖屏 390×844、横屏 1280×720）里，整体按面板尺寸等比缩放（--cx-scale）；画布外的留边由外层铺底。
+// 演出画在固定画布（竖屏 390×844、横屏 1280×720）里，整体按面板尺寸等比缩放（--cx-scale）；宽度随面板伸展（--cw = fit.w），画布外的留边由外层铺底。
 // 初始方案（initial）不走本模块。纯 DOM 构造，不含计时；节点上的 .hit / .out 类由调用方按 COMBAT_STAGE_TIMING 到点添加。
 // 名字、台词、招式名只经 textContent 写入；立绘地址由调用方经 safePortraitUrl 过滤后传入。
 
@@ -31,6 +32,8 @@ const WRAP_CSS = `
 #igs-combat-panel[data-igs-combat-reduced] .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
 #igs-overlay .igs-sfx .fig img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:50% 0;}
 #igs-overlay .igs-sfx .fig .igs-combat-art{position:absolute;inset:0;}
+#igs-overlay .igs-sfx .fig-sil{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;color:var(--text,#fff);opacity:.14;}
+#igs-overlay .igs-sfx .fig-sil svg{width:auto;height:100%;max-width:100%;}
 #igs-overlay .igs-sfx .fig-char{position:absolute;inset:0;display:grid;place-items:center;color:var(--text);font:900 min(60%,180px)/1 var(--display);opacity:.45;}
 `;
 export const COMBAT_STAGE_FX_STYLE_TEXT = `${COMBAT_STAGE_FX_BASE_CSS}\n${Object.values(COMBAT_STAGE_FX_STYLE_CSS).join('\n')}\n${WRAP_CSS}\n${COMBAT_STAGE_FX_POLISH_CSS}`;
@@ -53,8 +56,15 @@ function text(doc, tag, cls, value, parent) {
 function figure(doc, cls, url, name, parent) {
     const f = el(doc, 'i', `fig ${cls}`, parent);
     if (url) { if (f.style) f.style.backgroundImage = cssUrl(url); }
-    else text(doc, 'b', 'fig-char', Array.from(String(name || ''))[0] || '', f);
+    else silhouette(doc, f, name);
     return f;
+}
+// 缺立绘时画皮肤色的人形剪影（不用首字或破图）。
+function silhouette(doc, parent, name) {
+    const sil = doc.createElement('span');
+    sil.className = 'fig-sil';
+    sil.innerHTML = portraitSilhouetteSvg(name);
+    parent.appendChild(sil);
 }
 // 敌人立绘：素材库图 > 通用图集一格 > 首字。
 function foeFigure(doc, cls, foe, parent) {
@@ -68,7 +78,7 @@ function foeFigure(doc, cls, foe, parent) {
         art.setAttribute('data-atlas', String(foe.cell.atlas));
         art.style?.setProperty?.('--ea-x', String(foe.cell.x));
         art.style?.setProperty?.('--ea-y', String(foe.cell.y));
-    } else text(doc, 'b', 'fig-char', Array.from(String(foe.name || ''))[0] || '', f);
+    } else silhouette(doc, f, foe.name);
     return f;
 }
 
@@ -81,11 +91,11 @@ export function buildStageShell(doc, { skin = '', width = 0, height = 0, kind = 
     root.setAttribute('data-sfx', style);
     root.setAttribute('data-skin', String(skin || ''));
     root.setAttribute('aria-hidden', 'true');
-    root.style?.setProperty?.('--cw', `${size.w}px`);
+    root.style?.setProperty?.('--cw', `${fit.w}px`);
     root.style?.setProperty?.('--ch', `${size.h}px`);
     root.style?.setProperty?.('--cx-scale', String(fit.scale));
     const canvas = el(doc, 'div', 'sfx-canvas', root);
-    return { root, canvas, orient: fit.orient, W: size.w, H: size.h, style };
+    return { root, canvas, orient: fit.orient, W: fit.w, H: size.h, style };
 }
 
 // ---- 设计稿 fx.js 的几何：接缝拐点（百分比）、星形尖、刀刃金牌、一组光 ----
@@ -144,6 +154,36 @@ function lightSvg(cx, cy, reach, id) {
 }
 // 内部 HTML 只拼数字与程序常量；名字等文本在拼好后用 textContent 写入。
 
+// 我方名字旁的小头像行：可操控的角色不止一个时才画；已有的先去掉再画（战前数据到达后补画用）。
+function pickRow(doc, nameEl, heroes) {
+    nameEl.querySelector?.('.pickrow')?.remove?.();
+    const picks = heroes.filter((h) => h.id && h.controllable);
+    if (picks.length < 2) return;
+    const row = el(doc, 'span', 'pickrow', nameEl);
+    for (const h of picks) {
+        const b = el(doc, 'button', 'pick', row);
+        b.setAttribute('type', 'button');
+        b.setAttribute('data-combat-act', 'pick');
+        b.setAttribute('data-combat-id', String(h.id));
+        b.setAttribute('aria-pressed', h.picked ? 'true' : 'false');
+        b.setAttribute('aria-label', String(h.name || ''));
+        b.setAttribute('title', String(h.name || ''));
+        if (h.url) { if (b.style) b.style.backgroundImage = cssUrl(h.url); } else b.textContent = Array.from(String(h.name || ''))[0] || '';
+    }
+}
+
+// 战前数据（我方名单、可操控角色）晚于对撞过场到达时：就地更新我方名字、首字与头像行，不重播过场。
+export function updateClashHeroes(doc, root, heroes = []) {
+    const nameEl = root?.querySelector?.('.name.h');
+    if (!nameEl) return;
+    const lead = heroes[0], mate = heroes[1];
+    const first = nameEl.firstChild;
+    if (first && first.nodeType === 3) first.nodeValue = String(lead?.name || '');
+    const and = nameEl.querySelector('.and');
+    if (and) { if (mate?.name) and.textContent = `& ${mate.name}`; else and.remove(); } else if (mate?.name) { const sp = doc.createElement('span'); sp.className = 'and'; sp.textContent = `& ${mate.name}`; nameEl.insertBefore(sp, first?.nextSibling || null); }
+    pickRow(doc, nameEl, heroes);
+}
+
 // 开战黑屏对撞：我方（主战者 + 同伴）与敌方（前排 + 后排）沿锯齿接缝对撞，撞点光芒、光环、火花，名字与破框 VS 砸入。
 // heroes：[{ name, url }]（第一个是主战者）；foes：[{ name, url, cell }]；title：关卡名。low：低画质省去火花与光痕。
 export function buildStageClash(doc, { skin = '', width = 0, height = 0, heroes = [], foes = [], title = '', low = false } = {}) {
@@ -193,9 +233,12 @@ export function buildStageClash(doc, { skin = '', width = 0, height = 0, heroes 
         if (b?.name) text(doc, 'span', 'and', `& ${b.name}`, n);
         if (small) text(doc, 'small', '', small, n);
         el(doc, 'i', '', n);
+        return n;
     };
     nameOf('f', f1, f2, title);
-    nameOf('h', lead, mate, '');
+    const heroName = nameOf('h', lead, mate, '');
+    // 多人且可操控时，我方名字旁给小头像：点头像切换操控角色（data-combat-act="pick"，由面板控制器处理）。
+    pickRow(doc, heroName, heroes);
     const vs = el(doc, 'div', 'vs', shake);
     vs.innerHTML = plateSvg();
     el(doc, 'i', 'blade', vs);
@@ -281,7 +324,7 @@ export function resultStageHtml({ skin = '', orient = 'port', end = {}, order = 
     const fig = (cls, n) => (n ? `<i class="fig ${cls}"${pics[n] ? ` style="background-image:${esc(cssUrl(pics[n]))}"` : ''}>${pics[n] ? '' : `<b class="fig-char">${esc(Array.from(n)[0] || '')}</b>`}</i>` : '');
     const rows = [...(end.feats || []).map((f) => ['战功', f.title || '']), ...(end.allies || []).map((a) => [a.name, a.injury || ''])].slice(0, 3)
         .map(([h, v], i) => `<div class="row" style="--d:${1050 + i * 140}ms"><span>${esc(h)}</span><b>${esc(v)}</b></div>`).join('');
-    return `<section class="igs-sfx igs-sfx-result${orient === 'land' ? ' land' : ''}" data-sfx="${esc(style)}" data-skin="${esc(skin)}" data-outcome="${esc(end.outcome || '')}" style="--cw:${size.w}px;--ch:${size.h}px">`
+    return `<section class="igs-sfx igs-sfx-result${orient === 'land' ? ' land' : ''}" data-sfx="${esc(style)}" data-skin="${esc(skin)}" data-outcome="${esc(end.outcome || '')}" style="--cw:var(--cx-w,${size.w}px);--ch:${size.h}px">`
         + `<div class="sfx-canvas"><div class="result${won ? '' : ' lose'}"><div class="veil"></div><div class="hband"></div>${fig('mate', heroes[1])}${fig('lead', heroes[0])}`
         + `<div class="plate">${plateSvg()}</div><div class="big">${esc(end.label || '')}<small>${esc(ENGLISH[end.outcome] || '')}</small></div>`
         + `<div class="grade"><small>回合</small>${esc(end.turn ?? '')}</div><div class="rows">${rows}</div>`

@@ -17,7 +17,7 @@ export const CHALLENGE_TIER_RULES = Object.freeze({
 
 // 意志：基础值按体力、压力各降一档；阈值与 stat-bars.js 的 STAMINA_LOW / STRESS_HIGH 一致。
 export const CHALLENGE_WILL = Object.freeze({ base: 60, step: 12, staminaLow: 30, stressHigh: 70 });
-// 回合上限到时，进展达到此比例判成功。
+// 回合上限到时，进攻进度达到此比例判成功。
 export const CHALLENGE_PROGRESS_WIN = 0.5;
 // 成功时剩余意志不低于此比例为圆满。
 export const CHALLENGE_WILL_FULL = 0.6;

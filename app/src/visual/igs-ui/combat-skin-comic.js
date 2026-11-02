@@ -4,7 +4,7 @@ import { esc } from './reader-value-utils.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { battlePick, handLayout, handVars, needsHold, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, handLayout, handVars, needsHold, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_COMIC_CONCEPT_CSS } from './combat-skin-comic-concept-style.js';
 
 // 牌面说明：与 combat-panel-render.js 的 cardTextHtml 同口径（增强青绿、减弱灰色、带注释的数字与关键字可点开）。不从渲染层引入，免得循环依赖。
@@ -19,8 +19,10 @@ const cardTextHtml = (c) => (Array.isArray(c.textParts) ? c.textParts.map(partHt
 const CFG = {
     ring: { port: { rx: 150, w: 330, lift: 60, back: 0.55, dim: 0.45, base: 300 }, land: { rx: 410, w: 390, lift: 80, back: 0.58, dim: 0.5, base: 130 } },
     // over：手牌少时步距不超过窄签宽度的这个倍数，保持设计稿的交叠，整手居中。
-    hand: { port: { vis: 50, ch: 112, ts: 1, fs: 1.18, drop: 8, arc: 0.35, rot: 1.0, minL: 158, maxL: 158, over: 0.97 }, land: { vis: 78, ch: 150, ts: 1.4, fs: 1.55, drop: 6, arc: 0.5, rot: 1.0, over: 0.97 } },
-    handW: { port: 374, land: 540 },
+    hand: { port: { vis: 50, ch: 112, ts: 1, fs: 1.18, drop: 8, arc: 0.35, rot: 1.0, minL: 158, maxL: 158, over: 0.97 }, land: { vis: 90, ch: 172, ts: 1.6, fs: 1.55, drop: 6, arc: 0.5, rot: 1.0, over: 1.06 } },
+    // 手牌区宽：竖屏随画布宽（两侧各留 8），横屏固定；圆环横向半径随画布宽比例伸展
+    handW: (orient, w) => { if (orient !== 'land') return Math.min(w - 32, 400); const lw = Math.min(w - 40, 1360); return lw - Math.min(Math.max(Math.round(lw * 0.26), 280), 380) - 132; },
+    designW: { port: 390, land: 1280 },
 };
 
 const P = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
@@ -132,7 +134,8 @@ const textBtn = (act, label, cls = 'retreat', extra = '') => `<button type="butt
 export function comicBattleHtml(v, orient) {
     const b = v.battle;
     const land = orient === 'land';
-    const H = CFG.hand[orient], L = CFG.ring[orient];
+    const cw = canvasW(orient);
+    const H = CFG.hand[orient], L = { ...CFG.ring[orient], rx: Math.round(CFG.ring[orient].rx * cw / CFG.designW[orient]) };
     const pick = battlePick(v);
     const ended = Boolean(b.outcome);
     const hero = b.allies.find((u) => u.id === b.heroId) || b.allies.find((u) => u.controlled) || null;
@@ -140,14 +143,18 @@ export function comicBattleHtml(v, orient) {
     const choice = b.choice || null;
     const picks = choice && Array.isArray(v.chosen) ? v.chosen : [];
     const selIdx = b.hand.findIndex((c) => c.inst === v.selected);
-    const pos = handLayout(b.hand.length, selIdx, H, CFG.handW[orient]);
+    // 横屏：手牌尽量摊开（间距最大到不重叠），仍填不满时左对齐、紧贴资源列；手牌区宽度取实际占宽
+    const nHand = b.hand.length;
+    const handLimit = CFG.handW(orient, cw);
+    const handBox = land ? Math.min(handLimit, Math.round(H.vis + H.vis * (H.over || 1) * Math.max(0, nHand - 1))) : handLimit;
+    const pos = handLayout(nHand, selIdx, H, handBox);
     const f = (() => { const i = b.enemies.findIndex((u) => u.id === v.front); if (i >= 0) return i; const a = b.enemies.findIndex((u) => u.alive); return a >= 0 ? a : 0; })();
     const foes = b.enemies.map((u, i) => foeHtml(u, i, f, b.enemies.length, L, v, pick)).join('');
     // 顶栏：标题、回合、倍速、撤退、关闭（撤退 / 倍速只做文字，用户 11-02 定）。撤退常驻，设计稿没有取消键：再点同一张牌或点空白处撤销选中。
     const live = !ended && v.status === 'battle';
     const speed = (v.status === 'battle' || v.settling) ? textBtn('speed', '×2', 'spd', ` aria-pressed="${(v.fxSpeed || 1) > 1 ? 'true' : 'false'}" aria-label="演出二倍速"`) : '';
     const side = live && b.canEscape ? textBtn('escape', '撤退') : '';
-    const top = `<div class="top"><span class="title"><b>${esc(v.encounter || '战斗')}</b></span>${live ? `<span class="round"><small>第</small><b>${esc(b.turn)}</b><small>回合</small></span>` : ''}`
+    const top = `<div class="top"><span class="title" title="${esc(v.encounter || '战斗')}"><b>${esc(v.encounter || '战斗')}</b></span>${live ? `<span class="round"><small>第</small><b>${esc(b.turn)}</b><small>回合</small></span>` : ''}`
         + `<span class="sp"></span>${speed}${side}<button type="button" class="ctl" data-combat-act="close" aria-label="关闭">${ICON.close}</button></div>`;
     // 待选提示：待选阶段写「弃掉 k/N」，选中道具写用法；其余时候不出。
     const sel = pick.item ? pick.picked : null;
@@ -163,18 +170,18 @@ export function comicBattleHtml(v, orient) {
     const skills = traits.map((t, k) => {
         const id = t.skillId ? `hero-skill:${t.skillId}` : 'hero-skill';
         return `<button type="button" class="skill cx-trait${k ? ' is-second' : ''}${v.selected === id ? ' on' : ''}${t.usable ? '' : ' off'}" data-combat-act="hero-skill"${t.skillId ? ` data-combat-id="${esc(t.skillId)}"` : ''} data-trait="${esc(t.id)}"`
-            + `${t.usable ? '' : ' aria-disabled="true"'} aria-label="${esc(`主动特性 ${t.name} 消耗 ${t.cost} 点能量 ${t.text}${t.used ? ' 本回合已使用' : ''}`)}"><b>技</b><i>${esc(t.cost)}</i></button>`;
+            + `${t.usable ? '' : ' aria-disabled="true"'} aria-label="${esc(`主动特性 ${t.name} 消耗 ${t.cost} 点能量 ${t.text}${t.used ? ' 本回合已使用' : ''}`)}">${SKILL_ICON_SVG}${Number(t.cost) > 1 ? `<i>${esc(t.cost)}</i>` : ''}</button>`;
     }).join('');
     const items = (b.items || []).filter((i) => i.count > 0);
     const total = items.reduce((s, i) => s + i.count, 0);
-    const itemBtn = `<button type="button" class="item${traits.length > 1 ? ' is-shift' : ''}${items.length ? '' : ' off'}" data-combat-act="items" aria-haspopup="menu" aria-expanded="${v.itemsOpen && items.length ? 'true' : 'false'}"${items.length ? '' : ' aria-disabled="true"'} aria-label="道具">${ICON.potion}${total ? `<i>×${total}</i>` : ''}</button>`;
+    const itemBtn = `<button type="button" class="item${traits.length > 1 ? ' is-shift' : ''}${items.length ? '' : ' off'}" data-combat-act="items" aria-haspopup="menu" aria-expanded="${v.itemsOpen && items.length ? 'true' : 'false'}"${items.length ? '' : ' aria-disabled="true"'} title="道具" aria-label="道具">${ITEM_ICON_SVG}${total > 1 ? `<i>${total}</i>` : ''}</button>`;
     const tray = `<div class="tray" role="menu" aria-label="道具">${items.map((i) => `<button type="button" role="menuitem" class="slot${i.usable ? '' : ' off'}${v.selected === `item:${i.itemId}` ? ' on' : ''}" data-combat-act="item" data-combat-id="${esc(i.itemId)}"${i.usable ? '' : ' aria-disabled="true"'}`
         + ` aria-label="${esc(`道具 ${i.name} 剩余 ${i.count} 个 ${i.text}，不消耗能量，每回合一次`)}" title="${esc(`${i.name} ×${i.count}：${i.text}`)}">${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" decoding="async">` : ICON.potion}<b>${esc(i.name)}</b><i>×${esc(i.count)}</i></button>`).join('')}</div>`;
     const endBtn = choice
         ? `<button type="button" class="end" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}><b>${esc(CHOICE_VERB[choice.kind] || '选择')} ${picks.length}/${esc(choice.count)}</b></button>`
         : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}><b>结束回合</b></button>`;
-    const hand = `<div class="hand cx-hand${selIdx >= 0 ? ' has-sel' : ''}" style="${handVars(H)}">${b.hand.map((c, i) => cardHtml(c, i, pos, v, picks, b.energy)).join('')}</div>`;
-    const piles = `<div class="piles">抽牌 <b>${esc(b.piles.draw)}</b><i></i>弃牌 <b>${esc(b.piles.discard)}</b></div>`;
+    const hand = `<div class="hand cx-hand${selIdx >= 0 ? ' has-sel' : ''}" style="${handVars(H)}${land ? `;width:${handBox}px` : ''}">${b.hand.map((c, i) => cardHtml(c, i, pos, v, picks, b.energy)).join('')}</div>`;
+    const piles = `<div class="piles"><span class="pl dr"><em>抽牌 </em><b>${esc(b.piles.draw)}</b></span><i></i><span class="pl dc"><em>弃牌 </em><b>${esc(b.piles.discard)}</b></span></div>`;
     const ops = ended ? '' : `${pending}${energy}${skills}${endBtn}${hand}${itemBtn}${tray}${piles}`;
     const cls = `igs-cx-canvas${land ? ' land' : ''}${pick.card || pick.skill ? ' aiming' : ''}${pick.item && pick.picked ? ' item-aim' : ''}${v.itemsOpen && items.length ? ' tray-on' : ''}${ended ? ' is-ended' : ''}`;
     return `<div class="igs-cx-wrap"><div id="igs-cx-canvas" class="${cls}" data-cx="comic">`
@@ -206,8 +213,6 @@ ${S} .lead .aw{z-index:2;cursor:pointer;left:31px;top:54px;bottom:auto;} ${C}.la
 ${S} .skill b{font:inherit;}
 ${S} .skill.on::before,${S} .item[aria-expanded="true"]::before{background:var(--red);}
 ${S} .skill.off,${S} .item.off{opacity:.45;}
-${C} .skill.is-second{left:106px;} ${C} .item.is-shift{left:148px;}
-${C}.land .skill.is-second{left:1154px;} ${C}.land .item.is-shift{left:1206px;}
 ${S} .slot img{width:20px;height:20px;object-fit:contain;}
 ${S} .end[aria-disabled="true"]{opacity:.5;}
 /* 按住确认：设计稿 .end::after 按 --hold 从左填红；被选中的牌盖住操作区装饰线（设计稿里线在牌下） */
@@ -241,11 +246,7 @@ ${S} .track .who{flex:none;}
 ${C}.land .track{left:14px;right:auto;top:72px;width:34px;height:auto;flex-direction:column;gap:9px;align-items:stretch;}
 ${S} .foe.front .head{translate:0 -16px;}
 /* 横屏左下：觉醒签贴在头像底边，队友行与头像左缘对齐并与觉醒签留出间距 */
-${C}.land .lead .aw{top:70px;} ${C}.land .mates{left:32px;top:640px;} ${C}.land .foe.front .head{translate:0 -28px;}
-/* 竖屏右下：队友行与牌堆离右缘留 12px，与左侧边距一致 */
-${C}:not(.land) :is(.mates,.piles){left:256px;}
-/* 横屏能量统一放在手牌左端旁（各套同一位置，用户 11-02 定），手牌区右移让出位置 */
-${C}.land .energy{left:342px;top:552px;width:100px;} ${C}.land .hand{left:452px;width:540px;}
+${C}.land .lead .aw{top:70px;} ${C}.land .mates{left:calc(var(--ll) + 4px);top:640px;} ${C}.land .foe.front .head{translate:0 -28px;}
 /* 选目标：可选的敌人（不止正前方）都提亮 */
 ${C}.aiming .foe.is-targetable .art{filter:brightness(calc(var(--fl,1) * 1.1)) saturate(var(--fsat,1));}
 ${S} .foe.is-drop-hover .art{filter:brightness(1.3) saturate(1.1) drop-shadow(0 0 18px rgba(255,74,61,.7));}
@@ -259,6 +260,87 @@ ${S} .foe.is-down{opacity:.35;filter:grayscale(1);pointer-events:none;}
 ${S} :is(.lead,.mate).is-down :is(.face,.mface){filter:grayscale(1) brightness(.5);}
 ${S} .hand .card.is-lifted{opacity:.35;}
 ${C}.is-ended .foes{pointer-events:none;}
+/* 顶栏：关卡名单行省略（下划线不拉长，只收缩不伸展），回合数与右侧按钮不被挤压 */
+${S} .top .title{min-width:0;flex:0 1 auto;}
+${S} .top .title b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+${S} .top .round,${S} .top .ctl,${S} .top .retreat,${S} .top .spd{flex:none;white-space:nowrap;}
+/* 画布宽度随面板伸展（--cx-w）：靠右元素用 right 贴右缘；横屏手牌区在画布居中（窄于设计稿时退回设计稿位置），能量、道具技能、托盘跟着手牌走 */
+${C}:not(.land){width:var(--cx-w);}
+${C}.land .top .title{max-width:calc(50% - 180px);}
+${C} .energy{z-index:3;}
+${C}.land{width:var(--cx-w);}
+/* 操作区（用户 11-02 定）：能量在手牌正上方居中；道具技能在左（竖屏行左端，横屏手牌左侧）；结束回合、牌堆在右 */
+/* 技能可发动：一道细光沿圆形按钮外沿环绕（转动的圆锥渐变经圆环遮罩只留 2px，只动 transform）；不可发动不显示；减少动态时为静态细光边 */
+${S} .skill:not(.off)::after{content:"";position:absolute;inset:-5px;border-radius:50%;z-index:1;background:conic-gradient(from 0deg,transparent 0 76%,var(--red) 94%,transparent 100%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));animation:cx-comic-orbit 2.4s linear infinite;pointer-events:none;}
+@keyframes cx-comic-orbit{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){${S} .skill:not(.off)::after{animation:none;background:var(--red);opacity:.7;}}
+${C}:where([data-igs-combat-reduced] *) .skill:not(.off)::after{animation:none;background:var(--red);opacity:.7;}
+/* 竖屏统一布局（用户 11-02）：手牌居中，左右外侧抽/弃牌堆，三者为一组；操作行与点数左缘对齐抽牌堆左缘、结束回合右缘对齐弃牌堆右缘；底栏主战者与队友成组居中 */
+${C}:not(.land){--hw:min(calc(var(--cx-w) - 32px), 400px);--hl:calc((var(--cx-w) - var(--hw)) / 2);--gl:var(--hl);--gr:calc(var(--hl) + var(--hw));--bw:min(calc(var(--cx-w) - 32px), 440px);--bl:calc((var(--cx-w) - var(--bw)) / 2);--gl:16px;--gr:calc(var(--cx-w) - 16px);}
+${C}:not(.land) .hand{left:var(--hl);width:var(--hw);}
+${C}:not(.land) .lead{left:var(--bl);top:756px;width:calc(var(--bw) - 152px);}
+${C}:not(.land) .mates{top:745px;height:88px;width:140px;flex-direction:column;justify-content:center;gap:4px;}
+${C}:not(.land) .mate{flex-direction:row;width:140px;height:26px;gap:6px;}
+${C}:not(.land) .mate .mface{width:26px;height:26px;}
+${C}:not(.land) .mate .mn{position:absolute;left:32px;top:0;}
+${C}:not(.land) .mate .hpbar{position:absolute;left:32px;top:15px;width:100px;height:4px;}
+${C}:not(.land) .mates{left:auto;right:var(--bl);}
+${C} .energy{filter:drop-shadow(0 2px 6px #0a0a0a) drop-shadow(0 0 1px #0a0a0a);}
+${C}:not(.land) .piles{left:var(--hl);top:734px;width:var(--hw);height:auto;display:flex;flex-direction:row;justify-content:space-between;align-items:baseline;pointer-events:none;gap:0;}
+${C}:not(.land) .piles i{display:none;}
+${C}:not(.land) .piles .pl{position:static;width:auto;display:flex;flex-direction:row;align-items:baseline;gap:4px;font-size:12px;color:var(--dim);}
+${C}:not(.land) .piles .pl em{display:inline;font-style:normal;font-size:12px;}
+${C}:not(.land) .piles .pl b{font:900 14px var(--num);color:var(--cream);}
+
+${C}:not(.land) .energy{left:auto;right:calc(var(--cx-w) - var(--gr) + 88px);top:552px;width:72px;height:44px;align-items:center;text-align:center;}
+${C}:not(.land) .energy .v{font-size:30px;line-height:1;}
+${C}:not(.land) .energy .v small{font-size:15px;}
+${C}:not(.land) .skill{left:var(--gl);top:552px;}
+${C}:not(.land) .item{left:calc(var(--gl) + 56px);top:552px;}
+${C}:not(.land) .skill.is-second{left:calc(var(--gl) + 56px);}
+${C}:not(.land) .item.is-shift{left:calc(var(--gl) + 112px);}
+${C}:not(.land) .end{left:auto;right:calc(var(--cx-w) - var(--gr));top:552px;}
+${C}:not(.land) .pending{left:var(--gl);right:auto;top:486px;width:190px;}
+${C}:not(.land) .tray{left:var(--gl);top:auto;bottom:298px;}
+/* 操作行紧贴手牌（行底边在手牌顶边上方约 10px）；选中牌放大后可遮挡操作行与点数 */
+${C} :is(.skill,.item,.end,.pending){z-index:3;}
+${S} .skill .cx-skill-ico{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;stroke-width:1.6;}
+/* 技能、道具：各自完整外形的独立按钮，最小 44×44，图标 20px，小字不小于 12px */
+${C} .skill,${C} .item{width:44px;height:44px;line-height:44px;}
+${C} .skill .cx-skill-ico{width:22px;height:22px;margin:-11px 0 0 -11px;}
+${C} .item svg{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;}
+${C} :is(.skill,.item) i{min-width:16px;height:16px;font-size:12px;line-height:16px;}
+/* 横屏底部横条（用户 11-02 定稿）：版心 W = min(画布宽 - 40, 1360) 居中；左→右：信息组、资源列（点数与技能道具）、手牌，组间距 16px；手牌上沿一行放抽牌弃牌文字与结束回合 */
+${C}.land{--lw:min(calc(var(--cx-w) - 40px), 1360px);--ll:calc((var(--cx-w) - var(--lw)) / 2);--iw:clamp(280px, calc(var(--lw) * .26), 380px);--rw:100px;--rl:calc(var(--ll) + var(--iw) + 16px);--hl:calc(var(--rl) + var(--rw) + 16px);--hw:calc(var(--lw) - var(--iw) - var(--rw) - 32px);}
+${C}.land .lead,${C}.land .mates{left:var(--ll);width:var(--iw);}
+${C}.land .hand{left:var(--hl);width:var(--hw);}
+${C}.land .piles{left:var(--hl);top:467px;width:auto;height:auto;display:flex;align-items:baseline;gap:16px;pointer-events:none;}
+${C}.land .piles i{display:none;}
+${C}.land .piles .pl{position:static;width:auto;display:flex;flex-direction:row;align-items:baseline;gap:4px;font-size:12px;color:var(--dim);}
+${C}.land .piles .pl em{display:inline;font-style:normal;font-size:12px;}
+${C}.land .piles .pl b{font:900 16px var(--num);color:var(--cream);}
+${C}.land .end{left:auto;right:calc(var(--ll) + 8px);top:425px;}
+${C}.land .lead{top:538px;height:86px;}
+${C}.land .lead .hpbar{height:12px;}
+${C}.land .mates{top:640px;gap:6px;}
+${C}.land .mate{width:102px;}
+${C}.land .mate .mface{width:40px;height:40px;}
+${C}.land .mate .mn{left:46px;font-size:12px;}
+${C}.land .mate .hpbar{left:46px;width:52px;}
+/* 资源列：点数（无框、柔和投影）在上，技能、道具两个 44×44 独立按钮并排在下 */
+${C}.land .energy{left:calc(var(--rl) + 8px);top:550px;width:var(--rw);height:70px;align-items:center;text-align:center;}
+${C}.land .energy .v{font-size:46px;line-height:1;}
+${C}.land .energy .v small{font-size:22px;}
+${C}.land .energy .pips i{width:11px;height:11px;}
+${C}.land .skill{left:var(--rl);top:640px;}
+${C}.land .item{left:calc(var(--rl) + 56px);top:640px;}
+${C}.land .skill.is-second{left:calc(var(--rl) + 56px);}
+${C}.land .item.is-shift{left:calc(var(--rl) + 112px);top:640px;}
+${C}.land .tray{left:var(--rl);top:auto;bottom:130px;}
+${C}.land .pending{left:var(--ll);right:auto;top:462px;width:205px;}
+/* 横屏最小字号 12px */
+${C}.land :is(.top .round small,.foe .tier,.foe .blk,.foe .st,.foe .st b,.pending,.lead .aw,.lead .hp,.lead .chip,.lead .chip b,.mate .mn,.slot b,.slot i,.foe .hpbar span,.card .desc){font-size:12px;}
+${C}.land :is(.skill i,.item i,.mst){font-size:12px;min-width:16px;height:16px;line-height:16px;}
 /* 出牌影子：外层按视口矩形定位（演出层给 left/top/width/height），内层按画布缩放 */
 #igs-overlay .igs-cx-ghost{position:absolute;pointer-events:none;z-index:30;}
 #igs-overlay .igs-cx-ghost>.hand{position:absolute;left:0;top:0;width:calc(100% / var(--cx-scale,1));height:calc(100% / var(--cx-scale,1));transform:scale(var(--cx-scale,1));transform-origin:0 0;}

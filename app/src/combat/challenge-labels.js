@@ -1,6 +1,6 @@
 // 日常挑战说法映射：只改显示，内部字段名（hp、damage、block）不变。纯常量与查表，不含逻辑。
 export const CHALLENGE_LABELS = Object.freeze({
-    enemy: '难关', hp: '意志', damage: '进展', block: '稳住', battle: '挑战', energy: '精力', turn: '回合', escape: '放弃', victory: '成功', defeat: '失败',
+    enemy: '难关', hp: '意志', damage: '进攻', block: '防守', battle: '挑战', energy: '精力', turn: '回合', escape: '放弃', victory: '成功', defeat: '失败',
 });
 
 export const CHALLENGE_STATUS_NAMES = Object.freeze({ weak: '慌乱', vulnerable: '破绽', poison: '煎熬' });

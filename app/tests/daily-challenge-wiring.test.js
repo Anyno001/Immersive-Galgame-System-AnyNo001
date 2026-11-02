@@ -179,7 +179,7 @@ test('面板按日常说法渲染大厅、对局、结算与挑战记录', async
     session.pickChallengeAllies(['小林']);
     const lobby = challengeLobbyView(session.state());
     const lobbyHtml = renderCombatPanelHtml({ status: 'lobby', lobby, challenge: true, portraits: {}, enemyArt: {} });
-    for (const word of ['开始挑战', '交给托管', '放弃', '协助者', '挑战记录', '终面']) assert.ok(lobbyHtml.includes(word), word);
+    for (const word of ['迎接挑战', '交给托管', '放弃', '协助者', '挑战记录', '终面']) assert.ok(lobbyHtml.includes(word), word);
     assert.ok(!lobbyHtml.includes('开始战斗') && !lobbyHtml.includes('跳过战斗'));
     session.start();
     const state = session.state();

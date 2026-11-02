@@ -263,4 +263,72 @@ ${P('veil')} .sfx-deco .d1{bottom:0;background:linear-gradient(to top,#050506,#1
 @keyframes sfxp-veil-bot{from{transform:translateY(101%);}to{transform:none;}}
 `;
 
-export const COMBAT_STAGE_FX_POLISH_CSS = [BASE, INK, TECH, DARK_A, DARK_B, MYSTIC, soft('soft-a'), soft('soft-c'), VEIL].join('\n');
+const NL = '\n';
+// 结算背景（九套通用）：不再铺近黑遮罩，用 backdrop-filter 套各皮肤战斗画布 .stage 背景所用的同一组滤镜，底下是当前场景图本身。
+// 浏览器不支持 backdrop-filter 时退回 #1c1c1e 实色。
+const RESULT_BG_FILTER = { comic: 'brightness(.7) saturate(.9)', veil: 'brightness(.62) saturate(.85)', ink: 'saturate(.72) brightness(.6) contrast(1.05)', tech: 'brightness(.74) saturate(.88)', mystic: 'saturate(.8) brightness(.5)', 'soft-a': 'brightness(.78) saturate(.7)', 'soft-c': 'brightness(.78) saturate(.7)', 'dark-a': 'grayscale(.9) brightness(.4) contrast(1.25)', 'dark-b': 'grayscale(1) brightness(.3) contrast(1.15)' };
+const RESULT_BG = `
+${Object.entries(RESULT_BG_FILTER).map(([k, f]) => `${P(k)} .result .veil{background:transparent;-webkit-backdrop-filter:${f};backdrop-filter:${f};}`).join(NL)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){#igs-overlay .igs-sfx .result .veil{background:#1c1c1e;}}
+`;
+
+// 圆润结算去金：a 野餐粉系（粉 / 深粉 / 奶白 / 薄荷），c 绘本雾蓝系（雾蓝 / 深蓝 / 杏奶白 / 淡紫）。实色，不用金与暗棕。
+const SOFT_RS = {
+    'soft-a': { main: '#f2a1ac', deep: '#d9566b', card: '#f6efe4', acc: '#a8d8bf', edge: '#8a3a4e', lose: '#cf9aa2', loseDeep: '#b0707c', shade: '#e4c9cd', heroA: '#f8cfd6', heroB: '#ea8d9d', foeA: '#d3ece0', foeB: '#a8d8bf' },
+    'soft-c': { main: '#8fb0d8', deep: '#4f74a8', card: '#f7efe6', acc: '#b9a9dc', edge: '#37507c', lose: '#9fa9c8', loseDeep: '#6b7aa6', shade: '#c9d6e8', heroA: '#c4d6ee', heroB: '#8fb0d8', foeA: '#dcd3ef', foeB: '#b9a9dc' },
+};
+const softRs = (k) => {
+    const c = SOFT_RS[k];
+    const R = `${P(k)} .result`;
+    return `
+${P(k)}{--gold:${c.main};--seam-gold:${c.main};--jade:${c.acc};--edge:${c.edge};}
+${P(k)} .clash .hero-side{background:linear-gradient(160deg,${c.heroA},${c.heroB} 75%);}
+${P(k)} .clash .foe-side{background:linear-gradient(200deg,${c.foeA},${c.foeB} 75%);}
+${P(k)} .clash .name,${P(k)} .cut .move{text-shadow:0 2px 0 ${c.edge};}
+${R}{--el:${c.deep};--card:${c.card};}
+${R}.lose{--el:${c.lose};}
+${R} .hband{mix-blend-mode:normal;background:${c.main};box-shadow:0 4px 8px ${c.shade};}
+${R} .plate{top:112px;height:136px;}
+${P(k)}.land .result .plate{top:92px;height:146px;}
+${R} .big,${R} .big small{-webkit-text-stroke:0;}
+${R} .big{top:122px;}
+${P(k)}.land .result .big{top:104px;}
+${R} .rows{top:408px;gap:6px;}
+${P(k)}.land .result .rows{top:280px;gap:8px;}
+${R} .fig,${R} .fig.lead{filter:drop-shadow(0 6px 12px ${c.shade});}
+${R} .fig.mate{filter:brightness(.88) drop-shadow(0 6px 12px ${c.shade});}
+${R}.lose .fig{filter:grayscale(.55) brightness(.85) drop-shadow(0 6px 12px ${c.shade});}
+${R} .plate,${R}.lose .plate{background:${c.card} !important;box-shadow:0 0 0 4px ${c.main},0 6px 14px ${c.shade} !important;}
+${R} .big{color:${c.deep};text-shadow:none;}
+${R} .big small{color:${c.main};}
+${R}.lose .big{color:${c.loseDeep};text-shadow:none;}
+${R}.lose .big small{color:${c.lose};}
+${R} .grade{color:${c.deep};-webkit-text-stroke:7px ${c.card};paint-order:stroke fill;text-shadow:none;}
+${R} .grade small{color:${c.deep};-webkit-text-stroke:0;}
+${R}.lose .grade{color:${c.loseDeep};}
+${R} .row{background:${c.card};box-shadow:0 0 0 2px ${c.main},0 5px 12px ${c.shade};}
+${R} .row span{color:#5a5560;}
+${R} .row b,${R} .row b.g{color:${c.deep};}
+${R}.lose .row b{color:${c.loseDeep};}
+${R} .tap{color:${c.card};}
+${P(k)}:not(.land) .rs-ui{top:566px;gap:6px;}
+${P(k)}:not(.land) .rs-ui .igs-combat-loot{gap:6px;}
+${P(k)}:not(.land) .rs-ui .igs-combat-loot-row{--loot-w:60px;gap:8px;}
+${P(k)}.land .rs-ui{top:446px;gap:6px;}
+${P(k)}.land .rs-ui .igs-combat-loot{gap:6px;}
+${P(k)}.land .rs-ui .igs-combat-loot-row{--loot-w:76px;gap:8px;}
+${P(k)}.land .rs-ui .igs-challenge-harvest{gap:2px;padding:0;}
+${P(k)}:not(.land) .rs-ui .igs-challenge-harvest{gap:2px;padding:0;}
+${P(k)} .rs-ui .igs-combat-btn.is-primary{background:${c.deep};color:#fff;}
+${P(k)} .rs-ui{padding:10px;border-radius:22px;background:${c.card};box-shadow:0 0 0 3px ${c.main},0 8px 18px ${c.shade};--igs-cb-warm:${c.deep};--igs-cb-ink:#1c1c1e;--igs-cb-ink-soft:#5a5560;color:#1c1c1e;}
+${P(k)} .rs-ui .igs-combat-loot-cap{color:${c.deep};text-shadow:none;}
+${P(k)} .rs-ui .igs-combat-loot-back{background:linear-gradient(160deg,${c.main},${c.deep});box-shadow:0 0 0 2px ${c.card} inset;}
+${P(k)} .rs-ui .igs-combat-loot-back::after{background:${c.card};}
+${P(k)} .rs-ui .igs-combat-loot-card:is([data-rarity="epic"],[data-rarity="mythic"],[data-rarity="signature"],[data-rarity="personal"]){--rar:${c.deep};}
+${P(k)} .rs-ui .igs-combat-loot-face{background:#fffaf2;box-shadow:0 0 0 2px var(--rar) inset;color:#1c1c1e;}
+${P(k)} .rs-ui .igs-challenge-harvest-row{color:#1c1c1e;}
+${P(k)} .rs-ui .igs-challenge-harvest-row .igs-combat-label,${P(k)} .rs-ui .igs-challenge-harvest-row b{color:${c.deep};}
+`;
+};
+
+export const COMBAT_STAGE_FX_POLISH_CSS = [BASE, INK, TECH, DARK_A, DARK_B, MYSTIC, soft('soft-a'), soft('soft-c'), VEIL, RESULT_BG, softRs('soft-a'), softRs('soft-c')].join('\n');
