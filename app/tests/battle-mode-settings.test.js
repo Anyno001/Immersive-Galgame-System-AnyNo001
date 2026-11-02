@@ -60,3 +60,19 @@ test('演出档位不读不写 battleFx：切档位保持原值，识别不受�
     assert.ok(restorePerformancePreset(reader, snapshot));
     assert.equal(reader.battleFx.enabled, true);
 });
+
+test('新手问卷勾战斗类卡片时打开剧情演出，切档位与全部关闭不碰它', async () => {
+    const { applyPerformanceProfile } = await import('../src/visual/igs-ui/performance-profile.js');
+    const picked = { battleFx: { enabled: false } };
+    applyPerformanceProfile(picked, { level: 'standard', types: ['battle'] });
+    assert.equal(picked.battleFx.enabled, true);
+    const unpicked = { battleFx: { enabled: true } };
+    applyPerformanceProfile(unpicked, { level: 'standard', types: ['romance'] });
+    assert.equal(unpicked.battleFx.enabled, true);
+    const offed = { battleFx: { enabled: true } };
+    applyPerformanceProfile(offed, { level: 'off', types: ['battle'] });
+    assert.equal(offed.battleFx.enabled, true);
+    const kept = { battleFx: { enabled: false } };
+    applyPerformanceProfile(kept, { level: 'full', types: ['battle'] }, { keepSpecial: true });
+    assert.equal(kept.battleFx.enabled, false);
+});

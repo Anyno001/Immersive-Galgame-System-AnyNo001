@@ -137,6 +137,10 @@ export function applyPerformanceProfile(reader, profile, { keepSpecial = false }
         if (skipSpecial && SPECIAL_FEATURES.includes(key)) continue;
         reader[key] = { ...plain(reader[key]), enabled };
     }
+    // 剧情演出归「战斗」页管，不在档位里；只在问卷勾了对应类型时打开，从不替用户关掉。
+    if (!keepSpecial && LEVELS[p.level] > 0 && p.types.some((id) => TYPE_FEATURES[id].includes('battleFx'))) {
+        reader.battleFx = { ...plain(reader.battleFx), enabled: true };
+    }
     const typewriter = plain(reader.typewriter);
     reader.typewriter = { ...typewriter, sound: { ...plain(typewriter.sound), enabled: LEVELS[p.level] > 0 && p.sound.includes('typing') } };
     if (p.device) reader.performance = { ...plain(reader.performance), quality: p.device === 'phone' ? 'low' : 'auto' };
