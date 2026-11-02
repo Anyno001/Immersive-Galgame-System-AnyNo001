@@ -49,7 +49,7 @@ import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
 import { normalizeBuild } from '../../scene/stats/stat-build.js';
 import { refreshStatsBuildStatus } from './stats-settings-fields.js';
-import { checkCombatExpansionReady } from './combat-settings.js';
+import { BATTLE_MODE_PATH, checkCombatExpansionReady, planBattleMode } from './combat-settings.js';
 import { createEnemyAtlasManager, getEnemyAtlas, setEnemyAtlas } from './combat-enemy-atlas.js';
 import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
 import { originChatStatus, runAttachedOriginOp } from './origin-attach.js';
@@ -507,6 +507,17 @@ export function createSettingsHost(deps) {
         if (path === 'readerSettings.skinDialogScale' && (value === 'auto' || value === 'fixed')) {
             setPath(draft, 'readerSettings.dialogAutoHeight', value === 'auto');
             return editOptions.liveInput ? { ok: true } : rerenderSettings();
+        }
+        // 「战斗」页三选一：虚拟 path，拆成 battleFx / combatExpansion 两个字段；选卡牌战斗走同一套开启前检查，不通过则退回原选项。
+        if (path === BATTLE_MODE_PATH) {
+            const plan = planBattleMode(value, value === 'card' ? checkCombatExpansionReady({
+                api: (options.global || globalThis).AutoCardUpdaterAPI || null,
+                autoIllustration: draft.bridge && draft.bridge.autoIllustration,
+            }) : null);
+            for (const [writePath, writeValue] of plan.writes) setPath(draft, writePath, writeValue);
+            if (!plan.ok && plan.message) showSettingsNotice(plan.message);
+            rerenderSettings();
+            return plan.ok ? { ok: true } : { ok: false, reason: plan.reason, missing: plan.missing };
         }
         // 卡牌战斗开启前检查数据库表与副 LLM；通过后数值系统一并打开，战斗开着时数值系统不能单独关。
         if (path === 'readerSettings.combatExpansion.enabled' && value === true) {

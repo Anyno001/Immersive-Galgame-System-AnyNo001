@@ -51,6 +51,8 @@ import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
 import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORIGIN_PERSONALITIES, ORIGIN_REPO_URL, normalizeOriginSettings } from './origin-settings.js';
 import { originChatStatus } from './origin-attach.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
+import { COMBAT_DIFFICULTY_KEYS, COMBAT_RULES } from '../../combat/rules.js';
+import { COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, BATTLE_MODES, BATTLE_MODE_LABELS, BATTLE_MODE_PATH, battleModeOf, normalizeCombatExpansionSettings } from './combat-settings.js';
 import { renderStatsArchive, renderStatsBuildFields, renderStatsBuildModeField, renderStatsMappingFields, renderStatsPromptFields, renderStatsRulesetField } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
@@ -208,13 +210,33 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
 
         const advancedOpen = (key) => (isOpenKey(key) ? ' open' : '');
 
+        // 战斗页：三选一由 battleFx / combatExpansion 两个字段推出，各方式的设置只在选中时显示。
+        const combatValues = memo(() => {
+            const cx = normalizeCombatExpansionSettings(reader && reader.combatExpansion);
+            const mode = battleModeOf(reader);
+            const p = 'readerSettings.combatExpansion';
+            const bp = 'readerSettings.battleFx';
+            const fx = (reader && reader.battleFx) || {};
+            return {
+                battleModeField: field(BATTLE_MODE_PATH, '战斗方式', segmentedInput(BATTLE_MODE_PATH, mode, BATTLE_MODES.map((k) => [k, BATTLE_MODE_LABELS[k]]), '战斗方式')),
+                battleOffNoteHidden: hiddenAttr(mode !== 'off'),
+                battleStoryHidden: hiddenAttr(mode !== 'story'),
+                battleCardHidden: hiddenAttr(mode !== 'card'),
+                battleStoryFields: checkbox(`${bp}.letterbox`, fx.letterbox, '战斗时加电影黑边') + checkbox(`${bp}.dash`, fx.dash, '出手冲刺'),
+                combatFields: field(`${p}.difficulty`, '难度', selectInput(`${p}.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
+                    + field(`${p}.reportDetail`, '战报详略', segmentedInput(`${p}.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略'))
+                    + field(`${p}.skin`, '面板皮肤', segmentedInput(`${p}.skin`, cx.skin, COMBAT_PANEL_SKINS.map((k) => [k, COMBAT_PANEL_SKIN_LABELS[k]]), '面板皮肤')),
+            };
+        });
+
         // 数值系统页：总开关关闭时下方整块隐藏，只留一行说明（§10）。
         const statsValues = memo(() => {
             const stats = normalizeStatsSettings(bridge.stats);
             let chat = null;
             try { chat = typeof options.statsChat === 'function' && !idx ? options.statsChat() : null; } catch (error) { chat = null; }
             // 卡牌战斗开启时数值系统随之打开，页面按已启用显示。
-            const statsOn = stats.enabled || Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true);
+            const combatOn = Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true);
+            const statsOn = stats.enabled || combatOn;
             const chatReady = Boolean(statsOn && chat && chat.hasChat && !chat.blocked);
             const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里启用。'
                 : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
@@ -222,6 +244,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             return {
                 statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
                 statsOffNoteHidden: hiddenAttr(statsOn),
+                statsCombatNoteHidden: hiddenAttr(!combatOn),
                 statsHidden: hiddenAttr(!statsOn),
                 autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
                 rulesetField: renderStatsRulesetField(stats.ruleset),
@@ -1078,6 +1101,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             return pageTabs() + renderTemplate(getPageTemplate(page), parseValues());
         case 'stats':
             return pageTabs() + renderTemplate(getPageTemplate(page), statsValues());
+        case 'combat':
+            return pageTabs() + renderTemplate(getPageTemplate(page), combatValues());
         case 'origin':
             return pageTabs() + renderTemplate(getPageTemplate(page), originValues());
         case 'source':
@@ -1107,6 +1132,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 scenes: `${sizeOf(assets.scenes)}个背景`,
                 ai: sources[normalizeImageSourceMode(imageApi.mode)] || '',
                 stats: normalizeStatsSettings(bridge.stats).enabled ? '已开启' : '未开启',
+                combat: BATTLE_MODE_LABELS[battleModeOf(reader)],
                 origin: normalizeOriginSettings(bridge.origin).enabled ? '已开启' : '未开启',
                 data: '备份 · 日志',
             };

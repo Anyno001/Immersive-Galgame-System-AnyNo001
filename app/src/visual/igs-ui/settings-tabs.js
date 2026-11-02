@@ -396,12 +396,36 @@ const EVENTCG_TEMPLATE = `
 
 export { RULES_TEMPLATE, WARDROBE_TEMPLATE, EVENTCG_TEMPLATE, SCENE_HEAD_TEMPLATE, PARSE_TEMPLATE, BACKUP_TEMPLATE };
 
+// 战斗：最上面三选一决定战斗方式；各方式的设置只在选中时显示。
+const COMBAT_TEMPLATE = `
+<div class="igs-settings-grid" data-settings-pane="combat">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">战斗</div>
+    <div class="igs-settings-row">{{battleModeField}}</div>
+    <div class="igs-source-filter-note"{{battleOffNoteHidden}}>战斗不触发演出与面板。</div>
+  </div>
+  <div class="igs-settings-sub"{{battleStoryHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-settings-section">{{battleStoryFields}}</div>
+      <div class="igs-source-filter-note">数值系统开启时，由数值系统速算胜负与伤势。</div>
+    </div>
+  </div>
+  <div class="igs-settings-sub"{{battleCardHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-note">开启条件：已安装数据库（shujuku），并在自动插图设置里接好写词模型（副 LLM）。开启后数值系统随之启用。</div>
+      <div class="igs-source-filter-grid">{{combatFields}}</div>
+    </div>
+  </div>
+</div>
+`.trim();
+
 // 数值系统：总开关在最上；关闭时下方整块隐藏，只留一行说明。
 const STATS_TEMPLATE = `
 <div class="igs-settings-grid" data-settings-pane="stats">
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">数值系统</div>
     <div class="igs-settings-row">{{statsToggle}}</div>
+    <div class="igs-source-filter-note"{{statsCombatNoteHidden}}>卡牌战斗开启中，数值系统随之启用，不能单独关闭。</div>
     <div class="igs-source-filter-note"{{statsOffNoteHidden}}>开启后，好感、技能、体力与金钱由脚本掷骰结算，AI 只报告发生了什么。每个聊天第一次使用时可以选择是否启用。</div>
   </div>
   <div class="igs-settings-sub"{{statsHidden}}>
@@ -539,6 +563,7 @@ const PAGE_TEMPLATES = Object.freeze({
     rules: RULES_TEMPLATE,
     parse: PARSE_TEMPLATE,
     stats: STATS_TEMPLATE,
+    combat: COMBAT_TEMPLATE,
     data: BACKUP_TEMPLATE,
     logs: IMAGE_LOGS_TEMPLATE,
 });

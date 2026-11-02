@@ -9,9 +9,10 @@ import {
 } from '../src/visual/igs-ui/origin-settings.js';
 import { getPageTemplate } from '../src/visual/igs-ui/settings-tabs.js';
 
-test('设置器分类：「随身系统」紧跟「数值系统」，页面指回自己的分类', () => {
+test('设置器分类：「随身系统」紧跟「战斗」，「战斗」紧跟「数值系统」，页面指回自己的分类', () => {
     const ids = SETTINGS_CATEGORIES.map(([id]) => id);
-    assert.equal(ids[ids.indexOf('stats') + 1], 'origin');
+    assert.equal(ids[ids.indexOf('stats') + 1], 'combat');
+    assert.equal(ids[ids.indexOf('combat') + 1], 'origin');
     assert.equal(SETTINGS_CATEGORIES.find(([id]) => id === 'origin')[1], '随身系统');
     assert.ok(SETTINGS_PAGES.some(([id, , category]) => id === 'origin' && category === 'origin'));
     assert.equal(categoryOfPage('origin'), 'origin');

@@ -42,3 +42,27 @@ export function checkCombatExpansionReady({ api, autoIllustration } = {}) {
   }
   return { ok: true };
 }
+
+// 设置器「战斗」页的三选一：只是界面，背后仍写 battleFx.enabled 与 combatExpansion.enabled，虚拟 path 不入配置。
+export const BATTLE_MODE_PATH = 'readerSettings.__battleMode';
+export const BATTLE_MODES = Object.freeze(['off', 'story', 'card']);
+export const BATTLE_MODE_LABELS = Object.freeze({ off: '关闭', story: '剧情演出', card: '卡牌战斗' });
+
+export function battleModeOf(reader) {
+  const source = asObject(reader);
+  if (asObject(source.combatExpansion).enabled === true) return 'card';
+  return asObject(source.battleFx).enabled === true ? 'story' : 'off';
+}
+
+// 返回要写入草稿的 [path, value] 列表。选「卡牌战斗」时 ready 未通过则不开启（combat 置 false、battleFx 不动），由调用方提示 message。
+export function planBattleMode(mode, ready) {
+  const fx = 'readerSettings.battleFx.enabled';
+  const cx = 'readerSettings.combatExpansion.enabled';
+  if (mode === 'card') {
+    if (!ready || ready.ok !== true) return { ok: false, writes: [[cx, false]], reason: ready && ready.reason, missing: ready && ready.missing, message: (ready && ready.message) || '' };
+    return { ok: true, writes: [[cx, true], ['bridge.stats.enabled', true]] };
+  }
+  if (mode === 'story') return { ok: true, writes: [[fx, true], [cx, false]] };
+  if (mode === 'off') return { ok: true, writes: [[fx, false], [cx, false]] };
+  return { ok: false, writes: [], reason: 'battle-mode-unknown', message: '' };
+}

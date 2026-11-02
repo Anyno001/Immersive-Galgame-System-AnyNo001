@@ -8,8 +8,6 @@ import { collectGrammarBlocks } from './tag-grammar.js';
 import { COMIC_TONE_KINDS, COMIC_TONE_LABELS } from './comic-settings.js';
 import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
-import { COMBAT_DIFFICULTY_KEYS, COMBAT_RULES } from '../../combat/rules.js';
-import { COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS } from './combat-settings.js';
 import { LOG_PERCENTS } from './log-reader-settings.js';
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
@@ -89,11 +87,6 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.titleCard.onTime`, s.titleCard.onTime, '时间变化时显示'));
     const favor = featureRow(more, 'favor', `${p}.favorToast.enabled`, s.favorToast.enabled, '数值变化提示', '好感等升降');
     const itemFx = featureRow(more, 'item-fx', `${p}.itemFx.enabled`, s.itemFx.enabled, '获得物品演出', '', checkbox(`${p}.itemFx.mention`, s.itemFx.mention, '正文里点亮已获得的物品名'));
-    const battleFx = featureRow(more, 'battle-fx', `${p}.battleFx.enabled`, s.battleFx.enabled, '战斗演出', s.combatExpansion.enabled ? '已由战斗扩展接管' : '', checkbox(`${p}.battleFx.letterbox`, s.battleFx.letterbox, '战斗时加电影黑边') + checkbox(`${p}.battleFx.dash`, s.battleFx.dash, '出手冲刺'));
-    const cx = s.combatExpansion;
-    const combat = featureRow(more, 'combat-expansion', `${p}.combatExpansion.enabled`, cx.enabled, '卡牌战斗', '', field(`${p}.combatExpansion.difficulty`, '难度', selectInput(`${p}.combatExpansion.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
-        + field(`${p}.combatExpansion.reportDetail`, '战报详略', segmentedInput(`${p}.combatExpansion.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略'))
-        + field(`${p}.combatExpansion.skin`, '面板皮肤', segmentedInput(`${p}.combatExpansion.skin`, cx.skin, COMBAT_PANEL_SKINS.map((k) => [k, COMBAT_PANEL_SKIN_LABELS[k]]), '面板皮肤')));
     // 非人演出跟随战斗演出：总开关关闭时置灰，不另计入档位。
     const battleCreature = perfItem(more, 'battle-creature', checkbox(`${p}.battleFx.creature`, s.battleFx.creature, '非人演出', !s.battleFx.enabled));
     const resultFx = featureRow(more, 'result-fx', `${p}.resultFx.enabled`, s.resultFx.enabled, '选项检定掷骰');
@@ -143,5 +136,5 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
     const dlc = dlcDefs.length
         ? perfItem(more, 'dlc-fx', `<span>扩展演出（DLC）</span>`, { hint: `${dlcDefs.length}个`, detail: grid(dlcDefs.map((def) => checkbox(`${p}.dlcFx.${def.kind}`, dlcOff[def.kind] !== false, def.label)).join('')) })
         : '';
-    return { style, manga, heartbeat, flash, title, favor, itemFx, battleFx, battleCreature, combat, resultFx, tags, clash, innerDemon, dlc, sound, comic, logReader, mangaBack, crowd, notifyCenter };
+    return { style, manga, heartbeat, flash, title, favor, itemFx, battleCreature, resultFx, tags, clash, innerDemon, dlc, sound, comic, logReader, mangaBack, crowd, notifyCenter };
 }
