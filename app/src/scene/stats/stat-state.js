@@ -21,7 +21,7 @@ function skillTable(names, value) {
 export function createStatsState({ day = 1, special = 50, money = 0, prefs = null } = {}) {
     return {
         version: STATS_VERSION,
-        clock: { day, lastHour: null, floorsSinceDay: 0, stayedUp: false },
+        clock: { day, lastHour: null, floorsSinceDay: 0, stayedUp: false, challenges: 0, lastChallengeFloor: null, lastChallengeReport: null },
         protagonist: {
             skills: skillTable(DEFAULT_SPECIAL_SKILLS, special),
             prefs: prefs && typeof prefs === 'object' ? { ...prefs } : null,

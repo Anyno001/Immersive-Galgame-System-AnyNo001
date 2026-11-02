@@ -9,6 +9,7 @@
 
 - combat 只依赖 scene 的解析结果与经参数注入的 data/shujuku 适配器；不导入 visual、host、core。
 - visual 与 core 依赖 combat；宿主发送、副 LLM、存储均由调用方传入。
+- `challenge-*` 只依赖 combat 内部、scene 的标签解析常量与数值侧传入的参数，不导入 visual、host、core；数值结算放在 `scene/stats/stat-challenge.js`，由数值侧自己读战报，combat 不读数值存档。
 
 ## 文件
 
@@ -52,8 +53,16 @@
 - 按剧情给初始装备（`profile-gear`，助手 10-31）：`generation.js` 的 `profileGearEntity(name)` 产出可选实体（key `gear:<技能角色 ID>`，input `{ name, lore? }`），副 LLM 回 `{ gear: [[名称, 部位, 稀有度, 六维键, 被动模板键, 简述?], …] }`，0–4 件、每部位至多 1 件；剧情与设定没写到的装备不给，空列表合法。`generation-assembly.js` 的 `assembleInitialGear` 组装 equip 载荷：加成按稀有度（`GEAR_BONUS_BY_RARITY`），是否带被动按 `gearHasPassive` 由程序决定，被动受 `allySkillDamageCap` 约束；同部位或同名重复拒收并定向修正。只随卡组档案生成请求：`session.js` 首战准备生成主角卡组档案时同批请求（锚定开战楼），`combat-services.generateDeck` 面板手动生成或主角预生成卡组时同批请求（锚定最新楼层）；技能档案角色与敌人不发，属 `NONBLOCKING_KINDS`，失败只记 `gearDiagnostics`。档案读回后经 `ledger.grantGeneratedGear` → `ledger.grantInitialGear(characterId, items, { anchor? })` 写 equip：`tagHash = INIT_GEAR_TAG_HASH`（`init-gear`）、`occurrence` 为 `GEAR_SLOTS` 部位序号，ID 确定、重复写幂等；`anchorProblem` 对它只核对楼层与 swipe。主角启用物品表时与其他 equip 一样经 `appendStock` 入背包。
 - 专属卡成长：`generation.js` 的 `growthEntity` 遇到与档案专属卡同名（NFKC、去空白、小写）的 learn / upgrade 时直接给出条目（未持有 → learn 解锁，已持有 → upgrade），不请求副 LLM；副 LLM 的升级候选排除专属卡。`ledger.js` 只认档案登记过的专属卡（否则 `combat-signature-unknown`），专属卡精进只标升级形态、不替换卡面，奖励不得选专属卡（`combat-reward-signature`）。
 
+- 日常挑战（`docs/DAILY_CHALLENGE_DESIGN.md`，第一阶段）：把卡牌引擎当作「过程」使用，引擎、模板与重放原样复用，只在适配层换入口、说法与后果。
+  - `challenge-labels.js`：说法映射表（难关、意志、进展、稳住、挑战，状态名慌乱 / 破绽 / 煎熬，难关出招别名），只读常量与查表，不含逻辑；内部字段名不变。
+  - `challenge-cards.js`：领域到模板键映射 `DOMAIN_CARDS` 与 `buildChallengeDeck({ domain, skillValue })`，固定 20 张（基础攻击 3、基础防御 3、领域牌 10、生活牌 4）；技能值 0–29 / 30–59 / 60–79 / 80 以上对应 common / uncommon / rare / epic，epic 档只有一张独门牌。只用既有模板与稀有度窗口，结果必须通过 `validateDeck`；领域不在映射表时走通用牌组。
+  - `challenge-foes.js`：难关模板登记（面试官、评委、对方、截稿、长辈、考官），只登记模板键、日常名称、出招模板键与匹配词；`pickFoe(event, domain)` 先按事件名词、再按领域、最后取兜底难关。
+  - `challenge-setup.js`：`buildChallengeSetup({ start, state, user })`，纯函数，不读写存储；`state` 是数值侧传入的主角快照 `{ bars: { stamina, stress }, skills }`。setup 带 `challenge: { event, domain, tier, stake, foe, rounds }`，`combatId` 前缀 `ch`（`challengeCombatIdFor`）。意志 `willFor` 按体力低、压力高各降一档（阈值与数值侧一致，由测试守住）；难关厚度 `foeThickness` 由 `scaleEnemyStats` 加按托管模拟取值的校准倍率。引擎不改：回合上限（轻松 4 / 普通 5 / 艰难 6）在适配层由 `challengeResultOf(state, rounds)` 判定，`state.turn` 超过上限仍无结局时按进展比例（不低于五成）判成败；`challengeOutcomeOf(result, willRatio, { byLimit })` 得出圆满 / 勉强 / 失败 / 放弃，达到回合上限的成功最多算勉强。建局不需要 `classRef` 或职业档案，单位直接带内联卡组与牌定义。
+  - `challenge-report.js`：`buildChallengeReport`，只写结局词与相对描述，不含数值，复用 `reportIdFor`；战报块为 `<igs-challenge-report id result outcome tier stake domain>`；`parseChallengeReport` 与 `challengeDirectiveOf` 供数值侧读回并合成 `challenge` 指令。`CHALLENGE_SKIP_TEXT` 为不使用卡牌结算时的提示，不触发结算。
+
 ## 约束
 
+- 日常局不写伤势、不写战斗账本，不产出战利品、翻牌与成长标签；`setup.challenge` 存在时 `session.prepare` 不调用档案生成（会话接线随第一阶段下一步落地，届时在 `session.js` 与 `combat-services.js` 条目补一句）。
 - schema 校验只拒收不修正：未知字段、越界数值、超预算、未知效果一律返回 `{ ok: false, errors: [{ path, reason, detail? }] }`。可选字段只在缺省时取默认值。
 - 组装层只对模型给出的数值（费用、HP、每级 HP、列表长度、名称长度）夹回范围并记 `combat-value-clamped`；模板键、原型、必填被动等结构错误仍拒收并定向修正。组装产物必须再过 schema，组装不得绕过校验。
 - 副 LLM 不写效果原语：只从模板目录选键，效果由模板生成；旧档案（完整效果结构）照常按 schema 读取。

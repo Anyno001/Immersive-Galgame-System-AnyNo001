@@ -5,6 +5,7 @@ import { applyKeyEvent } from './stat-favor-events.js';
 import { matchSkill } from './stat-skill-match.js';
 import { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withSkills } from './stat-state.js';
 import { COMBAT_SKILLS, DODGE_SKILLS } from './stat-registry.js';
+import { settleChallenge } from './stat-challenge.js';
 import { PROTAGONIST, bestCombatSkill, createEngine, profileOf, resolveCheck } from './stat-engine.js';
 
 export { COMBAT_SKILLS, DODGE_SKILLS };
@@ -151,12 +152,12 @@ export function applyWork(state, directive, ctx) {
     return next;
 }
 
-// 一楼最多一场战斗、一次打工。
+// 一楼最多一场战斗、一次打工、一场日常挑战。
 export function settleCombat(state, directives, ctx) {
     let next = state;
     const battle = directives.find((d) => d.kind === 'battle');
     const work = directives.find((d) => d.kind === 'work');
     if (battle) next = applyBattle(next, battle, ctx);
     if (work) next = applyWork(next, work, ctx);
-    return next;
+    return settleChallenge(next, directives, ctx);
 }

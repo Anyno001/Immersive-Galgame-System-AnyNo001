@@ -89,7 +89,7 @@ export function settleDay(state, { random, changes = [] } = {}) {
     let next = withBars(state, nextBars);
     next = grow(next, random, changes);
     next = { ...next, characters: coolCharacters(next.characters, day, 1, changes) };
-    return withClock(next, { day, floorsSinceDay: 0, stayedUp: false });
+    return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
 }
 
 // 成长次数累计进 protagonist.growth（D&D 资历档由它推出，v2 §4.2）。
@@ -110,12 +110,12 @@ export function settleSkip(state, days, { random, changes = [] } = {}) {
     let next = withBars(state, nextBars);
     next = grow(next, random, changes);
     next = { ...next, characters: coolCharacters(next.characters, day, days, changes) };
-    return withClock(next, { day, floorsSinceDay: 0, stayedUp: false });
+    return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
 }
 
 // 软跨天：连续 30 楼没有跨天时只清零每日上限，不恢复、不成长，天数不变（易错点 D2）。
 export function settleSoftDay(state) {
     const { day } = state.clock;
     const characters = Object.fromEntries(Object.entries(state.characters).map(([name, c]) => [name, resetDaily(c, day)]));
-    return withClock({ ...state, characters }, { floorsSinceDay: 0 });
+    return withClock({ ...state, characters }, { floorsSinceDay: 0, challenges: 0 });
 }
