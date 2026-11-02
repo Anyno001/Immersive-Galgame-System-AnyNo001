@@ -184,6 +184,8 @@ export function countEnabledPerformance(reader) {
     let sound = 0;
     for (const feature of PERFORMANCE_FEATURES) {
         if (!isPerformanceFeatureOn(src, feature.key)) continue;
+        // 卡牌战斗开启时战斗规则取代剧情演出，保留的 battleFx.enabled 不计入。
+        if (feature.key === 'battleFx' && src.combatExpansion && src.combatExpansion.enabled === true) continue;
         if (feature.group === 'sound') sound += 1;
         else performance += 1;
     }

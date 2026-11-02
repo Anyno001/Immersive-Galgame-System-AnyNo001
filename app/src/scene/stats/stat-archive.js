@@ -3,6 +3,7 @@
 import { stageOf } from './stat-favor.js';
 import { currentStatsState, ledgerKey } from './stat-ledger.js';
 import { PROTAGONIST, profileOf } from './stat-engine.js';
+import { walletBalance } from './stat-bars.js';
 
 // 主角战斗生命（{hp, maxHp, down}）；引擎没有读取器或没有数据时为 null。
 function vitalsOf(engine) {
@@ -29,7 +30,7 @@ export function displaySkill(engine, profile) {
     return `${bonus >= 0 ? '+' : ''}${bonus}${prof === 2 ? ' 专精' : prof === 1 ? ' 熟练' : ''}`;
 }
 
-export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false } = {}) {
+export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0 } = {}) {
     if (!ledger) return null;
     const state = currentStatsState(ledger);
     const rows = [];
@@ -59,6 +60,8 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
     return {
         day: state.clock ? state.clock.day : null,
         bars: { ...((state.protagonist && state.protagonist.bars) || {}) },
+        // 金钱显示合并余额（数值侧金钱 + 战斗侧积分），bars.money 仍是数值侧原值。
+        wallet: walletBalance(state.protagonist && state.protagonist.bars, walletExtra),
         vitals: vitalsOf(engine),
         skills,
         characters,

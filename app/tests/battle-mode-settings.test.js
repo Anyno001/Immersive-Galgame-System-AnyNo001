@@ -34,3 +34,11 @@ test('战斗分类紧挨数值系统，搜索能找到', () => {
     assert.equal(SETTINGS_CATEGORIES[idx - 1][0], 'stats');
     for (const q of ['战斗', '卡牌战斗', '战斗演出']) assert.ok(searchSettings(q, SETTINGS_SEARCH_INDEX).some((e) => e.target.page === 'combat'), q);
 });
+
+test('卡牌战斗开启时，保留的 battleFx.enabled 不计入演出数量', async () => {
+    const { countEnabledPerformance } = await import('../src/visual/igs-ui/performance-settings-layout.js');
+    const base = { battleFx: { enabled: true } };
+    const story = countEnabledPerformance(base).performance;
+    assert.equal(countEnabledPerformance({ ...base, combatExpansion: { enabled: true } }).performance, story - 1);
+    assert.equal(countEnabledPerformance({ ...base, combatExpansion: { enabled: false } }).performance, story);
+});
