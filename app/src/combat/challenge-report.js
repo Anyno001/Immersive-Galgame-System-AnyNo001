@@ -35,7 +35,7 @@ function costSentence(outcome, stake, prize) {
 }
 
 // outcome 为 CHALLENGE_OUTCOMES 之一，也可以只给引擎 result 与 willRatio 由此处换算；willRatio 为剩余意志比例，byLimit 表示回合上限到时按进展判定。
-export function buildChallengeReport({ combatId, event = '', result, outcome, willRatio = 0, byLimit = false, tier = '普通', stake = '压力', domain = '', detail = 'normal', foe = '', counterpart = '', allies = [] } = {}) {
+export function buildChallengeReport({ combatId, event = '', result, outcome, willRatio = 0, byLimit = false, tier = '普通', costTier = tier, stake = '压力', domain = '', detail = 'normal', foe = '', counterpart = '', allies = [] } = {}) {
     const word = outcome || (result ? challengeOutcomeOf(result, willRatio, { byLimit }) : null);
     if (!combatId || !Object.hasOwn(RESULT_OF, word)) return { ok: false, reason: 'challenge-report-invalid' };
     const reportId = reportIdFor(combatId);
@@ -43,9 +43,9 @@ export function buildChallengeReport({ combatId, event = '', result, outcome, wi
     const parts = [`挑战：${sanitize(event) || '这次挑战'}`, `结果：${OUTCOME_WORDS[word]}`];
     if (detail !== CHALLENGE_REPORT_DETAIL.brief) {
         if (helpers.length) parts.push(`${helpers.join(NAME_LIST_SEPARATOR)}在一旁相助`);
-        parts.push(...processSentences(word, Number(willRatio) || 0, byLimit === true), costSentence(word, stake, challengeHarvest(foe, word, tier).prize));
+        parts.push(...processSentences(word, Number(willRatio) || 0, byLimit === true), costSentence(word, stake, challengeHarvest(foe, word, costTier).prize));
     }
-    const head = `<igs-challenge-report id="${reportId}" result="${RESULT_OF[word]}" outcome="${word}" tier="${sanitize(tier)}" stake="${sanitize(stake)}" domain="${sanitize(domain)}" foe="${sanitize(foe)}" counterpart="${sanitize(counterpart)}" allies="${helpers.join(NAME_LIST_SEPARATOR)}">`;
+    const head = `<igs-challenge-report id="${reportId}" result="${RESULT_OF[word]}" outcome="${word}" tier="${sanitize(tier)}" cost="${sanitize(costTier)}" stake="${sanitize(stake)}" domain="${sanitize(domain)}" foe="${sanitize(foe)}" counterpart="${sanitize(counterpart)}" allies="${helpers.join(NAME_LIST_SEPARATOR)}">`;
     return { ok: true, text: `${head}\n（${parts.filter(Boolean).join('。')}。）\n</igs-challenge-report>`, result: RESULT_OF[word], reportId };
 }
 
@@ -54,13 +54,13 @@ export function parseChallengeReport(text) {
     if (!match) return null;
     const attrs = Object.fromEntries([...match[1].matchAll(/([a-z]+)="([^"]*)"/g)].map((pair) => [pair[1], pair[2]]));
     if (!REPORT_ID_PATTERN.test(attrs.id || '') || !CHALLENGE_OUTCOMES.includes(attrs.outcome)) return null;
-    return { reportId: attrs.id, result: RESULT_OF[attrs.outcome], outcome: attrs.outcome, tier: attrs.tier || '普通', stake: attrs.stake || '压力', domain: attrs.domain || '', foe: attrs.foe || '', counterpart: attrs.counterpart || '', allies: (attrs.allies || '').split(NAME_LIST_SEPARATOR).filter(Boolean) };
+    return { reportId: attrs.id, result: RESULT_OF[attrs.outcome], outcome: attrs.outcome, tier: attrs.tier || '普通', costTier: attrs.cost || attrs.tier || '普通', stake: attrs.stake || '压力', domain: attrs.domain || '', foe: attrs.foe || '', counterpart: attrs.counterpart || '', allies: (attrs.allies || '').split(NAME_LIST_SEPARATOR).filter(Boolean) };
 }
 
 // 数值侧读到战报楼后合成的 challenge 指令；floor 为战报所在楼层号。
 export function challengeDirectiveOf(report, floor = null) {
     return report ? {
-        kind: 'challenge', reportId: report.reportId, outcome: report.outcome, tier: report.tier, stake: report.stake, domain: report.domain, floor,
-        counterpart: report.counterpart || '', prize: challengeHarvest(report.foe, report.outcome, report.tier).prize,
+        kind: 'challenge', reportId: report.reportId, outcome: report.outcome, tier: report.costTier, stake: report.stake, domain: report.domain, floor,
+        counterpart: report.counterpart || '', prize: challengeHarvest(report.foe, report.outcome, report.costTier).prize,
     } : null;
 }

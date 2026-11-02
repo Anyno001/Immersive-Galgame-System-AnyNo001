@@ -667,7 +667,7 @@ export function createCombatSession(options = {}) {
         if (!challenge || !end) return { ok: false, reason: 'challenge-report-invalid' };
         return buildChallengeReport({
             combatId: session.combatId, event: challenge.event, result: end.result, willRatio: end.willRatio, byLimit: end.byLimit,
-            tier: challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake)), stake: challenge.stake, domain: challenge.domain,
+            tier: challenge.tier, costTier: challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake)), stake: challenge.stake, domain: challenge.domain,
             detail: resolveOption(options.reportDetail) || 'normal', foe: challenge.foe, counterpart: challenge.counterpart, allies: challenge.allies,
         });
     }

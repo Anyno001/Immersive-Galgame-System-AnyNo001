@@ -58,7 +58,7 @@ test('事件名里会破坏标记结构的字符被去掉；缺少标识或结�
 test('战报标记能被数值侧读回并合成 challenge 指令', () => {
     const report = buildChallengeReport({ ...base, outcome: '失败', tier: '艰难', stake: '体力' });
     const parsed = parseChallengeReport(`（前文）\n${report.text}`);
-    assert.deepEqual(parsed, { reportId: report.reportId, result: 'lose', outcome: '失败', tier: '艰难', stake: '体力', domain: '话术', foe: '', counterpart: '', allies: [] });
+    assert.deepEqual(parsed, { reportId: report.reportId, result: 'lose', outcome: '失败', tier: '艰难', costTier: '艰难', stake: '体力', domain: '话术', foe: '', counterpart: '', allies: [] });
     assert.deepEqual(challengeDirectiveOf(parsed, 31), { kind: 'challenge', reportId: report.reportId, outcome: '失败', tier: '艰难', stake: '体力', domain: '话术', floor: 31, counterpart: '', prize: null });
     assert.equal(parseChallengeReport('没有战报'), null);
     assert.equal(parseChallengeReport('<igs-challenge-report id="bad id" outcome="圆满">'), null);
@@ -69,4 +69,15 @@ test('战报标记能被数值侧读回并合成 challenge 指令', () => {
 test('跳过文案不是战报，数值侧读不出结算指令', () => {
     assert.equal(parseChallengeReport(CHALLENGE_SKIP_TEXT), null);
     assert.doesNotMatch(CHALLENGE_SKIP_TEXT, /[0-9０-９]/);
+});
+
+test('代价档位偏移后，战报仍写标签原写的难度，代价档位记在 cost 属性，结算指令用代价档位', () => {
+    const report = buildChallengeReport({ ...base, outcome: '失败', tier: '艰难', costTier: '普通', stake: '金钱' });
+    assert.match(report.text, /tier="艰难" cost="普通"/);
+    const parsed = parseChallengeReport(report.text);
+    assert.equal(parsed.tier, '艰难');
+    assert.equal(parsed.costTier, '普通');
+    assert.equal(challengeDirectiveOf(parsed, 5).tier, '普通');
+    const legacy = parseChallengeReport('<igs-challenge-report id="rabc1" outcome="失败" tier="艰难" stake="金钱">');
+    assert.equal(legacy.costTier, '艰难');
 });

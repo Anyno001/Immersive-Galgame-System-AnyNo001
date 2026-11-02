@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createCombatServices } from '../src/core/combat-services.js';
 import { challengeQuota, parseChallengeStart } from '../src/scene/challenge-directives.js';
 import { applyChallenge } from '../src/scene/stats/stat-challenge.js';
 import { settleDay, settleSkip, settleSoftDay } from '../src/scene/stats/stat-day.js';
@@ -51,4 +52,25 @@ test('跨天、跳过多天、软跨天都清零当天挑战次数，冷却楼�
 test('旧存档没有挑战字段时额度按零计', () => {
     const legacy = { ...createStatsState(), clock: { day: 3, lastHour: null, floorsSinceDay: 0, stayedUp: false } };
     assert.equal(challengeQuota(legacy, { floor: 1 }).ok, true);
+});
+
+test('额度用完或冷却中时，带挑战标签的楼不自动备战，也不调副模型', async () => {
+    const chat = [{ is_user: false, mes: '面试官抬起头。\n[igs-challenge:终面|话术|普通|压力]', swipe_id: 0 }];
+    const requests = [];
+    const build = (clock) => createCombatServices({
+        global: { SillyTavern: { getContext: () => ({ chat }) } },
+        request: async (...args) => { requests.push(args); throw new Error('no llm'); }, retryDelays: [],
+        getReaderSettings: () => ({ combatExpansion: { enabled: true, kind: 'daily' } }),
+        getChatId: () => 'chat-q', getUserName: () => '我', getAutoIllustration: () => ({}),
+        getChallengeSnapshot: () => ({ bars: { stamina: 100, stress: 0 }, skills: {}, present: [], favors: {}, clock }),
+    });
+    const blocked = await build({ challenges: 99 }).autoPrepare(0);
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.reason, 'challenge-quota');
+    assert.equal(requests.length, 0);
+    const cooling = await build({ challenges: 0, lastChallengeFloor: 0 }).autoPrepare(0);
+    assert.equal(cooling.reason, 'challenge-quota');
+    assert.equal(requests.length, 0);
+    const open = await build({ challenges: 0 }).autoPrepare(0);
+    assert.notEqual(open.reason, 'challenge-quota');
 });

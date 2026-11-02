@@ -227,8 +227,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 battleCardHidden: hiddenAttr(mode !== 'card'),
                 battleStoryFields: checkbox(`${bp}.letterbox`, fx.letterbox, '战斗时加电影黑边') + checkbox(`${bp}.dash`, fx.dash, '出手冲刺'),
                 combatDailyHidden: hiddenAttr(mode !== 'card' || cx.kind === 'combat'),
-                combatDailyFields: field(`${p}.daily.perDay`, '每个游戏日次数', selectInput(`${p}.daily.perDay`, cx.daily.perDay, [1, 2, 3].map((n) => [n, `${n} 次`])))
-                    + field(`${p}.daily.cooldownFloors`, '两次之间至少间隔', selectInput(`${p}.daily.cooldownFloors`, cx.daily.cooldownFloors, DAILY_COOLDOWN_CHOICES.map((n) => [n, n ? `${n} 楼` : '不限'])))
+                combatDailyFields: field(`${p}.daily.perDay`, '每个游戏日次数', selectInput(`${p}.daily.perDay`, cx.daily.perDay, [1, 2, 3].map((n) => [n, `${n}次`])))
+                    + field(`${p}.daily.cooldownFloors`, '两次之间至少间隔', selectInput(`${p}.daily.cooldownFloors`, cx.daily.cooldownFloors, DAILY_COOLDOWN_CHOICES.map((n) => [n, n ? `${n}楼` : '不限'])))
                     + field(`${p}.daily.stake`, '失败代价', segmentedInput(`${p}.daily.stake`, cx.daily.stake, DAILY_STAKES.map((k) => [k, DAILY_STAKE_LABELS[k]]), '失败代价'))
                     + checkbox(`${p}.daily.allowEscape`, cx.daily.allowEscape, '允许放弃'),
                 combatFields: field(`${p}.kind`, '对决类型', segmentedInput(`${p}.kind`, cx.kind, Object.entries(COMBAT_KIND_LABELS), '对决类型'))

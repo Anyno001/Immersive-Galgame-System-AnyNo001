@@ -1267,6 +1267,7 @@ export function createCombatServices(options = {}) {
             return Promise.resolve({ ok: false, reason: 'combat-action-threw' });
         }
         if (!located.ok) return Promise.resolve({ ok: false, reason: located.reason });
+        if (located.challenge === true && challengePromptQuota(floor)?.ok === false) return Promise.resolve({ ok: false, reason: 'challenge-quota' });
         if (PREPARE_BUSY_STATUSES.includes(state.status)) return Promise.resolve({ ok: false, reason: 'combat-busy' });
         if (state.combatId === located.combatId && PREPARE_DONE_STATUSES.includes(state.status)) return Promise.resolve({ ok: true, unchanged: true, session: state });
         let prepared;

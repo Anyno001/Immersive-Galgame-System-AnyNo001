@@ -10,6 +10,7 @@ import { settleFloorText } from '../src/scene/stats/stat-settle.js';
 import { createStatsState } from '../src/scene/stats/stat-state.js';
 import { IGS_INLINE_DIRECTIVE_NAMES, stripMarkerDirectives } from '../src/scene/directive-tags.js';
 import { challengeDirectiveOf } from '../src/combat/challenge-report.js';
+import { deriveChallengeHistory } from '../src/combat/challenge-history.js';
 
 const TAG = '[igs-challenge:终面|话术|普通|压力]';
 const memoryStorage = () => {
@@ -17,7 +18,7 @@ const memoryStorage = () => {
     return { getItem: (key) => (data.has(key) ? data.get(key) : null), setItem: (key, value) => data.set(key, String(value)), removeItem: (key) => data.delete(key) };
 };
 
-function makeSession({ kinds = { combat: false, challenge: true }, appended = [], storage = memoryStorage(), chat = [{ is_user: false, mes: `面试官抬起头。\n${TAG}`, swipe_id: 0 }] } = {}) {
+function makeSession({ kinds = { combat: false, challenge: true }, appended = [], storage = memoryStorage(), stake = 'normal', chat = [{ is_user: false, mes: `面试官抬起头。\n${TAG}`, swipe_id: 0 }] } = {}) {
     const requests = [];
     const sent = [];
     const session = createCombatSession({
@@ -26,7 +27,7 @@ function makeSession({ kinds = { combat: false, challenge: true }, appended = []
         ledger: { append: async (entries) => { appended.push(...entries); return { ok: true }; }, scan: async () => { throw new Error('日常局不应扫描战斗账本'); }, effectiveState: async () => { throw new Error('日常局不应读取账本'); } },
         tables: { append: async () => { throw new Error('日常局不应写档案'); } },
         send: async (text) => { chat.push({ is_user: true, mes: text }); sent.push(text); return { ok: true, messageId: chat.length - 1 }; },
-        challenge: { state: () => ({ bars: { stamina: 100, stress: 0 }, skills: { 话术: { value: 60 } }, present: ['小林'], favors: { 小林: 40 } }), allowEscape: true, stake: 'normal' },
+        challenge: { state: () => ({ bars: { stamina: 100, stress: 0 }, skills: { 话术: { value: 60 } }, present: ['小林'], favors: { 小林: 40 } }), allowEscape: true, stake },
         retryDelays: [],
     });
     return { session, chat, sent, requests };
@@ -195,5 +196,18 @@ test('面板按日常说法渲染大厅、对局、结算与挑战记录', async
     const win = buildChallengeReport({ combatId: 'ch|0|0|a|0', event: '期末考试', outcome: '圆满', tier: '普通', stake: '压力', domain: '学习', foe: 'examiner' });
     const history = deriveChallengeHistory([{ floor: 4, text: win.text }]);
     const historyHtml = renderCombatPanelHtml({ status: 'idle', challenge: true, historyOpen: true, history });
-    assert.ok(historyHtml.includes('期末考试') && historyHtml.includes('初战告捷') && historyHtml.includes('第 4 楼'));
+    assert.ok(historyHtml.includes('期末考试') && historyHtml.includes('初战告捷') && historyHtml.includes('第4楼'));
+});
+
+test('代价轻重只偏移代价档位：战报与挑战记录显示标签原写的难度，结算指令用偏移后的档位', async () => {
+    const hard = [{ is_user: false, mes: '面试官抬起头。\n[igs-challenge:终面|话术|艰难|压力]', swipe_id: 0 }];
+    const { session, sent } = makeSession({ chat: hard, stake: 'light' });
+    await session.prepare(0);
+    assert.equal(session.state().challenge.tier, '艰难');
+    const result = await session.abandon();
+    assert.ok(result.ok, JSON.stringify(result.reason));
+    assert.match(sent[0], /tier="艰难" cost="普通"/);
+    const report = parseChallengeReport(sent[0]);
+    assert.equal(challengeDirectiveOf(report, 1).tier, '普通');
+    assert.equal(deriveChallengeHistory([{ floor: 1, text: sent[0] }]).entries[0].tier, '艰难');
 });

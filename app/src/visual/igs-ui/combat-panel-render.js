@@ -594,10 +594,10 @@ function historyHtml(v) {
     const h = v.history;
     if (!h) return '<p class="igs-combat-state">没有可读取的记录</p>';
     const st = h.stats;
-    const summary = `<div class="igs-combat-row"><span class="igs-combat-label">总计</span><span class="igs-combat-chip">${esc(st.total)} 次</span>${OUTCOME_ORDER.map((name) => `<span class="igs-combat-chip">${name} ${esc(st.byOutcome[name])}</span>`).join('')}<span class="igs-combat-chip">最长连胜 ${esc(st.bestStreak)}</span></div>`;
+    const summary = `<div class="igs-combat-row"><span class="igs-combat-label">总计</span><span class="igs-combat-chip">${esc(st.total)}次</span>${OUTCOME_ORDER.map((name) => `<span class="igs-combat-chip">${name} ${esc(st.byOutcome[name])}</span>`).join('')}<span class="igs-combat-chip">最长连胜 ${esc(st.bestStreak)}</span></div>`;
     const earned = new Set((h.achievements || []).map((item) => item.id));
     const feats = `<div class="igs-combat-row igs-challenge-feats"><span class="igs-combat-label">成就</span>${Object.entries(CHALLENGE_ACHIEVEMENTS).map(([id, name]) => `<span class="igs-combat-chip" data-earned="${earned.has(id) ? 'true' : 'false'}">${esc(name)}</span>`).join('')}</div>`;
-    const rows = h.entries.slice().reverse().map((e) => `<li class="igs-challenge-history-row" data-outcome="${esc(e.outcome)}"><b>${esc(e.event || '挑战')}</b><span>${esc([e.tier, e.domain].filter(Boolean).join(' · '))}</span><em>${esc(e.outcome)}</em><small>第 ${esc(e.floor)} 楼</small></li>`).join('');
+    const rows = h.entries.slice().reverse().map((e) => `<li class="igs-challenge-history-row" data-outcome="${esc(e.outcome)}"><b>${esc(e.event || '挑战')}</b><span>${esc([e.tier, e.domain].filter(Boolean).join(' · '))}</span><em>${esc(e.outcome)}</em><small>第${esc(e.floor)}楼</small></li>`).join('');
     const list = h.entries.length ? `<ol class="igs-challenge-history">${rows}</ol>` : '<p class="igs-combat-state">还没有挑战记录</p>';
     return `${summary}${feats}${list}<div class="igs-combat-actions">${v.status === 'idle' ? '' : btn('history', '返回', { primary: true })}</div>`;
 }
