@@ -9,6 +9,9 @@ const distRoot = path.join(appRoot, 'dist');
 const entryFile = path.join(srcRoot, 'index.js');
 
 fs.mkdirSync(distRoot, { recursive: true });
+// 仓库在机械盘上：素材没变就不整读校验、不重拷、不重编码；校验过的文件按「大小:修改时间」记在 .cache/build-stamps.json。
+const stampFile = path.join(appRoot, '.cache', 'build-stamps.json');
+const stamps = readStamps();
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
 const graph = buildModuleGraph(entryFile);
@@ -52,7 +55,7 @@ const withVoice = withBgm.replace(VOICE_ASSET_RE, (_match, file) => {
     return `./voice/${file}`;
 });
 if (!voiceAssets.size) throw new Error('Voice bark clips are missing from bundle.');
-const skinAssets = await externalizeSkinAssets(withVoice, { srcRoot, distRoot });
+const skinAssets = await externalizeSkinAssets(withVoice, { srcRoot, distRoot, cache: stamps });
 const bundle = inlineTypewriterAudio(skinAssets.bundle);
 
 const roundedFontWeights = [300, 400, 500, 700];
@@ -131,7 +134,7 @@ fs.mkdirSync(fontTargetDir, { recursive: true });
 for (const weight of roundedFontWeights) {
     const name = `nowar-rounded-bliz-${weight}.ttf`;
     const source = path.join(fontSourceDir, name);
-    if (!fs.existsSync(source) || fs.readFileSync(source).subarray(0, 4).toString('hex') !== '00010000') {
+    if (!fs.existsSync(source) || readHead(source, 4).toString('hex') !== '00010000') {
         throw new Error(`Bundled font is missing or invalid: ${source}`);
     }
     publishFont(source, name);
@@ -139,7 +142,7 @@ for (const weight of roundedFontWeights) {
 for (const asset of dialogFontAssets) {
     const source = path.join(fontSourceDir, asset.file);
     if (!fs.existsSync(source)) throw new Error(`Bundled dialog font is missing: ${source}`);
-    const signature = fs.readFileSync(source).subarray(0, 4).toString('ascii');
+    const signature = readHead(source, 4).toString('ascii');
     if (!['OTTO', 'wOF2', '\0\x01\0\0'].includes(signature)) throw new Error(`Bundled dialog font is invalid: ${source}`);
     publishFont(source, asset.file);
 }
@@ -148,14 +151,14 @@ for (const asset of classicFontAssets) {
     if (!fs.existsSync(source)) {
         throw new Error(`Bundled classic font is missing or invalid: ${source}`);
     }
-    const signature = fs.readFileSync(source).subarray(0, 4).toString('ascii');
+    const signature = readHead(source, 4).toString('ascii');
     if (!['OTTO', 'wOF2', '\0\x01\0\0'].includes(signature)) throw new Error(`Bundled classic font is missing or invalid: ${source}`);
     publishFont(source, asset.file);
 }
 for (const licenseName of fontLicenseFiles) {
     const source = path.join(fontSourceDir, licenseName);
     if (!fs.existsSync(source)) throw new Error(`Bundled font license is missing: ${source}`);
-    fs.copyFileSync(source, path.join(fontTargetDir, licenseName));
+    copyIfChanged(source, path.join(fontTargetDir, licenseName));
 }
 // 地图页的既有城市美术随 bundle 一起发布；白天沿用现有 map-demo-day.png。
 const mapSourceDir = path.join(appRoot, 'fixtures', 'record-pages', 'assets');
@@ -164,56 +167,56 @@ fs.mkdirSync(mapTargetDir, { recursive: true });
 for (const variant of ['dawn', 'day', 'dusk', 'night', 'minight']) {
     const sourceName = variant === 'day' ? 'map-demo-day.png' : `map-demo-clean-${variant}.png`;
     const source = path.join(mapSourceDir, sourceName);
-    if (!fs.existsSync(source) || fs.readFileSync(source).subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') {
+    if (!fs.existsSync(source) || readHead(source, 8).toString('hex') !== '89504e470d0a1a0a') {
         throw new Error(`Bundled map image is missing or invalid: ${source}`);
     }
-    fs.copyFileSync(source, path.join(mapTargetDir, sourceName));
+    copyIfChanged(source, path.join(mapTargetDir, sourceName));
 }
 for (const [file, source] of mapAssets) {
     if (!fs.existsSync(source)) throw new Error(`Bundled map image is missing: ${source}`);
-    fs.copyFileSync(source, path.join(mapTargetDir, file));
+    copyIfChanged(source, path.join(mapTargetDir, file));
 }
 // 默认背景素材包：只复制 bundle 实际引用的 webp，并校验文件签名与 jsDelivr 单文件上限。
 const backgroundTargetDir = path.join(distRoot, 'backgrounds');
-fs.rmSync(backgroundTargetDir, { recursive: true, force: true });
 fs.mkdirSync(backgroundTargetDir, { recursive: true });
+pruneDir(backgroundTargetDir, backgroundAssets);
 for (const file of backgroundAssets) {
     const source = path.join(backgroundSourceDir, file);
     if (!fs.existsSync(source)) throw new Error(`Default background image is missing: ${source}`);
-    const head = fs.readFileSync(source).subarray(0, 12);
+    const head = readHead(source, 12);
     if (head.toString('latin1', 0, 4) !== 'RIFF' || head.toString('latin1', 8, 12) !== 'WEBP') throw new Error(`Default background image is not webp: ${source}`);
     if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Default background image exceeds the jsDelivr file limit: ${source}`);
-    fs.copyFileSync(source, path.join(backgroundTargetDir, file));
+    copyIfChanged(source, path.join(backgroundTargetDir, file));
 }
 // 默认曲目：只复制 bundle 实际引用的音频，并校验文件签名（mp3 带 ID3 头或帧同步、ogg 为 OggS）与 jsDelivr 单文件上限。
 const bgmTargetDir = path.join(distRoot, 'bgm');
-fs.rmSync(bgmTargetDir, { recursive: true, force: true });
 fs.mkdirSync(bgmTargetDir, { recursive: true });
+pruneDir(bgmTargetDir, new Set([...bgmAssets, 'CREDITS.md']));
 for (const file of bgmAssets) {
     const source = path.join(bgmSourceDir, file);
     if (!fs.existsSync(source)) throw new Error(`Default BGM track is missing: ${source}`);
-    const head = fs.readFileSync(source).subarray(0, 4);
+    const head = readHead(source, 4);
     const valid = file.endsWith('.ogg')
         ? head.toString('latin1') === 'OggS'
         : head.toString('latin1', 0, 3) === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0);
     if (!valid) throw new Error(`Default BGM track is not a valid audio file: ${source}`);
     if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Default BGM track exceeds the jsDelivr file limit: ${source}`);
-    fs.copyFileSync(source, path.join(bgmTargetDir, file));
+    copyIfChanged(source, path.join(bgmTargetDir, file));
 }
-fs.copyFileSync(path.join(bgmSourceDir, 'CREDITS.md'), path.join(bgmTargetDir, 'CREDITS.md'));
+copyIfChanged(path.join(bgmSourceDir, 'CREDITS.md'), path.join(bgmTargetDir, 'CREDITS.md'));
 // 语气音：只复制 bundle 实际引用的 mp3，校验签名与 jsDelivr 单文件上限。
 const voiceTargetDir = path.join(distRoot, 'voice');
-fs.rmSync(voiceTargetDir, { recursive: true, force: true });
 fs.mkdirSync(voiceTargetDir, { recursive: true });
+pruneDir(voiceTargetDir, new Set([...voiceAssets, 'CREDITS.md']));
 for (const file of voiceAssets) {
     const source = path.join(voiceSourceDir, file);
     if (!fs.existsSync(source)) throw new Error(`Voice bark clip is missing: ${source}`);
-    const head = fs.readFileSync(source).subarray(0, 4);
+    const head = readHead(source, 4);
     if (!(head.toString('latin1', 0, 3) === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0))) throw new Error(`Voice bark clip is not a valid mp3: ${source}`);
     if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Voice bark clip exceeds the jsDelivr file limit: ${source}`);
-    fs.copyFileSync(source, path.join(voiceTargetDir, file));
+    copyIfChanged(source, path.join(voiceTargetDir, file));
 }
-fs.copyFileSync(path.join(voiceSourceDir, 'CREDITS.md'), path.join(voiceTargetDir, 'CREDITS.md'));
+copyIfChanged(path.join(voiceSourceDir, 'CREDITS.md'), path.join(voiceTargetDir, 'CREDITS.md'));
 fs.copyFileSync(path.join(srcRoot, 'vendor', 'fflate.LICENSE.txt'), path.join(distRoot, 'fflate.LICENSE.txt'));
 // IGS 数值系统适配版表格模板（§8C）：由 scripts/build-stats-template.mjs 生成到 docs/templates/，随发布包放进 dist/templates/ 供设置器下载。
 // 缺文件、坏 JSON、或不是适配版（没有标记）时直接失败，不发布原版模板。
@@ -249,7 +252,48 @@ if (/^\s*import\s/m.test(builtBundle) || builtBundle.includes("from '../src/inde
     throw new Error('Build output must be self-contained and must not import app/src modules at runtime.');
 }
 
+fs.mkdirSync(path.dirname(stampFile), { recursive: true });
+fs.writeFileSync(stampFile, `${JSON.stringify(stamps, null, 1)}\n`, 'utf8');
+
 console.log('build:generated (download and startup not verified)');
+
+function readStamps() {
+    try {
+        return JSON.parse(fs.readFileSync(stampFile, 'utf8'));
+    } catch {
+        return {};
+    }
+}
+
+function fileStamp(file) {
+    const stat = fs.statSync(file);
+    return `${stat.size}:${Math.floor(stat.mtimeMs)}`;
+}
+
+function readHead(file, bytes) {
+    const fd = fs.openSync(file, 'r');
+    try {
+        const head = Buffer.alloc(bytes);
+        return head.subarray(0, fs.readSync(fd, head, 0, bytes, 0));
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+function copyIfChanged(source, target) {
+    if (fs.existsSync(target)) {
+        const from = fs.statSync(source);
+        const to = fs.statSync(target);
+        if (from.size === to.size && to.mtimeMs >= from.mtimeMs) return;
+    }
+    fs.copyFileSync(source, target);
+}
+
+function pruneDir(dir, keep) {
+    for (const name of fs.readdirSync(dir)) {
+        if (!keep.has(name)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+    }
+}
 
 function buildModuleGraph(rootFile) {
     const modules = new Map();
@@ -318,15 +362,22 @@ function renderBundle(graph, entryId) {
 }
 
 function publishFont(source, name) {
-    const truncated = findTruncatedFontTables(fs.readFileSync(source));
-    if (truncated.length) throw new Error(`Bundled font is truncated (${truncated.join(', ')}); re-download it: ${source}`);
     const sliced = slicedFonts.get(name);
+    // 截断检查和分片过期检查都要整读字体（合计两百多 MB），文件没变且分片清单没变时沿用上次结论。
+    const stampKey = `font:${name}`;
+    const stamp = `${fileStamp(source)}:${sliced ? sliced.manifest.sourceSha256 : ''}`;
+    if (stamps[stampKey] !== stamp) {
+        const bytes = fs.readFileSync(source);
+        const truncated = findTruncatedFontTables(bytes);
+        if (truncated.length) throw new Error(`Bundled font is truncated (${truncated.join(', ')}); re-download it: ${source}`);
+        if (sliced && contentHash(bytes, 64) !== sliced.manifest.sourceSha256) throw new Error(`Font slices are stale; run \`npm run build:fonts ${name}\`.`);
+        stamps[stampKey] = stamp;
+    }
     if (!sliced) {
         if (fs.statSync(source).size >= SPLIT_FONT_MIN_BYTES) throw new Error(`Bundled font must be sliced; run \`npm run build:fonts ${name}\`: ${source}`);
-        fs.copyFileSync(source, path.join(fontTargetDir, name));
+        copyIfChanged(source, path.join(fontTargetDir, name));
         return;
     }
-    if (contentHash(fs.readFileSync(source), 64) !== sliced.manifest.sourceSha256) throw new Error(`Font slices are stale; run \`npm run build:fonts ${name}\`.`);
     const sliceDir = path.join(fontTargetDir, fontSliceName(name));
     for (const slice of sliced.manifest.slices) {
         if (!fs.existsSync(path.join(sliceDir, slice.file))) throw new Error(`Font slice is missing; run \`npm run build:fonts ${name}\`: ${slice.file}`);

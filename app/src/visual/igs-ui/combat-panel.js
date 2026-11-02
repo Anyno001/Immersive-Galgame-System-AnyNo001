@@ -2251,10 +2251,15 @@ export function createCombatPanelController(doc, options = {}) {
 
     function close() {
         if (!root) return { ok: true, reason: 'not-open' };
-        // 战前大厅没做出选择就关闭（含准备中被取消、被阻断）：交给宿主在入口位置留「返回」标签。
+        // 战前大厅没做出选择就关闭（含准备中被取消、被阻断），或战斗打到一半、结果未发送就关闭：交给宿主在入口位置留「返回」标签。
         if (typeof options.onClose === 'function') {
             let dismissed = false;
-            try { const st = session()?.state(); dismissed = !leaving && Boolean(st) && ['lobby', 'blocked', 'preparing'].includes(st.status) && (!pending || pending === 'prepare'); } catch (error) { dismissed = false; }
+            try {
+                const st = session()?.state();
+                const unstarted = Boolean(st) && ['lobby', 'blocked', 'preparing'].includes(st.status) && (!pending || pending === 'prepare');
+                const unfinished = Boolean(st) && ['battle', 'ended', 'send-failed'].includes(st.status);
+                dismissed = !leaving && (unstarted || unfinished);
+            } catch (error) { dismissed = false; }
             try { options.onClose({ dismissed, messageId }); } catch (error) { /* 宿主回调不影响关闭 */ }
         }
         abandonArmed = false;

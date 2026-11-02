@@ -34,7 +34,7 @@ ${P}.land .result .veil{background:linear-gradient(to left,#0e1114 0,rgba(14,17,
 ${R} .hband{display:none;}
 
 /* 立绘：竖屏放大并压到右列之下，横屏居左 */
-${R} .fig.lead{left:-90px;top:150px;width:460px;height:694px;filter:none;}
+${R} .fig.lead{left:-90px;top:175px;width:460px;height:694px;filter:none;}
 ${R} .fig.mate{left:-60px;top:214px;width:280px;height:420px;}
 ${R}.lose .fig{filter:none;}
 ${R}.lose .fig.mate{filter:brightness(.6);}
@@ -70,6 +70,11 @@ ${P}.land .result .rows{margin-top:10px;}
 ${R} .row{height:var(--tx-row);padding:var(--tx-pad) 14px;align-items:baseline;background:#12171c;--cs:8px;--rc:#26323c;clip-path:${CH('8px')};animation:sfx-txr-ping ${T(380)} ease-out calc(var(--d) * var(--k)) backwards;}
 ${R} .row span{flex:none;font:400 14px/24px ${CJK};color:#9fb0bb;}
 ${R} .row b{min-width:0;margin-left:auto;padding-left:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:800 20px/24px var(--font-big);color:#e9f1f6;}
+${R} .row::before{content:attr(data-ch);flex:none;align-self:center;width:28px;height:28px;margin-right:12px;display:grid;place-items:center;background:#1c252d center 18%/cover no-repeat;box-shadow:inset 0 -2px 0 var(--ac);font:700 13px/1 ${CJK};color:#7fd0ff;}
+${R} .row[data-kind="feat"]::before{content:"\\25C6";font-size:12px;}
+${R} .row[data-kind="ally"][style*="--pic"]::before{content:"";background-image:var(--pic);background-size:260% auto;background-position:50% 6%;}
+${R} .row[data-tone="good"] b{color:#5fd39a;}
+${R} .row[data-tone="bad"] b{color:#ff6b6b;}
 
 /* 可点区：战利品 / 收获 / 按钮 */
 ${R} .rs-ui{position:relative;grid-area:4/1/5/3;right:auto;top:auto;width:auto;align-self:end;z-index:5;display:grid;grid-template-columns:3fr 2fr;gap:8px 10px;align-content:end;pointer-events:auto;animation:sfx-txr-rise ${T(450)} ease-out ${T(1500)} both;}

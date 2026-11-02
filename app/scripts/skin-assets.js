@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 export const SKIN_ASSET_TOKEN_RE = /__IGS_ASSET__([a-z0-9-]+)\/([a-z0-9-]+)\.(png|webp)__/g;
 // 线稿与花纹素材的肉眼阈值：预乘 alpha 后任一通道最大偏差超过 4/255 就保留 PNG。
@@ -40,15 +41,38 @@ export async function encodeSkinImage(pngBytes, { maxDelta = MAX_WEBP_CHANNEL_DE
     return delta > maxDelta ? { ext: 'png', bytes: pngBytes, delta } : { ext: 'webp', bytes: webp, delta };
 }
 
-async function emit(source, targetBase, report) {
+async function emit(source, targetBase, report, cache, written) {
     if (!fs.existsSync(source)) throw new Error(`Skin image is missing: ${source}`);
     const png = fs.readFileSync(source);
     if (png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error(`Skin image is not a PNG: ${source}`);
+    // 编码最慢且每次输出字节不同：源图没变、上次产物还在就直接沿用。
+    const cacheKey = `skin:${path.basename(path.dirname(targetBase))}/${path.basename(targetBase)}`;
+    const hash = createHash('sha256').update(png).digest('hex');
+    const [cachedHash, cachedExt] = String(cache[cacheKey] || '').split(':');
+    if (cachedHash === hash && fs.existsSync(`${targetBase}.${cachedExt}`)) {
+        written.add(`${targetBase}.${cachedExt}`);
+        return cachedExt;
+    }
     const result = await encodeSkinImage(png);
     fs.mkdirSync(path.dirname(targetBase), { recursive: true });
     fs.writeFileSync(`${targetBase}.${result.ext}`, result.bytes);
+    written.add(`${targetBase}.${result.ext}`);
+    cache[cacheKey] = `${hash}:${result.ext}`;
     report.push({ file: path.basename(targetBase), png: png.length, out: result.bytes.length, ext: result.ext, delta: Math.round(result.delta * 10) / 10 });
     return result.ext;
+}
+
+function pruneUnwritten(dir, written) {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            pruneUnwritten(file, written);
+            if (!fs.readdirSync(file).length) fs.rmdirSync(file);
+        } else if (!written.has(file)) {
+            fs.rmSync(file, { force: true });
+        }
+    }
 }
 
 function replaceOnce(text, from, to) {
@@ -58,24 +82,25 @@ function replaceOnce(text, from, to) {
 }
 
 // 皮肤素材按主题输出到 dist/skins/<theme>/，焦散纹理输出到 dist/ui/；运行时相对 bundle 的 import.meta.url 取址。
-export async function externalizeSkinAssets(bundle, { srcRoot, distRoot }) {
+export async function externalizeSkinAssets(bundle, { srcRoot, distRoot, cache = {} }) {
     const themeDir = path.join(srcRoot, 'visual', 'igs-ui', 'assets', 'dialog-themes');
     const skinsDir = path.join(distRoot, 'skins');
     const uiDir = path.join(distRoot, 'ui');
-    fs.rmSync(skinsDir, { recursive: true, force: true });
-    fs.rmSync(uiDir, { recursive: true, force: true });
     const report = [];
+    const written = new Set();
     const exts = new Map();
     for (const [, theme, part] of bundle.matchAll(SKIN_ASSET_TOKEN_RE)) {
         const key = `${theme}/${part}`;
         if (exts.has(key)) continue;
-        exts.set(key, await emit(path.join(themeDir, theme, `${part}.png`), path.join(skinsDir, theme, part), report));
+        exts.set(key, await emit(path.join(themeDir, theme, `${part}.png`), path.join(skinsDir, theme, part), report, cache, written));
     }
     if (!exts.size) throw new Error('No dialog skin asset placeholders found in bundle.');
     let result = bundle.replace(SKIN_ASSET_TOKEN_RE, (_match, theme, part) => `__IGS_ASSET__${theme}/${part}.${exts.get(`${theme}/${part}`)}__`);
     result = replaceOnce(result, "new URL('./assets/dialog-themes/', import.meta.url)", "new URL('./skins/', import.meta.url)");
-    const causticExt = await emit(path.join(srcRoot, 'styles', 'assets', 'caustic-art.png'), path.join(uiDir, 'caustic-art'), report);
+    const causticExt = await emit(path.join(srcRoot, 'styles', 'assets', 'caustic-art.png'), path.join(uiDir, 'caustic-art'), report, cache, written);
     result = replaceOnce(result, "new URL('./assets/caustic-art.png', import.meta.url)", `new URL('./ui/caustic-art.${causticExt}', import.meta.url)`);
+    pruneUnwritten(skinsDir, written);
+    pruneUnwritten(uiDir, written);
     return { bundle: result, report };
 }
 

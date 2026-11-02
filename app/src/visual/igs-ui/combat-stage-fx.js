@@ -328,8 +328,13 @@ export function resultStageHtml({ skin = '', orient = 'port', end = {}, order = 
     const custom = own?.html?.(args);
     if (custom) return custom;
     const fig = (cls, n) => (n ? `<i class="fig ${cls}"${pics[n] ? ` style="background-image:${esc(cssUrl(pics[n]))}"` : ''}>${pics[n] ? '' : `<b class="fig-char">${esc(Array.from(n)[0] || '')}</b>`}</i>` : '');
-    const rows = [...(end.feats || []).map((f) => ['战功', f.title || '']), ...(end.allies || []).map((a) => [a.name, a.injury || ''])].slice(0, 3)
-        .map(([h, v], i) => `<div class="row" style="--d:${1050 + i * 140}ms"><span>${esc(h)}</span><b>${esc(v)}</b></div>`).join('');
+    // 行上带种类（战功 / 队员）、伤情冷暖与头像，供要画行首图标、数值配色的皮肤取用；其余皮肤不读这些属性。
+    const tone = (v) => (/重创|濒死|倒下|力竭/.test(v) ? 'bad' : /无伤|轻伤|从容/.test(v) ? 'good' : '');
+    const rows = [...(end.feats || []).map((f) => ['战功', f.title || '', 'feat']), ...(end.allies || []).map((a) => [a.name, a.injury || '', 'ally'])].slice(0, 3)
+        .map(([h, v, kind], i) => {
+            const pic = kind === 'ally' && pics[h] ? `;--pic:${esc(cssUrl(pics[h]))}` : '';
+            return `<div class="row" data-kind="${kind}" data-tone="${tone(v)}" data-ch="${esc(Array.from(h)[0] || '')}" style="--d:${1050 + i * 140}ms${pic}"><span>${esc(h)}</span><b>${esc(v)}</b></div>`;
+        }).join('');
     return `<section class="igs-sfx igs-sfx-result${orient === 'land' ? ' land' : ''}" data-sfx="${esc(style)}" data-skin="${esc(skin)}" data-outcome="${esc(end.outcome || '')}" style="--cw:var(--cx-w,${size.w}px);--ch:${size.h}px">`
         + `<div class="sfx-canvas"><div class="result${won ? '' : ' lose'}"><div class="veil"></div><div class="hband"></div>${own?.decor?.(args) || ''}${fig('mate', heroes[1])}${fig('lead', heroes[0])}`
         + `<div class="plate">${plateSvg()}</div><div class="big">${esc(end.label || '')}<small>${esc(ENGLISH[end.outcome] || '')}</small></div>`

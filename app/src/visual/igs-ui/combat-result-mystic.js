@@ -82,7 +82,7 @@ ${S} .mr-rows{display:flex;flex-direction:column;}
 ${P} .mr-rows{grid-column:1 / -1;grid-row:1;}
 ${L} .mr-rows{grid-column:1;grid-row:1 / span 3;}
 ${S} .mr-row{position:relative;display:flex;align-items:center;justify-content:space-between;padding:0 4px 0 26px;animation:mr-rin ${T(550)} calc(var(--d,900ms) * var(--k,1)) backwards;}
-${S} .mr-row::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,var(--gd),var(--gd) 55%,rgba(15,16,21,0));}
+${S} .mr-row::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,var(--gold),var(--gold) 55%,rgba(15,16,21,0));}
 ${S} .mr-g{position:absolute;left:4px;font-family:var(--num);color:var(--gd);font-size:12px;}
 ${S} .mr-k{color:var(--dim);letter-spacing:.12em;}
 ${S} .mr-v{font-family:var(--ttl);letter-spacing:.1em;color:var(--text);}
@@ -100,9 +100,9 @@ ${P} .igs-challenge-harvest{grid-column:1 / -1;grid-row:2;margin-top:14px;}
 ${L} .igs-challenge-harvest{grid-column:2 / 4;grid-row:1;margin-left:16px;}
 ${S} .igs-challenge-harvest-row{position:relative;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;padding:6px 4px 6px 26px;color:var(--text);font-size:14px;}
 ${S} .igs-challenge-harvest-row::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,var(--gd),var(--gd) 55%,rgba(15,16,21,0));}
-${S} .igs-challenge-harvest-row::before{content:"\\25C6";position:absolute;left:5px;top:50%;margin-top:-6px;color:var(--gd);font-size:9px;}
+${S} .igs-challenge-harvest-row::before{content:"\\25C6";position:absolute;left:5px;top:50%;margin-top:-6px;color:var(--gold-hi);font-size:9px;}
 ${S} .igs-challenge-harvest-row .igs-combat-label{color:var(--dim);font-size:13px;letter-spacing:.12em;}
-${S} .igs-challenge-harvest-row b{font-family:var(--ttl);font-weight:400;color:var(--gold-hi);font-size:16px;letter-spacing:.1em;}
+${S} .igs-challenge-harvest-row b{margin-left:auto;font-family:var(--ttl);font-weight:400;color:var(--gold-hi);font-size:16px;letter-spacing:.1em;}
 ${S} .igs-challenge-harvest-row small{flex-basis:100%;color:var(--faint);font-size:12px;letter-spacing:.06em;line-height:1.4;}
 /* 战利品：外层 section 不占盒，标题、牌行、重新抽取按钮各自进网格 */
 ${S} .igs-combat-loot{display:contents;}

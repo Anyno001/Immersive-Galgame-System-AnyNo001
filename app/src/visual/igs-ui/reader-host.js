@@ -5232,7 +5232,7 @@ ${row.key}`;
         // 卡牌战斗面板：会话、账本与建表由 bootstrap 注入；扩展关闭或宿主不可用时 getSession 返回 null，面板不打开。
         const combatController = createCombatPanelController(doc, {
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
-            // 对阵界面没做选择就关闭：在入口位置留「返回战斗 / 返回挑战」标签；已开始、已放弃、已托管、已跳过则清除。
+            // 对阵界面没做选择、或战斗打到一半就关闭（含关闭阅读器）：在入口位置留「返回战斗 / 返回挑战」标签；已发送、已放弃、已托管、已跳过则清除。
             onClose: ({ dismissed }) => {
                 const entry = state.combatLastEntry;
                 state.combatReturnKey = dismissed && entry ? entry.key : '';
