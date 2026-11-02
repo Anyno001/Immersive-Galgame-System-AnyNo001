@@ -785,10 +785,9 @@ export function createSettingsHost(deps) {
             return Promise.resolve(updateSettingsValue(`bridge.stats.push.mappings.${fp}`, existing && typeof existing === 'object' ? { ...existing } : {}));
         }
         if (action === 'stats-template-download') {
-            let result;
-            try { result = downloadStatsTemplate((options.global || globalThis).document); }
-            catch (error) { result = { ok: false, reason: 'stats-template-download-threw', thrown: error }; }
-            return Promise.resolve(result);
+            return Promise.resolve()
+                .then(() => downloadStatsTemplate((options.global || globalThis).document))
+                .catch((error) => ({ ok: false, reason: 'stats-template-download-threw', thrown: error }));
         }
         // 数值系统「本聊天」启用 / 暂停：直接交给运行时，结果重绘后反映到按钮与状态说明。
         if (action === 'stats-chat-enable' || action === 'stats-chat-disable' || action === 'stats-chat-enable-build') {

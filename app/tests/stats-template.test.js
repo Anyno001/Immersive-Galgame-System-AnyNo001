@@ -60,14 +60,18 @@ test('锚点对不上（基准模板改版）时抛错，不生成半改版；�
     assert.throws(() => adaptStatsTemplate(null), /stats-template-invalid/);
 });
 
-test('下载入口：地址相对 bundle 指向 ./templates/，触发一次下载后移除临时链接；没有 document 时返回原因', () => {
+test('下载入口：地址相对 bundle 指向 ./templates/，先取回内容转 blob 下载，取不到时退回直链；没有 document 时返回原因', async () => {
     const url = statsTemplateUrl('https://cdn.example/igs/dist/igs.bundle.js');
     assert.match(url, /^https:\/\/cdn\.example\/igs\/dist\/templates\/TavernDB_template_/);
     const clicks = [];
     const body = { children: [], appendChild(n) { this.children.push(n); }, removeChild(n) { this.children = this.children.filter((x) => x !== n); } };
     const doc = { body, createElement: () => ({ click() { clicks.push(this.href); } }) };
-    assert.deepEqual(downloadStatsTemplate(doc, url), { ok: true, url });
-    assert.deepEqual(clicks, [url]);
+    const urlApi = { createObjectURL: () => 'blob:igs-template', revokeObjectURL() {} };
+    const okFetch = async (u) => ({ ok: u === url, status: 200, blob: async () => ({}) });
+    assert.equal((await downloadStatsTemplate(doc, url, { fetchImpl: okFetch, urlApi })).via, 'blob');
+    const failFetch = async () => ({ ok: false, status: 404 });
+    assert.equal((await downloadStatsTemplate(doc, url, { fetchImpl: failFetch, urlApi })).via, 'link');
+    assert.deepEqual(clicks, ['blob:igs-template', url]);
     assert.equal(body.children.length, 0);
-    assert.equal(downloadStatsTemplate(null).reason, 'stats-template-no-document');
+    assert.equal((await downloadStatsTemplate(null)).reason, 'stats-template-no-document');
 });
