@@ -432,7 +432,7 @@ const STATS_TEMPLATE = `
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">数值系统</div>
     <div class="igs-settings-row">{{statsToggle}}</div>
-    <div class="igs-source-filter-note">好感、技能、体力和金钱由脚本掷骰决定，AI 只负责把结果写进剧情。</div>
+    <div class="igs-source-filter-note">好感、技能、体力和金钱由脚本掷骰决定，AI只负责把结果写进剧情。</div>
     <div class="igs-source-filter-note"{{statsCombatNoteHidden}}>卡牌战斗开启中，数值系统随之启用，不能单独关闭。</div>
   </div>
   <div class="igs-settings-sub"{{statsHidden}}>
@@ -475,7 +475,7 @@ const STATS_TEMPLATE = `
         <div class="igs-settings-section">{{pushField}}</div>
         {{statsMappingFields}}
         <div class="igs-source-filter-note">表格里的数值只作展示；在表格里改动的数值会在下一次同步时被覆盖。</div>
-        <div class="igs-source-filter-note">推荐导入「IGS 数值系统适配版」表格模板：填表 AI 不再改好感与属性，导入后无需配置。</div>
+        <div class="igs-source-filter-note">推荐导入「IGS数值系统适配版」表格模板：填表AI不再改好感与属性，导入后无需配置。</div>
         <div class="igs-settings-row">
           <button class="igs-settings-action" data-action="stats-template-download" type="button">下载适配版表格模板</button>
         </div>
