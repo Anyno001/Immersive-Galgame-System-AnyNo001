@@ -6,6 +6,7 @@ import * as assembly from '../src/combat/generation-assembly.js';
 import * as generation from '../src/combat/generation.js';
 import { generateWithRetry, isRetryableGeneration, COMBAT_GENERATION_RETRY_DELAYS } from '../src/combat/generation-retry.js';
 import { heroInventoryView, INVENTORY_DEF_KINDS } from '../src/combat/inventory-view.js';
+import { maskCardPromotions } from './helpers/combat-reward-promotion.js';
 import { STOCK_TYPES, STOCK_RARITY_LABELS, STOCK_SLOT_LABELS, stockKindOf, stockPlan } from '../src/combat/inventory-writes.js';
 
 globalThis.window = globalThis.window || { IGS_AUTO_BOOTSTRAP: false };
@@ -53,7 +54,9 @@ test('导出清单与原包一致', () => {
     assert.equal(asOriginalSystem(generation.GENERATION_SYSTEM), oGen.GENERATION_SYSTEM);
     assert.deepEqual(assembly.CARD_COST_SLOTS, oAsm.CARD_COST_SLOTS);
     assert.deepEqual(COMBAT_GENERATION_RETRY_DELAYS, oRetry.COMBAT_GENERATION_RETRY_DELAYS);
-    assert.deepEqual(STOCK_TYPES, oWrites.STOCK_TYPES);
+    // PR #18：库存写入类型新增 lose（剧情失去物品）。
+    assert.deepEqual(STOCK_TYPES.filter((type) => type !== 'lose'), oWrites.STOCK_TYPES);
+    assert.ok(STOCK_TYPES.includes('lose'));
     assert.deepEqual(STOCK_RARITY_LABELS, oWrites.STOCK_RARITY_LABELS);
     assert.deepEqual(STOCK_SLOT_LABELS, oWrites.STOCK_SLOT_LABELS);
     assert.deepEqual(INVENTORY_DEF_KINDS, oView.INVENTORY_DEF_KINDS);
@@ -86,9 +89,12 @@ function inventoryTable() {
 
 test('inventory-view：heroInventoryView 与原包一致', () => {
     const table = inventoryTable();
-    assert.deepEqual(heroInventoryView(table), oView.heroInventoryView(table));
-    assert.deepEqual(heroInventoryView(null), oView.heroInventoryView(null));
-    assert.deepEqual(heroInventoryView({ ok: false, reason: 'x' }), oView.heroInventoryView({ ok: false, reason: 'x' }));
+    // PR #18：成功的视图多一个 lost 列表（已失去的物品），夹具里没有失去的物品时为空；其余字段逐项相同。
+    const withoutLost = (view) => (view && Array.isArray(view.lost) ? Object.fromEntries(Object.entries(view).filter(([key]) => key !== 'lost')) : view);
+    assert.deepEqual(withoutLost(heroInventoryView(table)), oView.heroInventoryView(table));
+    assert.deepEqual(heroInventoryView(table).lost, []);
+    assert.deepEqual(withoutLost(heroInventoryView(null)), oView.heroInventoryView(null));
+    assert.deepEqual(withoutLost(heroInventoryView({ ok: false, reason: 'x' })), oView.heroInventoryView({ ok: false, reason: 'x' }));
     const view = heroInventoryView(table);
     assert.equal(view.ok, true);
     assert.ok(view.gear.bag.length + Object.keys(view.gear.slots).length > 0, '至少产出装备');
@@ -394,7 +400,14 @@ test('generation：rewardEntity / growthEntity / templateEnemy / buildGeneration
         { combatId: '', anchor, character },
         undefined,
     ];
-    for (const input of rewardInputs) assert.deepEqual(generation.rewardEntity(input), oGen.rewardEntity(input), JSON.stringify(input));
+    // PR #18：原版出杂物的奖励槽位有一部分改出卡牌，其余字段逐项相同。
+    let promoted = 0;
+    for (const input of rewardInputs) {
+        const masked = maskCardPromotions(oGen.rewardEntity(input), generation.rewardEntity(input));
+        promoted += masked.promoted;
+        assert.deepEqual(masked.mine, masked.orig, JSON.stringify(input));
+    }
+    assert.ok(promoted > 0, '应有杂物槽位被改出卡牌');
 
     const deckChar = {
         ...character,

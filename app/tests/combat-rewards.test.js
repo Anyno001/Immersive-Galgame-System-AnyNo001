@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import * as mine from '../src/combat/rewards.js';
+import { maskCardPromotions } from './helpers/combat-reward-promotion.js';
 
 const require = createRequire(import.meta.url);
 require('G:/奶龙Code/gal/v0.39.0拆解/igs-v039-modules.js');
@@ -26,6 +27,7 @@ test('rewards 导出名一致', () => {
 });
 
 test('rewards 随机差分', () => {
+    let promotedTotal = 0;
     for (let n = 0; n < 4000; n++) {
         const args = pick([undefined, {}, {
             combatId: pick(['c' + n, undefined, '']),
@@ -35,8 +37,12 @@ test('rewards 随机差分', () => {
             links: pick([undefined, null, { reveal: 2, reflip: true, fortune: true }, { reveal: 1 }, { reflip: true }, { fortune: true }, { reveal: 3, reflip: 1 }]),
             difficulty: pick([undefined, 'easy', 'normal', 'hard', 'brutal', 'nightmare', 'zzz']),
         }]);
-        assert.deepStrictEqual(mine.planRewardSlots(args), old.planRewardSlots(args));
+        // PR #18：原版出杂物的槽位按档位卡牌率改出卡牌；其余槽位、种子、经验、关联逐项相同。幸运关联会改变可升档槽位的集合，稀有度与随稀有度变的物品数量不比。
+        const masked = maskCardPromotions(old.planRewardSlots(args), mine.planRewardSlots(args), { ignoreUpgrade: Boolean(args?.links?.fortune) });
+        promotedTotal += masked.promoted;
+        assert.deepStrictEqual(masked.mine, masked.orig, JSON.stringify(args));
     }
+    assert.ok(promotedTotal > 0, '应有杂物槽位被改出卡牌');
     assert.deepStrictEqual(mine.planRewardSlots(), old.planRewardSlots());
     for (const tiers of [undefined, [], ['normal'], ['boss', 'boss', 'boss', 'boss', 'boss', 'boss', 'boss', 'boss', 'boss', 'boss', 'boss', 'boss']]) {
         assert.deepStrictEqual(mine.victoryExpFor(tiers), old.victoryExpFor(tiers));

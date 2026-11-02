@@ -78,7 +78,12 @@ function samples() {
 }
 
 test('导出名集合与常量一致', () => {
-    assert.deepStrictEqual(Object.keys(mine).sort(), Object.keys(orig).sort());
+    // PR #18 新增的失去物品标签：COMBAT_LOSS_MAX、extractLossDirectives、scanLossTags，原版没有。
+    const added = new Set(['COMBAT_LOSS_MAX', 'extractLossDirectives', 'scanLossTags']);
+    assert.deepStrictEqual(Object.keys(mine).filter((key) => !added.has(key)).sort(), Object.keys(orig).sort());
+    assert.equal(mine.COMBAT_LOSS_MAX, 30);
+    assert.equal(typeof mine.extractLossDirectives, 'function');
+    assert.equal(typeof mine.scanLossTags, 'function');
     for (const k of CONSTS) {
         assert.deepStrictEqual(mine[k], orig[k], k);
         assert.ok(Object.isFrozen(mine[k]), `${k} frozen`);

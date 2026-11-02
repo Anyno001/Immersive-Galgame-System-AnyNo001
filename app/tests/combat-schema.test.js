@@ -122,20 +122,27 @@ const attrFixtures = [
 ];
 
 // 对一个夹具：原样 + 大量随机变异，两边结果必须深度相等。
+// 类型枚举的错误信息会列出允许的类型，本版多一个 lose；比对时把它从本版的列表里去掉，lose 本身另有断言。
+const withoutLoseType = (value) => JSON.parse(JSON.stringify(value), (key, inner) => (key === 'allowed' && Array.isArray(inner) ? inner.filter((item) => item !== 'lose') : inner));
 function fuzz(label, fixture, fnName, count = 120) {
     const rnd = prng(label.length * 7919 + fixture.id?.length);
-    assert.deepStrictEqual(mine[fnName](fixture), orig[fnName](fixture), `${label} 原样`);
+    const mineOf = fnName === 'normalizeLedgerEntry' ? (input) => withoutLoseType(mine[fnName](input)) : (input) => mine[fnName](input);
+    assert.deepStrictEqual(mineOf(fixture), orig[fnName](fixture), `${label} 原样`);
     for (let i = 0; i < count; i += 1) {
         const input = mutate(fixture, rnd, [0.02, 0.05, 0.1, 0.25][i % 4]);
-        assert.deepStrictEqual(mine[fnName](input), orig[fnName](input), `${label} #${i} ${JSON.stringify(input).slice(0, 200)}`);
+        assert.deepStrictEqual(mineOf(input), orig[fnName](input), `${label} #${i} ${JSON.stringify(input).slice(0, 200)}`);
     }
 }
 
 test('导出名集合与常量一致', () => {
     // v0.39.1 新增导出，原版没有
     assert.deepStrictEqual(Object.keys(mine).filter((key) => key !== 'INIT_GEAR_TAG_HASH').sort(), Object.keys(orig).sort());
+    // PR #18：日志表类型新增 lose（剧情失去物品），其余常量逐项相同。
+    assert.deepStrictEqual(mine.LEDGER_TYPES.filter((type) => type !== 'lose'), orig.LEDGER_TYPES);
+    assert.ok(mine.LEDGER_TYPES.includes('lose'));
     for (const k of Object.keys(orig)) {
         if (typeof orig[k] === 'function') continue;
+        if (k === 'LEDGER_TYPES') { assert.ok(Object.isFrozen(mine[k]), `${k} frozen`); continue; }
         assert.deepStrictEqual(mine[k], orig[k], k);
         assert.ok(Object.isFrozen(mine[k]), `${k} frozen`);
     }
@@ -198,8 +205,13 @@ test('normalizeCard / normalizeSkill：效果覆盖与变异', () => {
 test('normalizeLedgerEntry 变异差分', () => {
     for (const e of ledgerFixtures) fuzz(`ledger-${e.type}-${e.id.length}`, e, 'normalizeLedgerEntry', 120);
     for (const bad of [undefined, null, 5, 'x', {}, { type: 'zzz' }, ledger('exp', null), ledger('profile', deckProfile, { character: 'other' })]) {
-        assert.deepStrictEqual(mine.normalizeLedgerEntry(bad), orig.normalizeLedgerEntry(bad));
+        assert.deepStrictEqual(withoutLoseType(mine.normalizeLedgerEntry(bad)), orig.normalizeLedgerEntry(bad));
     }
+    const lose = ledger('lose', { name: '铁剑', count: 1, reason: '被夺走' });
+    assert.equal(orig.normalizeLedgerEntry(lose).ok, false);
+    assert.equal(mine.normalizeLedgerEntry(lose).ok, true);
+    assert.equal(mine.normalizeLedgerEntry(ledger('lose', { name: '铁剑', all: true })).ok, true);
+    assert.equal(mine.normalizeLedgerEntry(ledger('lose', { name: '铁剑', count: 0 })).ok, false);
 });
 
 test('normalizeAttributeRecord 变异差分', () => {

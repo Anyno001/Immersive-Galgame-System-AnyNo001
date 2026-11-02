@@ -47,7 +47,7 @@ const pick = (list) => list[Math.floor(rng() * list.length)];
 function sameExports(name, mine, path) {
     const old = V039(path);
     // v0.39.1 / v0.39.2 新增导出，原版没有
-    const added = new Set(['crowdScaleFor', 'signatureSlotOf', 'signatureUnlockLevel', 'signatureCardAt', 'COMBAT_KINDS', 'combatKindOf', 'combatGrammarEnabled', 'dailyChallengeEnabled', 'CHALLENGE_SEGMENT_ID', 'CHALLENGE_GRAMMAR_LINE', 'resolveChallengePromptSegment']);
+    const added = new Set(['crowdScaleFor', 'signatureSlotOf', 'signatureUnlockLevel', 'signatureCardAt', 'COMBAT_KINDS', 'combatKindOf', 'combatGrammarEnabled', 'dailyChallengeEnabled', 'CHALLENGE_SEGMENT_ID', 'CHALLENGE_GRAMMAR_LINE', 'resolveChallengePromptSegment', 'COMBAT_LOSE_LINE']);
     assert.deepEqual(Object.keys(mine).filter((key) => !added.has(key)).sort(), Object.keys(old).sort(), `${name} 导出名一致`);
     return old;
 }
@@ -72,8 +72,13 @@ function compareAll(mine, old, argSets, { normalize = (value) => value } = {}) {
 
 // v0.39.2 开战规则新增一句「其他标签写在开战标签之前」，比对时去掉这一句。
 const V0392_START_HINT = '本层要写的其他标签（rel、stat 等）都写在它之前；';
-const withoutStartHint = (value) => (typeof value === 'string' ? value.split(V0392_START_HINT).join('')
-    : value && typeof value === 'object' ? JSON.parse(JSON.stringify(value).split(V0392_START_HINT).join('')) : value);
+// PR #18 的提示词有意改动：卸下装备一行改写，获得物品一行后多一行失去物品，合并语法索引多「失去」；比对时换回原写法、去掉新增行。
+const PR18_UNEQUIP = '- [igs-combat:unequip|角色|名称]：剧情中卸下某件装备，装备仍归此人所有；被夺走、损毁或交出时改写失去标签';
+const ORIGINAL_UNEQUIP = '- [igs-combat:unequip|角色|名称]：剧情中卸下、丢失或交出某件装备';
+const PR18_REPLACEMENTS = [[PR18_UNEQUIP, ORIGINAL_UNEQUIP], [String.fromCharCode(10) + prompt.COMBAT_LOSE_LINE, ''], [V0392_START_HINT, ''], ['igs-fx:item获得/失去', 'igs-fx:item获得']];
+const swapAll = (text) => PR18_REPLACEMENTS.reduce((acc, [from, to]) => acc.split(from).join(to), text);
+const withoutStartHint = (value) => (typeof value === 'string' ? swapAll(value)
+    : value && typeof value === 'object' ? JSON.parse(PR18_REPLACEMENTS.reduce((acc, [from, to]) => acc.split(JSON.stringify(from).slice(1, -1)).join(JSON.stringify(to).slice(1, -1)), JSON.stringify(value))) : value);
 
 const junk = [undefined, null, '', 'x', 0, 1, -5, 3.7, NaN, [], {}, '力量', ' STR ', '敏', '相当', '远逊', 'even'];
 const names = ['艾琳', 'Bob', '', '主角', '赵云-1'];
@@ -177,6 +182,8 @@ const settingsList = [undefined, null, {}, { combatExpansion: { enabled: true } 
 
 test('combat-prompt：全部导出', { skip }, () => {
     const old = sameExports('combat-prompt', prompt, 'src/scene/combat-prompt.js');
+    assert.equal(typeof prompt.COMBAT_LOSE_LINE, 'string');
+    assert.ok(prompt.COMBAT_LOSE_LINE.includes('igs-fx:item|失去'));
     const reports = ['', null, 'x', '<igs-combat-report id="a" result="win">', '（战斗结束）<igs-combat-report result = "LOSE" encounter="x">', '<igs-combat-report result="escape"/>', '<igs-combat-report result="draw">'];
     const msgs = reports.map((text) => ({ user: true, text }));
     const msgLists = [undefined, [], ...msgs.map((m) => [m]), ...msgs.map((m) => [m, { user: false, text: 'ai' }]), [{ user: false, text: 'ai' }]];
