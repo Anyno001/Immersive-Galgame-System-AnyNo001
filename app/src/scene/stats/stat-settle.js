@@ -2,17 +2,19 @@
 // 纯函数，random 由账本按本楼种子提供；检定走 opts.engine（缺省为空注册表的默认规则体系）。
 // 返回 { state, changes, meta }，可直接作为 stat-ledger-settle 的 settle 回调结果。
 import { parseStatDirectives } from './stat-directives.js';
-import { FLOOR_GAIN_MAX, applyDim, baseDelta } from './stat-favor.js';
+import { applyDim, baseDelta, favorLimits } from './stat-favor.js';
 import { applyGift, applyKeyEvent } from './stat-favor-events.js';
 import { DEFAULT_MONEY_TABLE, applyBarDirective } from './stat-bars.js';
 import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } from './stat-day.js';
-import { createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
+import { SKILL_MAX, createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
+import { rollDie } from './stat-rng.js';
 import { settleCombat } from './stat-battle.js';
-import { PROTAGONIST, createEngine, markGrowth, resolveCheck } from './stat-engine.js';
+import { PROTAGONIST, createEngine, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } from './stat-engine.js';
 import { registerStorySkill } from './stat-registry.js';
 
 const CHARACTER_KINDS = new Set(['favor', 'dim', 'gift', 'event']);
 const BAR_KINDS = new Set(['stamina', 'hurt', 'stress', 'money']);
+const TARGET_KINDS = new Set([...CHARACTER_KINDS, 'grow']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角)$/i;
 // 标签位置：数「roll 标签」之前出现了几个正文检定标签，用来对应骰序里的第几对骰（最多 ROLL_PAIR_MAX 对）。
 const ROLL_PAIR_MAX = 10;
@@ -31,13 +33,35 @@ function resolveTargets(directives, resolve, diagnostics) {
             out.push({ ...d, ally });
             continue;
         }
-        if (!CHARACTER_KINDS.has(d.kind)) { out.push(d); continue; }
+        if (!TARGET_KINDS.has(d.kind)) { out.push(d); continue; }
         if (USER_NAME.test(d.target)) { diagnostics.push({ code: 'stat-user-target', name: d.target }); continue; }
         const key = resolve(d.target);
         if (key) out.push({ ...d, target: key });
         else diagnostics.push({ code: 'stat-unknown-character', name: d.target });
     }
     return out;
+}
+
+// 剧情成长标签：NPC 的某项技能成长一次（幅度同主角的一次成长），同一角色同一技能每个游戏日最多一次。
+function settleGrowTags(before, directives, ctx) {
+    let state = before;
+    for (const d of directives) {
+        if (d.kind !== 'grow') continue;
+        const skill = ctx.engine.registry.resolve(d.skill);
+        const entry = skill && ctx.engine.registry.get(skill);
+        if (!skill || !entry || entry.kind === 'attribute') { ctx.diagnostics.push({ code: 'stat-grow-unknown-skill', name: d.skill }); continue; }
+        const day = state.clock.day;
+        const character = state.characters[d.target] || createCharacter(day, { nsfw: ctx.nsfw });
+        const growth = character.skillGrowth || {};
+        const own = growth[skill] || {};
+        if (own.tagDay === day) { ctx.diagnostics.push({ code: 'stat-grow-daily-limit', name: d.target, skill }); continue; }
+        const from = profileOf(ctx.engine, state, d.target, skill).value;
+        const to = Math.min(Math.max(SKILL_MAX, from), from + rollDie(10, ctx.random));
+        const bonus = (Number(own.bonus) || 0) + Math.max(0, to - from);
+        if (to > from) ctx.changes.push({ source: 'tag', target: d.target, key: skill, from, to, note: '成长' });
+        state = withCharacter(state, d.target, { ...character, skillGrowth: { ...growth, [skill]: { ...own, bonus, marked: Boolean(own.marked), tagDay: day } } });
+    }
+    return state;
 }
 
 // 同一角色同一维度一楼只留一条，取增量绝对值最大的方向（易错点 C5）。
@@ -67,7 +91,9 @@ export function constrainFavor(directives, check) {
 
 function applyCharacterDirective(current, d, state, ctx) {
     const bonus = ctx.critTarget && (ctx.critTarget === '*' || ctx.critTarget === d.target) ? 1 : 0;
-    const room = (dim) => FLOOR_GAIN_MAX + bonus - (ctx.floorGained.get(`${d.target}|${dim}`) || 0);
+    // 困难档只管好感的普通加分；送礼自有递减规则，信任等其他维度不受影响。
+    const limits = d.kind === 'gift' || (d.dim && d.dim !== '好感') ? favorLimits('normal') : ctx.limits;
+    const room = (dim) => limits.floor + bonus - (ctx.floorGained.get(`${d.target}|${dim}`) || 0);
     const coef = Number(current.coef) || 1;
     if (d.kind === 'gift') return applyGift(current, d.value, { random: ctx.random, coef, floorRoom: room('好感') });
     if (d.kind === 'event') {
@@ -76,7 +102,7 @@ function applyCharacterDirective(current, d, state, ctx) {
         ctx.events.push({ target: d.target, ...result });
         return { character, change: result.success ? { dim: '好感', value: `${d.value}突破`, from: result.gate, to: result.gate + 1 } : null };
     }
-    return applyDim(current, d.dim, d.value, { random: ctx.random, coef, floorRoom: room(d.dim) });
+    return applyDim(current, d.dim, d.value, { random: ctx.random, coef, floorRoom: room(d.dim), dailyMax: limits.daily });
 }
 
 function settleCharacters(before, directives, ctx) {
@@ -121,10 +147,10 @@ function settleClock(state, narration, directives, hour, ctx) {
     const advance = detectDayAdvance({ narration, directives: all, lastHour: state.clock.lastHour, hour });
     let next;
     if (advance && advance.kind === 'skip') {
-        next = settleSkip(state, advance.days, { random: ctx.random, changes: ctx.changes });
+        next = settleSkip(state, advance.days, { random: ctx.random, changes: ctx.changes, skillValueOf: ctx.skillValueOf });
         if (advance.capped) ctx.flags.skipCapped = true;
     } else if (advance) {
-        next = settleDay(state, { random: ctx.random, changes: ctx.changes });
+        next = settleDay(state, { random: ctx.random, changes: ctx.changes, skillValueOf: ctx.skillValueOf });
     } else {
         const floors = state.clock.floorsSinceDay + 1;
         if (floors >= SOFT_DAY_FLOORS) { next = settleSoftDay(state); ctx.flags.softDay = true; }
@@ -183,7 +209,10 @@ function checkFromRollTag(before, tag, raw, opts, ctx) {
 // opts：{ random, hour, nsfw, resolveCharacter, moneyTable, walletExtra（战斗侧积分，并入金钱判断）, engine, check, rollPairs, preroll, storyChecks, noBattle, catalog, settings, floor }
 // check：本楼已定的检定（选项、输入匹配、手动掷骰）；没有时按 roll 标签与楼内骰序 rollPairs 重算。
 // storyChecks：正文 igs-check 的回放结果（主角的才会打成长勾；社交检定大成功可触发突破加成）。
+// favorMode：本楼按哪一档好感上限结算（'normal' 缺省 / 'hard'），困难档会写进 meta.favorMode，重算同一楼时沿用。
+// npcChecks：正文检定里 NPC 作为一方的 [{ actor, skill }]，用到的技能给 NPC 打成长勾。
 // noBattle：战斗扩展接管战斗时为真，丢弃 battle 标签。
+// extraDirectives：由战报楼合成的 challenge 指令，不经 AI 标签解析，不受 noBattle 影响。
 export function settleFloorText(before, text, opts = {}) {
     const { random, hour = null, nsfw = false, resolveCharacter, moneyTable = DEFAULT_MONEY_TABLE } = opts;
     const parsed = parseStatDirectives(text);
@@ -191,7 +220,7 @@ export function settleFloorText(before, text, opts = {}) {
     const narration = narrationOf(text);
     const resolve = resolveCharacter || ((name) => (Object.hasOwn(before.characters, name) ? name : null));
     const engine = opts.engine || createEngine();
-    const ctx = { random, nsfw, moneyTable, walletExtra: Number(opts.walletExtra) || 0, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null };
+    const ctx = { random, nsfw, moneyTable, limits: favorLimits(opts.favorMode), walletExtra: Number(opts.walletExtra) || 0, present: Array.isArray(opts.present) ? opts.present : undefined, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null, skillValueOf: (st, name, skill) => profileOf(engine, st, name, skill).value };
     const rollTag = parsed.directives.find((d) => d.kind === 'roll') || null;
     let check = opts.check || null;
     let pendingRoll = null;
@@ -206,10 +235,14 @@ export function settleFloorText(before, text, opts = {}) {
     const merged = [...parsed.directives.filter((d) => d.kind !== 'roll'), ...fallbackDirectives(narration, parsed.directives)];
     const allowed = opts.noBattle ? merged.filter((d) => d.kind !== 'battle') : merged;
     if (allowed.length !== merged.length) diagnostics.push({ code: 'stats-battle-skipped-combat' });
-    const directives = constrainFavor(dedupeDims(resolveTargets(allowed, resolve, diagnostics)), lead);
+    const extra = (Array.isArray(opts.extraDirectives) ? opts.extraDirectives : []).filter((d) => d && d.kind === 'challenge');
+    const directives = [...constrainFavor(dedupeDims(resolveTargets(allowed, resolve, diagnostics)), lead), ...extra];
     let state = markGrowth(before, check);
     for (const item of storyChecks) state = markGrowth(state, item);
+    state = markCheckOpponents(state, check);
+    for (const item of Array.isArray(opts.npcChecks) ? opts.npcChecks : []) state = markNpcGrowth(state, resolve(item.actor), item.skill);
     state = settleCharacters(state, directives, ctx);
+    state = settleGrowTags(state, directives, ctx);
     state = settleCombat(state, directives, ctx);
     state = settleBars(state, directives, hour, ctx);
     state = settleClock(state, narration, directives, hour, ctx);
@@ -219,5 +252,6 @@ export function settleFloorText(before, text, opts = {}) {
     if (pendingRoll) meta.pendingRoll = pendingRoll;
     if (ctx.newSkills.length) meta.newSkills = ctx.newSkills;
     if (rollTag) meta.rollTag = { skill: rollTag.skill, difficulty: rollTag.difficulty };
+    if (ctx.limits.mode === 'hard') meta.favorMode = 'hard';
     return { state, changes: ctx.changes, meta };
 }

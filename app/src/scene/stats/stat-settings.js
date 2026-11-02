@@ -17,6 +17,7 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     autoSkill: true,
     register: 'auto',
     hudLabel: 'stage',
+    favorMode: 'normal',
     intimacyGate: true,
     ruleset: DEFAULT_RULESET,
     newChat: 'ask',
@@ -31,6 +32,7 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
 
 const REGISTER_MODES = new Set(['auto', 'manual']);
 const HUD_LABELS = new Set(['stage', 'number', 'both']);
+const FAVOR_MODES = new Set(['normal', 'hard']);
 const NEW_CHAT = new Set(['ask', 'auto', 'off']);
 const STORY_CHECK = new Set(['preroll', 'manual', 'off']);
 const SHEET_GEN = new Set(['prompt', 'auto', 'off']);
@@ -137,6 +139,7 @@ export function normalizeStatsSettings(raw) {
         autoSkill: bool(src.autoSkill, d.autoSkill),
         register: pick(REGISTER_MODES, src.register, d.register),
         hudLabel: pick(HUD_LABELS, src.hudLabel, d.hudLabel),
+        favorMode: pick(FAVOR_MODES, src.favorMode, d.favorMode),
         intimacyGate: bool(src.intimacyGate, d.intimacyGate),
         ruleset: rulesetOf(src, d),
         newChat: pick(NEW_CHAT, src.newChat, d.newChat),

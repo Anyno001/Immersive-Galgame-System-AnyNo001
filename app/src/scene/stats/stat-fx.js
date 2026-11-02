@@ -22,11 +22,11 @@ export function favorToasts(changes, { hudLabel = 'stage' } = {}) {
     }));
 }
 
-// 成长掷骰结果：日结算里通过的技能（§6）。交给 fx-result 作「成长」卡片。
+// 成长结果：日结算里通过的技能（§6）与剧情成长标签；NPC 的成长带 target。交给 fx-result 作「成长」卡片。
 export function growthResults(changes) {
     return (changes || [])
-        .filter((c) => c && c.source === 'daily' && c.note === '成长')
-        .map((c) => ({ skill: c.key, from: c.from, to: c.to, gain: c.to - c.from }));
+        .filter((c) => c && (c.source === 'daily' || c.source === 'tag') && c.note === '成长')
+        .map((c) => ({ skill: c.key, from: c.from, to: c.to, gain: c.to - c.from, ...(c.target && c.target !== '主角' ? { target: c.target } : {}) }));
 }
 
 // 吃醋信号：只把扣过分的吃醋标签传给修罗场（§5.3）；是否算「当过对象」由修罗场现有规则判断。
@@ -73,7 +73,7 @@ export function statsFxOf(entry, opts = {}) {
 export function statsNoticeLines(fx) {
     if (!fx) return [];
     const lines = [];
-    for (const g of fx.growth || []) lines.push(`${g.skill}成长 +${g.gain}（${g.from}→${g.to}）`);
+    for (const g of fx.growth || []) lines.push(`${g.target ? `${g.target}的` : ''}${g.skill}成长 +${g.gain}（${g.from}→${g.to}）`);
     if (fx.battle && fx.battle.outcome) lines.push(`战斗结果：${fx.battle.outcome}`);
     for (const k of fx.keys || []) lines.push(`${k.target}·${k.event}：${k.success ? '关系更进一步' : '时机未到'}`);
     for (const s of fx.stages || []) lines.push(`${s.target}：${s.from} → ${s.to}`);

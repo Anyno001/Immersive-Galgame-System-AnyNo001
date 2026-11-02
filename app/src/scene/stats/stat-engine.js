@@ -3,7 +3,7 @@
 // 六维取自战斗 abilities（分数 3–30），引擎内统一折成百分制（分数 × 5）：D&D 再除回去，CoC 直接当目标值。
 import { getRuleset } from './rulesets/index.js';
 import { BUILTIN_SKILLS, COMBAT_SKILLS, baseValueOf, createSkillRegistry, guessAttribute, normalizeAttribute } from './stat-registry.js';
-import { BASE_ATTRIBUTES, clamp, withSkills } from './stat-state.js';
+import { BASE_ATTRIBUTES, SKILL_MAX, clamp, withSkills } from './stat-state.js';
 
 const BASE_ATTRIBUTE_SET = new Set(BASE_ATTRIBUTES);
 import { stageOf } from './stat-favor.js';
@@ -160,6 +160,14 @@ export function provisionalSkillValue(attributeValue, base) {
     return base;
 }
 
+// NPC 成长：角色卡里的技能值是初次登记时冻结的底数，成长另记在 state.characters[名].skillGrowth[技能] = { bonus, marked, tagDay }，随楼层回退。
+export function npcGrowthBonus(state, actor, skill) {
+    const entry = state && state.characters && state.characters[actor] && state.characters[actor].skillGrowth && state.characters[actor].skillGrowth[skill];
+    return Number(entry && entry.bonus) || 0;
+}
+
+export const grownValue = (base, bonus) => (bonus > 0 ? Math.min(Math.max(SKILL_MAX, base), base + bonus) : base);
+
 // 返回 { skill, kind, value, learned, attributeValue, rank, entry, provisional }。
 export function profileOf(engine, state, actor, rawSkill) {
     // 旧属性名（健康 / 观察，D&D 下的理智）先归一成六维，否则会被当成未登记的自定义技能。
@@ -182,9 +190,10 @@ export function profileOf(engine, state, actor, rawSkill) {
     if (san) { const value = sanOf(attrs, null, sheet); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
     if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };
     const own = sheet && sheet.skills && Number(sheet.skills[skill]);
-    if (own > 0) return { skill, kind: 'skill', value: own, learned: true, attributeValue: attrs[entry.attribute], rank, entry, provisional: Boolean(sheet.provisional && sheet.provisional[skill]) };
+    const grown = (base) => grownValue(base, npcGrowthBonus(state, actor, skill));
+    if (own > 0) return { skill, kind: 'skill', value: grown(own), learned: true, attributeValue: attrs[entry.attribute], rank, entry, provisional: Boolean(sheet.provisional && sheet.provisional[skill]) };
     const base = baseValueOf(entry, attrs);
-    const value = provisionalSkillValue(attrs[entry.attribute], base);
+    const value = grown(provisionalSkillValue(attrs[entry.attribute], base));
     return { skill, kind: 'skill', value, learned: value !== base, attributeValue: attrs[entry.attribute], rank, entry, provisional: true };
 }
 
@@ -282,6 +291,22 @@ export function markGrowth(state, check) {
     if (check.kind === 'attribute') return state;
     const value = clamp(Math.round(Number(check.value) || 1), 1, 99);
     return withSkills(state, { ...skills, [check.skill]: { value, marked: true } });
+}
+
+// NPC 参与检定（对抗的对手、正文检定的一方）时，用到的技能打成长勾；只收已登记角色的非属性技能。
+export function markNpcGrowth(state, actor, skill) {
+    const name = String(actor || '').trim();
+    const character = state && state.characters && state.characters[name];
+    if (!character || isProtagonist(name) || !skill || BASE_ATTRIBUTE_SET.has(skill) || skill === SAN_ATTRIBUTE) return state;
+    const growth = character.skillGrowth || {};
+    const own = growth[skill] || {};
+    if (own.marked) return state;
+    return { ...state, characters: { ...state.characters, [name]: { ...character, skillGrowth: { ...growth, [skill]: { ...own, bonus: Number(own.bonus) || 0, marked: true } } } } };
+}
+
+export function markCheckOpponents(state, check) {
+    if (!check || !check.opposed || !check.opposed.actor || isProtagonist(check.opposed.actor)) return state;
+    return markNpcGrowth(state, check.opposed.actor, check.opposed.skill);
 }
 
 // 战斗技能：已学的里取最高；属性始终可用。

@@ -60,13 +60,14 @@ function cardOf(c) {
     return String((ch && (ch.avatar || ch.name)) || c.name2 || '');
 }
 
-// 默认登记：已登记角色、当前角色卡名、群聊成员（§5.1B 条件 1/2）；仅手动档只认已登记角色。
-function defaultResolver(c, register) {
+// 默认登记：已登记角色、当前角色卡名、群聊成员（§5.1B 条件 1/2）、世界书里确认过的角色；仅手动档只认已登记角色。
+function defaultResolver(c, register, worldRoles = null) {
     return (name, state) => {
         if (Object.hasOwn(state.characters, name)) return name;
         if (register === 'manual' || !c) return null;
         const names = [c.name2, ...(Array.isArray(c.groupMembers) ? c.groupMembers : [])].filter((n) => typeof n === 'string' && n.trim());
-        return names.includes(name) ? name : null;
+        if (names.includes(name)) return name;
+        return worldRoles && worldRoles.has(name) ? name : null;
     };
 }
 
@@ -116,7 +117,7 @@ function settleSeed(chatId, ordinal, swipe, kind = 'settle') {
 
 export function createStatsRuntime({
     getContext, readSettings, resolveCharacter, isNsfw = () => false, presentOf = null, onChange = () => {},
-    getPushClient = () => null, pushOptions = {}, isBackground = () => false, getBackgroundRequest = () => null,
+    worldRoles = null, getPushClient = () => null, pushOptions = {}, isBackground = () => false, getBackgroundRequest = () => null,
     describePeople = null, sheetStore = null, onCheck = () => {}, onNotices = () => {}, resumeReply = null, worldviewOf = () => '',
     // v0.39 注入点：战斗侧生命/六维来源、数据库表读写通道、战斗提示词输入、战斗扩展是否开启。
     combatSource = () => null, statsTables = () => null, combatPrompt = () => null, combatEnabled = () => false,
@@ -181,6 +182,11 @@ export function createStatsRuntime({
     };
     const active = () => Boolean(settings().enabled && chatEnabled && ledger);
     const life = () => { try { return combatSource() || null; } catch (error) { return null; } };
+    const heroSkillValue = (skill) => {
+        const own = ledger && currentStatsState(ledger).protagonist.skills[skill];
+        const v = Number(own && own.value) || Number(catalog.protagonistBase[skill]);
+        return v > 0 ? v : null;
+    };
     const heroPrefs = () => (ledger && currentStatsState(ledger).protagonist.prefs) || null;
     const userName = () => String((ctx() && ctx().name1) || '');
     // 钱包：战斗侧主角积分净流水（战斗扩展开着且战斗数据已就绪才有，否则 0）；与数值侧金钱相加即合并余额。
@@ -487,6 +493,13 @@ export function createStatsRuntime({
         });
     }
 
+    // 正文检定里 NPC 作为一方的记录（用到的技能给 NPC 打成长勾）。
+    function npcChecksOf(results, engine) {
+        return (results || []).filter((r) => r && r.actor && !isHero(r.actor)).map((r) => ({
+            actor: r.actor, skill: r.skill ? engine.registry.resolve(r.skill) || r.skill : ABILITY_LABELS[r.ability],
+        }));
+    }
+
     // 注入「骰序」段的输入（check-rolls 的 checkRollsVars 入参）；生成类型决定取哪一楼的骰序。
     // D&D：actors 是各人六维加值；CoC：actors 是百分制属性与高技能。
     function checkPromptInput(type = null) {
@@ -604,7 +617,7 @@ export function createStatsRuntime({
             nsfw: isNsfw(), intimacyGate: s.intimacyGate, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
-            sheetLines: sheetNames.map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n]), bonus: abilityLine(engine, state, n) })),
+            sheetLines: sheetNames.map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n], state.characters[n] && state.characters[n].skillGrowth), bonus: abilityLine(engine, state, n) })),
             manualRoll: Boolean(g.manual), dice, cocDice: coc ? own : null,
             combatOn: combatOnNow, partyLines: combatOnNow && combat.party ? combatPartyLines(combat.party) : [],
         });
@@ -630,7 +643,8 @@ export function createStatsRuntime({
         if (!m || m.is_user || m.is_system) return null;
         const floor = { messageId, swipeId: Number(m.swipe_id) || 0 };
         const s = settings();
-        const resolve = resolveCharacter || defaultResolver(c, s.register);
+        if (worldRoles) worldRoles.sync(chatIdOf(c));
+        const resolve = resolveCharacter || defaultResolver(c, s.register, worldRoles);
         const prior = ledger.entries.get(ledgerKey(ledger, messageId, floor.swipeId));
         const priorMeta = (prior && prior.meta) || {};
         const p = plan || { check: givenCheck(priorMeta), preroll: priorMeta.preroll || null, note: priorMeta.note || null, ruleset: (priorMeta.check && priorMeta.check.ruleset) || (priorMeta.preroll && priorMeta.preroll.ruleset) };
@@ -639,20 +653,23 @@ export function createStatsRuntime({
         const engine = memoEngineOf(ruleset);
         const chatId = chatIdOf(c);
         const body = String(m.mes ?? '');
+        // 重算同一楼沿用当时结算的好感档，改档只影响之后的楼。
+        const favorMode = prior ? (priorMeta.favorMode === 'hard' ? 'hard' : 'normal') : s.favorMode;
         // 同一楼同一 swipe 的结算种子与骰序都由「聊天 + 楼序号 + swipe」决定（确定性）。
         const ordinal = floorCheckOrdinal(messages(c), messageId);
         const seed = settleSeed(chatId, ordinal, floor.swipeId);
         const rollPairs = ordinal ? rollsFor(IS_COC(engine), chatId, ordinal, floor.swipeId) : null;
         const settle = (before, random) => {
             let storyChecks = [];
+            let npcChecks = [];
             if (s.storyCheck === 'preroll' && /\[igs-check:/.test(body)) {
                 const back = replayFloor(messageId, body, before, engine);
-                if (back.ok) storyChecks = storyChecksOf(back.results, engine, before);
+                if (back.ok) { storyChecks = storyChecksOf(back.results, engine, before); npcChecks = npcChecksOf(back.results, engine); }
                 else diag('stats-check-replay-unavailable', { messageId, reason: back.reason });
             }
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
             });
             const meta = { ...r.meta };
             if (p.preroll) meta.preroll = p.preroll;
@@ -682,7 +699,25 @@ export function createStatsRuntime({
         if (meta.pendingRoll && s.storyCheck === 'manual') offerManualRoll(r.entry);
         detectNewCharacters();
         scheduleBackfill();
+        confirmWorldRoles(meta.diagnostics, messageId);
         return r;
+    }
+
+    // 世界书角色登记：本楼被丢弃的陌生名字异步查一次世界书；查到后只补算最新楼，旧楼不回溯。
+    function confirmWorldRoles(diagnostics, messageId) {
+        if (!worldRoles || resolveCharacter || settings().register === 'manual') return;
+        const names = (diagnostics || []).filter((d) => d && d.code === 'stat-unknown-character' && d.name).map((d) => d.name);
+        if (!names.length) return;
+        const c = ctx();
+        const chatId = chatIdOf(c);
+        const exclude = [userName(), c && c.name1, PROTAGONIST].filter(Boolean);
+        Promise.resolve().then(() => worldRoles.confirm(names, { chatId, exclude })).then((res) => {
+            for (const name of res.found) diag('stats-world-role-registered', { name });
+            for (const name of res.missing) diag('stats-world-role-missing', { name });
+            if (!res.found.length || generating || !active() || chatIdOf(ctx()) !== chatId) return;
+            if (messages(ctx()).length - 1 !== messageId) return;
+            settleAt(messageId, { redo: true });
+        }).catch(() => diag('stats-world-role-failed'));
     }
 
     // 剧情新技能：进注册表、进补全队列、提示一次（v2 §6.1）。
@@ -977,7 +1012,7 @@ export function createStatsRuntime({
             const card = cardOf(ctx());
             for (const [name, tiers] of Object.entries(parsed.sheets)) {
                 for (const sig of tiers.signature) commitSkill(sig.name, { attribute: sig.attribute });
-                sheets[name] = tidySheet(sheetFromTiers(name, tiers, { chatSeed }));
+                sheets[name] = tidySheet(sheetFromTiers(name, tiers, { chatSeed, heroSkill: heroSkillValue }));
                 if (sheetStore && card) sheetStore.put(card, name, sheets[name]);
             }
             const done = Object.keys(parsed.sheets);
@@ -1022,7 +1057,7 @@ export function createStatsRuntime({
             catalog = { ...catalog, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => !skills.includes(s)) } };
             if (!parsed || !parsed.ok) { diag(parsed ? parsed.reason : 'stats-backfill-request-failed'); persist(); return { ok: false }; }
             const sheets = { ...catalog.sheets };
-            for (const name of npcs) if (parsed.fills[name]) sheets[name] = applyBackfillToSheet(sheets[name], parsed.fills[name], { name, chatSeed });
+            for (const name of npcs) if (parsed.fills[name]) sheets[name] = applyBackfillToSheet(sheets[name], parsed.fills[name], { name, chatSeed, heroSkill: heroSkillValue });
             const base = { ...catalog.protagonistBase };
             const own = currentStatsState(ledger).protagonist.skills;
             const filled = [];
@@ -1073,7 +1108,7 @@ export function createStatsRuntime({
         if (command.kind !== 'check' && command.kind !== 'contest') return null;
         const state = currentStatsState(ledger);
         const c = ctx();
-        const resolve = resolveCharacter || defaultResolver(c, settings().register);
+        const resolve = resolveCharacter || defaultResolver(c, settings().register, worldRoles);
         const engine = memoEngineOf();
         const req = resolveDiceRequest(engine, state, command, { resolveCharacter: (name) => resolve(name, state) });
         if (!req) return null;
@@ -1087,7 +1122,8 @@ export function createStatsRuntime({
         const result = contestCheck(engine, state, { ...req.left, skill: ensure(req.left.skill) }, { ...req.right, skill: ensure(req.right.skill) }, cryptoRandom,
             { tieWinner: req.tieRule === 'initiator_win' ? 'left' : '' });
         const line = contestLine(result, who);
-        const mine = isProtagonist(req.left.actor) ? { ...result.left, success: result.winner === 'left' } : isProtagonist(req.right.actor) ? { ...result.right, success: result.winner === 'right' } : null;
+        const opponent = (other) => ({ actor: other.actor, skill: other.skill, value: other.value });
+        const mine = isProtagonist(req.left.actor) ? { ...result.left, success: result.winner === 'left', opposed: opponent(result.right) } : isProtagonist(req.right.actor) ? { ...result.right, success: result.winner === 'right', opposed: opponent(result.left) } : null;
         if (mine) pendingOption = { line, check: { ...mine, source: 'option' } };
         return { ok: true, success: result.winner === 'left', winner: result.winner, line, detail: contestFxDetail(result, who), statsFx: true };
     }

@@ -42,6 +42,7 @@ function parseFields([kindRaw, a, b, c]) {
     case 'hurt': { const value = normalizeTier('hurt', HURT_TIERS, a); return value ? { kind, value } : null; }
     case 'event': { const value = normalizeTier('event', KEY_EVENTS, b); return target && value ? { kind, target, value } : null; }
     case 'gift': { const value = freeText(b); return target && value ? { kind, target, value } : null; }
+    case 'grow': { const skill = freeText(b); return target && skill ? { kind, target, skill } : null; }
     case 'work': return { kind, value: freeText(a) || '打工' };
     case 'battle': {
         const tier = normalizeTier('enemy', ENEMY_TIERS, a);

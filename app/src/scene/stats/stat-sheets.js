@@ -2,7 +2,7 @@
 // 解析只收白名单档位；出现数字整格丢弃；整份解析失败时返回 ok:false，不写半份数据（易错点 N3/N4）。
 import { BASE_ATTRIBUTES } from './stat-state.js';
 import { LEGACY_ATTRIBUTE_MAP, normalizeAttribute, validSkillName } from './stat-registry.js';
-import { RANKS, SAN_ATTRIBUTE, profileOf } from './stat-engine.js';
+import { PROTAGONIST, RANKS, SAN_ATTRIBUTE, profileOf } from './stat-engine.js';
 import { seededRandom } from './stat-ledger.js';
 import { DEFAULT_STAT_PROMPTS } from './stat-prompt.js';
 
@@ -15,6 +15,12 @@ export const SHEET_SAN_MIN = 1;
 export const SHEET_SAN_MAX = 99;
 export const SKILL_TIERS = Object.freeze({ 未学: null, 入门: [25, 45], 熟练: [50, 70], 精通: [75, 85], 大师: [90, 95] });
 export const SKILL_TIER_ORDER = Object.freeze(['未学', '入门', '熟练', '精通', '大师']);
+// NPC 技能档：相对主角同项的偏移（百分制），初次生成角色卡时换算成绝对值后冻结。
+export const NPC_SKILL_OFFSETS = Object.freeze({ 生疏: -30, 略逊: -15, 相当: 0, 擅长: 15, 精通: 30, 大师: 45 });
+export const NPC_SKILL_BASELINE = 50;
+export const NPC_SKILL_MIN = 5;
+export const NPC_SKILL_MAX = 95;
+export const NPC_SKILL_JITTER = 5;
 export const PROTAGONIST_BACKFILL_MAX = '熟练';
 export const SHEET_BATCH_MAX = 8;
 export const BACKFILL_SKILL_MAX = 6;
@@ -23,6 +29,7 @@ export const BACKFILL_SUMMARY_MAX = 300;
 const NUMERIC = /[0-9０-９]/;
 const ATTR_SYNONYM = Object.freeze({ 弱: '偏弱', 差: '偏弱', 一般: '普通', 中等: '普通', 强: '出众', 优秀: '出众', 很强: '顶尖', 极强: '顶尖', 非人: '超凡' });
 const SKILL_SYNONYM = Object.freeze({ 不会: '未学', 无: '未学', 新手: '入门', 初学: '入门', 会: '熟练', 擅长: '熟练', 专精: '精通', 专家: '精通', 宗师: '大师' });
+const NPC_SKILL_SYNONYM = Object.freeze({ 不会: '未学', 无: '未学', 新手: '入门', 初学: '入门', 会: '熟练', 差: '生疏', 不擅长: '略逊', 一般: '相当', 普通: '相当', 擅长: '擅长', 专精: '精通', 专家: '精通', 宗师: '大师' });
 const RANK_SYNONYM = Object.freeze({ 平民: '普通人', 普通: '普通人', 新手: '普通人', 熟手: '老手', 高手: '精英', 宗师: '大师', 传说: '传奇' });
 
 function tierWord(raw, table, synonyms) {
@@ -34,6 +41,19 @@ function tierWord(raw, table, synonyms) {
 
 export const attributeTier = (raw) => tierWord(raw, ATTRIBUTE_TIERS, ATTR_SYNONYM);
 export const skillTier = (raw) => tierWord(raw, SKILL_TIERS, SKILL_SYNONYM);
+const NPC_TIER_TABLE = Object.freeze({ ...SKILL_TIERS, ...NPC_SKILL_OFFSETS });
+// NPC 档名：相对档优先；入门、熟练、未学是旧的绝对档，仍可识别。精通、大师新旧同名，按相对档处理。
+export const npcSkillTier = (raw) => tierWord(raw, NPC_TIER_TABLE, NPC_SKILL_SYNONYM);
+
+// NPC 技能档 → 绝对值。相对档：主角同项值（没有时取 50）加偏移与确定性抖动，夹在 5–95；旧绝对档沿用区间取值；未学为 null。
+export function npcSkillValue(tier, heroValue, seedText) {
+    if (Object.hasOwn(NPC_SKILL_OFFSETS, tier)) {
+        const hero = Number(heroValue) > 0 ? Number(heroValue) : NPC_SKILL_BASELINE;
+        const jitter = bandValue([-NPC_SKILL_JITTER, NPC_SKILL_JITTER], seedText);
+        return Math.min(NPC_SKILL_MAX, Math.max(NPC_SKILL_MIN, Math.round(hero + NPC_SKILL_OFFSETS[tier] + jitter)));
+    }
+    return Object.hasOwn(SKILL_TIERS, tier) ? bandValue(SKILL_TIERS[tier], seedText) : null;
+}
 export function rankWord(raw) {
     const text = String(raw ?? '').trim();
     if (RANKS.includes(text)) return text;
@@ -110,7 +130,7 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
         const skills = {};
         for (const [k, v] of Object.entries(raw.技能 || raw.skills || {})) {
             const skill = registry ? registry.resolve(k) : validSkillName(k);
-            const tier = skillTier(v);
+            const tier = npcSkillTier(v);
             if (skill && tier && !BASE_ATTRIBUTES.includes(skill)) skills[skill] = tier;
             else if (tier && validSkillName(k)) skills[validSkillName(k)] = tier;
             else diagnostics.push({ code: 'stats-sheet-cell-dropped', name, key: k });
@@ -128,18 +148,20 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
 
 // 档位 → 底数。chatSeed 为聊天 id，保证切换体系、重开都不变（N4）。
 // 六维写战斗分数（scale:'score'）；理智按百分制档位另存 san。
-export function sheetFromTiers(name, tiers, { chatSeed = '' } = {}) {
+// heroSkill(技能名) 返回主角同项的当前值（没有则 null），技能档按它换算后冻结，之后不随主角变化。
+export function sheetFromTiers(name, tiers, { chatSeed = '', heroSkill = null } = {}) {
+    const heroOf = (skill) => (typeof heroSkill === 'function' ? heroSkill(skill) : null);
     const attributes = {};
     const tierOf = (attr) => (tiers.attributes && tiers.attributes[attr]) || '普通';
     for (const attr of BASE_ATTRIBUTES) attributes[attr] = bandValue(ABILITY_SCORE_TIERS[tierOf(attr)], `${chatSeed}|${name}|${attr}`);
     const san = bandValue(ATTRIBUTE_TIERS[tierOf(SAN_ATTRIBUTE)], `${chatSeed}|${name}|${SAN_ATTRIBUTE}`);
     const skills = {};
     for (const [skill, tier] of Object.entries(tiers.skills || {})) {
-        const v = bandValue(SKILL_TIERS[tier], `${chatSeed}|${name}|${skill}`);
+        const v = npcSkillValue(tier, heroOf(skill), `${chatSeed}|${name}|${skill}`);
         if (v) skills[skill] = v;
     }
     for (const sig of tiers.signature || []) {
-        if (!skills[sig.name]) skills[sig.name] = bandValue(SKILL_TIERS.精通, `${chatSeed}|${name}|${sig.name}`);
+        if (!skills[sig.name]) skills[sig.name] = npcSkillValue('精通', heroOf(sig.name), `${chatSeed}|${name}|${sig.name}`);
     }
     return { rank: tiers.rank || RANKS[0], attributes, san, skills, signature: (tiers.signature || []).map((s) => s.name), source: 'llm', provisional: {}, scale: 'score' };
 }
@@ -216,7 +238,7 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
         if (!row || typeof row !== 'object') continue;
         const out = {};
         for (const skill of skills) {
-            const tier = skillTier(row[skill]);
+            const tier = name === PROTAGONIST ? skillTier(row[skill]) : npcSkillTier(row[skill]);
             if (tier) out[skill] = tier;
         }
         if (Object.keys(out).length) fills[name] = out;
@@ -225,14 +247,14 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
 }
 
 // 补全写回 NPC 卡：已有的非临时值不改，只填空（§6.2 第三层）。返回新卡。
-export function applyBackfillToSheet(sheet, fill, { name, chatSeed = '' } = {}) {
+export function applyBackfillToSheet(sheet, fill, { name, chatSeed = '', heroSkill = null } = {}) {
     const base = sheet || { rank: RANKS[0], attributes: {}, skills: {}, signature: [], source: 'default', provisional: {} };
     const skills = { ...(base.skills || {}) };
     const provisional = { ...(base.provisional || {}) };
     let changed = false;
     for (const [skill, tier] of Object.entries(fill || {})) {
         if (skills[skill] && !provisional[skill]) continue;
-        const v = bandValue(SKILL_TIERS[tier], `${chatSeed}|${name}|${skill}`);
+        const v = npcSkillValue(tier, typeof heroSkill === 'function' ? heroSkill(skill) : null, `${chatSeed}|${name}|${skill}`);
         if (v) skills[skill] = v;
         else delete skills[skill];
         delete provisional[skill];
@@ -242,7 +264,8 @@ export function applyBackfillToSheet(sheet, fill, { name, chatSeed = '' } = {}) 
 }
 
 // 角色卡里的「擅长」一行（提示词 sheets 段）：精通以上，最多 4 项。
-export function strongSkills(sheet) {
+export function strongSkills(sheet, growth = null) {
     if (!sheet || !sheet.skills) return '';
-    return Object.entries(sheet.skills).filter(([, v]) => Number(v) >= 75).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k}（${skillTierOfValue(v)}）`).join('、');
+    const bonus = (skill) => Number(growth && growth[skill] && growth[skill].bonus) || 0;
+    return Object.entries(sheet.skills).map(([k, v]) => [k, Number(v) + bonus(k)]).filter(([, v]) => Number(v) >= 75).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k}（${skillTierOfValue(v)}）`).join('、');
 }

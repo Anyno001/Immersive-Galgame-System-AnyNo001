@@ -6,6 +6,12 @@ import { DIM_MAX, DIM_MIN, clamp } from './stat-state.js';
 export const FAVOR_GATES = Object.freeze([25, 50, 75]);
 export const FLOOR_GAIN_MAX = 3;
 export const DAILY_GAIN_MAX = 8;
+// 好感成长档：普通为单楼 +3、每日 +8；困难为单楼 +1、每日 +4。大成功加成、关口封顶、越高越难涨与负向不设上限两档相同。
+export const FAVOR_LIMITS = Object.freeze({
+    normal: Object.freeze({ mode: 'normal', floor: FLOOR_GAIN_MAX, daily: DAILY_GAIN_MAX }),
+    hard: Object.freeze({ mode: 'hard', floor: 1, daily: 4 }),
+});
+export const favorLimits = (mode) => (mode === 'hard' ? FAVOR_LIMITS.hard : FAVOR_LIMITS.normal);
 const DIM_DELTA = Object.freeze({ 上升: 2, 下降: -2 });
 
 export const FAVOR_STAGES = Object.freeze([
@@ -27,13 +33,13 @@ export function stageOf(favor) {
 
 // 信任建立缓慢、崩塌迅速：正向增量减半（至少 1），负向加倍。
 export function baseDelta(dim, value) {
+    if (typeof value === 'number') return dim === '好感' && Number.isInteger(value) ? value : 0;
     const delta = dim === '好感' ? FAVOR_DELTA[value] : DIM_DELTA[value];
     if (!Number.isFinite(delta)) return 0;
     if (dim !== '信任') return delta;
     return delta > 0 ? Math.max(1, Math.floor(delta / 2)) : delta * 2;
 }
 
-    if (typeof value === 'number') return dim === '好感' && Number.isInteger(value) ? value : 0;
 export function gateKey(gate) {
     return `gate-${gate}`;
 }
@@ -46,8 +52,8 @@ function gateCap(from, to, unlocked) {
     return to;
 }
 
-// 正向：d100 大于当前值（负值按 0 算）才按增量加，否则只加 1；再受单楼 +3、每日 +8 约束。负向直接扣，不设上限。
-export function applyDim(character, dim, value, { random, coef = 1, floorRoom = FLOOR_GAIN_MAX } = {}) {
+// 正向：d100 大于当前值（负值按 0 算）才按增量加，否则只加 1；再受单楼与每日上限约束（缺省普通档 +3、+8）。负向直接扣，不设上限。
+export function applyDim(character, dim, value, { random, coef = 1, floorRoom = FLOOR_GAIN_MAX, dailyMax = DAILY_GAIN_MAX } = {}) {
     const from = Number(character.dims[dim]) || 0;
     const base = baseDelta(dim, value);
     if (!base) return { character, change: null };
@@ -58,7 +64,7 @@ export function applyDim(character, dim, value, { random, coef = 1, floorRoom = 
         roll = check.roll;
         const gained = character.daily.gained[dim] || 0;
         const scaled = check.passed ? Math.max(1, Math.round(base * coef)) : 1;
-        delta = Math.max(0, Math.min(scaled, floorRoom, DAILY_GAIN_MAX - gained));
+        delta = Math.max(0, Math.min(scaled, floorRoom, dailyMax - gained));
     }
     let to = clamp(from + delta, DIM_MIN, DIM_MAX);
     if (dim === '好感') to = gateCap(from, to, character.unlocked);
