@@ -188,6 +188,48 @@ test('gate:illustration:standalone-cg-dresses-the-picked-outfit-and-fits-the-tab
     assert.deepEqual(result.prompt, { positive: 'best quality, 1girl', negative: 'lowres' });
 });
 
+test('gate:illustration:dbgen-floor-uses-dna-and-clothes-then-this-sprite-then-default', async () => {
+    const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
+    const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');
+    const text = [
+        '[igs-scene:厅|白天|晴|nsfw]',
+        '[igs-char:完整|平和|礼服|到了。]',
+        '[igs-char:小林|平和|校服|我也来。]',
+        '[igs-char:秦绯烟|平和|桃红蹙金纱裙|来了。]',
+    ].join('\n');
+    const fake = makeFakes({ text, settings: { nsfwEnabled: true, nsfwCount: 1 } });
+    const read = [];
+    let description = '';
+    fake.nai = {
+        describe: () => ({ mode: 'dbgen', via: 'dbgen', ready: { ok: true } }),
+        writeFloorPrompts: async (meta) => { description = meta.description; return { ok: false, error: '停在写词' }; },
+        generateCaption: async () => ({ ok: false, error: '不出图' }),
+    };
+    const service = createAutoIllustrationService({ ...fake, store: createMemoryIllustrationStore(), minBodyChars: 0,
+        readSpritePrompt: async (url) => {
+            read.push(url);
+            const tags = { 'igs-gen:dress': 'complete, silver hair, red evening dress', 'igs-gen:school': 'kobayashi, school uniform', 'igs-gen:default-calm': 'feiyan, peach dress' };
+            return { caption: { v4_prompt: { caption: { char_captions: [{ char_caption: tags[url] || url }] } } } };
+        },
+        getSceneAssets: () => ({
+            characters: {},
+            characterDna: { 完整: { identity: 'silver hair, adult woman' } },
+            characterOutfits: {
+                完整: { 礼服: { words: [], moods: { 平和: 'igs-gen:dress' } } },
+                小林: { 校服: { words: [], moods: { 平和: 'igs-gen:school' } } },
+                秦绯烟: { 月白衫: { words: [], moods: { 平和: 'igs-gen:default-calm' } } },
+            },
+            characterDefaultOutfits: { 秦绯烟: { version: 1, outfitName: '月白衫' } },
+            wardrobe: { 礼服: { prompt: 'red evening dress' } },
+        }) });
+    const result = await service.processMessage(5, { manual: true });
+    assert.equal(result.ok, false);
+    assert.deepEqual(read, ['igs-gen:school', 'igs-gen:default-calm']);
+    assert.match(description, /小林（校服）：kobayashi, school uniform/);
+    assert.match(description, /秦绯烟「桃红蹙金纱裙」没有这套立绘，用默认衣装「月白衫」：feiyan, peach dress/);
+    assert.equal(description.includes('complete, silver hair'), false);
+});
+
 test('gate:illustration:standalone-cg-respects-the-nsfw-switch-and-needs-a-request', async () => {
     const { createAutoIllustrationService } = await import('./helpers/media-fixtures.js');
     const { createMemoryIllustrationStore } = await import('../src/media/illustration-store.js');

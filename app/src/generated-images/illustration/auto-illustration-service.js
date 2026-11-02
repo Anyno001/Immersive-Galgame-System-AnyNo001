@@ -26,7 +26,7 @@ import { promptProvenance, storedPromptFromResult } from '../generation-prompt.j
 import { outfitAdoptionEvidence } from '../../scene/outfit-identity.js';
 import { buildCharacterContext } from '../../scene/character-identity.js';
 import { BUILTIN_NUDE_OUTFIT, isBuiltinNudeOutfit, resolveWardrobePrompt } from '../../scene/character-outfits.js';
-import { outfitSpriteSlots } from '../../scene/character-appearance.js';
+import { outfitSpriteSlots, readVisibleDefaultOutfit } from '../../scene/character-appearance.js';
 import { usesCharacterTemplates } from './character-prompt-task.js';
 import { inheritImageTaskLease, imageTaskState, bindImageTaskTarget } from '../image-task-runtime.js';
 
@@ -378,6 +378,7 @@ export function createAutoIllustrationService(deps) {
         const template = nai.describe?.(undefined, { signal: s.taskSignal }).mode === 'nai' && nai.supportsCharacterTemplates?.() === true && (characterState.context.some(c => c.dna?.version === 2)
             || characterState.context.every(c => usesCharacterTemplates(nai, c.dna)));
         const task = template && characterState.context.length ? cgPromptTask(characterState.context) : null;
+        const spriteLines = await referenceLines(sceneAssets, characterState);
         let written;
         try {
             written = await writeFloorPrompts({
@@ -388,8 +389,9 @@ export function createAutoIllustrationService(deps) {
                     `为本楼生成${decision.want}张CG，CG点自行选择。slotid沿用本次召回分配的编号，不重新从1开始。挂载点只从剧情正文里逐字摘原句，提示词、出图指导、标签和正文以外的内容不要拿来当挂载点，也不要画进CG。`,
                     cgFramePrompt(cgSize(s)),
                     characterState.timeline.length && `衣装变化按正文生成点取值，不把楼末衣装套在前面的场景：${JSON.stringify(characterState.timeline)}`,
+                    spriteLines,
                     task ? '每图输出 dna_template，具名人物按允许 token 绑定，景别按实际画面选择，不为资料缺失改变镜头。每个 named 同次写 meta_identity 完整英文身份 TAG 和 meta_signature 标志特征 TAG，本次新写衣装也只用 TAG；无名临时人物的身份和衣装同样用 TAG。匹配保存景别优先；缺景别按已有身份与实际取景给当次身份标签，完全无 DNA 时依据角色库和正文给保守当次身份。不生成 DNA 候选、不写回永久身份，不删人、不改成路人。'
-                        : characterState.context.length ? '场景描述人数、环境和共同互动；每个独立角色提示保留名字、固定外貌、标志细节、当前衣装及自身动作。默认立绘衣装不覆盖场景衣装。'
+                        : characterState.context.length ? '场景描述人数、环境和共同互动；每个独立角色提示保留名字、固定外貌、标志细节、当前衣装及自身动作。有 DNA 和服装提示词就用这两样。缺任何一样，用这套衣装的平和立绘提示词；这套没有，才用这个人的默认立绘。'
                         : template && '纯场景不需要 DNA 或身份任务；只写环境、光影与场景排除词，不输出人物身份占位或 DNA 候选。无独立主体时不写 Char 和 meta_ 旁路，也不要求 prompt_mode。',
                 ].filter(Boolean).join('\n'),
             });
@@ -1342,14 +1344,13 @@ export function createAutoIllustrationService(deps) {
         const template = backend.mode === 'nai' && context.length > 0
             && (profiles.some(dna => dna?.version === 2) || profiles.every(dna => usesCharacterTemplates(nai, dna)));
         const legacyDna = backend.mode === 'nai' && !template ? summarizeCharacterDna(characters, assets) : [];
-        const sprites = (await Promise.all(context.map(async c => ({ c, tags: await calmSpriteTags(assets, c.characterKey, c.outfit.name) }))))
-            .filter(item => item.tags);
+        const spriteLines = (await Promise.all(context.map(c => referenceLine(assets, c.characterKey, c.outfit, c.dna)))).filter(Boolean).join('\n');
         const dressed = context.map(c => (isBuiltinNudeOutfit(c.outfit.name) ? `${c.characterKey}全裸出镜`
             : c.outfit.name ? `${c.characterKey}穿「${c.outfit.name}」` : '')).filter(Boolean);
         const description = [text,
             legacyDna.length ? `【角色外貌】\n${legacyDna.map(c => `${c.name}：${[c.identity, c.defaultAppearance].filter(Boolean).join('；')}`).join('\n')}` : '',
             dressed.length ? `衣装：${dressed.join('；')}。` : '',
-            sprites.length ? `【角色立绘提示词】这套衣装「平和」立绘出图用的词，用来保持长相和衣装；表情、动作、镜头和背景按惩罚内容重写，不照搬白底和站姿。\n${sprites.map(({ c, tags }) => `${c.characterKey}（${c.outfit.name || '默认'}）：${tags}`).join('\n')}` : '',
+            spriteLines && `【角色立绘提示词】有 DNA 和服装提示词就用那两样。缺任何一样，用这套衣装的平和立绘；这套没有，才用这个人的默认立绘。表情、动作、镜头和背景按画面重写，不照搬白底和站姿。\n${spriteLines}`,
         ].filter(Boolean).join('\n');
         const size = aspect && aspect.width > 0 && aspect.height > 0
             ? cgSizeForAspect(s.assets && s.assets.backgroundSize, aspect) : cgSize(s);
@@ -1384,21 +1385,76 @@ export function createAutoIllustrationService(deps) {
         return { name, description: resolveWardrobePrompt(assets.wardrobe, entry, name)?.prompt || '' };
     }
 
-    // 立绘本身存着出图时的提示词；取这套衣装平和那张（没有就取底图或第一张）里这个角色的部分。
-    async function calmSpriteTags(assets, key, outfitName) {
-        if (typeof deps.readSpritePrompt !== 'function') return '';
+    function outfitEntryOf(assets, key, outfitName) {
         const outfits = assets.characterOutfits?.[key] || {};
-        const entry = isBuiltinNudeOutfit(outfitName)
-            ? Object.entries(outfits).find(([name, item]) => isBuiltinNudeOutfit(name) || isBuiltinNudeOutfit(item?.wardrobe))?.[1]
-            : outfits[outfitName];
-        const slots = entry ? outfitSpriteSlots(entry) : (assets.characters?.[key] || {});
-        const url = slots['平和'] || slots['默认'] || slots['裸体'] || Object.values(slots).find(Boolean);
-        if (!url) return '';
-        try {
-            return spritePromptTags(await deps.readSpritePrompt(url));
-        } catch {
-            return '';
+        if (isBuiltinNudeOutfit(outfitName)) {
+            return Object.entries(outfits).find(([name, item]) => isBuiltinNudeOutfit(name) || isBuiltinNudeOutfit(item?.wardrobe))?.[1] || null;
         }
+        return outfits[outfitName] || null;
+    }
+
+    function spriteUrlOf(entry) {
+        if (!entry) return '';
+        const slots = outfitSpriteSlots(entry);
+        return slots['平和'] || slots['默认'] || slots['裸体'] || Object.values(slots).find(Boolean) || '';
+    }
+
+    async function tagsAt(url) {
+        if (!url || typeof deps.readSpritePrompt !== 'function') return '';
+        try { return spritePromptTags(await deps.readSpritePrompt(url)); }
+        catch { return ''; }
+    }
+
+    // 这套衣装自己的平和立绘。没有这套图时不拿别人的顶上。
+    async function outfitSpriteTags(assets, key, outfitName) {
+        return tagsAt(spriteUrlOf(outfitEntryOf(assets, key, outfitName)));
+    }
+
+    // 这个人的默认提示词：默认衣装的平和立绘，没有图就用默认衣装的服装提示词，再没有才看旧原装槽。
+    async function defaultReference(assets, key) {
+        const selected = readVisibleDefaultOutfit(assets, key);
+        if (selected.ok) {
+            const tags = await tagsAt(spriteUrlOf(selected.entry));
+            if (tags) return { outfitName: selected.outfitName, tags };
+            const prompt = resolveWardrobePrompt(assets.wardrobe, selected.entry, selected.outfitName)?.prompt || '';
+            if (prompt) return { outfitName: selected.outfitName, tags: prompt };
+        }
+        const legacy = assets.characters?.[key] || {};
+        const url = legacy['平和'] || legacy['默认'] || legacy['裸体'] || Object.values(legacy).find(Boolean) || '';
+        const tags = await tagsAt(url);
+        return tags ? { outfitName: '默认', tags } : { outfitName: '', tags: '' };
+    }
+
+    // 有 DNA 并且这套有服装提示词：用那两样，不拿立绘顶替。缺任何一样，抄这套的平和立绘；这套没有，才用默认。
+    async function referenceLine(assets, characterKey, outfit, dna) {
+        const name = String(outfit?.name || '').trim();
+        const clothes = String(outfit?.description || '').trim();
+        if (!isCharacterDnaEmpty(dna) && clothes) return '';
+        const own = name ? await outfitSpriteTags(assets, characterKey, name) : '';
+        if (own) return `${characterKey}（${name}）：${own}`;
+        const fallback = await defaultReference(assets, characterKey);
+        if (!fallback.tags || fallback.outfitName === name) return fallback.tags && name ? `${characterKey}（${name}）：${fallback.tags}` : '';
+        return `${characterKey}「${name || '当前衣装'}」没有这套立绘，用默认衣装「${fallback.outfitName}」：${fallback.tags}`;
+    }
+
+    async function referenceLines(assets, state) {
+        const points = [];
+        const seen = new Set();
+        const add = (characterKey, outfit) => {
+            const id = `${characterKey}\0${outfit?.name || ''}`;
+            if (!characterKey || seen.has(id)) return;
+            seen.add(id);
+            points.push({ characterKey, outfit });
+        };
+        for (const item of state.timeline) add(item.characterKey, item.outfit);
+        for (const character of state.context) add(character.characterKey, character.outfit);
+        const lines = [];
+        for (const point of points) {
+            const profile = state.context.find(character => character.characterKey === point.characterKey);
+            const line = await referenceLine(assets, point.characterKey, point.outfit, profile?.dna);
+            if (line) lines.push(line);
+        }
+        return lines.length ? `【角色立绘提示词】有 DNA 和服装提示词就用那两样。缺任何一样，用下面这套衣装的平和立绘；这套没有立绘，才用这个人的默认衣装。表情、动作、镜头和背景按画面重写，不照搬白底和站姿。\n${lines.join('\n')}` : '';
     }
 
     return {

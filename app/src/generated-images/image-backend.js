@@ -33,8 +33,10 @@ export function normalizeImageSourceMode(value) {
     return IMAGE_SOURCE_MODES.includes(mode) ? mode : 'extension';
 }
 
-// 等待较久只报告仍在处理；继续接收同一插件调用的结果，不再因本地计时器丢开原调用。
-export const DBGEN_TIMEOUTS = Object.freeze({ write: 5 * 60 * 1000, paint: 3 * 60 * 1000 });
+// write / paint 到点只报告仍在处理；*Limit 到点由 IGS 中断这次调用（信号交给插件，插件取消排队或掐断请求）。
+// paint 与 paintLimit 从插件拿到名额开始发请求算起，排队不计；queueLimit 从调用算起，只兜底插件队列被别处卡死。
+export const DBGEN_TIMEOUTS = Object.freeze({ write: 5 * 60 * 1000, writeLimit: 10 * 60 * 1000,
+    paint: 3 * 60 * 1000, paintLimit: 6 * 60 * 1000, queueLimit: 20 * 60 * 1000 });
 
 const secs = ms => `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
 
@@ -50,16 +52,37 @@ function reportNaiTiming(report, method, enteredAt, readyAt, result) {
     report('info', `NAI 计时（${method === 'edit' ? '局部重绘' : '生图'}${result?.ok ? '' : '·失败'}）：${parts.join('，')}`);
 }
 
-function waitForPluginResult(promise, ms, onSlow, signal) {
-    let timer, abort;
-    const cancelled = new Promise(resolve => {
-        abort = () => resolve({ ok: false, reason: 'request-stale', stopGeneration: true });
-        signal?.addEventListener('abort', abort, { once: true });
-        if (signal?.aborted) abort();
+// call(started, signal)：插件真正开始时调 started()；不支持的入口在调用时就算开始。
+function waitForPluginResult(call, { signal, slowMs = 0, onSlow, limitMs = 0, queueLimitMs = 0, timeoutError, startsOnCall = true } = {}) {
+    const controller = new AbortController();
+    const timers = [];
+    const after = (ms, run) => { if (ms > 0) timers.push(setTimeout(run, ms)); };
+    let timedOut = null, begun = false;
+    const forward = () => controller.abort();
+    signal?.addEventListener('abort', forward, { once: true });
+    if (signal?.aborted) forward();
+    const cancelled = new Promise(resolve => controller.signal.addEventListener('abort',
+        () => resolve(timedOut || { ok: false, reason: 'request-stale', stopGeneration: true }), { once: true }));
+    const expire = phase => {
+        if (timedOut || controller.signal.aborted) return;
+        timedOut = { ok: false, reason: 'plugin-timeout', error: timeoutError(phase) };
+        controller.abort();
+    };
+    const started = () => {
+        if (begun) return;
+        begun = true;
+        after(slowMs, () => { try { onSlow?.(); } catch { /* 状态展示不影响原请求。 */ } });
+        after(limitMs, () => expire('run'));
+    };
+    after(queueLimitMs, () => { if (!begun) expire('queue'); });
+    if (startsOnCall) started();
+    const pending = controller.signal.aborted ? cancelled : Promise.resolve().then(() => call(started, controller.signal));
+    return Promise.race([pending, cancelled]).finally(() => {
+        for (const timer of timers) clearTimeout(timer);
+        signal?.removeEventListener('abort', forward);
     });
-    if (ms > 0) timer = setTimeout(() => { try { onSlow?.(); } catch { /* 状态展示不影响原请求。 */ } }, ms);
-    return Promise.race([promise, cancelled]).finally(() => { clearTimeout(timer); signal?.removeEventListener('abort', abort); });
 }
+const minutes = ms => `${Math.round(ms / 60000)} 分钟`;
 
 export function findDbgenApi(globalObject = globalThis) {
     const candidates = [];
@@ -457,12 +480,18 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         if (typeof api.generateSinglePrompt !== 'function') return { ok: false, error: `${DBGEN_LABEL}版本过旧，缺少写提示词接口` };
         let written;
         try {
-            written = await waitForPluginResult(api.generateSinglePrompt({ description,
+            written = await waitForPluginResult((_started, signal) => api.generateSinglePrompt({ description,
                 ...((floor ? meta.skipRecall === true : true) && { skipRecall: true }),
                 ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
-                ...(meta.signal && { signal: meta.signal }),
-            }), timeouts.write, () => report?.('info', '数据库生图插件仍在写词，继续等待同一次调用'), meta.signal);
+                signal,
+            }), { signal: meta.signal, slowMs: timeouts.write, limitMs: timeouts.writeLimit,
+                onSlow: () => report?.('info', '数据库生图插件仍在写词，继续等待同一次调用'),
+                timeoutError: () => `${DBGEN_LABEL}写词超时：${minutes(timeouts.writeLimit)}没有返回，已中断这次请求，可以重试` });
         } catch (error) { return describePromptException(error); }
+        if (written?.reason === 'plugin-timeout') {
+            report?.('error', written.error);
+            return written;
+        }
         if (!written?.ok || !written.value?.caption)
             return describePromptFailure(written || { reason: 'DBGEN_PROMPT_EMPTY' }, 'prompt-write');
         const rows = Array.isArray(written.value.captions) && written.value.captions.length
@@ -556,16 +585,29 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         };
         let result;
         try {
-            result = await waitForPluginResult(api.generate({
+            result = await waitForPluginResult((started, signal) => api.generate({
                 caption: merged,
                 replaceCharacterKeywords: meta.replaceCharacterKeywords !== false && !isSceneOnlyPromptOutput({ caption: merged }),
-                signal: meta.signal,
-                shouldStart: meta.shouldStart,
+                signal,
+                // 插件拿到名额、要发请求前回调这里：从这一刻开始计出图时间。
+                shouldStart: () => {
+                    const live = typeof meta.shouldStart !== 'function' || meta.shouldStart() === true;
+                    if (live) started();
+                    return live;
+                },
                 ...(requestArtist !== undefined && { artist: requestArtist }),
                 ...(Object.keys(params).length && { params }),
-            }), timeouts.paint, () => report?.('info', '数据库生图插件仍在出图，继续接收同一次调用的结果'), meta.signal);
+            }), { signal: meta.signal, startsOnCall: false, slowMs: timeouts.paint, limitMs: timeouts.paintLimit, queueLimitMs: timeouts.queueLimit,
+                onSlow: () => report?.('info', '数据库生图插件仍在出图，继续接收同一次调用的结果'),
+                timeoutError: phase => phase === 'queue'
+                    ? `${DBGEN_LABEL}出图超时：排队 ${minutes(timeouts.queueLimit)}仍没轮到这次请求，已撤回，可以重试`
+                    : `${DBGEN_LABEL}出图超时：开始出图后 ${minutes(timeouts.paintLimit)}没有返回，已中断这次请求，可以重试` });
         } catch (error) {
             return { ok: false, error: `${DBGEN_LABEL}出图失败：${(error && error.message) || error}`, prompt: promptFromCaption(merged) };
+        }
+        if (result?.reason === 'plugin-timeout') {
+            report?.('error', result.error);
+            return { ...result, prompt: promptFromCaption(merged) };
         }
         const image = result && result.ok && Array.isArray(result.value) ? result.value[0] : null;
         if (!image || !image.blob) return { ok: false, error: `${DBGEN_LABEL}出图失败：${describeResultError(result, '未返回图片')}`, prompt: promptFromCaption(merged) };

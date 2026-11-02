@@ -141,10 +141,18 @@ export function cgCharacterState(text, names, assets, previousTexts = [], readCl
         });
     };
     const context = at(Infinity);
-    const timeline = directives.filter((d) => d.outfit).map((d) => ({
-        characterKey: canonical(d.character), offset: d.offset,
-        outfit: at(d.offset).find((c) => c.characterKey === canonical(d.character))?.outfit,
-    }));
+    // 同一角色衣装没变时不重复记。正文里每句都带服装栏，不能每句都当成一次换装。
+    const timeline = [];
+    const worn = new Map();
+    for (const d of directives) {
+        if (!d.outfit) continue;
+        const characterKey = canonical(d.character);
+        const outfit = at(d.offset).find((c) => c.characterKey === characterKey)?.outfit;
+        const signature = `${outfit?.name || ''}\0${outfit?.description || ''}`;
+        if (worn.get(characterKey) === signature) continue;
+        worn.set(characterKey, signature);
+        timeline.push({ characterKey, offset: d.offset, outfit });
+    }
     const anchorAt = (offset, keys) => {
         const scene = directives.filter(d => d.type === 'scene' && d.offset <= offset).at(-1);
         const context = at(offset);
