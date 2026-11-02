@@ -121,7 +121,26 @@ function ttsVoiceLine(c, snapshot, decision) {
     return `朗读声音 说话人 ${decision.speaker || '-'} → 主名 ${decision.name || '-'} · 性别 ${gender} · 来源 ${decision.source || '-'} · 声音 ${voice} · 语速 ${Number(decision.rate).toFixed(2)}`;
 }
 
-export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null, ttsDecision = null, statsLine = '' } = {}) {
+// 战斗入口：阅读器最近一次判断开战入口时各条件的取值（由 reader-host 记录）。
+export function combatEntryLine(probe, messageId) {
+    if (!probe) return '战斗入口 本次打开阅读器后还没判断过';
+    const yes = (v) => (v ? '是' : '否');
+    const parts = [`卡牌战斗${probe.enabled ? '开' : '关'}`, `类型 ${probe.kind}`];
+    if (messageId != null && Number(probe.messageId) !== Number(messageId)) parts.push(`记录来自楼层 ${probe.messageId}`);
+    parts.push(`生成中 ${yes(probe.streamPhase === 'streaming')}`, `历史楼 ${yes(probe.turnOffset > 0)}`, `末页 ${yes(probe.lastPage)}`);
+    if (!probe.floor) parts.push('楼层 未读到');
+    else parts.push(`AI楼 ${yes(probe.floor.isAi)}`, `最新楼 ${yes(probe.floor.isLatest)}`, `聊天ID ${probe.floor.chatId ? '有' : '无'}`);
+    if (probe.entry) parts.push(`标签 识别到「${probe.entry.name}」`);
+    else if (probe.start && probe.start.error) parts.push(`标签 检查出错 ${probe.start.error}`);
+    else if (probe.start) parts.push(probe.start.found ? `标签 识别到「${probe.start.name}」（其他条件未过）` : `标签 未识别${probe.start.codes.length ? `（${probe.start.codes.join('、')}）` : ''}`);
+    if (probe.entry) {
+        parts.push(`已自动打开过 ${yes(probe.seen)}`, `返回按钮 ${yes(probe.returnTag)}`);
+        if (probe.opened) parts.push(probe.opened.ok ? '本次打开 成功' : `本次打开 失败 ${probe.opened.reason}${probe.opened.error ? ` ${probe.opened.error}` : ''}`);
+    }
+    return `战斗入口 ${parts.join(' · ')}`;
+}
+
+export function buildPageDiagnostic(snapshot, { version = '', worldview = '', promptReport = null, mediaStats = null, ttsSkip = null, ttsDecision = null, statsLine = '', combatProbe } = {}) {
     if (!snapshot || !snapshot.content) return '';
     const c = snapshot.content;
     const rs = snapshot.readerSettings || {};
@@ -150,6 +169,7 @@ export function buildPageDiagnostic(snapshot, { version = '', worldview = '', pr
     lines.push(`非人角色 ${creatureLine(c, rs)}`);
     // 数值系统：本楼检定来源，没有检定时写原因（v2 §9.4）。
     if (statsLine) lines.push(statsLine);
+    if (combatProbe !== undefined) lines.push(combatEntryLine(combatProbe, c.messageId ?? snapshot.messageId));
     lines.push(...promptLines(promptReport));
     if (mediaStats) lines.push(`图片资源 ${describeMediaUsage(mediaStats)}`);
     let local = '';

@@ -26,6 +26,12 @@ export function resolveCombatEntry({ readerSettings, floor, lastPage, sourceFilt
     return { kind: 'challenge', key, messageId: Number(floor.messageId), event: start.event, domain: start.domain, tier: start.tier, allowEscape: settings.daily.allowEscape };
 }
 
+// 本页诊断用：入口没出现时，开战标签本身有没有识别到、诊断码是什么。
+export function probeCombatStart(text, sourceFilter) {
+    const { start, diagnostics } = extractCombatStart(String(text || ''), { sourceFilter });
+    return { found: Boolean(start), name: start ? start.encounter : '', codes: diagnostics.map((d) => d.field ? `${d.code}:${d.field}:${d.problem}` : d.code) };
+}
+
 // 入口卡降级为回头路：开战标签翻到末页即自动打开战前对阵界面，在那里决定开始、跳过、放弃或托管；
 // 没做选择就关闭时，原位置只留一个小标签「返回战斗」（日常挑战为「返回挑战」），点击重新打开对阵界面。
 export function combatEntryHtml(entry) {

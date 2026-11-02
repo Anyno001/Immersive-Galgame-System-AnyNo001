@@ -15,7 +15,7 @@ import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { growthTagsByPage, planGrowthFx } from './combat-growth-fx-model.js';
 import { cancelGrowthFx } from './combat-growth-fx.js';
 import { cancelCheckBadges, checksByPage } from './combat-check-badge.js';
-import { resolveCombatEntry, syncCombatEntry } from './combat-entry.js';
+import { probeCombatStart, resolveCombatEntry, syncCombatEntry } from './combat-entry.js';
 import { createRecoveryNotice } from './recovery-notice.js';
 import { handleSettingsAction } from './settings-actions.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
@@ -5632,15 +5632,32 @@ ${row.key}`;
         const live = current.streamPhase !== 'streaming' && !(Number(current.turnOffset) > 0);
         const floor = live && messageId != null && typeof options.getIllustrationSource === 'function'
             ? options.getIllustrationSource(messageId) : null;
-        const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: isReaderLastPage(snapshot), sourceFilter: current.payload && current.payload.sourceFilter, challengeQuota: typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null }) : null;
+        const lastPage = isReaderLastPage(snapshot);
+        const sourceFilter = current.payload && current.payload.sourceFilter;
+        const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage, sourceFilter, challengeQuota: typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null }) : null;
         state.combatAutoOpened ||= new Set();
-        const skin = normalizeCombatExpansionSettings(snapshot.readerSettings && snapshot.readerSettings.combatExpansion).skin;
+        const combatSettings = normalizeCombatExpansionSettings(snapshot.readerSettings && snapshot.readerSettings.combatExpansion);
+        const skin = combatSettings.skin;
+        // 本页诊断「战斗入口」行：记下这次判断时各条件的取值，入口没出现时可以看出卡在哪一条。
+        const probe = {
+            messageId, streamPhase: current.streamPhase || '', turnOffset: Number(current.turnOffset) || 0, lastPage,
+            enabled: combatSettings.enabled, kind: combatSettings.kind,
+            floor: floor ? { isAi: floor.isAi, isLatest: floor.isLatest, chatId: Boolean(floor.chatId) } : null,
+            entry: entry ? { key: entry.key, name: entry.encounter || entry.event || '' } : null,
+            start: null, seen: Boolean(entry && state.combatAutoOpened.has(entry.key)), returnTag: Boolean(entry && state.combatReturnKey === entry.key), opened: null,
+        };
+        if (floor && !entry) {
+            try { probe.start = probeCombatStart(floor.text, sourceFilter); } catch (error) { probe.start = { error: String(error && error.message || error) }; }
+        }
+        state.combatEntryProbe = probe;
         // 入口卡只是回头路：对阵界面没做选择就关闭、或自动打开失败时，才在原位置留「返回战斗 / 返回挑战」小标签。
         const showTag = entry && state.combatReturnKey === entry.key ? entry : null;
         syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, entry), onFail: (r) => notifyCombatOpenFail(r) });
         // 开战标签翻到末页即自动打开对阵界面（战斗与日常挑战相同）；只记成功打开的，地图、资料或构筑面板开着时不记，等下一次渲染再弹。
         if (entry && !state.combatAutoOpened.has(entry.key)) {
-            const opened = openCombatPanel(current, entry);
+            let opened;
+            try { opened = openCombatPanel(current, entry); } catch (error) { opened = { ok: false, reason: 'combat-open-threw', error: String(error && error.message || error) }; }
+            probe.opened = opened ? { ok: opened.ok === true, reason: opened.reason || '', error: opened.error || '' } : { ok: false, reason: 'no-result' };
             if (opened?.ok === true) state.combatAutoOpened.add(entry.key);
             else if (opened) {
                 // 打开失败：留「返回」标签；被其他面板占用会在下一次渲染重试，其余原因每个开战楼只提示一次。

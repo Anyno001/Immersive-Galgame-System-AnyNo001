@@ -2,6 +2,7 @@ import { CANVAS_SIZE, canvasFit } from './combat-skin-canvas.js';
 import { portraitSilhouetteSvg } from './combat-card-art.js';
 import { COMBAT_STAGE_FX_BASE_CSS, COMBAT_STAGE_FX_STYLE_CSS } from './combat-stage-fx-style.js';
 import { COMBAT_STAGE_FX_POLISH_CSS } from './combat-stage-fx-polish.js';
+import { RESULT_SKINS, RESULT_SKINS_CSS } from './combat-result-skins.js';
 
 // 战斗大节点演出（风格化皮肤）：开战黑屏对撞、技能切入、觉醒两段式、结算。照搬设计稿 fx.js / fx3.js 的节点与几何，样式见 combat-stage-fx-style.js（由设计稿 CSS 生成）。
 // 演出画在固定画布（竖屏 390×844、横屏 1280×720）里，整体按面板尺寸等比缩放（--cx-scale）；宽度随面板伸展（--cw = fit.w），画布外的留边由外层铺底。
@@ -36,7 +37,8 @@ const WRAP_CSS = `
 #igs-overlay .igs-sfx .fig-sil svg{width:auto;height:100%;max-width:100%;}
 #igs-overlay .igs-sfx .fig-char{position:absolute;inset:0;display:grid;place-items:center;color:var(--text);font:900 min(60%,180px)/1 var(--display);opacity:.45;}
 `;
-export const COMBAT_STAGE_FX_STYLE_TEXT = `${COMBAT_STAGE_FX_BASE_CSS}\n${Object.values(COMBAT_STAGE_FX_STYLE_CSS).join('\n')}\n${WRAP_CSS}\n${COMBAT_STAGE_FX_POLISH_CSS}`;
+export const COMBAT_STAGE_FX_STYLE_TEXT = `${COMBAT_STAGE_FX_BASE_CSS}\n${Object.values(COMBAT_STAGE_FX_STYLE_CSS).join('\n')}\n${WRAP_CSS}\n${COMBAT_STAGE_FX_POLISH_CSS}
+${RESULT_SKINS_CSS}`;
 
 const cssUrl = (url) => `url("${String(url).replace(/[\r\n]/g, '').replace(/["\\]/g, (ch) => `\\${ch}`)}")`;
 const NS = 'http://www.w3.org/2000/svg';
@@ -321,11 +323,15 @@ export function resultStageHtml({ skin = '', orient = 'port', end = {}, order = 
     const size = CANVAS_SIZE[orient === 'land' ? 'land' : 'port'];
     const won = end.outcome === 'victory';
     const heroes = order.length ? order : (end.allies || []).map((a) => a.name);
+    const own = RESULT_SKINS[skin];
+    const args = { skin, orient, end, order, pics, ui, esc, style, size, won, heroes, english: ENGLISH[end.outcome] || '', cssUrl, plateSvg };
+    const custom = own?.html?.(args);
+    if (custom) return custom;
     const fig = (cls, n) => (n ? `<i class="fig ${cls}"${pics[n] ? ` style="background-image:${esc(cssUrl(pics[n]))}"` : ''}>${pics[n] ? '' : `<b class="fig-char">${esc(Array.from(n)[0] || '')}</b>`}</i>` : '');
     const rows = [...(end.feats || []).map((f) => ['战功', f.title || '']), ...(end.allies || []).map((a) => [a.name, a.injury || ''])].slice(0, 3)
         .map(([h, v], i) => `<div class="row" style="--d:${1050 + i * 140}ms"><span>${esc(h)}</span><b>${esc(v)}</b></div>`).join('');
     return `<section class="igs-sfx igs-sfx-result${orient === 'land' ? ' land' : ''}" data-sfx="${esc(style)}" data-skin="${esc(skin)}" data-outcome="${esc(end.outcome || '')}" style="--cw:var(--cx-w,${size.w}px);--ch:${size.h}px">`
-        + `<div class="sfx-canvas"><div class="result${won ? '' : ' lose'}"><div class="veil"></div><div class="hband"></div>${fig('mate', heroes[1])}${fig('lead', heroes[0])}`
+        + `<div class="sfx-canvas"><div class="result${won ? '' : ' lose'}"><div class="veil"></div><div class="hband"></div>${own?.decor?.(args) || ''}${fig('mate', heroes[1])}${fig('lead', heroes[0])}`
         + `<div class="plate">${plateSvg()}</div><div class="big">${esc(end.label || '')}<small>${esc(ENGLISH[end.outcome] || '')}</small></div>`
         + `<div class="grade"><small>回合</small>${esc(end.turn ?? '')}</div><div class="rows">${rows}</div>`
         + `<div class="rs-ui">${ui}</div></div></div></section>`;

@@ -204,7 +204,7 @@ export function foldFeedDirectives(directives, offset = Infinity, nextOffset = o
     return feed.posts.length ? feed : null;
 }
 
-const FEED_TAG_RE = /\[igs-fx:([^\]\n]*)(?:\]|$)/gm;
+const FEED_TAG_RE = /\[igs-fx:([^\]}\n]*)(?:[\]}]|$)/gm;
 
 // 目录用：从一楼原文收出全部帖子 [{ platform, author, text, extra, replies, offset }]（不限条数）。
 export function collectFeedPosts(source) {

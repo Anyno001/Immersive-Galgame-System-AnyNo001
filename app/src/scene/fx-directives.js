@@ -148,7 +148,8 @@ const FX_CAMERA_PAN_DIRS = Object.freeze({ 左: 'left', 向左: 'left', left: 'l
 
 // 配乐情绪 [igs-fx:bgm|悲]：独立于 FX_TAG_KINDS，由背景音乐的情绪标签开关控制；情绪词写错整条丢弃（照常从正文剥离）。
 // 作用到楼层内下一条 bgm 标签为止，跨楼由选曲层按场景沿用。
-const FX_TAG_RE = /\[igs-fx:([^\]\n]*)(?:\]|$)/gm;
+// 结尾误写成 "}" 按 "]" 收口，与 directive-tags.js 的剥离口径一致。
+const FX_TAG_RE = /\[igs-fx:([^\]}\n]*)(?:[\]}]|$)/gm;
 const FIELD_MAX = 60;
 
 function field(value) {

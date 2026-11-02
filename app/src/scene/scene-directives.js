@@ -23,7 +23,7 @@ const SCENE_AT_RE = /^\[igs-scene:([^|\]]+)\|([^|\]]+)(?:\|([^|\]]*))?(?:\|([^|\
 const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const IMG_AT_RE = /^(?:\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>)/i;
-const FX_AT_RE = /^\[igs-fx:[^\]\n]*(?:\]|$)/;
+const FX_AT_RE = /^\[igs-fx:[^\]}\n]*(?:[\]}]|$)/;
 const COMBAT_AT_RE = /^\[igs-(?:combat|challenge):[^\]\n]*(?:\]|$)/;
 export const IGS_IMG_MARKER_SOURCE = '(?:\\[igs-img:\\s*|<IMG>\\s*)(\\d+)(?:\\s*\\]|\\s*<\\/IMG>)';
 
