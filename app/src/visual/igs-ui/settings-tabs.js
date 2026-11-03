@@ -64,7 +64,7 @@ const BACKUP_TEMPLATE = `
     {{imageCompressionField}}
     <div class="igs-source-filter-note">开启后降低显示占用；下载与编辑仍用原图。</div>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="purge-asset-cache" type="button" title="清空浏览器里缓存的图片和设置页缩略图，酒馆上的原图不动">清素材缓存</button></div>
-    <div class="igs-link-row"><button class="igs-link-btn" data-action="image-cache-status" type="button">查看占用</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-records-retry-backup" type="button">重试备份</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-files-retry-delete" type="button">重试删除</button></div>
+    <div class="igs-link-row"><button class="igs-link-btn" data-action="image-cache-status" type="button">查看占用</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-records-retry-backup" type="button">重试备份</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-files-retry-delete" type="button">重试删除</button><span aria-hidden="true">·</span><button class="igs-link-btn" data-action="image-orphans-collect" type="button" title="删除素材库、角色卡、预设与待确认衣装都不再使用的立绘和背景图片">清理无用图片</button></div>
     <div class="igs-source-filter-note">{{imageCacheStatus}}</div>
   </div>
   <div class="igs-source-filter">

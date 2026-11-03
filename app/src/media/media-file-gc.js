@@ -9,6 +9,23 @@ import { RECOVERY_ATTEMPTS, trackRecovery } from '../storage/automatic-recovery.
 const collectors = new WeakMap();
 const WRITE_LEASE_MS = 120000;
 
+// 全局配置/预设以图片 ID 间接引用原图；旧设备尚未同步删除时继续保护它们。
+export async function remoteSettingsReferences(globalObject) {
+    if (!tavernHeaders(globalObject)) throw new Error('media-offline');
+    const refs = { ids: new Set(), paths: new Set() };
+    const response = await mediaRequest(globalObject, `/user/files/igs-settings.json?t=${Date.now()}`, { cache: 'no-store', recover: false }, 8000);
+    if (response.status === 404) return refs;
+    if (!response.ok) throw new Error('media-settings-reference-check-failed');
+    const file = await response.json();
+    if (!file?.settings || typeof file.settings !== 'object') throw new Error('media-settings-reference-check-failed');
+    for (const [key, text] of Object.entries(file.settings)) {
+        if (file.deletedKeys?.includes(key)) continue;
+        let value = text; try { value = JSON.parse(text); } catch { /* 地图是直接路径 */ }
+        collectImageReferences(value, refs);
+    }
+    return refs;
+}
+
 export function mediaFileGcFor(globalObject = globalThis) {
     if (collectors.has(globalObject)) return collectors.get(globalObject);
     const state = mediaStateStoreFor(globalObject), sources = new Set(), leases = new Map();
@@ -58,20 +75,7 @@ export function mediaFileGcFor(globalObject = globalThis) {
             }
             backups.set(fileName, records);
         }
-        // 全局配置/预设以图片 ID 间接引用原图；旧设备尚未同步删除时继续保护它们。
-        const refs = { ids: new Set(), paths: new Set() };
-        const response = await mediaRequest(globalObject, `/user/files/igs-settings.json?t=${Date.now()}`, { cache: 'no-store', recover: false }, 8000);
-        if (response.status !== 404) {
-            if (!response.ok) throw new Error('media-settings-reference-check-failed');
-            const file = await response.json();
-            if (!file?.settings || typeof file.settings !== 'object') throw new Error('media-settings-reference-check-failed');
-            for (const [key, text] of Object.entries(file.settings)) {
-                if (file.deletedKeys?.includes(key)) continue;
-                let value = text; try { value = JSON.parse(text); } catch { /* 地图是直接路径 */ }
-                collectImageReferences(value, refs);
-            }
-        }
-        return { backups, refs };
+        return { backups, refs: await remoteSettingsReferences(globalObject) };
     }
     async function localReferences({ backups, refs }) {
         const live = new Set(refs.paths), writing = new Set(leases.keys()), local = await state.all(), catalog = new Map();

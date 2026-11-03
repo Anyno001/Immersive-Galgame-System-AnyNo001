@@ -3374,6 +3374,21 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'image-orphans-collect') {
+        if (!options.media?.orphanImages) return { ok: false, reason: 'media-unavailable' };
+        const asyncState = settingsState.asyncState;
+        try {
+            const orphans = await options.media.orphanImages();
+            if (!orphans.length) asyncState.imageCacheStatus = '没有无用图片。';
+            else if (await dialogs.confirm(`找到 ${orphans.length} 张不再使用的立绘或背景图片。删除后无法恢复，是否删除？`, { okLabel: '删除' })) {
+                const result = await options.media.collectImages(orphans.map(row => row.id));
+                await options.media.retryDeletes().catch(() => {});
+                asyncState.imageCacheStatus = `已删除 ${result.removed.length} 张${result.skipped.length ? `，${result.skipped.length} 张仍在使用，已保留` : ''}；${describeMediaUsage(await options.media.stats())}`;
+            }
+        } catch (error) { asyncState.imageCacheStatus = `清理失败：${error.message}`; }
+        return rerenderSettings();
+    }
+
     // 一个清理入口覆盖原图、派生缩略图、对象 URL 与在途加载。
     if (normalizedAction === 'image-cache-clear' || normalizedAction === 'purge-asset-cache') {
         const hostGlobal = options.global || globalThis;

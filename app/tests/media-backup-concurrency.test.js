@@ -6,6 +6,9 @@ import { createMemoryIllustrationStore } from '../src/media/illustration-store.j
 import { withTavernIllustrationFiles } from '../src/media/tavern-illustrations.js';
 import { mediaFileGcFor } from '../src/media/media-file-gc.js';
 import { disposeLocalImageCache } from '../src/media/tavern-image-cache.js';
+import { createMemoryGeneratedAssetStore } from '../src/media/generated-asset-store.js';
+import { withTavernGeneratedAssetFiles } from '../src/media/tavern-generated-assets.js';
+import { createMediaRuntime } from '../src/media/media-runtime.js';
 import { fakeMediaServer, pixel, settleMedia } from './helpers/fake-media-server.js';
 
 const fileName = 'igs-cg-records.json';
@@ -245,6 +248,31 @@ test('回收删除旧图时不阻塞保存；同哈希重新写入等删除落�
         await Promise.allSettled([collecting]);
         await stopMediaJournals(host);
         await mediaFileGcFor(host).stop();
+        await disposeLocalImageCache(host);
+    }
+});
+
+test('清理无用图片：本机或酒馆配置仍引用的图保留，只删没人用的', { timeout: 3000 }, async () => {
+    const server = fakeMediaServer(), host = server.host();
+    const store = withTavernGeneratedAssetFiles(createMemoryGeneratedAssetStore(), host);
+    for (const id of ['used', 'remote', 'orphan']) await store.putImage({ id, type: 'sprite', dataUrl: pixel(id) });
+    await store.flush();
+    const orphanPath = (await store.getImageRecord('orphan')).dataUrl;
+    host.localStorage.setItem('igs:fixture-library', JSON.stringify({ hero: 'igs-gen:used' }));
+    server.files.set('igs-settings.json', { settings: { 'igs:preset-registry:v1': JSON.stringify({ hero: 'igs-gen:remote' }) } });
+    const media = createMediaRuntime(host, { generatedAssetStore: store });
+    try {
+        assert.deepEqual((await media.orphanImages()).map(row => row.id), ['orphan']);
+        const result = await media.collectImages(['orphan', 'used']);
+        assert.deepEqual(result.removed, ['orphan']);
+        assert.deepEqual(result.skipped, ['used']);
+        assert.equal((await media.retryDeletes()).ok, true);
+        assert.deepEqual(server.deletions, [orphanPath]);
+        server.failRead = true;
+        await assert.rejects(media.orphanImages(), '读不到酒馆配置时不给出候选');
+    } finally {
+        server.failRead = false;
+        await media.destroy();
         await disposeLocalImageCache(host);
     }
 });
