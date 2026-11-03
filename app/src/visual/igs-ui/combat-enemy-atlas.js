@@ -1,5 +1,5 @@
 // 战斗敌人图集：下载与管理。
-// 图集不进 bundle，用户在设置页点击「下载」后才从 jsDelivr 的固定 tag 地址拉取，
+// 图集不内嵌进 bundle，用户在设置页点击「下载」后才拉取（先取随 bundle 发布的副本，再退回固定 tag 的 CDN / raw 地址），
 // 图片本体经现有的酒馆图片存储（user/images/igs-media/）落盘，这里只记录路径清单。
 import { createTavernImageFiles } from '../../media/tavern-image-files.js';
 import { isImagePath, normalizeImagePath } from '../../media/image-identity.js';
@@ -19,12 +19,25 @@ const ATLAS_VAR = theme => `--igs-enemy-atlas-${theme}`;
 
 export const ENEMY_ATLAS_REASONS = Object.freeze({
     network: '网络错误',
-    'cdn-404': 'CDN上找不到图集文件',
+    'cdn-404': '所有下载地址都找不到图集文件',
     storage: '存储失败',
+});
+
+// 与默认背景素材包同一条路：构建时改写为 ./enemy-atlas/<文件名> 并复制到 dist/enemy-atlas/，随 bundle 当前的加载地址取图。
+// 必须保留完整字面量路径，构建脚本按字面量识别。
+const BUNDLED_ATLAS = Object.freeze({
+    western: new URL('../../../assets/combat-enemy-atlas/western.webp', import.meta.url).href,
+    urban: new URL('../../../assets/combat-enemy-atlas/urban.webp', import.meta.url).href,
+    wuxia: new URL('../../../assets/combat-enemy-atlas/wuxia.webp', import.meta.url).href,
 });
 
 export function enemyAtlasUrl(theme, tag = ENEMY_ATLAS_TAG) {
     return `https://cdn.jsdelivr.net/gh/${REPOSITORY}@${tag}/app/assets/combat-enemy-atlas/${theme}.webp`;
+}
+// 依次尝试：随 bundle 发布的副本、jsDelivr 固定 tag、GitHub raw 固定 tag。
+export function enemyAtlasSources(theme, tag = ENEMY_ATLAS_TAG) {
+    const list = [BUNDLED_ATLAS[theme], enemyAtlasUrl(theme, tag), `https://raw.githubusercontent.com/${REPOSITORY}/${tag}/app/assets/combat-enemy-atlas/${theme}.webp`];
+    return [...new Set(list.filter(Boolean))];
 }
 
 function failure(reason, detail = '') {
@@ -52,6 +65,7 @@ export function createEnemyAtlasManager(options = {}) {
     const globalObject = options.globalObject || globalThis;
     const tag = options.tag || ENEMY_ATLAS_TAG;
     const fetchImpl = options.fetch || ((...args) => globalObject.fetch(...args));
+    const sources = options.sources || enemyAtlasSources;
     const files = options.files || createTavernImageFiles(globalObject, 'igs-media');
     const store = options.manifestStore || localManifestStore(globalObject);
     const listeners = new Set();
@@ -72,9 +86,9 @@ export function createEnemyAtlasManager(options = {}) {
     const notify = () => { for (const listener of [...listeners]) { try { listener(); } catch { /* 订阅方出错不影响状态 */ } } };
     const complete = () => ENEMY_ATLAS_THEMES.every(theme => installed[theme]);
 
-    async function fetchTheme(theme) {
+    async function fetchFrom(theme, url) {
         let response;
-        try { response = await fetchImpl(enemyAtlasUrl(theme, tag), { cache: 'force-cache' }); }
+        try { response = await fetchImpl(url, { cache: 'force-cache' }); }
         catch (cause) { throw failure('network', `${theme}：${cause?.message || '请求失败'}`); }
         if (response?.status === 404) throw failure('cdn-404', theme);
         if (!response?.ok) throw failure('network', `${theme}：HTTP ${response?.status ?? '未知'}`);
@@ -84,6 +98,16 @@ export function createEnemyAtlasManager(options = {}) {
         const head = String.fromCharCode(...bytes.subarray(0, 4)) + String.fromCharCode(...bytes.subarray(8, 12));
         if (head !== 'RIFFWEBP') throw failure('network', `${theme}：下载内容不是有效的 webp 图片`);
         return bytes;
+    }
+    // 任一地址成功即可；全部 404 才报找不到文件，否则报最后一次网络错误。
+    async function fetchTheme(theme) {
+        const errors = [];
+        for (const url of sources(theme, tag)) {
+            try { return await fetchFrom(theme, url); }
+            catch (cause) { errors.push(cause); }
+        }
+        if (errors.every(cause => cause.reason === 'cdn-404')) throw failure('cdn-404', theme);
+        throw errors.filter(cause => cause.reason !== 'cdn-404').pop();
     }
     async function storeTheme(theme, bytes) {
         let record;
@@ -190,7 +214,7 @@ export function renderCombatEnemyAtlasField(manager = current) {
     const note = info.state === 'failed'
         ? `${STATUS_TEXT.failed}：${info.reasonText}${info.detail ? `（${info.detail}）` : ''}。`
         : info.state === 'installed' ? `已保存到酒馆图片目录，版本${info.tag}。`
-            : info.state === 'downloading' ? '正在从jsDelivr拉取，请勿关闭页面。'
+            : info.state === 'downloading' ? '正在下载，请勿关闭页面。'
                 : `敌人立绘图集${sizeText}，仅在点击下载后才会从仓库拉取。未安装时战斗使用中性剪影。`;
     return '<div class="igs-settings-section" data-combat-enemy-atlas>'
         + `<div class="igs-settings-row"><span>敌人图集</span><b data-result="combat-enemy-atlas">${esc(STATUS_TEXT[info.state] || STATUS_TEXT.missing)}</b></div>`

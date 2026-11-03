@@ -55,7 +55,16 @@ const withVoice = withBgm.replace(VOICE_ASSET_RE, (_match, file) => {
     return `./voice/${file}`;
 });
 if (!voiceAssets.size) throw new Error('Voice bark clips are missing from bundle.');
-const skinAssets = await externalizeSkinAssets(withVoice, { srcRoot, distRoot, cache: stamps });
+// 战斗敌人图集：同背景素材包，new URL('../../../assets/combat-enemy-atlas/<文件名>', import.meta.url) 改写为 ./enemy-atlas/<文件名>，复制到 dist/enemy-atlas/。
+const ENEMY_ATLAS_ASSET_RE = /(?:\.\.?\/)+assets\/combat-enemy-atlas\/([\w.-]+\.webp)/g;
+const enemyAtlasSourceDir = path.join(appRoot, 'assets', 'combat-enemy-atlas');
+const enemyAtlasAssets = new Set();
+const withEnemyAtlas = withVoice.replace(ENEMY_ATLAS_ASSET_RE, (_match, file) => {
+    enemyAtlasAssets.add(file);
+    return `./enemy-atlas/${file}`;
+});
+if (!enemyAtlasAssets.size) throw new Error('Combat enemy atlas images are missing from bundle.');
+const skinAssets = await externalizeSkinAssets(withEnemyAtlas, { srcRoot, distRoot, cache: stamps });
 const bundle = inlineTypewriterAudio(skinAssets.bundle);
 
 const roundedFontWeights = [300, 400, 500, 700];
@@ -187,6 +196,18 @@ for (const file of backgroundAssets) {
     if (head.toString('latin1', 0, 4) !== 'RIFF' || head.toString('latin1', 8, 12) !== 'WEBP') throw new Error(`Default background image is not webp: ${source}`);
     if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Default background image exceeds the jsDelivr file limit: ${source}`);
     copyIfChanged(source, path.join(backgroundTargetDir, file));
+}
+// 战斗敌人图集：只复制 bundle 实际引用的 webp，校验签名与 jsDelivr 单文件上限。
+const enemyAtlasTargetDir = path.join(distRoot, 'enemy-atlas');
+fs.mkdirSync(enemyAtlasTargetDir, { recursive: true });
+pruneDir(enemyAtlasTargetDir, enemyAtlasAssets);
+for (const file of enemyAtlasAssets) {
+    const source = path.join(enemyAtlasSourceDir, file);
+    if (!fs.existsSync(source)) throw new Error(`Combat enemy atlas image is missing: ${source}`);
+    const head = readHead(source, 12);
+    if (head.toString('latin1', 0, 4) !== 'RIFF' || head.toString('latin1', 8, 12) !== 'WEBP') throw new Error(`Combat enemy atlas image is not webp: ${source}`);
+    if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Combat enemy atlas image exceeds the jsDelivr file limit: ${source}`);
+    copyIfChanged(source, path.join(enemyAtlasTargetDir, file));
 }
 // 默认曲目：只复制 bundle 实际引用的音频，并校验文件签名（mp3 带 ID3 头或帧同步、ogg 为 OggS）与 jsDelivr 单文件上限。
 const bgmTargetDir = path.join(distRoot, 'bgm');
