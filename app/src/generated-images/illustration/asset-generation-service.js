@@ -277,6 +277,9 @@ export function createAssetGenerationService(deps) {
     async function persistTempRecord(record) {
         const old = await recoverOperation(() => store.getAsset(record.key), { repeatable: 'read', signal: recoveryController.signal, isActive: () => !stopped });
         if (stopped) return;
+        // 重试失败只报告本次错误，不能撤销已生成或并发写入的成功素材。
+        if (record.status === 'failed' && old?.imageId
+            && (ACTIVE_TEMP_STATUSES.has(old.status) || old.status === 'library')) return;
         const saved = await recoverOperation(() => store.putAsset(record), { repeatable: 'save', signal: recoveryController.signal, isActive: () => !stopped });
         if (saved?.cancelled || stopped) return;
         tempCache.remember(record);
@@ -1024,7 +1027,8 @@ export function createAssetGenerationService(deps) {
             } catch { /* 登记失败不阻断本楼其余素材。 */ }
         }
         const creatureNames = creatureHints.map(hint => canonicalOf(hint.name)).filter(name => creatureOf(s.sceneAssets.characterDna?.[name]));
-        const match = matchContext(s, floor, numbered, manual);
+        const spriteCharacters = [...new Set([...numbered.characters, ...creatureNames])];
+        const match = matchContext(s, floor, { ...numbered, characters: spriteCharacters }, manual);
         // 命中的 igs-gen 图先记下，查一遍图片本体还在不在；丢了的按缺图重算，否则一直「已有素材」却显示不出来。
         const probed = new Set();
         const lost = new Set();
@@ -1035,7 +1039,7 @@ export function createAssetGenerationService(deps) {
                 ? collectAssetNeeds({ scenes: numbered.scenes, characters: [] }, match, { background: true, sprite: false })
                 : [],
             s.auto.assets.spriteEnabled
-                ? collectAssetNeeds({ scenes: [], characters: [...numbered.characters, ...creatureNames.filter(name => !numbered.characters.includes(name))], characterTriggers }, match, { background: false, sprite: true, limit: s.auto.assets.maxPerFloor })
+                ? collectAssetNeeds({ scenes: [], characters: spriteCharacters, characterTriggers }, match, { background: false, sprite: true, limit: s.auto.assets.maxPerFloor })
                 : [],
         ];
         await match.hydrate();
