@@ -1,3 +1,4 @@
+import { renderCombatGenerationForm } from './combat-generation-form.js';
 import { esc } from './reader-value-utils.js';
 import { combatReasonText } from './combat-panel-render.js';
 import { LIVE_ICONS } from './danmaku-icons.js';
@@ -47,6 +48,12 @@ const REASON_TEXT = Object.freeze({
     'combat-rebuild-invalid': '新卡组不合规',
     'combat-rebuild-no-floor': '当前聊天没有楼层，无法重新生成',
     'combat-rebuild-kind-mismatch': '只有卡组角色可以重新生成',
+    'combat-material-loading': '正在读取参考素材，请稍候',
+    'combat-material-read-failed': '参考素材读取失败，请展开参考素材重试，或关闭失败的来源后继续',
+    'combat-material-path-invalid': 'MVU 路径不存在或不可读取，请检查额外路径并重读素材',
+    'combat-material-table-missing': '选中的技能表已不存在，请重开生成面板选择',
+    'combat-material-too-large': '选中素材超过 14000 字符，请减少路径或技能表后重试',
+    'combat-generation-hint-too-long': '生成方向过长，请控制在 1600 字以内',
     'combat-respec-unavailable': '当前无法转职',
     'combat-respec-same-class': '已经是这个职业',
     'combat-respec-no-floor': '当前聊天没有楼层，无法转职',
@@ -118,8 +125,12 @@ function cardRow(c, readonly) {
     // 卡牌属性性能预览：要求属性与要求值，倍率高于 1 青绿、低于 1 灰色。
     const sc = c.scaling;
     const scale = sc ? `<span class="igs-deck-req${sc.multiplier > 1 ? ' is-up' : sc.multiplier < 1 ? ' is-down' : ''}" data-ability="${esc(sc.ability)}">${esc(sc.label)} ${esc(sc.required)} · ×${esc(sc.multiplier)}</span>` : '';
+    const effectText = (text, cost) => `${cost === 'X' ? '消耗全部能量，每点能量结算一次：' : ''}${text || '暂无效果资料'}`;
+    const upgraded = c.upgradedText ? `<details class="igs-deck-effect"><summary>升级后 · ${esc(c.upgradedCost)} 费</summary>${esc(effectText(c.upgradedText, c.upgradedCost))}</details>` : '';
+    const effect = effectText(c.text, c.cost);
     return `<li class="igs-deck-card${c.errors.length ? ' is-error' : ''}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>${artThumb(c.art)}`
-        + `<span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-count">${c.inDeck}/${c.owned}${up}</span>${scale}${err}`
+        + `<div class="igs-deck-card-info"><div class="igs-deck-row"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-count">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${upgraded}</div>`
+        + `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>${scale}${err}`
         + artAction(c, readonly)
         + (readonly ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`)
         + '</li>';
@@ -128,27 +139,27 @@ function cardRow(c, readonly) {
 // 重新生成基础卡组：只主角、不在战斗中且注入了生成能力时给按钮，金钱不足置灰；点后在原处确认或取消。
 function rebuildHtml(v, d) {
     if (v.readonly || !v.canRebuild || !d.canSell) return '';
-    const busy = Boolean(v.pending);
+    const busy = Boolean(v.pending) || v.generationForm?.loading === true;
     const inner = v.rebuild
         ? btn('rebuild-confirm', v.pending === 'rebuild' ? '生成中' : `确认重新生成 · ${REBUILD_COST} 金钱`, { primary: true, disabled: busy }) + btn('rebuild-cancel', '取消', { disabled: busy })
         : btn('rebuild-open', `重新生成基础卡组（消耗${REBUILD_COST}金钱）`, { disabled: busy || (d.points || 0) < REBUILD_COST });
-    return `<div class="igs-deck-actions">${inner}</div>`;
+    return `<p class="igs-deck-help">重新生成只更换个人牌并重组起始卡组，保留当前职业牌；个人卡池不一定全部加入起始卡组。</p>${v.rebuild ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : ''}<div class="igs-deck-actions">${inner}</div>`;
 }
 
 // 转职与职业升阶（只主角、不在战斗中且注入了对应能力时显示）：转职展开后列出其他已登记职业与「新职业」，选定后确认或取消；
 // 升阶按钮写下一阶的等级门槛与花费，已到三阶不显示，等级或金钱不足置灰，点后在原处确认或取消。
 function classActionsHtml(v, d) {
     if (v.readonly || !d.canSell || d.kind !== 'deck-character') return '';
-    const busy = Boolean(v.pending);
+    const busy = Boolean(v.pending) || v.generationForm?.loading === true;
     const next = ASCEND_TIERS[(d.classTier || 1) + 1];
     if (v.respec && v.canRespec) {
         const picks = v.classes.filter((c) => c.id !== d.classRef).map((c) => btn('respec-pick', c.name, { id: c.id, pressed: v.respec.picked && v.respec.classRef === c.id, disabled: busy })).join('')
             + btn('respec-pick', '新职业', { pressed: v.respec.picked && !v.respec.classRef, disabled: busy });
         const confirm = v.respec.picked ? btn('respec-confirm', v.pending === 'respec' ? '转职中' : `确认转职 · ${RESPEC_COST} 金钱`, { primary: true, disabled: busy }) : '';
-        return `${row('转职', picks)}<div class="igs-deck-actions">${confirm}${btn('respec-cancel', '取消', { disabled: busy })}</div>`;
+        return `<p class="igs-deck-help">转职切换职业和职业被动，保留已有卡组；新职业牌进入候选池，不会直接获得。职业阶数重置为一阶。</p>${row('转职', picks)}${v.respec.picked && !v.respec.classRef ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : ''}<div class="igs-deck-actions">${confirm}${btn('respec-cancel', '取消', { disabled: busy })}</div>`;
     }
     if (v.ascend && v.canAscend && next) {
-        return `<div class="igs-deck-actions">${btn('ascend-confirm', v.pending === 'ascend' ? '生成中' : `确认升阶 · ${next.cost} 金钱`, { primary: true, disabled: busy })}${btn('ascend-cancel', '取消', { disabled: busy })}</div>`;
+        return `${renderCombatGenerationForm(v.generationForm, Boolean(v.pending))}<div class="igs-deck-actions">${btn('ascend-confirm', v.pending === 'ascend' ? '生成中' : `确认升阶 · ${next.cost} 金钱`, { primary: true, disabled: busy })}${btn('ascend-cancel', '取消', { disabled: busy })}</div>`;
     }
     const acts = [];
     if (v.canRespec) acts.push(btn('respec-open', `转职（消耗${RESPEC_COST}金钱）`, { disabled: busy || (d.points || 0) < RESPEC_COST }));
@@ -167,7 +178,10 @@ function deckHtml(v, d) {
     const sig = locked.length
         ? row('专属', locked.map((s) => `<span class="igs-deck-chip is-locked" data-rarity="signature">??? · Lv${esc(s.level)} 解锁</span>`).join(''))
         : '';
-    return `<section class="igs-deck-build">${row('卡组', summary)}${sig}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly)).join('')}</ul><div class="igs-deck-actions">${actions}</div>${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
+    const candidates = d.classCandidates || [];
+    const pool = candidates.length ? `<details class="igs-deck-pool"><summary>${esc(d.className)} · 未拥有的职业牌（${candidates.length} 种）</summary><p class="igs-deck-help">以下是候选，并非已持有。可在升级奖励三选一中抽到；转职保留旧牌，不自动换牌。重建基础卡组会按当前职业重新组牌，另收页面标示的费用。</p><ul class="igs-deck-cards">${candidates.map((x) => cardRow(x, true)).join('')}</ul></details>` : '';
+    const passive = d.classPassive ? row('职业被动', chip(`${d.classPassive.name}：${d.classPassive.text}`)) : '';
+    return `<section class="igs-deck-build">${row('卡组', summary)}${passive}<p class="igs-deck-help">数量为「卡组中 / 拥有」。效果按当前属性预览，实战还受增益、减益和目标状态影响。</p>${sig}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly)).join('')}</ul>${pool}<div class="igs-deck-actions">${actions}</div>${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
 }
 
 // 装备栏：四个部位各一行内的标签，已装备的可卸下（卸下后进背包页）；道具只列余量。
@@ -197,7 +211,7 @@ function generateHtml(v, d) {
         ? row('职业', v.classes.map((c) => btn('generate-class', `沿用 ${c.name}`, { id: c.id, pressed: g.classRef === c.id })).join('') + btn('generate-class', '新职业', { pressed: !g.classRef }))
         : '';
     return `<div class="igs-deck-generate">${classes}${g.classRef ? row('', chip('沿用已有职业特性')) : ''}`
-        + `<div class="igs-deck-actions">${btn('cancel', '取消')}${btn('generate', v.pending === 'generate' ? '生成中' : '确认生成', { primary: true, disabled: Boolean(v.pending) })}</div></div>`;
+        + `${renderCombatGenerationForm(v.generationForm, Boolean(v.pending))}<div class="igs-deck-actions">${btn('cancel', '取消')}${btn('generate', v.pending === 'generate' ? '生成中' : '确认生成', { primary: true, disabled: Boolean(v.pending) || v.generationForm?.loading === true })}</div></div>`;
 }
 
 // 缺表修复「重试」（retry-tables）：读表时服务已自动补建；未注入 ensureTables 时不给按钮。
@@ -386,8 +400,9 @@ function protagonistHtml(v) {
     if (p.status === 'generating') return row('主角卡组', chip('生成中'));
     if (p.status === 'retrying') return row('主角卡组', chip(`请求失败，自动重试第 ${p.attempt} 次`));
     if (p.status !== 'failed') return '';
-    const retry = v.readonly || !v.canRetryProtagonist ? '' : btn('retry-protagonist', '重试', { primary: true, disabled: Boolean(v.pending) });
-    return row('主角卡组', `<span class="igs-deck-err" role="status">${esc(deckReasonText(p.reason))}</span>${retry}`);
+    const editing = v.generationForm?.kind === 'protagonist';
+    const retry = v.readonly || !v.canRetryProtagonist ? '' : btn('retry-protagonist', editing ? '确认重试' : '重试', { primary: true, disabled: Boolean(v.pending) || v.generationForm?.loading === true });
+    return row('主角卡组', `<span class="igs-deck-err" role="status">${esc(deckReasonText(p.reason))}</span>${retry}${editing ? btn('generation-cancel', '取消') : ''}`) + (editing ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : '');
 }
 
 function pendingHtml(v) {

@@ -258,7 +258,7 @@ export function createStatsRuntime({
         if (!read.ok) { blocked = read.reason; diag('stats-read-failed', { reason: read.reason }); loadedKey = ''; return; }
         declined = read.declined === true;
         const t = tables();
-        if (!t.ok) { unavailable = t.reason; diag(t.reason); loadedKey = cacheKey(null); return; }
+        if (!t.ok) { unavailable = t.reason; diag(t.reason); loadedKey = ''; return; }
         const rows = t.read({ kinds: ['stats'] });
         if (!rows || rows.ok !== true) { blocked = (rows && rows.reason) || 'stats-log-read-failed'; diag('stats-log-read-failed', { reason: blocked }); loadedKey = ''; return; }
         loadedKey = cacheKey(t);
@@ -278,7 +278,8 @@ export function createStatsRuntime({
     // 总开关关闭时不读表（规格 §6）：只有缓存键变了才重读；写入进行中以内存为准。
     // explicit 为真时（用户在设置页主动操作本聊天）不看总开关，保证操作建立在真实存档上而不是空账本上。
     function ensureLoaded(explicit = false) {
-        if (offs.length || (inflight > 0 && inflightChat === chatIdOf(ctx()))) return;
+        // 挂着聊天监听不代表数据库已就绪；失败后和表版本变化后仍需恢复读取。
+        if (inflight > 0 && inflightChat === chatIdOf(ctx())) return;
         const chatId = chatIdOf(ctx());
         if (!explicit && !settings().enabled) { if (loadedChat !== chatId) { resetLoaded(); loadedKey = ''; loadedChat = chatId; } return; }
         if (loadedKey && loadedKey === cacheKey(tables())) return;
@@ -1386,7 +1387,10 @@ export function createStatsRuntime({
             return metrics.length ? { name: userName() || PROTAGONIST, metrics } : null;
         }),
         // 合并余额里数值侧的那一份（战斗账本的主角余额用）；没启用时为 0。
-        walletMoney: () => (active() ? Number(currentStatsState(ledger).protagonist.bars.money) || 0 : 0),
+        walletMoney: () => {
+            ensureLoaded();
+            return active() ? Number(currentStatsState(ledger).protagonist.bars.money) || 0 : 0;
+        },
         enableForChat: ev(enableForChat),
         // 本聊天关闭：数值冻结，不清存档（§10A）。战斗开启时锁定为启用。
         disableForChat: ev(() => {

@@ -5289,6 +5289,7 @@ ${row.key}`;
             getLedger: () => (typeof options.getCombatLedger === 'function' ? options.getCombatLedger() : null),
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
             generateDeckProfile: typeof options.generateCombatDeckProfile === 'function' ? (input, opts) => options.generateCombatDeckProfile(input, opts) : null,
+            inspectGenerationMaterials: typeof options.inspectCombatGenerationMaterials === 'function' ? (input) => options.inspectCombatGenerationMaterials(input) : null,
             regenerateDeck: typeof options.regenerateCombatDeck === 'function' ? (opts) => options.regenerateCombatDeck(opts) : null,
             respecClass: typeof options.respecCombatClass === 'function' ? (opts) => options.respecCombatClass(opts) : null,
             ascendClass: typeof options.ascendCombatClass === 'function' ? (opts) => options.ascendCombatClass(opts) : null,
@@ -5308,7 +5309,7 @@ ${row.key}`;
             setAllyTier: typeof options.setCombatAllyTier === 'function' ? (id, tier) => options.setCombatAllyTier(id, tier) : null,
             // 主角卡组预生成：状态只读、订阅后重绘；「重试」手动触发。建表只在面板内二次确认后执行。
             getProtagonist: () => (typeof options.getCombatProtagonist === 'function' ? options.getCombatProtagonist() : null),
-            retryProtagonist: typeof options.retryCombatProtagonist === 'function' ? () => options.retryCombatProtagonist() : null,
+            retryProtagonist: typeof options.retryCombatProtagonist === 'function' ? (input) => options.retryCombatProtagonist(input) : null,
             onProtagonistUpdated: (handler) => (typeof options.onCombatProtagonistUpdated === 'function' ? options.onCombatProtagonistUpdated(handler) : null),
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
             // 卡面：getCardArt 只读本地状态；generateCardArt 只由「生成卡面」按钮调用。

@@ -72,3 +72,8 @@
 - 禁止绕过 `magic-wand-entry.js` 在其它模块重复注入魔法棒入口。
 - 禁止在 host 层修改 shujuku 表格数据。
 - 禁止吞掉宿主错误；必须向 `actions` 或 `visual` 返回可展示错误。
+
+## 卡组增强：MVU 卡组素材
+
+- `combat-generation-materials.js` 只读 `Mvu.getMvuData({type:'message',message_id})`，兼容 `TavernHelper.getVariables`；从最新楼向前最多 40 楼取第一个有效 `stat_data`，空对象也是有效快照，不复活旧技能。未发现楼层数据时可读取当前聊天的 `stat_data`，不读取角色级或全局变量；无接口时兼容楼层直存 `stat_data`。
+- 未安装、读取失败和读取成功分别报告。不解析更新指令，不执行变量中的文字，不写变量或表；候选与手动路径经 combat 层选择、裁剪后发送。真实 MVU 版本与角色卡结构仍需体验验证。

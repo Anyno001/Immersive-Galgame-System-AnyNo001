@@ -2,6 +2,8 @@
 
 ## 职责
 
+- 职业显示：角色属性视图的 `className` 优先取当前已重放职业名，没有职业档案时回落属性初始化名称。转职不改写 init，不重置六维、定位或偏好；既有转职保留旧牌、仅把新职业卡加入目录的规则不变。
+
 - 战斗扩展的领域逻辑：规则常量、数据契约校验、战斗引擎、托管策略、成长日志归并、副 LLM 生成校验、战报构造与战斗会话编排。
 - 设计与计划：`.limcode/design/combat-expansion.md`、`.limcode/plans/combat-expansion.plan.md`；实施核实结论见 `docs/COMBAT_EXPANSION.md`。
 
@@ -102,3 +104,9 @@
 
 - 禁止在 combat 内直接访问 DOM、酒馆全局对象或 `AutoCardUpdaterAPI`。
 - 禁止使用 `Math.random` 或当前时间影响战斗结算；随机性必须来自传入的种子。
+
+## 卡组增强：卡组方向与角色素材
+
+- `generation-materials.js` 负责 JSON 指针、候选路径、角色别称、素材裁剪与 14000 字符预算，纯函数，不访问宿主或写数据。方向上限 1600 字符；失效路径、表消失和超预算明确拒收。
+- `context.generationHint` 指导名称、风格与模板，`context.characterMaterials` 携带 MVU/技能表素材及冲突优先来源；不改变输出协议、费用槽、卡牌数量、强度窗口或记账规则。资料文字不是系统指令，未解锁或归属不明的能力不自动视为已掌握。
+- 初次卡组、重建、AI 转职与升阶走同一素材入口；确认时重读，`materialChatId` 与当前聊天不一致就停止。已有职业直接转职不请求模型和素材。

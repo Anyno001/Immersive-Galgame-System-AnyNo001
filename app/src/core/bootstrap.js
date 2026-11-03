@@ -93,6 +93,7 @@ import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-trig
 import { collectPromptContext } from '../host/prompt-context.js';
 import { createCombatServices } from './combat-services.js';
 import { createCombatChatRecord } from '../host/combat-chat-record.js';
+import { createCombatGenerationMaterials } from '../host/combat-generation-materials.js';
 import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { combatExpansionEnabled, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
@@ -433,6 +434,7 @@ export function bootstrapIGS(options = {}) {
         getWallet: () => (app.statsRuntime && typeof app.statsRuntime.walletMoney === 'function' ? app.statsRuntime.walletMoney() : 0),
         readLore: (name) => (typeof illustrationMessageHost.readCharacterLore === 'function'
             ? illustrationMessageHost.readCharacterLore(name, { includeWorldInfo: false }) : []),
+        readGenerationMaterials: createCombatGenerationMaterials(globalObject),
         readStoryContext: createCombatStoryContext(globalObject, {
             resolveWorldInfo: createImageWorldInfoSource(globalObject, { readExclude: readWorldInfoExclude }),
         }),
@@ -558,6 +560,7 @@ export function bootstrapIGS(options = {}) {
         statsBuildEntry: () => Boolean(app.statsRuntime && app.statsRuntime.isActive() && app.statsRuntime.getBuildMode() === 'manual'),
         getCombatBuildCandidates: () => combatServices.buildCandidates(Object.keys((app.statsRuntime && app.statsRuntime.getState() && app.statsRuntime.getState().characters) || {})),
         generateCombatDeckProfile: (name, profileOptions) => combatServices.generateDeckProfile(name, profileOptions),
+        inspectCombatGenerationMaterials: (input) => combatServices.inspectGenerationMaterials(input),
         regenerateCombatDeck: (name) => combatServices.regenerateDeck(name),
         respecCombatClass: (name) => combatServices.respecClass(name),
         ascendCombatClass: (name) => combatServices.ascendClass(name),
@@ -582,8 +585,8 @@ export function bootstrapIGS(options = {}) {
         refreshCombatGrowth: () => combatServices.refreshGrowth(),
         retryCombatGrowth: () => combatServices.retryGrowth(),
         getCombatProtagonist: () => (typeof combatServices.getProtagonist === 'function' ? combatServices.getProtagonist() : null),
-        retryCombatProtagonist: () => (typeof combatServices.prepareProtagonist === 'function'
-            ? combatServices.prepareProtagonist({ manual: true }) : Promise.resolve({ ok: false, reason: 'combat-generate-unavailable' })),
+        retryCombatProtagonist: (input = {}) => (typeof combatServices.prepareProtagonist === 'function'
+            ? combatServices.prepareProtagonist({ ...input, manual: true }) : Promise.resolve({ ok: false, reason: 'combat-generate-unavailable' })),
         onCombatProtagonistUpdated: (handler) => (typeof combatServices.onProtagonistUpdated === 'function' ? combatServices.onProtagonistUpdated(handler) : () => {}),
         resumeReply: () => hostAdapter.resumeReply?.() || { ok: false, reason: 'reply-host-not-ready' },
         setInputText(text) {
