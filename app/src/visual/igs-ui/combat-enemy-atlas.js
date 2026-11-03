@@ -7,7 +7,7 @@ import { esc } from './reader-value-utils.js';
 
 const REPOSITORY = 'Anyno001/Immersive-Galgame-System-AnyNo001';
 // 图集所在的固定发布 tag。仓库里 app/assets/combat-enemy-atlas/ 必须在该 tag 下存在。
-export const ENEMY_ATLAS_TAG = 'v0.39.0';
+export const ENEMY_ATLAS_TAG = 'v0.39.4';
 export const ENEMY_ATLAS_STORAGE_KEY = 'igs-combat-enemy-atlas';
 export const ENEMY_ATLAS_COLS = 6;
 // 三张图集各自的行数，与 v0.39 保持一致。
