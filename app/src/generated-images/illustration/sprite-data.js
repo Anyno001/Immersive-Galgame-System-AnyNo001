@@ -159,7 +159,13 @@ function readIdentity(row, source, purpose) {
     // 手动清空了部分景别：不补建，模型多写的身份丢弃，不判失败。
     if (characterDnaIdentityCleared(source.dna)) return { ok: true, outfit };
     if (!missingViews && !missingPersonality) {
-        if (hasViews || (hasPersonality && row.personality !== source.dna.personality)) return fail('identity', 'preserved');
+        for (const view of CHARACTER_DNA_VIEWS) {
+            for (const [key, value] of [[`dna_${view}`, source.dna.views[view]?.subject || ''],
+                [`dna_uc_${view}`, source.dna.views[view]?.negative || '']]) {
+                if (Object.hasOwn(row, key) && row[key] !== value) return fail(key, 'preserved');
+            }
+        }
+        if (hasPersonality && row.personality !== source.dna.personality) return fail('personality', 'preserved');
         return { ok: true, outfit };
     }
     if (missingViews && !hasViews) return fail('dna', 'missing');
