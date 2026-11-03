@@ -211,3 +211,40 @@ test('上传期间的新引用尚未备份时，GC 不删除文件；下一轮�
         await disposeLocalImageCache(host);
     }
 });
+
+test('回收删除旧图时不阻塞保存；同哈希重新写入等删除落地后再上传', { timeout: 3000 }, async t => {
+    const server = fakeMediaServer(), host = server.host();
+    const raw = createMemoryIllustrationStore(), store = withTavernIllustrationFiles(raw, host);
+    const floor = 'fixture-chat|3|0';
+    await store.putSlot(floor, { slot: 1, status: 'done', dataUrl: pixel('old') });
+    await store.flush();
+    const oldPath = (await raw.getSlotRecord(`${floor}|1`)).dataUrl;
+    await store.putSlot(floor, { slot: 1, status: 'done', dataUrl: pixel('new') });
+    assert.equal((await store.flush()).ok, true);
+    const arrived = deferred(), release = deferred(), fetch = host.fetch;
+    host.fetch = async (url, options = {}) => {
+        if (url === '/api/images/delete') { arrived.resolve(); await release.promise; }
+        return fetch(url, options);
+    };
+    t.after(() => release.resolve());
+    const collecting = mediaFileGcFor(host).drain();
+    try {
+        await arrived.promise;
+        await store.putSlot(floor, { slot: 2, status: 'done', dataUrl: pixel('other') });
+        let rewritten = false;
+        const again = store.putSlot(floor, { slot: 3, status: 'done', dataUrl: pixel('old') }).then(() => { rewritten = true; });
+        await settleMedia();
+        assert.equal(rewritten, false, '同路径删除未完成前不能上传');
+        release.resolve();
+        assert.equal((await collecting).ok, true);
+        await again;
+        assert.deepEqual(server.deletions, [oldPath]);
+        assert.equal(server.images.has(oldPath), true, '删除落地后重新上传的同哈希原图仍在');
+    } finally {
+        release.resolve();
+        await Promise.allSettled([collecting]);
+        await stopMediaJournals(host);
+        await mediaFileGcFor(host).stop();
+        await disposeLocalImageCache(host);
+    }
+});
