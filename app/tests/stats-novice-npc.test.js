@@ -173,27 +173,26 @@ const charModel = (over = {}) => ({ enabled: true, character: '小雪', metrics:
 const heroLookup = (name) => (name === '阿明' || name === '主角' ? { metrics: heroBlock.metrics, stages: [] } : null);
 const lookup = (name) => heroLookup(name) || (name === '小雪' ? { metrics: [{ label: '好感', percent: 30, display: '熟人' }], stages: [] } : null);
 
-test('状态栏开着：旁白页与其他角色说话时主角区都常驻，排在最前', () => {
-    const narration = composeStatsHud(charModel({ character: '', metrics: [] }), { lookup, heroLookup, heroBlock, speaker: '' });
-    assert.deepEqual(narration.hero, heroBlock);
-    const other = composeStatsHud(charModel(), { lookup, heroLookup, heroBlock, speaker: '小雪' });
-    assert.deepEqual(other.hero, heroBlock);
+test('状态栏开着：旁白页与其他角色说话时不加主角区', () => {
+    const narration = composeStatsHud(charModel({ character: '', metrics: [] }), { lookup, speaker: '' });
+    assert.equal(narration.hero, undefined);
+    const other = composeStatsHud(charModel(), { lookup, speaker: '小雪' });
+    assert.equal(other.hero, undefined);
     assert.equal(other.metrics[0].display, '熟人');
 });
 
-test('状态栏开着：说话人是主角时只显示一块，不重复', () => {
-    const own = composeStatsHud(charModel({ character: '阿明' }), { lookup, heroLookup, heroBlock, speaker: '阿明' });
+test('状态栏开着：说话人是主角时显示主角条', () => {
+    const own = composeStatsHud(charModel({ character: '阿明' }), { lookup, speaker: '阿明' });
     assert.equal(own.hero, undefined);
     assert.equal(own.metrics, heroBlock.metrics);
 });
 
-test('状态栏关着：什么都不加，也不替换；没有主角条时同样不加', () => {
+test('状态栏关着：什么都不加，也不替换', () => {
     const off = charModel({ enabled: false, metrics: [] });
-    assert.equal(composeStatsHud(off, { lookup, heroLookup, heroBlock, speaker: '小雪' }), off);
-    assert.equal(composeStatsHud(off, { lookup, heroLookup, heroBlock, speaker: '' }).hero, undefined);
+    assert.equal(composeStatsHud(off, { lookup, speaker: '小雪' }), off);
+    assert.equal(composeStatsHud(off, { lookup, speaker: '' }).hero, undefined);
     const on = charModel();
-    assert.equal(composeStatsHud(on, { lookup, heroLookup, heroBlock: null, speaker: '' }), on);
-    assert.equal(composeStatsHud(on, { lookup, heroLookup, heroBlock: { name: '阿明', metrics: [] }, speaker: '' }), on);
+    assert.equal(composeStatsHud(on, { lookup, speaker: '' }), on);
 });
 
 // ---------- 设置页版面 ----------

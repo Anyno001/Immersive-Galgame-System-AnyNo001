@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { extractFxDirectives, resolveFxAtPage } from '../src/scene/fx-directives.js';
 import { readBattleCarry, createBattleHistoryScanner } from '../src/scene/battle-context.js';
-import { addFrenzy, downCountFor, foeBaseName, hasGroupSuffix, matchFoeName, sameFoeName, splitFoeNames } from '../src/scene/creature-battle.js';
+import { addFrenzy, combatPortraitNames, downCountFor, foeBaseName, hasGroupSuffix, matchFoeName, sameFoeName, splitFoeNames } from '../src/scene/creature-battle.js';
 import { planBattleFx } from '../src/visual/igs-ui/fx-battle-model.js';
 import { CREATURE_BATTLE_TIMING, annotateCreatureBattle, creatureSfxKind, disperseKindOf, foeIsDown, groupBodyCount } from '../src/visual/igs-ui/creature-battle-model.js';
 import { CREATURE_SFX_PARTIALS } from '../src/visual/igs-ui/creature-battle-sfx.js';
@@ -205,6 +205,23 @@ test('对手档案与图的取法：成群后缀回落本名、二阶段后基�
 test('建档线索：多对手逐个登记，单对手不变', () => {
     assert.deepEqual(creatureHintsOf('[igs-fx:battle|史莱姆|护卫]').map((h) => h.name), ['史莱姆']);
     assert.deepEqual(creatureHintsOf('[igs-fx:battle|史莱姆、蝙蝠|围攻]').map((h) => h.name), ['史莱姆', '蝙蝠']);
+});
+
+test('建档线索：卡牌开战标签的敌方按 battle 对手登记，友方不算', () => {
+    const hints = creatureHintsOf('巷口围上来一群人。\n[igs-combat:start|巷口冲突|黄毛*2,狼群|小雪|普通]');
+    assert.deepEqual(hints.map((h) => [h.name, h.source]), [['黄毛', 'battle'], ['狼群', 'battle']]);
+    assert.deepEqual(creatureHintsOf('[igs-combat:start|巷口冲突|黄毛|小雪]\n后面还有正文。'), [], '开战标签不在末尾时不认');
+});
+
+test('战斗立绘候选名：原名、去编号后缀、去群体后缀依次试，去完太短的不算', () => {
+    assert.deepEqual(combatPortraitNames('黄毛甲'), ['黄毛甲', '黄毛']);
+    assert.deepEqual(combatPortraitNames('影狼12'), ['影狼12', '影狼']);
+    assert.deepEqual(combatPortraitNames('影狼群'), ['影狼群', '影狼']);
+    assert.deepEqual(combatPortraitNames('史莱姆'), ['史莱姆']);
+    assert.deepEqual(combatPortraitNames('小丁'), ['小丁'], '「小丁」不退成「小」');
+    assert.deepEqual(combatPortraitNames('观众'), ['观众']);
+    assert.deepEqual(combatPortraitNames('R2D2'), ['R2D2'], '数字只认接在汉字后面的');
+    assert.deepEqual(combatPortraitNames(''), []);
 });
 
 test('消散方式与音效：按形态选择，音效按体型分档', () => {

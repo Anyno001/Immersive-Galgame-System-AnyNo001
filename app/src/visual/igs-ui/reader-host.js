@@ -70,7 +70,7 @@ import { SPRITE_BACK_MOOD } from './sprite-turn.js';
 import { isReactMoodHit } from '../../scene/react-mood.js';
 
 import { clearCastDom } from './stage-cast-render.js';
-import { hasGroupSuffix, sameFoeName, splitFoeNames } from '../../scene/creature-battle.js';
+import { combatPortraitNames, hasGroupSuffix, sameFoeName, splitFoeNames } from '../../scene/creature-battle.js';
 import { foeIsDown } from './creature-battle-model.js';
 import { CREATURE_FOE_SLOTS, composeCreatureStage, creatureProfileOf, isGiantCreature, resolveCreatureFoes } from './creature-layout.js';
 import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, spriteIdentity } from '../../scene/character-outfits.js';
@@ -1096,23 +1096,32 @@ export function createIgsReaderHost(options = {}) {
     }
 
     // 战斗面板立绘：素材模式开启时按角色名取素材库默认立绘（含本聊天临时立绘），取不到再用状态栏头像；都没有返回空串，面板改用剪影。
+    // 战斗单位立绘：按候选名（原名、去编号后缀「甲乙…」、去群体后缀）依次找，每个候选先换成登记名（别名兜底），第一个有图的胜出。
     function resolveCombatPortrait(name) {
         const current = state.activeReader;
         const readerSettings = current && current.snapshot && current.snapshot.readerSettings;
         const sceneAssets = readerSettings && readerSettings._sceneAssets;
-        const character = String(name || '').trim();
-        if (!character || !sceneAssets || !sceneAssets.enabled) return '';
+        const candidates = combatPortraitNames(name);
+        if (!candidates.length || !sceneAssets || !sceneAssets.enabled) return '';
         const generatedAssets = options.generatedAssets || null;
         const chatId = current.illustrationIdentity && current.illustrationIdentity.chatId || '';
-        let hit = { url: '' };
-        try {
-            hit = resolveReaderSpriteAsset(character, '', {
-                chatId, sceneAssets, generatedAssets: sceneAssets.generated, imageAvailability: readerSpriteAvailability,
-                tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
-                tempSpriteForOutfit: generatedAssets ? generatedAssets.tempSpriteForOutfit : null,
-            });
-        } catch (error) { hit = { url: '' }; }
-        return concreteReaderAssetUrl(hit.url) || concreteReaderAssetUrl(resolveStatusAvatar(sceneAssets.statusAvatars, character));
+        const lookup = (character) => {
+            let hit = { url: '' };
+            try {
+                hit = resolveReaderSpriteAsset(character, '', {
+                    chatId, sceneAssets, generatedAssets: sceneAssets.generated, imageAvailability: readerSpriteAvailability,
+                    tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
+                    tempSpriteForOutfit: generatedAssets ? generatedAssets.tempSpriteForOutfit : null,
+                });
+            } catch (error) { hit = { url: '' }; }
+            return concreteReaderAssetUrl(hit.url) || concreteReaderAssetUrl(resolveStatusAvatar(sceneAssets.statusAvatars, character));
+        };
+        for (const candidate of candidates) {
+            const canonical = canonicalName(sceneAssets, candidate);
+            const url = lookup(canonical) || (canonical !== candidate ? lookup(candidate) : '');
+            if (url) return url;
+        }
+        return '';
     }
 
     // 状态栏头像存在图库（igs-gen:）时换成已读回的图；还没读回先空着，读回后 image-loaded 会重绘。
@@ -4371,11 +4380,10 @@ ${row.key}`;
             const hud = buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor, parsedTables: statusHud.tables.length ? tableData.parsed() : [], rowFor: tableData.rowFor });
             // 数值系统接管时，已登记角色的 HUD 条以 IGS 为准（易错点 H3）。
             const tavernLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
-            // 状态栏开着时主角区常驻（生命、体力、压力、金钱）；说话人是主角时只显示一块，其余角色读好感等人际数值。
+            // 主角说话时显示主角条（生命、体力、压力、金钱），其余角色读好感等人际数值；旁白页不加主角区。
             const protagonistLookup = tavernLookup && typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null;
             const statsLookup = protagonistLookup ? (name) => protagonistLookup(name) || tavernLookup(name) : tavernLookup;
-            const heroBlock = tavernLookup && typeof options.statsProtagonistBlock === 'function' ? options.statsProtagonistBlock() : null;
-            return withConcreteAvatar(composeStatsHud(hud, { lookup: statsLookup, heroLookup: protagonistLookup, heroBlock, speaker }));
+            return withConcreteAvatar(composeStatsHud(hud, { lookup: statsLookup, speaker }));
         };
         const readStatusHudTables = () => tableData.read();
         const render = payload.render || {};

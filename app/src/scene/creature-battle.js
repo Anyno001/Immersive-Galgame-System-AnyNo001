@@ -46,6 +46,21 @@ export function sameFoeName(a, b) {
     return Boolean(x) && x === y;
 }
 
+// 卡牌战斗同名多只加的编号后缀（combat/session.js：甲乙丙丁戊，再往后是数字）；数字只认接在汉字后面的，「R2D2」这类不拆。
+const UNIT_SUFFIX_RE = /(?:[甲乙丙丁戊]|(?<=[一-鿿])\d+)$/;
+// 去掉后缀后至少留两个字才算，避免「小丁」退成「小」、「观众」退成「观」。
+const SHORT_BASE = 2;
+// 战斗单位找立绘的候选名，按顺序试：原名、去编号后缀、去群体后缀。去掉后太短的不算，重复的只留一个。
+export function combatPortraitNames(name) {
+    const value = text(name);
+    if (!value) return [];
+    const out = [value];
+    const add = (candidate) => { if (candidate.length >= SHORT_BASE && !out.includes(candidate)) out.push(candidate); };
+    add(value.replace(UNIT_SUFFIX_RE, ''));
+    for (const candidate of [...out]) add(foeBaseName(candidate));
+    return out;
+}
+
 // 在对手名单里找 hit 的目标 / 出手者：精确匹配优先；只有名单里没有任何精确匹配时才允许「一方包含另一方」（都不短于 2 字），
 // 且候选唯一时才算匹配，多个候选一律不匹配（「头目」同时对得上两个对手就不猜）。
 export function matchFoeName(target, names) {

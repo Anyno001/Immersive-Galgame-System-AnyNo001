@@ -3,7 +3,8 @@
 import { extractFxDirectives } from './fx-directives.js';
 import { normalizeCreatureProfile, ensureTempCreature, isGroupName, CREATURE_TEMP_LIMIT } from './creature-profile.js';
 import { isCharacterDnaEmpty } from './character-dna.js';
-import { splitFoeNames } from './creature-battle.js';
+import { FOE_LIST_MAX, splitFoeNames } from './creature-battle.js';
+import { extractCombatStart } from './combat-directives.js';
 
 const NOT_FOE = new Set(['我', '玩家', '主角', '你', '{{user}}', 'user', 'User']);
 // 最近出场时间的刷新间隔，避免同一场战斗反复写设置。
@@ -11,6 +12,7 @@ const SEEN_REFRESH_MS = 5 * 60 * 1000;
 const plain = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 
 // 正文里的建档线索：creature 标注优先于 battle 对手；同名合并，后写的非空字段覆盖前面的。
+// 卡牌战斗开战标签（[igs-combat:start|遭遇|敌方|…]）的敌方与 battle 对手同样处理（群体称呼同样不建档），友方不算。
 export function creatureHintsOf(text) {
     const byName = new Map();
     const add = (name, source, fields = {}) => {
@@ -25,6 +27,12 @@ export function creatureHintsOf(text) {
         if (d.kind === 'creature' && !d.end) add(d.args[0], 'creature', { form: d.args[1], size: d.args[2], anchor: d.args[3] });
         else if (d.kind === 'battle' && !d.end) for (const foe of splitFoeNames(d.args[0])) add(foe, 'battle');
     }
+    // 没有开战标签的楼层不做完整提取。
+    let start = null;
+    if (/igs-combat:\s*start/i.test(String(text || ''))) {
+        try { start = extractCombatStart(text).start; } catch (error) { start = null; }
+    }
+    if (start) for (const enemy of start.enemies.slice(0, FOE_LIST_MAX)) add(enemy.name, 'battle');
     return [...byName.values()];
 }
 

@@ -214,19 +214,19 @@ test('运行时：bars 开关关掉的条不出现；总开关关闭或本聊天
     assert.equal(idle.walletMoney(), 0);
 });
 
-// ---------- 状态栏开关：关着什么都不显示，开着主角区常驻 ----------
-test('状态栏开关：关着时主角区与数值反馈都不出现，开着时不论说话人主角区常驻、反馈照常', () => {
+// ---------- 状态栏开关：关着什么都不显示，开着只在主角说话时出主角条 ----------
+test('状态栏开关：关着时主角区与数值反馈都不出现，开着时旁白与其他角色不加主角区、反馈照常', () => {
     const rt = runtimeSetup({ combat: true, points: 120 });
     const block = rt.protagonistBlock();
     assert.equal(block.name, '阿明');
     assert.deepEqual(block.metrics.map((m) => m.label), ['生命', '体力', '压力', '金钱']);
     const lookup = rt.protagonistLookup();
     const model = (enabled, character) => ({ enabled, character, metrics: [], hiddenCount: 0, relation: '' });
-    const compose = (enabled, speaker) => composeStatsHud(model(enabled, speaker), { lookup, heroLookup: lookup, heroBlock: block, speaker });
+    const compose = (enabled, speaker) => composeStatsHud(model(enabled, speaker), { lookup, speaker });
     for (const speaker of ['', '小雪']) {
         const off = model(false, speaker);
-        assert.equal(composeStatsHud(off, { lookup, heroLookup: lookup, heroBlock: block, speaker }), off);
-        assert.deepEqual(compose(true, speaker).hero.metrics, block.metrics);
+        assert.equal(composeStatsHud(off, { lookup, speaker }), off);
+        assert.equal(compose(true, speaker).hero, undefined);
     }
     assert.equal(compose(true, '阿明').hero, undefined);
     assert.deepEqual(compose(true, '阿明').metrics, block.metrics);
