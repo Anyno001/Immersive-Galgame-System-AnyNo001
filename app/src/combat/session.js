@@ -1403,6 +1403,11 @@ export function createCombatSession(options = {}) {
             return fail('combat-rules-version-mismatch');
         }
         const located = locate(record.anchor?.messageId, record.setup?.challenge ? { combat: false, challenge: true } : kindsNow());
+        // 聊天还没载入到战斗楼（刷新、切聊天时楼层晚于聊天 id 到位）：不算楼层被改，保留存档，等聊天载入后再恢复。
+        if (!located.ok && located.reason === 'combat-floor-missing' && getChat().length <= Number(record.anchor?.messageId)) {
+            setState({ status: 'idle' });
+            return fail('combat-chat-not-ready');
+        }
         const session = {
             combatId: record.combatId, anchor: record.anchor, start: located.start, reportId: reportIdFor(record.combatId), chatId: getChatId(),
             ...(isEnemyArtTheme(record.theme) ? { theme: record.theme } : {}), ...(record.setup?.challenge ? { kind: 'challenge' } : {}),

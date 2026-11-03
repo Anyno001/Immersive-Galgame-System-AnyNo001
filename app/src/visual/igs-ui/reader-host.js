@@ -5642,7 +5642,10 @@ ${row.key}`;
             ? options.getIllustrationSource(messageId) : null;
         const lastPage = isReaderLastPage(snapshot);
         const sourceFilter = current.payload && current.payload.sourceFilter;
-        const entry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage, sourceFilter, challengeQuota: typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null }) : null;
+        const quota = floor && typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null;
+        // floorEntry 不看页码：持久会话里有这一楼未打完的战斗时，任意一页都留「返回战斗」，重开阅读器落在首页也能续打。
+        const floorEntry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: true, sourceFilter, challengeQuota: quota }) : null;
+        const entry = lastPage ? floorEntry : null;
         state.combatAutoOpened ||= new Set();
         const combatSettings = normalizeCombatExpansionSettings(snapshot.readerSettings && snapshot.readerSettings.combatExpansion);
         const skin = combatSettings.skin;
@@ -5661,18 +5664,18 @@ ${row.key}`;
         // 入口卡只是回头路：对阵界面没做选择就关闭、或自动打开失败时，才在原位置留「返回战斗 / 返回挑战」小标签。
         // 持久会话里有同一开战楼的未结束战斗时同样留标签：刷新或重开后内存标记已丢，以存档为准；面板开着时不显示。
         const panelOpen = Boolean(current.dom.combatController && current.dom.combatController.isOpen());
-        const persisted = Boolean(entry) && !panelOpen && sessionMatchesEntry(unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null), entry);
+        const persisted = Boolean(floorEntry) && !panelOpen && sessionMatchesEntry(unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null), floorEntry);
         probe.returnTag = probe.returnTag || persisted;
-        const showTag = entry && (state.combatReturnKey === entry.key || persisted) ? entry : null;
-        syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, entry), onFail: (r) => notifyCombatOpenFail(r) });
+        const showTag = persisted ? floorEntry : entry && state.combatReturnKey === entry.key ? entry : null;
+        syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, showTag), onFail: (r) => notifyCombatOpenFail(r) });
         // 开战标签翻到末页即自动打开对阵界面（战斗与日常挑战相同）；只记成功打开的，地图、资料或构筑面板开着时不记，等下一次渲染再弹。
-        // 设置页「返回战斗」：同一开战楼有未结束会话时，不论是否自动打开过，都直接续打（2 分钟内有效）。
+        // 设置页「返回战斗」：同一开战楼有未结束会话时，不论是否自动打开过、在哪一页，都直接续打（2 分钟内有效）。
         const wantResume = Boolean(state.combatResumeAt) && Date.now() - state.combatResumeAt < 120000;
-        if (wantResume && persisted && !state.combatAutoOpened.has(entry.key)) state.combatAutoOpened.add(entry.key);
+        if (wantResume && persisted && !state.combatAutoOpened.has(floorEntry.key)) state.combatAutoOpened.add(floorEntry.key);
         if (wantResume && persisted) {
             state.combatResumeAt = 0;
             let resumed;
-            try { resumed = openCombatPanel(current, entry); } catch (error) { resumed = { ok: false, reason: 'combat-open-threw' }; }
+            try { resumed = openCombatPanel(current, floorEntry); } catch (error) { resumed = { ok: false, reason: 'combat-open-threw' }; }
             if (resumed && resumed.ok === false) notifyCombatOpenFail(resumed);
         } else if (entry && !state.combatAutoOpened.has(entry.key)) {
             let opened;

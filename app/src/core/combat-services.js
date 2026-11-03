@@ -108,6 +108,8 @@ export function createCombatServices(options = {}) {
     let ledger = null;
     let session = null;
     let sessionChatId = null;
+    // 恢复时聊天还没载入到战斗楼：记下当时的楼数，楼数变了再恢复一次。
+    let resumeWaitLength = -1;
     let regexState = null; // null / 'pending' / 'ok'
     let growthCache = null; // 成长缓存（getGrowth 读取）
     let growthRun = null; // 正在进行的成长刷新
@@ -197,6 +199,14 @@ export function createCombatServices(options = {}) {
         } catch { /* */ }
     }
 
+    function resumeSession() {
+        let resumed;
+        try {
+            resumed = session.resume();
+        } catch { /* 恢复失败当作没有会话 */ }
+        resumeWaitLength = resumed?.reason === 'combat-chat-not-ready' ? getChat().length : -1;
+    }
+
     function getSession() {
         if (!settings().enabled) return null;
         const chatId = getChatId();
@@ -217,9 +227,10 @@ export function createCombatServices(options = {}) {
                     stake: () => settings().daily.stake,
                 },
             });
-            try {
-                session.resume();
-            } catch { /* 恢复失败当作没有会话 */ }
+            resumeWaitLength = -1;
+            resumeSession();
+        } else if (resumeWaitLength >= 0 && getChat().length !== resumeWaitLength && session.state().status === 'idle') {
+            resumeSession();
         }
         return session;
     }
