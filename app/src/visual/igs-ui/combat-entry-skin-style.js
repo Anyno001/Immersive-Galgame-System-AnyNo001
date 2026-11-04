@@ -23,7 +23,7 @@ const SKINS = Object.freeze({
 const CANVAS = Object.keys(SKINS).filter((k) => k !== 'initial' && k !== 'veil');
 
 const vars = (s) => `--ce-bg:${s.bg};--ce-bg2:${s.bg2};--ce-ink:${s.ink};--ce-sub:${s.sub};--ce-acc:${s.acc};--ce-on:${s.on};--ce-font:${s.font};--ce-r:${s.r};--ce-br:${s.br};--ce-border:${s.border || '0'};--ce-clip:${s.clip || 'none'};--ce-pop:${s.pop || 'none'};--ce-flash:${s.flash};`;
-const VAR_RULES = Object.entries(SKINS).map(([k, s]) => `#igs-combat-entry[data-combat-skin="${k}"],#igs-combat-panel[data-igs-combat-skin="${k}"]{${vars(s)}}`).join('\n');
+const VAR_RULES = Object.entries(SKINS).map(([k, s]) => `#igs-combat-entry[data-combat-skin="${k}"],#igs-combat-resume[data-combat-skin="${k}"],#igs-combat-panel[data-igs-combat-skin="${k}"]{${vars(s)}}`).join('\n');
 
 
 // 定格画面按钮：按各皮肤战斗画面里「结束回合」键的造型语言做（形状、边角、字体、质感、按下态）；主按钮大、次级按钮小，均为实色。
@@ -89,15 +89,35 @@ ${Q}:active{transform:${k === 'comic' ? 'skewX(-7deg) ' : ''}scale(.92);}`;
 const E = '#igs-combat-entry';
 const LS = `${P}:is(${CANVAS.map((k) => `[data-igs-combat-skin="${k}"]`).join(',')})`;
 // 入口卡：初始方案保留原有化开黑带，其余皮肤改实底卡片。
-const ES = `${E}[data-combat-skin]:not([data-combat-skin="initial"])`;
+const R = '#igs-combat-resume';
+const ES = `:is(${E},${R})[data-combat-skin]:not([data-combat-skin="initial"])`;
 
 export const COMBAT_ENTRY_SKIN_STYLE_TEXT = `
 ${VAR_RULES}
 /* 「返回战斗 / 返回挑战」小标签 */
 ${E}{max-width:92vw;}
-${E} .igs-combat-entry-return{display:inline-flex;min-width:0;max-width:100%;box-sizing:border-box;padding:6px 20px;font-size:13px;font-weight:600;letter-spacing:.2em;text-indent:.2em;}
+${R}{position:absolute;right:16px;bottom:calc(24px + var(--igs-dialog-h,160px) + var(--igs-toolbar-h,50px) + 12px);z-index:7;max-width:calc(100% - 32px);pointer-events:auto;animation:igs-combat-resume-in .24s ease-out both;}
+#igs-overlay.igs-toolbar-top ${R}{bottom:calc(24px + var(--igs-dialog-h,160px) + 12px);}
+#igs-overlay.igs-floating ${R}{bottom:calc(14px + var(--igs-dialog-h,160px) + var(--igs-toolbar-h,50px) + 10px);}
+#igs-overlay.igs-floating.igs-toolbar-top ${R}{bottom:calc(14px + var(--igs-dialog-h,160px) + 10px);}
+/* 漫画模式：对话框收成底部输入条，按钮落在输入条上方；窄屏阅读：贴在底部输入框上方，log 列表底边让出按钮的位置 */
+#igs-overlay[data-igs-comic] ${R}{bottom:calc(18px + var(--igs-comic-controls-h,56px) + 12px)!important;}
+#igs-overlay[data-igs-log-reader="on"] ${R}{right:var(--igs-log-edge)!important;bottom:calc(var(--igs-log-foot) + 10px)!important;}
+#igs-overlay[data-igs-log-reader="on"]:has(${R}) #igs-log .igs-log-scroll{bottom:calc(var(--igs-log-foot) + 60px);}
+#igs-overlay:is(.igs-record-screen-open,.igs-turn-index-open,[data-igs-combat-open],[data-igs-cg-only="1"],:has(.igs-live-phone)) ${R}{display:none;}
+${R} .igs-combat-entry-btn{transition:transform .12s ease;}
+${R} .igs-combat-entry-btn:active{transform:translateY(2px);}
+@keyframes igs-combat-resume-in{from{opacity:0;}to{opacity:1;}}
+#igs-overlay[data-igs-quality="low"] ${R}{animation:none;}
+#igs-overlay[data-igs-quality="low"] ${R} .igs-combat-entry-btn{transition:none;}
+@media(prefers-reduced-motion:reduce){${R}{animation:none;}${R} .igs-combat-entry-btn{transition:none;}}
+${E} .igs-combat-entry-return,${R} .igs-combat-entry-return{display:inline-flex;min-width:0;max-width:100%;box-sizing:border-box;padding:6px 20px;font-size:13px;font-weight:600;letter-spacing:.2em;text-indent:.2em;}
 ${ES} .igs-combat-entry-btn{background:var(--ce-bg);color:var(--ce-ink);font-family:var(--ce-font);text-shadow:none;border:var(--ce-border);border-radius:var(--ce-r);clip-path:var(--ce-clip);box-shadow:var(--ce-pop);}
 ${ES} .igs-combat-entry-btn:focus-visible{outline-color:var(--ce-acc);}
+/* 悬浮的返回战斗：比入口小标签大一号；初始方案改实底，漫画收细边与小投影 */
+#igs-overlay ${R} .igs-combat-entry-return{min-height:40px;padding:10px 26px;font-size:15px;justify-content:center;align-items:center;}
+#igs-overlay ${R}[data-combat-skin="initial"] .igs-combat-entry-btn{background:var(--ce-bg);text-shadow:none;border-radius:var(--ce-r);}
+#igs-overlay ${R}[data-combat-skin="comic"] .igs-combat-entry-btn{border:2px solid #f4f2ec;box-shadow:2px 2px 0 #f2c45a;}
 /* 准备中：三点跳动 + 文字 + 取消；阻断提示沿用同一组变量 */
 ${P} .igs-combat-loading{display:flex;flex-direction:column;align-items:center;gap:14px;margin:28px 0 0;}
 ${P} .igs-combat-loading-dots{display:flex;gap:8px;}

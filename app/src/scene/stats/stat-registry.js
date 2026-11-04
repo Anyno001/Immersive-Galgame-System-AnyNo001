@@ -37,6 +37,19 @@ const CORE = {
     魅惑: e('魅力', 'general', { base: 15, social: true, opposedBy: '心理学', aliases: ['勾引', '调情', '诱惑'] }),
     开锁: e('敏捷', 'pro', { base: 1, aliases: ['撬锁'] }),
     驾驶: e('敏捷', 'general', { base: 20, aliases: ['开车', '驾车', '汽车驾驶'] }),
+    // 都市常用的 CoC 技能（基础值取官方表）。
+    电脑: e('智力', 'pro', { base: 5, aliases: ['计算机', '编程'] }),
+    图书馆: e('智力', 'general', { base: 20, aliases: ['图书馆使用', '查资料', '检索'] }),
+    乔装: e('魅力', 'general', { base: 5, aliases: ['伪装', '易容'] }),
+    妙手: e('敏捷', 'pro', { base: 10, aliases: ['扒窃'] }),
+    投掷: e('敏捷', 'general', { base: 20 }),
+    法律: e('智力', 'pro', { base: 5 }),
+    财务: e('智力', 'general', { base: 5, aliases: ['会计', '理财'] }),
+    外语: e('智力', 'general', { base: 1, aliases: ['英语', '日语'] }),
+    估价: e('智力', 'pro', { base: 5, aliases: ['鉴定'] }),
+    电子学: e('智力', 'pro', { base: 1, aliases: ['电工'] }),
+    跳跃: e('力量', 'general', { base: 20 }),
+    追踪: e('感知', 'general', { base: 10, aliases: ['寻踪'] }),
 };
 
 // 世界观附加技能：与核心同名的（急救、潜行、驾驶）沿用核心条目。

@@ -246,6 +246,44 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
     return Object.keys(fills).length ? { ok: true, fills } : { ok: false, reason: 'stats-backfill-empty', fills };
 }
 
+// 主角技能一次性分配（CoC）：每个档位的名额上限，超额按回复顺序降一档；未学不限。
+export const HERO_TIER_LIMITS = Object.freeze({ 大师: 1, 精通: 2, 熟练: 6, 入门: 8 });
+export const HERO_SUMMARY_MAX = 800;
+
+// skills：可分配的技能名。回复格式 { "技能名": "档位" }。
+export function buildHeroSkillRequest(people, skills, { prompt } = {}) {
+    const hero = (people || []).find((p) => p && p.name === PROTAGONIST) || (people || [])[0] || {};
+    return {
+        system: prompt || DEFAULT_STAT_PROMPTS.heroSkills,
+        user: `可分配技能：${skills.join('、')}
+角色资料：
+【${PROTAGONIST}】${clip(hero.summary, HERO_SUMMARY_MAX) || '（没有资料，按普通人处理）'}`,
+    };
+}
+
+// 返回 { ok, tiers: { 技能: 档 }, demoted }：只收清单内技能与白名单档位，含数字的项整项丢弃；
+// 档位名额按回复顺序占用，超额降一档直到有空位（降到未学则不写）。全部为未学或没有有效项视为失败。
+export function parseHeroSkillReply(reply, { skills = [] } = {}) {
+    const obj = extractJson(reply);
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'stats-hero-skills-invalid', tiers: {} };
+    const allowed = new Set(skills);
+    const used = {};
+    const tiers = {};
+    let demoted = 0;
+    for (const [key, raw] of Object.entries(obj)) {
+        const skill = allowed.has(key) ? key : null;
+        let tier = skill ? skillTier(raw) : null;
+        if (!tier || tier === '未学') continue;
+        let i = SKILL_TIER_ORDER.indexOf(tier);
+        while (i > 0 && (used[SKILL_TIER_ORDER[i]] || 0) >= HERO_TIER_LIMITS[SKILL_TIER_ORDER[i]]) { i -= 1; demoted += 1; }
+        tier = SKILL_TIER_ORDER[i];
+        if (tier === '未学') continue;
+        used[tier] = (used[tier] || 0) + 1;
+        tiers[skill] = tier;
+    }
+    return Object.keys(tiers).length ? { ok: true, tiers, demoted } : { ok: false, reason: 'stats-hero-skills-empty', tiers };
+}
+
 // 补全写回 NPC 卡：已有的非临时值不改，只填空（§6.2 第三层）。返回新卡。
 export function applyBackfillToSheet(sheet, fill, { name, chatSeed = '', heroSkill = null } = {}) {
     const base = sheet || { rank: RANKS[0], attributes: {}, skills: {}, signature: [], source: 'default', provisional: {} };

@@ -28,7 +28,9 @@ ${ON} #igs-stage-motion.igs-stage-shake-active{animation:none!important;}
 ${ON} #igs-fx-front .igs-fx-flash{display:none!important;}
 ${ON} #igs-dialog-layer .igs-dialog{left:0!important;right:0!important;bottom:0!important;top:auto!important;width:auto!important;max-width:none!important;height:auto!important;min-height:0!important;max-height:none!important;margin:0!important;padding:8px var(--igs-log-edge) max(12px,env(safe-area-inset-bottom))!important;transform:none!important;background:none!important;background-image:none!important;border:0!important;border-image:none!important;border-radius:0!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;z-index:2;}
 ${ON} #igs-dialog-layer .igs-dialog::before,${ON} #igs-dialog-layer .igs-dialog::after{display:none!important;}
-${ON} #igs-dialog-layer .igs-dialog>:not(.igs-controls):not(#igs-dialog-bar){display:none!important;}
+${ON} #igs-dialog-layer .igs-dialog>:not(.igs-controls):not(#igs-dialog-bar):not(#igs-gen-strip){display:none!important;}
+${ON} #igs-gen-strip{top:-4px;color:var(--igs-log-sub);}
+${ON} #igs-gen-strip .igs-gen-tip{background:var(--igs-log-plate);color:var(--igs-log-ink);}
 ${ON} #igs-dialog-layer .igs-dialog #igs-dialog-bar{color:var(--igs-log-sub);}
 ${ON} #igs-dialog-layer .igs-dialog .igs-input{background:var(--igs-log-plate)!important;color:var(--igs-log-ink)!important;border:0!important;box-shadow:none!important;}
 ${ON} #igs-dialog-layer .igs-dialog .igs-input::placeholder{color:var(--igs-log-sub)!important;}

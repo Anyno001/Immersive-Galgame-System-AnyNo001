@@ -1,15 +1,54 @@
 // 先掷后写的技能匹配词系统（§4.1A）：本地词表为主，辅助模型只兜底。
-// 组合词需「动作词 + 对象词」同时命中（防止「做作业」判成烹饪）；否定、假设、引号台词、回忆梦境、旁观他人不触发。
+// 组合词需「动作词 + 对象词」同时命中（防止「做作业」判成烹饪）；否定、假设、回忆梦境、旁观他人不触发；
+// 引号台词只认 QUOTE_LEXICON 里的社交说法。
 import { BASE_ATTRIBUTES, DEFAULT_SPECIAL_SKILLS } from './stat-state.js';
 import { WORLD_SKILL_LEXICON } from './stat-world-skills.js';
 import { CORE_SKILL_NAMES } from './stat-registry.js';
 
 const COMBO_WINDOW = 6;
-const NEGATION = /(不想|不会|不要|不能|没有|没|别|不|如果|要是|假如|假设|打算|万一)/;
+// 否定分两种：成词的「不想、如果、打算」等出现在命中词之前就不算；单字「不、没、别」只看命中词前两个字
+// （「我不慌不忙地翻过墙」「我毫不犹豫地表白」照常触发）；「不得不、忍不住」这类不是否定，先剔掉再判断。
+const NEGATION = /(不想|不会|不要|不能|不敢|不肯|不用|没有|没法|懒得|如果|要是|假如|假设|打算|万一)/;
+const NEAR_NEGATION = /[不没别].{0,1}$/;
+const NOT_NEGATION = /不得不|忍不住|毫不|不顾|不由得|不禁|不停|不慌不忙|不动声色/g;
 const OBSERVE = /(看|望|盯|瞧|观看|围观|旁观)(着|了)?(她|他|它|他们|她们|别人|对方|大家)/;
 const THIRD_PERSON = /^(她|他|它|他们|她们|对方|别人|大家)(?!和我|跟我|与我)/;
 const MEMORY = /回忆|回想|记得|记忆中|梦里|梦中|梦见|梦到|当年|那时候/;
 const QUOTED = /“[^”]*”|「[^」]*」|『[^』]*』|"[^"\n]*"/g;
+// 台词里的社交说法：引号内只认这张表（台词里提到「做饭」「表白」等动作词仍不触发）。
+// 只在引号外没有命中时才用；台词前一个字是否定词、或是别人说的台词，不算。
+export const QUOTE_LEXICON = Object.freeze({
+    话术: Object.freeze(['便宜点', '便宜一点', '少一点', '打个折', '通融一下', '通融通融', '求求你', '求你了', '你就答应', '答应我吧', '相信我', '我保证', '我发誓', '你听我解释', '听我说', '给个面子', '行行好', '帮个忙吧', '算我欠你']),
+    恐吓: Object.freeze(['信不信我', '给我滚', '你给我等着', '别逼我', '最好老实', '后果自负', '不然的话', '要你好看', '你试试看', '再说一遍']),
+    魅惑: Object.freeze(['你真好看', '你好美', '你真美', '你好可爱', '你真可爱', '想你了', '陪陪我', '今晚别走', '亲我一下', '抱抱我']),
+    魅力: Object.freeze(['我喜欢你', '我爱你', '做我女朋友', '做我男朋友', '和我交往', '跟我交往', '嫁给我', '和我约会', '跟我约会', '一起去看电影']),
+    心理学: Object.freeze(['你在骗我', '你是不是在骗我', '你在撒谎', '你有事瞒着我', '你在隐瞒什么', '说实话']),
+});
+const QUOTE_SPEAKER = /(^|[，,\s])(她|他|它|他们|她们|对方|别人|大家)[^，。！？!?；;]{0,6}(说|问|喊|道|叫|嘀咕|回答|答)[:：]?\s*$/;
+const QUOTE_NEAR_NEGATION = /[不没别]$/;
+
+// 引号台词逐段找社交说法；别人说的、前面紧挨否定词的不算。返回 { hits, excluded }。
+function findQuoteHits(text, allowed) {
+    const hits = [];
+    let excluded = 0;
+    for (const m of String(text ?? '').matchAll(QUOTED)) {
+        const before = text.slice(Math.max(0, m.index - 20), m.index).split(/[。！？!?\n]/).at(-1);
+        const inner = m[0].slice(1, -1);
+        const base = m.index + 1;
+        const found = [];
+        for (const [skill, words] of Object.entries(QUOTE_LEXICON)) {
+            if (!allowed.has(skill)) continue;
+            for (const word of words) occurrences(inner, word, (i) => found.push({ skill, start: i, word }));
+        }
+        if (!found.length) continue;
+        if (QUOTE_SPEAKER.test(before) || MEMORY.test(before)) { excluded += found.length; continue; }
+        for (const f of found) {
+            if (QUOTE_NEAR_NEGATION.test(inner.slice(0, f.start))) { excluded += 1; continue; }
+            hits.push({ skill: f.skill, abs: base + f.start, len: f.word.length, rank: 1, word: f.word });
+        }
+    }
+    return { hits, excluded };
+}
 
 export const DIFFICULTY_WORDS = Object.freeze({
     极难: Object.freeze(['传说级', '不可能', '极限', '奇迹般']),
@@ -22,28 +61,41 @@ export const BASE_LEXICON = Object.freeze({
     学习: { actions: ['复习', '学', '背', '做', '写', '预习'], objects: ['作业', '功课', '单词', '课文', '习题', '试卷', '笔记', '论文'], solo: ['温书', '备考', '刷题'] },
     运动: { actions: ['打', '踢'], objects: ['篮球', '足球', '网球', '羽毛球', '排球'], solo: ['锻炼', '健身', '晨跑', '跑步', '游泳'] },
     艺术: { actions: ['画', '弹', '唱', '拉', '拍', '写'], objects: ['钢琴', '吉他', '歌', '小提琴', '照片', '曲子', '诗'], solo: ['作画', '演奏', '绘画', '素描', '写生', '画画', '画像'] },
-    话术: { solo: ['说服', '劝说', '讨价还价', '砍价', '谈判', '套话', '辩论', '忽悠', '哄她', '哄他'] },
+    话术: { solo: ['说服', '劝说', '讨价还价', '砍价', '谈判', '套话', '辩论', '忽悠', '哄她', '哄他', '撒谎', '骗她', '骗他', '编了个理由', '编个理由', '讲价', '求情', '说情', '劝她', '劝他', '套她的话', '套他的话'] },
     照顾: { solo: ['照顾', '照料', '护理', '喂药', '看护'] },
     应变: { solo: ['急中生智', '随机应变', '打圆场', '补救', '救场'] },
     力量: { solo: ['扛起', '举起', '推开', '撬开', '搬起', '拽住'] },
-    敏捷: { solo: ['接住', '扑过去', '抓住'] },
+    敏捷: { solo: ['接住', '扑过去', '抓住', '追上去', '冲过去'] },
     感知: { solo: ['仔细打量', '留意', '环顾四周', '端详'] },
-    魅力: { solo: ['搭讪', '表白', '告白', '约她', '约他', '示好'] },
+    魅力: { solo: ['搭讪', '表白', '告白', '约她', '约他', '示好', '邀请她', '邀请他', '请她吃饭', '请他吃饭'] },
     智力: { solo: ['冷静下来', '忍住', '克制住', '压住火'] },
     // v2 附录 A：从属性词表拆出的技能，D&D 下才能体现熟练加值。
-    侦查: { solo: ['侦查', '搜查', '调查', '寻找线索', '搜寻'] },
+    侦查: { solo: ['侦查', '搜查', '调查', '寻找线索', '搜寻', '翻找', '四处搜', '搜一搜', '找线索'] },
     聆听: { solo: ['偷听', '听动静', '侧耳细听', '竖起耳朵'] },
-    心理学: { solo: ['看穿', '识破', '察言观色', '揣摩她', '揣摩他'] },
-    潜行: { solo: ['溜进', '潜入', '蹑手蹑脚', '悄悄靠近', '躲藏'] },
-    闪避: { solo: ['躲开', '闪开', '躲闪'] },
+    心理学: { solo: ['看穿', '识破', '察言观色', '揣摩她', '揣摩他', '试探', '观察她的表情', '观察他的表情', '看出她', '看出他'] },
+    潜行: { solo: ['溜进', '潜入', '蹑手蹑脚', '悄悄靠近', '躲藏', '偷偷溜', '摸进', '溜出', '偷偷跟着', '跟踪', '藏起来'] },
+    闪避: { solo: ['躲开', '闪开', '躲闪', '闪身', '躲过'] },
     攀爬: { solo: ['翻过', '攀爬', '爬上', '翻墙'] },
-    格斗: { solo: ['打架', '出拳', '搏斗', '扭打'] },
+    格斗: { solo: ['打架', '出拳', '搏斗', '扭打', '揍他', '揍她', '动手打'] },
     射击: { solo: ['开枪', '射箭', '开火'] },
     急救: { solo: ['包扎', '止血'] },
-    恐吓: { solo: ['威胁', '恐吓', '吓唬'] },
-    魅惑: { solo: ['撩她', '撩他', '调情', '勾引'] },
+    恐吓: { solo: ['威胁', '恐吓', '吓唬', '吓她', '吓他', '放狠话'] },
+    魅惑: { solo: ['撩她', '撩他', '调情', '勾引', '撒娇', '抛媚眼'] },
     开锁: { solo: ['撬锁', '开锁'] },
     驾驶: { solo: ['开车', '驾车'] },
+    // 都市常用 CoC 技能。「跳过」「查看」「估计」等泛词不收。
+    电脑: { solo: ['写代码', '敲代码', '恢复数据', '编程序'] },
+    图书馆: { solo: ['查资料', '查阅资料', '翻阅档案', '查档案'] },
+    乔装: { solo: ['乔装', '伪装成', '假扮', '易容'] },
+    妙手: { solo: ['顺手牵羊', '偷偷拿走', '扒窃', '摸走钱包'] },
+    投掷: { solo: ['扔向', '砸向', '投掷', '甩出飞镖'] },
+    法律: { solo: ['查法条', '翻阅法条', '援引法条'] },
+    财务: { solo: ['查账', '做账', '算账', '核对账目'] },
+    外语: { solo: ['翻译外文', '读外文', '说外语'] },
+    估价: { solo: ['估价', '估个价', '鉴定真伪'] },
+    电子学: { solo: ['修电路', '焊电路', '接线路'] },
+    跳跃: { solo: ['纵身一跃', '跳过去', '跳下去'] },
+    追踪: { solo: ['顺着脚印', '寻找踪迹', '循着踪迹'] },
 });
 
 export const DEFAULT_SKILL_LIST = Object.freeze([...BASE_ATTRIBUTES, ...DEFAULT_SPECIAL_SKILLS, ...CORE_SKILL_NAMES]);
@@ -120,9 +172,16 @@ export function matchSkill(text, { skills = DEFAULT_SKILL_LIST, extra, learned }
         if (MEMORY.test(clause) || THIRD_PERSON.test(clause)) { excluded += hits.length; continue; }
         for (const hit of hits) {
             const prefix = clause.slice(0, hit.start);
-            if (NEGATION.test(prefix) || OBSERVE.test(prefix)) { excluded += 1; continue; }
+            const plain = prefix.replace(NOT_NEGATION, (w) => '　'.repeat(w.length));
+            if (NEGATION.test(plain) || NEAR_NEGATION.test(plain) || OBSERVE.test(prefix)) { excluded += 1; continue; }
             valid.push({ ...hit, abs: base + hit.start, len: hit.end - hit.start, word: clause.slice(hit.start, hit.end) });
         }
+    }
+    // 引号外没有行动时，再看台词里的社交说法。
+    if (!valid.length) {
+        const quoted = findQuoteHits(String(text ?? ''), new Set(skills));
+        valid.push(...quoted.hits);
+        excluded += quoted.excluded;
     }
     if (!valid.length) return { skill: null, difficulty, reason: excluded ? 'excluded' : 'no-match' };
     valid.sort((a, b) => b.len - a.len || a.abs - b.abs || b.rank - a.rank);

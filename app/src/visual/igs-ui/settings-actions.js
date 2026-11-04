@@ -3022,10 +3022,10 @@ export async function handleSettingsAction(action, ctx) {
         if (!charName || RESERVED_ASSET_NAMES.includes(charName)) return { ok: false, error: '角色名无效' };
         const assets = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
         if (voice) {
-            if (!['pack', 'pitch', 'speed', 'tts', 'ttsThought', 'ttsVolume', 'ttsSpeed', 'ttsThoughtSpeed', 'ttsThoughtVolume', 'ttsStyle'].includes(field)) return { ok: false, error: '未知的声线设置' };
+            if (!['pack', 'pitch', 'speed', 'tts', 'ttsThought', 'ttsVolume', 'ttsSpeed', 'ttsThoughtSpeed', 'ttsThoughtVolume', 'ttsStyle', 'ttsGender'].includes(field)) return { ok: false, error: '未知的声线设置' };
             const voices = assets.characterVoices = normalizeCharacterVoices(assets.characterVoices);
             const entry = normalizeCharacterVoice(voices[charName]);
-            entry[field] = field === 'pack' || field === 'tts' || field === 'ttsThought' || field === 'ttsStyle' ? value : Number(value);
+            entry[field] = field === 'pack' || field === 'tts' || field === 'ttsThought' || field === 'ttsStyle' || field === 'ttsGender' ? value : Number(value);
             const next = normalizeCharacterVoices({ [charName]: entry })[charName];
             if (next) voices[charName] = next;
             else delete voices[charName];
@@ -4052,6 +4052,51 @@ export async function handleSettingsAction(action, ctx) {
         if (field === 'enabled' && storedCreatureOf(next)) {
             const open = settingsState.asyncState.advancedOpen || {};
             settingsState.asyncState.advancedOpen = { ...open, [`char-dna:${target.name}`]: true };
+        }
+        return rerenderSettings();
+    }
+
+    // 战斗页「敌人立绘管理」：改写词备注、删除立绘；生成与重画走 char-generate-sprite。
+    if (normalizedAction.startsWith('combat-enemy-sprite:')) {
+        const [op, rawName] = normalizedAction.slice('combat-enemy-sprite:'.length).split(':');
+        const target = spriteAdoptionTarget(settingsState, decodeSeg(rawName));
+        const globalObj = options.global || globalThis;
+        if (!target.name || !target.library || target.borrowed || RESERVED_ASSET_NAMES.includes(target.name)) return { ok: false, error: '角色名无效' };
+        const library = target.library;
+        if (op === 'note') {
+            const notes = library.characterSpriteNotes && typeof library.characterSpriteNotes === 'object' ? library.characterSpriteNotes : {};
+            const next = await askSpriteNote(dialogs, target.name, notes[target.name]);
+            if (next === null) return rerenderSettings();
+            const updated = { ...notes };
+            if (String(next).trim()) updated[target.name] = String(next).trim(); else delete updated[target.name];
+            library.characterSpriteNotes = updated;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+            return rerenderSettings();
+        }
+        if (op === 'remove') {
+            const service = options.generatedAssets;
+            const slots = library.characters && typeof library.characters === 'object' ? library.characters[target.name] : null;
+            const tempUrl = typeof service?.tempSprite === 'function' ? service.tempSprite(target.name) : '';
+            const ids = [...Object.values(slots || {}), tempUrl].map((url) => generatedAssetIdOf(url)).filter(Boolean);
+            if (!slots && !ids.length) return rerenderSettings();
+            const confirmed = await dialogs.confirm(`删除「${target.name}」的立绘？外貌与非人角色档案保留，战斗中改用图集或剪影。`);
+            if (!confirmed) return rerenderSettings();
+            const previous = captureAdoptionFields(library, ['characters']);
+            if (slots) {
+                const characters = { ...library.characters };
+                delete characters[target.name];
+                library.characters = characters;
+            }
+            const persisted = persistGeneratedLibrary(persistSettingsDraft, { spriteAssetChanged: true });
+            if (operationFailed(persisted)) {
+                restoreAdoptionFields(library, previous);
+                return persisted;
+            }
+            if (ids.length && typeof service?.deleteImages === 'function') {
+                try { await service.deleteImages(ids); } catch (error) { showGeneratedNotice(globalObj, '立绘已移除，图片文件清理失败，可稍后在「清理无用图片」中处理。', ''); }
+            }
+            return rerenderSettings();
         }
         return rerenderSettings();
     }

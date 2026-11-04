@@ -1,6 +1,8 @@
 import { IGS_UI_BLUR, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FILL, IGS_UI_FONT_SANS, IGS_UI_INK, IGS_UI_NIGHT_RGB, IGS_UI_RADIUS, IGS_UI_THICKNESS, IGS_UI_WARM, igsUiSurface } from '../../styles/ui-material.js';
 import { COMBAT_CUTIN_ART_FONT, COMBAT_CUTIN_STYLE_TEXT } from './combat-cutin-style.js';
 import { COMBAT_HIT_STYLE_TEXT } from './combat-hit-fx-style.js';
+import { COMBAT_KO_FALL_STYLE_TEXT } from './combat-ko-fall.js';
+import { COMBAT_LINE_STYLE_TEXT } from './combat-lines.js';
 import { COMBAT_STAGE_FX_STYLE_TEXT } from './combat-stage-fx.js';
 import { COMBAT_ENEMY_ART_STYLE_TEXT } from './combat-enemy-art.js';
 import { COMBAT_PANEL_SKIN_VEIL_STACK, COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT } from './combat-panel-skin-veil.js';
@@ -745,6 +747,8 @@ ${AWAKEN_FX}
 ${COMBAT_CUTIN_STYLE_TEXT}
 ${COMBAT_STAGE_FX_STYLE_TEXT}
 ${COMBAT_HIT_STYLE_TEXT}
+${COMBAT_KO_FALL_STYLE_TEXT}
+${COMBAT_LINE_STYLE_TEXT}
 ${COMBAT_ENEMY_ART_STYLE_TEXT}
 @media (prefers-reduced-motion:reduce){${C} .igs-combat-portrait :is(img,svg,.igs-combat-art),${C} .igs-combat-energy-liquid::before,${C} .igs-combat-energy-liquid::after,${C} .igs-combat-lobby :is(.igs-combat-lobby-side,.igs-combat-lobby-stage,.igs-combat-lobby-banner,.igs-combat-lobby-fx i),${C} .igs-combat-result :is(.igs-combat-result-title,.igs-combat-result-rays,.igs-combat-result-sparks i){animation:none!important;}${C} .igs-combat-lobby-flash{display:none;}}
 ${C} .igs-challenge-allies{position:relative;z-index:1;justify-content:center;}
@@ -763,8 +767,9 @@ ${C} .igs-challenge-history-row small{color:var(--igs-cb-ink-faint);}
 #igs-combat-entry{position:absolute;left:50%;bottom:calc(var(--igs-dialog-height,30%) + 14px);z-index:7;transform:translateX(-50%);pointer-events:auto;}
 #igs-overlay.igs-record-screen-open #igs-combat-entry{display:none;}
 #igs-overlay[data-igs-combat-open] #igs-dialog-layer{visibility:hidden;}
-#igs-combat-entry .igs-combat-entry-btn{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:min(200px,70vw);padding:8px 40px 9px;border:0;background:linear-gradient(90deg,transparent,rgba(${N},.72) 20%,rgba(${N},.72) 80%,transparent);color:${IGS_UI_INK.primary};font:inherit;cursor:pointer;text-shadow:0 1px 4px rgba(0,0,0,.75);}
-#igs-combat-entry .igs-combat-entry-btn:focus-visible{outline:2px solid ${IGS_UI_WARM};outline-offset:2px;}
+#igs-overlay[data-igs-combat-open] #igs-stage-motion[data-igs-cg] #igs-bg{background-image:var(--igs-combat-backdrop,none)!important;background-size:cover!important;}
+#igs-combat-entry .igs-combat-entry-btn,#igs-combat-resume .igs-combat-entry-btn{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:min(200px,70vw);padding:8px 40px 9px;border:0;background:linear-gradient(90deg,transparent,rgba(${N},.72) 20%,rgba(${N},.72) 80%,transparent);color:${IGS_UI_INK.primary};font:inherit;cursor:pointer;text-shadow:0 1px 4px rgba(0,0,0,.75);}
+#igs-combat-entry .igs-combat-entry-btn:focus-visible,#igs-combat-resume .igs-combat-entry-btn:focus-visible{outline:2px solid ${IGS_UI_WARM};outline-offset:2px;}
 ${COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT}
 ${COMBAT_ENTRY_SKIN_STYLE_TEXT}
 ${COMBAT_PANEL_LAYOUT_STYLE_TEXT}

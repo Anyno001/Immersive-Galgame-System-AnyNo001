@@ -184,6 +184,16 @@ function fakeHost(text, chatId = 'chat-1') {
 // 这些楼层正文都只有十来个字，专测补素材流程的用例传 minBodyChars: 0；「少于 50 字不自动生图」单独测。
 const FLOOR_TEXT = '[igs-scene:废弃工厂|夜晚|雨]\n雨声很大。\n[igs-char:神秘少女|平静|你来了。]\n[igs-char:艾莉|惊讶|是谁？]';
 
+test('立绘丢弃后写词即存的空衣装不挡补全：角色名下没图仍算缺图', async () => {
+    const { collectAssetNeeds } = await import('../src/scene/asset-match.js');
+    const sceneAssets = { characterDna: { 神秘少女: { identity: 'girl' } },
+        characterOutfits: { 神秘少女: { 校服: { words: [], moods: {}, wardrobe: '神秘少女·校服' } } },
+        wardrobe: { '神秘少女·校服': { prompt: 'school uniform' } } };
+    assert.equal(collectAssetNeeds({ characters: ['神秘少女'] }, { sceneAssets }, { sprite: true }).length, 1);
+    sceneAssets.characterOutfits.神秘少女.校服.moods = { 平和: 'https://example.com/a.png' };
+    assert.equal(collectAssetNeeds({ characters: ['神秘少女'] }, { sceneAssets }, { sprite: true }).length, 0, '有图未设默认不重画');
+});
+
 test('gate:image-backend:legacy-nai-key-merges-into-unified-settings', async () => {
     const { mergeLegacyNaiSettings } = await import('../src/generated-images/image-backend.js');
     const merged = mergeLegacyNaiSettings({ nsfwEnabled: true }, { apiKey: 'pst-old', endpoint: '', transport: 'st-proxy', model: 'nai-diffusion-4-5-full' });
@@ -293,4 +303,14 @@ test('外部图像来源：素材规划在预设立绘任务无规划格式时�
         assert.doesNotMatch(String(result.error || ''), /unsupported-prompt-format|写词预设尚未就绪/);
     }
     assert.equal(llm.imagePromptHasFormat('background', 'asset-plan', {}), true, '仅背景时仍用预设规划');
+});
+
+test('写词即存的衣装还没挂图：丢弃立绘后补全素材仍按缺图重画', async () => {
+    const { collectAssetNeeds } = await import('../src/scene/asset-match.js');
+    const sceneAssets = { characterDna: { 神秘少女: { identity: 'girl' } },
+        characterOutfits: { 神秘少女: { 校服: { words: [], moods: {}, wardrobe: '神秘少女·校服' } } },
+        wardrobe: { '神秘少女·校服': { prompt: 'school uniform' } } };
+    assert.equal(collectAssetNeeds({ characters: ['神秘少女'] }, { sceneAssets }, { sprite: true }).length, 1);
+    sceneAssets.characterOutfits.神秘少女.校服.moods = { 平和: 'igs-gen:kept' };
+    assert.equal(collectAssetNeeds({ characters: ['神秘少女'] }, { sceneAssets }, { sprite: true }).length, 0, '已有图不重画');
 });

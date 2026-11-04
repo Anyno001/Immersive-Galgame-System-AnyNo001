@@ -39,6 +39,9 @@ export function paintUnitHp(unitEl, entry) {
     unitEl.querySelector?.(':is(.igs-combat-hp,.cx-hp)')?.style?.setProperty?.('--igs-combat-hp', `${pct}%`);
     const value = unitEl.querySelector?.(':is(.igs-combat-hp-value,.cx-hp-value)');
     if (value) value.textContent = `${entry.hp}/${entry.maxHp}`;
+    // 我方头像旁的「当前/上限」把当前值单独包在 <b class="cx-hp-cur"> 里，只改当前值。
+    const cur = unitEl.querySelector?.('.cx-hp-cur');
+    if (cur) cur.textContent = String(entry.hp);
     toggleClass(unitEl, 'is-down', !entry.alive);
 }
 

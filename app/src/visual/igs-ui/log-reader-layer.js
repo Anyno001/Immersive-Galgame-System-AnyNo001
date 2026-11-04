@@ -529,6 +529,8 @@ function applyLogAttrs(overlay, log, view) {
     const dialog = overlay.querySelector('#igs-dialog');
     const foot = dialog && dialog.offsetHeight > 0 ? `${dialog.offsetHeight}px` : '';
     if (foot) log.style.setProperty('--igs-log-foot', foot);
+    // 页码进度条挂在 overlay 上，同样要知道底栏高度才能抬到工具栏上方。
+    if (foot) overlay.style.setProperty('--igs-log-foot', foot);
 }
 
 // view：{ floorKey, rows, upto（含）, batchStart, live（这次要出字的行号，-1 表示瞬间补齐）, running, more（本楼还有没出的行）,

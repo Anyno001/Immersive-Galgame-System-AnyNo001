@@ -1077,7 +1077,9 @@ test('tts: minimax emotion follows the mood and enters the cache key only when p
     const calmPlan = decideTts({}, { key: 'b', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '平和' }, base, { sceneAssets: {} });
     assert.equal(calmPlan.emotion, '');
     const shy = decideTts({}, { key: 'c', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '害羞' }, base, { sceneAssets: {} });
-    assert.equal(shy.emotion, 'calm', '害羞配平静并降速');
+    assert.equal(shy.emotion, '', '害羞不硬发 calm，交给 MiniMax 按文字判断');
+    assert.equal(decideTts({}, { key: 'c2', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '冷淡' }, base, { sceneAssets: {} }).emotion, 'calm');
+    assert.equal(decideTts({}, { key: 'c3', textType: 'dialogue', speaker: '甲', text: '你好。', whisper: true }, base, { sceneAssets: {} }).emotion, '', '耳语不再默认 calm');
     const narr = decideTts({}, { key: 'd', textType: 'narration', text: '夜色渐深。' }, base, { sceneAssets: {} });
     assert.equal(narr.emotion, '');
     const api = normalizeTtsSettings(base).api;
@@ -1176,7 +1178,9 @@ test('gate: tts audio tags convert bracket actions for fish and minimax, drop un
     assert.equal(ttsPlainText('（轻笑）你好（小声）别动', { tags: 'fish' }), '[chuckle] 你好 [whisper] 别动');
     assert.equal(ttsPlainText('（叹气）算了（倒吸一口气）', { tags: 'fish' }), '[sigh] 算了 [gasp]');
     assert.equal(ttsPlainText('(哭)好疼(喘息)', { tags: 'fish' }), '[sobbing] 好疼 [panting]');
-    assert.equal(ttsPlainText('（轻笑）你好（小声）别动（停顿）', { tags: 'minimax' }), '(chuckle) 你好 别动');
+    assert.equal(ttsPlainText('（轻笑）你好（小声）别动（停顿）', { tags: 'minimax' }), '(chuckle) 你好 别动 <#0.6#>');
+    assert.equal(ttsPlainText('（哼）才不是（哼歌）（清嗓）', { tags: 'minimax' }), '(snorts) 才不是 (humming) (clear-throat)');
+    assert.equal(ttsPlainText('（哼）才不是（哼歌）', { tags: 'fish' }), '[scoff] 才不是 [humming]');
     assert.equal(ttsPlainText('（叹气）算了（喘息）（抽泣）', { tags: 'minimax' }), '(sighs) 算了 (pant) (sniffs)');
     assert.equal(ttsPlainText('（翻书）你好（微笑）', { tags: 'fish' }), '你好');
     assert.equal(ttsPlainText('（轻笑）你好（小声）', { tags: '' }), '你好');
@@ -1630,7 +1634,7 @@ test('tts: fish tags follow emotion strength and split mixed groups by the origi
     assert.equal(plan({ mood: '害羞', text: '走开！！' }).text, '[shy, soft voice] 走开！', 'untiered moods keep one tag');
 });
 
-test('tts: system prosody scales with strength, whisper stacks on the mood, minimax maps shy moods to calm', () => {
+test('tts: system prosody scales with strength, whisper stacks on the mood, minimax leaves shy moods to the model', () => {
     const base = { enabled: true };
     const plan = (line) => decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '走开。', ...line }, base, { sceneAssets: {} });
     const mid = plan({ mood: '愤怒' }).rate;
@@ -1644,7 +1648,7 @@ test('tts: system prosody scales with strength, whisper stacks on the mood, mini
         assert.equal(decideTts({}, { key: String(Math.random()), textType: 'dialogue', speaker: '甲', text: '走开。', ...line }, fish, { sceneAssets: {} }).rate, 1, 'api voices never time-stretch for mood');
     }
     const mm = { enabled: true, provider: 'api', api: { format: 'minimax', female: 'f' } };
-    for (const mood of ['害羞', '爱恋', '动情']) assert.equal(decideTts({}, { key: mood, textType: 'dialogue', speaker: '甲', text: '你好。', mood }, mm, { sceneAssets: {} }).emotion, 'calm');
+    for (const mood of ['害羞', '爱恋', '动情', '怀疑', '思考', '无奈']) assert.equal(decideTts({}, { key: mood, textType: 'dialogue', speaker: '甲', text: '你好。', mood }, mm, { sceneAssets: {} }).emotion, '');
     assert.equal(decideTts({}, { key: 'x', textType: 'dialogue', speaker: '甲', text: '你好。', mood: '紧张' }, mm, { sceneAssets: {} }).emotion, 'fearful');
 });
 
@@ -1775,4 +1779,38 @@ test('路人没有 DNA 时按本聊天生成立绘的 tag 判性别', () => {
     const male = resolveTtsVoice({ textType: 'dialogue', speaker: '路人丙', text: '让一让', spriteTags: { 路人丙: '1boy, short hair' } }, settings, {});
     assert.equal(male.gender, 'male');
     assert.equal(male.voice, 'M1');
+});
+
+test('性别未定：男女声有分歧时标记未定、阅读页不念；选定的 ttsGender 优先；只填一边不问', () => {
+    clearTtsGenderCache();
+    const both = { enabled: true, provider: 'api', api: { female: 'F1', male: 'M1' } };
+    const unsure = resolveTtsVoice({ textType: 'dialogue', speaker: '阿青' }, both, {});
+    assert.equal(unsure.undecided, true);
+    assert.equal(unsure.source, '性别未定');
+    const plan = decideTts({}, { key: 'p1', textType: 'dialogue', speaker: '阿青', text: '走吧。' }, both, { sceneAssets: {} });
+    assert.deepEqual(plan, { skip: true, undecided: '阿青' });
+    assert.equal(decideTts({}, { key: 'p1', textType: 'dialogue', speaker: '阿青', text: '走吧。' }, both, { sceneAssets: {}, record: false }), null);
+    const picked = resolveTtsVoice({ textType: 'dialogue', speaker: '阿青' }, both, { characterVoices: { 阿青: { ttsGender: 'male' } } });
+    assert.equal(picked.undecided, false);
+    assert.equal(picked.voice, 'M1');
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '阿青' }, { ...both, api: { female: 'F1' } }, {}).undecided, false);
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '阿青' }, both, { characterVoices: { 阿青: { tts: 'X9' } } }).undecided, false);
+});
+
+test('性别未定：系统声音男女池不同才问', () => {
+    clearTtsGenderCache();
+    const settings = { enabled: true, provider: 'system' };
+    const voices = [{ name: 'Microsoft Xiaoxiao', lang: 'zh-CN' }, { name: 'Microsoft Yunxi', lang: 'zh-CN' }];
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '阿青', lang: 'zh' }, settings, {}, voices).undecided, true);
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '阿青', lang: 'zh' }, settings, {}, voices.slice(0, 1)).undecided, false);
+    assert.equal(resolveTtsVoice({ textType: 'dialogue', speaker: '阿青', lang: 'zh' }, settings, { characterVoices: { 阿青: { ttsGender: 'female' } } }, voices).voice, 'Microsoft Xiaoxiao');
+});
+
+test('MiniMax 停顿标记只留在两段文字之间，段首段尾与连用的去掉', () => {
+    const api = normalizeTtsSettings({ provider: 'api', api: { format: 'minimax' } }).api;
+    const sent = (text) => JSON.parse(buildTtsRequest(api, { text, voice: 'f' }).body).text;
+    assert.equal(sent('别动 <#0.6#> 走吧'), '别动 <#0.6#> 走吧');
+    assert.equal(sent('别动 <#0.6#>'), '别动');
+    assert.equal(sent('<#0.6#> 走吧'), '走吧');
+    assert.equal(sent('别动 <#0.6#> <#0.6#> 走吧'), '别动 <#0.6#> 走吧');
 });

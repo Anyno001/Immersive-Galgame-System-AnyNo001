@@ -3,6 +3,7 @@
 // 由 cascade layer 里的 !important（优先级高于未分层的 !important）把整棵树拉回无衬线。
 // 没被夺舍时不挂，皮肤自选字体照常生效。
 import { IGS_UI_FONT_SANS } from '../../styles/ui-material.js';
+import { applyFieldGuard } from './host-field-guard.js';
 
 export const FONT_GUARD_ATTR = 'data-igs-font-guard';
 const STYLE_ID = 'igs-font-guard-style';
@@ -45,6 +46,8 @@ export function scheduleFontGuard(root) {
         try {
             const probe = root.id === 'igs-overlay' ? root : root.querySelector && root.querySelector('#igs-unified-settings');
             applyFontGuard(root, probe);
+            // 设置器顺带测一次填写框底色是否被主题改掉。
+            if (root.id !== 'igs-overlay') applyFieldGuard(root, probe);
         } catch {
             // 读不到计算样式时不兜底。
         }

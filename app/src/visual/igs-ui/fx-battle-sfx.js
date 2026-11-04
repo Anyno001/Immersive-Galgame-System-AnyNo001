@@ -29,6 +29,21 @@ export const BATTLE_SFX_PARTIALS = Object.freeze({
         p('sawtooth', 600, 80, 0, 0.3, 0.2, { attack: 0.002, sweep: 1 }),
         p('sine', 200, 38, 0.06, 0.6, 0.9, { attack: 0.004, sweep: 1 }),
     ]),
+    // 非登记角色颤抖着倒下：一串逐渐稀疏的短促颤音，接下沉的低频闷响与一缕下滑的气声。
+    'battle-ko-tremble': Object.freeze([
+        p('triangle', 520, 500, 0, 0.05, 0.14, { attack: 0.002 }),
+        p('triangle', 500, 470, 0.07, 0.05, 0.13, { attack: 0.002 }),
+        p('triangle', 480, 440, 0.15, 0.05, 0.12, { attack: 0.002 }),
+        p('triangle', 450, 400, 0.25, 0.05, 0.1, { attack: 0.002 }),
+        p('noise', 1800, 300, 0.3, 0.45, 0.14, { filter: 'bandpass', q: 0.7, attack: 0.02, sweep: 1 }),
+        p('sine', 150, 42, 0.42, 0.5, 0.7, { attack: 0.006, sweep: 1 }),
+    ]),
+    // 登记角色踉跄跪落：一声下滑的叹息、衣料摩擦的软擦声，末尾轻落的低音，不颤抖。
+    'battle-ko-yield': Object.freeze([
+        p('sine', 440, 220, 0, 0.5, 0.18, { attack: 0.05, sweep: 1 }),
+        p('noise', 1200, 400, 0.12, 0.35, 0.1, { filter: 'bandpass', q: 0.6, attack: 0.04, sweep: 1 }),
+        p('sine', 120, 50, 0.5, 0.5, 0.55, { attack: 0.01, sweep: 1 }),
+    ]),
     'battle-heal': Object.freeze([
         p('sine', 784, 784, 0, 0.14, 0.26, { attack: 0.004 }),
         p('sine', 988, 988, 0.08, 0.14, 0.26, { attack: 0.004 }),

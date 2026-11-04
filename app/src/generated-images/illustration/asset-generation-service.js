@@ -34,6 +34,7 @@ import { BUILTIN_PROMPTS } from '../prompt-registry.js';
 import { spriteSchemeOf, expressionFragmentDescription } from '../prompt-scheme.js';
 import { creatureOf, creatureFraming, creatureCanvasSize, creatureMoodLabels, creatureNeedsReference } from '../../scene/creature-profile.js';
 import { creatureHintsOf } from '../../scene/creature-registry.js';
+import { combatPrewarmTargets } from '../../scene/combat-prewarm.js';
 import { CREATURE_FORM_JUDGE_RULE, creatureFormJudgeDescription, parseCreatureFormJudgement } from '../prompt-tasks/creature.js';
 import { creatureFixedPrompts, creaturePaintMeta } from '../creature-sprite.js';
 import { creatureSpriteBatchDescription, creatureSingleSpriteDescription, creatureExpressionDescription, creatureAssetDescription } from '../prompt-tasks/creature.js';
@@ -112,6 +113,8 @@ export function createAssetGenerationService(deps) {
     const locks = new Map();
     // 本聊天内已判定为人类的战斗对手：不再自动建档，避免每楼重复判定。
     const judgedHuman = new Set();
+    // 开战立绘预热：已认领的战斗对手交预热建档出图（楼层补全跳过）；已发过的名字不再重发。
+    const prewarmClaims = new Set(), prewarmTried = new Set();
     const runningFloors = new Map(), pendingFloors = new Map();
     // 同一地点的白天底图只画一次：跨楼并发时后到的等先到的画完再取。
     const dayBasePending = new Map();
@@ -1019,6 +1022,7 @@ export function createAssetGenerationService(deps) {
         }
         const creatureHints = s.auto.assets.spriteEnabled ? creatureHintsOf(floor.text)
             .filter(hint => hint.source !== 'battle' || (s.auto.assets.creatureAutoProfile !== false
+                && !prewarmClaims.has(`${floor.chatId}|${hint.name}`)
                 && !spokenKeys.has(canonicalOf(hint.name)) && !judgedHuman.has(`${floor.chatId}|${hint.name}`))) : [];
         if (creatureHints.length && typeof deps.registerCreatureProfiles === 'function') {
             try {
@@ -1263,6 +1267,109 @@ export function createAssetGenerationService(deps) {
         return result;
     }
 
+    // 开战立绘预热：开战标签一出现就给敌方与友方先备立绘，不受每楼上限与正文字数门槛限制。
+    // 去重：prewarmClaims 让楼层补全跳过已认领的战斗对手（建档与出图都由预热负责）；prewarmTried 保证同一聊天同一名字只发一次，失败不重试。
+    async function prewarmCombatSprites(messageId, floor) {
+        if (stopped || !floor || !floor.chatId) return { ok: true, reason: 'not-eligible' };
+        const s = readSettings();
+        if (!s.auto.assets.spriteEnabled || !s.sceneAssets.enabled) return { ok: true, reason: 'disabled' };
+        const targets = combatPrewarmTargets(floor.text, { sourceFilter: sourceFilter() });
+        if (!targets.length) return { ok: true, reason: 'no-combat' };
+        const backend = describeTask(undefined);
+        const canWrite = backend.ownPrompts || (backend.mode === 'nai' && typeof llm?.prepareImagePrompt === 'function');
+        if (!canWrite || !nai || typeof writePrompt !== 'function' || typeof generateCaption !== 'function') return { ok: true, reason: 'backend-unsupported' };
+        const chatId = floor.chatId;
+        for (const target of targets) {
+            if (target.role !== 'enemy') continue;
+            for (const name of new Set([target.raw, target.base])) prewarmClaims.add(`${chatId}|${name}`);
+        }
+        if (prewarmClaims.size > 400) prewarmClaims.clear();
+        const fresh = targets.filter(target => !prewarmTried.has(`${chatId}|${target.base}`));
+        if (!fresh.length) return { ok: true, reason: 'already-tried' };
+        for (const target of fresh) prewarmTried.add(`${chatId}|${target.base}`);
+        const key = floorKeyOf(floor);
+        const shouldStart = () => !stopped && messageHost.getChatId() === chatId
+            && floorKeyOf(messageHost.readFloor(Number(messageId)) || {}) === key;
+        const bound = bindImageTaskTarget({ signal: recoveryController.signal,
+            subscribe: messageHost.on?.bind(messageHost), isCurrent: shouldStart });
+        const input = { signal: bound.signal, shouldStart: bound.shouldStart };
+        const execute = guarded => recoverOperation(() => prewarmRun(messageId, floor, key, fresh, readSettings(guarded.signal), guarded),
+            { retryUnchanged: false, signal: guarded.signal, isActive: guarded.shouldStart });
+        try {
+            return await (typeof llm?.runImageTask === 'function' ? llm.runImageTask(input, execute) : execute(input));
+        } catch (error) {
+            report('warn', `第 ${messageId} 楼战斗立绘预热失败：${(error && error.message) || error}`);
+            return { ok: false, reason: 'error' };
+        } finally { bound.release(); }
+    }
+
+    async function prewarmRun(messageId, floor, key, targets, s, guard) {
+        const canonicalOf = name => resolveCharacterKey({ ...s.sceneAssets.characterDna, ...s.sceneAssets.characters, ...s.sceneAssets.characterOutfits },
+            s.sceneAssets.characterAliases || {}, name) || String(name || '').trim();
+        const spokenKeys = new Set();
+        const noteSpeakers = text => { try { for (const name of numberParagraphs(text).characters) spokenKeys.add(canonicalOf(name)); } catch { /* 解析失败按未出现处理。 */ } };
+        noteSpeakers(floor.text);
+        if (typeof messageHost.readPreviousAiTexts === 'function') {
+            try { for (const text of messageHost.readPreviousAiTexts(messageId, Math.max(3, s.auto.llm.contextFloors || 0))) noteSpeakers(text); } catch { /* 读不到前文时只按本楼判断。 */ }
+        }
+        // 建档沿用原判定与开关语义；档案登记在去编号后的原名下，战斗面板按候选名回退时能对上。
+        const baseNames = new Set(targets.map(target => target.base));
+        const creatureTags = creatureHintsOf(floor.text).filter(hint => hint.source === 'creature' && baseNames.has(hint.name));
+        const battleHints = targets.filter(target => target.role === 'enemy'
+            && s.auto.assets.creatureAutoProfile !== false
+            && !spokenKeys.has(canonicalOf(target.base)) && !judgedHuman.has(`${floor.chatId}|${target.base}`))
+            .map(target => ({ name: target.base, source: 'battle' }));
+        const hints = [...creatureTags, ...battleHints.filter(hint => !creatureTags.some(tag => tag.name === hint.name))];
+        let state = s;
+        if (hints.length && typeof deps.registerCreatureProfiles === 'function') {
+            try {
+                const registered = await deps.registerCreatureProfiles(hints);
+                if (registered?.ok && registered.changed) state = { ...s, sceneAssets: readSettings(guard.signal).sceneAssets };
+            } catch { /* 登记失败不阻断出图。 */ }
+        }
+        const assets = state.sceneAssets;
+        const known = new Set([...Object.keys(assets.characterDna || {}), ...Object.keys(assets.characters || {}), ...Object.keys(assets.characterOutfits || {})]);
+        // 与战斗面板一致：候选名逐个试，任一候选已有立绘即视为有图。
+        const match = matchContext(state, floor, { scenes: [], characters: targets.flatMap(target => target.candidates) }, false);
+        await match.hydrate();
+        const missing = new Set(collectAssetNeeds({ characters: targets.flatMap(target => target.candidates) }, match, { sprite: true }).map(need => need.name));
+        const wanted = targets.filter(target => target.candidates.every(name => missing.has(name))).filter(target => {
+            const key2 = canonicalOf(target.base);
+            const dna = assets.characterDna?.[key2] || assets.characterDna?.[target.base];
+            return creatureOf(dna) || known.has(key2) || known.has(target.base) || spokenKeys.has(key2);
+        });
+        if (!wanted.length) return { ok: true, reason: 'nothing-missing' };
+        const needs = wanted.map(target => ({ type: 'sprite', name: target.base }));
+        attachCharacterDna(needs, assets);
+        const spriteNeeds = needs;
+        state = await judgeAutoCreatureForms(needs, spriteNeeds, state, floor, messageId);
+        if (!needs.length) return { ok: true, reason: 'nothing-missing' };
+        let backend = describeTask(guard.signal);
+        if (!backend.ready.ok && typeof nai.waitUntilReady === 'function') {
+            const ready = await nai.waitUntilReady({ signal: guard.signal, shouldStart: guard.shouldStart });
+            if (!ready.ok) return ready;
+            backend = describeTask(guard.signal);
+        }
+        if (!backend.ready.ok) return { ok: false, reason: 'backend-unavailable', error: backend.ready.error };
+        let sprites = state;
+        let preparedGuard;
+        if (externalSource(guard.signal) && state.externalSpriteDna) {
+            const prepared = await prepareExternalSpriteDna.batch({ characters: needs.map(({ name, dna }) => ({ name, dna })),
+                onProgress: event => { if (event.message) report('info', event.message); },
+                shouldStart: guard.shouldStart, numberedText: toReadableText(floor.text), previousText: '' });
+            if (!prepared.ok) return { ...prepared, stopGeneration: true };
+            for (const need of needs) need.dna = prepared.characters.find(row => row.name === need.name)?.dna;
+            sprites = { ...state, sceneAssets: readSettings(guard.signal).sceneAssets };
+            preparedGuard = prepared.shouldStart;
+        }
+        sprites = { ...sprites, taskSignal: guard.signal, spriteShouldStart: () => guard.shouldStart() && (!preparedGuard || preparedGuard()) };
+        report('info', `第 ${messageId} 楼开战，先备战斗立绘：${needs.map(need => need.name).join('、')}`);
+        const records = await generateSpriteBatch(needs.map(need => ({ need, tags: '' })), sprites, floor, key);
+        const done = records.filter(record => record.status === 'review').length;
+        emit({ chatId: floor.chatId, messageId: floor.messageId, swipeId: floor.swipeId, reason: 'combat-prewarm' });
+        return { ok: done === records.length, reason: 'combat-prewarm', count: done };
+    }
+
     async function processMessage(messageId, { manual = false } = {}) {
         const s = readSettings();
         if (manual) s.auto.assets = { ...s.auto.assets, spriteEnabled: true, backgroundEnabled: true };
@@ -1274,6 +1381,8 @@ export function createAssetGenerationService(deps) {
             return { ok: true, reason: 'not-eligible' };
         }
         const key = floorKeyOf(floor);
+        // 开战楼：敌方与友方立绘不等本楼补全，先于其他素材单独预热。
+        if (!manual && floor.isLatest) prewarmCombatSprites(Number(messageId), floor).catch(() => {});
         if (locks.has(key)) {
             if (!manual && runningFloors.has(key) && runningFloors.get(key) !== floor.text)
                 pendingFloors.set(key, floor.text);
@@ -2478,7 +2587,7 @@ export function createAssetGenerationService(deps) {
             if (readSettings().sceneAssets.enabled) void ready().then(() => emit({ reason: 'records-ready' }))
                 .catch(error => { if (!stopped) report('error', `素材记录恢复失败：${error.message}`); });
         },
-        clearCache() { tempCache.clear(); },
+        clearCache() { tempCache.clear(); prewarmClaims.clear(); prewarmTried.clear(); },
         stop() {
             stopped = true;
             recoveryController.abort();

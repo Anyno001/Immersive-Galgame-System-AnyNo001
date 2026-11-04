@@ -403,6 +403,8 @@ const COMBAT_TEMPLATE = `
     <div class="igs-source-filter-title">战斗</div>
     <div class="igs-settings-row">{{battleModeField}}</div>
     <div class="igs-source-filter-note"{{battleOffNoteHidden}}>战斗不触发演出与面板。</div>
+    <div class="igs-source-filter-note"{{battleCardHidden}}>需要已安装数据库（shujuku）并接好写词模型（副 LLM），开启后数值系统随之启用。</div>
+    <div class="igs-source-filter-grid"{{battleCardHidden}}>{{combatFields}}</div>
   </div>
   <div class="igs-settings-sub"{{battleStoryHidden}}>
     <div class="igs-source-filter">
@@ -410,19 +412,24 @@ const COMBAT_TEMPLATE = `
       <div class="igs-source-filter-note">数值系统开启时，由数值系统速算胜负与伤势。</div>
     </div>
   </div>
-  <div class="igs-settings-sub"{{battleCardHidden}}>
-    <div class="igs-source-filter">
-      <div class="igs-source-filter-note">开启条件：已安装数据库（shujuku），并在自动插图设置里接好写词模型（副 LLM）。开启后数值系统随之启用。</div>
-      <div class="igs-source-filter-grid">{{combatFields}}</div>
-      {{combatAtlasField}}
-    </div>
+  <div class="igs-source-filter"{{battleCardHidden}}>
+    <div class="igs-source-filter-title">节奏</div>
+    <div class="igs-source-filter-grid">{{combatPaceFields}}</div>
   </div>
-  <div class="igs-settings-sub"{{combatDailyHidden}}>
-    <div class="igs-source-filter">
-      <div class="igs-source-filter-title">日常挑战</div>
-      <div class="igs-source-filter-note">剧情里成败攸关的事用卡牌对决处理，每个游戏日的次数与间隔楼数在这里限制。选「仅日常挑战」时，提示词里不再写战斗标签。</div>
-      <div class="igs-source-filter-grid">{{combatDailyFields}}</div>
-    </div>
+  <div class="igs-source-filter"{{battleCardHidden}}>
+    <div class="igs-source-filter-title">规则</div>
+    <div class="igs-source-filter-grid">{{combatRuleFields}}</div>
+    {{combatRuleSwitches}}
+  </div>
+  <div class="igs-source-filter"{{battleCardHidden}}>
+    <div class="igs-source-filter-title">台词与敌人</div>
+    <div class="igs-source-filter-grid">{{combatLineSwitches}}</div>
+    {{combatAtlasField}}
+    {{combatEnemySpritesField}}
+    <details class="igs-settings-sub igs-settings-advanced" data-advanced="combat-more"{{combatMoreOpen}}>
+      <summary>高级</summary>
+      {{combatRulePromptField}}
+    </details>
   </div>
 </div>
 `.trim();

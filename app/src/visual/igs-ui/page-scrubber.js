@@ -11,6 +11,9 @@ const STYLE_TEXT = `
 #igs-page-scrubber.is-dragging .igs-ps-knob,#igs-page-scrubber:hover .igs-ps-knob{opacity:1;}
 #igs-page-scrubber .igs-ps-tip{position:absolute;bottom:18px;transform:translateX(-50%);padding:3px 9px;border-radius:999px;background:#1c1c1e;color:#f5f5f7;font-size:12px;line-height:1.2;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s;}
 #igs-page-scrubber.is-dragging .igs-ps-tip{opacity:1;}
+/* 窄屏阅读模式：抬到底部工具栏上方并隔开一段，免得手机上点工具栏误触；列表底边跟着让出进度条的高度。 */
+#igs-overlay[data-igs-log-reader="on"] #igs-page-scrubber{bottom:calc(var(--igs-log-foot,64px) + 10px);}
+#igs-overlay[data-igs-log-reader="on"]:has(#igs-page-scrubber:not([hidden])) #igs-log .igs-log-scroll{bottom:calc(var(--igs-log-foot) + 32px);}
 `;
 
 function ensureStyle(doc) {

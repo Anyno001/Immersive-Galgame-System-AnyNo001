@@ -37,7 +37,14 @@ export const NSFW_SFX_DEFS = Object.freeze({
         partials: [p('sine', 1180, 1180, 0.3, 0.12, 0.2, { attack: 0.002 }), p('sine', 1760, 1760, 0.37, 0.16, 0.14, { attack: 0.002 }), p('sine', 240, 150, 0.24, 0.1, 0.22, { attack: 0.002, sweep: 1 })],
         noise: [n(0.24, 0.05, 0.16, { filter: 'bandpass', freq: 1800, q: 1.4, attack: 0.001, env: 'flat' })],
     },
-    'nsfw-after': { partials: [p('sine', 196, 180, 0, 1.4, 0.1, { attack: 0.4 })], noise: [n(0, 1.4, 0.12, { filter: 'lowpass', freq: 700, freqTo: 260, q: 0.7, attack: 0.4 })] },
+    // 事后：心跳由快到慢、由重到轻地平复下来，其间两次长长的呼气（滤波噪声由亮转暗）。
+    'nsfw-after': {
+        partials: [[0, 0.62], [0.82, 0.5], [1.8, 0.38], [3.0, 0.27], [4.45, 0.18]].flatMap(([t, g], i) => lubdub(t, g, 1 + i * 0.12)),
+        noise: [
+            n(0.3, 1.9, 0.13, { filter: 'lowpass', freq: 1300, freqTo: 380, q: 0.6, attack: 0.5 }),
+            n(2.9, 2.3, 0.09, { filter: 'lowpass', freq: 1000, freqTo: 300, q: 0.6, attack: 0.7 }),
+        ],
+    },
     // 床幔：绸缎滑动的轻响，加一点烛芯爆花。
     'nsfw-curtain': {
         partials: [],

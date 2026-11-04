@@ -10,6 +10,8 @@ const COUNTED_KINDS = new Set(['grow', 'fade']);
 const POP_SELECTOR = '.igs-tfx-big,.igs-tfx-roar';
 // 半角/全角冒号都接受：模型在中文语境里常顺手写成「：」。
 const MARKUP_RE = new RegExp(TEXT_FX_MARKUP_SOURCE, 'g');
+// 模型常把感叹号、问号、省略号写在 } 外面，效果连带覆盖紧跟的这几个标点。
+const RENDER_RE = new RegExp(`${TEXT_FX_MARKUP_SOURCE}([！？!?…]*)`, 'g');
 const TAG_SPLIT_RE = /(<[^>]*>)/;
 const ENTITY_SPLIT_RE = /(&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);)/i;
 
@@ -61,8 +63,9 @@ function perCharHtml(inner) {
 }
 
 function renderRun(run) {
-    return run.replace(MARKUP_RE, (match, kind, inner) => {
-        if (!acceptInner(inner)) return match;
+    return run.replace(RENDER_RE, (match, kind, text, tail) => {
+        if (!acceptInner(text)) return match;
+        const inner = text + tail;
         const id = TEXT_FX_KINDS[kind];
         if (!PER_CHAR_KINDS.has(id)) return `<span class="igs-tfx igs-tfx-${id}">${inner}</span>`;
         const { body, count } = perCharHtml(inner);

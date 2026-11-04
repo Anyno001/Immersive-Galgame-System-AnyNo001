@@ -60,6 +60,24 @@ test('规则体系：空设置默认 D&D；显式存了 CoC 保留；无 prompts
     assert.equal(Object.hasOwn(normalizeStatsSettings({ dndNatural: true }), 'dndNatural'), false);
 });
 
+test('好感条显示：旧配置里固化的 stage 默认值改为数字；带 hudLabelVersion 的 stage 是用户选的，保留', () => {
+    assert.equal(normalizeStatsSettings({ hudLabel: 'stage' }).hudLabel, 'number');
+    assert.equal(normalizeStatsSettings({ hudLabel: 'both' }).hudLabel, 'both');
+    const saved = normalizeStatsSettings({ hudLabel: 'number' });
+    assert.equal(normalizeStatsSettings({ ...saved, hudLabel: 'stage' }).hudLabel, 'stage');
+});
+
+test('在场角色约束：阶段约束只出一次；突破与亲密两句可在设置里改写', () => {
+    const state = createStatsState();
+    state.characters.甲 = { dims: { 好感: 0, 信任: 0, 了解: 0, 欲望: 0 }, unlocked: [] };
+    state.characters.乙 = { dims: { 好感: 0, 信任: 0, 了解: 0, 欲望: 0 }, unlocked: [] };
+    const r = buildStatsPrompt(state, { present: ['甲', '乙'], nsfw: true, intimacyGate: true, prompts: { intimacy: '自定义亲密' } });
+    const text = r.segments.find((x) => x.id === 'present').text;
+    assert.equal(text.split(DEFAULT_STAT_PROMPTS.presentRule).length, 2);
+    assert.equal(text.split('自定义亲密').length, 3);
+    assert.match(renderStatsPromptFields(normalizeStatsSettings({})), /data-path="bridge\.stats\.prompts\.intimacy"/);
+});
+
 test('readStatsSettings 按入参引用缓存；normalizeStatsSettings 不缓存（设置页草稿会原地改）', () => {
     const raw = { enabled: true, prompts: { source: '甲' } };
     const a = readStatsSettings(raw);

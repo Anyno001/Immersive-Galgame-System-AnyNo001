@@ -9,6 +9,7 @@ export const ASSET_REVIEW_STYLE_TEXT = `
 .igs-asset-review-body select option{background:#1e2028;color:#fff;}
 .igs-asset-review-body input{width:100%;box-sizing:border-box;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);color:inherit;}
 .igs-asset-review-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+.igs-asset-review-actions.is-triple{grid-template-columns:repeat(3,minmax(0,1fr));}
 .igs-asset-review-actions button{min-height:28px;padding:4px 8px;border-radius:6px;border:0;background:rgba(255,255,255,.1);color:inherit;cursor:pointer;font-size:12px;line-height:18px;text-align:center;}
 .igs-asset-review-actions button.is-primary{grid-column:1/-1;background:rgba(255,255,255,.2);font-weight:600;}
 .igs-asset-review-actions button.is-wide{grid-column:1/-1;}
@@ -122,25 +123,27 @@ export function renderAssetReviewPanel(container, items = [], handlers = {}) {
         input.addEventListener('keydown', (event) => event.stopPropagation());
         if (activeKey && activeKey === item.key) focusTarget = input;
         const actions = doc.createElement('div');
-        actions.className = 'igs-asset-review-actions';
+        actions.className = 'igs-asset-review-actions is-triple';
         // 立绘经统一采用入口核验并保存身份；「入库并编辑 DNA」打开采用后的景别资料。
-        const acts = [['library', item.type === 'background' ? '入库到场景' : '入库到角色'], ['chat', '仅本聊天'], ['discarded', '丢弃']];
+        // 「重画」丢掉这张并按本楼补全素材重新出图，DNA 与衣装保留。
+        const acts = [['library', item.type === 'background' ? '入库到场景' : '入库到角色'], ['chat', '仅本聊天'], ['reroll', '重画'], ['discarded', '丢弃']];
         if (item.type === 'sprite') acts.splice(1, 0, ['library-dna', '入库并编辑 DNA']);
         for (const [act, text] of acts) {
             const button = doc.createElement('button');
             button.type = 'button';
             button.textContent = text;
-            // 入库类为主操作，各占一整行；「仅本聊天 / 丢弃」两列并排，保证按钮对齐。
+            // 入库类为主操作，各占一整行；「仅本聊天 / 重画 / 丢弃」三列并排，保证按钮对齐。
             if (act === 'library' || act === 'library-dna') button.className = 'is-primary';
             button.setAttribute('data-asset-review-act', act);
             // 入库要等图片写完，可能要十几秒：点下就锁住并显示状态，不让人以为没反应。
             const working = act === 'library' || act === 'library-dna';
+            const busyText = act === 'reroll' ? '重画中…' : working ? '入库中…' : '';
             if (item.busy) { button.disabled = true; if (working) button.textContent = '入库中…'; }
             button.addEventListener('click', (event) => {
                 event.stopPropagation();
                 if (button.disabled || typeof handlers.onResolve !== 'function') return;
                 for (const control of actions.querySelectorAll('button')) control.disabled = true;
-                if (working) button.textContent = '入库中…';
+                if (busyText) button.textContent = busyText;
                 Promise.resolve(handlers.onResolve(item, act, input.value.trim())).finally(() => {
                     if (button.isConnected === false) return;
                     for (const control of actions.querySelectorAll('button')) control.disabled = false;

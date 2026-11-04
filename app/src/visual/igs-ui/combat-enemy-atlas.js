@@ -160,9 +160,9 @@ export function createEnemyAtlasManager(options = {}) {
             const old = installed;
             installed = {}; phase = 'idle'; error = null;
             store.clear();
-            // 文件回收失败不影响已清除的安装记录，图片由存储层稍后重试回收。
-            for (const path of Object.values(old)) await Promise.resolve(files.dropUnused({ dataUrl: path }, {})).catch(() => {});
             notify();
+            // 清除安装记录后立即返回，界面马上变成未安装；文件回收放到后台（要排在图片缓存队列后面，可能较慢），失败由存储层稍后重试。
+            void Promise.allSettled(Object.values(old).map((path) => Promise.resolve().then(() => files.dropUnused({ dataUrl: path }, {}))));
             return manager.status();
         },
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
@@ -207,20 +207,18 @@ const STATUS_TEXT = Object.freeze({
 });
 const sizeText = `约${(ENEMY_ATLAS_APPROX_BYTES / 1048576).toFixed(1)}MB`;
 
-// 设置项：状态、下载、删除。按钮由设置页的 data-action 分发，接线见交接文档。
+// 设置项：一行（名称 · 状态 · 说明 | 下载 删除），与立绘页的行同一套样式。按钮由设置页的 data-action 分发。
 export function renderCombatEnemyAtlasField(manager = current) {
     const info = manager ? manager.status() : { state: 'missing' };
     const busy = info.state === 'downloading';
     const note = info.state === 'failed'
-        ? `${STATUS_TEXT.failed}：${info.reasonText}${info.detail ? `（${info.detail}）` : ''}。`
-        : info.state === 'installed' ? `已保存到酒馆图片目录，版本${info.tag}。`
-            : info.state === 'downloading' ? '正在下载，请勿关闭页面。'
-                : `敌人立绘图集${sizeText}，仅在点击下载后才会从仓库拉取。未安装时战斗使用中性剪影。`;
-    return '<div class="igs-settings-section" data-combat-enemy-atlas>'
-        + `<div class="igs-settings-row"><span>敌人图集</span><b data-result="combat-enemy-atlas">${esc(STATUS_TEXT[info.state] || STATUS_TEXT.missing)}</b></div>`
-        + `<div class="igs-source-filter-note">${esc(note)}</div>`
-        + '<div class="igs-settings-row">'
+        ? `${info.reasonText}${info.detail ? `（${info.detail}）` : ''}`
+        : info.state === 'installed' ? `版本${info.tag}`
+            : info.state === 'downloading' ? '请勿关闭页面'
+                : `${sizeText}，未下载时显示剪影`;
+    return '<div class="igs-btn-mgr-row" data-combat-enemy-atlas>'
+        + `<span class="igs-btn-mgr-label" title="${esc(note)}">内置敌人图集<span class="igs-outfit-muted"> · <b data-result="combat-enemy-atlas">${esc(STATUS_TEXT[info.state] || STATUS_TEXT.missing)}</b> · ${esc(note)}</span></span>`
         + `<button class="igs-settings-action" data-action="combat-enemy-atlas-download" type="button"${busy || info.state === 'installed' ? ' disabled' : ''}>${info.state === 'failed' ? '重新下载' : '下载'}</button>`
         + `<button class="igs-settings-action is-danger" data-action="combat-enemy-atlas-remove" type="button"${busy || info.state === 'missing' ? ' disabled' : ''}>删除</button>`
-        + '</div></div>';
+        + '</div>';
 }

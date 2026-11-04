@@ -36,6 +36,7 @@ ${IGS_HINT_THEME_STYLE_TEXT}
 .igs-page-modal-actions{display:flex;justify-content:center;gap:8px;}
 .igs-page-modal-actions button{min-height:40px;padding:0 16px;border:0;border-radius:8px;background:transparent;color:var(--igs-hint-soft);font:inherit;font-size:13px;letter-spacing:.08em;cursor:pointer;transition:background .15s,opacity .15s;}
 .igs-page-modal-actions button:hover,.igs-page-modal-actions button:focus-visible{background:var(--igs-hint-fill);color:var(--igs-hint-ink);outline:none;}
+.igs-page-modal-actions [data-igs-modal="pick"]{background:var(--igs-hint-field);color:var(--igs-hint-ink);font-weight:600;}
 .igs-page-modal-actions [data-igs-modal="ok"]{background:var(--igs-hint-accent);color:var(--igs-hint-on-accent);font-weight:600;}
 .igs-page-modal-actions [data-igs-modal="ok"]:hover,.igs-page-modal-actions [data-igs-modal="ok"]:focus-visible{background:var(--igs-hint-accent);color:var(--igs-hint-on-accent);opacity:.88;}
 @keyframes igs-page-modal-fade{from{opacity:0;}to{opacity:1;}}
@@ -163,11 +164,14 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         const actions = doc.createElement('div');
         actions.className = 'igs-page-modal-actions';
         const buttons = entry.kind === 'progress' ? [['cancel', entry.cancelLabel]]
-            : entry.kind === 'alert' ? [['ok', entry.okLabel]] : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
-        for (const [role, label] of buttons) {
+            : entry.kind === 'alert' ? [['ok', entry.okLabel]]
+                : entry.kind === 'pick' ? [['cancel', entry.cancelLabel], ...entry.choices.map(([value, label]) => ['pick', label, value])]
+                    : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
+        for (const [role, label, value] of buttons) {
             const btn = doc.createElement('button');
             btn.type = 'button';
             btn.setAttribute('data-igs-modal', role);
+            if (role === 'pick') btn.setAttribute('data-igs-modal-value', value);
             btn.textContent = label;
             actions.appendChild(btn);
         }
@@ -183,6 +187,7 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
             if (!btn || typeof btn.getAttribute !== 'function') return;
             const role = btn.getAttribute('data-igs-modal');
             if (role === 'ok') accept();
+            else if (role === 'pick') settle(entry, btn.getAttribute('data-igs-modal-value'));
             else if (role === 'cancel') settle(entry, cancelValue(entry));
         });
         el.addEventListener('keydown', (event) => {
@@ -191,7 +196,7 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
             if (event.key === 'Escape') {
                 if (typeof event.preventDefault === 'function') event.preventDefault();
                 settle(entry, cancelValue(entry));
-            } else if (event.key === 'Enter' && !event.isComposing && (entry.kind !== 'prompt' || event.target === input)) {
+            } else if (event.key === 'Enter' && !event.isComposing && entry.kind !== 'pick' && (entry.kind !== 'prompt' || event.target === input)) {
                 if (typeof event.preventDefault === 'function') event.preventDefault();
                 accept();
             }
@@ -220,6 +225,7 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
             imageUrl: labels.imageUrl || '',
             originalImageUrl: labels.originalImageUrl || '',
             onCancel: labels.onCancel,
+            choices: Array.isArray(labels.choices) ? labels.choices : [],
         };
         const result = new Promise((resolve) => {
             entry.resolve = resolve;
@@ -239,6 +245,8 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         confirm: (message, labels) => open('confirm', message, '', labels),
         prompt: (message, value = '', labels) => open('prompt', message, value, labels),
         confirmImage: (imageUrl, message, labels = {}) => open('confirm', message, '', { ...labels, imageUrl }),
+        // 几个并列选项各一个按钮（choices: [[value, label]]），点哪个返回哪个 value；取消、Esc 返回 null。
+        pick: (message, choices, labels = {}) => open('pick', message, '', { ...labels, choices }),
         progress(message, onCancel) {
             void open('progress', message, '', { cancelLabel: '停止', onCancel });
             const entry = pending;

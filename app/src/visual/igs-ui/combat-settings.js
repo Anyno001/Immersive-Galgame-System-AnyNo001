@@ -4,7 +4,7 @@ import { resolveCombatLlm } from '../../combat/generation.js';
 import { COMBAT_DIFFICULTY_KEYS } from '../../combat/rules.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { CHALLENGE_QUOTA } from '../../scene/challenge-directives.js';
-import { COMBAT_KINDS } from '../../scene/combat-prompt.js';
+import { COMBAT_COOLDOWN_CHOICES, COMBAT_FREQUENCIES, COMBAT_KINDS, COMBAT_RULE_PROMPT_MAX, isDefaultCombatRuleText } from '../../scene/combat-prompt.js';
 
 export const COMBAT_DIFFICULTIES = COMBAT_DIFFICULTY_KEYS;
 export const COMBAT_REPORT_DETAILS = Object.freeze(['brief', 'normal']);
@@ -16,8 +16,10 @@ export const COMBAT_PANEL_SKIN_LABELS = Object.freeze({ veil: '黑幕', comic: '
 export const COMBAT_KIND_LABELS = Object.freeze({ combat: '战斗', daily: '日常挑战', both: '两者' });
 export const DAILY_STAKES = Object.freeze(['light', 'normal', 'heavy']);
 export const DAILY_STAKE_LABELS = Object.freeze({ light: '轻', normal: '中', heavy: '重' });
-export const DAILY_COOLDOWN_CHOICES = Object.freeze([0, 4, 8, 12, 16, 24]);
-export const DAILY_DEFAULTS = Object.freeze({ perDay: CHALLENGE_QUOTA.perDay, cooldownFloors: CHALLENGE_QUOTA.cooldownFloors, stake: 'normal', allowEscape: true });
+export const DAILY_COOLDOWN_CHOICES = COMBAT_COOLDOWN_CHOICES;
+export const DAILY_DEFAULTS = Object.freeze({ perDay: CHALLENGE_QUOTA.perDay, cooldownFloors: CHALLENGE_QUOTA.cooldownFloors, stake: 'normal', allowEscape: true, frequency: 'normal' });
+
+export const COMBAT_FREQUENCY_LABELS = Object.freeze({ low: '少', normal: '适中', high: '多' });
 
 const asObject = value => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
@@ -30,18 +32,31 @@ export function normalizeCombatExpansionSettings(value) {
     skin: COMBAT_PANEL_SKINS.includes(source.skin) ? source.skin : 'veil',
     kind: COMBAT_KINDS.includes(source.kind) ? source.kind : 'combat',
     daily: normalizeDailySettings(source.daily),
+    frequency: COMBAT_FREQUENCIES.includes(source.frequency) ? source.frequency : 'normal',
+    cooldownFloors: COMBAT_COOLDOWN_CHOICES.includes(Number(source.cooldownFloors)) ? Number(source.cooldownFloors) : 0,
+    rulePrompt: normalizeRulePrompt(source.rulePrompt),
+    // 战斗台词：show 关闭时不显示也不朗读；tts 关闭时只显示文字。
+    lines: { show: asObject(source.lines).show !== false, tts: asObject(source.lines).tts !== false },
   };
+}
+
+// 与默认规则全文一致的文本不存为自定义值，空串表示使用默认。
+function normalizeRulePrompt(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const text = value.slice(0, COMBAT_RULE_PROMPT_MAX);
+  return isDefaultCombatRuleText(text) ? '' : text;
 }
 
 export function normalizeDailySettings(value) {
   const source = asObject(value);
-  const perDay = Math.floor(Number(source.perDay));
+  const perDay = source.perDay === null || source.perDay === '' || source.perDay === undefined ? NaN : Math.floor(Number(source.perDay));
   const cooldown = Math.floor(Number(source.cooldownFloors));
   return {
-    perDay: Number.isFinite(perDay) ? Math.min(CHALLENGE_QUOTA.perDayMax, Math.max(1, perDay)) : DAILY_DEFAULTS.perDay,
+    perDay: Number.isFinite(perDay) ? Math.min(CHALLENGE_QUOTA.perDayMax, Math.max(0, perDay)) : DAILY_DEFAULTS.perDay,
     cooldownFloors: Number.isFinite(cooldown) ? Math.min(99, Math.max(0, cooldown)) : DAILY_DEFAULTS.cooldownFloors,
     stake: DAILY_STAKES.includes(source.stake) ? source.stake : DAILY_DEFAULTS.stake,
     allowEscape: source.allowEscape !== false,
+    frequency: COMBAT_FREQUENCIES.includes(source.frequency) ? source.frequency : 'normal',
   };
 }
 

@@ -24,7 +24,8 @@ const CHAR_AT_RE = /^\[igs-char:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const THOUGHT_AT_RE = /^\[igs-thought:([^|\]]+)\|(?:([^|\]]*)\|)?([^|\]]+)(?:\]|$)/;
 const IMG_AT_RE = /^(?:\[igs-img:\s*(\d+)\s*\]|<IMG>\s*(\d+)\s*<\/IMG>)/i;
 const FX_AT_RE = /^\[igs-fx:[^\]}\n]*(?:[\]}]|$)/;
-const COMBAT_AT_RE = /^\[igs-(?:combat|challenge):[^\]\n]*(?:\]|$)/;
+// 战斗块的包裹标签 <igs-combat> / </igs-combat> 与块内战斗标签一样跳过，不计入正文。
+const COMBAT_AT_RE = /^(?:\[igs-(?:combat|challenge):[^\]\n]*(?:\]|$)|<\/?\s*igs-combat\s*>)/i;
 export const IGS_IMG_MARKER_SOURCE = '(?:\\[igs-img:\\s*|<IMG>\\s*)(\\d+)(?:\\s*\\]|\\s*<\\/IMG>)';
 
 export function stripIllustrationMarkers(text) {
@@ -45,7 +46,7 @@ export function stripIllustrationMarker(text, slot) {
 function nextDirectiveIndex(text) {
     const source = String(text || '');
     const directive = source.match(IGS_DIRECTIVE_START_RE);
-    const illustration = source.match(/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/i);
+    const illustration = source.match(/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>|<\/?\s*igs-combat\s*>)/i);
     const indexes = [directive && directive.index, illustration && illustration.index]
         .filter((index) => Number.isInteger(index));
     return indexes.length ? Math.min(...indexes) : -1;

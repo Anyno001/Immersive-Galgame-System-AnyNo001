@@ -52,9 +52,11 @@ import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORI
 import { originChatStatus } from './origin-attach.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { COMBAT_DIFFICULTY_KEYS, COMBAT_RULES } from '../../combat/rules.js';
+import { COMBAT_COOLDOWN_CHOICES, COMBAT_FREQUENCIES, defaultCombatRuleText } from '../../scene/combat-prompt.js';
 import { ensureEnemyAtlas, renderCombatEnemyAtlasField } from './combat-enemy-atlas.js';
+import { renderCombatEnemySprites } from './combat-enemy-sprites.js';
 import {
-    COMBAT_KIND_LABELS, COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, COMBAT_PRESET_DAILY_ONLY, COMBAT_PRESET_PATH, DAILY_COOLDOWN_CHOICES, DAILY_STAKES, DAILY_STAKE_LABELS,
+    COMBAT_KIND_LABELS, COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, COMBAT_FREQUENCY_LABELS, DAILY_COOLDOWN_CHOICES, DAILY_STAKES, DAILY_STAKE_LABELS,
     BATTLE_MODES, BATTLE_MODE_LABELS, BATTLE_MODE_PATH, battleModeOf, normalizeCombatExpansionSettings,
 } from './combat-settings.js';
 import { buildStatsPageValues } from './stats-settings-fields.js';
@@ -227,17 +229,48 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 battleStoryHidden: hiddenAttr(mode !== 'story'),
                 battleCardHidden: hiddenAttr(mode !== 'card'),
                 battleStoryFields: checkbox(`${bp}.letterbox`, fx.letterbox, '战斗时加电影黑边') + checkbox(`${bp}.dash`, fx.dash, '出手冲刺'),
-                combatDailyHidden: hiddenAttr(mode !== 'card' || cx.kind === 'combat'),
-                combatDailyFields: field(`${p}.daily.perDay`, '每个游戏日次数', selectInput(`${p}.daily.perDay`, cx.daily.perDay, [1, 2, 3].map((n) => [n, `${n}次`])))
-                    + field(`${p}.daily.cooldownFloors`, '两次之间至少间隔', selectInput(`${p}.daily.cooldownFloors`, cx.daily.cooldownFloors, DAILY_COOLDOWN_CHOICES.map((n) => [n, n ? `${n}楼` : '不限'])))
-                    + field(`${p}.daily.stake`, '失败代价', segmentedInput(`${p}.daily.stake`, cx.daily.stake, DAILY_STAKES.map((k) => [k, DAILY_STAKE_LABELS[k]]), '失败代价'))
-                    + checkbox(`${p}.daily.allowEscape`, cx.daily.allowEscape, '允许放弃'),
-                combatFields: field(`${p}.kind`, '对决类型', segmentedInput(`${p}.kind`, cx.kind, Object.entries(COMBAT_KIND_LABELS), '对决类型'))
-                    + field(COMBAT_PRESET_PATH, '预设', segmentedInput(COMBAT_PRESET_PATH, cx.kind === 'daily' ? COMBAT_PRESET_DAILY_ONLY : '', [[COMBAT_PRESET_DAILY_ONLY, '仅日常挑战']], '预设'))
-                    + field(`${p}.difficulty`, '难度', selectInput(`${p}.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
-                    + field(`${p}.reportDetail`, '战报详略', segmentedInput(`${p}.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略'))
-                    + field(`${p}.skin`, '面板皮肤', selectInput(`${p}.skin`, cx.skin, COMBAT_PANEL_SKINS.map((k) => [k, COMBAT_PANEL_SKIN_LABELS[k]]))),
+                // 卡片里两两成对：战斗项在对决类型含战斗时出现，挑战项在含日常挑战时出现。
+                ...(() => {
+                    const fight = cx.kind !== 'daily', daily = cx.kind !== 'combat';
+                    const creatureOn = normalizeCreatureDisplaySettings(reader && reader.creatureDisplay).enabled;
+                    const autoProfile = normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.creatureAutoProfile;
+                    return {
+                        combatFields: field(`${p}.kind`, '对决类型', segmentedInput(`${p}.kind`, cx.kind, Object.entries(COMBAT_KIND_LABELS), '对决类型'))
+                            + field(`${p}.skin`, '面板皮肤', selectInput(`${p}.skin`, cx.skin, COMBAT_PANEL_SKINS.map((k) => [k, COMBAT_PANEL_SKIN_LABELS[k]]))),
+                        combatPaceFields: (fight ? field(`${p}.frequency`, '战斗频率', segmentedInput(`${p}.frequency`, cx.frequency, COMBAT_FREQUENCIES.map((k) => [k, COMBAT_FREQUENCY_LABELS[k]]), '战斗频率'))
+                            + field(`${p}.cooldownFloors`, '战斗间隔', selectInput(`${p}.cooldownFloors`, cx.cooldownFloors, COMBAT_COOLDOWN_CHOICES.map((n) => [n, n ? `${n}楼` : '不限']))) : '')
+                            + (daily ? field(`${p}.daily.frequency`, '挑战频率', segmentedInput(`${p}.daily.frequency`, cx.daily.frequency, COMBAT_FREQUENCIES.map((k) => [k, COMBAT_FREQUENCY_LABELS[k]]), '挑战频率'))
+                            + field(`${p}.daily.cooldownFloors`, '挑战间隔', selectInput(`${p}.daily.cooldownFloors`, cx.daily.cooldownFloors, DAILY_COOLDOWN_CHOICES.map((n) => [n, n ? `${n}楼` : '不限']))) : ''),
+                        combatRuleFields: field(`${p}.difficulty`, '难度', selectInput(`${p}.difficulty`, cx.difficulty, COMBAT_DIFFICULTY_KEYS.map((k) => [k, COMBAT_RULES.difficulty[k].label])))
+                            + field(`${p}.reportDetail`, '战报详略', segmentedInput(`${p}.reportDetail`, cx.reportDetail, [['brief', '简略'], ['normal', '标准']], '战报详略'))
+                            + (daily ? field(`${p}.daily.perDay`, '每日挑战次数', selectInput(`${p}.daily.perDay`, cx.daily.perDay, [1, 2, 3, 4, 5, 0].map((n) => [n, n ? `${n}次` : '不限'])))
+                            + field(`${p}.daily.stake`, '挑战失败代价', segmentedInput(`${p}.daily.stake`, cx.daily.stake, DAILY_STAKES.map((k) => [k, DAILY_STAKE_LABELS[k]]), '挑战失败代价')) : ''),
+                        combatRuleSwitches: daily ? `<div class="igs-source-filter-grid">${checkbox(`${p}.daily.allowEscape`, cx.daily.allowEscape, '挑战允许放弃')}</div>` : '',
+                        combatLineSwitches: checkbox(`${p}.lines.show`, cx.lines.show, '显示战斗台词')
+                            + checkbox(`${p}.lines.tts`, cx.lines.tts, '朗读战斗台词', !cx.lines.show)
+                            + checkbox('bridge.autoIllustration.assets.creatureAutoProfile', autoProfile, '战斗对手自动建档', !creatureOn),
+                    };
+                })(),
+                combatMoreOpen: advancedOpen('combat-more'),
+                combatRulePromptField: `<div class="igs-settings-section" data-combat-rule-prompt>`
+                    + field(`${p}.rulePrompt`, '战斗规则提示词', textareaInput(`${p}.rulePrompt`, cx.rulePrompt || defaultCombatRuleText(reader), ''))
+                    + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="combat-rule-prompt-reset" type="button"${cx.rulePrompt ? '' : ' disabled'}>恢复默认</button></div>`
+                    + (cx.rulePrompt && String(((draft.bridge || {}).stats || {}).prompts?.combat || '').trim() ? '<div class="igs-source-filter-note">数值系统的战斗提示词已自定义，当前由其接管，此处的文本不生效。</div>' : '')
+                    + '</div>',
                 combatAtlasField: renderCombatEnemyAtlasField((() => { try { return ensureEnemyAtlas(); } catch (error) { return null; } })()),
+                combatEnemySpritesField: idx ? '' : (() => {
+                    const service = options.generatedAssets || null;
+                    return renderCombatEnemySprites({
+                        // 复用本次渲染已合并好的素材视图，不再合并一遍。
+                        sceneAssets: worldviewAssets || {},
+                        resolveUrl: (url) => {
+                            if (!service) return '';
+                            return typeof service.resolveThumbUrl === 'function' ? service.resolveThumbUrl(url) : (typeof service.resolveUrl === 'function' ? service.resolveUrl(url) : '');
+                        },
+                        tempSprite: service && typeof service.tempSprite === 'function' ? (name) => service.tempSprite(name) : null,
+                        isOpen: isOpenKey,
+                    });
+                })(),
             };
         });
 
@@ -742,12 +775,10 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         </div></details></div>`;
             // 非人角色整组设置：总开关关闭时其余项置灰，档案保留。
             const creatureDisplay = normalizeCreatureDisplaySettings(reader.creatureDisplay);
-            const creatureAutoOn = normalizeAutoIllustrationSettings(bridge.autoIllustration).assets.creatureAutoProfile;
             const creatureOff = !creatureDisplay.enabled;
             const creatureScaleField = (key, label) => field(`readerSettings.creatureDisplay.${key}`, label, numberInput(`readerSettings.creatureDisplay.${key}`, creatureDisplay[key], CREATURE_DISPLAY_RANGE.min, CREATURE_DISPLAY_RANGE.max, creatureOff));
-            const creatureSettingsCard = `<div class="igs-source-filter igs-perf-group"><details data-advanced="creature-system"${advancedOpen('creature-system')}><summary><b>非人角色</b><span class="igs-perf-brief">体型缩放 · 巨型 · 自动建档</span></summary><div class="igs-perf-group-body">
+            const creatureSettingsCard = `<div class="igs-source-filter igs-perf-group"><details data-advanced="creature-system"${advancedOpen('creature-system')}><summary><b>非人角色</b><span class="igs-perf-brief">体型缩放 · 巨型</span></summary><div class="igs-perf-group-body">
         ${checkbox('readerSettings.creatureDisplay.enabled', creatureDisplay.enabled, '启用非人角色')}
-        ${checkbox('bridge.autoIllustration.assets.creatureAutoProfile', creatureAutoOn, '战斗对手自动建档', creatureOff)}
         ${checkbox('readerSettings.creatureDisplay.giantFill', creatureDisplay.giantFill, '巨型铺满舞台', creatureOff)}
         <div class="igs-source-filter-grid">
           ${creatureScaleField('small', '小型缩放 %')}

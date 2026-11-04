@@ -620,8 +620,10 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const voices = sceneAssets && typeof sceneAssets.characterVoices === 'object' ? sceneAssets.characterVoices || {} : {};
     const manual = normalizeCharacterVoice(Object.prototype.hasOwnProperty.call(voices, charName) ? voices[charName] : null);
     const systemVoices = tts.provider === 'system' ? listSystemVoices() : [];
-    const auto = resolveTtsVoice({ textType: 'dialogue', speaker: charName }, tts, { ...sceneAssets, characterVoices: {} }, systemVoices);
-    const autoName = auto.voice ? auto.voice.replace(/^Microsoft\s+/i, '') : '默认声音';
+    // 自动声音只保留选定的性别，不带单独指定的声音。
+    const autoVoices = manual.ttsGender ? { [charName]: { ttsGender: manual.ttsGender } } : {};
+    const auto = resolveTtsVoice({ textType: 'dialogue', speaker: charName }, tts, { ...sceneAssets, characterVoices: autoVoices }, systemVoices);
+    const autoName = auto.undecided ? '性别未定' : auto.voice ? auto.voice.replace(/^Microsoft\s+/i, '') : '默认声音';
     const options = tts.provider === 'system' ? systemVoiceOptions(systemVoices, { all: tts.allVoices }) : ttsApiVoiceOptions(tts);
     const name = esc(charName);
     // 已保存的是 voiceURI 时按它对应的声音名显示。
@@ -646,8 +648,10 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const thoughtVolume = select('ttsThoughtVolume', '心里话音量', pick(volumeOpts([[-1, '同台词'], ...TTS_CHARACTER_VOLUMES]), manual.ttsThoughtVolume));
     // 接口来源不支持调音高。
     const pitch = tts.provider === 'system' ? ['音高', select('pitch', '朗读音高', pitchOpts)] : null;
+    const genderOpts = [['', '自动判断'], ['female', '女声'], ['male', '男声']].map(([v, text]) => `<option value="${v}"${v === manual.ttsGender ? ' selected' : ''}>${text}</option>`).join('');
+    const gender = ['声音性别', select('ttsGender', '声音性别', genderOpts)];
     return `<div class="igs-char-tts">`
-        + voiceGroup('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + preview('tts-preview'), [['语速', speed], ['音量', volume], pitch])
+        + voiceGroup('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + preview('tts-preview'), [['语速', speed], ['音量', volume], pitch, gender])
         + voiceGroup('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + preview('tts-preview-thought'), [['语速', thoughtSpeed], ['音量', thoughtVolume]])
         + voiceGroup('朗读风格', `<input class="igs-asset-move" type="text" maxlength="300" data-char-voice-ttsStyle="${name}" value="${esc(manual.ttsStyle)}" placeholder="仅 OpenAI 兼容与自定义接口生效" aria-label="朗读风格">`)
         + '</div>';

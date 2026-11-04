@@ -1,5 +1,5 @@
 // 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
 import { DEFAULT_RULESET, hasRuleset } from './rulesets/index.js';
 
@@ -10,7 +10,7 @@ const PROMPT_MAX = 4000;
 // 曾被 v0.39 放进 stalePrompts 的键，这里仍是有效模板，迁移时搬回 prompts。
 const RESTORABLE_KEYS = Object.freeze(['sheets', 'sheetGen']);
 const STALE_STORE_KEYS = Object.freeze([...STAT_STALE_PROMPT_KEYS, ...RESTORABLE_KEYS]);
-export const STAT_PROMPT_KEYS = Object.freeze([...STAT_PROMPT_SEGMENTS, 'diceManual', ...STAT_BACKGROUND_PROMPTS]);
+export const STAT_PROMPT_KEYS = Object.freeze([...STAT_PROMPT_SEGMENTS, 'diceManual', ...STAT_INLINE_PROMPTS, ...STAT_BACKGROUND_PROMPTS]);
 
 export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     enabled: false,
@@ -44,6 +44,13 @@ function bool(value, fallback) {
 
 function pick(set, value, fallback) {
     return set.has(value) ? value : fallback;
+}
+
+// v0.39.24 之前默认「阶段名」，且设置页保存时会把默认值一并写进配置；没有 hudLabelVersion 的 stage 视为旧默认，改为数字。
+const HUD_LABEL_VERSION = 2;
+function hudLabelOf(src, d) {
+    if (src.hudLabelVersion !== HUD_LABEL_VERSION && src.hudLabel === 'stage') return d.hudLabel;
+    return pick(HUD_LABELS, src.hudLabel, d.hudLabel);
 }
 
 // 用户覆盖的文本：只收已登记的键与非空字符串（超长截断）；留空表示用默认值（§9）。
@@ -138,7 +145,8 @@ export function normalizeStatsSettings(raw) {
         enabled: bool(src.enabled, d.enabled),
         autoSkill: bool(src.autoSkill, d.autoSkill),
         register: pick(REGISTER_MODES, src.register, d.register),
-        hudLabel: pick(HUD_LABELS, src.hudLabel, d.hudLabel),
+        hudLabel: hudLabelOf(src, d),
+        hudLabelVersion: HUD_LABEL_VERSION,
         favorMode: pick(FAVOR_MODES, src.favorMode, d.favorMode),
         intimacyGate: bool(src.intimacyGate, d.intimacyGate),
         ruleset: rulesetOf(src, d),

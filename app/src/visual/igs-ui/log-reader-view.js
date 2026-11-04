@@ -15,6 +15,8 @@ export function logRenderSnapshot(snapshot) {
     const rs = snapshot.readerSettings || {};
     // 通话照常（来电屏、通话中徽章、挂断记录、对方声音走听筒），只是不在舞台上放对方立绘。
     const fxTags = rs.fxTags && typeof rs.fxTags === 'object' ? { ...rs.fxTags, clash: false, callSprite: 'hide' } : rs.fxTags;
+    // 触碰心动、摸头是贴着立绘头部冒心的演出；列表里没有立绘，心形会漂在正文上，一并关掉。
+    const dailyFx = rs.dailyFx && typeof rs.dailyFx === 'object' ? { ...rs.dailyFx, touch: false, pat: false } : rs.dailyFx;
     return {
         ...snapshot,
         content: {
@@ -25,7 +27,7 @@ export function logRenderSnapshot(snapshot) {
         readerSettings: {
             ...rs,
             stageCast: off(rs.stageCast), comicMode: off(rs.comicMode), camera: off(rs.camera), cameraPackFx: off(rs.cameraPackFx),
-            itemFx: off(rs.itemFx), sceneTransition: off(rs.sceneTransition), titleCard: off(rs.titleCard), typewriter: off(rs.typewriter), fxTags,
+            itemFx: off(rs.itemFx), sceneTransition: off(rs.sceneTransition), titleCard: off(rs.titleCard), typewriter: off(rs.typewriter), fxTags, dailyFx,
         },
     };
 }

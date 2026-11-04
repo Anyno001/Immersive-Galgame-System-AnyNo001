@@ -3,7 +3,7 @@ import { extractSceneDirectives, stripIllustrationMarkers } from './scene-direct
 import { parseSceneText } from './text-parser.js';
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards } from './html-cards.js';
 import { extractChatBlocks } from './chat-blocks.js';
-import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags, normalizeIgsDirectiveLayout, normalizeClosedIgsDialogueLines, stripOutfitFields } from './directive-tags.js';
+import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags, normalizeIgsDirectiveLayout, normalizeClosedIgsDialogueLines, stripCombatBlockTags, stripOutfitFields } from './directive-tags.js';
 import { createOutfitResolver } from './character-outfits.js';
 import { normalizeImageMarkerLayout } from './image-marker-layout.js';
 import { matchTextFxMarkupAt } from './text-fx-markup.js';
@@ -327,7 +327,7 @@ function splitSentenceLine(line, narrationOnly, dialogueAndThought = false, spli
             const body = prefix ? thought[2].slice(prefix.length) : thought[2];
             return splitSentenceBody(body).split('\n').map((part) => `${thought[1]}${prefix}${part.trimEnd()}${thought[3]}`).join('\n');
         }
-        const dialogue = line.match(/^(\s*(?:\[[^\]\n]+\]|[^:：\n]{1,24})\s*[:：]\s*)([\s\S]+)$/);
+        const dialogue = line.match(/^(\s*(?:\[[^\]\n]+\]|[^:：\n{}]{1,24})\s*[:：]\s*)([\s\S]+)$/);
         return dialogue ? splitSentenceBody(dialogue[2]).split('\n').map((part) => `${dialogue[1]}${part}`).join('\n') : line;
     }
     if (!splitNarration) return line;
@@ -397,7 +397,7 @@ function textFxEndsSentence(inner) {
 function isNarrationLine(trimmed) {
     if (/^\*[\s\S]*\*$/.test(trimmed)) return false;
     if (/^\[[^\]]+\]\s*[:：]/.test(trimmed)) return false;
-    if (/^[^:：\n]{1,24}\s*[:：]\s*\S/.test(trimmed) && !trimmed.startsWith('@')) return false;
+    if (/^[^:：\n{}]{1,24}\s*[:：]\s*\S/.test(trimmed) && !trimmed.startsWith('@')) return false;
     return true;
 }
 
@@ -406,7 +406,8 @@ export function buildFormattedTextPipeline(raw, sourceFilter, formatRule, option
     const visibleText = typeof options.visibleText === 'string' ? options.visibleText : '';
     const filtered = buildFilteredTextSource(raw, cfg, visibleText);
     // Formatting controls around an excluded block can precede [igs-scene:] and prevent the directive from being recognized.
-    const textSource = normalizeClosedIgsDialogueLines(stripReaderFormattingControls(filtered.textSource));
+    // 战斗块的包裹标签不进正文（块内 [igs-combat:…] 照常由后续流程跳过）。
+    const textSource = normalizeClosedIgsDialogueLines(stripReaderFormattingControls(stripCombatBlockTags(filtered.textSource)));
     const imageSource = buildBridgeImageSource(raw, cfg);
     const outfitResolver = typeof options.outfitResolver === 'function' ? options.outfitResolver : null;
     const directiveResult = options.sceneAssetsEnabled

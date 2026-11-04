@@ -4,10 +4,11 @@ import { createCombatSession } from '../src/combat/session.js';
 import { parseChallengeReport } from '../src/combat/challenge-report.js';
 import { CHALLENGE_REWARD_TAG_HASH } from '../src/combat/ledger.js';
 import { normalizeCombatExpansionSettings, planCombatPreset } from '../src/visual/igs-ui/combat-settings.js';
-import { CHALLENGE_GRAMMAR_LINE, combatGrammarEnabled, resolveChallengePromptSegment, resolveCombatPromptRule } from '../src/scene/combat-prompt.js';
+import { CHALLENGE_GRAMMAR_LINE, combatGrammarEnabled, combatOnCooldown, defaultCombatRuleText, floorsSinceCombatStart, applyCombatRuleModifiers, chatForCooldown, resolveChallengePromptSegment, resolveCombatPromptRule } from '../src/scene/combat-prompt.js';
 import { resolveCombatEntry } from '../src/visual/igs-ui/combat-entry.js';
 import { settleFloorText } from '../src/scene/stats/stat-settle.js';
 import { createStatsState } from '../src/scene/stats/stat-state.js';
+import { DEFAULT_STAT_PROMPTS, buildStatsPrompt } from '../src/scene/stats/stat-prompt.js';
 import { IGS_INLINE_DIRECTIVE_NAMES, stripMarkerDirectives } from '../src/scene/directive-tags.js';
 import { challengeDirectiveOf } from '../src/combat/challenge-report.js';
 import { deriveChallengeHistory } from '../src/combat/challenge-history.js';
@@ -101,11 +102,11 @@ test('对局中刷新后按种子与动作序列恢复同一局', async () => {
 test('对决类型缺省为战斗，旧存档的提示词与设置不变；仅日常挑战不注入战斗语法', () => {
     const legacy = normalizeCombatExpansionSettings({ enabled: true, difficulty: 'hard', skin: 'ink' });
     assert.equal(legacy.kind, 'combat');
-    assert.deepEqual(legacy.daily, { perDay: 1, cooldownFloors: 8, stake: 'normal', allowEscape: true });
+    assert.deepEqual(legacy.daily, { perDay: 1, cooldownFloors: 8, stake: 'normal', allowEscape: true, frequency: 'normal' });
     assert.equal(legacy.difficulty, 'hard');
     const weird = normalizeCombatExpansionSettings({ enabled: true, kind: 'x', daily: { perDay: 9, cooldownFloors: -3, stake: 'z', allowEscape: false } });
     assert.equal(weird.kind, 'combat');
-    assert.deepEqual(weird.daily, { perDay: 3, cooldownFloors: 0, stake: 'normal', allowEscape: false });
+    assert.deepEqual(weird.daily, { perDay: 5, cooldownFloors: 0, stake: 'normal', allowEscape: false, frequency: 'normal' });
     assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true } }).includes('igs-combat:start'));
     assert.equal(resolveCombatPromptRule({ combatExpansion: { enabled: true, kind: 'daily' } }), '');
     assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true, kind: 'both' } }).includes('igs-combat:start'));
@@ -210,4 +211,100 @@ test('代价轻重只偏移代价档位：战报与挑战记录显示标签原�
     const report = parseChallengeReport(sent[0]);
     assert.equal(challengeDirectiveOf(report, 1).tier, '普通');
     assert.equal(deriveChallengeHistory([{ floor: 1, text: sent[0] }]).entries[0].tier, '艰难');
+});
+
+test('战斗频率只在少与多时追加一行，适中与旧存档的规则文本不变', () => {
+    const base = resolveCombatPromptRule({ combatExpansion: { enabled: true } });
+    assert.equal(resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'normal' } }), base);
+    assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'low' } }).endsWith('平常的摩擦用剧情解决。'));
+    assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'high' } }).includes('积极安排交战'));
+    assert.equal(normalizeCombatExpansionSettings({ frequency: 'x', cooldownFloors: 3 }).frequency, 'normal');
+    assert.equal(normalizeCombatExpansionSettings({ cooldownFloors: 3 }).cooldownFloors, 0);
+    assert.equal(normalizeCombatExpansionSettings({ cooldownFloors: 8 }).cooldownFloors, 8);
+});
+
+test('冷却内去掉开战与觉醒行并提示间隔，其余成长标签保留，倾向行不再追加', () => {
+    const chat = [{ is_user: false, mes: 'a' }, { is_user: false, mes: '[igs-combat:start]' }, { is_user: true, mes: 'b' }, { is_user: false, mes: 'c' }];
+    const hasStart = (message) => message.mes.includes('igs-combat:start');
+    assert.equal(floorsSinceCombatStart(chat, 4, hasStart), 3);
+    assert.equal(floorsSinceCombatStart(chat, 2, hasStart), null);
+    assert.equal(combatOnCooldown(3, 4), true);
+    assert.equal(combatOnCooldown(4, 4), false);
+    assert.equal(combatOnCooldown(null, 4), false);
+    assert.equal(combatOnCooldown(1, 0), false);
+    const text = resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'high', cooldownFloors: 4 }, combatSinceStart: 3 });
+    assert.ok(!text.includes('igs-combat:start|') && !text.includes('igs-combat:awaken|'));
+    assert.ok(text.includes('igs-combat:exp|') && text.includes('igs-combat:heal|'));
+    assert.ok(text.endsWith('距离上一场战斗不足4楼，本层不安排开战。') && !text.includes('积极安排交战'));
+    assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true, cooldownFloors: 4 }, combatSinceStart: 4 }).includes('igs-combat:start|'));
+});
+
+test('自定义规则提示词替换非合并模式的规则文本，与默认全文一致时不存为自定义值', () => {
+    const settings = { combatExpansion: { enabled: true } };
+    assert.equal(normalizeCombatExpansionSettings({ rulePrompt: defaultCombatRuleText(settings) }).rulePrompt, '');
+    assert.equal(normalizeCombatExpansionSettings({ rulePrompt: '   ' }).rulePrompt, '');
+    assert.equal(normalizeCombatExpansionSettings({ rulePrompt: 7 }).rulePrompt, '');
+    assert.equal(normalizeCombatExpansionSettings({ rulePrompt: 'x'.repeat(9000) }).rulePrompt.length, 8000);
+    const custom = { combatExpansion: { enabled: true, rulePrompt: '自定义战斗规则', frequency: 'low' } };
+    assert.ok(resolveCombatPromptRule(custom).startsWith('自定义战斗规则\n战斗频率：'));
+    assert.ok(!resolveCombatPromptRule({ ...custom, combatMerged: true }).includes('自定义战斗规则'));
+});
+
+test('重新生成或滑动换页时扫描跳过末尾正被替换的 AI 楼，用户楼结尾则不跳', () => {
+    const chat = [{ is_user: false, mes: '[igs-combat:start]' }, { is_user: true, mes: 'u' }, { is_user: false, mes: 'new' }];
+    const hasStart = (message) => message.mes.includes('igs-combat:start');
+    assert.equal(chatForCooldown(chat, 'swipe').length, 2);
+    assert.equal(chatForCooldown(chat, 'regenerate').length, 2);
+    assert.equal(chatForCooldown(chat, 'normal').length, 3);
+    assert.equal(chatForCooldown(chat.slice(0, 2), 'swipe').length, 2);
+    assert.equal(floorsSinceCombatStart(chatForCooldown(chat, 'swipe'), 4, hasStart), 2);
+    const replaced = [{ is_user: false, mes: 'a' }, { is_user: true, mes: 'u' }, { is_user: false, mes: '[igs-combat:start]' }];
+    assert.equal(floorsSinceCombatStart(replaced, 4, hasStart), 1);
+    assert.equal(floorsSinceCombatStart(chatForCooldown(replaced, 'swipe'), 4, hasStart), null);
+});
+
+test('卡牌战斗条目文本也追加频率行，冷却时去掉开战觉醒行，自由格式文本只追加不开战一句', () => {
+    const entry = '- [igs-combat:start|遭遇|敌方]：开战\n- [igs-combat:awaken|角色|类型]：觉醒\n- [igs-combat:exp|角色|数值]：历练';
+    const high = { combatExpansion: { enabled: true, frequency: 'high' } };
+    assert.equal(applyCombatRuleModifiers(entry, { combatExpansion: { enabled: true } }), entry);
+    assert.ok(applyCombatRuleModifiers(entry, high).startsWith(`${entry}\n战斗频率：`));
+    const cooling = { combatExpansion: { enabled: true, frequency: 'high', cooldownFloors: 2 }, combatSinceStart: 1 };
+    assert.equal(applyCombatRuleModifiers(entry, cooling), '- [igs-combat:exp|角色|数值]：历练\n距离上一场战斗不足2楼，本层不安排开战。');
+    const free = '遇到战斗时在最后一行写 [igs-combat:start|遭遇|敌方]，觉醒写 [igs-combat:awaken|角色|类型]。';
+    assert.equal(applyCombatRuleModifiers(free, cooling), `${free}\n距离上一场战斗不足2楼，本层不安排开战。`);
+});
+
+test('两者模式同层只出一个对决：一方冷却时只给另一方开场行，挑战频率与不限次数生效', () => {
+    const base = { combatExpansion: { enabled: true, kind: 'both', cooldownFloors: 4, daily: { frequency: 'high' } } };
+    const open = resolveChallengePromptSegment(base, { ok: true }).content;
+    assert.ok(open.includes('挑战频率：') && open.includes('最多写一个'));
+    const cooling = resolveChallengePromptSegment({ ...base, combatSinceStart: 1 }, { ok: true }).content;
+    assert.ok(cooling.includes('挑战频率：') && !cooling.includes('最多写一个'));
+    assert.ok(resolveCombatPromptRule({ ...base, challengeOpen: true }).includes('最多写一个'));
+    const blocked = resolveCombatPromptRule({ ...base, challengeOpen: true, combatSinceStart: 1 });
+    assert.ok(!blocked.includes('igs-combat:start|') && blocked.includes('不安排开战') && !blocked.includes('最多写一个'));
+    assert.ok(!resolveCombatPromptRule(base).includes('最多写一个'));
+    assert.equal(normalizeCombatExpansionSettings({ daily: { perDay: 0 } }).daily.perDay, 0);
+    assert.equal(normalizeCombatExpansionSettings({ cooldownFloors: 1 }).cooldownFloors, 1);
+});
+
+test('合并模式下数值段的开战规则：冷却内不含开战行但含不开战一句，默认设置与改动前逐字一致', () => {
+    const state = createStatsState();
+    const ruleSettings = { combatExpansion: { enabled: true, cooldownFloors: 4 }, combatSinceStart: 1 };
+    const before = buildStatsPrompt(state, { combatOn: true }).segments.find((s) => s.id === 'combat').text;
+    assert.ok(before.includes('igs-combat:start|'));
+    const plain = buildStatsPrompt(state, { combatOn: true, combatRule: { settings: { combatExpansion: { enabled: true } }, rulePrompt: '' } }).segments.find((s) => s.id === 'combat').text;
+    assert.equal(plain, before);
+    assert.equal(plain, DEFAULT_STAT_PROMPTS.combat);
+    const cooling = buildStatsPrompt(state, { combatOn: true, combatRule: { settings: ruleSettings, rulePrompt: '' } }).segments.find((s) => s.id === 'combat').text;
+    assert.ok(!cooling.includes('[igs-combat:start') && !cooling.includes('[igs-combat:awaken') && cooling.includes('本层不安排开战'));
+    assert.ok(cooling.includes('igs-combat:exp|'));
+});
+
+test('合并模式下战斗页自定义规则代替默认 combat 段，数值系统也自定义时以数值系统为准', () => {
+    const state = createStatsState();
+    const rule = { settings: { combatExpansion: { enabled: true } }, rulePrompt: '战斗页自定义规则' };
+    const text = (opts) => buildStatsPrompt(state, { combatOn: true, combatRule: rule, ...opts }).segments.find((s) => s.id === 'combat').text;
+    assert.equal(text({}), '战斗页自定义规则');
+    assert.equal(text({ prompts: { combat: '数值系统自定义' } }), '数值系统自定义');
 });

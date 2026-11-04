@@ -31,7 +31,18 @@ export function displaySkill(engine, profile) {
     return `${bonus >= 0 ? '+' : ''}${bonus}${prof === 2 ? ' 专精' : prof === 1 ? ' 熟练' : ''}`;
 }
 
-export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0 } = {}) {
+// CoC 主角技能全表（设置页「我的角色」）：可分配技能与账本里已有的技能；value 为生效值，learned 为已有账本值、分配底数或手改。
+function heroSkillRows(engine, state, names) {
+    if (!engine || engine.ruleset.ID !== 'coc7') return [];
+    const owned = (state.protagonist && state.protagonist.skills) || {};
+    const edits = engine.protagonistEdit || {};
+    return [...new Set([...names, ...Object.keys(owned)])].filter((name) => !BASE_ATTRIBUTES.includes(name) && name !== '理智').map((name) => {
+        const p = profileOf(engine, state, PROTAGONIST, name);
+        return { name, attribute: (p.entry && p.entry.attribute) || '', value: Math.round(Number(p.value) || 0), learned: Boolean(p.learned), edited: Object.hasOwn(edits, name) };
+    });
+}
+
+export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0, heroSkills = [] } = {}) {
     if (!ledger) return null;
     const state = currentStatsState(ledger);
     const rows = [];
@@ -75,6 +86,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
         pendingPeople: ((cat.queue && cat.queue.people) || []).slice(),
         pendingSkills: ((cat.queue && cat.queue.skills) || []).slice(),
         ruleset: engine ? engine.ruleset.ID : 'coc7',
+        heroSkills: heroSkillRows(engine, state, heroSkills),
         hasBackup: Boolean(hasBackup),
     };
 }

@@ -36,12 +36,6 @@ export const NSFW_STYLE_TEXT = `
 #igs-overlay .igs-nfx-afterglow{position:absolute;inset:0;background:radial-gradient(ellipse 90% 86% at 50% 50%,transparent 38%,#4a3a34 100%);opacity:.42;animation:igs-nfx-fade var(--igs-dfx-life) ease both;}
 #igs-overlay .igs-nfx-sweat{position:absolute;width:6px;height:9px;margin:-4px 0 0 -3px;border-radius:50% 50% 50% 50%/65% 65% 35% 35%;background:#e9f1f5;box-shadow:0 0 6px 2px #cfe0ea;animation:igs-nfx-sweat var(--igs-dfx-life) ease-in calc(var(--igs-nfx-i,0) * 700ms) both;}
 @keyframes igs-nfx-sweat{0%{opacity:0;transform:translateY(0)}14%{opacity:.95}60%{opacity:.9;transform:translateY(8px)}100%{opacity:0;transform:translateY(16px)}}
-#igs-overlay .igs-nfx-sheet{position:absolute;left:0;bottom:calc(var(--igs-fx-safe) - 32px);width:30%;aspect-ratio:12/7;pointer-events:none;animation:igs-nfx-sheet var(--igs-dfx-life) cubic-bezier(.3,.7,.2,1) both;}
-#igs-overlay .igs-nfx-sheet svg{display:block;width:100%;height:100%;}
-@keyframes igs-nfx-sheet{0%{opacity:0;transform:translate(-30%,30%)}16%{opacity:1;transform:translate(0,0)}84%{opacity:1;transform:translate(0,0)}100%{opacity:0;transform:translate(-20%,20%)}}
-#igs-overlay .igs-nfx-after-time{position:absolute;left:12%;right:12%;bottom:calc(var(--igs-fx-safe) - 20px);height:3px;background:#2f2622;border-radius:2px;overflow:hidden;animation:igs-nfx-fade var(--igs-dfx-life) ease both;}
-#igs-overlay .igs-nfx-after-time i{display:block;height:100%;background:#c9a98f;transform-origin:0 50%;animation:igs-nfx-time var(--igs-dfx-life) linear both;}
-@keyframes igs-nfx-time{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 #igs-overlay .igs-nfx-after-text{position:absolute;left:5%;top:12%;max-width:44%;padding:3px 10px;border-left:2px solid #c9a98f;background:#2f2622;color:#eadccf;font-size:.85em;letter-spacing:.06em;animation:igs-nfx-fade var(--igs-dfx-life) ease both;}
 #igs-overlay .igs-nfx-after.is-ancient .igs-nfx-after-text{font-family:serif;background:#f1ead8;color:#4a3418;border-left-color:#7a5b36;}
 /* 床幔：不画帐子与烛台，只做整台暖色温、收窄的暗角，以及两侧边缘一抹极淡的暖光（古代偏暖橙，现代偏暖白，明暗起伏不超过 6%）。 */
@@ -109,11 +103,10 @@ export const NSFW_STYLE_TEXT = `
 #igs-overlay .igs-nfx-fetal-n{grid-area:n;font-size:1.5em;color:#ff9db6;}
 #igs-overlay .igs-nfx-fetal-u{grid-area:u;font-size:.78em;opacity:.85;}
 #igs-overlay .igs-nfx-fetal-text{grid-column:1 / 4;font-size:.78em;opacity:.85;}
-#igs-overlay .igs-dfx.is-reduced .igs-nfx-tick,#igs-overlay .igs-dfx.is-reduced .igs-nfx-sweat,#igs-overlay .igs-dfx.is-reduced .igs-nfx-fetal-glow i,#igs-overlay .igs-dfx.is-reduced .igs-nfx-after-time i{animation:none;}
+#igs-overlay .igs-dfx.is-reduced .igs-nfx-tick,#igs-overlay .igs-dfx.is-reduced .igs-nfx-sweat,#igs-overlay .igs-dfx.is-reduced .igs-nfx-fetal-glow i{animation:none;}
 #igs-overlay .igs-dfx.is-reduced .igs-nfx-flash,#igs-overlay .igs-dfx.is-reduced .igs-nfx-pulse{display:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-fetal-glow i{animation:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-sweat,#igs-overlay[data-igs-quality="low"] .igs-nfx-tick.is-new{animation:none;}
-#igs-overlay[data-igs-quality="low"] .igs-nfx-after-time i{animation:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-pulse{animation-iteration-count:1;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-sigil-mark svg{filter:none;}
 #igs-overlay[data-igs-quality="low"] .igs-nfx-fetal-dot{animation:none;}

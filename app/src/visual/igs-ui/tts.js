@@ -9,7 +9,7 @@ import { duckSceneAudio } from './scene-audio.js';
 import { stripTextFxMarkup } from './text-fx.js';
 import { yieldTypewriterAudio } from './typewriter-audio.js';
 import { voiceFilterGain, voiceFilterUsesDry } from './voice-filter.js';
-import { buildBarkChain, canonicalName, characterDnaGender, detectVoiceGender, normalizeCharacterVoice, resolveBarkMood, resolveBarkShape } from './voice-bark.js';
+import { activeFormGender, buildBarkChain, canonicalName, characterDnaGender, detectVoiceGender, normalizeCharacterVoice, resolveBarkMood, resolveBarkShape } from './voice-bark.js';
 
 export const TTS_PROVIDERS = Object.freeze([
     ['system', '系统语音'],
@@ -186,13 +186,33 @@ const ACTION_TAGS = Object.freeze([
     [/抽泣|呜咽|吸鼻/, '[sobbing]', '(sniffs)'],
     [/哭/, '[sobbing]', '(sniffs)'],
     [/小声|低声|耳语|悄声|轻声/, '[whisper]', ''],
-    [/停顿|沉默|顿/, '[pause]', ''],
+    // MiniMax 用 <#秒数#> 插停顿。
+    [/停顿|沉默|顿/, '[pause]', '<#0.6#>'],
     [/呻吟/, '[moan]', '(groans)'],
+    [/清嗓/, '[clears throat]', '(clear-throat)'],
     [/咳/, '[cough]', '(coughs)'],
-    [/哼/, '[scoff]', ''],
+    [/哼歌|哼唱|哼着/, '[humming]', '(humming)'],
+    [/哼/, '[scoff]', '(snorts)'],
     [/害羞|脸红/, '[shy]', ''],
 ]);
-const TAG_SPLIT_RE = /(\[[^\]\n]*\]|\((?:laughs|chuckle|breath|pant|inhale|exhale|gasps|sighs|sniffs|groans|coughs|emm)\))/;
+const TAG_SPLIT_RE = /(\[[^\]\n]*\]|\((?:laughs|chuckle|breath|pant|inhale|exhale|gasps|sighs|sniffs|groans|coughs|emm|snorts|humming|clear-throat)\)|<#[\d.]+#>)/;
+// MiniMax 文档：停顿 <#x#> 必须夹在两段能念的文字之间，不能连用。分段后落在段首段尾的、挨着的只留一个。
+const MINIMAX_PAUSE_RE = /<#[\d.]+#>/;
+function minimaxPauses(text) {
+    const parts = String(text || '').split(/(<#[\d.]+#>)/);
+    const speakable = (s) => /[\p{L}\p{N}]/u.test(String(s).replace(/\([a-z-]+\)/g, ''));
+    let out = '';
+    let pending = '';
+    for (const part of parts) {
+        if (MINIMAX_PAUSE_RE.test(part)) {
+            if (speakable(out)) pending = pending || part;
+        } else if (speakable(part)) {
+            out += pending + part;
+            pending = '';
+        } else out += part;
+    }
+    return out.replace(/\s+/g, ' ').trim();
+}
 // 这一套接口是否插音频标签：'fish' | 'minimax' | ''。
 const ttsTagMode = (api) => (api && api.audioTags !== false && (api.format === 'fish' || api.format === 'minimax') ? api.format : '');
 // 去掉标签后的文字（判空、判语言用）。
@@ -203,11 +223,11 @@ function applyLexiconOutsideTags(text, pairs) {
     return text.split(TAG_SPLIT_RE).map((part, i) => (i % 2 ? part : applyTtsLexicon(part, pairs))).join('');
 }
 // 情绪标签 → MiniMax voice_setting.emotion；映射不到的不发。
+// 不发时 MiniMax 按文字自己判断语气；害羞、爱恋、动情、怀疑、思考、无奈、耳语七个值里没有贴切的，硬发 calm 会把语气压平，一律留空。只有冷淡才发 calm。
 const MINIMAX_EMOTIONS = Object.freeze(['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm']);
 const MOOD_EMOTION = Object.freeze({
-    害羞: 'calm', 爱恋: 'calm', 动情: 'calm', 怀疑: 'calm',
     喜悦: 'happy', 得意: 'happy', 大笑: 'happy', 悲伤: 'sad', 哭泣: 'sad', 委屈: 'sad', 愤怒: 'angry', 不满: 'angry',
-    紧张: 'fearful', 心虚: 'fearful', 嫌弃: 'disgusted', 惊讶: 'surprised', 冷淡: 'calm', 思考: 'calm', 无奈: 'calm',
+    紧张: 'fearful', 心虚: 'fearful', 嫌弃: 'disgusted', 惊讶: 'surprised', 冷淡: 'calm',
 });
 
 const plainObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
@@ -814,8 +834,8 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     const name = narrator ? '' : speakerMainName(assets, line);
     const manualMap = plainObject(assets.characterVoices) || {};
     const manual = name ? normalizeCharacterVoice(hasOwn(manualMap, name) ? manualMap[name] : null) : normalizeCharacterVoice(null);
-    // 性别：变身 / DNA → 本聊天生成立绘的 tag（路人多半没有 DNA）→ 名字称谓 → 正文代词。
-    const gender = name ? (characterDnaGender(assets, name) || spriteTagGender(line.spriteTags, name) || guessNameGender(name, line.context)) : '';
+    // 性别：变身 → 玩家选定的 → DNA → 本聊天生成立绘的 tag（路人多半没有 DNA）→ 名字称谓 → 正文代词。
+    const gender = name ? (activeFormGender(name) || manual.ttsGender || characterDnaGender(assets, name) || spriteTagGender(line.spriteTags, name) || guessNameGender(name, line.context)) : '';
     const role = narrator ? 'narrator' : (gender || 'female');
     // 角色在「角色设定」里调的音高、语速，朗读也跟着用。
     let pitch = 2 ** (manual.pitch / 12);
@@ -827,8 +847,10 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     // 心里话可以单独配一个声音，没配时和台词同一个。
     const manualId = thought && manual.ttsThought ? manual.ttsThought : manual.tts;
     const manualSource = thought && manual.ttsThought ? '角色指定心里话声音' : '角色指定台词声音';
+    // 判断不出性别、又没单独指定声音，而男声女声确实会分到不同声音：标记「未定」，阅读器弹窗询问，不在男女声里随便抽一个。
+    const unsure = Boolean(name) && !gender && !manualId;
     const roleSource = ROLE_SOURCE[role];
-    const found = (extra) => ({ role, gender, name, ...extra });
+    const found = (extra) => ({ role, gender, name, undecided: false, ...extra });
     // 旁白独立接口：不看主来源，声音只取这套接口里填的。
     if (narrator && config.narratorApi.enabled) {
         const voice = config.narratorApi.voice;
@@ -842,7 +864,9 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
         const voice = manualId || pick(api[role]) || (narrator ? pick(api.female) : '') || pick(api.female) || pick(api.male) || '';
         // 三个声音框都留空、角色也没单独指定时就是「不添加声音」：volume 0 让 decideTts 直接返回 null，不发合成请求。
         const source = manualId ? manualSource : api[role] ? roleSource : (api.female || api.male) ? `${narrator ? '旁白未设，回落' : ''}${api.female ? ROLE_SOURCE.female : ROLE_SOURCE.male}` : '';
-        return found({ voice, pitch: 1, rate, volume: voice ? volume : 0, source });
+        // 女声、男声两个框都填了才有分歧；只填一个时谁都用它，不必问。
+        const undecided = unsure && Boolean(api.female) && Boolean(api.male);
+        return found({ voice, pitch: 1, rate, volume: voice ? volume : 0, source: undecided ? '性别未定' : source, undecided });
     }
     const lang = line.lang || 'zh';
     const fits = (voiceName) => {
@@ -852,6 +876,12 @@ export function resolveTtsVoice(line, settings, sceneAssets, voices = []) {
     // 角色单独指定的声音照用；旁白 / 女声 / 男声的预设只在语言对得上时用（读日文原文时不拿中文声音念）。
     const manualVoice = findSystemVoice(voices, manualId);
     if (manualVoice) return found({ voice: manualVoice.name, pitch, rate, volume, source: manualSource });
+    // 性别未定：女声、男声分得到的不一样才问（预设或候选池有一边对得上语言即可）。
+    if (unsure) {
+        const side = (g) => parseVoicePool(config.system[g]).filter(fits)[0] || (systemVoicePool(voices, g, lang)[0] || {}).name || '';
+        const female = side('female');
+        if (female && female !== side('male')) return found({ voice: '', pitch, rate, volume, source: '性别未定', undecided: true });
+    }
     const presets = parseVoicePool(config.system[role]).filter(fits);
     if (presets.length) return found({ voice: findSystemVoice(voices, pickPoolVoice(presets, narrator ? '旁白' : name)).name, pitch, rate, volume, source: roleSource });
     const pool = systemVoicePool(voices, narrator ? '' : gender, lang);
@@ -916,6 +946,11 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
     if (!/[\p{L}\p{N}]/u.test(tagMode ? stripTtsTags(text) : text)) return skipWith('这一页没有可读的文字');
     const lang = detectTtsLang(tagMode ? stripTtsTags(plain) : plain);
     const voice = resolveTtsVoice({ ...line, lang }, config, sceneAssets, voices);
+    // 性别未定先不念：阅读页（applyTts）据此弹窗询问，选定后补念；回想、气泡、预取直接跳过。
+    if (voice.volume > 0 && voice.undecided) {
+        skipWith(`「${voice.name}」的性别未定`);
+        return record ? { skip: true, undecided: voice.name } : null;
+    }
     if (voice.volume <= 0) return skipWith(voice.apiSource === 'narrator' ? '旁白独立接口没有填写声音' : '这个角色设为不朗读');
     if (record) lastSkip = null;
     const assetsMoodGroups = plainObject(sceneAssets) ? sceneAssets.moodGroups : null;
@@ -949,8 +984,8 @@ export function decideTts(state, line, settings, { sceneAssets, voices = [], rec
         provider: voice.provider || config.provider,
         apiSource: voice.apiSource || 'main',
         style: spoken ? spokenStyle(config, sceneAssets, line, mood) : config.narratorStyle,
-        // 耳语没有情绪标签时按平静发送；平和与映射不到的不发。
-        emotion: spoken ? (line.whisper ? MOOD_EMOTION[mood] || 'calm' : MOOD_EMOTION[mood] || '') : '',
+        // 平和、耳语与映射不到的不发，交给 MiniMax 按文字判断。
+        emotion: spoken ? MOOD_EMOTION[mood] || '' : '',
         text,
         level,
         tagHead: head,
@@ -1005,6 +1040,37 @@ export function getTtsSkipReason() {
 // 阅读器注册：阅读中朗读出错时弹提示（同一条 30 秒内不重复）。试听的错误由设置页自己显示，不走这里。
 export function setTtsErrorHandler(handler) {
     errorHandler = typeof handler === 'function' ? handler : null;
+}
+
+// 阅读器注册：说话人性别判断不出时问玩家。handler(name) 返回 Promise<'male' | 'female' | ''>，
+// 选定时由阅读器存进本卡 characterVoices[name].ttsGender；这里只负责补念当前页。
+let genderAsker = null;
+// 本次打开页面里已问过（含选了「稍后」）的名字：同一个角色不反复弹。
+const genderAsked = new Set();
+
+export function setTtsGenderAsker(handler) {
+    genderAsker = typeof handler === 'function' ? handler : null;
+}
+
+function askSpeakerGender(state, name, line, settings, sceneAssets) {
+    if (!genderAsker || genderAsked.has(name)) return;
+    genderAsked.add(name);
+    const token = state.token;
+    Promise.resolve()
+        .then(() => genderAsker(name))
+        .then((gender) => {
+            // null：别的弹窗开着没问成，下一页再问；''：选了「稍后」，这次打开页面内不再问。
+            if (gender == null) genderAsked.delete(name);
+            if (gender !== 'male' && gender !== 'female') return;
+            // 已翻到别的页就不补念，新页按存好的性别正常分配。
+            if (state.token !== token) return;
+            const assets = plainObject(sceneAssets) || {};
+            const voices = plainObject(assets.characterVoices) || {};
+            const patched = { ...assets, characterVoices: { ...voices, [name]: { ...(plainObject(voices[name]) || {}), ttsGender: gender } } };
+            const plan = decideTts({}, line, settings, { sceneAssets: patched, voices: listSystemVoices() });
+            if (plan && !plan.skip) playTts(plan, settings);
+        })
+        .catch(() => { /* 弹窗失败不影响阅读 */ });
 }
 
 function reportError(message, job) {
@@ -1298,7 +1364,7 @@ export function buildTtsRequest(api, { text, voice, rate = 1, lang = 'zh', style
         return {
             url: formatUrl(api, FORMAT_PATHS.minimax, { fallback: FORMAT_DEFAULT_ENDPOINTS.minimax }), method: 'POST', headers,
             body: JSON.stringify({
-                model: api.model || MINIMAX_DEFAULT_MODEL, text, stream: false, output_format: 'hex',
+                model: api.model || MINIMAX_DEFAULT_MODEL, text: minimaxPauses(text), stream: false, output_format: 'hex',
                 voice_setting: { voice_id: voice || '', ...(api.sendSpeed ? { speed: speedOf(rate) } : {}), ...(api.sendEmotion !== false && MINIMAX_EMOTIONS.includes(emotion) ? { emotion } : {}) },
                 audio_setting: { format: 'mp3', ...(api.quality ? { sample_rate: 44100, bitrate: 256000 } : {}) },
             }),
@@ -2128,6 +2194,13 @@ export function applyTts(root, line, settings, sceneAssets, { now = Date.now, ti
     lastLine = { line, settings, sceneAssets };
     const plan = decideTts(state, line, settings, { sceneAssets, voices: listSystemVoices() });
     syncReplayTitle(root, String(line.key || ''));
+    if (plan && plan.undecided) {
+        state.token = (state.token || 0) + 1;
+        haltActive({ handoff: true });
+        lastPlayed = null;
+        askSpeakerGender(state, plan.undecided, line, settings, sceneAssets);
+        return null;
+    }
     if (plan && plan.skip) return null;
     const token = (state.token || 0) + 1;
     state.token = token;

@@ -574,6 +574,30 @@ const ORIGIN_SETTINGS_STYLE_TEXT = `
 .igs-origin-credit-link:hover,.igs-origin-credit-link:focus-visible{text-decoration:underline}
 `;
 
+// 酒馆主题样式隔离。
+// 1. 酒馆给正文、输入框加的 text-shadow 和描边会让设置器文字发虚；设置器自身不使用文字阴影，因此整棵树统一清除。
+//    规则放在 cascade layer 内并加 !important：分层的 !important 优先于主题未分层的 !important。
+// 2. 浏览器自动填充会把填写框改成浅蓝或浅黄，这里用内阴影铺回本主题的填写框底色。
+// 3. 填写框底色和文字色的基线放在最前面，权重等于一个 class（0,1,0）。酒馆按标签名或单个 class 写的样式压不过它，
+//    设置器各处的 class 规则写在后面，同权重靠顺序照常覆盖它。:not(.igs-no-field-base) 只用来补一个 class 的权重。
+// 4. 主题用 !important 改填写框底色时，基线也会被压过。挂载后由 host-field-guard 实测一次，
+//    确认被改才给外层挂 data-igs-field-guard，再按分层 !important 铺回底色、文字色和聚焦高亮。
+const FIELD = `:is(input:not([type=checkbox],[type=radio],[type=range],[type=color],[type=file]),textarea,select)`;
+const GUARDED_FIELD = `[data-igs-field-guard] #igs-unified-settings ${FIELD}`;
+const SETTINGS_HOST_GUARD_STYLE_TEXT = `
+@layer igs-settings-guard{
+#igs-unified-settings,#igs-unified-settings :not(svg,svg *){text-shadow:none!important;-webkit-text-stroke:0!important}
+#igs-unified-settings :is(input,textarea,select):is(:-webkit-autofill,:autofill){-webkit-text-fill-color:var(--igs-settings-ink)!important;caret-color:var(--igs-settings-ink)!important;box-shadow:0 0 0 1000px var(--igs-settings-field) inset!important;transition:background-color 99999s step-end}
+${GUARDED_FIELD}{background-color:var(--igs-settings-field)!important}
+/* 模型种类下拉故意把文字设为透明、只露图标，不铺文字色。 */
+${GUARDED_FIELD}:not(.igs-settings-kind-model select){color:var(--igs-settings-ink)!important}
+${GUARDED_FIELD}:focus{background-color:var(--igs-settings-highlight)!important}
+}
+:where(#igs-unified-settings ${FIELD}):not(.igs-no-field-base){background-color:var(--igs-settings-field);color:var(--igs-settings-ink)}
+.igs-field-guard-probe,.igs-field-guard-ref{position:absolute;left:-9999px;top:0;width:8px;height:8px;padding:0;border:0;opacity:0;pointer-events:none}
+.igs-field-guard-ref{background-color:var(--igs-settings-field)}
+`;
+
 export function getSettingsStyleText() {
-    return `${SETTINGS_STYLE_TEXT}\n${ORIGIN_SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}`;
+    return `${SETTINGS_HOST_GUARD_STYLE_TEXT}\n${SETTINGS_STYLE_TEXT}\n${ORIGIN_SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}`;
 }

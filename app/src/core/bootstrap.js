@@ -95,10 +95,10 @@ import { createCombatServices } from './combat-services.js';
 import { createCombatChatRecord } from '../host/combat-chat-record.js';
 import { createCombatGenerationMaterials } from '../host/combat-generation-materials.js';
 import { createCombatStoryContext } from '../host/combat-story-context.js';
-import { combatExpansionEnabled, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
+import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
-const IGS_VERSION = '0.39.24';
+const IGS_VERSION = '0.39.25';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -482,6 +482,7 @@ export function bootstrapIGS(options = {}) {
             if (!rt) return { ok: false, reason: 'stats-runtime-missing' };
             if (kind === 'sheet') return rt.sheetOp(op, name, payload);
             if (kind === 'skill') return rt.skillOp(op, name, payload);
+            if (kind === 'hero') return rt.heroOp(op, name, payload);
             if (kind === 'generate') return rt.generateSheets(name ? [name] : null);
             if (kind === 'backfill') return rt.runBackfill();
             if (kind === 'backup') return rt.dropBackup();
@@ -877,7 +878,11 @@ export function bootstrapIGS(options = {}) {
             if (!findPendingCombatReport(promptContext.history, { generationType: type, inputText: promptContext.inputText })) {
                 try { party = typeof combatServices.partyPromptInput === 'function' ? combatServices.partyPromptInput(type) : null; } catch (error) { party = null; }
             }
-            return { enabled: true, check, party };
+            // 数值系统接管时开战规则行由数值段给出：把频率、冷却、同层单对决所需的快照与自定义规则一并带过去。
+            let quota = null;
+            try { quota = typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota(undefined, type) : null; } catch (error) { quota = null; }
+            const ruleSettings = { ...readerSettings, ...combatPromptExtras(readerSettings, type, quota) };
+            return { enabled: true, check, party, rule: { settings: ruleSettings, rulePrompt: asCombatRulePrompt(readerSettings) } };
         },
         combatEnabled: () => combatExpansionEnabled((getUnifiedSettingsSnapshot() || {}).readerSettings),
         sheetStore: statsSheetStore,
@@ -1162,10 +1167,32 @@ export function bootstrapIGS(options = {}) {
         }
         const party = partyInput ? resolveCombatPartySegment(readerSettings, partyInput) : null;
         let challenge = null;
+        const quota = (() => { try { return typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota(undefined, generationType) : null; } catch (error) { return null; } })();
+        const extras = combatPromptExtras(readerSettings, generationType, quota);
         if (normalizeFxPromptsSettings(readerSettings && readerSettings.fxPrompts).inject) {
-            try { challenge = resolveChallengePromptSegment(readerSettings, typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota() : null); } catch (error) { challenge = null; }
+            try { challenge = resolveChallengePromptSegment({ ...readerSettings, ...extras }, quota); } catch (error) { challenge = null; }
         }
-        return { statsOwns, segments: [narration, party, checks, challenge].filter(Boolean) };
+        return { statsOwns, extras, segments: [narration, party, checks, challenge].filter(Boolean) };
+    }
+
+    function asCombatRulePrompt(readerSettings) {
+        const value = readerSettings && readerSettings.combatExpansion && readerSettings.combatExpansion.rulePrompt;
+        return typeof value === 'string' ? value : '';
+    }
+
+    // 战斗提示词的附加快照字段：combatSinceStart 为距离上一场开战楼的楼数（设置了间隔楼数时才扫描，重新生成或滑动换页跳过正被替换的末尾楼），
+    // challengeOpen 为两者模式下日常挑战额度与冷却是否通过（决定同层只写一个对决的提示）。
+    function combatPromptExtras(readerSettings, generationType, quota) {
+        const extras = {};
+        const cooldown = combatCooldownFloorsOf(readerSettings);
+        if (cooldown && combatGrammarEnabled(readerSettings) && typeof combatServices.combatSinceStart === 'function') {
+            try {
+                const since = combatServices.combatSinceStart(cooldown, generationType);
+                if (Number.isFinite(since)) extras.combatSinceStart = since;
+            } catch (error) { /* 扫描失败按没有冷却处理 */ }
+        }
+        if (quota && quota.ok === true) extras.challengeOpen = true;
+        return extras;
     }
 
     function syncSceneAssetsInjection(generationType = null) {
@@ -1182,7 +1209,7 @@ export function bootstrapIGS(options = {}) {
         // 数值系统接管检定与队伍状态时，战斗规则只留装备与道具两类标签（combatMerged）。
         const combatPrompt = resolveCombatPromptSegments(worldviewSettings, generationType);
         const readerSettings = worldviewSettings && typeof worldviewSettings === 'object'
-            ? { ...worldviewSettings, feedFx: { ...(worldviewSettings.feedFx || {}), worldview }, ...(combatPrompt.statsOwns ? { combatMerged: true } : {}) }
+            ? { ...worldviewSettings, feedFx: { ...(worldviewSettings.feedFx || {}), worldview }, ...(combatPrompt.statsOwns ? { combatMerged: true } : {}), ...combatPrompt.extras }
             : worldviewSettings;
         const placement = normalizePromptPlacement(sceneAssets && sceneAssets.promptPlacement);
         // 交互摘要：只在有待送出的事件时注入，生成结束后清空（见 attachMetaDigestSync）。
@@ -1228,7 +1255,7 @@ export function bootstrapIGS(options = {}) {
         // 卡牌战斗规则按「卡牌战斗」条目的模式与位置单独成段；战斗开关关着时 resolveCombatPromptRule 返回空串。
         const combatEntry = normalizePromptEntries(entries).combat;
         const combatInject = normalizeFxPromptsSettings(readerSettings && readerSettings.fxPrompts).inject;
-        const combatRule = combatEntry.mode === 'off' || !combatInject || !combatGrammarEnabled(readerSettings) ? '' : (combatEntry.text.trim() || resolveCombatPromptRule(readerSettings));
+        const combatRule = combatEntry.mode === 'off' || !combatInject || !combatGrammarEnabled(readerSettings) ? '' : (combatEntry.text.trim() ? applyCombatRuleModifiers(combatEntry.text, readerSettings) : resolveCombatPromptRule(readerSettings));
         const combatPlace = resolveEntryPlacement(combatEntry);
         const combatRuleSegment = combatRule
             ? { id: 'igs-combat-rule', position: combatPlace ? combatPlace.position : 'system', depth: combatPlace ? combatPlace.depth : 0, content: combatRule, keys: ['combat'] }

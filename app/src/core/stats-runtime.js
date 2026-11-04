@@ -24,14 +24,15 @@ import { statsArchiveModel } from '../scene/stats/stat-archive.js';
 import { matchSkill } from '../scene/stats/stat-skill-match.js';
 import { cryptoRandom } from '../scene/stats/stat-rng.js';
 import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, registerStorySkill, removeStorySkill } from '../scene/stats/stat-registry.js';
+import { worldSkillNames } from '../scene/stats/stat-world-skills.js';
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
 import {
-    PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
+    PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroSkillLevel, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
     isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo,
 } from '../scene/stats/stat-engine.js';
 import {
     PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, abilityLine, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
-    parseBackfillReply, parseSheetReply, sheetAttributeInput, sheetFromTiers, skillTierOfValue, strongSkills, SKILL_TIERS, bandValue,
+    buildHeroSkillRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, sheetAttributeInput, sheetFromTiers, skillTierOfValue, strongSkills, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
 
@@ -40,7 +41,7 @@ const IN_CHAT = 1;
 const NONE = -1;
 const SKIP_TYPES = new Set(['quiet', 'impersonate']);
 const DIAG_MAX = 50;
-const SKILLS_LINE_MAX = 12;
+const SKILLS_LINE_MAX = 20;
 const PRESENT_MAX = 3;
 const BACKGROUND_TIMEOUT_MS = 60000;
 
@@ -77,10 +78,15 @@ const PERCEPTION_WORD = ['迟钝，常漏掉细节', '普通，明显的变化�
 const signed = (n) => (n >= 0 ? `+${n}` : String(n));
 const IS_COC = (engine) => engine.ruleset.ID === 'coc7';
 // 属性所属体系的检定：战斗六维之外，主角技能表里只放 8 个特有技能与成长过的技能（含CoC的理智）。
-const learnedSkills = (state) => Object.entries(state.protagonist.skills)
-    .filter(([name]) => !BASE_ATTRIBUTES.includes(name) && name !== SAN_ATTRIBUTE)
-    .map(([name, s]) => [name, Number(s && s.value) || 0]).filter(([, v]) => v >= 25)
-    .sort((a, b) => b[1] - a[1]).slice(0, SKILLS_LINE_MAX);
+// CoC 下合并账本、批量分配的底数与玩家手改（取 heroSkillLevel 的生效值）；D&D 仍只读账本。
+const learnedSkills = (state, engine = null) => {
+    const owned = state.protagonist.skills;
+    const merged = Boolean(engine) && IS_COC(engine);
+    const names = merged ? [...new Set([...Object.keys(owned), ...Object.keys(engine.protagonistBase), ...Object.keys(engine.protagonistEdit)])] : Object.keys(owned);
+    return names.filter((name) => !BASE_ATTRIBUTES.includes(name) && name !== SAN_ATTRIBUTE)
+        .map((name) => [name, merged ? heroSkillLevel(engine, owned[name], name) || 0 : Number(owned[name] && owned[name].value) || 0]).filter(([, v]) => v >= 25)
+        .sort((a, b) => b[1] - a[1]).slice(0, SKILLS_LINE_MAX);
+};
 
 // 主角技能一行（v2 §8 skills 段），按规则体系分流：D&D写检定修正（力量+2），CoC写百分制档位词；技能只列入门以上，不写数字。
 function skillsLineOf(engine, state) {
@@ -90,7 +96,7 @@ function skillsLineOf(engine, state) {
         const p = profileOf(engine, state, PROTAGONIST, name);
         return coc ? `${name}${ATTRIBUTE_WORD(Number(p.value) || 50)}` : `${name}${signed(engine.ruleset.bonusOf(p))}`;
     });
-    const learned = learnedSkills(state).map(([name, v]) => `${name}${skillTierOfValue(v)}`);
+    const learned = learnedSkills(state, engine).map(([name, v]) => `${name}${skillTierOfValue(v)}`);
     return `属性：${attrs.join('、')}${learned.length ? `；技能：${learned.join('、')}` : ''}`;
 }
 
@@ -141,6 +147,7 @@ export function createStatsRuntime({
     let manualCheck = null;
     let sheetJob = null;
     let backfillJob = null;
+    let heroJob = null;
     let tail = Promise.resolve();
     let writes = 0;
     let writeSeq = 0;
@@ -156,6 +163,7 @@ export function createStatsRuntime({
     let modePending = false;
     let modeChat = null;
     const askedFill = new Set();
+    const heroAsked = new Set();
     const notices = new Map();
     const diagnostics = [];
     const forcedSettings = new WeakMap();
@@ -185,7 +193,7 @@ export function createStatsRuntime({
     const life = () => { try { return combatSource() || null; } catch (error) { return null; } };
     const heroSkillValue = (skill) => {
         const own = ledger && currentStatsState(ledger).protagonist.skills[skill];
-        const v = Number(own && own.value) || Number(catalog.protagonistBase[skill]);
+        const v = heroSkillLevel(engineOf(), own, skill);
         return v > 0 ? v : null;
     };
     const heroPrefs = () => (ledger && currentStatsState(ledger).protagonist.prefs) || null;
@@ -525,7 +533,7 @@ export function createStatsRuntime({
         if (coc) {
             for (const name of [PROTAGONIST, ...names].slice(0, 1 + PRESENT_MAX)) {
                 const attrs = Object.fromEntries(attributeNamesOf(engine).map((a) => [a, Math.round(Number(profileOf(engine, state, name, a).value) || 0)]));
-                const skills = name === PROTAGONIST ? learnedSkills(state) : Object.entries(catalog.sheets[name].skills || {});
+                const skills = name === PROTAGONIST ? learnedSkills(state, engine) : Object.entries(catalog.sheets[name].skills || {});
                 actors.push({ name: name === PROTAGONIST ? hero : name, attrs, skills });
             }
         } else {
@@ -621,7 +629,7 @@ export function createStatsRuntime({
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
             sheetLines: sheetNames.map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n], state.characters[n] && state.characters[n].skillGrowth), bonus: abilityLine(engine, state, n) })),
             manualRoll: Boolean(g.manual), dice, cocDice: coc ? own : null,
-            combatOn: combatOnNow, partyLines: combatOnNow && combat.party ? combatPartyLines(combat.party) : [],
+            combatOn: combatOnNow, partyLines: combatOnNow && combat.party ? combatPartyLines(combat.party) : [], combatRule: combatOnNow ? combat.rule || null : null,
         });
         prompt.diagnostics.forEach((d) => diag(d.code, d));
         if (prompt.content && typeof c.setExtensionPrompt === 'function') {
@@ -914,6 +922,15 @@ export function createStatsRuntime({
             kind: 'onboarding', text: '本聊天的建档方式', actions: BUILD_MODES.map((mode) => [`pick:${mode}`, MODE_TEXT[mode]]),
         } : null);
         refreshBuildAsk();
+        refreshHeroOffer();
+    }
+
+    // CoC 且主角还没分配过技能时，每个聊天提示一次。
+    function refreshHeroOffer() {
+        const chatId = chatIdOf(ctx());
+        const offer = Boolean(chatId) && active() && !heroAsked.has(chatId) && !catalog.heroAssigned && IS_COC(engineOf()) && Boolean(requester());
+        if (!offer && notices.has('hero-skills') && notices.get('hero-skills').kind === 'busy') return;
+        setNotice('hero-skills', offer ? { kind: 'onboarding', text: '主角技能：按人设分配一次？', actions: [['assign', '分配'], ['later', '稍后']] } : null);
     }
 
     // 手动建档模式下，还没有六维初始档案的角色（主角优先）逐个询问：填写 / 自动 / 跳过。
@@ -1088,6 +1105,103 @@ export function createStatsRuntime({
         return backfillJob;
     }
 
+    // ---- 主角技能（CoC）：按人设一次分配 + 玩家手改 ----
+    // 可分配技能：核心（含默认特有）与当前世界观的附加技能；不含六维与理智、剧情技能。
+    function heroSkillNames() {
+        const world = new Set(worldSkillNames(worldviewOf()));
+        return engineOf().registry.entries()
+            .filter(([name, e]) => e.kind === 'skill' && (e.origin === 'builtin' || e.origin === 'core' || (e.origin === 'world' && world.has(name))))
+            .map(([name]) => name);
+    }
+
+    // 只在 CoC 下提供。已分配过且未传 overwrite 时返回 needs-confirm，由设置页确认后再带 overwrite 调用。
+    // 账本里已有的技能（建卡与成长）以账本为准，不参与分配；重新分配会清掉本次名单内的旧底数与手改。
+    function assignHeroSkills({ overwrite = false } = {}) {
+        if (heroJob) return heroJob.chatId === chatIdOf(ctx()) ? heroJob.promise : Promise.resolve({ ok: false, reason: 'stats-hero-skills-busy' });
+        if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
+        if (!IS_COC(engineOf())) return Promise.resolve({ ok: false, reason: 'stats-hero-skills-coc-only' });
+        if (catalog.heroAssigned && !overwrite) return Promise.resolve({ ok: false, reason: 'needs-confirm' });
+        const request = requester();
+        if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
+        const chatId = chatIdOf(ctx());
+        const owned = currentStatsState(ledger).protagonist.skills;
+        const skills = heroSkillNames().filter((name) => !owned[name]);
+        if (!skills.length) {
+            // 全部技能已在账本里：记为已分配，开局提示不再出现。
+            catalog = sanitizeCatalog({ ...catalog, heroAssigned: true });
+            heroAsked.add(chatId);
+            persist();
+            setNotice('hero-skills', null);
+            return Promise.resolve({ ok: true, skipped: true });
+        }
+        setNotice('hero-skills', { kind: 'busy', text: '正在按人设分配主角技能' });
+        const run = async () => {
+            let people;
+            try { people = typeof describePeople === 'function' ? await describePeople([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
+            catch (error) { people = [{ name: PROTAGONIST, summary: '' }]; }
+            const prompt = buildHeroSkillRequest(people, skills, { prompt: settings().prompts.heroSkills });
+            let parsed = null;
+            for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
+                try { parsed = parseHeroSkillReply(await ask(request, prompt), { skills }); }
+                catch (error) { parsed = { ok: false, reason: 'stats-hero-skills-request-failed' }; }
+            }
+            if (!ledger || chatIdOf(ctx()) !== chatId) { setNotice('hero-skills', null); return { ok: false, reason: 'stats-chat-changed' }; }
+            if (!parsed || !parsed.ok) {
+                diag(parsed ? parsed.reason : 'stats-hero-skills-request-failed');
+                setNotice('hero-skills', { kind: 'onboarding', text: '主角技能分配失败', actions: [['assign', '重试'], ['later', '稍后']] });
+                return { ok: false, reason: parsed ? parsed.reason : 'stats-hero-skills-request-failed' };
+            }
+            const base = { ...catalog.protagonistBase };
+            const edit = { ...catalog.protagonistEdit };
+            for (const name of skills) { delete base[name]; delete edit[name]; }
+            const done = [];
+            for (const [skill, tier] of Object.entries(parsed.tiers)) {
+                base[skill] = bandValue(SKILL_TIERS[tier], `${chatId}|${PROTAGONIST}|${skill}`);
+                done.push(`${skill} ${tier}`);
+            }
+            catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroAssigned: true });
+            heroAsked.add(chatId);
+            persist();
+            setNotice('hero-skills', { kind: 'info', text: `已分配主角技能：${done.join('、')}`, ttl: true });
+            onChange(currentStatsState(ledger), null);
+            return { ok: true, assigned: done };
+        };
+        const promise = run().finally(() => { heroJob = null; });
+        heroJob = { chatId, promise };
+        return promise;
+    }
+
+    // 玩家手改一项技能值（1–99；空值清除手改）。覆盖层规则见 stat-engine.js 的 heroSkillLevel：
+    // 记下改动当时账本里的值作为 from，之后的成长叠加在手改值上。
+    function setHeroSkill(name, raw) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        const engine = engineOf();
+        const skill = engine.registry.resolve(name);
+        const entry = skill ? engine.registry.get(skill) : null;
+        if (!entry || entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-skill-unknown' };
+        const edit = { ...catalog.protagonistEdit };
+        const text = String(raw ?? '').trim();
+        if (!text) delete edit[skill];
+        else {
+            const value = Number(text);
+            if (!/^\d+$/.test(text) || value < 1 || value > 99) return { ok: false, reason: 'stats-hero-skill-invalid' };
+            // from 取不含手改的值（已学取账本值，未学取底数或基础值），与 markGrowth 登记的值一致。
+            const own = currentStatsState(ledger).protagonist.skills[skill];
+            const seed = own ? Number(own.value) || 0 : Number(profileOf(engine, currentStatsState(ledger), PROTAGONIST, skill).seed) || 0;
+            edit[skill] = { value, from: seed };
+        }
+        catalog = sanitizeCatalog({ ...catalog, protagonistEdit: edit });
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true };
+    }
+
+    function heroOp(op, name, payload = {}) {
+        if (op === 'set') return setHeroSkill(name, payload.value);
+        if (op === 'assign') return assignHeroSkills({ overwrite: payload.overwrite === true });
+        return { ok: false, reason: 'stats-hero-op-unknown' };
+    }
+
     // ---- 手动掷骰（v2 §5.2 可选档） ----
     function offerManualRoll(entry) {
         const pr = entry.meta.pendingRoll;
@@ -1184,6 +1298,11 @@ export function createStatsRuntime({
             persist();
             refreshBuildAsk();
             return { ok: true, choice: action };
+        }
+        if (id === 'hero-skills') {
+            heroAsked.add(chatIdOf(ctx()));
+            setNotice('hero-skills', null);
+            return action === 'assign' ? assignHeroSkills({ overwrite: true }) : { ok: true };
         }
         if (id === 'sheets' && action === 'generate') { setNotice('sheets', null); return generateSheets(); }
         if (id === 'roll' && action === 'roll') return manualRoll();
@@ -1342,12 +1461,13 @@ export function createStatsRuntime({
         diagnose: ev(diagnose),
         sheetOp: ev(sheetOp),
         skillOp: ev(skillOp),
+        heroOp: ev(heroOp),
         // 旧版备份已不再写入；这里只保留「删除旧版备份」按钮的清理入口。
         dropBackup: () => store.dropBackup(),
         // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
         archive: ev(() => {
             ensureLoaded();
-            return ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), hasBackup: store.read().hasBackup, walletExtra: combatPoints() }) : null;
+            return ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints() }) : null;
         }),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {

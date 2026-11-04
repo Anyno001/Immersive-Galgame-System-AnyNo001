@@ -4,7 +4,7 @@ import { lookupSceneBackground, lookupSceneAssetUrls, resolveCharacterKey, looku
 import { BUILTIN_NUDE_OUTFIT, OUTFIT_RESET, isBuiltinNudeOutfit, isOutfitHidden, outfitsOfCharacter } from './character-outfits.js';
 import { promptProvenance } from '../generated-images/generation-prompt.js';
 import { characterPromptRecovery } from '../generated-images/illustration/character-prompt-task.js';
-import { appearanceCharacterKey, resolveCharacterAppearance } from './character-appearance.js';
+import { appearanceCharacterKey, hasCharacterSprite, resolveCharacterAppearance } from './character-appearance.js';
 import { creatureOf } from './creature-profile.js';
 
 export const GENERATED_ASSET_URL_PREFIX = 'igs-gen:';
@@ -425,7 +425,8 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
             if (!hiddenToBase) return { url: '', slot: '', character: appearanceKey, source: 'none', quality: 'none',
                 requestedOutfit: outfit, ...(selected.effectiveOutfit && { outfit: selected.effectiveOutfit }),
                 reason: selected.reason, fallbackReason: selected.fallbackReason || '',
-                needsGeneration: selected.reason === 'outfit-image-missing' };
+                // 写词即存的衣装还没挂图（图被丢弃或没画成）时，角色名下一张图都没有，照样算缺图。
+                needsGeneration: selected.reason === 'outfit-image-missing' || !hasCharacterSprite(userAssets, appearanceKey) };
         } else return { url: selected.spriteImage.url, slot: selected.spriteImage.slot, character: appearanceKey,
             requestedOutfit: selected.requestedOutfit, outfit: selected.effectiveOutfit,
             source: selected.selectionSource === 'requested' ? 'user-outfit' : 'user-default-outfit',

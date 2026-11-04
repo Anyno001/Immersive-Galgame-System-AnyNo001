@@ -74,11 +74,14 @@ export const IGS_DIRECTIVE_CLOSE_SOURCE = `\\[\\s*igs-(?:${NAMES})\\s*:[^\\]\\n]
 const SCENE_INLINE_RE = /\[igs-scene:[^\]]*\]/g;
 const FX_INLINE_RE = /\[igs-fx:[^\]}\n]*(?:[\]}]|$)/gm;
 const COMBAT_INLINE_RE = /\[igs-(?:combat|challenge):[^\]\n]*(?:\]|$)/gm;
+// 正文末尾的战斗块 <igs-combat> … </igs-combat>：包裹标签本身任何出口都不显示（块内各行是 [igs-combat:…]，照上一条剥掉）。
+// 流式中途只写出 "<igs-com" 这类残片时同样剥掉。
+const COMBAT_BLOCK_TAG_RE = /<\/?\s*igs-combat\s*>|<\/?\s*igs-com(?:b(?:a(?:t)?)?)?\s*$/gim;
 const CHECK_INLINE_RE = /\[igs-check:[^\]}\n]*(?:[\]}]|$)/gm;
 const DREAD_INLINE_RE = /\[igs-dread:[^\]\n]*\]/g;
 // 数值标签 [igs-stat:…] 只给脚本结算用，任何出口都不显示；容错写法与 scene/stats/stat-directives.js 一致（全角括号、全角冒号、字段可换行）。
 const STAT_INLINE_RE = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]/gi;
-const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:)|[\[【]\s*igs\s*-?\s*stat\s*[:：])/i;
+const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));
@@ -110,8 +113,13 @@ export function normalizeIgsDirectiveLayout(text) {
     return canonicalizeIgsDirectives(text).replace(BREAK_BEFORE_DIRECTIVE_RE, '$1\n');
 }
 
+// 只去掉战斗块的包裹标签（<igs-combat> / </igs-combat> 及流式残片），块内标签留给各自的解析与剥离。
+export function stripCombatBlockTags(text) {
+    return String(text || '').replace(COMBAT_BLOCK_TAG_RE, '');
+}
+
 export function stripMarkerDirectives(text) {
-    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(CHECK_INLINE_RE, '').replace(DREAD_INLINE_RE, '').replace(STAT_INLINE_RE, '');
+    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(COMBAT_BLOCK_TAG_RE, '').replace(CHECK_INLINE_RE, '').replace(DREAD_INLINE_RE, '').replace(STAT_INLINE_RE, '');
 }
 
 export function isMarkerDirectiveLine(line) {

@@ -1,4 +1,4 @@
-import { COMBAT_PANEL_SKINS } from './combat-settings.js';
+import { COMBAT_PANEL_SKINS, normalizeCombatExpansionSettings } from './combat-settings.js';
 import { setStagePauseReason } from './stage-pause.js';
 import { planBattleFx, safePortraitUrl } from './fx-battle-model.js';
 import { applyBattleFxToDom, cancelBattleFx } from './fx-battle.js';
@@ -6,6 +6,9 @@ import { prefersReducedMotion } from './reduced-motion.js';
 import { peekSpriteHead, probeSpriteHead, waitSpriteHead } from './fx-anchor.js';
 import { COMBAT_AWAKEN_END, COMBAT_CUTIN_MS, buildAwakenCutin, buildOpeningCutin, buildSkillCutin, preloadCutinFonts } from './combat-cutin.js';
 import { battleSfxKind } from './fx-battle-sfx.js';
+import { KO_FALL_SFX_DELAY_MS, koFallKind, koFallSfx, playKoFall } from './combat-ko-fall.js';
+import { createCombatLines } from './combat-lines.js';
+import { combatPortraitNames } from '../../scene/creature-battle.js';
 import { ensureFxLayers } from './fx-layer.js';
 import { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
 import { battleView, challengeLobbyView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
@@ -190,6 +193,58 @@ export function createCombatPanelController(doc, options = {}) {
     const lowQuality = () => pageOverlay?.getAttribute?.('data-igs-quality') === 'low';
     // 按 data-unit 找单位块，不把 id 拼进选择器。
     const unitEl = (id) => [...(root?.querySelectorAll?.(SEL.unit) || [])].find((n) => n.getAttribute?.('data-unit') === id) || null;
+    // 登记角色的战斗台词（正文 [igs-combat:lines|…]，随开战标签进 start.lines）：小台词条 + 提前预取的朗读；朗读设置由宿主 options.getTtsContext() 给出。
+    const lines = createCombatLines({
+        doc, getRoot: () => root, getTtsContext: options.getTtsContext, speed: () => fxSpeed, schedule: (fn, ms) => later(fn, ms),
+        // 开关读 readerSettings.combatExpansion.lines.show / .tts（经 normalizeCombatExpansionSettings 归一化）；宿主没给 getCombatExpansion 或归一化还没有 lines 时都按开。
+        getPrefs: () => {
+            const raw = typeof options.getCombatExpansion === 'function' ? options.getCombatExpansion() : null;
+            const lines = normalizeCombatExpansionSettings(raw)?.lines;
+            return { show: lines?.show !== false, tts: lines?.tts !== false };
+        },
+    });
+    // 登记判定（见 combat-ko-fall.js koFallKind）：宿主 options.isRegisteredCharacter(name)、正文写了台词的角色、日常挑战的「对方」。
+    const koKindOf = (unit) => {
+        const cur = session()?.state();
+        const lineNames = new Set((cur?.start?.lines || []).map((l) => l.character));
+        const counterpart = cur?.kind === 'challenge' ? String(cur?.challengeSetup?.challenge?.counterpart || cur?.start?.counterpart || '') : '';
+        return koFallKind(unit?.name, { isRegistered: options.isRegisteredCharacter, lineNames, counterpart, candidates: combatPortraitNames(unit?.name) });
+    };
+    const userNameOf = () => { try { return typeof options.getUserName === 'function' ? String(options.getUserName() || '') : ''; } catch (error) { return ''; } };
+    // 战斗单位说话：unit 取自会话快照；主角标 isHero 以便「我 / 主角」别名对上。
+    const unitSay = (id, phase) => {
+        const cur = session()?.state();
+        const u = cur?.battle?.units?.[id];
+        if (!u || !lines.has()) return false;
+        return lines.say({ name: u.name, isHero: id === cur.battle.controlledId }, unitEl(id), phase, { userName: userNameOf() });
+    };
+    // 每场只同步一次台词并预取朗读：按战斗 ID 判断，换战斗才重设。
+    const syncLines = (view) => {
+        const cur = session()?.state();
+        const units = view.battle ? [...view.battle.allies, ...view.battle.enemies] : view.lobby ? [...view.lobby.allies, ...view.lobby.enemies] : [];
+        if (!cur?.start || !units.length) return;
+        const heroId = view.battle?.controlledId;
+        if (lines.setLines(cur.start.lines, cur.combatId)) {
+            lines.prefetch(units.map((u) => ({ name: u.name, isHero: u.id === heroId || u.controlled === true })), { userName: userNameOf() });
+        }
+    };
+    // 敌人倒下的动作与音效：非登记颤抖、登记踉跄跪落；音效比命中音晚一点出；减少动态效果只留终态（静态样式），不出声。
+    const koFallCue = (unitId) => {
+        const cur = session()?.state();
+        const u = cur?.battle?.units?.[unitId];
+        if (!u) return;
+        unitSay(unitId, 'down');
+        if (u.side !== 'enemy' || reduced()) return;
+        const kind = koKindOf(u);
+        playKoFall(unitEl(unitId), kind, { schedule: later });
+        later(() => sfx(koFallSfx(kind)), KO_FALL_SFX_DELAY_MS);
+    };
+    // 敌人倒下那一下的命中音按普通命中出，倒地声由 koFallCue 另出，免得两声击倒叠在一起。
+    const koSfxResult = (event, battle) => {
+        if (event?.result !== 'ko') return event;
+        const target = Object.values(battle?.units || {}).find((u) => u.name === event.target);
+        return target && target.side === 'enemy' ? { ...event, result: 'hit' } : event;
+    };
     // 影子卡：画布皮肤的牌套一层同皮肤容器（外层按视口矩形定位，内层按画布缩放），样式与手牌一致；其余皮肤照旧。
     const ghostOf = (el) => {
         const card = cloneCardGhost(el);
@@ -410,6 +465,7 @@ export function createCombatPanelController(doc, options = {}) {
             else root.removeAttribute?.('data-igs-combat-result-in');
         } else root.removeAttribute?.('data-igs-combat-result-in');
         drawnStatus = view.status;
+        try { syncLines(view); } catch (error) { /* 台词失败不影响面板 */ }
         if (view.battle) {
             drawnLook.clear();
             for (const u of [...view.battle.allies, ...view.battle.enemies]) drawnLook.set(u.id, { intent: u.intent, block: u.block, dot: view.battle.track.find((t) => t.id === u.id) || null });
@@ -594,6 +650,7 @@ export function createCombatPanelController(doc, options = {}) {
     // 只改按钮状态、不整块重绘，避免打断正在播的演出。
     function toggleSpeed() {
         fxSpeed = fxSpeed > 1 ? 1 : 2;
+        if (fxSpeed > 1) lines.stop();
         writeFxSpeed(options.storage, fxSpeed);
         root?.querySelector?.('[data-combat-act="speed"]')?.setAttribute?.('aria-pressed', fxSpeed > 1 ? 'true' : 'false');
         syncSpeedWatch();
@@ -922,11 +979,6 @@ export function createCombatPanelController(doc, options = {}) {
         const rect = (n) => { const r = n?.getBoundingClientRect?.(); return r?.width ? r : null; };
         return { unit, art: rect(art) || rect(face) || rect(unit), face: rect(face) || rect(art) || rect(unit) };
     };
-    const hxFall = (unit) => {
-        if (!unit?.classList) return;
-        unit.classList.add('hx-falling');
-        later(() => unit.classList?.remove('hx-falling'), 900);
-    };
     // 一次落下的各类线索：命中光（己方出手）/ 爪痕（敌方出手打到我方）、格挡护盾、治疗柔光、击倒字。
     function hxHitCues(unitId, list, { struck, rarity, enemyActs }) {
         if (!hxOn()) return;
@@ -939,7 +991,8 @@ export function createCombatPanelController(doc, options = {}) {
         else if (struck && !low && parts.art) hxRun((c, sch) => hxHit(c, parts.art, { rank: rarity?.rank || 0, color: rarity?.strike?.color || '', schedule: sch }));
         if (list.some((m) => m.kind === 'block') && parts.face) hxRun((c, sch) => hxGuard(c, parts.face, { schedule: sch }));
         if (list.some((m) => m.kind === 'heal') && parts.unit?.classList?.contains('lead')) hxRun(() => hxHeal(parts.unit, { schedule: later }));
-        if (list.some((m) => m.kind === 'ko') && parts.art) { hxRun((c, sch) => hxKo(c, parts.art, { schedule: sch })); hxFall(parts.unit); }
+        // 倒下的动作由 koFallCue（敌方，两类姿态）统一出，这里只出「击倒」大字。
+        if (list.some((m) => m.kind === 'ko') && parts.art) hxRun((c, sch) => hxKo(c, parts.art, { schedule: sch }));
     }
 
     function rarityNodes(host, fx, phase) {
@@ -1048,6 +1101,19 @@ export function createCombatPanelController(doc, options = {}) {
         const skin = typeof options.getFxSkin === 'function' ? options.getFxSkin() || {} : {};
         const my = token;
         const host = stage;
+        // 开场台词：开战演出起，敌方先、我方后，最多两位，错开出现；没有登记台词的单位跳过。
+        if (start && lines.has()) {
+            const order = Object.entries(cur.battle.units || {}).sort(([, a], [, b]) => (a.side === b.side ? 0 : a.side === 'enemy' ? -1 : 1)).map(([id]) => id);
+            let n = 0;
+            for (const id of order) {
+                if (n >= 2) break;
+                const u = cur.battle.units[id];
+                if (!u || u.alive === false || !lines.knows({ name: u.name, isHero: id === cur.battle.controlledId }, userNameOf())) continue;
+                const shownAt = 900 + n * 1900;
+                n += 1;
+                later(() => { if (my === token && stage === host) unitSay(id, 'open'); }, shownAt);
+            }
+        }
         // 开局演出（start）不进出牌队列：开战标题还在播时出的牌照常立即演出；其余时间轴按动作顺序逐条播放。
         const counted = !start;
         if (counted) { live += 1; busy += 1; }
@@ -1125,7 +1191,7 @@ export function createCombatPanelController(doc, options = {}) {
             const onWave = (event, list) => sfx(battleSfxKind({ ...event, result: list.some((m) => m.kind === 'damage' || m.kind === 'ko') ? 'hit' : 'guard' }, String(skin.worldview || '')));
             const hit = () => {
                 if (my !== token || stage !== host) return;
-                try { applyBattleFxToDom(stage, shown, { ...skin, reducedMotion: reduced(), schedule: fxSchedule, clear: options.clear, onEvent: (event) => sfx(battleSfxKind(event, String(skin.worldview || ''))) }); } catch (error) { /* 演出失败不影响结算 */ }
+                try { applyBattleFxToDom(stage, shown, { ...skin, reducedMotion: reduced(), schedule: fxSchedule, clear: options.clear, onEvent: (event) => sfx(battleSfxKind(koSfxResult(event, cur.battle), String(skin.worldview || ''))) }); } catch (error) { /* 演出失败不影响结算 */ }
                 // overkill 战斗里己方出牌的击倒推迟到全部演出放完才显示（鞭尸）。
                 try { landMarks(marks, landing, my, rarity, onWave, !seg.actor && cur.battle.overkill === true, { enemyActs: cur.battle.units?.[seg.actor]?.side === 'enemy' }); } catch (error) { /* 演出失败不影响结算 */ }
             };
@@ -1133,6 +1199,7 @@ export function createCombatPanelController(doc, options = {}) {
                 if (my !== token || stage !== host) return;
                 try {
                     markActing(seg.actor);
+                    if (seg.actor) unitSay(seg.actor, 'attack');
                     playCutins(cuts, host, my);
                     markCaption(host, caption ? rarity : null);
                     if (hx && seg.actor) hxActorCue(seg, cuts);
@@ -1221,6 +1288,7 @@ export function createCombatPanelController(doc, options = {}) {
         for (const id of downs) {
             showHitFloats(doc, unitEl(id), [{ kind: 'ko' }], { reduced: reduced(), schedule: later });
             hxHitCues(id, [{ kind: 'ko' }], { struck: false, rarity: null, enemyActs: false });
+            koFallCue(id);
         }
         const waitingSwaps = [...swaps.values()].filter((sw) => sw.phase === 'hold' && downs.includes(sw.oldId));
         if (waitingSwaps.length) {
@@ -1346,6 +1414,9 @@ export function createCombatPanelController(doc, options = {}) {
                     // 停顿期间受击动画暂停，摘除受击反馈的计时顺延同样时长，动画不被截短。
                     reactUnit(el, list, { reduced: reduced() || lowQuality(), schedule: stop ? (fn, ms) => later(fn, ms + stop) : later });
                     hxHitCues(unitId, shown, { struck, rarity, enemyActs });
+                    // 倒下（鞭尸推迟的由 revealDowns 出）：敌方按登记与否出两类姿态与倒地声、说倒下台词；其余掉血的单位说受击台词（同单位节流）。
+                    if (shown.some((mark) => mark.kind === 'ko')) koFallCue(unitId);
+                    else if (shown.some((mark) => mark.kind === 'damage')) unitSay(unitId, 'hit');
                     if (struck) {
                         rarityNodes(el, rarity, 'hit');
                         if (!impacted) { impacted = true; rarityImpact(rarity, unitId); }
@@ -2272,6 +2343,7 @@ export function createCombatPanelController(doc, options = {}) {
         try { abort?.abort(); } catch (error) { /* 已结束 */ }
         abort = null;
         clearCutins();
+        lines.stop();
         introBuilt = null; introUi = null; revealing = false;
         endDrag();
         hideScaleTip();

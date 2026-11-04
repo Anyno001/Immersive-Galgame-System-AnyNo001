@@ -130,7 +130,7 @@ function leadHtml(hero, v, pick) {
     const chips = `${hero.block ? `<span class="chip">${ICON.shield}<b>${esc(hero.block)}</b></span>` : ''}${hero.statuses.map((s) => `<span class="chip">${esc(s.label)} <b>${esc(s.stacks)}</b></span>`).join('')}`;
     return `<div class="lead ${unitCls(hero, ok)}"${unitData(hero)}>`
         + `<div class="face cx-face${pics[hero.name] ? '' : ' ch'}"${unitAct(hero, ok)}>${face(pics[hero.name], hero.name)}${awBtn}</div>`
-        + `<div class="info"><div class="n">${esc(hero.name)}<span class="hp"><b>${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, ' ally')}`
+        + `<div class="info"><div class="n">${esc(hero.name)}<span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, ' ally')}`
         + `<div class="chips">${chips}</div></div></div>`;
 }
 

@@ -7,7 +7,9 @@ import { openLive2dPanel } from './live2d-panel.js';
 import { createMediaLeaseScope } from '../../media/media-lease-scope.js';
 import { bindImageCacheDocument } from '../../media/tavern-image-cache.js';
 import { buildIgsTextPayload, getMessagePrimaryText, getVisibleMessageTextFromElement, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
-import { applyVoiceBark, canonicalName, noteFormGender, setActiveFormGenders } from './voice-bark.js';
+import { applyVoiceBark, canonicalName, normalizeCharacterVoices, noteFormGender, setActiveFormGenders } from './voice-bark.js';
+import { knownCharacterNames } from '../../scene/creature-registry.js';
+import { storedCreatureOf } from '../../scene/creature-profile.js';
 import { createSettingsHost } from './settings-host.js';
 import { createCombatPanelController } from './combat-panel.js';
 import { createCombatDeckPanelController } from './combat-deck-panel.js';
@@ -15,6 +17,7 @@ import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { growthTagsByPage, planGrowthFx } from './combat-growth-fx-model.js';
 import { cancelGrowthFx } from './combat-growth-fx.js';
 import { cancelCheckBadges, checksByPage } from './combat-check-badge.js';
+import { syncCombatResume } from './combat-resume-button.js';
 import { probeCombatStart, resolveCombatEntry, sessionMatchesEntry, syncCombatEntry, unfinishedCombatState } from './combat-entry.js';
 import { createRecoveryNotice } from './recovery-notice.js';
 import { handleSettingsAction } from './settings-actions.js';
@@ -56,7 +59,7 @@ import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
-import { cancelPendingTts, decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, prefetchTtsFloor, replayTts, rerollTts, setTtsErrorHandler, speakTtsLine, stopTts } from './tts.js';
+import { cancelPendingTts, decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, prefetchTtsFloor, replayTts, rerollTts, setTtsErrorHandler, setTtsGenderAsker, speakTtsLine, stopTts } from './tts.js';
 import { resolveRegionCrop } from './stage-snapshot.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -241,6 +244,27 @@ export function createIgsReaderHost(options = {}) {
         },
         getTheme: () => readSettingsTheme(),
         global: options.global || globalThis,
+    });
+    // 朗读判断不出说话人性别时问一次，选定的存进本卡角色声音（角色设定的「声音性别」可改）。别的弹窗开着时不抢，返回 null 等下次再问。
+    setTtsGenderAsker(async (name) => {
+        if (pageModal.isOpen()) return null;
+        const gender = await pageModal.pick(`无法判断「${name}」的性别，朗读声音按哪种分配？`,
+            [['male', '男声'], ['female', '女声']], { cancelLabel: '稍后' });
+        if (gender !== 'male' && gender !== 'female') return '';
+        // characterVoices 存在素材库根层（与设置器一致，不分卡）；配置只读，浅拷后替换。
+        const withGender = (root) => {
+            const voices = normalizeCharacterVoices(root && root.characterVoices);
+            return { ...(root || {}), characterVoices: { ...voices, [name]: { ...(voices[name] || {}), ttsGender: gender } } };
+        };
+        let saved;
+        if (state.activeSettings) {
+            const bridge = state.activeSettings.draft.bridge;
+            bridge.sceneAssets = withGender(bridge.sceneAssets);
+            saved = persistSettingsDraft();
+            if (saved.ok !== false) rerenderSettings();
+        } else saved = saveBridgePatch((bridge) => ({ sceneAssets: withGender(bridge.sceneAssets) }));
+        if (!saved || saved.ok === false) writeToastSafe(`「${name}」的声音性别未能保存，本次阅读内有效`);
+        return gender;
     });
     // 目录、提示弹窗、续读弹窗跟设置器同一个配色。
     function readSettingsTheme() {
@@ -2506,6 +2530,12 @@ export function createIgsReaderHost(options = {}) {
             return state.activeReader.controller.toggleToolbar();
         }
         if (normalizedAction === 'prev') {
+            // 窄屏阅读模式弹出选项时列表是隐藏的：上一页先收起选项、露出刚才在看的内容，不再往回退。
+            const optionBox = state.activeReader.logBase && state.activeReader.dom?.overlay?.querySelector?.('#igs-option-bubbles');
+            if (optionBox && !optionBox.hasAttribute('hidden')) {
+                hideOptionBubbles(optionBox);
+                return { ok: true, moved: false, reason: 'option-bubbles-hidden', index: state.activeReader.index };
+            }
             const batch = state.activeReader.logBase ? logPrev(state.activeReader) : null;
             return batch || moveReaderSegment(-1);
         }
@@ -2571,15 +2601,7 @@ export function createIgsReaderHost(options = {}) {
             if (normalizeCombatExpansionSettings(current.snapshot?.readerSettings?.combatExpansion).kind === 'daily') return current.dom.combatController.open(overlay, { history: true });
             return current.dom.combatDeckController.open(overlay);
         }
-        // 工具栏「返回战斗」：有未打完的战斗时才显示；回到最新楼，阅读器渲染时按存档断点续打。
-        if (normalizedAction === 'combat-resume') {
-            const current = state.activeReader;
-            if (!current.combatResumable?.()) return { ok: false, reason: 'combat-none' };
-            if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
-            state.combatResumeAt = Date.now();
-            if (!(Number(current.turnOffset) > 0) || typeof options.reopenReader !== 'function') { rerenderActiveReader(); return { ok: true }; }
-            return Promise.resolve(options.reopenReader(current.mode));
-        }
+        if (normalizedAction === 'combat-resume') return resumeCombatFromReader();
         if (normalizedAction === 'cg-gallery') {
             return openCgGallery();
         }
@@ -3133,7 +3155,13 @@ export function createIgsReaderHost(options = {}) {
             try { raw = floor.assets.sprite(row.speaker, row.mood, outfit).url || ''; } catch (_) { raw = ''; }
             const generated = options.generatedAssets || null;
             const url = isGeneratedAssetUrl(raw) ? (generated ? generated.resolveUrl(raw) : '') : raw;
-            if (url) found = { url: resolveReaderAssetUrl(url, current), adjustKey: row.mood ? `${id}::${row.mood}` : id };
+            // 这个情绪查到的图与默认立绘是同一张（例如只有一张立绘）时按角色取景，避免同一张图各情绪大小不一。
+            let base = '';
+            if (raw && row.mood) {
+                try { base = floor.assets.sprite(row.speaker, '', outfit).url || ''; } catch (_) { base = ''; }
+            }
+            const ownMood = row.mood && raw !== base;
+            if (url) found = { url: resolveReaderAssetUrl(url, current), adjustKey: ownMood ? `${id}::${row.mood}` : id };
         }
         if (!found) {
             const status = resolveStatusAvatar(assets.statusAvatars, row.key);
@@ -4687,6 +4715,15 @@ ${row.key}`;
             spriteImage = null;
         }
         const cgActive = Boolean(illustrationUrl || boundMarkerUrl || eventCgUrl);
+        // 挂 CG 的页另记本页的普通场景背景：战斗面板打开时背景换回它，不显示 CG。
+        let sceneBackdrop = '';
+        if (cgActive && sceneAssets && sceneAssets.enabled) {
+            for (const st of [sceneStateForBg, inheritedSceneState]) {
+                if (!st || !st.scene) continue;
+                sceneBackdrop = resolveGenerated(floorAssets.background(st).url) || '';
+                if (sceneBackdrop) break;
+            }
+        }
         // Per-segment classification from the formatted segment text itself.
         // Order matters: thought (*...*) is checked before dialogue ([名字]：) because
         // a thought segment looks like *[名字]：...* and would otherwise match dialogue.
@@ -4934,6 +4971,7 @@ ${row.key}`;
                 progress: buildProgressText(normalizedIndex, segments.length, displayImageState),
                 backgroundImage: finalBackgroundImage,
                 backgroundTimed: finalBackgroundTimed,
+                sceneBackdrop,
                 spriteImage,
                 spriteLive2d,
                 pendingSpriteRef,
@@ -5261,6 +5299,25 @@ ${row.key}`;
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
             challengeHistory: typeof options.getChallengeHistory === 'function' ? () => options.getChallengeHistory() : null,
             resolvePortrait: (name) => resolveCombatPortrait(name),
+            // 登记角色（决定倒下的动作）：素材库里有 DNA / 立绘 / 衣柜 / 别名登记，且不是战斗临时档。
+            isRegisteredCharacter: (name) => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                const assets = rs && rs._sceneAssets;
+                if (!assets || !name) return false;
+                const key = canonicalName(assets, String(name));
+                if (!knownCharacterNames(assets).has(key)) return false;
+                return storedCreatureOf((assets.characterDna || {})[key])?.temp !== true;
+            },
+            // 战斗台词开关与朗读：读当前阅读器快照的设置与素材（声线按角色取）。
+            getCombatExpansion: () => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                return (rs && rs.combatExpansion) || {};
+            },
+            getTtsContext: () => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                return rs ? { settings: rs.tts, sceneAssets: rs._sceneAssets } : null;
+            },
+            getUserName: () => String((getSillyTavernContext(options.global || globalThis) || {}).name1 || ''),
             // 演出速度（原速 / 二倍速）记在 localStorage，跨战斗保留。
             storage: (options.global || globalThis).localStorage,
             // 手牌卡面只读本聊天本地缓存；无图时渲染层用线条 SVG，图片补载完成后经订阅刷新。
@@ -5271,7 +5328,7 @@ ${row.key}`;
             subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
             // 立绘读回：素材库立绘（igs-gen:）读回或丢失时通知面板重算立绘地址；生成进度等其他变化不转发。
             subscribePortraits: (handler) => (typeof options.onGeneratedAssetUpdated === 'function'
-                ? options.onGeneratedAssetUpdated((detail) => { if (detail && (detail.reason === 'image-loaded' || detail.reason === 'image-lost')) handler(detail); }) : null),
+                ? options.onGeneratedAssetUpdated((detail) => { if (detail && (detail.reason === 'image-loaded' || detail.reason === 'image-lost' || detail.reason === 'combat-prewarm')) handler(detail); }) : null),
             // 战斗单位呼吸跟随「立绘活动」总开关与其中的「待机呼吸」，读当前阅读器快照的设置。
             breathing: () => {
                 const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
@@ -5644,6 +5701,16 @@ ${row.key}`;
         if (generationStripRemount) { generationStripRemount = false; generationStrip.remount(); }
     }
 
+    // 「返回战斗」悬浮按钮与 combat-resume 动作共用：有未打完的战斗时回到最新楼，阅读器渲染时按存档断点续打。
+    function resumeCombatFromReader() {
+        const current = state.activeReader;
+        if (!current || !current.combatResumable?.()) return { ok: false, reason: 'combat-none' };
+        if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
+        state.combatResumeAt = Date.now();
+        if (!(Number(current.turnOffset) > 0) || typeof options.reopenReader !== 'function') { rerenderActiveReader(); return { ok: true }; }
+        return Promise.resolve(options.reopenReader(current.mode));
+    }
+
     // 开战楼入口：最新 AI 楼末页、正文末尾有开战标签时显示遭遇卡片；历史楼层与流式输出期间不显示。
     function syncCombatEntryAfterRender(current, snapshot) {
         const overlay = current && current.dom && current.dom.overlay;
@@ -5680,6 +5747,10 @@ ${row.key}`;
         probe.returnTag = probe.returnTag || persisted;
         const showTag = persisted ? floorEntry : entry && state.combatReturnKey === entry.key ? entry : null;
         syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, showTag), onFail: (r) => notifyCombatOpenFail(r) });
+        // 悬浮「返回战斗」：有未打完的战斗、没有面板开着、原位置没有小标签时显示（小标签与它指向同一件事，不重复）。
+        const unfinished = combatSettings.enabled && !showTag && !anyPanelOpen(current.dom)
+            ? unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null) : null;
+        syncCombatResume(overlay, unfinished ? { kind: unfinished.kind, skin, onResume: () => resumeCombatFromReader() } : null);
         // 开战标签翻到末页即自动打开对阵界面（战斗与日常挑战相同）；只记成功打开的，地图、资料或构筑面板开着时不记，等下一次渲染再弹。
         // 设置页「返回战斗」：同一开战楼有未结束会话时，不论是否自动打开过、在哪一页，都直接续打（2 分钟内有效）。
         const wantResume = Boolean(state.combatResumeAt) && Date.now() - state.combatResumeAt < 120000;
@@ -6147,11 +6218,26 @@ ${row.key}`;
             || { ok: false, reason: 'save-failed' };
     }
 
+    // 「重画」：丢掉这张（不问清空 DNA，重画要沿用同一身份），再按本楼补全素材重新出图。
+    async function rerollGeneratedReview(item) {
+        const service = options.generatedAssets;
+        if (!service || typeof service.setStatus !== 'function') return { ok: false, reason: 'service-unavailable' };
+        let updated;
+        try { updated = await service.setStatus(item.key, 'discarded'); } catch { updated = { ok: false }; }
+        if (!updated || updated.ok === false) {
+            writeToastSafe('重画未开始：原图丢弃失败，原图保持不变');
+            return updated || { ok: false, reason: 'generated-asset-status-failed' };
+        }
+        if (state.activeReader) rerenderActiveReader();
+        return runManualAssetGeneration();
+    }
+
     function completeGeneratedReview(item, status, name) {
         if (reviewRecoveries.has(item.key)) {
             writeToastSafe('正在入库，图片保存完成后自动继续');
             return reviewRecoveries.get(item.key);
         }
+        if (status === 'reroll') return rerollGeneratedReview(item);
         const scope = resolveAssetScope(getSillyTavernContext(options.global || globalThis)).key;
         const chatId = options.getCurrentChatId?.();
         const job = recoverOperation(async () => {

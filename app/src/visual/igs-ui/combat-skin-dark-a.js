@@ -178,7 +178,7 @@ function leadHtml(hero, v, pick) {
     const pct = pctOf(hero);
     return `<div class="lead ${unitCls(hero, ok)}"${unitData(hero)}>`
         + `<div class="face cx-face"${unitAct(hero, ok)}>${face(pics[hero.name], hero.name)}${awBtn}</div>`
-        + `<div class="info"><div class="n">${esc(hero.name)}${hero.controlled ? '<u class="ctl">操控</u>' : ''}<span class="hp"><b>${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>`
+        + `<div class="info"><div class="n">${esc(hero.name)}${hero.controlled ? '<u class="ctl">操控</u>' : ''}<span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>`
         + `<div class="hpbar cx-hp" style="--igs-combat-hp:${pct}%"><i></i></div><div class="chips">${chips}</div>`
         + `<div class="ecg"><svg viewBox="0 0 240 26" preserveAspectRatio="none"><defs><clipPath id="hpc"><rect x="0" y="-5" width="${(pct * 2.4).toFixed(1)}" height="40"/></clipPath></defs><path d="${EC}" stroke="#3d454b"/><path d="${EC}" stroke="#cf2f3a" clip-path="url(#hpc)"/></svg></div></div></div>`;
 }

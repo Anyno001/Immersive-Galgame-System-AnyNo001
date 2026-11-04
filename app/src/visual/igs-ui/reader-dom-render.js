@@ -518,8 +518,6 @@ export function applyToolbarState(root, current) {
     // 「人物状态」在卡牌战斗扩展开启时显示；只开数值系统、本聊天为手动建档时也显示（P8c，只有建档页）。用户的排序、隐藏与固定照常生效。
     const buildEntry = typeof current.buildEntry === 'function' && current.buildEntry() === true;
     if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled && !buildEntry) hiddenSet.add('combat-status');
-    // 「返回战斗」只在有未打完的战斗时显示。
-    if (!(typeof current.combatResumable === 'function' && current.combatResumable())) hiddenSet.add('combat-resume');
     // 窄屏阅读模式：列表盖住大半画面，「隐藏对话框」总要放出来，才能看清背景和 CG；「自动播放」也总放出来（一批出完、念完再出下一批）。
     if (current.logReaderActive) { hiddenSet.delete('hide'); hiddenSet.delete('auto-play'); }
     // 「连续播放」开关只在窄屏阅读模式出现。
@@ -1591,6 +1589,12 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             removeImageLoadingSpinner(bg);
             removeImageEmptyPlaceholder(bg);
         }
+    }
+    // 挂 CG 的页记下本页普通场景背景，战斗面板打开时由样式换上（没有场景图时换成空底色），不显示 CG。
+    if (bg && bg.style && typeof bg.style.setProperty === 'function') {
+        const backdropUrl = cgActive ? resolveAssetUrl(snapshot.content.sceneBackdrop) : '';
+        if (cgActive) bg.style.setProperty('--igs-combat-backdrop', backdropUrl ? `url("${backdropUrl.replace(/"/g, '&quot;')}")` : 'none');
+        else bg.style.removeProperty('--igs-combat-backdrop');
     }
     if (!cgActive && bg && bg.style && typeof bg.style.removeProperty === 'function') {
         bg.style.removeProperty('filter');

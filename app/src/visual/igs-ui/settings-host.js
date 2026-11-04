@@ -685,10 +685,19 @@ export function createSettingsHost(deps) {
         const op = typeof options.statsOp === 'function' ? options.statsOp : null;
         if (!op) return { ok: false, reason: 'stats-runtime-missing' };
         const [kind, raw = ''] = spec.split(/:(.*)/s);
-        const name = raw ? decodeURIComponent(raw) : '';
+        // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
+        const [namePart, valuePart = ''] = kind === 'hero-set' ? raw.split('|') : [raw];
+        const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
             if (kind === 'generate' || kind === 'backfill' || kind === 'backup') result = await op(kind);
+            else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
+            else if (kind === 'hero-assign') {
+                result = await op('hero', 'assign', '', {});
+                if (result && result.reason === 'needs-confirm') {
+                    result = await settingsDialogs.confirm('重新分配会覆盖已分配与手改的技能值，继续？') ? await op('hero', 'assign', '', { overwrite: true }) : { ok: true, cancelled: true };
+                }
+            }
             else if (kind === 'skill-attr') {
                 const attribute = await settingsDialogs.choose(`「${name}」归入哪项属性？`, STATS_ATTRIBUTES.map((value) => ({ value, label: value })));
                 result = attribute ? await op('skill', 'edit', name, { attribute }) : { ok: true, cancelled: true };
@@ -713,7 +722,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
@@ -759,6 +768,7 @@ export function createSettingsHost(deps) {
             if (!/^[a-zA-Z]+$/.test(id)) return Promise.resolve({ ok: false, reason: 'stats-prompt-unknown' });
             return Promise.resolve(updateSettingsValue(`bridge.stats.prompts.${id}`, ''));
         }
+        if (action === 'combat-rule-prompt-reset') return Promise.resolve(updateSettingsValue('readerSettings.combatExpansion.rulePrompt', ''));
         // 敌人图集：只在用户点击时才下载或删除；管理器首次使用时才创建。
         if (action === 'combat-enemy-atlas-download' || action === 'combat-enemy-atlas-remove') {
             const atlas = ensureEnemyAtlas(options.global || globalThis);
@@ -1280,6 +1290,12 @@ export function createSettingsHost(deps) {
         });
         root.addEventListener('change', (event) => {
             const target = event.target;
+            // 数值页「我的角色」的技能值输入：不进设置草稿，直接写聊天存档。
+            const heroSkill = target?.getAttribute?.('data-stats-hero-skill');
+            if (heroSkill != null) {
+                controller.invoke(`stats-op:hero-set:${encodeURIComponent(heroSkill)}|${String(target.value).trim()}`);
+                return;
+            }
             const artistSelection = target?.getAttribute?.('data-artist-selection');
             if (artistSelection != null) {
                 controller.setArtistSelection(artistSelection, target.value);
@@ -1359,6 +1375,7 @@ export function createSettingsHost(deps) {
                                 : charSelect.hasAttribute('data-char-voice-ttsSpeed') ? 'ttsSpeed'
                                     : charSelect.hasAttribute('data-char-voice-ttsThoughtSpeed') ? 'ttsThoughtSpeed'
                                         : charSelect.hasAttribute('data-char-voice-ttsThoughtVolume') ? 'ttsThoughtVolume'
+                                : charSelect.hasAttribute('data-char-voice-ttsGender') ? 'ttsGender'
                                 : charSelect.hasAttribute('data-char-voice-ttsStyle') ? 'ttsStyle' : '';
             if (voiceField) {
                 const voiceChar = charSelect.getAttribute(voiceField === 'pack' ? 'data-char-voice' : `data-char-voice-${voiceField}`) || '';
@@ -1518,6 +1535,8 @@ export function createSettingsHost(deps) {
                 // 折叠的组不渲染内容：展开时重绘一次补出内容。
                 else if (key.startsWith('image-prompt-group-')) rerenderSettings({ draftUnchanged: true });
             }
+            // 敌人立绘管理折叠时不渲染行：展开时重绘一次补出内容。
+            if (key === 'combat-enemy-sprites' && target.open) rerenderSettings({ draftUnchanged: true });
         }, true);
         root.addEventListener('keydown', (event) => {
             if (onboarding.keydown(event, doc)) return;

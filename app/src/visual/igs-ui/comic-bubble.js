@@ -451,11 +451,15 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
     const controls = dialog.querySelector('.igs-controls');
     // 首次使用的邀请条也在顶部，泡要躲开它。
     const invite = root.querySelector('#igs-onboarding-invite');
-    for (const el of [toolbar, hud, invite]) {
+    const resume = root.querySelector('#igs-combat-resume');
+    for (const el of [toolbar, hud, invite, resume]) {
         const r = rectIn(motion, el);
         if (r) avoid.push(r);
     }
-    const controlsRect = opts.isLastPage ? rectIn(motion, controls) : null;
+    const controlsBox = rectIn(motion, controls);
+    // 悬浮「返回战斗」按实测输入条高度落在它上方。
+    if (controlsBox && root.style) root.style.setProperty('--igs-comic-controls-h', `${Math.round(controlsBox.h)}px`);
+    const controlsRect = opts.isLastPage ? controlsBox : null;
     if (state.ghostRect) avoid.push(state.ghostRect);
     // 同屏其他角色的脸不能被泡挡住。
     for (const member of Array.isArray(opts.cast) ? opts.cast : []) {

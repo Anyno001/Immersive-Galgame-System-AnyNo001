@@ -79,7 +79,7 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, sheets: {}, protagonistBase: {}, queue: { skills: [], people: [] }, notified: [] };
+    return { story: [], merged: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, queue: { skills: [], people: [] }, notified: [] };
 }
 
 export function sanitizeCatalog(raw) {
@@ -96,6 +96,13 @@ export function sanitizeCatalog(raw) {
         if (clean && name && name.length <= 20) out.sheets[name] = clean;
     }
     for (const [k, v] of Object.entries(plainObject(raw.protagonistBase) ? raw.protagonistBase : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) out.protagonistBase[name] = n; }
+    // 玩家手改覆盖层：{ 技能: { value, from } }，规则见 stat-engine.js 的 heroSkillLevel。
+    for (const [k, v] of Object.entries(plainObject(raw.protagonistEdit) ? raw.protagonistEdit : {})) {
+        const name = validSkillName(k);
+        const value = plainObject(v) && Number(v.value) >= 1 ? num(v.value, 1, 99) : null;
+        if (name && value) out.protagonistEdit[name] = { value, from: plainObject(v) ? num(v.from, 0, 99) || 0 : 0 };
+    }
+    out.heroAssigned = raw.heroAssigned === true;
     const q = plainObject(raw.queue) ? raw.queue : {};
     out.queue.skills = (Array.isArray(q.skills) ? q.skills : []).map(validSkillName).filter(Boolean).slice(0, QUEUE_MAX);
     out.queue.people = (Array.isArray(q.people) ? q.people : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, QUEUE_MAX);

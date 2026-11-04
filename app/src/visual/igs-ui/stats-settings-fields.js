@@ -27,8 +27,12 @@ export const STAT_PROMPT_LABELS = Object.freeze({
 export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
     rollManual: '手动掷骰规则',
     diceManual: '手动掷骰规则',
+    presentRule: '在场角色·阶段约束（全体一次）',
+    breakthrough: '在场角色·好感到阶段上限时追加',
+    intimacy: '在场角色·未到亲密阶段时追加（NSFW）',
     sheetGen: '角色卡生成（后台请求）',
     backfill: '新技能补全（后台请求）',
+    heroSkills: '主角技能分配（后台请求）',
 });
 
 // 失效提示词的显示名：只有被新版本弃用的几项（STAT_STALE_PROMPT_KEYS）会进入 stalePrompts。
@@ -203,7 +207,26 @@ export function renderStatsHeroCard(model, advancedOpen = () => '') {
     const attrs = (model.attributes || []).length ? `<div class="igs-source-filter-note">${model.attributes.map((a) => `${esc(a.name)} ${esc(a.display)}`).join(' · ')}</div>` : '';
     const skills = model.skills.map((s) => `${esc(s.name)} ${esc(s.display ?? String(Math.round(s.value)))}${s.marked ? '✓' : ''}`).join(' · ');
     return head + attrs
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary><div class="igs-source-filter-note">${skills || '无'}</div></details>`;
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary><div class="igs-source-filter-note">${skills || '无'}</div></details>`
+        + renderHeroSkillEditor(model, advancedOpen);
+}
+
+// CoC 主角技能表：已掌握的直接列出，未学的按所属属性折叠。改动写入聊天存档，不进设置草稿（data-stats-hero-skill）。
+// 值为生效值（账本、分配底数、手改合并后）；改过的标「已手改」，清空输入框即清除手改。
+function renderHeroSkillEditor(model, advancedOpen) {
+    const rows = Array.isArray(model.heroSkills) ? model.heroSkills : [];
+    if (!rows.length) return '';
+    const row = (s) => field('', `${s.name}${s.edited ? '（已手改）' : ''}`, `<input data-stats-hero-skill="${esc(s.name)}" type="number" min="1" max="99" step="1" value="${esc(s.value)}">`);
+    const byAttribute = new Map();
+    for (const s of rows.filter((r) => !(r.learned && r.value >= 25))) {
+        const key = s.attribute || '其他';
+        byAttribute.set(key, [...(byAttribute.get(key) || []), s]);
+    }
+    const idle = [...byAttribute.entries()].map(([attribute, list]) => `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-hero-skills-${esc(attribute)}"${advancedOpen(`stats-hero-skills-${attribute}`)}><summary>${esc(attribute)}类未学（${list.length}项）</summary>${list.map(row).join('')}</details>`).join('');
+    const known = rows.filter((r) => r.learned && r.value >= 25).sort((a, b) => b.value - a.value).map(row).join('');
+    return '<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设分配技能</button></div>'
+        + (known ? `<div class="igs-settings-section">${known}</div>` : '<div class="igs-source-filter-note">暂无入门以上的技能。</div>')
+        + idle;
 }
 
 export function renderStatsArchive(model, advancedOpen = () => '') {

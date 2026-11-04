@@ -19,8 +19,9 @@ test('新存档额度可用，用掉一次后当天不能再开', () => {
 
 test('每日上限可调到三次，超出范围时夹回', () => {
     assert.equal(challengeQuota(used(), { perDay: 2, cooldownFloors: 0, floor: 50 }).ok, true);
-    assert.equal(challengeQuota(used(), { perDay: 99, cooldownFloors: 0, floor: 50 }).perDay, 3);
-    assert.equal(challengeQuota(used(), { perDay: 0, cooldownFloors: 0, floor: 50 }).perDay, 1);
+    assert.equal(challengeQuota(used(), { perDay: 99, cooldownFloors: 0, floor: 50 }).perDay, 5);
+    assert.equal(challengeQuota(used(), { perDay: 0, cooldownFloors: 0, floor: 50 }).ok, true);
+    assert.equal(challengeQuota(used(), { cooldownFloors: 0, floor: 50 }).perDay, 1);
 });
 
 test('楼数冷却：间隔不足时不通过，达到间隔后通过', () => {

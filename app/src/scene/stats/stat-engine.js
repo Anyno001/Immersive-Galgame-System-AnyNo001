@@ -32,6 +32,7 @@ function buildEngine(catalog, settings, ruleset, readers) {
         registry: createSkillRegistry(catalog),
         sheets: catalog.sheets && typeof catalog.sheets === 'object' ? catalog.sheets : {},
         protagonistBase: catalog.protagonistBase && typeof catalog.protagonistBase === 'object' ? catalog.protagonistBase : {},
+        protagonistEdit: catalog.protagonistEdit && typeof catalog.protagonistEdit === 'object' ? catalog.protagonistEdit : {},
         // 自然 20 / 1 常开（v0.39 起不再有开关）。
         natural: true,
         readAbilities: readerOf(readAbilities),
@@ -91,6 +92,22 @@ export function attributeNamesOf(engine) {
 
 function isSan(engine, skill) {
     return skill === SAN_ATTRIBUTE && engine.ruleset.ID === 'coc7';
+}
+
+// 主角技能的生效值，优先级：玩家手改 > 账本值 > 批量分配的底数；三者都没有返回 null（走注册表基础值）。
+// 手改覆盖层 catalog.protagonistEdit[技能] = { value, from }：value 为玩家填的数，from 为改动当时账本里的值（没有为 0）。
+// 之后账本值每高出 from 一点，生效值就在 value 上加一点（成长叠加在手改值上，不被覆盖）；账本值低于 from（楼层回退）时不扣，
+// 回到 from 之下仍是 value。清除手改后回到账本值或底数。
+// 未学技能手改时，from 记为不含手改的值（seed：底数或注册表基础值）；首次成功登记进账本的也是 seed，所以登记本身不算成长。
+// 手改只在 CoC 下生效（界面只在 CoC 下提供；切到 D&D 后不带过去）。
+export function heroSkillLevel(engine, owned, skill) {
+    const coc = Boolean(engine && engine.ruleset && engine.ruleset.ID === 'coc7');
+    const edit = coc && engine.protagonistEdit && engine.protagonistEdit[skill];
+    const own = Number(owned && owned.value) || 0;
+    if (edit && Number(edit.value) > 0) return clamp(Math.round(Number(edit.value) + Math.max(0, own - (Number(edit.from) || 0))), 1, 99);
+    if (own > 0) return own;
+    const base = Number(engine && engine.protagonistBase && engine.protagonistBase[skill]);
+    return base > 0 ? base : null;
 }
 
 export function isProtagonist(actor) {
@@ -180,9 +197,12 @@ export function profileOf(engine, state, actor, rawSkill) {
         const rank = rankOfGrowth(state && state.protagonist && state.protagonist.growth);
         if (san) { const value = sanOf(attrs, owned, null); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
         if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };
-        const backfilled = Number(engine.protagonistBase[skill]);
-        const value = owned ? Number(owned.value) || 0 : (Number.isFinite(backfilled) && backfilled > 0 ? backfilled : baseValueOf(entry, attrs));
-        return { skill, kind: 'skill', value, learned: Boolean(owned) || backfilled > 0, attributeValue: attrs[entry.attribute], rank, entry };
+        const level = heroSkillLevel(engine, owned, skill);
+        const value = level === null && owned ? 0 : level !== null ? level : baseValueOf(entry, attrs);
+        // seed：不含手改的值，未学技能首次成功时按它登记进账本（见 markGrowth）。
+        const plain = heroSkillLevel({ ...engine, protagonistEdit: null }, owned, skill);
+        const seed = plain === null && owned ? 0 : plain !== null ? plain : baseValueOf(entry, attrs);
+        return { skill, kind: 'skill', value, seed, learned: Boolean(owned) || level !== null, attributeValue: attrs[entry.attribute], rank, entry };
     }
     const sheet = engine.sheets[actor] || null;
     const attrs = npcAttributes(engine, sheet, actor);
@@ -256,7 +276,7 @@ export function resolveCheck(engine, state, request, random) {
     const r = engine.ruleset.resolve(profile, opts, raw);
     return {
         ...r,
-        actor, skill, kind: profile.kind, value: profile.value, learned: profile.learned,
+        actor, skill, kind: profile.kind, value: profile.value, ...(profile.seed !== undefined && profile.seed !== profile.value ? { seed: profile.seed } : {}), learned: profile.learned,
         difficulty: request.difficulty && DIFFICULTIES.includes(request.difficulty) ? request.difficulty : (opposed ? '对抗' : '普通'),
         against: request.against || null, opposed, toward: toward || null,
         social: isSocialSkill(engine, skill), notes: mods.notes, raw, source: request.source || '',
@@ -289,7 +309,8 @@ export function markGrowth(state, check) {
     const own = skills[check.skill];
     if (own) return own.marked ? state : withSkills(state, { ...skills, [check.skill]: { ...own, marked: true } });
     if (check.kind === 'attribute') return state;
-    const value = clamp(Math.round(Number(check.value) || 1), 1, 99);
+    // 手改过的技能按不含手改的 seed 登记，否则手改值会被当成账本成长再叠加一次。
+    const value = clamp(Math.round(Number(check.seed ?? check.value) || 1), 1, 99);
     return withSkills(state, { ...skills, [check.skill]: { value, marked: true } });
 }
 
@@ -315,7 +336,8 @@ export function bestCombatSkill(engine, state, names = COMBAT_SKILLS) {
     for (const name of names) {
         const entry = BUILTIN_SKILLS[name] || engine.registry.get(name);
         const owned = state.protagonist.skills[name];
-        if (entry && entry.kind !== 'attribute' && !owned) continue;
+        // D&D 沿用原规则（只看账本）；CoC 下 AI 分配与手改的技能也参选。
+        if (entry && entry.kind !== 'attribute' && !owned && (engine.ruleset.ID !== 'coc7' || heroSkillLevel(engine, null, name) === null)) continue;
         const p = profileOf(engine, state, PROTAGONIST, name);
         const score = engine.ruleset.ID === 'dnd5e' ? engine.ruleset.bonusOf(p) : p.value;
         if (!best || score > best.score) best = { name, score, value: p.value };

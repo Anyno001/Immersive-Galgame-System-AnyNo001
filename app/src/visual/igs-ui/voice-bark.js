@@ -86,6 +86,8 @@ export function normalizeCharacterVoice(value) {
         ttsThoughtSpeed: normalizeOptionalSpeed(source.ttsThoughtSpeed),
         ttsThoughtVolume: normalizeThoughtVolume(source.ttsThoughtVolume),
         ttsStyle: typeof source.ttsStyle === 'string' ? source.ttsStyle.trim().slice(0, 300) : '',
+        // 朗读按哪种性别分配声音：留空按 DNA、立绘、名字与正文判断；判断不出时阅读中弹窗询问，选定后存在这里。
+        ttsGender: source.ttsGender === 'male' || source.ttsGender === 'female' ? source.ttsGender : '',
     };
 }
 
@@ -121,9 +123,9 @@ export function normalizeCharacterVoices(value) {
         const key = String(name || '').trim();
         if (!key || FORBIDDEN_KEYS.has(key)) continue;
         const voice = normalizeCharacterVoice(entry);
-        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && !voice.ttsThought && voice.ttsVolume === 1 && !voice.ttsSpeed && !voice.ttsThoughtSpeed && voice.ttsThoughtVolume < 0 && !voice.ttsStyle) continue;
-        const { tts, ttsThought, ttsVolume, ttsSpeed, ttsThoughtSpeed, ttsThoughtVolume, ttsStyle, ...bark } = voice;
-        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsThought ? { ttsThought } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}), ...(ttsSpeed ? { ttsSpeed } : {}), ...(ttsThoughtSpeed ? { ttsThoughtSpeed } : {}), ...(ttsThoughtVolume >= 0 ? { ttsThoughtVolume } : {}), ...(ttsStyle ? { ttsStyle } : {}) };
+        if (!voice.pack && !voice.pitch && voice.speed === 1 && !voice.tts && !voice.ttsThought && voice.ttsVolume === 1 && !voice.ttsSpeed && !voice.ttsThoughtSpeed && voice.ttsThoughtVolume < 0 && !voice.ttsStyle && !voice.ttsGender) continue;
+        const { tts, ttsThought, ttsVolume, ttsSpeed, ttsThoughtSpeed, ttsThoughtVolume, ttsStyle, ttsGender, ...bark } = voice;
+        out[key] = { ...bark, ...(tts ? { tts } : {}), ...(ttsThought ? { ttsThought } : {}), ...(ttsVolume !== 1 ? { ttsVolume } : {}), ...(ttsSpeed ? { ttsSpeed } : {}), ...(ttsThoughtSpeed ? { ttsThoughtSpeed } : {}), ...(ttsThoughtVolume >= 0 ? { ttsThoughtVolume } : {}), ...(ttsStyle ? { ttsStyle } : {}), ...(ttsGender ? { ttsGender } : {}) };
     }
     return out;
 }
@@ -171,6 +173,8 @@ export function noteFormGender(name, gender) {
     if (gender) activeFormGenders.set(name, gender);
     else activeFormGenders.delete(name);
 }
+
+export const activeFormGender = (name) => (name && activeFormGenders.get(name)) || '';
 
 export function characterDnaGender(sceneAssets, name) {
     if (name && activeFormGenders.has(name)) return activeFormGenders.get(name);

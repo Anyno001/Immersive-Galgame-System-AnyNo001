@@ -29,6 +29,7 @@ import { ABILITY_KEYS, parseCombatInit, wantsAutoInit } from '../combat/abilitie
 import { ensureChallengeReportRegex, ensureCombatReportRegex } from '../host/combat-report-regex.js';
 import { challengeQuota } from '../scene/challenge-directives.js';
 import { deriveChallengeHistory } from '../combat/challenge-history.js';
+import { chatForCooldown, floorsSinceCombatStart } from '../scene/combat-prompt.js';
 import { combatBattleOn, dailyChallengeOn, normalizeCombatExpansionSettings } from '../visual/igs-ui/combat-settings.js';
 import { normalizeAutoIllustrationSettings } from '../generated-images/illustration/auto-illustration-settings.js';
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
@@ -1271,12 +1272,20 @@ export function createCombatServices(options = {}) {
     }
 
     // 日常挑战额度与冷却：floor 缺省取下一楼（提示词用），给定楼号时按该楼算（入口用）；没有启用日常挑战返回 null，数值系统未就绪时不设限。
-    function challengePromptQuota(floor = getChat().length) {
+    function challengePromptQuota(floor = getChat().length, generationType = null) {
+        if (generationType) floor = chatForCooldown(getChat(), generationType).length;
         const cfg = settings();
         if (!dailyChallengeOn(cfg)) return null;
         let snapshot = null;
         try { snapshot = typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null; } catch { snapshot = null; }
         return challengeQuota(snapshot ? { clock: snapshot.clock } : null, { perDay: cfg.daily.perDay, cooldownFloors: cfg.daily.cooldownFloors, floor });
+    }
+
+    // 距离上一场战斗开战楼的楼数（下一层与该楼之差）；只在聊天末尾 window 层内扫描开战标签，没有返回 null。
+    function combatSinceStart(window, generationType = null) {
+        const chat = chatForCooldown(getChat(), generationType);
+        const filter = getSourceFilter();
+        return floorsSinceCombatStart(chat, window, (message, index) => locateCombatStart(chat, index, filter, { combat: true }).ok);
     }
 
     // 挑战历史：只读聊天里用户楼的战报，不写任何存储。
@@ -1384,7 +1393,7 @@ export function createCombatServices(options = {}) {
     return {
         getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
         drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,
         // 以下为新增：计数快照（不改既有导出）

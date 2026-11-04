@@ -42,7 +42,7 @@ export const PLANNER_SYSTEM_PROMPT = [
     ...CG_COMPOSITION_GUIDE,
     '',
     ...PLANNER_SELECTION_RULES,
-    '3. 正文标记为 NSFW 场景时，照实描写画面所需的成人内容 tag，不要回避或替换。',
+    '3. 正文标记为 NSFW 场景时，照实描写画面所需的成人内容 tag，不要回避或替换。画面中露出的器官用准确的 tag 写明，例如 nipples、areolae、pussy、clitoris、labia、anus、pubic hair、penis、erection、testicles，只写画面里实际可见的部位。',
     '',
     ...PLANNER_TAG_RULES,
 ].join('\n');

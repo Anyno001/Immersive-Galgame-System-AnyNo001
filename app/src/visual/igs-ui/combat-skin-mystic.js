@@ -147,7 +147,7 @@ function leadHtml(hero, v, pick) {
     const chips = `${hero.block ? `<span class="chip">${ICON.shield}<b>${esc(hero.block)}</b></span>` : ''}${hero.statuses.map((s) => `<span class="chip">${esc(s.label)} <b>${esc(s.stacks)}</b></span>`).join('')}`;
     return `<div class="lead ${unitCls(hero, ok)}"${unitData(hero)}>`
         + `<div class="face cx-face"${unitAct(hero, ok)}><span class="pic">${face((v.portraits || {})[hero.name], hero.name)}</span><svg viewBox="-50 -50 100 100" class="tk" aria-hidden="true">${dots(46, 40, 2.4, '#8c7d4e')}</svg>${awBtn}</div>`
-        + `<div class="info"><div class="n"><span class="nmw">${esc(hero.name)}</span><span class="hp"><b>${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, true)}<div class="chips">${chips}</div></div></div>`;
+        + `<div class="info"><div class="n"><span class="nmw">${esc(hero.name)}</span><span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, true)}<div class="chips">${chips}</div></div></div>`;
 }
 
 function mateHtml(u, v, pick) {

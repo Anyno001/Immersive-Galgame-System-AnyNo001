@@ -11,7 +11,7 @@ export const CHALLENGE_STAKES = Object.freeze({
 export const CHALLENGE_ENABLED_STAKES = Object.freeze(['压力', '体力', '金钱', '关系']);
 export const CHALLENGE_DEFAULT_TIER = '普通';
 export const CHALLENGE_DEFAULT_STAKE = '压力';
-export const CHALLENGE_QUOTA = Object.freeze({ perDay: 1, perDayMax: 3, cooldownFloors: 8 });
+export const CHALLENGE_QUOTA = Object.freeze({ perDay: 1, perDayMax: 5, cooldownFloors: 8 });
 
 const NAME_MAX = 20;
 const FIELD_MAX = 5;
@@ -58,11 +58,13 @@ function withoutTrailingMarkers(body) {
 
 // 每个游戏日的挑战上限与楼数冷却；state 是数值存档，settings 为 { perDay, cooldownFloors, floor }。
 export function challengeQuota(state, settings = {}) {
-    const perDay = Math.min(CHALLENGE_QUOTA.perDayMax, Math.max(1, Math.floor(Number(settings.perDay)) || CHALLENGE_QUOTA.perDay));
+    const rawPerDay = settings.perDay === null || settings.perDay === '' || settings.perDay === undefined ? NaN : Math.floor(Number(settings.perDay));
+    // perDay 为 0 表示不限次数。
+    const perDay = Number.isFinite(rawPerDay) ? Math.min(CHALLENGE_QUOTA.perDayMax, Math.max(0, rawPerDay)) : CHALLENGE_QUOTA.perDay;
     const cooldown = Number.isFinite(Number(settings.cooldownFloors)) ? Math.max(0, Math.floor(Number(settings.cooldownFloors))) : CHALLENGE_QUOTA.cooldownFloors;
     const clock = state?.clock || {};
     const used = Math.max(0, Math.floor(Number(clock.challenges)) || 0);
-    if (used >= perDay) return { ok: false, reason: 'quota', used, perDay };
+    if (perDay > 0 && used >= perDay) return { ok: false, reason: 'quota', used, perDay };
     const last = Number(clock.lastChallengeFloor);
     const floor = Number(settings.floor);
     if (Number.isInteger(last) && Number.isInteger(floor) && floor - last < cooldown) return { ok: false, reason: 'cooldown', used, perDay };

@@ -325,7 +325,40 @@ export function extractCombatStart(raw, options = {}) {
     const start = { ...parsed.value, ...locateOf(last) };
     const awaken = pickAwaken(body, tags, last, diagnostics);
     if (awaken) start.awaken = awaken;
+    const lines = pickCombatLines(tags, last, diagnostics);
+    if (lines.length) start.lines = lines;
     return { start, diagnostics };
+}
+
+// 战斗台词 [igs-combat:lines|角色|开场|出招|受击|倒下]：只给面板演出与朗读，不进账本、不改战斗结算。
+// 四段各用「/」写多句，每句不超过 LINES_SENTENCE_MAX 字、每段不超过 LINES_PER_PHASE 句；每个角色取第一条，最多 LINES_MAX_CHARACTERS 人。
+// 必须写在开战标签之前（开战标签之后的 lines 忽略）。
+const LINES_SENTENCE_MAX = 20;
+const LINES_PER_PHASE = 4;
+const LINES_MAX_CHARACTERS = 6;
+const LINES_PHASES = Object.freeze(['open', 'attack', 'hit', 'down']);
+
+function parseLinePhase(value) {
+    return String(value ?? '').split(/[\/／]+/).map((part) => part.trim()).filter((part) => part && part.length <= LINES_SENTENCE_MAX).slice(0, LINES_PER_PHASE);
+}
+
+function pickCombatLines(tags, startTag, diagnostics) {
+    const out = [];
+    const seen = new Set();
+    for (const tag of tags) {
+        if (tag.kind !== 'lines') continue;
+        if (tag.index > startTag.index) { diagnostics.push({ code: 'combat-lines-after-start', ...locateOf(tag) }); continue; }
+        const character = textField('character', tag.fields[0], NAME_MAX, true);
+        if (!character.ok) { diagnostics.push({ code: 'combat-lines-invalid', field: character.field, problem: character.problem, ...locateOf(tag) }); continue; }
+        if (seen.has(character.value)) { diagnostics.push({ code: 'combat-lines-duplicate', ...locateOf(tag) }); continue; }
+        const entry = { character: character.value };
+        LINES_PHASES.forEach((phase, i) => { entry[phase] = parseLinePhase(tag.fields[i + 1]); });
+        if (!LINES_PHASES.some((phase) => entry[phase].length)) { diagnostics.push({ code: 'combat-lines-invalid', field: 'lines', problem: 'required', ...locateOf(tag) }); continue; }
+        seen.add(character.value);
+        out.push(entry);
+        if (out.length >= LINES_MAX_CHARACTERS) break;
+    }
+    return out;
 }
 
 // 提取成长指令。经验按角色每楼封顶，属性点按角色每楼封顶；超出部分截断并记诊断。
@@ -338,7 +371,7 @@ export function extractGrowthDirectives(raw, options = {}) {
     const directives = [];
     const diagnostics = [];
     for (const tag of scanCombatTags(body)) {
-        if (tag.kind === 'start' || tag.kind === 'awaken') continue;
+        if (tag.kind === 'start' || tag.kind === 'awaken' || tag.kind === 'lines') continue;
         if (!COMBAT_GROWTH_KINDS.includes(tag.kind)) {
             diagnostics.push({ code: 'combat-tag-unknown', kind: tag.kind, ...locateOf(tag) });
             continue;

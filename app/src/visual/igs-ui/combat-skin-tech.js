@@ -138,7 +138,7 @@ function leadHtml(hero, v, pick) {
     const chips = `${hero.block ? `<span class="chip">${ICON.shield}<b>${esc(hero.block)}</b></span>` : ''}${hero.statuses.map((s) => `<span class="chip">${esc(s.label)} <b>${esc(s.stacks)}</b></span>`).join('')}`;
     return `<div class="lead ${unitCls(hero, ok)}"${unitData(hero)}>`
         + `<div class="ava"><span class="face cx-face"${unitAct(hero, ok)}>${face(pics[hero.name], hero.name)}</span>${awBtn}</div>`
-        + `<div class="info"><div class="n">${esc(hero.name)}${hero.controlled ? '<span class="ctl">操控</span>' : ''}<span class="hp"><b>${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, 'ally seg')}`
+        + `<div class="info"><div class="n">${esc(hero.name)}${hero.controlled ? '<span class="ctl">操控</span>' : ''}<span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, 'ally seg')}`
         + `<div class="chips">${chips}</div></div></div>`;
 }
 

@@ -84,15 +84,30 @@ function counter(item, env) {
     return { layer: 'front', life: lifeOf(3600, env), sounds: prev !== count ? ['nsfw-count'] : [], node };
 }
 
-const SHEET_SVG = '<svg viewBox="0 0 120 70" aria-hidden="true"><path d="M0 70V34Q14 24 30 30T62 24Q82 20 96 34T120 40V70Z" fill="#e9e1d6"/><path d="M0 70V50Q16 42 34 48T70 44Q92 42 120 52V70Z" fill="#d6cbbd"/><path d="M30 30Q40 40 36 54M62 24Q72 36 68 46" fill="none" stroke="#b9ab9a" stroke-width="1.6" stroke-linecap="round"/></svg>';
+// 余温的镜头：先是渐弱的余颤，再像呼出一口长气般缓缓下沉放松，最后回正；只动独立属性，不占 transform。
+function afterCamera(env, life) {
+    const motion = env.root.querySelector('#igs-stage-motion');
+    if (!motion || typeof motion.animate !== 'function') return;
+    const tremor = [0, 1.6, -1.3, 1, -0.7, 0.4, -0.2, 0].map((px, i) => ({ translate: `${round(px)}px ${round(i % 2 ? -px * 0.4 : px * 0.4)}px` }));
+    try {
+        motion.animate(tremor, { duration: 1100, easing: 'ease-out', composite: 'add' });
+        motion.animate([
+            { scale: '1', translate: '0 0' },
+            { scale: '1.012', translate: '0 3px', offset: 0.35 },
+            { scale: '1.018', translate: '0 5px', offset: 0.8 },
+            { scale: '1', translate: '0 0' },
+        ], { duration: life, easing: 'cubic-bezier(.4,0,.3,1)', composite: 'add' });
+    } catch { /* 不支持独立属性时不动镜头 */ }
+}
 
-// 余温：暗角收拢、立绘慢呼吸、额侧汗光、画角一抹凌乱的被单，底边一条时间推移的细线。
+// 余温：暗角收拢、立绘慢呼吸、额侧汗光；镜头余颤后缓沉，声音是渐慢渐轻的心跳与两次长呼吸。不画任何图形。
 function aftermath(item, env) {
     const caption = item.text ? `<div class="igs-nfx-after-text">${esc(item.text)}</div>` : '';
     const head = headPoint(env, env.speaker);
     const drops = [[-0.28, 0.1], [0.3, 0.32], [-0.1, 0.62]].map(([dx, dy], i) => `<i class="igs-nfx-sweat" style="left:${roundTo(clampNum(head.x + dx * head.d, 3, 97))}%;top:${roundTo(clampNum(head.y + (dy - 0.3) * head.d * 1.4, 3, 90))}%;--igs-nfx-i:${i}"></i>`).join('');
-    const node = make(env.doc, `igs-dfx igs-nfx igs-nfx-after ${skin(env)}`, `<div class="igs-nfx-afterglow"></div><div class="igs-nfx-sweats">${drops}</div><div class="igs-nfx-sheet">${SHEET_SVG}</div><div class="igs-nfx-after-time"><i></i></div>${caption}`);
+    const node = make(env.doc, `igs-dfx igs-nfx igs-nfx-after ${skin(env)}`, `<div class="igs-nfx-afterglow"></div><div class="igs-nfx-sweats">${drops}</div>${caption}`);
     const life = lifeOf(7000, env);
+    if (!env.reduced) afterCamera(env, life);
     reactSprite(env, env.speaker, [at(0, 'translate(0,0) scale(1)'), at(0.5, 'translate(0,.5%) scale(1.006,1.01)'), at(1, 'translate(0,0) scale(1)')], { duration: 2600, iterations: Math.max(1, Math.floor(life / 2600)) });
     return { layer: 'front', life, sounds: ['nsfw-after'], node };
 }
