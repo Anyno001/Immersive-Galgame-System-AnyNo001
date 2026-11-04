@@ -18,6 +18,9 @@ export const SETTINGS_CATEGORIES = Object.freeze([
     Object.freeze(['data', '数据']),
 ]);
 
+// 侧边栏小组标题：键为该组第一个分类 id。
+export const SETTINGS_NAV_GROUPS = Object.freeze({ style: '阅读体验', chars: '素材与生图', stats: '玩法与数据' });
+
 // [页面 id, 子页名, 所属分类]
 export const SETTINGS_PAGES = Object.freeze([
     Object.freeze(['dash', '仪表盘', 'dash']),

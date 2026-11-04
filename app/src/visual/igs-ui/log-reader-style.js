@@ -109,7 +109,7 @@ ${ON}.igs-options-visible #igs-log :is(.igs-log-scroll,.igs-log-veil){opacity:0;
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-name .igs-log-chip{order:-1;}
 #igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-av>.igs-fx-symbol{left:calc(var(--igs-log-sym-xl,calc(0px - 12px * var(--igs-log-mk) + var(--igs-fx-size) * .6)) - var(--igs-fx-size) * .6);}
 /* 靠右：短句贴右，长句换行后仍左对齐（整块靠右），不出参差的左边。 */
-#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-text{display:table;margin-left:auto;text-align:left;}
+#igs-log[data-user-side="right"] .igs-log-row.is-user .igs-log-text{display:block;width:max-content;max-width:100%;margin-left:auto;}
 
 /* 旁白：通栏等宽；段首放句末等待符号（跟随皮肤与用户选的形状）。 */
 #igs-log .igs-log-row.is-narr{grid-template-columns:1fr;}
@@ -163,11 +163,14 @@ ${getLogFrameStyleText()}
 @keyframes igs-log-shake-sym{0%,62%,100%{transform:none;}66%{transform:rotate(-10deg) scale(1.1);}72%{transform:rotate(8deg) scale(1.1);}78%{transform:rotate(-4deg);}}
 /* 调整立绘：头像描一圈强调色，可拖动、滚轮 / 双指缩放。 */
 #igs-log[data-editing] .igs-log-av:not(.is-letter){box-shadow:0 0 0 2px var(--igs-log-acc);cursor:grab;touch-action:none;}
+#igs-log[data-editing] .igs-log-av[data-picked]:not(.is-letter){box-shadow:0 0 0 2px rgb(var(--igs-log-veil)),0 0 0 4px var(--igs-log-acc);}
 #igs-log[data-editing] .igs-log-row.is-cont .igs-log-av{visibility:hidden;}
 /* 编辑条放在输入框上方，不被输入框盖住。 */
 #igs-log-edit-bar{position:absolute;left:50%;bottom:calc(var(--igs-log-foot) + 12px);transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:4px;max-width:calc(100% - 24px);padding:4px 4px 4px 14px;border-radius:18px;background:rgb(var(--igs-log-veil));color:var(--igs-log-ink);font-size:12px;line-height:1;pointer-events:auto;}
-#igs-log-edit-bar span{margin-right:6px;color:var(--igs-log-sub);white-space:nowrap;}
-#igs-log-edit-bar button{height:28px;min-width:52px;padding:0 12px;border:0;border-radius:999px;background:var(--igs-log-plate);color:inherit;font:inherit;cursor:pointer;white-space:nowrap;}
+#igs-log-edit-bar span{min-width:0;margin-right:6px;overflow:hidden;text-overflow:ellipsis;color:var(--igs-log-sub);white-space:nowrap;}
+#igs-log-edit-bar button{flex:none;height:28px;min-width:52px;padding:0 12px;border:0;border-radius:999px;background:var(--igs-log-plate);color:inherit;font:inherit;cursor:pointer;white-space:nowrap;}
+#igs-log-edit-bar button[data-log-zoom]{min-width:36px;padding:0;font-size:16px;}
+#igs-log-edit-bar button:disabled{color:var(--igs-log-sub);cursor:default;}
 #igs-log-edit-bar button[data-log-edit="save"]{background:var(--igs-log-acc);color:rgb(var(--igs-log-veil));font-weight:600;}
 @media (prefers-reduced-motion:reduce){#igs-log .igs-fx-symbol,#igs-log .igs-fx-symbol *,#igs-log .igs-log-fl,#igs-log .igs-log-fade,#igs-log .igs-log-row.is-shake .igs-log-body,#igs-log .igs-log-flash.is-on{animation:none!important;}#igs-log .igs-log-fl{opacity:1;}}
 `;

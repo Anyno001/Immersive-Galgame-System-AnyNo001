@@ -68,6 +68,12 @@ function bindLog(overlay, log) {
         const target = event.target && event.target.closest ? event.target : null;
         if (!target) return;
         const editBtn = target.closest('[data-log-edit]');
+        const zoomBtn = target.closest('[data-log-zoom]');
+        if (zoomBtn) {
+            event.stopPropagation();
+            if (s.editing && s.editing.pick) zoomBy(s.editing.pick, zoomBtn.getAttribute('data-log-zoom') === 'in' ? 1.06 : 1 / 1.06);
+            return;
+        }
         if (editBtn) { event.stopPropagation(); finishEdit(overlay, editBtn.getAttribute('data-log-edit')); return; }
         if (s.editing) return;
         const row = target.closest('.igs-log-row');
@@ -103,14 +109,31 @@ function bindLog(overlay, log) {
         s.editing.adjust[key] = clampLogAdjust({ ...a, z: a.z * k });
         repaintKey(overlay, key);
     };
+    const pickAvatar = (key) => {
+        if (s.editing.pick === key) return;
+        s.editing.pick = key;
+        repaintKey(overlay, '');
+        for (const btn of log.querySelectorAll('#igs-log-edit-bar [data-log-zoom]')) btn.disabled = false;
+    };
     log.addEventListener('pointerdown', (event) => {
-        const av = s.editing && event.target.closest && event.target.closest('.igs-log-av[data-url]:not([data-cover])');
+        if (!s.editing) return;
+        // 第一指按住头像后，第二指落在列表任意位置都算双指缩放（手机头像太小，放不下两指）。
+        if (drag && pinch.size === 1 && !(event.target.closest && event.target.closest('#igs-log-edit-bar'))) {
+            event.preventDefault();
+            pinch.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            try { log.setPointerCapture(event.pointerId); } catch (_) { /* 旧浏览器 */ }
+            drag.dist = 0;
+            return;
+        }
+        const av = event.target.closest && event.target.closest('.igs-log-av[data-url]:not([data-cover])');
         if (!av) return;
         event.preventDefault();
         pinch.set(event.pointerId, { x: event.clientX, y: event.clientY });
         try { av.setPointerCapture(event.pointerId); } catch (_) { /* 旧浏览器 */ }
         drag = { key: av.dataset.key, x: event.clientX, y: event.clientY, dist: 0 };
+        pickAvatar(av.dataset.key);
     });
+    log.addEventListener('touchmove', (event) => { if (drag && s.editing) event.preventDefault(); }, { passive: false });
     log.addEventListener('pointermove', (event) => {
         if (!drag || !s.editing || !pinch.has(event.pointerId)) return;
         pinch.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -128,13 +151,23 @@ function bindLog(overlay, log) {
         drag.y = event.clientY;
         repaintKey(overlay, drag.key);
     });
-    const release = (event) => { pinch.delete(event.pointerId); if (!pinch.size) drag = null; else if (drag) drag.dist = 0; };
+    const release = (event) => {
+        pinch.delete(event.pointerId);
+        if (!pinch.size) { drag = null; return; }
+        if (!drag) return;
+        // 双指松开一指：从剩下那根手指的位置接着拖，不跳。
+        const [rest] = pinch.values();
+        drag.dist = 0;
+        drag.x = rest.x;
+        drag.y = rest.y;
+    };
     log.addEventListener('pointerup', release);
     log.addEventListener('pointercancel', release);
     log.addEventListener('wheel', (event) => {
         const av = s.editing && event.target.closest && event.target.closest('.igs-log-av[data-url]:not([data-cover])');
         if (!av) return;
         event.preventDefault();
+        pickAvatar(av.dataset.key);
         zoomBy(av.dataset.key, event.deltaY < 0 ? 1.06 : 1 / 1.06);
     }, { passive: false });
 }
@@ -179,6 +212,7 @@ function paintAvatar(overlay, av) {
     const s = stateOf(overlay);
     const url = av.dataset.url;
     if (!url || !s.view) return;
+    av.toggleAttribute('data-picked', !!(s.editing && s.editing.pick === av.dataset.key));
     const doc = overlay.ownerDocument;
     const shape = s.view.settings.avatarShape;
     const box = shape === 'break' ? LOG_AVATAR_BOX.break : LOG_AVATAR_BOX.card;
@@ -586,7 +620,7 @@ export function toggleLogEdit(overlay) {
     log.setAttribute('data-editing', '');
     const bar = el(overlay.ownerDocument, 'div');
     bar.id = 'igs-log-edit-bar';
-    bar.innerHTML = '<span>拖动头像调整取景，滚轮或双指缩放</span><button type="button" data-log-edit="reset">重置</button><button type="button" data-log-edit="cancel">取消</button><button type="button" data-log-edit="save">保存</button>';
+    bar.innerHTML = '<span>拖动头像取景，双指或－＋缩放</span><button type="button" data-log-zoom="out" disabled aria-label="缩小">－</button><button type="button" data-log-zoom="in" disabled aria-label="放大">＋</button><button type="button" data-log-edit="reset">重置</button><button type="button" data-log-edit="cancel">取消</button><button type="button" data-log-edit="save">保存</button>';
     log.append(bar);
     return true;
 }

@@ -4,6 +4,7 @@ import { mermaidToneVars } from './dialog-theme-mermaid.js';
 import { resolveSpeakerMagicHouse } from './magic-house.js';
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
+import { SETTINGS_NAV_GROUPS } from './settings-pages.js';
 import { normalizeCombatExpansionSettings } from './combat-settings.js';
 import { ORIGINAL_READER_ICONS, ORIGINAL_READER_TOOLBAR_BUTTONS } from './original-reader-source.js';
 import { DIALOG_ONLY_BUTTONS, TOOLBAR_ACTIONS } from './reader-host-constants.js';
@@ -450,6 +451,12 @@ export function buildFallbackSettingsOverlay(doc, snapshot, ctx = {}) {
     nav.className = 'igs-settings-nav';
     main.appendChild(nav);
     for (const tab of snapshot.tabs || []) {
+        if (SETTINGS_NAV_GROUPS[tab.id]) {
+            const group = doc.createElement('div');
+            group.className = 'igs-settings-nav-group';
+            group.textContent = SETTINGS_NAV_GROUPS[tab.id];
+            nav.appendChild(group);
+        }
         const button = doc.createElement('button');
         button.className = `igs-settings-nav-item${tab.active ? ' is-active' : ''}`;
         button.type = 'button';

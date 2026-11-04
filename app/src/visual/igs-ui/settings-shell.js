@@ -1,5 +1,7 @@
 // 设置器外壳：头部（☰、标题、配色、版本、关闭）、左侧分类栏、搜索、内容。
 // 窄屏时分类栏收起，点 ☰ 从左侧滑出（开关记在 #igs-unified-settings 的 data-igs-nav 上，重绘不会丢）。
+import { SETTINGS_NAV_GROUPS } from './settings-pages.js';
+
 const SETTINGS_SHELL_TEMPLATE = `
 <div class="igs-settings-shell" role="dialog" aria-modal="true" aria-label="设置">
   <div class="igs-settings-head">
@@ -30,5 +32,5 @@ export function getSettingsShellTemplate() {
 
 // 侧边栏：一行一个分类的竖排扁平文字。
 export function renderSettingsNav(categories, activeCategory, escape = (value) => String(value)) {
-    return categories.map(([id, label]) => `<button type="button" class="igs-settings-nav-item${id === activeCategory ? ' is-active' : ''}" data-cat="${escape(id)}"${id === activeCategory ? ' aria-current="page"' : ''}>${escape(label)}</button>`).join('');
+    return categories.map(([id, label]) => `${SETTINGS_NAV_GROUPS[id] ? `<div class="igs-settings-nav-group">${escape(SETTINGS_NAV_GROUPS[id])}</div>` : ''}<button type="button" class="igs-settings-nav-item${id === activeCategory ? ' is-active' : ''}" data-cat="${escape(id)}"${id === activeCategory ? ' aria-current="page"' : ''}>${escape(label)}</button>`).join('');
 }
