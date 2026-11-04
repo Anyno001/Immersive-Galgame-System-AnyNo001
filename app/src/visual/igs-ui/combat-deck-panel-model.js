@@ -3,15 +3,19 @@ import { scaleCard } from '../../combat/card-scaling.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, REL_TIERS, abilityMod, normalizeManualScores, prefsFromScores } from '../../combat/abilities.js';
 import { characterCombatStats, vitalsOf } from '../../combat/session.js';
 import { injuryLevel } from '../../combat/report.js';
-import { describeEffects } from './combat-card-art.js';
+import { describeEffects, describeKeywords } from './combat-card-art.js';
 import { sellPrice } from '../../combat/points.js';
 import { defaultHeroSkill } from '../../combat/card-templates.js';
 import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
 
-// 构筑面板按当前六维预览卡牌性能：固定卡或没有属性视图时不带字段。
-function scalingPreview(card, attr) {
-    const s = card && attr?.scores ? scaleCard(card, attr).scaling : null;
-    return s ? { scaling: { ability: s.ability, label: ABILITY_LABELS[s.ability] || s.ability, required: s.required, multiplier: s.multiplier } } : {};
+// 复用战斗换算与说明，预览普通版和升级版；固定卡不带倍率。
+function cardPreview(card, attr) {
+    const preview = scaleCard(card, attr);
+    const s = preview?.scaling;
+    const text = (c) => [describeKeywords(c), describeEffects(c?.effects)].filter(Boolean).join('。');
+    return { text: text(preview), upgradedText: preview?.upgraded ? text({ ...preview, ...preview.upgraded }) : '',
+        upgradedCost: preview?.upgraded?.cost ?? preview?.cost,
+        ...(s ? { scaling: { ability: s.ability, label: ABILITY_LABELS[s.ability] || s.ability, required: s.required, multiplier: s.multiplier } } : {}) };
 }
 
 // 卡组构筑面板的纯视图模型：账本归并状态 → 角色列表 / 详情 / 构筑草稿校验；不操作 DOM、不写表。
@@ -153,12 +157,19 @@ export function deckDetailView(view, draft) {
     for (const id of cards) inDeck.set(id, (inDeck.get(id) || 0) + 1);
     // X 费排在 3 费之后（Number('X') 为 NaN，会打乱排序）。
     const costRank = (c) => (c === 'X' ? 4 : Number(c));
-    const owned = [...view.owned.entries()].filter(([, n]) => n > 0).map(([id, n]) => {
+    const personalIds = new Set((view.profile?.personalPool || []).map((c) => c.id));
+    const classIds = new Set((view.classProfile?.classPool || []).map((c) => c.id));
+    const cardView = (id, n) => {
         const card = view.catalog.get(id);
         return { cardId: id, name: card?.name || id, type: card?.type || '', cost: card?.cost ?? '', rarity: card?.rarity || '', owned: n,
+            source: personalIds.has(id) ? '个人牌' : classIds.has(id) ? '职业牌' : card?.rarity === 'basic' ? '基础牌' : card?.rarity === 'signature' ? '专属牌' : '其他已持有',
             upgraded: view.upgraded.get(id) || 0, inDeck: inDeck.get(id) || 0, errors: check.byCard.get(id) || [],
-            canAdd: (inDeck.get(id) || 0) < Math.min(n, cardCopyLimit(card?.rarity)), ...scalingPreview(card, view.attributes) };
-    }).sort((a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : costRank(a.cost) - costRank(b.cost)));
+            canAdd: (inDeck.get(id) || 0) < Math.min(n, cardCopyLimit(card?.rarity)), ...cardPreview(card, view.attributes) };
+    };
+    const sortCards = (a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : costRank(a.cost) - costRank(b.cost));
+    const owned = [...view.owned.entries()].filter(([, n]) => n > 0).map(([id, n]) => cardView(id, n)).sort(sortCards);
+    // 职业池只供预览，拥有数为零的牌不能在此直接加入卡组；含升阶追加卡，不含锁定专属。
+    const classCandidates = [...classIds].filter((id) => !(view.owned.get(id) > 0)).map((id) => cardView(id, 0)).sort(sortCards);
     const profile = view.profile || {};
     // 专属卡（v0.39.2）：按槽位列出，第 i 张在 signatureUnlockLevels[i] 级解锁；未解锁的不透露名称与效果，只给解锁等级。
     const signature = COMBAT_RULES.signatureUnlockLevels.map((level, i) => {
@@ -174,7 +185,7 @@ export function deckDetailView(view, draft) {
         classRef: view.classRef ?? null, classTier: view.classTier || 1, tierName: view.tierName || '', expLevel: view.level ?? 1,
         classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name, text: describeEffects(view.classProfile.classPassive.effects) } : null,
         personalPassive: profile.personalPassive ? { name: profile.personalPassive.name, text: describeEffects(profile.personalPassive.effects) } : null,
-        owned, signature, deck: cards, check, dirty: Boolean(draft) && draft.join('|') !== view.deck.join('|'),
+        owned, classCandidates, signature, deck: cards, check, dirty: Boolean(draft) && draft.join('|') !== view.deck.join('|'),
         pendingRewards: [...view.pendingRewards],
     };
 }

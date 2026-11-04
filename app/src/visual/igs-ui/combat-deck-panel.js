@@ -1,3 +1,4 @@
+import { createCombatGenerationForm } from './combat-generation-form.js';
 import { setStagePauseReason } from './stage-pause.js';
 import { allocView, classChoices, DECK_PAGES, deckDetailView, deckRosterView, isCombatBusy, manualBuildView, validateDraft } from './combat-deck-panel-model.js';
 import { deckReasonText, renderCombatDeckPanelHtml } from './combat-deck-panel-render.js';
@@ -58,6 +59,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
     // 主角卡组预生成状态订阅：生成中 / 重试中 / 失败在面板内显示并可手动重试；就绪后重读账本。
     let offProtagonist = null;
 
+    const generationForm = createCombatGenerationForm({ inspect: options.inspectGenerationMaterials, render, errorText: deckReasonText });
     const ledger = () => (typeof options.getLedger === 'function' ? options.getLedger() : null);
     const session = () => (typeof options.getSession === 'function' ? options.getSession() : null);
     const sessionState = () => { try { return session()?.state() || null; } catch (error) { return null; } };
@@ -111,7 +113,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const readonly = isCombatBusy(ss);
         const still = reduced();
         return {
-            status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait,
+            status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait, generationForm: generationForm.view(),
             selectedBuild, builds: builds.map((c) => ({ name: c.name, protagonist: c.protagonist })),
             reveal: reveal ? { phase: reveal.phase, rarity: reveal.rarity, traitId: reveal.traitId, fresh: reveal.phase === 'open' && !reveal.played && !still } : null,
             reduced: still,
@@ -139,6 +141,9 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const active = doc.activeElement;
         const had = Boolean(active && root?.contains?.(active));
         const act = had ? active.getAttribute?.('data-deck-act') : null;
+        const generationField = had ? active.getAttribute?.('data-generation-field') : null;
+        const caret = generationField ? [active.selectionStart, active.selectionEnd] : null;
+        generationForm.captureDetails(body);
         const id = had ? active.getAttribute?.('data-deck-id') || '' : '';
         // 卡面图异步到达也会重绘：保留主区滚动位置，不跳回顶部。
         const top = body.querySelector?.('.igs-deck-main')?.scrollTop || 0;
@@ -147,6 +152,12 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const scroller = top ? body.querySelector?.('.igs-deck-main') : null;
         if (scroller) scroller.scrollTop = top;
         if (!had) return;
+        if (generationField) {
+            const field = body.querySelector?.(`[data-generation-field="${generationField}"]`);
+            field?.focus?.();
+            if (caret && typeof field?.setSelectionRange === 'function' && caret[0] != null) field.setSelectionRange(...caret);
+            return;
+        }
         const same = act ? [...(body.querySelectorAll?.(`[data-deck-act="${act}"]`) || [])].find((n) => (n.getAttribute('data-deck-id') || '') === id) : null;
         (same || body.querySelector?.('[data-deck-act="close"]'))?.focus?.();
     }
@@ -181,7 +192,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         let b = null;
         if (wantBuilds) { try { b = await options.getBuildCandidates(); } catch (error) { b = { ok: false, reason: 'combat-ledger-read-failed' }; } }
         if (my !== token) return { ok: false, reason: 'request-stale' };
-        draft = null; allocDraft = null; manualDraft = null; rebuild = false; respec = null; ascend = false; trait = false;
+        draft = null; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false;
         const bad = l ? (st?.ok === true ? '' : st?.reason || 'combat-ledger-read-failed') : (b?.ok === true ? '' : b?.reason || 'combat-ledger-read-failed');
         if (bad) {
             state = null; builds = []; selectedBuild = null; status = 'error'; reason = bad;
@@ -205,14 +216,14 @@ export function createCombatDeckPanelController(doc, options = {}) {
 
     function select(id) {
         if (!state?.ok || !state.characters.has(id)) return { ok: false, reason: 'combat-character-missing' };
-        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
+        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
 
     function selectBuild(name) {
         if (!builds.some((c) => c.name === name)) return { ok: false, reason: 'combat-character-missing' };
-        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
+        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
@@ -311,6 +322,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
 
     // 职业名输入只改草稿、不重绘（保留焦点与输入法状态）。
     function onInput(event) {
+        if (pending) return;
+        if (generationForm.input(event)) return;
         if (event.target?.getAttribute?.('data-deck-input') !== 'manual-class') return;
         const m = manualOf(manualTarget());
         if (!m || !m.editable) return;
@@ -334,6 +347,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
         if (typeof options.generateDeckProfile !== 'function') return fail('combat-generate-unavailable');
         generate = { id, classRef: null };
+        generationForm.open(state.characters.get(id).name, 'generate');
         render();
         return { ok: true };
     }
@@ -351,7 +365,9 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
         const input = { name: view.name, classRef: generate.classRef };
         abort = typeof AbortController === 'function' ? new AbortController() : null;
-        const r = await run('generate', () => options.generateDeckProfile(input, { signal: abort?.signal }));
+        const formOptions = generationForm.options();
+        if (!formOptions.ok) return fail(formOptions.reason);
+        const r = await run('generate', () => options.generateDeckProfile(input, { ...formOptions, signal: abort?.signal }));
         abort = null;
         if (r.stale) return r;
         if (r.ok === true) { generate = null; if (r.id) selectedId = r.id; await load(); }
@@ -362,7 +378,12 @@ export function createCombatDeckPanelController(doc, options = {}) {
     async function retryProtagonist() {
         if (typeof options.retryProtagonist !== 'function') return fail('combat-generate-unavailable');
         if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
-        const r = await run('protagonist', () => options.retryProtagonist());
+        if (generationForm.view()?.kind !== 'protagonist' && protagonistOf()?.name) {
+            generationForm.open(protagonistOf().name, 'protagonist'); render(); return { ok: true };
+        }
+        const formOptions = generationForm.view() ? generationForm.options() : { ok: true };
+        if (!formOptions.ok) return fail(formOptions.reason);
+        const r = await run('protagonist', () => options.retryProtagonist(formOptions));
         if (r.stale) return r;
         if (r.ok === true) await load();
         else if (protagonistOf()?.status === 'failed') { notice = ''; render(); }
@@ -407,6 +428,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (view.attributes?.protagonist !== true) return fail('combat-points-not-protagonist');
         if ((view.points || 0) < REBUILD_COST) return fail('combat-points-insufficient');
         rebuild = true; respec = null; ascend = false; trait = false;
+        generationForm.open(view.name, 'rebuild');
         notice = '';
         render();
         body?.querySelector?.('[data-deck-act="rebuild-confirm"]')?.focus?.();
@@ -417,12 +439,13 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!rebuild) return { ok: false, reason: 'combat-rebuild-unavailable' };
         if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
         if (typeof options.regenerateDeck !== 'function') return fail('combat-rebuild-unavailable');
+        const formOptions = generationForm.options();
+        if (!formOptions.ok) return fail(formOptions.reason);
         abort = typeof AbortController === 'function' ? new AbortController() : null;
-        const r = await run('rebuild', () => options.regenerateDeck({ signal: abort?.signal }));
+        const r = await run('rebuild', () => options.regenerateDeck({ ...formOptions, signal: abort?.signal }));
         abort = null;
         if (r.stale) return r;
-        rebuild = false;
-        if (r.ok === true) await load(); else render();
+        if (r.ok === true) { rebuild = false; generationForm.reset(); await load(); } else render();
         return r;
     }
 
@@ -442,6 +465,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const g = heroAction('respecClass', 'respec');
         if (!g.ok) return g;
         if ((g.view.points || 0) < RESPEC_COST) return fail('combat-points-insufficient');
+        generationForm.reset();
         respec = { picked: false, classRef: null }; rebuild = false; ascend = false; trait = false; notice = '';
         render();
         return { ok: true };
@@ -453,6 +477,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (classRef && !state?.classes?.has(classRef)) return fail('combat-class-missing');
         if (classRef && classRef === selectedView()?.classRef) return fail('combat-respec-same-class');
         respec = { picked: true, classRef };
+        if (classRef) generationForm.reset(); else generationForm.open(selectedView().name, 'respec');
         notice = '';
         render();
         body?.querySelector?.('[data-deck-act="respec-confirm"]')?.focus?.();
@@ -464,12 +489,13 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const g = heroAction('respecClass', 'respec');
         if (!g.ok) return g;
         const { classRef } = respec;
+        const formOptions = classRef ? { ok: true } : generationForm.options();
+        if (!formOptions.ok) return fail(formOptions.reason);
         abort = typeof AbortController === 'function' ? new AbortController() : null;
-        const r = await run('respec', () => options.respecClass({ ...(classRef ? { classRef } : {}), signal: abort?.signal }));
+        const r = await run('respec', () => options.respecClass({ ...formOptions, ...(classRef ? { classRef } : {}), signal: abort?.signal }));
         abort = null;
         if (r.stale) return r;
-        respec = null;
-        if (r.ok === true) await load(); else render();
+        if (r.ok === true) { respec = null; generationForm.reset(); await load(); } else render();
         return r;
     }
 
@@ -482,6 +508,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!rule) return fail('combat-ascend-max');
         if ((g.view.level || 1) < rule.level) return fail('combat-ascend-level-unreached');
         if ((g.view.points || 0) < rule.cost) return fail('combat-points-insufficient');
+        generationForm.open(g.view.name, 'ascend');
         ascend = true; rebuild = false; respec = null; trait = false; notice = '';
         render();
         body?.querySelector?.('[data-deck-act="ascend-confirm"]')?.focus?.();
@@ -492,12 +519,13 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!ascend) return { ok: false, reason: 'combat-ascend-unavailable' };
         const g = heroAction('ascendClass', 'ascend');
         if (!g.ok) return g;
+        const formOptions = generationForm.options();
+        if (!formOptions.ok) return fail(formOptions.reason);
         abort = typeof AbortController === 'function' ? new AbortController() : null;
-        const r = await run('ascend', () => options.ascendClass({ signal: abort?.signal }));
+        const r = await run('ascend', () => options.ascendClass({ ...formOptions, signal: abort?.signal }));
         abort = null;
         if (r.stale) return r;
-        ascend = false;
-        if (r.ok === true) await load(); else render();
+        if (r.ok === true) { ascend = false; generationForm.reset(); await load(); } else render();
         return r;
     }
 
@@ -508,6 +536,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!g.ok) return g;
         if (g.view.pendingTrait) return fail('combat-trait-pending');
         if ((g.view.points || 0) < TRAIT_DRAW_COST) return fail('combat-points-insufficient');
+        generationForm.reset();
         trait = true; rebuild = false; respec = null; ascend = false; notice = '';
         render();
         body?.querySelector?.('[data-deck-act="trait-confirm"]')?.focus?.();
@@ -597,6 +626,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
     function invoke(name, id = '') {
         if (name === 'close') return close();
         if (!root) return { ok: false, reason: 'combat-panel-closed' };
+        if (pending) return { ok: false, reason: 'combat-busy' };
         switch (name) {
             case 'reload': return load();
             case 'select': return select(id);
@@ -607,7 +637,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'save': return save();
             case 'page':
                 if (!DECK_PAGES.includes(id)) return fail('combat-page-invalid');
-                page = id; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; render();
+                page = id; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; reveal = null; notice = ''; render();
                 return { ok: true, page };
             case 'alloc-add': return allocEdit(id, 1);
             case 'alloc-remove': return allocEdit(id, -1);
@@ -624,16 +654,18 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'set-tier': return setTier(id);
             case 'equip': return setGear(id, true);
             case 'unequip': return setGear(id, false);
+            case 'generation-cancel': generationForm.reset(); render(); return { ok: true };
+            case 'generation-refresh': return generationForm.refresh();
             case 'rebuild-open': return rebuildOpen();
             case 'rebuild-confirm': return rebuildConfirm();
-            case 'rebuild-cancel': rebuild = false; notice = ''; render(); return { ok: true };
+            case 'rebuild-cancel': generationForm.reset(); rebuild = false; notice = ''; render(); return { ok: true };
             case 'respec-open': return respecOpen();
             case 'respec-pick': return respecPick(id);
             case 'respec-confirm': return respecConfirm();
-            case 'respec-cancel': respec = null; notice = ''; render(); return { ok: true };
+            case 'respec-cancel': generationForm.reset(); respec = null; notice = ''; render(); return { ok: true };
             case 'ascend-open': return ascendOpen();
             case 'ascend-confirm': return ascendConfirm();
-            case 'ascend-cancel': ascend = false; notice = ''; render(); return { ok: true };
+            case 'ascend-cancel': generationForm.reset(); ascend = false; notice = ''; render(); return { ok: true };
             case 'trait-open': return traitOpen();
             case 'trait-confirm': return traitConfirm();
             case 'trait-cancel': trait = false; notice = ''; render(); return { ok: true };
@@ -641,7 +673,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'trait-drop': return traitDrop(id);
             case 'trait-slot': return traitSlot();
             case 'card-art': return generateArt(id);
-            case 'cancel': generate = null; notice = ''; render(); return { ok: true };
+            case 'cancel': generationForm.reset(); generate = null; notice = ''; render(); return { ok: true };
             case 'retry-protagonist': return retryProtagonist();
             case 'retry-tables': return retryTables();
             case 'retry-send': {
@@ -678,7 +710,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-combat-container' };
         if (!ledger() && !(buildEntryOn() && manualOn())) return { ok: false, reason: 'combat-disabled' };
         token += 1;
-        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null;
+        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; reveal = null;
         builds = []; selectedBuild = null; wantBuild = build ? String(build) : null;
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
@@ -725,7 +757,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         pageOverlay?.classList?.remove('igs-record-screen-open');
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         pageOverlay = null;
-        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; rebuild = false; respec = null; ascend = false; trait = false; reveal = null; selectedBuild = null; wantBuild = null;
+        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; reveal = null; selectedBuild = null; wantBuild = null;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();

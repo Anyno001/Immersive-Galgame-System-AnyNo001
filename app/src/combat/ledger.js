@@ -886,7 +886,8 @@ function computeAttributes({ key, name, protagonist, exp = 0, archetype, classNa
     // 主角可手动分配的点数 = 升级赠送的 + 剧情/奖励给的自由点 - 已分配的
     const balance = protagonist ? Math.max(0, asiCountAt(level, true) * ASI_POINTS + freePoints(bucket.story) + freePoints(bucket.reward) - spent) : 0;
     return {
-        className: init?.className || className, role, prefs, initialized: !!init, protagonist: !!protagonist, tier,
+        // 当前职业来自已重放的档案；初始化名称只用于还没有职业档案的角色。
+        className: className || init?.className || '', role, prefs, initialized: !!init, protagonist: !!protagonist, tier,
         relTagged: !!latestRel, level, ...derived, balance, table: context.table,
     };
 }

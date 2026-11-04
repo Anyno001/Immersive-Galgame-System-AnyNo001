@@ -17,6 +17,15 @@ ${P} .igs-deck-icon-btn svg{width:18px;height:18px;stroke-width:1.6;}
 ${P} .igs-deck-notice{margin:0 16px 8px;padding:8px 12px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);color:#f2b8b5;font-size:13px;line-height:1.6;}
 ${P} .igs-deck-main{display:flex;flex-direction:column;flex:1;min-height:0;gap:12px;padding:0 16px 14px;overflow:auto;scrollbar-width:none;}
 ${P} .igs-deck-main::-webkit-scrollbar{display:none;}
+${P} .igs-generation-form{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);min-width:0;}
+${P} .igs-generation-form p{font-size:12px;color:var(--igs-cb-ink-soft);margin:4px 0;}
+${P} .igs-generation-form textarea,${P} .igs-generation-form select{display:block;box-sizing:border-box;width:100%;padding:9px;margin:5px 0;background:var(--igs-cb-fill);color:inherit;border:0;border-radius:var(--igs-cb-r-m);font:inherit;resize:vertical;}
+${P} .igs-generation-form pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;scrollbar-width:none;font-size:12px;}
+${P} .igs-generation-check{display:flex;align-items:flex-start;gap:8px;margin:8px 0;overflow-wrap:anywhere;}
+${P} .igs-generation-check input{flex:none;margin-top:4px;}
+${P} .igs-generation-form pre::-webkit-scrollbar{display:none;}
+${P} .igs-generation-form :is(textarea,select):focus-visible{outline:1px solid var(--igs-cb-warm);outline-offset:2px;}
+${P} .igs-generation-form summary{cursor:pointer;overflow-wrap:anywhere;}
 ${P} .igs-deck-state{margin:24px 0 0;color:var(--igs-cb-ink-soft);letter-spacing:.06em;text-align:center;}
 ${P} .igs-deck-layout{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:16px;flex:1;min-height:0;}
 ${P} .igs-deck-roster{display:flex;flex-direction:column;gap:2px;overflow:auto;scrollbar-width:none;}
@@ -52,6 +61,11 @@ ${P} .igs-deck-card[data-card-type="power"]{--igs-card-tint:var(--igs-cb-power);
 ${P} .igs-deck-card.is-error{background:rgba(234,138,138,.1);}
 ${P} .igs-deck-cost{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:color-mix(in srgb,var(--igs-card-tint) 26%,transparent);color:var(--igs-cb-ink);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;}
 ${P} .igs-deck-name{flex:1;min-width:6em;font-weight:500;letter-spacing:.04em;}
+${P} .igs-deck-card-info{flex:1 1 200px;min-width:0;overflow-wrap:anywhere;}
+${P} .igs-deck-effect,${P} .igs-deck-help{margin:4px 0;color:var(--igs-cb-ink-soft);font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
+${P} .igs-deck-effect summary{cursor:pointer;color:var(--igs-cb-ink-faint);}
+${P} .igs-deck-pool{padding:10px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);min-width:0;}
+${P} .igs-deck-pool>summary{cursor:pointer;color:var(--igs-cb-ink-soft);overflow-wrap:anywhere;}
 ${P} .igs-deck-count{color:var(--igs-cb-ink-faint);font-size:12px;font-variant-numeric:tabular-nums;}
 ${P} .igs-deck-req{color:var(--igs-cb-ink-soft);font-size:12px;font-variant-numeric:tabular-nums;}
 ${P} .igs-deck-req.is-up{color:#5fd0b8;}

@@ -6,6 +6,7 @@
 //   - 成长监听者只在有效状态签名变化时才被通知（内部缓存照常更新）；
 //   - 同一事件内账本有效状态只取一次并传递。
 import { createCachedTableClient, createCombatTables } from '../data/shujuku/combat-tables.js';
+import { createCombatMaterialContext } from './combat-material-context.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
 import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
@@ -85,6 +86,7 @@ export function createCombatServices(options = {}) {
     const getSourceFilter = () => (typeof options.getSourceFilter === 'function' ? options.getSourceFilter() : undefined);
     const getLlm = () => normalizeAutoIllustrationSettings(typeof options.getAutoIllustration === 'function' ? options.getAutoIllustration() : {}).llm;
     const readLore = typeof options.readLore === 'function' ? options.readLore : undefined;
+    const materialContext = createCombatMaterialContext({ read: options.readGenerationMaterials, getChatId, getUserName });
     const readStoryContext = typeof options.readStoryContext === 'function' ? options.readStoryContext : undefined;
     const retryDelays = Array.isArray(options.retryDelays) ? options.retryDelays : undefined;
     const getBuildMode = () => {
@@ -543,11 +545,13 @@ export function createCombatServices(options = {}) {
     // 属性表对外入口（统计面板用）
     function statsTables() {
         getTables();
-        const raw = bundle.raw;
+        const { raw, client, generation } = bundle;
         const probe = raw.probe();
         return probe.ok
             ? {
                 ok: true,
+                // 数值侧缓存同时跟随宿主接口替换和表更新，不能只认自己的写入次数。
+                get version() { return `${generation}:${client.version()}`; },
                 read: (readOptions) => raw.read(readOptions),
                 append: (records, appendOptions) => raw.append('stats', records, appendOptions),
                 ensure: () => {
@@ -897,7 +901,8 @@ export function createCombatServices(options = {}) {
 
     // ---- 牌组档案 ----
     // 生成一个角色的牌组档案（盟友或主角）
-    async function generateDeckProfileCore({ name, classRef = null, role = 'ally', signal, onStart, onRetry } = {}) {
+    async function generateDeckProfileCore({ name, classRef = null, role = 'ally', signal, onStart, onRetry, generationHint, materialSelection, materialChatId } = {}) {
+        const actionChatId = getChatId();
         if (!settings().enabled) return { ok: false, reason: 'combat-disabled' };
         const ledgerImpl = getLedger();
         const target = String(name || '').trim();
@@ -914,16 +919,19 @@ export function createCombatServices(options = {}) {
         if (state.characters.get(characterId)?.kind === 'deck-character') return { ok: false, reason: 'combat-profile-exists', id: characterId };
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return { ok: false, reason: llm.reason, ...(llm.missing ? { missing: llm.missing } : {}) };
+        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
+        const material = await materialContext.load({ name: target, signal, generationHint, materialSelection, materialChatId });
+        if (!material.ok) return material;
         const usableClass = classRef && state.classes.has(classRef) ? classRef : null;
         // 按剧情给初始装备：随卡组档案同批请求；可省略，失败不影响卡组档案。
         // 主角的初始装备至少 1 件（v0.39.2），队友剧情没写到可为空。
         const entities = await withCharacterLore([...deckProfileEntities({ name: target, id: characterId, role, classRef: usableClass, classes: state.classes }), profileGearEntity(target, { required: role === 'protagonist' })], readLore);
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         try { onStart?.(); } catch { /* */ }
-        const context = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [target, getUserName()], signal, full: true, persona: target !== getUserName() });
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        const context = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [target, getUserName()], signal, full: true, persona: target !== getUserName() });
+        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context, retryDelays, onRetry });
-        if (generated.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return { ok: false, reason: generated.reason, ...(generated.missing ? { missing: generated.missing } : {}), requested: true };
         const writes = generationWrites(generated, { createdAt: Date.now() });
         if (!writes.profiles.some((profile) => profile.id === characterId)) {
@@ -936,13 +944,13 @@ export function createCombatServices(options = {}) {
         if (after.characters.get(characterId)?.kind !== 'deck-character') return { ok: false, reason: 'combat-profile-unverified', id: characterId, requested: true };
         // 初始装备：档案读回确认后锚定最新楼层写 equip；写失败只记诊断，卡组档案照常生效。
         const gearDiagnostics = [];
-        if (!signal?.aborted) await grantGeneratedGear(ledgerImpl, generated, (owner) => (owner === target ? characterId : null), { diagnostics: gearDiagnostics });
+        if (!signal?.aborted && getChatId() === actionChatId) await grantGeneratedGear(ledgerImpl, generated, (owner) => (owner === target ? characterId : null), { diagnostics: gearDiagnostics });
         return { ok: true, id: characterId, reusedClass: !!usableClass, ...(gearDiagnostics.length ? { gearDiagnostics } : {}) };
     }
 
     // 对外版本：去掉内部用的 requested 标记
-    async function generateDeckProfile({ name, classRef = null } = {}, { signal } = {}) {
-        const result = await generateDeckProfileCore({ name, classRef, role: 'ally', signal });
+    async function generateDeckProfile({ name, classRef = null } = {}, { signal, generationHint, materialSelection, materialChatId } = {}) {
+        const result = await generateDeckProfileCore({ name, classRef, role: 'ally', signal, generationHint, materialSelection, materialChatId });
         if (result.ok || !Object.hasOwn(result, 'requested')) return result;
         const copy = { ...result };
         delete copy.requested;
@@ -968,19 +976,23 @@ export function createCombatServices(options = {}) {
     const llmFailure = (llm) => ({ ok: false, reason: llm.reason, ...(llm.missing ? { missing: llm.missing } : {}) });
     const generationFailure = (generated) => ({ ok: false, reason: generated.reason, ...(generated.missing ? { missing: generated.missing } : {}) });
 
-    async function regenerateDeck({ signal } = {}) {
+    async function regenerateDeck({ signal, generationHint, materialSelection, materialChatId } = {}) {
+        const actionChatId = getChatId();
         const context = await heroActionContext('rebuildDeck', 'rebuild');
         if (!context.ok) return context;
+        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
         const { ledgerImpl, state, hero } = context;
         if ((hero.points || 0) < REBUILD_COST) return { ok: false, reason: 'combat-points-insufficient' };
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return llmFailure(llm);
+        const material = await materialContext.load({ name: hero.name, generationHint, materialSelection, materialChatId, signal });
+        if (!material.ok) return material;
         const entities = await withCharacterLore(deckProfileEntities({ name: hero.name, id: hero.id, role: 'protagonist', classRef: hero.classRef, classes: state.classes }), readLore);
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
-        const story = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [hero.name], signal, full: true });
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
+        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal, full: true });
+        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
-        if (generated.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const profile = (generated.accepted || []).find((item) => item.profile?.id === hero.id)?.profile;
         if (!profile?.personalPool || !profile.starterDeck) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-deck-generation-failed' };
@@ -988,14 +1000,16 @@ export function createCombatServices(options = {}) {
         const suffix = `r${Date.now().toString(36)}`;
         const idMap = new Map(profile.personalPool.map((card) => [card.id, `${card.id}-${suffix}`]));
         const rebuilt = { personalPool: profile.personalPool.map((card) => ({ ...card, id: idMap.get(card.id) })), starterDeck: profile.starterDeck.map((id) => idMap.get(id) || id) };
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const written = await ledgerImpl.rebuildDeck(hero.id, rebuilt);
         return written?.ok !== true ? { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, cost: REBUILD_COST };
     }
 
-    async function respecClass({ classRef = null, signal } = {}) {
+    async function respecClass({ classRef = null, signal, generationHint, materialSelection, materialChatId } = {}) {
+        const actionChatId = getChatId();
         const context = await heroActionContext('respecClass', 'respec', { needLlm: !classRef });
         if (!context.ok) return context;
+        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
         const { ledgerImpl, state, hero } = context;
         if ((hero.points || 0) < RESPEC_COST) return { ok: false, reason: 'combat-points-insufficient' };
         if (classRef) {
@@ -1006,24 +1020,29 @@ export function createCombatServices(options = {}) {
         }
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return llmFailure(llm);
-        const story = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [hero.name], signal });
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        const material = await materialContext.load({ name: hero.name, generationHint, materialSelection, materialChatId, signal });
+        if (!material.ok) return material;
+        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal, full: true });
+        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const generated = await generateWithRetry([respecClassEntity({ id: hero.id, name: hero.name })], { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
-        if (generated.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const profile = (generated.accepted || []).find((item) => item.profile?.kind === 'class')?.profile;
         if (!profile) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-class-generation-failed' };
         const written = await getTables().append('profile', [profileRecord(profile, { createdAt: Date.now() })]);
         if (written?.ok !== true) return { ok: false, reason: 'combat-profile-write-failed', write: written };
+        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
         const switched = await ledgerImpl.respecClass(hero.id, profile.id);
         return switched?.ok !== true
             ? { ok: false, reason: switched?.reason || 'combat-ledger-insert-failed', classRef: profile.id }
             : { ok: true, id: hero.id, classRef: profile.id, cost: RESPEC_COST, created: true };
     }
 
-    async function ascendClass({ signal } = {}) {
+    async function ascendClass({ signal, generationHint, materialSelection, materialChatId } = {}) {
+        const actionChatId = getChatId();
         const context = await heroActionContext('ascendClass', 'ascend');
         if (!context.ok) return context;
+        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
         const { ledgerImpl, state, hero } = context;
         const tier = (hero.classTier || 1) + 1;
         const tierRule = ASCEND_TIERS[tier];
@@ -1033,11 +1052,13 @@ export function createCombatServices(options = {}) {
         if (!hero.classProfile) return { ok: false, reason: 'combat-class-missing' };
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return llmFailure(llm);
-        const story = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [hero.name], signal });
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        const material = await materialContext.load({ name: hero.name, generationHint, materialSelection, materialChatId, signal });
+        if (!material.ok) return material;
+        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal, full: true });
+        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const entity = classTierEntity({ character: hero, cls: hero.classProfile, tier, rarity: tierRule.rarity, tierName: hero.tierName, mark: Date.now().toString(36) });
         const generated = await generateWithRetry([entity], { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
-        if (generated.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const tierProfile = (generated.accepted || []).find((item) => item.kind === 'class-tier')?.tier;
         if (!tierProfile) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-ascend-generation-failed' };
@@ -1113,7 +1134,7 @@ export function createCombatServices(options = {}) {
 
     function getProtagonist() {
         const key = protagonistKey();
-        return !settings().enabled || !key || protagonistState.key !== key ? null : { status: protagonistState.status, reason: protagonistState.reason, attempt: protagonistState.attempt };
+        return !settings().enabled || !key || protagonistState.key !== key ? null : { name: getUserName().trim(), status: protagonistState.status, reason: protagonistState.reason, attempt: protagonistState.attempt };
     }
 
     function setProtagonistState(patch) {
@@ -1147,7 +1168,7 @@ export function createCombatServices(options = {}) {
         return false;
     };
 
-    function prepareProtagonist({ manual = false } = {}) {
+    function prepareProtagonist({ manual = false, generationHint, materialSelection, materialChatId } = {}) {
         if (!combatBattleOn(settings())) {
             cancelProtagonist();
             return Promise.resolve({ ok: false, reason: 'combat-disabled' });
@@ -1197,7 +1218,7 @@ export function createCombatServices(options = {}) {
                 }
                 if (skipRetry) return { ok: false, reason: previous.reason, status: 'failed' };
                 const generated = await generateDeckProfileCore({
-                    name: getUserName().trim(), role: 'protagonist', signal: task.controller?.signal,
+                    name: getUserName().trim(), role: 'protagonist', signal: task.controller?.signal, generationHint, materialSelection, materialChatId,
                     onStart: () => { if (alive()) setProtagonistState({ key, status: 'generating', reason: '', attempt: 0, requested: false }); },
                     onRetry: ({ attempt }) => { if (alive()) setProtagonistState({ key, status: 'retrying', attempt }); },
                 });
@@ -1361,7 +1382,7 @@ export function createCombatServices(options = {}) {
     }
 
     return {
-        getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
+        getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
         drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
