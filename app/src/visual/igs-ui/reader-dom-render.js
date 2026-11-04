@@ -518,6 +518,8 @@ export function applyToolbarState(root, current) {
     // 「人物状态」在卡牌战斗扩展开启时显示；只开数值系统、本聊天为手动建档时也显示（P8c，只有建档页）。用户的排序、隐藏与固定照常生效。
     const buildEntry = typeof current.buildEntry === 'function' && current.buildEntry() === true;
     if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled && !buildEntry) hiddenSet.add('combat-status');
+    // 「返回战斗」只在有未打完的战斗时显示。
+    if (!(typeof current.combatResumable === 'function' && current.combatResumable())) hiddenSet.add('combat-resume');
     // 窄屏阅读模式：列表盖住大半画面，「隐藏对话框」总要放出来，才能看清背景和 CG；「自动播放」也总放出来（一批出完、念完再出下一批）。
     if (current.logReaderActive) { hiddenSet.delete('hide'); hiddenSet.delete('auto-play'); }
     // 「连续播放」开关只在窄屏阅读模式出现。
@@ -976,6 +978,7 @@ const STATUS_HUD_LOCATION_ICON = '<svg viewBox="0 0 24 24" width="16" height="16
 const STATUS_HUD_COLOR_VARS = Object.freeze({
     trust: 'var(--igs-hud-bar-trust,#4ab3da)',
     like: 'var(--igs-hud-bar-like,#ee83b6)',
+    cold: 'var(--igs-hud-bar-cold,#6a8fc4)',
     know: 'var(--igs-hud-bar-know,#e8a355)',
     'slot-1': 'var(--igs-hud-bar-1,#57aaee)',
     'slot-2': 'var(--igs-hud-bar-2,#55c795)',

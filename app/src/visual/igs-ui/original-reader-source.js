@@ -100,6 +100,8 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'sprite-edit', group: 'view', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
     // 人物状态：只在卡牌战斗扩展开启时显示（applyToolbarState 按设置隐藏），打开与资料菜单「人物状态」项同一面板。
     { id: 'combat-status', group: 'view', title: '人物状态', html: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>' },
+    // 返回战斗：只在有未打完的战斗时显示，回到开战楼按存档断点续打。
+    { id: 'combat-resume', group: 'view', title: '返回战斗', html: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"/><path d="M9.5 6.5 13 3h3v3l-3.5 3.5"/></svg>' },
     { id: 'mini-games', group: 'view', title: '小游戏（立直麻将等，玩完回到当前楼）', html: ORIGINAL_READER_ICONS.games },
     { id: 'rescan', group: 'system', title: '重新加载', html: ORIGINAL_READER_ICONS.rescan },
     { id: 'settings', group: 'system', title: '设置', html: ORIGINAL_READER_ICONS.settings },

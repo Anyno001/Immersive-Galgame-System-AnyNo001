@@ -444,6 +444,7 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['sprite-edit', '调整立绘'],
     ['live2d-settings', 'Live2D 角色绑定'],
     ['combat-status', '人物状态'],
+    ['combat-resume', '返回战斗'],
     ['mini-games', '小游戏'],
     ['rescan', '重新加载'],
     ['settings', '设置'],

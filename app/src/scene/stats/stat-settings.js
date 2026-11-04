@@ -16,7 +16,7 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     enabled: false,
     autoSkill: true,
     register: 'auto',
-    hudLabel: 'stage',
+    hudLabel: 'number',
     favorMode: 'normal',
     intimacyGate: true,
     ruleset: DEFAULT_RULESET,

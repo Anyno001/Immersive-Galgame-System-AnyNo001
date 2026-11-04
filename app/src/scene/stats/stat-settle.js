@@ -2,7 +2,8 @@
 // 纯函数，random 由账本按本楼种子提供；检定走 opts.engine（缺省为空注册表的默认规则体系）。
 // 返回 { state, changes, meta }，可直接作为 stat-ledger-settle 的 settle 回调结果。
 import { parseStatDirectives } from './stat-directives.js';
-import { applyDim, baseDelta, favorLimits } from './stat-favor.js';
+import { FAVOR_GATES, applyDim, baseDelta, favorLimits, gateKey } from './stat-favor.js';
+import { START_FAVOR } from './stat-vocab.js';
 import { applyGift, applyKeyEvent } from './stat-favor-events.js';
 import { DEFAULT_MONEY_TABLE, applyBarDirective } from './stat-bars.js';
 import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } from './stat-day.js';
@@ -14,7 +15,7 @@ import { registerStorySkill } from './stat-registry.js';
 
 const CHARACTER_KINDS = new Set(['favor', 'dim', 'gift', 'event']);
 const BAR_KINDS = new Set(['stamina', 'hurt', 'stress', 'money']);
-const TARGET_KINDS = new Set([...CHARACTER_KINDS, 'grow']);
+const TARGET_KINDS = new Set([...CHARACTER_KINDS, 'grow', 'start']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角)$/i;
 // 标签位置：数「roll 标签」之前出现了几个正文检定标签，用来对应骰序里的第几对骰（最多 ROLL_PAIR_MAX 对）。
 const ROLL_PAIR_MAX = 10;
@@ -103,6 +104,27 @@ function applyCharacterDirective(current, d, state, ctx) {
         return { character, change: result.success ? { dim: '好感', value: `${d.value}突破`, from: result.gate, to: result.gate + 1 } : null };
     }
     return applyDim(current, d.dim, d.value, { random: ctx.random, coef, floorRoom: room(d.dim), dailyMax: limits.daily });
+}
+
+// 起始关系：只对还没建档、或建档后各维度仍是初始 0 的角色生效，好感直接定到该档初值；低于初值的关口视为已过。
+function settleStartRelations(before, directives, ctx) {
+    let state = before;
+    for (const d of directives) {
+        if (d.kind !== 'start') continue;
+        const existing = state.characters[d.target];
+        const pristine = !existing || (Object.values(existing.dims || {}).every((v) => !Number(v)) && !(existing.unlocked || []).length);
+        if (!pristine) { ctx.diagnostics.push({ code: 'stat-start-ignored', name: d.target }); continue; }
+        const base = existing || createCharacter(state.clock.day, { nsfw: ctx.nsfw });
+        const to = START_FAVOR[d.value];
+        if (to) ctx.changes.push({ source: 'tag', target: d.target, key: '好感', from: 0, to, note: `起始关系·${d.value}` });
+        state = withCharacter(state, d.target, {
+            ...base,
+            dims: { ...base.dims, 好感: to },
+            unlocked: FAVOR_GATES.filter((gate) => gate < to).map(gateKey),
+            lastSeenDay: state.clock.day,
+        });
+    }
+    return state;
 }
 
 function settleCharacters(before, directives, ctx) {
@@ -241,6 +263,7 @@ export function settleFloorText(before, text, opts = {}) {
     for (const item of storyChecks) state = markGrowth(state, item);
     state = markCheckOpponents(state, check);
     for (const item of Array.isArray(opts.npcChecks) ? opts.npcChecks : []) state = markNpcGrowth(state, resolve(item.actor), item.skill);
+    state = settleStartRelations(state, directives, ctx);
     state = settleCharacters(state, directives, ctx);
     state = settleGrowTags(state, directives, ctx);
     state = settleCombat(state, directives, ctx);

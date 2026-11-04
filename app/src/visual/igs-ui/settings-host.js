@@ -759,14 +759,6 @@ export function createSettingsHost(deps) {
             if (!/^[a-zA-Z]+$/.test(id)) return Promise.resolve({ ok: false, reason: 'stats-prompt-unknown' });
             return Promise.resolve(updateSettingsValue(`bridge.stats.prompts.${id}`, ''));
         }
-        // 返回战斗：关闭设置器，阅读器在场则重绘，否则重开最新楼；阅读器渲染时按存档断点续打。
-        if (action === 'combat-resume') {
-            state.combatResumeAt = Date.now();
-            closeSettings();
-            if (state.activeReader) rerenderActiveReader();
-            else if (typeof options.reopenReader === 'function') return Promise.resolve(options.reopenReader());
-            return Promise.resolve({ ok: true });
-        }
         // 敌人图集：只在用户点击时才下载或删除；管理器首次使用时才创建。
         if (action === 'combat-enemy-atlas-download' || action === 'combat-enemy-atlas-remove') {
             const atlas = ensureEnemyAtlas(options.global || globalThis);

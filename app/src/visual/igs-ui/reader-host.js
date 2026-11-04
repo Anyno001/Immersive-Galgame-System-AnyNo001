@@ -28,7 +28,7 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
-import { composeStatsHud } from '../../scene/stats/stat-metrics.js';
+import { composeStatsHud, dropUserFavor } from '../../scene/stats/stat-metrics.js';
 import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
@@ -799,6 +799,7 @@ export function createIgsReaderHost(options = {}) {
             snapshot,
             // 人物状态入口（P8c）：只开数值系统、本聊天为手动建档时也显示，面板只有建档页。
             buildEntry: () => { try { return typeof options.statsBuildEntry === 'function' && options.statsBuildEntry() === true; } catch (error) { return false; } },
+            combatResumable: () => Boolean(unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null)),
             controller,
             dom: domState,
             floatingState: {
@@ -2570,6 +2571,15 @@ export function createIgsReaderHost(options = {}) {
             if (normalizeCombatExpansionSettings(current.snapshot?.readerSettings?.combatExpansion).kind === 'daily') return current.dom.combatController.open(overlay, { history: true });
             return current.dom.combatDeckController.open(overlay);
         }
+        // 工具栏「返回战斗」：有未打完的战斗时才显示；回到最新楼，阅读器渲染时按存档断点续打。
+        if (normalizedAction === 'combat-resume') {
+            const current = state.activeReader;
+            if (!current.combatResumable?.()) return { ok: false, reason: 'combat-none' };
+            if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
+            state.combatResumeAt = Date.now();
+            if (!(Number(current.turnOffset) > 0) || typeof options.reopenReader !== 'function') { rerenderActiveReader(); return { ok: true }; }
+            return Promise.resolve(options.reopenReader(current.mode));
+        }
         if (normalizedAction === 'cg-gallery') {
             return openCgGallery();
         }
@@ -3123,7 +3133,7 @@ export function createIgsReaderHost(options = {}) {
             try { raw = floor.assets.sprite(row.speaker, row.mood, outfit).url || ''; } catch (_) { raw = ''; }
             const generated = options.generatedAssets || null;
             const url = isGeneratedAssetUrl(raw) ? (generated ? generated.resolveUrl(raw) : '') : raw;
-            if (url) found = { url: resolveReaderAssetUrl(url, current), adjustKey: id };
+            if (url) found = { url: resolveReaderAssetUrl(url, current), adjustKey: row.mood ? `${id}::${row.mood}` : id };
         }
         if (!found) {
             const status = resolveStatusAvatar(assets.statusAvatars, row.key);
@@ -4383,7 +4393,8 @@ ${row.key}`;
             // 主角说话时显示主角条（生命、体力、压力、金钱），其余角色读好感等人际数值；旁白页不加主角区。
             const protagonistLookup = tavernLookup && typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null;
             const statsLookup = protagonistLookup ? (name) => protagonistLookup(name) || tavernLookup(name) : tavernLookup;
-            return withConcreteAvatar(composeStatsHud(hud, { lookup: statsLookup, speaker }));
+            const userName = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
+            return withConcreteAvatar(dropUserFavor(composeStatsHud(hud, { lookup: statsLookup, speaker }), speaker, userName));
         };
         const readStatusHudTables = () => tableData.read();
         const render = payload.render || {};

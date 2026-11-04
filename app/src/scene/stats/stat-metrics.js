@@ -3,8 +3,23 @@
 // 与 character-metrics 的 lookup 同形（{ metrics, stages }），视觉层只换数据源、不换样式。
 import { stageOf } from './stat-favor.js';
 import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
+import { isProtagonist } from './stat-engine.js';
 
-const DIM_COLOR = Object.freeze({ 好感: 'favor', 信任: 'trust', 了解: 'know', 欲望: 'desire' });
+const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕/;
+
+export function isUserName(name, userName = '') {
+    const n = String(name || '').trim();
+    return Boolean(n) && (isProtagonist(n) || n === String(userName || '').trim());
+}
+
+// 主角对自己没有好感：主角说话时状态栏去掉好感类条（表格里主角那一行同样不显示）。
+export function dropUserFavor(model, speaker, userName = '') {
+    if (!model || !Array.isArray(model.metrics) || !isUserName(speaker, userName)) return model;
+    const metrics = model.metrics.filter((metric) => !FAVOR_LABEL_RE.test(String((metric && metric.label) || '')));
+    return metrics.length === model.metrics.length ? model : { ...model, metrics };
+}
+
+const DIM_COLOR = Object.freeze({ 好感: 'like', 信任: 'trust', 了解: 'know', 欲望: 'desire' });
 const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '金钱' });
 // 状态栏条色沿用现有 slot 色板：生命红、体力绿、金钱黄、压力紫。
 const BAR_COLOR = Object.freeze({ health: 'slot-5', stamina: 'slot-2', money: 'slot-3', stress: 'slot-4' });
@@ -16,7 +31,7 @@ export function percentOfDim(value) {
     return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
 }
 
-export function displayOfFavor(value, hudLabel = 'stage') {
+export function displayOfFavor(value, hudLabel = 'number') {
     const v = Math.round(Number(value) || 0);
     const stage = stageOf(v).name;
     if (hudLabel === 'number') return String(v);
@@ -24,16 +39,18 @@ export function displayOfFavor(value, hudLabel = 'stage') {
     return stage;
 }
 
-export function characterStatMetrics(character, { hudLabel = 'stage', nsfw = false } = {}) {
+export function characterStatMetrics(character, { hudLabel = 'number', nsfw = false } = {}) {
     if (!character || !character.dims) return [];
     const out = [];
     for (const [dim, value] of Object.entries(character.dims)) {
         if (dim === '欲望' && !nsfw) continue;
+        // 负好感：条长按绝对值画、换冷色，一眼能看出反感程度。
+        const negativeFavor = dim === '好感' && Math.round(Number(value) || 0) < 0;
         out.push({
             label: dim,
-            percent: percentOfDim(value),
+            percent: negativeFavor ? percentOfDim(-value) : percentOfDim(value),
             display: dim === '好感' ? displayOfFavor(value, hudLabel) : String(Math.round(Number(value) || 0)),
-            colorKey: DIM_COLOR[dim] || 'favor',
+            colorKey: negativeFavor ? 'cold' : DIM_COLOR[dim] || 'like',
             sourceUid: 'igs-stats',
             // 原始值（含负数）：条长按 0 画，但演出层要按真实增减判断（负区间继续下降也要提示）。
             statValue: Math.round(Number(value) || 0),
@@ -67,7 +84,7 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
 
 // 与 createCharacterMetricsLookup 同形；未登记的名字返回空，调用方可按原逻辑退回表格。
 // sheets：聊天级 NPC 角色卡（v2 §9.3）；有卡时返回 sheet 段：资历、擅长项、是否待定。
-export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'stage', nsfw = false, sheets = null, engine = null } = {}) {
+export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'number', nsfw = false, sheets = null, engine = null } = {}) {
     return (name) => {
         const key = state && resolve(String(name || '').trim());
         const c = key && state.characters[key];

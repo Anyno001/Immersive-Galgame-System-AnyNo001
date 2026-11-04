@@ -43,9 +43,14 @@ function timersOf(node) {
     return (node && node.ownerDocument && node.ownerDocument.defaultView) || globalThis;
 }
 
+// 取景键为「角色(|服装)::情绪」；这个情绪没单独调过时沿用整个角色的取景（旧版只按角色存）。
+const baseAdjustKey = (key) => (key.includes('::') ? key.slice(0, key.lastIndexOf('::')) : key);
+
 function adjustFor(s, key) {
     const source = s.editing ? s.editing.adjust : (s.view && s.view.settings.adjust) || {};
-    return Object.hasOwn(source, key) ? source[key] : null;
+    if (Object.hasOwn(source, key)) return source[key];
+    const base = baseAdjustKey(key);
+    return Object.hasOwn(source, base) ? source[base] : null;
 }
 
 function ensureLog(overlay) {
@@ -105,7 +110,7 @@ function bindLog(overlay, log) {
     const pinch = new Map();
     let drag = null;
     const zoomBy = (key, k) => {
-        const a = s.editing.adjust[key] || { x: 0, y: 0, z: 1 };
+        const a = adjustFor(s, key) || { x: 0, y: 0, z: 1 };
         s.editing.adjust[key] = clampLogAdjust({ ...a, z: a.z * k });
         repaintKey(overlay, key);
     };
@@ -113,7 +118,7 @@ function bindLog(overlay, log) {
         if (s.editing.pick === key) return;
         s.editing.pick = key;
         repaintKey(overlay, '');
-        for (const btn of log.querySelectorAll('#igs-log-edit-bar [data-log-zoom]')) btn.disabled = false;
+        for (const btn of log.querySelectorAll('#igs-log-edit-bar [data-log-zoom],#igs-log-edit-bar [data-log-edit="reset"]')) btn.disabled = false;
     };
     log.addEventListener('pointerdown', (event) => {
         if (!s.editing) return;
@@ -145,7 +150,7 @@ function bindLog(overlay, log) {
             return;
         }
         const w = LOG_AVATAR_BOX.card.w;
-        const a = s.editing.adjust[drag.key] || { x: 0, y: 0, z: 1 };
+        const a = adjustFor(s, drag.key) || { x: 0, y: 0, z: 1 };
         s.editing.adjust[drag.key] = clampLogAdjust({ ...a, x: a.x + (event.clientX - drag.x) / w, y: a.y + (event.clientY - drag.y) / w });
         drag.x = event.clientX;
         drag.y = event.clientY;
@@ -201,7 +206,7 @@ function avatarNode(doc, row, view, hue) {
         return av;
     }
     av.dataset.url = found.url;
-    // 取景按角色 + 服装存；状态栏头像本身就是头像，铺满不裁。
+    // 取景按角色 + 服装 + 情绪存；状态栏头像本身就是头像，铺满不裁。
     av.dataset.key = found.adjustKey || row.key;
     if (found.cover) av.dataset.cover = '1';
     if (view.settings.avatarShape === 'break') av.append(el(doc, 'div', 'igs-log-cut'));
@@ -620,7 +625,7 @@ export function toggleLogEdit(overlay) {
     log.setAttribute('data-editing', '');
     const bar = el(overlay.ownerDocument, 'div');
     bar.id = 'igs-log-edit-bar';
-    bar.innerHTML = '<span>拖动头像取景，双指或－＋缩放</span><button type="button" data-log-zoom="out" disabled aria-label="缩小">－</button><button type="button" data-log-zoom="in" disabled aria-label="放大">＋</button><button type="button" data-log-edit="reset">重置</button><button type="button" data-log-edit="cancel">取消</button><button type="button" data-log-edit="save">保存</button>';
+    bar.innerHTML = '<span>拖动头像取景，双指或－＋缩放</span><button type="button" data-log-zoom="out" disabled aria-label="缩小">－</button><button type="button" data-log-zoom="in" disabled aria-label="放大">＋</button><button type="button" data-log-edit="reset" disabled>重置</button><button type="button" data-log-edit="cancel">取消</button><button type="button" data-log-edit="save">保存</button>';
     log.append(bar);
     return true;
 }
@@ -628,7 +633,15 @@ export function toggleLogEdit(overlay) {
 function finishEdit(overlay, kind) {
     const s = stateOf(overlay);
     if (!s.editing) return;
-    if (kind === 'reset') { s.editing.adjust = {}; repaintKey(overlay, ''); return; }
+    // 重置只管选中的头像：先去掉这个情绪的单独取景，没有单独取景时才清掉整个角色的。
+    if (kind === 'reset') {
+        const key = s.editing.pick;
+        if (!key) return;
+        if (Object.hasOwn(s.editing.adjust, key)) delete s.editing.adjust[key];
+        else delete s.editing.adjust[baseAdjustKey(key)];
+        repaintKey(overlay, '');
+        return;
+    }
     const adjust = s.editing.adjust;
     s.editing = null;
     const log = overlay.querySelector('#igs-log');

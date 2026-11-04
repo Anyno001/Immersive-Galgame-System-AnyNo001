@@ -2,7 +2,8 @@ import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildRecordModel, buildRelationshipModel, parseLooseDate } from '../../data/shujuku/record-model.js';
 import { buildFavorOverviewModel } from '../../data/shujuku/favor-overview-model.js';
 import { createCharacterMetricsLookup } from '../../data/shujuku/character-metrics.js';
-import { preferStatsLookup } from '../../scene/stats/stat-metrics.js';
+import { isUserName, preferStatsLookup } from '../../scene/stats/stat-metrics.js';
+import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from './record-icons.js';
 import { recordPageHeadHtml, watchRecordPageLayout } from './record-page-shell.js';
@@ -331,7 +332,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const read = () => {
             const readResult = client.readTables();
             const next = category === 'relationships' ? buildRelationshipModel(readResult)
-                : category === 'favor' ? buildFavorOverviewModel(readResult, settings?.statusHud?.tables)
+                : category === 'favor' ? buildFavorOverviewModel(readResult, settings?.statusHud?.tables, { skipName: (name) => isUserName(name, getSillyTavernContext()?.name1) })
                     : buildRecordModel(readResult, category);
             if (next.status === 'read-error') throw new Error(next.reason);
             return { model: next, readResult };

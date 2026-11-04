@@ -6,7 +6,7 @@ import { stageOf } from './stat-favor.js';
 const FAVOR_SOURCES = new Set(['tag', 'battle']);
 
 // 好感飘字：显示阶段名时只出心形，不出数字（§10）。同一角色一楼合并成一条。
-export function favorToasts(changes, { hudLabel = 'stage' } = {}) {
+export function favorToasts(changes, { hudLabel = 'number' } = {}) {
     const byTarget = new Map();
     for (const c of changes || []) {
         if (!c || c.key !== '好感' || !FAVOR_SOURCES.has(c.source)) continue;

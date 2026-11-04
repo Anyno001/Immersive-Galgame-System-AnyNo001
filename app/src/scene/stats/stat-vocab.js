@@ -12,6 +12,9 @@ export const HURT_PCT = Object.freeze({ 轻伤: 15, 中伤: 30, 重伤: 50 });
 export const ENEMY_TIERS = Object.freeze(['杂兵', '精英', '头目']);
 export const KEY_EVENTS = Object.freeze(['约会', '告白', '共患难']);
 export const ROLL_DIFFICULTIES = Object.freeze(['简单', '普通', '困难', '极难']);
+// 起始关系档 → 好感初值：角色第一次出场时按人设与既往关系定，之后只按方向增减。
+export const START_FAVOR = Object.freeze({ 仇视: -40, 疏远: -15, 陌生: 0, 熟人: 15, 朋友: 30, 亲密: 55, 恋人: 80 });
+export const START_RELATIONS = Object.freeze(Object.keys(START_FAVOR));
 
 // 维度类标签：英文名与中文名都映射到规范维度名。
 export const DIM_KINDS = Object.freeze({ trust: '信任', 信任: '信任', know: '了解', 了解: '了解', desire: '欲望', 欲望: '欲望' });
@@ -28,6 +31,7 @@ const SYNONYMS = Object.freeze({
     enemy: { 小怪: '杂兵', 喽啰: '杂兵', 强敌: '精英', boss: '头目', 首领: '头目' },
     event: { 表白: '告白', 患难: '共患难', 并肩作战: '共患难' },
     difficulty: { 容易: '简单', 一般: '普通', 中等: '普通', 难: '困难', 较难: '困难', 很难: '极难', 极其困难: '极难', 不可能: '极难' },
+    start: { 敌人: '仇视', 仇人: '仇视', 敌对: '仇视', 仇恨: '仇视', 冷淡: '疏远', 反感: '疏远', 不熟: '陌生', 初见: '陌生', 初识: '陌生', 路人: '陌生', 认识: '熟人', 同学: '熟人', 同事: '熟人', 邻居: '熟人', 好友: '朋友', 友人: '朋友', 挚友: '亲密', 青梅竹马: '亲密', 家人: '亲密', 知己: '亲密', 情侣: '恋人', 恋爱: '恋人', 伴侣: '恋人', 夫妻: '恋人', 未婚妻: '恋人', 未婚夫: '恋人' },
 });
 
 const NUMERIC = /[0-9０-９+＋\-－%％]/;

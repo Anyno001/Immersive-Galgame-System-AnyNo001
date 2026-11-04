@@ -27,7 +27,8 @@ function nameColumnIndex(columns) {
 }
 
 // 状态：no-selection（状态栏未选表）/ read-error / no-tables（所选表已不存在）/ empty（表里没有数值）/ ready。
-export function buildFavorOverviewModel(readResult, selectedTables) {
+// skipName：主角那一行不进总览（主角对自己没有好感）。
+export function buildFavorOverviewModel(readResult, selectedTables, { skipName = null } = {}) {
     const picks = normalizeStatusHudTables(selectedTables);
     if (!picks.length) return { status: 'no-selection', tables: [], people: [] };
     if (!readResult || readResult.ok === false) {
@@ -42,7 +43,7 @@ export function buildFavorOverviewModel(readResult, selectedTables) {
         if (nameIdx < 0) continue;
         (table.rows || []).forEach((row, rowIndex) => {
             const name = String(row?.[nameIdx] ?? '').trim();
-            if (!name) return;
+            if (!name || (typeof skipName === 'function' && skipName(name))) return;
             const metrics = [];
             columns.forEach((column, index) => {
                 const header = String(column || '').trim();

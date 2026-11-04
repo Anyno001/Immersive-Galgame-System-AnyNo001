@@ -1,6 +1,6 @@
 // [igs-stat:…] 数值标签解析与剔除。只认离散档位；战斗数量与时间跳跃天数是结构参数，单独限幅。
 // 容错（易错点 C1）：[] 或 【】 包裹、半角或全角冒号与竖线、字段两侧多空格与换行。
-import { DIM_DIRECTIONS, DIM_KINDS, ENEMY_TIERS, FAVOR_DIRECTIONS, HURT_TIERS, KEY_EVENTS, MONEY_FLOWS, MONEY_TIERS, ROLL_DIFFICULTIES, STAMINA_EVENTS, normalizeTier } from './stat-vocab.js';
+import { DIM_DIRECTIONS, DIM_KINDS, ENEMY_TIERS, FAVOR_DIRECTIONS, HURT_TIERS, KEY_EVENTS, MONEY_FLOWS, MONEY_TIERS, ROLL_DIFFICULTIES, STAMINA_EVENTS, START_RELATIONS, normalizeTier } from './stat-vocab.js';
 import { parseSkipDays } from './stat-duration.js';
 
 const tagPattern = () => /[\[【]\s*igs-stat\s*[:：]([^\]】]*)[\]】]/gi;
@@ -25,6 +25,10 @@ function parseFields([kindRaw, a, b, c]) {
     if (kind === 'favor' || kind === '好感') {
         const value = normalizeTier('favor', FAVOR_DIRECTIONS, b);
         return target && value ? { kind: 'favor', target, dim: '好感', value } : null;
+    }
+    if (kind === 'start' || kind === '起始关系') {
+        const value = normalizeTier('start', START_RELATIONS, b);
+        return target && value ? { kind: 'start', target, value } : null;
     }
     if (DIM_KINDS[kind]) {
         const value = normalizeTier('dim', DIM_DIRECTIONS, b);
