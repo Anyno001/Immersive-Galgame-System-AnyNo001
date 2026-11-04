@@ -5,7 +5,7 @@ import { COMBAT_RULES, cardCopyLimit } from '../../combat/rules.js';
 import { hash32 } from '../../combat/random.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { AWAKEN_TYPE_NAMES, injuryLevel } from '../../combat/report.js';
-import { CARD_TYPE_LABELS, cardArtSvg, describeEffectParts, describeEffects, describeKeywordParts, describeTrigger } from './combat-card-art.js';
+import { CARD_TYPE_LABELS, KEYWORD_TIPS, cardArtSvg, describeEffectParts, describeEffects, describeKeywordParts, describeTrigger } from './combat-card-art.js';
 import { cardMotifSvg } from './combat-card-motifs.js';
 import { scalingMarks } from '../../combat/card-scaling.js';
 import { ABILITY_LABELS } from '../../combat/abilities.js';
@@ -42,31 +42,95 @@ export function cardTextView(card) {
     return parts.some((p) => p.tip) ? { textParts: parts } : {};
 }
 
-// 卡面插槽（窄签与放大牌共用）：主效果数值、单位与加成明细。取第一个伤害 / 格挡 / 回复效果（条件与每回合效果里的不算主效果）。
-// value 是含攻击力 / 防御力与虚弱 / 脆弱后的单次数值（不含目标易伤），baseValue 是牌面原值，两者不同时 bonusNote 给出明细；
-// 没有这三类效果的牌 value 为 null、unit 为空串。
+// 卡面插槽（窄签与放大牌共用）：主效果数值、单位与加成明细。取第一个伤害 / 格挡 / 回复效果（条件与每回合效果里的不算主效果）；
+// 没有这三类时取第一个对自身的攻击力 / 防御力状态（能力牌），数值为层数、单位为状态名。
+// value 是含攻击力 / 防御力与虚弱 / 脆弱后的单次数值（不含目标易伤），baseValue 是牌面原值，两者不同时 bonusNote 给出明细（逗号分隔，不加句号）；
+// 没有主效果的牌 value 为 null、unit 为空串。
+// hits：主伤害段数，大于 1 时才写；extra：窄签最底一行的附加效果短写；fxText：放大牌去重后的说明（可为空串）。
+const MINUS = '−';
+const signed = (n) => `${n > 0 ? '+' : MINUS}${Math.abs(n)}`;
+const SLOT_STATS = Object.freeze(['strength', 'dexterity']);
+const TOTAL_UNITS = Object.freeze({ damage: '伤害', block: '格挡', heal: '回复' });
+const effectAt = (effect, ...ops) => ops.includes(effect?.op);
+const mainEffect = (effects) => effects.find((e) => effectAt(e, 'damage', 'block', 'heal') && Number.isFinite(e.amount))
+    || effects.find((e) => e.op === 'status' && SLOT_STATS.includes(e.status) && Number.isFinite(e.stacks) && targetSpec(e) === 'self');
+
+// 附加效果短写：状态「易伤2」、抽牌「抽1」、能量「能量1」、每回合触发「回合初挡4」；认不出的效果返回空串。
+function effectBrief(e) {
+    switch (e?.op) {
+        case 'status': return `${COMBAT_STATUS_NAMES[e.status] || e.status}${e.stacks}`;
+        case 'draw': return `抽${e.amount}`;
+        case 'energy': return `能量${e.amount}`;
+        case 'damage': return `伤${e.amount}`;
+        case 'block': return `挡${e.amount}`;
+        case 'heal': return `回${e.amount}`;
+        case 'each-turn': { const t = effectBrief((e.then || [])[0]); return t ? `${e.at === 'turn-end' ? '回合末' : '回合初'}${t}` : ''; }
+        case 'conditional': { const t = effectBrief((e.then || [])[0]); return t ? `条件${t}` : ''; }
+        case 'next-turn': return e.gain === 'energy' ? `下回合能量${e.amount}` : e.gain === 'draw' ? `下回合抽${e.amount}` : `下回合${COMBAT_STATUS_NAMES[e.status] || e.status}${e.stacks}`;
+        case 'self-damage': return `失血${e.amount}`;
+        case 'discard': return `弃${e.amount}`;
+        case 'create': return `生成${e.amount}`;
+        case 'copy': return '复制';
+        case 'cleanse': return '净化';
+        case 'heal-pct': return `回血${e.pct}%`;
+        case 'grow': return `成长${e.amount}`;
+        default: return '';
+    }
+}
+
+// 说明里和大数值重复的主效果句：默认目标的主效果整句去掉（多段改写「N 段，共 T 点」，攻击力倍率另留一句）；换了目标的保留原句。
+const defaultTarget = (e) => (e.op === 'damage' ? ['enemy', 'all-enemies'].includes(targetSpec(e)) : targetSpec(e) === 'self');
+function slotFxText(effects, main, value, hits) {
+    const out = [];
+    for (const e of effects) {
+        if (e.op === 'exhaust-self') continue;
+        if (e !== main || !defaultTarget(e)) { out.push(describeEffects([e])); continue; }
+        if (hits > 1) out.push(`${hits} 段，共 ${value * hits} 点`);
+        else if (e.op === 'damage' && e.strengthScale > 1) out.push(`攻击力 ×${e.strengthScale} 生效`);
+    }
+    return out.filter(Boolean).join('，').replace(/：/g, '，');
+}
+
 export function cardSlotView(card, hero) {
     const effects = Array.isArray(card?.effects) ? card.effects : [];
-    const main = effects.find((e) => (e.op === 'damage' || e.op === 'block' || e.op === 'heal') && Number.isFinite(e.amount));
-    if (!main) return { value: null, unit: '' };
-    const baseValue = main.amount;
+    const main = mainEffect(effects);
+    if (!main) return { value: null, unit: '', fxText: slotFxText(effects, null, 0, 1) };
+    const briefs = effects.filter((e) => e !== main && e.op !== 'exhaust-self').map(effectBrief).filter(Boolean);
+    const extra = briefs.length ? `${briefs[0]}${briefs.length > 1 ? '…' : ''}` : '';
     const st = hero?.statuses || {};
-    if (main.op === 'heal') return { value: baseValue, baseValue, unit: '回复' };
+    const finish = (value, baseValue, unit, hits, parts) => {
+        const bonusNote = value !== baseValue ? `${parts.join('，')}，合计 ${value} 点${TOTAL_UNITS[main.op]}` : '';
+        return { value, baseValue, unit, ...(hits > 1 ? { hits } : {}), ...(extra ? { extra } : {}), fxText: slotFxText(effects, main, value, hits), ...(bonusNote ? { bonusNote } : {}) };
+    };
+    if (main.op === 'status') return { value: main.stacks, baseValue: main.stacks, unit: COMBAT_STATUS_NAMES[main.status], ...(extra ? { extra } : {}), fxText: slotFxText(effects, main, main.stacks, 1) };
+    if (main.op === 'heal') return finish(main.amount, main.amount, '回复', 1, []);
+    const baseValue = main.amount;
     if (main.op === 'block') {
         const value = computeBlock(hero, baseValue);
         const parts = [`基础 ${baseValue}`];
-        if (st.dexterity) parts.push(`${st.dexterity > 0 ? '+' : '-'} 防御力 ${Math.abs(st.dexterity)}`);
-        if (st.frail > 0) parts.push('· 脆弱 ×0.75');
-        return { value, baseValue, unit: '格挡', ...(value !== baseValue ? { bonusNote: parts.join(' ') } : {}) };
+        if (st.dexterity) parts.push(`防御力 ${signed(st.dexterity)}`);
+        if (st.frail > 0) parts.push('脆弱 ×0.75');
+        return finish(value, baseValue, '格挡', 1, parts);
     }
     const value = computeDamage(hero, null, baseValue, main.strengthScale);
     const parts = [`基础 ${baseValue}`];
     const power = (st.strength || 0) * (main.strengthScale || 1);
-    if (hero?.damageScale && hero.damageScale !== 1) parts.push(`· 伤害倍率 ×${hero.damageScale}`);
-    if (power) parts.push(`${power > 0 ? '+' : '-'} 攻击力 ${Math.abs(power)}`);
-    if (st.weak > 0) parts.push('· 虚弱 ×0.75');
-    return { value, baseValue, unit: main.target === 'all-enemies' ? '群伤' : '伤害', ...(value !== baseValue ? { bonusNote: parts.join(' ') } : {}) };
+    if (hero?.damageScale && hero.damageScale !== 1) parts.push(`伤害倍率 ×${hero.damageScale}`);
+    if (power) parts.push(`攻击力 ${signed(power)}`);
+    if (st.weak > 0) parts.push('虚弱 ×0.75');
+    return finish(value, baseValue, main.target === 'all-enemies' ? '群伤' : '伤害', Number(main.hits) || 1, parts);
 }
+
+// 关键字单字（窄签印记用）与优先级：窄签只露一枚，不能打出 > 消耗 > 虚无 > 保留 > 固有；临时已有虚线框，窄签不再标。
+export const KEYWORD_CHAR = Object.freeze({ 不能打出: '禁', 消耗: '耗', 虚无: '虚', 保留: '留', 固有: '固', 临时: '临' });
+export const KEYWORD_PRIORITY = Object.freeze(['不能打出', '消耗', '虚无', '保留', '固有']);
+// 关键字点开的解释（不带句号）；不能打出字面自明，这里仍给一句，供单字印记点开。
+export const KEYWORD_NAME_TIPS = Object.freeze({
+    不能打出: '不能打出：这张牌不能被打出', 消耗: KEYWORD_TIPS.exhaust, 虚无: KEYWORD_TIPS.ethereal, 保留: KEYWORD_TIPS.retain, 固有: KEYWORD_TIPS.innate, 临时: KEYWORD_TIPS.temp,
+});
+// 加成 / 减弱差值：value 与 baseValue 不同时给带符号的字符串（减号为 U+2212），否则空串；数字本身不转色，差值只做单位后的淡色小字。
+export const cardValueDelta = (c) => (Number.isFinite(c?.value) && c.baseValue !== undefined && c.value !== c.baseValue ? signed(c.value - c.baseValue) : '');
+export const cardMainKeyword = (names) => KEYWORD_PRIORITY.find((k) => (names || []).includes(k)) || '';
 
 // 关键字全称（放大牌里的细框文字）：不能打出、固有、保留、虚无、临时与消耗；没有时为空数组。
 export function cardKeywordNames(card) {
@@ -287,7 +351,7 @@ function challengeBattleView(view) {
     return {
         ...view,
         hand: view.hand.map((card) => ({
-            ...words(card, ['text', 'keywords', 'scaleNote', 'bonusNote']),
+            ...words(card, ['text', 'keywords', 'scaleNote', 'bonusNote', 'fxText', 'extra']),
             ...(card.textParts ? { textParts: card.textParts.map((part) => ({ ...part, text: challengeWords(part.text), ...(part.tip ? { tip: challengeWords(part.tip) } : {}) })) } : {}),
         })),
         heroSkill: view.heroSkill ? words(view.heroSkill, ['text']) : null,

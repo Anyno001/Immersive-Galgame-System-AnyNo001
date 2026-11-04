@@ -6,14 +6,7 @@ import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { COMBAT_SKIN_SOFT_A_CONCEPT_CSS } from './combat-skin-soft-a-concept-style.js';
-
-// 牌面说明：与 combat-panel-render.js 的 cardTextHtml 同口径。
-const partHtml = (p) => {
-    const tip = p.tip ? ` data-scale-tip="${esc(p.tip)}"` : '';
-    if (p.mark === 'up' || p.mark === 'down') return `<span class="igs-scale-${p.mark}"${tip}>${esc(p.text)}</span>`;
-    return tip ? `<span${tip}>${esc(p.text)}</span>` : esc(p.text);
-};
-const cardTextHtml = (c) => (Array.isArray(c.textParts) ? c.textParts.map(partHtml).join('') : esc(c.text || ''));
+import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
 // 概念稿 SCHEME.ring / SCHEME.fan（方案A、C 相同）
 const RING = { port: { rx: 150, w: 330, lift: 90, back: 0.5, dim: 0.6 }, land: { rx: 430, w: 390, lift: 90, back: 0.55, dim: 0.5 } };
@@ -41,6 +34,8 @@ const UNIT = {
     群伤: '<svg class="ui" viewBox="0 0 24 24"><path d="M12 2l2.6 8.5-2.6 4-2.6-4zM4 5l4.6 6.2-1.4 4.6-4.4-5.6zM20 5l1.2 5.2-4.4 5.6-1.4-4.6zM8 18h8v2.4H8z"/></svg>',
     格挡: '<svg class="ui" viewBox="0 0 24 24"><path d="M12 2.5l8 3v6.2c0 4.6-3.2 7.8-8 9.8-4.8-2-8-5.2-8-9.8V5.5z"/></svg>',
     回复: '<svg class="ui" viewBox="0 0 24 24"><path d="M12 21C5 15.5 3 12 3 8.7A4.7 4.7 0 0 1 12 6.6 4.7 4.7 0 0 1 21 8.7C21 12 19 15.5 12 21z"/></svg>',
+    攻击力: '<svg class="ui" viewBox="0 0 24 24"><path d="M12 3l8 8-2 2-6-6-6 6-2-2zM12 12l8 8-2 2-6-6-6 6-2-2z"/></svg>',
+    防御力: '<svg class="ui" viewBox="0 0 24 24"><path d="M12 3l8 8-2 2-6-6-6 6-2-2zM12 12l8 8-2 2-6-6-6 6-2-2z"/></svg>',
 };
 const TYPE = { attack: 'atk', skill: 'skl', power: 'pow' };
 // 概念稿只有 稀有 / 史诗 / 神话 三档圈层：专属按史诗、传说（signature）按神话。
@@ -75,23 +70,32 @@ function cardHtml(c, p, v, picks, energy) {
     const t = TYPE[c.type] || 'skl';
     const r = RARITY[c.rarity] ? ` r-${RARITY[c.rarity]}` : '';
     const live = c.playable || c.choosable;
+    const choice = Boolean(v.battle?.choice);
     const chosen = Boolean(c.choosable) && picks.includes(c.inst);
     const cut = c.baseCost !== undefined && c.cost < c.baseCost;
-    const boosted = Boolean(c.bonusNote) || (c.baseValue !== undefined && c.value > c.baseValue);
+    const boosted = c.baseValue !== undefined && c.value > c.baseValue;
     const sel = v.selected === c.inst;
-    const badgeText = chosen ? '✓' : c.stack ? `×${c.stack}` : c.upgraded ? '+' : '';
-    const badge = badgeText ? `<i class="badge${!chosen && !c.stack && c.upgraded ? ' up' : ''}">${esc(badgeText)}</i>` : '';
+    // 待选阶段：候选牌照常亮，不在候选里的压暗；已选的抬起并挂「已选」签。强化「强」优先于叠加 ×N（叠加已由牌边错位表示）。
+    const badge = c.upgraded ? '<i class="badge up">强</i>' : c.stack ? `<i class="badge">×${esc(c.stack)}</i>` : '';
     const costUp = c.baseCost !== undefined && c.cost > c.baseCost;
+    const delta = cardValueDelta(c);
+    const dots = c.hits > 1 ? `<i class="dots" aria-hidden="true">${'<i></i>'.repeat(Math.min(c.hits, 5))}</i>` : '';
+    const tip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
     const val = Number.isFinite(c.value)
-        ? `<div class="val"><b${boosted ? ` class="up"${c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : ''}` : ''}>${esc(c.value)}</b><em>${UNIT[c.unit] || ''}</em></div>` : `<div class="val no-num"><b><svg viewBox="0 0 24 24" aria-hidden="true">${PAT[t]}</svg></b></div>`;
-    const kws = (c.keywordNames || []).map((x) => `<i class="kw" title="${esc(x)}">${esc(String(x).slice(0, 1))}</i>`).join('');
+        ? `<div class="val"><b${boosted ? ' class="up"' : ''}${tip}>${esc(c.value)}</b><em${delta ? ' class="hd"' : ''}>${UNIT[c.unit] || ''}${delta ? `<u class="dl">${esc(delta)}</u>` : ''}</em>${dots}</div>` : `<div class="val no-num"><b><svg viewBox="0 0 24 24" aria-hidden="true">${PAT[t]}</svg></b></div>`;
+    // 关键字单字圆章：放大牌列全部（临时已有虚线框，不出章），可点开解释；窄签信息行只露一枚，后接第一条附加效果。
+    const names = (c.keywordNames || []).filter((x) => x !== '临时');
+    const kws = sel ? names.map((x) => `<i class="kw" data-scale-tip="${esc(KEYWORD_NAME_TIPS[x] || x)}">${esc(KEYWORD_CHAR[x] || String(x).slice(0, 1))}</i>`).join('') : '';
+    const main = cardMainKeyword(c.keywordNames);
+    const row = !sel && (main || c.extra) ? `<div class="irow">${main ? `<i class="kw">${esc(KEYWORD_CHAR[main])}</i>` : ''}${c.extra ? `<em>${esc(c.extra)}</em>` : ''}</div>` : '';
     const costNote = c.baseCost !== undefined ? `（原 ${c.baseCost}）` : '';
     const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
-    const cls = `card t-${t}${r}${c.temp ? ' tmp' : ''}${c.stack ? (c.stack > 2 ? ' dup dup2' : ' dup') : ''}${boosted ? ' boosted' : ''}${chosen ? ' picked' : ''}${live && c.cost <= energy ? '' : ' poor'}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
+    const dim = choice ? !c.choosable : !(live && c.cost <= energy);
+    const cls = `card t-${t}${r}${c.temp ? ' tmp' : ''}${c.stack ? (c.stack > 2 ? ' dup dup2' : ' dup') : ''}${boosted ? ' boosted' : ''}${chosen ? ' picked' : ''}${dim ? ' poor' : ''}${choice && dim ? ' nopick' : ''}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
     return `<button type="button" class="${cls}" style="width:${p.w}px;height:${p.h}px;left:${p.left}px;top:${p.top}px;z-index:${p.z};transform:${sel ? 'none' : `rotate(${p.rot}deg)`};--rot:${p.rot}deg" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}`
         + `${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}"><i class="win"></i>`
-        + `<div class="top"><i class="cost${cut ? ' down' : ''}${costUp ? ' up' : ''}">${esc(c.cost)}</i>${cut ? `<s class="was">${esc(c.baseCost)}</s>` : ''}<span class="name">${esc(c.name)}${c.upgraded ? '+' : ''}</span></div>`
-        + `${badge}<div class="pat"><svg viewBox="0 0 24 24">${PAT[t]}</svg></div>${val}<p class="desc">${cardTextHtml(c)}</p><div class="kws">${kws}</div></button>`;
+        + `<div class="top"><i class="cost${cut ? ' down' : ''}${costUp ? ' up' : ''}">${esc(c.cost)}</i>${c.baseCost !== undefined ? `<s class="was">${esc(c.baseCost)}</s>` : ''}<span class="name">${esc(c.name)}</span></div>`
+        + `${badge}${chosen ? '<i class="pk">已选</i>' : ''}<div class="pat"><svg viewBox="0 0 24 24">${PAT[t]}</svg></div>${val}<p class="desc">${sel ? esc(c.fxText ?? c.text ?? '') : ''}</p>${row}<div class="kws">${kws}</div></button>`;
 }
 
 function foeHtml(u, i, f, n, L, v, pick) {
@@ -193,11 +197,26 @@ export function softBattleHtml(v, orient, key) {
         + '</div></div>';
 }
 
-const stamps = (S, rules) => Object.entries(rules).map(([t, c]) => `${S} .card.t-${t}{${c}}`).join(' ');
-const SOFT_A_STAMP = { atk: '--pale:#f1a0ad;', def: '--pale:#92b5e0;', skl: '--pale:#82c8a9;', pow: '--pale:#b29de0;' };
-// 绘本：卡面花形印章全换蓝系（攻击靛蓝、防御雾蓝、技能杏、能力淡紫），与野餐的粉绿区分
-const SOFT_C_STAMP = { atk: '--tc2:#6f95c8;--pale:#a9c3e6;', def: '--tc2:#92bdd6;--pale:#d3e6f1;', skl: '--tc2:#e3b48a;--pale:#f6dcc0;', pow: '--tc2:#b29de0;--pale:#d9cdf2;' };
-const stampCss = (S, key) => stamps(S, key === 'soft-c' ? SOFT_C_STAMP : SOFT_A_STAMP);
+// 稀有度＝邮票同色深浅：邮票仍按牌型上色，普通最浅，罕见、稀有、史诗、神话渐深（个人按史诗、专属按神话）；每格为「邮票底 / 花纹」，饱和度封顶。
+const TIERS = ['', '.r-uncommon', '.r-rare', '.r-epic', '.r-myth'];
+const STAMPS = {
+    'soft-a': {
+        atk: '#f1d0d5/#f8e7ea #eab8c0/#f2d4d8 #e3a0ab/#ebbcc3 #dd8896/#e5a4ae #d67181/#de8c99',
+        def: '#d0dff1/#e7eff8 #b8cfea/#d4e2f2 #a0bfe3/#bcd2eb #88afdd/#a4c2e5 #719fd6/#8cb2de',
+        skl: '#d5ece2/#eaf6f1 #c0e3d4/#d8eee5 #abd9c6/#c3e4d6 #95d0b7/#aedbc8 #80c6a9/#99d1ba',
+        pow: '#dad0f1/#ede8f8 #c8b9e9/#ddd4f2 #b5a1e2/#cbbdeb #a38adb/#b8a5e3 #9073d4/#a68edc',
+    },
+    'soft-c': {
+        atk: '#d3deee/#e9eff7 #bdcee6/#d6e1ef #a6bedd/#c0d1e7 #90aed5/#aac1df #7a9dcc/#94b0d6',
+        def: '#d3e4ee/#e9f1f6 #bdd6e5/#d7e6ef #a7c9dc/#c1d9e6 #91bbd4/#abcbde #7caecb/#95bdd5',
+        skl: '#f0d7d0/#f9eeec #e9c3b9/#f2dad4 #e2afa2/#eac6bd #da9b8b/#e3b2a6 #d38773/#dc9e8f',
+        pow: '#dad0f1/#ede8f8 #c8b9e9/#ddd4f2 #b5a1e2/#cbbdeb #a38adb/#b8a5e3 #9073d4/#a68edc',
+    },
+};
+const stampCss = (S, key) => Object.entries(STAMPS[key]).flatMap(([t, row]) => row.split(' ').map((x, i) => {
+    const [base, pale] = x.split('/');
+    return `${S} .card.t-${t}${TIERS[i]}{--tc2:${base};--pale:${pale};}`;
+})).join(' ');
 // 接线样式：画布缩放居中、真实立绘与头像、目标 / 出手 / 拖动等交互状态；设计稿没有的状态沿用设计稿已有的色。两套共用，按皮肤键生成。
 function softTail(key) {
     const S = `#igs-overlay :where(.igs-cx-canvas[data-cx="${key}"],.igs-cx-ghost[data-cx="${key}"])`;
@@ -206,11 +225,15 @@ function softTail(key) {
     const END_BASE = a ? 'background:var(--cream);color:var(--txt);box-shadow:0 3px 0 var(--cream-2);' : 'background:var(--surf);color:var(--cream);box-shadow:0 0 0 2px #3d4452;';
     const END_FILL = a ? 'var(--pink)' : '#4f74a8';
     const COST_BG = a ? 'var(--ink)' : '#3d4452', COST_FG = 'var(--cream)';
-    const UNC = a ? '#b4a9b0' : '#7d8696', RARE = a ? '#e5586d' : '#8fb0d8';
-    const TOP = a ? '#fbdde1' : '#3d4a60';
-    const RARE_COST = a ? '#f2a1ac' : '#8fb0d8', RARE_FG = '#1d1b1e';
     const DUP2 = a ? '#d2c7b6' : '#46506a';
     const INTENT = a ? 'box-shadow:none;' : '';
+    // 费用圆一律黑色系白字，只分深浅（减费浅、增费深）；专属牌身反色：野餐粉换深墨、绘本蓝换奶油
+    const COST = a ? { n: '#4a4347', d: '#7a7278', u: '#121212' } : { n: '#3d4452', d: '#6b7385', u: '#121316' };
+    const EX = a ? { bg: '#2a272c', fg: '#f6efe4', cost: '#f6efe4', costFg: '#1d1b1e', chip: '#f6efe4', chipFg: '#1d1b1e', sub: '#aaa1a8' } : { bg: '#f6efe4', fg: '#38333a', cost: '#3d4452', costFg: '#f7efe4', chip: '#3d4452', chipFg: '#f7efe4', sub: '#6f666e' };
+    const TOP = a ? '#fbdde1' : '#3d4a60';
+    const WAS_BG = a ? '#2a272c' : '#2f3541', DL = a ? '#b3a9b1' : '#a9b2c2', WAS_EX_BG = a ? '#f6efe4' : '#3d4452', WAS_EX_FG = a ? '#1d1b1e' : '#f7efe4';
+    const SUB = a ? '#6f666e' : '#aab2c0', INK = a ? '#1d1b1e' : '#1c1d21';
+    const K = `${S} .card.card.card`, EXS = `${K}:is([data-rarity="personal"],[data-rarity="signature"])`;
     return `
 ${S} .foe .row2 .hpv{flex:none;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;}
 /* 矮身形（兽、龙蛇等）：按看得见的头顶抬高并稍放大，头顶对到人形高度 */
@@ -222,22 +245,58 @@ ${C}.port .end{left:auto;right:var(--HL);top:491px;width:72px;height:44px;} ${C}
 ${S} .end{border-radius:999px;overflow:hidden;${END_BASE}}
 ${S} .end::before{content:"";position:absolute;inset:0;width:auto;height:auto;margin:0;border-radius:inherit;background:${END_FILL};transform:scaleX(var(--hold,0));transform-origin:0 50%;}
 ${S} .end b{position:relative;z-index:1;font-size:14px;line-height:1;white-space:nowrap;letter-spacing:.04em;}
-/* 牌面信息规范：罕见顶部色带；稀有色带换亮色 + 费用标填色；史诗再加顶光；神话再加缓慢扫光；不用描边层数表示稀有度 */
-${S} .card .cost{background:${COST_BG};color:${COST_FG};}
-${S} .card .cost.down{background:#3f9a78;color:#fff;} ${S} .card .cost.up{background:#c0364d;color:#fff;}
-${S} .card.r-uncommon{--rb:${UNC};} ${S} .card:is(.r-rare,.r-epic,.r-myth){--rb:${RARE};}
-${S} .card:is(.r-uncommon,.r-rare,.r-epic,.r-myth){background:linear-gradient(var(--rb),var(--rb)) 0 0/100% 4px no-repeat,var(--rbg,var(--cardbg));}
-${S} .card:is(.r-epic,.r-myth){--rbg:linear-gradient(to bottom,${TOP} 0,var(--cardbg) 55%);outline:none;}
-${S} .card:is(.r-rare,.r-epic,.r-myth) .cost{background:${RARE_COST};color:${RARE_FG};box-shadow:0 0 0 2px var(--cardbg);}
-${S} .card:is(.r-rare,.r-epic,.r-myth) .cost.down{color:#0b5e3f;} ${S} .card:is(.r-rare,.r-epic,.r-myth) .cost.up{color:#8f1229;}
+/* 牌面信息规范（二稿）：稀有度只看邮票同色深浅，整牌不描边、费用圆不加圈；费用圆黑色系；个人、专属牌身反色 */
+${K}{box-shadow:0 6px 12px #121012;outline:none;}
+${K} .cost{background:${COST.n};color:#fff;box-shadow:0 0 0 2px var(--cardbg);}
+${K} .cost.down{background:${COST.d};} ${K} .cost.up{background:${COST.u};}
+${EXS}{--cardbg:${EX.bg};background:${EX.bg};color:${EX.fg};}
+${EXS} :is(.name,.desc){color:${EX.fg};}
+${EXS} .cost:not(.up):not(.down){background:${EX.cost};color:${EX.costFg};}
+${EXS} .kw{background:${EX.chip};color:${EX.chipFg};}
+${EXS} .irow em{color:${EX.sub};}
+${S} .card:is(.r-epic,.r-myth){background:linear-gradient(to bottom,${TOP} 0,var(--cardbg) 55%);}
 ${S} .card.r-myth:not(.sel)::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:4;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.35) 50%,transparent 65%) -150% 0/250% 100% no-repeat;animation:cx-soft-sheen 4.2s ease-in-out infinite;}
 @keyframes cx-soft-sheen{0%,55%{background-position:-150% 0;}100%{background-position:150% 0;}}
 @media (prefers-reduced-motion:reduce){${S} .card.r-myth::before{animation:none;}}
-/* 强化：金色「+」角标（金色只给强化）；叠加：背后露出错位牌边；无数值的牌在数值位放牌型母题 */
-${S} .card .badge{background:${COST_BG};color:${COST_FG};} ${S} .card .badge.up{background:#e3a92b;color:#1d1b1e;}
+/* 强化：金底「强」字圆章（金色只给强化）；叠加：背后露出错位牌边；无数值的牌在数值位放牌型母题 */
+${S} .card .badge{background:${COST_BG};color:${COST_FG};} ${S} .card .badge.up{background:#e3a92b;color:#1d1b1e;min-width:0;width:16px;height:16px;padding:0;font-size:10px;line-height:16px;right:5px;top:5px;}
+${S} .card.sel .badge.up{width:20px;height:20px;font-size:12px;line-height:20px;right:9px;top:9px;}
 ${S} .card.dup2::after{box-shadow:0 -5px 0 -3px ${DUP2};}
 ${S} .card .val.no-num b svg{display:block;width:17px;height:17px;stroke:none;} ${S} .card.sel .val.no-num b svg{width:30px;height:30px;}
 ${S} .card .val .fl{fill:#fff8f0;stroke:none;} ${S} .card .val .ln{fill:none;stroke:#fff8f0;stroke-width:3;}
+${S} .card .val{isolation:isolate;}
+/* 窄签：牌名上移，牌名下一行为信息行（关键字小章 + 第一条附加效果，单行截断）；放大牌说明居中、最多两行 */
+${S} .card:not(.sel) .name{top:74px;}
+${S}.land .card:not(.sel) .name{top:81px;}
+${S} .card .irow{position:absolute;left:3px;right:3px;top:87px;height:11px;display:flex;align-items:center;justify-content:center;gap:2px;z-index:3;white-space:nowrap;overflow:hidden;}
+${S}.land .card .irow{top:98px;}
+${S} .card .irow em{font-size:9px;min-width:0;overflow:hidden;text-overflow:ellipsis;line-height:12px;font-weight:700;font-style:normal;color:${SUB};}
+${S} .card .irow .kw{flex:none;width:12px;height:12px;font-size:8px;line-height:1;}
+${K}.sel .desc{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+${K}.sel .val b[data-scale-tip]{cursor:help;}
+/* 窄签单位小章：花右下角，伤害、格挡、回复一眼分开 */
+${K}:not(.sel) .val em{display:grid !important;position:absolute;right:-4px;bottom:-2px;z-index:2;width:12px;height:12px;border-radius:50%;place-items:center;background:#fff8f0;box-shadow:0 0 0 1.5px var(--tc);color:var(--tc);}
+${K}:not(.sel) .val em .ui{width:6px !important;height:6px !important;}
+${C} .card .val em .ui{fill:currentColor;stroke:none;}
+/* 多段：花下一排奶油色实心圆点，几颗就是几段（最多 5 颗） */
+${S} .card .val .dots{position:absolute;left:50%;top:calc(100% + 2px);translate:-50% 0;z-index:2;display:flex;gap:4px;}
+${S} .card .val .dots i{display:block;width:6px;height:6px;border-radius:50%;background:#fff8f0;}
+${S} .card.sel .val .dots{top:calc(100% - 3px);gap:5px;} ${S} .card.sel .val .dots i{width:9px;height:9px;}
+/* 差值：接在单位小章后面，章扩成奶油色小胶囊；差值比单位图形更淡，0.9 倍字号，不加粗不描边，数字不转色 */
+${K}:not(.sel) .val em.hd{display:flex !important;width:auto;padding:0 3px 0 2px;gap:1px;border-radius:999px;}
+${K}.sel .val em.hd{display:flex !important;width:auto;padding:0 6px 0 4px;gap:3px;border-radius:999px;}
+${K} .val em .dl{font-style:normal;font-weight:400;text-decoration:none;color:${DL};font-size:8px;line-height:1;}
+${K}.sel .val em .dl{font-size:11px;}
+${K}.sel .val b.up::after{display:none;}
+${K}.sel .val em.hd .ui{flex:none;}
+/* 原费副框：贴在费用圆右下边角的黑色系小圆，划掉的原费；窄签与放大牌都有 */
+${K} .was{display:grid !important;position:absolute;left:22px;top:22px;z-index:6;box-sizing:border-box;width:10px;height:10px;margin:0;padding:0;place-items:center;border-radius:50%;background:${WAS_BG};box-shadow:0 0 0 1.5px var(--cardbg);color:#fff8f0;opacity:1;font:700 7px/1 var(--num,sans-serif);font-style:normal;text-decoration:line-through;text-decoration-thickness:1px;}
+${K}.sel .was{left:25px;top:27px;width:14px;height:14px;font-size:9px;}
+${EXS} .was{background:${WAS_EX_BG};color:${WAS_EX_FG};}
+/* 待选阶段：候选牌照常亮，不在候选里的压暗；已选的抬起，头顶挂「已选」签 */
+${S} .card.picked{translate:0 -10px;}
+${S} .card .pk{position:absolute;left:50%;top:-8px;z-index:5;translate:-50% 0;padding:0 7px;height:16px;border-radius:999px;font-size:10px;line-height:16px;font-weight:700;font-style:normal;white-space:nowrap;background:${INK};color:#fff8f0;}
+${S} .card.poor.nopick:not(.sel){filter:saturate(.4) brightness(.6);}
 `;
 }
 
@@ -303,13 +362,13 @@ ${C}.land .track{left:20px;top:70px;flex-direction:column;} ${C}.port .track{lef
 /* 卡面：花朵在邮票区正中，碎花底纹减弱 */
 ${C}.port .card:not(.sel) .val{top:20px;} ${C}.land .card:not(.sel) .val{top:21px;}
 ${stampCss(S, key)}
+${key === 'soft-c' ? `${S} .card.t-skl{--tc:#d8806b;}` : ''}
 ${S} .card .win::before{-webkit-mask-size:22px 22px;mask-size:22px 22px;}
 ${softTail(key)}
 ${S} .tcell img{width:20px;height:20px;object-fit:contain;}
 ${S} .tcells{flex-wrap:wrap;}
 ${S} .end[aria-disabled="true"]{opacity:.5;}
 ${S} .card.poor:not(.sel){filter:saturate(.55) brightness(.85);}
-${S} .card.picked{box-shadow:0 0 0 3px var(--pink),0 12px 22px rgba(18,16,18,.6);}
 ${S} .card.is-lifted{opacity:.35;}
 ${S} .pending{pointer-events:none;} ${S} .pending span{display:inline-block;padding:4px 12px;border-radius:999px;background:var(--surf);color:var(--cream);font-size:12px;font-weight:700;white-space:nowrap;}
 ${S} .pending b{color:var(--butter);}

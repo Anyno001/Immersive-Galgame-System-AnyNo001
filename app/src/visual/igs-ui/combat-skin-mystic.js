@@ -6,13 +6,7 @@ import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_MYSTIC_CONCEPT_CSS } from './combat-skin-mystic-concept-style.js';
-
-const partHtml = (p) => {
-    const tip = p.tip ? ` data-scale-tip="${esc(p.tip)}"` : '';
-    if (p.mark === 'up' || p.mark === 'down') return `<span class="igs-scale-${p.mark}"${tip}>${esc(p.text)}</span>`;
-    return tip ? `<span${tip}>${esc(p.text)}</span>` : esc(p.text);
-};
-const cardTextHtml = (c) => (Array.isArray(c.textParts) ? c.textParts.map(partHtml).join('') : esc(c.text || ''));
+import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
 // 概念稿 定稿.js 的 C.start 常数
 const CFG = {
@@ -42,11 +36,7 @@ const ICON = {
     exit: P('<path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9"/>'),
     close: P('<path d="M6 6l12 12M18 6L6 18"/>'),
     bag: P('<path d="M10 3h4M11 3v5l-5 9a3 3 0 0 0 3 4h6a3 3 0 0 0 3-4l-5-9V3"/><path d="M8.500 15h7"/>'),
-    blade: P('<path d="M6 19L19 5l-1 8-9 8z"/>'),
-    fan: P('<path d="M12 20L4 7M12 20V4M12 20L20 7"/><circle cx="4" cy="7" r="1.200"/><circle cx="12" cy="4" r="1.200"/><circle cx="20" cy="7" r="1.200"/>'),
-    heart: P('<path d="M12 20C5 15 4 11 4 8.500A4 4 0 0 1 12 7a4 4 0 0 1 8 1.500C20 11 19 15 12 20z"/>'),
 };
-const UNIT = { 伤害: 'blade', 群伤: 'fan', 格挡: 'shield', 回复: 'heart' };
 const D = (b) => `<svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${b}</svg>`;
 const MOTIF = {
     atk: D('<path d="M8 34L33 6"/><path d="M14 36L37 11" stroke-dasharray="0.1 4.6" stroke-width="2.6"/><circle cx="33" cy="6" r="2" fill="currentColor"/>'),
@@ -105,22 +95,36 @@ function cardHtml(c, i, style, v, picks, energy) {
     const live = c.playable || c.choosable;
     const chosen = Boolean(c.choosable) && picks.includes(c.inst);
     const cut = c.baseCost !== undefined && c.cost < c.baseCost;
-    const buff = Boolean(c.bonusNote) || (c.baseValue !== undefined && c.value > c.baseValue);
     const sel = v.selected === c.inst;
-    const badge = c.choosable ? `<i class="fl nn">${chosen ? '✓' : '○'}</i>` : c.stack > 1 ? `<i class="fl nn">×${esc(c.stack)}</i>` : c.upgraded ? '<i class="fl plus">+</i>' : '';
-    const fl = `${badge}${(c.keywordNames || []).includes('消耗') ? '<i class="fl kw">耗</i>' : ''}`;
-    const was = cut ? `<s class="was">${esc(c.baseCost)}</s>` : '';
-    const unit = UNIT[c.unit];
-    const val = Number.isFinite(c.value) ? `<div class="val${unit ? ` u-${unit}` : ''}">${unit ? ICON[unit] : ''}<b${buff ? ' class="up"' : ''}>${esc(c.value)}</b></div>` : `<div class="val no-num">${MOTIF[t]}</div>`;
-    const kws = (c.keywordNames || []).length ? `<span class="src">${(c.keywordNames || []).map(esc).join('　')}</span>` : '';
-    const bonus = c.bonusNote ? `<span class="src">${esc(c.bonusNote)}</span>` : '';
+    const badge = c.choosable ? `<i class="fl nn">${chosen ? '✓' : '○'}</i>` : c.stack > 1 ? `<i class="fl nn">×${esc(c.stack)}</i>` : '';
+    const was = c.baseCost !== undefined ? `<s class="was">${esc(c.baseCost)}</s>` : '';
+    const hasNum = Number.isFinite(c.value);
+    const delta = cardValueDelta(c);
+    const names = c.keywordNames || [];
+    // 关键字：窄签只露一枚单字印（接在最底一行文字末尾），放大牌列全称胶囊（可点开解释）
+    const mainKw = sel ? '' : cardMainKeyword(names);
+    const kw1 = mainKw ? `<i class="nv-kw1" aria-hidden="true">${esc(KEYWORD_CHAR[mainKw] || mainKw)}</i>` : '';
+    const kwl = sel && names.length ? `<span class="nv-kwl">${names.map((n) => `<i class="nv-full" data-scale-tip="${esc(KEYWORD_NAME_TIPS[n] || n)}">${esc(n)}</i>`).join('')}</span>` : '';
+    // 胶囊总宽超过牌宽时折成两行，整列再上提一行
+    const kwRows = names.reduce((w, n) => w + [...n].length * 10 + 18, 4 * (names.length - 1)) > 116;
+    const stars = c.hits > 1 ? `<i class="nv-sp" aria-hidden="true">${'<i></i>'.repeat(Math.min(c.hits, 6))}</i>` : '';
+    const showExtra = Boolean(c.extra) && !sel;
+    // 单字印接在附加效果后；效果文字太长放不下时改接在单位行末尾
+    const textW = (t) => [...t].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2000 ? 9 : 5), 0);
+    const kwInSt = showExtra && textW(c.extra) + 15 <= 46;
+    const unitLine = `${esc(c.unit || '')}${stars}${delta ? `<span class="nv-delta">${esc(delta)}</span>` : ''}${kwInSt ? '' : kw1}`;
+    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
+    const val = hasNum ? `<div class="val"><b${valTip}>${esc(c.value)}</b><span class="ut">${unitLine}</span>${kwl}</div>` : `<div class="val no-num">${MOTIF[t]}</div>`;
+    const stLine = showExtra ? `<em class="nv-st">${esc(c.extra)}${kwInSt ? kw1 : ''}</em>` : !hasNum && kw1 ? `<em class="nv-st">${kw1}</em>` : '';
+    const fx = sel ? esc(c.fxText ?? c.text ?? '') : '';
     const costNote = c.baseCost !== undefined ? `（原 ${c.baseCost}）` : '';
     const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
-    const cls = `card t-${t}${rare ? ` r-${rare}` : ''}${c.cost > energy || !live ? ' poor' : ''}${cut ? ' cut' : ''}${c.baseCost !== undefined && c.cost > c.baseCost ? ' cost-up' : ''}${Number.isFinite(c.value) ? '' : ' no-num'}${c.temp ? ' tmp' : ''}${c.stack > 1 ? ' stack' : ''}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
+    const len = [...c.name].length;
+    const cls = `card t-${t}${rare ? ` r-${rare}` : ''}${c.cost > energy || !live ? ' poor' : ''}${cut ? ' cut' : ''}${c.baseCost !== undefined && c.cost > c.baseCost ? ' cost-up' : ''}${hasNum ? '' : ' no-num'}${c.temp ? ' tmp' : ''}${c.stack > 1 ? ' stack' : ''}${c.upgraded ? ' has-up' : ''}${stLine ? ' nv-has-st' : ''}${sel && names.length ? ' nv-has-kw' : ''}${sel && kwRows ? ' nv-kw-rows' : ''}${len >= 5 ? ' nv-long' : ''}${len >= 7 ? ' nv-xlong' : ''}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
     return `<div class="${cls}" role="button" tabindex="0" style="${style}" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}`
         + `${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}">`
-        + `<i class="edge"></i><div class="cost">${esc(c.cost)}</div>${was}<div class="name">${esc(c.name)}${c.upgraded ? '+' : ''}</div><div class="fls">${fl}</div><div class="art">${MOTIF[t]}</div>`
-        + `${val}<p class="desc">${cardTextHtml(c)}${bonus}${kws}</p></div>`;
+        + `<i class="edge"></i><div class="cost">${esc(c.cost)}</div>${was}<div class="name">${esc(c.name)}</div>${c.upgraded ? '<i class="nv-up">强</i>' : ''}<div class="fls">${badge}</div><div class="art">${MOTIF[t]}</div>`
+        + `${val}${stLine}<p class="desc">${fx}</p></div>`;
 }
 
 function foeHtml(u, i, f, n, L, v, pick) {
@@ -218,6 +222,9 @@ export function battleHtml(v, orient) {
 // 接线样式：画布缩放居中、真实立绘与头像、目标 / 出手 / 拖动等交互状态；设计稿没有的状态用设计稿已有的语言（金 = 选中、红 = 敌意、玉绿 = 我方）。
 const S = '#igs-overlay :where(.igs-cx-canvas[data-cx="mystic"],.igs-cx-ghost[data-cx="mystic"])';
 const C = '#igs-overlay #igs-cx-canvas:where([data-cx="mystic"])';
+const K = `${S} .card.card.card.card`, KN = `${K}:not(.sel)`, KS = `${K}.sel`;
+const KL = '#igs-overlay :where(.igs-cx-canvas[data-cx="mystic"],.igs-cx-ghost[data-cx="mystic"]).land .card.card.card.card';
+const KP = '#igs-overlay :where(.igs-cx-canvas[data-cx="mystic"],.igs-cx-ghost[data-cx="mystic"]):not(.land) .card.card.card.card';
 const WIRING_CSS = `
 #igs-overlay #igs-combat-panel .igs-cx-wrap{position:absolute;inset:0;overflow:hidden;}
 ${C}{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(var(--cx-scale,1));transform-origin:50% 50%;background:transparent;}
@@ -258,17 +265,9 @@ ${S} .end[data-hold] .run{stroke-dasharray:calc(var(--hold,0) * 100) 100;}
 ${S} .end[data-hold] .clk{filter:drop-shadow(0 0 calc(var(--hold,0) * 6px) #e3d49c);}
 /* 矮身形：按看得见的头顶抬高并放大 */
 ${S} .foe .art{transform:translateY(calc(var(--atop,0) * var(--w) * -0.95)) scale(calc(1 + var(--atop,0) * .15));transform-origin:50% 100%;} ${C}.land .foe .art{transform:translateY(calc(var(--atop,0) * var(--w) * -0.4)) scale(calc(1 + var(--atop,0) * .8));}
-/* 牌面信息规范：稀有度阶梯（冷紫色阶，不用描边层数、不用金）；金色只给强化「+」；叠加露牌边；无数值牌放母题 */
+/* 牌面信息规范：稀有度只看费用圈（线数与层数）；金色只给强化「强」；叠加露牌边；无数值牌放母题 */
 ${C} .hand .card,${C} .hand .card[class*=" r-"]{border-color:#3b3a55;}
 ${C} .hand .card.sel{border-color:#cfcce6;}
-${C} .card .cost{box-shadow:none;}
-${C} .card::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--rb,transparent);z-index:1;pointer-events:none;}
-${C} .card.r-uncommon{--rb:#5d5a86;}
-${C} .card:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign){--rb:#a39fd6;}
-${C} .card:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign) .cost{background:#a39fd6;border-color:#a39fd6;color:#0c0c10;}
-${C} .card:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign) .cost.cut,${C} .card.cut:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign) .cost{color:#0b5a3c;}
-${C} .card.cost-up .cost{color:var(--red);border-color:var(--red);}
-${C} .card.cost-up:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign) .cost{color:#8a1f1d;border-color:#a39fd6;}
 ${C} .hand .card:is(.r-epic,.r-myth,.r-own,.r-sign){background:linear-gradient(to bottom,#2c2b45 0,#14151c 55%);}
 ${C} .hand .card.r-myth:not(.sel)::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 35%,#e3e0f833 50%,transparent 65%) -150% 0/250% 100% no-repeat;animation:cx-mystic-sheen 4.2s ease-in-out infinite;}
 @keyframes cx-mystic-sheen{0%,55%{background-position:-150% 0;}100%{background-position:150% 0;}}
@@ -319,8 +318,7 @@ ${C}.land .rescol .tools{position:static;display:flex;gap:12px;margin:0;}
 ${C}.land .pdk-t{display:flex;gap:16px;align-items:baseline;font:12px/1 var(--serif);color:var(--dim);} ${C}.land .pdk-t b{font:500 18px/1 var(--num);color:var(--gold-hi);}
 ${C}.land .tray{left:var(--hl);bottom:calc(var(--rb) + var(--rh) + 8px);}
 /* 横屏最小字号 12px */
-${C}.land :is(.foe .intent em,.lead .hp,.chip,.chip b,.mate .mn,.bag em,.card.sel .tag,.card.sel .val em,.card.sel .desc,.elite,.sts em,.ic-x,.lead .ty,.skill .sc,.fl,.lead .aw,.card .cost,.th .hint,.slot .sx,.was,.fl.was,.mface,.ic-s,.card.sel .fl.was){font-size:12px;}
-${C}.land .card .val b.up::after{font-size:12px;}
+${C}.land :is(.foe .intent em,.lead .hp,.chip,.chip b,.mate .mn,.bag em,.elite,.sts em,.ic-x,.lead .ty,.skill .sc,.fl,.lead .aw,.card .cost,.th .hint,.slot .sx,.mface,.ic-s){font-size:12px;}
 ${C}.land .fl{height:auto;min-height:14px;line-height:14px;} ${C}.land .skill .sc{width:20px;height:20px;}
 ${C}.land .card .val.no-num svg{width:38px;height:38px;}
 ${C}.land .mates{left:var(--L);top:636px;} ${C}.land .mate{width:72px;} ${C}.land .mate .mn{max-width:72px;overflow:hidden;text-overflow:ellipsis;}
@@ -364,6 +362,86 @@ ${S} .who.is-acting{box-shadow:0 0 0 2px var(--gold-hi),0 0 0 4px var(--red);}
 ${S} .foe.is-down{opacity:.35;filter:grayscale(1);pointer-events:none;}
 ${S} :is(.lead,.mate).is-down :is(.pic,.mface){filter:grayscale(1) brightness(.5);}
 ${S} .hand .card.is-lifted{opacity:.35;}
+/* 二稿卡面：稀有度（费用圈）、强化、单位行、附加效果、关键字、原费伴星、放大牌一列居中。选择器叠高以压过概念样式的 .card 规则 */
+${K} .cost{background:#14151c;color:#e3e0f8;border-color:transparent;box-shadow:inset 0 0 0 1px #4a4867;}
+${K}.r-uncommon .cost{box-shadow:inset 0 0 0 1.5px #a39fd6;}
+${K}.r-rare .cost{box-shadow:inset 0 0 0 2.5px #a39fd6;}
+${K}.r-epic .cost{box-shadow:inset 0 0 0 1.5px #cfcce6,inset 0 0 0 3px #14151c,inset 0 0 0 4.5px #cfcce6;}
+${K}.r-myth .cost{box-shadow:inset 0 0 0 1.5px #ebe9f8,inset 0 0 0 3px #14151c,inset 0 0 0 4.5px #ebe9f8,0 0 7px 1px #8e89c4;}
+${K}:is(.r-own,.r-sign) .cost{box-shadow:inset 0 0 0 1.5px #e3d49c;}
+${K}:is(.r-own,.r-sign) .cost::after{content:"";position:absolute;inset:-6px;z-index:-1;background:#e3d49c;clip-path:polygon(50% 0,58% 34%,85% 15%,66% 42%,100% 50%,66% 58%,85% 85%,58% 66%,50% 100%,42% 66%,15% 85%,34% 58%,0 50%,34% 42%,15% 15%,42% 34%);}
+${K}.cut .cost{color:#7fd6ae;} ${K}.cost-up .cost{color:#ef7c78;}
+/* 原费伴星：挂在费用圈右下的小圆，线条与普通费用圈同色 */
+${K} .was{position:absolute;display:block;left:16px;top:19px;z-index:4;box-sizing:border-box;width:11px;height:11px;margin:0;padding:0;border-radius:50%;background:#14151c;box-shadow:inset 0 0 0 1px #4a4867;color:#a9a6d0;text-align:center;text-decoration:line-through;text-decoration-thickness:1px;font:normal 8px/11px var(--num);}
+${K} .was::before,${K} .was::after{content:none;display:none;}
+${KS} .was{left:19px;top:21px;width:14px;height:14px;font:normal 10px/14px var(--num);}
+/* 牌名与数值区 */
+${KN} .name{margin-top:3px;}
+${KP}:not(.sel).nv-long .name{font-size:10.5px;letter-spacing:-.03em;white-space:nowrap;margin-left:-3px;margin-right:-3px;text-align:center;}
+${KP}:not(.sel).nv-xlong .name{font-size:10px;line-height:11px;letter-spacing:-.03em;white-space:normal;margin-top:0;}
+${KS} .name{left:8px;right:8px;top:38px;text-align:center;}
+${K} .val{gap:0;}
+${K} .val b{color:var(--tc);}
+${KN} .val:not(.no-num){position:absolute;left:0;right:0;top:auto;bottom:17px;display:flex;justify-content:center;align-items:center;}
+${KN}.nv-has-st .val:not(.no-num){bottom:27px;}
+${K} .ut{display:flex;justify-content:center;align-items:center;font:normal 10px/10px var(--serif);color:#a9a6d0;white-space:nowrap;letter-spacing:.04em;}
+${KN} .ut{position:absolute;left:0;right:0;top:100%;}
+${K} .ut .nv-delta{margin-left:3px;color:#6c6a94;font-size:.9em;font-weight:400;font-style:normal;line-height:1;}
+${K} .nv-sp{display:inline-flex;align-items:center;gap:2px;margin-left:4px;font-style:normal;}
+${K} .nv-sp i{display:block;width:6px;height:6px;background:#cfcce6;clip-path:polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%);}
+${K} .nv-st{position:absolute;left:2px;right:2px;bottom:5px;text-align:center;font:normal 9px/10px var(--serif);color:#e3e0f8;white-space:nowrap;}
+${KS} .nv-st{display:none;}
+/* 关键字（窄签）：细金圆环单字印接在最底一行文字末尾，右上缀一颗金色四芒星 */
+${K} .nv-kw1{position:relative;display:inline-block;vertical-align:middle;flex:none;box-sizing:border-box;width:12px;height:12px;margin:-2px 0 0 3px;border:0;border-radius:50%;background:#14151c;box-shadow:inset 0 0 0 1px #e3d49c;color:#e3d49c;font:400 8px/12px var(--serif);font-style:normal;text-align:center;letter-spacing:0;}
+${K} .ut .nv-kw1{margin-top:0;}
+${K} .nv-kw1::before{content:"";position:absolute;right:-3px;top:-3px;width:6px;height:6px;background:#e3d49c;clip-path:polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%);}
+/* 强化：金色实心圆，衬一枚更大的正向四芒星（星在圆之下，只从圆外透出） */
+${K} .nv-up{position:absolute;right:10px;top:10px;z-index:3;box-sizing:border-box;width:12px;height:12px;color:#14151c;font:700 8px/12px var(--serif);font-style:normal;text-align:center;}
+${K} .nv-up::before{content:"";position:absolute;z-index:-2;inset:-5px;background:#e3d49c;clip-path:polygon(50% 0,55% 45%,100% 50%,55% 55%,50% 100%,45% 55%,0 50%,45% 45%);}
+${K} .nv-up::after{content:"";position:absolute;z-index:-1;inset:0;border-radius:50%;background:#e3d49c;box-shadow:0 0 0 1px #14151c;}
+${KS} .nv-up{right:13px;top:13px;width:17px;height:17px;font-size:11px;line-height:17px;}
+${KS} .nv-up::before{inset:-7px;}
+/* 放大牌：虚影、数值、单位、关键字胶囊、说明从上到下一列居中 */
+${KS} .art{top:64px;width:80px;height:80px;opacity:1;color:#2c2b3d;z-index:0;}
+${KS} .val{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;left:0;right:0;top:84px;bottom:auto;z-index:1;}
+${KS} .val b{font-size:41px;line-height:1;}
+${KS} .ut{margin:5px 0 0;font-size:13px;line-height:13px;}
+${KS} .val.no-num{top:96px;}
+${KS} .nv-kwl{display:flex;justify-content:center;gap:4px;margin:7px 0 0;}
+${K} .nv-full{display:inline-block;padding:1px 6px;border:1px solid #e3d49c;border-radius:999px;background:#14151c;color:#e3d49c;font:10px/1.3 var(--serif);font-style:normal;letter-spacing:.06em;text-decoration:underline dotted 1px;text-underline-offset:3px;cursor:help;}
+${KS} .desc{top:152px;bottom:auto;text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;}
+${KS}.nv-has-kw .art{top:52px;}
+${KS}.nv-has-kw .val{top:72px;}
+${KS}.nv-has-kw .desc{top:166px;}
+${KS}.nv-kw-rows .art{top:46px;}
+${KS}.nv-kw-rows .val{top:62px;}
+${KS}.nv-kw-rows .desc{top:178px;}
+${KS} .nv-kwl{flex-wrap:wrap;max-width:116px;}
+${K} .nv-full{white-space:nowrap;}
+${KS} .val b[data-scale-tip]{cursor:help;}
+/* 横屏：牌面更大，文字不小于 12px，放大牌整列下移对齐 232 的牌高 */
+${KL}:not(.sel).nv-xlong .name{font-size:11px;letter-spacing:-.04em;}
+${KL}:not(.sel) .val:not(.no-num){bottom:22px;}
+${KL}:not(.sel).nv-has-st .val:not(.no-num){bottom:36px;}
+${KL} .ut{font-size:12px;line-height:12px;}
+${KL} .nv-st{bottom:6px;font-size:12px;line-height:13px;}
+${KL} .nv-kw1{width:15px;height:15px;font-size:10px;line-height:15px;}
+${KL} .nv-kw1::before{width:7px;height:7px;right:-3px;top:-3px;}
+${KL}:not(.sel) .nv-up{right:10px;top:10px;width:14px;height:14px;font-size:10px;line-height:14px;}
+${KL}:not(.sel) .was{left:15px;top:18px;width:13px;height:13px;font-size:10px;line-height:13px;}
+${KL}.sel .name{top:42px;}
+${KL}.sel .art{top:80px;}
+${KL}.sel .val{top:100px;}
+${KL}.sel .desc{top:172px;font-size:13px;}
+${KL}.sel .ut{font-size:14px;line-height:14px;}
+${KL}.sel.nv-has-kw .art{top:66px;}
+${KL}.sel.nv-has-kw .val{top:86px;}
+${KL}.sel.nv-has-kw .desc{top:186px;}
+${KL}.sel.nv-kw-rows .art{top:56px;}
+${KL}.sel.nv-kw-rows .val{top:76px;}
+${KL}.sel.nv-kw-rows .desc{top:198px;}
+/* 点开的解释：深紫底金细线框 */
+#igs-overlay #igs-combat-panel[data-igs-combat-skin="mystic"]>.igs-combat-scale-tip{border-radius:0;background:#16152a;color:#e3e0f8;box-shadow:inset 0 0 0 1px #e3d49c;font-family:var(--serif,serif);letter-spacing:0;}
 ${C}.is-ended .foes{pointer-events:none;}
 #igs-overlay .igs-cx-ghost{position:absolute;pointer-events:none;z-index:30;}
 #igs-overlay .igs-cx-ghost>.hand{position:absolute;left:0;top:0;width:calc(100% / var(--cx-scale,1));height:calc(100% / var(--cx-scale,1));transform:scale(var(--cx-scale,1));transform-origin:0 0;}

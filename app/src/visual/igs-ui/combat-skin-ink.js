@@ -5,14 +5,7 @@ import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_INK_CONCEPT_CSS } from './combat-skin-ink-concept-style.js';
-
-// 牌面说明：与 combat-panel-render.js 的 cardTextHtml 同口径，不从渲染层引入，免得循环依赖。
-const partHtml = (p) => {
-    const tip = p.tip ? ` data-scale-tip="${esc(p.tip)}"` : '';
-    if (p.mark === 'up' || p.mark === 'down') return `<span class="igs-scale-${p.mark}"${tip}>${esc(p.text)}</span>`;
-    return tip ? `<span${tip}>${esc(p.text)}</span>` : esc(p.text);
-};
-const cardTextHtml = (c) => (Array.isArray(c.textParts) ? c.textParts.map(partHtml).join('') : esc(c.text || ''));
+import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
 // 概念稿 定稿.html 的 INK.boot 参数
 const RING_BASE = { port: { rx: 130, w: 330, lift: 90, back: 0.42, dim: 0.45 }, land: { rx: 410, w: 390, lift: 90, back: 0.58, dim: 0.5 } };
@@ -34,13 +27,6 @@ const ICON = {
     redo: P('<path d="M20 12a8 8 0 1 1-3-6.2M20 4v4h-4"/>'),
     ring: P('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/>'),
     pill: P('<path d="M10 3h4M10.5 3v4M13.5 3v4"/><path d="M10.5 7C6 9 5 12 5 15a7 7 0 0 0 14 0c0-3-1-6-5.5-8"/>'),
-};
-const G = (d, cls = '') => `<svg class="gl ${cls}" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
-const GLYPH = {
-    伤害: G('<path d="M4 20.5L17.5 3l3 3L7 21.5z"/><path d="M4 16l4 4"/>', 'f'),
-    群伤: G('<path d="M12 21.5L3 8c5.5-4 12.5-4 18 0z"/>', 'f'),
-    格挡: G('<path d="M12 2.5l8 3v6c0 5.5-3.5 8.5-8 10.5-4.5-2-8-5-8-10.5v-6z"/>', 'f'),
-    回复: G('<path d="M12 2.5c4.5 5.5 7 9 7 12.5a7 7 0 0 1-14 0c0-3.5 2.5-7 7-12.5z"/>', 'f'),
 };
 const MV = (d) => `<svg viewBox="0 0 48 48" fill="currentColor" aria-hidden="true">${d}</svg>`;
 const MOTIF = {
@@ -78,7 +64,22 @@ function fanLayout(n, sel, F) {
     });
 }
 
-function cardHtml(c, i, pos, v, picks, energy) {
+// 窄签竖排牌名超过 5 字时折成两列（右列在前），字号不变。
+const nameCols = (n) => { const ch = [...String(n)]; const k = Math.ceil(ch.length / 2); return `<span>${esc(ch.slice(0, k).join(''))}</span><span>${esc(ch.slice(k).join(''))}</span>`; };
+
+// 附加效果分三段：文字（放不下时截字加省略号）、末尾数值（永不截断）、多条时的「…」（放不下时整个换到被裁掉的第二行，即先去掉「…」）。
+const extraHtml = (text) => {
+    const more = String(text).endsWith('…');
+    const m = /^(.*?)(\d+%?)?…?$/.exec(String(text));
+    return `<span class="xa"><span class="xh">${esc(m[1])}</span>${m[2] ? `<span class="xn">${esc(m[2])}</span>` : ''}</span>${more ? '<span class="xb">…</span>' : ''}`;
+};
+
+// 附加效果主体（不含多条的「…」）按字宽估算（汉字 1em，数字 .46em，其余 .6em，与出图实测一致）；放不下可用宽度时加 tight（字号降一档、字距收紧），仍放不下才由样式截字。
+const EXTRA_BOX = { port: 62, land: 108 };
+const extraWidth = (text) => [...String(text).replace(/…$/, '')].reduce((w, ch) => w + (/[0-9%]/.test(ch) ? 0.46 : /[⺀-鿿]/.test(ch) ? 1 : 0.6), 0) * 10;
+const extraTight = (c, land) => extraWidth(c.extra) > (land ? EXTRA_BOX.land : EXTRA_BOX.port) - 6 - (c.upgraded ? 19 : 4);
+
+function cardHtml(c, i, pos, v, picks, energy, land = false) {
     const k = cardKind(c);
     const r = RARITY[c.rarity] ? ` r-${RARITY[c.rarity]}` : '';
     const live = c.playable || c.choosable;
@@ -86,18 +87,26 @@ function cardHtml(c, i, pos, v, picks, energy) {
     const sel = v.selected === c.inst;
     const cut = c.baseCost !== undefined && c.cost < c.baseCost;
     const raised = c.baseCost !== undefined && c.cost > c.baseCost;
-    const buff = Boolean(c.bonusNote) || (c.baseValue !== undefined && c.value > c.baseValue);
-    const badge = c.choosable ? `<i class="bd pick${chosen ? ' on' : ''}"></i>` : c.stack ? `<i class="bd">×${esc(c.stack)}</i>` : c.upgraded ? '<i class="bd up">+</i>' : '';
-    const name = `${c.name}${c.upgraded ? '+' : ''}`;
+    const badge = c.choosable ? `<i class="bd pick${chosen ? ' on' : ''}"></i>` : c.stack ? `<i class="bd">×${esc(c.stack)}</i>` : '';
     const unit = c.unit || '';
     const costNote = c.baseCost !== undefined ? `（原 ${c.baseCost}）` : '';
     const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
     const p = pos[i];
-    const cls = `card t-${k}${r}${c.temp ? ' temp' : ''}${c.stack ? (c.stack > 2 ? ' stack stack2' : ' stack') : ''}${buff ? ' buff' : ''}${live && c.cost <= energy ? '' : ' poor'}${sel ? ' sel' : ''}${chosen ? ' picked' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
+    const showExtra = Boolean(c.extra) && !sel;
+    const cols = !sel && [...c.name].length > 5;
+    const fx = sel ? esc(c.fxText ?? c.text ?? '') : '';
+    const cls = `card t-${k}${r}${c.temp ? ' temp' : ''}${c.stack ? (c.stack > 2 ? ' stack stack2' : ' stack') : ''}${c.upgraded ? ' has-up' : ''}${showExtra ? ' has-st' : ''}${sel && !fx ? ' no-fx' : ''}${live && c.cost <= energy ? '' : ' poor'}${sel ? ' sel' : ''}${chosen ? ' picked' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
+    // 关键字墨印：放大牌列全部关键字（单字印，可点开解释），窄签只露一枚且不带解释（临时已有虚线框）。
+    const names = sel ? (c.keywordNames || []) : [cardMainKeyword(c.keywordNames)].filter(Boolean);
+    const seals = names.length ? `<div class="kseals">${names.map((n) => `<i class="kseal"${sel ? ` data-scale-tip="${esc(KEYWORD_NAME_TIPS[n] || n)}"` : ''}>${esc(KEYWORD_CHAR[n] || n)}</i>`).join('')}</div>` : '';
+    const delta = cardValueDelta(c);
+    const hits = c.hits > 1 ? `<i class="hits" aria-hidden="true">${'<i></i>'.repeat(Math.min(c.hits, 6))}</i>` : '';
+    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
     return `<button type="button" class="${cls}" data-i="${i}" style="left:${p.left}px;z-index:${p.z};--ty:${p.ty}px;--rot:${p.rot}deg" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}`
         + `${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}">`
-        + `<div class="cost">${cut || raised ? `<s>${esc(c.baseCost)}</s>` : ''}<b class="${cut ? 'cut' : raised ? 'up' : ''}">${esc(c.cost)}</b></div><div class="name${[...name].length > 3 ? ' n4' : ''}${[...name].length > 4 ? ' n5' : ''}">${esc(name)}</div><div class="art">${MOTIF[k]}</div>`
-        + `${Number.isFinite(c.value) ? `<div class="val"><b>${esc(c.value)}</b>${GLYPH[unit] || ''}</div>` : `<div class="val no-num">${MOTIF[k]}</div>`}${badge}<i class="ut">${esc(unit)}</i><p class="fx">${cardTextHtml(c)}</p></button>`;
+        + `<div class="cost">${cut || raised ? `<s>${esc(c.baseCost)}</s>` : ''}<b class="${cut ? 'cut' : raised ? 'up' : ''}">${esc(c.cost)}</b></div><div class="name${[...c.name].length > 3 ? ' n4' : ''}${[...c.name].length > 4 ? ' n5' : ''}${cols ? ' cols' : ''}">${cols ? nameCols(c.name) : esc(c.name)}</div><div class="art">${MOTIF[k]}</div>`
+        + `${Number.isFinite(c.value) ? `<div class="val"><b${valTip}>${esc(c.value)}</b>${hits}</div>` : `<div class="val no-num">${MOTIF[k]}</div>`}${badge}${seals}`
+        + `${c.upgraded ? '<i class="corner"><b>强</b></i>' : ''}<i class="ut">${esc(unit)}${delta ? `<em class="delta">${esc(delta)}</em>` : ''}</i>${showExtra ? `<em class="extra${extraTight(c, land) ? ' tight' : ''}">${extraHtml(c.extra)}</em>` : ''}<p class="fx">${fx}</p></button>`;
 }
 
 function foeHtml(u, i, f, n, L, v, pick) {
@@ -200,7 +209,7 @@ export function inkBattleHtml(v, orient) {
     const endBtn = choice
         ? `<button type="button" class="end pick" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}><b>${esc(CHOICE_VERB[choice.kind] || '选择')} ${picks.length}/${esc(choice.count)}</b></button>`
         : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}><b>结束</b></button>`;
-    const hand = `<div class="hand cx-hand${selIdx >= 0 ? ' has-sel' : ''}" style="--lift:${F.lift}px">${b.hand.map((c, i) => cardHtml(c, i, pos, v, picks, b.energy)).join('')}</div>`;
+    const hand = `<div class="hand cx-hand${selIdx >= 0 ? ' has-sel' : ''}" style="--lift:${F.lift}px">${b.hand.map((c, i) => cardHtml(c, i, pos, v, picks, b.energy, land)).join('')}</div>`;
     const pileSt = (k, label, n) => `<div class="pdk ${k}" role="img" aria-label="${label} ${esc(n)}"><small>${label}</small><b>${esc(n)}</b></div>`;
     const piles = pileSt('draw', '抽牌', b.piles.draw) + pileSt('disc', '弃牌', b.piles.discard);
     const ops = ended ? '' : `${pending}<div class="oprow">${energy}<div class="tg"><i class="swipe"></i>${skills}${itemBtn}</div>${endBtn}</div>${tray}${hand}${piles}`;
@@ -329,14 +338,15 @@ ${C}.land .mate{width:96px;} ${C}.land .mate .mface{width:34px;height:34px;font-
 ${C}.land .hand{top:58px;height:170px;}
 ${C}.land .card{width:108px;height:161px;} ${C}.land .card.sel{width:138px;height:205px;}
 ${C}.land .card .val b{font-size:31px;} ${C}.land .card:not(.sel) .name,${C}.land .card:not(.sel) .name.n4{font-size:17px;line-height:19px;left:46px;}
-${C}.land .card.sel .name,${C}.land .card.sel .name.n4{font-size:19px;line-height:22px;left:54px;} ${C}.land .card.sel .art{top:54px;width:48px;height:48px;margin-left:-24px;} ${C}.land .card.sel .val b{font-size:34px;} ${C}.land .card.sel .fx{top:104px;font-size:12px;}
+${C}.land .card.sel .name,${C}.land .card.sel .name.n4{font-size:19px;line-height:22px;left:54px;} ${C}.land .card.sel .art{top:57px;width:38px;height:38px;margin-left:-19px;} ${C}.land .card.sel.no-fx .art{top:76px;width:46px;height:46px;margin-left:-23px;} ${C}.land .card.sel .val b{font-size:34px;} ${C}.land .card.sel .fx{top:104px;font-size:12px;}
 ${C}.land .rescol{position:absolute;left:calc(var(--L) + var(--iw) + 16px);top:58px;width:124px;height:170px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;z-index:5;}
 ${C}.land .rescol .energy{position:static;transform:none;align-items:center;flex:none;filter:drop-shadow(0 2px 6px #0a0e10) drop-shadow(0 0 1px #0a0e10);} ${C}.land .rescol .energy .v{font-size:32px;}
 ${C}.land .rescol .tg{margin:0;} ${C} .tg .sq::after{inset:-3px;}
 ${C}.land .pdk-t{display:flex;gap:16px;align-items:baseline;font:12px/1 var(--font-song);color:var(--dim);} ${C}.land .pdk-t b{font:700 18px/1 var(--font-song);color:var(--moon);}
 ${C}.land .tray{left:var(--hl);right:auto;bottom:252px;} ${C}.land .pending{left:calc(var(--hl) + 170px);top:14px;}
 /* 横屏最小字号 12px */
-${C}.land :is(.foe .plate .tier,.sc,.tl span,.chips,.mate .mn,.card .fx,.sq span,.ti i,.card .ut,.cost s){font-size:12px;}
+${C}.land :is(.foe .plate .tier,.sc,.tl span,.chips,.mate .mn,.card .fx,.sq span,.ti i,.card .ut){font-size:12px;}
+${C}.land .card .cost s{right:-4px;bottom:-6px;width:14px;height:14px;font-size:10px;line-height:14px;} ${C}.land .card.sel .cost s{right:-5px;bottom:-8px;width:18px;height:18px;font-size:12px;line-height:18px;}
 ${C}.land .sq .bd,${C}.land .card .bd{font-size:12px;min-width:16px;height:16px;line-height:16px;}
 /* 行动点数：固定尺寸块 100×44，数字与「/上限」同基线，点珠在数字正下方居中 */
 ${C} .oprow .energy,${C}.land .rescol .energy{width:100px;height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
@@ -363,24 +373,61 @@ ${S} .card.card{--c-hi:var(--moon);--stk1:#2a3538;--stk2:#1f282b;}
 ${K}:not(.sel){box-shadow:inset 0 -3px 0 0 var(--tc),inset 0 0 0 1px var(--c-frame),0 4px 10px var(--edge);}
 ${K}.stack:not(.sel){box-shadow:inset 0 -3px 0 0 var(--tc),inset 0 0 0 1px var(--c-frame),-3px -3px 0 0 var(--stk1),0 4px 10px var(--edge);}
 ${K}.stack2:not(.sel){box-shadow:inset 0 -3px 0 0 var(--tc),inset 0 0 0 1px var(--c-frame),-3px -3px 0 0 var(--stk1),-6px -6px 0 0 var(--stk2),0 4px 10px var(--edge);}
-${K}.sel{box-shadow:inset 0 -3px 0 0 var(--tc),inset 0 0 0 1px var(--c-hi),0 10px 22px #05080a;}
+${K}.sel{box-shadow:inset 0 0 0 1px #4b5a5c,0 10px 22px #05080a;}
 ${K}::before{display:block;height:3px;background:var(--rb,transparent);-webkit-mask:none;mask:none;filter:none;}
 ${K}.r-uncommon{--rb:#55666b;}
 ${K}:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign){--rb:var(--moon);}
-${K} .cost{box-shadow:inset 0 0 0 1px var(--faint);}
-${K}:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign) .cost{background:var(--moon);color:#131719;box-shadow:none;}
-${S} .cost b{font-weight:inherit;} ${S} .cost b.cut{color:#7fc9a6;} ${S} .cost b.up{color:#e8806f;}
-${K}:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign) .cost b.cut{color:#0f7a52;} ${K}:is(.r-rare,.r-epic,.r-myth,.r-own,.r-sign) .cost b.up{color:#a8321f;}
-${S} .cost s{position:absolute;left:0;top:100%;margin-top:1px;font:10px/1 var(--font-song);color:var(--dim);text-decoration:line-through;}
+/* 费用框：稀有度只看框线层数（普通淡单线、罕见亮单线、稀有双线、史诗与神话粗双线），个人与专属是朱砂小印 */
+${K} .cost{background:none;color:var(--text);box-shadow:inset 0 0 0 1px var(--faint);}
+${K}.r-uncommon .cost{box-shadow:inset 0 0 0 1px var(--moon);}
+${K}.r-rare .cost{box-shadow:inset 0 0 0 1px var(--moon),inset 0 0 0 3px #131719,inset 0 0 0 4px var(--moon);}
+${K}:is(.r-epic,.r-myth) .cost{box-shadow:inset 0 0 0 2px var(--moon),inset 0 0 0 4px #131719,inset 0 0 0 5.5px var(--moon);}
+${K}:is(.r-own,.r-sign) .cost{background:#a8321f;color:#f3ead8;box-shadow:none;border-radius:3px 2px 4px 2px;}
+${S} .cost b{font-weight:inherit;} ${K} .cost b.cut{color:#7fc9a6;} ${K} .cost b.up{color:#e8806f;}
+/* 改动后的原费：贴在费用格右下的小方印，线条与费用格同色，里面是划掉的原费 */
+${K} .cost s{position:absolute;display:block;right:-3px;bottom:-5px;z-index:3;box-sizing:border-box;width:10px;height:10px;margin:0;padding:0;background:#131719;box-shadow:inset 0 0 0 1px var(--faint);border-radius:2px 1px 3px 1px;color:var(--dim);text-align:center;font:normal 8px/10px var(--font-song);text-decoration:line-through;text-decoration-thickness:1px;}
+${K}.sel .cost s{right:-4px;bottom:-7px;width:14px;height:14px;font-size:9px;line-height:14px;}
 ${K}:is(.r-epic,.r-myth,.r-own,.r-sign):not(.sel){background:linear-gradient(to bottom,#2c3a3f 0,#131719 48%);}
 ${K}.r-myth:not(.sel)::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 35%,rgba(232,239,233,.2) 50%,transparent 65%) -150% 0/250% 100% no-repeat;animation:cx-ink-sheen 4.2s ease-in-out infinite;}
 @keyframes cx-ink-sheen{0%,55%{background-position:-150% 0;}100%{background-position:150% 0;}}
 @media (prefers-reduced-motion:reduce){${K}.r-myth::after{animation:none;}}
 ${S} .card .bd{position:absolute;right:4px;top:4px;min-width:14px;height:14px;padding:0 2px;background:#2c393d;color:var(--moon);font:700 10px/14px var(--font-song);text-align:center;font-style:normal;}
-${S} .card .bd.up{background:var(--gilt);color:#131719;}
 ${S} .card .bd.pick{background:none;box-shadow:inset 0 0 0 1px var(--moon);} ${S} .card .bd.pick.on{background:var(--moon);}
 ${S} .card.temp{outline:1px dashed var(--dim);outline-offset:-3px;}
-${S} .card.buff .val b{color:#8fd0b0;}
+/* 二稿卡面：数值区、关键字墨印、强化折角、附加效果、差值、说明去重 */
+${K} .val .hits{display:flex;flex-direction:column;gap:2px;margin:3px 0 0 -1px;font-size:0;line-height:0;pointer-events:none;}
+${K} .val .hits i{display:block;width:7px;height:1.5px;background:currentColor;transform:skewY(-20deg);}
+${K} .ut{white-space:nowrap;}
+${K} .ut .delta{margin-left:3px;font-style:normal;font-size:.9em;color:#6f7c79;}
+${K}.has-st:not(.sel) .val{bottom:33px;}
+${K}.has-st:not(.sel) .ut{bottom:19px;}
+${K} .extra{position:absolute;left:6px;right:4px;bottom:6px;font:normal 10px/1 var(--font-song);font-style:normal;color:var(--moon);display:flex;flex-wrap:wrap;height:10px;overflow:hidden;}
+${K} .extra.tight{left:3px;font-size:9px;letter-spacing:-.04em;}
+${K}.has-up .extra.tight{right:18px;}
+${K} .extra .xa{display:flex;min-width:0;max-width:100%;}
+${K} .extra .xh{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+${K} .extra :is(.xn,.xb){flex:none;white-space:nowrap;}
+${K} .kseals{position:absolute;right:7px;bottom:22px;z-index:3;display:flex;flex-direction:column-reverse;gap:3px;}
+${K}.sel .kseals{right:10px;bottom:11px;flex-direction:row-reverse;gap:5px;}
+${K} .kseal{display:block;width:13px;height:13px;background:#9aa6a1;color:#131719;border-radius:2px 1px 3px 1px;font:700 9px/13px var(--font-song);font-style:normal;text-align:center;}
+${K}.sel .kseal{width:19px;height:19px;font-size:13px;line-height:19px;}
+${K} .corner{position:absolute;right:1px;bottom:4px;z-index:3;width:20px;height:20px;background:#b8402e;clip-path:polygon(100% 0,100% 100%,0 100%);font-style:normal;}
+${K} .corner b{position:absolute;right:1px;bottom:1px;font:700 9px/9px var(--font-song);color:#f3ead8;}
+${K}.sel .corner{width:28px;height:28px;}
+${K}.sel .corner b{right:2px;bottom:2px;font-size:12px;line-height:12px;}
+${K}.has-st:not(.sel) .kseals{bottom:35px;}
+${K}.has-up:not(.sel) .kseals{bottom:28px;}
+${K}.has-up.has-st:not(.sel) .kseals{bottom:35px;}
+${K}.has-up .extra{right:19px;}
+${K}.has-up.sel .kseals{bottom:36px;}
+${K}.sel .fx{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;text-align:center;}
+${K}.sel .val b[data-scale-tip]{cursor:help;}
+${K} .name.cols span{display:block;} ${K} .name.cols span:first-child{margin-left:2px;}
+/* 放大牌中央图案：往下放、四周留宽松；没有说明时再放大居中，不压牌名、大数值与说明 */
+${K}.sel .art{top:48px;width:30px;height:30px;margin-left:-15px;}
+${K}.sel.no-fx .art{top:64px;width:38px;height:38px;margin-left:-19px;}
+/* 点开的解释：墨底细线框 */
+#igs-overlay #igs-combat-panel[data-igs-combat-skin="ink"]>.igs-combat-scale-tip{border-radius:0;background:#131719;color:var(--text,#e9e4d8);box-shadow:inset 0 0 0 1px #d9dfe0;font-family:var(--font-song,serif);letter-spacing:0;}
 ${S} .card .val.no-num{display:block;width:26px;height:26px;color:var(--tc);} ${S} .card .val.no-num svg{width:100%;height:100%;display:block;fill:currentColor;stroke:none;}
 /* 行动顺序：两种屏都竖排在左侧（用户规则），横屏沿用竖屏的版式，放在关卡名与小印下方 */
 ${C}.land .track{left:25px;top:190px;flex-direction:column;gap:9px;}

@@ -6,14 +6,7 @@ import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { battlePick, needsHold, canvasW, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_DARK_A_CONCEPT_CSS } from './combat-skin-dark-a-concept-style.js';
-
-// 牌面说明：与 combat-panel-render.js 的 cardTextHtml 同口径（增强青绿、减弱灰色、带注释的数字与关键字可点开）。
-const partHtml = (p) => {
-    const tip = p.tip ? ` data-scale-tip="${esc(p.tip)}"` : '';
-    if (p.mark === 'up' || p.mark === 'down') return `<span class="igs-scale-${p.mark}"${tip}>${esc(p.text)}</span>`;
-    return tip ? `<span${tip}>${esc(p.text)}</span>` : esc(p.text);
-};
-const cardTextHtml = (c) => (Array.isArray(c.textParts) ? c.textParts.map(partHtml).join('') : esc(c.text || ''));
+import { KEYWORD_CHAR, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
 // 概念稿 buildBattle 的 opts（方案A.html / 方案B.html 里的 ring、fan 完全一致）。
 const RING_BASE = { port: { rx: 150, w: 330, lift: 60, back: 0.55, dim: 0.5 }, land: { rx: 410, w: 390, lift: 70, back: 0.58, dim: 0.5 } };
@@ -107,28 +100,38 @@ function cardHtml(c, p, v, picks, energy, picking) {
     const cut = c.baseCost !== undefined && c.cost < c.baseCost, rise = c.baseCost !== undefined && c.cost > c.baseCost;
     const kws = c.keywordNames || [];
     const hasVal = Number.isFinite(c.value);
-    const vc = hasVal && c.baseValue !== undefined ? (c.value > c.baseValue ? 'up' : c.value < c.baseValue ? 'dn' : '') : '';
     // 窄签最多一个状态记号：临时=虚线边，同名=叠层边，强化=数值旁小三角，费用变化=费用旁小三角
     const bd = [c.temp ? 'b-tmp' : '', c.stack > 1 ? 'b-stk' : '', c.upgraded ? 'b-lv' : '', c.baseCost !== undefined ? 'b-cx' : ''].filter(Boolean).join(' ');
-    // 角标位只放一个（待选勾由 .pk 负责，优先级最高）：叠加 ×N > 强化 +。
-    const badge = c.stack > 1 ? `<i class="bd">×${esc(c.stack)}</i>` : c.upgraded ? '<i class="bd up">+</i>' : '';
+    // 叠加 ×N 在费用格下方，强化「强」块在右上角（待选勾由 .pk 负责，优先级最高）。
+    const badge = `${c.stack > 1 ? `<i class="bd">×${esc(c.stack)}</i>` : ''}${c.upgraded ? '<i class="bd up">强</i>' : ''}`;
     const poor = !live || c.cost > energy, lock = kws.includes('不能打出');
     const sel = v.selected === c.inst;
     const kg = kws.map((k) => `<i class="kg${k === '临时' ? ' tp' : ''}" data-scale-tip="${esc(`${k}：${KWD[k] || ''}`)}">${esc(k)}</i>`).join('');
-    const name = `${esc(c.name)}${c.upgraded ? '<sup>+1</sup>' : ''}`;
+    const chars = [...c.name];
+    const cols = !sel && chars.length > 5;
+    const half = Math.ceil(chars.length / 2);
+    // 窄签竖排牌名超过 5 字时折成两列（右列在前），字号不变。
+    const name = cols ? `<span>${esc(chars.slice(0, half).join(''))}</span><span>${esc(chars.slice(half).join(''))}</span>` : esc(c.name);
+    // 窄签只露一枚关键字索引签（单字，从牌顶边伸出，不带解释）；放大牌的 .kws 是全称索引签，可点开。
+    const mainKw = cardMainKeyword(kws);
+    const kwm = !sel && mainKw ? `<i class="kwm">${esc(KEYWORD_CHAR[mainKw])}</i>` : '';
+    const extra = !sel && c.extra ? `<span class="xtra">${esc(c.extra)}</span>` : '';
+    const delta = cardValueDelta(c);
+    const hits = c.hits > 1 ? `<i class="hits" aria-hidden="true">${'<i></i>'.repeat(Math.min(c.hits, 6))}</i>` : '';
+    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
     const costNote = c.baseCost !== undefined ? `（原 ${c.baseCost}）` : '';
     const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
-    const cls = `card t-${t}${r ? ` r-${r[0]}` : ''}${bd ? ` ${bd}` : ''}${poor ? ' poor' : ''}${lock ? ' lock' : ''}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`
+    const cls = `card t-${t}${r ? ` r-${r[0]}` : ''}${bd ? ` ${bd}` : ''}${extra ? ' has-st' : ''}${poor ? ' poor' : ''}${lock ? ' lock' : ''}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`
         + `${picking ? `${c.choosable ? ' cand' : ' offpick'}${chosen ? ' chosen' : ''}` : ''}`;
     return `<button type="button" class="${cls}" style="left:${p.left}px;z-index:${p.z};--rest:${p.rest}" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}`
         + `${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}">`
         + `${r ? `<i class="rtab">${r[1]}</i>` : ''}<i class="cost${cut ? ' cut' : rise ? ' rise' : ''}"><span>${esc(c.cost)}</span>${c.baseCost !== undefined ? `<s>${esc(c.baseCost)}</s>` : ''}</i><i class="cdir"></i>`
-        + `<div class="name">${name}</div><div class="art">${sharpArt(c)}</div>`
+        + `<div class="name${cols ? ' cols' : ''}">${name}</div><div class="art">${sharpArt(c)}</div>`
         + (!hasVal ? `<div class="val no-num" aria-hidden="true">${MOTIF[t]}</div>` : '')
-        + (hasVal ? `<div class="val"><b${vc ? ` class="${vc}"` : ''}>${esc(c.value)}</b><i class="vdir"></i><em class="u" title="${esc(c.unit)}">${UNIT[c.unit] || ''}</em></div><i class="ut">${esc(c.unit)}</i>` : '')
-        + badge
-        + `<div class="full"><div class="kws">${kg}${c.stack > 1 ? `<i class="kg sk">×${esc(c.stack)}</i>` : ''}</div><p class="ds">${cardTextHtml(c)}</p>`
-        + `${c.bonusNote ? `<p class="sr">${esc(c.unit)} ${esc(c.value)} = ${esc(c.bonusNote)}</p>` : ''}${poor && live ? '<p class="sr bad">能量不足</p>' : ''}</div><i class="pk">✓</i></button>`;
+        + (hasVal ? `<div class="val"><b${valTip}>${esc(c.value)}</b>${hits}<i class="vdir"></i><em class="u" title="${esc(c.unit)}">${UNIT[c.unit] || ''}</em></div><i class="ut">${esc(c.unit)}${delta ? `<span class="delta">${esc(delta)}</span>` : ''}</i>` : '')
+        + badge + kwm + extra
+        + `<div class="full"><div class="kws">${kg}${c.stack > 1 ? `<i class="kg sk">×${esc(c.stack)}</i>` : ''}</div><p class="ds">${esc(c.fxText ?? c.text ?? '')}</p>`
+        + `${poor && live ? '<p class="sr bad">能量不足</p>' : ''}</div><i class="pk">✓</i></button>`;
 }
 
 // 手牌摊开：概念稿 layout() + placeSel()。
@@ -308,7 +311,26 @@ ${S} .hand .card .bd{position:absolute;left:6px;top:32px;z-index:4;min-width:16p
 ${S} .hand .card .bd.up{background:#e0b24a;font-size:14px;}
 ${C}.picking .hand .card .bd{display:none;}
 ${C} .hand .card.sel .bd{left:9px;top:42px;} ${C}.land .hand .card:not(.sel) .bd{left:8px;top:38px;}
-${C} .hand .card .name sup{color:#e0b24a;}
+/* 二稿卡面：强化实底「强」块、关键字索引签、原费小方格、数值区附加效果与差值、说明居中 */
+${C} .hand .card .bd.up{left:auto;right:7px;top:9px;min-width:16px;height:16px;padding:0;display:block;text-align:center;font:700 11px/16px var(--serif);}
+${C} .hand .card.sel .bd.up,${C}.land .hand .card.sel .bd.up{left:auto;right:10px;top:12px;min-width:22px;height:22px;font-size:14px;line-height:22px;}
+${C}.land .hand .card:not(.sel) .bd.up{left:auto;right:7px;top:9px;}
+${C} .hand .card .name.cols span{display:block;} ${C} .hand .card .name.cols span:first-child{margin-left:2px;}
+${C}:not(.land) .hand .card:not(.sel) .name.cols{left:30px;}
+${C} .hand .card .val .hits{display:flex;flex-direction:column;gap:3px;margin:1px 0 0;font-size:0;line-height:0;pointer-events:none;align-self:center;}
+${C} .hand .card .val .hits i{display:block;width:7px;height:1.5px;background:var(--bone);transform:skewY(-20deg);}
+${C} .hand .card.has-st:not(.sel) .val{transform:translateY(-11px);}
+${C} .hand .card.has-st:not(.sel) .ut{transform:translateY(-14px);}
+${C} .hand .card .xtra{position:absolute;left:8px;right:4px;bottom:6px;z-index:2;font:500 10px/10px var(--serif);color:var(--bone);white-space:nowrap;overflow:hidden;}
+${C} .hand .card .ut{white-space:nowrap;}
+${C} .hand .card .ut .delta{margin-left:3px;font-style:normal;font-size:.9em;font-weight:400;color:#62656a;}
+${C} .hand .card .kwm{position:absolute;right:9px;bottom:100%;z-index:3;box-sizing:border-box;width:16px;height:14px;padding:2px 0 0;font:700 9px/1 var(--serif);font-style:normal;text-align:center;background:#121214;color:#8d8f93;box-shadow:inset 0 0 0 1px #8d8f93;white-space:nowrap;}
+${C} .hand .card.sel .full .kws{position:absolute;right:12px;left:auto;top:auto;bottom:100%;z-index:3;display:flex;gap:3px;margin:0;padding:0;}
+${C} .hand .card.sel .full .kws .kg{box-sizing:border-box;height:16px;margin:0;padding:3px 4px 0;font:700 10px/1 var(--serif);text-align:center;letter-spacing:.05em;background:#121214;color:#8d8f93;border:0;box-shadow:inset 0 0 0 1px #8d8f93;outline:0;}
+${C} .hand .card.sel .ds{text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+${C} .hand .card .cost s{position:absolute;display:block !important;left:auto;top:auto;right:-3px;bottom:-5px;z-index:3;box-sizing:border-box;width:10px;height:10px;margin:0;padding:0;background:#16171a;box-shadow:inset 0 0 0 1px #4a4c50;color:#8d8f93;text-align:center;font:500 8px/10px var(--num);text-decoration:line-through;text-decoration-thickness:1px;opacity:1;}
+${C} .hand .card.sel .cost s{left:auto;top:auto;margin:0;right:-8px;bottom:-8px;width:15px;height:15px;font-size:10px;line-height:15px;}
+#igs-overlay #igs-combat-panel[data-igs-combat-skin^="dark"]>.igs-combat-scale-tip{border-radius:0;background:#1a1a1c;color:var(--bone,#ece8de);box-shadow:inset 0 0 0 1px #8a8d92;font-family:var(--serif,serif);}
 ${C} .hand .card.b-stk:not(.sel){box-shadow:inset 0 0 0 1px var(--c-frame),0 -3px 0 -1px var(--cbg),0 -4px 0 -1px #50545a,0 -7px 0 -2px var(--cbg),0 -8px 0 -2px #3a3d42,0 6px 14px rgba(0,0,0,.55);}
 /* 没有数值的牌（能力等）：数值位放该牌型的母题图形 */
 ${S} .hand .card .val.no-num{left:7px;bottom:21px;width:30px;height:30px;color:var(--tc);}

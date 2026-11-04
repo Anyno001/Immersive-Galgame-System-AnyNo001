@@ -5,6 +5,7 @@ import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_TECH_CONCEPT_CSS } from './combat-skin-tech-concept-style.js';
+import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
 const partHtml = (p) => {
     const tip = p.tip ? ` data-scale-tip="${esc(p.tip)}"` : '';
@@ -83,20 +84,36 @@ function cardHtml(c, i, pos, v, picks, energy) {
     const cut = c.baseCost !== undefined && c.cost < c.baseCost;
     const boost = Boolean(c.bonusNote) || (c.baseValue !== undefined && c.value > c.baseValue);
     const sel = v.selected === c.inst;
-    const kws = (c.keywordNames || []).map((x) => `<u>${esc(x)}</u>`).join('');
-    const cost = `<span class="cost">${cut ? `<s>${esc(c.baseCost)}</s>` : ''}<b>${esc(c.cost)}</b></span>`;
-    // 角标位优先级：待选勾 > 叠加 ×N > 强化 +（金色只给强化）
-    const bdg = c.choosable ? `<span class="bdg">${chosen ? '✓' : '○'}</span>` : c.stack ? `<span class="bdg">×${esc(c.stack)}</span>` : c.upgraded ? '<span class="bdg up">+</span>' : '';
-    const val = Number.isFinite(c.value) ? `<span class="val"><b>${esc(c.value)}</b><i class="unit">${UNIT[c.unit] || ''}</i></span>` : `<span class="val no-num">${MOTIF[t]}</span>`;
+    // 二稿卡面：窄签只露一枚关键字（青色单字签，接在最底一行文字末尾）；放大牌右上角列全部关键字，可点开解释；「消耗」带三道电量斜杠，其余关键字同款青色块不配符号。
+    const names = c.keywordNames || [];
+    const kws = sel ? names.map((x) => `<u${x === '消耗' ? ' class="ex"' : ''} data-scale-tip="${esc(KEYWORD_NAME_TIPS[x] || x)}">${x === '消耗' ? '<i class="cells"><i></i><i></i><i></i></i>' : ''}${esc(x)}</u>`).join('') : '';
+    const mainKw = sel ? '' : cardMainKeyword(names);
+    const kw1 = mainKw ? `<i class="kw1">${esc(KEYWORD_CHAR[mainKw] || mainKw)}</i>` : '';
+    const delta = cardValueDelta(c);
+    const unitText = `${esc(c.unit || '')}${delta ? `<em class="dl">${esc(delta)}</em>` : ''}`;
+    const showSt = !sel && Boolean(c.extra);
+    // 窄签内宽约 46px：附加效果加签放不下时，签移到单位行末尾，附加效果行保持完整。
+    const exW = showSt ? [...c.extra].reduce((n, ch) => n + (/[ -~]/.test(ch) ? 5.5 : 9), 0) : 0;
+    const kwDown = Boolean(kw1) && showSt && exW + 14 > 44;
+    const ut = unitText ? `<span class="ut">${unitText}${(!showSt || kwDown) && !sel ? kw1 : ''}</span>` : '';
+    const st = showSt ? `<em class="st${kw1 && !kwDown ? ' hk' : ''}"><span class="sx">${esc(c.extra)}</span>${kwDown ? '' : kw1}</em>` : (!sel && kw1 && !unitText ? `<em class="st">${kw1}</em>` : '');
+    const cost = `<span class="cost">${c.baseCost !== undefined ? `<s>${esc(c.baseCost)}</s>` : ''}<b>${esc(c.cost)}</b></span>`;
+    // 角标位：待选勾 > 叠加 ×N；强化改用独立的「强」标记
+    const bdg = c.choosable ? `<span class="bdg">${chosen ? '✓' : '○'}</span>` : c.stack ? `<span class="bdg">×${esc(c.stack)}</span>` : '';
+    const upg = c.upgraded ? '<i class="upg">强</i>' : '';
+    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
+    const val = Number.isFinite(c.value) ? `<span class="val"><b${valTip}>${esc(c.value)}</b>${ut}</span>` : `<span class="val no-num">${MOTIF[t]}</span>${ut}`;
+    const tb = c.hits > 1 ? `<i class="tb segs">${'<i></i>'.repeat(Math.min(c.hits, 8))}</i>` : '<i class="tb"></i>';
+    const fx = sel ? esc(c.fxText ?? c.text ?? '') : '';
     const rise = c.baseCost !== undefined && c.cost > c.baseCost;
     const costNote = c.baseCost !== undefined ? `（原 ${c.baseCost}）` : '';
     const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
     const p = pos[i];
-    const cls = `card t-${t}${rar}${cut ? ' disc' : ''}${rise ? ' rise' : ''}${c.stack > 2 ? ' stk2' : ''}${boost ? ' boost' : ''}${live && c.cost <= energy ? '' : ' poor'}${c.temp ? ' tmp' : ''}${c.stack ? ' has-stk' : ''}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
+    const cls = `card t-${t}${rar}${cut ? ' disc' : ''}${rise ? ' rise' : ''}${c.upgraded ? ' has-up' : ''}${sel && names.length && (c.upgraded || names.length > 1) ? ` kwrow${names.length > 2 ? ' kwrow2' : ''}` : ''}${st ? ' has-st' : ''}${[...c.name].length > 4 ? ' n5' : ''}${c.stack > 2 ? ' stk2' : ''}${boost ? ' boost' : ''}${live && c.cost <= energy ? '' : ' poor'}${c.temp ? ' tmp' : ''}${c.stack ? ' has-stk' : ''}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
     return `<button type="button" class="${cls}" style="left:${p.left}px;z-index:${p.z};--ty:${p.ty}px;--r:${p.r}deg;--sx:${p.sx}px;--z:${p.zz}" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}`
         + `${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}">`
-        + `<span class="cf"><i class="dash"></i><i class="tb"></i>${c.rarity !== 'mythic' ? '' : '<i class="sheen"></i>'}${cost}${bdg}<span class="kws">${kws}</span><span class="nm">${esc(c.name)}${c.upgraded ? '+' : ''}</span><span class="art">${MOTIF[t]}</span>${val}`
-        + `<span class="desc">${cardTextHtml(c)}${c.bonusNote ? `<i class="det">${esc(c.bonusNote)}</i>` : ''}</span></span></button>`;
+        + `<span class="cf"><i class="dash"></i>${tb}${c.rarity !== 'mythic' ? '' : '<i class="sheen"></i>'}${cost}${bdg}${upg}<span class="kws">${kws}</span><span class="nm">${esc(c.name)}</span><span class="art">${MOTIF[t]}</span>${val}${st}`
+        + `<span class="desc">${fx}</span></span></button>`;
 }
 
 function foeHtml(u, i, f, n, L, v, pick) {
@@ -207,6 +224,7 @@ export function battleHtml(v, orient) {
 
 const S = '#igs-overlay :where(.igs-cx-canvas[data-cx="tech"],.igs-cx-ghost[data-cx="tech"])';
 const C = '#igs-overlay #igs-cx-canvas:where([data-cx="tech"])';
+const K = `${S} .card.card`;
 const WIRING_CSS = `
 #igs-overlay #igs-combat-panel .igs-cx-wrap{position:absolute;inset:0;overflow:hidden;}
 ${C}{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(var(--cx-scale,1));transform-origin:50% 50%;background:transparent;}
@@ -353,6 +371,61 @@ ${S} .card.has-stk::before,${S} .card.has-stk::after{content:"";position:absolut
 ${S} .card.has-stk::before{background:#2a5673;transform:translate(-3px,-4px);}
 ${S} .card.has-stk::after{background:#1d3a4d;transform:translate(-6px,-8px);display:none;}
 ${S} .card.stk2::after{display:block;}
+/* 二稿卡面（11-04）：稀有度只看费用菱形；大数值居中、单位文字加淡色差值、附加效果独占最底一行、段数切牌型色条、强化金块与军衔肩章、关键字青色块 */
+${K} .cost b{position:relative;top:1px;}
+${K}.r-unc .cost{--rb:var(--cy);}
+${K}.r-unc .cost::before{border-width:1.5px;}
+${K}:is(.r-epic,.r-myth,.r-own) .cost::before{width:calc(var(--d) - 6px);height:calc(var(--d) - 6px);margin:calc(var(--d) / -2 + 3px) 0 0 calc(var(--d) / -2 + 3px);}
+${K}:is(.r-epic,.r-myth,.r-own) .cost::after{content:"";position:absolute;left:50%;top:50%;z-index:-2;box-sizing:border-box;width:var(--d);height:var(--d);margin:calc(var(--d) / -2) 0 0 calc(var(--d) / -2);border:1px solid var(--cy);transform:rotate(45deg);}
+${K}.r-myth .cost::before{background:#e9f1f6;}
+${K}.r-myth .cost::after{border-color:#e9f1f6;}
+${K} .val{gap:0;}
+${K}:not(.sel) .val{transform:translateY(1px);}
+${K}.has-st:not(.sel) .val{transform:translateY(-5px);}
+${K} .ut{display:block;font:normal 10px/10px var(--ui,sans-serif);color:#8aa9b3;white-space:nowrap;text-align:center;}
+${K}:not(.sel) .ut{position:absolute;left:-10px;right:-10px;top:100%;}
+${K} .ut .dl{margin-left:3px;color:#5f7a84;font-size:.9em;font-weight:400;font-style:normal;}
+${K} .cf>.tb.segs{background:none;display:flex;gap:3px;}
+${K} .cf>.tb.segs>i{flex:1;height:3px;background:var(--tc);transform:skewX(-35deg);}
+${K} .st{position:absolute;left:2px;right:2px;bottom:9px;z-index:2;display:block;text-align:center;font:normal 9px/10px var(--ui,sans-serif);color:#d8f3f7;white-space:nowrap;}
+${K} .st .sx{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;}
+${K}.sel .st{display:none;}
+${K} .st.hk .sx{max-width:calc(100% - 16px);}
+${K} .kw1{position:relative;display:inline-block;vertical-align:middle;box-sizing:border-box;width:12px;height:11px;margin:-2px 0 0 2px;padding:0 0 0 1px;background:#5fd3e6;color:#07090b;font:700 8px/11px var(--ui,sans-serif);text-align:center;clip-path:polygon(3px 0,100% 0,100% calc(100% - 3px),calc(100% - 3px) 100%,0 100%,0 3px);}
+${K} .ut .kw1{margin-top:0;}
+${K} .upg{position:absolute;right:7px;top:9px;z-index:3;width:12px;height:12px;background:var(--gold,#f0c35a);color:#07090b;font:700 9px/12px var(--ui,sans-serif);font-style:normal;text-align:center;}
+${K} .upg::after{content:"";position:absolute;left:50%;top:100%;width:10px;height:7px;margin:2px 0 0 -5px;background:var(--gold,#f0c35a);clip-path:polygon(50% 0,100% 40%,100% 60%,50% 20%,0 60%,0 40%,50% 0,50% 0,50% 50%,100% 90%,100% 100%,50% 70%,0 100%,0 90%,50% 50%);}
+${K} .desc{text-align:center;}
+${K}.n5:not(.sel) .nm{font-size:10px;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+${K} .cost s{display:block;position:absolute;left:13px;top:11px;right:auto;z-index:4;width:14px;height:14px;margin:0;padding:0;opacity:1;text-align:center;font:600 8px/14px var(--ui,sans-serif);color:#d8f3f7;text-decoration:line-through;text-decoration-thickness:1px;}
+${K} .cost s::before{content:"";position:absolute;inset:2px;z-index:-1;box-sizing:border-box;border:1px solid var(--rb,#8c9aa4);background:#11171c;transform:rotate(45deg);}
+${K}.sel .cost s{left:20px;top:10px;width:17px;height:17px;font-size:10px;line-height:17px;}
+${K}.sel .nm{margin-top:6px;}
+${K}.sel .art{display:none;}
+${K}.sel .val{top:78px;flex-direction:column;align-items:center;justify-content:flex-start;}
+${K}.sel .val b{font-size:46px;line-height:44px;}
+${K}.sel .val b[data-scale-tip]{cursor:help;}
+${K}.sel .ut{position:static;align-self:center;margin:4px 0 0;font-size:14px;line-height:14px;text-align:center;}
+${K}.sel .desc{top:150px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+${K}.sel .upg{top:15px;right:12px;width:auto;height:20px;padding:0 7px 0 28px;background:none;font:700 15px/20px var(--ui,sans-serif);}
+${K}.sel .upg::before{content:"";position:absolute;inset:0 0 0 21px;z-index:-1;background:var(--gold,#f0c35a);clip-path:polygon(0 0,100% 0,100% 100%,7px 100%,0 calc(100% - 7px));}
+${K}.sel .upg::after{left:0;top:3px;width:19px;height:14px;margin:0;background:var(--gold,#f0c35a);clip-path:path('M0 0 L5 0 L9 7 L5 14 L0 14 L4 7 Z M10 0 L15 0 L19 7 L15 14 L10 14 L14 7 Z');}
+${K}.sel .kws{display:flex;flex-direction:row-reverse;align-items:flex-start;gap:3px;top:16px;right:12px;overflow:visible;clip-path:none;}
+${K}.sel.kwrow .kws{left:4px;right:4px;top:64px;flex-direction:row;flex-wrap:wrap;justify-content:center;}
+${K}.sel .kws u{white-space:nowrap;}
+${K}.sel.kwrow .kws u{height:16px;font-size:11px;line-height:16px;}
+${K}.sel.kwrow .val{top:86px;}
+${K}.sel.kwrow .desc{top:152px;}
+${K}.sel.kwrow2 .val{top:105px;}
+${K}.sel.kwrow2 .val b{font-size:32px;line-height:30px;}
+${K}.sel.kwrow2 .desc{top:156px;-webkit-line-clamp:1;}
+${K}.sel .kws u{position:relative;z-index:0;box-sizing:border-box;width:auto;height:18px;padding:0 7px;border:0;border-radius:0;background:none;color:#07090b;font:700 12px/18px var(--ui,sans-serif);letter-spacing:.06em;text-decoration:none;overflow:visible;clip-path:none;}
+${K}.sel .kws u::before{content:"";position:absolute;inset:0;z-index:-1;background:#5fd3e6;clip-path:polygon(6.5px 0,100% 0,100% 100%,0 100%);}
+${K}.sel .kws u.ex{padding-left:28px;}
+${K}.sel .kws u.ex::before{left:19px;}
+${K}.sel .kws .cells{position:absolute;left:0;top:0;display:flex;gap:3px;height:18px;padding:0 0 0 4px;font-style:normal;}
+${K}.sel .kws .cells i{display:block;flex:none;width:3px;height:18px;background:#2b4a55;transform:skewX(-20deg);}
+${K}.sel .kws .cells i:first-child{background:#5fd3e6;}
 /* 行动顺序：竖屏与横屏都竖排在画布左侧（用户 11-02 定） */
 ${C}.land .track{flex-direction:column;top:62px;}
 ${S} .track .who{flex:none;}
