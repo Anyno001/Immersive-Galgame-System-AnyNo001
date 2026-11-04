@@ -496,7 +496,7 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-settings-nav-item{display:block;width:100%;box-sizing:border-box;border:0;background:transparent;color:var(--igs-settings-ink-3);padding:9px 12px;border-radius:var(--igs-settings-radius-small);font:inherit;font-size:12px;text-align:left;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease}
 .igs-settings-nav-item:hover,.igs-settings-nav-item:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-settings-nav-item.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);font-weight:600}
-.igs-settings-nav-group{padding:12px 12px 4px;font-size:10px;color:var(--igs-settings-ink-4);white-space:nowrap;user-select:none}
+.igs-settings-nav-group{margin-top:6px;border-top:1px solid var(--igs-settings-line);padding:10px 12px 4px;font-size:10px;color:var(--igs-settings-ink-4);white-space:nowrap;user-select:none}
 /* 子页条：一行扁平文字按钮，放不下就横向滚动，不换行。 */
 .igs-page-tabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;margin:0 0 12px;padding:3px;overflow-x:auto;flex-shrink:0;background:var(--igs-settings-field);border-radius:var(--igs-settings-radius-control);scrollbar-width:none}
 .igs-page-tabs::-webkit-scrollbar{display:none}
