@@ -607,7 +607,7 @@ export function createWaitStageRuntime(options = {}) {
             const tools = mountNode(doc, 'igs-ws-tools');
             tools.setAttribute('aria-label', '等待页菜单');
             tools.setAttribute('role', 'group');
-            const closeCallback = onClose && !opts.embedded
+            const closeCallback = onClose
                 ? () => {
                     if (play) closeRoot();
                     else onClose();
