@@ -113,7 +113,7 @@ test('D6 手动操作记在 after:messageId 名下，roll 那一楼不会冲掉�
 });
 
 test('D7 回合 = AI 楼序号：删楼后时限按剩余楼数重算，不再沿用旧计数', () => {
-    const h = createHarness();
+    const h = createHarness({ limitMax: 99 });
     h.user('u'); h.ai('a1' + blk('新任务|类型:支线|标题:跑腿|描述:d|条件:c|奖励:积分10|惩罚:积分-5|时限:3|对象:宿主'));
     h.user('u'); h.ai('a3');
     h.user('u'); h.ai('a5');
@@ -128,4 +128,17 @@ test('D7 回合 = AI 楼序号：删楼后时限按剩余楼数重算，不再�
     h.removeLast(); h.removeLast();
     h.user('u');
     assert.match(h.injected(), /跑腿（进度0%，剩2回合）/);
+});
+
+test('时限上限为 0：AI 写的时限与改时限都不生效，任务不会超时', () => {
+    const h = createHarness();
+    h.user('u'); h.ai('a1' + blk('新任务|类型:支线|标题:跑腿|描述:d|条件:c|奖励:积分10|惩罚:积分-5|时限:2|对象:宿主'));
+    h.user('u'); h.ai('a2' + blk('时限|1|1'));
+    h.user('u'); h.ai('a3');
+    h.user('u'); h.ai('a4');
+    assert.equal(h.state().tasks[0].limit, 0);
+    assert.equal(h.state().tasks[0].status, 'active');
+    assert.equal(h.state().points, 0);
+    h.user('u');
+    assert.doesNotMatch(h.injected(), /时限:/);
 });

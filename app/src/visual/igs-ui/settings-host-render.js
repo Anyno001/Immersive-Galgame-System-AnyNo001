@@ -329,7 +329,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 originPauseHidden: hiddenAttr(!chatReady || chat.paused),
                 originFreqField: intField('freq', '任务频率（回合）', 1, 10, '每隔几回合最多派发一个任务'),
                 originTaskSourceField: field('bridge.origin.taskSource', '任务来源', selectInput('bridge.origin.taskSource', origin.taskSource, [['auto', '自动'], ['direction', '按指定方向'], ['manual', '只手写']])),
-                originLimitMinField: intField('limitMin', '时限下限（回合）', 0, 99, '0表示不强制时限'),
+                originLimitMinField: intField('limitMin', '时限下限（回合）', 0, 99, '上限为0时任务不设时限'),
                 originLimitMaxField: intField('limitMax', '时限上限（回合）', 0, 99),
                 originBlockField: checkbox('bridge.origin.blockWhenUnfinished', origin.blockWhenUnfinished, '上一个主线或支线未完成时不派发新任务'),
                 originPunishField: checkbox('bridge.origin.punishEvent', origin.punishEvent, '任务失败时触发剧情惩罚事件'),

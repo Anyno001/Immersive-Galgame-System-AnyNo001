@@ -28,7 +28,8 @@ test('注入提示词原文逐字照搬：原插件 buildInjection 里的每一�
     const mine = readFileSync(new URL('../src/scene/origin/origin-inject.js', import.meta.url), 'utf8');
     const lits = [...src.matchAll(/'((?:[^'\\\n]|\\.)*)'/g)].map((m) => m[1]).filter((s) => /[一-龥]/.test(s) && s.length >= 6);
     assert.ok(lits.length > 60, '取到的文案段数 ' + lits.length);
-    const missing = lits.filter((s) => !mine.includes(s));
+    // 上限为 0 时不让 AI 设时限，这两段改成按设置拼接
+    const missing = lits.filter((s) => !mine.includes(s) && !/时限:|^一个整数或留空$/.test(s));
     assert.deepEqual(missing, []);
 });
 
