@@ -4,6 +4,7 @@
 import { STATS_LOG_MAX, activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
 import { MANUAL_DIMS, applyManualRelations, settleFloorText } from '../scene/stats/stat-settle.js';
+import { START_DIMS } from '../scene/stats/stat-vocab.js';
 import { createChatStatsStore, emptyCatalog, sanitizeCatalog, sheetAbilityScores } from '../scene/stats/stat-persist.js';
 import {
     BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, statTagHash, verifyStatImport,
@@ -32,7 +33,7 @@ import {
 } from '../scene/stats/stat-engine.js';
 import {
     PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, abilityLine, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
-    buildHeroSkillRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, sheetAttributeInput, sheetFromTiers, skillTierOfValue, strongSkills, SKILL_TIERS, bandValue,
+    buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, skillTierOfValue, strongSkills, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
 
@@ -44,6 +45,8 @@ const DIAG_MAX = 50;
 const SKILLS_LINE_MAX = 20;
 const PRESENT_MAX = 3;
 const BACKGROUND_TIMEOUT_MS = 60000;
+// 补填起始关系时，好感、信任、了解都在这个范围内的角色视为还没定过初值。
+const START_FILL_SPAN = 10;
 
 function lastUserText(c) {
     const chat = c && Array.isArray(c.chat) ? c.chat : [];
@@ -148,6 +151,7 @@ export function createStatsRuntime({
     let sheetJob = null;
     let backfillJob = null;
     let heroJob = null;
+    let startJob = null;
     let tail = Promise.resolve();
     let writes = 0;
     let writeSeq = 0;
@@ -1358,6 +1362,7 @@ export function createStatsRuntime({
     // 手改关系数值：写进最近一楼的结算结果，并记在该楼 meta.manual 上，之后重算或重 roll 这一楼仍保留。
     function relationOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        if (op === 'fill-start') return fillStartRelations();
         if (op !== 'set') return { ok: false, reason: 'stats-relation-op-unknown' };
         if (generating) return { ok: false, reason: 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
@@ -1369,11 +1374,74 @@ export function createStatsRuntime({
             if (Object.hasOwn(payload, key)) dims[key] = v;
         }
         if (!Object.keys(dims).length) return { ok: true, cancelled: true };
+        return commitManualRelations(entry, { [name]: dims });
+    }
+
+    // 按人设补填起始关系：只处理好感、信任、了解都还在 ±START_FILL_SPAN 以内的已登记角色（视为没定过初值）。
+    // 辅助模型只给关系档，初值查 START_DIMS 后叠加到当前值上，开局以来的小幅涨跌保留；判为「陌生」的不改。
+    function fillStartRelations() {
+        if (startJob) return startJob;
+        if (generating) return Promise.resolve({ ok: false, reason: 'stats-generating' });
+        const entry = activeEntryBefore(ledger, Infinity);
+        if (!entry) return Promise.resolve({ ok: false, reason: 'stats-relation-missing' });
+        const blank = (c) => MANUAL_DIMS.every((key) => Math.abs(Number(c.dims && c.dims[key]) || 0) <= START_FILL_SPAN);
+        const names = Object.entries(entry.after.characters).filter(([name, c]) => !isHero(name) && blank(c)).map(([name]) => name);
+        if (!names.length) return Promise.resolve({ ok: false, reason: 'stats-start-none' });
+        const request = requester();
+        if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
+        const chatId = chatIdOf(ctx());
+        const run = async () => {
+            const relations = {};
+            for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
+                const batch = names.slice(i, i + SHEET_BATCH_MAX);
+                let people;
+                try { people = typeof describePeople === 'function' ? await describePeople(batch) : batch.map((n) => ({ name: n, summary: '' })); }
+                catch (error) { people = batch.map((n) => ({ name: n, summary: '' })); }
+                const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations });
+                let parsed = null;
+                for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
+                    try { parsed = parseStartRelationReply(await ask(request, prompt), { names: batch }); }
+                    catch (error) { parsed = { ok: false, reason: 'stats-start-request-failed' }; }
+                }
+                if (parsed && parsed.ok) Object.assign(relations, parsed.relations);
+                else diag(parsed ? parsed.reason : 'stats-start-request-failed');
+            }
+            if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false, reason: 'stats-chat-changed' };
+            if (generating) return { ok: false, reason: 'stats-generating' };
+            if (!Object.keys(relations).length) return { ok: false, reason: 'stats-start-failed' };
+            // 等回复期间可能又结算了新楼，按最新一楼重新取当前值。
+            const latest = activeEntryBefore(ledger, Infinity);
+            const manual = {};
+            for (const [name, tier] of Object.entries(relations)) {
+                const cur = latest && latest.after.characters[name];
+                if (!cur || !blank(cur) || tier === '陌生') continue;
+                const dims = {};
+                for (const key of MANUAL_DIMS) dims[key] = Math.max(-100, Math.min(100, (Number(cur.dims[key]) || 0) + (START_DIMS[tier][key] || 0)));
+                manual[name] = dims;
+            }
+            const filled = Object.keys(manual).map((name) => `${name} ${relations[name]}`);
+            if (!filled.length) return { ok: true, filled: [], relations };
+            const result = commitManualRelations(latest, manual, (name) => `起始关系·${relations[name]}`);
+            return result.ok ? { ok: true, filled, relations } : result;
+        };
+        setNotice('start-relations', { kind: 'busy', text: `正在按人设计算初始关系：${names.join('、')}` });
+        startJob = run().then((result) => {
+            setNotice('start-relations', result && result.ok && result.filled.length ? { kind: 'info', text: `已补填初始关系：${result.filled.join('、')}`, ttl: true } : null);
+            return result;
+        }, (error) => { setNotice('start-relations', null); throw error; }).finally(() => { startJob = null; });
+        return startJob;
+    }
+
+    // 把 manual（{ 角色: { 好感, 信任, 了解 } }）写进该楼结算结果并记到 meta.manual，重算或重 roll 这一楼仍保留。
+    function commitManualRelations(entry, manual, noteOf = null) {
         const changes = [];
-        const after = applyManualRelations(entry.after, { [name]: dims }, changes);
+        const after = applyManualRelations(entry.after, manual, changes);
         if (!changes.length) return { ok: true };
+        if (noteOf) for (const row of changes) row.note = noteOf(row.target) || row.note;
         const prev = (entry.meta && entry.meta.manual) || {};
-        const meta = { ...(entry.meta || {}), manual: { ...prev, [name]: { ...(prev[name] || {}), ...dims } } };
+        const merged = { ...prev };
+        for (const [name, dims] of Object.entries(manual)) merged[name] = { ...(prev[name] || {}), ...dims };
+        const meta = { ...(entry.meta || {}), manual: merged };
         const m = messages(ctx())[entry.messageId];
         if (!m) return { ok: false, reason: 'stats-relation-missing' };
         const all = [...entry.changes, ...changes];

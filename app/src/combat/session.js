@@ -242,6 +242,7 @@ function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = 
                 side: 'enemy', kind: 'skill', maxHp, damageScale, speed: vitals.speed,
                 skills: scaleSkills(skills, attributes), passives, phases,
                 art: enemyArtKeyFor({ art: template.art, name, tier: template.tier }),
+                ...(template.tier === 'elite' || template.tier === 'boss' ? { tier: template.tier } : {}),
                 ...abilityFields(attributes),
             });
             tiers.push(template.tier);

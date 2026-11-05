@@ -96,7 +96,7 @@ function foeHtml(u, i, f, n, L, v, pick) {
     const kind = enemyArtKeyFor({ art: u.art, name: u.name });
     return `<div class="foe k-${esc(kind)}${ring.front ? ' front' : ''}${ring.rear ? ' rear' : ''} ${unitCls(u, ok)}"${unitData(u)} style="${ring.style};--atop:${enemyArtTopOf(arts[u.name])}"${unitAct(u, ok)}>`
         + `<div class="art">${foeArt(pics[u.name], arts[u.name], u.name)}</div><div class="head">${intent}`
-        + `<div class="plate"><span class="nm">${esc(u.name)}</span>${hpBar(u, false)}</div>${bars}<i class="pickmark"></i></div></div>`;
+        + `<div class="plate"><span class="nm">${esc(u.name)}</span>${u.tier ? `<em class="tier">${u.tier === 'boss' ? '首' : '精'}</em>` : ''}${hpBar(u, false)}</div>${bars}<i class="pickmark"></i></div></div>`;
 }
 
 function leadHtml(hero, v, pick) {

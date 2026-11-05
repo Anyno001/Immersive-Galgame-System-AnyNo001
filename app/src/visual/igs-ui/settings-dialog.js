@@ -27,6 +27,7 @@ export const SETTINGS_DIALOG_STYLE_TEXT = `
 
 function nativeFallback(globalObj) {
     return (kind, message, value) => {
+        if (kind === 'busy') return true;
         if (kind === 'confirm') return globalObj && typeof globalObj.confirm === 'function' ? Boolean(globalObj.confirm(message)) : true;
         if (kind === 'alert' || kind === 'view') {
             if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
@@ -87,7 +88,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         el.className = entry.kind === 'view' || entry.kind === 'edit' || entry.kind === 'choose' || entry.kind === 'pick'
             ? `igs-settings-dialog is-${entry.kind}`
             : 'igs-settings-dialog';
-        el.setAttribute('role', entry.kind === 'confirm' || entry.kind === 'alert' ? 'alertdialog' : 'dialog');
+        el.setAttribute('role', entry.kind === 'busy' ? 'status' : entry.kind === 'confirm' || entry.kind === 'alert' ? 'alertdialog' : 'dialog');
         el.setAttribute('aria-modal', 'true');
         el.setAttribute('aria-label', entry.kind === 'view' || entry.kind === 'edit' ? '生图提示词' : entry.message);
         const msg = doc.createElement('div');
@@ -166,7 +167,9 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         }
         const actions = doc.createElement('div');
         actions.className = 'igs-settings-dialog-actions';
-        const buttons = entry.kind === 'view' || entry.kind === 'alert' ? [['ok', entry.okLabel]]
+        // 忙碌提示没有按钮，由调用方 close；Esc 只关掉提示，后台计算照常进行。
+        const buttons = entry.kind === 'busy' ? []
+            : entry.kind === 'view' || entry.kind === 'alert' ? [['ok', entry.okLabel]]
             : entry.kind === 'choose' && !entry.dropdown ? [['cancel', entry.cancelLabel]]
             : entry.kind === 'pick' ? [['all', '全选/清空'], ['cancel', entry.cancelLabel], ['ok', entry.okLabel]]
                 : [['cancel', entry.cancelLabel], ['ok', entry.okLabel]];
@@ -178,7 +181,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             btn.textContent = label;
             actions.appendChild(btn);
         }
-        el.appendChild(actions);
+        if (buttons.length) el.appendChild(actions);
         const picked = () => entry.choices.map((choice) => choice.value).filter((value) => entry.selected.has(value));
         const syncPick = () => {
             for (const btn of el.querySelectorAll('[data-settings-dialog="toggle"]')) {
@@ -212,13 +215,14 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 event.preventDefault();
                 event.stopPropagation();
                 settle(entry, cancelValue(entry));
-            } else if (event.key === 'Enter' && entry.kind !== 'choose' && !entry.multiline && !event.isComposing && (input ? event.target === input : true)) {
+            } else if (event.key === 'Enter' && entry.kind !== 'choose' && entry.kind !== 'busy' && !entry.multiline && !event.isComposing && (input ? event.target === input : true)) {
                 event.preventDefault();
                 event.stopPropagation();
                 accept();
             }
         });
-        entry.focusTarget = () => input || current || actions.lastChild;
+        entry.focusTarget = () => input || current || actions.lastChild || el;
+        if (entry.kind === 'busy') el.tabIndex = -1;
         return el;
     }
 
@@ -268,6 +272,12 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
 
     return {
         alert: (message, labels) => open('alert', message, '', labels),
+        // 忙碌提示：不阻塞调用方，返回 close()；之后弹出的其他对话框会顶掉它。
+        busy(message) {
+            const shown = open('busy', message, '');
+            const entry = pending && pending.kind === 'busy' ? pending : null;
+            return { close() { if (entry) settle(entry, true); }, done: shown };
+        },
         confirm: (message, labels) => open('confirm', message, '', labels),
         prompt: (message, value = '', labels) => open('prompt', message, value, labels),
         view: (message, labels) => open('view', message, '', { okLabel: '关闭', ...labels }),

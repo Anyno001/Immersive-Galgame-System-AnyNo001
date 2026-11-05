@@ -10,7 +10,7 @@ import { applyCombatRuleModifiers, COMBAT_GROWTH_LINES, COMBAT_RULE_HEAD, COMBAT
 
 export const STAT_PROMPT_SEGMENTS = Object.freeze(['source', 'protagonist', 'skills', 'perception', 'present', 'sheets', 'check', 'dice', 'tags', 'combat', 'party', 'mandates']);
 // 后台请求的提示词（角色卡生成、批量补全）：可编辑，不参与注入开关。
-export const STAT_BACKGROUND_PROMPTS = Object.freeze(['sheetGen', 'backfill', 'heroSkills']);
+export const STAT_BACKGROUND_PROMPTS = Object.freeze(['sheetGen', 'backfill', 'heroSkills', 'startRelations']);
 // 用户提示词版本：3 起 roll、rollManual、protagonist 的旧覆盖移进 stalePrompts（模板已改名或改格式）；
 // sheets、sheetGen 在本工作区仍是有效模板（NPC 属性档保留），不在失效清单里。
 export const STAT_PROMPTS_VERSION = 3;
@@ -31,6 +31,7 @@ const BASE_PROMPTS = {
     sheetGen: '你是跑团数值设计。按角色资料给每个角色分配数值，只输出档位词，不输出任何数字。\n属性档：很弱、偏弱、普通、出众、顶尖（非人可用「超凡」），属性写 力量、敏捷、体质、智力、感知、魅力 与 理智。技能档（相对主角同项技能）：生疏、略逊、相当、擅长、精通、大师，相当表示与主角接近，向上依次为擅长、精通、大师，向下为略逊、生疏，完全不会写「未学」。资历：普通人、老手、精英、大师、传奇。\n只列与「普通 / 未学」不同的项。招牌技能最多 3 个，可以是清单外的新技能，并写所属属性（力量、敏捷、体质、智力、感知、魅力之一）。\n只输出 JSON：{"角色名":{"资历":"","属性":{"属性名":"档"},"技能":{"技能名":"档"},"招牌技能":[{"名":"","属性":""}]}}',
     backfill: '你是跑团数值设计。剧情里出现了新技能，请按角色资料给每个角色补一个技能档位，只输出档位词，不输出任何数字。\n技能档：主角用未学、入门、熟练；其他角色用相对主角同项技能的生疏、略逊、相当、擅长、精通、大师。没有相关经历一律写「未学」。\n只输出 JSON：{"角色名":{"技能名":"档"}}',
     heroSkills: '你是跑团数值设计。按主角的人设与经历，为可分配技能逐项评定档位，只输出档位词，不输出任何数字。\n档位：未学、入门、熟练、精通、大师。名额有限：大师至多 1 项，精通至多 2 项，熟练至多 6 项，入门至多 8 项，其余一律写「未学」。\n只给与人设有明确关联的技能评档，没有相关经历的写「未学」。\n只输出 JSON：{"技能名":"档"}',
+    startRelations: '你是恋爱模拟游戏的数值设计。按角色资料判断每个角色在故事开始时与主角的关系，只输出关系档，不输出任何数字。\n关系档：仇视、疏远、陌生、熟人、朋友、亲密、恋人。资料没有写到与主角的关系时写「陌生」；同学、同事、邻居写「熟人」；青梅竹马、家人写「亲密」；只有资料或剧情明确写了恋爱关系才写「恋人」。\n只输出 JSON：{"角色名":"关系档"}',
     tags: '【数值标签】正文末尾按需输出以下标签，只写档位，不写任何数字：\n[igs-stat:favor|角色名|{{好感档位}}]\n[igs-stat:start|角色名|仇视/疏远/陌生/熟人/朋友/亲密/恋人]（角色第一次出场、上文没有列出其关系阶段时写一次，按人设与既往关系选起始关系）\n[igs-stat:trust|角色名|上升/下降]\n[igs-stat:grudge|角色名|上升/下降]（芥蒂是角色对主角的不满与心结，从心生不满到深仇大恨都算，与好感、信任互不影响，可同时很高）\n[igs-stat:stamina|{{体力档位}}]\n[igs-stat:money|收入/花费|{{金钱档位}}]\n[igs-stat:stress|上升/下降]\n[igs-stat:hurt|{{伤势档位}}]\n[igs-stat:sleep]（入睡）\n[igs-stat:event|角色名|约会/告白/共患难]\n[igs-stat:gift|角色名|礼物类别]\n[igs-stat:skip|7天]（时间跳跃）\n[igs-stat:grow|角色名|技能名]（剧情明确写了苦练、拜师等长期成长时才写，同一角色同一技能一天一次，不写数字）',
     mandates: '【本轮必须写出】{{事项}}',
 };

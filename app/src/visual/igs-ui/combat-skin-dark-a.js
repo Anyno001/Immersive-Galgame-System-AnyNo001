@@ -151,7 +151,7 @@ function foeHtml(u, i, f, n, L, v, pick) {
     const it = u.intent;
     const atk = it && it.kind === 'attack';
     const intent = it ? `<div class="intent ${atk ? 'atk' : 'cast'}" title="${esc(`${it.label}·${it.name}${it.damage ? `，${it.damage} 点伤害` : ''}`)}">${atk ? ICON.claw : intentIconSvg(it.kind)}${it.damage ? `<b>${esc(it.damage)}</b>` : ''}<em>${esc(it.damage ? it.name : `${it.label}·${it.name}`)}</em></div>` : '';
-    const sts = (u.block ? blkChip(u.block) : '') + u.statuses.map(sc).join('');
+    const sts = (u.tier ? `<u class="tier">${u.tier === 'boss' ? '首领' : '精英'}</u>` : '') + (u.block ? blkChip(u.block) : '') + u.statuses.map(sc).join('');
     const ok = pick.pickable(u);
     const aim = ok ? (pick.card || pick.skill ? ' target' : ' pickable') : '';
     return `<div class="foe${i === f ? ' front' : ''}${aim} ${unitCls(u, ok)}"${unitData(u)} style="${ringStyle(i, f, n, L)};--atop:${enemyArtTopOf(arts[u.name])}"${unitAct(u, ok)}>${intent}`

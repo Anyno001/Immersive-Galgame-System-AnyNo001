@@ -5,6 +5,7 @@ import { LEGACY_ATTRIBUTE_MAP, normalizeAttribute, validSkillName } from './stat
 import { PROTAGONIST, RANKS, SAN_ATTRIBUTE, profileOf } from './stat-engine.js';
 import { seededRandom } from './stat-ledger.js';
 import { DEFAULT_STAT_PROMPTS } from './stat-prompt.js';
+import { START_RELATIONS, normalizeTier } from './stat-vocab.js';
 
 // 档位词 → 区间。六维存战斗分数（3–30，ABILITY_SCORE_TIERS）；理智值（SAN）仍是百分制（ATTRIBUTE_TIERS）。
 export const ATTRIBUTE_TIERS = Object.freeze({ 很弱: [20, 30], 偏弱: [35, 45], 普通: [45, 55], 出众: [60, 70], 顶尖: [75, 90], 超凡: [91, 99] });
@@ -282,6 +283,28 @@ export function parseHeroSkillReply(reply, { skills = [] } = {}) {
         tiers[skill] = tier;
     }
     return Object.keys(tiers).length ? { ok: true, tiers, demoted } : { ok: false, reason: 'stats-hero-skills-empty', tiers };
+}
+
+// 起始关系一次性补填：people 为 [{ name, summary }]，回复格式 { "角色名": "关系档" }。
+export function buildStartRelationRequest(people, { prompt } = {}) {
+    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(p.summary, SUMMARY_MAX) || '（没有资料）'}`);
+    return {
+        system: prompt || DEFAULT_STAT_PROMPTS.startRelations,
+        user: `主角：${PROTAGONIST}\n角色资料：\n${list.join('\n')}`,
+    };
+}
+
+// 返回 { ok, relations: { 角色: 关系档 } }：只收名单内角色与白名单档位（含近义词），含数字的项丢弃。
+export function parseStartRelationReply(reply, { names = [] } = {}) {
+    const obj = extractJson(reply);
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'stats-start-invalid', relations: {} };
+    const allowed = new Set(names);
+    const relations = {};
+    for (const [name, raw] of Object.entries(obj)) {
+        const tier = allowed.has(name) ? normalizeTier('start', START_RELATIONS, raw) : null;
+        if (tier) relations[name] = tier;
+    }
+    return Object.keys(relations).length ? { ok: true, relations } : { ok: false, reason: 'stats-start-empty', relations };
 }
 
 // 补全写回 NPC 卡：已有的非临时值不改，只填空（§6.2 第三层）。返回新卡。

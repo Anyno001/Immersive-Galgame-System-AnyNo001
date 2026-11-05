@@ -116,7 +116,7 @@ function foeHtml(u, i, f, n, L, v, pick) {
     return `<div class="foe k-${esc(kind)}${ring.front ? ' front' : ''}${ok ? ' target' : ''} ${unitCls(u, ok)}"${unitData(u)} style="${ring.style};--pw:${L.pw}px;--hd:${L.hd}px;--atop:${enemyArtTopOf(arts[u.name])}"${unitAct(u, ok)}>`
         + `<div class="art">${foeArt(pics[u.name], arts[u.name], u.name)}</div>`
         + `<div class="head">${intent}<div class="row2">${hpBar(u, false)}<span class="hv cx-hp-value">${esc(u.hp)}/${esc(u.maxHp)}</span></div>`
-        + `<div class="row3"><span class="nn">${esc(u.name)}</span>${fcs}</div></div></div>`;
+        + `<div class="row3">${u.tier ? `<b class="tier">${u.tier === 'boss' ? '首领' : '精英'}</b>` : ''}<span class="nn">${esc(u.name)}</span>${fcs}</div></div></div>`;
 }
 
 function leadHtml(hero, v, pick) {
@@ -329,6 +329,8 @@ ${C}.land .tray{left:var(--hl);right:auto;top:auto;bottom:256px;width:380px;}
 /* 横屏左上：回合做成标题右侧小标签（基线对齐），行动顺序与标题左缘对齐并留出间距 */
 ${C}.land .topbar{flex-direction:row;align-items:baseline;gap:12px;}
 ${C}.land .topbar .round{margin-top:0;}
+/* 竖屏右上按钮组靠 margin-left:auto 推到右缘，概念稿全局 * {margin:0} 是双 id 会盖掉单 id 的写法，这里同级重申 */
+${C}.port .topbar .tr{margin:0 8px 0 auto;}
 ${C}.land .track{left:44px;top:92px;}
 /* 抽牌堆在手牌左下外侧、弃牌堆在右下外侧，小牌堆图标（叠两张小卡形，实色）加数字，底边对齐手牌底边 */
 ${C} .piles{z-index:70;height:20px;align-items:flex-end;gap:10px;width:38px;}

@@ -108,7 +108,7 @@ function foeHtml(u, i, f, n, L, v, pick) {
     const kind = enemyArtKeyFor({ art: u.art, name: u.name });
     return `<div class="foe k-${esc(kind)}${ring.front ? ' front' : ''}${ring.rear ? ' rear' : ''} ${unitCls(u, ok)}"${unitData(u)} style="${ring.style};--atop:${enemyArtTopOf(arts[u.name])}"${unitAct(u, ok)}>`
         + `<div class="art">${foeArt(pics[u.name], arts[u.name])}</div>`
-        + `<div class="plate">${intent}<div class="row2"><span class="nm">${esc(u.name)}</span>${hpBar(u, '')}<span class="hpv cx-hp-value">${esc(u.hp)}/${esc(u.maxHp)}</span>${chips}</div></div></div>`;
+        + `<div class="plate">${intent}<div class="row2"><span class="nm">${esc(u.name)}</span>${u.tier ? `<span class="fchip tier">${u.tier === 'boss' ? '首领' : '精英'}</span>` : ''}${hpBar(u, '')}<span class="hpv cx-hp-value">${esc(u.hp)}/${esc(u.maxHp)}</span>${chips}</div></div></div>`;
 }
 
 function leadHtml(hero, v, pick) {
@@ -319,6 +319,7 @@ ${S} .lead .face .aw{z-index:2;cursor:pointer;}
 ${S} .mface{display:grid;place-items:center;position:relative;overflow:hidden;background:var(--mint);color:#1d1b1e;font-weight:700;}
 ${S} .mate{cursor:pointer;} ${C}.port .mate{flex:0 0 auto;min-width:0;} ${C}.land .mate{flex:1 1 0;min-width:0;}
 ${S} .foe .art .cx-art-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:50% 100%;filter:drop-shadow(0 8px 14px #121012);}
+${S} .foe .fchip.tier{color:var(--txt);text-shadow:none;font-weight:700;}
 ${S} .hpbar.cx-hp>i{width:var(--igs-combat-hp,0%);transition:width .3s;}
 ${S} .foe .intent svg{fill:none;}
 ${S} .topbar .ic{border:0;cursor:pointer;} ${S} .topbar .spd[aria-pressed="true"]{color:var(--butter);}

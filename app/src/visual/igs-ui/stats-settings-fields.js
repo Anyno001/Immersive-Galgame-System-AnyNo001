@@ -34,6 +34,7 @@ export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
     sheetGen: '角色卡生成（后台请求）',
     backfill: '新技能补全（后台请求）',
     heroSkills: '主角技能分配（后台请求）',
+    startRelations: '起始关系补填（后台请求）',
 });
 
 // 失效提示词的显示名：只有被新版本弃用的几项（STAT_STALE_PROMPT_KEYS）会进入 stalePrompts。
@@ -267,7 +268,8 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
         : '<div class="igs-source-filter-note">还没有生成角色卡。</div>';
     const pending = (model.pendingPeople || []).length ? `<div class="igs-source-filter-note">待生成：${model.pendingPeople.map(esc).join('、')}</div>` : '';
     const backup = model.hasBackup ? '<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-op:backup" type="button">删除旧版备份</button></div>' : '';
-    return people
+    const fill = model.characters.length ? '<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-op:relation-fill" type="button">按人设补填初始关系</button></div>' : '';
+    return fill + people
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-sheets"${advancedOpen('stats-sheets')}><summary>角色卡（${n((model.sheets || []).length)} 张）</summary>${pending}${sheets}</details>`
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-story-skills"${advancedOpen('stats-story-skills')}><summary>剧情技能（${n((model.story || []).length)} 项）</summary>${story}</details>`
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-checks"${advancedOpen('stats-checks')}><summary>检定记录（最近 ${n((model.checks || []).length)} 次）</summary>${checks}</details>`

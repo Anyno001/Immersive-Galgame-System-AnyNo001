@@ -1357,6 +1357,7 @@ function buildUnit(def) {
         powers: [],
     };
     if (typeof def.art === 'string' && def.art) unit.art = def.art;
+    if (def.tier === 'elite' || def.tier === 'boss') unit.tier = def.tier;
     // 每次出手连用技能次数（只技能单位）：大于 1 时才写字段，旧战斗形状不变。
     if (def.kind === 'skill' && Number.isInteger(def.actions) && def.actions > 1) unit.actions = def.actions;
     if (def.kind === 'deck') {

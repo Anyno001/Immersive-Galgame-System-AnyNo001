@@ -217,6 +217,7 @@ export function unitView(state, id, challenge = false) {
         intent: u.side === 'enemy' ? intentView(state, id, challenge) : null,
         // 敌人外观格位（setup 带 art 时）：面板据此在通用敌人图集里取图；我方与旧战斗不带该字段。
         ...(u.side === 'enemy' && typeof u.art === 'string' && u.art ? { art: u.art } : {}),
+        ...(u.side === 'enemy' && (u.tier === 'elite' || u.tier === 'boss') ? { tier: u.tier } : {}),
     };
 }
 
