@@ -5,9 +5,15 @@ export const HOOK_POINTS = Object.freeze([
     'turn-start-before', 'turn-start-after', 'turn-end-before', 'turn-end-after',
     'play-before', 'play-after', 'draw', 'create', 'exhaust', 'shuffle', 'debuff-applied',
     'damage-before', 'damage-after', 'hp-loss-before', 'hp-loss-after', 'defeated',
+    // 一次出手（出牌、技能单位出手、人物技能）结算完：{ unit, kind: 'card' | 'skill' | 'hero-skill', card?, skill?, effects }。
+    'action-after',
 ]);
 // 伤害修正阶段：outgoing-add 在攻击力之后、outgoing-mult 紧随其后（均在虚弱之前），incoming-mult 在易伤之后。
 export const DAMAGE_STAGES = Object.freeze(['outgoing-add', 'outgoing-mult', 'incoming-mult']);
+// 格挡修正阶段：block-add 在防御力之后、脆弱之前，签名 (source, target, value) => value。
+export const BLOCK_STAGES = Object.freeze(['block-add']);
+// 费用修正阶段：card-cost 在常规费用修正（全体手牌、本场、本回合）之后，签名 (state, owner, view) => cost，只作用于数字费用。
+export const COST_STAGES = Object.freeze(['card-cost']);
 const BUILTIN_LOSS_KINDS = Object.freeze(['poison', 'self']);
 
 const KEY_PATTERN = /^[a-z][a-z0-9-]{1,39}$/;
@@ -15,7 +21,7 @@ const MECHANICS = new Map();
 const OP_OWNERS = new Map();
 const STATUS_OWNERS = new Map();
 const HOOKS = new Map(HOOK_POINTS.map((point) => [point, []]));
-const DAMAGE_MODS = new Map(DAMAGE_STAGES.map((stage) => [stage, []]));
+const DAMAGE_MODS = new Map([...DAMAGE_STAGES, ...BLOCK_STAGES, ...COST_STAGES].map((stage) => [stage, []]));
 const LOSS_KINDS = new Set(BUILTIN_LOSS_KINDS);
 const RESERVED_OPS = new Set();
 const RESERVED_STATUSES = new Set();
@@ -23,11 +29,17 @@ const RESERVED_STATUSES = new Set();
 const isFn = (value) => typeof value === 'function';
 const isKey = (value) => typeof value === 'string' && KEY_PATTERN.test(value);
 const optionalFn = (value) => value === undefined || isFn(value);
+// 算子可选的缩放声明：ability 为关键能力（phys 取力量 / 敏捷较高者），key 为效果里可缩放的数值字段，max 为上限。
+const SCALE_ABILITIES = Object.freeze(['phys', 'str', 'dex', 'con', 'int', 'wis', 'cha']);
+const validScale = (spec) => spec === undefined || (spec !== null && typeof spec === 'object' && SCALE_ABILITIES.includes(spec.ability)
+    && typeof spec.key === 'string' && /^[a-zA-Z]{1,20}$/.test(spec.key) && Number.isInteger(spec.max) && spec.max >= 1 && spec.max <= 99);
+// 算子可选的函数字段：估值、技能伤害上限、托管估算、牌面说明、面板短写、手牌待选（choice(state, unit, effect, kit) → { options, count } | null）。
+const HANDLER_FNS = Object.freeze(['value', 'damage', 'estimateDamage', 'estimateBlock', 'describe', 'brief', 'choice']);
 function invalid(key, reason) {
     throw new Error(`mechanic-invalid:${key}:${reason}`);
 }
 
-// def：{ key, family, archetypes, unitKinds, ops: { 算子: { validate, apply, value?, damage? } },
+// def：{ key, family, archetypes, unitKinds, ops: { 算子: { validate, apply, value?, damage?, estimateDamage?, estimateBlock?, describe?, brief?, scale? } },
 //       statuses?: [{ key, label?, debuff?, decay? }], hooks?: { 时机: fn }, modifiers?: { 阶段: (attacker, target, value) => value },
 //       lossKinds?: [失去生命类伤害种类], describe?, report? }
 // 先整体校验再写入，任一项不合法即抛错且不留下部分登记。archetypes 为空表示所有职业可用。
@@ -41,7 +53,7 @@ export function registerMechanic(def) {
     const ops = Object.entries(def.ops || {});
     for (const [op, handler] of ops) {
         if (!isKey(op) || RESERVED_OPS.has(op) || OP_OWNERS.has(op)) invalid(key, `op:${op}`);
-        if (!isFn(handler?.validate) || !isFn(handler.apply) || !optionalFn(handler.value) || !optionalFn(handler.damage)) invalid(key, `op-handler:${op}`);
+        if (!isFn(handler?.validate) || !isFn(handler.apply) || !HANDLER_FNS.every((name) => optionalFn(handler[name])) || !validScale(handler.scale)) invalid(key, `op-handler:${op}`);
     }
     const statuses = def.statuses ?? [];
     if (!Array.isArray(statuses)) invalid(key, 'statuses');
@@ -63,7 +75,7 @@ export function registerMechanic(def) {
     const unitKinds = Object.freeze([...def.unitKinds]);
     const mechanic = Object.freeze({ key, family: def.family, archetypes: Object.freeze([...def.archetypes]), unitKinds, describe: def.describe, report: def.report });
     MECHANICS.set(key, mechanic);
-    for (const [op, handler] of ops) OP_OWNERS.set(op, Object.freeze({ ...handler, op, mechanic: key, unitKinds }));
+    for (const [op, handler] of ops) OP_OWNERS.set(op, Object.freeze({ ...handler, ...(handler.scale ? { scale: Object.freeze({ ...handler.scale }) } : {}), op, mechanic: key, unitKinds }));
     for (const status of statuses) STATUS_OWNERS.set(status.key, Object.freeze({ key: status.key, label: status.label?.trim() || null, debuff: Boolean(status.debuff), decay: Boolean(status.decay), mechanic: key }));
     for (const [point, run] of hooks) HOOKS.get(point).push(Object.freeze({ mechanic: key, run }));
     for (const [stage, fn] of modifiers) DAMAGE_MODS.get(stage).push(Object.freeze({ mechanic: key, fn }));
@@ -103,3 +115,19 @@ export function opAllowedFor(op, unitKind) {
 // 伤害修正阶段的登记项与「失去生命」类伤害种类（不经格挡、不算受到伤害）。
 export const damageModifiers = (stage) => DAMAGE_MODS.get(stage) ?? [];
 export const isLossKind = (kind) => LOSS_KINDS.has(kind);
+
+// 牌面说明：先取算子自己的 describe，再回落到机制级 describe；未登记或未提供时为空串。kit 由牌面层传入（数值格式化、关键字、状态名等）。
+export function describeRegistered(effect, kit) {
+    const handler = OP_OWNERS.get(effect?.op);
+    const fn = handler && (handler.describe || MECHANICS.get(handler.mechanic)?.describe);
+    return fn ? String(fn(effect, kit) ?? '') : '';
+}
+// 面板窄签的附加效果短写；未提供时为空串。
+export function briefRegistered(effect, kit) {
+    const fn = OP_OWNERS.get(effect?.op)?.brief;
+    return fn ? String(fn(effect, kit) ?? '') : '';
+}
+// 算子的缩放声明（card-scaling 用）；未声明为 null。
+export const scaleSpecOf = (op) => OP_OWNERS.get(op)?.scale ?? null;
+// 战报：带 report 的机制按登记顺序列出，collectTurns 把内置分支之外的事件交给它们。
+export const mechanicReporters = () => [...MECHANICS.values()].filter((mechanic) => mechanic.report).map((mechanic) => mechanic.report);

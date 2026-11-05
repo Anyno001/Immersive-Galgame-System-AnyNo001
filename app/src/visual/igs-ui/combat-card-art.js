@@ -3,6 +3,7 @@ import { TOKEN_CARDS } from '../../combat/rules.js';
 import { LOW_HP_RATIO } from '../../combat/battle-state.js';
 import { RECORD_ICONS, lineIconSvg } from './record-icons.js';
 import { cardMotifSvg } from './combat-card-motifs.js';
+import { describeRegistered, statusLabel } from '../../combat/mechanics/registry.js';
 
 // 卡面与立绘占位的纯函数：效果与关键字说明（含可点注释的片段）、卡图纹样（combat-card-motifs.js）、无立绘时的 SVG 剪影。
 // SVG 只来自程序常量与数值，不含任何档案文本；同一张卡永远得到同一张图。
@@ -32,6 +33,8 @@ export const KEYWORD_TIPS = Object.freeze({
     ethereal: '虚无：回合结束时还在手里就被消耗',
     temp: '临时：本场战斗中生成或复制的牌，战斗结束后消失，不进卡组',
     exhaust: '消耗：打出后移出本场战斗，本场不会再抽到',
+    sly: '狡黠：被效果弃掉时免费打出；回合结束时自然弃掉不触发',
+    replay: '重演：打出时整张额外执行，只付一次费、只计一次出牌',
 });
 
 const on = (target) => (TARGET[target] ? `对${TARGET[target]}` : '');
@@ -84,7 +87,11 @@ function effectText(e, fmt = plainNum, kw = plainWord) {
             const when = e.trigger === 'card-played' ? `打出${typed(e.cardType)}` : BUFF_WHEN[e.trigger] || e.trigger;
             return `${e.turns} 回合内，每次${when}：${sub(e.then)}`;
         }
-        default: return '';
+        // 规则 v5 已登记机制的算子：交给其 describe（同一套数值格式化与关键字标记）；未登记的仍为空串。
+        default: return describeRegistered(e, {
+            fmt, kw, sub, on, typed, times,
+            statusName: (key) => STATUS[key] || statusLabel(key) || key, pileName: (pile) => PILE[pile] || PILE.hand,
+        });
     }
 }
 
@@ -110,6 +117,8 @@ export function describeKeywordParts(card) {
     const word = (key, text) => groups.push([KEYWORD_TIPS[key] ? { text, tip: KEYWORD_TIPS[key] } : { text }]);
     if (card?.unplayable) word('unplayable', '不能打出');
     for (const [flag, label] of [['innate', '固有'], ['retain', '保留'], ['ethereal', '虚无']]) if (card?.[flag]) word(flag, label);
+    if (card?.sly) word('sly', '狡黠');
+    if (Number.isInteger(card?.replay) && card.replay > 0) word('replay', `重演 ${card.replay}`);
     if (card?.temp) word('temp', '临时');
     if (Array.isArray(card?.onDiscard) && card.onDiscard.length) groups.push([{ text: '被丢弃时：' }, ...describeEffectParts(card.onDiscard)]);
     return groups.flatMap((g, i) => (i ? [{ text: '。' }, ...g] : g));

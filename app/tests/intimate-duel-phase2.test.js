@@ -21,6 +21,11 @@ import {
     advanceIntimateDuel, createDuelLowGate, duelStageOf, explicitAgeOf, fallbackMechanic, getIntimateDuel, grudgeLevel, intimateCreakWindow, intimateHeartBpm,
     isLoveHate, isShakyLoveHate, setIntimateDuel, underageByProfile,
 } from '../src/scene/intimate-duel.js';
+import { computeBlock, computeDamage, estimateDamage } from '../src/combat/battle-state.js';
+import { effectNumbers } from '../src/combat/card-scaling.js';
+import { describeEffects } from '../src/visual/igs-ui/combat-card-art.js';
+import { cardSlotView } from '../src/visual/igs-ui/combat-panel-model.js';
+
 
 const hero = (cards, extra = {}) => ({
     id: 'hero', name: '我', side: 'ally', kind: 'deck', maxHp: 30, speed: 100,
@@ -515,6 +520,380 @@ test('目录文本：写 choose 的模板单列为只能作卡牌，原有各行
     const lines = templateCatalogText().split('\n');
     const line = lines.find((text) => text.startsWith('从手牌选牌的卡牌模板'));
     assert.ok(line);
-    assert.deepEqual(line.split('：').at(-1).split(',').sort(), ['cull', 'replicate', 'temper', 'toss']);
+    // P2b 起，从手牌选牌的牌堆操作模板（置顶、消耗他牌、变形、临时升级）同样只能作卡牌。
+    assert.deepEqual(line.split('：').at(-1).split(',').sort(), ['cull', 'morph', 'purify', 'refine', 'replicate', 'stack', 'temper', 'toss']);
     assert.ok(lines.some((text) => text.startsWith('不能用作人物技能（skill）的卡牌模板：')));
 });
+
+// ---------- 规则 v5 P2a：状态与伤害（G01–G07、G21）与公共接线 ----------
+const selfStatus = (status, stacks) => ({ passives: [{ id: `p-${status}`, trigger: 'battle-start', effects: [{ op: 'apply-status', status, stacks, target: 'self' }] }] });
+const foeAttack = (amount) => ({ intent: 'attack', effects: [{ op: 'damage', amount, target: 'enemy' }] });
+const endTurn = (state) => {
+    const result = applyAction(state, { type: 'end-turn' });
+    assert.equal(result.ok, true, JSON.stringify(result.error));
+    return result;
+};
+
+test('临时攻防（G01）：本回合攻击与格挡各加层数，回合结束撤销', () => {
+    const card = { effects: [{ op: 'apply-status', status: 'flex', stacks: 3, target: 'self' }, { op: 'apply-status', status: 'poise', stacks: 2, target: 'self' }, { op: 'damage', amount: 5, target: 'enemy' }, { op: 'block', amount: 4, target: 'self' }] };
+    const played = play(startOf(card));
+    assert.equal(played.ok, true, JSON.stringify(played.error));
+    assert.equal(played.state.units.foe.hp, 22);
+    assert.equal(played.state.units.hero.block, 6);
+    const ended = endTurn(played.state);
+    assert.equal(ended.state.units.hero.statuses.flex, undefined);
+    assert.equal(ended.state.units.hero.statuses.poise, undefined);
+});
+
+test('规则 v4 战斗不结算 v5 登记算子：临时攻击力不生效', () => {
+    const card = { effects: [{ op: 'apply-status', status: 'flex', stacks: 3, target: 'self' }, { op: 'damage', amount: 5, target: 'enemy' }] };
+    const created = createBattle({ ...setupOf(card, {}), rulesVersion: 4 }, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    const played = play(created.state);
+    assert.equal(played.state.units.foe.hp, 25);
+    assert.equal(played.state.units.hero.statuses.flex, undefined);
+});
+
+test('攻防下降（G02）：降低攻击伤害与获得的格挡，属减益可被人工制品挡下', () => {
+    const card = { type: 'skill', effects: [{ op: 'apply-status', status: 'atk-down', stacks: 2, target: 'enemy' }] };
+    assert.equal(endTurn(play(startOf(card, foeAttack(6))).state).state.units.hero.hp, 26);
+    assert.equal(endTurn(play(startOf(card, foeAttack(6), { foe: artifactFoe })).state).state.units.hero.hp, 24);
+    assert.equal(computeBlock({ statuses: { 'def-down': 2 } }, 5, undefined, 5), 3);
+    assert.equal(computeBlock({ statuses: { 'def-down': 2 } }, 5), 5);
+    assert.equal(computeDamage({ statuses: { 'atk-down': 2 } }, null, 6, 1, 5), 4);
+    assert.equal(computeDamage({ statuses: { 'atk-down': 2 } }, null, 6, 1, 4), 6);
+});
+
+test('蓄势（G03）：下一次攻击每段额外加层数，攻击出手后清除；不攻击的出手不消耗', () => {
+    const played = play(startOf({ effects: [{ op: 'apply-status', status: 'vigor', stacks: 4, target: 'self' }, { op: 'damage', amount: 3, hits: 2, target: 'enemy' }] }));
+    assert.equal(played.state.units.foe.hp, 16);
+    assert.equal(played.state.units.hero.statuses.vigor, undefined);
+    const held = cast(startOf({ type: 'skill', effects: [{ op: 'apply-status', status: 'vigor', stacks: 4, target: 'self' }] }));
+    assert.equal(held.state.units.hero.statuses.vigor, 4);
+});
+
+test('倍伤窗口（G04）：按次数的倍伤每次攻击出手扣一层，三倍伤优先；按回合的倍伤在回合结束衰减', () => {
+    const twice = play(startOf({ effects: [{ op: 'apply-status', status: 'empower', stacks: 2, target: 'self' }, { op: 'damage', amount: 5, hits: 2, target: 'enemy' }] }));
+    assert.equal(twice.state.units.foe.hp, 10);
+    assert.equal(twice.state.units.hero.statuses.empower, 1);
+    const triple = play(startOf({ effects: [{ op: 'apply-status', status: 'overpower', stacks: 1, target: 'self' }, { op: 'apply-status', status: 'empower', stacks: 1, target: 'self' }, { op: 'damage', amount: 5, target: 'enemy' }] }));
+    assert.equal(triple.state.units.foe.hp, 15);
+    assert.equal(triple.state.units.hero.statuses.overpower, undefined);
+    assert.equal(triple.state.units.hero.statuses.empower, 1);
+    const turns = play(startOf({ effects: [{ op: 'apply-status', status: 'empower-turns', stacks: 2, target: 'self' }, { op: 'damage', amount: 5, target: 'enemy' }] }));
+    assert.equal(turns.state.units.foe.hp, 20);
+    assert.equal(endTurn(turns.state).state.units.hero.statuses['empower-turns'], 1);
+});
+
+test('先手（G05）：每回合第一张攻击牌伤害 +50%，之后的攻击牌不加', () => {
+    const first = play(startOf({ effects: [{ op: 'damage', amount: 10, target: 'enemy' }] }, {}, { hero: selfStatus('first-strike', 1) }));
+    assert.equal(first.state.units.foe.hp, 15);
+    const second = play(first.state);
+    assert.equal(second.state.units.foe.hp, 5);
+    assert.equal(second.state.units.hero.res, undefined);
+});
+
+test('护命（G06）：抵消下一次失去生命并按次消耗，战报写明', () => {
+    const ended = endTurn(startOf({ effects: [{ op: 'damage', amount: 1, target: 'enemy' }] }, foeAttack(6), { hero: selfStatus('buffer', 1) }));
+    assert.equal(ended.state.units.hero.hp, 30);
+    assert.equal(ended.state.units.hero.statuses.buffer, undefined);
+    assert.ok(ended.events.some((e) => e.type === 'buffer' && e.target === 'hero'));
+    const action = collectTurns(ended.events, ended.state.units).flatMap((t) => t.actions).find((a) => a.actorId === 'foe');
+    assert.ok(action.targets.get('hero').notes.some((note) => note.includes('护命')));
+});
+
+test('吸取（G07）：按实际扣除的生命回复，托管估算、牌面说明与缩放都认得', () => {
+    const card = { effects: [{ op: 'drain', amount: 6, target: 'enemy' }] };
+    const state = startOf(card, {}, { hero: { hp: 10 } });
+    assert.equal(estimateDamage(state, state.units.hero, state.units.foe, card.effects, 'foe'), 6);
+    const played = play(state);
+    assert.equal(played.state.units.foe.hp, 24);
+    assert.equal(played.state.units.hero.hp, 16);
+    assert.ok(describeEffects(card.effects).includes('按实际扣除的生命回复'));
+    assert.deepEqual(effectNumbers(card.effects), [6]);
+});
+
+test('恶意（G21）：成功施加减益即对目标造成层数伤害，被人工制品挡下不算', () => {
+    const card = { type: 'skill', effects: [{ op: 'status', status: 'weak', stacks: 1, target: 'enemy' }] };
+    assert.equal(play(startOf(card, {}, { hero: selfStatus('malice', 2) })).state.units.foe.hp, 28);
+    assert.equal(play(startOf(card, {}, { hero: selfStatus('malice', 2), foe: artifactFoe })).state.units.foe.hp, 30);
+});
+
+test('规则 v5 公共接线：净化清除登记的减益，面板伤害预览带上登记的修正', () => {
+    const foeSkill = { intent: 'debuff', effects: [{ op: 'apply-status', status: 'atk-down', stacks: 2, target: 'enemy' }] };
+    const ended = endTurn(startOf({ type: 'skill', effects: [{ op: 'cleanse', target: 'self' }] }, foeSkill));
+    assert.equal(ended.state.units.hero.statuses['atk-down'], 2);
+    const cleansed = cast(ended.state);
+    assert.equal(cleansed.state.units.hero.statuses['atk-down'], undefined);
+    assert.deepEqual(cleansed.events.find((e) => e.type === 'cleanse').statuses, ['atk-down']);
+    const slot = cardSlotView({ effects: [{ op: 'damage', amount: 5, target: 'enemy' }] }, { statuses: { flex: 3 } }, 5);
+    assert.equal(slot.value, 8);
+    assert.ok(slot.bonusNote.includes('其他修正 +3'), slot.bonusNote);
+    assert.equal(cardSlotView({ effects: [{ op: 'damage', amount: 5, target: 'enemy' }] }, { statuses: { flex: 3 } }).value, 5);
+});
+
+
+test('规则 v5 P2a 模板：卡牌模板可反解且通过校验、归入通用族；被动与敌方技能模板能被引擎结算', async () => {
+    const { PASSIVE_TEMPLATES, SKILL_TEMPLATES, passiveFromTemplate, skillFromTemplate } = await import('../src/combat/card-templates.js');
+    const { normalizeSkill } = await import('../src/combat/schema.js');
+    for (const key of ['battlecry', 'stance', 'disarm', 'breach', 'wind-up', 'fervor', 'zenith', 'apex', 'ambush', 'lifeguard', 'siphon', 'spite']) {
+        const found = firstSolved(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'general');
+    }
+    assert.equal(solveCardTemplate('zenith', 1, 'common'), null);
+    for (const key of ['opening-vigor', 'opening-ambush', 'opening-buffer', 'opening-enfeeble']) assert.ok(PASSIVE_TEMPLATES[key] && passiveFromTemplate(key).effects.length, key);
+    for (const key of ['battle-flex', 'enfeeble', 'gather', 'bloodsip']) {
+        const skill = { id: `s-${key}`, name: key, ...skillFromTemplate(key, 12) };
+        assert.ok(SKILL_TEMPLATES[key], key);
+        if (typeof normalizeSkill === 'function') assert.equal(normalizeSkill(skill).ok, true, `${key} ${JSON.stringify(normalizeSkill(skill).errors)}`);
+    }
+    const ended = endTurn(startOf({ type: 'skill', effects: [{ op: 'block', amount: 1, target: 'self' }] }, { intent: 'debuff', ...skillFromTemplate('enfeeble', 12) }));
+    assert.equal(ended.state.units.hero.statuses['atk-down'], 2);
+});
+
+// ---------- 规则 v5 P2b：牌堆操作（G08–G15） ----------
+const def = (id, type, effects, extra = {}) => ({ id, name: id, type, cost: 1, rarity: 'common', effects, ...extra });
+const ATTACK = def('a', 'attack', [{ op: 'damage', amount: 2, target: 'enemy' }], { upgraded: { effects: [{ op: 'damage', amount: 6, target: 'enemy' }] } });
+const GUARD = def('k', 'skill', [{ op: 'block', amount: 1, target: 'self' }]);
+const startDeck = (catalog, deck, rulesVersion) => {
+    const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck, catalog }), foe({})], ...(rulesVersion ? { rulesVersion } : {}) };
+    const created = createBattle(setup, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+const instOf = (state, cardId) => state.piles.hero.hand.find((inst) => state.cards[inst].cardId === cardId);
+const playIn = (state, inst, targetId) => {
+    const result = applyAction(state, { type: 'play', inst, ...(targetId ? { targetId } : {}) });
+    assert.equal(result.ok, true, JSON.stringify(result.error));
+    return result;
+};
+const choose = (state, insts) => {
+    const result = applyAction(state, { type: 'choose', insts });
+    assert.equal(result.ok, true, JSON.stringify(result.error));
+    return result;
+};
+
+test('检索（G08）：从抽牌堆按类型取一张入手，战报写明', () => {
+    const s = def('s', 'skill', [{ op: 'search', amount: 1, cardType: 'attack' }], { innate: true });
+    const state = startDeck({ s, a: ATTACK, k: GUARD }, ['s', ...Array(5).fill('a'), ...Array(5).fill('k')]);
+    const played = playIn(state, instOf(state, 's'));
+    const fetched = played.events.find((e) => e.type === 'fetch');
+    assert.equal(fetched.from, 'draw');
+    assert.equal(played.state.cards[fetched.inst].cardId, 'a');
+    assert.ok(played.state.piles.hero.hand.includes(fetched.inst));
+    assert.ok(!played.state.piles.hero.draw.includes(fetched.inst));
+    const action = collectTurns(played.events, played.state.units).flatMap((t) => t.actions).find((a) => a.actorId === 'hero');
+    assert.ok(action.targets.get('hero').notes.includes('检索出一张牌'));
+});
+
+test('回收（G09）：从弃牌堆取回刚打出的牌', () => {
+    const r = def('r', 'skill', [{ op: 'retrieve', amount: 1, from: 'discard' }], { innate: true });
+    const state = startDeck({ r, a: ATTACK }, ['r', ...Array(9).fill('a')]);
+    const attack = instOf(state, 'a');
+    const first = playIn(state, attack, 'foe');
+    assert.ok(first.state.piles.hero.discard.includes(attack));
+    const second = playIn(first.state, instOf(first.state, 'r'));
+    assert.ok(second.state.piles.hero.hand.includes(attack));
+    assert.equal(second.events.find((e) => e.type === 'fetch').from, 'discard');
+});
+
+test('置顶与回顶（G10）：选手牌放到抽牌堆顶；打出后回顶的牌不进弃牌堆', () => {
+    const t = def('t', 'skill', [{ op: 'topdeck', amount: 1, mode: 'choose' }], { innate: true });
+    const state = startDeck({ t, k: GUARD }, ['t', ...Array(9).fill('k')]);
+    const pending = playIn(state, instOf(state, 't'));
+    assert.equal(pending.state.pending.kind, 'topdeck');
+    const pick = pending.state.pending.options[1];
+    const chosen = choose(pending.state, [pick]);
+    assert.equal(chosen.state.piles.hero.draw.at(-1), pick);
+    assert.ok(!chosen.state.piles.hero.hand.includes(pick));
+    const b = def('b', 'attack', [{ op: 'damage', amount: 2, target: 'enemy' }, { op: 'recur', to: 'top' }], { innate: true });
+    const deck = startDeck({ b, k: GUARD }, ['b', ...Array(9).fill('k')]);
+    const inst = instOf(deck, 'b');
+    const played = playIn(deck, inst, 'foe');
+    assert.equal(played.state.piles.hero.draw.at(-1), inst);
+    assert.ok(!played.state.piles.hero.discard.includes(inst));
+    assert.equal(played.events.find((e) => e.type === 'recur').to, 'top');
+});
+
+test('回手（G11）：打出后回到手牌；规则 v4 战斗照常进弃牌堆', () => {
+    const h = def('h', 'attack', [{ op: 'damage', amount: 2, target: 'enemy' }, { op: 'recur', to: 'hand' }], { innate: true });
+    const state = startDeck({ h, k: GUARD }, ['h', ...Array(9).fill('k')]);
+    const inst = instOf(state, 'h');
+    const played = playIn(state, inst, 'foe');
+    assert.ok(played.state.piles.hero.hand.includes(inst));
+    assert.equal(played.state.units.foe.hp, 28);
+    const old = startDeck({ h, k: GUARD }, ['h', ...Array(9).fill('k')], 4);
+    const oldPlayed = playIn(old, instOf(old, 'h'), 'foe');
+    assert.ok(oldPlayed.state.piles.hero.discard.includes(instOf(old, 'h')));
+});
+
+test('消耗他牌（G12）：随机消耗抽牌堆的牌；从手牌选牌消耗', () => {
+    const x = def('x', 'skill', [{ op: 'exhaust-other', amount: 1, from: 'draw', mode: 'random' }], { innate: true });
+    const state = startDeck({ x, k: GUARD }, ['x', ...Array(9).fill('k')]);
+    const self = instOf(state, 'x');
+    const before = state.piles.hero.draw.length;
+    const played = playIn(state, self);
+    assert.equal(played.state.piles.hero.draw.length, before - 1);
+    assert.equal(played.state.piles.hero.exhaust.length, 1);
+    assert.notEqual(played.state.piles.hero.exhaust[0], self);
+    const y = def('y', 'skill', [{ op: 'exhaust-other', amount: 1, from: 'hand', mode: 'choose' }], { innate: true });
+    const deck = startDeck({ y, k: GUARD }, ['y', ...Array(9).fill('k')]);
+    const pending = playIn(deck, instOf(deck, 'y'));
+    assert.equal(pending.state.pending.kind, 'exhaust-other');
+    const pick = pending.state.pending.options[0];
+    assert.ok(choose(pending.state, [pick]).state.piles.hero.exhaust.includes(pick));
+});
+
+test('延迟复制（G13）：下回合开始把本牌的临时副本加入手牌', () => {
+    const n = def('n', 'skill', [{ op: 'copy-next', amount: 1, from: 'self' }, { op: 'block', amount: 1, target: 'self' }], { innate: true });
+    const state = startDeck({ n, k: GUARD }, ['n', ...Array(9).fill('k')]);
+    const played = playIn(state, instOf(state, 'n'));
+    assert.equal(played.state.units.hero.res.copyNext.length, 1);
+    const next = endTurn(played.state).state;
+    const copies = next.piles.hero.hand.filter((inst) => next.cards[inst].cardId === 'n' && next.cards[inst].temp);
+    assert.equal(copies.length, 1);
+    assert.equal(next.units.hero.res, undefined);
+});
+
+test('三选一造牌（G14）：从卡组三张不同的牌中挑一张作为临时牌入手', () => {
+    const d = def('d', 'skill', [{ op: 'discover' }], { innate: true });
+    const e = def('e', 'skill', [{ op: 'draw', amount: 1 }]);
+    const state = startDeck({ d, a: ATTACK, k: GUARD, e }, ['d', ...Array(3).fill('a'), ...Array(3).fill('k'), ...Array(3).fill('e')]);
+    const played = playIn(state, instOf(state, 'd'));
+    const event = played.events.find((ev) => ev.type === 'discover');
+    assert.equal(event.options.length, 3);
+    assert.equal(new Set(event.options).size, 3);
+    assert.ok(event.options.includes(event.cardId));
+    const made = played.events.find((ev) => ev.type === 'card-created');
+    assert.equal(made.cardId, event.cardId);
+    assert.ok(played.state.piles.hero.hand.includes(made.inst));
+    assert.equal(played.state.cards[made.inst].temp, true);
+});
+
+test('本场变形与临时升级（G15）：手牌变成卡组里的另一张牌；手牌与本牌本场升级', () => {
+    const m = def('m', 'skill', [{ op: 'transmute', amount: 1, mode: 'random' }], { innate: true });
+    const state = startDeck({ m, a: ATTACK, k: GUARD }, ['m', ...Array(9).fill('a')]);
+    const shaped = playIn(state, instOf(state, 'm'));
+    const change = shaped.events.find((e) => e.type === 'transform');
+    assert.equal(change.from, 'a');
+    assert.notEqual(change.cardId, 'a');
+    assert.equal(shaped.state.cards[change.inst].cardId, change.cardId);
+    const u = def('u', 'skill', [{ op: 'upgrade-card', amount: 1, mode: 'random' }], { innate: true });
+    const deck = startDeck({ u, a: ATTACK }, ['u', ...Array(9).fill('a')]);
+    const upgraded = playIn(deck, instOf(deck, 'u'));
+    const target = upgraded.events.find((e) => e.type === 'upgrade-card').inst;
+    assert.equal(upgraded.state.cards[target].upgraded, true);
+    assert.equal(cardView(upgraded.state, target).effects[0].amount, 6);
+    const g = def('g', 'attack', [{ op: 'damage', amount: 2, target: 'enemy' }, { op: 'upgrade-card', amount: 1, mode: 'self' }], { innate: true, upgraded: { effects: [{ op: 'damage', amount: 5, target: 'enemy' }] } });
+    const selfDeck = startDeck({ g, k: GUARD }, ['g', ...Array(9).fill('k')]);
+    const inst = instOf(selfDeck, 'g');
+    assert.equal(playIn(selfDeck, inst, 'foe').state.cards[inst].upgraded, true);
+});
+
+test('规则 v5 P2b 模板：可反解且通过校验、归入牌堆族、牌面有说明，所有职业可用', () => {
+    for (const key of ['scout', 'hunt', 'salvage', 'exhume', 'stack', 'boomerang', 'rebound', 'purify', 'cinder', 'reprise', 'glimpse', 'morph', 'refine', 'polish']) {
+        const found = firstSolved(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'pile');
+        assert.ok(describeEffects(found.solved.effects).length > 0, key);
+        for (const archetype of Object.keys(ARCHETYPE_FAMILIES)) assert.ok(templateAllowedFor(key, archetype), `${key} ${archetype}`);
+    }
+    assert.equal(solveCardTemplate('exhume', 1, 'rare'), null);
+});
+
+// ---------- 规则 v5 P2c：关键字与能量（G16–G19） ----------
+const heroWith = (extra, catalog = { k: GUARD }, deck = Array(10).fill('k')) => {
+    const created = createBattle({ controlledId: 'hero', canEscape: true, units: [hero({}, { deck, catalog, ...extra }), foe({})] }, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+function solvedAny(key) {
+    for (const rarity of ['common', 'uncommon', 'rare', 'epic', 'mythic']) {
+        for (const cost of [0, 1, 2, 3, 'X']) {
+            const solved = solveCardTemplate(key, cost, rarity);
+            if (solved) return { solved, rarity, cost };
+        }
+    }
+    return null;
+}
+
+test('重演计价（G16）：重演按效果价值加价；打出时整张多执行一次，只付一次费、只计一次出牌，牌面写明', async () => {
+    const { estimateCardValue } = await import('../src/combat/rules.js');
+    const { describeKeywords } = await import('../src/visual/igs-ui/combat-card-art.js');
+    const base = { type: 'attack', cost: 1, rarity: 'rare', effects: [{ op: 'damage', amount: 5, hits: 1, target: 'enemy' }] };
+    assert.ok(estimateCardValue({ ...base, replay: 1 }) > estimateCardValue(base) * 1.5);
+    const r = def('r', 'attack', [{ op: 'damage', amount: 5, target: 'enemy' }], { innate: true, replay: 1 });
+    const state = startDeck({ r, k: GUARD }, ['r', ...Array(9).fill('k')]);
+    const played = playIn(state, instOf(state, 'r'), 'foe');
+    assert.equal(played.state.units.foe.hp, 20);
+    assert.equal(played.state.units.hero.energy, 2);
+    assert.equal(played.events.filter((e) => e.type === 'card').length, 1);
+    assert.ok(describeKeywords(r).includes('重演 1'));
+});
+
+test('狡黠（G17）：被效果弃掉时免费打出并写进战报；回合末自然弃牌不触发；规则 v4 不触发', () => {
+    const g = def('g', 'attack', [{ op: 'damage', amount: 4, target: 'enemy' }], { sly: true });
+    const d = def('d', 'skill', [{ op: 'discard', amount: 1, mode: 'random' }], { innate: true });
+    const state = startDeck({ d, g }, ['d', ...Array(9).fill('g')]);
+    const played = playIn(state, instOf(state, 'd'));
+    assert.equal(played.state.units.foe.hp, 26);
+    assert.equal(played.state.units.hero.energy, 2);
+    assert.equal(played.events.filter((e) => e.type === 'sly').length, 1);
+    const action = collectTurns(played.events, played.state.units).flatMap((t) => t.actions).find((a) => a.actorId === 'hero');
+    assert.ok(action.targets.get('hero').notes.includes('被弃掉的狡黠牌随即打出'));
+    assert.equal(endTurn(played.state).events.filter((e) => e.type === 'sly').length, 0);
+    const old = startDeck({ d, g }, ['d', ...Array(9).fill('g')], 4);
+    assert.equal(playIn(old, instOf(old, 'd')).state.units.foe.hp, 30);
+});
+
+test('免费出牌（G18）：下一张攻击牌 0 费且只用一次；每回合前 N 张牌免费', () => {
+    const f = def('f', 'skill', [{ op: 'free-next', amount: 1, cardType: 'attack' }], { innate: true });
+    const state = startDeck({ f, a: ATTACK }, ['f', ...Array(9).fill('a')]);
+    const armed = playIn(state, instOf(state, 'f'));
+    const attack = instOf(armed.state, 'a');
+    assert.equal(cardView(armed.state, attack).cost, 0);
+    assert.equal(cardView(armed.state, attack).baseCost, 1);
+    const freed = playIn(armed.state, attack, 'foe');
+    assert.equal(freed.state.units.hero.energy, 2);
+    assert.equal(cardView(freed.state, instOf(freed.state, 'a')).cost, 1);
+    assert.equal(freed.state.units.hero.res, undefined);
+    const turn = heroWith(selfStatus('freeplay', 1), { a: ATTACK }, Array(10).fill('a'));
+    const first = playIn(turn, turn.piles.hero.hand[0], 'foe');
+    assert.equal(first.state.units.hero.energy, 3);
+    assert.equal(playIn(first.state, first.state.piles.hero.hand[0], 'foe').state.units.hero.energy, 2);
+});
+
+test('能量扩展（G19）：每回合额外能量、未用完的能量留到下回合、能量翻倍、X 费抽牌', () => {
+    assert.equal(endTurn(heroWith({})).state.units.hero.energy, 3);
+    assert.equal(endTurn(heroWith(selfStatus('dynamo', 1))).state.units.hero.energy, 4);
+    assert.equal(endTurn(heroWith(selfStatus('conserve', 1))).state.units.hero.energy, 6);
+    const x = def('x', 'skill', [{ op: 'energy-double' }], { innate: true });
+    const dbl = heroWith({}, { x, k: GUARD }, ['x', ...Array(9).fill('k')]);
+    assert.equal(playIn(dbl, instOf(dbl, 'x')).state.units.hero.energy, 4);
+    const xd = def('xd', 'skill', [{ op: 'draw', amount: 1 }], { innate: true, cost: 'X' });
+    const many = heroWith({}, { xd, k: GUARD }, ['xd', ...Array(14).fill('k')]);
+    const drawn = playIn(many, instOf(many, 'xd'));
+    assert.equal(drawn.state.piles.hero.hand.length, 7);
+    assert.equal(drawn.state.units.hero.energy, 0);
+});
+
+test('规则 v5 P2c 模板：可反解且通过校验、归入通用族；重演与狡黠写进牌面关键字', async () => {
+    const { describeKeywords } = await import('../src/visual/igs-ui/combat-card-art.js');
+    for (const key of ['reverb', 'resound', 'gambit', 'feint', 'quickdraw', 'flow', 'generator', 'hoard', 'overcharge', 'xdraw', 'xforge']) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'general');
+    }
+    assert.ok(describeKeywords(solvedAny('reverb').solved).includes('重演'));
+    assert.ok(describeKeywords(solvedAny('gambit').solved).includes('狡黠'));
+    assert.equal(solveCardTemplate('flow', 1, 'epic'), null);
+    assert.equal(solvedAny('xdraw').cost, 'X');
+});
+

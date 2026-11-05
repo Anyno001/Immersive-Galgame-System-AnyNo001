@@ -1,0 +1,49 @@
+// 规则 v5 通用状态的施加算子 apply-status（G01–G06、G21 的统一入口）；状态本身由各机制文件登记。
+import { registerMechanic } from './registry.js';
+
+// 可施加的状态：debuff 决定默认目标与可选目标，max 为单次层数上限，value 为每层估值。
+export const APPLY_STATUSES = Object.freeze({
+    flex: Object.freeze({ max: 10, value: 3.5 }),
+    poise: Object.freeze({ max: 10, value: 3 }),
+    'atk-down': Object.freeze({ debuff: true, max: 5, value: 3 }),
+    'def-down': Object.freeze({ debuff: true, max: 5, value: 2.5 }),
+    vigor: Object.freeze({ max: 10, value: 3 }),
+    empower: Object.freeze({ max: 3, value: 9 }),
+    'empower-turns': Object.freeze({ max: 2, value: 10 }),
+    overpower: Object.freeze({ max: 2, value: 16 }),
+    'first-strike': Object.freeze({ max: 1, value: 6 }),
+    buffer: Object.freeze({ max: 3, value: 9 }),
+    malice: Object.freeze({ max: 5, value: 4 }),
+    dynamo: Object.freeze({ max: 2, value: 12 }),
+    conserve: Object.freeze({ max: 1, value: 5 }),
+    freeplay: Object.freeze({ max: 2, value: 14 }),
+});
+const AREA = new Set(['all-enemies', 'all-allies']);
+export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);
+
+registerMechanic({
+    key: 'apply-status', family: 'general', archetypes: [], unitKinds: ['deck', 'skill'],
+    ops: {
+        'apply-status': {
+            validate(effect, path, state, kit) {
+                kit.checkKnownFields(effect, ['op', 'status', 'stacks', 'target'], path, state);
+                const at = (key) => kit.joinPath(path, key);
+                const status = kit.enumField(effect.status, at('status'), state, Object.keys(APPLY_STATUSES));
+                if (!status) return undefined;
+                const spec = APPLY_STATUSES[status];
+                return {
+                    op: 'apply-status',
+                    status,
+                    stacks: kit.intField(effect.stacks, at('stacks'), state, 1, spec.max),
+                    target: kit.enumField(effect.target, at('target'), state, spec.debuff ? kit.OFFENSE_TARGETS : kit.SUPPORT_TARGETS, spec.debuff ? 'enemy' : 'self'),
+                };
+            },
+            apply(ctx, unit, effect, aimId, source, kit) {
+                for (const target of kit.targets()) kit.addStatus(ctx, target, effect.status, effect.stacks, source);
+            },
+            value: (effect) => effect.stacks * (APPLY_STATUSES[effect.status]?.value || 0) * targetFactor(effect.target),
+            describe: (e, kit) => `${kit.on(e.target)}施加 ${e.stacks} 层${kit.statusName(e.status)}`,
+            brief: (e, kit) => `${kit.statusName(e.status)}${e.stacks}`,
+        },
+    },
+});

@@ -1,6 +1,8 @@
 // 战斗状态只读查询：存活单位、目标挑选、牌面视图、伤害/格挡估算、意图描述。
 // 这里的函数都不修改 state，引擎与出牌策略共用。行为与 v0.39.0 一致。
-import { damageModifiers } from './mechanics/registry.js';
+import { damageModifiers, opHandler } from './mechanics/registry.js';
+// 规则 v5 机制登记入口：导入即登记，保证估算与结算前机制已就位。
+import './mechanics/index.js';
 
 export const LOW_HP_RATIO = 0.5;
 
@@ -57,8 +59,17 @@ export function cardView(state, inst) {
     if (entry.temp) view.temp = true;
     const owner = state.units?.[entry.owner];
     const costShift = (owner?.handCost || 0) + (entry.costMod || 0) + (owner?.turnCostMod?.[inst] || 0);
-    if (!costShift || typeof view.cost !== 'number') return view;
-    return { ...view, cost: Math.max(0, view.cost + costShift), baseCost: view.cost };
+    if (typeof view.cost !== 'number') return view;
+    let cost = Math.max(0, view.cost + costShift);
+    // 规则 v5 已登记的费用修正（免费出牌等），作用在常规费用修正之后；没有变化时视图形状与旧版一致。
+    if (state.rulesVersion >= 5 && owner) {
+        for (const mod of damageModifiers('card-cost')) {
+            const out = mod.fn(state, owner, { ...view, cost });
+            if (Number.isFinite(out)) cost = Math.max(0, Math.floor(out));
+        }
+    }
+    if (!costShift && cost === view.cost) return view;
+    return { ...view, cost, baseCost: view.cost };
 }
 
 // 当前能量是否付得起（X 费要求至少 1 点）。
@@ -105,9 +116,10 @@ export function computeDamage(attacker, target, amount, strengthScale = 1, rules
     return Math.max(0, value);
 }
 
-// 格挡值：加敏捷，脆弱（frail）打七五折。
-export function computeBlock(source, amount, target = source) {
-    const value = amount + (source?.statuses.dexterity || 0);
+// 格挡值：加敏捷，脆弱（frail）打七五折。rulesVersion >= 5 时在敏捷之后、脆弱之前执行已登记的 block-add 阶段。
+export function computeBlock(source, amount, target = source, rulesVersion) {
+    let value = amount + (source?.statuses.dexterity || 0);
+    if (rulesVersion >= 5 && source) value = applyDamageStage('block-add', source, target, value);
     return Math.max(0, target?.statuses.frail > 0 ? Math.floor(value * 0.75) : value);
 }
 
@@ -155,14 +167,25 @@ export function estimateDamage(state, attacker, target, effects, aimId) {
             }
         } else if (effect.op === 'conditional' && conditionHolds(state, attacker, effect.when, aimId)) {
             total += estimateDamage(state, attacker, target, effect.then, aimId);
+        } else {
+            // 已登记机制的算子按其自身估算；未登记或未提供估算的为 0。
+            const handler = opHandler(effect?.op);
+            if (handler?.estimateDamage) {
+                const kit = { state, attacker, target, aimId, computeDamage, conditionHolds, estimate: (list) => estimateDamage(state, attacker, target, list, aimId) };
+                total += Math.max(0, Number(handler.estimateDamage(effect, kit)) || 0);
+            }
         }
     }
     return total;
 }
 
-// 一组效果能给自己叠多少格挡。
-export function estimateBlock(unit, effects) {
-    return (effects || []).reduce((total, effect) => (effect.op === 'block' ? total + computeBlock(unit, effect.amount) : total), 0);
+// 一组效果能给自己叠多少格挡；已登记机制的算子按其自身估算。rulesVersion 为战局规则版本。
+export function estimateBlock(unit, effects, rulesVersion) {
+    return (effects || []).reduce((total, effect) => {
+        if (effect.op === 'block') return total + computeBlock(unit, effect.amount, unit, rulesVersion);
+        const handler = opHandler(effect?.op);
+        return handler?.estimateBlock ? total + Math.max(0, Number(handler.estimateBlock(effect, { unit, rulesVersion, computeBlock, estimate: (list) => estimateBlock(unit, list, rulesVersion) })) || 0) : total;
+    }, 0);
 }
 
 // 敌方单位当前意图的展示信息；没有意图或单位已倒下返回 null。

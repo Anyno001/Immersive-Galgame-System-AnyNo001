@@ -10,6 +10,8 @@ import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { opHandler, reserveBuiltins } from './mechanics/registry.js';
+// 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
+import './mechanics/index.js';
 
 export const SCHEMA_VERSION = 1;
 

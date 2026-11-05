@@ -2,6 +2,8 @@
 // 所有常量深冻结，整局共享，只读。数值与文案原样来自 v0.39.0，不要顺手调平衡。
 import { hash32 } from './random.js';
 import { opHandler } from './mechanics/registry.js';
+// 规则 v5 机制登记入口：导入即登记，保证估值前机制已就位。
+import './mechanics/index.js';
 
 // 难度档：affixes 是 普通/精英/首领 各自的词缀数，其余字段缺省时取「无影响」的值。
 function difficultyTier({ label, hp, damage, affixes: [normal, elite, boss], curse = 0, maxHpPct = 1, extraSkills = 0, enrageAt = 50, loot = 0, healScale = 1 }) {
@@ -216,12 +218,15 @@ export function estimateEffectsValue(effects) {
     return round2(sumEffects(effects));
 }
 
-// 牌自身的附加价值：固有 +2，消散且没有自带耗尽 -2，弃牌触发效果按可打出与否折算。
+// 牌自身的附加价值：固有 +2，消散且没有自带耗尽 -2，弃牌触发效果按可打出与否折算；
+// 规则 v5 关键字：重演按效果价值 × 次数 × 0.85 计入，狡黠 +1.5。
 function cardTraitValue(card, effects) {
     let value = 0;
     if (card.innate) value += 2;
     if (card.ethereal && !(effects || []).some((effect) => effect?.op === 'exhaust-self')) value -= 2;
     if (card.onDiscard) value += sumEffects(card.onDiscard) * (card.unplayable ? 1 : 0.5);
+    if (Number.isInteger(card.replay) && card.replay > 0) value += sumEffects(effects) * card.replay * 0.85;
+    if (card.sly) value += 1.5;
     return value;
 }
 

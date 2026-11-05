@@ -3,7 +3,7 @@
 import { COMBAT_RULES, TOKEN_CARDS, combatExpReward } from './rules.js';
 import { hashString } from './random.js';
 import { COMBAT_AWAKEN_TYPES } from '../scene/combat-directives.js';
-import { statusDef, statusLabel } from './mechanics/registry.js';
+import { mechanicReporters, statusDef, statusLabel } from './mechanics/registry.js';
 
 export const REPORT_RESULT = Object.freeze({ victory: 'win', defeat: 'lose', escape: 'escape' });
 // detail 档位 -> 每回合最多写几条出手。
@@ -78,6 +78,8 @@ function describeAction(action, units) {
         }
         for (const status of effect.warded || []) parts.push(`${who}的人工制品抵消了${statusName(status)}`);
         for (const card of effect.junk || []) parts.push(`往${who}的牌堆塞入「${sanitize(card)}」`);
+        // 规则 v5 机制写入的短句（如「X 回复了吸取的生命」），{who} 换成目标称呼。
+        for (const note of effect.notes || []) parts.push(sanitize(String(note).replace(/\{who\}/g, who)));
     }
     const reacted = (action.reactions || []).map(nameOf);
     if (reacted.length) parts.push(`${reacted.join('、')}随即应变`);
@@ -85,7 +87,7 @@ function describeAction(action, units) {
     return `${nameOf(action.actorId)} 以「${sanitize(action.skill)}」出手${tail}`;
 }
 
-const emptyEffect = () => ({ hpLoss: 0, blocked: 0, heal: 0, block: 0, statuses: [], warded: [], junk: [], defeated: false });
+const emptyEffect = () => ({ hpLoss: 0, blocked: 0, heal: 0, block: 0, statuses: [], warded: [], junk: [], notes: [], defeated: false });
 const ACTION_EVENT_TYPES = new Set(['card', 'skill', 'hero-skill', 'item']);
 
 // 把事件流整理成回合列表：每回合含出手列表、倒下名单、撤离者、觉醒。
@@ -168,6 +170,17 @@ export function collectTurns(events, units = {}) {
             currentTurn().escape = event.unitId;
         } else if (event.type === 'awaken') {
             currentTurn().awaken = { unitId: event.unitId, type: event.awakenType, line: event.line || '' };
+        } else {
+            // 规则 v5 机制事件：交给登记了 report 的机制，只能给当前出手追加短句；未知事件仍忽略。
+            const reporters = mechanicReporters();
+            if (!reporters.length || !action) continue;
+            const kit = {
+                units, actorId: action.actorId, fromCurrentAction: fromCurrentAction(event),
+                note: (targetId, text) => {
+                    if (targetId != null && text) effectOn(targetId).notes.push(String(text));
+                },
+            };
+            for (const report of reporters) report(event, kit);
         }
     }
     // 只有鞭尸（溢出伤害）而没有其他效果的出手不计入。

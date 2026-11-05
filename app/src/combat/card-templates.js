@@ -34,11 +34,28 @@ const nextTurn = (gain, amount) => ({ op: 'next-turn', gain, amount });
 // 本回合全体手牌减费：amount 为减少的点数（存为负数）。
 const handCost = (amount) => ({ op: 'hand-cost', amount: -amount });
 const heavy = (amount, scale) => ({ op: 'damage', amount, hits: 1, target: 'enemy', strengthScale: scale });
+// 规则 v5 登记算子（mechanics/）：施加通用状态、吸取。
+const applyStatus = (name, stacks, target) => ({ op: 'apply-status', status: name, stacks, target });
+const drain = (amount, target = 'enemy', hits = 1) => ({ op: 'drain', amount, hits, target });
+// 规则 v5 P2b 牌堆操作。
+const search = (amount, cardType) => ({ op: 'search', amount, ...(cardType ? { cardType } : {}) });
+const retrieve = (amount, from) => ({ op: 'retrieve', amount, from });
+const topdeck = (amount, mode) => ({ op: 'topdeck', amount, mode });
+const recur = (to) => ({ op: 'recur', to });
+const exhaustOther = (amount, from, mode) => ({ op: 'exhaust-other', amount, from, mode });
+const copyNext = (amount, from) => ({ op: 'copy-next', amount, from });
+const discover = () => ({ op: 'discover' });
+const transmute = (amount, mode) => ({ op: 'transmute', amount, mode });
+const upgradeCard = (amount, mode) => ({ op: 'upgrade-card', amount, mode });
+// 规则 v5 P2c 能量与免费出牌。
+const energyDouble = () => ({ op: 'energy-double' });
+const freeNext = (amount, cardType) => ({ op: 'free-next', amount, ...(cardType ? { cardType } : {}) });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
     switch (effect.op) {
         case 'status':
+        case 'apply-status':
             return effect.stacks;
         case 'conditional':
         case 'each-turn':
@@ -51,6 +68,9 @@ function primaryNumber(effect) {
         case 'damage-from-block':
         case 'double':
         case 'cleanse':
+        case 'recur':
+        case 'discover':
+        case 'energy-double':
             return 1;
         case 'cost-mod':
         case 'hand-cost':
@@ -166,6 +186,46 @@ export const CARD_TEMPLATES = Object.freeze({
     sigil: template('skill', '获得人工制品（抵消下一次减益）+格挡', [[1, 2], [1, 20]], 0.6, ([a, b]) => [status('artifact', a, 'self'), block(b)]),
     phase: template('skill', '获得 1 层无实体（受伤降为 1）+格挡，用后消耗（限史诗以上）', [[1, 20]], 1, ([a]) => [status('intangible', 1, 'self'), block(a), exhaustSelf()], { minRarity: 'epic' }),
     deathward: template('skill', '获得保命（首次致死保留 1 生命）+格挡，用后消耗（限史诗以上）', [[1, 20]], 1, ([a]) => [status('endure', 1, 'self'), block(a), exhaustSelf()], { minRarity: 'epic' }),
+    // 规则 v5 P2a：通用状态与伤害（G01–G07、G21）。
+    battlecry: template('skill', '本回合临时攻击力（回合结束撤销）+格挡', [[1, 6], [1, 20]], 0.6, ([a, b]) => [applyStatus('flex', a, 'self'), block(b)]),
+    stance: template('skill', '本回合临时防御力（回合结束撤销）+抽 1 张', [[1, 6], [1, 1]], 0.7, ([a, b]) => [applyStatus('poise', a, 'self'), draw(b)]),
+    disarm: template('attack', '伤害+攻击力下降', [[1, 30], [1, 3]], 0.7, ([a, b]) => [damage(a), applyStatus('atk-down', b, 'enemy')]),
+    breach: template('attack', '伤害+防御力下降', [[1, 30], [1, 3]], 0.7, ([a, b]) => [damage(a), applyStatus('def-down', b, 'enemy')]),
+    'wind-up': template('skill', '蓄势（下一次攻击每段额外加伤）+格挡', [[1, 8], [1, 20]], 0.6, ([a, b]) => [applyStatus('vigor', a, 'self'), block(b)]),
+    fervor: template('skill', '接下来 N 次攻击伤害翻倍', [[1, 2]], 1, ([a]) => [applyStatus('empower', a, 'self')]),
+    zenith: template('power', '数回合内攻击伤害翻倍（限稀有以上）', [[1, 2]], 1, ([a]) => [applyStatus('empower-turns', a, 'self')], { minRarity: 'rare' }),
+    apex: template('skill', '下一次攻击伤害 ×3，用后消耗（限稀有以上）', [[1, 1]], 1, ([a]) => [applyStatus('overpower', a, 'self'), exhaustSelf()], { minRarity: 'rare' }),
+    ambush: template('power', '先手（每回合第一张攻击牌伤害 +50%）+格挡', [[1, 1], [1, 20]], 0.5, ([a, b]) => [applyStatus('first-strike', a, 'self'), block(b)]),
+    lifeguard: template('skill', '护命（抵消接下来的失去生命，按次消耗）+格挡', [[1, 2], [1, 20]], 0.6, ([a, b]) => [applyStatus('buffer', a, 'self'), block(b)]),
+    siphon: template('attack', '吸取：伤害，并按实际扣除的生命回复', [[1, 30]], 1, ([a]) => [drain(a)]),
+    spite: template('power', '恶意：每成功施加一次减益，对目标造成伤害', [[1, 4]], 1, ([a]) => [applyStatus('malice', a, 'self')]),
+    // 规则 v5 P2b：牌堆操作（G08–G15）。
+    scout: template('skill', '从抽牌堆检索 1 张牌加入手牌+格挡', [[1, 1], [1, 20]], 0.5, ([a, b]) => [search(a), block(b)]),
+    hunt: template('skill', '从抽牌堆检索 1 张攻击牌加入手牌+格挡', [[1, 1], [1, 20]], 0.5, ([a, b]) => [search(a, 'attack'), block(b)]),
+    salvage: template('skill', '从弃牌堆取回 1 张牌加入手牌+格挡', [[1, 1], [1, 20]], 0.5, ([a, b]) => [retrieve(a, 'discard'), block(b)]),
+    exhume: template('skill', '从消耗堆取回 1 张牌加入手牌+格挡，用后消耗（限史诗以上）', [[1, 1], [1, 30]], 0.5, ([a, b]) => [retrieve(a, 'exhaust'), block(b), exhaustSelf()], { minRarity: 'epic' }),
+    stack: template('skill', '从手牌选 1 张放到抽牌堆顶，并获得格挡', [[1, 1], [1, 20]], 0.3, ([a, b]) => [topdeck(a, 'choose'), block(b)], { hero: false }),
+    boomerang: template('attack', '伤害，打出后放回抽牌堆顶', [[1, 30]], 1, ([a]) => [damage(a), recur('top')], { hero: false }),
+    rebound: template('attack', '伤害；本回合已出 2 张牌时打出后回到手牌（不能 0 费）', [[1, 30]], 1, ([a]) => [damage(a), conditional('cards-played-gte', 2, [recur('hand')])], { costs: [1, 2, 3], hero: false }),
+    purify: template('skill', '从手牌选 1 张消耗，并获得格挡', [[1, 1], [1, 20]], 0.3, ([a, b]) => [exhaustOther(a, 'hand', 'choose'), block(b)], { hero: false }),
+    cinder: template('skill', '随机消耗抽牌堆的牌，并获得格挡', [[1, 2], [1, 20]], 0.3, ([a, b]) => [exhaustOther(a, 'draw', 'random'), block(b)]),
+    reprise: template('skill', '格挡；下回合开始时把本牌的临时副本加入手牌', [[1, 1], [1, 20]], 0.5, ([a, b]) => [copyNext(a, 'self'), block(b)], { hero: false }),
+    glimpse: template('skill', '从卡组随机三张中挑 1 张作为临时牌加入手牌，并获得格挡', [[1, 20]], 0.5, ([a]) => [discover(), block(a)]),
+    morph: template('skill', '本场把选中的 1 张手牌变成卡组里的另一张牌，并获得格挡', [[1, 1], [1, 20]], 0.3, ([a, b]) => [transmute(a, 'choose'), block(b)], { hero: false }),
+    refine: template('skill', '本场升级选中的 1 张手牌，并获得格挡', [[1, 1], [1, 20]], 0.4, ([a, b]) => [upgradeCard(a, 'choose'), block(b)], { hero: false }),
+    polish: template('skill', '本场随机升级手牌，并获得格挡', [[1, 2], [1, 20]], 0.4, ([a, b]) => [upgradeCard(a, 'random'), block(b)]),
+    // 规则 v5 P2c：重演、狡黠、免费出牌与能量扩展（G16–G19）。
+    reverb: template('attack', '重演 1：伤害，打出时整张额外执行 1 次（限稀有以上）', [[1, 20]], 1, ([a]) => [damage(a)], { flags: { replay: 1 }, minRarity: 'rare', hero: false }),
+    resound: template('skill', '重演 1：格挡，打出时整张额外执行 1 次（限稀有以上）', [[1, 20]], 1, ([a]) => [block(a)], { flags: { replay: 1 }, minRarity: 'rare', hero: false }),
+    gambit: template('attack', '狡黠：伤害；被效果弃掉时免费打出', [[1, 30]], 1, ([a]) => [damage(a)], { flags: { sly: true }, hero: false }),
+    feint: template('skill', '狡黠：格挡+抽 1 张；被效果弃掉时免费打出', [[1, 20], [1, 1]], 0.7, ([a, b]) => [block(a), draw(b)], { flags: { sly: true }, hero: false }),
+    quickdraw: template('skill', '下一张攻击牌免费打出，并获得格挡', [[1, 1], [1, 20]], 0.5, ([a, b]) => [freeNext(a, 'attack'), block(b)]),
+    flow: template('power', '每回合前 N 张牌免费打出（限神话）', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('freeplay', a, 'self'), block(b)], { minRarity: 'mythic' }),
+    generator: template('power', '充能：每回合开始额外获得能量（限史诗以上）', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('dynamo', a, 'self'), block(b)], { minRarity: 'epic' }),
+    hoard: template('power', '蓄能：回合结束时未用完的能量留到下回合', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('conserve', a, 'self'), block(b)]),
+    overcharge: template('skill', '能量翻倍，并获得格挡，用后消耗（限稀有以上）', [[0, 20]], 1, ([a]) => [energyDouble(), block(a), exhaustSelf()], { minRarity: 'rare' }),
+    xdraw: template('skill', 'X 费：每点能量抽 1 张牌并获得格挡', [[1, 1], [0, 20]], 1, ([a, b]) => [draw(a), block(b)], { costs: ['X'] }),
+    xforge: template('skill', 'X 费：每点能量生成 1 张「碎刃」加入手牌并获得格挡', [[1, 1], [0, 20]], 1, ([a, b]) => [create('token-shard', a), block(b)], { costs: ['X'] }),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -183,6 +243,11 @@ export const PASSIVE_TEMPLATES = Object.freeze({
     'hit-guard': passive('on-hit', '受击后获得 2 点格挡', [block(2)]),
     'last-stand': passive('on-low-hp', '濒危时回复 12 点生命', [heal(12)]),
     'last-fury': passive('on-low-hp', '濒危时获得 2 层攻击力', [status('strength', 2, 'self')]),
+    // 规则 v5 P2a：开战获得通用状态（G03、G05、G06）与削弱（G02）。
+    'opening-vigor': passive('battle-start', '开战获得 3 层蓄势', [applyStatus('vigor', 3, 'self')]),
+    'opening-ambush': passive('battle-start', '开战获得先手', [applyStatus('first-strike', 1, 'self')]),
+    'opening-buffer': passive('battle-start', '开战获得 1 层护命', [applyStatus('buffer', 1, 'self')]),
+    'opening-enfeeble': passive('battle-start', '开战使全体敌人攻击力下降 1 层', [applyStatus('atk-down', 1, 'all-enemies')]),
 });
 
 // 华而不实的风味被动：效果几乎没用，只用于人物特性与装备被动。
@@ -244,6 +309,11 @@ export const SKILL_TEMPLATES = Object.freeze({
     detonate: skill('debuff', '中毒+中毒翻倍', (n) => [status('poison', Math.min(10, scaled(n, 0.2)), 'enemy'), { op: 'double', stat: 'poison', target: 'enemy' }], 1, 2),
     brittle: skill('debuff', '脆弱', () => [status('frail', 2, 'enemy')], 1, 2),
     relic: skill('buff', '获得人工制品', () => [status('artifact', 1, 'self')], 1, 3),
+    // 规则 v5 P2a：敌人与队友可用的通用状态与吸取（不进补技能表，已有敌人的补技能结果不变）。
+    'battle-flex': skill('buff', '本回合临时攻击力', () => [applyStatus('flex', 3, 'self')], 1, 2),
+    enfeeble: skill('debuff', '攻击力下降', () => [applyStatus('atk-down', 2, 'enemy')], 1, 2),
+    gather: skill('buff', '蓄势', () => [applyStatus('vigor', 4, 'self')], 1, 2),
+    bloodsip: skill('attack', '吸取：攻击并按实际扣除的生命回复', (n) => [drain(scaled(n, 0.5))], 2, 1),
 });
 
 // 复合效果的技能模板键（供选型时优先）。
@@ -512,7 +582,11 @@ const ARCHETYPE_PREFERRED = Object.freeze({
 // 卡牌模板的机制族（规则 v5 职业白名单）：每个模板恰好属于一个族，general 为通用族，所有职业可用。
 // ARCHETYPE_PREFERRED 仍只决定推荐顺序；各职业的推荐模板与默认人物技能都落在其允许的族内（加载时自检）。
 const TEMPLATE_FAMILY_TABLE = Object.freeze({
-    general: ['strike', 'twin', 'bash', 'cripple', 'rend', 'quick', 'guard', 'brace', 'prepare', 'jab', 'trip', 'opener', 'might', 'foresight', 'reserve', 'steadfast', 'trance'],
+    general: ['strike', 'twin', 'bash', 'cripple', 'rend', 'quick', 'guard', 'brace', 'prepare', 'jab', 'trip', 'opener', 'might', 'foresight', 'reserve', 'steadfast', 'trance',
+        'battlecry', 'stance', 'disarm', 'breach', 'wind-up', 'fervor', 'zenith', 'apex', 'ambush', 'lifeguard', 'siphon', 'spite',
+        'reverb', 'resound', 'gambit', 'feint', 'quickdraw', 'flow', 'generator', 'hoard', 'overcharge', 'xdraw', 'xforge'],
+    // 牌堆操作（P2b），所有职业可用。
+    pile: ['scout', 'hunt', 'salvage', 'exhume', 'stack', 'boomerang', 'rebound', 'purify', 'cinder', 'reprise', 'glimpse', 'morph', 'refine', 'polish'],
     fury: ['shatter', 'desperate', 'inflame', 'tear', 'fleeting', 'rampage', 'momentum', 'whirl', 'bloodlet', 'bloodrush', 'bloodrage', 'overdrive', 'heavy-blade'],
     cleave: ['sweep', 'scatter', 'thunder'],
     fortify: ['bulwark', 'counter', 'lure', 'xguard', 'plating', 'slam', 'entrench'],
@@ -529,14 +603,15 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     sanctum: ['absolution', 'sigil', 'phase', 'deathward'],
 });
 export const ARCHETYPE_FAMILIES = Object.freeze({
-    warrior: Object.freeze(['general', 'fury', 'cleave', 'fortify', 'restore']),
-    guardian: Object.freeze(['general', 'fortify', 'thorns', 'ward']),
-    ranger: Object.freeze(['general', 'cleave', 'volley']),
-    assassin: Object.freeze(['general', 'venom', 'shadow', 'volley']),
-    mage: Object.freeze(['general', 'cleave', 'hex', 'arcane', 'venom']),
-    priest: Object.freeze(['general', 'ward', 'restore', 'hex', 'fortify', 'sanctum']),
-    summoner: Object.freeze(['general', 'thorns', 'ward', 'restore', 'venom', 'conjure', 'cleave']),
-    bard: Object.freeze(['general', 'ward', 'volley', 'hex', 'arcane', 'conjure', 'cadence']),
+    // pile（牌堆操作，规则 v5 P2b）与 general 一样所有职业可用。
+    warrior: Object.freeze(['general', 'pile', 'fury', 'cleave', 'fortify', 'restore']),
+    guardian: Object.freeze(['general', 'pile', 'fortify', 'thorns', 'ward']),
+    ranger: Object.freeze(['general', 'pile', 'cleave', 'volley']),
+    assassin: Object.freeze(['general', 'pile', 'venom', 'shadow', 'volley']),
+    mage: Object.freeze(['general', 'pile', 'cleave', 'hex', 'arcane', 'venom']),
+    priest: Object.freeze(['general', 'pile', 'ward', 'restore', 'hex', 'fortify', 'sanctum']),
+    summoner: Object.freeze(['general', 'pile', 'thorns', 'ward', 'restore', 'venom', 'conjure', 'cleave']),
+    bard: Object.freeze(['general', 'pile', 'ward', 'volley', 'hex', 'arcane', 'conjure', 'cadence']),
 });
 export const TEMPLATE_FAMILIES = Object.freeze(Object.fromEntries(Object.entries(TEMPLATE_FAMILY_TABLE).flatMap(([family, keys]) => keys.map((key) => [key, family]))));
 export const templateFamily = (key) => TEMPLATE_FAMILIES[key] ?? null;

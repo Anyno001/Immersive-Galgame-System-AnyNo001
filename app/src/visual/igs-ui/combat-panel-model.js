@@ -10,7 +10,7 @@ import { cardMotifSvg } from './combat-card-motifs.js';
 import { scalingMarks } from '../../combat/card-scaling.js';
 import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { CHALLENGE_LABELS, challengeStatusName, intimateLabelsOf } from '../../combat/challenge-labels.js';
-import { statusLabel } from '../../combat/mechanics/registry.js';
+import { briefRegistered, statusLabel } from '../../combat/mechanics/registry.js';
 
 // 卡牌属性性能显示：换算过的卡给出带增减标记的描述片段；固定卡与旧战斗不带字段，形状与旧版一致。
 // 带标记的数字附 tip（要求属性、倍率与「原值 → 现值（差值）」，点数字由面板弹出）；scaleNote 是同样内容的整句，并入卡牌 aria-label 供读屏。
@@ -78,7 +78,8 @@ function effectBrief(e) {
         case 'cleanse': return '净化';
         case 'heal-pct': return `回血${e.pct}%`;
         case 'grow': return `成长${e.amount}`;
-        default: return '';
+        // 规则 v5 已登记机制的算子取其 brief；未登记的仍为空串。
+        default: return briefRegistered(e, { statusName });
     }
 }
 
@@ -95,7 +96,8 @@ function slotFxText(effects, main, value, hits) {
     return out.filter(Boolean).join('，').replace(/：/g, '，');
 }
 
-export function cardSlotView(card, hero) {
+// rulesVersion：战局规则版本，v5 时伤害预览与结算一样经过已登记的修正阶段（目标未定，target 为 null）。
+export function cardSlotView(card, hero, rulesVersion) {
     const effects = Array.isArray(card?.effects) ? card.effects : [];
     const main = mainEffect(effects);
     if (!main) return { value: null, unit: '', fxText: slotFxText(effects, null, 0, 1) };
@@ -110,18 +112,24 @@ export function cardSlotView(card, hero) {
     if (main.op === 'heal') return finish(main.amount, main.amount, '回复', 1, []);
     const baseValue = main.amount;
     if (main.op === 'block') {
-        const value = computeBlock(hero, baseValue);
+        const value = computeBlock(hero, baseValue, hero, rulesVersion);
         const parts = [`基础 ${baseValue}`];
         if (st.dexterity) parts.push(`防御力 ${signed(st.dexterity)}`);
         if (st.frail > 0) parts.push('脆弱 ×0.75');
+        // 规则 v5 已登记的格挡修正（如防御力下降）合并为一项。
+        const plainBlock = computeBlock(hero, baseValue);
+        if (value !== plainBlock) parts.push(`其他修正 ${signed(value - plainBlock)}`);
         return finish(value, baseValue, '格挡', 1, parts);
     }
-    const value = computeDamage(hero, null, baseValue, main.strengthScale);
+    const value = computeDamage(hero, null, baseValue, main.strengthScale, rulesVersion);
     const parts = [`基础 ${baseValue}`];
     const power = (st.strength || 0) * (main.strengthScale || 1);
     if (hero?.damageScale && hero.damageScale !== 1) parts.push(`伤害倍率 ×${hero.damageScale}`);
     if (power) parts.push(`攻击力 ${signed(power)}`);
     if (st.weak > 0) parts.push('虚弱 ×0.75');
+    // 规则 v5 已登记的伤害修正（蓄势、倍伤、先手、攻击力下降等）合并为一项。
+    const plainDamage = computeDamage(hero, null, baseValue, main.strengthScale);
+    if (value !== plainDamage) parts.push(`其他修正 ${signed(value - plainDamage)}`);
     return finish(value, baseValue, main.target === 'all-enemies' ? '群伤' : '伤害', Number(main.hits) || 1, parts);
 }
 
@@ -131,6 +139,7 @@ export const KEYWORD_PRIORITY = Object.freeze(['不能打出', '消耗', '虚无
 // 关键字点开的解释（不带句号）；不能打出字面自明，这里仍给一句，供单字印记点开。
 export const KEYWORD_NAME_TIPS = Object.freeze({
     不能打出: '不能打出：这张牌不能被打出', 消耗: KEYWORD_TIPS.exhaust, 虚无: KEYWORD_TIPS.ethereal, 保留: KEYWORD_TIPS.retain, 固有: KEYWORD_TIPS.innate, 临时: KEYWORD_TIPS.temp,
+    狡黠: KEYWORD_TIPS.sly, 重演: KEYWORD_TIPS.replay,
 });
 // 加成 / 减弱差值：value 与 baseValue 不同时给带符号的字符串（减号为 U+2212），否则空串；数字本身不转色，差值只做单位后的淡色小字。
 export const cardValueDelta = (c) => (Number.isFinite(c?.value) && c.baseValue !== undefined && c.value !== c.baseValue ? signed(c.value - c.baseValue) : '');
@@ -141,6 +150,8 @@ export function cardKeywordNames(card) {
     const names = [];
     if (card?.unplayable) names.push('不能打出');
     for (const [flag, label] of [['innate', '固有'], ['retain', '保留'], ['ethereal', '虚无']]) if (card?.[flag]) names.push(label);
+    if (card?.sly) names.push('狡黠');
+    if (Number.isInteger(card?.replay) && card.replay > 0) names.push('重演');
     if (card?.temp) names.push('临时');
     const exhaust = (list) => (list || []).some((e) => e.op === 'exhaust-self' || (Array.isArray(e.then) && exhaust(e.then)));
     if (exhaust(card?.effects)) names.push('消耗');
@@ -315,7 +326,7 @@ export function battleView(state, legal = [], { challenge = false } = {}) {
             ...(card.baseCost !== undefined && card.baseCost !== card.cost ? { baseCost: card.baseCost } : {}),
             ...cardTextView(card),
             // 卡面插槽：主效果数值与单位（风格化皮肤的窄签与放大牌用）、关键字全称；initial 皮肤不显示这些节点。
-            ...cardSlotView(card, hero), keywordNames: cardKeywordNames(card),
+            ...cardSlotView(card, hero, state.rulesVersion), keywordNames: cardKeywordNames(card),
         };
     }).filter(Boolean);
     // 同名张数：手牌里同 id 且同升级状态的张数，至少 2 张才给 stack。

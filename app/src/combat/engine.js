@@ -8,7 +8,7 @@
 //   cards 与 catalog 只在真正写入（成长、费用修正、临时牌）时才复制对应层级。
 // - 效果、技能、被动这类静态定义不再深拷贝，引擎对它们只读。
 // 行为、数值与事件流与 v0.39.0 一致。
-import { COMBAT_RULES, TOKEN_CARDS, isCompatibleRulesVersion } from './rules.js';
+import { COMBAT_RULES, TOKEN_CARDS, estimateEffectsValue, isCompatibleRulesVersion } from './rules.js';
 import { hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
@@ -569,7 +569,11 @@ function resOf(ctx, unit) {
     if (!unit.res) unit.res = {};
     return unit.res;
 }
-const engineKit = (targets) => ({ emit, dealDamage, addStatus, setStatus, heal, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, targets });
+const engineKit = (targets) => ({
+    emit, dealDamage, addStatus, setStatus, heal, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, targets,
+    // 规则 v5 牌堆操作用：弃牌、消耗、临时牌、写时复制、选牌（choose 时消费玩家选择或按策略选）、牌面视图与效果估值。
+    discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
+});
 
 // 单个效果的结算。source 记录来源（单位、种类、id），写进事件。
 function applyEffect(ctx, unit, effect, aimId, source) {
@@ -581,7 +585,7 @@ function applyEffect(ctx, unit, effect, aimId, source) {
             return;
         case 'block':
             for (const target of targets()) {
-                const amount = computeBlock(unit, effect.amount, target);
+                const amount = computeBlock(unit, effect.amount, target, state.rulesVersion);
                 target.block += amount;
                 emit(ctx, { type: 'block', source, target: target.id, amount });
                 if (amount > 0) fireBus(ctx, target, 'block-gain', null);
@@ -669,7 +673,10 @@ function applyEffect(ctx, unit, effect, aimId, source) {
             return;
         case 'cleanse':
             for (const target of targets()) {
-                const removed = DEBUFFS.filter((status) => (target.statuses[status] || 0) > 0);
+                // 规则 v5 另清已登记机制声明的减益（排在内置减益之后）；v3/v4 只清内置减益。
+                const registered = state.rulesVersion >= 5
+                    ? Object.keys(target.statuses).filter((status) => !DEBUFFS.includes(status) && statusDef(status)?.debuff && (target.statuses[status] || 0) > 0) : [];
+                const removed = [...DEBUFFS.filter((status) => (target.statuses[status] || 0) > 0), ...registered];
                 for (const status of removed) setStatus(target, status, 0);
                 if (removed.length) emit(ctx, { type: 'cleanse', source, target: target.id, statuses: removed });
             }
@@ -832,6 +839,13 @@ function pendingChoiceFor(state, unit, effect) {
         options = hand.slice();
     } else if (effect.op === 'cost-mod' && effect.mode === 'choose') {
         options = costlyCards(state, unit);
+    } else if (state.rulesVersion >= 5 && opAllowedFor(effect.op, unit.kind)) {
+        // 规则 v5 已登记算子：自己声明手牌待选。
+        const picked = opHandler(effect.op).choice?.(state, unit, effect, { cardView });
+        if (picked && Array.isArray(picked.options)) {
+            options = picked.options.slice();
+            count = picked.count;
+        }
     }
     return options && count > 0 && options.length > count ? { options, count } : null;
 }
@@ -851,7 +865,39 @@ function discardCard(ctx, unit, inst) {
         runEffects(ctx, unit, card.onDiscard, null, { unitId: unit.id, kind: 'on-discard', id: card.id });
         ctx.depth -= 1;
     }
+    // 规则 v5 关键字「狡黠」：被效果主动弃掉时免费打出；回合末自然弃牌走 settleHand，不经此处。
+    if (ctx.state.rulesVersion >= 5 && card?.sly && !card.unplayable && unit.kind === 'deck' && unit.alive && !ctx.state.outcome && busOpen(ctx)) slyPlay(ctx, unit, inst, card);
     fireBus(ctx, unit, 'discard', null, { cardType: card?.type });
+}
+
+// 狡黠牌免费打出：不付费、不计出牌数，需要敌方目标时取最弱的敌人（没有则不打出）；牌留在弃牌堆，自带消耗时移入消耗堆。
+function slyPlay(ctx, unit, inst, card) {
+    const state = ctx.state;
+    const needFoe = effectsNeedTarget(card.effects);
+    const aim = needFoe ? weakestId(state, opposite(unit.side)) : effectsPickAlly(card.effects) ? unit.id : null;
+    if (needFoe && !aim) return;
+    const saved = { inst: ctx.inst, exhaust: ctx.exhaust, recur: ctx.recur, chosen: ctx.chosen };
+    state.busTriggers = (state.busTriggers || 0) + 1;
+    ctx.depth += 1;
+    ctx.inst = inst;
+    ctx.exhaust = false;
+    ctx.recur = null;
+    ctx.chosen = null;
+    emit(ctx, { type: 'sly', unitId: unit.id, inst, cardId: card.id, targetId: aim });
+    runEffects(ctx, unit, card.effects, aim, { unitId: unit.id, kind: 'card', id: card.id });
+    if (ctx.exhaust) {
+        const pile = state.piles[unit.id];
+        const index = pile.discard.indexOf(inst);
+        if (index >= 0) {
+            pile.discard.splice(index, 1);
+            exhaustCard(ctx, unit, inst);
+        }
+    }
+    ctx.depth -= 1;
+    ctx.inst = saved.inst;
+    ctx.exhaust = saved.exhaust;
+    ctx.recur = saved.recur;
+    ctx.chosen = saved.chosen;
 }
 
 function exhaustCard(ctx, unit, inst, fireTriggers = true) {
@@ -918,7 +964,7 @@ function repeatLast(ctx, unit, times, aimId) {
     if (ctx.repeating || !last || unit.kind !== 'deck') return;
     const card = cardView(ctx.state, last.inst);
     if (!card || card.unplayable) return;
-    const saved = { inst: ctx.inst, exhaust: ctx.exhaust };
+    const saved = { inst: ctx.inst, exhaust: ctx.exhaust, recur: ctx.recur };
     const aim = last.targetId != null && ctx.state.units[last.targetId]?.alive ? last.targetId : null;
     ctx.repeating = true;
     ctx.inst = last.inst;
@@ -928,6 +974,7 @@ function repeatLast(ctx, unit, times, aimId) {
     ctx.repeating = false;
     ctx.inst = saved.inst;
     ctx.exhaust = saved.exhaust;
+    ctx.recur = saved.recur;
 }
 
 // 费用修正：combat 范围写进牌自身（持续整场），否则记在单位的本回合表里。
@@ -981,6 +1028,7 @@ function takeSkillTurn(ctx, unit) {
     delete state.intents[unit.id];
     emit(ctx, { type: 'skill', unitId: unit.id, skillId: skill.id, name: skill.name, targetId });
     runEffects(ctx, unit, skill.effects, targetId, { unitId: unit.id, kind: 'skill', id: skill.id });
+    if (unit.alive) runHooks(ctx, 'action-after', { unit, kind: 'skill', skill, effects: skill.effects });
     const cooldowns = state.cooldowns[unit.id];
     for (const id of Object.keys(cooldowns)) {
         if (cooldowns[id] > 1) cooldowns[id] -= 1;
@@ -1140,6 +1188,7 @@ function resolvePlay(ctx) {
     const isHero = unit.id === state.controlledId;
     ctx.inst = play.inst;
     ctx.exhaust = play.exhaust;
+    ctx.recur = play.recur;
     while (play.run < play.runs && !state.outcome && unit.alive) {
         while (play.index < play.effects.length && !state.outcome && unit.alive) {
             const effect = play.effects[play.index];
@@ -1147,6 +1196,7 @@ function resolvePlay(ctx) {
             play.index += 1;
             if (choice) {
                 play.exhaust = ctx.exhaust;
+                if (ctx.recur) play.recur = ctx.recur;
                 state.pending = { kind: effect.op, unitId: unit.id, inst: play.inst, count: choice.count, options: choice.options };
                 emit(ctx, { type: 'choose-start', unitId: unit.id, kind: effect.op, count: choice.count, options: choice.options.slice() });
                 ctx.inst = null;
@@ -1174,14 +1224,25 @@ function finishPlay(ctx) {
     stats[card.type] += 1;
     const key = cardCountKey(card.id);
     stats.byCard[key] = (stats.byCard[key] || 0) + 1;
+    // 规则 v5 打出后去向（recur 算子）：回到手牌（手牌满则照常进弃牌堆）或放回抽牌堆顶；消耗与能力牌优先。
+    const recur = state.rulesVersion >= 5 ? ctx.recur : null;
+    ctx.recur = null;
+    const pile = state.piles[unit.id];
     if (card.type === 'power' || ctx.exhaust) exhaustCard(ctx, unit, play.inst, card.type !== 'power');
-    else state.piles[unit.id].discard.push(play.inst);
+    else if (recur === 'hand' && pile.hand.length < COMBAT_RULES.handLimit) {
+        pile.hand.push(play.inst);
+        emit(ctx, { type: 'recur', unitId: unit.id, inst: play.inst, to: 'hand' });
+    } else if (recur === 'top') {
+        pile.draw.push(play.inst);
+        emit(ctx, { type: 'recur', unitId: unit.id, inst: play.inst, to: 'top' });
+    } else pile.discard.push(play.inst);
     ctx.exhaust = false;
     unit.lastPlayed = { inst: play.inst, targetId: play.targetId };
     checkOutcome(ctx);
     fireBus(ctx, unit, 'card-played', play.targetId, { cardType: card.type });
     for (const foeId of livingIds(state, opposite(unit.side))) fireBus(ctx, state.units[foeId], 'foe-card-played', unit.id, { cardType: card.type });
     if (unit.alive) runHooks(ctx, 'play-after', { unit, inst: play.inst, card, targetId: play.targetId });
+    if (unit.alive) runHooks(ctx, 'action-after', { unit, kind: 'card', card, effects: card.effects });
 }
 
 // ---------- 动作合法性检查：返回 null 表示可行，否则 { reason, detail } ----------
@@ -1228,6 +1289,7 @@ function useHeroSkill(ctx, unit, aimId, skillId) {
     else unit.traitSkillsUsed = [...(unit.traitSkillsUsed || []), skillId];
     emit(ctx, { type: 'hero-skill', unitId: unit.id, skillId: skill.id, name: skill.name, targetId: aimId ?? null, cost });
     runEffects(ctx, unit, skill.effects, aimId ?? null, { unitId: unit.id, kind: 'hero-skill', id: skill.id });
+    if (unit.alive) runHooks(ctx, 'action-after', { unit, kind: 'hero-skill', skill, effects: skill.effects });
     checkOutcome(ctx);
 }
 
@@ -1547,9 +1609,11 @@ function resolveChoice(ctx, insts) {
     ctx.inst = play.inst;
     ctx.exhaust = play.exhaust;
     ctx.chosen = insts.slice();
+    ctx.recur = play.recur;
     applyEffect(ctx, unit, play.effects[play.index - 1], play.targetId, { unitId: unit.id, kind: 'card', id: play.cardId });
     ctx.chosen = null;
     play.exhaust = ctx.exhaust;
+    if (ctx.recur) play.recur = ctx.recur;
     resolvePlay(ctx);
 }
 
