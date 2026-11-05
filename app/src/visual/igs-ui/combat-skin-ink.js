@@ -117,8 +117,8 @@ function foeHtml(u, i, f, n, L, v, pick) {
     const chips = `${u.block ? `<i class="sc">甲<b>${esc(u.block)}</b></i>` : ''}${u.statuses.map((s) => `<i class="sc">${esc(s.label)}<b>${esc(s.stacks)}</b></i>`).join('')}`;
     const ok = pick.pickable(u);
     return `<div class="foe${ring.front ? ' front' : ''}${ring.rear ? ' rear' : ''} ${unitCls(u, ok)}"${unitData(u)} style="${ring.style};--atop:${enemyArtTopOf(arts[u.name])}"${unitAct(u, ok)}>`
-        + `<div class="art">${foeArt(pics[u.name], arts[u.name], u.name)}</div>${intent}`
-        + `<div class="plate"><span class="pn">${esc(u.name)}</span>${u.tier ? `<span class="tier">${u.tier === 'boss' ? '首' : '精'}</span>` : ''}${hpBar(u)}<span class="php cx-hp-value">${esc(u.hp)}/${esc(u.maxHp)}</span><span class="pst">${chips}</span></div></div>`;
+        + `<div class="art">${foeArt(pics[u.name], arts[u.name], u.name)}</div>`
+        + `<div class="plate"><span class="pn">${esc(u.name)}</span>${u.tier ? `<span class="tier">${u.tier === 'boss' ? '首' : '精'}</span>` : ''}${hpBar(u)}<span class="php cx-hp-value">${esc(u.hp)}/${esc(u.maxHp)}</span><span class="pst">${chips}</span>${intent}</div></div>`;
 }
 
 function leadHtml(hero, v, pick) {
@@ -361,7 +361,10 @@ ${S} .sq.skill:not(.off)::before{content:"";position:absolute;left:50%;top:50%;w
 ${C}.port .foes{--base:300px;} ${C}.land .foes{--base:130px;}
 /* 与漫画统一的头顶位置：意图签顶边、血条中线按画布坐标对齐（竖屏 73 / 117，横屏 35 / 79） */
 ${C}.port .foe .plate{margin-bottom:-23px;} ${C}.land .foe .plate{margin-bottom:-17px;}
-${C}.port .foe .intent{bottom:calc(100% + 16px);} ${C}.land .foe .intent{bottom:calc(100% + 22px);}
+/* 意图签挂在名牌上：竖屏在名字上方随名牌高度上移；横屏头顶贴着回合标题，放到名牌右侧与名字同行 */
+${C} .foe .plate .intent{opacity:1;}
+${C}.port .foe .plate .intent{bottom:calc(100% + 8px);}
+${C}.land .foe .plate .intent{left:100%;top:-3px;bottom:auto;margin-left:12px;transform:none;}
 ${S} .foe .art{transform:translateY(calc(var(--atop,0) * var(--w) * -0.95)) scale(calc(1 + var(--atop,0) * .15));transform-origin:50% 100%;} ${C}.land .foe .art{transform:translateY(calc(var(--atop,0) * var(--w) * -0.4)) scale(calc(1 + var(--atop,0) * .8));}
 /* 舞台上没有信息作用的装饰线去掉：行动顺序的连线 */
 ${S} .track::before{display:none;}
