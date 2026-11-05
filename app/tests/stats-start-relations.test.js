@@ -24,6 +24,14 @@ test('起始关系补填：提示词可在设置里覆盖，请求带上角色�
     assert.equal(stored.prompts.startRelations, '我的提示词');
 });
 
+test('起始关系补填：请求带上主角资料，没有时不写这一行', () => {
+    const req = buildStartRelationRequest([{ name: '林夏', summary: '' }], { hero: '林夏一直暗恋我' });
+    assert.ok(req.user.includes('主角资料：林夏一直暗恋我'));
+    assert.ok(req.user.indexOf('主角资料') < req.user.indexOf('角色资料'));
+    assert.ok(!buildStartRelationRequest([{ name: '林夏', summary: '' }]).user.includes('主角资料'));
+    assert.ok(DEFAULT_STAT_PROMPTS.startRelations.includes('主角资料'));
+});
+
 test('忙碌提示：没有面板时不阻塞，close 可重复调用', async () => {
     const dialogs = createSettingsDialogs({ getContainer: () => null, fallback: (kind) => kind === 'busy' });
     const busy = dialogs.busy('正在计算');

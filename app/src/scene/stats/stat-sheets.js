@@ -286,11 +286,13 @@ export function parseHeroSkillReply(reply, { skills = [] } = {}) {
 }
 
 // 起始关系一次性补填：people 为 [{ name, summary }]，回复格式 { "角色名": "关系档" }。
-export function buildStartRelationRequest(people, { prompt } = {}) {
+// hero 为主角资料（用户人设）：玩家常把「谁喜欢主角」写在这里，角色资料里反而没有。
+export function buildStartRelationRequest(people, { prompt, hero = '' } = {}) {
     const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(p.summary, SUMMARY_MAX) || '（没有资料）'}`);
+    const heroText = clip(hero, HERO_SUMMARY_MAX);
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.startRelations,
-        user: `主角：${PROTAGONIST}\n角色资料：\n${list.join('\n')}`,
+        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}角色资料：\n${list.join('\n')}`,
     };
 }
 

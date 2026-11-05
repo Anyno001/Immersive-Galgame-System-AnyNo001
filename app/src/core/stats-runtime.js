@@ -1677,12 +1677,16 @@ export function createStatsRuntime({
         const chatId = chatIdOf(ctx());
         const run = async () => {
             const relations = {};
+            // 主角资料（用户人设）只取一次，每批都带上。
+            let hero = '';
+            try { if (typeof describePeople === 'function') hero = String(((await describePeople([PROTAGONIST]))[0] || {}).summary || ''); }
+            catch (error) { hero = ''; }
             for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
                 const batch = names.slice(i, i + SHEET_BATCH_MAX);
                 let people;
                 try { people = typeof describePeople === 'function' ? await describePeople(batch) : batch.map((n) => ({ name: n, summary: '' })); }
                 catch (error) { people = batch.map((n) => ({ name: n, summary: '' })); }
-                const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations });
+                const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations, hero });
                 let parsed = null;
                 for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
                     try { parsed = parseStartRelationReply(await ask(request, prompt), { names: batch }); }
