@@ -720,19 +720,29 @@ function resolveFrozenDialogHeight(current, snapshot, requestedHeight, win, over
     return px;
 }
 
-// 高度自适应压矮时，三片素材两端按「实际高 ÷ 原高」等比缩小（--igs-slice-k），不被纵向压扁；没开自适应恒为 1。
+// 三片素材两端按「实际高 ÷ 设计高」等比缩放（--igs-slice-k），框被压矮（自适应、内嵌封顶、窗口拖小）
+// 或被长文本撑高时都不纵向拉伸。设计高读主题写的 --igs-slice-h × --igs-skin-scale，不读已被封顶的 max-height。
+// 放大时两端之和不超过框宽一半，免得花纹吃掉正文区。九宫格素材写 --igs-slice-h:0，恒为 1。
 // 改两端宽度不影响布局高度，观察回调不会自激。
 const sliceScaleWatchers = new WeakMap();
 function watchSliceScale(dialog, win) {
-    if (!dialog || !dialog.style || typeof dialog.style.getPropertyValue !== 'function' || typeof dialog.hasAttribute !== 'function') return;
+    if (!dialog || !dialog.style || typeof dialog.style.getPropertyValue !== 'function') return;
     const update = () => {
         let k = 1;
-        if (dialog.hasAttribute('data-igs-auto-h') && win && typeof win.getComputedStyle === 'function') {
-            const full = parseFloat(win.getComputedStyle(dialog).maxHeight);
+        if (win && typeof win.getComputedStyle === 'function') {
+            const style = win.getComputedStyle(dialog);
+            const read = (name) => parseFloat(style.getPropertyValue(name));
+            const scale = read('--igs-skin-scale') > 0 ? read('--igs-skin-scale') : 1;
+            const full = read('--igs-slice-h') * scale;
+            const ends = read('--igs-slice-w') * scale;
             const now = dialog.offsetHeight;
-            if (full > 0 && now > 0) k = Math.max(0.3, Math.min(1, now / full));
+            const width = dialog.offsetWidth;
+            if (full > 0 && now > 0) {
+                k = Math.max(0.3, now / full);
+                if (k > 1 && ends > 0 && width > 0) k = Math.max(1, Math.min(k, (width * 0.5) / ends));
+            }
         }
-        const value = k === 1 ? '' : k.toFixed(3);
+        const value = Math.abs(k - 1) < 0.005 ? '' : k.toFixed(3);
         if (dialog.style.getPropertyValue('--igs-slice-k') === value) return;
         if (value) dialog.style.setProperty('--igs-slice-k', value);
         else dialog.style.removeProperty('--igs-slice-k');

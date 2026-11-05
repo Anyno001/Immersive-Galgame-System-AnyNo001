@@ -69,6 +69,7 @@ const DIALOG_THEME_ASSETS = Object.freeze({
     }),
     [DIALOG_SKIN_RETRO_JAPANESE]: Object.freeze({
         dialog: '__IGS_ASSET__retro-japanese/dialog.png__',
+        dialogCompact: '__IGS_ASSET__retro-japanese/dialog-compact.png__',
         name: '__IGS_ASSET__retro-japanese/name.png__',
     }),
     [DIALOG_SKIN_ADVENTURE_JOURNEY]: Object.freeze({
@@ -104,7 +105,9 @@ export const ILLUSTRATED_DIALOG_SPECS = Object.freeze({
         textCss: `letter-spacing:.05em;${halo('rgba(255,255,255,.95)', 4)}`,
     }),
     // messgeframe_01 按 0.9 缩放（236→212），纸面上沿约在 y=32。正文从上沿下方直接起排，
-    // 压在两侧花簇上，靠纸色光晕保持可读；姓名牌骑在上沿，窄屏整体缩到 0.66。
+    // 压在两侧花簇上，靠纸色光晕保持可读；姓名牌骑在上沿。
+    // 窄屏改用九宫格素材 dialog-compact（2x 密度，素材包 scalable_window_01_01 + PSD 花簇图层合成）：
+    // 花簇放右上、左下两角并探出边框，正文区留出整块纸面；框拉高时花簇不变形。
     [DIALOG_SKIN_RETRO_JAPANESE]: Object.freeze({
         dialog: { height: 212, left: 180, right: 171, slice: [200, 190] },
         text: { top: 44, speakerTop: 48, right: 64, bottom: 30, left: 58 },
@@ -112,9 +115,9 @@ export const ILLUSTRATED_DIALOG_SPECS = Object.freeze({
         nameCss: 'font-size:16px;font-weight:600;letter-spacing:.24em;text-indent:.24em;text-shadow:0 1px 0 rgba(30,18,12,.7);',
         textCss: `letter-spacing:.06em;${halo('#f5ead3')}`,
         compact: Object.freeze({
-            dialog: { height: 156, left: 132, right: 125, slice: [200, 190] },
-            text: { top: 32, speakerTop: 36, right: 40, bottom: 20, left: 36 },
-            plate: { height: 34, left: 17, right: 17, slice: [20, 20], x: 104, rise: 11, lineHeight: 34, padding: '0 26px', minWidth: 112 },
+            dialog: { height: 188, nine: { asset: 'dialogCompact', slice: [138, 209, 71, 120], width: [69, 104.5, 35.5, 60], outset: [40, 0, 10.5, 0] } },
+            text: { top: 26, speakerTop: 32, right: 26, bottom: 24, left: 24 },
+            plate: { height: 34, left: 17, right: 17, slice: [20, 20], x: 16, rise: 15, lineHeight: 34, padding: '0 26px', minWidth: 112 },
             nameCss: 'font-size:14px;font-weight:600;letter-spacing:.2em;text-indent:.2em;text-shadow:0 1px 0 rgba(30,18,12,.7);',
             textCss: `letter-spacing:.04em;${halo('#f5ead3')}`,
         }),
