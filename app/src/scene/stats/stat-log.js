@@ -163,7 +163,8 @@ export function restoreChat(map) {
 export function mergeStatLog(records, { chatId = '', chat = [] } = {}) {
     const rows = Array.isArray(records) ? records.filter(Boolean) : [];
     const diagnostics = [];
-    const init = rows.find((r) => r.type === 'init' && isObject(r.payload) && isObject(r.payload.state)) || null;
+    // 启用后、首楼结算前导入人物会追加新的 init，取最后一条。
+    const init = rows.slice().reverse().find((r) => r.type === 'init' && isObject(r.payload) && isObject(r.payload.state)) || null;
     const chatMap = new Map();
     for (const r of rows) {
         if (!STAT_CHAT_RECORD_TYPES.includes(r.type) || !isObject(r.payload) || typeof r.payload.key !== 'string') continue;

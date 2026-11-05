@@ -1635,7 +1635,7 @@ export function createStatsRuntime({
         if (op !== 'set') return { ok: false, reason: 'stats-relation-op-unknown' };
         if (generating) return { ok: false, reason: 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
-        if (!entry || !entry.after.characters[name]) return { ok: false, reason: 'stats-relation-missing' };
+        if (!(entry ? entry.after : ledger.initial).characters[name]) return { ok: false, reason: 'stats-relation-missing' };
         const dims = {};
         for (const key of MANUAL_DIMS) {
             const v = Number(payload[key]);
@@ -1643,7 +1643,7 @@ export function createStatsRuntime({
             if (Object.hasOwn(payload, key)) dims[key] = v;
         }
         if (!Object.keys(dims).length) return { ok: true, cancelled: true };
-        return commitManualRelations(entry, { [name]: dims });
+        return entry ? commitManualRelations(entry, { [name]: dims }) : commitInitialRelations({ [name]: dims });
     }
 
     // 把数据库表格里的人物登记进数值账本：关系一律从 0 起，表格里的数字不采用（以 IGS 为准）。
@@ -1651,10 +1651,11 @@ export function createStatsRuntime({
     function importTablePeople() {
         if (generating) return { ok: false, reason: 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
-        if (!entry) return { ok: false, reason: 'stats-import-no-floor' };
-        const fresh = tableNames({ fresh: true }).filter((name) => !entry.after.characters[name]);
+        const known = entry ? entry.after.characters : ledger.initial.characters;
+        const fresh = tableNames({ fresh: true }).filter((name) => !known[name]);
         if (!fresh.length) return { ok: false, reason: 'stats-table-none' };
-        const result = commitManualRelations(entry, Object.fromEntries(fresh.map((name) => [name, {}])));
+        const manual = Object.fromEntries(fresh.map((name) => [name, {}]));
+        const result = entry ? commitManualRelations(entry, manual) : commitInitialRelations(manual);
         if (!result.ok) return result;
         detectNewCharacters();
         return { ok: true, imported: fresh };
@@ -1668,9 +1669,8 @@ export function createStatsRuntime({
         // 表格里有、账本还没有的人物先登记，补填时一并算上。
         importTablePeople();
         const entry = activeEntryBefore(ledger, Infinity);
-        if (!entry) return Promise.resolve({ ok: false, reason: 'stats-relation-missing' });
         const blank =(c) => START_FILL_DIMS.every((key) => Math.abs(Number(c.dims && c.dims[key]) || 0) <= START_FILL_SPAN);
-        const names = Object.entries(entry.after.characters).filter(([name, c]) => !isHero(name) && blank(c)).map(([name]) => name);
+        const names = Object.entries((entry ? entry.after : ledger.initial).characters).filter(([name, c]) => !isHero(name) && blank(c)).map(([name]) => name);
         if (!names.length) return Promise.resolve({ ok: false, reason: 'stats-start-none' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
@@ -1698,7 +1698,7 @@ export function createStatsRuntime({
             const latest = activeEntryBefore(ledger, Infinity);
             const manual = {};
             for (const [name, tier] of Object.entries(relations)) {
-                const cur = latest && latest.after.characters[name];
+                const cur = (latest ? latest.after : ledger.initial).characters[name];
                 if (!cur || !blank(cur) || tier === '陌生') continue;
                 const dims = {};
                 for (const key of START_FILL_DIMS) dims[key] = Math.max(-100, Math.min(100, (Number(cur.dims[key]) || 0) + (START_DIMS[tier][key] || 0)));
@@ -1706,7 +1706,7 @@ export function createStatsRuntime({
             }
             const filled = Object.keys(manual).map((name) => `${name} ${relations[name]}`);
             if (!filled.length) return { ok: true, filled: [], relations };
-            const result = commitManualRelations(latest, manual, (name) => `起始关系·${relations[name]}`);
+            const result = latest ? commitManualRelations(latest, manual, (name) => `起始关系·${relations[name]}`) : commitInitialRelations(manual);
             return result.ok ? { ok: true, filled, relations } : result;
         };
         setNotice('start-relations', { kind: 'busy', text: `正在按人设计算初始关系：${names.join('、')}` });
@@ -1738,6 +1738,17 @@ export function createStatsRuntime({
         ledger.entries.set(key, { ...entry, after, meta, changes: all, recordId: record.id });
         ledger.log = ledger.log.concat(changes.map((row) => ({ floor: key, ...row }))).slice(-STATS_LOG_MAX);
         persist([record]);
+        onChange(currentStatsState(ledger), null);
+        push();
+        return { ok: true };
+    }
+
+    // 还没有结算楼层时，改动写进初始状态并重存 init 记录，之后各楼都从这里往下结算。
+    function commitInitialRelations(manual) {
+        const next = applyManualRelations(ledger.initial, manual, [], { nsfw: isNsfw() });
+        if (next === ledger.initial) return { ok: true };
+        ledger.initial = next;
+        persist([initRecord(next, { createdAt: Date.now() })]);
         onChange(currentStatsState(ledger), null);
         push();
         return { ok: true };
