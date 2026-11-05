@@ -24,14 +24,21 @@ function charSet(text) {
     return new Set([...cleaned].filter((ch) => !STOP_CHARS.has(ch)));
 }
 
+// 同分时的定序：权重 w 的键取 w 个哈希里最小的一个（相当于多张签），权重 1 时与原定序一致。
+function ticketOrder(seed, key, weight) {
+    let best = hash32(`${seed}|${key}`);
+    for (let i = 1; i < weight; i += 1) best = Math.min(best, hash32(`${seed}|${key}|${i}`));
+    return best;
+}
+
 // 从 keys 中挑候选：得分 = describe(key) 与 text 的共有字符数；
-// 得分相同按 seed|key 的哈希定序；数量取 max(min, 有得分的数量)，且不超过 max 与总数。
-export function templateCandidates(keys, describe, text, seed, { min = CANDIDATE_MIN, max = CANDIDATE_MAX } = {}) {
+// 得分相同按 seed|key 的哈希定序（weightOf 给出的权重越高越靠前）；数量取 max(min, 有得分的数量)，且不超过 max 与总数。
+export function templateCandidates(keys, describe, text, seed, { min = CANDIDATE_MIN, max = CANDIDATE_MAX, weightOf = null } = {}) {
     const textChars = charSet(text);
     const scored = [...new Set(keys)].map((key) => {
         let score = 0;
         for (const ch of charSet(describe(key))) if (textChars.has(ch)) score += 1;
-        return { key, score, order: hash32(`${seed}|${key}`) };
+        return { key, score, order: ticketOrder(seed, key, Math.max(1, Math.floor(weightOf ? weightOf(key) : 1))) };
     }).sort((a, b) => b.score - a.score || a.order - b.order);
     const matched = scored.filter((item) => item.score > 0).length;
     return scored.slice(0, Math.min(max, scored.length, Math.max(min, matched))).map((item) => item.key);

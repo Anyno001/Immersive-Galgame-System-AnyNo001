@@ -27,6 +27,13 @@ const cleanse = (target = 'self') => ({ op: 'cleanse', target });
 const delayedCounter = (amount, mult) => ({ op: 'delayed-counter', amount, mult, target: 'enemy' });
 const mutualDamage = (amount) => ({ op: 'mutual-damage', amount, target: 'enemy' });
 const randomBranch = (a, b) => ({ op: 'random-branch', a, b });
+const damageFromBlock = (target = 'enemy') => ({ op: 'damage-from-block', target });
+const selfDamage = (amount) => ({ op: 'self-damage', amount });
+const doubleStat = (stat, target) => ({ op: 'double', stat, target });
+const nextTurn = (gain, amount) => ({ op: 'next-turn', gain, amount });
+// 本回合全体手牌减费：amount 为减少的点数（存为负数）。
+const handCost = (amount) => ({ op: 'hand-cost', amount: -amount });
+const heavy = (amount, scale) => ({ op: 'damage', amount, hits: 1, target: 'enemy', strengthScale: scale });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -41,8 +48,12 @@ function primaryNumber(effect) {
             return Math.max(0, ...[...effect.a, ...effect.b].map(primaryNumber));
         case 'exhaust-self':
         case 'discard-hand':
+        case 'damage-from-block':
+        case 'double':
+        case 'cleanse':
             return 1;
         case 'cost-mod':
+        case 'hand-cost':
             return -effect.amount;
         default:
             return effect.amount;
@@ -51,7 +62,7 @@ function primaryNumber(effect) {
 const keepPositive = (effects) => (effects || []).filter((effect) => primaryNumber(effect) > 0);
 
 // 定义一个卡牌模板。vars 是各变量的 [最小, 最大]；prefer 是首效果占总价值的偏好比例；
-// builder 接收变量值，返回效果数组，或 { effects, onDiscard }。extra 可带 costs / hero / flags / onDiscard。
+// builder 接收变量值，返回效果数组，或 { effects, onDiscard }。extra 可带 costs / hero / flags / onDiscard / minRarity。
 const template = (type, label, vars, prefer, builder, extra = {}) => Object.freeze({
     type, label, vars, prefer, ...extra,
     build: (values) => {
@@ -135,6 +146,26 @@ export const CARD_TEMPLATES = Object.freeze({
     toss: template('attack', '伤害；从手牌选 1 张弃掉', [[1, 30]], 1, ([a]) => [damage(a), discardChoose(1)], { hero: false }),
     replicate: template('skill', '从手牌选 1 张复制（本场临时牌）加入手牌，并获得格挡（不能 0 费）', [[1, 20]], 1, ([a]) => [copyChosen(1, 'hand'), block(a)], { costs: [1, 2, 3], hero: false }),
     temper: template('skill', '从手牌选 1 张本回合费用 -1，并获得格挡（不能 0 费）', [[1, 20]], 1, ([a]) => [costMod(1, 'choose', 'turn'), block(a)], { costs: [1, 2, 3], hero: false }),
+    slam: template('attack', '获得格挡，再造成等同当前格挡的伤害', [[1, 20]], 1, ([a]) => [block(a), damageFromBlock()], { hero: false }),
+    entrench: template('skill', '获得格挡，再使自身格挡翻倍', [[1, 20]], 1, ([a]) => [block(a), doubleStat('block', 'self')]),
+    bloodlet: template('skill', '抽牌，失去少量生命', [[1, 3], [1, 6]], 1.4, ([a, b]) => [draw(a), selfDamage(b)]),
+    bloodrush: template('skill', '获得能量，失去少量生命', [[1, 2], [1, 8]], 1.4, ([a, b]) => [energy(a), selfDamage(b)], { costs: [0, 1] }),
+    bloodrage: template('power', '获得攻击力，失去少量生命', [[1, 4], [1, 10]], 1.4, ([a, b]) => [status('strength', a, 'self'), selfDamage(b)]),
+    overdrive: template('skill', '获得攻击力，再使自身攻击力翻倍，用后消耗', [[1, 3]], 1, ([a]) => [status('strength', a, 'self'), doubleStat('strength', 'self'), exhaustSelf()]),
+    'heavy-blade': template('attack', '重击：攻击力加成 ×3', [[1, 30]], 1, ([a]) => [heavy(a, 3)]),
+    catalyst: template('skill', '施加中毒，再使目标中毒层数翻倍', [[1, 8]], 1, ([a]) => [status('poison', a, 'enemy'), doubleStat('poison', 'enemy')]),
+    sap: template('attack', '伤害+脆弱（目标获得的格挡减少）', [[1, 30], [1, 3]], 0.7, ([a, b]) => [damage(a), status('frail', b, 'enemy')]),
+    foresight: template('skill', '格挡，下回合多抽牌', [[1, 20], [1, 2]], 0.5, ([a, b]) => [block(a), nextTurn('draw', b)]),
+    reserve: template('skill', '格挡，下回合多获得能量', [[1, 20], [1, 2]], 0.5, ([a, b]) => [block(a), nextTurn('energy', b)]),
+    steadfast: template('skill', '保留（回合结束不被弃掉）：格挡', [[1, 40]], 1, ([a]) => [block(a)], { flags: { retain: true } }),
+    trance: template('skill', '抽牌，获得 1 层禁抽（本回合不能再抽；层数回合结束减 1，叠加会延续到下回合）', [[1, 4]], 1, ([a]) => [draw(a), status('no-draw', 1, 'self')]),
+    conflux: template('skill', '本回合全体手牌费用 -1，并抽牌（限稀有以上）', [[1, 1], [1, 2]], 0.5, ([a, b]) => [handCost(a), draw(b)], { minRarity: 'rare' }),
+    cascade: template('attack', '伤害；本回合已出 2 张技能牌时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('skills-played-gte', 2, [damage(b)])]),
+    tempo: template('skill', '格挡；自身有防御力时追加抽 1 张', [[1, 20], [1, 1]], 0.7, ([a, b]) => [block(a), conditional('self-has', 'dexterity', [draw(b)])]),
+    absolution: template('skill', '净化全体队友的减益，并获得格挡', [[1, 20]], 1, ([a]) => [cleanse('all-allies'), block(a)]),
+    sigil: template('skill', '获得人工制品（抵消下一次减益）+格挡', [[1, 2], [1, 20]], 0.6, ([a, b]) => [status('artifact', a, 'self'), block(b)]),
+    phase: template('skill', '获得 1 层无实体（受伤降为 1）+格挡，用后消耗（限史诗以上）', [[1, 20]], 1, ([a]) => [status('intangible', 1, 'self'), block(a), exhaustSelf()], { minRarity: 'epic' }),
+    deathward: template('skill', '获得保命（首次致死保留 1 生命）+格挡，用后消耗（限史诗以上）', [[1, 20]], 1, ([a]) => [status('endure', 1, 'self'), block(a), exhaustSelf()], { minRarity: 'epic' }),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -171,6 +202,9 @@ export const FLAIR_PASSIVE_TEMPLATES = Object.freeze({
 });
 
 export const GEAR_PASSIVE_TEMPLATES = Object.freeze({ ...PASSIVE_TEMPLATES, ...FLAIR_PASSIVE_TEMPLATES });
+// 华而不实被动在人物特性池与装备奖励候选里的抽取权重（规则 v5 D10），其余被动为 1。
+export const FLAIR_PASSIVE_WEIGHT = 2;
+export const passiveTemplateWeight = (key) => (Object.hasOwn(FLAIR_PASSIVE_TEMPLATES, key) ? FLAIR_PASSIVE_WEIGHT : 1);
 
 // ---- 敌人/同伴技能模板 ----
 // 数值 = floor(基准伤害 × 比例)，至少 1。
@@ -226,6 +260,9 @@ export function templateCosts(key) {
 // ---- 数值反解 ----
 const EPSILON = 1e-9;
 const clone = (value) => JSON.parse(JSON.stringify(value));
+// 模板的稀有度下限（extra.minRarity）：personal 与 uncommon 同级，signature 与 epic 同级。
+const RARITY_RANK = Object.freeze({ basic: 0, common: 1, uncommon: 2, personal: 2, rare: 3, epic: 4, signature: 4, mythic: 5 });
+const meetsMinRarity = (tpl, rarity) => !tpl.minRarity || (RARITY_RANK[rarity] ?? -1) >= RARITY_RANK[tpl.minRarity];
 
 // 枚举变量取值的全部组合；minimums 给出各变量的下限（升级时不得低于基础值）。
 function enumerateValues(vars, minimums = []) {
@@ -268,7 +305,7 @@ const solveCache = new Map();
 // 无解返回 null；结果缓存，每次返回深拷贝。
 export function solveCardTemplate(key, cost, rarity) {
     const tpl = Object.hasOwn(CARD_TEMPLATES, key) ? CARD_TEMPLATES[key] : null;
-    if (!tpl || !(tpl.costs || TEMPLATE_COSTS).includes(cost)) return null;
+    if (!tpl || !(tpl.costs || TEMPLATE_COSTS).includes(cost) || !meetsMinRarity(tpl, rarity)) return null;
     const cacheKey = `${key}|${cost}|${rarity}`;
     if (!solveCache.has(cacheKey)) {
         const window = rarityWindow(cost, rarity);
@@ -293,7 +330,7 @@ export function solveCardTemplate(key, cost, rarity) {
 // 用调用方给定的变量值直接生成一张牌，并校验。成功 { card }，失败 { error, detail }。
 export function cardFromValues(key, cost, rarity, values) {
     const tpl = Object.hasOwn(CARD_TEMPLATES, key) ? CARD_TEMPLATES[key] : null;
-    if (!tpl || !(tpl.costs || TEMPLATE_COSTS).includes(cost)) return { error: 'template-unsolvable', detail: { cost, rarity } };
+    if (!tpl || !(tpl.costs || TEMPLATE_COSTS).includes(cost) || !meetsMinRarity(tpl, rarity)) return { error: 'template-unsolvable', detail: { cost, rarity } };
     if (!Array.isArray(values) || values.length !== tpl.vars.length) return { error: 'values-length', detail: { expected: tpl.vars.length } };
     const ranges = tpl.vars.map((range) => [...range]);
     if (values.some((v, i) => !Number.isInteger(v) || v < tpl.vars[i][0] || v > tpl.vars[i][1])) return { error: 'values-out-of-range', detail: { ranges } };
@@ -431,11 +468,11 @@ export function skillFromTemplate(key, power) {
 }
 
 // 可作英雄技能的模板：未禁用 hero、无特殊 flags/onDiscard，且支持英雄技能费用。
-const isHeroEligible = (tpl) => !!tpl && tpl.hero !== false && !tpl.flags && !tpl.onDiscard && (!tpl.costs || tpl.costs.includes(COMBAT_RULES.heroSkillCost));
+const isHeroEligible = (tpl) => !!tpl && tpl.hero !== false && !tpl.flags && !tpl.onDiscard && !tpl.minRarity && (!tpl.costs || tpl.costs.includes(COMBAT_RULES.heroSkillCost));
 // 可用于特性主动技能的模板键。
 export const TRAIT_SKILL_TEMPLATE_KEYS = Object.freeze(Object.keys(CARD_TEMPLATES).filter((key) => {
     const tpl = CARD_TEMPLATES[key];
-    return tpl.hero !== false && !tpl.flags && !tpl.onDiscard;
+    return tpl.hero !== false && !tpl.flags && !tpl.onDiscard && !tpl.minRarity;
 }));
 
 // 把卡牌模板解成英雄技能（个人稀有度、英雄技能费用）。
@@ -475,20 +512,21 @@ const ARCHETYPE_PREFERRED = Object.freeze({
 // 卡牌模板的机制族（规则 v5 职业白名单）：每个模板恰好属于一个族，general 为通用族，所有职业可用。
 // ARCHETYPE_PREFERRED 仍只决定推荐顺序；各职业的推荐模板与默认人物技能都落在其允许的族内（加载时自检）。
 const TEMPLATE_FAMILY_TABLE = Object.freeze({
-    general: ['strike', 'twin', 'bash', 'cripple', 'rend', 'quick', 'guard', 'brace', 'prepare', 'jab', 'trip', 'opener', 'might'],
-    fury: ['shatter', 'desperate', 'inflame', 'tear', 'fleeting', 'rampage', 'momentum', 'whirl'],
+    general: ['strike', 'twin', 'bash', 'cripple', 'rend', 'quick', 'guard', 'brace', 'prepare', 'jab', 'trip', 'opener', 'might', 'foresight', 'reserve', 'steadfast', 'trance'],
+    fury: ['shatter', 'desperate', 'inflame', 'tear', 'fleeting', 'rampage', 'momentum', 'whirl', 'bloodlet', 'bloodrush', 'bloodrage', 'overdrive', 'heavy-blade'],
     cleave: ['sweep', 'scatter', 'thunder'],
-    fortify: ['bulwark', 'counter', 'lure', 'xguard', 'plating'],
+    fortify: ['bulwark', 'counter', 'lure', 'xguard', 'plating', 'slam', 'entrench'],
     thorns: ['spikes', 'bastion'],
     ward: ['cover', 'rally', 'aegis', 'rally-draw', 'talisman'],
     restore: ['mend', 'regrow', 'reap'],
     volley: ['finisher', 'footwork', 'glance', 'chain', 'sift', 'encore', 'cull'],
-    venom: ['flurry', 'venom', 'toxin', 'execute', 'venom-draw', 'flask'],
-    shadow: ['agility', 'gut', 'scrap', 'reflex', 'toss'],
+    venom: ['flurry', 'venom', 'toxin', 'execute', 'venom-draw', 'flask', 'catalyst'],
+    shadow: ['agility', 'gut', 'scrap', 'reflex', 'toss', 'sap'],
     hex: ['expose', 'hex', 'wail'],
-    arcane: ['surge', 'adrenal', 'purge', 'echo', 'quicken', 'rhythm', 'temper'],
+    arcane: ['surge', 'adrenal', 'purge', 'echo', 'quicken', 'rhythm', 'temper', 'conflux', 'cascade'],
     conjure: ['mimic', 'forge', 'scavenge', 'replicate'],
-    cadence: ['fumble', 'hone', 'frenzy'],
+    cadence: ['fumble', 'hone', 'frenzy', 'tempo'],
+    sanctum: ['absolution', 'sigil', 'phase', 'deathward'],
 });
 export const ARCHETYPE_FAMILIES = Object.freeze({
     warrior: Object.freeze(['general', 'fury', 'cleave', 'fortify', 'restore']),
@@ -496,7 +534,7 @@ export const ARCHETYPE_FAMILIES = Object.freeze({
     ranger: Object.freeze(['general', 'cleave', 'volley']),
     assassin: Object.freeze(['general', 'venom', 'shadow', 'volley']),
     mage: Object.freeze(['general', 'cleave', 'hex', 'arcane', 'venom']),
-    priest: Object.freeze(['general', 'ward', 'restore', 'hex', 'fortify']),
+    priest: Object.freeze(['general', 'ward', 'restore', 'hex', 'fortify', 'sanctum']),
     summoner: Object.freeze(['general', 'thorns', 'ward', 'restore', 'venom', 'conjure', 'cleave']),
     bard: Object.freeze(['general', 'ward', 'volley', 'hex', 'arcane', 'conjure', 'cadence']),
 });
@@ -530,12 +568,19 @@ export function templateCatalogText() {
     const zeroCost = Object.keys(CARD_TEMPLATES).filter((key) => solveCardTemplate(key, 0, 'common'));
     const costLimited = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => tpl.costs).map(([key, tpl]) => `${key}=${tpl.costs.join('/')} 费`).join('；');
     const notHero = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => !isHeroEligible(tpl)).map(([key]) => key).join(',');
+    // 写「从手牌选牌」（choose）的模板：只能作为卡牌，按最小变量值构造后扫描效果树。
+    const usesChoose = (effects) => (effects || []).some((effect) => effect?.mode === 'choose' || effect?.from === 'choose' || usesChoose(effect?.then));
+    const chooseKeys = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => {
+        const built = tpl.build(tpl.vars.map(([min]) => min));
+        return usesChoose(Array.isArray(built) ? built : built.effects);
+    }).map(([key]) => key).join(',');
     const preferred = Object.entries(ARCHETYPE_PREFERRED).map(([key, list]) => `${key}=${list.join(',')}`).join('；');
     return [
         section('卡牌模板', CARD_TEMPLATES, (tpl) => `${{ attack: '攻击', skill: '技能', power: '能力' }[tpl.type]}·`),
         `0 费槽可用的卡牌模板：${zeroCost.join(',')}`,
         `限定费用的卡牌模板（只放在费用相符的位置；X 费模板可放在 1–3 费的位置，由程序改为 X 费）：${costLimited}`,
         `不能用作人物技能（skill）的卡牌模板：${notHero}`,
+        `从手牌选牌的卡牌模板（只能作为卡牌；人物技能、特性主动技能、敌人与队友技能都不能用，托管出牌时由程序按策略选牌）：${chooseKeys}`,
         `各职业原型优先选用的卡牌模板（复合效果优先，单一效果补位）：${preferred}`,
         section('被动模板', PASSIVE_TEMPLATES),
         section('华而不实被动模板（只用于人物特性与装备被动，名称可起得气派，效果几乎没用）', FLAIR_PASSIVE_TEMPLATES),

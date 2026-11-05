@@ -90,13 +90,31 @@ export function planTrait(seed = '') {
     return { rarity: TRAIT_RARITIES.at(-1) };
 }
 
-// 汇总特性关联：reveal 取最高档（神话 2，其余 1），reflip/fortune 为布尔。
-export function traitLinks(traits) {
+// 新抽特性附带翻牌联动的概率（规则 v5 D9）：稀有 10%、史诗 20%、神话 35%，三种联动等概率；其余稀有度不附。
+export const TRAIT_LINK_CHANCE = Object.freeze({ rare: 0.1, epic: 0.2, mythic: 0.35 });
+
+// 按种子抽定新特性的联动（与稀有度、形状用不同的种子域，互不影响）；不附时返回 null。
+export function planTraitLink(seed = '', rarity) {
+    const chance = TRAIT_LINK_CHANCE[rarity] || 0;
+    if (chance <= 0) return null;
+    const first = nextRandom(hash32(`trait-link:${seed}`));
+    if (first.value >= chance) return null;
+    const second = nextRandom(first.state);
+    return TRAIT_LINKS[Math.min(TRAIT_LINKS.length - 1, Math.floor(second.value * TRAIT_LINKS.length))];
+}
+
+// 参与翻牌联动的装备部位（饰品、宝物）。
+export const LINK_GEAR_SLOTS = Object.freeze(['accessory', 'treasure']);
+
+// 汇总特性与已装备饰品、宝物的关联：reveal 取最高档（神话 2，其余 1），reflip/fortune 为布尔。
+// gearSlots 是角色视图的 gear.slots（部位 → 装备对象），缺省时只看特性。
+export function traitLinks(traits, gearSlots) {
     const links = { reveal: 0, reflip: false, fortune: false };
-    for (const trait of Array.isArray(traits) ? traits : []) {
-        if (trait?.link === 'reveal') links.reveal = Math.max(links.reveal, trait.rarity === 'mythic' ? 2 : 1);
-        else if (trait?.link === 'reflip') links.reflip = true;
-        else if (trait?.link === 'fortune') links.fortune = true;
+    const gear = gearSlots && typeof gearSlots === 'object' ? LINK_GEAR_SLOTS.map((slot) => gearSlots[slot]).filter(Boolean) : [];
+    for (const source of [...(Array.isArray(traits) ? traits : []), ...gear]) {
+        if (source?.link === 'reveal') links.reveal = Math.max(links.reveal, source.rarity === 'mythic' ? 2 : 1);
+        else if (source?.link === 'reflip') links.reflip = true;
+        else if (source?.link === 'fortune') links.fortune = true;
     }
     return links;
 }

@@ -35,6 +35,7 @@ function gearPayload(item, definition) {
         description: definition.description || '',
         ...(definition.rarity ? { rarity: definition.rarity } : {}),
         ...(definition.bonus ? { bonus: definition.bonus } : {}),
+        ...(definition.link ? { link: definition.link } : {}),
     });
 }
 

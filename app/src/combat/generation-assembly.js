@@ -575,7 +575,7 @@ export function assembleTrait(raw, { key, fixed = {} } = {}) {
     if (!name || (!shape && !template)) return { errors: collector.errors };
     const origin = typeof raw.origin === 'string' ? raw.origin.trim() : '';
     if (origin.length > REWARD_ORIGIN_MAX) collector.note('origin', origin.length, REWARD_ORIGIN_MAX);
-    const base = { traitId: fixed.traitId, name, origin: origin.slice(0, REWARD_ORIGIN_MAX), rarity: fixed.rarity };
+    const base = { traitId: fixed.traitId, name, origin: origin.slice(0, REWARD_ORIGIN_MAX), rarity: fixed.rarity, ...(fixed.link ? { link: fixed.link } : {}) };
     if (shape?.kind === 'active') {
         const { cost, effects, description } = shape.skill;
         return { value: { ...base, kind: 'active', skill: { id: `${fixed.traitId}-s`, name, cost, effects: deepCopy(effects), description } }, diagnostics: collector.diagnostics };
@@ -601,7 +601,9 @@ function buildRewardEntry(value, path, collector, slot, seed) {
         return card ? { ...base, name: card.name, card } : undefined;
     }
     const name = requiredText(nameValue, paths[0], collector, 20);
-    const table = slot.kind === 'gear' ? GEAR_PASSIVE_TEMPLATES : slot.kind === 'item' ? ITEM_TEMPLATES : null;
+    // 装备槽带程序给的候选（规则 v5 D10）时只能从候选里选；旧槽位不带候选，照旧用全表。
+    const gearTable = Array.isArray(slot.templates) && slot.templates.length ? restrictTable(GEAR_PASSIVE_TEMPLATES, slot.templates) : GEAR_PASSIVE_TEMPLATES;
+    const table = slot.kind === 'gear' ? gearTable : slot.kind === 'item' ? ITEM_TEMPLATES : null;
     const template = table ? pickTemplate(templateValue, paths[1], collector, table) : null;
     if (!name || (table && !template)) return;
     if (slot.kind === 'gear') {

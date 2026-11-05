@@ -348,7 +348,7 @@ function planReward(ledgerState, session, userName, difficulty) {
     const enemyTiers = session.start.enemies.flatMap((enemy) => Array(Math.max(1, Number(enemy.count) || 1)).fill(session.start.tier));
     return rewardEntity({
         combatId: session.combatId, anchor: session.anchor, tier: session.start.tier, enemyTiers, enemies: session.start.enemies,
-        encounter: session.start.encounter, character, links: traitLinks(hero?.traits), difficulty,
+        encounter: session.start.encounter, character, links: traitLinks(hero?.traits, hero?.gear?.slots), difficulty,
     });
 }
 

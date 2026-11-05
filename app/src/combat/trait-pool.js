@@ -1,6 +1,6 @@
 // 特性池：按稀有度列出可抽的特性形状（主动技能模板 / 被动 / 风味被动），并按种子规划具体内容。
 // 池按稀有度缓存；被动的数值按预算（PASSIVE_BUDGET）反推，保证强度落在窗口内。
-import { CARD_TEMPLATES, FLAIR_PASSIVE_TEMPLATES, TRAIT_SKILL_TEMPLATE_KEYS, passiveAtRarity, solveCardTemplate } from './card-templates.js';
+import { CARD_TEMPLATES, FLAIR_PASSIVE_TEMPLATES, FLAIR_PASSIVE_WEIGHT, TRAIT_SKILL_TEMPLATE_KEYS, passiveAtRarity, solveCardTemplate } from './card-templates.js';
 import { COMBAT_RULES, estimateEffectsValue, evaluateCardBudget } from './rules.js';
 import { hash32, nextRandom } from './random.js';
 import { effectsDamage } from './schema.js';
@@ -127,6 +127,17 @@ function randomFrom(seed) {
 }
 
 const pickFrom = (list, random) => list[Math.min(list.length - 1, Math.floor(random() * list.length))];
+// 华而不实被动形状按 D10 权重抽取，其余形状为 1。
+const shapeWeight = (shape) => (shape.kind === 'flair' ? FLAIR_PASSIVE_WEIGHT : 1);
+// 按形状权重抽取，只消耗一次随机数。
+function pickShape(list, random) {
+    let roll = random() * list.reduce((sum, shape) => sum + shapeWeight(shape), 0);
+    for (const shape of list) {
+        roll -= shapeWeight(shape);
+        if (roll < 0) return shape;
+    }
+    return list[list.length - 1];
+}
 const poolCache = new Map();
 
 // 某稀有度的特性形状池（冻结，按稀有度缓存）：
@@ -153,7 +164,7 @@ export function traitPool(rarity) {
 // 返回 { kind: 'active', template, skill } 或 { kind: 'passive', passive[, template] }。
 export function planTraitShape(seed, rarity) {
     const random = randomFrom(`trait-pool:${seed}|${rarity}`);
-    const shape = pickFrom(traitPool(rarity), random);
+    const shape = pickShape(traitPool(rarity), random);
     if (shape.kind === 'active') {
         const cost = pickFrom(shape.costs, random);
         return { kind: 'active', template: shape.key, skill: buildActiveSkill(shape.key, cost, rarity) };

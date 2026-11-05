@@ -11,7 +11,7 @@ import {
     REWARD_ORIGIN_MAX, effectsDamage, gearIdFor, ledgerEntryId, normalizeCard, normalizeLedgerEntry, normalizeProfile, normalizeSkill,
     profileIdFor, validateStarterDeck,
 } from './schema.js';
-import { ARCHETYPE_FAMILIES, CARD_TEMPLATES, COMPOSITE_SKILL_KEYS, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, nearestTemplateCost, passiveAtRarity, templateCatalogText, templatesFor } from './card-templates.js';
+import { ARCHETYPE_FAMILIES, CARD_TEMPLATES, COMPOSITE_SKILL_KEYS, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, nearestTemplateCost, passiveAtRarity, passiveTemplateWeight, templateCatalogText, templatesFor } from './card-templates.js';
 import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { ENEMY_ART_THEMES, enemyArtCatalogText, isEnemyArtTheme } from './enemy-art.js';
 import {
@@ -117,6 +117,7 @@ export const GENERATION_SYSTEM = [
     '- profile-gear：{"gear":[0–4 件，每件 ["装备名，≤20 字","weapon|armor|accessory|treasure","common|uncommon|rare|epic|mythic","简述，≤80 字，可省"]]}——角色 input.name 此刻带在身上的装备，每个部位至多 1 件。你只定名称、部位与稀有度；加成属性、是否带被动与数值都由程序抽定，不要写。input.required 为 true（主角）时至少给 1 件：先列 input.lore、context.story、context.worldInfo 明确写到这个角色持有的装备，一件都没写到时按其身份与所处世界给 1–2 件合乎设定的随身装备，稀有度以 common、uncommon 为主。没有 input.required 的角色只列上述资料明确写到的装备，不按身份、职业或常识补发；一件都没写到时回 {"gear":[]}。稀有度按这件装备在剧情与设定中的分量判断：家传宝剑、神兵、成名法器可给 epic 或 mythic，寻常佩刀、布衣给 common。',
     '带 previousErrors 的实体上一轮被拒收：按其中的字段路径（指向你上一轮的回复）和原因修改 previous，其余保持不变。',
     `职业模板范围：class 与 class-tier 的卡牌只能用所选（或 input.archetype）职业允许的卡牌模板；profile-deck 的人物技能同样只能用本职业允许的模板，cards 最多 1 张取自其他职业；signature-card 不限。input.allowedTemplates 存在时就是本角色允许的模板键。各职业允许的模板：${ARCHETYPE_TEMPLATE_TEXT}。`,
+    'battle-reward 的 gear 槽带 templates 时，该槽的被动模板键只能从其中选。',
 ].join('\n');
 
 // 各流派生命值范围，供 profile-deck 请求参考
@@ -197,8 +198,8 @@ export function classTierEntity({ character, cls, tier, rarity, tierName = '', m
     };
 }
 
-// 人物特性请求：shape 给定时效果已由程序定好，模型只起名和写来历
-export function traitEntity({ character, rarity, traitId, existing = [], shape = null }) {
+// 人物特性请求：shape 给定时效果已由程序定好，模型只起名和写来历；link 是程序按 D9 抽定的翻牌联动，只进 fixed
+export function traitEntity({ character, rarity, traitId, existing = [], shape = null, link = null }) {
     const existingNames = existing.map((trait) => trait?.name).filter(Boolean);
     const effect = shape ? (shape.kind === 'active' ? `${shape.skill.cost} 费主动技能：${shape.skill.description}` : shape.passive.description) : null;
     return {
@@ -207,7 +208,7 @@ export function traitEntity({ character, rarity, traitId, existing = [], shape =
         role: 'trait',
         owner: character.id,
         input: { name: character.name, rarity, ...(existingNames.length ? { existing: existingNames } : {}), ...(shape ? { kind: shape.kind, effect } : {}) },
-        fixed: { traitId, rarity, ...(shape ? { shape } : {}) },
+        fixed: { traitId, rarity, ...(shape ? { shape } : {}), ...(link ? { link } : {}) },
     };
 }
 
@@ -324,10 +325,19 @@ export function enemyEntities({ enemies, tier = 'normal', existing, partyLevel =
     return { entities, reused };
 }
 
+// 装备奖励槽的被动模板候选（规则 v5 D10）：按该稀有度加强后不超队友伤害上限，按种子与权重抽 5 个，华而不实 ×2。
+function rewardGearTemplates(slot, seed) {
+    const allowed = Object.keys(GEAR_PASSIVE_TEMPLATES).filter((key) => effectsDamage(passiveAtRarity(key, slot.rarity)?.effects) <= COMBAT_RULES.allySkillDamageCap);
+    return templateCandidates(allowed, (key) => GEAR_PASSIVE_TEMPLATES[key].label, '', `${seed}|gear|${slot.index}`, { min: 5, weightOf: passiveTemplateWeight });
+}
+const withGearTemplates = (slots, seed) => slots.map((slot) => (slot.kind === 'gear' ? { ...slot, templates: rewardGearTemplates(slot, seed) } : slot));
+
 // 战斗奖励请求：先规划奖励槽位（plan），再生成 entity；参数缺失返回 error
 export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty } = {}) {
     if (!combatId || !anchor || !character?.id) return { error: 'combat-reward-input-missing' };
     const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty });
+    const slots = withGearTemplates(plan.slots, plan.seed);
+    const reserve = withGearTemplates(plan.reserve, `${plan.seed}|reserve`);
     // 给模型的槽位信息去掉 index 与 count（由程序掌握）
     const visibleSlots = (slots) => slots.map(({ index, count, ...rest }) => rest);
     const enemyNames = [...new Set((Array.isArray(enemies) ? enemies : []).map((enemy) => String(enemy?.name || '').trim()).filter(Boolean))];
@@ -339,8 +349,8 @@ export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies 
             role: 'reward',
             owner: character.id,
             anchor: { ...anchor },
-            input: { characterName: character.name, tier: plan.tier, enemies: enemyNames, ...(encounter ? { encounter: String(encounter).slice(0, 40) } : {}), slots: visibleSlots(plan.slots), reserve: visibleSlots(plan.reserve) },
-            fixed: { combatId, tier: plan.tier, exp: plan.exp, reveal: plan.links.reveal, seed: plan.seed, slots: plan.slots, reserve: plan.reserve },
+            input: { characterName: character.name, tier: plan.tier, enemies: enemyNames, ...(encounter ? { encounter: String(encounter).slice(0, 40) } : {}), slots: visibleSlots(slots), reserve: visibleSlots(reserve) },
+            fixed: { combatId, tier: plan.tier, exp: plan.exp, reveal: plan.links.reveal, seed: plan.seed, slots, reserve },
         },
     };
 }

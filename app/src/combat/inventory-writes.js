@@ -34,6 +34,7 @@ const gearDefinition = (gear) => ({
     description: gear.description || '',
     ...(gear.rarity ? { rarity: gear.rarity } : {}),
     ...(gear.bonus ? { bonus: gear.bonus } : {}),
+    ...(gear.link ? { link: gear.link } : {}),
 });
 
 // 以下三个函数把定义转成表行记录（展示用文本字段 + 原始定义）

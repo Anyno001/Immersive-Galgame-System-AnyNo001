@@ -466,6 +466,7 @@ const handlers = Object.freeze({
             gearId: payload.gearId, name: payload.name, slot: payload.slot,
             ...(payload.passive ? { passive: payload.passive } : {}), description: payload.description,
             ...(payload.rarity ? { rarity: payload.rarity } : {}), ...(payload.bonus ? { bonus: payload.bonus } : {}),
+            ...(payload.link ? { link: payload.link } : {}),
         };
         state.gear.owned.set(payload.gearId, gear);
         state.gear.slots[gear.slot] = payload.gearId;

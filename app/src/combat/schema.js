@@ -659,7 +659,7 @@ function validateGearBonus(bonus, path, state) {
 function validateGear(gear, path, state) {
     if (!objectField(gear, path, state)) return;
     const at = (key) => joinPath(path, key);
-    checkKnownFields(gear, ['gearId', 'name', 'slot', 'passive', 'description', 'rarity', 'bonus'], path, state);
+    checkKnownFields(gear, ['gearId', 'name', 'slot', 'passive', 'description', 'rarity', 'bonus', 'link'], path, state);
     const rarity = gear.rarity === undefined ? undefined : enumField(gear.rarity, at('rarity'), state, LOOT_RARITIES);
     const passive = gear.passive === undefined && gear.rarity !== undefined ? undefined : validatePassive(gear.passive, at('passive'), state);
     return {
@@ -670,6 +670,7 @@ function validateGear(gear, path, state) {
         description: textField(gear.description, at('description'), state, 80, ''),
         ...(rarity === undefined ? {} : { rarity }),
         ...(gear.bonus === undefined ? {} : { bonus: validateGearBonus(gear.bonus, at('bonus'), state) }),
+        ...(gear.link === undefined ? {} : { link: enumField(gear.link, at('link'), state, TRAIT_LINKS) }),
     };
 }
 

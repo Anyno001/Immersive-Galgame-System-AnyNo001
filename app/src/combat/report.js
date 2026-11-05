@@ -1,6 +1,6 @@
 // 战斗战报：把战斗事件流压成按回合的文字摘要，写进 <igs-combat-report> 块，并给战利品/经验打标记。
 // 纯函数。文案与阈值原样来自 v0.39.0。
-import { COMBAT_RULES, combatExpReward } from './rules.js';
+import { COMBAT_RULES, TOKEN_CARDS, combatExpReward } from './rules.js';
 import { hashString } from './random.js';
 import { COMBAT_AWAKEN_TYPES } from '../scene/combat-directives.js';
 import { statusDef, statusLabel } from './mechanics/registry.js';
@@ -17,6 +17,8 @@ const STATUS_NAMES = Object.freeze({
 });
 // 对自己是增益、对别人写成「赋予」的状态。
 const BUFF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'artifact']);
+// 内置状态按原表；规则 v5 登记的状态取其 label。
+const statusName = (status) => STATUS_NAMES[status] || statusLabel(status) || status;
 
 const ENDING_TEXT = Object.freeze({ win: '终局：我方获胜。', lose: '终局：我方力竭落败。', escape: '终局：我方撤离战场，敌人仍在。' });
 const WIPE_TEXT = '终局：我方全员倒下，全队覆灭。';
@@ -68,18 +70,22 @@ function describeAction(action, units) {
         if (effect.block && isSelf) parts.push('摆出守势');
         else if (effect.block) parts.push(`护住${who}`);
         for (const status of effect.statuses) {
-            // 内置状态按原表；规则 v5 登记的状态取其 label 与 debuff 声明。
-            const label = STATUS_NAMES[status] || statusLabel(status) || status;
+            // 规则 v5 登记的状态按其 debuff 声明选措辞。
+            const label = statusName(status);
             const buff = BUFF_STATUSES.has(status) || (statusDef(status) ? !statusDef(status).debuff : false);
             if (buff) parts.push(isSelf ? `获得${label}` : `赋予${who}${label}`);
             else parts.push(`使${who}陷入${label}`);
         }
+        for (const status of effect.warded || []) parts.push(`${who}的人工制品抵消了${statusName(status)}`);
+        for (const card of effect.junk || []) parts.push(`往${who}的牌堆塞入「${sanitize(card)}」`);
     }
+    const reacted = (action.reactions || []).map(nameOf);
+    if (reacted.length) parts.push(`${reacted.join('、')}随即应变`);
     const tail = parts.length ? `，${[...new Set(parts)].join('、')}` : '';
     return `${nameOf(action.actorId)} 以「${sanitize(action.skill)}」出手${tail}`;
 }
 
-const emptyEffect = () => ({ hpLoss: 0, blocked: 0, heal: 0, block: 0, statuses: [], defeated: false });
+const emptyEffect = () => ({ hpLoss: 0, blocked: 0, heal: 0, block: 0, statuses: [], warded: [], junk: [], defeated: false });
 const ACTION_EVENT_TYPES = new Set(['card', 'skill', 'hero-skill', 'item']);
 
 // 把事件流整理成回合列表：每回合含出手列表、倒下名单、撤离者、觉醒。
@@ -112,7 +118,7 @@ export function collectTurns(events, units = {}) {
         if (ACTION_EVENT_TYPES.has(event.type)) {
             const unit = units[event.unitId];
             const hpRatio = unit ? (hpNow[event.unitId] ?? unit.maxHp) / unit.maxHp : 1;
-            action = { actorId: event.unitId, skill: (event.type === 'card' && event.skillRef) || event.name, targets: new Map(), desperate: hpRatio < 0.3 };
+            action = { actorId: event.unitId, skill: (event.type === 'card' && event.skillRef) || event.name, targets: new Map(), reactions: [], desperate: hpRatio < 0.3 };
             currentTurn().actions.push(action);
             continue;
         }
@@ -137,6 +143,19 @@ export function collectTurns(events, units = {}) {
                 const effect = effectOn(event.target);
                 if (!effect.statuses.includes(event.status)) effect.statuses.push(event.status);
             }
+        } else if (event.type === 'artifact') {
+            if (fromCurrentAction(event)) {
+                const effect = effectOn(event.target);
+                if (!effect.warded.includes(event.status)) effect.warded.push(event.status);
+            }
+        } else if (event.type === 'card-created') {
+            // 技能单位往对面牌堆塞状态牌：事件只带承受方，按当前出手者与对立阵营归因。
+            const card = TOKEN_CARDS[event.cardId];
+            const victim = units[event.unitId];
+            if (action && card?.unplayable && victim && units[action.actorId] && victim.side !== units[action.actorId].side) effectOn(event.unitId).junk.push(card.name);
+        } else if (event.type === 'passive') {
+            // 对方出牌触发的被动：记为本次出手引起的应变。
+            if (event.trigger === 'foe-card-played' && action && units[event.unitId] && units[event.unitId].side !== units[action.actorId]?.side && !action.reactions.includes(event.unitId)) action.reactions.push(event.unitId);
         } else if (event.type === 'defeated') {
             const killer = lastHitBy.get(event.unitId);
             if (killer) {

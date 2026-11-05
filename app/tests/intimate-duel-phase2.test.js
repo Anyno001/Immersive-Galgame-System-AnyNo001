@@ -2,7 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyAction, createBattle, replayBattle } from '../src/combat/engine.js';
 import { normalizeCard } from '../src/combat/schema.js';
-import { solveCardTemplate } from '../src/combat/card-templates.js';
+import { cardView } from '../src/combat/battle-state.js';
+import { buildCombatReport, collectTurns } from '../src/combat/report.js';
+import { templateCatalogText } from '../src/combat/card-templates.js';
+import { TRAIT_LINK_CHANCE, planTraitLink, traitLinks } from '../src/combat/traits.js';
+import { planTraitShape, traitPool } from '../src/combat/trait-pool.js';
+import { rewardEntity, traitEntity } from '../src/combat/generation.js';
+import { assembleReward, assembleTrait } from '../src/combat/generation-assembly.js';
+import { FLAIR_PASSIVE_TEMPLATES, GEAR_PASSIVE_TEMPLATES } from '../src/combat/card-templates.js';
+import { ARCHETYPE_FAMILIES, CARD_TEMPLATES, cardFromValues, heroSkillFromTemplate, solveCardTemplate, templateAllowedFor, templateFamily, TRAIT_SKILL_TEMPLATE_KEYS } from '../src/combat/card-templates.js';
 import { buildIntimateDeck } from '../src/combat/intimate-cards.js';
 import { parseChallengeStart } from '../src/scene/challenge-directives.js';
 import { extractCombatStart } from '../src/scene/combat-directives.js';
@@ -226,4 +234,287 @@ test('没有 lines 时对方不说话，有 lines 时按四段各说一次且遵
     assert.ok(spoken.includes('快失守'));
     show = false;
     assert.equal(lines.say({ name: '小林' }, unit, 'open'), false);
+});
+
+
+// ---------- 规则 v5 P1：新卡牌模板（L01–L10） ----------
+const P1_TEMPLATES = ['slam', 'entrench', 'bloodlet', 'bloodrush', 'bloodrage', 'overdrive', 'heavy-blade', 'catalyst', 'sap', 'foresight', 'reserve', 'steadfast', 'trance', 'conflux', 'cascade', 'tempo', 'absolution', 'sigil', 'phase', 'deathward'];
+const built = (key, values) => CARD_TEMPLATES[key].build(values);
+// 只作用于自身的牌不带目标出牌，并要求出牌成功。
+const cast = (state, inst = state.piles.hero.hand[0]) => {
+    const result = applyAction(state, { type: 'play', inst });
+    assert.equal(result.ok, true, JSON.stringify(result.error));
+    return result;
+};
+const startOf = (card, skill = {}, units = {}) => {
+    const created = createBattle(setupOf(card, skill, units), 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+function firstSolved(key) {
+    for (const rarity of ['common', 'uncommon', 'rare', 'epic', 'mythic']) {
+        for (const cost of [0, 1, 2, 3]) {
+            const solved = solveCardTemplate(key, cost, rarity);
+            if (solved) return { solved, rarity, cost };
+        }
+    }
+    return null;
+}
+
+test('P1 新模板：每个都有可解档位并通过牌校验；限定稀有度的模板低于下限无解，也不进人物技能与特性主动技能', () => {
+    for (const key of P1_TEMPLATES) {
+        const found = firstSolved(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+    }
+    assert.equal(solveCardTemplate('conflux', 1, 'uncommon'), null);
+    assert.ok(solveCardTemplate('conflux', 1, 'rare'));
+    for (const key of ['conflux', 'phase', 'deathward']) {
+        assert.equal(heroSkillFromTemplate(key), null, key);
+        assert.equal(TRAIT_SKILL_TEMPLATE_KEYS.includes(key), false, key);
+    }
+    for (const key of ['phase', 'deathward']) {
+        assert.equal(solveCardTemplate(key, 1, 'rare'), null, key);
+        assert.ok(solveCardTemplate(key, 1, 'epic'), key);
+        assert.equal(cardFromValues(key, 1, 'rare', [1]).error, 'template-unsolvable', key);
+    }
+});
+
+test('P1 职业归属：净化与护身模板只给祈司，延迟反击、互伤、随机分支分属守护、战士、乐师', () => {
+    for (const key of ['absolution', 'sigil', 'phase', 'deathward']) {
+        assert.equal(templateFamily(key), 'sanctum', key);
+        assert.deepEqual(Object.keys(ARCHETYPE_FAMILIES).filter((archetype) => templateAllowedFor(key, archetype)), ['priest'], key);
+    }
+    assert.equal(templateAllowedFor('lure', 'guardian'), true);
+    assert.equal(templateAllowedFor('tear', 'warrior'), true);
+    assert.equal(templateAllowedFor('fumble', 'bard'), true);
+    assert.equal(templateAllowedFor('heavy-blade', 'warrior'), true);
+    assert.equal(templateAllowedFor('heavy-blade', 'mage'), false);
+    assert.equal(templateAllowedFor('sap', 'assassin'), true);
+});
+
+test('格挡转伤害与格挡翻倍：先获得格挡，再按当前格挡出伤或翻倍', () => {
+    const slam = play(startOf({ effects: built('slam', [5]) }));
+    assert.equal(slam.state.units.hero.block, 5);
+    assert.equal(slam.state.units.foe.hp, 25);
+    const entrench = cast(startOf({ type: 'skill', effects: built('entrench', [4]) }));
+    assert.equal(entrench.state.units.hero.block, 8);
+});
+
+
+test('自伤三模板：抽牌、能量、攻击力各自兑现，失去的生命不被格挡', () => {
+    const opened = startOf({ type: 'skill', effects: [{ op: 'block', amount: 9, target: 'self' }, ...built('bloodlet', [2, 3])] });
+    const drawn = cast(opened);
+    assert.equal(drawn.state.units.hero.hp, 27);
+    assert.equal(drawn.state.piles.hero.hand.length, opened.piles.hero.hand.length + 1);
+    const rushStart = startOf({ type: 'skill', effects: built('bloodrush', [1, 4]) });
+    const rush = cast(rushStart);
+    assert.deepEqual([rush.state.units.hero.energy, rush.state.units.hero.hp], [rushStart.units.hero.energy, 26]);
+    const rage = cast(startOf({ type: 'power', effects: built('bloodrage', [2, 5]) }));
+    assert.deepEqual([rage.state.units.hero.statuses.strength, rage.state.units.hero.hp], [2, 25]);
+});
+
+test('攻击力与中毒翻倍：翻倍当前层数，攻击力翻倍用后消耗', () => {
+    const opened = startOf({ type: 'skill', effects: built('overdrive', [2]) });
+    const inst = opened.piles.hero.hand[0];
+    const doubled = cast(opened);
+    assert.equal(doubled.state.units.hero.statuses.strength, 4);
+    assert.ok(doubled.state.piles.hero.exhaust.includes(inst));
+    const poisoned = play(startOf({ type: 'skill', effects: built('catalyst', [3]) }));
+    assert.equal(poisoned.state.units.foe.statuses.poison, 6);
+});
+
+test('攻击力倍率重击：攻击力加成按 ×3 计入伤害', () => {
+    const effects = [{ op: 'status', status: 'strength', stacks: 2, target: 'self' }, ...built('heavy-blade', [4])];
+    assert.equal(play(startOf({ effects })).state.units.foe.hp, 20);
+});
+
+test('脆弱施加：目标获得的格挡 ×0.75 向下取整，回合结束减 1 层', () => {
+    const plain = applyAction(play(startOf({ effects: [{ op: 'damage', amount: 4, target: 'enemy' }] })).state, { type: 'end-turn' });
+    assert.equal(plain.state.units.foe.block, 1);
+    const played = play(startOf({ effects: built('sap', [4, 2]) }));
+    assert.deepEqual([played.state.units.foe.hp, played.state.units.foe.statuses.frail], [26, 2]);
+    const ended = applyAction(played.state, { type: 'end-turn' });
+    assert.equal(ended.state.units.foe.block, 0);
+    assert.equal(ended.state.units.foe.statuses.frail, 1);
+});
+
+
+const playInst = (state, inst) => applyAction(state, { type: 'play', inst, targetId: 'foe' });
+const hitFor = (amount) => ({ intent: 'attack', effects: [{ op: 'damage', amount, target: 'enemy' }] });
+
+test('下回合收益：格挡后下回合多抽牌或多获得能量', () => {
+    const turnTwo = (effects) => applyAction(cast(startOf({ type: 'skill', effects })).state, { type: 'end-turn' }).state;
+    const plain = turnTwo([{ op: 'block', amount: 3, target: 'self' }]);
+    const drawn = turnTwo(built('foresight', [3, 2]));
+    const charged = turnTwo(built('reserve', [3, 1]));
+    assert.equal(drawn.piles.hero.hand.length, plain.piles.hero.hand.length + 2);
+    assert.equal(charged.units.hero.energy, plain.units.hero.energy + 1);
+});
+
+test('保留模板：求解结果带保留关键字，回合结束手牌不被弃掉', () => {
+    const solved = solveCardTemplate('steadfast', 1, 'common');
+    assert.equal(solved.retain, true);
+    const opened = startOf(solved);
+    const ended = applyAction(opened, { type: 'end-turn' });
+    for (const inst of opened.piles.hero.hand) assert.ok(ended.state.piles.hero.hand.includes(inst), inst);
+});
+
+test('禁抽代价：抽牌后本回合不能再抽，回合结束解除', () => {
+    const first = cast(startOf({ type: 'skill', effects: built('trance', [2]) }));
+    assert.equal(first.state.units.hero.statuses['no-draw'], 1);
+    const ended = applyAction(first.state, { type: 'end-turn' });
+    assert.equal(ended.state.units.hero.statuses['no-draw'] || 0, 0);
+    assert.ok(ended.state.piles.hero.hand.length > 0);
+    // 同回合再打一张：抽牌被挡住，禁抽叠到 2 层，回合结束只减 1 层，下回合开始也抽不到牌。
+    const second = cast(first.state);
+    assert.equal(second.state.piles.hero.hand.length, first.state.piles.hero.hand.length - 1);
+    assert.equal(second.state.units.hero.statuses['no-draw'], 2);
+    const carried = applyAction(second.state, { type: 'end-turn' });
+    assert.equal(carried.state.units.hero.statuses['no-draw'], 1);
+    assert.equal(carried.state.piles.hero.hand.length, 0);
+});
+
+test('全体减费（限稀有以上）：本回合手牌费用 -1，回合结束恢复', () => {
+    const played = cast(startOf({ type: 'skill', rarity: 'rare', effects: built('conflux', [1, 1]) }));
+    assert.equal(cardView(played.state, played.state.piles.hero.hand[0]).cost, 0);
+    const ended = applyAction(played.state, { type: 'end-turn' });
+    assert.equal(cardView(ended.state, ended.state.piles.hero.hand[0]).cost, 1);
+});
+
+test('技能数条件：本回合已出 2 张技能牌时追加伤害', () => {
+    const catalog = {
+        c: { id: 'c', name: '连锋', type: 'attack', cost: 1, rarity: 'common', innate: true, effects: built('cascade', [3, 5]) },
+        s: { id: 's', name: '技', type: 'skill', cost: 0, rarity: 'common', effects: [{ op: 'block', amount: 1, target: 'self' }] },
+    };
+    const units = { hero: { deck: ['c', ...Array(9).fill('s')], catalog } };
+    assert.equal(playInst(startOf({}, {}, units), 'hero#0').state.units.foe.hp, 27);
+    let state = startOf({}, {}, units);
+    for (const inst of state.piles.hero.hand.filter((i) => i !== 'hero#0').slice(0, 2)) state = cast(state, inst).state;
+    assert.equal(playInst(state, 'hero#0').state.units.foe.hp, 22);
+});
+
+
+test('自身状态条件：自身有防御力时追加抽 1 张', () => {
+    const plainStart = startOf({ type: 'skill', effects: built('tempo', [2, 1]) });
+    const plain = cast(plainStart);
+    assert.equal(plain.state.piles.hero.hand.length, plainStart.piles.hero.hand.length - 1);
+    const boostedStart = startOf({ type: 'skill', effects: [{ op: 'status', status: 'dexterity', stacks: 1, target: 'self' }, ...built('tempo', [2, 1])] });
+    const boosted = cast(boostedStart);
+    assert.equal(boosted.state.piles.hero.hand.length, boostedStart.piles.hero.hand.length);
+    assert.equal(boosted.state.units.hero.block, 3);
+});
+
+test('祈司净化与人工制品：净化清除减益，人工制品抵消下一次减益', () => {
+    const weak = { op: 'status', status: 'weak', stacks: 2, target: 'self' };
+    const cleansed = cast(startOf({ type: 'skill', effects: [weak, ...built('absolution', [3])] }));
+    assert.equal(cleansed.state.units.hero.statuses.weak || 0, 0);
+    assert.equal(cleansed.state.units.hero.block, 3);
+    const warded = cast(startOf({ type: 'skill', effects: [...built('sigil', [1, 3]), weak] }));
+    assert.equal(warded.state.units.hero.statuses.weak || 0, 0);
+    assert.equal(warded.state.units.hero.statuses.artifact || 0, 0);
+});
+
+test('无实体与保命（限史诗以上）：受伤降为 1、致死保留 1 生命，均用后消耗', () => {
+    const phaseStart = startOf({ type: 'skill', rarity: 'epic', effects: built('phase', [1]) }, hitFor(10));
+    const phaseInst = phaseStart.piles.hero.hand[0];
+    const phased = cast(phaseStart);
+    assert.ok(phased.state.piles.hero.exhaust.includes(phaseInst));
+    assert.ok(applyAction(phased.state, { type: 'end-turn' }).state.units.hero.hp >= 29);
+    const standStart = startOf({ type: 'skill', rarity: 'epic', effects: built('deathward', [1]) }, hitFor(50));
+    const stood = applyAction(cast(standStart).state, { type: 'end-turn' });
+    assert.equal(stood.state.units.hero.hp, 1);
+    assert.notEqual(stood.state.outcome, 'defeat');
+    assert.equal(stood.state.units.hero.statuses.endure || 0, 0);
+});
+
+
+// ---------- 规则 v5 P1：特性与装备翻牌联动、华而不实加权（L11–L13） ----------
+test('新抽特性联动（D9）：普通与罕见不附，稀有以上按比例附且三种都会出现，同种子结果固定，组装写入特性', () => {
+    for (const rarity of ['common', 'uncommon']) {
+        for (let i = 0; i < 200; i += 1) assert.equal(planTraitLink(`h|${i}`, rarity), null, rarity);
+    }
+    for (const rarity of ['rare', 'epic', 'mythic']) {
+        const kinds = new Set();
+        let hit = 0;
+        for (let i = 0; i < 4000; i += 1) {
+            const link = planTraitLink(`h|${i}`, rarity);
+            if (link) { hit += 1; kinds.add(link); }
+        }
+        assert.ok(Math.abs(hit / 4000 - TRAIT_LINK_CHANCE[rarity]) < 0.03, `${rarity} ${hit / 4000}`);
+        assert.deepEqual([...kinds].sort(), ['fortune', 'reflip', 'reveal'], rarity);
+    }
+    assert.equal(planTraitLink('h|7', 'mythic'), planTraitLink('h|7', 'mythic'));
+    const entity = traitEntity({ character: { id: 'h', name: '我' }, rarity: 'rare', traitId: 'tr-1', link: 'reveal' });
+    assert.equal(entity.fixed.link, 'reveal');
+    assert.equal(entity.input.link, undefined);
+    const assembled = assembleTrait({ name: '慧眼', template: 'flair-glint', origin: '' }, { key: entity.key, fixed: entity.fixed });
+    assert.equal(assembled.value.link, 'reveal');
+    assert.equal(traitEntity({ character: { id: 'h', name: '我' }, rarity: 'rare', traitId: 'tr-2' }).fixed.link, undefined);
+});
+
+test('装备联动：已装备饰品与宝物的 link 并入特性联动，武器防具不计，神话饰品透视亮 2 张', () => {
+    assert.deepEqual(traitLinks([{ link: 'reveal' }]), { reveal: 1, reflip: false, fortune: false });
+    assert.deepEqual(traitLinks([], { weapon: { link: 'reflip' }, armor: { link: 'fortune' } }), { reveal: 0, reflip: false, fortune: false });
+    assert.deepEqual(traitLinks([], { accessory: { link: 'reveal', rarity: 'mythic' }, treasure: { link: 'fortune' } }), { reveal: 2, reflip: false, fortune: true });
+});
+
+test('华而不实加权（D10）：特性池抽中比例约为平权时的 2 倍；奖励装备槽带候选且只收候选内模板，旧槽照用全表', () => {
+    const pool = traitPool('common');
+    const base = pool.filter((shape) => shape.kind === 'flair').length / pool.length;
+    let flair = 0;
+    for (let i = 0; i < 3000; i += 1) if (Object.hasOwn(FLAIR_PASSIVE_TEMPLATES, planTraitShape(`s${i}`, 'common').template || '')) flair += 1;
+    assert.ok(flair / 3000 > base * 1.5, `${flair / 3000} vs ${base}`);
+    const { entity } = rewardEntity({ combatId: 'c1', anchor: { messageId: 1 }, tier: 'boss', character: { id: 'h', kind: 'deck-character', name: '我' } });
+    for (const slot of [...entity.fixed.slots, ...entity.fixed.reserve].filter((s) => s.kind === 'gear')) {
+        assert.equal(slot.templates.length, 5);
+        for (const key of slot.templates) assert.ok(Object.hasOwn(GEAR_PASSIVE_TEMPLATES, key), key);
+    }
+    const allowed = ['flair-glint', 'opening-strength'];
+    const outside = Object.keys(GEAR_PASSIVE_TEMPLATES).find((key) => !allowed.includes(key));
+    const slot = { index: 0, kind: 'gear', rarity: 'rare', gearSlot: 'accessory' };
+    const reply = (template) => ({ slots: [['护身符', template, '旧物']] });
+    assert.ok(assembleReward(reply('flair-glint'), { key: 'r', input: { seed: 's', slots: [{ ...slot, templates: allowed }] } }).value.slots[0].gear.passive);
+    assert.ok(assembleReward(reply(outside), { key: 'r', input: { seed: 's', slots: [{ ...slot, templates: allowed }] } }).errors?.length);
+    assert.ok(assembleReward(reply(outside), { key: 'r', input: { seed: 's', slots: [slot] } }).value.slots[0].gear.passive);
+});
+
+
+// ---------- 规则 v5 P1：v4 事件进战报、选牌限制写入目录（L14–L15） ----------
+const artifactFoe = { passives: [{ id: 'ward', trigger: 'battle-start', effects: [{ op: 'status', status: 'artifact', stacks: 1, target: 'self' }] }] };
+
+test('战报：人工制品抵消减益写进出手描述', () => {
+    const card = { effects: [{ op: 'status', status: 'weak', stacks: 1, target: 'enemy' }, { op: 'damage', amount: 30, target: 'enemy' }] };
+    const played = play(startOf(card, {}, { foe: artifactFoe }));
+    assert.equal(played.state.outcome, 'victory');
+    const action = collectTurns(played.events, played.state.units).flatMap((turn) => turn.actions).find((a) => a.actorId === 'hero');
+    assert.deepEqual(action.targets.get('foe').warded, ['weak']);
+    const report = buildCombatReport({ combatId: 'c-art', state: played.state, events: played.events });
+    assert.ok(report.text.includes('她的人工制品抵消了虚弱'), report.text);
+});
+
+test('战报：对方出牌触发的被动记为随即应变', () => {
+    const units = { foe: { passives: [{ id: 'parry', trigger: 'foe-card-played', effects: [{ op: 'block', amount: 1, target: 'self' }] }] } };
+    const played = play(startOf({ effects: [{ op: 'damage', amount: 2, target: 'enemy' }] }, {}, units));
+    const action = collectTurns(played.events, played.state.units).flatMap((turn) => turn.actions).find((a) => a.actorId === 'hero');
+    assert.deepEqual(action.reactions, ['foe']);
+    const quiet = play(startOf({ effects: [{ op: 'damage', amount: 2, target: 'enemy' }] }));
+    assert.deepEqual(collectTurns(quiet.events, quiet.state.units).flatMap((turn) => turn.actions).find((a) => a.actorId === 'hero').reactions, []);
+});
+
+test('战报：敌方往我方牌堆塞状态牌记在敌方出手上', () => {
+    const skill = { intent: 'debuff', effects: [{ op: 'create', card: 'status-wound', amount: 1, to: 'discard' }] };
+    const ended = applyAction(startOf({ effects: [{ op: 'damage', amount: 1, target: 'enemy' }] }, skill), { type: 'end-turn' });
+    assert.equal(ended.ok, true, JSON.stringify(ended.error));
+    const action = collectTurns(ended.events, ended.state.units).flatMap((turn) => turn.actions).find((a) => a.actorId === 'foe');
+    assert.deepEqual(action.targets.get('hero').junk, ['伤口']);
+});
+
+test('目录文本：写 choose 的模板单列为只能作卡牌，原有各行不变', () => {
+    const lines = templateCatalogText().split('\n');
+    const line = lines.find((text) => text.startsWith('从手牌选牌的卡牌模板'));
+    assert.ok(line);
+    assert.deepEqual(line.split('：').at(-1).split(',').sort(), ['cull', 'replicate', 'temper', 'toss']);
+    assert.ok(lines.some((text) => text.startsWith('不能用作人物技能（skill）的卡牌模板：')));
 });
