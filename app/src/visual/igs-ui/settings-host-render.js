@@ -1,5 +1,6 @@
 import { renderTtsVoiceLibrary } from './tts-voice-library-view.js';
 import { renderTtsVoicePoolGroups, ttsVoiceSelectInput } from './tts-voice-options.js';
+import { renderTtsVoiceSearch } from './tts-voice-search.js';
 import { readLive2dConfig } from './live2d-config.js';
 import { renderLive2dLibrary } from './live2d-panel.js';
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
@@ -1376,7 +1377,7 @@ const ttsGroup = (title, parts, headAction = '') => `<div class="igs-settings-gr
     ? `<div class="igs-settings-section-head"><div class="igs-settings-subhead">${title}</div>${headAction}</div>`
     : `<div class="igs-settings-subhead">${title}</div>`}${parts.filter(Boolean).join('')}</div>`;
 
-const ttsInlineField = (label, controlHtml) => `<label class="igs-settings-field igs-tts-inline"><span>${esc(label)}</span><span class="igs-tts-inline-control">${controlHtml}</span></label>`;
+const ttsInlineField = (label, controlHtml, tag = 'label') => `<${tag} class="igs-settings-field igs-tts-inline"><span>${esc(label)}</span><span class="igs-tts-inline-control">${controlHtml}</span></${tag}>`;
 
 // 默认声音候选池：点选多个，没单独设声音的角色按名字稳定地取其中一个。source 为 api / system，items 是 [id, 显示名]。
 function ttsVoicePoolField(label, source, role, value, items, { missingNote = '不在声音库', groups = null } = {}) {
@@ -1388,7 +1389,7 @@ function ttsVoicePoolField(label, source, role, value, items, { missingNote = '�
         + renderTtsVoicePoolGroups([{ label: missingNote, items: missing }], (id, text) => chip(id, text, true))
         : items.filter(([id]) => id).map(([id, text]) => chip(id, text, false)).concat(missing.map(([id, text]) => chip(id, text, true))).join('');
     return `<div class="igs-settings-field igs-tts-pool-field"><span>${esc(label)}<small class="igs-switch-note">多选时按名字随机</small></span>`
-        + `<div class="${groups ? 'igs-tts-pool-groups' : 'igs-tts-pool'}">${body || '<div class="igs-scene-empty">暂无声音</div>'}</div></div>`;
+        + renderTtsVoiceSearch(`pool:${source}:${role}`, `<div class="${groups ? 'igs-tts-pool-groups' : 'igs-tts-pool'}">${body || '<div class="igs-scene-empty">暂无声音</div>'}</div>`, { kind: 'pool', label }) + '</div>';
 }
 
 const ttsPreviewButton = (action, label) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}">${label}</button>`;
@@ -1405,15 +1406,15 @@ function renderTtsNarratorGroup(tts, { voicesMessage = '', batch = null, options
     const apiPath = (key) => `${base}.narratorApi.${key}`;
     const parts = [ttsPreviewError(previewError)];
     if (narrator.enabled) {
-        parts.push(ttsInlineField('旁白声音', ttsVoiceSelectInput(apiPath('voice'), narrator.voice, ttsNarratorVoiceGroups(tts), { leading: [['', '未选择']] })));
+        parts.push(ttsInlineField('旁白声音', ttsVoiceSelectInput(apiPath('voice'), narrator.voice, ttsNarratorVoiceGroups(tts), { leading: [['', '未选择']] }), 'div'));
     } else if (tts.provider === 'system') {
         const value = tts.system.narrator;
         const items = [['', '自动']].concat(options);
         if (value && !options.some(([id]) => id === value)) items.push([value, findSystemVoice(installed, value) ? value : `${value}（本机没有）`]);
-        parts.push(ttsInlineField('旁白声音', selectInput(`${base}.system.narrator`, value, items)));
+        parts.push(ttsInlineField('旁白声音', ttsVoiceSelectInput(`${base}.system.narrator`, value, [{ label: '', items }]), 'div'));
     } else {
         const value = tts.api.narrator;
-        parts.push(ttsInlineField('旁白声音', ttsVoiceSelectInput(`${base}.api.narrator`, value, ttsApiVoiceGroups(tts), { leading: [['', '同女声']] })));
+        parts.push(ttsInlineField('旁白声音', ttsVoiceSelectInput(`${base}.api.narrator`, value, ttsApiVoiceGroups(tts), { leading: [['', '同女声']] }), 'div'));
     }
     parts.push(ttsInlineField('旁白语速', selectInput(`${base}.narratorRate`, tts.narratorRate, TTS_RATES.map((v) => [v, v === 1 ? '正常' : `${v}×`]))));
     const styled = narrator.enabled ? ttsStyleFormat(narrator) : tts.provider === 'api' && ttsStyleFormat(tts.api);

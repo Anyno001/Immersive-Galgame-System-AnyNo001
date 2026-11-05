@@ -1,4 +1,5 @@
 import { esc } from './reader-value-utils.js';
+import { renderTtsVoiceSearch } from './tts-voice-search.js';
 
 export function renderTtsVoiceOptions(groups, value, { leading = [], missingNote = '不在声音库' } = {}) {
     const option = ([id, label]) => `<option value="${esc(id)}"${String(id) === String(value) ? ' selected' : ''}>${esc(label)}</option>`;
@@ -12,7 +13,7 @@ export function renderTtsVoiceOptions(groups, value, { leading = [], missingNote
 }
 
 export function ttsVoiceSelectInput(path, value, groups, options) {
-    return `<select data-path="${esc(path)}">${renderTtsVoiceOptions(groups, value, options)}</select>`;
+    return renderTtsVoiceSearch(path, `<select data-path="${esc(path)}" aria-label="旁白声音">${renderTtsVoiceOptions(groups, value, options)}</select>`, { label: '旁白声音' });
 }
 
 export function renderTtsVoicePoolGroups(groups, chip) {

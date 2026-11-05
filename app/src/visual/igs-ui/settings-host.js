@@ -1,6 +1,7 @@
 import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
 import { updateCharCounts } from './prompt-entries-fields.js';
+import { applyTtsVoiceSearch, restoreTtsVoiceSearch } from './tts-voice-search.js';
 import { withCharacterDnaDraftSync } from './settings-external-sprite-dna.js';
 import { draftAssetLibrary, effectiveSceneAssets, rememberAssetScope, sceneAssetsForContext } from '../../scene/asset-scope.js';
 import { resolveWorldview } from '../../scene/worldview.js';
@@ -1223,6 +1224,13 @@ export function createSettingsHost(deps) {
         root.addEventListener('input', (event) => {
             const target = event.target;
             if (!target || !target.getAttribute) return;
+            const voiceSearch = target.getAttribute('data-tts-voice-search');
+            if (voiceSearch !== null) {
+                const queries = state.activeSettings.asyncState.ttsVoiceSearch || (state.activeSettings.asyncState.ttsVoiceSearch = Object.create(null));
+                queries[voiceSearch] = target.value;
+                applyTtsVoiceSearch(target);
+                return;
+            }
             const promptField = target.getAttribute('data-image-prompt-field');
             if (promptField !== null && target.tagName !== 'SELECT' && target.type !== 'checkbox') {
                 const edited = controller.setImagePromptField(promptField, target.value, { render: false });
@@ -1732,6 +1740,7 @@ export function createSettingsHost(deps) {
         const nextBody = container.querySelector('.igs-settings-body');
         if (nextBody && pageChanged) nextBody.scrollTop = 0;
         else if (nextBody && scrollTop) nextBody.scrollTop = scrollTop;
+        restoreTtsVoiceSearch(container, current.asyncState.ttsVoiceSearch);
         restoreSettingsFocus(container, focus);
         remountSettingsNotice(container, current.notice);
         remountSettingsProgress(container);

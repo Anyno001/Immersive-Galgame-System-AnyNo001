@@ -13,6 +13,7 @@ import { manualNameColor } from './character-name-color.js';
 import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions, creatureVoiceLabel } from './voice-bark.js';
 import { TTS_CHARACTER_VOLUMES, findSystemVoice, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceGroups } from './tts.js';
 import { renderTtsVoiceOptions } from './tts-voice-options.js';
+import { renderTtsVoiceSearch } from './tts-voice-search.js';
 import { renderCharacterCreatureMenuItem, renderCharacterCreatureRows, renderCharacterCreatureTag } from './creature-settings.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { hasCharacterSpriteLayout } from './sprite-key-migration.js';
@@ -632,7 +633,7 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
         const found = tts.provider === 'system' ? findSystemVoice(systemVoices, saved) : null;
         const savedId = found ? found.name : saved;
         const opts = renderTtsVoiceOptions(groups, savedId, { leading: [['', first]], missingNote: '不可用' });
-        return `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}">${opts}</select>`;
+        return renderTtsVoiceSearch(`character:${field}:${charName}`, `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}">${opts}</select>`, { label });
     };
     const preview = (action) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}:${encSeg(charName)}">试听</button>`;
     const { pitchOpts, speedOpts } = voiceTuneOptions(manual);
