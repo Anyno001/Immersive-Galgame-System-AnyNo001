@@ -13,3 +13,4 @@ import './battle-growth.js';
 import './rampart.js';
 import './forge.js';
 import './shadow.js';
+import './quarry.js';

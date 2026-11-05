@@ -1451,3 +1451,81 @@ test('刺客模板（A01–A10）：可反解、归 shadow 族只给刺客；牌
     assert.ok(describeEffects([{ op: 'poison-tick', amount: 1, target: 'enemy' }]).includes('层数不减'));
     assert.equal(templateAllowedFor('sap', 'assassin'), true);
 });
+
+
+// ---------- 规则 v5 P3 游侠「猎印与连射」（R01–R05；R06 随 P4 E02） ----------
+const hitFoe = (amount, hits = 1) => ({ op: 'damage', amount, hits, target: 'enemy' });
+const onFoe = (status, stacks) => ({ op: 'apply-status', status, stacks, target: 'enemy' });
+
+test('猎印与引弦（R01）：引弦令所有带猎印的敌人失去等于层数的生命，猎印不清除，未带猎印者不受影响；规则 v4 无效', () => {
+    const mark = def('m', 'attack', [hitFoe(1), onFoe('hunt-mark', 3)], { innate: true });
+    const nock = def('n', 'attack', [hitFoe(1), { op: 'loose' }], { innate: true });
+    const run = (rv) => {
+        const s = twoFoes({ m: mark, n: nock, k: GUARD }, ['m', 'n', ...Array(8).fill('k')], rv);
+        const marked = playIn(s, instOf(s, 'm'), 'foe').state;
+        return playIn(marked, instOf(marked, 'n'), 'foe');
+    };
+    const v5 = run();
+    assert.deepEqual([v5.state.units.foe.hp, v5.state.units.foe.statuses['hunt-mark'], v5.state.units.foe2.hp], [25, 3, 30]);
+    assert.ok(v5.events.some((e) => e.type === 'damage' && e.kind === 'hunt-mark' && e.loss === true));
+    assert.equal(run(4).state.units.foe.hp, 28);
+});
+
+test('迟滞（R02）：攻击者本回合每已打出一张牌，目标受到的攻击伤害 +10%；目标回合结束衰减；规则 v4 无效', () => {
+    const snare = def('s', 'skill', [onFoe('snare', 1)], { innate: true });
+    const big = def('b', 'attack', [hitFoe(10)], { innate: true });
+    const run = (rv) => {
+        const t = startDeck({ s: snare, b: big, k: GUARD }, ['s', 'b', ...Array(8).fill('k')], rv);
+        let u = playIn(t, instOf(t, 's'), 'foe').state;
+        u = playIn(u, instOf(u, 'k')).state;
+        return playIn(u, instOf(u, 'b'), 'foe').state;
+    };
+    const v5 = run();
+    assert.equal(v5.units.foe.hp, 18);
+    assert.equal(endTurn(v5).state.units.foe.statuses.snare, undefined);
+    assert.equal(run(4).units.foe.hp, 20);
+});
+
+test('专精先手（R03）：每回合前 N 张攻击牌伤害 +50%，之后照常；出手后清掉标记；规则 v4 无效', () => {
+    const eye = def('d', 'power', [{ op: 'apply-status', status: 'deadeye', stacks: 1, target: 'self' }], { innate: true });
+    const shot = def('x', 'attack', [hitFoe(6)], { innate: true });
+    const run = (rv) => {
+        const t = startDeck({ d: eye, x: shot, k: GUARD }, ['d', 'x', 'x', ...Array(7).fill('k')], rv);
+        let u = playIn(t, instOf(t, 'd')).state;
+        u = playIn(u, instOf(u, 'x'), 'foe').state;
+        return playIn(u, instOf(u, 'x'), 'foe').state;
+    };
+    const v5 = run();
+    assert.deepEqual([v5.units.foe.hp, v5.units.hero.res?.aimed], [15, undefined]);
+    assert.equal(run(4).units.foe.hp, 18);
+});
+
+test('连段成长（R04）：本回合每次攻击命中后之后的攻击伤害 +层数，回合结束清掉；规则 v4 无效', () => {
+    const rise = def('c', 'skill', [{ op: 'apply-status', status: 'combo-rise', stacks: 2, target: 'self' }], { innate: true });
+    const twin = def('t', 'attack', [hitFoe(3, 2)], { innate: true });
+    const run = (rv) => {
+        const s = startDeck({ c: rise, t: twin, k: GUARD }, ['c', 't', ...Array(8).fill('k')], rv);
+        const lit = playIn(s, instOf(s, 'c')).state;
+        return playIn(lit, instOf(lit, 't'), 'foe').state;
+    };
+    const v5 = run();
+    assert.equal(v5.units.foe.hp, 22);
+    const next = endTurn(v5).state;
+    assert.deepEqual([next.units.hero.statuses['combo-rise'], next.units.hero.res?.comboHits], [undefined, undefined]);
+    assert.equal(run(4).units.foe.hp, 24);
+});
+
+test('游侠模板（R01–R05）：可反解、归 quarry 族只给游侠；牌面写明引弦与猎印；牌库顶操控模板游侠可用', () => {
+    for (const key of ['quarry-mark', 'nock', 'snare', 'deadeye', 'rising-shot']) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'quarry', key);
+        assert.equal(templateAllowedFor(key, 'ranger'), true, key);
+        for (const other of ['assassin', 'bard', 'warrior']) assert.equal(templateAllowedFor(key, other), false, `${key}:${other}`);
+    }
+    assert.ok(describeEffects([{ op: 'loose' }]).includes('引弦'));
+    assert.ok(describeEffects([onFoe('hunt-mark', 2)]).includes('猎印'));
+    for (const key of ['scout', 'hunt', 'stack', 'boomerang']) assert.equal(templateAllowedFor(key, 'ranger'), true, key);
+});

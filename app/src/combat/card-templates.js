@@ -60,6 +60,8 @@ const honeBlade = (mode, amount) => ({ op: 'hone-blade', mode, ...(mode === 'gua
 const poisonTick = (amount, target = 'enemy') => ({ op: 'poison-tick', amount, target });
 const shiv = (amount) => ({ op: 'shiv', amount });
 const honeShiv = (mode, amount) => ({ op: 'hone-shiv', mode, ...(mode === 'edge' || mode === 'first' ? { amount } : {}) });
+// 规则 v5 P3 游侠引弦（mechanics/quarry.js）。
+const loose = () => ({ op: 'loose' });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -81,6 +83,7 @@ function primaryNumber(effect) {
         case 'recur':
         case 'discover':
         case 'energy-double':
+        case 'loose':
             return 1;
         case 'bounty':
             return effect.reward === 'upgrade' ? 1 : effect.amount;
@@ -287,6 +290,12 @@ export const CARD_TEMPLATES = Object.freeze({
     garrote: template('skill', '扼喉：本回合每打出一张牌，目标失去生命，并获得格挡', [[1, 5], [0, 20]], 0.6, ([a, b]) => [applyStatus('garrote', a, 'enemy'), block(b)]),
     carrion: template('attack', '尸裂：带此状态的敌人倒下时按其最大生命的比例伤害其他敌人，并造成伤害', [[1, 2], [1, 30]], 0.4, ([a, b]) => [applyStatus('carrion', a, 'enemy'), damage(b)]),
     bladestorm: template('power', '千刃：每打出一张牌对全体敌人造成伤害', [[1, 2]], 1, ([a]) => [applyStatus('bladestorm', a, 'self')]),
+    // 规则 v5 P3 游侠：R01–R04（quarry 族，只给游侠）；R05 牌库顶操控沿用 pile 族；R06 破空随 P4 E02 飞行实施。
+    'quarry-mark': template('attack', '伤害+猎印（叠在敌人身上，引弦时令其失去生命）', [[1, 30], [1, 10]], 0.6, ([a, b]) => [damage(a), applyStatus('hunt-mark', b, 'enemy')]),
+    nock: template('attack', '引弦：伤害；所有带猎印的敌人失去等于层数的生命', [[1, 30]], 1, ([a]) => [damage(a), loose()]),
+    snare: template('attack', '伤害+迟滞（攻击者本回合每已打出一张牌，目标受到的攻击伤害 +10%）', [[1, 30], [1, 2]], 0.7, ([a, b]) => [damage(a), applyStatus('snare', b, 'enemy')]),
+    deadeye: template('power', '专精先手：每回合前数张攻击牌伤害 +50%', [[1, 3]], 1, ([a]) => [applyStatus('deadeye', a, 'self')]),
+    'rising-shot': template('skill', '连段：本回合每次攻击命中后，之后的攻击伤害提高，并获得格挡', [[1, 3], [0, 20]], 0.5, ([a, b]) => [applyStatus('combo-rise', a, 'self'), block(b)]),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -657,6 +666,8 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     rampart: ['barricade', 'hunker', 'redouble', 'armor-plate', 'rebuke', 'bramble', 'juggernaut', 'bodyguard', 'phalanx'],
     // 规则 v5 P3 战士锻刃，只给战士。
     blade: ['pyre', 'ember', 'smith', 'blade-sweep', 'blade-echo', 'blade-guard', 'bloodthirst'],
+    // 规则 v5 P3 游侠猎印，只给游侠。
+    quarry: ['quarry-mark', 'nock', 'snare', 'deadeye', 'rising-shot'],
     ward: ['cover', 'rally', 'aegis', 'rally-draw', 'talisman'],
     restore: ['mend', 'regrow', 'reap'],
     volley: ['finisher', 'footwork', 'glance', 'chain', 'sift', 'encore', 'cull'],
@@ -672,7 +683,7 @@ export const ARCHETYPE_FAMILIES = Object.freeze({
     // pile（牌堆操作，规则 v5 P2b）与 general 一样所有职业可用。
     warrior: Object.freeze(['general', 'pile', 'fury', 'cleave', 'fortify', 'restore', 'blade']),
     guardian: Object.freeze(['general', 'pile', 'fortify', 'thorns', 'ward', 'rampart']),
-    ranger: Object.freeze(['general', 'pile', 'cleave', 'volley']),
+    ranger: Object.freeze(['general', 'pile', 'cleave', 'volley', 'quarry']),
     assassin: Object.freeze(['general', 'pile', 'venom', 'shadow', 'volley']),
     mage: Object.freeze(['general', 'pile', 'cleave', 'hex', 'arcane', 'venom']),
     priest: Object.freeze(['general', 'pile', 'ward', 'restore', 'hex', 'fortify', 'sanctum']),

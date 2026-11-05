@@ -37,6 +37,11 @@ export const APPLY_STATUSES = Object.freeze({
     garrote: Object.freeze({ debuff: true, max: 5, value: 4 }),
     carrion: Object.freeze({ debuff: true, max: 2, value: 6 }),
     bladestorm: Object.freeze({ max: 2, value: 8 }),
+    // 规则 v5 P3 游侠（quarry.js）。
+    'hunt-mark': Object.freeze({ debuff: true, max: 10, value: 2.5 }),
+    snare: Object.freeze({ debuff: true, max: 2, value: 4 }),
+    deadeye: Object.freeze({ max: 3, value: 5 }),
+    'combo-rise': Object.freeze({ max: 3, value: 4 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);
