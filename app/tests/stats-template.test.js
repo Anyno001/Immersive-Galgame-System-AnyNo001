@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STATS_TEMPLATE_EDITS, adaptStatsTemplate } from '../src/data/shujuku/stats-template-adapt.js';
+import { STATS_TEMPLATE_COLUMNS, STATS_TEMPLATE_EDITS, adaptStatsTemplate } from '../src/data/shujuku/stats-template-adapt.js';
 import { parseTables } from '../src/data/shujuku/table-parser.js';
 import { detectStatMappings } from '../src/data/shujuku/stats-push.js';
 import { downloadStatsTemplate, statsTemplateUrl, fetchStatsTemplate, importStatsTemplate, statsTemplateChatDiff, STATS_TEMPLATE_PRESET_NAME } from '../src/visual/igs-ui/stats-template-link.js';
@@ -19,6 +19,7 @@ function synthetic() {
         const src = t[e.sheet].sourceData;
         src[e.field] = (src[e.field] || '原文') + (e.find || e.anchor || '');
     }
+    for (const c of STATS_TEMPLATE_COLUMNS) t[c.sheet].content[0].push(c.after);
     return t;
 }
 
@@ -29,8 +30,9 @@ test('适配版只改约定的规则字段；其余表、列、DDL、导出配�
     assert.equal(JSON.stringify(base), JSON.stringify(JSON.parse(raw)));
     const edited = new Set(STATS_TEMPLATE_EDITS.map((e) => `${e.sheet}|${e.field}`));
     for (const key of Object.keys(base)) {
-        const { sourceData: a, ...restOut } = out[key] || {};
-        const { sourceData: b, ...restBase } = base[key] || {};
+        const { sourceData: a, content: ca, ...restOut } = out[key] || {};
+        const { sourceData: b, content: cb, ...restBase } = base[key] || {};
+        if (!STATS_TEMPLATE_COLUMNS.some((c) => c.sheet === key)) assert.deepEqual(ca, cb, key + '.content');
         assert.deepEqual(restOut, restBase, key);
         for (const field of Object.keys(b || {})) if (!edited.has(`${key}|${field}`)) assert.deepEqual(a[field], b[field], `${key}.${field}`);
     }
@@ -42,7 +44,9 @@ test('适配版只改约定的规则字段；其余表、列、DDL、导出配�
     assert.doesNotMatch(out.sheet_zhu_jue_xin_xi_biao.sourceData.updateNode, /base_attributes/);
     assert.match(out.sheet_zhong_yao_jue_se_biao.sourceData.updateNode, /只在登场建档时填写一次/);
     const mappings = detectStatMappings(parseTables(out)).mappings;
-    for (const column of ['好感度', '信任度', '了解程度']) assert.ok(mappings.some((m) => m.table === '角色数值表' && m.column === column), column);
+    assert.deepEqual(out.sheet_jue_se_shu_zhi_biao.content[0], ['row_id', '角色姓名', '好感度', '信任度', '了解程度', '芥蒂程度', '已知秘密', '未知秘密']);
+    assert.match(out.sheet_jue_se_shu_zhi_biao.sourceData.ddl, /understanding_level TEXT, -- 了解程度\n {2}grudge_level TEXT, -- 芥蒂程度/);
+    for (const column of ['好感度', '信任度', '了解程度', '芥蒂程度']) assert.ok(mappings.some((m) => m.table === '角色数值表' && m.column === column), column);
     assert.throws(() => adaptStatsTemplate(out), /stats-template-already-adapted/);
 });
 
