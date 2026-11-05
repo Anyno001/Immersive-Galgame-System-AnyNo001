@@ -1,5 +1,6 @@
 // 战斗状态只读查询：存活单位、目标挑选、牌面视图、伤害/格挡估算、意图描述。
 // 这里的函数都不修改 state，引擎与出牌策略共用。行为与 v0.39.0 一致。
+import { damageModifiers } from './mechanics/registry.js';
 
 export const LOW_HP_RATIO = 0.5;
 
@@ -79,14 +80,28 @@ export function effectsPickAlly(effects) {
     return (effects || []).some((effect) => effect.target === 'ally' || (effect.op === 'conditional' && effectsPickAlly(effect.then)));
 }
 
+// 按登记顺序执行一个伤害修正阶段，每一步取整且不低于 0。
+function applyDamageStage(stage, attacker, target, value) {
+    let next = value;
+    for (const mod of damageModifiers(stage)) {
+        const out = mod.fn(attacker, target, next);
+        if (Number.isFinite(out)) next = Math.max(0, Math.floor(out));
+    }
+    return next;
+}
+
 // 单次伤害：先按伤害倍率取整再加力量，虚弱打七五折，易伤乘 1.5。attacker 或 target 可缺省。
-export function computeDamage(attacker, target, amount, strengthScale = 1) {
+// rulesVersion >= 5 时追加已登记的修正阶段：outgoing-add、outgoing-mult 在力量之后、虚弱之前，incoming-mult 在易伤之后。
+export function computeDamage(attacker, target, amount, strengthScale = 1, rulesVersion) {
+    const staged = rulesVersion >= 5;
     let value = amount;
     if (attacker) {
         value = Math.round(value * (attacker.damageScale || 1)) + (attacker.statuses.strength || 0) * (strengthScale || 1);
+        if (staged) value = applyDamageStage('outgoing-mult', attacker, target, applyDamageStage('outgoing-add', attacker, target, value));
         if (attacker.statuses.weak > 0) value = Math.floor(value * 0.75);
     }
     if (target?.statuses.vulnerable > 0) value = Math.floor(value * 1.5);
+    if (staged && target) value = applyDamageStage('incoming-mult', attacker, target, value);
     return Math.max(0, value);
 }
 
@@ -131,12 +146,12 @@ export function estimateDamage(state, attacker, target, effects, aimId) {
         if (effect.op === 'damage') {
             const aim = effect.target || 'enemy';
             if (aim === 'all-enemies' || (aim === 'enemy' && aimId === target.id)) {
-                total += (effect.hits || 1) * computeDamage(attacker, target, effect.amount, effect.strengthScale);
+                total += (effect.hits || 1) * computeDamage(attacker, target, effect.amount, effect.strengthScale, state?.rulesVersion);
             }
         } else if (effect.op === 'damage-from-block') {
             const aim = effect.target || 'enemy';
             if ((aim === 'all-enemies' || (aim === 'enemy' && aimId === target.id)) && attacker.block > 0) {
-                total += computeDamage(attacker, target, attacker.block);
+                total += computeDamage(attacker, target, attacker.block, 1, state?.rulesVersion);
             }
         } else if (effect.op === 'conditional' && conditionHolds(state, attacker, effect.when, aimId)) {
             total += estimateDamage(state, attacker, target, effect.then, aimId);

@@ -6,6 +6,7 @@
 //       [--try normal=1.2x1.5,gap=0.05x0.1x3,lv=0.08]（试调，不改规则表：在 setup 上把该档位敌人生命 × 前值、伤害倍率 × 后值；
 //       gap 把规则表的 levelGap 换成生命 / 伤害每级系数（第三项为等级差上限）；lv 把 tierScalePerLevel 换成该值；
 //       affix=精英去掉数x首领去掉数，从末尾去掉难度表给的常驻效果）
+//       [--archetypes all|warrior,mage]（规则 v5：按职业生成模板卡组并分职业输出；缺省为战士固定卡组）
 import { writeFileSync } from 'node:fs';
 import { applyAction, createBattle, legalActions } from '../src/combat/engine.js';
 import { chooseAllyPlay, pickCards } from '../src/combat/policy.js';
@@ -17,6 +18,7 @@ import { ABILITY_KEYS } from '../src/combat/abilities.js';
 import { weakestId } from '../src/combat/battle-state.js';
 import { buildSetup } from '../src/combat/session.js';
 import { hash32 } from '../src/combat/random.js';
+import { ARCHETYPE_FAMILIES, heroSkillFromTemplate, solveCardTemplate, templatesFor } from '../src/combat/card-templates.js';
 
 const arg = (name, fallback) => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : fallback; };
 // 逗号分隔的筛选：缺省取全部，未知键忽略。
@@ -50,9 +52,38 @@ const TARGET = { 'normal|even': [85, 95, 25, 45], 'elite|even': [70, 85, 45, 65]
 // 模板卡组：与 generation 测试同一组模板键（职业 11 张 + 个人 4 张）；费用、稀有度与数值由组装层按规则求解。
 const CLASS_VALUE = { className: '剑士', archetype: 'warrior', passive: ['锋锐', 'opening-strength'],
     cards: [['斩一', 'strike', 1], ['斩二', 'strike', 1], ['守三', 'guard', 1], ['守四', 'guard', 1], ['破五', 'bash', 2], ['裂六', 'rend', 1], ['守七', 'brace', 1], ['势八', 'might', 2], ['斩九', 'strike'], ['斩十', 'strike'], ['斩终', 'strike']] };
-const DECK_VALUE = { hp: 80, passive: ['意志', 'last-stand'], skill: ['星爆连斩', 'flurry'], cards: [['剑一', 'strike', 1], ['盾二', 'guard', 1], ['剑三', 'twin', 2], ['愈四', 'mend', 1]] };
+// 人物技能须取本职业允许的模板（规则 v5 职业白名单）；flurry 属刺客族，战士改用通用族的 twin。
+const DECK_VALUE = { hp: 80, passive: ['意志', 'last-stand'], skill: ['星爆连斩', 'twin'], cards: [['剑一', 'strike', 1], ['盾二', 'guard', 1], ['剑三', 'twin', 2], ['愈四', 'mend', 1]] };
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
+// --archetypes：all 或逗号分隔的职业键；未知键忽略。缺省 null 表示沿用战士固定卡组。
+const ARCHETYPES = (() => {
+    const raw = String(arg('--archetypes', ''));
+    if (!raw) return null;
+    const all = Object.keys(ARCHETYPE_FAMILIES);
+    const picked = raw === 'all' ? all : raw.split(',').filter((key) => all.includes(key));
+    return picked.length ? picked : null;
+})();
+const CLASS_RARITIES = ['common', 'uncommon', 'rare', 'epic'];
+// 按职业生成模板卡组：每个费用槽轮流取该职业允许、且在所需稀有度下都可解的模板；人物技能取第一个可作人物技能的允许模板。
+function archetypeValue(entity, archetype) {
+    const keys = Object.keys(templatesFor(archetype));
+    const slotsOf = (count) => {
+        const slots = Array.isArray(entity.input?.costSlots) && entity.input.costSlots.length ? entity.input.costSlots : [1];
+        return Array.from({ length: count }, (_, i) => slots[i % slots.length]);
+    };
+    const cards = (count, rarities, tag) => slotsOf(count).map((cost, i) => {
+        const ok = keys.filter((key) => rarities.every((rarity) => solveCardTemplate(key, cost, rarity)));
+        if (!ok.length) throw new Error(`职业 ${archetype} 没有 ${cost} 费可解模板`);
+        return [`${tag}${i + 1}`, ok[i % ok.length], cost];
+    });
+    if (entity.kind === 'class') return { className: archetype, archetype, passive: CLASS_VALUE.passive, cards: cards(11, CLASS_RARITIES, '职') };
+    if (entity.kind === 'profile-deck') {
+        const skill = keys.find((key) => heroSkillFromTemplate(key, { id: 'x', name: 'x' }));
+        return { hp: DECK_VALUE.hp, passive: DECK_VALUE.passive, skill: ['本命', skill], cards: cards(4, ['personal'], '个') };
+    }
+    return ALLY_VALUE;
+}
 const ai = (mes) => ({ mes, swipe_id: 0, is_user: false });
 const user = (mes) => ({ mes, is_user: true });
 const pct = (x) => (x === null ? '—' : `${Math.round(x * 100)}%`);
@@ -67,12 +98,13 @@ function memoryTables(profile) {
     return t;
 }
 
-async function heroProfiles() {
+async function heroProfiles(archetype = null) {
     const entities = deckProfileEntities({ name: HERO, role: 'protagonist', classes: [] });
     if (ALLY) entities.push(skillProfileEntity({ name: ALLY, role: 'ally' }));
-    const request = async (req) => JSON.stringify({ entities: JSON.parse(req.user).entities.map((e) => ({ key: e.key, value: e.kind === 'class' ? CLASS_VALUE : e.kind === 'profile-skill' ? ALLY_VALUE : DECK_VALUE })) });
+    const fixedValue = (e) => (e.kind === 'class' ? CLASS_VALUE : e.kind === 'profile-skill' ? ALLY_VALUE : DECK_VALUE);
+    const request = async (req) => JSON.stringify({ entities: JSON.parse(req.user).entities.map((e) => ({ key: e.key, value: archetype ? archetypeValue(e, archetype) : fixedValue(e) })) });
     const result = await generateEntities(entities, { request, llm: { source: 'tavern' } });
-    if (!result.ok) throw new Error(`模板卡组组装失败：${JSON.stringify(result.rejected).slice(0, 300)}`);
+    if (!result.ok) throw new Error(`模板卡组组装失败${archetype ? `（${archetype}）` : ''}：${JSON.stringify(result.rejected).slice(0, 300)}`);
     return generationWrites(result, { createdAt: 1 }).profiles;
 }
 
@@ -262,13 +294,21 @@ function report(cells) {
 }
 
 const t0 = Date.now();
-const profiles = await heroProfiles();
 const cells = [];
-for (const level of LEVELS) for (const [rel, relLabel] of RELS) {
-    const world = await buildWorld(profiles, level, rel);
-    for (const tier of TIERS) for (const diff of DIFFS) cells.push(simulateCell(world, level, rel, relLabel, tier, diff));
+for (const archetype of ARCHETYPES || [null]) {
+    const profiles = await heroProfiles(archetype);
+    for (const level of LEVELS) for (const [rel, relLabel] of RELS) {
+        const world = await buildWorld(profiles, level, rel);
+        for (const tier of TIERS) for (const diff of DIFFS) cells.push({ ...simulateCell(world, level, rel, relLabel, tier, diff), archetype });
+    }
 }
-const text = report(cells);
+// 分职业时每个职业各出一份报告（--brief 每行前缀职业键）。
+const text = ARCHETYPES
+    ? ARCHETYPES.map((a) => {
+        const mine = cells.filter((c) => c.archetype === a);
+        return process.argv.includes('--brief') ? report(mine).split('\n').map((line) => `${a} ${line}`).join('\n') : `## 职业 ${a}\n\n${report(mine)}`;
+    }).join('\n')
+    : report(cells);
 console.log(text);
 console.log(`用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 if (OUT) writeFileSync(OUT, OUT.endsWith('.json') ? JSON.stringify(cells, null, 2) : `${text}\n`, 'utf8');

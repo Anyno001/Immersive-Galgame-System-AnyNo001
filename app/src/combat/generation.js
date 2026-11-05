@@ -11,7 +11,7 @@ import {
     REWARD_ORIGIN_MAX, effectsDamage, gearIdFor, ledgerEntryId, normalizeCard, normalizeLedgerEntry, normalizeProfile, normalizeSkill,
     profileIdFor, validateStarterDeck,
 } from './schema.js';
-import { CARD_TEMPLATES, COMPOSITE_SKILL_KEYS, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, nearestTemplateCost, passiveAtRarity, templateCatalogText } from './card-templates.js';
+import { ARCHETYPE_FAMILIES, CARD_TEMPLATES, COMPOSITE_SKILL_KEYS, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, nearestTemplateCost, passiveAtRarity, templateCatalogText, templatesFor } from './card-templates.js';
 import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { ENEMY_ART_THEMES, enemyArtCatalogText, isEnemyArtTheme } from './enemy-art.js';
 import {
@@ -85,6 +85,9 @@ export const learnedIdFor = (characterId, skill, anchor) => `lc-${hashString([ch
 
 // 发给模型的系统提示词。逐行拼接，文字与 v0.39 一致（模型行为依赖这些措辞，勿随意改写）。
 const ARCHETYPE_KEYS = Object.keys(COMBAT_RULES.archetypes).join('|');
+// 规则 v5 职业白名单（静态，只追加在提示词末尾）：各职业允许的卡牌模板键。
+const allowedTemplateKeys = (archetype) => (Object.hasOwn(ARCHETYPE_FAMILIES, archetype) ? Object.keys(templatesFor(archetype)) : null);
+const ARCHETYPE_TEMPLATE_TEXT = Object.keys(ARCHETYPE_FAMILIES).map((archetype) => `${archetype}=${allowedTemplateKeys(archetype).join(',')}`).join('；');
 export const GENERATION_SYSTEM = [
     '你负责为卡牌战斗系统挑选模板并起名。只返回 JSON：{"entities":[{"key":"请求里的 key","value":{...}}]}。请求 entities 中的每个 key 恰好出现一次（标注 optional 的可以省略），不输出请求以外的 key，不写注释或解释。',
     '效果、数值、ID、升级版和起始卡组都由程序按模板生成；你只填下列字段，模板键必须从目录中选择。',
@@ -113,6 +116,7 @@ export const GENERATION_SYSTEM = [
     `- encounter-theme：{"theme":"${Object.keys(ENEMY_ART_THEMES).join('|')}"}——本场敌人立绘用哪套题材：${Object.entries(ENEMY_ART_THEMES).map(([key, label]) => `${key} ${label}`).join('、')}。按剧情与世界书（context.story、context.worldInfo）以及 input.encounter、input.enemies 判断这些敌人的时代与装束：古代、江湖、仙侠选 wuxia，西方中世纪或魔法世界选 western，近现代与未来选 urban。`,
     '- profile-gear：{"gear":[0–4 件，每件 ["装备名，≤20 字","weapon|armor|accessory|treasure","common|uncommon|rare|epic|mythic","简述，≤80 字，可省"]]}——角色 input.name 此刻带在身上的装备，每个部位至多 1 件。你只定名称、部位与稀有度；加成属性、是否带被动与数值都由程序抽定，不要写。input.required 为 true（主角）时至少给 1 件：先列 input.lore、context.story、context.worldInfo 明确写到这个角色持有的装备，一件都没写到时按其身份与所处世界给 1–2 件合乎设定的随身装备，稀有度以 common、uncommon 为主。没有 input.required 的角色只列上述资料明确写到的装备，不按身份、职业或常识补发；一件都没写到时回 {"gear":[]}。稀有度按这件装备在剧情与设定中的分量判断：家传宝剑、神兵、成名法器可给 epic 或 mythic，寻常佩刀、布衣给 common。',
     '带 previousErrors 的实体上一轮被拒收：按其中的字段路径（指向你上一轮的回复）和原因修改 previous，其余保持不变。',
+    `职业模板范围：class 与 class-tier 的卡牌只能用所选（或 input.archetype）职业允许的卡牌模板；profile-deck 的人物技能同样只能用本职业允许的模板，cards 最多 1 张取自其他职业；signature-card 不限。input.allowedTemplates 存在时就是本角色允许的模板键。各职业允许的模板：${ARCHETYPE_TEMPLATE_TEXT}。`,
 ].join('\n');
 
 // 各流派生命值范围，供 profile-deck 请求参考
@@ -133,6 +137,8 @@ const classSummary = (cls) => ({
 export function deckProfileEntities({ name, id = profileIdFor('deck-character', name), role = 'ally', classRef = null, className = '', classes } = {}) {
     const matched = className ? classList(classes).find((cls) => cls.className === className) : null;
     const resolvedClassRef = classRef || matched?.id || null;
+    const resolvedClass = resolvedClassRef ? classList(classes).find((cls) => cls.id === resolvedClassRef) : null;
+    const allowed = allowedTemplateKeys(resolvedClass?.archetype);
     const entities = [];
     let classKey = null;
     if (!resolvedClassRef) {
@@ -148,7 +154,7 @@ export function deckProfileEntities({ name, id = profileIdFor('deck-character', 
         role,
         owner: id,
         // 专属卡不再随卡组档案请求（v0.39.2），到解锁等级时另行生成；assembleDeck 仍接受旧回复里的 signature。
-        input: { name, archetypeHp: ARCHETYPE_HP, costSlots: costSlotsFor('personal', id), ...(resolvedClassRef ? { classRef: resolvedClassRef } : {}) },
+        input: { name, archetypeHp: ARCHETYPE_HP, costSlots: costSlotsFor('personal', id), ...(resolvedClassRef ? { classRef: resolvedClassRef } : {}), ...(allowed ? { allowedTemplates: allowed } : {}) },
         fixed: { kind: 'deck-character', id, name, ...(resolvedClassRef ? { classRef: resolvedClassRef } : {}) },
         ...(classKey ? { classKey } : {}),
     });
@@ -185,7 +191,8 @@ export function classTierEntity({ character, cls, tier, rarity, tierName = '', m
         kind: 'class-tier',
         role: 'ascend',
         owner: character.id,
-        input: { characterName: character.name, className: cls.className, archetype: cls.archetype, tier, rarity, costSlots: [...CARD_COST_SLOTS.tier], ...(tierName ? { previousTierName: tierName } : {}) },
+        input: { characterName: character.name, className: cls.className, archetype: cls.archetype, tier, rarity, costSlots: [...CARD_COST_SLOTS.tier], ...(tierName ? { previousTierName: tierName } : {}),
+            ...(allowedTemplateKeys(cls.archetype) ? { allowedTemplates: allowedTemplateKeys(cls.archetype) } : {}) },
         fixed: { classRef: cls.id, tier, cardIds },
     };
 }

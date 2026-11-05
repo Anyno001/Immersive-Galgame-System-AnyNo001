@@ -472,6 +472,58 @@ const ARCHETYPE_PREFERRED = Object.freeze({
     bard: ['prepare', 'rally-draw', 'footwork', 'wail', 'quick', 'surge', 'cripple', 'might', 'echo', 'encore', 'frenzy', 'hone', 'replicate'],
 });
 
+// 卡牌模板的机制族（规则 v5 职业白名单）：每个模板恰好属于一个族，general 为通用族，所有职业可用。
+// ARCHETYPE_PREFERRED 仍只决定推荐顺序；各职业的推荐模板与默认人物技能都落在其允许的族内（加载时自检）。
+const TEMPLATE_FAMILY_TABLE = Object.freeze({
+    general: ['strike', 'twin', 'bash', 'cripple', 'rend', 'quick', 'guard', 'brace', 'prepare', 'jab', 'trip', 'opener', 'might'],
+    fury: ['shatter', 'desperate', 'inflame', 'tear', 'fleeting', 'rampage', 'momentum', 'whirl'],
+    cleave: ['sweep', 'scatter', 'thunder'],
+    fortify: ['bulwark', 'counter', 'lure', 'xguard', 'plating'],
+    thorns: ['spikes', 'bastion'],
+    ward: ['cover', 'rally', 'aegis', 'rally-draw', 'talisman'],
+    restore: ['mend', 'regrow', 'reap'],
+    volley: ['finisher', 'footwork', 'glance', 'chain', 'sift', 'encore', 'cull'],
+    venom: ['flurry', 'venom', 'toxin', 'execute', 'venom-draw', 'flask'],
+    shadow: ['agility', 'gut', 'scrap', 'reflex', 'toss'],
+    hex: ['expose', 'hex', 'wail'],
+    arcane: ['surge', 'adrenal', 'purge', 'echo', 'quicken', 'rhythm', 'temper'],
+    conjure: ['mimic', 'forge', 'scavenge', 'replicate'],
+    cadence: ['fumble', 'hone', 'frenzy'],
+});
+export const ARCHETYPE_FAMILIES = Object.freeze({
+    warrior: Object.freeze(['general', 'fury', 'cleave', 'fortify', 'restore']),
+    guardian: Object.freeze(['general', 'fortify', 'thorns', 'ward']),
+    ranger: Object.freeze(['general', 'cleave', 'volley']),
+    assassin: Object.freeze(['general', 'venom', 'shadow', 'volley']),
+    mage: Object.freeze(['general', 'cleave', 'hex', 'arcane', 'venom']),
+    priest: Object.freeze(['general', 'ward', 'restore', 'hex', 'fortify']),
+    summoner: Object.freeze(['general', 'thorns', 'ward', 'restore', 'venom', 'conjure', 'cleave']),
+    bard: Object.freeze(['general', 'ward', 'volley', 'hex', 'arcane', 'conjure', 'cadence']),
+});
+export const TEMPLATE_FAMILIES = Object.freeze(Object.fromEntries(Object.entries(TEMPLATE_FAMILY_TABLE).flatMap(([family, keys]) => keys.map((key) => [key, family]))));
+export const templateFamily = (key) => TEMPLATE_FAMILIES[key] ?? null;
+export function templateAllowedFor(key, archetype) {
+    const families = Object.hasOwn(ARCHETYPE_FAMILIES, archetype) ? ARCHETYPE_FAMILIES[archetype] : null;
+    return Boolean(families && Object.hasOwn(CARD_TEMPLATES, key) && families.includes(TEMPLATE_FAMILIES[key]));
+}
+// 该职业允许的卡牌模板子表（未知职业为空表）。
+export const templatesFor = (archetype) => Object.fromEntries(Object.entries(CARD_TEMPLATES).filter(([key]) => templateAllowedFor(key, archetype)));
+
+(function checkTemplateFamilies() {
+    const fail = (reason) => { throw new Error(`template-families-invalid:${reason}`); };
+    const listed = Object.values(TEMPLATE_FAMILY_TABLE).flat();
+    if (new Set(listed).size !== listed.length) fail('duplicate');
+    for (const key of listed) if (!Object.hasOwn(CARD_TEMPLATES, key)) fail(`unknown:${key}`);
+    for (const key of Object.keys(CARD_TEMPLATES)) if (!Object.hasOwn(TEMPLATE_FAMILIES, key)) fail(`unassigned:${key}`);
+    for (const archetype of Object.keys(COMBAT_RULES.archetypes)) {
+        const families = ARCHETYPE_FAMILIES[archetype];
+        if (!families || !families.includes('general') || !families.every((family) => Object.hasOwn(TEMPLATE_FAMILY_TABLE, family))) fail(`archetype:${archetype}`);
+        for (const key of ARCHETYPE_PREFERRED[archetype] || []) if (!templateAllowedFor(key, archetype)) fail(`preferred:${archetype}:${key}`);
+        if (!templateAllowedFor(DEFAULT_HERO_SKILLS[archetype]?.[1], archetype)) fail(`hero:${archetype}`);
+    }
+})();
+
+
 // 给提示词用的模板目录文本（每类一行）。
 export function templateCatalogText() {
     const section = (title, templates, prefix) => `${title}：${Object.entries(templates).map(([key, tpl]) => `${key}=${prefix ? prefix(tpl) : ''}${tpl.label}`).join('；')}`;

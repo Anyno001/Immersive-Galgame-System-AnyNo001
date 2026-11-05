@@ -9,6 +9,7 @@
 // - 效果、技能、被动这类静态定义不再深拷贝，引擎对它们只读。
 // 行为、数值与事件流与 v0.39.0 一致。
 import { COMBAT_RULES, TOKEN_CARDS, isCompatibleRulesVersion } from './rules.js';
+import { hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
     LOW_HP_RATIO, canAfford, cardCountKey, cardView, computeBlock, computeDamage, conditionHolds,
@@ -92,15 +93,38 @@ function setStatus(unit, status, stacks) {
     else delete unit.statuses[status];
 }
 
+// 规则 v5 时机钩子：只在 v5 战斗调用，v3/v4 重放不进入。钩子按登记顺序执行，嵌套深度不超过 MAX_DEPTH；
+// payload 里的单位是工作副本，改动其他单位须经 ctx.state.units[id] 取得。
+const PLAY_RUNS_MAX = 20;
+function runHooks(ctx, point, payload) {
+    if (!(ctx.state.rulesVersion >= 5) || ctx.state.outcome) return;
+    const hooks = hooksAt(point);
+    const depth = ctx.hookDepth || 0;
+    if (!hooks.length || depth >= MAX_DEPTH) return;
+    ctx.hookDepth = depth + 1;
+    try {
+        for (const hook of hooks) {
+            if (ctx.state.outcome) break;
+            hook.run(ctx, payload, engineKit(null));
+        }
+    } finally {
+        ctx.hookDepth = depth;
+    }
+}
+
+// 内置减益或已登记机制声明的减益。
+const isDebuff = (status) => DEBUFFS.includes(status) || Boolean(statusDef(status)?.debuff);
+
 // 施加状态；负面状态先被神器抵消一层。
 function addStatus(ctx, unit, status, stacks, source) {
-    if (DEBUFFS.includes(status) && (unit.statuses.artifact || 0) > 0) {
+    if (isDebuff(status) && (unit.statuses.artifact || 0) > 0) {
         setStatus(unit, 'artifact', unit.statuses.artifact - 1);
         emit(ctx, { type: 'artifact', source, target: unit.id, status });
         return;
     }
     setStatus(unit, status, (unit.statuses[status] || 0) + stacks);
     emit(ctx, { type: 'status', source, target: unit.id, status, stacks });
+    if (isDebuff(status)) runHooks(ctx, 'debuff-applied', { target: unit, status, stacks, source });
 }
 
 // 效果的目标类型：显式 target 优先，其次按 op/状态推断。
@@ -253,6 +277,8 @@ function cloneUnit(unit) {
     if (unit.traitSkillsUsed) copy.traitSkillsUsed = unit.traitSkillsUsed.slice();
     if (unit.turnCostMod) copy.turnCostMod = { ...unit.turnCostMod };
     if (unit.turnStats) copy.turnStats = { ...unit.turnStats, byCard: { ...unit.turnStats.byCard } };
+    // 规则 v5 单位资源容器（心境、法珠槽、随从等，可能含嵌套数组），整体深拷贝。
+    if (unit.res) copy.res = deepCopy(unit.res);
     return copy;
 }
 
@@ -406,10 +432,25 @@ function reinforce(ctx, fallen) {
 // source 是事件里的来源；kind 是 attack/thorns/poison/self。strike 是同一次攻击的序号。
 function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
     if (ctx.state.outcome || !target.alive || amount <= 0) return 0;
+    // 规则 v5：中毒、自伤等「失去生命」不算受到伤害，不触发伤害前后钩子，只走失去生命钩子。
+    const v5 = ctx.state.rulesVersion >= 5;
+    const loss = v5 && isLossKind(kind);
+    if (v5 && !loss) {
+        const pre = { target, amount, source, kind, blockable };
+        runHooks(ctx, 'damage-before', pre);
+        if (Number.isFinite(pre.amount)) amount = Math.max(0, Math.floor(pre.amount));
+        if (ctx.state.outcome || !target.alive || amount <= 0) return 0;
+    }
     if ((target.statuses.intangible || 0) > 0) amount = Math.min(amount, 1);
     const blocked = blockable ? Math.min(target.block, amount) : 0;
     target.block -= blocked;
     let hpLoss = Math.min(target.hp, amount - blocked);
+    if (hpLoss > 0 && ctx.state.rulesVersion >= 5) {
+        const pre = { target, hpLoss, source, kind };
+        runHooks(ctx, 'hp-loss-before', pre);
+        if (ctx.state.outcome || !target.alive) return 0;
+        if (Number.isFinite(pre.hpLoss)) hpLoss = Math.max(0, Math.min(target.hp, Math.floor(pre.hpLoss)));
+    }
     const endured = hpLoss >= target.hp && (target.statuses.endure || 0) > 0;
     if (endured) {
         hpLoss = target.hp - 1;
@@ -418,6 +459,7 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
     target.hp -= hpLoss;
     const event = { type: 'damage', kind, source, target: target.id, amount, blocked, hpLoss };
     if (strike) event.strike = strike;
+    if (loss) event.loss = true;
     emit(ctx, event);
     if (endured) {
         target.block += COMBAT_RULES.endureBlock;
@@ -428,10 +470,13 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
         target.block = 0;
         delete ctx.state.intents[target.id];
         emit(ctx, { type: 'defeated', unitId: target.id });
+        runHooks(ctx, 'defeated', { unit: target, source, kind });
         reinforce(ctx, target);
     } else if (hpLoss > 0) {
         checkHpThresholds(ctx, target);
     }
+    if (!loss) runHooks(ctx, 'damage-after', { target, source, kind, amount, blocked, hpLoss });
+    if (hpLoss > 0) runHooks(ctx, 'hp-loss-after', { target, source, kind, hpLoss });
     checkOutcome(ctx);
     const attacker = source?.unitId != null ? ctx.state.units[source.unitId] : null;
     if (!target.alive && kind === 'attack' && attacker && attacker.side !== target.side) fireBus(ctx, attacker, 'kill', null);
@@ -516,6 +561,15 @@ function runEffects(ctx, unit, effects, aimId, source) {
 
 // 当前正在结算的牌实例（没有则空）。
 const currentInst = (ctx) => (ctx.inst ? [ctx.inst] : []);
+
+// 交给已登记机制的引擎工具（只在规则 v5 战斗中调用；运行时取用，避免模块加载顺序问题）。
+// 单位资源容器：只在 v5 战斗中按需创建；v3/v4 返回 null，旧战斗的单位形状不变。
+function resOf(ctx, unit) {
+    if (!(ctx.state.rulesVersion >= 5) || !unit) return null;
+    if (!unit.res) unit.res = {};
+    return unit.res;
+}
+const engineKit = (targets) => ({ emit, dealDamage, addStatus, setStatus, heal, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, targets });
 
 // 单个效果的结算。source 记录来源（单位、种类、id），写进事件。
 function applyEffect(ctx, unit, effect, aimId, source) {
@@ -676,6 +730,9 @@ function applyEffect(ctx, unit, effect, aimId, source) {
             emit(ctx, { type: 'buff', unitId: unit.id, buffId: source.id, trigger: effect.trigger, turns: effect.turns });
             return;
         default:
+            // 已登记机制的算子：只在 v5 战斗、且单位类型被允许时结算；v3/v4 重放与未知算子照旧不做任何事。
+            if (!(state.rulesVersion >= 5) || !opAllowedFor(effect.op, unit.kind)) return;
+            opHandler(effect.op).apply(ctx, unit, effect, aimId, source, engineKit(targets));
     }
 }
 
@@ -693,10 +750,10 @@ function strike(ctx, unit, effect, aimId, source) {
             if (ctx.state.outcome || !unit.alive) return;
             if (!target.alive) {
                 // 趁胜追击：打已倒下的敌人，只出事件不扣血。
-                if (whipping) emit(ctx, { type: 'damage', kind: 'attack', source, target: target.id, amount: computeDamage(unit, target, effect.amount, effect.strengthScale), blocked: 0, hpLoss: 0, overkill: true, strike: strikeNo });
+                if (whipping) emit(ctx, { type: 'damage', kind: 'attack', source, target: target.id, amount: computeDamage(unit, target, effect.amount, effect.strengthScale, ctx.state.rulesVersion), blocked: 0, hpLoss: 0, overkill: true, strike: strikeNo });
                 continue;
             }
-            dealDamage(ctx, target, computeDamage(unit, target, effect.amount, effect.strengthScale), source, 'attack', true, strikeNo);
+            dealDamage(ctx, target, computeDamage(unit, target, effect.amount, effect.strengthScale, ctx.state.rulesVersion), source, 'attack', true, strikeNo);
             if (!hitUnits.includes(target)) hitUnits.push(target);
             const thorns = target.statuses.thorns || 0;
             if (thorns > 0 && target.id !== unit.id) dealDamage(ctx, unit, thorns, { unitId: target.id, kind: 'status', id: 'thorns' }, 'thorns', true);
@@ -711,7 +768,7 @@ function strike(ctx, unit, effect, aimId, source) {
 function drawCards(ctx, unit, amount) {
     if ((unit.statuses['no-draw'] || 0) > 0) return;
     const pile = ctx.state.piles[unit.id];
-    let drawn = 0;
+    const drawnInsts = [];
     for (let i = 0; i < amount; i += 1) {
         if (pile.hand.length >= COMBAT_RULES.handLimit) break;
         if (!pile.draw.length) {
@@ -720,12 +777,17 @@ function drawCards(ctx, unit, amount) {
             pile.discard = [];
             emit(ctx, { type: 'reshuffle', unitId: unit.id, count: pile.draw.length });
             fireBus(ctx, unit, 'shuffle', null);
+            runHooks(ctx, 'shuffle', { unit, count: pile.draw.length });
             if (pile.hand.length >= COMBAT_RULES.handLimit || !pile.draw.length) break;
         }
-        pile.hand.push(pile.draw.pop());
-        drawn += 1;
+        const inst = pile.draw.pop();
+        pile.hand.push(inst);
+        drawnInsts.push(inst);
     }
-    if (drawn) emit(ctx, { type: 'draw', unitId: unit.id, count: drawn });
+    if (drawnInsts.length) {
+        emit(ctx, { type: 'draw', unitId: unit.id, count: drawnInsts.length });
+        runHooks(ctx, 'draw', { unit, insts: drawnInsts });
+    }
 }
 
 const newTurnStats = () => ({ attack: 0, skill: 0, power: 0, discards: 0, temps: 0, byCard: {} });
@@ -796,6 +858,7 @@ function exhaustCard(ctx, unit, inst, fireTriggers = true) {
     ctx.state.piles[unit.id].exhaust.push(inst);
     emit(ctx, { type: 'exhaust', unitId: unit.id, inst });
     if (fireTriggers) fireBus(ctx, unit, 'exhaust', null, { cardType: cardView(ctx.state, inst)?.type });
+    runHooks(ctx, 'exhaust', { unit, inst });
 }
 
 // 生成一张临时牌放进 where（hand/draw/discard）；手牌满了改放弃牌堆。每回合有张数上限。
@@ -813,6 +876,7 @@ function addTempCard(ctx, unit, entry, where) {
     else if (place === 'draw') pile.draw.splice(rollInt(state, pile.draw.length + 1), 0, inst);
     else pile.discard.push(inst);
     emit(ctx, { type: 'card-created', unitId: unit.id, inst, cardId: entry.cardId, to: place });
+    runHooks(ctx, 'create', { unit, inst, cardId: entry.cardId, to: place });
     return inst;
 }
 
@@ -935,7 +999,10 @@ function takeSkillTurn(ctx, unit) {
 function startUnitTurn(ctx, unit) {
     const state = ctx.state;
     if (state.outcome || !unit.alive) return;
-    unit.block = 0;
+    const before = { unit, clearBlock: true };
+    runHooks(ctx, 'turn-start-before', before);
+    if (state.outcome || !unit.alive) return;
+    if (before.clearBlock) unit.block = 0;
     unit.cardsPlayed = 0;
     delete unit.turnStats;
     delete unit.lastPlayed;
@@ -972,7 +1039,7 @@ function startUnitTurn(ctx, unit) {
         } else if (gain.gain === 'counter') {
             const foe = state.units[gain.targetId];
             emit(ctx, { type: 'counter', unitId: unit.id, target: gain.targetId, amount: gain.amount, fizzled: gain.fizzled === true });
-            if (gain.fizzled !== true && foe?.alive) dealDamage(ctx, foe, computeDamage(unit, foe, gain.amount), { unitId: unit.id, kind: 'counter', id: 'counter' }, 'attack', true);
+            if (gain.fizzled !== true && foe?.alive) dealDamage(ctx, foe, computeDamage(unit, foe, gain.amount, 1, state.rulesVersion), { unitId: unit.id, kind: 'counter', id: 'counter' }, 'attack', true);
             if (state.outcome) return;
         }
     }
@@ -986,6 +1053,7 @@ function startUnitTurn(ctx, unit) {
     }
     fireBus(ctx, unit, 'turn-start', null);
     if (unit.kind === 'deck' && unit.alive && !state.outcome) drawCards(ctx, unit, unit.drawPerTurn + extraDraw);
+    if (unit.alive) runHooks(ctx, 'turn-start-after', { unit });
 }
 
 // 回合结束处理手牌：消散牌耗尽，保留牌留在手里，其余进弃牌堆。
@@ -1005,6 +1073,8 @@ function settleHand(ctx, unit) {
 // 单位回合结束：回合结束触发、持续能力、手牌结算、buff 计时、负面状态衰减。
 function endUnitTurn(ctx, unit) {
     if (ctx.state.outcome || !unit.alive) return;
+    runHooks(ctx, 'turn-end-before', { unit });
+    if (ctx.state.outcome || !unit.alive) return;
     fireTrigger(ctx, unit, 'turn-end', null);
     if (!unit.alive) return;
     for (const power of unit.powers || []) {
@@ -1023,6 +1093,10 @@ function endUnitTurn(ctx, unit) {
     }
     if (unit.buffs?.length) unit.buffs = unit.buffs.map((buff) => ({ ...buff, turns: buff.turns - 1 })).filter((buff) => buff.turns > 0);
     for (const status of DECAYING_STATUSES) if (unit.statuses[status] > 0) setStatus(unit, status, unit.statuses[status] - 1);
+    if (ctx.state.rulesVersion >= 5) {
+        for (const status of Object.keys(unit.statuses)) if (statusDef(status)?.decay) setStatus(unit, status, unit.statuses[status] - 1);
+    }
+    if (unit.alive) runHooks(ctx, 'turn-end-after', { unit });
 }
 
 // ---------- 打牌 ----------
@@ -1042,6 +1116,16 @@ function playCard(ctx, unit, inst, aimId) {
         const [replay] = unit.replayNext.splice(replayIndex, 1);
         runs *= 1 + replay.amount;
         emit(ctx, { type: 'replay', unitId: unit.id, inst, times: replay.amount });
+    }
+    // 规则 v5 关键字「重演」：整张额外执行 card.replay 次，费用与出牌计数不变。
+    if (state.rulesVersion >= 5 && Number.isInteger(card.replay) && card.replay > 0) {
+        runs = Math.min(runs * (1 + card.replay), PLAY_RUNS_MAX);
+        emit(ctx, { type: 'replay', unitId: unit.id, inst, times: card.replay, keyword: true });
+    }
+    if (state.rulesVersion >= 5) {
+        const before = { unit, inst, card, aimId: aimId ?? null, runs };
+        runHooks(ctx, 'play-before', before);
+        if (before.runs !== runs && Number.isInteger(before.runs) && before.runs >= 1) runs = Math.min(before.runs, PLAY_RUNS_MAX);
     }
     state.play = { unitId: unit.id, inst, cardId: card.id, effects: card.effects, targetId: aimId ?? null, runs, run: 0, index: 0, exhaust: false };
     resolvePlay(ctx);
@@ -1097,6 +1181,7 @@ function finishPlay(ctx) {
     checkOutcome(ctx);
     fireBus(ctx, unit, 'card-played', play.targetId, { cardType: card.type });
     for (const foeId of livingIds(state, opposite(unit.side))) fireBus(ctx, state.units[foeId], 'foe-card-played', unit.id, { cardType: card.type });
+    if (unit.alive) runHooks(ctx, 'play-after', { unit, inst: play.inst, card, targetId: play.targetId });
 }
 
 // ---------- 动作合法性检查：返回 null 表示可行，否则 { reason, detail } ----------

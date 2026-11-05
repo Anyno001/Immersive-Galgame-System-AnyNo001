@@ -10,6 +10,7 @@ import { cardMotifSvg } from './combat-card-motifs.js';
 import { scalingMarks } from '../../combat/card-scaling.js';
 import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { CHALLENGE_LABELS, challengeStatusName, intimateLabelsOf } from '../../combat/challenge-labels.js';
+import { statusLabel } from '../../combat/mechanics/registry.js';
 
 // 卡牌属性性能显示：换算过的卡给出带增减标记的描述片段；固定卡与旧战斗不带字段，形状与旧版一致。
 // 带标记的数字附 tip（要求属性、倍率与「原值 → 现值（差值）」，点数字由面板弹出）；scaleNote 是同样内容的整句，并入卡牌 aria-label 供读屏。
@@ -58,7 +59,7 @@ const mainEffect = (effects) => effects.find((e) => effectAt(e, 'damage', 'block
 // 附加效果短写：状态「易伤2」、抽牌「抽1」、能量「能量1」、每回合触发「回合初挡4」；认不出的效果返回空串。
 function effectBrief(e) {
     switch (e?.op) {
-        case 'status': return `${COMBAT_STATUS_NAMES[e.status] || e.status}${e.stacks}`;
+        case 'status': return `${statusName(e.status)}${e.stacks}`;
         case 'draw': return `抽${e.amount}`;
         case 'energy': return `能量${e.amount}`;
         case 'damage': return `伤${e.amount}`;
@@ -66,7 +67,7 @@ function effectBrief(e) {
         case 'heal': return `回${e.amount}`;
         case 'each-turn': { const t = effectBrief((e.then || [])[0]); return t ? `${e.at === 'turn-end' ? '回合末' : '回合初'}${t}` : ''; }
         case 'conditional': { const t = effectBrief((e.then || [])[0]); return t ? `条件${t}` : ''; }
-        case 'next-turn': return e.gain === 'energy' ? `下回合能量${e.amount}` : e.gain === 'draw' ? `下回合抽${e.amount}` : `下回合${COMBAT_STATUS_NAMES[e.status] || e.status}${e.stacks}`;
+        case 'next-turn': return e.gain === 'energy' ? `下回合能量${e.amount}` : e.gain === 'draw' ? `下回合抽${e.amount}` : `下回合${statusName(e.status)}${e.stacks}`;
         case 'self-damage': return `失血${e.amount}`;
         case 'delayed-counter': return `反击${e.amount * e.mult}`;
         case 'mutual-damage': return `同伤${e.amount}`;
@@ -105,7 +106,7 @@ export function cardSlotView(card, hero) {
         const bonusNote = value !== baseValue ? `${parts.join('，')}，合计 ${value} 点${TOTAL_UNITS[main.op]}` : '';
         return { value, baseValue, unit, ...(hits > 1 ? { hits } : {}), ...(extra ? { extra } : {}), fxText: slotFxText(effects, main, value, hits), ...(bonusNote ? { bonusNote } : {}) };
     };
-    if (main.op === 'status') return { value: main.stacks, baseValue: main.stacks, unit: COMBAT_STATUS_NAMES[main.status], ...(extra ? { extra } : {}), fxText: slotFxText(effects, main, main.stacks, 1) };
+    if (main.op === 'status') return { value: main.stacks, baseValue: main.stacks, unit: COMBAT_STATUS_NAMES[main.status] || statusLabel(main.status) || undefined, ...(extra ? { extra } : {}), fxText: slotFxText(effects, main, main.stacks, 1) };
     if (main.op === 'heal') return finish(main.amount, main.amount, '回复', 1, []);
     const baseValue = main.amount;
     if (main.op === 'block') {
@@ -149,6 +150,10 @@ export function cardKeywordNames(card) {
 // 战斗面板的纯视图模型：会话快照 → 战前 / 对局 / 结算所需字段；不操作 DOM。
 // 是否可出牌只以引擎 legalActions 为准，界面不另算规则。
 export const COMBAT_STATUS_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '攻击力', dexterity: '防御力', poison: '中毒', regen: '再生', thorns: '荆棘', intangible: '无形', 'no-draw': '禁抽', endure: '不屈', artifact: '人工制品', frail: '脆弱' });
+// 状态显示名：内置名表优先，其次规则 v5 登记的 label，最后回落到键名。
+function statusName(key) {
+    return COMBAT_STATUS_NAMES[key] || statusLabel(key) || key;
+}
 export const COMBAT_INTENT_LABELS = Object.freeze({ attack: '攻击', defend: '防御', buff: '强化', debuff: '削弱', heal: '治疗', special: '特殊' });
 export const COMBAT_OUTCOME_LABELS = Object.freeze({ victory: '胜利', defeat: '败北', escape: '撤退' });
 // 日常挑战只换显示：结局名取自说法映射表，意图类别与剩余意志的描述在这里补全，内部字段与引擎不变。
@@ -181,7 +186,7 @@ export const COMBAT_ORDER_COUNT = 6;
 const FX_HIT_LIMIT = 6;
 
 const statusList = (statuses, challenge = false) => Object.entries(statuses || {}).filter(([, v]) => v > 0)
-    .map(([key, stacks]) => ({ key, label: (challenge && (intimateLabelsOf(challenge)?.statuses[key] || challengeStatusName(key))) || COMBAT_STATUS_NAMES[key] || key, stacks }));
+    .map(([key, stacks]) => ({ key, label: (challenge && (intimateLabelsOf(challenge)?.statuses[key] || challengeStatusName(key))) || statusName(key), stacks }));
 
 // 不选目标的牌 / 技能的承受方：选中后高亮这些单位，点其中任一个（或再点一次牌）确认打出。只读推导，不参与结算。
 function affectedIds(state, unit, effects) {

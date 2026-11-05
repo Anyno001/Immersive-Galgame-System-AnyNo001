@@ -3,6 +3,7 @@
 import { COMBAT_RULES, combatExpReward } from './rules.js';
 import { hashString } from './random.js';
 import { COMBAT_AWAKEN_TYPES } from '../scene/combat-directives.js';
+import { statusDef, statusLabel } from './mechanics/registry.js';
 
 export const REPORT_RESULT = Object.freeze({ victory: 'win', defeat: 'lose', escape: 'escape' });
 // detail 档位 -> 每回合最多写几条出手。
@@ -67,8 +68,11 @@ function describeAction(action, units) {
         if (effect.block && isSelf) parts.push('摆出守势');
         else if (effect.block) parts.push(`护住${who}`);
         for (const status of effect.statuses) {
-            if (BUFF_STATUSES.has(status)) parts.push(isSelf ? `获得${STATUS_NAMES[status]}` : `赋予${who}${STATUS_NAMES[status]}`);
-            else parts.push(`使${who}陷入${STATUS_NAMES[status] || status}`);
+            // 内置状态按原表；规则 v5 登记的状态取其 label 与 debuff 声明。
+            const label = STATUS_NAMES[status] || statusLabel(status) || status;
+            const buff = BUFF_STATUSES.has(status) || (statusDef(status) ? !statusDef(status).debuff : false);
+            if (buff) parts.push(isSelf ? `获得${label}` : `赋予${who}${label}`);
+            else parts.push(`使${who}陷入${label}`);
         }
     }
     const tail = parts.length ? `，${[...new Set(parts)].join('、')}` : '';

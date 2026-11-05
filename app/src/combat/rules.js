@@ -1,6 +1,7 @@
 // 战斗规则常量与纯函数：能量/抽牌/等级曲线、难度与敌人缩放、卡牌价值估算与预算校验。
 // 所有常量深冻结，整局共享，只读。数值与文案原样来自 v0.39.0，不要顺手调平衡。
 import { hash32 } from './random.js';
+import { opHandler } from './mechanics/registry.js';
 
 // 难度档：affixes 是 普通/精英/首领 各自的词缀数，其余字段缺省时取「无影响」的值。
 function difficultyTier({ label, hp, damage, affixes: [normal, elite, boss], curse = 0, maxHpPct = 1, extraSkills = 0, enrageAt = 50, loot = 0, healScale = 1 }) {
@@ -17,7 +18,7 @@ function deepFreeze(value) {
 }
 
 export const COMBAT_RULES = Object.freeze({
-    version: 4,
+    version: 5,
     energyPerTurn: 3,
     drawPerTurn: 5,
     handLimit: 10,
@@ -113,8 +114,8 @@ export const BASIC_CARDS = deepFreeze({
 export const BASIC_STRIKE_ID = 'basic-strike';
 export const BASIC_DEFEND_ID = 'basic-defend';
 
-// 旧存档的规则版本 3 与 4 可以互相兼容。
-export const COMPATIBLE_RULES_VERSIONS = Object.freeze([3, 4]);
+// 旧存档的规则版本 3、4 与 5 可以互相兼容；v5 新机制只在 state.rulesVersion >= 5 时启用。
+export const COMPATIBLE_RULES_VERSIONS = Object.freeze([3, 4, 5]);
 export const isCompatibleRulesVersion = (version) => COMPATIBLE_RULES_VERSIONS.includes(version);
 
 // 战斗中生成的临时牌与状态牌。
@@ -201,7 +202,8 @@ function effectValue(effect) {
         case 'buff':
             return effect.turns * (BUFF_TRIGGER_VALUE[effect.trigger] || 1) * (effect.cardType ? 0.5 : 1) * sumEffects(effect.then);
         default:
-            return 0;
+            // 已登记机制的算子按其自身估值，未登记的仍为 0。
+            return opHandler(effect.op)?.value?.(effect, sumEffects) ?? 0;
     }
 }
 

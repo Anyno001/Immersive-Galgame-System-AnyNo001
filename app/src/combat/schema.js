@@ -9,6 +9,7 @@ import { hashString } from './random.js';
 import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
+import { opHandler, reserveBuiltins } from './mechanics/registry.js';
 
 export const SCHEMA_VERSION = 1;
 
@@ -18,6 +19,8 @@ export const EFFECT_OPS = Object.freeze([
     'replay-next', 'grow', 'cost-mod', 'buff', 'delayed-counter', 'mutual-damage', 'random-branch',
 ]);
 export const STATUSES = Object.freeze(['vulnerable', 'weak', 'strength', 'dexterity', 'poison', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact', 'frail']);
+// 内置算子与状态登记为保留名，规则 v5 的新机制只能在 mechanics/ 注册表中另起名字。
+reserveBuiltins(EFFECT_OPS, STATUSES);
 export const DOUBLE_STATS = Object.freeze(['poison', 'block', 'strength']);
 export const NEXT_TURN_GAINS = Object.freeze(['draw', 'energy']);
 export const OFFENSE_TARGETS = Object.freeze(['enemy', 'all-enemies', 'random-enemy']);
@@ -62,7 +65,8 @@ const PILES = Object.freeze(['hand', 'discard', 'draw']);
 const COST_SCOPES = Object.freeze(['turn', 'combat']);
 const EACH_TURN_TIMINGS = Object.freeze(['turn-start', 'turn-end']);
 const LOOT_RARITIES = Object.freeze(['common', 'uncommon', 'rare', 'epic', 'mythic']);
-const CARD_FLAGS = Object.freeze(['retain', 'innate', 'ethereal', 'unplayable']);
+// sly（狡黠，规则 v5）：字段先行，结算在通用机制批次接入。
+const CARD_FLAGS = Object.freeze(['retain', 'innate', 'ethereal', 'unplayable', 'sly']);
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const LEDGER_ID_PATTERN = /^[A-Za-z0-9_|:.-]{1,200}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -144,10 +148,14 @@ function pickMode(value, path, state, allowed, scope) {
     return mode;
 }
 
+// 交给已登记机制的字段校验工具，与内置算子共用同一套规则与错误码。
+const FIELD_KIT = Object.freeze({ addIssue, checkKnownFields, intField, enumField, arrayField, idField, joinPath, STATUSES, OFFENSE_TARGETS, SUPPORT_TARGETS });
+
 // 单个效果。depth 为嵌套层数（条件/每回合/增益内不得再嵌套），scope 为 'top'（卡牌顶层）、'card'（卡牌内嵌套）或空（技能/被动）。
 function validateEffect(effect, path, state, depth = 0, scope) {
     if (!objectField(effect, path, state)) return;
-    const op = enumField(effect.op, joinPath(path, 'op'), state, EFFECT_OPS);
+    const handler = EFFECT_OPS.includes(effect.op) ? null : opHandler(effect.op);
+    const op = handler ? effect.op : enumField(effect.op, joinPath(path, 'op'), state, EFFECT_OPS);
     const at = (key) => joinPath(path, key);
     switch (op) {
         case 'damage':
@@ -280,7 +288,8 @@ function validateEffect(effect, path, state, depth = 0, scope) {
             };
         }
         default:
-            return;
+            if (!handler) return;
+            return handler.validate(effect, path, state, { ...FIELD_KIT, depth, scope, nested: (item, itemPath, st) => validateEffect(item, itemPath, st, depth + 1, scope ? 'card' : undefined) });
     }
 }
 
@@ -294,6 +303,7 @@ export function effectsDamage(effects) {
         else if (effect?.op === 'mutual-damage') total += effect.amount;
         else if (effect?.op === 'delayed-counter') total += effect.amount * effect.mult;
         else if (effect?.op === 'random-branch') total += Math.max(effectsDamage(effect.a), effectsDamage(effect.b));
+        else if (opHandler(effect?.op)?.damage) total += opHandler(effect.op).damage(effect, effectsDamage);
     }
     return total;
 }
@@ -306,7 +316,7 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
     if (!objectField(card, path, state)) return;
     const errorsBefore = state.errors.length;
     const at = (key) => joinPath(path, key);
-    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard'], path, state);
+    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay'], path, state);
     const name = textField(card.name, at('name'), state, 20);
     const unplayable = card.unplayable === true;
     const result = {
@@ -324,6 +334,8 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
         if (typeof card[flag] !== 'boolean') addIssue(state, at(flag), 'expected-boolean');
         else if (card[flag]) result[flag] = true;
     }
+    // 规则 v5 关键字 replay：打出时整张额外执行 1–3 次，只付一次费、只计一次出牌；v3/v4 战斗不结算。
+    if (card.replay !== undefined) result.replay = intField(card.replay, at('replay'), state, 1, 3);
     if (card.onDiscard !== undefined) result.onDiscard = arrayField(card.onDiscard, at('onDiscard'), state, 1, 2, validateEffect);
     if (unplayable) {
         if (card.cost !== 0) addIssue(state, at('cost'), 'unplayable-cost');
