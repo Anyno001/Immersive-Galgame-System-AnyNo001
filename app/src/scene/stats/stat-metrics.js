@@ -6,14 +6,14 @@ import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
 import { isProtagonist } from './stat-engine.js';
 import { grudgeTier } from './stat-state.js';
 
-const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕/;
+const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕|信任|了解|欲望|芥蒂/;
 
 export function isUserName(name, userName = '') {
     const n = String(name || '').trim();
     return Boolean(n) && (isProtagonist(n) || n === String(userName || '').trim());
 }
 
-// 主角对自己没有好感：主角说话时状态栏去掉好感类条（表格里主角那一行同样不显示）。
+// 主角对自己没有人际数值：主角说话时状态栏去掉好感、信任、了解等条（表格里主角那一行同样不显示）。
 export function dropUserFavor(model, speaker, userName = '') {
     if (!model || !Array.isArray(model.metrics) || !isUserName(speaker, userName)) return model;
     const metrics = model.metrics.filter((metric) => !FAVOR_LABEL_RE.test(String((metric && metric.label) || '')));

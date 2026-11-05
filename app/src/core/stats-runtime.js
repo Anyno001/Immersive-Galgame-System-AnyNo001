@@ -77,8 +77,10 @@ function cardOf(c) {
 }
 
 // 默认登记：已登记角色、当前角色卡名、群聊成员（§5.1B 条件 1/2）、世界书里确认过的角色、数据库表格里的人物；仅手动档只认已登记角色。
-function defaultResolver(c, register, worldRoles = null, tableNames = null) {
+function defaultResolver(c, register, worldRoles = null, tableNames = null, isHero = null) {
     return (name, state) => {
+        // 用户角色只有生活条，不按人际角色登记（表格或世界书里写了人设名也一样）。
+        if (isHero && isHero(name)) return null;
         if (Object.hasOwn(state.characters, name)) return name;
         if (register === 'manual' || !c) return null;
         const names = [c.name2, ...(Array.isArray(c.groupMembers) ? c.groupMembers : [])].filter((n) => typeof n === 'string' && n.trim());
@@ -241,7 +243,7 @@ export function createStatsRuntime({
     const background = () => { try { return Boolean(isBackground()); } catch (error) { return false; } };
     const present = (state) => {
         const names = typeof presentOf === 'function' ? presentOf(state) : Object.keys(state.characters).sort((a, b) => (state.characters[b].lastSeenDay || 0) - (state.characters[a].lastSeenDay || 0));
-        return names.filter((n) => state.characters[n]);
+        return names.filter((n) => state.characters[n] && !isHero(n));
     };
     // 数据库表格里的人物名单，主角与用户除外；读失败当没有。只取名字：数值以 IGS 为准，表格里 AI 填的数字不采用。
     let tableCache = null;
@@ -893,7 +895,7 @@ export function createStatsRuntime({
         const s = settings();
         if (worldRoles) worldRoles.sync(chatIdOf(c));
         const autoTable = !resolveCharacter && s.register !== 'manual';
-        const resolve = resolveCharacter || defaultResolver(c, s.register, worldRoles, autoTable ? tableNameSet() : null);
+        const resolve = resolveCharacter || defaultResolver(c, s.register, worldRoles, autoTable ? tableNameSet() : null, isHero);
         const prior = ledger.entries.get(ledgerKey(ledger, messageId, floor.swipeId));
         const priorMeta = (prior && prior.meta) || {};
         const p = plan || { check: givenCheck(priorMeta), preroll: priorMeta.preroll || null, note: priorMeta.note || null, ruleset: (priorMeta.check && priorMeta.check.ruleset) || (priorMeta.preroll && priorMeta.preroll.ruleset) };
@@ -1508,7 +1510,7 @@ export function createStatsRuntime({
         if (command.kind !== 'check' && command.kind !== 'contest') return null;
         const state = currentStatsState(ledger);
         const c = ctx();
-        const resolve = resolveCharacter || defaultResolver(c, settings().register, worldRoles, tableNameSet());
+        const resolve = resolveCharacter || defaultResolver(c, settings().register, worldRoles, tableNameSet(), isHero);
         const engine = memoEngineOf();
         const req = resolveDiceRequest(engine, state, command, { resolveCharacter: (name) => resolve(name, state) });
         if (!req) return null;
@@ -1891,7 +1893,8 @@ export function createStatsRuntime({
         // 状态栏 / 人际关系页的数据源：只有总开关与本聊天都启用时才接管，否则返回 null 让调用方读表格（易错点 H3）。
         metricsLookup: ev(() => {
             if (!active()) return null;
-            return createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), sheets: catalog.sheets, engine: memoEngineOf() });
+            const lookup = createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), sheets: catalog.sheets, engine: memoEngineOf() });
+            return (name) => (isHero(name) ? { metrics: [], stages: [] } : lookup(name));
         }),
         // 状态栏主角条（生命、体力、压力、金钱；金钱为合并余额）：只在总开关与本聊天都启用时返回 lookup，其余名字返回 null。
         protagonistLookup: ev(() => {
