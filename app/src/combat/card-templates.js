@@ -53,6 +53,9 @@ const freeNext = (amount, cardType) => ({ op: 'free-next', amount, ...(cardType 
 // 规则 v5 P2e 永久成长与击杀奖励（跨战斗保留，写账本 battle-growth）。
 const evolve = (stat, amount) => ({ op: 'evolve', stat, amount });
 const bounty = (reward, amount) => ({ op: 'bounty', reward, ...(reward === 'upgrade' ? {} : { amount }) });
+// 规则 v5 P3 战士锻刃（mechanics/forge.js）。
+const smith = (amount) => ({ op: 'smith', amount });
+const honeBlade = (mode, amount) => ({ op: 'hone-blade', mode, ...(mode === 'guard' ? { amount } : {}) });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -77,6 +80,8 @@ function primaryNumber(effect) {
             return 1;
         case 'bounty':
             return effect.reward === 'upgrade' ? 1 : effect.amount;
+        case 'hone-blade':
+            return effect.mode === 'guard' ? effect.amount : 1;
         case 'cost-mod':
         case 'hand-cost':
             return -effect.amount;
@@ -251,6 +256,16 @@ export const CARD_TEMPLATES = Object.freeze({
     juggernaut: template('power', '坚壁反击：每次获得格挡时对随机敌人造成伤害', [[1, 5]], 1, ([a]) => [applyStatus('juggernaut', a, 'self')]),
     bodyguard: template('skill', '掩护：到自身下回合前，指向队友的单体攻击改由自己承受，并获得格挡', [[1, 1], [1, 20]], 0.3, ([a, b]) => [applyStatus('cover', a, 'self'), block(b)]),
     phalanx: template('power', '共盾：自己获得格挡时，其余队友获得一半', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('share-block', a, 'self'), block(b)]),
+    // 规则 v5 P3 战士：W02 战意、W03 血祭（fury 族）；W04 焚身与余烬、W05 锻刃、W06 嗜血（blade 族，只给战士）。
+    warpath: template('power', '战意：每回合开始获得攻击力', [[1, 2]], 1, ([a]) => [eachTurn([status('strength', a, 'self')])]),
+    bloodoath: template('skill', '血祭：本回合每次失去生命时获得攻击力，并失去少量生命', [[1, 2], [1, 6]], 1.4, ([a, b]) => [buff('hp-loss', 1, [status('strength', a, 'self')]), selfDamage(b)]),
+    pyre: template('power', '焚身：技能牌 0 费，但打出后消耗（限史诗以上）', [[1, 1]], 1, ([a]) => [applyStatus('pyre', a, 'self')], { minRarity: 'epic' }),
+    ember: template('power', '余烬：每消耗一张牌获得格挡', [[1, 6]], 1, ([a]) => [applyStatus('ember', a, 'self')]),
+    smith: template('skill', '锻造：锻刃伤害提高（本场首次锻造把锻刃加入手牌）', [[1, 6]], 1, ([a]) => [smith(a)]),
+    'blade-sweep': template('skill', '锻刃改为攻击全体敌人，并获得格挡', [[0, 20]], 1, ([a]) => [honeBlade('aoe'), block(a)], { hero: false }),
+    'blade-echo': template('skill', '锻刃获得重演 1，并获得格挡（限稀有以上）', [[0, 20]], 1, ([a]) => [honeBlade('replay'), block(a)], { minRarity: 'rare', hero: false }),
+    'blade-guard': template('skill', '锻刃打出时另获得格挡', [[1, 20]], 1, ([a]) => [honeBlade('guard', a)], { hero: false }),
+    bloodthirst: template('skill', '嗜血：本回合攻击牌按实际扣除的生命回复，并获得格挡', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('bloodthirst', a, 'self'), block(b)]),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -613,12 +628,14 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
         'whetstone', 'carapace', 'trophy'],
     // 牌堆操作（P2b），所有职业可用。
     pile: ['scout', 'hunt', 'salvage', 'exhume', 'stack', 'boomerang', 'rebound', 'purify', 'cinder', 'reprise', 'glimpse', 'morph', 'refine', 'polish'],
-    fury: ['shatter', 'desperate', 'inflame', 'tear', 'fleeting', 'rampage', 'momentum', 'whirl', 'bloodlet', 'bloodrush', 'bloodrage', 'overdrive', 'heavy-blade'],
+    fury: ['shatter', 'desperate', 'inflame', 'tear', 'fleeting', 'rampage', 'momentum', 'whirl', 'bloodlet', 'bloodrush', 'bloodrage', 'overdrive', 'heavy-blade', 'warpath', 'bloodoath'],
     cleave: ['sweep', 'scatter', 'thunder'],
     fortify: ['bulwark', 'counter', 'lure', 'xguard', 'plating', 'slam', 'entrench'],
     thorns: ['spikes', 'bastion'],
     // 规则 v5 P3 守护壁垒，只给守护。
     rampart: ['barricade', 'hunker', 'redouble', 'armor-plate', 'rebuke', 'bramble', 'juggernaut', 'bodyguard', 'phalanx'],
+    // 规则 v5 P3 战士锻刃，只给战士。
+    blade: ['pyre', 'ember', 'smith', 'blade-sweep', 'blade-echo', 'blade-guard', 'bloodthirst'],
     ward: ['cover', 'rally', 'aegis', 'rally-draw', 'talisman'],
     restore: ['mend', 'regrow', 'reap'],
     volley: ['finisher', 'footwork', 'glance', 'chain', 'sift', 'encore', 'cull'],
@@ -632,7 +649,7 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
 });
 export const ARCHETYPE_FAMILIES = Object.freeze({
     // pile（牌堆操作，规则 v5 P2b）与 general 一样所有职业可用。
-    warrior: Object.freeze(['general', 'pile', 'fury', 'cleave', 'fortify', 'restore']),
+    warrior: Object.freeze(['general', 'pile', 'fury', 'cleave', 'fortify', 'restore', 'blade']),
     guardian: Object.freeze(['general', 'pile', 'fortify', 'thorns', 'ward', 'rampart']),
     ranger: Object.freeze(['general', 'pile', 'cleave', 'volley']),
     assassin: Object.freeze(['general', 'pile', 'venom', 'shadow', 'volley']),

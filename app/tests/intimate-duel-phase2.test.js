@@ -1197,3 +1197,110 @@ test('守护壁垒模板（D01–D09）：可反解、只给守护；固守限�
     assert.ok(describeEffects([wallStatus('plated', 4)]).includes('甲层'));
     assert.equal(templateAllowedFor('lure', 'guardian'), true);
 });
+
+
+// ---------- 规则 v5 P3 战士「锻刃」（W01–W06） ----------
+const bladeOf = (state) => state.piles.hero.hand.find((inst) => state.cards[inst].cardId === 'forge-blade');
+const selfStr = (stacks) => ({ op: 'status', status: 'strength', stacks, target: 'self' });
+
+test('攻击力翻倍与倍率重击（W01）：攻击力翻倍、攻击力加成 ×3；模板归战士', () => {
+    const doubled = def('d', 'skill', [selfStr(2), { op: 'double', stat: 'strength', target: 'self' }], { innate: true });
+    const s = startDeck({ d: doubled, k: GUARD }, ['d', ...Array(9).fill('k')]);
+    assert.equal(playIn(s, instOf(s, 'd')).state.units.hero.statuses.strength, 4);
+    const heavy = def('h', 'attack', [selfStr(2), { op: 'damage', amount: 5, target: 'enemy', strengthScale: 3 }], { innate: true });
+    const t = startDeck({ h: heavy, k: GUARD }, ['h', ...Array(9).fill('k')]);
+    assert.equal(playIn(t, instOf(t, 'h'), 'foe').state.units.foe.hp, 19);
+    for (const key of ['overdrive', 'heavy-blade', 'tear']) assert.equal(templateAllowedFor(key, 'warrior'), true, key);
+});
+
+test('战意（W02）与血祭（W03）：每回合开始获得攻击力；本回合失去生命时获得攻击力', () => {
+    const war = def('w', 'power', [{ op: 'each-turn', then: [selfStr(1)] }], { innate: true });
+    const s = startDeck({ w: war, k: GUARD }, ['w', ...Array(9).fill('k')]);
+    assert.equal(endTurn(playIn(s, instOf(s, 'w')).state).state.units.hero.statuses.strength, 1);
+    const oath = def('o', 'skill', [{ op: 'buff', trigger: 'hp-loss', turns: 1, then: [selfStr(2)] }, { op: 'self-damage', amount: 3 }], { innate: true });
+    const t = startDeck({ o: oath, k: GUARD }, ['o', ...Array(9).fill('k')]);
+    const after = playIn(t, instOf(t, 'o')).state;
+    assert.deepEqual([after.units.hero.hp, after.units.hero.statuses.strength], [27, 2]);
+});
+
+test('焚身与余烬（W04）：技能牌 0 费且打出后消耗；消耗非能力牌获得格挡；规则 v4 不生效', () => {
+    const pyre = def('p', 'power', [{ op: 'apply-status', status: 'pyre', stacks: 1, target: 'self' }], { innate: true });
+    const run = (rv) => {
+        const s = startDeck({ p: pyre, k: GUARD }, ['p', ...Array(9).fill('k')], rv);
+        const lit = playIn(s, instOf(s, 'p')).state;
+        const k = instOf(lit, 'k');
+        const done = playIn(lit, k).state;
+        return { energy: done.units.hero.energy, exhausted: done.piles.hero.exhaust.includes(k) };
+    };
+    assert.deepEqual(run(), { energy: 2, exhausted: true });
+    assert.deepEqual(run(4), { energy: 1, exhausted: false });
+
+    const ember = def('e', 'power', [{ op: 'apply-status', status: 'ember', stacks: 3, target: 'self' }], { innate: true });
+    const burn = def('x', 'skill', [{ op: 'block', amount: 1, target: 'self' }, { op: 'exhaust-self' }], { innate: true });
+    const s = startDeck({ e: ember, x: burn, k: GUARD }, ['e', 'x', ...Array(8).fill('k')]);
+    const lit = playIn(s, instOf(s, 'e')).state;
+    assert.equal(lit.units.hero.block, 0);
+    assert.equal(playIn(lit, instOf(lit, 'x')).state.units.hero.block, 4);
+});
+
+test('锻刃（W05）：首次锻造把锻刃加入手牌，再锻造只加数值；三种强化改写锻刃；锻刃保留；规则 v4 不锻造', () => {
+    const smith = def('s', 'skill', [{ op: 'smith', amount: 3 }], { innate: true });
+    const twice = startDeck({ s: smith, k: GUARD }, ['s', 's', ...Array(8).fill('k')]);
+    const once = playIn(twice, instOf(twice, 's'));
+    assert.ok(once.events.some((e) => e.type === 'forge' && e.damage === 13));
+    const both = playIn(once.state, instOf(once.state, 's')).state;
+    assert.equal(both.piles.hero.hand.filter((inst) => both.cards[inst].cardId === 'forge-blade').length, 1);
+    const view = cardView(both, bladeOf(both));
+    assert.deepEqual([view.cost, view.retain, view.effects[0].amount], [2, true, 16]);
+    assert.ok(bladeOf(endTurn(both).state));
+
+    const single = startDeck({ s: smith, k: GUARD }, ['s', ...Array(9).fill('k')]);
+    const forged = playIn(single, instOf(single, 's')).state;
+    assert.equal(playIn(forged, bladeOf(forged), 'foe').state.units.foe.hp, 17);
+
+    const guard = def('g', 'skill', [{ op: 'hone-blade', mode: 'guard', amount: 5 }], { innate: true });
+    const gs = startDeck({ g: guard, k: GUARD }, ['g', ...Array(9).fill('k')]);
+    const honed = playIn(gs, instOf(gs, 'g')).state;
+    const struck = playIn(honed, bladeOf(honed), 'foe').state;
+    assert.deepEqual([struck.units.foe.hp, struck.units.hero.block], [20, 5]);
+    for (const [mode, check] of [['aoe', (v) => v.effects[0].target === 'all-enemies'], ['replay', (v) => v.replay === 1]]) {
+        const card = def('m', 'skill', [{ op: 'hone-blade', mode }], { innate: true });
+        const ms = startDeck({ m: card, k: GUARD }, ['m', ...Array(9).fill('k')]);
+        const done = playIn(ms, instOf(ms, 'm')).state;
+        assert.ok(check(cardView(done, bladeOf(done))), mode);
+    }
+    const old = startDeck({ s: smith, k: GUARD }, ['s', ...Array(9).fill('k')], 4);
+    assert.equal(bladeOf(playIn(old, instOf(old, 's')).state), undefined);
+});
+
+test('嗜血（W06）：本回合攻击牌按实际扣除的生命回复，非攻击牌不回复，回合结束清掉；规则 v4 不回复', () => {
+    const thirst = def('b', 'skill', [{ op: 'apply-status', status: 'bloodthirst', stacks: 1, target: 'self' }, { op: 'self-damage', amount: 6 }], { innate: true });
+    const zap = def('z', 'skill', [{ op: 'damage', amount: 2, target: 'enemy' }], { innate: true });
+    const run = (rv) => {
+        const s = startDeck({ b: thirst, a: { ...ATTACK, innate: true }, z: zap, k: GUARD }, ['b', 'a', 'z', ...Array(7).fill('k')], rv);
+        let t = playIn(s, instOf(s, 'b')).state;
+        t = playIn(t, instOf(t, 'a'), 'foe').state;
+        const afterAttack = t.units.hero.hp;
+        t = playIn(t, instOf(t, 'z'), 'foe').state;
+        return { afterAttack, afterSkill: t.units.hero.hp, state: t };
+    };
+    const v5 = run();
+    assert.deepEqual([v5.afterAttack, v5.afterSkill], [26, 26]);
+    assert.equal(endTurn(v5.state).state.units.hero.statuses.bloodthirst, undefined);
+    assert.equal(run(4).afterAttack, 24);
+});
+
+test('战士锻刃模板（W02–W06）：可反解、归属正确只给战士；焚身限史诗以上；牌面写明锻造', () => {
+    const families = { warpath: 'fury', bloodoath: 'fury', pyre: 'blade', ember: 'blade', smith: 'blade', 'blade-sweep': 'blade', 'blade-echo': 'blade', 'blade-guard': 'blade', bloodthirst: 'blade' };
+    for (const [key, family] of Object.entries(families)) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), family, key);
+        assert.equal(templateAllowedFor(key, 'warrior'), true, key);
+        assert.equal(templateAllowedFor(key, 'guardian'), false, key);
+    }
+    for (const rarity of ['common', 'uncommon', 'rare']) for (const cost of [0, 1, 2, 3]) assert.equal(solveCardTemplate('pyre', cost, rarity), null, `${rarity}:${cost}`);
+    assert.ok(describeEffects([{ op: 'smith', amount: 3 }]).includes('锻造 3'));
+});

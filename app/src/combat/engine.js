@@ -589,7 +589,7 @@ function resOf(ctx, unit) {
     return unit.res;
 }
 const engineKit = (targets) => ({
-    emit, dealDamage, addStatus, setStatus, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, targets,
+    emit, dealDamage, addStatus, setStatus, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, ownCatalog, targets,
     // 规则 v5 牌堆操作用：弃牌、消耗、临时牌、写时复制、选牌（choose 时消费玩家选择或按策略选）、牌面视图与效果估值。
     discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
 });
@@ -1214,12 +1214,15 @@ function playCard(ctx, unit, inst, aimId) {
         runs = Math.min(runs * (1 + card.replay), PLAY_RUNS_MAX);
         emit(ctx, { type: 'replay', unitId: unit.id, inst, times: card.replay, keyword: true });
     }
+    // 规则 v5 play-before 钩子可置 exhaust = true，让这张牌打出后消耗（W04 焚身）。
+    let exhaustOnPlay = false;
     if (state.rulesVersion >= 5) {
-        const before = { unit, inst, card, aimId: aimId ?? null, runs };
+        const before = { unit, inst, card, aimId: aimId ?? null, runs, exhaust: false };
         runHooks(ctx, 'play-before', before);
         if (before.runs !== runs && Number.isInteger(before.runs) && before.runs >= 1) runs = Math.min(before.runs, PLAY_RUNS_MAX);
+        exhaustOnPlay = before.exhaust === true;
     }
-    state.play = { unitId: unit.id, inst, cardId: card.id, effects: card.effects, targetId: aimId ?? null, runs, run: 0, index: 0, exhaust: false };
+    state.play = { unitId: unit.id, inst, cardId: card.id, effects: card.effects, targetId: aimId ?? null, runs, run: 0, index: 0, exhaust: exhaustOnPlay };
     resolvePlay(ctx);
 }
 

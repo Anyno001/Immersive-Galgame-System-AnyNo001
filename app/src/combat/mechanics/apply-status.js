@@ -27,6 +27,10 @@ export const APPLY_STATUSES = Object.freeze({
     juggernaut: Object.freeze({ max: 5, value: 4 }),
     cover: Object.freeze({ max: 1, value: 4 }),
     'share-block': Object.freeze({ max: 1, value: 10 }),
+    // 规则 v5 P3 战士（forge.js）。
+    pyre: Object.freeze({ max: 1, value: 16 }),
+    ember: Object.freeze({ max: 6, value: 3 }),
+    bloodthirst: Object.freeze({ max: 1, value: 8 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);
