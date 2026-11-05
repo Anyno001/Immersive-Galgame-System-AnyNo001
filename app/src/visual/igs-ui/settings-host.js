@@ -837,7 +837,7 @@ export function createSettingsHost(deps) {
                 }
                 const result = await importStatsTemplate(client, fetched.data, scope);
                 showSettingsNotice(result.ok
-                    ? (scope === 'chat' ? '已应用到当前聊天' : `已存入数据库模板预设「${STATS_TEMPLATE_PRESET_NAME}」`)
+                    ? (scope === 'chat' ? '已用于本聊天' : `已存入数据库模板预设「${STATS_TEMPLATE_PRESET_NAME}」`)
                     : `导入失败${result.message ? `：${result.message}` : ''}`);
                 return result;
             })().catch((error) => ({ ok: false, reason: 'stats-template-import-threw', thrown: error }));

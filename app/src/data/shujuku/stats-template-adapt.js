@@ -12,9 +12,11 @@ const NPCS = 'sheet_zhong_yao_jue_se_biao';
 
 // append：追加到字段末尾；find/replace：恰好命中一次才替换；anchor/set：字段含锚点才整段替换。
 export const STATS_TEMPLATE_EDITS = Object.freeze([
+    { sheet: VALUES, field: 'note', find: '- 已知秘密：已查明或获知的具体秘密内容', replace: '- 已知秘密：主角已经掌握的关于该角色的情报，即该角色刻意隐瞒、外人不易知道的事实，如真实身份、过往经历、隐藏关系、真实目的；不记录该角色当前的行动、身体状态或情绪' },
+    { sheet: VALUES, field: 'note', find: '- 未知秘密：尚未探明或仅见端倪的秘密线索/悬念内容', replace: '- 未知秘密：主角尚未查明、仅见端倪的情报疑点，写成待解的问题或线索；不记录该角色当前的行动、身体状态或情绪' },
     { sheet: VALUES, field: 'note', append: `${M}好感度、信任度、了解程度由前端维护，填表时禁止修改这三列；已知秘密、未知秘密仍按剧情维护。` },
     { sheet: VALUES, field: 'initNode', find: '赋予初始好感度、信任度、了解程度（均使用百分比%格式）', replace: '好感度、信任度、了解程度一律填 0%（由前端维护）' },
-    { sheet: VALUES, field: 'updateNode', anchor: '单次事件变动', set: '与主角互动产生认知加深或秘密揭露时，只更新已知秘密与未知秘密。好感度、信任度、了解程度由前端维护，禁止修改。' },
+    { sheet: VALUES, field: 'updateNode', anchor: '单次事件变动', set: '主角获得关于该角色的新情报或秘密被揭露时，更新已知秘密与未知秘密；未知秘密查明后移入已知秘密。本轮没有新情报时两列保持不变。好感度、信任度、了解程度由前端维护，禁止修改。' },
     { sheet: CHECKS, field: 'note', find: '- 成长后属性最高不得超过90；若成长结果会超过90，按90记录。\n', replace: '' },
     { sheet: CHECKS, field: 'note', find: '普通检定、对抗检定和成长检定', replace: '普通检定和对抗检定' },
     { sheet: CHECKS, field: 'note', append: `${M}属性成长由前端结算，填表时不要自行提高或降低任何属性数值。` },
