@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { STATS_TEMPLATE_EDITS, adaptStatsTemplate } from '../src/data/shujuku/stats-template-adapt.js';
 import { parseTables } from '../src/data/shujuku/table-parser.js';
 import { detectStatMappings } from '../src/data/shujuku/stats-push.js';
-import { downloadStatsTemplate, statsTemplateUrl } from '../src/visual/igs-ui/stats-template-link.js';
+import { downloadStatsTemplate, statsTemplateUrl, fetchStatsTemplate, importStatsTemplate, statsTemplateChatDiff, STATS_TEMPLATE_PRESET_NAME } from '../src/visual/igs-ui/stats-template-link.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const BASE = path.resolve(here, '../../../参考文件/TavernDB_template_恋爱Gal_一键开关(1).json');
@@ -74,4 +74,22 @@ test('下载入口：地址相对 bundle 指向 ./templates/，先取回内容�
     assert.deepEqual(clicks, ['blob:igs-template', url]);
     assert.equal(body.children.length, 0);
     assert.equal((await downloadStatsTemplate(null)).reason, 'stats-template-no-document');
+});
+
+test('直接导入：global 存预设库、chat 以 seed 替换并核对 runtimeReady；预检列出会被隐藏的表', async () => {
+    const tpl = { mate: { type: 'chatSheets' }, sheet_a: { name: '角色数值表' }, sheet_b: { name: '主角信息表' } };
+    const fetched = await fetchStatsTemplate('u', { fetchImpl: async () => ({ ok: true, json: async () => tpl }) });
+    assert.equal(fetched.ok, true);
+    assert.equal((await fetchStatsTemplate('u', { fetchImpl: async () => ({ ok: false, status: 404 }) })).reason, 'stats-template-fetch-failed');
+    assert.equal((await fetchStatsTemplate('u', { fetchImpl: async () => ({ ok: true, json: async () => ({}) }) })).reason, 'stats-template-invalid');
+
+    const calls = [];
+    const client = { importTemplate: async (t, o) => { calls.push(o); return { ok: true, result: { runtimeReady: o.scope !== 'chat' } }; } };
+    assert.deepEqual(await importStatsTemplate(client, tpl), { ok: true, scope: 'global' });
+    assert.equal((await importStatsTemplate(client, tpl, 'chat')).reason, 'stats-template-runtime-not-ready');
+    assert.deepEqual(calls.map((o) => [o.scope, o.dataMode, o.presetName]), [['global', 'seed', STATS_TEMPLATE_PRESET_NAME], ['chat', 'seed', STATS_TEMPLATE_PRESET_NAME]]);
+    assert.equal(STATS_TEMPLATE_PRESET_NAME, '恋爱Gal_IGS数值系统适配版');
+
+    const current = { sheet_a: { name: '角色数值表' }, sheet_x: { name: '我的自定义表' } };
+    assert.deepEqual(statsTemplateChatDiff(current, tpl).hidden, ['我的自定义表']);
 });

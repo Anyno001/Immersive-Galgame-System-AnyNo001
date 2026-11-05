@@ -198,6 +198,7 @@ const RATIO_RE = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/;
 const PERCENT_RE = /^(-?\d+(?:\.\d+)?)\s*([%％])?$/;
 const COLOR_RULES = Object.freeze([
     [/信任|信赖/, 'trust'],
+    [/芥蒂|仇怨|怨恨/, 'grudge'],
     [/好感|喜欢|爱意|爱慕/, 'like'],
     [/了解|认知|熟悉/, 'know'],
 ]);

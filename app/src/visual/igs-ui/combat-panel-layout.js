@@ -68,7 +68,7 @@ ${SP} .igs-combat-dock .igs-combat-controls:has(>.igs-combat-awaken) .igs-combat
 ${SP} .igs-combat-dock .igs-combat-ctl{width:44px;height:28px;}
 ${SP} .igs-combat-turn{display:contents;}
 ${SP} .igs-combat-turn-btns{display:flex;align-items:center;gap:8px;}
-${SP} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="cancel"]){order:-1;}
+${SP} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="stop"],[data-combat-act="cancel"]){order:-1;}
 ${SP} .igs-combat-piles{gap:0;font-size:12px;}
 ${SP} .igs-combat-piles>span+span::before{content:"·";margin:0 6px;}
 ${SP} .igs-combat-piles b{margin-left:4px;}`;

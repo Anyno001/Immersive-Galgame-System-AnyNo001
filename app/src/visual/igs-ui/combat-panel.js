@@ -8,11 +8,13 @@ import { COMBAT_AWAKEN_END, COMBAT_CUTIN_MS, buildAwakenCutin, buildOpeningCutin
 import { battleSfxKind } from './fx-battle-sfx.js';
 import { KO_FALL_SFX_DELAY_MS, koFallKind, koFallSfx, playKoFall } from './combat-ko-fall.js';
 import { createCombatLines } from './combat-lines.js';
+import { createIntimateDuelFx } from './intimate-duel-fx.js';
+import { createDuelLowGate } from '../../scene/intimate-duel.js';
 import { combatPortraitNames } from '../../scene/creature-battle.js';
 import { ensureFxLayers } from './fx-layer.js';
 import { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
 import { battleView, challengeLobbyView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
-import { combatIntroUiHtml, combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } from './combat-panel-render.js';
+import { cardTipHtml, combatIntroUiHtml, combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } from './combat-panel-render.js';
 import { actionProgress } from '../../combat/engine.js';
 import { autoTargetFor, openTargetPicker, skinPickerVars } from './combat-target-picker.js';
 import { enemyArtCell } from './combat-enemy-art.js';
@@ -203,6 +205,21 @@ export function createCombatPanelController(doc, options = {}) {
             return { show: lines?.show !== false, tts: lines?.tts !== false };
         },
     });
+    const duelFx = createIntimateDuelFx({
+        doc, getRoot: () => root, getOverlay: () => pageOverlay, sfx: (kind) => { try { options.playSfx?.(kind); } catch (error) { /* 音效失败不影响演出 */ } },
+        getRhythmSound: () => options.getDuelFx?.()?.rhythmSound !== false, reduced: () => reduced() || lowQuality(),
+    });
+    const duelLowGate = createDuelLowGate();
+    const syncDuel = (view) => {
+        if (!view.intimate || !view.battle) return;
+        const foe = view.battle.enemies[0];
+        if (!foe) return;
+        const ratio = foe.maxHp ? foe.hp / foe.maxHp : 0;
+        const cur = session()?.state();
+        try { options.onDuelProgress?.(ratio); } catch (error) { /* 立绘切换失败不影响对决 */ }
+        duelFx.sync({ ratio, turn: view.battle.turn, rounds: Number(cur?.challengeSetup?.challenge?.rounds ?? cur?.challenge?.rounds) || 0, ended: view.status === 'ended' });
+        if (view.status !== 'ended' && duelLowGate(cur?.combatId, ratio)) unitSay(foe.id, 'down');
+    };
     // 登记判定（见 combat-ko-fall.js koFallKind）：宿主 options.isRegisteredCharacter(name)、正文写了台词的角色、日常挑战的「对方」。
     const koKindOf = (unit) => {
         const cur = session()?.state();
@@ -233,7 +250,7 @@ export function createCombatPanelController(doc, options = {}) {
         const cur = session()?.state();
         const u = cur?.battle?.units?.[unitId];
         if (!u) return;
-        unitSay(unitId, 'down');
+        if (!cur.challengeSetup?.challenge?.intimate) unitSay(unitId, 'down');
         if (u.side !== 'enemy' || reduced()) return;
         const kind = koKindOf(u);
         playKoFall(unitEl(unitId), kind, { schedule: later });
@@ -350,8 +367,10 @@ export function createCombatPanelController(doc, options = {}) {
         const challenge = cur.kind === 'challenge';
         if (historyOpen) { view.historyOpen = true; view.challenge = true; view.history = typeof options.challengeHistory === 'function' ? options.challengeHistory() : null; }
         if (challenge) view.challenge = true;
+        const mechanic = challenge ? cur.challenge?.intimate?.mechanic || cur.challengeSetup?.challenge?.intimate?.mechanic || '' : '';
+        if (mechanic) view.intimate = mechanic;
         if (cur.status === 'lobby') view.lobby = challenge ? challengeLobbyView(cur) : lobbyView(cur);
-        if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal, { challenge });
+        if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal, { challenge: mechanic || challenge });
         // 待选阶段：只保留仍在候选里的已选牌；不在待选阶段时清空，视图不写 chosen。
         const choice = view.battle?.choice;
         if (!choice) chosen = [];
@@ -362,7 +381,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (view.battle) view.battle.items = view.battle.items.map((i) => { const imageUrl = itemArtFor(i.name); return imageUrl ? { ...i, imageUrl } : i; });
         if (view.battle && (swaps.size || entering.size)) swapView(view.battle, cur.battle);
         if (view.battle && held.size) shownHeld(view.battle);
-        if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events, { challenge, summary: cur.challengeSummary });
+        if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events, { challenge: mechanic || challenge, summary: cur.challengeSummary });
         if (settling) view.settling = true;
         // 演出速度只在二倍速时写进视图：原速时视图形状不变。
         if (fxSpeed > 1) view.fxSpeed = fxSpeed;
@@ -494,6 +513,7 @@ export function createCombatPanelController(doc, options = {}) {
         syncControlDock();
         if (view.intro && !stageFxStyle(skinOf())) flashScreen(false);
         syncIntro(view);
+        syncDuel(view);
         // 自己翻开神话：短暂停顿后全屏白闪（低画质不挂，减少动态效果时不闪）。
         if (!reduced() && view.flip?.struck?.some((p) => view.flip.cards.some((c) => c.position === p && c.slot?.rarity === 'mythic'))) flashScreen();
         if (lobbyDrawn) lobbyShown = true;
@@ -502,6 +522,7 @@ export function createCombatPanelController(doc, options = {}) {
         markDrag();
         // 人物特性详情：选中的主动特性重绘后在圆球旁重新弹出（4b：点选即选中并弹详情；拖动圆球途中不弹）；否则点开的头像详情保持（单位此时可选为目标、头像不可点时收起）。
         if (view.battle && isSkillSelection(selected)) { if (!drag?.live) showTraitTip((t) => t.kind === 'active' && t.skillId === selectionSkillId(selected)); }
+        else if (view.battle && selected && !isItemSelection(selected) && !drag?.live && showCardTip(selected)) { /* 截断的牌面说明已弹出 */ }
         else if (view.battle && keepUnit) showUnitTip(keepUnit);
         if (!had) return;
         const same = act ? [...(body.querySelectorAll?.(`[data-combat-act="${act}"]`) || [])].find((n) => (n.getAttribute('data-combat-id') || '') === id) : null;
@@ -1147,8 +1168,10 @@ export function createCombatPanelController(doc, options = {}) {
                 hxRun((c, sch) => hxCallout(c, { who: u.name, move: playedActionName(seg.events, cur.battle), url: portraitsFor([u.name])[u.name], schedule: sch }));
             }
         };
+        // 画布皮肤开场已有 VS 对撞，不再叠「ENCOUNTER」遭遇横幅；初始方案照旧。
+        const encounter = start && !stageFxStyle(skinOf());
         segs.forEach((seg, i) => {
-            const fx = combatFxSource(seg.events, cur.battle, { start: start && i === 0, foe, title: cur.start?.encounter || '' });
+            const fx = combatFxSource(seg.events, cur.battle, { start: encounter && i === 0, foe, title: cur.start?.encounter || '' });
             fxSeq += 1;
             const plan = planBattleFx(fx, { settings: { enabled: true, letterbox: false }, holdScale: COMBAT_FX_HOLD_SCALE, identity: { chatId: 'igs-combat', messageId: cur.combatId || '', swipeId: 0, page: fxSeq } });
             if (seg.track && dots.size) {
@@ -1591,7 +1614,9 @@ export function createCombatPanelController(doc, options = {}) {
         // 打击感：结算前记下各单位血量与被打出的牌（重绘会替换节点）。
         const prior = was && !reduced() ? hpSnapshot(was) : null;
         const card = action?.type === 'play' ? captureCard(action.inst) : null;
+        const playedName = action?.type === 'play' ? was?.catalog?.[was.cards?.[action.inst]?.owner]?.[was.cards?.[action.inst]?.cardId]?.name : '';
         const r = s.act(action);
+        if (r.ok && playedName) duelFx.onPlay(playedName);
         selected = null; chosen = [];
         say(r);
         // 新动作：引擎已立即结算，演出按动作顺序逐条播放——前面的时间轴还没播完时排到它们之后（拼手速可以一口气打出多张），命中按增量落到同一份暂存血量上；
@@ -1747,6 +1772,19 @@ export function createCombatPanelController(doc, options = {}) {
         showScaleTip(anchor, traitTipHtml(t));
         if (scaleTip) scaleTip.trait = t.id;
         return true;
+    }
+
+    // 选中牌的完整说明：牌面效果文字（各皮肤的说明节点）或整张牌被截断时才在牌上方弹出，放得下时不弹。
+    const CARD_TEXT_SEL = '.igs-combat-card-text,.desc,.ds,.fx';
+    const clipped = (n) => n && (n.scrollHeight > n.clientHeight + 1 || n.scrollWidth > n.clientWidth + 1);
+    function showCardTip(inst) {
+        const anchor = cardEl(inst);
+        const card = anchor ? selectionView(inst) : null;
+        if (!card) return false;
+        const texts = [...(anchor.querySelectorAll?.(CARD_TEXT_SEL) || [])];
+        if (!texts.some(clipped) && !clipped(anchor)) return false;
+        showScaleTip(anchor, cardTipHtml(card));
+        return Boolean(scaleTip);
     }
 
     // 单位详情浮层（点头像，助手 10-28）：按头像的 data-unit-info 找重绘后的节点，内容取当前战斗状态（unitDetailView）；
@@ -1918,6 +1956,7 @@ export function createCombatPanelController(doc, options = {}) {
             case 'choose-confirm': return confirmChoice();
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
+            case 'stop': return sendAndLeave(() => s.abandon());
             case 'finish': return sendAndLeave(() => s.finish());
             case 'retry-send': return sendAndLeave(() => s.retrySend());
             case 'flip':
@@ -1931,6 +1970,14 @@ export function createCombatPanelController(doc, options = {}) {
             case 'skip': return runAsync('skip', () => s.skip());
             case 'auto': return runAsync('auto', () => s.autoPlay());
             case 'ally': return toggleAlly(id);
+            case 'im-mech':
+            case 'im-pos': {
+                if (pending || typeof s.setIntimateOptions !== 'function') return { ok: false, reason: 'combat-busy' };
+                const r = s.setIntimateOptions(name === 'im-mech' ? { mechanic: id } : { position: id });
+                say(r);
+                render();
+                return r;
+            }
             case 'history': historyOpen = !historyOpen; render(); return { ok: true };
             case 'abandon': {
                 if (!abandonArmed) {
@@ -2087,7 +2134,7 @@ export function createCombatPanelController(doc, options = {}) {
         // 不选目标的牌 / 技能（没有可选目标）：牌拖出手牌区、技能拖到战场上松在空处也打出 / 发动。
         drag.free = !selectionView(sel)?.targets?.length;
         // 拖动中不弹选中技能的详情浮层（render 也不补弹），松手或撤销后照常。
-        if (drag.skill) hideScaleTip();
+        hideScaleTip();
         const el = dragEl(drag);
         const base = stage?.getBoundingClientRect?.();
         const ghost = el && base?.width && drag.rect?.width ? ghostOf(el) : null;
@@ -2303,6 +2350,7 @@ export function createCombatPanelController(doc, options = {}) {
         overlay.classList?.toggle('igs-record-screen-open', true);
         // 战斗期间隐藏背后的剧情文字（对话层），背景与立绘保留。
         overlay.setAttribute?.('data-igs-combat-open', '');
+        if (openOptions.duel === true) overlay.setAttribute?.('data-igs-duel', '');
         setStagePauseReason(overlay, PAUSE_REASON, true);
         battleMusic(overlay, true);
         const cur = s.state();
@@ -2377,6 +2425,8 @@ export function createCombatPanelController(doc, options = {}) {
         stage = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
         pageOverlay?.removeAttribute?.('data-igs-combat-open');
+        pageOverlay?.removeAttribute?.('data-igs-duel');
+        duelFx.stop();
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         battleMusic(pageOverlay, false);
         pageOverlay = null;

@@ -333,8 +333,23 @@ const deckBuild = createCombatDeckPanelController(document, {
   getBuildCandidates: async () => ({ ok: true, table: 'ok', list: [['阿明', true], ['林夏', false], ['陈屿', false]]
     .filter(([name]) => !buildDone.has(name)).map(([name, protagonist]) => ({ name, protagonist, attributes: buildAttr })) }),
 });
+// 人物状态面板 · 战斗开启：读战斗示例账本（主角与职业档案）；?deckpage=status|alloc|gear|deck 打开后切到该页。写入能力只给空函数，用于显示按钮。
+const deckNoop = async () => ({ ok: false, reason: 'combat-generate-unavailable' });
+const deckFull = createCombatDeckPanelController(document, {
+  getLedger: () => combatPreview.ledger, getSession: () => combatPreview.session,
+  regenerateDeck: deckNoop, respecClass: deckNoop, ascendClass: deckNoop, drawTrait: deckNoop, pickTrait: deckNoop, unlockTraitSlot: deckNoop,
+  getTheme: () => new URLSearchParams(location.search).get('theme') || '', setTheme: () => {},
+});
+async function openDeckFull() {
+  deckFull.open(overlay);
+  for (let i = 0; i < 80 && deckFull.view()?.status !== 'ready'; i += 1) await new Promise(r => setTimeout(r, 25));
+  const want = new URLSearchParams(location.search).get('deckpage');
+  if (want) deckFull.invoke('page', want);
+}
 function openPage(page) {
   current?.close?.();
+  if (page === 'deck') { current = deckFull; openDeckFull(); }
+  else
   if (page === 'settings-scene' || isSettingsPage(page)) current = openSettingsScene();
   else if (page === 'combat') { current = combat; openCombat(); }
   else if (page === 'deck-build') { current = deckBuild; deckBuild.open(overlay, { build: new URLSearchParams(location.search).get('build') || null }); }
@@ -367,7 +382,7 @@ document.getElementById('hud').addEventListener('click', event => {
   const page = event.target?.dataset?.page;
   if (page) openPage(page);
 });
-window.__preview = { openPage, setSize, record, map, combat, deckBuild, combatState, combatStats: combatPreview.stats, stats };
+window.__preview = { openPage, setSize, record, map, combat, deckBuild, deckFull, combatState, combatStats: combatPreview.stats, stats };
 </script>
 </body>
 </html>

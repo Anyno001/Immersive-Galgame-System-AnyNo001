@@ -94,9 +94,8 @@ const IMAGE_SOURCE_TEMPLATE = `
       <div class="igs-source-filter-grid">
         {{autoNaiEndpointField}}{{autoNaiKeyField}}
         {{autoNaiModelField}}{{autoNaiEffortField}}{{autoNaiSizeField}}
-        {{autoNaiTransportField}}{{autoNaiIntervalField}}
+        {{autoNaiTransportField}}
       </div>
-      <div class="igs-settings-sub">{{autoNaiCloudQueueFields}}</div>
       {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}
@@ -108,6 +107,11 @@ const IMAGE_SOURCE_TEMPLATE = `
           {{autoNaiStepsField}}{{autoNaiScaleField}}
           {{autoNaiSamplerField}}
         </div>
+      </details>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai-queue"{{autoNaiQueueOpen}}>
+        <summary>间隔与排队</summary>
+        <div class="igs-settings-sub">{{autoNaiIntervalFields}}</div>
+        <div class="igs-settings-sub">{{autoNaiCloudQueueFields}}</div>
       </details>
     </div>
     <div class="igs-settings-sub" data-image-source="extension"{{sourceExtensionHidden}}>
@@ -422,6 +426,12 @@ const COMBAT_TEMPLATE = `
     {{combatRuleSwitches}}
   </div>
   <div class="igs-source-filter"{{battleCardHidden}}>
+    <div class="igs-source-filter-title">亲密对决</div>
+    {{combatIntimateSwitches}}
+    <div class="igs-source-filter-grid">{{combatIntimateFields}}</div>
+    <div class="igs-source-filter-note">需同时开启NSFW。对决期间对方使用动情表情。</div>
+  </div>
+  <div class="igs-source-filter"{{battleCardHidden}}>
     <div class="igs-source-filter-title">台词与敌人</div>
     <div class="igs-source-filter-grid">{{combatLineSwitches}}</div>
     {{combatAtlasField}}
@@ -485,7 +495,9 @@ const STATS_TEMPLATE = `
         <div class="igs-source-filter-note">表格里的数值只作展示；在表格里改动的数值会在下一次同步时被覆盖。</div>
         <div class="igs-source-filter-note">推荐导入「IGS数值系统适配版」表格模板：填表AI不再改好感与属性，导入后无需配置。</div>
         <div class="igs-settings-row">
-          <button class="igs-settings-action" data-action="stats-template-download" type="button">下载适配版表格模板</button>
+          <button class="igs-settings-action" data-action="stats-template-import" type="button">存入数据库模板</button>
+          <button class="igs-settings-action" data-action="stats-template-apply-chat" type="button">应用到当前聊天</button>
+          <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板文件</button>
         </div>
       </div>
       <div class="igs-source-filter">{{statsPromptFields}}</div>

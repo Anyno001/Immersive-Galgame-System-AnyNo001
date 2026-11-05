@@ -1,9 +1,9 @@
 // 数值系统运行时装配（§3、§4.2、§10A；v2 §5、§6；易错点 A1–A6、B1–B3、H1/H2、N1/N2/N5–N7）。
 // 只协调宿主事件、账本、注入与后台请求；结算规则在 scene/stats，正文解析不在这里做。
 // 总开关关闭时不挂任何监听（sync 解绑）；本聊天未启用时不注入、不结算，数值冻结。
-import { activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
+import { STATS_LOG_MAX, activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
-import { settleFloorText } from '../scene/stats/stat-settle.js';
+import { MANUAL_DIMS, applyManualRelations, settleFloorText } from '../scene/stats/stat-settle.js';
 import { createChatStatsStore, emptyCatalog, sanitizeCatalog, sheetAbilityScores } from '../scene/stats/stat-persist.js';
 import {
     BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, statTagHash, verifyStatImport,
@@ -16,7 +16,7 @@ import { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } from '../scene
 import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
-import { createStatsState } from '../scene/stats/stat-state.js';
+import { createStatsState, grudgeOfCharacter } from '../scene/stats/stat-state.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
 import { pushStats, withTimeout } from '../data/shujuku/stats-push.js';
 import { createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
@@ -675,6 +675,8 @@ export function createStatsRuntime({
         const body = String(m.mes ?? '');
         // 重算同一楼沿用当时结算的好感档，改档只影响之后的楼。
         const favorMode = prior ? (priorMeta.favorMode === 'hard' ? 'hard' : 'normal') : s.favorMode;
+        // 手改关系挂在楼上：重算、重 roll 同一楼都沿用，否则一重 roll 就丢。
+        const manual = priorMeta.manual || manualOfFloor(messageId);
         // 同一楼同一 swipe 的结算种子与骰序都由「聊天 + 楼序号 + swipe」决定（确定性）。
         const ordinal = floorCheckOrdinal(messages(c), messageId);
         const seed = settleSeed(chatId, ordinal, floor.swipeId);
@@ -689,7 +691,7 @@ export function createStatsRuntime({
             }
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
             });
             const meta = { ...r.meta };
             if (p.preroll) meta.preroll = p.preroll;
@@ -1348,6 +1350,43 @@ export function createStatsRuntime({
     }
 
     // ---- 设置页存档区操作 ----
+    function manualOfFloor(messageId) {
+        for (const entry of ledger.entries.values()) if (entry.messageId === messageId && entry.meta && entry.meta.manual) return entry.meta.manual;
+        return null;
+    }
+
+    // 手改关系数值：写进最近一楼的结算结果，并记在该楼 meta.manual 上，之后重算或重 roll 这一楼仍保留。
+    function relationOp(op, name, payload = {}) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        if (op !== 'set') return { ok: false, reason: 'stats-relation-op-unknown' };
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        const entry = activeEntryBefore(ledger, Infinity);
+        if (!entry || !entry.after.characters[name]) return { ok: false, reason: 'stats-relation-missing' };
+        const dims = {};
+        for (const key of MANUAL_DIMS) {
+            const v = Number(payload[key]);
+            if (Object.hasOwn(payload, key) && (!Number.isInteger(v) || v < -100 || v > 100)) return { ok: false, reason: 'stats-relation-invalid' };
+            if (Object.hasOwn(payload, key)) dims[key] = v;
+        }
+        if (!Object.keys(dims).length) return { ok: true, cancelled: true };
+        const changes = [];
+        const after = applyManualRelations(entry.after, { [name]: dims }, changes);
+        if (!changes.length) return { ok: true };
+        const prev = (entry.meta && entry.meta.manual) || {};
+        const meta = { ...(entry.meta || {}), manual: { ...prev, [name]: { ...(prev[name] || {}), ...dims } } };
+        const m = messages(ctx())[entry.messageId];
+        if (!m) return { ok: false, reason: 'stats-relation-missing' };
+        const all = [...entry.changes, ...changes];
+        const record = floorRecord({ messageId: entry.messageId, swipeId: entry.swipeId, tagHash: statTagHash(String(m.mes ?? '')), baseId: entry.baseId ?? null, seed: entry.seed, before: entry.before, after, changes: all, meta, createdAt: Date.now() });
+        const key = ledgerKey(ledger, entry.messageId, entry.swipeId);
+        ledger.entries.set(key, { ...entry, after, meta, changes: all, recordId: record.id });
+        ledger.log = ledger.log.concat(changes.map((row) => ({ floor: key, ...row }))).slice(-STATS_LOG_MAX);
+        persist([record]);
+        onChange(currentStatsState(ledger), null);
+        push();
+        return { ok: true };
+    }
+
     function sheetOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         const sheets = { ...catalog.sheets };
@@ -1460,6 +1499,7 @@ export function createStatsRuntime({
         manualRoll: ev(manualRoll),
         diagnose: ev(diagnose),
         sheetOp: ev(sheetOp),
+        relationOp: ev(relationOp),
         skillOp: ev(skillOp),
         heroOp: ev(heroOp),
         // 旧版备份已不再写入；这里只保留「删除旧版备份」按钮的清理入口。
@@ -1497,6 +1537,9 @@ export function createStatsRuntime({
             return {
                 bars: state.protagonist.bars, skills: state.protagonist.skills, clock: state.clock, present: names,
                 favors: Object.fromEntries(names.map((name) => [name, Number(state.characters[name].dims && state.characters[name].dims['好感']) || 0])),
+                trusts: Object.fromEntries(names.map((name) => [name, Number(state.characters[name].dims && state.characters[name].dims['信任']) || 0])),
+                grudges: Object.fromEntries(names.map((name) => [name, grudgeOfCharacter(state, name)])),
+                intimate: Object.fromEntries(Object.entries(state.characters).filter(([, character]) => character.intimate).map(([name, character]) => [name, character.intimate])),
             };
         },
         // 状态栏常驻主角区：与 protagonistLookup 同一份条目，名字取玩家名；没启用或没有可显示的条时为 null。

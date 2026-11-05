@@ -192,6 +192,12 @@ function effectValue(effect) {
             return effect.amount * 2;
         case 'cost-mod':
             return -effect.amount * (effect.mode === 'random' ? 3 : effect.mode === 'self' ? 2.5 : 5) * (effect.scope === 'combat' ? 1.5 : 1);
+        case 'delayed-counter':
+            return effect.amount * (4 / 3) * effect.mult * 0.8 - effect.amount;
+        case 'mutual-damage':
+            return effect.amount * (4 / 3) - (effect.selfAmount ?? effect.amount) * 0.5;
+        case 'random-branch':
+            return 0.5 * (sumEffects(effect.a) + sumEffects(effect.b));
         case 'buff':
             return effect.turns * (BUFF_TRIGGER_VALUE[effect.trigger] || 1) * (effect.cardType ? 0.5 : 1) * sumEffects(effect.then);
         default:

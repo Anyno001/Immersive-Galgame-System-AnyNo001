@@ -12,3 +12,18 @@ export const CHALLENGE_SKILL_NAMES = Object.freeze({
 
 export const challengeStatusName = (status) => (Object.hasOwn(CHALLENGE_STATUS_NAMES, status) ? CHALLENGE_STATUS_NAMES[status] : null);
 export const challengeSkillName = (templateKey) => (Object.hasOwn(CHALLENGE_SKILL_NAMES, templateKey) ? CHALLENGE_SKILL_NAMES[templateKey] : null);
+
+export const INTIMATE_LABELS = Object.freeze({
+    合拍: Object.freeze({
+        enemy: '对方', hp: '氛围', foeHp: '隔阂', damage: '靠近', block: '稳住', battle: '亲密', energy: '心绪', turn: '回合', escape: '停下', victory: '合拍', defeat: '错拍',
+        statuses: Object.freeze({ weak: '慌乱', vulnerable: '心动', poison: '余温' }),
+        intents: Object.freeze({ attack: '打乱', defend: '紧张', buff: '放松', debuff: '羞涩', heal: '平复', special: '特殊' }),
+    }),
+    主导: Object.freeze({
+        enemy: '对方', hp: '掌控', foeHp: '对方掌控', damage: '进逼', block: '招架', battle: '亲密', energy: '心绪', turn: '回合', escape: '停下', victory: '占上风', defeat: '落下风',
+        statuses: Object.freeze({ weak: '动摇', vulnerable: '破绽', poison: '沉溺' }),
+        intents: Object.freeze({ attack: '反扑', defend: '观望', buff: '蓄势', debuff: '挑衅', heal: '平复', special: '特殊' }),
+    }),
+});
+
+export const intimateLabelsOf = (mechanic) => (Object.hasOwn(INTIMATE_LABELS, mechanic) ? INTIMATE_LABELS[mechanic] : null);

@@ -8,7 +8,7 @@ import { normalizeCombatExpansionSettings } from './combat-settings.js';
 export const COMBAT_ENTRY_ID = 'igs-combat-entry';
 
 // challengeQuota 为 challengeQuota 的结果：额度用完或冷却中时标签不生效，入口不出现。
-export function resolveCombatEntry({ readerSettings, floor, lastPage, sourceFilter, challengeQuota } = {}) {
+export function resolveCombatEntry({ readerSettings, floor, lastPage, sourceFilter, challengeQuota, intimate } = {}) {
     const settings = normalizeCombatExpansionSettings(readerSettings && readerSettings.combatExpansion);
     if (!settings.enabled || !lastPage || !floor || !floor.isAi || !floor.isLatest || !floor.chatId) return null;
     const text = String(floor.text || '');
@@ -19,11 +19,13 @@ export function resolveCombatEntry({ readerSettings, floor, lastPage, sourceFilt
             return { key, messageId: Number(floor.messageId), encounter: start.encounter, tier: start.tier, enemies: start.enemies };
         }
     }
-    if (settings.kind === 'combat') return null;
-    const { start } = parseChallengeStart(text, { sourceFilter, quota: challengeQuota || undefined });
+    if (settings.kind === 'combat' && !intimate) return null;
+    const parsed = parseChallengeStart(text, { sourceFilter, quota: challengeQuota || undefined, intimate: intimate || undefined }).start;
+    let start = parsed && (parsed.intimate === true || settings.kind !== 'combat') ? parsed : null;
+    if (!start && intimate && intimate.launch === true) start = { event: '亲密', domain: '亲密', tier: '普通', tagHash: 'launch', occurrence: 0, intimate: true };
     if (!start) return null;
     const key = ['ch', floor.chatId, floor.messageId, floor.swipeId, start.tagHash, start.occurrence].join('|');
-    return { kind: 'challenge', key, messageId: Number(floor.messageId), event: start.event, domain: start.domain, tier: start.tier, allowEscape: settings.daily.allowEscape };
+    return { kind: 'challenge', key, messageId: Number(floor.messageId), event: start.event, domain: start.domain, tier: start.tier, allowEscape: settings.daily.allowEscape, ...(start.intimate ? { intimate: true } : {}) };
 }
 
 // 本页诊断用：入口没出现时，开战标签本身有没有识别到、诊断码是什么。

@@ -6,6 +6,7 @@ import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abiliti
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
+import { grudgeTier } from '../../scene/stats/stat-state.js';
 
 // 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
 export const STAT_PROMPT_LABELS = Object.freeze({
@@ -234,8 +235,9 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
     const n = (v) => esc(String(Math.round(Number(v) || 0)));
     const people = model.characters.length
         ? model.characters.map((c) => {
-            const dims = Object.entries(c.dims).map(([k, v]) => `${esc(k)} ${n(v)}`).join(' · ');
-            return `<div class="igs-source-filter-note"><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</div>`;
+            const dims = Object.entries(c.dims).filter(([k, v]) => k !== '芥蒂' || grudgeTier(v)).map(([k, v]) => `${esc(k)} ${k === '芥蒂' ? esc(grudgeTier(v)) : n(v)}`).join(' · ');
+            return `<div class="igs-settings-field"><span><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</span><div class="igs-mood-word-list">`
+                + `<button class="igs-settings-action" data-action="stats-op:relation-set:${esc(encodeURIComponent(c.name))}" type="button">修改</button></div></div>`;
         }).join('')
         : '<div class="igs-source-filter-note">还没有登记的角色。</div>';
     const log = model.log.length

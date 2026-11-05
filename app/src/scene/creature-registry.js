@@ -61,11 +61,11 @@ export function planCreatureProfiles({ effective = {}, cardDna = {}, hints = [],
         if (!key) continue;
         const existing = Object.hasOwn(dnaMap, key) ? plain(dnaMap[key]) : null;
         const creature = existing ? normalizeCreatureProfile(existing.creature) : null;
-        // 判定为人类的临时档案：删除本卡里只有该档案的条目，之后按人类流程处理。
+        // 判定为人类的临时档案：去掉档案、标为人类战斗对手（仍列在敌人名单），之后按人类流程处理。
         if (hint.source === 'discard') {
             if (creature && creature.temp && Object.hasOwn(map, key) && Object.keys(plain(map[key])).every((field) => field === 'creature')) {
-                const { [key]: removed, ...rest } = map;
-                map = rest; evicted.push(key);
+                map = { ...map, [key]: { combatFoe: true } };
+                updated.push(key);
             }
             continue;
         }

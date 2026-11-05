@@ -24,6 +24,9 @@ const costMod = (amount, mode, scope) => ({ op: 'cost-mod', amount: -amount, mod
 const buff = (trigger, turns, then, cardType) => ({ op: 'buff', trigger, ...(cardType ? { cardType } : {}), turns, then });
 const eachTurn = (then, at) => ({ op: 'each-turn', then, ...(at ? { at } : {}) });
 const cleanse = (target = 'self') => ({ op: 'cleanse', target });
+const delayedCounter = (amount, mult) => ({ op: 'delayed-counter', amount, mult, target: 'enemy' });
+const mutualDamage = (amount) => ({ op: 'mutual-damage', amount, target: 'enemy' });
+const randomBranch = (a, b) => ({ op: 'random-branch', a, b });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -34,6 +37,8 @@ function primaryNumber(effect) {
         case 'each-turn':
         case 'buff':
             return effect.then.length ? primaryNumber(effect.then[0]) : 0;
+        case 'random-branch':
+            return Math.max(0, ...[...effect.a, ...effect.b].map(primaryNumber));
         case 'exhaust-self':
         case 'discard-hand':
             return 1;
@@ -101,6 +106,9 @@ export const CARD_TEMPLATES = Object.freeze({
     footwork: template('power', '防御力+抽 1 张', [[1, 3], [1, 1]], 0.7, ([a, b]) => [status('dexterity', a, 'self'), draw(b)]),
     glance: template('attack', '伤害；被丢弃时抽 1 张', [[1, 30]], 1, ([a]) => [damage(a)], { onDiscard: [draw(1)] }),
     gut: template('attack', '伤害；本回合已弃过牌时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('discarded-gte', 1, [damage(b)])]),
+    lure: template('attack', '自损生命，下回合按倍数反击（对方意图被指定时落空）', [[1, 12]], 1, ([a]) => [delayedCounter(a, 2)]),
+    tear: template('attack', '对目标与自身同时造成等量伤害', [[1, 40]], 1, ([a]) => [mutualDamage(a)]),
+    fumble: template('attack', '随机：无效果，或造成高额伤害', [[1, 40]], 1, ([a]) => [randomBranch([], [damage(a)])]),
     fleeting: template('attack', '高伤害，虚无（回合结束仍在手中则消耗）', [[1, 40]], 1, ([a]) => [damage(a)], { flags: { ethereal: true } }),
     mimic: template('attack', '伤害，复制本牌加入弃牌堆（不能 0 费）', [[1, 30]], 1, ([a]) => [damage(a), copySelf(1, 'discard')], { costs: [1, 2, 3], hero: false }),
     chain: template('attack', '伤害；本回合已打出过同名牌时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('same-card-gte', 1, [damage(b)])], { hero: false }),

@@ -3,7 +3,7 @@ import { findStatusHudRow, normalizeStatusHudTables, parseMetricCell } from './s
 
 // 人际关系页的人物数值：读取名称含「数值」的表与状态栏已选表，只展示单元格里明确的数值与「阶段」文字。
 const METRIC_TABLE_KEYWORDS = Object.freeze(['数值']);
-const PLAIN_METRIC_LABEL_RE = /好感|信任|了解|亲密|爱意|依赖|依恋|心动|羁绊|默契|警惕|敌意/;
+const PLAIN_METRIC_LABEL_RE = /好感|信任|了解|亲密|爱意|依赖|依恋|心动|羁绊|默契|警惕|敌意|芥蒂/;
 const STAGE_LABEL_RE = /阶段/;
 const PLAIN_NUMBER_RE = /^-?\d+(?:\.\d+)?$/;
 const MAX_METRICS = 6;

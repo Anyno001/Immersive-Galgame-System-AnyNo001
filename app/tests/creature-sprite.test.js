@@ -79,7 +79,7 @@ test('正文线索与登记规划：战斗对手建临时档，已登记人物�
     // 多对手写法「甲、乙」逐个登记（第三期起），顿号不再当作群体名整体丢弃。
     assert.deepEqual(planCreatureProfiles({ effective: {}, cardDna: {}, hints: creatureHintsOf('[igs-fx:battle|甲、乙|x]'), now: 9 }).created, ['甲', '乙']);
     const discarded = planCreatureProfiles({ effective: { characterDna: foe.cardDna }, cardDna: foe.cardDna, hints: [{ name: '哥布林', source: 'discard' }] });
-    assert.equal(discarded.cardDna.哥布林, undefined);
+    assert.deepEqual(discarded.cardDna.哥布林, { combatFoe: true }, '判定为人类：去档案、留在敌人名单');
     const resize = planCreatureProfiles({ effective: { characterDna: foe.cardDna }, cardDna: foe.cardDna, hints: creatureHintsOf('[igs-fx:creature|哥布林|兽|巨型]') });
     assert.equal(resize.cardDna.哥布林.creature.size, 'giant');
     assert.equal(planCreatureProfiles({ effective: {}, cardDna: {}, hints: [] }).changed, false);
@@ -233,13 +233,13 @@ function battleFloor(text, assets, judge) {
     return made;
 }
 
-test('战斗对手判为人类：删除临时档案并按人类立绘流程出图', async t => {
+test('战斗对手判为人类：去掉临时档案、留作人类对手并按人类立绘流程出图', async t => {
     const assets = { enabled: true, characters: {}, characterDna: {}, scenes: {} };
     const { h, service } = battleFloor('[igs-fx:battle|黑衣剑客|x]', assets, () => '黑衣剑客: human');
     t.after(() => h.dispose());
     const result = await service.processMessage(4, { manual: true });
     assert.equal(result.ok, true, JSON.stringify(result));
-    assert.equal(assets.characterDna.黑衣剑客, undefined);
+    assert.deepEqual(assets.characterDna.黑衣剑客, { combatFoe: true });
     assert.equal(h.wires.length, 1);
     assert.match(h.wires[0].parameters.v4_prompt.caption.base_caption, /upper body, standing/);
     assert.doesNotMatch(h.wires[0].parameters.v4_prompt.caption.base_caption, /no humans/);

@@ -342,12 +342,12 @@ function parseLinePhase(value) {
     return String(value ?? '').split(/[\/／]+/).map((part) => part.trim()).filter((part) => part && part.length <= LINES_SENTENCE_MAX).slice(0, LINES_PER_PHASE);
 }
 
-function pickCombatLines(tags, startTag, diagnostics) {
+function collectCombatLines(tags, diagnostics, beforeIndex = Infinity) {
     const out = [];
     const seen = new Set();
     for (const tag of tags) {
         if (tag.kind !== 'lines') continue;
-        if (tag.index > startTag.index) { diagnostics.push({ code: 'combat-lines-after-start', ...locateOf(tag) }); continue; }
+        if (tag.index > beforeIndex) { diagnostics.push({ code: 'combat-lines-after-start', ...locateOf(tag) }); continue; }
         const character = textField('character', tag.fields[0], NAME_MAX, true);
         if (!character.ok) { diagnostics.push({ code: 'combat-lines-invalid', field: character.field, problem: character.problem, ...locateOf(tag) }); continue; }
         if (seen.has(character.value)) { diagnostics.push({ code: 'combat-lines-duplicate', ...locateOf(tag) }); continue; }
@@ -359,6 +359,13 @@ function pickCombatLines(tags, startTag, diagnostics) {
         if (out.length >= LINES_MAX_CHARACTERS) break;
     }
     return out;
+}
+
+const pickCombatLines = (tags, startTag, diagnostics) => collectCombatLines(tags, diagnostics, startTag.index);
+
+// 亲密对决的台词：同一个 lines 标签，四段含义为开场、出招、受击、快失守；标签位置不限，按角色名对上对方。
+export function extractIntimateLines(body, diagnostics = []) {
+    return collectCombatLines(scanCombatTags(body), diagnostics);
 }
 
 // 提取成长指令。经验按角色每楼封顶，属性点按角色每楼封顶；超出部分截断并记诊断。

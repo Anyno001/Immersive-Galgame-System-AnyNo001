@@ -4074,6 +4074,17 @@ export async function handleSettingsAction(action, ctx) {
             if (persisted.ok === false) return persisted;
             return rerenderSettings();
         }
+        // 移出敌人名单：只去掉人类战斗对手标记，外貌与立绘不动。
+        if (op === 'unlist') {
+            const map = library.characterDna && typeof library.characterDna === 'object' ? library.characterDna : {};
+            const entry = Object.hasOwn(map, target.name) ? map[target.name] : null;
+            if (!entry || entry.combatFoe !== true) return rerenderSettings();
+            const { combatFoe, ...rest } = entry;
+            library.characterDna = { ...map, [target.name]: rest };
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+            return rerenderSettings();
+        }
         if (op === 'remove') {
             const service = options.generatedAssets;
             const slots = library.characters && typeof library.characters === 'object' ? library.characters[target.name] : null;

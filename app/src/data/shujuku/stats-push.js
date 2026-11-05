@@ -10,7 +10,7 @@ export const PUSH_TIMEOUT_MS = 3000;
 // updateCell 的行号含表头：数据行下标 + 1（与 shujuku-panel 的 toShujukuApiRowIndex、AcuDice 一致）。
 export const SHUJUKU_ROW_OFFSET = 1;
 const NAME_COLUMNS = new Set(['姓名', '角色姓名', '角色名', '角色真实姓名', '调查员姓名', 'name', '名称']);
-const DIM_RULES = Object.freeze([['好感', /好感/], ['信任', /信任/], ['了解', /了解/]]);
+const DIM_RULES = Object.freeze([['好感', /好感/], ['信任', /信任/], ['了解', /了解/], ['芥蒂', /芥蒂|仇怨|怨恨/]]);
 // 生命不再由数值侧推送（生命取自战斗 vitals），所以这里没有 health 规则。
 const BAR_RULES = Object.freeze([['stamina', /体力/], ['money', /^(?:金钱|金币|货币)$/], ['stress', /压力/]]);
 const ATTR_COLUMNS = Object.freeze({ 基础属性: 'base', 特有属性: 'special' });
@@ -118,9 +118,9 @@ export function planStatsPush(state, tables, mappings, { characterKey = (name) =
             table.rows.forEach((row, i) => {
                 const key = characterKey(trim(row[m.nameCol]));
                 const c = key && state.characters[key];
-                if (!c || !Number.isFinite(Number(c.dims[m.key]))) return;
+                if (!c || !Number.isFinite(Number(c.dims[m.key] ?? 0))) return;
                 const from = String(row[m.col] ?? '');
-                push(m, i, from, cellValue(m, from, c.dims[m.key]));
+                push(m, i, from, cellValue(m, from, c.dims[m.key] ?? 0));
             });
             continue;
         }

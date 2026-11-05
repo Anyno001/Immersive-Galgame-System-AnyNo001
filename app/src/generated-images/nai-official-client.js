@@ -7,7 +7,7 @@ import { inspectPngDataUrl, validatePngEncoding } from '../media/png-validation.
 import { CG_PIXEL_CAP } from './illustration/cg-pixel-cap.js';
 import { naiRequestQueue } from './nai-request-queue.js';
 import { createNaiCloudQueue } from './nai-cloud-queue.js';
-import { normalizeNaiCloudQueue } from './nai-cloud-queue-settings.js';
+import { naiCloudQueueActive, normalizeNaiCloudQueue } from './nai-cloud-queue-settings.js';
 import { globalArtist } from './prompt-artists.js';
 import { resetTavernProxyProbe, resolveTavernTransport, tavernProxyFailure, tavernProxyUrl,
     TAVERN_BACKEND_UNREACHABLE_HINT, TAVERN_PROXY_DISABLED_HINT } from '../host/tavern-cors-proxy.js';
@@ -132,7 +132,9 @@ export function createNaiOfficialClient(deps = {}) {
     async function dispatch(body, inputSettings) {
         const controller = new AbortController();
         const transport = await resolveTavernTransport(inputSettings.transport, fetchImpl);
-        const settings = { ...inputSettings, transport, apiKey: String(inputSettings.apiKey).trim(), signal: controller.signal };
+        const settings = { ...inputSettings, transport, apiKey: String(inputSettings.apiKey).trim(), signal: controller.signal,
+            // 间隔开关关闭时不额外等待；未带开关字段的直接调用按原值。
+            minIntervalMs: inputSettings.minIntervalEnabled === false ? 0 : inputSettings.minIntervalMs };
         const timeout = Number(inputSettings.timeoutMs);
         const timeoutMs = Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 300000) : 120000;
         const abort = () => controller.abort();
@@ -150,7 +152,7 @@ export function createNaiOfficialClient(deps = {}) {
         try {
             const result = await queue.run(settings.apiKey, async () => {
                 const cloud = normalizeNaiCloudQueue(settings.cloudQueue);
-                if (cloud.enabled) {
+                if (naiCloudQueueActive(cloud)) {
                     const acquired = await cloudQueue.acquire(settings.apiKey, cloud, settings);
                     if (!acquired.ok) return acquired;
                     settings.cloudLease = acquired.lease;

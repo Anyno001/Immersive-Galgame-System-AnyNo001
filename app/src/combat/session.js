@@ -30,6 +30,8 @@ import { eligibleChallengeAllies } from './challenge-allies.js';
 import { challengeHarvest } from './challenge-foes.js';
 import { planChallengeReward } from './challenge-reward.js';
 import { buildChallengeReport, parseChallengeReport } from './challenge-report.js';
+import { buildIntimateSetup, foldIntimateTrace, initIntimateTrace, replayIntimateTrace } from './intimate-setup.js';
+import { INTIMATE_LEGACY_OUTCOME, intimateEnding, resolveIntimatePosition } from '../scene/intimate-duel.js';
 import { chooseCard, emptyPick, flipCard, flipView, laterPick, lootOf, normalizePick, rerollPick } from './flip.js';
 import { REROLL_COST } from './points.js';
 import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
@@ -60,7 +62,12 @@ export function locateCombatStart(chat, messageId, sourceFilter, kinds = {}) {
         const anchor = { messageId, swipeId: swipeIdOf(message), tagHash: start.tagHash, occurrence: start.occurrence };
         return { ok: true, start, anchor, combatId: combatIdFor(anchor) };
     }
-    const challenge = kinds.challenge === true ? parseChallengeStart(text, { sourceFilter }).start : null;
+    const intimateOptions = typeof kinds.intimate === 'function' ? kinds.intimate(messageId) : null;
+    let challenge = kinds.challenge === true || intimateOptions ? parseChallengeStart(text, { sourceFilter, intimate: intimateOptions || undefined }).start : null;
+    if (challenge && challenge.intimate !== true && kinds.challenge !== true) challenge = null;
+    if (!challenge && intimateOptions && intimateOptions.launch === true) {
+        challenge = { event: '亲密', domain: '亲密', intimate: true, mechanic: intimateOptions.mechanic, eventKey: intimateOptions.eventKey, counterpart: intimateOptions.partner || '', tier: '普通', stake: '压力', tagHash: 'launch', occurrence: 0, launch: true };
+    }
     if (!challenge) return { ok: false, reason: 'combat-start-missing' };
     const anchor = { messageId, swipeId: swipeIdOf(message), tagHash: challenge.tagHash, occurrence: challenge.occurrence };
     return { ok: true, challenge: true, start: challenge, anchor, combatId: challengeCombatIdFor(anchor) };
@@ -79,8 +86,10 @@ export function challengeCostTier(tier, stake) {
 }
 
 // 回合上限到时引擎仍无结局：在适配层补一个胜负，状态与事件都按引擎结束的形态补齐。
-function challengeEnd(state, setup, events = []) {
-    const result = challengeResultOf(state, setup?.challenge?.rounds);
+function challengeEnd(state, setup, events = [], trace = null) {
+    let result = challengeResultOf(state, setup?.challenge?.rounds);
+    const intimate = setup?.challenge?.intimate;
+    if (result && intimate) result = { ...result, trace, ending: intimateEnding({ mechanic: intimate.mechanic, result: result.result, heroRatio: result.willRatio, trace: trace || {} }) };
     if (!result || state.outcome) return { state, events, result };
     const outcome = result.result === 'win' ? 'victory' : 'defeat';
     return { state: { ...state, outcome, phase: 'ended' }, events: [...events, { type: 'battle-end', outcome }], result };
@@ -592,7 +601,7 @@ export function createCombatSession(options = {}) {
     const now = typeof options.now === 'function' ? options.now : () => Date.now();
     const difficultyOf = () => resolveOption(options.difficulty) || 'normal';
     const challengeOptions = options.challenge || {};
-    const kindsNow = () => ({ combat: resolveOption(options.kinds)?.combat !== false, challenge: resolveOption(options.kinds)?.challenge === true });
+    const kindsNow = () => ({ combat: resolveOption(options.kinds)?.combat !== false, challenge: resolveOption(options.kinds)?.challenge === true, intimate: resolveOption(options.kinds)?.intimate });
     const locate = (messageId, kinds = kindsNow()) => locateCombatStart(getChat(), messageId, getSourceFilter(), kinds);
     const isChallenge = (session) => session?.kind === 'challenge';
 
@@ -640,7 +649,7 @@ export function createCombatSession(options = {}) {
     // 战斗楼还是当时那一版吗（楼层被改/重写则作废）
     const isCurrent = (session) => {
         if (session.chatId !== undefined && session.chatId !== getChatId()) return false;
-        const located = locate(session.anchor?.messageId, isChallenge(session) ? { combat: false, challenge: true } : kindsNow());
+        const located = locate(session.anchor?.messageId, isChallenge(session) ? { combat: false, challenge: resolveOption(options.kinds)?.challenge === true, intimate: resolveOption(options.kinds)?.intimate } : kindsNow());
         return located.ok && sameAnchor(located.anchor, session.anchor);
     };
     const floorChanged = () => {
@@ -669,6 +678,7 @@ export function createCombatSession(options = {}) {
             combatId: session.combatId, event: challenge.event, result: end.result, willRatio: end.willRatio, byLimit: end.byLimit,
             tier: challenge.tier, costTier: challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake)), stake: challenge.stake, domain: challenge.domain,
             detail: resolveOption(options.reportDetail) || 'normal', foe: challenge.foe, counterpart: challenge.counterpart, allies: challenge.allies,
+            ...(challenge.intimate && end.ending ? { ending: end.ending, mechanic: challenge.intimate.mechanic, outcome: INTIMATE_LEGACY_OUTCOME[end.ending] } : {}),
         });
     }
 
@@ -681,10 +691,10 @@ export function createCombatSession(options = {}) {
         const cached = summaryCache.get(session.combatId);
         if (cached && cached.end === end) return cached.value;
         const tier = challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake));
-        const outcome = challengeOutcomeOf(end.result, end.willRatio, { byLimit: end.byLimit });
-        const harvest = challengeHarvest(challenge.foe, outcome, tier);
+        const outcome = challenge.intimate && end.ending ? INTIMATE_LEGACY_OUTCOME[end.ending] : challengeOutcomeOf(end.result, end.willRatio, { byLimit: end.byLimit });
+        const harvest = challenge.intimate ? { prize: null, card: false } : challengeHarvest(challenge.foe, outcome, tier);
         const reward = harvest.card ? planChallengeReward({ combatId: session.combatId, outcome, tier, foe: challenge.foe, domain: challenge.domain }) : null;
-        const value = { outcome, prize: harvest.prize, card: reward?.ok ? reward.card : null };
+        const value = { outcome, prize: harvest.prize, card: reward?.ok ? reward.card : null, ...(challenge.intimate && end.ending ? { ending: end.ending } : {}) };
         summaryCache.set(session.combatId, { end, value });
         return value;
     }
@@ -1045,7 +1055,41 @@ export function createCombatSession(options = {}) {
 
     // 日常挑战备战：不读账本、不调副 LLM，直接按数值侧快照建局；结果放进大厅状态供面板展示。
     // 难关先请副模型挑，不可用或被拒收时退回本地登记，失败不拦开局；协助者由玩家在大厅里挑，默认不带。
+    function intimateBuild(start, challengeState, choice = {}) {
+        const settings = resolveOption(challengeOptions.intimate) || {};
+        const floorText = messageText(getChat()[start.messageId]);
+        const position = choice.position || resolveIntimatePosition(settings.position, floorText, getUserName());
+        const mechanic = choice.mechanic || start.mechanic;
+        const persona = typeof challengeOptions.persona === 'function' ? challengeOptions.persona(start.counterpart) : '';
+        return buildIntimateSetup({ start: { ...start, mechanic, allowEscape: resolveOption(challengeOptions.allowEscape) !== false }, state: challengeState, user: { name: getUserName() }, position, persona });
+    }
+
+    function prepareIntimate(session) {
+        const challengeState = resolveOption(challengeOptions.state) || null;
+        const start = { ...session.start, messageId: session.anchor?.messageId };
+        const built = intimateBuild(start, challengeState);
+        if (!built.ok) return blocked(session, built.reason);
+        return ok({
+            session: setState({
+                ...session, status: 'lobby', challenge: built.setup.challenge, challengeSetup: built.setup, challengeStart: start, challengeState, challengeCandidates: [],
+                lobby: { challenge: true, heroId: built.setup.controlledId, controllable: [built.setup.controlledId] }, skipped: [],
+            }),
+        });
+    }
+
+    function setIntimateOptions(choice = {}) {
+        if (!isChallenge(current) || current.status !== 'lobby' || !current.challengeStart?.intimate) return fail('combat-session-not-ready');
+        const mechanic = ['合拍', '主导'].includes(choice.mechanic) ? choice.mechanic : current.challenge.intimate.mechanic;
+        const position = ['receive', 'lead'].includes(choice.position) ? choice.position : current.challenge.intimate.position;
+        const built = intimateBuild(current.challengeStart, current.challengeState, { mechanic, position });
+        if (!built.ok) return fail(built.reason);
+        setState({ ...current, challenge: built.setup.challenge, challengeSetup: built.setup });
+        notify();
+        return ok();
+    }
+
     async function prepareChallenge(session, signal) {
+        if (session.start?.intimate === true) return prepareIntimate(session);
         setState({ ...session, status: 'preparing' });
         const challengeState = resolveOption(challengeOptions.state) || null;
         const start = { ...session.start, allowEscape: resolveOption(challengeOptions.allowEscape) !== false };
@@ -1139,7 +1183,8 @@ export function createCombatSession(options = {}) {
         if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
         const record = { v: SESSION_VERSION, combatId: current.combatId, anchor: current.anchor, seed, setup, actions: [], encounter: current.start.event, tiers: [], expTargets: [] };
         if (!writeSession(record)) return fail('combat-session-save-failed');
-        setState({ ...current, status: 'battle', record, battle: battle.state, events: battle.events, challengeResult: null });
+        const intimateTrace = setup.challenge?.intimate ? foldIntimateTrace(initIntimateTrace(), battle.state, battle.events) : null;
+        setState({ ...current, status: 'battle', record, battle: battle.state, events: battle.events, challengeResult: null, ...(intimateTrace ? { intimateTrace } : {}) });
         return ok({ events: battle.events });
     }
 
@@ -1162,15 +1207,18 @@ export function createCombatSession(options = {}) {
         return ok({ events: battle.events, ...(built.awakenDropped ? { awakenDropped: built.awakenDropped } : {}) });
     }
 
-    function act(action) {
+    function act(action, meta = {}) {
         if (current.status !== 'battle') return fail('combat-session-not-in-battle');
         if (!isCurrent(current)) return floorChanged();
         const applied = applyAction(current.battle, action);
         if (!applied.ok) return fail(applied.error.reason, { error: applied.error });
-        const record = { ...current.record, actions: [...current.record.actions, action] };
+        const surrender = action.type === 'escape' && meta.stop !== true && current.record.setup.challenge?.intimate?.mechanic === '主导';
+        const record = { ...current.record, actions: [...current.record.actions, action], ...(surrender || current.record.surrendered ? { surrendered: true } : {}) };
         if (!writeSession(record)) return fail('combat-session-save-failed');
-        const end = isChallenge(current) ? challengeEnd(applied.state, record.setup, applied.events) : { state: applied.state, events: applied.events, result: null };
-        setState({ ...current, record, battle: end.state, events: [...current.events, ...end.events], status: end.state.outcome ? 'ended' : 'battle', ...(isChallenge(current) ? { challengeResult: end.result } : {}) });
+        const intimateTrace = record.setup.challenge?.intimate
+            ? { ...foldIntimateTrace(current.intimateTrace || initIntimateTrace(), applied.state, applied.events), surrendered: record.surrendered === true } : null;
+        const end = isChallenge(current) ? challengeEnd(applied.state, record.setup, applied.events, intimateTrace) : { state: applied.state, events: applied.events, result: null };
+        setState({ ...current, record, battle: end.state, events: [...current.events, ...end.events], status: end.state.outcome ? 'ended' : 'battle', ...(isChallenge(current) ? { challengeResult: end.result } : {}), ...(intimateTrace ? { intimateTrace } : {}) });
         if (end.state.outcome) {
             persist.flush(); // 战斗结束的记录马上落盘
             const report = buildReport(current);
@@ -1187,6 +1235,8 @@ export function createCombatSession(options = {}) {
     // ---- 战报发送 ----
     // 战报已在聊天里（或刚发送成功）后的收尾：清发件箱与会话记录、扣物品、记伤势、扫描账本
     async function settleReport(report, reportMessageId) {
+        const intimateDone = current.record?.setup?.challenge?.intimate || current.challenge?.intimate;
+        if (intimateDone && typeof challengeOptions.markIntimate === 'function') { try { challengeOptions.markIntimate(intimateDone.eventKey); } catch { /* 记录失败不影响战报 */ } }
         setOutbox(current.combatId, null);
         clearSession();
         let consumeResult = null;
@@ -1382,7 +1432,7 @@ export function createCombatSession(options = {}) {
             const started = start();
             if (!started.ok) return started;
         }
-        const escaped = act({ type: 'escape' });
+        const escaped = act({ type: 'escape' }, { stop: true });
         return escaped.ok ? finish() : escaped;
     }
 
@@ -1434,9 +1484,10 @@ export function createCombatSession(options = {}) {
         }
         const replayed = replayBattle(record.setup, record.seed, record.actions);
         if (replayed.ok) {
-            const end = isChallenge(session) ? challengeEnd(replayed.state, record.setup, replayed.events) : { state: replayed.state, events: replayed.events, result: null };
+            const resumedTrace = record.setup?.challenge?.intimate ? replayIntimateTrace(record.setup, record.seed, record.actions, record.surrendered === true) : null;
+            const end = isChallenge(session) ? challengeEnd(replayed.state, record.setup, replayed.events, resumedTrace) : { state: replayed.state, events: replayed.events, result: null };
             setState({
-                ...session, status: end.state.outcome ? 'ended' : 'battle', record, battle: end.state, events: end.events,
+                ...session, status: end.state.outcome ? 'ended' : 'battle', record, battle: end.state, events: end.events, ...(resumedTrace ? { intimateTrace: resumedTrace } : {}),
                 ...(isChallenge(session) ? { challenge: record.setup.challenge, challengeResult: end.result } : {}),
             });
             return afterResume();
@@ -1454,7 +1505,7 @@ export function createCombatSession(options = {}) {
     }
 
     return {
-        prepare, start, act, autoPlay, abandon, pickChallengeAllies, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
+        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
         // 以下为写盘节流新增：立即落盘、写盘统计、释放监听器
         flushPersist,
         getPersistStats: () => ({ ...persist.stats, pending: persist.hasPending() }),

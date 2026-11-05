@@ -5,16 +5,17 @@ import { menuItem, renderRowMenu, thumb as outfitThumb } from './settings-outfit
 const encSeg = (value) => encodeURIComponent(String(value));
 const plain = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 
-// 敌人名单的数据源：本卡 characterDna 里带 creature 档案的条目。
+// 敌人名单的数据源：本卡 characterDna 里带 creature 档案或 combatFoe 标记的条目。
 // 战斗对手自动建档（临时档）与手动设为非人的角色都落在这里，开战预热与楼层补全也只在这里建档；
+// 判定为人类或在本页取消非人的对手带 combatFoe 标记（profile 为 null），同样留在名单。
 // 战斗留档只记数值，不含外貌档案，所以不作为来源。临时档在前，按最近出场倒序。
 export function listCombatEnemies(sceneAssets) {
     const dnaMap = plain(plain(sceneAssets).characterDna);
+    const temp = (item) => Number(item.profile?.temp === true);
     return Object.keys(dnaMap)
-        .map((name) => ({ name, profile: storedCreatureOf(dnaMap[name]) }))
-        .filter((item) => item.profile)
-        .sort((a, b) => (Number(b.profile.temp === true) - Number(a.profile.temp === true))
-            || ((b.profile.seenAt || 0) - (a.profile.seenAt || 0)));
+        .map((name) => ({ name, profile: storedCreatureOf(dnaMap[name]), human: plain(dnaMap[name]).combatFoe === true }))
+        .filter((item) => item.profile || item.human)
+        .sort((a, b) => (temp(b) - temp(a)) || ((b.profile?.seenAt || 0) - (a.profile?.seenAt || 0)));
 }
 
 function adoptedUrl(sceneAssets, name) {
@@ -56,8 +57,9 @@ export function renderCombatEnemySprites({ sceneAssets = {}, resolveUrl, tempSpr
         const note = String(notes[name] || '').trim();
         const menu = renderRowMenu([
             menuItem(`combat-enemy-sprite:note:${e}`, note ? '修改写词备注' : '写词备注'),
-            profile.temp ? menuItem(`char-creature:temp:${e}:false`, '转为正式角色') : '',
-            menuItem(`char-creature:enabled:${e}:false`, '取消非人角色'),
+            profile?.temp ? menuItem(`char-creature:temp:${e}:false`, '转为正式角色') : '',
+            profile ? menuItem(`char-creature:enabled:${e}:human`, '取消非人角色') : menuItem(`char-creature:enabled:${e}:true`, '设为非人角色'),
+            profile ? '' : menuItem(`combat-enemy-sprite:unlist:${e}`, '移出敌人名单'),
             state.kind === 'none' ? '' : menuItem(`combat-enemy-sprite:remove:${e}`, '删除立绘', ' is-danger'),
         ], `「${name}」的操作`);
         // 卡片结构与衣柜一致：竖图缩略图 → 名字 + ⋯ → 来源 → 生成/重画。
@@ -65,12 +67,12 @@ export function renderCombatEnemySprites({ sceneAssets = {}, resolveUrl, tempSpr
             + outfitThumb(state.url, `${name}立绘`, '', resolveUrl)
             + `<span class="igs-btn-mgr-label igs-wardrobe-name"${note ? ` title="写词备注：${esc(note)}"` : ''}>${esc(name)}</span>`
             + menu
-            + `<span class="igs-outfit-muted">${profile.temp ? '临时档' : '非人'} · ${esc(STATE_SHORT[state.kind])}</span>`
+            + `<span class="igs-outfit-muted">${!profile ? '人类' : profile.temp ? '临时档' : '非人'} · ${esc(STATE_SHORT[state.kind])}</span>`
             + `<button type="button" class="igs-review-link igs-outfit-quick-btn" data-action="char-generate-sprite:${e}">${state.kind === 'none' ? '生成立绘' : '重画'}</button>`
             + '</div></div>';
     }).join('');
     return head
-        + '<div class="igs-source-filter-note">本卡登记为非人角色的战斗对手。开战标签出现时自动备图；无立绘时战斗中用图集或剪影。</div>'
+        + '<div class="igs-source-filter-note">本卡的战斗对手，含人类与非人角色。开战标签出现时自动备图；无立绘时战斗中用图集或剪影。</div>'
         + (rows ? `<div class="igs-btn-mgr-list igs-wardrobe-list is-tall">${rows}</div>` : '<div class="igs-scene-empty">本卡暂无战斗对手档案</div>')
         + '</details>';
 }

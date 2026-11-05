@@ -200,7 +200,7 @@ v0.36.44：当前聊天临时素材/物品元数据共用媒体层 `asset-record
 
 ## NAI 云端队列
 
-- `nai.cloudQueue = { enabled: false, endpoint: "https://st-chatu-novelai-queue.hf.space", timeoutMs: 180000 }`，只在显式开启后联网；按用户要求，缺失、空白或清空地址统一使用智绘姬默认公共节点，自定义地址保留。使用与智绘姬兼容的 join / my-turn / complete / leave 协议，仅发送标准 SHA-256 密钥标识和随机排队身份，不传 Key 原文、Authorization、提示词或图片。
+- `nai.cloudQueue = { enabled: false, endpoint: "", timeoutMs: 180000 }`，开启且填写地址后才联网，不内置默认节点；旧版自动填入的公共节点地址在未开启时清空。`nai.minIntervalEnabled` 默认 false，关闭时不额外等待。使用与智绘姬兼容的 join / my-turn / complete / leave 协议，仅发送标准 SHA-256 密钥标识和随机排队身份，不传 Key 原文、Authorization、提示词或图片。
 - 所有内置 NAI 用途与 infill 在本机串行及冷却后统一取号，排队超时与生图超时分离。队列错误、协议缺 token、失锁均停止发送，不回退直发；取消和过期目标退出，迟到加入回执再次退出。日志只报告状态、位置与耗时。
 - 租约保存在单个任务闭包；NAI 真正结束后 complete，取消不先释放忽略 abort 的在途发送，网络状态未知时由服务端过期回收。释放失败保留图片结果。未发过 NAI 的任务不更新本机完成冷却时间。
 - 公开参考服务源码锁仅 15 秒，无续租；发送与重试前确认 token 不能阻止一张慢图超过租约后与他人并发。所有共用者须使用同 Key 和节点，绕过队列的来源仍可能触发 429。真实多人服务验收另行手测，不能用模拟结果保证互斥。

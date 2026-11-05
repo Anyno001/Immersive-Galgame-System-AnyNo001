@@ -483,6 +483,7 @@ export function bootstrapIGS(options = {}) {
             if (kind === 'sheet') return rt.sheetOp(op, name, payload);
             if (kind === 'skill') return rt.skillOp(op, name, payload);
             if (kind === 'hero') return rt.heroOp(op, name, payload);
+            if (kind === 'relation') return rt.relationOp(op, name, payload);
             if (kind === 'generate') return rt.generateSheets(name ? [name] : null);
             if (kind === 'backfill') return rt.runBackfill();
             if (kind === 'backup') return rt.dropBackup();
@@ -551,6 +552,8 @@ export function bootstrapIGS(options = {}) {
         getCombatSession: () => combatServices.getSession(),
         getChallengeHistory: () => (typeof combatServices.challengeHistory === 'function' ? combatServices.challengeHistory() : null),
         getChallengeQuota: (messageId) => (typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota(messageId) : null),
+        getIntimateGate: (messageId) => combatServices.intimateGate(messageId),
+        isIntimatePrepared: () => combatServices.intimatePrepared(),
         getCombatLedger: () => combatServices.getLedger(),
         ensureCombatTables: () => combatServices.ensureTables(),
         writeCombatManualInit: (name, manual, writeOptions) => Promise.resolve(combatServices.writeManualInit(name, manual, writeOptions)).then((written) => {
@@ -1192,6 +1195,7 @@ export function bootstrapIGS(options = {}) {
             } catch (error) { /* 扫描失败按没有冷却处理 */ }
         }
         if (quota && quota.ok === true) extras.challengeOpen = true;
+        try { if (combatServices.intimatePrepared() === true) extras.intimateOn = true; } catch (error) { /* 判断失败按未开启处理 */ }
         return extras;
     }
 

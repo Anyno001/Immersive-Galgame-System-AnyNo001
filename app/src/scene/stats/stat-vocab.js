@@ -15,9 +15,19 @@ export const ROLL_DIFFICULTIES = Object.freeze(['简单', '普通', '困难', '�
 // 起始关系档 → 好感初值：角色第一次出场时按人设与既往关系定，之后只按方向增减。
 export const START_FAVOR = Object.freeze({ 仇视: -40, 疏远: -15, 陌生: 0, 熟人: 15, 朋友: 30, 亲密: 55, 恋人: 80 });
 export const START_RELATIONS = Object.freeze(Object.keys(START_FAVOR));
+// 起始关系同时定了解与信任：朋友、亲密、恋人必须彼此熟悉，不能只有好感。
+export const START_DIMS = Object.freeze({
+    仇视: Object.freeze({ 好感: -40, 信任: -30, 了解: 10 }),
+    疏远: Object.freeze({ 好感: -15, 信任: -10, 了解: 5 }),
+    陌生: Object.freeze({ 好感: 0, 信任: 0, 了解: 0 }),
+    熟人: Object.freeze({ 好感: 15, 信任: 10, 了解: 15 }),
+    朋友: Object.freeze({ 好感: 30, 信任: 25, 了解: 35 }),
+    亲密: Object.freeze({ 好感: 55, 信任: 45, 了解: 55 }),
+    恋人: Object.freeze({ 好感: 80, 信任: 60, 了解: 70 }),
+});
 
 // 维度类标签：英文名与中文名都映射到规范维度名。
-export const DIM_KINDS = Object.freeze({ trust: '信任', 信任: '信任', know: '了解', 了解: '了解', desire: '欲望', 欲望: '欲望' });
+export const DIM_KINDS = Object.freeze({ trust: '信任', 信任: '信任', know: '了解', 了解: '了解', desire: '欲望', 欲望: '欲望', grudge: '芥蒂', 芥蒂: '芥蒂', 仇怨: '芥蒂', 怨气: '芥蒂', 恨: '芥蒂', 怨: '芥蒂', 怨恨: '芥蒂', 敌意: '芥蒂', 仇恨: '芥蒂', 记恨: '芥蒂', 心结: '芥蒂', 隔阂感: '芥蒂' });
 
 const UP_DOWN = { 提升: '上升', 增加: '上升', 升高: '上升', 上涨: '上升', 变高: '上升', 降低: '下降', 减少: '下降', 下跌: '下降', 变低: '下降' };
 

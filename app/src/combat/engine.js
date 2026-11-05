@@ -382,6 +382,7 @@ function endBattle(ctx, outcome) {
 function checkOutcome(ctx) {
     const state = ctx.state;
     if (state.outcome) return;
+    if (ctx.holdOutcome) return;
     const lost = state.wipe === true ? !livingIds(state, 'ally').length : !state.units[state.controlledId].alive;
     if (lost) endBattle(ctx, 'defeat');
     else if (!livingIds(state, 'enemy').length && !(state.overkill === true && state.phase === 'player')) endBattle(ctx, 'victory');
@@ -555,6 +556,30 @@ function applyEffect(ctx, unit, effect, aimId, source) {
         case 'heal-pct':
             for (const target of targets()) heal(ctx, target, Math.max(1, Math.round((target.maxHp * effect.pct) / 100)), source);
             return;
+        case 'delayed-counter': {
+            const [target] = targets();
+            const lost = dealDamage(ctx, unit, effect.amount, source, 'self', false);
+            if (!target || !unit.alive || state.outcome || lost <= 0) return;
+            const intentSkill = state.intents[target.id]?.skillId;
+            unit.nextTurn.push({ gain: 'counter', amount: lost * effect.mult, targetId: target.id, fizzled: effect.fizzle != null && intentSkill === effect.fizzle });
+            emit(ctx, { type: 'next-turn', unitId: unit.id, gain: 'counter' });
+            return;
+        }
+        case 'mutual-damage': {
+            const foes = targets();
+            ctx.holdOutcome = true;
+            for (const foe of foes) dealDamage(ctx, foe, effect.amount, source, 'mutual', false);
+            dealDamage(ctx, unit, effect.selfAmount ?? effect.amount, source, 'mutual', false);
+            ctx.holdOutcome = false;
+            checkOutcome(ctx);
+            return;
+        }
+        case 'random-branch': {
+            const pick = rollInt(state, 2) === 0 ? 'a' : 'b';
+            emit(ctx, { type: 'random-branch', source, pick });
+            runEffects(ctx, unit, effect[pick], aimId, source);
+            return;
+        }
         case 'damage-from-block':
             if (unit.block > 0) strike(ctx, unit, { op: 'damage', amount: unit.block, target: effect.target || 'enemy' }, aimId, source);
             return;
@@ -944,6 +969,11 @@ function startUnitTurn(ctx, unit) {
             emit(ctx, { type: 'energy', unitId: unit.id, amount: gain.amount });
         } else if (gain.gain === 'status') {
             addStatus(ctx, unit, gain.status, gain.stacks, { unitId: unit.id, kind: 'next-turn', id: gain.status });
+        } else if (gain.gain === 'counter') {
+            const foe = state.units[gain.targetId];
+            emit(ctx, { type: 'counter', unitId: unit.id, target: gain.targetId, amount: gain.amount, fizzled: gain.fizzled === true });
+            if (gain.fizzled !== true && foe?.alive) dealDamage(ctx, foe, computeDamage(unit, foe, gain.amount), { unitId: unit.id, kind: 'counter', id: 'counter' }, 'attack', true);
+            if (state.outcome) return;
         }
     }
     fireTrigger(ctx, unit, 'turn-start', null);

@@ -4,7 +4,7 @@
 export const STATS_VERSION = 2;
 export const BASE_ATTRIBUTES = Object.freeze(['力量', '敏捷', '体质', '智力', '感知', '魅力']);
 export const DEFAULT_SPECIAL_SKILLS = Object.freeze(['烹饪', '家务', '学习', '运动', '艺术', '话术', '照顾', '应变']);
-export const DEFAULT_DIMS = Object.freeze(['好感', '信任', '了解']);
+export const DEFAULT_DIMS = Object.freeze(['好感', '信任', '了解', '芥蒂']);
 export const SKILL_MIN = 10;
 export const SKILL_MAX = 90;
 export const DIM_MIN = -100;
@@ -36,6 +36,21 @@ export function createCharacter(day, { nsfw = false } = {}) {
     const dims = Object.fromEntries(DEFAULT_DIMS.map((dim) => [dim, 0]));
     if (nsfw) dims.欲望 = 0;
     return { dims, daily: { day, gained: {} }, recent: [], lastSeenDay: day, unlocked: [] };
+}
+
+export const GRUDGE_TIERS = Object.freeze([{ name: '不满', min: 1 }, { name: '记恨', min: 26 }, { name: '怨恨', min: 51 }, { name: '仇恨', min: 76 }]);
+
+export function grudgeTier(value) {
+    const v = Math.round(Number(value) || 0);
+    let name = '';
+    for (const tier of GRUDGE_TIERS) if (v >= tier.min) name = tier.name;
+    return name;
+}
+
+export function grudgeOfCharacter(state, name) {
+    const character = state && state.characters && state.characters[name];
+    const value = Number(character && character.dims && character.dims.芥蒂);
+    return Number.isFinite(value) ? clamp(Math.round(value), 0, DIM_MAX) : 0;
 }
 
 export function withBars(state, bars) {

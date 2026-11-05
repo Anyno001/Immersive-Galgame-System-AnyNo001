@@ -70,7 +70,8 @@ export function canAfford(card, energy) {
 export function effectsNeedTarget(effects) {
     return (effects || []).some((effect) => effect.target === 'enemy'
         || (effect.op === 'damage' && !effect.target)
-        || (effect.op === 'conditional' && (effect.when?.kind === 'target-has' || effectsNeedTarget(effect.then))));
+        || (effect.op === 'conditional' && (effect.when?.kind === 'target-has' || effectsNeedTarget(effect.then)))
+        || (effect.op === 'random-branch' && (effectsNeedTarget(effect.a) || effectsNeedTarget(effect.b))));
 }
 
 // 效果里是否有需要指定友方目标的部分。

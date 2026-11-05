@@ -976,6 +976,7 @@ const STATUS_HUD_LOCATION_ICON = '<svg viewBox="0 0 24 24" width="16" height="16
 const STATUS_HUD_COLOR_VARS = Object.freeze({
     trust: 'var(--igs-hud-bar-trust,#4ab3da)',
     like: 'var(--igs-hud-bar-like,#ee83b6)',
+    grudge: 'var(--igs-hud-bar-grudge,#b3263e)',
     cold: 'var(--igs-hud-bar-cold,#6a8fc4)',
     know: 'var(--igs-hud-bar-know,#e8a355)',
     'slot-1': 'var(--igs-hud-bar-1,#57aaee)',
@@ -2328,6 +2329,13 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             }
             if (ctx.hasActiveSettings && ctx.hasActiveSettings()) {
                 if (typeof ctx.closeSettings === 'function') ctx.closeSettings();
+                return;
+            }
+            // 窄屏阅读模式的选项页：点左半照常回上一页（prev 会先收起选项、露出列表），不被气泡显隐吞掉。
+            if (root && root.getAttribute && root.getAttribute('data-igs-log-reader') === 'on'
+                && root.classList && root.classList.contains('igs-options-visible')
+                && isBackgroundLeftTap(root, clientX) && typeof ctx.handleReaderAction === 'function') {
+                ctx.handleReaderAction('prev');
                 return;
             }
             // 最后一页且启用选项气泡时，点击空白处切换气泡显隐（消费本次点击，不翻页）。

@@ -75,7 +75,7 @@ test('普通生成与局部重绘通过实际客户端共用间隔，间隔不�
         sends.push({ at: f.now(), body });
         return new Response(JSON.stringify({ image: 'data:image/png;base64,AAAA' }), { headers: { 'Content-Type': 'application/json' } });
     } });
-    const settings = { apiKey: 'fixture-key', minIntervalMs: 2500, model: 'nai-diffusion-5-full' };
+    const settings = { apiKey: 'fixture-key', minIntervalEnabled: true, minIntervalMs: 2500, model: 'nai-diffusion-5-full' };
     assert.equal((await client.generate({ scene: 'room' }, settings)).ok, true); await tick();
     const png = pngFixture(64, 128).dataUrl;
     assert.equal((await client.edit({ prompt: 'room', width: 64, height: 128, sourceDataUrl: png, maskDataUrl: png }, settings)).ok, true);
@@ -119,13 +119,13 @@ test('429 自动重试同时遵守用户间隔，不按更短的默认退避提�
         fetch: async () => ++sends === 1 ? new Response('{}', { status: 429 })
             : new Response(JSON.stringify({ image: 'data:image/png;base64,AAAA' }), { headers: { 'Content-Type': 'application/json' } }),
     });
-    const result = await client.generate({ scene: 'room' }, { apiKey: 'fixture-key', minIntervalMs: 8000 });
+    const result = await client.generate({ scene: 'room' }, { apiKey: 'fixture-key', minIntervalEnabled: true, minIntervalMs: 8000 });
     assert.equal(result.ok, true);
     assert.deepEqual(sleeps, [8000]);
     assert.equal(sends, 2);
 });
 
-test('实际设置页显示可编辑间隔，保存关闭后重新打开仍保留数值', async () => {
+test('间隔开关默认关闭且输入框禁用，打开后可编辑，保存重开仍保留数值', async () => {
     const app = bootstrapIGS({ global: { localStorage: createMemoryStorage() }, autoAttachMagicWand: false,
         hostAdapter: { getCurrentMessage: async () => null, typeAndSend: async () => ({ ok: true }) } });
     const path = 'bridge.autoIllustration.nai.minIntervalMs';
@@ -137,12 +137,16 @@ test('实际设置页显示可编辑间隔，保存关闭后重新打开仍保�
         const input = dom.window.document.querySelector(`[data-path="${path}"]`);
         assert.equal(input.type, 'number');
         assert.equal(input.value, '2000');
-        assert.equal(input.disabled, false);
-        assert.equal(input.closest('[hidden]'), null);
+        assert.equal(input.disabled, true);
+        assert.equal(dom.window.document.querySelector('[data-switch="bridge.autoIllustration.nai.minIntervalEnabled"]').getAttribute('aria-pressed'), 'false');
+        assert.equal(opened.controller.setValue('bridge.autoIllustration.nai.minIntervalEnabled', true).ok, true);
+        dom.window.close(); dom = new JSDOM(opened.controller.getSnapshot().html);
+        assert.equal(dom.window.document.querySelector(`[data-path="${path}"]`).disabled, false);
         assert.equal(opened.controller.setValue(path, '3500').ok, true);
         assert.equal((await opened.controller.close()).ok, true);
         const reopened = app.openSettings({ page: 'source' });
         assert.equal(reopened.controller.getSnapshot().draft.bridge.autoIllustration.nai.minIntervalMs, 3500);
+        assert.equal(reopened.controller.getSnapshot().draft.bridge.autoIllustration.nai.minIntervalEnabled, true);
         assert.equal((await reopened.controller.close()).ok, true);
     } finally { dom?.window.close(); await app.shutdown(); }
 });

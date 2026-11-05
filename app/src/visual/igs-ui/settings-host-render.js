@@ -1,5 +1,4 @@
 import { readLive2dConfig } from './live2d-config.js';
-import { NAI_QUEUE_REFERENCE_ENDPOINT } from '../../generated-images/nai-cloud-queue-settings.js';
 import { renderLive2dLibrary } from './live2d-panel.js';
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
 import { DIALOG_SKIN_MERMAID, MERMAID_TONES, normalizeMermaidAccent, normalizeMermaidTone } from './dialog-theme-mermaid.js';
@@ -59,6 +58,7 @@ import {
     COMBAT_KIND_LABELS, COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, COMBAT_FREQUENCY_LABELS, DAILY_COOLDOWN_CHOICES, DAILY_STAKES, DAILY_STAKE_LABELS,
     BATTLE_MODES, BATTLE_MODE_LABELS, BATTLE_MODE_PATH, battleModeOf, normalizeCombatExpansionSettings,
 } from './combat-settings.js';
+import { INTIMATE_POSITIONS, INTIMATE_POSITION_LABELS } from '../../scene/intimate-duel.js';
 import { buildStatsPageValues } from './stats-settings-fields.js';
 import { resolveWorldview } from '../../scene/worldview.js';
 import { applyFxWorldview } from '../../scene/fx-era.js';
@@ -246,6 +246,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                             + (daily ? field(`${p}.daily.perDay`, '每日挑战次数', selectInput(`${p}.daily.perDay`, cx.daily.perDay, [1, 2, 3, 4, 5, 0].map((n) => [n, n ? `${n}次` : '不限'])))
                             + field(`${p}.daily.stake`, '挑战失败代价', segmentedInput(`${p}.daily.stake`, cx.daily.stake, DAILY_STAKES.map((k) => [k, DAILY_STAKE_LABELS[k]]), '挑战失败代价')) : ''),
                         combatRuleSwitches: daily ? `<div class="igs-source-filter-grid">${checkbox(`${p}.daily.allowEscape`, cx.daily.allowEscape, '挑战允许放弃')}</div>` : '',
+                        combatIntimateFields: field(`${p}.intimate.position`, '我的位置', segmentedInput(`${p}.intimate.position`, cx.intimate.position, INTIMATE_POSITIONS.map((k) => [k, INTIMATE_POSITION_LABELS[k]]), '我的位置')),
+                        combatIntimateSwitches: `<div class="igs-source-filter-grid">${checkbox(`${p}.intimate.enabled`, cx.intimate.enabled, '亲密对决')}${checkbox(`${p}.intimate.launch`, cx.intimate.launch, '显示发起按钮', !cx.intimate.enabled)}</div>`,
                         combatLineSwitches: checkbox(`${p}.lines.show`, cx.lines.show, '显示战斗台词')
                             + checkbox(`${p}.lines.tts`, cx.lines.tts, '朗读战斗台词', !cx.lines.show)
                             + checkbox('bridge.autoIllustration.assets.creatureAutoProfile', autoProfile, '战斗对手自动建档', !creatureOn),
@@ -510,10 +512,12 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '每次写词请求最后插入')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
                 autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）'], ['auto', '自动（酒馆代理已开启时经酒馆转发）']])),
-                autoNaiIntervalField: field('bridge.autoIllustration.nai.minIntervalMs', '生图最小间隔（毫秒）', numberInput('bridge.autoIllustration.nai.minIntervalMs', auto.nai.minIntervalMs, 0, 60000), '同一密钥上次请求结束后再等待，默认 2000 毫秒；0 为不额外等待。仅作用于本页内置 NAI，生成与局部重绘共用。'),
-                autoNaiCloudQueueFields: checkbox('bridge.autoIllustration.nai.cloudQueue.enabled', auto.nai.cloudQueue.enabled, '启用云端队列')
-                    + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列服务地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, NAI_QUEUE_REFERENCE_ENDPOINT), '默认使用智绘姬公共队列，留空也恢复该地址；这不是 NAI 生图接口。共用密钥的人须使用同一节点。仅发送密钥的 SHA-256 标识和随机排队编号，不发送密钥原文、提示词或图片。')
-                    + field('bridge.autoIllustration.nai.cloudQueue.timeoutMs', '排队最长等待（毫秒）', numberInput('bridge.autoIllustration.nai.cloudQueue.timeoutMs', auto.nai.cloudQueue.timeoutMs, 10000, 900000), '默认 180000（3 分钟），不占用生图超时。队列不可用时停止本次生成。智绘姬公共节点源码的锁仅有效 15 秒且不能续租；慢图或未接队列的其它请求仍可能触发 429。'),
+                autoNaiQueueOpen: advancedOpen('nai-queue'),
+                autoNaiIntervalFields: checkbox('bridge.autoIllustration.nai.minIntervalEnabled', auto.nai.minIntervalEnabled, '生图间隔')
+                    + field('bridge.autoIllustration.nai.minIntervalMs', '间隔（毫秒）', numberInput('bridge.autoIllustration.nai.minIntervalMs', auto.nai.minIntervalMs, 0, 60000, !auto.nai.minIntervalEnabled), '同一密钥两次请求之间的等待时间。'),
+                autoNaiCloudQueueFields: checkbox('bridge.autoIllustration.nai.cloudQueue.enabled', auto.nai.cloudQueue.enabled, '云端排队')
+                    + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, '填写后生效'), '多人共用同一密钥时使用，各方须填写同一地址。')
+                    + field('bridge.autoIllustration.nai.cloudQueue.timeoutMs', '最长排队（毫秒）', numberInput('bridge.autoIllustration.nai.cloudQueue.timeoutMs', auto.nai.cloudQueue.timeoutMs, 10000, 900000)),
                 autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', 'NAI API 地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方，或填写中转生图接口')),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'API Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, '填写官方或中转服务的 Key')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),

@@ -7,6 +7,7 @@ import { applyKeyEvent } from './stat-favor-events.js';
 import { PROTAGONIST, createEngine, resolveCheck } from './stat-engine.js';
 import { DEFEAT_MONEY_LOSS } from './stat-battle.js';
 import { CHALLENGE_ENABLED_STAKES } from '../challenge-directives.js';
+import { INTIMATE_STOP, INTIMATE_TENSION_START, isRapportWin, markForEnding } from '../intimate-duel.js';
 
 export const CHALLENGE_STRESS_STEPS = Object.freeze({ 轻松: 1, 普通: 2, 艰难: 3 });
 export const CHALLENGE_STAMINA_STEPS = Object.freeze({ 轻松: ['中'], 普通: ['重'], 艰难: ['重', '熬夜'] });
@@ -89,9 +90,38 @@ function reconcile(state, name, ctx) {
     return withCharacter(state, name, character);
 }
 
+export function intimateProfile(character) {
+    const source = character && character.intimate && typeof character.intimate === 'object' ? character.intimate : {};
+    return { mark: source.mark || null, tension: Number.isFinite(Number(source.tension)) ? Math.max(0, Math.floor(Number(source.tension))) : INTIMATE_TENSION_START };
+}
+
+export function applyIntimate(state, directive, ctx) {
+    const ending = directive.ending;
+    let next = state;
+    if (ending !== INTIMATE_STOP) {
+        let bars = state.protagonist.bars;
+        if (ending !== '草草收场') bars = shiftBar(bars, 'stress', STRESS_DELTA.下降, ctx.changes, `亲密${ending}`);
+        next = withBars(next, bars);
+        const name = counterpartIn(next, directive.counterpart, ctx);
+        if (name) {
+            const profile = intimateProfile(next.characters[name]);
+            const mark = markForEnding(ending);
+            const intimate = {
+                mark: mark || (directive.mechanic === '主导' ? null : profile.mark),
+                tension: directive.mechanic === '合拍' && isRapportWin(ending) ? Math.max(0, profile.tension - 1) : profile.tension,
+            };
+            next = withCharacter(next, name, { ...next.characters[name], intimate });
+        } else if (directive.counterpart) ctx.diagnostics.push({ code: 'intimate-counterpart-unknown', name: directive.counterpart });
+    }
+    next = withClock(next, { lastChallengeReport: directive.reportId || null });
+    ctx.events.push({ kind: 'intimate', ending, mechanic: directive.mechanic });
+    return next;
+}
+
 export function applyChallenge(state, directive, ctx) {
     if (!OUTCOMES.includes(directive.outcome)) return state;
     if (directive.reportId && state.clock.lastChallengeReport === directive.reportId) return state;
+    if (directive.ending) return applyIntimate(state, directive, ctx);
     let stake = CHALLENGE_ENABLED_STAKES.includes(directive.stake) ? directive.stake : '压力';
     const counterpart = stake === '关系' ? counterpartIn(state, directive.counterpart, ctx) : null;
     if (stake === '关系' && !counterpart) stake = '压力';

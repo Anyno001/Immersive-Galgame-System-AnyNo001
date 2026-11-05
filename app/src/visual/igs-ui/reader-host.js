@@ -19,6 +19,9 @@ import { cancelGrowthFx } from './combat-growth-fx.js';
 import { cancelCheckBadges, checksByPage } from './combat-check-badge.js';
 import { syncCombatResume } from './combat-resume-button.js';
 import { probeCombatStart, resolveCombatEntry, sessionMatchesEntry, syncCombatEntry, unfinishedCombatState } from './combat-entry.js';
+import { syncIntimateLaunch } from './intimate-launch-button.js';
+import { computeIntimateFloorGate, pageIsIntimateRise } from './intimate-floor.js';
+import { INTIMATE_DUEL_MOOD, INTIMATE_DUEL_MOOD_STRONG, advanceIntimateDuel, getIntimateDuel, getIntimateGate, setIntimateDuel, setIntimateGate } from '../../scene/intimate-duel.js';
 import { createRecoveryNotice } from './recovery-notice.js';
 import { handleSettingsAction } from './settings-actions.js';
 import { normalizeBridgeConfig, normalizeReaderSettings } from './settings-host-normalize.js';
@@ -69,6 +72,7 @@ import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
 import { normalizeSpriteMotionSettings, normalizeStageCastSettings } from './stage-direction-settings.js';
 import { normalizeFxSoundSettings } from './fx-settings.js';
 import { playBattleSfx } from './fx-battle-sfx.js';
+import { playFxSfx } from './fx-sfx.js';
 import { SPRITE_BACK_MOOD } from './sprite-turn.js';
 import { isReactMoodHit } from '../../scene/react-mood.js';
 
@@ -76,7 +80,7 @@ import { clearCastDom } from './stage-cast-render.js';
 import { combatPortraitNames, hasGroupSuffix, sameFoeName, splitFoeNames } from '../../scene/creature-battle.js';
 import { foeIsDown } from './creature-battle-model.js';
 import { CREATURE_FOE_SLOTS, composeCreatureStage, creatureProfileOf, isGiantCreature, resolveCreatureFoes } from './creature-layout.js';
-import { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, spriteIdentity } from '../../scene/character-outfits.js';
+import { BUILTIN_NUDE_OUTFIT, createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, spriteIdentity } from '../../scene/character-outfits.js';
 import { isStrictBackgroundMatch, normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { clearCurrentCg } from '../../generated-images/illustration/clear-current-cg.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -4758,7 +4762,11 @@ ${row.key}`;
                     noteFormGender(name, entry && entry.form ? entry.form.gender : '');
                     return outfit;
                 };
-                const wantedOutfit = spriteChar ? outfitFor(spriteChar) : '';
+                const duel = getIntimateDuel();
+                const duelOn = Boolean(duel && spriteChar && canonicalName(sceneAssets, spriteChar) === canonicalName(sceneAssets, duel.partner));
+                const duelNude = duelOn && duel.stage >= 2 && Boolean(outfitMap && outfitMap[canonicalName(sceneAssets, spriteChar)] && Object.hasOwn(outfitMap[canonicalName(sceneAssets, spriteChar)], BUILTIN_NUDE_OUTFIT));
+                if (duelOn) spriteMood = duel.stage >= 1 ? (INTIMATE_DUEL_MOOD_STRONG.find((word) => floorAssets.sprite(spriteChar, word, outfitFor(spriteChar)).quality === 'exact') || INTIMATE_DUEL_MOOD) : INTIMATE_DUEL_MOOD;
+                const wantedOutfit = spriteChar ? (duelNude ? BUILTIN_NUDE_OUTFIT : outfitFor(spriteChar)) : '';
                 const outfitWhy = { outfitSource: (outfitTrace && outfitTrace.source) || '', outfitReason: (outfitTrace && outfitTrace.reason) || '', outfitOffset };
                 // 模型按剧情原始情绪取绑定；即使加载失败也不回退普通静态差分。
                 spriteLive2d = resolveCharacterLive2dBinding(readerSettings._live2d, sceneAssets, spriteChar, spriteMood);
@@ -5291,6 +5299,7 @@ ${row.key}`;
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
             // 对阵界面没做选择、或战斗打到一半就关闭（含关闭阅读器）：在入口位置留「返回战斗 / 返回挑战」标签；已发送、已放弃、已托管、已跳过则清除。
             onClose: ({ dismissed }) => {
+                setIntimateDuel(null);
                 const entry = state.combatLastEntry;
                 state.combatReturnKey = dismissed && entry ? entry.key : '';
                 if (state.activeReader) setTimeout(() => { if (state.activeReader) rerenderActiveReader(); }, 0);
@@ -5347,7 +5356,15 @@ ${row.key}`;
             },
             playSfx: (kind) => {
                 const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
-                return playBattleSfx(kind, normalizeFxSoundSettings(rs && rs.fxSound));
+                const sound = normalizeFxSoundSettings(rs && rs.fxSound);
+                return playBattleSfx(kind, sound) || playFxSfx(kind, sound);
+            },
+            getDuelFx: () => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                return { rhythmSound: !(rs && rs.romanceFx) || rs.romanceFx.rhythmSound !== false };
+            },
+            onDuelProgress: (ratio) => {
+                if (advanceIntimateDuel(ratio) && state.activeReader) setTimeout(() => { if (state.activeReader) rerenderActiveReader(); }, 0);
             },
             // 战斗音乐：面板打开时把本阅读器的配乐临时切到 battle 情绪（沿用 BGM 开关与曲库），关闭后放回原来那首剧情曲。
             setBattleMusic: (overlay, on) => setBgmMoodOverride(overlay, on ? 'battle' : ''),
@@ -5387,6 +5404,9 @@ ${row.key}`;
             // 装备栏与道具的物品图：只读本聊天本地缓存，补载完成后经订阅重绘。
             resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
             subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
+            // 配色与日记、目录同一份（设置器四套配色）。
+            getTheme: () => readSettingsTheme(),
+            setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
         const domState = {
             root,
@@ -5723,7 +5743,16 @@ ${row.key}`;
         const sourceFilter = current.payload && current.payload.sourceFilter;
         const quota = floor && typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null;
         // floorEntry 不看页码：持久会话里有这一楼未打完的战斗时，任意一页都留「返回战斗」，重开阅读器落在首页也能续打。
-        const floorEntry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: true, sourceFilter, challengeQuota: quota }) : null;
+        const intimateOn = Boolean(floor) && typeof options.getIntimateGate === 'function' && options.isIntimatePrepared?.() === true;
+        let intimate = null;
+        if (intimateOn) {
+            const prepared = snapshot[preparedFloorKey];
+            const userName = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
+            const gate = computeIntimateFloorGate({ pages: prepared && prepared.pages, messageId: Number(messageId), userName, assets: snapshot.readerSettings && snapshot.readerSettings._sceneAssets, previous: getIntimateGate(floor.chatId, Number(messageId)) });
+            setIntimateGate(floor.chatId, Number(messageId), gate);
+            try { intimate = options.getIntimateGate(Number(messageId)); } catch (error) { intimate = null; }
+        }
+        const floorEntry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: true, sourceFilter, challengeQuota: quota, intimate }) : null;
         const entry = lastPage ? floorEntry : null;
         state.combatAutoOpened ||= new Set();
         const combatSettings = normalizeCombatExpansionSettings(snapshot.readerSettings && snapshot.readerSettings.combatExpansion);
@@ -5747,6 +5776,11 @@ ${row.key}`;
         probe.returnTag = probe.returnTag || persisted;
         const showTag = persisted ? floorEntry : entry && state.combatReturnKey === entry.key ? entry : null;
         syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, showTag), onFail: (r) => notifyCombatOpenFail(r) });
+        const prepared = snapshot[preparedFloorKey];
+        const pageNow = prepared && prepared.pages ? prepared.pages[Number(snapshot.content && snapshot.content.currentIndex) || 0] : null;
+        const launchable = Boolean(intimate) && combatSettings.intimate.launch && intimate.newRise && !intimate.fought && !intimate.ageBlocked && !intimate.launch
+            && !floorEntry && !panelOpen && pageIsIntimateRise(pageNow);
+        syncIntimateLaunch(overlay, launchable ? { skin, onLaunch: () => launchIntimate(current, snapshot, floor, Number(messageId)) } : null);
         // 悬浮「返回战斗」：有未打完的战斗、没有面板开着、原位置没有小标签时显示（小标签与它指向同一件事，不重复）。
         const unfinished = combatSettings.enabled && !showTag && !anyPanelOpen(current.dom)
             ? unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null) : null;
@@ -5779,6 +5813,18 @@ ${row.key}`;
         }
     }
 
+    function launchIntimate(current, snapshot, floor, messageId) {
+        setIntimateGate(floor.chatId, messageId, { ...getIntimateGate(floor.chatId, messageId), launch: true });
+        const entry = resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: true, sourceFilter: current.payload && current.payload.sourceFilter, intimate: options.getIntimateGate(messageId) });
+        if (!entry) return { ok: false, reason: 'combat-entry-missing' };
+        const opened = openCombatPanel(current, entry);
+        state.combatAutoOpened ||= new Set();
+        if (opened && opened.ok === true) state.combatAutoOpened.add(entry.key);
+        else notifyCombatOpenFail(opened);
+        syncIntimateLaunch(current.dom.overlay, null);
+        return opened;
+    }
+
     // 入口卡打开战斗面板失败时的阅读器内提示。
     function notifyCombatOpenFail(result) {
         if (!result || result.ok !== false) return;
@@ -5792,12 +5838,17 @@ ${row.key}`;
         const menu = dom.overlay.querySelector?.('#igs-hud-record-menu');
         if (menu && !menu.hasAttribute('hidden')) menu.setAttribute('hidden', '');
         state.combatLastEntry = entry;
+        setIntimateDuel(entry.intimate ? { partner: options.getIntimateGate?.(entry.messageId)?.partner } : null);
         // 开战标签里的名字先交给面板：对撞过场不等准备完成。
         const preview = entry.kind === 'challenge'
             ? { challenge: true, encounter: entry.event, enemies: [{ name: entry.event, count: 1 }] }
             : { encounter: entry.encounter, enemies: Array.isArray(entry.enemies) ? entry.enemies.map((e) => ({ name: e.name, count: e.count })) : [] };
-        const result = dom.combatController.open(dom.overlay, { messageId: entry.messageId, preview, ...(then ? { then } : {}) });
+        const result = dom.combatController.open(dom.overlay, { messageId: entry.messageId, preview, ...(then ? { then } : {}), ...(entry.intimate ? { duel: true } : {}) });
         if (result && result.ok === true && state.combatReturnKey === entry.key) state.combatReturnKey = '';
+        if (entry.intimate) {
+            if (result && result.ok === true) setTimeout(() => { if (state.activeReader) rerenderActiveReader(); }, 0);
+            else setIntimateDuel(null);
+        }
         return result;
     }
 

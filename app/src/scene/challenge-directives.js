@@ -1,8 +1,9 @@
 // 日常挑战标签解析：从楼层正文里取末行的 [igs-challenge:事件名|领域|难度|代价|对方]，校验字段并给出诊断。
 // 纯函数。标签文本为 AI 输出，一律按不可信输入处理；数值全部由脚本查表，标签里只有离散词。
-import { combatBodyText } from './combat-directives.js';
+import { combatBodyText, extractIntimateLines } from './combat-directives.js';
 import { stripMarkerDirectives } from './directive-tags.js';
 import { DEFAULT_SKILL_LIST } from './stats/stat-skill-match.js';
+import { INTIMATE_DOMAIN, INTIMATE_MECHANICS, fallbackMechanic, resolveIntimateGate } from './intimate-duel.js';
 
 export const CHALLENGE_TIERS = Object.freeze({ 轻松: '轻松', easy: '轻松', 普通: '普通', normal: '普通', 艰难: '艰难', hard: '艰难' });
 export const CHALLENGE_STAKES = Object.freeze({
@@ -87,14 +88,38 @@ export function parseChallengeStart(raw, options = {}) {
     if (!atTail) return { start: null, diagnostics };
     const parsed = parseFields(last.fields, options, diagnostics, where(last));
     if (!parsed.ok) {
-        diagnostics.push({ code: parsed.code, field: parsed.field, problem: parsed.problem, ...where(last) });
+        if (!parsed.silent) diagnostics.push({ code: parsed.code, field: parsed.field, problem: parsed.problem, ...where(last) });
         return { start: null, diagnostics };
     }
-    if (options.quota && !options.quota.ok) {
+    if (parsed.value.intimate !== true && options.quota && !options.quota.ok) {
         diagnostics.push({ code: 'challenge-quota', reason: options.quota.reason, ...where(last) });
         return { start: null, diagnostics };
     }
-    return { start: { ...parsed.value, ...where(last) }, diagnostics };
+    const lines = parsed.value.intimate === true ? extractIntimateLines(body, diagnostics) : [];
+    return { start: { ...parsed.value, ...where(last), ...(lines.length ? { lines } : {}) }, diagnostics };
+}
+
+function parseIntimate(fields, options, diagnostics, where) {
+    const gate = options.intimate || {};
+    const verdict = resolveIntimateGate(gate);
+    if (!verdict.ok) {
+        diagnostics.push({ code: verdict.code, ...where });
+        return { ok: false, field: 'domain', problem: verdict.code, code: verdict.code, silent: true };
+    }
+    const tierWord = (fields[3] || '').toLowerCase();
+    if (tierWord && !Object.hasOwn(CHALLENGE_TIERS, tierWord)) diagnostics.push({ code: 'challenge-tier-unknown', ...where });
+    let mechanic = fields[2] || '';
+    if (!INTIMATE_MECHANICS.includes(mechanic)) {
+        if (mechanic) diagnostics.push({ code: 'intimate-mechanic-fallback', name: mechanic.slice(0, NAME_MAX), ...where });
+        mechanic = fallbackMechanic(gate);
+    }
+    return {
+        ok: true,
+        value: {
+            event: fields[0], domain: INTIMATE_DOMAIN, intimate: true, mechanic, eventKey: gate.eventKey ?? null, counterpart: gate.partner || '',
+            tier: tierWord && Object.hasOwn(CHALLENGE_TIERS, tierWord) ? CHALLENGE_TIERS[tierWord] : CHALLENGE_DEFAULT_TIER, stake: CHALLENGE_DEFAULT_STAKE, requestedStake: CHALLENGE_DEFAULT_STAKE,
+        },
+    };
 }
 
 function parseFields(fields, options, diagnostics, where) {
@@ -102,6 +127,7 @@ function parseFields(fields, options, diagnostics, where) {
     const event = fields[0] || '';
     if (!event) return { ...invalid('event', 'required'), code: 'challenge-event-invalid' };
     if (event.length > NAME_MAX) return { ...invalid('event', 'too-long'), code: 'challenge-event-invalid' };
+    if (fields[1] === INTIMATE_DOMAIN) return parseIntimate(fields, options, diagnostics, where);
     const tierWord = (fields[2] || '').toLowerCase();
     if (tierWord && !Object.hasOwn(CHALLENGE_TIERS, tierWord)) return { ...invalid('tier', 'unknown-tier'), code: 'challenge-tier-unknown' };
     const stakeWord = (fields[3] || '').toLowerCase();

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { combatPrewarmTargets } from '../src/scene/combat-prewarm.js';
 import { listCombatEnemies, enemySpriteState, renderCombatEnemySprites } from '../src/visual/igs-ui/combat-enemy-sprites.js';
+import { editCharacterCreature } from '../src/visual/igs-ui/creature-settings.js';
+import { normalizeCharacterDna } from '../src/scene/character-dna.js';
 
 const body = (tag) => `她拔出剑。\n${tag}`;
 
@@ -27,8 +29,19 @@ describe('combat enemy sprites page', () => {
         },
         characters: {},
     };
-    it('只列非人档案', () => {
+    it('只列非人档案与人类战斗对手', () => {
         expect(listCombatEnemies(assets).map((e) => e.name)).toEqual(['史莱姆']);
+        const withHuman = { ...assets, characterDna: { ...assets.characterDna, 山贼: { combatFoe: true } } };
+        expect(listCombatEnemies(withHuman).map((e) => e.name)).toEqual(['史莱姆', '山贼']);
+        const html = renderCombatEnemySprites({ sceneAssets: withHuman, isOpen: () => true });
+        expect(html).toContain('char-creature:enabled:%E5%8F%B2%E8%8E%B1%E5%A7%86:human');
+        expect(html).toContain('combat-enemy-sprite:unlist:%E5%B1%B1%E8%B4%BC');
+        expect(html).toContain('人类 · 无立绘');
+    });
+    it('取消非人：去档案、标为人类对手', () => {
+        const next = editCharacterCreature(assets.characterDna.史莱姆, 'enabled', 'human');
+        expect(next).toEqual({ combatFoe: true });
+        expect(normalizeCharacterDna(next).combatFoe).toBe(true);
     });
     it('用图来源：已采用 > 待确认 > 无', () => {
         expect(enemySpriteState({ characters: { a: { 平和: 'igs-gen:1' } } }, 'a').kind).toBe('adopted');

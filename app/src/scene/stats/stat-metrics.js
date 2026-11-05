@@ -4,6 +4,7 @@
 import { stageOf } from './stat-favor.js';
 import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
 import { isProtagonist } from './stat-engine.js';
+import { grudgeTier } from './stat-state.js';
 
 const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕/;
 
@@ -19,7 +20,7 @@ export function dropUserFavor(model, speaker, userName = '') {
     return metrics.length === model.metrics.length ? model : { ...model, metrics };
 }
 
-const DIM_COLOR = Object.freeze({ 好感: 'like', 信任: 'trust', 了解: 'know', 欲望: 'desire' });
+const DIM_COLOR = Object.freeze({ 好感: 'like', 信任: 'trust', 了解: 'know', 欲望: 'desire', 芥蒂: 'grudge' });
 const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '金钱' });
 // 状态栏条色沿用现有 slot 色板：生命红、体力绿、金钱黄、压力紫。
 const BAR_COLOR = Object.freeze({ health: 'slot-5', stamina: 'slot-2', money: 'slot-3', stress: 'slot-4' });
@@ -39,17 +40,42 @@ export function displayOfFavor(value, hudLabel = 'number') {
     return stage;
 }
 
+const DIM_STAGES = Object.freeze({
+    信任: ['戒备', '普通', '放心', '依赖'],
+    了解: ['陌生', '初识', '熟知', '灵犀'],
+    欲望: ['平淡', '悸动', '渴求', '沉溺'],
+    芥蒂: ['不满', '记恨', '怨恨', '仇恨'],
+});
+
+export function stageOfDim(dim, value) {
+    const names = DIM_STAGES[dim];
+    if (!names) return '';
+    const v = Math.round(Number(value) || 0);
+    return names[v <= 25 ? 0 : v <= 50 ? 1 : v <= 75 ? 2 : 3];
+}
+
+export function displayOfDim(dim, value, hudLabel = 'number') {
+    if (dim === '好感') return displayOfFavor(value, hudLabel);
+    const v = Math.round(Number(value) || 0);
+    const stage = stageOfDim(dim, v);
+    if (!stage || hudLabel === 'number') return String(v);
+    if (hudLabel === 'both') return `${stage} · ${v}`;
+    return stage;
+}
+
 export function characterStatMetrics(character, { hudLabel = 'number', nsfw = false } = {}) {
     if (!character || !character.dims) return [];
     const out = [];
-    for (const [dim, value] of Object.entries(character.dims)) {
+    const dims = '芥蒂' in character.dims ? character.dims : { ...character.dims, 芥蒂: 0 };
+    for (const [dim, value] of Object.entries(dims)) {
         if (dim === '欲望' && !nsfw) continue;
+        if (dim === '芥蒂' && !grudgeTier(value)) continue;
         // 负好感：条长按绝对值画、换冷色，一眼能看出反感程度。
         const negativeFavor = dim === '好感' && Math.round(Number(value) || 0) < 0;
         out.push({
             label: dim,
             percent: negativeFavor ? percentOfDim(-value) : percentOfDim(value),
-            display: dim === '好感' ? displayOfFavor(value, hudLabel) : String(Math.round(Number(value) || 0)),
+            display: displayOfDim(dim, value, hudLabel),
             colorKey: negativeFavor ? 'cold' : DIM_COLOR[dim] || 'like',
             sourceUid: 'igs-stats',
             // 原始值（含负数）：条长按 0 画，但演出层要按真实增减判断（负区间继续下降也要提示）。

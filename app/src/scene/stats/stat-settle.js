@@ -3,11 +3,11 @@
 // 返回 { state, changes, meta }，可直接作为 stat-ledger-settle 的 settle 回调结果。
 import { parseStatDirectives } from './stat-directives.js';
 import { FAVOR_GATES, applyDim, baseDelta, favorLimits, gateKey } from './stat-favor.js';
-import { START_FAVOR } from './stat-vocab.js';
+import { START_DIMS, START_FAVOR } from './stat-vocab.js';
 import { applyGift, applyKeyEvent } from './stat-favor-events.js';
 import { DEFAULT_MONEY_TABLE, applyBarDirective } from './stat-bars.js';
 import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } from './stat-day.js';
-import { SKILL_MAX, createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
+import { DIM_MAX, DIM_MIN, SKILL_MAX, clamp, createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
 import { rollDie } from './stat-rng.js';
 import { settleCombat } from './stat-battle.js';
 import { PROTAGONIST, createEngine, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } from './stat-engine.js';
@@ -115,16 +115,49 @@ function settleStartRelations(before, directives, ctx) {
         const pristine = !existing || (Object.values(existing.dims || {}).every((v) => !Number(v)) && !(existing.unlocked || []).length);
         if (!pristine) { ctx.diagnostics.push({ code: 'stat-start-ignored', name: d.target }); continue; }
         const base = existing || createCharacter(state.clock.day, { nsfw: ctx.nsfw });
-        const to = START_FAVOR[d.value];
-        if (to) ctx.changes.push({ source: 'tag', target: d.target, key: '好感', from: 0, to, note: `起始关系·${d.value}` });
+        const preset = START_DIMS[d.value] || {};
+        for (const [key, to] of Object.entries(preset)) {
+            if (to) ctx.changes.push({ source: 'tag', target: d.target, key, from: 0, to, note: `起始关系·${d.value}` });
+        }
+        const to = preset.好感 ?? START_FAVOR[d.value] ?? 0;
         state = withCharacter(state, d.target, {
             ...base,
-            dims: { ...base.dims, 好感: to },
+            dims: { ...base.dims, ...preset },
             unlocked: FAVOR_GATES.filter((gate) => gate < to).map(gateKey),
             lastSeenDay: state.clock.day,
         });
     }
     return state;
+}
+
+export const MANUAL_DIMS = Object.freeze(['好感', '信任', '了解']);
+
+// 玩家在设置页手改的关系数值：manual = { 角色: { 好感, 信任, 了解 } }，盖在本楼结算结果上，不受单楼与每日上限约束。
+// 好感关口按新值重算：低于新值的关口算已过，其余重新锁上。
+export function applyManualRelations(state, manual, changes = []) {
+    let next = state;
+    for (const [name, dims] of Object.entries(manual && typeof manual === 'object' ? manual : {})) {
+        const cur = next.characters[name];
+        if (!cur || !dims || typeof dims !== 'object') continue;
+        const patch = {};
+        for (const key of MANUAL_DIMS) {
+            const v = Number(dims[key]);
+            if (!Number.isFinite(v)) continue;
+            const to = clamp(Math.round(v), DIM_MIN, DIM_MAX);
+            const from = Number(cur.dims[key]) || 0;
+            if (to === from) continue;
+            patch[key] = to;
+            changes.push({ source: 'manual', target: name, key, from, to, note: '手动修改' });
+        }
+        if (!Object.keys(patch).length) continue;
+        const favor = Object.hasOwn(patch, '好感') ? patch.好感 : Number(cur.dims.好感) || 0;
+        const gates = FAVOR_GATES.map(gateKey);
+        const unlocked = Object.hasOwn(patch, '好感')
+            ? [...(cur.unlocked || []).filter((k) => !gates.includes(k)), ...FAVOR_GATES.filter((gate) => gate < favor).map(gateKey)]
+            : cur.unlocked;
+        next = withCharacter(next, name, { ...cur, dims: { ...cur.dims, ...patch }, unlocked });
+    }
+    return next;
 }
 
 function settleCharacters(before, directives, ctx) {
@@ -269,7 +302,9 @@ export function settleFloorText(before, text, opts = {}) {
     state = settleCombat(state, directives, ctx);
     state = settleBars(state, directives, hour, ctx);
     state = settleClock(state, narration, directives, hour, ctx);
+    if (opts.manual) state = applyManualRelations(state, opts.manual, ctx.changes);
     const meta = { diagnostics, events: ctx.events, flags: ctx.flags };
+    if (opts.manual && Object.keys(opts.manual).length) meta.manual = opts.manual;
     if (check) meta.check = check;
     if (storyChecks.length) meta.checks = storyChecks.map((item) => ({ ruleset: item.ruleset, actor: item.actor, skill: item.skill, dc: item.dc, difficulty: item.difficulty, roll: item.roll ?? item.die, total: item.total, tier: item.tier, success: item.success }));
     if (pendingRoll) meta.pendingRoll = pendingRoll;

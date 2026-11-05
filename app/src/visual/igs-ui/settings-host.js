@@ -21,7 +21,8 @@ import { mergeLegacyNaiSettings } from '../../generated-images/image-backend.js'
 import { getSettingsStyleText } from './settings-style.js';
 import { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsCategory, isSettingsPage, normalizeSettingsPage, openSettingsPage, resolveSettingsPage, resolveSettingsTarget } from './settings-pages.js';
 import { recordSettingsRecent, settingsRecentLabel } from './settings-recent.js';
-import { downloadStatsTemplate } from './stats-template-link.js';
+import { downloadStatsTemplate, fetchStatsTemplate, importStatsTemplate, statsTemplateChatDiff, STATS_TEMPLATE_PRESET_NAME } from './stats-template-link.js';
+import { createShujukuClient } from '../../data/shujuku/client.js';
 import { VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData } from './reader-value-utils.js';
 import { attachSettingsViewportEvents, clearChildren, detachSettingsViewportEvents, ensureStyleTag, getRootDocument, unmountNode } from './reader-dom-utils.js';
@@ -713,6 +714,13 @@ export function createSettingsHost(deps) {
                 const text = String((await settingsDialogs.prompt(`修改「${name}」的一项数值，格式：项目 档位（如「话术 精通」「敏捷 出众」）。技能档：未学、入门、熟练、精通、大师；属性档：很弱、偏弱、普通、出众、顶尖。`, '')) || '').trim();
                 const [skill, tier] = text.split(/\s+/);
                 result = skill && tier ? await op('sheet', 'edit', name, { skill, tier }) : { ok: true, cancelled: true };
+            } else if (kind === 'relation-set') {
+                const text = String((await settingsDialogs.prompt(`修改「${name}」的关系数值，范围-100到100，只写要改的项（如「好感 30 了解 40」）。`, '')) || '').trim();
+                const payload = {};
+                let bad = false;
+                for (const [, key, value] of text.matchAll(/(好感|信任|了解)\s*[:：]?\s*(-?\d+)/g)) payload[key] = Number(value);
+                if (text && !Object.keys(payload).length) bad = true;
+                result = bad ? { ok: false, reason: 'stats-relation-invalid' } : Object.keys(payload).length ? await op('relation', 'set', name, payload) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-regen') {
                 result = await settingsDialogs.confirm(`重新生成「${name}」的数值？手改过的内容会被覆盖。`) ? await op('sheet', 'regen', name) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-remove') {
@@ -722,7 +730,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '格式不对，请写成「好感 30」，数值为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
@@ -805,6 +813,34 @@ export function createSettingsHost(deps) {
             return Promise.resolve()
                 .then(() => downloadStatsTemplate((options.global || globalThis).document))
                 .catch((error) => ({ ok: false, reason: 'stats-template-download-threw', thrown: error }));
+        }
+        // 适配版模板直接导入数据库：global 存进模板预设库；chat 替换当前聊天的模板，先确认。
+        if (action === 'stats-template-import' || action === 'stats-template-apply-chat') {
+            return (async () => {
+                const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+                if (!api || typeof api.importTemplateFromData !== 'function') {
+                    showSettingsNotice('未检测到数据库（shujuku）的模板导入接口，请改用下载后手动导入');
+                    return { ok: false, reason: 'missing-api' };
+                }
+                const client = createShujukuClient(api);
+                const fetched = await fetchStatsTemplate();
+                if (!fetched.ok) {
+                    showSettingsNotice('适配版表格模板读取失败，请稍后重试或改用下载');
+                    return fetched;
+                }
+                const scope = action === 'stats-template-apply-chat' ? 'chat' : 'global';
+                if (scope === 'chat') {
+                    const current = client.getTableTemplate();
+                    const hidden = current.ok ? statsTemplateChatDiff(current.data, fetched.data).hidden : [];
+                    const extra = hidden.length ? `\n当前聊天的以下表不在模板中，导入后将被隐藏：${hidden.join('、')}` : '';
+                    if (!await settingsDialogs.confirm(`以适配版模板替换当前聊天的表格模板？已有数据保留。${extra}`, { okLabel: '替换' })) return { ok: true, cancelled: true };
+                }
+                const result = await importStatsTemplate(client, fetched.data, scope);
+                showSettingsNotice(result.ok
+                    ? (scope === 'chat' ? '已应用到当前聊天' : `已存入数据库模板预设「${STATS_TEMPLATE_PRESET_NAME}」`)
+                    : `导入失败${result.message ? `：${result.message}` : ''}`);
+                return result;
+            })().catch((error) => ({ ok: false, reason: 'stats-template-import-threw', thrown: error }));
         }
         // 数值系统「本聊天」启用 / 暂停：直接交给运行时，结果重绘后反映到按钮与状态说明。
         if (action === 'stats-chat-enable' || action === 'stats-chat-disable' || action === 'stats-chat-enable-build') {

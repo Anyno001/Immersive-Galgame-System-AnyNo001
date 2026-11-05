@@ -23,7 +23,7 @@ const SKINS = Object.freeze({
 const CANVAS = Object.keys(SKINS).filter((k) => k !== 'initial' && k !== 'veil');
 
 const vars = (s) => `--ce-bg:${s.bg};--ce-bg2:${s.bg2};--ce-ink:${s.ink};--ce-sub:${s.sub};--ce-acc:${s.acc};--ce-on:${s.on};--ce-font:${s.font};--ce-r:${s.r};--ce-br:${s.br};--ce-border:${s.border || '0'};--ce-clip:${s.clip || 'none'};--ce-pop:${s.pop || 'none'};--ce-flash:${s.flash};`;
-const VAR_RULES = Object.entries(SKINS).map(([k, s]) => `#igs-combat-entry[data-combat-skin="${k}"],#igs-combat-resume[data-combat-skin="${k}"],#igs-combat-panel[data-igs-combat-skin="${k}"]{${vars(s)}}`).join('\n');
+const VAR_RULES = Object.entries(SKINS).map(([k, s]) => `#igs-combat-entry[data-combat-skin="${k}"],#igs-combat-resume[data-combat-skin="${k}"],#igs-combat-launch[data-combat-skin="${k}"],#igs-combat-panel[data-igs-combat-skin="${k}"]{${vars(s)}}`).join('\n');
 
 
 // 定格画面按钮：按各皮肤战斗画面里「结束回合」键的造型语言做（形状、边角、字体、质感、按下态）；主按钮大、次级按钮小，均为实色。
@@ -90,7 +90,8 @@ const E = '#igs-combat-entry';
 const LS = `${P}:is(${CANVAS.map((k) => `[data-igs-combat-skin="${k}"]`).join(',')})`;
 // 入口卡：初始方案保留原有化开黑带，其余皮肤改实底卡片。
 const R = '#igs-combat-resume';
-const ES = `:is(${E},${R})[data-combat-skin]:not([data-combat-skin="initial"])`;
+const L = '#igs-combat-launch';
+const ES = `:is(${E},${R},${L})[data-combat-skin]:not([data-combat-skin="initial"])`;
 
 export const COMBAT_ENTRY_SKIN_STYLE_TEXT = `
 ${VAR_RULES}
@@ -118,6 +119,17 @@ ${ES} .igs-combat-entry-btn:focus-visible{outline-color:var(--ce-acc);}
 #igs-overlay ${R} .igs-combat-entry-return{min-height:40px;padding:10px 26px;font-size:15px;justify-content:center;align-items:center;}
 #igs-overlay ${R}[data-combat-skin="initial"] .igs-combat-entry-btn{background:var(--ce-bg);text-shadow:none;border-radius:var(--ce-r);}
 #igs-overlay ${R}[data-combat-skin="comic"] .igs-combat-entry-btn{border:2px solid #f4f2ec;box-shadow:2px 2px 0 #f2c45a;}
+/* 亲密对决「发起」：宽屏落在画面左侧对话框上沿之上，窄屏阅读贴在底部输入框上方靠左，log 列表底边让出位置；点击区不小于 44px */
+${L}{position:absolute;left:16px;bottom:calc(24px + var(--igs-dialog-h,160px) + var(--igs-toolbar-h,50px) + 12px);z-index:7;max-width:calc(100% - 32px);pointer-events:auto;}
+#igs-overlay.igs-toolbar-top ${L}{bottom:calc(24px + var(--igs-dialog-h,160px) + 12px);}
+#igs-overlay.igs-floating ${L}{bottom:calc(14px + var(--igs-dialog-h,160px) + var(--igs-toolbar-h,50px) + 10px);}
+#igs-overlay.igs-floating.igs-toolbar-top ${L}{bottom:calc(14px + var(--igs-dialog-h,160px) + 10px);}
+#igs-overlay[data-igs-comic] ${L}{bottom:calc(18px + var(--igs-comic-controls-h,56px) + 12px)!important;}
+#igs-overlay[data-igs-log-reader="on"] ${L}{left:var(--igs-log-edge)!important;bottom:calc(var(--igs-log-foot) + 10px)!important;}
+#igs-overlay[data-igs-log-reader="on"]:has(${L}) #igs-log .igs-log-scroll{bottom:calc(var(--igs-log-foot) + 60px);}
+#igs-overlay:is(.igs-record-screen-open,.igs-turn-index-open,[data-igs-combat-open],[data-igs-cg-only="1"],:has(.igs-live-phone)) ${L}{display:none;}
+#igs-overlay ${L} .igs-combat-entry-return{min-height:44px;min-width:44px;padding:10px 26px;font-size:15px;justify-content:center;align-items:center;border:0;background:var(--ce-bg,#1c1c1e);color:var(--ce-ink,#f4f1f6);}
+${L} .igs-combat-entry-btn:active{transform:translateY(2px);}
 /* 准备中：三点跳动 + 文字 + 取消；阻断提示沿用同一组变量 */
 ${P} .igs-combat-loading{display:flex;flex-direction:column;align-items:center;gap:14px;margin:28px 0 0;}
 ${P} .igs-combat-loading-dots{display:flex;gap:8px;}

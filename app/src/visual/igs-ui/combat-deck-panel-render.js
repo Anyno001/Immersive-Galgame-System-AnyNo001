@@ -1,7 +1,8 @@
 import { renderCombatGenerationForm } from './combat-generation-form.js';
 import { esc } from './reader-value-utils.js';
 import { combatReasonText } from './combat-panel-render.js';
-import { LIVE_ICONS } from './danmaku-icons.js';
+import { recordPageHeadHtml } from './record-page-shell.js';
+import { renderSettingsThemeSwitch } from './settings-theme.js';
 import { DECK_PAGES, DECK_PAGE_LABELS } from './combat-deck-panel-model.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../../combat/points.js';
 import { TRAIT_LINK_LABELS } from '../../combat/traits.js';
@@ -97,13 +98,21 @@ const CARD_ERROR = Object.freeze({ 'copy-limit': '同名超过上限', 'not-owne
 
 const btn = (act, label, { id = '', primary = false, disabled = false, pressed = null } = {}) =>
     `<button type="button" class="igs-deck-btn${primary ? ' is-primary' : ''}" data-deck-act="${esc(act)}"${id ? ` data-deck-id="${esc(id)}"` : ''}${pressed === null ? '' : ` aria-pressed="${pressed}"`}${disabled ? ' aria-disabled="true"' : ''}>${esc(label)}</button>`;
-const row = (label, body) => `<div class="igs-deck-row"><span class="igs-deck-label">${esc(label)}</span>${body}</div>`;
+// 字段行：左侧固定宽度的小标签，右侧内容自动换行；标签为空时只占位，保证各行内容左边对齐。
+const row = (label, body) => `<div class="igs-deck-row"><span class="igs-deck-label">${esc(label)}</span><div class="igs-deck-row-body">${body}</div></div>`;
 const chip = (text) => `<span class="igs-deck-chip">${esc(text)}</span>`;
+// 分组：小标题（日记页「篇目」同款字距小字）+ 内容，用于装备、被动、特性等列表。
+const section = (title, body) => `<section class="igs-deck-section"><h4 class="igs-deck-section-title">${esc(title)}</h4>${body}</section>`;
 const expText = (d) => (d.next ? `Lv${d.level} · ${d.into}/${d.next}` : `Lv${d.level} · 满级`);
+const initial = (name) => esc(Array.from(String(name || '?'))[0] || '?');
 
+// 角色名单：与日记页人物名单同款，圆形首字头像 + 名字 + 一行小字。
+const personBtn = (act, id, name, sub, current) => `<button type="button" class="igs-deck-person" data-deck-act="${act}" data-deck-id="${esc(id)}" aria-pressed="${current}">`
+    + `<span class="igs-deck-avatar" aria-hidden="true">${initial(name)}</span><span class="igs-deck-person-meta"><span>${esc(name)}</span><small>${esc(sub)}</small></span></button>`;
 function rosterHtml(v) {
-    const builds = (v.builds || []).map((b) => btn('select-build', `${b.name}　待建档`, { id: b.name, pressed: b.name === v.selectedBuild })).join('');
-    return `<nav class="igs-deck-roster" aria-label="角色">${v.roster.map((r) => btn('select', `${r.name}　${r.kindLabel} · ${expText(r)}${r.needsAdjust ? ' · 需调整' : ''}`, { id: r.id, pressed: !v.selectedBuild && r.id === v.selectedId })).join('')}${builds}</nav>`;
+    const people = v.roster.map((r) => personBtn('select', r.id, r.name, `${r.kindLabel} · ${expText(r)}${r.needsAdjust ? ' · 需调整' : ''}`, !v.selectedBuild && r.id === v.selectedId));
+    const builds = (v.builds || []).map((b) => personBtn('select-build', b.name, b.name, '待建档', b.name === v.selectedBuild));
+    return `<nav class="igs-deck-roster" aria-label="角色">${[...people, ...builds].join('')}</nav>`;
 }
 
 const PENDING_KIND = Object.freeze({ learn: '习得', upgrade: '精进', class: '转职' });
@@ -128,11 +137,12 @@ function cardRow(c, readonly) {
     const effectText = (text, cost) => `${cost === 'X' ? '消耗全部能量，每点能量结算一次：' : ''}${text || '暂无效果资料'}`;
     const upgraded = c.upgradedText ? `<details class="igs-deck-effect"><summary>升级后 · ${esc(c.upgradedCost)} 费</summary>${esc(effectText(c.upgradedText, c.upgradedCost))}</details>` : '';
     const effect = effectText(c.text, c.cost);
+    // 一张卡一块：费用、卡面、名称与效果在左；来源、属性要求、数量与操作收在右侧一栏（窄屏整栏移到下方），不与下一张卡混在一起。
+    const count = `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>`;
+    const acts = artAction(c, readonly) + (readonly ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`);
     return `<li class="igs-deck-card${c.errors.length ? ' is-error' : ''}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>${artThumb(c.art)}`
-        + `<div class="igs-deck-card-info"><div class="igs-deck-row"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-count">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${upgraded}</div>`
-        + `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>${scale}${err}`
-        + artAction(c, readonly)
-        + (readonly ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`)
+        + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-tag">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${upgraded}${err}</div>`
+        + `<div class="igs-deck-card-side"><div class="igs-deck-card-stats">${scale}${count}</div>${acts ? `<div class="igs-deck-card-acts">${acts}</div>` : ''}</div>`
         + '</li>';
 }
 
@@ -192,15 +202,18 @@ function gearHtml(v, d) {
     const g = d.gear;
     if (!g) return '';
     const busy = v.readonly || Boolean(v.pending);
-    const slots = g.slots.map((s) => (s.item
-        ? `<span class="igs-deck-chip" data-slot="${esc(s.slot)}"${s.item.text ? ` title="${esc(s.item.text)}"` : ''}>${itemArt(s.item)}${esc(s.label)} · ${esc(s.item.name)}</span>${v.readonly ? '' : btn('unequip', '卸下', { id: s.item.gearId, disabled: busy })}`
-        : `<span class="igs-deck-chip is-empty" data-slot="${esc(s.slot)}">${esc(s.label)} · 空</span>`)).join('');
-    const items = g.items.length ? row('道具', g.items.map((i) => (i.imageUrl ? `<span class="igs-deck-chip">${itemArt(i)}${esc(`${i.name} ×${i.count}`)}</span>` : chip(`${i.name} ×${i.count}`))).join('')) : '';
+    // 一个部位一行：部位名、物品名与加成 / 被动说明（直接写出，不只放在悬停提示里）、右侧操作。
+    const gearRow = (label, x, rarity, act) => bagRow(rarity, `<span class="igs-deck-slot">${esc(label)}</span>`
+        + `<span class="igs-deck-name${x ? '' : ' is-empty'}">${x ? itemArt(x) : ''}${esc(x ? x.name : '空')}</span>${x?.text ? `<span class="igs-deck-count">${esc(x.text)}</span>` : ''}`, act);
+    const slots = g.slots.map((s) => gearRow(s.label, s.item, '', s.item && !v.readonly ? btn('unequip', '卸下', { id: s.item.gearId, disabled: busy }) : ''));
+    const parts = [section('装备', `<ul class="igs-deck-collection">${slots.join('')}</ul>`)];
     // 背包页取消后（v0.39.2）：主角的物品统一在阅读器背包页查看、换装与卖出；队友没有外部背包，未装备的装备在这里列出并可装上。
-    const spare = !d.canSell && g.bag.length
-        ? row('可装备', g.bag.map((b) => `<span class="igs-deck-chip"${b.text ? ` title="${esc(b.text)}"` : ''}${b.rarity ? ` data-rarity="${esc(b.rarity)}"` : ''}>${itemArt(b)}${esc(b.slotLabel)} · ${esc(b.name)}</span>${v.readonly ? '' : btn('equip', '装上', { id: b.gearId, disabled: busy })}`).join(''))
-        : '';
-    return `${row('装备', slots)}${spare}${items}`;
+    if (!d.canSell && g.bag.length) {
+        parts.push(section('可装备', `<ul class="igs-deck-collection">${g.bag.map((b) => gearRow(b.slotLabel, b, b.rarity, v.readonly ? '' : btn('equip', '装上', { id: b.gearId, disabled: busy }))).join('')}</ul>`));
+    }
+    if (g.items.length) parts.push(section('道具', `<ul class="igs-deck-collection">${g.items.map((i) => bagRow('', `<span class="igs-deck-name">${itemArt(i)}${esc(i.name)}</span><span class="igs-deck-count">×${esc(i.count)}</span>`, '')).join('')}</ul>`));
+    if (d.canSell) parts.push('<p class="igs-deck-help">背包里的装备在资料菜单「物品」页换装与卖出。</p>');
+    return parts.join('');
 }
 
 function generateHtml(v, d) {
@@ -229,7 +242,7 @@ function abilityGrid(rows, editable, busy = false, prefix = 'alloc') {
         + `<span class="igs-deck-ability-mod">${esc(r.modText)}</span></li>`).join('')}</ul>`;
 }
 
-const passiveChip = (label, p) => `<span class="igs-deck-chip"${p.text ? ` title="${esc(p.text)}"` : ''}>${esc(label)} · ${esc(p.name)}</span>`;
+const passiveRow = (label, p) => bagRow('', `<span class="igs-deck-slot">${esc(label)}</span><span class="igs-deck-name">${esc(p.name)}</span>${p.text ? `<span class="igs-deck-count">${esc(p.text)}</span>` : ''}`, '');
 
 // 列表行：稀有度标色、名称与说明、右侧操作；人物特性逐槽复用。
 const bagRow = (rarity, head, acts) => `<li class="igs-deck-keepsake"${rarity ? ` data-rarity="${esc(rarity)}"` : ''}>${head}${acts ? `<span class="igs-deck-bag-acts">${acts}</span>` : ''}</li>`;
@@ -260,8 +273,8 @@ function traitsHtml(v, d) {
         });
     }
     const parts = [];
-    if (rows.length) parts.push(row(slots ? `特性 ${list.length}/${slots.slots}` : '特性', `<ul class="igs-deck-collection">${rows.join('')}</ul>`));
-    if (fresh) parts.push(row('新特性', `<ul class="igs-deck-collection">${bagRow(fresh.rarity, traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
+    if (rows.length) parts.push(section(slots ? `人物特性 · ${list.length}/${slots.slots}` : '人物特性', `<ul class="igs-deck-collection">${rows.join('')}</ul>`));
+    if (fresh) parts.push(section('新特性', `<ul class="igs-deck-collection">${bagRow(fresh.rarity, traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
     if (hero && !fresh && !v.readonly && v.canDrawTrait) {
         const inner = v.trait
             ? btn('trait-confirm', v.pending === 'trait' ? '生成中' : `确认抽取 · ${TRAIT_DRAW_COST} 金钱`, { primary: true, disabled: busy }) + btn('trait-cancel', '取消', { disabled: busy })
@@ -316,13 +329,15 @@ function statusPage(v, d) {
     // 生命：当前 / 上限（持续伤势已计入）与伤势词；满血时只写上限。
     const hp = d.combat && (d.combat.current ?? d.combat.hp) < d.combat.hp ? `生命 ${d.combat.current}/${d.combat.hp}` : `生命 ${d.combat?.hp}`;
     if (d.combat) parts.push(row('开战', chip(hp) + (d.combat.injury && d.combat.injury !== '无伤' ? chip(d.combat.injury) : '') + chip(`速度 ${d.combat.speed}`)));
-    if (a?.table === 'missing') parts.push(row('属性', chip('属性表未创建')));
-    parts.push(abilityGrid(d.abilities, false));
     if (a && Number.isFinite(a.proficiency)) parts.push(row('熟练', chip(`+${a.proficiency}`)));
-    const passives = d.kind === 'skill-character'
-        ? (d.passives || []).map((p) => chip(p.name)).join('')
-        : [d.classPassive && passiveChip('职业', d.classPassive), d.personalPassive && !d.traitSlots && passiveChip('个人', d.personalPassive)].filter(Boolean).join('');
-    if (passives) parts.push(row('被动', passives));
+    // 没有属性表时六维是按定位推算的默认值，照常用于战斗；说明写在属性格上方，不与数值并列成「未创建」。
+    const abilities = `${a?.table === 'missing' ? '<p class="igs-deck-help">属性表未创建，以下为按定位推算的默认值。</p>' : ''}${abilityGrid(d.abilities, false)}`;
+    if (d.abilities?.length) parts.push(section('六维', abilities));
+    // 被动：名称与效果一并写出（不只放在悬停提示里，触屏也能看到）。
+    const passiveRows = d.kind === 'skill-character'
+        ? (d.passives || []).map((p) => bagRow('', `<span class="igs-deck-name">${esc(p.name)}</span>`, ''))
+        : [d.classPassive && passiveRow('职业', d.classPassive), d.personalPassive && !d.traitSlots && passiveRow('个人', d.personalPassive)].filter(Boolean);
+    if (passiveRows.length) parts.push(section('被动', `<ul class="igs-deck-collection">${passiveRows.join('')}</ul>`));
     const traits = traitsHtml(v, d);
     if (traits) parts.push(traits);
     return parts.join('');
@@ -353,9 +368,9 @@ function allocPage(v) {
     if (!a) return '';
     if (a.table !== 'ok') {
         const retry = v.readonly ? '' : tablesRetryBtn(v);
-        return `${row('属性', chip('属性表未创建'))}${abilityGrid(a.rows, false)}${retry ? `<div class="igs-deck-actions">${retry}</div>` : ''}`;
+        return `<p class="igs-deck-help">属性表未创建，暂时不能加点；以下为按定位推算的默认值。</p>${abilityGrid(a.rows, false)}${retry ? `<div class="igs-deck-actions">${retry}</div>` : ''}`;
     }
-    if (!a.protagonist) return `${abilityGrid(a.rows, false)}<div class="igs-deck-actions">${chip('只读')}</div>`;
+    if (!a.protagonist) return `<p class="igs-deck-help">只有主角可以分配属性点。</p>${abilityGrid(a.rows, false)}`;
     const busy = Boolean(v.pending);
     const actions = v.readonly ? chip('战斗进行中 · 只读')
         : `${btn('alloc-reset', '还原', { disabled: !a.dirty || busy })}${btn('alloc-confirm', v.pending === 'alloc' ? '保存中' : '确认加点', { primary: true, disabled: !a.dirty || busy })}`;
@@ -371,9 +386,17 @@ function deckPage(v, d) {
 
 const PAGE_HTML = Object.freeze({ status: statusPage, alloc: allocPage, gear: gearHtml, deck: deckPage });
 
+// 页签：日记页「按人物 / 时间线」同款分段按钮。
 function tabsHtml(page, d) {
     return `<div class="igs-deck-tabs" role="tablist" aria-label="人物状态">${DECK_PAGES.map((p) => `<button type="button" class="igs-deck-tab" role="tab" id="igs-deck-tab-${p}" aria-controls="igs-deck-page" data-deck-act="page" data-deck-id="${p}" aria-selected="${p === page}">`
         + `${esc(p === 'deck' && d.kind === 'skill-character' ? '技能' : DECK_PAGE_LABELS[p])}</button>`).join('')}</div>`;
+}
+
+// 详情卡片页头：大号首字头像、名字，下方一行标签（等级、职业、金钱）。生命只在状态页「开战」行写一次（已计入体质与伤势），页头不再另写基础血量。
+const tag = (text) => `<span class="igs-deck-tag">${esc(text)}</span>`;
+function detailHead(name, tags) {
+    return `<header class="igs-deck-detail-head"><span class="igs-deck-avatar is-large" aria-hidden="true">${initial(name)}</span>`
+        + `<div class="igs-deck-detail-title"><h3>${esc(name)}</h3><div class="igs-deck-tags">${tags.filter(Boolean).map(tag).join('')}</div></div></header>`;
 }
 
 function detailHtml(v) {
@@ -381,7 +404,8 @@ function detailHtml(v) {
     const d = v.detail;
     if (!d) return '';
     const classText = d.className && d.tierName ? `${d.className} · ${d.tierName}` : d.className;
-    const head = row(d.name, chip(expText(d)) + (classText ? chip(classText) : '') + (d.hpMax ? chip(`HP ${d.hpMax}`) : '') + (d.tierLabel && v.readonly ? chip(`强度 · ${d.tierLabel}`) : ''));
+    // 金钱只主角有：解锁特性槽、抽特性、转职等按钮按它置灰，页头直接写出余额。
+    const head = detailHead(d.name, [expText(d), classText, d.tierLabel && v.readonly ? `强度 · ${d.tierLabel}` : '', d.canSell ? `金钱 ${d.points || 0}` : '']);
     const page = DECK_PAGES.includes(v.page) ? v.page : 'status';
     return `<section class="igs-deck-detail">${head}${tabsHtml(page, d)}`
         + `<div class="igs-deck-page" id="igs-deck-page" role="tabpanel" aria-labelledby="igs-deck-tab-${page}" data-page="${page}">${PAGE_HTML[page](v, d)}</div></section>`;
@@ -390,7 +414,7 @@ function detailHtml(v) {
 // 待建档角色（P8c）：只有建档页（逐项加点、定位与职业名），确认后写属性表 init，之后按档案或数值系统角色列出。
 function buildDetailHtml(v) {
     if (!v.manual) return '';
-    return `<section class="igs-deck-detail">${row(v.selectedBuild, chip('待建档'))}<div class="igs-deck-page" id="igs-deck-page" data-page="build">${manualPage(v)}</div></section>`;
+    return `<section class="igs-deck-detail">${detailHead(v.selectedBuild, ['待建档'])}<div class="igs-deck-page" id="igs-deck-page" data-page="build">${manualPage(v)}</div></section>`;
 }
 
 // 主角卡组预生成：生成中 / 自动重试中只显示状态；失败显示原因与手动重试。就绪或未开始时不显示。
@@ -421,8 +445,11 @@ function pendingHtml(v) {
 const STATE_TEXT = Object.freeze({ loading: '正在读取', unavailable: '卡牌战斗不可用' });
 
 export function renderCombatDeckPanelHtml(v) {
-    const head = `<header class="igs-deck-head"><span class="igs-deck-title">人物状态</span><button type="button" class="igs-deck-icon-btn" data-deck-act="close" aria-label="关闭">${LIVE_ICONS.close}</button></header>`;
-    const notice = v.notice ? `<p class="igs-deck-notice" role="alert">${esc(v.notice)}</p>` : '';
+    // 页头与日记、目录同一外壳：左返回、居中标题、右侧配色色板（注入了保存配色时才给）。
+    const themeSwitch = v.canTheme ? `<div class="igs-rp-theme-switch" role="radiogroup" aria-label="界面配色">${renderSettingsThemeSwitch(v.theme, {
+        optionClass: 'igs-rp-theme-option', attrs: (value) => `data-deck-act="theme" data-deck-id="${value}"` })}</div>` : '';
+    const head = recordPageHeadHtml('人物状态', { closeAttr: 'data-deck-act', backAriaLabel: '关闭', trailing: themeSwitch });
+    const notice = v.notice ? `<p class="igs-rp-notice igs-deck-notice" role="alert">${esc(v.notice)}</p>` : '';
     let main;
     const stage = v.status === 'ready' ? revealHtml(v) : '';
     if (v.status === 'error') {
@@ -433,9 +460,10 @@ export function renderCombatDeckPanelHtml(v) {
     else if (v.status !== 'ready') main = `<p class="igs-deck-state"${v.status === 'loading' ? ' aria-busy="true"' : ''}>${esc(STATE_TEXT[v.status] || '')}</p>`;
     else if (stage) main = stage;
     else if (!v.roster.length && !(v.builds || []).length) main = `<p class="igs-deck-state">还没有角色档案</p>${pendingHtml(v)}`;
-    else main = `${pendingHtml(v)}<div class="igs-deck-layout">${rosterHtml(v)}${detailHtml(v)}</div>`;
+    // 日记页同款两栏：左侧人物名单，右侧详情卡片（窄屏名单变成横向一排）。
+    else main = `${pendingHtml(v)}<div class="igs-deck-layout"><aside class="igs-deck-side">${rosterHtml(v)}</aside>${detailHtml(v)}</div>`;
     // 神话第一次翻开：整面板闪白，挂在主区之外以铺满面板（低画质与减少动态效果不出）。
     const flash = stage && v.reveal.fresh && v.reveal.rarity === 'mythic' ? '<span class="igs-deck-reveal-flash" aria-hidden="true"></span>' : '';
-    return `${head}${notice}<div class="igs-deck-main" data-status="${esc(v.status)}">${main}</div>${flash}`;
+    return `<div class="igs-rp-page">${head}<div class="igs-rp-body"><div class="igs-deck-main" data-status="${esc(v.status)}">${notice}${main}</div></div></div>${flash}`;
 }
 

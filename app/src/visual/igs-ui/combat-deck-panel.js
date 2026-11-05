@@ -9,6 +9,8 @@ import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../../
 import { nextTraitSlot, planTrait, traitSeed, traitSwap } from '../../combat/traits.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 import { openItemImageViewer, closeItemImageViewer } from './item-image-viewer.js';
+import { watchRecordPageLayout } from './record-page-shell.js';
+import { normalizeSettingsTheme } from './settings-theme.js';
 
 // 人物状态面板（状态、加点、装备、卡组、背包五页）：工具栏「人物状态」按钮与资料菜单「人物状态」项打开。账本、会话与手动生成由 options 注入；面板只编辑草稿、转发保存、换装、卖出与生成。
 export const COMBAT_DECK_PANEL_ID = 'igs-combat-deck-panel';
@@ -58,6 +60,10 @@ export function createCombatDeckPanelController(doc, options = {}) {
     let offItemArt = null;
     // 主角卡组预生成状态订阅：生成中 / 重试中 / 失败在面板内显示并可手动重试；就绪后重读账本。
     let offProtagonist = null;
+    // 配色与日记、目录共用设置器的四套（getTheme / setTheme 由宿主注入）；容器宽度写布局 class（窄屏 / 短屏）。
+    let theme = normalizeSettingsTheme('');
+    let unwatchLayout = null;
+    const readTheme = () => { try { return normalizeSettingsTheme(options.getTheme?.() || ''); } catch (error) { return normalizeSettingsTheme(''); } };
 
     const generationForm = createCombatGenerationForm({ inspect: options.inspectGenerationMaterials, render, errorText: deckReasonText });
     const ledger = () => (typeof options.getLedger === 'function' ? options.getLedger() : null);
@@ -116,7 +122,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait, generationForm: generationForm.view(),
             selectedBuild, builds: builds.map((c) => ({ name: c.name, protagonist: c.protagonist })),
             reveal: reveal ? { phase: reveal.phase, rarity: reveal.rarity, traitId: reveal.traitId, fresh: reveal.phase === 'open' && !reveal.played && !still } : null,
-            reduced: still,
+            reduced: still, theme, canTheme: typeof options.setTheme === 'function',
             readonly,
             roster: deckRosterView(state), classes: classChoices(state),
             detail: view ? withItemArt(withCardArt(view, deckDetailView(view, view.kind === 'deck-character' ? draft : null))) : null,
@@ -670,6 +676,12 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'trait-confirm': return traitConfirm();
             case 'trait-cancel': trait = false; notice = ''; render(); return { ok: true };
             case 'trait-done': reveal = null; notice = ''; render(); return { ok: true };
+            case 'theme':
+                theme = normalizeSettingsTheme(id);
+                root.setAttribute('data-rp-theme', theme);
+                try { options.setTheme?.(theme); } catch (error) { /* 保存失败只影响下次打开 */ }
+                render();
+                return { ok: true, theme };
             case 'trait-drop': return traitDrop(id);
             case 'trait-slot': return traitSlot();
             case 'card-art': return generateArt(id);
@@ -719,6 +731,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-modal', 'true');
         root.setAttribute('aria-label', '人物状态');
+        theme = readTheme();
+        root.setAttribute('data-rp-theme', theme);
         body = doc.createElement('div');
         body.className = 'igs-deck-body';
         root.appendChild(body);
@@ -730,6 +744,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         offProtagonist = typeof options.onProtagonistUpdated === 'function'
             ? options.onProtagonistUpdated((p) => { if (!root) return; if (p?.status === 'ready' && !draft && !allocDraft && !manualDraft && !pending) load(); else render(); }) : null;
         overlay.appendChild(root);
+        unwatchLayout = watchRecordPageLayout(root, doc);
         overlay.classList?.toggle('igs-record-screen-open', true);
         setStagePauseReason(overlay, PAUSE_REASON, true);
         render();
@@ -752,6 +767,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
         offItemArt = null;
         try { if (typeof offProtagonist === 'function') offProtagonist(); } catch (error) { /* 宿主已卸载 */ }
         offProtagonist = null;
+        try { unwatchLayout?.(); } catch (error) { /* 已断开 */ }
+        unwatchLayout = null;
         root.remove();
         root = null; body = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { JSDOM } from 'jsdom';
 import { createNaiCloudQueue } from '../src/generated-images/nai-cloud-queue.js';
-import { NAI_QUEUE_REFERENCE_ENDPOINT } from '../src/generated-images/nai-cloud-queue-settings.js';
 import { createNaiOfficialClient } from '../src/generated-images/nai-official-client.js';
 import { createNaiRequestQueue } from '../src/generated-images/nai-request-queue.js';
 import { createImageBackend } from '../src/generated-images/image-backend.js';
@@ -151,24 +150,35 @@ test('关闭时不访问队列；开启但地址无效或回执缺 token 时零�
     assert.equal(s.sends.length, 1);
 });
 
-test('缺失或清空地址均使用智绘姬默认节点，实际客户端完成取号、校验和释放', async () => {
-    const s = service(), requests = [];
+test('未填地址时开关打开也不排队、不联网任何默认节点；旧版自动填入的地址在未开启时清空', async () => {
+    const s = service();
     const c = s.client(async (input, init) => {
-        const url = new URL(input);
-        if (url.origin === NAI_QUEUE_REFERENCE_ENDPOINT) {
-            requests.push(url.pathname);
-            return s.fetch(endpoint + url.pathname + url.search, init);
-        }
+        assert.equal(new URL(input).origin === endpoint, false);
         return s.fetch(input, init);
     });
     for (const value of [undefined, '', '   ', null]) {
         const config = { enabled: true, ...(value !== undefined && { endpoint: value }) };
-        assert.equal(normalizeAutoIllustrationSettings({ nai: { cloudQueue: config } }).nai.cloudQueue.endpoint, NAI_QUEUE_REFERENCE_ENDPOINT);
+        assert.equal(normalizeAutoIllustrationSettings({ nai: { cloudQueue: config } }).nai.cloudQueue.endpoint, '');
         assert.equal((await c.generate({ scene: 'room' }, { ...s.settings, cloudQueue: config })).ok, true);
     }
-    assert.deepEqual(requests, Array(4).fill(['/join-queue', '/my-turn', '/complete']).flat());
+    assert.deepEqual(s.calls, []);
     assert.equal(s.sends.length, 4);
-    assert.equal(normalizeSettingsValue('bridge.autoIllustration.nai.cloudQueue.endpoint', ''), NAI_QUEUE_REFERENCE_ENDPOINT);
+    assert.equal(normalizeSettingsValue('bridge.autoIllustration.nai.cloudQueue.endpoint', ''), '');
+    const legacy = 'https://st-chatu-novelai-queue.hf.space';
+    assert.equal(normalizeAutoIllustrationSettings({ nai: { cloudQueue: { enabled: false, endpoint: legacy } } }).nai.cloudQueue.endpoint, '');
+    assert.equal(normalizeAutoIllustrationSettings({ nai: { cloudQueue: { enabled: true, endpoint: legacy } } }).nai.cloudQueue.endpoint, legacy);
+});
+
+test('生图间隔开关关闭时不等待，打开后按设定毫秒等待', async () => {
+    for (const [enabled, expectWait] of [[false, false], [true, true]]) {
+        const waits = [], queue = createNaiRequestQueue({ now: () => 0, sleep: async ms => waits.push(ms) });
+        const client = createNaiOfficialClient({ queue, fetch: async () => image() });
+        const settings = { ...naiConfig, cloudQueue: { enabled: false }, minIntervalEnabled: enabled, minIntervalMs: 20000 };
+        assert.equal((await client.generate({ scene: 'room' }, settings)).ok, true);
+        assert.equal((await client.generate({ scene: 'room' }, settings)).ok, true);
+        assert.equal(waits.some(ms => ms > 0), expectWait);
+    }
+    assert.equal(normalizeAutoIllustrationSettings({}).nai.minIntervalEnabled, false);
 });
 
 test('排队取消退出，迟到的加入回执再清理，不发送 NAI', async () => {
@@ -263,7 +273,7 @@ test('释放失败保留已生成结果，429 重试前发现 15 秒锁过期就
 
 test('设置、旧预设和真实设置页面保存重开，间隔和 Medium 不丢失', async () => {
     const base = 'bridge.autoIllustration.nai.cloudQueue';
-    assert.deepEqual(normalizeAutoIllustrationSettings({}).nai.cloudQueue, { enabled: false, endpoint: NAI_QUEUE_REFERENCE_ENDPOINT, timeoutMs: 180000 });
+    assert.deepEqual(normalizeAutoIllustrationSettings({}).nai.cloudQueue, { enabled: false, endpoint: '', timeoutMs: 180000 });
     assert.equal(normalizeSettingsValue(`${base}.timeoutMs`, 'bad'), 180000);
     assert.equal(normalizeSettingsValue(`${base}.timeoutMs`, 9999999), 900000);
     const app = bootstrapIGS({ global: { localStorage: createMemoryStorage() }, autoAttachMagicWand: false,
@@ -271,7 +281,7 @@ test('设置、旧预设和真实设置页面保存重开，间隔和 Medium 不
     try {
         let panel = app.openSettings({ page: 'source' }).controller;
         for (const [path, value] of [['bridge.imageApi.mode', 'nai'], ['bridge.autoIllustration.nai.model', 'nai-diffusion-5-full'],
-            ['bridge.autoIllustration.nai.effort', 'medium'], ['bridge.autoIllustration.nai.minIntervalMs', 20000],
+            ['bridge.autoIllustration.nai.effort', 'medium'], ['bridge.autoIllustration.nai.minIntervalMs', 20000], ['bridge.autoIllustration.nai.minIntervalEnabled', true],
             [`${base}.endpoint`, `${endpoint}/`], [`${base}.timeoutMs`, 240000], [`${base}.enabled`, true]])
             assert.equal(panel.setValue(path, value).ok, true);
         const draft = panel.getSnapshot().draft;
@@ -288,7 +298,7 @@ test('设置、旧预设和真实设置页面保存重开，间隔和 Medium 不
         await panel.close(); panel = app.openSettings({ page: 'source' }).controller;
         const nai = panel.getSnapshot().draft.bridge.autoIllustration.nai;
         assert.deepEqual(nai.cloudQueue, { ...cloudConfig, timeoutMs: 240000 });
-        assert.equal(nai.effort, 'medium'); assert.equal(nai.minIntervalMs, 20000);
+        assert.equal(nai.effort, 'medium'); assert.equal(nai.minIntervalMs, 20000); assert.equal(nai.minIntervalEnabled, true);
         await panel.close();
     } finally { await app.shutdown(); }
 });

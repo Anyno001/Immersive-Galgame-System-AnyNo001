@@ -356,6 +356,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.llm.includeBody',
             'bridge.autoIllustration.llm.excludeBody',
             'bridge.autoIllustration.nai.transport',
+            'bridge.autoIllustration.nai.minIntervalEnabled',
             'bridge.autoIllustration.nai.minIntervalMs',
             'bridge.autoIllustration.nai.effort',
             'bridge.autoIllustration.nai.cloudQueue.enabled',

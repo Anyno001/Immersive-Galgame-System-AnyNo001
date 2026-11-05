@@ -31,6 +31,19 @@ const WRAP_CSS = `
 #igs-overlay .igs-sfx-result.land .rs-ui{right:120px;top:560px;width:380px;}
 #igs-combat-panel:not([data-igs-combat-result-in]) .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
 #igs-combat-panel[data-igs-combat-reduced] .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
+/* VS 对撞站位：两边镜像，主战者等大（3:4 框）、头顶同高，同伴在外侧身后、略小压暗；竖屏我方偏上、敌方偏下，按接缝斜向错开 */
+#igs-overlay .igs-sfx .clash .half .fig.lead{left:-24px;right:auto;top:96px;bottom:auto;width:330px;height:440px;}
+#igs-overlay .igs-sfx .clash .half .fig.mate{left:-84px;right:auto;top:40px;bottom:auto;width:250px;height:333px;}
+#igs-overlay .igs-sfx .clash .half .fig.foe1{right:-24px;left:auto;top:308px;bottom:auto;width:330px;height:440px;}
+#igs-overlay .igs-sfx .clash .half .fig.foe2{right:-84px;left:auto;top:252px;bottom:auto;width:250px;height:333px;filter:brightness(.55) saturate(.8);}
+#igs-overlay .igs-sfx .clash .name.h{left:24px;right:auto;top:auto;bottom:196px;}
+#igs-overlay .igs-sfx .clash .name.f{right:24px;left:auto;top:200px;bottom:auto;}
+#igs-overlay .igs-sfx.land .clash .half .fig.lead{left:40px;top:36px;width:510px;height:680px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.mate{left:-120px;top:0;width:400px;height:533px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.foe1{right:40px;top:36px;width:510px;height:680px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.foe2{right:-120px;top:0;width:400px;height:533px;}
+#igs-overlay .igs-sfx.land .clash .name.h{left:110px;bottom:150px;}
+#igs-overlay .igs-sfx.land .clash .name.f{right:110px;top:150px;}
 #igs-overlay .igs-sfx .fig img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:50% 0;}
 #igs-overlay .igs-sfx .fig .igs-combat-art{position:absolute;inset:0;}
 #igs-overlay .igs-sfx .fig-sil{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;color:var(--text,#fff);opacity:.14;}

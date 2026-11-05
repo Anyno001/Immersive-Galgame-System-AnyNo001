@@ -27,6 +27,7 @@ export const NAI_DEFAULT_SETTINGS = Object.freeze({
     artistPrefix: '',
     negativePrompt: NAI_DEFAULT_NEGATIVE,
     timeoutMs: 120000,
+    minIntervalEnabled: false,
     minIntervalMs: 2000,
 });
 

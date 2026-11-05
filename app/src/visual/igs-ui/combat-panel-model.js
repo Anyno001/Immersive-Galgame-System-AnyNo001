@@ -9,7 +9,7 @@ import { CARD_TYPE_LABELS, KEYWORD_TIPS, cardArtSvg, describeEffectParts, descri
 import { cardMotifSvg } from './combat-card-motifs.js';
 import { scalingMarks } from '../../combat/card-scaling.js';
 import { ABILITY_LABELS } from '../../combat/abilities.js';
-import { CHALLENGE_LABELS, challengeStatusName } from '../../combat/challenge-labels.js';
+import { CHALLENGE_LABELS, challengeStatusName, intimateLabelsOf } from '../../combat/challenge-labels.js';
 
 // 卡牌属性性能显示：换算过的卡给出带增减标记的描述片段；固定卡与旧战斗不带字段，形状与旧版一致。
 // 带标记的数字附 tip（要求属性、倍率与「原值 → 现值（差值）」，点数字由面板弹出）；scaleNote 是同样内容的整句，并入卡牌 aria-label 供读屏。
@@ -68,6 +68,9 @@ function effectBrief(e) {
         case 'conditional': { const t = effectBrief((e.then || [])[0]); return t ? `条件${t}` : ''; }
         case 'next-turn': return e.gain === 'energy' ? `下回合能量${e.amount}` : e.gain === 'draw' ? `下回合抽${e.amount}` : `下回合${COMBAT_STATUS_NAMES[e.status] || e.status}${e.stacks}`;
         case 'self-damage': return `失血${e.amount}`;
+        case 'delayed-counter': return `反击${e.amount * e.mult}`;
+        case 'mutual-damage': return `同伤${e.amount}`;
+        case 'random-branch': return '随机';
         case 'discard': return `弃${e.amount}`;
         case 'create': return `生成${e.amount}`;
         case 'copy': return '复制';
@@ -155,7 +158,15 @@ const CHALLENGE_WORDS = Object.freeze([
     ...Object.keys(COMBAT_STATUS_NAMES).filter((key) => challengeStatusName(key)).map((key) => [COMBAT_STATUS_NAMES[key], challengeStatusName(key)]),
     ['伤害', CHALLENGE_LABELS.damage], ['格挡', CHALLENGE_LABELS.block], ['生命', CHALLENGE_LABELS.hp], ['敌人', CHALLENGE_LABELS.enemy],
 ]);
-const challengeWords = (text) => (typeof text === 'string' ? CHALLENGE_WORDS.reduce((out, [from, to]) => out.split(from).join(to), text) : text);
+const intimateWords = (labels) => [
+    ...Object.entries({ weak: '虚弱', vulnerable: '易伤', poison: '中毒' }).map(([key, from]) => [from, labels.statuses[key]]),
+    ['伤害', labels.damage], ['格挡', labels.block], ['生命', labels.hp], ['敌人', labels.enemy],
+];
+const challengeWordsOf = (text, mechanic = null) => {
+    if (typeof text !== 'string') return text;
+    const labels = intimateLabelsOf(mechanic);
+    return (labels ? intimateWords(labels) : CHALLENGE_WORDS).reduce((out, [from, to]) => out.split(from).join(to), text);
+};
 const willWords = (unit) => {
     const ratio = unit.maxHp ? unit.hp / unit.maxHp : 0;
     return ratio >= 0.6 ? '从容' : ratio >= 0.3 ? '吃力' : '力竭';
@@ -170,7 +181,7 @@ export const COMBAT_ORDER_COUNT = 6;
 const FX_HIT_LIMIT = 6;
 
 const statusList = (statuses, challenge = false) => Object.entries(statuses || {}).filter(([, v]) => v > 0)
-    .map(([key, stacks]) => ({ key, label: (challenge && challengeStatusName(key)) || COMBAT_STATUS_NAMES[key] || key, stacks }));
+    .map(([key, stacks]) => ({ key, label: (challenge && (intimateLabelsOf(challenge)?.statuses[key] || challengeStatusName(key))) || COMBAT_STATUS_NAMES[key] || key, stacks }));
 
 // 不选目标的牌 / 技能的承受方：选中后高亮这些单位，点其中任一个（或再点一次牌）确认打出。只读推导，不参与结算。
 function affectedIds(state, unit, effects) {
@@ -194,7 +205,8 @@ function affectedIds(state, unit, effects) {
 function intentView(state, id, challenge = false) {
     const intent = describeIntent(state, id);
     if (!intent) return null;
-    return { name: intent.name, kind: intent.intent, label: (challenge ? CHALLENGE_INTENT_LABELS : COMBAT_INTENT_LABELS)[intent.intent] || '', ...(challenge ? { unit: CHALLENGE_LABELS.damage } : {}), damage: intent.damage, targetName: intent.targetId ? state.units[intent.targetId]?.name || '' : '' };
+    const labels = intimateLabelsOf(challenge);
+    return { name: intent.name, kind: intent.intent, label: (labels ? labels.intents : challenge ? CHALLENGE_INTENT_LABELS : COMBAT_INTENT_LABELS)[intent.intent] || '', ...(challenge ? { unit: labels ? labels.damage : CHALLENGE_LABELS.damage } : {}), damage: intent.damage, targetName: intent.targetId ? state.units[intent.targetId]?.name || '' : '' };
 }
 
 export function unitView(state, id, challenge = false) {
@@ -342,11 +354,13 @@ export function battleView(state, legal = [], { challenge = false } = {}) {
         // 行动条：每个存活单位沿线的进度（0 起点、1 出手点），面板按此定位头像；出牌阶段操控角色停在出手点。
         track: Object.entries(actionProgress(state)).map(([id, p]) => ({ id, p, name: state.units[id].name, side: state.units[id].side, controlled: id === state.controlledId })),
     };
-    return challenge ? challengeBattleView(view) : view;
+    return challenge ? challengeBattleView(view, challenge) : view;
 }
 
 // 日常挑战：牌面、技能与道具说明里的战斗词换成日常说法，只改文案字段。
-function challengeBattleView(view) {
+function challengeBattleView(view, challenge = true) {
+    const mechanic = typeof challenge === 'string' ? challenge : null;
+    const challengeWords = (text) => challengeWordsOf(text, mechanic);
     const words = (obj, keys) => Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, keys.includes(key) ? challengeWords(value) : value]));
     return {
         ...view,
@@ -442,6 +456,8 @@ export function lobbyView(session) {
 export function endView(state, events = [], { challenge = false, summary = null } = {}) {
     if (!state?.outcome) return null;
     const allies = state.order.filter((id) => state.units[id].side === 'ally').map((id) => ({ name: state.units[id].name, injury: challenge ? willWords(state.units[id]) : injuryLevel(state.units[id]) }));
+    const intimate = intimateLabelsOf(challenge);
+    if (intimate) return { outcome: state.outcome, label: summary?.ending || { victory: intimate.victory, defeat: intimate.defeat, escape: intimate.escape }[state.outcome] || state.outcome, turn: state.turn, allies, ...(summary ? { challengeOutcome: summary.outcome } : {}) };
     if (challenge) return { outcome: state.outcome, label: CHALLENGE_OUTCOME_LABELS[state.outcome] || state.outcome, turn: state.turn, allies, ...(summary ? { challengeOutcome: summary.outcome, harvest: harvestView(summary) } : {}) };
     const feats = combatFeats(events, state).map((f) => ({ ...f, ...COMBAT_FEAT_LABELS[f.id] }));
     return { outcome: state.outcome, label: COMBAT_OUTCOME_LABELS[state.outcome] || state.outcome, turn: state.turn, allies, ...(feats.length ? { feats } : {}) };
@@ -450,7 +466,7 @@ export function endView(state, events = [], { challenge = false, summary = null 
 // 圆满后的收获：奖金只写档位词，经验牌给名称与说明；没有收获时为 null。
 function harvestView(summary) {
     if (!summary || (!summary.prize && !summary.card)) return null;
-    return { prize: summary.prize || '', card: summary.card ? { name: summary.card.name, rarity: summary.card.rarity, cost: summary.card.cost, text: challengeWords(describeEffects(summary.card.effects)) } : null };
+    return { prize: summary.prize || '', card: summary.card ? { name: summary.card.name, rarity: summary.card.rarity, cost: summary.card.cost, text: challengeWordsOf(describeEffects(summary.card.effects)) } : null };
 }
 
 // 日常挑战的战前视图：主角与难关各一名，结构与 lobbyView 对齐（面板复用同一套对阵画面）；难关不用敌人图集，只显示名称与难度。
@@ -462,6 +478,7 @@ export function challengeLobbyView(session) {
     if (!challenge || !hero || !foe) return null;
     return {
         challenge: true, encounter: challenge.event, tier: challenge.tier, tierLabel: challenge.tier, domain: challenge.domain, stake: challenge.stake,
+        ...(challenge.intimate ? { intimate: { mechanic: challenge.intimate.mechanic, position: challenge.intimate.position } } : {}),
         heroId: hero.id,
         allies: [{ id: hero.id, name: hero.name, level: 0, kind: 'deck', className: '', controllable: true, hp: hero.maxHp, maxHp: hero.maxHp },
             ...setup.units.filter((unit) => unit.side === 'ally' && unit.id !== hero.id).map((unit) => ({ id: unit.id, name: unit.name, level: 0, kind: 'deck', className: '', controllable: false }))],

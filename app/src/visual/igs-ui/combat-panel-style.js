@@ -9,6 +9,8 @@ import { COMBAT_PANEL_SKIN_VEIL_STACK, COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT } from 
 import { COMBAT_PANEL_LAYOUT_STYLE_TEXT } from './combat-panel-layout.js';
 import { TARGET_PICKER_STYLE_TEXT } from './combat-target-picker.js';
 import { CANVAS_STYLE_TEXT } from './combat-skin-registry.js';
+import { INTIMATE_DUEL_STYLE_TEXT } from './intimate-duel-style.js';
+import { INTIMATE_DUEL_FX_STYLE_TEXT } from './intimate-duel-fx.js';
 import { COMBAT_ENTRY_SKIN_STYLE_TEXT } from './combat-entry-skin-style.js';
 
 // 战斗面板与卡组构筑面板共用的视觉 token：墨色、填充、圆角、字体取自 ui-material，与资料页、地图、设置一致；
@@ -132,9 +134,9 @@ ${C} .igs-combat-result:has(>.igs-combat-loot) .igs-combat-loot-row{--loot-w:min
 ${C} .igs-combat-result:has(>.igs-combat-loot) .igs-combat-result-figure{width:min(var(--r-w),calc((100% - (var(--n,1) - 1) * 16px) / var(--n,1)));}
 /* 横向面板（≥721px）右下角回合组竖排：撤退 / 取消在最上，抽牌 / 弃牌数量在中间，结束回合在最下的角落（turn-btns 不成盒，按 order 排）。 */
 ${C} .igs-combat-turn-btns{display:contents;}
-${C} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="cancel"]){order:-1;}
+${C} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="stop"],[data-combat-act="cancel"]){order:-1;}
 /* 撤退是透明底图标钮：收窄成 34px 方钮、右缘仍与结束回合对齐，图标更靠右。 */
-${C} .igs-combat-turn .igs-combat-turn-btns>.igs-combat-btn.is-icon[data-combat-act="escape"]{width:34px;}`;
+${C} .igs-combat-turn .igs-combat-turn-btns>.igs-combat-btn.is-icon:is([data-combat-act="escape"],[data-combat-act="stop"]){width:34px;}`;
 // 战前对阵竖排（竖向面板；不支持容器查询时按视口方向）：敌方在上、我方在下；敌方色块止于敌方区下缘（100% - --t），我方色块从我方一排上沿（--t）起铺，VS 所在一行不铺色块；入场改为上下冲入；底层色块在我方一排沿首框左斜边、末框右斜边裁掉，--t 是我方一排的上沿（舞台半高 + VS 半高 + 行距，与三行网格一致）。
 const LOBBY_STACK = `${C} .igs-combat-lobby-stage{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto minmax(0,1fr);grid-template-areas:"enemy" "vs" "ally";}
 ${C} .igs-combat-lobby{--vs:clamp(40px,min(9cqh,13cqw),64px);--cut:clamp(12px,4.5cqh,32px);}
@@ -781,4 +783,6 @@ ${C} :is(.igs-combat-unit,.cx-unit)[data-swap="in"]{animation:igs-combat-swap-in
 ${C}[data-igs-combat-reduced] :is(.igs-combat-unit,.cx-unit)[data-swap],#igs-overlay[data-igs-quality="low"] ${C} :is(.igs-combat-unit,.cx-unit)[data-swap]{animation:none;}
 @media(prefers-reduced-motion:reduce){${C} :is(.igs-combat-unit,.cx-unit)[data-swap]{animation:none;}}
 ${TARGET_PICKER_STYLE_TEXT}
+${INTIMATE_DUEL_STYLE_TEXT}
+${INTIMATE_DUEL_FX_STYLE_TEXT}
 `;

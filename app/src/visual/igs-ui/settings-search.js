@@ -95,6 +95,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'fx-prompts', label: '演出写法', aliases: ['演出提示词', '提示词正文', '触发关键词', '关键词', '常驻', '注入位置', '插入深度', '深度', '世界书', '写法'], page: 'rules' },
     { id: 'combat-expansion', label: '战斗方式', aliases: ['战斗', '卡牌战斗', '战斗演出', '战斗扩展', '回合制', '卡牌', '难度', '战报', '面板皮肤', '副llm', '数据库'], page: 'combat', path: 'readerSettings.__battleMode' },
     { id: 'combat-enemy-sprites', label: '敌人立绘管理', aliases: ['敌人立绘', '怪物立绘', '战斗对手', '自动建档', '临时档案', '内置敌人图集', '敌人图集', '下载敌人立绘'], page: 'combat', open: ['combat-enemy-sprites'] },
+    { id: 'combat-intimate', label: '亲密对决', aliases: ['亲密', '合拍', '主导权', '发起按钮', '我的位置', '受方', '攻方'], page: 'combat', path: 'readerSettings.combatExpansion.intimate.enabled' },
     { id: 'combat-lines', label: '战斗台词', aliases: ['台词', '战斗语音', '受击', '朗读战斗台词'], page: 'combat', path: 'readerSettings.combatExpansion.lines.show' },
     { id: 'origin-system', label: '随身系统', aliases: ['Origin', 'origin', '系统流', '金手指', '任务系统', '积分', '商城', '抽奖', '成就', '背包'], page: 'origin', path: 'bridge.origin.enabled' },
     { id: 'backup-model', label: '备用模型', aliases: ['副llm', '副 llm', '副api', '副 api', '副模型', 'llm', 'openai', '规划模型'], page: 'llm' },

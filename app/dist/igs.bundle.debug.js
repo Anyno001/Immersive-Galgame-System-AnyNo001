@@ -540,6 +540,7 @@ function bootstrapIGS(options = {}) {
             if (kind === 'sheet') return rt.sheetOp(op, name, payload);
             if (kind === 'skill') return rt.skillOp(op, name, payload);
             if (kind === 'hero') return rt.heroOp(op, name, payload);
+            if (kind === 'relation') return rt.relationOp(op, name, payload);
             if (kind === 'generate') return rt.generateSheets(name ? [name] : null);
             if (kind === 'backfill') return rt.runBackfill();
             if (kind === 'backup') return rt.dropBackup();
@@ -608,6 +609,8 @@ function bootstrapIGS(options = {}) {
         getCombatSession: () => combatServices.getSession(),
         getChallengeHistory: () => (typeof combatServices.challengeHistory === 'function' ? combatServices.challengeHistory() : null),
         getChallengeQuota: (messageId) => (typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota(messageId) : null),
+        getIntimateGate: (messageId) => combatServices.intimateGate(messageId),
+        isIntimatePrepared: () => combatServices.intimatePrepared(),
         getCombatLedger: () => combatServices.getLedger(),
         ensureCombatTables: () => combatServices.ensureTables(),
         writeCombatManualInit: (name, manual, writeOptions) => Promise.resolve(combatServices.writeManualInit(name, manual, writeOptions)).then((written) => {
@@ -1249,6 +1252,7 @@ function bootstrapIGS(options = {}) {
             } catch (error) { /* 扫描失败按没有冷却处理 */ }
         }
         if (quota && quota.ok === true) extras.challengeOpen = true;
+        try { if (combatServices.intimatePrepared() === true) extras.intimateOn = true; } catch (error) { /* 判断失败按未开启处理 */ }
         return extras;
     }
 
@@ -38658,6 +38662,8 @@ function normalizeCharacterDna(raw) {
     // 非人档案与 views 同级；缺省即人类，不产生该字段。
     const creature = normalizeCreatureProfile(source.creature);
     if (creature) dna.creature = creature;
+    // 人类战斗对手：不带非人档案，仍列在战斗页「敌人立绘管理」。
+    if (source.combatFoe === true) dna.combatFoe = true;
     if (typeof source.identitySource === 'string' && source.identitySource) dna.identitySource = source.identitySource;
     if (source.version === 2) {
         dna.version = 2;
@@ -40361,11 +40367,11 @@ function planCreatureProfiles({ effective = {}, cardDna = {}, hints = [], now = 
         if (!key) continue;
         const existing = Object.hasOwn(dnaMap, key) ? plain(dnaMap[key]) : null;
         const creature = existing ? normalizeCreatureProfile(existing.creature) : null;
-        // 判定为人类的临时档案：删除本卡里只有该档案的条目，之后按人类流程处理。
+        // 判定为人类的临时档案：去掉档案、标为人类战斗对手（仍列在敌人名单），之后按人类流程处理。
         if (hint.source === 'discard') {
             if (creature && creature.temp && Object.hasOwn(map, key) && Object.keys(plain(map[key])).every((field) => field === 'creature')) {
-                const { [key]: removed, ...rest } = map;
-                map = rest; evicted.push(key);
+                map = { ...map, [key]: { combatFoe: true } };
+                updated.push(key);
             }
             continue;
         }
@@ -40751,12 +40757,12 @@ function parseLinePhase(value) {
     return String(value ?? '').split(/[\/／]+/).map((part) => part.trim()).filter((part) => part && part.length <= LINES_SENTENCE_MAX).slice(0, LINES_PER_PHASE);
 }
 
-function pickCombatLines(tags, startTag, diagnostics) {
+function collectCombatLines(tags, diagnostics, beforeIndex = Infinity) {
     const out = [];
     const seen = new Set();
     for (const tag of tags) {
         if (tag.kind !== 'lines') continue;
-        if (tag.index > startTag.index) { diagnostics.push({ code: 'combat-lines-after-start', ...locateOf(tag) }); continue; }
+        if (tag.index > beforeIndex) { diagnostics.push({ code: 'combat-lines-after-start', ...locateOf(tag) }); continue; }
         const character = textField('character', tag.fields[0], NAME_MAX, true);
         if (!character.ok) { diagnostics.push({ code: 'combat-lines-invalid', field: character.field, problem: character.problem, ...locateOf(tag) }); continue; }
         if (seen.has(character.value)) { diagnostics.push({ code: 'combat-lines-duplicate', ...locateOf(tag) }); continue; }
@@ -40768,6 +40774,13 @@ function pickCombatLines(tags, startTag, diagnostics) {
         if (out.length >= LINES_MAX_CHARACTERS) break;
     }
     return out;
+}
+
+const pickCombatLines = (tags, startTag, diagnostics) => collectCombatLines(tags, diagnostics, startTag.index);
+
+// 亲密对决的台词：同一个 lines 标签，四段含义为开场、出招、受击、快失守；标签位置不限，按角色名对上对方。
+function extractIntimateLines(body, diagnostics = []) {
+    return collectCombatLines(scanCombatTags(body), diagnostics);
 }
 
 // 提取成长指令。经验按角色每楼封顶，属性点按角色每楼封顶；超出部分截断并记诊断。
@@ -40923,6 +40936,7 @@ function extractLossDirectives(raw, options = {}) {
 __igsDefine(exports, "combatBodyText", () => combatBodyText);
 __igsDefine(exports, "scanCombatTags", () => scanCombatTags);
 __igsDefine(exports, "extractCombatStart", () => extractCombatStart);
+__igsDefine(exports, "extractIntimateLines", () => extractIntimateLines);
 __igsDefine(exports, "extractGrowthDirectives", () => extractGrowthDirectives);
 __igsDefine(exports, "scanGainTags", () => scanGainTags);
 __igsDefine(exports, "extractGainDirectives", () => extractGainDirectives);
@@ -45232,6 +45246,7 @@ const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.autoIllustration.llm.includeBody',
             'bridge.autoIllustration.llm.excludeBody',
             'bridge.autoIllustration.nai.transport',
+            'bridge.autoIllustration.nai.minIntervalEnabled',
             'bridge.autoIllustration.nai.minIntervalMs',
             'bridge.autoIllustration.nai.effort',
             'bridge.autoIllustration.nai.cloudQueue.enabled',
@@ -45470,6 +45485,9 @@ const { cancelGrowthFx } = require("src/visual/igs-ui/combat-growth-fx.js");
 const { cancelCheckBadges, checksByPage } = require("src/visual/igs-ui/combat-check-badge.js");
 const { syncCombatResume } = require("src/visual/igs-ui/combat-resume-button.js");
 const { probeCombatStart, resolveCombatEntry, sessionMatchesEntry, syncCombatEntry, unfinishedCombatState } = require("src/visual/igs-ui/combat-entry.js");
+const { syncIntimateLaunch } = require("src/visual/igs-ui/intimate-launch-button.js");
+const { computeIntimateFloorGate, pageIsIntimateRise } = require("src/visual/igs-ui/intimate-floor.js");
+const { INTIMATE_DUEL_MOOD, INTIMATE_DUEL_MOOD_STRONG, advanceIntimateDuel, getIntimateDuel, getIntimateGate, setIntimateDuel, setIntimateGate } = require("src/scene/intimate-duel.js");
 const { createRecoveryNotice } = require("src/visual/igs-ui/recovery-notice.js");
 const { handleSettingsAction } = require("src/visual/igs-ui/settings-actions.js");
 const { normalizeBridgeConfig, normalizeReaderSettings } = require("src/visual/igs-ui/settings-host-normalize.js");
@@ -45516,12 +45534,13 @@ const { resolveReaderSpriteAsset } = require("src/visual/igs-ui/reader-sprite-as
 const { normalizeSpriteMotionSettings, normalizeStageCastSettings } = require("src/visual/igs-ui/stage-direction-settings.js");
 const { normalizeFxSoundSettings } = require("src/visual/igs-ui/fx-settings.js");
 const { playBattleSfx } = require("src/visual/igs-ui/fx-battle-sfx.js");
+const { playFxSfx } = require("src/visual/igs-ui/fx-sfx.js");
 const { SPRITE_BACK_MOOD } = require("src/visual/igs-ui/sprite-turn.js");
 const { isReactMoodHit } = require("src/scene/react-mood.js");const { clearCastDom } = require("src/visual/igs-ui/stage-cast-render.js");
 const { combatPortraitNames, hasGroupSuffix, sameFoeName, splitFoeNames } = require("src/scene/creature-battle.js");
 const { foeIsDown } = require("src/visual/igs-ui/creature-battle-model.js");
 const { CREATURE_FOE_SLOTS, composeCreatureStage, creatureProfileOf, isGiantCreature, resolveCreatureFoes } = require("src/visual/igs-ui/creature-layout.js");
-const { createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, spriteIdentity } = require("src/scene/character-outfits.js");
+const { BUILTIN_NUDE_OUTFIT, createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, spriteIdentity } = require("src/scene/character-outfits.js");
 const { isStrictBackgroundMatch, normalizeAutoIllustrationSettings } = require("src/generated-images/illustration/auto-illustration-settings.js");
 const { clearCurrentCg } = require("src/generated-images/illustration/clear-current-cg.js");
 const { floorKeyOf } = require("src/media/illustration-store.js");
@@ -50197,7 +50216,11 @@ ${row.key}`;
                     noteFormGender(name, entry && entry.form ? entry.form.gender : '');
                     return outfit;
                 };
-                const wantedOutfit = spriteChar ? outfitFor(spriteChar) : '';
+                const duel = getIntimateDuel();
+                const duelOn = Boolean(duel && spriteChar && canonicalName(sceneAssets, spriteChar) === canonicalName(sceneAssets, duel.partner));
+                const duelNude = duelOn && duel.stage >= 2 && Boolean(outfitMap && outfitMap[canonicalName(sceneAssets, spriteChar)] && Object.hasOwn(outfitMap[canonicalName(sceneAssets, spriteChar)], BUILTIN_NUDE_OUTFIT));
+                if (duelOn) spriteMood = duel.stage >= 1 ? (INTIMATE_DUEL_MOOD_STRONG.find((word) => floorAssets.sprite(spriteChar, word, outfitFor(spriteChar)).quality === 'exact') || INTIMATE_DUEL_MOOD) : INTIMATE_DUEL_MOOD;
+                const wantedOutfit = spriteChar ? (duelNude ? BUILTIN_NUDE_OUTFIT : outfitFor(spriteChar)) : '';
                 const outfitWhy = { outfitSource: (outfitTrace && outfitTrace.source) || '', outfitReason: (outfitTrace && outfitTrace.reason) || '', outfitOffset };
                 // 模型按剧情原始情绪取绑定；即使加载失败也不回退普通静态差分。
                 spriteLive2d = resolveCharacterLive2dBinding(readerSettings._live2d, sceneAssets, spriteChar, spriteMood);
@@ -50730,6 +50753,7 @@ ${row.key}`;
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
             // 对阵界面没做选择、或战斗打到一半就关闭（含关闭阅读器）：在入口位置留「返回战斗 / 返回挑战」标签；已发送、已放弃、已托管、已跳过则清除。
             onClose: ({ dismissed }) => {
+                setIntimateDuel(null);
                 const entry = state.combatLastEntry;
                 state.combatReturnKey = dismissed && entry ? entry.key : '';
                 if (state.activeReader) setTimeout(() => { if (state.activeReader) rerenderActiveReader(); }, 0);
@@ -50786,7 +50810,15 @@ ${row.key}`;
             },
             playSfx: (kind) => {
                 const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
-                return playBattleSfx(kind, normalizeFxSoundSettings(rs && rs.fxSound));
+                const sound = normalizeFxSoundSettings(rs && rs.fxSound);
+                return playBattleSfx(kind, sound) || playFxSfx(kind, sound);
+            },
+            getDuelFx: () => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                return { rhythmSound: !(rs && rs.romanceFx) || rs.romanceFx.rhythmSound !== false };
+            },
+            onDuelProgress: (ratio) => {
+                if (advanceIntimateDuel(ratio) && state.activeReader) setTimeout(() => { if (state.activeReader) rerenderActiveReader(); }, 0);
             },
             // 战斗音乐：面板打开时把本阅读器的配乐临时切到 battle 情绪（沿用 BGM 开关与曲库），关闭后放回原来那首剧情曲。
             setBattleMusic: (overlay, on) => setBgmMoodOverride(overlay, on ? 'battle' : ''),
@@ -50826,6 +50858,9 @@ ${row.key}`;
             // 装备栏与道具的物品图：只读本聊天本地缓存，补载完成后经订阅重绘。
             resolveItemImage: (name) => (options.itemImages && typeof options.itemImages.imageUrlFor === 'function' ? options.itemImages.imageUrlFor(name) : ''),
             subscribeItemImages: (handler) => (typeof options.onItemImageUpdated === 'function' ? options.onItemImageUpdated(handler) : null),
+            // 配色与日记、目录同一份（设置器四套配色）。
+            getTheme: () => readSettingsTheme(),
+            setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
         const domState = {
             root,
@@ -51162,7 +51197,16 @@ ${row.key}`;
         const sourceFilter = current.payload && current.payload.sourceFilter;
         const quota = floor && typeof options.getChallengeQuota === 'function' ? options.getChallengeQuota(Number(messageId)) : null;
         // floorEntry 不看页码：持久会话里有这一楼未打完的战斗时，任意一页都留「返回战斗」，重开阅读器落在首页也能续打。
-        const floorEntry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: true, sourceFilter, challengeQuota: quota }) : null;
+        const intimateOn = Boolean(floor) && typeof options.getIntimateGate === 'function' && options.isIntimatePrepared?.() === true;
+        let intimate = null;
+        if (intimateOn) {
+            const prepared = snapshot[preparedFloorKey];
+            const userName = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
+            const gate = computeIntimateFloorGate({ pages: prepared && prepared.pages, messageId: Number(messageId), userName, assets: snapshot.readerSettings && snapshot.readerSettings._sceneAssets, previous: getIntimateGate(floor.chatId, Number(messageId)) });
+            setIntimateGate(floor.chatId, Number(messageId), gate);
+            try { intimate = options.getIntimateGate(Number(messageId)); } catch (error) { intimate = null; }
+        }
+        const floorEntry = floor ? resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: true, sourceFilter, challengeQuota: quota, intimate }) : null;
         const entry = lastPage ? floorEntry : null;
         state.combatAutoOpened ||= new Set();
         const combatSettings = normalizeCombatExpansionSettings(snapshot.readerSettings && snapshot.readerSettings.combatExpansion);
@@ -51186,6 +51230,11 @@ ${row.key}`;
         probe.returnTag = probe.returnTag || persisted;
         const showTag = persisted ? floorEntry : entry && state.combatReturnKey === entry.key ? entry : null;
         syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, showTag), onFail: (r) => notifyCombatOpenFail(r) });
+        const prepared = snapshot[preparedFloorKey];
+        const pageNow = prepared && prepared.pages ? prepared.pages[Number(snapshot.content && snapshot.content.currentIndex) || 0] : null;
+        const launchable = Boolean(intimate) && combatSettings.intimate.launch && intimate.newRise && !intimate.fought && !intimate.ageBlocked && !intimate.launch
+            && !floorEntry && !panelOpen && pageIsIntimateRise(pageNow);
+        syncIntimateLaunch(overlay, launchable ? { skin, onLaunch: () => launchIntimate(current, snapshot, floor, Number(messageId)) } : null);
         // 悬浮「返回战斗」：有未打完的战斗、没有面板开着、原位置没有小标签时显示（小标签与它指向同一件事，不重复）。
         const unfinished = combatSettings.enabled && !showTag && !anyPanelOpen(current.dom)
             ? unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null) : null;
@@ -51218,6 +51267,18 @@ ${row.key}`;
         }
     }
 
+    function launchIntimate(current, snapshot, floor, messageId) {
+        setIntimateGate(floor.chatId, messageId, { ...getIntimateGate(floor.chatId, messageId), launch: true });
+        const entry = resolveCombatEntry({ readerSettings: snapshot.readerSettings, floor, lastPage: true, sourceFilter: current.payload && current.payload.sourceFilter, intimate: options.getIntimateGate(messageId) });
+        if (!entry) return { ok: false, reason: 'combat-entry-missing' };
+        const opened = openCombatPanel(current, entry);
+        state.combatAutoOpened ||= new Set();
+        if (opened && opened.ok === true) state.combatAutoOpened.add(entry.key);
+        else notifyCombatOpenFail(opened);
+        syncIntimateLaunch(current.dom.overlay, null);
+        return opened;
+    }
+
     // 入口卡打开战斗面板失败时的阅读器内提示。
     function notifyCombatOpenFail(result) {
         if (!result || result.ok !== false) return;
@@ -51231,12 +51292,17 @@ ${row.key}`;
         const menu = dom.overlay.querySelector?.('#igs-hud-record-menu');
         if (menu && !menu.hasAttribute('hidden')) menu.setAttribute('hidden', '');
         state.combatLastEntry = entry;
+        setIntimateDuel(entry.intimate ? { partner: options.getIntimateGate?.(entry.messageId)?.partner } : null);
         // 开战标签里的名字先交给面板：对撞过场不等准备完成。
         const preview = entry.kind === 'challenge'
             ? { challenge: true, encounter: entry.event, enemies: [{ name: entry.event, count: 1 }] }
             : { encounter: entry.encounter, enemies: Array.isArray(entry.enemies) ? entry.enemies.map((e) => ({ name: e.name, count: e.count })) : [] };
-        const result = dom.combatController.open(dom.overlay, { messageId: entry.messageId, preview, ...(then ? { then } : {}) });
+        const result = dom.combatController.open(dom.overlay, { messageId: entry.messageId, preview, ...(then ? { then } : {}), ...(entry.intimate ? { duel: true } : {}) });
         if (result && result.ok === true && state.combatReturnKey === entry.key) state.combatReturnKey = '';
+        if (entry.intimate) {
+            if (result && result.ok === true) setTimeout(() => { if (state.activeReader) rerenderActiveReader(); }, 0);
+            else setIntimateDuel(null);
+        }
         return result;
     }
 
@@ -59578,7 +59644,8 @@ const { mergeLegacyNaiSettings } = require("src/generated-images/image-backend.j
 const { getSettingsStyleText } = require("src/visual/igs-ui/settings-style.js");
 const { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsCategory, isSettingsPage, normalizeSettingsPage, openSettingsPage, resolveSettingsPage, resolveSettingsTarget } = require("src/visual/igs-ui/settings-pages.js");
 const { recordSettingsRecent, settingsRecentLabel } = require("src/visual/igs-ui/settings-recent.js");
-const { downloadStatsTemplate } = require("src/visual/igs-ui/stats-template-link.js");
+const { downloadStatsTemplate, fetchStatsTemplate, importStatsTemplate, statsTemplateChatDiff, STATS_TEMPLATE_PRESET_NAME } = require("src/visual/igs-ui/stats-template-link.js");
+const { createShujukuClient } = require("src/data/shujuku/client.js");
 const { VN_THEME_PRESETS } = require("src/visual/igs-ui/reader-host-constants.js");
 const { cloneData } = require("src/visual/igs-ui/reader-value-utils.js");
 const { attachSettingsViewportEvents, clearChildren, detachSettingsViewportEvents, ensureStyleTag, getRootDocument, unmountNode } = require("src/visual/igs-ui/reader-dom-utils.js");
@@ -60268,6 +60335,13 @@ function createSettingsHost(deps) {
                 const text = String((await settingsDialogs.prompt(`修改「${name}」的一项数值，格式：项目 档位（如「话术 精通」「敏捷 出众」）。技能档：未学、入门、熟练、精通、大师；属性档：很弱、偏弱、普通、出众、顶尖。`, '')) || '').trim();
                 const [skill, tier] = text.split(/\s+/);
                 result = skill && tier ? await op('sheet', 'edit', name, { skill, tier }) : { ok: true, cancelled: true };
+            } else if (kind === 'relation-set') {
+                const text = String((await settingsDialogs.prompt(`修改「${name}」的关系数值，范围-100到100，只写要改的项（如「好感 30 了解 40」）。`, '')) || '').trim();
+                const payload = {};
+                let bad = false;
+                for (const [, key, value] of text.matchAll(/(好感|信任|了解)\s*[:：]?\s*(-?\d+)/g)) payload[key] = Number(value);
+                if (text && !Object.keys(payload).length) bad = true;
+                result = bad ? { ok: false, reason: 'stats-relation-invalid' } : Object.keys(payload).length ? await op('relation', 'set', name, payload) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-regen') {
                 result = await settingsDialogs.confirm(`重新生成「${name}」的数值？手改过的内容会被覆盖。`) ? await op('sheet', 'regen', name) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-remove') {
@@ -60277,7 +60351,7 @@ function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '格式不对，请写成「好感 30」，数值为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
@@ -60360,6 +60434,34 @@ function createSettingsHost(deps) {
             return Promise.resolve()
                 .then(() => downloadStatsTemplate((options.global || globalThis).document))
                 .catch((error) => ({ ok: false, reason: 'stats-template-download-threw', thrown: error }));
+        }
+        // 适配版模板直接导入数据库：global 存进模板预设库；chat 替换当前聊天的模板，先确认。
+        if (action === 'stats-template-import' || action === 'stats-template-apply-chat') {
+            return (async () => {
+                const api = (options.global || globalThis).AutoCardUpdaterAPI || null;
+                if (!api || typeof api.importTemplateFromData !== 'function') {
+                    showSettingsNotice('未检测到数据库（shujuku）的模板导入接口，请改用下载后手动导入');
+                    return { ok: false, reason: 'missing-api' };
+                }
+                const client = createShujukuClient(api);
+                const fetched = await fetchStatsTemplate();
+                if (!fetched.ok) {
+                    showSettingsNotice('适配版表格模板读取失败，请稍后重试或改用下载');
+                    return fetched;
+                }
+                const scope = action === 'stats-template-apply-chat' ? 'chat' : 'global';
+                if (scope === 'chat') {
+                    const current = client.getTableTemplate();
+                    const hidden = current.ok ? statsTemplateChatDiff(current.data, fetched.data).hidden : [];
+                    const extra = hidden.length ? `\n当前聊天的以下表不在模板中，导入后将被隐藏：${hidden.join('、')}` : '';
+                    if (!await settingsDialogs.confirm(`以适配版模板替换当前聊天的表格模板？已有数据保留。${extra}`, { okLabel: '替换' })) return { ok: true, cancelled: true };
+                }
+                const result = await importStatsTemplate(client, fetched.data, scope);
+                showSettingsNotice(result.ok
+                    ? (scope === 'chat' ? '已应用到当前聊天' : `已存入数据库模板预设「${STATS_TEMPLATE_PRESET_NAME}」`)
+                    : `导入失败${result.message ? `：${result.message}` : ''}`);
+                return result;
+            })().catch((error) => ({ ok: false, reason: 'stats-template-import-threw', thrown: error }));
         }
         // 数值系统「本聊天」启用 / 暂停：直接交给运行时，结果重绘后反映到按钮与状态说明。
         if (action === 'stats-chat-enable' || action === 'stats-chat-disable' || action === 'stats-chat-enable-build') {
@@ -65061,6 +65163,7 @@ const { resolveCombatLlm } = require("src/combat/generation.js");
 const { COMBAT_DIFFICULTY_KEYS } = require("src/combat/rules.js");
 const { normalizeAutoIllustrationSettings } = require("src/generated-images/illustration/auto-illustration-settings.js");
 const { CHALLENGE_QUOTA } = require("src/scene/challenge-directives.js");
+const { normalizeIntimateSettings } = require("src/scene/intimate-duel.js");
 const { COMBAT_COOLDOWN_CHOICES, COMBAT_FREQUENCIES, COMBAT_KINDS, COMBAT_RULE_PROMPT_MAX, isDefaultCombatRuleText } = require("src/scene/combat-prompt.js");
 const COMBAT_DIFFICULTIES = COMBAT_DIFFICULTY_KEYS;
 const COMBAT_REPORT_DETAILS = Object.freeze(['brief', 'normal']);
@@ -65086,6 +65189,7 @@ function normalizeCombatExpansionSettings(value) {
     skin: COMBAT_PANEL_SKINS.includes(source.skin) ? source.skin : 'veil',
     kind: COMBAT_KINDS.includes(source.kind) ? source.kind : 'combat',
     daily: normalizeDailySettings(source.daily),
+    intimate: normalizeIntimateSettings(source.intimate),
     frequency: COMBAT_FREQUENCIES.includes(source.frequency) ? source.frequency : 'normal',
     cooldownFloors: COMBAT_COOLDOWN_CHOICES.includes(Number(source.cooldownFloors)) ? Number(source.cooldownFloors) : 0,
     rulePrompt: normalizeRulePrompt(source.rulePrompt),
@@ -66843,6 +66947,12 @@ function effectValue(effect) {
             return effect.amount * 2;
         case 'cost-mod':
             return -effect.amount * (effect.mode === 'random' ? 3 : effect.mode === 'self' ? 2.5 : 5) * (effect.scope === 'combat' ? 1.5 : 1);
+        case 'delayed-counter':
+            return effect.amount * (4 / 3) * effect.mult * 0.8 - effect.amount;
+        case 'mutual-damage':
+            return effect.amount * (4 / 3) - (effect.selfAmount ?? effect.amount) * 0.5;
+        case 'random-branch':
+            return 0.5 * (sumEffects(effect.a) + sumEffects(effect.b));
         case 'buff':
             return effect.turns * (BUFF_TRIGGER_VALUE[effect.trigger] || 1) * (effect.cardType ? 0.5 : 1) * sumEffects(effect.then);
         default:
@@ -67105,7 +67215,7 @@ const SCHEMA_VERSION = 1;
 const EFFECT_OPS = Object.freeze([
     'damage', 'block', 'heal', 'draw', 'energy', 'status', 'exhaust-self', 'conditional', 'damage-from-block', 'self-damage',
     'double', 'next-turn', 'each-turn', 'hand-cost', 'cleanse', 'discard', 'discard-hand', 'copy', 'create', 'repeat-last',
-    'replay-next', 'grow', 'cost-mod', 'buff',
+    'replay-next', 'grow', 'cost-mod', 'buff', 'delayed-counter', 'mutual-damage', 'random-branch',
 ]);
 const STATUSES = Object.freeze(['vulnerable', 'weak', 'strength', 'dexterity', 'poison', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact', 'frail']);
 const DOUBLE_STATS = Object.freeze(['poison', 'block', 'strength']);
@@ -67277,6 +67387,29 @@ function validateEffect(effect, path, state, depth = 0, scope) {
             const then = arrayField(effect.then, at('then'), state, 1, 3, (item, itemPath, st) => validateEffect(item, itemPath, st, depth + 1, scope ? 'card' : undefined));
             return { op, when, then };
         }
+        case 'delayed-counter':
+            checkKnownFields(effect, ['op', 'amount', 'mult', 'fizzle', 'target'], path, state);
+            return {
+                op,
+                amount: intField(effect.amount, at('amount'), state, 1, 20),
+                mult: intField(effect.mult, at('mult'), state, 1, 4, 2),
+                ...(effect.fizzle === undefined ? {} : { fizzle: idField(effect.fizzle, at('fizzle'), state) }),
+                target: enumField(effect.target, at('target'), state, ['enemy'], 'enemy'),
+            };
+        case 'mutual-damage':
+            checkKnownFields(effect, ['op', 'amount', 'selfAmount', 'target'], path, state);
+            return {
+                op,
+                amount: intField(effect.amount, at('amount'), state, 1, 40),
+                ...(effect.selfAmount === undefined ? {} : { selfAmount: intField(effect.selfAmount, at('selfAmount'), state, 1, 40) }),
+                target: enumField(effect.target, at('target'), state, ['enemy'], 'enemy'),
+            };
+        case 'random-branch': {
+            checkKnownFields(effect, ['op', 'a', 'b'], path, state);
+            if (depth > 0) return addIssue(state, path, 'nested-conditional');
+            const branch = (key) => arrayField(effect[key], at(key), state, 0, 2, (item, itemPath, st) => validateEffect(item, itemPath, st, depth + 1, scope ? 'card' : undefined));
+            return { op, a: branch('a'), b: branch('b') };
+        }
         case 'damage-from-block':
             checkKnownFields(effect, ['op', 'target'], path, state);
             return { op, target: enumField(effect.target, at('target'), state, OFFENSE_TARGETS, 'enemy') };
@@ -67358,6 +67491,9 @@ function effectsDamage(effects) {
         if (effect?.op === 'damage') total += effect.amount * (effect.hits || 1);
         else if (effect?.op === 'conditional' || effect?.op === 'each-turn' || effect?.op === 'buff') total += effectsDamage(effect.then);
         else if (effect?.op === 'damage-from-block') total += 999;
+        else if (effect?.op === 'mutual-damage') total += effect.amount;
+        else if (effect?.op === 'delayed-counter') total += effect.amount * effect.mult;
+        else if (effect?.op === 'random-branch') total += Math.max(effectsDamage(effect.a), effectsDamage(effect.b));
     }
     return total;
 }
@@ -68630,6 +68766,9 @@ const costMod = (amount, mode, scope) => ({ op: 'cost-mod', amount: -amount, mod
 const buff = (trigger, turns, then, cardType) => ({ op: 'buff', trigger, ...(cardType ? { cardType } : {}), turns, then });
 const eachTurn = (then, at) => ({ op: 'each-turn', then, ...(at ? { at } : {}) });
 const cleanse = (target = 'self') => ({ op: 'cleanse', target });
+const delayedCounter = (amount, mult) => ({ op: 'delayed-counter', amount, mult, target: 'enemy' });
+const mutualDamage = (amount) => ({ op: 'mutual-damage', amount, target: 'enemy' });
+const randomBranch = (a, b) => ({ op: 'random-branch', a, b });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -68640,6 +68779,8 @@ function primaryNumber(effect) {
         case 'each-turn':
         case 'buff':
             return effect.then.length ? primaryNumber(effect.then[0]) : 0;
+        case 'random-branch':
+            return Math.max(0, ...[...effect.a, ...effect.b].map(primaryNumber));
         case 'exhaust-self':
         case 'discard-hand':
             return 1;
@@ -68706,6 +68847,9 @@ const CARD_TEMPLATES = Object.freeze({
     footwork: template('power', '防御力+抽 1 张', [[1, 3], [1, 1]], 0.7, ([a, b]) => [status('dexterity', a, 'self'), draw(b)]),
     glance: template('attack', '伤害；被丢弃时抽 1 张', [[1, 30]], 1, ([a]) => [damage(a)], { onDiscard: [draw(1)] }),
     gut: template('attack', '伤害；本回合已弃过牌时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('discarded-gte', 1, [damage(b)])]),
+    lure: template('attack', '自损生命，下回合按倍数反击（对方意图被指定时落空）', [[1, 12]], 1, ([a]) => [delayedCounter(a, 2)]),
+    tear: template('attack', '对目标与自身同时造成等量伤害', [[1, 40]], 1, ([a]) => [mutualDamage(a)]),
+    fumble: template('attack', '随机：无效果，或造成高额伤害', [[1, 40]], 1, ([a]) => [randomBranch([], [damage(a)])]),
     fleeting: template('attack', '高伤害，虚无（回合结束仍在手中则消耗）', [[1, 40]], 1, ([a]) => [damage(a)], { flags: { ethereal: true } }),
     mimic: template('attack', '伤害，复制本牌加入弃牌堆（不能 0 费）', [[1, 30]], 1, ([a]) => [damage(a), copySelf(1, 'discard')], { costs: [1, 2, 3], hero: false }),
     chain: template('attack', '伤害；本回合已打出过同名牌时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('same-card-gte', 1, [damage(b)])], { hero: false }),
@@ -70160,6 +70304,7 @@ function normalizeAutoIllustrationSettings(value) {
             artistByKind: normalizeArtistByKind(nai.artistByKind),
             artistLibrary: normalizeArtistLibrary(nai.artistLibrary),
             timeoutMs: clampInt(nai.timeoutMs, 10000, 300000, NAI_DEFAULT_SETTINGS.timeoutMs),
+            minIntervalEnabled: nai.minIntervalEnabled === true || nai.minIntervalEnabled === 'true',
             minIntervalMs: clampInt(nai.minIntervalMs, 0, 60000, NAI_DEFAULT_SETTINGS.minIntervalMs),
             cloudQueue: normalizeNaiCloudQueue(nai.cloudQueue),
             // 草稿首次归档会追加此标记；归一化保持相同顺序，避免无修改关闭重写存储。
@@ -70209,6 +70354,7 @@ const NAI_DEFAULT_SETTINGS = Object.freeze({
     artistPrefix: '',
     negativePrompt: NAI_DEFAULT_NEGATIVE,
     timeoutMs: 120000,
+    minIntervalEnabled: false,
     minIntervalMs: 2000,
 });
 
@@ -72330,16 +72476,26 @@ __igsDefine(exports, "TAVERN_PROXY_DISABLED_HINT", () => TAVERN_PROXY_DISABLED_H
 __igsDefine(exports, "TAVERN_BACKEND_UNREACHABLE_HINT", () => TAVERN_BACKEND_UNREACHABLE_HINT);
 });
 __igsRegister("src/generated-images/nai-cloud-queue-settings.js", function(module, exports, require) {
-const NAI_QUEUE_REFERENCE_ENDPOINT = 'https://st-chatu-novelai-queue.hf.space';
+// 旧版本会把空地址自动填成这个公共节点；读到它且未开启队列时视为未填写。
+const LEGACY_DEFAULT_ENDPOINT = 'https://st-chatu-novelai-queue.hf.space';
 function normalizeNaiCloudQueue(value) {
     const n = Number(value?.timeoutMs);
-    const endpoint = typeof value?.endpoint === 'string' ? value.endpoint.trim().replace(/\/+$/, '') : '';
+    const enabled = value?.enabled === true || value?.enabled === 'true';
+    let endpoint = typeof value?.endpoint === 'string' ? value.endpoint.trim().replace(/\/+$/, '') : '';
+    // 只在整组归一化时清理；单独改地址字段（不带 enabled）时保留用户手填的值。
+    if (endpoint === LEGACY_DEFAULT_ENDPOINT && !enabled && value && Object.hasOwn(value, 'enabled')) endpoint = '';
     return {
-        enabled: value?.enabled === true || value?.enabled === 'true',
-        endpoint: endpoint || NAI_QUEUE_REFERENCE_ENDPOINT,
+        enabled,
+        endpoint,
         timeoutMs: value?.timeoutMs !== '' && value?.timeoutMs != null && Number.isFinite(n)
             ? Math.max(10000, Math.min(900000, Math.round(n))) : 180000,
     };
+}
+
+// 开关打开且填了地址才排队；没填地址等同关闭。
+function naiCloudQueueActive(value) {
+    const cloud = normalizeNaiCloudQueue(value);
+    return cloud.enabled && cloud.endpoint !== '';
 }
 function validNaiQueueEndpoint(endpoint) {
     try {
@@ -72349,15 +72505,16 @@ function validNaiQueueEndpoint(endpoint) {
 }
 
 __igsDefine(exports, "normalizeNaiCloudQueue", () => normalizeNaiCloudQueue);
+__igsDefine(exports, "naiCloudQueueActive", () => naiCloudQueueActive);
 __igsDefine(exports, "validNaiQueueEndpoint", () => validNaiQueueEndpoint);
-__igsDefine(exports, "NAI_QUEUE_REFERENCE_ENDPOINT", () => NAI_QUEUE_REFERENCE_ENDPOINT);
 });
 __igsRegister("src/scene/challenge-directives.js", function(module, exports, require) {
 // 日常挑战标签解析：从楼层正文里取末行的 [igs-challenge:事件名|领域|难度|代价|对方]，校验字段并给出诊断。
 // 纯函数。标签文本为 AI 输出，一律按不可信输入处理；数值全部由脚本查表，标签里只有离散词。
-const { combatBodyText } = require("src/scene/combat-directives.js");
+const { combatBodyText, extractIntimateLines } = require("src/scene/combat-directives.js");
 const { stripMarkerDirectives } = require("src/scene/directive-tags.js");
 const { DEFAULT_SKILL_LIST } = require("src/scene/stats/stat-skill-match.js");
+const { INTIMATE_DOMAIN, INTIMATE_MECHANICS, fallbackMechanic, resolveIntimateGate } = require("src/scene/intimate-duel.js");
 const CHALLENGE_TIERS = Object.freeze({ 轻松: '轻松', easy: '轻松', 普通: '普通', normal: '普通', 艰难: '艰难', hard: '艰难' });
 const CHALLENGE_STAKES = Object.freeze({
     压力: '压力', stress: '压力', 体力: '体力', stamina: '体力', 金钱: '金钱', money: '金钱', 关系: '关系', relation: '关系',
@@ -72441,14 +72598,38 @@ function parseChallengeStart(raw, options = {}) {
     if (!atTail) return { start: null, diagnostics };
     const parsed = parseFields(last.fields, options, diagnostics, where(last));
     if (!parsed.ok) {
-        diagnostics.push({ code: parsed.code, field: parsed.field, problem: parsed.problem, ...where(last) });
+        if (!parsed.silent) diagnostics.push({ code: parsed.code, field: parsed.field, problem: parsed.problem, ...where(last) });
         return { start: null, diagnostics };
     }
-    if (options.quota && !options.quota.ok) {
+    if (parsed.value.intimate !== true && options.quota && !options.quota.ok) {
         diagnostics.push({ code: 'challenge-quota', reason: options.quota.reason, ...where(last) });
         return { start: null, diagnostics };
     }
-    return { start: { ...parsed.value, ...where(last) }, diagnostics };
+    const lines = parsed.value.intimate === true ? extractIntimateLines(body, diagnostics) : [];
+    return { start: { ...parsed.value, ...where(last), ...(lines.length ? { lines } : {}) }, diagnostics };
+}
+
+function parseIntimate(fields, options, diagnostics, where) {
+    const gate = options.intimate || {};
+    const verdict = resolveIntimateGate(gate);
+    if (!verdict.ok) {
+        diagnostics.push({ code: verdict.code, ...where });
+        return { ok: false, field: 'domain', problem: verdict.code, code: verdict.code, silent: true };
+    }
+    const tierWord = (fields[3] || '').toLowerCase();
+    if (tierWord && !Object.hasOwn(CHALLENGE_TIERS, tierWord)) diagnostics.push({ code: 'challenge-tier-unknown', ...where });
+    let mechanic = fields[2] || '';
+    if (!INTIMATE_MECHANICS.includes(mechanic)) {
+        if (mechanic) diagnostics.push({ code: 'intimate-mechanic-fallback', name: mechanic.slice(0, NAME_MAX), ...where });
+        mechanic = fallbackMechanic(gate);
+    }
+    return {
+        ok: true,
+        value: {
+            event: fields[0], domain: INTIMATE_DOMAIN, intimate: true, mechanic, eventKey: gate.eventKey ?? null, counterpart: gate.partner || '',
+            tier: tierWord && Object.hasOwn(CHALLENGE_TIERS, tierWord) ? CHALLENGE_TIERS[tierWord] : CHALLENGE_DEFAULT_TIER, stake: CHALLENGE_DEFAULT_STAKE, requestedStake: CHALLENGE_DEFAULT_STAKE,
+        },
+    };
 }
 
 function parseFields(fields, options, diagnostics, where) {
@@ -72456,6 +72637,7 @@ function parseFields(fields, options, diagnostics, where) {
     const event = fields[0] || '';
     if (!event) return { ...invalid('event', 'required'), code: 'challenge-event-invalid' };
     if (event.length > NAME_MAX) return { ...invalid('event', 'too-long'), code: 'challenge-event-invalid' };
+    if (fields[1] === INTIMATE_DOMAIN) return parseIntimate(fields, options, diagnostics, where);
     const tierWord = (fields[2] || '').toLowerCase();
     if (tierWord && !Object.hasOwn(CHALLENGE_TIERS, tierWord)) return { ...invalid('tier', 'unknown-tier'), code: 'challenge-tier-unknown' };
     const stakeWord = (fields[3] || '').toLowerCase();
@@ -72707,7 +72889,7 @@ __igsRegister("src/scene/stats/stat-state.js", function(module, exports, require
 const STATS_VERSION = 2;
 const BASE_ATTRIBUTES = Object.freeze(['力量', '敏捷', '体质', '智力', '感知', '魅力']);
 const DEFAULT_SPECIAL_SKILLS = Object.freeze(['烹饪', '家务', '学习', '运动', '艺术', '话术', '照顾', '应变']);
-const DEFAULT_DIMS = Object.freeze(['好感', '信任', '了解']);
+const DEFAULT_DIMS = Object.freeze(['好感', '信任', '了解', '芥蒂']);
 const SKILL_MIN = 10;
 const SKILL_MAX = 90;
 const DIM_MIN = -100;
@@ -72738,6 +72920,18 @@ function createCharacter(day, { nsfw = false } = {}) {
     if (nsfw) dims.欲望 = 0;
     return { dims, daily: { day, gained: {} }, recent: [], lastSeenDay: day, unlocked: [] };
 }
+const GRUDGE_TIERS = Object.freeze([{ name: '不满', min: 1 }, { name: '记恨', min: 26 }, { name: '怨恨', min: 51 }, { name: '仇恨', min: 76 }]);
+function grudgeTier(value) {
+    const v = Math.round(Number(value) || 0);
+    let name = '';
+    for (const tier of GRUDGE_TIERS) if (v >= tier.min) name = tier.name;
+    return name;
+}
+function grudgeOfCharacter(state, name) {
+    const character = state && state.characters && state.characters[name];
+    const value = Number(character && character.dims && character.dims.芥蒂);
+    return Number.isFinite(value) ? clamp(Math.round(value), 0, DIM_MAX) : 0;
+}
 function withBars(state, bars) {
     return bars === state.protagonist.bars ? state : { ...state, protagonist: { ...state.protagonist, bars } };
 }
@@ -72754,6 +72948,8 @@ function withCharacter(state, name, character) {
 __igsDefine(exports, "clamp", () => clamp);
 __igsDefine(exports, "createStatsState", () => createStatsState);
 __igsDefine(exports, "createCharacter", () => createCharacter);
+__igsDefine(exports, "grudgeTier", () => grudgeTier);
+__igsDefine(exports, "grudgeOfCharacter", () => grudgeOfCharacter);
 __igsDefine(exports, "withBars", () => withBars);
 __igsDefine(exports, "withSkills", () => withSkills);
 __igsDefine(exports, "withClock", () => withClock);
@@ -72766,6 +72962,7 @@ __igsDefine(exports, "SKILL_MIN", () => SKILL_MIN);
 __igsDefine(exports, "SKILL_MAX", () => SKILL_MAX);
 __igsDefine(exports, "DIM_MIN", () => DIM_MIN);
 __igsDefine(exports, "DIM_MAX", () => DIM_MAX);
+__igsDefine(exports, "GRUDGE_TIERS", () => GRUDGE_TIERS);
 });
 __igsRegister("src/scene/stats/stat-world-skills.js", function(module, exports, require) {
 // 世界观附加特有技能（§6 扩展）：建卡时在默认 8 项之外，按当前世界观追加一组候选（现代不追加）。
@@ -73102,8 +73299,270 @@ __igsDefine(exports, "COMBAT_SKILLS", () => COMBAT_SKILLS);
 __igsDefine(exports, "DODGE_SKILLS", () => DODGE_SKILLS);
 __igsDefine(exports, "COC_SAN_NAME", () => COC_SAN_NAME);
 });
+__igsRegister("src/scene/intimate-duel.js", function(module, exports, require) {
+const INTIMATE_DOMAIN = '亲密';
+const INTIMATE_MECHANICS = Object.freeze(['合拍', '主导']);
+const INTIMATE_POSITIONS = Object.freeze(['receive', 'lead', 'story']);
+const INTIMATE_POSITION_LABELS = Object.freeze({ receive: '受方', lead: '攻方', story: '随剧情' });
+const INTIMATE_DEFAULTS = Object.freeze({ enabled: false, position: 'receive', launch: true });
+const INTIMATE_TENSION_START = 3;
+const INTIMATE_SWAP_HIDDEN = 3;
+const INTIMATE_RAPPORT_HIDDEN = 3;
+const INTIMATE_FLOW_FULL = 0.6;
+const INTIMATE_LEAD_FULL = 0.5;
+const INTIMATE_ENDINGS = Object.freeze({
+    合拍: Object.freeze(['水到渠成', '小插曲', '被打断', '草草收场', '心意相通']),
+    主导: Object.freeze(['我方主导', '险胜', '对方主导', '反复易手', '甘拜下风', '同归于尽']),
+});
+const INTIMATE_STOP = '停下';
+const INTIMATE_ALL_ENDINGS = Object.freeze([...INTIMATE_ENDINGS.合拍, ...INTIMATE_ENDINGS.主导, INTIMATE_STOP]);
+const INTIMATE_LEGACY_OUTCOME = Object.freeze({
+    水到渠成: '圆满', 心意相通: '圆满', 我方主导: '圆满', 小插曲: '勉强', 险胜: '勉强',
+    被打断: '失败', 草草收场: '失败', 对方主导: '失败', 反复易手: '失败', 同归于尽: '失败', 甘拜下风: '放弃', [INTIMATE_STOP]: '放弃',
+});
+const INTIMATE_LINES_LINE = '- 台词（可选）：亲密标签之前可加一行 [igs-combat:lines|对方角色|开场|出招|受击|快失守]，与亲密标签一起放进正文末尾的 <igs-combat> 块；四段各写一到两句，多句用「/」隔开，每句不超过15字，受击与快失守写短促的气声';
+const INTIMATE_GRAMMAR_LINE = '【亲密对决】[igs-challenge:标题|亲密|合拍或主导|难度]：仅在一段亲密情节刚开始升温时，在该楼正文最后一行写一次，随后停笔，不写结果；合拍表示两人互相配合，主导表示争夺主动，难度写 轻松/普通/艰难，后两项可省略';
+
+const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+function normalizeIntimateSettings(value) {
+    const source = plain(value);
+    return {
+        enabled: source.enabled === true,
+        position: INTIMATE_POSITIONS.includes(source.position) ? source.position : INTIMATE_DEFAULTS.position,
+        launch: source.launch !== false,
+    };
+}
+const intimateNsfwOn = (readerSettings, autoIllustration) => plain(autoIllustration).nsfwEnabled === true || plain(plain(readerSettings).romanceFx).enabled === true;
+const intimateOn = (readerSettings, autoIllustration) => plain(plain(readerSettings).combatExpansion).enabled === true
+    && normalizeIntimateSettings(plain(readerSettings.combatExpansion).intimate).enabled && intimateNsfwOn(readerSettings, autoIllustration);
+
+const DIGITS = Object.freeze({ 零: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 两: 2 });
+const NUMBER = '\\d{1,3}|[零一二三四五六七八九十两]{1,3}';
+const AGE_LABELED = new RegExp(`(?:年龄|年纪|\\bage)\\s*[:：=是为]?\\s*(${NUMBER})(?:\\s*(?:周岁|岁|歲)|(?![\\u4e00-\\u9fa5\\d]))`, 'gi');
+const AGE_SUFFIX = new RegExp(`(?<![零一二三四五六七八九十两百\\d.])(${NUMBER})\\s*(?:周岁|岁|歲|years?[\\s-]*old|yo\\b)`, 'gi');
+const PAST_AFTER = /^\s*(?:时|那年|起|开始|以前|之前|的时候)/;
+const PAST_BEFORE = /(?:(?<!目)前|当年|那年)[^。！？!?\n]{0,3}$/;
+const BRIDE_AGE = /二八年华/;
+const COMPARE_BEFORE = /(?:相差|差了?|(?<!最)[小大长幼少多])\s*$/;
+
+function numberOf(token) {
+    if (/^\d+$/.test(token)) return Number(token);
+    if (token.includes('十')) {
+        const [left, right] = token.split('十');
+        if (left.length > 1 || right.length > 1) return NaN;
+        const tens = left ? DIGITS[left] : 1;
+        const ones = right ? DIGITS[right] : 0;
+        return tens * 10 + ones;
+    }
+    return token.length === 1 ? DIGITS[token] : NaN;
+}
+function agesOf(text) {
+    const source = String(text || '');
+    const ages = [];
+    for (const match of source.matchAll(AGE_LABELED)) ages.push(numberOf(match[1]));
+    for (const match of source.matchAll(AGE_SUFFIX)) {
+        const before = source.slice(Math.max(0, match.index - 8), match.index);
+        const after = source.slice(match.index + match[0].length, match.index + match[0].length + 4);
+        if (PAST_AFTER.test(after) || PAST_BEFORE.test(before) || COMPARE_BEFORE.test(before)) continue;
+        ages.push(numberOf(match[1]));
+    }
+    if (BRIDE_AGE.test(source)) ages.push(16);
+    return ages.filter((age) => Number.isFinite(age));
+}
+function explicitAgeOf(text) {
+    const ages = agesOf(text);
+    return ages.length ? Math.min(...ages) : null;
+}
+const underageByProfile = (texts) => (Array.isArray(texts) ? texts : [texts]).some((text) => agesOf(text).some((age) => age < 18));
+function resolveIntimateGate({ on, ageBlocked, newRise, fought } = {}) {
+    if (!on) return { ok: false, code: 'intimate-off' };
+    if (ageBlocked) return { ok: false, code: 'intimate-age-blocked' };
+    if (!newRise) return { ok: false, code: 'intimate-no-span' };
+    if (fought) return { ok: false, code: 'intimate-already-fought' };
+    return { ok: true };
+}
+const LOVE_HATE_FAVOR_MIN = 51;
+const GRUDGE_GATE = 25;
+const GRUDGE_TIER_STEP = 25;
+const TRUST_SHAKY_MAX = 25;
+
+const numberOr0 = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+const grudgeLevel = (grudge) => {
+    const value = numberOr0(grudge);
+    return value <= GRUDGE_GATE ? 0 : Math.min(3, Math.ceil((value - GRUDGE_GATE) / GRUDGE_TIER_STEP));
+};
+const isLoveHate = ({ favor = 0, grudge = 0 } = {}) => numberOr0(favor) >= LOVE_HATE_FAVOR_MIN && grudgeLevel(grudge) > 0;
+const isShakyLoveHate = ({ favor = 0, trust = 0, grudge = 0 } = {}) => isLoveHate({ favor, grudge }) && numberOr0(trust) <= TRUST_SHAKY_MAX;
+const fallbackMechanic = ({ favor = 0, trust = 0, grudge = 0 } = {}) => (isLoveHate({ favor, trust, grudge }) || numberOr0(grudge) > numberOr0(favor) ? '主导' : '合拍');
+function floorHasNewRise(pages, resolvePhase) {
+    const list = Array.isArray(pages) ? pages : [];
+    return list.some((page) => page && page.nsfwSpan && page.nsfwSpan.continued !== true && resolvePhase(page.nsfwSpan) === 'rise');
+}
+
+const LEAD_VERBS = ['按住', '压住', '压在', '扣住', '抵在', '抵住', '逼近', '拉过', '抱起', '推倒', '握住', '吻住', '捏住', '禁锢'];
+function storyPosition(text, userName) {
+    const tail = String(text || '').slice(-800);
+    const names = [String(userName || ''), '我', '你'].filter(Boolean);
+    let mine = 0;
+    let theirs = 0;
+    for (const verb of LEAD_VERBS) {
+        let at = tail.indexOf(verb);
+        while (at >= 0) {
+            const before = tail.slice(Math.max(0, at - 4), at);
+            if (names.some((name) => before.includes(name))) mine += 1;
+            else theirs += 1;
+            at = tail.indexOf(verb, at + verb.length);
+        }
+    }
+    return mine > theirs ? 'lead' : 'receive';
+}
+const resolveIntimatePosition = (setting, text, userName) => (setting === 'story' ? storyPosition(text, userName) : INTIMATE_POSITIONS.includes(setting) ? setting : 'receive');
+function intimateEnding({ mechanic, result, heroRatio = 0, trace = {} } = {}) {
+    if (result === 'escape' && trace.surrendered !== true) return INTIMATE_STOP;
+    if (mechanic === '合拍') {
+        if (result === 'win') {
+            if (Number(trace.rapport) >= INTIMATE_RAPPORT_HIDDEN) return '心意相通';
+            return Number(heroRatio) >= INTIMATE_FLOW_FULL ? '水到渠成' : '小插曲';
+        }
+        return trace.interruptHit === true ? '被打断' : '草草收场';
+    }
+    if (trace.surrendered === true) return '甘拜下风';
+    if (trace.bothZero === true) return '同归于尽';
+    if (Number(trace.swaps) >= INTIMATE_SWAP_HIDDEN) return '反复易手';
+    if (result === 'win') return Number(heroRatio) >= INTIMATE_LEAD_FULL ? '我方主导' : '险胜';
+    return '对方主导';
+}
+const INTIMATE_ENDING_TEXT = Object.freeze({
+    水到渠成: '一切自然而然',
+    小插曲: '中途有些笨拙与笑场，两人反而更亲近了',
+    被打断: '被外界打断，余温未散，留待下次',
+    草草收场: '节奏没有对上，气氛有些尴尬',
+    心意相通: '不必言说的默契，两人心意相通',
+    我方主导: '此后由主角掌控节奏',
+    险胜: '主角夺回了主动，但对方随时可能反扑',
+    对方主导: '此后由对方掌控节奏',
+    反复易手: '谁也不肯认输，主动权几经易手，两人相互撕扯',
+    甘拜下风: '主角主动交出了主导，此后由对方掌控节奏',
+    同归于尽: '两败俱伤，难分彼此',
+    [INTIMATE_STOP]: '主角叫停了这一幕，不算输赢，也没有代价',
+});
+const INTIMATE_MARKS = Object.freeze({ suppressed: 'suppressed', defeated: 'defeated' });
+const MARK_BY_ENDING = Object.freeze({ 我方主导: 'suppressed', 险胜: 'suppressed', 对方主导: 'defeated', 甘拜下风: 'defeated' });
+const markForEnding = (ending) => MARK_BY_ENDING[ending] || null;
+const isRapportWin = (ending) => ['水到渠成', '小插曲', '心意相通'].includes(ending);
+
+const gates = new Map();
+const gateKey = (chatId, messageId) => `${chatId}|${messageId}`;
+function setIntimateGate(chatId, messageId, gate) {
+    if (!gate) gates.delete(gateKey(chatId, messageId));
+    else gates.set(gateKey(chatId, messageId), gate);
+    if (gates.size > 40) gates.delete(gates.keys().next().value);
+}
+const getIntimateGate = (chatId, messageId) => gates.get(gateKey(chatId, messageId)) || null;
+const INTIMATE_FOUGHT_KEY = 'igs_intimate_fought';
+const readFoughtKeys = (metadata) => (Array.isArray(plain(metadata)[INTIMATE_FOUGHT_KEY]) ? metadata[INTIMATE_FOUGHT_KEY] : []);
+
+let activeDuel = null;
+const setIntimateDuel = (duel) => { activeDuel = duel && duel.partner ? { partner: String(duel.partner), stage: 0 } : null; };
+const getIntimateDuel = () => activeDuel;
+const INTIMATE_DUEL_MOOD = '动情';
+const INTIMATE_DUEL_MOOD_STRONG = Object.freeze(['意乱情迷', '迷离', '情动']);
+const INTIMATE_STAGE_HALF = 0.5;
+const INTIMATE_STAGE_LOW = 0.2;
+const duelStageOf = (ratio) => {
+    const value = Number(ratio);
+    if (!Number.isFinite(value)) return 0;
+    return value < INTIMATE_STAGE_LOW ? 2 : value < INTIMATE_STAGE_HALF ? 1 : 0;
+};
+function createDuelLowGate() {
+    let fired = '';
+    return (combatId, ratio) => {
+        if (!combatId || !(Number(ratio) < INTIMATE_STAGE_LOW) || fired === combatId) return false;
+        fired = combatId;
+        return true;
+    };
+}
+function advanceIntimateDuel(ratio) {
+    if (!activeDuel) return false;
+    const next = duelStageOf(ratio);
+    if (next <= activeDuel.stage) return false;
+    activeDuel.stage = next;
+    return true;
+}
+const INTIMATE_WHISPER_CARDS = Object.freeze(['小声说喜欢', '情话', '低声命令', '确认心意', '撒娇夺权']);
+const isWhisperCard = (name) => INTIMATE_WHISPER_CARDS.includes(String(name || ''));
+const INTIMATE_HEART_REST = 66;
+const INTIMATE_HEART_PEAK = 100;
+const intimateHeartBpm = (ratio) => {
+    const value = Math.min(1, Math.max(0, Number.isFinite(Number(ratio)) ? Number(ratio) : 1));
+    return Math.round(INTIMATE_HEART_REST + (INTIMATE_HEART_PEAK - INTIMATE_HEART_REST) * (1 - value));
+};
+const intimateCreakWindow = (turn, rounds) => Number(rounds) > 0 && Number(turn) >= Number(rounds) - 1;
+const INTIMATE_ENDING_LINE = (ending) => (INTIMATE_ENDING_TEXT[ending] ? `${ending}。${INTIMATE_ENDING_TEXT[ending]}` : '');
+
+__igsDefine(exports, "normalizeIntimateSettings", () => normalizeIntimateSettings);
+__igsDefine(exports, "agesOf", () => agesOf);
+__igsDefine(exports, "explicitAgeOf", () => explicitAgeOf);
+__igsDefine(exports, "resolveIntimateGate", () => resolveIntimateGate);
+__igsDefine(exports, "floorHasNewRise", () => floorHasNewRise);
+__igsDefine(exports, "storyPosition", () => storyPosition);
+__igsDefine(exports, "intimateEnding", () => intimateEnding);
+__igsDefine(exports, "setIntimateGate", () => setIntimateGate);
+__igsDefine(exports, "createDuelLowGate", () => createDuelLowGate);
+__igsDefine(exports, "advanceIntimateDuel", () => advanceIntimateDuel);
+__igsDefine(exports, "INTIMATE_DOMAIN", () => INTIMATE_DOMAIN);
+__igsDefine(exports, "INTIMATE_MECHANICS", () => INTIMATE_MECHANICS);
+__igsDefine(exports, "INTIMATE_POSITIONS", () => INTIMATE_POSITIONS);
+__igsDefine(exports, "INTIMATE_POSITION_LABELS", () => INTIMATE_POSITION_LABELS);
+__igsDefine(exports, "INTIMATE_DEFAULTS", () => INTIMATE_DEFAULTS);
+__igsDefine(exports, "INTIMATE_TENSION_START", () => INTIMATE_TENSION_START);
+__igsDefine(exports, "INTIMATE_SWAP_HIDDEN", () => INTIMATE_SWAP_HIDDEN);
+__igsDefine(exports, "INTIMATE_RAPPORT_HIDDEN", () => INTIMATE_RAPPORT_HIDDEN);
+__igsDefine(exports, "INTIMATE_FLOW_FULL", () => INTIMATE_FLOW_FULL);
+__igsDefine(exports, "INTIMATE_LEAD_FULL", () => INTIMATE_LEAD_FULL);
+__igsDefine(exports, "INTIMATE_ENDINGS", () => INTIMATE_ENDINGS);
+__igsDefine(exports, "INTIMATE_STOP", () => INTIMATE_STOP);
+__igsDefine(exports, "INTIMATE_ALL_ENDINGS", () => INTIMATE_ALL_ENDINGS);
+__igsDefine(exports, "INTIMATE_LEGACY_OUTCOME", () => INTIMATE_LEGACY_OUTCOME);
+__igsDefine(exports, "INTIMATE_LINES_LINE", () => INTIMATE_LINES_LINE);
+__igsDefine(exports, "INTIMATE_GRAMMAR_LINE", () => INTIMATE_GRAMMAR_LINE);
+__igsDefine(exports, "intimateNsfwOn", () => intimateNsfwOn);
+__igsDefine(exports, "intimateOn", () => intimateOn);
+__igsDefine(exports, "underageByProfile", () => underageByProfile);
+__igsDefine(exports, "LOVE_HATE_FAVOR_MIN", () => LOVE_HATE_FAVOR_MIN);
+__igsDefine(exports, "GRUDGE_GATE", () => GRUDGE_GATE);
+__igsDefine(exports, "GRUDGE_TIER_STEP", () => GRUDGE_TIER_STEP);
+__igsDefine(exports, "TRUST_SHAKY_MAX", () => TRUST_SHAKY_MAX);
+__igsDefine(exports, "grudgeLevel", () => grudgeLevel);
+__igsDefine(exports, "isLoveHate", () => isLoveHate);
+__igsDefine(exports, "isShakyLoveHate", () => isShakyLoveHate);
+__igsDefine(exports, "fallbackMechanic", () => fallbackMechanic);
+__igsDefine(exports, "resolveIntimatePosition", () => resolveIntimatePosition);
+__igsDefine(exports, "INTIMATE_ENDING_TEXT", () => INTIMATE_ENDING_TEXT);
+__igsDefine(exports, "INTIMATE_MARKS", () => INTIMATE_MARKS);
+__igsDefine(exports, "markForEnding", () => markForEnding);
+__igsDefine(exports, "isRapportWin", () => isRapportWin);
+__igsDefine(exports, "getIntimateGate", () => getIntimateGate);
+__igsDefine(exports, "INTIMATE_FOUGHT_KEY", () => INTIMATE_FOUGHT_KEY);
+__igsDefine(exports, "readFoughtKeys", () => readFoughtKeys);
+__igsDefine(exports, "setIntimateDuel", () => setIntimateDuel);
+__igsDefine(exports, "getIntimateDuel", () => getIntimateDuel);
+__igsDefine(exports, "INTIMATE_DUEL_MOOD", () => INTIMATE_DUEL_MOOD);
+__igsDefine(exports, "INTIMATE_DUEL_MOOD_STRONG", () => INTIMATE_DUEL_MOOD_STRONG);
+__igsDefine(exports, "INTIMATE_STAGE_HALF", () => INTIMATE_STAGE_HALF);
+__igsDefine(exports, "INTIMATE_STAGE_LOW", () => INTIMATE_STAGE_LOW);
+__igsDefine(exports, "duelStageOf", () => duelStageOf);
+__igsDefine(exports, "INTIMATE_WHISPER_CARDS", () => INTIMATE_WHISPER_CARDS);
+__igsDefine(exports, "isWhisperCard", () => isWhisperCard);
+__igsDefine(exports, "INTIMATE_HEART_REST", () => INTIMATE_HEART_REST);
+__igsDefine(exports, "INTIMATE_HEART_PEAK", () => INTIMATE_HEART_PEAK);
+__igsDefine(exports, "intimateHeartBpm", () => intimateHeartBpm);
+__igsDefine(exports, "intimateCreakWindow", () => intimateCreakWindow);
+__igsDefine(exports, "INTIMATE_ENDING_LINE", () => INTIMATE_ENDING_LINE);
+});
 __igsRegister("src/scene/combat-prompt.js", function(module, exports, require) {
 // 战斗提示词：给 AI 的「战斗」规则段、战报后的续写段、主角团状态段。
+const { INTIMATE_GRAMMAR_LINE, INTIMATE_LINES_LINE, normalizeIntimateSettings } = require("src/scene/intimate-duel.js");
 // 规则文本按开关拼装：合并模式下装备/道具标签单独成段，物品演出开启时道具获得行并入物品演出。
 const COMBAT_BLOCK_KEY = 'combat';
 const COMBAT_NARRATION_SEGMENT_ID = 'igs-combat-narration';
@@ -73144,10 +73603,12 @@ function chatForCooldown(messages, generationType) {
 // quota 为 challengeQuota 的结果；额度用完或冷却中时不放语法行。
 // 两者模式下战斗没有冷却时，追加同层只写一个对决的提示（settings.combatSinceStart 与冷却判断见 resolveCombatPromptRule）。
 function resolveChallengePromptSegment(settings, quota) {
-    if (!dailyChallengeEnabled(settings) || !quota || quota.ok !== true) return null;
+    const intimateLine = combatExpansionEnabled(settings) && normalizeIntimateSettings(asObject(asObject(settings).combatExpansion).intimate).enabled && asObject(settings).intimateOn === true ? `${INTIMATE_GRAMMAR_LINE}\n${INTIMATE_LINES_LINE}` : '';
+    const dailyOpen = dailyChallengeEnabled(settings) && Boolean(quota) && quota.ok === true;
+    if (!dailyOpen && !intimateLine) return null;
     const daily = asObject(asObject(asObject(settings).combatExpansion).daily);
-    const bothOpen = combatKindOf(settings) === 'both' && !combatOnCooldown(asObject(settings).combatSinceStart, combatCooldownFloorsOf(settings));
-    const content = [CHALLENGE_GRAMMAR_LINE, CHALLENGE_FREQUENCY_LINES[daily.frequency], bothOpen ? ONLY_ONE_DUEL_LINE : ''].filter(Boolean).join('\n');
+    const bothOpen = dailyOpen && combatKindOf(settings) === 'both' && !combatOnCooldown(asObject(settings).combatSinceStart, combatCooldownFloorsOf(settings));
+    const content = [dailyOpen ? CHALLENGE_GRAMMAR_LINE : '', intimateLine, dailyOpen ? CHALLENGE_FREQUENCY_LINES[daily.frequency] : '', bothOpen ? ONLY_ONE_DUEL_LINE : ''].filter(Boolean).join('\n');
     return { id: CHALLENGE_SEGMENT_ID, position: 'depth0', depth: 0, content, keys: ['challenge'] };
 }
 const COMBAT_GRAMMAR_INDEX = '战斗 igs-combat:start/awaken/exp/learn/upgrade/class/unequip/rel/stat/heal';
@@ -82035,6 +82496,11 @@ function editCharacterCreature(raw, field, value) {
     const base = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
     const current = storedCreatureOf(base);
     if (field === 'enabled') {
+        // 战斗页取消非人：去掉档案，标为人类战斗对手，仍留在敌人名单。
+        if (value === 'human') {
+            const { creature, ...rest } = base || {};
+            return { ...rest, combatFoe: true };
+        }
         if (value === true || value === 'true' || value === '1') {
             if (current) return base;
             const profile = normalizeCreatureProfile({});
@@ -82201,6 +82667,7 @@ function normalizeSettingsValue(path, value) {
         return normalizeNaiCloudQueue({ [key]: value })[key];
     }
     if (path === 'bridge.autoIllustration.nai.effort') return normalizeNaiEffort(value);
+    if (path === 'bridge.autoIllustration.nai.minIntervalEnabled') return value === true || value === 'true';
     if (path === 'bridge.autoIllustration.nai.minIntervalMs') {
         const n = value === '' || value == null ? NaN : Number(value);
         return Number.isFinite(n) ? Math.max(0, Math.min(60000, Math.round(n))) : 2000;
@@ -82650,7 +83117,7 @@ const SETTINGS_CATEGORIES = Object.freeze([
     Object.freeze(['scenes', '场景']),
     Object.freeze(['ai', '生图与AI']),
     Object.freeze(['stats', '数值系统']),
-    Object.freeze(['combat', '战斗']),
+    Object.freeze(['combat', '战斗与敌方']),
     Object.freeze(['origin', '随身系统']),
     Object.freeze(['data', '数据']),
 ]);
@@ -82685,7 +83152,7 @@ const SETTINGS_PAGES = Object.freeze([
     Object.freeze(['rules', '写法规则', 'ai']),
     Object.freeze(['parse', '正文解析', 'ai']),
     Object.freeze(['stats', '数值系统', 'stats']),
-    Object.freeze(['combat', '战斗', 'combat']),
+    Object.freeze(['combat', '战斗与敌方', 'combat']),
     Object.freeze(['origin', '随身系统', 'origin']),
     Object.freeze(['data', '备份', 'data']),
     Object.freeze(['logs', '日志', 'data']),
@@ -83196,6 +83663,7 @@ const RATIO_RE = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/;
 const PERCENT_RE = /^(-?\d+(?:\.\d+)?)\s*([%％])?$/;
 const COLOR_RULES = Object.freeze([
     [/信任|信赖/, 'trust'],
+    [/芥蒂|仇怨|怨恨/, 'grudge'],
     [/好感|喜欢|爱意|爱慕/, 'like'],
     [/了解|认知|熟悉/, 'know'],
 ]);
@@ -91826,9 +92294,46 @@ async function downloadStatsTemplate(doc, url = statsTemplateUrl(), { fetchImpl 
     clickDownload(doc, url);
     return { ok: true, url, via: 'link' };
 }
+const STATS_TEMPLATE_PRESET_NAME = STATS_TEMPLATE_FILE.replace(/^TavernDB_template_|\.json$/g, '');
+
+function sheetNames(template) {
+    if (!template || typeof template !== 'object') return [];
+    return Object.keys(template).filter((key) => key.startsWith('sheet_'))
+        .map((key) => String(template[key] && template[key].name || '').trim()).filter(Boolean);
+}
+async function fetchStatsTemplate(url = statsTemplateUrl(), { fetchImpl = globalThis.fetch } = {}) {
+    if (typeof fetchImpl !== 'function') return { ok: false, reason: 'stats-template-no-fetch' };
+    try {
+        const response = await fetchImpl(url);
+        if (!response.ok) return { ok: false, reason: 'stats-template-fetch-failed', message: `HTTP ${response.status}` };
+        const data = await response.json();
+        if (!data || typeof data !== 'object' || !sheetNames(data).length) return { ok: false, reason: 'stats-template-invalid' };
+        return { ok: true, data };
+    } catch (error) {
+        return { ok: false, reason: 'stats-template-fetch-failed', message: String(error && error.message || error) };
+    }
+}
+
+// 应用到当前聊天前的预检：宿主按整份快照导入，当前聊天有而模板没有的表会被隐藏。
+function statsTemplateChatDiff(current, template) {
+    const next = new Set(sheetNames(template));
+    return { hidden: sheetNames(current).filter((name) => !next.has(name)) };
+}
+
+// scope='global' 存进数据库的模板预设库，不动当前聊天；scope='chat' 替换当前聊天的模板，已有数据按 seed 保留。
+async function importStatsTemplate(client, template, scope = 'global') {
+    const result = await client.importTemplate(template, { scope, presetName: STATS_TEMPLATE_PRESET_NAME, dataMode: 'seed' });
+    if (!result.ok) return result;
+    if (scope === 'chat' && result.result && result.result.runtimeReady === false) return { ok: false, reason: 'stats-template-runtime-not-ready' };
+    return { ok: true, scope };
+}
 
 __igsDefine(exports, "statsTemplateUrl", () => statsTemplateUrl);
 __igsDefine(exports, "downloadStatsTemplate", () => downloadStatsTemplate);
+__igsDefine(exports, "fetchStatsTemplate", () => fetchStatsTemplate);
+__igsDefine(exports, "statsTemplateChatDiff", () => statsTemplateChatDiff);
+__igsDefine(exports, "importStatsTemplate", () => importStatsTemplate);
+__igsDefine(exports, "STATS_TEMPLATE_PRESET_NAME", () => STATS_TEMPLATE_PRESET_NAME);
 });
 __igsRegister("src/data/shujuku/stats-template-adapt.js", function(module, exports, require) {
 // IGS 数值系统适配版 shujuku 模板（§8C）：以基准恋爱 gal 模板为底，只改与数值系统冲突的填表规则；
@@ -91897,6 +92402,126 @@ __igsDefine(exports, "adaptStatsTemplate", () => adaptStatsTemplate);
 __igsDefine(exports, "STATS_TEMPLATE_FILE", () => STATS_TEMPLATE_FILE);
 __igsDefine(exports, "STATS_TEMPLATE_MARK", () => STATS_TEMPLATE_MARK);
 __igsDefine(exports, "STATS_TEMPLATE_EDITS", () => STATS_TEMPLATE_EDITS);
+});
+__igsRegister("src/data/shujuku/client.js", function(module, exports, require) {
+function createShujukuClient(api) {
+    return {
+        // kept for backward compat — simulate.test.js depends on this
+        async updateRowAndRefresh(tableName, rowIndex, patch) {
+            if (!api || typeof api.updateRow !== 'function')
+                return { ok: false, reason: 'missing-update-row' };
+            const updateResult = await api.updateRow(tableName, rowIndex, patch);
+            if (!isSuccessful(updateResult))
+                return { ok: false, reason: 'update-row-failed', result: updateResult };
+            if (typeof api.refreshDataAndWorldbook === 'function') {
+                const refreshResult = await api.refreshDataAndWorldbook();
+                if (!isSuccessful(refreshResult))
+                    return { ok: false, reason: 'refresh-worldbook-failed', result: refreshResult };
+            }
+            return { ok: true, tableName, rowIndex, patch };
+        },
+
+        readTables() {
+            if (!api || typeof api.exportTableAsJson !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            try {
+                return { ok: true, data: api.exportTableAsJson() };
+            } catch (e) {
+                return { ok: false, reason: String(e && e.message || 'read-failed') };
+            }
+        },
+
+        async updateCell(tableName, rowIndex, colName, value) {
+            if (!api || typeof api.updateCell !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            const result = await api.updateCell(tableName, rowIndex, colName, String(value));
+            return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'update-failed' };
+        },
+
+        // options 只在调用方传入时使用对象参数形式（如 skipNotify），不传时保持原来的位置参数调用。
+        async insertRow(tableName, rowData, options) {
+            if (!api || typeof api.insertRow !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            const result = options && typeof options === 'object'
+                ? await api.insertRow({ ...options, tableName, data: rowData })
+                : await api.insertRow(tableName, rowData);
+            if (!isSuccessful(result)) return { ok: false, reason: 'insert-failed' };
+            return typeof result === 'number' ? { ok: true, rowIndex: result } : { ok: true };
+        },
+
+        // rowIndex 为宿主表内容下标（表头为 0，首条数据为 1）；options 只在调用方传入时使用对象参数形式（如 skipNotify），不传时保持位置参数调用。
+        async updateRow(tableName, rowIndex, patch, options) {
+            if (!api || typeof api.updateRow !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            const result = options && typeof options === 'object'
+                ? await api.updateRow({ ...options, tableName, rowIndex, data: patch })
+                : await api.updateRow(tableName, rowIndex, patch);
+            return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'update-failed' };
+        },
+
+        async deleteRow(tableName, rowIndex, options) {
+            if (!api || typeof api.deleteRow !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            const result = options && typeof options === 'object'
+                ? await api.deleteRow({ ...options, tableName, rowIndex })
+                : await api.deleteRow(tableName, rowIndex);
+            return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'delete-failed' };
+        },
+
+        // 当前聊天生效的表格模板（只读副本由调用方自行克隆）；宿主返回字符串时按 JSON 解析。
+        getTableTemplate() {
+            if (!api || typeof api.getTableTemplate !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            try {
+                const raw = api.getTableTemplate({ scope: 'chat' });
+                const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                return data && typeof data === 'object' && !Array.isArray(data)
+                    ? { ok: true, data }
+                    : { ok: false, reason: 'template-unavailable' };
+            } catch (e) {
+                return { ok: false, reason: 'template-read-failed', message: String(e && e.message || e) };
+            }
+        },
+
+        // 只调用宿主自带的模板导入，不自行实现导入逻辑。
+        async importTemplate(template, options = {}) {
+            if (!api || typeof api.importTemplateFromData !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            try {
+                const result = await api.importTemplateFromData(template, options);
+                if (result && typeof result === 'object' && result.success === true) return { ok: true, result };
+                return { ok: false, reason: 'import-failed', message: String(result && (result.error || result.message) || '') };
+            } catch (e) {
+                return { ok: false, reason: 'import-failed', message: String(e && e.message || e) };
+            }
+        },
+
+        async refresh() {
+            if (!api || typeof api.refreshDataAndWorldbook !== 'function')
+                return { ok: false, reason: 'missing-api' };
+            await api.refreshDataAndWorldbook();
+            return { ok: true };
+        },
+
+        registerCallback(cb) {
+            if (api && typeof api.registerTableUpdateCallback === 'function')
+                api.registerTableUpdateCallback(cb);
+        },
+
+        unregisterCallback(cb) {
+            if (api && typeof api.unregisterTableUpdateCallback === 'function')
+                api.unregisterTableUpdateCallback(cb);
+        },
+    };
+}
+
+function isSuccessful(result) {
+    if (result == null || result === false || result === -1) return false;
+    if (typeof result === 'object' && result.success === false) return false;
+    return true;
+}
+
+__igsDefine(exports, "createShujukuClient", () => createShujukuClient);
 });
 __igsRegister("src/visual/igs-ui/reader-dom-utils.js", function(module, exports, require) {
 function getRootDocument(globalObject) {
@@ -96199,6 +96824,17 @@ async function handleSettingsAction(action, ctx) {
             const updated = { ...notes };
             if (String(next).trim()) updated[target.name] = String(next).trim(); else delete updated[target.name];
             library.characterSpriteNotes = updated;
+            const persisted = persistSettingsDraft();
+            if (persisted.ok === false) return persisted;
+            return rerenderSettings();
+        }
+        // 移出敌人名单：只去掉人类战斗对手标记，外貌与立绘不动。
+        if (op === 'unlist') {
+            const map = library.characterDna && typeof library.characterDna === 'object' ? library.characterDna : {};
+            const entry = Object.hasOwn(map, target.name) ? map[target.name] : null;
+            if (!entry || entry.combatFoe !== true) return rerenderSettings();
+            const { combatFoe, ...rest } = entry;
+            library.characterDna = { ...map, [target.name]: rest };
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
             return rerenderSettings();
@@ -103075,7 +103711,7 @@ const { getPath, normalizeSettingsValue, setPath } = require("src/visual/igs-ui/
 const PROFILE_PATHS = Object.freeze({
     image: [
         'bridge.autoIllustration.nai.transport', 'bridge.autoIllustration.nai.endpoint', 'bridge.autoIllustration.nai.apiKey',
-        'bridge.autoIllustration.nai.minIntervalMs',
+        'bridge.autoIllustration.nai.minIntervalEnabled', 'bridge.autoIllustration.nai.minIntervalMs',
         'bridge.autoIllustration.nai.effort',
         'bridge.autoIllustration.nai.cloudQueue.enabled', 'bridge.autoIllustration.nai.cloudQueue.endpoint',
         'bridge.autoIllustration.nai.cloudQueue.timeoutMs',
@@ -103088,7 +103724,7 @@ const PROFILE_PATHS = Object.freeze({
 const KIND_LABEL = Object.freeze({ image: '生图', llm: '副 LLM' });
 
 // 这些字段在 change 事件后立即落盘：后台生图任务读的是已保存配置。
-const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model|minIntervalMs|effort|cloudQueue\.(?:enabled|endpoint|timeoutMs))|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
+const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model|minIntervalEnabled|minIntervalMs|effort|cloudQueue\.(?:enabled|endpoint|timeoutMs))|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
 function isImmediateSavePath(path) {
     return IMMEDIATE_SAVE_PATH.test(String(path || ''));
 }
@@ -103695,6 +104331,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'fx-prompts', label: '演出写法', aliases: ['演出提示词', '提示词正文', '触发关键词', '关键词', '常驻', '注入位置', '插入深度', '深度', '世界书', '写法'], page: 'rules' },
     { id: 'combat-expansion', label: '战斗方式', aliases: ['战斗', '卡牌战斗', '战斗演出', '战斗扩展', '回合制', '卡牌', '难度', '战报', '面板皮肤', '副llm', '数据库'], page: 'combat', path: 'readerSettings.__battleMode' },
     { id: 'combat-enemy-sprites', label: '敌人立绘管理', aliases: ['敌人立绘', '怪物立绘', '战斗对手', '自动建档', '临时档案', '内置敌人图集', '敌人图集', '下载敌人立绘'], page: 'combat', open: ['combat-enemy-sprites'] },
+    { id: 'combat-intimate', label: '亲密对决', aliases: ['亲密', '合拍', '主导权', '发起按钮', '我的位置', '受方', '攻方'], page: 'combat', path: 'readerSettings.combatExpansion.intimate.enabled' },
     { id: 'combat-lines', label: '战斗台词', aliases: ['台词', '战斗语音', '受击', '朗读战斗台词'], page: 'combat', path: 'readerSettings.combatExpansion.lines.show' },
     { id: 'origin-system', label: '随身系统', aliases: ['Origin', 'origin', '系统流', '金手指', '任务系统', '积分', '商城', '抽奖', '成就', '背包'], page: 'origin', path: 'bridge.origin.enabled' },
     { id: 'backup-model', label: '备用模型', aliases: ['副llm', '副 llm', '副api', '副 api', '副模型', 'llm', 'openai', '规划模型'], page: 'llm' },
@@ -106772,6 +107409,7 @@ const STATUS_HUD_LOCATION_ICON = '<svg viewBox="0 0 24 24" width="16" height="16
 const STATUS_HUD_COLOR_VARS = Object.freeze({
     trust: 'var(--igs-hud-bar-trust,#4ab3da)',
     like: 'var(--igs-hud-bar-like,#ee83b6)',
+    grudge: 'var(--igs-hud-bar-grudge,#b3263e)',
     cold: 'var(--igs-hud-bar-cold,#6a8fc4)',
     know: 'var(--igs-hud-bar-know,#e8a355)',
     'slot-1': 'var(--igs-hud-bar-1,#57aaee)',
@@ -108118,6 +108756,13 @@ function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             }
             if (ctx.hasActiveSettings && ctx.hasActiveSettings()) {
                 if (typeof ctx.closeSettings === 'function') ctx.closeSettings();
+                return;
+            }
+            // 窄屏阅读模式的选项页：点左半照常回上一页（prev 会先收起选项、露出列表），不被气泡显隐吞掉。
+            if (root && root.getAttribute && root.getAttribute('data-igs-log-reader') === 'on'
+                && root.classList && root.classList.contains('igs-options-visible')
+                && isBackgroundLeftTap(root, clientX) && typeof ctx.handleReaderAction === 'function') {
+                ctx.handleReaderAction('prev');
                 return;
             }
             // 最后一页且启用选项气泡时，点击空白处切换气泡显隐（消费本次点击，不翻页）。
@@ -118989,19 +119634,21 @@ function eatReactionOf(word) {
 
 const DRINK_RE = /(茶|咖啡|拿铁|奶昔|牛奶|酸奶|豆浆|果汁|饮料|饮品|汽水|可乐|苏打|啤酒|红酒|白酒|清酒|烧酒|米酒|香槟|鸡尾酒|葡萄酒|酒|药水|魔药|药剂|矿泉水|开水|热水|冰水|可可|椰汁|^水$)/;
 const NOT_DRINK_RE = /(汤圆|酒心|茶叶蛋|酒酿圆子)/;
+// 冲泡原料与容器（茶包、咖啡豆、杯子、酒瓶……）失去时只是失去，不算吃喝。
+const NOT_CONSUMED_RE = /(茶包|茶叶(?!蛋)|茶饼|茶砖|茶粉|茶具|茶壶|茶杯|咖啡豆|咖啡粉|咖啡机|挂耳|奶粉|酒瓶|酒壶|酒杯|酒具|水壶|水杯|水瓶|杯子|杯垫|马克杯|保温杯|空瓶|^杯$)/;
 const FOOD_RE = /(寿司|拉面|面条|泡面|意面|乌冬|荞麦面|章鱼烧|泡芙|布丁|冰淇淋|雪糕|团子|丸子|包子|饺子|馒头|汉堡|披萨|薯条|薯片|零食|甜点|甜品|月饼|粽子|蛋糕|年糕|糕点|饼干|煎饼|糖果|棒棒糖|果冻|水果|坚果|粥|饭|便当|饭团|面包|吐司|三明治|点心|巧克力|烤肉|炸鸡|肉串|烤串|沙拉|汤|苹果|草莓|葡萄|桃子|梨|橘子|橙子|香蕉|西瓜|樱桃|蜜柑)/;
 const EDIBLE_KEYS = new Set(['cup', 'food', 'potion', 'pill']);
 const DRINK_KEYS = new Set(['cup', 'potion']);
 function isDrinkName(name) {
     const text = String(name || '').trim();
-    if (!text || NOT_DRINK_RE.test(text)) return false;
+    if (!text || NOT_DRINK_RE.test(text) || NOT_CONSUMED_RE.test(text)) return false;
     return DRINK_KEYS.has(inventoryIconKey(text)) || DRINK_RE.test(text);
 }
 
 // 背包图标已认出别的类别（钥匙、衣服……）就不当食物；认不出时再按常见食物词判断。
 function isFoodName(name) {
     const text = String(name || '').trim();
-    if (!text) return false;
+    if (!text || NOT_CONSUMED_RE.test(text)) return false;
     const key = inventoryIconKey(text);
     if (EDIBLE_KEYS.has(key)) return true;
     return key === 'generic' && (FOOD_RE.test(text) || isDrinkName(text));
@@ -120790,6 +121437,8 @@ const { COMBAT_PANEL_SKIN_VEIL_STACK, COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT } = requ
 const { COMBAT_PANEL_LAYOUT_STYLE_TEXT } = require("src/visual/igs-ui/combat-panel-layout.js");
 const { TARGET_PICKER_STYLE_TEXT } = require("src/visual/igs-ui/combat-target-picker.js");
 const { CANVAS_STYLE_TEXT } = require("src/visual/igs-ui/combat-skin-registry.js");
+const { INTIMATE_DUEL_STYLE_TEXT } = require("src/visual/igs-ui/intimate-duel-style.js");
+const { INTIMATE_DUEL_FX_STYLE_TEXT } = require("src/visual/igs-ui/intimate-duel-fx.js");
 const { COMBAT_ENTRY_SKIN_STYLE_TEXT } = require("src/visual/igs-ui/combat-entry-skin-style.js");
 // 战斗面板与卡组构筑面板共用的视觉 token：墨色、填充、圆角、字体取自 ui-material，与资料页、地图、设置一致；
 // 语义色沿用状态栏数值条色板（reader-dom-render 的 STATUS_HUD_COLOR_VARS），类型只用色点与图标着色区分，不铺整块底色。
@@ -120912,9 +121561,9 @@ ${C} .igs-combat-result:has(>.igs-combat-loot) .igs-combat-loot-row{--loot-w:min
 ${C} .igs-combat-result:has(>.igs-combat-loot) .igs-combat-result-figure{width:min(var(--r-w),calc((100% - (var(--n,1) - 1) * 16px) / var(--n,1)));}
 /* 横向面板（≥721px）右下角回合组竖排：撤退 / 取消在最上，抽牌 / 弃牌数量在中间，结束回合在最下的角落（turn-btns 不成盒，按 order 排）。 */
 ${C} .igs-combat-turn-btns{display:contents;}
-${C} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="cancel"]){order:-1;}
+${C} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="stop"],[data-combat-act="cancel"]){order:-1;}
 /* 撤退是透明底图标钮：收窄成 34px 方钮、右缘仍与结束回合对齐，图标更靠右。 */
-${C} .igs-combat-turn .igs-combat-turn-btns>.igs-combat-btn.is-icon[data-combat-act="escape"]{width:34px;}`;
+${C} .igs-combat-turn .igs-combat-turn-btns>.igs-combat-btn.is-icon:is([data-combat-act="escape"],[data-combat-act="stop"]){width:34px;}`;
 // 战前对阵竖排（竖向面板；不支持容器查询时按视口方向）：敌方在上、我方在下；敌方色块止于敌方区下缘（100% - --t），我方色块从我方一排上沿（--t）起铺，VS 所在一行不铺色块；入场改为上下冲入；底层色块在我方一排沿首框左斜边、末框右斜边裁掉，--t 是我方一排的上沿（舞台半高 + VS 半高 + 行距，与三行网格一致）。
 const LOBBY_STACK = `${C} .igs-combat-lobby-stage{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto minmax(0,1fr);grid-template-areas:"enemy" "vs" "ally";}
 ${C} .igs-combat-lobby{--vs:clamp(40px,min(9cqh,13cqw),64px);--cut:clamp(12px,4.5cqh,32px);}
@@ -121561,6 +122210,8 @@ ${C} :is(.igs-combat-unit,.cx-unit)[data-swap="in"]{animation:igs-combat-swap-in
 ${C}[data-igs-combat-reduced] :is(.igs-combat-unit,.cx-unit)[data-swap],#igs-overlay[data-igs-quality="low"] ${C} :is(.igs-combat-unit,.cx-unit)[data-swap]{animation:none;}
 @media(prefers-reduced-motion:reduce){${C} :is(.igs-combat-unit,.cx-unit)[data-swap]{animation:none;}}
 ${TARGET_PICKER_STYLE_TEXT}
+${INTIMATE_DUEL_STYLE_TEXT}
+${INTIMATE_DUEL_FX_STYLE_TEXT}
 `;
 
 __igsDefine(exports, "COMBAT_UI_VARS", () => COMBAT_UI_VARS);
@@ -122141,7 +122792,7 @@ const { CARD_TYPE_LABELS, KEYWORD_TIPS, cardArtSvg, describeEffectParts, describ
 const { cardMotifSvg } = require("src/visual/igs-ui/combat-card-motifs.js");
 const { scalingMarks } = require("src/combat/card-scaling.js");
 const { ABILITY_LABELS } = require("src/combat/abilities.js");
-const { CHALLENGE_LABELS, challengeStatusName } = require("src/combat/challenge-labels.js");
+const { CHALLENGE_LABELS, challengeStatusName, intimateLabelsOf } = require("src/combat/challenge-labels.js");
 // 卡牌属性性能显示：换算过的卡给出带增减标记的描述片段；固定卡与旧战斗不带字段，形状与旧版一致。
 // 带标记的数字附 tip（要求属性、倍率与「原值 → 现值（差值）」，点数字由面板弹出）；scaleNote 是同样内容的整句，并入卡牌 aria-label 供读屏。
 function cardScalingView(card) {
@@ -122199,6 +122850,9 @@ function effectBrief(e) {
         case 'conditional': { const t = effectBrief((e.then || [])[0]); return t ? `条件${t}` : ''; }
         case 'next-turn': return e.gain === 'energy' ? `下回合能量${e.amount}` : e.gain === 'draw' ? `下回合抽${e.amount}` : `下回合${COMBAT_STATUS_NAMES[e.status] || e.status}${e.stacks}`;
         case 'self-damage': return `失血${e.amount}`;
+        case 'delayed-counter': return `反击${e.amount * e.mult}`;
+        case 'mutual-damage': return `同伤${e.amount}`;
+        case 'random-branch': return '随机';
         case 'discard': return `弃${e.amount}`;
         case 'create': return `生成${e.amount}`;
         case 'copy': return '复制';
@@ -122285,7 +122939,15 @@ const CHALLENGE_WORDS = Object.freeze([
     ...Object.keys(COMBAT_STATUS_NAMES).filter((key) => challengeStatusName(key)).map((key) => [COMBAT_STATUS_NAMES[key], challengeStatusName(key)]),
     ['伤害', CHALLENGE_LABELS.damage], ['格挡', CHALLENGE_LABELS.block], ['生命', CHALLENGE_LABELS.hp], ['敌人', CHALLENGE_LABELS.enemy],
 ]);
-const challengeWords = (text) => (typeof text === 'string' ? CHALLENGE_WORDS.reduce((out, [from, to]) => out.split(from).join(to), text) : text);
+const intimateWords = (labels) => [
+    ...Object.entries({ weak: '虚弱', vulnerable: '易伤', poison: '中毒' }).map(([key, from]) => [from, labels.statuses[key]]),
+    ['伤害', labels.damage], ['格挡', labels.block], ['生命', labels.hp], ['敌人', labels.enemy],
+];
+const challengeWordsOf = (text, mechanic = null) => {
+    if (typeof text !== 'string') return text;
+    const labels = intimateLabelsOf(mechanic);
+    return (labels ? intimateWords(labels) : CHALLENGE_WORDS).reduce((out, [from, to]) => out.split(from).join(to), text);
+};
 const willWords = (unit) => {
     const ratio = unit.maxHp ? unit.hp / unit.maxHp : 0;
     return ratio >= 0.6 ? '从容' : ratio >= 0.3 ? '吃力' : '力竭';
@@ -122300,7 +122962,7 @@ const COMBAT_ORDER_COUNT = 6;
 const FX_HIT_LIMIT = 6;
 
 const statusList = (statuses, challenge = false) => Object.entries(statuses || {}).filter(([, v]) => v > 0)
-    .map(([key, stacks]) => ({ key, label: (challenge && challengeStatusName(key)) || COMBAT_STATUS_NAMES[key] || key, stacks }));
+    .map(([key, stacks]) => ({ key, label: (challenge && (intimateLabelsOf(challenge)?.statuses[key] || challengeStatusName(key))) || COMBAT_STATUS_NAMES[key] || key, stacks }));
 
 // 不选目标的牌 / 技能的承受方：选中后高亮这些单位，点其中任一个（或再点一次牌）确认打出。只读推导，不参与结算。
 function affectedIds(state, unit, effects) {
@@ -122324,7 +122986,8 @@ function affectedIds(state, unit, effects) {
 function intentView(state, id, challenge = false) {
     const intent = describeIntent(state, id);
     if (!intent) return null;
-    return { name: intent.name, kind: intent.intent, label: (challenge ? CHALLENGE_INTENT_LABELS : COMBAT_INTENT_LABELS)[intent.intent] || '', ...(challenge ? { unit: CHALLENGE_LABELS.damage } : {}), damage: intent.damage, targetName: intent.targetId ? state.units[intent.targetId]?.name || '' : '' };
+    const labels = intimateLabelsOf(challenge);
+    return { name: intent.name, kind: intent.intent, label: (labels ? labels.intents : challenge ? CHALLENGE_INTENT_LABELS : COMBAT_INTENT_LABELS)[intent.intent] || '', ...(challenge ? { unit: labels ? labels.damage : CHALLENGE_LABELS.damage } : {}), damage: intent.damage, targetName: intent.targetId ? state.units[intent.targetId]?.name || '' : '' };
 }
 function unitView(state, id, challenge = false) {
     const u = state.units[id];
@@ -122470,11 +123133,13 @@ function battleView(state, legal = [], { challenge = false } = {}) {
         // 行动条：每个存活单位沿线的进度（0 起点、1 出手点），面板按此定位头像；出牌阶段操控角色停在出手点。
         track: Object.entries(actionProgress(state)).map(([id, p]) => ({ id, p, name: state.units[id].name, side: state.units[id].side, controlled: id === state.controlledId })),
     };
-    return challenge ? challengeBattleView(view) : view;
+    return challenge ? challengeBattleView(view, challenge) : view;
 }
 
 // 日常挑战：牌面、技能与道具说明里的战斗词换成日常说法，只改文案字段。
-function challengeBattleView(view) {
+function challengeBattleView(view, challenge = true) {
+    const mechanic = typeof challenge === 'string' ? challenge : null;
+    const challengeWords = (text) => challengeWordsOf(text, mechanic);
     const words = (obj, keys) => Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, keys.includes(key) ? challengeWords(value) : value]));
     return {
         ...view,
@@ -122570,6 +123235,8 @@ function lobbyView(session) {
 function endView(state, events = [], { challenge = false, summary = null } = {}) {
     if (!state?.outcome) return null;
     const allies = state.order.filter((id) => state.units[id].side === 'ally').map((id) => ({ name: state.units[id].name, injury: challenge ? willWords(state.units[id]) : injuryLevel(state.units[id]) }));
+    const intimate = intimateLabelsOf(challenge);
+    if (intimate) return { outcome: state.outcome, label: summary?.ending || { victory: intimate.victory, defeat: intimate.defeat, escape: intimate.escape }[state.outcome] || state.outcome, turn: state.turn, allies, ...(summary ? { challengeOutcome: summary.outcome } : {}) };
     if (challenge) return { outcome: state.outcome, label: CHALLENGE_OUTCOME_LABELS[state.outcome] || state.outcome, turn: state.turn, allies, ...(summary ? { challengeOutcome: summary.outcome, harvest: harvestView(summary) } : {}) };
     const feats = combatFeats(events, state).map((f) => ({ ...f, ...COMBAT_FEAT_LABELS[f.id] }));
     return { outcome: state.outcome, label: COMBAT_OUTCOME_LABELS[state.outcome] || state.outcome, turn: state.turn, allies, ...(feats.length ? { feats } : {}) };
@@ -122578,7 +123245,7 @@ function endView(state, events = [], { challenge = false, summary = null } = {})
 // 圆满后的收获：奖金只写档位词，经验牌给名称与说明；没有收获时为 null。
 function harvestView(summary) {
     if (!summary || (!summary.prize && !summary.card)) return null;
-    return { prize: summary.prize || '', card: summary.card ? { name: summary.card.name, rarity: summary.card.rarity, cost: summary.card.cost, text: challengeWords(describeEffects(summary.card.effects)) } : null };
+    return { prize: summary.prize || '', card: summary.card ? { name: summary.card.name, rarity: summary.card.rarity, cost: summary.card.cost, text: challengeWordsOf(describeEffects(summary.card.effects)) } : null };
 }
 
 // 日常挑战的战前视图：主角与难关各一名，结构与 lobbyView 对齐（面板复用同一套对阵画面）；难关不用敌人图集，只显示名称与难度。
@@ -122590,6 +123257,7 @@ function challengeLobbyView(session) {
     if (!challenge || !hero || !foe) return null;
     return {
         challenge: true, encounter: challenge.event, tier: challenge.tier, tierLabel: challenge.tier, domain: challenge.domain, stake: challenge.stake,
+        ...(challenge.intimate ? { intimate: { mechanic: challenge.intimate.mechanic, position: challenge.intimate.position } } : {}),
         heroId: hero.id,
         allies: [{ id: hero.id, name: hero.name, level: 0, kind: 'deck', className: '', controllable: true, hp: hero.maxHp, maxHp: hero.maxHp },
             ...setup.units.filter((unit) => unit.side === 'ally' && unit.id !== hero.id).map((unit) => ({ id: unit.id, name: unit.name, level: 0, kind: 'deck', className: '', controllable: false }))],
@@ -122873,7 +123541,8 @@ function canAfford(card, energy) {
 function effectsNeedTarget(effects) {
     return (effects || []).some((effect) => effect.target === 'enemy'
         || (effect.op === 'damage' && !effect.target)
-        || (effect.op === 'conditional' && (effect.when?.kind === 'target-has' || effectsNeedTarget(effect.then))));
+        || (effect.op === 'conditional' && (effect.when?.kind === 'target-has' || effectsNeedTarget(effect.then)))
+        || (effect.op === 'random-branch' && (effectsNeedTarget(effect.a) || effectsNeedTarget(effect.b))));
 }
 
 // 效果里是否有需要指定友方目标的部分。
@@ -123364,6 +124033,7 @@ function endBattle(ctx, outcome) {
 function checkOutcome(ctx) {
     const state = ctx.state;
     if (state.outcome) return;
+    if (ctx.holdOutcome) return;
     const lost = state.wipe === true ? !livingIds(state, 'ally').length : !state.units[state.controlledId].alive;
     if (lost) endBattle(ctx, 'defeat');
     else if (!livingIds(state, 'enemy').length && !(state.overkill === true && state.phase === 'player')) endBattle(ctx, 'victory');
@@ -123537,6 +124207,30 @@ function applyEffect(ctx, unit, effect, aimId, source) {
         case 'heal-pct':
             for (const target of targets()) heal(ctx, target, Math.max(1, Math.round((target.maxHp * effect.pct) / 100)), source);
             return;
+        case 'delayed-counter': {
+            const [target] = targets();
+            const lost = dealDamage(ctx, unit, effect.amount, source, 'self', false);
+            if (!target || !unit.alive || state.outcome || lost <= 0) return;
+            const intentSkill = state.intents[target.id]?.skillId;
+            unit.nextTurn.push({ gain: 'counter', amount: lost * effect.mult, targetId: target.id, fizzled: effect.fizzle != null && intentSkill === effect.fizzle });
+            emit(ctx, { type: 'next-turn', unitId: unit.id, gain: 'counter' });
+            return;
+        }
+        case 'mutual-damage': {
+            const foes = targets();
+            ctx.holdOutcome = true;
+            for (const foe of foes) dealDamage(ctx, foe, effect.amount, source, 'mutual', false);
+            dealDamage(ctx, unit, effect.selfAmount ?? effect.amount, source, 'mutual', false);
+            ctx.holdOutcome = false;
+            checkOutcome(ctx);
+            return;
+        }
+        case 'random-branch': {
+            const pick = rollInt(state, 2) === 0 ? 'a' : 'b';
+            emit(ctx, { type: 'random-branch', source, pick });
+            runEffects(ctx, unit, effect[pick], aimId, source);
+            return;
+        }
         case 'damage-from-block':
             if (unit.block > 0) strike(ctx, unit, { op: 'damage', amount: unit.block, target: effect.target || 'enemy' }, aimId, source);
             return;
@@ -123926,6 +124620,11 @@ function startUnitTurn(ctx, unit) {
             emit(ctx, { type: 'energy', unitId: unit.id, amount: gain.amount });
         } else if (gain.gain === 'status') {
             addStatus(ctx, unit, gain.status, gain.stacks, { unitId: unit.id, kind: 'next-turn', id: gain.status });
+        } else if (gain.gain === 'counter') {
+            const foe = state.units[gain.targetId];
+            emit(ctx, { type: 'counter', unitId: unit.id, target: gain.targetId, amount: gain.amount, fizzled: gain.fizzled === true });
+            if (gain.fizzled !== true && foe?.alive) dealDamage(ctx, foe, computeDamage(unit, foe, gain.amount), { unitId: unit.id, kind: 'counter', id: 'counter' }, 'attack', true);
+            if (state.outcome) return;
         }
     }
     fireTrigger(ctx, unit, 'turn-start', null);
@@ -125093,6 +125792,9 @@ function effectText(e, fmt = plainNum, kw = plainWord) {
         case 'conditional': return `${(WHEN[e.when?.kind] || (() => ''))(e.when?.value)}${sub(e.then)}`;
         case 'damage-from-block': return `${on(e.target)}造成等同当前格挡的伤害`;
         case 'self-damage': return `失去 ${e.amount} 点生命`;
+        case 'delayed-counter': return `失去 ${e.amount} 点生命，下回合对目标造成所失生命 ${e.mult} 倍的伤害${e.fizzle ? '；对方观望时落空' : ''}`;
+        case 'mutual-damage': return `对目标造成 ${e.amount} 点伤害，自己同时失去 ${e.selfAmount ?? e.amount} 点生命`;
+        case 'random-branch': return `随机其一：${sub(e.a) || '无效果'}；${sub(e.b) || '无效果'}`;
         case 'double': return `${on(e.target)}${DOUBLE_STAT[e.stat] || e.stat}翻倍`;
         case 'next-turn':
             if (e.gain === 'energy') return `下回合获得 ${e.amount} 点能量`;
@@ -125655,12 +126357,27 @@ const CHALLENGE_SKILL_NAMES = Object.freeze({
 });
 const challengeStatusName = (status) => (Object.hasOwn(CHALLENGE_STATUS_NAMES, status) ? CHALLENGE_STATUS_NAMES[status] : null);
 const challengeSkillName = (templateKey) => (Object.hasOwn(CHALLENGE_SKILL_NAMES, templateKey) ? CHALLENGE_SKILL_NAMES[templateKey] : null);
+const INTIMATE_LABELS = Object.freeze({
+    合拍: Object.freeze({
+        enemy: '对方', hp: '氛围', foeHp: '隔阂', damage: '靠近', block: '稳住', battle: '亲密', energy: '心绪', turn: '回合', escape: '停下', victory: '合拍', defeat: '错拍',
+        statuses: Object.freeze({ weak: '慌乱', vulnerable: '心动', poison: '余温' }),
+        intents: Object.freeze({ attack: '打乱', defend: '紧张', buff: '放松', debuff: '羞涩', heal: '平复', special: '特殊' }),
+    }),
+    主导: Object.freeze({
+        enemy: '对方', hp: '掌控', foeHp: '对方掌控', damage: '进逼', block: '招架', battle: '亲密', energy: '心绪', turn: '回合', escape: '停下', victory: '占上风', defeat: '落下风',
+        statuses: Object.freeze({ weak: '动摇', vulnerable: '破绽', poison: '沉溺' }),
+        intents: Object.freeze({ attack: '反扑', defend: '观望', buff: '蓄势', debuff: '挑衅', heal: '平复', special: '特殊' }),
+    }),
+});
+const intimateLabelsOf = (mechanic) => (Object.hasOwn(INTIMATE_LABELS, mechanic) ? INTIMATE_LABELS[mechanic] : null);
 
 __igsDefine(exports, "CHALLENGE_LABELS", () => CHALLENGE_LABELS);
 __igsDefine(exports, "CHALLENGE_STATUS_NAMES", () => CHALLENGE_STATUS_NAMES);
 __igsDefine(exports, "CHALLENGE_SKILL_NAMES", () => CHALLENGE_SKILL_NAMES);
 __igsDefine(exports, "challengeStatusName", () => challengeStatusName);
 __igsDefine(exports, "challengeSkillName", () => challengeSkillName);
+__igsDefine(exports, "INTIMATE_LABELS", () => INTIMATE_LABELS);
+__igsDefine(exports, "intimateLabelsOf", () => intimateLabelsOf);
 });
 __igsRegister("src/visual/igs-ui/combat-hit-fx-skin-style.js", function(module, exports, require) {
 // 由 gal/战斗界面设计稿/落盘/gen-hit-fx-css.mjs 从设计稿 fx*.css / style-*.css 生成，不要手改：出牌命中光 / 稀有度横幅 / 格挡 / 击倒 / 敌方回合 / 蓄力 / 治疗 / 同伴出手。
@@ -126790,6 +127507,19 @@ const WRAP_CSS = `
 #igs-overlay .igs-sfx-result.land .rs-ui{right:120px;top:560px;width:380px;}
 #igs-combat-panel:not([data-igs-combat-result-in]) .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
 #igs-combat-panel[data-igs-combat-reduced] .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
+/* VS 对撞站位：两边镜像，主战者等大（3:4 框）、头顶同高，同伴在外侧身后、略小压暗；竖屏我方偏上、敌方偏下，按接缝斜向错开 */
+#igs-overlay .igs-sfx .clash .half .fig.lead{left:-24px;right:auto;top:96px;bottom:auto;width:330px;height:440px;}
+#igs-overlay .igs-sfx .clash .half .fig.mate{left:-84px;right:auto;top:40px;bottom:auto;width:250px;height:333px;}
+#igs-overlay .igs-sfx .clash .half .fig.foe1{right:-24px;left:auto;top:308px;bottom:auto;width:330px;height:440px;}
+#igs-overlay .igs-sfx .clash .half .fig.foe2{right:-84px;left:auto;top:252px;bottom:auto;width:250px;height:333px;filter:brightness(.55) saturate(.8);}
+#igs-overlay .igs-sfx .clash .name.h{left:24px;right:auto;top:auto;bottom:196px;}
+#igs-overlay .igs-sfx .clash .name.f{right:24px;left:auto;top:200px;bottom:auto;}
+#igs-overlay .igs-sfx.land .clash .half .fig.lead{left:40px;top:36px;width:510px;height:680px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.mate{left:-120px;top:0;width:400px;height:533px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.foe1{right:40px;top:36px;width:510px;height:680px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.foe2{right:-120px;top:0;width:400px;height:533px;}
+#igs-overlay .igs-sfx.land .clash .name.h{left:110px;bottom:150px;}
+#igs-overlay .igs-sfx.land .clash .name.f{right:110px;top:150px;}
 #igs-overlay .igs-sfx .fig img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:50% 0;}
 #igs-overlay .igs-sfx .fig .igs-combat-art{position:absolute;inset:0;}
 #igs-overlay .igs-sfx .fig-sil{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;color:var(--text,#fff);opacity:.14;}
@@ -127876,7 +128606,6 @@ ${P('dark-b')} .clash .half{animation:none;}
 ${P('dark-b')} .clash.out .half{animation:sfxp-gone ${T('200ms')} both;}
 ${P('dark-b')} .clash .hero-side{background:linear-gradient(180deg,#0e1516,#050707 75%);}
 ${P('dark-b')} .clash .foe-side{background:linear-gradient(180deg,#0c1213,#040606 75%);}
-${P('dark-b')} .clash .fig.lead{left:-128px;}
 ${P('dark-b')} .clash .fig:is(.lead,.foe1){filter:saturate(.7) contrast(1.05);}
 ${P('dark-b')} .clash.hit .half .fig:is(.lead,.foe1){animation:sfxp-db-expose ${T('380ms')} ease-out 1;}
 @keyframes sfxp-db-expose{0%{filter:saturate(.2) brightness(1.9) contrast(.9);}100%{filter:saturate(.7) contrast(1.05);}}
@@ -129397,7 +130126,7 @@ ${SP} .igs-combat-dock .igs-combat-controls:has(>.igs-combat-awaken) .igs-combat
 ${SP} .igs-combat-dock .igs-combat-ctl{width:44px;height:28px;}
 ${SP} .igs-combat-turn{display:contents;}
 ${SP} .igs-combat-turn-btns{display:flex;align-items:center;gap:8px;}
-${SP} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="cancel"]){order:-1;}
+${SP} .igs-combat-turn-btns>:is([data-combat-act="escape"],[data-combat-act="stop"],[data-combat-act="cancel"]){order:-1;}
 ${SP} .igs-combat-piles{gap:0;font-size:12px;}
 ${SP} .igs-combat-piles>span+span::before{content:"·";margin:0 6px;}
 ${SP} .igs-combat-piles b{margin-left:4px;}`;
@@ -136291,6 +137020,329 @@ const COMBAT_SKIN_DARK_B_CONCEPT_CSS = `
 
 __igsDefine(exports, "COMBAT_SKIN_DARK_B_CONCEPT_CSS", () => COMBAT_SKIN_DARK_B_CONCEPT_CSS);
 });
+__igsRegister("src/visual/igs-ui/intimate-duel-style.js", function(module, exports, require) {
+const O = '#igs-overlay[data-igs-duel]';
+const R = `${O} #igs-combat-panel`;
+const S = `${O} #igs-sprite`;
+const INTIMATE_DUEL_STYLE_TEXT = `
+${R}{inset:0 0 0 auto;width:58%;}
+${R}{background:var(--igs-cb-duel-ground,#121212);}
+${R} .igs-duel-result{justify-content:center;gap:18px;padding:0 0 6px;}
+${R} .igs-duel-result .igs-combat-actions{margin:0;flex:0 0 auto;}
+${S}{left:21%;width:38%;}
+@media(max-width:720px),(max-aspect-ratio:1/1){
+${R}{inset:auto 0 0 0;width:auto;height:62%;}
+${S}{left:50%;top:0;bottom:auto;width:70%;height:36%;background-position:50% 0;}
+}
+${O}[data-igs-log-reader] #igs-combat-panel{inset:auto 0 0 0;width:auto;height:62%;}
+${O}[data-igs-log-reader] #igs-sprite{left:50%;top:0;bottom:auto;width:70%;height:36%;background-position:50% 0;}
+`;
+
+__igsDefine(exports, "INTIMATE_DUEL_STYLE_TEXT", () => INTIMATE_DUEL_STYLE_TEXT);
+});
+__igsRegister("src/visual/igs-ui/intimate-duel-fx.js", function(module, exports, require) {
+const { PHASE_TEMPO, SWAY_AMPLITUDE, nextBeat, swayAt } = require("src/visual/igs-ui/romance-intimate.js");
+const { createIntimateVoice } = require("src/visual/igs-ui/romance-intimate-audio.js");
+const { intimateCreakWindow, intimateHeartBpm, isWhisperCard } = require("src/scene/intimate-duel.js");
+const SLOW_TEMPO = Object.freeze({ ...PHASE_TEMPO.rise, bpm: 44, velocity: Object.freeze([0.35, 0.55]) });
+const SWAY = Object.freeze({ x: SWAY_AMPLITUDE.weak.x * 0.7, y: SWAY_AMPLITUDE.weak.y * 0.7, r: SWAY_AMPLITUDE.weak.r * 0.7, shake: 0 });
+const CREAK_VOLUME = 0.35;
+const DIM_MS = 520;
+const INTIMATE_DUEL_FX_STYLE_TEXT = `
+@keyframes igs-duel-beat{0%,100%{outline-color:transparent;}8%,22%{outline-color:var(--igs-cb-duel-accent,#c8506e);}}
+#igs-combat-panel[data-igs-duel-beat] :is(.igs-combat-card,.cx-card){outline:2px solid transparent;outline-offset:-2px;animation:igs-duel-beat var(--igs-duel-beat,0.9s) ease-out infinite;}
+#igs-combat-panel[data-igs-combat-reduced] :is(.igs-combat-card,.cx-card){animation:none;}
+.igs-duel-dim{position:absolute;inset:0;z-index:5;background:var(--igs-cb-duel-ground,#121212);opacity:0;pointer-events:none;animation:igs-duel-dim ${DIM_MS}ms ease-in-out both;}
+@keyframes igs-duel-dim{0%{opacity:0;}45%{opacity:.5;}100%{opacity:0;}}
+.igs-duel-result{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;flex:1;min-height:0;background:var(--igs-cb-duel-ground,#121212);animation:igs-duel-fade 900ms ease-out both;}
+.igs-duel-result-line{margin:0;padding:0 24px;color:var(--igs-cb-duel-ink,#d8d8d8);font-size:14px;letter-spacing:.14em;line-height:1.9;text-align:center;}
+@keyframes igs-duel-fade{0%{opacity:0;}100%{opacity:1;}}
+#igs-overlay[data-igs-duel] #igs-sprite{translate:var(--igs-duel-sway-x,0) var(--igs-duel-sway-y,0);rotate:var(--igs-duel-sway-r,0deg);}
+`;
+function createIntimateDuelFx({ doc, getRoot, getOverlay, sfx, getRhythmSound = () => true, reduced = () => false, now = () => Date.now(), setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (id) => clearTimeout(id) } = {}) {
+    let lastBpm = 0;
+    let creaking = false;
+    let timer = null;
+    let beat = null;
+    let gap = 1;
+    let voice = null;
+
+    const root = () => getRoot?.() || null;
+    const stageEl = () => getOverlay?.() || null;
+
+    function setBeat(bpm) {
+        const el = root();
+        if (!el) return;
+        if (reduced() || !(bpm > 0)) {
+            el.removeAttribute?.('data-igs-duel-beat');
+            return;
+        }
+        if (bpm !== lastBpm) el.style?.setProperty?.('--igs-duel-beat', `${(60 / bpm).toFixed(3)}s`);
+        el.setAttribute?.('data-igs-duel-beat', '');
+        lastBpm = bpm;
+    }
+
+    function swayVars(x, y, r) {
+        const overlay = stageEl();
+        if (!overlay) return;
+        const set = (name, value) => (value === null ? overlay.style?.removeProperty?.(name) : overlay.style?.setProperty?.(name, value));
+        set('--igs-duel-sway-x', x === null ? null : `${x}px`);
+        set('--igs-duel-sway-y', y === null ? null : `${y}px`);
+        set('--igs-duel-sway-r', r === null ? null : `${r}deg`);
+    }
+
+    function tick() {
+        const t = now() / 1000;
+        if (!beat) {
+            beat = { t, index: 0, bpm: 0, velocity: 0.4 };
+            beat = nextBeat(beat, SLOW_TEMPO, Math.random);
+            gap = Math.max(0.2, beat.t - t);
+        }
+        while (t >= beat.t) {
+            const prev = beat;
+            beat = nextBeat(prev, SLOW_TEMPO, Math.random);
+            gap = Math.max(0.2, beat.t - prev.t);
+            creakOnce(prev);
+        }
+        if (reduced()) return;
+        const offset = swayAt({ ...beat, t: beat.t - gap }, gap, t, SWAY);
+        swayVars(offset.x, offset.y, offset.r);
+    }
+
+    function creakOnce(at) {
+        if (!getRhythmSound()) return;
+        if (!voice) voice = createIntimateVoice(CREAK_VOLUME);
+        const ctx = voice?.ctx;
+        if (!ctx) return;
+        voice.creak(ctx.currentTime + 0.02, { material: 'wood', velocity: Math.min(0.5, at.velocity * 0.6), down: true, duration: 0.45 });
+    }
+
+    function startCreak() {
+        if (creaking) return;
+        creaking = true;
+        beat = null;
+        timer = setTimer(function loop() {
+            if (!creaking) return;
+            tick();
+            timer = setTimer(loop, 50);
+        }, 50);
+    }
+
+    function stopCreak() {
+        if (!creaking) return;
+        creaking = false;
+        if (timer !== null) clearTimer(timer);
+        timer = null;
+        beat = null;
+        swayVars(null, null, null);
+        try { voice?.dispose?.(); } catch { /* 已释放 */ }
+        voice = null;
+    }
+
+    function sync({ ratio = 1, turn = 1, rounds = 0, ended = false } = {}) {
+        if (ended) {
+            stopCreak();
+            setBeat(0);
+            return;
+        }
+        setBeat(intimateHeartBpm(ratio));
+        if (intimateCreakWindow(turn, rounds)) startCreak(); else stopCreak();
+    }
+
+    function onPlay(cardName) {
+        if (!isWhisperCard(cardName)) return;
+        sfx?.('range-whisper');
+        const el = root();
+        if (!el || reduced() || typeof doc?.createElement !== 'function') return;
+        const dim = doc.createElement('div');
+        dim.className = 'igs-duel-dim';
+        el.appendChild(dim);
+        setTimer(() => dim.remove?.(), DIM_MS + 50);
+    }
+
+    function stop() {
+        stopCreak();
+        setBeat(0);
+        lastBpm = 0;
+    }
+
+    return { sync, onPlay, stop };
+}
+
+__igsDefine(exports, "createIntimateDuelFx", () => createIntimateDuelFx);
+__igsDefine(exports, "INTIMATE_DUEL_FX_STYLE_TEXT", () => INTIMATE_DUEL_FX_STYLE_TEXT);
+});
+__igsRegister("src/visual/igs-ui/romance-intimate.js", function(module, exports, require) {
+// 亲密声画的纯逻辑：情事阶段、床的材质、节拍生成、晃动与心跳脉动曲线。只做氛围，不渲染任何画面。
+const INTIMATE_PHASES = Object.freeze(['rise', 'steady', 'climax', 'after']);
+
+// 节拍：bpm 为目标速度，jitter 为逐拍时间偏差，skip / double 为漏一拍、连两下的概率，velocity 为力度区间。
+const PHASE_TEMPO = Object.freeze({
+    rise: Object.freeze({ bpm: 50, jitter: 0.12, skip: 0.08, double: 0, velocity: Object.freeze([0.45, 0.75]) }),
+    steady: Object.freeze({ bpm: 68, jitter: 0.07, skip: 0.04, double: 0.05, velocity: Object.freeze([0.65, 0.95]) }),
+    climax: Object.freeze({ bpm: 90, jitter: 0.04, skip: 0, double: 0.03, velocity: Object.freeze([0.8, 1]) }),
+});
+// 独处：没有床的往返，只有被褥摩擦；更慢、更不规律（常漏拍），顶点封顶也更低。
+const SOLO_TEMPO = Object.freeze({
+    rise: Object.freeze({ bpm: 40, jitter: 0.25, skip: 0.2, double: 0, velocity: Object.freeze([0.35, 0.6]) }),
+    steady: Object.freeze({ bpm: 54, jitter: 0.2, skip: 0.12, double: 0.04, velocity: Object.freeze([0.5, 0.8]) }),
+    climax: Object.freeze({ bpm: 72, jitter: 0.12, skip: 0.04, double: 0.02, velocity: Object.freeze([0.65, 0.9]), max: 92 }),
+});
+// 越往后越快：中段按在情事段里的进度再提速，停在同一页上也缓慢加快；顶点页按停留时间持续加速，晃动随之放大。
+const STEADY_SPAN_BONUS = 10;
+const STEADY_TIME_BPM = 0.3;
+const STEADY_TIME_MAX = 6;
+const CLIMAX_TIME_BPM = 1;
+const CLIMAX_MAX_BPM = 112;
+const CLIMAX_SWELL_RATE = 0.015;
+const CLIMAX_SWELL_MAX = 0.3;
+
+// elapsed 为进入当前阶段后经过的秒数；返回带实时目标速度与晃动放大倍数 swell 的节拍参数。
+function resolveIntimateTempo(phase, span, elapsed = 0, table = PHASE_TEMPO) {
+    const base = table[phase];
+    if (!base) return null;
+    const time = Math.max(0, Number(elapsed) || 0);
+    let bpm = base.bpm;
+    let swell = 1;
+    if (phase === 'steady') {
+        const progress = span && span.length > 1 ? Math.min(1, span.index / (span.length - 1)) : 0;
+        bpm += STEADY_SPAN_BONUS * progress + Math.min(STEADY_TIME_MAX, time * STEADY_TIME_BPM);
+    } else if (phase === 'climax') {
+        bpm = Math.min(base.max || CLIMAX_MAX_BPM, bpm + time * CLIMAX_TIME_BPM);
+        swell = 1 + Math.min(CLIMAX_SWELL_MAX, time * CLIMAX_SWELL_RATE);
+    }
+    return { ...base, bpm: Number(bpm.toFixed(2)), swell: Number(swell.toFixed(3)) };
+}
+
+// 每拍向目标速度靠拢的比例：换页后几拍内平滑加减速，不跳变。
+const TEMPO_FOLLOW = 0.12;
+const MIN_GAP_S = 0.22;
+
+// 心率与呼吸周期（秒）；2 为亲密档，其余为情事各阶段。
+const HEART_BPM = Object.freeze({ 2: 66, rise: 74, steady: 84, climax: 100, after: 64 });
+const BREATH_PERIOD = Object.freeze({ 2: 5.6, rise: 4.8, steady: 4, climax: 3.2, after: 6.4 });
+// 世界安静下来：场景 BGM 与环境声的压低比例。
+const DUCK_BY_LEVEL = Object.freeze({ 1: 0.75, 2: 0.55, 3: 0.4 });
+
+// 晃动幅度：y 为下压像素，x 为左右像素，r 为摆动角度；背景按 BG_SWAY 缩小，做出纵深。
+const SWAY_AMPLITUDE = Object.freeze({
+    weak: Object.freeze({ x: 0.6, y: 2.5, r: 0.08, shake: 0 }),
+    medium: Object.freeze({ x: 1.4, y: 5, r: 0.25, shake: 0 }),
+    strong: Object.freeze({ x: 2.2, y: 7, r: 0.45, shake: 1.6 }),
+});
+// 独处不晃床，只留很轻的颤：几乎不左右摆，抖动比下压明显。按晃动档位缩放。
+const SOLO_SWAY = Object.freeze({ x: 0.25, y: 1, r: 0.03, shake: 0.7 });
+const SOLO_SWAY_SCALE = Object.freeze({ weak: 0.6, medium: 1, strong: 1.4 });
+const BG_SWAY = 0.45;
+const CAST_SWAY = 0.8;
+
+const MATERIAL_WORDS = Object.freeze([
+    ['metal', ['铁床', '病床', '医院', '病房', '医务室', '保健室', '监狱', '牢房', '囚室', '铁架']],
+    ['leather', ['车内', '车里', '车上', '车厢', '轿车', '汽车', '驾驶', '后座']],
+    ['sofa', ['沙发', '客厅', '休息室', '会客']],
+    ['futon', ['榻榻米', '和室', '被褥', '地铺', '旅馆', '温泉', '浴室', '浴缸', '野外', '草地', '森林', '帐篷', '地板']],
+]);
+const INTIMATE_MATERIALS = Object.freeze(['wood', ...MATERIAL_WORDS.map(([kind]) => kind)]);
+
+// 按地点选床的材质；认不出来时是木床。
+function resolveIntimateMaterial(location) {
+    const text = String(location || '');
+    if (!text) return 'wood';
+    const hit = MATERIAL_WORDS.find(([, words]) => words.some((word) => text.includes(word)));
+    return hit ? hit[0] : 'wood';
+}
+
+// 情事阶段来自 NSFW 连续段位置（romance-settings.resolveNsfwSpan）：
+// 段在本楼层内结束时，最后 2 页为余韵、再往前 1 页为顶点；开头 2 页（非延续）为升温。短段不硬拆顶点与余韵。
+function resolveIntimatePhase(span) {
+    if (!span) return 'steady';
+    const fromEnd = span.length - 1 - span.index;
+    if (span.endsInFloor && span.length >= 3 && fromEnd <= 1) return 'after';
+    if (span.endsInFloor && span.length >= 4 && fromEnd === 2) return 'climax';
+    if (!span.continued && span.index < 2) return 'rise';
+    return 'steady';
+}
+
+function between([min, max], rng) {
+    return min + (max - min) * rng();
+}
+
+// 下一拍：prev 为 { t, index, bpm }，t 以秒计；返回的 gap 是到下一拍的预计间隔，供晃动曲线归一化。
+function nextBeat(prev, tempo, rng = Math.random) {
+    const bpm = prev.bpm > 0 ? prev.bpm + (tempo.bpm - prev.bpm) * TEMPO_FOLLOW : tempo.bpm * 0.8;
+    let gap = (60 / bpm) * (1 + (rng() * 2 - 1) * tempo.jitter);
+    const roll = rng();
+    if (roll < tempo.double) gap *= 0.5;
+    else if (roll < tempo.double + tempo.skip) gap *= 2;
+    gap = Math.max(MIN_GAP_S, gap);
+    return {
+        t: prev.t + gap,
+        index: prev.index + 1,
+        bpm,
+        velocity: between(tempo.velocity, rng),
+        swell: tempo.swell || 1,
+        jx: rng() * 2 - 1,
+        jy: rng() * 2 - 1,
+    };
+}
+
+// 一拍内的下压曲线（0..1）：前 28% 快速压下，其余时间缓缓回弹。
+function beatPush(phase) {
+    const p = Math.min(1, Math.max(0, phase));
+    if (p < 0.28) return Math.sin((p / 0.28) * Math.PI / 2);
+    return 0.5 * (1 + Math.cos(Math.PI * (p - 0.28) / 0.72));
+}
+
+// beat 为最近一次已到点的节拍，gap 为它到下一拍的间隔；返回舞台位移 { x, y, r }（像素 / 度）。
+// 左右与摆动逐拍换向；强档叠加随拍衰减的随机抖动。fade 用于停下时平滑归零。
+function swayAt(beat, gap, now, amplitude, fade = 1) {
+    if (!beat || !amplitude || !(gap > 0)) return { x: 0, y: 0, r: 0 };
+    const dt = Math.max(0, now - beat.t);
+    const push = beatPush(dt / gap) * beat.velocity * (beat.swell || 1) * fade;
+    const side = beat.index % 2 ? 1 : -1;
+    const shake = amplitude.shake ? amplitude.shake * Math.exp(-dt * 7) * (beat.swell || 1) * fade : 0;
+    return {
+        x: round(amplitude.x * push * side + shake * beat.jx),
+        y: round(amplitude.y * push + shake * beat.jy),
+        r: round(amplitude.r * push * side, 3),
+    };
+}
+
+// 心跳两下（咚、咚）：第二下更轻，间隔随心率收窄。dt 为距本次心跳的秒数。
+function heartGap(bpm) {
+    return Math.min(0.26, (0.32 * 60) / Math.max(40, bpm));
+}
+function heartPulse(dt, bpm) {
+    if (!(dt >= 0)) return 0;
+    const bump = (x) => Math.exp(-((x / 0.07) ** 2));
+    return round(Math.min(1, bump(dt) + 0.6 * bump(dt - heartGap(bpm))), 3);
+}
+
+function round(value, digits = 2) {
+    return Number(value.toFixed(digits));
+}
+
+__igsDefine(exports, "resolveIntimateTempo", () => resolveIntimateTempo);
+__igsDefine(exports, "resolveIntimateMaterial", () => resolveIntimateMaterial);
+__igsDefine(exports, "resolveIntimatePhase", () => resolveIntimatePhase);
+__igsDefine(exports, "nextBeat", () => nextBeat);
+__igsDefine(exports, "beatPush", () => beatPush);
+__igsDefine(exports, "swayAt", () => swayAt);
+__igsDefine(exports, "heartGap", () => heartGap);
+__igsDefine(exports, "heartPulse", () => heartPulse);
+__igsDefine(exports, "INTIMATE_PHASES", () => INTIMATE_PHASES);
+__igsDefine(exports, "PHASE_TEMPO", () => PHASE_TEMPO);
+__igsDefine(exports, "SOLO_TEMPO", () => SOLO_TEMPO);
+__igsDefine(exports, "HEART_BPM", () => HEART_BPM);
+__igsDefine(exports, "BREATH_PERIOD", () => BREATH_PERIOD);
+__igsDefine(exports, "DUCK_BY_LEVEL", () => DUCK_BY_LEVEL);
+__igsDefine(exports, "SWAY_AMPLITUDE", () => SWAY_AMPLITUDE);
+__igsDefine(exports, "SOLO_SWAY", () => SOLO_SWAY);
+__igsDefine(exports, "SOLO_SWAY_SCALE", () => SOLO_SWAY_SCALE);
+__igsDefine(exports, "BG_SWAY", () => BG_SWAY);
+__igsDefine(exports, "CAST_SWAY", () => CAST_SWAY);
+__igsDefine(exports, "INTIMATE_MATERIALS", () => INTIMATE_MATERIALS);
+});
 __igsRegister("src/visual/igs-ui/combat-entry-skin-style.js", function(module, exports, require) {
 // 开战入口卡、日常挑战入口、准备中、阻断提示、战前对阵、入场白闪随当前战斗皮肤取色取形。
 // 入口卡在阅读器层（#igs-combat-entry，data-combat-skin），其余在面板根（data-igs-combat-skin），共用同一组变量；
@@ -136317,7 +137369,7 @@ const SKINS = Object.freeze({
 const CANVAS = Object.keys(SKINS).filter((k) => k !== 'initial' && k !== 'veil');
 
 const vars = (s) => `--ce-bg:${s.bg};--ce-bg2:${s.bg2};--ce-ink:${s.ink};--ce-sub:${s.sub};--ce-acc:${s.acc};--ce-on:${s.on};--ce-font:${s.font};--ce-r:${s.r};--ce-br:${s.br};--ce-border:${s.border || '0'};--ce-clip:${s.clip || 'none'};--ce-pop:${s.pop || 'none'};--ce-flash:${s.flash};`;
-const VAR_RULES = Object.entries(SKINS).map(([k, s]) => `#igs-combat-entry[data-combat-skin="${k}"],#igs-combat-resume[data-combat-skin="${k}"],#igs-combat-panel[data-igs-combat-skin="${k}"]{${vars(s)}}`).join('\n');
+const VAR_RULES = Object.entries(SKINS).map(([k, s]) => `#igs-combat-entry[data-combat-skin="${k}"],#igs-combat-resume[data-combat-skin="${k}"],#igs-combat-launch[data-combat-skin="${k}"],#igs-combat-panel[data-igs-combat-skin="${k}"]{${vars(s)}}`).join('\n');
 
 
 // 定格画面按钮：按各皮肤战斗画面里「结束回合」键的造型语言做（形状、边角、字体、质感、按下态）；主按钮大、次级按钮小，均为实色。
@@ -136384,7 +137436,8 @@ const E = '#igs-combat-entry';
 const LS = `${P}:is(${CANVAS.map((k) => `[data-igs-combat-skin="${k}"]`).join(',')})`;
 // 入口卡：初始方案保留原有化开黑带，其余皮肤改实底卡片。
 const R = '#igs-combat-resume';
-const ES = `:is(${E},${R})[data-combat-skin]:not([data-combat-skin="initial"])`;
+const L = '#igs-combat-launch';
+const ES = `:is(${E},${R},${L})[data-combat-skin]:not([data-combat-skin="initial"])`;
 const COMBAT_ENTRY_SKIN_STYLE_TEXT = `
 ${VAR_RULES}
 /* 「返回战斗 / 返回挑战」小标签 */
@@ -136411,6 +137464,17 @@ ${ES} .igs-combat-entry-btn:focus-visible{outline-color:var(--ce-acc);}
 #igs-overlay ${R} .igs-combat-entry-return{min-height:40px;padding:10px 26px;font-size:15px;justify-content:center;align-items:center;}
 #igs-overlay ${R}[data-combat-skin="initial"] .igs-combat-entry-btn{background:var(--ce-bg);text-shadow:none;border-radius:var(--ce-r);}
 #igs-overlay ${R}[data-combat-skin="comic"] .igs-combat-entry-btn{border:2px solid #f4f2ec;box-shadow:2px 2px 0 #f2c45a;}
+/* 亲密对决「发起」：宽屏落在画面左侧对话框上沿之上，窄屏阅读贴在底部输入框上方靠左，log 列表底边让出位置；点击区不小于 44px */
+${L}{position:absolute;left:16px;bottom:calc(24px + var(--igs-dialog-h,160px) + var(--igs-toolbar-h,50px) + 12px);z-index:7;max-width:calc(100% - 32px);pointer-events:auto;}
+#igs-overlay.igs-toolbar-top ${L}{bottom:calc(24px + var(--igs-dialog-h,160px) + 12px);}
+#igs-overlay.igs-floating ${L}{bottom:calc(14px + var(--igs-dialog-h,160px) + var(--igs-toolbar-h,50px) + 10px);}
+#igs-overlay.igs-floating.igs-toolbar-top ${L}{bottom:calc(14px + var(--igs-dialog-h,160px) + 10px);}
+#igs-overlay[data-igs-comic] ${L}{bottom:calc(18px + var(--igs-comic-controls-h,56px) + 12px)!important;}
+#igs-overlay[data-igs-log-reader="on"] ${L}{left:var(--igs-log-edge)!important;bottom:calc(var(--igs-log-foot) + 10px)!important;}
+#igs-overlay[data-igs-log-reader="on"]:has(${L}) #igs-log .igs-log-scroll{bottom:calc(var(--igs-log-foot) + 60px);}
+#igs-overlay:is(.igs-record-screen-open,.igs-turn-index-open,[data-igs-combat-open],[data-igs-cg-only="1"],:has(.igs-live-phone)) ${L}{display:none;}
+#igs-overlay ${L} .igs-combat-entry-return{min-height:44px;min-width:44px;padding:10px 26px;font-size:15px;justify-content:center;align-items:center;border:0;background:var(--ce-bg,#1c1c1e);color:var(--ce-ink,#f4f1f6);}
+${L} .igs-combat-entry-btn:active{transform:translateY(2px);}
 /* 准备中：三点跳动 + 文字 + 取消；阻断提示沿用同一组变量 */
 ${P} .igs-combat-loading{display:flex;flex-direction:column;align-items:center;gap:14px;margin:28px 0 0;}
 ${P} .igs-combat-loading-dots{display:flex;gap:8px;}
@@ -136457,102 +137521,142 @@ ${P} .igs-combat-intro-actions .igs-combat-label{color:var(--ce-ink);}
 __igsDefine(exports, "COMBAT_ENTRY_SKIN_STYLE_TEXT", () => COMBAT_ENTRY_SKIN_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/combat-deck-panel-style.js", function(module, exports, require) {
-const { IGS_UI_BLUR, IGS_UI_NIGHT_RGB, IGS_UI_THICKNESS, igsUiSurface } = require("src/styles/ui-material.js");
+const { IGS_UI_NIGHT_RGB } = require("src/styles/ui-material.js");
+const { RECORD_PAGE_SHELL_STYLE_TEXT } = require("src/visual/igs-ui/record-page-shell-style.js");
+const { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } = require("src/visual/igs-ui/settings-theme.js");
 const { COMBAT_UI_VARS, combatRarityStyle } = require("src/visual/igs-ui/combat-panel-style.js");
-// 人物状态面板：与资料页同一外壳材质（霜夜厚层 + 颗粒 + 全屏模糊一层），扁平、无描边；宽屏左右两栏，窄屏上下排布；详情按页签分五页。
+// 人物状态面板：与日记、目录同一外壳（毛玻璃底、水纹、四套配色、页头、色板），只换选择器；地图页那半不要。
+// 版式照日记页：左侧人物名单（圆形首字头像），右侧详情卡片；页签用分段按钮，列表行无描边、按稀有度在左侧标一道实色细条。
 const P = '#igs-combat-deck-panel';
-const N = IGS_UI_NIGHT_RGB;
+const SHELL_STYLE_TEXT = RECORD_PAGE_SHELL_STYLE_TEXT
+    .replace(/#igs-map-panel[^,{]*,?/g, '')
+    .replace(/,\s*{/g, '{')
+    .replaceAll('#igs-record-panel', P);
+// 每套配色的警示色取自设置器色板；浅色两套把稀有度色换成深一档，避免浅底上看不清。
+const LIGHT_RARITY = Object.freeze({ common: '#8a8178', uncommon: '#3f7fa6', rare: '#7259c4', epic: '#a8741f', mythic: '#c0413f', personal: '#9a55b0', signature: '#c8582c' });
+const THEME_EXTRA = SETTINGS_THEME_OPTIONS.map((option) => {
+    const palette = getSettingsThemePalette(option.value);
+    const sel = `${P}[data-rp-theme="${option.value}"]`;
+    const rarity = palette.scheme === 'light'
+        ? Object.entries(LIGHT_RARITY).map(([key, color]) => `${sel} [data-rarity="${key}"]{--rar:${color};}`).join('')
+        : '';
+    return `${sel}{--igs-deck-danger:${palette.tokens.danger};}${rarity}`;
+}).join('\n');
 const COMBAT_DECK_PANEL_STYLE_TEXT = `
-${P}{${COMBAT_UI_VARS}position:absolute;inset:0;z-index:12;display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;pointer-events:auto;background:radial-gradient(120% 90% at 0% 0%,rgba(255,255,255,.08),rgba(255,255,255,0) 70%),${igsUiSurface(IGS_UI_THICKNESS.thick)};-webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};color:var(--igs-cb-ink);font-family:var(--igs-cb-font);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){${P}{background:rgba(${N},.96);}}
-@media (prefers-reduced-transparency:reduce){${P}{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(${N},.97);}}
-${P} .igs-deck-body{display:flex;flex-direction:column;flex:1;min-height:0;}
-${P} .igs-deck-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:52px;padding:6px 10px 2px 18px;}
-${P} .igs-deck-title{font-size:16px;font-weight:600;letter-spacing:.2em;}
-${P} .igs-deck-icon-btn{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:var(--igs-cb-r-m);background:transparent;color:var(--igs-cb-ink-soft);cursor:pointer;transition:background .18s var(--igs-cb-ease),color .18s var(--igs-cb-ease);}
-${P} .igs-deck-icon-btn:hover{background:var(--igs-cb-fill-hover);color:var(--igs-cb-ink);}
-${P} .igs-deck-icon-btn svg{width:18px;height:18px;stroke-width:1.6;}
-${P} .igs-deck-notice{margin:0 16px 8px;padding:8px 12px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);color:#f2b8b5;font-size:13px;line-height:1.6;}
-${P} .igs-deck-main{display:flex;flex-direction:column;flex:1;min-height:0;gap:12px;padding:0 16px 14px;overflow:auto;scrollbar-width:none;}
-${P} .igs-deck-main::-webkit-scrollbar{display:none;}
-${P} .igs-generation-form{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);min-width:0;}
-${P} .igs-generation-form p{font-size:12px;color:var(--igs-cb-ink-soft);margin:4px 0;}
-${P} .igs-generation-form textarea,${P} .igs-generation-form select{display:block;box-sizing:border-box;width:100%;padding:9px;margin:5px 0;background:var(--igs-cb-fill);color:inherit;border:0;border-radius:var(--igs-cb-r-m);font:inherit;resize:vertical;}
-${P} .igs-generation-form pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;scrollbar-width:none;font-size:12px;}
-${P} .igs-generation-check{display:flex;align-items:flex-start;gap:8px;margin:8px 0;overflow-wrap:anywhere;}
-${P} .igs-generation-check input{flex:none;margin-top:4px;}
-${P} .igs-generation-form pre::-webkit-scrollbar{display:none;}
-${P} .igs-generation-form :is(textarea,select):focus-visible{outline:1px solid var(--igs-cb-warm);outline-offset:2px;}
-${P} .igs-generation-form summary{cursor:pointer;overflow-wrap:anywhere;}
-${P} .igs-deck-state{margin:24px 0 0;color:var(--igs-cb-ink-soft);letter-spacing:.06em;text-align:center;}
-${P} .igs-deck-layout{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:16px;flex:1;min-height:0;}
-${P} .igs-deck-roster{display:flex;flex-direction:column;gap:2px;overflow:auto;scrollbar-width:none;}
-${P} .igs-deck-roster .igs-deck-btn{justify-content:flex-start;min-height:40px;background:transparent;text-align:left;}
-${P} .igs-deck-roster .igs-deck-btn:hover{background:var(--igs-cb-fill-hover);}
-${P} .igs-deck-roster .igs-deck-btn[aria-pressed="true"]{background:var(--igs-cb-fill-active);color:var(--igs-cb-ink);font-weight:600;}
-${P} .igs-deck-detail,${P} .igs-deck-pending,${P} .igs-deck-generate,${P} .igs-deck-build{display:flex;flex-direction:column;gap:10px;min-width:0;}
-${P} .igs-deck-pending{padding:10px 12px;border-radius:var(--igs-cb-r-l);background:var(--igs-cb-fill);}
-${P} .igs-deck-row,${P} .igs-deck-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+${SHELL_STYLE_TEXT}
+${P}{${COMBAT_UI_VARS}position:absolute;inset:0;z-index:12;display:block;box-sizing:border-box;overflow:hidden;pointer-events:auto;background:transparent;color:var(--igs-rp-text);font-family:var(--igs-rp-font-ui);font-size:14px;line-height:1.5;--igs-deck-danger:#d96c6c;}
+${THEME_EXTRA}
+/* 战斗共用变量（揭晓舞台、生成表单）改读当前配色，浅色两套里文字与底色跟着变。 */
+${P}{--igs-cb-ink:var(--igs-rp-text);--igs-cb-ink-soft:var(--igs-rp-text-soft);--igs-cb-ink-faint:var(--igs-rp-text-faint);--igs-cb-fill:var(--igs-rp-fill);--igs-cb-fill-hover:var(--igs-rp-fill-hover);--igs-cb-fill-active:var(--igs-rp-fill-active);--igs-cb-on-ink:var(--igs-rp-on-ink);--igs-cb-warm:var(--igs-rp-accent);--igs-cb-font:var(--igs-rp-font-ui);}
+${P} button{color:inherit;cursor:pointer;font-family:inherit;}
+${P} .igs-deck-main{flex:1 1 auto;min-width:0;min-height:0;width:100%;overflow:auto;padding:8px clamp(18px,4vw,56px) 28px;overscroll-behavior:contain;box-sizing:border-box;}
+${P} .igs-deck-notice{color:var(--igs-deck-danger);}
+${P} .igs-deck-state{margin:48px 0 0;color:var(--igs-rp-text-faint);letter-spacing:.08em;text-align:center;}
+${P} .igs-deck-layout{display:grid;grid-template-columns:minmax(220px,26%) minmax(0,1fr);gap:clamp(20px,3vw,40px);align-items:start;}
+${P} .igs-deck-side{position:sticky;top:0;min-width:0;}
+${P} .igs-deck-roster{display:flex;flex-direction:column;gap:2px;}
+${P} .igs-deck-person{display:flex;align-items:center;gap:12px;width:100%;padding:8px 10px;border:0;border-radius:var(--igs-rp-radius-l);background:transparent;text-align:left;transition:background .18s var(--igs-rp-ease);}
+${P} .igs-deck-person:hover{background:var(--igs-rp-fill);}
+${P} .igs-deck-person[aria-pressed="true"]{background:var(--igs-rp-fill-active);}
+${P} .igs-deck-avatar{display:grid;place-items:center;flex:none;width:36px;height:36px;box-sizing:border-box;border-radius:50%;box-shadow:inset 0 0 0 1px var(--igs-rp-text-ghost);color:var(--igs-rp-text-soft);font-size:15px;font-weight:500;line-height:1;}
+${P} .igs-deck-person[aria-pressed="true"] .igs-deck-avatar{box-shadow:inset 0 0 0 1.5px var(--igs-rp-accent);color:var(--igs-rp-accent);}
+${P} .igs-deck-avatar.is-large{width:52px;height:52px;font-size:21px;box-shadow:inset 0 0 0 1.5px var(--igs-rp-accent);color:var(--igs-rp-accent);}
+${P} .igs-deck-person-meta{display:flex;flex-direction:column;min-width:0;}
+${P} .igs-deck-person-meta>span{font-size:14px;font-weight:500;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+${P} .igs-deck-person-meta>small{color:var(--igs-rp-text-faint);font-size:11px;line-height:1.4;font-variant-numeric:tabular-nums;white-space:nowrap;}
+/* 详情卡片：日记阅读卡同一底色与阴影。 */
+${P} .igs-deck-detail{display:flex;flex-direction:column;gap:16px;min-width:0;box-sizing:border-box;padding:24px 28px 26px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);}
+${P} .igs-deck-detail-head{display:flex;align-items:center;gap:16px;min-width:0;}
+${P} .igs-deck-detail-title{display:flex;flex-direction:column;gap:6px;min-width:0;}
+${P} .igs-deck-detail-title h3{margin:0;font-size:20px;font-weight:600;line-height:1.3;letter-spacing:.04em;overflow-wrap:anywhere;}
+${P} .igs-deck-tags{display:flex;flex-wrap:wrap;gap:6px;}
+${P} .igs-deck-tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:11px;font-weight:500;line-height:18px;letter-spacing:.04em;white-space:nowrap;font-variant-numeric:tabular-nums;}
+${P} .igs-deck-tabs{display:inline-flex;align-self:flex-start;gap:2px;max-width:100%;padding:2px;overflow-x:auto;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+${P} .igs-deck-tab{flex:none;min-height:30px;padding:6px 16px;border:0;border-radius:calc(var(--igs-rp-radius-m) - 2px);background:transparent;color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.12em;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+${P} .igs-deck-tab:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+${P} .igs-deck-tab[aria-selected="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);font-weight:600;}
+${P} .igs-deck-page,${P} .igs-deck-build,${P} .igs-deck-generate,${P} .igs-deck-pending{display:flex;flex-direction:column;gap:12px;min-width:0;}
+${P} .igs-deck-pending{margin-bottom:16px;padding:14px 16px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);}
+${P} .igs-deck-section{display:flex;flex-direction:column;gap:6px;min-width:0;}
+${P} .igs-deck-section-title{margin:4px 0 0;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.16em;}
+/* 字段行：标签固定宽度，内容左边对齐、自动换行。 */
+${P} .igs-deck-row{display:grid;grid-template-columns:4.5em minmax(0,1fr);align-items:start;gap:12px;}
+${P} .igs-deck-label{padding-top:7px;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.12em;}
+${P} .igs-deck-row-body,${P} .igs-deck-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;}
+${P} .igs-deck-row-body{min-height:30px;}
 ${P} .igs-deck-actions{justify-content:flex-end;}
-${P} .igs-deck-label{min-width:3.5em;color:var(--igs-cb-ink-faint);font-size:11px;font-weight:500;letter-spacing:.16em;}
-${P} .igs-deck-chip{display:inline-flex;align-items:center;min-height:28px;padding:4px 10px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);color:var(--igs-cb-ink-soft);font-size:13px;font-weight:500;letter-spacing:.04em;}
-${P} .igs-deck-chip-art{flex:none;width:20px;height:20px;margin-right:6px;padding:0;border:0;background:none;cursor:zoom-in;}
-${P} .igs-deck-chip-art img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;}
-${P} .igs-deck-btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:6px 12px;border:0;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);color:var(--igs-cb-ink-soft);font:inherit;font-size:13px;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:background .18s var(--igs-cb-ease),color .18s var(--igs-cb-ease),opacity .18s var(--igs-cb-ease),transform .12s var(--igs-cb-ease);}
-${P} .igs-deck-btn:hover{background:var(--igs-cb-fill-hover);color:var(--igs-cb-ink);}
-${P} .igs-deck-btn[aria-pressed="true"]:not(.is-primary){background:var(--igs-cb-fill-active);color:var(--igs-cb-ink);font-weight:600;}
-${P} .igs-deck-btn.is-primary{min-height:40px;padding:9px 24px;background:var(--igs-cb-ink);color:var(--igs-cb-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;}
-${P} .igs-deck-input{flex:1 1 160px;min-width:0;max-width:240px;min-height:32px;padding:6px 10px;box-sizing:border-box;border:0;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);color:var(--igs-cb-ink);font:inherit;outline:none;}
-${P} .igs-deck-input:focus{background:var(--igs-cb-fill-hover);}
+${P} .igs-deck-chip{display:inline-flex;align-items:center;min-height:30px;padding:4px 10px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;font-variant-numeric:tabular-nums;}
+${P} .igs-deck-chip.is-locked{color:var(--igs-rp-text-faint);}
+${P} .igs-deck-chip-art{flex:none;width:20px;height:20px;margin-right:6px;padding:0;border:0;background:none;cursor:zoom-in;vertical-align:middle;}
+${P} .igs-deck-chip-art img{display:block;width:100%;height:100%;object-fit:contain;border-radius:4px;pointer-events:none;}
+${P} .igs-deck-btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:6px 12px;border:0;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;white-space:nowrap;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease),opacity .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);}
+${P} .igs-deck-btn:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+${P} .igs-deck-btn[aria-pressed="true"]:not(.is-primary){background:var(--igs-rp-fill-active);color:var(--igs-rp-text);font-weight:600;}
+${P} .igs-deck-btn.is-primary{min-height:40px;padding:9px 24px;background:var(--igs-rp-accent);color:var(--igs-rp-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;}
 ${P} .igs-deck-btn.is-primary:hover{opacity:.88;}
-${P} :is(.igs-deck-btn,.igs-deck-icon-btn,.igs-deck-tab):active{transform:scale(.97);}
-${P} [aria-disabled="true"]{opacity:.45;cursor:default;}
-${P} :is(button,[role="button"]):focus-visible{outline:2px solid var(--igs-cb-warm);outline-offset:2px;}
-${P} .igs-deck-size{color:var(--igs-cb-ink-soft);font-size:13px;font-variant-numeric:tabular-nums;}
-${P} .igs-deck-size.is-error,${P} .igs-deck-err{color:#f2b8b5;}
-${P} .igs-deck-err{font-size:12px;overflow-wrap:anywhere;}
-${P} .igs-deck-cards{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;}
-${P} .igs-deck-card{--igs-card-tint:var(--igs-cb-skill);display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:44px;padding:6px 8px 6px 10px;box-sizing:border-box;border-radius:var(--igs-cb-r-m);background:transparent;transition:background .18s var(--igs-cb-ease);}
-${P} .igs-deck-card:hover{background:var(--igs-cb-fill);}
+${P} :is(.igs-deck-card,.igs-deck-keepsake,.igs-deck-pool,.igs-generation-form) .igs-deck-btn:not(.is-primary){background:var(--igs-rp-fill-hover);}
+${P} :is(.igs-deck-card,.igs-deck-keepsake,.igs-deck-pool,.igs-generation-form) .igs-deck-btn:not(.is-primary):hover{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
+${P} .igs-deck-btn.is-step{min-width:32px;padding:0;font-size:16px;line-height:1;}
+${P} :is(.igs-deck-btn,.igs-deck-tab,.igs-deck-person):active{transform:scale(.97);}
+${P} [aria-disabled="true"]{opacity:.42;cursor:default;}
+${P} .igs-deck-input{flex:1 1 160px;min-width:0;max-width:240px;min-height:32px;padding:6px 10px;box-sizing:border-box;border:0;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text);font:inherit;outline:none;}
+${P} .igs-deck-input:focus{background:var(--igs-rp-fill-hover);}
+${P} .igs-deck-size{color:var(--igs-rp-text-soft);font-size:13px;font-variant-numeric:tabular-nums;}
+${P} .igs-deck-size.is-error,${P} .igs-deck-err{color:var(--igs-deck-danger);}
+${P} .igs-deck-err{display:block;font-size:12px;overflow-wrap:anywhere;}
+${P} .igs-deck-help{margin:0;color:var(--igs-rp-text-faint);font-size:12px;line-height:1.7;overflow-wrap:anywhere;}
+/* 六维：属性名在上、数值与调整值在下，格子不随面板拉宽。 */
+${P} .igs-deck-abilities{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin:0;padding:0;list-style:none;}
+${P} .igs-deck-abilities.is-alloc{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));}
+${P} .igs-deck-ability{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 12px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+${P} .igs-deck-ability-name{flex:1;color:var(--igs-rp-text-faint);font-size:12px;font-weight:500;letter-spacing:.12em;}
+${P} .igs-deck-ability-score{min-width:1.6em;color:var(--igs-rp-text);font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;text-align:center;}
+${P} .igs-deck-ability.is-added .igs-deck-ability-score{color:var(--igs-rp-accent);}
+${P} .igs-deck-ability-mod{min-width:2em;color:var(--igs-rp-text-soft);font-size:12px;font-variant-numeric:tabular-nums;text-align:right;}
+/* 列表行（被动、特性、装备、道具）：部位 / 名称 / 说明 / 操作四列对齐，稀有度在左侧标一道实色细条。 */
+${P} .igs-deck-collection{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;}
+${P} .igs-deck-keepsake{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;min-height:42px;padding:8px 12px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+${P} .igs-deck-keepsake[data-rarity]::before,${P} .igs-deck-card[data-rarity]:not([data-rarity="basic"])::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:2px;background:var(--rar);}
+${P} .igs-deck-slot{flex:none;width:3em;color:var(--igs-rp-text-faint);font-size:12px;letter-spacing:.08em;}
+${P} .igs-deck-name{display:inline-flex;align-items:center;flex:0 1 9em;min-width:5em;font-weight:500;letter-spacing:.04em;overflow-wrap:anywhere;}
+${P} .igs-deck-name.is-empty,${P} .igs-deck-name.is-locked{color:var(--igs-rp-text-faint);font-weight:400;}
+${P} .igs-deck-count{flex:1 1 12em;min-width:0;color:var(--igs-rp-text-soft);font-size:12px;line-height:1.6;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+${P} .igs-deck-bag-acts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;}
+/* 卡牌行：费用、卡面、名称与效果在左，来源 / 数量 / 操作收在右栏；窄屏右栏整体移到下方。 */
+${P} .igs-deck-cards{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;}
+${P} .igs-deck-card{--igs-card-tint:var(--igs-cb-skill);position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px 10px 14px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
 ${P} .igs-deck-card[data-card-type="attack"]{--igs-card-tint:var(--igs-cb-attack);}
 ${P} .igs-deck-card[data-card-type="power"]{--igs-card-tint:var(--igs-cb-power);}
-${P} .igs-deck-card.is-error{background:rgba(234,138,138,.1);}
-${P} .igs-deck-cost{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:color-mix(in srgb,var(--igs-card-tint) 26%,transparent);color:var(--igs-cb-ink);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;}
-${P} .igs-deck-name{flex:1;min-width:6em;font-weight:500;letter-spacing:.04em;}
-${P} .igs-deck-card-info{flex:1 1 200px;min-width:0;overflow-wrap:anywhere;}
-${P} .igs-deck-effect,${P} .igs-deck-help{margin:4px 0;color:var(--igs-cb-ink-soft);font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
-${P} .igs-deck-effect summary{cursor:pointer;color:var(--igs-cb-ink-faint);}
-${P} .igs-deck-pool{padding:10px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);min-width:0;}
-${P} .igs-deck-pool>summary{cursor:pointer;color:var(--igs-cb-ink-soft);overflow-wrap:anywhere;}
-${P} .igs-deck-count{color:var(--igs-cb-ink-faint);font-size:12px;font-variant-numeric:tabular-nums;}
-${P} .igs-deck-req{color:var(--igs-cb-ink-soft);font-size:12px;font-variant-numeric:tabular-nums;}
-${P} .igs-deck-req.is-up{color:#5fd0b8;}
-${P} .igs-deck-req.is-down{color:var(--igs-cb-ink-faint);}
-${P} .igs-deck-art{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:var(--igs-cb-r-m);overflow:hidden;background:radial-gradient(70% 90% at 50% 40%,color-mix(in srgb,var(--igs-card-tint) 22%,transparent),transparent 72%),var(--igs-cb-fill);color:var(--igs-card-tint);}
-${P} .igs-deck-art svg{width:20px;height:20px;stroke-width:1.4;}
+${P} .igs-deck-card.is-error{box-shadow:inset 0 0 0 1px var(--igs-deck-danger);}
+${P} .igs-deck-cost{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--igs-card-tint);color:rgb(${IGS_UI_NIGHT_RGB});font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;}
+${P} .igs-deck-art{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:var(--igs-rp-radius-m);overflow:hidden;background:var(--igs-rp-fill-hover);color:var(--igs-card-tint);}
+${P} .igs-deck-art svg{width:22px;height:22px;stroke-width:1.4;}
 ${P} .igs-deck-art img{display:block;width:100%;height:100%;object-fit:cover;}
-${P} .igs-deck-card[data-rarity]:not(:is([data-rarity="basic"],[data-rarity="epic"],[data-rarity="mythic"])) .igs-deck-cost{box-shadow:0 0 0 2px var(--rar);}
-${P} .igs-deck-card[data-rarity="signature"] .igs-deck-name{color:#f6c9a8;}
-${P} .igs-deck-chip.is-locked{color:var(--igs-cb-ink-faint);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--rar) 40%,transparent);}
-${P} .igs-deck-tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;}
-${P} .igs-deck-tabs::-webkit-scrollbar{display:none;}
-${P} .igs-deck-tab{flex:none;min-height:34px;padding:6px 16px;border:0;border-radius:var(--igs-cb-r-m);background:transparent;color:var(--igs-cb-ink-soft);font:inherit;font-size:13px;font-weight:500;letter-spacing:.16em;cursor:pointer;transition:background .18s var(--igs-cb-ease),color .18s var(--igs-cb-ease),transform .12s var(--igs-cb-ease);}
-${P} .igs-deck-tab:hover{background:var(--igs-cb-fill-hover);color:var(--igs-cb-ink);}
-${P} .igs-deck-tab[aria-selected="true"]{background:var(--igs-cb-fill-active);color:var(--igs-cb-ink);font-weight:600;}
-${P} .igs-deck-page{display:flex;flex-direction:column;gap:10px;min-width:0;}
-${P} .igs-deck-abilities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:0;padding:0;list-style:none;}
-${P} .igs-deck-abilities.is-alloc{grid-template-columns:repeat(2,minmax(0,1fr));}
-${P} .igs-deck-ability{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 10px;box-sizing:border-box;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);}
-${P} .igs-deck-ability-name{flex:1;color:var(--igs-cb-ink-faint);font-size:12px;font-weight:500;letter-spacing:.16em;}
-${P} .igs-deck-ability-score{min-width:1.6em;color:var(--igs-cb-ink);font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;text-align:center;}
-${P} .igs-deck-ability.is-added .igs-deck-ability-score{color:#5fd0b8;}
-${P} .igs-deck-ability-mod{min-width:2.4em;color:var(--igs-cb-ink-soft);font-size:12px;font-variant-numeric:tabular-nums;text-align:right;}
-${P} .igs-deck-btn.is-step{min-width:32px;min-height:32px;padding:0;font-size:16px;line-height:1;}
-${P} .igs-deck-collection{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;}
-${P} .igs-deck-keepsake{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;min-height:40px;padding:8px 10px;box-sizing:border-box;border-radius:var(--igs-cb-r-m);}
-${P} .igs-deck-keepsake:hover{background:var(--igs-cb-fill);}
-${P} .igs-deck-bag-acts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;}
-${P} .igs-deck-name.is-empty,${P} .igs-deck-name.is-locked{opacity:.55;}
+${P} .igs-deck-card-info{flex:1 1 220px;min-width:0;overflow-wrap:anywhere;}
+${P} .igs-deck-card-title{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;}
+${P} .igs-deck-card-title .igs-deck-name{flex:none;min-width:0;}
+${P} .igs-deck-card[data-rarity="signature"] .igs-deck-name{color:var(--rar);}
+${P} .igs-deck-effect{margin:2px 0 0;color:var(--igs-rp-text-soft);font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
+${P} .igs-deck-effect summary{cursor:pointer;color:var(--igs-rp-text-faint);}
+${P} .igs-deck-card-side{display:flex;align-items:center;gap:12px;margin-left:auto;}
+${P} .igs-deck-card-stats{display:flex;flex-direction:column;align-items:flex-end;gap:2px;}
+${P} .igs-deck-card-stats .igs-deck-count{flex:none;white-space:nowrap;}
+${P} .igs-deck-card-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;}
+${P} .igs-deck-req{color:var(--igs-rp-text-soft);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+${P} .igs-deck-req.is-up{color:var(--igs-rp-accent);font-weight:600;}
+${P} .igs-deck-req.is-down{color:var(--igs-rp-text-faint);}
+${P} .igs-deck-pool{padding:12px 14px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);min-width:0;}
+${P} .igs-deck-pool>summary{cursor:pointer;color:var(--igs-rp-text-soft);font-size:13px;overflow-wrap:anywhere;}
+${P} .igs-deck-pool .igs-deck-help{margin:8px 0;}
+${P} .igs-deck-pool .igs-deck-card{background:var(--igs-rp-fill-hover);}
+${P} .igs-generation-form{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);min-width:0;}
+${P} .igs-generation-form p{font-size:12px;color:var(--igs-rp-text-soft);margin:4px 0;}
+${P} .igs-generation-form textarea,${P} .igs-generation-form select{display:block;box-sizing:border-box;width:100%;padding:9px;margin:5px 0;background:var(--igs-rp-fill-hover);color:inherit;border:0;border-radius:var(--igs-rp-radius-m);font:inherit;resize:vertical;}
+${P} .igs-generation-form pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font-size:12px;}
+${P} .igs-generation-check{display:flex;align-items:flex-start;gap:8px;margin:8px 0;overflow-wrap:anywhere;}
+${P} .igs-generation-check input{flex:none;margin-top:4px;}
+${P} .igs-generation-form :is(textarea,select):focus-visible{outline:1px solid var(--igs-rp-accent);outline-offset:2px;}
+${P} .igs-generation-form summary{cursor:pointer;overflow-wrap:anywhere;}
 /* 抽人物特性揭晓（P-f）：蓄力时背面卡居中呼吸，光圈旋转、粒子向中心聚拢，颜色取预定稀有度（--rar）；第一次翻开（data-fresh）翻面爆光，神话另加震屏与整面板闪白；之后重绘为静止终态。 */
 ${P} .igs-deck-reveal{display:flex;flex-direction:column;align-items:center;gap:14px;padding:12px 0 4px;}
 ${P} .igs-deck-reveal-stage{position:relative;display:grid;place-items:center;width:min(220px,60vw);aspect-ratio:1;perspective:900px;}
@@ -136584,10 +137688,25 @@ ${P} .igs-deck-reveal-sparks i{position:absolute;left:50%;top:50%;width:4px;heig
 ${P} .igs-deck-reveal[data-fresh][data-rarity="mythic"] .igs-deck-reveal-stage{animation:igs-deck-reveal-shake .42s .3s linear both;}
 ${P} .igs-deck-reveal-flash{position:absolute;inset:0;z-index:2;pointer-events:none;background:#fff;opacity:0;animation:igs-deck-reveal-flash .45s .3s ease-out both;}
 
-${combatRarityStyle(`${P} :is(.igs-deck-card,.igs-deck-chip,.igs-deck-reveal,.igs-deck-reveal-slot)`)}
+${combatRarityStyle(`${P} :is(.igs-deck-card,.igs-deck-chip,.igs-deck-keepsake,.igs-deck-reveal,.igs-deck-reveal-slot)`)}
 ${P} .igs-deck-reveal[data-rarity="mythic"]::after{content:none;}
-@media (max-width:720px){${P} .igs-deck-layout{grid-template-columns:1fr;}${P} .igs-deck-roster{flex-direction:row;overflow-x:auto;}${P} .igs-deck-roster .igs-deck-btn{flex:none;}${P} .igs-deck-main{padding:0 12px 12px;}${P} .igs-deck-abilities{grid-template-columns:repeat(2,minmax(0,1fr));}${P} .igs-deck-abilities.is-alloc{grid-template-columns:1fr;}}
-@media (prefers-reduced-motion:reduce){${P} :is(.igs-deck-btn,.igs-deck-card,.igs-deck-icon-btn,.igs-deck-tab){transition:none;}}
+/* 窄屏（容器 <768）：名单变成横向一排，详情卡片收窄内边距，卡牌右栏移到下方。 */
+${P}.igs-rp-narrow .igs-deck-main{padding:4px 14px 20px;}
+${P}.igs-rp-narrow .igs-deck-layout{grid-template-columns:minmax(0,1fr);gap:14px;}
+${P}.igs-rp-narrow .igs-deck-side{position:static;}
+${P}.igs-rp-narrow .igs-deck-roster{flex-direction:row;overflow-x:auto;margin:0 -14px;padding:0 14px;gap:4px;}
+${P}.igs-rp-narrow .igs-deck-person{flex:0 0 auto;width:auto;padding:6px 14px 6px 6px;}
+${P}.igs-rp-narrow .igs-deck-avatar{width:30px;height:30px;font-size:13px;}
+${P}.igs-rp-narrow .igs-deck-avatar.is-large{width:44px;height:44px;font-size:18px;}
+${P}.igs-rp-narrow .igs-deck-detail{padding:18px 16px 20px;gap:14px;}
+${P}.igs-rp-narrow .igs-deck-row{grid-template-columns:4em minmax(0,1fr);gap:8px;}
+${P}.igs-rp-narrow .igs-deck-abilities{grid-template-columns:repeat(2,minmax(0,1fr));}
+${P}.igs-rp-narrow .igs-deck-abilities.is-alloc{grid-template-columns:minmax(0,1fr);}
+${P}.igs-rp-narrow .igs-deck-card-info{flex:1 1 0;}
+${P}.igs-rp-narrow .igs-deck-card-side{flex-basis:100%;justify-content:space-between;margin-left:0;}
+${P}.igs-rp-narrow .igs-deck-card-stats{flex-direction:row;align-items:center;gap:10px;}
+${P}.igs-rp-narrow .igs-deck-tab{padding:6px 14px;}
+@media (prefers-reduced-motion:reduce){${P} :is(.igs-deck-btn,.igs-deck-tab,.igs-deck-person){transition:none;}}
 @keyframes igs-deck-reveal-spin{to{transform:rotate(1turn);}}
 @keyframes igs-deck-reveal-mote{0%{opacity:0;transform:rotate(calc(var(--i) * 30deg)) translateY(-96px) scale(.6);}25%{opacity:1;}100%{opacity:0;transform:rotate(calc(var(--i) * 30deg)) translateY(-12px) scale(1.1);}}
 @keyframes igs-deck-reveal-charge{0%,100%{transform:scale(1);box-shadow:0 0 0 transparent;}50%{transform:scale(1.04);box-shadow:0 0 28px color-mix(in srgb,var(--rar) 55%,transparent);}}
@@ -136606,6 +137725,173 @@ ${P} .igs-deck-reveal[data-still] .igs-deck-reveal-card{animation:none;}
 `;
 
 __igsDefine(exports, "COMBAT_DECK_PANEL_STYLE_TEXT", () => COMBAT_DECK_PANEL_STYLE_TEXT);
+});
+__igsRegister("src/visual/igs-ui/record-page-shell-style.js", function(module, exports, require) {
+const { IGS_UI_BLUR, IGS_UI_FILL, IGS_UI_PANE, IGS_UI_PANE_EDGE, IGS_UI_FONT_SANS, IGS_UI_FONT_SERIF, IGS_UI_INK, IGS_UI_NIGHT_RGB, IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, IGS_UI_WARM, igsUiLiquidRule } = require("src/styles/ui-material.js");
+const { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette } = require("src/visual/igs-ui/settings-theme.js");
+// 背包/心事/关系三页与设置器共用四套配色：资料页语义 token 一一映射到设置器色板。
+// 后景 = 近不透明遮罩 + 主题色淡水纹（与设置器同一套），前景 = 设置器面板实色卡片 + 阴影。
+const RECORD_THEME_TOKENS = Object.freeze({
+    text: 'ink', 'text-soft': 'ink-2', 'text-faint': 'ink-3', 'text-ghost': 'ink-4',
+    fill: 'field', 'fill-hover': 'highlight', 'fill-active': 'raised', 'line-soft': 'line-strong',
+    pane: 'shell-bg', 'pane-edge': 'shell-shadow', reading: 'shell-bg', solid: 'panel',
+    accent: 'accent', 'on-ink': 'on-accent', warm: 'accent', ripple: 'ripple',
+});
+const recordThemeRule = (selector, theme) => {
+    const palette = getSettingsThemePalette(theme);
+    const vars = Object.entries(RECORD_THEME_TOKENS).map(([key, token]) => `--igs-rp-${key}:${palette.tokens[token]};`).join('');
+    return `${selector}{${vars}--igs-rp-backdrop:${palette.backdrop};--igs-rp-backdrop-solid:${palette.backdropSolid};--igs-rp-ripple-opacity:${palette.ripple};color-scheme:${palette.scheme};}`;
+};
+const RECORD_THEME_RULES = [
+    recordThemeRule('#igs-record-panel', SETTINGS_THEME_BASE),
+    ...SETTINGS_THEME_OPTIONS.filter(option => option.value !== SETTINGS_THEME_BASE)
+        .map(option => recordThemeRule(`#igs-record-panel[data-rp-theme="${option.value}"]`, option.value)),
+].join('\n');
+
+// 四类资料页共用外壳（地图页沿用霜夜默认 token，不跟随配色）。
+// 界面文字用黑体，只有正文内容（日记、描述）用宋体。
+const RECORD_PAGE_SHELL_STYLE_TEXT = `
+#igs-record-panel,#igs-map-panel{
+  --igs-rp-bg:rgb(${IGS_UI_NIGHT_RGB});
+  --igs-rp-text:${IGS_UI_INK.primary};
+  --igs-rp-text-soft:${IGS_UI_INK.secondary};
+  --igs-rp-text-faint:${IGS_UI_INK.tertiary};
+  --igs-rp-text-ghost:${IGS_UI_INK.quaternary};
+  --igs-rp-fill:${IGS_UI_FILL.rest};
+  --igs-rp-pane:${IGS_UI_PANE};
+  --igs-rp-pane-edge:${IGS_UI_PANE_EDGE};
+  --igs-rp-reading:rgba(18,20,23,.34);
+  --igs-rp-fill-hover:${IGS_UI_FILL.hover};
+  --igs-rp-fill-active:${IGS_UI_FILL.active};
+  --igs-rp-line-soft:rgba(236,234,230,.07);
+  --igs-rp-on-ink:rgb(${IGS_UI_NIGHT_RGB});
+  --igs-rp-warm:${IGS_UI_WARM};
+  --igs-rp-radius-s:${IGS_UI_RADIUS.small};
+  --igs-rp-radius-m:${IGS_UI_RADIUS.control};
+  --igs-rp-radius-l:${IGS_UI_RADIUS.card};
+  --igs-rp-blur:${IGS_UI_BLUR};
+  --igs-rp-font-ui:${IGS_UI_FONT_SANS};
+  --igs-rp-font-body:${IGS_UI_FONT_SERIF};
+  --igs-rp-title-size:16px;
+  --igs-rp-body-size:14px;
+  --igs-rp-line-height:1.6;
+  --igs-rp-diary-size:17px;
+  --igs-rp-ease:cubic-bezier(.2,.8,.2,1);
+}
+#igs-overlay.igs-record-screen-open{background:transparent!important;}
+#igs-record-panel .igs-rp-page,#igs-map-panel .igs-rp-page{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  font-family:var(--igs-rp-font-ui);color:var(--igs-rp-text);
+  font-size:var(--igs-rp-body-size);line-height:var(--igs-rp-line-height);
+  background:transparent;overflow:hidden;box-sizing:border-box;text-shadow:none;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+}
+${RECORD_THEME_RULES}
+/* 后景柔光：左上一束淡高光 + 整体轻微提亮，叠在主题遮罩上，四套配色相对浓淡不变。 */
+#igs-record-panel{--igs-rp-lift:radial-gradient(120% 90% at 0% 0%,rgba(255,255,255,.12),rgba(255,255,255,0) 70%),linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06));}
+#igs-record-panel .igs-rp-page::before{
+  content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+  background:var(--igs-rp-lift),var(--igs-rp-backdrop);
+  -webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};
+}
+#igs-record-panel{--igs-ui-caustic-size:900px;}
+${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .2, { tile: true, tint: 'var(--igs-rp-ripple)' })}
+#igs-record-panel .igs-rp-page::after{opacity:calc(var(--igs-rp-ripple-opacity) / 3);}
+${IGS_UI_LIQUID_KEYFRAMES}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  #igs-record-panel .igs-rp-page::before{background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
+}
+@media (prefers-reduced-transparency:reduce){
+  #igs-record-panel .igs-rp-page::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
+  #igs-record-panel{--igs-rp-pane:var(--igs-rp-solid);--igs-rp-reading:var(--igs-rp-solid);}
+}
+#igs-record-panel .igs-rp-head,#igs-map-panel .igs-rp-head{
+  position:relative;z-index:2;display:grid;grid-template-columns:minmax(44px,1fr) auto minmax(44px,1fr);align-items:center;column-gap:12px;
+  min-height:60px;padding:8px 16px 4px;padding-top:calc(8px + env(safe-area-inset-top,0px));
+  background:transparent;flex:none;
+}
+#igs-record-panel .igs-rp-title,#igs-map-panel .igs-rp-title{
+  margin:0;justify-self:center;font-size:var(--igs-rp-title-size);font-weight:600;
+  min-width:0;letter-spacing:.2em;padding-left:.2em;white-space:nowrap;color:var(--igs-rp-text);
+}
+#igs-record-panel .igs-rp-back,#igs-map-panel .igs-rp-back{
+  justify-self:start;width:44px;height:44px;min-width:44px;min-height:44px;display:grid;place-items:center;
+  padding:0;border:0;background:transparent;color:var(--igs-rp-text);cursor:pointer;border-radius:var(--igs-rp-radius-m);transition:background .18s var(--igs-rp-ease);
+}
+#igs-record-panel .igs-rp-back:hover,#igs-map-panel .igs-rp-back:hover{background:var(--igs-rp-fill-hover);}
+#igs-record-panel .igs-rp-back svg,#igs-map-panel .igs-rp-back svg{width:20px;height:20px;stroke-width:1.6;}
+#igs-record-panel .igs-rp-body,#igs-map-panel .igs-rp-body{
+  position:relative;z-index:1;flex:1 1 auto;min-height:0;display:flex;overflow:hidden;
+}
+#igs-record-panel button:focus-visible,#igs-map-panel button:focus-visible{outline:2px solid var(--igs-rp-accent,rgba(236,234,230,.5));outline-offset:2px;}
+#igs-record-panel,#igs-map-panel,#igs-record-panel *,#igs-map-panel *{scrollbar-width:none;}
+#igs-record-panel ::-webkit-scrollbar,#igs-map-panel ::-webkit-scrollbar{display:none;}
+#igs-record-panel .igs-rp-chip,#igs-map-panel .igs-rp-chip,#igs-record-panel .igs-rp-segment button{
+  display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 12px;border:0;border-radius:var(--igs-rp-radius-m);
+  background:transparent;color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;line-height:1.2;white-space:nowrap;
+  transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);
+}
+#igs-record-panel .igs-rp-chip:hover,#igs-map-panel .igs-rp-chip:hover,#igs-record-panel .igs-rp-segment button:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+#igs-record-panel .igs-rp-chip[aria-pressed="true"],#igs-map-panel .igs-rp-chip[aria-pressed="true"],#igs-record-panel .igs-rp-segment button[aria-pressed="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);font-weight:600;}
+#igs-record-panel .igs-rp-chip small{font-size:11px;font-weight:500;opacity:.56;font-variant-numeric:tabular-nums;}
+#igs-record-panel .igs-rp-chip svg,#igs-map-panel .igs-rp-chip svg,#igs-record-panel .igs-rp-segment svg{width:15px;height:15px;flex:none;stroke-width:1.6;}
+#igs-record-panel .igs-rp-segment{display:inline-flex;gap:2px;padding:2px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+#igs-record-panel .igs-rp-segment button{min-height:30px;border-radius:calc(var(--igs-rp-radius-m) - 2px);}
+#igs-record-panel .igs-rp-icon-btn{display:grid;place-items:center;width:36px;height:36px;min-width:36px;padding:0;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-icon-btn:hover,#igs-record-panel .igs-rp-icon-btn[aria-expanded="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
+#igs-record-panel .igs-rp-icon-btn svg{width:18px;height:18px;stroke-width:1.6;}
+#igs-record-panel .igs-rp-btn,#igs-map-panel .igs-rp-btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:9px 24px;border:0;border-radius:var(--igs-rp-radius-m);
+  background:var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;
+  transition:opacity .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);
+}
+#igs-record-panel .igs-rp-btn:hover,#igs-map-panel .igs-rp-btn:hover{opacity:.88;}
+#igs-record-panel .igs-rp-btn:active,#igs-map-panel .igs-rp-btn:active,#igs-record-panel .igs-rp-chip:active,#igs-map-panel .igs-rp-chip:active,#igs-record-panel .igs-rp-icon-btn:active{transform:scale(.97);}
+#igs-record-panel .igs-rp-notice,#igs-map-panel .igs-rp-notice{margin:0 0 12px;padding:8px 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;line-height:1.6;overflow-wrap:anywhere;}
+#igs-record-panel .igs-rp-dot{display:inline-block;flex:none;width:6px;height:6px;border-radius:50%;background:var(--igs-rp-warm);}
+#igs-record-panel .igs-rp-search{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-faint);transition:background .18s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-search:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text-soft);}
+#igs-record-panel .igs-rp-search svg{width:15px;height:15px;flex:none;stroke-width:1.6;}
+#igs-record-panel .igs-rp-search input{
+  flex:1;min-width:0;width:9em;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
+  background:transparent!important;box-shadow:none!important;color:var(--igs-rp-text);font:inherit;font-size:13px;line-height:1;
+  -webkit-appearance:none;appearance:none;text-shadow:none;
+}
+#igs-record-panel .igs-rp-search input::placeholder{color:var(--igs-rp-text-faint);}
+#igs-record-panel .igs-rp-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
+#igs-record-panel .igs-rp-switch{position:relative;flex:none;width:30px;height:18px;border-radius:5px;background:var(--igs-rp-fill-active);transition:background .2s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:3px;background:var(--igs-rp-text-soft);transition:transform .2s var(--igs-rp-ease),background .2s var(--igs-rp-ease);}
+#igs-record-panel [aria-pressed="true"] .igs-rp-switch{background:var(--igs-rp-accent);}
+#igs-record-panel [aria-pressed="true"] .igs-rp-switch::after{transform:translateX(12px);background:var(--igs-rp-on-ink);}
+#igs-record-panel .igs-rp-head-end{justify-self:end;display:flex;align-items:center;gap:8px;min-width:0;}
+#igs-record-panel .igs-rp-font-select{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;transition:background .18s var(--igs-rp-ease);}
+#igs-record-panel .igs-rp-font-select:hover,#igs-record-panel .igs-rp-font-select:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
+#igs-record-panel .igs-rp-font-select b{font-weight:600;font-family:var(--igs-rp-font-body);}
+#igs-record-panel .igs-rp-font-select select{
+  position:absolute;inset:0;width:100%;max-width:none;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
+  background:transparent!important;box-shadow:none!important;color:transparent;font:inherit;font-size:13px;cursor:pointer;opacity:0;
+  -webkit-appearance:none;appearance:none;
+}
+#igs-record-panel .igs-rp-font-select select option{color:var(--igs-rp-text);background:var(--igs-rp-solid);}
+#igs-record-panel .igs-rp-theme-switch{display:inline-flex;align-items:center;gap:5px;padding:4px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+#igs-record-panel .igs-rp-theme-option{display:inline-flex;width:20px;height:20px;flex:none;padding:0;border:0;border-radius:var(--igs-rp-radius-s);background:transparent;outline:1.5px solid transparent;outline-offset:1.5px;transition:transform .14s ease,outline-color .14s ease;}
+#igs-record-panel .igs-rp-theme-option svg{display:block;width:20px;height:20px;}
+#igs-record-panel .igs-rp-theme-option:hover{transform:translateY(-1px);}
+#igs-record-panel .igs-rp-theme-option.is-active{outline-color:var(--igs-rp-accent);}
+#igs-record-panel.igs-rp-narrow,#igs-map-panel.igs-rp-narrow{
+  --igs-rp-title-size:15px;--igs-rp-line-height:1.58;
+}
+#igs-record-panel.igs-rp-narrow .igs-rp-head{padding-left:8px;padding-right:12px;column-gap:8px;}
+#igs-record-panel.igs-rp-narrow .igs-rp-theme-switch{gap:4px;padding:3px;}
+#igs-record-panel.igs-rp-narrow .igs-rp-font-select select{max-width:4.5em;}
+#igs-record-panel.igs-rp-narrow .igs-rp-theme-option,#igs-record-panel.igs-rp-narrow .igs-rp-theme-option svg{width:18px;height:18px;}
+#igs-record-panel.igs-rp-short .igs-rp-head,#igs-map-panel.igs-rp-short .igs-rp-head{min-height:50px;padding-top:calc(4px + env(safe-area-inset-top,0px));}
+@media (prefers-reduced-motion:reduce){
+  #igs-record-panel *,#igs-map-panel *{transition:none!important;animation:none!important;}
+}
+`;
+
+__igsDefine(exports, "RECORD_PAGE_SHELL_STYLE_TEXT", () => RECORD_PAGE_SHELL_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/combat-growth-fx.js", function(module, exports, require) {
 const { ensureFxLayers, findFxLayers } = require("src/visual/igs-ui/fx-layer.js");
@@ -139449,173 +140735,6 @@ function recordPageHeadHtml(title, options = {}) {
 __igsDefine(exports, "recordPageLayoutClass", () => recordPageLayoutClass);
 __igsDefine(exports, "watchRecordPageLayout", () => watchRecordPageLayout);
 __igsDefine(exports, "recordPageHeadHtml", () => recordPageHeadHtml);
-});
-__igsRegister("src/visual/igs-ui/record-page-shell-style.js", function(module, exports, require) {
-const { IGS_UI_BLUR, IGS_UI_FILL, IGS_UI_PANE, IGS_UI_PANE_EDGE, IGS_UI_FONT_SANS, IGS_UI_FONT_SERIF, IGS_UI_INK, IGS_UI_NIGHT_RGB, IGS_UI_LIQUID_KEYFRAMES, IGS_UI_RADIUS, IGS_UI_WARM, igsUiLiquidRule } = require("src/styles/ui-material.js");
-const { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette } = require("src/visual/igs-ui/settings-theme.js");
-// 背包/心事/关系三页与设置器共用四套配色：资料页语义 token 一一映射到设置器色板。
-// 后景 = 近不透明遮罩 + 主题色淡水纹（与设置器同一套），前景 = 设置器面板实色卡片 + 阴影。
-const RECORD_THEME_TOKENS = Object.freeze({
-    text: 'ink', 'text-soft': 'ink-2', 'text-faint': 'ink-3', 'text-ghost': 'ink-4',
-    fill: 'field', 'fill-hover': 'highlight', 'fill-active': 'raised', 'line-soft': 'line-strong',
-    pane: 'shell-bg', 'pane-edge': 'shell-shadow', reading: 'shell-bg', solid: 'panel',
-    accent: 'accent', 'on-ink': 'on-accent', warm: 'accent', ripple: 'ripple',
-});
-const recordThemeRule = (selector, theme) => {
-    const palette = getSettingsThemePalette(theme);
-    const vars = Object.entries(RECORD_THEME_TOKENS).map(([key, token]) => `--igs-rp-${key}:${palette.tokens[token]};`).join('');
-    return `${selector}{${vars}--igs-rp-backdrop:${palette.backdrop};--igs-rp-backdrop-solid:${palette.backdropSolid};--igs-rp-ripple-opacity:${palette.ripple};color-scheme:${palette.scheme};}`;
-};
-const RECORD_THEME_RULES = [
-    recordThemeRule('#igs-record-panel', SETTINGS_THEME_BASE),
-    ...SETTINGS_THEME_OPTIONS.filter(option => option.value !== SETTINGS_THEME_BASE)
-        .map(option => recordThemeRule(`#igs-record-panel[data-rp-theme="${option.value}"]`, option.value)),
-].join('\n');
-
-// 四类资料页共用外壳（地图页沿用霜夜默认 token，不跟随配色）。
-// 界面文字用黑体，只有正文内容（日记、描述）用宋体。
-const RECORD_PAGE_SHELL_STYLE_TEXT = `
-#igs-record-panel,#igs-map-panel{
-  --igs-rp-bg:rgb(${IGS_UI_NIGHT_RGB});
-  --igs-rp-text:${IGS_UI_INK.primary};
-  --igs-rp-text-soft:${IGS_UI_INK.secondary};
-  --igs-rp-text-faint:${IGS_UI_INK.tertiary};
-  --igs-rp-text-ghost:${IGS_UI_INK.quaternary};
-  --igs-rp-fill:${IGS_UI_FILL.rest};
-  --igs-rp-pane:${IGS_UI_PANE};
-  --igs-rp-pane-edge:${IGS_UI_PANE_EDGE};
-  --igs-rp-reading:rgba(18,20,23,.34);
-  --igs-rp-fill-hover:${IGS_UI_FILL.hover};
-  --igs-rp-fill-active:${IGS_UI_FILL.active};
-  --igs-rp-line-soft:rgba(236,234,230,.07);
-  --igs-rp-on-ink:rgb(${IGS_UI_NIGHT_RGB});
-  --igs-rp-warm:${IGS_UI_WARM};
-  --igs-rp-radius-s:${IGS_UI_RADIUS.small};
-  --igs-rp-radius-m:${IGS_UI_RADIUS.control};
-  --igs-rp-radius-l:${IGS_UI_RADIUS.card};
-  --igs-rp-blur:${IGS_UI_BLUR};
-  --igs-rp-font-ui:${IGS_UI_FONT_SANS};
-  --igs-rp-font-body:${IGS_UI_FONT_SERIF};
-  --igs-rp-title-size:16px;
-  --igs-rp-body-size:14px;
-  --igs-rp-line-height:1.6;
-  --igs-rp-diary-size:17px;
-  --igs-rp-ease:cubic-bezier(.2,.8,.2,1);
-}
-#igs-overlay.igs-record-screen-open{background:transparent!important;}
-#igs-record-panel .igs-rp-page,#igs-map-panel .igs-rp-page{
-  position:absolute;inset:0;display:flex;flex-direction:column;
-  font-family:var(--igs-rp-font-ui);color:var(--igs-rp-text);
-  font-size:var(--igs-rp-body-size);line-height:var(--igs-rp-line-height);
-  background:transparent;overflow:hidden;box-sizing:border-box;text-shadow:none;
-  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
-}
-${RECORD_THEME_RULES}
-/* 后景柔光：左上一束淡高光 + 整体轻微提亮，叠在主题遮罩上，四套配色相对浓淡不变。 */
-#igs-record-panel{--igs-rp-lift:radial-gradient(120% 90% at 0% 0%,rgba(255,255,255,.12),rgba(255,255,255,0) 70%),linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06));}
-#igs-record-panel .igs-rp-page::before{
-  content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
-  background:var(--igs-rp-lift),var(--igs-rp-backdrop);
-  -webkit-backdrop-filter:${IGS_UI_BLUR};backdrop-filter:${IGS_UI_BLUR};
-}
-#igs-record-panel{--igs-ui-caustic-size:900px;}
-${igsUiLiquidRule('#igs-record-panel .igs-rp-page::after', .2, { tile: true, tint: 'var(--igs-rp-ripple)' })}
-#igs-record-panel .igs-rp-page::after{opacity:calc(var(--igs-rp-ripple-opacity) / 3);}
-${IGS_UI_LIQUID_KEYFRAMES}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  #igs-record-panel .igs-rp-page::before{background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
-}
-@media (prefers-reduced-transparency:reduce){
-  #igs-record-panel .igs-rp-page::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--igs-rp-lift),var(--igs-rp-backdrop-solid);}
-  #igs-record-panel{--igs-rp-pane:var(--igs-rp-solid);--igs-rp-reading:var(--igs-rp-solid);}
-}
-#igs-record-panel .igs-rp-head,#igs-map-panel .igs-rp-head{
-  position:relative;z-index:2;display:grid;grid-template-columns:minmax(44px,1fr) auto minmax(44px,1fr);align-items:center;column-gap:12px;
-  min-height:60px;padding:8px 16px 4px;padding-top:calc(8px + env(safe-area-inset-top,0px));
-  background:transparent;flex:none;
-}
-#igs-record-panel .igs-rp-title,#igs-map-panel .igs-rp-title{
-  margin:0;justify-self:center;font-size:var(--igs-rp-title-size);font-weight:600;
-  min-width:0;letter-spacing:.2em;padding-left:.2em;white-space:nowrap;color:var(--igs-rp-text);
-}
-#igs-record-panel .igs-rp-back,#igs-map-panel .igs-rp-back{
-  justify-self:start;width:44px;height:44px;min-width:44px;min-height:44px;display:grid;place-items:center;
-  padding:0;border:0;background:transparent;color:var(--igs-rp-text);cursor:pointer;border-radius:var(--igs-rp-radius-m);transition:background .18s var(--igs-rp-ease);
-}
-#igs-record-panel .igs-rp-back:hover,#igs-map-panel .igs-rp-back:hover{background:var(--igs-rp-fill-hover);}
-#igs-record-panel .igs-rp-back svg,#igs-map-panel .igs-rp-back svg{width:20px;height:20px;stroke-width:1.6;}
-#igs-record-panel .igs-rp-body,#igs-map-panel .igs-rp-body{
-  position:relative;z-index:1;flex:1 1 auto;min-height:0;display:flex;overflow:hidden;
-}
-#igs-record-panel button:focus-visible,#igs-map-panel button:focus-visible{outline:2px solid var(--igs-rp-accent,rgba(236,234,230,.5));outline-offset:2px;}
-#igs-record-panel,#igs-map-panel,#igs-record-panel *,#igs-map-panel *{scrollbar-width:none;}
-#igs-record-panel ::-webkit-scrollbar,#igs-map-panel ::-webkit-scrollbar{display:none;}
-#igs-record-panel .igs-rp-chip,#igs-map-panel .igs-rp-chip,#igs-record-panel .igs-rp-segment button{
-  display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 12px;border:0;border-radius:var(--igs-rp-radius-m);
-  background:transparent;color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;line-height:1.2;white-space:nowrap;
-  transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);
-}
-#igs-record-panel .igs-rp-chip:hover,#igs-map-panel .igs-rp-chip:hover,#igs-record-panel .igs-rp-segment button:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
-#igs-record-panel .igs-rp-chip[aria-pressed="true"],#igs-map-panel .igs-rp-chip[aria-pressed="true"],#igs-record-panel .igs-rp-segment button[aria-pressed="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);font-weight:600;}
-#igs-record-panel .igs-rp-chip small{font-size:11px;font-weight:500;opacity:.56;font-variant-numeric:tabular-nums;}
-#igs-record-panel .igs-rp-chip svg,#igs-map-panel .igs-rp-chip svg,#igs-record-panel .igs-rp-segment svg{width:15px;height:15px;flex:none;stroke-width:1.6;}
-#igs-record-panel .igs-rp-segment{display:inline-flex;gap:2px;padding:2px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
-#igs-record-panel .igs-rp-segment button{min-height:30px;border-radius:calc(var(--igs-rp-radius-m) - 2px);}
-#igs-record-panel .igs-rp-icon-btn{display:grid;place-items:center;width:36px;height:36px;min-width:36px;padding:0;border:0;border-radius:var(--igs-rp-radius-m);background:transparent;color:var(--igs-rp-text-soft);transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
-#igs-record-panel .igs-rp-icon-btn:hover,#igs-record-panel .igs-rp-icon-btn[aria-expanded="true"]{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
-#igs-record-panel .igs-rp-icon-btn svg{width:18px;height:18px;stroke-width:1.6;}
-#igs-record-panel .igs-rp-btn,#igs-map-panel .igs-rp-btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:9px 24px;border:0;border-radius:var(--igs-rp-radius-m);
-  background:var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;
-  transition:opacity .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);
-}
-#igs-record-panel .igs-rp-btn:hover,#igs-map-panel .igs-rp-btn:hover{opacity:.88;}
-#igs-record-panel .igs-rp-btn:active,#igs-map-panel .igs-rp-btn:active,#igs-record-panel .igs-rp-chip:active,#igs-map-panel .igs-rp-chip:active,#igs-record-panel .igs-rp-icon-btn:active{transform:scale(.97);}
-#igs-record-panel .igs-rp-notice,#igs-map-panel .igs-rp-notice{margin:0 0 12px;padding:8px 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;line-height:1.6;overflow-wrap:anywhere;}
-#igs-record-panel .igs-rp-dot{display:inline-block;flex:none;width:6px;height:6px;border-radius:50%;background:var(--igs-rp-warm);}
-#igs-record-panel .igs-rp-search{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-faint);transition:background .18s var(--igs-rp-ease);}
-#igs-record-panel .igs-rp-search:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text-soft);}
-#igs-record-panel .igs-rp-search svg{width:15px;height:15px;flex:none;stroke-width:1.6;}
-#igs-record-panel .igs-rp-search input{
-  flex:1;min-width:0;width:9em;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
-  background:transparent!important;box-shadow:none!important;color:var(--igs-rp-text);font:inherit;font-size:13px;line-height:1;
-  -webkit-appearance:none;appearance:none;text-shadow:none;
-}
-#igs-record-panel .igs-rp-search input::placeholder{color:var(--igs-rp-text-faint);}
-#igs-record-panel .igs-rp-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
-#igs-record-panel .igs-rp-switch{position:relative;flex:none;width:30px;height:18px;border-radius:5px;background:var(--igs-rp-fill-active);transition:background .2s var(--igs-rp-ease);}
-#igs-record-panel .igs-rp-switch::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:3px;background:var(--igs-rp-text-soft);transition:transform .2s var(--igs-rp-ease),background .2s var(--igs-rp-ease);}
-#igs-record-panel [aria-pressed="true"] .igs-rp-switch{background:var(--igs-rp-accent);}
-#igs-record-panel [aria-pressed="true"] .igs-rp-switch::after{transform:translateX(12px);background:var(--igs-rp-on-ink);}
-#igs-record-panel .igs-rp-head-end{justify-self:end;display:flex;align-items:center;gap:8px;min-width:0;}
-#igs-record-panel .igs-rp-font-select{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;transition:background .18s var(--igs-rp-ease);}
-#igs-record-panel .igs-rp-font-select:hover,#igs-record-panel .igs-rp-font-select:focus-within{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
-#igs-record-panel .igs-rp-font-select b{font-weight:600;font-family:var(--igs-rp-font-body);}
-#igs-record-panel .igs-rp-font-select select{
-  position:absolute;inset:0;width:100%;max-width:none;height:100%;margin:0;padding:0;border:0!important;outline:0!important;border-radius:0;
-  background:transparent!important;box-shadow:none!important;color:transparent;font:inherit;font-size:13px;cursor:pointer;opacity:0;
-  -webkit-appearance:none;appearance:none;
-}
-#igs-record-panel .igs-rp-font-select select option{color:var(--igs-rp-text);background:var(--igs-rp-solid);}
-#igs-record-panel .igs-rp-theme-switch{display:inline-flex;align-items:center;gap:5px;padding:4px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
-#igs-record-panel .igs-rp-theme-option{display:inline-flex;width:20px;height:20px;flex:none;padding:0;border:0;border-radius:var(--igs-rp-radius-s);background:transparent;outline:1.5px solid transparent;outline-offset:1.5px;transition:transform .14s ease,outline-color .14s ease;}
-#igs-record-panel .igs-rp-theme-option svg{display:block;width:20px;height:20px;}
-#igs-record-panel .igs-rp-theme-option:hover{transform:translateY(-1px);}
-#igs-record-panel .igs-rp-theme-option.is-active{outline-color:var(--igs-rp-accent);}
-#igs-record-panel.igs-rp-narrow,#igs-map-panel.igs-rp-narrow{
-  --igs-rp-title-size:15px;--igs-rp-line-height:1.58;
-}
-#igs-record-panel.igs-rp-narrow .igs-rp-head{padding-left:8px;padding-right:12px;column-gap:8px;}
-#igs-record-panel.igs-rp-narrow .igs-rp-theme-switch{gap:4px;padding:3px;}
-#igs-record-panel.igs-rp-narrow .igs-rp-font-select select{max-width:4.5em;}
-#igs-record-panel.igs-rp-narrow .igs-rp-theme-option,#igs-record-panel.igs-rp-narrow .igs-rp-theme-option svg{width:18px;height:18px;}
-#igs-record-panel.igs-rp-short .igs-rp-head,#igs-map-panel.igs-rp-short .igs-rp-head{min-height:50px;padding-top:calc(4px + env(safe-area-inset-top,0px));}
-@media (prefers-reduced-motion:reduce){
-  #igs-record-panel *,#igs-map-panel *{transition:none!important;animation:none!important;}
-}
-`;
-
-__igsDefine(exports, "RECORD_PAGE_SHELL_STYLE_TEXT", () => RECORD_PAGE_SHELL_STYLE_TEXT);
 });
 __igsRegister("src/visual/igs-ui/generation-strip.js", function(module, exports, require) {
 // 生成细线：对话框顶边一条 2px 渐变线，颜色取对话框文字色（换皮肤自动跟随），不压正文、不碰关闭键。
@@ -156666,177 +157785,6 @@ function planBreathTypewriter({ enabled = false, level = 0, phase = '', reduced 
 __igsDefine(exports, "breathPauseAfter", () => breathPauseAfter);
 __igsDefine(exports, "planBreathTypewriter", () => planBreathTypewriter);
 });
-__igsRegister("src/visual/igs-ui/romance-intimate.js", function(module, exports, require) {
-// 亲密声画的纯逻辑：情事阶段、床的材质、节拍生成、晃动与心跳脉动曲线。只做氛围，不渲染任何画面。
-const INTIMATE_PHASES = Object.freeze(['rise', 'steady', 'climax', 'after']);
-
-// 节拍：bpm 为目标速度，jitter 为逐拍时间偏差，skip / double 为漏一拍、连两下的概率，velocity 为力度区间。
-const PHASE_TEMPO = Object.freeze({
-    rise: Object.freeze({ bpm: 50, jitter: 0.12, skip: 0.08, double: 0, velocity: Object.freeze([0.45, 0.75]) }),
-    steady: Object.freeze({ bpm: 68, jitter: 0.07, skip: 0.04, double: 0.05, velocity: Object.freeze([0.65, 0.95]) }),
-    climax: Object.freeze({ bpm: 90, jitter: 0.04, skip: 0, double: 0.03, velocity: Object.freeze([0.8, 1]) }),
-});
-// 独处：没有床的往返，只有被褥摩擦；更慢、更不规律（常漏拍），顶点封顶也更低。
-const SOLO_TEMPO = Object.freeze({
-    rise: Object.freeze({ bpm: 40, jitter: 0.25, skip: 0.2, double: 0, velocity: Object.freeze([0.35, 0.6]) }),
-    steady: Object.freeze({ bpm: 54, jitter: 0.2, skip: 0.12, double: 0.04, velocity: Object.freeze([0.5, 0.8]) }),
-    climax: Object.freeze({ bpm: 72, jitter: 0.12, skip: 0.04, double: 0.02, velocity: Object.freeze([0.65, 0.9]), max: 92 }),
-});
-// 越往后越快：中段按在情事段里的进度再提速，停在同一页上也缓慢加快；顶点页按停留时间持续加速，晃动随之放大。
-const STEADY_SPAN_BONUS = 10;
-const STEADY_TIME_BPM = 0.3;
-const STEADY_TIME_MAX = 6;
-const CLIMAX_TIME_BPM = 1;
-const CLIMAX_MAX_BPM = 112;
-const CLIMAX_SWELL_RATE = 0.015;
-const CLIMAX_SWELL_MAX = 0.3;
-
-// elapsed 为进入当前阶段后经过的秒数；返回带实时目标速度与晃动放大倍数 swell 的节拍参数。
-function resolveIntimateTempo(phase, span, elapsed = 0, table = PHASE_TEMPO) {
-    const base = table[phase];
-    if (!base) return null;
-    const time = Math.max(0, Number(elapsed) || 0);
-    let bpm = base.bpm;
-    let swell = 1;
-    if (phase === 'steady') {
-        const progress = span && span.length > 1 ? Math.min(1, span.index / (span.length - 1)) : 0;
-        bpm += STEADY_SPAN_BONUS * progress + Math.min(STEADY_TIME_MAX, time * STEADY_TIME_BPM);
-    } else if (phase === 'climax') {
-        bpm = Math.min(base.max || CLIMAX_MAX_BPM, bpm + time * CLIMAX_TIME_BPM);
-        swell = 1 + Math.min(CLIMAX_SWELL_MAX, time * CLIMAX_SWELL_RATE);
-    }
-    return { ...base, bpm: Number(bpm.toFixed(2)), swell: Number(swell.toFixed(3)) };
-}
-
-// 每拍向目标速度靠拢的比例：换页后几拍内平滑加减速，不跳变。
-const TEMPO_FOLLOW = 0.12;
-const MIN_GAP_S = 0.22;
-
-// 心率与呼吸周期（秒）；2 为亲密档，其余为情事各阶段。
-const HEART_BPM = Object.freeze({ 2: 66, rise: 74, steady: 84, climax: 100, after: 64 });
-const BREATH_PERIOD = Object.freeze({ 2: 5.6, rise: 4.8, steady: 4, climax: 3.2, after: 6.4 });
-// 世界安静下来：场景 BGM 与环境声的压低比例。
-const DUCK_BY_LEVEL = Object.freeze({ 1: 0.75, 2: 0.55, 3: 0.4 });
-
-// 晃动幅度：y 为下压像素，x 为左右像素，r 为摆动角度；背景按 BG_SWAY 缩小，做出纵深。
-const SWAY_AMPLITUDE = Object.freeze({
-    weak: Object.freeze({ x: 0.6, y: 2.5, r: 0.08, shake: 0 }),
-    medium: Object.freeze({ x: 1.4, y: 5, r: 0.25, shake: 0 }),
-    strong: Object.freeze({ x: 2.2, y: 7, r: 0.45, shake: 1.6 }),
-});
-// 独处不晃床，只留很轻的颤：几乎不左右摆，抖动比下压明显。按晃动档位缩放。
-const SOLO_SWAY = Object.freeze({ x: 0.25, y: 1, r: 0.03, shake: 0.7 });
-const SOLO_SWAY_SCALE = Object.freeze({ weak: 0.6, medium: 1, strong: 1.4 });
-const BG_SWAY = 0.45;
-const CAST_SWAY = 0.8;
-
-const MATERIAL_WORDS = Object.freeze([
-    ['metal', ['铁床', '病床', '医院', '病房', '医务室', '保健室', '监狱', '牢房', '囚室', '铁架']],
-    ['leather', ['车内', '车里', '车上', '车厢', '轿车', '汽车', '驾驶', '后座']],
-    ['sofa', ['沙发', '客厅', '休息室', '会客']],
-    ['futon', ['榻榻米', '和室', '被褥', '地铺', '旅馆', '温泉', '浴室', '浴缸', '野外', '草地', '森林', '帐篷', '地板']],
-]);
-const INTIMATE_MATERIALS = Object.freeze(['wood', ...MATERIAL_WORDS.map(([kind]) => kind)]);
-
-// 按地点选床的材质；认不出来时是木床。
-function resolveIntimateMaterial(location) {
-    const text = String(location || '');
-    if (!text) return 'wood';
-    const hit = MATERIAL_WORDS.find(([, words]) => words.some((word) => text.includes(word)));
-    return hit ? hit[0] : 'wood';
-}
-
-// 情事阶段来自 NSFW 连续段位置（romance-settings.resolveNsfwSpan）：
-// 段在本楼层内结束时，最后 2 页为余韵、再往前 1 页为顶点；开头 2 页（非延续）为升温。短段不硬拆顶点与余韵。
-function resolveIntimatePhase(span) {
-    if (!span) return 'steady';
-    const fromEnd = span.length - 1 - span.index;
-    if (span.endsInFloor && span.length >= 3 && fromEnd <= 1) return 'after';
-    if (span.endsInFloor && span.length >= 4 && fromEnd === 2) return 'climax';
-    if (!span.continued && span.index < 2) return 'rise';
-    return 'steady';
-}
-
-function between([min, max], rng) {
-    return min + (max - min) * rng();
-}
-
-// 下一拍：prev 为 { t, index, bpm }，t 以秒计；返回的 gap 是到下一拍的预计间隔，供晃动曲线归一化。
-function nextBeat(prev, tempo, rng = Math.random) {
-    const bpm = prev.bpm > 0 ? prev.bpm + (tempo.bpm - prev.bpm) * TEMPO_FOLLOW : tempo.bpm * 0.8;
-    let gap = (60 / bpm) * (1 + (rng() * 2 - 1) * tempo.jitter);
-    const roll = rng();
-    if (roll < tempo.double) gap *= 0.5;
-    else if (roll < tempo.double + tempo.skip) gap *= 2;
-    gap = Math.max(MIN_GAP_S, gap);
-    return {
-        t: prev.t + gap,
-        index: prev.index + 1,
-        bpm,
-        velocity: between(tempo.velocity, rng),
-        swell: tempo.swell || 1,
-        jx: rng() * 2 - 1,
-        jy: rng() * 2 - 1,
-    };
-}
-
-// 一拍内的下压曲线（0..1）：前 28% 快速压下，其余时间缓缓回弹。
-function beatPush(phase) {
-    const p = Math.min(1, Math.max(0, phase));
-    if (p < 0.28) return Math.sin((p / 0.28) * Math.PI / 2);
-    return 0.5 * (1 + Math.cos(Math.PI * (p - 0.28) / 0.72));
-}
-
-// beat 为最近一次已到点的节拍，gap 为它到下一拍的间隔；返回舞台位移 { x, y, r }（像素 / 度）。
-// 左右与摆动逐拍换向；强档叠加随拍衰减的随机抖动。fade 用于停下时平滑归零。
-function swayAt(beat, gap, now, amplitude, fade = 1) {
-    if (!beat || !amplitude || !(gap > 0)) return { x: 0, y: 0, r: 0 };
-    const dt = Math.max(0, now - beat.t);
-    const push = beatPush(dt / gap) * beat.velocity * (beat.swell || 1) * fade;
-    const side = beat.index % 2 ? 1 : -1;
-    const shake = amplitude.shake ? amplitude.shake * Math.exp(-dt * 7) * (beat.swell || 1) * fade : 0;
-    return {
-        x: round(amplitude.x * push * side + shake * beat.jx),
-        y: round(amplitude.y * push + shake * beat.jy),
-        r: round(amplitude.r * push * side, 3),
-    };
-}
-
-// 心跳两下（咚、咚）：第二下更轻，间隔随心率收窄。dt 为距本次心跳的秒数。
-function heartGap(bpm) {
-    return Math.min(0.26, (0.32 * 60) / Math.max(40, bpm));
-}
-function heartPulse(dt, bpm) {
-    if (!(dt >= 0)) return 0;
-    const bump = (x) => Math.exp(-((x / 0.07) ** 2));
-    return round(Math.min(1, bump(dt) + 0.6 * bump(dt - heartGap(bpm))), 3);
-}
-
-function round(value, digits = 2) {
-    return Number(value.toFixed(digits));
-}
-
-__igsDefine(exports, "resolveIntimateTempo", () => resolveIntimateTempo);
-__igsDefine(exports, "resolveIntimateMaterial", () => resolveIntimateMaterial);
-__igsDefine(exports, "resolveIntimatePhase", () => resolveIntimatePhase);
-__igsDefine(exports, "nextBeat", () => nextBeat);
-__igsDefine(exports, "beatPush", () => beatPush);
-__igsDefine(exports, "swayAt", () => swayAt);
-__igsDefine(exports, "heartGap", () => heartGap);
-__igsDefine(exports, "heartPulse", () => heartPulse);
-__igsDefine(exports, "INTIMATE_PHASES", () => INTIMATE_PHASES);
-__igsDefine(exports, "PHASE_TEMPO", () => PHASE_TEMPO);
-__igsDefine(exports, "SOLO_TEMPO", () => SOLO_TEMPO);
-__igsDefine(exports, "HEART_BPM", () => HEART_BPM);
-__igsDefine(exports, "BREATH_PERIOD", () => BREATH_PERIOD);
-__igsDefine(exports, "DUCK_BY_LEVEL", () => DUCK_BY_LEVEL);
-__igsDefine(exports, "SWAY_AMPLITUDE", () => SWAY_AMPLITUDE);
-__igsDefine(exports, "SOLO_SWAY", () => SOLO_SWAY);
-__igsDefine(exports, "SOLO_SWAY_SCALE", () => SOLO_SWAY_SCALE);
-__igsDefine(exports, "BG_SWAY", () => BG_SWAY);
-__igsDefine(exports, "CAST_SWAY", () => CAST_SWAY);
-__igsDefine(exports, "INTIMATE_MATERIALS", () => INTIMATE_MATERIALS);
-});
 __igsRegister("src/visual/igs-ui/dialog-text-effect.js", function(module, exports, require) {
 // 文字增强（readerSettings.dialogTextEffect）：对话框正文与窄屏阅读模式共用同一算法。
 // 返回 { paintOrder, stroke, shadow }；没开或参数不合法时三项都是空串。
@@ -162413,7 +163361,6 @@ __igsDefine(exports, "getDialogThemeTitleCardStyleText", () => getDialogThemeTit
 });
 __igsRegister("src/visual/igs-ui/settings-host-render.js", function(module, exports, require) {
 const { readLive2dConfig } = require("src/visual/igs-ui/live2d-config.js");
-const { NAI_QUEUE_REFERENCE_ENDPOINT } = require("src/generated-images/nai-cloud-queue-settings.js");
 const { renderLive2dLibrary } = require("src/visual/igs-ui/live2d-panel.js");
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
 const { DIALOG_SKIN_MERMAID, MERMAID_TONES, normalizeMermaidAccent, normalizeMermaidTone } = require("src/visual/igs-ui/dialog-theme-mermaid.js");
@@ -162468,6 +163415,7 @@ const { COMBAT_COOLDOWN_CHOICES, COMBAT_FREQUENCIES, defaultCombatRuleText } = r
 const { ensureEnemyAtlas, renderCombatEnemyAtlasField } = require("src/visual/igs-ui/combat-enemy-atlas.js");
 const { renderCombatEnemySprites } = require("src/visual/igs-ui/combat-enemy-sprites.js");
 const { COMBAT_KIND_LABELS, COMBAT_PANEL_SKINS, COMBAT_PANEL_SKIN_LABELS, COMBAT_FREQUENCY_LABELS, DAILY_COOLDOWN_CHOICES, DAILY_STAKES, DAILY_STAKE_LABELS, BATTLE_MODES, BATTLE_MODE_LABELS, BATTLE_MODE_PATH, battleModeOf, normalizeCombatExpansionSettings } = require("src/visual/igs-ui/combat-settings.js");
+const { INTIMATE_POSITIONS, INTIMATE_POSITION_LABELS } = require("src/scene/intimate-duel.js");
 const { buildStatsPageValues } = require("src/visual/igs-ui/stats-settings-fields.js");
 const { resolveWorldview } = require("src/scene/worldview.js");
 const { applyFxWorldview } = require("src/scene/fx-era.js");
@@ -162653,6 +163601,8 @@ function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSet
                             + (daily ? field(`${p}.daily.perDay`, '每日挑战次数', selectInput(`${p}.daily.perDay`, cx.daily.perDay, [1, 2, 3, 4, 5, 0].map((n) => [n, n ? `${n}次` : '不限'])))
                             + field(`${p}.daily.stake`, '挑战失败代价', segmentedInput(`${p}.daily.stake`, cx.daily.stake, DAILY_STAKES.map((k) => [k, DAILY_STAKE_LABELS[k]]), '挑战失败代价')) : ''),
                         combatRuleSwitches: daily ? `<div class="igs-source-filter-grid">${checkbox(`${p}.daily.allowEscape`, cx.daily.allowEscape, '挑战允许放弃')}</div>` : '',
+                        combatIntimateFields: field(`${p}.intimate.position`, '我的位置', segmentedInput(`${p}.intimate.position`, cx.intimate.position, INTIMATE_POSITIONS.map((k) => [k, INTIMATE_POSITION_LABELS[k]]), '我的位置')),
+                        combatIntimateSwitches: `<div class="igs-source-filter-grid">${checkbox(`${p}.intimate.enabled`, cx.intimate.enabled, '亲密对决')}${checkbox(`${p}.intimate.launch`, cx.intimate.launch, '显示发起按钮', !cx.intimate.enabled)}</div>`,
                         combatLineSwitches: checkbox(`${p}.lines.show`, cx.lines.show, '显示战斗台词')
                             + checkbox(`${p}.lines.tts`, cx.lines.tts, '朗读战斗台词', !cx.lines.show)
                             + checkbox('bridge.autoIllustration.assets.creatureAutoProfile', autoProfile, '战斗对手自动建档', !creatureOn),
@@ -162917,10 +163867,12 @@ function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSet
                 autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '每次写词请求最后插入')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
                 autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）'], ['auto', '自动（酒馆代理已开启时经酒馆转发）']])),
-                autoNaiIntervalField: field('bridge.autoIllustration.nai.minIntervalMs', '生图最小间隔（毫秒）', numberInput('bridge.autoIllustration.nai.minIntervalMs', auto.nai.minIntervalMs, 0, 60000), '同一密钥上次请求结束后再等待，默认 2000 毫秒；0 为不额外等待。仅作用于本页内置 NAI，生成与局部重绘共用。'),
-                autoNaiCloudQueueFields: checkbox('bridge.autoIllustration.nai.cloudQueue.enabled', auto.nai.cloudQueue.enabled, '启用云端队列')
-                    + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列服务地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, NAI_QUEUE_REFERENCE_ENDPOINT), '默认使用智绘姬公共队列，留空也恢复该地址；这不是 NAI 生图接口。共用密钥的人须使用同一节点。仅发送密钥的 SHA-256 标识和随机排队编号，不发送密钥原文、提示词或图片。')
-                    + field('bridge.autoIllustration.nai.cloudQueue.timeoutMs', '排队最长等待（毫秒）', numberInput('bridge.autoIllustration.nai.cloudQueue.timeoutMs', auto.nai.cloudQueue.timeoutMs, 10000, 900000), '默认 180000（3 分钟），不占用生图超时。队列不可用时停止本次生成。智绘姬公共节点源码的锁仅有效 15 秒且不能续租；慢图或未接队列的其它请求仍可能触发 429。'),
+                autoNaiQueueOpen: advancedOpen('nai-queue'),
+                autoNaiIntervalFields: checkbox('bridge.autoIllustration.nai.minIntervalEnabled', auto.nai.minIntervalEnabled, '生图间隔')
+                    + field('bridge.autoIllustration.nai.minIntervalMs', '间隔（毫秒）', numberInput('bridge.autoIllustration.nai.minIntervalMs', auto.nai.minIntervalMs, 0, 60000, !auto.nai.minIntervalEnabled), '同一密钥两次请求之间的等待时间。'),
+                autoNaiCloudQueueFields: checkbox('bridge.autoIllustration.nai.cloudQueue.enabled', auto.nai.cloudQueue.enabled, '云端排队')
+                    + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, '填写后生效'), '多人共用同一密钥时使用，各方须填写同一地址。')
+                    + field('bridge.autoIllustration.nai.cloudQueue.timeoutMs', '最长排队（毫秒）', numberInput('bridge.autoIllustration.nai.cloudQueue.timeoutMs', auto.nai.cloudQueue.timeoutMs, 10000, 900000)),
                 autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', 'NAI API 地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方，或填写中转生图接口')),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'API Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, '填写官方或中转服务的 Key')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
@@ -164138,9 +165090,8 @@ const IMAGE_SOURCE_TEMPLATE = `
       <div class="igs-source-filter-grid">
         {{autoNaiEndpointField}}{{autoNaiKeyField}}
         {{autoNaiModelField}}{{autoNaiEffortField}}{{autoNaiSizeField}}
-        {{autoNaiTransportField}}{{autoNaiIntervalField}}
+        {{autoNaiTransportField}}
       </div>
-      <div class="igs-settings-sub">{{autoNaiCloudQueueFields}}</div>
       {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}
@@ -164152,6 +165103,11 @@ const IMAGE_SOURCE_TEMPLATE = `
           {{autoNaiStepsField}}{{autoNaiScaleField}}
           {{autoNaiSamplerField}}
         </div>
+      </details>
+      <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai-queue"{{autoNaiQueueOpen}}>
+        <summary>间隔与排队</summary>
+        <div class="igs-settings-sub">{{autoNaiIntervalFields}}</div>
+        <div class="igs-settings-sub">{{autoNaiCloudQueueFields}}</div>
       </details>
     </div>
     <div class="igs-settings-sub" data-image-source="extension"{{sourceExtensionHidden}}>
@@ -164469,6 +165425,12 @@ const COMBAT_TEMPLATE = `
     {{combatRuleSwitches}}
   </div>
   <div class="igs-source-filter"{{battleCardHidden}}>
+    <div class="igs-source-filter-title">亲密对决</div>
+    {{combatIntimateSwitches}}
+    <div class="igs-source-filter-grid">{{combatIntimateFields}}</div>
+    <div class="igs-source-filter-note">需同时开启NSFW。对决期间对方使用动情表情。</div>
+  </div>
+  <div class="igs-source-filter"{{battleCardHidden}}>
     <div class="igs-source-filter-title">台词与敌人</div>
     <div class="igs-source-filter-grid">{{combatLineSwitches}}</div>
     {{combatAtlasField}}
@@ -164532,7 +165494,9 @@ const STATS_TEMPLATE = `
         <div class="igs-source-filter-note">表格里的数值只作展示；在表格里改动的数值会在下一次同步时被覆盖。</div>
         <div class="igs-source-filter-note">推荐导入「IGS数值系统适配版」表格模板：填表AI不再改好感与属性，导入后无需配置。</div>
         <div class="igs-settings-row">
-          <button class="igs-settings-action" data-action="stats-template-download" type="button">下载适配版表格模板</button>
+          <button class="igs-settings-action" data-action="stats-template-import" type="button">存入数据库模板</button>
+          <button class="igs-settings-action" data-action="stats-template-apply-chat" type="button">应用到当前聊天</button>
+          <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板文件</button>
         </div>
       </div>
       <div class="igs-source-filter">{{statsPromptFields}}</div>
@@ -165346,126 +166310,6 @@ __igsDefine(exports, "dataFieldLabel", () => dataFieldLabel);
 __igsDefine(exports, "roleLabel", () => roleLabel);
 __igsDefine(exports, "clockText", () => clockText);
 });
-__igsRegister("src/data/shujuku/client.js", function(module, exports, require) {
-function createShujukuClient(api) {
-    return {
-        // kept for backward compat — simulate.test.js depends on this
-        async updateRowAndRefresh(tableName, rowIndex, patch) {
-            if (!api || typeof api.updateRow !== 'function')
-                return { ok: false, reason: 'missing-update-row' };
-            const updateResult = await api.updateRow(tableName, rowIndex, patch);
-            if (!isSuccessful(updateResult))
-                return { ok: false, reason: 'update-row-failed', result: updateResult };
-            if (typeof api.refreshDataAndWorldbook === 'function') {
-                const refreshResult = await api.refreshDataAndWorldbook();
-                if (!isSuccessful(refreshResult))
-                    return { ok: false, reason: 'refresh-worldbook-failed', result: refreshResult };
-            }
-            return { ok: true, tableName, rowIndex, patch };
-        },
-
-        readTables() {
-            if (!api || typeof api.exportTableAsJson !== 'function')
-                return { ok: false, reason: 'missing-api' };
-            try {
-                return { ok: true, data: api.exportTableAsJson() };
-            } catch (e) {
-                return { ok: false, reason: String(e && e.message || 'read-failed') };
-            }
-        },
-
-        async updateCell(tableName, rowIndex, colName, value) {
-            if (!api || typeof api.updateCell !== 'function')
-                return { ok: false, reason: 'missing-api' };
-            const result = await api.updateCell(tableName, rowIndex, colName, String(value));
-            return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'update-failed' };
-        },
-
-        // options 只在调用方传入时使用对象参数形式（如 skipNotify），不传时保持原来的位置参数调用。
-        async insertRow(tableName, rowData, options) {
-            if (!api || typeof api.insertRow !== 'function')
-                return { ok: false, reason: 'missing-api' };
-            const result = options && typeof options === 'object'
-                ? await api.insertRow({ ...options, tableName, data: rowData })
-                : await api.insertRow(tableName, rowData);
-            if (!isSuccessful(result)) return { ok: false, reason: 'insert-failed' };
-            return typeof result === 'number' ? { ok: true, rowIndex: result } : { ok: true };
-        },
-
-        // rowIndex 为宿主表内容下标（表头为 0，首条数据为 1）；options 只在调用方传入时使用对象参数形式（如 skipNotify），不传时保持位置参数调用。
-        async updateRow(tableName, rowIndex, patch, options) {
-            if (!api || typeof api.updateRow !== 'function')
-                return { ok: false, reason: 'missing-api' };
-            const result = options && typeof options === 'object'
-                ? await api.updateRow({ ...options, tableName, rowIndex, data: patch })
-                : await api.updateRow(tableName, rowIndex, patch);
-            return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'update-failed' };
-        },
-
-        async deleteRow(tableName, rowIndex, options) {
-            if (!api || typeof api.deleteRow !== 'function')
-                return { ok: false, reason: 'missing-api' };
-            const result = options && typeof options === 'object'
-                ? await api.deleteRow({ ...options, tableName, rowIndex })
-                : await api.deleteRow(tableName, rowIndex);
-            return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'delete-failed' };
-        },
-
-        // 当前聊天生效的表格模板（只读副本由调用方自行克隆）；宿主返回字符串时按 JSON 解析。
-        getTableTemplate() {
-            if (!api || typeof api.getTableTemplate !== 'function')
-                return { ok: false, reason: 'missing-api' };
-            try {
-                const raw = api.getTableTemplate({ scope: 'chat' });
-                const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                return data && typeof data === 'object' && !Array.isArray(data)
-                    ? { ok: true, data }
-                    : { ok: false, reason: 'template-unavailable' };
-            } catch (e) {
-                return { ok: false, reason: 'template-read-failed', message: String(e && e.message || e) };
-            }
-        },
-
-        // 只调用宿主自带的模板导入，不自行实现导入逻辑。
-        async importTemplate(template, options = {}) {
-            if (!api || typeof api.importTemplateFromData !== 'function')
-                return { ok: false, reason: 'missing-api' };
-            try {
-                const result = await api.importTemplateFromData(template, options);
-                if (result && typeof result === 'object' && result.success === true) return { ok: true, result };
-                return { ok: false, reason: 'import-failed', message: String(result && (result.error || result.message) || '') };
-            } catch (e) {
-                return { ok: false, reason: 'import-failed', message: String(e && e.message || e) };
-            }
-        },
-
-        async refresh() {
-            if (!api || typeof api.refreshDataAndWorldbook !== 'function')
-                return { ok: false, reason: 'missing-api' };
-            await api.refreshDataAndWorldbook();
-            return { ok: true };
-        },
-
-        registerCallback(cb) {
-            if (api && typeof api.registerTableUpdateCallback === 'function')
-                api.registerTableUpdateCallback(cb);
-        },
-
-        unregisterCallback(cb) {
-            if (api && typeof api.unregisterTableUpdateCallback === 'function')
-                api.unregisterTableUpdateCallback(cb);
-        },
-    };
-}
-
-function isSuccessful(result) {
-    if (result == null || result === false || result === -1) return false;
-    if (typeof result === 'object' && result.success === false) return false;
-    return true;
-}
-
-__igsDefine(exports, "createShujukuClient", () => createShujukuClient);
-});
 __igsRegister("src/scene/stats/stat-settings.js", function(module, exports, require) {
 // 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
 const { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } = require("src/scene/stats/stat-prompt.js");
@@ -165655,6 +166499,7 @@ __igsDefine(exports, "STATS_SETTINGS_DEFAULTS", () => STATS_SETTINGS_DEFAULTS);
 __igsRegister("src/scene/stats/stat-prompt.js", function(module, exports, require) {
 // 数值系统提示词注入段（§9）：每段一个可编辑模板，用户覆盖优先，可单独关闭。
 // 模板变量写错或缺失时原样保留变量名并记诊断，不中断（§9 末条）。
+const { grudgeTier } = require("src/scene/stats/stat-state.js");
 const { FAVOR_GATES, gateKey, stageOf } = require("src/scene/stats/stat-favor.js");
 const { healthStatus, walletBalance, STAMINA_LOW, STRESS_HIGH } = require("src/scene/stats/stat-bars.js");
 const { FAVOR_DIRECTIONS, HURT_TIERS, MONEY_TIERS, STAMINA_EVENTS } = require("src/scene/stats/stat-vocab.js");
@@ -165684,7 +166529,7 @@ const BASE_PROMPTS = {
     sheetGen: '你是跑团数值设计。按角色资料给每个角色分配数值，只输出档位词，不输出任何数字。\n属性档：很弱、偏弱、普通、出众、顶尖（非人可用「超凡」），属性写 力量、敏捷、体质、智力、感知、魅力 与 理智。技能档（相对主角同项技能）：生疏、略逊、相当、擅长、精通、大师，相当表示与主角接近，向上依次为擅长、精通、大师，向下为略逊、生疏，完全不会写「未学」。资历：普通人、老手、精英、大师、传奇。\n只列与「普通 / 未学」不同的项。招牌技能最多 3 个，可以是清单外的新技能，并写所属属性（力量、敏捷、体质、智力、感知、魅力之一）。\n只输出 JSON：{"角色名":{"资历":"","属性":{"属性名":"档"},"技能":{"技能名":"档"},"招牌技能":[{"名":"","属性":""}]}}',
     backfill: '你是跑团数值设计。剧情里出现了新技能，请按角色资料给每个角色补一个技能档位，只输出档位词，不输出任何数字。\n技能档：主角用未学、入门、熟练；其他角色用相对主角同项技能的生疏、略逊、相当、擅长、精通、大师。没有相关经历一律写「未学」。\n只输出 JSON：{"角色名":{"技能名":"档"}}',
     heroSkills: '你是跑团数值设计。按主角的人设与经历，为可分配技能逐项评定档位，只输出档位词，不输出任何数字。\n档位：未学、入门、熟练、精通、大师。名额有限：大师至多 1 项，精通至多 2 项，熟练至多 6 项，入门至多 8 项，其余一律写「未学」。\n只给与人设有明确关联的技能评档，没有相关经历的写「未学」。\n只输出 JSON：{"技能名":"档"}',
-    tags: '【数值标签】正文末尾按需输出以下标签，只写档位，不写任何数字：\n[igs-stat:favor|角色名|{{好感档位}}]\n[igs-stat:start|角色名|仇视/疏远/陌生/熟人/朋友/亲密/恋人]（角色第一次出场、上文没有列出其关系阶段时写一次，按人设与既往关系选起始关系）\n[igs-stat:trust|角色名|上升/下降]\n[igs-stat:stamina|{{体力档位}}]\n[igs-stat:money|收入/花费|{{金钱档位}}]\n[igs-stat:stress|上升/下降]\n[igs-stat:hurt|{{伤势档位}}]\n[igs-stat:sleep]（入睡）\n[igs-stat:event|角色名|约会/告白/共患难]\n[igs-stat:gift|角色名|礼物类别]\n[igs-stat:skip|7天]（时间跳跃）\n[igs-stat:grow|角色名|技能名]（剧情明确写了苦练、拜师等长期成长时才写，同一角色同一技能一天一次，不写数字）',
+    tags: '【数值标签】正文末尾按需输出以下标签，只写档位，不写任何数字：\n[igs-stat:favor|角色名|{{好感档位}}]\n[igs-stat:start|角色名|仇视/疏远/陌生/熟人/朋友/亲密/恋人]（角色第一次出场、上文没有列出其关系阶段时写一次，按人设与既往关系选起始关系）\n[igs-stat:trust|角色名|上升/下降]\n[igs-stat:grudge|角色名|上升/下降]（芥蒂是角色对主角的不满与心结，从心生不满到深仇大恨都算，与好感、信任互不影响，可同时很高）\n[igs-stat:stamina|{{体力档位}}]\n[igs-stat:money|收入/花费|{{金钱档位}}]\n[igs-stat:stress|上升/下降]\n[igs-stat:hurt|{{伤势档位}}]\n[igs-stat:sleep]（入睡）\n[igs-stat:event|角色名|约会/告白/共患难]\n[igs-stat:gift|角色名|礼物类别]\n[igs-stat:skip|7天]（时间跳跃）\n[igs-stat:grow|角色名|技能名]（剧情明确写了苦练、拜师等长期成长时才写，同一角色同一技能一天一次，不写数字）',
     mandates: '【本轮必须写出】{{事项}}',
 };
 
@@ -165744,6 +166589,8 @@ function describeCombination(dims) {
     const notes = [];
     if (favor > 25 && trust <= 0) notes.push('喜欢但仍有防备');
     if (favor < 0 && trust > 25) notes.push('不喜欢主角但信得过');
+    const grudge = grudgeTier(dims.芥蒂);
+    if (grudge) notes.push(`对主角心存芥蒂（${grudge}）`);
     if (know < 0) notes.push('对主角有误解');
     else if (know > 50) notes.push('很了解主角');
     return notes.length ? `（${notes.join('，')}）` : '';
@@ -165965,9 +166812,19 @@ const ROLL_DIFFICULTIES = Object.freeze(['简单', '普通', '困难', '极难']
 // 起始关系档 → 好感初值：角色第一次出场时按人设与既往关系定，之后只按方向增减。
 const START_FAVOR = Object.freeze({ 仇视: -40, 疏远: -15, 陌生: 0, 熟人: 15, 朋友: 30, 亲密: 55, 恋人: 80 });
 const START_RELATIONS = Object.freeze(Object.keys(START_FAVOR));
+// 起始关系同时定了解与信任：朋友、亲密、恋人必须彼此熟悉，不能只有好感。
+const START_DIMS = Object.freeze({
+    仇视: Object.freeze({ 好感: -40, 信任: -30, 了解: 10 }),
+    疏远: Object.freeze({ 好感: -15, 信任: -10, 了解: 5 }),
+    陌生: Object.freeze({ 好感: 0, 信任: 0, 了解: 0 }),
+    熟人: Object.freeze({ 好感: 15, 信任: 10, 了解: 15 }),
+    朋友: Object.freeze({ 好感: 30, 信任: 25, 了解: 35 }),
+    亲密: Object.freeze({ 好感: 55, 信任: 45, 了解: 55 }),
+    恋人: Object.freeze({ 好感: 80, 信任: 60, 了解: 70 }),
+});
 
 // 维度类标签：英文名与中文名都映射到规范维度名。
-const DIM_KINDS = Object.freeze({ trust: '信任', 信任: '信任', know: '了解', 了解: '了解', desire: '欲望', 欲望: '欲望' });
+const DIM_KINDS = Object.freeze({ trust: '信任', 信任: '信任', know: '了解', 了解: '了解', desire: '欲望', 欲望: '欲望', grudge: '芥蒂', 芥蒂: '芥蒂', 仇怨: '芥蒂', 怨气: '芥蒂', 恨: '芥蒂', 怨: '芥蒂', 怨恨: '芥蒂', 敌意: '芥蒂', 仇恨: '芥蒂', 记恨: '芥蒂', 心结: '芥蒂', 隔阂感: '芥蒂' });
 
 const UP_DOWN = { 提升: '上升', 增加: '上升', 升高: '上升', 上涨: '上升', 变高: '上升', 降低: '下降', 减少: '下降', 下跌: '下降', 变低: '下降' };
 
@@ -166017,6 +166874,7 @@ __igsDefine(exports, "KEY_EVENTS", () => KEY_EVENTS);
 __igsDefine(exports, "ROLL_DIFFICULTIES", () => ROLL_DIFFICULTIES);
 __igsDefine(exports, "START_FAVOR", () => START_FAVOR);
 __igsDefine(exports, "START_RELATIONS", () => START_RELATIONS);
+__igsDefine(exports, "START_DIMS", () => START_DIMS);
 __igsDefine(exports, "DIM_KINDS", () => DIM_KINDS);
 });
 __igsRegister("src/scene/stats/stat-rng.js", function(module, exports, require) {
@@ -167357,16 +168215,17 @@ const { menuItem, renderRowMenu, thumb: outfitThumb } = require("src/visual/igs-
 const encSeg = (value) => encodeURIComponent(String(value));
 const plain = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 
-// 敌人名单的数据源：本卡 characterDna 里带 creature 档案的条目。
+// 敌人名单的数据源：本卡 characterDna 里带 creature 档案或 combatFoe 标记的条目。
 // 战斗对手自动建档（临时档）与手动设为非人的角色都落在这里，开战预热与楼层补全也只在这里建档；
+// 判定为人类或在本页取消非人的对手带 combatFoe 标记（profile 为 null），同样留在名单。
 // 战斗留档只记数值，不含外貌档案，所以不作为来源。临时档在前，按最近出场倒序。
 function listCombatEnemies(sceneAssets) {
     const dnaMap = plain(plain(sceneAssets).characterDna);
+    const temp = (item) => Number(item.profile?.temp === true);
     return Object.keys(dnaMap)
-        .map((name) => ({ name, profile: storedCreatureOf(dnaMap[name]) }))
-        .filter((item) => item.profile)
-        .sort((a, b) => (Number(b.profile.temp === true) - Number(a.profile.temp === true))
-            || ((b.profile.seenAt || 0) - (a.profile.seenAt || 0)));
+        .map((name) => ({ name, profile: storedCreatureOf(dnaMap[name]), human: plain(dnaMap[name]).combatFoe === true }))
+        .filter((item) => item.profile || item.human)
+        .sort((a, b) => (temp(b) - temp(a)) || ((b.profile?.seenAt || 0) - (a.profile?.seenAt || 0)));
 }
 
 function adoptedUrl(sceneAssets, name) {
@@ -167408,8 +168267,9 @@ function renderCombatEnemySprites({ sceneAssets = {}, resolveUrl, tempSprite, is
         const note = String(notes[name] || '').trim();
         const menu = renderRowMenu([
             menuItem(`combat-enemy-sprite:note:${e}`, note ? '修改写词备注' : '写词备注'),
-            profile.temp ? menuItem(`char-creature:temp:${e}:false`, '转为正式角色') : '',
-            menuItem(`char-creature:enabled:${e}:false`, '取消非人角色'),
+            profile?.temp ? menuItem(`char-creature:temp:${e}:false`, '转为正式角色') : '',
+            profile ? menuItem(`char-creature:enabled:${e}:human`, '取消非人角色') : menuItem(`char-creature:enabled:${e}:true`, '设为非人角色'),
+            profile ? '' : menuItem(`combat-enemy-sprite:unlist:${e}`, '移出敌人名单'),
             state.kind === 'none' ? '' : menuItem(`combat-enemy-sprite:remove:${e}`, '删除立绘', ' is-danger'),
         ], `「${name}」的操作`);
         // 卡片结构与衣柜一致：竖图缩略图 → 名字 + ⋯ → 来源 → 生成/重画。
@@ -167417,12 +168277,12 @@ function renderCombatEnemySprites({ sceneAssets = {}, resolveUrl, tempSprite, is
             + outfitThumb(state.url, `${name}立绘`, '', resolveUrl)
             + `<span class="igs-btn-mgr-label igs-wardrobe-name"${note ? ` title="写词备注：${esc(note)}"` : ''}>${esc(name)}</span>`
             + menu
-            + `<span class="igs-outfit-muted">${profile.temp ? '临时档' : '非人'} · ${esc(STATE_SHORT[state.kind])}</span>`
+            + `<span class="igs-outfit-muted">${!profile ? '人类' : profile.temp ? '临时档' : '非人'} · ${esc(STATE_SHORT[state.kind])}</span>`
             + `<button type="button" class="igs-review-link igs-outfit-quick-btn" data-action="char-generate-sprite:${e}">${state.kind === 'none' ? '生成立绘' : '重画'}</button>`
             + '</div></div>';
     }).join('');
     return head
-        + '<div class="igs-source-filter-note">本卡登记为非人角色的战斗对手。开战标签出现时自动备图；无立绘时战斗中用图集或剪影。</div>'
+        + '<div class="igs-source-filter-note">本卡的战斗对手，含人类与非人角色。开战标签出现时自动备图；无立绘时战斗中用图集或剪影。</div>'
         + (rows ? `<div class="igs-btn-mgr-list igs-wardrobe-list is-tall">${rows}</div>` : '<div class="igs-scene-empty">本卡暂无战斗对手档案</div>')
         + '</details>';
 }
@@ -167440,6 +168300,7 @@ const { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } = require("src/combat/abili
 const { rulesetOptions } = require("src/scene/stats/rulesets/index.js");
 const { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } = require("src/visual/igs-ui/settings-fields.js");
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
+const { grudgeTier } = require("src/scene/stats/stat-state.js");
 // 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
 const STAT_PROMPT_LABELS = Object.freeze({
     source: '数值来源声明',
@@ -167664,8 +168525,9 @@ function renderStatsArchive(model, advancedOpen = () => '') {
     const n = (v) => esc(String(Math.round(Number(v) || 0)));
     const people = model.characters.length
         ? model.characters.map((c) => {
-            const dims = Object.entries(c.dims).map(([k, v]) => `${esc(k)} ${n(v)}`).join(' · ');
-            return `<div class="igs-source-filter-note"><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</div>`;
+            const dims = Object.entries(c.dims).filter(([k, v]) => k !== '芥蒂' || grudgeTier(v)).map(([k, v]) => `${esc(k)} ${k === '芥蒂' ? esc(grudgeTier(v)) : n(v)}`).join(' · ');
+            return `<div class="igs-settings-field"><span><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</span><div class="igs-mood-word-list">`
+                + `<button class="igs-settings-action" data-action="stats-op:relation-set:${esc(encodeURIComponent(c.name))}" type="button">修改</button></div></div>`;
         }).join('')
         : '<div class="igs-source-filter-note">还没有登记的角色。</div>';
     const log = model.log.length
@@ -168510,11 +169372,13 @@ const { COMBAT_AWAKEN_END, COMBAT_CUTIN_MS, buildAwakenCutin, buildOpeningCutin,
 const { battleSfxKind } = require("src/visual/igs-ui/fx-battle-sfx.js");
 const { KO_FALL_SFX_DELAY_MS, koFallKind, koFallSfx, playKoFall } = require("src/visual/igs-ui/combat-ko-fall.js");
 const { createCombatLines } = require("src/visual/igs-ui/combat-lines.js");
+const { createIntimateDuelFx } = require("src/visual/igs-ui/intimate-duel-fx.js");
+const { createDuelLowGate } = require("src/scene/intimate-duel.js");
 const { combatPortraitNames } = require("src/scene/creature-battle.js");
 const { ensureFxLayers } = require("src/visual/igs-ui/fx-layer.js");
 const { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } = require("src/visual/igs-ui/combat-hit-fx.js");
 const { battleView, challengeLobbyView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } = require("src/visual/igs-ui/combat-panel-model.js");
-const { combatIntroUiHtml, combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } = require("src/visual/igs-ui/combat-panel-render.js");
+const { cardTipHtml, combatIntroUiHtml, combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } = require("src/visual/igs-ui/combat-panel-render.js");
 const { actionProgress } = require("src/combat/engine.js");
 const { autoTargetFor, openTargetPicker, skinPickerVars } = require("src/visual/igs-ui/combat-target-picker.js");
 const { enemyArtCell } = require("src/visual/igs-ui/combat-enemy-art.js");
@@ -168703,6 +169567,21 @@ function createCombatPanelController(doc, options = {}) {
             return { show: lines?.show !== false, tts: lines?.tts !== false };
         },
     });
+    const duelFx = createIntimateDuelFx({
+        doc, getRoot: () => root, getOverlay: () => pageOverlay, sfx: (kind) => { try { options.playSfx?.(kind); } catch (error) { /* 音效失败不影响演出 */ } },
+        getRhythmSound: () => options.getDuelFx?.()?.rhythmSound !== false, reduced: () => reduced() || lowQuality(),
+    });
+    const duelLowGate = createDuelLowGate();
+    const syncDuel = (view) => {
+        if (!view.intimate || !view.battle) return;
+        const foe = view.battle.enemies[0];
+        if (!foe) return;
+        const ratio = foe.maxHp ? foe.hp / foe.maxHp : 0;
+        const cur = session()?.state();
+        try { options.onDuelProgress?.(ratio); } catch (error) { /* 立绘切换失败不影响对决 */ }
+        duelFx.sync({ ratio, turn: view.battle.turn, rounds: Number(cur?.challengeSetup?.challenge?.rounds ?? cur?.challenge?.rounds) || 0, ended: view.status === 'ended' });
+        if (view.status !== 'ended' && duelLowGate(cur?.combatId, ratio)) unitSay(foe.id, 'down');
+    };
     // 登记判定（见 combat-ko-fall.js koFallKind）：宿主 options.isRegisteredCharacter(name)、正文写了台词的角色、日常挑战的「对方」。
     const koKindOf = (unit) => {
         const cur = session()?.state();
@@ -168733,7 +169612,7 @@ function createCombatPanelController(doc, options = {}) {
         const cur = session()?.state();
         const u = cur?.battle?.units?.[unitId];
         if (!u) return;
-        unitSay(unitId, 'down');
+        if (!cur.challengeSetup?.challenge?.intimate) unitSay(unitId, 'down');
         if (u.side !== 'enemy' || reduced()) return;
         const kind = koKindOf(u);
         playKoFall(unitEl(unitId), kind, { schedule: later });
@@ -168850,8 +169729,10 @@ function createCombatPanelController(doc, options = {}) {
         const challenge = cur.kind === 'challenge';
         if (historyOpen) { view.historyOpen = true; view.challenge = true; view.history = typeof options.challengeHistory === 'function' ? options.challengeHistory() : null; }
         if (challenge) view.challenge = true;
+        const mechanic = challenge ? cur.challenge?.intimate?.mechanic || cur.challengeSetup?.challenge?.intimate?.mechanic || '' : '';
+        if (mechanic) view.intimate = mechanic;
         if (cur.status === 'lobby') view.lobby = challenge ? challengeLobbyView(cur) : lobbyView(cur);
-        if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal, { challenge });
+        if ((cur.status === 'battle' || cur.status === 'ended') && cur.battle) view.battle = battleView(cur.battle, cur.legal, { challenge: mechanic || challenge });
         // 待选阶段：只保留仍在候选里的已选牌；不在待选阶段时清空，视图不写 chosen。
         const choice = view.battle?.choice;
         if (!choice) chosen = [];
@@ -168862,7 +169743,7 @@ function createCombatPanelController(doc, options = {}) {
         if (view.battle) view.battle.items = view.battle.items.map((i) => { const imageUrl = itemArtFor(i.name); return imageUrl ? { ...i, imageUrl } : i; });
         if (view.battle && (swaps.size || entering.size)) swapView(view.battle, cur.battle);
         if (view.battle && held.size) shownHeld(view.battle);
-        if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events, { challenge, summary: cur.challengeSummary });
+        if (cur.status === 'ended' && cur.battle) view.end = endView(cur.battle, cur.events, { challenge: mechanic || challenge, summary: cur.challengeSummary });
         if (settling) view.settling = true;
         // 演出速度只在二倍速时写进视图：原速时视图形状不变。
         if (fxSpeed > 1) view.fxSpeed = fxSpeed;
@@ -168994,6 +169875,7 @@ function createCombatPanelController(doc, options = {}) {
         syncControlDock();
         if (view.intro && !stageFxStyle(skinOf())) flashScreen(false);
         syncIntro(view);
+        syncDuel(view);
         // 自己翻开神话：短暂停顿后全屏白闪（低画质不挂，减少动态效果时不闪）。
         if (!reduced() && view.flip?.struck?.some((p) => view.flip.cards.some((c) => c.position === p && c.slot?.rarity === 'mythic'))) flashScreen();
         if (lobbyDrawn) lobbyShown = true;
@@ -169002,6 +169884,7 @@ function createCombatPanelController(doc, options = {}) {
         markDrag();
         // 人物特性详情：选中的主动特性重绘后在圆球旁重新弹出（4b：点选即选中并弹详情；拖动圆球途中不弹）；否则点开的头像详情保持（单位此时可选为目标、头像不可点时收起）。
         if (view.battle && isSkillSelection(selected)) { if (!drag?.live) showTraitTip((t) => t.kind === 'active' && t.skillId === selectionSkillId(selected)); }
+        else if (view.battle && selected && !isItemSelection(selected) && !drag?.live && showCardTip(selected)) { /* 截断的牌面说明已弹出 */ }
         else if (view.battle && keepUnit) showUnitTip(keepUnit);
         if (!had) return;
         const same = act ? [...(body.querySelectorAll?.(`[data-combat-act="${act}"]`) || [])].find((n) => (n.getAttribute('data-combat-id') || '') === id) : null;
@@ -169647,8 +170530,10 @@ function createCombatPanelController(doc, options = {}) {
                 hxRun((c, sch) => hxCallout(c, { who: u.name, move: playedActionName(seg.events, cur.battle), url: portraitsFor([u.name])[u.name], schedule: sch }));
             }
         };
+        // 画布皮肤开场已有 VS 对撞，不再叠「ENCOUNTER」遭遇横幅；初始方案照旧。
+        const encounter = start && !stageFxStyle(skinOf());
         segs.forEach((seg, i) => {
-            const fx = combatFxSource(seg.events, cur.battle, { start: start && i === 0, foe, title: cur.start?.encounter || '' });
+            const fx = combatFxSource(seg.events, cur.battle, { start: encounter && i === 0, foe, title: cur.start?.encounter || '' });
             fxSeq += 1;
             const plan = planBattleFx(fx, { settings: { enabled: true, letterbox: false }, holdScale: COMBAT_FX_HOLD_SCALE, identity: { chatId: 'igs-combat', messageId: cur.combatId || '', swipeId: 0, page: fxSeq } });
             if (seg.track && dots.size) {
@@ -170091,7 +170976,9 @@ function createCombatPanelController(doc, options = {}) {
         // 打击感：结算前记下各单位血量与被打出的牌（重绘会替换节点）。
         const prior = was && !reduced() ? hpSnapshot(was) : null;
         const card = action?.type === 'play' ? captureCard(action.inst) : null;
+        const playedName = action?.type === 'play' ? was?.catalog?.[was.cards?.[action.inst]?.owner]?.[was.cards?.[action.inst]?.cardId]?.name : '';
         const r = s.act(action);
+        if (r.ok && playedName) duelFx.onPlay(playedName);
         selected = null; chosen = [];
         say(r);
         // 新动作：引擎已立即结算，演出按动作顺序逐条播放——前面的时间轴还没播完时排到它们之后（拼手速可以一口气打出多张），命中按增量落到同一份暂存血量上；
@@ -170247,6 +171134,19 @@ function createCombatPanelController(doc, options = {}) {
         showScaleTip(anchor, traitTipHtml(t));
         if (scaleTip) scaleTip.trait = t.id;
         return true;
+    }
+
+    // 选中牌的完整说明：牌面效果文字（各皮肤的说明节点）或整张牌被截断时才在牌上方弹出，放得下时不弹。
+    const CARD_TEXT_SEL = '.igs-combat-card-text,.desc,.ds,.fx';
+    const clipped = (n) => n && (n.scrollHeight > n.clientHeight + 1 || n.scrollWidth > n.clientWidth + 1);
+    function showCardTip(inst) {
+        const anchor = cardEl(inst);
+        const card = anchor ? selectionView(inst) : null;
+        if (!card) return false;
+        const texts = [...(anchor.querySelectorAll?.(CARD_TEXT_SEL) || [])];
+        if (!texts.some(clipped) && !clipped(anchor)) return false;
+        showScaleTip(anchor, cardTipHtml(card));
+        return Boolean(scaleTip);
     }
 
     // 单位详情浮层（点头像，助手 10-28）：按头像的 data-unit-info 找重绘后的节点，内容取当前战斗状态（unitDetailView）；
@@ -170418,6 +171318,7 @@ function createCombatPanelController(doc, options = {}) {
             case 'choose-confirm': return confirmChoice();
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
+            case 'stop': return sendAndLeave(() => s.abandon());
             case 'finish': return sendAndLeave(() => s.finish());
             case 'retry-send': return sendAndLeave(() => s.retrySend());
             case 'flip':
@@ -170431,6 +171332,14 @@ function createCombatPanelController(doc, options = {}) {
             case 'skip': return runAsync('skip', () => s.skip());
             case 'auto': return runAsync('auto', () => s.autoPlay());
             case 'ally': return toggleAlly(id);
+            case 'im-mech':
+            case 'im-pos': {
+                if (pending || typeof s.setIntimateOptions !== 'function') return { ok: false, reason: 'combat-busy' };
+                const r = s.setIntimateOptions(name === 'im-mech' ? { mechanic: id } : { position: id });
+                say(r);
+                render();
+                return r;
+            }
             case 'history': historyOpen = !historyOpen; render(); return { ok: true };
             case 'abandon': {
                 if (!abandonArmed) {
@@ -170587,7 +171496,7 @@ function createCombatPanelController(doc, options = {}) {
         // 不选目标的牌 / 技能（没有可选目标）：牌拖出手牌区、技能拖到战场上松在空处也打出 / 发动。
         drag.free = !selectionView(sel)?.targets?.length;
         // 拖动中不弹选中技能的详情浮层（render 也不补弹），松手或撤销后照常。
-        if (drag.skill) hideScaleTip();
+        hideScaleTip();
         const el = dragEl(drag);
         const base = stage?.getBoundingClientRect?.();
         const ghost = el && base?.width && drag.rect?.width ? ghostOf(el) : null;
@@ -170803,6 +171712,7 @@ function createCombatPanelController(doc, options = {}) {
         overlay.classList?.toggle('igs-record-screen-open', true);
         // 战斗期间隐藏背后的剧情文字（对话层），背景与立绘保留。
         overlay.setAttribute?.('data-igs-combat-open', '');
+        if (openOptions.duel === true) overlay.setAttribute?.('data-igs-duel', '');
         setStagePauseReason(overlay, PAUSE_REASON, true);
         battleMusic(overlay, true);
         const cur = s.state();
@@ -170877,6 +171787,8 @@ function createCombatPanelController(doc, options = {}) {
         stage = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
         pageOverlay?.removeAttribute?.('data-igs-combat-open');
+        pageOverlay?.removeAttribute?.('data-igs-duel');
+        duelFx.stop();
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         battleMusic(pageOverlay, false);
         pageOverlay = null;
@@ -171140,13 +172052,14 @@ __igsDefine(exports, "COMBAT_EYE_FACE_FOCUS", () => COMBAT_EYE_FACE_FOCUS);
 __igsRegister("src/visual/igs-ui/combat-panel-render.js", function(module, exports, require) {
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
 const { intentIconSvg, portraitSilhouetteSvg } = require("src/visual/igs-ui/combat-card-art.js");
-const { isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } = require("src/visual/igs-ui/combat-panel-model.js");
+const { KEYWORD_NAME_TIPS, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } = require("src/visual/igs-ui/combat-panel-model.js");
 const { LIVE_ICONS } = require("src/visual/igs-ui/danmaku-icons.js");
 const { RECORD_ICONS } = require("src/visual/igs-ui/record-icons.js");
 const { isCanvasSkin } = require("src/visual/igs-ui/combat-skin-canvas.js");
 const { CANVAS_BATTLE } = require("src/visual/igs-ui/combat-skin-registry.js");
 const { CHALLENGE_LABELS } = require("src/combat/challenge-labels.js");
 const { CHALLENGE_ACHIEVEMENTS } = require("src/combat/challenge-history.js");
+const { INTIMATE_ENDING_LINE } = require("src/scene/intimate-duel.js");
 const { resultStageHtml, stageFxStyle } = require("src/visual/igs-ui/combat-stage-fx.js");
 // 战斗面板的 HTML 片段：只输出字段、状态、错误与操作确认；动作统一走 data-combat-act / data-combat-id。
 const REASON_TEXT = Object.freeze({
@@ -171374,6 +172287,18 @@ function traitTipHtml(t) {
         + (t.origin ? `<span class="igs-combat-trait-tip-origin">${esc(t.origin)}</span>` : '');
 }
 
+// 选中牌的完整说明（牌面效果被截断时弹出）：牌名与费用、效果全文、关键字解释、加成明细。复用特性详情的样式。
+function cardTipHtml(c) {
+    if (!c) return '';
+    const meta = `消耗 ${c.cost} 点能量${c.baseCost !== undefined ? `（原 ${c.baseCost}）` : ''}`;
+    const kws = (c.keywordNames || []).map((n) => KEYWORD_NAME_TIPS[n]).filter(Boolean);
+    const notes = [c.bonusNote, c.scaleNote].filter(Boolean);
+    return `<b class="igs-combat-trait-tip-name">${esc(c.name)}${c.upgraded ? '+' : ''}</b>`
+        + `<span class="igs-combat-trait-tip-meta">${esc(meta)}</span><span class="igs-combat-trait-tip-text">${cardTextHtml(c)}</span>`
+        + kws.map((k) => `<span class="igs-combat-trait-tip-meta">${esc(k)}</span>`).join('')
+        + notes.map((n) => `<span class="igs-combat-trait-tip-origin">${esc(n)}</span>`).join('');
+}
+
 // 单位详情浮层（点头像，助手 10-28）：单位名，下面按组（人物特性 / 职业 / 装备 / 被动 / 主动 / 技能 / 阶段）列出；每项名称（特性标稀有度或「固有」）、时机或意图、效果。
 function unitTipHtml(d) {
     if (!d) return '';
@@ -171474,6 +172399,12 @@ function lobbyRewardHtml(r, pending) {
     const retry = waiting ? '' : btn('retry-reward', '重试', { disabled: Boolean(pending) });
     return `<div class="igs-combat-row igs-combat-lobby-reward" data-state="${waiting ? 'pending' : 'failed'}"><span class="igs-combat-label">${waiting ? '奖励生成中' : '奖励生成失败'}</span>${retry}</div>`;
 }
+const INTIMATE_MECHANICS_ROW = Object.freeze(['合拍', '主导']);
+const INTIMATE_POSITIONS_ROW = Object.freeze([['receive', '受方'], ['lead', '攻方']]);
+const intimateChip = (act, id, text, on, off) => `<button type="button" class="igs-combat-chip" data-combat-act="${act}" data-combat-id="${id}" aria-pressed="${on ? 'true' : 'false'}"${off ? ' aria-disabled="true"' : ''}>${text}</button>`;
+const intimateRowHtml = (l, off) => (l.intimate
+    ? `<div class="igs-combat-row igs-intimate-opts"><span class="igs-combat-label">机制</span>${INTIMATE_MECHANICS_ROW.map((m) => intimateChip('im-mech', m, m, l.intimate.mechanic === m, off)).join('')}<span class="igs-combat-label">位置</span>${INTIMATE_POSITIONS_ROW.map(([k, t]) => intimateChip('im-pos', k, t, l.intimate.position === k, off)).join('')}</div>` : '');
+
 // 日常挑战的战前对阵：沿用战前对阵的版式与皮肤，主角与难关各一块，只换文案；难度与领域放在横幅里。
 const CHALLENGE_LOBBY_TIER = Object.freeze({ 轻松: 'normal', 普通: 'elite', 艰难: 'boss' });
 function challengeLobbyHtml(v) {
@@ -171495,8 +172426,8 @@ function challengeLobbyHtml(v) {
         + `<div class="igs-combat-lobby-side is-ally" style="--n:${l.allies.length}">${heroHtml}${helperHtml}</div>`
         + '<div class="igs-combat-lobby-vs" aria-hidden="true"><b>VS</b></div>'
         + `<div class="igs-combat-lobby-side is-enemy" data-n="1" style="--n:1;--k:1">${foeHtml}</div></div>`
-        + allyRow
-        + `<div class="igs-combat-actions">${btn('history', '挑战记录', { disabled: Boolean(v.pending) })}${l.canEscape ? btn('abandon', v.abandonArmed ? '确认放弃' : CHALLENGE_LABELS.escape, { disabled: Boolean(v.pending) }) : ''}${btn('auto', '交给托管', { disabled: Boolean(v.pending) })}${btn('start', '迎接挑战', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
+        + intimateRowHtml(l, Boolean(v.pending)) + allyRow
+        + `<div class="igs-combat-actions">${l.intimate ? '' : btn('history', '挑战记录', { disabled: Boolean(v.pending) })}${l.canEscape ? btn('abandon', v.abandonArmed ? (l.intimate ? '确认停下' : '确认放弃') : l.intimate ? '停下' : CHALLENGE_LABELS.escape, { disabled: Boolean(v.pending) }) : ''}${btn('auto', '交给托管', { disabled: Boolean(v.pending) })}${btn('start', l.intimate ? '开始' : '迎接挑战', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
 }
 
 function lobbyHtml(v) {
@@ -171598,7 +172529,7 @@ function battleHtml(v) {
     const heroZone = `<div class="igs-combat-hero" style="--n:${b.allies.length || 1}">${heroCore}${matesHtml}</div>`;
     // 右下角回合操作组：撤退（透明底，只在允许撤退时出现）或选目标期间的取消、抽牌 / 弃牌数量、结束回合；作为底栏网格区，不压手牌。
     // 横向面板样式层竖排为撤退 / 取消、牌堆数量、结束回合；竖向 / 窄面板牌堆数量在上，撤退与结束回合同排。
-    const side = v.selected || picks.length ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? iconBtn('escape', v.challenge ? CHALLENGE_LABELS.escape : '撤退', RECORD_ICONS.retreat) : '';
+    const side = v.selected || picks.length ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? (v.intimate === '主导' ? iconBtn('stop', '停下', RECORD_ICONS.back) : '') + iconBtn('escape', v.intimate ? (v.intimate === '主导' ? '甘拜下风' : '停下') : v.challenge ? CHALLENGE_LABELS.escape : '撤退', RECORD_ICONS.retreat) : '';
     const turnBtn = choice ? btn('choose-confirm', `${CHOICE_VERB[choice.kind] || '选择'} ${picks.length}/${choice.count}`, { primary: true, disabled: picks.length !== choice.count })
         : iconBtn('end-turn', '结束回合', RECORD_ICONS.turnEnd, { primary: true, disabled: !b.canEndTurn });
     const turn = ended ? '' : `<div class="igs-combat-turn">${styled ? '' : piles}<div class="igs-combat-turn-btns">${side}${turnBtn}</div></div>`;
@@ -171733,8 +172664,8 @@ function combatIntroUiHtml(v) {
     if (l.challenge) {
         const allies = l.candidates && l.candidates.length
             ? `<div class="igs-combat-row igs-challenge-allies"><span class="igs-combat-label">协助者</span>${l.candidates.map((c) => `<button type="button" class="igs-combat-chip" data-combat-act="ally" data-combat-id="${esc(c.name)}" aria-pressed="${c.picked ? 'true' : 'false'}"${off ? ' aria-disabled="true"' : ''}>${esc(c.name)}</button>`).join('')}</div>` : '';
-        return `${close}<div class="igs-combat-intro-actions">${allies}${btn('start', '迎接挑战', { primary: true, disabled: off })}`
-            + `<div class="igs-combat-intro-sub">${l.canEscape ? btn('abandon', v.abandonArmed ? '确认放弃' : CHALLENGE_LABELS.escape, { disabled: off }) : ''}${btn('auto', '交给托管', { disabled: off })}</div></div>`;
+        return `${close}<div class="igs-combat-intro-actions">${intimateRowHtml(l, off)}${allies}${btn('start', l.intimate ? '开始' : '迎接挑战', { primary: true, disabled: off })}`
+            + `<div class="igs-combat-intro-sub">${l.canEscape ? btn('abandon', v.abandonArmed ? (l.intimate ? '确认停下' : '确认放弃') : l.intimate ? '停下' : CHALLENGE_LABELS.escape, { disabled: off }) : ''}${btn('auto', '交给托管', { disabled: off })}</div></div>`;
     }
     return `${close}<div class="igs-combat-intro-actions">${lobbyRewardHtml(l.reward, v.pending)}${btn('start', '开始战斗', { primary: true, disabled: off })}<div class="igs-combat-intro-sub">${btn('skip', '跳过战斗', { disabled: off })}</div></div>`;
 }
@@ -171773,6 +172704,12 @@ const COMBAT_STATUS_LINE = Object.freeze({
 const CHALLENGE_STATUS_LINE = Object.freeze({ ...COMBAT_STATUS_LINE, unavailable: '挑战会话不可用', preparing: '正在准备挑战', skipped: '已放弃挑战' });
 
 // 照搬概念稿的皮肤：战斗中画面换成该套的固定画布（标题栏、行动顺序都在画布里），其余阶段沿用下面的标记。
+
+const intimateResultHtml = (v) => {
+    const line = INTIMATE_ENDING_LINE(v.end.label) || v.end.label;
+    const send = lootBlocksSend(v.flip) ? '' : btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) });
+    return `<section class="igs-combat-result igs-duel-result" data-outcome="${esc(v.end.outcome)}"><p class="igs-duel-result-line">${esc(line)}</p><div class="igs-combat-actions">${send}</div></section>`;
+};
 function renderCombatPanelHtml(v) {
     const status = v.status;
     const STATUS_LINE = v.challenge ? CHALLENGE_STATUS_LINE : COMBAT_STATUS_LINE;
@@ -171780,6 +172717,7 @@ function renderCombatPanelHtml(v) {
         const canvas = CANVAS_BATTLE[v.skin](v, v.orient === 'land' ? 'land' : 'port');
         return `${noticeHtml(v.notice)}${v.challenge ? challengeCanvasText(canvas) : canvas}`;
     }
+    if (v.intimate && status === 'ended' && v.battle && v.end && !v.settling && v.pending !== 'prepare') return `${noticeHtml(v.notice)}${intimateResultHtml(v)}`;
     if (stageFxStyle(v.skin) && status === 'ended' && v.battle && v.end && !v.settling && v.pending !== 'prepare') return `${noticeHtml(v.notice)}${stageResultHtml(v)}`;
     let main = '';
     if (v.historyOpen) main = historyHtml(v);
@@ -171812,6 +172750,7 @@ __igsDefine(exports, "combatReasonText", () => combatReasonText);
 __igsDefine(exports, "generationCauseText", () => generationCauseText);
 __igsDefine(exports, "tintTriplet", () => tintTriplet);
 __igsDefine(exports, "traitTipHtml", () => traitTipHtml);
+__igsDefine(exports, "cardTipHtml", () => cardTipHtml);
 __igsDefine(exports, "unitTipHtml", () => unitTipHtml);
 __igsDefine(exports, "cardTextHtml", () => cardTextHtml);
 __igsDefine(exports, "ringFront", () => ringFront);
@@ -171893,6 +172832,7 @@ __igsRegister("src/combat/challenge-report.js", function(module, exports, requir
 const { reportIdFor } = require("src/combat/report.js");
 const { challengeOutcomeOf } = require("src/combat/challenge-setup.js");
 const { challengeHarvest } = require("src/combat/challenge-foes.js");
+const { INTIMATE_ALL_ENDINGS, INTIMATE_ENDING_TEXT } = require("src/scene/intimate-duel.js");
 const CHALLENGE_OUTCOMES = Object.freeze(['圆满', '勉强', '失败', '放弃']);
 const CHALLENGE_REPORT_DETAIL = Object.freeze({ brief: 'brief', normal: 'normal' });
 const CHALLENGE_SKIP_TEXT = '（本次挑战不使用卡牌结算，请直接用文字描写这次挑战的经过与结果。）';
@@ -171925,7 +172865,8 @@ function costSentence(outcome, stake, prize) {
 }
 
 // outcome 为 CHALLENGE_OUTCOMES 之一，也可以只给引擎 result 与 willRatio 由此处换算；willRatio 为剩余意志比例，byLimit 表示回合上限到时按进展判定。
-function buildChallengeReport({ combatId, event = '', result, outcome, willRatio = 0, byLimit = false, tier = '普通', costTier = tier, stake = '压力', domain = '', detail = 'normal', foe = '', counterpart = '', allies = [] } = {}) {
+function buildChallengeReport({ combatId, event = '', result, outcome, willRatio = 0, byLimit = false, tier = '普通', costTier = tier, stake = '压力', domain = '', detail = 'normal', foe = '', counterpart = '', allies = [], ending = '', mechanic = '' } = {}) {
+    if (ending) return buildIntimateReport({ combatId, event, outcome, tier, costTier, domain, counterpart, ending, mechanic });
     const word = outcome || (result ? challengeOutcomeOf(result, willRatio, { byLimit }) : null);
     if (!combatId || !Object.hasOwn(RESULT_OF, word)) return { ok: false, reason: 'challenge-report-invalid' };
     const reportId = reportIdFor(combatId);
@@ -171938,19 +172879,27 @@ function buildChallengeReport({ combatId, event = '', result, outcome, willRatio
     const head = `<igs-challenge-report id="${reportId}" result="${RESULT_OF[word]}" outcome="${word}" tier="${sanitize(tier)}" cost="${sanitize(costTier)}" stake="${sanitize(stake)}" domain="${sanitize(domain)}" foe="${sanitize(foe)}" counterpart="${sanitize(counterpart)}" allies="${helpers.join(NAME_LIST_SEPARATOR)}">`;
     return { ok: true, text: `${head}\n（${parts.filter(Boolean).join('。')}。）\n</igs-challenge-report>`, result: RESULT_OF[word], reportId };
 }
+
+function buildIntimateReport({ combatId, event, outcome, tier, costTier, domain, counterpart, ending, mechanic }) {
+    if (!combatId || !INTIMATE_ALL_ENDINGS.includes(ending) || !Object.hasOwn(RESULT_OF, outcome)) return { ok: false, reason: 'challenge-report-invalid' };
+    const reportId = reportIdFor(combatId);
+    const parts = [`亲密：${sanitize(event) || '这一幕'}`, `结局：${ending}`, INTIMATE_ENDING_TEXT[ending]];
+    const head = `<igs-challenge-report id="${reportId}" result="${RESULT_OF[outcome]}" outcome="${outcome}" tier="${sanitize(tier)}" cost="${sanitize(costTier)}" stake="压力" domain="${sanitize(domain)}" foe="" counterpart="${sanitize(counterpart)}" allies="" ending="${ending}" mechanic="${sanitize(mechanic)}">`;
+    return { ok: true, text: `${head}\n（${parts.filter(Boolean).join('。')}。）\n</igs-challenge-report>`, result: RESULT_OF[outcome], reportId };
+}
 function parseChallengeReport(text) {
     const match = REPORT_OPEN.exec(String(text || ''));
     if (!match) return null;
     const attrs = Object.fromEntries([...match[1].matchAll(/([a-z]+)="([^"]*)"/g)].map((pair) => [pair[1], pair[2]]));
     if (!REPORT_ID_PATTERN.test(attrs.id || '') || !CHALLENGE_OUTCOMES.includes(attrs.outcome)) return null;
-    return { reportId: attrs.id, result: RESULT_OF[attrs.outcome], outcome: attrs.outcome, tier: attrs.tier || '普通', costTier: attrs.cost || attrs.tier || '普通', stake: attrs.stake || '压力', domain: attrs.domain || '', foe: attrs.foe || '', counterpart: attrs.counterpart || '', allies: (attrs.allies || '').split(NAME_LIST_SEPARATOR).filter(Boolean) };
+    return { reportId: attrs.id, result: RESULT_OF[attrs.outcome], outcome: attrs.outcome, tier: attrs.tier || '普通', costTier: attrs.cost || attrs.tier || '普通', stake: attrs.stake || '压力', domain: attrs.domain || '', foe: attrs.foe || '', counterpart: attrs.counterpart || '', allies: (attrs.allies || '').split(NAME_LIST_SEPARATOR).filter(Boolean), ending: INTIMATE_ALL_ENDINGS.includes(attrs.ending) ? attrs.ending : '', mechanic: attrs.mechanic || '' };
 }
 
 // 数值侧读到战报楼后合成的 challenge 指令；floor 为战报所在楼层号。
 function challengeDirectiveOf(report, floor = null) {
     return report ? {
         kind: 'challenge', reportId: report.reportId, outcome: report.outcome, tier: report.costTier, stake: report.stake, domain: report.domain, floor,
-        counterpart: report.counterpart || '', prize: challengeHarvest(report.foe, report.outcome, report.costTier).prize,
+        counterpart: report.counterpart || '', ending: report.ending || '', mechanic: report.mechanic || '', prize: challengeHarvest(report.foe, report.outcome, report.costTier).prize,
     } : null;
 }
 
@@ -172312,6 +173261,8 @@ const { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } = require("sr
 const { nextTraitSlot, planTrait, traitSeed, traitSwap } = require("src/combat/traits.js");
 const { prefersReducedMotion } = require("src/visual/igs-ui/reduced-motion.js");
 const { openItemImageViewer, closeItemImageViewer } = require("src/visual/igs-ui/item-image-viewer.js");
+const { watchRecordPageLayout } = require("src/visual/igs-ui/record-page-shell.js");
+const { normalizeSettingsTheme } = require("src/visual/igs-ui/settings-theme.js");
 // 人物状态面板（状态、加点、装备、卡组、背包五页）：工具栏「人物状态」按钮与资料菜单「人物状态」项打开。账本、会话与手动生成由 options 注入；面板只编辑草稿、转发保存、换装、卖出与生成。
 const COMBAT_DECK_PANEL_ID = 'igs-combat-deck-panel';
 const PAUSE_REASON = 'panel:combat-deck';
@@ -172359,6 +173310,10 @@ function createCombatDeckPanelController(doc, options = {}) {
     let offItemArt = null;
     // 主角卡组预生成状态订阅：生成中 / 重试中 / 失败在面板内显示并可手动重试；就绪后重读账本。
     let offProtagonist = null;
+    // 配色与日记、目录共用设置器的四套（getTheme / setTheme 由宿主注入）；容器宽度写布局 class（窄屏 / 短屏）。
+    let theme = normalizeSettingsTheme('');
+    let unwatchLayout = null;
+    const readTheme = () => { try { return normalizeSettingsTheme(options.getTheme?.() || ''); } catch (error) { return normalizeSettingsTheme(''); } };
 
     const generationForm = createCombatGenerationForm({ inspect: options.inspectGenerationMaterials, render, errorText: deckReasonText });
     const ledger = () => (typeof options.getLedger === 'function' ? options.getLedger() : null);
@@ -172417,7 +173372,7 @@ function createCombatDeckPanelController(doc, options = {}) {
             status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait, generationForm: generationForm.view(),
             selectedBuild, builds: builds.map((c) => ({ name: c.name, protagonist: c.protagonist })),
             reveal: reveal ? { phase: reveal.phase, rarity: reveal.rarity, traitId: reveal.traitId, fresh: reveal.phase === 'open' && !reveal.played && !still } : null,
-            reduced: still,
+            reduced: still, theme, canTheme: typeof options.setTheme === 'function',
             readonly,
             roster: deckRosterView(state), classes: classChoices(state),
             detail: view ? withItemArt(withCardArt(view, deckDetailView(view, view.kind === 'deck-character' ? draft : null))) : null,
@@ -172971,6 +173926,12 @@ function createCombatDeckPanelController(doc, options = {}) {
             case 'trait-confirm': return traitConfirm();
             case 'trait-cancel': trait = false; notice = ''; render(); return { ok: true };
             case 'trait-done': reveal = null; notice = ''; render(); return { ok: true };
+            case 'theme':
+                theme = normalizeSettingsTheme(id);
+                root.setAttribute('data-rp-theme', theme);
+                try { options.setTheme?.(theme); } catch (error) { /* 保存失败只影响下次打开 */ }
+                render();
+                return { ok: true, theme };
             case 'trait-drop': return traitDrop(id);
             case 'trait-slot': return traitSlot();
             case 'card-art': return generateArt(id);
@@ -173020,6 +173981,8 @@ function createCombatDeckPanelController(doc, options = {}) {
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-modal', 'true');
         root.setAttribute('aria-label', '人物状态');
+        theme = readTheme();
+        root.setAttribute('data-rp-theme', theme);
         body = doc.createElement('div');
         body.className = 'igs-deck-body';
         root.appendChild(body);
@@ -173031,6 +173994,7 @@ function createCombatDeckPanelController(doc, options = {}) {
         offProtagonist = typeof options.onProtagonistUpdated === 'function'
             ? options.onProtagonistUpdated((p) => { if (!root) return; if (p?.status === 'ready' && !draft && !allocDraft && !manualDraft && !pending) load(); else render(); }) : null;
         overlay.appendChild(root);
+        unwatchLayout = watchRecordPageLayout(root, doc);
         overlay.classList?.toggle('igs-record-screen-open', true);
         setStagePauseReason(overlay, PAUSE_REASON, true);
         render();
@@ -173053,6 +174017,8 @@ function createCombatDeckPanelController(doc, options = {}) {
         offItemArt = null;
         try { if (typeof offProtagonist === 'function') offProtagonist(); } catch (error) { /* 宿主已卸载 */ }
         offProtagonist = null;
+        try { unwatchLayout?.(); } catch (error) { /* 已断开 */ }
+        unwatchLayout = null;
         root.remove();
         root = null; body = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
@@ -173512,6 +174478,8 @@ const { eligibleChallengeAllies } = require("src/combat/challenge-allies.js");
 const { challengeHarvest } = require("src/combat/challenge-foes.js");
 const { planChallengeReward } = require("src/combat/challenge-reward.js");
 const { buildChallengeReport, parseChallengeReport } = require("src/combat/challenge-report.js");
+const { buildIntimateSetup, foldIntimateTrace, initIntimateTrace, replayIntimateTrace } = require("src/combat/intimate-setup.js");
+const { INTIMATE_LEGACY_OUTCOME, intimateEnding, resolveIntimatePosition } = require("src/scene/intimate-duel.js");
 const { chooseCard, emptyPick, flipCard, flipView, laterPick, lootOf, normalizePick, rerollPick } = require("src/combat/flip.js");
 const { REROLL_COST } = require("src/combat/points.js");
 const { keptInnateKinds, traitLinks, traitPassives } = require("src/combat/traits.js");
@@ -173541,7 +174509,12 @@ function locateCombatStart(chat, messageId, sourceFilter, kinds = {}) {
         const anchor = { messageId, swipeId: swipeIdOf(message), tagHash: start.tagHash, occurrence: start.occurrence };
         return { ok: true, start, anchor, combatId: combatIdFor(anchor) };
     }
-    const challenge = kinds.challenge === true ? parseChallengeStart(text, { sourceFilter }).start : null;
+    const intimateOptions = typeof kinds.intimate === 'function' ? kinds.intimate(messageId) : null;
+    let challenge = kinds.challenge === true || intimateOptions ? parseChallengeStart(text, { sourceFilter, intimate: intimateOptions || undefined }).start : null;
+    if (challenge && challenge.intimate !== true && kinds.challenge !== true) challenge = null;
+    if (!challenge && intimateOptions && intimateOptions.launch === true) {
+        challenge = { event: '亲密', domain: '亲密', intimate: true, mechanic: intimateOptions.mechanic, eventKey: intimateOptions.eventKey, counterpart: intimateOptions.partner || '', tier: '普通', stake: '压力', tagHash: 'launch', occurrence: 0, launch: true };
+    }
     if (!challenge) return { ok: false, reason: 'combat-start-missing' };
     const anchor = { messageId, swipeId: swipeIdOf(message), tagHash: challenge.tagHash, occurrence: challenge.occurrence };
     return { ok: true, challenge: true, start: challenge, anchor, combatId: challengeCombatIdFor(anchor) };
@@ -173560,8 +174533,10 @@ function challengeCostTier(tier, stake) {
 }
 
 // 回合上限到时引擎仍无结局：在适配层补一个胜负，状态与事件都按引擎结束的形态补齐。
-function challengeEnd(state, setup, events = []) {
-    const result = challengeResultOf(state, setup?.challenge?.rounds);
+function challengeEnd(state, setup, events = [], trace = null) {
+    let result = challengeResultOf(state, setup?.challenge?.rounds);
+    const intimate = setup?.challenge?.intimate;
+    if (result && intimate) result = { ...result, trace, ending: intimateEnding({ mechanic: intimate.mechanic, result: result.result, heroRatio: result.willRatio, trace: trace || {} }) };
     if (!result || state.outcome) return { state, events, result };
     const outcome = result.result === 'win' ? 'victory' : 'defeat';
     return { state: { ...state, outcome, phase: 'ended' }, events: [...events, { type: 'battle-end', outcome }], result };
@@ -174072,7 +175047,7 @@ function createCombatSession(options = {}) {
     const now = typeof options.now === 'function' ? options.now : () => Date.now();
     const difficultyOf = () => resolveOption(options.difficulty) || 'normal';
     const challengeOptions = options.challenge || {};
-    const kindsNow = () => ({ combat: resolveOption(options.kinds)?.combat !== false, challenge: resolveOption(options.kinds)?.challenge === true });
+    const kindsNow = () => ({ combat: resolveOption(options.kinds)?.combat !== false, challenge: resolveOption(options.kinds)?.challenge === true, intimate: resolveOption(options.kinds)?.intimate });
     const locate = (messageId, kinds = kindsNow()) => locateCombatStart(getChat(), messageId, getSourceFilter(), kinds);
     const isChallenge = (session) => session?.kind === 'challenge';
 
@@ -174120,7 +175095,7 @@ function createCombatSession(options = {}) {
     // 战斗楼还是当时那一版吗（楼层被改/重写则作废）
     const isCurrent = (session) => {
         if (session.chatId !== undefined && session.chatId !== getChatId()) return false;
-        const located = locate(session.anchor?.messageId, isChallenge(session) ? { combat: false, challenge: true } : kindsNow());
+        const located = locate(session.anchor?.messageId, isChallenge(session) ? { combat: false, challenge: resolveOption(options.kinds)?.challenge === true, intimate: resolveOption(options.kinds)?.intimate } : kindsNow());
         return located.ok && sameAnchor(located.anchor, session.anchor);
     };
     const floorChanged = () => {
@@ -174149,6 +175124,7 @@ function createCombatSession(options = {}) {
             combatId: session.combatId, event: challenge.event, result: end.result, willRatio: end.willRatio, byLimit: end.byLimit,
             tier: challenge.tier, costTier: challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake)), stake: challenge.stake, domain: challenge.domain,
             detail: resolveOption(options.reportDetail) || 'normal', foe: challenge.foe, counterpart: challenge.counterpart, allies: challenge.allies,
+            ...(challenge.intimate && end.ending ? { ending: end.ending, mechanic: challenge.intimate.mechanic, outcome: INTIMATE_LEGACY_OUTCOME[end.ending] } : {}),
         });
     }
 
@@ -174161,10 +175137,10 @@ function createCombatSession(options = {}) {
         const cached = summaryCache.get(session.combatId);
         if (cached && cached.end === end) return cached.value;
         const tier = challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake));
-        const outcome = challengeOutcomeOf(end.result, end.willRatio, { byLimit: end.byLimit });
-        const harvest = challengeHarvest(challenge.foe, outcome, tier);
+        const outcome = challenge.intimate && end.ending ? INTIMATE_LEGACY_OUTCOME[end.ending] : challengeOutcomeOf(end.result, end.willRatio, { byLimit: end.byLimit });
+        const harvest = challenge.intimate ? { prize: null, card: false } : challengeHarvest(challenge.foe, outcome, tier);
         const reward = harvest.card ? planChallengeReward({ combatId: session.combatId, outcome, tier, foe: challenge.foe, domain: challenge.domain }) : null;
-        const value = { outcome, prize: harvest.prize, card: reward?.ok ? reward.card : null };
+        const value = { outcome, prize: harvest.prize, card: reward?.ok ? reward.card : null, ...(challenge.intimate && end.ending ? { ending: end.ending } : {}) };
         summaryCache.set(session.combatId, { end, value });
         return value;
     }
@@ -174525,7 +175501,41 @@ function createCombatSession(options = {}) {
 
     // 日常挑战备战：不读账本、不调副 LLM，直接按数值侧快照建局；结果放进大厅状态供面板展示。
     // 难关先请副模型挑，不可用或被拒收时退回本地登记，失败不拦开局；协助者由玩家在大厅里挑，默认不带。
+    function intimateBuild(start, challengeState, choice = {}) {
+        const settings = resolveOption(challengeOptions.intimate) || {};
+        const floorText = messageText(getChat()[start.messageId]);
+        const position = choice.position || resolveIntimatePosition(settings.position, floorText, getUserName());
+        const mechanic = choice.mechanic || start.mechanic;
+        const persona = typeof challengeOptions.persona === 'function' ? challengeOptions.persona(start.counterpart) : '';
+        return buildIntimateSetup({ start: { ...start, mechanic, allowEscape: resolveOption(challengeOptions.allowEscape) !== false }, state: challengeState, user: { name: getUserName() }, position, persona });
+    }
+
+    function prepareIntimate(session) {
+        const challengeState = resolveOption(challengeOptions.state) || null;
+        const start = { ...session.start, messageId: session.anchor?.messageId };
+        const built = intimateBuild(start, challengeState);
+        if (!built.ok) return blocked(session, built.reason);
+        return ok({
+            session: setState({
+                ...session, status: 'lobby', challenge: built.setup.challenge, challengeSetup: built.setup, challengeStart: start, challengeState, challengeCandidates: [],
+                lobby: { challenge: true, heroId: built.setup.controlledId, controllable: [built.setup.controlledId] }, skipped: [],
+            }),
+        });
+    }
+
+    function setIntimateOptions(choice = {}) {
+        if (!isChallenge(current) || current.status !== 'lobby' || !current.challengeStart?.intimate) return fail('combat-session-not-ready');
+        const mechanic = ['合拍', '主导'].includes(choice.mechanic) ? choice.mechanic : current.challenge.intimate.mechanic;
+        const position = ['receive', 'lead'].includes(choice.position) ? choice.position : current.challenge.intimate.position;
+        const built = intimateBuild(current.challengeStart, current.challengeState, { mechanic, position });
+        if (!built.ok) return fail(built.reason);
+        setState({ ...current, challenge: built.setup.challenge, challengeSetup: built.setup });
+        notify();
+        return ok();
+    }
+
     async function prepareChallenge(session, signal) {
+        if (session.start?.intimate === true) return prepareIntimate(session);
         setState({ ...session, status: 'preparing' });
         const challengeState = resolveOption(challengeOptions.state) || null;
         const start = { ...session.start, allowEscape: resolveOption(challengeOptions.allowEscape) !== false };
@@ -174619,7 +175629,8 @@ function createCombatSession(options = {}) {
         if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
         const record = { v: SESSION_VERSION, combatId: current.combatId, anchor: current.anchor, seed, setup, actions: [], encounter: current.start.event, tiers: [], expTargets: [] };
         if (!writeSession(record)) return fail('combat-session-save-failed');
-        setState({ ...current, status: 'battle', record, battle: battle.state, events: battle.events, challengeResult: null });
+        const intimateTrace = setup.challenge?.intimate ? foldIntimateTrace(initIntimateTrace(), battle.state, battle.events) : null;
+        setState({ ...current, status: 'battle', record, battle: battle.state, events: battle.events, challengeResult: null, ...(intimateTrace ? { intimateTrace } : {}) });
         return ok({ events: battle.events });
     }
 
@@ -174642,15 +175653,18 @@ function createCombatSession(options = {}) {
         return ok({ events: battle.events, ...(built.awakenDropped ? { awakenDropped: built.awakenDropped } : {}) });
     }
 
-    function act(action) {
+    function act(action, meta = {}) {
         if (current.status !== 'battle') return fail('combat-session-not-in-battle');
         if (!isCurrent(current)) return floorChanged();
         const applied = applyAction(current.battle, action);
         if (!applied.ok) return fail(applied.error.reason, { error: applied.error });
-        const record = { ...current.record, actions: [...current.record.actions, action] };
+        const surrender = action.type === 'escape' && meta.stop !== true && current.record.setup.challenge?.intimate?.mechanic === '主导';
+        const record = { ...current.record, actions: [...current.record.actions, action], ...(surrender || current.record.surrendered ? { surrendered: true } : {}) };
         if (!writeSession(record)) return fail('combat-session-save-failed');
-        const end = isChallenge(current) ? challengeEnd(applied.state, record.setup, applied.events) : { state: applied.state, events: applied.events, result: null };
-        setState({ ...current, record, battle: end.state, events: [...current.events, ...end.events], status: end.state.outcome ? 'ended' : 'battle', ...(isChallenge(current) ? { challengeResult: end.result } : {}) });
+        const intimateTrace = record.setup.challenge?.intimate
+            ? { ...foldIntimateTrace(current.intimateTrace || initIntimateTrace(), applied.state, applied.events), surrendered: record.surrendered === true } : null;
+        const end = isChallenge(current) ? challengeEnd(applied.state, record.setup, applied.events, intimateTrace) : { state: applied.state, events: applied.events, result: null };
+        setState({ ...current, record, battle: end.state, events: [...current.events, ...end.events], status: end.state.outcome ? 'ended' : 'battle', ...(isChallenge(current) ? { challengeResult: end.result } : {}), ...(intimateTrace ? { intimateTrace } : {}) });
         if (end.state.outcome) {
             persist.flush(); // 战斗结束的记录马上落盘
             const report = buildReport(current);
@@ -174667,6 +175681,8 @@ function createCombatSession(options = {}) {
     // ---- 战报发送 ----
     // 战报已在聊天里（或刚发送成功）后的收尾：清发件箱与会话记录、扣物品、记伤势、扫描账本
     async function settleReport(report, reportMessageId) {
+        const intimateDone = current.record?.setup?.challenge?.intimate || current.challenge?.intimate;
+        if (intimateDone && typeof challengeOptions.markIntimate === 'function') { try { challengeOptions.markIntimate(intimateDone.eventKey); } catch { /* 记录失败不影响战报 */ } }
         setOutbox(current.combatId, null);
         clearSession();
         let consumeResult = null;
@@ -174862,7 +175878,7 @@ function createCombatSession(options = {}) {
             const started = start();
             if (!started.ok) return started;
         }
-        const escaped = act({ type: 'escape' });
+        const escaped = act({ type: 'escape' }, { stop: true });
         return escaped.ok ? finish() : escaped;
     }
 
@@ -174914,9 +175930,10 @@ function createCombatSession(options = {}) {
         }
         const replayed = replayBattle(record.setup, record.seed, record.actions);
         if (replayed.ok) {
-            const end = isChallenge(session) ? challengeEnd(replayed.state, record.setup, replayed.events) : { state: replayed.state, events: replayed.events, result: null };
+            const resumedTrace = record.setup?.challenge?.intimate ? replayIntimateTrace(record.setup, record.seed, record.actions, record.surrendered === true) : null;
+            const end = isChallenge(session) ? challengeEnd(replayed.state, record.setup, replayed.events, resumedTrace) : { state: replayed.state, events: replayed.events, result: null };
             setState({
-                ...session, status: end.state.outcome ? 'ended' : 'battle', record, battle: end.state, events: end.events,
+                ...session, status: end.state.outcome ? 'ended' : 'battle', record, battle: end.state, events: end.events, ...(resumedTrace ? { intimateTrace: resumedTrace } : {}),
                 ...(isChallenge(session) ? { challenge: record.setup.challenge, challengeResult: end.result } : {}),
             });
             return afterResume();
@@ -174934,7 +175951,7 @@ function createCombatSession(options = {}) {
     }
 
     return {
-        prepare, start, act, autoPlay, abandon, pickChallengeAllies, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
+        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
         // 以下为写盘节流新增：立即落盘、写盘统计、释放监听器
         flushPersist,
         getPersistStats: () => ({ ...persist.stats, pending: persist.hasPending() }),
@@ -177860,6 +178877,284 @@ function planChallengeReward({ combatId, outcome, tier = '普通', foe = '', dom
 __igsDefine(exports, "planChallengeReward", () => planChallengeReward);
 __igsDefine(exports, "CHALLENGE_REWARD_RARITIES", () => CHALLENGE_REWARD_RARITIES);
 });
+__igsRegister("src/combat/intimate-setup.js", function(module, exports, require) {
+const { COMBAT_RULES, combatSpeedFor } = require("src/combat/rules.js");
+const { createBattle, applyAction } = require("src/combat/engine.js");
+const { CHALLENGE_FOE_ID, CHALLENGE_HERO_ID, foeThickness, willFor } = require("src/combat/challenge-setup.js");
+const { buildIntimateDeck } = require("src/combat/intimate-cards.js");
+const { INTIMATE_FOE_ID, INTIMATE_INTERRUPT_SKILL, buildIntimateFoeSkills } = require("src/combat/intimate-foes.js");
+const { INTIMATE_INTERRUPT_CARD } = require("src/combat/intimate-cards.js");
+const { INTIMATE_TENSION_START } = require("src/scene/intimate-duel.js");
+function buildIntimateSetup({ start, state, user, position = 'receive', persona = '' } = {}) {
+    if (!start?.event || start.intimate !== true) return { ok: false, reason: 'challenge-start-missing' };
+    const mechanic = start.mechanic === '主导' ? '主导' : '合拍';
+    const partner = start.counterpart || '';
+    const favor = Number(state?.favors?.[partner]) || 0;
+    const trust = Number(state?.trusts?.[partner]);
+    const grudge = Number(state?.grudges?.[partner]) || 0;
+    const profile = state?.intimate?.[partner] || {};
+    const tension = Number.isFinite(Number(profile.tension)) ? Math.max(0, Number(profile.tension)) : INTIMATE_TENSION_START;
+    const mark = profile.mark || null;
+    const tier = Object.hasOwn({ 轻松: 1, 普通: 1, 艰难: 1 }, start.tier) ? start.tier : '普通';
+    const thick = foeThickness(tier);
+    const { deck, catalog } = buildIntimateDeck({ mechanic, position, skills: state?.skills, favor, trust: Number.isFinite(trust) ? trust : 50, grudge, mark });
+    const foeSkills = buildIntimateFoeSkills({ mechanic, damageCap: thick.damageCap, tension, mark, persona });
+    const setup = {
+        controlledId: CHALLENGE_HERO_ID,
+        canEscape: start.allowEscape !== false,
+        units: [
+            { id: CHALLENGE_HERO_ID, name: user?.name || '我', side: 'ally', kind: 'deck', maxHp: willFor(state?.bars), speed: COMBAT_RULES.defaultSpeed, deck, catalog },
+            {
+                id: CHALLENGE_FOE_ID, name: partner || '对方', side: 'enemy', kind: 'skill', maxHp: thick.hp, damageScale: thick.damageScale,
+                speed: combatSpeedFor({ tier: thick.engineTier, id: 'intimate' }), skills: foeSkills,
+            },
+        ],
+        challenge: {
+            event: start.event, domain: start.domain, tier, stake: '压力', foe: '', rounds: thick.rounds, counterpart: partner, allies: [],
+            intimate: { mechanic, position, eventKey: start.eventKey ?? null, tension, mark },
+        },
+    };
+    return { ok: true, setup, allies: { accepted: [], rejected: [] } };
+}
+const initIntimateTrace = () => ({
+    swaps: 0, rapport: 0, interruptPending: false, interruptHit: false, surrendered: false, bothZero: false, lead: null, turn: 1, foeLoss: 0, heroLoss: 0,
+});
+
+const ratioOf = (unit) => (unit && unit.maxHp ? Math.max(0, unit.hp) / unit.maxHp : 0);
+function foldIntimateTrace(trace, state, events = []) {
+    const next = { ...trace };
+    for (const event of events) {
+        if (event.type === 'intent') next.interruptPending = event.skillId === INTIMATE_INTERRUPT_SKILL;
+        else if (event.type === 'card' && event.cardId === INTIMATE_INTERRUPT_CARD) next.interruptPending = false;
+        else if (event.type === 'skill' && event.skillId === INTIMATE_INTERRUPT_SKILL && next.interruptPending) {
+            next.interruptHit = true;
+            next.interruptPending = false;
+        } else if (event.type === 'damage') {
+            if (event.target === INTIMATE_FOE_ID) next.foeLoss += Number(event.hpLoss) || 0;
+            else if (event.target === CHALLENGE_HERO_ID) next.heroLoss += Number(event.hpLoss) || 0;
+        }
+    }
+    const hero = state?.units?.[CHALLENGE_HERO_ID];
+    const foe = state?.units?.[CHALLENGE_FOE_ID];
+    if (state && state.turn !== next.turn) {
+        if (next.foeLoss > 0 && next.heroLoss === 0) next.rapport += 1;
+        const heroRatio = ratioOf(hero);
+        const foeRatio = ratioOf(foe);
+        if (heroRatio !== foeRatio) {
+            const heroLeads = heroRatio > foeRatio;
+            if (next.lead !== null && next.lead !== heroLeads) next.swaps += 1;
+            next.lead = heroLeads;
+        }
+        next.turn = state.turn;
+        next.foeLoss = 0;
+        next.heroLoss = 0;
+    }
+    if (hero && foe && hero.hp <= 0 && foe.hp <= 0) next.bothZero = true;
+    return next;
+}
+function replayIntimateTrace(setup, seed, actions = [], surrendered = false) {
+    const created = createBattle(setup, seed);
+    if (!created.ok) return initIntimateTrace();
+    let state = created.state;
+    let trace = foldIntimateTrace(initIntimateTrace(), state, created.events);
+    for (const action of actions) {
+        const applied = applyAction(state, action);
+        if (!applied.ok) break;
+        state = applied.state;
+        trace = foldIntimateTrace(trace, state, applied.events);
+    }
+    return surrendered ? { ...trace, surrendered: true } : trace;
+}
+
+__igsDefine(exports, "buildIntimateSetup", () => buildIntimateSetup);
+__igsDefine(exports, "foldIntimateTrace", () => foldIntimateTrace);
+__igsDefine(exports, "replayIntimateTrace", () => replayIntimateTrace);
+__igsDefine(exports, "initIntimateTrace", () => initIntimateTrace);
+});
+__igsRegister("src/combat/intimate-cards.js", function(module, exports, require) {
+const { BASIC_CARDS, BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES } = require("src/combat/rules.js");
+const { solveCardTemplate } = require("src/combat/card-templates.js");
+const { CHALLENGE_RARITIES, challengeTierIndex } = require("src/combat/challenge-cards.js");
+const { INTIMATE_WATCH_SKILL } = require("src/combat/intimate-foes.js");
+const { grudgeLevel, isShakyLoveHate } = require("src/scene/intimate-duel.js");
+const INTIMATE_DUEL_CARD_SLOTS = Object.freeze({ school: 10, relation: 4 });
+const INTIMATE_INTERRUPT_CARD = 'im-stay';
+const INTIMATE_DEFIANCE_CARD = 'im-defy';
+const INTIMATE_SHAKY_CARDS = Object.freeze([['眼神闪躲', 'cripple'], ['欲言又止', 'trip']]);
+
+const school = (name, key, cost, copies) => Object.freeze({ name, key, cost, copies });
+const INTIMATE_SCHOOLS = Object.freeze({
+    合拍: Object.freeze({
+        receive: Object.freeze([
+            school('回应', 'strike', 1, 2), school('主动一次', 'bash', 1, 1), school('害羞躲闪', 'fumble', 1, 1), school('牵住手', 'mend', 1, 1),
+            school('小声说喜欢', 'rend', 1, 1), school('别管它', 'guard', 0, 1), school('深呼吸', 'brace', 1, 1), school('靠近一点', 'twin', 2, 1), school('相视而笑', 'prepare', 1, 1),
+        ]),
+        lead: Object.freeze([
+            school('温柔', 'strike', 1, 2), school('安抚', 'mend', 1, 1), school('耐心', 'brace', 1, 2), school('情话', 'rend', 1, 1),
+            school('确认心意', 'quick', 1, 1), school('别管它', 'guard', 0, 1), school('轻抚', 'bash', 1, 1), school('十指相扣', 'twin', 2, 1),
+        ]),
+    }),
+    主导: Object.freeze({
+        receive: Object.freeze([
+            school('欲拒还迎', 'counter', 1, 1), school('挑衅', 'cripple', 1, 1), school('示弱诱敌', 'lure', 1, 1), school('反咬', 'execute', 2, 1),
+            school('撒娇夺权', 'quick', 1, 1), school('咬唇忍住', 'guard', 1, 2), school('勾手指', 'rend', 1, 1), school('撕扯', 'tear', 1, 1), school('旧账', 'execute', 2, 1),
+        ]),
+        lead: Object.freeze([
+            school('压制', 'bash', 1, 1), school('逼近', 'strike', 1, 2), school('扣住手腕', 'trip', 1, 1), school('低声命令', 'cripple', 1, 1),
+            school('抵墙', 'bash', 2, 1), school('不许躲', 'rend', 1, 1), school('耐心磨', 'venom', 1, 1), school('撕扯', 'tear', 1, 1), school('旧账', 'execute', 2, 1),
+        ]),
+    }),
+});
+
+const RELATIONS = Object.freeze({
+    合拍: Object.freeze([['默契', 'bash'], ['信赖', 'mend'], ['心跳同步', 'quick'], ['不言而喻', 'brace']]),
+    主导: Object.freeze([['旧情', 'bash'], ['较劲', 'strike'], ['针锋相对', 'cripple'], ['不肯让步', 'guard']]),
+});
+
+const WORDS = Object.freeze({
+    合拍: Object.freeze({ strike: '回应', defend: '稳住' }),
+    主导: Object.freeze({ strike: '进逼', defend: '招架' }),
+});
+function bondTierIndex(value) {
+    const n = Number(value);
+    if (!(n >= 30)) return 0;
+    return n < 60 ? 1 : 2;
+}
+
+function solved(id, name, key, cost, rarity) {
+    for (let r = CHALLENGE_RARITIES.indexOf(rarity); r >= 0; r -= 1) {
+        const card = solveCardTemplate(key, cost, CHALLENGE_RARITIES[r]);
+        if (card) return { id, name, cost, rarity: CHALLENGE_RARITIES[r], ...card };
+    }
+    return null;
+}
+function intimateSkillValue(mechanic, skills) {
+    const pick = (name) => Number(skills?.[name]?.value ?? skills?.[name]) || 0;
+    const base = mechanic === '主导' ? Math.max(pick('魅力'), pick('话术')) : Math.max(pick('魅力'), pick('照顾'));
+    return base || 50;
+}
+
+const withFizzle = (card) => {
+    const patch = (effects) => effects.map((effect) => (effect.op === 'delayed-counter' ? { ...effect, fizzle: INTIMATE_WATCH_SKILL } : effect));
+    return { ...card, effects: patch(card.effects), ...(card.upgraded ? { upgraded: { ...card.upgraded, effects: patch(card.upgraded.effects) } } : {}) };
+};
+function buildIntimateDeck({ mechanic = '合拍', position = 'receive', skills = null, favor = 0, trust = 50, grudge = 0, mark = null } = {}) {
+    const kind = mechanic === '主导' ? '主导' : '合拍';
+    const side = position === 'lead' ? 'lead' : 'receive';
+    const words = WORDS[kind];
+    const catalog = Object.fromEntries(Object.entries(BASIC_CARDS).map(([id, card]) => [id, JSON.parse(JSON.stringify(card))]));
+    catalog[BASIC_STRIKE_ID].name = words.strike;
+    catalog[BASIC_STRIKE_ID].skillRef = words.strike;
+    catalog[BASIC_DEFEND_ID].name = words.defend;
+    catalog[BASIC_DEFEND_ID].skillRef = words.defend;
+    const shape = COMBAT_RULES.starterDeckShape;
+    const deck = [...Array(shape.basicAttack).fill(BASIC_STRIKE_ID), ...Array(shape.basicDefend).fill(BASIC_DEFEND_ID)];
+    const rarity = CHALLENGE_RARITIES[Math.min(challengeTierIndex(intimateSkillValue(kind, skills)), 2)];
+    const tier = grudgeLevel(grudge);
+    const grudgeOpen = tier > 0;
+    const oldRarity = CHALLENGE_RARITIES[Math.min(CHALLENGE_RARITIES.indexOf(rarity) + Math.max(0, tier - 1), CHALLENGE_RARITIES.length - 1)];
+    INTIMATE_SCHOOLS[kind][side].forEach((spec, index) => {
+        const plainOld = spec.name === '旧账' && !grudgeOpen;
+        const id = spec.name === '别管它' ? INTIMATE_INTERRUPT_CARD : `im-s${index}`;
+        const card = solved(id, plainOld ? '逼近' : spec.name, plainOld ? 'strike' : spec.key, plainOld ? 1 : spec.cost, spec.name === '旧账' && grudgeOpen ? oldRarity : rarity);
+        if (!card) return;
+        catalog[id] = spec.key === 'lure' ? withFizzle(card) : card;
+        deck.push(...Array(spec.copies).fill(id));
+    });
+    const bond = kind === '主导' ? Math.max(Number(favor) || 0, Number(grudge) || 0) : Number(favor) || 0;
+    const bondRarity = CHALLENGE_RARITIES[bondTierIndex(bond)];
+    RELATIONS[kind].forEach(([name, key], index) => {
+        const id = `im-r${index}`;
+        const card = solved(id, name, key, 1, bondRarity);
+        if (!card) return;
+        catalog[id] = card;
+        deck.push(id);
+    });
+    if (kind === '主导' && isShakyLoveHate({ favor, trust, grudge })) {
+        INTIMATE_SHAKY_CARDS.forEach(([name, key], index) => {
+            const id = `im-w${index}`;
+            const card = solved(id, name, key, 1, rarity);
+            if (!card) return;
+            catalog[id] = card;
+            deck.push(id);
+        });
+    }
+    if (mark === 'defeated' && kind === '主导') {
+        const card = solved(INTIMATE_DEFIANCE_CARD, '不服', 'rend', 1, rarity);
+        if (card) {
+            catalog[INTIMATE_DEFIANCE_CARD] = card;
+            deck.push(INTIMATE_DEFIANCE_CARD);
+        }
+    }
+    return { deck, catalog, rarity };
+}
+
+__igsDefine(exports, "bondTierIndex", () => bondTierIndex);
+__igsDefine(exports, "intimateSkillValue", () => intimateSkillValue);
+__igsDefine(exports, "buildIntimateDeck", () => buildIntimateDeck);
+__igsDefine(exports, "INTIMATE_DUEL_CARD_SLOTS", () => INTIMATE_DUEL_CARD_SLOTS);
+__igsDefine(exports, "INTIMATE_INTERRUPT_CARD", () => INTIMATE_INTERRUPT_CARD);
+__igsDefine(exports, "INTIMATE_DEFIANCE_CARD", () => INTIMATE_DEFIANCE_CARD);
+__igsDefine(exports, "INTIMATE_SHAKY_CARDS", () => INTIMATE_SHAKY_CARDS);
+__igsDefine(exports, "INTIMATE_SCHOOLS", () => INTIMATE_SCHOOLS);
+});
+__igsRegister("src/combat/intimate-foes.js", function(module, exports, require) {
+const { skillFromTemplate } = require("src/combat/card-templates.js");
+const INTIMATE_FOE_ID = 'foe';
+const INTIMATE_INTERRUPT_SKILL = 'im-interrupt';
+const INTIMATE_REVENGE_SKILL = 'im-revenge';
+const INTIMATE_BAIT_SKILL = 'im-bait';
+const INTIMATE_WATCH_SKILL = 'im-watch';
+const INTIMATE_REVENGE_WEIGHT = 40;
+
+const intent = (id, name, template) => Object.freeze({ id, name, template });
+const INTIMATE_INTENTS = Object.freeze({
+    合拍: Object.freeze([
+        intent('im-nervous', '紧张', 'guard'), intent('im-shy', '羞涩', 'curse'),
+        intent('im-offbeat', '节奏不对', 'slash'), intent(INTIMATE_INTERRUPT_SKILL, '打断', 'heavy'),
+    ]),
+    主导: Object.freeze([
+        intent(INTIMATE_REVENGE_SKILL, '反扑', 'slash'), intent('im-provoke', '挑衅', 'crush'),
+        intent(INTIMATE_BAIT_SKILL, '诱敌', 'barb'), intent('im-press', '强压', 'heavy'), intent(INTIMATE_WATCH_SKILL, '观望', 'guard'),
+    ]),
+});
+
+const PERSONA_BIAS = Object.freeze([
+    [/傲娇|嘴硬|口是心非/, 'im-provoke'],
+    [/腹黑|心机|狡黠|腹中/, INTIMATE_BAIT_SKILL],
+    [/强势|霸道|支配|控制欲|女王/, 'im-press'],
+]);
+function personaBiasOf(text) {
+    const source = String(text || '');
+    const hit = PERSONA_BIAS.find(([pattern]) => pattern.test(source));
+    return hit ? hit[1] : null;
+}
+function buildIntimateFoeSkills({ mechanic = '合拍', damageCap, tension = 0, mark = null, persona = '' } = {}) {
+    const kind = mechanic === '主导' ? '主导' : '合拍';
+    const bias = kind === '主导' ? personaBiasOf(persona) : null;
+    const extra = kind === '合拍' ? Math.max(0, Math.floor(Number(tension) || 0)) : 0;
+    const skills = INTIMATE_INTENTS[kind].map((spec) => {
+        const base = skillFromTemplate(spec.template, damageCap);
+        let weight = base.weight;
+        if (spec.id === 'im-nervous') weight += extra;
+        if (spec.id === 'im-shy') weight += Math.floor(extra / 2);
+        if (spec.id === bias) weight += 2;
+        if (spec.id === INTIMATE_REVENGE_SKILL && mark === 'suppressed') weight += INTIMATE_REVENGE_WEIGHT;
+        return { id: spec.id, name: spec.name, ...base, weight };
+    });
+    return skills;
+}
+
+__igsDefine(exports, "personaBiasOf", () => personaBiasOf);
+__igsDefine(exports, "buildIntimateFoeSkills", () => buildIntimateFoeSkills);
+__igsDefine(exports, "INTIMATE_FOE_ID", () => INTIMATE_FOE_ID);
+__igsDefine(exports, "INTIMATE_INTERRUPT_SKILL", () => INTIMATE_INTERRUPT_SKILL);
+__igsDefine(exports, "INTIMATE_REVENGE_SKILL", () => INTIMATE_REVENGE_SKILL);
+__igsDefine(exports, "INTIMATE_BAIT_SKILL", () => INTIMATE_BAIT_SKILL);
+__igsDefine(exports, "INTIMATE_WATCH_SKILL", () => INTIMATE_WATCH_SKILL);
+__igsDefine(exports, "INTIMATE_REVENGE_WEIGHT", () => INTIMATE_REVENGE_WEIGHT);
+__igsDefine(exports, "INTIMATE_INTENTS", () => INTIMATE_INTENTS);
+});
 __igsRegister("src/combat/flip.js", function(module, exports, require) {
 // 翻牌奖励：翻哪几张、选哪张、重抽备选组、可见性。选择状态 pick = { set, flipped, choice }。
 const { hash32, randomInt } = require("src/combat/random.js");
@@ -177986,7 +179281,8 @@ __igsRegister("src/visual/igs-ui/combat-deck-panel-render.js", function(module, 
 const { renderCombatGenerationForm } = require("src/visual/igs-ui/combat-generation-form.js");
 const { esc } = require("src/visual/igs-ui/reader-value-utils.js");
 const { combatReasonText } = require("src/visual/igs-ui/combat-panel-render.js");
-const { LIVE_ICONS } = require("src/visual/igs-ui/danmaku-icons.js");
+const { recordPageHeadHtml } = require("src/visual/igs-ui/record-page-shell.js");
+const { renderSettingsThemeSwitch } = require("src/visual/igs-ui/settings-theme.js");
 const { DECK_PAGES, DECK_PAGE_LABELS } = require("src/visual/igs-ui/combat-deck-panel-model.js");
 const { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } = require("src/combat/points.js");
 const { TRAIT_LINK_LABELS } = require("src/combat/traits.js");
@@ -178081,13 +179377,21 @@ const CARD_ERROR = Object.freeze({ 'copy-limit': '同名超过上限', 'not-owne
 
 const btn = (act, label, { id = '', primary = false, disabled = false, pressed = null } = {}) =>
     `<button type="button" class="igs-deck-btn${primary ? ' is-primary' : ''}" data-deck-act="${esc(act)}"${id ? ` data-deck-id="${esc(id)}"` : ''}${pressed === null ? '' : ` aria-pressed="${pressed}"`}${disabled ? ' aria-disabled="true"' : ''}>${esc(label)}</button>`;
-const row = (label, body) => `<div class="igs-deck-row"><span class="igs-deck-label">${esc(label)}</span>${body}</div>`;
+// 字段行：左侧固定宽度的小标签，右侧内容自动换行；标签为空时只占位，保证各行内容左边对齐。
+const row = (label, body) => `<div class="igs-deck-row"><span class="igs-deck-label">${esc(label)}</span><div class="igs-deck-row-body">${body}</div></div>`;
 const chip = (text) => `<span class="igs-deck-chip">${esc(text)}</span>`;
+// 分组：小标题（日记页「篇目」同款字距小字）+ 内容，用于装备、被动、特性等列表。
+const section = (title, body) => `<section class="igs-deck-section"><h4 class="igs-deck-section-title">${esc(title)}</h4>${body}</section>`;
 const expText = (d) => (d.next ? `Lv${d.level} · ${d.into}/${d.next}` : `Lv${d.level} · 满级`);
+const initial = (name) => esc(Array.from(String(name || '?'))[0] || '?');
 
+// 角色名单：与日记页人物名单同款，圆形首字头像 + 名字 + 一行小字。
+const personBtn = (act, id, name, sub, current) => `<button type="button" class="igs-deck-person" data-deck-act="${act}" data-deck-id="${esc(id)}" aria-pressed="${current}">`
+    + `<span class="igs-deck-avatar" aria-hidden="true">${initial(name)}</span><span class="igs-deck-person-meta"><span>${esc(name)}</span><small>${esc(sub)}</small></span></button>`;
 function rosterHtml(v) {
-    const builds = (v.builds || []).map((b) => btn('select-build', `${b.name}　待建档`, { id: b.name, pressed: b.name === v.selectedBuild })).join('');
-    return `<nav class="igs-deck-roster" aria-label="角色">${v.roster.map((r) => btn('select', `${r.name}　${r.kindLabel} · ${expText(r)}${r.needsAdjust ? ' · 需调整' : ''}`, { id: r.id, pressed: !v.selectedBuild && r.id === v.selectedId })).join('')}${builds}</nav>`;
+    const people = v.roster.map((r) => personBtn('select', r.id, r.name, `${r.kindLabel} · ${expText(r)}${r.needsAdjust ? ' · 需调整' : ''}`, !v.selectedBuild && r.id === v.selectedId));
+    const builds = (v.builds || []).map((b) => personBtn('select-build', b.name, b.name, '待建档', b.name === v.selectedBuild));
+    return `<nav class="igs-deck-roster" aria-label="角色">${[...people, ...builds].join('')}</nav>`;
 }
 
 const PENDING_KIND = Object.freeze({ learn: '习得', upgrade: '精进', class: '转职' });
@@ -178112,11 +179416,12 @@ function cardRow(c, readonly) {
     const effectText = (text, cost) => `${cost === 'X' ? '消耗全部能量，每点能量结算一次：' : ''}${text || '暂无效果资料'}`;
     const upgraded = c.upgradedText ? `<details class="igs-deck-effect"><summary>升级后 · ${esc(c.upgradedCost)} 费</summary>${esc(effectText(c.upgradedText, c.upgradedCost))}</details>` : '';
     const effect = effectText(c.text, c.cost);
+    // 一张卡一块：费用、卡面、名称与效果在左；来源、属性要求、数量与操作收在右侧一栏（窄屏整栏移到下方），不与下一张卡混在一起。
+    const count = `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>`;
+    const acts = artAction(c, readonly) + (readonly ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`);
     return `<li class="igs-deck-card${c.errors.length ? ' is-error' : ''}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>${artThumb(c.art)}`
-        + `<div class="igs-deck-card-info"><div class="igs-deck-row"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-count">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${upgraded}</div>`
-        + `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>${scale}${err}`
-        + artAction(c, readonly)
-        + (readonly ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`)
+        + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-tag">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${upgraded}${err}</div>`
+        + `<div class="igs-deck-card-side"><div class="igs-deck-card-stats">${scale}${count}</div>${acts ? `<div class="igs-deck-card-acts">${acts}</div>` : ''}</div>`
         + '</li>';
 }
 
@@ -178176,15 +179481,18 @@ function gearHtml(v, d) {
     const g = d.gear;
     if (!g) return '';
     const busy = v.readonly || Boolean(v.pending);
-    const slots = g.slots.map((s) => (s.item
-        ? `<span class="igs-deck-chip" data-slot="${esc(s.slot)}"${s.item.text ? ` title="${esc(s.item.text)}"` : ''}>${itemArt(s.item)}${esc(s.label)} · ${esc(s.item.name)}</span>${v.readonly ? '' : btn('unequip', '卸下', { id: s.item.gearId, disabled: busy })}`
-        : `<span class="igs-deck-chip is-empty" data-slot="${esc(s.slot)}">${esc(s.label)} · 空</span>`)).join('');
-    const items = g.items.length ? row('道具', g.items.map((i) => (i.imageUrl ? `<span class="igs-deck-chip">${itemArt(i)}${esc(`${i.name} ×${i.count}`)}</span>` : chip(`${i.name} ×${i.count}`))).join('')) : '';
+    // 一个部位一行：部位名、物品名与加成 / 被动说明（直接写出，不只放在悬停提示里）、右侧操作。
+    const gearRow = (label, x, rarity, act) => bagRow(rarity, `<span class="igs-deck-slot">${esc(label)}</span>`
+        + `<span class="igs-deck-name${x ? '' : ' is-empty'}">${x ? itemArt(x) : ''}${esc(x ? x.name : '空')}</span>${x?.text ? `<span class="igs-deck-count">${esc(x.text)}</span>` : ''}`, act);
+    const slots = g.slots.map((s) => gearRow(s.label, s.item, '', s.item && !v.readonly ? btn('unequip', '卸下', { id: s.item.gearId, disabled: busy }) : ''));
+    const parts = [section('装备', `<ul class="igs-deck-collection">${slots.join('')}</ul>`)];
     // 背包页取消后（v0.39.2）：主角的物品统一在阅读器背包页查看、换装与卖出；队友没有外部背包，未装备的装备在这里列出并可装上。
-    const spare = !d.canSell && g.bag.length
-        ? row('可装备', g.bag.map((b) => `<span class="igs-deck-chip"${b.text ? ` title="${esc(b.text)}"` : ''}${b.rarity ? ` data-rarity="${esc(b.rarity)}"` : ''}>${itemArt(b)}${esc(b.slotLabel)} · ${esc(b.name)}</span>${v.readonly ? '' : btn('equip', '装上', { id: b.gearId, disabled: busy })}`).join(''))
-        : '';
-    return `${row('装备', slots)}${spare}${items}`;
+    if (!d.canSell && g.bag.length) {
+        parts.push(section('可装备', `<ul class="igs-deck-collection">${g.bag.map((b) => gearRow(b.slotLabel, b, b.rarity, v.readonly ? '' : btn('equip', '装上', { id: b.gearId, disabled: busy }))).join('')}</ul>`));
+    }
+    if (g.items.length) parts.push(section('道具', `<ul class="igs-deck-collection">${g.items.map((i) => bagRow('', `<span class="igs-deck-name">${itemArt(i)}${esc(i.name)}</span><span class="igs-deck-count">×${esc(i.count)}</span>`, '')).join('')}</ul>`));
+    if (d.canSell) parts.push('<p class="igs-deck-help">背包里的装备在资料菜单「物品」页换装与卖出。</p>');
+    return parts.join('');
 }
 
 function generateHtml(v, d) {
@@ -178213,7 +179521,7 @@ function abilityGrid(rows, editable, busy = false, prefix = 'alloc') {
         + `<span class="igs-deck-ability-mod">${esc(r.modText)}</span></li>`).join('')}</ul>`;
 }
 
-const passiveChip = (label, p) => `<span class="igs-deck-chip"${p.text ? ` title="${esc(p.text)}"` : ''}>${esc(label)} · ${esc(p.name)}</span>`;
+const passiveRow = (label, p) => bagRow('', `<span class="igs-deck-slot">${esc(label)}</span><span class="igs-deck-name">${esc(p.name)}</span>${p.text ? `<span class="igs-deck-count">${esc(p.text)}</span>` : ''}`, '');
 
 // 列表行：稀有度标色、名称与说明、右侧操作；人物特性逐槽复用。
 const bagRow = (rarity, head, acts) => `<li class="igs-deck-keepsake"${rarity ? ` data-rarity="${esc(rarity)}"` : ''}>${head}${acts ? `<span class="igs-deck-bag-acts">${acts}</span>` : ''}</li>`;
@@ -178244,8 +179552,8 @@ function traitsHtml(v, d) {
         });
     }
     const parts = [];
-    if (rows.length) parts.push(row(slots ? `特性 ${list.length}/${slots.slots}` : '特性', `<ul class="igs-deck-collection">${rows.join('')}</ul>`));
-    if (fresh) parts.push(row('新特性', `<ul class="igs-deck-collection">${bagRow(fresh.rarity, traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
+    if (rows.length) parts.push(section(slots ? `人物特性 · ${list.length}/${slots.slots}` : '人物特性', `<ul class="igs-deck-collection">${rows.join('')}</ul>`));
+    if (fresh) parts.push(section('新特性', `<ul class="igs-deck-collection">${bagRow(fresh.rarity, traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
     if (hero && !fresh && !v.readonly && v.canDrawTrait) {
         const inner = v.trait
             ? btn('trait-confirm', v.pending === 'trait' ? '生成中' : `确认抽取 · ${TRAIT_DRAW_COST} 金钱`, { primary: true, disabled: busy }) + btn('trait-cancel', '取消', { disabled: busy })
@@ -178300,13 +179608,15 @@ function statusPage(v, d) {
     // 生命：当前 / 上限（持续伤势已计入）与伤势词；满血时只写上限。
     const hp = d.combat && (d.combat.current ?? d.combat.hp) < d.combat.hp ? `生命 ${d.combat.current}/${d.combat.hp}` : `生命 ${d.combat?.hp}`;
     if (d.combat) parts.push(row('开战', chip(hp) + (d.combat.injury && d.combat.injury !== '无伤' ? chip(d.combat.injury) : '') + chip(`速度 ${d.combat.speed}`)));
-    if (a?.table === 'missing') parts.push(row('属性', chip('属性表未创建')));
-    parts.push(abilityGrid(d.abilities, false));
     if (a && Number.isFinite(a.proficiency)) parts.push(row('熟练', chip(`+${a.proficiency}`)));
-    const passives = d.kind === 'skill-character'
-        ? (d.passives || []).map((p) => chip(p.name)).join('')
-        : [d.classPassive && passiveChip('职业', d.classPassive), d.personalPassive && !d.traitSlots && passiveChip('个人', d.personalPassive)].filter(Boolean).join('');
-    if (passives) parts.push(row('被动', passives));
+    // 没有属性表时六维是按定位推算的默认值，照常用于战斗；说明写在属性格上方，不与数值并列成「未创建」。
+    const abilities = `${a?.table === 'missing' ? '<p class="igs-deck-help">属性表未创建，以下为按定位推算的默认值。</p>' : ''}${abilityGrid(d.abilities, false)}`;
+    if (d.abilities?.length) parts.push(section('六维', abilities));
+    // 被动：名称与效果一并写出（不只放在悬停提示里，触屏也能看到）。
+    const passiveRows = d.kind === 'skill-character'
+        ? (d.passives || []).map((p) => bagRow('', `<span class="igs-deck-name">${esc(p.name)}</span>`, ''))
+        : [d.classPassive && passiveRow('职业', d.classPassive), d.personalPassive && !d.traitSlots && passiveRow('个人', d.personalPassive)].filter(Boolean);
+    if (passiveRows.length) parts.push(section('被动', `<ul class="igs-deck-collection">${passiveRows.join('')}</ul>`));
     const traits = traitsHtml(v, d);
     if (traits) parts.push(traits);
     return parts.join('');
@@ -178337,9 +179647,9 @@ function allocPage(v) {
     if (!a) return '';
     if (a.table !== 'ok') {
         const retry = v.readonly ? '' : tablesRetryBtn(v);
-        return `${row('属性', chip('属性表未创建'))}${abilityGrid(a.rows, false)}${retry ? `<div class="igs-deck-actions">${retry}</div>` : ''}`;
+        return `<p class="igs-deck-help">属性表未创建，暂时不能加点；以下为按定位推算的默认值。</p>${abilityGrid(a.rows, false)}${retry ? `<div class="igs-deck-actions">${retry}</div>` : ''}`;
     }
-    if (!a.protagonist) return `${abilityGrid(a.rows, false)}<div class="igs-deck-actions">${chip('只读')}</div>`;
+    if (!a.protagonist) return `<p class="igs-deck-help">只有主角可以分配属性点。</p>${abilityGrid(a.rows, false)}`;
     const busy = Boolean(v.pending);
     const actions = v.readonly ? chip('战斗进行中 · 只读')
         : `${btn('alloc-reset', '还原', { disabled: !a.dirty || busy })}${btn('alloc-confirm', v.pending === 'alloc' ? '保存中' : '确认加点', { primary: true, disabled: !a.dirty || busy })}`;
@@ -178355,9 +179665,17 @@ function deckPage(v, d) {
 
 const PAGE_HTML = Object.freeze({ status: statusPage, alloc: allocPage, gear: gearHtml, deck: deckPage });
 
+// 页签：日记页「按人物 / 时间线」同款分段按钮。
 function tabsHtml(page, d) {
     return `<div class="igs-deck-tabs" role="tablist" aria-label="人物状态">${DECK_PAGES.map((p) => `<button type="button" class="igs-deck-tab" role="tab" id="igs-deck-tab-${p}" aria-controls="igs-deck-page" data-deck-act="page" data-deck-id="${p}" aria-selected="${p === page}">`
         + `${esc(p === 'deck' && d.kind === 'skill-character' ? '技能' : DECK_PAGE_LABELS[p])}</button>`).join('')}</div>`;
+}
+
+// 详情卡片页头：大号首字头像、名字，下方一行标签（等级、职业、金钱）。生命只在状态页「开战」行写一次（已计入体质与伤势），页头不再另写基础血量。
+const tag = (text) => `<span class="igs-deck-tag">${esc(text)}</span>`;
+function detailHead(name, tags) {
+    return `<header class="igs-deck-detail-head"><span class="igs-deck-avatar is-large" aria-hidden="true">${initial(name)}</span>`
+        + `<div class="igs-deck-detail-title"><h3>${esc(name)}</h3><div class="igs-deck-tags">${tags.filter(Boolean).map(tag).join('')}</div></div></header>`;
 }
 
 function detailHtml(v) {
@@ -178365,7 +179683,8 @@ function detailHtml(v) {
     const d = v.detail;
     if (!d) return '';
     const classText = d.className && d.tierName ? `${d.className} · ${d.tierName}` : d.className;
-    const head = row(d.name, chip(expText(d)) + (classText ? chip(classText) : '') + (d.hpMax ? chip(`HP ${d.hpMax}`) : '') + (d.tierLabel && v.readonly ? chip(`强度 · ${d.tierLabel}`) : ''));
+    // 金钱只主角有：解锁特性槽、抽特性、转职等按钮按它置灰，页头直接写出余额。
+    const head = detailHead(d.name, [expText(d), classText, d.tierLabel && v.readonly ? `强度 · ${d.tierLabel}` : '', d.canSell ? `金钱 ${d.points || 0}` : '']);
     const page = DECK_PAGES.includes(v.page) ? v.page : 'status';
     return `<section class="igs-deck-detail">${head}${tabsHtml(page, d)}`
         + `<div class="igs-deck-page" id="igs-deck-page" role="tabpanel" aria-labelledby="igs-deck-tab-${page}" data-page="${page}">${PAGE_HTML[page](v, d)}</div></section>`;
@@ -178374,7 +179693,7 @@ function detailHtml(v) {
 // 待建档角色（P8c）：只有建档页（逐项加点、定位与职业名），确认后写属性表 init，之后按档案或数值系统角色列出。
 function buildDetailHtml(v) {
     if (!v.manual) return '';
-    return `<section class="igs-deck-detail">${row(v.selectedBuild, chip('待建档'))}<div class="igs-deck-page" id="igs-deck-page" data-page="build">${manualPage(v)}</div></section>`;
+    return `<section class="igs-deck-detail">${detailHead(v.selectedBuild, ['待建档'])}<div class="igs-deck-page" id="igs-deck-page" data-page="build">${manualPage(v)}</div></section>`;
 }
 
 // 主角卡组预生成：生成中 / 自动重试中只显示状态；失败显示原因与手动重试。就绪或未开始时不显示。
@@ -178404,8 +179723,11 @@ function pendingHtml(v) {
 
 const STATE_TEXT = Object.freeze({ loading: '正在读取', unavailable: '卡牌战斗不可用' });
 function renderCombatDeckPanelHtml(v) {
-    const head = `<header class="igs-deck-head"><span class="igs-deck-title">人物状态</span><button type="button" class="igs-deck-icon-btn" data-deck-act="close" aria-label="关闭">${LIVE_ICONS.close}</button></header>`;
-    const notice = v.notice ? `<p class="igs-deck-notice" role="alert">${esc(v.notice)}</p>` : '';
+    // 页头与日记、目录同一外壳：左返回、居中标题、右侧配色色板（注入了保存配色时才给）。
+    const themeSwitch = v.canTheme ? `<div class="igs-rp-theme-switch" role="radiogroup" aria-label="界面配色">${renderSettingsThemeSwitch(v.theme, {
+        optionClass: 'igs-rp-theme-option', attrs: (value) => `data-deck-act="theme" data-deck-id="${value}"` })}</div>` : '';
+    const head = recordPageHeadHtml('人物状态', { closeAttr: 'data-deck-act', backAriaLabel: '关闭', trailing: themeSwitch });
+    const notice = v.notice ? `<p class="igs-rp-notice igs-deck-notice" role="alert">${esc(v.notice)}</p>` : '';
     let main;
     const stage = v.status === 'ready' ? revealHtml(v) : '';
     if (v.status === 'error') {
@@ -178416,10 +179738,11 @@ function renderCombatDeckPanelHtml(v) {
     else if (v.status !== 'ready') main = `<p class="igs-deck-state"${v.status === 'loading' ? ' aria-busy="true"' : ''}>${esc(STATE_TEXT[v.status] || '')}</p>`;
     else if (stage) main = stage;
     else if (!v.roster.length && !(v.builds || []).length) main = `<p class="igs-deck-state">还没有角色档案</p>${pendingHtml(v)}`;
-    else main = `${pendingHtml(v)}<div class="igs-deck-layout">${rosterHtml(v)}${detailHtml(v)}</div>`;
+    // 日记页同款两栏：左侧人物名单，右侧详情卡片（窄屏名单变成横向一排）。
+    else main = `${pendingHtml(v)}<div class="igs-deck-layout"><aside class="igs-deck-side">${rosterHtml(v)}</aside>${detailHtml(v)}</div>`;
     // 神话第一次翻开：整面板闪白，挂在主区之外以铺满面板（低画质与减少动态效果不出）。
     const flash = stage && v.reveal.fresh && v.reveal.rarity === 'mythic' ? '<span class="igs-deck-reveal-flash" aria-hidden="true"></span>' : '';
-    return `${head}${notice}<div class="igs-deck-main" data-status="${esc(v.status)}">${main}</div>${flash}`;
+    return `<div class="igs-rp-page">${head}<div class="igs-rp-body"><div class="igs-deck-main" data-status="${esc(v.status)}">${notice}${main}</div></div></div>${flash}`;
 }
 
 
@@ -178471,7 +179794,7 @@ const { normalizeCombatExpansionSettings } = require("src/visual/igs-ui/combat-s
 const COMBAT_ENTRY_ID = 'igs-combat-entry';
 
 // challengeQuota 为 challengeQuota 的结果：额度用完或冷却中时标签不生效，入口不出现。
-function resolveCombatEntry({ readerSettings, floor, lastPage, sourceFilter, challengeQuota } = {}) {
+function resolveCombatEntry({ readerSettings, floor, lastPage, sourceFilter, challengeQuota, intimate } = {}) {
     const settings = normalizeCombatExpansionSettings(readerSettings && readerSettings.combatExpansion);
     if (!settings.enabled || !lastPage || !floor || !floor.isAi || !floor.isLatest || !floor.chatId) return null;
     const text = String(floor.text || '');
@@ -178482,11 +179805,13 @@ function resolveCombatEntry({ readerSettings, floor, lastPage, sourceFilter, cha
             return { key, messageId: Number(floor.messageId), encounter: start.encounter, tier: start.tier, enemies: start.enemies };
         }
     }
-    if (settings.kind === 'combat') return null;
-    const { start } = parseChallengeStart(text, { sourceFilter, quota: challengeQuota || undefined });
+    if (settings.kind === 'combat' && !intimate) return null;
+    const parsed = parseChallengeStart(text, { sourceFilter, quota: challengeQuota || undefined, intimate: intimate || undefined }).start;
+    let start = parsed && (parsed.intimate === true || settings.kind !== 'combat') ? parsed : null;
+    if (!start && intimate && intimate.launch === true) start = { event: '亲密', domain: '亲密', tier: '普通', tagHash: 'launch', occurrence: 0, intimate: true };
     if (!start) return null;
     const key = ['ch', floor.chatId, floor.messageId, floor.swipeId, start.tagHash, start.occurrence].join('|');
-    return { kind: 'challenge', key, messageId: Number(floor.messageId), event: start.event, domain: start.domain, tier: start.tier, allowEscape: settings.daily.allowEscape };
+    return { kind: 'challenge', key, messageId: Number(floor.messageId), event: start.event, domain: start.domain, tier: start.tier, allowEscape: settings.daily.allowEscape, ...(start.intimate ? { intimate: true } : {}) };
 }
 
 // 本页诊断用：入口没出现时，开战标签本身有没有识别到、诊断码是什么。
@@ -178561,6 +179886,76 @@ __igsDefine(exports, "unfinishedCombatState", () => unfinishedCombatState);
 __igsDefine(exports, "sessionMatchesEntry", () => sessionMatchesEntry);
 __igsDefine(exports, "COMBAT_ENTRY_ID", () => COMBAT_ENTRY_ID);
 __igsDefine(exports, "COMBAT_UNFINISHED_STATUSES", () => COMBAT_UNFINISHED_STATUSES);
+});
+__igsRegister("src/visual/igs-ui/intimate-launch-button.js", function(module, exports, require) {
+const INTIMATE_LAUNCH_ID = 'igs-combat-launch';
+function syncIntimateLaunch(overlay, show) {
+    if (!overlay || typeof overlay.querySelector !== 'function') return;
+    let node = overlay.querySelector(`#${INTIMATE_LAUNCH_ID}`);
+    if (!show) {
+        if (node) node.remove();
+        return;
+    }
+    if (!node) {
+        node = overlay.ownerDocument.createElement('div');
+        node.id = INTIMATE_LAUNCH_ID;
+        node.addEventListener('click', (event) => {
+            event.stopPropagation?.();
+            event.preventDefault?.();
+            if (event.target?.closest?.('[data-intimate-launch]') && typeof node.onLaunch === 'function') node.onLaunch();
+        });
+        node.innerHTML = '<button type="button" class="igs-combat-entry-btn igs-combat-entry-return" data-intimate-launch="">发起</button>';
+        overlay.appendChild(node);
+    }
+    if (show.skin) node.setAttribute('data-combat-skin', show.skin);
+    node.onLaunch = show.onLaunch;
+}
+
+__igsDefine(exports, "syncIntimateLaunch", () => syncIntimateLaunch);
+__igsDefine(exports, "INTIMATE_LAUNCH_ID", () => INTIMATE_LAUNCH_ID);
+});
+__igsRegister("src/visual/igs-ui/intimate-floor.js", function(module, exports, require) {
+const { resolveIntimatePhase } = require("src/visual/igs-ui/romance-intimate.js");
+const { floorHasNewRise, underageByProfile } = require("src/scene/intimate-duel.js");
+const { resolveCharacterKey } = require("src/scene/scene-directives.js");
+const textsOf = (value, out = []) => {
+    if (typeof value === 'string') out.push(value);
+    else if (Array.isArray(value)) value.forEach((item) => textsOf(item, out));
+    else if (value && typeof value === 'object') Object.values(value).forEach((item) => textsOf(item, out));
+    return out;
+};
+function intimatePartnerOf(pages, userName) {
+    for (const page of Array.isArray(pages) ? pages : []) {
+        if (!page || !page.nsfwSpan) continue;
+        const name = String(page.spriteChar || page.bubbleSpeaker || '').trim();
+        if (name && name !== userName) return name;
+    }
+    return '';
+}
+function intimateProfileTexts(assets, partner) {
+    if (!assets || !partner) return [];
+    const pool = { ...assets.characterDna, ...assets.characters };
+    const key = resolveCharacterKey(pool, assets.characterAliases, partner) || partner;
+    return [...textsOf(assets.characterDna && assets.characterDna[key]), ...textsOf(assets.characterSpriteNotes && assets.characterSpriteNotes[key])];
+}
+function computeIntimateFloorGate({ pages, messageId, userName, assets, previous } = {}) {
+    const newRise = floorHasNewRise(pages, resolveIntimatePhase);
+    const partner = intimatePartnerOf(pages, userName);
+    const eventKey = newRise ? Number(messageId) : null;
+    return {
+        newRise, partner, eventKey,
+        ageBlocked: underageByProfile(intimateProfileTexts(assets, partner)),
+        launch: Boolean(previous && previous.launch === true && previous.eventKey === eventKey),
+    };
+}
+function pageIsIntimateRise(page) {
+    return Boolean(page && page.nsfwSpan && page.nsfwSpan.continued !== true && resolveIntimatePhase(page.nsfwSpan) === 'rise');
+}
+
+__igsDefine(exports, "intimatePartnerOf", () => intimatePartnerOf);
+__igsDefine(exports, "intimateProfileTexts", () => intimateProfileTexts);
+__igsDefine(exports, "computeIntimateFloorGate", () => computeIntimateFloorGate);
+__igsDefine(exports, "pageIsIntimateRise", () => pageIsIntimateRise);
 });
 __igsRegister("src/visual/igs-ui/recovery-notice.js", function(module, exports, require) {
 const { subscribeRecoveries } = require("src/storage/automatic-recovery.js");
@@ -179350,6 +180745,7 @@ __igsRegister("src/scene/stats/stat-metrics.js", function(module, exports, requi
 const { stageOf } = require("src/scene/stats/stat-favor.js");
 const { DEFAULT_MONEY_TABLE, walletBalance } = require("src/scene/stats/stat-bars.js");
 const { isProtagonist } = require("src/scene/stats/stat-engine.js");
+const { grudgeTier } = require("src/scene/stats/stat-state.js");
 const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕/;
 function isUserName(name, userName = '') {
     const n = String(name || '').trim();
@@ -179363,7 +180759,7 @@ function dropUserFavor(model, speaker, userName = '') {
     return metrics.length === model.metrics.length ? model : { ...model, metrics };
 }
 
-const DIM_COLOR = Object.freeze({ 好感: 'like', 信任: 'trust', 了解: 'know', 欲望: 'desire' });
+const DIM_COLOR = Object.freeze({ 好感: 'like', 信任: 'trust', 了解: 'know', 欲望: 'desire', 芥蒂: 'grudge' });
 const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '金钱' });
 // 状态栏条色沿用现有 slot 色板：生命红、体力绿、金钱黄、压力紫。
 const BAR_COLOR = Object.freeze({ health: 'slot-5', stamina: 'slot-2', money: 'slot-3', stress: 'slot-4' });
@@ -179381,17 +180777,40 @@ function displayOfFavor(value, hudLabel = 'number') {
     if (hudLabel === 'both') return `${stage} · ${v}`;
     return stage;
 }
+
+const DIM_STAGES = Object.freeze({
+    信任: ['戒备', '普通', '放心', '依赖'],
+    了解: ['陌生', '初识', '熟知', '灵犀'],
+    欲望: ['平淡', '悸动', '渴求', '沉溺'],
+    芥蒂: ['不满', '记恨', '怨恨', '仇恨'],
+});
+function stageOfDim(dim, value) {
+    const names = DIM_STAGES[dim];
+    if (!names) return '';
+    const v = Math.round(Number(value) || 0);
+    return names[v <= 25 ? 0 : v <= 50 ? 1 : v <= 75 ? 2 : 3];
+}
+function displayOfDim(dim, value, hudLabel = 'number') {
+    if (dim === '好感') return displayOfFavor(value, hudLabel);
+    const v = Math.round(Number(value) || 0);
+    const stage = stageOfDim(dim, v);
+    if (!stage || hudLabel === 'number') return String(v);
+    if (hudLabel === 'both') return `${stage} · ${v}`;
+    return stage;
+}
 function characterStatMetrics(character, { hudLabel = 'number', nsfw = false } = {}) {
     if (!character || !character.dims) return [];
     const out = [];
-    for (const [dim, value] of Object.entries(character.dims)) {
+    const dims = '芥蒂' in character.dims ? character.dims : { ...character.dims, 芥蒂: 0 };
+    for (const [dim, value] of Object.entries(dims)) {
         if (dim === '欲望' && !nsfw) continue;
+        if (dim === '芥蒂' && !grudgeTier(value)) continue;
         // 负好感：条长按绝对值画、换冷色，一眼能看出反感程度。
         const negativeFavor = dim === '好感' && Math.round(Number(value) || 0) < 0;
         out.push({
             label: dim,
             percent: negativeFavor ? percentOfDim(-value) : percentOfDim(value),
-            display: dim === '好感' ? displayOfFavor(value, hudLabel) : String(Math.round(Number(value) || 0)),
+            display: displayOfDim(dim, value, hudLabel),
             colorKey: negativeFavor ? 'cold' : DIM_COLOR[dim] || 'like',
             sourceUid: 'igs-stats',
             // 原始值（含负数）：条长按 0 画，但演出层要按真实增减判断（负区间继续下降也要提示）。
@@ -179485,6 +180904,8 @@ __igsDefine(exports, "isUserName", () => isUserName);
 __igsDefine(exports, "dropUserFavor", () => dropUserFavor);
 __igsDefine(exports, "percentOfDim", () => percentOfDim);
 __igsDefine(exports, "displayOfFavor", () => displayOfFavor);
+__igsDefine(exports, "stageOfDim", () => stageOfDim);
+__igsDefine(exports, "displayOfDim", () => displayOfDim);
 __igsDefine(exports, "characterStatMetrics", () => characterStatMetrics);
 __igsDefine(exports, "protagonistStatMetrics", () => protagonistStatMetrics);
 __igsDefine(exports, "createStatsMetricsLookup", () => createStatsMetricsLookup);
@@ -188676,7 +190097,7 @@ const { parseTables } = require("src/data/shujuku/table-parser.js");
 const { findStatusHudRow, normalizeStatusHudTables, parseMetricCell } = require("src/data/shujuku/status-hud-model.js");
 // 人际关系页的人物数值：读取名称含「数值」的表与状态栏已选表，只展示单元格里明确的数值与「阶段」文字。
 const METRIC_TABLE_KEYWORDS = Object.freeze(['数值']);
-const PLAIN_METRIC_LABEL_RE = /好感|信任|了解|亲密|爱意|依赖|依恋|心动|羁绊|默契|警惕|敌意/;
+const PLAIN_METRIC_LABEL_RE = /好感|信任|了解|亲密|爱意|依赖|依恋|心动|羁绊|默契|警惕|敌意|芥蒂/;
 const STAGE_LABEL_RE = /阶段/;
 const PLAIN_NUMBER_RE = /^-?\d+(?:\.\d+)?$/;
 const MAX_METRICS = 6;
@@ -194265,9 +195686,9 @@ __igsRegister("src/core/stats-runtime.js", function(module, exports, require) {
 // 数值系统运行时装配（§3、§4.2、§10A；v2 §5、§6；易错点 A1–A6、B1–B3、H1/H2、N1/N2/N5–N7）。
 // 只协调宿主事件、账本、注入与后台请求；结算规则在 scene/stats，正文解析不在这里做。
 // 总开关关闭时不挂任何监听（sync 解绑）；本聊天未启用时不注入、不结算，数值冻结。
-const { activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } = require("src/scene/stats/stat-ledger.js");
+const { STATS_LOG_MAX, activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } = require("src/scene/stats/stat-ledger.js");
 const { resettleFloor, settleFloor } = require("src/scene/stats/stat-ledger-settle.js");
-const { settleFloorText } = require("src/scene/stats/stat-settle.js");
+const { MANUAL_DIMS, applyManualRelations, settleFloorText } = require("src/scene/stats/stat-settle.js");
 const { createChatStatsStore, emptyCatalog, sanitizeCatalog, sheetAbilityScores } = require("src/scene/stats/stat-persist.js");
 const { BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, statTagHash, verifyStatImport } = require("src/scene/stats/stat-log.js");
 const { hash32 } = require("src/combat/random.js");
@@ -194278,7 +195699,7 @@ const { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } = require("src/
 const { combatPartyLines } = require("src/scene/combat-prompt.js");
 const { ABILITY_LABELS, abilityKeyOf } = require("src/combat/abilities.js");
 const { readStatsSettings } = require("src/scene/stats/stat-settings.js");
-const { createStatsState } = require("src/scene/stats/stat-state.js");
+const { createStatsState, grudgeOfCharacter } = require("src/scene/stats/stat-state.js");
 const { buildStatsPrompt, mandatesFromFlags } = require("src/scene/stats/stat-prompt.js");
 const { pushStats, withTimeout } = require("src/data/shujuku/stats-push.js");
 const { createStatsMetricsLookup, protagonistStatMetrics } = require("src/scene/stats/stat-metrics.js");
@@ -194929,6 +196350,8 @@ function createStatsRuntime({
         const body = String(m.mes ?? '');
         // 重算同一楼沿用当时结算的好感档，改档只影响之后的楼。
         const favorMode = prior ? (priorMeta.favorMode === 'hard' ? 'hard' : 'normal') : s.favorMode;
+        // 手改关系挂在楼上：重算、重 roll 同一楼都沿用，否则一重 roll 就丢。
+        const manual = priorMeta.manual || manualOfFloor(messageId);
         // 同一楼同一 swipe 的结算种子与骰序都由「聊天 + 楼序号 + swipe」决定（确定性）。
         const ordinal = floorCheckOrdinal(messages(c), messageId);
         const seed = settleSeed(chatId, ordinal, floor.swipeId);
@@ -194943,7 +196366,7 @@ function createStatsRuntime({
             }
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
             });
             const meta = { ...r.meta };
             if (p.preroll) meta.preroll = p.preroll;
@@ -195602,6 +197025,43 @@ function createStatsRuntime({
     }
 
     // ---- 设置页存档区操作 ----
+    function manualOfFloor(messageId) {
+        for (const entry of ledger.entries.values()) if (entry.messageId === messageId && entry.meta && entry.meta.manual) return entry.meta.manual;
+        return null;
+    }
+
+    // 手改关系数值：写进最近一楼的结算结果，并记在该楼 meta.manual 上，之后重算或重 roll 这一楼仍保留。
+    function relationOp(op, name, payload = {}) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        if (op !== 'set') return { ok: false, reason: 'stats-relation-op-unknown' };
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        const entry = activeEntryBefore(ledger, Infinity);
+        if (!entry || !entry.after.characters[name]) return { ok: false, reason: 'stats-relation-missing' };
+        const dims = {};
+        for (const key of MANUAL_DIMS) {
+            const v = Number(payload[key]);
+            if (Object.hasOwn(payload, key) && (!Number.isInteger(v) || v < -100 || v > 100)) return { ok: false, reason: 'stats-relation-invalid' };
+            if (Object.hasOwn(payload, key)) dims[key] = v;
+        }
+        if (!Object.keys(dims).length) return { ok: true, cancelled: true };
+        const changes = [];
+        const after = applyManualRelations(entry.after, { [name]: dims }, changes);
+        if (!changes.length) return { ok: true };
+        const prev = (entry.meta && entry.meta.manual) || {};
+        const meta = { ...(entry.meta || {}), manual: { ...prev, [name]: { ...(prev[name] || {}), ...dims } } };
+        const m = messages(ctx())[entry.messageId];
+        if (!m) return { ok: false, reason: 'stats-relation-missing' };
+        const all = [...entry.changes, ...changes];
+        const record = floorRecord({ messageId: entry.messageId, swipeId: entry.swipeId, tagHash: statTagHash(String(m.mes ?? '')), baseId: entry.baseId ?? null, seed: entry.seed, before: entry.before, after, changes: all, meta, createdAt: Date.now() });
+        const key = ledgerKey(ledger, entry.messageId, entry.swipeId);
+        ledger.entries.set(key, { ...entry, after, meta, changes: all, recordId: record.id });
+        ledger.log = ledger.log.concat(changes.map((row) => ({ floor: key, ...row }))).slice(-STATS_LOG_MAX);
+        persist([record]);
+        onChange(currentStatsState(ledger), null);
+        push();
+        return { ok: true };
+    }
+
     function sheetOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         const sheets = { ...catalog.sheets };
@@ -195714,6 +197174,7 @@ function createStatsRuntime({
         manualRoll: ev(manualRoll),
         diagnose: ev(diagnose),
         sheetOp: ev(sheetOp),
+        relationOp: ev(relationOp),
         skillOp: ev(skillOp),
         heroOp: ev(heroOp),
         // 旧版备份已不再写入；这里只保留「删除旧版备份」按钮的清理入口。
@@ -195751,6 +197212,9 @@ function createStatsRuntime({
             return {
                 bars: state.protagonist.bars, skills: state.protagonist.skills, clock: state.clock, present: names,
                 favors: Object.fromEntries(names.map((name) => [name, Number(state.characters[name].dims && state.characters[name].dims['好感']) || 0])),
+                trusts: Object.fromEntries(names.map((name) => [name, Number(state.characters[name].dims && state.characters[name].dims['信任']) || 0])),
+                grudges: Object.fromEntries(names.map((name) => [name, grudgeOfCharacter(state, name)])),
+                intimate: Object.fromEntries(Object.entries(state.characters).filter(([, character]) => character.intimate).map(([name, character]) => [name, character.intimate])),
             };
         },
         // 状态栏常驻主角区：与 protagonistLookup 同一份条目，名字取玩家名；没启用或没有可显示的条时为 null。
@@ -195912,11 +197376,11 @@ __igsRegister("src/scene/stats/stat-settle.js", function(module, exports, requir
 // 返回 { state, changes, meta }，可直接作为 stat-ledger-settle 的 settle 回调结果。
 const { parseStatDirectives } = require("src/scene/stats/stat-directives.js");
 const { FAVOR_GATES, applyDim, baseDelta, favorLimits, gateKey } = require("src/scene/stats/stat-favor.js");
-const { START_FAVOR } = require("src/scene/stats/stat-vocab.js");
+const { START_DIMS, START_FAVOR } = require("src/scene/stats/stat-vocab.js");
 const { applyGift, applyKeyEvent } = require("src/scene/stats/stat-favor-events.js");
 const { DEFAULT_MONEY_TABLE, applyBarDirective } = require("src/scene/stats/stat-bars.js");
 const { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } = require("src/scene/stats/stat-day.js");
-const { SKILL_MAX, createCharacter, withBars, withCharacter, withClock } = require("src/scene/stats/stat-state.js");
+const { DIM_MAX, DIM_MIN, SKILL_MAX, clamp, createCharacter, withBars, withCharacter, withClock } = require("src/scene/stats/stat-state.js");
 const { rollDie } = require("src/scene/stats/stat-rng.js");
 const { settleCombat } = require("src/scene/stats/stat-battle.js");
 const { PROTAGONIST, createEngine, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } = require("src/scene/stats/stat-engine.js");
@@ -196023,16 +197487,48 @@ function settleStartRelations(before, directives, ctx) {
         const pristine = !existing || (Object.values(existing.dims || {}).every((v) => !Number(v)) && !(existing.unlocked || []).length);
         if (!pristine) { ctx.diagnostics.push({ code: 'stat-start-ignored', name: d.target }); continue; }
         const base = existing || createCharacter(state.clock.day, { nsfw: ctx.nsfw });
-        const to = START_FAVOR[d.value];
-        if (to) ctx.changes.push({ source: 'tag', target: d.target, key: '好感', from: 0, to, note: `起始关系·${d.value}` });
+        const preset = START_DIMS[d.value] || {};
+        for (const [key, to] of Object.entries(preset)) {
+            if (to) ctx.changes.push({ source: 'tag', target: d.target, key, from: 0, to, note: `起始关系·${d.value}` });
+        }
+        const to = preset.好感 ?? START_FAVOR[d.value] ?? 0;
         state = withCharacter(state, d.target, {
             ...base,
-            dims: { ...base.dims, 好感: to },
+            dims: { ...base.dims, ...preset },
             unlocked: FAVOR_GATES.filter((gate) => gate < to).map(gateKey),
             lastSeenDay: state.clock.day,
         });
     }
     return state;
+}
+const MANUAL_DIMS = Object.freeze(['好感', '信任', '了解']);
+
+// 玩家在设置页手改的关系数值：manual = { 角色: { 好感, 信任, 了解 } }，盖在本楼结算结果上，不受单楼与每日上限约束。
+// 好感关口按新值重算：低于新值的关口算已过，其余重新锁上。
+function applyManualRelations(state, manual, changes = []) {
+    let next = state;
+    for (const [name, dims] of Object.entries(manual && typeof manual === 'object' ? manual : {})) {
+        const cur = next.characters[name];
+        if (!cur || !dims || typeof dims !== 'object') continue;
+        const patch = {};
+        for (const key of MANUAL_DIMS) {
+            const v = Number(dims[key]);
+            if (!Number.isFinite(v)) continue;
+            const to = clamp(Math.round(v), DIM_MIN, DIM_MAX);
+            const from = Number(cur.dims[key]) || 0;
+            if (to === from) continue;
+            patch[key] = to;
+            changes.push({ source: 'manual', target: name, key, from, to, note: '手动修改' });
+        }
+        if (!Object.keys(patch).length) continue;
+        const favor = Object.hasOwn(patch, '好感') ? patch.好感 : Number(cur.dims.好感) || 0;
+        const gates = FAVOR_GATES.map(gateKey);
+        const unlocked = Object.hasOwn(patch, '好感')
+            ? [...(cur.unlocked || []).filter((k) => !gates.includes(k)), ...FAVOR_GATES.filter((gate) => gate < favor).map(gateKey)]
+            : cur.unlocked;
+        next = withCharacter(next, name, { ...cur, dims: { ...cur.dims, ...patch }, unlocked });
+    }
+    return next;
 }
 
 function settleCharacters(before, directives, ctx) {
@@ -196177,7 +197673,9 @@ function settleFloorText(before, text, opts = {}) {
     state = settleCombat(state, directives, ctx);
     state = settleBars(state, directives, hour, ctx);
     state = settleClock(state, narration, directives, hour, ctx);
+    if (opts.manual) state = applyManualRelations(state, opts.manual, ctx.changes);
     const meta = { diagnostics, events: ctx.events, flags: ctx.flags };
+    if (opts.manual && Object.keys(opts.manual).length) meta.manual = opts.manual;
     if (check) meta.check = check;
     if (storyChecks.length) meta.checks = storyChecks.map((item) => ({ ruleset: item.ruleset, actor: item.actor, skill: item.skill, dc: item.dc, difficulty: item.difficulty, roll: item.roll ?? item.die, total: item.total, tier: item.tier, success: item.success }));
     if (pendingRoll) meta.pendingRoll = pendingRoll;
@@ -196189,7 +197687,9 @@ function settleFloorText(before, text, opts = {}) {
 
 __igsDefine(exports, "dedupeDims", () => dedupeDims);
 __igsDefine(exports, "constrainFavor", () => constrainFavor);
+__igsDefine(exports, "applyManualRelations", () => applyManualRelations);
 __igsDefine(exports, "settleFloorText", () => settleFloorText);
+__igsDefine(exports, "MANUAL_DIMS", () => MANUAL_DIMS);
 });
 __igsRegister("src/scene/stats/stat-favor-events.js", function(module, exports, require) {
 // 好感事件（§5.2、§5.3）：送礼重复递减、关键事件突破关口、冷落冷却（易错点 E4/E6）。
@@ -196581,6 +198081,7 @@ const { applyKeyEvent } = require("src/scene/stats/stat-favor-events.js");
 const { PROTAGONIST, createEngine, resolveCheck } = require("src/scene/stats/stat-engine.js");
 const { DEFEAT_MONEY_LOSS } = require("src/scene/stats/stat-battle.js");
 const { CHALLENGE_ENABLED_STAKES } = require("src/scene/challenge-directives.js");
+const { INTIMATE_STOP, INTIMATE_TENSION_START, isRapportWin, markForEnding } = require("src/scene/intimate-duel.js");
 const CHALLENGE_STRESS_STEPS = Object.freeze({ 轻松: 1, 普通: 2, 艰难: 3 });
 const CHALLENGE_STAMINA_STEPS = Object.freeze({ 轻松: ['中'], 普通: ['重'], 艰难: ['重', '熬夜'] });
 const CHALLENGE_MONEY_TIERS = Object.freeze({ 轻松: '少量', 普通: '普通', 艰难: '昂贵' });
@@ -196661,9 +198162,36 @@ function reconcile(state, name, ctx) {
     if (result.gate !== null) ctx.events.push({ ...result, target: name });
     return withCharacter(state, name, character);
 }
+function intimateProfile(character) {
+    const source = character && character.intimate && typeof character.intimate === 'object' ? character.intimate : {};
+    return { mark: source.mark || null, tension: Number.isFinite(Number(source.tension)) ? Math.max(0, Math.floor(Number(source.tension))) : INTIMATE_TENSION_START };
+}
+function applyIntimate(state, directive, ctx) {
+    const ending = directive.ending;
+    let next = state;
+    if (ending !== INTIMATE_STOP) {
+        let bars = state.protagonist.bars;
+        if (ending !== '草草收场') bars = shiftBar(bars, 'stress', STRESS_DELTA.下降, ctx.changes, `亲密${ending}`);
+        next = withBars(next, bars);
+        const name = counterpartIn(next, directive.counterpart, ctx);
+        if (name) {
+            const profile = intimateProfile(next.characters[name]);
+            const mark = markForEnding(ending);
+            const intimate = {
+                mark: mark || (directive.mechanic === '主导' ? null : profile.mark),
+                tension: directive.mechanic === '合拍' && isRapportWin(ending) ? Math.max(0, profile.tension - 1) : profile.tension,
+            };
+            next = withCharacter(next, name, { ...next.characters[name], intimate });
+        } else if (directive.counterpart) ctx.diagnostics.push({ code: 'intimate-counterpart-unknown', name: directive.counterpart });
+    }
+    next = withClock(next, { lastChallengeReport: directive.reportId || null });
+    ctx.events.push({ kind: 'intimate', ending, mechanic: directive.mechanic });
+    return next;
+}
 function applyChallenge(state, directive, ctx) {
     if (!OUTCOMES.includes(directive.outcome)) return state;
     if (directive.reportId && state.clock.lastChallengeReport === directive.reportId) return state;
+    if (directive.ending) return applyIntimate(state, directive, ctx);
     let stake = CHALLENGE_ENABLED_STAKES.includes(directive.stake) ? directive.stake : '压力';
     const counterpart = stake === '关系' ? counterpartIn(state, directive.counterpart, ctx) : null;
     if (stake === '关系' && !counterpart) stake = '压力';
@@ -196705,6 +198233,8 @@ function settleChallenge(state, directives, ctx) {
 
 __igsDefine(exports, "challengeCost", () => challengeCost);
 __igsDefine(exports, "challengeMoneyLoss", () => challengeMoneyLoss);
+__igsDefine(exports, "intimateProfile", () => intimateProfile);
+__igsDefine(exports, "applyIntimate", () => applyIntimate);
 __igsDefine(exports, "applyChallenge", () => applyChallenge);
 __igsDefine(exports, "settleChallenge", () => settleChallenge);
 __igsDefine(exports, "CHALLENGE_STRESS_STEPS", () => CHALLENGE_STRESS_STEPS);
@@ -196946,7 +198476,7 @@ __igsDefine(exports, "BUILD_MODES", () => BUILD_MODES);
 const STAT_LOG_CHARACTER = '主角';
 // 正文里与数值相关的标签（igs-stat 与 igs-check）。标签变了，对应楼层记录就不再适用。
 const TAG_PATTERN = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]|\[igs-check:[^\]\n]*\]/gi;
-const META_KEYS = Object.freeze(['check', 'checks', 'preroll', 'note', 'flags', 'pendingRoll', 'favorMode']);
+const META_KEYS = Object.freeze(['check', 'checks', 'preroll', 'note', 'flags', 'pendingRoll', 'favorMode', 'manual']);
 const TYPE_OF_PREFIX = Object.freeze({ chat: 'chat', skill: 'skill-def', merge: 'skill-merge', sheet: 'sheet', base: 'base', edit: 'base', hero: 'base', queue: 'queue', notified: 'notified', learned: 'learned' });
 const STAT_CHAT_RECORD_TYPES = Object.freeze(Object.values(TYPE_OF_PREFIX));
 // 旧存档的六个属性名 → 战斗六维名（含原样保留的三项），用来从旧百分制属性反推六维倾向。
@@ -197273,7 +198803,7 @@ const PUSH_TIMEOUT_MS = 3000;
 // updateCell 的行号含表头：数据行下标 + 1（与 shujuku-panel 的 toShujukuApiRowIndex、AcuDice 一致）。
 const SHUJUKU_ROW_OFFSET = 1;
 const NAME_COLUMNS = new Set(['姓名', '角色姓名', '角色名', '角色真实姓名', '调查员姓名', 'name', '名称']);
-const DIM_RULES = Object.freeze([['好感', /好感/], ['信任', /信任/], ['了解', /了解/]]);
+const DIM_RULES = Object.freeze([['好感', /好感/], ['信任', /信任/], ['了解', /了解/], ['芥蒂', /芥蒂|仇怨|怨恨/]]);
 // 生命不再由数值侧推送（生命取自战斗 vitals），所以这里没有 health 规则。
 const BAR_RULES = Object.freeze([['stamina', /体力/], ['money', /^(?:金钱|金币|货币)$/], ['stress', /压力/]]);
 const ATTR_COLUMNS = Object.freeze({ 基础属性: 'base', 特有属性: 'special' });
@@ -197381,9 +198911,9 @@ function planStatsPush(state, tables, mappings, { characterKey = (name) => name,
             table.rows.forEach((row, i) => {
                 const key = characterKey(trim(row[m.nameCol]));
                 const c = key && state.characters[key];
-                if (!c || !Number.isFinite(Number(c.dims[m.key]))) return;
+                if (!c || !Number.isFinite(Number(c.dims[m.key] ?? 0))) return;
                 const from = String(row[m.col] ?? '');
-                push(m, i, from, cellValue(m, from, c.dims[m.key]));
+                push(m, i, from, cellValue(m, from, c.dims[m.key] ?? 0));
             });
             continue;
         }
@@ -201410,7 +202940,7 @@ const { inspectPngDataUrl, validatePngEncoding } = require("src/media/png-valida
 const { CG_PIXEL_CAP } = require("src/generated-images/illustration/cg-pixel-cap.js");
 const { naiRequestQueue } = require("src/generated-images/nai-request-queue.js");
 const { createNaiCloudQueue } = require("src/generated-images/nai-cloud-queue.js");
-const { normalizeNaiCloudQueue } = require("src/generated-images/nai-cloud-queue-settings.js");
+const { naiCloudQueueActive, normalizeNaiCloudQueue } = require("src/generated-images/nai-cloud-queue-settings.js");
 const { globalArtist } = require("src/generated-images/prompt-artists.js");
 const { resetTavernProxyProbe, resolveTavernTransport, tavernProxyFailure, tavernProxyUrl, TAVERN_BACKEND_UNREACHABLE_HINT, TAVERN_PROXY_DISABLED_HINT } = require("src/host/tavern-cors-proxy.js");
 __igsDefine(exports, "NAI_OFFICIAL_ENDPOINT", () => NAI_OFFICIAL_ENDPOINT);
@@ -201531,7 +203061,9 @@ function createNaiOfficialClient(deps = {}) {
     async function dispatch(body, inputSettings) {
         const controller = new AbortController();
         const transport = await resolveTavernTransport(inputSettings.transport, fetchImpl);
-        const settings = { ...inputSettings, transport, apiKey: String(inputSettings.apiKey).trim(), signal: controller.signal };
+        const settings = { ...inputSettings, transport, apiKey: String(inputSettings.apiKey).trim(), signal: controller.signal,
+            // 间隔开关关闭时不额外等待；未带开关字段的直接调用按原值。
+            minIntervalMs: inputSettings.minIntervalEnabled === false ? 0 : inputSettings.minIntervalMs };
         const timeout = Number(inputSettings.timeoutMs);
         const timeoutMs = Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 300000) : 120000;
         const abort = () => controller.abort();
@@ -201549,7 +203081,7 @@ function createNaiOfficialClient(deps = {}) {
         try {
             const result = await queue.run(settings.apiKey, async () => {
                 const cloud = normalizeNaiCloudQueue(settings.cloudQueue);
-                if (cloud.enabled) {
+                if (naiCloudQueueActive(cloud)) {
                     const acquired = await cloudQueue.acquire(settings.apiKey, cloud, settings);
                     if (!acquired.ok) return acquired;
                     settings.cloudLease = acquired.lease;
@@ -206851,6 +208383,7 @@ const { challengeQuota } = require("src/scene/challenge-directives.js");
 const { deriveChallengeHistory } = require("src/combat/challenge-history.js");
 const { chatForCooldown, floorsSinceCombatStart } = require("src/scene/combat-prompt.js");
 const { combatBattleOn, dailyChallengeOn, normalizeCombatExpansionSettings } = require("src/visual/igs-ui/combat-settings.js");
+const { INTIMATE_FOUGHT_KEY, fallbackMechanic, getIntimateGate, intimateOn, readFoughtKeys, resolveIntimateGate } = require("src/scene/intimate-duel.js");
 const { normalizeAutoIllustrationSettings } = require("src/generated-images/illustration/auto-illustration-settings.js");
 const { getSillyTavernContext } = require("src/host/tavern-helper-adapter.js");
 // 建表失败里「表还没就绪/读失败」属于暂时性原因，不记成该聊天的建表失败
@@ -206895,7 +208428,30 @@ function createCombatServices(options = {}) {
     const readerSettings = () => (typeof options.getReaderSettings === 'function' ? options.getReaderSettings() : {}) || {};
     const settings = () => normalizeCombatExpansionSettings(readerSettings().combatExpansion);
     // 当前对决类型认的标签：战斗与日常挑战各自独立，缺省只认战斗。
-    const kinds = () => ({ combat: combatBattleOn(settings()), challenge: dailyChallengeOn(settings()) });
+    const kinds = () => ({ combat: combatBattleOn(settings()), challenge: dailyChallengeOn(settings()), intimate: intimatePrepared() ? intimateGate : null });
+    const autoIllustration = () => (typeof options.getAutoIllustration === 'function' ? options.getAutoIllustration() : {}) || {};
+    const intimatePrepared = () => settings().enabled && intimateOn(readerSettings(), autoIllustration());
+    const chatMetadataOf = () => { const context = getSillyTavernContext(global); return context && context.chatMetadata && typeof context.chatMetadata === 'object' ? { context, metadata: context.chatMetadata } : null; };
+    function intimateGate(messageId) {
+        const stored = getIntimateGate(getChatId(), messageId) || {};
+        let snapshot = null;
+        try { snapshot = typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null; } catch { snapshot = null; }
+        const favor = Number(snapshot?.favors?.[stored.partner]) || 0;
+        const trust = Number(snapshot?.trusts?.[stored.partner]) || 0;
+        const grudge = Number(snapshot?.grudges?.[stored.partner]) || 0;
+        const held = chatMetadataOf();
+        const fought = stored.eventKey != null && readFoughtKeys(held && held.metadata).includes(String(stored.eventKey));
+        const gate = { on: true, ageBlocked: stored.ageBlocked === true, newRise: stored.newRise === true, fought, eventKey: stored.eventKey ?? null, partner: stored.partner || '', favor, trust, grudge };
+        return { ...gate, mechanic: fallbackMechanic(gate), launch: stored.launch === true && resolveIntimateGate(gate).ok };
+    }
+    function markIntimate(eventKey) {
+        const held = chatMetadataOf();
+        if (!held || eventKey == null) return;
+        const list = readFoughtKeys(held.metadata);
+        if (list.includes(String(eventKey))) return;
+        held.metadata[INTIMATE_FOUGHT_KEY] = [...list, String(eventKey)].slice(-200);
+        if (typeof held.context.saveMetadata === 'function') Promise.resolve(held.context.saveMetadata()).catch(() => null);
+    }
     const getChatId = () => String((typeof options.getChatId === 'function' ? options.getChatId() : '') || '');
     const getChat = () => {
         const context = getSillyTavernContext(global);
@@ -207046,6 +208602,9 @@ function createCombatServices(options = {}) {
                     state: () => (typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null),
                     allowEscape: () => settings().daily.allowEscape,
                     stake: () => settings().daily.stake,
+                    intimate: () => settings().intimate,
+                    persona: (name) => (typeof options.getIntimatePersona === 'function' ? options.getIntimatePersona(name) : ''),
+                    markIntimate,
                 },
             });
             resumeWaitLength = -1;
@@ -208126,7 +209685,7 @@ function createCombatServices(options = {}) {
             return Promise.resolve({ ok: false, reason: 'combat-action-threw' });
         }
         if (!located.ok) return Promise.resolve({ ok: false, reason: located.reason });
-        if (located.challenge === true && challengePromptQuota(floor)?.ok === false) return Promise.resolve({ ok: false, reason: 'challenge-quota' });
+        if (located.challenge === true && located.start?.intimate !== true && challengePromptQuota(floor)?.ok === false) return Promise.resolve({ ok: false, reason: 'challenge-quota' });
         if (PREPARE_BUSY_STATUSES.includes(state.status)) return Promise.resolve({ ok: false, reason: 'combat-busy' });
         if (state.combatId === located.combatId && PREPARE_DONE_STATUSES.includes(state.status)) return Promise.resolve({ ok: true, unchanged: true, session: state });
         let prepared;
@@ -208211,7 +209770,7 @@ function createCombatServices(options = {}) {
     return {
         getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
         drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,
         // 以下为新增：计数快照（不改既有导出）

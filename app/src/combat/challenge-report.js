@@ -2,6 +2,7 @@
 import { reportIdFor } from './report.js';
 import { challengeOutcomeOf } from './challenge-setup.js';
 import { challengeHarvest } from './challenge-foes.js';
+import { INTIMATE_ALL_ENDINGS, INTIMATE_ENDING_TEXT } from '../scene/intimate-duel.js';
 
 export const CHALLENGE_OUTCOMES = Object.freeze(['圆满', '勉强', '失败', '放弃']);
 export const CHALLENGE_REPORT_DETAIL = Object.freeze({ brief: 'brief', normal: 'normal' });
@@ -35,7 +36,8 @@ function costSentence(outcome, stake, prize) {
 }
 
 // outcome 为 CHALLENGE_OUTCOMES 之一，也可以只给引擎 result 与 willRatio 由此处换算；willRatio 为剩余意志比例，byLimit 表示回合上限到时按进展判定。
-export function buildChallengeReport({ combatId, event = '', result, outcome, willRatio = 0, byLimit = false, tier = '普通', costTier = tier, stake = '压力', domain = '', detail = 'normal', foe = '', counterpart = '', allies = [] } = {}) {
+export function buildChallengeReport({ combatId, event = '', result, outcome, willRatio = 0, byLimit = false, tier = '普通', costTier = tier, stake = '压力', domain = '', detail = 'normal', foe = '', counterpart = '', allies = [], ending = '', mechanic = '' } = {}) {
+    if (ending) return buildIntimateReport({ combatId, event, outcome, tier, costTier, domain, counterpart, ending, mechanic });
     const word = outcome || (result ? challengeOutcomeOf(result, willRatio, { byLimit }) : null);
     if (!combatId || !Object.hasOwn(RESULT_OF, word)) return { ok: false, reason: 'challenge-report-invalid' };
     const reportId = reportIdFor(combatId);
@@ -49,18 +51,26 @@ export function buildChallengeReport({ combatId, event = '', result, outcome, wi
     return { ok: true, text: `${head}\n（${parts.filter(Boolean).join('。')}。）\n</igs-challenge-report>`, result: RESULT_OF[word], reportId };
 }
 
+function buildIntimateReport({ combatId, event, outcome, tier, costTier, domain, counterpart, ending, mechanic }) {
+    if (!combatId || !INTIMATE_ALL_ENDINGS.includes(ending) || !Object.hasOwn(RESULT_OF, outcome)) return { ok: false, reason: 'challenge-report-invalid' };
+    const reportId = reportIdFor(combatId);
+    const parts = [`亲密：${sanitize(event) || '这一幕'}`, `结局：${ending}`, INTIMATE_ENDING_TEXT[ending]];
+    const head = `<igs-challenge-report id="${reportId}" result="${RESULT_OF[outcome]}" outcome="${outcome}" tier="${sanitize(tier)}" cost="${sanitize(costTier)}" stake="压力" domain="${sanitize(domain)}" foe="" counterpart="${sanitize(counterpart)}" allies="" ending="${ending}" mechanic="${sanitize(mechanic)}">`;
+    return { ok: true, text: `${head}\n（${parts.filter(Boolean).join('。')}。）\n</igs-challenge-report>`, result: RESULT_OF[outcome], reportId };
+}
+
 export function parseChallengeReport(text) {
     const match = REPORT_OPEN.exec(String(text || ''));
     if (!match) return null;
     const attrs = Object.fromEntries([...match[1].matchAll(/([a-z]+)="([^"]*)"/g)].map((pair) => [pair[1], pair[2]]));
     if (!REPORT_ID_PATTERN.test(attrs.id || '') || !CHALLENGE_OUTCOMES.includes(attrs.outcome)) return null;
-    return { reportId: attrs.id, result: RESULT_OF[attrs.outcome], outcome: attrs.outcome, tier: attrs.tier || '普通', costTier: attrs.cost || attrs.tier || '普通', stake: attrs.stake || '压力', domain: attrs.domain || '', foe: attrs.foe || '', counterpart: attrs.counterpart || '', allies: (attrs.allies || '').split(NAME_LIST_SEPARATOR).filter(Boolean) };
+    return { reportId: attrs.id, result: RESULT_OF[attrs.outcome], outcome: attrs.outcome, tier: attrs.tier || '普通', costTier: attrs.cost || attrs.tier || '普通', stake: attrs.stake || '压力', domain: attrs.domain || '', foe: attrs.foe || '', counterpart: attrs.counterpart || '', allies: (attrs.allies || '').split(NAME_LIST_SEPARATOR).filter(Boolean), ending: INTIMATE_ALL_ENDINGS.includes(attrs.ending) ? attrs.ending : '', mechanic: attrs.mechanic || '' };
 }
 
 // 数值侧读到战报楼后合成的 challenge 指令；floor 为战报所在楼层号。
 export function challengeDirectiveOf(report, floor = null) {
     return report ? {
         kind: 'challenge', reportId: report.reportId, outcome: report.outcome, tier: report.costTier, stake: report.stake, domain: report.domain, floor,
-        counterpart: report.counterpart || '', prize: challengeHarvest(report.foe, report.outcome, report.costTier).prize,
+        counterpart: report.counterpart || '', ending: report.ending || '', mechanic: report.mechanic || '', prize: challengeHarvest(report.foe, report.outcome, report.costTier).prize,
     } : null;
 }

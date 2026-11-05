@@ -78,7 +78,8 @@ try {
         await sleep(250);
         settled = await evaluate(`(() => {
             if (window.__stageCast) return window.__stageCast.ready === true;
-            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings,#igs-combat-panel');
+            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings,#igs-combat-panel,#igs-combat-deck-panel');
+            if (panel?.id === 'igs-combat-deck-panel') return window.__preview?.deckFull?.isOpen?.() ? window.__preview.deckFull.view()?.status === 'ready' : true;
             if (!panel) return false;
             if (panel.id === 'igs-combat-panel') return window.__preview?.combatState?.ready === true && !window.__preview.combat.view()?.pending;
             if (panel.id !== 'igs-map-panel') return true;

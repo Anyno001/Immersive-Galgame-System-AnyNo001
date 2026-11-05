@@ -15,6 +15,11 @@ export function editCharacterCreature(raw, field, value) {
     const base = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
     const current = storedCreatureOf(base);
     if (field === 'enabled') {
+        // 战斗页取消非人：去掉档案，标为人类战斗对手，仍留在敌人名单。
+        if (value === 'human') {
+            const { creature, ...rest } = base || {};
+            return { ...rest, combatFoe: true };
+        }
         if (value === true || value === 'true' || value === '1') {
             if (current) return base;
             const profile = normalizeCreatureProfile({});

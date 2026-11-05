@@ -31,6 +31,7 @@ import { challengeQuota } from '../scene/challenge-directives.js';
 import { deriveChallengeHistory } from '../combat/challenge-history.js';
 import { chatForCooldown, floorsSinceCombatStart } from '../scene/combat-prompt.js';
 import { combatBattleOn, dailyChallengeOn, normalizeCombatExpansionSettings } from '../visual/igs-ui/combat-settings.js';
+import { INTIMATE_FOUGHT_KEY, fallbackMechanic, getIntimateGate, intimateOn, readFoughtKeys, resolveIntimateGate } from '../scene/intimate-duel.js';
 import { normalizeAutoIllustrationSettings } from '../generated-images/illustration/auto-illustration-settings.js';
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 
@@ -77,7 +78,30 @@ export function createCombatServices(options = {}) {
     const readerSettings = () => (typeof options.getReaderSettings === 'function' ? options.getReaderSettings() : {}) || {};
     const settings = () => normalizeCombatExpansionSettings(readerSettings().combatExpansion);
     // 当前对决类型认的标签：战斗与日常挑战各自独立，缺省只认战斗。
-    const kinds = () => ({ combat: combatBattleOn(settings()), challenge: dailyChallengeOn(settings()) });
+    const kinds = () => ({ combat: combatBattleOn(settings()), challenge: dailyChallengeOn(settings()), intimate: intimatePrepared() ? intimateGate : null });
+    const autoIllustration = () => (typeof options.getAutoIllustration === 'function' ? options.getAutoIllustration() : {}) || {};
+    const intimatePrepared = () => settings().enabled && intimateOn(readerSettings(), autoIllustration());
+    const chatMetadataOf = () => { const context = getSillyTavernContext(global); return context && context.chatMetadata && typeof context.chatMetadata === 'object' ? { context, metadata: context.chatMetadata } : null; };
+    function intimateGate(messageId) {
+        const stored = getIntimateGate(getChatId(), messageId) || {};
+        let snapshot = null;
+        try { snapshot = typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null; } catch { snapshot = null; }
+        const favor = Number(snapshot?.favors?.[stored.partner]) || 0;
+        const trust = Number(snapshot?.trusts?.[stored.partner]) || 0;
+        const grudge = Number(snapshot?.grudges?.[stored.partner]) || 0;
+        const held = chatMetadataOf();
+        const fought = stored.eventKey != null && readFoughtKeys(held && held.metadata).includes(String(stored.eventKey));
+        const gate = { on: true, ageBlocked: stored.ageBlocked === true, newRise: stored.newRise === true, fought, eventKey: stored.eventKey ?? null, partner: stored.partner || '', favor, trust, grudge };
+        return { ...gate, mechanic: fallbackMechanic(gate), launch: stored.launch === true && resolveIntimateGate(gate).ok };
+    }
+    function markIntimate(eventKey) {
+        const held = chatMetadataOf();
+        if (!held || eventKey == null) return;
+        const list = readFoughtKeys(held.metadata);
+        if (list.includes(String(eventKey))) return;
+        held.metadata[INTIMATE_FOUGHT_KEY] = [...list, String(eventKey)].slice(-200);
+        if (typeof held.context.saveMetadata === 'function') Promise.resolve(held.context.saveMetadata()).catch(() => null);
+    }
     const getChatId = () => String((typeof options.getChatId === 'function' ? options.getChatId() : '') || '');
     const getChat = () => {
         const context = getSillyTavernContext(global);
@@ -228,6 +252,9 @@ export function createCombatServices(options = {}) {
                     state: () => (typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null),
                     allowEscape: () => settings().daily.allowEscape,
                     stake: () => settings().daily.stake,
+                    intimate: () => settings().intimate,
+                    persona: (name) => (typeof options.getIntimatePersona === 'function' ? options.getIntimatePersona(name) : ''),
+                    markIntimate,
                 },
             });
             resumeWaitLength = -1;
@@ -1308,7 +1335,7 @@ export function createCombatServices(options = {}) {
             return Promise.resolve({ ok: false, reason: 'combat-action-threw' });
         }
         if (!located.ok) return Promise.resolve({ ok: false, reason: located.reason });
-        if (located.challenge === true && challengePromptQuota(floor)?.ok === false) return Promise.resolve({ ok: false, reason: 'challenge-quota' });
+        if (located.challenge === true && located.start?.intimate !== true && challengePromptQuota(floor)?.ok === false) return Promise.resolve({ ok: false, reason: 'challenge-quota' });
         if (PREPARE_BUSY_STATUSES.includes(state.status)) return Promise.resolve({ ok: false, reason: 'combat-busy' });
         if (state.combatId === located.combatId && PREPARE_DONE_STATUSES.includes(state.status)) return Promise.resolve({ ok: true, unchanged: true, session: state });
         let prepared;
@@ -1393,7 +1420,7 @@ export function createCombatServices(options = {}) {
     return {
         getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
         drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
-        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
+        prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,
         // 以下为新增：计数快照（不改既有导出）

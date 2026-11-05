@@ -6,9 +6,9 @@
 
 | 功能 | 配置 | 行为 |
 | --- | --- | --- |
-| 生图最小间隔 | `nai.minIntervalMs`，默认 2000，范围 0–60000 毫秒 | 同一密钥的上一项请求真正结束后，下一项至少等待该间隔；0 不额外等待，不同密钥可并行 |
+| 生图间隔 | `nai.minIntervalEnabled` 默认 false；`nai.minIntervalMs` 默认 2000，范围 0–60000 毫秒 | 开关关闭时不额外等待；打开后，同一密钥的上一项请求真正结束后，下一项至少等待该间隔；0 不额外等待，不同密钥可并行 |
 | 云端队列 | `nai.cloudQueue.enabled`，默认 false | 生成与局部重绘在本机串行及冷却后统一取号，获得放行再发送 NAI |
-| 队列地址 | `nai.cloudQueue.endpoint` | 默认 `https://st-chatu-novelai-queue.hf.space`，缺失或清空也恢复默认；可改为共用者使用的同一自建节点 |
+| 队列地址 | `nai.cloudQueue.endpoint` | 默认空；未填写时开关打开也不排队。旧版自动填入的公共节点地址在未开启队列时清空。设置页收在「间隔与排队」折叠区 |
 | 排队超时 | `nai.cloudQueue.timeoutMs`，默认 180000，范围 10000–900000 毫秒 | 与生图超时分离，排队不消耗真正发送后的预算 |
 | V5 Full 档位 | `nai.effort`，默认 high，可选 medium | 旧配置默认 High，Medium 实际使用对应专模，固定 14 步和 Euler Ancestral |
 

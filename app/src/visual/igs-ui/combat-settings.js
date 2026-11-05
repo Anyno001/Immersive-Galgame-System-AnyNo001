@@ -4,6 +4,7 @@ import { resolveCombatLlm } from '../../combat/generation.js';
 import { COMBAT_DIFFICULTY_KEYS } from '../../combat/rules.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { CHALLENGE_QUOTA } from '../../scene/challenge-directives.js';
+import { normalizeIntimateSettings } from '../../scene/intimate-duel.js';
 import { COMBAT_COOLDOWN_CHOICES, COMBAT_FREQUENCIES, COMBAT_KINDS, COMBAT_RULE_PROMPT_MAX, isDefaultCombatRuleText } from '../../scene/combat-prompt.js';
 
 export const COMBAT_DIFFICULTIES = COMBAT_DIFFICULTY_KEYS;
@@ -32,6 +33,7 @@ export function normalizeCombatExpansionSettings(value) {
     skin: COMBAT_PANEL_SKINS.includes(source.skin) ? source.skin : 'veil',
     kind: COMBAT_KINDS.includes(source.kind) ? source.kind : 'combat',
     daily: normalizeDailySettings(source.daily),
+    intimate: normalizeIntimateSettings(source.intimate),
     frequency: COMBAT_FREQUENCIES.includes(source.frequency) ? source.frequency : 'normal',
     cooldownFloors: COMBAT_COOLDOWN_CHOICES.includes(Number(source.cooldownFloors)) ? Number(source.cooldownFloors) : 0,
     rulePrompt: normalizeRulePrompt(source.rulePrompt),

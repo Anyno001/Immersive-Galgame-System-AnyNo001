@@ -1,12 +1,13 @@
 import { esc } from './reader-value-utils.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
-import { isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
+import { KEYWORD_NAME_TIPS, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
 import { LIVE_ICONS } from './danmaku-icons.js';
 import { RECORD_ICONS } from './record-icons.js';
 import { isCanvasSkin } from './combat-skin-canvas.js';
 import { CANVAS_BATTLE } from './combat-skin-registry.js';
 import { CHALLENGE_LABELS } from '../../combat/challenge-labels.js';
 import { CHALLENGE_ACHIEVEMENTS } from '../../combat/challenge-history.js';
+import { INTIMATE_ENDING_LINE } from '../../scene/intimate-duel.js';
 import { resultStageHtml, stageFxStyle } from './combat-stage-fx.js';
 
 // 战斗面板的 HTML 片段：只输出字段、状态、错误与操作确认；动作统一走 data-combat-act / data-combat-id。
@@ -237,6 +238,18 @@ export function traitTipHtml(t) {
         + (t.origin ? `<span class="igs-combat-trait-tip-origin">${esc(t.origin)}</span>` : '');
 }
 
+// 选中牌的完整说明（牌面效果被截断时弹出）：牌名与费用、效果全文、关键字解释、加成明细。复用特性详情的样式。
+export function cardTipHtml(c) {
+    if (!c) return '';
+    const meta = `消耗 ${c.cost} 点能量${c.baseCost !== undefined ? `（原 ${c.baseCost}）` : ''}`;
+    const kws = (c.keywordNames || []).map((n) => KEYWORD_NAME_TIPS[n]).filter(Boolean);
+    const notes = [c.bonusNote, c.scaleNote].filter(Boolean);
+    return `<b class="igs-combat-trait-tip-name">${esc(c.name)}${c.upgraded ? '+' : ''}</b>`
+        + `<span class="igs-combat-trait-tip-meta">${esc(meta)}</span><span class="igs-combat-trait-tip-text">${cardTextHtml(c)}</span>`
+        + kws.map((k) => `<span class="igs-combat-trait-tip-meta">${esc(k)}</span>`).join('')
+        + notes.map((n) => `<span class="igs-combat-trait-tip-origin">${esc(n)}</span>`).join('');
+}
+
 // 单位详情浮层（点头像，助手 10-28）：单位名，下面按组（人物特性 / 职业 / 装备 / 被动 / 主动 / 技能 / 阶段）列出；每项名称（特性标稀有度或「固有」）、时机或意图、效果。
 export function unitTipHtml(d) {
     if (!d) return '';
@@ -337,6 +350,12 @@ function lobbyRewardHtml(r, pending) {
     const retry = waiting ? '' : btn('retry-reward', '重试', { disabled: Boolean(pending) });
     return `<div class="igs-combat-row igs-combat-lobby-reward" data-state="${waiting ? 'pending' : 'failed'}"><span class="igs-combat-label">${waiting ? '奖励生成中' : '奖励生成失败'}</span>${retry}</div>`;
 }
+const INTIMATE_MECHANICS_ROW = Object.freeze(['合拍', '主导']);
+const INTIMATE_POSITIONS_ROW = Object.freeze([['receive', '受方'], ['lead', '攻方']]);
+const intimateChip = (act, id, text, on, off) => `<button type="button" class="igs-combat-chip" data-combat-act="${act}" data-combat-id="${id}" aria-pressed="${on ? 'true' : 'false'}"${off ? ' aria-disabled="true"' : ''}>${text}</button>`;
+const intimateRowHtml = (l, off) => (l.intimate
+    ? `<div class="igs-combat-row igs-intimate-opts"><span class="igs-combat-label">机制</span>${INTIMATE_MECHANICS_ROW.map((m) => intimateChip('im-mech', m, m, l.intimate.mechanic === m, off)).join('')}<span class="igs-combat-label">位置</span>${INTIMATE_POSITIONS_ROW.map(([k, t]) => intimateChip('im-pos', k, t, l.intimate.position === k, off)).join('')}</div>` : '');
+
 // 日常挑战的战前对阵：沿用战前对阵的版式与皮肤，主角与难关各一块，只换文案；难度与领域放在横幅里。
 const CHALLENGE_LOBBY_TIER = Object.freeze({ 轻松: 'normal', 普通: 'elite', 艰难: 'boss' });
 function challengeLobbyHtml(v) {
@@ -358,8 +377,8 @@ function challengeLobbyHtml(v) {
         + `<div class="igs-combat-lobby-side is-ally" style="--n:${l.allies.length}">${heroHtml}${helperHtml}</div>`
         + '<div class="igs-combat-lobby-vs" aria-hidden="true"><b>VS</b></div>'
         + `<div class="igs-combat-lobby-side is-enemy" data-n="1" style="--n:1;--k:1">${foeHtml}</div></div>`
-        + allyRow
-        + `<div class="igs-combat-actions">${btn('history', '挑战记录', { disabled: Boolean(v.pending) })}${l.canEscape ? btn('abandon', v.abandonArmed ? '确认放弃' : CHALLENGE_LABELS.escape, { disabled: Boolean(v.pending) }) : ''}${btn('auto', '交给托管', { disabled: Boolean(v.pending) })}${btn('start', '迎接挑战', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
+        + intimateRowHtml(l, Boolean(v.pending)) + allyRow
+        + `<div class="igs-combat-actions">${l.intimate ? '' : btn('history', '挑战记录', { disabled: Boolean(v.pending) })}${l.canEscape ? btn('abandon', v.abandonArmed ? (l.intimate ? '确认停下' : '确认放弃') : l.intimate ? '停下' : CHALLENGE_LABELS.escape, { disabled: Boolean(v.pending) }) : ''}${btn('auto', '交给托管', { disabled: Boolean(v.pending) })}${btn('start', l.intimate ? '开始' : '迎接挑战', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
 }
 
 function lobbyHtml(v) {
@@ -461,7 +480,7 @@ function battleHtml(v) {
     const heroZone = `<div class="igs-combat-hero" style="--n:${b.allies.length || 1}">${heroCore}${matesHtml}</div>`;
     // 右下角回合操作组：撤退（透明底，只在允许撤退时出现）或选目标期间的取消、抽牌 / 弃牌数量、结束回合；作为底栏网格区，不压手牌。
     // 横向面板样式层竖排为撤退 / 取消、牌堆数量、结束回合；竖向 / 窄面板牌堆数量在上，撤退与结束回合同排。
-    const side = v.selected || picks.length ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? iconBtn('escape', v.challenge ? CHALLENGE_LABELS.escape : '撤退', RECORD_ICONS.retreat) : '';
+    const side = v.selected || picks.length ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? (v.intimate === '主导' ? iconBtn('stop', '停下', RECORD_ICONS.back) : '') + iconBtn('escape', v.intimate ? (v.intimate === '主导' ? '甘拜下风' : '停下') : v.challenge ? CHALLENGE_LABELS.escape : '撤退', RECORD_ICONS.retreat) : '';
     const turnBtn = choice ? btn('choose-confirm', `${CHOICE_VERB[choice.kind] || '选择'} ${picks.length}/${choice.count}`, { primary: true, disabled: picks.length !== choice.count })
         : iconBtn('end-turn', '结束回合', RECORD_ICONS.turnEnd, { primary: true, disabled: !b.canEndTurn });
     const turn = ended ? '' : `<div class="igs-combat-turn">${styled ? '' : piles}<div class="igs-combat-turn-btns">${side}${turnBtn}</div></div>`;
@@ -596,8 +615,8 @@ export function combatIntroUiHtml(v) {
     if (l.challenge) {
         const allies = l.candidates && l.candidates.length
             ? `<div class="igs-combat-row igs-challenge-allies"><span class="igs-combat-label">协助者</span>${l.candidates.map((c) => `<button type="button" class="igs-combat-chip" data-combat-act="ally" data-combat-id="${esc(c.name)}" aria-pressed="${c.picked ? 'true' : 'false'}"${off ? ' aria-disabled="true"' : ''}>${esc(c.name)}</button>`).join('')}</div>` : '';
-        return `${close}<div class="igs-combat-intro-actions">${allies}${btn('start', '迎接挑战', { primary: true, disabled: off })}`
-            + `<div class="igs-combat-intro-sub">${l.canEscape ? btn('abandon', v.abandonArmed ? '确认放弃' : CHALLENGE_LABELS.escape, { disabled: off }) : ''}${btn('auto', '交给托管', { disabled: off })}</div></div>`;
+        return `${close}<div class="igs-combat-intro-actions">${intimateRowHtml(l, off)}${allies}${btn('start', l.intimate ? '开始' : '迎接挑战', { primary: true, disabled: off })}`
+            + `<div class="igs-combat-intro-sub">${l.canEscape ? btn('abandon', v.abandonArmed ? (l.intimate ? '确认停下' : '确认放弃') : l.intimate ? '停下' : CHALLENGE_LABELS.escape, { disabled: off }) : ''}${btn('auto', '交给托管', { disabled: off })}</div></div>`;
     }
     return `${close}<div class="igs-combat-intro-actions">${lobbyRewardHtml(l.reward, v.pending)}${btn('start', '开始战斗', { primary: true, disabled: off })}<div class="igs-combat-intro-sub">${btn('skip', '跳过战斗', { disabled: off })}</div></div>`;
 }
@@ -637,6 +656,12 @@ const CHALLENGE_STATUS_LINE = Object.freeze({ ...COMBAT_STATUS_LINE, unavailable
 
 // 照搬概念稿的皮肤：战斗中画面换成该套的固定画布（标题栏、行动顺序都在画布里），其余阶段沿用下面的标记。
 
+const intimateResultHtml = (v) => {
+    const line = INTIMATE_ENDING_LINE(v.end.label) || v.end.label;
+    const send = lootBlocksSend(v.flip) ? '' : btn('finish', v.pending === 'send' ? '发送中' : '发送战报', { primary: true, disabled: Boolean(v.pending) });
+    return `<section class="igs-combat-result igs-duel-result" data-outcome="${esc(v.end.outcome)}"><p class="igs-duel-result-line">${esc(line)}</p><div class="igs-combat-actions">${send}</div></section>`;
+};
+
 export function renderCombatPanelHtml(v) {
     const status = v.status;
     const STATUS_LINE = v.challenge ? CHALLENGE_STATUS_LINE : COMBAT_STATUS_LINE;
@@ -644,6 +669,7 @@ export function renderCombatPanelHtml(v) {
         const canvas = CANVAS_BATTLE[v.skin](v, v.orient === 'land' ? 'land' : 'port');
         return `${noticeHtml(v.notice)}${v.challenge ? challengeCanvasText(canvas) : canvas}`;
     }
+    if (v.intimate && status === 'ended' && v.battle && v.end && !v.settling && v.pending !== 'prepare') return `${noticeHtml(v.notice)}${intimateResultHtml(v)}`;
     if (stageFxStyle(v.skin) && status === 'ended' && v.battle && v.end && !v.settling && v.pending !== 'prepare') return `${noticeHtml(v.notice)}${stageResultHtml(v)}`;
     let main = '';
     if (v.historyOpen) main = historyHtml(v);

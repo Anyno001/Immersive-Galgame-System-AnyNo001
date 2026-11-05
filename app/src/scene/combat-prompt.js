@@ -1,4 +1,5 @@
 // 战斗提示词：给 AI 的「战斗」规则段、战报后的续写段、主角团状态段。
+import { INTIMATE_GRAMMAR_LINE, INTIMATE_LINES_LINE, normalizeIntimateSettings } from './intimate-duel.js';
 // 规则文本按开关拼装：合并模式下装备/道具标签单独成段，物品演出开启时道具获得行并入物品演出。
 export const COMBAT_BLOCK_KEY = 'combat';
 export const COMBAT_NARRATION_SEGMENT_ID = 'igs-combat-narration';
@@ -42,10 +43,12 @@ export function chatForCooldown(messages, generationType) {
 // quota 为 challengeQuota 的结果；额度用完或冷却中时不放语法行。
 // 两者模式下战斗没有冷却时，追加同层只写一个对决的提示（settings.combatSinceStart 与冷却判断见 resolveCombatPromptRule）。
 export function resolveChallengePromptSegment(settings, quota) {
-    if (!dailyChallengeEnabled(settings) || !quota || quota.ok !== true) return null;
+    const intimateLine = combatExpansionEnabled(settings) && normalizeIntimateSettings(asObject(asObject(settings).combatExpansion).intimate).enabled && asObject(settings).intimateOn === true ? `${INTIMATE_GRAMMAR_LINE}\n${INTIMATE_LINES_LINE}` : '';
+    const dailyOpen = dailyChallengeEnabled(settings) && Boolean(quota) && quota.ok === true;
+    if (!dailyOpen && !intimateLine) return null;
     const daily = asObject(asObject(asObject(settings).combatExpansion).daily);
-    const bothOpen = combatKindOf(settings) === 'both' && !combatOnCooldown(asObject(settings).combatSinceStart, combatCooldownFloorsOf(settings));
-    const content = [CHALLENGE_GRAMMAR_LINE, CHALLENGE_FREQUENCY_LINES[daily.frequency], bothOpen ? ONLY_ONE_DUEL_LINE : ''].filter(Boolean).join('\n');
+    const bothOpen = dailyOpen && combatKindOf(settings) === 'both' && !combatOnCooldown(asObject(settings).combatSinceStart, combatCooldownFloorsOf(settings));
+    const content = [dailyOpen ? CHALLENGE_GRAMMAR_LINE : '', intimateLine, dailyOpen ? CHALLENGE_FREQUENCY_LINES[daily.frequency] : '', bothOpen ? ONLY_ONE_DUEL_LINE : ''].filter(Boolean).join('\n');
     return { id: CHALLENGE_SEGMENT_ID, position: 'depth0', depth: 0, content, keys: ['challenge'] };
 }
 

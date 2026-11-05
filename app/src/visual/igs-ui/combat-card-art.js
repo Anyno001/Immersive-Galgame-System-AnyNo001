@@ -52,6 +52,9 @@ function effectText(e, fmt = plainNum, kw = plainWord) {
         case 'conditional': return `${(WHEN[e.when?.kind] || (() => ''))(e.when?.value)}${sub(e.then)}`;
         case 'damage-from-block': return `${on(e.target)}造成等同当前格挡的伤害`;
         case 'self-damage': return `失去 ${e.amount} 点生命`;
+        case 'delayed-counter': return `失去 ${e.amount} 点生命，下回合对目标造成所失生命 ${e.mult} 倍的伤害${e.fizzle ? '；对方观望时落空' : ''}`;
+        case 'mutual-damage': return `对目标造成 ${e.amount} 点伤害，自己同时失去 ${e.selfAmount ?? e.amount} 点生命`;
+        case 'random-branch': return `随机其一：${sub(e.a) || '无效果'}；${sub(e.b) || '无效果'}`;
         case 'double': return `${on(e.target)}${DOUBLE_STAT[e.stat] || e.stat}翻倍`;
         case 'next-turn':
             if (e.gain === 'energy') return `下回合获得 ${e.amount} 点能量`;

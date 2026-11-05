@@ -14,20 +14,22 @@ export function eatReactionOf(word) {
 
 const DRINK_RE = /(茶|咖啡|拿铁|奶昔|牛奶|酸奶|豆浆|果汁|饮料|饮品|汽水|可乐|苏打|啤酒|红酒|白酒|清酒|烧酒|米酒|香槟|鸡尾酒|葡萄酒|酒|药水|魔药|药剂|矿泉水|开水|热水|冰水|可可|椰汁|^水$)/;
 const NOT_DRINK_RE = /(汤圆|酒心|茶叶蛋|酒酿圆子)/;
+// 冲泡原料与容器（茶包、咖啡豆、杯子、酒瓶……）失去时只是失去，不算吃喝。
+const NOT_CONSUMED_RE = /(茶包|茶叶(?!蛋)|茶饼|茶砖|茶粉|茶具|茶壶|茶杯|咖啡豆|咖啡粉|咖啡机|挂耳|奶粉|酒瓶|酒壶|酒杯|酒具|水壶|水杯|水瓶|杯子|杯垫|马克杯|保温杯|空瓶|^杯$)/;
 const FOOD_RE = /(寿司|拉面|面条|泡面|意面|乌冬|荞麦面|章鱼烧|泡芙|布丁|冰淇淋|雪糕|团子|丸子|包子|饺子|馒头|汉堡|披萨|薯条|薯片|零食|甜点|甜品|月饼|粽子|蛋糕|年糕|糕点|饼干|煎饼|糖果|棒棒糖|果冻|水果|坚果|粥|饭|便当|饭团|面包|吐司|三明治|点心|巧克力|烤肉|炸鸡|肉串|烤串|沙拉|汤|苹果|草莓|葡萄|桃子|梨|橘子|橙子|香蕉|西瓜|樱桃|蜜柑)/;
 const EDIBLE_KEYS = new Set(['cup', 'food', 'potion', 'pill']);
 const DRINK_KEYS = new Set(['cup', 'potion']);
 
 export function isDrinkName(name) {
     const text = String(name || '').trim();
-    if (!text || NOT_DRINK_RE.test(text)) return false;
+    if (!text || NOT_DRINK_RE.test(text) || NOT_CONSUMED_RE.test(text)) return false;
     return DRINK_KEYS.has(inventoryIconKey(text)) || DRINK_RE.test(text);
 }
 
 // 背包图标已认出别的类别（钥匙、衣服……）就不当食物；认不出时再按常见食物词判断。
 export function isFoodName(name) {
     const text = String(name || '').trim();
-    if (!text) return false;
+    if (!text || NOT_CONSUMED_RE.test(text)) return false;
     const key = inventoryIconKey(text);
     if (EDIBLE_KEYS.has(key)) return true;
     return key === 'generic' && (FOOD_RE.test(text) || isDrinkName(text));

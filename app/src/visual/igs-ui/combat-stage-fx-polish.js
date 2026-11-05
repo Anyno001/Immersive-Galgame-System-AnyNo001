@@ -144,7 +144,6 @@ ${P('dark-b')} .clash .half{animation:none;}
 ${P('dark-b')} .clash.out .half{animation:sfxp-gone ${T('200ms')} both;}
 ${P('dark-b')} .clash .hero-side{background:linear-gradient(180deg,#0e1516,#050707 75%);}
 ${P('dark-b')} .clash .foe-side{background:linear-gradient(180deg,#0c1213,#040606 75%);}
-${P('dark-b')} .clash .fig.lead{left:-128px;}
 ${P('dark-b')} .clash .fig:is(.lead,.foe1){filter:saturate(.7) contrast(1.05);}
 ${P('dark-b')} .clash.hit .half .fig:is(.lead,.foe1){animation:sfxp-db-expose ${T('380ms')} ease-out 1;}
 @keyframes sfxp-db-expose{0%{filter:saturate(.2) brightness(1.9) contrast(.9);}100%{filter:saturate(.7) contrast(1.05);}}

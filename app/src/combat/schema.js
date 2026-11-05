@@ -15,7 +15,7 @@ export const SCHEMA_VERSION = 1;
 export const EFFECT_OPS = Object.freeze([
     'damage', 'block', 'heal', 'draw', 'energy', 'status', 'exhaust-self', 'conditional', 'damage-from-block', 'self-damage',
     'double', 'next-turn', 'each-turn', 'hand-cost', 'cleanse', 'discard', 'discard-hand', 'copy', 'create', 'repeat-last',
-    'replay-next', 'grow', 'cost-mod', 'buff',
+    'replay-next', 'grow', 'cost-mod', 'buff', 'delayed-counter', 'mutual-damage', 'random-branch',
 ]);
 export const STATUSES = Object.freeze(['vulnerable', 'weak', 'strength', 'dexterity', 'poison', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact', 'frail']);
 export const DOUBLE_STATS = Object.freeze(['poison', 'block', 'strength']);
@@ -187,6 +187,29 @@ function validateEffect(effect, path, state, depth = 0, scope) {
             const then = arrayField(effect.then, at('then'), state, 1, 3, (item, itemPath, st) => validateEffect(item, itemPath, st, depth + 1, scope ? 'card' : undefined));
             return { op, when, then };
         }
+        case 'delayed-counter':
+            checkKnownFields(effect, ['op', 'amount', 'mult', 'fizzle', 'target'], path, state);
+            return {
+                op,
+                amount: intField(effect.amount, at('amount'), state, 1, 20),
+                mult: intField(effect.mult, at('mult'), state, 1, 4, 2),
+                ...(effect.fizzle === undefined ? {} : { fizzle: idField(effect.fizzle, at('fizzle'), state) }),
+                target: enumField(effect.target, at('target'), state, ['enemy'], 'enemy'),
+            };
+        case 'mutual-damage':
+            checkKnownFields(effect, ['op', 'amount', 'selfAmount', 'target'], path, state);
+            return {
+                op,
+                amount: intField(effect.amount, at('amount'), state, 1, 40),
+                ...(effect.selfAmount === undefined ? {} : { selfAmount: intField(effect.selfAmount, at('selfAmount'), state, 1, 40) }),
+                target: enumField(effect.target, at('target'), state, ['enemy'], 'enemy'),
+            };
+        case 'random-branch': {
+            checkKnownFields(effect, ['op', 'a', 'b'], path, state);
+            if (depth > 0) return addIssue(state, path, 'nested-conditional');
+            const branch = (key) => arrayField(effect[key], at(key), state, 0, 2, (item, itemPath, st) => validateEffect(item, itemPath, st, depth + 1, scope ? 'card' : undefined));
+            return { op, a: branch('a'), b: branch('b') };
+        }
         case 'damage-from-block':
             checkKnownFields(effect, ['op', 'target'], path, state);
             return { op, target: enumField(effect.target, at('target'), state, OFFENSE_TARGETS, 'enemy') };
@@ -268,6 +291,9 @@ export function effectsDamage(effects) {
         if (effect?.op === 'damage') total += effect.amount * (effect.hits || 1);
         else if (effect?.op === 'conditional' || effect?.op === 'each-turn' || effect?.op === 'buff') total += effectsDamage(effect.then);
         else if (effect?.op === 'damage-from-block') total += 999;
+        else if (effect?.op === 'mutual-damage') total += effect.amount;
+        else if (effect?.op === 'delayed-counter') total += effect.amount * effect.mult;
+        else if (effect?.op === 'random-branch') total += Math.max(effectsDamage(effect.a), effectsDamage(effect.b));
     }
     return total;
 }

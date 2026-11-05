@@ -133,6 +133,8 @@ export function normalizeCharacterDna(raw) {
     // 非人档案与 views 同级；缺省即人类，不产生该字段。
     const creature = normalizeCreatureProfile(source.creature);
     if (creature) dna.creature = creature;
+    // 人类战斗对手：不带非人档案，仍列在战斗页「敌人立绘管理」。
+    if (source.combatFoe === true) dna.combatFoe = true;
     if (typeof source.identitySource === 'string' && source.identitySource) dna.identitySource = source.identitySource;
     if (source.version === 2) {
         dna.version = 2;

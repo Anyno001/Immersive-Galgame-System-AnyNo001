@@ -42,6 +42,7 @@ export function normalizeSettingsValue(path, value) {
         return normalizeNaiCloudQueue({ [key]: value })[key];
     }
     if (path === 'bridge.autoIllustration.nai.effort') return normalizeNaiEffort(value);
+    if (path === 'bridge.autoIllustration.nai.minIntervalEnabled') return value === true || value === 'true';
     if (path === 'bridge.autoIllustration.nai.minIntervalMs') {
         const n = value === '' || value == null ? NaN : Number(value);
         return Number.isFinite(n) ? Math.max(0, Math.min(60000, Math.round(n))) : 2000;

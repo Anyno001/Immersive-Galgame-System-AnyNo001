@@ -33,3 +33,38 @@ export async function downloadStatsTemplate(doc, url = statsTemplateUrl(), { fet
     clickDownload(doc, url);
     return { ok: true, url, via: 'link' };
 }
+
+export const STATS_TEMPLATE_PRESET_NAME = STATS_TEMPLATE_FILE.replace(/^TavernDB_template_|\.json$/g, '');
+
+function sheetNames(template) {
+    if (!template || typeof template !== 'object') return [];
+    return Object.keys(template).filter((key) => key.startsWith('sheet_'))
+        .map((key) => String(template[key] && template[key].name || '').trim()).filter(Boolean);
+}
+
+export async function fetchStatsTemplate(url = statsTemplateUrl(), { fetchImpl = globalThis.fetch } = {}) {
+    if (typeof fetchImpl !== 'function') return { ok: false, reason: 'stats-template-no-fetch' };
+    try {
+        const response = await fetchImpl(url);
+        if (!response.ok) return { ok: false, reason: 'stats-template-fetch-failed', message: `HTTP ${response.status}` };
+        const data = await response.json();
+        if (!data || typeof data !== 'object' || !sheetNames(data).length) return { ok: false, reason: 'stats-template-invalid' };
+        return { ok: true, data };
+    } catch (error) {
+        return { ok: false, reason: 'stats-template-fetch-failed', message: String(error && error.message || error) };
+    }
+}
+
+// 应用到当前聊天前的预检：宿主按整份快照导入，当前聊天有而模板没有的表会被隐藏。
+export function statsTemplateChatDiff(current, template) {
+    const next = new Set(sheetNames(template));
+    return { hidden: sheetNames(current).filter((name) => !next.has(name)) };
+}
+
+// scope='global' 存进数据库的模板预设库，不动当前聊天；scope='chat' 替换当前聊天的模板，已有数据按 seed 保留。
+export async function importStatsTemplate(client, template, scope = 'global') {
+    const result = await client.importTemplate(template, { scope, presetName: STATS_TEMPLATE_PRESET_NAME, dataMode: 'seed' });
+    if (!result.ok) return result;
+    if (scope === 'chat' && result.result && result.result.runtimeReady === false) return { ok: false, reason: 'stats-template-runtime-not-ready' };
+    return { ok: true, scope };
+}

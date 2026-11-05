@@ -123,10 +123,14 @@ const attrFixtures = [
 
 // 对一个夹具：原样 + 大量随机变异，两边结果必须深度相等。
 // 类型枚举的错误信息会列出允许的类型，本版多一个 lose；比对时把它从本版的列表里去掉，lose 本身另有断言。
-const withoutLoseType = (value) => JSON.parse(JSON.stringify(value), (key, inner) => (key === 'allowed' && Array.isArray(inner) ? inner.filter((item) => item !== 'lose') : inner));
+const NEW_EFFECT_OPS = ['delayed-counter', 'mutual-damage', 'random-branch'];
+const withoutLoseType = (value) => JSON.parse(JSON.stringify(value), (key, inner) => (key === 'allowed' && Array.isArray(inner) ? inner.filter((item) => item !== 'lose' && !NEW_EFFECT_OPS.includes(item)) : inner));
 function fuzz(label, fixture, fnName, count = 120) {
     const rnd = prng(label.length * 7919 + fixture.id?.length);
-    const mineOf = fnName === 'normalizeLedgerEntry' ? (input) => withoutLoseType(mine[fnName](input)) : (input) => mine[fnName](input);
+    const mineOf = (input) => {
+        const result = mine[fnName](input);
+        return result && result.ok === false ? withoutLoseType(result) : result;
+    };
     assert.deepStrictEqual(mineOf(fixture), orig[fnName](fixture), `${label} 原样`);
     for (let i = 0; i < count; i += 1) {
         const input = mutate(fixture, rnd, [0.02, 0.05, 0.1, 0.25][i % 4]);
@@ -143,6 +147,12 @@ test('导出名集合与常量一致', () => {
     for (const k of Object.keys(orig)) {
         if (typeof orig[k] === 'function') continue;
         if (k === 'LEDGER_TYPES') { assert.ok(Object.isFrozen(mine[k]), `${k} frozen`); continue; }
+        if (k === 'EFFECT_OPS') {
+            assert.deepStrictEqual(mine[k].filter((op) => !NEW_EFFECT_OPS.includes(op)), orig[k]);
+            assert.ok(NEW_EFFECT_OPS.every((op) => mine[k].includes(op)));
+            assert.ok(Object.isFrozen(mine[k]), `${k} frozen`);
+            continue;
+        }
         assert.deepStrictEqual(mine[k], orig[k], k);
         assert.ok(Object.isFrozen(mine[k]), `${k} frozen`);
     }
