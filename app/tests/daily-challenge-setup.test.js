@@ -85,10 +85,13 @@ test('难关按事件名挑选，对方名字用来给难关命名', () => {
     assert.equal(build(startOf()).setup.units[1].id, CHALLENGE_FOE_ID);
 });
 
-test('回合上限到时按进展比例判胜负，成功最多算勉强', () => {
+test('日常挑战不设回合上限（D16）：新建 setup 不写 rounds，只按胜负结算；旧记录带 rounds 时仍按进展比例判定，成功最多算勉强', () => {
     const { setup } = build(startOf({ tier: '轻松' }));
+    assert.equal(Object.hasOwn(setup.challenge, 'rounds'), false);
     const { state } = createBattle(setup, 9);
-    const rounds = setup.challenge.rounds;
+    const late = { ...state, turn: 99 };
+    assert.equal(challengeResultOf(late, setup.challenge.rounds), null);
+    const rounds = foeThickness('轻松').rounds;
     assert.equal(challengeResultOf(state, rounds), null);
     const foe = state.units[CHALLENGE_FOE_ID];
     const limit = (hp, turn = rounds + 1) => challengeResultOf({ ...state, turn, units: { ...state.units, [CHALLENGE_FOE_ID]: { ...foe, hp } } }, rounds);
