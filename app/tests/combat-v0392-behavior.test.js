@@ -510,3 +510,58 @@ test('背包装备详情：显示原六维加成与被动，物品描述保持�
     assert.ok(detail.textContent.includes('<img src=x onerror=alert(1)>'));
     assert.equal(detail.querySelector('img'), null);
 });
+
+
+test('永久成长账本（G24 / G25）：经真实写口写入并回读；同 ID 幂等；累计封顶 20；战报 ID 不符失效；下一场目录与最大生命带上成长', async () => {
+    const { BATTLE_GROWTH_TAG_HASH } = await import('../src/combat/ledger.js');
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const host = createLedgerMockHost();
+    host.sheets.sheet_userbag = userInventorySheet();
+    const tables = createCombatTables({ api: host.api });
+    assert.equal((await tables.ensure()).ok, true);
+    assert.equal((await tables.append('profile', [row(classDef('cls-blade'), 1), row(heroDef(), 2)])).ok, true);
+    const floor = (id) => user(`<igs-combat-report id="${id}" result="win">战报</igs-combat-report>`);
+    const chat = [floor('r1')];
+    const ledger = createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7 });
+    const before = heroOf(await ledger.effectiveState());
+    assert.equal(Object.hasOwn(before, 'battleGrowth'), false);
+
+    const entryAt = (messageId, payload) => {
+        const anchor = { messageId, swipeId: 0, tagHash: BATTLE_GROWTH_TAG_HASH, occurrence: 0 };
+        return { id: ledgerEntryId('battle-growth', 'pc-hero', anchor), type: 'battle-growth', character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    const first = entryAt(0, { cards: [{ cardId: 'c1', damage: 2, block: 0 }, { cardId: 'c3', damage: 0, block: 1 }], hpMax: 3, reportId: 'r1' });
+    const written = await ledger.append([first]);
+    assert.equal(written.ok, true, JSON.stringify(written));
+    assert.deepEqual(tables.read().ledger.filter((e) => e.type === 'battle-growth').map((e) => e.id), [first.id]);
+    assert.equal((await ledger.append([clone(first)])).ok, true);
+    assert.equal(tables.read().ledger.filter((e) => e.type === 'battle-growth').length, 1);
+
+    let me = heroOf(await ledger.effectiveState());
+    assert.deepEqual(me.battleGrowth, { cards: { c1: { damage: 2, block: 0 }, c3: { damage: 0, block: 1 } }, hpMax: 3 });
+    assert.equal(me.hpMax - before.hpMax, 3);
+
+    chat.push(floor('r2'));
+    assert.equal((await ledger.append([entryAt(1, { cards: [{ cardId: 'c1', damage: 20, block: 0 }], hpMax: 20, reportId: 'r2' })])).ok, true);
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.battleGrowth.cards.c1.damage, me.battleGrowth.hpMax], [20, 20]);
+
+    chat[1] = floor('r9');
+    const stale = await ledger.effectiveState();
+    assert.ok(stale.inactive.some((item) => item.reason === 'battle-growth-report-invalid'));
+    me = heroOf(stale);
+    assert.deepEqual([me.battleGrowth.cards.c1.damage, me.battleGrowth.hpMax], [2, 3]);
+
+    const lobbyOf = (character) => ({ heroId: 'pc-hero', controllable: ['pc-hero'], allies: [character], enemies: new Map([['狼', templateEnemy('狼', 'normal')]]) });
+    const unitOf = (character) => {
+        const built = buildSetup(lobbyOf(character), { enemies: [{ name: '狼', count: 1 }], tier: 'normal' });
+        assert.equal(built.ok, true, JSON.stringify(built));
+        return built.setup.units.find((u) => u.id === 'pc-hero');
+    };
+    const grown = unitOf(me);
+    const plain = unitOf({ ...me, battleGrowth: undefined, hpMax: me.hpMax - 3 });
+    assert.equal(grown.catalog.c1.effects[0].amount - plain.catalog.c1.effects[0].amount, 2);
+    assert.equal(grown.catalog.c3.effects[0].amount - plain.catalog.c3.effects[0].amount, 1);
+    assert.equal(grown.maxHp - plain.maxHp, 3);
+    assert.equal(createBattle(buildSetup(lobbyOf(me), { enemies: [{ name: '狼', count: 1 }], tier: 'normal' }).setup, 1).ok, true);
+});

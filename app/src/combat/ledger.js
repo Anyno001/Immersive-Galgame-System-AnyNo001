@@ -16,7 +16,7 @@ import {
     isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset,
 } from './abilities.js';
 import {
-    GEAR_SLOTS, INIT_GEAR_TAG_HASH, buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry,
+    BATTLE_GROWTH_MAX, GEAR_SLOTS, INIT_GEAR_TAG_HASH, buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry,
     normalizeProfile, validateStarterDeck,
 } from './schema.js';
 import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extractLossDirectives, scanCombatTags, scanGainTags, scanLossTags } from '../scene/combat-directives.js';
@@ -40,6 +40,8 @@ export const DECK_TAG_HASH = 'deck';
 export const REWARD_TAG_HASH = 'reward';
 export const CONSUME_TAG_HASH = 'consume';
 export const WOUND_TAG_HASH = 'wound';
+// 规则 v5 G24 / G25：本场永久成长与击杀奖励，锚定战报用户楼，与 wound 一样不来自标签。
+export const BATTLE_GROWTH_TAG_HASH = 'battle-growth';
 export const GEAR_TAG_HASH = 'gear';
 export const SELL_TAG_HASH = 'sell';
 export const REBUILD_TAG_HASH = 'rebuild';
@@ -53,7 +55,7 @@ export const ALLOC_TAG_HASH = 'alloc';
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'battle-growth']);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -67,7 +69,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
-    wound: 19, hurt: 19, heal: 19.5,
+    'battle-growth': 18.5, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
@@ -279,6 +281,7 @@ function inactiveReason(entry, scanFloor) {
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
     if (entry.type === 'loot' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'loot-report-invalid';
     if (entry.type === 'wound' && floor.report?.reportId !== entry.payload.reportId) return 'wound-report-invalid';
+    if (entry.type === 'battle-growth' && floor.report?.reportId !== entry.payload.reportId) return 'battle-growth-report-invalid';
     return null;
 }
 
@@ -329,6 +332,7 @@ function createCharacterState(index, profile, diagnostics) {
         id: profile.id, kind: profile.kind, name: profile.name, profile, exp: 0,
         gear: { owned: new Map(), slots: {} }, items: new Map(), keepsakes: new Map(),
         points: 0, traits: [], pendingTrait: null, traitDraws: 0, innateDropped: [], slotUnlocks: 0, wound: null,
+        battleGrowth: { cards: new Map(), hpMax: 0 },
     };
     if (profile.kind === 'skill-character') return { ...base, className: profile.className, skills: [...profile.skills], passives: profile.passives };
     const classProfile = resolveClass(index, profile.classRef);
@@ -530,6 +534,17 @@ const handlers = Object.freeze({
     },
     wound(state, payload) {
         state.wound = payload.hp >= payload.maxHp && !payload.down ? null : { hp: payload.down ? 0 : payload.hp, maxHp: payload.maxHp, down: payload.down };
+        return null;
+    },
+    // 规则 v5 G24 / G25：按卡牌 ID 累计伤害与格挡成长（同名副本共享），击杀奖励的最大生命按角色累计；各自封顶 BATTLE_GROWTH_MAX。
+    'battle-growth'(state, payload) {
+        if (state.kind !== 'deck-character') return 'combat-battle-growth-kind-mismatch';
+        const growth = state.battleGrowth;
+        for (const { cardId, damage, block } of payload.cards) {
+            const prev = growth.cards.get(cardId) || { damage: 0, block: 0 };
+            growth.cards.set(cardId, { damage: Math.min(BATTLE_GROWTH_MAX, prev.damage + damage), block: Math.min(BATTLE_GROWTH_MAX, prev.block + block) });
+        }
+        growth.hpMax = Math.min(BATTLE_GROWTH_MAX, growth.hpMax + payload.hpMax);
         return null;
     },
     heal(state, payload) {
@@ -784,14 +799,18 @@ function presentCharacter(state, options = {}) {
     for (let level = 2; eligible && level <= progress.level; level += 1) {
         if (!state.claimed.has(level) && !isAsiLevel(level, true)) pendingRewards.push(level);
     }
+    // 规则 v5 G24 / G25：永久成长视图；没有成长时不写字段，旧视图形状不变。
+    const growth = state.battleGrowth;
+    const hasGrowth = growth && (growth.cards.size > 0 || growth.hpMax > 0);
     return {
         ...view, classRef: state.classRef, className: state.classProfile?.className ?? '', classProfile: effectiveClassProfile(state),
         classTier: state.classTier, tierName: state.tierName,
-        hpMax: state.profile.base.hp + (progress.level - 1) * state.profile.growth.hpPerLevel,
+        hpMax: state.profile.base.hp + (progress.level - 1) * state.profile.growth.hpPerLevel + (growth?.hpMax || 0),
         catalog: state.catalog, owned: state.owned, upgraded: state.upgraded, deck: state.deck, deckEntries,
         deckRevision: state.deckRevision ?? null, deckErrors: deckCheck.errors,
         deckNeedsAdjust: state.deckNeedsAdjust === true || !deckCheck.ok,
         claimedLevels: [...state.claimed].sort((a, b) => a - b), pendingRewards,
+        ...(hasGrowth ? { battleGrowth: { cards: Object.fromEntries([...growth.cards].map(([cardId, value]) => [cardId, { ...value }])), hpMax: growth.hpMax } } : {}),
         // 已到解锁等级、档案还没有对应专属卡的槽位（待生成）；没有时不写字段，旧视图形状不变。
         ...(state.signatureDue?.size ? { signatureDue: [...state.signatureDue].map(([slot, anchor]) => ({ slot, level: signatureUnlockLevel(slot), anchor: { ...anchor } })) } : {}),
     };

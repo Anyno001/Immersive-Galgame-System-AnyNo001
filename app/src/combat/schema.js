@@ -40,12 +40,15 @@ export const PASSIVE_TRIGGERS = Object.freeze([
 export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
-    'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose',
+    'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
 export const INIT_GEAR_TAG_HASH = 'init-gear';
 export const ITEM_GAIN_MAX = 3;
+// 规则 v5 G24 / G25：永久成长累计上限（每张牌的伤害、格挡各自封顶；击杀奖励的最大生命按角色累计封顶）。
+export const BATTLE_GROWTH_MAX = 20;
+const BATTLE_GROWTH_CARDS_MAX = 40;
 export const ITEM_CONSUME_MAX = 30;
 export const HEAL_MODES = Object.freeze(['flat', 'percent']);
 export const HURT_TIER_KEYS = Object.freeze(['轻伤', '中伤', '重伤']);
@@ -897,6 +900,18 @@ function validateLedgerPayload(type, payload, path, state) {
             if (Number.isInteger(hp) && Number.isInteger(maxHp) && hp > maxHp) addIssue(state, at('hp'), 'out-of-range', { min: 0, max: maxHp });
             if (typeof payload.down !== 'boolean') addIssue(state, at('down'), 'expected-boolean');
             return { hp, maxHp, down: payload.down === true, reportId: textField(payload.reportId, at('reportId'), state, 40) };
+        }
+        case 'battle-growth': {
+            checkKnownFields(payload, ['cards', 'hpMax', 'reportId'], path, state);
+            const cards = arrayField(payload.cards ?? [], at('cards'), state, 0, BATTLE_GROWTH_CARDS_MAX, (item, itemPath, st) => {
+                if (!objectField(item, itemPath, st)) return;
+                checkKnownFields(item, ['cardId', 'damage', 'block'], itemPath, st);
+                const sub = (key) => joinPath(itemPath, key);
+                return { cardId: idField(item.cardId, sub('cardId'), st), damage: intField(item.damage, sub('damage'), st, 0, BATTLE_GROWTH_MAX, 0), block: intField(item.block, sub('block'), st, 0, BATTLE_GROWTH_MAX, 0) };
+            });
+            const hpMax = intField(payload.hpMax, at('hpMax'), state, 0, BATTLE_GROWTH_MAX, 0);
+            if (Array.isArray(cards) && !cards.length && hpMax === 0) addIssue(state, path, 'empty-growth');
+            return { cards, hpMax, reportId: textField(payload.reportId, at('reportId'), state, 40) };
         }
         case 'heal': {
             checkKnownFields(payload, ['amount', 'mode', 'scale', 'reason'], path, state);

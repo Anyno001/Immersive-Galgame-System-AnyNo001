@@ -50,6 +50,9 @@ const upgradeCard = (amount, mode) => ({ op: 'upgrade-card', amount, mode });
 // 规则 v5 P2c 能量与免费出牌。
 const energyDouble = () => ({ op: 'energy-double' });
 const freeNext = (amount, cardType) => ({ op: 'free-next', amount, ...(cardType ? { cardType } : {}) });
+// 规则 v5 P2e 永久成长与击杀奖励（跨战斗保留，写账本 battle-growth）。
+const evolve = (stat, amount) => ({ op: 'evolve', stat, amount });
+const bounty = (reward, amount) => ({ op: 'bounty', reward, ...(reward === 'upgrade' ? {} : { amount }) });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -72,6 +75,8 @@ function primaryNumber(effect) {
         case 'discover':
         case 'energy-double':
             return 1;
+        case 'bounty':
+            return effect.reward === 'upgrade' ? 1 : effect.amount;
         case 'cost-mod':
         case 'hand-cost':
             return -effect.amount;
@@ -232,6 +237,10 @@ export const CARD_TEMPLATES = Object.freeze({
     brim: template('skill', '格挡；手牌不少于 4 张时追加格挡', [[1, 30], [1, 30]], 0.6, ([a, b]) => [block(a), conditional('hand-gte', 4, [block(b)])]),
     ashen: template('attack', '伤害；本场已消耗 3 张牌时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('exhausted-gte', 3, [damage(b)])]),
     linger: template('skill', '格挡；本回合结束时多保留 1 张手牌', [[1, 20], [1, 1]], 0.7, ([a, b]) => [block(a), { op: 'retain-hand', amount: b }]),
+    // 规则 v5 P2e：G24 永久成长、G25 击杀奖励（成长按卡牌 ID 记账、同名副本共享；需要出牌实例，不作人物技能）。
+    whetstone: template('attack', '伤害；打出后本牌伤害永久提高', [[1, 30], [1, 3]], 0.7, ([a, b]) => [damage(a), evolve('damage', b)], { hero: false }),
+    carapace: template('skill', '格挡；打出后本牌格挡永久提高', [[1, 30], [1, 3]], 0.7, ([a, b]) => [block(a), evolve('block', b)], { hero: false }),
+    trophy: template('attack', '伤害；本牌击倒非爪牙敌人时最大生命永久提高', [[1, 30], [1, 5]], 0.8, ([a, b]) => [damage(a), bounty('hp-max', b)], { hero: false }),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -590,7 +599,8 @@ const ARCHETYPE_PREFERRED = Object.freeze({
 const TEMPLATE_FAMILY_TABLE = Object.freeze({
     general: ['strike', 'twin', 'bash', 'cripple', 'rend', 'quick', 'guard', 'brace', 'prepare', 'jab', 'trip', 'opener', 'might', 'foresight', 'reserve', 'steadfast', 'trance',
         'battlecry', 'stance', 'disarm', 'breach', 'wind-up', 'fervor', 'zenith', 'apex', 'ambush', 'lifeguard', 'siphon', 'spite',
-        'reverb', 'resound', 'gambit', 'feint', 'quickdraw', 'flow', 'generator', 'hoard', 'overcharge', 'xdraw', 'xforge', 'interrupt', 'coup', 'brim', 'ashen', 'linger'],
+        'reverb', 'resound', 'gambit', 'feint', 'quickdraw', 'flow', 'generator', 'hoard', 'overcharge', 'xdraw', 'xforge', 'interrupt', 'coup', 'brim', 'ashen', 'linger',
+        'whetstone', 'carapace', 'trophy'],
     // 牌堆操作（P2b），所有职业可用。
     pile: ['scout', 'hunt', 'salvage', 'exhume', 'stack', 'boomerang', 'rebound', 'purify', 'cinder', 'reprise', 'glimpse', 'morph', 'refine', 'polish'],
     fury: ['shatter', 'desperate', 'inflame', 'tear', 'fleeting', 'rampage', 'momentum', 'whirl', 'bloodlet', 'bloodrush', 'bloodrage', 'overdrive', 'heavy-blade'],

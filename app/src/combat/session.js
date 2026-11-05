@@ -12,7 +12,7 @@ import {
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
 import { attachLoot, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
-import { CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear } from './ledger.js';
+import { BATTLE_GROWTH_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear } from './ledger.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
 import { ABILITY_KEYS, ABILITY_LABELS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
@@ -150,6 +150,24 @@ const tagSource = (source) => (passive) => (passive ? { ...passive, source } : n
 const clampRound = (value, min, max) => Math.min(max, Math.max(min, Math.round(value)));
 const abilityFields = (attributes) => (attributes?.scores ? { level: attributes.level, abilities: { ...attributes.scores } } : {});
 
+// 规则 v5 G24 / G25：账本里的永久成长叠加到开战目录（伤害、格挡效果，含升级版；单个效果封顶 99）。没有成长时目录原样返回。
+const growEffects = (effects, bonus) => (Array.isArray(effects) ? effects.map((effect) => {
+    if (effect?.op === 'damage' && bonus.damage) return { ...effect, amount: Math.min(99, effect.amount + bonus.damage) };
+    if (effect?.op === 'block' && bonus.block) return { ...effect, amount: Math.min(99, effect.amount + bonus.block) };
+    return effect;
+}) : effects);
+function withBattleGrowth(catalog, growth) {
+    const cards = growth?.cards;
+    if (!cards) return catalog;
+    const out = { ...catalog };
+    for (const [cardId, bonus] of Object.entries(cards)) {
+        const card = out[cardId];
+        if (!card) continue;
+        out[cardId] = { ...card, effects: growEffects(card.effects, bonus), ...(card.upgraded?.effects ? { upgraded: { ...card.upgraded, effects: growEffects(card.upgraded.effects, bonus) } } : {}) };
+    }
+    return out;
+}
+
 // 牌组角色 -> 战斗单位
 function deckUnit(character) {
     const kept = keptInnateKinds(character);
@@ -159,7 +177,7 @@ function deckUnit(character) {
         id: character.id, name: character.name, side: 'ally', kind: 'deck', maxHp: stats.hp,
         energy: character.profile.base.energy, draw: character.profile.base.draw, speed: stats.speed,
         deck: character.deckEntries.map((entry) => ({ ...entry })),
-        catalog: character.attributes?.scores ? scaleCatalog(character.catalog, character.attributes) : Object.fromEntries(character.catalog),
+        catalog: withBattleGrowth(character.attributes?.scores ? scaleCatalog(character.catalog, character.attributes) : Object.fromEntries(character.catalog), character.battleGrowth),
         passives: [
             tagSource('class')(character.classProfile?.classPassive),
             tagSource('personal')(kept.includes('passive') ? character.profile.personalPassive : null),
@@ -567,6 +585,10 @@ const validUsed = (result) => result.used === undefined
 const validWounds = (result) => result.wounds === undefined
     || (Array.isArray(result.wounds) && result.wounds.every((wound) => typeof wound?.character === 'string' && wound.character
         && Number.isInteger(wound.maxHp) && wound.maxHp >= 1 && Number.isInteger(wound.hp) && wound.hp >= 0 && wound.hp <= wound.maxHp && typeof wound.down === 'boolean'));
+const growthInt = (value) => Number.isInteger(value) && value >= 0 && value <= 20;
+const validBattleGrowth = (result) => result.battleGrowth === undefined
+    || (Array.isArray(result.battleGrowth) && result.battleGrowth.every((growth) => typeof growth?.character === 'string' && growth.character && growthInt(growth.hpMax)
+        && Array.isArray(growth.cards) && growth.cards.every((card) => typeof card?.cardId === 'string' && card.cardId && growthInt(card.damage) && growthInt(card.block))));
 
 // 战报条目（发件箱与聊天记录共用的精简形态）
 const reportItemOf = (report) => ({
@@ -575,6 +597,8 @@ const reportItemOf = (report) => ({
         ? { used: report.used.map((item) => ({ itemId: item.itemId, count: item.count })), character: report.character } : {}),
     ...(Array.isArray(report.wounds) && report.wounds.length
         ? { wounds: report.wounds.map((wound) => ({ character: wound.character, hp: wound.hp, maxHp: wound.maxHp, down: wound.down === true })) } : {}),
+    ...(Array.isArray(report.battleGrowth) && report.battleGrowth.length
+        ? { battleGrowth: report.battleGrowth.map((growth) => ({ character: growth.character, cards: growth.cards.map((card) => ({ cardId: card.cardId, damage: card.damage, block: card.block })), hpMax: growth.hpMax })) } : {}),
 });
 
 // 本场消耗物品字段
@@ -591,6 +615,20 @@ function woundPart(session) {
     const allies = Object.values(session.battle?.units || {}).filter((unit) => unit?.side === 'ally');
     if (!allies.length) return {};
     return { wounds: allies.map((unit) => ({ character: unit.id, hp: Math.max(0, Math.min(unit.maxHp, unit.alive ? unit.hp : 0)), maxHp: unit.maxHp, down: !unit.alive })) };
+}
+
+// 规则 v5 G24 / G25：本场各己方卡组单位的永久成长与击杀奖励（胜、败、撤退都记，与伤势一致）。
+function battleGrowthPart(session) {
+    if (session?.kind === 'challenge') return {};
+    const list = Object.values(session.battle?.units || {})
+        .filter((unit) => unit?.side === 'ally' && unit.kind === 'deck' && unit.res?.battleGrowth)
+        .map((unit) => ({
+            character: unit.id,
+            cards: Object.entries(unit.res.battleGrowth.cards || {}).map(([cardId, value]) => ({ cardId, damage: value.damage || 0, block: value.block || 0 })).filter((card) => card.damage || card.block),
+            hpMax: unit.res.battleGrowth.hpMax || 0,
+        }))
+        .filter((growth) => growth.cards.length || growth.hpMax);
+    return list.length ? { battleGrowth: list } : {};
 }
 
 export function createCombatSession(options = {}) {
@@ -717,7 +755,7 @@ export function createCombatSession(options = {}) {
         if (read?.ok !== true) return { ok: false, reason: read?.reason || 'combat-record-read-failed' };
         const result = read.value?.result;
         // result 为 null：「重新开始」撤掉了上一局的结果，按没有结果处理。
-        const corrupt = result !== undefined && result !== null && (typeof result?.reportId !== 'string' || typeof result?.text !== 'string' || typeof result?.result !== 'string' || !validUsed(result) || !validWounds(result));
+        const corrupt = result !== undefined && result !== null && (typeof result?.reportId !== 'string' || typeof result?.text !== 'string' || typeof result?.result !== 'string' || !validUsed(result) || !validWounds(result) || !validBattleGrowth(result));
         return corrupt ? { ok: false, reason: 'combat-record-corrupt' } : { ok: true, value: read.value || null };
     }
 
@@ -741,7 +779,7 @@ export function createCombatSession(options = {}) {
 
     // 战斗结束：把战报写进聊天记录（结果只写一次）
     async function saveResult(session, report, battle) {
-        const extra = { ...(report.used ? { used: report.used, character: report.character } : {}), ...(report.wounds ? { wounds: report.wounds } : {}) };
+        const extra = { ...(report.used ? { used: report.used, character: report.character } : {}), ...(report.wounds ? { wounds: report.wounds } : {}), ...(report.battleGrowth ? { battleGrowth: report.battleGrowth } : {}) };
         const written = await writeChatRecord(session, {
             result: { reportId: report.reportId, result: report.result, text: report.text, outcome: battle?.outcome || '', turn: Number(battle?.turn) || 0, at: now(), ...extra },
         });
@@ -1270,6 +1308,20 @@ export function createCombatSession(options = {}) {
                 woundResult = { ok: false, reason: 'combat-wound-write-failed' };
             }
         }
+        let growthResult = null;
+        const growths = Array.isArray(report.battleGrowth) ? report.battleGrowth : battleGrowthPart(current).battleGrowth || [];
+        if (Number.isInteger(reportMessageId) && growths.length && ledger?.append) {
+            const swipeId = reportSwipeId();
+            const entries = growths.map((growth, index) => {
+                const anchor = { messageId: reportMessageId, swipeId, tagHash: BATTLE_GROWTH_TAG_HASH, occurrence: index };
+                return { id: ledgerEntryId('battle-growth', growth.character, anchor), type: 'battle-growth', character: growth.character, anchor, payload: { cards: growth.cards.map((card) => ({ cardId: card.cardId, damage: card.damage, block: card.block })), hpMax: growth.hpMax, reportId: report.reportId }, createdAt: now() };
+            });
+            try {
+                growthResult = await ledger.append(entries);
+            } catch {
+                growthResult = { ok: false, reason: 'combat-battle-growth-write-failed' };
+            }
+        }
         if (isChallenge(current) && Number.isInteger(reportMessageId) && ledger?.append) {
             const card = challengeSummary(current)?.card;
             if (card) {
@@ -1287,7 +1339,7 @@ export function createCombatSession(options = {}) {
             }
         }
         setState({ ...identityOf(current), status: 'done', report });
-        return ok({ messageId: reportMessageId ?? null, scan, ...(consumeResult ? { consume: consumeResult } : {}), ...(woundResult ? { wound: woundResult } : {}) });
+        return ok({ messageId: reportMessageId ?? null, scan, ...(consumeResult ? { consume: consumeResult } : {}), ...(woundResult ? { wound: woundResult } : {}), ...(growthResult ? { battleGrowth: growthResult } : {}) });
     }
 
     // 把战报发进聊天：战报楼已存在则直接收尾；发送失败进入 send-failed 可重试
@@ -1324,7 +1376,7 @@ export function createCombatSession(options = {}) {
         if (!report) {
             const built = buildReport(current);
             if (!built.ok) return fail(built.reason);
-            report = { ...reportItemOf(built), ...usedPart(current), ...woundPart(current) };
+            report = { ...reportItemOf(built), ...usedPart(current), ...woundPart(current), ...battleGrowthPart(current) };
         }
         const combatId = current.combatId;
         if (finalWrite) await finalWrite;

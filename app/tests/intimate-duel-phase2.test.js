@@ -1015,3 +1015,68 @@ test('回合结束多保留手牌（L06）：多留 N 张、用后清掉；规�
     assert.ok(pool.some((shape) => shape.kind === 'passive' && shape.field === 'retain'));
     for (const trigger of ['draw', 'create', 'debuff-applied', 'block-broken']) assert.ok(pool.some((shape) => shape.trigger === trigger), trigger);
 });
+
+
+// ---------- 规则 v5 P2e：永久成长与击杀奖励（G24、G25） ----------
+const growthOf = (state) => state.units.hero.res?.battleGrowth;
+
+test('永久成长（G24）：打出后按卡牌 ID 记本场成长，重演只算一次，临时副本不成长；规则 v4 不记', () => {
+    const w = def('w', 'attack', [{ op: 'damage', amount: 1, target: 'enemy' }, { op: 'evolve', stat: 'damage', amount: 2 }], { innate: true });
+    const grown = (card, rv) => {
+        const s = startDeck({ w: card, k: GUARD }, ['w', ...Array(9).fill('k')], rv);
+        return playIn(s, instOf(s, 'w'), 'foe');
+    };
+    const once = grown(w);
+    assert.deepEqual(growthOf(once.state), { cards: { w: { damage: 2, block: 0 } }, hpMax: 0 });
+    assert.ok(once.events.some((e) => e.type === 'battle-growth' && e.cardId === 'w' && e.stat === 'damage' && e.amount === 2));
+    assert.equal(growthOf(grown({ ...w, replay: 1 }).state).cards.w.damage, 2);
+    assert.equal(grown(w, 4).state.units.hero.res, undefined);
+
+    const copier = { ...w, effects: [...w.effects, { op: 'copy', amount: 1, from: 'self', to: 'hand' }] };
+    const first = grown(copier).state;
+    const copy = instOf(first, 'w');
+    assert.ok(copy && first.cards[copy].temp);
+    assert.equal(growthOf(playIn(first, copy, 'foe').state).cards.w.damage, 2);
+});
+
+test('击杀奖励（G25）：本牌击倒非爪牙敌人才发奖；其他牌击倒、爪牙、规则 v4 不发；本场升级只改本牌', () => {
+    const t = def('t', 'attack', [{ op: 'damage', amount: 40, target: 'enemy' }, { op: 'bounty', reward: 'hp-max', amount: 3 }], { innate: true });
+    const plain = def('a', 'attack', [{ op: 'damage', amount: 40, target: 'enemy' }], { innate: true });
+    const fight = (catalog, deck, rv) => startDeck({ ...catalog, k: GUARD }, [...deck, ...Array(10 - deck.length).fill('k')], rv);
+
+    const won = playIn(fight({ t }, ['t']), instOf(fight({ t }, ['t']), 't'), 'foe').state;
+    assert.equal(won.outcome, 'victory');
+    assert.equal(growthOf(won).hpMax, 3);
+
+    const both = fight({ t, a: plain }, ['t', 'a']);
+    assert.equal(growthOf(playIn(both, instOf(both, 'a'), 'foe').state), undefined);
+
+    const minion = structuredClone(fight({ t }, ['t']));
+    minion.units.foe.minion = true;
+    assert.equal(growthOf(playIn(minion, instOf(minion, 't'), 'foe').state), undefined);
+
+    const old = fight({ t }, ['t'], 4);
+    assert.equal(playIn(old, instOf(old, 't'), 'foe').state.units.hero.res, undefined);
+
+    const u = def('u', 'attack', [{ op: 'damage', amount: 40, target: 'enemy' }, { op: 'bounty', reward: 'upgrade' }], { innate: true, upgraded: { effects: [{ op: 'damage', amount: 45, target: 'enemy' }] } });
+    const up = fight({ u }, ['u']);
+    const inst = instOf(up, 'u');
+    const after = playIn(up, inst, 'foe').state;
+    assert.equal(after.cards[inst].upgraded, true);
+    assert.equal(growthOf(after), undefined);
+});
+
+test('永久成长与击杀奖励模板：可反解、通用族、不作人物技能；牌面写明；嵌套在条件里拒收', () => {
+    for (const key of ['whetstone', 'carapace', 'trophy']) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'general');
+        assert.equal(heroSkillFromTemplate(key, { id: 'h', name: '技' }), null);
+    }
+    assert.ok(describeEffects([{ op: 'evolve', stat: 'block', amount: 2 }]).includes('格挡永久 +2'));
+    assert.ok(describeEffects([{ op: 'bounty', reward: 'hp-max', amount: 3 }]).includes('最大生命永久 +3'));
+    const nested = { id: 'x', name: '牌', type: 'attack', cost: 1, rarity: 'common', effects: [{ op: 'damage', amount: 3, target: 'enemy' }, { op: 'conditional', when: { kind: 'hand-gte', value: 2 }, then: [{ op: 'evolve', stat: 'damage', amount: 1 }] }] };
+    assert.equal(normalizeCard(nested).ok, false);
+});
