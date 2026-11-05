@@ -63,12 +63,13 @@ test('敌人随机选攻击对象（setup.randomTargets）：开启时按种子�
     assert.equal(createBattle({ controlledId: 'hero', randomTargets: 'yes', units: units() }, SEED).error?.reason, 'invalid-setup');
 });
 
-test('多敌折算：1 只为 1；2 只约 0.70；3 只继续递减，4 只起封底 0.5', () => {
+test('多敌折算：1 只为 1；2 只约 0.70；3、4 只继续递减，5 只起封底 0.4', () => {
     assert.equal(crowdScaleFor(1), 1);
     assert.ok(Math.abs(crowdScaleFor(2) - 1 / 1.43) < 1e-9, String(crowdScaleFor(2)));
     assert.ok(crowdScaleFor(3) < crowdScaleFor(2) && crowdScaleFor(3) > 0.5);
-    for (const n of [4, 5, 8, 50]) assert.equal(crowdScaleFor(n), COMBAT_RULES.crowd.floor, `n=${n}`);
-    assert.equal(COMBAT_RULES.crowd.floor, 0.5);
+    assert.ok(Math.abs(crowdScaleFor(4) - 1 / 2.29) < 1e-9, String(crowdScaleFor(4)));
+    for (const n of [5, 8, 50]) assert.equal(crowdScaleFor(n), COMBAT_RULES.crowd.floor, `n=${n}`);
+    assert.equal(COMBAT_RULES.crowd.floor, 0.4);
 });
 
 test('专属卡槽位：ID 带 -g<n> 按槽位，否则按档案位置；Lv5 / Lv10 解锁', () => {
