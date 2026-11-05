@@ -88,9 +88,9 @@ export const WUXIA_HUD_THEME = Object.freeze({
     track: `height:${s(9)};border:0;border-radius:0;background:${moon('.16')};${maskOf(WX_BAR)}`,
     fill: `background:var(--igs-hud-fill-color) !important;border-radius:0;${maskOf(WX_BAR)}`,
     value: 'font-weight:400;',
-    // 丹青色板：矿物颜料实色，在墨底上提亮一档；好感胭脂、信任石青、了解石绿、芥蒂深朱、负好感黛蓝。
-    vars: '--igs-hud-bar-like:#c9606b;--igs-hud-bar-trust:#5b8fb6;--igs-hud-bar-know:#5a9f8a;--igs-hud-bar-grudge:#a33c30;--igs-hud-bar-cold:#6b7d9c;'
-        + '--igs-hud-bar-1:#5b8fb6;--igs-hud-bar-2:#5a9f8a;--igs-hud-bar-3:#d2ad4c;--igs-hud-bar-4:#8a6ca6;--igs-hud-bar-5:#c4553f;--igs-hud-bar-6:#6a78b4;',
+    // 淡彩色板：矿物色掺墨降饱和，同一明度档，墨底上只淡淡分色；好感褪红、信任黛青、了解青瓷、芥蒂暗朱、负好感灰蓝。
+    vars: '--igs-hud-bar-like:#a8676a;--igs-hud-bar-trust:#5f7f96;--igs-hud-bar-know:#6b8f84;--igs-hud-bar-grudge:#8e4a40;--igs-hud-bar-cold:#6f7a8a;'
+        + '--igs-hud-bar-1:#5f7f96;--igs-hud-bar-2:#6b8f84;--igs-hud-bar-3:#9a9a8e;--igs-hud-bar-4:#7f7290;--igs-hud-bar-5:#a0605a;--igs-hud-bar-6:#66718f;',
 });
 
 
