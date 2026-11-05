@@ -23,6 +23,7 @@ const FOCUS_KEY_ATTRS = Object.freeze([
     ['data-artist-selection'],
     ['data-chat-prompt-draft'],
     ['data-tts-batch'],
+    ['data-tts-voice-search'],
     ['data-asset-folder-move', 'data-asset-name'],
     ['data-advanced'],
     ['id'],
