@@ -5,7 +5,7 @@
 // 系统语音不经过 Web Audio，只能调音量、语速、音高；接口返回的音频走总线，声像、听筒、贴耳与语气音一致。
 import { trimCacheEntries } from '../../media/cache-eviction.js';
 import { ttsRequestQueue } from './tts-request-queue.js';
-import { normalizeTtsVoiceLibrary } from './tts-voice-library.js';
+import { groupTtsVoiceOptions, normalizeTtsVoiceLibrary } from './tts-voice-library.js';
 import { beginTtsFloorAudioCache, clearTtsFloorAudioCache, forgetTtsFloorAudio, getTtsFloorAudio, rememberTtsFloorAudio } from './tts-floor-audio-cache.js';
 import { armAudioBusRetry, audioMasterVolume, busInput, resumeAudioBus, watchPageAway } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
@@ -401,15 +401,23 @@ export function ttsApiVoiceList(settings) {
     return parseVoiceEntries(normalizeTtsSettings(settings).api.voices).map(([id]) => id);
 }
 
-const voiceOptionsOf = (voices) => parseVoiceEntries(voices).map(([id, title]) => [id, title ? `${title}（${id}）` : id]);
+const voiceGroupsOf = api => groupTtsVoiceOptions(parseVoiceEntries(api.voices), api.voiceLibrary);
+
+export function ttsApiVoiceGroups(settings) {
+    return voiceGroupsOf(normalizeTtsSettings(settings).api);
+}
+
+export function ttsNarratorVoiceGroups(settings) {
+    return voiceGroupsOf(normalizeTtsSettings(settings).narratorApi);
+}
 
 export function ttsApiVoiceOptions(settings) {
-    return voiceOptionsOf(normalizeTtsSettings(settings).api.voices);
+    return ttsApiVoiceGroups(settings).flatMap(group => group.items);
 }
 
 // 旁白独立接口的声音库（没有拉取过时为空数组）。
 export function ttsNarratorVoiceOptions(settings) {
-    return voiceOptionsOf(normalizeTtsSettings(settings).narratorApi.voices);
+    return ttsNarratorVoiceGroups(settings).flatMap(group => group.items);
 }
 
 // 把拉取到的声音并进已有的声音库：按声音名去重，已有的在前；满 TTS_VOICE_MAX 个后其余不加，dropped 为没加进去的个数。

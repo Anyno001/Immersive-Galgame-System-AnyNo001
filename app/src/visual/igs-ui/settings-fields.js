@@ -11,7 +11,8 @@ import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
 import { manualNameColor } from './character-name-color.js';
 import { VOICE_PITCH_LIMIT, VOICE_SPEED_RANGE, normalizeCharacterVoice, resolveCharacterVoice, voicePackOptions, creatureVoiceLabel } from './voice-bark.js';
-import { TTS_CHARACTER_VOLUMES, findSystemVoice, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceOptions } from './tts.js';
+import { TTS_CHARACTER_VOLUMES, findSystemVoice, listSystemVoices, resolveTtsVoice, systemVoiceOptions, ttsApiVoiceGroups } from './tts.js';
+import { renderTtsVoiceOptions } from './tts-voice-options.js';
 import { renderCharacterCreatureMenuItem, renderCharacterCreatureRows, renderCharacterCreatureTag } from './creature-settings.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { hasCharacterSpriteLayout } from './sprite-key-migration.js';
@@ -624,15 +625,13 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     const autoVoices = manual.ttsGender ? { [charName]: { ttsGender: manual.ttsGender } } : {};
     const auto = resolveTtsVoice({ textType: 'dialogue', speaker: charName }, tts, { ...sceneAssets, characterVoices: autoVoices }, systemVoices);
     const autoName = auto.undecided ? '性别未定' : auto.voice ? auto.voice.replace(/^Microsoft\s+/i, '') : '默认声音';
-    const options = tts.provider === 'system' ? systemVoiceOptions(systemVoices, { all: tts.allVoices }) : ttsApiVoiceOptions(tts);
+    const groups = tts.provider === 'system' ? [{ label: '', items: systemVoiceOptions(systemVoices, { all: tts.allVoices }) }] : ttsApiVoiceGroups(tts);
     const name = esc(charName);
     // 已保存的是 voiceURI 时按它对应的声音名显示。
     const voiceSelect = (field, saved, first, label) => {
         const found = tts.provider === 'system' ? findSystemVoice(systemVoices, saved) : null;
         const savedId = found ? found.name : saved;
-        const items = [['', first], ...options];
-        if (saved && !options.some(([id]) => id === savedId)) items.push([saved, `${saved}（不可用）`]);
-        const opts = items.map(([id, text]) => `<option value="${esc(id)}"${id === savedId ? ' selected' : ''}>${esc(text)}</option>`).join('');
+        const opts = renderTtsVoiceOptions(groups, savedId, { leading: [['', first]], missingNote: '不可用' });
         return `<select class="igs-asset-move" data-char-voice-${field}="${name}" aria-label="${label}">${opts}</select>`;
     };
     const preview = (action) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}:${encSeg(charName)}">试听</button>`;

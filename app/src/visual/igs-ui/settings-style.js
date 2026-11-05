@@ -183,6 +183,9 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-tts-inline-control>select{flex:1 1 auto;min-width:0}
 .igs-tts-inline-control>.igs-table-pick{flex:0 0 auto}
 .igs-tts-pool{display:flex;flex-wrap:wrap;gap:6px;max-height:168px;overflow-y:auto}
+.igs-tts-pool-groups{display:flex;flex-direction:column;max-height:240px;overflow-y:auto}
+.igs-tts-pool-groups .igs-tts-pool{max-height:none;overflow:visible}
+.igs-tts-pool-groups>.igs-asset-folder{flex-shrink:0}
 .igs-wi-entries{display:flex;flex-direction:column;gap:4px;min-width:0;max-height:240px;overflow-y:auto}
 .igs-wi-entries>.igs-table-pick{width:100%;flex:0 0 auto;justify-content:flex-start;text-align:left}
 .igs-card-skin-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:-6px}
