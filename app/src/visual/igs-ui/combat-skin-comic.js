@@ -4,7 +4,7 @@ import { esc } from './reader-value-utils.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, handLayout, handVars, needsHold, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, handLayout, handVars, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_COMIC_CONCEPT_CSS } from './combat-skin-comic-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -179,7 +179,7 @@ export function comicBattleHtml(v, orient) {
         + ` aria-label="${esc(`道具 ${i.name} 剩余 ${i.count} 个 ${i.text}，不消耗能量，每回合一次`)}" title="${esc(`${i.name} ×${i.count}：${i.text}`)}">${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" decoding="async">` : ICON.potion}<b>${esc(i.name)}</b><i>×${esc(i.count)}</i></button>`).join('')}</div>`;
     const endBtn = choice
         ? `<button type="button" class="end" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}><b>${esc(CHOICE_VERB[choice.kind] || '选择')} ${picks.length}/${esc(choice.count)}</b></button>`
-        : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}><b>结束回合</b></button>`;
+        : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}><b>结束回合</b></button>`;
     const hand = `<div class="hand cx-hand${selIdx >= 0 ? ' has-sel' : ''}" style="${handVars(H)}${land ? `;width:${handBox}px` : ''}">${b.hand.map((c, i) => cardHtml(c, i, pos, v, picks, b.energy)).join('')}</div>`;
     const piles = `<div class="piles"><span class="pl dr"><em>抽牌 </em><b>${esc(b.piles.draw)}</b></span><i></i><span class="pl dc"><em>弃牌 </em><b>${esc(b.piles.discard)}</b></span></div>`;
     const ops = ended ? '' : `${pending}${energy}${skills}${endBtn}${hand}${itemBtn}${tray}${piles}`;

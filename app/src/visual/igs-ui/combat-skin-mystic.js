@@ -4,7 +4,7 @@ import { esc } from './reader-value-utils.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_MYSTIC_CONCEPT_CSS } from './combat-skin-mystic-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -204,7 +204,7 @@ export function battleHtml(v, orient) {
         + ` aria-label="${esc(`道具 ${i.name} 剩余 ${i.count} 个 ${i.text}，不消耗能量，每回合一次`)}" title="${esc(`${i.name} ×${i.count}：${i.text}`)}">${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" decoding="async">` : ICON.bag}<span class="sn">${esc(i.name)}</span><i class="sx">×${esc(i.count)}</i></button>`).join('')}</div></div>`;
     const end = choice
         ? `<button type="button" class="end" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}>${CLOCK}<b>${esc(CHOICE_VERB[choice.kind] || '选择')}<br>${picks.length}/${esc(choice.count)}</b></button>`
-        : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}>${CLOCK}<b>结束<br>回合</b></button>`;
+        : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}>${CLOCK}<b>结束<br>回合</b></button>`;
     const hand = `<div class="hand cx-hand${selIdx >= 0 ? ' has-sel' : ''}">${b.hand.map((c, i) => cardHtml(c, i, fan[i], v, picks, b.energy)).join('')}</div>`;
     const pileSt = (k, label, n) => `<div class="pdk ${k}" role="img" aria-label="${label} ${esc(n)}"><small>${label}</small><b>${esc(n)}</b></div>`;
     const piles = pileSt('draw', '抽牌', b.piles.draw) + pileSt('disc', '弃牌', b.piles.discard);

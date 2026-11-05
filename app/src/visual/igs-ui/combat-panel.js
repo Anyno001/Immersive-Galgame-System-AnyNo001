@@ -2034,8 +2034,6 @@ export function createCombatPanelController(doc, options = {}) {
         event.stopPropagation?.();
         // 拖牌松手后浏览器补发的 click 不当作点选。
         if (dragClickUntil && Date.now() < dragClickUntil) { dragClickUntil = 0; event.preventDefault?.(); return; }
-        // 按住确认的结束回合：指针点击由按住流程处理，键盘（detail 为 0）照常一按即结束。
-        if (event.detail && event.target?.closest?.(HOLD_SEL)) { event.preventDefault?.(); return; }
         // 牌面上带加成 / 减益的数字：弹出（再点收起）加成详情，不选中、不打出这张牌；点面板其他地方先收起详情。
         const tipAnchor = event.target?.closest?.('[data-scale-tip]');
         if (tipAnchor && root?.contains?.(tipAnchor)) {
@@ -2108,32 +2106,6 @@ export function createCombatPanelController(doc, options = {}) {
     // 按 data-trait 找主动特性圆球（影子圆球去掉了交互属性，但保留 data-trait，只在 .igs-combat-trait-ring 里找）。
     const orbEl = (traitId) => [...(root?.querySelectorAll?.('.igs-combat-trait-ring .igs-combat-trait, .cx-trait[data-trait]') || [])].find((n) => n.getAttribute?.('data-trait') === traitId) || null;
     const dragEl = (d) => (d.skill ? orbEl(d.trait) : cardEl(d.inst));
-    // 结束回合按住确认（设计稿 0.4s）：皮肤在还有能量和可出的牌时给按钮加 data-hold，按住期间写 --hold（0→1）供样式画进度，满了才结束回合，中途松手撤销。
-    const HOLD_SEL = '[data-combat-act="end-turn"][data-hold]';
-    const HOLD_MS = 400;
-    let hold = null;
-    function stopHold() {
-        if (!hold) return;
-        hold.win?.cancelAnimationFrame?.(hold.raf);
-        hold.el.style?.setProperty?.('--hold', '0');
-        hold = null;
-    }
-    function startHold(el, event) {
-        stopHold();
-        const win = doc.defaultView;
-        if (typeof win?.requestAnimationFrame !== 'function') return;
-        hold = { el, id: event.pointerId, win, t0: win.performance?.now?.() ?? Date.now(), raf: 0 };
-        const tick = (now) => {
-            if (!hold || hold.el !== el) return;
-            const p = Math.min(1, (now - hold.t0) / HOLD_MS);
-            el.style?.setProperty?.('--hold', p.toFixed(3));
-            if (p < 1) { hold.raf = win.requestAnimationFrame(tick); return; }
-            hold = null;
-            invoke('end-turn', '');
-        };
-        hold.raf = win.requestAnimationFrame(tick);
-    }
-
     // iOS Safari 兜底：拖牌期间阻止触摸滚动（passive:false 才能 preventDefault）。
     function onTouchMove(event) {
         if (drag && !drag.dead && event.cancelable) event.preventDefault();
@@ -2141,8 +2113,6 @@ export function createCombatPanelController(doc, options = {}) {
 
     function onPointerDown(event) {
         dragClickUntil = 0;
-        const holdEl = event.isPrimary === false || (event.button ?? 0) !== 0 ? null : event.target?.closest?.(HOLD_SEL);
-        if (holdEl && root?.contains?.(holdEl) && holdEl.getAttribute('aria-disabled') !== 'true') { startHold(holdEl, event); return; }
         if (drag || event.isPrimary === false || (event.button ?? 0) !== 0) return;
         const el = event.target?.closest?.(DRAG_SOURCES);
         if (!el || !root?.contains?.(el)) return;
@@ -2224,7 +2194,6 @@ export function createCombatPanelController(doc, options = {}) {
     }
 
     function onPointerUp(event) {
-        if (hold && event.pointerId === hold.id) stopHold();
         if (!drag || event.pointerId !== drag.id) return;
         const live = drag;
         if (!live.live && !live.dead) { drag = null; return; }
@@ -2247,7 +2216,6 @@ export function createCombatPanelController(doc, options = {}) {
     }
 
     function onPointerCancel(event) {
-        if (hold && event.pointerId === hold.id) stopHold();
         if (!drag || event.pointerId !== drag.id) return;
         const { live, sel } = drag;
         endDrag();

@@ -3,7 +3,7 @@
 import { esc } from './reader-value-utils.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_TECH_CONCEPT_CSS } from './combat-skin-tech-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -209,7 +209,7 @@ export function battleHtml(v, orient) {
     const ring = `<svg class="hr" viewBox="0 0 ${E.w} ${E.h}" aria-hidden="true"><path class="t" pathLength="100" d="${rd}"/><path class="p" pathLength="100" d="${rd}"/></svg>`;
     const endBtn = choice
         ? `<button type="button" class="end" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}>${ring}<b>${esc(CHOICE_VERB[choice.kind] || '选择')} ${picks.length}/${esc(choice.count)}</b></button>`
-        : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}>${ring}<b>结束回合</b></button>`;
+        : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}>${ring}<b>结束回合</b></button>`;
     const handStyle = `--cw:${H.cw}px;--ch:${110 * H.z}px;--sw:${124 * H.zs}px;--sh:${184 * H.zs}px;--lift:${H.lift}px${land ? `;width:${handBox}px` : ''}`;
     const hand = `<div class="hand cx-hand${selIdx >= 0 ? ' has-sel' : ''}" style="${handStyle}">${b.hand.map((c, i) => cardHtml(c, i, pos, v, picks, b.energy)).join('')}</div>`;
     const piles = `<div class="piles"><span class="pl dr"><em>抽牌 </em><b>${esc(b.piles.draw)}</b></span><i></i><span class="pl dc"><em>弃牌 </em><b>${esc(b.piles.discard)}</b></span></div>`;
