@@ -241,6 +241,16 @@ export const CARD_TEMPLATES = Object.freeze({
     whetstone: template('attack', '伤害；打出后本牌伤害永久提高', [[1, 30], [1, 3]], 0.7, ([a, b]) => [damage(a), evolve('damage', b)], { hero: false }),
     carapace: template('skill', '格挡；打出后本牌格挡永久提高', [[1, 30], [1, 3]], 0.7, ([a, b]) => [block(a), evolve('block', b)], { hero: false }),
     trophy: template('attack', '伤害；本牌击倒非爪牙敌人时最大生命永久提高', [[1, 30], [1, 5]], 0.8, ([a, b]) => [damage(a), bounty('hp-max', b)], { hero: false }),
+    // 规则 v5 P3 守护「壁垒」（rampart 族，只给守护）：D01–D08；状态结算见 mechanics/rampart.js。
+    barricade: template('power', '固守：格挡本场不再清空，并获得格挡（限史诗以上）', [[1, 1], [0, 30]], 1, ([a, b]) => [applyStatus('barricade', a, 'self'), block(b)], { minRarity: 'epic' }),
+    hunker: template('skill', '接下来数回合格挡不清空，并获得格挡', [[1, 3], [1, 20]], 0.5, ([a, b]) => [applyStatus('retain-block', a, 'self'), block(b)]),
+    redouble: template('skill', '本回合前几次获得格挡翻倍，并获得格挡', [[1, 2], [1, 20]], 0.5, ([a, b]) => [applyStatus('block-surge', a, 'self'), block(b)]),
+    'armor-plate': template('power', '甲层：回合结束获得等于层数的格挡；受到未格挡的攻击伤害时减 1 层', [[1, 10]], 1, ([a]) => [applyStatus('plated', a, 'self')]),
+    rebuke: template('skill', '反震：到自身下回合前，被格挡掉的攻击伤害反射给攻击者，并获得格挡', [[1, 1], [1, 20]], 0.4, ([a, b]) => [applyStatus('recoil', a, 'self'), block(b)]),
+    bramble: template('skill', '临时荆棘：到自身下回合前每次受击反伤，并获得格挡', [[1, 10], [1, 20]], 0.5, ([a, b]) => [applyStatus('bramble', a, 'self'), block(b)]),
+    juggernaut: template('power', '坚壁反击：每次获得格挡时对随机敌人造成伤害', [[1, 5]], 1, ([a]) => [applyStatus('juggernaut', a, 'self')]),
+    bodyguard: template('skill', '掩护：到自身下回合前，指向队友的单体攻击改由自己承受，并获得格挡', [[1, 1], [1, 20]], 0.3, ([a, b]) => [applyStatus('cover', a, 'self'), block(b)]),
+    phalanx: template('power', '共盾：自己获得格挡时，其余队友获得一半', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('share-block', a, 'self'), block(b)]),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -607,6 +617,8 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     cleave: ['sweep', 'scatter', 'thunder'],
     fortify: ['bulwark', 'counter', 'lure', 'xguard', 'plating', 'slam', 'entrench'],
     thorns: ['spikes', 'bastion'],
+    // 规则 v5 P3 守护壁垒，只给守护。
+    rampart: ['barricade', 'hunker', 'redouble', 'armor-plate', 'rebuke', 'bramble', 'juggernaut', 'bodyguard', 'phalanx'],
     ward: ['cover', 'rally', 'aegis', 'rally-draw', 'talisman'],
     restore: ['mend', 'regrow', 'reap'],
     volley: ['finisher', 'footwork', 'glance', 'chain', 'sift', 'encore', 'cull'],
@@ -621,7 +633,7 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
 export const ARCHETYPE_FAMILIES = Object.freeze({
     // pile（牌堆操作，规则 v5 P2b）与 general 一样所有职业可用。
     warrior: Object.freeze(['general', 'pile', 'fury', 'cleave', 'fortify', 'restore']),
-    guardian: Object.freeze(['general', 'pile', 'fortify', 'thorns', 'ward']),
+    guardian: Object.freeze(['general', 'pile', 'fortify', 'thorns', 'ward', 'rampart']),
     ranger: Object.freeze(['general', 'pile', 'cleave', 'volley']),
     assassin: Object.freeze(['general', 'pile', 'venom', 'shadow', 'volley']),
     mage: Object.freeze(['general', 'pile', 'cleave', 'hex', 'arcane', 'venom']),

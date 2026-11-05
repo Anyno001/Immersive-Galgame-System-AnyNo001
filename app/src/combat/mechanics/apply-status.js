@@ -17,6 +17,16 @@ export const APPLY_STATUSES = Object.freeze({
     dynamo: Object.freeze({ max: 2, value: 12 }),
     conserve: Object.freeze({ max: 1, value: 5 }),
     freeplay: Object.freeze({ max: 2, value: 14 }),
+    // 规则 v5 P3 守护（rampart.js）。
+    barricade: Object.freeze({ max: 1, value: 14 }),
+    'retain-block': Object.freeze({ max: 3, value: 4 }),
+    'block-surge': Object.freeze({ max: 2, value: 6 }),
+    plated: Object.freeze({ max: 10, value: 3 }),
+    recoil: Object.freeze({ max: 1, value: 6 }),
+    bramble: Object.freeze({ max: 10, value: 1 }),
+    juggernaut: Object.freeze({ max: 5, value: 4 }),
+    cover: Object.freeze({ max: 1, value: 4 }),
+    'share-block': Object.freeze({ max: 1, value: 10 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

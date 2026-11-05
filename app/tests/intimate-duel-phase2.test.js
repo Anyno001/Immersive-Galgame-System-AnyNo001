@@ -1080,3 +1080,120 @@ test('永久成长与击杀奖励模板：可反解、通用族、不作人物�
     const nested = { id: 'x', name: '牌', type: 'attack', cost: 1, rarity: 'common', effects: [{ op: 'damage', amount: 3, target: 'enemy' }, { op: 'conditional', when: { kind: 'hand-gte', value: 2 }, then: [{ op: 'evolve', stat: 'damage', amount: 1 }] }] };
     assert.equal(normalizeCard(nested).ok, false);
 });
+
+
+// ---------- 规则 v5 P3 守护「壁垒」（D01–D09） ----------
+const wallCard = (id, effects) => def(id, 'skill', effects, { innate: true });
+const wallStatus = (status, stacks) => ({ op: 'apply-status', status, stacks, target: 'self' });
+const wallBlock = (amount) => ({ op: 'block', amount, target: 'self' });
+const mateOf = (extra = {}) => ({
+    id: 'mate', name: '队友', side: 'ally', kind: 'skill', maxHp: 20,
+    skills: [{ id: 'rest', name: '歇', intent: 'heal', effects: [{ op: 'heal', amount: 1, target: 'self' }], weight: 1, cooldown: 0 }], ...extra,
+});
+const wall = (card, { foeSkill = foeAttack(6), mate, rulesVersion } = {}) => {
+    const units = [hero({}, { deck: [card.id, ...Array(9).fill('k')], catalog: { [card.id]: card, k: GUARD } }), ...(mate ? [mate] : []), foe(foeSkill)];
+    const created = createBattle({ controlledId: 'hero', canEscape: true, units, ...(rulesVersion ? { rulesVersion } : {}) }, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+const wallPlay = (card, options) => {
+    const s = wall(card, options);
+    return playIn(s, instOf(s, card.id));
+};
+
+test('固守（D01）：固守本场不清格挡；固守回合按层数保住格挡后照常清空；规则 v4 照常清空', () => {
+    const hold = wallCard('h', [wallStatus('barricade', 1), wallBlock(10)]);
+    let s = endTurn(wallPlay(hold, { foeSkill: {} }).state).state;
+    assert.equal(s.units.hero.block, 10);
+    s = endTurn(s).state;
+    assert.equal(s.units.hero.block, 10);
+    assert.equal(endTurn(wallPlay(hold, { foeSkill: {}, rulesVersion: 4 }).state).state.units.hero.block, 0);
+
+    const brace = wallCard('r', [wallStatus('retain-block', 2), wallBlock(10)]);
+    let t = endTurn(wallPlay(brace, { foeSkill: {} }).state).state;
+    assert.deepEqual([t.units.hero.block, t.units.hero.statuses['retain-block']], [10, 1]);
+    t = endTurn(t).state;
+    assert.deepEqual([t.units.hero.block, t.units.hero.statuses['retain-block']], [10, undefined]);
+    assert.equal(endTurn(t).state.units.hero.block, 0);
+});
+
+test('格挡倍增（D02）：本回合前两次获得格挡翻倍，第三次照常；回合结束清掉；已有格挡翻倍照旧；规则 v4 不翻', () => {
+    const surge = wallCard('s', [wallStatus('block-surge', 2), wallBlock(5), wallBlock(5), wallBlock(5)]);
+    const played = wallPlay(surge, { foeSkill: {} });
+    assert.equal(played.state.units.hero.block, 25);
+    assert.equal(played.events.filter((e) => e.type === 'block' && e.surge).length, 2);
+    assert.equal(wallPlay(surge, { foeSkill: {}, rulesVersion: 4 }).state.units.hero.block, 15);
+    const left = wallPlay(wallCard('o', [wallStatus('block-surge', 2), wallBlock(5)]), { foeSkill: {} }).state;
+    assert.equal(left.units.hero.statuses['block-surge'], 1);
+    assert.equal(endTurn(left).state.units.hero.statuses['block-surge'], undefined);
+    const doubled = wallCard('d', [wallBlock(5), { op: 'double', stat: 'block', target: 'self' }]);
+    assert.equal(wallPlay(doubled, { foeSkill: {} }).state.units.hero.block, 10);
+});
+
+test('甲层（D03）：回合结束获得等于层数的格挡；未挡住的攻击伤害减 1 层，完全挡住不减；规则 v4 无效', () => {
+    const plate = wallCard('p', [wallStatus('plated', 4)]);
+    const hard = endTurn(wallPlay(plate, { foeSkill: foeAttack(6) }).state).state;
+    assert.deepEqual([hard.units.hero.hp, hard.units.hero.statuses.plated], [28, 3]);
+    const soft = endTurn(wallPlay(plate, { foeSkill: foeAttack(3) }).state).state;
+    assert.deepEqual([soft.units.hero.hp, soft.units.hero.statuses.plated], [30, 4]);
+    assert.equal(endTurn(wallPlay(plate, { foeSkill: foeAttack(6), rulesVersion: 4 }).state).state.units.hero.hp, 24);
+});
+
+test('反震（D04）：被格挡掉的攻击伤害反射给攻击者，到自身下回合开始失效；规则 v4 不反射', () => {
+    const rebuke = wallCard('r', [wallStatus('recoil', 1), wallBlock(10)]);
+    const after = endTurn(wallPlay(rebuke).state).state;
+    assert.deepEqual([after.units.hero.hp, after.units.foe.hp, after.units.hero.statuses.recoil], [30, 24, undefined]);
+    assert.equal(endTurn(wallPlay(rebuke, { rulesVersion: 4 }).state).state.units.foe.hp, 30);
+});
+
+test('临时荆棘（D05）：到自身下回合开始前每次受击反伤等于层数，之后失效；规则 v4 不反伤', () => {
+    const twin = { intent: 'attack', effects: [{ op: 'damage', amount: 2, hits: 2, target: 'enemy' }] };
+    const card = wallCard('b', [wallStatus('bramble', 3)]);
+    const after = endTurn(wallPlay(card, { foeSkill: twin }).state).state;
+    assert.deepEqual([after.units.hero.hp, after.units.foe.hp, after.units.hero.statuses.bramble], [26, 24, undefined]);
+    assert.equal(endTurn(wallPlay(card, { foeSkill: twin, rulesVersion: 4 }).state).state.units.foe.hp, 30);
+});
+
+test('坚壁反击（D06）：每次获得格挡对随机敌人造成等于层数的伤害；规则 v4 不触发', () => {
+    const card = wallCard('j', [wallStatus('juggernaut', 3), wallBlock(5), wallBlock(5)]);
+    assert.equal(wallPlay(card, { foeSkill: foeAttack(1) }).state.units.foe.hp, 24);
+    assert.equal(wallPlay(card, { foeSkill: foeAttack(1), rulesVersion: 4 }).state.units.foe.hp, 30);
+});
+
+test('掩护（D07）：敌方指向队友的单体攻击改由掩护者承受；全体攻击不改；到自身下回合开始失效；规则 v4 不改', () => {
+    const card = wallCard('c', [wallStatus('cover', 1)]);
+    const covered = endTurn(wallPlay(card, { mate: mateOf() }).state);
+    assert.deepEqual([covered.state.units.hero.hp, covered.state.units.mate.hp], [24, 20]);
+    assert.ok(covered.events.some((e) => e.type === 'cover' && e.unitId === 'hero' && e.target === 'mate'));
+    assert.equal(covered.state.units.hero.statuses.cover, undefined);
+    const old = endTurn(wallPlay(card, { mate: mateOf(), rulesVersion: 4 }).state).state;
+    assert.deepEqual([old.units.hero.hp, old.units.mate.hp], [30, 14]);
+    const sweep = { intent: 'attack', effects: [{ op: 'damage', amount: 6, target: 'all-enemies' }] };
+    const area = endTurn(wallPlay(card, { mate: mateOf(), foeSkill: sweep }).state).state;
+    assert.deepEqual([area.units.hero.hp, area.units.mate.hp], [24, 14]);
+});
+
+test('共盾（D08）：获得格挡时其余队友获得一半（向下取整）；分出的格挡不再回分；规则 v4 不分', () => {
+    const card = wallCard('f', [wallStatus('share-block', 1), wallBlock(11)]);
+    const shared = wallPlay(card, { mate: mateOf() }).state;
+    assert.deepEqual([shared.units.hero.block, shared.units.mate.block], [11, 5]);
+    const mutual = mateOf({ passives: [{ id: 'p-share', trigger: 'battle-start', effects: [wallStatus('share-block', 1)] }] });
+    const both = wallPlay(card, { mate: mutual }).state;
+    assert.deepEqual([both.units.hero.block, both.units.mate.block], [11, 5]);
+    assert.equal(wallPlay(card, { mate: mateOf(), rulesVersion: 4 }).state.units.mate.block, 0);
+});
+
+test('守护壁垒模板（D01–D09）：可反解、只给守护；固守限史诗以上；牌面写明状态名；延迟反击 lure 守护可用', () => {
+    for (const key of ['barricade', 'hunker', 'redouble', 'armor-plate', 'rebuke', 'bramble', 'juggernaut', 'bodyguard', 'phalanx']) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'rampart');
+        assert.equal(templateAllowedFor(key, 'guardian'), true, key);
+        for (const other of ['warrior', 'priest', 'summoner']) assert.equal(templateAllowedFor(key, other), false, `${key}:${other}`);
+    }
+    for (const rarity of ['common', 'uncommon', 'rare']) for (const cost of [0, 1, 2, 3]) assert.equal(solveCardTemplate('barricade', cost, rarity), null, `${rarity}:${cost}`);
+    assert.ok(describeEffects([wallStatus('plated', 4)]).includes('甲层'));
+    assert.equal(templateAllowedFor('lure', 'guardian'), true);
+});

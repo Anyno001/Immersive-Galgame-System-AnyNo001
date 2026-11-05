@@ -10,3 +10,4 @@ import './pile.js';
 import './energy.js';
 import './status-cards.js';
 import './battle-growth.js';
+import './rampart.js';

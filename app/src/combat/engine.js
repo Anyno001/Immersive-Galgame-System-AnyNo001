@@ -500,6 +500,16 @@ function heal(ctx, target, amount, source) {
     emit(ctx, { type: 'heal', source, target: target.id, amount: healed });
 }
 
+// 获得格挡：加到目标并发 block 事件（数值为 0 也发，与 v3/v4 事件流一致），再触发「获得格挡」总线。
+// 规则 v5 在两者之间走 block-gained 钩子；extra 同时写进事件与钩子（如共盾分出的格挡带 shared: true）。
+function gainBlock(ctx, target, amount, source, extra = {}) {
+    target.block += amount;
+    emit(ctx, { type: 'block', source, target: target.id, amount, ...extra });
+    if (amount <= 0) return;
+    runHooks(ctx, 'block-gained', { target, amount, source, ...extra });
+    fireBus(ctx, target, 'block-gain', null);
+}
+
 // 血量低于阈值时触发一次性的低血被动，并依次进入满足条件的阶段。
 function checkHpThresholds(ctx, unit) {
     if (!unit.lowHpTriggered && unit.hp < unit.maxHp * LOW_HP_RATIO) {
@@ -579,7 +589,7 @@ function resOf(ctx, unit) {
     return unit.res;
 }
 const engineKit = (targets) => ({
-    emit, dealDamage, addStatus, setStatus, heal, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, targets,
+    emit, dealDamage, addStatus, setStatus, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, targets,
     // 规则 v5 牌堆操作用：弃牌、消耗、临时牌、写时复制、选牌（choose 时消费玩家选择或按策略选）、牌面视图与效果估值。
     discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
 });
@@ -593,12 +603,7 @@ function applyEffect(ctx, unit, effect, aimId, source) {
             strike(ctx, unit, effect, aimId, source);
             return;
         case 'block':
-            for (const target of targets()) {
-                const amount = computeBlock(unit, effect.amount, target, state.rulesVersion);
-                target.block += amount;
-                emit(ctx, { type: 'block', source, target: target.id, amount });
-                if (amount > 0) fireBus(ctx, target, 'block-gain', null);
-            }
+            for (const target of targets()) gainBlock(ctx, target, computeBlock(unit, effect.amount, target, state.rulesVersion), source);
             return;
         case 'heal':
             for (const target of targets()) heal(ctx, target, effect.amount, source);
@@ -656,10 +661,7 @@ function applyEffect(ctx, unit, effect, aimId, source) {
         case 'double':
             for (const target of targets()) {
                 if (effect.stat === 'block') {
-                    const gained = target.block;
-                    target.block += gained;
-                    emit(ctx, { type: 'block', source, target: target.id, amount: gained });
-                    if (gained > 0) fireBus(ctx, target, 'block-gain', null);
+                    gainBlock(ctx, target, target.block, source);
                 } else {
                     const stacks = target.statuses[effect.stat] || 0;
                     if (stacks <= 0) continue;
@@ -752,13 +754,23 @@ function applyEffect(ctx, unit, effect, aimId, source) {
     }
 }
 
+// 规则 v5 D07 掩护：单体攻击每次选定存活目标后走 attack-target 钩子（payload { attacker, target }），
+// 机制可把 target 换成同阵营另一名存活单位；全体、随机目标与 v3/v4 战斗不经过钩子。
+function coverTargets(ctx, unit, spec, targets) {
+    if (!(ctx.state.rulesVersion >= 5) || spec !== 'enemy' || targets.length !== 1 || !targets[0].alive) return targets;
+    const aim = { attacker: unit, target: targets[0] };
+    runHooks(ctx, 'attack-target', aim);
+    const next = aim.target;
+    return next && next !== targets[0] && next.alive && next.side === targets[0].side ? [next] : targets;
+}
+
 // 攻击：按 hits 次数逐次选目标并结算伤害，荆棘反伤，最后触发受击被动。
 function strike(ctx, unit, effect, aimId, source) {
     const spec = targetSpec(effect);
     const hitUnits = [];
     const whipping = isWhipping(ctx.state, unit);
     for (let hit = 0; hit < (effect.hits || 1); hit += 1) {
-        const targets = resolveTargets(ctx, unit, spec, aimId, whipping);
+        const targets = coverTargets(ctx, unit, spec, resolveTargets(ctx, unit, spec, aimId, whipping));
         if (!targets.length) break;
         ctx.strikes = (ctx.strikes || 0) + 1;
         const strikeNo = ctx.strikes;

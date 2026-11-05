@@ -7,6 +7,10 @@ export const HOOK_POINTS = Object.freeze([
     'damage-before', 'damage-after', 'hp-loss-before', 'hp-loss-after', 'defeated',
     // 一次出手（出牌、技能单位出手、人物技能）结算完：{ unit, kind: 'card' | 'skill' | 'hero-skill', card?, skill?, effects }。
     'action-after',
+    // 获得格挡之后、「获得格挡」总线之前：{ target, amount, source, shared? }，可追加格挡并改写 amount 为本次合计。
+    'block-gained',
+    // 单体攻击每次选定存活目标后：{ attacker, target }，可把 target 换成同阵营另一名存活单位（D07 掩护）。
+    'attack-target',
 ]);
 // 伤害修正阶段：outgoing-add 在攻击力之后、outgoing-mult 紧随其后（均在虚弱之前），incoming-mult 在易伤之后。
 export const DAMAGE_STAGES = Object.freeze(['outgoing-add', 'outgoing-mult', 'incoming-mult']);
