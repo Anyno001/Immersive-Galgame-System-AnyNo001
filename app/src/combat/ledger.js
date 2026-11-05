@@ -951,6 +951,12 @@ function growthRecord(entry, state, levelBefore, index, heroId = null) {
     };
 }
 
+// 主角积分流水的原因（按记录类型）。
+const POINT_REASON = { loot: '战利品换取', sell: '出售', rebuild: '重塑牌组', respec: '转职', ascend: '进阶', trait: '抽特质', 'trait-pick': '选特质', 'trait-slot': '解锁特质槽' };
+// 主角积分流水挂在有效状态之外（不改状态的字段结构）：按状态对象存，读取用 heroPointLog(state)。
+const pointLogs = new WeakMap();
+const NO_POINT_LOG = Object.freeze([]);
+export const heroPointLog = (state) => (state && pointLogs.get(state)) || NO_POINT_LOG;
 export function computeEffectiveState(snapshot, chat, options = {}) {
     if (!snapshot || snapshot.ok !== true) return snapshot?.ok === false ? snapshot : { ok: false, reason: 'combat-ledger-read-failed' };
     const diagnostics = [...snapshot.diagnostics];
@@ -961,6 +967,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     for (const profile of index.characters.values()) states.set(profile.id, createCharacterState(index, profile, diagnostics));
     const unassignedExp = new Map();   // 档案里没有的角色累计的经验（主角未建档时用）
     const applied = [];
+    const pointLog = [];               // 主角积分进出流水 [{ floor, delta, reason, type, id }]，只读
     const inactive = [];
     const growth = [];
     const seenTags = new Set();
@@ -1001,8 +1008,12 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         }
         const state = states.get(characterId);
         const levelBefore = expProgress(state.exp).level;
+        const pointsBefore = state.points || 0;
         const failure = handlers[entry.type](state, entry.payload, { index, entry, diagnostics, offers, loots, heroId, heroStock });
         if (failure) { pushDiagnostic(diagnostics, failure, entry); continue; }
+        if (heroId && characterId === heroId && (state.points || 0) !== pointsBefore) {
+            pointLog.push({ floor: entry.anchor.messageId, delta: (state.points || 0) - pointsBefore, reason: POINT_REASON[entry.type] || entry.type, type: entry.type, id: entry.id });
+        }
         applied.push(entry.id);
         if (entry.type === 'exp') unlockSignatures(state, levelBefore, entry.anchor);
         if (GROWTH_TYPES.has(entry.type)) growth.push(growthRecord(entry, state, levelBefore, index, heroId));
@@ -1019,11 +1030,13 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         heroId, attributeContext, ...(heroStock ? { heroInventory: options.heroInventory } : {}),
     })]));
     const attributes = { table: attributeContext.table, heroId, heroLevel: attributeContext.heroLevel, fold: folded.fold, inactive: folded.inactive };
-    return {
+    const result = {
         ok: true, characters, classes: index.classes, enemies: index.enemies,
         profileMeta: new Map([...snapshot.profiles].map(([id, meta]) => [id, { version: meta.version, createdAt: meta.createdAt }])),
         unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty, looseVitals,
     };
+    pointLogs.set(result, pointLog);
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1457,7 +1470,7 @@ const PANEL_ACTION_TAGS = Object.freeze({
 });
 
 // 主角面板操作（改建卡组、转职、晋升、抽特质、选特质、解锁特质槽）。只有主角的卡组角色能做，点数要够。
-// wallet：数值侧金钱余额，与战斗积分合并成一个钱包（战斗净流水可为负，余额判断只在这里做）。
+// wallet：随身系统的原始积分，与战斗积分合并成一个余额（战斗净流水可为负，余额判断只在这里做）。
 export function buildHeroPanelEntry(snapshot, chat, effective, characterId, action, payload, now = 0, wallet = 0) {
     if (!snapshot || snapshot.ok !== true) return snapshotFailure(snapshot);
     if (!Object.hasOwn(PANEL_ACTION_TAGS, action)) return { ok: false, reason: 'combat-entry-invalid' };
@@ -1534,7 +1547,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     const getChat = () => (typeof chat === 'function' ? chat() : chat) || [];
     const getUserName = () => (typeof userName === 'function' ? userName() : userName);
     const getSourceFilter = () => (typeof sourceFilter === 'function' ? sourceFilter() : sourceFilter);
-    // 数值侧金钱（同步取值，取不到按 0）；只用于 effectiveState() 的主角余额与主角面板写口的预检。
+    // 随身系统原始积分（同步取值，取不到按 0）；只用于 effectiveState() 的主角余额与主角面板写口的预检。
     const getWallet = () => { try { return Number(typeof wallet === 'function' ? wallet() : wallet) || 0; } catch { return 0; } };
     const getHealScale = () => difficultyRule(typeof difficulty === 'function' ? difficulty() : difficulty).healScale;
     const stats = { tableReads: 0, snapshotHits: 0, stateComputes: 0, stateHits: 0 };
@@ -1615,7 +1628,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return readSnapshot();
     }
 
-    // 主角的 points 并入数值侧金钱（合并余额）；换新对象不改共享的记忆化状态，同一状态与同一金额返回同一对象。
+    // 主角的 points 并入随身系统原始积分（合并余额）；换新对象不改共享的记忆化状态，同一状态与同一金额返回同一对象。
     const walletViews = new WeakMap();
     function withWallet(state) {
         const extra = getWallet();
@@ -1630,7 +1643,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return view;
     }
 
-    // raw：只要战斗侧自己的流水（缓存用，避免把会变的数值侧金钱缓存进去）。
+    // raw：只要战斗侧自己的流水（缓存用，避免把会变的随身系统积分缓存进去）。
     async function effectiveState({ raw = false } = {}) {
         const snapshot = await readSnapshot();
         if (!snapshot.ok) return computeEffectiveState(snapshot, []);

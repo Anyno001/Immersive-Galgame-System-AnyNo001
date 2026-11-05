@@ -196,7 +196,8 @@ function hudThemeRules(skin, theme) {
     const hud = `#igs-overlay[data-igs-dialog-skin="${skin}"] #igs-status-hud`;
     const panel = `${hud}.igs-hud-bg-dialog`;
     const rules = [
-        `${hud}{--igs-hud-fill-neutral:${theme.neutral};}`,
+        // vars：主题自带的条色板（--igs-hud-bar-*），不写则沿用默认色。
+        `${hud}{--igs-hud-fill-neutral:${theme.neutral};${theme.vars || ''}}`,
         `${panel}{${theme.panel}}`,
         `${hud} .igs-hud-emotion{line-height:1.6;${theme.emotion}}`,
         `${hud} .igs-hud-avatar{${theme.avatar}}`,

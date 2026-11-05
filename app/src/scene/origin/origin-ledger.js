@@ -32,8 +32,15 @@ export function makeEntry(block, prose, seed) {
     const fp = hash53(String(prose || '').trim());
     return { seed, block: b, ops, facts, fp, h: hash53(JSON.stringify([b, ops, facts, seed])) };
 }
-export function setEntry(ledger, messageId, swipeId, entry) {
+// extra：记账当时的战斗侧原始积分快照。同一楼同一 swipe 重算时沿用旧快照，不覆盖；旧档没有时由回放退回当前值。
+// snap：{ extra, scale }，scale 为记账当时的体系倍数（D&D 5 / 其余 1）；两项各自沿用旧值。
+export function setEntry(ledger, messageId, swipeId, entry, snap) {
     const e = { messageId, swipeId: Number(swipeId) || 0, ...entry };
+    const prev = ledger.entries.get(floorKey(ledger.chatId, e.messageId, e.swipeId));
+    for (const k of ['extra', 'scale']) {
+        const keep = prev && Number.isFinite(prev[k]) ? prev[k] : (snap && Number.isFinite(snap[k]) ? snap[k] : undefined);
+        if (keep !== undefined) e[k] = keep; else delete e[k];
+    }
     ledger.entries.set(floorKey(ledger.chatId, e.messageId, e.swipeId), e);
     ledger.rev += 1;
     return e;
@@ -43,8 +50,10 @@ export function getEntry(ledger, messageId, swipeId) {
 }
 
 // after：当时最后一楼的 id（-1 = 还没有任何楼）。boundTo：被哪一个用户楼的提示词带走（null = 还没发出去）。
-export function recordOp(ledger, op, after, seed) {
+export function recordOp(ledger, op, after, seed, snap) {
     const rec = { id: ledger.nextOpId, after, seed, boundTo: null, op };
+    if (snap && Number.isFinite(snap.extra)) rec.extra = snap.extra; // 记账当时的战斗侧原始积分快照
+    if (snap && Number.isFinite(snap.scale)) rec.scale = snap.scale; // 记账当时的体系倍数快照
     ledger.nextOpId += 1;
     ledger.ops.push(rec);
     ledger.rev += 1;
@@ -150,7 +159,11 @@ export function settingsKey(s) {
 
 // ---------- 回放 ----------
 // path：[{ id, kind:'ai'|'user'|'other', swipeId }]，当前聊天路径（每楼取当前选中的 swipe）。
-function buildSteps(ledger, path) {
+// 记账快照优先，没有快照（旧档）退回当前战斗份 s.extraPoints；签名只在非 0 时带上它，战斗份为 0 时与原签名一致。
+const extraOf = (snap, s) => (Number.isFinite(snap) ? snap : Number(s && s.extraPoints) || 0);
+const scaleOf = (snap, s) => (Number.isFinite(snap) ? snap : Number(s && s.ruleScale) || 1);
+const xTok = (x, k) => (x ? ':x' + x : '') + (k && k !== 1 ? ':k' + k : '');
+function buildSteps(ledger, path, s) {
     const steps = [];
     const base = ledger.base;
     const from = base ? base.floor : -1;
@@ -162,14 +175,14 @@ function buildSteps(ledger, path) {
         const list = byAfter.get(rec.after);
         if (list) list.push(rec); else byAfter.set(rec.after, [rec]);
     }
-    const push = (rec) => steps.push({ type: 'op', rec, turn, token: `o${rec.id}:${rec.after}` });
+    const push = (rec) => steps.push({ type: 'op', rec, turn, token: `o${rec.id}:${rec.after}${xTok(extraOf(rec.extra, s), scaleOf(rec.scale, s))}` });
     for (const rec of byAfter.get(-1) || []) push(rec);
     for (const it of path) {
         if (it.id <= from) continue;
         if (it.kind === 'ai') {
             turn += 1;
             const entry = getEntry(ledger, it.id, it.swipeId) || EMPTY_ENTRY;
-            steps.push({ type: 'floor', id: it.id, swipeId: it.swipeId, turn, entry, token: `f${it.id}:${it.swipeId}:${entry.h}` });
+            steps.push({ type: 'floor', id: it.id, swipeId: it.swipeId, turn, entry, token: `f${it.id}:${it.swipeId}:${entry.h}${xTok(extraOf(entry.extra, s), scaleOf(entry.scale, s))}` });
         }
         for (const rec of byAfter.get(it.id) || []) push(rec);
     }
@@ -192,7 +205,7 @@ function finish(st, cx, skipped) {
 
 function stepOnce(prev, step, s) {
     if (step.type === 'floor') {
-        const cx = createCx({ turn: step.turn, floor: step.id, s, random: seededRandom(step.entry.seed) });
+        const cx = createCx({ turn: step.turn, floor: step.id, s, extra: extraOf(step.entry.extra, s), scale: scaleOf(step.entry.scale, s), random: seededRandom(step.entry.seed) });
         const st = cloneForWrite(prev);
         applyFloor(st, step.entry, cx);
         checkExpiry(st, cx);
@@ -200,13 +213,13 @@ function stepOnce(prev, step, s) {
         return finish(st, cx);
     }
     const rec = step.rec;
-    const cx = createCx({ turn: step.turn, floor: rec.after >= 0 ? rec.after : null, s, random: seededRandom(rec.seed) });
+    const cx = createCx({ turn: step.turn, floor: rec.after >= 0 ? rec.after : null, s, extra: extraOf(rec.extra, s), scale: scaleOf(rec.scale, s), random: seededRandom(rec.seed) });
     const st = cloneForWrite(prev);
     const r = applyManual(st, rec.op, cx);
     if (r.ok) return finish(st, cx);
     // 当前版本里这条操作不成立：丢弃副本，只在记录里写一行；切回原 swipe 时它会重新成立。
     const st2 = cloneForWrite(prev);
-    const cx2 = createCx({ turn: step.turn, floor: cx.floor, s });
+    const cx2 = createCx({ turn: step.turn, floor: cx.floor, s, extra: cx.extra, scale: cx.scale });
     pushLog(st2, '操作已跳过：' + (r.text || r.reason), '⚠', cx2);
     return finish(st2, cx2, [{ opId: rec.id, reason: r.reason, text: r.text || '' }]);
 }
@@ -227,7 +240,7 @@ function saveCheckpoint(ledger, sig, turn, state) {
 
 // 回放当前路径。命中缓存的前缀直接复用，只算后面的。返回 { state, turn, lastAi, steps, results, skipped }。
 export function replay(ledger, path, s) {
-    const { steps, turn } = buildSteps(ledger, path);
+    const { steps, turn } = buildSteps(ledger, path, s);
     const start = rootOf(ledger);
     const baseSig = hash53(ORIGIN_CORE_VER + settingsKey(s) + start.json);
     const sigs = [];
@@ -275,6 +288,8 @@ export function pendingFor(rep, targetId) {
 export function serializeLedger(ledger, meta = {}) {
     const entries = [...ledger.entries.values()].map((e) => ({
         messageId: e.messageId, swipeId: e.swipeId, seed: e.seed, block: e.block, ops: e.ops, facts: e.facts, fp: e.fp,
+        ...(Number.isFinite(e.extra) ? { extra: e.extra } : {}),
+        ...(Number.isFinite(e.scale) ? { scale: e.scale } : {}),
     }));
     return {
         version: ORIGIN_SAVE_VERSION, core: ORIGIN_CORE_VER, chatId: ledger.chatId,
@@ -309,12 +324,14 @@ export function deserializeLedger(raw, chatId) {
     for (const e of raw.entries) {
         if (!validEntry(e)) { dropped.push(e && e.messageId); continue; }
         const entry = { seed: e.seed, block: e.block == null ? null : String(e.block), ops: e.ops, facts: e.facts, fp: e.fp };
+        if (isNum(e.extra)) entry.extra = e.extra; // 旧档没有该字段，回放时退回当前战斗份
+        if (isNum(e.scale)) entry.scale = e.scale; // 旧档没有倍数快照，回放时按当前体系
         entry.h = hash53(JSON.stringify([entry.block, entry.ops, entry.facts, entry.seed]));
         ledger.entries.set(floorKey(chatId, e.messageId, e.swipeId), { messageId: e.messageId, swipeId: e.swipeId, ...entry });
     }
     for (const o of raw.ops) {
         if (!validOp(o)) continue;
-        ledger.ops.push({ id: o.id, after: o.after, seed: isNum(o.seed) ? o.seed : 0, boundTo: Number.isInteger(o.boundTo) ? o.boundTo : null, op: o.op });
+        ledger.ops.push({ id: o.id, after: o.after, seed: isNum(o.seed) ? o.seed : 0, boundTo: Number.isInteger(o.boundTo) ? o.boundTo : null, op: o.op, ...(isNum(o.extra) ? { extra: o.extra } : {}), ...(isNum(o.scale) ? { scale: o.scale } : {}) });
     }
     ledger.nextOpId = Math.max(Number(raw.nextOpId) || 1, ...ledger.ops.map((o) => o.id + 1), 1);
     // 检查点的签名已含核心版本、设置、初始状态与整条路径前缀；版本不同时签名对不上，自然不命中。

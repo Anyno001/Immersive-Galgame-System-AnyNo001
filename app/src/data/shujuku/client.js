@@ -102,6 +102,17 @@ export function createShujukuClient(api) {
                 api.registerTableUpdateCallback(cb);
         },
 
+        // AI 开始填表的回调；旧版数据库插件没有这个接口时什么都不做。
+        registerFillStartCallback(cb) {
+            if (api && typeof api.registerTableFillStartCallback === 'function')
+                api.registerTableFillStartCallback(cb);
+        },
+
+        unregisterFillStartCallback(cb) {
+            if (api && typeof api.unregisterTableFillStartCallback === 'function')
+                api.unregisterTableFillStartCallback(cb);
+        },
+
         unregisterCallback(cb) {
             if (api && typeof api.unregisterTableUpdateCallback === 'function')
                 api.unregisterTableUpdateCallback(cb);

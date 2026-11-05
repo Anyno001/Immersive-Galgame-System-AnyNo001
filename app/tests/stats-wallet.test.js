@@ -191,7 +191,7 @@ function runtimeSetup({ combat = false, points = 0, bars } = {}) {
     return rt;
 }
 
-test('运行时：状态栏主角条只给主角；金钱为合并余额；战斗关闭时只有数值侧金钱且不读战斗积分', () => {
+test('运行时：状态栏主角条只给主角；金钱只算数值侧，不并入战斗积分（积分与金钱分开）', () => {
     const off = runtimeSetup({ combat: false, points: 500 });
     const lookup = off.protagonistLookup();
     assert.equal(lookup('小雪'), null);
@@ -202,7 +202,7 @@ test('运行时：状态栏主角条只给主角；金钱为合并余额；战�
     const on = runtimeSetup({ combat: true, points: 120 });
     const mine = on.protagonistLookup()('阿明');
     assert.deepEqual(mine.metrics.map((m) => m.label), ['生命', '体力', '压力', '金钱']);
-    assert.equal(mine.metrics.find((m) => m.label === '金钱').display, '120');
+    assert.equal(mine.metrics.find((m) => m.label === '金钱').display, '0');
     assert.equal(mine.metrics.find((m) => m.label === '生命').display, '7/10');
 });
 

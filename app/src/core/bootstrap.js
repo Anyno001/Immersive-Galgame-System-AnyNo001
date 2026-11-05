@@ -58,6 +58,8 @@ import { clearStatsRivals, registerStatsRivals } from '../visual/igs-ui/romance-
 import { normalizeStatsSettings } from '../scene/stats/stat-settings.js';
 import { createShujukuClient } from '../data/shujuku/client.js';
 import { parseTables } from '../data/shujuku/table-parser.js';
+import { buildRelationshipModel } from '../data/shujuku/record-model.js';
+import { buildFavorOverviewModel } from '../data/shujuku/favor-overview-model.js';
 import { collectOutfitClues } from '../data/shujuku/outfit-clues.js';
 import { describeStatMappings } from '../data/shujuku/stats-push.js';
 import { buildInitialState } from '../scene/stats/stat-build.js';
@@ -98,7 +100,7 @@ import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
-const IGS_VERSION = '0.39.32';
+const IGS_VERSION = '0.39.33';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -430,8 +432,9 @@ export function bootstrapIGS(options = {}) {
         getSourceFilter: () => readImageBridge().sourceFilter,
         getChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
         getUserName: () => (typeof illustrationMessageHost.getUserName === 'function' ? illustrationMessageHost.getUserName() : ''),
-        // 战斗积分与数值侧金钱合并成一个钱包：主角余额里并入数值侧金钱（statsRuntime 在战斗服务之后创建，按需读取）。
-        getWallet: () => (app.statsRuntime && typeof app.statsRuntime.walletMoney === 'function' ? app.statsRuntime.walletMoney() : 0),
+        // 积分与金钱分开计算（2026-11-05 用户定）：战斗积分不并入数值侧金钱。
+        // wallet 接随身系统的原始积分：主角积分余额 = 战斗流水 + 随身系统流水，花费按合计判断；这里只读对方原始值，不读合并视图。
+        getWallet: () => (app.originRuntime && typeof app.originRuntime.rawPoints === 'function' ? app.originRuntime.rawPoints() : 0),
         readLore: (name) => (typeof illustrationMessageHost.readCharacterLore === 'function'
             ? illustrationMessageHost.readCharacterLore(name, { includeWorldInfo: false }) : []),
         readGenerationMaterials: createCombatGenerationMaterials(globalObject),
@@ -864,6 +867,8 @@ export function bootstrapIGS(options = {}) {
     });
     const statsRuntime = createStatsRuntime({
         getContext: resolveTavernContext,
+        // 随身系统的属性加成（原始值，只读）；originRuntime 在其后创建，这里取用时再读。
+        originStats: () => (app.originRuntime && typeof app.originRuntime.rawStats === 'function' ? app.originRuntime.rawStats() : null),
         worldRoles: statsWorldRoles,
         readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats,
         getPushClient: () => (globalObject.AutoCardUpdaterAPI ? createShujukuClient(globalObject.AutoCardUpdaterAPI) : null),
@@ -877,6 +882,14 @@ export function bootstrapIGS(options = {}) {
             return (prompt) => secondaryLlm.request({ system: prompt.system, user: prompt.user }, llm);
         },
         describePeople: describeStatsPeople,
+        // 人际关系页与好感总览两处表格里的人物名单（只取名字，数值以 IGS 为准）。
+        tablePeople: () => {
+            if (!globalObject.AutoCardUpdaterAPI) return [];
+            const read = createShujukuClient(globalObject.AutoCardUpdaterAPI).readTables();
+            if (!read || read.ok === false) return [];
+            const hudTables = ((getUnifiedSettingsSnapshot() || {}).readerSettings || {}).statusHud?.tables;
+            return [...new Set([...buildRelationshipModel(read).people, ...buildFavorOverviewModel(read, hudTables).people].map((p) => p.name))];
+        },
         // 卡牌战斗桥接：生命与六维取自战斗表，数值表读写走战斗的缓存客户端，检定提示词与队伍状态合并下发。
         combatSource: () => (typeof combatServices.lifeSource === 'function' ? combatServices.lifeSource() : null),
         statsTables: () => (typeof combatServices.statsTables === 'function' ? combatServices.statsTables() : null),
@@ -941,6 +954,17 @@ export function bootstrapIGS(options = {}) {
         notice: (level, text) => { const notice = app.igsUi && app.igsUi.showImageNotice; if (typeof notice === 'function') notice.call(app.igsUi, level, text); },
         openSettings: () => publicApi.openSettings({ tab: 'origin' }),
         legacyActive: () => originLegacyActive(globalObject),
+        // 战斗主角的原始积分（lifeSource 读的是 effectiveState({ raw: true })，不含 wallet）。
+        // 战斗关闭为 0；战斗开着但数据还没载入时返回 null（未知），随身系统记账时不写快照，免得把 0 固化进账本。
+        readCombatPoints: () => {
+            if (!combatExpansionEnabled((getUnifiedSettingsSnapshot() || {}).readerSettings)) return 0;
+            const src = typeof combatServices.lifeSource === 'function' ? combatServices.lifeSource() : null;
+            if (!src || src.ready !== true || typeof src.readPoints !== 'function') return null;
+            return src.readPoints();
+        },
+        // 当前数值体系（coc7 或 dnd5e）；数值系统没开按 CoC。
+        readRuleset: () => { const st = ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats; return st && st.enabled && st.ruleset === 'dnd5e' ? 'dnd5e' : 'coc7'; },
+        readCombatPointLog: () => { const src = typeof combatServices.lifeSource === 'function' ? combatServices.lifeSource() : null; return src && typeof src.readPointLog === 'function' ? src.readPointLog() : null; },
     });
     app.originRuntime = originRuntime;
     state.originSettingsOff = events.on('igs:legacy-settings-updated', () => originRuntime.sync());

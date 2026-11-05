@@ -3,7 +3,7 @@
 // host：getContext() / generate(kind, prompt) / saveMetadata() / settings() / saveSettings() / notify({kind,text})；可选 legacyActive()。
 // 状态共享只读：getState 返回冻结对象，修改一律走 dispatch（写时浅拷）。
 import {
-    ORIGIN_LEGACY_KEY, ORIGIN_META_KEY, cloneForWrite, createInitialState, deepFreeze, fillSettings, hash53, hostOf, isAiMsg, newSeed, seededRandom,
+    ORIGIN_LEGACY_KEY, ORIGIN_META_KEY, cloneForWrite, createInitialState, deepFreeze, fillSettings, hash53, hostOf, isAiMsg, newSeed, scaleOfRuleset, seededRandom, statFromPercent,
 } from './origin-state.js';
 import { pickTaskLine, parseGachaLines, parseRpChatLines, parseShopLines, splitBlock, splitReplyBlock } from './origin-parse.js';
 import { createCx, applyManual } from './origin-apply.js';
@@ -31,9 +31,15 @@ export function getSharedOriginEngine(host) {
         const enabledOf = (h) => { try { return Boolean(h.settings() && h.settings().enabled); } catch (e) { return false; } };
         const pick = () => hosts.find(enabledOf) || hosts[0] || null;
         const call = (name) => (...args) => { const h = pick(); return h && typeof h[name] === 'function' ? h[name](...args) : undefined; };
+        // 可选字段（战斗积分、战斗流水、体系）：被选中的 host 自己提供就用它的，否则按登记顺序取第一个提供了的 host。
+        const callOpt = (name) => (...args) => {
+            const h = pick();
+            const t = h && typeof h[name] === 'function' ? h : hosts.find((x) => typeof x[name] === 'function');
+            return t ? t[name](...args) : undefined;
+        };
         const proxy = {
             getContext: call('getContext'), settings: call('settings'), saveMetadata: call('saveMetadata'), saveSettings: call('saveSettings'),
-            generate: call('generate'), notify: call('notify'), legacyActive: call('legacyActive'),
+            generate: call('generate'), notify: call('notify'), legacyActive: call('legacyActive'), extraPoints: callOpt('extraPoints'), extraPointLog: callOpt('extraPointLog'), readRuleset: callOpt('readRuleset'),
             // 任何一方在跑自己的后台请求时都不注入。
             isBackground: () => hosts.some((h) => { try { return typeof h.isBackground === 'function' && h.isBackground(); } catch (e) { return false; } }),
         };
@@ -62,6 +68,37 @@ export function createOriginEngine(host) {
 
     const ctx = () => { try { return host.getContext(); } catch (e) { return null; } };
     const settings = () => fillSettings(host.settings());
+    // 战斗侧原始积分（只读，宿主注入；取不到按 0）。主角积分余额 = 本核心 st.points + 它。
+    // 宿主可返回 null 表示战斗数据还没载入（未知）：计算与显示按 0，记账时不写快照（见 snapNow）。
+    const extraRaw = () => { try { const v = typeof host.extraPoints === 'function' ? host.extraPoints() : 0; return v === null ? null : Number(v) || 0; } catch (e) { return null; } };
+    const extraPoints = () => extraRaw() || 0;
+    // 战斗侧主角积分流水 [{ floor, delta, reason }]（只读，宿主注入；没有为 null）。只用于展示，不进存档、不进回放。
+    const extraLog = () => { try { const l = typeof host.extraPointLog === 'function' ? host.extraPointLog() : null; return Array.isArray(l) && l.length ? l : null; } catch (e) { return null; } };
+    // 把战斗流水并进显示用记录：战斗行 mark 为「战斗」，按楼号与随身系统记录排在一起（同楼随身系统在前）；无楼号的记录沿用前一条的楼号。
+    const mergeLog = (own, combat) => {
+        if (!combat) return own;
+        const rows = combat.slice(-40).map((r) => ({ text: `${r.reason} ${r.delta > 0 ? '+' : ''}${r.delta}`, mark: '战斗', floor: r.floor, combat: true }));
+        let at = -1;
+        const base = (own || []).map((r) => { if (Number.isInteger(r.floor)) at = r.floor; return { r, f: at }; });
+        const all = base.concat(rows.map((r) => ({ r, f: r.floor }))).map((x, i) => ({ ...x, i }));
+        all.sort((a, b) => (a.f - b.f) || ((a.r.combat ? 1 : 0) - (b.r.combat ? 1 : 0)) || (a.i - b.i));
+        return all.map((x) => x.r);
+    };
+    // 回放、手动操作用的设置：带上战斗原始积分（进回放签名，变化时重算）；为 0 时与原设置一致。
+    // 当前体系（宿主可选提供 readRuleset()，返回 coc7 或 dnd5e）；没提供、数值系统没开或读不到按 CoC。
+    const ruleId = () => { try { return typeof host.readRuleset === 'function' && host.readRuleset() === 'dnd5e' ? 'dnd5e' : 'coc7'; } catch (e) { return 'coc7'; } };
+    // 同时带上体系 id 与倍数：倍数进回放签名，旧档没有倍数快照的记录按它重放。
+    const calcSettings = () => { const s = settings(); const x = extraPoints(); const id = ruleId(); return { ...s, ruleId: id, ruleScale: scaleOfRuleset(id), ...(x ? { extraPoints: x } : {}) }; };
+    // 记账时的快照：战斗侧原始积分与体系倍数。
+    // 战斗份未知时不带 extra：setEntry / recordOp 只收有限数，记录就没有快照，重放退回当时的当前值，之后可自愈。
+    const snapNow = () => { const x = extraRaw(); return { ...(x === null ? {} : { extra: x }), scale: scaleOfRuleset(ruleId()) }; };
+    // 展示用状态：积分换成合计（rawPoints 留本核心自己的原始值）；属性加成按当前体系显示（D&D 为属性点，CoC 为百分制）。
+    const shown = (st, x, k = 1) => {
+        if (!x && k === 1) return st;
+        const out = x ? { ...st, points: st.points + x, rawPoints: st.points } : { ...st };
+        if (k > 1) out.stats = (st.stats || []).map((r) => ({ ...r, val: statFromPercent(r.name, r.val, k) }));
+        return out;
+    };
     const idOf = (c) => {
         if (!c) return '';
         if (c.chatId) return String(c.chatId);
@@ -111,18 +148,42 @@ export function createOriginEngine(host) {
     }
     function compute(dropLast) {
         const c = ctx();
-        return replay(ledger, buildPath(c && c.chat, isAiMsg, dropLast), settings());
+        return replay(ledger, buildPath(c && c.chat, isAiMsg, dropLast), calcSettings());
     }
     function current() {
         ensure();
+        const x = extraPoints();
+        const xl = extraLog();
+        const k = scaleOfRuleset(ruleId());
+        if (cache && (cache.extra !== x || cache.xl !== xl || cache.k !== k)) cache = null;
         if (!cache) {
             const rep = compute(false);
-            const view = deepFreeze({ ...rep.state, world: meta.world, direction: meta.direction, turn: rep.turn, skipped: rep.skipped });
-            cache = { rep, view };
+            const shownSt = shown(rep.state, x, k);
+            const view = deepFreeze({ ...shownSt, ...(xl ? { log: mergeLog(shownSt.log, xl) } : {}), world: meta.world, direction: meta.direction, turn: rep.turn, skipped: rep.skipped });
+            cache = { rep, view, extra: x, xl, k };
         }
         return cache;
     }
     const getState = () => current().view;
+    // 本核心自己的属性加成 [{ name, val }]（只读，同一状态返回同一数组引用）；未启用、没存档、读档被拒时为空。只读自己的 st.stats，不读 IGS。
+    const EMPTY_STATS = Object.freeze([]);
+    const rawStats = () => {
+        try {
+            if (!settings().enabled) return EMPTY_STATS;
+            ensure();
+            if (blocked) return EMPTY_STATS;
+            return current().rep.state.stats || EMPTY_STATS;
+        } catch (e) { return EMPTY_STATS; }
+    };
+    // 本核心自己的原始积分（不含战斗侧）；未启用、没存档、读档被拒时为 0。供战斗侧当钱包读，不能读合计，否则两边互相叠加。
+    const rawPoints = () => {
+        try {
+            if (!settings().enabled) return 0;
+            ensure();
+            if (blocked) return 0;
+            return Number(current().rep.state.points) || 0;
+        } catch (e) { return 0; }
+    };
     function emit(type, extra) {
         cache = null;
         const st = getState();
@@ -187,7 +248,7 @@ export function createOriginEngine(host) {
         }
         const entry = makeEntry(block, prose, existing ? existing.seed : newSeed());
         if (existing && existing.h === entry.h) return { changed: false, entry: existing };
-        return { changed: true, entry: setEntry(ledger, idx, sw, entry) };
+        return { changed: true, entry: setEntry(ledger, idx, sw, entry, snapNow()) };
     }
 
     // ---------- 酒馆事件 ----------
@@ -211,8 +272,9 @@ export function createOriginEngine(host) {
             const path = buildPath(chat, isAiMsg, dropLast);
             const target = path.length ? path[path.length - 1].id : -1;
             if (bindPending(ledger, target)) persist();
-            const rep = replay(ledger, path, s);
-            const text = buildInjection({ st: rep.state, world: meta.world, direction: meta.direction, ...pendingFor(rep, target) }, s, rep.turn);
+            const cs = calcSettings();
+            const rep = replay(ledger, path, cs);
+            const text = buildInjection({ st: shown(rep.state, extraPoints(), cs.ruleScale), world: meta.world, direction: meta.direction, ...pendingFor(rep, target) }, { ...s, ruleId: cs.ruleId }, rep.turn);
             injectInto(ev.chat, text); // 永远放在提示词最后一条，输入不在此清空（治 D1）
         } catch (e) { try { console.error('[Origin] 注入失败', e); } catch (_) { /* */ } }
     }
@@ -373,10 +435,10 @@ export function createOriginEngine(host) {
         const chat = (ctx() || {}).chat || [];
         const after = chat.length - 1;
         const seed = newSeed();
-        const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: settings(), random: seededRandom(seed) });
+        const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: calcSettings(), extra: extraPoints(), scale: scaleOfRuleset(ruleId()), random: seededRandom(seed) });
         const r = applyManual(cloneForWrite(rep.state), op, cx);
         if (!r.ok) return { ok: false, reason: r.reason, text: r.text };
-        const rec = recordOp(ledger, op, after, seed);
+        const rec = recordOp(ledger, op, after, seed, snapNow());
         persist();
         emit('op', { opId: rec.id, op: op.type });
         const rep2 = current().rep;
@@ -448,7 +510,7 @@ export function createOriginEngine(host) {
         busyAt = Date.now();
         try { return await fn(); } finally { busyAt = 0; }
     }
-    const view = () => { const v = current().view; return { st: v, world: v.world, direction: v.direction, turn: v.turn, s: settings() }; };
+    const view = () => { const v = current().view; return { st: v, world: v.world, direction: v.direction, turn: v.turn, s: calcSettings() }; };
 
     function genTask() {
         return guarded(async () => {
@@ -540,7 +602,7 @@ export function createOriginEngine(host) {
                 const raw = Array.isArray(m.swipes) ? m.swipes[e.swipeId] : null;
                 if (raw == null) continue;
                 const sp = splitBlock(raw);
-                setEntry(ledger, i, e.swipeId, makeEntry(sp.block != null ? sp.block : e.block, sp.block != null ? sp.text : String(raw), e.seed));
+                setEntry(ledger, i, e.swipeId, makeEntry(sp.block != null ? sp.block : e.block, sp.block != null ? sp.text : String(raw), e.seed), snapNow());
             }
             settleAt(i);
         }
@@ -595,10 +657,10 @@ export function createOriginEngine(host) {
             const ids = new Set([cur, ...Object.keys(ob).map(Number).filter(Number.isInteger)]);
             for (const sw of ids) {
                 if (getEntry(ledger, i, sw)) continue;
-                if (sw === cur) { settleAt(i); if (ob[sw] != null && getEntry(ledger, i, sw) && getEntry(ledger, i, sw).block == null) setEntry(ledger, i, sw, makeEntry(ob[sw], splitBlock(m.mes).text, getEntry(ledger, i, sw).seed)); continue; }
+                if (sw === cur) { settleAt(i); if (ob[sw] != null && getEntry(ledger, i, sw) && getEntry(ledger, i, sw).block == null) setEntry(ledger, i, sw, makeEntry(ob[sw], splitBlock(m.mes).text, getEntry(ledger, i, sw).seed), snapNow()); continue; }
                 const raw = Array.isArray(m.swipes) ? String(m.swipes[sw] || '') : '';
                 const sp = splitBlock(raw);
-                setEntry(ledger, i, sw, makeEntry(ob[sw] != null ? ob[sw] : sp.block, sp.block != null ? sp.text : raw, newSeed()));
+                setEntry(ledger, i, sw, makeEntry(ob[sw] != null ? ob[sw] : sp.block, sp.block != null ? sp.text : raw, newSeed()), snapNow());
             }
         }
         ledger.legacyDone = true;
@@ -632,7 +694,7 @@ export function createOriginEngine(host) {
     }
 
     return {
-        getState, subscribe, dispatch, genTask, genShop, genGacha, sysChat, rpChatGen, rpChatCall,
+        getState, rawPoints, rawStats, subscribe, dispatch, genTask, genShop, genGacha, sysChat, rpChatGen, rpChatCall,
         recalcAll, importLegacy, legacyDetected, dismissLegacy, lastFloorStatus,
         start: sync, sync, stop: detach, reload: () => { load(); emit('load'); },
         isBlocked: () => blocked,

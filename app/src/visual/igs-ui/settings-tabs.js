@@ -498,6 +498,7 @@ const STATS_TEMPLATE = `
           <button class="igs-settings-action" data-action="stats-template-import" type="button">存为模板预设</button>
           <button class="igs-settings-action" data-action="stats-template-apply-chat" type="button">用于本聊天</button>
           <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板</button>
+          <button class="igs-settings-action" data-action="stats-table-migrate" type="button">迁移到新表结构</button>
         </div>
       </div>
       <div class="igs-source-filter">{{statsPromptFields}}</div>

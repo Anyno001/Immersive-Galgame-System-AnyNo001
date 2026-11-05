@@ -26,7 +26,7 @@ const EMPTY = Object.freeze({});
 const readerOf = (fn) => (typeof fn === 'function' ? fn : null);
 
 function buildEngine(catalog, settings, ruleset, readers) {
-    const { readAbilities = null, readVitals = null, userName = '' } = readers || {};
+    const { readAbilities = null, readVitals = null, readBonus = null, userName = '' } = readers || {};
     return {
         ruleset: getRuleset(ruleset),
         registry: createSkillRegistry(catalog),
@@ -37,6 +37,7 @@ function buildEngine(catalog, settings, ruleset, readers) {
         natural: true,
         readAbilities: readerOf(readAbilities),
         readVitals: readerOf(readVitals),
+        readBonus: readerOf(readBonus),
         userName: String(userName || ''),
     };
 }
@@ -63,7 +64,8 @@ export function engineFor(catalog, settings, ruleset, readers = {}) {
     const found = byKey.get(key);
     const readAbilities = readerOf(readers && readers.readAbilities);
     const readVitals = readerOf(readers && readers.readVitals);
-    if (found && found.readAbilities === readAbilities && found.readVitals === readVitals) return found;
+    const readBonus = readerOf(readers && readers.readBonus);
+    if (found && found.readAbilities === readAbilities && found.readVitals === readVitals && found.readBonus === readBonus) return found;
     const engine = buildEngine(cat, set, id, readers);
     byKey.set(key, engine);
     return engine;
@@ -108,6 +110,56 @@ export function heroSkillLevel(engine, owned, skill) {
     if (own > 0) return own;
     const base = Number(engine && engine.protagonistBase && engine.protagonistBase[skill]);
     return base > 0 ? base : null;
+}
+
+// 随身系统同名属性加成（百分制）：readers.readBonus() 返回 [{ name, val }] 或 null，只读。
+// 名字对应：旧六维名与别名先归一（健康→体质、观察→感知，CoC 下理智保留），再查技能注册表（含别名）；都对不上返回 null。
+function bonusKeyOf(engine, raw) {
+    const text = String(raw ?? '').trim();
+    if (!text) return null;
+    if (BASE_ATTRIBUTE_SET.has(text) || isSan(engine, text)) return text;
+    return normalizeAttribute(text) || engine.registry.resolve(text) || null;
+}
+export const heroBonusKey = bonusKeyOf;
+function bonusList(engine) {
+    if (!engine || !engine.readBonus) return null;
+    try {
+        const list = engine.readBonus();
+        return Array.isArray(list) && list.length ? list : null;
+    } catch {
+        return null;
+    }
+}
+// 主角某属性或技能的随身系统加成合计；没有为 0。
+export function heroBonusOf(engine, rawSkill) {
+    const list = bonusList(engine);
+    if (!list) return 0;
+    const want = bonusKeyOf(engine, rawSkill);
+    if (!want) return 0;
+    let sum = 0;
+    for (const item of list) if (bonusKeyOf(engine, item && item.name) === want) sum += Number(item.val) || 0;
+    return sum;
+}
+// 带加成的技能名（不含六维与理智）：这些技能即使 IGS 账本里没有，也要列出。
+export function heroBonusSkillNames(engine) {
+    const list = bonusList(engine);
+    const out = new Set();
+    if (!list) return out;
+    for (const item of list) {
+        const key = bonusKeyOf(engine, item && item.name);
+        if (key && !BASE_ATTRIBUTE_SET.has(key) && !isSan(engine, key) && (Number(item.val) || 0) !== 0) out.add(key);
+    }
+    return out;
+}
+// 把生效值减掉随身系统加成（用户在界面或表格里手改的是生效值，存回 IGS 的是不含加成的值）。
+export function withoutHeroBonus(engine, rawSkill, shown) {
+    const bonus = heroBonusOf(engine, rawSkill);
+    return bonus ? clamp(Math.round(Number(shown) - bonus), 1, 99) : shown;
+}
+// 六维叠加随身系统加成（没有加成时原样返回）。
+function withAttributeBonus(engine, attrs) {
+    if (!bonusList(engine)) return attrs;
+    return Object.fromEntries(Object.entries(attrs).map(([name, value]) => [name, Math.max(1, value + heroBonusOf(engine, name))]));
 }
 
 export function isProtagonist(actor) {
@@ -192,17 +244,21 @@ export function profileOf(engine, state, actor, rawSkill) {
     const entry = entryOf(engine, skill);
     const san = isSan(engine, skill);
     if (isProtagonist(actor)) {
-        const attrs = protagonistAttributes(engine, state);
+        // plain：IGS 自己的六维；attrs：叠加随身系统加成后的生效六维。seed、理智初值只用 plain，加成不进账本。
+        const plainAttrs = protagonistAttributes(engine, state);
+        const attrs = withAttributeBonus(engine, plainAttrs);
         const owned = state && state.protagonist && state.protagonist.skills[skill];
         const rank = rankOfGrowth(state && state.protagonist && state.protagonist.growth);
-        if (san) { const value = sanOf(attrs, owned, null); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
+        const bonus = heroBonusOf(engine, skill);
+        if (san) { const value = bonus ? Math.max(1, sanOf(plainAttrs, owned, null) + bonus) : sanOf(plainAttrs, owned, null); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
         if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };
         const level = heroSkillLevel(engine, owned, skill);
-        const value = level === null && owned ? 0 : level !== null ? level : baseValueOf(entry, attrs);
+        const own = level === null && owned ? 0 : level !== null ? level : baseValueOf(entry, attrs);
+        const value = bonus ? clamp(Math.round(own + bonus), 1, 99) : own;
         // seed：不含手改的值，未学技能首次成功时按它登记进账本（见 markGrowth）。
         const plain = heroSkillLevel({ ...engine, protagonistEdit: null }, owned, skill);
-        const seed = plain === null && owned ? 0 : plain !== null ? plain : baseValueOf(entry, attrs);
-        return { skill, kind: 'skill', value, seed, learned: Boolean(owned) || level !== null, attributeValue: attrs[entry.attribute], rank, entry };
+        const seed = plain === null && owned ? 0 : plain !== null ? plain : baseValueOf(entry, plainAttrs);
+        return { skill, kind: 'skill', value, seed, learned: Boolean(owned) || level !== null || bonus > 0, attributeValue: attrs[entry.attribute], rank, entry };
     }
     const sheet = engine.sheets[actor] || null;
     const attrs = npcAttributes(engine, sheet, actor);

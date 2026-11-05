@@ -78,8 +78,9 @@ try {
         await sleep(250);
         settled = await evaluate(`(() => {
             if (window.__stageCast) return window.__stageCast.ready === true;
-            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings,#igs-combat-panel,#igs-combat-deck-panel');
+            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings,#igs-combat-panel,#igs-combat-deck-panel,#igs-origin-page');
             if (panel?.id === 'igs-combat-deck-panel') return window.__preview?.deckFull?.isOpen?.() ? window.__preview.deckFull.view()?.status === 'ready' : true;
+            if (location.search.includes('bench=frame')) return window.__originFrameMs != null;
             if (!panel) return false;
             if (panel.id === 'igs-combat-panel') return window.__preview?.combatState?.ready === true && !window.__preview.combat.view()?.pending;
             if (panel.id !== 'igs-map-panel') return true;
@@ -246,6 +247,9 @@ try {
             short: panel?.classList?.contains('igs-rp-short') ?? null,
             overlayHidden: getComputedStyle(document.getElementById('igs-overlay')).display !== 'none',
             stats: window.__preview?.stats || null,
+            originOpenMs: window.__originOpenMs ?? null,
+            originBench: window.__originBench ?? null,
+            originFrameMs: window.__originFrameMs ?? null,
             overflowX: panel ? panel.scrollWidth > panel.clientWidth + 1 : null,
             overlayClass: document.getElementById('igs-overlay').className,
             fontSerif: document.fonts.check('16px "Source Han Serif CN"'),

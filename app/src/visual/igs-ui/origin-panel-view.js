@@ -41,18 +41,20 @@ function row(ui, key, { title, side = '', sub = '', desc = '', detail = '', ops 
         + '</div>';
 }
 
-// 页头只有两层：第一层「关闭 · 标题居中 · 设置 / ⋯」，第二层「积分 1240 · Lv.3 · 经验条」。二级页只有一层「返回 · 页名」。
+// 整页标题：主页显示系统名，二级页显示页名（返回键与标题由资料页外壳画）。
+export function originPageTitle(settings, page) {
+    const sub = page ? visibleOriginMenuPages(settings).find((p) => p.id === page) : null;
+    return sub ? sub.label : settings.sysName;
+}
+
+// 标题下一行「积分 1240 · Lv.3 · 经验条 · 设置 / ⋯」；二级页没有这一行。
 export function renderOriginHead(state, settings, ui) {
-    const sub = ui.page ? visibleOriginMenuPages(settings).find((p) => p.id === ui.page) : null;
-    if (sub) {
-        return `<div class="igs-or-head" data-or-drag="1">${hbtn('back', '返回', ui.icons.back)}<span class="igs-or-name">${esc(sub.label)}</span><span class="igs-or-hside"></span></div>`;
-    }
+    if (ui.page && visibleOriginMenuPages(settings).some((p) => p.id === ui.page)) return '';
     const expMax = num(state.expMax, 100) || 100;
-    return `<div class="igs-or-head" data-or-drag="1">${hbtn('close', '收起', ui.icons.close)}<span class="igs-or-name">${esc(settings.sysName)}</span>`
+    return `<div class="igs-or-stats" title="经验${num(state.exp)}/${expMax}"><span class="igs-or-stat-k">积分</span><b class="igs-or-stat-v">${num(state.points)}</b>`
+        + `<span class="igs-or-stat-lv">Lv.${num(state.level, 1)}</span>${bar(num(state.exp) / expMax * 100)}`
         + `<span class="igs-or-hside">${ui.canOpenSettings ? hbtn('settings', '设置', ui.icons.gear) : ''}${hbtn('menu', '更多', ui.icons.more, ` aria-haspopup="menu" aria-expanded="${ui.menuOpen ? 'true' : 'false'}"`)}</span></div>`
-        + (ui.menuOpen ? renderMenu(state, settings) : '')
-        + `<div class="igs-or-stats" title="经验${num(state.exp)}/${expMax}"><span class="igs-or-stat-k">积分</span><b class="igs-or-stat-v">${num(state.points)}</b>`
-        + `<span class="igs-or-stat-lv">Lv.${num(state.level, 1)}</span>${bar(num(state.exp) / expMax * 100)}</div>`;
+        + (ui.menuOpen ? renderMenu(state, settings) : '');
 }
 
 // ⋯ 菜单：三个二级页（模块关掉的不显示），其后是暂停 / 恢复与清空对话。
@@ -305,7 +307,6 @@ export function renderOriginFoot(tab, settings) {
     }
 }
 
-export function renderOriginEmpty(settings, icons) {
-    return `<div class="igs-or-head" data-or-drag="1">${hbtn('close', '收起', icons.close)}<span class="igs-or-name">${esc(settings.sysName)}</span><span class="igs-or-hside"></span></div>`
-        + empty('请先打开一个聊天');
+export function renderOriginEmpty() {
+    return empty('请先打开一个聊天');
 }

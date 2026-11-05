@@ -60,6 +60,8 @@ import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/vi
 import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
+import { createOriginPageController } from '../../src/visual/igs-ui/origin-panel.js';
+import { createStubOriginEngine } from '../../src/visual/igs-ui/origin-panel-stub.js';
 
 const style = document.createElement('style');
 style.id = 'igs-overlay-style';
@@ -346,9 +348,49 @@ async function openDeckFull() {
   const want = new URLSearchParams(location.search).get('deckpage');
   if (want) deckFull.invoke('page', want);
 }
+const originEngine = createStubOriginEngine();
+let originTheme = new URLSearchParams(location.search).get('theme') || 'frost';
+const originPage = createOriginPageController(document, {
+  origin: () => ({ engine: originEngine, settings: { enabled: true }, openSettings() {} }),
+  getTheme: () => originTheme, setTheme: (t) => { originTheme = t; },
+});
 function openPage(page) {
   current?.close?.();
   if (page === 'deck') { current = deckFull; openDeckFull(); }
+  else if (page === 'origin') {
+    // ?theme=：四套配色；记下打开到下一帧的耗时（window.__originOpenMs）。
+    current = originPage;
+    const t0 = performance.now();
+    originPage.open(overlay);
+    requestAnimationFrame(() => requestAnimationFrame(() => { window.__originOpenMs = Math.round(performance.now() - t0); }));
+    // ?bench=frame：载入稳定 1.5 秒后关掉重开一次，记到第二帧的耗时（含毛玻璃首绘）。
+    if (new URLSearchParams(location.search).get('bench') === 'frame') {
+      window.__originOpenMs = null;
+      setTimeout(() => {
+        originPage.close();
+        requestAnimationFrame(() => {
+          const s = performance.now();
+          originPage.open(overlay);
+          requestAnimationFrame(() => requestAnimationFrame(() => { window.__originFrameMs = Math.round(performance.now() - s); }));
+        });
+      }, 1500);
+    }
+    // ?bench=1：反复开关 20 次，记打开（含强制排版）的同步耗时。
+    if (new URLSearchParams(location.search).get('bench') === '1') {
+      const runs = [];
+      for (let i = 0; i < 20; i += 1) {
+        originPage.close();
+        const s = performance.now();
+        originPage.open(overlay);
+        void document.getElementById('igs-origin-page').offsetHeight;
+        runs.push(performance.now() - s);
+      }
+      runs.sort((a, b) => a - b);
+      window.__originBench = { min: +runs[0].toFixed(2), median: +runs[10].toFixed(2), max: +runs[19].toFixed(2) };
+    }
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab) document.querySelector(`#igs-origin-page [data-oa="tab"][data-id="${CSS.escape(tab)}"]`)?.click();
+  }
   else
   if (page === 'settings-scene' || isSettingsPage(page)) current = openSettingsScene();
   else if (page === 'combat') { current = combat; openCombat(); }

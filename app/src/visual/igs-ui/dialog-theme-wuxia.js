@@ -86,8 +86,11 @@ export const WUXIA_HUD_THEME = Object.freeze({
     placeholder: 'background:linear-gradient(160deg,#5b5852,#2e2c29);color:rgba(236,231,221,.72);',
     placeholderSvg: `fill:none;stroke:${moon('.6')};stroke-width:1.2;`,
     track: `height:${s(9)};border:0;border-radius:0;background:${moon('.16')};${maskOf(WX_BAR)}`,
-    fill: `background:rgb(${MOON_RGB}) !important;border-radius:0;${maskOf(WX_BAR)}`,
+    fill: `background:var(--igs-hud-fill-color) !important;border-radius:0;${maskOf(WX_BAR)}`,
     value: 'font-weight:400;',
+    // 丹青色板：矿物颜料实色，在墨底上提亮一档；好感胭脂、信任石青、了解石绿、芥蒂深朱、负好感黛蓝。
+    vars: '--igs-hud-bar-like:#c9606b;--igs-hud-bar-trust:#5b8fb6;--igs-hud-bar-know:#5a9f8a;--igs-hud-bar-grudge:#a33c30;--igs-hud-bar-cold:#6b7d9c;'
+        + '--igs-hud-bar-1:#5b8fb6;--igs-hud-bar-2:#5a9f8a;--igs-hud-bar-3:#d2ad4c;--igs-hud-bar-4:#8a6ca6;--igs-hud-bar-5:#c4553f;--igs-hud-bar-6:#6a78b4;',
 });
 
 

@@ -285,13 +285,18 @@ export function extractStatusHudMetrics(table, character, characterAliases, pick
         const parsed = parseMetricCell(row.values[index], table.columns[index]);
         if (!parsed) continue;
         for (const metric of parsed) {
+            const negative = metric.signed < 0;
+            const colorKey = resolveMetricColorKey(metric.label, index);
             metrics.push({
                 label: metric.label,
                 percent: metric.percent,
                 display: metric.display,
-                colorKey: resolveMetricColorKey(metric.label, index),
+                // 负好感与数值系统一致换冷色。
+                colorKey: negative && colorKey === 'like' ? 'cold' : colorKey,
                 sourceUid: String((pick && pick.uid) || table.uid || ''),
                 sourceName: String((pick && pick.name) || table.name || ''),
+                // 负值带原始值，演出层按真实增减判断（负区间继续下降也要提示）。
+                ...(negative ? { statValue: metric.signed } : {}),
             });
         }
     }
@@ -474,9 +479,9 @@ function parseMetricSegment(segment, header, segmentCount, index) {
     if (!hasLabel && !hasPercentSign) return null;
     const value = parseFloat(single[1]);
     if (!Number.isFinite(value)) return null;
-    if (value < 0 || value > 100) return null;
-    const percent = value;
-    return { label, percent, display: formatNumber(percent) + '%' };
+    if (value < -100 || value > 100) return null;
+    // 负值（如好感 -12%）：条长按绝对值画，数字照实显示；signed 供颜色与增减提示使用。
+    return { label, percent: Math.abs(value), display: formatNumber(value) + '%', signed: value };
 }
 
 function buildCharacterNameSet(character, characterAliases) {

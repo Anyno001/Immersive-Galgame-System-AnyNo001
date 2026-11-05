@@ -8,7 +8,7 @@
 import { createCachedTableClient, createCombatTables } from '../data/shujuku/combat-tables.js';
 import { createCombatMaterialContext } from './combat-material-context.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
-import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, vitalsForName } from '../combat/ledger.js';
+import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, heroPointLog, signaturePending, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
 import { withFloorNote } from '../combat/floor-note.js';
@@ -44,6 +44,7 @@ const PREPARE_BUSY_STATUSES = Object.freeze(['preparing', 'battle', 'ended', 'se
 const PREPARE_DONE_STATUSES = Object.freeze(['lobby', 'blocked', 'done', 'skipped']);
 // 生命缓存（只读场景复用）的兜底有效期，防止楼层被外部改动却签名不变
 const LIFE_CACHE_TTL_MS = 10000;
+const EMPTY_POINT_LOG = Object.freeze([]);
 const DIAGNOSTICS_MAX = 20;
 
 // 楼层签名：楼数 + 每层（是否用户楼、swipe、正文长度）的滚动哈希，用来判断楼层有没有变
@@ -207,7 +208,7 @@ export function createCombatServices(options = {}) {
             ledger = createCombatLedger({
                 tables: bundle.impl, chat: getChat, userName: getUserName, sourceFilter: getSourceFilter,
                 difficulty: () => settings().difficulty, inventory,
-                // 数值侧金钱并入主角余额（积分与金钱合并成一个钱包）。
+                // 随身系统的原始积分并入主角余额（战斗积分与随身系统积分合成一个余额）。
                 wallet: () => (typeof options.getWallet === 'function' ? options.getWallet() : 0),
             });
             ensureFailure = null;
@@ -485,8 +486,10 @@ export function createCombatServices(options = {}) {
                 return sheet || (state ? abilitiesForName(state, name, getUserName(), extra) : null);
             },
             readVitals: (name, extra) => (state ? vitalsForName(state, name, getUserName(), extra) : null),
-            // 主角的战斗积分净流水（不含数值侧金钱）；战斗数据没就绪时按 0。
+            // 主角的战斗积分净流水（原始值，不含随身系统积分）；战斗数据没就绪时按 0。
             readPoints: () => { const heroId = state && state.attributes && state.attributes.heroId; const hero = heroId ? state.characters.get(heroId) : null; return hero ? Number(hero.points) || 0 : 0; },
+            // 主角积分进出流水（原始值，按楼号），战斗数据没就绪时为空；同一状态返回同一数组。
+            readPointLog: () => (state ? heroPointLog(state) : EMPTY_POINT_LOG),
             names: () => (state ? [...state.characters.values()].map((character) => character.name).filter(Boolean) : []),
             refresh: refreshLife,
         };

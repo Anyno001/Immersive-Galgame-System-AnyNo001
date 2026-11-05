@@ -7,7 +7,7 @@ import { START_DIMS, START_FAVOR } from './stat-vocab.js';
 import { applyGift, applyKeyEvent } from './stat-favor-events.js';
 import { DEFAULT_MONEY_TABLE, applyBarDirective } from './stat-bars.js';
 import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } from './stat-day.js';
-import { DIM_MAX, DIM_MIN, SKILL_MAX, clamp, createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
+import { DIM_MAX, DIM_MIN, SKILL_MAX, barsOf, clamp, createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
 import { rollDie } from './stat-rng.js';
 import { settleCombat } from './stat-battle.js';
 import { PROTAGONIST, createEngine, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } from './stat-engine.js';
@@ -32,6 +32,14 @@ function resolveTargets(directives, resolve, diagnostics) {
             const ally = USER_NAME.test(d.ally) ? null : resolve(d.ally);
             if (!ally) diagnostics.push({ code: 'stat-unknown-character', name: d.ally });
             out.push({ ...d, ally });
+            continue;
+        }
+        // 生活条标签带角色名时按登记规则解析；写主角或用户名的当主角本人处理。
+        if (BAR_KINDS.has(d.kind) && d.target) {
+            if (USER_NAME.test(d.target)) { const { target, ...rest } = d; out.push(rest); continue; }
+            const key = resolve(d.target);
+            if (key) out.push({ ...d, target: key });
+            else diagnostics.push({ code: 'stat-unknown-character', name: d.target });
             continue;
         }
         if (!TARGET_KINDS.has(d.kind)) { out.push(d); continue; }
@@ -130,15 +138,40 @@ function settleStartRelations(before, directives, ctx) {
     return state;
 }
 
-export const MANUAL_DIMS = Object.freeze(['好感', '信任', '了解']);
+export const MANUAL_DIMS = Object.freeze(['好感', '信任', '了解', '芥蒂']);
+export const MANUAL_BARS = Object.freeze(['stamina', 'money', 'stress']);
+const MANUAL_BAR_RANGE = Object.freeze({ stamina: [0, 100], stress: [0, 100], money: [-Infinity, Infinity] });
 
-// 玩家在设置页手改的关系数值：manual = { 角色: { 好感, 信任, 了解 } }，盖在本楼结算结果上，不受单楼与每日上限约束。
+// 手改生活条：bars = { stamina, money, stress }，对主角或角色，只改与当前值不同的项。
+function applyManualBars(state, name, bars, changes) {
+    const hero = name === PROTAGONIST;
+    const cur = hero ? state.protagonist.bars : barsOf(state.characters[name]);
+    const patch = {};
+    for (const key of MANUAL_BARS) {
+        const v = Number(bars && bars[key]);
+        if (!Number.isFinite(v)) continue;
+        const [lo, hi] = MANUAL_BAR_RANGE[key];
+        const to = clamp(Math.round(v), lo, hi);
+        const from = Number(cur[key]) || 0;
+        if (to === from) continue;
+        patch[key] = to;
+        changes.push({ source: 'manual', target: name, key, from, to, note: '手动修改' });
+    }
+    if (!Object.keys(patch).length) return state;
+    const next = { ...cur, ...patch };
+    return hero ? withBars(state, next) : withCharacter(state, name, { ...state.characters[name], bars: next });
+}
+
+// 玩家在设置页或数据库表格手改的数值：manual = { 角色: { 好感, 信任, 了解, 芥蒂, bars: { stamina, money, stress } } }（主角只有 bars，键为「主角」），盖在本楼结算结果上，不受单楼与每日上限约束。
 // 好感关口按新值重算：低于新值的关口算已过，其余重新锁上。
-export function applyManualRelations(state, manual, changes = []) {
+// 从表格导入的角色（manual 里有名字、正文没提到）在这里建档，重算本楼时不会丢。
+export function applyManualRelations(state, manual, changes = [], { nsfw = false } = {}) {
     let next = state;
     for (const [name, dims] of Object.entries(manual && typeof manual === 'object' ? manual : {})) {
+        if (!dims || typeof dims !== 'object') continue;
+        if (name === PROTAGONIST) { next = applyManualBars(next, name, dims.bars, changes); continue; }
+        if (!next.characters[name]) next = withCharacter(next, name, createCharacter(next.clock.day, { nsfw }));
         const cur = next.characters[name];
-        if (!cur || !dims || typeof dims !== 'object') continue;
         const patch = {};
         for (const key of MANUAL_DIMS) {
             const v = Number(dims[key]);
@@ -149,13 +182,14 @@ export function applyManualRelations(state, manual, changes = []) {
             patch[key] = to;
             changes.push({ source: 'manual', target: name, key, from, to, note: '手动修改' });
         }
+        if (dims.bars) next = applyManualBars(next, name, dims.bars, changes);
         if (!Object.keys(patch).length) continue;
         const favor = Object.hasOwn(patch, '好感') ? patch.好感 : Number(cur.dims.好感) || 0;
         const gates = FAVOR_GATES.map(gateKey);
         const unlocked = Object.hasOwn(patch, '好感')
             ? [...(cur.unlocked || []).filter((k) => !gates.includes(k)), ...FAVOR_GATES.filter((gate) => gate < favor).map(gateKey)]
             : cur.unlocked;
-        next = withCharacter(next, name, { ...cur, dims: { ...cur.dims, ...patch }, unlocked });
+        next = withCharacter(next, name, { ...next.characters[name], dims: { ...cur.dims, ...patch }, unlocked });
     }
     return next;
 }
@@ -182,7 +216,7 @@ function settleCharacters(before, directives, ctx) {
 
 // 23 点以后的行动每天额外记一次熬夜；体力归零时标记强制休息，并按入睡处理。
 function settleBars(state, directives, hour, ctx) {
-    const list = directives.filter((d) => BAR_KINDS.has(d.kind));
+    const list = directives.filter((d) => BAR_KINDS.has(d.kind) && !d.target);
     let stayedUp = state.clock.stayedUp || list.some((d) => d.kind === 'stamina' && d.value === '熬夜');
     if (isLateHour(hour) && !stayedUp) { list.push({ kind: 'stamina', value: '熬夜', late: true }); stayedUp = true; }
     let bars = state.protagonist.bars;
@@ -195,6 +229,22 @@ function settleBars(state, directives, hour, ctx) {
     if (bars.stamina <= 0) ctx.flags.forcedRest = true;
     const next = withBars(state, bars);
     return stayedUp !== state.clock.stayedUp ? withClock(next, { stayedUp }) : next;
+}
+
+// 角色的生活条：规则同主角，金钱不并入战斗积分（钱包只属于主角）；花费超过余额时不扣并记 shortfall。「受伤」类只影响生命，角色不处理。
+function settleNpcBars(state, directives, ctx) {
+    let next = state;
+    for (const d of directives) {
+        if (!BAR_KINDS.has(d.kind) || !d.target || d.kind === 'hurt') continue;
+        const cur = next.characters[d.target];
+        if (!cur || (d.kind === 'stamina' && d.value === '受伤')) continue;
+        const bars = barsOf(cur);
+        const r = applyBarDirective(bars, d, ctx.moneyTable, 0);
+        if (r.shortfall) { ctx.diagnostics.push({ code: 'stat-npc-shortfall', name: d.target }); }
+        if (r.change) ctx.changes.push({ source: 'tag', target: d.target, key: r.change.key, from: r.change.from, to: r.change.to, note: d.value });
+        if (r.bars !== bars) next = withCharacter(next, d.target, { ...cur, bars: r.bars });
+    }
+    return next;
 }
 
 function settleClock(state, narration, directives, hour, ctx) {
@@ -292,7 +342,15 @@ export function settleFloorText(before, text, opts = {}) {
     if (allowed.length !== merged.length) diagnostics.push({ code: 'stats-battle-skipped-combat' });
     const extra = (Array.isArray(opts.extraDirectives) ? opts.extraDirectives : []).filter((d) => d && d.kind === 'challenge');
     const directives = [...constrainFavor(dedupeDims(resolveTargets(allowed, resolve, diagnostics)), lead), ...extra];
-    let state = markGrowth(before, check);
+    // 数据库表格里的人物在本楼首次建档：沿用表格当时的好感、信任、了解，之后只按正文标签变化。
+    let state = before;
+    if (opts.seedCharacters) {
+        const fresh = Object.fromEntries(Object.entries(opts.seedCharacters).filter(([name]) => !state.characters[name]));
+        const seeded = [];
+        state = applyManualRelations(state, fresh, seeded, { nsfw });
+        for (const row of seeded) ctx.changes.push({ ...row, source: 'register', note: '数据库表格登记' });
+    }
+    state = markGrowth(state, check);
     for (const item of storyChecks) state = markGrowth(state, item);
     state = markCheckOpponents(state, check);
     for (const item of Array.isArray(opts.npcChecks) ? opts.npcChecks : []) state = markNpcGrowth(state, resolve(item.actor), item.skill);
@@ -301,8 +359,9 @@ export function settleFloorText(before, text, opts = {}) {
     state = settleGrowTags(state, directives, ctx);
     state = settleCombat(state, directives, ctx);
     state = settleBars(state, directives, hour, ctx);
+    state = settleNpcBars(state, directives, ctx);
     state = settleClock(state, narration, directives, hour, ctx);
-    if (opts.manual) state = applyManualRelations(state, opts.manual, ctx.changes);
+    if (opts.manual) state = applyManualRelations(state, opts.manual, ctx.changes, { nsfw });
     const meta = { diagnostics, events: ctx.events, flags: ctx.flags };
     if (opts.manual && Object.keys(opts.manual).length) meta.manual = opts.manual;
     if (check) meta.check = check;

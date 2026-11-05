@@ -6,7 +6,7 @@ import { applyManual, createCx } from '../src/scene/origin/origin-apply.js';
 import { createInitialState, fillSettings } from '../src/scene/origin/origin-state.js';
 import { attachOriginEngine, attachedOriginBinding, getAttachedOrigin, originChatStatus, runAttachedOriginOp } from '../src/visual/igs-ui/origin-attach.js';
 import { createStubOriginEngine } from '../src/visual/igs-ui/origin-panel-stub.js';
-import { resolveOriginBinding, stopOrigin, syncOrigin } from '../src/visual/igs-ui/origin-panel.js';
+import { createOriginPageController, resolveOriginBinding } from '../src/visual/igs-ui/origin-panel.js';
 import { originRequestRoute, normalizeOriginSettings } from '../src/visual/igs-ui/origin-settings.js';
 
 // 界面 OP 的形状必须能被核心 applyManual 直接吃下（核心的 dispatch 只在 applyManual 之前把下标换成名字）。
@@ -60,11 +60,29 @@ test('接入点：attachOriginEngine 登记后阅读器与设置页都能读到�
     assert.equal(originChatStatus().world, '新世界');
     assert.equal((await runAttachedOriginOp('pause')).ok, true);
     assert.equal(originChatStatus().paused, true);
-    const dom = new JSDOM('<!doctype html><body><div id="front"></div></body>', { pretendToBeVisual: true });
-    const front = dom.window.document.getElementById('front');
-    syncOrigin(front, binding, { doc: dom.window.document, size: 'medium', getStage: () => ({ stageW: 800, stageH: 600 }) });
-    assert.ok(front.querySelector('.igs-entry-dock > .igs-or-entry'));
-    stopOrigin(front);
+    // 整页：资料页外壳、页头返回键；二级页先退回主页，Esc 逐级退到关闭；关闭后退订、撤下暂停标记。
+    const dom = new JSDOM('<!doctype html><body><div id="igs-overlay"></div></body>', { pretendToBeVisual: true });
+    const doc = dom.window.document;
+    const overlay = doc.getElementById('igs-overlay');
+    let saved = '';
+    const page = createOriginPageController(doc, { getTheme: () => 'cream', setTheme: (t) => { saved = t; } });
+    assert.equal(page.open(overlay).ok, true);
+    const root = overlay.querySelector('#igs-origin-page');
+    assert.ok(root && root.querySelector('.igs-rp-page .igs-rp-head [data-oa="close"]'));
+    assert.equal(root.getAttribute('data-rp-theme'), 'cream');
+    assert.ok(overlay.classList.contains('igs-record-screen-open'));
+    assert.ok(root.querySelector('.igs-or-stats') && root.querySelector('.igs-or-tabs'));
+    root.querySelector('[data-oa="theme"]:not([data-id="cream"])').click();
+    assert.ok(saved && saved !== 'cream');
+    assert.equal(root.getAttribute('data-rp-theme'), saved);
+    root.querySelector('[data-oa="menu"]').click();
+    assert.ok(root.querySelector('.igs-or-menu'));
+    assert.equal(page.escape(), true);
+    assert.equal(root.querySelector('.igs-or-menu'), null);
+    assert.equal(page.escape(), true);
+    assert.equal(page.isOpen(), false);
+    assert.equal(overlay.querySelector('#igs-origin-page'), null);
+    assert.equal(overlay.classList.contains('igs-record-screen-open'), false);
     detach();
     assert.equal(getAttachedOrigin(), null);
     assert.equal(resolveOriginBinding({}), null);

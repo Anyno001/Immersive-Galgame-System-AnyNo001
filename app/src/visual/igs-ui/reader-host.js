@@ -128,7 +128,10 @@ import { enterCastSlotEdit } from './cast-slot-edit.js';
 import { createDbPanelController } from '../../shujuku-panel/panel-controller.js';
 import { createMapPanelController } from './map-panel.js';
 import { createRecordPanelController } from './record-panel.js';
+import { createOriginPageController } from './origin-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
+import { parseTables } from '../../data/shujuku/table-parser.js';
+import { lookupSkillValue } from '../../data/shujuku/skill-table.js';
 import { STATUS_HUD_PHONE_MEDIA, buildStatusHudModel, normalizeStatusHudSettings, resolveStatusAvatar } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
 import { buildItemActionText, extractBodyChoices, listPresentNames, normalizeOptionSources, splitQuickActions } from '../../choices/option-sources.js';
@@ -172,7 +175,7 @@ const logWait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 盖住舞台的面板（地图、资料、战斗、卡组构筑）同一时刻只开一个。
 const anyPanelOpen = (dom) => Boolean(dom && (dom.mapController?.isOpen() || dom.recordController?.isOpen()
-    || dom.combatController?.isOpen() || dom.combatDeckController?.isOpen()));
+    || dom.combatController?.isOpen() || dom.combatDeckController?.isOpen() || dom.originPageController?.isOpen()));
 
 // 翻页时设置没变就复用上次整理好的阅读器设置：每次整份深拷贝再跑几十项整理，是翻页最大的一块 JS 开销。
 // 存储配置是共享只读的，改设置会换新引用，按引用判断即可。返回浅拷贝：调用方只改顶层字段，下层对象只读。
@@ -2358,6 +2361,17 @@ export function createIgsReaderHost(options = {}) {
         };
     }
 
+    // 才艺技能表取值：骰子系统读不到属性时按 角色姓名 + 技能 查表；主角名「<user>」与当前用户名视为同一人。
+    function skillTableReader(global, userName) {
+        return (name, skill) => {
+            const api = (global || globalThis).AutoCardUpdaterAPI || null;
+            const read = createShujukuClient(api).readTables();
+            if (!read.ok) return null;
+            const isUser = (text) => /^(?:<user>|user|主角)$/i.test(text) || (userName && text === userName);
+            return lookupSkillValue(parseTables(read.data), name, skill, { keyOf: (text) => (isUser(String(text).trim()) ? '主角' : String(text).trim()) });
+        };
+    }
+
     // 骰子命令在点击时才判定（fill 模式重点一次即重掷一次）；判定不可用时按原命令文本降级发送。
     async function resolveOptionSendText(fallback, check) {
         if (!check) return fallback;
@@ -2368,7 +2382,7 @@ export function createIgsReaderHost(options = {}) {
         // 未接管时 AcuDice 检定仍读战斗六维（readAbilities）。
         let result = null;
         try { result = typeof options.statsDice === 'function' ? options.statsDice(check.dice, { userName }) : null; } catch (error) { result = null; }
-        if (!result) result = await resolveDiceCommand(check.dice, findAcuDice(global), { random: options.random, userName, readAbilities: combatAbilityReader(userName) });
+        if (!result) result = await resolveDiceCommand(check.dice, findAcuDice(global), { random: options.random, userName, readAbilities: combatAbilityReader(userName), readSkillTable: skillTableReader(global, userName) });
         if (!result || !result.ok) {
             writeToastSafe(`检定未执行：${result && result.reason || '未知原因'}，已按原命令发送`);
             return fallback;
@@ -2496,7 +2510,7 @@ export function createIgsReaderHost(options = {}) {
             applyBgmNoteToDom(skipped.root, skipped.track, { open: true });
             return { ok: true, track: skipped.track.name };
         }
-        if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships', 'favor', 'combat'].includes(normalizedAction)) {
+        if (normalizedAction === 'toggle-record-menu' || ['map', 'diary', 'inventory', 'relationships', 'favor', 'combat', 'origin'].includes(normalizedAction)) {
             const current = state.activeReader;
             const hud = current.snapshot?.content?.statusHud;
             const settings = current.snapshot?.readerSettings;
@@ -2528,7 +2542,9 @@ export function createIgsReaderHost(options = {}) {
                 ? current.dom.mapController.open(overlay, settings, current.snapshot?.content?.sceneLocation, current.snapshot?.content?.sceneTime, current.snapshot?.content?.sceneWeather)
                 : normalizedAction === 'combat'
                     ? current.dom.combatDeckController.open(overlay)
-                    : current.dom.recordController.open(overlay, settings, normalizedAction);
+                    : normalizedAction === 'origin'
+                        ? current.dom.originPageController.open(overlay)
+                        : current.dom.recordController.open(overlay, settings, normalizedAction);
         }
         if (normalizedAction === 'toggle-status-hud') {
             return state.activeReader.controller.toggleStatusHud();
@@ -5199,6 +5215,14 @@ ${row.key}`;
             const recordPanel = state.activeReader.dom?.recordController;
             const combatPanel = state.activeReader.dom?.combatController;
             const deckPanel = state.activeReader.dom?.combatDeckController;
+            const originPage = state.activeReader.dom?.originPageController;
+            // 随身系统整页：Esc 逐级退（页内弹窗开着时交给弹窗自己）；其余按键留给页内输入框，不翻页。
+            if (originPage?.isOpen()) {
+                if (event.key === 'Escape') {
+                    if (originPage.escape()) { event.preventDefault(); event.stopPropagation?.(); }
+                } else if (['ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.stopPropagation?.();
+                return;
+            }
             if (mapPanel?.isOpen() || recordPanel?.isOpen() || combatPanel?.isOpen() || deckPanel?.isOpen()) {
                 if (event.key === 'Escape') {
                     event.preventDefault(); event.stopPropagation?.();
@@ -5427,6 +5451,11 @@ ${row.key}`;
             getTheme: () => readSettingsTheme(),
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
+        // 随身系统整页：资料菜单「随身系统」项打开；引擎经 origin-attach 登记表取得，配色与日记同一份。
+        const originPageController = createOriginPageController(doc, {
+            getTheme: () => readSettingsTheme(),
+            setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
+        });
         const domState = {
             root,
             doc,
@@ -5435,6 +5464,7 @@ ${row.key}`;
             recordController,
             combatController,
             combatDeckController,
+            originPageController,
             embeddedMount,
             dispose() {
                 if (typeof doc.removeEventListener === 'function') {
@@ -5447,6 +5477,7 @@ ${row.key}`;
                 recordController.close();
                 combatController.dispose();
                 combatDeckController.dispose();
+                originPageController.dispose();
                 dbController.close();
                 teardownEmbeddedMount(domState.embeddedMount);
                 domState.embeddedMount = null;
@@ -5853,7 +5884,7 @@ ${row.key}`;
     function openCombatPanel(current, entry, { then = '' } = {}) {
         const dom = current && current.dom;
         if (!dom || !dom.overlay || !entry) return { ok: false, reason: 'combat-entry-missing' };
-        if (dom.mapController.isOpen() || dom.recordController.isOpen() || dom.combatDeckController?.isOpen()) return { ok: false, reason: 'panel-open' };
+        if (dom.mapController.isOpen() || dom.recordController.isOpen() || dom.combatDeckController?.isOpen() || dom.originPageController?.isOpen()) return { ok: false, reason: 'panel-open' };
         const menu = dom.overlay.querySelector?.('#igs-hud-record-menu');
         if (menu && !menu.hasAttribute('hidden')) menu.setAttribute('hidden', '');
         state.combatLastEntry = entry;

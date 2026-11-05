@@ -2,7 +2,7 @@
 import { stripStatDirectives } from './stat-directives.js';
 import { coolDown, resetDaily } from './stat-favor-events.js';
 import { rollDie, rollOver } from './stat-rng.js';
-import { SKILL_MAX, clamp, withBars, withClock, withSkills } from './stat-state.js';
+import { SKILL_MAX, barsOf, clamp, withBars, withClock, withSkills } from './stat-state.js';
 
 export const SOFT_DAY_FLOORS = 30;
 const QUOTED = /“[^”]*”|「[^」]*」|『[^』]*』|"[^"\n]*"/g;
@@ -41,7 +41,7 @@ export function detectDayAdvance({ narration, directives, lastHour, hour }) {
 // 漏打兜底只补体力（进食）与入睡，好感不兜底（§4.2）。
 export function fallbackDirectives(narration, directives) {
     const out = [];
-    if (!directives.some((d) => d.kind === 'stamina') && EAT.test(narration)) out.push({ kind: 'stamina', value: '进食', fallback: true });
+    if (!directives.some((d) => d.kind === 'stamina' && !d.target) && EAT.test(narration)) out.push({ kind: 'stamina', value: '进食', fallback: true });
     if (!directives.some((d) => d.kind === 'sleep' || d.kind === 'skip') && SLEEP.test(narration)) out.push({ kind: 'sleep', fallback: true });
     return out;
 }
@@ -96,6 +96,23 @@ function coolCharacters(characters, day, days, changes) {
     return next;
 }
 
+// 角色的生活条随日结算恢复：体力回满、压力 −10（日结算）；时间跳跃只回体力。没有 bars 的旧角色按初值，不产生改动。
+function recoverCharacterBars(characters, changes, note, { stress }) {
+    const out = {};
+    for (const [name, c] of Object.entries(characters)) {
+        const bars = barsOf(c);
+        const next = { ...bars, stamina: Math.max(bars.stamina, 100), ...(stress ? { stress: clamp(bars.stress - 10, 0, 100) } : {}) };
+        let changed = false;
+        for (const key of Object.keys(next)) {
+            if (next[key] === bars[key]) continue;
+            changed = true;
+            changes.push({ source: 'daily', target: name, key, from: bars[key], to: next[key], note });
+        }
+        out[name] = changed ? { ...c, bars: next } : c;
+    }
+    return out;
+}
+
 function pushBarChanges(from, to, changes, note) {
     for (const key of Object.keys(to)) {
         if (from[key] !== to[key]) changes.push({ source: 'daily', target: '主角', key, from: from[key], to: to[key], note });
@@ -115,7 +132,7 @@ export function settleDay(state, { random, changes = [], skillValueOf } = {}) {
     pushBarChanges(bars, nextBars, changes, '日结算');
     let next = withBars(state, nextBars);
     next = grow(next, random, changes, skillValueOf);
-    next = { ...next, characters: coolCharacters(next.characters, day, 1, changes) };
+    next = { ...next, characters: recoverCharacterBars(coolCharacters(next.characters, day, 1, changes), changes, '日结算', { stress: true }) };
     return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
 }
 
@@ -136,7 +153,7 @@ export function settleSkip(state, days, { random, changes = [], skillValueOf } =
     pushBarChanges(bars, nextBars, changes, `跳过${days}天`);
     let next = withBars(state, nextBars);
     next = grow(next, random, changes, skillValueOf);
-    next = { ...next, characters: coolCharacters(next.characters, day, days, changes) };
+    next = { ...next, characters: recoverCharacterBars(coolCharacters(next.characters, day, days, changes), changes, `跳过${days}天`, { stress: false }) };
     return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
 }
 

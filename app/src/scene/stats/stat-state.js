@@ -18,6 +18,11 @@ function skillTable(names, value) {
     return Object.fromEntries(names.map((name) => [name, { value, marked: false }]));
 }
 
+// 生活条初值：主角与角色共用；旧存档里没有 bars 的角色读取时按初值补齐。
+export function defaultBars(money = 0) {
+    return { stamina: 100, money, stress: 0 };
+}
+
 export function createStatsState({ day = 1, special = 50, money = 0, prefs = null } = {}) {
     return {
         version: STATS_VERSION,
@@ -25,7 +30,7 @@ export function createStatsState({ day = 1, special = 50, money = 0, prefs = nul
         protagonist: {
             skills: skillTable(DEFAULT_SPECIAL_SKILLS, special),
             prefs: prefs && typeof prefs === 'object' ? { ...prefs } : null,
-            bars: { stamina: 100, money, stress: 0 },
+            bars: defaultBars(money),
         },
         characters: {},
     };
@@ -35,7 +40,18 @@ export function createStatsState({ day = 1, special = 50, money = 0, prefs = nul
 export function createCharacter(day, { nsfw = false } = {}) {
     const dims = Object.fromEntries(DEFAULT_DIMS.map((dim) => [dim, 0]));
     if (nsfw) dims.欲望 = 0;
-    return { dims, daily: { day, gained: {} }, recent: [], lastSeenDay: day, unlocked: [] };
+    return { dims, daily: { day, gained: {} }, recent: [], lastSeenDay: day, unlocked: [], bars: defaultBars() };
+}
+
+// 角色生活条：旧存档的角色没有 bars 时按初值补齐（不改原对象）。
+export function barsOf(character) {
+    const own = character && character.bars;
+    return own && typeof own === 'object' ? { ...defaultBars(), ...own } : defaultBars();
+}
+
+export function withCharacterBars(state, name, bars) {
+    const cur = state.characters[name];
+    return cur ? withCharacter(state, name, { ...cur, bars }) : state;
 }
 
 export const GRUDGE_TIERS = Object.freeze([{ name: '不满', min: 1 }, { name: '记恨', min: 26 }, { name: '怨恨', min: 51 }, { name: '仇恨', min: 76 }]);

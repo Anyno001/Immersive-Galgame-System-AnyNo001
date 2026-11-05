@@ -21,6 +21,7 @@ import { mergeLegacyNaiSettings } from '../../generated-images/image-backend.js'
 import { getSettingsStyleText } from './settings-style.js';
 import { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsCategory, isSettingsPage, normalizeSettingsPage, openSettingsPage, resolveSettingsPage, resolveSettingsTarget } from './settings-pages.js';
 import { recordSettingsRecent, settingsRecentLabel } from './settings-recent.js';
+import { migrateTables, MIGRATE_BACKUP_KEY } from '../../data/shujuku/table-migrate.js';
 import { downloadStatsTemplate, fetchStatsTemplate, importStatsTemplate, statsTemplateChatDiff, STATS_TEMPLATE_PRESET_NAME } from './stats-template-link.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { VN_THEME_PRESETS } from './reader-host-constants.js';
@@ -691,7 +692,14 @@ export function createSettingsHost(deps) {
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
-            if (kind === 'generate' || kind === 'backfill' || kind === 'backup') result = await op(kind);
+            if (kind === 'generate' || kind === 'backfill' || kind === 'backup') {
+                result = await op(kind);
+                if (kind === 'generate' && result && result.ok && result.skipped && typeof settingsDialogs.alert === 'function') await settingsDialogs.alert('没有缺数值的角色。');
+            }
+            else if (kind === 'relation-import') {
+                result = await op('relation', 'import-table', '', {});
+                if (result && result.ok && typeof settingsDialogs.alert === 'function') await settingsDialogs.alert(`已导入：${result.imported.join('、')}`);
+            }
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
             else if (kind === 'hero-assign') {
                 result = await op('hero', 'assign', '', {});
@@ -736,7 +744,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '格式不对，请写成「好感 30」，数值为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '格式不对，请写成「好感 30」，数值为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
@@ -847,6 +855,39 @@ export function createSettingsHost(deps) {
                     : `导入失败${result.message ? `：${result.message}` : ''}`);
                 return result;
             })().catch((error) => ({ ok: false, reason: 'stats-template-import-threw', thrown: error }));
+        }
+        // 旧聊天迁移到新表结构：先备份旧表进 chatMetadata，再换模板并搬数据；不自动执行。
+        if (action === 'stats-table-migrate') {
+            return (async () => {
+                const global = options.global || globalThis;
+                const api = global.AutoCardUpdaterAPI || null;
+                if (!api || typeof api.importTemplateFromData !== 'function') {
+                    showSettingsNotice('未检测到数据库（shujuku）的模板导入接口，无法迁移');
+                    return { ok: false, reason: 'missing-api' };
+                }
+                if (!await settingsDialogs.confirm('把本聊天迁移到新表结构？迁移前会备份旧表；秘密与属性格搬到新位置，随身财物不搬。', { okLabel: '迁移' })) return { ok: true, cancelled: true };
+                const fetched = await fetchStatsTemplate();
+                if (!fetched.ok) {
+                    showSettingsNotice('适配版表格模板读取失败，请稍后重试');
+                    return fetched;
+                }
+                const backup = (text) => {
+                    const ctx = getSillyTavernContext(global);
+                    if (!ctx || !ctx.chatMetadata || typeof ctx.chatMetadata !== 'object') return { ok: false, reason: 'no-chat-metadata' };
+                    ctx.chatMetadata[MIGRATE_BACKUP_KEY] = text;
+                    const persist = typeof ctx.saveMetadata === 'function' ? ctx.saveMetadata : null;
+                    if (!persist) return { ok: false, reason: 'no-save-metadata' };
+                    persist.call(ctx);
+                    return { ok: true };
+                };
+                const result = await migrateTables(createShujukuClient(api), fetched.data, { backup });
+                if (result.skipped) showSettingsNotice('本聊天已是新表结构或没有角色数值表，无需迁移');
+                else if (result.ok) {
+                    showSettingsNotice(`迁移完成：补写 ${result.wrote} 格，新增 ${result.inserted} 行`);
+                    if (result.warnings.some((w) => w.code === 'migrate-belongings-not-moved') && typeof settingsDialogs.alert === 'function') await settingsDialogs.alert('主角信息表原有的「随身财物」未迁移：钱请在角色数值表的金钱里填，物品请在物品表里补记。旧内容已在备份里。');
+                } else showSettingsNotice(`迁移未完成：${result.reason}${result.backedUp ? '（旧表已备份，可重试）' : ''}`);
+                return result;
+            })().catch((error) => ({ ok: false, reason: 'stats-table-migrate-threw', thrown: error }));
         }
         // 数值系统「本聊天」启用 / 暂停：直接交给运行时，结果重绘后反映到按钮与状态说明。
         if (action === 'stats-chat-enable' || action === 'stats-chat-disable' || action === 'stats-chat-enable-build') {

@@ -35,12 +35,25 @@ function parseFields([kindRaw, a, b, c]) {
         return target && value ? { kind: 'dim', target, dim: DIM_KINDS[kind], value } : null;
     }
     switch (kind) {
-    case 'stamina': { const value = normalizeTier('stamina', STAMINA_EVENTS, a); return value ? { kind, value } : null; }
-    case 'stress': { const value = normalizeTier('dim', DIM_DIRECTIONS, a); return value ? { kind, value } : null; }
+    // 生活条标签可选带角色名：stamina|档位 或 stamina|角色|档位；money|收入/花费|档位 或 money|角色|收入/花费|档位。不带角色名算主角。
+    case 'stamina': {
+        const own = normalizeTier('stamina', STAMINA_EVENTS, a);
+        const value = own || normalizeTier('stamina', STAMINA_EVENTS, b);
+        const who = own ? null : freeText(a);
+        return value && (own || who) ? { kind, value, ...(who ? { target: who } : {}) } : null;
+    }
+    case 'stress': {
+        const own = normalizeTier('dim', DIM_DIRECTIONS, a);
+        const value = own || normalizeTier('dim', DIM_DIRECTIONS, b);
+        const who = own ? null : freeText(a);
+        return value && (own || who) ? { kind, value, ...(who ? { target: who } : {}) } : null;
+    }
     case 'money': {
-        const flow = normalizeTier('flow', MONEY_FLOWS, a);
-        const value = normalizeTier('moneyTier', MONEY_TIERS, b);
-        return flow && value ? { kind, flow, value } : null;
+        const own = normalizeTier('flow', MONEY_FLOWS, a);
+        const flow = own || normalizeTier('flow', MONEY_FLOWS, b);
+        const value = normalizeTier('moneyTier', MONEY_TIERS, own ? b : c);
+        const who = own ? null : freeText(a);
+        return flow && value && (own || who) ? { kind, flow, value, ...(who ? { target: who } : {}) } : null;
     }
     case 'sleep': return { kind };
     case 'hurt': { const value = normalizeTier('hurt', HURT_TIERS, a); return value ? { kind, value } : null; }
@@ -120,7 +133,7 @@ export function scanStatLifeTags(text) {
             continue;
         }
         const tier = directive && directive.kind === 'hurt' ? directive.value
-            : directive && directive.kind === 'stamina' && directive.value === '受伤' ? '轻伤' : null;
+            : directive && directive.kind === 'stamina' && !directive.target && directive.value === '受伤' ? '轻伤' : null;
         if (tier) push({ kind: 'hurt', tier }, `hurt|${tier}`);
     }
     return out;

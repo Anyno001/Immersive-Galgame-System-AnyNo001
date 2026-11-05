@@ -9,7 +9,7 @@ import { runBackgroundGeneration, isBackgroundGenerationActive } from '../host/b
 // 核心的通知类别 → 阅读器细线的级别。
 const NOTICE_LEVEL = Object.freeze({ warn: 'warn', info: 'info' });
 
-export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive }) {
+export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive, readCombatPoints, readCombatPointLog, readRuleset }) {
     const ctx = () => { try { return getContext() || null; } catch (error) { return null; } };
 
     async function viaTavern(prompt) {
@@ -60,6 +60,11 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
             try { notice(NOTICE_LEVEL[kind] || 'info', String(text)); } catch (error) { /* 细线出错不影响结算 */ }
         },
         legacyActive: () => { try { return Boolean(legacyActive && legacyActive()); } catch (error) { return false; } },
+        // 战斗侧主角的原始积分（不含随身系统积分）：与随身系统积分合成一个余额，两边只读对方的原始值。
+        readRuleset: () => { try { return typeof readRuleset === 'function' ? readRuleset() : 'coc7'; } catch (error) { return 'coc7'; } },
+        extraPointLog: () => { try { const l = typeof readCombatPointLog === 'function' ? readCombatPointLog() : null; return Array.isArray(l) ? l : null; } catch (error) { return null; } },
+        // 战斗数据未载入时为 null（未知），核心据此不写快照。
+        extraPoints: () => { try { const v = typeof readCombatPoints === 'function' ? readCombatPoints() : 0; return v === null ? null : Number(v) || 0; } catch (error) { return null; } },
     };
 
     const engine = getSharedOriginEngine(host);
@@ -74,6 +79,10 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
         engine,
         // 总开关或其他设置变化后调用：开就挂监听并读存档，关就解绑。
         sync: () => engine.sync(),
+        // 随身系统自己的原始积分（战斗侧当钱包读）；未启用或没存档为 0。
+        rawPoints: () => engine.rawPoints(),
+        // 随身系统自己的属性加成 [{ name, val }]（只读）；IGS 数值系统按同名叠加。
+        rawStats: () => engine.rawStats(),
         destroy: () => { try { engine.release(); } catch (error) { /* */ } detach(); },
     };
 }

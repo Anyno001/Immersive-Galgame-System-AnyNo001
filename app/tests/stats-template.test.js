@@ -29,29 +29,36 @@ test('适配版只改约定的规则字段；其余表、列、DDL、导出配�
     const out = adaptStatsTemplate(base);
     assert.equal(JSON.stringify(base), JSON.stringify(JSON.parse(raw)));
     const edited = new Set(STATS_TEMPLATE_EDITS.map((e) => `${e.sheet}|${e.field}`));
+    // 数值表解耦改表结构的表：整体改动由 stats-skill-table.test.js 与下面的列断言覆盖；orderNo 因新增才艺技能表顺延。
+    const DECOUPLED = new Set(['sheet_jue_se_shu_zhi_biao', 'sheet_zhu_jue_xin_xi_biao', 'sheet_zhong_yao_jue_se_biao', 'sheet_wu_pin_biao', 'sheet_jian_ding_jian_yi_biao', 'sheet_yi_jian_kai_guan_biao']);
     for (const key of Object.keys(base)) {
         const { sourceData: a, content: ca, ...restOut } = out[key] || {};
         const { sourceData: b, content: cb, ...restBase } = base[key] || {};
-        if (!STATS_TEMPLATE_COLUMNS.some((c) => c.sheet === key)) assert.deepEqual(ca, cb, key + '.content');
+        if (!STATS_TEMPLATE_COLUMNS.some((c) => c.sheet === key) && !DECOUPLED.has(key)) assert.deepEqual(ca, cb, key + '.content');
+        if (DECOUPLED.has(key)) { delete restOut.orderNo; delete restBase.orderNo; }
         assert.deepEqual(restOut, restBase, key);
+        if (DECOUPLED.has(key)) continue;
         for (const field of Object.keys(b || {})) if (!edited.has(`${key}|${field}`)) assert.deepEqual(a[field], b[field], `${key}.${field}`);
     }
     const values = out.sheet_jue_se_shu_zhi_biao.sourceData;
     assert.doesNotMatch(values.updateNode, /单次事件变动/);
     assert.match(values.updateNode, /禁止修改/);
-    assert.match(values.initNode, /一律填 0%/);
+    assert.match(values.initNode, /一律填 0，体力填 100/);
     assert.doesNotMatch(out.sheet_jian_ding_jian_yi_biao.sourceData.note, /成长后属性|成长检定/);
     assert.doesNotMatch(out.sheet_zhu_jue_xin_xi_biao.sourceData.updateNode, /base_attributes/);
-    assert.match(out.sheet_zhong_yao_jue_se_biao.sourceData.updateNode, /只在登场建档时填写一次/);
+    assert.match(out.sheet_zhong_yao_jue_se_biao.sourceData.updateNode, /未知秘密查明后移入已知秘密/);
+    assert.match(out.sheet_jian_ding_jian_yi_biao.sourceData.note, /才艺技能表按 角色姓名 \+ 技能|从才艺技能表按 角色姓名 \+ 技能/);
+    assert.equal(out.sheet_cai_yi_ji_neng_biao.orderNo, out.sheet_jue_se_shu_zhi_biao.orderNo + 1);
     const mappings = detectStatMappings(parseTables(out)).mappings;
-    assert.deepEqual(out.sheet_jue_se_shu_zhi_biao.content[0], ['row_id', '角色姓名', '好感度', '信任度', '了解程度', '芥蒂程度', '已知秘密', '未知秘密']);
+    assert.deepEqual(out.sheet_jue_se_shu_zhi_biao.content[0], ['row_id', '角色姓名', '好感度', '信任度', '了解程度', '芥蒂程度', '体力', '金钱', '压力']);
     assert.match(out.sheet_jue_se_shu_zhi_biao.sourceData.ddl, /understanding_level TEXT, -- 了解程度\n {2}grudge_level TEXT, -- 芥蒂程度/);
     for (const column of ['好感度', '信任度', '了解程度', '芥蒂程度']) assert.ok(mappings.some((m) => m.table === '角色数值表' && m.column === column), column);
     assert.throws(() => adaptStatsTemplate(out), /stats-template-already-adapted/);
 });
 
 test('锚点对不上（基准模板改版）时抛错，不生成半改版；非法输入可诊断', () => {
-    assert.ok(adaptStatsTemplate(synthetic()));
+    // 合成模板只带规则字段的锚点，通过规则改写这一段后，在表结构改写（数值表解耦）处因缺列说明而报锚点缺失。
+    assert.throws(() => adaptStatsTemplate(synthetic()), (e) => e.code === 'stats-template-anchor-missing' && e.sheet === 'sheet_zhu_jue_xin_xi_biao');
     const missing = synthetic();
     missing.sheet_jue_se_shu_zhi_biao.sourceData.updateNode = '改版后的规则';
     assert.throws(() => adaptStatsTemplate(missing), (e) => e.code === 'stats-template-anchor-missing' && e.field === 'updateNode');
