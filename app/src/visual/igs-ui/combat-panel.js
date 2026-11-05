@@ -21,7 +21,7 @@ import { enemyArtCell } from './combat-enemy-art.js';
 import { ensureEnemyAtlas } from './combat-enemy-atlas.js';
 import { SEL, canvasFit, canvasGhostWrap, isCanvasSkin } from './combat-skin-canvas.js';
 import { HX_BANNER_MS, HX_WINDUP_MS, hxBanner, hxCallout, hxCanvas, hxClaw, hxGuard, hxHeal, hxHit, hxKo, hxSkin, hxTrail, hxTurnBand, hxWindup } from './combat-hit-fx-skin.js';
-import { COMBAT_STAGE_TIMING, buildStageAwaken, buildStageClash, buildStageSkill, stageFxStyle, updateClashHeroes } from './combat-stage-fx.js';
+import { COMBAT_STAGE_TIMING, buildStageAwaken, buildStageClash, buildStageSkill, stageFxStyle, updateClashFigures, updateClashHeroes } from './combat-stage-fx.js';
 
 // 卡牌战斗面板。挂在 #igs-overlay 直属层（不进 #igs-stage-motion），避免阅读器自己的演出层查到面板内的演出节点。
 // 会话由 options.getSession() 注入；面板只转发动作、渲染快照，不自行结算。
@@ -787,7 +787,17 @@ export function createCombatPanelController(doc, options = {}) {
             return [...l.allies].sort((a, c) => Number(c.id === controlledId) - Number(a.id === controlledId))
                 .map((a) => ({ id: a.id, name: a.name, url: pics[a.name] || '', controllable: Boolean(a.controllable) && !l.challenge, picked: a.id === controlledId }));
         }
-        return [{ name: preview?.hero || '我方', url: '' }];
+        const name = preview?.hero || '我方';
+        return [{ name, url: preview?.hero ? portraitsFor([name])[name] || '' : '' }];
+    }
+
+    function introFoes(view) {
+        const l = view.lobby;
+        const arts = view.enemyArt || {};
+        const src = l ? l.enemies : (preview?.enemies || []);
+        const pics = l ? (view.portraits || {}) : portraitsFor(src.map((e) => e.name));
+        return src.flatMap((e) => Array.from({ length: Math.max(1, Math.min(2, Number(e.count) || 1)) }, () => e)).slice(0, 2)
+            .map((e) => ({ name: e.name, url: pics[e.name] || '', cell: arts[e.name] || enemyArtCell({ name: e.name, tier: e.tier || preview?.tier || 'normal' }) }));
     }
 
     function syncIntro(view) {
@@ -795,6 +805,8 @@ export function createCombatPanelController(doc, options = {}) {
         if (introBuilt && !revealing && !phase) { removeIntro(); return; }
         if (introBuilt) {
             if (view.lobby && !introBuilt.heroesSynced) { introBuilt.heroesSynced = true; updateClashHeroes(doc, introBuilt.root, introHeroes(view)); }
+            // 过场先于名单与立绘画出：每次重绘就地补上已到的立绘（地址没变的框不动）。
+            if (!revealing) updateClashFigures(doc, introBuilt.root, { heroes: introHeroes(view), foes: introFoes(view) });
             syncIntroUi(view);
             return;
         }
@@ -802,12 +814,7 @@ export function createCombatPanelController(doc, options = {}) {
         const layers = stage ? ensureFxLayers(stage) : null;
         if (!layers?.front) return;
         const l = view.lobby;
-        const arts = view.enemyArt || {};
-        const pics = view.portraits || {};
-        const src = l ? l.enemies : (preview?.enemies || []);
-        const foes = src.flatMap((e) => Array.from({ length: Math.max(1, Math.min(2, Number(e.count) || 1)) }, () => e)).slice(0, 2)
-            .map((e) => ({ name: e.name, url: pics[e.name] || '', cell: arts[e.name] || enemyArtCell({ name: e.name, tier: e.tier || preview?.tier || 'normal' }) }));
-        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes: introHeroes(view), foes, title: l?.encounter || preview?.encounter || view.encounter || '', low: lowQuality() });
+        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes: introHeroes(view), foes: introFoes(view), title: l?.encounter || preview?.encounter || view.encounter || '', low: lowQuality() });
         layers.front.appendChild(built.root);
         cutinNodes.add(built.root);
         built.heroesSynced = Boolean(l);

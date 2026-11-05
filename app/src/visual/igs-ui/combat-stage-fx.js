@@ -70,9 +70,19 @@ function text(doc, tag, cls, value, parent) {
 // 立绘节点：有图用背景图（背景图写在节点的内联样式上），没有立绘时写名字首字。
 function figure(doc, cls, url, name, parent) {
     const f = el(doc, 'i', `fig ${cls}`, parent);
+    fillFigure(doc, f, url, name);
+    return f;
+}
+const heroSig = (url, name) => (url ? `u:${url}` : `n:${name || ''}`);
+function fillFigure(doc, f, url, name) {
+    f.setAttribute?.('data-src', heroSig(url, name));
     if (url) { if (f.style) f.style.backgroundImage = cssUrl(url); }
     else silhouette(doc, f, name);
-    return f;
+}
+// 就地换内容（不换节点，正在播的动画不重开）。
+function clearFigure(f) {
+    while (f.firstChild) f.removeChild(f.firstChild);
+    if (f.style) f.style.backgroundImage = '';
 }
 // 缺立绘时画皮肤色的人形剪影（不用首字或破图）。
 function silhouette(doc, parent, name) {
@@ -84,6 +94,12 @@ function silhouette(doc, parent, name) {
 // 敌人立绘：素材库图 > 通用图集一格 > 首字。
 function foeFigure(doc, cls, foe, parent) {
     const f = el(doc, 'i', `fig ${cls}`, parent);
+    fillFoeFigure(doc, f, foe);
+    return f;
+}
+const foeSig = (foe) => (foe.url ? `u:${foe.url}` : foe.cell ? `c:${foe.cell.atlas}:${foe.cell.x}:${foe.cell.y}` : `n:${foe.name || ''}`);
+function fillFoeFigure(doc, f, foe) {
+    f.setAttribute?.('data-src', foeSig(foe));
     if (foe.url) {
         const img = el(doc, 'img', '', f);
         img.setAttribute('src', foe.url);
@@ -197,6 +213,33 @@ export function updateClashHeroes(doc, root, heroes = []) {
     const and = nameEl.querySelector('.and');
     if (and) { if (mate?.name) and.textContent = `& ${mate.name}`; else and.remove(); } else if (mate?.name) { const sp = doc.createElement('span'); sp.className = 'and'; sp.textContent = `& ${mate.name}`; nameEl.insertBefore(sp, first?.nextSibling || null); }
     pickRow(doc, nameEl, heroes);
+}
+
+// 立绘晚于对撞过场到达（战前名单、素材库读回）：就地换我方与敌方立绘框的内容，地址没变的框不动。
+export function updateClashFigures(doc, root, { heroes = [], foes = [] } = {}) {
+    const heroSide = root?.querySelector?.('.half.hero-side');
+    const foeSide = root?.querySelector?.('.half.foe-side');
+    if (!heroSide || !foeSide) return;
+    // 主位（lead/foe1）总在；副位（mate/foe2）按有无增删，插在主位前面以保持原有叠放次序。
+    const slot = (side, cls, mainCls, data, sig, fill) => {
+        let f = side.querySelector(`.fig.${cls}`);
+        if (!data) { if (cls !== mainCls) f?.remove?.(); return; }
+        if (!f) {
+            f = doc.createElement('i');
+            f.className = `fig ${cls}`;
+            side.insertBefore(f, side.querySelector(`.fig.${mainCls}`) || null);
+        } else if (f.getAttribute?.('data-src') === sig) return;
+        clearFigure(f);
+        fill(f, data);
+    };
+    const lead = heroes[0] || { name: '' }, mate = heroes[1];
+    const heroFill = (f, h) => fillFigure(doc, f, h.url, h.name);
+    slot(heroSide, 'lead', 'lead', lead, heroSig(lead.url, lead.name), heroFill);
+    slot(heroSide, 'mate', 'lead', mate, mate ? heroSig(mate.url, mate.name) : '', heroFill);
+    const f1 = foes[0] || { name: '' }, f2 = foes[1];
+    const foeFill = (f, foe) => fillFoeFigure(doc, f, foe);
+    slot(foeSide, 'foe1', 'foe1', f1, foeSig(f1), foeFill);
+    slot(foeSide, 'foe2', 'foe1', f2, f2 ? foeSig(f2) : '', foeFill);
 }
 
 // 开战黑屏对撞：我方（主战者 + 同伴）与敌方（前排 + 后排）沿锯齿接缝对撞，撞点光芒、光环、火花，名字与破框 VS 砸入。
