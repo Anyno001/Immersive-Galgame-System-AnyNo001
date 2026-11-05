@@ -12,7 +12,7 @@ import { buildAssetPlannerUserPrompt, parseAssetPlan, buildAssetSlot, buildDicti
 import { requestWithSoftRetry, normalizeMatteColor } from './prompt-kit.js';
 import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './auto-illustration-settings.js';
 import { ASSET_PLANNER_SYSTEM_PROMPT, ASSET_PLANNER_SOFT_SYSTEM_PROMPT } from './asset-prompt.js';
-import { cgSizeForMode } from './auto-illustration-service.js';
+import { cgSizeForMode, cgSizeForFrame, passesSizeThrough } from './auto-illustration-service.js';
 import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-builder.js';
 import { collectAssetNeeds, collectGeneratedImageIds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -224,7 +224,7 @@ export function createAssetGenerationService(deps) {
     };
 
     // 场景背景和剧情 CG 用同一套尺寸：手机、内嵌竖屏把背景尺寸宽高对调；全屏按窗口实际比例。
-    const backgroundSize = (s) => cgSizeForMode(
+    const backgroundSize = (s) => (passesSizeThrough(nai, s.taskSignal) ? cgSizeForFrame : cgSizeForMode)(
         s.auto.assets.backgroundSize,
         typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc',
         typeof deps.getViewport === 'function' ? deps.getViewport() : null,

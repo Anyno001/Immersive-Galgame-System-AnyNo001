@@ -67,6 +67,26 @@ export function cgSizeForMode(backgroundSize, mode, viewport) {
     return clampToPixelCap(`${match[2]}x${match[1]}`);
 }
 
+// 内置 NAI 和数据库生图会把宽高原样发出去，所以按画面框的实际宽高比出图，横竖自动跟随，场景和 CG 共用。
+// 量不到画面框（阅读器没开、楼层未渲染）时沿用 cgSizeForMode。比例限制在 2.5:1 以内，像素预算和 cgSizeForAspect 相同。
+const FRAME_ASPECT_LIMIT = 2.5;
+export function cgSizeForFrame(backgroundSize, mode, viewport) {
+    const fixed = cgSizeForMode(backgroundSize, mode, viewport);
+    if (mode === 'fullscreen') return fixed;
+    const frameW = Number(viewport && viewport.frame && viewport.frame.width) || 0;
+    const frameH = Number(viewport && viewport.frame && viewport.frame.height) || 0;
+    if (!(frameW > 0) || !(frameH > 0)) return fixed;
+    const aspect = Math.min(FRAME_ASPECT_LIMIT, Math.max(1 / FRAME_ASPECT_LIMIT, frameW / frameH));
+    return cgSizeForAspect(fixed, { width: aspect, height: 1 });
+}
+
+// 只有内置 NAI 和数据库生图按画面框出图。柏宝绘只分横竖，智绘姬不收尺寸，沿用原规则。
+export function passesSizeThrough(nai, signal) {
+    const info = typeof nai?.describe === 'function' ? nai.describe(undefined, { signal }) : null;
+    if (!info) return false;
+    return info.mode === 'nai' || info.mode === 'dbgen' || info.via === 'nai' || info.via === 'dbgen';
+}
+
 // 背景尺寸填成方的，横竖交给画面决定：按 1216:832 的横图比例在同样像素内重排，手机再对调成竖图。
 function squareAsLandscape(sizeText) {
     const parsed = parseCgSize(sizeText);
@@ -126,8 +146,18 @@ export function readCgViewport(globalObject, mode) {
     const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
     const hostWidth = rect ? Number(rect.width) : 0;
     const hostHeight = rect ? Number(rect.height) : 0;
-    if (hostWidth > 0 && hostHeight > 0) return { width: hostWidth, height: hostHeight, ...(portrait && { portrait }) };
-    return windowViewport(globalObject, portrait);
+    if (hostWidth > 0 && hostHeight > 0) {
+        return { width: hostWidth, height: hostHeight, ...(portrait && { portrait }),
+            ...(mode === 'embedded' && { frame: { width: hostWidth, height: hostHeight } }) };
+    }
+    const view = windowViewport(globalObject, portrait);
+    // 电脑、手机悬浮窗可以拖四角改尺寸，画面框量的是悬浮窗本身。
+    const stage = (mode === 'pc' || mode === 'mobile') && doc && typeof doc.querySelector === 'function'
+        ? doc.querySelector('.igs-stage.igs-floating') : null;
+    const stageRect = stage && typeof stage.getBoundingClientRect === 'function' ? stage.getBoundingClientRect() : null;
+    const stageW = stageRect ? Number(stageRect.width) : 0;
+    const stageH = stageRect ? Number(stageRect.height) : 0;
+    return stageW > 0 && stageH > 0 ? { ...view, frame: { width: stageW, height: stageH } } : view;
 }
 
 // 只有这些状态算「本楼已处理完」；failed / stale / 中途刷新残留的 planning 在下次渲染时重试，
@@ -255,7 +285,7 @@ export function createAutoIllustrationService(deps) {
         return Promise.resolve(typeof llm?.runImageTask === 'function' ? llm.runImageTask(input, run) : run(input))
             .finally(() => target.release());
     }
-    const cgSize = (s) => cgSizeForMode(
+    const cgSize = (s) => (passesSizeThrough(nai, s.taskSignal) ? cgSizeForFrame : cgSizeForMode)(
         s.assets && s.assets.backgroundSize,
         typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc',
         typeof deps.getViewport === 'function' ? deps.getViewport() : null,
