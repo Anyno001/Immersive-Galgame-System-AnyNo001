@@ -410,7 +410,7 @@ const COMBAT_TEMPLATE = `
     <div class="igs-source-filter-note"{{battleCardHidden}}>需要已安装数据库（shujuku）并接好写词模型（副 LLM），开启后数值系统随之启用。</div>
     <div class="igs-source-filter-grid"{{battleCardHidden}}>{{combatFields}}</div>
   </div>
-  <div class="igs-settings-sub"{{battleStoryHidden}}>
+  <div class="igs-settings-sub igs-settings-full"{{battleStoryHidden}}>
     <div class="igs-source-filter">
       <div class="igs-settings-section">{{battleStoryFields}}</div>
       <div class="igs-source-filter-note">数值系统开启时，由数值系统速算胜负与伤势。</div>
@@ -453,7 +453,7 @@ const STATS_TEMPLATE = `
     <div class="igs-source-filter-note">好感、技能、体力和金钱由脚本掷骰决定，AI只负责把结果写进剧情。</div>
     <div class="igs-source-filter-note"{{statsCombatNoteHidden}}>卡牌战斗开启中，数值系统随之启用，不能单独关闭。</div>
   </div>
-  <div class="igs-settings-sub"{{statsHidden}}>
+  <div class="igs-settings-sub igs-settings-full"{{statsHidden}}>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">我的角色（本聊天）</div>
       <div class="igs-source-filter-note" data-result="stats-chat">{{statsChatNote}}</div>
@@ -494,7 +494,7 @@ const STATS_TEMPLATE = `
         {{statsMappingFields}}
         <div class="igs-source-filter-note">表格里的数值只作展示；在表格里改动的数值会在下一次同步时被覆盖。</div>
         <div class="igs-source-filter-note">推荐导入「IGS数值系统适配版」表格模板：填表AI不再改好感与属性，导入后无需配置。</div>
-        <div class="igs-settings-row">
+        <div class="igs-stats-template-actions">
           <button class="igs-settings-action" data-action="stats-template-import" type="button">存为模板预设</button>
           <button class="igs-settings-action" data-action="stats-template-apply-chat" type="button">用于本聊天</button>
           <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板</button>
@@ -529,7 +529,7 @@ const ORIGIN_TEMPLATE = `
     <div class="igs-settings-row">{{originToggle}}</div>
     <div class="igs-source-filter-note"{{originOffNoteHidden}}>开启后，阅读器左上角出现随身系统入口，系统会在剧情中派发任务、结算积分，并提供背包、商城、抽奖与成就。</div>
   </div>
-  <div class="igs-settings-sub"{{originHidden}}>
+  <div class="igs-settings-sub igs-settings-full"{{originHidden}}>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">本聊天</div>
       <div class="igs-source-filter-note" data-result="origin-chat">{{originChatNote}}</div>

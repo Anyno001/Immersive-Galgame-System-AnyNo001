@@ -1880,7 +1880,7 @@ export function createStatsRuntime({
         // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
         archive: ev(() => {
             ensureLoaded();
-            return ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints() }) : null;
+            return ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero }) : null;
         }),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {

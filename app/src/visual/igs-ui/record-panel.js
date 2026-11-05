@@ -2,7 +2,7 @@ import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildRecordModel, buildRelationshipModel, parseLooseDate } from '../../data/shujuku/record-model.js';
 import { buildFavorOverviewModel } from '../../data/shujuku/favor-overview-model.js';
 import { createCharacterMetricsLookup } from '../../data/shujuku/character-metrics.js';
-import { isUserName, preferStatsLookup } from '../../scene/stats/stat-metrics.js';
+import { dropUserFavor, isUserName, preferStatsLookup } from '../../scene/stats/stat-metrics.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from './record-icons.js';
@@ -364,7 +364,19 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             // 数值系统开启且本聊天启用时，已登记角色以 IGS 数值为准，其余人仍读表格（易错点 H3）。
             let statsLookup = null;
             try { statsLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null; } catch (_) { statsLookup = null; }
-            metricsOf = preferStatsLookup(statsLookup, tableLookup);
+            let heroLookup = null;
+            try { heroLookup = typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null; } catch (_) { heroLookup = null; }
+            const others = preferStatsLookup(statsLookup, tableLookup);
+            // 用户本人没有人际数值：显示主角生活条（压力、体力等），表格里的好感、信任、芥蒂等列不显示。
+            metricsOf = (name) => {
+                const userName = getSillyTavernContext()?.name1;
+                if (!isUserName(name, userName)) return others(name);
+                const own = heroLookup ? heroLookup(name) : null;
+                if (own && own.metrics && own.metrics.length) return own;
+                let fromTable = null;
+                try { fromTable = tableLookup ? tableLookup(name) : null; } catch (_) { fromTable = null; }
+                return { ...dropUserFavor({ metrics: (fromTable && fromTable.metrics) || [] }, name, userName), stages: [] };
+            };
             if (!relationshipPeople().some(person => person.id === relationshipPersonId)) relationshipPersonId = relationshipPeople()[0]?.id || '';
             selectedId = '';
         } else if (selectedId && !entries().some(entry => entry.id === selectedId)) selectedId = '';

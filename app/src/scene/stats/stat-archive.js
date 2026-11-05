@@ -42,7 +42,7 @@ function heroSkillRows(engine, state, names) {
     });
 }
 
-export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0, heroSkills = [] } = {}) {
+export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0, heroSkills = [], isHero = null } = {}) {
     if (!ledger) return null;
     const state = currentStatsState(ledger);
     const rows = [];
@@ -56,7 +56,8 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
         const ck = entry && entry.meta && entry.meta.check;
         if (ck) checks.push({ messageId, skill: ck.skill, difficulty: ck.difficulty || '普通', detail: ck.detail || (ck.die === 20 ? `d20(${ck.roll})` : `1d100=${ck.roll}`), outcome: ck.outcome || ck.tier, ruleset: ck.ruleset || 'coc7', source: ck.source || '' });
     }
-    const characters = Object.entries(state.characters || {}).map(([name, c]) => ({
+    // 旧存档里可能已把用户登记成人际角色：数据保留，列表不显示。
+    const characters = Object.entries(state.characters || {}).filter(([name]) => !(typeof isHero === 'function' && isHero(name))).map(([name, c]) => ({
         name, stage: stageOf(Number(c.dims && c.dims.好感) || 0).name, dims: { ...(c.dims || {}) },
     }));
     const skills = Object.entries((state.protagonist && state.protagonist.skills) || {}).map(([name, s]) => ({

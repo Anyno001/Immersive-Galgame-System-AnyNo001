@@ -689,7 +689,8 @@ export function createSettingsHost(deps) {
         if (!op) return { ok: false, reason: 'stats-runtime-missing' };
         const [kind, raw = ''] = spec.split(/:(.*)/s);
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
-        const [namePart, valuePart = ''] = kind === 'hero-set' ? raw.split('|') : [raw];
+        // relation-set 的参数是「编码后的角色名|好感,信任,了解」（当前值，用来预填数字框）。
+        const [namePart, valuePart = ''] = kind === 'hero-set' || kind === 'relation-set' ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -730,12 +731,12 @@ export function createSettingsHost(deps) {
                     await settingsDialogs.alert(result.filled.length ? `已补填初始关系：${result.filled.join('、')}` : '按人设判断，这些角色与主角都还是陌生关系，数值未改动。');
                 }
             } else if (kind === 'relation-set') {
-                const text = String((await settingsDialogs.prompt(`修改「${name}」的关系数值，范围-100到100，只写要改的项（如「好感 30 了解 40」）。`, '')) || '').trim();
-                const payload = {};
-                let bad = false;
-                for (const [, key, value] of text.matchAll(/(好感|信任|了解)\s*[:：]?\s*(-?\d+)/g)) payload[key] = Number(value);
-                if (text && !Object.keys(payload).length) bad = true;
-                result = bad ? { ok: false, reason: 'stats-relation-invalid' } : Object.keys(payload).length ? await op('relation', 'set', name, payload) : { ok: true, cancelled: true };
+                const dims = ['好感', '信任', '了解'];
+                const before = valuePart.split(',').map((v) => (v === '' ? NaN : Number(v)));
+                const values = await settingsDialogs.numbers(`修改「${name}」的关系数值`, dims.map((key, i) => ({ key, label: key, value: Number.isFinite(before[i]) ? before[i] : 0, min: -100, max: 100 })), { okLabel: '保存' });
+                // 只提交改动过的项，没改的维度不记手改。
+                const payload = values ? Object.fromEntries(dims.filter((key, i) => values[key] !== before[i]).map((key) => [key, values[key]])) : {};
+                result = Object.keys(payload).length ? await op('relation', 'set', name, payload) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-regen') {
                 result = await settingsDialogs.confirm(`重新生成「${name}」的数值？手改过的内容会被覆盖。`) ? await op('sheet', 'regen', name) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-remove') {
@@ -745,7 +746,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '格式不对，请写成「好感 30」，数值为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();

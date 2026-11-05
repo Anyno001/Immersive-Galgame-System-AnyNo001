@@ -237,8 +237,8 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
     const people = model.characters.length
         ? model.characters.map((c) => {
             const dims = Object.entries(c.dims).filter(([k, v]) => k !== '芥蒂' || grudgeTier(v)).map(([k, v]) => `${esc(k)} ${k === '芥蒂' ? esc(grudgeTier(v)) : n(v)}`).join(' · ');
-            return `<div class="igs-settings-field"><span><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</span><div class="igs-mood-word-list">`
-                + `<button class="igs-settings-action" data-action="stats-op:relation-set:${esc(encodeURIComponent(c.name))}" type="button">修改</button></div></div>`;
+            return `<div class="igs-settings-field igs-stats-person"><span><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</span><div class="igs-mood-word-list">`
+                + `<button class="igs-settings-action" data-action="stats-op:relation-set:${esc(encodeURIComponent(c.name))}|${['好感', '信任', '了解'].map((k) => n(c.dims[k])).join(',')}" type="button">修改</button></div></div>`;
         }).join('')
         : '<div class="igs-source-filter-note">还没有登记的角色。</div>';
     const log = model.log.length

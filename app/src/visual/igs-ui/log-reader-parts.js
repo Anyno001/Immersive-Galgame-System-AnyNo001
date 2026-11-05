@@ -135,7 +135,6 @@ Object.assign(SPECS, {
     'wuxia-ink': {
         ring: 'inset 0 0 0 1px #6a6862',
         r: 2,
-        name: { tail: { w: 34, c: '#6a6862' } },
         row: { line: 'fade', c: '#3a3935', m: { svg: M.moon('#ece7dd'), w: 10, h: 10 }, gap: 8 },
         scene: { line: 'fade', c: '#4a4944', m: { svg: M.moon('#ece7dd'), w: 10, h: 10 } },
         chip: { r: 99, bg: '#2c2c2b', ink: '#ece7dd' },
