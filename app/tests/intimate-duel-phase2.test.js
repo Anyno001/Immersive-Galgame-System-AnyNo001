@@ -897,3 +897,121 @@ test('规则 v5 P2c 模板：可反解且通过校验、归入通用族；重演
     assert.equal(solvedAny('xdraw').cost, 'X');
 });
 
+
+
+// ---------- 规则 v5 P2d：触发、条件、状态牌（G20、G22、G23、L06） ----------
+const passiveOn = (trigger, effects) => ({ id: `p-${trigger}`, trigger, effects });
+const duel = ({ heroExtra = {}, catalog = { k: GUARD }, deck = Array(10).fill('k'), foeSkill = {}, foeExtra = {}, rulesVersion } = {}) => {
+    const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck, catalog, ...heroExtra }), foe(foeSkill, foeExtra)], ...(rulesVersion ? { rulesVersion } : {}) };
+    const created = createBattle(setup, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+const STRENGTH_UP = [{ op: 'status', status: 'strength', stacks: 1, target: 'self' }];
+const BLOCK_UP = [{ op: 'block', amount: 3, target: 'self' }];
+
+test('新触发时机（G20）：抽牌后、生成临时牌后、使敌人陷入减益后、格挡被打破时；对方塞入的牌不算生成；规则 v4 不触发', () => {
+    assert.equal(duel({ heroExtra: { passives: [passiveOn('draw', BLOCK_UP)] } }).units.hero.block, 3);
+    assert.equal(duel({ heroExtra: { passives: [passiveOn('draw', BLOCK_UP)] }, rulesVersion: 4 }).units.hero.block, 0);
+
+    const forge = def('f', 'skill', [{ op: 'create', card: 'token-shard', amount: 1, to: 'hand' }], { innate: true });
+    const made = duel({ heroExtra: { passives: [passiveOn('create', STRENGTH_UP)] }, catalog: { f: forge, k: GUARD }, deck: ['f', ...Array(9).fill('k')] });
+    assert.equal(playIn(made, instOf(made, 'f')).state.units.hero.statuses.strength, 1);
+    const stuffed = endTurn(duel({ heroExtra: { passives: [passiveOn('create', STRENGTH_UP)] }, foeSkill: { intent: 'debuff', effects: [{ op: 'create', card: 'status-slime', amount: 1, to: 'discard' }] } })).state;
+    assert.ok(!stuffed.units.hero.statuses.strength);
+    assert.ok(Object.values(stuffed.cards).some((entry) => entry.owner === 'hero' && entry.cardId === 'status-slime'));
+
+    const weak = def('w', 'skill', [{ op: 'status', status: 'weak', stacks: 1, target: 'enemy' }], { innate: true });
+    const hex = { heroExtra: { passives: [passiveOn('debuff-applied', BLOCK_UP)] }, catalog: { w: weak, k: GUARD }, deck: ['w', ...Array(9).fill('k')] };
+    const cursed = duel(hex);
+    assert.equal(playIn(cursed, instOf(cursed, 'w'), 'foe').state.units.hero.block, 3);
+    const warded = duel({ ...hex, foeExtra: { passives: [{ id: 'pa', trigger: 'battle-start', effects: [{ op: 'status', status: 'artifact', stacks: 1, target: 'self' }] }] } });
+    assert.equal(playIn(warded, instOf(warded, 'w'), 'foe').state.units.hero.block, 0);
+
+    const guarded = { heroExtra: { passives: [passiveOn('block-broken', STRENGTH_UP)] }, foeSkill: foeAttack(5) };
+    const shielded = duel(guarded);
+    assert.equal(endTurn(playIn(shielded, shielded.piles.hero.hand[0]).state).state.units.hero.statuses.strength, 1);
+    assert.ok(!endTurn(duel(guarded)).state.units.hero.statuses.strength);
+});
+
+test('条件扩充（G22）：目标意图为攻击、目标生命低于百分比、手牌数、本场已消耗数；牌面写明；意图条件不收数值', async () => {
+    const { conditionHolds } = await import('../src/combat/battle-state.js');
+    const holds = (state, when) => conditionHolds(state, state.units.hero, when, 'foe');
+    assert.equal(holds(duel({ foeSkill: foeAttack(3) }), { kind: 'target-intent-attack' }), true);
+    const calm = structuredClone(duel());
+    assert.equal(holds(calm, { kind: 'target-intent-attack' }), false);
+    assert.equal(holds(calm, { kind: 'target-hp-below', value: 50 }), false);
+    calm.units.foe.hp = 14;
+    assert.equal(holds(calm, { kind: 'target-hp-below', value: 50 }), true);
+    const size = calm.piles.hero.hand.length;
+    assert.equal(holds(calm, { kind: 'hand-gte', value: size }), true);
+    assert.equal(holds(calm, { kind: 'hand-gte', value: size + 1 }), false);
+    calm.piles.hero.exhaust.push(...calm.piles.hero.hand.slice(0, 2));
+    assert.equal(holds(calm, { kind: 'exhausted-gte', value: 2 }), true);
+    assert.equal(holds(calm, { kind: 'exhausted-gte', value: 3 }), false);
+
+    assert.ok(describeEffects([{ op: 'conditional', when: { kind: 'target-intent-attack' }, then: [{ op: 'damage', amount: 3, target: 'enemy' }] }]).includes('目标意图为攻击时'));
+    assert.ok(describeEffects([{ op: 'conditional', when: { kind: 'exhausted-gte', value: 3 }, then: [{ op: 'block', amount: 3, target: 'self' }] }]).includes('本场已消耗 3 张牌时'));
+    for (const key of ['interrupt', 'coup', 'brim', 'ashen', 'linger']) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'general');
+    }
+    const bad = structuredClone(solvedAny('interrupt'));
+    bad.solved.effects[1].when.value = 1;
+    assert.equal(normalizeCard({ id: 'x', name: '牌', cost: bad.cost, rarity: bad.rarity, ...bad.solved }).ok, false);
+});
+
+test('状态牌（G23）：灼痕回合末在手受伤、空洞抽到失去能量、痛楚在手每出一张失去生命、黏浊付 1 费打出后消耗；牌面写明；规则 v4 不结算', async () => {
+    const { TOKEN_CARDS } = await import('../src/combat/rules.js');
+    const { describeKeywords } = await import('../src/visual/igs-ui/combat-card-art.js');
+    const maker = (card, to = 'hand', more = []) => def('m', 'skill', [{ op: 'create', card, amount: 1, to }, ...more], { innate: true });
+
+    const burnt = (rv) => {
+        const s = startDeck({ m: maker('status-burn'), k: GUARD }, ['m', ...Array(9).fill('k')], rv);
+        return endTurn(playIn(s, instOf(s, 'm')).state).state.units.hero.hp;
+    };
+    assert.equal(burnt(), 28);
+    assert.equal(burnt(4), 30);
+
+    const drained = (rv) => {
+        const s = startDeck({ m: maker('status-void', 'draw', [{ op: 'draw', amount: 2 }]), k: GUARD }, ['m', 'k', 'k', 'k', 'k', 'k'], rv);
+        return playIn(s, instOf(s, 'm')).state.units.hero.energy;
+    };
+    assert.equal(drained(), 1);
+    assert.equal(drained(4), 2);
+
+    const pained = startDeck({ m: maker('status-pain'), k: GUARD }, ['m', ...Array(9).fill('k')]);
+    const hurt = playIn(pained, instOf(pained, 'm'));
+    assert.equal(hurt.state.units.hero.hp, 29);
+    assert.equal(playIn(hurt.state, instOf(hurt.state, 'k')).state.units.hero.hp, 28);
+
+    const slimy = startDeck({ m: maker('status-slime'), k: GUARD }, ['m', ...Array(9).fill('k')]);
+    const slimed = playIn(slimy, instOf(slimy, 'm')).state;
+    const slime = instOf(slimed, 'status-slime');
+    assert.ok(slime);
+    const cleared = playIn(slimed, slime).state;
+    assert.equal(cleared.units.hero.energy, 1);
+    assert.ok(cleared.piles.hero.exhaust.includes(slime));
+
+    assert.ok(describeKeywords(TOKEN_CARDS['status-burn']).includes('回合结束时在手牌中'));
+    assert.ok(describeKeywords(TOKEN_CARDS['status-pain']).includes('每打出一张牌失去 1 点生命'));
+});
+
+test('回合结束多保留手牌（L06）：多留 N 张、用后清掉；规则 v4 不保留；人物特性池有保留字段与新触发时机', () => {
+    const r = def('r', 'skill', [{ op: 'retain-hand', amount: 1 }], { innate: true });
+    const nextHand = (rv) => {
+        const s = startDeck({ r, a: ATTACK, k: GUARD }, ['r', 'a', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k'], rv);
+        return endTurn(playIn(s, instOf(s, 'r')).state).state;
+    };
+    const v5 = nextHand();
+    const v4 = nextHand(4);
+    assert.equal(v5.piles.hero.hand.length, v4.piles.hero.hand.length + 1);
+    assert.equal(v5.units.hero.res, undefined);
+
+    const pool = traitPool('rare');
+    assert.ok(pool.some((shape) => shape.kind === 'passive' && shape.field === 'retain'));
+    for (const trigger of ['draw', 'create', 'debuff-applied', 'block-broken']) assert.ok(pool.some((shape) => shape.trigger === trigger), trigger);
+});

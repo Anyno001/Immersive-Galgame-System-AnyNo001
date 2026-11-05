@@ -38,6 +38,11 @@ export const TRAIT_TRIGGERS = Object.freeze([
     ['shuffle', null, 1, '每次洗牌时'],
     ['hp-loss', null, 3, '每次失去生命时'],
     ['block-gain', null, 4, '每次获得格挡时'],
+    // 规则 v5 G20（只在 v5 战斗中触发）。
+    ['draw', null, 2, '每次抽牌后'],
+    ['create', null, 1, '每次生成临时牌后'],
+    ['debuff-applied', null, 2, '每次使敌人陷入减益后'],
+    ['block-broken', null, 1.5, '格挡被打破时'],
 ].map(([trigger, cardType, rate, text]) => Object.freeze({ id: cardType ? `${trigger}:${cardType}` : trigger, trigger, cardType, rate, text })));
 
 // 被动字段：key、数值上限、效果构造器、文案。
@@ -58,10 +63,12 @@ export const TRAIT_FIELDS = Object.freeze([
     field('poison', 8, statusField('poison', 'random-enemy'), (n) => `使随机敌人中毒 ${n} 层`),
     field('weak', 3, statusField('weak', 'random-enemy'), (n) => `使随机敌人虚弱 ${n} 层`),
     field('vulnerable', 3, statusField('vulnerable', 'random-enemy'), (n) => `使随机敌人易伤 ${n} 层`),
+    // 规则 v5 L06：本回合结束时多保留手牌。
+    field('retain', 2, (n) => ({ op: 'retain-hand', amount: n }), (n) => `本回合结束时多保留 ${n} 张手牌`),
 ]);
 
 // 与触发器相冲突的字段（会自我循环）。
-const TRIGGER_EXCLUDED_FIELDS = Object.freeze({ 'block-gain': ['block'], shuffle: ['draw'] });
+const TRIGGER_EXCLUDED_FIELDS = Object.freeze({ 'block-gain': ['block'], shuffle: ['draw'], draw: ['draw'], 'debuff-applied': ['poison', 'weak', 'vulnerable'] });
 
 // 附加条件：when 是效果条件，text 是文案，triggers 限定可用的触发器（null 表示除 on-low-hp 外都行）。
 export const TRAIT_CONDITIONS = Object.freeze([
@@ -70,6 +77,9 @@ export const TRAIT_CONDITIONS = Object.freeze([
     [{ kind: 'attacks-played-gte', value: 2 }, '若本回合已出 2 张攻击牌', ['card-played', 'turn-end']],
     [{ kind: 'discarded-gte', value: 1 }, '若本回合弃过牌', ['card-played', 'turn-end']],
     [{ kind: 'self-has', value: 'weak' }, '若自身虚弱', ['turn-start', 'card-played', 'on-hit']],
+    // 规则 v5 G22。
+    [{ kind: 'hand-gte', value: 5 }, '若手牌不少于 5 张', ['turn-end', 'card-played', 'draw']],
+    [{ kind: 'exhausted-gte', value: 3 }, '若本场已消耗 3 张牌', ['turn-start', 'card-played', 'exhaust']],
 ].map(([when, text, triggers]) => Object.freeze({ when: Object.freeze(when), text, triggers })));
 
 // 某触发器可用的条件。

@@ -8,3 +8,4 @@ import './guard.js';
 import './drain.js';
 import './pile.js';
 import './energy.js';
+import './status-cards.js';

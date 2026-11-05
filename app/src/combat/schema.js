@@ -34,6 +34,8 @@ export const SKILL_INTENTS = Object.freeze(['attack', 'defend', 'buff', 'debuff'
 export const PASSIVE_TRIGGERS = Object.freeze([
     'battle-start', 'turn-start', 'turn-end', 'on-hit', 'on-low-hp', 'card-played', 'discard', 'exhaust', 'kill', 'shuffle',
     'hp-loss', 'block-gain', 'foe-card-played',
+    // 规则 v5 G20：抽牌后、生成临时牌后、使敌人陷入减益后、格挡被打破时（只在 v5 战斗中触发）。
+    'draw', 'create', 'debuff-applied', 'block-broken',
 ]);
 export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
 export const LEDGER_TYPES = Object.freeze([
@@ -59,8 +61,9 @@ export const ATTRIBUTE_TYPES = Object.freeze(['init', 'rel', 'story', 'alloc', '
 const STATUS_TARGETS = Object.freeze([...OFFENSE_TARGETS, ...SUPPORT_TARGETS]);
 // 这些状态默认挂在自己身上，其余默认挂敌人。
 const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact']);
-const CONDITION_KINDS = Object.freeze(['target-has', 'self-has', 'self-hp-below', 'cards-played-gte', 'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte']);
-const COUNT_CONDITIONS = new Set(['cards-played-gte', 'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte']);
+// 规则 v5 G22：目标意图为攻击、目标生命低于百分比、手牌数、本场已消耗数。
+const CONDITION_KINDS = Object.freeze(['target-has', 'self-has', 'self-hp-below', 'cards-played-gte', 'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte', 'target-intent-attack', 'target-hp-below', 'hand-gte', 'exhausted-gte']);
+const COUNT_CONDITIONS = new Set(['cards-played-gte', 'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte', 'hand-gte', 'exhausted-gte']);
 const DISCARD_MODES = Object.freeze(['choose', 'random']);
 const PICK_MODES = Object.freeze(['self', 'choose', 'random']);
 const PILES = Object.freeze(['hand', 'discard', 'draw']);
@@ -138,7 +141,8 @@ function validateCondition(cond, path, state) {
     const kind = enumField(cond.kind, joinPath(path, 'kind'), state, CONDITION_KINDS);
     const valuePath = joinPath(path, 'value');
     if (kind === 'target-has' || kind === 'self-has') return { kind, value: enumField(cond.value, valuePath, state, STATUSES) };
-    if (kind === 'self-hp-below') return { kind, value: intField(cond.value, valuePath, state, 1, 99) };
+    if (kind === 'self-hp-below' || kind === 'target-hp-below') return { kind, value: intField(cond.value, valuePath, state, 1, 99) };
+    if (kind === 'target-intent-attack') return cond.value === undefined ? { kind } : addIssue(state, valuePath, 'unknown-field');
     if (COUNT_CONDITIONS.has(kind)) return { kind, value: intField(cond.value, valuePath, state, 1, 10) };
 }
 

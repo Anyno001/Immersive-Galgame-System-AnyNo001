@@ -127,6 +127,11 @@ export const TOKEN_CARDS = deepFreeze({
     'token-spark': { id: 'token-spark', name: '灵光', type: 'skill', cost: 0, rarity: 'basic', effects: [{ op: 'draw', amount: 1 }, { op: 'exhaust-self' }], skillRef: '灵光' },
     'status-daze': { id: 'status-daze', name: '眩晕', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, ethereal: true, skillRef: '眩晕' },
     'status-wound': { id: 'status-wound', name: '伤口', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, skillRef: '伤口' },
+    // 规则 v5 G23 状态牌（结算在 mechanics/status-cards.js，只在 v5 战斗中生效；黏浊可打出，付 1 费后消耗）。
+    'status-burn': { id: 'status-burn', name: '灼痕', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, skillRef: '灼痕' },
+    'status-slime': { id: 'status-slime', name: '黏浊', type: 'skill', cost: 1, rarity: 'basic', effects: [{ op: 'exhaust-self' }], skillRef: '黏浊' },
+    'status-void': { id: 'status-void', name: '空洞', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, ethereal: true, skillRef: '空洞' },
+    'status-pain': { id: 'status-pain', name: '痛楚', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, skillRef: '痛楚' },
 });
 export const TOKEN_KEYS = Object.freeze(Object.keys(TOKEN_CARDS));
 

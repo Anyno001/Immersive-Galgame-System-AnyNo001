@@ -226,6 +226,12 @@ export const CARD_TEMPLATES = Object.freeze({
     overcharge: template('skill', '能量翻倍，并获得格挡，用后消耗（限稀有以上）', [[0, 20]], 1, ([a]) => [energyDouble(), block(a), exhaustSelf()], { minRarity: 'rare' }),
     xdraw: template('skill', 'X 费：每点能量抽 1 张牌并获得格挡', [[1, 1], [0, 20]], 1, ([a, b]) => [draw(a), block(b)], { costs: ['X'] }),
     xforge: template('skill', 'X 费：每点能量生成 1 张「碎刃」加入手牌并获得格挡', [[1, 1], [0, 20]], 1, ([a, b]) => [create('token-shard', a), block(b)], { costs: ['X'] }),
+    // 规则 v5 P2d：G22 新条件、L06 回合结束多保留手牌。
+    interrupt: template('attack', '伤害；目标意图为攻击时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('target-intent-attack', undefined, [damage(b)])]),
+    coup: template('attack', '伤害；目标生命低于一半时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('target-hp-below', 50, [damage(b)])]),
+    brim: template('skill', '格挡；手牌不少于 4 张时追加格挡', [[1, 30], [1, 30]], 0.6, ([a, b]) => [block(a), conditional('hand-gte', 4, [block(b)])]),
+    ashen: template('attack', '伤害；本场已消耗 3 张牌时追加伤害', [[1, 30], [1, 30]], 0.6, ([a, b]) => [damage(a), conditional('exhausted-gte', 3, [damage(b)])]),
+    linger: template('skill', '格挡；本回合结束时多保留 1 张手牌', [[1, 20], [1, 1]], 0.7, ([a, b]) => [block(a), { op: 'retain-hand', amount: b }]),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -584,7 +590,7 @@ const ARCHETYPE_PREFERRED = Object.freeze({
 const TEMPLATE_FAMILY_TABLE = Object.freeze({
     general: ['strike', 'twin', 'bash', 'cripple', 'rend', 'quick', 'guard', 'brace', 'prepare', 'jab', 'trip', 'opener', 'might', 'foresight', 'reserve', 'steadfast', 'trance',
         'battlecry', 'stance', 'disarm', 'breach', 'wind-up', 'fervor', 'zenith', 'apex', 'ambush', 'lifeguard', 'siphon', 'spite',
-        'reverb', 'resound', 'gambit', 'feint', 'quickdraw', 'flow', 'generator', 'hoard', 'overcharge', 'xdraw', 'xforge'],
+        'reverb', 'resound', 'gambit', 'feint', 'quickdraw', 'flow', 'generator', 'hoard', 'overcharge', 'xdraw', 'xforge', 'interrupt', 'coup', 'brim', 'ashen', 'linger'],
     // 牌堆操作（P2b），所有职业可用。
     pile: ['scout', 'hunt', 'salvage', 'exhume', 'stack', 'boomerang', 'rebound', 'purify', 'cinder', 'reprise', 'glimpse', 'morph', 'refine', 'polish'],
     fury: ['shatter', 'desperate', 'inflame', 'tear', 'fleeting', 'rampage', 'momentum', 'whirl', 'bloodlet', 'bloodrush', 'bloodrage', 'overdrive', 'heavy-blade'],

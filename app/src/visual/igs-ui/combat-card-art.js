@@ -4,6 +4,7 @@ import { LOW_HP_RATIO } from '../../combat/battle-state.js';
 import { RECORD_ICONS, lineIconSvg } from './record-icons.js';
 import { cardMotifSvg } from './combat-card-motifs.js';
 import { describeRegistered, statusLabel } from '../../combat/mechanics/registry.js';
+import { STATUS_CARD_TEXT } from '../../combat/mechanics/status-cards.js';
 
 // 卡面与立绘占位的纯函数：效果与关键字说明（含可点注释的片段）、卡图纹样（combat-card-motifs.js）、无立绘时的 SVG 剪影。
 // SVG 只来自程序常量与数值，不含任何档案文本；同一张卡永远得到同一张图。
@@ -19,6 +20,10 @@ const WHEN = Object.freeze({
     'skills-played-gte': (v) => `本回合已出 ${v} 张技能牌时：`,
     'same-card-gte': (v) => `本回合已打出过 ${v} 次同名牌时：`,
     'discarded-gte': (v) => `本回合已弃 ${v} 张牌时：`,
+    'target-intent-attack': () => '目标意图为攻击时：',
+    'target-hp-below': (v) => `目标生命低于 ${v}% 时：`,
+    'hand-gte': (v) => `手牌不少于 ${v} 张时：`,
+    'exhausted-gte': (v) => `本场已消耗 ${v} 张牌时：`,
 });
 export const CARD_TYPE_LABELS = Object.freeze({ attack: '攻击', skill: '技能', power: '能力' });
 const PILE = Object.freeze({ hand: '手牌', discard: '弃牌堆', draw: '抽牌堆' });
@@ -104,6 +109,7 @@ const PASSIVE_WHEN = Object.freeze({
     'battle-start': '开战时', 'turn-start': '回合开始时', 'turn-end': '回合结束时', 'on-hit': '受到攻击后',
     'on-low-hp': `生命首次低于 ${Math.round(LOW_HP_RATIO * 100)}% 时`, discard: '每次弃牌时', exhaust: '每次消耗牌时', kill: '每次击杀敌人时',
     shuffle: '每次洗牌时', 'hp-loss': '每次失去生命时', 'block-gain': '每次获得格挡时',
+    draw: '每次抽牌后', create: '每次生成临时牌后', 'debuff-applied': '每次使敌人陷入减益后', 'block-broken': '格挡被打破时',
 });
 export function describeTrigger(trigger, cardType) {
     if (trigger === 'card-played') return `每次打出${typed(cardType)}时`;
@@ -116,6 +122,7 @@ export function describeKeywordParts(card) {
     const groups = [];
     const word = (key, text) => groups.push([KEYWORD_TIPS[key] ? { text, tip: KEYWORD_TIPS[key] } : { text }]);
     if (card?.unplayable) word('unplayable', '不能打出');
+    if (STATUS_CARD_TEXT[card?.id]) groups.push([{ text: STATUS_CARD_TEXT[card.id] }]);
     for (const [flag, label] of [['innate', '固有'], ['retain', '保留'], ['ethereal', '虚无']]) if (card?.[flag]) word(flag, label);
     if (card?.sly) word('sly', '狡黠');
     if (Number.isInteger(card?.replay) && card.replay > 0) word('replay', `重演 ${card.replay}`);

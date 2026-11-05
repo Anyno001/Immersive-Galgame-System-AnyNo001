@@ -145,6 +145,20 @@ export function conditionHolds(state, unit, when, targetId, cardInst) {
             return cardInst != null && (stats?.byCard?.[cardCountKey(cardInst)] || 0) >= when.value;
         case 'discarded-gte':
             return (stats?.discards || 0) >= when.value;
+        // 规则 v5 G22。
+        case 'target-intent-attack': {
+            const foe = state.units[targetId];
+            const intent = state.intents?.[targetId];
+            return Boolean(foe?.alive && intent && foe.skills?.find((skill) => skill.id === intent.skillId)?.intent === 'attack');
+        }
+        case 'target-hp-below': {
+            const foe = state.units[targetId];
+            return Boolean(foe?.alive) && foe.hp * 100 < foe.maxHp * when.value;
+        }
+        case 'hand-gte':
+            return (state.piles?.[unit.id]?.hand?.length || 0) >= when.value;
+        case 'exhausted-gte':
+            return (state.piles?.[unit.id]?.exhaust || []).filter((inst) => cardView(state, inst)?.type !== 'power').length >= when.value;
         default:
             return false;
     }

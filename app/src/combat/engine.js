@@ -114,6 +114,8 @@ function runHooks(ctx, point, payload) {
 
 // 内置减益或已登记机制声明的减益。
 const isDebuff = (status) => DEBUFFS.includes(status) || Boolean(statusDef(status)?.debuff);
+// 状态牌（含规则 v5 可打出的「黏浊」）：技能单位的 create 只往对方卡组塞这类牌。
+const isStatusCard = (cardId) => typeof cardId === 'string' && cardId.startsWith('status-');
 
 // 施加状态；负面状态先被神器抵消一层。
 function addStatus(ctx, unit, status, stacks, source) {
@@ -124,7 +126,11 @@ function addStatus(ctx, unit, status, stacks, source) {
     }
     setStatus(unit, status, (unit.statuses[status] || 0) + stacks);
     emit(ctx, { type: 'status', source, target: unit.id, status, stacks });
-    if (isDebuff(status)) runHooks(ctx, 'debuff-applied', { target: unit, status, stacks, source });
+    if (!isDebuff(status)) return;
+    runHooks(ctx, 'debuff-applied', { target: unit, status, stacks, source });
+    // 规则 v5 G20：施加方「使敌人陷入减益后」的被动（被人工制品抵消时不算）。
+    const applier = ctx.state.rulesVersion >= 5 && source?.unitId != null ? ctx.state.units[source.unitId] : null;
+    if (applier && applier.side !== unit.side) fireBus(ctx, applier, 'debuff-applied', unit.id);
 }
 
 // 效果的目标类型：显式 target 优先，其次按 op/状态推断。
@@ -444,6 +450,8 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
     if ((target.statuses.intangible || 0) > 0) amount = Math.min(amount, 1);
     const blocked = blockable ? Math.min(target.block, amount) : 0;
     target.block -= blocked;
+    // 规则 v5 G20：本次伤害把格挡打空。
+    const broke = v5 && blocked > 0 && target.block === 0;
     let hpLoss = Math.min(target.hp, amount - blocked);
     if (hpLoss > 0 && ctx.state.rulesVersion >= 5) {
         const pre = { target, hpLoss, source, kind };
@@ -481,6 +489,7 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
     const attacker = source?.unitId != null ? ctx.state.units[source.unitId] : null;
     if (!target.alive && kind === 'attack' && attacker && attacker.side !== target.side) fireBus(ctx, attacker, 'kill', null);
     else if (target.alive && hpLoss > 0) fireBus(ctx, target, 'hp-loss', null);
+    if (broke && target.alive) fireBus(ctx, target, 'block-broken', null);
     return hpLoss;
 }
 
@@ -703,10 +712,10 @@ function applyEffect(ctx, unit, effect, aimId, source) {
         case 'create':
             if (unit.kind === 'deck') {
                 for (let i = 0; i < effect.amount; i += 1) createToken(ctx, unit, effect.card, effect.to);
-            } else if (TOKEN_CARDS[effect.card]?.unplayable) {
-                // 敌人「塞垃圾牌」：塞进对面的卡牌单位。
+            } else if (TOKEN_CARDS[effect.card]?.unplayable || isStatusCard(effect.card)) {
+                // 敌人「塞垃圾牌」：塞进对面的卡牌单位（不算对方自己生成临时牌）。
                 const victim = pickDeckOpponent(ctx, unit, aimId);
-                if (victim) for (let i = 0; i < effect.amount; i += 1) createToken(ctx, victim, effect.card, effect.to);
+                if (victim) for (let i = 0; i < effect.amount; i += 1) createToken(ctx, victim, effect.card, effect.to, true);
             }
             return;
         case 'repeat-last':
@@ -794,6 +803,7 @@ function drawCards(ctx, unit, amount) {
     if (drawnInsts.length) {
         emit(ctx, { type: 'draw', unitId: unit.id, count: drawnInsts.length });
         runHooks(ctx, 'draw', { unit, insts: drawnInsts });
+        if (ctx.state.rulesVersion >= 5) fireBus(ctx, unit, 'draw', null);
     }
 }
 
@@ -908,7 +918,8 @@ function exhaustCard(ctx, unit, inst, fireTriggers = true) {
 }
 
 // 生成一张临时牌放进 where（hand/draw/discard）；手牌满了改放弃牌堆。每回合有张数上限。
-function addTempCard(ctx, unit, entry, where) {
+// foreign 为真：由对方塞入（敌人塞状态牌），不算本单位「生成临时牌」。
+function addTempCard(ctx, unit, entry, where, foreign = false) {
     const state = ctx.state;
     const stats = turnStatsOf(unit);
     if (stats.temps >= COMBAT_RULES.tempCardsPerTurn) return null;
@@ -923,6 +934,7 @@ function addTempCard(ctx, unit, entry, where) {
     else pile.discard.push(inst);
     emit(ctx, { type: 'card-created', unitId: unit.id, inst, cardId: entry.cardId, to: place });
     runHooks(ctx, 'create', { unit, inst, cardId: entry.cardId, to: place });
+    if (state.rulesVersion >= 5 && !foreign) fireBus(ctx, unit, 'create', null);
     return inst;
 }
 
@@ -937,13 +949,13 @@ function copyCard(ctx, unit, inst, where) {
 }
 
 // 生成内置临时牌/状态牌；同名定义已在该单位的 catalog 里时复用，id 冲突但名字不同则放弃。
-function createToken(ctx, unit, cardId, where) {
+function createToken(ctx, unit, cardId, where, foreign = false) {
     const def = TOKEN_CARDS[cardId];
     if (!def) return;
     const known = ctx.state.catalog[unit.id];
     if (!Object.hasOwn(known, def.id)) ownCatalog(ctx, unit.id)[def.id] = deepCopy(def);
     else if (known[def.id].name !== def.name) return;
-    addTempCard(ctx, unit, { cardId: def.id, upgraded: false }, where);
+    addTempCard(ctx, unit, { cardId: def.id, upgraded: false }, where, foreign);
 }
 
 // 敌人塞垃圾牌的对象：指定目标 > 主角 > 对面第一个卡牌单位。
@@ -1109,13 +1121,33 @@ function settleHand(ctx, unit) {
     const pile = ctx.state.piles[unit.id];
     const kept = [];
     const faded = [];
+    const rest = [];
     for (const inst of pile.hand) {
         const card = cardView(ctx.state, inst);
         if (card?.ethereal) faded.push(inst);
-        else (card?.retain ? kept : pile.discard).push(inst);
+        else (card?.retain ? kept : rest).push(inst);
     }
+    keepExtra(ctx, unit, kept, rest);
     pile.hand = kept;
+    pile.discard.push(...rest);
     for (const inst of faded) exhaustCard(ctx, unit, inst);
+}
+
+// 规则 v5 L06：本回合登记的「回合结束多保留 N 张」，从其余手牌里留下估值最高的 N 张（不能打出的牌不留），用后清掉。
+function keepExtra(ctx, unit, kept, rest) {
+    const extra = ctx.state.rulesVersion >= 5 ? unit.res?.retainHand || 0 : 0;
+    if (!extra) return;
+    delete unit.res.retainHand;
+    if (!Object.keys(unit.res).length) delete unit.res;
+    const worth = (inst) => {
+        const card = cardView(ctx.state, inst);
+        return card && !card.unplayable ? estimateEffectsValue(card.effects) : null;
+    };
+    const picks = rest.map((inst) => [inst, worth(inst)]).filter(([, value]) => value !== null).sort((a, b) => b[1] - a[1]).slice(0, extra);
+    for (const [inst] of picks) {
+        rest.splice(rest.indexOf(inst), 1);
+        kept.push(inst);
+    }
 }
 
 // 单位回合结束：回合结束触发、持续能力、手牌结算、buff 计时、负面状态衰减。

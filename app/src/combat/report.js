@@ -154,7 +154,7 @@ export function collectTurns(events, units = {}) {
             // 技能单位往对面牌堆塞状态牌：事件只带承受方，按当前出手者与对立阵营归因。
             const card = TOKEN_CARDS[event.cardId];
             const victim = units[event.unitId];
-            if (action && card?.unplayable && victim && units[action.actorId] && victim.side !== units[action.actorId].side) effectOn(event.unitId).junk.push(card.name);
+            if (action && (card?.unplayable || String(event.cardId).startsWith('status-')) && victim && units[action.actorId] && victim.side !== units[action.actorId].side) effectOn(event.unitId).junk.push(card.name);
         } else if (event.type === 'passive') {
             // 对方出牌触发的被动：记为本次出手引起的应变。
             if (event.trigger === 'foe-card-played' && action && units[event.unitId] && units[event.unitId].side !== units[action.actorId]?.side && !action.reactions.includes(event.unitId)) action.reactions.push(event.unitId);
