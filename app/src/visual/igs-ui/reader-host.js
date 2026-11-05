@@ -1,3 +1,5 @@
+import { createTtsFloorPreloader } from './tts-floor-preloader.js';
+import { prepareTtsFloorPlan, ttsPageHint, ttsPageWhisper } from './tts-floor-plan.js';
 import { recoverOperation, linkRecoverySignals, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 import { applyOperationEdits } from '../../storage/operation-edits.js';
 import { appendInputDraft } from '../../host/input-channel.js';
@@ -62,7 +64,7 @@ import { audioBusContext, busInput, parkAudioBus, resumeAudioBus, unparkAudioBus
 import { isStagePaused, markStageActive, watchStagePause } from './stage-pause.js';
 import { scheduleFontGuard } from './font-guard.js';
 import { createReaderAutoPlay } from './reader-auto-play.js';
-import { cancelPendingTts, decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, prefetchTtsFloor, replayTts, rerollTts, setTtsErrorHandler, setTtsGenderAsker, speakTtsLine, stopTts } from './tts.js';
+import { cancelPendingTts, decideTts, guessTtsLine, isTtsSpeaking, listSystemVoices, normalizeTtsSettings, replayTts, rerollTts, setTtsErrorHandler, setTtsGenderAsker, speakTtsLine, stopTts } from './tts.js';
 import { resolveRegionCrop } from './stage-snapshot.js';
 import { playUiSfx } from './ui-sfx.js';
 import { parseHtmlCardMarker } from '../../scene/html-cards.js';
@@ -103,7 +105,7 @@ import { renderAssetReviewPanel } from './asset-review-panel.js';
 import { revertProfileWrite } from '../../scene/profile-write.js';
 import { ensureEmbeddedHost, findEmbeddedHost, hideEmbeddedSourceText, hideStorySpan, isEmbeddedEditTrigger, isStoryHidden, resolveEmbeddedHostParent, restoreEmbeddedSourceText, restoreStorySpan, storyLines } from './embedded-reader-runtime.js';
 import { createReaderSourceCache } from './reader-source-cache.js';
-import { createFloorSourceLocator, lastBefore, nextTtsHintOf, prepareReaderFloor, stripWrappingQuotes } from './reader-floor-plan.js';
+import { createFloorSourceLocator, lastBefore, prepareReaderFloor, stripWrappingQuotes } from './reader-floor-plan.js';
 import { prepareReaderFloorAssets } from './reader-floor-assets.js';
 import { createReaderTableData } from '../../data/shujuku/reader-table-data.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
@@ -502,9 +504,21 @@ export function createIgsReaderHost(options = {}) {
         onDirectory: (root) => openTurnIndex(undefined, { host: root.parentNode, fromWait: !waitStage.isPlaying() }),
     });
     let pendingReplyMessage = null;
-    // 最近一次分页的楼层（整楼预载朗读用）；ttsFloorToken 换楼即作废上一轮预载。
-    let ttsFloorPlan = null;
-    let ttsFloorToken = 0;
+    const ttsFloorPreloader = createTtsFloorPreloader({
+        onFloorReady: options.onTtsFloorReady,
+        onInvalidated: options.onTtsFloorInvalidated,
+        prepare: floor => {
+            const unified = resolveRenderConfig(state.activeReader?.mode);
+            const readerSettings = normalizeReaderSettingsCached(unified.readerSettings, unified.bridge.vnTheme);
+            attachBridgeReaderExtras(readerSettings, unified.bridge);
+            const tts = normalizeTtsSettings(readerSettings.tts);
+            if (!tts.enabled || !tts.api.prefetchFloor || (tts.provider !== 'api' && !tts.narratorApi.enabled)) return null;
+            const userName = String(getSillyTavernContext(options.global || globalThis)?.name1 || '');
+            return { readerSettings, userName, prepared: prepareTtsFloorPlan(floor, readerSettings, {
+                sourceFilter: unified.bridge.sourceFilter, virtualRegex: unified.bridge.virtualRegex, userName, readFloor: options.readTtsFloor,
+            }) };
+        },
+    });
     // 小游戏脚本可能比阅读器晚装上：装上或卸掉都要重排一次工具栏里的「小游戏」。
     const offWaitGamePack = subscribeWaitStageGamePack((pack) => {
         const current = state.activeReader;
@@ -591,6 +605,7 @@ export function createIgsReaderHost(options = {}) {
     const offSettingsUpdated = typeof options.onSettingsUpdated === 'function'
         ? options.onSettingsUpdated(() => {
             renderConfigCache = null;
+            ttsFloorPreloader.refresh();
             floorAssetPlan = { key: '', reader: null, urls: [] };
             if (!state.activeReader) return;
             if (state.activeSettings) readerStaleBehindSettings = true;
@@ -1305,6 +1320,7 @@ export function createIgsReaderHost(options = {}) {
 
     function getState() {
         return {
+            ttsPreload: ttsFloorPreloader.getProgress(),
             activeReader: state.activeReader ? {
                 mode: state.activeReader.mode,
                 index: state.activeReader.index,
@@ -1327,6 +1343,7 @@ export function createIgsReaderHost(options = {}) {
     }
 
     function destroy() {
+        ttsFloorPreloader.dispose();
         readerRecoveryController.abort();
         recoveryNotice.dispose();
         state.activeSettings?.recoveryController?.abort();
@@ -1556,7 +1573,6 @@ export function createIgsReaderHost(options = {}) {
                 return;
             }
             exitEmbeddedLoading();
-            prefetchFloorTts(current, message.id);
         } catch (error) {
             if (canReplace()) {
                 current.turnOffset = previous.turnOffset;
@@ -1564,19 +1580,6 @@ export function createIgsReaderHost(options = {}) {
                 showReplyFailure(current, 'read');
             }
         }
-    }
-
-    // 新楼层写完后整楼预载朗读（设置「新楼层预载全楼」，默认关）：按阅读器分页与下一页提示同一套构造，缓存键与实际朗读一致。
-    function prefetchFloorTts(current, messageId) {
-        const plan = ttsFloorPlan;
-        const readerSettings = current && current.snapshot && current.snapshot.readerSettings;
-        if (!plan || !readerSettings || Number(plan.messageId) !== Number(messageId)) return;
-        const token = ++ttsFloorToken;
-        const { segments, pages, keyOf } = plan.prepared;
-        const list = segments.map((segment, index) => ({ segment, hint: nextTtsHintOf(pages[index], keyOf) }));
-        prefetchTtsFloor(list, readerSettings.tts, readerSettings._sceneAssets, {
-            alive: () => token === ttsFloorToken && state.activeReader === current,
-        }).catch(() => {});
     }
 
     // 玩家点「加载下一楼」：之后 #chat 的任何变动（含别的插件改按钮）都会让观察器版本号前进，
@@ -3197,7 +3200,16 @@ ${row.key}`;
     }
 
     function logTtsLine(row) {
-        return { key: '', textType: row.kind === 'narr' ? (row.thought ? 'thought' : 'narration') : row.thought ? 'thought' : 'dialogue', speaker: row.speaker, text: row.text, nsfw: row.nsfw };
+        const snapshot = state.activeReader?.snapshot;
+        const floor = snapshot?.[preparedFloorKey];
+        const rs = snapshot?.readerSettings || {};
+        const page = floor?.pages[row.index];
+        return {
+            ...ttsPageHint(page, floor?.keyOf, rs),
+            key: '', textType: row.kind === 'narr' ? (row.thought ? 'thought' : 'narration') : row.thought ? 'thought' : 'dialogue',
+            speaker: row.speaker, text: row.text, nsfw: row.nsfw, context: floor?.text || '', spriteTags: rs._tempSpriteTags,
+            whisper: ttsPageWhisper(page, rs),
+        };
     }
 
     // 没开朗读、或这一行按设置不念（旁白关了、User 不念等）时不出 ▶。
@@ -4512,7 +4524,13 @@ ${row.key}`;
             return floor;
         });
         const { text, segments } = prepared;
-        ttsFloorPlan = { messageId: payload.messageId, prepared };
+        queueMicrotask(() => {
+            const current = state.activeReader;
+            if (mediaHostDisposed || current?.snapshot?.[preparedFloorKey] !== prepared || current.awaitingReply || current.streamPhase === 'streaming') return;
+            const floor = options.readTtsFloor?.(payload.messageId);
+            const identity = `${chatId}|${payload.messageId}|${floor?.swipeId || 0}`;
+            ttsFloorPreloader.startPrepared(prepared, readerSettings, { identity, userName });
+        });
         if (!segments.length) return { content: { segments: [] } };
         const normalizedIndex = Math.max(0, Math.min(segments.length - 1, Number(index) || 0));
         const segmentImageSlots = Array.isArray(payload.segmentImageSlots) && payload.segmentImageSlots.length
@@ -4963,10 +4981,11 @@ ${row.key}`;
                 spriteBackArt,
                 statusEmotion: bubbleMood,
                 // 台词朗读提前生成下一页用：下一页的类型、说话人与情绪（取分页计划里现成的值，不重算）。
-                nextTtsHint: nextTtsHintOf(prepared.pages[normalizedIndex + 1], prepared.keyOf),
+                nextTtsHint: ttsPageHint(prepared.pages[normalizedIndex + 1], prepared.keyOf, readerSettings),
                 textType,
                 text: currentText,
                 fullText: text,
+                ttsWhisper: ttsPageWhisper(page, readerSettings),
                 displayText,
                 htmlCard,
                 htmlCardPage: htmlCardIndex >= 0,

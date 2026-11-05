@@ -2498,7 +2498,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             phone: fxResult.phone === true,
             nsfw: Boolean(content.sceneNsfw),
             posX,
-            whisper: romanceResult.whisper === true,
+            whisper: content.ttsWhisper === true,
             next: Array.isArray(content.segments) ? content.segments[content.currentIndex + 1] : '',
             nextHint: content.nextTtsHint || null,
             // 报幕卡、睁眼、时间跳跃、醒来这类铺满画面的演出播完再念。

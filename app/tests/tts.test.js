@@ -157,7 +157,7 @@ test('gate: tts never reads the speaker name prefix', () => {
     assert.equal(plan.text, '他怎么在这');
 });
 
-test('gate: tts prefetch waits for the reader to dwell, skips fast clicks, and obeys its switch', async () => {
+test('提前生成下一页立即开始，快速翻页合并请求并遵守开关', async () => {
     const realFetch = globalThis.fetch;
     const calls = [];
     globalThis.fetch = async (url, init) => {
@@ -184,21 +184,19 @@ test('gate: tts prefetch waits for the reader to dwell, skips fast clicks, and o
         const root = {};
         const page = (i, next) => applyTts(root, { key: `m:${i}`, textType: 'narration', text: `第${i}页。`, next }, settings, sa, { now: () => clock, timers });
         page(0, '第1页。');
-        await advance(1000);
-        assert.deepEqual(calls, [], 'not yet: still within the dwell time');
-        // 快速点到下一页：上一页的预取作废。
+        await advance(0);
+        assert.deepEqual(calls, ['第1页。'], '正常阅读立即准备下一页');
         page(1, '第2页。');
-        await advance(300);
+        await advance(100);
         page(2, '第3页。');
-        await advance(1200);
-        assert.deepEqual(calls, []);
-        await advance(400);
-        assert.deepEqual(calls, ['第3页。'], 'dwelled 1.6s on page 2, so page 3 is prefetched');
-        // 关掉开关就不再提前生成。
+        await advance(300);
+        assert.deepEqual(calls, ['第1页。'], '快速翻过的页不启动预取');
+        await advance(100);
+        assert.deepEqual(calls, ['第1页。', '第3页。']);
         const off = { ...settings, api: { ...settings.api, prefetch: false } };
         applyTts(root, { key: 'm:9', textType: 'narration', text: '第9页。', next: '第10页。' }, off, sa, { now: () => clock, timers });
         await advance(5000);
-        assert.deepEqual(calls, ['第3页。']);
+        assert.deepEqual(calls, ['第1页。', '第3页。']);
     } finally {
         globalThis.fetch = realFetch;
         pending = new Map();

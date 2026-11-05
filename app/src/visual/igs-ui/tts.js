@@ -4,6 +4,9 @@
 // 或 Fish Audio 原生的 /v1/tts（text + reference_id，模型放请求头）。
 // 系统语音不经过 Web Audio，只能调音量、语速、音高；接口返回的音频走总线，声像、听筒、贴耳与语气音一致。
 import { trimCacheEntries } from '../../media/cache-eviction.js';
+import { ttsRequestQueue } from './tts-request-queue.js';
+import { normalizeTtsVoiceLibrary } from './tts-voice-library.js';
+import { beginTtsFloorAudioCache, clearTtsFloorAudioCache, forgetTtsFloorAudio, getTtsFloorAudio, rememberTtsFloorAudio } from './tts-floor-audio-cache.js';
 import { armAudioBusRetry, audioMasterVolume, busInput, resumeAudioBus, watchPageAway } from './audio-bus.js';
 import { duckSceneAudio } from './scene-audio.js';
 import { stripTextFxMarkup } from './text-fx.js';
@@ -93,8 +96,7 @@ const API_CACHE_MAX = 60;
 // 持久缓存条数的可设范围；默认值见 TTS_DEFAULTS.cacheMax。
 export const TTS_CACHE_LIMIT = 2000;
 const PERSIST_NAME = 'igs-tts-v1';
-// 在一页停够这么久才提前生成下一页；两次翻页间隔短于 FAST_FLIP_MS 视为快速点击，当前页也推迟 FLIP_DEFER_MS 再请求。
-const PREFETCH_DWELL_MS = 1500;
+// 快速翻页时短暂合并请求；正常阅读的下一页立即进入低优先级队列。
 const FAST_FLIP_MS = 700;
 const FLIP_DEFER_MS = 400;
 const TTS_LEAD_MAX_MS = 6000;
@@ -240,6 +242,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // 一套接口的连接项：台词接口与旁白独立接口共用。
 function normalizeTtsApi(api) {
     return {
+        voiceLibrary: normalizeTtsVoiceLibrary(api.voiceLibrary, parseVoiceEntries(limitVoiceText(String(api.voices ?? '').trim().slice(0, VOICES_TEXT_MAX))).map(([id]) => id)),
         // 接口格式：按各家文档的字段构造请求；旧版保存的 auto 或无效值按地址判断（含 fish.audio 为 Fish Audio，否则 OpenAI 兼容）。
         format: pick(TTS_API_FORMATS, api.format, resolveTtsApiFormat(api.endpoint)),
         responseFormat: pick(TTS_RESPONSE_FORMATS, api.responseFormat, 'mp3'),
@@ -313,9 +316,9 @@ export function normalizeTtsSettings(value) {
             ...normalizeTtsApi(api),
             // 声音库：逗号或换行分隔，给角色单独指定时做下拉；最多 TTS_VOICE_MAX 个。
             voices: limitVoiceText(String(api.voices ?? '').trim().slice(0, VOICES_TEXT_MAX)),
-            // 提前生成下一页：在一页停够 PREFETCH_DWELL_MS 才生成，快速点过的页不花钱。
+            // 提前生成下一页：正常阅读立即入队，快速翻页时合并短暂等待。
             prefetch: api.prefetch !== false,
-            // 新楼层写完后按页依次生成整楼朗读，默认关。
+            // 新楼层写完后并发准备整楼朗读，默认关。
             prefetchFloor: api.prefetchFloor === true,
             ...roles(api),
         },
@@ -1522,7 +1525,11 @@ async function sendTtsRequest(api, request, guard = null) {
         if (api.transport === 'st-proxy' && res.status === 404) throw new Error('酒馆的转发没开：请在酒馆 config.yaml 里设 enableCorsProxy: true 后重启');
         let raw = '';
         try { raw = await res.text(); } catch { /* ignore */ }
-        throw new Error(ttsErrorMessage(res.status, raw, api));
+        const error = new Error(ttsErrorMessage(res.status, raw, api));
+        error.status = res.status;
+        const retryAfter = res.headers?.get?.('retry-after');
+        error.retryAfterMs = retryAfter ? Math.max(0, Number.isFinite(Number(retryAfter)) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()) : 0;
+        throw error;
     }
     return res;
 }
@@ -1656,6 +1663,7 @@ function persistentPut(key, bytes, rate, epoch, fresh = false) {
 
 export async function clearTtsCache() {
     cacheEpoch++; apiCache.clear(); inflight.clear();
+    clearTtsFloorAudioCache();
     const work = persistentWrites.then(async () => {
         if (globalThis.caches && typeof globalThis.caches.delete === 'function') await globalThis.caches.delete(PERSIST_NAME);
     });
@@ -1761,16 +1769,21 @@ function requestSpeech(api, plan, job = null) {
     const epoch = cacheEpoch;
     // 重新生成：丢掉这一条的内存缓存，不合并在途请求，也不读持久缓存。
     const fresh = plan.fresh === true;
-    if (fresh) apiCache.delete(key);
-    const hit = fresh ? null : apiCache.get(key);
-    if (hit && closeRate(hit.rate, plan.rate)) {
-        apiCache.delete(key);
-        apiCache.set(key, hit);
-        return Promise.resolve(hit.bytes.slice(0));
+    if (fresh) { apiCache.delete(key); forgetTtsFloorAudio(key); }
+    const deliver = (bytes) => {
+        if (job?.pinCache && !job.cancelled) rememberTtsFloorAudio(job.pinCache, key, bytes, plan.rate);
+        return bytes.slice(0);
+    };
+    const hit = fresh ? null : [apiCache.get(key), getTtsFloorAudio(key)].find(item => item && closeRate(item.rate, plan.rate));
+    if (hit) {
+        remember(key, hit.bytes, hit.rate);
+        return Promise.resolve(deliver(hit.bytes));
     }
     // 每个等这条请求的人记一次；预取没有任务，记了不归还，所以预取过的请求不会被某个任务的停止中止掉。
     const join = (entry) => {
         entry.refs += 1;
+        entry.priority = Math.min(entry.priority, job ? job.priority ?? 0 : 1);
+        entry.queueTask?.promote(entry.priority);
         if (job) {
             let released = false;
             job.releases.push(() => {
@@ -1783,17 +1796,20 @@ function requestSpeech(api, plan, job = null) {
                 }
             });
         }
-        return entry.promise.then((bytes) => bytes.slice(0));
+        return entry.promise.then(deliver);
     };
     const pending = inflight.get(key);
     if (!fresh && pending && closeRate(pending.rate, plan.rate)) return join(pending);
-    const entry = { rate: plan.rate, refs: 0, settled: false, promise: null, controller: typeof AbortController === 'function' ? new AbortController() : null };
+    const entry = { rate: plan.rate, priority: job ? job.priority ?? 0 : 1, refs: 0, settled: false, promise: null, controller: typeof AbortController === 'function' ? new AbortController() : null };
     entry.promise = (fresh ? Promise.resolve(null) : persistentGet(key, plan.rate)).then((stored) => {
         if (stored) {
             if (epoch === cacheEpoch) remember(key, stored, plan.rate);
             return stored;
         }
-        return postSpeech(api, plan, entry.controller && entry.controller.signal).then((bytes) => {
+        entry.queueTask = ttsRequestQueue.enqueue(() => postSpeech(api, plan, entry.controller?.signal), {
+            priority: entry.priority, signal: entry.controller?.signal,
+        });
+        return entry.queueTask.promise.then((bytes) => {
             if (epoch === cacheEpoch) {
                 remember(key, bytes, plan.rate);
                 void persistentPut(key, bytes, plan.rate, epoch, fresh);
@@ -2070,7 +2086,7 @@ function speakApi(job, plan, api) {
     // 长句切成几段：第一段先请求先播，其余最多两条并行请求、解码好就按顺序接在后面播（每段各自走缓存）。
     const texts = apiSegments(api, plan.text, plan.tagHead);
     const requests = requestSegments(api, plan, texts, () => job.cancelled || job.done, job);
-    // 这一页的音频全部拿到后再去生成下一页，两条请求不抢带宽。
+    // 保留本页下载完成的句柄；下一页独立入队，由统一队列分配并发额度。
     job.fetched = Promise.all(requests.map((request) => request.then(() => null, () => null))).then(() => null);
     const decoded = requests.map((request) => request.then((bytes) => {
         if (job.cancelled) return null;
@@ -2185,8 +2201,7 @@ function syncReplayTitle(root, page) {
 }
 
 // 阅读器每次渲染调用；换页就停掉上一页，同一页重绘（设置变化、窗口缩放）不重念。
-// line.next：下一页的原文（本条消息最后一页时为空）。接口来源：在这一页停够 PREFETCH_DWELL_MS 且这一页音频到手后，
-// 提前生成下一页；连续快速翻页时当前页也推迟一点再请求，还在翻就不请求。系统语音免费，照常立即念。
+// line.next：下一页的原文。下一页不等待当前页下载完成，统一队列保证当前播放优先。
 export function applyTts(root, line, settings, sceneAssets, { now = Date.now, timers = globalThis } = {}) {
     if (!root) return null;
     let state = states.get(root);
@@ -2214,21 +2229,16 @@ export function applyTts(root, line, settings, sceneAssets, { now = Date.now, ti
     // 这一页走不走接口（旁白独立接口时与主来源不同）；没有要念的就按主来源算。
     const api = plan && !plan.skip ? plan.provider === 'api' : config.provider === 'api';
     watchAway(root);
-    const prefetchNext = (fetched) => {
+    const prefetchNext = () => {
         if (!usesApi(config) || !config.api.prefetch || !line.next) return;
-        Promise.resolve(fetched).then(() => {
-            if (state.token !== token) return;
-            const wait = Math.max(0, PREFETCH_DWELL_MS - (now() - shownAt));
-            state.prefetchTimer = timers.setTimeout(() => {
-                state.prefetchTimer = null;
-                if (state.token === token) {
-                    // 耳语多是连续几页：提示里没标耳语区间时，沿用这一页的耳语状态（猜错只是缓存没命中）。
-                    const hint = line.nextHint ? { ...line.nextHint, whisper: line.nextHint.whisper === true || line.whisper === true } : null;
-                    prefetchTts(line.next, settings, sceneAssets, { nsfw: line.nsfw, hint });
-                }
-            }, wait);
-        });
+        state.prefetchTimer = timers.setTimeout(() => {
+            state.prefetchTimer = null;
+            if (state.token === token) prefetchTts(line.next, settings, sceneAssets, {
+                nsfw: line.nsfw, hint: line.nextHint || null, context: line.context || '', spriteTags: line.spriteTags,
+            });
+        }, fastFlip ? FLIP_DEFER_MS : 0);
     };
+    prefetchNext();
     // 翻页不打断：上一句还在念就让它念完，这一句排在后面（只留最新一句）；否则立刻掐掉上一句。
     const sustain = config.sustain && isTtsSpeaking();
     if (sustain) queued = null;
@@ -2236,7 +2246,6 @@ export function applyTts(root, line, settings, sceneAssets, { now = Date.now, ti
     if (!plan) {
         // 这一页不念（旁白关了、角色不朗读等）：重听不该念回上一页。
         lastPlayed = null;
-        prefetchNext(null);
         return null;
     }
     // 系统声音列表第一次读常常是空的：先等 voiceschanged（最多 800ms）再选声音，免得同一个角色前后换声。
@@ -2254,7 +2263,6 @@ export function applyTts(root, line, settings, sceneAssets, { now = Date.now, ti
             return null;
         }
         const job = playTts(plan, settings);
-        prefetchNext(job && job.fetched);
         return job;
     };
     if (sustain) {
@@ -2362,7 +2370,7 @@ export function guessTtsLine(segment) {
 // 提前生成下一页（只对走接口的句子；系统语音本地合成，不用等）。
 // hint：阅读器给的下一页提示 { textType, speaker, speakerKey, mood, whisper, phone, nsfw }，有它时按实际朗读同一条路径构造（情绪、耳语、听筒、NSFW 一致，缓存键相同），台词页也预取。
 // 类型以 hint（阅读器分页的判定）为准：「[名字]：*心里话*」文字外形猜成台词，阅读器按心里话算，两边类型对不上也算命中。
-export function prefetchTts(segment, settings, sceneAssets, { nsfw = false, hint = null } = {}) {
+export function prefetchTts(segment, settings, sceneAssets, { nsfw = false, hint = null, context = '', spriteTags = null } = {}) {
     const config = normalizeTtsSettings(settings);
     if (!config.enabled || !usesApi(config) || !segment) return null;
     persistLimit = config.cacheMax;
@@ -2372,7 +2380,7 @@ export function prefetchTts(segment, settings, sceneAssets, { nsfw = false, hint
     const extra = hinted ? { textType: hint.textType, mood: String(hint.mood || ''), speakerKey: String(hint.speakerKey || ''), whisper: hint.whisper === true, phone: hint.phone === true } : {};
     // NSFW 以下一页自己的为准；没有提示（或提示里没写）时才沿用调用方给的。
     const pageNsfw = hint && typeof hint.nsfw === 'boolean' ? hint.nsfw : nsfw;
-    const plan = decideTts({}, { ...guessed, ...extra, nsfw: pageNsfw }, config, { sceneAssets, record: false });
+    const plan = decideTts({}, { ...guessed, ...extra, context, spriteTags, nsfw: pageNsfw }, config, { sceneAssets, record: false });
     if (!plan || plan.skip || plan.provider !== 'api') return null;
     const api = planApi(config, plan);
     // 情绪会进请求时（MiniMax 发情绪、风格写入情绪、Fish 句首标签），没有情绪提示的台词页预取多半用不上，只预取旁白页。
@@ -2384,19 +2392,43 @@ export function prefetchTts(segment, settings, sceneAssets, { nsfw = false, hint
     return Promise.all(jobs).then((list) => list[0], () => null);
 }
 
-// 新楼层写完后整楼预载：逐页依次请求（不并发，免得撞接口限流），alive() 为假时停下。
-export async function prefetchTtsFloor(pages, settings, sceneAssets, { alive = () => true } = {}) {
+export function prefetchTtsLine(line, settings, sceneAssets, job = null) {
+    const config = normalizeTtsSettings(settings);
+    persistLimit = config.cacheMax;
+    const plan = decideTts({}, line, config, { sceneAssets, record: false });
+    if (!plan || plan.skip || plan.provider !== 'api' || job?.cancelled) return null;
+    const api = planApi(config, plan);
+    return Promise.all(requestSegments(api, plan, apiSegments(api, plan.text, plan.tagHead), () => job?.cancelled === true, job))
+        .then(list => list[0], () => null);
+}
+
+// 按实际朗读参数预生成全楼；分段、播放与预取共用五路请求队列。
+export async function prefetchTtsFloor(pages, settings, sceneAssets, { alive = () => true, signal = null, identity = '', onProgress = () => {} } = {}) {
     const config = normalizeTtsSettings(settings);
     if (!config.enabled || !usesApi(config) || !config.api.prefetchFloor) return 0;
-    let count = 0;
-    for (const page of pages) {
-        if (!alive()) break;
-        const job = prefetchTts(page.segment, settings, sceneAssets, { hint: page.hint });
-        if (!job) continue;
-        await job;
-        count += 1;
+    const job = { priority: 2, releases: [], cancelled: false, pinCache: beginTtsFloorAudioCache(identity) };
+    const progress = { total: pages.length, completed: 0, failed: 0, skipped: 0 };
+    const cancel = () => {
+        job.cancelled = true;
+        for (const release of job.releases.splice(0)) release();
+    };
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) cancel();
+    try {
+        await Promise.all(pages.map(async page => {
+            if (job.cancelled || !alive()) return;
+            const line = page.line || { ...guessTtsLine(page.segment), ...page.hint };
+            const pending = prefetchTtsLine(line, config, sceneAssets, job);
+            if (!pending) progress.skipped++;
+            else if (await pending) progress.completed++;
+            else progress.failed++;
+            if (!job.cancelled && alive()) onProgress({ ...progress });
+        }));
+        return progress.completed;
+    } finally {
+        signal?.removeEventListener('abort', cancel);
+        for (const release of job.releases.splice(0)) release();
     }
-    return count;
 }
 
 // 设置里的试听：按当前来源念一句。接口来源会等结果，失败时返回原因。

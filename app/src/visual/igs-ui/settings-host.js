@@ -1397,6 +1397,11 @@ export function createSettingsHost(deps) {
                 return;
             }
             // 声音库条目：改完（失焦或回车）才保存。
+            const voiceFolder = charSelect?.getAttribute('data-tts-folder-move');
+            if (voiceFolder) {
+                controller.invoke(`tts-voice-folder-move:${voiceFolder}:${encodeURIComponent(charSelect.getAttribute('data-asset-name') || '')}:${encodeURIComponent(charSelect.value || '')}`);
+                return;
+            }
             const voiceLib = charSelect ? charSelect.getAttribute('data-tts-voice') : null;
             if (voiceLib) {
                 controller.invoke(`tts-voice-edit:${voiceLib}:${charSelect.getAttribute('data-voice-index')}:${charSelect.getAttribute('data-voice-part')}:${encodeURIComponent(charSelect.value || '')}`);

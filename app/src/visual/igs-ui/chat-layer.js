@@ -1,3 +1,4 @@
+import { chatTtsLine as speechLine } from './chat-tts-line.js';
 import { PHONE_CASE_DEFAULT, applyPhoneLook, myPhoneOf } from './my-phone.js';
 import { worldSkinOf } from '../../scene/worldview.js';
 
@@ -244,22 +245,6 @@ function settleRecall(state) {
 }
 
 // —— 气泡朗读：一条气泡一段声音，下一条要等本条念完（最多等 SPEECH_MAX_WAIT_MS）——
-function speechLine(state, m, index) {
-    const text = m.kind === 'recall' ? m.original : m.text;
-    if (!text || (m.kind === 'msg' && !SPOKEN_TYPES.has(m.type || 'text'))) return null;
-    return {
-        key: `${state.msgKey}:${index}`,
-        textType: 'dialogue',
-        text,
-        speaker: (m.self && state.userName) || m.displayName || '',
-        // 自己发的气泡按「USER 立绘角色」的声音朗读。
-        speakerKey: m.self && state.userName ? String((state.sceneAssets && state.sceneAssets.userCharacter) || '').trim() : '',
-        mood: '',
-        phone: false,
-        nsfw: state.nsfw,
-        whisper: false,
-    };
-}
 
 function stopSpeech(state) {
     const sp = state.speech;
@@ -589,6 +574,8 @@ export function applyChatToDom(root, snapshot, ctx = {}) {
         tts: ttsOn ? (ctx.tts && typeof ctx.tts === 'object' ? ctx.tts : DEFAULT_TTS) : null,
         ttsSettings,
         sceneAssets,
+        context: content.fullText || '',
+        spriteTags: snapshot.readerSettings?._tempSpriteTags,
         userName: ctx.userName ? String(ctx.userName) : '',
         nsfw: Boolean(content.sceneNsfw),
         msgKey: `${snapshot.messageId}:${content.currentIndex}`,
