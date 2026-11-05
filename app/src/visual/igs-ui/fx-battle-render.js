@@ -11,6 +11,7 @@ import { castKeyOfSnapshot } from './stage-cast-render.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 import { creatureProfileOf } from './creature-layout.js';
 import { playCreatureSfx } from './creature-battle-sfx.js';
+import { creatureVoiceKind, creatureVoiceText } from './creature-voice.js';
 
 const SEEN_LIMIT = 256;
 const mountedRoots = new WeakSet();
@@ -64,8 +65,12 @@ export function renderBattleFx(root, snapshot, ctx = {}) {
     const characterDna = readerSettings._sceneAssets && readerSettings._sceneAssets.characterDna;
     const keyOf = castKeyOfSnapshot(snapshot);
     // 设置里关闭「非人演出」时不传 creatureOf，战斗回到人类演出。
+    // 档案上补种族声线（龙、鸟、丧尸……），战斗的咆哮 / 受创 / 消散按种族出声。
     const creatureOf = characterDna && typeof characterDna === 'object' && normalizeBattleFxSettings(readerSettings.battleFx).creature
-        ? (name) => creatureProfileOf(characterDna, name) : null;
+        ? (name) => {
+            const profile = creatureProfileOf(characterDna, name);
+            return profile ? { ...profile, voice: creatureVoiceKind(creatureVoiceText(name, characterDna[name])) } : null;
+        } : null;
     const creatureAssets = creatureOf ? resolveCreatureAssets(fx, ctx.resolveAssetUrl) : { foes: [], foeTiers: null };
     let plan = planBattleFx(fx, {
         settings: readerSettings.battleFx,

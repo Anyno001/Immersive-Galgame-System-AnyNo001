@@ -8,7 +8,7 @@ import { ttsRequestQueue } from './tts-request-queue.js';
 import { groupTtsVoiceOptions, normalizeTtsVoiceLibrary } from './tts-voice-library.js';
 import { beginTtsFloorAudioCache, clearTtsFloorAudioCache, forgetTtsFloorAudio, getTtsFloorAudio, rememberTtsFloorAudio } from './tts-floor-audio-cache.js';
 import { armAudioBusRetry, audioMasterVolume, busInput, resumeAudioBus, watchPageAway } from './audio-bus.js';
-import { duckSceneAudio } from './scene-audio.js';
+import { duckForVoice } from './scene-audio.js';
 import { stripTextFxMarkup } from './text-fx.js';
 import { yieldTypewriterAudio } from './typewriter-audio.js';
 import { voiceFilterGain, voiceFilterUsesDry } from './voice-filter.js';
@@ -58,9 +58,7 @@ export const TTS_CHARACTER_VOLUMES = Object.freeze([[2, '200%'], [1.5, '150%'], 
 export const TTS_GAIN_CAP = 2;
 const ROLE_KEYS = ['female', 'male', 'narrator'];
 const TTS_DEFAULTS = Object.freeze({ enabled: false, provider: 'system', volume: 0.9, rate: 1, narration: true, nsfw: false, narratorRate: 1, cacheMax: 300 });
-// 朗读时 BGM 与环境音让得比语气音多一点，台词要听清。
-const TTS_DUCK_RATIO = 0.55;
-// 读完后场景声再压低这么久才回升，连续朗读时不一起一伏。
+// 读完后先留给下一句接手的时间（朗读接口要等返回）；之后交给人声档自己的停口保持。
 const TTS_DUCK_HOLD_MS = 800;
 // 人声净化（向下扩展）：阈值取最大 10 ms 窗 RMS 以下 26 dB，低于阈值按 1:2 扩展，最多压 18 dB。
 const CLEANUP_WINDOW_MS = 10;
@@ -1111,18 +1109,19 @@ export function isTtsSpeaking() {
 // 读完后保持压低一小会儿：下一句在保持期内开口就接手，stopTts 则立即回升。
 let heldDuck = null;
 
-function releaseHeldDuck() {
+// immediate：停止朗读时跳过人声档的停口保持，直接回升。
+function releaseHeldDuck({ immediate = false } = {}) {
     if (!heldDuck) return;
     const held = heldDuck;
     heldDuck = null;
     clearTimeout(held.timer);
-    held.release();
+    held.release({ immediate });
 }
 
 function holdDuck(release) {
     releaseHeldDuck();
     const held = { release, timer: null };
-    held.timer = setTimeout(releaseHeldDuck, TTS_DUCK_HOLD_MS);
+    held.timer = setTimeout(() => releaseHeldDuck(), TTS_DUCK_HOLD_MS);
     heldDuck = held;
 }
 
@@ -1136,7 +1135,7 @@ function takeHeldDuck() {
 
 // 新任务自己压低之后，才放掉接手来的保持。
 function duckJob(job, options) {
-    if (!job.done) job.releaseDuck = duckSceneAudio({ ratio: TTS_DUCK_RATIO, ...options });
+    if (!job.done) job.releaseDuck = duckForVoice(options);
     if (job.inheritedDuck) {
         job.inheritedDuck();
         job.inheritedDuck = null;
@@ -1146,14 +1145,15 @@ function duckJob(job, options) {
 function finish(job) {
     if (job.done) return;
     job.done = true;
+    const stopped = job.cancelled && !job.handoff;
     if (job.releaseDuck) {
-        if (job.cancelled && !job.handoff) job.releaseDuck();
+        if (stopped) job.releaseDuck({ immediate: true });
         else holdDuck(job.releaseDuck);
     }
     job.releaseDuck = null;
     if (job.inheritedDuck) {
         if (job.handoff && !heldDuck) holdDuck(job.inheritedDuck);
-        else job.inheritedDuck();
+        else job.inheritedDuck({ immediate: stopped });
     }
     job.inheritedDuck = null;
     for (const node of job.nodes) {
@@ -1196,7 +1196,7 @@ function haltActive({ handoff = false } = {}) {
 }
 
 export function stopTts() {
-    releaseHeldDuck();
+    releaseHeldDuck({ immediate: true });
     haltActive();
 }
 

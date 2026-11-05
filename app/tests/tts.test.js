@@ -1563,8 +1563,8 @@ test('人声净化设置默认开启；关闭时 plan 不带净化，听筒模�
     assert.deepEqual(types({ cleanup: true, phone: true }), ['highpass', 'lowpass']);
 });
 
-test('朗读读完后场景声保持压低 800 ms 才回升，保持期内新一句接手，stopTts 立即回升', async (t) => {
-    const { sceneAudioDuckFactor } = await import('../src/visual/igs-ui/scene-audio.js');
+test('朗读读完后场景声保持压低 800 ms 接手期加人声停口保持才回升，保持期内新一句接手，stopTts 立即回升', async (t) => {
+    const { sceneAudioDuckFactor, VOICE_DUCK_HOLD_MS } = await import('../src/visual/igs-ui/scene-audio.js');
     const synth = fakeSynth();
     await withSystemEnv(t, synth, async ({ tts }) => {
         const speak = (text) => {
@@ -1579,6 +1579,8 @@ test('朗读读完后场景声保持压低 800 ms 才回升，保持期内新一
         t.mock.timers.tick(799);
         assert.equal(sceneAudioDuckFactor(), 0.55);
         t.mock.timers.tick(1);
+        assert.equal(sceneAudioDuckFactor(), 0.55, 'voice hold keeps BGM low between lines');
+        t.mock.timers.tick(VOICE_DUCK_HOLD_MS);
         assert.equal(sceneAudioDuckFactor(), 1, 'released after the hold');
 
         speak('第二句。').onend();
@@ -1590,6 +1592,7 @@ test('朗读读完后场景声保持压低 800 ms 才回升，保持期内新一
         assert.equal(sceneAudioDuckFactor(), 0.55);
         third.onend();
         t.mock.timers.tick(800);
+        t.mock.timers.tick(VOICE_DUCK_HOLD_MS);
         assert.equal(sceneAudioDuckFactor(), 1);
 
         speak('第四句。').onend();
@@ -1612,6 +1615,7 @@ test('朗读读完后场景声保持压低 800 ms 才回升，保持期内新一
         ninth.onstart();
         ninth.onend();
         t.mock.timers.tick(800);
+        t.mock.timers.tick(VOICE_DUCK_HOLD_MS);
         assert.equal(sceneAudioDuckFactor(), 1);
     });
 });

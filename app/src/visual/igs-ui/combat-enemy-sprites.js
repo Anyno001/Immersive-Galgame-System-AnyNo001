@@ -18,12 +18,25 @@ export function listCombatEnemies(sceneAssets) {
         .sort((a, b) => (temp(b) - temp(a)) || ((b.profile?.seenAt || 0) - (a.profile?.seenAt || 0)));
 }
 
-function adoptedUrl(sceneAssets, name) {
-    const slots = plain(plain(sceneAssets.characters)[name]);
-    const keys = ['默认', '平和', ...Object.keys(slots)];
-    for (const key of keys) {
+const firstSlot = (slots) => {
+    for (const key of ['默认', '平和', ...Object.keys(slots)]) {
         const value = typeof slots[key] === 'string' ? slots[key].trim() : '';
         if (value) return value;
+    }
+    return '';
+};
+
+// 设置器「生成立绘」采用后图记在默认衣装（characterOutfits[名字][衣装].moods）上，不再写 characters[名字]；
+// 先看旧式槽位，再看默认衣装，最后看任意一套衣装。
+function adoptedUrl(sceneAssets, name) {
+    const legacy = firstSlot(plain(plain(sceneAssets.characters)[name]));
+    if (legacy) return legacy;
+    const outfits = plain(plain(sceneAssets.characterOutfits)[name]);
+    const preferred = plain(plain(sceneAssets.characterDefaultOutfits)[name]).outfitName;
+    const order = [...(typeof preferred === 'string' && Object.hasOwn(outfits, preferred) ? [preferred] : []), ...Object.keys(outfits)];
+    for (const outfit of order) {
+        const url = firstSlot(plain(plain(outfits[outfit]).moods));
+        if (url) return url;
     }
     return '';
 }

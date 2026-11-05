@@ -3,7 +3,7 @@ import { isBilingualNote } from './bilingual-text.js';
 import { measureClassicReveal } from './typewriter-classic.js';
 import { startCompositedReveal } from './typewriter-compositor.js';
 import { TYPEWRITER_VOICE_DEFAULTS, normalizeTypewriterVoice, resolveTypewriterVoice, scheduleTypewriterAudio } from './typewriter-audio.js';
-import { TYPING_DUCK_RATIO, duckSceneAudio } from './scene-audio.js';
+import { duckForVoice } from './scene-audio.js';
 import { spawnTypingBubbles, underwaterVisualsAllowed } from './typewriter-underwater.js';
 
 export const TYPEWRITER_SPEED_IDS = Object.freeze(['fast', 'medium', 'slow']);
@@ -263,7 +263,7 @@ export function applyTypewriterEffect(target, options = {}) {
             horror: options.horror == null ? null : options.horror,
             underwater,
         });
-        if (job.audio) job.releaseDuck = duckSceneAudio({ ratio: TYPING_DUCK_RATIO });
+        if (job.audio) job.releaseDuck = duckForVoice();
     }
     if (float) job.bubbles = spawnTypingBubbles(target, { duration, delay });
     const settle = () => settleVisualJob(target, job);

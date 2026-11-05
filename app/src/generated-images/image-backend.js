@@ -14,7 +14,7 @@ import { annotateImageFailure, readImageRetrySettings, sharedRateGate, withImage
 import { recoverOperation, trackRecovery, waitForRecovery } from '../storage/automatic-recovery.js';
 import { checkPromptTask, isSceneOnlyPromptOutput } from '../schemas/prompt-recipe.js';
 import { prepareCharacterCaption } from './character-caption.js';
-import { runImageTask, staleImageTask, inheritImageTaskLease, imageTaskState } from './image-task-runtime.js';
+import { runImageTask, staleImageTask, inheritImageTaskLease, imageTaskState, isUrgentImageSignal } from './image-task-runtime.js';
 import { spriteSchemeOf, SCHEME_LIVELY } from './prompt-scheme.js';
 import { imageWritingContext } from './image-prompt-context.js';
 import { externalPromptDescription, externalCaptionFailure } from './external-prompt-reference.js';
@@ -329,6 +329,8 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             const controls = {
                 ...(guarded.signal && { signal: guarded.signal }),
                 ...(guarded.shouldStart && { shouldStart: guarded.shouldStart }),
+                ...(isUrgentImageSignal(meta.signal, input?.signal, settings?.signal, guarded.signal) ? { priority: 'urgent' }
+                    : meta.paintPriority === 'high' && { priority: 'high' }),
             };
             const result = await retryRun('nai', () => nai[method](method === 'edit' ? { ...prepared, ...controls } : prepared,
                 { ...frozen, ...controls, onQueueEvent: (level, message) => report?.(level, message),

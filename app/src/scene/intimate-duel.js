@@ -18,8 +18,8 @@ export const INTIMATE_LEGACY_OUTCOME = Object.freeze({
     水到渠成: '圆满', 心意相通: '圆满', 我方主导: '圆满', 小插曲: '勉强', 险胜: '勉强',
     被打断: '失败', 草草收场: '失败', 对方主导: '失败', 反复易手: '失败', 同归于尽: '失败', 甘拜下风: '放弃', [INTIMATE_STOP]: '放弃',
 });
-export const INTIMATE_LINES_LINE = '- 台词（可选）：亲密标签之前可加一行 [igs-combat:lines|对方角色|开场|出招|受击|快失守]，与亲密标签一起放进正文末尾的 <igs-combat> 块；四段各写一到两句，多句用「/」隔开，每句不超过15字，受击与快失守写短促的气声';
-export const INTIMATE_GRAMMAR_LINE = '【亲密对决】[igs-challenge:标题|亲密|合拍或主导|难度]：仅在一段亲密情节刚开始升温时，在该楼正文最后一行写一次，随后停笔，不写结果；合拍表示两人互相配合，主导表示争夺主动，难度写 轻松/普通/艰难，后两项可省略';
+export const INTIMATE_LINES_LINE = '- 台词（可选）：亲密标签之前可加一行 [igs-combat:lines|对方角色|开场|出招|受击|快失守]，与亲密标签一起放进正文末尾的 <igs-combat> 块，块的第一行 <igs-combat>，最后一行 </igs-combat>；四段各写一到两句，多句用「/」隔开，每句不超过15字，受击与快失守写短促的气声';
+export const INTIMATE_GRAMMAR_LINE = '【亲密对决】[igs-challenge:标题|亲密|合拍或主导|难度]：仅在一段亲密情节刚开始升温时，在该楼正文末尾写一次，随后停笔，不写结果；写了台词时，亲密标签与台词一起放进 <igs-combat> 块，作为块内最后一个标签；合拍表示两人互相配合，主导表示争夺主动，难度写 轻松/普通/艰难，后两项可省略';
 
 const plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 

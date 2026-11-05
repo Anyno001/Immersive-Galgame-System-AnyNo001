@@ -11,7 +11,8 @@ import { bindImageCacheDocument } from '../../media/tavern-image-cache.js';
 import { buildIgsTextPayload, getMessagePrimaryText, getVisibleMessageTextFromElement, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
 import { applyVoiceBark, canonicalName, normalizeCharacterVoices, noteFormGender, setActiveFormGenders } from './voice-bark.js';
 import { knownCharacterNames } from '../../scene/creature-registry.js';
-import { storedCreatureOf } from '../../scene/creature-profile.js';
+import { confirmedCreatureOf, storedCreatureOf } from '../../scene/creature-profile.js';
+import { creatureVoiceKind, creatureVoiceText } from './creature-voice.js';
 import { createSettingsHost } from './settings-host.js';
 import { createCombatPanelController } from './combat-panel.js';
 import { createCombatDeckPanelController } from './combat-deck-panel.js';
@@ -74,6 +75,7 @@ import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
 import { normalizeSpriteMotionSettings, normalizeStageCastSettings } from './stage-direction-settings.js';
 import { normalizeFxSoundSettings } from './fx-settings.js';
 import { playBattleSfx } from './fx-battle-sfx.js';
+import { playCreatureSfx } from './creature-battle-sfx.js';
 import { playFxSfx } from './fx-sfx.js';
 import { SPRITE_BACK_MOOD } from './sprite-turn.js';
 import { isReactMoodHit } from '../../scene/react-mood.js';
@@ -5351,6 +5353,9 @@ ${row.key}`;
             ensureTables: typeof options.ensureCombatTables === 'function' ? () => options.ensureCombatTables() : null,
             challengeHistory: typeof options.getChallengeHistory === 'function' ? () => options.getChallengeHistory() : null,
             resolvePortrait: (name) => resolveCombatPortrait(name),
+            // 缺立绘：按开战楼补发战斗立绘预热（旧楼、续打也补）。
+            requestPortraits: (messageId) => (options.generatedAssets && typeof options.generatedAssets.prewarmCombatFloor === 'function'
+                ? options.generatedAssets.prewarmCombatFloor(messageId) : null),
             // 登记角色（决定倒下的动作）：素材库里有 DNA / 立绘 / 衣柜 / 别名登记，且不是战斗临时档。
             isRegisteredCharacter: (name) => {
                 const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
@@ -5359,6 +5364,19 @@ ${row.key}`;
                 const key = canonicalName(assets, String(name));
                 if (!knownCharacterNames(assets).has(key)) return false;
                 return storedCreatureOf((assets.characterDna || {})[key])?.temp !== true;
+            },
+            // 非人敌人的种族声线与体型（挨打 / 倒下时叫一声）；人类、没有档案、关了非人演出时返回 null。
+            creatureVoiceOf: (name) => {
+                const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
+                const assets = rs && rs._sceneAssets;
+                if (!assets || !name || (rs.battleFx && rs.battleFx.creature === false)) return null;
+                const dnaMap = assets.characterDna || {};
+                for (const candidate of [String(name), ...combatPortraitNames(String(name))]) {
+                    const key = canonicalName(assets, candidate);
+                    const profile = confirmedCreatureOf(dnaMap[key]);
+                    if (profile) return { kind: creatureVoiceKind(creatureVoiceText(key, dnaMap[key])), size: profile.size };
+                }
+                return null;
             },
             // 战斗台词开关与朗读：读当前阅读器快照的设置与素材（声线按角色取）。
             getCombatExpansion: () => {
@@ -5400,6 +5418,7 @@ ${row.key}`;
             playSfx: (kind) => {
                 const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;
                 const sound = normalizeFxSoundSettings(rs && rs.fxSound);
+                if (String(kind).startsWith('creature-')) return playCreatureSfx(kind, sound);
                 return playBattleSfx(kind, sound) || playFxSfx(kind, sound);
             },
             getDuelFx: () => {

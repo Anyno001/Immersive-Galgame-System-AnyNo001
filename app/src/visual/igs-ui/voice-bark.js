@@ -4,7 +4,7 @@
 import { VOICE_PACKS } from '../../voice/voice-packs.js';
 import { fuzzyResolveMoodGroup, moodFallbackChain, resolveMoodGroup, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { busInput, resumeAudioBus } from './audio-bus.js';
-import { duckSceneAudio } from './scene-audio.js';
+import { duckForVoice } from './scene-audio.js';
 import { spritePan, yieldTypewriterAudio } from './typewriter-audio.js';
 import { resolveCreatureVoice, creatureVoiceRecipe, synthCreatureBark, CREATURE_VOICE_LABELS } from './creature-voice.js';
 import { getVoiceFilter, insertVoiceFilter, voiceFilterGain, voiceFilterParams, voiceFilterUsesDry } from './voice-filter.js';
@@ -39,8 +39,7 @@ const GAIN_CAP = 1.2;
 const CLEANUP_HIGHPASS = Object.freeze({ frequency: 100, q: 0.7 });
 const CLEANUP_HIGHSHELF = Object.freeze({ frequency: 7500, gain: -4 });
 const VOICE_LIMITER = Object.freeze({ threshold: -4, knee: 6, ratio: 20, attack: 0.003, release: 0.25 });
-// 语气音响着时 BGM 与环境音让一下（比提示音轻）；打字音整段静音到语气音念完。
-const BARK_DUCK_RATIO = 0.7;
+// 语气音响着时 BGM 与环境音按人声档让位（scene-audio duckForVoice）；打字音整段静音到语气音念完。
 const BARK_TAIL_S = 0.05;
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -510,7 +509,7 @@ export function playVoiceBark({ url, volume = 1, pitch = 0, speed = 1, pan = 0, 
             source.start();
             const seconds = (source.buffer.duration || 0) / rate + BARK_TAIL_S;
             if (yieldTyping) yieldTypewriterAudio(seconds);
-            if (duck) job.releaseDuck = duckSceneAudio({ ratio: BARK_DUCK_RATIO, durationMs: seconds * 1000 + 150 });
+            if (duck) job.releaseDuck = duckForVoice({ durationMs: seconds * 1000 + 150 });
         } catch {
             releaseJob(job);
             if (active === job) active = null;
@@ -540,7 +539,7 @@ export function playCreatureBark({ creature, mood = '', volume = 1, pitch = 0, s
                 if (active === job) active = null;
             }, seconds * 1000 + 120);
             if (yieldTyping) yieldTypewriterAudio(seconds);
-            if (duck) job.releaseDuck = duckSceneAudio({ ratio: BARK_DUCK_RATIO, durationMs: seconds * 1000 + 150 });
+            if (duck) job.releaseDuck = duckForVoice({ durationMs: seconds * 1000 + 150 });
         } catch {
             releaseJob(job);
             if (active === job) active = null;

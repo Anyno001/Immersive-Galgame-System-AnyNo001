@@ -18,6 +18,11 @@ export function inheritImageTaskLease(source, target) {
     return target;
 }
 
+// 用户在设置器里亲手点的生成：给这次任务的 signal 打标记，出图时在本机 NAI 队列里排最前。
+const urgentSignals = new WeakSet();
+export function markUrgentImageSignal(signal) { if (objectLike(signal)) urgentSignals.add(signal); return signal; }
+export function isUrgentImageSignal(...signals) { return signals.some(signal => objectLike(signal) && urgentSignals.has(signal)); }
+
 // 聊天和回复分支的真实事件结束旧目标；普通设置提交不属于这些事件。
 export function bindImageTaskTarget({ signal, subscribe, isCurrent }) {
     const controller = new AbortController();
@@ -98,6 +103,8 @@ export async function runImageTask(runtime, meta, execute) {
     const lease = runtime.capture(meta);
     if (!lease.ok) return lease;
     const guarded = { ...meta, signal: lease.signal, shouldStart: lease.isCurrent };
+    // 租约换了新 signal：用户亲手点的标记跟着传下去，嵌套任务一路保留。
+    if (isUrgentImageSignal(meta?.signal)) urgentSignals.add(lease.signal);
     lease.bind(guarded);
     lease.bind(guarded.signal);
     let stop;

@@ -13,7 +13,7 @@ const text = (value) => String(value == null ? '' : value).trim();
 // 战斗页里涉及的非人角色摘要；profile 为 confirmedCreatureOf 的结果。
 export function creatureSummary(name, profile, extra = {}) {
     return {
-        name: text(name), size: profile.size, form: profile.form, anchor: profile.anchor, temp: profile.temp === true, ...extra,
+        name: text(name), size: profile.size, form: profile.form, anchor: profile.anchor, temp: profile.temp === true, voice: text(profile.voice), ...extra,
         group: profile.group === true || extra.group === true,
     };
 }
@@ -38,10 +38,12 @@ export function foeIsDown(fx, raw, summary) {
     return down > 0 && down >= groupBodyCount(summary);
 }
 
-// 音效名：kind 为 roar（咆哮）| hurt（受创）| fade（消散）；体型不认识时按中型。音效本体在 creature-battle-sfx.js（那边依赖音频总线，这里只放纯函数）。
+// 音效名：kind 为 roar（咆哮）| hurt（受创）| fade（消散）；体型不认识时按中型；voice 为种族声线（creature-voice.js），兽类与未知不带后缀。
+// 音效本体在 creature-battle-sfx.js（那边依赖音频总线，这里只放纯函数）。
 const SFX_SIZES = ['small', 'medium', 'large', 'giant'];
-export function creatureSfxKind(kind, size) {
-    return `creature-${kind}-${SFX_SIZES.includes(size) ? size : 'medium'}`;
+export function creatureSfxKind(kind, size, voice = '') {
+    const base = `creature-${kind}-${SFX_SIZES.includes(size) ? size : 'medium'}`;
+    return voice && voice !== 'growl' && /^[a-z]+$/.test(voice) ? `${base}-${voice}` : base;
 }
 
 function scaled(ms, scale) { return Math.round(ms * scale); }

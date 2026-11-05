@@ -1,5 +1,6 @@
 // 仅内存凭据锁：生成与 infill 共用；取消等待不代表上游已停止。
 const stale = () => ({ ok: false, reason: 'request-stale', error: '任务已取消或目标失效，停止发送' });
+const PRIORITY_RANK = Object.freeze({ high: 1, urgent: 2 });
 export const naiRequestQueue = createNaiRequestQueue();
 
 function pause(ms, signal) {
@@ -44,9 +45,11 @@ export function createNaiRequestQueue({ now = Date.now, sleep = pause } = {}) {
         }
     }
     return {
-        run(key, execute, { signal, shouldStart, minIntervalMs = 0, wasSent } = {}) {
+        // 优先级：urgent（用户在设置器里亲手点的生成）> high（开战立绘预热）> 普通（楼层背景、CG 等自动出图）。
+        // 高档排到所有更低档之前，同档仍按先后；在途请求不打断。
+        run(key, execute, { signal, shouldStart, minIntervalMs = 0, wasSent, priority } = {}) {
             return new Promise(resolve => {
-                const entry = { key, execute, signal, shouldStart, resolve, wasSent,
+                const entry = { key, execute, signal, shouldStart, resolve, wasSent, rank: PRIORITY_RANK[priority] || 0,
                     minIntervalMs: Math.max(0, Math.min(60000, Math.round(Number(minIntervalMs)) || 0)),
                     cleanup: () => signal?.removeEventListener('abort', cancel) };
                 const cancel = () => {
@@ -57,7 +60,9 @@ export function createNaiRequestQueue({ now = Date.now, sleep = pause } = {}) {
                 };
                 if (!allowed(entry)) { resolve(stale()); return; }
                 signal?.addEventListener('abort', cancel, { once: true });
-                queue.push(entry); drain();
+                const at = entry.rank ? queue.findIndex(other => other.rank < entry.rank) : -1;
+                if (at < 0) queue.push(entry); else queue.splice(at, 0, entry);
+                drain();
             });
         },
     };
