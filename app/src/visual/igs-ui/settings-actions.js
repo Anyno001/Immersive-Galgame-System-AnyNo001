@@ -1,3 +1,4 @@
+import { handleTtsVoiceLibraryAction } from './tts-voice-library-actions.js';
 import { BUILD_CUSTOM_MAX, normalizeBuild, validCustomSkillName } from '../../scene/stats/stat-build.js';
 
 import { editCharacterCreature } from './creature-settings.js';
@@ -80,7 +81,7 @@ import { resolveCharacterKey } from '../../scene/scene-directives.js';
 import { normalizeCharacterHouses } from './magic-house.js';
 import { normalizeCharacterNameColors } from './character-name-color.js';
 import { normalizeCharacterVoice, normalizeCharacterVoices, normalizeVoiceBarkSettings, previewVoicePack, previewCreatureVoice, resolveCharacterVoice } from './voice-bark.js';
-import { TTS_VOICE_MAX, editTtsVoices, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice, toggleVoicePool } from './tts.js';
+import { TTS_VOICE_MAX, fetchTtsVoices, getTtsLastDecision, getTtsSkipReason, listSystemVoices, matchBatchVoicesToCharacters, mergeTtsVoices, normalizeTtsSettings, trimTtsCache, parseTtsVoiceBatch, ttsVoiceEntries, previewTts, resolveTtsVoice, toggleVoicePool } from './tts.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
 import { handleOutfitAction, guardDefaultOutfitImages } from './settings-outfit-actions.js';
 import { handleEventCgAction } from './settings-event-cg.js';
@@ -3075,34 +3076,11 @@ export async function handleSettingsAction(action, ctx) {
         if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
-    if (normalizedAction.startsWith('tts-voice-add:') || normalizedAction.startsWith('tts-voice-remove:') || normalizedAction.startsWith('tts-voice-edit:')) {
-        // 声音库按条目增删改，写回 api / narratorApi 的 voices 文本。
-        const [command, apiKey, rawIndex, part, rawValue] = normalizedAction.split(':');
-        if (apiKey !== 'api' && apiKey !== 'narratorApi') return { ok: false, error: '未知的声音库' };
-        const globalObj = options.global || globalThis;
-        const reader = settingsState.draft.readerSettings || (settingsState.draft.readerSettings = {});
-        const tts = normalizeTtsSettings(reader.tts);
-        let change;
-        if (command === 'tts-voice-add') {
-            const id = ((await dialogs.prompt('声音 ID（接口里的声音名、音色 ID 或参考音频）：', '')) || '').trim();
-            if (!id) return rerenderSettings();
-            const title = ((await dialogs.prompt('显示名称（可留空）：', '')) || '').trim();
-            change = { id, title };
-        } else if (command === 'tts-voice-remove') {
-            change = { index: Number(rawIndex), remove: true };
-        } else {
-            change = { index: Number(rawIndex), [part === 'id' ? 'id' : 'title']: decodeSeg(rawValue) };
-        }
-        const result = editTtsVoices(tts[apiKey].voices, change);
-        if (!result.ok) {
-            pageAlert(dialogs, globalObj, result.error);
-            return rerenderSettings();
-        }
-        reader.tts = { ...tts, [apiKey]: { ...tts[apiKey], voices: result.text } };
-        const persisted = persistSettingsDraft();
-        if (persisted.ok === false) return persisted;
-        return rerenderSettings();
-    }
+    const voiceLibraryAction = await handleTtsVoiceLibraryAction(normalizedAction, {
+        settingsState, dialogs, persistSettingsDraft, rerenderSettings,
+        isCurrent: () => state.activeSettings === settingsState,
+    });
+    if (voiceLibraryAction !== null) return voiceLibraryAction;
     if (normalizedAction.startsWith('tts-voice-batch')) {
         // 批量识别的展开状态与草稿文字只存在界面临时状态里，不进设置。
         const [command, apiKey] = normalizedAction.split(':');

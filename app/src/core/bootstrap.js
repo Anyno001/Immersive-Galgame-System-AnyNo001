@@ -541,6 +541,15 @@ export function bootstrapIGS(options = {}) {
         readCardWorldbook: (names) => (typeof illustrationMessageHost.readCardWorldbook === 'function'
             ? illustrationMessageHost.readCardWorldbook(names) : []),
         getCurrentChatId: () => (typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : ''),
+        readTtsFloor: id => illustrationMessageHost.readFloor?.(id),
+        onTtsFloorReady: handler => illustrationMessageHost.onImageFloorReady?.(id => handler(illustrationMessageHost.readFloor(id))),
+        onTtsFloorInvalidated: handler => {
+            const offs = ['CHAT_CHANGED', 'MESSAGE_SWIPED', 'MESSAGE_EDITED', 'MESSAGE_DELETED'].map(name => illustrationMessageHost.on(name, handler));
+            offs.push(illustrationMessageHost.on('GENERATION_STARTED', (type, params, dryRun) => {
+                if (dryRun !== true && type !== 'quiet' && type !== 'impersonate') handler();
+            }));
+            return () => offs.forEach(off => off?.());
+        },
         imageJobLog,
         getUnifiedSettings: getUnifiedSettingsSnapshot,
         // 配置每次写入（保存、从酒馆文件恢复）都加一；阅读器翻页据此复用上次整理好的配置。

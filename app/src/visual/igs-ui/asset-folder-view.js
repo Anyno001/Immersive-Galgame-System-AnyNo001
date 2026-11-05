@@ -1,5 +1,5 @@
 import { esc } from './reader-value-utils.js';
-import { groupAssetsByFolder } from './asset-folders.js';
+import { groupFolderItems } from './folder-state.js';
 import { menuItem, renderRowMenu } from './settings-outfit-fields.js';
 
 const encSeg = (v) => encodeURIComponent(String(v == null ? '' : v));
@@ -15,7 +15,7 @@ const FOLDER_ADD_ICON = icon('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v
 const EMPTY_KIND = Object.freeze({ view: 'list', folders: [], collapsed: [], assign: {} });
 
 // 条目上的「移到文件夹」；没有文件夹时不显示。
-export function renderAssetFolderSelect(kind, name, kindState, { menu = false } = {}) {
+export function renderAssetFolderSelect(kind, name, kindState, { menu = false, moveAttribute = 'data-asset-folder-move' } = {}) {
     const k = kindState || EMPTY_KIND;
     if (!k.folders.length) return '';
     const current = Object.prototype.hasOwnProperty.call(k.assign, name) ? k.assign[name] : '';
@@ -23,10 +23,10 @@ export function renderAssetFolderSelect(kind, name, kindState, { menu = false } 
         .map(([v, l]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(l)}</option>`).join('');
     // 只露一个文件夹图标，点了弹系统自带的选择列表；手机上不占一整截下拉框。
     const where = current || '未分类';
-    const select = `<select class="igs-folder-pick-select" data-asset-folder-move="${kind}" data-asset-name="${esc(name)}" aria-label="移到文件夹，现在在 ${esc(where)}">${opts}</select>`;
+    const select = `<select class="igs-folder-pick-select" ${moveAttribute}="${kind}" data-asset-name="${esc(name)}" aria-label="移到文件夹，现在在 ${esc(where)}">${opts}</select>`;
     if (menu) return `<label class="igs-add-menu-item igs-folder-pick-item" role="menuitem">移到文件夹<span class="igs-folder-pick-where">${esc(where)}</span>${select}</label>`;
     return `<label class="igs-folder-pick${current ? ' is-set' : ''}" title="文件夹：${esc(where)}（点一下移动）">${FOLDER_ICON}`
-        + `<select class="igs-folder-pick-select" data-asset-folder-move="${kind}" data-asset-name="${esc(name)}" aria-label="移到文件夹，现在在 ${esc(where)}">${opts}</select></label>`;
+        + select + '</label>';
 }
 
 // 缩略图卡片等大：图 + 一行名字，修改 / 下载 / 移到文件夹都收进名字右边的 ⋯，格子里不再挤图标。
@@ -55,40 +55,41 @@ function tile(kind, name, url, kindState, raw, select = null) {
 // 只改变素材的展示方式；renderList 仍用原来的列表渲染器，数据原样传入。
 // options.lead 是放在工具条左边的内容（素材页的「全部 / 本卡 / 全局」筛选），列表为空时工具条也留着它。
 export function renderAssetFolderView(kind, entries, options = {}) {
-    const k = (options.state && options.state[kind]) || EMPTY_KIND;
+    const k = options.kindState || (options.state && options.state[kind]) || EMPTY_KIND;
+    const prefix = options.actionPrefix || 'asset';
     const source = entries && typeof entries === 'object' ? entries : {};
     const names = Object.keys(source);
     const renderList = typeof options.renderList === 'function' ? options.renderList : () => '';
     const lead = typeof options.lead === 'string' ? options.lead : '';
-    if (!names.length) return (lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : '') + renderList({});
+    if (!names.length && !options.allowEmpty) return (lead ? `<div class="igs-asset-folder-bar">${lead}</div>` : '') + renderList({});
     // 批量删除：options.select 是当前已勾的名字集合（为 null 时不在选择模式）。选择模式一律用缩略图，便于点选。
     const select = options.select instanceof Set ? options.select : null;
-    const grid = k.view === 'grid' || Boolean(select);
+    const grid = options.allowGrid !== false && (k.view === 'grid' || Boolean(select));
     const viewBtn = (view, label, svg) => `<button type="button" class="igs-asset-view-btn" data-action="asset-view:${kind}:${view}" aria-pressed="${k.view === view}" title="${label}" aria-label="${label}">${svg}</button>`;
     const bar = `<div class="igs-asset-folder-bar">${lead}<span class="igs-asset-bar-spacer"></span>`
-        + `<span class="igs-asset-view-toggle" role="group" aria-label="显示方式">${viewBtn('list', '列表', LIST_ICON)}${viewBtn('grid', '缩略图', GRID_ICON)}</span>`
-        + `<button type="button" class="igs-btn-mgr-icon igs-asset-folder-add" data-action="asset-folder-add:${kind}" title="新建文件夹" aria-label="新建文件夹">${FOLDER_ADD_ICON}</button></div>`
+        + (options.allowGrid === false ? '' : `<span class="igs-asset-view-toggle" role="group" aria-label="显示方式">${viewBtn('list', '列表', LIST_ICON)}${viewBtn('grid', '缩略图', GRID_ICON)}</span>`)
+        + `<button type="button" class="igs-btn-mgr-icon igs-asset-folder-add" data-action="${prefix}-folder-add:${kind}" title="新建文件夹" aria-label="新建文件夹">${FOLDER_ADD_ICON}</button></div>`
         + (select ? `<div class="igs-asset-select-bar"><span>已选 ${select.size} 项</span>`
             + `<button type="button" class="igs-settings-action" data-action="asset-pick-all:${kind}">${select.size === names.length ? '全不选' : '全选'}</button>`
             + `<button type="button" class="igs-settings-action is-danger" data-action="asset-delete-picked:${kind}"${select.size ? '' : ' disabled'}>删除选中</button></div>` : '');
     const pick = (items) => Object.fromEntries(items.map((n) => [n, source[n]]));
     const body = (items) => {
-        if (!items.length) return '<div class="igs-scene-empty">文件夹为空</div>';
+        if (!items.length) return `<div class="igs-scene-empty">${esc(options.emptyText || '文件夹为空')}</div>`;
         if (!grid) return renderList(pick(items));
         const thumbOf = typeof options.thumbOf === 'function' ? options.thumbOf : () => '';
         const rawOf = typeof options.rawOf === 'function' ? options.rawOf : () => '';
         return `<div class="igs-asset-grid is-${kind}">${items.map((n) => tile(kind, n, thumbOf(n, source[n]), k, rawOf(n, source[n]), select)).join('')}</div>`;
     };
     if (!k.folders.length) return bar + body(names);
-    const html = groupAssetsByFolder(options.state, kind, names).filter((g) => g.folder || g.items.length).map((g) => {
+    const html = groupFolderItems(k, names).filter((g) => g.folder || g.items.length).map((g) => {
         const open = !k.collapsed.includes(g.folder);
         const seg = encSeg(g.folder);
         const tools = g.folder
-            ? `<button type="button" class="igs-btn-mgr-icon" data-action="asset-folder-rename:${kind}:${seg}" title="重命名文件夹">${PENCIL}</button>`
-              + `<button type="button" class="igs-btn-mgr-icon" data-action="asset-folder-remove:${kind}:${seg}" title="删除文件夹（素材移回未分类）">${TRASH}</button>`
+            ? `<button type="button" class="igs-btn-mgr-icon" data-action="${prefix}-folder-rename:${kind}:${seg}" title="重命名文件夹" aria-label="重命名文件夹">${PENCIL}</button>`
+              + `<button type="button" class="igs-btn-mgr-icon" data-action="${prefix}-folder-remove:${kind}:${seg}" title="删除文件夹（条目移回未分类）" aria-label="删除文件夹">${TRASH}</button>`
             : '';
         return `<div class="igs-asset-folder"><div class="igs-asset-folder-head">`
-            + `<button type="button" class="igs-btn-mgr-icon" data-action="asset-folder-toggle:${kind}:${seg}" aria-expanded="${open}" title="展开/折叠">${open ? DOWN : RIGHT}</button>`
+            + `<button type="button" class="igs-btn-mgr-icon" data-action="${prefix}-folder-toggle:${kind}:${seg}" aria-expanded="${open}" title="展开/折叠">${open ? DOWN : RIGHT}</button>`
             + `<span class="igs-asset-folder-name">${esc(g.folder || '未分类')}</span><span class="igs-asset-folder-count">${g.items.length}</span>${tools}</div>`
             + `${open ? body(g.items) : ''}</div>`;
     }).join('');

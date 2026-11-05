@@ -1,3 +1,4 @@
+import { renderTtsVoiceLibrary } from './tts-voice-library-view.js';
 import { readLive2dConfig } from './live2d-config.js';
 import { NAI_QUEUE_REFERENCE_ENDPOINT } from '../../generated-images/nai-cloud-queue-settings.js';
 import { renderLive2dLibrary } from './live2d-panel.js';
@@ -71,7 +72,7 @@ import { dialogSkinLabel, getDialogSkinChoices } from './dialog-skin-catalog.js'
 import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, magicHouseChoices, magicHouseFor, normalizeMagicAccent } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
-import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CACHE_LIMIT, TTS_THOUGHT_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, TTS_VOICE_MAX, findSystemVoice, hasNaturalSystemVoice, listSystemVoices, normalizeTtsSettings, parseVoicePool, systemVoiceOptions, ttsApiVoiceOptions, ttsMixedContentRisk, ttsNarratorVoiceOptions, ttsVoiceEntries } from './tts.js';
+import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CACHE_LIMIT, TTS_THOUGHT_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, findSystemVoice, hasNaturalSystemVoice, listSystemVoices, normalizeTtsSettings, parseVoicePool, systemVoiceOptions, ttsApiVoiceOptions, ttsMixedContentRisk, ttsNarratorVoiceOptions } from './tts.js';
 import { normalizeBilingualSettings } from './bilingual-text.js';
 import { HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
 import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
@@ -1366,28 +1367,6 @@ function renderTtsApiFields(api, apiPath) {
     return parts;
 }
 
-// 声音库：名称 + 声音 ID 一条一行，角色与默认声音从这里选。source 为 api / narratorApi。
-function renderTtsVoiceLibrary(source, voices, { fetchable = false, message = '', batch = null } = {}) {
-    const entries = ttsVoiceEntries(voices);
-    const rows = entries.map(([id, title], index) => `<div class="igs-tts-voice-item">`
-        + `<input class="igs-asset-move" type="text" data-tts-voice="${source}" data-voice-index="${index}" data-voice-part="title" value="${esc(title)}" placeholder="名称" aria-label="声音名称">`
-        + `<input class="igs-asset-move" type="text" data-tts-voice="${source}" data-voice-index="${index}" data-voice-part="id" value="${esc(id)}" placeholder="声音 ID" aria-label="声音 ID">`
-        + `<button type="button" class="igs-btn-mgr-icon" data-action="tts-voice-remove:${source}:${index}" title="删除" aria-label="删除这个声音">×</button></div>`).join('');
-    const actions = `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-voice-add:${source}"${entries.length >= TTS_VOICE_MAX ? ' disabled' : ''}>添加声音</button>`
-        + `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-voice-batch:${source}"${entries.length >= TTS_VOICE_MAX ? ' disabled' : ''}>批量识别</button>`
-        + (fetchable ? `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${source === 'api' ? 'tts-fetch-voices' : 'tts-fetch-voices-narrator'}">获取音色列表</button>` : '');
-    const batchBox = batch && batch.open
-        ? `<textarea data-tts-batch="${source}" aria-label="批量识别声音" placeholder="每行一个声音：名称 ID、名称：ID、Fish 网址，或 JSON 列表">${esc(batch.text || '')}</textarea>`
-            + `<div class="igs-tts-voice-actions"><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-voice-batch-run:${source}">识别并加入</button><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="tts-voice-batch-cancel:${source}">取消</button></div>`
-        : '';
-    return `<div class="igs-settings-field igs-tts-voice-lib"><span>声音库<small class="igs-switch-note">${entries.length} / ${TTS_VOICE_MAX}</small></span>`
-        + (rows || '<div class="igs-scene-empty">暂无声音</div>')
-        + `<div class="igs-tts-voice-actions">${actions}</div>`
-        + batchBox
-        + (message ? `<div class="igs-source-filter-note">${esc(message)}</div>` : '')
-        + '</div>';
-}
-
 const ttsGroup = (title, parts, headAction = '') => `<div class="igs-settings-group">${headAction
     ? `<div class="igs-settings-section-head"><div class="igs-settings-subhead">${title}</div>${headAction}</div>`
     : `<div class="igs-settings-subhead">${title}</div>`}${parts.filter(Boolean).join('')}</div>`;
@@ -1440,7 +1419,7 @@ function renderTtsNarratorGroup(tts, { voicesMessage = '', batch = null, options
     parts.push(checkbox(apiPath('enabled'), narrator.enabled, '旁白使用独立接口'));
     if (narrator.enabled) {
         parts.push(...renderTtsApiFields(narrator, apiPath));
-        parts.push(renderTtsVoiceLibrary('narratorApi', narrator.voices, { fetchable: ['openai', 'fish', 'minimax'].includes(narrator.format), message: voicesMessage, batch }));
+        parts.push(renderTtsVoiceLibrary('narratorApi', narrator, { fetchable: ['openai', 'fish', 'minimax'].includes(narrator.format), message: voicesMessage, batch }));
     }
     return ttsGroup('旁白', parts, ttsPreviewButton('tts-preview-narrator', '试听旁白'));
 }
@@ -1477,7 +1456,7 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narrato
 
     const voiceParts = [ttsPreviewError(previewError)];
     if (apiMode) {
-        voiceParts.push(renderTtsVoiceLibrary('api', api.voices, { fetchable: ['openai', 'fish', 'minimax'].includes(api.format), message: voicesMessage, batch: batches.api }));
+        voiceParts.push(renderTtsVoiceLibrary('api', api, { fetchable: ['openai', 'fish', 'minimax'].includes(api.format), message: voicesMessage, batch: batches.api }));
         // 默认声音从声音库里多选；旧版手填、不在库里的值保留并标出。
         const library = ttsApiVoiceOptions(tts);
         for (const [key, label] of [['female', '女角色默认'], ['male', '男角色默认']]) {
