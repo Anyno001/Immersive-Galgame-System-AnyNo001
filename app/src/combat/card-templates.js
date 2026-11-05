@@ -56,6 +56,10 @@ const bounty = (reward, amount) => ({ op: 'bounty', reward, ...(reward === 'upgr
 // 规则 v5 P3 战士锻刃（mechanics/forge.js）。
 const smith = (amount) => ({ op: 'smith', amount });
 const honeBlade = (mode, amount) => ({ op: 'hone-blade', mode, ...(mode === 'guard' ? { amount } : {}) });
+// 规则 v5 P3 刺客毒与暗刃（mechanics/shadow.js）。
+const poisonTick = (amount, target = 'enemy') => ({ op: 'poison-tick', amount, target });
+const shiv = (amount) => ({ op: 'shiv', amount });
+const honeShiv = (mode, amount) => ({ op: 'hone-shiv', mode, ...(mode === 'edge' || mode === 'first' ? { amount } : {}) });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -82,6 +86,8 @@ function primaryNumber(effect) {
             return effect.reward === 'upgrade' ? 1 : effect.amount;
         case 'hone-blade':
             return effect.mode === 'guard' ? effect.amount : 1;
+        case 'hone-shiv':
+            return effect.mode === 'edge' || effect.mode === 'first' ? effect.amount : 1;
         case 'cost-mod':
         case 'hand-cost':
             return -effect.amount;
@@ -266,6 +272,21 @@ export const CARD_TEMPLATES = Object.freeze({
     'blade-echo': template('skill', '锻刃获得重演 1，并获得格挡（限稀有以上）', [[0, 20]], 1, ([a]) => [honeBlade('replay'), block(a)], { minRarity: 'rare', hero: false }),
     'blade-guard': template('skill', '锻刃打出时另获得格挡', [[1, 20]], 1, ([a]) => [honeBlade('guard', a)], { hero: false }),
     bloodthirst: template('skill', '嗜血：本回合攻击牌按实际扣除的生命回复，并获得格挡', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('bloodthirst', a, 'self'), block(b)]),
+    // 规则 v5 P3 刺客：A01–A09（shadow 族，只给刺客）；A10 脆弱沿用 sap。
+    rupture: template('skill', '施加中毒，再让目标立即按中毒层数结算一次（层数不减）', [[1, 8]], 1, ([a]) => [status('poison', a, 'enemy'), poisonTick(1)]),
+    envenom: template('power', '淬刃：每段未被格挡的攻击伤害施加中毒', [[1, 5]], 1, ([a]) => [applyStatus('envenom', a, 'self')]),
+    miasma: template('power', '毒雾：每回合开始全体敌人中毒', [[1, 4]], 1, ([a]) => [eachTurn([status('poison', a, 'all-enemies')])]),
+    'toxic-burst': template('power', '毒爆：每施毒 3 次对全体敌人造成伤害', [[1, 10]], 1, ([a]) => [applyStatus('venom-burst', a, 'self')]),
+    shiv: template('skill', '把数张暗刃（0 费、打出后消耗的攻击牌）加入手牌', [[1, 3]], 1, ([a]) => [shiv(a)]),
+    'shiv-edge': template('skill', '暗刃伤害提高，并获得格挡', [[1, 6], [0, 20]], 0.6, ([a, b]) => [honeShiv('edge', a), block(b)], { hero: false }),
+    'shiv-fan': template('skill', '暗刃改为攻击全体敌人，并获得格挡（限稀有以上）', [[0, 20]], 1, ([a]) => [honeShiv('fan'), block(a)], { minRarity: 'rare', hero: false }),
+    'shiv-keep': template('skill', '暗刃获得保留，并获得格挡', [[0, 20]], 1, ([a]) => [honeShiv('keep'), block(a)], { hero: false }),
+    'shiv-first': template('skill', '每回合第一张暗刃伤害提高', [[1, 10]], 1, ([a]) => [honeShiv('first', a)], { hero: false }),
+    sleight: template('skill', '数回合内每弃一张牌对随机敌人造成伤害，并随机弃 1 张牌', [[1, 3], [1, 10]], 1, ([a, b]) => [buff('discard', a, [damage(b, 'random-enemy')]), discardRandom(1)]),
+    'palm-off': template('skill', '数回合内每弃一张牌使随机一张手牌本回合费用 -1，并获得格挡', [[1, 3], [0, 20]], 0.6, ([a, b]) => [buff('discard', a, [costMod(1, 'random', 'turn')]), block(b)]),
+    garrote: template('skill', '扼喉：本回合每打出一张牌，目标失去生命，并获得格挡', [[1, 5], [0, 20]], 0.6, ([a, b]) => [applyStatus('garrote', a, 'enemy'), block(b)]),
+    carrion: template('attack', '尸裂：带此状态的敌人倒下时按其最大生命的比例伤害其他敌人，并造成伤害', [[1, 2], [1, 30]], 0.4, ([a, b]) => [applyStatus('carrion', a, 'enemy'), damage(b)]),
+    bladestorm: template('power', '千刃：每打出一张牌对全体敌人造成伤害', [[1, 2]], 1, ([a]) => [applyStatus('bladestorm', a, 'self')]),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -640,7 +661,7 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     restore: ['mend', 'regrow', 'reap'],
     volley: ['finisher', 'footwork', 'glance', 'chain', 'sift', 'encore', 'cull'],
     venom: ['flurry', 'venom', 'toxin', 'execute', 'venom-draw', 'flask', 'catalyst'],
-    shadow: ['agility', 'gut', 'scrap', 'reflex', 'toss', 'sap'],
+    shadow: ['agility', 'gut', 'scrap', 'reflex', 'toss', 'sap', 'rupture', 'envenom', 'miasma', 'toxic-burst', 'shiv', 'shiv-edge', 'shiv-fan', 'shiv-keep', 'shiv-first', 'sleight', 'palm-off', 'garrote', 'carrion', 'bladestorm'],
     hex: ['expose', 'hex', 'wail'],
     arcane: ['surge', 'adrenal', 'purge', 'echo', 'quicken', 'rhythm', 'temper', 'conflux', 'cascade'],
     conjure: ['mimic', 'forge', 'scavenge', 'replicate'],

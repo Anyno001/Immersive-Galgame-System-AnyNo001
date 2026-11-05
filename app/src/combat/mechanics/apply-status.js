@@ -31,6 +31,12 @@ export const APPLY_STATUSES = Object.freeze({
     pyre: Object.freeze({ max: 1, value: 16 }),
     ember: Object.freeze({ max: 6, value: 3 }),
     bloodthirst: Object.freeze({ max: 1, value: 8 }),
+    // 规则 v5 P3 刺客（shadow.js）。
+    envenom: Object.freeze({ max: 5, value: 4 }),
+    'venom-burst': Object.freeze({ max: 10, value: 2 }),
+    garrote: Object.freeze({ debuff: true, max: 5, value: 4 }),
+    carrion: Object.freeze({ debuff: true, max: 2, value: 6 }),
+    bladestorm: Object.freeze({ max: 2, value: 8 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

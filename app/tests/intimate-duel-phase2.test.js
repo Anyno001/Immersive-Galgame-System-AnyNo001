@@ -1304,3 +1304,150 @@ test('战士锻刃模板（W02–W06）：可反解、归属正确只给战士�
     for (const rarity of ['common', 'uncommon', 'rare']) for (const cost of [0, 1, 2, 3]) assert.equal(solveCardTemplate('pyre', cost, rarity), null, `${rarity}:${cost}`);
     assert.ok(describeEffects([{ op: 'smith', amount: 3 }]).includes('锻造 3'));
 });
+
+
+// ---------- 规则 v5 P3 刺客「毒与暗刃」（A01–A10） ----------
+const foePoison = (stacks) => ({ op: 'status', status: 'poison', stacks, target: 'enemy' });
+const shivsOf = (state) => state.piles.hero.hand.filter((inst) => state.cards[inst].cardId === 'shadow-shiv');
+const twoFoes = (catalog, deck, rulesVersion) => {
+    const units = [hero({}, { deck, catalog }), foe({}), foe({}, { id: 'foe2', name: '她二' })];
+    const created = createBattle({ controlledId: 'hero', canEscape: true, units, ...(rulesVersion ? { rulesVersion } : {}) }, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+
+test('毒额外结算（A01）：按当前中毒层数立即失去生命，层数不减；规则 v4 不结算', () => {
+    const card = def('r', 'skill', [foePoison(4), { op: 'poison-tick', amount: 1, target: 'enemy' }], { innate: true });
+    const run = (rv) => {
+        const s = startDeck({ r: card, k: GUARD }, ['r', ...Array(9).fill('k')], rv);
+        return playIn(s, instOf(s, 'r'), 'foe').state.units.foe;
+    };
+    assert.deepEqual([run().hp, run().statuses.poison], [26, 4]);
+    assert.equal(run(4).hp, 30);
+});
+
+test('淬刃（A02）：每段未被格挡的攻击伤害施加中毒，完全格挡不施加；规则 v4 不施加', () => {
+    const env = def('e', 'power', [{ op: 'apply-status', status: 'envenom', stacks: 2, target: 'self' }], { innate: true });
+    const twin = def('t', 'attack', [{ op: 'damage', amount: 2, hits: 2, target: 'enemy' }], { innate: true });
+    const lit = (rv) => {
+        const s = startDeck({ e: env, t: twin, k: GUARD }, ['e', 't', ...Array(8).fill('k')], rv);
+        return playIn(s, instOf(s, 'e')).state;
+    };
+    const hit = playIn(lit(), instOf(lit(), 't'), 'foe').state;
+    assert.deepEqual([hit.units.foe.hp, hit.units.foe.statuses.poison], [26, 4]);
+    const walled = structuredClone(lit());
+    walled.units.foe.block = 10;
+    assert.equal(playIn(walled, instOf(walled, 't'), 'foe').state.units.foe.statuses.poison, undefined);
+    const old = lit(4);
+    assert.equal(playIn(old, instOf(old, 't'), 'foe').state.units.foe.statuses.poison, undefined);
+});
+
+test('毒雾（A03）与毒爆（A04）：每回合开始全体敌人中毒；每施毒 3 次对全体敌人造成伤害；规则 v4 不爆', () => {
+    const mist = def('m', 'power', [{ op: 'each-turn', then: [{ op: 'status', status: 'poison', stacks: 2, target: 'all-enemies' }] }], { innate: true });
+    const s = startDeck({ m: mist, k: GUARD }, ['m', ...Array(9).fill('k')]);
+    assert.equal(endTurn(playIn(s, instOf(s, 'm')).state).state.units.foe.statuses.poison, 2);
+
+    const burst = def('b', 'power', [{ op: 'apply-status', status: 'venom-burst', stacks: 3, target: 'self' }], { innate: true });
+    const thrice = def('p', 'skill', [foePoison(1), foePoison(1), foePoison(1)], { innate: true });
+    const run = (rv) => {
+        const t = startDeck({ b: burst, p: thrice, k: GUARD }, ['b', 'p', ...Array(8).fill('k')], rv);
+        const lit = playIn(t, instOf(t, 'b')).state;
+        return playIn(lit, instOf(lit, 'p'), 'foe');
+    };
+    const v5 = run();
+    assert.deepEqual([v5.state.units.foe.hp, v5.state.units.foe.statuses.poison], [27, 3]);
+    assert.equal(v5.events.filter((e) => e.type === 'venom-burst').length, 1);
+    assert.equal(run(4).state.units.foe.hp, 30);
+});
+
+test('暗刃（A05）：取出 0 费、打出后消耗的暗刃；增伤、首刃、群攻、保留改写暗刃；规则 v4 不取出', () => {
+    const draw2 = def('s', 'skill', [{ op: 'shiv', amount: 2 }], { innate: true });
+    const s = startDeck({ s: draw2, k: GUARD }, ['s', ...Array(9).fill('k')]);
+    const got = playIn(s, instOf(s, 's')).state;
+    const [first] = shivsOf(got);
+    assert.equal(shivsOf(got).length, 2);
+    const view = cardView(got, first);
+    assert.deepEqual([view.cost, view.effects[0].amount], [0, 4]);
+    const struck = playIn(got, first, 'foe').state;
+    assert.deepEqual([struck.units.foe.hp, struck.piles.hero.exhaust.includes(first)], [26, true]);
+
+    const honed = def('h', 'skill', [{ op: 'hone-shiv', mode: 'edge', amount: 3 }, { op: 'hone-shiv', mode: 'first', amount: 5 }], { innate: true });
+    const t = startDeck({ h: honed, s: draw2, k: GUARD }, ['h', 's', ...Array(8).fill('k')]);
+    let u = playIn(t, instOf(t, 'h')).state;
+    u = playIn(u, instOf(u, 's')).state;
+    u = playIn(u, shivsOf(u)[0], 'foe').state;
+    assert.equal(u.units.foe.hp, 18);
+    u = playIn(u, shivsOf(u)[0], 'foe').state;
+    assert.equal(u.units.foe.hp, 11);
+
+    for (const [mode, check] of [['fan', (v) => v.effects[0].target === 'all-enemies'], ['keep', (v) => v.retain === true]]) {
+        const card = def('f', 'skill', [{ op: 'hone-shiv', mode }, { op: 'shiv', amount: 1 }], { innate: true });
+        const fs = startDeck({ f: card, k: GUARD }, ['f', ...Array(9).fill('k')]);
+        const done = playIn(fs, instOf(fs, 'f')).state;
+        assert.ok(check(cardView(done, shivsOf(done)[0])), mode);
+        if (mode === 'keep') assert.equal(shivsOf(endTurn(done).state).length, 1);
+    }
+    const old = startDeck({ s: draw2, k: GUARD }, ['s', ...Array(9).fill('k')], 4);
+    assert.equal(shivsOf(playIn(old, instOf(old, 's')).state).length, 0);
+});
+
+test('弃牌收益（A06）：限时 buff 让每次弃牌对随机敌人造成伤害', () => {
+    const card = def('d', 'skill', [{ op: 'buff', trigger: 'discard', turns: 1, then: [{ op: 'damage', amount: 3, hits: 1, target: 'random-enemy' }] }, { op: 'discard', amount: 1, mode: 'random' }], { innate: true });
+    const s = startDeck({ d: card, k: GUARD }, ['d', ...Array(9).fill('k')]);
+    assert.equal(playIn(s, instOf(s, 'd')).state.units.foe.hp, 27);
+});
+
+test('扼喉（A07）：本回合每打出一张牌目标失去生命（不经格挡），回合结束清掉；规则 v4 无效', () => {
+    const card = def('g', 'skill', [{ op: 'apply-status', status: 'garrote', stacks: 2, target: 'enemy' }], { innate: true });
+    const lit = (rv) => {
+        const s = startDeck({ g: card, k: GUARD }, ['g', ...Array(9).fill('k')], rv);
+        return playIn(s, instOf(s, 'g'), 'foe');
+    };
+    const first = lit();
+    assert.equal(first.state.units.foe.hp, 28);
+    assert.ok(first.events.some((e) => e.type === 'damage' && e.kind === 'garrote' && e.loss === true));
+    const walled = structuredClone(first.state);
+    walled.units.foe.block = 10;
+    const next = playIn(walled, instOf(walled, 'k')).state;
+    assert.deepEqual([next.units.foe.hp, next.units.foe.block], [26, 10]);
+    assert.equal(endTurn(next).state.units.foe.statuses.garrote, undefined);
+    assert.equal(lit(4).state.units.foe.hp, 30);
+});
+
+test('尸裂（A08）：带尸裂的敌人倒下时按其最大生命的比例伤害其他敌人；规则 v4 不波及', () => {
+    const card = def('c', 'attack', [{ op: 'apply-status', status: 'carrion', stacks: 2, target: 'enemy' }, { op: 'damage', amount: 40, target: 'enemy' }], { innate: true });
+    const run = (rv) => {
+        const s = twoFoes({ c: card, k: GUARD }, ['c', ...Array(9).fill('k')], rv);
+        return playIn(s, instOf(s, 'c'), 'foe').state;
+    };
+    const v5 = run();
+    assert.deepEqual([v5.units.foe.alive, v5.units.foe2.hp], [false, 18]);
+    assert.equal(run(4).units.foe2.hp, 30);
+});
+
+test('千刃（A09）：每打出一张牌对全体敌人造成层数伤害；规则 v4 不触发', () => {
+    const card = def('b', 'power', [{ op: 'apply-status', status: 'bladestorm', stacks: 2, target: 'self' }], { innate: true });
+    const run = (rv) => {
+        const s = twoFoes({ b: card, k: GUARD }, ['b', ...Array(9).fill('k')], rv);
+        const lit = playIn(s, instOf(s, 'b')).state;
+        return playIn(lit, instOf(lit, 'k')).state;
+    };
+    const v5 = run();
+    assert.deepEqual([v5.units.foe.hp, v5.units.foe2.hp], [26, 26]);
+    assert.equal(run(4).units.foe.hp, 30);
+});
+
+test('刺客模板（A01–A10）：可反解、归 shadow 族只给刺客；牌面写明暗刃与毒结算；脆弱 sap 刺客可用', () => {
+    for (const key of ['rupture', 'envenom', 'miasma', 'toxic-burst', 'shiv', 'shiv-edge', 'shiv-fan', 'shiv-keep', 'shiv-first', 'sleight', 'palm-off', 'garrote', 'carrion', 'bladestorm']) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'shadow', key);
+        assert.equal(templateAllowedFor(key, 'assassin'), true, key);
+        for (const other of ['mage', 'guardian', 'warrior']) assert.equal(templateAllowedFor(key, other), false, `${key}:${other}`);
+    }
+    assert.ok(describeEffects([{ op: 'shiv', amount: 2 }]).includes('暗刃'));
+    assert.ok(describeEffects([{ op: 'poison-tick', amount: 1, target: 'enemy' }]).includes('层数不减'));
+    assert.equal(templateAllowedFor('sap', 'assassin'), true);
+});

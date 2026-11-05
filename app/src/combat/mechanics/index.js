@@ -12,3 +12,4 @@ import './status-cards.js';
 import './battle-growth.js';
 import './rampart.js';
 import './forge.js';
+import './shadow.js';
