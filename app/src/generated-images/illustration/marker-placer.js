@@ -59,6 +59,23 @@ export function numberParagraphs(raw, options = {}) {
     return { paragraphs, scenes, characters: Array.from(characters), isNsfw: scenes.some((s) => s.nsfw) };
 }
 
+// 本楼出场角色：说过话或有心里话的人，加上场景标签第 5 段写明的在场名单。extra 里的名字一并带上。
+export function floorCharacterKeywords(text, extra = []) {
+    const names = [];
+    const add = (name) => {
+        const value = String(name || '').trim();
+        if (!value || names.includes(value)) return;
+        names.push(value);
+    };
+    const presentRe = /\[igs-scene:[^|\n\]]+\|[^|\n\]]+(?:\|[^|\n\]]*)?(?:\|[^|\n\]]*)?\|([^\n\]]*)\]/g;
+    for (const name of numberParagraphs(text).characters) add(name);
+    for (const match of String(text || '').matchAll(presentRe)) {
+        for (const part of String(match[1] || '').split(/[,，、;；\s]+/)) add(part);
+    }
+    for (const name of Array.isArray(extra) ? extra : []) add(name);
+    return names;
+}
+
 export function formatNumberedParagraphs(paragraphs, maxChars = 6000) {
     const out = [];
     let total = 0;

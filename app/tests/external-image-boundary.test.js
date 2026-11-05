@@ -26,7 +26,7 @@ function fixture(t) {
         get getPromptCapabilities() { assert.fail('外部生成不得探测内置模板协议'); },
         async generateSinglePrompt(request) {
             writes.push(structuredClone(request));
-            assert.ok(Object.keys(request).every(key => ['description', 'messageId', 'skipRecall', 'signal'].includes(key)));
+            assert.ok(Object.keys(request).every(key => ['description', 'messageId', 'skipRecall', 'signal', 'worldInfoKeywords'].includes(key)));
             return { ok: true, value: { caption: structuredClone(caption),
                 captions: [{ slotId: 1, caption: structuredClone(caption), anchorSentence: '二段。' }] } };
         },
@@ -65,6 +65,39 @@ test('外部 DBGen：原有格式仍能交付自身资料，发送文本采用�
     assert.match(h.writes[0].description, /穿着按本次衣装的名称和说明描写/);
     assert.doesNotMatch(h.writes[0].description, /旧默认|优先于/);
     assert.equal(h.paints.length, 0);
+    assert.deepEqual(h.writes[0].worldInfoKeywords, ['Legacy']);
+});
+
+test('外部 DBGen：写词默认带上本楼说过话和在场的角色', async () => {
+    const received = [];
+    const text = [
+        '<content>',
+        '[igs-scene:教室|白天|晴||林晚晚、苏糖]',
+        '[igs-char:林晚晚|微笑|你好]',
+        '[igs-thought:阿宁|平静|他来了]',
+        '</content>',
+    ].join('\n');
+    const backend = createImageBackend({
+        getBridge: () => ({ imageApi: { mode: 'dbgen' } }),
+        global: {
+            btoa,
+            SillyTavern: { getContext: () => ({ chat: [{ mes: text }] }) },
+            NaiDbGen: {
+                generate() { assert.fail('这次只写词'); },
+                async generateSinglePrompt(request) {
+                    received.push(request);
+                    return { ok: true, value: { caption, captions: [{ slotId: 1, caption }] } };
+                },
+            },
+        },
+    });
+    const result = await backend.writeFloorPrompts({
+        description: '画这一楼',
+        messageId: 0,
+        characterContext: [{ characterKey: '林晚晚' }, { characterKey: '路人甲' }],
+    });
+    assert.equal(result.ok, true, result.error);
+    assert.deepEqual(received[0].worldInfoKeywords, ['林晚晚', '阿宁', '苏糖', '路人甲']);
 });
 
 test('外部 DBGen：普通写词失败保留错误码与定位，不回显插件私有正文', async () => {

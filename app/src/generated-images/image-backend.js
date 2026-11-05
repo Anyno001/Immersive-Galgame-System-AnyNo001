@@ -18,6 +18,7 @@ import { runImageTask, staleImageTask, inheritImageTaskLease, imageTaskState } f
 import { spriteSchemeOf, SCHEME_LIVELY } from './prompt-scheme.js';
 import { imageWritingContext } from './image-prompt-context.js';
 import { externalPromptDescription, externalCaptionFailure } from './external-prompt-reference.js';
+import { floorCharacterKeywords } from './illustration/marker-placer.js';
 
 // 生图来源：nai = IGS 内置 NAI；dbgen = 数据库生图插件（window.NaiDbGen）；
 // extension = 智绘姬：剧情 CG、素材与物品图经智绘姬的出图事件生成，剧情 CG 优先用它写在楼层里的词；
@@ -83,6 +84,25 @@ function waitForPluginResult(call, { signal, slowMs = 0, onSlow, limitMs = 0, qu
     });
 }
 const minutes = ms => `${Math.round(ms / 60000)} 分钟`;
+
+function readFloorText(globalObject, messageId) {
+    if (messageId == null) return '';
+    try {
+        const tavern = globalObject && globalObject.SillyTavern;
+        const ctx = tavern && typeof tavern.getContext === 'function' ? tavern.getContext() : null;
+        const msg = ctx && Array.isArray(ctx.chat) ? ctx.chat[Number(messageId)] : null;
+        return msg && typeof msg.mes === 'string' ? msg.mes : '';
+    } catch {
+        return '';
+    }
+}
+
+// 数据库生图每次写词都带本楼角色名。插件开了哪种世界书，就按哪种处理。
+function worldInfoKeywordsOf(globalObject, meta = {}) {
+    const extra = (Array.isArray(meta.characterContext) ? meta.characterContext : [])
+        .map((item) => item && item.characterKey);
+    return floorCharacterKeywords(readFloorText(globalObject, meta.messageId), extra);
+}
 
 export function findDbgenApi(globalObject = globalThis) {
     const candidates = [];
@@ -483,6 +503,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             written = await waitForPluginResult((_started, signal) => api.generateSinglePrompt({ description,
                 ...((floor ? meta.skipRecall === true : true) && { skipRecall: true }),
                 ...(meta.messageId != null && { messageId: Number(meta.messageId) }),
+                worldInfoKeywords: worldInfoKeywordsOf(globalObject, meta),
                 signal,
             }), { signal: meta.signal, slowMs: timeouts.write, limitMs: timeouts.writeLimit,
                 onSlow: () => report?.('info', '数据库生图插件仍在写词，继续等待同一次调用'),

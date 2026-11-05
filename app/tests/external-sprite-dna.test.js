@@ -42,7 +42,7 @@ function fixture(t, options = {}) {
             bridge.sceneAssets = structuredClone(next); order.push('save'); options.afterSave?.(); return { ok: true };
         } });
     const api = { async generateSinglePrompt(request) {
-        assert.ok(Object.keys(request).every(key => ['description', 'messageId', 'skipRecall', 'signal'].includes(key)));
+        assert.ok(Object.keys(request).every(key => ['description', 'messageId', 'skipRecall', 'signal', 'worldInfoKeywords'].includes(key)));
         writes.push(request); order.push('plugin-write');
         options.onPluginWrite?.();
         return { ok: true, value: { caption: structuredClone(caption), captions: Array.from({ length: options.spriteCount || 1 },
