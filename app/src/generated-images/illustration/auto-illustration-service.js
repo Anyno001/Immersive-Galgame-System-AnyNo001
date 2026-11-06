@@ -59,7 +59,9 @@ export function cgSizeForAspect(backgroundSize, viewport) {
 export function cgSizeForMode(backgroundSize, mode, viewport) {
     const landscape = squareAsLandscape(String(backgroundSize || '').trim() || '1216x832');
     if (mode === 'fullscreen') return cgSizeForAspect(landscape, viewport);
-    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPhoneEmbedded(viewport));
+    // 没选过模式时默认是电脑模式，手机竖着拿也会落到这里，同样钉竖屏。
+    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPhoneEmbedded(viewport))
+        || (mode === 'pc' && viewport && viewport.portrait === true);
     if (!usePortrait) return clampToPixelCap(landscape);
     const match = landscape.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
     // 背景尺寸本身填成竖的就直接用，不能再对调回横屏。
