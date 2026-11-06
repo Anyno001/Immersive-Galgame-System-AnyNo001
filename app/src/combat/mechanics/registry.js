@@ -20,6 +20,9 @@ export const DAMAGE_STAGES = Object.freeze(['outgoing-add', 'outgoing-mult', 'in
 export const BLOCK_STAGES = Object.freeze(['block-add']);
 // 费用修正阶段：card-cost 在常规费用修正（全体手牌、本场、本回合）之后，签名 (state, owner, view) => cost，只作用于数字费用。
 export const COST_STAGES = Object.freeze(['card-cost']);
+// 规则 v5 出牌与抽牌限制阶段（E18、E20）：card-play 签名 (state, unit, card) => 拒绝原因字符串 | null；draw-count 签名 (state, unit, count) => count；
+// card-upgrade 签名 (state, owner) => 返回 false 时该单位的牌按未升级显示与结算。
+export const PLAY_STAGES = Object.freeze(['card-play', 'draw-count', 'card-upgrade']);
 const BUILTIN_LOSS_KINDS = Object.freeze(['poison', 'self']);
 
 const KEY_PATTERN = /^[a-z][a-z0-9-]{1,39}$/;
@@ -27,7 +30,7 @@ const MECHANICS = new Map();
 const OP_OWNERS = new Map();
 const STATUS_OWNERS = new Map();
 const HOOKS = new Map(HOOK_POINTS.map((point) => [point, []]));
-const DAMAGE_MODS = new Map([...DAMAGE_STAGES, ...BLOCK_STAGES, ...COST_STAGES].map((stage) => [stage, []]));
+const DAMAGE_MODS = new Map([...DAMAGE_STAGES, ...BLOCK_STAGES, ...COST_STAGES, ...PLAY_STAGES].map((stage) => [stage, []]));
 const LOSS_KINDS = new Set(BUILTIN_LOSS_KINDS);
 const RESERVED_OPS = new Set();
 const RESERVED_STATUSES = new Set();

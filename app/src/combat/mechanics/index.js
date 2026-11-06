@@ -21,3 +21,4 @@ import './summon.js';
 import './foe.js';
 import './foe-units.js';
 import './foe-seize.js';
+import './foe-restrict.js';

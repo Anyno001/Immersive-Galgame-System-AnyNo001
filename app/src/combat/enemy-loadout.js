@@ -46,6 +46,11 @@ export const ENEMY_AFFIXES = Object.freeze({
     invincible: affix('无敌', 'battle-start', [selfApply('invincible', 3)], { tiers: ['boss'] }),
     'hit-cap': affix('坚韧', 'battle-start', [selfApply('hit-cap', 2)], { tiers: ['boss'] }),
     maim: affix('摧魄', 'battle-start', [selfApply('maim', 2)], { tiers: ['boss'] }),
+    // 规则 v5 P4d E18 出牌上限光环（mechanics/foe-restrict.js）：敌方存活时对方每回合最多打出层数张牌 / 技能牌。
+    'play-cap': affix('束缚', 'battle-start', [selfApply('play-cap', 6)], { tiers: ['elite', 'boss'] }),
+    'skill-cap': affix('封技', 'battle-start', [selfApply('skill-cap', 3)], { tiers: ['elite'] }),
+    // 规则 v5 P4d E20 降级（只限首领，开战即对我方全体生效）。
+    downgrade: affix('降级', 'battle-start', [{ op: 'apply-status', status: 'downgrade', stacks: 1, target: 'all-enemies' }], { tiers: ['boss'], debuff: true }),
 });
 
 // 补技能时可选的模板键 -> 技能名。

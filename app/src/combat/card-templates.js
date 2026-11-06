@@ -479,6 +479,17 @@ export const SKILL_TEMPLATES = Object.freeze({
     pilfer: skill('debuff', '夺牌：封存对方一张手牌，倒下后归还', () => [{ op: 'seize-card', amount: 1, target: 'enemy' }], 1, 3),
     siphon: skill('debuff', '夺力：偷取对方攻击力，倒下后归还', () => [{ op: 'seize-might', stat: 'strength', amount: 2, target: 'enemy' }], 1, 3),
     'siphon-guard': skill('debuff', '夺守：偷取对方防御力，倒下后归还', () => [{ op: 'seize-might', stat: 'dexterity', amount: 2, target: 'enemy' }], 1, 3),
+    // 规则 v5 P4d E18 行动限制、E20 降级（mechanics/foe-restrict.js），只限敌方技能单位；不进补技能表。
+    shackle: skill('debuff', '禁攻：对方下一回合不能打出攻击牌', () => [applyStatus('no-attack', 1, 'enemy')], 1, 4),
+    'tax-strike': skill('debuff', '攻击加费：对方下一回合攻击牌费用 +1', () => [applyStatus('attack-tax', 1, 'enemy')], 1, 3),
+    'break-guard': skill('debuff', '禁守：对方下一回合无法获得格挡', () => [applyStatus('no-block', 1, 'enemy')], 1, 4),
+    'dull-mind': skill('debuff', '少抽：对方下一回合少抽 1 张', () => [applyStatus('draw-down', 1, 'enemy')], 1, 3),
+    unmake: skill('debuff', '降级：本场对方卡牌失去升级效果', () => [applyStatus('downgrade', 1, 'enemy')], 1, 5),
+    // 规则 v5 P4d E21 塞垃圾牌扩展：往对方弃牌堆塞 G23 状态牌（灼痕、黏浊、空洞、痛楚）。
+    'scorch-junk': skill('debuff', '塞入灼痕', () => [{ op: 'create', card: 'status-burn', amount: 1, to: 'discard' }], 1, 2),
+    'slime-junk': skill('debuff', '塞入黏浊', () => [{ op: 'create', card: 'status-slime', amount: 1, to: 'discard' }], 1, 2),
+    'void-junk': skill('debuff', '塞入空洞', () => [{ op: 'create', card: 'status-void', amount: 1, to: 'discard' }], 1, 2),
+    'pain-junk': skill('debuff', '塞入痛楚', () => [{ op: 'create', card: 'status-pain', amount: 1, to: 'discard' }], 1, 2),
 });
 
 // 复合效果的技能模板键（供选型时优先）。

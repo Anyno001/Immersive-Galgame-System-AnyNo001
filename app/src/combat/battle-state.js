@@ -46,7 +46,10 @@ export function cardView(state, inst) {
     const def = entry && state.catalog[entry.owner]?.[entry.cardId];
     if (!def) return null;
     const { upgraded, ...base } = def;
-    let view = !entry.upgraded || !upgraded
+    const owner = state.units?.[entry.owner];
+    // 规则 v5 E20 降级：登记的 card-upgrade 阶段返回 false 时，本单位的牌按未升级处理。
+    const lifted = entry.upgraded && upgraded && !(state.rulesVersion >= 5 && owner && damageModifiers('card-upgrade').some((mod) => mod.fn(state, owner) === false));
+    let view = !lifted
         ? { ...base, inst, upgraded: false }
         : { ...base, inst, upgraded: true, cost: upgraded.cost ?? def.cost, effects: upgraded.effects ?? def.effects };
     if (entry.grow) {
@@ -57,7 +60,6 @@ export function cardView(state, inst) {
         };
     }
     if (entry.temp) view.temp = true;
-    const owner = state.units?.[entry.owner];
     const costShift = (owner?.handCost || 0) + (entry.costMod || 0) + (owner?.turnCostMod?.[inst] || 0);
     if (typeof view.cost !== 'number') return view;
     let cost = Math.max(0, view.cost + costShift);
@@ -82,6 +84,19 @@ export function canAfford(card, energy, radiance) {
 
 // 规则 v5 单位当前圣辉（mechanics/sanctum.js 写入 res.radiance）；v3/v4 返回 undefined，canAfford 不判圣辉。
 export const radianceOf = (state, unit) => (state?.rulesVersion >= 5 ? (unit?.res?.radiance || 0) : undefined);
+
+// 规则 v5 出牌限制（E18 等）：按登记顺序执行 card-play 阶段，返回第一个拒绝原因；v3/v4 或没有限制时为 null。
+export function playBlock(state, unit, card) {
+    if (!(state?.rulesVersion >= 5) || !unit || !card) return null;
+    for (const mod of damageModifiers('card-play')) {
+        const reason = mod.fn(state, unit, card);
+        if (typeof reason === 'string' && reason) return reason;
+    }
+    return null;
+}
+
+// 能否打出：付得起能量与圣辉，且没有被出牌限制挡住。legalActions 与托管共用；validatePlay 另按原因分别拒绝。
+export const canPlay = (state, unit, card) => canAfford(card, unit.energy, radianceOf(state, unit)) && !playBlock(state, unit, card);
 
 // 效果里是否有需要指定敌方目标的部分。
 export function effectsNeedTarget(effects) {

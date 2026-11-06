@@ -1,4 +1,4 @@
-import { canAfford, cardView, computeBlock, computeDamage, describeIntent, effectsNeedTarget, livingIds, opposite, radianceOf } from '../../combat/battle-state.js';
+import { canPlay, cardView, computeBlock, computeDamage, describeIntent, effectsNeedTarget, livingIds, opposite } from '../../combat/battle-state.js';
 import { actionProgress, isWhipping, targetSpec, upcomingActors } from '../../combat/engine.js';
 import { combatFeats } from '../../combat/feats.js';
 import { COMBAT_RULES, cardCopyLimit } from '../../combat/rules.js';
@@ -346,7 +346,8 @@ export function battleView(state, legal = [], { challenge = false } = {}) {
         return {
             inst, id: card.id, name: card.name, type: card.type, cost: card.cost, upgraded: card.upgraded, rarity: card.rarity || '',
             typeLabel: CARD_TYPE_LABELS[card.type] || '', text: describeEffects(card.effects), art: cardArtSvg(card),
-            affordable: canAfford(card, hero.energy, radianceOf(state, hero)), needsTarget: effectsNeedTarget(card.effects),
+            // 规则 v5 出牌限制（E18 等）与引擎共用 canPlay；v3/v4 与原 canAfford 相同。
+            affordable: canPlay(state, hero, card), needsTarget: effectsNeedTarget(card.effects),
             targets, affects: targets.length ? [] : affectedIds(state, hero, card.effects), playable: mine.length > 0,
             ...(keywords ? { keywords, keywordParts } : {}), ...(card.temp ? { temp: true } : {}),
             // 待选阶段的候选牌；不在待选阶段时不写字段。

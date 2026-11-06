@@ -2521,3 +2521,120 @@ test('夺取与上限模板与词缀（E14–E16、E22）：技能模板可用�
     for (const [status, word] of [['invincible', '无敌'], ['hit-cap', '坚韧'], ['maim', '摧魄']]) assert.ok(describeEffects([onFoe(status, 1)]).includes(word), word);
 });
 
+// ---------- 规则 v5 P4d 子批 1：共享出牌判定、E18 行动限制、E20 降级、E21 塞垃圾牌 ----------
+const restrictBattle = (catalog, deck, heroStatus, foeUnit, rv) => {
+    const heroDef = hero({}, { deck, catalog: { ...catalog, k: GUARD }, ...(heroStatus ? selfStatus(heroStatus[0], heroStatus[1]) : {}) });
+    const created = createBattle({ controlledId: 'hero', canEscape: true, units: [heroDef, foeUnit], ...(rv ? { rulesVersion: rv } : {}) }, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+const playsOf = (legal, inst) => legal.filter((a) => a.type === 'play' && a.inst === inst).length;
+
+test('禁攻（E18）：validatePlay、legalActions、托管与面板共用出牌判定，攻击牌被拒、技能牌照常；回合结束衰减；规则 v4 无效', async () => {
+    const { legalActions } = await import('../src/combat/engine.js');
+    const { chooseAllyPlay } = await import('../src/combat/policy.js');
+    const { battleView } = await import('../src/visual/igs-ui/combat-panel-model.js');
+    const poke = free('x', 'attack', [hitFoe(1)]);
+    const s = restrictBattle({ x: poke }, padded(['x']), ['no-attack', 1], foe({}));
+    const x = instOf(s, 'x');
+    const refused = applyAction(s, { type: 'play', inst: x, targetId: 'foe' });
+    assert.deepEqual([refused.ok, refused.error?.reason, refused.error?.detail?.why], [false, 'card-restricted', 'no-attack']);
+    const legal = legalActions(s);
+    assert.equal(playsOf(legal, x), 0);
+    assert.ok(playsOf(legal, instOf(s, 'k')) > 0, '技能牌仍可打出');
+    assert.notEqual(chooseAllyPlay(s, 'hero')?.inst, x);
+    const card = battleView(s, legal).hand.find((c) => c.inst === x);
+    assert.deepEqual([card.affordable, card.playable], [false, false]);
+    const next = endTurn(s).state;
+    assert.equal(next.units.hero.statuses['no-attack'] || 0, 0);
+    const v4 = restrictBattle({ x: poke }, padded(['x']), ['no-attack', 1], foe({}), 4);
+    assert.ok(playsOf(legalActions(v4), instOf(v4, 'x')) > 0);
+});
+
+test('攻击加费、禁守（E18）：攻击牌费用 +层数，卡牌格挡归 0；规则 v4 无效', () => {
+    const poke = free('x', 'attack', [hitFoe(1)]);
+    const taxed = restrictBattle({ x: poke }, padded(['x']), ['attack-tax', 1], foe({}));
+    const view = cardView(taxed, instOf(taxed, 'x'));
+    assert.deepEqual([view.cost, view.baseCost], [1, 0]);
+    const v4tax = restrictBattle({ x: poke }, padded(['x']), ['attack-tax', 1], foe({}), 4);
+    assert.equal(cardView(v4tax, instOf(v4tax, 'x')).cost, 0);
+    const guard = (rv) => {
+        const s = restrictBattle({}, padded([]), ['no-block', 1], foe({}), rv);
+        return playIn(s, instOf(s, 'k')).state.units.hero.block;
+    };
+    assert.deepEqual([guard(), guard(4)], [0, 1]);
+});
+
+test('少抽（E18）：敌人施加少抽后，主角下一回合少抽层数张；规则 v4 无效', () => {
+    const dull = { intent: 'debuff', effects: [{ op: 'apply-status', status: 'draw-down', stacks: 1, target: 'enemy' }] };
+    const hand = (rv) => endTurn(restrictBattle({}, Array(10).fill('k'), null, foe(dull), rv)).state.piles.hero.hand.length;
+    assert.equal(hand(), hand(4) - 1);
+});
+
+test('出牌上限与技能张数上限（E18）：敌方存活时对方每回合最多打出层数张牌 / 技能牌；规则 v4 无效', async () => {
+    const { legalActions } = await import('../src/combat/engine.js');
+    const poke = free('x', 'attack', [hitFoe(1)]);
+    const capped = (rv) => {
+        let s = restrictBattle({ x: poke }, Array(10).fill('x'), null, foeWith({}, { 'play-cap': 2 }), rv);
+        for (let i = 0; i < 2; i += 1) s = playIn(s, instOf(s, 'x'), 'foe').state;
+        return s;
+    };
+    const s = capped();
+    const third = applyAction(s, { type: 'play', inst: instOf(s, 'x'), targetId: 'foe' });
+    assert.deepEqual([third.ok, third.error?.detail?.why], [false, 'play-cap']);
+    assert.equal(legalActions(s).some((a) => a.type === 'play'), false);
+    const v4 = capped(4);
+    assert.equal(applyAction(v4, { type: 'play', inst: instOf(v4, 'x'), targetId: 'foe' }).ok, true);
+    const ward = free('g', 'skill', [{ op: 'block', amount: 1, target: 'self' }]);
+    const sealed = (rv) => {
+        const t = restrictBattle({ g: ward }, Array(10).fill('g'), null, foeWith({}, { 'skill-cap': 1 }), rv);
+        return playIn(t, instOf(t, 'g')).state;
+    };
+    const t = sealed();
+    const second = applyAction(t, { type: 'play', inst: instOf(t, 'g') });
+    assert.deepEqual([second.ok, second.error?.detail?.why], [false, 'skill-cap']);
+    const t4 = sealed(4);
+    assert.equal(applyAction(t4, { type: 'play', inst: instOf(t4, 'g') }).ok, true);
+});
+
+test('降级（E20）：本场我方卡牌按未升级显示与结算；规则 v4 无效', () => {
+    const up = def('u', 'attack', [hitFoe(2)], { cost: 0, innate: true, upgraded: { effects: [hitFoe(6)] } });
+    const deck = [{ cardId: 'u', upgraded: true }, ...Array(9).fill('k')];
+    const run = (rv) => {
+        const s = restrictBattle({ u: up }, deck, ['downgrade', 1], foe({}), rv);
+        const inst = instOf(s, 'u');
+        return { view: cardView(s, inst), hp: playIn(s, inst, 'foe').state.units.foe.hp };
+    };
+    const v5 = run();
+    assert.deepEqual([v5.view.upgraded, v5.view.effects[0].amount, v5.hp], [false, 2, 28]);
+    const v4 = run(4);
+    assert.deepEqual([v4.view.upgraded, v4.view.effects[0].amount, v4.hp], [true, 6, 24]);
+});
+
+test('塞垃圾牌扩展（E21）与限制模板、词缀：敌方技能塞入 G23 状态牌；限制技能可用；束缚、封技、降级只在限定阶级出现；状态有显示名', async () => {
+    const { skillFromTemplate } = await import('../src/combat/card-templates.js');
+    const { enemyAffixes } = await import('../src/combat/enemy-loadout.js');
+    for (const [key, card] of [['scorch-junk', 'status-burn'], ['slime-junk', 'status-slime'], ['void-junk', 'status-void'], ['pain-junk', 'status-pain']]) {
+        assert.deepEqual(skillFromTemplate(key, 12).effects, [{ op: 'create', card, amount: 1, to: 'discard' }], key);
+    }
+    const junk = { intent: 'debuff', ...skillFromTemplate('scorch-junk', 12) };
+    const ended = endTurn(restrictBattle({}, padded([]), null, foe(junk)));
+    assert.ok(ended.events.some((e) => e.type === 'card-created' && e.cardId === 'status-burn' && e.unitId === 'hero'));
+    for (const [key, status] of [['shackle', 'no-attack'], ['tax-strike', 'attack-tax'], ['break-guard', 'no-block'], ['dull-mind', 'draw-down'], ['unmake', 'downgrade']]) {
+        assert.equal(skillFromTemplate(key, 12).effects[0].status, status, key);
+    }
+    const limits = { 'af-play-cap': ['elite', 'boss'], 'af-skill-cap': ['elite'], 'af-downgrade': ['boss'] };
+    const seen = new Set();
+    for (const tier of ['normal', 'elite', 'boss']) {
+        for (let i = 0; i < 80; i += 1) {
+            for (const a of enemyAffixes({ id: `e${i}`, tier }, 'nightmare')) {
+                if (!limits[a.id]) continue;
+                assert.ok(limits[a.id].includes(tier), `${a.id}:${tier}`);
+                seen.add(a.id);
+            }
+        }
+    }
+    assert.deepEqual([...seen].sort(), ['af-downgrade', 'af-play-cap', 'af-skill-cap']);
+    for (const [status, word] of [['no-attack', '禁攻'], ['attack-tax', '攻击加费'], ['no-block', '禁守'], ['draw-down', '少抽'], ['downgrade', '降级']]) assert.ok(describeEffects([onFoe(status, 1)]).includes(word), word);
+});
+

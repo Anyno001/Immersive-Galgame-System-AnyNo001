@@ -9,10 +9,10 @@
 // - 效果、技能、被动这类静态定义不再深拷贝，引擎对它们只读。
 // 行为、数值与事件流与 v0.39.0 一致。
 import { COMBAT_RULES, TOKEN_CARDS, estimateEffectsValue, isCompatibleRulesVersion } from './rules.js';
-import { hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
+import { damageModifiers, hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
-    LOW_HP_RATIO, canAfford, cardCountKey, cardView, computeBlock, computeDamage, conditionHolds,
+    LOW_HP_RATIO, canAfford, canPlay, cardCountKey, cardView, computeBlock, computeDamage, conditionHolds, playBlock,
     effectsNeedTarget, effectsPickAlly, livingIds, lowestRatioId, opposite, radianceOf, weakestId,
 } from './battle-state.js';
 import { chooseAllyPlay, chooseSkillIntent, pickCards } from './policy.js';
@@ -959,6 +959,17 @@ function turnStatsOf(unit) {
     return unit.turnStats;
 }
 
+// 规则 v5 E18 下回合少抽：登记的 draw-count 阶段改写回合开始的抽牌数（不低于 0）；v3/v4 不变。
+function drawCount(state, unit, count) {
+    if (!(state.rulesVersion >= 5)) return count;
+    let n = count;
+    for (const mod of damageModifiers('draw-count')) {
+        const out = mod.fn(state, unit, n);
+        if (Number.isFinite(out)) n = Math.max(0, Math.floor(out));
+    }
+    return n;
+}
+
 // 手牌里费用大于 0 的牌（费用修正的候选）。
 const costlyCards = (state, unit) => state.piles[unit.id].hand.filter((inst) => {
     const view = cardView(state, inst);
@@ -1257,7 +1268,7 @@ function startUnitTurn(ctx, unit) {
         }
     }
     fireBus(ctx, unit, 'turn-start', null);
-    if (unit.kind === 'deck' && unit.alive && !state.outcome) drawCards(ctx, unit, unit.drawPerTurn + extraDraw);
+    if (unit.kind === 'deck' && unit.alive && !state.outcome) drawCards(ctx, unit, drawCount(state, unit, unit.drawPerTurn + extraDraw));
     if (unit.alive) runHooks(ctx, 'turn-start-after', { unit });
 }
 
@@ -1443,6 +1454,9 @@ function validatePlay(state, unit, inst, aimId) {
     const card = cardView(state, inst);
     if (!card) return { reason: 'card-not-in-hand' };
     if (card.unplayable) return { reason: 'card-unplayable' };
+    // 规则 v5 E18 等出牌限制（battle-state.js playBlock，与 legalActions、托管共用）；v3/v4 恒为 null。
+    const blocked = playBlock(state, unit, card);
+    if (blocked) return { reason: 'card-restricted', detail: { why: blocked } };
     if (!canAfford(card, unit.energy)) return { reason: 'insufficient-energy', detail: { cost: card.cost, energy: unit.energy } };
     // 规则 v5 P01：圣辉第二费用不足时拒绝（v3/v4 radianceOf 为 undefined，不判定）。
     if (!canAfford(card, unit.energy, radianceOf(state, unit))) return { reason: 'insufficient-radiance', detail: { radiance: card.radiance, have: radianceOf(state, unit) } };
@@ -1922,7 +1936,7 @@ export function legalActions(state) {
     const targetsFor = (effects) => (effectsNeedTarget(effects) ? foeIds : effectsPickAlly(effects) ? livingIds(state, hero.side) : null);
     for (const inst of state.piles[hero.id]?.hand || []) {
         const card = cardView(state, inst);
-        if (!card || !canAfford(card, hero.energy, radianceOf(state, hero))) continue;
+        if (!card || !canPlay(state, hero, card)) continue;
         const targets = targetsFor(card.effects);
         if (!targets) actions.push({ type: 'play', inst });
         else for (const targetId of targets) actions.push({ type: 'play', inst, targetId });

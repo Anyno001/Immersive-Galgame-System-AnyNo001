@@ -97,6 +97,14 @@ export const APPLY_STATUSES = Object.freeze({
     invincible: Object.freeze({ max: 5, value: 8 }),
     'hit-cap': Object.freeze({ max: 5, value: 8 }),
     maim: Object.freeze({ max: 5, value: 5 }),
+    // 规则 v5 P4d E18 行动限制、E20 降级（foe-restrict.js）。play-cap / skill-cap 的层数即上限张数。
+    'no-attack': Object.freeze({ debuff: true, max: 2, value: 5 }),
+    'attack-tax': Object.freeze({ debuff: true, max: 2, value: 4 }),
+    'no-block': Object.freeze({ debuff: true, max: 2, value: 5 }),
+    'draw-down': Object.freeze({ debuff: true, max: 2, value: 4 }),
+    'play-cap': Object.freeze({ max: 8, value: 4 }),
+    'skill-cap': Object.freeze({ max: 5, value: 4 }),
+    downgrade: Object.freeze({ debuff: true, max: 1, value: 8 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);
