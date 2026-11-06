@@ -538,6 +538,19 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 consistencyModelField: field('bridge.autoIllustration.consistencyModel', '一致性重绘模型', selectInput('bridge.autoIllustration.consistencyModel', auto.consistencyModel, CONSISTENCY_MODEL_OPTIONS)),
                 autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', effectiveNai.sampler, 'k_euler_ancestral', 'text', medium)),
             };
+            const anchorViewportField = (autoSettings) => {
+                const width = Number(autoSettings.assets.anchoredWidth) || 0;
+                const height = Number(autoSettings.assets.anchoredHeight) || 0;
+                const note = width > 0 && height > 0
+                    ? `已锚定出图 ${width}×${height}。这是按当时窗口比例、不超过 1024×1024 的最大尺寸。全屏生图沿用这个尺寸，再点一次才更新。`
+                    : '还没锚定。点一下按现在的窗口比例，记下不超过 1024×1024 的最大出图尺寸。全屏生图会一直用这个尺寸。';
+                return `<div class="igs-settings-sub" data-image-feature="cg-anchor">`
+                    + `<input type="hidden" data-path="bridge.autoIllustration.assets.anchoredWidth" value="${width}">`
+                    + `<input type="hidden" data-path="bridge.autoIllustration.assets.anchoredHeight" value="${height}">`
+                    + `<div class="igs-source-filter-note">${esc(note)}</div>`
+                    + `<button type="button" class="igs-settings-action" data-action="anchor-cg-viewport">锚定当前宽高</button>`
+                    + `</div>`;
+            };
             const grid = (...items) => {
                 const body = items.filter(Boolean).join('');
                 return body ? `<div class="igs-source-filter-grid">${body}</div>` : '';
@@ -563,7 +576,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + `<div class="igs-settings-sub" data-image-feature="background-options"${hiddenAttr(!auto.assets.backgroundEnabled)}>${grid(imageFields.autoAssetBackgroundSizeField, kindModel('background', '背景模型'), imageFields.autoAssetDayFirstField)}</div>`
                         + grid(imageFields.itemImageFields)
                         + grid(kindModel('item', '物品模型')),
-                    cg: imageFields.autoInterludeField
+                    cg: anchorViewportField(auto)
+                        + imageFields.autoInterludeField
                         + `<div class="igs-settings-sub" data-image-feature="interlude"${imageFields.autoInterludeHidden}>${grid(imageFields.autoInterludeProbabilityField, imageFields.autoInterludeMaxField)}</div>`
                         + grid(kindModel('cg', '剧情CG模型'))
                         + `<div class="igs-settings-sub" data-image-feature="backfill"${hiddenAttr(!auto.interludeEnabled && !auto.nsfwEnabled)}>${imageFields.autoBackfillField}<div class="igs-source-filter-note">翻到未出图或出图失败的旧楼层时补画，会消耗生图额度。</div></div>`,

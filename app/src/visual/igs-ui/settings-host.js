@@ -18,6 +18,7 @@ import { mountMatteEditor } from './sprite-matte-editor-mount.js';
 import { createCanvasImageCodec } from './sprite-matte-editor-view.js';
 import { createInpaintTransaction } from '../../generated-images/illustration/inpaint-transaction.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
+import { readWindowViewport, resolutionNearCap } from '../../generated-images/illustration/auto-illustration-service.js';
 import { mergeLegacyNaiSettings } from '../../generated-images/image-backend.js';
 import { getSettingsStyleText } from './settings-style.js';
 import { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsCategory, isSettingsPage, normalizeSettingsPage, openSettingsPage, resolveSettingsPage, resolveSettingsTarget } from './settings-pages.js';
@@ -781,7 +782,26 @@ export function createSettingsHost(deps) {
     }
 
     const recoveringSettingsActions = new Map();
+    function anchorCgViewport() {
+        const draft = state.activeSettings && state.activeSettings.draft;
+        if (!draft) return { ok: false, reason: 'settings-not-open' };
+        const live = readWindowViewport(options.global || globalThis);
+        const size = resolutionNearCap(live.width, live.height);
+        if (!size) {
+            showSettingsNotice('没有量到当前宽高');
+            return { ok: false, reason: 'viewport-unavailable' };
+        }
+        const { width, height } = size;
+        setPath(draft, 'bridge.autoIllustration.assets.anchoredWidth', normalizeSettingsValue('bridge.autoIllustration.assets.anchoredWidth', width));
+        setPath(draft, 'bridge.autoIllustration.assets.anchoredHeight', normalizeSettingsValue('bridge.autoIllustration.assets.anchoredHeight', height));
+        rerenderSettings();
+        persistImmediateField('bridge.autoIllustration.assets.anchoredWidth');
+        showSettingsNotice(`已锚定出图 ${width}×${height}`);
+        return { ok: true, width, height };
+    }
+
     function handleSettingsAction(action) {
+        if (action === 'anchor-cg-viewport') return Promise.resolve(anchorCgViewport());
         if (String(action).startsWith('origin-op:')) return runOriginOp(String(action).slice('origin-op:'.length));
         if (action === 'origin-chat-pause') return runOriginOp('pause');
         if (action === 'origin-chat-resume') return runOriginOp('resume');

@@ -160,6 +160,10 @@ export function normalizeSettingsValue(path, value) {
     if (/^bridge\.autoIllustration\.assets\.(spriteSize|backgroundSize|templates\.(background|backgroundNegative|sprite|spriteNegative|nsfwExtra))$/.test(path)) {
         return String(value || '');
     }
+    if (/^bridge\.autoIllustration\.assets\.anchored(Width|Height)$/.test(path)) {
+        const n = Math.round(Number(value));
+        return Number.isFinite(n) && n > 0 ? n : 0;
+    }
     if (/^bridge\.autoIllustration\.(nsfwCount|interludeProbability|interludeMaxCount|assets\.maxPerFloor|llm\.contextFloors|llm\.timeoutMs|nai\.steps|nai\.scale|nai\.timeoutMs)$/.test(path)) {
         return Number(value);
     }

@@ -340,6 +340,8 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'bridge.itemImages.enabled',
             'bridge.itemImages.inventoryIcon',
             'bridge.autoIllustration.assets.backgroundSize',
+            'bridge.autoIllustration.assets.anchoredWidth',
+            'bridge.autoIllustration.assets.anchoredHeight',
             'bridge.autoIllustration.assets.templates.background',
             'bridge.autoIllustration.assets.templates.backgroundNegative',
             'bridge.autoIllustration.assets.templates.sprite',

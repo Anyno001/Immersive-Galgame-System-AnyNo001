@@ -129,13 +129,31 @@ export function cgFramePrompt(sizeText) {
     return `画面是竖的，宽${width}，高${height}。构图按竖屏写，不要写成横屏。`;
 }
 
-function windowViewport(globalObject, portrait) {
+export function readWindowViewport(globalObject) {
     const visual = globalObject && globalObject.visualViewport;
     return {
         width: Number(visual && visual.width) || Number(globalObject && globalObject.innerWidth) || 0,
         height: Number(visual && visual.height) || Number(globalObject && globalObject.innerHeight) || 0,
-        ...(portrait && { portrait }),
     };
+}
+
+function windowViewport(globalObject, portrait) {
+    const size = readWindowViewport(globalObject);
+    return portrait ? { ...size, portrait } : size;
+}
+
+// 锚定记下的是出图像素：按给出的宽高比，取不超过 1024×1024 的最大一档。不是屏幕的 CSS 像素。
+export function resolutionNearCap(width, height) {
+    const w = Number(width);
+    const h = Number(height);
+    if (!(w > 0) || !(h > 0)) return null;
+    const fitted = fitCgSize(w / h, CG_PIXEL_CAP);
+    return fitted ? { width: fitted.width, height: fitted.height } : null;
+}
+
+export function lockedFullscreenSize(assets) {
+    const size = resolutionNearCap(assets && assets.anchoredWidth, assets && assets.anchoredHeight);
+    return size ? `${size.width}x${size.height}` : '';
 }
 
 // 内嵌画面在页面上，浏览器窗口可以更高。出图量的是画面，不是窗口。
@@ -287,11 +305,17 @@ export function createAutoIllustrationService(deps) {
         return Promise.resolve(typeof llm?.runImageTask === 'function' ? llm.runImageTask(input, run) : run(input))
             .finally(() => target.release());
     }
-    const cgSize = (s) => (passesSizeThrough(nai, s.taskSignal) ? cgSizeForFrame : cgSizeForMode)(
-        s.assets && s.assets.backgroundSize,
-        typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc',
-        typeof deps.getViewport === 'function' ? deps.getViewport() : null,
-    );
+    const cgSize = (s) => {
+        const mode = typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc';
+        const locked = mode === 'fullscreen' ? lockedFullscreenSize(s.assets) : '';
+        if (locked) return locked;
+        const live = typeof deps.getViewport === 'function' ? deps.getViewport() : null;
+        return (passesSizeThrough(nai, s.taskSignal) ? cgSizeForFrame : cgSizeForMode)(
+            s.assets && s.assets.backgroundSize,
+            mode,
+            live,
+        );
+    };
     const readSceneAssets = () => {
         const value = typeof deps.getSceneAssets === 'function' ? deps.getSceneAssets() : null;
         return value && typeof value === 'object' ? value : {};
