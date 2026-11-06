@@ -38,6 +38,7 @@ import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
 import { composeStatsHud, dropUserFavor } from '../../scene/stats/stat-metrics.js';
+import { PROTAGONIST } from '../../scene/stats/stat-engine.js';
 import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
 import { createCgGalleryPanel } from './cg-gallery-panel.js';
@@ -4456,7 +4457,11 @@ ${row.key}`;
             const protagonistLookup = tavernLookup && typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null;
             const statsLookup = protagonistLookup ? (name) => protagonistLookup(name) || tavernLookup(name) : tavernLookup;
             const userName = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
-            return withConcreteAvatar(dropUserFavor(composeStatsHud(hud, { lookup: statsLookup, speaker }), speaker, userName));
+            // 「设为User立绘」的角色名常与酒馆用户名不同，也按主角处理。
+            const userCharacter = String(sceneAssets.userCharacter || '').trim();
+            const asHero = Boolean(userCharacter) && (speaker === userCharacter || hud.character === userCharacter);
+            const heroSpeaker = asHero ? PROTAGONIST : speaker;
+            return withConcreteAvatar(dropUserFavor(composeStatsHud(hud, { lookup: statsLookup, speaker: heroSpeaker }), heroSpeaker, userName));
         };
         const readStatusHudTables = () => tableData.read();
         const render = payload.render || {};

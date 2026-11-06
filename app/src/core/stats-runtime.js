@@ -156,6 +156,8 @@ export function createStatsRuntime({
     tablePeople = null,
     // 随身系统的原始属性 [{ name, val }]（只读，百分制加成）；随身系统读不到 IGS，这里不回写。
     originStats = () => null,
+    // 场景素材里「设为User立绘」的角色名（可为空）。
+    userCharacter = () => '',
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -659,7 +661,14 @@ export function createStatsRuntime({
     }
 
     // ---- 正文检定（check-rolls / stat-coc-checks）：骰序按「聊天 + 楼序号 + swipe」预生成，AI 能看到，回放时逐条核对 ----
-    const isHero = (name) => isProtagonist(name) || (!!userName() && String(name || '').trim() === userName());
+    // 「设为User立绘」的角色与酒馆用户名一样按主角处理：不记人际数值，状态栏显示生活条。
+    const isHero = (name) => {
+        const n = String(name || '').trim();
+        if (isProtagonist(name) || (!!userName() && n === userName())) return true;
+        let picked = '';
+        try { picked = String(userCharacter() || '').trim(); } catch (error) { picked = ''; }
+        return Boolean(picked) && n === picked;
+    };
 
     // 回放需要的取数回调。D&D 与 CoC 共用同一份 profile，百分制 = 六维分数 × 5。
     // 战斗源未就绪时 D&D 回放没有六维可用，返回 { ok:false }（CoC 直接走引擎 profile，不依赖战斗源）。

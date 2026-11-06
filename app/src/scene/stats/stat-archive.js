@@ -5,6 +5,7 @@ import { currentStatsState, ledgerKey } from './stat-ledger.js';
 import { PROTAGONIST, profileOf } from './stat-engine.js';
 import { walletBalance } from './stat-bars.js';
 import { BASE_ATTRIBUTES } from './stat-state.js';
+import { BAR_LABEL } from './stat-metrics.js';
 
 // 主角战斗生命（{hp, maxHp, down}）；引擎没有读取器或没有数据时为 null。
 function vitalsOf(engine) {
@@ -51,7 +52,9 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
     for (const [messageId, swipeId] of floors) {
         const entry = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
         for (const c of (entry && entry.changes) || []) {
-            rows.push({ messageId, target: String(c.target ?? ''), key: String(c.key ?? ''), from: c.from, to: c.to, note: String(c.note ?? '') });
+            // 生活条在账本里存英文键（stamina/stress/money），记录里显示中文名。
+            const key = String(c.key ?? '');
+            rows.push({ messageId, target: String(c.target ?? ''), key: BAR_LABEL[key] || key, from: c.from, to: c.to, note: String(c.note ?? '') });
         }
         const ck = entry && entry.meta && entry.meta.check;
         if (ck) checks.push({ messageId, skill: ck.skill, difficulty: ck.difficulty || '普通', detail: ck.detail || (ck.die === 20 ? `d20(${ck.roll})` : `1d100=${ck.roll}`), outcome: ck.outcome || ck.tier, ruleset: ck.ruleset || 'coc7', source: ck.source || '' });

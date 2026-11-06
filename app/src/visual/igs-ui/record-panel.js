@@ -367,15 +367,17 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             let heroLookup = null;
             try { heroLookup = typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null; } catch (_) { heroLookup = null; }
             const others = preferStatsLookup(statsLookup, tableLookup);
-            // 用户本人没有人际数值：显示主角生活条（压力、体力等），表格里的好感、信任、芥蒂等列不显示。
+            // 用户本人与「设为User立绘」的角色都没有人际数值：显示主角生活条（压力、体力等），表格里的好感、信任、芥蒂等列不显示。
+            const userCharacter = String(((settings?._sceneAssets || settings?.sceneAssets) || {}).userCharacter || '').trim();
             metricsOf = (name) => {
                 const userName = getSillyTavernContext()?.name1;
-                if (!isUserName(name, userName)) return others(name);
+                const picked = Boolean(userCharacter) && String(name || '').trim() === userCharacter;
+                if (!picked && !isUserName(name, userName)) return others(name);
                 const own = heroLookup ? heroLookup(name) : null;
                 if (own && own.metrics && own.metrics.length) return own;
                 let fromTable = null;
                 try { fromTable = tableLookup ? tableLookup(name) : null; } catch (_) { fromTable = null; }
-                return { ...dropUserFavor({ metrics: (fromTable && fromTable.metrics) || [] }, name, userName), stages: [] };
+                return { ...dropUserFavor({ metrics: (fromTable && fromTable.metrics) || [] }, picked ? '主角' : name, userName), stages: [] };
             };
             if (!relationshipPeople().some(person => person.id === relationshipPersonId)) relationshipPersonId = relationshipPeople()[0]?.id || '';
             selectedId = '';

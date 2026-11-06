@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createStatsRuntime } from '../src/core/stats-runtime.js';
 import { createCombatLedger } from '../src/combat/ledger.js';
 import { applyBarDirective, walletBalance } from '../src/scene/stats/stat-bars.js';
-import { composeStatsHud, protagonistStatMetrics, overlayStatsMetrics } from '../src/scene/stats/stat-metrics.js';
+import { composeStatsHud, dropUserFavor, protagonistStatMetrics, overlayStatsMetrics } from '../src/scene/stats/stat-metrics.js';
 import { buildStatsPrompt } from '../src/scene/stats/stat-prompt.js';
 import { createStatsState } from '../src/scene/stats/stat-state.js';
 import { settleFloorText } from '../src/scene/stats/stat-settle.js';
@@ -176,7 +176,7 @@ test('页面差分飘字与 igs:stats-fx 去重：stats-fx 先飘过的好感，
 
 // ---------- 数值系统运行时：主角条与钱包 ----------
 
-function runtimeSetup({ combat = false, points = 0, bars } = {}) {
+function runtimeSetup({ combat = false, points = 0, bars, userCharacter = () => '' } = {}) {
     const ctx = { name1: '阿明', name2: '小雪', chat: [{ is_user: true, mes: '你好' }], chatMetadata: {}, extensionPrompts: {}, eventSource: { on() {}, removeListener() {} }, eventTypes: {}, getCurrentChatId: () => 'chat-w', setExtensionPrompt() {}, saveMetadata() {} };
     const tables = { rows: [], version: 0 };
     const rt = createStatsRuntime({
@@ -184,6 +184,7 @@ function runtimeSetup({ combat = false, points = 0, bars } = {}) {
         readSettings: () => ({ enabled: true, ...(bars ? { bars } : {}) }),
         statsTables: () => ({ ok: true, get version() { return tables.version; }, read: () => ({ ok: true, stats: tables.rows.slice() }), append(r) { tables.rows.push(...r); tables.version += 1; return Promise.resolve({ ok: true }); }, ensure: () => Promise.resolve({ ok: true }) }),
         combatEnabled: () => combat,
+        userCharacter,
         combatSource: () => ({ readPoints: () => points, readVitals: () => ({ hp: 7, maxHp: 10, down: false }), readAbilities: () => null, refresh: () => Promise.resolve({ ok: true }) }),
     });
     rt.sync();
@@ -267,4 +268,12 @@ test('金钱合并后楼层回退：bars.money 随数值账本回退，战斗积
     deleteFloorsFrom(stats, 0);
     assert.equal(money(), 0);
     assert.equal(heroOf(await combat.effectiveState({ raw: true })).points, 0);
+});
+
+test('运行时：「设为User立绘」的角色按主角处理，状态栏出生活条、不出好感信任', () => {
+    const rt = runtimeSetup({ userCharacter: () => '白墨' });
+    assert.deepEqual(rt.protagonistLookup()('白墨').metrics.map((m) => m.label), ['体力', '压力', '金钱']);
+    assert.deepEqual(rt.metricsLookup()('白墨').metrics, []);
+    const table = { metrics: [{ label: '好感度' }, { label: '信赖' }, { label: '体力' }] };
+    assert.deepEqual(dropUserFavor(table, '主角').metrics.map((m) => m.label), ['体力']);
 });

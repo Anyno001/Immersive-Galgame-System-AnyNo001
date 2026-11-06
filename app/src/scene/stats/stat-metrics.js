@@ -6,7 +6,7 @@ import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
 import { isProtagonist } from './stat-engine.js';
 import { grudgeTier } from './stat-state.js';
 
-const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕|信任|了解|欲望|芥蒂/;
+const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕|信任|信赖|了解|认知|熟悉|欲望|芥蒂|仇怨|怨恨|关系/;
 
 export function isUserName(name, userName = '') {
     const n = String(name || '').trim();
@@ -21,7 +21,7 @@ export function dropUserFavor(model, speaker, userName = '') {
 }
 
 const DIM_COLOR = Object.freeze({ 好感: 'like', 信任: 'trust', 了解: 'know', 欲望: 'desire', 芥蒂: 'grudge' });
-const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '金钱' });
+export const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '金钱' });
 // 状态栏条色沿用现有 slot 色板：生命红、体力绿、金钱黄、压力紫。
 const BAR_COLOR = Object.freeze({ health: 'slot-5', stamina: 'slot-2', money: 'slot-3', stress: 'slot-4' });
 // 金钱没有上限：条长按「巨额」档位折算，数字照实显示。

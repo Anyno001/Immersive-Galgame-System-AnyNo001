@@ -35,3 +35,15 @@ test('存档区渲染：转义角色名与备注；技能和变动记录默认�
     assert.match(html, /#1 小&lt;雪&gt; 好感 0→30（感动）/);
     assert.match(renderStatsArchive(null), /还没有数值存档/);
 });
+
+test('变动记录：生活条英文键显示为体力、压力、金钱', () => {
+    const base = createStatsState();
+    const ledger = createStatsLedger('chat', base);
+    ledger.entries.set(ledgerKey(ledger, 2, 0), { messageId: 2, swipeId: 0, after: base, changes: [
+        { source: 'tag', target: '主角', key: 'stamina', from: 100, to: 85, note: '中' },
+        { source: 'tag', target: '主角', key: 'stress', from: 0, to: 10, note: '上升' },
+        { source: 'challenge', target: '主角', key: 'money', from: 0, to: 100, note: '' },
+    ] });
+    ledger.active.set(2, 0);
+    assert.deepEqual(statsArchiveModel(ledger).log.map((r) => r.key).sort(), ['体力', '压力', '金钱'].sort());
+});
