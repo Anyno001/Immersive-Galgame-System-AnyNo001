@@ -13,11 +13,13 @@ export const isInscription = (key) => typeof key === 'string' && Object.hasOwn(I
 
 const hasOp = (card, op) => (card.effects || []).some((effect) => effect?.op === op);
 const attack = (card) => hasOp(card, 'damage');
-// 部分刻印另限牌面：伤害类要有伤害效果，灵动要有格挡，螺旋限基础牌，魂力要自带消耗，浮动、渐省要数字费用，预燃限技能牌。
+// 螺旋只限基础攻击、基础防御（rules.js 的 BASIC_STRIKE_ID / BASIC_DEFEND_ID；本文件不引用 rules.js，故按 ID 写在这里）。
+const SPIRAL_CARD_IDS = new Set(['basic-strike', 'basic-defend']);
+// 部分刻印另限牌面：伤害类要有伤害效果，灵动要有格挡，螺旋限基础攻击与基础防御，魂力要自带消耗，浮动、渐省要数字费用，预燃限技能牌。
 const NEEDS = Object.freeze({
     sharp: attack, instinct: attack, corrode: attack, momentum: attack, ink: attack,
     nimble: (card) => hasOp(card, 'block'),
-    spiral: (card) => card.rarity === 'basic',
+    spiral: (card) => SPIRAL_CARD_IDS.has(card.id),
     steady: (card) => !card.retain,
     sovereign: (card) => !(card.innate && card.retain),
     soul: (card) => hasOp(card, 'exhaust-self'),

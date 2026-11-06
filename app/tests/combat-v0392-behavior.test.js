@@ -676,3 +676,64 @@ test('卡牌刻印（P5b）：inscribe 记录按副本刻印，不带 copyId 取
     assert.ok(stale.inactive.some((item) => item.reason === 'tag-missing'));
     assert.deepEqual(marks(heroOf(stale)), [null, null, null]);
 });
+
+test('卡牌刻印（P5b）：重建保留带刻印的副本（旧个人池牌与减张的职业牌），螺旋只限基础攻击与基础防御，不带 copyId 的刻印只取卡组里的副本', async () => {
+    const { scanCombatTags } = await import('../src/scene/combat-directives.js');
+    const { inscribable } = await import('../src/combat/mechanics/inscription.js');
+    const { TOKEN_CARDS } = await import('../src/combat/rules.js');
+    assert.equal(inscribable(BASIC_CARDS['basic-strike'], 'spiral'), true);
+    assert.equal(inscribable(BASIC_CARDS['basic-defend'], 'spiral'), true);
+    for (const id of ['token-shard', 'token-ward', 'token-spark']) assert.equal(inscribable(TOKEN_CARDS[id], 'spiral'), false, id);
+
+    const lines = [
+        '[igs-combat:inscribe|主角|斩m1|锋利|a]', '[igs-combat:inscribe|主角|攻击|螺旋|b]', '[igs-combat:inscribe|主角|斩c2|螺旋|c]',
+        '[igs-combat:inscribe|主角|斩c1|锋利|d]', '正文', '正文', '[igs-combat:inscribe|主角|斩c5|锋利|e]',
+    ];
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], lines.map(ai));
+    const tagEntry = (messageId, payload) => {
+        const [tag] = scanCombatTags(lines[messageId]);
+        const anchor = { messageId, swipeId: 0, tagHash: tag.tagHash, occurrence: tag.occurrence };
+        return { id: ledgerEntryId('inscribe', 'pc-hero', anchor), type: 'inscribe', character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    const floorEntry = (type, messageId, payload) => {
+        const anchor = { messageId, swipeId: 0, tagHash: type, occurrence: 0 };
+        return { id: ledgerEntryId(type, 'pc-hero', anchor), type, character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    const classCards = ['c2', 'c2', 'c2', 'c3', 'c3', 'c3', 'c4', 'c4', 'c4', 'c5'];
+    const newDeck = ['basic-strike', 'basic-strike', 'basic-strike', 'basic-defend', 'basic-defend', 'basic-defend', ...classCards, 'n1', 'n1', 'n2', 'n2'];
+    const marks = [
+        tagEntry(0, { cardId: 'm1', inscription: 'sharp', reason: 'a' }),
+        tagEntry(1, { cardId: 'basic-strike', inscription: 'spiral', reason: 'b' }),
+        tagEntry(2, { cardId: 'c2', inscription: 'spiral', reason: 'c' }),
+        tagEntry(3, { cardId: 'c1', inscription: 'sharp', reason: 'd' }),
+    ];
+    const rebuild = floorEntry('rebuild', 4, { personalPool: [attack('n1'), guard('n2'), attack('n3'), guard('n4')], starterDeck: newDeck, cost: 200 });
+    assert.equal((await ledger.append([...marks, rebuild])).ok, true);
+    let effective = await ledger.effectiveState();
+    const diag = (entry) => effective.diagnostics.find((d) => d.id === entry.id)?.code ?? null;
+    assert.deepEqual(marks.map(diag), [null, null, 'combat-inscribe-invalid', null]);
+    assert.equal(diag(rebuild), null, JSON.stringify(effective.diagnostics));
+    let me = heroOf(effective);
+    const copiesOf = (view, cardId) => view.copies.filter((c) => c.cardId === cardId);
+    assert.deepEqual(copiesOf(me, 'm1').map((c) => c.inscription), ['sharp']);
+    assert.equal(me.catalog.has('m1'), true);
+    assert.equal(me.catalog.has('m2'), false);
+    assert.deepEqual(copiesOf(me, 'c1').map((c) => c.inscription), ['sharp']);
+    assert.deepEqual(me.deck, newDeck);
+    assert.equal(me.deckEntries.filter((e) => e.cardId === 'basic-strike' && e.inscription === 'spiral').length, 1);
+    const m1Copy = copiesOf(me, 'm1')[0].copyId;
+    assert.equal(me.deckEntries.some((e) => e.copyId === m1Copy), false);
+
+    // 把刻印的 m1 放回卡组、换下唯一一张 c5：之后不带 copyId 刻 c5 只看卡组，记诊断。
+    const swapped = [...newDeck.slice(0, 15), 'm1', ...newDeck.slice(16)];
+    const deck = floorEntry('deck', 5, { cards: swapped, revision: 1 });
+    const late = tagEntry(6, { cardId: 'c5', inscription: 'sharp', reason: 'e' });
+    assert.equal((await ledger.append([deck, late])).ok, true);
+    effective = await ledger.effectiveState();
+    me = heroOf(effective);
+    assert.equal(me.deckEntries.find((e) => e.cardId === 'm1')?.inscription, 'sharp');
+    assert.equal(me.deckEntries.some((e) => e.cardId === 'c5'), false);
+    assert.deepEqual(copiesOf(me, 'c5').map((c) => c.inscription ?? null), [null]);
+    assert.equal(diag(late), 'combat-inscribe-no-copy');
+});
+

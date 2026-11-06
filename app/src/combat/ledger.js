@@ -360,11 +360,11 @@ function pickCopy(state, cardId, taken, preferInDeck) {
     }
     return best;
 }
-// 移出一张副本时先移不带升级与成长的（取最后获得的），都带时移最早的。
+// 移出一张副本时先移不带升级与成长的（取最后获得的），都带时移最早的；带刻印的副本不移出（规则 v5 P5b，重建保留刻印）。
 function dropCopy(state, cardId) {
     let pick = null;
     for (const [copyId, copy] of state.copies) {
-        if (copy.cardId !== cardId) continue;
+        if (copy.cardId !== cardId || copy.inscription) continue;
         if (!hasMark(copy)) pick = copyId;
         else if (pick === null) pick = copyId;
     }
@@ -629,7 +629,7 @@ const handlers = Object.freeze({
         growth.hpMax = Math.min(BATTLE_GROWTH_MAX, growth.hpMax + payload.hpMax);
         return null;
     },
-    // 规则 v5 P5b 刻印：每张副本最多一个、不可移除。带 copyId 时刻那一张；不带时先按卡组顺序、再按获得顺序取第一张未刻印的同名副本。
+    // 规则 v5 P5b 刻印：每张副本最多一个、不可移除。带 copyId 时刻那一张；不带时按卡组顺序取第一张未刻印的同名副本。
     inscribe(state, payload) {
         if (state.kind !== 'deck-character') return 'combat-inscribe-kind-mismatch';
         const card = state.catalog.get(payload.cardId);
@@ -640,8 +640,8 @@ const handlers = Object.freeze({
             const copy = state.copies.get(copyId);
             if (copy?.cardId !== payload.cardId || copy.inscription) return 'combat-inscribe-copy-invalid';
         } else {
-            const order = [...state.deckCopies, ...state.copies.keys()];
-            copyId = order.find((id) => state.copies.get(id)?.cardId === payload.cardId && !state.copies.get(id).inscription);
+            // 正文标签不指定副本：只在卡组里按顺序取第一张未刻印的同名副本，卡组里没有即诊断。
+            copyId = state.deckCopies.find((id) => state.copies.get(id)?.cardId === payload.cardId && !state.copies.get(id).inscription);
             if (!copyId) return 'combat-inscribe-no-copy';
         }
         state.copies.get(copyId).inscription = payload.inscription;
@@ -767,11 +767,20 @@ const handlers = Object.freeze({
         if (!state.classProfile || !validateStarterDeck({ ...rebuilt, classRef: state.classProfile.id }, state.classProfile).ok) return 'combat-rebuild-invalid';
         const oldPoolIds = new Set((state.profile.personalPool || []).map((card) => card.id));
         if (payload.personalPool.some((card) => state.catalog.has(card.id) && !oldPoolIds.has(card.id))) return 'combat-card-id-collision';
+        // 留下的刻印牌沿用原目录条目，新个人池不能拿同一 ID 覆盖它。
+        const inscribedIds = new Set([...state.copies.values()].filter((copy) => copy.inscription && oldPoolIds.has(copy.cardId)).map((copy) => copy.cardId));
+        if (payload.personalPool.some((card) => inscribedIds.has(card.id))) return 'combat-card-id-collision';
         // 旧个人池的牌连同副本与升级张数移出；其余牌按新旧起始卡组的张数差增减副本，减少时先移出不带升级与成长的（规则 v5 P5a）。
+        // 规则 v5 P5b：旧个人池里带刻印的副本连同目录条目留下（不进新起始卡组，可在卡组整理里放回），其余副本照旧移出。
         for (const cardId of oldPoolIds) {
-            state.catalog.delete(cardId);
             state.legacyUpgraded.delete(cardId);
-            for (const [copyId, copy] of [...state.copies]) if (copy.cardId === cardId) state.copies.delete(copyId);
+            let kept = false;
+            for (const [copyId, copy] of [...state.copies]) {
+                if (copy.cardId !== cardId) continue;
+                if (copy.inscription) kept = true;
+                else state.copies.delete(copyId);
+            }
+            if (!kept) state.catalog.delete(cardId);
         }
         for (const card of payload.personalPool) state.catalog.set(card.id, card);
         const tally = (ids, skip) => {
