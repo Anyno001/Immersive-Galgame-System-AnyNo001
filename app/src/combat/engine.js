@@ -10,6 +10,7 @@
 // 行为、数值与事件流与 v0.39.0 一致。
 import { COMBAT_RULES, TOKEN_CARDS, estimateEffectsValue, isCompatibleRulesVersion } from './rules.js';
 import { damageModifiers, hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
+import { isInscription } from './mechanics/inscription.js';
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
     LOW_HP_RATIO, canAfford, canPlay, cardCountKey, cardView, computeBlock, computeDamage, conditionHolds, playBlock,
@@ -716,6 +717,8 @@ const engineKit = (targets) => ({
     discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
     // 规则 v5 B08 加演（mechanics/cadence.js）：只登记，行动顺序由本文件处理。
     grantEncore,
+    // 规则 v5 P5b 预燃（mechanics/inscription.js）：免费打出，与狡黠同一流程。
+    freePlay: slyPlay,
     // 规则 v5 E04 应变：技能单位重选意图；E08 时滞：请求在本次玩家动作结算完后结束玩家回合。
     replanIntent: (ctx, unit) => {
         if (unit?.kind === 'skill' && unit.alive && !ctx.state.outcome) planIntent(ctx, unit);
@@ -1036,8 +1039,8 @@ function discardCard(ctx, unit, inst) {
     fireBus(ctx, unit, 'discard', null, { cardType: card?.type });
 }
 
-// 狡黠牌免费打出：不付费、不计出牌数，需要敌方目标时取最弱的敌人（没有则不打出）；牌留在弃牌堆，自带消耗时移入消耗堆。
-function slyPlay(ctx, unit, inst, card) {
+// 免费打出（狡黠、规则 v5 P5b 预燃）：不付费、不计出牌数，需要敌方目标时取最弱的敌人（没有则不打出）；牌留在弃牌堆，自带消耗时移入消耗堆。tag 为事件类型。
+function slyPlay(ctx, unit, inst, card, tag = 'sly') {
     const state = ctx.state;
     const needFoe = effectsNeedTarget(card.effects);
     const aim = needFoe ? weakestId(state, opposite(unit.side)) : effectsPickAlly(card.effects) ? unit.id : null;
@@ -1049,7 +1052,7 @@ function slyPlay(ctx, unit, inst, card) {
     ctx.exhaust = false;
     ctx.recur = null;
     ctx.chosen = null;
-    emit(ctx, { type: 'sly', unitId: unit.id, inst, cardId: card.id, targetId: aim });
+    emit(ctx, { type: tag, unitId: unit.id, inst, cardId: card.id, targetId: aim });
     runEffects(ctx, unit, card.effects, aim, { unitId: unit.id, kind: 'card', id: card.id });
     if (ctx.exhaust) {
         const pile = state.piles[unit.id];
@@ -1101,6 +1104,7 @@ function copyCard(ctx, unit, inst, where) {
     const entry = { cardId: source.cardId, upgraded: source.upgraded === true };
     if (source.grow) entry.grow = source.grow;
     if (source.costMod) entry.costMod = source.costMod;
+    if (source.inscription) entry.inscription = source.inscription;
     addTempCard(ctx, unit, entry, where);
 }
 
@@ -1791,13 +1795,16 @@ export function createBattle(setup, seed) {
             if (bonus && (intInRange(bonus.damage, 1, 99) || intInRange(bonus.block, 1, 99))) {
                 card.bonus = { damage: intInRange(bonus.damage, 0, 99) ? bonus.damage : 0, block: intInRange(bonus.block, 0, 99) ? bonus.block : 0 };
             }
+            // 规则 v5 P5b：本张副本的刻印；旧 setup 不带，牌实例形状不变。
+            if (isInscription(entry?.inscription)) card.inscription = entry.inscription;
             state.cards[inst] = card;
             return inst;
         });
         state.catalog[def.id] = defs;
         // 洗牌后把「固有」牌挪到牌堆顶（抽牌从末尾取）；固有牌多于首回合抽牌数时，超出的部分顺延到下回合再抽。
         const shuffled = shuffle(state, deck);
-        const innate = shuffled.filter((inst) => defs[state.cards[inst].cardId]?.innate);
+        // 规则 v5 P5b 御准：带该刻印的牌也按固有处理。
+        const innate = shuffled.filter((inst) => defs[state.cards[inst].cardId]?.innate || (state.rulesVersion >= 5 && state.cards[inst].inscription === 'sovereign'));
         const drawPile = innate.length ? [...shuffled.filter((inst) => !innate.includes(inst)), ...innate] : shuffled;
         state.piles[def.id] = { draw: drawPile, hand: [], discard: [], exhaust: [] };
         const overflow = innate.length - (def.draw ?? COMBAT_RULES.drawPerTurn);
@@ -1807,6 +1814,8 @@ export function createBattle(setup, seed) {
     for (const id of state.order) if (state.units[id].kind === 'skill') planIntent(ctx, state.units[id]);
     for (const id of state.order) if (id !== state.controlledId) scheduleUnit(state, state.units[id]);
     startPlayerTurn(ctx, true);
+    // 规则 v5 开战钩子（P5b 预燃）：首个玩家回合抽完牌之后、开战被动之前。
+    runHooks(ctx, 'battle-start', {});
     for (const id of [...state.order]) {
         if (state.outcome) break;
         fireTrigger(ctx, state.units[id], 'battle-start', null);

@@ -2724,3 +2724,122 @@ test('牌面附着算子与模板（E19）：敌人出手时主角手牌已弃�
     for (const word of ['绑定', '痛刺', '受创']) assert.ok(names.includes(word), word);
 });
 
+
+
+// ---------- 规则 v5 P5b：卡牌刻印 ----------
+const inscribed = (card, key, rest = 9, rv) => startDeck({ [card.id]: card, k: GUARD }, [{ cardId: card.id, inscription: key }, ...Array(rest).fill('k')], rv);
+const HIT = def('w', 'attack', [{ op: 'damage', amount: 5, target: 'enemy' }], { innate: true });
+const WARD = def('s', 'skill', [{ op: 'block', amount: 4, target: 'self' }], { innate: true });
+const instById = (state, cardId) => Object.keys(state.cards).find((key) => state.cards[key].cardId === cardId);
+
+test('刻印牌面（P5b）：锋利、本能、蚀心、灵动、墨染、稳持、御准、魂力、螺旋合并进牌面；规则 v4 不合并', () => {
+    const view = (card, key, rv) => {
+        const s = inscribed(card, key, 9, rv);
+        return cardView(s, instById(s, card.id));
+    };
+    assert.equal(view(HIT, 'sharp').effects[0].amount, 8);
+    assert.equal(view(HIT, 'sharp').inscription, 'sharp');
+    assert.equal(view(HIT, 'instinct').effects[0].amount, 10);
+    assert.equal(view(HIT, 'corrode').effects[0].amount, 8);
+    assert.equal(view(WARD, 'nimble').effects[0].amount, 6);
+    const ink = view(HIT, 'ink');
+    assert.equal(ink.effects[0].amount, 6);
+    assert.deepEqual(ink.effects[1], { op: 'status', status: 'weak', stacks: 1, target: 'enemy' });
+    assert.equal(view(WARD, 'steady').retain, true);
+    const sov = view(WARD, 'sovereign');
+    assert.equal(sov.innate && sov.retain, true);
+    const burn = def('b', 'attack', [{ op: 'damage', amount: 5, target: 'enemy' }, { op: 'exhaust-self' }], { innate: true });
+    assert.deepEqual(view(burn, 'soul').effects.map((e) => e.op), ['damage']);
+    assert.equal(view({ ...HIT, rarity: 'basic' }, 'spiral').replay, 1);
+    const old = view(HIT, 'sharp', 4);
+    assert.equal(old.effects[0].amount, 5);
+    assert.equal(old.inscription, undefined);
+    // 御准：不带固有的牌也挪到牌堆顶、开战即在手牌。
+    const loose = def('s', 'skill', [{ op: 'block', amount: 4, target: 'self' }]);
+    const s = inscribed(loose, 'sovereign', 19);
+    assert.ok(s.piles.hero.hand.includes(instById(s, 's')));
+});
+
+const replayed = (state, inst) => {
+    const s = structuredClone(state);
+    const pile = s.piles.hero;
+    pile.discard = pile.discard.filter((x) => x !== inst);
+    pile.hand.push(inst);
+    return s;
+};
+
+test('刻印时机（P5b）：灵巧加格挡、蚀心失去生命、动量累计；华彩、迅思、播种只在每场首次打出时生效；规则 v4 不结算', () => {
+    const deftWard = inscribed(WARD, 'deft');
+    assert.equal(playIn(deftWard, instById(deftWard, 's')).state.units.hero.block, 7);
+    const oldWard = inscribed(WARD, 'deft', 9, 4);
+    assert.equal(playIn(oldWard, instById(oldWard, 's')).state.units.hero.block, 4);
+
+    const corrode = inscribed(HIT, 'corrode');
+    const hurt = playIn(corrode, instById(corrode, 'w'), 'foe').state;
+    assert.equal(hurt.units.foe.hp, 22);
+    assert.equal(hurt.units.hero.hp, 28);
+
+    const mo = inscribed(HIT, 'momentum');
+    const moInst = instById(mo, 'w');
+    const moOnce = playIn(mo, moInst, 'foe').state;
+    assert.equal(moOnce.units.foe.hp, 25);
+    assert.equal(cardView(moOnce, moInst).effects[0].amount, 7);
+
+    const fl = inscribed(HIT, 'flourish');
+    const flInst = instById(fl, 'w');
+    const flOnce = playIn(fl, flInst, 'foe').state;
+    assert.equal(flOnce.units.foe.hp, 20);
+    assert.equal(playIn(replayed(flOnce, flInst), flInst, 'foe').state.units.foe.hp, 15);
+
+    const sw = inscribed(WARD, 'swift');
+    const swInst = instById(sw, 's');
+    assert.equal(sw.piles.hero.hand.length, 5);
+    const swOnce = playIn(sw, swInst).state;
+    assert.equal(swOnce.piles.hero.hand.length, 6);
+    const swAgain = replayed(swOnce, swInst);
+    assert.equal(playIn(swAgain, swInst).state.piles.hero.hand.length, swAgain.piles.hero.hand.length - 1);
+
+    const sow = inscribed(WARD, 'sow');
+    const sowInst = instById(sow, 's');
+    const sowOnce = playIn(sow, sowInst).state;
+    assert.equal(sowOnce.units.hero.energy, 3);
+    assert.equal(playIn(replayed(sowOnce, sowInst), sowInst).state.units.hero.energy, 2);
+});
+
+test('刻印时机（P5b）：契合洗回时放在抽牌堆顶，浮动抽到时费用 0–3，渐省回合结束在手时减费，预燃开战免费打出技能牌', () => {
+    const drawer = def('d', 'skill', [{ op: 'draw', amount: 1 }], { innate: true });
+    const tune = def('a', 'skill', [{ op: 'block', amount: 1, target: 'self' }]);
+    const base = startDeck({ d: drawer, a: tune, k: GUARD }, ['d', { cardId: 'a', inscription: 'attune' }, ...Array(8).fill('k')]);
+    const at = structuredClone(base);
+    const aInst = instById(at, 'a');
+    const pile = at.piles.hero;
+    const rest = [...pile.draw, ...pile.hand.filter((x) => x !== instById(at, 'd'))].filter((x) => x !== aInst);
+    pile.hand = [instById(at, 'd')];
+    pile.draw = [];
+    pile.discard = [aInst, ...rest];
+    assert.ok(playIn(at, instById(at, 'd')).state.piles.hero.hand.includes(aInst));
+
+    const floater = def('f', 'skill', [{ op: 'block', amount: 1, target: 'self' }], { innate: true, cost: 2 });
+    const fs = inscribed(floater, 'float');
+    const fInst = instById(fs, 'f');
+    assert.ok(Number.isInteger(fs.cards[fInst].floatCost) && fs.cards[fInst].floatCost >= 0 && fs.cards[fInst].floatCost <= 3);
+    assert.equal(cardView(fs, fInst).cost, fs.cards[fInst].floatCost);
+
+    const th = inscribed(WARD, 'thrift');
+    const thInst = instById(th, 's');
+    const ended = applyAction(th, { type: 'end-turn' });
+    assert.equal(ended.ok, true, JSON.stringify(ended.error));
+    assert.equal(ended.state.cards[thInst].thrift, 1);
+    assert.equal(cardView(ended.state, thInst).cost, 0);
+
+    const lit = def('s', 'skill', [{ op: 'block', amount: 4, target: 'self' }]);
+    const kd = inscribed(lit, 'kindle', 19);
+    const kInst = instById(kd, 's');
+    assert.ok(kd.piles.hero.discard.includes(kInst));
+    assert.equal(kd.units.hero.block, 4);
+    assert.equal(kd.units.hero.energy, 3);
+    const oldKd = inscribed(lit, 'kindle', 19, 4);
+    assert.equal(oldKd.units.hero.block, 0);
+    assert.equal(oldKd.piles.hero.discard.includes(instById(oldKd, 's')), false);
+});
+

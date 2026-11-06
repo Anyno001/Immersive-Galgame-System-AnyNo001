@@ -633,3 +633,46 @@ test('同模型并卡（P5a）：带 merge 的学牌记录与已持有牌模型�
     assert.deepEqual(['lc-b', 'lc-c'].map((id) => [me.catalog.has(id), me.owned.get(id)]), [[true, 1], [true, 1]]);
     assert.equal(state.diagnostics.some((d) => d.code === 'combat-card-id-collision'), false);
 });
+
+
+test('卡牌刻印（P5b）：inscribe 记录按副本刻印，不带 copyId 取卡组里第一张未刻的同名副本；已刻、牌面不符记诊断；标签失效即回退；开战牌面只给那一张', async () => {
+    const { scanCombatTags } = await import('../src/scene/combat-directives.js');
+    const { cardView } = await import('../src/combat/battle-state.js');
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const lines = ['[igs-combat:inscribe|主角|斩c1|锋利|开悟]', '[igs-combat:inscribe|主角|斩c1|锋利|再悟]', '[igs-combat:inscribe|主角|斩c1|灵动|误刻]'];
+    const { ledger, ref } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], lines.map(ai));
+    const entryAt = (messageId, payload) => {
+        const [tag] = scanCombatTags(lines[messageId]);
+        const anchor = { messageId, swipeId: 0, tagHash: tag.tagHash, occurrence: tag.occurrence };
+        return { id: ledgerEntryId('inscribe', 'pc-hero', anchor), type: 'inscribe', character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    let me = heroOf(await ledger.effectiveState());
+    const c1 = me.deckEntries.filter((e) => e.cardId === 'c1').map((e) => e.copyId);
+    const marks = (view) => view.deckEntries.filter((e) => e.cardId === 'c1').map((e) => e.inscription ?? null);
+    assert.deepEqual(marks(me), [null, null, null]);
+    assert.equal((await ledger.append([
+        entryAt(0, { cardId: 'c1', inscription: 'sharp', reason: '开悟' }),
+        entryAt(1, { cardId: 'c1', copyId: c1[0], inscription: 'sharp', reason: '再悟' }),
+        entryAt(2, { cardId: 'c1', inscription: 'nimble', reason: '误刻' }),
+    ])).ok, true);
+    const effective = await ledger.effectiveState();
+    me = heroOf(effective);
+    assert.deepEqual(marks(me), ['sharp', null, null]);
+    const codes = effective.diagnostics.map((d) => d.code);
+    assert.ok(codes.includes('combat-inscribe-copy-invalid'), JSON.stringify(codes));
+    assert.ok(codes.includes('combat-inscribe-invalid'), JSON.stringify(codes));
+
+    const built = buildSetup({ heroId: 'pc-hero', controllable: ['pc-hero'], allies: [me], enemies: new Map([['狼', templateEnemy('狼', 'normal')]]) }, { enemies: [{ name: '狼', count: 1 }], tier: 'normal' });
+    assert.equal(built.ok, true, JSON.stringify(built));
+    const created = createBattle(built.setup, 1);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    const instOfCopy = (copyId) => Object.keys(created.state.cards).find((key) => created.state.cards[key].copyId === copyId);
+    assert.equal(created.state.cards[instOfCopy(c1[0])].inscription, 'sharp');
+    assert.equal(created.state.cards[instOfCopy(c1[1])].inscription, undefined);
+    assert.equal(cardView(created.state, instOfCopy(c1[0])).effects[0].amount - cardView(created.state, instOfCopy(c1[1])).effects[0].amount, 3);
+
+    ref.chat = lines.map(() => ai('正文'));
+    const stale = await ledger.effectiveState();
+    assert.ok(stale.inactive.some((item) => item.reason === 'tag-missing'));
+    assert.deepEqual(marks(heroOf(stale)), [null, null, null]);
+});

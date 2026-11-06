@@ -10,6 +10,7 @@ import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { opHandler, reserveBuiltins } from './mechanics/registry.js';
+import { INSCRIPTION_KEYS } from './mechanics/inscription.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
 import './mechanics/index.js';
 
@@ -40,7 +41,7 @@ export const PASSIVE_TRIGGERS = Object.freeze([
 export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
-    'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth',
+    'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth', 'inscribe',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -932,6 +933,16 @@ function validateLedgerPayload(type, payload, path, state) {
             const hpMax = intField(payload.hpMax, at('hpMax'), state, 0, BATTLE_GROWTH_MAX, 0);
             if (Array.isArray(cards) && !cards.length && hpMax === 0) addIssue(state, path, 'empty-growth');
             return { cards, hpMax, reportId: textField(payload.reportId, at('reportId'), state, 40) };
+        }
+        // 规则 v5 P5b 刻印：给一张副本刻一个刻印。copyId 可选，不带时重放按卡组顺序取第一张可刻的同名副本。
+        case 'inscribe': {
+            checkKnownFields(payload, ['cardId', 'copyId', 'inscription', 'reason'], path, state);
+            return {
+                cardId: idField(payload.cardId, at('cardId'), state),
+                ...(payload.copyId === undefined ? {} : { copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN) }),
+                inscription: enumField(payload.inscription, at('inscription'), state, INSCRIPTION_KEYS),
+                reason: textField(payload.reason, at('reason'), state, 80, ''),
+            };
         }
         case 'heal': {
             checkKnownFields(payload, ['amount', 'mode', 'scale', 'reason'], path, state);

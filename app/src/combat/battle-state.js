@@ -1,6 +1,7 @@
 // 战斗状态只读查询：存活单位、目标挑选、牌面视图、伤害/格挡估算、意图描述。
 // 这里的函数都不修改 state，引擎与出牌策略共用。行为与 v0.39.0 一致。
 import { damageModifiers, opHandler } from './mechanics/registry.js';
+import { inscribedView } from './mechanics/inscription.js';
 // 规则 v5 机制登记入口：导入即登记，保证估算与结算前机制已就位。
 import './mechanics/index.js';
 
@@ -65,6 +66,8 @@ export function cardView(state, inst) {
         view = { ...view, effects: (view.effects || []).map((effect) => (effect.op === 'damage' && damage ? { ...effect, amount: Math.min(99, effect.amount + damage) }
             : effect.op === 'block' && block ? { ...effect, amount: Math.min(99, effect.amount + block) } : effect)) };
     }
+    // 规则 v5 P5b：本张副本的刻印（mechanics/inscription.js）合并到牌面。
+    if (state.rulesVersion >= 5 && entry.inscription) view = inscribedView(view, entry);
     if (entry.temp) view.temp = true;
     // 规则 v5 E19 牌面附着（mechanics/foe-restrict.js 的 foe-mark）：只在 v5 战斗合并；附加虚无即按虚无牌处理。
     if (state.rulesVersion >= 5 && Array.isArray(entry.marks) && entry.marks.length) {

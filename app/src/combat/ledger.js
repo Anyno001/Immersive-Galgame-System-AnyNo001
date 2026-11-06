@@ -31,6 +31,7 @@ import { scanStatLifeTags } from '../scene/stats/stat-directives.js';
 import { HURT_PCT } from '../scene/stats/stat-vocab.js';
 import { heroInventoryView } from './inventory-view.js';
 import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
+import { inscribable } from './mechanics/inscription.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -69,7 +70,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
-    'battle-growth': 18.5, wound: 19, hurt: 19, heal: 19.5,
+    'battle-growth': 18.5, inscribe: 18.6, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
@@ -320,11 +321,11 @@ export function stockEntryId(snapshot, baseId) {
 // 角色状态与记录重放。
 // ---------------------------------------------------------------------------
 
-// 单张副本（规则 v5 P5a）：每张持有的牌一个副本，copies 为副本 ID → { cardId, upgraded, growth: { damage, block } }，
+// 单张副本（规则 v5 P5a）：每张持有的牌一个副本，copies 为副本 ID → { cardId, upgraded, growth: { damage, block }, inscription }（刻印见 P5b，未刻为 null），
 // deckCopies 与 deck 平行，记卡组放的是哪几张。旧记录按 cardId 记的升级张数留在 legacyUpgraded（视图按卡组顺序分给未显式升级的同名副本），
 // 按 cardId 记的永久成长留在 battleGrowth.cards（同名副本共享）。owned / upgraded 由 syncOwned 从副本推导，既有校验与视图沿用。
-const newCopy = (cardId) => ({ cardId, upgraded: false, growth: { damage: 0, block: 0 } });
-const hasMark = (copy) => copy.upgraded || copy.growth.damage > 0 || copy.growth.block > 0;
+const newCopy = (cardId) => ({ cardId, upgraded: false, growth: { damage: 0, block: 0 }, inscription: null });
+const hasMark = (copy) => copy.upgraded || copy.growth.damage > 0 || copy.growth.block > 0 || Boolean(copy.inscription);
 function mintCopy(state, cardId, source) {
     const base = String(source).slice(0, 180);
     let n = 0;
@@ -628,6 +629,24 @@ const handlers = Object.freeze({
         growth.hpMax = Math.min(BATTLE_GROWTH_MAX, growth.hpMax + payload.hpMax);
         return null;
     },
+    // 规则 v5 P5b 刻印：每张副本最多一个、不可移除。带 copyId 时刻那一张；不带时先按卡组顺序、再按获得顺序取第一张未刻印的同名副本。
+    inscribe(state, payload) {
+        if (state.kind !== 'deck-character') return 'combat-inscribe-kind-mismatch';
+        const card = state.catalog.get(payload.cardId);
+        if (!card) return 'combat-inscribe-card-unknown';
+        if (!inscribable(card, payload.inscription)) return 'combat-inscribe-invalid';
+        let copyId = payload.copyId;
+        if (copyId) {
+            const copy = state.copies.get(copyId);
+            if (copy?.cardId !== payload.cardId || copy.inscription) return 'combat-inscribe-copy-invalid';
+        } else {
+            const order = [...state.deckCopies, ...state.copies.keys()];
+            copyId = order.find((id) => state.copies.get(id)?.cardId === payload.cardId && !state.copies.get(id).inscription);
+            if (!copyId) return 'combat-inscribe-no-copy';
+        }
+        state.copies.get(copyId).inscription = payload.inscription;
+        return null;
+    },
     heal(state, payload) {
         const wound = state.wound;
         if (!wound) return null;
@@ -893,7 +912,7 @@ function copyRows(state) {
         const shared = state.battleGrowth.cards.get(copy.cardId) || { damage: 0, block: 0 };
         const damage = Math.max(0, Math.min(copy.growth.damage, BATTLE_GROWTH_MAX - shared.damage));
         const block = Math.max(0, Math.min(copy.growth.block, BATTLE_GROWTH_MAX - shared.block));
-        rows.set(copyId, { cardId: copy.cardId, copyId, upgraded, ...(damage || block ? { bonus: { damage, block } } : {}) });
+        rows.set(copyId, { cardId: copy.cardId, copyId, upgraded, ...(damage || block ? { bonus: { damage, block } } : {}), ...(copy.inscription ? { inscription: copy.inscription } : {}) });
     }
     return rows;
 }
