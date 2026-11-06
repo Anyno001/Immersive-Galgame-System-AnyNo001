@@ -566,3 +566,48 @@ test('永久成长账本（G24 / G25）：经真实写口写入并回读；同 I
     assert.equal(grown.maxHp - plain.maxHp, 3);
     assert.equal(createBattle(buildSetup(lobbyOf(me), { enemies: [{ name: '狼', count: 1 }], tier: 'normal' }).setup, 1).ok, true);
 });
+
+
+test('单张副本（P5a）：起始卡组每张一个副本；带 copyId 的永久成长只记那一张，旧的按牌 ID 成长由同名每张继承；战报失效即回退；开战牌面只给那一张加成', async () => {
+    const { BATTLE_GROWTH_TAG_HASH } = await import('../src/combat/ledger.js');
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const { cardView } = await import('../src/combat/battle-state.js');
+    const floor = (id) => user(`<igs-combat-report id="${id}" result="win">战报</igs-combat-report>`);
+    const { ledger, ref } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [floor('r1'), floor('r2')]);
+    let me = heroOf(await ledger.effectiveState());
+    assert.equal(me.copies.length, STARTER.length);
+    assert.equal(new Set(me.deckEntries.map((e) => e.copyId)).size, STARTER.length);
+    const c1 = me.deckEntries.filter((e) => e.cardId === 'c1').map((e) => e.copyId);
+    assert.equal(c1.length, 3);
+    const entryAt = (messageId, payload) => {
+        const anchor = { messageId, swipeId: 0, tagHash: BATTLE_GROWTH_TAG_HASH, occurrence: 0 };
+        return { id: ledgerEntryId('battle-growth', 'pc-hero', anchor), type: 'battle-growth', character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    const bonusOf = (view) => view.deckEntries.filter((e) => e.cardId === 'c1').map((e) => e.bonus?.damage || 0);
+    assert.equal((await ledger.append([entryAt(0, { cards: [{ cardId: 'c1', copyId: c1[1], damage: 3, block: 0 }], hpMax: 0, reportId: 'r1' })])).ok, true);
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual(bonusOf(me), [0, 3, 0]);
+    assert.equal(Object.hasOwn(me, 'battleGrowth'), false);
+
+    assert.equal((await ledger.append([entryAt(1, { cards: [{ cardId: 'c1', damage: 2, block: 0 }], hpMax: 0, reportId: 'r2' })])).ok, true);
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual(me.battleGrowth.cards.c1, { damage: 2, block: 0 });
+    assert.deepEqual(bonusOf(me), [0, 3, 0]);
+
+    const lobbyOf = (character) => ({ heroId: 'pc-hero', controllable: ['pc-hero'], allies: [character], enemies: new Map([['狼', templateEnemy('狼', 'normal')]]) });
+    const built = buildSetup(lobbyOf(me), { enemies: [{ name: '狼', count: 1 }], tier: 'normal' });
+    assert.equal(built.ok, true, JSON.stringify(built));
+    const created = createBattle(built.setup, 1);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    const amountOf = (copyId) => {
+        const inst = Object.keys(created.state.cards).find((key) => created.state.cards[key].copyId === copyId);
+        return cardView(created.state, inst).effects[0].amount;
+    };
+    assert.equal(amountOf(c1[1]) - amountOf(c1[0]), 3);
+    assert.equal(amountOf(c1[2]), amountOf(c1[0]));
+
+    ref.chat = [floor('r9'), floor('r2')];
+    const stale = await ledger.effectiveState();
+    assert.ok(stale.inactive.some((item) => item.reason === 'battle-growth-report-invalid'));
+    assert.deepEqual(bonusOf(heroOf(stale)), [0, 0, 0]);
+});

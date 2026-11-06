@@ -1038,6 +1038,21 @@ test('永久成长（G24）：打出后按卡牌 ID 记本场成长，重演只�
     assert.ok(copy && first.cards[copy].temp);
     assert.equal(growthOf(playIn(first, copy, 'foe').state).cards.w.damage, 2);
 });
+test('单张副本（P5a）：卡组条目带 copyId 时永久成长只记打出的那一张；带 bonus 时只给那一张加成；不带时牌实例形状不变', () => {
+    const w = def('w', 'attack', [{ op: 'damage', amount: 1, target: 'enemy' }, { op: 'evolve', stat: 'damage', amount: 2 }], { innate: true });
+    const s = startDeck({ w, k: GUARD }, [{ cardId: 'w', copyId: 'cw0' }, { cardId: 'w', copyId: 'cw1', bonus: { damage: 3, block: 0 } }, ...Array(8).fill('k')]);
+    const insts = s.piles.hero.hand.filter((inst) => s.cards[inst].cardId === 'w');
+    const byCopy = Object.fromEntries(insts.map((inst) => [s.cards[inst].copyId, inst]));
+    assert.equal(cardView(s, byCopy.cw1).effects[0].amount - cardView(s, byCopy.cw0).effects[0].amount, 3);
+    const played = playIn(s, byCopy.cw0, 'foe').state;
+    assert.deepEqual(growthOf(played).copies, { cw0: { cardId: 'w', damage: 2, block: 0 } });
+    assert.deepEqual(growthOf(played).cards, {});
+    const plain = startDeck({ w, k: GUARD }, ['w', ...Array(9).fill('k')]);
+    const entry = plain.cards[instOf(plain, 'w')];
+    assert.deepEqual(Object.keys(entry).sort(), ['cardId', 'owner', 'upgraded']);
+});
+
+
 
 test('击杀奖励（G25）：本牌击倒非爪牙敌人才发奖；其他牌击倒、爪牙、规则 v4 不发；本场升级只改本牌', () => {
     const t = def('t', 'attack', [{ op: 'damage', amount: 40, target: 'enemy' }, { op: 'bounty', reward: 'hp-max', amount: 3 }], { innate: true });

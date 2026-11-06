@@ -59,6 +59,12 @@ export function cardView(state, inst) {
             grow: entry.grow,
         };
     }
+    // 规则 v5 P5a：本张副本的永久成长（开战卡组条目的 bonus）加到伤害、格挡效果上，单个效果封顶 99。
+    if (entry.bonus) {
+        const { damage = 0, block = 0 } = entry.bonus;
+        view = { ...view, effects: (view.effects || []).map((effect) => (effect.op === 'damage' && damage ? { ...effect, amount: Math.min(99, effect.amount + damage) }
+            : effect.op === 'block' && block ? { ...effect, amount: Math.min(99, effect.amount + block) } : effect)) };
+    }
     if (entry.temp) view.temp = true;
     // 规则 v5 E19 牌面附着（mechanics/foe-restrict.js 的 foe-mark）：只在 v5 战斗合并；附加虚无即按虚无牌处理。
     if (state.rulesVersion >= 5 && Array.isArray(entry.marks) && entry.marks.length) {

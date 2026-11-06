@@ -773,8 +773,10 @@ function validateLedgerPayload(type, payload, path, state) {
             const result = { level: intField(payload.level, at('level'), state, 2, COMBAT_RULES.maxLevel), choice: { kind: choiceKind } };
             if (choiceKind === 'card' || choiceKind === 'upgrade') {
                 const refKey = choiceKind === 'card' ? 'cardId' : 'targetId';
-                checkKnownFields(choice, ['kind', refKey], at('choice'), state);
+                checkKnownFields(choice, choiceKind === 'upgrade' ? ['kind', refKey, 'copyId'] : ['kind', refKey], at('choice'), state);
                 result.choice[refKey] = idField(choice[refKey], at(`choice.${refKey}`), state);
+                // 规则 v5 P5a：升级可指定副本；旧记录不带时按 cardId 记升级张数。
+                if (choiceKind === 'upgrade' && choice.copyId !== undefined) result.choice.copyId = idField(choice.copyId, at('choice.copyId'), state, LEDGER_ID_PATTERN);
             } else if (choiceKind === 'skip') {
                 checkKnownFields(choice, ['kind'], at('choice'), state);
             }
@@ -790,12 +792,19 @@ function validateLedgerPayload(type, payload, path, state) {
                 cost: intField(payload.cost, at('cost'), state, 0, 1e5),
             };
         }
-        case 'deck':
-            checkKnownFields(payload, ['cards', 'revision'], path, state);
-            return {
+        case 'deck': {
+            checkKnownFields(payload, ['cards', 'copies', 'revision'], path, state);
+            const result = {
                 cards: arrayField(payload.cards, at('cards'), state, COMBAT_RULES.deckMin, COMBAT_RULES.deckMax, (id, idPath, st) => idField(id, idPath, st)),
                 revision: intField(payload.revision, at('revision'), state, 0, 1e9),
             };
+            // 规则 v5 P5a：可选的副本 ID 列表，与 cards 逐张对应。
+            if (payload.copies !== undefined) {
+                result.copies = arrayField(payload.copies, at('copies'), state, 0, COMBAT_RULES.deckMax, (id, idPath, st) => idField(id, idPath, st, LEDGER_ID_PATTERN));
+                if (Array.isArray(result.cards) && Array.isArray(result.copies) && result.copies.length !== result.cards.length) addIssue(state, at('copies'), 'length-mismatch');
+            }
+            return result;
+        }
         case 'revoke':
             checkKnownFields(payload, ['targetEntryId', 'reason'], path, state);
             return { targetEntryId: idField(payload.targetEntryId, at('targetEntryId'), state, LEDGER_ID_PATTERN), reason: textField(payload.reason, at('reason'), state, 80, '') };
@@ -907,9 +916,11 @@ function validateLedgerPayload(type, payload, path, state) {
             checkKnownFields(payload, ['cards', 'hpMax', 'reportId'], path, state);
             const cards = arrayField(payload.cards ?? [], at('cards'), state, 0, BATTLE_GROWTH_CARDS_MAX, (item, itemPath, st) => {
                 if (!objectField(item, itemPath, st)) return;
-                checkKnownFields(item, ['cardId', 'damage', 'block'], itemPath, st);
+                checkKnownFields(item, ['cardId', 'copyId', 'damage', 'block'], itemPath, st);
                 const sub = (key) => joinPath(itemPath, key);
-                return { cardId: idField(item.cardId, sub('cardId'), st), damage: intField(item.damage, sub('damage'), st, 0, BATTLE_GROWTH_MAX, 0), block: intField(item.block, sub('block'), st, 0, BATTLE_GROWTH_MAX, 0) };
+                // 规则 v5 P5a：copyId 可选，带时成长只记在那一张副本上。
+                const copy = item.copyId !== undefined ? { copyId: idField(item.copyId, sub('copyId'), st, LEDGER_ID_PATTERN) } : {};
+                return { cardId: idField(item.cardId, sub('cardId'), st), ...copy, damage: intField(item.damage, sub('damage'), st, 0, BATTLE_GROWTH_MAX, 0), block: intField(item.block, sub('block'), st, 0, BATTLE_GROWTH_MAX, 0) };
             });
             const hpMax = intField(payload.hpMax, at('hpMax'), state, 0, BATTLE_GROWTH_MAX, 0);
             if (Array.isArray(cards) && !cards.length && hpMax === 0) addIssue(state, path, 'empty-growth');

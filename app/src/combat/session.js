@@ -590,7 +590,10 @@ const validWounds = (result) => result.wounds === undefined
 const growthInt = (value) => Number.isInteger(value) && value >= 0 && value <= 20;
 const validBattleGrowth = (result) => result.battleGrowth === undefined
     || (Array.isArray(result.battleGrowth) && result.battleGrowth.every((growth) => typeof growth?.character === 'string' && growth.character && growthInt(growth.hpMax)
-        && Array.isArray(growth.cards) && growth.cards.every((card) => typeof card?.cardId === 'string' && card.cardId && growthInt(card.damage) && growthInt(card.block))));
+        && Array.isArray(growth.cards) && growth.cards.every((card) => typeof card?.cardId === 'string' && card.cardId && growthInt(card.damage) && growthInt(card.block)
+            && (card.copyId === undefined || (typeof card.copyId === 'string' && card.copyId)))));
+// 永久成长的单张记录；规则 v5 P5a 带副本 ID 时一并保留。
+const growthCard = (card) => ({ cardId: card.cardId, ...(card.copyId ? { copyId: card.copyId } : {}), damage: card.damage, block: card.block });
 
 // 战报条目（发件箱与聊天记录共用的精简形态）
 const reportItemOf = (report) => ({
@@ -602,7 +605,7 @@ const reportItemOf = (report) => ({
     ...(Array.isArray(report.wounds) && report.wounds.length
         ? { wounds: report.wounds.map((wound) => ({ character: wound.character, hp: wound.hp, maxHp: wound.maxHp, down: wound.down === true })) } : {}),
     ...(Array.isArray(report.battleGrowth) && report.battleGrowth.length
-        ? { battleGrowth: report.battleGrowth.map((growth) => ({ character: growth.character, cards: growth.cards.map((card) => ({ cardId: card.cardId, damage: card.damage, block: card.block })), hpMax: growth.hpMax })) } : {}),
+        ? { battleGrowth: report.battleGrowth.map((growth) => ({ character: growth.character, cards: growth.cards.map(growthCard), hpMax: growth.hpMax })) } : {}),
 });
 
 // 本场消耗物品字段
@@ -634,7 +637,10 @@ function battleGrowthPart(session) {
         .filter((unit) => unit?.side === 'ally' && unit.kind === 'deck' && unit.res?.battleGrowth)
         .map((unit) => ({
             character: unit.id,
-            cards: Object.entries(unit.res.battleGrowth.cards || {}).map(([cardId, value]) => ({ cardId, damage: value.damage || 0, block: value.block || 0 })).filter((card) => card.damage || card.block),
+            cards: [
+                ...Object.entries(unit.res.battleGrowth.cards || {}).map(([cardId, value]) => ({ cardId, damage: value.damage || 0, block: value.block || 0 })),
+                ...Object.entries(unit.res.battleGrowth.copies || {}).map(([copyId, value]) => ({ cardId: value.cardId, copyId, damage: value.damage || 0, block: value.block || 0 })),
+            ].filter((card) => card.damage || card.block),
             hpMax: unit.res.battleGrowth.hpMax || 0,
         }))
         .filter((growth) => growth.cards.length || growth.hpMax);
@@ -1325,7 +1331,7 @@ export function createCombatSession(options = {}) {
             const swipeId = reportSwipeId();
             const entries = growths.map((growth, index) => {
                 const anchor = { messageId: reportMessageId, swipeId, tagHash: BATTLE_GROWTH_TAG_HASH, occurrence: index };
-                return { id: ledgerEntryId('battle-growth', growth.character, anchor), type: 'battle-growth', character: growth.character, anchor, payload: { cards: growth.cards.map((card) => ({ cardId: card.cardId, damage: card.damage, block: card.block })), hpMax: growth.hpMax, reportId: report.reportId }, createdAt: now() };
+                return { id: ledgerEntryId('battle-growth', growth.character, anchor), type: 'battle-growth', character: growth.character, anchor, payload: { cards: growth.cards.map(growthCard), hpMax: growth.hpMax, reportId: report.reportId }, createdAt: now() };
             });
             try {
                 growthResult = await ledger.append(entries);

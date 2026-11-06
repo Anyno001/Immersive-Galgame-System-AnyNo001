@@ -15,7 +15,8 @@ const REWARD_TEXT = Object.freeze({
 });
 
 // 写入成长（替换 res 与其内部对象，不改旧状态共享的对象），返回实际增加量。
-function addGrowth(ctx, unit, kit, stat, amount, cardId) {
+// 规则 v5 P5a：牌实例带 copyId 时记在 copies[副本 ID]（{ cardId, damage, block }），战后只写给那一张副本；没有时按卡牌 ID 记（同名共享）。
+function addGrowth(ctx, unit, kit, stat, amount, cardId, copyId) {
     const res = kit.resOf(ctx, unit);
     if (!res || amount <= 0) return 0;
     const prev = res.battleGrowth || { cards: {}, hpMax: 0 };
@@ -24,6 +25,11 @@ function addGrowth(ctx, unit, kit, stat, amount, cardId) {
     if (stat === 'hp-max') {
         gained = Math.min(amount, GROWTH_MAX - prev.hpMax);
         next = { ...prev, hpMax: prev.hpMax + Math.max(0, gained) };
+    } else if (copyId) {
+        const copies = prev.copies || {};
+        const card = copies[copyId] || { cardId, damage: 0, block: 0 };
+        gained = Math.min(amount, GROWTH_MAX - card[stat]);
+        next = { ...prev, copies: { ...copies, [copyId]: { ...card, [stat]: card[stat] + Math.max(0, gained) } } };
     } else {
         const card = prev.cards[cardId] || { damage: 0, block: 0 };
         gained = Math.min(amount, GROWTH_MAX - card[stat]);
@@ -51,7 +57,7 @@ registerMechanic({
                 const entry = ctx.inst ? ctx.state.cards[ctx.inst] : null;
                 // 重演时整张牌多执行几次，成长只算一次；临时牌不成长。
                 if (unit.kind !== 'deck' || !entry || entry.temp || (ctx.state.play?.run || 0) > 0) return;
-                addGrowth(ctx, unit, kit, effect.stat, effect.amount, entry.cardId);
+                addGrowth(ctx, unit, kit, effect.stat, effect.amount, entry.cardId, entry.copyId);
             },
             value: (e) => e.amount * 4,
             describe: (e) => `打出后本牌${STAT_LABEL[e.stat]}永久 +${e.amount}（跨战斗保留）`,
@@ -92,7 +98,7 @@ registerMechanic({
                     kit.ownCard(ctx, ctx.inst).upgraded = true;
                     kit.emit(ctx, { type: 'battle-growth', unitId: owner.id, stat: 'upgrade', amount: 1, cardId: entry.cardId });
                 } else if (!entry.temp) {
-                    addGrowth(ctx, owner, kit, effect.reward, effect.amount, entry.cardId);
+                    addGrowth(ctx, owner, kit, effect.reward, effect.amount, entry.cardId, entry.copyId);
                 }
             }
         },

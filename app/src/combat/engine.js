@@ -1784,7 +1784,14 @@ export function createBattle(setup, seed) {
             const cardId = cardIdOf(entry);
             defs[cardId] = deepCopy(source[cardId]);
             const inst = `${def.id}#${index}`;
-            state.cards[inst] = { owner: def.id, cardId, upgraded: typeof entry === 'object' && entry.upgraded === true };
+            const card = { owner: def.id, cardId, upgraded: typeof entry === 'object' && entry.upgraded === true };
+            // 规则 v5 P5a 单张副本：卡组条目带 copyId 与本张永久成长 bonus 时写进牌实例；旧 setup 不带，牌实例形状不变。
+            if (typeof entry?.copyId === 'string' && entry.copyId) card.copyId = entry.copyId;
+            const bonus = entry?.bonus;
+            if (bonus && (intInRange(bonus.damage, 1, 99) || intInRange(bonus.block, 1, 99))) {
+                card.bonus = { damage: intInRange(bonus.damage, 0, 99) ? bonus.damage : 0, block: intInRange(bonus.block, 0, 99) ? bonus.block : 0 };
+            }
+            state.cards[inst] = card;
             return inst;
         });
         state.catalog[def.id] = defs;

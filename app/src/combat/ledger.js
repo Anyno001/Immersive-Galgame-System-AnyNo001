@@ -320,11 +320,61 @@ export function stockEntryId(snapshot, baseId) {
 // 角色状态与记录重放。
 // ---------------------------------------------------------------------------
 
-// 卡组角色的初始卡牌状态：目录、持有数、初始卡组。
-function initialDeckState(profile, classProfile) {
+// 单张副本（规则 v5 P5a）：每张持有的牌一个副本，copies 为副本 ID → { cardId, upgraded, growth: { damage, block } }，
+// deckCopies 与 deck 平行，记卡组放的是哪几张。旧记录按 cardId 记的升级张数留在 legacyUpgraded（视图按卡组顺序分给未显式升级的同名副本），
+// 按 cardId 记的永久成长留在 battleGrowth.cards（同名副本共享）。owned / upgraded 由 syncOwned 从副本推导，既有校验与视图沿用。
+const newCopy = (cardId) => ({ cardId, upgraded: false, growth: { damage: 0, block: 0 } });
+const hasMark = (copy) => copy.upgraded || copy.growth.damage > 0 || copy.growth.block > 0;
+function mintCopy(state, cardId, source) {
+    const base = String(source).slice(0, 180);
+    let n = 0;
+    while (state.copies.has(`${base}:${n}`)) n += 1;
+    const copyId = `${base}:${n}`;
+    state.copies.set(copyId, newCopy(cardId));
+    return copyId;
+}
+function syncOwned(state) {
     const owned = new Map();
-    for (const cardId of profile.starterDeck) owned.set(cardId, (owned.get(cardId) || 0) + 1);
-    return { catalog: buildCardCatalog(profile, classProfile), owned, upgraded: new Map(), deck: [...profile.starterDeck], claimed: new Set() };
+    const explicit = new Map();
+    for (const copy of state.copies.values()) {
+        owned.set(copy.cardId, (owned.get(copy.cardId) || 0) + 1);
+        if (copy.upgraded) explicit.set(copy.cardId, (explicit.get(copy.cardId) || 0) + 1);
+    }
+    const upgraded = new Map();
+    for (const [cardId, count] of owned) {
+        const n = Math.min(count, (explicit.get(cardId) || 0) + (state.legacyUpgraded.get(cardId) || 0));
+        if (n > 0) upgraded.set(cardId, n);
+    }
+    state.owned = owned;
+    state.upgraded = upgraded;
+}
+// 给某张牌挑一张未占用的副本：先挑 preferInDeck 里的（现卡组），再挑带升级 / 成长的，同档按获得顺序。
+function pickCopy(state, cardId, taken, preferInDeck) {
+    let best = null;
+    let bestRank = Infinity;
+    for (const [copyId, copy] of state.copies) {
+        if (copy.cardId !== cardId || taken.has(copyId)) continue;
+        const rank = (preferInDeck?.has(copyId) ? 0 : 2) + (hasMark(copy) ? 0 : 1);
+        if (rank < bestRank) { best = copyId; bestRank = rank; }
+    }
+    return best;
+}
+// 移出一张副本时先移不带升级与成长的（取最后获得的），都带时移最早的。
+function dropCopy(state, cardId) {
+    let pick = null;
+    for (const [copyId, copy] of state.copies) {
+        if (copy.cardId !== cardId) continue;
+        if (!hasMark(copy)) pick = copyId;
+        else if (pick === null) pick = copyId;
+    }
+    return pick;
+}
+// 卡组角色的初始卡牌状态：目录、副本、初始卡组。
+function initialDeckState(profile, classProfile) {
+    const state = { catalog: buildCardCatalog(profile, classProfile), copies: new Map(), legacyUpgraded: new Map(), deck: [...profile.starterDeck], deckCopies: [], claimed: new Set() };
+    state.deckCopies = profile.starterDeck.map((cardId) => mintCopy(state, cardId, 'start'));
+    syncOwned(state);
+    return state;
 }
 
 function createCharacterState(index, profile, diagnostics) {
@@ -343,11 +393,15 @@ function createCharacterState(index, profile, diagnostics) {
     };
 }
 
-// 获得一张牌：持有数 +1，卡组没满且没超出该稀有度的张数上限时顺带放进卡组。
-function addCard(state, cardId) {
-    state.owned.set(cardId, (state.owned.get(cardId) || 0) + 1);
+// 获得一张牌：新建一张副本（source 为获得记录的 ID，作副本 ID 前缀），卡组没满且没超出该稀有度的张数上限时顺带放进卡组。
+function addCard(state, cardId, source) {
+    const copyId = mintCopy(state, cardId, source);
+    syncOwned(state);
     const inDeck = state.deck.filter((id) => id === cardId).length;
-    if (state.deck.length < COMBAT_RULES.deckMax && inDeck < cardCopyLimit(state.catalog.get(cardId)?.rarity)) state.deck.push(cardId);
+    if (state.deck.length < COMBAT_RULES.deckMax && inDeck < cardCopyLimit(state.catalog.get(cardId)?.rarity)) {
+        state.deck.push(cardId);
+        state.deckCopies.push(copyId);
+    }
 }
 
 // 专属卡按等级解锁（v0.39.2）：EXP 记录让卡组角色跨过某槽位的解锁等级时，档案里登记的那张计入拥有（剧情 learn 已提前解锁的不重复计）；
@@ -368,7 +422,7 @@ function unlockSignatures(state, levelBefore, anchor) {
         if (!/-g\d+$/.test(String(card.id || ''))) return;
         if ((state.owned.get(card.id) || 0) > 0) return;
         if (!state.catalog.has(card.id)) state.catalog.set(card.id, card);
-        addCard(state, card.id);
+        addCard(state, card.id, `sig.${anchor.messageId}.${anchor.swipeId}.${slot}`);
     });
 }
 
@@ -384,7 +438,7 @@ const isHeroStock = (state, context) => context?.heroStock === true && !!context
 
 // 战利品入账。reserveOnly 为 true 表示只验证、不重复入库（库存由背包表管理）。
 function applyLootSlot(state, slot, entry, heroStockOwner = false) {
-    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card });
+    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card }, { entry });
     if (heroStockOwner) {
         return slot.kind === 'gear' && effectsDamage(slot.gear.passive?.effects) > COMBAT_RULES.allySkillDamageCap ? 'combat-gear-damage-cap' : null;
     }
@@ -416,7 +470,7 @@ const handlers = Object.freeze({
         for (const card of classProfile.classPool) if (!state.catalog.has(card.id)) state.catalog.set(card.id, card);
         return null;
     },
-    learn(state, payload) {
+    learn(state, payload, context = {}) {
         if (state.kind === 'skill-character') {
             if (!payload.skill) return 'combat-learn-kind-mismatch';
             if (state.skills.some((skill) => skill.id === payload.skill.id)) return 'combat-skill-id-collision';
@@ -428,7 +482,7 @@ const handlers = Object.freeze({
         if (payload.card.rarity === 'signature' && !(state.profile.signatureCards || []).some((card) => card.id === payload.card.id)) return 'combat-signature-unknown';
         if (state.catalog.has(payload.card.id)) return 'combat-card-id-collision';
         state.catalog.set(payload.card.id, payload.card);
-        addCard(state, payload.card.id);
+        addCard(state, payload.card.id, context.entry?.id || 'learn');
         return null;
     },
     upgrade(state, payload) {
@@ -447,7 +501,8 @@ const handlers = Object.freeze({
             if (target?.rarity !== 'signature' || payload.card.rarity !== 'signature') return 'combat-signature-upgrade-mismatch';
             const ownedCount = state.owned.get(payload.targetId) || 0;
             if (!target.upgraded || (state.upgraded.get(payload.targetId) || 0) >= ownedCount) return 'combat-upgrade-invalid';
-            state.upgraded.set(payload.targetId, ownedCount);
+            state.legacyUpgraded.set(payload.targetId, ownedCount);
+            syncOwned(state);
             return null;
         }
         state.catalog.set(payload.targetId, { ...payload.card, id: payload.targetId });
@@ -540,7 +595,13 @@ const handlers = Object.freeze({
     'battle-growth'(state, payload) {
         if (state.kind !== 'deck-character') return 'combat-battle-growth-kind-mismatch';
         const growth = state.battleGrowth;
-        for (const { cardId, damage, block } of payload.cards) {
+        for (const { cardId, copyId, damage, block } of payload.cards) {
+            // 规则 v5 P5a：带 copyId 的成长只记在那一张副本上；副本已不在（重建移出等）时作废，不回落到同名共享。
+            if (copyId) {
+                const copy = state.copies.get(copyId);
+                if (copy?.cardId === cardId) copy.growth = { damage: Math.min(BATTLE_GROWTH_MAX, copy.growth.damage + damage), block: Math.min(BATTLE_GROWTH_MAX, copy.growth.block + block) };
+                continue;
+            }
             const prev = growth.cards.get(cardId) || { damage: 0, block: 0 };
             growth.cards.set(cardId, { damage: Math.min(BATTLE_GROWTH_MAX, prev.damage + damage), block: Math.min(BATTLE_GROWTH_MAX, prev.block + block) });
         }
@@ -561,7 +622,7 @@ const handlers = Object.freeze({
         state.wound = { hp, maxHp: wound.maxHp, down: hp <= 0 };
         return null;
     },
-    reward(state, payload) {
+    reward(state, payload, context = {}) {
         if (state.kind !== 'deck-character') return 'combat-reward-kind-mismatch';
         if (expProgress(state.exp).level < payload.level) return 'combat-reward-level-unreached';
         if (state.claimed.has(payload.level)) return 'combat-reward-duplicate';
@@ -569,13 +630,21 @@ const handlers = Object.freeze({
         if (choice.kind === 'card') {
             if (!state.catalog.has(choice.cardId)) return 'combat-reward-card-unknown';
             if (state.catalog.get(choice.cardId).rarity === 'signature') return 'combat-reward-signature';
-            addCard(state, choice.cardId);
+            addCard(state, choice.cardId, context.entry?.id || 'reward');
         } else if (choice.kind === 'upgrade') {
             if (state.catalog.get(choice.targetId)?.rarity === 'signature') return 'combat-reward-signature';
             const ownedCount = state.owned.get(choice.targetId) || 0;
             const upgradedCount = state.upgraded.get(choice.targetId) || 0;
             if (!ownedCount || upgradedCount >= ownedCount || !state.catalog.get(choice.targetId)?.upgraded) return 'combat-reward-upgrade-invalid';
-            state.upgraded.set(choice.targetId, upgradedCount + 1);
+            // 规则 v5 P5a：指定副本时升级那一张；旧记录不带 copyId，按 cardId 记升级张数。
+            if (choice.copyId) {
+                const copy = state.copies.get(choice.copyId);
+                if (!copy || copy.cardId !== choice.targetId || copy.upgraded) return 'combat-reward-upgrade-invalid';
+                copy.upgraded = true;
+            } else {
+                state.legacyUpgraded.set(choice.targetId, (state.legacyUpgraded.get(choice.targetId) || 0) + 1);
+            }
+            syncOwned(state);
         }
         state.claimed.add(payload.level);
         return null;
@@ -584,15 +653,25 @@ const handlers = Object.freeze({
         if (state.kind !== 'deck-character') return 'combat-deck-kind-mismatch';
         const counts = new Map();
         const kept = [];
-        for (const cardId of payload.cards) {
+        const keptCopies = [];
+        const taken = new Set();
+        const current = new Set(state.deckCopies);
+        // 规则 v5 P5a：记录带 copies 时按指定副本放；不带（旧记录与面板整理）时先沿用现卡组里的副本，再挑带升级 / 成长的。
+        payload.cards.forEach((cardId, i) => {
             const used = counts.get(cardId) || 0;
-            if (used >= (state.owned.get(cardId) || 0) || used >= cardCopyLimit(state.catalog.get(cardId)?.rarity)) continue;
+            if (used >= (state.owned.get(cardId) || 0) || used >= cardCopyLimit(state.catalog.get(cardId)?.rarity)) return;
+            const asked = payload.copies?.[i];
+            const copyId = asked && !taken.has(asked) && state.copies.get(asked)?.cardId === cardId ? asked : pickCopy(state, cardId, taken, current);
+            if (!copyId) return;
             counts.set(cardId, used + 1);
+            taken.add(copyId);
             kept.push(cardId);
-        }
+            keptCopies.push(copyId);
+        });
         const removed = payload.cards.length - kept.length;
         if (removed) pushDiagnostic(diagnostics, 'combat-deck-adjusted', entry, { removed });
         state.deck = kept;
+        state.deckCopies = keptCopies;
         state.deckNeedsAdjust = removed > 0 || kept.length < COMBAT_RULES.deckMin;
         state.deckRevision = payload.revision;
         return null;
@@ -641,7 +720,7 @@ const handlers = Object.freeze({
         state.points += sellPrice(keepsake.rarity, payload.lootId);
         return null;
     },
-    rebuild(state, payload, { heroId }) {
+    rebuild(state, payload, { heroId, entry }) {
         if (state.kind !== 'deck-character') return 'combat-rebuild-kind-mismatch';
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         if (payload.cost !== REBUILD_COST) return 'combat-rebuild-cost-invalid';
@@ -649,20 +728,45 @@ const handlers = Object.freeze({
         if (!state.classProfile || !validateStarterDeck({ ...rebuilt, classRef: state.classProfile.id }, state.classProfile).ok) return 'combat-rebuild-invalid';
         const oldPoolIds = new Set((state.profile.personalPool || []).map((card) => card.id));
         if (payload.personalPool.some((card) => state.catalog.has(card.id) && !oldPoolIds.has(card.id))) return 'combat-card-id-collision';
-        for (const cardId of state.profile.starterDeck || []) state.owned.set(cardId, (state.owned.get(cardId) || 0) - 1);
+        // 旧个人池的牌连同副本与升级张数移出；其余牌按新旧起始卡组的张数差增减副本，减少时先移出不带升级与成长的（规则 v5 P5a）。
         for (const cardId of oldPoolIds) {
             state.catalog.delete(cardId);
-            state.owned.delete(cardId);
-            state.upgraded.delete(cardId);
+            state.legacyUpgraded.delete(cardId);
+            for (const [copyId, copy] of [...state.copies]) if (copy.cardId === cardId) state.copies.delete(copyId);
         }
         for (const card of payload.personalPool) state.catalog.set(card.id, card);
-        for (const cardId of payload.starterDeck) state.owned.set(cardId, (state.owned.get(cardId) || 0) + 1);
-        for (const [cardId, count] of [...state.owned]) {
-            if (count <= 0) { state.owned.delete(cardId); state.upgraded.delete(cardId); }
-            else if ((state.upgraded.get(cardId) || 0) > count) state.upgraded.set(cardId, count);
+        const tally = (ids, skip) => {
+            const out = new Map();
+            for (const id of ids) if (!skip?.has(id)) out.set(id, (out.get(id) || 0) + 1);
+            return out;
+        };
+        const before = tally(state.profile.starterDeck || [], oldPoolIds);
+        const after = tally(payload.starterDeck);
+        const source = `rebuild.${entry?.id ?? 'x'}`;
+        for (const cardId of new Set([...before.keys(), ...after.keys()])) {
+            let delta = (after.get(cardId) || 0) - (before.get(cardId) || 0);
+            for (; delta > 0; delta -= 1) mintCopy(state, cardId, source);
+            for (; delta < 0; delta += 1) {
+                const drop = dropCopy(state, cardId);
+                if (!drop) break;
+                state.copies.delete(drop);
+            }
         }
+        syncOwned(state);
+        for (const [cardId, n] of [...state.legacyUpgraded]) {
+            const count = state.owned.get(cardId) || 0;
+            if (!count) state.legacyUpgraded.delete(cardId);
+            else if (n > count) state.legacyUpgraded.set(cardId, count);
+        }
+        syncOwned(state);
         state.profile = rebuilt;
         state.deck = [...payload.starterDeck];
+        const taken = new Set();
+        state.deckCopies = state.deck.map((cardId) => {
+            const copyId = pickCopy(state, cardId, taken, null);
+            taken.add(copyId);
+            return copyId;
+        });
         state.deckNeedsAdjust = false;
         state.points -= payload.cost;
         return null;
@@ -751,6 +855,29 @@ function effectiveClassProfile(state) {
     return { ...classProfile, classPassive: passiveAtTier(classProfile.classPassive, state.classTier), classPool: [...classProfile.classPool, ...state.tierCards] };
 }
 
+// 规则 v5 P5a 副本视图：卡组里的副本在前、其余按获得顺序；旧记录按 cardId 记的升级张数依次分给未显式升级的同名副本。
+// bonus 为本张的永久成长，与同名共享的旧成长合计不超过 BATTLE_GROWTH_MAX；没有时不写字段。
+function copyRows(state) {
+    const inDeck = new Set(state.deckCopies);
+    const order = [...state.deckCopies, ...[...state.copies.keys()].filter((id) => !inDeck.has(id))];
+    const left = new Map(state.legacyUpgraded);
+    const rows = new Map();
+    for (const copyId of order) {
+        const copy = state.copies.get(copyId);
+        if (!copy || rows.has(copyId)) continue;
+        let upgraded = copy.upgraded;
+        if (!upgraded && (left.get(copy.cardId) || 0) > 0) {
+            upgraded = true;
+            left.set(copy.cardId, left.get(copy.cardId) - 1);
+        }
+        const shared = state.battleGrowth.cards.get(copy.cardId) || { damage: 0, block: 0 };
+        const damage = Math.max(0, Math.min(copy.growth.damage, BATTLE_GROWTH_MAX - shared.damage));
+        const block = Math.max(0, Math.min(copy.growth.block, BATTLE_GROWTH_MAX - shared.block));
+        rows.set(copyId, { cardId: copy.cardId, copyId, upgraded, ...(damage || block ? { bonus: { damage, block } } : {}) });
+    }
+    return rows;
+}
+
 // 把角色的重放状态整理成对外视图。options: heroId、heroInventory（背包表视图）、attributeContext。
 function presentCharacter(state, options = {}) {
     const progress = expProgress(state.exp);
@@ -785,13 +912,9 @@ function presentCharacter(state, options = {}) {
         });
     }
     if (state.kind === 'skill-character') return { ...view, className: state.className, skills: state.skills, passives: state.passives };
-    // 卡组视图：升级张数按卡组顺序依次分配给前面的同名卡
-    const upgradeLeft = new Map(state.upgraded);
-    const deckEntries = state.deck.map((cardId) => {
-        const left = upgradeLeft.get(cardId) || 0;
-        if (left > 0) upgradeLeft.set(cardId, left - 1);
-        return { cardId, upgraded: left > 0 };
-    });
+    // 卡组视图按副本列出（见 copyRows）。
+    const rows = copyRows(state);
+    const deckEntries = state.deckCopies.map((copyId, i) => rows.get(copyId) || { cardId: state.deck[i], upgraded: false });
     const deckCheck = validateDeck(state.deck, state.owned, state.catalog);
     // 待领取的升级奖励：2 级起、非属性点档位、尚未领取（只有主角或未识别主角时才有）
     const pendingRewards = [];
@@ -806,7 +929,7 @@ function presentCharacter(state, options = {}) {
         ...view, classRef: state.classRef, className: state.classProfile?.className ?? '', classProfile: effectiveClassProfile(state),
         classTier: state.classTier, tierName: state.tierName,
         hpMax: state.profile.base.hp + (progress.level - 1) * state.profile.growth.hpPerLevel + (growth?.hpMax || 0),
-        catalog: state.catalog, owned: state.owned, upgraded: state.upgraded, deck: state.deck, deckEntries,
+        catalog: state.catalog, owned: state.owned, upgraded: state.upgraded, deck: state.deck, deckEntries, copies: [...rows.values()],
         deckRevision: state.deckRevision ?? null, deckErrors: deckCheck.errors,
         deckNeedsAdjust: state.deckNeedsAdjust === true || !deckCheck.ok,
         claimedLevels: [...state.claimed].sort((a, b) => a - b), pendingRewards,
@@ -1887,7 +2010,9 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         const floors = getChat();
         const character = resolveState(snapshot, floors, true).state.characters?.get(characterId);
         if (!character || character.kind !== 'deck-character' || !character.pendingRewards.includes(level)) return { ok: false, reason: 'combat-reward-unavailable' };
-        const built = buildRewardEntry(snapshot, floors, characterId, level, choice, now());
+        // 规则 v5 P5a：升级奖励没指定副本时，落在卡组里最靠前、尚未升级的那一张（卡组外的排在后面）。
+        const row = choice?.kind === 'upgrade' && !choice.copyId ? character.copies.find((r) => r.cardId === choice.targetId && !r.upgraded) : null;
+        const built = buildRewardEntry(snapshot, floors, characterId, level, row ? { ...choice, copyId: row.copyId } : choice, now());
         return built.ok ? withEntry(built) : built;
     }
 
