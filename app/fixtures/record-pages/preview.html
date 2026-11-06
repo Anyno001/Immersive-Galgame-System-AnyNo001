@@ -275,7 +275,23 @@ function openSettingsScene() {
 }
 // 战斗面板预览：内存战斗表与存档；?combat=battle 直接开战，?combat=end 打到结束。
 const combatPreview = createCombatPreview();
-const combat = createCombatPanelController(document, { getSession: () => combatPreview.session, getLedger: () => combatPreview.ledger });
+// ?res=mage|mage3|bard|priest|warrior|summoner|all：给主战者叠一组假资源，只改面板读到的快照，不写引擎状态，用于看资源条排版。
+const RES_PREVIEW = {
+  mage: { orbs: { slots: 10, list: ['lightning', 'frost', 'dark', 'plasma', 'glass', 'lightning', 'frost'].map(kind => ({ kind })) }, focus: 2 },
+  mage3: { orbs: { slots: 3, list: [{ kind: 'lightning' }, { kind: 'frost' }] }, focus: 0 },
+  bard: { stance: 'wrath', momentum: 7 },
+  priest: { radiance: 6 },
+  warrior: { forge: { value: 14 } },
+  summoner: { minion: { hp: 9, maxHp: 15 } },
+};
+RES_PREVIEW.all = Object.assign({}, RES_PREVIEW.mage, RES_PREVIEW.bard, RES_PREVIEW.priest, RES_PREVIEW.warrior, RES_PREVIEW.summoner);
+const resPreview = RES_PREVIEW[new URLSearchParams(location.search).get('res') || ''] || null;
+const combatSession = !resPreview ? combatPreview.session : { ...combatPreview.session, state() {
+  const st = combatPreview.session.state(); const b = st.battle; const id = b && b.controlledId;
+  return b && b.units && b.units[id] ? { ...st, battle: { ...b, units: { ...b.units, [id]: { ...b.units[id], res: { ...b.units[id].res, ...resPreview } } } } } : st;
+} };
+// ?skin=<皮肤键>（veil comic ink tech mystic soft-a soft-c dark-a dark-b initial）：换战斗面板皮肤，缺省黑幕。
+const combat = createCombatPanelController(document, { getSession: () => combatSession, getLedger: () => combatPreview.ledger, skin: () => new URLSearchParams(location.search).get('skin') || '' });
 // 截图脚本以 combatReady 判定本场景已就绪，不以中间态（lobby 后尚未开战）截图。
 const combatState = { ready: false, want: '' };
 async function openCombat() {
@@ -349,6 +365,8 @@ async function openDeckFull() {
 function openPage(page) {
   current?.close?.();
   if (page === 'deck') { current = deckFull; openDeckFull(); }
+  // 设置面板也有 id 为 combat 的页面，page=combat 会先进设置页；战斗面板用 page=combat-panel 打开。
+  else if (page === 'combat-panel') { current = combat; openCombat(); }
   else
   if (page === 'settings-scene' || isSettingsPage(page)) current = openSettingsScene();
   else if (page === 'combat') { current = combat; openCombat(); }

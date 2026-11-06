@@ -1,6 +1,7 @@
 // 漫画皮肤 · 战斗中画面：照搬概念稿 gal/战斗界面设计稿/概念/第二轮/comic/common.js 的标记，假数据换成真实视图 v.battle。
 // 样式在 combat-skin-comic-concept-style.js（由设计稿 CSS 生成）与本文件末尾的接线样式。动作照旧走 data-combat-act / data-combat-id。
 import { esc } from './reader-value-utils.js';
+import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
@@ -109,7 +110,7 @@ function leadHtml(hero, v, pick) {
     return `<div class="lead ${unitCls(hero, ok)}"${unitData(hero)}>`
         + `<div class="face cx-face"${unitAct(hero, ok)}>${aw ? '<i class="chg"></i>' : ''}${face(pics[hero.name], hero.name)}</div>${awBtn}`
         + `<div class="info"><div class="n">${esc(hero.name)}<span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, true)}`
-        + `<div class="chips">${chips}</div></div></div>`;
+        + `<div class="chips">${chips}</div>${resourceBarHtml(hero.res, { row: 'chips', item: 'chip' })}</div></div>`;
 }
 
 function mateHtml(u, v, pick) {

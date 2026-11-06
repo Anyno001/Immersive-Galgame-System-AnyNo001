@@ -2,6 +2,7 @@
 // 恐怖两套（A 断帧监控、B 无影灯）标记完全相同，只差装饰层与结束回合键，因此共用标记写在本文件并导出，combat-skin-dark-b.js 引用。
 // 样式：概念稿 common.css + grid.css + A.css（或 B.css）+ minimal.css 由 落盘/gen-skin-css.mjs 生成到 combat-skin-dark-<a|b>-concept-style.js，再加本文件的接线样式。
 import { esc } from './reader-value-utils.js';
+import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { battlePick, needsHold, canvasW, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
@@ -179,7 +180,7 @@ function leadHtml(hero, v, pick) {
     return `<div class="lead ${unitCls(hero, ok)}"${unitData(hero)}>`
         + `<div class="face cx-face"${unitAct(hero, ok)}>${face(pics[hero.name], hero.name)}${awBtn}</div>`
         + `<div class="info"><div class="n">${esc(hero.name)}${hero.controlled ? '<u class="ctl">操控</u>' : ''}<span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>`
-        + `<div class="hpbar cx-hp" style="--igs-combat-hp:${pct}%"><i></i></div><div class="chips">${chips}</div>`
+        + `<div class="hpbar cx-hp" style="--igs-combat-hp:${pct}%"><i></i></div><div class="chips">${chips}</div>${resourceBarHtml(hero.res, { row: 'chips', item: 'sc' })}`
         + `<div class="ecg"><svg viewBox="0 0 240 26" preserveAspectRatio="none"><defs><clipPath id="hpc"><rect x="0" y="-5" width="${(pct * 2.4).toFixed(1)}" height="40"/></clipPath></defs><path d="${EC}" stroke="#3d454b"/><path d="${EC}" stroke="#cf2f3a" clip-path="url(#hpc)"/></svg></div></div></div>`;
 }
 

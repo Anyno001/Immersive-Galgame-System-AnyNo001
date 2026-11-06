@@ -9,6 +9,7 @@ import { CHALLENGE_LABELS } from '../../combat/challenge-labels.js';
 import { CHALLENGE_ACHIEVEMENTS } from '../../combat/challenge-history.js';
 import { INTIMATE_ENDING_LINE } from '../../scene/intimate-duel.js';
 import { resultStageHtml, stageFxStyle } from './combat-stage-fx.js';
+import { resourceBarHtml } from './combat-resource-bar.js';
 
 // 战斗面板的 HTML 片段：只输出字段、状态、错误与操作确认；动作统一走 data-combat-act / data-combat-id。
 const REASON_TEXT = Object.freeze({
@@ -477,7 +478,8 @@ function battleHtml(v) {
     // 风格化皮肤：停靠区 = 能量 + 工具组（主动特性、觉醒 / 道具、牌堆文字）；牌堆不再放在回合组里。
     const dock = styled ? `${energy}<div class="igs-combat-dock-tools"><div class="igs-combat-dock-row">${skillHtml}${controls}</div>${piles}</div>` : '';
     // --n 是我方人数（纯数字）：竖向面板按它均分我方一排的立绘宽度。
-    const heroZone = `<div class="igs-combat-hero" style="--n:${b.allies.length || 1}">${heroCore}${matesHtml}</div>`;
+    // 主战者资源条是我方一排的最后一项，样式层让它独占一行，不压缩立绘宽度。
+    const heroZone = `<div class="igs-combat-hero" style="--n:${b.allies.length || 1}">${heroCore}${matesHtml}${ended ? '' : resourceBarHtml(hero?.res)}</div>`;
     // 右下角回合操作组：撤退（透明底，只在允许撤退时出现）或选目标期间的取消、抽牌 / 弃牌数量、结束回合；作为底栏网格区，不压手牌。
     // 横向面板样式层竖排为撤退 / 取消、牌堆数量、结束回合；竖向 / 窄面板牌堆数量在上，撤退与结束回合同排。
     const side = v.selected || picks.length ? iconBtn('cancel', '取消', RECORD_ICONS.undo) : b.canEscape ? (v.intimate === '主导' ? iconBtn('stop', '停下', RECORD_ICONS.back) : '') + iconBtn('escape', v.intimate ? (v.intimate === '主导' ? '甘拜下风' : '停下') : v.challenge ? CHALLENGE_LABELS.escape : '撤退', RECORD_ICONS.retreat) : '';

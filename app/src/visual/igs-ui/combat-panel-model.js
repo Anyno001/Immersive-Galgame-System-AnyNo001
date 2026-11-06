@@ -225,8 +225,34 @@ function intentView(state, id, challenge = false) {
     return { name: intent.name, kind: intent.intent, label: (labels ? labels.intents : challenge ? CHALLENGE_INTENT_LABELS : COMBAT_INTENT_LABELS)[intent.intent] || '', ...(challenge ? { unit: labels ? labels.damage : CHALLENGE_LABELS.damage } : {}), damage: intent.damage, targetName: intent.targetId ? state.units[intent.targetId]?.name || '' : '' };
 }
 
+// 规则 v5 单位资源的面板视图：只挑可显示的键（法珠、专注、圣辉、心境与乐势、锻造、随从），unit.res 里的内部记账键不进视图；没有可显示资源时返回 null。
+export const ORB_SLOT_MAX = 10;
+const ORB_KINDS = new Set(['lightning', 'frost', 'dark', 'plasma', 'glass']);
+const STANCES = new Set(['neutral', 'calm', 'wrath', 'divinity']);
+const resCount = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : null);
+export function resourceView(res) {
+    if (!res || typeof res !== 'object') return null;
+    const out = {};
+    const slots = res.orbs && typeof res.orbs === 'object' ? resCount(res.orbs.slots, ORB_SLOT_MAX) : null;
+    if (slots) {
+        const list = (Array.isArray(res.orbs.list) ? res.orbs.list : []).filter((o) => ORB_KINDS.has(o?.kind)).slice(0, slots);
+        out.orbs = { slots, list: list.map((o) => ({ kind: o.kind })) };
+    }
+    if (Number.isFinite(res.focus) && (out.orbs || res.focus)) out.focus = Math.trunc(res.focus);
+    if (Number.isFinite(res.radiance)) out.radiance = resCount(res.radiance, 999);
+    if (STANCES.has(res.stance) || Number.isFinite(res.momentum)) {
+        out.stance = STANCES.has(res.stance) ? res.stance : 'neutral';
+        if (Number.isFinite(res.momentum)) out.momentum = resCount(res.momentum, 10);
+    }
+    if (res.forge && typeof res.forge === 'object' && Number.isFinite(res.forge.value)) out.forge = resCount(res.forge.value, 999);
+    const m = res.minion;
+    if (m && typeof m === 'object' && Number.isFinite(m.maxHp) && m.maxHp > 0) out.minion = { hp: resCount(m.hp, m.maxHp) ?? 0, maxHp: Math.floor(m.maxHp) };
+    return Object.keys(out).length ? out : null;
+}
+
 export function unitView(state, id, challenge = false) {
     const u = state.units[id];
+    const res = resourceView(u.res);
     return {
         id, name: u.name, side: u.side, kind: u.kind, hp: Math.max(0, u.hp), maxHp: u.maxHp, block: u.block, alive: u.alive,
         controlled: id === state.controlledId, statuses: statusList(u.statuses, challenge),
@@ -234,6 +260,8 @@ export function unitView(state, id, challenge = false) {
         // 敌人外观格位（setup 带 art 时）：面板据此在通用敌人图集里取图；我方与旧战斗不带该字段。
         ...(u.side === 'enemy' && typeof u.art === 'string' && u.art ? { art: u.art } : {}),
         ...(u.side === 'enemy' && (u.tier === 'elite' || u.tier === 'boss') ? { tier: u.tier } : {}),
+        // v5 资源：只在有可显示资源时出现，v3/v4 与无资源单位的视图形状不变。
+        ...(res ? { res } : {}),
     };
 }
 

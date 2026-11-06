@@ -325,6 +325,41 @@ ${C} .igs-combat-unit-badges>.igs-combat-block{max-width:100%;box-sizing:border-
 ${C} .igs-combat-statuses{display:flex;flex-wrap:wrap-reverse;justify-content:flex-end;gap:3px;max-width:100%;max-height:33px;overflow:hidden;pointer-events:none;}
 ${C} .igs-combat-statuses span{height:15px;padding:0 5px;border-radius:var(--igs-cb-r-s);background:var(--igs-cb-veil);color:var(--igs-cb-ink-soft);font-size:11px;font-weight:500;line-height:15px;white-space:nowrap;font-variant-numeric:tabular-nums;text-shadow:none;}
 ${C} .igs-combat-statuses b{color:var(--igs-cb-ink);font-weight:700;}
+/* 规则 v5 主战者资源条：我方一排末尾独占一行、居中；每项为深色小底加图形与数值，无描边。法珠 16px 一颗，10 槽约 178px，竖屏 320px 宽仍放得下。 */
+${C} .igs-combat-hero:has(>.igs-combat-res){flex-wrap:wrap;row-gap:6px;}
+${C} .igs-combat-hero>.igs-combat-res{order:9;flex:0 0 100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px 6px;min-width:0;}
+${C} .igs-combat-res-item{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 6px;border-radius:var(--igs-cb-r-s);background:var(--igs-cb-veil);color:var(--igs-cb-ink-soft);font-size:11px;font-weight:600;line-height:20px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+${C} .cx-res-ico{flex:none;width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+${C} .igs-combat-res-item b{color:var(--igs-cb-ink);font-weight:700;}
+${C} .igs-combat-res-item[data-res="radiance"]{color:var(--igs-cb-warm);}
+${C} .igs-combat-res-item[data-res="forge"]{color:var(--igs-cb-attack);}
+${C} .igs-combat-res-item[data-res="minion"]{color:var(--igs-cb-life);}
+${C} .igs-combat-res-item[data-stance="calm"]{color:var(--igs-cb-skill);}
+${C} .igs-combat-res-item[data-stance="wrath"]{color:var(--igs-cb-attack);}
+${C} .igs-combat-res-item[data-stance="divinity"]{color:var(--igs-cb-warm);}
+${C} .cx-orbs{display:flex;flex-wrap:wrap;justify-content:center;gap:2px;}
+${C} .cx-orb{flex:none;width:16px;height:16px;}
+${C} .cx-orb circle{fill:rgba(255,255,255,.12);}
+${C} .cx-orb[data-orb] circle{fill:var(--orb);}
+${C} .cx-orb path{fill:rgba(20,20,24,.72);stroke:none;}
+${C} .cx-orb[data-orb="frost"] path{fill:none;stroke:rgba(20,20,24,.72);stroke-width:1.4;stroke-linecap:round;}
+${C} .cx-orb[data-orb="lightning"]{--orb:#f0d27a;}
+${C} .cx-orb[data-orb="frost"]{--orb:#8fd0f5;}
+${C} .cx-orb[data-orb="dark"]{--orb:#a98ad8;}
+${C} .cx-orb[data-orb="plasma"]{--orb:#f2a35c;}
+${C} .cx-orb[data-orb="glass"]{--orb:#9fe8dc;}
+${C} .cx-pips{display:inline-flex;gap:2px;}
+${C} .cx-pips i{width:5px;height:9px;border-radius:1px;background:rgba(255,255,255,.14);transform:skewX(-14deg);}
+${C} .cx-pips i.is-on{background:currentColor;}
+${C} .cx-res-hp{position:relative;width:40px;height:5px;border-radius:1px;background:rgba(255,255,255,.14);overflow:hidden;transform:skewX(-14deg);}
+${C} .cx-res-hp i{position:absolute;left:0;top:0;bottom:0;width:var(--p,0%);background:currentColor;}
+/* 画布皮肤：资源行复用皮肤自己的状态片（.chips / .chip），颜色与底色随皮肤；主战者信息区只有 112–196px 宽，法珠缩到 12px 并在片内换行，10 槽排两行。 */
+${C} #igs-cx-canvas .cx-res-row{flex-wrap:wrap;}
+${C} #igs-cx-canvas .cx-res-row>.cx-res[data-res="orbs"]{height:auto;max-width:100%;flex-wrap:wrap;}
+${C} #igs-cx-canvas .cx-res-row .cx-orbs{flex:1 1 auto;min-width:0;justify-content:flex-start;}
+${C} #igs-cx-canvas .cx-res-row .cx-orb{width:12px;height:12px;}
+${C} #igs-cx-canvas .cx-res-row .cx-res-ico{width:11px;height:11px;}
+
 ${C} .igs-combat-intent{--it:var(--igs-cb-warm);position:relative;z-index:1;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0 4px;align-self:center;box-sizing:border-box;width:max-content;max-width:calc(100% + var(--e-gap,0px) - 4px);min-height:24px;margin-bottom:-4px;padding:2px 8px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-veil);color:var(--igs-cb-ink-soft);font-size:12px;font-weight:600;letter-spacing:.04em;line-height:1.25;text-align:center;box-shadow:0 6px 14px -8px rgba(0,0,0,.7);}
 ${C} .igs-combat-intent[data-intent="attack"]{--it:var(--igs-cb-attack);}
 ${C} .igs-combat-intent[data-intent="defend"]{--it:var(--igs-cb-skill);}

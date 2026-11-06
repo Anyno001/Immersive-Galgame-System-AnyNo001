@@ -56,6 +56,8 @@ ${SP} .igs-combat-head>.igs-combat-restart+.igs-combat-speed{margin-left:8px;}`;
 const FOOT_COMMON = `${SP} .igs-combat-foot:not(.is-ended){display:grid;align-items:end;grid-template-areas:none;background:linear-gradient(180deg,transparent,rgba(10,10,11,.5));}
 ${SP} :is(.igs-combat-dock,.igs-combat-dock-tools,.igs-combat-dock-row){display:contents;}
 ${SP} .igs-combat-hero{--hero-controls-space:0px;grid-area:auto;gap:8px;align-items:flex-end;}
+/* 主战者资源条独占我方一排的最后一行：有资源条时允许换行，压过竖屏 / 横屏底栏的不换行。 */
+${SP} .igs-combat-hero:has(>.igs-combat-res){flex-wrap:wrap;row-gap:6px;}
 ${SP} .igs-combat-hero-core{gap:0;}
 ${SP} .igs-combat-hero-figure:has(>.igs-combat-controls){margin-left:0;}
 ${SP} .igs-combat-dock>.igs-combat-energy{position:static;flex:none;}
