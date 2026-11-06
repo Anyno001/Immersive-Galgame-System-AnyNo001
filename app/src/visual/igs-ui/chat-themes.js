@@ -1,5 +1,8 @@
 import { DIALOG_FONT_SANS, getReferenceDialogTypography } from './dialog-theme-typography.js';
 import { dlcBorrowSkin } from './dlc-skin-registry.js';
+import { GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
+import { MONITOR_CHAT_PALETTE_ARGS } from './dialog-theme-horror-monitor.js';
+import { WARD_CHAT_PALETTE } from './dialog-theme-horror-ward.js';
 
 // 跟随对话框主题时，手机框、标题栏与未单独设色的气泡取主题配色；联系人自设颜色仍优先。
 const palette = (shell, head, headInk, frame, sub, left, right, border = 'transparent') => Object.freeze({ shell, head, headInk, frame, sub, left, right, border });
@@ -9,7 +12,9 @@ export const CHAT_THEME_PALETTES = Object.freeze({
     'western-classic': palette('#efe4cc', '#3b2a1c', '#f2e5c4', '#2e2218', '#8a7456', '#fbf3df', '#d8b979'),
     'magic-academy': palette('#141a3a', '#1c2248', '#f3e2b6', '#0c0f26', '#a99b78', '#f1e3c0', '#d9b45a', 'rgba(217,180,90,.6)'),
     'mermaid-deep': palette('#0b1a33', '#102446', '#e6effb', '#050d1c', '#8296b4', '#eaf1fb', '#a9c6f0', 'rgba(169,198,240,.55)'),
-    'horror-gore': palette('#141010', '#0a0a0a', '#f3ece4', '#0a0a0a', '#8a8280', '#f3ece4', '#e8636a', 'rgba(209,18,27,.6)'),
+    'horror-gore': palette(...Object.values(GORE_REGISTRY_VALUES.chatPalette)),
+    'horror-monitor': palette(...MONITOR_CHAT_PALETTE_ARGS),
+    'horror-ward': palette(...WARD_CHAT_PALETTE),
     'horror-psych': palette('#fdf3f8', '#f8dbe8', '#6b4a5c', '#e0779d', '#a48c99', '#ffffff', '#f4c3d6', 'rgba(244,163,192,.5)'),
     'fairy-tale': palette('#f6f1e2', '#e9e6cf', '#4a4034', '#5e5444', '#9a9380', '#fffcf3', '#d9e3bf', 'rgba(122,138,82,.3)'),
     'qinglv-shanshui': palette('#f1ede2', '#e8e3d5', '#26332f', '#2b3532', '#8c958f', '#fbf9f3', '#cfe0d6', 'rgba(47,93,124,.3)'),

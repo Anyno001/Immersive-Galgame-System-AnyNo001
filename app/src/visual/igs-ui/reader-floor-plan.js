@@ -25,9 +25,23 @@ export function stripWrappingQuotes(value) {
     const source = String(value == null ? '' : value).trim();
     if (source.length < 2) return source;
     for (const [open, close] of [['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ['"', '"'], ["'", "'"]]) {
-        if (source.startsWith(open) && source.endsWith(close)) return source.slice(open.length, -close.length).trim();
+        if (source.startsWith(open) && source.endsWith(close) && closesAtEnd(source, open, close)) return source.slice(open.length, -close.length).trim();
     }
     return source;
+}
+
+// 开头的引号要一直配到最后一个字才算整句包住；「别走！」她说：「……」这类中途就闭合的不剥。
+function closesAtEnd(source, open, close) {
+    if (open === close) return source.indexOf(close, open.length) === source.length - close.length;
+    let depth = 0;
+    for (let i = 0; i < source.length; i += 1) {
+        if (source[i] === open) depth += 1;
+        else if (source[i] === close) {
+            depth -= 1;
+            if (depth === 0) return i === source.length - 1;
+        }
+    }
+    return false;
 }
 
 export function lastBefore(entries, offset, inclusive = true) {

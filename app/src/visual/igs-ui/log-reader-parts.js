@@ -1,3 +1,7 @@
+import { GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
+import { MONITOR_LOG_PARTS } from './dialog-theme-horror-monitor.js';
+import { WARD_LOG_READER_PART } from './dialog-theme-horror-ward.js';
+
 // 窄屏阅读模式逐皮肤部件：头像框、姓名牌、行间与换场景分割线、情绪胶囊。全部实色，图形为内联 SVG data URL。
 // 选择器带皮肤 id，排在 getLogFrameStyleText 之后覆盖；破框头像不画角饰。数值集中在 SPECS 规格表。
 
@@ -203,14 +207,16 @@ Object.assign(SPECS, {
         chip: { r: 0, bg: '#eadbe6', ink: '#7a5fb0' },
     },
     'horror-gore': {
-        ring: 'inset 0 0 0 1px #6b1218',
+        ring: GORE_REGISTRY_VALUES.logReader.ring,
         r: 0,
-        orn: { svg: M.drop('#c4101c'), w: 9, h: 11, at: 'left:3px;bottom:-5px' },
-        name: { plate: { r: 0, bg: '#000000', px: 6 } },
-        row: { line: 'fade', c: '#4a1a1c', m: { svg: M.drop('#c4101c'), w: 8, h: 10 }, gap: 8 },
-        scene: { line: 'fade', c: '#4a1a1c', m: { svg: M.drop('#c4101c'), w: 8, h: 10 } },
-        chip: { r: 0, bg: '#8a0f18', ink: '#f3ece4' },
+        orn: { svg: M.drop(GORE_REGISTRY_VALUES.logReader.dropColor), w: 9, h: 11, at: 'left:3px;bottom:-5px' },
+        name: { plate: { r: 0, bg: GORE_REGISTRY_VALUES.logReader.plate, px: 6 } },
+        row: { line: 'fade', c: GORE_REGISTRY_VALUES.logReader.line, m: { svg: M.drop(GORE_REGISTRY_VALUES.logReader.dropColor), w: 8, h: 10 }, gap: 8 },
+        scene: { line: 'fade', c: GORE_REGISTRY_VALUES.logReader.line, m: { svg: M.drop(GORE_REGISTRY_VALUES.logReader.dropColor), w: 8, h: 10 } },
+        chip: { r: 0, bg: GORE_REGISTRY_VALUES.logReader.chip.bg, ink: GORE_REGISTRY_VALUES.logReader.chip.ink },
     },
+    'horror-monitor': MONITOR_LOG_PARTS,
+    'horror-ward': WARD_LOG_READER_PART,
     'scifi-holo': {
         ring: 'inset 0 0 0 1px #1f4a66',
         r: 2,

@@ -1,8 +1,12 @@
+import { GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
+import { MONITOR_CLICK_WAIT_DREAD_RULE, MONITOR_CLICK_WAIT_MARK } from './dialog-theme-horror-monitor.js';
+import { WARD_CLICK_WAIT_STYLE } from './dialog-theme-horror-ward.js';
+
 // 每个皮肤都有一枚专属符号（见 CLICK_WAIT_MARK_SKINS）；这些符号也都能在选择器里单独选用。
 export const CLICK_WAIT_MARK_GLYPHS = Object.freeze([
     'auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush',
     'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye',
-    'reticle', 'hazard', 'bubbles', 'sword', 'dian',
+    'reticle', 'hazard', 'bubbles', 'sword', 'dian', 'brush-tick',
 ]);
 
 export const CLICK_WAIT_MARK_LABELS = Object.freeze({
@@ -31,6 +35,7 @@ export const CLICK_WAIT_MARK_LABELS = Object.freeze({
     hazard: '警示三角',
     sword: '倒悬飞剑',
     dian: '墨点',
+    'brush-tick': '短竖笔',
 });
 
 export const CLICK_WAIT_MARK_STYLES = Object.freeze(
@@ -87,12 +92,14 @@ const SHAPES = Object.freeze({
     compass: "<path d='M12 22.2L6.6 9.4L12 12.2L17.4 9.4Z'/><circle cx='12' cy='4.6' r='2'/>",
     // 仙侠水墨：一柄倒悬的飞剑（剑尖朝下）。
     sword: "<path d='M12 22.6L9.6 13.6V4.6H14.4V13.6Z'/><rect x='7' y='2.4' width='10' height='2' rx='.6'/>",
-    // 水墨武侠：朱砂侧点「、」，起笔圆钝、向右下收成一团。
+    // 墨点「、」：起笔圆钝、向右下收成一团。
     dian: "<path transform='translate(3 2)' d='M3 2 C7 2 13 6 15.5 12 C17 16 14 19.5 10.5 18 C7 16.5 5 10 2.4 4.6 C1.8 3.2 2 2 3 2Z'/>",
+    // 水墨武侠：选项起首同款短竖笔，向右上斜、上实下枯。
+    'brush-tick': "<defs><linearGradient id='t' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#000'/><stop offset='.5' stop-color='#000'/><stop offset='.8' stop-color='#000' stop-opacity='.4'/><stop offset='1' stop-color='#000' stop-opacity='0'/></linearGradient></defs><rect x='9.5' y='4.2' width='5' height='19' rx='2' fill='url(#t)' transform='skewY(-8)'/>",
     seal: "<rect x='6.5' y='6.5' width='11' height='11' rx='1.4'/>",
     // 童话小镇的草莓：籽镂空（evenodd），单色遮罩下也认得出。
     strawberry: "<path fill-rule='evenodd' d='M12 6.5C17.5 6.5 20 10 18.6 14.8C17.4 18.8 14 21.6 12 22.5C10 21.6 6.6 18.8 5.4 14.8C4 10 6.5 6.5 12 6.5ZM8.6 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM14 11.5a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM11.25 14.4a.75 1.05 0 1 0 1.5 0a.75 1.05 0 1 0-1.5 0ZM9.1 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0ZM13.5 17.2a.7 1 0 1 0 1.4 0a.7 1 0 1 0-1.4 0Z'/><path d='M6.6 6.6L10.2 6.4L12 2.2L13.8 6.4L17.4 6.6L14.4 8.6H9.6Z'/>",
-    // 血色噩梦：一颗血滴；心理恐怖平时是蝴蝶结，崩坏后换成一只眼（瞳孔镂空）。
+    // 血滴（用户可单独选用）；心理恐怖平时是蝴蝶结，崩坏后换成一只眼（瞳孔镂空）。
     ribbon: "<path d='M12 10.5C9.5 7 5.5 5 3.5 6.5C2 7.6 2.4 12.4 4 13.6C6 15 9.6 13.4 12 11.5ZM12 10.5C14.5 7 18.5 5 20.5 6.5C22 7.6 21.6 12.4 20 13.6C18 15 14.4 13.4 12 11.5Z'/><circle cx='12' cy='11' r='2.3'/><path d='M10.8 12.5L8 19.5L10.2 18.6L11.2 20.6L12.4 13ZM13.2 12.5L16 19.5L13.8 18.6L12.8 20.6L11.6 13Z'/>",
     'blood-drop': "<path d='M12 2.5C15.5 8 18.5 11.6 18.5 15.4A6.5 6.5 0 0 1 5.5 15.4C5.5 11.6 8.5 8 12 2.5Z'/>",
     eye: "<path fill-rule='evenodd' d='M1.8 12C5 6.8 8.4 5 12 5S19 6.8 22.2 12C19 17.2 15.6 19 12 19S5 17.2 1.8 12ZM12 8.4A3.6 3.6 0 1 0 12 15.6A3.6 3.6 0 1 0 12 8.4Z'/><circle cx='12' cy='12' r='1.8'/>",
@@ -118,7 +125,7 @@ const ANIMATIONS = Object.freeze({
 
 const GLYPH_ANIMATIONS = Object.freeze({
     pendant: 'tap-soft', seal: 'tap-soft', caret: 'tap-soft', 'triangle-hollow': 'tap-soft', eye: 'tap-soft',
-    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop', reticle: 'tap-soft', bubbles: 'tap-hop', dian: 'tap-breath',
+    strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop', reticle: 'tap-soft', bubbles: 'tap-hop', dian: 'tap-breath', 'brush-tick': 'tap-breath',
 });
 const GLYPH_MARKS = Object.freeze(Object.fromEntries(CLICK_WAIT_MARK_GLYPHS.filter((id) => id !== 'auto')
     .map((id) => [id, { shape: id, animation: GLYPH_ANIMATIONS[id] || 'tap' }])));
@@ -133,7 +140,7 @@ export const CLICK_WAIT_MARK_SKINS = Object.freeze({
     'fairy-tale': mark('strawberry', '#dc6a5c'),
     'qinglv-shanshui': mark('seal', '#b23a2a'),
     'xianxia-ink': mark('sword', '#b23a2a'),
-    'wuxia-ink': mark('dian', '#a8382a'),
+    'wuxia-ink': mark('brush-tick', '#a8382a'),
     'retro-japanese': mark('triangle-brush', '#c23a24'),
     'adventure-journey': mark('compass', '#9a6a2c'),
     'plant-coffee': mark('leaf', '#6f8446'),
@@ -142,7 +149,8 @@ export const CLICK_WAIT_MARK_SKINS = Object.freeze({
     'black-white-manga': mark('triangle', '#161616', 'tap-steps'),
     'cute-pink': mark('heart', '#e5608c'),
     'gradient-veil': mark('triangle-hollow', 'rgba(255,255,255,.92)'),
-    'horror-gore': mark('blood-drop', '#d1121b'),
+    'horror-gore': mark(GORE_REGISTRY_VALUES.clickWaitMark.shape, GORE_REGISTRY_VALUES.clickWaitMark.color),
+    'horror-monitor': MONITOR_CLICK_WAIT_MARK,
     'horror-psych': mark('ribbon', '#e0779d'),
     'scifi-holo': mark('reticle', '#5fe3ff'),
     'wasteland-rust': mark('hazard', '#e3ae2f'),
@@ -164,11 +172,11 @@ const SKIN_RULES = Object.entries(CLICK_WAIT_MARK_SKINS)
     })
     .join('\n');
 
-// 恐怖档位（horror-dread.js）：崩坏皮肤从 2 档起句末的蝴蝶结换成眼睛；血色 3 档底色转暗红，血滴改成骨白。
+// 恐怖档位（horror-dread.js）：崩坏皮肤从 2 档起句末的蝴蝶结换成眼睛；断帧监控 3 档句末图标转血红。
 const DREAD_RULES = [
     `#igs-overlay[data-igs-dialog-skin="horror-psych"][data-igs-dread="2"]{${markVars(mark('eye', '#8f7a86'))}--igs-cw-color:#8f7a86;}`,
     `#igs-overlay[data-igs-dialog-skin="horror-psych"][data-igs-dread="3"]{${markVars(mark('eye', '#b3161b'))}--igs-cw-color:#b3161b;}`,
-    '#igs-overlay[data-igs-dialog-skin="horror-gore"][data-igs-dread="3"]{--igs-cw-color:#f3ece4;}',
+    MONITOR_CLICK_WAIT_DREAD_RULE,
 ].join('\n');
 
 // 两个属性选择器的特异性高于皮肤规则，用户选定的形状总是覆盖皮肤映射，颜色仍跟随皮肤。
@@ -181,6 +189,7 @@ ${KEYFRAMES}
 @keyframes igs-cw-in{0%{opacity:0;}100%{opacity:1;}}
 ${SKIN_RULES}
 ${DREAD_RULES}
+${WARD_CLICK_WAIT_STYLE}
 ${GLYPH_RULES}
 #igs-overlay[data-igs-click-wait="on"] #igs-text::after{content:"";display:inline-block;width:.9em;height:.9em;margin-left:.25em;vertical-align:middle;pointer-events:none;background-color:var(--igs-cw-color,currentColor);-webkit-mask:var(--igs-cw-mask) center/contain no-repeat;mask:var(--igs-cw-mask) center/contain no-repeat;transform-origin:var(--igs-cw-origin,50% 50%);animation:var(--igs-cw-anim),igs-cw-in .35s ease-out backwards;}
 #igs-overlay[data-igs-click-wait="on"] #igs-text[data-igs-typewriter="running"]::after{opacity:0;animation:none;}

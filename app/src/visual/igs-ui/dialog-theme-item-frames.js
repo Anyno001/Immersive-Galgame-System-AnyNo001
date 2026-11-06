@@ -3,7 +3,10 @@ import { MAGIC_METAL, MAGIC_SPARKLE_MASK, magicTint, magicVeil } from './dialog-
 import { fairyPaper } from './dialog-theme-fairytale.js';
 import { qinglvSilk } from './dialog-theme-guofeng.js';
 import { MERMAID_PEARL, MERMAID_PEARL_DOT, mermaidDeep, mermaidPearl } from './dialog-theme-mermaid.js';
-import { HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
+import { GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
+import { MONITOR_ITEM_FRAME } from './dialog-theme-horror-monitor.js';
+import { WARD_ITEM_FRAME } from './dialog-theme-horror-ward.js';
+import { HORROR_HEART_MASK, PSYCH_DROP_MASK } from './dialog-theme-horror.js';
 import { SCIFI_CORNERS, SCIFI_GLASS, SCIFI_RETICLE_MASK, scifiHolo } from './dialog-theme-scifi.js';
 import { WASTELAND_HAZARD, WASTELAND_HAZARD_MASK, WASTELAND_STEEL, wastelandRivet, wastelandRust } from './dialog-theme-wasteland.js';
 
@@ -16,7 +19,8 @@ const DEFAULT_SKIN = 'default';
 const GRAY = '#8a8f99';
 const NO_BLUR = '-webkit-backdrop-filter:none;backdrop-filter:none;';
 const mask = (url) => `-webkit-mask:${url} center/contain no-repeat;mask:${url} center/contain no-repeat;`;
-const GORE_RED = '#c4101c';
+const GORE = GORE_REGISTRY_VALUES.itemFrame;
+const GORE_RED = GORE.red;
 
 const FRAMES = {
     [DEFAULT_SKIN]: {
@@ -113,20 +117,22 @@ const FRAMES = {
         desc: 'color:#c7c1b6;opacity:1;',
     },
     'horror-gore': {
-        mention: '#ff5a52',
-        ink: '#f3ece4',
-        card: 'background:#0a0a0a;border:0;border-radius:0;box-shadow:0 4px 14px rgba(0,0,0,.55);padding-left:17px;',
+        mention: GORE.mention,
+        ink: GORE.ink,
+        card: GORE.card,
         before: `left:0;top:0;bottom:0;width:4px;background:var(--igs-item-mark-gore,${GORE_RED});`,
-        after: `inset:0;background:linear-gradient(${GORE_RED},${GORE_RED}) 0 0/100% 3px no-repeat,linear-gradient(${GORE_RED},${GORE_RED}) 22% 0/4px 13px no-repeat,linear-gradient(${GORE_RED},${GORE_RED}) 61% 0/3px 8px no-repeat,linear-gradient(${GORE_RED},${GORE_RED}) 88% 0/5px 17px no-repeat;`,
-        icon: 'background:#1a1212;border-radius:0;box-shadow:inset 0 0 0 1px #5a0d12;color:#f3ece4;',
-        desc: 'color:#cfc5bb;opacity:1;',
+        after: `inset:0;background:linear-gradient(${GORE_RED},${GORE_RED}) 0 0/100% 1px no-repeat;`,
+        icon: GORE.icon,
+        desc: GORE.desc,
     },
+    'horror-monitor': MONITOR_ITEM_FRAME,
+    'horror-ward': WARD_ITEM_FRAME,
     'horror-psych': {
         mention: '#c0306a',
         ink: '#6b4a5c',
         card: 'background:radial-gradient(circle,#f9dbe6 0 1.6px,transparent 2.1px) 0 0/18px 18px,#fffafc;border:2px solid #f4a3c0;border-radius:14px;box-shadow:0 3px 0 rgba(224,119,157,.4);',
         before: `right:9px;top:6px;width:13px;height:12px;background:var(--igs-item-mark);${mask(HORROR_HEART_MASK)}`,
-        after: `left:7px;bottom:5px;width:6px;height:7px;background:#b3161b;${mask(HORROR_DROP_MASK)}`,
+        after: `left:7px;bottom:5px;width:6px;height:7px;background:#b3161b;${mask(PSYCH_DROP_MASK)}`,
         icon: 'background:repeating-linear-gradient(135deg,#fbe1ea 0 4px,#f7cddb 4px 8px);border-radius:10px;box-shadow:inset 0 0 0 1.5px #f4a3c0;color:#e0779d;',
         desc: 'color:#80606f;opacity:1;',
     },

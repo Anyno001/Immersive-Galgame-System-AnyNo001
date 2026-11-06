@@ -18,7 +18,10 @@ import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_WUXIA_INK } from './dialog-theme-wuxia.js';
 import { DIALOG_SKIN_MERMAID } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE } from './dialog-theme-fairytale.js';
-import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_HORROR_GORE, GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
+import { DIALOG_SKIN_HORROR_MONITOR, MONITOR_SKIN_LABEL } from './dialog-theme-horror-monitor.js';
+import { DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_HORROR_WARD } from './dialog-theme-horror-ward.js';
 import { DIALOG_SKIN_SCIFI_HOLO } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST } from './dialog-theme-wasteland.js';
 import { getDlcSkin, isDlcSkinId, listDlcSkins } from './dlc-skin-registry.js';
@@ -44,7 +47,9 @@ export const DIALOG_SKIN_CHOICES = Object.freeze([
     [DIALOG_SKIN_CUTE_PINK, '超可爱粉'],
     [DIALOG_SKIN_SCIFI_HOLO, '全息投影'],
     [DIALOG_SKIN_WASTELAND_RUST, '废土锈铁'],
-    [DIALOG_SKIN_HORROR_GORE, '血色噩梦'],
+    [DIALOG_SKIN_HORROR_GORE, GORE_REGISTRY_VALUES.label],
+    [DIALOG_SKIN_HORROR_MONITOR, MONITOR_SKIN_LABEL],
+    [DIALOG_SKIN_HORROR_WARD, '无影灯'],
     [DIALOG_SKIN_HORROR_PSYCH, '褪色病历'],
 ].map((pair) => Object.freeze(pair)));
 

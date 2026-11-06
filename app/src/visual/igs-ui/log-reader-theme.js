@@ -1,6 +1,9 @@
 import { normalizeDialogSkin } from './classic-dialog-skin.js';
 import { dlcBorrowSkin, isDlcSkinId } from './dlc-skin-registry.js';
 import { getReferenceDialogTypography } from './dialog-theme-typography.js';
+import { GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
+import { MONITOR_LOG_THEME } from './dialog-theme-horror-monitor.js';
+import { WARD_LOG_READER_THEME } from './dialog-theme-horror-ward.js';
 
 // 窄屏阅读模式逐皮肤配色：veil 渐变底色、ink 台词、narr 旁白、thought 心里话、sub 次要字、line 分割线、plate 头像底板与胶囊底。
 // 全部实色；深色底用近黑，不用棕。强调色（旁白段首符号、批末符号）取句末等待符号的 --igs-cw-color。
@@ -17,7 +20,9 @@ export const LOG_READER_THEMES = Object.freeze({
     'wuxia-ink': { tone: 'dark', veil: '#121212', ink: '#ece7dd', narr: '#c7c1b6', thought: '#a39e95', sub: '#98948c', line: '#33322f', plate: '#242423' },
     'scifi-holo': { tone: 'dark', veil: '#0b1424', ink: '#e2f6ff', narr: '#a3b8cc', thought: '#8fdcf0', sub: '#7f97ad', line: '#1d3048', plate: '#132238' },
     'wasteland-rust': { tone: 'dark', veil: '#1c1c1e', ink: '#ece3cf', narr: '#b9ad94', thought: '#e3ae2f', sub: '#9a9488', line: '#38383a', plate: '#2c2c2e' },
-    'horror-gore': { tone: 'dark', veil: '#121212', ink: '#f3ece4', narr: '#b3aaa4', thought: '#ff5a62', sub: '#948d88', line: '#332e2e', plate: '#242121' },
+    'horror-gore': GORE_REGISTRY_VALUES.logReaderTheme,
+    'horror-monitor': MONITOR_LOG_THEME,
+    'horror-ward': WARD_LOG_READER_THEME,
     'retro-japanese': { tone: 'light', veil: '#f1e6d2', ink: '#2f2119', narr: '#6b5645', thought: '#2f6e58', sub: '#9a8a76', line: '#ddd0b8', plate: '#e6d9c0' },
     'qinglv-shanshui': { tone: 'light', veil: '#f1ede2', ink: '#26332f', narr: '#56625d', thought: '#2f5d7c', sub: '#8c958f', line: '#d6d9cc', plate: '#dfe6dc' },
     'adventure-journey': { tone: 'light', veil: '#e9dfc7', ink: '#45372d', narr: '#6c5b4d', thought: '#9a6a2c', sub: '#94866f', line: '#d5c8a8', plate: '#ded2b6' },

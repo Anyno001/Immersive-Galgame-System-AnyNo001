@@ -1,4 +1,7 @@
 import { TEXT_FX_KINDS, TEXT_FX_MARKUP_SOURCE } from '../../scene/text-fx-markup.js';
+import { GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
+import { MONITOR_TEXT_FX_STYLE } from './dialog-theme-horror-monitor.js';
+import { WARD_TEXT_FX_STYLE } from './dialog-theme-horror-ward.js';
 
 export { TEXT_FX_KINDS };
 
@@ -172,7 +175,9 @@ export const TEXT_FX_STYLE_TEXT = `
 #igs-overlay[data-igs-dialog-skin="wuxia-ink"]{--igs-tfx-accent:#ece7dd;--igs-tfx-glow:rgba(12,11,10,.85);}
 #igs-overlay[data-igs-dialog-skin="warm-picturebook"]{--igs-tfx-accent:#c8553d;--igs-tfx-glow:rgba(255,255,255,.8);}
 #igs-overlay[data-igs-dialog-skin="fairy-tale"]{--igs-tfx-accent:#b4702c;--igs-tfx-glow:rgba(250,246,234,.9);}
-#igs-overlay[data-igs-dialog-skin="horror-gore"]{--igs-tfx-accent:#ff2a33;--igs-tfx-glow:rgba(0,0,0,.9);}
+#igs-overlay[data-igs-dialog-skin="horror-gore"]{--igs-tfx-accent:${GORE_REGISTRY_VALUES.textFxVars.accent};--igs-tfx-glow:${GORE_REGISTRY_VALUES.textFxVars.glow};}
+${MONITOR_TEXT_FX_STYLE}
+${WARD_TEXT_FX_STYLE}
 #igs-overlay[data-igs-dialog-skin="horror-psych"]{--igs-tfx-accent:#e0779d;--igs-tfx-glow:rgba(255,250,252,.9);}
 #igs-overlay[data-igs-dialog-skin="day-minimal"]{--igs-tfx-accent:#b0503f;--igs-tfx-glow:rgba(255,255,255,.9);}
 #igs-overlay[data-igs-dialog-skin="black-white-manga"]{--igs-tfx-accent:#000;--igs-tfx-glow:#fff;}

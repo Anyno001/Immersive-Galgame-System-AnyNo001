@@ -5,7 +5,10 @@ import { DIALOG_SKIN_XIANXIA_INK, XIANXIA_HUD_THEME } from './dialog-theme-xianx
 import { DIALOG_SKIN_WUXIA_INK, WUXIA_HUD_THEME } from './dialog-theme-wuxia.js';
 import { DIALOG_SKIN_MERMAID, MERMAID_HUD_THEME } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_HUD_THEME } from './dialog-theme-fairytale.js';
-import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_HUD_THEME, PSYCH_HUD_THEME } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_HORROR_GORE, GORE_HUD_THEME } from './dialog-theme-horror-blood.js';
+import { DIALOG_SKIN_HORROR_MONITOR, MONITOR_HUD_THEME } from './dialog-theme-horror-monitor.js';
+import { DIALOG_SKIN_HORROR_WARD, WARD_HUD_THEME } from './dialog-theme-horror-ward.js';
+import { DIALOG_SKIN_HORROR_PSYCH, PSYCH_HUD_THEME } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HUD_THEME } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_HUD_THEME } from './dialog-theme-wasteland.js';
 import { ORIGIN_DERIVED_TOKENS } from './origin-panel-style.js';
@@ -164,6 +167,8 @@ const HUD_THEMES = Object.freeze({
     [DIALOG_SKIN_MERMAID]: MERMAID_HUD_THEME,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_HUD_THEME,
     [DIALOG_SKIN_HORROR_GORE]: GORE_HUD_THEME,
+    [DIALOG_SKIN_HORROR_MONITOR]: MONITOR_HUD_THEME,
+    [DIALOG_SKIN_HORROR_WARD]: WARD_HUD_THEME,
     [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_HUD_THEME,
     [DIALOG_SKIN_SCIFI_HOLO]: SCIFI_HUD_THEME,
     [DIALOG_SKIN_WASTELAND_RUST]: WASTELAND_HUD_THEME,

@@ -14,6 +14,8 @@ import { getReferenceDialogTypography } from './dialog-theme-typography.js';
 import { cachedCoverPalette, coverPaletteOf, inkFor } from './title-cover-color.js';
 import { WX_BAR, WX_HSTROKE, WX_RUBBING, WX_SEAL_MASK_SMALL, WX_SLASH, maskOf, wxEdge } from './wuxia-ink-svg.js';
 import { WUXIA_MOON } from './dialog-theme-wuxia.js';
+import { MONITOR_TITLE_SCREEN_TONE } from './dialog-theme-horror-monitor.js';
+import { WARD_TITLE_SCREEN_TONE } from './dialog-theme-horror-ward.js';
 import { MAGIC_SPARKLE_MASK } from './dialog-theme-css-skins.js';
 
 // 第 0 层的主界面：阅读器停在开场白第一页时先盖一层标题画面（开始 / 继续 / 世界风格 / 设置 / 生成主角立绘），
@@ -200,7 +202,7 @@ const SKIN_TONES = Object.freeze({
     'plant-coffee': 'soft', 'warm-picturebook': 'soft', 'fairy-tale': 'soft', 'cute-pink': 'soft', 'day-minimal': 'soft',
     'qinglv-shanshui': 'ink', 'xianxia-ink': 'ink', 'wuxia-ink': 'ink', 'retro-japanese': 'classic',
     'western-classic': 'mystic', 'elegant-european': 'mystic', 'magic-academy': 'mystic', 'mermaid-deep': 'mystic', 'adventure-journey': 'mystic',
-    'horror-gore': 'dark', 'horror-psych': 'dark',
+    'horror-gore': 'dark', 'horror-monitor': MONITOR_TITLE_SCREEN_TONE, 'horror-ward': WARD_TITLE_SCREEN_TONE, 'horror-psych': 'dark',
 });
 const WORLD_TONES = Object.freeze({ scifi: 'tech', apocalypse: 'tech', ancient: 'ink', taisho: 'classic', fantasy: 'mystic', magic: 'mystic', horror: 'dark' });
 

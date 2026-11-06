@@ -1,4 +1,7 @@
 import { dlcBorrowSkin, getDlcSkin } from './dlc-skin-registry.js';
+import { GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
+import { MONITOR_TYPOGRAPHY } from './dialog-theme-horror-monitor.js';
+import { WARD_TYPOGRAPHY } from './dialog-theme-horror-ward.js';
 export const DIALOG_FONT_SERIF = '"Source Han Serif CN","Noto Serif CJK SC","Songti SC",serif';
 export const DIALOG_FONT_ROUNDED = '"IGS Rounded","Microsoft YaHei",sans-serif';
 export const DIALOG_FONT_CHILL_ROUND = '"ChillRoundF","IGS Rounded","Microsoft YaHei",sans-serif';
@@ -197,18 +200,11 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         thoughtColor: '#a39e95',
         narrationColor: '#c7c1b6',
     }),
-    // 血色噩梦（波普血浆）：名字是红块上的骨白得意黑，正文用干脆的新晰黑；心里话亮红，旁白褪成灰。
-    'horror-gore': Object.freeze({
-        nameAlign: 'left',
-        nameFont: DIALOG_FONT_SMILEY,
-        textFont: DIALOG_FONT_NEO_XIHEI,
-        thoughtFont: DIALOG_FONT_NEO_XIHEI,
-        narrationFont: DIALOG_FONT_NEO_XIHEI,
-        nameColor: '#f3ece4',
-        textColor: '#f3ece4',
-        thoughtColor: '#ff5a62',
-        narrationColor: '#b3aaa4',
-    }),
+    // 血色：思源宋体，名字骨白细字距，心里话用淡血色，旁白灰。
+    'horror-gore': Object.freeze({ ...GORE_REGISTRY_VALUES.typography }),
+    // 断帧监控与无影灯：同为思源宋体，名牌分别是监控取景框与病床卡。
+    'horror-monitor': MONITOR_TYPOGRAPHY,
+    'horror-ward': WARD_TYPOGRAPHY,
     // 心理恐怖（正常界面崩坏）：先装成可爱校园风，名字圆体白字，正文梅子色，心里话淡紫。
     'horror-psych': Object.freeze({
         nameAlign: 'left',

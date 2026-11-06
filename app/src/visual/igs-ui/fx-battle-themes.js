@@ -5,7 +5,10 @@ import { DIALOG_SKIN_XIANXIA_INK, xianxiaInk } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_WUXIA_INK, wuxiaInk } from './dialog-theme-wuxia.js';
 import { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, MERMAID_PEARL_HI, mermaidAbyss, mermaidPearl } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
-import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_HORROR_GORE, GORE_REGISTRY_VALUES, HORROR_DROP_MASK } from './dialog-theme-horror-blood.js';
+import { DIALOG_SKIN_HORROR_MONITOR, MONITOR_BATTLE_THEME } from './dialog-theme-horror-monitor.js';
+import { DIALOG_SKIN_HORROR_WARD, WARD_BATTLE_THEME } from './dialog-theme-horror-ward.js';
+import { DIALOG_SKIN_HORROR_PSYCH, HORROR_HEART_MASK } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiDeep, scifiHolo } from './dialog-theme-scifi.js';
 import {
     DIALOG_SKIN_WASTELAND_RUST,
@@ -167,15 +170,18 @@ const BATTLE_THEMES = Object.freeze({
         veil: 'background:rgba(60,50,30,.18);',
         foe: `text-shadow:${stroke(fairyPaper('.7'))},0 0 18px ${fairyPaper('.9')};`,
     },
-    // 血色噩梦（波普血浆）：黑底红块，名牌标记是一颗红色血滴。
+    // 血色：近黑底，暗红细线，名牌标记是一颗细长血滴。
     [DIALOG_SKIN_HORROR_GORE]: {
-        accent: '#d1121b',
-        font: DIALOG_FONT_SMILEY,
-        vars: { veil: 'rgba(10,10,10,.9)', rule: '#d1121b', ink: '#f3ece4', halo: '0 1px 2px rgba(0,0,0,.95)', 'title-halo': '0 2px 0 #d1121b', wipe: 'rgba(10,10,10,.95)', lose: '#ff2a33', escape: '#8a8280' },
-        mark: `width:10px;height:12px;align-self:center;font-size:0;background:#d1121b;-webkit-mask:${HORROR_DROP_MASK} center/contain no-repeat;mask:${HORROR_DROP_MASK} center/contain no-repeat;`,
-        title: 'font-style:normal;font-weight:700;letter-spacing:.2em;text-indent:.2em;',
-        veil: 'background:rgba(60,0,0,.35);',
+        accent: GORE_REGISTRY_VALUES.battle.accent,
+        font: GORE_REGISTRY_VALUES.typography.nameFont,
+        vars: { ...GORE_REGISTRY_VALUES.battle.vars },
+        mark: `${GORE_REGISTRY_VALUES.battle.markSize}align-self:center;font-size:0;background:${GORE_REGISTRY_VALUES.battle.markColor};-webkit-mask:${HORROR_DROP_MASK} center/contain no-repeat;mask:${HORROR_DROP_MASK} center/contain no-repeat;`,
+        title: 'font-style:normal;font-weight:400;letter-spacing:.2em;text-indent:.2em;',
+        veil: GORE_REGISTRY_VALUES.battle.veil,
     },
+    // 断帧监控与无影灯。
+    [DIALOG_SKIN_HORROR_MONITOR]: { ...MONITOR_BATTLE_THEME, vars: { ...MONITOR_BATTLE_THEME.vars } },
+    [DIALOG_SKIN_HORROR_WARD]: { ...WARD_BATTLE_THEME, vars: { ...WARD_BATTLE_THEME.vars } },
     // 心理恐怖（正常界面崩坏）：平时是粉色校园风，名牌标记是一颗小爱心。
     [DIALOG_SKIN_HORROR_PSYCH]: {
         accent: '#e0779d',

@@ -202,6 +202,9 @@ function bubbleShape(shape, metric, font) {
     return { a: Math.max(font * 1.5, best.fit.a + pad), b: Math.max(font * 1.5, best.fit.b + pad), n, tip, dx: best.dx, dy: best.dy };
 }
 
+// 一串泡放不下时的退让档位：[列长倍数, 字号倍数]。先缩列（泡变矮变宽），最后才缩字。
+const FIT_STEPS = [[1, 1], [0.75, 1], [0.6, 1], [0.6, 0.88], [0.5, 0.8]];
+
 function maxColumnLength(shape) {
     if (shape === 'narration') return 13;
     if (shape === 'box') return 12;
@@ -420,27 +423,33 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
 
     const horizontal = prefersHorizontal(plain);
     const chunks = splitBubbleChunks(plain, { limit: shape === 'narration' ? 54 : 30, maxParts: 3 });
-    const items = chunks.map(([a, b]) => {
-        const bubble = doc.createElement('div');
-        bubble.className = 'igs-comic-bubble';
-        const text = doc.createElement('div');
-        text.className = horizontal ? 'igs-comic-text is-h' : 'igs-comic-text';
-        text.appendChild(sliceRichText(textEl, a, b, doc));
-        let lengths = [];
-        if (!horizontal) {
-            const plan = planVerticalColumns(readPlainText(text), { maxLen: maxColumnLength(shape) });
-            applyColumnBreaks(text, plan, doc);
-            lengths = plan.lengths;
-        }
-        bubble.appendChild(text);
-        group.appendChild(bubble);
-        return { bubble, text, lengths, chars: b - a };
-    });
-    const metrics = items.map((item) => ({ w: item.text.offsetWidth, h: item.text.offsetHeight, lengths: item.lengths, horizontal }));
-    const shapes = metrics.map((m) => bubbleShape(shape, m, font));
     const reach = SHAPE_REACH[shape] || 1;
-    const line = Math.max(1, font * 0.12 * (COMIC_LINE_LEVELS[comic.line] || 1));
-    const sizes = shapes.map((s) => ({ ax: s.a * reach + line, by: s.b * reach + line }));
+    // 量一遍文字、算出泡形。窄屏一串泡放不下时会用更短的列、更小的字号重量。
+    const measure = (colScale, fontScale) => {
+        const f = Math.round(font * fontScale * 10) / 10;
+        group.style.setProperty('--igs-comic-font', `${f}px`);
+        const items = chunks.map(([a, b]) => {
+            const bubble = doc.createElement('div');
+            bubble.className = 'igs-comic-bubble';
+            const text = doc.createElement('div');
+            text.className = horizontal ? 'igs-comic-text is-h' : 'igs-comic-text';
+            text.appendChild(sliceRichText(textEl, a, b, doc));
+            let lengths = [];
+            if (!horizontal) {
+                const plan = planVerticalColumns(readPlainText(text), { maxLen: Math.max(5, Math.round(maxColumnLength(shape) * colScale)) });
+                applyColumnBreaks(text, plan, doc);
+                lengths = plan.lengths;
+            }
+            bubble.appendChild(text);
+            group.appendChild(bubble);
+            return { bubble, text, lengths, chars: b - a };
+        });
+        const metrics = items.map((item) => ({ w: item.text.offsetWidth, h: item.text.offsetHeight, lengths: item.lengths, horizontal }));
+        const shapes = metrics.map((m) => bubbleShape(shape, m, f));
+        const line = Math.max(1, f * 0.12 * (COMIC_LINE_LEVELS[comic.line] || 1));
+        const sizes = shapes.map((s) => ({ ax: s.a * reach + line, by: s.b * reach + line }));
+        return { font: f, items, metrics, shapes, line, sizes };
+    };
 
     // 离画面边留白：画格边框（窄屏 4+3px、宽屏 7+3px）之外再空一截，泡的墨线和弹出放大都不压边。
     const frameGut = comic.frame ? (stageW <= 640 ? 7 : 10) : 0;
@@ -485,9 +494,19 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
     const offSide = hashSeed(content.speaker || '') % 2 ? 'left' : 'right';
     const maxChainW = (stageW - margin * 2) * 0.92;
     // 细连线不是每处都有：按页随机（同一页每次重排结果一样），其余的接缝照旧咬合。
-    const links = sizes.map((_, i) => i > 0 && LINKED_SHAPES.has(shape) && hashSeed(`${pageKey}:link:${i}`) % 2 === 0);
-    const chains = sizes.length > 1 ? [arrangeChain(sizes, maxChainW, 'auto', links), arrangeChain(sizes, maxChainW, 'column', links)] : [arrangeChain(sizes, maxChainW)];
-    const placed = placeComicGroup({ stageW, stageH, safe, head, kind, chains, avoid, offSide, gap: COMIC_GAP_LEVELS[comic.gap] });
+    const links = chunks.map((_, i) => i > 0 && LINKED_SHAPES.has(shape) && hashSeed(`${pageKey}:link:${i}`) % 2 === 0);
+    const fits = (p) => p.w <= safe.right - safe.left + 1 && p.h <= safe.bottom - safe.top + 1;
+    let measured = null;
+    let placed = null;
+    // 先按原样排；整串超出可用区域（多见于手机竖屏）时依次缩短列、缩小字号，都放不下就用最后一档。
+    for (const [colScale, fontScale] of FIT_STEPS) {
+        if (measured) for (const item of measured.items) removeNode(item.bubble);
+        measured = measure(colScale, fontScale);
+        const chains = measured.sizes.length > 1 ? [arrangeChain(measured.sizes, maxChainW, 'auto', links), arrangeChain(measured.sizes, maxChainW, 'column', links)] : [arrangeChain(measured.sizes, maxChainW)];
+        placed = placeComicGroup({ stageW, stageH, safe, head, kind, chains, avoid, offSide, gap: COMIC_GAP_LEVELS[comic.gap] });
+        if (fits(placed)) break;
+    }
+    const { items, metrics, shapes, line, sizes } = measured;
     // 没有立绘的心里话（多半是主角）：云朵不拖尾巴。
     const tail = !comic.tail || (kind === 'offscreen' && tone === 'thought') ? null : resolveTail({ kind, head, centers: placed.centers, sizes, stageW, offSide });
 
@@ -509,7 +528,7 @@ function layoutPage(root, snapshot, opts, { relayout = false }) {
         const s = shapes[i];
         const body = bodies[i];
         const parts = [bodyPath(shape, body, rand)];
-        if (links[i]) parts.push(linkPath(bodies[i - 1], body, font * 0.34));
+        if (links[i]) parts.push(linkPath(bodies[i - 1], body, measured.font * 0.34));
         if (tail && tail.index === i) {
             if (tone === 'thought') parts.push(...thoughtTrail(body, tail.tip));
             else parts.push(tailPath(tone === 'shout' ? 'shout' : (tone === 'phone' ? 'phone' : 'speech'), body, tail.tip, rand));
