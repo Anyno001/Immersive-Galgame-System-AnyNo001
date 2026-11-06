@@ -1603,3 +1603,170 @@ test('祈司模板（P01–P05）：可反解、归 sanctum 族只给祈司；�
     assert.ok(describeKeywordParts({ ...base, radiance: 2 }).some((p) => p.text === '圣辉 2'));
     assert.ok(describeEffects([{ op: 'radiance', amount: 2 }]).includes('圣辉'));
 });
+
+
+// ---------- 规则 v5 P3 乐师「心境、乐势与预知」（B01–B09） ----------
+const free = (id, type, effects, extra = {}) => def(id, type, effects, { cost: 0, innate: true, ...extra });
+const stanceTo = (stance) => ({ op: 'enter-stance', stance });
+const selfOn = (status, stacks) => ({ op: 'apply-status', status, stacks, target: 'self' });
+const deckOf = (catalog, ids, rv) => startDeck({ ...catalog, k: GUARD }, [...ids, ...Array(Math.max(0, 10 - ids.length)).fill('k')], rv);
+
+test('心境（B01）：怒意令造成与受到的攻击伤害 ×2，神临 ×3；离开静心 +2 能量；规则 v4 无效', () => {
+    const fury = def('w', 'attack', [hitFoe(5), stanceTo('wrath')], { innate: true });
+    const shot = def('x', 'attack', [hitFoe(5)], { innate: true });
+    const run = (rv) => {
+        const t = deckOf({ w: fury, x: shot }, ['w', 'x'], rv);
+        const u = playIn(t, instOf(t, 'w'), 'foe').state;
+        return playIn(u, instOf(u, 'x'), 'foe').state;
+    };
+    const v5 = run();
+    assert.deepEqual([v5.units.foe.hp, v5.units.hero.res?.stance], [15, 'wrath']);
+    const v4 = run(4);
+    assert.deepEqual([v4.units.foe.hp, v4.units.hero.res], [20, undefined]);
+    const plain = { statuses: {} };
+    assert.equal(computeDamage(plain, { statuses: {}, res: { stance: 'wrath' } }, 5, 1, 5), 10);
+    assert.equal(computeDamage({ statuses: {}, res: { stance: 'divinity' } }, plain, 5, 1, 5), 15);
+    assert.equal(computeDamage(plain, { statuses: {}, res: { stance: 'wrath' } }, 5, 1, 4), 5);
+    const calm = def('c', 'skill', [stanceTo('calm')], { innate: true });
+    const back = def('n', 'skill', [stanceTo('neutral')], { innate: true });
+    const t = deckOf({ c: calm, n: back }, ['c', 'n']);
+    const e0 = t.units.hero.energy;
+    const u = playIn(t, instOf(t, 'c')).state;
+    assert.deepEqual([u.units.hero.res.stance, u.units.hero.energy], ['calm', e0 - 1]);
+    const left = playIn(u, instOf(u, 'n')).state;
+    assert.deepEqual([left.units.hero.res.stance, left.units.hero.energy], ['neutral', e0]);
+});
+
+test('乐势（B02）：累计到 10 进入神临（+3 能量），超出部分保留；神临在下回合开始退出', () => {
+    const p = free('p', 'skill', [{ op: 'momentum', amount: 4 }]);
+    const m = free('m', 'skill', [{ op: 'momentum', amount: 5 }]);
+    const t = deckOf({ p, m }, ['p', 'm', 'm']);
+    const e0 = t.units.hero.energy;
+    let u = playIn(t, instOf(t, 'p')).state;
+    u = playIn(u, instOf(u, 'm')).state;
+    assert.deepEqual([u.units.hero.res.momentum, u.units.hero.res.stance], [9, undefined]);
+    const up = playIn(u, instOf(u, 'm'));
+    const h = up.state.units.hero;
+    assert.deepEqual([h.res.momentum, h.res.stance, h.energy], [4, 'divinity', e0 + 3]);
+    assert.ok(up.events.some((e) => e.type === 'momentum' && e.ascend === true));
+    assert.equal(endTurn(up.state).state.units.hero.res.stance, 'neutral');
+});
+
+test('乐势来源与心境联动（B03、B04）：吟诵每回合开始给乐势、酝怒下回合进入怒意；切换心境得格挡、进入怒意抽牌、回合结束仍在静心得格挡；规则 v4 无效', () => {
+    const src = free('s', 'power', [selfOn('chant', 3), selfOn('seethe', 1)]);
+    const run = (rv) => {
+        const t = deckOf({ s: src }, ['s'], rv);
+        return endTurn(playIn(t, instOf(t, 's')).state).state.units.hero;
+    };
+    const v5 = run();
+    assert.deepEqual([v5.res.momentum, v5.res.stance, Boolean(v5.statuses.seethe)], [3, 'wrath', false]);
+    assert.equal(run(4).res, undefined);
+    const link = free('l', 'power', [selfOn('stance-ward', 4), selfOn('wrath-draw', 2), selfOn('calm-guard', 5)]);
+    const calm = free('c', 'skill', [stanceTo('calm')]);
+    const rage = free('r', 'skill', [stanceTo('wrath')]);
+    const t = deckOf({ l: link, c: calm, r: rage }, ['l', 'c', 'r']);
+    let u = playIn(t, instOf(t, 'l')).state;
+    const handBefore = u.piles.hero.hand.length;
+    u = playIn(u, instOf(u, 'r')).state;
+    assert.deepEqual([u.units.hero.block, u.piles.hero.hand.length], [4, handBefore + 1]);
+    u = playIn(u, instOf(u, 'c')).state;
+    assert.equal(u.units.hero.block, 8);
+    assert.ok(endTurn(u).events.some((e) => e.type === 'block' && e.source?.id === 'calm-guard'));
+});
+
+test('预知（B05）：查看抽牌堆顶 N 张，弃掉不能打出与估值不到最高者一半的牌，直接进弃牌堆、不触发弃牌收益；观兆在预知时给格挡；规则 v4 无效', () => {
+    const look = def('f', 'skill', [{ op: 'foresee', amount: 3 }], { innate: true });
+    const eye = free('t', 'power', [selfOn('scry-ward', 3)]);
+    const dud = def('z', 'skill', [], { cost: 0, unplayable: true, onDiscard: [{ op: 'block', amount: 5, target: 'self' }] });
+    const big = def('b', 'attack', [hitFoe(20)]);
+    const run = (rv) => {
+        const t = startDeck({ f: look, t: eye, z: dud, b: big, k: GUARD }, ['f', 't', 'z', 'z', 'z', 'b', 'b', 'b', ...Array(7).fill('k')], rv);
+        const draw = t.piles.hero.draw;
+        const pick = (id) => draw.find((inst) => t.cards[inst].cardId === id);
+        const [ki, zi, bi] = [pick('k'), pick('z'), pick('b')];
+        assert.ok(ki && zi && bi, 'draw pile lacks a needed card');
+        t.piles.hero.draw = [...draw.filter((inst) => ![ki, zi, bi].includes(inst)), ki, zi, bi];
+        const lit = playIn(t, instOf(t, 't')).state;
+        return { before: lit, ...playIn(lit, instOf(lit, 'f')), ki, zi, bi };
+    };
+    const v5 = run();
+    const ev = v5.events.find((e) => e.type === 'foresee');
+    assert.deepEqual([ev.seen, [...ev.discarded].sort()], [3, [v5.ki, v5.zi].sort()]);
+    const pile = v5.state.piles.hero;
+    assert.equal(pile.draw.at(-1), v5.bi);
+    assert.deepEqual(pile.draw.slice(0, -1), v5.before.piles.hero.draw.slice(0, -3));
+    assert.ok([v5.ki, v5.zi].every((inst) => pile.discard.includes(inst)));
+    assert.ok(!v5.events.some((e) => e.type === 'discard' || e.source?.kind === 'on-discard'));
+    assert.ok(!(v5.state.units.hero.turnStats?.discards > 0));
+    assert.ok(v5.events.some((e) => e.type === 'block' && e.source?.id === 'scry-ward'));
+    const v4 = run(4);
+    assert.deepEqual(v4.state.piles.hero.draw, v4.before.piles.hero.draw);
+});
+
+test('保留减费（B06）：回合结束仍在手中的牌下回合费用 -1，新抽到的牌不减；没有余韵时不减；规则 v4 无效', () => {
+    const keep = free('s', 'power', [selfOn('keep-discount', 1)]);
+    const held = def('r', 'skill', [{ op: 'block', amount: 1, target: 'self' }], { cost: 2, innate: true, retain: true });
+    const run = (rv, withKeep = true) => {
+        const t = deckOf({ s: keep, r: held }, ['s', 'r'], rv);
+        const next = endTurn(withKeep ? playIn(t, instOf(t, 's')).state : t).state;
+        return { next, view: cardView(next, instOf(next, 'r')) };
+    };
+    const v5 = run();
+    assert.deepEqual([v5.view.cost, v5.view.baseCost], [1, 2]);
+    for (const inst of v5.next.piles.hero.hand) if (v5.next.cards[inst].cardId === 'k') assert.equal(cardView(v5.next, inst).cost, 1);
+    assert.equal(run(undefined, false).view.cost, 2);
+    assert.equal(run(4).view.cost, 2);
+});
+
+test('回响（B07）：每回合前 N 张牌整张多执行一次，之后照常；规则 v4 无效', () => {
+    const echo = free('e', 'power', [selfOn('echo-play', 1)]);
+    const shot = free('x', 'attack', [hitFoe(3)], { retain: true });
+    const run = (rv) => {
+        const t = deckOf({ e: echo, x: shot }, ['e', 'x', 'x'], rv);
+        const next = endTurn(playIn(t, instOf(t, 'e')).state).state;
+        const first = playIn(next, instOf(next, 'x'), 'foe');
+        const second = playIn(first.state, instOf(first.state, 'x'), 'foe');
+        return [first, second].map((r) => r.events.filter((e) => e.type === 'damage' && e.kind === 'attack').length);
+    };
+    assert.deepEqual(run(), [2, 1]);
+    assert.deepEqual(run(4), [1, 1]);
+});
+
+test('加演（B08，D8）：回合结束后主角立即再行动一次，敌人这段时间不动；每场一次；规则 v4 无效', () => {
+    const call = free('a', 'skill', [{ op: 'curtain-call' }]);
+    const run = (rv) => {
+        const t = deckOf({ a: call }, ['a', 'a'], rv);
+        const one = playIn(t, instOf(t, 'a'));
+        const two = playIn(one.state, instOf(one.state, 'a'));
+        return { turn: t.turn, one, two, after: endTurn(two.state) };
+    };
+    const foeActed = (events) => events.some((e) => e.type === 'act' && e.unitId === 'foe');
+    const v5 = run();
+    assert.ok(v5.one.events.some((e) => e.type === 'encore-ready'));
+    assert.ok(!v5.two.events.some((e) => e.type === 'encore-ready'));
+    const s = v5.after.state;
+    assert.ok(v5.after.events.some((e) => e.type === 'encore'));
+    assert.equal(foeActed(v5.after.events), false);
+    assert.deepEqual([s.turn, s.phase, s.units.hero.res.encore], [v5.turn + 1, 'player', 'used']);
+    assert.equal(foeActed(endTurn(s).events), true);
+    const v4 = run(4);
+    assert.equal(foeActed(v4.after.events), true);
+    assert.ok(!v4.after.events.some((e) => e.type === 'encore'));
+});
+
+test('乐师模板（B01–B09）：可反解、归 cadence 族只给乐师；随机分支 fumble 归乐师；牌面写明心境、乐势、预知与加演', () => {
+    const keys = ['serene', 'fury', 'compose', 'crescendo', 'chant', 'simmer', 'stance-ward', 'rage-flow', 'still-water', 'foretell', 'third-eye', 'sustain', 'resonance', 'curtain-call'];
+    for (const key of keys) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'cadence', key);
+        assert.equal(templateAllowedFor(key, 'bard'), true, key);
+        for (const other of ['priest', 'mage', 'warrior']) assert.equal(templateAllowedFor(key, other), false, `${key}:${other}`);
+    }
+    assert.deepEqual([templateFamily('fumble'), templateAllowedFor('fumble', 'bard')], ['cadence', true]);
+    for (const [effect, word] of [[stanceTo('wrath'), '怒意'], [{ op: 'momentum', amount: 2 }, '乐势'], [{ op: 'foresee', amount: 2 }, '预知'], [{ op: 'curtain-call' }, '加演']]) {
+        assert.ok(describeEffects([effect]).includes(word), word);
+    }
+});

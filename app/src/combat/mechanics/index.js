@@ -15,3 +15,4 @@ import './forge.js';
 import './shadow.js';
 import './quarry.js';
 import './sanctum.js';
+import './cadence.js';

@@ -588,10 +588,28 @@ function resOf(ctx, unit) {
     if (!unit.res) unit.res = {};
     return unit.res;
 }
+// 规则 v5 B08 加演（D8）：登记后，本单位这次出手结束时行动值归 0 并立即再出手一次，期间其他单位不行动；每场一次。
+// 记在 res.encore（ready / used），由 endPlayerTurn 与 runAutoPhase 消费；v3/v4 没有 res，登记与消费都不发生。
+function grantEncore(ctx, unit) {
+    const res = resOf(ctx, unit);
+    if (!res || res.encore) return false;
+    res.encore = 'ready';
+    emit(ctx, { type: 'encore-ready', unitId: unit.id });
+    return true;
+}
+function takeEncore(ctx, unit) {
+    if (unit.res?.encore !== 'ready' || !unit.alive || ctx.state.outcome) return false;
+    unit.res.encore = 'used';
+    unit.av = 0;
+    emit(ctx, { type: 'encore', unitId: unit.id });
+    return true;
+}
 const engineKit = (targets) => ({
     emit, dealDamage, addStatus, setStatus, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, ownCatalog, targets,
     // 规则 v5 牌堆操作用：弃牌、消耗、临时牌、写时复制、选牌（choose 时消费玩家选择或按策略选）、牌面视图与效果估值。
     discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
+    // 规则 v5 B08 加演（mechanics/cadence.js）：只登记，行动顺序由本文件处理。
+    grantEncore,
 });
 
 // 单个效果的结算。source 记录来源（单位、种类、id），写进事件。
@@ -1488,6 +1506,8 @@ function runAutoPhase(ctx) {
             return;
         }
         takeAutoTurn(ctx, actor);
+        // 规则 v5 B08 加演：本单位立即再出手一次，其他单位不行动。
+        while (takeEncore(ctx, actor)) takeAutoTurn(ctx, actor);
         if (actor.alive) scheduleUnit(state, actor);
     }
     if (state.outcome) return;
@@ -1515,6 +1535,11 @@ function endPlayerTurn(ctx) {
     emit(ctx, { type: 'turn-end', side: 'ally', unitId: hero.id });
     endUnitTurn(ctx, hero);
     if (!state.outcome) {
+        // 规则 v5 B08 加演：主角行动值归 0，立即开始下一个玩家回合，敌人这段时间不行动。
+        if (takeEncore(ctx, hero)) {
+            startPlayerTurn(ctx);
+            return;
+        }
         scheduleUnit(state, hero);
         // 开局先手计入行动条（setup.openingCharged）：先手那一手占掉一个行动间隔，下一次出手再顺延一个间隔，首轮不再连动两回合。
         if (state.openingDebt) {

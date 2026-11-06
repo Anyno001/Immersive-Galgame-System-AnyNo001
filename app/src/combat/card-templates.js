@@ -64,6 +64,11 @@ const honeShiv = (mode, amount) => ({ op: 'hone-shiv', mode, ...(mode === 'edge'
 const loose = () => ({ op: 'loose' });
 // 规则 v5 P3 祈司圣辉（mechanics/sanctum.js）。
 const radianceGain = (amount) => ({ op: 'radiance', amount });
+// 规则 v5 P3 乐师心境、乐势、预知与加演（mechanics/cadence.js）。
+const enterStance = (stance) => ({ op: 'enter-stance', stance });
+const momentumGain = (amount) => ({ op: 'momentum', amount });
+const foresee = (amount) => ({ op: 'foresee', amount });
+const encore = () => ({ op: 'curtain-call' });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -86,6 +91,8 @@ function primaryNumber(effect) {
         case 'discover':
         case 'energy-double':
         case 'loose':
+        case 'enter-stance':
+        case 'curtain-call':
             return 1;
         case 'bounty':
             return effect.reward === 'upgrade' ? 1 : effect.amount;
@@ -307,6 +314,21 @@ export const CARD_TEMPLATES = Object.freeze({
     verdant: template('skill', '全体友方获得再生，并获得格挡', [[1, 4], [0, 20]], 0.6, ([a, b]) => [status('regen', a, 'all-allies'), block(b)]),
     'steady-mend': template('power', '恒愈：每回合开始回复固定生命（不随回合衰减）', [[1, 5]], 1, ([a]) => [applyStatus('steady-mend', a, 'self')]),
     aftercare: template('power', '战后回复：战斗胜利后回复生命（不在战斗内生效），并获得格挡', [[1, 10], [0, 20]], 0.6, ([a, b]) => [applyStatus('after-mend', a, 'self'), block(b)]),
+    // 规则 v5 P3 乐师：B01 心境、B02 乐势、B03 乐势来源、B04 心境联动、B05 预知、B06 保留减费、B07 回响、B08 加演（cadence 族，只给乐师）；B09 沿用 fumble。
+    serene: template('skill', '进入静心（离开时获得 2 点能量），并获得格挡', [[0, 30]], 1, ([a]) => [enterStance('calm'), block(a)]),
+    fury: template('attack', '伤害，并进入怒意（造成与受到的攻击伤害 ×2）', [[1, 30]], 1, ([a]) => [damage(a), enterStance('wrath')]),
+    compose: template('skill', '回到中立心境，并获得格挡', [[1, 30]], 1, ([a]) => [block(a), enterStance('neutral')]),
+    crescendo: template('skill', '获得乐势（累计 10 点进入神临：+3 能量，攻击伤害 ×3，下回合开始退出），并获得格挡', [[1, 5], [0, 20]], 0.6, ([a, b]) => [momentumGain(a), block(b)]),
+    chant: template('power', '吟诵：每回合开始获得乐势', [[1, 3]], 1, ([a]) => [applyStatus('chant', a, 'self')]),
+    simmer: template('power', '酝怒：下回合开始进入怒意，并获得格挡', [[1, 1], [0, 20]], 0.5, ([a, b]) => [applyStatus('seethe', a, 'self'), block(b)]),
+    'stance-ward': template('power', '心盾：每次切换心境时获得格挡', [[1, 6]], 1, ([a]) => [applyStatus('stance-ward', a, 'self')]),
+    'rage-flow': template('power', '怒思：每次进入怒意时抽牌', [[1, 2]], 1, ([a]) => [applyStatus('wrath-draw', a, 'self')]),
+    'still-water': template('power', '止水：回合结束仍在静心时获得格挡', [[1, 10]], 1, ([a]) => [applyStatus('calm-guard', a, 'self')]),
+    foretell: template('skill', '预知：查看抽牌堆顶数张，弃掉其中无用的牌（不触发弃牌收益），并获得格挡', [[1, 5], [0, 20]], 0.5, ([a, b]) => [foresee(a), block(b)]),
+    'third-eye': template('power', '观兆：每次预知时获得格挡', [[1, 6]], 1, ([a]) => [applyStatus('scry-ward', a, 'self')]),
+    sustain: template('power', '余韵：被保留到下回合的手牌费用 -1（限稀有以上）', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('keep-discount', a, 'self'), block(b)], { minRarity: 'rare' }),
+    resonance: template('power', '回响：每回合前数张牌多执行一次（限神话）', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('echo-play', a, 'self'), block(b)], { minRarity: 'mythic', hero: false }),
+    'curtain-call': template('skill', '加演：本回合结束后立即再行动一次，敌人不动（每场一次），用后消耗（限史诗以上）', [[0, 20]], 1, ([a]) => [encore(), block(a), exhaustSelf()], { minRarity: 'epic', hero: false }),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -687,7 +709,7 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     hex: ['expose', 'hex', 'wail'],
     arcane: ['surge', 'adrenal', 'purge', 'echo', 'quicken', 'rhythm', 'temper', 'conflux', 'cascade'],
     conjure: ['mimic', 'forge', 'scavenge', 'replicate'],
-    cadence: ['fumble', 'hone', 'frenzy', 'tempo'],
+    cadence: ['fumble', 'hone', 'frenzy', 'tempo', 'serene', 'fury', 'compose', 'crescendo', 'chant', 'simmer', 'stance-ward', 'rage-flow', 'still-water', 'foretell', 'third-eye', 'sustain', 'resonance', 'curtain-call'],
     sanctum: ['absolution', 'sigil', 'phase', 'deathward', 'consecrate', 'smite', 'judgment', 'halo-strike', 'halo-mend', 'verdant', 'steady-mend', 'aftercare'],
 });
 export const ARCHETYPE_FAMILIES = Object.freeze({
