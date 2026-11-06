@@ -231,7 +231,7 @@ function renderHeroSkillEditor(model, advancedOpen) {
         + idle;
 }
 
-export function renderStatsArchive(model, advancedOpen = () => '') {
+export function renderStatsArchive(model, advancedOpen = () => '', { logByRole = false } = {}) {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
     const n = (v) => esc(String(Math.round(Number(v) || 0)));
     const people = model.characters.length
@@ -241,9 +241,18 @@ export function renderStatsArchive(model, advancedOpen = () => '') {
                 + `<button class="igs-settings-action" data-action="stats-op:relation-set:${esc(encodeURIComponent(c.name))}|${['好感', '信任', '了解'].map((k) => n(c.dims[k])).join(',')}" type="button">修改</button></div></div>`;
         }).join('')
         : '<div class="igs-source-filter-note">还没有登记的角色。</div>';
-    const log = model.log.length
-        ? model.log.map((r) => `<div class="igs-source-filter-note">#${n(r.messageId)} ${esc(r.target)} ${esc(r.key)} ${n(r.from)}→${n(r.to)}${r.note ? `（${esc(r.note)}）` : ''}</div>`).join('')
-        : '<div class="igs-source-filter-note">暂无变动。</div>';
+    const logLine = (r, withTarget) => `<div class="igs-source-filter-note">#${n(r.messageId)} ${withTarget ? `${esc(r.target)} ` : ''}${esc(r.key)} ${n(r.from)}→${n(r.to)}${r.note ? `（${esc(r.note)}）` : ''}</div>`;
+    const groups = model.logGroups || [];
+    const logView = segmentedInput('', logByRole ? 'role' : 'time', [['time', '按时间'], ['role', '按角色']], '变动记录排列', { action: 'stats-log-view' });
+    let log;
+    if (!model.log.length) log = '<div class="igs-source-filter-note">暂无变动。</div>';
+    else if (logByRole) {
+        log = groups.map((g) => {
+            const key = `stats-log-role-${g.name}`;
+            return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="${esc(key)}"${advancedOpen(key)}><summary>${esc(g.name)}（${n(g.total)} 条）</summary>${g.log.map((r) => logLine(r, false)).join('')}</details>`;
+        }).join('');
+    } else log = model.log.map((r) => logLine(r, true)).join('');
+    if (model.log.length) log = `<div class="igs-settings-row">${logView}</div>${log}`;
     const checks = (model.checks || []).length
         ? model.checks.map((c) => `<div class="igs-source-filter-note">#${n(c.messageId)} ${esc(c.skill)}${c.difficulty !== '普通' ? `（${esc(c.difficulty)}）` : ''} ${esc(c.detail)} → ${esc(c.outcome)}${c.ruleset === 'dnd5e' ? ' · D&D' : ''}</div>`).join('')
         : '<div class="igs-source-filter-note">暂无检定。</div>';
@@ -316,7 +325,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         pushField: checkbox('bridge.stats.push.enabled', stats.push.enabled, '同步到数据库表格（需要数据库插件）'),
         statsMappingFields: renderStatsMappingFields(stats.push.enabled ? mappings : null, advancedOpen, { pushEnabled: stats.push.enabled }),
         statsPromptFields: renderStatsPromptFields(stats, advancedOpen),
-        statsArchiveFields: renderStatsArchive(archive, advancedOpen),
+        statsArchiveFields: renderStatsArchive(archive, advancedOpen, { logByRole: advancedOpen('stats-log-by-role') !== '' }),
         newChatField: field('bridge.stats.newChat', '新聊天', selectInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动快速开始'], ['off', '不启用']])),
         hudLabelField: field('bridge.stats.hudLabel', '好感条右侧显示', selectInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']])),
         registerField: field('bridge.stats.register', '重要角色登记', selectInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']])),

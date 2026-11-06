@@ -834,6 +834,15 @@ export function createSettingsHost(deps) {
             if (state.activeSettings) rerenderSettings();
             return Promise.resolve(result || { ok: false, reason: 'stats-runtime-missing' });
         }
+        // 变动记录「按时间 / 按角色」：只是界面视图，记在折叠状态里，不进设置。
+        if (String(action).startsWith('stats-log-view:')) {
+            if (state.activeSettings && state.activeSettings.asyncState) {
+                const asyncState = state.activeSettings.asyncState;
+                asyncState.advancedOpen = { ...(asyncState.advancedOpen || {}), 'stats-log-by-role': String(action).endsWith(':role') };
+                rerenderSettings();
+            }
+            return Promise.resolve({ ok: true });
+        }
         // 数值 v2 存档区操作（角色卡、剧情技能、补全、旧版备份）：交给运行时，结束后重绘。
         if (String(action).startsWith('stats-op:')) return runStatsOp(String(action).slice('stats-op:'.length));
         // 适配版表格模板下载（§8C）。

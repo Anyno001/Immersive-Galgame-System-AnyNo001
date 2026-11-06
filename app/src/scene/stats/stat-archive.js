@@ -43,18 +43,37 @@ function heroSkillRows(engine, state, names) {
     });
 }
 
-export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0, heroSkills = [], isHero = null } = {}) {
+// 变动记录按角色分组：主角一组排最前，其余按最近一次变动先后。
+function groupLogRows(rows, logMax) {
+    const groups = new Map();
+    for (const r of rows) {
+        const g = groups.get(r.target) || { name: r.target, hero: r.hero, rows: [] };
+        g.rows.push(r);
+        groups.set(r.target, g);
+    }
+    const lastIndex = (g) => rows.lastIndexOf(g.rows[g.rows.length - 1]);
+    return [...groups.values()]
+        .sort((a, b) => (Number(b.hero) - Number(a.hero)) || (lastIndex(b) - lastIndex(a)))
+        .map((g) => ({ name: g.name, hero: g.hero, total: g.rows.length, log: g.rows.slice(-logMax).reverse() }));
+}
+
+export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0, heroSkills = [], isHero = null, heroName = '' } = {}) {
     if (!ledger) return null;
     const state = currentStatsState(ledger);
     const rows = [];
     const checks = [];
+    // 主角的变动统一显示为「名字（主角）」；拿不到名字时只写「主角」。
+    const heroLabel = heroName && heroName !== PROTAGONIST ? `${heroName}（${PROTAGONIST}）` : PROTAGONIST;
+    const heroOf = (name) => name === PROTAGONIST || (typeof isHero === 'function' && isHero(name));
     const floors = [...ledger.active.entries()].sort((a, b) => a[0] - b[0]);
     for (const [messageId, swipeId] of floors) {
         const entry = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
         for (const c of (entry && entry.changes) || []) {
             // 生活条在账本里存英文键（stamina/stress/money），记录里显示中文名。
             const key = String(c.key ?? '');
-            rows.push({ messageId, target: String(c.target ?? ''), key: BAR_LABEL[key] || key, from: c.from, to: c.to, note: String(c.note ?? '') });
+            const target = String(c.target ?? '');
+            const hero = heroOf(target);
+            rows.push({ messageId, target: hero ? heroLabel : target, hero, key: BAR_LABEL[key] || key, from: c.from, to: c.to, note: String(c.note ?? '') });
         }
         const ck = entry && entry.meta && entry.meta.check;
         if (ck) checks.push({ messageId, skill: ck.skill, difficulty: ck.difficulty || '普通', detail: ck.detail || (ck.die === 20 ? `d20(${ck.roll})` : `1d100=${ck.roll}`), outcome: ck.outcome || ck.tier, ruleset: ck.ruleset || 'coc7', source: ck.source || '' });
@@ -84,6 +103,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
         characters,
         log: rows.slice(-logMax).reverse(),
         total: rows.length,
+        logGroups: groupLogRows(rows, logMax),
         checks: checks.slice(-CHECK_LOG_MAX).reverse(),
         story: (cat.story || []).map((s) => ({ name: s.name, attribute: s.attribute, category: s.category, guessed: Boolean(s.guessed) })),
         sheets,

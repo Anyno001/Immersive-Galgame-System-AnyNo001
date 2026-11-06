@@ -47,3 +47,19 @@ test('变动记录：生活条英文键显示为体力、压力、金钱', () =>
     ledger.active.set(2, 0);
     assert.deepEqual(statsArchiveModel(ledger).log.map((r) => r.key).sort(), ['体力', '压力', '金钱'].sort());
 });
+
+test('变动记录：主角写成「名字（主角）」，按角色分组时主角排最前，用户名与「主角」并成一组', () => {
+    const base = createStatsState();
+    const ledger = createStatsLedger('chat', base);
+    ledger.entries.set(ledgerKey(ledger, 1, 0), { messageId: 1, swipeId: 0, after: base, changes: [{ target: '主角', key: 'stamina', from: 80, to: 70, note: '' }] });
+    ledger.entries.set(ledgerKey(ledger, 2, 0), { messageId: 2, swipeId: 0, after: base, changes: [{ target: '小雪', key: '好感', from: 0, to: 3, note: '' }, { target: '阿明', key: '侦查', from: 40, to: 41, note: '成长' }] });
+    ledger.active.set(1, 0);
+    ledger.active.set(2, 0);
+    const m = statsArchiveModel(ledger, { heroName: '阿明', isHero: (name) => name === '阿明' });
+    assert.deepEqual(m.log.map((r) => r.target), ['阿明（主角）', '小雪', '阿明（主角）']);
+    assert.deepEqual(m.logGroups.map((g) => [g.name, g.total]), [['阿明（主角）', 2], ['小雪', 1]]);
+    assert.equal(statsArchiveModel(ledger).log[2].target, '主角');
+    const html = renderStatsArchive(m, () => '', { logByRole: true });
+    assert.match(html, /<summary>阿明（主角）（2 条）<\/summary>/);
+    assert.match(html, /data-action="stats-log-view:time"/);
+});
