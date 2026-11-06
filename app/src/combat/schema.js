@@ -325,7 +325,7 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
     if (!objectField(card, path, state)) return;
     const errorsBefore = state.errors.length;
     const at = (key) => joinPath(path, key);
-    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay'], path, state);
+    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay', 'radiance'], path, state);
     const name = textField(card.name, at('name'), state, 20);
     const unplayable = card.unplayable === true;
     const result = {
@@ -345,6 +345,8 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
     }
     // 规则 v5 关键字 replay：打出时整张额外执行 1–3 次，只付一次费、只计一次出牌；v3/v4 战斗不结算。
     if (card.replay !== undefined) result.replay = intField(card.replay, at('replay'), state, 1, 3);
+    // 规则 v5 P01 圣辉第二费用：1–5 点，或 'X'（花光圣辉，每点结算一次）；v3/v4 战斗不判定、不扣除。
+    if (card.radiance !== undefined) result.radiance = card.radiance === 'X' ? 'X' : intField(card.radiance, at('radiance'), state, 1, 5);
     if (card.onDiscard !== undefined) result.onDiscard = arrayField(card.onDiscard, at('onDiscard'), state, 1, 2, validateEffect);
     if (unplayable) {
         if (card.cost !== 0) addIssue(state, at('cost'), 'unplayable-cost');

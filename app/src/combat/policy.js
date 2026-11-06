@@ -1,6 +1,6 @@
 // 电脑侧决策：同伴（AI 控制的卡牌单位）怎么出牌、敌人下回合出什么技能、「选牌」类效果的自动选择。
 // 纯函数，不改 state。随机数由调用方给（chooseSkillIntent 的 roll）。
-import { canAfford, cardView, effectsNeedTarget, estimateBlock, estimateDamage, livingIds, opposite, weakestId } from './battle-state.js';
+import { canAfford, cardView, effectsNeedTarget, estimateBlock, estimateDamage, livingIds, opposite, radianceOf, weakestId } from './battle-state.js';
 import { estimateEffectsValue } from './rules.js';
 
 // 前几个回合优先打出能力牌。
@@ -65,7 +65,7 @@ export function chooseAllyPlay(state, unitId) {
     const unit = state.units[unitId];
     if (!unit?.alive || unit.kind !== 'deck' || state.outcome) return null;
     const foes = livingIds(state, opposite(unit.side));
-    const playable = (state.piles[unitId]?.hand || []).map((inst) => cardView(state, inst)).filter((card) => card && canAfford(card, unit.energy));
+    const playable = (state.piles[unitId]?.hand || []).map((inst) => cardView(state, inst)).filter((card) => card && canAfford(card, unit.energy, radianceOf(state, unit)));
     if (!foes.length || !playable.length) return null;
     const perCost = (card, value) => (value * runTimes(card, unit.energy, state.rulesVersion)) / Math.max(0.5, spentCost(card, unit.energy));
 

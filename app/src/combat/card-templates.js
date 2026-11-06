@@ -62,6 +62,8 @@ const shiv = (amount) => ({ op: 'shiv', amount });
 const honeShiv = (mode, amount) => ({ op: 'hone-shiv', mode, ...(mode === 'edge' || mode === 'first' ? { amount } : {}) });
 // 规则 v5 P3 游侠引弦（mechanics/quarry.js）。
 const loose = () => ({ op: 'loose' });
+// 规则 v5 P3 祈司圣辉（mechanics/sanctum.js）。
+const radianceGain = (amount) => ({ op: 'radiance', amount });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -296,6 +298,15 @@ export const CARD_TEMPLATES = Object.freeze({
     snare: template('attack', '伤害+迟滞（攻击者本回合每已打出一张牌，目标受到的攻击伤害 +10%）', [[1, 30], [1, 2]], 0.7, ([a, b]) => [damage(a), applyStatus('snare', b, 'enemy')]),
     deadeye: template('power', '专精先手：每回合前数张攻击牌伤害 +50%', [[1, 3]], 1, ([a]) => [applyStatus('deadeye', a, 'self')]),
     'rising-shot': template('skill', '连段：本回合每次攻击命中后，之后的攻击伤害提高，并获得格挡', [[1, 3], [0, 20]], 0.5, ([a, b]) => [applyStatus('combo-rise', a, 'self'), block(b)]),
+    // 规则 v5 P3 祈司：P01 圣辉、P02 圣辉联动、P04 群体再生与不衰减回复、P05 战后回复（sanctum 族，只给祈司）；P03、P06 沿用 absolution、sigil、phase、deathward。
+    consecrate: template('skill', '获得圣辉（跨回合保留），并获得格挡', [[1, 3], [0, 20]], 0.6, ([a, b]) => [radianceGain(a), block(b)]),
+    smite: template('attack', '圣辉 2：高额伤害（另需 2 点圣辉）', [[1, 50]], 1, ([a]) => [damage(a)], { flags: { radiance: 2 } }),
+    judgment: template('attack', '圣辉 X：花光圣辉，每点造成一次伤害', [[1, 20]], 1, ([a]) => [damage(a)], { flags: { radiance: 'X' } }),
+    'halo-strike': template('power', '辉击：每次获得或消耗圣辉，对生命最低的敌人造成伤害', [[1, 6]], 1, ([a]) => [applyStatus('halo-strike', a, 'self')]),
+    'halo-mend': template('power', '辉愈：每次获得或消耗圣辉，回复生命', [[1, 4]], 1, ([a]) => [applyStatus('halo-mend', a, 'self')]),
+    verdant: template('skill', '全体友方获得再生，并获得格挡', [[1, 4], [0, 20]], 0.6, ([a, b]) => [status('regen', a, 'all-allies'), block(b)]),
+    'steady-mend': template('power', '恒愈：每回合开始回复固定生命（不随回合衰减）', [[1, 5]], 1, ([a]) => [applyStatus('steady-mend', a, 'self')]),
+    aftercare: template('power', '战后回复：战斗胜利后回复生命（不在战斗内生效），并获得格挡', [[1, 10], [0, 20]], 0.6, ([a, b]) => [applyStatus('after-mend', a, 'self'), block(b)]),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -677,7 +688,7 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     arcane: ['surge', 'adrenal', 'purge', 'echo', 'quicken', 'rhythm', 'temper', 'conflux', 'cascade'],
     conjure: ['mimic', 'forge', 'scavenge', 'replicate'],
     cadence: ['fumble', 'hone', 'frenzy', 'tempo'],
-    sanctum: ['absolution', 'sigil', 'phase', 'deathward'],
+    sanctum: ['absolution', 'sigil', 'phase', 'deathward', 'consecrate', 'smite', 'judgment', 'halo-strike', 'halo-mend', 'verdant', 'steady-mend', 'aftercare'],
 });
 export const ARCHETYPE_FAMILIES = Object.freeze({
     // pile（牌堆操作，规则 v5 P2b）与 general 一样所有职业可用。

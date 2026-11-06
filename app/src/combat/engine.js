@@ -13,7 +13,7 @@ import { hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mecha
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
     LOW_HP_RATIO, canAfford, cardCountKey, cardView, computeBlock, computeDamage, conditionHolds,
-    effectsNeedTarget, effectsPickAlly, livingIds, lowestRatioId, opposite, weakestId,
+    effectsNeedTarget, effectsPickAlly, livingIds, lowestRatioId, opposite, radianceOf, weakestId,
 } from './battle-state.js';
 import { chooseAllyPlay, chooseSkillIntent, pickCards } from './policy.js';
 import { TRAIT_ACTIVE_MAX, TRAIT_KINDS, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
@@ -1311,6 +1311,8 @@ function validatePlay(state, unit, inst, aimId) {
     if (!card) return { reason: 'card-not-in-hand' };
     if (card.unplayable) return { reason: 'card-unplayable' };
     if (!canAfford(card, unit.energy)) return { reason: 'insufficient-energy', detail: { cost: card.cost, energy: unit.energy } };
+    // 规则 v5 P01：圣辉第二费用不足时拒绝（v3/v4 radianceOf 为 undefined，不判定）。
+    if (!canAfford(card, unit.energy, radianceOf(state, unit))) return { reason: 'insufficient-radiance', detail: { radiance: card.radiance, have: radianceOf(state, unit) } };
     return validateTarget(state, unit, card.effects, aimId);
 }
 
@@ -1760,7 +1762,7 @@ export function legalActions(state) {
     const targetsFor = (effects) => (effectsNeedTarget(effects) ? foeIds : effectsPickAlly(effects) ? livingIds(state, hero.side) : null);
     for (const inst of state.piles[hero.id]?.hand || []) {
         const card = cardView(state, inst);
-        if (!card || !canAfford(card, hero.energy)) continue;
+        if (!card || !canAfford(card, hero.energy, radianceOf(state, hero))) continue;
         const targets = targetsFor(card.effects);
         if (!targets) actions.push({ type: 'play', inst });
         else for (const targetId of targets) actions.push({ type: 'play', inst, targetId });

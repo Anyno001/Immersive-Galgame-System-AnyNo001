@@ -14,3 +14,4 @@ import './rampart.js';
 import './forge.js';
 import './shadow.js';
 import './quarry.js';
+import './sanctum.js';

@@ -72,11 +72,16 @@ export function cardView(state, inst) {
     return { ...view, cost, baseCost: view.cost };
 }
 
-// 当前能量是否付得起（X 费要求至少 1 点）。
-export function canAfford(card, energy) {
+// 当前能量是否付得起（X 费要求至少 1 点）。radiance 为单位当前圣辉（规则 v5 才传，见 radianceOf）；
+// 传入时还要付得起牌的圣辉第二费用（X 圣辉要求至少 1 点），不传时与旧版一致。
+export function canAfford(card, energy, radiance) {
     if (card.unplayable) return false;
+    if (radiance !== undefined && card.radiance !== undefined && !(card.radiance === 'X' ? radiance > 0 : card.radiance <= radiance)) return false;
     return card.cost === 'X' ? energy > 0 : card.cost <= energy;
 }
+
+// 规则 v5 单位当前圣辉（mechanics/sanctum.js 写入 res.radiance）；v3/v4 返回 undefined，canAfford 不判圣辉。
+export const radianceOf = (state, unit) => (state?.rulesVersion >= 5 ? (unit?.res?.radiance || 0) : undefined);
 
 // 效果里是否有需要指定敌方目标的部分。
 export function effectsNeedTarget(effects) {

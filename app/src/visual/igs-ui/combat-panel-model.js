@@ -1,4 +1,4 @@
-import { canAfford, cardView, computeBlock, computeDamage, describeIntent, effectsNeedTarget, livingIds, opposite } from '../../combat/battle-state.js';
+import { canAfford, cardView, computeBlock, computeDamage, describeIntent, effectsNeedTarget, livingIds, opposite, radianceOf } from '../../combat/battle-state.js';
 import { actionProgress, isWhipping, targetSpec, upcomingActors } from '../../combat/engine.js';
 import { combatFeats } from '../../combat/feats.js';
 import { COMBAT_RULES, cardCopyLimit } from '../../combat/rules.js';
@@ -139,7 +139,7 @@ export const KEYWORD_PRIORITY = Object.freeze(['不能打出', '消耗', '虚无
 // 关键字点开的解释（不带句号）；不能打出字面自明，这里仍给一句，供单字印记点开。
 export const KEYWORD_NAME_TIPS = Object.freeze({
     不能打出: '不能打出：这张牌不能被打出', 消耗: KEYWORD_TIPS.exhaust, 虚无: KEYWORD_TIPS.ethereal, 保留: KEYWORD_TIPS.retain, 固有: KEYWORD_TIPS.innate, 临时: KEYWORD_TIPS.temp,
-    狡黠: KEYWORD_TIPS.sly, 重演: KEYWORD_TIPS.replay,
+    狡黠: KEYWORD_TIPS.sly, 重演: KEYWORD_TIPS.replay, 圣辉: KEYWORD_TIPS.radiance,
 });
 // 加成 / 减弱差值：value 与 baseValue 不同时给带符号的字符串（减号为 U+2212），否则空串；数字本身不转色，差值只做单位后的淡色小字。
 export const cardValueDelta = (c) => (Number.isFinite(c?.value) && c.baseValue !== undefined && c.value !== c.baseValue ? signed(c.value - c.baseValue) : '');
@@ -152,6 +152,7 @@ export function cardKeywordNames(card) {
     for (const [flag, label] of [['innate', '固有'], ['retain', '保留'], ['ethereal', '虚无']]) if (card?.[flag]) names.push(label);
     if (card?.sly) names.push('狡黠');
     if (Number.isInteger(card?.replay) && card.replay > 0) names.push('重演');
+    if (card?.radiance !== undefined) names.push('圣辉');
     if (card?.temp) names.push('临时');
     const exhaust = (list) => (list || []).some((e) => e.op === 'exhaust-self' || (Array.isArray(e.then) && exhaust(e.then)));
     if (exhaust(card?.effects)) names.push('消耗');
@@ -345,7 +346,7 @@ export function battleView(state, legal = [], { challenge = false } = {}) {
         return {
             inst, id: card.id, name: card.name, type: card.type, cost: card.cost, upgraded: card.upgraded, rarity: card.rarity || '',
             typeLabel: CARD_TYPE_LABELS[card.type] || '', text: describeEffects(card.effects), art: cardArtSvg(card),
-            affordable: canAfford(card, hero.energy), needsTarget: effectsNeedTarget(card.effects),
+            affordable: canAfford(card, hero.energy, radianceOf(state, hero)), needsTarget: effectsNeedTarget(card.effects),
             targets, affects: targets.length ? [] : affectedIds(state, hero, card.effects), playable: mine.length > 0,
             ...(keywords ? { keywords, keywordParts } : {}), ...(card.temp ? { temp: true } : {}),
             // 待选阶段的候选牌；不在待选阶段时不写字段。

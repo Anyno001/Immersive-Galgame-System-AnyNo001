@@ -42,6 +42,11 @@ export const APPLY_STATUSES = Object.freeze({
     snare: Object.freeze({ debuff: true, max: 2, value: 4 }),
     deadeye: Object.freeze({ max: 3, value: 5 }),
     'combo-rise': Object.freeze({ max: 3, value: 4 }),
+    // 规则 v5 P3 祈司（sanctum.js）。
+    'halo-strike': Object.freeze({ max: 6, value: 4 }),
+    'halo-mend': Object.freeze({ max: 4, value: 4 }),
+    'steady-mend': Object.freeze({ max: 5, value: 5 }),
+    'after-mend': Object.freeze({ max: 10, value: 1.5 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

@@ -224,7 +224,8 @@ export function estimateEffectsValue(effects) {
 }
 
 // 牌自身的附加价值：固有 +2，消散且没有自带耗尽 -2，弃牌触发效果按可打出与否折算；
-// 规则 v5 关键字：重演按效果价值 × 次数 × 0.85 计入，狡黠 +1.5。
+// 规则 v5 关键字：重演按效果价值 × 次数 × 0.85 计入，狡黠 +1.5；
+// 圣辉第二费用每点 -3（与获得 1 点圣辉的估值相抵），X 圣辉按平均投入 2 点计：效果再计 1 倍、减 6。
 function cardTraitValue(card, effects) {
     let value = 0;
     if (card.innate) value += 2;
@@ -232,6 +233,8 @@ function cardTraitValue(card, effects) {
     if (card.onDiscard) value += sumEffects(card.onDiscard) * (card.unplayable ? 1 : 0.5);
     if (Number.isInteger(card.replay) && card.replay > 0) value += sumEffects(effects) * card.replay * 0.85;
     if (card.sly) value += 1.5;
+    if (card.radiance === 'X') value += sumEffects(effects) - 6;
+    else if (Number.isInteger(card.radiance) && card.radiance > 0) value -= card.radiance * 3;
     return value;
 }
 

@@ -1529,3 +1529,77 @@ test('游侠模板（R01–R05）：可反解、归 quarry 族只给游侠；牌
     assert.ok(describeEffects([onFoe('hunt-mark', 2)]).includes('猎印'));
     for (const key of ['scout', 'hunt', 'stack', 'boomerang']) assert.equal(templateAllowedFor(key, 'ranger'), true, key);
 });
+
+
+// ---------- 规则 v5 P3 祈司「圣辉与守护」（P01–P05；P03、P06 沿用 sanctum 族已有模板） ----------
+const gainHalo = (n) => def('g', 'skill', [{ op: 'radiance', amount: n }], { innate: true });
+const tryPlay = (state, inst, targetId) => applyAction(state, { type: 'play', inst, ...(targetId ? { targetId } : {}) });
+
+test('圣辉（P01）：获得的圣辉跨回合保留；圣辉牌不足时拒绝，付得起时另扣圣辉；X 圣辉花光并按点数结算；规则 v4 不判定', () => {
+    const smite = def('s', 'attack', [hitFoe(5)], { innate: true, radiance: 2 });
+    const t = startDeck({ g: gainHalo(3), s: smite, k: GUARD }, ['g', 's', ...Array(8).fill('k')]);
+    const denied = tryPlay(t, instOf(t, 's'), 'foe');
+    assert.equal(denied.ok, false);
+    assert.ok(JSON.stringify(denied.error).includes('insufficient-radiance'));
+    let u = playIn(t, instOf(t, 'g')).state;
+    assert.equal(u.units.hero.res.radiance, 3);
+    u = playIn(u, instOf(u, 's'), 'foe').state;
+    assert.deepEqual([u.units.foe.hp, u.units.hero.res.radiance], [25, 1]);
+    assert.equal(endTurn(u).state.units.hero.res.radiance, 1);
+    const judge = def('j', 'attack', [hitFoe(2)], { innate: true, radiance: 'X' });
+    const x = startDeck({ g: gainHalo(3), j: judge, k: GUARD }, ['g', 'j', ...Array(8).fill('k')]);
+    const xs = playIn(playIn(x, instOf(x, 'g')).state, instOf(playIn(x, instOf(x, 'g')).state, 'j'), 'foe').state;
+    assert.deepEqual([xs.units.foe.hp, xs.units.hero.res.radiance], [24, 0]);
+    const v4 = startDeck({ s: smite, k: GUARD }, ['s', ...Array(9).fill('k')], 4);
+    assert.equal(playIn(v4, instOf(v4, 's'), 'foe').state.units.foe.hp, 25);
+});
+
+test('圣辉联动（P02）：每次获得或消耗圣辉，辉击伤害生命最低的敌人、辉愈回复；规则 v4 无效', () => {
+    const halo = def('h', 'power', [{ op: 'apply-status', status: 'halo-strike', stacks: 2, target: 'self' }, { op: 'apply-status', status: 'halo-mend', stacks: 1, target: 'self' }], { innate: true });
+    const run = (rv) => {
+        const t = startDeck({ h: halo, g: gainHalo(1), k: GUARD }, ['h', 'g', ...Array(8).fill('k')], rv);
+        const lit = playIn(t, instOf(t, 'h')).state;
+        return playIn(lit, instOf(lit, 'g'));
+    };
+    const v5 = run();
+    assert.equal(v5.state.units.foe.hp, 28);
+    assert.ok(v5.events.some((e) => e.type === 'heal' && e.source?.id === 'halo-mend'));
+    assert.equal(run(4).state.units.foe.hp, 30);
+});
+
+test('不衰减回复（P04）：恒愈每回合开始按层数回复，层数不减；规则 v4 无效', () => {
+    const steady = def('m', 'power', [{ op: 'apply-status', status: 'steady-mend', stacks: 3, target: 'self' }], { innate: true });
+    const run = (rv) => {
+        const t = startDeck({ m: steady, k: GUARD }, ['m', ...Array(9).fill('k')], rv);
+        return endTurn(playIn(t, instOf(t, 'm')).state);
+    };
+    const v5 = run();
+    assert.ok(v5.events.some((e) => e.type === 'heal' && e.source?.id === 'steady-mend'));
+    assert.equal(v5.state.units.hero.statuses['steady-mend'], 3);
+    assert.ok(!run(4).events.some((e) => e.type === 'heal' && e.source?.id === 'steady-mend'));
+});
+
+test('战后回复（P05）：存活单位按层数计回复量，倒下者为 0', async () => {
+    const { afterBattleMend } = await import('../src/combat/mechanics/sanctum.js');
+    assert.equal(afterBattleMend({ alive: true, statuses: { 'after-mend': 5 } }), 5);
+    assert.equal(afterBattleMend({ alive: false, statuses: { 'after-mend': 5 } }), 0);
+    assert.equal(afterBattleMend({ alive: true, statuses: {} }), 0);
+});
+
+test('祈司模板（P01–P05）：可反解、归 sanctum 族只给祈司；圣辉第二费用计价并写进牌面关键字', async () => {
+    const { estimateCardValue } = await import('../src/combat/rules.js');
+    const { describeKeywordParts } = await import('../src/visual/igs-ui/combat-card-art.js');
+    for (const key of ['consecrate', 'smite', 'judgment', 'halo-strike', 'halo-mend', 'verdant', 'steady-mend', 'aftercare']) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'sanctum', key);
+        assert.equal(templateAllowedFor(key, 'priest'), true, key);
+        for (const other of ['guardian', 'mage', 'warrior']) assert.equal(templateAllowedFor(key, other), false, `${key}:${other}`);
+    }
+    const base = { effects: [{ op: 'damage', amount: 10, hits: 1, target: 'enemy' }] };
+    assert.equal(estimateCardValue({ ...base, radiance: 2 }), estimateCardValue(base) - 6);
+    assert.ok(describeKeywordParts({ ...base, radiance: 2 }).some((p) => p.text === '圣辉 2'));
+    assert.ok(describeEffects([{ op: 'radiance', amount: 2 }]).includes('圣辉'));
+});

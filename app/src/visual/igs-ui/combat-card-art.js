@@ -40,6 +40,7 @@ export const KEYWORD_TIPS = Object.freeze({
     exhaust: '消耗：打出后移出本场战斗，本场不会再抽到',
     sly: '狡黠：被效果弃掉时免费打出；回合结束时自然弃掉不触发',
     replay: '重演：打出时整张额外执行，只付一次费、只计一次出牌',
+    radiance: '圣辉：打出时另需消耗的圣辉；X 表示花光圣辉，每点结算一次',
 });
 
 const on = (target) => (TARGET[target] ? `对${TARGET[target]}` : '');
@@ -126,6 +127,7 @@ export function describeKeywordParts(card) {
     for (const [flag, label] of [['innate', '固有'], ['retain', '保留'], ['ethereal', '虚无']]) if (card?.[flag]) word(flag, label);
     if (card?.sly) word('sly', '狡黠');
     if (Number.isInteger(card?.replay) && card.replay > 0) word('replay', `重演 ${card.replay}`);
+    if (card?.radiance !== undefined) word('radiance', `圣辉 ${card.radiance}`);
     if (card?.temp) word('temp', '临时');
     if (Array.isArray(card?.onDiscard) && card.onDiscard.length) groups.push([{ text: '被丢弃时：' }, ...describeEffectParts(card.onDiscard)]);
     return groups.flatMap((g, i) => (i ? [{ text: '。' }, ...g] : g));
