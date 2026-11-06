@@ -464,7 +464,7 @@ const STATS_TEMPLATE = `
       <div{{statsMainBuildHidden}}>{{statsMainBuildFields}}</div>
       <div class="igs-settings-section"{{statsHeroHidden}}>
         {{statsHeroCard}}
-        {{statsHeroRecords}}
+        {{statsHeroMore}}
         {{statsHeroActions}}
       </div>
     </div>

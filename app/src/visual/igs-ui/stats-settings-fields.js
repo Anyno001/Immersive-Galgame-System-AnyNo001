@@ -285,10 +285,16 @@ export function renderStatsHeroCard(model, advancedOpen = () => '', build = null
     const d20 = model.ruleset === 'dnd5e' && skillCells ? '技能数值为检定加值，掷二十面骰后加上此值。' : '';
     // 技能直接平铺显示；编辑全部收在下方「编辑技能」折叠里。
     const attrEdit = model.heroAttrs ? '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button></div>' : '';
-    const live = model.needsPick ? '' : renderHeroSlots(build, model.heroSlots, model.ruleset);
     return pick + head + attrs + attrEdit
-        + `<div class="igs-source-filter-note" data-stats-skills>技能（✓ 表示今天有成长机会）${d20 ? `。${d20}` : ''}</div>${skills}`
-        + live + renderSkillEditor(model, advancedOpen);
+        + `<div class="igs-source-filter-note" data-stats-skills>技能（✓ 表示今天有成长机会）${d20 ? `。${d20}` : ''}</div>${skills}`;
+}
+
+// 「我的角色」技能下方的「高级」折叠：擅长技能八格（选完后）、编辑技能、检定记录。
+export function renderStatsHeroMore(model, advancedOpen = () => '', build = null) {
+    if (!model) return '';
+    const live = model.needsPick ? '' : renderHeroSlots(build, model.heroSlots, model.ruleset);
+    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-hero-more"${advancedOpen('stats-hero-more')}><summary>高级</summary>`
+        + live + renderSkillEditor(model, advancedOpen) + renderStatsHeroRecords(model, advancedOpen) + '</details>';
 }
 
 const SKILL_TIER_ITEMS = Object.freeze(['未学', '入门', '熟练', '精通', '大师']);
@@ -444,7 +450,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsHeroHidden: hiddenAttr(!started),
         statsHeroCard: renderStatsHeroCard(archive, advancedOpen, stats.build),
         statsHeroActions: renderStatsHeroActions(archive),
-        statsHeroRecords: renderStatsHeroRecords(archive, advancedOpen),
+        statsHeroMore: renderStatsHeroMore(archive, advancedOpen, stats.build),
         statsPeopleFields: renderStatsPeople(archive, advancedOpen),
         diceFeelField: renderStatsRulesetField(stats.ruleset),
         storyCheckField: field('bridge.stats.storyCheck', '剧情中的检定', segmentedInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动'], ['manual', '手动掷骰'], ['off', '关闭']], '剧情中的检定')),
