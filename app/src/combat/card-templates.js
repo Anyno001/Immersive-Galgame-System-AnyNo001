@@ -69,6 +69,12 @@ const enterStance = (stance) => ({ op: 'enter-stance', stance });
 const momentumGain = (amount) => ({ op: 'momentum', amount });
 const foresee = (amount) => ({ op: 'foresee', amount });
 const encore = () => ({ op: 'curtain-call' });
+// 规则 v5 P3 法师法珠与专注（mechanics/orb.js）。
+const orbChannel = (orb, amount = 1) => ({ op: 'channel', orb, amount });
+const orbEvoke = (amount) => ({ op: 'evoke', amount });
+const orbPulse = (amount) => ({ op: 'orb-pulse', amount });
+const orbSlot = (amount) => ({ op: 'orb-slot', amount });
+const orbFocus = (amount) => ({ op: 'focus', amount });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -100,6 +106,8 @@ function primaryNumber(effect) {
             return effect.mode === 'guard' ? effect.amount : 1;
         case 'hone-shiv':
             return effect.mode === 'edge' || effect.mode === 'first' ? effect.amount : 1;
+        case 'focus':
+            return Math.abs(effect.amount);
         case 'cost-mod':
         case 'hand-cost':
             return -effect.amount;
@@ -329,6 +337,24 @@ export const CARD_TEMPLATES = Object.freeze({
     sustain: template('power', '余韵：被保留到下回合的手牌费用 -1（限稀有以上）', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('keep-discount', a, 'self'), block(b)], { minRarity: 'rare' }),
     resonance: template('power', '回响：每回合前数张牌多执行一次（限神话）', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('echo-play', a, 'self'), block(b)], { minRarity: 'mythic', hero: false }),
     'curtain-call': template('skill', '加演：本回合结束后立即再行动一次，敌人不动（每场一次），用后消耗（限史诗以上）', [[0, 20]], 1, ([a]) => [encore(), block(a), exhaustSelf()], { minRarity: 'epic', hero: false }),
+    // 规则 v5 P3 法师：M01 法珠槽、M02 五种法珠、M03 专注、M04 多重引发与额外触发、M05 雷暴、M06 锁定、M07 法珠触发、M08 能力牌重复（orb 族，只给法师）；全体减费沿用 conflux。
+    zap: template('attack', '伤害，并凝结 1 颗雷珠（回合结束打随机敌人，引发时伤害更高）', [[1, 20], [1, 1]], 0.6, ([a, b]) => [damage(a), orbChannel('lightning', b)]),
+    chill: template('skill', '凝结霜珠（回合结束获得格挡），并获得格挡', [[1, 2], [0, 20]], 0.6, ([a, b]) => [orbChannel('frost', a), block(b)]),
+    shade: template('skill', '凝结蚀珠（每回合蓄积伤害，引发时打生命最低的敌人），并获得格挡', [[1, 1], [0, 20]], 0.6, ([a, b]) => [orbChannel('dark', a), block(b)]),
+    'ion-core': template('skill', '凝结源珠（回合开始获得 1 点能量），并获得格挡（限稀有以上）', [[1, 1], [0, 20]], 0.6, ([a, b]) => [orbChannel('plasma', a), block(b)], { minRarity: 'rare' }),
+    prism: template('skill', '凝结晶珠（回合结束打全体敌人，逐次递减），并获得格挡（限稀有以上）', [[1, 1], [0, 20]], 0.6, ([a, b]) => [orbChannel('glass', a), block(b)], { minRarity: 'rare' }),
+    dualcast: template('skill', '引发最前一颗法珠数次，并获得格挡', [[1, 3], [0, 20]], 0.6, ([a, b]) => [orbEvoke(a), block(b)]),
+    'orb-loop': template('skill', '最前一颗法珠的被动额外触发数次（不引发），并获得格挡', [[1, 2], [0, 20]], 0.6, ([a, b]) => [orbPulse(a), block(b)]),
+    capacitor: template('power', '法珠槽增加（至多 10 槽），并获得格挡', [[1, 2], [0, 20]], 0.6, ([a, b]) => [orbSlot(a), block(b)]),
+    attune: template('power', '获得专注（法珠数值提高，源珠除外），并获得格挡', [[1, 3], [0, 20]], 0.6, ([a, b]) => [orbFocus(a), block(b)]),
+    overload: template('skill', '获得能量，失去 1 点专注', [[1, 2], [1, 1]], 1, ([a, b]) => [energy(a), orbFocus(-b)], { costs: [0] }),
+    flare: template('skill', '本回合临时专注，并获得格挡', [[1, 4], [0, 20]], 0.6, ([a, b]) => [applyStatus('flux', a, 'self'), block(b)]),
+    'arc-storm': template('power', '雷暴：雷珠改为攻击全体敌人（限稀有以上）', [[1, 1]], 1, ([a]) => [applyStatus('arc-storm', a, 'self')], { minRarity: 'rare' }),
+    'lock-on': template('attack', '伤害+锁定（目标受雷珠、蚀珠伤害 +50%）', [[1, 20], [1, 2]], 0.7, ([a, b]) => [damage(a), applyStatus('lock-on', b, 'enemy')]),
+    'power-spark': template('power', '雷心：每打出一张能力牌凝结 1 颗雷珠', [[1, 1]], 1, ([a]) => [applyStatus('storm-heart', a, 'self')]),
+    'static-shell': template('power', '静电：每次受到未被格挡的攻击伤害凝结 1 颗雷珠', [[1, 1]], 1, ([a]) => [applyStatus('static-shell', a, 'self')]),
+    'orb-burst': template('power', '雷涌：引发雷珠时追加伤害', [[1, 6]], 1, ([a]) => [applyStatus('arc-boost', a, 'self')]),
+    amplify: template('skill', '下一张能力牌多执行一次，并获得格挡', [[1, 1], [0, 20]], 0.6, ([a, b]) => [replayNext(a, 'power'), block(b)]),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -710,6 +736,7 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     arcane: ['surge', 'adrenal', 'purge', 'echo', 'quicken', 'rhythm', 'temper', 'conflux', 'cascade'],
     conjure: ['mimic', 'forge', 'scavenge', 'replicate'],
     cadence: ['fumble', 'hone', 'frenzy', 'tempo', 'serene', 'fury', 'compose', 'crescendo', 'chant', 'simmer', 'stance-ward', 'rage-flow', 'still-water', 'foretell', 'third-eye', 'sustain', 'resonance', 'curtain-call'],
+    orb: ['zap', 'chill', 'shade', 'ion-core', 'prism', 'dualcast', 'orb-loop', 'capacitor', 'attune', 'overload', 'flare', 'arc-storm', 'lock-on', 'power-spark', 'static-shell', 'orb-burst', 'amplify'],
     sanctum: ['absolution', 'sigil', 'phase', 'deathward', 'consecrate', 'smite', 'judgment', 'halo-strike', 'halo-mend', 'verdant', 'steady-mend', 'aftercare'],
 });
 export const ARCHETYPE_FAMILIES = Object.freeze({
@@ -718,7 +745,7 @@ export const ARCHETYPE_FAMILIES = Object.freeze({
     guardian: Object.freeze(['general', 'pile', 'fortify', 'thorns', 'ward', 'rampart']),
     ranger: Object.freeze(['general', 'pile', 'cleave', 'volley', 'quarry']),
     assassin: Object.freeze(['general', 'pile', 'venom', 'shadow', 'volley']),
-    mage: Object.freeze(['general', 'pile', 'cleave', 'hex', 'arcane', 'venom']),
+    mage: Object.freeze(['general', 'pile', 'cleave', 'hex', 'arcane', 'venom', 'orb']),
     priest: Object.freeze(['general', 'pile', 'ward', 'restore', 'hex', 'fortify', 'sanctum']),
     summoner: Object.freeze(['general', 'pile', 'thorns', 'ward', 'restore', 'venom', 'conjure', 'cleave']),
     bard: Object.freeze(['general', 'pile', 'ward', 'volley', 'hex', 'arcane', 'conjure', 'cadence']),

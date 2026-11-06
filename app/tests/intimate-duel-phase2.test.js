@@ -1770,3 +1770,146 @@ test('乐师模板（B01–B09）：可反解、归 cadence 族只给乐师；�
         assert.ok(describeEffects([effect]).includes(word), word);
     }
 });
+
+
+// ---------- 规则 v5 P3 法师「法珠与专注」（M01–M08） ----------
+const chan = (orb, amount = 1) => ({ op: 'channel', orb, amount });
+const orbHits = (events, id) => events.filter((e) => e.type === 'damage' && e.kind === 'orb' && e.source?.id === id);
+const orbList = (state) => (state.units.hero.res?.orbs?.list || []).map((o) => o.kind);
+
+test('法珠槽（M01）：首次凝结按默认 3 槽建立，先进先出，满槽再凝结先引发最早的一颗；槽数上限 10；规则 v4 无效', () => {
+    const three = free('a', 'skill', [chan('lightning', 3)]);
+    const frost = free('f', 'skill', [chan('frost')]);
+    const run = (rv) => {
+        const t = deckOf({ a: three, f: frost }, ['a', 'f'], rv);
+        const u = playIn(t, instOf(t, 'a')).state;
+        return playIn(u, instOf(u, 'f'));
+    };
+    const v5 = run();
+    assert.equal(v5.state.units.hero.res.orbs.slots, 3);
+    assert.deepEqual(orbList(v5.state), ['lightning', 'lightning', 'frost']);
+    assert.deepEqual(orbHits(v5.events, 'lightning').map((e) => e.amount), [8]);
+    assert.equal(v5.state.units.foe.hp, 22);
+    const v4 = run(4);
+    assert.deepEqual([v4.state.units.hero.res, v4.state.units.foe.hp], [undefined, 30]);
+    const slot = free('s', 'power', [{ op: 'orb-slot', amount: 2 }]);
+    let w = deckOf({ s: slot }, ['s', 's', 's', 's']);
+    for (let i = 0; i < 4; i += 1) w = playIn(w, instOf(w, 's')).state;
+    assert.equal(w.units.hero.res.orbs.slots, 10);
+});
+
+test('五种法珠（M02）：回合结束雷珠打随机敌人 3、霜珠 2 格挡、蚀珠蓄积 6、晶珠打全体 4 并递减；回合开始源珠 +1 能量', () => {
+    const mix = free('m', 'skill', [chan('lightning'), chan('frost'), chan('dark')]);
+    const t = deckOf({ m: mix }, ['m']);
+    const ended = endTurn(playIn(t, instOf(t, 'm')).state);
+    assert.deepEqual(orbHits(ended.events, 'lightning').map((e) => e.amount), [3]);
+    assert.ok(ended.events.some((e) => e.type === 'block' && e.source?.id === 'frost' && e.amount === 2));
+    assert.equal(ended.state.units.hero.res.orbs.list[2].charge, 12);
+    const ion = free('p', 'skill', [chan('plasma')]);
+    const p = deckOf({ p: ion }, ['p']);
+    const next = endTurn(playIn(p, instOf(p, 'p')).state).state;
+    assert.equal(next.units.hero.energy, next.units.hero.energyPerTurn + 1);
+    const glass = free('g', 'skill', [chan('glass')]);
+    const g = twoFoes({ g: glass, k: GUARD }, ['g', ...Array(9).fill('k')]);
+    const gEnd = endTurn(playIn(g, instOf(g, 'g')).state);
+    assert.deepEqual(orbHits(gEnd.events, 'glass').map((e) => e.target).sort(), ['foe', 'foe2']);
+    assert.ok(orbHits(gEnd.events, 'glass').every((e) => e.amount === 4));
+    assert.equal(gEnd.state.units.hero.res.orbs.list[0].charge, 3);
+});
+
+test('引发与多重引发（M02、M04）：雷珠引发 8、霜珠 5 格挡、蚀珠以蓄积值打敌人、源珠 2 能量；多重引发同一颗多次后移除，额外触发不消耗', () => {
+    const run = (orb, op) => {
+        const c = free('c', 'skill', [chan(orb), op]);
+        const t = deckOf({ c }, ['c']);
+        return { t, r: playIn(t, instOf(t, 'c')) };
+    };
+    const zap = run('lightning', { op: 'evoke', amount: 2 }).r;
+    assert.deepEqual(orbHits(zap.events, 'lightning').map((e) => e.amount), [8, 8]);
+    assert.deepEqual(orbList(zap.state), []);
+    const ice = run('frost', { op: 'evoke', amount: 1 }).r;
+    assert.ok(ice.events.some((e) => e.type === 'block' && e.source?.id === 'frost' && e.amount === 5));
+    const dark = run('dark', { op: 'evoke', amount: 1 }).r;
+    assert.deepEqual(orbHits(dark.events, 'dark').map((e) => e.amount), [6]);
+    const { t, r: ion } = run('plasma', { op: 'evoke', amount: 1 });
+    assert.equal(ion.state.units.hero.energy, t.units.hero.energy + 2);
+    const pulse = run('lightning', { op: 'orb-pulse', amount: 2 }).r;
+    assert.deepEqual([orbHits(pulse.events, 'lightning').map((e) => e.amount), orbList(pulse.state)], [[3, 3], ['lightning']]);
+});
+
+test('专注（M03）：加到除源珠外的法珠数值上，可为负；临时专注回合结束清掉', () => {
+    const tune = free('f', 'power', [{ op: 'focus', amount: 2 }, chan('lightning'), chan('plasma')]);
+    const t = deckOf({ f: tune }, ['f']);
+    const ended = endTurn(playIn(t, instOf(t, 'f')).state);
+    assert.deepEqual(orbHits(ended.events, 'lightning').map((e) => e.amount), [5]);
+    assert.equal(ended.state.units.hero.energy, ended.state.units.hero.energyPerTurn + 1);
+    const drain = free('d', 'skill', [{ op: 'focus', amount: -3 }, chan('lightning')]);
+    const d = deckOf({ d: drain }, ['d']);
+    assert.equal(orbHits(endTurn(playIn(d, instOf(d, 'd')).state).events, 'lightning').length, 0);
+    const flare = free('x', 'skill', [selfOn('flux', 2), chan('frost')]);
+    const x = deckOf({ x: flare }, ['x']);
+    const xEnd = endTurn(playIn(x, instOf(x, 'x')).state);
+    assert.ok(xEnd.events.some((e) => e.type === 'block' && e.source?.id === 'frost' && e.amount === 4));
+    assert.equal(xEnd.state.units.hero.statuses.flux, undefined);
+});
+
+test('雷暴与锁定（M05、M06）：雷暴使雷珠打全体敌人；锁定使目标受雷珠伤害 +50%，普通攻击不变；规则 v4 无效', () => {
+    const storm = free('s', 'power', [selfOn('arc-storm', 1), chan('lightning')]);
+    const s = twoFoes({ s: storm, k: GUARD }, ['s', ...Array(9).fill('k')]);
+    const sEnd = endTurn(playIn(s, instOf(s, 's')).state);
+    assert.deepEqual(orbHits(sEnd.events, 'lightning').map((e) => e.target).sort(), ['foe', 'foe2']);
+    const lock = def('l', 'attack', [hitFoe(5), onFoe('lock-on', 1)], { innate: true });
+    const zap = free('z', 'skill', [chan('lightning'), { op: 'evoke', amount: 1 }]);
+    const run = (rv) => {
+        const t = deckOf({ l: lock, z: zap }, ['l', 'z'], rv);
+        const u = playIn(t, instOf(t, 'l'), 'foe').state;
+        return playIn(u, instOf(u, 'z'));
+    };
+    const v5 = run();
+    assert.deepEqual([orbHits(v5.events, 'lightning').map((e) => e.amount), v5.state.units.foe.hp], [[12], 13]);
+    assert.equal(run(4).state.units.foe.hp, 25);
+});
+
+test('法珠触发（M07）：雷心使之后每打出一张能力牌凝结雷珠（带雷心的牌本身不算）；静电在受到未被格挡的攻击伤害时凝结雷珠；雷涌使引发雷珠追加伤害', () => {
+    const heart = free('h', 'power', [selfOn('storm-heart', 1)]);
+    const pw = free('p', 'power', [selfOn('flux', 1)]);
+    const t = deckOf({ h: heart, p: pw }, ['h', 'p']);
+    const lit = playIn(t, instOf(t, 'h')).state;
+    assert.deepEqual(orbList(lit), []);
+    const after = playIn(lit, instOf(lit, 'p')).state;
+    assert.deepEqual([orbList(after), after.units.hero.res.stormArmed], [['lightning'], undefined]);
+    const shell = free('s', 'power', [selfOn('static-shell', 1)]);
+    const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck: ['s', ...Array(9).fill('k')], catalog: { s: shell, k: GUARD } }), foe(foeAttack(5))] };
+    const created = createBattle(setup, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    const hit = endTurn(playIn(created.state, instOf(created.state, 's')).state).state;
+    assert.ok(hit.units.hero.hp < 30);
+    assert.deepEqual(orbList(hit), ['lightning']);
+    const boost = free('b', 'skill', [selfOn('arc-boost', 3), chan('lightning'), { op: 'evoke', amount: 1 }]);
+    const b = deckOf({ b: boost }, ['b']);
+    assert.deepEqual(orbHits(playIn(b, instOf(b, 'b')).events, 'lightning').map((e) => e.amount), [11]);
+});
+
+test('能力牌重复与全体减费（M08）：下一张能力牌多执行一次（沿用 replay-next）；全体减费 conflux 法师可用', () => {
+    const amp = free('a', 'skill', [{ op: 'replay-next', amount: 1, cardType: 'power' }]);
+    const tune = free('f', 'power', [{ op: 'focus', amount: 1 }]);
+    const t = deckOf({ a: amp, f: tune }, ['a', 'f']);
+    const u = playIn(t, instOf(t, 'a')).state;
+    assert.equal(playIn(u, instOf(u, 'f')).state.units.hero.res.focus, 2);
+    assert.equal(templateAllowedFor('conflux', 'mage'), true);
+});
+
+test('法师模板（M01–M08）：可反解、归 orb 族只给法师；牌面写明法珠、引发、专注与锁定', () => {
+    const keys = ['zap', 'chill', 'shade', 'ion-core', 'prism', 'dualcast', 'orb-loop', 'capacitor', 'attune', 'overload', 'flare', 'arc-storm', 'lock-on', 'power-spark', 'static-shell', 'orb-burst', 'amplify'];
+    for (const key of keys) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateFamily(key), 'orb', key);
+        assert.equal(templateAllowedFor(key, 'mage'), true, key);
+        for (const other of ['bard', 'priest', 'warrior']) assert.equal(templateAllowedFor(key, other), false, `${key}:${other}`);
+    }
+    for (const [effect, word] of [[chan('frost'), '霜珠'], [{ op: 'evoke', amount: 2 }, '引发'], [{ op: 'focus', amount: 1 }, '专注'], [{ op: 'orb-slot', amount: 1 }, '法珠槽'], [onFoe('lock-on', 1), '锁定']]) {
+        assert.ok(describeEffects([effect]).includes(word), word);
+    }
+});
