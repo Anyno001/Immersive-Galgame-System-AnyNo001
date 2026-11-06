@@ -14,6 +14,7 @@ import { ABILITY_KEYS, abilityKeyOf } from './abilities.js';
 import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { hash32, hashString, nextRandom } from './random.js';
 import { isEnemyArtKey } from './enemy-art.js';
+import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const indexPath = (path, index) => `${path}[${index}]`;
@@ -599,6 +600,12 @@ function buildRewardEntry(value, path, collector, slot, seed) {
     if (slot.kind === 'card') {
         const card = buildCard(nameValue, templateValue, undefined, [paths[0], paths[1], `${path}.cost`], collector, { id: rewardId(seed, slot.index, 'rc'), rarity: slot.rarity, slot: slot.cost });
         return card ? { ...base, name: card.name, card } : undefined;
+    }
+    // 规则 v5 P5b 刻印槽：刻印种类、目标副本与名称都由程序定，模型只写来历。
+    if (slot.kind === 'inscribe') {
+        const label = INSCRIPTION_LABELS[slot.inscription];
+        if (!label || !slot.cardId || !slot.copyId) return collector.fail(path, 'inscribe-slot-invalid');
+        return { ...base, name: `${label}·${String(slot.cardName || '')}`.slice(0, 20), inscription: slot.inscription, cardId: slot.cardId, copyId: slot.copyId, cardName: String(slot.cardName || slot.cardId).slice(0, 40) };
     }
     const name = requiredText(nameValue, paths[0], collector, 20);
     // 装备槽带程序给的候选（规则 v5 D10）时只能从候选里选；旧槽位不带候选，照旧用全表。

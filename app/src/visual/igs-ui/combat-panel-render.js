@@ -501,7 +501,7 @@ const featsHtml = (list) => (list?.length
 // 战利品翻牌（v3 §5.3）：卡背一律相同，不带稀有度与内容；翻开的牌按稀有度着色（data-rarity → --rar）。
 // position 是纯数字，经 data-combat-id 回传。fresh 为本次重绘刚朝上的位置（翻面入场），struck 为本次刚被自己翻开的位置（含透视已亮出的牌）：
 // struck 按稀有度出光效（data-fx 1–4），随后翻开的其余牌降一档。
-const LOOT_KIND_LABELS = Object.freeze({ card: '卡牌', gear: '装备', item: '道具', keepsake: '杂物' });
+const LOOT_KIND_LABELS = Object.freeze({ card: '卡牌', gear: '装备', item: '道具', keepsake: '杂物', inscribe: '刻印' });
 const LOOT_RARITY_LABELS = Object.freeze({ common: '普通', uncommon: '罕见', rare: '稀有', epic: '史诗', mythic: '神话' });
 const LOOT_FX_TIER = Object.freeze({ common: 1, uncommon: 1, rare: 2, epic: 3, mythic: 4 });
 const LOOT_SPARK_COUNT = 10;

@@ -737,3 +737,55 @@ test('卡牌刻印（P5b）：重建保留带刻印的副本（旧个人池牌�
     assert.equal(diag(late), 'combat-inscribe-no-copy');
 });
 
+
+test('刻印奖励（P5b）：开启刻印的卡组角色按种子出刻印槽并定下刻印与卡组副本，未开启、技能角色、无可刻副本时不出；翻牌入账经 loot 刻在那张副本上', async () => {
+    const { assembleReward } = await import('../src/combat/generation-assembly.js');
+    const { reportIdFor, attachLoot } = await import('../src/combat/report.js');
+    const { inscribable } = await import('../src/combat/mechanics/inscription.js');
+    const rid = reportIdFor('cb|ins');
+    const lines = [ai('正文'), ai('续写')];
+    const { ledger, ref } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], lines);
+    const me = heroOf(await ledger.effectiveState());
+    const deckCopy = new Set(me.deckEntries.map((e) => e.copyId));
+    const all = (plan) => [...plan.slots, ...plan.reserve];
+    let found = null;
+    let seen = 0;
+    for (let i = 0; i < 200; i += 1) {
+        const plan = planRewardSlots({ combatId: `cb|${i}`, tier: 'boss', character: me, inscribe: true });
+        for (const slot of all(plan).filter((s) => s.kind === 'inscribe')) {
+            seen += 1;
+            assert.ok(deckCopy.has(slot.copyId), slot.copyId);
+            assert.equal(inscribable(me.catalog.get(slot.cardId), slot.inscription), true);
+            if (!found && plan.slots.includes(slot)) found = { combatId: `cb|${i}`, slot };
+        }
+        assert.equal(all(planRewardSlots({ combatId: `cb|${i}`, tier: 'boss', character: me })).some((s) => s.kind === 'inscribe'), false);
+        assert.equal(all(planRewardSlots({ combatId: `cb|${i}`, tier: 'boss', character: { kind: 'skill-character', id: 'sc' }, inscribe: true })).some((s) => s.kind === 'inscribe'), false);
+        assert.equal(all(planRewardSlots({ combatId: `cb|${i}`, tier: 'boss', character: { ...me, deckEntries: [] }, inscribe: true })).some((s) => s.kind === 'inscribe'), false);
+    }
+    assert.ok(seen > 20 && found, `inscribe slots ${seen}`);
+    assert.deepEqual(planRewardSlots({ combatId: found.combatId, tier: 'boss', character: me, inscribe: true }).slots[found.slot.index], found.slot);
+
+    const assembled = assembleReward({ slots: [[null, null, '血战之后']] }, { key: 'k', input: { seed: 's', slots: [found.slot] } });
+    assert.equal(assembled.errors, undefined, JSON.stringify(assembled.errors));
+    const insSlot = assembled.value.slots[0];
+    assert.deepEqual([insSlot.kind, insSlot.copyId, insSlot.inscription, insSlot.origin], ['inscribe', found.slot.copyId, found.slot.inscription, '血战之后']);
+
+    const filler = (index) => ({ index, kind: 'keepsake', rarity: 'rare', name: `杂物${index}`, origin: '' });
+    const slots = [0, 1, 2].map((index) => (index === found.slot.index ? { ...insSlot, index } : filler(index)));
+    const offerAnchor = { messageId: 0, swipeId: 0, tagHash: 'offer', occurrence: 0 };
+    const offer = { id: ledgerEntryId('offer', 'pc-hero', offerAnchor), type: 'offer', character: 'pc-hero', anchor: offerAnchor, payload: { combatId: 'cb|ins', tier: 'boss', exp: 10, reveal: 0, slots }, createdAt: 7 };
+    assert.equal((await ledger.append([offer])).ok, true);
+    const reportText = attachLoot(`<igs-combat-report result="win" id="${rid}">终局：我方获胜。</igs-combat-report>`, { character: '主角', reportId: rid, index: found.slot.index, set: 'main', slot: insSlot });
+    assert.ok(reportText.includes(`在「${insSlot.cardName}」上刻下了`), reportText);
+    ref.chat = [ai('正文'), user(reportText)];
+    const scanned = await ledger.scan();
+    const loot = scanned.entries.filter((e) => e.type === 'loot');
+    assert.equal(loot.length, 1, JSON.stringify(scanned.diagnostics));
+    assert.equal((await ledger.append(loot)).ok, true);
+    const after = await ledger.effectiveState();
+    assert.equal(after.diagnostics.some((d) => d.id === loot[0].id), false, JSON.stringify(after.diagnostics));
+    const hero = heroOf(after);
+    assert.equal(hero.deckEntries.find((e) => e.copyId === insSlot.copyId)?.inscription, insSlot.inscription);
+    assert.equal(hero.deckEntries.filter((e) => e.inscription).length, 1);
+});
+

@@ -361,14 +361,16 @@ function buildLobby(ledgerState, start, userName, fallbackTemplates) {
     return { ok: true, heroId: hero.id, allies, absent, downed, enemies, templated, controllable, enemyAttributes };
 }
 
-// 本场战斗的奖励计划（主角缺档案时按名字临时造一个角色引用）
+// 本场战斗的奖励计划（主角缺档案时按名字临时造一个角色引用）。规则 v5 的战斗可出刻印槽；已存的 v3 / v4 战斗不出。
 function planReward(ledgerState, session, userName, difficulty) {
     const hero = findCharacter(ledgerState, userName);
     const character = hero || { kind: 'deck-character', id: profileIdFor('deck-character', userName), name: userName };
     const enemyTiers = session.start.enemies.flatMap((enemy) => Array(Math.max(1, Number(enemy.count) || 1)).fill(session.start.tier));
+    const rulesVersion = session.record?.setup?.rulesVersion ?? COMBAT_RULES.version;
     return rewardEntity({
         combatId: session.combatId, anchor: session.anchor, tier: session.start.tier, enemyTiers, enemies: session.start.enemies,
         encounter: session.start.encounter, character, links: traitLinks(hero?.traits, hero?.gear?.slots), difficulty,
+        inscribe: rulesVersion >= 5,
     });
 }
 

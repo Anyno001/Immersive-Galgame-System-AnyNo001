@@ -2,6 +2,7 @@
 import { combatExpReward, difficultyRule } from './rules.js';
 import { GEAR_SLOTS, REWARD_SLOT_COUNT } from './schema.js';
 import { hash32, nextRandom } from './random.js';
+import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
 
 const RARITY_ORDER = Object.freeze(['common', 'uncommon', 'rare', 'epic', 'mythic']);
 const rarityIndex = (rarity) => RARITY_ORDER.indexOf(rarity);
@@ -10,10 +11,11 @@ const atLeast = (rarity, floor) => rarityIndex(rarity) >= rarityIndex(floor);
 // 各敌人档位的掉落规则。keepsake 是非保底槽位出纪念品的概率；guaranteed 是保底槽位数
 // （这些槽位不出纪念品）；floor 是保底槽位的稀有度下限；cardCap 是卡牌稀有度上限。
 // rarity/kinds 是 [值, 权重] 表；cardRate 是 3 槽盲翻一张的目标卡牌率，从杂物份额补足。
+// inscribe（规则 v5 P5b 刻印）只在调用方开启 inscribe 时参与抽取，未开启时与旧表一致。
 const TIER_LOOT = Object.freeze({
-    normal: Object.freeze({ keepsake: 0.85, guaranteed: 0, cardCap: 'uncommon', cardRate: 0.3, rarity: Object.freeze([['common', 75], ['uncommon', 22], ['rare', 3]]), kinds: Object.freeze([['item', 4], ['card', 3], ['gear', 2], ['treasure', 1]]) }),
-    elite: Object.freeze({ keepsake: 0.8, guaranteed: 1, cardRate: 0.4, rarity: Object.freeze([['uncommon', 40], ['rare', 40], ['epic', 20]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['item', 2], ['treasure', 2]]) }),
-    boss: Object.freeze({ keepsake: 0.8, guaranteed: 1, floor: 'epic', cardRate: 0.5, rarity: Object.freeze([['rare', 50], ['epic', 40], ['mythic', 10]]), keepsakeRarity: Object.freeze([['rare', 20], ['epic', 50], ['mythic', 30]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['treasure', 3], ['item', 1]]) }),
+    normal: Object.freeze({ keepsake: 0.85, guaranteed: 0, cardCap: 'uncommon', cardRate: 0.3, rarity: Object.freeze([['common', 75], ['uncommon', 22], ['rare', 3]]), kinds: Object.freeze([['item', 4], ['card', 3], ['gear', 2], ['treasure', 1], ['inscribe', 1]]) }),
+    elite: Object.freeze({ keepsake: 0.8, guaranteed: 1, cardRate: 0.4, rarity: Object.freeze([['uncommon', 40], ['rare', 40], ['epic', 20]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['item', 2], ['treasure', 2], ['inscribe', 2]]) }),
+    boss: Object.freeze({ keepsake: 0.8, guaranteed: 1, floor: 'epic', cardRate: 0.5, rarity: Object.freeze([['rare', 50], ['epic', 40], ['mythic', 10]]), keepsakeRarity: Object.freeze([['rare', 20], ['epic', 50], ['mythic', 30]]), kinds: Object.freeze([['card', 3], ['gear', 3], ['treasure', 3], ['item', 1], ['inscribe', 2]]) }),
 });
 // 卡牌费用的权重表。
 const CARD_COST_WEIGHTS = Object.freeze([[0, 1], [1, 3], [2, 3], [3, 2]]);
@@ -77,8 +79,34 @@ function promoteKeepsakesToCards(slots, rule, kinds, seed) {
     }
 }
 
+// 刻印槽的候选：卡组里未刻印、目录里有定义的副本（角色视图的 deckEntries）。
+function inscribeTargets(character) {
+    const catalog = character?.catalog instanceof Map ? character.catalog : null;
+    const seen = new Set();
+    const out = [];
+    for (const entry of Array.isArray(character?.deckEntries) ? character.deckEntries : []) {
+        const card = catalog?.get(entry?.cardId);
+        if (!card || !entry.copyId || entry.inscription || seen.has(entry.copyId)) continue;
+        seen.add(entry.copyId);
+        out.push({ cardId: entry.cardId, copyId: entry.copyId, card });
+    }
+    return out;
+}
+
+// 刻印槽定案：按槽位种子先在至少有一张可刻副本的刻印里等概率挑一种，再在可刻的副本里挑一张。没有可刻副本时返回 null（改出卡牌）。
+function pickInscription(seed, targets) {
+    const keys = INSCRIPTION_KEYS.filter((key) => targets.some((t) => inscribable(t.card, key)));
+    if (!keys.length) return null;
+    const random = randomFrom(seed);
+    const inscription = keys[pickIndex(random, keys.length)];
+    const fits = targets.filter((t) => inscribable(t.card, inscription));
+    const target = fits[pickIndex(random, fits.length)];
+    return { inscription, cardId: target.cardId, copyId: target.copyId, cardName: String(target.card.name || target.cardId) };
+}
+
 // 生成一组 count 个槽位。fortune 为真时随机一个非纪念品槽位升一档。
-function buildSlots(seed, rule, kinds, count, fortune, loot = null) {
+// targets 为刻印槽候选（开启刻印时才有）；刻印槽定不下目标时改为卡牌槽。
+function buildSlots(seed, rule, kinds, count, fortune, loot = null, targets = null) {
     const random = randomFrom(seed);
     const slots = [];
     for (let index = 0; index < count; index += 1) {
@@ -89,10 +117,16 @@ function buildSlots(seed, rule, kinds, count, fortune, loot = null) {
         let rarity = pickWeighted(random, rule.rarity);
         if (index < rule.guaranteed && rule.floor && rarityIndex(rarity) < rarityIndex(rule.floor)) rarity = rule.floor;
         let kind = pickWeighted(random, kinds);
+        let mark = null;
+        if (kind === 'inscribe') {
+            mark = pickInscription(`${seed}|inscribe|${index}`, targets || []);
+            if (!mark) kind = 'card';
+        }
         // 宝物至少要稀有；卡牌受档位稀有度上限约束。
         if (kind === 'treasure' && !atLeast(rarity, 'rare')) kind = 'gear';
         if (kind === 'card' && rule.cardCap && rarityIndex(rarity) > rarityIndex(rule.cardCap)) rarity = rule.cardCap;
         const slot = { index, kind: kind === 'treasure' ? 'gear' : kind, rarity };
+        if (mark) Object.assign(slot, mark);
         if (kind === 'card') slot.cost = pickWeighted(random, CARD_COST_WEIGHTS);
         if (kind === 'gear') slot.gearSlot = PLAIN_GEAR_SLOTS[pickIndex(random, PLAIN_GEAR_SLOTS.length)];
         if (kind === 'treasure') slot.gearSlot = 'treasure';
@@ -111,18 +145,21 @@ function buildSlots(seed, rule, kinds, count, fortune, loot = null) {
 }
 
 // 规划一场战斗的奖励。返回 { seed, tier, exp, links, slots, reserve }。
-export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty } = {}) {
+// inscribe 为真（规则 v5 胜利奖励）时卡组角色可出刻印槽；日常挑战等其他调用方不开启，槽位与旧规则一致。
+export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false } = {}) {
     const tierKey = Object.hasOwn(TIER_LOOT, tier) ? tier : 'normal';
     const rule = TIER_LOOT[tierKey];
     const normalLinks = normalizeLinks(links);
     const seed = `reward|${combatId ?? ''}|${character?.id ?? ''}`;
-    // 只有牌组角色才掉卡牌。
-    const kinds = rule.kinds.filter(([kind]) => kind !== 'card' || character?.kind === 'deck-character');
+    const deck = character?.kind === 'deck-character';
+    // 只有牌组角色才掉卡牌与刻印；刻印另需调用方开启。
+    const kinds = rule.kinds.filter(([kind]) => (kind === 'inscribe' ? deck && inscribe === true : kind !== 'card' || deck));
+    const targets = deck && inscribe === true ? inscribeTargets(character) : null;
     // 「再翻」关联多给一个槽位。
     const count = REWARD_SLOT_COUNT + (normalLinks.reflip ? 1 : 0);
     const lootChance = difficultyRule(difficulty).loot;
     const lootFor = (key) => (lootChance > 0 ? { chance: lootChance, seed: `${key}|loot` } : null);
-    const slots = buildSlots(seed, rule, kinds, count, normalLinks.fortune, lootFor(seed));
-    const reserve = buildSlots(`${seed}|reserve`, rule, kinds, count, normalLinks.fortune, lootFor(`${seed}|reserve`));
+    const slots = buildSlots(seed, rule, kinds, count, normalLinks.fortune, lootFor(seed), targets);
+    const reserve = buildSlots(`${seed}|reserve`, rule, kinds, count, normalLinks.fortune, lootFor(`${seed}|reserve`), targets);
     return { seed, tier: tierKey, exp: victoryExpFor(enemyTiers), links: normalLinks, slots, reserve };
 }

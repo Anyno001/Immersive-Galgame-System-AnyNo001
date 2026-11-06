@@ -453,6 +453,8 @@ const isHeroStock = (state, context) => context?.heroStock === true && !!context
 // 战利品入账。reserveOnly 为 true 表示只验证、不重复入库（库存由背包表管理）。
 function applyLootSlot(state, slot, entry, heroStockOwner = false) {
     if (slot.kind === 'card') return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}) }, { entry });
+    // 规则 v5 P5b 刻印槽：刻在奖励单定下的那张副本上（副本已不在或已刻时记诊断）。
+    if (slot.kind === 'inscribe') return handlers.inscribe(state, { cardId: slot.cardId, copyId: slot.copyId, inscription: slot.inscription });
     if (heroStockOwner) {
         return slot.kind === 'gear' && effectsDamage(slot.gear.passive?.effects) > COMBAT_RULES.allySkillDamageCap ? 'combat-gear-damage-cap' : null;
     }

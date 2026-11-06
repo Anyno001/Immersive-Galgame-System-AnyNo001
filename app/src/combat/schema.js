@@ -53,7 +53,8 @@ const BATTLE_GROWTH_CARDS_MAX = 40;
 export const ITEM_CONSUME_MAX = 30;
 export const HEAL_MODES = Object.freeze(['flat', 'percent']);
 export const HURT_TIER_KEYS = Object.freeze(['轻伤', '中伤', '重伤']);
-export const REWARD_KINDS = Object.freeze(['card', 'gear', 'item', 'keepsake']);
+// inscribe：规则 v5 P5b 刻印奖励槽（刻印种类与目标副本由程序按种子定）。
+export const REWARD_KINDS = Object.freeze(['card', 'gear', 'item', 'keepsake', 'inscribe']);
 export const REWARD_SLOT_COUNT = 3;
 export const REWARD_ORIGIN_MAX = 30;
 export const BUFF_TRIGGERS = Object.freeze(['card-played', 'discard', 'exhaust', 'kill', 'hp-loss', 'block-gain', 'turn-start', 'turn-end']);
@@ -701,7 +702,7 @@ function validateItem(item, path, state) {
 }
 
 // 战利品槽位里除公共字段外允许的载荷字段。
-const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card'], gear: ['gear'], item: ['item'], keepsake: [] });
+const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card'], gear: ['gear'], item: ['item'], keepsake: [], inscribe: ['inscription', 'cardId', 'copyId', 'cardName'] });
 
 // 战利品槽位（offer / loot 用）。
 function validateRewardSlot(slot, path, state) {
@@ -724,6 +725,11 @@ function validateRewardSlot(slot, path, state) {
         result.gear = validateGear(slot.gear, at('gear'), state);
     } else if (kind === 'item') {
         result.item = validateItem(slot.item, at('item'), state);
+    } else if (kind === 'inscribe') {
+        result.inscription = enumField(slot.inscription, at('inscription'), state, INSCRIPTION_KEYS);
+        result.cardId = idField(slot.cardId, at('cardId'), state);
+        result.copyId = idField(slot.copyId, at('copyId'), state, LEDGER_ID_PATTERN);
+        result.cardName = textField(slot.cardName, at('cardName'), state, 40);
     }
     return result;
 }

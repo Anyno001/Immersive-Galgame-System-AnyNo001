@@ -4,6 +4,7 @@ import { COMBAT_RULES, TOKEN_CARDS, combatExpReward } from './rules.js';
 import { hashString } from './random.js';
 import { COMBAT_AWAKEN_TYPES } from '../scene/combat-directives.js';
 import { mechanicReporters, statusDef, statusLabel } from './mechanics/registry.js';
+import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 
 export const REPORT_RESULT = Object.freeze({ victory: 'win', defeat: 'lose', escape: 'escape' });
 // detail 档位 -> 每回合最多写几条出手。
@@ -46,7 +47,10 @@ export function attachLoot(text, loot) {
     const character = sanitize(loot.character);
     const slot = loot.slot;
     const countText = slot.kind === 'item' && slot.item?.count > 1 ? `×${slot.item.count}` : '';
-    const line = `战利品：${character}${LOOT_VERB[slot.kind] || '得到了'}「${sanitize(slot.name)}」${countText}。`;
+    // 规则 v5 P5b 刻印槽：写成在哪张牌（招式）上刻下哪种刻印。
+    const line = slot.kind === 'inscribe'
+        ? `战利品：${character}在「${sanitize(slot.cardName)}」上刻下了「${sanitize(INSCRIPTION_LABELS[slot.inscription] || slot.name)}」。`
+        : `战利品：${character}${LOOT_VERB[slot.kind] || '得到了'}「${sanitize(slot.name)}」${countText}。`;
     const mark = `[igs-combat:loot|${character}|${loot.reportId}|${loot.index}|${loot.set === 'reserve' ? 'reserve' : 'main'}]`;
     return `${body.replace('</igs-combat-report>', `${line}\n</igs-combat-report>`)}\n${mark}`;
 }
