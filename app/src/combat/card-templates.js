@@ -475,6 +475,10 @@ export const SKILL_TEMPLATES = Object.freeze({
     soar: skill('buff', '飞行（受攻击伤害减半，被命中数次后坠落晕厥）', () => [applyStatus('flying', 3, 'self')], 1, 4),
     // 规则 v5 P4b E12 / E13：召唤爪牙（mechanics/foe-units.js），只限敌方技能单位；召唤者倒下时爪牙退场。不进补技能表。
     'call-minion': skill('special', '召唤爪牙（场上敌人最多 5 名，召唤者倒下时爪牙退场）', (n) => [{ op: 'summon-minion', amount: 1, hp: Math.min(60, scaled(n, 1.5)), damage: Math.min(20, scaled(n, 0.3)) }], 1, 3),
+    // 规则 v5 P4c E14 夺牌、E15 夺力（mechanics/foe-seize.js），只限敌方技能单位，倒下后归还。不进补技能表。
+    pilfer: skill('debuff', '夺牌：封存对方一张手牌，倒下后归还', () => [{ op: 'seize-card', amount: 1, target: 'enemy' }], 1, 3),
+    siphon: skill('debuff', '夺力：偷取对方攻击力，倒下后归还', () => [{ op: 'seize-might', stat: 'strength', amount: 2, target: 'enemy' }], 1, 3),
+    'siphon-guard': skill('debuff', '夺守：偷取对方防御力，倒下后归还', () => [{ op: 'seize-might', stat: 'dexterity', amount: 2, target: 'enemy' }], 1, 3),
 });
 
 // 复合效果的技能模板键（供选型时优先）。

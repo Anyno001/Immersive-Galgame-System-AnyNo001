@@ -93,6 +93,10 @@ export const APPLY_STATUSES = Object.freeze({
     // 规则 v5 P4b E17 自爆与限时撤离（foe-units.js），层数为剩余回合数。
     fuse: Object.freeze({ max: 5, value: 3 }),
     flee: Object.freeze({ max: 5, value: 2 }),
+    // 规则 v5 P4c E16 无敌上限、E22 最大生命损伤（foe-seize.js）；上限层数 × 10% 最大生命。
+    invincible: Object.freeze({ max: 5, value: 8 }),
+    'hit-cap': Object.freeze({ max: 5, value: 8 }),
+    maim: Object.freeze({ max: 5, value: 5 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

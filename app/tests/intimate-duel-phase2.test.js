@@ -2430,3 +2430,94 @@ test('自爆与遁逃词缀（E17）：只在普通阶级出现；状态有显�
     assert.ok(describeEffects([onFoe('flee', 2)]).includes('遁逃'));
 });
 
+// ---------- 规则 v5 P4c：E14 夺牌、E15 夺力、E16 无敌上限、E22 最大生命损伤（D12） ----------
+const smashAll = (rv, foeUnit) => battleOf({ x: def('x', 'attack', [hitFoe(40)], { cost: 0 }) }, Array(10).fill('x'), foeUnit, rv);
+const heroCards = (s) => Object.values(s.piles.hero).flat();
+
+test('夺牌（E14）：敌人出手时主角手牌已弃掉，从抽牌堆封存一张；持有者倒下时归还到手牌；规则 v4 无效', () => {
+    const pilfer = { intent: 'debuff', effects: [{ op: 'seize-card', amount: 1, target: 'enemy' }] };
+    const run = (rv) => {
+        const seized = endTurn(smashAll(rv, foe(pilfer)));
+        const killed = playIn(seized.state, instOf(seized.state, 'x'), 'foe');
+        return { seized, killed };
+    };
+    const v5 = run();
+    const taken = v5.seized.events.find((e) => e.type === 'card-seized');
+    assert.ok(taken && taken.owner === 'hero' && taken.from === 'draw', JSON.stringify(taken));
+    assert.deepEqual(v5.seized.state.units.foe.res.seized, [{ inst: taken.inst, owner: 'hero' }]);
+    assert.deepEqual([heroCards(v5.seized.state).includes(taken.inst), heroCards(v5.seized.state).length], [false, 9]);
+    const back = v5.killed.events.find((e) => e.type === 'card-returned');
+    assert.deepEqual([back?.inst, back?.to], [taken.inst, 'hand']);
+    assert.ok(v5.killed.state.piles.hero.hand.includes(taken.inst));
+    assert.equal(v5.killed.state.units.foe.res?.seized, undefined);
+    const v4 = run(4);
+    assert.deepEqual([v4.seized.events.some((e) => e.type === 'card-seized'), heroCards(v4.seized.state).length], [false, 10]);
+});
+
+test('夺力（E15）：对方陷入被夺攻击力、自身获得等量攻击力；持有者倒下后归还；规则 v4 无效', () => {
+    const siphon = { intent: 'debuff', effects: [{ op: 'seize-might', stat: 'strength', amount: 2, target: 'enemy' }] };
+    const run = (rv) => {
+        const seized = endTurn(smashAll(rv, foe(siphon)));
+        const killed = playIn(seized.state, instOf(seized.state, 'x'), 'foe');
+        return { seized, killed };
+    };
+    const v5 = run();
+    const s = v5.seized.state;
+    assert.deepEqual([s.units.hero.statuses['seized-atk'], s.units.foe.statuses.strength], [2, 2]);
+    assert.equal(computeDamage(s.units.hero, s.units.foe, 10, undefined, 5), 8);
+    assert.ok(v5.seized.events.some((e) => e.type === 'might-seized' && e.victim === 'hero' && e.amount === 2));
+    assert.ok(v5.killed.events.some((e) => e.type === 'might-returned' && e.victim === 'hero' && e.amount === 2));
+    assert.equal(v5.killed.state.units.hero.statuses['seized-atk'] || 0, 0);
+    const v4 = run(4);
+    assert.deepEqual([v4.seized.state.units.hero.statuses['seized-atk'], v4.seized.state.units.foe.statuses.strength], [undefined, undefined]);
+});
+
+test('无敌上限（E16）：坚韧限制单次失去生命、无敌限制每回合累计失去生命（层数 × 10% 最大生命）；规则 v4 无效', () => {
+    const hits = (statuses, rv) => {
+        const s = smashAll(rv, foeWith({}, statuses));
+        const first = playIn(s, instOf(s, 'x'), 'foe');
+        const second = first.state.outcome ? null : playIn(first.state, instOf(first.state, 'x'), 'foe');
+        return { first, second };
+    };
+    const cap = hits({ 'hit-cap': 1 });
+    assert.deepEqual([cap.first.state.units.foe.hp, cap.second.state.units.foe.hp], [27, 24]);
+    assert.ok(cap.first.events.some((e) => e.type === 'hp-capped' && e.unitId === 'foe' && e.from === 30 && e.to === 3));
+    const inv = hits({ invincible: 1 });
+    assert.deepEqual([inv.first.state.units.foe.hp, inv.second.state.units.foe.hp], [27, 27]);
+    const next = endTurn(inv.second.state);
+    assert.equal(playIn(next.state, instOf(next.state, 'x'), 'foe').state.units.foe.hp, 24);
+    const v4 = hits({ 'hit-cap': 1 }, 4);
+    assert.equal(v4.first.state.outcome, 'victory');
+});
+
+test('最大生命损伤（E22 / D12）：带摧魄的攻击者造成未格挡攻击伤害时目标本场最大生命下降，战后伤势按原最大生命还原；规则 v4 无效', async () => {
+    const { baseMaxHp } = await import('../src/combat/mechanics/foe-seize.js');
+    const run = (rv) => endTurn(smashAll(rv, foeWith(foeAttack(5), { maim: 2 })));
+    const v5 = run();
+    const h = v5.state.units.hero;
+    assert.deepEqual([h.hp, h.maxHp, h.res?.maimed, baseMaxHp(h)], [25, 28, 2, 30]);
+    assert.ok(v5.events.some((e) => e.type === 'maim' && e.unitId === 'hero' && e.amount === 2 && e.maxHp === 28));
+    const v4 = run(4);
+    assert.deepEqual([v4.state.units.hero.hp, v4.state.units.hero.maxHp, baseMaxHp(v4.state.units.hero)], [25, 30, 30]);
+});
+
+test('夺取与上限模板与词缀（E14–E16、E22）：技能模板可用；无敌、坚韧、摧魄只在首领出现；状态有显示名', async () => {
+    const { skillFromTemplate } = await import('../src/combat/card-templates.js');
+    const { enemyAffixes } = await import('../src/combat/enemy-loadout.js');
+    assert.deepEqual(skillFromTemplate('pilfer', 12).effects, [{ op: 'seize-card', amount: 1, target: 'enemy' }]);
+    assert.deepEqual([skillFromTemplate('siphon', 12).effects[0].stat, skillFromTemplate('siphon-guard', 12).effects[0].stat], ['strength', 'dexterity']);
+    const bossOnly = new Set(['af-invincible', 'af-hit-cap', 'af-maim']);
+    const seen = new Set();
+    for (const tier of ['normal', 'elite', 'boss']) {
+        for (let i = 0; i < 80; i += 1) {
+            for (const a of enemyAffixes({ id: `e${i}`, tier }, 'nightmare')) {
+                if (!bossOnly.has(a.id)) continue;
+                assert.equal(tier, 'boss', `${a.id}:${tier}`);
+                seen.add(a.id);
+            }
+        }
+    }
+    assert.deepEqual([...seen].sort(), ['af-hit-cap', 'af-invincible', 'af-maim']);
+    for (const [status, word] of [['invincible', '无敌'], ['hit-cap', '坚韧'], ['maim', '摧魄']]) assert.ok(describeEffects([onFoe(status, 1)]).includes(word), word);
+});
+

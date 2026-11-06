@@ -42,6 +42,10 @@ export const ENEMY_AFFIXES = Object.freeze({
     // 规则 v5 P4b E17 自爆倒计时与限时撤离（mechanics/foe-units.js）；撤离按 D11 记胜利、不给战利品。
     fuse: affix('自爆', 'battle-start', [selfApply('fuse', 3)], { tiers: ['normal'] }),
     flee: affix('遁逃', 'battle-start', [selfApply('flee', 4)], { tiers: ['normal'] }),
+    // 规则 v5 P4c 无敌上限与最大生命损伤（mechanics/foe-seize.js）。
+    invincible: affix('无敌', 'battle-start', [selfApply('invincible', 3)], { tiers: ['boss'] }),
+    'hit-cap': affix('坚韧', 'battle-start', [selfApply('hit-cap', 2)], { tiers: ['boss'] }),
+    maim: affix('摧魄', 'battle-start', [selfApply('maim', 2)], { tiers: ['boss'] }),
 });
 
 // 补技能时可选的模板键 -> 技能名。

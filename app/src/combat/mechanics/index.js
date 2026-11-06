@@ -20,3 +20,4 @@ import './orb.js';
 import './summon.js';
 import './foe.js';
 import './foe-units.js';
+import './foe-seize.js';

@@ -29,6 +29,7 @@ import { chooseChallengeFoe } from './challenge-foe-pick.js';
 import { eligibleChallengeAllies } from './challenge-allies.js';
 import { challengeHarvest } from './challenge-foes.js';
 import { afterBattleMend } from './mechanics/sanctum.js';
+import { baseMaxHp } from './mechanics/foe-seize.js';
 import { planChallengeReward } from './challenge-reward.js';
 import { buildChallengeReport, parseChallengeReport } from './challenge-report.js';
 import { buildIntimateSetup, foldIntimateTrace, initIntimateTrace, replayIntimateTrace } from './intimate-setup.js';
@@ -613,6 +614,7 @@ function usedPart(session) {
 }
 
 // 本场各己方单位的最终伤势字段；规则 v5 P05：胜利时存活单位按「战后回复」层数回复（不超过最大生命），倒下者不回复。
+// 规则 v5 E22 / D12：本场最大生命损伤不带出战斗，最大生命按 baseMaxHp 还原，当前生命照常写持续伤势。
 function woundPart(session) {
     if (session?.kind === 'challenge') return {};
     const allies = Object.values(session.battle?.units || {}).filter((unit) => unit?.side === 'ally');
@@ -620,7 +622,8 @@ function woundPart(session) {
     const won = session.battle?.outcome === 'victory' && session.battle?.rulesVersion >= 5;
     return { wounds: allies.map((unit) => {
         const mend = won ? afterBattleMend(unit) : 0;
-        return { character: unit.id, hp: Math.max(0, Math.min(unit.maxHp, unit.alive ? unit.hp + mend : 0)), maxHp: unit.maxHp, down: !unit.alive };
+        const maxHp = baseMaxHp(unit);
+        return { character: unit.id, hp: Math.max(0, Math.min(maxHp, unit.alive ? unit.hp + mend : 0)), maxHp, down: !unit.alive };
     }) };
 }
 
