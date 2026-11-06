@@ -8,6 +8,7 @@ import { INSCRIPTION_LABELS } from '../../combat/mechanics/inscription.js';
 import { sellPrice } from '../../combat/points.js';
 import { defaultHeroSkill } from '../../combat/card-templates.js';
 import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
+import { TREASURE_SLOT_MAX, slotGearList } from '../../combat/gear-slots.js';
 
 // 复用战斗换算与说明，预览普通版和升级版；固定卡不带倍率。
 function cardPreview(card, attr) {
@@ -70,8 +71,13 @@ export const gearBonusText = (g) => (g?.bonus ? `${ABILITY_LABELS[g.bonus.abilit
 const gearText = (g) => [gearBonusText(g), g?.passive?.description || ''].filter(Boolean).join('；');
 function gearView(view) {
     const slots = view.gear?.slots || {};
+    const itemOf = (g) => (g ? { gearId: g.gearId, name: g.name, text: gearText(g) } : null);
+    // 宝物部位最多 4 件（规则 v6）：已装的每件一行，没满时补一行空位；其余部位一行。
+    const rowsOf = (slot, label) => (slot === 'treasure'
+        ? [...slotGearList(slots[slot]).map((g) => ({ slot, label, item: itemOf(g) })), ...(slotGearList(slots[slot]).length < TREASURE_SLOT_MAX ? [{ slot, label, item: null }] : [])]
+        : [{ slot, label, item: itemOf(slots[slot]) }]);
     return {
-        slots: Object.entries(GEAR_SLOT_LABELS).map(([slot, label]) => ({ slot, label, item: slots[slot] ? { gearId: slots[slot].gearId, name: slots[slot].name, text: gearText(slots[slot]) } : null })),
+        slots: Object.entries(GEAR_SLOT_LABELS).flatMap(([slot, label]) => rowsOf(slot, label)),
         bag: (view.gear?.bag || []).map((g) => ({ gearId: g.gearId, name: g.name, slot: g.slot, slotLabel: GEAR_SLOT_LABELS[g.slot] || g.slot,
             rarity: g.rarity || '', price: sellPrice(g.rarity, g.gearId), text: gearText(g) })),
         items: (view.items || []).map((i) => ({ itemId: i.itemId, name: i.name, count: i.count })),
@@ -105,7 +111,7 @@ export function validateDraft(view, draft) {
     const errors = check.errors;
     const byCard = new Map();
     for (const e of errors) if (e.cardId) byCard.set(e.cardId, [...(byCard.get(e.cardId) || []), e.reason]);
-    return { ok: errors.length === 0, size: cards.length, min: COMBAT_RULES.deckMin, max: COMBAT_RULES.deckMax, errors, byCard };
+    return { ok: errors.length === 0, size: cards.length, min: COMBAT_RULES.deckMin, max: COMBAT_RULES.deckSanityMax, errors, byCard };
 }
 
 // 人物特性（P-d）：名称、稀有度、来历、联动与效果说明（被动数值已按稀有度加强）；v4 主动特性（kind: 'active'）另给费用，说明取技能效果。
@@ -181,7 +187,7 @@ export function deckDetailView(view, draft) {
             source: personalIds.has(id) ? '个人牌' : classIds.has(id) ? '职业牌' : card?.rarity === 'basic' ? '基础牌' : card?.rarity === 'signature' ? '专属牌' : '其他已持有',
             upgraded: view.upgraded.get(id) || 0, inDeck: inDeck.get(id) || 0, errors: check.byCard.get(id) || [],
             variants: [...(variants.get(id)?.values() || [])],
-            canAdd: (inDeck.get(id) || 0) < Math.min(n, cardCopyLimit(card?.rarity)), ...cardPreview(card, view.attributes) };
+            canAdd: (inDeck.get(id) || 0) < n && cardCopyLimit(card?.rarity) > 0, ...cardPreview(card, view.attributes) };
     };
     const sortCards = (a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : costRank(a.cost) - costRank(b.cost));
     const owned = [...view.owned.entries()].filter(([, n]) => n > 0).map(([id, n]) => cardView(id, n)).sort(sortCards);

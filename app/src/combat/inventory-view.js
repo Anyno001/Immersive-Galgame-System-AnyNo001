@@ -2,6 +2,7 @@
 // 装备/消耗品的定义经账本规范化（normalizeLedgerEntry）校验后才采用，
 // 校验不过或定义缺失的物品落入 others，并记诊断，不丢数据。
 import { gearIdFor, itemIdFor, normalizeLedgerEntry } from './schema.js';
+import { slotCapacity, slotGearList } from './gear-slots.js';
 
 // 装备定义表里允许的 kind
 export const INVENTORY_DEF_KINDS = Object.freeze(['gear', 'item', 'keepsake']);
@@ -99,10 +100,15 @@ export function heroInventoryView(table) {
             view.items.push({ ...payload, count: item.quantity });
             continue;
         }
-        // 装备：已装备且槽位空闲则占槽（一件），其余进背包；槽位冲突记诊断
-        const takesSlot = row.equipped && !view.gear.slots[payload.slot];
+        // 装备：已装备且部位没满则占一格（一件；宝物部位最多 4 件、视图为数组，规则 v6），其余进背包；部位已满记诊断
+        const capacity = slotCapacity(payload.slot);
+        const worn = slotGearList(view.gear.slots[payload.slot]);
+        const takesSlot = row.equipped && worn.length < capacity;
         if (row.equipped && !takesSlot) diagnostics.push({ code: 'gear-slot-conflict', name: item.name, slot: payload.slot });
-        if (takesSlot) view.gear.slots[payload.slot] = { ...payload, count: 1 };
+        if (takesSlot) {
+            const one = { ...payload, count: 1 };
+            view.gear.slots[payload.slot] = capacity > 1 ? [...worn, one] : one;
+        }
         const bagCount = item.quantity - (takesSlot ? 1 : 0);
         if (bagCount > 0) view.gear.bag.push({ ...payload, count: bagCount });
     }

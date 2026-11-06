@@ -182,7 +182,7 @@ function classActionsHtml(v, d) {
 function deckHtml(v, d) {
     const c = d.check;
     const sizeBad = c.errors.some((e) => e.reason === 'deck-too-small' || e.reason === 'deck-too-large');
-    const summary = `<span class="igs-deck-size${c.ok ? '' : ' is-error'}" role="status">${c.size} 张 · ${c.min}–${c.max}${sizeBad ? ' · 张数不符' : ''}${c.ok ? '' : ' · 不合规'}</span>`;
+    const summary = `<span class="igs-deck-size${c.ok ? '' : ' is-error'}" role="status">${c.size} 张 · 至少 ${c.min}${sizeBad ? ' · 张数不符' : ''}${c.ok ? '' : ' · 不合规'}</span>`;
     const actions = v.readonly ? chip('战斗进行中 · 只读')
         : `${btn('reset', '还原', { disabled: !d.dirty || Boolean(v.pending) })}${btn('save', v.pending === 'save' ? '保存中' : '保存卡组', { primary: true, disabled: !d.dirty || !c.ok || Boolean(v.pending) })}`;
     const locked = (d.signature || []).filter((s) => !s.unlocked);

@@ -16,6 +16,8 @@ import { flipOrder } from '../src/combat/flip.js';
 import { createCombatTables } from '../src/data/shujuku/combat-tables.js';
 import { createInventoryTables } from '../src/data/shujuku/inventory-tables.js';
 import { createLedgerMockHost, userInventorySheet } from './helpers/combat-mock-host-ledger.js';
+import { equippedGear, placeGear, removeGear, slotGearList } from '../src/combat/gear-slots.js';
+import { traitLinks } from '../src/combat/traits.js';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const codes = (result) => result.diagnostics.map((item) => item.code);
@@ -809,6 +811,43 @@ test('刻印标签（P5b）：扫描正文 inscribe 标签按牌名取卡组里�
     const me = heroOf(effective);
     assert.deepEqual(me.deckEntries.filter((e) => e.cardId === 'c1').map((e) => e.inscription ?? null), ['sharp', 'sharp', 'ink']);
     assert.equal((await ledger.scan()).entries.filter((e) => e.type === 'inscribe').length, 0);
+});
+
+test('宝物多槽（规则 v6）：最多 4 件，第 5 件顶替最早一件；面板按 slotIndex 换指定格、卸下一件不动其余；旧单值按一件读；联动聚合全部宝物', async () => {
+    const names = ['玉佩', '铜镜', '香囊', '骨笛', '金铃'];
+    const tags = names.map((name) => `[igs-fx:item|获得|${name}|传家之物|宝物]`);
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], tags.map(ai));
+    const equip = (i) => {
+        const [tag] = scanGainTags(tags[i]);
+        const anchor = { messageId: i, swipeId: 0, tagHash: tag.tagHash, occurrence: tag.occurrence };
+        return { id: ledgerEntryId('equip', 'pc-hero', anchor), type: 'equip', character: 'pc-hero', anchor, createdAt: 1,
+            payload: { gearId: gearIdFor(names[i]), name: names[i], slot: 'treasure', description: '传家之物', rarity: 'rare', bonus: { ability: 'wis', amount: 1 } } };
+    };
+    const worn = async () => {
+        const me = heroOf(await ledger.effectiveState());
+        return [me.gear.slots.treasure.map((g) => g.name), me.gear.bag.map((g) => g.name)];
+    };
+    const first = await ledger.append([0, 1, 2, 3].map(equip));
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.deepEqual(await worn(), [names.slice(0, 4), []]);
+    assert.equal((await ledger.append([equip(4)])).ok, true);
+    assert.deepEqual(await worn(), [['铜镜', '香囊', '骨笛', '金铃'], ['玉佩']]);
+    const swapped = await ledger.setGear('pc-hero', gearIdFor('玉佩'), true, 1);
+    assert.equal(swapped.ok, true, JSON.stringify(swapped));
+    assert.deepEqual(await worn(), [['铜镜', '玉佩', '骨笛', '金铃'], ['香囊']]);
+    assert.equal((await ledger.setGear('pc-hero', gearIdFor('骨笛'), false)).ok, true);
+    assert.deepEqual(await worn(), [['铜镜', '玉佩', '金铃'], ['香囊', '骨笛']]);
+    assert.equal((await ledger.setGear('pc-hero', gearIdFor('骨笛'), true)).ok, true);
+    assert.deepEqual(await worn(), [['铜镜', '玉佩', '金铃', '骨笛'], ['香囊']]);
+
+    const legacy = { treasure: 'a' };
+    assert.deepEqual([slotGearList(legacy.treasure), equippedGear({ weapon: 'w', treasure: ['a', 'b'] })], [['a'], ['w', 'a', 'b']]);
+    placeGear(legacy, 'treasure', 'b');
+    assert.deepEqual(legacy.treasure, ['a', 'b']);
+    removeGear(legacy, 'a');
+    removeGear(legacy, 'b');
+    assert.equal('treasure' in legacy, false);
+    assert.deepEqual(traitLinks([], { treasure: [{ link: 'fortune' }, { link: 'reveal', rarity: 'mythic' }] }), { reveal: 2, reflip: false, fortune: true });
 });
 
 

@@ -11,6 +11,7 @@ import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from 
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { opHandler, reserveBuiltins } from './mechanics/registry.js';
 import { INSCRIPTION_KEYS } from './mechanics/inscription.js';
+import { TREASURE_SLOT_MAX } from './gear-slots.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
 import './mechanics/index.js';
 
@@ -77,6 +78,8 @@ const EACH_TURN_TIMINGS = Object.freeze(['turn-start', 'turn-end']);
 const LOOT_RARITIES = Object.freeze(['common', 'uncommon', 'rare', 'epic', 'mythic']);
 // sly（狡黠，规则 v5）：字段先行，结算在通用机制批次接入。
 const CARD_FLAGS = Object.freeze(['retain', 'innate', 'ethereal', 'unplayable', 'sly']);
+// 规则 v6 卡牌模型：fixed 为固定卡表的牌（类型、费用、效果写死），random 为模板求解的随机牌；缺省 random，只在 fixed 时写字段。
+export const CARD_MODELS = Object.freeze(['fixed', 'random']);
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const LEDGER_ID_PATTERN = /^[A-Za-z0-9_|:.-]{1,200}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -327,7 +330,7 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
     if (!objectField(card, path, state)) return;
     const errorsBefore = state.errors.length;
     const at = (key) => joinPath(path, key);
-    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay', 'radiance'], path, state);
+    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay', 'radiance', 'model'], path, state);
     const name = textField(card.name, at('name'), state, 20);
     const unplayable = card.unplayable === true;
     const result = {
@@ -347,6 +350,8 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
     }
     // 规则 v5 关键字 replay：打出时整张额外执行 1–3 次，只付一次费、只计一次出牌；v3/v4 战斗不结算。
     if (card.replay !== undefined) result.replay = intField(card.replay, at('replay'), state, 1, 3);
+    // 规则 v6：random 是缺省值，归一后不写字段，旧卡形状不变。
+    if (card.model !== undefined && enumField(card.model, at('model'), state, CARD_MODELS) === 'fixed') result.model = 'fixed';
     // 规则 v5 P01 圣辉第二费用：1–5 点，或 'X'（花光圣辉，每点结算一次）；v3/v4 战斗不判定、不扣除。
     if (card.radiance !== undefined) result.radiance = card.radiance === 'X' ? 'X' : intField(card.radiance, at('radiance'), state, 1, 5);
     if (card.onDiscard !== undefined) result.onDiscard = arrayField(card.onDiscard, at('onDiscard'), state, 1, 2, validateEffect);
@@ -807,12 +812,12 @@ function validateLedgerPayload(type, payload, path, state) {
         case 'deck': {
             checkKnownFields(payload, ['cards', 'copies', 'revision'], path, state);
             const result = {
-                cards: arrayField(payload.cards, at('cards'), state, COMBAT_RULES.deckMin, COMBAT_RULES.deckMax, (id, idPath, st) => idField(id, idPath, st)),
+                cards: arrayField(payload.cards, at('cards'), state, COMBAT_RULES.deckMin, COMBAT_RULES.deckSanityMax, (id, idPath, st) => idField(id, idPath, st)),
                 revision: intField(payload.revision, at('revision'), state, 0, 1e9),
             };
             // 规则 v5 P5a：可选的副本 ID 列表，与 cards 逐张对应。
             if (payload.copies !== undefined) {
-                result.copies = arrayField(payload.copies, at('copies'), state, 0, COMBAT_RULES.deckMax, (id, idPath, st) => idField(id, idPath, st, LEDGER_ID_PATTERN));
+                result.copies = arrayField(payload.copies, at('copies'), state, 0, COMBAT_RULES.deckSanityMax, (id, idPath, st) => idField(id, idPath, st, LEDGER_ID_PATTERN));
                 if (Array.isArray(result.cards) && Array.isArray(result.copies) && result.copies.length !== result.cards.length) addIssue(state, at('copies'), 'length-mismatch');
             }
             return result;
@@ -820,8 +825,15 @@ function validateLedgerPayload(type, payload, path, state) {
         case 'revoke':
             checkKnownFields(payload, ['targetEntryId', 'reason'], path, state);
             return { targetEntryId: idField(payload.targetEntryId, at('targetEntryId'), state, LEDGER_ID_PATTERN), reason: textField(payload.reason, at('reason'), state, 80, '') };
-        case 'equip':
-            return validateGear(payload, path, state);
+        case 'equip': {
+            // 规则 v6：宝物部位最多 TREASURE_SLOT_MAX 件，可选 slotIndex 指定替换第几格（只对宝物有效）。
+            if (!payload || typeof payload !== 'object' || payload.slotIndex === undefined) return validateGear(payload, path, state);
+            const { slotIndex, ...gear } = payload;
+            const result = validateGear(gear, path, state);
+            const index = intField(slotIndex, at('slotIndex'), state, 0, TREASURE_SLOT_MAX - 1);
+            if (gear.slot !== 'treasure') addIssue(state, at('slotIndex'), 'slot-index-not-treasure');
+            return result ? { ...result, slotIndex: index } : result;
+        }
         case 'unequip':
             checkKnownFields(payload, ['gearId'], path, state);
             return { gearId: idField(payload.gearId, at('gearId'), state) };

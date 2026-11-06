@@ -580,10 +580,10 @@ export function bootstrapIGS(options = {}) {
         drawCombatTrait: (name) => combatServices.drawTrait(name),
         pickCombatTrait: (name) => combatServices.pickTrait(name),
         unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
-        setCombatGear: typeof combatServices.setGear === 'function' ? (name, slot, itemId) => combatServices.setGear(name, slot, itemId) : undefined,
+        setCombatGear: typeof combatServices.setGear === 'function' ? (name, gearId, equip, slotIndex) => combatServices.setGear(name, gearId, equip, null, slotIndex) : undefined,
         useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (item) => combatServices.useInventoryItem(item) : undefined,
         getCombatHeroInventory: typeof combatServices.heroInventory === 'function' ? () => combatServices.heroInventory() : undefined,
-        setCombatHeroGear: typeof combatServices.setHeroGear === 'function' ? (slot, itemId) => combatServices.setHeroGear(slot, itemId) : undefined,
+        setCombatHeroGear: typeof combatServices.setHeroGear === 'function' ? (gearId, equip, slotIndex) => combatServices.setHeroGear(gearId, equip, slotIndex) : undefined,
         // 背包卖出（v0.39.2）：kind 为 gear / keepsake。
         sellCombatHeroItem: typeof combatServices.sellHeroItem === 'function' ? (kind, id) => combatServices.sellHeroItem(kind, id) : undefined,
         setCombatAllyTier: (name, tier) => combatServices.setAllyTier(name, tier),

@@ -5,6 +5,7 @@
 //   after   changes 执行后才能确定的清理（数量归零时删除定义行）
 import { itemIdFor } from './schema.js';
 import { ABILITY_LABELS } from './abilities.js';
+import { equippedGear, slotCapacity, slotGearList } from './gear-slots.js';
 
 export const STOCK_TYPES = Object.freeze(['equip', 'unequip', 'item', 'consume', 'loot', 'sell', 'keepsake', 'lose']);
 
@@ -14,8 +15,8 @@ const CATEGORY_LABELS = Object.freeze({ gear: '装备', item: '消耗品', keeps
 
 // 两个名字是否指向同一物品（按物品 id 归一）
 const sameName = (a, b) => itemIdFor(a) === itemIdFor(b);
-// 背包里的全部装备：槽位上的 + 背包里的
-const allGear = (inventory) => [...Object.values(inventory.gear.slots), ...inventory.gear.bag];
+// 背包里的全部装备：槽位上的（宝物部位为数组，规则 v6）+ 背包里的
+const allGear = (inventory) => [...equippedGear(inventory.gear.slots), ...inventory.gear.bag];
 
 // 判断名字在背包视图里属于哪一类：gear / item / keepsake / other，不存在返回 null
 export function stockKindOf(inventory, name) {
@@ -69,10 +70,14 @@ const keepsakeRecord = (definition) => ({
     definition,
 });
 
-// 穿上装备：自身行置为已装备；同槽位已有别的装备则一并卸下（displaced）
-function equipRows(inventory, gear, definition) {
-    const occupant = inventory.gear.slots[definition.slot];
-    const displaced = occupant && !sameName(occupant.name, gear.name) ? [{ name: occupant.name, record: gearRecord(gearDefinition(occupant), false) }] : [];
+// 穿上装备：自身行置为已装备；部位已满（宝物 4 件、其余 1 件）时卸下被替换的那件（displaced）：
+// 指定 slotIndex 时替换该格，否则替换最早的一件；同名装备不算占用。
+function equipRows(inventory, gear, definition, slotIndex) {
+    const worn = slotGearList(inventory.gear.slots[definition.slot]);
+    if (worn.some((item) => sameName(item.name, gear.name))) return { own: [{ name: gear.name, record: gearRecord(definition, true) }], displaced: [] };
+    const chosen = Number.isInteger(slotIndex) ? worn[slotIndex] : null;
+    const occupant = chosen || (worn.length >= slotCapacity(definition.slot) ? worn[0] : null);
+    const displaced = occupant ? [{ name: occupant.name, record: gearRecord(gearDefinition(occupant), false) }] : [];
     return { own: [{ name: gear.name, record: gearRecord(definition, true) }], displaced };
 }
 
@@ -104,20 +109,21 @@ export function stockPlan(entry, inventory, { panelTag } = {}) {
             if (entry.anchor?.tagHash === panelTag) {
                 const owned = inventory.gear.bag.find((gear) => gear.gearId === payload.gearId);
                 if (!owned) return { ok: false, reason: 'combat-gear-missing' };
-                const equipped = equipRows(inventory, owned, gearDefinition(owned));
+                const equipped = equipRows(inventory, owned, gearDefinition(owned), payload.slotIndex);
                 return plan(equipped.own, [], equipped.displaced);
             }
             const conflict = kindConflict(inventory, payload.name, 'gear');
             if (conflict) return conflict;
             const known = stockKindOf(inventory, payload.name) === 'gear';
             const definition = known ? gearDefinition(payload) : revive(inventory, payload.name, 'gear', gearDefinition(payload));
-            const occupant = inventory.gear.slots[definition.slot];
-            // 槽位空闲或本就是同名装备时才标记为已装备
-            const rows = [{ name: payload.name, record: gearRecord(definition, !occupant || sameName(occupant.name, payload.name)) }];
+            const worn = slotGearList(inventory.gear.slots[definition.slot]);
+            // 部位没满或本就装着同名装备时才标记为已装备
+            const fits = worn.length < slotCapacity(definition.slot) || worn.some((item) => sameName(item.name, payload.name));
+            const rows = [{ name: payload.name, record: gearRecord(definition, fits) }];
             return plan(rows, known ? [] : [{ name: payload.name, delta: 1, description: payload.description || '', category: CATEGORY_LABELS.gear }]);
         }
         case 'unequip': {
-            const equipped = Object.values(inventory.gear.slots).find((gear) => gear.gearId === payload.gearId);
+            const equipped = equippedGear(inventory.gear.slots).find((gear) => gear.gearId === payload.gearId);
             return equipped ? plan([{ name: equipped.name, record: gearRecord(gearDefinition(equipped), false) }], []) : { ok: false, reason: 'combat-gear-missing' };
         }
         case 'consume': {
@@ -133,7 +139,7 @@ export function stockPlan(entry, inventory, { panelTag } = {}) {
             const have = hits.reduce((count, item) => count + (Number.isInteger(item.count) ? item.count : 1), 0);
             const count = payload.all ? have : Math.min(payload.count, have);
             if (!hits.length || count <= 0) return { ok: false, reason: 'combat-item-missing' };
-            const worn = kind === 'gear' && count >= have ? Object.values(inventory.gear.slots).find((gear) => sameName(gear.name, payload.name)) : null;
+            const worn = kind === 'gear' && count >= have ? equippedGear(inventory.gear.slots).find((gear) => sameName(gear.name, payload.name)) : null;
             return plan(worn ? [{ name: worn.name, record: gearRecord(gearDefinition(worn), false) }] : [], [{ name: hits[0].name, delta: -count, lost: true }]);
         }
         case 'keepsake': {
@@ -170,7 +176,7 @@ export function stockPlan(entry, inventory, { panelTag } = {}) {
         }
         case 'sell': {
             if (payload.gearId) {
-                const inSlot = Object.values(inventory.gear.slots).some((gear) => gear.gearId === payload.gearId);
+                const inSlot = equippedGear(inventory.gear.slots).some((gear) => gear.gearId === payload.gearId);
                 // 只剩已装备的一件时不能卖
                 if (inSlot && !inventory.gear.bag.some((gear) => gear.gearId === payload.gearId)) return { ok: false, reason: 'combat-gear-equipped' };
                 const bagGear = inventory.gear.bag.find((gear) => gear.gearId === payload.gearId);

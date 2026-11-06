@@ -1,5 +1,6 @@
 // 角色特性：槽位与解锁费用、天生特性保留、特性替换、稀有度抽取、关联（透视/再翻/天运）。纯函数。
 import { hash32, nextRandom } from './random.js';
+import { slotGearList } from './gear-slots.js';
 
 export const TRAIT_RARITY_WEIGHTS = Object.freeze({ common: 50, uncommon: 30, rare: 14, epic: 5, mythic: 1 });
 export const TRAIT_RARITIES = Object.freeze(Object.keys(TRAIT_RARITY_WEIGHTS));
@@ -107,10 +108,10 @@ export function planTraitLink(seed = '', rarity) {
 export const LINK_GEAR_SLOTS = Object.freeze(['accessory', 'treasure']);
 
 // 汇总特性与已装备饰品、宝物的关联：reveal 取最高档（神话 2，其余 1），reflip/fortune 为布尔。
-// gearSlots 是角色视图的 gear.slots（部位 → 装备对象），缺省时只看特性。
+// gearSlots 是角色视图的 gear.slots（部位 → 装备对象；宝物部位为装备对象数组，旧视图的单值同样接受），缺省时只看特性。
 export function traitLinks(traits, gearSlots) {
     const links = { reveal: 0, reflip: false, fortune: false };
-    const gear = gearSlots && typeof gearSlots === 'object' ? LINK_GEAR_SLOTS.map((slot) => gearSlots[slot]).filter(Boolean) : [];
+    const gear = gearSlots && typeof gearSlots === 'object' ? LINK_GEAR_SLOTS.flatMap((slot) => slotGearList(gearSlots[slot])) : [];
     for (const source of [...(Array.isArray(traits) ? traits : []), ...gear]) {
         if (source?.link === 'reveal') links.reveal = Math.max(links.reveal, source.rarity === 'mythic' ? 2 : 1);
         else if (source?.link === 'reflip') links.reflip = true;

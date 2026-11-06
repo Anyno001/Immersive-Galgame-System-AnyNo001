@@ -37,6 +37,7 @@ import { INTIMATE_LEGACY_OUTCOME, intimateEnding, resolveIntimatePosition } from
 import { chooseCard, emptyPick, flipCard, flipView, laterPick, lootOf, normalizePick, rerollPick } from './flip.js';
 import { REROLL_COST } from './points.js';
 import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
+import { equippedGear } from './gear-slots.js';
 
 export const SESSION_VERSION = 1;
 export const sessionKeyFor = (chatId) => `igs-combat:session:${chatId}`;
@@ -131,7 +132,7 @@ function findCharacter(ledgerState, name) {
 }
 
 const averageLevel = (characters) => (characters.length ? Math.max(1, Math.round(characters.reduce((sum, character) => sum + character.level, 0) / characters.length)) : 1);
-const gearPassives = (character) => Object.values(character.gear?.slots || {}).filter(Boolean).map((slot) => slot.passive).filter(Boolean);
+const gearPassives = (character) => equippedGear(character.gear?.slots).map((gear) => gear.passive).filter(Boolean);
 
 // 单位的特质清单：先天主动/被动 + 后天特质
 function traitEntries(character, heroSkill, keptKinds) {

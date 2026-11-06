@@ -22,6 +22,7 @@ import {
 import { generateWithRetry } from '../combat/generation-retry.js';
 import { itemIdFor, normalizeProfile, profileIdFor } from '../combat/schema.js';
 import { COMBAT_RULES } from '../combat/rules.js';
+import { equippedGear } from '../combat/gear-slots.js';
 import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../combat/points.js';
 import { TRAIT_BASE_SLOTS, keptInnateKinds, nextTraitSlot, planTrait, planTraitLink, traitFits, traitSeed } from '../combat/traits.js';
 import { planTraitShape } from '../combat/trait-pool.js';
@@ -334,16 +335,16 @@ export function createCombatServices(options = {}) {
         });
     }
 
-    // 穿/卸装备；hint 可带入 setHeroGear 刚读过的状态
-    function setGear(characterId, gearId, equip, hint = null) {
+    // 穿/卸装备；hint 可带入 setHeroGear 刚读过的状态；slotIndex（规则 v6，可选）为装宝物时替换的格位
+    function setGear(characterId, gearId, equip, hint = null, slotIndex = undefined) {
         return enqueue(async () => {
             const context = await ledgerContext(hint);
             if (!context.ok) return context;
             const character = context.state.characters.get(characterId);
             if (!character) return { ok: false, reason: 'combat-character-missing' };
-            const gear = equip ? (character.gear?.bag || []).find((entry) => entry.gearId === gearId) : Object.values(character.gear?.slots || {}).find((slot) => slot?.gearId === gearId);
+            const gear = equip ? (character.gear?.bag || []).find((entry) => entry.gearId === gearId) : equippedGear(character.gear?.slots).find((slot) => slot?.gearId === gearId);
             return gear
-                ? withNote(`（${character.name || ''}${equip ? '装上了' : '卸下了'}${gear.name}）`, () => context.ledgerImpl.setGear(characterId, gearId, equip === true))
+                ? withNote(`（${character.name || ''}${equip ? '装上了' : '卸下了'}${gear.name}）`, () => context.ledgerImpl.setGear(characterId, gearId, equip === true, slotIndex))
                 : { ok: false, reason: 'combat-gear-missing' };
         });
     }
@@ -378,12 +379,12 @@ export function createCombatServices(options = {}) {
         });
     }
 
-    async function setHeroGear(gearId, equip) {
+    async function setHeroGear(gearId, equip, slotIndex = undefined) {
         const context = await ledgerContext();
         if (!context.ok) return context;
         const heroId = context.state.attributes?.heroId;
         if (!heroId || !context.state.characters.get(heroId)) return { ok: false, reason: 'combat-points-not-protagonist' };
-        return setGear(heroId, gearId, equip === true, context);
+        return setGear(heroId, gearId, equip === true, context, slotIndex);
     }
 
     // ---- 生命刷新（refreshLife）：排队合并 + 只读缓存 ----

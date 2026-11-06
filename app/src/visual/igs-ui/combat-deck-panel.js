@@ -409,13 +409,14 @@ export function createCombatDeckPanelController(doc, options = {}) {
 
     // 技能角色强度档：写回档案表（新版本）并读回确认；战斗进行中只读，未注入写入能力时不可用。
     // 换装：注入服务写口时先写最新 AI 楼正文说明再改装配表 / 账本（P7c），否则直接经账本写 equip / unequip；成功后重读；战斗进行中只读。
-    async function setGear(gearId, equip) {
+    // slotIndex（规则 v6，可选）：装宝物时替换第几格，缺省时没满追加、满了替换最早的一件。
+    async function setGear(gearId, equip, slotIndex = undefined) {
         const view = selectedView();
         const l = ledger();
         if (!view || !l) return { ok: false, reason: 'combat-character-missing' };
         if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
-        const write = typeof options.setGear === 'function' ? () => options.setGear(view.id, gearId, equip)
-            : typeof l.setGear === 'function' ? () => l.setGear(view.id, gearId, equip) : null;
+        const write = typeof options.setGear === 'function' ? () => options.setGear(view.id, gearId, equip, slotIndex)
+            : typeof l.setGear === 'function' ? () => l.setGear(view.id, gearId, equip, slotIndex) : null;
         if (!write) return fail('combat-generate-unavailable');
         const r = await run('gear', write);
         if (r.ok !== true && !r.stale && r.floorRollback === 'failed') { notice = `${notice}；正文说明未能撤回，请检查最新楼层`; render(); }

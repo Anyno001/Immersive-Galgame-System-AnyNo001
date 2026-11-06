@@ -5302,7 +5302,7 @@ ${row.key}`;
             useInventoryItem: typeof options.useCombatInventoryItem === 'function' ? (name) => options.useCombatInventoryItem(name) : null,
             // 背包分组、已装备标记与装备映射（P7e）：战斗开启时读主角背包投影；装上 / 卸下走现有换装服务。
             getHeroInventory: typeof options.getCombatHeroInventory === 'function' ? () => options.getCombatHeroInventory() : null,
-            setHeroGear: typeof options.setCombatHeroGear === 'function' ? (gearId, equip) => options.setCombatHeroGear(gearId, equip) : null,
+            setHeroGear: typeof options.setCombatHeroGear === 'function' ? (gearId, equip, slotIndex) => options.setCombatHeroGear(gearId, equip, slotIndex) : null,
             // 背包卖出（v0.39.2）：人物状态面板的背包页已取消，主角装备与杂物统一在这里卖出。
             sellHeroItem: typeof options.sellCombatHeroItem === 'function' ? (kind, id) => options.sellCombatHeroItem(kind, id) : null,
         });
@@ -5400,7 +5400,7 @@ ${row.key}`;
             drawTrait: typeof options.drawCombatTrait === 'function' ? (opts) => options.drawCombatTrait(opts) : null,
             pickTrait: typeof options.pickCombatTrait === 'function' ? (opts) => options.pickCombatTrait(opts) : null,
             unlockTraitSlot: typeof options.unlockCombatTraitSlot === 'function' ? () => options.unlockCombatTraitSlot() : null,
-            setGear: typeof options.setCombatGear === 'function' ? (id, gearId, equip) => options.setCombatGear(id, gearId, equip) : null,
+            setGear: typeof options.setCombatGear === 'function' ? (id, gearId, equip, slotIndex) => options.setCombatGear(id, gearId, equip, slotIndex) : null,
             // 手动建档（P8c）：本聊天建档方式为「手动」时，加点页给尚无建档记录的角色逐项加点，确认后写属性表 init。
             writeManualInit: typeof options.writeCombatManualInit === 'function' ? (name, raw) => options.writeCombatManualInit(name, raw) : null,
             buildMode: () => (typeof options.statsBuildMode === 'function' ? options.statsBuildMode() : null),

@@ -19,6 +19,7 @@ import { deckReasonText } from './combat-deck-panel-render.js';
 import { gearBonusText } from './combat-deck-panel-model.js';
 import { STOCK_RARITY_LABELS, STOCK_SLOT_LABELS } from '../../combat/inventory-writes.js';
 import { sellPrice } from '../../combat/points.js';
+import { equippedGear, slotGearList } from '../../combat/gear-slots.js';
 
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度' });
 const pageTitles = Object.freeze({ diary: '珍藏心事', inventory: '你的背包', relationships: '人际关系', favor: '好感总览' });
@@ -42,7 +43,7 @@ function indexHeroInventory(view) {
                 ...(kind === 'gear' && it.bonus ? { bonus: it.bonus } : {}), ...(kind === 'gear' && it.passive ? { passive: it.passive } : {}), ...extra });
         }
     };
-    put(Object.values(view.gear?.slots || {}), 'gear', { equipped: true });
+    put(equippedGear(view.gear?.slots), 'gear', { equipped: true });
     put(view.gear?.bag, 'gear'); put(view.items, 'item'); put(view.collection, 'keepsake'); put(view.others, 'other');
     return index;
 }
@@ -640,8 +641,10 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
 
     function gearMapHtml() {
         const slots = heroInv?.gear?.slots || {};
-        const rows = Object.entries(STOCK_SLOT_LABELS).map(([slot, label]) => {
-            const worn = slots[slot];
+        // 宝物部位可装多件（规则 v6）：每件一行，没有时留一行空位。
+        const rows = Object.entries(STOCK_SLOT_LABELS).flatMap(([slot, label]) => {
+            const list = slotGearList(slots[slot]);
+            return (list.length ? list : [null]).map((worn) => {
             const entry = worn ? (model?.entries || []).find(item => String(item.title ?? '').trim() === worn.name) : null;
             const rarity = worn?.rarity ? STOCK_RARITY_LABELS[worn.rarity] || '' : '';
             const tier = rarity ? `<small data-rarity="${escapeHtml(worn.rarity)}">${escapeHtml(rarity)}</small>` : '';
@@ -649,6 +652,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
                 : entry ? `<button type="button" data-record-act="select" data-record-id="${escapeHtml(entry.id)}" aria-label="查看${escapeHtml(worn.name)}" ${entry.id === selectedId ? 'aria-current="true"' : ''}><span class="igs-record-gear-icon" aria-hidden="true">${itemIcon(worn.name)}</span><span class="igs-record-gear-name">${escapeHtml(worn.name)}</span>${tier}</button>`
                     : `<span class="igs-record-gear-name">${escapeHtml(worn.name)}</span>`;
             return `<li><span class="igs-record-gear-slot">${escapeHtml(label)}</span>${body}</li>`;
+            });
         }).join('');
         return `<section class="igs-record-gear-map" aria-label="当前装备"><h3>当前装备</h3><ul>${rows}</ul></section>`;
     }

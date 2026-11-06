@@ -20,12 +20,14 @@ function deepFreeze(value) {
 }
 
 export const COMBAT_RULES = Object.freeze({
-    version: 5,
+    version: 6,
     energyPerTurn: 3,
     drawPerTurn: 5,
     handLimit: 10,
-    deckMin: 20,
-    deckMax: 30,
+    // 规则 v6：卡组即全部持有的副本，不设张数上限；删卡后不少于 deckMin 张（D-05）。
+    deckMin: 10,
+    // 账本 deck 记录与卡组视图的长度护栏（防异常数据），不是玩法上限。
+    deckSanityMax: 200,
     copyLimit: 3,
     tempCardsPerTurn: 10,
     starterDeckSize: 20,
@@ -116,8 +118,8 @@ export const BASIC_CARDS = deepFreeze({
 export const BASIC_STRIKE_ID = 'basic-strike';
 export const BASIC_DEFEND_ID = 'basic-defend';
 
-// 旧存档的规则版本 3、4 与 5 可以互相兼容；v5 新机制只在 state.rulesVersion >= 5 时启用。
-export const COMPATIBLE_RULES_VERSIONS = Object.freeze([3, 4, 5]);
+// 旧存档的规则版本 3–6 可以互相兼容；v5 新机制在 state.rulesVersion >= 5 时启用，v6 的战斗结算与 v5 相同（v6 改的是卡组与奖励）。
+export const COMPATIBLE_RULES_VERSIONS = Object.freeze([3, 4, 5, 6]);
 export const isCompatibleRulesVersion = (version) => COMPATIBLE_RULES_VERSIONS.includes(version);
 
 // 战斗中生成的临时牌与状态牌。
@@ -314,21 +316,20 @@ export function signatureCardAt(profile, slot) {
     return (profile?.signatureCards || []).find((card, index) => signatureSlotOf(card, index) === slot) || null;
 }
 
-// 牌组校验：张数、同名上限、是否拥有。owned 可以是 Map 或普通对象，catalog 是 id 到牌定义的 Map。
+// 牌组校验：张数下限、是否拥有、目录与稀有度。规则 v6 卡组即持有，不再限总张数与同名张数（同名上限只约束获得来源）。
+// owned 可以是 Map 或普通对象，catalog 是 id 到牌定义的 Map。
 export function validateDeck(cardIds, owned, catalog) {
     const ids = Array.isArray(cardIds) ? cardIds : [];
     const errors = [];
     if (ids.length < COMBAT_RULES.deckMin) errors.push({ path: 'cards', reason: 'deck-too-small', detail: { size: ids.length, min: COMBAT_RULES.deckMin } });
-    if (ids.length > COMBAT_RULES.deckMax) errors.push({ path: 'cards', reason: 'deck-too-large', detail: { size: ids.length, max: COMBAT_RULES.deckMax } });
+    if (ids.length > COMBAT_RULES.deckSanityMax) errors.push({ path: 'cards', reason: 'deck-too-large', detail: { size: ids.length, max: COMBAT_RULES.deckSanityMax } });
     const counts = new Map();
     for (const id of ids) counts.set(id, (counts.get(id) || 0) + 1);
     const ownedMap = owned instanceof Map ? owned : new Map(Object.entries(owned || {}));
     for (const [id, count] of counts) {
         const card = catalog?.get(id);
-        const limit = cardCopyLimit(card?.rarity);
         if (!card) errors.push({ path: 'cards', reason: 'unknown-card', cardId: id });
-        else if (!limit) errors.push({ path: 'cards', reason: 'invalid-rarity', cardId: id });
-        else if (count > limit) errors.push({ path: 'cards', reason: 'copy-limit', cardId: id, detail: { count, limit } });
+        else if (!cardCopyLimit(card.rarity)) errors.push({ path: 'cards', reason: 'invalid-rarity', cardId: id });
         const ownedCount = ownedMap.get(id) || 0;
         if (!ownedCount) errors.push({ path: 'cards', reason: 'not-owned', cardId: id });
         else if (count > ownedCount) errors.push({ path: 'cards', reason: 'owned-exceeded', cardId: id, detail: { count, owned: ownedCount } });

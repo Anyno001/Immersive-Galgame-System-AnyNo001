@@ -30,6 +30,7 @@ import { HERO_BASE_ARCHETYPE, characterCombatStats, heroBaseStats, vitalsOf } fr
 import { scanStatLifeTags } from '../scene/stats/stat-directives.js';
 import { HURT_PCT } from '../scene/stats/stat-vocab.js';
 import { heroInventoryView } from './inventory-view.js';
+import { equippedGear, placeGear, removeGear, slotGearList } from './gear-slots.js';
 import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
 
@@ -372,7 +373,8 @@ function dropCopy(state, cardId) {
 }
 // 同模型并卡（规则 v5 P5a）：卡牌的机制字段（不含名称、ID、风味与技能出处）按键排序序列化；
 // 带 merge 标记的新记录在角色已持有同模型的牌时并为那张牌的一张副本，不新建目录条目。旧记录不带标记，重放不变。
-const CARD_MODEL_KEYS = Object.freeze(['type', 'cost', 'rarity', 'effects', 'upgraded', 'retain', 'innate', 'ethereal', 'unplayable', 'sly', 'onDiscard', 'replay', 'radiance']);
+// 规则 v6 的 model 只在 fixed 时写入，随机牌键值不变；固定卡与效果相同的随机牌不并卡。
+const CARD_MODEL_KEYS = Object.freeze(['type', 'cost', 'rarity', 'effects', 'upgraded', 'retain', 'innate', 'ethereal', 'unplayable', 'sly', 'onDiscard', 'replay', 'radiance', 'model']);
 const canonical = (value) => (Array.isArray(value) ? `[${value.map(canonical).join(',')}]`
     : value && typeof value === 'object' ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`
     : JSON.stringify(value ?? null));
@@ -407,15 +409,12 @@ function createCharacterState(index, profile, diagnostics) {
     };
 }
 
-// 获得一张牌：新建一张副本（source 为获得记录的 ID，作副本 ID 前缀），卡组没满且没超出该稀有度的张数上限时顺带放进卡组。
+// 获得一张牌：新建一张副本（source 为获得记录的 ID，作副本 ID 前缀）并直接放进卡组（规则 v6：卡组即持有，不设张数上限）。
 function addCard(state, cardId, source) {
     const copyId = mintCopy(state, cardId, source);
     syncOwned(state);
-    const inDeck = state.deck.filter((id) => id === cardId).length;
-    if (state.deck.length < COMBAT_RULES.deckMax && inDeck < cardCopyLimit(state.catalog.get(cardId)?.rarity)) {
-        state.deck.push(cardId);
-        state.deckCopies.push(copyId);
-    }
+    state.deck.push(cardId);
+    state.deckCopies.push(copyId);
 }
 
 // 专属卡按等级解锁（v0.39.2）：EXP 记录让卡组角色跨过某槽位的解锁等级时，档案里登记的那张计入拥有（剧情 learn 已提前解锁的不重复计）；
@@ -535,11 +534,11 @@ const handlers = Object.freeze({
         const { entry } = context;
         if (effectsDamage(payload.passive?.effects) > COMBAT_RULES.allySkillDamageCap) return 'combat-gear-damage-cap';
         if (isHeroStock(state, context)) return null;
-        // 面板「装备背包里的装备」只改槽位，不新增装备
+        // 面板「装备背包里的装备」只改槽位，不新增装备；宝物部位最多 4 件（规则 v6，见 gear-slots.js），slotIndex 指定替换哪一格。
         if (entry?.anchor?.tagHash === GEAR_TAG_HASH) {
             const owned = state.gear.owned.get(payload.gearId);
             if (!owned) return 'combat-gear-missing';
-            state.gear.slots[owned.slot] = payload.gearId;
+            placeGear(state.gear.slots, owned.slot, payload.gearId, payload.slotIndex);
             return null;
         }
         const previous = state.lostGear?.get(payload.gearId);
@@ -551,13 +550,13 @@ const handlers = Object.freeze({
             ...(payload.link ? { link: payload.link } : {}),
         };
         state.gear.owned.set(payload.gearId, gear);
-        state.gear.slots[gear.slot] = payload.gearId;
+        placeGear(state.gear.slots, gear.slot, payload.gearId, payload.slotIndex);
         return null;
     },
     unequip(state, payload, context) {
         if (isHeroStock(state, context)) return null;
         if (!state.gear.owned.has(payload.gearId)) return 'combat-gear-missing';
-        for (const [slot, gearId] of Object.entries(state.gear.slots)) if (gearId === payload.gearId) delete state.gear.slots[slot];
+        removeGear(state.gear.slots, payload.gearId);
         return null;
     },
     item(state, payload, context) {
@@ -584,7 +583,7 @@ const handlers = Object.freeze({
         const gear = state.gear.owned.get(gearId);
         if (gear) {
             state.gear.owned.delete(gearId);
-            for (const [slot, id] of Object.entries(state.gear.slots)) if (id === gearId) delete state.gear.slots[slot];
+            removeGear(state.gear.slots, gearId);
             (state.lostGear ??= new Map()).set(gearId, gear);
             return null;
         }
@@ -698,9 +697,10 @@ const handlers = Object.freeze({
         const taken = new Set();
         const current = new Set(state.deckCopies);
         // 规则 v5 P5a：记录带 copies 时按指定副本放；不带（旧记录与面板整理）时先沿用现卡组里的副本，再挑带升级 / 成长的。
+        // 规则 v6：卡组即持有，不再按同名上限截断，只受拥有副本数约束。
         payload.cards.forEach((cardId, i) => {
             const used = counts.get(cardId) || 0;
-            if (used >= (state.owned.get(cardId) || 0) || used >= cardCopyLimit(state.catalog.get(cardId)?.rarity)) return;
+            if (used >= (state.owned.get(cardId) || 0) || !cardCopyLimit(state.catalog.get(cardId)?.rarity)) return;
             const asked = payload.copies?.[i];
             const copyId = asked && !taken.has(asked) && state.copies.get(asked)?.cardId === cardId ? asked : pickCopy(state, cardId, taken, current);
             if (!copyId) return;
@@ -750,7 +750,7 @@ const handlers = Object.freeze({
         if (payload.gearId) {
             const gear = state.gear.owned.get(payload.gearId);
             if (!gear) return 'combat-gear-missing';
-            if (Object.values(state.gear.slots).includes(payload.gearId)) return 'combat-gear-equipped';
+            if (equippedGear(state.gear.slots).includes(payload.gearId)) return 'combat-gear-equipped';
             state.gear.owned.delete(payload.gearId);
             state.points += sellPrice(gear.rarity, payload.gearId);
             return null;
@@ -932,15 +932,17 @@ function copyRows(state) {
 function presentCharacter(state, options = {}) {
     const progress = expProgress(state.exp);
     const stock = options.heroInventory && state.id === options.heroId ? options.heroInventory : null;
-    const equippedIds = new Set(Object.values(state.gear.slots));
+    const equippedIds = new Set(equippedGear(state.gear.slots));
+    // 宝物部位视图为装备对象数组（规则 v6），其余部位为单个装备对象。
+    const copySlot = (slot, value, resolve) => [slot, slot === 'treasure' ? slotGearList(value).map(resolve).filter(Boolean) : resolve(value)];
     const gear = stock
-        ? { slots: Object.fromEntries(Object.entries(stock.gear.slots).map(([slot, item]) => [slot, { ...item }])), bag: stock.gear.bag.map((item) => ({ ...item })) }
+        ? { slots: Object.fromEntries(Object.entries(stock.gear.slots).map(([slot, item]) => copySlot(slot, item, (one) => ({ ...one })))), bag: stock.gear.bag.map((item) => ({ ...item })) }
         : {
-            slots: Object.fromEntries(Object.entries(state.gear.slots).map(([slot, gearId]) => [slot, state.gear.owned.get(gearId)])),
+            slots: Object.fromEntries(Object.entries(state.gear.slots).map(([slot, gearId]) => copySlot(slot, gearId, (id) => state.gear.owned.get(id)))),
             bag: [...state.gear.owned.values()].filter((item) => !equippedIds.has(item.gearId)),
         };
     const items = (stock ? stock.items : [...state.items.values()]).filter((item) => item.count > 0).map((item) => ({ ...item }));
-    const gearBonuses = Object.values(gear.slots).map((item) => item?.bonus).filter(Boolean);
+    const gearBonuses = equippedGear(gear.slots).map((item) => item?.bonus).filter(Boolean);
     const attributes = computeAttributes({
         key: state.id, name: state.name, protagonist: state.id === options.heroId, exp: state.exp,
         archetype: state.classProfile?.archetype, className: state.classProfile?.className ?? state.className ?? '', gearBonuses,
@@ -1582,13 +1584,14 @@ export function buildAllocEntries(snapshot, chat, effective, characterId, picks,
 }
 
 // 装备/卸下背包里的装备（面板操作）。equip 为 true 表示从背包装上，false 表示从槽位卸下。
-export function buildGearEntry(snapshot, chat, character, gearId, equip, now = 0) {
+// slotIndex（规则 v6，可选）：装宝物时指定替换第几格；缺省时没满追加、满了替换最早的一件。
+export function buildGearEntry(snapshot, chat, character, gearId, equip, now = 0, slotIndex = undefined) {
     if (!snapshot || snapshot.ok !== true) return snapshotFailure(snapshot);
     const floors = Array.isArray(chat) ? chat : [];
     const last = floors.length - 1;
     if (last < 0) return { ok: false, reason: 'combat-deck-no-floor' };
     if (!character) return { ok: false, reason: 'combat-character-missing' };
-    const slotted = Object.values(character.gear?.slots || {}).find((item) => item?.gearId === gearId);
+    const slotted = equippedGear(character.gear?.slots).find((item) => item?.gearId === gearId);
     const bagged = (character.gear?.bag || []).find((item) => item.gearId === gearId);
     if (equip ? !bagged : !slotted) return { ok: false, reason: 'combat-gear-missing' };
     const swipeId = swipeOf(floors[last]);
@@ -1598,6 +1601,7 @@ export function buildGearEntry(snapshot, chat, character, gearId, equip, now = 0
         ? {
             gearId, name: bagged.name, slot: bagged.slot, ...(bagged.passive ? { passive: bagged.passive } : {}),
             description: bagged.description || '', ...(bagged.bonus ? { rarity: bagged.rarity, bonus: bagged.bonus } : {}),
+            ...(Number.isInteger(slotIndex) && bagged.slot === 'treasure' ? { slotIndex } : {}),
         }
         : { gearId };
     const normalized = normalizeLedgerEntry({ id: ledgerEntryId(type, character.id, anchor), type, character: character.id, anchor, payload, createdAt: now });
@@ -1663,7 +1667,7 @@ export function buildSellEntry(snapshot, chat, effective, target, now = 0) {
     if (stocked && hero.inventory.ok !== true) return { ok: false, reason: hero.inventory.reason || 'inventory-table-read-failed' };
     if (request.gearId) {
         const gear = (hero.gear?.bag || []).find((item) => item.gearId === request.gearId);
-        if (!gear && Object.values(hero.gear?.slots || {}).some((item) => item?.gearId === request.gearId)) return { ok: false, reason: 'combat-gear-equipped' };
+        if (!gear && equippedGear(hero.gear?.slots).some((item) => item?.gearId === request.gearId)) return { ok: false, reason: 'combat-gear-equipped' };
         if (!gear) return { ok: false, reason: 'combat-gear-missing' };
         payload = { gearId: request.gearId, ...(stocked ? { rarity: gear.rarity || 'common' } : {}) };
         price = sellPrice(gear.rarity, request.gearId);
@@ -2167,13 +2171,14 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return run;
     }
 
-    function setGear(characterId, gearId, equip) {
+    // slotIndex（规则 v6，可选）：装宝物时替换第几格，见 buildGearEntry。
+    function setGear(characterId, gearId, equip, slotIndex) {
         return queueAction(async () => {
             const snapshot = await readSnapshot();
             if (!snapshot.ok) return snapshot;
             const floors = getChat();
             const character = resolveState(snapshot, floors, true).state.characters?.get(characterId);
-            const built = buildGearEntry(snapshot, floors, character, gearId, equip === true, now());
+            const built = buildGearEntry(snapshot, floors, character, gearId, equip === true, now(), slotIndex);
             return built.ok ? withEntry(built) : built;
         });
     }
