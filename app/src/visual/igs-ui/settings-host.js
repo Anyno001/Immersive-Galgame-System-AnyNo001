@@ -714,9 +714,13 @@ export function createSettingsHost(deps) {
                 let skill = valuePart ? decodeURIComponent(valuePart) : '';
                 const old = oldPart ? decodeURIComponent(oldPart) : '';
                 let attribute;
+                // 自定义技能（新填的或建卡里已有的）只认同名，不按别名并进内置技能。
+                const draftCustom = normalizeBuild(getPath(state.activeSettings && state.activeSettings.draft, STATS_BUILD_PATH)).custom;
+                let custom = draftCustom.includes(skill);
                 if (!skill) result = { ok: true, cancelled: true };
                 else {
                     if (skill === BUILD_CUSTOM_OPTION) {
+                        custom = true;
                         const raw = await settingsDialogs.prompt(`自定义技能名（1–8 字，不含数字和符号）：`, '');
                         skill = validCustomSkillName(raw == null ? '' : raw) || '';
                         if (!skill) result = raw == null || !String(raw).trim() ? { ok: true, cancelled: true } : { ok: false, reason: 'stats-build-skill-invalid' };
@@ -725,10 +729,10 @@ export function createSettingsHost(deps) {
                         const sure = !old || await settingsDialogs.confirm(`将「${name.startsWith('strong') ? '擅长' : '比较擅长'}${'一二三四五'[Number(name.replace(/[^0-9]/g, '')) - 1] || ''}」由「${old}」换成「${skill}」？「${old}」会回到未学，「${skill}」按该格起步值重新计算。`);
                         if (!sure) result = { ok: true, cancelled: true };
                         else {
-                            result = await op('hero', 'slot', name, { skill, attribute });
+                            result = await op('hero', 'slot', name, { skill, attribute, custom });
                             if (result && result.reason === 'stats-slot-needs-attribute') {
                                 attribute = await settingsDialogs.choose(`「${skill}」所属的属性：`, BASE_ATTRIBUTES.map((value) => ({ value, label: value })), BASE_ATTRIBUTES[1], { dropdown: true });
-                                result = BASE_ATTRIBUTES.includes(attribute) ? await op('hero', 'slot', name, { skill, attribute }) : { ok: true, cancelled: true };
+                                result = BASE_ATTRIBUTES.includes(attribute) ? await op('hero', 'slot', name, { skill, attribute, custom }) : { ok: true, cancelled: true };
                             }
                         }
                     }
@@ -792,6 +796,16 @@ export function createSettingsHost(deps) {
                 }
             } else if (kind === 'skill-remove') {
                 result = await settingsDialogs.confirm(`删除技能「${name}」？主角这项技能改为未学。`) ? await op('skill', 'remove', name) : { ok: true, cancelled: true };
+                // 建卡里的同名自定义技能一并删掉，否则 3+5 下拉里还会列出它。
+                const draft = state.activeSettings && state.activeSettings.draft;
+                const build = result && result.ok && !result.cancelled ? normalizeBuild(getPath(draft, STATS_BUILD_PATH)) : null;
+                if (build && build.custom.includes(name)) {
+                    const customAttrs = { ...build.customAttrs };
+                    delete customAttrs[name];
+                    const picks = Object.fromEntries(Object.entries(build.picks).map(([slot, v]) => [slot, v === name ? '' : v]));
+                    setPath(draft, STATS_BUILD_PATH, { ...build, custom: build.custom.filter((x) => x !== name), customAttrs, picks });
+                    persistSettingsDraft();
+                }
             } else if (kind === 'sheet-edit') {
                 const text = String((await settingsDialogs.prompt(`修改「${name}」的一项数值，格式：项目 档位（如「话术 精通」「敏捷 出众」）。技能档：未学、入门、熟练、精通、大师；属性档：很弱、偏弱、普通、出众、顶尖。`, '')) || '').trim();
                 const [skill, tier] = text.split(/\s+/);

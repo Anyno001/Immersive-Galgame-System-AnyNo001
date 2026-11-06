@@ -1031,8 +1031,8 @@ export function createStatsRuntime({
     }
 
     // 剧情新技能：进注册表、进补全队列、提示一次（v2 §6.1）。
-    function commitSkill(name, { attribute, floor } = {}) {
-        const r = registerStorySkill(catalog, name, { attribute, floor });
+    function commitSkill(name, { attribute, floor, exact = false } = {}) {
+        const r = registerStorySkill(catalog, name, { attribute, floor, exact });
         if (!r.created) return r.name;
         catalog = { ...r.catalog, queue: { ...catalog.queue, skills: [...new Set([...catalog.queue.skills, r.name])] } };
         setNotice(`skill:${r.name}`, { kind: 'info', text: `新技能：${r.name}（${r.entry.attribute}）`, ttl: true });
@@ -1274,7 +1274,7 @@ export function createStatsRuntime({
     // 建卡里玩家自定义的技能：注册表认不得的名字按所选六维登记成剧情技能；已认得的（内置或已登记）沿用原条目。
     function registerCustomSkills(attributes) {
         for (const [name, attribute] of Object.entries(attributes && typeof attributes === 'object' ? attributes : {})) {
-            if (!engineOf().registry.resolve(name)) commitSkill(name, { attribute });
+            if (!engineOf().registry.has(name)) commitSkill(name, { attribute, exact: true });
         }
     }
 
@@ -1283,9 +1283,11 @@ export function createStatsRuntime({
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         registerCustomSkills(attributes);
         const engine = engineOf();
+        // 自定义技能（带所属六维的）只认同名，不按别名落到内置技能上。
+        const own = (name) => (attributes && Object.hasOwn(attributes, name) && engine.registry.has(name) ? name : null);
         // 只收注册表里认得的技能（内置或自定义已登记的）；自定义新名先登记成剧情技能。
         const entries = Object.entries(skills || {}).filter(([, v]) => Number(v) > 0)
-            .map(([name, v]) => [engine.registry.resolve(name) || commitSkill(name), Number(v)]).filter(([name]) => Boolean(name));
+            .map(([name, v]) => [own(name) || engine.registry.resolve(name) || commitSkill(name), Number(v)]).filter(([name]) => Boolean(name));
         if (!entries.length) return { ok: false, reason: 'stats-hero-pick-empty' };
         const base = { ...catalog.protagonistBase };
         for (const [name, value] of entries) base[name] = withoutHeroBonus(engine, name, value);
@@ -1578,6 +1580,7 @@ export function createStatsRuntime({
         const skill = engine.registry.resolve(name);
         const entry = skill ? engine.registry.get(skill) : null;
         if (!entry || entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-skill-unknown' };
+        currentSlots();
         const edit = { ...catalog.protagonistEdit };
         const text = String(raw ?? '').trim();
         if (!text) delete edit[skill];
@@ -1597,7 +1600,13 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
-    const currentSlots = () => resolveHeroSlots(engineOf(), currentStatsState(ledger), catalog);
+    // 旧存档（v0.39.60 前选过技能）没有 heroSlots，每次按数值回填，删掉或改动一项后其余技能会换格。
+    // 第一次读到时把回填结果固定进目录，之后增删都在这份格位上做；随下一次保存写入存档。
+    const currentSlots = () => {
+        const slots = resolveHeroSlots(engineOf(), currentStatsState(ledger), catalog);
+        if (!catalog.heroSlots) catalog = { ...catalog, heroSlots: slots };
+        return slots;
+    };
     // 熟练度封顶：返回是否越过封顶档（剧情技能且不占格的不限）。target 为档位词或数值。
     function overCap(engine, skill, target, slots) {
         const cap = heroSkillCap(engine, currentStatsState(ledger), catalog, skill, slots);
@@ -1614,12 +1623,14 @@ export function createStatsRuntime({
         const typed = String(payload.skill || '').trim();
         if (!typed) return { ok: false, reason: 'stats-hero-edit-invalid' };
         const engine = engineOf();
-        let name = engine.registry.resolve(typed);
+        // custom：玩家自定义的技能名，只认同名，不按别名归并到内置技能。
+        const custom = payload.custom === true;
+        let name = custom ? (engine.registry.has(typed) ? typed : null) : engine.registry.resolve(typed);
         const entry = name ? engine.registry.get(name) : null;
         if (entry && entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-edit-attribute' };
         if (!name) {
             if (!payload.attribute) return { ok: false, reason: 'stats-slot-needs-attribute' };
-            name = commitSkill(typed, { attribute: payload.attribute });
+            name = commitSkill(typed, { attribute: payload.attribute, exact: custom });
             if (!name) return { ok: false, reason: 'stats-hero-edit-invalid' };
         }
         const slots = { ...currentSlots() };
@@ -1679,7 +1690,7 @@ export function createStatsRuntime({
         }
         // 编辑过的技能不再进补全队列。
         // 改为未学即腾出所占的格。
-        let heroSlots = catalog.heroSlots;
+        let heroSlots = slots;
         if (tier === '未学' && Object.values(slots).includes(skill)) heroSlots = Object.fromEntries(Object.entries(slots).filter(([, v]) => v !== skill));
         catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => s !== skill) } });
         persist();

@@ -380,6 +380,42 @@ test('旧存档没有 heroSlots：按已学的非剧情技能回填，值 ≥ 60
     assert.ok(['唱歌', '舞蹈'].includes(slots.good1) && ['唱歌', '舞蹈'].includes(slots.good2));
 });
 
+test('旧存档没有 heroSlots：删除、降档后其余技能不换格', () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    rt.heroOp('pick', '', { skills: { 烹饪: 60, 唱歌: 45, 舞蹈: 40, 学习: 30 } });
+    rt.getCatalog().heroSlots = null;
+    const before = { ...rt.archive().heroSlots };
+    assert.equal(rt.skillOp('remove', '唱歌').ok, true);
+    const after = rt.archive().heroSlots;
+    for (const [slot, name] of Object.entries(before)) assert.equal(after[slot], name === '唱歌' ? undefined : name, slot);
+    // 降档同理：烹饪降到入门后仍留在擅长格，不被回填挪到比较擅长格。
+    rt.getCatalog().heroSlots = null;
+    const kept = { ...rt.archive().heroSlots };
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '入门' }).ok, true);
+    assert.deepEqual(rt.archive().heroSlots, kept);
+});
+
+test('自定义技能只认同名：「法术」不并进「魔法」', () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '法术', custom: true }).reason, 'stats-slot-needs-attribute');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '法术', custom: true, attribute: '意志' }).ok, true);
+    assert.equal(rt.archive().heroSlots.strong1, '法术');
+    assert.ok(rt.getCatalog().story.some((s) => s.name === '法术'));
+    // 选择 3+5 时带所属六维的自定义技能同样不并。
+    const fresh = setup();
+    fresh.rt.enableForChat();
+    fresh.host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(fresh.host, '好。');
+    fresh.rt.heroOp('pick', '', { skills: { 施法: 60 }, attributes: { 施法: '智力' }, slots: { strong1: '施法' } });
+    assert.equal(fresh.rt.archive().heroSlots.strong1, '施法');
+});
+
 test('技能改名：旧名读入时落到新名，看人下菜碟并入察言观色，装病装可怜合并为演戏', () => {
     const { host, rt } = setup();
     rt.enableForChat();

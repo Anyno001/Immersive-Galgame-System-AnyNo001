@@ -262,11 +262,12 @@ export function baseValueOf(entry, attributes = {}) {
 }
 
 // 登记剧情新技能（§6.1）：先归并到已有技能，命中不了才新建；超出上限返回 capped。
-export function registerStorySkill(catalog, raw, { attribute, category, floor = null, createdThisFloor = 0 } = {}) {
+// exact：玩家自定义的技能只认同名，不按别名归并（如东方世界观的「法术」不并进「魔法」）；与六维同名的照旧拒绝。
+export function registerStorySkill(catalog, raw, { attribute, category, floor = null, createdThisFloor = 0, exact = false } = {}) {
     const registry = createSkillRegistry(catalog);
     const name = validSkillName(raw);
     if (!name) return { catalog, name: null, created: false, reason: 'invalid' };
-    const existing = registry.resolve(name);
+    const existing = exact ? (registry.has(name) ? name : normalizeAttribute(name) || null) : registry.resolve(name);
     if (existing) return { catalog, name: existing, created: false, reason: 'known' };
     const story = storyEntries(catalog.story);
     if (story.length >= STORY_SKILL_MAX) return { catalog, name: null, created: false, reason: 'capped' };
