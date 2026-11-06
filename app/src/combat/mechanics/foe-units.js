@@ -1,4 +1,4 @@
-// 规则 v5 P4b 敌方单位机制：E09 背击、E10 分裂、E11 复生、E12 爪牙绑定、E13 召唤爪牙。
+// 规则 v5 P4b 敌方单位机制：E09 背击、E10 分裂、E11 复生、E12 爪牙绑定、E13 召唤爪牙、E17 自爆与限时撤离。
 // 背击：卡组单位用指定目标的牌转向该敌人（res.facing）；带背击的敌人不在其朝向上时，对它的攻击伤害 ×1.5。朝向的单位倒下后清除朝向。
 // 爪牙：summon-minion 经 engineKit.summonUnit 受控入场（场上敌人最多 5 名，写 minion / minionOf）；召唤者倒下时经 engineKit.dismissUnit 退场。
 import { registerMechanic } from './registry.js';
@@ -130,5 +130,38 @@ registerMechanic({
     report(event, kit) {
         if (event.type === 'split') kit.note(event.unitId, `分裂成 ${event.into.length} 只`);
         else if (event.type === 'revive-pending') kit.note(event.unitId, '倒下后仍在蠢动');
+    },
+});
+
+registerMechanic({
+    key: 'foe-exit', family: 'general', archetypes: [], unitKinds: ['skill'],
+    statuses: [{ key: 'fuse', label: '自爆' }, { key: 'flee', label: '遁逃' }],
+    hooks: {
+        // E17：敌方技能单位自己的回合结束时倒计时减 1。自爆归 0：对方全体受到等于自身当前生命的伤害后离场；遁逃归 0：撤离战场（D11）。
+        'turn-end-after'(ctx, { unit }, kit) {
+            if (unit.side !== 'enemy' || unit.kind !== 'skill') return;
+            const fuse = st(unit, 'fuse');
+            if (fuse) {
+                kit.setStatus(unit, 'fuse', fuse - 1);
+                if (fuse === 1) {
+                    const blast = unit.hp;
+                    kit.emit(ctx, { type: 'blast', unitId: unit.id, amount: blast });
+                    for (const target of foesOf(ctx.state, unit)) {
+                        if (ctx.state.outcome) break;
+                        kit.dealDamage(ctx, target, blast, { unitId: unit.id, kind: 'status', id: 'fuse' }, 'blast', true);
+                    }
+                    kit.retireUnit(ctx, unit, 'explode');
+                    return;
+                }
+            }
+            const flee = st(unit, 'flee');
+            if (!flee) return;
+            kit.setStatus(unit, 'flee', flee - 1);
+            if (flee === 1) kit.retireUnit(ctx, unit, 'fled');
+        },
+    },
+    report(event, kit) {
+        if (event.type === 'blast') kit.note(event.unitId, `自爆，波及对方全体 ${event.amount} 点伤害`);
+        else if (event.type === 'unit-leave' && event.reason === 'fled') kit.note(event.unitId, '趁乱撤离了战场');
     },
 });

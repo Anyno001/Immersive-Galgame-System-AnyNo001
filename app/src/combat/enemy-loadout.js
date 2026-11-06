@@ -39,6 +39,9 @@ export const ENEMY_AFFIXES = Object.freeze({
     // 规则 v5 P4b 分裂与复生（mechanics/foe-units.js）；复生只在有其他敌人存活时生效。
     split: affix('分裂', 'battle-start', [selfApply('split', 1)], { tiers: ['normal', 'boss'] }),
     revive: affix('不灭', 'battle-start', [selfApply('revive', 1)], { tiers: ['normal'] }),
+    // 规则 v5 P4b E17 自爆倒计时与限时撤离（mechanics/foe-units.js）；撤离按 D11 记胜利、不给战利品。
+    fuse: affix('自爆', 'battle-start', [selfApply('fuse', 3)], { tiers: ['normal'] }),
+    flee: affix('遁逃', 'battle-start', [selfApply('flee', 4)], { tiers: ['normal'] }),
 });
 
 // 补技能时可选的模板键 -> 技能名。

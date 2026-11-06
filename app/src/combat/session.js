@@ -594,6 +594,8 @@ const validBattleGrowth = (result) => result.battleGrowth === undefined
 // 战报条目（发件箱与聊天记录共用的精简形态）
 const reportItemOf = (report) => ({
     reportId: report.reportId, text: report.text, result: report.result, kind: 'report',
+    // 规则 v5 E17 / D11：敌人限时撤离的胜利不给战利品。
+    ...(report.noLoot === true ? { noLoot: true } : {}),
     ...(Array.isArray(report.used) && report.used.length && typeof report.character === 'string' && report.character
         ? { used: report.used.map((item) => ({ itemId: item.itemId, count: item.count })), character: report.character } : {}),
     ...(Array.isArray(report.wounds) && report.wounds.length
@@ -809,7 +811,8 @@ export function createCombatSession(options = {}) {
     // ---- 翻牌奖励 ----
     const currentReport = () => current.final || current.report || null;
     const currentResult = () => currentReport()?.result ?? (current.battle?.outcome === 'victory' ? 'win' : null);
-    const canFlip = () => !isChallenge(current) && (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win';
+    const noLootNow = () => currentReport()?.noLoot === true || current.battle?.noLoot === true;
+    const canFlip = () => !isChallenge(current) && (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win' && !noLootNow();
     const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text) });
 
     // 读取奖励候选并合并三处来源（内存记录、本地会话、聊天记录）里的已翻结果；同一战斗并发调用共用同一次读取
@@ -906,7 +909,7 @@ export function createCombatSession(options = {}) {
 
     // 发送战报前确认翻牌奖励：胜利且未领奖时，把选中的奖励追加进战报文本
     async function resolveLoot(report) {
-        if (report?.result !== 'win' || hasLoot(report.text)) return { ok: true, item: report };
+        if (report?.result !== 'win' || report.noLoot === true || current.battle?.noLoot === true || hasLoot(report.text)) return { ok: true, item: report };
         const loaded = await loadFlip();
         const flipState = current.flip;
         if (flipState?.status === 'none') return { ok: true, item: report };
@@ -1270,7 +1273,7 @@ export function createCombatSession(options = {}) {
                 const final = { ...reportItemOf(report), ...usedPart(current), ...woundPart(current) };
                 setState({ ...current, final });
                 finalWrite = saveResult(identityOf(current), final, current.battle);
-                if (final.result === 'win' && !isChallenge(current)) loadFlip().catch(() => {});
+                if (final.result === 'win' && final.noLoot !== true && !isChallenge(current)) loadFlip().catch(() => {});
             }
         }
         return ok({ events: end.events });

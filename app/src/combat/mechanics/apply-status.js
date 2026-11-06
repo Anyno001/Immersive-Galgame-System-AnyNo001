@@ -90,6 +90,9 @@ export const APPLY_STATUSES = Object.freeze({
     // 规则 v5 P4b E10 分裂、E11 复生（foe-units.js）。
     split: Object.freeze({ max: 1, value: 6 }),
     revive: Object.freeze({ max: 1, value: 6 }),
+    // 规则 v5 P4b E17 自爆与限时撤离（foe-units.js），层数为剩余回合数。
+    fuse: Object.freeze({ max: 5, value: 3 }),
+    flee: Object.freeze({ max: 5, value: 2 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

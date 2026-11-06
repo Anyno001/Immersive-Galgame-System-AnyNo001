@@ -523,6 +523,22 @@ function dismissUnit(ctx, unit) {
     emit(ctx, { type: 'minion-leave', unitId: unit.id, ownerId: unit.minionOf ?? null });
 }
 
+// 规则 v5 E17 自爆、限时撤离：单位离场（不发 defeated、不触发击杀），记 left = reason（'explode' / 'fled'），非爪牙照原规则由后备顶位；
+// 敌方撤离使本场不给战利品（D11，state.noLoot）。离场后按原规则判胜负；战斗已结束或单位已不在场时不动。
+function retireUnit(ctx, unit, reason) {
+    const state = ctx.state;
+    if (!(state.rulesVersion >= 5) || state.outcome || !unit?.alive) return false;
+    unit.alive = false;
+    unit.block = 0;
+    unit.left = reason;
+    delete state.intents[unit.id];
+    if (reason === 'fled' && unit.side === 'enemy') state.noLoot = true;
+    emit(ctx, { type: 'unit-leave', unitId: unit.id, reason });
+    reinforce(ctx, unit);
+    checkOutcome(ctx);
+    return true;
+}
+
 // 结算一次伤害，返回实际扣掉的生命。blockable 为假时无视格挡（中毒、自伤）。
 // source 是事件里的来源；kind 是 attack/thorns/poison/self。strike 是同一次攻击的序号。
 function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
@@ -708,7 +724,7 @@ const engineKit = (targets) => ({
         ctx.endTurnRequested = true;
     },
     // 规则 v5 E10–E13：运行时新增、移除与复活单位只经这些入口（mechanics/foe-units.js）。
-    summonUnit, dismissUnit, splitUnit, reviveUnit,
+    summonUnit, dismissUnit, splitUnit, reviveUnit, retireUnit,
 });
 
 // 单个效果的结算。source 记录来源（单位、种类、id），写进事件。

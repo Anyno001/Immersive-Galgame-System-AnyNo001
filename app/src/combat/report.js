@@ -22,6 +22,10 @@ const statusName = (status) => STATUS_NAMES[status] || statusLabel(status) || st
 
 const ENDING_TEXT = Object.freeze({ win: '终局：我方获胜。', lose: '终局：我方力竭落败。', escape: '终局：我方撤离战场，敌人仍在。' });
 const WIPE_TEXT = '终局：我方全员倒下，全队覆灭。';
+// 规则 v5 E17：有敌人限时撤离的胜利（D11 记为胜利但不给战利品）。
+const FLED_WIN_TEXT = '终局：我方获胜，但有敌人趁乱撤离。';
+// 规则 v5 离场单位（left）的伤势词。
+const LEFT_TEXT = Object.freeze({ split: '分裂', fled: '撤离', explode: '自爆' });
 
 // 觉醒类型 -> 名称（COMBAT_AWAKEN_TYPES 的反表）。
 export const AWAKEN_TYPE_NAMES = Object.freeze(Object.fromEntries(Object.entries(COMBAT_AWAKEN_TYPES).map(([name, type]) => [type, name])));
@@ -49,7 +53,7 @@ export function attachLoot(text, loot) {
 
 // 伤势描述：按剩余血量比例分档。
 export function injuryLevel(unit) {
-    if (unit?.left) return unit.left === 'split' ? '分裂' : '退场';
+    if (unit?.left) return LEFT_TEXT[unit.left] || '退场';
     if (!unit || !unit.alive || unit.hp <= 0) return '倒下';
     const ratio = unit.hp / unit.maxHp;
     return ratio >= 1 ? '无伤' : ratio > 0.6 ? '轻伤' : ratio > 0.3 ? '重创' : '濒死';
@@ -263,7 +267,7 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
         lines.push(...turns.map((turn) => describeTurn(turn, units, maxActions, firstAction, finalAction)));
     }
     const allyAlive = Object.values(units).some((unit) => unit.side === 'ally' && unit.alive);
-    const ending = result === 'lose' && state.wipe === true && !allyAlive ? WIPE_TEXT : ENDING_TEXT[result];
+    const ending = result === 'lose' && state.wipe === true && !allyAlive ? WIPE_TEXT : result === 'win' && state.noLoot === true ? FLED_WIN_TEXT : ENDING_TEXT[result];
     lines.push(`${ending}我方：${sideStatus(units, 'ally')}。敌方：${sideStatus(units, 'enemy')}。`);
     const reportId = reportIdFor(combatId);
     const expEach = result === 'win' ? Math.min(combatExpReward(enemyTiers), 1e3) : 0;
@@ -276,7 +280,8 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
         '</igs-combat-report>',
         ...expMarks,
     ].join('\n');
-    return { ok: true, text, result, reportId, exp };
+    // 规则 v5 E17 / D11：有敌人限时撤离的胜利不给战利品，标记随战报条目保存。
+    return { ok: true, text, result, reportId, exp, ...(result === 'win' && state.noLoot === true ? { noLoot: true } : {}) };
 }
 
 const REPORT_ID_PATTERN = /<igs-combat-report\b[^>]*\bid\s*=\s*"([^"]+)"/i;

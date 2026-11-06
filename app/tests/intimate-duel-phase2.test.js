@@ -2384,3 +2384,49 @@ test('分裂与复生词缀（E10、E11）：只在限定阶级出现；状态�
     assert.ok(describeEffects([onFoe('revive', 1)]).includes('不灭'));
 });
 
+// ---------- 规则 v5 P4b 子批 3：E17 自爆倒计时与限时撤离（D11） ----------
+const exitSetup = (status, rv) => battleOf({}, padded([]), foe(foeAttack(1), { maxHp: 10, ...selfStatus(status, 1) }), rv);
+
+test('自爆（E17）：倒计时在自己回合结束时归 0，对方全体受到等于自身当前生命的伤害后离场，不算倒下；无其余敌人即判胜；规则 v4 无效', () => {
+    const v5 = endTurn(exitSetup('fuse'));
+    const s = v5.state;
+    assert.deepEqual([s.outcome, s.units.hero.hp, s.units.foe.alive, s.units.foe.left, s.noLoot], ['victory', 19, false, 'explode', undefined]);
+    assert.ok(v5.events.some((e) => e.type === 'blast' && e.unitId === 'foe' && e.amount === 10));
+    assert.ok(v5.events.some((e) => e.type === 'unit-leave' && e.unitId === 'foe' && e.reason === 'explode'));
+    assert.equal(v5.events.some((e) => e.type === 'defeated' && e.unitId === 'foe'), false);
+    const report = buildCombatReport({ combatId: 'c-fuse', state: s, events: v5.events });
+    assert.deepEqual([report.ok, report.result, report.noLoot], [true, 'win', undefined]);
+    assert.ok(report.text.includes('她 自爆'), report.text);
+    const v4 = endTurn(exitSetup('fuse', 4));
+    assert.deepEqual([v4.state.outcome, v4.state.units.hero.hp, v4.state.units.foe.alive], [null, 29, true]);
+});
+
+test('限时撤离（E17 / D11）：遁逃归 0 时敌人撤离，记为胜利但战报带 noLoot、终局写有敌人撤离；规则 v4 无效', () => {
+    const v5 = endTurn(exitSetup('flee'));
+    const s = v5.state;
+    assert.deepEqual([s.outcome, s.units.hero.hp, s.units.foe.left, s.noLoot], ['victory', 29, 'fled', true]);
+    assert.ok(v5.events.some((e) => e.type === 'unit-leave' && e.reason === 'fled'));
+    const report = buildCombatReport({ combatId: 'c-flee', state: s, events: v5.events });
+    assert.deepEqual([report.ok, report.result, report.noLoot], [true, 'win', true]);
+    assert.ok(report.text.includes('有敌人趁乱撤离'), report.text);
+    assert.ok(report.text.includes('她 撤离'), report.text);
+    const v4 = endTurn(exitSetup('flee', 4));
+    assert.deepEqual([v4.state.outcome, v4.state.units.foe.alive, v4.state.noLoot], [null, true, undefined]);
+});
+
+test('自爆与遁逃词缀（E17）：只在普通阶级出现；状态有显示名', async () => {
+    const { enemyAffixes } = await import('../src/combat/enemy-loadout.js');
+    const seen = new Set();
+    for (const tier of ['normal', 'elite', 'boss']) {
+        for (let i = 0; i < 80; i += 1) {
+            for (const a of enemyAffixes({ id: `e${i}`, tier }, 'nightmare')) {
+                seen.add(`${a.id}:${tier}`);
+                if (a.id === 'af-fuse' || a.id === 'af-flee') assert.equal(tier, 'normal', `${a.id}:${tier}`);
+            }
+        }
+    }
+    assert.ok(seen.has('af-fuse:normal') && seen.has('af-flee:normal'));
+    assert.ok(describeEffects([onFoe('fuse', 2)]).includes('自爆'));
+    assert.ok(describeEffects([onFoe('flee', 2)]).includes('遁逃'));
+});
+
