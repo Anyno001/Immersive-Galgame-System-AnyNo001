@@ -133,9 +133,9 @@ export function cardSlotView(card, hero, rulesVersion) {
     return finish(value, baseValue, main.target === 'all-enemies' ? '群伤' : '伤害', Number(main.hits) || 1, parts);
 }
 
-// 关键字单字（窄签印记用）与优先级：窄签只露一枚，不能打出 > 消耗 > 虚无 > 保留 > 固有；临时已有虚线框，窄签不再标。
-export const KEYWORD_CHAR = Object.freeze({ 不能打出: '禁', 消耗: '耗', 虚无: '虚', 保留: '留', 固有: '固', 临时: '临' });
-export const KEYWORD_PRIORITY = Object.freeze(['不能打出', '消耗', '虚无', '保留', '固有']);
+// 关键字单字（窄签印记用）与优先级：窄签只露一枚，不能打出 > 规则 v5 E19 牌面附着（绑定、痛刺、受创）> 消耗 > 虚无 > 保留 > 固有；临时已有虚线框，窄签不再标。
+export const KEYWORD_CHAR = Object.freeze({ 不能打出: '禁', 绑定: '绑', 痛刺: '刺', 受创: '创', 消耗: '耗', 虚无: '虚', 保留: '留', 固有: '固', 临时: '临' });
+export const KEYWORD_PRIORITY = Object.freeze(['不能打出', '绑定', '痛刺', '受创', '消耗', '虚无', '保留', '固有']);
 // 关键字点开的解释（不带句号）；不能打出字面自明，这里仍给一句，供单字印记点开。
 export const KEYWORD_NAME_TIPS = Object.freeze({
     不能打出: '不能打出：这张牌不能被打出', 消耗: KEYWORD_TIPS.exhaust, 虚无: KEYWORD_TIPS.ethereal, 保留: KEYWORD_TIPS.retain, 固有: KEYWORD_TIPS.innate, 临时: KEYWORD_TIPS.temp,
@@ -362,10 +362,11 @@ export function battleView(state, legal = [], { challenge = false } = {}) {
             ...cardSlotView(card, hero, state.rulesVersion), keywordNames: cardKeywordNames(card),
         };
     }).filter(Boolean);
-    // 同名张数：手牌里同 id 且同升级状态的张数，至少 2 张才给 stack。
+    // 同名张数：手牌里同 id、同升级状态且同牌面附着（规则 v5 E19）的张数，至少 2 张才给 stack。
     const sameCount = new Map();
-    for (const c of hand) { const k = `${c.id}|${c.upgraded ? 1 : 0}`; sameCount.set(k, (sameCount.get(k) || 0) + 1); }
-    for (const c of hand) { const n = sameCount.get(`${c.id}|${c.upgraded ? 1 : 0}`); if (n >= 2) c.stack = n; }
+    const stackKey = (c) => `${c.id}|${c.upgraded ? 1 : 0}|${(state.cards[c.inst]?.marks || []).join(',')}`;
+    for (const c of hand) { const k = stackKey(c); sameCount.set(k, (sameCount.get(k) || 0) + 1); }
+    for (const c of hand) { const n = sameCount.get(stackKey(c)); if (n >= 2) c.stack = n; }
     const side = (s) => state.order.filter((id) => state.units[id].side === s).map((id) => unitView(state, id, challenge));
     // 人物技能：可用与否只看 legal 里的 hero-skill 动作；旧档案没有技能时为 null。
     const skillActs = legal.filter((a) => a.type === 'hero-skill' && a.skillId === undefined);

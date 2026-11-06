@@ -286,9 +286,25 @@ const RES_PREVIEW = {
 };
 RES_PREVIEW.all = Object.assign({}, RES_PREVIEW.mage, RES_PREVIEW.bard, RES_PREVIEW.priest, RES_PREVIEW.warrior, RES_PREVIEW.summoner);
 const resPreview = RES_PREVIEW[new URLSearchParams(location.search).get('res') || ''] || null;
-const combatSession = !resPreview ? combatPreview.session : { ...combatPreview.session, state() {
-  const st = combatPreview.session.state(); const b = st.battle; const id = b && b.controlledId;
-  return b && b.units && b.units[id] ? { ...st, battle: { ...b, units: { ...b.units, [id]: { ...b.units[id], res: { ...b.units[id].res, ...resPreview } } } } } : st;
+// ?marks=1：给主战者手牌前五张依次挂规则 v5 E19 牌面附着（绑定、加费、痛刺、虚无、受创），只改面板读到的快照，用于看牌面关键字；可与 ?res= 同用。
+const MARK_PREVIEW = ['bound', 'taxed', 'pain', 'ethereal', 'scar'];
+const marksPreview = new URLSearchParams(location.search).get('marks') === '1';
+const previewBattle = (b) => {
+  const id = b && b.controlledId;
+  if (!b || !b.units || !b.units[id]) return b;
+  let next = b;
+  if (resPreview) next = { ...next, units: { ...next.units, [id]: { ...next.units[id], res: { ...next.units[id].res, ...resPreview } } } };
+  const hand = marksPreview ? (next.piles?.[id]?.hand || []) : [];
+  if (hand.length) {
+    const cards = { ...next.cards };
+    hand.slice(0, MARK_PREVIEW.length).forEach((inst, i) => { cards[inst] = { ...cards[inst], marks: [MARK_PREVIEW[i]] }; });
+    next = { ...next, cards };
+  }
+  return next;
+};
+const combatSession = !resPreview && !marksPreview ? combatPreview.session : { ...combatPreview.session, state() {
+  const st = combatPreview.session.state();
+  return st.battle ? { ...st, battle: previewBattle(st.battle) } : st;
 } };
 // ?skin=<皮肤键>（veil comic ink tech mystic soft-a soft-c dark-a dark-b initial）：换战斗面板皮肤，缺省黑幕。
 const combat = createCombatPanelController(document, { getSession: () => combatSession, getLedger: () => combatPreview.ledger, skin: () => new URLSearchParams(location.search).get('skin') || '' });
