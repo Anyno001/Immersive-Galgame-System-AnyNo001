@@ -100,7 +100,7 @@ import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
-const IGS_VERSION = '0.39.58';
+const IGS_VERSION = '0.39.59';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -512,13 +512,13 @@ export function bootstrapIGS(options = {}) {
                 const mode = (status && (status.buildMode || status.pendingMode)) || null;
                 const built = buildInitialState(payload.build, { worldview: payload.worldview, mode });
                 if (!built.ok) return { ok: false, reason: built.reason };
-                if (!built.manual) return app.statsRuntime.enableForChat({ initial: built.state });
+                if (!built.manual) return app.statsRuntime.enableForChat({ initial: built.state, skillAttributes: built.summary.attributes });
                 // 手动建档：先把主角六维与职业写进战斗表，成功后再启用数值系统。
                 const heroName = (typeof illustrationMessageHost.getUserName === 'function' && String(illustrationMessageHost.getUserName() || '').trim()) || '主角';
                 return Promise.resolve().then(() => combatServices.writeManualInit(heroName, built.manual))
                     .then((written) => (!written || written.ok !== true
                         ? { ok: false, reason: (written && written.reason) || 'combat-init-write-failed' }
-                        : app.statsRuntime.enableForChat({ initial: built.state, buildMode: 'manual' })),
+                        : app.statsRuntime.enableForChat({ initial: built.state, buildMode: 'manual', skillAttributes: built.summary.attributes })),
                     () => ({ ok: false, reason: 'combat-init-write-failed' }));
             }
             return app.statsRuntime.enableForChat();

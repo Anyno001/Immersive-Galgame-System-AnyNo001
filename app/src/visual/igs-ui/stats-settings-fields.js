@@ -1,7 +1,7 @@
 // 数值系统提示词编辑（§9）：每段一个可编辑模板，可单独关闭，可恢复默认；阶段文案同样可改。
 // 留空表示使用默认值（默认值作为占位提示显示），整块默认折叠在高级分区里。
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
-import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_GOOD_VALUE, BUILD_PICK_SLOTS, BUILD_STRONG_VALUE, buildSummary, manualBuildSummary, normalizeBuild, pickCandidates, pickSummary } from '../../scene/stats/stat-build.js';
+import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_CUSTOM_OPTION, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_GOOD_VALUE, BUILD_PICK_SLOTS, BUILD_STRONG_VALUE, buildSummary, manualBuildSummary, groupPickCandidates, normalizeBuild, pickSummary } from '../../scene/stats/stat-build.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abilities.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
@@ -132,9 +132,23 @@ function pickNote(errors = [], ruleset = 'coc7') {
 // 擅长 3 格、比较擅长 5 格：下拉写设置草稿 bridge.stats.build.picks.<格>，建卡与新聊天选择共用。
 export function renderSkillPicks(build, ruleset = 'coc7') {
     const b = normalizeBuild(build);
-    const items = [['', '未选'], ...pickCandidates(b).map((name) => [name, name])];
+    const { custom, groups } = groupPickCandidates(b);
+    const taken = new Set(BUILD_PICK_SLOTS.map((slot) => b.picks[slot]).filter(Boolean));
     const label = (slot) => `${slot.startsWith('strong') ? '擅长' : '比较擅长'}${'一二三四五'[Number(slot.replace(/\D/g, '')) - 1]}`;
-    const grid = BUILD_PICK_SLOTS.map((slot) => field(`bridge.stats.build.picks.${slot}`, label(slot), selectInput(`bridge.stats.build.picks.${slot}`, b.picks[slot], items))).join('');
+    // 其他格已选的技能在本格下拉里置灰（仍显示）；「自定义…」选中后弹框填名字与所属六维。
+    const canAddCustom = b.custom.length < BUILD_CUSTOM_MAX;
+    const select = (slot) => {
+        const path = `bridge.stats.build.picks.${slot}`;
+        const option = (name) => {
+            const off = taken.has(name) && b.picks[slot] !== name;
+            return `<option value="${esc(name)}"${name === b.picks[slot] ? ' selected' : ''}${off ? ' disabled' : ''}>${esc(name)}</option>`;
+        };
+        // 顺序：未选 → 自定义… → 已建自定义技能 → 按类分组。
+        const options = [`<option value="">未选</option>`, ...(canAddCustom ? [`<option value="${BUILD_CUSTOM_OPTION}">自定义…</option>`] : []), ...custom.map(option),
+            ...groups.map((g) => `<optgroup label="${esc(g.label)}">${g.items.map(option).join('')}</optgroup>`)].join('');
+        return `<select data-path="${esc(path)}" data-stats-pick-slot="${slot}">${options}</select>`;
+    };
+    const grid = BUILD_PICK_SLOTS.map((slot) => field(`bridge.stats.build.picks.${slot}`, label(slot), select(slot))).join('');
     return `<div class="igs-source-filter-note" data-result="stats-build-special" data-stats-ruleset="${esc(ruleset)}">${esc(pickNote(pickSummary(b).errors, ruleset))}</div><div class="igs-source-filter-grid">${grid}</div>`;
 }
 
@@ -149,6 +163,12 @@ export function refreshStatsBuildStatus(root, build, worldview) {
     const notes = typeof root.querySelectorAll === 'function' ? root.querySelectorAll('[data-result="stats-build-special"]') : [];
     const errors = pickSummary(build).errors;
     for (const note of notes) note.textContent = pickNote(errors, (typeof note.getAttribute === 'function' && note.getAttribute('data-stats-ruleset')) || 'coc7');
+    // 技能格去重：按各下拉当前值，同步其余下拉里已被占用的选项（不整页重绘）。
+    const selects = typeof root.querySelectorAll === 'function' ? [...root.querySelectorAll('select[data-stats-pick-slot]')] : [];
+    const chosen = selects.map((el) => el.value).filter(Boolean);
+    for (const el of selects) {
+        for (const option of el.options || []) option.disabled = Boolean(option.value) && option.value !== BUILD_CUSTOM_OPTION && option.value !== el.value && chosen.includes(option.value);
+    }
     const button = root.querySelector('[data-action="stats-chat-enable-build"]');
     if (button) button.disabled = !st.ok;
     const pick = root.querySelector('[data-action="stats-op:hero-pick"]');

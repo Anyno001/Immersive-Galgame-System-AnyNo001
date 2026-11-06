@@ -18,6 +18,8 @@ export const BUILD_PICK_SLOTS = Object.freeze([
     ...Array.from({ length: BUILD_GOOD_COUNT }, (_, i) => `good${i + 1}`),
 ]);
 export const BUILD_CUSTOM_MAX = 8;
+// 下拉末尾的「自定义…」选项值：只触发弹框，不会写进设置。
+export const BUILD_CUSTOM_OPTION = '__custom__';
 // 默认：原来的 8 项日常技能，前 3 项擅长、后 5 项比较擅长。
 const DEFAULT_PICKS = Object.freeze(Object.fromEntries(BUILD_PICK_SLOTS.map((slot, i) => [slot, DEFAULT_SPECIAL_SKILLS[i] || ''])));
 const slotValue = (slot) => (slot.startsWith('strong') ? BUILD_STRONG_VALUE : BUILD_GOOD_VALUE);
@@ -49,6 +51,14 @@ function normalizeCustom(raw) {
     return out;
 }
 
+// 自定义技能所属六维：{ 名字: 六维之一 }，只留 build.custom 里有的名字；没写的在登记时按敏捷。
+function normalizeCustomAttrs(raw, custom) {
+    const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const out = {};
+    for (const name of custom) if (BASE_ATTRIBUTES.includes(src[name])) out[name] = src[name];
+    return out;
+}
+
 // 倾向三项：认得出的用，认不出的补默认职业的倾向（可能重复，由 buildSummary 报错）。
 function normalizePrefFields(raw) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -60,6 +70,39 @@ function normalizePrefFields(raw) {
 export function pickCandidates(build) {
     const custom = build && Array.isArray(build.custom) ? normalizeCustom(build.custom) : [];
     return [...new Set([...DEFAULT_SPECIAL_SKILLS, ...CORE_SKILL_NAMES, ...custom])];
+}
+
+// 下拉分组（成员表由本文件维护；未列入的候选落「其他」，测试断言内置候选不会落进「其他」）。
+export const SKILL_GROUPS = Object.freeze([
+    ['日常', ['烹饪', '家务', '学习', '运动', '艺术', '话术', '照顾', '应变']],
+    ['生活', ['穿搭', '化妆', '园艺', '照顾宠物', '酒量', '带娃', '记路', '修理', '游戏', '棋牌', '按摩', '驾驶']],
+    ['才艺', ['唱歌', '舞蹈', '摄影', '写作', '手工', '讲故事', '调酒']],
+    ['社交', ['恐吓', '魅惑', '安抚', '八卦', '撒娇', '砍价', '演讲']],
+    ['调查', ['侦查', '聆听', '察言观色', '查资料', '追踪', '记忆']],
+    ['身手', ['潜行', '闪避', '攀爬', '格斗', '射击', '投掷', '跳跃', '开锁']],
+    ['专业', ['医术', '电脑', '法律', '财务', '外语', '鉴定']],
+    ['歪门邪道', ['撒谎', '勒索', '挑拨', '造谣', '装可怜', '甩锅', '画大饼', '道德绑架', '套话', '拍马屁', '煽动', '精神控制', '下药', '伪造', '诈骗', '销毁证据', '黑话', '尾随', '偷拍', '作弊', '开溜', '赌博', '看人下菜碟', '装病', '下黑手', '顺手牵羊', '伪装']],
+]);
+export const SKILL_GROUP_OTHER = '其他';
+
+// 技能名按类分组：不在任何分组里的落「其他」，空组不返回。
+export function groupSkillNames(names) {
+    const placed = new Set();
+    const groups = SKILL_GROUPS.map(([label, members]) => {
+        const items = members.filter((name) => names.includes(name));
+        items.forEach((name) => placed.add(name));
+        return { label, items };
+    });
+    const rest = names.filter((name) => !placed.has(name));
+    if (rest.length) groups.push({ label: SKILL_GROUP_OTHER, items: rest });
+    return groups.filter((g) => g.items.length);
+}
+
+// 下拉候选：已建的自定义技能单独列在前面，其余内置候选按类分组。
+export function groupPickCandidates(build) {
+    const b = build && Array.isArray(build.custom) ? build : normalizeBuild(build);
+    const custom = normalizeCustom(b.custom);
+    return { custom, groups: groupSkillNames(pickCandidates({ custom }).filter((name) => !custom.includes(name))) };
 }
 
 // 旧设置 build.special（开关，最多 3 项）迁成擅长格，比较擅长格补默认里没被占用的。
@@ -99,7 +142,8 @@ export function normalizeBuild(raw) {
     }));
     const role = Object.hasOwn(COMBAT_RULES.archetypes, src.role) ? src.role : DEFAULT_ROLE;
     const className = typeof src.className === 'string' ? src.className.trim().slice(0, CLASS_NAME_MAX) : '';
-    return { prefs, picks, custom, scores, role, className };
+    const customAttrs = normalizeCustomAttrs(src.customAttrs, custom);
+    return { prefs, picks, custom, customAttrs, scores, role, className };
 }
 
 // 选技能汇总：{ 技能: 起始值 }；擅长三格必须选满，同一技能不能占两格。
@@ -114,7 +158,9 @@ export function pickSummary(build) {
         skills[name] = slotValue(slot);
     }
     const unique = [...new Set(errors)];
-    return { skills, picked: Object.keys(skills), errors: unique, ok: unique.length === 0 };
+    // 已选的自定义技能带上所属六维，建卡或选技能时据此登记。
+    const attributes = Object.fromEntries(Object.keys(skills).filter((name) => Object.hasOwn(b.customAttrs, name)).map((name) => [name, b.customAttrs[name]]));
+    return { skills, attributes, picked: Object.keys(skills), errors: unique, ok: unique.length === 0 };
 }
 
 // 倾向建卡（自动 / 相对数值）的汇总：倾向三项须互不相同，技能格见 pickSummary。
@@ -122,7 +168,7 @@ export function buildSummary(build) {
     const b = normalizeBuild(build);
     const p = pickSummary(b);
     const errors = [...(normalizePrefs(b.prefs) ? [] : ['stats-build-prefs-duplicate']), ...p.errors];
-    return { prefs: b.prefs, picked: p.picked, skills: p.skills, errors, ok: errors.length === 0 };
+    return { prefs: b.prefs, picked: p.picked, skills: p.skills, attributes: p.attributes, errors, ok: errors.length === 0 };
 }
 
 // 手动六维建卡的汇总：单项 3–18、合计不超过 72。
@@ -132,7 +178,7 @@ export function manualBuildSummary(build) {
     const valid = normalizeManualScores(b.scores);
     const p = pickSummary(b);
     const errors = [...(valid ? [] : [total > MANUAL_TOTAL ? 'stats-build-over-total' : 'stats-build-score-range']), ...p.errors];
-    return { scores: b.scores, total, max: MANUAL_TOTAL, left: MANUAL_TOTAL - total, prefs: valid ? prefsFromScores(valid) : null, role: b.role, className: b.className, picked: p.picked, skills: p.skills, errors, ok: errors.length === 0 };
+    return { scores: b.scores, total, max: MANUAL_TOTAL, left: MANUAL_TOTAL - total, prefs: valid ? prefsFromScores(valid) : null, role: b.role, className: b.className, picked: p.picked, skills: p.skills, attributes: p.attributes, errors, ok: errors.length === 0 };
 }
 
 const skillTableOf = (values) => Object.fromEntries(Object.entries(values).map(([name, value]) => [name, { value, marked: false }]));

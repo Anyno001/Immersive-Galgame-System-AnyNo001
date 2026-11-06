@@ -1188,7 +1188,7 @@ export function createStatsRuntime({
     }
 
     // 本聊天启用。数据库里还没有数值表时先建表再重试一次（creating 防重入）。
-    function enableForChat({ initial, buildMode: pickedMode } = {}) {
+    function enableForChat({ initial, buildMode: pickedMode, skillAttributes } = {}) {
         ensureLoaded(true);
         if (unavailable) return { ok: false, reason: unavailable };
         if (blocked) return { ok: false, reason: blocked };
@@ -1205,12 +1205,13 @@ export function createStatsRuntime({
                 return Promise.resolve().then(() => t.ensure()).then((made) => {
                     if (!made || made.ok !== true) { diag('stats-log-create-failed', { reason: made && made.reason }); return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' }; }
                     load();
-                    return enableForChat({ initial, buildMode: pickedMode });
+                    return enableForChat({ initial, buildMode: pickedMode, skillAttributes });
                 }, () => ({ ok: false, reason: 'stats-log-create-failed' })).finally(() => { creating = false; });
             }
             // 直接启用（快速开始、自动启用）不送技能，「我的角色」里提示选擅长技能（3+5）。
             ledger = createStatsLedger(chatId, initial || createStatsState({ skills: [] }));
             extra.push(initRecord(ledger.initial, { createdAt: Date.now() }));
+            registerCustomSkills(skillAttributes);
         }
         chatEnabled = true;
         const mode = normalizeBuildMode(pickedMode) || (modePending ? modeDefault : null);
@@ -1268,9 +1269,17 @@ export function createStatsRuntime({
         setNotice('hero-pick', offer ? { kind: 'onboarding', text: '主角技能：请选3项擅长、5项比较擅长', actions: [['open', '去选择'], ['later', '稍后']] } : null);
     }
 
-    // 选擅长技能：skills 为 { 技能: 起始值 }（pickSummary 的结果），写进底数层；之后成长、手改照常叠加。
-    function pickHeroSkills(skills) {
+    // 建卡里玩家自定义的技能：注册表认不得的名字按所选六维登记成剧情技能；已认得的（内置或已登记）沿用原条目。
+    function registerCustomSkills(attributes) {
+        for (const [name, attribute] of Object.entries(attributes && typeof attributes === 'object' ? attributes : {})) {
+            if (!engineOf().registry.resolve(name)) commitSkill(name, { attribute });
+        }
+    }
+
+    // 选擅长技能：skills 为 { 技能: 起始值 }（pickSummary 的结果），写进底数层；之后成长、手改照常叠加。attributes 为自定义技能所选六维。
+    function pickHeroSkills(skills, attributes) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        registerCustomSkills(attributes);
         const engine = engineOf();
         // 只收注册表里认得的技能（内置或自定义已登记的）；自定义新名先登记成剧情技能。
         const entries = Object.entries(skills || {}).filter(([, v]) => Number(v) > 0)
@@ -1616,7 +1625,7 @@ export function createStatsRuntime({
     function heroOp(op, name, payload = {}) {
         if (op === 'set') return setHeroSkill(name, payload.value);
         if (op === 'edit') return editHeroSkill(name, payload.tier);
-        if (op === 'pick') return pickHeroSkills(payload.skills);
+        if (op === 'pick') return pickHeroSkills(payload.skills, payload.attributes);
         if (op === 'attrs') return { ok: true, attrs: heroAttrs() };
         if (op === 'assign') return assignHeroSkills({ overwrite: payload.overwrite === true });
         return { ok: false, reason: 'stats-hero-op-unknown' };

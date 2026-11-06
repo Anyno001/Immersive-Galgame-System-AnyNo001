@@ -123,6 +123,9 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         // 数字表单：每项一个数字框，填的值记在 entry.fields[i].value，重绘补回时保留。
         let numberInputs = [];
         let numberError = null;
+        let totalNote = null;
+        // 合计行（可选 labels.total）：随输入实时刷新，超出上限时保存键禁用；没有合计行时是空操作。
+        let syncTotal = () => {};
         if (entry.kind === 'numbers') {
             // 沿用设置器的字段样式：两列网格，每项「名称 + 数字框」，与「我的角色」技能值同一写法。
             const grid = doc.createElement('div');
@@ -140,7 +143,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 box.step = '1';
                 box.value = field.value;
                 box.setAttribute('aria-label', name.textContent);
-                box.addEventListener('input', () => { field.value = box.value; box.removeAttribute('aria-invalid'); });
+                box.addEventListener('input', () => { field.value = box.value; box.removeAttribute('aria-invalid'); syncTotal(); });
                 wrap.append(name, box);
                 grid.appendChild(wrap);
                 return box;
@@ -150,6 +153,12 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             numberError.className = 'igs-source-filter-note';
             numberError.hidden = true;
             el.appendChild(numberError);
+            if (entry.total) {
+                totalNote = doc.createElement('div');
+                totalNote.className = 'igs-source-filter-note';
+                totalNote.setAttribute('data-result', 'dialog-total');
+                el.appendChild(totalNote);
+            }
         }
         let current = null;
         // 下拉式选择：一个下拉框加确定 / 取消，选项少而说明短时比一排大按钮清爽。
@@ -225,6 +234,16 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             actions.appendChild(btn);
         }
         if (buttons.length) el.appendChild(actions);
+        if (totalNote) {
+            const okButton = actions.querySelector('[data-settings-dialog="ok"]');
+            syncTotal = () => {
+                const total = entry.fields.reduce((sum, field) => sum + (Number.isFinite(Number(field.value)) ? Math.round(Number(field.value)) : 0), 0);
+                const left = entry.total.max - total;
+                totalNote.textContent = entry.total.note(left, total);
+                if (okButton) okButton.disabled = left < 0;
+            };
+            syncTotal();
+        }
         const picked = () => entry.choices.map((choice) => choice.value).filter((value) => entry.selected.has(value));
         const syncPick = () => {
             for (const btn of el.querySelectorAll('[data-settings-dialog="toggle"]')) {
@@ -249,6 +268,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 }
                 values[field.key] = v;
             }
+            if (entry.total && Object.values(values).reduce((sum, v) => sum + v, 0) > entry.total.max) return;
             settle(entry, values);
         };
         const accept = () => entry.kind === 'numbers' ? acceptNumbers() : settle(entry, entry.kind === 'pick' ? picked() : entry.kind === 'confirm' || entry.kind === 'alert' ? true : (input ? input.value : entry.value));
@@ -321,6 +341,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 fields,
                 selected: new Set(selected),
                 dropdown: kind === 'choose' && labels.dropdown === true,
+                total: kind === 'numbers' && labels.total && Number.isFinite(Number(labels.total.max)) && typeof labels.total.note === 'function' ? { max: Number(labels.total.max), note: labels.total.note } : null,
                 resolve,
                 el: null,
             };
@@ -353,6 +374,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             .map((item) => ({ value: String(item && item.value != null ? item.value : ''), label: String(item && item.label != null ? item.label : item && item.value), note: String((item && item.note) || '') }))
             .filter((item) => item.value), (Array.isArray(selected) ? selected : []).map(String)),
         // 数字表单：fields 为 [{ key, label, value, min, max }]；确定返回 { key: 整数 }（全部项），取消返回 null。
+        // labels.total = { max, note(剩余, 合计) => 文案 } 时多一行实时合计，合计超过 max 则保存键禁用。
         numbers: (message, fields = [], labels) => open('numbers', message, '', labels || {}, [], [], (Array.isArray(fields) ? fields : [])
             .map((f) => ({ key: String(f && f.key || ''), label: String(f && (f.label || f.key) || ''), value: f && f.value != null ? String(f.value) : '', min: Number(f && f.min), max: Number(f && f.max) }))
             .filter((f) => f.key && Number.isFinite(f.min) && Number.isFinite(f.max))),

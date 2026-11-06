@@ -51,7 +51,7 @@ import { preserveConfiguredArtists } from '../../generated-images/artist-library
 import { pickImagePromptFile } from './settings-image-prompt-io.js';
 import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
-import { normalizeBuild, pickSummary } from '../../scene/stats/stat-build.js';
+import { BUILD_CUSTOM_OPTION, normalizeBuild, pickSummary } from '../../scene/stats/stat-build.js';
 import { refreshStatsBuildStatus } from './stats-settings-fields.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL } from '../../combat/abilities.js';
 import { BATTLE_MODE_PATH, COMBAT_PRESET_PATH, checkCombatExpansionReady, planBattleMode, planCombatPreset } from './combat-settings.js';
@@ -712,7 +712,7 @@ export function createSettingsHost(deps) {
                 // 选擅长技能：读设置草稿里的 8 格（与建卡同一份），确定后写进本聊天。
                 const draftBuild = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge && state.activeSettings.draft.bridge.stats && state.activeSettings.draft.bridge.stats.build;
                 const picked = pickSummary(draftBuild);
-                result = picked.ok ? await op('hero', 'pick', '', { skills: picked.skills }) : { ok: false, reason: picked.errors[0] };
+                result = picked.ok ? await op('hero', 'pick', '', { skills: picked.skills, attributes: picked.attributes }) : { ok: false, reason: picked.errors[0] };
             }
             else if (kind === 'hero-attrs') {
                 // 修改属性：六维底数 3–18、合计不超过 72；剧情与升级加的点另算，不受这个上限。
@@ -720,7 +720,7 @@ export function createSettingsHost(deps) {
                 const attrs = read && read.attrs;
                 if (!attrs) result = { ok: false, reason: 'combat-attribute-table-missing' };
                 else {
-                    const values = await settingsDialogs.numbers(`修改属性（单项${MANUAL_BUILD.min}–${MANUAL_BUILD.max}，合计不超过${MANUAL_TOTAL}）`, ABILITY_KEYS.map((key) => ({ key, label: ABILITY_LABELS[key], value: attrs.base[key], min: MANUAL_BUILD.min, max: MANUAL_BUILD.max })), { okLabel: '保存' });
+                    const values = await settingsDialogs.numbers(`修改属性（单项${MANUAL_BUILD.min}–${MANUAL_BUILD.max}，合计不超过${MANUAL_TOTAL}）`, ABILITY_KEYS.map((key) => ({ key, label: ABILITY_LABELS[key], value: attrs.base[key], min: MANUAL_BUILD.min, max: MANUAL_BUILD.max })), { okLabel: '保存', total: { max: MANUAL_TOTAL, note: (left, total) => (left < 0 ? `超出 ${-left} 点 · 合计 ${total}/${MANUAL_TOTAL}` : `剩余 ${left} 点 · 合计 ${total}/${MANUAL_TOTAL}`) } });
                     if (!values) result = { ok: true, cancelled: true };
                     else {
                         const scores = Object.fromEntries(ABILITY_KEYS.map((key) => [key, Math.round(Number(values[key]))]));
@@ -1615,6 +1615,12 @@ export function createSettingsHost(deps) {
                 return;
             }
             const path = event.target && event.target.getAttribute ? event.target.getAttribute('data-path') : '';
+            // 3+5 技能下拉选了「自定义…」：不写草稿，交给弹框流程（取消时重绘恢复原值）。
+            const pickSlot = target?.getAttribute?.('data-stats-pick-slot');
+            if (pickSlot && target.value === BUILD_CUSTOM_OPTION) {
+                controller.invoke(`stats-build-pick-custom:${pickSlot}`);
+                return;
+            }
             if (path) noteRecentChange(target, path);
             if (event.target && event.target.type === 'range' && !/^readerSettings\.(typewriter\.sound|statusHud\.position)\./.test(path || '')) return;
             if (!path) return;

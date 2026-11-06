@@ -8,10 +8,10 @@ import { DEFAULT_SPECIAL_SKILLS } from '../src/scene/stats/stat-state.js';
 
 test('世界观技能另外算：不进 3+5 下拉候选，建卡默认技能不变', () => {
     assert.deepEqual(worldSkillNames('modern'), []);
-    assert.ok(worldSkillNames('magic').includes('咒语'));
+    assert.ok(worldSkillNames('magic').includes('魔法'));
     const c = pickCandidates(undefined);
     assert.deepEqual(c.slice(0, 8), [...DEFAULT_SPECIAL_SKILLS]);
-    assert.equal(c.includes('咒语'), false);
+    assert.equal(c.includes('魔法'), false);
     assert.deepEqual(buildSummary(undefined).picked.slice(0, 3), ['烹饪', '家务', '学习']);
 });
 
@@ -35,7 +35,7 @@ test('建卡区渲染：擅长 3 格、比较擅长 5 格下拉；提示按骰�
     assert.match(html, /<span>擅长一<\/span>/);
     assert.match(html, /<span>比较擅长五<\/span>/);
     assert.match(html, /<option value="钓鱼">钓鱼<\/option>/);
-    assert.doesNotMatch(html, /<option value="咒语">/);
+    assert.doesNotMatch(html, /<option value="魔法">/);
     assert.match(html, /擅长技能60起步/);
     assert.match(renderStatsBuildFields(undefined, () => '', { ruleset: 'dnd5e' }), /全额熟练加值/);
     assert.match(html, /class="igs-settings-field igs-stats-custom-row"/);

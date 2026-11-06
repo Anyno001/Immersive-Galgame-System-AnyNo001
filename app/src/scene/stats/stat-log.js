@@ -5,6 +5,7 @@ import { hash32 } from '../../combat/random.js';
 import { BUILD_CHOICES, BUILD_MODES, abilityKeyOf } from '../../combat/abilities.js';
 import { STATS_LOG_MAX, createStatsLedger, currentStatsState, ledgerKey } from './stat-ledger.js';
 import { deserializeLedger, sanitizeCatalog, sanitizeLearned } from './stat-persist.js';
+import { LEGACY_SKILL_MAP, mergeLegacyValue } from './stat-registry.js';
 
 export { BUILD_CHOICES, BUILD_MODES };
 
@@ -60,10 +61,38 @@ function applyOne(node, path, op) {
     return next;
 }
 
+// 旧技能名（妙手）的主角技能值读出时落到新名：路径 [protagonist, skills, 旧名, …] 改写成新名，不改写存档本身。
+function legacyPath(path) {
+    if (path.length >= 3 && path[0] === 'protagonist' && path[1] === 'skills' && Object.hasOwn(LEGACY_SKILL_MAP, path[2])) return ['protagonist', 'skills', LEGACY_SKILL_MAP[path[2]], ...path.slice(3)];
+    return path;
+}
+
+export function migrateLegacySkills(state) {
+    const skills = isObject(state) && isObject(state.protagonist) ? state.protagonist.skills : null;
+    if (!isObject(skills) || !Object.keys(skills).some((k) => Object.hasOwn(LEGACY_SKILL_MAP, k))) return state;
+    const next = {};
+    for (const [k, v] of Object.entries(skills)) {
+        const name = LEGACY_SKILL_MAP[k] || k;
+        next[name] = Object.hasOwn(next, name) ? mergeLegacyValue(next[name], v, name === k) : v;
+    }
+    return { ...state, protagonist: { ...state.protagonist, skills: next } };
+}
+
 // 把差分套到状态上（浅拷贝沿路径，不改入参）。
 export function applyOps(state, ops) {
     let current = state;
-    for (const op of Array.isArray(ops) ? ops : []) if (op && Array.isArray(op.p)) current = applyOne(current, op.p, op);
+    for (const op of Array.isArray(ops) ? ops : []) {
+        if (!op || !Array.isArray(op.p)) continue;
+        const path = legacyPath(op.p);
+        let write = op;
+        // 旧名改写到新名的写入：新名已有值时取大合并（整条技能，或其中的 value / marked），不让较小的旧值盖掉较大的。
+        if (path !== op.p && Object.hasOwn(op, 'v')) {
+            let node = current;
+            for (const key of path) node = isObject(node) ? node[key] : undefined;
+            if (node !== undefined) write = { ...op, v: mergeLegacyValue(node, op.v, false) };
+        }
+        current = applyOne(current, path, write);
+    }
     return current;
 }
 
@@ -176,7 +205,7 @@ export function mergeStatLog(records, { chatId = '', chat = [] } = {}) {
     const restored = restoreChat(chatMap);
     const floors = new Map();
     for (const r of rows) if (r.type === 'floor' && isObject(r.anchor) && isObject(r.payload)) floors.set(r.id, r);
-    const initState = init ? init.payload.state : undefined;
+    const initState = init ? migrateLegacySkills(init.payload.state) : undefined;
     const memo = new Map();
     const stateOf = (id) => {
         const path = [];
@@ -258,7 +287,10 @@ export function normalizeLegacyState(state, prefs = null) {
     const protagonist = state.protagonist;
     const skills = {};
     for (const [name, entry] of Object.entries(isObject(protagonist.skills) ? protagonist.skills : {})) {
-        if (name === SAN_NAME || (!Object.hasOwn(LEGACY_SCORE_NAMES, name) && !SIX.includes(name))) skills[name] = entry;
+        if (name === SAN_NAME || (!Object.hasOwn(LEGACY_SCORE_NAMES, name) && !SIX.includes(name))) {
+            const canon = LEGACY_SKILL_MAP[name] || name;
+            if (canon === name || !Object.hasOwn(protagonist.skills, canon)) skills[canon] = entry;
+        }
     }
     const { health, ...bars } = isObject(protagonist.bars) ? protagonist.bars : {};
     return { ...state, protagonist: { ...protagonist, skills, bars, prefs: isObject(protagonist.prefs) ? protagonist.prefs : prefs } };

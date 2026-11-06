@@ -44,7 +44,7 @@ function foeProfile(engine, state, enemy, foeName) {
             const dex = Number(profileOf(engine, state, foeName, '敏捷').value) || 50;
             return { profile: null, ac: 10 + engine.ruleset.modOf(dex), save: enemy.save };
         }
-        const profile = ['格斗', '射击', '武艺', '剑术', '魔法', '力量'].map((skill) => profileOf(engine, state, foeName, skill)).sort((a, b) => b.value - a.value)[0];
+        const profile = ['格斗', '射击', '剑术', '魔法', '力量'].map((skill) => profileOf(engine, state, foeName, skill)).sort((a, b) => b.value - a.value)[0];
         return { profile, ac: enemy.ac, save: enemy.save };
     }
     return { profile: { kind: 'skill', value: enemy.value, learned: true, attributeValue: enemy.value, rank: '普通人', entry: { attribute: '力量' } }, ac: enemy.ac, save: enemy.save };

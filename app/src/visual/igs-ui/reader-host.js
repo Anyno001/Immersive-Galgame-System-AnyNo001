@@ -6049,6 +6049,7 @@ ${row.key}`;
         if (next.effect === 'close') return current.controller.close();
         if (next.effect === 'settings') return current.controller.openSettings();
         if (next.effect === 'user-char') return generateUserCharFromTitle(current);
+        if (next.effect === 'my-stats') return openStatsFromTitle(current);
         if (next.effect === 'continue') return continueFromTitle(current);
         if (next.effect === 'latest') {
             dropTitleGate(current);
@@ -6073,7 +6074,7 @@ ${row.key}`;
         return null;
     }
 
-    // 主菜单「生成主角立绘」：打开设置的角色页，走和「＋ › 用酒馆用户设定生成主角」同一个动作，进度和结果都在那里看；关掉设置回到主菜单。
+    // 主菜单「我的立绘」：打开设置的角色页，走和「＋ › 用酒馆用户设定生成主角」同一个动作，进度和结果都在那里看；关掉设置回到主菜单。
     async function generateUserCharFromTitle(current) {
         openSettings({ page: 'chars', mode: current.mode });
         const settings = state.activeSettings;
@@ -6081,6 +6082,16 @@ ${row.key}`;
         openSettingsPage(settings, 'chars');
         rerenderSettings();
         return settings.controller.invoke('scene-add-user-char');
+    }
+
+    // 主菜单「我的数值」：打开设置并直接定位到数值系统的「我的角色」子页（stats）；总开关「启用数值系统」就在该页顶部，开关关闭时同样落在这一页。
+    function openStatsFromTitle(current) {
+        openSettings({ page: 'stats', mode: current.mode });
+        const settings = state.activeSettings;
+        if (!settings) return { ok: false, reason: 'settings-not-open' };
+        openSettingsPage(settings, 'stats');
+        rerenderSettings();
+        return { ok: true };
     }
 
     async function continueFromTitle(current) {

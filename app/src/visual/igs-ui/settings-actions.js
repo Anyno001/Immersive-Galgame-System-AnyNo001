@@ -1,5 +1,6 @@
 import { handleTtsVoiceLibraryAction } from './tts-voice-library-actions.js';
-import { BUILD_CUSTOM_MAX, normalizeBuild, validCustomSkillName } from '../../scene/stats/stat-build.js';
+import { BUILD_CUSTOM_MAX, BUILD_PICK_SLOTS, normalizeBuild, pickCandidates, validCustomSkillName } from '../../scene/stats/stat-build.js';
+import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
 
 import { editCharacterCreature } from './creature-settings.js';
 import { storedCreatureOf } from '../../scene/creature-profile.js';
@@ -2462,6 +2463,33 @@ export async function handleSettingsAction(action, ctx) {
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
         }
+        return rerenderSettings();
+    }
+
+    // 3+5 下拉末尾「自定义…」：先填名字，再选所属六维；确定后加进自定义列表并选进该格，取消则该格恢复原值（重绘即还原）。
+    if (normalizedAction.startsWith('stats-build-pick-custom:')) {
+        const slot = normalizedAction.slice('stats-build-pick-custom:'.length);
+        if (!BUILD_PICK_SLOTS.includes(slot)) return rerenderSettings();
+        const bridgeDraft = settingsState.draft.bridge = settingsState.draft.bridge || {};
+        const statsDraft = bridgeDraft.stats = bridgeDraft.stats || {};
+        const build = normalizeBuild(statsDraft.build);
+        if (build.custom.length >= BUILD_CUSTOM_MAX) { rerenderSettings(); return { ok: false, reason: 'stats-build-skill-full' }; }
+        const raw = await dialogs.prompt(`自定义技能名（1–8 字，不含数字和符号，最多 ${BUILD_CUSTOM_MAX} 个）：`, '');
+        if (raw == null || !String(raw).trim()) return rerenderSettings();
+        const name = validCustomSkillName(raw);
+        if (!name) { rerenderSettings(); return { ok: false, reason: 'stats-build-skill-invalid' }; }
+        if (BUILD_PICK_SLOTS.some((other) => other !== slot && build.picks[other] === name)) { rerenderSettings(); return { ok: false, reason: 'stats-build-pick-duplicate' }; }
+        // 已在候选里的名字（内置技能或已建的自定义技能）直接选上，不重复新建，所属六维沿用原来的。
+        if (!pickCandidates(build).includes(name)) {
+            const attribute = await dialogs.choose(`「${name}」所属的属性：`, BASE_ATTRIBUTES.map((value) => ({ value, label: value })), BASE_ATTRIBUTES[1], { dropdown: true });
+            if (!BASE_ATTRIBUTES.includes(attribute)) return rerenderSettings();
+            build.custom.push(name);
+            build.customAttrs = { ...build.customAttrs, [name]: attribute };
+        }
+        build.picks[slot] = name;
+        statsDraft.build = build;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 

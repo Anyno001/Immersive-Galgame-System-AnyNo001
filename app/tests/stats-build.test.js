@@ -67,3 +67,28 @@ test('手动六维：单项 3–18、合计不超过 72，合法时附 manual �
     assert.equal(normalizeBuild({ role: '不存在', className: '一二三四五六七八九十十一十二十三' }).role, 'warrior');
     assert.equal(normalizeBuild({ className: '一二三四五六七八九十十一十二十三' }).className.length, 12);
 });
+
+test('自定义技能所属六维：只保留 custom 里有名字的有效六维，pickSummary 带出已选自定义技能的属性', async () => {
+    const { normalizeBuild, pickSummary } = await import('../src/scene/stats/stat-build.js');
+    const build = normalizeBuild({ custom: ['钓鱼'], customAttrs: { 钓鱼: '感知', 别的: '力量', 钓虾: '乱写' }, picks: { strong1: '钓鱼', strong2: '烹饪', strong3: '家务' } });
+    assert.deepEqual(build.customAttrs, { 钓鱼: '感知' });
+    const summary = pickSummary(build);
+    assert.deepEqual(summary.attributes, { 钓鱼: '感知' });
+    assert.equal(summary.skills.钓鱼, 60);
+    assert.ok(normalizeBuild({ custom: ['钓鱼'], picks: { strong1: '唱歌', strong2: '舞蹈', strong3: '看人下菜碟' } }).picks.strong3 === '看人下菜碟');
+});
+
+test('3+5 下拉分组：内置候选各归一组且不落「其他」，漏组的技能落「其他」，自定义技能单列', async () => {
+    const { groupPickCandidates, groupSkillNames, pickCandidates, SKILL_GROUPS } = await import('../src/scene/stats/stat-build.js');
+    const all = pickCandidates({ custom: [] });
+    const { custom, groups } = groupPickCandidates({ custom: ['钓鱼'] });
+    assert.deepEqual(custom, ['钓鱼']);
+    assert.ok(!groups.some((g) => g.label === '其他'), `内置候选漏组：${groups.filter((g) => g.label === '其他').flatMap((g) => g.items).join('、')}`);
+    const placed = groups.flatMap((g) => g.items);
+    assert.equal(new Set(placed).size, placed.length, '同一技能不能出现在两组');
+    assert.deepEqual([...placed].sort(), all.filter((n) => n !== '钓鱼').sort());
+    assert.ok(groups.some((g) => g.label === '歪门邪道'));
+    assert.deepEqual(groupSkillNames(['烹饪', '虚构技能']), [{ label: '日常', items: ['烹饪'] }, { label: '其他', items: ['虚构技能'] }]);
+    const members = SKILL_GROUPS.flatMap(([, list]) => list);
+    assert.equal(new Set(members).size, members.length, '分组成员表不能重复列同一技能');
+});

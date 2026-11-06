@@ -9,6 +9,23 @@ export const STORY_SKILL_MAX = 24;
 export const STORY_SKILL_PER_FLOOR = 2;
 // 旧属性名到新六维名的映射（旧存档、旧表格列、旧提示词里的叫法）。
 export const LEGACY_ATTRIBUTE_MAP = Object.freeze({ 健康: '体质', 理智: '智力', 观察: '感知' });
+// 旧技能名到新技能名的映射：旧存档里以旧名为键的值，读入时落到新名（不遍历改写存档）。
+export const LEGACY_SKILL_MAP = Object.freeze({
+    妙手: '顺手牵羊', 医疗: '医术', 急救: '医术', 机械: '修理', 电子学: '修理', 骇入: '电脑', 枪械: '射击', 武艺: '格斗', 剑道: '剑术', 咒语: '魔法',
+    礼法: '礼仪', 求生: '野外求生', 文学: '写作', 图书馆: '查资料', 心理学: '察言观色', 估价: '鉴定', 乔装: '伪装',
+});
+// 多个旧名（或旧名与新名）都有值时合并：数值取大，{ value } 条目取值大的一份并合并 marked，其余以新名自己的为准。
+export function mergeLegacyValue(existing, incoming, incomingIsOwn = false) {
+    const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+    if (typeof existing === 'number' && typeof incoming === 'number') return Math.max(existing, incoming);
+    if (typeof existing === 'boolean' && typeof incoming === 'boolean') return existing || incoming;
+    if (isObj(existing) && isObj(incoming) && Number.isFinite(Number(existing.value)) && Number.isFinite(Number(incoming.value))) {
+        const best = Number(incoming.value) > Number(existing.value) ? incoming : existing;
+        return 'marked' in existing || 'marked' in incoming ? { ...best, marked: existing.marked === true || incoming.marked === true } : { ...best };
+    }
+    return incomingIsOwn ? incoming : existing;
+}
+export const canonicalSkillName = (name) => (typeof name === 'string' && Object.hasOwn(LEGACY_SKILL_MAP, name) ? LEGACY_SKILL_MAP[name] : name);
 const NAME = /^[^\s0-9０-９.\[\]{}<>|:："'`\\/]{1,8}$/;
 const RESERVED = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -21,60 +38,99 @@ const CORE = {
     学习: e('智力', 'daily'),
     运动: e('力量', 'daily', { aliases: ['体育', '游泳'] }),
     艺术: e('魅力', 'general', { aliases: ['表演', '演奏', '绘画'] }),
-    话术: e('魅力', 'general', { social: true, opposedBy: '心理学', aliases: ['说服', '劝说', '谈判', '口才', '交涉', '欺骗', '哄骗'] }),
+    话术: e('魅力', 'general', { social: true, opposedBy: '察言观色', aliases: ['说服', '劝说', '谈判', '口才', '交涉'] }),
     照顾: e('感知', 'daily', { aliases: ['看护', '护理'] }),
     应变: e('智力', 'general', { aliases: ['急智', '随机应变'] }),
     侦查: e('感知', 'general', { base: 25, aliases: ['搜查', '调查', '搜索', '察觉', '侦察'] }),
     聆听: e('感知', 'general', { base: 20, aliases: ['倾听', '偷听'] }),
-    心理学: e('感知', 'general', { base: 10, aliases: ['洞悉', '察言观色', '看穿', '识破'] }),
+    察言观色: e('感知', 'general', { base: 10, aliases: ['心理学', '洞悉', '看穿', '识破'] }),
+    医术: e('智力', 'general', { base: 30, aliases: ['医疗', '急救', '治疗', '医学', '中医', '包扎', '止血'] }),
     潜行: e('敏捷', 'general', { base: 20, opposedBy: '侦查', aliases: ['隐匿', '潜入', '躲藏'] }),
     闪避: e('敏捷', 'general', { base: 'half-dex', aliases: ['躲闪'] }),
     攀爬: e('力量', 'general', { base: 20, aliases: ['攀登', '爬墙', '运动能力'] }),
-    格斗: e('力量', 'general', { base: 25, opposedBy: '闪避', aliases: ['斗殴', '搏斗', '肉搏', '近战'] }),
-    射击: e('敏捷', 'general', { base: 20, opposedBy: '闪避', aliases: ['射箭', '弓术'] }),
-    急救: e('智力', 'general', { base: 30, aliases: ['包扎', '止血'] }),
+    格斗: e('力量', 'general', { base: 25, opposedBy: '闪避', aliases: ['斗殴', '搏斗', '肉搏', '近战', '武艺', '武功', '武术'] }),
+    射击: e('敏捷', 'general', { base: 20, opposedBy: '闪避', aliases: ['射箭', '弓术', '枪械', '枪法'] }),
     恐吓: e('魅力', 'general', { base: 15, social: true, opposedBy: '感知', aliases: ['威胁', '威吓'] }),
-    魅惑: e('魅力', 'general', { base: 15, social: true, opposedBy: '心理学', aliases: ['勾引', '调情', '诱惑'] }),
+    魅惑: e('魅力', 'general', { base: 15, social: true, opposedBy: '察言观色', aliases: ['勾引', '调情', '诱惑'] }),
     开锁: e('敏捷', 'pro', { base: 1, aliases: ['撬锁'] }),
     驾驶: e('敏捷', 'general', { base: 20, aliases: ['开车', '驾车', '汽车驾驶'] }),
     // 都市常用的 CoC 技能（基础值取官方表）。
-    电脑: e('智力', 'pro', { base: 5, aliases: ['计算机', '编程'] }),
-    图书馆: e('智力', 'general', { base: 20, aliases: ['图书馆使用', '查资料', '检索'] }),
-    乔装: e('魅力', 'general', { base: 5, aliases: ['伪装', '易容'] }),
-    妙手: e('敏捷', 'pro', { base: 10, aliases: ['扒窃'] }),
+    电脑: e('智力', 'pro', { base: 5, aliases: ['计算机', '编程', '骇入', '黑客', '入侵'] }),
+    查资料: e('智力', 'general', { base: 20, aliases: ['图书馆', '图书馆使用', '检索'] }),
+    伪装: e('魅力', 'general', { base: 5, aliases: ['乔装', '易容'] }),
+    顺手牵羊: e('敏捷', 'pro', { base: 10, aliases: ['妙手', '扒窃', '偷东西'] }),
     投掷: e('敏捷', 'general', { base: 20 }),
     法律: e('智力', 'pro', { base: 5 }),
     财务: e('智力', 'general', { base: 5, aliases: ['会计', '理财'] }),
     外语: e('智力', 'general', { base: 1, aliases: ['英语', '日语'] }),
-    估价: e('智力', 'pro', { base: 5, aliases: ['鉴定'] }),
-    电子学: e('智力', 'pro', { base: 1, aliases: ['电工'] }),
+    鉴定: e('智力', 'pro', { base: 5, aliases: ['估价'] }),
     跳跃: e('力量', 'general', { base: 20 }),
     追踪: e('感知', 'general', { base: 10, aliases: ['寻踪'] }),
+    // 日常与生活技能（无官方值，基础值按类别）。
+    唱歌: e('魅力', 'general'),
+    舞蹈: e('敏捷', 'general'),
+    摄影: e('感知', 'general'),
+    写作: e('智力', 'general', { aliases: ['文学'] }),
+    手工: e('敏捷', 'general'),
+    化妆: e('魅力', 'general'),
+    穿搭: e('魅力', 'daily'),
+    园艺: e('体质', 'general'),
+    照顾宠物: e('感知', 'daily'),
+    酒量: e('体质', 'daily'),
+    安抚: e('魅力', 'general', { social: true }),
+    八卦: e('魅力', 'daily', { social: true }),
+    撒娇: e('魅力', 'general', { social: true, opposedBy: '察言观色' }),
+    游戏: e('敏捷', 'daily'),
+    棋牌: e('智力', 'general'),
+    记忆: e('智力', 'general'),
+    讲故事: e('魅力', 'general'),
+    演讲: e('魅力', 'general', { social: true }),
+    调酒: e('敏捷', 'pro'),
+    按摩: e('敏捷', 'general'),
+    砍价: e('魅力', 'general', { social: true, opposedBy: '察言观色' }),
+    修理: e('智力', 'general', { aliases: ['机械', '机械维修', '维修', '电子学', '电工'] }),
+    带娃: e('感知', 'general'),
+    记路: e('感知', 'general'),
+    // 歪门邪道技能。
+    撒谎: e('魅力', 'general', { social: true, opposedBy: '察言观色', aliases: ['欺骗', '哄骗'] }),
+    勒索: e('魅力', 'general', { social: true, opposedBy: '察言观色', aliases: ['敲诈'] }),
+    挑拨: e('魅力', 'general', { social: true, aliases: ['离间'] }),
+    造谣: e('魅力', 'general', { social: true, aliases: ['散布谣言'] }),
+    装可怜: e('魅力', 'general', { social: true, aliases: ['卖惨'] }),
+    甩锅: e('魅力', 'general', { social: true }),
+    画大饼: e('魅力', 'general', { social: true }),
+    道德绑架: e('魅力', 'general', { social: true }),
+    套话: e('魅力', 'general', { social: true, opposedBy: '察言观色' }),
+    拍马屁: e('魅力', 'general', { social: true, aliases: ['奉承', '讨好'] }),
+    煽动: e('魅力', 'general', { social: true, aliases: ['起哄'] }),
+    精神控制: e('魅力', 'rare', { social: true, opposedBy: '察言观色', aliases: ['洗脑', '操控'] }),
+    下药: e('智力', 'pro'),
+    伪造: e('智力', 'pro', { aliases: ['假证', '仿签名'] }),
+    诈骗: e('智力', 'general', { aliases: ['骗钱'] }),
+    销毁证据: e('智力', 'general'),
+    黑话: e('智力', 'general', { aliases: ['暗语'] }),
+    尾随: e('敏捷', 'general', { opposedBy: '侦查', aliases: ['跟踪', '盯梢'] }),
+    偷拍: e('敏捷', 'general'),
+    作弊: e('敏捷', 'general', { opposedBy: '侦查', aliases: ['抄袭', '打小抄', '出老千'] }),
+    开溜: e('敏捷', 'general', { aliases: ['逃跑', '溜号'] }),
+    赌博: e('感知', 'general'),
+    看人下菜碟: e('感知', 'general'),
+    装病: e('体质', 'general', { aliases: ['装晕', '装死'] }),
+    下黑手: e('力量', 'general', { opposedBy: '侦查', aliases: ['偷袭', '暗算'] }),
 };
 
 // 世界观附加技能：与核心同名的（急救、潜行、驾驶）沿用核心条目。
 const WORLD_META = {
-    武艺: e('力量', 'general', { opposedBy: '闪避', aliases: ['武功', '武术'] }),
-    医术: e('智力', 'pro', { aliases: ['医学', '中医'] }),
     书画: e('魅力', 'general'),
-    礼仪: e('魅力', 'general', { social: true }),
-    剑术: e('力量', 'general', { opposedBy: '闪避' }),
-    魔法: e('智力', 'rare', { opposedBy: '闪避', aliases: ['法术', '施法'] }),
+    礼仪: e('魅力', 'general', { social: true, aliases: ['礼法'] }),
+    剑术: e('力量', 'general', { opposedBy: '闪避', aliases: ['剑道'] }),
+    魔法: e('智力', 'rare', { opposedBy: '闪避', aliases: ['法术', '施法', '咒语'] }),
     骑术: e('敏捷', 'general', { aliases: ['骑马'] }),
-    野外求生: e('体质', 'general', { aliases: ['生存'] }),
-    咒语: e('智力', 'rare', { opposedBy: '闪避' }),
+    野外求生: e('体质', 'general', { aliases: ['生存', '求生'] }),
     魔药: e('智力', 'pro', { aliases: ['炼金', '药剂'] }),
     飞行: e('敏捷', 'pro'),
     占卜: e('感知', 'rare'),
-    骇入: e('智力', 'pro', { aliases: ['黑客', '入侵'] }),
-    机械: e('智力', 'pro', { aliases: ['机械维修', '维修'] }),
-    医疗: e('智力', 'pro', { aliases: ['医学'] }),
-    求生: e('体质', 'general', { aliases: ['生存'] }),
-    枪械: e('敏捷', 'general', { opposedBy: '闪避', aliases: ['枪法'] }),
     茶道: e('感知', 'pro'),
-    剑道: e('力量', 'general', { opposedBy: '闪避' }),
-    文学: e('智力', 'general'),
-    礼法: e('魅力', 'general', { social: true }),
     驱邪: e('智力', 'rare'),
     灵感: e('感知', 'rare'),
 };
@@ -96,7 +152,7 @@ export const BUILTIN_SKILLS = buildBuiltin();
 export const CORE_SKILL_NAMES = Object.freeze(Object.keys(CORE).filter((name) => !DEFAULT_SPECIAL_SKILLS.includes(name)));
 
 // 战斗技能（§7.3）：已学的取最高，属性始终可用。
-export const COMBAT_SKILLS = Object.freeze(['格斗', '射击', '武艺', '剑术', '剑道', '枪械', '魔法', '咒语', '力量', '敏捷']);
+export const COMBAT_SKILLS = Object.freeze(['格斗', '射击', '剑术', '魔法', '力量', '敏捷']);
 export const DODGE_SKILLS = Object.freeze(['闪避', '敏捷']);
 
 const ATTRIBUTE_ALIASES = Object.freeze({

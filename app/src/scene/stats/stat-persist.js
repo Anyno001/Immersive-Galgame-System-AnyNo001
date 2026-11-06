@@ -5,7 +5,12 @@ import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat
 import { BASE_ATTRIBUTES } from './stat-state.js';
 import * as registry from './stat-registry.js';
 
-const { validSkillName } = registry;
+const { validSkillName, canonicalSkillName, mergeLegacyValue } = registry;
+// 旧技能名（妙手、急救等）读入时落到新名；几个旧名同时有值时数值取大，字符串以新名自己的为准。
+function putSkill(target, rawName, value) {
+    const name = canonicalSkillName(rawName);
+    target[name] = Object.hasOwn(target, name) ? mergeLegacyValue(target[name], value, name === rawName) : value;
+}
 // 旧属性名 → 战斗六维名。优先用注册表导出的 LEGACY_ATTRIBUTE_MAP（并行改造期间可能尚未导出，退回本地等价表）。
 const LEGACY_NAMES = registry.LEGACY_ATTRIBUTE_MAP || Object.freeze({ 健康: '体质', 理智: '智力', 观察: '感知' });
 const SAN_NAME = '理智';
@@ -26,7 +31,7 @@ export function sanitizeLearned(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { learned, dropped: raw == null ? 0 : 1 };
     for (const [word, skill] of Object.entries(raw)) {
         const w = String(word).trim();
-        if (LEARNED_WORD.test(w) && typeof skill === 'string' && skill.trim() && skill.length <= 8) learned[w] = skill.trim();
+        if (LEARNED_WORD.test(w) && typeof skill === 'string' && skill.trim() && skill.length <= 8) learned[w] = canonicalSkillName(skill.trim());
         else dropped += 1;
     }
     return { learned, dropped };
@@ -54,9 +59,9 @@ function sanitizeSheet(raw) {
         }
     }
     const skills = {};
-    for (const [k, v] of Object.entries(plainObject(raw.skills) ? raw.skills : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) skills[name] = n; }
+    for (const [k, v] of Object.entries(plainObject(raw.skills) ? raw.skills : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) putSkill(skills, name, n); }
     const provisional = {};
-    for (const [k, v] of Object.entries(plainObject(raw.provisional) ? raw.provisional : {})) if (v === true && skills[k]) provisional[k] = true;
+    for (const [k, v] of Object.entries(plainObject(raw.provisional) ? raw.provisional : {})) if (v === true && skills[canonicalSkillName(k)]) provisional[canonicalSkillName(k)] = true;
     const hasAttributes = Object.keys(attributes).length > 0;
     return {
         rank: typeof raw.rank === 'string' ? raw.rank.slice(0, 8) : '普通人', attributes, ...(san ? { san } : {}), ...(hasAttributes ? { scale: 'score' } : {}), skills, provisional,
@@ -90,19 +95,19 @@ export function sanitizeCatalog(raw) {
         if (!name || out.story.some((x) => x.name === name)) continue;
         out.story.push({ name, attribute: String(s.attribute || '').slice(0, 4), category: String(s.category || 'general').slice(0, 8), aliases: Array.isArray(s.aliases) ? s.aliases.filter((a) => typeof a === 'string').slice(0, 8) : [], createdAt: Number.isInteger(s.createdAt) ? s.createdAt : null, guessed: s.guessed === true });
     }
-    for (const [from, to] of Object.entries(plainObject(raw.merged) ? raw.merged : {})) if (validSkillName(from) && validSkillName(to)) out.merged[from] = to;
+    for (const [from, to] of Object.entries(plainObject(raw.merged) ? raw.merged : {})) if (validSkillName(from) && validSkillName(to)) out.merged[from] = canonicalSkillName(to);
     // 内置技能的所属属性改动：{ 技能: 六维之一 }。
-    for (const [k, v] of Object.entries(plainObject(raw.attributes) ? raw.attributes : {})) { const name = validSkillName(k); if (name && BASE_ATTRIBUTES.includes(v)) out.attributes[name] = v; }
+    for (const [k, v] of Object.entries(plainObject(raw.attributes) ? raw.attributes : {})) { const name = validSkillName(k); if (name && BASE_ATTRIBUTES.includes(v)) putSkill(out.attributes, name, v); }
     for (const [name, sheet] of Object.entries(plainObject(raw.sheets) ? raw.sheets : {}).slice(0, SHEET_MAX)) {
         const clean = sanitizeSheet(sheet);
         if (clean && name && name.length <= 20) out.sheets[name] = clean;
     }
-    for (const [k, v] of Object.entries(plainObject(raw.protagonistBase) ? raw.protagonistBase : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) out.protagonistBase[name] = n; }
+    for (const [k, v] of Object.entries(plainObject(raw.protagonistBase) ? raw.protagonistBase : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) putSkill(out.protagonistBase, name, n); }
     // 玩家手改覆盖层：{ 技能: { value, from } }，规则见 stat-engine.js 的 heroSkillLevel。
     for (const [k, v] of Object.entries(plainObject(raw.protagonistEdit) ? raw.protagonistEdit : {})) {
         const name = validSkillName(k);
         const value = plainObject(v) && Number(v.value) >= 1 ? num(v.value, 1, 99) : null;
-        if (name && value) out.protagonistEdit[name] = { value, from: plainObject(v) ? num(v.from, 0, 99) || 0 : 0 };
+        if (name && value) putSkill(out.protagonistEdit, name, { value, from: plainObject(v) ? num(v.from, 0, 99) || 0 : 0 });
     }
     out.heroAssigned = raw.heroAssigned === true;
     // 新聊天选过擅长技能（3+5）后为真，「我的角色」不再显示选择区。
@@ -110,7 +115,7 @@ export function sanitizeCatalog(raw) {
     // 亲密门槛豁免：聊天级角色名单，不随楼层快照，swipe、删楼不丢。
     out.intimacyForced = [...new Set((Array.isArray(raw.intimacyForced) ? raw.intimacyForced : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
     const q = plainObject(raw.queue) ? raw.queue : {};
-    out.queue.skills = (Array.isArray(q.skills) ? q.skills : []).map(validSkillName).filter(Boolean).slice(0, QUEUE_MAX);
+    out.queue.skills = [...new Set((Array.isArray(q.skills) ? q.skills : []).map(validSkillName).filter(Boolean).map(canonicalSkillName))].slice(0, QUEUE_MAX);
     out.queue.people = (Array.isArray(q.people) ? q.people : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, QUEUE_MAX);
     out.notified = (Array.isArray(raw.notified) ? raw.notified : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, SHEET_MAX * 2);
     return out;
