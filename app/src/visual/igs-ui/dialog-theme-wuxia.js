@@ -4,7 +4,7 @@ import { WX_BAR, WX_LEAD, WX_RUBBING, WX_SEAL_MASK, WX_SEAL_MASK_WIDE, maskOf, w
 export const DIALOG_SKIN_WUXIA_INK = 'wuxia-ink';
 
 // 水墨武侠：夜墨拓本。几何、渐变节点、纹理与笔形一律取 plan/wuxia-ink-ui/v6 定稿原值（笔形与滤镜见 wuxia-ink-svg.js）。
-// 对话框不画框：自下而上一层墨纱，纱内极淡的拓本石纹；姓名尾端拖出一道月白干笔。朱砂只落在演出的印章上。
+// 对话框不画框：自下而上一层墨纱，纱内极淡的拓本石纹；姓名尾端拖出一道月白干笔。朱砂只落在演出的印章与等待提示点上。
 const INK_RGB = '12,11,10';
 const MOON_RGB = '236,231,221';
 const MOON = '#ece7dd';

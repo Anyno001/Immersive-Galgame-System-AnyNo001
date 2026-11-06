@@ -627,7 +627,7 @@ export function toggleLogEdit(overlay) {
     log.setAttribute('data-editing', '');
     const bar = el(overlay.ownerDocument, 'div');
     bar.id = 'igs-log-edit-bar';
-    bar.innerHTML = '<span>拖动头像取景，双指或－＋缩放</span><button type="button" data-log-zoom="out" disabled aria-label="缩小">－</button><button type="button" data-log-zoom="in" disabled aria-label="放大">＋</button><button type="button" data-log-edit="reset" disabled>重置</button><button type="button" data-log-edit="cancel">取消</button><button type="button" data-log-edit="save">保存</button>';
+    bar.innerHTML = '<span>拖动取景</span><button type="button" data-log-zoom="out" disabled aria-label="缩小">－</button><button type="button" data-log-zoom="in" disabled aria-label="放大">＋</button><button type="button" data-log-edit="reset" disabled>重置</button><button type="button" data-log-edit="cancel">取消</button><button type="button" data-log-edit="save">保存</button>';
     log.append(bar);
     return true;
 }

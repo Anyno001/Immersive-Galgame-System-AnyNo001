@@ -115,7 +115,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + perfSubhead('泡的外形 · 触发情绪')
         + toneWords(COMIC_TONE_KINDS));
     const lr = s.logReader;
-    const logReader = featureRow(more, 'log-reader', `${p}.logReader.on`, lr.on, '窄屏阅读模式', '手机与内嵌长屏改为对话列表', field(`${p}.logReader.avatarShape`, '头像样式', segmentedInput(`${p}.logReader.avatarShape`, lr.avatarShape, [['card', '圆角方'], ['circle', '圆形'], ['break', '破框']], '头像样式'))
+    const logReader = featureRow(more, 'log-reader', `${p}.logReader.on`, lr.on, '纵向阅读模式', '手机与内嵌长屏改为对话列表', field(`${p}.logReader.avatarShape`, '头像样式', segmentedInput(`${p}.logReader.avatarShape`, lr.avatarShape, [['card', '圆角方'], ['circle', '圆形'], ['break', '破框']], '头像样式'))
         + field(`${p}.logReader.perTap`, '每次显示', segmentedInput(`${p}.logReader.perTap`, lr.perTap, [[1, '1条'], [2, '2条'], [3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
         + field(`${p}.logReader.reveal`, '文字出现', segmentedInput(`${p}.logReader.reveal`, lr.reveal, [['flow', '流水展开'], ['type', '打字机'], ['fade', '整句淡入']], '文字出现'))
         + field(`${p}.logReader.emotion`, '情绪符号', segmentedInput(`${p}.logReader.emotion`, lr.emotion, [['once', '播一遍'], ['loop', '循环'], ['off', '关闭']], '情绪符号'))

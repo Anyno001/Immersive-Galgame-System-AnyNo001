@@ -87,7 +87,7 @@ const SHAPES = Object.freeze({
     compass: "<path d='M12 22.2L6.6 9.4L12 12.2L17.4 9.4Z'/><circle cx='12' cy='4.6' r='2'/>",
     // 仙侠水墨：一柄倒悬的飞剑（剑尖朝下）。
     sword: "<path d='M12 22.6L9.6 13.6V4.6H14.4V13.6Z'/><rect x='7' y='2.4' width='10' height='2' rx='.6'/>",
-    // 水墨武侠：月白侧点「、」，起笔圆钝、向右下收成一团。
+    // 水墨武侠：朱砂侧点「、」，起笔圆钝、向右下收成一团。
     dian: "<path transform='translate(3 2)' d='M3 2 C7 2 13 6 15.5 12 C17 16 14 19.5 10.5 18 C7 16.5 5 10 2.4 4.6 C1.8 3.2 2 2 3 2Z'/>",
     seal: "<rect x='6.5' y='6.5' width='11' height='11' rx='1.4'/>",
     // 童话小镇的草莓：籽镂空（evenodd），单色遮罩下也认得出。
@@ -133,7 +133,7 @@ export const CLICK_WAIT_MARK_SKINS = Object.freeze({
     'fairy-tale': mark('strawberry', '#dc6a5c'),
     'qinglv-shanshui': mark('seal', '#b23a2a'),
     'xianxia-ink': mark('sword', '#b23a2a'),
-    'wuxia-ink': mark('dian', '#ece7dd'),
+    'wuxia-ink': mark('dian', '#a8382a'),
     'retro-japanese': mark('triangle-brush', '#c23a24'),
     'adventure-journey': mark('compass', '#9a6a2c'),
     'plant-coffee': mark('leaf', '#6f8446'),
