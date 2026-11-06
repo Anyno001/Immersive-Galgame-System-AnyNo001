@@ -1913,3 +1913,160 @@ test('法师模板（M01–M08）：可反解、归 orb 族只给法师；牌面
         assert.ok(describeEffects([effect]).includes(word), word);
     }
 });
+
+// ---------- 规则 v5 P3 召唤「随从与灾厄」（S01–S08；随从按 D5 依附主人） ----------
+const sumOp = (amount) => ({ op: 'summon', amount });
+const minionHit = (amount, extra = {}) => ({ op: 'minion-strike', amount, target: 'enemy', ...extra });
+const vsAttacker = (catalog, ids, amount, rv, foeExtra = {}) => {
+    const deck = [...ids, ...Array(Math.max(0, 10 - ids.length)).fill('k')];
+    const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck, catalog: { ...catalog, k: GUARD } }), foe(amount ? foeAttack(amount) : {}, foeExtra)], ...(rv ? { rulesVersion: rv } : {}) };
+    const created = createBattle(setup, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+
+test('随从（S01）：召唤时不在则以 N 生命召出、在则最大与当前生命各 +N；主人受到的未格挡攻击伤害先由随从承受，非攻击伤害不挡；规则 v4 无效', () => {
+    const call = free('s', 'skill', [sumOp(5)]);
+    const t = deckOf({ s: call }, ['s', 's']);
+    let u = playIn(t, instOf(t, 's')).state;
+    assert.deepEqual(u.units.hero.res.minion, { hp: 5, maxHp: 5 });
+    u = playIn(u, instOf(u, 's')).state;
+    assert.deepEqual(u.units.hero.res.minion, { hp: 10, maxHp: 10 });
+    const run = (rv) => {
+        const s = vsAttacker({ s: call }, ['s'], 8, rv);
+        return endTurn(playIn(s, instOf(s, 's')).state);
+    };
+    const v5 = run();
+    assert.deepEqual([v5.state.units.hero.hp, v5.state.units.hero.res?.minion], [27, undefined]);
+    assert.ok(v5.events.some((e) => e.type === 'minion-loss' && e.amount === 5));
+    assert.ok(v5.events.some((e) => e.type === 'minion-down'));
+    const v4 = run(4);
+    assert.deepEqual([v4.state.units.hero.hp, v4.state.units.hero.res], [22, undefined]);
+    const hurt = free('h', 'skill', [sumOp(5), { op: 'self-damage', amount: 3 }]);
+    const h = deckOf({ h: hurt }, ['h']);
+    const after = playIn(h, instOf(h, 'h')).state;
+    assert.deepEqual([after.units.hero.hp, after.units.hero.res.minion.hp], [27, 5]);
+});
+
+test('随从攻击与转化（S02、S03）：随从不在时无效；不吃主人攻击力，只加骨甲；可追加随从生命；牺牲换格挡或群伤；魂契使随从失去生命时敌人同步失去', () => {
+    const poke = free('p', 'attack', [minionHit(4)]);
+    const lone = deckOf({ p: poke }, ['p']);
+    assert.equal(playIn(lone, instOf(lone, 'p'), 'foe').state.units.foe.hp, 30);
+    const prep = free('s', 'skill', [sumOp(5), { op: 'status', status: 'strength', stacks: 3, target: 'self' }, selfOn('minion-might', 2)]);
+    const t = deckOf({ s: prep, p: poke }, ['s', 'p']);
+    const u = playIn(t, instOf(t, 's')).state;
+    const hit = playIn(u, instOf(u, 'p'), 'foe');
+    assert.equal(hit.state.units.foe.hp, 24);
+    assert.ok(hit.events.some((e) => e.type === 'damage' && e.kind === 'minion' && e.source?.kind === 'minion'));
+    const rush = free('r', 'attack', [minionHit(2, { bonus: 'hp' })]);
+    const call = free('c', 'skill', [sumOp(5)]);
+    const rr = deckOf({ c: call, r: rush }, ['c', 'r']);
+    const ru = playIn(rr, instOf(rr, 'c')).state;
+    assert.equal(playIn(ru, instOf(ru, 'r'), 'foe').state.units.foe.hp, 23);
+    const wall = free('w', 'skill', [{ op: 'sacrifice', mode: 'block' }]);
+    const ww = deckOf({ c: call, w: wall }, ['c', 'w']);
+    const wu = playIn(playIn(ww, instOf(ww, 'c')).state, instOf(playIn(ww, instOf(ww, 'c')).state, 'w')).state;
+    assert.deepEqual([wu.units.hero.block, wu.units.hero.res?.minion], [10, undefined]);
+    const nova = free('n', 'skill', [{ op: 'sacrifice', mode: 'nova' }]);
+    const nn = twoFoes({ c: call, n: nova, k: GUARD }, ['c', 'n', ...Array(8).fill('k')]);
+    const nc = playIn(nn, instOf(nn, 'c')).state;
+    const nu = playIn(nc, instOf(nc, 'n')).state;
+    assert.deepEqual([nu.units.foe.hp, nu.units.foe2.hp], [25, 25]);
+    const bond = free('b', 'power', [sumOp(5), selfOn('minion-bond', 1)]);
+    const bb = vsAttacker({ b: bond }, ['b'], 3);
+    const bu = endTurn(playIn(bb, instOf(bb, 'b')).state).state;
+    assert.deepEqual([bu.units.hero.hp, bu.units.hero.res.minion.hp, bu.units.foe.hp], [30, 2, 27]);
+});
+
+test('灾厄（S04、D7）：敌人回合结束时生命不高于灾厄即倒下；首领与精英按最大生命 50% 封顶；规则 v4 无效', () => {
+    const curse = def('d', 'attack', [hitFoe(12), onFoe('doom', 20)], { innate: true });
+    const run = (rv, tier) => {
+        const s = vsAttacker({ d: curse }, ['d'], 0, rv, tier ? { tier } : {});
+        return endTurn(playIn(s, instOf(s, 'd'), 'foe').state);
+    };
+    const v5 = run();
+    assert.deepEqual([v5.state.units.foe.alive, v5.state.outcome], [false, 'victory']);
+    assert.ok(v5.events.some((e) => e.type === 'doom' && e.threshold === 20));
+    const boss = run(undefined, 'boss');
+    assert.deepEqual([boss.state.units.foe.alive, boss.state.units.foe.statuses.doom], [true, 20]);
+    assert.equal(run(4).state.units.foe.alive, true);
+});
+
+test('灾厄来源（S05）：缠厄使每张指定敌人的牌给目标灾厄；噬厄使攻击按造成的伤害给灾厄', () => {
+    const touch = free('t', 'power', [selfOn('doom-touch', 3)]);
+    const reap = free('r', 'power', [selfOn('doom-reap', 1)]);
+    const jab = def('j', 'attack', [hitFoe(5)], { innate: true });
+    const tt = deckOf({ t: touch, j: jab }, ['t', 'j']);
+    const tu = playIn(tt, instOf(tt, 't')).state;
+    assert.equal(playIn(tu, instOf(tu, 'j'), 'foe').state.units.foe.statuses.doom, 3);
+    const rr = deckOf({ r: reap, j: jab }, ['r', 'j']);
+    const ru = playIn(rr, instOf(rr, 'r')).state;
+    assert.equal(playIn(ru, instOf(ru, 'j'), 'foe').state.units.foe.statuses.doom, 5);
+});
+
+test('魂牌（S06）：魂牌 0 费、抽 1 张、打出后消耗；噬魂在打出魂牌时召唤，魂蚀令随机敌人失去生命', () => {
+    const harvest = free('h', 'skill', [{ op: 'soul', amount: 2 }]);
+    const feast = free('f', 'power', [selfOn('soul-feast', 2), selfOn('soul-blight', 3)]);
+    const t = deckOf({ h: harvest, f: feast }, ['h', 'f']);
+    let u = playIn(t, instOf(t, 'f')).state;
+    u = playIn(u, instOf(u, 'h')).state;
+    const souls = u.piles.hero.hand.filter((inst) => u.cards[inst].cardId === 'summon-soul');
+    assert.equal(souls.length, 2);
+    assert.deepEqual([cardView(u, souls[0]).cost, cardView(u, souls[0]).name], [0, '魂']);
+    const handBefore = u.piles.hero.hand.length;
+    const played = playIn(u, souls[0]);
+    const s = played.state;
+    assert.equal(s.piles.hero.hand.length, handBefore);
+    assert.ok(s.piles.hero.exhaust.includes(souls[0]));
+    assert.deepEqual([s.units.hero.res.minion, s.units.foe.hp], [{ hp: 2, maxHp: 2 }, 27]);
+    assert.ok(played.events.some((e) => e.type === 'damage' && e.kind === 'soul-blight' && e.loss === true));
+});
+
+test('虚无联动与造牌联动（S07、S08）：抽到虚无牌再抽 1 张、打出虚无牌获得格挡；每生成一张临时牌获得攻击力与格挡', () => {
+    const pull = free('v', 'power', [selfOn('void-draw', 1)]);
+    const dig = free('d', 'skill', [{ op: 'draw', amount: 1 }]);
+    const wisp = def('e', 'skill', [{ op: 'block', amount: 1, target: 'self' }], { ethereal: true });
+    const run = (withPull) => {
+        const t = startDeck({ v: pull, d: dig, e: wisp, k: GUARD }, ['v', 'd', 'e', 'e', 'e', 'e', ...Array(8).fill('k')]);
+        const draw = t.piles.hero.draw;
+        const ei = draw.find((inst) => t.cards[inst].cardId === 'e');
+        const ki = draw.find((inst) => t.cards[inst].cardId === 'k');
+        assert.ok(ei && ki, 'draw pile lacks a needed card');
+        t.piles.hero.draw = [...draw.filter((inst) => inst !== ei && inst !== ki), ki, ei];
+        const u = withPull ? playIn(t, instOf(t, 'v')).state : t;
+        const before = u.piles.hero.hand.length;
+        return playIn(u, instOf(u, 'd')).state.piles.hero.hand.length - before;
+    };
+    assert.deepEqual([run(true), run(false)], [1, 0]);
+    const ward = free('g', 'power', [selfOn('void-guard', 4)]);
+    const ghost = def('e', 'skill', [{ op: 'block', amount: 1, target: 'self' }], { ethereal: true, innate: true });
+    const g = deckOf({ g: ward, e: ghost }, ['g', 'e']);
+    const gu = playIn(g, instOf(g, 'g')).state;
+    assert.equal(playIn(gu, instOf(gu, 'e')).state.units.hero.block, 5);
+    const craft = free('c', 'power', [selfOn('craft-guard', 3), selfOn('craft-might', 1)]);
+    const make = free('m', 'skill', [{ op: 'create', card: 'token-shard', amount: 1, to: 'hand' }]);
+    const c = deckOf({ c: craft, m: make }, ['c', 'm']);
+    const cu = playIn(c, instOf(c, 'c')).state;
+    const made = playIn(cu, instOf(cu, 'm')).state.units.hero;
+    assert.deepEqual([made.statuses.strength, made.block], [1, 3]);
+});
+
+test('召唤模板（S01–S08）：可反解、归 summon 族只给召唤；造牌联动归 conjure 族召唤可用；牌面写明召唤、随从、牺牲、魂牌与灾厄', () => {
+    const keys = ['bone-call', 'bone-poke', 'bone-sweep', 'bone-rush', 'bone-wall', 'bone-nova', 'bone-armor', 'soul-bind', 'doom-mark', 'doom-touch', 'doom-reap', 'soul-harvest', 'soul-feast', 'soul-blight', 'void-draw', 'void-guard'];
+    for (const key of [...keys, 'craft-might', 'craft-guard']) {
+        const found = solvedAny(key);
+        assert.ok(found, key);
+        const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+        assert.equal(checked.ok, true, `${key} ${JSON.stringify(checked.errors)}`);
+        assert.equal(templateAllowedFor(key, 'summoner'), true, key);
+    }
+    for (const key of keys) {
+        assert.equal(templateFamily(key), 'summon', key);
+        for (const other of ['bard', 'mage', 'priest']) assert.equal(templateAllowedFor(key, other), false, `${key}:${other}`);
+    }
+    assert.deepEqual([templateFamily('craft-might'), templateFamily('craft-guard')], ['conjure', 'conjure']);
+    for (const [effect, word] of [[sumOp(3), '召唤'], [minionHit(4), '随从'], [{ op: 'sacrifice', mode: 'block' }, '牺牲'], [{ op: 'soul', amount: 1 }, '魂牌'], [onFoe('doom', 3), '灾厄']]) {
+        assert.ok(describeEffects([effect]).includes(word), word);
+    }
+});
+

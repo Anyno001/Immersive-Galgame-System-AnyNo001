@@ -75,6 +75,11 @@ const orbEvoke = (amount) => ({ op: 'evoke', amount });
 const orbPulse = (amount) => ({ op: 'orb-pulse', amount });
 const orbSlot = (amount) => ({ op: 'orb-slot', amount });
 const orbFocus = (amount) => ({ op: 'focus', amount });
+// 规则 v5 P3 召唤随从、灾厄与魂牌（mechanics/summon.js）。
+const summonOp = (amount) => ({ op: 'summon', amount });
+const minionStrike = (amount, target = 'enemy', bonus) => ({ op: 'minion-strike', amount, target, ...(bonus ? { bonus } : {}) });
+const sacrificeOp = (mode) => ({ op: 'sacrifice', mode });
+const soulOp = (amount) => ({ op: 'soul', amount });
 
 // 效果的「主数值」：用来过滤掉数值为 0 的效果。
 function primaryNumber(effect) {
@@ -99,6 +104,7 @@ function primaryNumber(effect) {
         case 'loose':
         case 'enter-stance':
         case 'curtain-call':
+        case 'sacrifice':
             return 1;
         case 'bounty':
             return effect.reward === 'upgrade' ? 1 : effect.amount;
@@ -355,6 +361,25 @@ export const CARD_TEMPLATES = Object.freeze({
     'static-shell': template('power', '静电：每次受到未被格挡的攻击伤害凝结 1 颗雷珠', [[1, 1]], 1, ([a]) => [applyStatus('static-shell', a, 'self')]),
     'orb-burst': template('power', '雷涌：引发雷珠时追加伤害', [[1, 6]], 1, ([a]) => [applyStatus('arc-boost', a, 'self')]),
     amplify: template('skill', '下一张能力牌多执行一次，并获得格挡', [[1, 1], [0, 20]], 0.6, ([a, b]) => [replayNext(a, 'power'), block(b)]),
+    // 规则 v5 P3 召唤：S01 随从、S02 随从攻击、S03 随从转化、S04 灾厄、S05 灾厄来源、S06 魂牌、S07 虚无联动（summon 族，只给召唤）；S08 造牌联动归 conjure 族。
+    'bone-call': template('skill', '召唤随从（依附于你，替你承受攻击伤害），并获得格挡', [[1, 10], [0, 20]], 0.6, ([a, b]) => [summonOp(a), block(b)]),
+    'bone-poke': template('attack', '随从攻击：随从造成伤害（随从不在时无效）', [[1, 20]], 1, ([a]) => [minionStrike(a)]),
+    'bone-sweep': template('attack', '随从攻击：随从对全体敌人造成伤害（随从不在时无效）', [[1, 12]], 1, ([a]) => [minionStrike(a, 'all-enemies')]),
+    'bone-rush': template('attack', '随从攻击：伤害追加随从当前生命（限稀有以上）', [[1, 10]], 1, ([a]) => [minionStrike(a, 'enemy', 'hp')], { minRarity: 'rare' }),
+    'bone-wall': template('skill', '牺牲随从：获得等于其最大生命 2 倍的格挡', [[0, 20]], 1, ([a]) => [sacrificeOp('block'), block(a)]),
+    'bone-nova': template('skill', '牺牲随从：对全体敌人造成等于其最大生命的伤害（限稀有以上）', [[0, 20]], 1, ([a]) => [sacrificeOp('nova'), block(a)], { minRarity: 'rare' }),
+    'bone-armor': template('power', '骨甲：随从攻击伤害提高', [[1, 6]], 1, ([a]) => [applyStatus('minion-might', a, 'self')]),
+    'soul-bind': template('power', '魂契：随从失去生命时，全体敌人失去等量生命（限史诗以上）', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('minion-bond', a, 'self'), block(b)], { minRarity: 'epic' }),
+    'doom-mark': template('skill', '施加灾厄（敌人回合结束时生命不高于灾厄则倒下），并获得格挡', [[1, 20], [0, 20]], 0.6, ([a, b]) => [applyStatus('doom', a, 'enemy'), block(b)]),
+    'doom-touch': template('power', '缠厄：每打出一张指定敌人的牌，给目标灾厄', [[1, 4]], 1, ([a]) => [applyStatus('doom-touch', a, 'self')]),
+    'doom-reap': template('power', '噬厄：攻击造成伤害时给目标等量灾厄（限史诗以上）', [[1, 1]], 1, ([a]) => [applyStatus('doom-reap', a, 'self')], { minRarity: 'epic' }),
+    'soul-harvest': template('skill', '把魂牌（0 费、抽 1 张、打出后消耗）加入手牌', [[1, 3]], 1, ([a]) => [soulOp(a)]),
+    'soul-feast': template('power', '噬魂：每打出一张魂牌召唤随从', [[1, 3]], 1, ([a]) => [applyStatus('soul-feast', a, 'self')]),
+    'soul-blight': template('power', '魂蚀：每打出一张魂牌，随机敌人失去生命', [[1, 6]], 1, ([a]) => [applyStatus('soul-blight', a, 'self')]),
+    'void-draw': template('power', '虚引：抽到虚无牌时再抽 1 张', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('void-draw', a, 'self'), block(b)]),
+    'void-guard': template('power', '虚护：打出虚无牌时获得格挡', [[1, 6]], 1, ([a]) => [applyStatus('void-guard', a, 'self')]),
+    'craft-might': template('power', '匠力：每生成一张临时牌获得攻击力（限稀有以上）', [[1, 1]], 1, ([a]) => [applyStatus('craft-might', a, 'self')], { minRarity: 'rare' }),
+    'craft-guard': template('power', '匠盾：每生成一张临时牌获得格挡', [[1, 6]], 1, ([a]) => [applyStatus('craft-guard', a, 'self')]),
 });
 
 // ---- 被动模板（开战/回合/受击/濒危触发）----
@@ -734,9 +759,10 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     shadow: ['agility', 'gut', 'scrap', 'reflex', 'toss', 'sap', 'rupture', 'envenom', 'miasma', 'toxic-burst', 'shiv', 'shiv-edge', 'shiv-fan', 'shiv-keep', 'shiv-first', 'sleight', 'palm-off', 'garrote', 'carrion', 'bladestorm'],
     hex: ['expose', 'hex', 'wail'],
     arcane: ['surge', 'adrenal', 'purge', 'echo', 'quicken', 'rhythm', 'temper', 'conflux', 'cascade'],
-    conjure: ['mimic', 'forge', 'scavenge', 'replicate'],
+    conjure: ['mimic', 'forge', 'scavenge', 'replicate', 'craft-might', 'craft-guard'],
     cadence: ['fumble', 'hone', 'frenzy', 'tempo', 'serene', 'fury', 'compose', 'crescendo', 'chant', 'simmer', 'stance-ward', 'rage-flow', 'still-water', 'foretell', 'third-eye', 'sustain', 'resonance', 'curtain-call'],
     orb: ['zap', 'chill', 'shade', 'ion-core', 'prism', 'dualcast', 'orb-loop', 'capacitor', 'attune', 'overload', 'flare', 'arc-storm', 'lock-on', 'power-spark', 'static-shell', 'orb-burst', 'amplify'],
+    summon: ['bone-call', 'bone-poke', 'bone-sweep', 'bone-rush', 'bone-wall', 'bone-nova', 'bone-armor', 'soul-bind', 'doom-mark', 'doom-touch', 'doom-reap', 'soul-harvest', 'soul-feast', 'soul-blight', 'void-draw', 'void-guard'],
     sanctum: ['absolution', 'sigil', 'phase', 'deathward', 'consecrate', 'smite', 'judgment', 'halo-strike', 'halo-mend', 'verdant', 'steady-mend', 'aftercare'],
 });
 export const ARCHETYPE_FAMILIES = Object.freeze({
@@ -747,7 +773,7 @@ export const ARCHETYPE_FAMILIES = Object.freeze({
     assassin: Object.freeze(['general', 'pile', 'venom', 'shadow', 'volley']),
     mage: Object.freeze(['general', 'pile', 'cleave', 'hex', 'arcane', 'venom', 'orb']),
     priest: Object.freeze(['general', 'pile', 'ward', 'restore', 'hex', 'fortify', 'sanctum']),
-    summoner: Object.freeze(['general', 'pile', 'thorns', 'ward', 'restore', 'venom', 'conjure', 'cleave']),
+    summoner: Object.freeze(['general', 'pile', 'thorns', 'ward', 'restore', 'venom', 'conjure', 'cleave', 'summon']),
     bard: Object.freeze(['general', 'pile', 'ward', 'volley', 'hex', 'arcane', 'conjure', 'cadence']),
 });
 export const TEMPLATE_FAMILIES = Object.freeze(Object.fromEntries(Object.entries(TEMPLATE_FAMILY_TABLE).flatMap(([family, keys]) => keys.map((key) => [key, family]))));

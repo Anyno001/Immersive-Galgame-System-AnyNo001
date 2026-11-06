@@ -63,6 +63,18 @@ export const APPLY_STATUSES = Object.freeze({
     'storm-heart': Object.freeze({ max: 1, value: 9 }),
     'static-shell': Object.freeze({ max: 1, value: 8 }),
     'arc-boost': Object.freeze({ max: 6, value: 2 }),
+    // 规则 v5 P3 召唤（summon.js）。
+    doom: Object.freeze({ debuff: true, max: 20, value: 1.2 }),
+    'minion-might': Object.freeze({ max: 6, value: 3 }),
+    'minion-bond': Object.freeze({ max: 1, value: 10 }),
+    'doom-touch': Object.freeze({ max: 4, value: 3 }),
+    'doom-reap': Object.freeze({ max: 1, value: 12 }),
+    'soul-feast': Object.freeze({ max: 3, value: 3 }),
+    'soul-blight': Object.freeze({ max: 6, value: 2 }),
+    'void-draw': Object.freeze({ max: 1, value: 6 }),
+    'void-guard': Object.freeze({ max: 6, value: 2 }),
+    'craft-might': Object.freeze({ max: 1, value: 8 }),
+    'craft-guard': Object.freeze({ max: 6, value: 2 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);
