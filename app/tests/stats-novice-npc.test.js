@@ -220,7 +220,7 @@ test('我的角色：未开始显示快速开始与自己建卡，已开始显�
     const archive = { day: 3, bars: { stamina: 70, stress: 10, money: 20 }, wallet: 20, vitals: null, attributes: [{ name: '力量', display: '10' }], skills: [{ name: '话术', value: 50, display: '50', marked: true }], characters: [], log: [], total: 0, checks: [], story: [], sheets: [], pendingPeople: [], pendingSkills: [] };
     const started = page({ chat: { hasChat: true, enabled: true }, archive });
     assert.ok(started.includes('<span>力量</span><b>10</b>'));
-    assert.match(started, /话术 50✓/);
+    assert.ok(started.includes("<span>话术 ✓</span><b>50</b>"));
     assert.match(started, /data-action="stats-chat-disable"/);
     const startRow = idle.match(/<div class="igs-settings-row"( hidden[^>]*)?>\s*<button class="igs-settings-action" data-action="stats-chat-enable"/);
     assert.ok(startRow && !startRow[1]);

@@ -82,12 +82,19 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
     const characters = Object.entries(state.characters || {}).filter(([name]) => !(typeof isHero === 'function' && isHero(name))).map(([name, c]) => ({
         name, stage: stageOf(Number(c.dims && c.dims.好感) || 0).name, dims: { ...(c.dims || {}) }, intimacyForced: ((catalog && catalog.intimacyForced) || []).includes(name),
     }));
-    const skills = Object.entries((state.protagonist && state.protagonist.skills) || {}).map(([name, s]) => ({
-        name, value: Number(s && s.value) || 0, marked: Boolean(s && s.marked),
-        display: engine ? displaySkill(engine, profileOf(engine, state, PROTAGONIST, name)) : String(Number(s && s.value) || 0),
-    }));
+    // 主角技能：账本里的加上补全、分配的底数与手改；生效值不到入门（25）的不列（含「编辑技能」里填了未学的）。
+    const owned = (state.protagonist && state.protagonist.skills) || {};
+    const heroNames = [...new Set([...Object.keys(owned), ...(engine ? [...Object.keys(engine.protagonistBase || {}), ...Object.keys(engine.protagonistEdit || {})] : [])])]
+        .filter((name) => !BASE_ATTRIBUTES.includes(name));
+    const skills = heroNames.map((name) => {
+        const s = owned[name];
+        const profile = engine ? profileOf(engine, state, PROTAGONIST, name) : null;
+        const value = profile ? Math.round(Number(profile.value) || 0) : Number(s && s.value) || 0;
+        return { name, value, marked: Boolean(s && s.marked), display: profile ? displaySkill(engine, profile) : String(value) };
+    }).filter((s) => s.value >= 25);
     const cat = catalog || {};
-    const sheets = Object.entries(cat.sheets || {}).map(([name, sheet]) => ({
+    // 主角本人的角色卡（旧存档里生成过的）不在「其他角色」里显示，数据保留。
+    const sheets = Object.entries(cat.sheets || {}).filter(([name]) => !heroOf(name)).map(([name, sheet]) => ({
         name, rank: sheet.rank || '普通人', source: sheet.source || 'default',
         attributes: Object.entries(sheet.attributes || {}).map(([k]) => ({ name: k, display: engine ? displaySkill(engine, profileOf(engine, state, name, k)) : String(sheet.attributes[k]) })),
         skills: Object.entries(sheet.skills || {}).map(([k]) => ({ name: k, display: engine ? displaySkill(engine, profileOf(engine, state, name, k)) : String(sheet.skills[k]), provisional: Boolean(sheet.provisional && sheet.provisional[k]) })),

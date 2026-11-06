@@ -101,10 +101,9 @@ function isSan(engine, skill) {
 // 之后账本值每高出 from 一点，生效值就在 value 上加一点（成长叠加在手改值上，不被覆盖）；账本值低于 from（楼层回退）时不扣，
 // 回到 from 之下仍是 value。清除手改后回到账本值或底数。
 // 未学技能手改时，from 记为不含手改的值（seed：底数或注册表基础值）；首次成功登记进账本的也是 seed，所以登记本身不算成长。
-// 手改只在 CoC 下生效（界面只在 CoC 下提供；切到 D&D 后不带过去）。
 export function heroSkillLevel(engine, owned, skill) {
-    const coc = Boolean(engine && engine.ruleset && engine.ruleset.ID === 'coc7');
-    const edit = coc && engine.protagonistEdit && engine.protagonistEdit[skill];
+    // 手改两种骰子都生效（11-07 起；此前只在 CoC 下生效）。
+    const edit = engine && engine.protagonistEdit && engine.protagonistEdit[skill];
     const own = Number(owned && owned.value) || 0;
     if (edit && Number(edit.value) > 0) return clamp(Math.round(Number(edit.value) + Math.max(0, own - (Number(edit.from) || 0))), 1, 99);
     if (own > 0) return own;

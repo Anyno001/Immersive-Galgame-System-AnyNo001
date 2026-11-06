@@ -218,12 +218,14 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 /* 数值页「我的角色」：数值一格一项（名在上、数在下），按钮两两并排。 */
 .igs-stats-hero-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(56px,1fr));gap:6px}
 .igs-stats-hero-grid.is-attrs{grid-template-columns:repeat(3,minmax(0,1fr))}
-.igs-stats-hero-cell{display:flex;flex-direction:column;gap:2px;padding:6px 8px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);min-width:0}
+.igs-stats-hero-grid.is-skills{grid-template-columns:repeat(auto-fill,minmax(88px,1fr))}
+.igs-stats-hero-cell{display:flex;flex-direction:column;gap:2px;padding:4px 2px;min-width:0}
 .igs-stats-hero-cell>span{font-size:11px;line-height:16px;color:var(--igs-settings-ink-4)}
 .igs-stats-hero-cell>b{font-size:13px;line-height:18px;font-weight:600;color:var(--igs-settings-ink);overflow-wrap:anywhere}
 .igs-stats-hero-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .igs-stats-hero-actions>.igs-settings-action{min-width:0;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .igs-stats-hero-actions.is-three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.igs-stats-hero-actions>.igs-settings-action:only-child{grid-column:1/-1}
 /* 数值页「存档与记录」的角色卡：名字、阶段一行，数值格同「我的角色」，按钮两两并排。 */
 .igs-stats-person{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 0;border-bottom:1px solid var(--igs-settings-field)}
 .igs-stats-person:last-of-type{border-bottom:0}

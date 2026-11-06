@@ -104,7 +104,7 @@ test('存档区模型：CoC 列出全部可分配技能与生效值，D&D 不列
     assert.deepEqual(statsArchiveModel(ledger, { engine: dnd, heroSkills: ['法律'], catalog: {} }).heroSkills, []);
 });
 
-test('手改的未学技能首次成功登记不翻倍；D&D 不读手改', async () => {
+test('手改的未学技能首次成功登记不翻倍；D&D 同样读手改', async () => {
     const { markGrowth, resolveCheck } = await import('../src/scene/stats/stat-engine.js');
     // 电脑基础值 5：手改为 60，from 记为 seed 5（与 setHeroSkill 一致）。
     const engine = engineOf({ protagonistEdit: { 电脑: { value: 60, from: 5 } } });
@@ -118,5 +118,5 @@ test('手改的未学技能首次成功登记不翻倍；D&D 不读手改', asyn
     const grown = { ...after, protagonist: { ...after.protagonist, skills: { ...after.protagonist.skills, 电脑: { value: 8, marked: false } } } };
     assert.equal(profileOf(engine, grown, PROTAGONIST, '电脑').value, 63);
     const dnd = createEngine({ protagonistEdit: { 电脑: { value: 60, from: 5 } } }, {}, 'dnd5e', FLAT);
-    assert.equal(heroSkillLevel(dnd, null, '电脑'), null);
+    assert.equal(heroSkillLevel(dnd, null, '电脑'), 60);
 });

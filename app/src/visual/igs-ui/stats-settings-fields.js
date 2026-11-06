@@ -214,17 +214,21 @@ export function renderStatsHeroCard(model, advancedOpen = () => '') {
     ];
     const head = `<div class="igs-stats-hero-grid">${cells.join('')}</div>`;
     const attrs = (model.attributes || []).length ? `<div class="igs-stats-hero-grid is-attrs">${model.attributes.map((a) => cell(a.name, a.display)).join('')}</div>` : '';
-    const skills = model.skills.map((s) => `${esc(s.name)} ${esc(s.display ?? String(Math.round(s.value)))}${s.marked ? '✓' : ''}`).join(' · ');
+    // 技能与六维同一种数值格，一项一格；✓ 跟在技能名后。
+    const skillCells = [...model.skills].sort((a, b) => b.value - a.value).map((s) => cell(`${s.name}${s.marked ? ' ✓' : ''}`, s.display ?? String(Math.round(s.value)))).join('');
+    const skills = skillCells ? `<div class="igs-stats-hero-grid is-skills">${skillCells}</div>` : '<div class="igs-source-filter-note">无</div>';
     return head + attrs
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary><div class="igs-source-filter-note">${skills || '无'}</div></details>`
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary>${skills}</details>`
         + renderHeroSkillEditor(model, advancedOpen);
 }
 
-// 「我的角色」底部按钮：有主角技能表时并排放「按人设分配技能」与「暂停本聊天」。
+// 「我的角色」底部按钮：编辑技能、暂停本聊天；有主角技能表（CoC）时再加「按人设分配技能」，三键一行。
 export function renderStatsHeroActions(model) {
     const assign = model && Array.isArray(model.heroSkills) && model.heroSkills.length
         ? '<button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设分配技能</button>' : '';
-    return `<div class="igs-stats-hero-actions">${assign}<button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button></div>`;
+    const edit = model ? '<button class="igs-settings-action" data-action="stats-op:hero-edit" type="button">编辑技能</button>' : '';
+    const count = [assign, edit].filter(Boolean).length + 1;
+    return `<div class="igs-stats-hero-actions${count === 3 ? ' is-three' : ''}">${assign}${edit}<button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button></div>`;
 }
 
 // CoC 主角技能表：已掌握的直接列出，未学的按所属属性折叠。改动写入聊天存档，不进设置草稿（data-stats-hero-skill）。
@@ -360,7 +364,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsHeroRecords: renderStatsHeroRecords(archive, advancedOpen),
         statsPeopleFields: renderStatsPeople(archive, advancedOpen),
         diceFeelField: renderStatsRulesetField(stats.ruleset),
-        storyCheckField: field('bridge.stats.storyCheck', '剧情中的检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动'], ['manual', '关键时刻手动掷骰'], ['off', '关闭']])),
+        storyCheckField: field('bridge.stats.storyCheck', '剧情中的检定', segmentedInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动'], ['manual', '手动掷骰'], ['off', '关闭']], '剧情中的检定')),
         optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项旁显示成功率'),
         checkFxField: checkbox('bridge.stats.checkFx', stats.checkFx, '显示掷骰卡'),
         intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '好感不够时角色会拒绝'),
@@ -369,7 +373,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         barsFields: checkbox('bridge.stats.bars.stamina', stats.bars.stamina, '体力')
             + checkbox('bridge.stats.bars.money', stats.bars.money, '金钱')
             + checkbox('bridge.stats.bars.stress', stats.bars.stress, '压力'),
-        sheetGenField: field('bridge.stats.sheetGen', '新角色出场时', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['auto', '自动生成数值'], ['prompt', '提醒'], ['off', '不生成']])),
+        sheetGenField: field('bridge.stats.sheetGen', '新角色出场时', segmentedInput('bridge.stats.sheetGen', stats.sheetGen, [['auto', '自动生成'], ['prompt', '提醒'], ['off', '不生成']], '新角色出场时')),
         statsMoreOpen: advancedOpen('stats-more'),
         dateRegexField: captureRegexField('bridge.stats.dateRegex', '日期标签', stats.dateRegex, 'date', '填写后按日期变化过天。'),
         timeRegexField: captureRegexField('bridge.stats.timeRegex', '时间标签', stats.timeRegex, 'time', '用于判断夜转晨与熬夜。'),
@@ -377,10 +381,10 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsMappingFields: renderStatsMappingFields(stats.push.enabled ? mappings : null, advancedOpen, { pushEnabled: stats.push.enabled }),
         statsPromptFields: renderStatsPromptFields(stats, advancedOpen),
         statsArchiveFields: renderStatsArchive(archive, advancedOpen, { logByRole: advancedOpen('stats-log-by-role') !== '' }),
-        newChatField: field('bridge.stats.newChat', '新聊天', selectInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动快速开始'], ['off', '不启用']])),
-        hudLabelField: field('bridge.stats.hudLabel', '好感条右侧显示', selectInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']])),
-        registerField: field('bridge.stats.register', '重要角色登记', selectInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']])),
-        backfillField: field('bridge.stats.backfill', '新技能补全方式', selectInput('bridge.stats.backfill', stats.backfill, [['auto', '每楼结束后自动'], ['manual', '手动'], ['off', '关闭']])),
+        newChatField: field('bridge.stats.newChat', '新聊天', segmentedInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动开始'], ['off', '不启用']], '新聊天')),
+        hudLabelField: field('bridge.stats.hudLabel', '好感条右侧显示', segmentedInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']], '好感条右侧显示')),
+        registerField: field('bridge.stats.register', '重要角色登记', segmentedInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']], '重要角色登记')),
+        backfillField: field('bridge.stats.backfill', '新技能补全方式', segmentedInput('bridge.stats.backfill', stats.backfill, [['auto', '每楼自动'], ['manual', '手动'], ['off', '关闭']], '新技能补全方式')),
         autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
         statsBuildAdvancedHidden: hiddenAttr(!chatReady || started),
         statsBuildModeField: chatReady && !started ? renderStatsBuildModeField(mode) : '',

@@ -104,7 +104,7 @@ const IS_COC = (engine) => engine.ruleset.ID === 'coc7';
 // CoC 下合并账本、批量分配的底数与玩家手改（取 heroSkillLevel 的生效值）；D&D 仍只读账本。
 const learnedSkills = (state, engine = null) => {
     const owned = state.protagonist.skills;
-    const merged = Boolean(engine) && IS_COC(engine);
+    const merged = Boolean(engine);
     // 随身系统同名加成：带加成的技能一律列出，值取叠加后的生效值（profileOf）。
     const bonusNames = engine ? heroBonusSkillNames(engine) : new Set();
     const names = [...new Set([...(merged ? [...Object.keys(owned), ...Object.keys(engine.protagonistBase), ...Object.keys(engine.protagonistEdit)] : Object.keys(owned)), ...bonusNames])];
@@ -585,7 +585,7 @@ export function createStatsRuntime({
                     const own = state.protagonist.skills[item.skill];
                     const fromBase = !(own && Number(own.value) > 0) && !(catalog.protagonistEdit && catalog.protagonistEdit[item.skill]);
                     if (fromBase) catalog = sanitizeCatalog({ ...catalog, protagonistBase: { ...catalog.protagonistBase, [item.skill]: withoutHeroBonus(memoEngineOf(), item.skill, item.to) } });
-                    else if (!IS_COC(memoEngineOf()) || !setHeroSkill(item.skill, String(item.to)).ok) { diag('stats-skill-adopt-unsupported', { name: item.key, skill: item.skill }); continue; }
+                    else if (!setHeroSkill(item.skill, String(item.to)).ok) { diag('stats-skill-adopt-unsupported', { name: item.key, skill: item.skill }); continue; }
                 } else setSheetSkill(item.key, item.skill, item.to, state);
                 done.changed.push(item);
                 diag('stats-skill-manual-adopted', { name: item.key, skill: item.skill, from: item.from, to: item.to });
@@ -690,6 +690,25 @@ export function createStatsRuntime({
             const group = [key, ...(Array.isArray(list) ? list : [])].map((v) => String(v || '').trim());
             return group.includes(n) && heroes.some((h) => group.includes(h));
         });
+    };
+
+    // 后台请求里的「主角」资料：User 设定之外，再拼上被认作主角的角色卡人设（卡名、群聊成员、设为User立绘的角色）。
+    // 主角人设写在角色卡里时（如卡名「李哪吒」是主角本人），补全与分配才能按人设给档。
+    const describeWithHero = async (names) => {
+        const list = typeof describePeople === 'function' ? await describePeople(names) : names.map((name) => ({ name, summary: '' }));
+        if (!names.includes(PROTAGONIST) || typeof describePeople !== 'function') return list;
+        const c = ctx();
+        let picked = '';
+        try { picked = String(userCharacter() || '').trim(); } catch (error) { picked = ''; }
+        const own = new Set([userName().trim(), PROTAGONIST]);
+        const cards = [...new Set([picked, c && c.name2, ...((c && Array.isArray(c.groupMembers)) ? c.groupMembers : [])]
+            .map((n) => String(n || '').trim()))].filter((n) => n && !own.has(n) && isHero(n));
+        if (!cards.length) return list;
+        let extra = [];
+        try { extra = await describePeople(cards); } catch (error) { extra = []; }
+        const more = extra.map((p) => String((p && p.summary) || '').trim()).filter(Boolean).join(' ');
+        if (!more) return list;
+        return list.map((p) => (p && p.name === PROTAGONIST ? { ...p, summary: `${String(p.summary || '').trim()} ${more}`.trim() } : p));
     };
 
     // 回放需要的取数回调。D&D 与 CoC 共用同一份 profile，百分制 = 六维分数 × 5。
@@ -1271,7 +1290,8 @@ export function createStatsRuntime({
         const s = settings();
         if (s.sheetGen === 'off') return;
         const state = currentStatsState(ledger);
-        const fresh = Object.keys(state.characters).filter((n) => !catalog.sheets[n] && !catalog.notified.includes(n));
+        // 主角（含别名同组、设为User立绘的角色卡）不生成 NPC 角色卡。
+        const fresh = Object.keys(state.characters).filter((n) => !catalog.sheets[n] && !catalog.notified.includes(n) && !isHero(n));
         if (!fresh.length) return;
         const card = cardOf(ctx());
         const carried = [];
@@ -1375,13 +1395,18 @@ export function createStatsRuntime({
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
-        const skills = catalog.queue.skills.slice(0, 6);
+        // 队列空时（手动点「补全新技能」）改补主角还没有数值的剧情技能；自动补全只在队列非空时触发，不会走到这里。
+        const heroLacks = () => {
+            const own = currentStatsState(ledger).protagonist.skills;
+            return (catalog.story || []).map((s) => s.name).filter((n) => !own[n] && !catalog.protagonistBase[n] && !catalog.protagonistEdit[n]);
+        };
+        const skills = (catalog.queue.skills.length ? catalog.queue.skills : heroLacks()).slice(0, 6);
         if (!skills.length) return Promise.resolve({ ok: true, skipped: true });
-        const npcs = Object.keys(catalog.sheets).slice(0, SHEET_BATCH_MAX - 1);
+        const npcs = Object.keys(catalog.sheets).filter((n) => !isHero(n)).slice(0, SHEET_BATCH_MAX - 1);
         const chatSeed = chatIdOf(ctx());
         const run = async () => {
             let people;
-            try { people = typeof describePeople === 'function' ? await describePeople([...npcs, PROTAGONIST]) : [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
+            try { people = typeof describePeople === 'function' ? await describeWithHero([...npcs, PROTAGONIST]) : [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
             catch (error) { people = [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
             const prompt = buildBackfillRequest(people, skills, { prompt: settings().prompts.backfill });
             let parsed = null;
@@ -1444,7 +1469,7 @@ export function createStatsRuntime({
         setNotice('hero-skills', { kind: 'busy', text: '正在按人设分配主角技能' });
         const run = async () => {
             let people;
-            try { people = typeof describePeople === 'function' ? await describePeople([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
+            try { people = typeof describePeople === 'function' ? await describeWithHero([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
             catch (error) { people = [{ name: PROTAGONIST, summary: '' }]; }
             const prompt = buildHeroSkillRequest(people, skills, { prompt: settings().prompts.heroSkills });
             let parsed = null;
@@ -1504,8 +1529,46 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
+    // 「编辑技能」：「技能 档位」或「技能 数值」，两种骰子通用。不认识的技能名登记成剧情技能。
+    // 已在账本里的（建卡、成长过的）走手改层，成长继续叠加；其余写底数。填「未学」：清掉底数与手改，账本里的降到 1（列表不再显示）。
+    function editHeroSkill(rawName, rawTier) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        const typed = String(rawName || '').trim();
+        const tier = String(rawTier || '').trim();
+        if (!typed || !tier) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        const engine = engineOf();
+        let skill = engine.registry.resolve(typed);
+        const entry = skill ? engine.registry.get(skill) : null;
+        if (entry && entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-edit-attribute' };
+        const numeric = /^\d+$/.test(tier) ? Number(tier) : null;
+        if (numeric !== null && (numeric < 1 || numeric > 99)) return { ok: false, reason: 'stats-hero-skill-invalid' };
+        if (numeric === null && !Object.hasOwn(SKILL_TIERS, tier)) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        if (!skill) {
+            if (tier === '未学') return { ok: true, cancelled: true };
+            skill = commitSkill(typed);
+            if (!skill) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        }
+        const value = numeric !== null ? numeric : SKILL_TIERS[tier] ? bandValue(SKILL_TIERS[tier], `${chatIdOf(ctx())}|${PROTAGONIST}|${skill}`) : null;
+        const owned = currentStatsState(ledger).protagonist.skills[skill];
+        const base = { ...catalog.protagonistBase };
+        const edit = { ...catalog.protagonistEdit };
+        if (owned && Number(owned.value) > 0) {
+            delete base[skill];
+            edit[skill] = { value: value ? withoutHeroBonus(engine, skill, value) : 1, from: Number(owned.value) || 0 };
+        } else {
+            delete edit[skill];
+            if (value) base[skill] = withoutHeroBonus(engine, skill, value); else delete base[skill];
+        }
+        // 编辑过的技能不再进补全队列。
+        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => s !== skill) } });
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true };
+    }
+
     function heroOp(op, name, payload = {}) {
         if (op === 'set') return setHeroSkill(name, payload.value);
+        if (op === 'edit') return editHeroSkill(name, payload.tier);
         if (op === 'assign') return assignHeroSkills({ overwrite: payload.overwrite === true });
         return { ok: false, reason: 'stats-hero-op-unknown' };
     }
@@ -1735,7 +1798,7 @@ export function createStatsRuntime({
             const relations = {};
             // 主角资料（用户人设）只取一次，每批都带上。
             let hero = '';
-            try { if (typeof describePeople === 'function') hero = String(((await describePeople([PROTAGONIST]))[0] || {}).summary || ''); }
+            try { if (typeof describePeople === 'function') hero = String(((await describeWithHero([PROTAGONIST]))[0] || {}).summary || ''); }
             catch (error) { hero = ''; }
             for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
                 const batch = names.slice(i, i + SHEET_BATCH_MAX);

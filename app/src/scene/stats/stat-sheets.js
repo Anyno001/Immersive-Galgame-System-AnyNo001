@@ -22,7 +22,8 @@ export const NPC_SKILL_BASELINE = 50;
 export const NPC_SKILL_MIN = 5;
 export const NPC_SKILL_MAX = 95;
 export const NPC_SKILL_JITTER = 5;
-export const PROTAGONIST_BACKFILL_MAX = '熟练';
+// 主角补全不设上限（11-07 用户放开），补出来不合适时在「我的角色」里手改。
+export const PROTAGONIST_BACKFILL_MAX = '大师';
 export const SHEET_BATCH_MAX = 8;
 export const BACKFILL_SKILL_MAX = 6;
 export const SUMMARY_MAX = 600;

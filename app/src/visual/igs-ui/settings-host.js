@@ -705,6 +705,11 @@ export function createSettingsHost(deps) {
             }
             else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
+            else if (kind === 'hero-edit') {
+                const text = String((await settingsDialogs.prompt('增加或修改主角的一项技能，格式：技能 档位（如「火尖枪 精通」），也可以写数值（如「火尖枪 80」）。档位：入门、熟练、精通、大师；写「未学」删除。', '')) || '').trim();
+                const [skill, tier] = text.split(/s+/);
+                result = skill && tier ? await op('hero', 'edit', skill, { tier }) : { ok: true, cancelled: true };
+            }
             else if (kind === 'hero-assign') {
                 result = await op('hero', 'assign', '', {});
                 if (result && result.reason === 'needs-confirm') {
@@ -749,7 +754,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
