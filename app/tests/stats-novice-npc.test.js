@@ -263,7 +263,10 @@ test('其他角色：角色卡并进同名角色，没有人际档的角色卡�
     // 剧情技能并进「技能」折叠，所属属性是下拉。
     const skillsFold = mine.slice(mine.indexOf('data-advanced="stats-skills"'), mine.indexOf('data-advanced="stats-checks"'));
     assert.match(skillsFold, /<select data-stats-story-attr="开锁"[^>]*>.*<option value="敏捷" selected>/s);
-    assert.doesNotMatch(mine, /stats-story-skills|stats-op:skill-attr/);
+    // 剧情技能在「技能」里再单独折叠；改名、合并、删除三键等宽一行。
+    assert.match(skillsFold, /data-advanced="stats-story-skills"/);
+    assert.match(skillsFold, /<div class="igs-stats-hero-actions is-three"><button[^>]*skill-rename/);
+    assert.doesNotMatch(mine, /stats-op:skill-attr/);
     assert.match(mine, /data-advanced="stats-checks"/);
     assert.doesNotMatch(npc, /data-stats-story-attr|stats-checks/);
 });

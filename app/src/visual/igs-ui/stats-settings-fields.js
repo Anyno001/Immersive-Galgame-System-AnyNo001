@@ -219,24 +219,26 @@ export function renderStatsHeroCard(model, advancedOpen = () => '') {
     const skills = skillCells ? `<div class="igs-stats-hero-grid is-skills">${skillCells}</div>` : '<div class="igs-source-filter-note">无</div>';
     const d20 = model.ruleset === 'dnd5e' && skillCells ? '<div class="igs-source-filter-note">技能数值为检定加值，掷二十面骰后加上此值。</div>' : '';
     return head + attrs
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary>${d20}${skills}${renderStorySkills(model)}</details>`
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary>${d20}${skills}${renderStorySkills(model, advancedOpen)}</details>`
         + renderHeroSkillEditor(model, advancedOpen);
 }
 
 // 剧情技能（正文里新出现的技能）并在「技能」折叠内：所属属性用下拉直接改（data-stats-story-attr），其余操作用按钮。
-function renderStorySkills(model) {
+function renderStorySkills(model, advancedOpen) {
     const story = model.story || [];
     if (!story.length) return '';
     const rows = story.map((s) => {
         const id = esc(encodeURIComponent(s.name));
         const list = BASE_ATTRIBUTES.includes(s.attribute) || !s.attribute ? BASE_ATTRIBUTES : [s.attribute, ...BASE_ATTRIBUTES];
         const select = `<select data-stats-story-attr="${esc(s.name)}" aria-label="${esc(`${s.name}所属属性`)}">${list.map((a) => `<option value="${esc(a)}"${a === s.attribute ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>`;
-        return `<div class="igs-settings-field"><span>${esc(s.name)}${s.guessed ? '（属性为猜测）' : ''}</span><div class="igs-mood-word-list">${select}`
+        // 一项一段：技能名旁是属性下拉，下面改名、合并、删除三键等宽一行（复用 igs-stats-hero-actions 网格）。
+        return `<div class="igs-settings-section"><div class="igs-settings-field"><span>${esc(s.name)}${s.guessed ? '（属性为猜测）' : ''}</span>${select}</div>`
+            + '<div class="igs-stats-hero-actions is-three">'
             + `<button class="igs-settings-action" data-action="stats-op:skill-rename:${id}" type="button">改名</button>`
             + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${id}" type="button">合并</button>`
             + `<button class="igs-settings-action" data-action="stats-op:skill-remove:${id}" type="button">删除</button></div></div>`;
     }).join('');
-    return `<div class="igs-source-filter-note">剧情中出现的技能（${story.length}项）</div>${rows}`;
+    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-story-skills"${advancedOpen('stats-story-skills')}><summary>剧情中出现的技能（${story.length}项）</summary>${rows}</details>`;
 }
 
 // 「我的角色」底部按钮：编辑技能、暂停本聊天；有主角技能表（CoC）时再加「按人设分配技能」，三键一行。
