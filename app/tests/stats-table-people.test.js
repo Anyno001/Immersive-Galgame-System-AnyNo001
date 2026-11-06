@@ -26,7 +26,7 @@ function setup({ people, register = 'auto' } = {}) {
         eventSource.emit('ge', ctx.chat.length - 1);
         return ctx.chat.length - 1;
     };
-    return { rt, say };
+    return { rt, say, ctx };
 }
 
 test('自动登记：表格里的人物正文没提到也建档，关系从 0 起不采用表格数字，主角与用户名除外', () => {
@@ -48,4 +48,13 @@ test('仅手动档不从表格登记', () => {
     const { rt, say } = setup({ people: ['小林'], register: 'manual' });
     say('她笑了。[igs-stat:favor|小林|开心]');
     assert.equal(rt.getState().characters.小林, undefined);
+});
+
+test('角色卡名在正文出现过就建档，不必等好感标签；卡名没出现的多人卡不建', () => {
+    const { rt, say, ctx } = setup({ people: [] });
+    say('旁白。');
+    assert.equal(rt.getState().characters.多人卡, undefined);
+    ctx.name2 = '小雪';
+    say('小雪推门进来。');
+    assert.equal(rt.getState().characters.小雪.dims.好感, 0);
 });

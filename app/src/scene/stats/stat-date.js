@@ -9,10 +9,13 @@ const TAG = /<[^<>]*>/g;
 const MONTH_DAYS = 30;
 
 // 把设置里的正则文本编译为 RegExp；空文本返回 { regex: null }，非法返回 { regex: null, invalid: true }。
-// 兼容 /pattern/flags 写法；不带写法时按普通正则、无标志处理。
+// 只填英文标签名（如 date）时取 <date>…</date> 之间的内容，与正文标签解析一致；
+// 兼容 /pattern/flags 写法；其余按普通正则、无标志处理。
+const TAG_NAME = /^[A-Za-z][\w:-]*$/;
 export function compileCaptureRegex(source) {
     const text = String(source ?? '').trim().slice(0, REGEX_MAX);
     if (!text) return { regex: null, invalid: false };
+    if (TAG_NAME.test(text)) return { regex: new RegExp(`<${text}(?:\\s[^>]*)?>([\\s\\S]*?)</${text}\\s*>`, 'i'), invalid: false };
     const literal = text.match(/^\/(.+)\/([a-z]*)$/s);
     try {
         const flags = literal ? literal[2].replace(/[gy]/g, '') : '';

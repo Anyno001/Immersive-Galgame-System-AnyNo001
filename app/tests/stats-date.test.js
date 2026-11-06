@@ -24,6 +24,13 @@ test('无捕获组取整段，有捕获组取第一组', () => {
     assert.equal(captureFirst('x', null), '');
 });
 
+test('只填英文标签名时取标签内容', () => {
+    const { regex } = compileCaptureRegex('date');
+    assert.equal(captureFirst('<time_bar><date class="x"> 3月5日 </date><time>9点</time></time_bar>', regex), '3月5日');
+    assert.equal(captureFirst('<DATE>3月6日</DATE>', regex), '3月6日');
+    assert.equal(captureFirst('date 3月5日', regex), '');
+});
+
 test('非法正则降级为未填写并记诊断', () => {
     assert.deepEqual(compileCaptureRegex('(['), { regex: null, invalid: true });
     assert.deepEqual(compileCaptureRegex('  '), { regex: null, invalid: false });

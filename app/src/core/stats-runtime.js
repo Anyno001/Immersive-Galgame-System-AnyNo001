@@ -264,8 +264,18 @@ export function createStatsRuntime({
     };
     const tableNameSet = () => new Set(tableNames());
     // 本楼要新建档的表格人物：{ 角色: {} }，关系从 0 起，初值交给「按人设补填初始关系」；已登记的跳过。
-    const tableSeedOf = (state) => {
-        const fresh = tableNames().filter((name) => !state.characters[name]);
+    // 角色卡名与群聊成员：正文里出现过名字就建档，不必等 AI 写好感标签；多人卡的卡名多半不是人名，正文没提到就不建。
+    const rosterNames = (upTo = Infinity) => {
+        const c = ctx();
+        if (!c) return [];
+        const names = [c.name2, ...(Array.isArray(c.groupMembers) ? c.groupMembers : [])]
+            .map((n) => String(n || '').trim()).filter((n) => n && !isHero(n) && n !== PROTAGONIST);
+        if (!names.length) return [];
+        const text = messages(c).slice(0, upTo === Infinity ? undefined : upTo + 1).map((m) => String((m && m.mes) || '')).join('\n');
+        return [...new Set(names)].filter((n) => text.includes(n));
+    };
+    const tableSeedOf = (state, upTo = Infinity) => {
+        const fresh = [...new Set([...tableNames(), ...rosterNames(upTo)])].filter((name) => !state.characters[name]);
         return fresh.length ? Object.fromEntries(fresh.map((name) => [name, {}])) : null;
     };
     // 表格被数据库插件改过后分两种来源：
@@ -936,7 +946,7 @@ export function createStatsRuntime({
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
                 check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
-                seedCharacters: autoTable ? tableSeedOf(before) : null,
+                seedCharacters: autoTable ? tableSeedOf(before, messageId) : null,
             });
             const meta = { ...r.meta };
             if (p.preroll) meta.preroll = p.preroll;
@@ -1687,7 +1697,7 @@ export function createStatsRuntime({
         if (generating) return { ok: false, reason: 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
         const known = entry ? entry.after.characters : ledger.initial.characters;
-        const fresh = tableNames({ fresh: true }).filter((name) => !known[name]);
+        const fresh = [...new Set([...tableNames({ fresh: true }), ...rosterNames()])].filter((name) => !known[name]);
         if (!fresh.length) return { ok: false, reason: 'stats-table-none' };
         const manual = Object.fromEntries(fresh.map((name) => [name, {}]));
         const result = entry ? commitManualRelations(entry, manual) : commitInitialRelations(manual);

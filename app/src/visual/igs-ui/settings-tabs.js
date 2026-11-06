@@ -462,11 +462,9 @@ const STATS_TEMPLATE = `
         <button class="igs-settings-action" data-action="stats-build-mode:manual" type="button">自己建卡</button>
       </div>
       <div{{statsMainBuildHidden}}>{{statsMainBuildFields}}</div>
-      <div{{statsHeroHidden}}>
+      <div class="igs-settings-section"{{statsHeroHidden}}>
         {{statsHeroCard}}
-        <div class="igs-settings-row">
-          <button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button>
-        </div>
+        {{statsHeroActions}}
       </div>
     </div>
     <div class="igs-source-filter">

@@ -203,16 +203,28 @@ export function renderStatsMappingFields(described, advancedOpen = () => '', { p
 // 「我的角色」已开始时的角色卡一览：天数与生命、体力、压力、金钱，六维，主角技能（折叠）。
 export function renderStatsHeroCard(model, advancedOpen = () => '') {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
-    const n = (v) => esc(String(Math.round(Number(v) || 0)));
+    const n = (v) => String(Math.round(Number(v) || 0));
     const bars = model.bars || {};
+    const cell = (label, value) => `<div class="igs-stats-hero-cell"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
     // 生命来自战斗 vitals（当前/最大）；没有数据时不显示这一项，避免出现「未知」或 0。
-    const life = model.vitals ? `生命 ${n(model.vitals.down ? 0 : model.vitals.hp)}/${n(model.vitals.maxHp)} · ` : '';
-    const head = `<div class="igs-source-filter-note">${model.day != null ? `第 ${n(model.day)} 天 · ` : ''}${life}体力 ${n(bars.stamina)} · 压力 ${n(bars.stress)} · 金钱 ${n(model.wallet ?? bars.money)}</div>`;
-    const attrs = (model.attributes || []).length ? `<div class="igs-source-filter-note">${model.attributes.map((a) => `${esc(a.name)} ${esc(a.display)}`).join(' · ')}</div>` : '';
+    const cells = [
+        ...(model.day != null ? [cell('天数', `第${n(model.day)}天`)] : []),
+        ...(model.vitals ? [cell('生命', `${n(model.vitals.down ? 0 : model.vitals.hp)}/${n(model.vitals.maxHp)}`)] : []),
+        cell('体力', n(bars.stamina)), cell('压力', n(bars.stress)), cell('金钱', n(model.wallet ?? bars.money)),
+    ];
+    const head = `<div class="igs-stats-hero-grid">${cells.join('')}</div>`;
+    const attrs = (model.attributes || []).length ? `<div class="igs-stats-hero-grid is-attrs">${model.attributes.map((a) => cell(a.name, a.display)).join('')}</div>` : '';
     const skills = model.skills.map((s) => `${esc(s.name)} ${esc(s.display ?? String(Math.round(s.value)))}${s.marked ? '✓' : ''}`).join(' · ');
     return head + attrs
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary><div class="igs-source-filter-note">${skills || '无'}</div></details>`
         + renderHeroSkillEditor(model, advancedOpen);
+}
+
+// 「我的角色」底部按钮：有主角技能表时并排放「按人设分配技能」与「暂停本聊天」。
+export function renderStatsHeroActions(model) {
+    const assign = model && Array.isArray(model.heroSkills) && model.heroSkills.length
+        ? '<button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设分配技能</button>' : '';
+    return `<div class="igs-stats-hero-actions">${assign}<button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button></div>`;
 }
 
 // CoC 主角技能表：已掌握的直接列出，未学的按所属属性折叠。改动写入聊天存档，不进设置草稿（data-stats-hero-skill）。
@@ -228,8 +240,7 @@ function renderHeroSkillEditor(model, advancedOpen) {
     }
     const idle = [...byAttribute.entries()].map(([attribute, list]) => `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-hero-skills-${esc(attribute)}"${advancedOpen(`stats-hero-skills-${attribute}`)}><summary>${esc(attribute)}类未学（${list.length}项）</summary>${list.map(row).join('')}</details>`).join('');
     const known = rows.filter((r) => r.learned && r.value >= 25).sort((a, b) => b.value - a.value).map(row).join('');
-    return '<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设分配技能</button></div>'
-        + (known ? `<div class="igs-settings-section">${known}</div>` : '<div class="igs-source-filter-note">暂无入门以上的技能。</div>')
+    return (known ? `<div class="igs-source-filter-grid">${known}</div>` : '<div class="igs-source-filter-note">暂无入门以上的技能。</div>')
         + idle;
 }
 
@@ -321,6 +332,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsMainBuildFields: manual ? build(buildOpen) : '',
         statsHeroHidden: hiddenAttr(!started),
         statsHeroCard: renderStatsHeroCard(archive, advancedOpen),
+        statsHeroActions: renderStatsHeroActions(archive),
         diceFeelField: renderStatsRulesetField(stats.ruleset),
         storyCheckField: field('bridge.stats.storyCheck', '剧情中的检定', selectInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动'], ['manual', '关键时刻手动掷骰'], ['off', '关闭']])),
         optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项旁显示成功率'),
@@ -333,8 +345,8 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
             + checkbox('bridge.stats.bars.stress', stats.bars.stress, '压力'),
         sheetGenField: field('bridge.stats.sheetGen', '新角色出场时', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['auto', '自动生成数值'], ['prompt', '提醒'], ['off', '不生成']])),
         statsMoreOpen: advancedOpen('stats-more'),
-        dateRegexField: captureRegexField('bridge.stats.dateRegex', '日期正则', stats.dateRegex, '例如 <date>(.*?)</date>', '对楼层原文匹配，有捕获组取第一组。填写后，过天只由日期变化决定，睡觉标签只恢复体力。留空按原有规则判定。'),
-        timeRegexField: captureRegexField('bridge.stats.timeRegex', '时间正则', stats.timeRegex, '例如 <time>(.*?)</time>', '用于判断夜转晨与深夜熬夜，支持钟点、中文时间与时辰。留空则不读取时间。'),
+        dateRegexField: captureRegexField('bridge.stats.dateRegex', '日期标签', stats.dateRegex, 'date', '填写后按日期变化过天。'),
+        timeRegexField: captureRegexField('bridge.stats.timeRegex', '时间标签', stats.timeRegex, 'time', '用于判断夜转晨与熬夜。'),
         pushField: checkbox('bridge.stats.push.enabled', stats.push.enabled, '同步到数据库表格（需要数据库插件）'),
         statsMappingFields: renderStatsMappingFields(stats.push.enabled ? mappings : null, advancedOpen, { pushEnabled: stats.push.enabled }),
         statsPromptFields: renderStatsPromptFields(stats, advancedOpen),
