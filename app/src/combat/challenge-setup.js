@@ -9,7 +9,7 @@ export const CHALLENGE_HERO_ID = 'hero';
 export const CHALLENGE_FOE_ID = 'foe';
 
 // 难度档 → 引擎档位、难关校准倍率与回合数（4–6）；倍率按托管策略模拟取值，真人试玩后再调。
-// 回合数只给亲密对决用（回合上限与结尾演出窗口）；日常挑战不设回合上限，只按胜负结算（D16）。
+// 新建的日常挑战与亲密对决都不写回合数、不设回合上限，只按胜负结算（D16）；回合数只留给带 rounds 的旧记录判定。
 export const CHALLENGE_TIER_RULES = Object.freeze({
     轻松: Object.freeze({ engineTier: 'normal', rounds: 4, hp: 0.4, damage: 0.45 }),
     普通: Object.freeze({ engineTier: 'elite', rounds: 5, hp: 0.4, damage: 0.6 }),
@@ -18,7 +18,7 @@ export const CHALLENGE_TIER_RULES = Object.freeze({
 
 // 意志：基础值按体力、压力各降一档；阈值与 stat-bars.js 的 STAMINA_LOW / STRESS_HIGH 一致。
 export const CHALLENGE_WILL = Object.freeze({ base: 60, step: 12, staminaLow: 30, stressHigh: 70 });
-// 带回合上限的局（亲密对决、旧挑战记录）到时，进攻进度达到此比例判成功。
+// 带回合上限的旧记录（旧挑战、旧亲密对决）到时，进攻进度达到此比例判成功。
 export const CHALLENGE_PROGRESS_WIN = 0.5;
 // 成功时剩余意志不低于此比例为圆满。
 export const CHALLENGE_WILL_FULL = 0.6;
@@ -94,8 +94,8 @@ export function challengeProgress(state) {
     return { progress: 1 - foe.hp / foe.maxHp, willRatio: hero.hp / hero.maxHp };
 }
 
-// 引擎结局到挑战结局；没有分出胜负时，rounds 为正整数（亲密对决、旧挑战记录）且达到回合上限按进展比例判定（byLimit），否则返回 null 继续打。
-// 新建的日常挑战不写 rounds，只按引擎胜负结算。
+// 引擎结局到挑战结局；没有分出胜负时，rounds 为正整数（旧挑战、旧亲密对决记录）且达到回合上限按进展比例判定（byLimit），否则返回 null 继续打。
+// 新建的日常挑战与亲密对决不写 rounds，只按引擎胜负结算。
 export function challengeResultOf(state, rounds) {
     const progress = challengeProgress(state);
     if (!progress) return null;

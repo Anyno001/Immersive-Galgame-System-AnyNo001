@@ -31,7 +31,8 @@ export function buildIntimateSetup({ start, state, user, position = 'receive', p
             },
         ],
         challenge: {
-            event: start.event, domain: start.domain, tier, stake: '压力', foe: '', rounds: thick.rounds, counterpart: partner, allies: [],
+            // 新建的亲密对决不写 rounds、不设回合上限，只按胜负结算；带 rounds 的旧记录由 challengeResultOf 照旧判定。
+            event: start.event, domain: start.domain, tier, stake: '压力', foe: '', counterpart: partner, allies: [],
             intimate: { mechanic, position, eventKey: start.eventKey ?? null, tension, mark },
         },
     };

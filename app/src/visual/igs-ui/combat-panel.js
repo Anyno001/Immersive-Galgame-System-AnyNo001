@@ -206,8 +206,8 @@ export function createCombatPanelController(doc, options = {}) {
         },
     });
     const duelFx = createIntimateDuelFx({
-        doc, getRoot: () => root, getOverlay: () => pageOverlay, sfx: (kind) => { try { options.playSfx?.(kind); } catch (error) { /* 音效失败不影响演出 */ } },
-        getRhythmSound: () => options.getDuelFx?.()?.rhythmSound !== false, reduced: () => reduced() || lowQuality(),
+        doc, getRoot: () => root, sfx: (kind) => { try { options.playSfx?.(kind); } catch (error) { /* 音效失败不影响演出 */ } },
+        reduced: () => reduced() || lowQuality(),
     });
     const duelLowGate = createDuelLowGate();
     const syncDuel = (view) => {
@@ -217,7 +217,7 @@ export function createCombatPanelController(doc, options = {}) {
         const ratio = foe.maxHp ? foe.hp / foe.maxHp : 0;
         const cur = session()?.state();
         try { options.onDuelProgress?.(ratio); } catch (error) { /* 立绘切换失败不影响对决 */ }
-        duelFx.sync({ ratio, turn: view.battle.turn, rounds: Number(cur?.challengeSetup?.challenge?.rounds ?? cur?.challenge?.rounds) || 0, ended: view.status === 'ended' });
+        duelFx.sync({ ratio, ended: view.status === 'ended' });
         if (view.status !== 'ended' && duelLowGate(cur?.combatId, ratio)) unitSay(foe.id, 'down');
     };
     // 登记判定（见 combat-ko-fall.js koFallKind）：宿主 options.isRegisteredCharacter(name)、正文写了台词的角色、日常挑战的「对方」。

@@ -18,7 +18,7 @@ import { INTIMATE_GRAMMAR_LINE, INTIMATE_LINES_LINE } from '../src/scene/intimat
 import { resolveChallengePromptSegment } from '../src/scene/combat-prompt.js';
 import { createCombatLines } from '../src/visual/igs-ui/combat-lines.js';
 import {
-    advanceIntimateDuel, createDuelLowGate, duelStageOf, explicitAgeOf, fallbackMechanic, getIntimateDuel, grudgeLevel, intimateCreakWindow, intimateHeartBpm,
+    advanceIntimateDuel, createDuelLowGate, duelStageOf, explicitAgeOf, fallbackMechanic, getIntimateDuel, grudgeLevel, intimateHeartBpm,
     isLoveHate, isShakyLoveHate, setIntimateDuel, underageByProfile,
 } from '../src/scene/intimate-duel.js';
 import { computeBlock, computeDamage, estimateDamage } from '../src/combat/battle-state.js';
@@ -173,11 +173,10 @@ test('换装阶段只升不降：过半切动情强档，两成以下再进一�
     assert.equal(advanceIntimateDuel(0.1), false);
 });
 
-test('心率随对方血条插值，最后两回合开吱呀', () => {
+test('心率随对方血条插值', () => {
     assert.equal(intimateHeartBpm(1), 66);
     assert.equal(intimateHeartBpm(0), 100);
     assert.ok(intimateHeartBpm(0.5) > 66 && intimateHeartBpm(0.5) < 100);
-    assert.deepEqual([[1, 4], [3, 4], [4, 4], [2, 0]].map(([turn, rounds]) => intimateCreakWindow(turn, rounds)), [false, true, true, false]);
 });
 
 const LINES_TAG = '[igs-combat:lines|小林|别、别看我/等一下|这样……|唔！/哈……|我、我快……]';

@@ -215,6 +215,4 @@ export const intimateHeartBpm = (ratio) => {
     return Math.round(INTIMATE_HEART_REST + (INTIMATE_HEART_PEAK - INTIMATE_HEART_REST) * (1 - value));
 };
 
-export const intimateCreakWindow = (turn, rounds) => Number(rounds) > 0 && Number(turn) >= Number(rounds) - 1;
-
 export const INTIMATE_ENDING_LINE = (ending) => (INTIMATE_ENDING_TEXT[ending] ? `${ending}。${INTIMATE_ENDING_TEXT[ending]}` : '');

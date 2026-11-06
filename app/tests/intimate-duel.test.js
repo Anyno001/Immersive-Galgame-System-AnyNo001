@@ -10,6 +10,7 @@ import { createCharacter, createStatsState } from '../src/scene/stats/stat-state
 import { buildIntimateDeck } from '../src/combat/intimate-cards.js';
 import { buildIntimateSetup, foldIntimateTrace, initIntimateTrace } from '../src/combat/intimate-setup.js';
 import { createBattle } from '../src/combat/engine.js';
+import { challengeResultOf } from '../src/combat/challenge-setup.js';
 import { buildChallengeReport, parseChallengeReport } from '../src/combat/challenge-report.js';
 import { resolveChallengePromptSegment } from '../src/scene/combat-prompt.js';
 import { normalizeCombatExpansionSettings } from '../src/visual/igs-ui/combat-settings.js';
@@ -213,7 +214,11 @@ test('亲密局可以建局并被引擎接受', () => {
     const start = { event: '夜', intimate: true, mechanic: '主导', counterpart: '小林', tier: '普通', eventKey: 3 };
     const built = buildIntimateSetup({ start, state: { bars: { stamina: 100, stress: 0 }, skills: {}, favors: { 小林: -40 }, intimate: { 小林: { mark: 'suppressed' } } }, user: { name: '我' }, position: 'lead', persona: '傲娇' });
     assert.equal(built.ok, true);
-    assert.equal(createBattle({ rulesVersion: undefined, ...built.setup }, 5).ok, true);
+    const created = createBattle({ rulesVersion: undefined, ...built.setup }, 5);
+    assert.equal(created.ok, true);
+    assert.equal(Object.hasOwn(built.setup.challenge, 'rounds'), false);
+    assert.equal(challengeResultOf({ ...created.state, turn: 99 }, built.setup.challenge.rounds), null);
+    assert.equal(challengeResultOf({ ...created.state, turn: 99 }, 5).byLimit, true);
     const revenge = built.setup.units[1].skills.find((skill) => skill.id === 'im-revenge');
     assert.ok(revenge.weight > 10);
 });
