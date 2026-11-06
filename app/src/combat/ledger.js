@@ -369,6 +369,19 @@ function dropCopy(state, cardId) {
     }
     return pick;
 }
+// 同模型并卡（规则 v5 P5a）：卡牌的机制字段（不含名称、ID、风味与技能出处）按键排序序列化；
+// 带 merge 标记的新记录在角色已持有同模型的牌时并为那张牌的一张副本，不新建目录条目。旧记录不带标记，重放不变。
+const CARD_MODEL_KEYS = Object.freeze(['type', 'cost', 'rarity', 'effects', 'upgraded', 'retain', 'innate', 'ethereal', 'unplayable', 'sly', 'onDiscard', 'replay', 'radiance']);
+const canonical = (value) => (Array.isArray(value) ? `[${value.map(canonical).join(',')}]`
+    : value && typeof value === 'object' ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`
+    : JSON.stringify(value ?? null));
+export const cardModelKey = (card) => canonical(Object.fromEntries(CARD_MODEL_KEYS.filter((key) => card?.[key] !== undefined).map((key) => [key, card[key]])));
+function sameModelCard(state, card) {
+    const key = cardModelKey(card);
+    for (const [cardId, count] of state.owned) if (count > 0 && cardModelKey(state.catalog.get(cardId)) === key) return cardId;
+    return null;
+}
+
 // 卡组角色的初始卡牌状态：目录、副本、初始卡组。
 function initialDeckState(profile, classProfile) {
     const state = { catalog: buildCardCatalog(profile, classProfile), copies: new Map(), legacyUpgraded: new Map(), deck: [...profile.starterDeck], deckCopies: [], claimed: new Set() };
@@ -438,7 +451,7 @@ const isHeroStock = (state, context) => context?.heroStock === true && !!context
 
 // 战利品入账。reserveOnly 为 true 表示只验证、不重复入库（库存由背包表管理）。
 function applyLootSlot(state, slot, entry, heroStockOwner = false) {
-    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card }, { entry });
+    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}) }, { entry });
     if (heroStockOwner) {
         return slot.kind === 'gear' && effectsDamage(slot.gear.passive?.effects) > COMBAT_RULES.allySkillDamageCap ? 'combat-gear-damage-cap' : null;
     }
@@ -480,6 +493,13 @@ const handlers = Object.freeze({
         }
         if (!payload.card) return 'combat-learn-kind-mismatch';
         if (payload.card.rarity === 'signature' && !(state.profile.signatureCards || []).some((card) => card.id === payload.card.id)) return 'combat-signature-unknown';
+        if (payload.merge === true && payload.card.rarity !== 'signature') {
+            const same = sameModelCard(state, payload.card);
+            if (same) {
+                addCard(state, same, context.entry?.id || 'learn');
+                return null;
+            }
+        }
         if (state.catalog.has(payload.card.id)) return 'combat-card-id-collision';
         state.catalog.set(payload.card.id, payload.card);
         addCard(state, payload.card.id, context.entry?.id || 'learn');
@@ -1082,7 +1102,9 @@ const GROWTH_TYPES = new Set(['exp', 'learn', 'upgrade', 'class']);
 // 一条成长记录对应的播报：谁、什么变化、升了几级、送了几点属性。
 function growthRecord(entry, state, levelBefore, index, heroId = null) {
     const payload = entry.payload;
-    const name = entry.type === 'class' ? resolveClass(index, payload.classRef)?.className || '' : (payload.card || payload.skill)?.name || '';
+    // 同模型并卡的学牌记录播报已有那张牌的名字。
+    const merged = entry.type === 'learn' && payload.merge === true && payload.card && !state.catalog.has(payload.card.id) ? state.catalog.get(sameModelCard(state, payload.card)) : null;
+    const name = entry.type === 'class' ? resolveClass(index, payload.classRef)?.className || '' : (merged || payload.card || payload.skill)?.name || '';
     const levelAfter = expProgress(state.exp).level;
     const asiLevels = state.id === heroId
         ? Array.from({ length: Math.max(0, levelAfter - levelBefore) }, (_, at) => levelBefore + 1 + at).filter((level) => isAsiLevel(level, true))
@@ -1256,6 +1278,7 @@ function buildLootEntry(effective, index, directive, anchor, report, text, userN
     const payload = {
         combatId: offer.combatId, reportId: directive.reportId, set: directive.set, slot: { ...slot },
         cost: directive.set === 'reserve' ? REROLL_COST : 0,
+        ...(slot.kind === 'card' ? { merge: true } : {}),
     };
     const normalized = normalizeLedgerEntry({ id: ledgerEntryId('loot', key, anchor), type: 'loot', character: key, anchor, payload, createdAt: now });
     return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };

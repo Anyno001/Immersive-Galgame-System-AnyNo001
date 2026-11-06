@@ -611,3 +611,25 @@ test('单张副本（P5a）：起始卡组每张一个副本；带 copyId 的永
     assert.ok(stale.inactive.some((item) => item.reason === 'battle-growth-report-invalid'));
     assert.deepEqual(bonusOf(heroOf(stale)), [0, 0, 0]);
 });
+
+test('同模型并卡（P5a）：带 merge 的学牌记录与已持有牌模型一致时并为那张牌的一张副本，不新建目录条目；不带标记的旧记录与模型不同的牌照旧新建', async () => {
+    const tag = (skill) => ai(`剑光乍起。\n[igs-combat:learn|我|${skill}|习得]`);
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [tag('新斩'), tag('旧斩'), tag('重斩')]);
+    const pending = (await ledger.scan()).pendingGeneration.filter((p) => p.kind === 'learn');
+    assert.equal(pending.length, 3);
+    const learnAt = (p, card, merge) => ({ id: ledgerEntryId('learn', 'pc-hero', p.anchor), type: 'learn', character: 'pc-hero', anchor: p.anchor, payload: { card, ...(merge ? { merge: true } : {}) }, createdAt: 7 });
+    const same = (id, name) => ({ ...attack(id), name });
+    const written = await ledger.append([
+        learnAt(pending[0], same('lc-a', '新斩'), true),
+        learnAt(pending[1], same('lc-b', '旧斩'), false),
+        learnAt(pending[2], { ...attack('lc-c'), type: 'skill', name: '重斩' }, true),
+    ]);
+    assert.equal(written.ok, true, JSON.stringify(written));
+    const state = await ledger.effectiveState();
+    const me = heroOf(state);
+    assert.equal(me.owned.get('c1'), 4);
+    assert.equal(me.catalog.has('lc-a'), false);
+    assert.equal(me.copies.filter((r) => r.cardId === 'c1').length, 4);
+    assert.deepEqual(['lc-b', 'lc-c'].map((id) => [me.catalog.has(id), me.owned.get(id)]), [[true, 1], [true, 1]]);
+    assert.equal(state.diagnostics.some((d) => d.code === 'combat-card-id-collision'), false);
+});

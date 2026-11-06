@@ -635,7 +635,8 @@ function settleGrowth(entity, value, state) {
     if (output === 'skill' && effectsDamage(normalized.value.effects) > COMBAT_RULES.allySkillDamageCap) {
         return { ok: false, errors: [errorItem('skill.effects', 'damage-cap', { cap: COMBAT_RULES.allySkillDamageCap })] };
     }
-    const payload = mode === 'upgrade' ? { targetId: id, [output]: normalized.value } : { [output]: normalized.value };
+    // 规则 v5 P5a：剧情学到的卡牌带同模型并卡标记，与已持有的牌模型一致时归为那张牌的一张副本。
+    const payload = mode === 'upgrade' ? { targetId: id, [output]: normalized.value } : { [output]: normalized.value, ...(output === 'card' ? { merge: true } : {}) };
     return { ok: true, result: { entry: ledgerEntry(entity, mode, payload, state.now) }, diagnostics };
 }
 

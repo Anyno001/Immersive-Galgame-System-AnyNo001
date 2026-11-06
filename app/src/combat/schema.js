@@ -739,13 +739,18 @@ function validateLedgerPayload(type, payload, path, state) {
             return { amount: intField(payload.amount, at('amount'), state, 1, 1e3), reason: textField(payload.reason, at('reason'), state, 80, '') };
         case 'learn':
         case 'upgrade': {
-            checkKnownFields(payload, type === 'learn' ? ['card', 'skill'] : ['targetId', 'card', 'skill'], path, state);
+            checkKnownFields(payload, type === 'learn' ? ['card', 'skill', 'merge'] : ['targetId', 'card', 'skill'], path, state);
             const result = {};
             if (type === 'upgrade') result.targetId = idField(payload.targetId, at('targetId'), state);
             if (payload.card !== undefined && payload.skill !== undefined) addIssue(state, path, 'card-or-skill');
             if (payload.card !== undefined) result.card = validateCardEntry(payload.card, at('card'), state);
             else if (payload.skill !== undefined) result.skill = validateSkill(payload.skill, at('skill'), state);
             else if (type === 'learn') addIssue(state, path, 'card-or-skill');
+            // 规则 v5 P5a 同模型并卡标记：只有新写入的学牌记录带。
+            if (type === 'learn' && payload.merge !== undefined) {
+                if (typeof payload.merge !== 'boolean') addIssue(state, at('merge'), 'expected-boolean');
+                else if (payload.merge) result.merge = true;
+            }
             return result;
         }
         case 'class':
@@ -863,13 +868,15 @@ function validateLedgerPayload(type, payload, path, state) {
             };
         }
         case 'loot':
-            checkKnownFields(payload, ['combatId', 'reportId', 'set', 'slot', 'cost'], path, state);
+            checkKnownFields(payload, ['combatId', 'reportId', 'set', 'slot', 'cost', 'merge'], path, state);
+            if (payload.merge !== undefined && typeof payload.merge !== 'boolean') addIssue(state, at('merge'), 'expected-boolean');
             return {
                 combatId: textField(payload.combatId, at('combatId'), state, 120),
                 reportId: textField(payload.reportId, at('reportId'), state, 40),
                 set: enumField(payload.set, at('set'), state, ['main', 'reserve']),
                 slot: validateRewardSlot(payload.slot, at('slot'), state),
                 cost: intField(payload.cost, at('cost'), state, 0, 1e5, 0),
+                ...(payload.merge === true ? { merge: true } : {}),
             };
         case 'sell': {
             checkKnownFields(payload, ['lootId', 'gearId', 'itemId', 'rarity'], path, state);

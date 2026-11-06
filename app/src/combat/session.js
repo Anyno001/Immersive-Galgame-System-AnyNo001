@@ -1344,7 +1344,7 @@ export function createCombatSession(options = {}) {
             if (card) {
                 const hero = profileIdFor('deck-character', getUserName());
                 const anchor = { messageId: reportMessageId, swipeId: swipeIdOf(getChat()[reportMessageId]), tagHash: CHALLENGE_REWARD_TAG_HASH, occurrence: 0 };
-                try { await ledger.append([{ id: ledgerEntryId('learn', hero, anchor), type: 'learn', character: hero, anchor, payload: { card }, createdAt: now() }]); } catch { /* 经验牌入库失败不影响战报收尾 */ }
+                try { await ledger.append([{ id: ledgerEntryId('learn', hero, anchor), type: 'learn', character: hero, anchor, payload: { card, merge: true }, createdAt: now() }]); } catch { /* 经验牌入库失败不影响战报收尾 */ }
             }
         }
         let scan = null;
