@@ -136,6 +136,7 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     for (const [name, value] of Object.entries(clean.protagonistBase)) map.set(`base:${name}`, value);
     for (const [name, value] of Object.entries(clean.protagonistEdit)) map.set(`edit:${name}`, value);
     if (clean.heroAssigned) map.set('hero:assigned', true);
+    if (clean.heroSlots) map.set('hero:slots', clean.heroSlots);
     for (const name of clean.intimacyForced) map.set(`force:${name}`, true);
     map.set('queue:skills', clean.queue.skills);
     map.set('queue:people', clean.queue.people);
@@ -181,6 +182,7 @@ export function restoreChat(map) {
         else if (prefix === 'base') raw.protagonistBase[name] = value;
         else if (prefix === 'edit') raw.protagonistEdit[name] = value;
         else if (prefix === 'hero' && name === 'assigned') raw.heroAssigned = value === true;
+        else if (prefix === 'hero' && name === 'slots') raw.heroSlots = value;
         else if (prefix === 'queue' && (name === 'skills' || name === 'people')) raw.queue[name] = value;
         else if (prefix === 'notified') raw.notified = value;
         else if (prefix === 'force' && value === true) raw.intimacyForced.push(name);

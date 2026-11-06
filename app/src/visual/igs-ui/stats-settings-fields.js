@@ -1,7 +1,7 @@
 // 数值系统提示词编辑（§9）：每段一个可编辑模板，可单独关闭，可恢复默认；阶段文案同样可改。
 // 留空表示使用默认值（默认值作为占位提示显示），整块默认折叠在高级分区里。
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
-import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_CUSTOM_OPTION, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_GOOD_VALUE, BUILD_PICK_SLOTS, BUILD_STRONG_VALUE, buildSummary, manualBuildSummary, groupPickCandidates, normalizeBuild, pickSummary } from '../../scene/stats/stat-build.js';
+import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_CUSTOM_OPTION, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_GOOD_VALUE, BUILD_PICK_SLOTS, BUILD_STRONG_VALUE, buildSummary, manualBuildSummary, groupPickCandidates, normalizeBuild, pickCandidates, pickSummary } from '../../scene/stats/stat-build.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abilities.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
@@ -152,6 +152,30 @@ export function renderSkillPicks(build, ruleset = 'coc7') {
     return `<div class="igs-source-filter-note" data-result="stats-build-special" data-stats-ruleset="${esc(ruleset)}">${esc(pickNote(pickSummary(b).errors, ruleset))}</div><div class="igs-source-filter-grid">${grid}</div>`;
 }
 
+// 选完之后常驻的八格：显示聊天里每格当前占的技能，换格直接写聊天存档（data-stats-hero-slot），不进设置草稿。
+// 其他格已占的技能置灰；空格可选「未选」以外的任意候选。
+export function renderHeroSlots(build, slots, ruleset = 'coc7') {
+    const b = normalizeBuild(build);
+    const held = slots && typeof slots === 'object' ? slots : {};
+    const taken = new Set(Object.values(held));
+    const known = new Set(pickCandidates(b));
+    const extra = [...taken].filter((name) => !known.has(name));
+    const label = (slot) => `${slot.startsWith('strong') ? '擅长' : '比较擅长'}${'一二三四五'[Number(slot.replace(/[^0-9]/g, '')) - 1]}`;
+    const { custom, groups } = groupPickCandidates(b);
+    const select = (slot) => {
+        const cur = held[slot] || '';
+        const option = (name) => `<option value="${esc(name)}"${name === cur ? ' selected' : ''}${taken.has(name) && name !== cur ? ' disabled' : ''}>${esc(name)}</option>`;
+        const options = [`<option value=""${cur ? ' disabled' : ' selected'}>未选</option>`, `<option value="${BUILD_CUSTOM_OPTION}">自定义…</option>`,
+            ...[...extra, ...custom].map(option), ...groups.map((g) => `<optgroup label="${esc(g.label)}">${g.items.map(option).join('')}</optgroup>`)].join('');
+        return `<select data-stats-hero-slot="${slot}" data-stats-hero-slot-old="${esc(cur)}" aria-label="${esc(label(slot))}">${options}</select>`;
+    };
+    const grid = BUILD_PICK_SLOTS.map((slot) => field('', label(slot), select(slot))).join('');
+    const head = ruleset === 'dnd5e'
+        ? '擅长技能加全额熟练加值，比较擅长加一半（向下取整）。更换技能时，原技能回到未学，新技能按该格起步。'
+        : `擅长技能${BUILD_STRONG_VALUE}起步，比较擅长${BUILD_GOOD_VALUE}起步。更换技能时，原技能回到未学，新技能按该格起步。`;
+    return `<div class="igs-settings-section" data-stats-hero-slots><div class="igs-source-filter-title">擅长技能</div><div class="igs-source-filter-note">${esc(head)}</div><div class="igs-source-filter-grid">${grid}</div></div>`;
+}
+
 // 数字框输入只写草稿、不整页重绘（保焦点）；剩余点数、技能提示与「按分配启用」在这里就地更新。
 export function refreshStatsBuildStatus(root, build, worldview) {
     if (!root || typeof root.querySelector !== 'function') return false;
@@ -261,21 +285,24 @@ export function renderStatsHeroCard(model, advancedOpen = () => '', build = null
     const d20 = model.ruleset === 'dnd5e' && skillCells ? '技能数值为检定加值，掷二十面骰后加上此值。' : '';
     // 技能直接平铺显示；编辑全部收在下方「编辑技能」折叠里。
     const attrEdit = model.heroAttrs ? '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button></div>' : '';
+    const live = model.needsPick ? '' : renderHeroSlots(build, model.heroSlots, model.ruleset);
     return pick + head + attrs + attrEdit
         + `<div class="igs-source-filter-note" data-stats-skills>技能（✓ 表示今天有成长机会）${d20 ? `。${d20}` : ''}</div>${skills}`
-        + renderSkillEditor(model, advancedOpen);
+        + live + renderSkillEditor(model, advancedOpen);
 }
 
 const SKILL_TIER_ITEMS = Object.freeze(['未学', '入门', '熟练', '精通', '大师']);
 
 // 下拉：改动直接写聊天存档，不进设置草稿（data-stats-skill-attr / data-stats-skill-tier）。
-function skillSelect(kind, s, list, current, label) {
+function skillSelect(kind, s, list, current, label, disabledOf = null) {
     const items = list.includes(current) || !current ? list : [current, ...list];
-    return `<select data-stats-skill-${kind}="${esc(s.name)}" aria-label="${esc(`${s.name}${label}`)}">${items.map((a) => `<option value="${esc(a)}"${a === current ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>`;
+    return `<select data-stats-skill-${kind}="${esc(s.name)}" aria-label="${esc(`${s.name}${label}`)}">${items.map((a) => `<option value="${esc(a)}"${a === current ? ' selected' : ''}${a !== current && disabledOf && disabledOf(a) ? ' disabled' : ''}>${esc(a)}</option>`).join('')}</select>`;
 }
 
 // 「编辑技能」一项：名字与数值（与数值格同一种显示，CoC 百分值、D&D 检定加值）一行；所属属性、熟练度两个下拉一行；
 // 按钮一行：剧情中出现的技能为改名、合并、删除三格等宽，内置技能只有删除（占满）。
+// 非剧情技能（及占格技能）的熟练度不能高于封顶档；capTier 为空表示不限。
+const tierDisabled = (s) => (s.capTier ? (a) => SKILL_TIER_ITEMS.indexOf(a) > SKILL_TIER_ITEMS.indexOf(s.capTier) : null);
 function skillEditRow(s) {
     const id = esc(encodeURIComponent(s.name));
     const learned = s.tier !== '未学';
@@ -286,19 +313,19 @@ function skillEditRow(s) {
             + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${id}" type="button">合并</button>${remove}</div>`
         : learned ? `<div class="igs-stats-hero-actions">${remove}</div>` : '';
     return `<div class="igs-settings-section" data-stats-skill-row="${esc(s.name)}"><div class="igs-stats-person-head"><b>${esc(s.name)}</b><span>${learned ? esc(s.display ?? String(s.value)) : '未学'}${s.story ? ' · 剧情中出现' : ''}</span></div>`
-        + `<div class="igs-stats-hero-actions">${skillSelect('attr', s, BASE_ATTRIBUTES, s.attribute, '所属属性')}${skillSelect('tier', s, SKILL_TIER_ITEMS, s.tier, '熟练度')}</div>`
+        + `<div class="igs-stats-hero-actions">${skillSelect('attr', s, BASE_ATTRIBUTES, s.attribute, '所属属性')}${skillSelect('tier', s, SKILL_TIER_ITEMS, s.tier, '熟练度', tierDisabled(s))}</div>`
         + buttons + '</div>';
 }
 
-// 「编辑技能」折叠：已学技能（数值高的在前）与剧情中出现的技能；未学的内置技能不列，需要时在末尾输入框新增（入门起步）。
+// 「编辑技能」折叠：已学技能（数值高的在前）与剧情中出现的技能；未学的内置技能不列，需要时在上方八格里选择。
 function renderSkillEditor(model, advancedOpen) {
     const rows = Array.isArray(model.skillEdit) ? model.skillEdit : [];
     const known = rows.filter((r) => r.tier !== '未学' || r.story).sort((a, b) => b.value - a.value);
     const learned = known.filter((r) => r.tier !== '未学').length;
-    const add = field('', '新增技能', '<input data-stats-skill-add type="text" maxlength="8" placeholder="技能名，回车添加">');
     return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skill-edit"${advancedOpen('stats-skill-edit')}><summary>编辑技能（${learned}项已学）</summary>`
+        + (known.filter((r) => r.story).length >= 2 ? '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:story-tidy" type="button">整理剧情技能</button></div>' : '')
         + (known.length ? known.map(skillEditRow).join('') : '<div class="igs-source-filter-note">暂无已学技能。</div>')
-        + add + '</details>';
+        + '</details>';
 }
 
 // 「我的角色」底部按钮：暂停本聊天；有主角技能表（CoC）时再加「按人设分配技能」。

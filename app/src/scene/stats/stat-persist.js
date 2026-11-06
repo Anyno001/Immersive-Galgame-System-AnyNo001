@@ -84,7 +84,7 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, intimacyForced: [], queue: { skills: [], people: [] }, notified: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], queue: { skills: [], people: [] }, notified: [] };
 }
 
 export function sanitizeCatalog(raw) {
@@ -112,6 +112,16 @@ export function sanitizeCatalog(raw) {
     out.heroAssigned = raw.heroAssigned === true;
     // 新聊天选过擅长技能（3+5）后为真，「我的角色」不再显示选择区。
     out.heroPicked = raw.heroPicked === true;
+    // 3+5 每格占的技能 { strong1: 名, … good5: 名 }；旧存档没有该字段（null），由运行时按已学技能回填。
+    if (plainObject(raw.heroSlots)) {
+        out.heroSlots = {};
+        const used = new Set();
+        for (const [slot, rawName] of Object.entries(raw.heroSlots)) {
+            const name = /^(?:strong[1-3]|good[1-5])$/.test(slot) ? validSkillName(rawName) : null;
+            const canon = name ? canonicalSkillName(name) : null;
+            if (canon && !used.has(canon)) { used.add(canon); out.heroSlots[slot] = canon; }
+        }
+    }
     // 亲密门槛豁免：聊天级角色名单，不随楼层快照，swipe、删楼不丢。
     out.intimacyForced = [...new Set((Array.isArray(raw.intimacyForced) ? raw.intimacyForced : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
     const q = plainObject(raw.queue) ? raw.queue : {};

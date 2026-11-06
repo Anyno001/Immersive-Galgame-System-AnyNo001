@@ -51,7 +51,8 @@ import { preserveConfiguredArtists } from '../../generated-images/artist-library
 import { pickImagePromptFile } from './settings-image-prompt-io.js';
 import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
-import { BUILD_CUSTOM_OPTION, normalizeBuild, pickSummary } from '../../scene/stats/stat-build.js';
+import { BUILD_CUSTOM_OPTION, normalizeBuild, pickSummary, validCustomSkillName } from '../../scene/stats/stat-build.js';
+import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
 import { refreshStatsBuildStatus } from './stats-settings-fields.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL } from '../../combat/abilities.js';
 import { BATTLE_MODE_PATH, COMBAT_PRESET_PATH, checkCombatExpansionReady, planBattleMode, planCombatPreset } from './combat-settings.js';
@@ -692,7 +693,7 @@ export function createSettingsHost(deps) {
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
         // relation-set 的参数是「编码后的角色名|好感,信任,了解[,欲望]」（当前值，用来预填数字框）。
         // skill-attr 的参数是「编码后的技能名|属性」（来自剧情技能的属性下拉）。
-        const [namePart, valuePart = ''] = kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'skill-attr' || kind === 'skill-tier' ? raw.split('|') : [raw];
+        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'skill-attr' || kind === 'skill-tier' ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -708,11 +709,36 @@ export function createSettingsHost(deps) {
             else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
             else if (kind === 'skill-tier') result = valuePart ? await op('hero', 'edit', name, { tier: valuePart }) : { ok: true, cancelled: true };
+            else if (kind === 'hero-slot') {
+                // 3+5 换格：valuePart 为新技能，oldPart 为原占格技能；原格有技能时先确认一次，选「自定义…」时再问名字与所属属性。
+                let skill = valuePart ? decodeURIComponent(valuePart) : '';
+                const old = oldPart ? decodeURIComponent(oldPart) : '';
+                let attribute;
+                if (!skill) result = { ok: true, cancelled: true };
+                else {
+                    if (skill === BUILD_CUSTOM_OPTION) {
+                        const raw = await settingsDialogs.prompt(`自定义技能名（1–8 字，不含数字和符号）：`, '');
+                        skill = validCustomSkillName(raw == null ? '' : raw) || '';
+                        if (!skill) result = raw == null || !String(raw).trim() ? { ok: true, cancelled: true } : { ok: false, reason: 'stats-build-skill-invalid' };
+                    }
+                    if (skill) {
+                        const sure = !old || await settingsDialogs.confirm(`将「${name.startsWith('strong') ? '擅长' : '比较擅长'}${'一二三四五'[Number(name.replace(/[^0-9]/g, '')) - 1] || ''}」由「${old}」换成「${skill}」？「${old}」会回到未学，「${skill}」按该格起步值重新计算。`);
+                        if (!sure) result = { ok: true, cancelled: true };
+                        else {
+                            result = await op('hero', 'slot', name, { skill, attribute });
+                            if (result && result.reason === 'stats-slot-needs-attribute') {
+                                attribute = await settingsDialogs.choose(`「${skill}」所属的属性：`, BASE_ATTRIBUTES.map((value) => ({ value, label: value })), BASE_ATTRIBUTES[1], { dropdown: true });
+                                result = BASE_ATTRIBUTES.includes(attribute) ? await op('hero', 'slot', name, { skill, attribute }) : { ok: true, cancelled: true };
+                            }
+                        }
+                    }
+                }
+            }
             else if (kind === 'hero-pick') {
                 // 选擅长技能：读设置草稿里的 8 格（与建卡同一份），确定后写进本聊天。
                 const draftBuild = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge && state.activeSettings.draft.bridge.stats && state.activeSettings.draft.bridge.stats.build;
                 const picked = pickSummary(draftBuild);
-                result = picked.ok ? await op('hero', 'pick', '', { skills: picked.skills, attributes: picked.attributes }) : { ok: false, reason: picked.errors[0] };
+                result = picked.ok ? await op('hero', 'pick', '', { skills: picked.skills, attributes: picked.attributes, slots: picked.slots }) : { ok: false, reason: picked.errors[0] };
             }
             else if (kind === 'hero-attrs') {
                 // 修改属性：六维底数 3–18、合计不超过 72；剧情与升级加的点另算，不受这个上限。
@@ -746,6 +772,24 @@ export function createSettingsHost(deps) {
             } else if (kind === 'skill-merge') {
                 const to = String((await settingsDialogs.prompt(`把「${name}」合并到哪项技能（填技能名）：`, '')) || '').trim();
                 result = to ? await op('skill', 'merge', name, { to }) : { ok: true, cancelled: true };
+            } else if (kind === 'story-tidy') {
+                const busy = typeof settingsDialogs.busy === 'function' ? settingsDialogs.busy('正在整理剧情技能，需要几十秒。') : null;
+                try { result = await op('skill', 'tidy-suggest', ''); } finally { if (busy) busy.close(); }
+                if (result && result.reason === 'stats-tidy-failed') { await settingsDialogs.alert('整理失败，辅助模型未返回结果，可稍后重试。'); result = { ok: true, cancelled: true }; }
+                else if (result && result.ok) {
+                    const items = result.items || [];
+                    if (!items.length) { await settingsDialogs.alert('没有需要整理的剧情技能。'); result = { ok: true, cancelled: true }; }
+                    else {
+                        const choices = items.map((item, i) => ({ value: String(i), label: item.type === 'rename' ? `${item.from} 改名为 ${item.to}` : `${item.from} → ${item.to}`, note: item.reason }));
+                        const picked = await settingsDialogs.pick('整理结果由模型判断，可能把不该合并的技能合在一起，请逐条核对。', choices, choices.map((c) => c.value));
+                        const chosen = Array.isArray(picked) ? picked.map((v) => items[Number(v)]).filter(Boolean) : [];
+                        if (!chosen.length) result = { ok: true, cancelled: true };
+                        else {
+                            result = await op('skill', 'tidy-apply', '', { items: chosen });
+                            if (result && result.ok) await settingsDialogs.alert(`已整理 ${result.applied} 项`);
+                        }
+                    }
+                }
             } else if (kind === 'skill-remove') {
                 result = await settingsDialogs.confirm(`删除技能「${name}」？主角这项技能改为未学。`) ? await op('skill', 'remove', name) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-edit') {
@@ -775,7 +819,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
@@ -1456,9 +1500,10 @@ export function createSettingsHost(deps) {
                 controller.invoke(`stats-op:skill-tier:${encodeURIComponent(skillTier)}|${String(target.value)}`);
                 return;
             }
-            if (target?.hasAttribute?.('data-stats-skill-add')) {
-                const name = String(target.value || '').trim();
-                if (name) controller.invoke(`stats-op:skill-tier:${encodeURIComponent(name)}|入门`);
+            // 选完之后常驻的 3+5 八格：换格直接写聊天存档。
+            const heroSlot = target?.getAttribute?.('data-stats-hero-slot');
+            if (heroSlot != null) {
+                controller.invoke(`stats-op:hero-slot:${heroSlot}|${encodeURIComponent(String(target.value))}|${encodeURIComponent(target.getAttribute('data-stats-hero-slot-old') || '')}`);
                 return;
             }
             const artistSelection = target?.getAttribute?.('data-artist-selection');

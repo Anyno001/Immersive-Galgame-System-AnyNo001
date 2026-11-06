@@ -22,7 +22,7 @@ export const BUILD_CUSTOM_MAX = 8;
 export const BUILD_CUSTOM_OPTION = '__custom__';
 // 默认：原来的 8 项日常技能，前 3 项擅长、后 5 项比较擅长。
 const DEFAULT_PICKS = Object.freeze(Object.fromEntries(BUILD_PICK_SLOTS.map((slot, i) => [slot, DEFAULT_SPECIAL_SKILLS[i] || ''])));
-const slotValue = (slot) => (slot.startsWith('strong') ? BUILD_STRONG_VALUE : BUILD_GOOD_VALUE);
+export const slotValue = (slot) => (slot.startsWith('strong') ? BUILD_STRONG_VALUE : BUILD_GOOD_VALUE);
 // 自定义技能名会拼进设置路径 bridge.stats.build.special.<名>：不收点号、空白、数字与标记符号，1–8 字（同学习表词长）。
 const CUSTOM_NAME = /^[^\s0-9０-９.\[\]{}<>|:："'`\/]{1,8}$/;
 const RESERVED = new Set(['__proto__', 'constructor', 'prototype']);
@@ -75,13 +75,13 @@ export function pickCandidates(build) {
 // 下拉分组（成员表由本文件维护；未列入的候选落「其他」，测试断言内置候选不会落进「其他」）。
 export const SKILL_GROUPS = Object.freeze([
     ['日常', ['烹饪', '家务', '学习', '运动', '艺术', '话术', '照顾', '应变']],
-    ['生活', ['穿搭', '化妆', '园艺', '照顾宠物', '酒量', '带娃', '记路', '修理', '游戏', '棋牌', '按摩', '驾驶']],
+    ['生活', ['穿搭', '化妆', '园艺', '养宠物', '喝酒', '带娃', '认路', '修理', '游戏', '棋牌', '按摩', '驾驶']],
     ['才艺', ['唱歌', '舞蹈', '摄影', '写作', '手工', '讲故事', '调酒']],
     ['社交', ['恐吓', '魅惑', '安抚', '八卦', '撒娇', '砍价', '演讲']],
     ['调查', ['侦查', '聆听', '察言观色', '查资料', '追踪', '记忆']],
     ['身手', ['潜行', '闪避', '攀爬', '格斗', '射击', '投掷', '跳跃', '开锁']],
     ['专业', ['医术', '电脑', '法律', '财务', '外语', '鉴定']],
-    ['歪门邪道', ['撒谎', '勒索', '挑拨', '造谣', '装可怜', '甩锅', '画大饼', '道德绑架', '套话', '拍马屁', '煽动', '精神控制', '下药', '伪造', '诈骗', '销毁证据', '黑话', '尾随', '偷拍', '作弊', '开溜', '赌博', '看人下菜碟', '装病', '下黑手', '顺手牵羊', '伪装']],
+    ['歪门邪道', ['撒谎', '勒索', '挑拨', '造谣', '演戏', '甩锅', '忽悠', '道德绑架', '套话', '拍马屁', '煽动', '精神控制', '下药', '伪造', '诈骗', '销毁证据', '黑话', '尾随', '偷拍', '作弊', '逃跑', '赌博', '偷袭', '顺手牵羊', '伪装']],
 ]);
 export const SKILL_GROUP_OTHER = '其他';
 
@@ -150,17 +150,33 @@ export function normalizeBuild(raw) {
 export function pickSummary(build) {
     const b = normalizeBuild(build);
     const skills = {};
+    const slots = {};
     const errors = [];
     for (const slot of BUILD_PICK_SLOTS) {
         const name = b.picks[slot];
         if (!name) { if (slot.startsWith('strong')) errors.push('stats-build-strong-missing'); continue; }
         if (Object.hasOwn(skills, name)) { errors.push('stats-build-pick-duplicate'); continue; }
         skills[name] = slotValue(slot);
+        slots[slot] = name;
     }
     const unique = [...new Set(errors)];
     // 已选的自定义技能带上所属六维，建卡或选技能时据此登记。
     const attributes = Object.fromEntries(Object.keys(skills).filter((name) => Object.hasOwn(b.customAttrs, name)).map((name) => [name, b.customAttrs[name]]));
-    return { skills, attributes, picked: Object.keys(skills), errors: unique, ok: unique.length === 0 };
+    return { skills, slots, attributes, picked: Object.keys(skills), errors: unique, ok: unique.length === 0 };
+}
+
+// 旧存档没有 catalog.heroSlots 时，按主角已学的非剧情技能回填八格：entries 为 [[技能, 当前值]]。
+// 按值从高到低，值不低于擅长起步值的先进擅长格（至多 3 格），其余进比较擅长格（至多 5 格）；填不下的不占格。
+export function backfillHeroSlots(entries) {
+    const sorted = [...entries].filter(([, v]) => Number(v) > 0).sort((a, b) => Number(b[1]) - Number(a[1]));
+    const slots = {};
+    let strong = 0;
+    let good = 0;
+    for (const [name, value] of sorted) {
+        if (Number(value) >= BUILD_STRONG_VALUE && strong < BUILD_STRONG_COUNT) slots[`strong${++strong}`] = name;
+        else if (good < BUILD_GOOD_COUNT) slots[`good${++good}`] = name;
+    }
+    return slots;
 }
 
 // 倾向建卡（自动 / 相对数值）的汇总：倾向三项须互不相同，技能格见 pickSummary。

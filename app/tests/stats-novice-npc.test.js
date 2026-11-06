@@ -272,7 +272,7 @@ test('其他角色：角色卡并进同名角色，没有人际档的角色卡�
     assert.match(editor.slice(editor.indexOf('data-stats-skill-row="开锁"')), /igs-stats-hero-actions is-three"><button[^>]*skill-rename:.*skill-merge:.*skill-remove:/s);
     assert.doesNotMatch(editor, /data-stats-skill-row="法律"/);
     assert.doesNotMatch(editor, /stats-hero-skills-智力/);
-    assert.match(editor, /data-stats-skill-add/);
+    assert.doesNotMatch(editor, /data-stats-skill-add/);
     assert.match(mine, /data-advanced="stats-checks"/);
     assert.doesNotMatch(npc, /data-stats-skill-|stats-checks/);
 });

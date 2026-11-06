@@ -13,6 +13,7 @@ export const LEGACY_ATTRIBUTE_MAP = Object.freeze({ 健康: '体质', 理智: '�
 export const LEGACY_SKILL_MAP = Object.freeze({
     妙手: '顺手牵羊', 医疗: '医术', 急救: '医术', 机械: '修理', 电子学: '修理', 骇入: '电脑', 枪械: '射击', 武艺: '格斗', 剑道: '剑术', 咒语: '魔法',
     礼法: '礼仪', 求生: '野外求生', 文学: '写作', 图书馆: '查资料', 心理学: '察言观色', 估价: '鉴定', 乔装: '伪装',
+    酒量: '喝酒', 照顾宠物: '养宠物', 记路: '认路', 开溜: '逃跑', 下黑手: '偷袭', 画大饼: '忽悠', 看人下菜碟: '察言观色', 装病: '演戏', 装可怜: '演戏',
 });
 // 多个旧名（或旧名与新名）都有值时合并：数值取大，{ value } 条目取值大的一份并合并 marked，其余以新名自己的为准。
 export function mergeLegacyValue(existing, incoming, incomingIsOwn = false) {
@@ -43,7 +44,7 @@ const CORE = {
     应变: e('智力', 'general', { aliases: ['急智', '随机应变'] }),
     侦查: e('感知', 'general', { base: 25, aliases: ['搜查', '调查', '搜索', '察觉', '侦察'] }),
     聆听: e('感知', 'general', { base: 20, aliases: ['倾听', '偷听'] }),
-    察言观色: e('感知', 'general', { base: 10, aliases: ['心理学', '洞悉', '看穿', '识破'] }),
+    察言观色: e('感知', 'general', { base: 10, aliases: ['心理学', '洞悉', '看穿', '识破', '看人下菜碟'] }),
     医术: e('智力', 'general', { base: 30, aliases: ['医疗', '急救', '治疗', '医学', '中医', '包扎', '止血'] }),
     潜行: e('敏捷', 'general', { base: 20, opposedBy: '侦查', aliases: ['隐匿', '潜入', '躲藏'] }),
     闪避: e('敏捷', 'general', { base: 'half-dex', aliases: ['躲闪'] }),
@@ -75,8 +76,8 @@ const CORE = {
     化妆: e('魅力', 'general'),
     穿搭: e('魅力', 'daily'),
     园艺: e('体质', 'general'),
-    照顾宠物: e('感知', 'daily'),
-    酒量: e('体质', 'daily'),
+    养宠物: e('感知', 'daily', { aliases: ['照顾宠物'] }),
+    喝酒: e('体质', 'daily', { aliases: ['酒量'] }),
     安抚: e('魅力', 'general', { social: true }),
     八卦: e('魅力', 'daily', { social: true }),
     撒娇: e('魅力', 'general', { social: true, opposedBy: '察言观色' }),
@@ -90,15 +91,15 @@ const CORE = {
     砍价: e('魅力', 'general', { social: true, opposedBy: '察言观色' }),
     修理: e('智力', 'general', { aliases: ['机械', '机械维修', '维修', '电子学', '电工'] }),
     带娃: e('感知', 'general'),
-    记路: e('感知', 'general'),
+    认路: e('感知', 'general', { aliases: ['记路'] }),
     // 歪门邪道技能。
     撒谎: e('魅力', 'general', { social: true, opposedBy: '察言观色', aliases: ['欺骗', '哄骗'] }),
     勒索: e('魅力', 'general', { social: true, opposedBy: '察言观色', aliases: ['敲诈'] }),
     挑拨: e('魅力', 'general', { social: true, aliases: ['离间'] }),
     造谣: e('魅力', 'general', { social: true, aliases: ['散布谣言'] }),
-    装可怜: e('魅力', 'general', { social: true, aliases: ['卖惨'] }),
+    演戏: e('魅力', 'general', { social: true, aliases: ['装病', '装晕', '装死', '装可怜', '卖惨'] }),
     甩锅: e('魅力', 'general', { social: true }),
-    画大饼: e('魅力', 'general', { social: true }),
+    忽悠: e('魅力', 'general', { social: true, aliases: ['画大饼'] }),
     道德绑架: e('魅力', 'general', { social: true }),
     套话: e('魅力', 'general', { social: true, opposedBy: '察言观色' }),
     拍马屁: e('魅力', 'general', { social: true, aliases: ['奉承', '讨好'] }),
@@ -112,11 +113,9 @@ const CORE = {
     尾随: e('敏捷', 'general', { opposedBy: '侦查', aliases: ['跟踪', '盯梢'] }),
     偷拍: e('敏捷', 'general'),
     作弊: e('敏捷', 'general', { opposedBy: '侦查', aliases: ['抄袭', '打小抄', '出老千'] }),
-    开溜: e('敏捷', 'general', { aliases: ['逃跑', '溜号'] }),
+    逃跑: e('敏捷', 'general', { aliases: ['开溜', '溜号'] }),
     赌博: e('感知', 'general'),
-    看人下菜碟: e('感知', 'general'),
-    装病: e('体质', 'general', { aliases: ['装晕', '装死'] }),
-    下黑手: e('力量', 'general', { opposedBy: '侦查', aliases: ['偷袭', '暗算'] }),
+    偷袭: e('力量', 'general', { opposedBy: '侦查', aliases: ['下黑手', '暗算'] }),
 };
 
 // 世界观附加技能：与核心同名的（急救、潜行、驾驶）沿用核心条目。

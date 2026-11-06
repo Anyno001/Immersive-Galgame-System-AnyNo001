@@ -23,11 +23,13 @@ import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.
 import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
 import { canonicalAttribute, isSixAttribute } from '../data/shujuku/skill-table.js';
 import { characterStatMetrics, createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
-import { describeClockTrail, statsArchiveModel, statsClockTrail, statsFavorOverview } from '../scene/stats/stat-archive.js';
+import { SKILL_TIER_ORDER, describeClockTrail, heroSkillCap, resolveHeroSlots, statsArchiveModel, statsClockTrail, statsFavorOverview, tierWordOfValue } from '../scene/stats/stat-archive.js';
+import { BUILD_PICK_SLOTS, backfillHeroSlots, slotValue } from '../scene/stats/stat-build.js';
 import { matchSkill } from '../scene/stats/stat-skill-match.js';
 import { cryptoRandom } from '../scene/stats/stat-rng.js';
 import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, registerStorySkill, removeStorySkill } from '../scene/stats/stat-registry.js';
 import { worldSkillNames } from '../scene/stats/stat-world-skills.js';
+import { applyTidy, buildTidyPrompt, parseTidyReply } from '../scene/stats/stat-story-tidy.js';
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
 import {
     PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroBonusKey, heroBonusOf, heroBonusSkillNames, heroSkillLevel, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
@@ -1277,7 +1279,7 @@ export function createStatsRuntime({
     }
 
     // 选擅长技能：skills 为 { 技能: 起始值 }（pickSummary 的结果），写进底数层；之后成长、手改照常叠加。attributes 为自定义技能所选六维。
-    function pickHeroSkills(skills, attributes) {
+    function pickHeroSkills(skills, attributes, slots) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         registerCustomSkills(attributes);
         const engine = engineOf();
@@ -1287,7 +1289,16 @@ export function createStatsRuntime({
         if (!entries.length) return { ok: false, reason: 'stats-hero-pick-empty' };
         const base = { ...catalog.protagonistBase };
         for (const [name, value] of entries) base[name] = withoutHeroBonus(engine, name, value);
-        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, heroPicked: true });
+
+        // 每格占的技能随聊天保存：界面给了格位就用，没给（旧调用）按起始值回填。
+        const picked = new Set(entries.map(([name]) => name));
+        const given = {};
+        for (const [slot, raw] of Object.entries(slots && typeof slots === 'object' ? slots : {})) {
+            const name = BUILD_PICK_SLOTS.includes(slot) ? engine.registry.resolve(raw) : null;
+            if (name && picked.has(name)) given[slot] = name;
+        }
+        const heroSlots = Object.keys(given).length ? given : backfillHeroSlots(entries);
+        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, heroPicked: true, heroSlots });
         setNotice('hero-pick', null);
         persist();
         onChange(currentStatsState(ledger), null);
@@ -1573,6 +1584,7 @@ export function createStatsRuntime({
         else {
             const value = Number(text);
             if (!/^\d+$/.test(text) || value < 1 || value > 99) return { ok: false, reason: 'stats-hero-skill-invalid' };
+            if (overCap(engine, skill, text, currentSlots())) return { ok: false, reason: 'stats-hero-tier-over-cap' };
             // from 取不含手改的值（已学取账本值，未学取底数或基础值），与 markGrowth 登记的值一致。
             const own = currentStatsState(ledger).protagonist.skills[skill];
             const seed = own ? Number(own.value) || 0 : Number(profileOf(engine, currentStatsState(ledger), PROTAGONIST, skill).seed) || 0;
@@ -1580,6 +1592,57 @@ export function createStatsRuntime({
             edit[skill] = { value: withoutHeroBonus(engine, skill, value), from: seed };
         }
         catalog = sanitizeCatalog({ ...catalog, protagonistEdit: edit });
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true };
+    }
+
+    const currentSlots = () => resolveHeroSlots(engineOf(), currentStatsState(ledger), catalog);
+    // 熟练度封顶：返回是否越过封顶档（剧情技能且不占格的不限）。target 为档位词或数值。
+    function overCap(engine, skill, target, slots) {
+        const cap = heroSkillCap(engine, currentStatsState(ledger), catalog, skill, slots);
+        if (!cap.capped) return false;
+        const word = /^[0-9]+$/.test(String(target)) ? tierWordOfValue(Number(target)) : String(target);
+        return SKILL_TIER_ORDER.indexOf(word) > cap.rank;
+    }
+
+    // 3+5 换格：选新技能占格，原占格技能回到未学（剧情技能一并删除），新技能得该格起步值。已学且值不低于起步值的保持原值。
+    // 技能名不认识时需要 attribute 才登记成自定义技能，缺了返回 stats-slot-needs-attribute 由界面补问。
+    function setHeroSlot(slot, payload = {}) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        if (!BUILD_PICK_SLOTS.includes(slot)) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        const typed = String(payload.skill || '').trim();
+        if (!typed) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        const engine = engineOf();
+        let name = engine.registry.resolve(typed);
+        const entry = name ? engine.registry.get(name) : null;
+        if (entry && entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-edit-attribute' };
+        if (!name) {
+            if (!payload.attribute) return { ok: false, reason: 'stats-slot-needs-attribute' };
+            name = commitSkill(typed, { attribute: payload.attribute });
+            if (!name) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        }
+        const slots = { ...currentSlots() };
+        const old = slots[slot] || '';
+        if (old === name) return { ok: true, cancelled: true };
+        if (Object.values(slots).includes(name)) return { ok: false, reason: 'stats-build-pick-duplicate' };
+        const owned = currentStatsState(ledger).protagonist.skills;
+        const base = { ...catalog.protagonistBase };
+        const edit = { ...catalog.protagonistEdit };
+        if (old) {
+            delete base[old];
+            if (owned[old] && Number(owned[old].value) > 0) edit[old] = { value: 1, from: Number(owned[old].value) || 0 }; else delete edit[old];
+        }
+        const start = slotValue(slot);
+        delete base[name];
+        delete edit[name];
+        if (owned[name] && Number(owned[name].value) > 0) {
+            if (Number(owned[name].value) < start) edit[name] = { value: withoutHeroBonus(engine, name, start), from: Number(owned[name].value) || 0 };
+        } else base[name] = withoutHeroBonus(engine, name, start);
+        slots[slot] = name;
+        let next = { ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots: slots, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((x) => x !== name && x !== old) } };
+        if (old) next = removeStorySkill(next, old);
+        catalog = sanitizeCatalog(next);
         persist();
         onChange(currentStatsState(ledger), null);
         return { ok: true };
@@ -1599,11 +1662,10 @@ export function createStatsRuntime({
         const numeric = /^\d+$/.test(tier) ? Number(tier) : null;
         if (numeric !== null && (numeric < 1 || numeric > 99)) return { ok: false, reason: 'stats-hero-skill-invalid' };
         if (numeric === null && !Object.hasOwn(SKILL_TIERS, tier)) return { ok: false, reason: 'stats-hero-edit-invalid' };
-        if (!skill) {
-            if (tier === '未学') return { ok: true, cancelled: true };
-            skill = commitSkill(typed);
-            if (!skill) return { ok: false, reason: 'stats-hero-edit-invalid' };
-        }
+        // 不认识的技能名不在这里登记（新技能只能走 3+5 换格，剧情里出现的由剧情登记）。
+        if (!skill) return tier === '未学' ? { ok: true, cancelled: true } : { ok: false, reason: 'stats-hero-edit-unknown' };
+        const slots = currentSlots();
+        if (overCap(engine, skill, tier, slots)) return { ok: false, reason: 'stats-hero-tier-over-cap' };
         const value = numeric !== null ? numeric : SKILL_TIERS[tier] ? bandValue(SKILL_TIERS[tier], `${chatIdOf(ctx())}|${PROTAGONIST}|${skill}`) : null;
         const owned = currentStatsState(ledger).protagonist.skills[skill];
         const base = { ...catalog.protagonistBase };
@@ -1616,7 +1678,10 @@ export function createStatsRuntime({
             if (value) base[skill] = withoutHeroBonus(engine, skill, value); else delete base[skill];
         }
         // 编辑过的技能不再进补全队列。
-        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => s !== skill) } });
+        // 改为未学即腾出所占的格。
+        let heroSlots = catalog.heroSlots;
+        if (tier === '未学' && Object.values(slots).includes(skill)) heroSlots = Object.fromEntries(Object.entries(slots).filter(([, v]) => v !== skill));
+        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => s !== skill) } });
         persist();
         onChange(currentStatsState(ledger), null);
         return { ok: true };
@@ -1625,7 +1690,8 @@ export function createStatsRuntime({
     function heroOp(op, name, payload = {}) {
         if (op === 'set') return setHeroSkill(name, payload.value);
         if (op === 'edit') return editHeroSkill(name, payload.tier);
-        if (op === 'pick') return pickHeroSkills(payload.skills, payload.attributes);
+        if (op === 'pick') return pickHeroSkills(payload.skills, payload.attributes, payload.slots);
+        if (op === 'slot') return setHeroSlot(name, payload);
         if (op === 'attrs') return { ok: true, attrs: heroAttrs() };
         if (op === 'assign') return assignHeroSkills({ overwrite: payload.overwrite === true });
         return { ok: false, reason: 'stats-hero-op-unknown' };
@@ -1976,8 +2042,33 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
+    // 整理剧情技能：向辅助模型（与角色卡生成同一个 requester / ask 通道）要合并与改名建议，不写入；勾选后由 tidy-apply 写入。
+    async function tidySuggest() {
+        const request = requester();
+        if (!request) return { ok: false, reason: 'stats-no-model' };
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        const chatId = chatIdOf(ctx());
+        const state = currentStatsState(ledger);
+        const engine = engineOf();
+        const rows = (catalog.story || []).map((s) => ({ name: s.name, attribute: s.attribute, value: Math.round(Number(profileOf(engine, state, PROTAGONIST, s.name).value) || 0) }));
+        if (rows.length < 2) return { ok: true, items: [] };
+        let reply;
+        try { reply = await ask(request, buildTidyPrompt(rows)); }
+        catch (error) { diag('stats-tidy-request-failed'); return { ok: false, reason: 'stats-tidy-failed' }; }
+        if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false, reason: 'stats-chat-changed' };
+        return { ok: true, items: parseTidyReply(reply, catalog) };
+    }
+
     function skillOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        if (op === 'tidy-suggest') return tidySuggest();
+        if (op === 'tidy-apply') {
+            const done = applyTidy(catalog, Array.isArray(payload.items) ? payload.items : []);
+            catalog = sanitizeCatalog(done.catalog);
+            persist();
+            onChange(currentStatsState(ledger), null);
+            return { ok: true, applied: done.applied };
+        }
         const isStory = (catalog.story || []).some((s) => s.name === name);
         if (op === 'edit' && payload.attribute !== undefined && !isStory) {
             // 内置技能改所属属性：记在 catalog.attributes，注册表读取时覆盖。
@@ -1985,8 +2076,18 @@ export function createStatsRuntime({
             if (!entry || entry.kind !== 'skill' || !BASE_ATTRIBUTES.includes(payload.attribute)) return { ok: false, reason: 'stats-skill-op-unknown' };
             catalog = { ...catalog, attributes: { ...(catalog.attributes || {}), [name]: payload.attribute } };
         }
-        else if (op === 'edit') catalog = editStorySkill(catalog, name, payload);
-        else if (op === 'merge') catalog = mergeStorySkill(catalog, name, engineOf().registry.resolve(payload.to) || payload.to);
+        else if (op === 'edit') {
+            const slots = currentSlots();
+            catalog = editStorySkill(catalog, name, payload);
+            const renamed = catalog.story.find((x) => x.name === payload.name);
+            if (renamed && payload.name !== name && Object.values(slots).includes(name)) catalog = { ...catalog, heroSlots: Object.fromEntries(Object.entries(slots).map(([k, v]) => [k, v === name ? payload.name : v])) };
+        }
+        else if (op === 'merge') {
+            const slots = currentSlots();
+            const to = engineOf().registry.resolve(payload.to) || payload.to;
+            catalog = mergeStorySkill(catalog, name, to);
+            if (Object.values(slots).includes(name)) catalog = { ...catalog, heroSlots: Object.fromEntries(Object.entries(slots).filter(([, v]) => v !== name || !Object.values(slots).includes(to)).map(([k, v]) => [k, v === name ? to : v])) };
+        }
         else if (op === 'remove') {
             // 删除技能：先把主角这项降为未学（不然数值格里还在），剧情技能再从登记表里移除。
             editHeroSkill(name, '未学');

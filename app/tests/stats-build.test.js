@@ -75,7 +75,7 @@ test('自定义技能所属六维：只保留 custom 里有名字的有效六维
     const summary = pickSummary(build);
     assert.deepEqual(summary.attributes, { 钓鱼: '感知' });
     assert.equal(summary.skills.钓鱼, 60);
-    assert.ok(normalizeBuild({ custom: ['钓鱼'], picks: { strong1: '唱歌', strong2: '舞蹈', strong3: '看人下菜碟' } }).picks.strong3 === '看人下菜碟');
+    assert.ok(normalizeBuild({ custom: ['钓鱼'], picks: { strong1: '唱歌', strong2: '舞蹈', strong3: '察言观色' } }).picks.strong3 === '察言观色');
 });
 
 test('3+5 下拉分组：内置候选各归一组且不落「其他」，漏组的技能落「其他」，自定义技能单列', async () => {

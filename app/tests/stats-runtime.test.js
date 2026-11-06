@@ -315,25 +315,82 @@ test('NPC 属性档：手改属性、导出 npcAbilities；理智单独存 san�
     await rt.whenSaved();
 });
 
-test('编辑技能：熟练度下拉写档位；删除让技能从列表消失（含剧情技能）；内置技能可改所属属性', async () => {
+test('编辑技能：熟练度下拉写档位且不超过封顶档；删除让技能从列表消失（含剧情技能）；内置技能可改所属属性', async () => {
     const { host, rt } = setup();
     rt.enableForChat();
     host.ctx.chat.push({ is_user: true, mes: '你好' });
     generate(host, '好。');
     const shown = () => rt.archive().skills.map((s) => s.name);
+    // 没占格、没学过的内置技能不能凭空升档；占格后按起步值定封顶档（擅长 60 = 熟练档）。
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '熟练' }).reason, 'stats-hero-tier-over-cap');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '烹饪' }).ok, true);
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '精通' }).reason, 'stats-hero-tier-over-cap');
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '入门' }).ok, true);
     assert.equal(rt.heroOp('edit', '烹饪', { tier: '熟练' }).ok, true);
-    assert.equal(rt.heroOp('edit', '火尖枪', { tier: '精通' }).ok, true);
-    assert.ok(shown().includes('烹饪') && shown().includes('火尖枪'));
-    assert.ok(rt.getCatalog().story.some((s) => s.name === '火尖枪'));
-    assert.equal(rt.skillOp('remove', '火尖枪').ok, true);
-    assert.ok(!shown().includes('火尖枪'));
-    assert.ok(!rt.getCatalog().story.some((s) => s.name === '火尖枪'));
+    // 剧情技能熟练度不限；不认识的技能名不能在这里新增。
+    assert.equal(rt.heroOp('edit', '火尖枪', { tier: '精通' }).reason, 'stats-hero-edit-unknown');
+    rt.skillOp('edit', '烹饪', { attribute: '智力' });
+    assert.ok(shown().includes('烹饪'));
     assert.equal(rt.skillOp('remove', '烹饪').ok, true);
     assert.ok(!shown().includes('烹饪'));
     assert.equal(rt.skillOp('edit', '烹饪', { attribute: '感知' }).ok, true);
     assert.equal(rt.archive().skillEdit.find((s) => s.name === '烹饪').attribute, '感知');
     assert.equal(rt.skillOp('edit', '烹饪', { attribute: '乱写' }).ok, false);
     await rt.whenSaved();
+});
+
+test('3+5 换格：原技能回到未学并腾格，新技能得起步值；删除占格技能腾出该格；不能重复占格；自定义技能需要属性', async () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    const value = (name) => Math.round(rt.archive().skills.find((s) => s.name === name)?.value || 0);
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '烹饪' }).ok, true);
+    assert.equal(rt.heroOp('slot', 'good1', { skill: '学习' }).ok, true);
+    assert.equal(value('烹饪'), 60);
+    assert.equal(value('学习'), 30);
+    assert.equal(rt.heroOp('slot', 'good2', { skill: '烹饪' }).reason, 'stats-build-pick-duplicate');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '唱歌' }).ok, true);
+    assert.equal(value('烹饪'), 0);
+    assert.equal(value('唱歌'), 60);
+    assert.equal(rt.archive().heroSlots.strong1, '唱歌');
+    // 删除占格技能：该格变空。
+    assert.equal(rt.skillOp('remove', '唱歌').ok, true);
+    assert.equal(rt.archive().heroSlots.strong1, undefined);
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '火尖枪' }).reason, 'stats-slot-needs-attribute');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '火尖枪', attribute: '力量' }).ok, true);
+    assert.equal(value('火尖枪'), 60);
+    // 占格的自定义技能同样封顶；换走后随之删除，不会留下不限档的剧情技能。
+    assert.equal(rt.heroOp('edit', '火尖枪', { tier: '大师' }).reason, 'stats-hero-tier-over-cap');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '唱歌' }).ok, true);
+    assert.ok(!rt.getCatalog().story.some((s) => s.name === '火尖枪'));
+    await rt.whenSaved();
+});
+
+test('旧存档没有 heroSlots：按已学的非剧情技能回填，值 ≥ 60 进擅长格，其余进比较擅长格', () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    rt.heroOp('pick', '', { skills: { 烹饪: 60, 学习: 60, 唱歌: 30, 舞蹈: 30 } });
+    assert.equal(rt.getCatalog().heroSlots.strong1 !== undefined, true);
+    const slots = rt.archive().heroSlots;
+    assert.deepEqual(Object.values(slots).sort(), ['唱歌', '学习', '烹饪', '舞蹈']);
+    assert.ok(['烹饪', '学习'].includes(slots.strong1) && ['烹饪', '学习'].includes(slots.strong2));
+    assert.ok(['唱歌', '舞蹈'].includes(slots.good1) && ['唱歌', '舞蹈'].includes(slots.good2));
+});
+
+test('技能改名：旧名读入时落到新名，看人下菜碟并入察言观色，装病装可怜合并为演戏', () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '酒量' }).ok, true);
+    assert.equal(rt.archive().heroSlots.strong1, '喝酒');
+    assert.equal(rt.heroOp('slot', 'strong2', { skill: '装病' }).ok, true);
+    assert.equal(rt.archive().heroSlots.strong2, '演戏');
+    assert.equal(rt.heroOp('slot', 'strong3', { skill: '看人下菜碟' }).ok, true);
+    assert.equal(rt.archive().heroSlots.strong3, '察言观色');
 });
 
 test('战斗扩展开启时总开关强制为开，本聊天不能关；结算丢弃 battle 标签', () => {
