@@ -1801,6 +1801,12 @@ export function createBattle(setup, seed) {
             return inst;
         });
         state.catalog[def.id] = defs;
+        // 规则 v6 造牌池快照（random-card 的 class / general 来源）：setup 带 pools 时才写，旧 setup 的战局形状不变；整局只读。
+        if (def.pools && typeof def.pools === 'object') {
+            const pools = {};
+            for (const key of ['class', 'general']) if (def.pools[key] && typeof def.pools[key] === 'object') pools[key] = deepCopy(toPlainObject(def.pools[key]));
+            if (Object.keys(pools).length) state.pools = { ...(state.pools || {}), [def.id]: pools };
+        }
         // 洗牌后把「固有」牌挪到牌堆顶（抽牌从末尾取）；固有牌多于首回合抽牌数时，超出的部分顺延到下回合再抽。
         const shuffled = shuffle(state, deck);
         // 规则 v5 P5b 御准：带该刻印的牌也按固有处理。

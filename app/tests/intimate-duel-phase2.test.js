@@ -2842,3 +2842,261 @@ test('刻印时机（P5b）：契合洗回时放在抽牌堆顶，浮动抽到�
     assert.equal(oldKd.piles.hero.discard.includes(instById(oldKd, 's')), false);
 });
 
+// ---------- 规则 v6 G2：固定卡缺口算子（mechanics/fixed-tally.js、fixed-pile.js） ----------
+const shapeErrors = (effects) => {
+    const result = normalizeCard({ id: 'n', name: 'n', type: 'skill', cost: 1, rarity: 'common', effects });
+    return result.ok ? [] : (result.errors || []).filter((e) => !/budget/.test(e.reason)).map((e) => e.reason);
+};
+
+test('固定卡算子校验（v6 G2）：合法写法只剩预算问题；嵌套条件、零费用改写、多余字段被拒', () => {
+    for (const effect of [
+        { op: 'tally-strike', amount: 2, per: 1, source: 'hand' }, { op: 'tally-guard', amount: 0, per: 2, source: 'hp-losses' },
+        { op: 'autoplay', from: 'hand', amount: 1, exhaust: true }, { op: 'random-card', cardType: 'attack', free: true },
+        { op: 'exhaust-hand', filter: 'non-attack', gain: 'block', per: 3 }, { op: 'end-turn' }, { op: 'grant-flag', flag: 'retain' },
+        { op: 'spread-debuff' }, { op: 'reshuffle', from: 'hand', draw: 2 }, { op: 'self-weaken', stacks: 1 }, { op: 'self-cost', amount: 1 },
+        { op: 'draw-until', until: 'non-type', cardType: 'skill' }, { op: 'requires', when: 'hand-lte', value: 2, then: [{ op: 'draw', amount: 2 }] },
+        { op: 'splash', amount: 5 }, { op: 'apply-status', status: 'shackle', stacks: 2 },
+    ]) assert.deepEqual(shapeErrors([effect]), [], effect.op);
+    assert.ok(shapeErrors([{ op: 'conditional', when: { kind: 'hand-gte', value: 1 }, then: [{ op: 'requires', when: 'draw-empty', then: [{ op: 'draw', amount: 1 }] }] }]).includes('nested-conditional'));
+    assert.ok(shapeErrors([{ op: 'self-cost', amount: 0 }]).includes('out-of-range'));
+    assert.ok(shapeErrors([{ op: 'draw-until', until: 'hand', value: 6, cardType: 'attack' }]).includes('unknown-field'));
+    assert.ok(shapeErrors([{ op: 'exhaust-hand', gain: 'none', per: 2 }]).includes('unknown-field'));
+});
+
+test('计数加伤与失血计数（v6 G2）：按其余手牌数加伤；本场失血次数由钩子累计；规则 v4 不结算、不建计数', () => {
+    const t = def('t', 'attack', [{ op: 'tally-strike', amount: 2, per: 1, source: 'hand', target: 'enemy' }], { innate: true });
+    const state = startDeck({ t, k: GUARD }, ['t', ...Array(9).fill('k')]);
+    assert.equal(playIn(state, instOf(state, 't'), 'foe').state.units.foe.hp, 24);
+    const p = def('p', 'attack', [{ op: 'self-damage', amount: 2 }, { op: 'tally-strike', amount: 1, per: 3, source: 'hp-losses', target: 'enemy' }], { innate: true });
+    const tracked = startDeck({ p, k: GUARD }, ['p', ...Array(9).fill('k')]);
+    assert.deepEqual(tracked.units.hero.res.tally, { hpLosses: 0, turnHpLosses: 0, turnExhausts: 0 });
+    const hit = playIn(tracked, instOf(tracked, 'p'), 'foe');
+    assert.equal(hit.state.units.hero.res.tally.hpLosses, 1);
+    assert.equal(hit.state.units.foe.hp, 26);
+    const old = startDeck({ p, k: GUARD }, ['p', ...Array(9).fill('k')], 4);
+    assert.equal(old.units.hero.res, undefined);
+    assert.equal(playIn(old, instOf(old, 'p'), 'foe').state.units.foe.hp, 30);
+});
+
+test('计数格挡与本回合减攻（v6 G2）：格挡随手牌数增长；减攻压低出手伤害，持有者回合结束清零', () => {
+    const g = def('g', 'skill', [{ op: 'tally-guard', amount: 0, per: 2, source: 'hand' }], { innate: true });
+    const state = startDeck({ g, k: GUARD }, ['g', ...Array(9).fill('k')]);
+    assert.equal(playIn(state, instOf(state, 'g')).state.units.hero.block, 8);
+    const s = def('s', 'skill', [{ op: 'apply-status', status: 'shackle', stacks: 2, target: 'enemy' }], { innate: true });
+    const deck = startDeck({ s, k: GUARD }, ['s', ...Array(9).fill('k')]);
+    const cuffed = playIn(deck, instOf(deck, 's'), 'foe');
+    assert.equal(cuffed.state.units.foe.statuses.shackle, 2);
+    assert.equal(computeDamage(cuffed.state.units.foe, cuffed.state.units.hero, 5, 1, 5), 3);
+    const ended = applyAction(cuffed.state, { type: 'end-turn' });
+    assert.equal(ended.ok, true, JSON.stringify(ended.error));
+    assert.equal(ended.state.units.foe.statuses.shackle || 0, 0);
+});
+
+test('自动打出与随机加牌（v6 G2）：抽牌堆顶免费打出不耗能；随机攻击牌作临时牌入手、本回合 0 费', () => {
+    const u = def('u', 'skill', [{ op: 'autoplay', from: 'draw', amount: 1 }], { innate: true });
+    const state = startDeck({ u, a: ATTACK }, ['u', ...Array(9).fill('a')]);
+    const top = state.piles.hero.draw.at(-1);
+    const played = playIn(state, instOf(state, 'u'));
+    assert.equal(played.state.units.foe.hp, 28);
+    assert.equal(played.state.units.hero.energy, 2);
+    assert.ok(played.state.piles.hero.discard.includes(top));
+    const r = def('r', 'skill', [{ op: 'random-card', amount: 1, cardType: 'attack', free: true }], { innate: true });
+    const deck = startDeck({ r, a: ATTACK }, ['r', ...Array(9).fill('a')]);
+    const made = playIn(deck, instOf(deck, 'r'));
+    const created = made.events.find((e) => e.type === 'card-created');
+    assert.equal(created.cardId, 'a');
+    assert.ok(made.state.piles.hero.hand.includes(created.inst));
+    assert.equal(cardView(made.state, created.inst).cost, 0);
+});
+
+test('消耗手牌、结束回合、赋予关键字（v6 G2）', () => {
+    const x = def('x', 'skill', [{ op: 'exhaust-hand', filter: 'all', gain: 'block', per: 3 }], { innate: true });
+    const state = startDeck({ x, k: GUARD }, ['x', ...Array(9).fill('k')]);
+    const burned = playIn(state, instOf(state, 'x'));
+    assert.deepEqual([burned.state.piles.hero.hand.length, burned.state.piles.hero.exhaust.length, burned.state.units.hero.block], [0, 4, 12]);
+    const e = def('e', 'skill', [{ op: 'block', amount: 1, target: 'self' }, { op: 'end-turn' }], { innate: true });
+    const deck = startDeck({ e, k: GUARD }, ['e', ...Array(9).fill('k')]);
+    const over = playIn(deck, instOf(deck, 'e'));
+    assert.deepEqual([over.state.phase, over.state.turn], ['player', 2]);
+    const f = def('f', 'skill', [{ op: 'grant-flag', flag: 'retain', scope: 'hand' }], { innate: true });
+    const keep = startDeck({ f, k: GUARD }, ['f', ...Array(9).fill('k')]);
+    const self = instOf(keep, 'f');
+    const others = keep.piles.hero.hand.filter((inst) => inst !== self);
+    const granted = playIn(keep, self);
+    assert.ok(others.every((inst) => cardView(granted.state, inst).retain === true));
+    const next = applyAction(granted.state, { type: 'end-turn' });
+    assert.equal(next.ok, true, JSON.stringify(next.error));
+    assert.ok(others.every((inst) => next.state.piles.hero.hand.includes(inst)));
+});
+
+test('减益扩散与溅射（v6 G2）：目标减益同层数复制给其余敌人；溅射让其余敌人受等量伤害', () => {
+    const w = def('w', 'skill', [{ op: 'status', status: 'weak', stacks: 2, target: 'enemy' }, { op: 'spread-debuff', target: 'enemy' }], { innate: true });
+    const state = twoFoes({ w, k: GUARD }, ['w', ...Array(9).fill('k')]);
+    const spread = playIn(state, instOf(state, 'w'), 'foe');
+    assert.deepEqual([spread.state.units.foe.statuses.weak, spread.state.units.foe2.statuses.weak], [2, 2]);
+    const s = def('s', 'attack', [{ op: 'splash', amount: 5, target: 'enemy' }], { innate: true });
+    const deck = twoFoes({ s, k: GUARD }, ['s', ...Array(9).fill('k')]);
+    const hit = playIn(deck, instOf(deck, 's'), 'foe');
+    assert.deepEqual([hit.state.units.foe.hp, hit.state.units.foe2.hp], [25, 25]);
+});
+
+test('洗回、自身减攻、本牌费用、抽到为止、打出条件（v6 G2）', () => {
+    const run = (effects) => {
+        const c = def('c', 'skill', effects, { innate: true });
+        const state = startDeck({ c, k: GUARD }, ['c', ...Array(9).fill('k')]);
+        const inst = instOf(state, 'c');
+        return { inst, result: playIn(state, inst) };
+    };
+    assert.equal(run([{ op: 'reshuffle', from: 'hand', draw: 2 }]).result.state.piles.hero.hand.length, 2);
+    assert.equal(run([{ op: 'self-weaken', stacks: 2 }]).result.state.units.hero.statuses['atk-down'], 2);
+    const costed = run([{ op: 'self-cost', amount: 1 }]);
+    assert.equal(costed.result.state.cards[costed.inst].costMod, 1);
+    assert.equal(cardView(costed.result.state, costed.inst).cost, 2);
+    assert.equal(run([{ op: 'draw-until', until: 'hand', value: 7 }]).result.state.piles.hero.hand.length, 7);
+    assert.equal(run([{ op: 'requires', when: 'draw-empty', then: [{ op: 'block', amount: 5, target: 'self' }] }]).result.state.units.hero.block, 0);
+    assert.equal(run([{ op: 'requires', when: 'hand-lte', value: 4, then: [{ op: 'block', amount: 5, target: 'self' }] }]).result.state.units.hero.block, 5);
+});
+
+test('固定卡算子牌面（v6 G2）：说明非空，可缩放数值与 effectNumbers 一一对应', () => {
+    assert.equal(describeEffects([{ op: 'splash', amount: 5, hits: 1, target: 'enemy' }]), '造成 5 点伤害，其余敌人各受到等量伤害');
+    assert.deepEqual(effectNumbers([{ op: 'splash', amount: 5, hits: 1, target: 'enemy' }]), [5]);
+    assert.deepEqual(effectNumbers([{ op: 'requires', when: 'draw-empty', then: [{ op: 'damage', amount: 3, hits: 1, target: 'enemy' }] }]), [3]);
+    assert.deepEqual(effectNumbers([{ op: 'tally-guard', amount: 2, per: 1, source: 'hand', max: 10, target: 'self' }]), []);
+    for (const effect of [{ op: 'end-turn' }, { op: 'grant-flag', flag: 'sly', scope: 'random' }, { op: 'exhaust-hand', filter: 'status', gain: 'card' }, { op: 'draw-until', until: 'non-type', cardType: 'attack' }]) {
+        assert.ok(describeEffects([effect]).length > 0, effect.op);
+    }
+});
+
+test('战士固定卡补机制（v6 G2）：化岩把手牌攻击牌变巨石；连环复制第 3 张攻击；乘隙施加易伤抽牌；狱火抽到攻击即打出', () => {
+    const withStatus = (state, key, stacks) => {
+        const next = structuredClone(state);
+        next.units.hero.statuses[key] = stacks;
+        return next;
+    };
+    const m = def('m', 'skill', [{ op: 'morph-hand', cardType: 'attack' }], { innate: true, cost: 0 });
+    const rock = startDeck({ m, a: ATTACK }, ['m', ...Array(9).fill('a')]);
+    const morphed = playIn(rock, instOf(rock, 'm'));
+    const hand = morphed.state.piles.hero.hand;
+    assert.ok(hand.length > 0 && hand.every((inst) => morphed.state.cards[inst].cardId === 'token-boulder'));
+    assert.equal(cardView(morphed.state, hand[0]).effects[0].amount, 20);
+    assert.equal(shapeErrors([{ op: 'morph-hand', cardType: 'attack', upgraded: true }]).length, 0);
+
+    let jug = withStatus(startDeck({ a: ATTACK }, Array(10).fill('a')), 'juggle', 1);
+    const created = [];
+    for (let i = 0; i < 3; i += 1) {
+        const step = playIn(jug, instOf(jug, 'a'), 'foe');
+        created.push(...step.events.filter((e) => e.type === 'card-created'));
+        jug = step.state;
+    }
+    assert.equal(created.length, 1);
+    assert.ok(jug.piles.hero.hand.includes(created[0].inst));
+
+    const v = def('v', 'skill', [{ op: 'status', status: 'vulnerable', stacks: 1, target: 'enemy' }], { innate: true });
+    const rend = withStatus(startDeck({ v, k: GUARD }, ['v', ...Array(9).fill('k')]), 'rend-draw', 2);
+    const before = rend.piles.hero.hand.length;
+    assert.equal(playIn(rend, instOf(rend, 'v'), 'foe').state.piles.hero.hand.length, before - 1 + 2);
+
+    const d = def('d', 'skill', [{ op: 'draw', amount: 1 }], { innate: true });
+    const fire = withStatus(startDeck({ d, a: ATTACK }, ['d', ...Array(9).fill('a')]), 'draw-strike', 1);
+    const drew = playIn(fire, instOf(fire, 'd'));
+    assert.equal(drew.state.units.foe.hp, 28);
+    assert.equal(drew.state.piles.hero.hand.length, fire.piles.hero.hand.length - 1);
+});
+
+test('战士固定卡表（v6 G2）：80 张全部通过 normalizeCard 与预算复核，均有升级形态，ID 唯一且为 fixed', async () => {
+    const { WARRIOR_CARDS } = await import('../src/combat/fixed-cards/warrior.js');
+    const { DROPPED_UPGRADES } = await import('../src/combat/fixed-cards/dsl.js');
+    assert.equal(WARRIOR_CARDS.length, 80);
+    assert.equal(new Set(WARRIOR_CARDS.map((c) => c.id)).size, 80);
+    for (const c of WARRIOR_CARDS) {
+        const result = normalizeCard(c);
+        assert.equal(result.ok, true, `${c.id} ${JSON.stringify(result.errors)}`);
+        assert.equal(c.model, 'fixed', c.id);
+        assert.ok(c.upgraded, c.id);
+    }
+    assert.deepEqual(DROPPED_UPGRADES.filter((d) => d.id.startsWith('fx-warrior-')), []);
+});
+test('全部固定卡表（v6 G2）：张数、ID 唯一、自有中文名、fixed、通过 normalizeCard 与预算复核且均有升级形态', async () => {
+    const { DROPPED_UPGRADES } = await import('../src/combat/fixed-cards/dsl.js');
+    const tables = {
+        warrior: ['WARRIOR_CARDS', 80], assassin: ['ASSASSIN_CARDS', 80], mage: ['MAGE_CARDS', 80], summoner: ['SUMMONER_CARDS', 80],
+        priest: ['PRIEST_CARDS', 79], bard: ['BARD_CARDS', 68], guardian: ['GUARDIAN_CARDS', 35], ranger: ['RANGER_CARDS', 51], general: ['GENERAL_CARDS', 50],
+    };
+    const all = new Set();
+    for (const [key, [name, count]] of Object.entries(tables)) {
+        const list = (await import(`../src/combat/fixed-cards/${key}.js`))[name];
+        assert.equal(list.length, count, key);
+        for (const c of list) {
+            assert.ok(c.id.startsWith(`fx-${key}-`), c.id);
+            assert.ok(!all.has(c.id), c.id);
+            all.add(c.id);
+            assert.match(c.name, /^[\u4e00-\u9fff]{1,8}$/, c.id);
+            assert.equal(c.model, 'fixed', c.id);
+            assert.ok(c.upgraded, c.id);
+            const result = normalizeCard(c);
+            assert.equal(result.ok, true, `${c.id} ${JSON.stringify(result.errors)}`);
+        }
+    }
+    assert.deepEqual(DROPPED_UPGRADES, []);
+});
+test('随机加牌造牌池（v6 G2）：pool 取开战快照里的无色池并写进本单位目录；快照不带池时退回卡组目录，旧 setup 战局不写 pools', () => {
+    const r = def('r', 'skill', [{ op: 'random-card', amount: 1, pool: 'general' }], { innate: true });
+    const g = def('fx-general-99', 'attack', [{ op: 'damage', amount: 3, target: 'enemy' }]);
+    const deck = ['r', ...Array(9).fill('a')];
+    const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck, catalog: { r, a: ATTACK }, pools: { general: { [g.id]: g } } }), foe({})] };
+    const created = createBattle(setup, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    assert.deepEqual(Object.keys(created.state.pools.hero), ['general']);
+    const made = playIn(created.state, instOf(created.state, 'r'));
+    const event = made.events.find((e) => e.type === 'card-created');
+    assert.equal(event.cardId, g.id);
+    assert.equal(made.state.catalog.hero[g.id].name, g.id);
+    assert.equal(created.state.catalog.hero[g.id], undefined);
+    const plain = startDeck({ r, a: ATTACK }, deck);
+    assert.equal(plain.pools, undefined);
+    const fallback = playIn(plain, instOf(plain, 'r'));
+    const picked = fallback.events.find((e) => e.type === 'card-created').cardId;
+    assert.ok(['r', 'a'].includes(picked), picked);
+    const poolCard = (pool) => normalizeCard(def('p', 'skill', [{ op: 'random-card', amount: 2, pool }]));
+    assert.equal(poolCard('class').ok, true, JSON.stringify(poolCard('class').errors));
+    assert.equal(poolCard('other').ok, false);
+});
+test('v6 起始卡组（G2）：本职业固定池普通 / 罕见先选种类再定份数，同种子结果一致，不含基础牌；旧形状照旧通过校验', async () => {
+    const { buildStarterDeck } = await import('../src/combat/generation-assembly.js');
+    const { validateStarterDeck } = await import('../src/combat/schema.js');
+    const { fixedCard } = await import('../src/combat/fixed-cards/index.js');
+    const { COMBAT_RULES } = await import('../src/combat/rules.js');
+    const personal = [1, 2, 3, 4].map((n) => def(`hero-m${n}`, 'attack', [{ op: 'damage', amount: 6, target: 'enemy' }], { rarity: 'personal' }));
+    for (const archetype of Object.keys(COMBAT_RULES.archetypes)) {
+        const cls = { kind: 'class', id: `cls-${archetype}`, archetype, classPool: [] };
+        for (let i = 0; i < 20; i += 1) {
+            const deck = buildStarterDeck([], personal, `hero-${i}`, archetype);
+            assert.deepEqual(buildStarterDeck([], personal, `hero-${i}`, archetype), deck);
+            assert.equal(deck.length, COMBAT_RULES.starterDeckSize, archetype);
+            const counts = new Map();
+            for (const id of deck) counts.set(id, (counts.get(id) || 0) + 1);
+            assert.ok([...counts.values()].every((n) => n >= 2 && n <= 3), `${archetype} ${JSON.stringify([...counts])}`);
+            const fixed = [...counts.keys()].filter((id) => fixedCard(id));
+            assert.equal(fixed.length, 7, archetype);
+            assert.ok(fixed.every((id) => fixedCard(id).id.startsWith(`fx-${archetype}-`) && ['common', 'uncommon'].includes(fixedCard(id).rarity)), archetype);
+            assert.ok(fixed.filter((id) => fixedCard(id).type === 'attack').length >= 3 && fixed.filter((id) => fixedCard(id).type === 'skill').length >= 3, archetype);
+            assert.ok(!deck.some((id) => id.startsWith('basic-')), archetype);
+            const result = validateStarterDeck({ classRef: cls.id, personalPool: personal, starterDeck: deck }, cls);
+            assert.equal(result.ok, true, `${archetype} ${JSON.stringify(result.errors)}`);
+        }
+    }
+    const cls = { kind: 'class', id: 'cls-warrior', archetype: 'warrior', classPool: [] };
+    const deck = buildStarterDeck([], personal, 'hero-0', 'warrior');
+    const single = [...deck.slice(0, -1), deck.find((id) => id !== deck[deck.length - 1] && fixedCard(id))];
+    assert.ok(validateStarterDeck({ classRef: cls.id, personalPool: personal, starterDeck: single }, cls).errors.some((e) => e.reason === 'starter-shape'));
+    const legacyCls = { kind: 'class', id: 'cls-legacy', archetype: 'warrior', classPool: Array.from({ length: 8 }, (_, n) => def(`cls-legacy-c${n}`, 'attack', [{ op: 'damage', amount: 6, target: 'enemy' }])) };
+    const legacy = buildStarterDeck(legacyCls.classPool, personal, 'hero-0');
+    assert.deepEqual(legacy.slice(0, 6), [...Array(3).fill('basic-strike'), ...Array(3).fill('basic-defend')]);
+    const legacyResult = validateStarterDeck({ classRef: legacyCls.id, personalPool: personal, starterDeck: legacy }, legacyCls);
+    assert.equal(legacyResult.ok, true, JSON.stringify(legacyResult.errors));
+});
+
+
+
+
+

@@ -33,6 +33,7 @@ import { heroInventoryView } from './inventory-view.js';
 import { equippedGear, placeGear, removeGear, slotGearList } from './gear-slots.js';
 import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
+import { fixedCard, isFixedCardId } from './fixed-cards/index.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -785,6 +786,8 @@ const handlers = Object.freeze({
             if (!kept) state.catalog.delete(cardId);
         }
         for (const card of payload.personalPool) state.catalog.set(card.id, card);
+        // 规则 v6：新起始卡组里的固定卡从固定卡表补进目录（只补尚未出现的 ID），与 buildCardCatalog 同口径。
+        for (const id of payload.starterDeck) if (!state.catalog.has(id) && isFixedCardId(id)) state.catalog.set(id, fixedCard(id));
         const tally = (ids, skip) => {
             const out = new Map();
             for (const id of ids) if (!skip?.has(id)) out.set(id, (out.get(id) || 0) + 1);
@@ -1600,7 +1603,8 @@ export function buildGearEntry(snapshot, chat, character, gearId, equip, now = 0
     const payload = equip
         ? {
             gearId, name: bagged.name, slot: bagged.slot, ...(bagged.passive ? { passive: bagged.passive } : {}),
-            description: bagged.description || '', ...(bagged.bonus ? { rarity: bagged.rarity, bonus: bagged.bonus } : {}),
+            description: bagged.description || '', ...(bagged.rarity ? { rarity: bagged.rarity } : {}),
+            ...(bagged.bonus ? { bonus: bagged.bonus } : {}),
             ...(Number.isInteger(slotIndex) && bagged.slot === 'treasure' ? { slotIndex } : {}),
         }
         : { gearId };

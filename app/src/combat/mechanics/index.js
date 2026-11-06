@@ -23,3 +23,6 @@ import './foe-units.js';
 import './foe-seize.js';
 import './foe-restrict.js';
 import './inscription.js';
+// 规则 v6 固定卡缺口算子（G2）。
+import './fixed-tally.js';
+import './fixed-pile.js';

@@ -31,7 +31,10 @@ export const COMBAT_RULES = Object.freeze({
     copyLimit: 3,
     tempCardsPerTurn: 10,
     starterDeckSize: 20,
+    // v3–v5 档案的起始卡组形状（只用于校验旧档案与固定池缺失时的兜底）。
     starterDeckShape: Object.freeze({ basicAttack: 3, basicDefend: 3, classCards: 10, personalCards: 4 }),
+    // 规则 v6 起始卡组：每类先选种类，数组为各种类的副本数（攻击 3/3/2、技能 3/3/2、能力或第三种 ×2、个人牌 ×2，合计 starterDeckSize）。
+    starterDeckShapeV6: Object.freeze({ attack: Object.freeze([3, 3, 2]), skill: Object.freeze([3, 3, 2]), third: Object.freeze([2]), personal: Object.freeze([2]) }),
     storyExpCapPerFloor: 50,
     maxLevel: 20,
     maxEnemies: 50,
@@ -134,6 +137,14 @@ export const TOKEN_CARDS = deepFreeze({
     'status-slime': { id: 'status-slime', name: '黏浊', type: 'skill', cost: 1, rarity: 'basic', effects: [{ op: 'exhaust-self' }], skillRef: '黏浊' },
     'status-void': { id: 'status-void', name: '空洞', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, ethereal: true, skillRef: '空洞' },
     'status-pain': { id: 'status-pain', name: '痛楚', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, skillRef: '痛楚' },
+    // 规则 v6 乐师固定卡的衍生牌（只新增键；只由 v6 固定卡的 create 生成）。
+    'token-rebuke': { id: 'token-rebuke', name: '罚音', type: 'attack', cost: 0, rarity: 'basic', retain: true, effects: [{ op: 'damage', amount: 5, hits: 1, target: 'enemy' }, { op: 'exhaust-self' }], skillRef: '罚音' },
+    'token-grace': { id: 'token-grace', name: '天籁', type: 'skill', cost: 0, rarity: 'basic', retain: true, effects: [{ op: 'energy', amount: 1 }, { op: 'exhaust-self' }], skillRef: '天籁' },
+    'token-epiphany': { id: 'token-epiphany', name: '悟弦', type: 'skill', cost: 0, rarity: 'basic', retain: true, effects: [{ op: 'draw', amount: 2 }, { op: 'exhaust-self' }], skillRef: '悟弦' },
+    'token-shelter': { id: 'token-shelter', name: '护调', type: 'skill', cost: 1, rarity: 'basic', retain: true, effects: [{ op: 'block', amount: 6, target: 'self' }, { op: 'exhaust-self' }], skillRef: '护调' },
+    'token-sever': { id: 'token-sever', name: '断弦', type: 'attack', cost: 1, rarity: 'basic', effects: [{ op: 'damage', amount: 3, hits: 3, target: 'enemy' }, { op: 'exhaust-self' }], skillRef: '断弦' },
+    'token-pierce': { id: 'token-pierce', name: '穿云', type: 'attack', cost: 1, rarity: 'basic', retain: true, effects: [{ op: 'damage', amount: 9, hits: 1, target: 'enemy' }, { op: 'exhaust-self' }], skillRef: '穿云' },
+    'token-finale': { id: 'token-finale', name: '终曲', type: 'attack', cost: 1, rarity: 'basic', effects: [{ op: 'damage', amount: 8, hits: 1, target: 'all-enemies' }, { op: 'exhaust-self' }], skillRef: '终曲' },
 });
 export const TOKEN_KEYS = Object.freeze(Object.keys(TOKEN_CARDS));
 

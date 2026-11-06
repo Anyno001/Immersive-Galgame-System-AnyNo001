@@ -850,4 +850,21 @@ test('宝物多槽（规则 v6）：最多 4 件，第 5 件顶替最早一件�
     assert.deepEqual(traitLinks([], { treasure: [{ link: 'fortune' }, { link: 'reveal', rarity: 'mythic' }] }), { reveal: 2, reflip: false, fortune: true });
 });
 
+test('宝物重穿：只有稀有度、没有加成与被动的宝物卸下后可再装回，稀有度不丢', async () => {
+    const name = '石印';
+    const text = `[igs-fx:item|获得|${name}|旧物|宝物]`;
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai(text)]);
+    const [tag] = scanGainTags(text);
+    const anchor = { messageId: 0, swipeId: 0, tagHash: tag.tagHash, occurrence: tag.occurrence };
+    const first = await ledger.append([{ id: ledgerEntryId('equip', 'pc-hero', anchor), type: 'equip', character: 'pc-hero', anchor, createdAt: 1,
+        payload: { gearId: gearIdFor(name), name, slot: 'treasure', description: '旧物', rarity: 'rare' } }]);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal((await ledger.setGear('pc-hero', gearIdFor(name), false)).ok, true);
+    const again = await ledger.setGear('pc-hero', gearIdFor(name), true);
+    assert.equal(again.ok, true, JSON.stringify(again));
+    const me = heroOf(await ledger.effectiveState());
+    assert.deepEqual(me.gear.slots.treasure.map((g) => [g.name, g.rarity]), [[name, 'rare']]);
+});
+
+
 

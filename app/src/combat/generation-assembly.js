@@ -15,6 +15,7 @@ import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { hash32, hashString, nextRandom } from './random.js';
 import { isEnemyArtKey } from './enemy-art.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
+import { fixedClassPool } from './fixed-cards/index.js';
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const indexPath = (path, index) => `${path}[${index}]`;
@@ -273,10 +274,54 @@ function buildHeroSkill(value, path, collector, id, table = heroTableFor(null)) 
 
 // 起始牌组各费用的抽取权重（X 费与未知费用按 1）
 const STARTER_COST_WEIGHT = Object.freeze({ 0: 2, 1: 3, 2: 2, 3: 1, X: 1 });
+// 规则 v6 起始卡组的稀有度权重：只取普通、罕见，约 3:1。
+const STARTER_RARITY_WEIGHT = Object.freeze({ common: 3, uncommon: 1 });
 
-// 起始牌组：基础攻击 + 基础防御 + 职业牌 + 个人牌。
+// 按权重不放回地选出 count 种不同的牌；rng 为 { state }，抽取后推进。
+function pickDistinct(rng, cards, count, weightOf) {
+    const left = [...cards];
+    const out = [];
+    while (out.length < count && left.length) {
+        const weights = left.map(weightOf);
+        const step = nextRandom(rng.state);
+        rng.state = step.state;
+        let roll = step.value * weights.reduce((sum, weight) => sum + weight, 0);
+        let picked = 0;
+        while (picked < left.length - 1 && roll >= weights[picked]) {
+            roll -= weights[picked];
+            picked += 1;
+        }
+        out.push(left.splice(picked, 1)[0]);
+    }
+    return out;
+}
+
+// 规则 v6 起始卡组：从本职业固定池（普通、罕见、可打出）先选种类、再按 starterDeckShapeV6 定份数，不放基础打击 / 防御。
+// 攻击、技能各选 3 种，第三种从能力牌与剩下的攻击 / 技能里选，个人牌选 1 种；固定池凑不齐形状时返回 null。
+function buildFixedStarterDeck(fixedPool, personalPool, seed) {
+    const shape = COMBAT_RULES.starterDeckShapeV6;
+    const rng = { state: hash32(`starter-v6:${seed}`) };
+    const costWeight = (card) => STARTER_COST_WEIGHT[card.cost] ?? 1;
+    const fixedWeight = (card) => costWeight(card) * STARTER_RARITY_WEIGHT[card.rarity];
+    const usable = (Array.isArray(fixedPool) ? fixedPool : []).filter((card) => Object.hasOwn(STARTER_RARITY_WEIGHT, card.rarity) && !card.unplayable);
+    const attacks = pickDistinct(rng, usable.filter((card) => card.type === 'attack'), shape.attack.length, fixedWeight);
+    const skills = pickDistinct(rng, usable.filter((card) => card.type === 'skill'), shape.skill.length, fixedWeight);
+    const taken = new Set([...attacks, ...skills].map((card) => card.id));
+    const third = pickDistinct(rng, usable.filter((card) => !taken.has(card.id)), shape.third.length, fixedWeight);
+    const personal = pickDistinct(rng, Array.isArray(personalPool) ? personalPool : [], shape.personal.length, costWeight);
+    const groups = [[attacks, shape.attack], [skills, shape.skill], [third, shape.third], [personal, shape.personal]];
+    if (groups.some(([cards, copies]) => cards.length < copies.length)) return null;
+    return groups.flatMap(([cards, copies]) => cards.flatMap((card, index) => Array(copies[index]).fill(card.id)));
+}
+
+// 起始牌组。传入职业原型且本职业有固定池时按规则 v6 生成（见 buildFixedStarterDeck）；
+// 否则为 v3–v5 形状：基础攻击 + 基础防御 + 职业牌 + 个人牌。
 // 抽取用确定性随机；同一张已抽得越多权重越低，且不超过 perCardLimit。
-export function buildStarterDeck(classPool, personalPool, seed = '') {
+export function buildStarterDeck(classPool, personalPool, seed = '', archetype) {
+    if (archetype !== undefined) {
+        const fixedDeck = buildFixedStarterDeck(fixedClassPool(archetype), personalPool, seed);
+        if (fixedDeck) return fixedDeck;
+    }
     const shape = COMBAT_RULES.starterDeckShape;
     let state = hash32(`starter:${seed}`);
     const draw = (pool, count, perCardLimit) => {
@@ -356,7 +401,7 @@ export function assembleDeck(raw, { key, fixed, cls, input = {} }) {
     checkCrossFamily(raw.cards, 'cards', collector, cls.archetype);
     const signature = cardList(raw.signature, 'signature', collector, 0, COMBAT_RULES.signatureLimit, id, 'g', 'signature', CARD_COST_SLOTS.signature);
     if (Array.isArray(signature) && signature.length) profile.signatureCards = signature;
-    if (!collector.errors.length) profile.starterDeck = buildStarterDeck(cls.classPool, profile.personalPool, id);
+    if (!collector.errors.length) profile.starterDeck = buildStarterDeck(cls.classPool, profile.personalPool, id, cls.archetype);
     return finish(collector, profile);
 }
 

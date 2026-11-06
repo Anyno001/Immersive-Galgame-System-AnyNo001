@@ -105,6 +105,13 @@ export const APPLY_STATUSES = Object.freeze({
     'play-cap': Object.freeze({ max: 8, value: 4 }),
     'skill-cap': Object.freeze({ max: 5, value: 4 }),
     downgrade: Object.freeze({ debuff: true, max: 1, value: 8 }),
+    // 规则 v6 固定卡（fixed-tally.js）：本回合减攻，持有者自己的回合结束时清零。
+    shackle: Object.freeze({ debuff: true, max: 10, value: 2.5 }),
+    // 规则 v6 固定卡（fixed-tally.js）：连环（每回合第 3 张攻击牌打出后复制进手牌）、乘隙（施加易伤时抽牌）。
+    juggle: Object.freeze({ max: 2, value: 9 }),
+    'rend-draw': Object.freeze({ max: 2, value: 6.5 }),
+    // 规则 v6 固定卡（fixed-pile.js）：狱火（玩家阶段抽到攻击牌即免费打出）。
+    'draw-strike': Object.freeze({ max: 1, value: 15 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

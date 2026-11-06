@@ -21,8 +21,9 @@ const SCALABLE = Object.freeze({
     heal: Object.freeze({ key: 'amount', max: 60 }),
     status: Object.freeze({ key: 'stacks', max: 10 }),
 });
-// 内含子效果（then）的容器 op。
-const CONTAINER_OPS = new Set(['conditional', 'each-turn', 'buff']);
+// 内含子效果（then）的容器 op；requires 为规则 v6 固定卡的打出条件（mechanics/fixed-pile.js）。
+const CONTAINER_OPS = new Set(['conditional', 'each-turn', 'buff', 'requires']);
+const CONDITION_OPS = new Set(['conditional', 'requires']);
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
 // 内置算子查固定表，已登记算子查其 scale 声明；都没有时为 null。
@@ -36,7 +37,7 @@ const scalableOf = (op) => {
 // 效果列表里第一个有对应能力的 op（条件效果递归进 then）。
 function firstScalingOp(effects) {
     for (const effect of asArray(effects)) {
-        if (effect?.op === 'conditional') {
+        if (CONDITION_OPS.has(effect?.op)) {
             const inner = firstScalingOp(effect.then);
             if (inner) return inner;
         } else if (abilityOf(effect?.op)) return effect.op;

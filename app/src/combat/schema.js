@@ -12,6 +12,7 @@ import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL
 import { opHandler, reserveBuiltins } from './mechanics/registry.js';
 import { INSCRIPTION_KEYS } from './mechanics/inscription.js';
 import { TREASURE_SLOT_MAX } from './gear-slots.js';
+import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
 import './mechanics/index.js';
 
@@ -614,14 +615,50 @@ export const normalizeCard = (input) => runValidator((card, path, state) => vali
 export const normalizeSkill = (input) => runValidator(validateSkill, input);
 
 // 卡牌目录：基础牌 + 职业牌池 + 个人牌池（后者覆盖同 id 的前者）。
+// 规则 v6：起始卡组里的固定卡 ID 从固定卡表补进目录（只补尚未出现的 ID）；v3–v5 起始卡组不含固定卡 ID，目录不变。
 export function buildCardCatalog(deckCharacter, classProfile) {
     const catalog = new Map(Object.entries(BASIC_CARDS));
     for (const card of classProfile?.classPool || []) catalog.set(card.id, card);
     for (const card of deckCharacter?.personalPool || []) catalog.set(card.id, card);
+    for (const id of deckCharacter?.starterDeck || []) {
+        if (!catalog.has(id) && isFixedCardId(id)) catalog.set(id, fixedCard(id));
+    }
     return catalog;
 }
 
-// 校验起始卡组：职业匹配、牌池 id 无冲突、卡组结构符合 starterDeckShape、重复张数不超过稀有度限制。
+// 规则 v6 起始卡组形状：本职业固定卡（普通、罕见）的份数为 starterDeckShapeV6 攻击 / 技能 / 第三种合起来的份数，
+// 攻击、技能各至少有形状要求的种类数；个人牌份数同形状；不含基础牌与其他来源的牌。
+function starterShapeV6Errors(starterDeck, fixedIds, personalIds) {
+    const shape = COMBAT_RULES.starterDeckShapeV6;
+    const fixedCopies = new Map();
+    const personalCopies = new Map();
+    let other = 0;
+    for (const id of starterDeck) {
+        if (fixedIds.has(id)) fixedCopies.set(id, (fixedCopies.get(id) || 0) + 1);
+        else if (personalIds.has(id)) personalCopies.set(id, (personalCopies.get(id) || 0) + 1);
+        else other += 1;
+    }
+    const kinds = { attack: 0, skill: 0 };
+    const errors = [];
+    for (const id of fixedCopies.keys()) {
+        const card = fixedCard(id);
+        if (Object.hasOwn(kinds, card.type)) kinds[card.type] += 1;
+        if (card.rarity !== 'common' && card.rarity !== 'uncommon') errors.push({ path: 'starterDeck', reason: 'starter-rarity', cardId: id });
+    }
+    const copies = (list) => [...list].sort((a, b) => b - a).join('/');
+    const check = (slot, expected, actual) => {
+        if (expected !== actual) errors.push({ path: 'starterDeck', reason: 'starter-shape', detail: { slot, expected, actual } });
+    };
+    check('fixedCopies', copies([...shape.attack, ...shape.skill, ...shape.third]), copies(fixedCopies.values()));
+    check('personalCopies', copies(shape.personal), copies(personalCopies.values()));
+    if (kinds.attack < shape.attack.length) check('attackKinds', shape.attack.length, kinds.attack);
+    if (kinds.skill < shape.skill.length) check('skillKinds', shape.skill.length, kinds.skill);
+    check('other', 0, other);
+    return errors;
+}
+
+// 校验起始卡组：职业匹配、牌池 id 无冲突、卡组结构符合起始形状、重复张数不超过稀有度限制。
+// 含本职业固定卡 ID 的起始卡组按规则 v6 形状校验；v3–v5 档案不含固定卡 ID，照旧按 starterDeckShape。
 export function validateStarterDeck(deckCharacter, classProfile) {
     const errors = [];
     if (!classProfile || classProfile.kind !== 'class') return { ok: false, errors: [{ path: 'classRef', reason: 'class-missing' }] };
@@ -631,6 +668,8 @@ export function validateStarterDeck(deckCharacter, classProfile) {
     const signatureIds = new Set((deckCharacter.signatureCards || []).map((card) => card.id));
     for (const id of personalIds) if (classIds.has(id) || BASIC_CARDS[id]) errors.push({ path: 'personalPool', reason: 'id-collision', cardId: id });
     for (const id of signatureIds) if (classIds.has(id) || personalIds.has(id) || BASIC_CARDS[id]) errors.push({ path: 'signatureCards', reason: 'id-collision', cardId: id });
+    const fixedIds = new Set(fixedClassPool(classProfile.archetype).map((card) => card.id));
+    const v6 = deckCharacter.starterDeck.some((id) => fixedIds.has(id));
     const shape = { basicAttack: 0, basicDefend: 0, classCards: 0, personalCards: 0 };
     const counts = new Map();
     deckCharacter.starterDeck.forEach((id, index) => {
@@ -640,10 +679,13 @@ export function validateStarterDeck(deckCharacter, classProfile) {
         else if (classIds.has(id)) shape.classCards += 1;
         else if (personalIds.has(id)) shape.personalCards += 1;
         else if (signatureIds.has(id)) errors.push({ path: `starterDeck[${index}]`, reason: 'signature-in-starter', cardId: id });
-        else errors.push({ path: `starterDeck[${index}]`, reason: 'unknown-card', cardId: id });
+        else if (!(v6 && fixedIds.has(id))) errors.push({ path: `starterDeck[${index}]`, reason: 'unknown-card', cardId: id });
     });
-    for (const [slot, expected] of Object.entries(COMBAT_RULES.starterDeckShape)) {
-        if (shape[slot] !== expected) errors.push({ path: 'starterDeck', reason: 'starter-shape', detail: { slot, expected, actual: shape[slot] } });
+    if (v6) errors.push(...starterShapeV6Errors(deckCharacter.starterDeck, fixedIds, personalIds));
+    else {
+        for (const [slot, expected] of Object.entries(COMBAT_RULES.starterDeckShape)) {
+            if (shape[slot] !== expected) errors.push({ path: 'starterDeck', reason: 'starter-shape', detail: { slot, expected, actual: shape[slot] } });
+        }
     }
     const catalog = buildCardCatalog(deckCharacter, classProfile);
     for (const [id, count] of counts) {

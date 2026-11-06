@@ -17,6 +17,7 @@ import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsO
 import { ABILITY_KEYS, ABILITY_LABELS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
 import { ledgerEntryId, profileIdFor } from './schema.js';
+import { cardUsesPool, fixedPoolsFor } from './fixed-cards/index.js';
 import { defaultHeroSkill, itemEffectsForBattle, ultimateSkill } from './card-templates.js';
 import { enemyArtKeyFor, isEnemyArtTheme } from './enemy-art.js';
 import { enemyLoadout } from './enemy-loadout.js';
@@ -172,10 +173,13 @@ function withBattleGrowth(catalog, growth) {
 }
 
 // 牌组角色 -> 战斗单位
+// 规则 v6：目录里有牌用到本职业 / 无色造牌池（random-card 的 pool）时，开战快照带 pools；否则不写字段，旧快照形状不变。
 function deckUnit(character) {
     const kept = keptInnateKinds(character);
     const heroSkill = kept.includes('active') ? character.profile.heroSkill || defaultHeroSkill(character.classProfile?.archetype, character.id) : null;
     const stats = characterCombatStats(character);
+    const catalogCards = character.catalog instanceof Map ? [...character.catalog.values()] : Object.values(character.catalog || {});
+    const pools = catalogCards.some(cardUsesPool) ? fixedPoolsFor(character.classProfile?.archetype) : null;
     return {
         id: character.id, name: character.name, side: 'ally', kind: 'deck', maxHp: stats.hp,
         energy: character.profile.base.energy, draw: character.profile.base.draw, speed: stats.speed,
@@ -188,6 +192,7 @@ function deckUnit(character) {
             ...traitPassives(character).map(tagSource('trait')),
         ].filter(Boolean),
         ...(heroSkill ? { heroSkill } : {}),
+        ...(pools ? { pools } : {}),
         traits: traitEntries(character, heroSkill, kept),
         ...abilityFields(character.attributes),
     };

@@ -9,6 +9,7 @@ import { sellPrice } from '../../combat/points.js';
 import { defaultHeroSkill } from '../../combat/card-templates.js';
 import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
 import { TREASURE_SLOT_MAX, slotGearList } from '../../combat/gear-slots.js';
+import { fixedCardGroup } from '../../combat/fixed-cards/index.js';
 
 // 复用战斗换算与说明，预览普通版和升级版；固定卡不带倍率。
 function cardPreview(card, attr) {
@@ -181,10 +182,13 @@ export function deckDetailView(view, draft) {
     const costRank = (c) => (c === 'X' ? 4 : Number(c));
     const personalIds = new Set((view.profile?.personalPool || []).map((c) => c.id));
     const classIds = new Set((view.classProfile?.classPool || []).map((c) => c.id));
+    // 规则 v6：本职业固定卡也按职业牌显示来源。
+    const archetype = view.classProfile?.archetype;
+    const isClassCard = (id) => classIds.has(id) || (archetype !== undefined && fixedCardGroup(id) === archetype);
     const cardView = (id, n) => {
         const card = view.catalog.get(id);
         return { cardId: id, name: card?.name || id, type: card?.type || '', cost: card?.cost ?? '', rarity: card?.rarity || '', owned: n,
-            source: personalIds.has(id) ? '个人牌' : classIds.has(id) ? '职业牌' : card?.rarity === 'basic' ? '基础牌' : card?.rarity === 'signature' ? '专属牌' : '其他已持有',
+            source: personalIds.has(id) ? '个人牌' : isClassCard(id) ? '职业牌' : card?.rarity === 'basic' ? '基础牌' : card?.rarity === 'signature' ? '专属牌' : '其他已持有',
             upgraded: view.upgraded.get(id) || 0, inDeck: inDeck.get(id) || 0, errors: check.byCard.get(id) || [],
             variants: [...(variants.get(id)?.values() || [])],
             canAdd: (inDeck.get(id) || 0) < n && cardCopyLimit(card?.rarity) > 0, ...cardPreview(card, view.attributes) };

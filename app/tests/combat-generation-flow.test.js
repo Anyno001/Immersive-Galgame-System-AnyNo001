@@ -96,7 +96,7 @@ async function uiFixture(t) {
     return { ...f, dom, controller, doc: dom.window.document };
 }
 
-test('六张个人卡池重建会保存新牌，初始组仍只取四张；界面直接显示来源和效果', async (t) => {
+test('六张个人卡池重建会保存新牌，v6 初始组只取一种个人牌两份、不含基础牌；界面直接显示来源和效果', async (t) => {
     const f = await uiFixture(t);
     const before = await f.hero();
     f.setReply((p) => {
@@ -110,7 +110,9 @@ test('六张个人卡池重建会保存新牌，初始组仍只取四张；界�
     const hero = await f.hero();
     const ids = new Set(hero.profile.personalPool.map((c) => c.id));
     assert.equal(ids.size, 6);
-    assert.equal(hero.deck.filter((id) => ids.has(id)).length, 4);
+    assert.equal(hero.deck.filter((id) => ids.has(id)).length, 2);
+    assert.equal(new Set(hero.deck.filter((id) => ids.has(id))).size, 1);
+    assert.ok(!hero.deck.some((id) => id.startsWith('basic-')));
     assert.equal(hero.deck.length, 20);
     assert.equal(hero.points, before.points - 200);
     assert.deepEqual(hero.classProfile, before.classProfile);
@@ -122,7 +124,6 @@ test('六张个人卡池重建会保存新牌，初始组仍只取四张；界�
     assert.ok(personal.length > 0);
     assert.ok(personal.every((r) => /新招/.test(r.textContent) && /点伤害/.test(r.querySelector('.igs-deck-effect').textContent)));
     assert.ok(rows.some((r) => /职业牌/.test(r.textContent)));
-    assert.ok(rows.some((r) => /基础牌/.test(r.textContent) && /点格挡/.test(r.textContent)));
     assert.ok(personal.every((r) => r.querySelector('details').textContent.includes('升级后')));
     assert.match(f.doc.body.textContent, /只更换个人牌/);
     assert.match(f.doc.body.textContent, /按当前属性预览/);

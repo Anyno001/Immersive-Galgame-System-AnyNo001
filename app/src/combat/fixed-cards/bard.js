@@ -1,0 +1,83 @@
+// 规则 v6 乐师固定卡（对照原版观者职业牌；自有中文名，数值经 dsl.fitCard 按 IGS 预算窗口复核）。
+// 心境为 enter-stance，真言为乐势（momentum），预知为 foresee；衍生牌用 rules.js 的 v6 乐师衍生牌。
+// 剔除原 03、33、63（额外回合、即死、下回合死亡等规则破坏类）；选牌类改程序随机，IGS 无对应时机的效果按可结算的近似写法改写。
+import { ap, aoe, atk, blk, buff, card, draw, energy, ex, lose, op, rnd, st, turn, when } from './dsl.js';
+
+const c = (...args) => card('bard', ...args);
+const stance = (name) => op('enter-stance', { stance: name });
+const mom = (amount) => op('momentum', { amount });
+const scry = (amount) => op('foresee', { amount });
+const mk = (cardId, to = 'hand', amount = 1) => op('create', { card: cardId, amount, to });
+const nt = (gain, amount) => op('next-turn', { gain, amount });
+
+export const BARD_CARDS = Object.freeze([
+    c(1, '序曲', 's', 1, 'r', [mk('token-finale', 'draw'), ex()], [mk('token-finale', 'draw'), draw(1), ex()]),
+    c(2, '战歌', 'p', 1, 'u', [turn([mk('token-rebuke')])], [turn([mk('token-rebuke')]), blk(2)]),
+    c(4, '滚奏', 'a', 1, 'c', [op('splash', { amount: 6 })], [op('splash', { amount: 8 })]),
+    c(5, '华彩', 'a', 1, 'r', [atk(10), mom(2)], [atk(14), mom(2)]),
+    c(6, '裂弦', 'a', 1, 'u', [atk(6), mk('token-rebuke')], [atk(10), mk('token-rebuke')]),
+    c(7, '拾韵', 's', 0, 'u', [mk('token-grace'), scry(2), ex()], [mk('token-grace'), scry(3), ex()]),
+    c(8, '收束', 'a', 1, 'u', [aoe(12), op('end-turn')], [aoe(16), op('end-turn')]),
+    c(9, '铸音刃', 's', 1, 'r', [mk('token-sever', 'draw'), ex()], [mk('token-sever', 'draw', 2), ex()]),
+    c(10, '圣咏', 'a', 0, 'c', [aoe(5)], [aoe(8)]),
+    c(11, '渐强', 's', 1, 'c', [stance('wrath'), draw(1)], [stance('wrath'), draw(1), blk(2)], { retain: true }),
+    c(12, '碎节', 'a', 1, 'c', [atk(8), when('skills-played-gte', 1, [st('vulnerable', 1, 'enemy')])], [atk(10), when('skills-played-gte', 1, [st('vulnerable', 2, 'enemy')])]),
+    c(13, '断命弦', 'a', 1, 'c', [atk(7), scry(2), draw(1)], [atk(9), scry(3), draw(1)]),
+    c(14, '幻听', 's', 1, 'u', [blk(4), mk('token-shelter')], [blk(7), mk('token-shelter')]),
+    c(15, '天降神曲', 's', 0, 'r', [mk('token-grace', 'hand', 2), ex()], [mk('token-grace', 'hand', 2), blk(1), ex()]),
+    c(16, '神格', 'p', 3, 'r', [turn([energy(1), draw(1)])], [turn([energy(1), draw(1)]), blk(5)], { ethereal: true }),
+    c(17, '虔奏', 'p', 1, 'r', [ap('chant', 2)], [ap('chant', 3)]),
+    c(18, '空身', 's', 1, 'c', [blk(7), stance('neutral')], [blk(10), stance('neutral')]),
+    c(19, '空拳', 'a', 1, 'c', [atk(9), stance('neutral')], [atk(14), stance('neutral')]),
+    c(20, '空明', 's', 1, 'u', [stance('neutral'), draw(2)], [stance('neutral'), draw(3)]),
+    c(21, '余音', 'p', 1, 'r', [ap('keep-discount', 1)], [ap('keep-discount', 1), draw(1)]),
+    c(22, '品鉴', 's', 1, 'c', [blk(6), mk('token-epiphany', 'draw')], [blk(10), mk('token-epiphany', 'draw')]),
+    c(23, '斋戒', 'p', 2, 'u', [st('strength', 2, 'self'), st('dexterity', 2, 'self'), lose(4)], [st('strength', 3, 'self'), st('dexterity', 3, 'self'), lose(4)]),
+    c(24, '无惧', 'a', 1, 'u', [atk(8), when('target-intent-attack', undefined, [stance('calm')])], [atk(11), when('target-intent-attack', undefined, [stance('calm')])]),
+    c(25, '连拍', 'a', 0, 'c', [atk(3)], [atk(4)]),
+    c(26, '飞袖', 'a', 1, 'c', [atk(4, 2)], [atk(6, 2)], { retain: true }),
+    c(27, '接拍', 'a', 1, 'c', [atk(7), when('attacks-played-gte', 1, [energy(1)])], [atk(11), when('attacks-played-gte', 1, [energy(1)])]),
+    c(28, '异乡调', 's', 0, 'u', [op('random-card', { pool: 'class', amount: 1, cardType: 'attack', free: true }), ex()], [op('random-card', { pool: 'class', amount: 1, cardType: 'attack', free: true, upgraded: true }), ex()]),
+    c(29, '先知', 'p', 1, 'u', [turn([scry(2)])], [turn([scry(3)])]),
+    c(30, '止步', 's', 0, 'c', [blk(2), when('target-intent-attack', undefined, [blk(4)])], [blk(3), when('target-intent-attack', undefined, [blk(6)])]),
+    c(31, '义愤', 's', 1, 'u', [stance('wrath'), st('vulnerable', 2, 'all-enemies')], [stance('wrath'), st('vulnerable', 3, 'all-enemies')]),
+    c(32, '内息', 's', 1, 'u', [stance('calm'), draw(1)], [stance('calm'), draw(2)]),
+    c(34, '侥幸', 'a', 0, 'c', [scry(1), blk(2), atk(3)], [scry(2), blk(3), atk(4)]),
+    c(35, '前车之鉴', 'a', 2, 'r', [atk(10), op('bounty', { reward: 'damage', amount: 3 }), ex()], [atk(13), op('bounty', { reward: 'damage', amount: 3 }), ex()]),
+    c(36, '如水', 'p', 1, 'u', [ap('calm-guard', 5)], [ap('calm-guard', 7)]),
+    c(37, '化境', 'p', 1, 'r', [turn([op('upgrade-card', { amount: 1, mode: 'random' })])], [turn([op('upgrade-card', { amount: 1, mode: 'random' })]), blk(2)]),
+    c(38, '冥想', 's', 1, 'u', [op('retrieve', { amount: 1, from: 'discard' }), stance('calm'), op('end-turn'), blk(1)], [op('retrieve', { amount: 2, from: 'discard' }), stance('calm'), op('end-turn'), blk(1)]),
+    c(39, '心城', 'p', 1, 'u', [ap('stance-ward', 4)], [ap('stance-ward', 6)]),
+    c(40, '涅弦', 'p', 1, 'u', [ap('scry-ward', 3)], [ap('scry-ward', 4)]),
+    c(41, '全知', 's', 2, 'r', [op('autoplay', { from: 'draw', amount: 3, exhaust: true }), ex()], 1),
+    c(42, '坚持', 's', 1, 'u', [blk(5), op('grow', { amount: 2 })], [blk(7), op('grow', { amount: 3 })], { retain: true }),
+    c(43, '祈音', 's', 1, 'u', [mom(3), mk('token-epiphany', 'draw')], [mom(4), mk('token-epiphany', 'draw')]),
+    c(44, '点穴', 's', 1, 'c', [ap('hunt-mark', 7), op('loose')], [ap('hunt-mark', 10), op('loose')]),
+    c(45, '伏拜', 's', 0, 'c', [mom(2), blk(1)], [mom(2), blk(1), atk(1)]),
+    c(46, '护佑', 's', 2, 'c', [blk(12)], [blk(16)], { retain: true }),
+    c(47, '诸神黄昏', 'a', 3, 'r', [rnd(5, 5)], [rnd(6, 5)]),
+    c(48, '登天', 'a', 2, 'u', [atk(10), mk('token-pierce', 'draw')], [atk(15), mk('token-pierce', 'draw')]),
+    c(49, '疾奏', 'p', 1, 'u', [ap('wrath-draw', 1), blk(1)], [ap('wrath-draw', 2)]),
+    c(50, '圣洁', 's', 1, 'u', [blk(6), when('skills-played-gte', 1, [draw(2)])], [blk(9), when('skills-played-gte', 1, [draw(2)])]),
+    c(51, '沙漏', 'a', 3, 'u', [atk(20), op('self-cost', { amount: -1 })], [atk(26), op('self-cost', { amount: -1 })], { retain: true }),
+    c(52, '绶鞭', 'a', 1, 'c', [atk(8), when('attacks-played-gte', 1, [st('weak', 1, 'enemy')])], [atk(10), when('attacks-played-gte', 1, [st('weak', 2, 'enemy')])]),
+    c(53, '疾书', 's', 1, 'r', [op('draw-until', { until: 'hand', value: 6 }), ex()], [op('draw-until', { until: 'hand', value: 7 }), ex()]),
+    c(54, '招牌曲', 'a', 2, 'u', [op('requires', { when: 'hand-lte', value: 3, then: [atk(30)] })], [op('requires', { when: 'hand-lte', value: 3, then: [atk(40)] })]),
+    c(55, '渐沸', 's', 1, 'u', [ap('seethe', 1), op('next-turn', { gain: 'draw', amount: 2 })], [ap('seethe', 1), op('next-turn', { gain: 'draw', amount: 3 })]),
+    c(56, '灵盾', 's', 2, 'r', [op('tally-guard', { amount: 0, per: 3, source: 'hand' })], [op('tally-guard', { amount: 0, per: 4, source: 'hand' })]),
+    c(57, '研习', 'p', 2, 'u', [turn([mk('token-epiphany', 'draw')], 'end')], 1),
+    c(58, '旋身', 's', 2, 'u', [blk(8), op('free-next', { amount: 1, cardType: 'attack' })], [blk(11), op('free-next', { amount: 1, cardType: 'attack' })]),
+    c(59, '且听我言', 'a', 1, 'u', [atk(5), buff('card-played', 3, [blk(2)], 'attack'), ex()], [atk(7), buff('card-played', 3, [blk(3)], 'attack'), ex()]),
+    c(60, '怒奏', 'a', 2, 'u', [atk(3, 3), stance('wrath'), op('recur', { to: 'top' })], [atk(3, 4), stance('wrath'), op('recur', { to: 'top' })]),
+    c(61, '天眼', 's', 1, 'c', [blk(7), scry(3)], [blk(9), scry(5)]),
+    c(62, '宁静', 's', 1, 'c', [stance('calm'), blk(3), ex()], 0, { retain: true }),
+    c(64, '重音', 'a', 2, 'u', [atk(9), blk(6)], [atk(12), blk(8)]),
+    c(65, '挥手', 's', 1, 'u', [buff('block-gain', 1, [st('weak', 1, 'all-enemies')])], [buff('block-gain', 1, [st('weak', 2, 'all-enemies')])]),
+    c(66, '织音', 'a', 0, 'u', [atk(4), scry(1)], [atk(6), scry(1)]),
+    c(67, '旋踢', 'a', 2, 'u', [atk(15), draw(2)], [atk(20), draw(2)]),
+    c(68, '风车击', 'a', 2, 'u', [atk(7), op('grow', { amount: 4 })], [atk(10), op('grow', { amount: 5 })], { retain: true }),
+    c(69, '祈愿', 's', 3, 'r', [op('random-branch', { a: [ap('plated', 6)], b: [st('strength', 3, 'self')] }), ex()], [op('random-branch', { a: [ap('plated', 8)], b: [st('strength', 4, 'self')] }), ex()]),
+    c(70, '崇礼', 's', 2, 'u', [mom(5), blk(4)], [mom(5), blk(6)]),
+    c(71, '炎冠', 's', 1, 'u', [ap('vigor', 5)], [ap('vigor', 8)]),
+]);
+

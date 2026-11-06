@@ -74,6 +74,8 @@ export function cardView(state, inst) {
         view.marks = entry.marks.slice();
         if (entry.marks.includes('ethereal')) view.ethereal = true;
     }
+    // 规则 v6 固定卡 grant-flag（mechanics/fixed-pile.js）：本场赋予的关键字，记在 state.cards[inst].grants。
+    if (state.rulesVersion >= 5 && Array.isArray(entry.grants)) for (const flag of entry.grants) view[flag] = true;
     const costShift = (owner?.handCost || 0) + (entry.costMod || 0) + (owner?.turnCostMod?.[inst] || 0);
     if (typeof view.cost !== 'number') return view;
     let cost = Math.max(0, view.cost + costShift);
