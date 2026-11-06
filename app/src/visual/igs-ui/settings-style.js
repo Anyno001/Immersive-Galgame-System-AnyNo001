@@ -227,8 +227,8 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-stats-hero-actions.is-three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .igs-stats-hero-actions>.igs-settings-action:only-child{grid-column:1/-1}
 .igs-stats-hero-actions>select{min-width:0;height:34px;padding:0 8px;text-overflow:ellipsis;cursor:pointer}
-.igs-stats-skill-ops{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);background:var(--igs-settings-panel)}
-.igs-stats-skill-ops>.igs-segmented-btn{background:var(--igs-settings-raised);color:var(--igs-settings-ink-2)}
+.igs-stats-skill-ops{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);height:auto;padding:0;gap:8px;background:transparent;overflow:visible}
+.igs-stats-skill-ops>.igs-segmented-btn{height:34px;background:var(--igs-settings-raised);color:var(--igs-settings-ink-2)}
 .igs-stats-skill-ops>.igs-segmented-btn:hover,.igs-stats-skill-ops>.igs-segmented-btn:focus-visible{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
 /* 数值页「存档与记录」的角色卡：名字、阶段一行，数值格同「我的角色」，按钮两两并排。 */
 .igs-stats-person{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 0;border-bottom:1px solid var(--igs-settings-field)}
