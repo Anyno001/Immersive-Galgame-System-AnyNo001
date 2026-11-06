@@ -1,9 +1,11 @@
-// 规则 v5 P4b 敌方单位机制：E09 背击、E12 爪牙绑定、E13 召唤爪牙。
+// 规则 v5 P4b 敌方单位机制：E09 背击、E10 分裂、E11 复生、E12 爪牙绑定、E13 召唤爪牙。
 // 背击：卡组单位用指定目标的牌转向该敌人（res.facing）；带背击的敌人不在其朝向上时，对它的攻击伤害 ×1.5。朝向的单位倒下后清除朝向。
 // 爪牙：summon-minion 经 engineKit.summonUnit 受控入场（场上敌人最多 5 名，写 minion / minionOf）；召唤者倒下时经 engineKit.dismissUnit 退场。
 import { registerMechanic } from './registry.js';
 
 export const FLANK_MULT = 1.5;
+export const REVIVE_TURNS = 2;
+export const REVIVE_HP = 0.5;
 const MINION_SKILL_ID = 'minion-claw';
 const st = (unit, key) => unit?.statuses?.[key] || 0;
 const foesOf = (state, unit) => state.order.map((id) => state.units[id]).filter((other) => other?.alive && other.side !== unit.side);
@@ -34,9 +36,10 @@ registerMechanic({
             if (unit.kind !== 'deck' || !aimed?.alive || aimed.side === unit.side || unit.res?.facing === aimId || !hasFlanker(ctx.state, unit)) return;
             face(ctx, unit, aimId, kit);
         },
-        // 还没有朝向时，回合开始面向出手顺序里第一名存活敌人。
+        // 还没有朝向、或朝向的单位已不在场（倒下、分裂、退场）时，回合开始面向出手顺序里第一名存活敌人。
         'turn-start-after'(ctx, { unit }, kit) {
-            if (unit.kind !== 'deck' || unit.res?.facing || !hasFlanker(ctx.state, unit)) return;
+            const current = unit.res?.facing;
+            if (unit.kind !== 'deck' || (current && ctx.state.units[current]?.alive) || !hasFlanker(ctx.state, unit)) return;
             const first = foesOf(ctx.state, unit)[0];
             if (first) face(ctx, unit, first.id, kit);
         },
@@ -90,5 +93,42 @@ registerMechanic({
     report(event, kit) {
         if (event.type === 'minion-enter' && event.ownerId === kit.actorId) kit.note(event.ownerId, `召来${event.name || '爪牙'}`);
         else if (event.type === 'minion-leave') kit.note(event.unitId, '随召唤者倒下而退场');
+    },
+});
+
+registerMechanic({
+    key: 'foe-life', family: 'general', archetypes: [], unitKinds: ['skill'],
+    statuses: [{ key: 'split', label: '分裂' }, { key: 'revive', label: '不灭' }],
+    hooks: {
+        // E10：生命降到最大生命一半及以下时分裂（子体不再分裂）。
+        'hp-loss-after'(ctx, { target }, kit) {
+            if (!target.alive || !st(target, 'split') || target.splitFrom || target.hp * 2 > target.maxHp) return;
+            kit.splitUnit(ctx, target);
+        },
+        // E11：带不灭的敌人倒下时，若还有其他敌人存活，记下复活回合；同组全部倒下则按原规则判胜。
+        defeated(ctx, { unit }, kit) {
+            if (unit.side !== 'enemy' || unit.minion === true || !st(unit, 'revive')) return;
+            const others = ctx.state.order.some((id) => id !== unit.id && ctx.state.units[id]?.alive && ctx.state.units[id].side === 'enemy');
+            if (!others) return;
+            const at = ctx.state.turn + REVIVE_TURNS;
+            kit.resOf(ctx, unit).reviveAt = at;
+            kit.emit(ctx, { type: 'revive-pending', unitId: unit.id, at });
+        },
+        // 到期后在主角回合开始以一半生命复活，保留不灭，可再次复生。
+        'turn-start-after'(ctx, { unit }, kit) {
+            if (unit.id !== ctx.state.controlledId) return;
+            for (const id of [...ctx.state.order]) {
+                const other = ctx.state.units[id];
+                const at = other?.res?.reviveAt;
+                if (at == null || other.alive || at > ctx.state.turn) continue;
+                const keep = st(other, 'revive');
+                tidyRes(other, 'reviveAt');
+                kit.reviveUnit(ctx, other, Math.ceil(other.maxHp * REVIVE_HP), keep ? { revive: keep } : {});
+            }
+        },
+    },
+    report(event, kit) {
+        if (event.type === 'split') kit.note(event.unitId, `分裂成 ${event.into.length} 只`);
+        else if (event.type === 'revive-pending') kit.note(event.unitId, '倒下后仍在蠢动');
     },
 });

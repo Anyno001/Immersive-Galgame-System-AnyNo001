@@ -49,7 +49,7 @@ export function attachLoot(text, loot) {
 
 // 伤势描述：按剩余血量比例分档。
 export function injuryLevel(unit) {
-    if (unit?.left === true) return '退场';
+    if (unit?.left) return unit.left === 'split' ? '分裂' : '退场';
     if (!unit || !unit.alive || unit.hp <= 0) return '倒下';
     const ratio = unit.hp / unit.maxHp;
     return ratio >= 1 ? '无伤' : ratio > 0.6 ? '轻伤' : ratio > 0.3 ? '重创' : '濒死';

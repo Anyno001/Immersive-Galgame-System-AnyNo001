@@ -2295,3 +2295,92 @@ test('爪牙模板（E12、E13）：call-minion 生成 summon-minion 技能；�
     assert.ok(describeEffects([onFoe('flank', 1)]).includes('背击'));
 });
 
+// ---------- 规则 v5 P4b 子批 2：E10 分裂、E11 复生 ----------
+test('分裂（E10）：生命降到一半及以下时原单位退场（不算倒下），分出两只子体，生命取原单位当前值，子体不再分裂；规则 v4 无效', () => {
+    const cut = free('x', 'attack', [hitFoe(16)]);
+    const run = (rv) => {
+        const t = battleOf({ x: cut }, Array(10).fill('x'), foeWith(foeAttack(5), { split: 1 }), rv);
+        return playIn(t, instOf(t, 'x'), 'foe');
+    };
+    const v5 = run();
+    const s = v5.state;
+    assert.deepEqual(s.order, ['hero', 'foe', 'foe-s1', 'foe-s2']);
+    assert.deepEqual([s.units.foe.alive, s.units.foe.left, s.outcome], [false, 'split', null]);
+    for (const id of ['foe-s1', 'foe-s2']) {
+        assert.deepEqual([s.units[id].maxHp, s.units[id].hp, s.units[id].splitFrom, s.units[id].alive], [14, 14, 'foe', true], id);
+        assert.ok(s.intents[id], `${id} 入场即规划意图`);
+    }
+    assert.ok(v5.events.some((e) => e.type === 'split' && e.unitId === 'foe' && e.into.length === 2));
+    assert.equal(v5.events.some((e) => e.type === 'defeated' && e.unitId === 'foe'), false);
+    const ended = endTurn(s);
+    assert.equal(ended.events.filter((e) => e.type === 'skill' && String(e.unitId).startsWith('foe-s')).length, 2);
+    assert.equal(ended.state.units.hero.hp, 20);
+    const again = playIn(ended.state, instOf(ended.state, 'x'), 'foe-s1');
+    assert.equal(again.events.some((e) => e.type === 'split'), false);
+    const report = buildCombatReport({ combatId: 'c-split', state: { ...again.state, outcome: 'victory' }, events: [...v5.events, ...ended.events, ...again.events] });
+    assert.ok(report.text.includes('分裂'), report.text);
+    const v4 = run(4);
+    assert.deepEqual([v4.state.order, v4.state.units.foe.hp, v4.state.units.foe.alive], [['hero', 'foe'], 14, true]);
+});
+
+const reviveSetup = (deck, rv, reserve) => {
+    const units = [
+        hero({}, { deck, catalog: { x: free('x', 'attack', [hitFoe(40)]), k: GUARD } }),
+        foeWith(foeAttack(1), { revive: 1 }),
+        foe(foeAttack(1), { id: 'foe2', name: '他' }),
+        ...(reserve ? [foe(foeAttack(1), { id: 'foe3', name: '它' })] : []),
+    ];
+    const created = createBattle({ controlledId: 'hero', canEscape: true, units, ...(reserve ? { reserve: ['foe3'] } : {}), ...(rv ? { rulesVersion: rv } : {}) }, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+
+test('复生（E11）：带不灭的敌人倒下 2 回合后以一半生命复活，期间不被后备顶位；规则 v4 无效', () => {
+    const run = (rv) => {
+        const t = reviveSetup(padded(['x']), rv, true);
+        const killed = playIn(t, instOf(t, 'x'), 'foe');
+        const t2 = endTurn(killed.state);
+        const t3 = endTurn(t2.state);
+        return { killed, t2, t3 };
+    };
+    const v5 = run();
+    assert.ok(v5.killed.events.some((e) => e.type === 'revive-pending' && e.unitId === 'foe' && e.at === 3));
+    assert.equal(v5.killed.events.some((e) => e.type === 'reinforce'), false);
+    assert.deepEqual(v5.killed.state.order, ['hero', 'foe', 'foe2']);
+    assert.equal(v5.t2.state.units.foe.alive, false);
+    const s = v5.t3.state;
+    assert.deepEqual([s.turn, s.units.foe.alive, s.units.foe.hp, s.units.foe.statuses, s.units.foe.res?.reviveAt], [3, true, 15, { revive: 1 }, undefined]);
+    assert.ok(v5.t3.events.some((e) => e.type === 'revive' && e.unitId === 'foe' && e.hp === 15));
+    assert.ok(s.intents.foe, '复活后重新规划意图');
+    const v4 = run(4);
+    assert.equal(v4.killed.events.some((e) => e.type === 'revive-pending'), false);
+    assert.ok(v4.killed.events.some((e) => e.type === 'reinforce' && e.unitId === 'foe3'));
+    assert.equal(v4.t3.state.units.foe.alive, false);
+});
+
+test('复生（E11）：同组其余敌人全部倒下时直接判胜，待复生单位不再复活', () => {
+    const t = reviveSetup(padded(['x', 'x']));
+    const first = playIn(t, instOf(t, 'x'), 'foe');
+    assert.equal(first.state.outcome, null);
+    const second = playIn(first.state, instOf(first.state, 'x'), 'foe2');
+    assert.equal(second.state.outcome, 'victory');
+    assert.equal(second.state.units.foe.alive, false);
+});
+
+test('分裂与复生词缀（E10、E11）：只在限定阶级出现；状态有显示名', async () => {
+    const { enemyAffixes } = await import('../src/combat/enemy-loadout.js');
+    const limits = { 'af-split': ['normal', 'boss'], 'af-revive': ['normal'] };
+    const seen = new Set();
+    for (const tier of ['normal', 'elite', 'boss']) {
+        for (let i = 0; i < 80; i += 1) {
+            for (const a of enemyAffixes({ id: `e${i}`, tier }, 'nightmare')) {
+                seen.add(a.id);
+                if (limits[a.id]) assert.ok(limits[a.id].includes(tier), `${a.id}:${tier}`);
+            }
+        }
+    }
+    assert.ok(seen.has('af-split') && seen.has('af-revive'), [...seen].join(','));
+    assert.ok(describeEffects([onFoe('split', 1)]).includes('分裂'));
+    assert.ok(describeEffects([onFoe('revive', 1)]).includes('不灭'));
+});
+

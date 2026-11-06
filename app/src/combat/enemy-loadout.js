@@ -36,6 +36,9 @@ export const ENEMY_AFFIXES = Object.freeze({
     enrage: affix('激怒', 'battle-start', [selfApply('enrage', 1)], { tiers: ['elite', 'boss'] }),
     barbed: affix('刺甲', 'battle-start', [selfApply('barbed', 3)], { tiers: ['elite'] }),
     'time-warp': affix('时滞', 'battle-start', [selfApply('time-warp', 1)], { tiers: ['boss'] }),
+    // 规则 v5 P4b 分裂与复生（mechanics/foe-units.js）；复生只在有其他敌人存活时生效。
+    split: affix('分裂', 'battle-start', [selfApply('split', 1)], { tiers: ['normal', 'boss'] }),
+    revive: affix('不灭', 'battle-start', [selfApply('revive', 1)], { tiers: ['normal'] }),
 });
 
 // 补技能时可选的模板键 -> 技能名。
@@ -56,15 +59,17 @@ function shuffleByHash(items, seed) {
         .map(([item]) => item);
 }
 
-// 给敌人挑词缀：数量由难度档与阶级决定；有数量时保证优先放入一条减益类词缀。
+// 给敌人挑词缀：数量由难度档与阶级决定；名额不少于 2 时保证优先放入一条减益类词缀，只有 1 个名额时按洗牌顺序取
+// （否则只限普通阶级的非减益词缀，如 E05 硬化、E11 不灭，永远抽不到）。只影响新建 setup，已保存的记录照旧重放。
 export function enemyAffixes(enemy, difficulty = 'normal') {
     const diff = normalizeDifficulty(difficulty);
     const tier = Object.hasOwn(COMBAT_RULES.tiers, enemy?.tier) ? enemy.tier : 'normal';
     const count = difficultyRule(diff).affixes[tier] || 0;
     if (!count || !enemy?.id) return [];
     const order = shuffleByHash(Object.keys(ENEMY_AFFIXES).filter((key) => !ENEMY_AFFIXES[key].tiers || ENEMY_AFFIXES[key].tiers.includes(tier)), `affix:${enemy.id}:${diff}`);
-    const firstDebuff = order.find((key) => ENEMY_AFFIXES[key].debuff);
-    return [firstDebuff, ...order.filter((key) => key !== firstDebuff)].slice(0, count).map((key) => {
+    const firstDebuff = count >= 2 ? order.find((key) => ENEMY_AFFIXES[key].debuff) : undefined;
+    const picked = firstDebuff ? [firstDebuff, ...order.filter((key) => key !== firstDebuff)] : order;
+    return picked.slice(0, count).map((key) => {
         const def = ENEMY_AFFIXES[key];
         return {
             id: `af-${key}`,
