@@ -691,7 +691,7 @@ export function createSettingsHost(deps) {
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
         // relation-set 的参数是「编码后的角色名|好感,信任,了解[,欲望]」（当前值，用来预填数字框）。
         // skill-attr 的参数是「编码后的技能名|属性」（来自剧情技能的属性下拉）。
-        const [namePart, valuePart = ''] = kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'skill-attr' ? raw.split('|') : [raw];
+        const [namePart, valuePart = ''] = kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'skill-attr' || kind === 'skill-tier' ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -706,11 +706,7 @@ export function createSettingsHost(deps) {
             else if (kind === 'sheet-new') result = await op('generate', name);
             else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
-            else if (kind === 'hero-edit') {
-                const text = String((await settingsDialogs.prompt('增加或修改主角的一项技能，格式：技能 档位（如「火尖枪 精通」），也可以写数值（如「火尖枪 80」）。档位：入门、熟练、精通、大师；写「未学」删除。', '')) || '').trim();
-                const [skill, tier] = text.split(/\s+/);
-                result = skill && tier ? await op('hero', 'edit', skill, { tier }) : { ok: true, cancelled: true };
-            }
+            else if (kind === 'skill-tier') result = valuePart ? await op('hero', 'edit', name, { tier: valuePart }) : { ok: true, cancelled: true };
             else if (kind === 'hero-assign') {
                 result = await op('hero', 'assign', '', {});
                 if (result && result.reason === 'needs-confirm') {
@@ -726,7 +722,7 @@ export function createSettingsHost(deps) {
                 const to = String((await settingsDialogs.prompt(`把「${name}」合并到哪项技能（填技能名）：`, '')) || '').trim();
                 result = to ? await op('skill', 'merge', name, { to }) : { ok: true, cancelled: true };
             } else if (kind === 'skill-remove') {
-                result = await settingsDialogs.confirm(`删除剧情技能「${name}」？主角已有的数值保留。`) ? await op('skill', 'remove', name) : { ok: true, cancelled: true };
+                result = await settingsDialogs.confirm(`删除技能「${name}」？主角这项技能改为未学。`) ? await op('skill', 'remove', name) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-edit') {
                 const text = String((await settingsDialogs.prompt(`修改「${name}」的一项数值，格式：项目 档位（如「话术 精通」「敏捷 出众」）。技能档：未学、入门、熟练、精通、大师；属性档：很弱、偏弱、普通、出众、顶尖。`, '')) || '').trim();
                 const [skill, tier] = text.split(/\s+/);
@@ -1424,10 +1420,20 @@ export function createSettingsHost(deps) {
                 controller.invoke(`stats-op:hero-set:${encodeURIComponent(heroSkill)}|${String(target.value).trim()}`);
                 return;
             }
-            // 剧情技能的所属属性下拉：同样直接写聊天存档。
-            const storyAttr = target?.getAttribute?.('data-stats-story-attr');
-            if (storyAttr != null) {
-                controller.invoke(`stats-op:skill-attr:${encodeURIComponent(storyAttr)}|${String(target.value)}`);
+            // 「编辑技能」的所属属性、熟练度下拉与新增输入框：同样直接写聊天存档。
+            const skillAttr = target?.getAttribute?.('data-stats-skill-attr');
+            if (skillAttr != null) {
+                controller.invoke(`stats-op:skill-attr:${encodeURIComponent(skillAttr)}|${String(target.value)}`);
+                return;
+            }
+            const skillTier = target?.getAttribute?.('data-stats-skill-tier');
+            if (skillTier != null) {
+                controller.invoke(`stats-op:skill-tier:${encodeURIComponent(skillTier)}|${String(target.value)}`);
+                return;
+            }
+            if (target?.hasAttribute?.('data-stats-skill-add')) {
+                const name = String(target.value || '').trim();
+                if (name) controller.invoke(`stats-op:skill-tier:${encodeURIComponent(name)}|入门`);
                 return;
             }
             const artistSelection = target?.getAttribute?.('data-artist-selection');

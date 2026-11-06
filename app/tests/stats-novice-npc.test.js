@@ -259,16 +259,23 @@ test('其他角色：角色卡并进同名角色，没有人际档的角色卡�
     assert.doesNotMatch(card, /stats-op:sheet-new:/);
     const lost = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, sheets: [] } }, 'stats-npc');
     assert.match(lost, /data-action="stats-op:sheet-new:%E5%B0%8F%E9%9B%AA"/);
-    const mine = page({ chat: { hasChat: true, enabled: true }, archive });
-    // 剧情技能并进「技能」折叠，所属属性是下拉。
-    const skillsFold = mine.slice(mine.indexOf('data-advanced="stats-skills"'), mine.indexOf('data-advanced="stats-checks"'));
-    assert.match(skillsFold, /<select data-stats-story-attr="开锁"[^>]*>.*<option value="敏捷" selected>/s);
-    // 剧情技能在「技能」里再单独折叠；改名、合并、删除三键等宽一行。
-    assert.match(skillsFold, /data-advanced="stats-story-skills"/);
-    assert.match(skillsFold, /<div class="igs-stats-hero-actions is-three"><button[^>]*skill-rename/);
-    assert.doesNotMatch(mine, /stats-op:skill-attr/);
+    const skillEdit = [{ name: '烹饪', attribute: '智力', tier: '熟练', value: 55, story: false }, { name: '开锁', attribute: '敏捷', tier: '入门', value: 30, story: true }, { name: '法律', attribute: '智力', tier: '未学', value: 5, story: false }];
+    const mine = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, skillEdit } });
+    // 技能平铺不折叠；全部技能的编辑在「编辑技能」折叠里，不再有「编辑技能」按钮。
+    assert.doesNotMatch(mine, /data-advanced="stats-skills"|stats-story-skills|stats-op:hero-edit/);
+    const editor = mine.slice(mine.indexOf('data-advanced="stats-skill-edit"'), mine.indexOf('data-advanced="stats-checks"'));
+    // 内置技能（烹饪）与剧情技能同样可改属性、熟练度、删除：两个下拉与删除三格等宽。
+    const cook = editor.slice(editor.indexOf('data-stats-skill-row="烹饪"'), editor.indexOf('data-stats-skill-row="开锁"'));
+    assert.match(cook, /<div class="igs-stats-hero-actions is-three"><select data-stats-skill-attr="烹饪"[^>]*>.*<option value="智力" selected>.*<select data-stats-skill-tier="烹饪"[^>]*>.*<option value="熟练" selected>.*stats-op:skill-remove:/s);
+    assert.doesNotMatch(cook, /skill-rename/);
+    // 剧情技能多一行改名、合并；未学的按属性折叠、没有删除。
+    assert.match(editor.slice(editor.indexOf('data-stats-skill-row="开锁"')), /skill-rename:.*skill-merge:/s);
+    const idle = editor.slice(editor.indexOf('data-advanced="stats-hero-skills-智力"'));
+    assert.match(idle, /data-stats-skill-row="法律"/);
+    assert.doesNotMatch(idle.slice(idle.indexOf('data-stats-skill-row="法律"')), /skill-remove/);
+    assert.match(editor, /data-stats-skill-add/);
     assert.match(mine, /data-advanced="stats-checks"/);
-    assert.doesNotMatch(npc, /data-stats-story-attr|stats-checks/);
+    assert.doesNotMatch(npc, /data-stats-skill-|stats-checks/);
 });
 
 // ---------- 状态栏渲染：主角区常驻 ----------

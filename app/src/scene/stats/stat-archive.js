@@ -36,7 +36,7 @@ export function displaySkill(engine, profile) {
 }
 
 // 技能百分值 → 档位词（SKILL_TIERS：入门 25、熟练 50、精通 75、大师 90）；未学返回空串。
-function skillTierOf(profile) {
+export function skillTierOf(profile) {
     if (!profile.learned) return '';
     const v = Number(profile.value) || 0;
     return v >= 90 ? '大师' : v >= 75 ? '精通' : v >= 50 ? '熟练' : v >= 25 ? '入门' : '';
@@ -51,6 +51,21 @@ function heroSkillRows(engine, state, names) {
         const p = profileOf(engine, state, PROTAGONIST, name);
         return { name, attribute: (p.entry && p.entry.attribute) || '', value: Math.round(Number(p.value) || 0), learned: Boolean(p.learned), edited: Object.hasOwn(edits, name) };
     });
+}
+
+// 「编辑技能」折叠的全部技能（两种骰子通用）：可分配技能、账本里已有的、底数与手改、剧情技能。
+// tier 为档位词（未学 / 入门 / 熟练 / 精通 / 大师），value 为生效百分值，story 标出剧情中出现的技能（可改名、合并）。
+function skillEditRows(engine, state, names, catalog) {
+    if (!engine) return [];
+    const owned = (state.protagonist && state.protagonist.skills) || {};
+    const story = new Set(((catalog && catalog.story) || []).map((s) => s.name));
+    const all = [...new Set([...names, ...Object.keys(owned), ...Object.keys(engine.protagonistBase || {}), ...Object.keys(engine.protagonistEdit || {}), ...story])];
+    return all.filter((name) => !BASE_ATTRIBUTES.includes(name) && name !== '理智').map((name) => {
+        const p = profileOf(engine, state, PROTAGONIST, name);
+        if (!p.entry || p.entry.kind !== 'skill') return null;
+        const value = Math.round(Number(p.value) || 0);
+        return { name, attribute: p.entry.attribute || '', tier: skillTierOf(p) || '未学', value, story: story.has(name) };
+    }).filter(Boolean);
 }
 
 // 变动记录按角色分组：主角一组排最前，其余按最近一次变动先后。
@@ -128,6 +143,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
         pendingSkills: ((cat.queue && cat.queue.skills) || []).slice(),
         ruleset: engine ? engine.ruleset.ID : 'coc7',
         heroSkills: heroSkillRows(engine, state, heroSkills),
+        skillEdit: skillEditRows(engine, state, heroSkills, cat),
         hasBackup: Boolean(hasBackup),
     };
 }

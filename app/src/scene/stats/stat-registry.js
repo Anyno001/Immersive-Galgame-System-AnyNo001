@@ -168,6 +168,13 @@ export function createSkillRegistry(catalog = {}) {
             social: s.social === true, origin: 'story', createdAt: s.createdAt, guessed: s.guessed === true,
         }));
     }
+    // 玩家给内置技能改的所属属性（catalog.attributes：{ 技能: 属性 }）；剧情技能改属性直接写在 story 条目里。
+    const attrs = catalog.attributes && typeof catalog.attributes === 'object' ? catalog.attributes : {};
+    for (const [name, raw] of Object.entries(attrs)) {
+        const entry = map.get(name);
+        const attribute = normalizeAttribute(raw);
+        if (entry && entry.kind === 'skill' && attribute) map.set(name, Object.freeze({ ...entry, attribute }));
+    }
     const alias = new Map();
     for (const [name, entry] of map) for (const a of entry.aliases || []) if (!map.has(a) && !alias.has(a)) alias.set(a, name);
     for (const [from, to] of Object.entries(merged)) if (map.has(to)) alias.set(from, to);

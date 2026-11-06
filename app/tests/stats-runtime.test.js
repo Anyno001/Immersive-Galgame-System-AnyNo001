@@ -313,6 +313,27 @@ test('NPC 属性档：手改属性、导出 npcAbilities；理智单独存 san�
     await rt.whenSaved();
 });
 
+test('编辑技能：熟练度下拉写档位；删除让技能从列表消失（含剧情技能）；内置技能可改所属属性', async () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    const shown = () => rt.archive().skills.map((s) => s.name);
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '熟练' }).ok, true);
+    assert.equal(rt.heroOp('edit', '火尖枪', { tier: '精通' }).ok, true);
+    assert.ok(shown().includes('烹饪') && shown().includes('火尖枪'));
+    assert.ok(rt.getCatalog().story.some((s) => s.name === '火尖枪'));
+    assert.equal(rt.skillOp('remove', '火尖枪').ok, true);
+    assert.ok(!shown().includes('火尖枪'));
+    assert.ok(!rt.getCatalog().story.some((s) => s.name === '火尖枪'));
+    assert.equal(rt.skillOp('remove', '烹饪').ok, true);
+    assert.ok(!shown().includes('烹饪'));
+    assert.equal(rt.skillOp('edit', '烹饪', { attribute: '感知' }).ok, true);
+    assert.equal(rt.archive().skillEdit.find((s) => s.name === '烹饪').attribute, '感知');
+    assert.equal(rt.skillOp('edit', '烹饪', { attribute: '乱写' }).ok, false);
+    await rt.whenSaved();
+});
+
 test('战斗扩展开启时总开关强制为开，本聊天不能关；结算丢弃 battle 标签', () => {
     const host = fakeHost();
     const tables = fakeTables();

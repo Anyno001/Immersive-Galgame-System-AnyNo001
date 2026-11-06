@@ -104,6 +104,19 @@ test('存档区模型：CoC 列出全部可分配技能与生效值，D&D 不列
     assert.deepEqual(statsArchiveModel(ledger, { engine: dnd, heroSkills: ['法律'], catalog: {} }).heroSkills, []);
 });
 
+test('编辑技能列表：两种骰子都列全部技能与档位；内置技能可改所属属性并存档', () => {
+    const ledger = createStatsLedger('c1', createStatsState());
+    const catalog = sanitizeCatalog({ protagonistBase: { 烹饪: 55 }, story: [{ name: '开锁术', attribute: '敏捷' }], attributes: { 烹饪: '感知', 法律: '不存在' } });
+    assert.deepEqual(catalog.attributes, { 烹饪: '感知' });
+    for (const ruleset of ['coc7', 'dnd5e']) {
+        const engine = createEngine(catalog, {}, ruleset, FLAT);
+        const rows = Object.fromEntries(statsArchiveModel(ledger, { engine, heroSkills: ['烹饪', '法律'], catalog }).skillEdit.map((s) => [s.name, s]));
+        assert.deepEqual([rows.烹饪.attribute, rows.烹饪.tier, rows.烹饪.story], ['感知', '熟练', false], ruleset);
+        assert.equal(rows.法律.tier, '未学', ruleset);
+        assert.equal(rows.开锁术.story, true, ruleset);
+    }
+});
+
 test('手改的未学技能首次成功登记不翻倍；D&D 同样读手改', async () => {
     const { markGrowth, resolveCheck } = await import('../src/scene/stats/stat-engine.js');
     // 电脑基础值 5：手改为 60，from 记为 seed 5（与 setHeroSkill 一致）。

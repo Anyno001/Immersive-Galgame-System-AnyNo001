@@ -79,7 +79,7 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, intimacyForced: [], queue: { skills: [], people: [] }, notified: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, intimacyForced: [], queue: { skills: [], people: [] }, notified: [] };
 }
 
 export function sanitizeCatalog(raw) {
@@ -91,6 +91,8 @@ export function sanitizeCatalog(raw) {
         out.story.push({ name, attribute: String(s.attribute || '').slice(0, 4), category: String(s.category || 'general').slice(0, 8), aliases: Array.isArray(s.aliases) ? s.aliases.filter((a) => typeof a === 'string').slice(0, 8) : [], createdAt: Number.isInteger(s.createdAt) ? s.createdAt : null, guessed: s.guessed === true });
     }
     for (const [from, to] of Object.entries(plainObject(raw.merged) ? raw.merged : {})) if (validSkillName(from) && validSkillName(to)) out.merged[from] = to;
+    // 内置技能的所属属性改动：{ 技能: 六维之一 }。
+    for (const [k, v] of Object.entries(plainObject(raw.attributes) ? raw.attributes : {})) { const name = validSkillName(k); if (name && BASE_ATTRIBUTES.includes(v)) out.attributes[name] = v; }
     for (const [name, sheet] of Object.entries(plainObject(raw.sheets) ? raw.sheets : {}).slice(0, SHEET_MAX)) {
         const clean = sanitizeSheet(sheet);
         if (clean && name && name.length <= 20) out.sheets[name] = clean;

@@ -1918,12 +1918,24 @@ export function createStatsRuntime({
 
     function skillOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
-        if (op === 'edit') catalog = editStorySkill(catalog, name, payload);
+        const isStory = (catalog.story || []).some((s) => s.name === name);
+        if (op === 'edit' && payload.attribute !== undefined && !isStory) {
+            // 内置技能改所属属性：记在 catalog.attributes，注册表读取时覆盖。
+            const entry = engineOf().registry.get(name);
+            if (!entry || entry.kind !== 'skill' || !BASE_ATTRIBUTES.includes(payload.attribute)) return { ok: false, reason: 'stats-skill-op-unknown' };
+            catalog = { ...catalog, attributes: { ...(catalog.attributes || {}), [name]: payload.attribute } };
+        }
+        else if (op === 'edit') catalog = editStorySkill(catalog, name, payload);
         else if (op === 'merge') catalog = mergeStorySkill(catalog, name, engineOf().registry.resolve(payload.to) || payload.to);
-        else if (op === 'remove') catalog = removeStorySkill(catalog, name);
+        else if (op === 'remove') {
+            // 删除技能：先把主角这项降为未学（不然数值格里还在），剧情技能再从登记表里移除。
+            editHeroSkill(name, '未学');
+            catalog = removeStorySkill(catalog, name);
+        }
         else return { ok: false, reason: 'stats-skill-op-unknown' };
         catalog = sanitizeCatalog(catalog);
         persist();
+        onChange(currentStatsState(ledger), null);
         return { ok: true };
     }
 

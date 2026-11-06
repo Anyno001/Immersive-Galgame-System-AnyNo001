@@ -217,55 +217,59 @@ export function renderStatsHeroCard(model, advancedOpen = () => '') {
     // 技能与六维同一种数值格，一项一格；✓ 跟在技能名后。
     const skillCells = [...model.skills].sort((a, b) => b.value - a.value).map((s) => cell(`${s.name}${s.marked ? ' ✓' : ''}`, s.display ?? String(Math.round(s.value)))).join('');
     const skills = skillCells ? `<div class="igs-stats-hero-grid is-skills">${skillCells}</div>` : '<div class="igs-source-filter-note">无</div>';
-    const d20 = model.ruleset === 'dnd5e' && skillCells ? '<div class="igs-source-filter-note">技能数值为检定加值，掷二十面骰后加上此值。</div>' : '';
+    const d20 = model.ruleset === 'dnd5e' && skillCells ? '技能数值为检定加值，掷二十面骰后加上此值。' : '';
+    // 技能直接平铺显示；编辑全部收在下方「编辑技能」折叠里。
     return head + attrs
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary>${d20}${skills}${renderStorySkills(model, advancedOpen)}</details>`
-        + renderHeroSkillEditor(model, advancedOpen);
+        + `<div class="igs-source-filter-note" data-stats-skills>技能（✓ 表示今天有成长机会）${d20 ? `。${d20}` : ''}</div>${skills}`
+        + renderSkillEditor(model, advancedOpen);
 }
 
-// 剧情技能（正文里新出现的技能）并在「技能」折叠内：所属属性用下拉直接改（data-stats-story-attr），其余操作用按钮。
-function renderStorySkills(model, advancedOpen) {
-    const story = model.story || [];
-    if (!story.length) return '';
-    const rows = story.map((s) => {
-        const id = esc(encodeURIComponent(s.name));
-        const list = BASE_ATTRIBUTES.includes(s.attribute) || !s.attribute ? BASE_ATTRIBUTES : [s.attribute, ...BASE_ATTRIBUTES];
-        const select = `<select data-stats-story-attr="${esc(s.name)}" aria-label="${esc(`${s.name}所属属性`)}">${list.map((a) => `<option value="${esc(a)}"${a === s.attribute ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>`;
-        // 一项一段：技能名旁是属性下拉，下面改名、合并、删除三键等宽一行（复用 igs-stats-hero-actions 网格）。
-        return `<div class="igs-settings-section"><div class="igs-settings-field"><span>${esc(s.name)}${s.guessed ? '（属性为猜测）' : ''}</span>${select}</div>`
-            + '<div class="igs-stats-hero-actions is-three">'
+const SKILL_TIER_ITEMS = Object.freeze(['未学', '入门', '熟练', '精通', '大师']);
+
+// 下拉：改动直接写聊天存档，不进设置草稿（data-stats-skill-attr / data-stats-skill-tier）。
+function skillSelect(kind, s, list, current, label) {
+    const items = list.includes(current) || !current ? list : [current, ...list];
+    return `<select data-stats-skill-${kind}="${esc(s.name)}" aria-label="${esc(`${s.name}${label}`)}">${items.map((a) => `<option value="${esc(a)}"${a === current ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>`;
+}
+
+// 「编辑技能」一项：名字与当前数值一行；所属属性、熟练度两个下拉与删除三格等宽一行；剧情中出现的技能再加改名、合并。
+function skillEditRow(s) {
+    const id = esc(encodeURIComponent(s.name));
+    const learned = s.tier !== '未学';
+    const remove = learned || s.story ? `<button class="igs-settings-action" data-action="stats-op:skill-remove:${id}" type="button">删除</button>` : '';
+    const extra = s.story
+        ? '<div class="igs-stats-hero-actions">'
             + `<button class="igs-settings-action" data-action="stats-op:skill-rename:${id}" type="button">改名</button>`
-            + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${id}" type="button">合并</button>`
-            + `<button class="igs-settings-action" data-action="stats-op:skill-remove:${id}" type="button">删除</button></div></div>`;
-    }).join('');
-    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-story-skills"${advancedOpen('stats-story-skills')}><summary>剧情中出现的技能（${story.length}项）</summary>${rows}</details>`;
+            + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${id}" type="button">合并</button></div>`
+        : '';
+    return `<div class="igs-settings-section" data-stats-skill-row="${esc(s.name)}"><div class="igs-stats-person-head"><b>${esc(s.name)}</b><span>${learned ? esc(String(s.value)) : '未学'}${s.story ? ' · 剧情中出现' : ''}</span></div>`
+        + `<div class="igs-stats-hero-actions${remove ? ' is-three' : ''}">${skillSelect('attr', s, BASE_ATTRIBUTES, s.attribute, '所属属性')}${skillSelect('tier', s, SKILL_TIER_ITEMS, s.tier, '熟练度')}${remove}</div>`
+        + extra + '</div>';
 }
 
-// 「我的角色」底部按钮：编辑技能、暂停本聊天；有主角技能表（CoC）时再加「按人设分配技能」，三键一行。
-export function renderStatsHeroActions(model) {
-    const assign = model && Array.isArray(model.heroSkills) && model.heroSkills.length
-        ? '<button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设分配技能</button>' : '';
-    const edit = model ? '<button class="igs-settings-action" data-action="stats-op:hero-edit" type="button">编辑技能</button>' : '';
-    const count = [assign, edit].filter(Boolean).length + 1;
-    return `<div class="igs-stats-hero-actions${count === 3 ? ' is-three' : ''}">${assign}${edit}<button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button></div>`;
-}
-
-// CoC 主角技能表：已掌握的直接列出，未学的按所属属性折叠。改动写入聊天存档，不进设置草稿（data-stats-hero-skill）。
-// 值为生效值（账本、分配底数、手改合并后）；改过的标「已手改」，清空输入框即清除手改。
-function renderHeroSkillEditor(model, advancedOpen) {
-    const rows = Array.isArray(model.heroSkills) ? model.heroSkills : [];
-    if (!rows.length) return '';
-    const row = (s) => field('', `${s.name}${s.edited ? '（已手改）' : ''}`, `<input data-stats-hero-skill="${esc(s.name)}" type="number" min="1" max="99" step="1" value="${esc(s.value)}">`);
+// 「编辑技能」折叠：已学的平铺（数值高的在前），未学的按所属属性再折叠；末尾输入框新增技能（入门起步）。
+function renderSkillEditor(model, advancedOpen) {
+    const rows = Array.isArray(model.skillEdit) ? model.skillEdit : [];
+    const known = rows.filter((r) => r.tier !== '未学').sort((a, b) => b.value - a.value);
     const byAttribute = new Map();
-    for (const s of rows.filter((r) => !(r.learned && r.value >= 25))) {
+    for (const s of rows.filter((r) => r.tier === '未学')) {
         const key = s.attribute || '其他';
         byAttribute.set(key, [...(byAttribute.get(key) || []), s]);
     }
-    const idle = [...byAttribute.entries()].map(([attribute, list]) => `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-hero-skills-${esc(attribute)}"${advancedOpen(`stats-hero-skills-${attribute}`)}><summary>${esc(attribute)}类未学（${list.length}项）</summary>${list.map(row).join('')}</details>`).join('');
-    const known = rows.filter((r) => r.learned && r.value >= 25).sort((a, b) => b.value - a.value).map(row).join('');
-    return (known ? `<div class="igs-source-filter-grid">${known}</div>` : '<div class="igs-source-filter-note">暂无入门以上的技能。</div>')
-        + idle;
+    const idle = [...byAttribute.entries()].map(([attribute, list]) => `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-hero-skills-${esc(attribute)}"${advancedOpen(`stats-hero-skills-${attribute}`)}><summary>${esc(attribute)}类未学（${list.length}项）</summary>${list.map(skillEditRow).join('')}</details>`).join('');
+    const add = field('', '新增技能', '<input data-stats-skill-add type="text" maxlength="8" placeholder="技能名，回车添加">');
+    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skill-edit"${advancedOpen('stats-skill-edit')}><summary>编辑技能（${known.length}项已学）</summary>`
+        + (known.length ? known.map(skillEditRow).join('') : '<div class="igs-source-filter-note">暂无已学技能。</div>')
+        + idle + add + '</details>';
 }
+
+// 「我的角色」底部按钮：暂停本聊天；有主角技能表（CoC）时再加「按人设分配技能」。
+export function renderStatsHeroActions(model) {
+    const assign = model && Array.isArray(model.heroSkills) && model.heroSkills.length
+        ? '<button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设分配技能</button>' : '';
+    return `<div class="igs-stats-hero-actions">${assign}<button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button></div>`;
+}
+
 
 const NO_ARCHIVE = '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
 const roundText = (v) => esc(String(Math.round(Number(v) || 0)));
