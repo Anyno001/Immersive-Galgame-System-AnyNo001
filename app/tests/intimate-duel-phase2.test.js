@@ -2070,3 +2070,159 @@ test('召唤模板（S01–S08）：可反解、归 summon 族只给召唤；造
     }
 });
 
+
+// ---------- 规则 v5 P4a 敌方状态反应（E01–E08；含游侠 R06 破空） ----------
+const foeWith = (skill, statuses, extra = []) => foe(skill, { passives: [{ id: 'p-foe', trigger: 'battle-start', effects: [...Object.entries(statuses).map(([status, stacks]) => ({ op: 'apply-status', status, stacks, target: 'self' })), ...extra] }] });
+const battleOf = (catalog, deck, foeUnit, rv) => {
+    const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck, catalog: { ...catalog, k: GUARD } }), foeUnit], ...(rv ? { rulesVersion: rv } : {}) };
+    const created = createBattle(setup, 7);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    return created.state;
+};
+const padded = (ids) => [...ids, ...Array(Math.max(0, 10 - ids.length)).fill('k')];
+
+test('晕厥（E01）：主角晕厥时跳过整个玩家回合，回合开始与结束照常结算；跳过后到下一次正常行动前再施加的晕厥被抵消；规则 v4 无效', () => {
+    const daze = { intent: 'attack', effects: [{ op: 'damage', amount: 2, target: 'enemy' }, { op: 'apply-status', status: 'stun', stacks: 1, target: 'enemy' }] };
+    const run = (rv) => {
+        const t = battleOf({}, padded([]), foe(daze), rv);
+        return { t, r: endTurn(t) };
+    };
+    const v5 = run();
+    const s = v5.r.state;
+    assert.equal(v5.r.events.filter((e) => e.type === 'stunned' && e.unitId === 'hero').length, 1);
+    assert.deepEqual([s.units.hero.hp, s.turn, s.phase, s.units.hero.statuses.stun], [26, v5.t.turn + 2, 'player', undefined]);
+    const v4 = run(4);
+    assert.deepEqual([v4.r.state.units.hero.hp, v4.r.state.turn], [28, v4.t.turn + 1]);
+});
+
+test('飞行（E02）与破空（R06）：飞行单位受攻击伤害减半，每被命中一次减 1 层，减到 0 坠落并晕厥、跳过下一次行动；破空使多段攻击每段额外计 1 次；规则 v4 无效', () => {
+    const shot = free('x', 'attack', [hitFoe(6)]);
+    const run = (rv) => {
+        let u = battleOf({ x: shot }, padded(['x', 'x', 'x']), foeWith(foeAttack(5), { flying: 3 }), rv);
+        for (let i = 0; i < 3; i += 1) u = playIn(u, instOf(u, 'x'), 'foe').state;
+        return u;
+    };
+    const v5 = run();
+    assert.deepEqual([v5.units.foe.hp, v5.units.foe.statuses.flying, v5.units.foe.statuses.stun], [21, undefined, 1]);
+    const after = endTurn(v5);
+    assert.ok(after.events.some((e) => e.type === 'stunned' && e.unitId === 'foe'));
+    assert.equal(after.state.units.hero.hp, 30);
+    assert.equal(endTurn(after.state).state.units.hero.hp, 25);
+    assert.equal(run(4).units.foe.hp, 12);
+    const twin = free('t', 'attack', [hitFoe(4, 2)]);
+    const sky = free('s', 'power', [selfOn('skybreaker', 1)]);
+    const multi = (withSky) => {
+        const t = battleOf({ t: twin, s: sky }, padded(withSky ? ['s', 't'] : ['t']), foeWith({}, { flying: 3 }));
+        const u = withSky ? playIn(t, instOf(t, 's')).state : t;
+        return playIn(u, instOf(u, 't'), 'foe').state.units.foe.statuses;
+    };
+    const withSky = multi(true);
+    const plain = multi(false);
+    assert.deepEqual([withSky.flying, withSky.stun], [undefined, 1]);
+    assert.deepEqual([plain.flying, plain.stun], [1, undefined]);
+});
+
+test('失衡（E03）：格挡被攻击完全打空时晕厥；规则 v4 无效', () => {
+    const shot = free('x', 'attack', [hitFoe(6)]);
+    const run = (rv) => {
+        const t = battleOf({ x: shot }, padded(['x']), foeWith({}, { unsteady: 1 }, [{ op: 'block', amount: 5, target: 'self' }]), rv);
+        return playIn(t, instOf(t, 'x'), 'foe');
+    };
+    const v5 = run();
+    assert.ok(v5.events.some((e) => e.type === 'off-balance' && e.unitId === 'foe'));
+    assert.equal(v5.state.units.foe.statuses.stun, 1);
+    assert.equal(run(4).state.units.foe.statuses.stun, undefined);
+});
+
+test('应变（E04）：技能单位被攻击后，这次出手结束时重选意图；规则 v4 无效', () => {
+    const shot = free('x', 'attack', [hitFoe(2)]);
+    const run = (rv) => {
+        const t = battleOf({ x: shot }, padded(['x']), foeWith(foeAttack(3), { adapt: 1 }), rv);
+        return playIn(t, instOf(t, 'x'), 'foe').events.filter((e) => e.type === 'intent' && e.unitId === 'foe').length;
+    };
+    assert.deepEqual([run(), run(4)], [1, 0]);
+});
+
+test('硬化（E05）：每次受攻击获得格挡且逐次 +1，回合开始重置；规则 v4 无效', () => {
+    const twin = free('t', 'attack', [hitFoe(5, 2)]);
+    const run = (rv) => {
+        const t = battleOf({ t: twin }, padded(['t']), foeWith({}, { harden: 3 }), rv);
+        return playIn(t, instOf(t, 't'), 'foe').state;
+    };
+    const v5 = run();
+    assert.deepEqual([v5.units.foe.hp, v5.units.foe.block, v5.units.foe.res?.hardenCount], [23, 4, 2]);
+    assert.equal(endTurn(v5).state.units.foe.res?.hardenCount, undefined);
+    const v4 = run(4);
+    assert.deepEqual([v4.units.foe.hp, v4.units.foe.block], [20, 0]);
+});
+
+test('激怒（E06）：对方打出技能或能力牌时获得攻击力，攻击牌不触发；规则 v4 无效', () => {
+    const shot = free('x', 'attack', [hitFoe(1)]);
+    const ward = free('w', 'skill', [{ op: 'block', amount: 1, target: 'self' }]);
+    const run = (rv) => {
+        const t = battleOf({ x: shot, w: ward }, padded(['x', 'w']), foeWith({}, { enrage: 2 }), rv);
+        const u = playIn(t, instOf(t, 'x'), 'foe').state;
+        return [u.units.foe.statuses.strength, playIn(u, instOf(u, 'w')).state.units.foe.statuses.strength];
+    };
+    assert.deepEqual(run(), [undefined, 2]);
+    assert.deepEqual(run(4), [undefined, undefined]);
+});
+
+test('刺甲（E07）：攻击牌命中带刺甲的敌人，出牌者按层数受到一次伤害，不按段数；规则 v4 无效', () => {
+    const tri = free('t', 'attack', [hitFoe(1, 3)]);
+    const run = (rv) => {
+        const t = battleOf({ t: tri }, padded(['t']), foeWith({}, { barbed: 3 }), rv);
+        return playIn(t, instOf(t, 't'), 'foe');
+    };
+    const v5 = run();
+    assert.equal(v5.state.units.hero.hp, 27);
+    assert.equal(v5.events.filter((e) => e.type === 'damage' && e.source?.id === 'barbed').length, 1);
+    assert.equal(run(4).state.units.hero.hp, 30);
+});
+
+test('时滞（E08）：主角本回合每出满 12 张牌即强制结束回合，带时滞者获得攻击力；规则 v4 无效', () => {
+    const dig = def('d', 'skill', [{ op: 'draw', amount: 1 }], { cost: 0 });
+    const run = (rv) => {
+        let s = battleOf({ d: dig }, Array(20).fill('d'), foeWith({}, { 'time-warp': 1 }), rv);
+        const turn = s.turn;
+        const ends = [];
+        for (let i = 0; i < 12; i += 1) {
+            const r = playIn(s, instOf(s, 'd'));
+            ends.push(r.events.some((e) => e.type === 'turn-end'));
+            s = r.state;
+        }
+        return { ends, s, turn };
+    };
+    const v5 = run();
+    assert.deepEqual([v5.ends.indexOf(true), v5.ends.filter(Boolean).length], [11, 1]);
+    assert.deepEqual([v5.s.units.foe.statuses.strength, v5.s.turn, v5.s.phase], [1, v5.turn + 1, 'player']);
+    const v4 = run(4);
+    assert.deepEqual([v4.ends.includes(true), v4.s.units.foe.statuses.strength], [false, undefined]);
+});
+
+test('敌方状态反应模板与词缀（E01、E02、R06）：晕厥与飞行技能可用；破空归 quarry 族只给游侠；新词缀只在限定阶级出现', async () => {
+    const { skillFromTemplate } = await import('../src/combat/card-templates.js');
+    const { enemyAffixes } = await import('../src/combat/enemy-loadout.js');
+    assert.ok(skillFromTemplate('concuss', 12).effects.some((e) => e.op === 'apply-status' && e.status === 'stun'));
+    assert.ok(skillFromTemplate('soar', 12).effects.some((e) => e.op === 'apply-status' && e.status === 'flying'));
+    const found = solvedAny('skybreak');
+    assert.ok(found);
+    const checked = normalizeCard({ id: 'x', name: '牌', cost: found.cost, rarity: found.rarity, ...found.solved });
+    assert.equal(checked.ok, true, JSON.stringify(checked.errors));
+    assert.equal(templateFamily('skybreak'), 'quarry');
+    assert.equal(templateAllowedFor('skybreak', 'ranger'), true);
+    for (const other of ['bard', 'mage', 'summoner']) assert.equal(templateAllowedFor('skybreak', other), false, other);
+    const limits = { 'af-flight': ['normal', 'elite'], 'af-unsteady': ['elite'], 'af-adapt': ['elite'], 'af-harden': ['normal'], 'af-enrage': ['elite', 'boss'], 'af-barbed': ['elite'], 'af-time-warp': ['boss'] };
+    const seen = new Set();
+    for (const tier of ['normal', 'elite', 'boss']) {
+        for (let i = 0; i < 60; i += 1) {
+            for (const a of enemyAffixes({ id: `e${i}`, tier }, 'nightmare')) {
+                seen.add(a.id);
+                if (limits[a.id]) assert.ok(limits[a.id].includes(tier), `${a.id}:${tier}`);
+            }
+        }
+    }
+    assert.ok(seen.has('af-time-warp'));
+    assert.ok(describeEffects([onFoe('stun', 1)]).includes('晕厥'));
+});
+

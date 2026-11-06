@@ -18,3 +18,4 @@ import './sanctum.js';
 import './cadence.js';
 import './orb.js';
 import './summon.js';
+import './foe.js';

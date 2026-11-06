@@ -319,6 +319,8 @@ export const CARD_TEMPLATES = Object.freeze({
     snare: template('attack', '伤害+迟滞（攻击者本回合每已打出一张牌，目标受到的攻击伤害 +10%）', [[1, 30], [1, 2]], 0.7, ([a, b]) => [damage(a), applyStatus('snare', b, 'enemy')]),
     deadeye: template('power', '专精先手：每回合前数张攻击牌伤害 +50%', [[1, 3]], 1, ([a]) => [applyStatus('deadeye', a, 'self')]),
     'rising-shot': template('skill', '连段：本回合每次攻击命中后，之后的攻击伤害提高，并获得格挡', [[1, 3], [0, 20]], 0.5, ([a, b]) => [applyStatus('combo-rise', a, 'self'), block(b)]),
+    // 规则 v5 P4 R06 破空（mechanics/foe.js 结算，quarry 族只给游侠）。
+    skybreak: template('power', '破空：多段攻击命中飞行敌人时，每段额外计 1 次命中，并获得格挡', [[1, 1], [0, 20]], 1, ([a, b]) => [applyStatus('skybreaker', a, 'self'), block(b)]),
     // 规则 v5 P3 祈司：P01 圣辉、P02 圣辉联动、P04 群体再生与不衰减回复、P05 战后回复（sanctum 族，只给祈司）；P03、P06 沿用 absolution、sigil、phase、deathward。
     consecrate: template('skill', '获得圣辉（跨回合保留），并获得格挡', [[1, 3], [0, 20]], 0.6, ([a, b]) => [radianceGain(a), block(b)]),
     smite: template('attack', '圣辉 2：高额伤害（另需 2 点圣辉）', [[1, 50]], 1, ([a]) => [damage(a)], { flags: { radiance: 2 } }),
@@ -468,6 +470,9 @@ export const SKILL_TEMPLATES = Object.freeze({
     enfeeble: skill('debuff', '攻击力下降', () => [applyStatus('atk-down', 2, 'enemy')], 1, 2),
     gather: skill('buff', '蓄势', () => [applyStatus('vigor', 4, 'self')], 1, 2),
     bloodsip: skill('attack', '吸取：攻击并按实际扣除的生命回复', (n) => [drain(scaled(n, 0.5))], 2, 1),
+    // 规则 v5 P4a：晕厥与飞行（mechanics/foe.js），敌人与技能型队友可用；不进补技能表。
+    concuss: skill('attack', '攻击+晕厥（目标跳过下一次行动）', (n) => [damage(scaled(n, 0.4)), applyStatus('stun', 1, 'enemy')], 1, 3),
+    soar: skill('buff', '飞行（受攻击伤害减半，被命中数次后坠落晕厥）', () => [applyStatus('flying', 3, 'self')], 1, 4),
 });
 
 // 复合效果的技能模板键（供选型时优先）。
@@ -751,7 +756,7 @@ const TEMPLATE_FAMILY_TABLE = Object.freeze({
     // 规则 v5 P3 战士锻刃，只给战士。
     blade: ['pyre', 'ember', 'smith', 'blade-sweep', 'blade-echo', 'blade-guard', 'bloodthirst'],
     // 规则 v5 P3 游侠猎印，只给游侠。
-    quarry: ['quarry-mark', 'nock', 'snare', 'deadeye', 'rising-shot'],
+    quarry: ['quarry-mark', 'nock', 'snare', 'deadeye', 'rising-shot', 'skybreak'],
     ward: ['cover', 'rally', 'aegis', 'rally-draw', 'talisman'],
     restore: ['mend', 'regrow', 'reap'],
     volley: ['finisher', 'footwork', 'glance', 'chain', 'sift', 'encore', 'cull'],

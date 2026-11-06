@@ -75,6 +75,16 @@ export const APPLY_STATUSES = Object.freeze({
     'void-guard': Object.freeze({ max: 6, value: 2 }),
     'craft-might': Object.freeze({ max: 1, value: 8 }),
     'craft-guard': Object.freeze({ max: 6, value: 2 }),
+    // 规则 v5 P4a 敌方状态反应（foe.js）。
+    stun: Object.freeze({ debuff: true, max: 2, value: 8 }),
+    flying: Object.freeze({ max: 5, value: 5 }),
+    unsteady: Object.freeze({ max: 1, value: 3 }),
+    adapt: Object.freeze({ max: 1, value: 3 }),
+    harden: Object.freeze({ max: 6, value: 2 }),
+    enrage: Object.freeze({ max: 3, value: 3 }),
+    barbed: Object.freeze({ max: 6, value: 2 }),
+    'time-warp': Object.freeze({ max: 2, value: 4 }),
+    skybreaker: Object.freeze({ max: 1, value: 6 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

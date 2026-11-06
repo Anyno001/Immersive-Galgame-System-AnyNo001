@@ -7,7 +7,10 @@ import { hash32 } from './random.js';
 // 构造一个 status 效果。
 const statusEffect = (status, stacks, target = 'self') => ({ op: 'status', status, stacks, target });
 
-// 构造一条词缀定义：extra 里可带 cardType、debuff 标记。
+// 构造一个规则 v5 施加通用状态的效果（自身）。
+const selfApply = (status, stacks) => ({ op: 'apply-status', status, stacks, target: 'self' });
+
+// 构造一条词缀定义：extra 里可带 cardType、debuff 标记，以及 tiers（只在这些阶级可抽到，未写为全部阶级）。
 const affix = (name, trigger, effects, extra = {}) => Object.freeze({ name, trigger, effects: Object.freeze(effects), ...extra });
 
 export const ENEMY_AFFIXES = Object.freeze({
@@ -25,6 +28,14 @@ export const ENEMY_AFFIXES = Object.freeze({
     pulse: affix('心律', 'foe-card-played', [{ op: 'damage', amount: 1, hits: 1, target: 'enemy' }], { debuff: true }),
     daze: affix('晕眩', 'turn-end', [{ op: 'create', card: 'status-daze', amount: 1, to: 'draw' }], { debuff: true }),
     wound: affix('撕伤', 'battle-start', [{ op: 'create', card: 'status-wound', amount: 2, to: 'draw' }], { debuff: true }),
+    // 规则 v5 P4a 敌方状态反应（mechanics/foe.js）。
+    flight: affix('翱翔', 'battle-start', [selfApply('flying', 3)], { tiers: ['normal', 'elite'] }),
+    unsteady: affix('失衡', 'battle-start', [selfApply('unsteady', 1)], { tiers: ['elite'] }),
+    adapt: affix('应变', 'battle-start', [selfApply('adapt', 1)], { tiers: ['elite'] }),
+    harden: affix('硬化', 'battle-start', [selfApply('harden', 3)], { tiers: ['normal'] }),
+    enrage: affix('激怒', 'battle-start', [selfApply('enrage', 1)], { tiers: ['elite', 'boss'] }),
+    barbed: affix('刺甲', 'battle-start', [selfApply('barbed', 3)], { tiers: ['elite'] }),
+    'time-warp': affix('时滞', 'battle-start', [selfApply('time-warp', 1)], { tiers: ['boss'] }),
 });
 
 // 补技能时可选的模板键 -> 技能名。
@@ -51,7 +62,7 @@ export function enemyAffixes(enemy, difficulty = 'normal') {
     const tier = Object.hasOwn(COMBAT_RULES.tiers, enemy?.tier) ? enemy.tier : 'normal';
     const count = difficultyRule(diff).affixes[tier] || 0;
     if (!count || !enemy?.id) return [];
-    const order = shuffleByHash(Object.keys(ENEMY_AFFIXES), `affix:${enemy.id}:${diff}`);
+    const order = shuffleByHash(Object.keys(ENEMY_AFFIXES).filter((key) => !ENEMY_AFFIXES[key].tiers || ENEMY_AFFIXES[key].tiers.includes(tier)), `affix:${enemy.id}:${diff}`);
     const firstDebuff = order.find((key) => ENEMY_AFFIXES[key].debuff);
     return [firstDebuff, ...order.filter((key) => key !== firstDebuff)].slice(0, count).map((key) => {
         const def = ENEMY_AFFIXES[key];

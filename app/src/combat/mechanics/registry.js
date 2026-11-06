@@ -11,6 +11,8 @@ export const HOOK_POINTS = Object.freeze([
     'block-gained',
     // 单体攻击每次选定存活目标后：{ attacker, target }，可把 target 换成同阵营另一名存活单位（D07 掩护）。
     'attack-target',
+    // 单位回合开始结算完、行动之前：{ unit, skip }，置 skip = true 跳过这一次行动（E01 晕厥），回合结束照常结算。
+    'act-before',
 ]);
 // 伤害修正阶段：outgoing-add 在攻击力之后、outgoing-mult 紧随其后（均在虚弱之前），incoming-mult 在易伤之后。
 export const DAMAGE_STAGES = Object.freeze(['outgoing-add', 'outgoing-mult', 'incoming-mult']);

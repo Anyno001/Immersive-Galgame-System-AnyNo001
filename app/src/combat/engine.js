@@ -610,6 +610,13 @@ const engineKit = (targets) => ({
     discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
     // 规则 v5 B08 加演（mechanics/cadence.js）：只登记，行动顺序由本文件处理。
     grantEncore,
+    // 规则 v5 E04 应变：技能单位重选意图；E08 时滞：请求在本次玩家动作结算完后结束玩家回合。
+    replanIntent: (ctx, unit) => {
+        if (unit?.kind === 'skill' && unit.alive && !ctx.state.outcome) planIntent(ctx, unit);
+    },
+    requestEndTurn: (ctx) => {
+        ctx.endTurnRequested = true;
+    },
 });
 
 // 单个效果的结算。source 记录来源（单位、种类、id），写进事件。
@@ -1467,6 +1474,10 @@ function takeAutoTurn(ctx, unit) {
     emit(ctx, { type: 'act', unitId: unit.id, side: unit.side, track: actionProgress(state) });
     startUnitTurn(ctx, unit);
     if (!unit.alive || state.outcome) return;
+    if (skipsAction(ctx, unit)) {
+        endUnitTurn(ctx, unit);
+        return;
+    }
     if (unit.kind === 'deck') {
         for (let i = 0; i < MAX_AI_PLAYS && unit.alive && !state.outcome; i += 1) {
             const choice = chooseAllyPlay(state, unit.id);
@@ -1487,7 +1498,18 @@ function startPlayerTurn(ctx, firstTurn = false) {
     if (!firstTurn) state.turn += 1;
     state.phase = 'player';
     emit(ctx, { type: 'turn-start', side: 'ally', unitId: state.controlledId, track: actionProgress(state) });
-    startUnitTurn(ctx, state.units[state.controlledId]);
+    const hero = state.units[state.controlledId];
+    startUnitTurn(ctx, hero);
+    // 规则 v5 E01：主角晕厥时直接结束这个玩家回合（回合开始与结束照常结算）。
+    if (hero.alive && !state.outcome && skipsAction(ctx, hero)) endPlayerTurn(ctx);
+}
+
+// 规则 v5 E01 晕厥：act-before 钩子可置 skip 跳过这一次行动；意图保留到下一次行动。v3/v4 不调用钩子。
+function skipsAction(ctx, unit) {
+    if (!(ctx.state.rulesVersion >= 5)) return false;
+    const before = { unit, skip: false };
+    runHooks(ctx, 'act-before', before);
+    return before.skip === true && unit.alive && !ctx.state.outcome;
 }
 
 // 自动阶段：按行动值依次让其他单位出手，直到轮到主角。主角倒下后会继续跑完整场（步数上限放大）。
@@ -1771,6 +1793,11 @@ export function applyAction(state, action) {
         default:
             emit(ctx, { type: 'escape', unitId: work.controlledId });
             endBattle(ctx, 'escape');
+    }
+    // 规则 v5 E08 时滞等机制经 engineKit.requestEndTurn 请求结束玩家回合；有挂起选择时不执行。
+    if (ctx.endTurnRequested && !work.outcome && work.phase === 'player' && !work.pending) {
+        delete ctx.endTurnRequested;
+        endPlayerTurn(ctx);
     }
     settleWipe(ctx);
     finishState(work);
