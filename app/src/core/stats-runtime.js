@@ -1342,7 +1342,10 @@ export function createStatsRuntime({
             return Promise.resolve({ ok: false, reason: 'stats-no-model' });
         }
         if (generating) return Promise.resolve({ ok: false, reason: 'stats-generating', queued: true });
-        const targets = (names && names.length ? names : catalog.queue.people).slice(0, SHEET_BATCH_MAX);
+        // 不点名时：待生成队列，加上有人际档却没有角色卡的角色（角色卡被删或生成失败丢失）。
+        const orphans = () => !ledger ? [] : Object.keys(currentStatsState(ledger).characters || {})
+            .filter((n) => n !== PROTAGONIST && !isHero(n) && !catalog.sheets[n]);
+        const targets = (names && names.length ? names : [...new Set([...catalog.queue.people, ...orphans()])]).slice(0, SHEET_BATCH_MAX);
         if (!targets.length) return Promise.resolve({ ok: true, skipped: true });
         setNotice('sheets', { kind: 'busy', text: `正在生成数值：${targets.join('、')}` });
         const chatSeed = chatIdOf(ctx());
@@ -1882,7 +1885,8 @@ export function createStatsRuntime({
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         const sheets = { ...catalog.sheets };
         if (op === 'remove') { delete sheets[name]; catalog = { ...catalog, sheets, notified: catalog.notified.filter((n) => n !== name) }; }
-        else if (op === 'regen') { delete sheets[name]; catalog = { ...catalog, sheets }; persist(); return generateSheets([name]); }
+        // 重新生成不先删旧卡：成功后整张覆盖，失败时旧卡保留。
+        else if (op === 'regen') return generateSheets([name]);
         else if (op === 'edit') {
             const cur = sheets[name] || { rank: '普通人', attributes: {}, skills: {}, signature: [], provisional: {} };
             // 「理智」在注册表里会被映射成智力，属性档要先按原名认。

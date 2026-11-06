@@ -255,10 +255,17 @@ test('其他角色：角色卡并进同名角色，没有人际档的角色卡�
     assert.match(card, /data-action="stats-op:relation-set:/);
     assert.match(card, /data-action="stats-op:sheet-edit:%E5%B0%8F%E9%9B%AA"/);
     assert.match(npc.slice(npc.indexOf('<b>路人甲</b>')), /stats-op:sheet-edit:/);
+    // 有人际档的角色卡在时不出「生成角色卡」；卡丢了才出。
+    assert.doesNotMatch(card, /stats-op:sheet-new:/);
+    const lost = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, sheets: [] } }, 'stats-npc');
+    assert.match(lost, /data-action="stats-op:sheet-new:%E5%B0%8F%E9%9B%AA"/);
     const mine = page({ chat: { hasChat: true, enabled: true }, archive });
-    assert.match(mine, /data-advanced="stats-story-skills"/);
+    // 剧情技能并进「技能」折叠，所属属性是下拉。
+    const skillsFold = mine.slice(mine.indexOf('data-advanced="stats-skills"'), mine.indexOf('data-advanced="stats-checks"'));
+    assert.match(skillsFold, /<select data-stats-story-attr="开锁"[^>]*>.*<option value="敏捷" selected>/s);
+    assert.doesNotMatch(mine, /stats-story-skills|stats-op:skill-attr/);
     assert.match(mine, /data-advanced="stats-checks"/);
-    assert.doesNotMatch(npc, /stats-story-skills|stats-checks/);
+    assert.doesNotMatch(npc, /data-stats-story-attr|stats-checks/);
 });
 
 // ---------- 状态栏渲染：主角区常驻 ----------

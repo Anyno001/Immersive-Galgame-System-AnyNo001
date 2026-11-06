@@ -6,7 +6,7 @@ import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abiliti
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
-import { grudgeTier } from '../../scene/stats/stat-state.js';
+import { BASE_ATTRIBUTES, grudgeTier } from '../../scene/stats/stat-state.js';
 import { compileCaptureRegex } from '../../scene/stats/stat-date.js';
 
 // 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
@@ -217,9 +217,26 @@ export function renderStatsHeroCard(model, advancedOpen = () => '') {
     // 技能与六维同一种数值格，一项一格；✓ 跟在技能名后。
     const skillCells = [...model.skills].sort((a, b) => b.value - a.value).map((s) => cell(`${s.name}${s.marked ? ' ✓' : ''}`, s.display ?? String(Math.round(s.value)))).join('');
     const skills = skillCells ? `<div class="igs-stats-hero-grid is-skills">${skillCells}</div>` : '<div class="igs-source-filter-note">无</div>';
+    const d20 = model.ruleset === 'dnd5e' && skillCells ? '<div class="igs-source-filter-note">技能数值为检定加值，掷二十面骰后加上此值。</div>' : '';
     return head + attrs
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary>${skills}</details>`
+        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary>${d20}${skills}${renderStorySkills(model)}</details>`
         + renderHeroSkillEditor(model, advancedOpen);
+}
+
+// 剧情技能（正文里新出现的技能）并在「技能」折叠内：所属属性用下拉直接改（data-stats-story-attr），其余操作用按钮。
+function renderStorySkills(model) {
+    const story = model.story || [];
+    if (!story.length) return '';
+    const rows = story.map((s) => {
+        const id = esc(encodeURIComponent(s.name));
+        const list = BASE_ATTRIBUTES.includes(s.attribute) || !s.attribute ? BASE_ATTRIBUTES : [s.attribute, ...BASE_ATTRIBUTES];
+        const select = `<select data-stats-story-attr="${esc(s.name)}" aria-label="${esc(`${s.name}所属属性`)}">${list.map((a) => `<option value="${esc(a)}"${a === s.attribute ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>`;
+        return `<div class="igs-settings-field"><span>${esc(s.name)}${s.guessed ? '（属性为猜测）' : ''}</span><div class="igs-mood-word-list">${select}`
+            + `<button class="igs-settings-action" data-action="stats-op:skill-rename:${id}" type="button">改名</button>`
+            + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${id}" type="button">合并</button>`
+            + `<button class="igs-settings-action" data-action="stats-op:skill-remove:${id}" type="button">删除</button></div></div>`;
+    }).join('');
+    return `<div class="igs-source-filter-note">剧情中出现的技能（${story.length}项）</div>${rows}`;
 }
 
 // 「我的角色」底部按钮：编辑技能、暂停本聊天；有主角技能表（CoC）时再加「按人设分配技能」，三键一行。
@@ -277,9 +294,11 @@ export function renderStatsPeople(model, advancedOpen = () => '') {
         const sheet = sheetOf.get(c.name);
         sheetOf.delete(c.name);
         return `<div class="igs-stats-person"><div class="igs-stats-person-head"><b>${esc(c.name)}</b><span>${esc(c.stage)}</span>${c.intimacyForced ? '<em>亲密门槛已豁免</em>' : ''}</div>`
-            + `<div class="igs-stats-hero-grid">${cells}</div><div class="igs-stats-hero-actions">`
+            + `<div class="igs-stats-hero-grid">${cells}</div><div class="igs-stats-hero-actions${sheet ? '' : ' is-three'}">`
             + `<button class="igs-settings-action" data-action="stats-op:relation-set:${id}|${['好感', '信任', '了解', ...(Object.hasOwn(c.dims, '欲望') ? ['欲望'] : [])].map((k) => n(c.dims[k])).join(',')}" type="button">修改数值</button>`
-            + `<button class="igs-settings-action" data-action="stats-op:relation-forced:${id}|${c.intimacyForced ? 0 : 1}" type="button" title="剧情需要时跳过亲密门槛">${c.intimacyForced ? '取消豁免' : '豁免亲密门槛'}</button></div>`
+            + `<button class="igs-settings-action" data-action="stats-op:relation-forced:${id}|${c.intimacyForced ? 0 : 1}" type="button" title="剧情需要时跳过亲密门槛">${c.intimacyForced ? '取消豁免' : '豁免亲密门槛'}</button>`
+            // 有人际档却没有角色卡（被删或生成失败丢失）：单独补生成，人际数值不受影响。
+            + (sheet ? '' : `<button class="igs-settings-action" data-action="stats-op:sheet-new:${id}" type="button">生成角色卡</button>`) + '</div>'
             + (sheet ? renderSheetPart(sheet, advancedOpen) : '') + '</div>';
     });
     const sheetOnly = [...sheetOf.values()].map((s) => `<div class="igs-stats-person"><div class="igs-stats-person-head"><b>${esc(s.name)}</b></div>${renderSheetPart(s, advancedOpen)}</div>`);
@@ -290,22 +309,15 @@ export function renderStatsPeople(model, advancedOpen = () => '') {
     return fill + list + pending;
 }
 
-// 「我的角色」下方：剧情技能与检定记录（折叠）。
+// 「我的角色」下方：检定记录（折叠）。
 export function renderStatsHeroRecords(model, advancedOpen = () => '') {
     if (!model) return '';
     const n = roundText;
     const checks = (model.checks || []).length
         ? model.checks.map((c) => `<div class="igs-source-filter-note">#${n(c.messageId)} ${esc(c.skill)}${c.difficulty !== '普通' ? `（${esc(c.difficulty)}）` : ''} ${esc(c.detail)} → ${esc(c.outcome)}${c.ruleset === 'dnd5e' ? ' · D&D' : ''}</div>`).join('')
         : '<div class="igs-source-filter-note">暂无检定。</div>';
-    const story = (model.story || []).length
-        ? model.story.map((s) => `<div class="igs-settings-field"><span>${esc(s.name)}（${esc(s.attribute)}${s.guessed ? '，猜测' : ''}）</span><div class="igs-mood-word-list">`
-            + `<button class="igs-settings-action" data-action="stats-op:skill-attr:${esc(encodeURIComponent(s.name))}" type="button">改属性</button>`
-            + `<button class="igs-settings-action" data-action="stats-op:skill-rename:${esc(encodeURIComponent(s.name))}" type="button">改名</button>`
-            + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${esc(encodeURIComponent(s.name))}" type="button">合并</button>`
-            + `<button class="igs-settings-action" data-action="stats-op:skill-remove:${esc(encodeURIComponent(s.name))}" type="button">删除</button></div></div>`).join('')
-        : '<div class="igs-source-filter-note">剧情里还没有出现新技能。</div>';
-    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-story-skills"${advancedOpen('stats-story-skills')}><summary>剧情技能（${n((model.story || []).length)} 项）</summary>${story}</details>`
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-checks"${advancedOpen('stats-checks')}><summary>检定记录（最近 ${n((model.checks || []).length)} 次）</summary>${checks}</details>`;
+    // 剧情技能已并入上方「技能」折叠（renderStorySkills）。
+    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-checks"${advancedOpen('stats-checks')}><summary>检定记录（最近 ${n((model.checks || []).length)} 次）</summary>${checks}</details>`;
 }
 
 // 高级「存档与记录」：变动记录与旧版备份。

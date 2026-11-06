@@ -500,7 +500,7 @@ const STATS_SET_TEMPLATE = `
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">玩法</div>
       <div class="igs-source-filter-grid">{{diceFeelField}}{{storyCheckField}}</div>
-      <div class="igs-settings-section">{{optionChanceField}}{{checkFxField}}{{intimacyField}}</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{optionChanceField}}{{checkFxField}}{{intimacyField}}</div>
       <div class="igs-source-filter-grid">{{favorModeField}}{{intimateCostField}}</div>
     </div>
     <div class="igs-source-filter">
@@ -512,7 +512,6 @@ const STATS_SET_TEMPLATE = `
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">登记与补全</div>
       <div class="igs-source-filter-grid">{{newChatField}}{{registerField}}{{backfillField}}</div>
-      <div class="igs-settings-section">{{autoSkillField}}</div>
     </div>
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-more"{{statsMoreOpen}}>
       <summary>高级</summary>

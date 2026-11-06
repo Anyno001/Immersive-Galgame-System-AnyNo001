@@ -684,14 +684,14 @@ export function createSettingsHost(deps) {
         return result;
     }
 
-    const STATS_ATTRIBUTES = ['健康', '力量', '敏捷', '理智', '观察', '魅力'];
     async function runStatsOp(spec) {
         const op = typeof options.statsOp === 'function' ? options.statsOp : null;
         if (!op) return { ok: false, reason: 'stats-runtime-missing' };
         const [kind, raw = ''] = spec.split(/:(.*)/s);
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
         // relation-set 的参数是「编码后的角色名|好感,信任,了解[,欲望]」（当前值，用来预填数字框）。
-        const [namePart, valuePart = ''] = kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' ? raw.split('|') : [raw];
+        // skill-attr 的参数是「编码后的技能名|属性」（来自剧情技能的属性下拉）。
+        const [namePart, valuePart = ''] = kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'skill-attr' ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -703,11 +703,12 @@ export function createSettingsHost(deps) {
                 result = await op('relation', 'import-table', '', {});
                 if (result && result.ok && typeof settingsDialogs.alert === 'function') await settingsDialogs.alert(`已导入：${result.imported.join('、')}`);
             }
+            else if (kind === 'sheet-new') result = await op('generate', name);
             else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
             else if (kind === 'hero-edit') {
                 const text = String((await settingsDialogs.prompt('增加或修改主角的一项技能，格式：技能 档位（如「火尖枪 精通」），也可以写数值（如「火尖枪 80」）。档位：入门、熟练、精通、大师；写「未学」删除。', '')) || '').trim();
-                const [skill, tier] = text.split(/s+/);
+                const [skill, tier] = text.split(/\s+/);
                 result = skill && tier ? await op('hero', 'edit', skill, { tier }) : { ok: true, cancelled: true };
             }
             else if (kind === 'hero-assign') {
@@ -717,8 +718,7 @@ export function createSettingsHost(deps) {
                 }
             }
             else if (kind === 'skill-attr') {
-                const attribute = await settingsDialogs.choose(`「${name}」归入哪项属性？`, STATS_ATTRIBUTES.map((value) => ({ value, label: value })));
-                result = attribute ? await op('skill', 'edit', name, { attribute }) : { ok: true, cancelled: true };
+                result = valuePart ? await op('skill', 'edit', name, { attribute: valuePart }) : { ok: true, cancelled: true };
             } else if (kind === 'skill-rename') {
                 const to = String((await settingsDialogs.prompt(`把「${name}」改名为：`, name)) || '').trim();
                 result = to && to !== name ? await op('skill', 'edit', name, { name: to }) : { ok: true, cancelled: true };
@@ -1422,6 +1422,12 @@ export function createSettingsHost(deps) {
             const heroSkill = target?.getAttribute?.('data-stats-hero-skill');
             if (heroSkill != null) {
                 controller.invoke(`stats-op:hero-set:${encodeURIComponent(heroSkill)}|${String(target.value).trim()}`);
+                return;
+            }
+            // 剧情技能的所属属性下拉：同样直接写聊天存档。
+            const storyAttr = target?.getAttribute?.('data-stats-story-attr');
+            if (storyAttr != null) {
+                controller.invoke(`stats-op:skill-attr:${encodeURIComponent(storyAttr)}|${String(target.value)}`);
                 return;
             }
             const artistSelection = target?.getAttribute?.('data-artist-selection');

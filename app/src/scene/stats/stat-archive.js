@@ -27,9 +27,19 @@ export function displaySkill(engine, profile) {
         const m = r.modOf(profile.value);
         return `${r.scoreOf(profile.value)}（${m >= 0 ? '+' : ''}${m}）`;
     }
+    // 技能显示检定加值，后面附档位（与「编辑技能」同一套档位词）和所属属性，只看「+4」读不出来历。
     const bonus = r.bonusOf(profile);
-    const prof = r.proficiencyOf(profile);
-    return `${bonus >= 0 ? '+' : ''}${bonus}${prof === 2 ? ' 专精' : prof === 1 ? ' 熟练' : ''}`;
+    const tier = skillTierOf(profile);
+    const attribute = profile.entry && profile.entry.attribute;
+    const note = [tier, attribute].filter(Boolean).join('·');
+    return `${bonus >= 0 ? '+' : ''}${bonus}${note ? `（${note}）` : ''}`;
+}
+
+// 技能百分值 → 档位词（SKILL_TIERS：入门 25、熟练 50、精通 75、大师 90）；未学返回空串。
+function skillTierOf(profile) {
+    if (!profile.learned) return '';
+    const v = Number(profile.value) || 0;
+    return v >= 90 ? '大师' : v >= 75 ? '精通' : v >= 50 ? '熟练' : v >= 25 ? '入门' : '';
 }
 
 // CoC 主角技能全表（设置页「我的角色」）：可分配技能与账本里已有的技能；value 为生效值，learned 为已有账本值、分配底数或手改。
