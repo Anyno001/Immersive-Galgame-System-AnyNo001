@@ -159,6 +159,8 @@ export function createStatsRuntime({
     originStats = () => null,
     // 场景素材里「设为User立绘」的角色名（可为空）。
     userCharacter = () => '',
+    // 场景素材的角色别名表 { 角色名: [别名...] }，用于把用户角色的别名也认成主角。
+    characterAliases = () => ({}),
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -673,12 +675,21 @@ export function createStatsRuntime({
 
     // ---- 正文检定（check-rolls / stat-coc-checks）：骰序按「聊天 + 楼序号 + swipe」预生成，AI 能看到，回放时逐条核对 ----
     // 「设为User立绘」的角色与酒馆用户名一样按主角处理：不记人际数值，状态栏显示生活条。
+    // 场景素材别名同组的名字（含用户名被登记成某角色别名的情况）一并算主角。
     const isHero = (name) => {
         const n = String(name || '').trim();
-        if (isProtagonist(name) || (!!userName() && n === userName())) return true;
+        if (isProtagonist(name)) return true;
         let picked = '';
+        let aliases = {};
         try { picked = String(userCharacter() || '').trim(); } catch (error) { picked = ''; }
-        return Boolean(picked) && n === picked;
+        try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+        const heroes = [userName().trim(), picked].filter(Boolean);
+        if (!n || !heroes.length) return false;
+        if (heroes.includes(n)) return true;
+        return Object.entries(aliases).some(([key, list]) => {
+            const group = [key, ...(Array.isArray(list) ? list : [])].map((v) => String(v || '').trim());
+            return group.includes(n) && heroes.some((h) => group.includes(h));
+        });
     };
 
     // 回放需要的取数回调。D&D 与 CoC 共用同一份 profile，百分制 = 六维分数 × 5。

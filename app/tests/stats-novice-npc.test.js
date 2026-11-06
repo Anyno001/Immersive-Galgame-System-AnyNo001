@@ -196,18 +196,17 @@ test('状态栏关着：什么都不加，也不替换', () => {
 });
 
 // ---------- 设置页版面 ----------
-const sectionOrder = (html) => ['我的角色', '玩法', '其他角色', '高级'].map((title) => html.indexOf(`>${title}`));
-function page(over = {}) {
+function page(over = {}, id = 'stats') {
     const stats = normalizeStatsSettings({ enabled: true, ...(over.stats || {}) });
     const values = buildStatsPageValues({ stats, chat: over.chat === undefined ? { hasChat: true, enabled: false } : over.chat, archive: over.archive || null, combatOn: false });
-    return renderTemplate(getPageTemplate('stats'), values);
+    return renderTemplate(getPageTemplate(id), values);
 }
 
-test('数值页分区顺序：我的角色、玩法、其他角色、高级；页面上不出现 CoC、D&D 字样的主选项', () => {
-    const html = page();
-    const at = sectionOrder(html);
-    assert.ok(at.every((i) => i >= 0), String(at));
-    assert.deepEqual([...at].sort((a, b) => a - b), at);
+test('数值系统分三个子页：我的角色、其他角色、设置；设置页玩法区不出现 CoC、D&D 字样的主选项', () => {
+    assert.match(page(), />我的角色/);
+    assert.match(page({}, 'stats-npc'), />其他角色/);
+    const html = page({}, 'stats-set');
+    assert.ok(html.indexOf('>玩法') >= 0 && html.indexOf('>玩法') < html.indexOf('data-advanced="stats-more"'));
     const visible = html.slice(0, html.indexOf('data-advanced="stats-more"'));
     assert.doesNotMatch(visible, /CoC|D&D/);
     assert.match(html, /data-segment-path="bridge\.stats\.ruleset" data-segment-value="coc7"/);
@@ -231,19 +230,35 @@ test('我的角色：未开始显示快速开始与自己建卡，已开始显�
 
 test('自己建卡：选了手动建档后，职业与六维加点直接出现在「我的角色」里并展开', () => {
     const html = page({ chat: { hasChat: true, enabled: false, pendingMode: 'manual' } });
-    const mine = html.slice(html.indexOf('>我的角色'), html.indexOf('>玩法'));
-    assert.match(mine, /bridge\.stats\.build\.className/);
-    assert.match(mine, /data-advanced="stats-build" open/);
-    assert.doesNotMatch(html.slice(html.indexOf('data-advanced="stats-more"')), /bridge\.stats\.build\.className/);
-    const auto = page();
-    assert.doesNotMatch(auto.slice(auto.indexOf('>我的角色'), auto.indexOf('>玩法')), /bridge\.stats\.build\./);
-    assert.match(auto.slice(auto.indexOf('data-advanced="stats-more"')), /bridge\.stats\.build\.prefs\.major/);
+    assert.match(html, /bridge\.stats\.build\.className/);
+    assert.match(html, /data-advanced="stats-build" open/);
+    assert.doesNotMatch(page({ chat: { hasChat: true, enabled: false, pendingMode: 'manual' } }, 'stats-set'), /bridge\.stats\.build\.className/);
+    assert.doesNotMatch(page(), /bridge\.stats\.build\./);
+    assert.match(page({}, 'stats-set'), /bridge\.stats\.build\.prefs\.major/);
 });
 
-test('数值系统关闭时下方整块隐藏', () => {
+test('数值系统关闭时三个子页内容整块隐藏，其他角色与设置页提示去「我的角色」开启', () => {
     const stats = normalizeStatsSettings({ enabled: false });
-    const html = renderTemplate(getPageTemplate('stats'), buildStatsPageValues({ stats, chat: null, combatOn: false }));
-    assert.match(html, /<div class="igs-settings-sub igs-settings-full" hidden>/);
+    const values = buildStatsPageValues({ stats, chat: null, combatOn: false });
+    for (const id of ['stats', 'stats-npc', 'stats-set']) assert.match(renderTemplate(getPageTemplate(id), values), /<div class="igs-settings-sub igs-settings-full" hidden>/, id);
+    assert.match(renderTemplate(getPageTemplate('stats-npc'), values), /<div class="igs-source-filter-note">未启用数值系统/);
+    const on = buildStatsPageValues({ stats: normalizeStatsSettings({ enabled: true }), chat: null, combatOn: false });
+    assert.match(renderTemplate(getPageTemplate('stats-set'), on), /<div class="igs-source-filter-note" hidden>未启用数值系统/);
+});
+
+test('其他角色：角色卡并进同名角色，没有人际档的角色卡单独成卡；剧情技能与检定记录在我的角色', () => {
+    const archive = { day: 1, bars: {}, wallet: 0, vitals: null, attributes: [], skills: [], log: [], total: 0, checks: [{ messageId: 2, skill: '侦查', difficulty: '普通', detail: '1d100=12', outcome: '成功', ruleset: 'coc7' }], story: [{ name: '开锁', attribute: '敏捷' }], pendingPeople: [], pendingSkills: [],
+        characters: [{ name: '小雪', stage: '朋友', dims: { 好感: 30, 信任: 10, 了解: 5 }, intimacyForced: false }],
+        sheets: [{ name: '小雪', rank: '老手', source: 'default', attributes: [{ name: '力量', display: '40' }], skills: [] }, { name: '路人甲', rank: '普通人', source: 'default', attributes: [], skills: [] }] };
+    const npc = page({ chat: { hasChat: true, enabled: true }, archive }, 'stats-npc');
+    const card = npc.slice(npc.indexOf('<b>小雪</b>'), npc.indexOf('<b>路人甲</b>'));
+    assert.match(card, /data-action="stats-op:relation-set:/);
+    assert.match(card, /data-action="stats-op:sheet-edit:%E5%B0%8F%E9%9B%AA"/);
+    assert.match(npc.slice(npc.indexOf('<b>路人甲</b>')), /stats-op:sheet-edit:/);
+    const mine = page({ chat: { hasChat: true, enabled: true }, archive });
+    assert.match(mine, /data-advanced="stats-story-skills"/);
+    assert.match(mine, /data-advanced="stats-checks"/);
+    assert.doesNotMatch(npc, /stats-story-skills|stats-checks/);
 });
 
 // ---------- 状态栏渲染：主角区常驻 ----------

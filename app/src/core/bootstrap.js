@@ -100,7 +100,7 @@ import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
-const IGS_VERSION = '0.39.52';
+const IGS_VERSION = '0.39.53';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -871,6 +871,7 @@ export function bootstrapIGS(options = {}) {
         // 随身系统的属性加成（原始值，只读）；originRuntime 在其后创建，这里取用时再读。
         originStats: () => (app.originRuntime && typeof app.originRuntime.rawStats === 'function' ? app.originRuntime.rawStats() : null),
         userCharacter: () => String((readImageBridge().sceneAssets || {}).userCharacter || ''),
+        characterAliases: () => (readImageBridge().sceneAssets || {}).characterAliases || {},
         worldRoles: statsWorldRoles,
         readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats,
         getPushClient: () => (globalObject.AutoCardUpdaterAPI ? createShujukuClient(globalObject.AutoCardUpdaterAPI) : null),

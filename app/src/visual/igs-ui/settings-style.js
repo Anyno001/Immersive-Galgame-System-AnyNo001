@@ -223,10 +223,14 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-stats-hero-cell>b{font-size:13px;line-height:18px;font-weight:600;color:var(--igs-settings-ink);overflow-wrap:anywhere}
 .igs-stats-hero-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .igs-stats-hero-actions>.igs-settings-action{min-width:0;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* 数值页「存档与记录」的角色行：名字与数值在左，「修改」在右。 */
-.igs-settings-field.igs-stats-person{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
-.igs-stats-person>span{min-width:0;line-height:1.5}
-.igs-stats-person>.igs-mood-word-list{flex:none;padding:0}
+.igs-stats-hero-actions.is-three{grid-template-columns:repeat(3,minmax(0,1fr))}
+/* 数值页「存档与记录」的角色卡：名字、阶段一行，数值格同「我的角色」，按钮两两并排。 */
+.igs-stats-person{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 0;border-bottom:1px solid var(--igs-settings-field)}
+.igs-stats-person:last-of-type{border-bottom:0}
+.igs-stats-person-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;min-width:0}
+.igs-stats-person-head>b{font-size:14px;font-weight:600;color:var(--igs-settings-ink);overflow-wrap:anywhere}
+.igs-stats-person-head>span{font-size:12px;color:var(--igs-settings-ink-4)}
+.igs-stats-person-head>em{margin-left:auto;font-style:normal;font-size:11px;color:var(--igs-settings-accent)}
 [data-image-prompt-panel] .igs-image-prompt-preset-actions>.igs-settings-inline-action,.igs-image-prompt-more>summary{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%;min-width:0;height:var(--igs-compact-h);padding:0 10px;line-height:1;cursor:pointer;white-space:nowrap}
 [data-image-prompt-panel] .igs-segmented{height:var(--igs-compact-h);padding:2px}
 [data-image-prompt-panel] .igs-segmented-btn{height:calc(var(--igs-compact-h) - 4px)}

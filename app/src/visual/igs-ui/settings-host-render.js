@@ -1136,6 +1136,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         case 'parse':
             return pageTabs() + renderTemplate(getPageTemplate(page), parseValues());
         case 'stats':
+        case 'stats-npc':
+        case 'stats-set':
             return pageTabs() + renderTemplate(getPageTemplate(page), statsValues());
         case 'combat':
             return pageTabs() + renderTemplate(getPageTemplate(page), combatValues());

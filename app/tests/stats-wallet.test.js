@@ -176,7 +176,7 @@ test('页面差分飘字与 igs:stats-fx 去重：stats-fx 先飘过的好感，
 
 // ---------- 数值系统运行时：主角条与钱包 ----------
 
-function runtimeSetup({ combat = false, points = 0, bars, userCharacter = () => '' } = {}) {
+function runtimeSetup({ combat = false, points = 0, bars, userCharacter = () => '', characterAliases = () => ({}) } = {}) {
     const ctx = { name1: '阿明', name2: '小雪', chat: [{ is_user: true, mes: '你好' }], chatMetadata: {}, extensionPrompts: {}, eventSource: { on() {}, removeListener() {} }, eventTypes: {}, getCurrentChatId: () => 'chat-w', setExtensionPrompt() {}, saveMetadata() {} };
     const tables = { rows: [], version: 0 };
     const rt = createStatsRuntime({
@@ -184,7 +184,7 @@ function runtimeSetup({ combat = false, points = 0, bars, userCharacter = () => 
         readSettings: () => ({ enabled: true, ...(bars ? { bars } : {}) }),
         statsTables: () => ({ ok: true, get version() { return tables.version; }, read: () => ({ ok: true, stats: tables.rows.slice() }), append(r) { tables.rows.push(...r); tables.version += 1; return Promise.resolve({ ok: true }); }, ensure: () => Promise.resolve({ ok: true }) }),
         combatEnabled: () => combat,
-        userCharacter,
+        userCharacter, characterAliases,
         combatSource: () => ({ readPoints: () => points, readVitals: () => ({ hp: 7, maxHp: 10, down: false }), readAbilities: () => null, refresh: () => Promise.resolve({ ok: true }) }),
     });
     rt.sync();
@@ -276,4 +276,11 @@ test('运行时：「设为User立绘」的角色按主角处理，状态栏出�
     assert.deepEqual(rt.metricsLookup()('白墨').metrics, []);
     const table = { metrics: [{ label: '好感度' }, { label: '信赖' }, { label: '体力' }] };
     assert.deepEqual(dropUserFavor(table, '主角').metrics.map((m) => m.label), ['体力']);
+});
+
+test('运行时：User 角色与酒馆用户名的别名都按主角处理，不出好感信任', () => {
+    const rt = runtimeSetup({ userCharacter: () => '白墨', characterAliases: () => ({ 白墨: ['小白', '墨哥'], 阿明: ['明明'], 小雪: ['雪儿'] }) });
+    for (const name of ['小白', '墨哥', '明明']) assert.deepEqual(rt.metricsLookup()(name).metrics, [], name);
+    assert.ok(rt.protagonistLookup()('小白'));
+    assert.equal(rt.protagonistLookup()('雪儿'), null);
 });
