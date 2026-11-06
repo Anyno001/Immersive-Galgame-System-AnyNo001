@@ -289,20 +289,24 @@ const resPreview = RES_PREVIEW[new URLSearchParams(location.search).get('res') |
 // ?marks=1：给主战者手牌前五张依次挂规则 v5 E19 牌面附着（绑定、加费、痛刺、虚无、受创），只改面板读到的快照，用于看牌面关键字；可与 ?res= 同用。
 const MARK_PREVIEW = ['bound', 'taxed', 'pain', 'ethereal', 'scar'];
 const marksPreview = new URLSearchParams(location.search).get('marks') === '1';
+// ?inscribe=1：给主战者手牌前五张依次挂规则 v5 P5b 刻印（锋利、灵巧、稳持、蚀心、预燃）；?inscribe=键1,键2 可指定刻印。只改面板读到的快照，可与 ?marks=1 同用。
+const inscribeParam = new URLSearchParams(location.search).get('inscribe') || '';
+const INSCRIBE_PREVIEW = inscribeParam === '1' ? ['sharp', 'deft', 'steady', 'corrode', 'kindle'] : inscribeParam.split(',').map((s) => s.trim()).filter(Boolean);
 const previewBattle = (b) => {
   const id = b && b.controlledId;
   if (!b || !b.units || !b.units[id]) return b;
   let next = b;
   if (resPreview) next = { ...next, units: { ...next.units, [id]: { ...next.units[id], res: { ...next.units[id].res, ...resPreview } } } };
-  const hand = marksPreview ? (next.piles?.[id]?.hand || []) : [];
+  const hand = marksPreview || INSCRIBE_PREVIEW.length ? (next.piles?.[id]?.hand || []) : [];
   if (hand.length) {
     const cards = { ...next.cards };
-    hand.slice(0, MARK_PREVIEW.length).forEach((inst, i) => { cards[inst] = { ...cards[inst], marks: [MARK_PREVIEW[i]] }; });
+    if (marksPreview) hand.slice(0, MARK_PREVIEW.length).forEach((inst, i) => { cards[inst] = { ...cards[inst], marks: [MARK_PREVIEW[i]] }; });
+    hand.slice(0, INSCRIBE_PREVIEW.length).forEach((inst, i) => { cards[inst] = { ...cards[inst], inscription: INSCRIBE_PREVIEW[i] }; });
     next = { ...next, cards };
   }
   return next;
 };
-const combatSession = !resPreview && !marksPreview ? combatPreview.session : { ...combatPreview.session, state() {
+const combatSession = !resPreview && !marksPreview && !INSCRIBE_PREVIEW.length ? combatPreview.session : { ...combatPreview.session, state() {
   const st = combatPreview.session.state();
   return st.battle ? { ...st, battle: previewBattle(st.battle) } : st;
 } };
@@ -366,9 +370,21 @@ const deckBuild = createCombatDeckPanelController(document, {
     .filter(([name]) => !buildDone.has(name)).map(([name, protagonist]) => ({ name, protagonist, attributes: buildAttr })) }),
 });
 // 人物状态面板 · 战斗开启：读战斗示例账本（主角与职业档案）；?deckpage=status|alloc|gear|deck 打开后切到该页。写入能力只给空函数，用于显示按钮。
+// 同带 ?inscribe= 时，卡组角色按副本顺序给前几张副本挂上同一组刻印（只改面板读到的归并视图），用于看卡组页的副本标签。
+const inscribeCopies = (c) => {
+  if (c.kind !== 'deck-character' || !Array.isArray(c.copies)) return c;
+  const marked = new Map(c.copies.slice(0, INSCRIBE_PREVIEW.length).map((row, i) => [row.copyId, INSCRIBE_PREVIEW[i]]));
+  const mark = (row) => (marked.has(row.copyId) ? { ...row, inscription: marked.get(row.copyId) } : row);
+  return { ...c, copies: c.copies.map(mark), deckEntries: (c.deckEntries || []).map(mark) };
+};
+const deckLedger = !INSCRIBE_PREVIEW.length ? combatPreview.ledger : { ...combatPreview.ledger, async effectiveState() {
+  const st = await combatPreview.ledger.effectiveState();
+  if (!st?.ok || !st.characters) return st;
+  return { ...st, characters: new Map([...st.characters].map(([id, c]) => [id, inscribeCopies(c)])) };
+} };
 const deckNoop = async () => ({ ok: false, reason: 'combat-generate-unavailable' });
 const deckFull = createCombatDeckPanelController(document, {
-  getLedger: () => combatPreview.ledger, getSession: () => combatPreview.session,
+  getLedger: () => deckLedger, getSession: () => combatPreview.session,
   regenerateDeck: deckNoop, respecClass: deckNoop, ascendClass: deckNoop, drawTrait: deckNoop, pickTrait: deckNoop, unlockTraitSlot: deckNoop,
   getTheme: () => new URLSearchParams(location.search).get('theme') || '', setTheme: () => {},
 });

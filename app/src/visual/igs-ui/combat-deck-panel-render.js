@@ -137,11 +137,13 @@ function cardRow(c, readonly) {
     const effectText = (text, cost) => `${cost === 'X' ? '消耗全部能量，每点能量结算一次：' : ''}${text || '暂无效果资料'}`;
     const upgraded = c.upgradedText ? `<details class="igs-deck-effect"><summary>升级后 · ${esc(c.upgradedCost)} 费</summary>${esc(effectText(c.upgradedText, c.upgradedCost))}</details>` : '';
     const effect = effectText(c.text, c.cost);
+    // 同名牌中带成长或刻印的副本：每种差异一枚标签，数量与卡组计数同格式（草稿未保存时只给拥有张数）。
+    const variants = (c.variants || []).length ? `<div class="igs-deck-tags">${c.variants.map((x) => `<span class="igs-deck-tag"${x.tip ? ` title="${esc(x.tip)}"` : ''}>${esc(`${x.label} · ${x.inDeck === null ? `×${x.owned}` : `${x.inDeck}/${x.owned}`}`)}</span>`).join('')}</div>` : '';
     // 一张卡一块：费用、卡面、名称与效果在左；来源、属性要求、数量与操作收在右侧一栏（窄屏整栏移到下方），不与下一张卡混在一起。
     const count = `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>`;
     const acts = artAction(c, readonly) + (readonly ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`);
     return `<li class="igs-deck-card${c.errors.length ? ' is-error' : ''}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>${artThumb(c.art)}`
-        + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-tag">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${upgraded}${err}</div>`
+        + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-tag">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${variants}${upgraded}${err}</div>`
         + `<div class="igs-deck-card-side"><div class="igs-deck-card-stats">${scale}${count}</div>${acts ? `<div class="igs-deck-card-acts">${acts}</div>` : ''}</div>`
         + '</li>';
 }

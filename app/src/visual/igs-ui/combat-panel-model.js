@@ -6,6 +6,8 @@ import { hash32 } from '../../combat/random.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { AWAKEN_TYPE_NAMES, injuryLevel } from '../../combat/report.js';
 import { CARD_TYPE_LABELS, KEYWORD_TIPS, cardArtSvg, describeEffectParts, describeEffects, describeKeywordParts, describeTrigger } from './combat-card-art.js';
+import { INSCRIPTION_TIPS } from './combat-card-art.js';
+import { INSCRIPTION_LABELS, isInscription } from '../../combat/mechanics/inscription.js';
 import { cardMotifSvg } from './combat-card-motifs.js';
 import { scalingMarks } from '../../combat/card-scaling.js';
 import { ABILITY_LABELS } from '../../combat/abilities.js';
@@ -133,14 +135,22 @@ export function cardSlotView(card, hero, rulesVersion) {
     return finish(value, baseValue, main.target === 'all-enemies' ? '群伤' : '伤害', Number(main.hits) || 1, parts);
 }
 
-// 关键字单字（窄签印记用）与优先级：窄签只露一枚，不能打出 > 规则 v5 E19 牌面附着（绑定、痛刺、受创）> 消耗 > 虚无 > 保留 > 固有；临时已有虚线框，窄签不再标。
-export const KEYWORD_CHAR = Object.freeze({ 不能打出: '禁', 绑定: '绑', 痛刺: '刺', 受创: '创', 消耗: '耗', 虚无: '虚', 保留: '留', 固有: '固', 临时: '临' });
-export const KEYWORD_PRIORITY = Object.freeze(['不能打出', '绑定', '痛刺', '受创', '消耗', '虚无', '保留', '固有']);
+// 关键字单字（窄签印记用）与优先级：窄签只露一枚，不能打出 > 规则 v5 E19 牌面附着（绑定、痛刺、受创）> 规则 v5 P5b 刻印 > 消耗 > 虚无 > 保留 > 固有；临时已有虚线框，窄签不再标。
+// 刻印单字互不重复，也不与其他关键字单字重复。
+const INSCRIPTION_CHAR = Object.freeze({
+    deft: '巧', sharp: '锋', instinct: '本', corrode: '蚀', momentum: '量', nimble: '动', flourish: '华', spiral: '旋', steady: '稳',
+    sovereign: '御', swift: '迅', sow: '播', soul: '魂', attune: '契', float: '浮', thrift: '省', kindle: '燃', ink: '墨',
+});
+const INSCRIPTION_NAMES = Object.values(INSCRIPTION_LABELS);
+export const KEYWORD_CHAR = Object.freeze({ 不能打出: '禁', 绑定: '绑', 痛刺: '刺', 受创: '创', 消耗: '耗', 虚无: '虚', 保留: '留', 固有: '固', 临时: '临',
+    ...Object.fromEntries(Object.entries(INSCRIPTION_LABELS).map(([key, label]) => [label, INSCRIPTION_CHAR[key]])) });
+export const KEYWORD_PRIORITY = Object.freeze(['不能打出', '绑定', '痛刺', '受创', ...INSCRIPTION_NAMES, '消耗', '虚无', '保留', '固有']);
 // 关键字点开的解释（不带句号）；不能打出字面自明，这里仍给一句，供单字印记点开。
 export const KEYWORD_NAME_TIPS = Object.freeze({
     不能打出: '不能打出：这张牌不能被打出', 消耗: KEYWORD_TIPS.exhaust, 虚无: KEYWORD_TIPS.ethereal, 保留: KEYWORD_TIPS.retain, 固有: KEYWORD_TIPS.innate, 临时: KEYWORD_TIPS.temp,
     狡黠: KEYWORD_TIPS.sly, 重演: KEYWORD_TIPS.replay, 圣辉: KEYWORD_TIPS.radiance,
     绑定: '绑定：每回合只能打出一张带绑定的牌', 痛刺: '痛刺：打出时失去 2 点生命', 受创: '受创：打出后到下一回合开始，每次受到的攻击伤害 +3',
+    ...Object.fromEntries(Object.entries(INSCRIPTION_LABELS).map(([key, label]) => [label, INSCRIPTION_TIPS[key]])),
 });
 // 加成 / 减弱差值：value 与 baseValue 不同时给带符号的字符串（减号为 U+2212），否则空串；数字本身不转色，差值只做单位后的淡色小字。
 export const cardValueDelta = (c) => (Number.isFinite(c?.value) && c.baseValue !== undefined && c.value !== c.baseValue ? signed(c.value - c.baseValue) : '');
@@ -157,6 +167,8 @@ export function cardKeywordNames(card) {
     if (card?.temp) names.push('临时');
     // 规则 v5 E19 牌面附着（加费体现在费用上，附加虚无已并入虚无）。
     for (const [mark, label] of [['bound', '绑定'], ['pain', '痛刺'], ['scar', '受创']]) if (card?.marks?.includes(mark)) names.push(label);
+    // 规则 v5 P5b 刻印（cardView 在 v5 战斗里才带 inscription）。
+    if (isInscription(card?.inscription)) names.push(INSCRIPTION_LABELS[card.inscription]);
     const exhaust = (list) => (list || []).some((e) => e.op === 'exhaust-self' || (Array.isArray(e.then) && exhaust(e.then)));
     if (exhaust(card?.effects)) names.push('消耗');
     return names;
@@ -362,9 +374,12 @@ export function battleView(state, legal = [], { challenge = false } = {}) {
             ...cardSlotView(card, hero, state.rulesVersion), keywordNames: cardKeywordNames(card),
         };
     }).filter(Boolean);
-    // 同名张数：手牌里同 id、同升级状态且同牌面附着（规则 v5 E19）的张数，至少 2 张才给 stack。
+    // 同名张数：手牌里同 id、同升级状态、同牌面附着（规则 v5 E19）、同刻印与同永久成长（规则 v5 P5）的张数，至少 2 张才给 stack。
     const sameCount = new Map();
-    const stackKey = (c) => `${c.id}|${c.upgraded ? 1 : 0}|${(state.cards[c.inst]?.marks || []).join(',')}`;
+    const stackKey = (c) => {
+        const entry = state.cards[c.inst] || {};
+        return `${c.id}|${c.upgraded ? 1 : 0}|${(entry.marks || []).join(',')}|${entry.inscription || ''}|${entry.bonus ? `${entry.bonus.damage || 0}/${entry.bonus.block || 0}` : ''}`;
+    };
     for (const c of hand) { const k = stackKey(c); sameCount.set(k, (sameCount.get(k) || 0) + 1); }
     for (const c of hand) { const n = sameCount.get(stackKey(c)); if (n >= 2) c.stack = n; }
     const side = (s) => state.order.filter((id) => state.units[id].side === s).map((id) => unitView(state, id, challenge));

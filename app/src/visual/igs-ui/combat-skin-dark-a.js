@@ -7,7 +7,7 @@ import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { battlePick, needsHold, canvasW, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_DARK_A_CONCEPT_CSS } from './combat-skin-dark-a-concept-style.js';
-import { KEYWORD_CHAR, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
+import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
 // 概念稿 buildBattle 的 opts（方案A.html / 方案B.html 里的 ring、fan 完全一致）。
 const RING_BASE = { port: { rx: 150, w: 330, lift: 60, back: 0.55, dim: 0.5 }, land: { rx: 410, w: 390, lift: 70, back: 0.58, dim: 0.5 } };
@@ -107,7 +107,7 @@ function cardHtml(c, p, v, picks, energy, picking) {
     const badge = `${c.stack > 1 ? `<i class="bd">×${esc(c.stack)}</i>` : ''}${c.upgraded ? '<i class="bd up">强</i>' : ''}`;
     const poor = !live || c.cost > energy, lock = kws.includes('不能打出');
     const sel = v.selected === c.inst;
-    const kg = kws.map((k) => `<i class="kg${k === '临时' ? ' tp' : ''}" data-scale-tip="${esc(`${k}：${KWD[k] || ''}`)}">${esc(k)}</i>`).join('');
+    const kg = kws.map((k) => `<i class="kg${k === '临时' ? ' tp' : ''}" data-scale-tip="${esc(KWD[k] ? `${k}：${KWD[k]}` : KEYWORD_NAME_TIPS[k] || k)}">${esc(k)}</i>`).join('');
     const chars = [...c.name];
     const cols = !sel && chars.length > 5;
     const half = Math.ceil(chars.length / 2);

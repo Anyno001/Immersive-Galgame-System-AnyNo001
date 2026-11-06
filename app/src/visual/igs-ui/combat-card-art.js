@@ -5,6 +5,7 @@ import { RECORD_ICONS, lineIconSvg } from './record-icons.js';
 import { cardMotifSvg } from './combat-card-motifs.js';
 import { describeRegistered, statusLabel } from '../../combat/mechanics/registry.js';
 import { STATUS_CARD_TEXT } from '../../combat/mechanics/status-cards.js';
+import { INSCRIPTION_LABELS, INSCRIPTION_VALUES as IV, isInscription } from '../../combat/mechanics/inscription.js';
 
 // 卡面与立绘占位的纯函数：效果与关键字说明（含可点注释的片段）、卡图纹样（combat-card-motifs.js）、无立绘时的 SVG 剪影。
 // SVG 只来自程序常量与数值，不含任何档案文本；同一张卡永远得到同一张图。
@@ -42,6 +43,17 @@ export const KEYWORD_TIPS = Object.freeze({
     replay: '重演：打出时整张额外执行，只付一次费、只计一次出牌',
     radiance: '圣辉：打出时另需消耗的圣辉；X 表示花光圣辉，每点结算一次',
 });
+// 规则 v5 P5b 刻印的解释（放大牌关键字与牌组面板副本标签点开时显示），数值取 INSCRIPTION_VALUES。
+const INSCRIPTION_TEXT = Object.freeze({
+    deft: `打出后额外获得 ${IV.deft} 点格挡`, sharp: `牌面伤害 +${IV.sharp}`, instinct: '牌面伤害翻倍，攻击力等加成不翻倍',
+    corrode: `牌面伤害 +50%，打出后失去 ${IV.corrode} 点生命`, momentum: `每次打出，本场这张牌的伤害 +${IV.momentum}`, nimble: `牌面格挡 +${IV.nimble}`,
+    flourish: '每场第一次打出时整张重演 1 次', spiral: '重演 1 次', steady: '获得保留', sovereign: '获得固有与保留',
+    swift: `每场第一次打出时抽 ${IV.swift} 张牌`, sow: `每场第一次打出时获得 ${IV.sow} 点能量`, soul: '打出后不再消耗',
+    attune: '洗牌时放到抽牌堆顶', float: '每次抽到时费用随机变为 0–3', thrift: '回合结束时仍在手中，费用 -1，持续到打出',
+    kindle: '开战时自动免费打出', ink: `伤害 +${IV.ink}，并施加 ${IV.ink} 层虚弱`,
+});
+export const INSCRIPTION_TIPS = Object.freeze(Object.fromEntries(Object.entries(INSCRIPTION_LABELS).map(([key, label]) => [key, `刻印·${label}：${INSCRIPTION_TEXT[key]}`])));
+export const inscriptionLabel = (key) => (isInscription(key) ? INSCRIPTION_LABELS[key] : '');
 
 const on = (target) => (TARGET[target] ? `对${TARGET[target]}` : '');
 
@@ -129,6 +141,7 @@ export function describeKeywordParts(card) {
     if (Number.isInteger(card?.replay) && card.replay > 0) word('replay', `重演 ${card.replay}`);
     if (card?.radiance !== undefined) word('radiance', `圣辉 ${card.radiance}`);
     if (card?.temp) word('temp', '临时');
+    if (isInscription(card?.inscription)) groups.push([{ text: INSCRIPTION_LABELS[card.inscription], tip: INSCRIPTION_TIPS[card.inscription] }]);
     if (Array.isArray(card?.onDiscard) && card.onDiscard.length) groups.push([{ text: '被丢弃时：' }, ...describeEffectParts(card.onDiscard)]);
     return groups.flatMap((g, i) => (i ? [{ text: '。' }, ...g] : g));
 }

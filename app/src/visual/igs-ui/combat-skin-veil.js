@@ -7,7 +7,7 @@ import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { battlePick, canvasW, needsHold, ringVars, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_VEIL_CONCEPT_CSS } from './combat-skin-veil-concept-style.js';
-import { KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
+import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
 // 概念稿 window.SCHEME（定稿.html）；pw / hd 为敌人头顶信息区的宽与下沉量，hw 为手牌区宽度（common.css .hand）。
 const CFG = {
@@ -92,9 +92,8 @@ function cardHtml(c, i, pos, v, picks, energy) {
     const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
     const p = pos[i];
     const mainKw = cardMainKeyword(c.keywordNames);
-    // 「强」与「不能打出」同时出现时窄签放不下全称，小注只写「禁」。
-    const short = c.upgraded && mainKw === '不能打出';
-    const kwm = !sel && mainKw ? `<i class="kwm${short ? ' one' : ''}">${esc(short ? '禁' : mainKw)}</i>` : '';
+    // 窄签小注只写关键字单字（与其他皮肤一致）；放大牌的 .kws 列全称。
+    const kwm = !sel && mainKw ? `<i class="kwm one">${esc(KEYWORD_CHAR[mainKw] || mainKw)}</i>` : '';
     const xtra = !sel && c.extra ? `<span class="xtra">${esc(c.extra)}</span>` : '';
     const cls = `card t-${t}${c.upgraded ? ' enhd' : ''}${RARITY[c.rarity] || ''}${poor ? ' poor' : ''}${cut ? ' cut' : ''}${sig ? ' sig' : ''}${state}${sel ? ' sel' : ''}${chosen ? ' chosen' : ''}${dear ? ' dear' : ''}${c.choosable && !chosen ? ' cand' : ''}${xtra ? ' has-st' : ''}`;
     return `<div class="${cls}" style="left:${p.left}px;z-index:${p.z};--ty:${p.ty}px;--rot:${p.rot}deg" role="button" tabindex="0" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}`

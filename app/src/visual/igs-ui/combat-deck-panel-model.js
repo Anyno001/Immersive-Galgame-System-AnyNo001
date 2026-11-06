@@ -3,7 +3,8 @@ import { scaleCard } from '../../combat/card-scaling.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, REL_TIERS, abilityMod, normalizeManualScores, prefsFromScores } from '../../combat/abilities.js';
 import { characterCombatStats, vitalsOf } from '../../combat/session.js';
 import { injuryLevel } from '../../combat/report.js';
-import { describeEffects, describeKeywords } from './combat-card-art.js';
+import { INSCRIPTION_TIPS, describeEffects, describeKeywords } from './combat-card-art.js';
+import { INSCRIPTION_LABELS } from '../../combat/mechanics/inscription.js';
 import { sellPrice } from '../../combat/points.js';
 import { defaultHeroSkill } from '../../combat/card-templates.js';
 import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
@@ -155,6 +156,21 @@ export function deckDetailView(view, draft) {
     const check = validateDraft(view, cards);
     const inDeck = new Map();
     for (const id of cards) inDeck.set(id, (inDeck.get(id) || 0) + 1);
+    // 规则 v5 P5：同名牌里带成长或刻印的副本按差异分行列出；草稿未保存时副本去向未定，只计拥有张数。
+    const deckCopyIds = new Set(draft ? [] : (view.deckEntries || []).map((e) => e.copyId).filter(Boolean));
+    const variants = new Map();
+    for (const row of view.copies || []) {
+        const inscribed = Object.hasOwn(INSCRIPTION_LABELS, row.inscription || '');
+        if (!inscribed && !row.bonus) continue;
+        const label = [row.upgraded ? '已升级' : '', row.bonus?.damage ? `伤害 +${row.bonus.damage}` : '', row.bonus?.block ? `格挡 +${row.bonus.block}` : '',
+            inscribed ? `刻印·${INSCRIPTION_LABELS[row.inscription]}` : ''].filter(Boolean).join(' · ');
+        const list = variants.get(row.cardId) || new Map();
+        const item = list.get(label) || { label, tip: inscribed ? INSCRIPTION_TIPS[row.inscription] : '', owned: 0, inDeck: draft ? null : 0 };
+        item.owned += 1;
+        if (deckCopyIds.has(row.copyId)) item.inDeck += 1;
+        list.set(label, item);
+        variants.set(row.cardId, list);
+    }
     // X 费排在 3 费之后（Number('X') 为 NaN，会打乱排序）。
     const costRank = (c) => (c === 'X' ? 4 : Number(c));
     const personalIds = new Set((view.profile?.personalPool || []).map((c) => c.id));
@@ -164,6 +180,7 @@ export function deckDetailView(view, draft) {
         return { cardId: id, name: card?.name || id, type: card?.type || '', cost: card?.cost ?? '', rarity: card?.rarity || '', owned: n,
             source: personalIds.has(id) ? '个人牌' : classIds.has(id) ? '职业牌' : card?.rarity === 'basic' ? '基础牌' : card?.rarity === 'signature' ? '专属牌' : '其他已持有',
             upgraded: view.upgraded.get(id) || 0, inDeck: inDeck.get(id) || 0, errors: check.byCard.get(id) || [],
+            variants: [...(variants.get(id)?.values() || [])],
             canAdd: (inDeck.get(id) || 0) < Math.min(n, cardCopyLimit(card?.rarity)), ...cardPreview(card, view.attributes) };
     };
     const sortCards = (a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : costRank(a.cost) - costRank(b.cost));
