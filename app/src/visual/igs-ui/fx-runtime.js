@@ -157,6 +157,16 @@ export function diffFavorMetrics(baseline, character, metrics) {
 
 const favorFloorKey = (messageId, character) => `favor-floor:${messageId}:${character}`;
 
+const BURST_NOTE = '心意满溢';
+
+function burstFavorNode(doc, label) {
+    const el = node(doc, 'igs-fx-favor is-burst');
+    el.appendChild(node(doc, 'igs-fx-favor-heart', '♥'));
+    el.appendChild(node(doc, 'igs-fx-favor-text', String(label).replace(/^(\S+)\s+♥\s*/, '$1 ')));
+    el.appendChild(node(doc, 'igs-fx-favor-note', BURST_NOTE));
+    return el;
+}
+
 // 数值系统结算反馈（igs:stats-fx）：复用页面飘字的 igs-fx-favor 样式。只在状态栏开着时由阅读器调用；
 // 好感与页面差分飘字去重，关系阶段只给当前说话人，成长不限人。返回播放的行数。
 export function playStatsFeedback(root, fx, options = {}) {
@@ -171,7 +181,7 @@ export function playStatsFeedback(root, fx, options = {}) {
     for (const t of fx.toasts || []) {
         if (!t || !text(t.target) || !markOnce(state.memory, favorFloorKey(fx.messageId, text(t.target)))) continue;
         const up = t.delta > 0;
-        lines.push({ up, text: t.text === '♥' || t.text === '♡' ? `${t.target} ${t.text}` : `${t.target} 好感 ${up ? '↑ +' : '↓ '}${t.delta}` });
+        lines.push({ up, burst: Boolean(t.burst), text: t.text === '♥' || t.text === '♡' ? `${t.target} ${t.text}` : `${t.target} 好感 ${up ? '↑ +' : '↓ '}${t.delta}` });
     }
     for (const g of fx.growth || []) lines.push({ up: true, text: `${g.target ? `${g.target}的` : ''}${g.skill}成长 +${g.gain}` });
     for (const sh of fx.stages || []) {
@@ -181,7 +191,8 @@ export function playStatsFeedback(root, fx, options = {}) {
     const life = Math.round(FX_LIFETIME_MS.favor * (FX_HOLD_SCALE[settings.fxStyle.hold] || 1));
     const stack = persistent(layers.front, layers.doc, 'igs-fx-favor-stack');
     for (const line of lines) {
-        const el = node(layers.doc, 'igs-fx-favor', line.text);
+        // 心意满溢：沿用好感飘字，只把心形放大并加一行小字。
+        const el = line.burst ? burstFavorNode(layers.doc, line.text) : node(layers.doc, 'igs-fx-favor', line.text);
         el.setAttribute('data-dir', line.up ? 'up' : 'down');
         spawn(state, stack, el, life);
     }

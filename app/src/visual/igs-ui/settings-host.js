@@ -690,8 +690,8 @@ export function createSettingsHost(deps) {
         if (!op) return { ok: false, reason: 'stats-runtime-missing' };
         const [kind, raw = ''] = spec.split(/:(.*)/s);
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
-        // relation-set 的参数是「编码后的角色名|好感,信任,了解」（当前值，用来预填数字框）。
-        const [namePart, valuePart = ''] = kind === 'hero-set' || kind === 'relation-set' ? raw.split('|') : [raw];
+        // relation-set 的参数是「编码后的角色名|好感,信任,了解[,欲望]」（当前值，用来预填数字框）。
+        const [namePart, valuePart = ''] = kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -703,6 +703,7 @@ export function createSettingsHost(deps) {
                 result = await op('relation', 'import-table', '', {});
                 if (result && result.ok && typeof settingsDialogs.alert === 'function') await settingsDialogs.alert(`已导入：${result.imported.join('、')}`);
             }
+            else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
             else if (kind === 'hero-assign') {
                 result = await op('hero', 'assign', '', {});
@@ -732,9 +733,10 @@ export function createSettingsHost(deps) {
                     await settingsDialogs.alert(result.filled.length ? `已补填初始关系：${result.filled.join('、')}` : '按人设判断，这些角色与主角都还是陌生关系，数值未改动。');
                 }
             } else if (kind === 'relation-set') {
-                const dims = ['好感', '信任', '了解'];
                 const before = valuePart.split(',').map((v) => (v === '' ? NaN : Number(v)));
-                const values = await settingsDialogs.numbers(`修改「${name}」的关系数值`, dims.map((key, i) => ({ key, label: key, value: Number.isFinite(before[i]) ? before[i] : 0, min: -100, max: 100 })), { okLabel: '保存' });
+                // 第四项是欲望，只有开启 NSFW 后建档的角色才带。
+                const dims = ['好感', '信任', '了解', '欲望'].slice(0, Math.max(3, before.length));
+                const values = await settingsDialogs.numbers(`修改「${name}」的关系数值`, dims.map((key, i) => ({ key, label: key, value: Number.isFinite(before[i]) ? before[i] : 0, min: key === '欲望' ? 0 : -100, max: 100 })), { okLabel: '保存' });
                 // 只提交改动过的项，没改的维度不记手改。
                 const payload = values ? Object.fromEntries(dims.filter((key, i) => values[key] !== before[i]).map((key) => [key, values[key]])) : {};
                 result = Object.keys(payload).length ? await op('relation', 'set', name, payload) : { ok: true, cancelled: true };

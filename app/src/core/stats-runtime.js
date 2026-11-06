@@ -4,6 +4,7 @@
 import { STATS_LOG_MAX, activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
 import { MANUAL_DIMS, applyManualRelations, settleFloorText } from '../scene/stats/stat-settle.js';
+import { FAVOR_TIERS, normalizeFavorTier, stageOf } from '../scene/stats/stat-favor.js';
 import { START_DIMS } from '../scene/stats/stat-vocab.js';
 import { createChatStatsStore, emptyCatalog, sanitizeCatalog, sheetAbilityScores } from '../scene/stats/stat-persist.js';
 import {
@@ -21,8 +22,8 @@ import { createStatsState, grudgeOfCharacter } from '../scene/stats/stat-state.j
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
 import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
 import { canonicalAttribute, isSixAttribute } from '../data/shujuku/skill-table.js';
-import { createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
-import { statsArchiveModel } from '../scene/stats/stat-archive.js';
+import { characterStatMetrics, createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
+import { describeClockTrail, statsArchiveModel, statsClockTrail, statsFavorOverview } from '../scene/stats/stat-archive.js';
 import { matchSkill } from '../scene/stats/stat-skill-match.js';
 import { cryptoRandom } from '../scene/stats/stat-rng.js';
 import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, registerStorySkill, removeStorySkill } from '../scene/stats/stat-registry.js';
@@ -862,8 +863,8 @@ export function createStatsRuntime({
         const fromCombat = combat && combat.check ? { ...combat.check, actors: (combat.check.actors || []).filter((a) => a && !skip.has(a.name) && !isHero(a.name)) } : null;
         const dice = coc ? null : mergeCheckInputs(own, fromCombat);
         const prompt = buildStatsPrompt(state, {
-            walletExtra: combatPoints(), present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
-            nsfw: isNsfw(), intimacyGate: s.intimacyGate, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
+            walletExtra: combatPoints(), present: names, shortfall: flags.shortfall, dateRegex: s.dateRegex, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
+            nsfw: isNsfw(), intimacyGate: s.intimacyGate, intimateCost: s.intimateCost, forcedNames: catalog.intimacyForced, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
             sheetLines: sheetNames.map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n], state.characters[n] && state.characters[n].skillGrowth), bonus: abilityLine(engine, state, n) })),
@@ -913,8 +914,11 @@ export function createStatsRuntime({
         const engine = memoEngineOf(ruleset);
         const chatId = chatIdOf(c);
         const body = String(m.mes ?? '');
-        // 重算同一楼沿用当时结算的好感档，改档只影响之后的楼。
-        const favorMode = prior ? (priorMeta.favorMode === 'hard' ? 'hard' : 'normal') : s.favorMode;
+        // 重算同一楼沿用当时结算的好感档，改档只影响之后的楼；旧楼没有 favorTier 时按旧 favorMode 还原（缺省旧普通，'hard' 旧困难）。
+        const favorTier = prior ? (FAVOR_TIERS.includes(priorMeta.favorTier) ? priorMeta.favorTier : null) : normalizeFavorTier(s.favorMode);
+        const favorMode = prior && !favorTier ? (priorMeta.favorMode === 'hard' ? 'hard' : 'normal') : undefined;
+        // 亲密体力：重算旧楼按当时写进 meta 的档位，旧楼没有该字段就不结算；新楼（含新 swipe）取当前设置。
+        const intimateCost = prior ? priorMeta.intimateCost : s.intimateCost;
         // 手改关系挂在楼上：重算、重 roll 同一楼都沿用，否则一重 roll 就丢。
         const manual = priorMeta.manual || manualOfFloor(messageId);
         // 同一楼同一 swipe 的结算种子与骰序都由「聊天 + 楼序号 + swipe」决定（确定性）。
@@ -931,7 +935,7 @@ export function createStatsRuntime({
             }
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
                 seedCharacters: autoTable ? tableSeedOf(before) : null,
             });
             const meta = { ...r.meta };
@@ -1611,6 +1615,12 @@ export function createStatsRuntime({
     });
 
     function diagnose(messageId) {
+        const text = diagnoseFloor(messageId);
+        const trail = ledger && chatEnabled && settings().enabled ? describeClockTrail(statsClockTrail(ledger)) : '';
+        return trail ? `${text}\n${trail}` : text;
+    }
+
+    function diagnoseFloor(messageId) {
         const s = settings();
         if (!s.enabled) return '数值 总开关关闭';
         if (!chatEnabled || !ledger) return `数值 本聊天未启用${blocked || unavailable ? `（存档无法读取：${blocked || unavailable}）` : ''}`;
@@ -1633,6 +1643,8 @@ export function createStatsRuntime({
     }
 
     // ---- 设置页存档区操作 ----
+    const npcStaminaShown = () => isNsfw() && Boolean(settings().intimateCost) && settings().intimateCost !== 'off';
+
     function manualOfFloor(messageId) {
         for (const entry of ledger.entries.values()) if (entry.messageId === messageId && entry.meta && entry.meta.manual) return entry.meta.manual;
         return null;
@@ -1643,6 +1655,7 @@ export function createStatsRuntime({
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         if (op === 'fill-start') return fillStartRelations();
         if (op === 'import-table') return importTablePeople();
+        if (op === 'forced') return setIntimacyForced(name, payload && payload.forced === true);
         if (op !== 'set') return { ok: false, reason: 'stats-relation-op-unknown' };
         if (generating) return { ok: false, reason: 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
@@ -1655,6 +1668,17 @@ export function createStatsRuntime({
         }
         if (!Object.keys(dims).length) return { ok: true, cancelled: true };
         return entry ? commitManualRelations(entry, { [name]: dims }) : commitInitialRelations({ [name]: dims });
+    }
+
+    // 亲密门槛豁免（剧情需要）：记在聊天级目录里，与楼层无关，swipe、删楼不丢。
+    function setIntimacyForced(name, on) {
+        const entry = activeEntryBefore(ledger, Infinity);
+        if (!(entry ? entry.after : ledger.initial).characters[name]) return { ok: false, reason: 'stats-relation-missing' };
+        const rest = catalog.intimacyForced.filter((n) => n !== name);
+        catalog = sanitizeCatalog({ ...catalog, intimacyForced: on ? [...rest, name] : rest });
+        persist();
+        push();
+        return { ok: true };
     }
 
     // 把数据库表格里的人物登记进数值账本：关系一律从 0 起，表格里的数字不采用（以 IGS 为准）。
@@ -1717,6 +1741,7 @@ export function createStatsRuntime({
                 if (!cur || !blank(cur) || tier === '陌生') continue;
                 const dims = {};
                 for (const key of START_FILL_DIMS) dims[key] = Math.max(-100, Math.min(100, (Number(cur.dims[key]) || 0) + (START_DIMS[tier][key] || 0)));
+                if (isNsfw() && START_DIMS[tier].欲望) dims.欲望 = Math.max(0, Math.min(100, (Number(cur.dims.欲望) || 0) + START_DIMS[tier].欲望));
                 manual[name] = dims;
             }
             const filled = Object.keys(manual).map((name) => `${name} ${relations[name]}`);
@@ -1902,8 +1927,21 @@ export function createStatsRuntime({
         // 状态栏 / 人际关系页的数据源：只有总开关与本聊天都启用时才接管，否则返回 null 让调用方读表格（易错点 H3）。
         metricsLookup: ev(() => {
             if (!active()) return null;
-            const lookup = createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), sheets: catalog.sheets, engine: memoEngineOf() });
+            const lookup = createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), stamina: npcStaminaShown(), sheets: catalog.sheets, engine: memoEngineOf() });
             return (name) => (isHero(name) ? { metrics: [], stages: [] } : lookup(name));
+        }),
+        // 好感总览：总开关与本聊天都启用时返回已登记角色（好感从高到低）及其数值条、关系阶段、变动记录和 nsfw 状态；否则 null，页面照旧读表格。
+        favorOverview: ev(() => {
+            if (!active()) return null;
+            const s = settings();
+            const nsfw = isNsfw();
+            const state = currentStatsState(ledger);
+            const people = statsFavorOverview(ledger, { isHero }).map((p) => ({
+                ...p,
+                metrics: characterStatMetrics(state.characters[p.name], { hudLabel: s.hudLabel, nsfw, stamina: npcStaminaShown() }),
+                stage: stageOf(Number(p.dims.好感) || 0).name,
+            }));
+            return { nsfw, people };
         }),
         // 状态栏主角条（生命、体力、压力、金钱；金钱为合并余额）：只在总开关与本聊天都启用时返回 lookup，其余名字返回 null。
         protagonistLookup: ev(() => {

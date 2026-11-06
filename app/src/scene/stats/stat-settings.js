@@ -17,8 +17,11 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     autoSkill: true,
     register: 'auto',
     hudLabel: 'number',
-    favorMode: 'normal',
+    favorMode: 'vivid',
     intimacyGate: true,
+    intimateCost: 'standard',
+    dateRegex: '',
+    timeRegex: '',
     ruleset: DEFAULT_RULESET,
     newChat: 'ask',
     storyCheck: 'preroll',
@@ -32,7 +35,8 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
 
 const REGISTER_MODES = new Set(['auto', 'manual']);
 const HUD_LABELS = new Set(['stage', 'number', 'both']);
-const FAVOR_MODES = new Set(['normal', 'hard']);
+const FAVOR_MODES = new Set(['vivid', 'normal', 'hard']);
+const INTIMATE_COSTS = new Set(['off', 'light', 'standard', 'heavy']);
 const NEW_CHAT = new Set(['ask', 'auto', 'off']);
 const STORY_CHECK = new Set(['preroll', 'manual', 'off']);
 const SHEET_GEN = new Set(['prompt', 'auto', 'off']);
@@ -51,6 +55,11 @@ const HUD_LABEL_VERSION = 2;
 function hudLabelOf(src, d) {
     if (src.hudLabelVersion !== HUD_LABEL_VERSION && src.hudLabel === 'stage') return d.hudLabel;
     return pick(HUD_LABELS, src.hudLabel, d.hudLabel);
+}
+
+// 日期、时间正则：只收字符串，去首尾空白并截断；是否合法由结算时编译判断。
+function regexText(value) {
+    return typeof value === 'string' ? value.trim().slice(0, 300) : '';
 }
 
 // 用户覆盖的文本：只收已登记的键与非空字符串（超长截断）；留空表示用默认值（§9）。
@@ -149,6 +158,9 @@ export function normalizeStatsSettings(raw) {
         hudLabelVersion: HUD_LABEL_VERSION,
         favorMode: pick(FAVOR_MODES, src.favorMode, d.favorMode),
         intimacyGate: bool(src.intimacyGate, d.intimacyGate),
+        intimateCost: pick(INTIMATE_COSTS, src.intimateCost, d.intimateCost),
+        dateRegex: regexText(src.dateRegex),
+        timeRegex: regexText(src.timeRegex),
         ruleset: rulesetOf(src, d),
         newChat: pick(NEW_CHAT, src.newChat, d.newChat),
         storyCheck: pick(STORY_CHECK, src.storyCheck, d.storyCheck),

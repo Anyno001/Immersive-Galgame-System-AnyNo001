@@ -2,12 +2,13 @@
 // 纯函数，random 由账本按本楼种子提供；检定走 opts.engine（缺省为空注册表的默认规则体系）。
 // 返回 { state, changes, meta }，可直接作为 stat-ledger-settle 的 settle 回调结果。
 import { parseStatDirectives } from './stat-directives.js';
-import { FAVOR_GATES, applyDim, baseDelta, favorLimits, gateKey } from './stat-favor.js';
-import { START_DIMS, START_FAVOR } from './stat-vocab.js';
+import { FAVOR_GATES, FAVOR_TIERS, JEALOUS_NOTE, TRUST_FLOOR_MAX, applyDim, applyFavorTier, applyJealousy, applyTrustTier, downgradeStrength, favorLimits, favorStrength, favorTierLimits, favorWeight, gateKey, legacyTierOf, trustStrength } from './stat-favor.js';
+import { FAVOR_DELTA, FAVOR_STRENGTHS, INTIMATE_BASE, INTIMATE_LEVELS, INTIMATE_MULT, START_DIMS, START_FAVOR } from './stat-vocab.js';
 import { applyGift, applyKeyEvent } from './stat-favor-events.js';
-import { DEFAULT_MONEY_TABLE, applyBarDirective } from './stat-bars.js';
-import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } from './stat-day.js';
-import { DIM_MAX, DIM_MIN, SKILL_MAX, barsOf, clamp, createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
+import { DEFAULT_MONEY_TABLE, STRESS_DELTA, applyBarDirective } from './stat-bars.js';
+import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleRest, settleSkip, settleSoftDay } from './stat-day.js';
+import { DATE_REGEX_INVALID, TIME_REGEX_INVALID, captureFirst, compileCaptureRegex, judgeDateAdvance, parseHour } from './stat-date.js';
+import { DIM_MAX, SKILL_MAX, barsOf, clamp, createCharacter, dimMin, withBars, withCharacter, withClock } from './stat-state.js';
 import { rollDie } from './stat-rng.js';
 import { settleCombat } from './stat-battle.js';
 import { PROTAGONIST, createEngine, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } from './stat-engine.js';
@@ -15,7 +16,7 @@ import { registerStorySkill } from './stat-registry.js';
 
 const CHARACTER_KINDS = new Set(['favor', 'dim', 'gift', 'event']);
 const BAR_KINDS = new Set(['stamina', 'hurt', 'stress', 'money']);
-const TARGET_KINDS = new Set([...CHARACTER_KINDS, 'grow', 'start']);
+const TARGET_KINDS = new Set([...CHARACTER_KINDS, 'grow', 'start', 'intimate']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角)$/i;
 // 标签位置：数「roll 标签」之前出现了几个正文检定标签，用来对应骰序里的第几对骰（最多 ROLL_PAIR_MAX 对）。
 const ROLL_PAIR_MAX = 10;
@@ -74,7 +75,7 @@ function settleGrowTags(before, directives, ctx) {
 }
 
 // 同一角色同一维度一楼只留一条，取增量绝对值最大的方向（易错点 C5）。
-export function dedupeDims(directives) {
+export function dedupeDims(directives, tier = 'legacy') {
     const out = [];
     const slot = new Map();
     for (const d of directives) {
@@ -82,19 +83,39 @@ export function dedupeDims(directives) {
         const key = `${d.target}|${d.dim}`;
         if (!slot.has(key)) { slot.set(key, out.length); out.push(d); continue; }
         const i = slot.get(key);
-        if (Math.abs(baseDelta(d.dim, d.value)) > Math.abs(baseDelta(out[i].dim, out[i].value))) out[i] = d;
+        if (favorWeight(d, tier) > favorWeight(out[i], tier)) out[i] = d;
     }
     return out;
 }
 
 // 检定结果约束好感（§7.2）：社交检定失败时对象的正向好感降一档；对象不明时按本楼全部正向好感处理。
-export function constrainFavor(directives, check) {
+export function constrainFavor(directives, check, tier = 'legacy') {
     if (!check || !check.social || check.success) return directives;
     const target = check.against || check.toward;
     return directives.map((d) => {
+        // 信任（新三档）：社交检定失败时正向信任强度降一档，小降为无。
+        if (d.kind === 'dim' && d.dim === '信任' && d.value === '上升' && FAVOR_TIERS.includes(tier) && (!target || d.target === target)) {
+            const lower = FAVOR_STRENGTHS[FAVOR_STRENGTHS.indexOf(trustStrength(d)) - 1];
+            return lower ? { ...d, strength: lower, constrained: true } : { ...d, kind: 'skipped', constrained: true };
+        }
         if (d.kind !== 'favor' || !FAVOR_DOWNGRADE[d.value]) return d;
         if (target && d.target !== target) return d;
-        return { ...d, value: FAVOR_DOWNGRADE[d.value], constrained: true };
+        // 新三档：强度同时降一档（小降为无）；旧楼只降方向。
+        const value = FAVOR_DOWNGRADE[d.value];
+        if (!FAVOR_TIERS.includes(tier)) return { ...d, value, constrained: true };
+        const { strength } = downgradeStrength(d);
+        return strength ? { ...d, value, strength, constrained: true } : { ...d, value: '平淡', strength: undefined, constrained: true };
+    });
+}
+
+// 正向「重大」只在同楼对同一角色有 event 标签时成立，否则降为「大」。只对新三档生效。
+export function capMajorStrength(directives, tier) {
+    if (!FAVOR_TIERS.includes(tier)) return directives;
+    const evented = new Set(directives.filter((d) => d.kind === 'event').map((d) => d.target));
+    return directives.map((d) => {
+        if (d.kind === 'dim' && d.dim === '信任') return d.strength === '重大' && d.value === '上升' && !evented.has(d.target) ? { ...d, strength: '大' } : d;
+        if (d.kind !== 'favor' || favorStrength(d) !== '重大' || evented.has(d.target)) return d;
+        return FAVOR_DELTA[d.value] > 0 ? { ...d, strength: '大' } : d;
     });
 }
 
@@ -111,6 +132,16 @@ function applyCharacterDirective(current, d, state, ctx) {
         ctx.events.push({ target: d.target, ...result });
         return { character, change: result.success ? { dim: '好感', value: `${d.value}突破`, from: result.gate, to: result.gate + 1 } : null };
     }
+    if (d.kind === 'favor' && FAVOR_TIERS.includes(ctx.tier) && d.value === '吃醋') {
+        return applyJealousy(current, d, { tier: ctx.tier, random: ctx.random, coef, floorRoom: room('好感'), dailyMax: limits.daily });
+    }
+    if (d.kind === 'dim' && d.dim === '信任' && FAVOR_TIERS.includes(ctx.tier)) {
+        const r = applyTrustTier(current, d, { coef, floorRoom: TRUST_FLOOR_MAX + bonus - (ctx.floorGained.get(`${d.target}|信任`) || 0) });
+        return r;
+    }
+    if (d.kind === 'favor' && FAVOR_TIERS.includes(ctx.tier)) {
+        return applyFavorTier(current, d, { tier: ctx.tier, random: ctx.random, coef, floorRoom: room('好感'), dailyMax: limits.daily });
+    }
     return applyDim(current, d.dim, d.value, { random: ctx.random, coef, floorRoom: room(d.dim), dailyMax: limits.daily });
 }
 
@@ -123,7 +154,7 @@ function settleStartRelations(before, directives, ctx) {
         const pristine = !existing || (Object.values(existing.dims || {}).every((v) => !Number(v)) && !(existing.unlocked || []).length);
         if (!pristine) { ctx.diagnostics.push({ code: 'stat-start-ignored', name: d.target }); continue; }
         const base = existing || createCharacter(state.clock.day, { nsfw: ctx.nsfw });
-        const preset = START_DIMS[d.value] || {};
+        const preset = Object.fromEntries(Object.entries(START_DIMS[d.value] || {}).filter(([key]) => key !== '欲望' || ctx.nsfw));
         for (const [key, to] of Object.entries(preset)) {
             if (to) ctx.changes.push({ source: 'tag', target: d.target, key, from: 0, to, note: `起始关系·${d.value}` });
         }
@@ -138,7 +169,7 @@ function settleStartRelations(before, directives, ctx) {
     return state;
 }
 
-export const MANUAL_DIMS = Object.freeze(['好感', '信任', '了解', '芥蒂']);
+export const MANUAL_DIMS = Object.freeze(['好感', '信任', '了解', '芥蒂', '欲望']);
 export const MANUAL_BARS = Object.freeze(['stamina', 'money', 'stress']);
 const MANUAL_BAR_RANGE = Object.freeze({ stamina: [0, 100], stress: [0, 100], money: [-Infinity, Infinity] });
 
@@ -175,8 +206,8 @@ export function applyManualRelations(state, manual, changes = [], { nsfw = false
         const patch = {};
         for (const key of MANUAL_DIMS) {
             const v = Number(dims[key]);
-            if (!Number.isFinite(v)) continue;
-            const to = clamp(Math.round(v), DIM_MIN, DIM_MAX);
+            if (!Number.isFinite(v) || (key === '欲望' && !nsfw)) continue;
+            const to = clamp(Math.round(v), dimMin(key), DIM_MAX);
             const from = Number(cur.dims[key]) || 0;
             if (to === from) continue;
             patch[key] = to;
@@ -200,11 +231,14 @@ function settleCharacters(before, directives, ctx) {
         if (!CHARACTER_KINDS.has(d.kind)) continue;
         if (d.dim === '欲望' && !ctx.nsfw) { ctx.diagnostics.push({ code: 'stat-dim-disabled', name: d.target, dim: d.dim }); continue; }
         const current = state.characters[d.target] || createCharacter(state.clock.day, { nsfw: ctx.nsfw });
-        const { character, change } = applyCharacterDirective(current, d, state, ctx);
-        if (change && change.to !== change.from) {
+        const result = applyCharacterDirective(current, d, state, ctx);
+        const { character } = result;
+        for (const change of result.changes || [result.change]) {
+            if (!change || change.to === change.from) continue;
             ctx.changes.push({ source: 'tag', target: d.target, key: change.dim, from: change.from, to: change.to, note: d.constrained ? `${change.value}（检定失败）` : change.value });
             const gain = Math.max(0, change.to - change.from);
-            if (gain && d.kind !== 'event') {
+            // 吃醋带来的芥蒂不占单楼上限；其余增量照旧累计。
+            if (gain && d.kind !== 'event' && !(change.dim === '芥蒂' && change.value === JEALOUS_NOTE)) {
                 const key = `${d.target}|${change.dim}`;
                 ctx.floorGained.set(key, (ctx.floorGained.get(key) || 0) + gain);
             }
@@ -212,6 +246,43 @@ function settleCharacters(before, directives, ctx) {
         state = withCharacter(state, d.target, { ...character, lastSeenDay: state.clock.day });
     }
     return state;
+}
+
+// 亲密消耗体力（第十二节）：每楼按最高一档只扣一次，主角与标签里的每个角色各扣一次；NSFW 关闭或设置为「不消耗」时只解析不结算。
+// 当天第一次结算时主角压力下降一次（clock.intimateDay 记日）。必须在 settleBars 之前，体力归零才会触发 forcedRest。
+function settleIntimate(state, directives, ctx) {
+    const mult = ctx.nsfw ? INTIMATE_MULT[ctx.intimateCost] || 0 : 0;
+    const list = directives.filter((d) => d.kind === 'intimate' && d.target);
+    if (!mult || !list.length) return state;
+    const cost = (level) => Math.max(1, Math.round(INTIMATE_BASE[level] * mult));
+    const top = INTIMATE_LEVELS[Math.max(...list.map((d) => INTIMATE_LEVELS.indexOf(d.value)))];
+    let next = state;
+    const hero = next.protagonist.bars;
+    const heroStamina = clamp((Number(hero.stamina) || 0) - cost(top), 0, 100);
+    let bars = heroStamina === hero.stamina ? hero : { ...hero, stamina: heroStamina };
+    if (bars !== hero) ctx.changes.push({ source: 'tag', target: '主角', key: 'stamina', from: hero.stamina, to: heroStamina, note: '亲密' });
+    if (next.clock.intimateDay !== next.clock.day) {
+        const stress = clamp((Number(bars.stress) || 0) + STRESS_DELTA.下降, 0, 100);
+        if (stress !== bars.stress) {
+            ctx.changes.push({ source: 'tag', target: '主角', key: 'stress', from: bars.stress, to: stress, note: '亲密' });
+            bars = { ...bars, stress };
+        }
+        next = withClock(next, { intimateDay: next.clock.day });
+    }
+    next = withBars(next, bars);
+    const seen = new Set();
+    for (const d of list) {
+        if (seen.has(d.target)) continue;
+        seen.add(d.target);
+        const level = INTIMATE_LEVELS[Math.max(...list.filter((x) => x.target === d.target).map((x) => INTIMATE_LEVELS.indexOf(x.value)))];
+        const cur = next.characters[d.target] || createCharacter(next.clock.day, { nsfw: ctx.nsfw });
+        const own = barsOf(cur);
+        const to = clamp((Number(own.stamina) || 0) - cost(level), 0, 100);
+        if (to === own.stamina) continue;
+        ctx.changes.push({ source: 'tag', target: d.target, key: 'stamina', from: own.stamina, to, note: '亲密' });
+        next = withCharacter(next, d.target, { ...cur, bars: { ...own, stamina: to } });
+    }
+    return next;
 }
 
 // 23 点以后的行动每天额外记一次熬夜；体力归零时标记强制休息，并按入睡处理。
@@ -226,7 +297,8 @@ function settleBars(state, directives, hour, ctx) {
         if (r.change) ctx.changes.push({ source: 'tag', target: '主角', key: r.change.key, from: r.change.from, to: r.change.to, note: d.late ? '23点后熬夜' : d.value });
         bars = r.bars;
     }
-    if (bars.stamina <= 0) ctx.flags.forcedRest = true;
+    // 已捕捉日期的聊天不强制入睡：只标记体力透支，由提示词交给剧情安排休息。
+    if (bars.stamina <= 0) ctx.flags[ctx.dateMode ? 'exhausted' : 'forcedRest'] = true;
     const next = withBars(state, bars);
     return stayedUp !== state.clock.stayedUp ? withClock(next, { stayedUp }) : next;
 }
@@ -247,7 +319,29 @@ function settleNpcBars(state, directives, ctx) {
     return next;
 }
 
+// 以日期为准的过天：只看日期变化。睡觉标签只回体力；本楼没有日期时沿用上一个日期，不重复过天。
+function settleDateClock(state, directives, hour, ctx) {
+    const last = state.clock.lastDate;
+    const judge = judgeDateAdvance(last, ctx.dateKey);
+    let next;
+    if (judge.advance) {
+        next = judge.days === 1
+            ? settleDay(state, { random: ctx.random, changes: ctx.changes, skillValueOf: ctx.skillValueOf })
+            : settleSkip(state, judge.days, { random: ctx.random, changes: ctx.changes, skillValueOf: ctx.skillValueOf });
+        if (judge.capped) ctx.flags.skipCapped = true;
+        ctx.flags.dayAdvance = 'date';
+    } else {
+        next = directives.some((d) => d.kind === 'sleep') ? settleRest(state, { changes: ctx.changes }) : state;
+        const floors = next.clock.floorsSinceDay + 1;
+        if (floors >= SOFT_DAY_FLOORS) { next = settleSoftDay(next); ctx.flags.softDay = true; }
+        else next = withClock(next, { floorsSinceDay: floors });
+    }
+    next = withClock(next, { lastDate: ctx.dateKey || last });
+    return Number.isInteger(hour) ? withClock(next, { lastHour: hour }) : next;
+}
+
 function settleClock(state, narration, directives, hour, ctx) {
+    if (ctx.dateMode) return settleDateClock(state, directives, hour, ctx);
     const all = ctx.flags.forcedRest ? [...directives, { kind: 'sleep', forced: true }] : directives;
     const advance = detectDayAdvance({ narration, directives: all, lastHour: state.clock.lastHour, hour });
     let next;
@@ -314,18 +408,30 @@ function checkFromRollTag(before, tag, raw, opts, ctx) {
 // opts：{ random, hour, nsfw, resolveCharacter, moneyTable, walletExtra（战斗侧积分，并入金钱判断）, engine, check, rollPairs, preroll, storyChecks, noBattle, catalog, settings, floor }
 // check：本楼已定的检定（选项、输入匹配、手动掷骰）；没有时按 roll 标签与楼内骰序 rollPairs 重算。
 // storyChecks：正文 igs-check 的回放结果（主角的才会打成长勾；社交检定大成功可触发突破加成）。
-// favorMode：本楼按哪一档好感上限结算（'normal' 缺省 / 'hard'），困难档会写进 meta.favorMode，重算同一楼时沿用。
+// favorTier：本楼按哪一档好感成长结算（vivid / normal / hard），写进 meta.favorTier，重算同一楼时沿用。
+// intimateCost：亲密消耗体力档位（off / light / standard / heavy），写进 meta；旧楼没有该字段即不结算亲密体力。
+// favorMode：旧楼没有 favorTier 时的旧档位（缺省按旧普通，'hard' 按旧困难＝单楼 1、每日 4）。
 // npcChecks：正文检定里 NPC 作为一方的 [{ actor, skill }]，用到的技能给 NPC 打成长勾。
 // noBattle：战斗扩展接管战斗时为真，丢弃 battle 标签。
 // extraDirectives：由战报楼合成的 challenge 指令，不经 AI 标签解析，不受 noBattle 影响。
 export function settleFloorText(before, text, opts = {}) {
-    const { random, hour = null, nsfw = false, resolveCharacter, moneyTable = DEFAULT_MONEY_TABLE } = opts;
+    const { random, nsfw = false, resolveCharacter, moneyTable = DEFAULT_MONEY_TABLE } = opts;
     const parsed = parseStatDirectives(text);
     const diagnostics = [...parsed.diagnostics];
+    // 日期、时间捕捉：正则直接对楼层原文执行；非法正则记诊断并当作未填写。显式传入的 opts.hour 优先。
+    const dateRegex = compileCaptureRegex(opts.dateRegex);
+    const timeRegex = compileCaptureRegex(opts.timeRegex);
+    if (dateRegex.invalid) diagnostics.push({ code: DATE_REGEX_INVALID });
+    if (timeRegex.invalid) diagnostics.push({ code: TIME_REGEX_INVALID });
+    const dateKey = captureFirst(text, dateRegex.regex);
+    const hour = Number.isInteger(opts.hour) ? opts.hour : parseHour(captureFirst(text, timeRegex.regex));
     const narration = narrationOf(text);
     const resolve = resolveCharacter || ((name) => (Object.hasOwn(before.characters, name) ? name : null));
     const engine = opts.engine || createEngine();
-    const ctx = { random, nsfw, moneyTable, limits: favorLimits(opts.favorMode), walletExtra: Number(opts.walletExtra) || 0, present: Array.isArray(opts.present) ? opts.present : undefined, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null, skillValueOf: (st, name, skill) => profileOf(engine, st, name, skill).value };
+    // favorTier（vivid / normal / hard）优先；没有时按旧 favorMode 还原为 legacy（旧普通）或 legacyHard（旧困难），保证旧楼重算不变。
+    const tier = FAVOR_TIERS.includes(opts.favorTier) ? opts.favorTier : legacyTierOf(opts.favorMode);
+    const intimateCost = Object.hasOwn(INTIMATE_MULT, opts.intimateCost) ? opts.intimateCost : null;
+    const ctx = { random, nsfw, dateKey, dateMode: Boolean(dateRegex.regex && (dateKey || (before.clock && before.clock.lastDate))), moneyTable, tier, intimateCost, limits: favorTierLimits(tier), walletExtra: Number(opts.walletExtra) || 0, present: Array.isArray(opts.present) ? opts.present : undefined, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null, skillValueOf: (st, name, skill) => profileOf(engine, st, name, skill).value };
     const rollTag = parsed.directives.find((d) => d.kind === 'roll') || null;
     let check = opts.check || null;
     let pendingRoll = null;
@@ -341,7 +447,7 @@ export function settleFloorText(before, text, opts = {}) {
     const allowed = opts.noBattle ? merged.filter((d) => d.kind !== 'battle') : merged;
     if (allowed.length !== merged.length) diagnostics.push({ code: 'stats-battle-skipped-combat' });
     const extra = (Array.isArray(opts.extraDirectives) ? opts.extraDirectives : []).filter((d) => d && d.kind === 'challenge');
-    const directives = [...constrainFavor(dedupeDims(resolveTargets(allowed, resolve, diagnostics)), lead), ...extra];
+    const directives = [...constrainFavor(dedupeDims(capMajorStrength(resolveTargets(allowed, resolve, diagnostics), tier), tier), lead, tier), ...extra];
     // 数据库表格里的人物在本楼首次建档：沿用表格当时的好感、信任、了解，之后只按正文标签变化。
     let state = before;
     if (opts.seedCharacters) {
@@ -358,17 +464,23 @@ export function settleFloorText(before, text, opts = {}) {
     state = settleCharacters(state, directives, ctx);
     state = settleGrowTags(state, directives, ctx);
     state = settleCombat(state, directives, ctx);
+    state = settleIntimate(state, directives, ctx);
     state = settleBars(state, directives, hour, ctx);
     state = settleNpcBars(state, directives, ctx);
     state = settleClock(state, narration, directives, hour, ctx);
     if (opts.manual) state = applyManualRelations(state, opts.manual, ctx.changes, { nsfw });
     const meta = { diagnostics, events: ctx.events, flags: ctx.flags };
     if (opts.manual && Object.keys(opts.manual).length) meta.manual = opts.manual;
+    if (dateKey) meta.dateKey = dateKey;
+    if (Number.isInteger(hour)) meta.hour = hour;
     if (check) meta.check = check;
     if (storyChecks.length) meta.checks = storyChecks.map((item) => ({ ruleset: item.ruleset, actor: item.actor, skill: item.skill, dc: item.dc, difficulty: item.difficulty, roll: item.roll ?? item.die, total: item.total, tier: item.tier, success: item.success }));
     if (pendingRoll) meta.pendingRoll = pendingRoll;
     if (ctx.newSkills.length) meta.newSkills = ctx.newSkills;
     if (rollTag) meta.rollTag = { skill: rollTag.skill, difficulty: rollTag.difficulty };
-    if (ctx.limits.mode === 'hard') meta.favorMode = 'hard';
+    if (FAVOR_TIERS.includes(tier)) meta.favorTier = tier;
+    else if (tier === 'legacyHard') meta.favorMode = 'hard';
+    // NSFW 关闭时不记档位：日后开启 NSFW 重算该楼，没有字段即不扣体力。
+    if (intimateCost && nsfw) meta.intimateCost = intimateCost;
     return { state, changes: ctx.changes, meta };
 }

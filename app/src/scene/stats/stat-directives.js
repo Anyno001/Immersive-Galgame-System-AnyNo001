@@ -1,6 +1,6 @@
 // [igs-stat:…] 数值标签解析与剔除。只认离散档位；战斗数量与时间跳跃天数是结构参数，单独限幅。
 // 容错（易错点 C1）：[] 或 【】 包裹、半角或全角冒号与竖线、字段两侧多空格与换行。
-import { DIM_DIRECTIONS, DIM_KINDS, ENEMY_TIERS, FAVOR_DIRECTIONS, HURT_TIERS, KEY_EVENTS, MONEY_FLOWS, MONEY_TIERS, ROLL_DIFFICULTIES, STAMINA_EVENTS, START_RELATIONS, normalizeTier } from './stat-vocab.js';
+import { FAVOR_STRENGTHS, INTIMATE_LEVELS, DIM_DIRECTIONS, DIM_KINDS, ENEMY_TIERS, FAVOR_DIRECTIONS, HURT_TIERS, KEY_EVENTS, MONEY_FLOWS, MONEY_TIERS, ROLL_DIFFICULTIES, STAMINA_EVENTS, START_RELATIONS, normalizeTier } from './stat-vocab.js';
 import { parseSkipDays } from './stat-duration.js';
 
 const tagPattern = () => /[\[【]\s*igs-stat\s*[:：]([^\]】]*)[\]】]/gi;
@@ -24,7 +24,11 @@ function parseFields([kindRaw, a, b, c]) {
     const target = freeText(a);
     if (kind === 'favor' || kind === '好感') {
         const value = normalizeTier('favor', FAVOR_DIRECTIONS, b);
-        return target && value ? { kind: 'favor', target, dim: '好感', value } : null;
+        // 第四段为可选强度；写了但归一不了（含数字）整条丢弃，省略则由结算按方向推定。
+        const given = String(c ?? '').trim();
+        const strength = given ? normalizeTier('strength', FAVOR_STRENGTHS, given) : null;
+        if (given && !strength) return null;
+        return target && value ? { kind: 'favor', target, dim: '好感', value, ...(strength ? { strength } : {}) } : null;
     }
     if (kind === 'start' || kind === '起始关系') {
         const value = normalizeTier('start', START_RELATIONS, b);
@@ -32,7 +36,11 @@ function parseFields([kindRaw, a, b, c]) {
     }
     if (DIM_KINDS[kind]) {
         const value = normalizeTier('dim', DIM_DIRECTIONS, b);
-        return target && value ? { kind: 'dim', target, dim: DIM_KINDS[kind], value } : null;
+        // 信任可带强度（第四段）；写了但归一不了（含数字）整条丢弃，省略按「小」。其他维度不读第四段。
+        const given = DIM_KINDS[kind] === '信任' ? String(c ?? '').trim() : '';
+        const strength = given ? normalizeTier('strength', FAVOR_STRENGTHS, given) : null;
+        if (given && !strength) return null;
+        return target && value ? { kind: 'dim', target, dim: DIM_KINDS[kind], value, ...(strength ? { strength } : {}) } : null;
     }
     switch (kind) {
     // 生活条标签可选带角色名：stamina|档位 或 stamina|角色|档位；money|收入/花费|档位 或 money|角色|收入/花费|档位。不带角色名算主角。
@@ -54,6 +62,10 @@ function parseFields([kindRaw, a, b, c]) {
         const value = normalizeTier('moneyTier', MONEY_TIERS, own ? b : c);
         const who = own ? null : freeText(a);
         return flow && value && (own || who) ? { kind, flow, value, ...(who ? { target: who } : {}) } : null;
+    }
+    case 'intimate': case '亲密': {
+        const level = normalizeTier('intimate', INTIMATE_LEVELS, b);
+        return target && level ? { kind: 'intimate', target, value: level } : null;
     }
     case 'sleep': return { kind };
     case 'hurt': { const value = normalizeTier('hurt', HURT_TIERS, a); return value ? { kind, value } : null; }

@@ -987,7 +987,8 @@ const STATUS_HUD_LOCATION_ICON = '<svg viewBox="0 0 24 24" width="16" height="16
 const STATUS_HUD_COLOR_VARS = Object.freeze({
     trust: 'var(--igs-hud-bar-trust,#4ab3da)',
     like: 'var(--igs-hud-bar-like,#ee83b6)',
-    grudge: 'var(--igs-hud-bar-grudge,#b3263e)',
+    grudge: 'var(--igs-hud-bar-grudge,#2f6b6e)',
+    desire: 'var(--igs-hud-bar-desire,#e5484d)',
     cold: 'var(--igs-hud-bar-cold,#6a8fc4)',
     know: 'var(--igs-hud-bar-know,#e8a355)',
     'slot-1': 'var(--igs-hud-bar-1,#57aaee)',
@@ -1220,7 +1221,7 @@ export function applyStatusHudToDom(root, snapshot) {
     if (hasMetrics || !heroRows.length) {
         const metrics = doc.createElement('div');
         metrics.className = 'igs-hud-metrics';
-        appendMetricRows(metrics, hasMetrics ? hud.metrics.slice(0, 4) : []);
+        appendMetricRows(metrics, hasMetrics ? hud.metrics.slice(0, 6) : []);
         host.appendChild(metrics);
     }
     const toggle = doc.createElement('button');

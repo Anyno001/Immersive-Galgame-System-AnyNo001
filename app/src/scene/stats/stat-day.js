@@ -91,7 +91,7 @@ function coolCharacters(characters, day, days, changes) {
     for (const [name, character] of Object.entries(characters)) {
         const cooled = coolDown(character, day, days);
         if (cooled !== character) changes.push({ source: 'daily', target: name, key: '好感', from: character.dims.好感, to: cooled.dims.好感, note: '冷却' });
-        next[name] = resetDaily(cooled, day);
+        next[name] = resetDaily(cooled, day, days);
     }
     return next;
 }
@@ -145,6 +145,15 @@ function grow(state, random, changes, skillValueOf) {
     return growNpcSkills(hero, random, changes, skillValueOf);
 }
 
+// 入睡回体力（已捕捉日期的聊天）：睡觉标签只恢复体力，不推进日期、不做日结算；熬夜后只到 70。
+export function settleRest(state, { changes = [] } = {}) {
+    const { bars } = state.protagonist;
+    const stamina = Math.max(bars.stamina, state.clock.stayedUp ? 70 : 100);
+    if (stamina === bars.stamina && !state.clock.stayedUp) return state;
+    pushBarChanges(bars, { ...bars, stamina }, changes, '入睡');
+    return withClock(withBars(state, { ...bars, stamina }), { stayedUp: false });
+}
+
 // 时间跳跃：体力回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
 export function settleSkip(state, days, { random, changes = [], skillValueOf } = {}) {
     const day = state.clock.day + days;
@@ -160,6 +169,6 @@ export function settleSkip(state, days, { random, changes = [], skillValueOf } =
 // 软跨天：连续 30 楼没有跨天时只清零每日上限，不恢复、不成长，天数不变（易错点 D2）。
 export function settleSoftDay(state) {
     const { day } = state.clock;
-    const characters = Object.fromEntries(Object.entries(state.characters).map(([name, c]) => [name, resetDaily(c, day)]));
+    const characters = Object.fromEntries(Object.entries(state.characters).map(([name, c]) => [name, resetDaily(c, day, 0)]));
     return withClock({ ...state, characters }, { floorsSinceDay: 0, challenges: 0 });
 }

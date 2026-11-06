@@ -4,7 +4,7 @@
 import { stageOf } from './stat-favor.js';
 import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
 import { isProtagonist } from './stat-engine.js';
-import { grudgeTier } from './stat-state.js';
+import { barsOf, grudgeTier } from './stat-state.js';
 
 const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕|信任|信赖|了解|认知|熟悉|欲望|芥蒂|仇怨|怨恨|关系/;
 
@@ -63,7 +63,8 @@ export function displayOfDim(dim, value, hudLabel = 'number') {
     return stage;
 }
 
-export function characterStatMetrics(character, { hudLabel = 'number', nsfw = false } = {}) {
+// stamina：亲密消耗开启时才传真，角色体力只在这时会变；体力条排在最上面。
+export function characterStatMetrics(character, { hudLabel = 'number', nsfw = false, stamina = false } = {}) {
     if (!character || !character.dims) return [];
     const out = [];
     const dims = '芥蒂' in character.dims ? character.dims : { ...character.dims, 芥蒂: 0 };
@@ -83,6 +84,10 @@ export function characterStatMetrics(character, { hudLabel = 'number', nsfw = fa
             // 好感条显示阶段名时，飘字只出心形、不出数字（§10）。
             quiet: dim === '好感' && hudLabel === 'stage',
         });
+    }
+    if (stamina) {
+        const v = Math.max(0, Math.min(100, Math.round(Number(barsOf(character).stamina) || 0)));
+        out.unshift({ label: BAR_LABEL.stamina, percent: v, display: String(v), colorKey: BAR_COLOR.stamina, sourceUid: 'igs-stats' });
     }
     return out;
 }
@@ -110,13 +115,13 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
 
 // 与 createCharacterMetricsLookup 同形；未登记的名字返回空，调用方可按原逻辑退回表格。
 // sheets：聊天级 NPC 角色卡（v2 §9.3）；有卡时返回 sheet 段：资历、擅长项、是否待定。
-export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'number', nsfw = false, sheets = null, engine = null } = {}) {
+export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'number', nsfw = false, stamina = false, sheets = null, engine = null } = {}) {
     return (name) => {
         const key = state && resolve(String(name || '').trim());
         const c = key && state.characters[key];
         if (!c) return { metrics: [], stages: [] };
         const out = {
-            metrics: characterStatMetrics(c, { hudLabel, nsfw }),
+            metrics: characterStatMetrics(c, { hudLabel, nsfw, stamina }),
             stages: [{ label: '关系阶段', value: stageOf(c.dims.好感).name }],
         };
         if (sheets) out.sheet = sheetSummary(key, sheets[key], engine);

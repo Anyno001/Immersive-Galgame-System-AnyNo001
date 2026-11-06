@@ -54,3 +54,11 @@ test('阶段与数字显示：四个维度在 stage、both、number 下各取对
     const low = Object.fromEntries(characterStatMetrics(c, { hudLabel: 'stage', nsfw: true }).map((m) => [m.label, m.display]));
     assert.deepEqual(low, { 好感: '无感', 信任: '戒备', 了解: '陌生', 欲望: '悸动' });
 });
+
+test('角色体力条只在亲密消耗开启时出现，排在好感上面', () => {
+    const c = { ...createCharacter(1, { nsfw: true }), bars: { stamina: 40 } };
+    assert.equal(characterStatMetrics(c, { nsfw: true }).some((m) => m.label === '体力'), false);
+    const rows = characterStatMetrics(c, { nsfw: true, stamina: true });
+    assert.deepEqual(rows.slice(0, 2).map((m) => m.label), ['体力', '好感']);
+    assert.equal(rows[0].display, '40');
+});

@@ -80,7 +80,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
     }
     // 旧存档里可能已把用户登记成人际角色：数据保留，列表不显示。
     const characters = Object.entries(state.characters || {}).filter(([name]) => !(typeof isHero === 'function' && isHero(name))).map(([name, c]) => ({
-        name, stage: stageOf(Number(c.dims && c.dims.好感) || 0).name, dims: { ...(c.dims || {}) },
+        name, stage: stageOf(Number(c.dims && c.dims.好感) || 0).name, dims: { ...(c.dims || {}) }, intimacyForced: ((catalog && catalog.intimacyForced) || []).includes(name),
     }));
     const skills = Object.entries((state.protagonist && state.protagonist.skills) || {}).map(([name, s]) => ({
         name, value: Number(s && s.value) || 0, marked: Boolean(s && s.marked),
@@ -113,4 +113,52 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
         heroSkills: heroSkillRows(engine, state, heroSkills),
         hasBackup: Boolean(hasBackup),
     };
+}
+
+// 好感总览（数值系统开启时的数据源）：已登记的人际角色，按好感从高到低；每人附原始维度与人际维度的变动记录（新的在前）。
+// 排除主角与旧存档里误登记的用户本人。数值条由调用方用 characterStatMetrics 生成，与状态栏同一路径。
+export const OVERVIEW_DIMS = Object.freeze(['好感', '信任', '了解', '芥蒂', '欲望']);
+
+export function statsFavorOverview(ledger, { isHero = null } = {}) {
+    if (!ledger) return [];
+    const state = currentStatsState(ledger);
+    const logs = new Map();
+    const floors = [...ledger.active.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [messageId, swipeId] of floors) {
+        const entry = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
+        const day = entry && entry.after && entry.after.clock ? entry.after.clock.day : null;
+        for (const c of (entry && entry.changes) || []) {
+            if (!OVERVIEW_DIMS.includes(String(c.key ?? ''))) continue;
+            const target = String(c.target ?? '');
+            if (!logs.has(target)) logs.set(target, []);
+            logs.get(target).push({ day, messageId, key: String(c.key), from: c.from, to: c.to, note: String(c.note ?? '') });
+        }
+    }
+    return Object.entries(state.characters || {})
+        .filter(([name]) => name !== PROTAGONIST && !(typeof isHero === 'function' && isHero(name)))
+        .map(([name, c]) => ({ name, dims: { ...(c.dims || {}) }, log: (logs.get(name) || []).reverse() }))
+        .sort((a, b) => (Number(b.dims.好感) || 0) - (Number(a.dims.好感) || 0));
+}
+
+export const CLOCK_TRAIL_MAX = 20;
+
+// 诊断用：最近若干楼结算后的时钟（捕捉到的日期与整点），没有日期也没有整点的楼不列。
+export function statsClockTrail(ledger, max = CLOCK_TRAIL_MAX) {
+    if (!ledger) return [];
+    const rows = [];
+    for (const [messageId, swipeId] of [...ledger.active.entries()].sort((a, b) => a[0] - b[0])) {
+        const entry = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
+        const clock = entry && entry.after && entry.after.clock;
+        if (!clock) continue;
+        const date = clock.lastDate == null ? '' : String(clock.lastDate);
+        const hour = Number.isInteger(clock.lastHour) ? clock.lastHour : null;
+        if (!date && hour === null) continue;
+        rows.push({ messageId, date, hour });
+    }
+    return rows.slice(-max);
+}
+
+export function describeClockTrail(rows) {
+    if (!rows || !rows.length) return '';
+    return `日期捕捉（最近 ${rows.length} 楼） ${rows.map((r) => `#${r.messageId} ${r.date || '-'} ${r.hour === null ? '-' : `${r.hour}时`}`).join(' · ')}`;
 }

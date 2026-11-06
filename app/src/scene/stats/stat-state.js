@@ -9,6 +9,8 @@ export const SKILL_MIN = 10;
 export const SKILL_MAX = 90;
 export const DIM_MIN = -100;
 export const DIM_MAX = 100;
+// 欲望不设负数，反感交给好感与芥蒂。
+export const dimMin = (dim) => (dim === '欲望' ? 0 : DIM_MIN);
 
 export function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -26,7 +28,7 @@ export function defaultBars(money = 0) {
 export function createStatsState({ day = 1, special = 50, money = 0, prefs = null } = {}) {
     return {
         version: STATS_VERSION,
-        clock: { day, lastHour: null, floorsSinceDay: 0, stayedUp: false, challenges: 0, lastChallengeFloor: null, lastChallengeReport: null },
+        clock: { day, lastHour: null, lastDate: null, floorsSinceDay: 0, stayedUp: false, challenges: 0, lastChallengeFloor: null, lastChallengeReport: null },
         protagonist: {
             skills: skillTable(DEFAULT_SPECIAL_SKILLS, special),
             prefs: prefs && typeof prefs === 'object' ? { ...prefs } : null,
@@ -40,7 +42,7 @@ export function createStatsState({ day = 1, special = 50, money = 0, prefs = nul
 export function createCharacter(day, { nsfw = false } = {}) {
     const dims = Object.fromEntries(DEFAULT_DIMS.map((dim) => [dim, 0]));
     if (nsfw) dims.欲望 = 0;
-    return { dims, daily: { day, gained: {} }, recent: [], lastSeenDay: day, unlocked: [], bars: defaultBars() };
+    return { dims, daily: { day, gained: {} }, recent: [], lastSeenDay: day, unlocked: [], bars: defaultBars(), heart: 0 };
 }
 
 // 角色生活条：旧存档的角色没有 bars 时按初值补齐（不改原对象）。

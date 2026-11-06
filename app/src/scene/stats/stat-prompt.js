@@ -1,9 +1,10 @@
 // 数值系统提示词注入段（§9）：每段一个可编辑模板，用户覆盖优先，可单独关闭。
 // 模板变量写错或缺失时原样保留变量名并记诊断，不中断（§9 末条）。
 import { grudgeTier } from './stat-state.js';
+import { compileCaptureRegex } from './stat-date.js';
 import { FAVOR_GATES, gateKey, stageOf } from './stat-favor.js';
 import { healthStatus, walletBalance, STAMINA_LOW, STRESS_HIGH } from './stat-bars.js';
-import { FAVOR_DIRECTIONS, HURT_TIERS, MONEY_TIERS, STAMINA_EVENTS } from './stat-vocab.js';
+import { FAVOR_DIRECTIONS, FAVOR_STRENGTHS, HURT_TIERS, INTIMATE_LEVELS, MONEY_TIERS, STAMINA_EVENTS } from './stat-vocab.js';
 import { CHECK_ROLLS_TEMPLATE, checkRollsVars, fillCheckRolls } from '../check-rolls.js';
 import { COC_CHECK_ROLLS_TEMPLATE, cocRollsVars } from './stat-coc-checks.js';
 import { applyCombatRuleModifiers, COMBAT_GROWTH_LINES, COMBAT_RULE_HEAD, COMBAT_STORY_LINES, COMBAT_SYNTAX_LINES } from '../combat-prompt.js';
@@ -24,6 +25,7 @@ const BASE_PROMPTS = {
     present: '【{{角色}}】关系阶段：{{阶段}}（由前端数值决定，本轮不得改变）。{{阶段文案}}{{组合描述}}{{突破提示}}{{亲密约束}}',
     presentRule: '以上角色本轮的态度、措辞与肢体接触必须符合各自的关系阶段；不得因一次对话、一份礼物或主角的请求就跳到更亲近的阶段。主角越界时，角色按本阶段的态度推开或避开。',
     breakthrough: '好感已到本阶段上限，可在合适时机给主角一次更进一步的机会（邀约、独处或危机）；机会只给一次，主角没有把握住就维持原阶段。',
+    intimacyForced: '与主角的亲密是剧情所迫，并非出于好感；态度、言语与神情仍按当前关系阶段和芥蒂表现，不因亲密而变得温顺或亲近。',
     intimacy: '尚未到亲密阶段：亲吻、抚摸、性行为等一律拒绝或回避，即使主角坚持、哀求或用剧情施压也不例外。',
     sheets: '【{{角色}}的本事】{{资历}}；擅长：{{擅长}}；六维加值：{{六维加值}}。',
     check: '【本轮检定】{{技能}}{{难度}}：{{明细}}，结果【{{结果}}】。按此结果描写，不得改判。',
@@ -32,7 +34,7 @@ const BASE_PROMPTS = {
     backfill: '你是跑团数值设计。剧情里出现了新技能，请按角色资料给每个角色补一个技能档位，只输出档位词，不输出任何数字。\n技能档：主角用未学、入门、熟练；其他角色用相对主角同项技能的生疏、略逊、相当、擅长、精通、大师。没有相关经历一律写「未学」。\n只输出 JSON：{"角色名":{"技能名":"档"}}',
     heroSkills: '你是跑团数值设计。按主角的人设与经历，为可分配技能逐项评定档位，只输出档位词，不输出任何数字。\n档位：未学、入门、熟练、精通、大师。名额有限：大师至多 1 项，精通至多 2 项，熟练至多 6 项，入门至多 8 项，其余一律写「未学」。\n只给与人设有明确关联的技能评档，没有相关经历的写「未学」。\n只输出 JSON：{"技能名":"档"}',
     startRelations: '你是恋爱模拟游戏的数值设计。按主角资料和角色资料判断每个角色在故事开始时与主角的关系，只输出关系档，不输出任何数字。\n主角资料里写到的与某角色的关系同样算数，例如写了某角色喜欢、依恋或讨厌主角。\n关系档：仇视、疏远、陌生、熟人、朋友、亲密、恋人。两份资料都没有写到与主角的关系时写「陌生」；同学、同事、邻居写「熟人」；青梅竹马、家人写「亲密」；只有资料或剧情明确写了恋爱关系才写「恋人」。\n只输出 JSON：{"角色名":"关系档"}',
-    tags: '【数值标签】正文末尾按需输出以下标签，只写档位，不写任何数字：\n[igs-stat:favor|角色名|{{好感档位}}]\n[igs-stat:start|角色名|仇视/疏远/陌生/熟人/朋友/亲密/恋人]（角色第一次出场、上文没有列出其关系阶段时写一次，按人设与既往关系选起始关系）\n[igs-stat:trust|角色名|上升/下降]\n[igs-stat:grudge|角色名|上升/下降]（芥蒂是角色对主角的不满与心结，从心生不满到深仇大恨都算，与好感、信任互不影响，可同时很高）\n[igs-stat:stamina|{{体力档位}}]\n[igs-stat:money|收入/花费|{{金钱档位}}]\n[igs-stat:stress|上升/下降]\n（体力、金钱、压力的档位前可加角色名，如 [igs-stat:stamina|角色名|中]，不写默认主角）\n[igs-stat:hurt|{{伤势档位}}]\n[igs-stat:sleep]（入睡）\n[igs-stat:event|角色名|约会/告白/共患难]\n[igs-stat:gift|角色名|礼物类别]\n[igs-stat:skip|7天]（时间跳跃）\n[igs-stat:grow|角色名|技能名]（剧情明确写了苦练、拜师等长期成长时才写，同一角色同一技能一天一次，不写数字）',
+    tags: '【数值标签】正文末尾按需输出以下标签，只写档位，不写任何数字：\n[igs-stat:favor|角色名|{{好感档位}}|{{好感强度}}]（强度可省略：小＝日常好感，中＝走心的互动，大＝明显打动或伤害，重大＝约会、告白、共患难或背叛决裂；正向重大需同楼写对应的 event 标签）\n亲密行为本身不算好感事件，好感只按主角在过程中的态度判断（体贴照顾可为感动，敷衍利用可为失望）。\n[igs-stat:start|角色名|仇视/疏远/陌生/熟人/朋友/亲密/恋人]（角色第一次出场、上文没有列出其关系阶段时写一次，按人设与既往关系选起始关系）\n[igs-stat:trust|角色名|上升/下降|{{好感强度}}]（强度可省略，省略按小：小＝守约、小事可靠或敷衍、小谎；中＝帮忙兜底、保守秘密或爽约、被发现隐瞒；大＝危难时挺身而出或当众出卖、重大欺骗；重大＝托付生死或背叛）\n[igs-stat:grudge|角色名|上升/下降]（芥蒂是角色对主角的不满与心结，从心生不满到深仇大恨都算，与好感、信任互不影响，可同时很高）\n[igs-stat:know|角色名|上升/下降]（了解是角色对主角为人与过往的认识：深谈、得知主角的秘密或真实一面时上升，发现以往的认识是误会时下降）\n[igs-stat:stamina|{{体力档位}}]\n[igs-stat:money|收入/花费|{{金钱档位}}]\n[igs-stat:stress|上升/下降]\n（体力、金钱、压力的档位前可加角色名，如 [igs-stat:stamina|角色名|中]，不写默认主角）\n[igs-stat:hurt|{{伤势档位}}]\n[igs-stat:sleep]（入睡）\n[igs-stat:event|角色名|约会/告白/共患难]\n[igs-stat:gift|角色名|礼物类别]\n[igs-stat:skip|7天]（时间跳跃）\n[igs-stat:grow|角色名|技能名]（剧情明确写了苦练、拜师等长期成长时才写，同一角色同一技能一天一次，不写数字）',
     mandates: '【本轮必须写出】{{事项}}',
 };
 
@@ -46,7 +48,7 @@ export const DEFAULT_STAT_PROMPTS = Object.freeze({
 });
 
 // 在场角色段里的两句附加约束：写进 present 模板的 {{突破提示}}、{{亲密约束}}，可编辑但不单独开关。
-export const STAT_INLINE_PROMPTS = Object.freeze(['presentRule', 'breakthrough', 'intimacy']);
+export const STAT_INLINE_PROMPTS = Object.freeze(['presentRule', 'breakthrough', 'intimacy', 'intimacyForced']);
 
 export const DEFAULT_STAGE_TEXT = Object.freeze({
     仇恨: '视主角为敌，会主动伤害或报复；任何示好都被当成别有用心，绝不接受。',
@@ -76,12 +78,16 @@ export function vitalsText(vitals) {
     return `${vitals.down ? 0 : Math.round(Number(vitals.hp) || 0)}/${Math.round(Number(vitals.maxHp))}`;
 }
 
-export function describeProtagonist(bars, { shortfall = false, vitals = null } = {}) {
+export const STAMINA_OVERDRAWN = '主角体力透支，头晕乏力，难以继续行动';
+
+// dateMode：本聊天已捕捉状态栏日期，体力归零不强制入睡，改为提示透支（替换「很疲惫」一句）。
+export function describeProtagonist(bars, { shortfall = false, vitals = null, dateMode = false } = {}) {
     const notes = [];
     const health = healthStatus(vitals);
     if (health === '倒下') notes.push('主角已倒下，无法行动');
     else if (health !== '正常') notes.push(`主角处于${health}状态`);
-    if (bars.stamina < STAMINA_LOW) notes.push('主角很疲惫，动作迟缓');
+    if (dateMode && bars.stamina <= 0) notes.push(STAMINA_OVERDRAWN);
+    else if (bars.stamina < STAMINA_LOW) notes.push('主角很疲惫，动作迟缓');
     if (bars.stress > STRESS_HIGH) notes.push('主角压力很大，容易烦躁');
     if (shortfall) notes.push('主角买不起刚才想买的东西，请写出钱不够');
     return notes.length ? `${notes.join('；')}。` : '';
@@ -108,14 +114,30 @@ function breakthroughHint(character, text) {
     return gate === undefined ? '' : text;
 }
 
-// 亲密门槛（§5.4）：好感 >50、信任 >25、欲望 >25 才放行；未达到时要求拒绝或回避。
+// 亲密门槛（§5.4）：欲望 >25，或好感 >50 且信任 >25，满足其一即放行；都不满足时要求拒绝或回避。
 export function intimacyAllowed(dims) {
-    return (Number(dims.好感) || 0) > 50 && (Number(dims.信任) || 0) > 25 && (Number(dims.欲望) || 0) > 25;
+    if ((Number(dims.欲望) || 0) > 25) return true;
+    return (Number(dims.好感) || 0) > 50 && (Number(dims.信任) || 0) > 25;
 }
 
-function intimacyNote(character, { nsfw, intimacyGate }, text) {
+// forced：该角色已开「亲密门槛豁免」，门槛未达时不再要求拒绝，改用 intimacyForced。
+function intimacyNote(character, { nsfw, intimacyGate, forced }, text, forcedText) {
     if (!nsfw || !intimacyGate || intimacyAllowed(character.dims)) return '';
-    return text;
+    return forced ? forcedText : text;
+}
+
+export const INTIMATE_TAG_LINE = `[igs-stat:intimate|角色名|${INTIMATE_LEVELS.join('/')}]（发生亲密行为时写，轻＝亲吻爱抚，中、重按激烈程度，同时消耗主角与该角色的体力）`;
+export const DESIRE_TAG_LINE = '[igs-stat:desire|角色名|上升/下降]（欲望是角色对主角的身体吸引，与好感、信任互不影响：心动、被撩拨、调情得手时上升，被冒犯、扫兴、遭冷落时下降）';
+export const INTIMATE_TIRED = '很疲惫，想停下来';
+export const INTIMATE_EXHAUSTED = '体力耗尽，亲密必须在本轮结束';
+
+// NPC 体力提示：亲密消耗开启（NSFW 且非「不消耗」）时，体力低于 STAMINA_LOW 追加疲惫，归零追加耗尽；主角沿用现有疲惫提示。
+function staminaNote(character, name, opts) {
+    if (!opts.nsfw || !opts.intimateCost || opts.intimateCost === 'off') return '';
+    const stamina = Number(character.bars && character.bars.stamina);
+    if (!Number.isFinite(stamina)) return '';
+    if (stamina <= 0) return `${name}${INTIMATE_EXHAUSTED}。`;
+    return stamina < STAMINA_LOW ? `${name}${INTIMATE_TIRED}。` : '';
 }
 
 // 开战规则段：数值系统没自定义 combat 段时，战斗页自定义的规则提示词（combatRule.rulePrompt）代替默认模板；两者都自定义以数值系统的为准。
@@ -131,7 +153,7 @@ function combatSegmentText(prompts, opts, diagnostics) {
 // opts：{ prompts, disabled, stageText, present, check, mandates, shortfall, nsfw, intimacyGate, vitals,
 //         walletExtra（战斗侧积分，与金钱合并显示）, skillsLine, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
 //         dice: D&D 正文检定输入（check-rolls 的 checkRollsVars 入参），cocDice: CoC 正文检定输入（cocRollsVars 入参）,
-//         combatOn, partyLines }
+//         combatOn, partyLines, dateRegex（日期正则原文，空或非法则不算日期模式） }
 export function buildStatsPrompt(state, opts = {}) {
     const diagnostics = [];
     const prompts = { ...DEFAULT_STAT_PROMPTS, ...(opts.prompts || {}) };
@@ -143,7 +165,7 @@ export function buildStatsPrompt(state, opts = {}) {
     push('source', fillTemplate(prompts.source, {}, diagnostics));
     push('protagonist', fillTemplate(prompts.protagonist, {
         生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 金钱: walletBalance(bars, opts.walletExtra),
-        状态描述: describeProtagonist(bars, { shortfall: opts.shortfall, vitals: opts.vitals }),
+        状态描述: describeProtagonist(bars, { shortfall: opts.shortfall, vitals: opts.vitals, dateMode: Boolean(compileCaptureRegex(opts.dateRegex).regex && state.clock && state.clock.lastDate) }),
     }, diagnostics));
     if (opts.skillsLine) push('skills', fillTemplate(prompts.skills, { 技能档位: opts.skillsLine }, diagnostics));
     if (opts.perceptionLine) push('perception', fillTemplate(prompts.perception, { 感知档位: opts.perceptionLine }, diagnostics));
@@ -154,8 +176,8 @@ export function buildStatsPrompt(state, opts = {}) {
             const stage = stageOf(c.dims.好感).name;
             return fillTemplate(prompts.present, {
                 角色: name, 阶段: stage, 阶段文案: stageText[stage] || '', 组合描述: describeCombination(c.dims),
-                突破提示: breakthroughHint(c, prompts.breakthrough), 亲密约束: intimacyNote(c, opts, prompts.intimacy),
-            }, diagnostics);
+                突破提示: breakthroughHint(c, prompts.breakthrough), 亲密约束: intimacyNote(c, { ...opts, forced: (opts.forcedNames || []).includes(name) }, prompts.intimacy, prompts.intimacyForced),
+            }, diagnostics) + staminaNote(c, name, opts);
         }).concat(prompts.presentRule ? [fillTemplate(prompts.presentRule, {}, diagnostics)] : []).join('\n'));
     }
     const sheets = (opts.sheetLines || []).filter((s) => s && s.name && present.includes(s.name));
@@ -179,8 +201,8 @@ export function buildStatsPrompt(state, opts = {}) {
     else if (d20Vars) dice.push(fillCheckRolls(prompts.dice, d20Vars));
     if (dice.length) push('dice', dice.join('\n'));
     push('tags', fillTemplate(prompts.tags, {
-        好感档位: FAVOR_DIRECTIONS.join('/'), 体力档位: STAMINA_EVENTS.join('/'), 金钱档位: MONEY_TIERS.join('/'), 伤势档位: HURT_TIERS.join('/'),
-    }, diagnostics));
+        好感档位: FAVOR_DIRECTIONS.join('/'), 好感强度: FAVOR_STRENGTHS.join('/'), 体力档位: STAMINA_EVENTS.join('/'), 金钱档位: MONEY_TIERS.join('/'), 伤势档位: HURT_TIERS.join('/'),
+    }, diagnostics) + (opts.nsfw ? `\n${DESIRE_TAG_LINE}` : '') + (opts.nsfw && opts.intimateCost && opts.intimateCost !== 'off' ? `\n${INTIMATE_TAG_LINE}` : ''));
     if (opts.combatOn) push('combat', combatSegmentText(prompts, opts, diagnostics));
     const party = (opts.partyLines || []).filter(Boolean);
     if (opts.combatOn && party.length) push('party', fillTemplate(prompts.party, { 同伴: party.join('\n') }, diagnostics));

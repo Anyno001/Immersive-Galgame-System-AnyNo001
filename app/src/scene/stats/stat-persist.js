@@ -79,7 +79,7 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, queue: { skills: [], people: [] }, notified: [] };
+    return { story: [], merged: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, intimacyForced: [], queue: { skills: [], people: [] }, notified: [] };
 }
 
 export function sanitizeCatalog(raw) {
@@ -103,6 +103,8 @@ export function sanitizeCatalog(raw) {
         if (name && value) out.protagonistEdit[name] = { value, from: plainObject(v) ? num(v.from, 0, 99) || 0 : 0 };
     }
     out.heroAssigned = raw.heroAssigned === true;
+    // 亲密门槛豁免：聊天级角色名单，不随楼层快照，swipe、删楼不丢。
+    out.intimacyForced = [...new Set((Array.isArray(raw.intimacyForced) ? raw.intimacyForced : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
     const q = plainObject(raw.queue) ? raw.queue : {};
     out.queue.skills = (Array.isArray(q.skills) ? q.skills : []).map(validSkillName).filter(Boolean).slice(0, QUEUE_MAX);
     out.queue.people = (Array.isArray(q.people) ? q.people : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, QUEUE_MAX);

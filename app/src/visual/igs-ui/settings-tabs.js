@@ -473,7 +473,7 @@ const STATS_TEMPLATE = `
       <div class="igs-source-filter-title">玩法</div>
       <div class="igs-source-filter-grid">{{diceFeelField}}{{storyCheckField}}</div>
       <div class="igs-settings-section">{{optionChanceField}}{{checkFxField}}{{intimacyField}}</div>
-      <div class="igs-source-filter-grid">{{favorModeField}}</div>
+      <div class="igs-source-filter-grid">{{favorModeField}}{{intimateCostField}}</div>
       <div class="igs-source-filter-note">状态栏主角区显示</div>
       <div class="igs-settings-section">{{barsFields}}</div>
     </div>
@@ -500,6 +500,10 @@ const STATS_TEMPLATE = `
           <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板</button>
           <button class="igs-settings-action" data-action="stats-table-migrate" type="button">迁移到新表结构</button>
         </div>
+      </div>
+      <div class="igs-source-filter">
+        <div class="igs-source-filter-title">状态栏日期与时间</div>
+        <div class="igs-source-filter-grid">{{dateRegexField}}{{timeRegexField}}</div>
       </div>
       <div class="igs-source-filter">{{statsPromptFields}}</div>
       <div class="igs-source-filter">

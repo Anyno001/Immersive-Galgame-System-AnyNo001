@@ -3,6 +3,7 @@ import { buildRecordModel, buildRelationshipModel, parseLooseDate } from '../../
 import { buildFavorOverviewModel } from '../../data/shujuku/favor-overview-model.js';
 import { createCharacterMetricsLookup } from '../../data/shujuku/character-metrics.js';
 import { dropUserFavor, isUserName, preferStatsLookup } from '../../scene/stats/stat-metrics.js';
+import { relationLabel } from '../../scene/stats/stat-relation-label.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from './record-icons.js';
@@ -140,6 +141,13 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     // 背包卖出待确认的物品 ID（v0.39.2）：点「卖出」后在原处确认售价或取消；换物品、重读与开关面板时清空。
     let sellPending = '';
     let metricsOf = () => ({ metrics: [], stages: [] });
+    // 好感总览的数值系统数据（statsFavorOverview 的结果）；为 null 时按表格读取。展开状态按角色名记。
+    let favorLive = null;
+    let relationLive = new Map();
+    const favorOpen = new Set();
+    const favorAll = new Set();
+    const favorDesc = new Set();
+    const readFavorLive = () => { try { return typeof options.statsFavorOverview === 'function' ? options.statsFavorOverview() : null; } catch (_) { return null; } };
     let readKeys = new Set();
     let previousFocus = null;
     let unwatchLayout = null;
@@ -329,6 +337,13 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     function reload() {
         tableReadController?.abort();
         if (category === 'inventory') refreshHeroInventory();
+        // 数值系统开启：好感总览直接取 IGS 数值，不读表格。
+        favorLive = category === 'favor' ? readFavorLive() : null;
+        if (favorLive) {
+            model = { status: favorLive.people.length ? 'ready' : 'empty', tables: [], people: favorLive.people, edges: [] };
+            render();
+            return;
+        }
         const read = () => {
             const readResult = client.readTables();
             const next = category === 'relationships' ? buildRelationshipModel(readResult)
@@ -354,6 +369,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         model = next;
         if (!table()) activeUid = model.tables[0]?.uid || '';
         if (category === 'relationships') {
+            const live = readFavorLive();
+            relationLive = new Map(live ? live.people.map(person => [person.name, { dims: person.dims, nsfw: live.nsfw }]) : []);
             let tableLookup = null;
             try {
                 tableLookup = createCharacterMetricsLookup(readResult, {
@@ -564,6 +581,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
                 selectedId = id;
             }
         }
+        if (action === 'favor-log' && category === 'favor') { if (!favorOpen.delete(id)) favorOpen.add(id); }
+        if (action === 'favor-log-all' && category === 'favor') favorAll.add(id);
+        if (action === 'favor-desc' && category === 'favor') { if (!favorDesc.delete(id)) favorDesc.add(id); }
         if (action === 'group' && category === 'inventory') invGroup = inventoryGroups().includes(id) ? id : '';
         if (action === 'sort' && category === 'inventory') {
             const index = INVENTORY_SORTS.findIndex(([key]) => key === invSort);
@@ -590,7 +610,10 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             }
         }
         if (selectedId === previousSelected) turn = '';
+        const scroller = action.startsWith('favor-') ? root?.querySelector?.('.igs-record-scroll') : null;
+        const scrollTop = scroller ? scroller.scrollTop : 0;
         render();
+        if (scroller) { const next = root?.querySelector?.('.igs-record-scroll'); if (next) next.scrollTop = scrollTop; }
         // Rerender replaces the activated button. Return focus to its replacement,
         // without interpolating untrusted sheet IDs into a CSS selector.
         const replacement = Array.from(root?.querySelectorAll?.('[data-record-act]') || [])
@@ -764,7 +787,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const age = chosen?.profile?.find(field => field.key === 'age')?.value || '';
         const tags = [chosen?.role, age && (/^\d+$/.test(age) ? `${age}岁` : age)].filter(Boolean);
         const thought = chosen?.profile?.find(field => field.key === 'thought')?.value || '';
-        const headHtml = chosen ? `<header class="igs-record-person-head"><h2>${escapeHtml(chosen.name)}</h2>${tags.map(tag => `<span class="igs-record-tag">${escapeHtml(tag)}</span>`).join('')}</header>${thought ? `<p class="igs-record-thought" aria-label="当下想法">${escapeHtml(thought)}</p>` : ''}` : '';
+        const live = chosen ? relationLive.get(chosen.name) : null;
+        const relation = live ? relationLabel(live.dims, { nsfw: live.nsfw }) : null;
+        const headHtml = chosen ? `<header class="igs-record-person-head"><h2>${escapeHtml(chosen.name)}</h2>${tags.map(tag => `<span class="igs-record-tag">${escapeHtml(tag)}</span>`).join('')}${relation ? `<span class="igs-record-tag igs-record-relation-tag" title="${escapeHtml(relation.desc)}">${escapeHtml(relation.name)}</span>` : ''}</header>${thought ? `<p class="igs-record-thought" aria-label="当下想法">${escapeHtml(thought)}</p>` : ''}` : '';
         // 档案表只展示外貌/打扮/过往经历（年龄进标题标签、当下想法做名下引语）；旧表没有这些列时才回退为描述 + 原始字段。
         const profile = (chosen?.profile || []).filter(field => field.key !== 'age' && field.key !== 'thought');
         const profileHtml = !chosen ? '' : chosen.hasProfile
@@ -777,8 +802,38 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             `<article class="igs-record-relationship-detail">${chosen ? `${headHtml}${metricsHtml}<section class="igs-record-relationship-section">${profileHtml}</section>` : '<p>请选择人物。</p>'}</article></div>`;
     }
 
+    // 变动记录一行：「第N天 · 第M楼　好感 +5　感动」；增为暖色、减为冷色。
+    function favorLogLine(entry) {
+        const delta = (Number(entry.to) || 0) - (Number(entry.from) || 0);
+        const when = [entry.day === null || entry.day === undefined ? '' : `第${entry.day}天`, `第${entry.messageId}楼`].filter(Boolean).join(' · ');
+        const tone = delta >= 0 ? 'up' : 'down';
+        return `<li class="igs-record-favor-log-item" data-tone="${tone}"><span>${escapeHtml(when)}</span><strong>${escapeHtml(entry.key)} ${delta > 0 ? '+' : ''}${delta}</strong><em>${escapeHtml(entry.note)}</em></li>`;
+    }
+
+    const FAVOR_LOG_RECENT = 5;
+
+    function renderFavorLive() {
+        const { people, nsfw } = favorLive;
+        return `<div class="igs-record-favor" role="list" aria-label="全部角色好感度">${people.map(person => {
+            const label = relationLabel(person.dims, { nsfw });
+            const open = favorOpen.has(person.name);
+            const all = favorAll.has(person.name);
+            const shown = all ? person.log : person.log.slice(0, FAVOR_LOG_RECENT);
+            const logBody = !open ? '' : person.log.length
+                ? `<ol class="igs-record-favor-log-list">${shown.map(favorLogLine).join('')}</ol>${!all && person.log.length > FAVOR_LOG_RECENT ? `<button type="button" class="igs-record-favor-log-more" data-record-act="favor-log-all" data-record-id="${escapeHtml(person.name)}">查看全部</button>` : ''}`
+                : '<p class="igs-record-favor-log-empty">暂无变动。</p>';
+            return `<div class="igs-record-favor-row" role="listitem"><span class="igs-record-favor-avatar" aria-hidden="true">${personInitial(person.name)}</span>` +
+                `<span class="igs-record-favor-who"><strong>${escapeHtml(person.name)}</strong><button type="button" class="igs-record-relation" data-record-act="favor-desc" data-record-id="${escapeHtml(person.name)}" aria-expanded="${favorDesc.has(person.name) ? 'true' : 'false'}" title="${escapeHtml(label.desc)}">${escapeHtml(label.name)}</button></span>` +
+                `<div class="igs-record-favor-bars">${person.metrics.map(metric =>
+                    `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b data-tone="${escapeHtml(metric.colorKey || '')}" style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</div>` +
+                (favorDesc.has(person.name) ? `<p class="igs-record-favor-desc">${escapeHtml(label.desc)}</p>` : '') +
+                `<div class="igs-record-favor-log"><button type="button" class="igs-record-favor-log-toggle" data-record-act="favor-log" data-record-id="${escapeHtml(person.name)}" aria-expanded="${open ? 'true' : 'false'}">最近变动</button>${logBody}</div></div>`;
+        }).join('')}</div>`;
+    }
+
     // 好感总览：按状态栏所选表的顺序分组，组内按好感从高到低；数值只来自表格，不推断、不写回。
     function renderFavor() {
+        if (favorLive) return favorLive.people.length ? renderFavorLive() : '';
         const people = model?.people || [];
         const sources = model?.tables || [];
         const ordered = sources.flatMap(source => people.filter(person => person.uid === source.uid)
@@ -799,9 +854,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const tabs = category === 'relationships' && model.tables.length > 1 ? `<nav class="igs-record-tabs" aria-label="选择资料来源">${model.tables.map(item =>
             `<button type="button" class="igs-rp-chip" data-record-act="table" data-record-id="${escapeHtml(item.uid)}" aria-pressed="${item.uid === activeUid ? 'true' : 'false'}" ${item.uid === activeUid ? 'aria-current="true"' : ''}>${escapeHtml(item.name)}</button>`).join('')}</nav>` : '';
         const error = model.status === 'read-error' ? `${labels[category]}读取失败：${model.reason}`
-            : model.status === 'no-selection' ? '状态栏还没有选择读取表格，请在「界面 › 状态栏」里选择含好感度的表'
+            : model.status === 'no-selection' && !favorLive ? '状态栏还没有选择读取表格，请在「界面 › 状态栏」里选择含好感度的表'
             : model.status === 'no-tables' ? `未找到匹配的${labels[category]}表`
-                : model.status === 'empty' ? '匹配表没有可阅读的记录' : '';
+                : model.status === 'empty' ? (favorLive ? '数值系统还没有登记的角色' : '匹配表没有可阅读的记录') : '';
         const diagnostics = category === 'relationships'
             ? (current?.diagnostics || [])
             : (model.tables || []).flatMap(item => item.diagnostics || []);

@@ -7,6 +7,7 @@ import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
 import { grudgeTier } from '../../scene/stats/stat-state.js';
+import { compileCaptureRegex } from '../../scene/stats/stat-date.js';
 
 // 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
 export const STAT_PROMPT_LABELS = Object.freeze({
@@ -31,6 +32,7 @@ export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
     presentRule: '在场角色·阶段约束（全体一次）',
     breakthrough: '在场角色·好感到阶段上限时追加',
     intimacy: '在场角色·未到亲密阶段时追加（NSFW）',
+    intimacyForced: '在场角色·已豁免亲密门槛时追加（NSFW）',
     sheetGen: '角色卡生成（后台请求）',
     backfill: '新技能补全（后台请求）',
     heroSkills: '主角技能分配（后台请求）',
@@ -237,8 +239,9 @@ export function renderStatsArchive(model, advancedOpen = () => '', { logByRole =
     const people = model.characters.length
         ? model.characters.map((c) => {
             const dims = Object.entries(c.dims).filter(([k, v]) => k !== '芥蒂' || grudgeTier(v)).map(([k, v]) => `${esc(k)} ${k === '芥蒂' ? esc(grudgeTier(v)) : n(v)}`).join(' · ');
-            return `<div class="igs-settings-field igs-stats-person"><span><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}</span><div class="igs-mood-word-list">`
-                + `<button class="igs-settings-action" data-action="stats-op:relation-set:${esc(encodeURIComponent(c.name))}|${['好感', '信任', '了解'].map((k) => n(c.dims[k])).join(',')}" type="button">修改</button></div></div>`;
+            return `<div class="igs-settings-field igs-stats-person"><span><b>${esc(c.name)}</b>　${esc(c.stage)}　${dims}${c.intimacyForced ? '　亲密门槛豁免中' : ''}</span><div class="igs-mood-word-list">`
+                + `<button class="igs-settings-action" data-action="stats-op:relation-set:${esc(encodeURIComponent(c.name))}|${['好感', '信任', '了解', ...(Object.hasOwn(c.dims, '欲望') ? ['欲望'] : [])].map((k) => n(c.dims[k])).join(',')}" type="button">修改</button>`
+                + `<button class="igs-settings-action" data-action="stats-op:relation-forced:${esc(encodeURIComponent(c.name))}|${c.intimacyForced ? 0 : 1}" type="button">${c.intimacyForced ? '取消亲密门槛豁免' : '亲密门槛豁免（剧情需要）'}</button></div></div>`;
         }).join('')
         : '<div class="igs-source-filter-note">还没有登记的角色。</div>';
     const logLine = (r, withTarget) => `<div class="igs-source-filter-note">#${n(r.messageId)} ${withTarget ? `${esc(r.target)} ` : ''}${esc(r.key)} ${n(r.from)}→${n(r.to)}${r.note ? `（${esc(r.note)}）` : ''}</div>`;
@@ -288,6 +291,13 @@ export function renderStatsArchive(model, advancedOpen = () => '', { logByRole =
         + backup;
 }
 
+// 状态栏日期、时间正则：留空按现行规则；正则非法时输入框旁给出一行提示，结算时当作未填写。
+function captureRegexField(path, label, value, placeholder, note) {
+    const invalid = compileCaptureRegex(value).invalid;
+    const hint = invalid ? '<em>正则无法解析，已按未填写处理。</em>' : '';
+    return `<label class="igs-settings-field"><span>${esc(label)}</span>${textInput(path, value, placeholder)}${note ? `<em>${esc(note)}</em>` : ''}${hint}</label>`;
+}
+
 // 数值页的模板变量（settings-tabs.js 的 STATS_TEMPLATE）。版面自上而下：我的角色、玩法、其他角色、高级。
 // chat：statsChat() 的结果（可为 null）；archive：statsArchiveModel 的结果；mappings：推送映射的描述（可为 null）。
 export function buildStatsPageValues({ stats, chat = null, combatOn = false, archive = null, mappings = null, advancedOpen = () => '', worldview = 'modern' } = {}) {
@@ -316,12 +326,15 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项旁显示成功率'),
         checkFxField: checkbox('bridge.stats.checkFx', stats.checkFx, '显示掷骰卡'),
         intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '好感不够时角色会拒绝'),
-        favorModeField: field('bridge.stats.favorMode', '好感成长', segmentedInput('bridge.stats.favorMode', stats.favorMode, [['normal', '普通'], ['hard', '困难']], '好感成长'), '普通：单楼上限3、每日上限8；困难：单楼上限1、每日上限4。'),
+        intimateCostField: field('bridge.stats.intimateCost', '亲密消耗体力', segmentedInput('bridge.stats.intimateCost', stats.intimateCost, [['off', '不消耗'], ['light', '轻'], ['standard', '标准'], ['heavy', '重']], '亲密消耗体力'), '亲密行为同时消耗主角与角色的体力，档位越高消耗越大；仅在开启成人内容时生效。'),
+        favorModeField: field('bridge.stats.favorMode', '好感成长', segmentedInput('bridge.stats.favorMode', stats.favorMode, [['vivid', '鲜明'], ['normal', '普通'], ['hard', '困难']], '好感成长'), '鲜明：变化明显，小事攒成心意；普通：稳步增长；困难：慢热难攻略。'),
         barsFields: checkbox('bridge.stats.bars.stamina', stats.bars.stamina, '体力')
             + checkbox('bridge.stats.bars.money', stats.bars.money, '金钱')
             + checkbox('bridge.stats.bars.stress', stats.bars.stress, '压力'),
         sheetGenField: field('bridge.stats.sheetGen', '新角色出场时', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['auto', '自动生成数值'], ['prompt', '提醒'], ['off', '不生成']])),
         statsMoreOpen: advancedOpen('stats-more'),
+        dateRegexField: captureRegexField('bridge.stats.dateRegex', '日期正则', stats.dateRegex, '例如 <date>(.*?)</date>', '对楼层原文匹配，有捕获组取第一组。填写后，过天只由日期变化决定，睡觉标签只恢复体力。留空按原有规则判定。'),
+        timeRegexField: captureRegexField('bridge.stats.timeRegex', '时间正则', stats.timeRegex, '例如 <time>(.*?)</time>', '用于判断夜转晨与深夜熬夜，支持钟点、中文时间与时辰。留空则不读取时间。'),
         pushField: checkbox('bridge.stats.push.enabled', stats.push.enabled, '同步到数据库表格（需要数据库插件）'),
         statsMappingFields: renderStatsMappingFields(stats.push.enabled ? mappings : null, advancedOpen, { pushEnabled: stats.push.enabled }),
         statsPromptFields: renderStatsPromptFields(stats, advancedOpen),

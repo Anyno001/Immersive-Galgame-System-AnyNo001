@@ -5329,6 +5329,7 @@ ${row.key}`;
             // 数值系统接管已登记角色的人物数值；未接管时返回 null，人际关系页照旧读表格。
             statsLookup: () => (typeof options.statsLookup === 'function' ? options.statsLookup() : null),
             statsProtagonistLookup: () => (typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null),
+            statsFavorOverview: () => (typeof options.statsFavorOverview === 'function' ? options.statsFavorOverview() : null),
             statsGenerate: (name) => (typeof options.statsOp === 'function' ? options.statsOp('generate', '', name) : null),
             // 背包「使用」（P7c）：有装配定义的回复道具走场外使用；返回 draft 时照旧填草稿。
             useInventoryItem: typeof options.useCombatInventoryItem === 'function' ? (name) => options.useCombatInventoryItem(name) : null,

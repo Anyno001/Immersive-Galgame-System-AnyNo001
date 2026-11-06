@@ -2,6 +2,19 @@
 
 export const FAVOR_DELTA = Object.freeze({ 开心: 2, 感动: 3, 心动: 3, 平淡: 0, 失望: -2, 反感: -4, 吃醋: -3, 受伤: -6 });
 export const FAVOR_DIRECTIONS = Object.freeze(Object.keys(FAVOR_DELTA));
+// 好感强度档（可选第四段）：正向基础值与负向固定值；省略强度时按方向推定，平淡无强度。
+export const FAVOR_STRENGTHS = Object.freeze(['小', '中', '大', '重大']);
+export const FAVOR_POS_BASE = Object.freeze({ 小: 2, 中: 5, 大: 10, 重大: 15 });
+export const FAVOR_NEG_BASE = Object.freeze({ 小: -3, 中: -8, 大: -15, 重大: -25 });
+export const FAVOR_INFERRED = Object.freeze({ 开心: '小', 感动: '中', 心动: '中', 失望: '小', 反感: '中', 吃醋: '中', 受伤: '大' });
+// 信任强度（可选第四段，省略按「小」）：上升慢、下降快，新三档专用；旧楼仍走 baseDelta。
+export const TRUST_UP_BASE = Object.freeze({ 小: 1, 中: 3, 大: 6, 重大: 10 });
+export const TRUST_DOWN_BASE = Object.freeze({ 小: -3, 中: -8, 大: -15, 重大: -30 });
+// 亲密档位：基础体力扣除与设置倍率（不消耗时不结算）。
+export const INTIMATE_LEVELS = Object.freeze(['轻', '中', '重']);
+export const INTIMATE_BASE = Object.freeze({ 轻: 5, 中: 10, 重: 20 });
+export const INTIMATE_COST_MODES = Object.freeze(['off', 'light', 'standard', 'heavy']);
+export const INTIMATE_MULT = Object.freeze({ off: 0, light: 0.5, standard: 1, heavy: 1.5 });
 export const DIM_DIRECTIONS = Object.freeze(['上升', '下降']);
 export const STAMINA_EVENTS = Object.freeze(['轻', '中', '重', '熬夜', '受伤', '进食', '小憩']);
 export const MONEY_FLOWS = Object.freeze(['收入', '花费']);
@@ -23,7 +36,7 @@ export const START_DIMS = Object.freeze({
     熟人: Object.freeze({ 好感: 15, 信任: 10, 了解: 15 }),
     朋友: Object.freeze({ 好感: 30, 信任: 25, 了解: 35 }),
     亲密: Object.freeze({ 好感: 55, 信任: 45, 了解: 55 }),
-    恋人: Object.freeze({ 好感: 80, 信任: 60, 了解: 70 }),
+    恋人: Object.freeze({ 好感: 80, 信任: 60, 了解: 70, 欲望: 15 }),
 });
 
 // 维度类标签：英文名与中文名都映射到规范维度名。
@@ -33,7 +46,9 @@ const UP_DOWN = { 提升: '上升', 增加: '上升', 升高: '上升', 上涨: 
 
 const SYNONYMS = Object.freeze({
     favor: { 高兴: '开心', 愉快: '开心', 欣喜: '开心', 感激: '感动', 动容: '感动', 悸动: '心动', 心跳: '心动', 害羞: '心动', 普通: '平淡', 一般: '平淡', 无感: '平淡', 失落: '失望', 沮丧: '失望', 讨厌: '反感', 厌恶: '反感', 嫌弃: '反感', 生气: '反感', 嫉妒: '吃醋', 醋意: '吃醋', 伤心: '受伤', 难过: '受伤', 心碎: '受伤' },
+    strength: { 轻微: '小', 轻: '小', 稍微: '小', 一般: '中', 中等: '中', 强烈: '大', 很大: '大', 较大: '大', 决定性: '重大', 极大: '重大', 巨大: '重大', 特大: '重大' },
     dim: UP_DOWN,
+    intimate: { 轻微: '轻', 轻度: '轻', 亲吻: '轻', 爱抚: '轻', 中度: '中', 中等: '中', 重度: '重', 激烈: '重', 剧烈: '重' },
     stamina: { 轻度: '轻', 轻微: '轻', 中度: '中', 中等: '中', 重度: '重', 剧烈: '重', 通宵: '熬夜', 吃饭: '进食', 用餐: '进食', 午睡: '小憩', 打盹: '小憩' },
     flow: { 支出: '花费', 消费: '花费', 花钱: '花费', 进账: '收入', 赚钱: '收入', 获得: '收入' },
     moneyTier: { 小额: '少量', 一点: '少量', 中等: '普通', 大额: '昂贵', 很贵: '昂贵', 天价: '巨额' },

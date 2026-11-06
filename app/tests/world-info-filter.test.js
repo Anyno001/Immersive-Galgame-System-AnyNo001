@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attachWorldInfoExclude, normalizeWorldInfoExclude, toggleWorldInfoBook, toggleWorldInfoEntry } from '../src/host/world-info-filter.js';
+import { PLOT_INJECTOR_BOOK, attachWorldInfoExclude, listActiveWorldInfoBooks, normalizeWorldInfoExclude, readWorldInfoBookEntries, toggleWorldInfoBook, toggleWorldInfoEntry } from '../src/host/world-info-filter.js';
 import { createImageWorldInfoSource } from '../src/host/image-world-info.js';
 import { createIllustrationMessageHost } from '../src/host/illustration-message-host.js';
 import { renderWorldInfoFilterPanel } from '../src/visual/igs-ui/settings-world-info-filter.js';
@@ -102,4 +102,32 @@ test('设置面板：展开的书列出条目勾选，排除过但未启用的�
     assert.match(html, /data-action="wi-filter:entry:Main:1" aria-pressed="false"/);
     assert.match(html, /data-action="wi-filter:book:Old" aria-pressed="false"/);
     assert.match(html, /当前未启用/);
+});
+
+test('剧情注入器：检测到单例才列出，整本排除并剔除其虚拟条目，条目读取不报错', async () => {
+    const ctx = { characters: [], characterId: null, chatMetadata: {} };
+    const plain = { SillyTavern: { getContext: () => ctx } };
+    assert.equal(listActiveWorldInfoBooks(plain).books.some(book => book.name === PLOT_INJECTOR_BOOK), false);
+    const withInjector = { SillyTavern: { getContext: () => ctx }, __plotInjector: {} };
+    const row = listActiveWorldInfoBooks(withInjector).books.find(book => book.name === '剧情注入器');
+    assert.deepEqual(row.sources, ['剧情注入器']);
+    const framed = { SillyTavern: { getContext: () => ctx }, parent: { __plotInjector: {} } };
+    assert.ok(listActiveWorldInfoBooks(framed).books.some(book => book.name === '剧情注入器'));
+    const read = await readWorldInfoBookEntries(withInjector, '剧情注入器');
+    assert.equal(read.ok, true);
+    assert.deepEqual(read.entries, []);
+
+    const eventSource = fakeEvents();
+    const lore = { chatLore: [{ world: '剧情注入器', uid: 990000 }, { world: 'Chat', uid: 1 }] };
+    eventSource.on('wi_loaded', l => l.chatLore.push({ world: '剧情注入器', uid: 990001 }));
+    attachWorldInfoExclude({ eventSource, eventTypes: { WORLDINFO_ENTRIES_LOADED: 'wi_loaded' } }, toggleWorldInfoBook(null, '剧情注入器'));
+    eventSource.emit('wi_loaded', lore);
+    assert.deepEqual(lore.chatLore, [{ world: 'Chat', uid: 1 }]);
+
+    const html = renderWorldInfoFilterPanel({ worldInfoExclude: null }, {
+        advancedOpen: { 'wi-filter-group': true, 'perf-wi-剧情注入器': true },
+        worldInfoFilter: { books: [row], entries: { 剧情注入器: read } },
+    });
+    assert.match(html, /wi-filter:book:%E5%89%A7%E6%83%85%E6%B3%A8%E5%85%A5%E5%99%A8" aria-pressed="true"/);
+    assert.match(html, /只能整本排除/);
 });

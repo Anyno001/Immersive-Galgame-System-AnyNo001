@@ -49,8 +49,19 @@ test('亲密门槛：NSFW 开启且未达标时要求拒绝或回避；关闭 NS
     assert.match(buildStatsPrompt(state, { present: ['小雪'], nsfw: true, intimacyGate: true }).content, /拒绝或回避/);
     assert.doesNotMatch(buildStatsPrompt(state, { present: ['小雪'], nsfw: false, intimacyGate: true }).content, /拒绝或回避/);
     assert.doesNotMatch(buildStatsPrompt(state, { present: ['小雪'], nsfw: true, intimacyGate: false }).content, /拒绝或回避/);
-    assert.equal(intimacyAllowed({ 好感: 51, 信任: 26, 欲望: 26 }), true);
-    assert.equal(intimacyAllowed({ 好感: 50, 信任: 26, 欲望: 26 }), false);
+    // 两条路满足其一：只有欲望（炮友）或只有感情（情侣）都放行，两者都没有才拒绝。
+    assert.equal(intimacyAllowed({ 好感: 0, 信任: 0, 欲望: 26 }), true);
+    assert.equal(intimacyAllowed({ 好感: 51, 信任: 26, 欲望: 0 }), true);
+    assert.equal(intimacyAllowed({ 好感: 50, 信任: 26, 欲望: 25 }), false);
+    assert.equal(intimacyAllowed({ 好感: 80, 信任: 25, 欲望: 0 }), false);
+});
+
+test('欲望标签只在 NSFW 开启时进标签说明，了解标签始终在', () => {
+    const on = buildStatsPrompt(createStatsState(), { nsfw: true }).content;
+    const off = buildStatsPrompt(createStatsState(), { nsfw: false }).content;
+    assert.match(on, /\[igs-stat:desire\|角色名\|上升\/下降\]/);
+    assert.doesNotMatch(off, /igs-stat:desire/);
+    assert.match(off, /\[igs-stat:know\|角色名\|上升\/下降\]/);
 });
 
 test('本轮检定段、强制事项段；可单独关闭；用户模板覆盖优先', () => {
@@ -117,4 +128,10 @@ test('dice 段：D&D 用 check-rolls 模板，CoC 用百分骰模板，用户覆
     const fight = buildStatsPrompt(createStatsState(), { combatOn: true, partyLines: ['小雪：轻伤'] });
     assert.ok(fight.segments.some((x) => x.id === 'combat'));
     assert.match(fight.segments.find((x) => x.id === 'party').text, /小雪：轻伤/);
+});
+
+test('默认提示词的好感标签带强度，并说明各档含义', () => {
+    const r = buildStatsPrompt(createStatsState(), {});
+    assert.match(r.content, /\[igs-stat:favor\|角色名\|开心\/感动[^\]]*\|小\/中\/大\/重大\]/);
+    assert.match(r.content, /小＝日常好感/);
 });

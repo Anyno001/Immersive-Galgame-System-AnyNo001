@@ -59,3 +59,14 @@ test('阅读器统一剔除入口同样去掉数值标签（含全角、跨行�
     assert.equal(isMarkerDirectiveLine('她说[igs-stat]不算'), false);
     assert.equal(stripMarkerDirectives('没有标签【台词】'), '没有标签【台词】');
 });
+
+test('好感标签可选第四段强度：近义词归一，含数字或不认识的整条丢弃', () => {
+    const one = (text) => parseStatDirectives(text).directives[0];
+    assert.equal(one('[igs-stat:favor|小雪|感动|大]').strength, '大');
+    assert.equal(one('[igs-stat:favor|小雪|感动|强烈]').strength, '大');
+    assert.equal(one('[igs-stat:favor|小雪|感动|轻微]').strength, '小');
+    assert.equal(one('[igs-stat:favor|小雪|感动|决定性]').strength, '重大');
+    assert.equal(one('[igs-stat:favor|小雪|感动]').strength, undefined);
+    assert.equal(parseStatDirectives('[igs-stat:favor|小雪|感动|+10]').directives.length, 0);
+    assert.equal(parseStatDirectives('[igs-stat:favor|小雪|感动|很多]').directives.length, 0);
+});

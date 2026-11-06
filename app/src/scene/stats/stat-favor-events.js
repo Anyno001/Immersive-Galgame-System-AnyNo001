@@ -38,6 +38,9 @@ export function coolDown(character, day, days = 1) {
     return to === favor ? character : { ...character, dims: { ...character.dims, 好感: to } };
 }
 
-export function resetDaily(character, day) {
-    return { ...character, daily: { day, gained: {} } };
+// days：本次推进的天数（日结算 1，时间跳跃为跳过的天数，软跨天 0）；信任受伤标记 trustWound 每天减 1，没有该字段的角色不新增字段。
+export function resetDaily(character, day, days = 1) {
+    const next = { ...character, daily: { day, gained: {} } };
+    if (Number(character.trustWound) > 0 && days > 0) next.trustWound = Math.max(0, Math.floor(character.trustWound) - days);
+    return next;
 }

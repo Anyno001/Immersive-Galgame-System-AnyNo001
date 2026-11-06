@@ -242,6 +242,9 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 .igs-fx-favor{padding:4px 12px;border-radius:999px;font-size:13px;color:#fff;background:rgba(20,20,28,.62);border:1px solid rgba(255,255,255,.18);animation:igs-fx-rise var(--igs-fx-life,2.4s) ease both;}
 .igs-fx-favor[data-dir="up"]{border-color:rgba(255,140,180,.7);}
 .igs-fx-favor[data-dir="down"]{border-color:rgba(140,170,255,.7);}
+.igs-fx-favor.is-burst{display:flex;align-items:center;gap:6px;}
+.igs-fx-favor-heart{font-size:22px;line-height:1;color:#ff8cb4;}
+.igs-fx-favor-note{font-size:11px;opacity:.85;}
 .igs-fx-notify{position:absolute;top:12px;left:50%;width:min(86%,360px);padding:10px 14px;border-radius:14px;color:#1d1d24;background:rgba(250,250,252,.94);box-shadow:0 6px 22px rgba(0,0,0,.28);animation:igs-fx-drop var(--igs-fx-life,3.3s) ease both;}
 .igs-fx-notify-sender{font-size:12px;font-weight:700;opacity:.7;margin-bottom:2px;}
 .igs-fx-notify-text{font-size:14px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}

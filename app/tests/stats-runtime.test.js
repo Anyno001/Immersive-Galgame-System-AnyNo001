@@ -88,7 +88,7 @@ test('本聊天未启用时不注入、不结算（易错点 H2）', () => {
 });
 
 test('正常发送：生成前注入、结束后清除并结算一次，差分写进数据库表（易错点 A3/A6/B2）', async () => {
-    const { host, rt, tables } = setup();
+    const { host, rt, tables } = setup(true, { favorMode: 'hard' });
     rt.enableForChat();
     const { injected } = generate(host, '她笑了。[igs-stat:favor|小雪|开心]');
     assert.match(injected, /主角状态/);
@@ -129,15 +129,15 @@ test('新 swipe 从上一楼状态重掷；切回旧 swipe 读取已存结果；
     const { host, rt } = setup();
     rt.enableForChat();
     const { id } = generate(host, '[igs-stat:favor|小雪|受伤]');
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
     host.ctx.chat[id] = { is_user: false, mes: '[igs-stat:favor|小雪|失望]', swipe_id: 1 };
     host.eventSource.emit('sw', id);
     host.eventSource.emit('gs', 'swipe', {}, false);
     host.eventSource.emit('ge', id);
-    assert.equal(favor(rt), -2);
+    assert.equal(favor(rt), -3);
     host.ctx.chat[id] = { is_user: false, mes: '[igs-stat:favor|小雪|受伤]', swipe_id: 0 };
     host.eventSource.emit('sw', id);
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
     host.ctx.chat.pop();
     host.eventSource.emit('del', id);
     assert.equal(rt.getState().characters.小雪, undefined);
@@ -149,7 +149,7 @@ test('编辑 AI 楼正文后只重算该楼（易错点 A5）', () => {
     const { id } = generate(host, '[igs-stat:favor|小雪|开心]');
     host.ctx.chat[id].mes = '[igs-stat:favor|小雪|受伤]';
     host.eventSource.emit('upd', id);
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
 });
 
 test('换聊天后从表里读回；旧版存档来自更新版本时拒绝导入且不覆盖', async () => {
@@ -159,7 +159,7 @@ test('换聊天后从表里读回；旧版存档来自更新版本时拒绝导�
     await rt.whenSaved();
     host.eventSource.emit('chat');
     assert.equal(rt.isChatEnabled(), true);
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
     const fresh = fakeTables();
     const other = make({ statsTables: fresh.api });
     host.ctx.chatMetadata[STATS_METADATA_KEY] = { version: 99 };
@@ -177,7 +177,7 @@ test('本聊天关闭后数值冻结，生成不结算', () => {
     generate(host, '[igs-stat:favor|小雪|受伤]');
     rt.disableForChat();
     generate(host, '[igs-stat:favor|小雪|受伤]');
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
 });
 
 test('人物数值数据源：本聊天启用时接管已登记角色，未启用或关闭时返回 null（易错点 H3）', () => {
@@ -207,10 +207,10 @@ test('总开关关闭时在设置页启用本聊天：先读存档，不用空�
     assert.equal(cold.archive(), null);
     assert.equal(tables.reads, reads);
     assert.equal(cold.enableForChat().ok, true);
-    assert.equal(cold.getState().characters.小雪.dims.好感, -6);
+    assert.equal(cold.getState().characters.小雪.dims.好感, -15);
     assert.equal(cold.disableForChat().ok, true);
     assert.equal(cold.chatStatus().enabled, false);
-    assert.equal(cold.getState().characters.小雪.dims.好感, -6);
+    assert.equal(cold.getState().characters.小雪.dims.好感, -15);
 });
 
 test('先掷后写：命中技能时生成前掷骰并注入检定段，结算记录检定；继续生成沿用；关闭自动判断不掷（§4.1）', () => {
