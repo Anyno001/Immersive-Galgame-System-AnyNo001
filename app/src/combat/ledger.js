@@ -31,7 +31,7 @@ import { scanStatLifeTags } from '../scene/stats/stat-directives.js';
 import { HURT_PCT } from '../scene/stats/stat-vocab.js';
 import { heroInventoryView } from './inventory-view.js';
 import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
-import { inscribable } from './mechanics/inscription.js';
+import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -1314,6 +1314,31 @@ function buildLootEntry(effective, index, directive, anchor, report, text, userN
     return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
 }
 
+// 规则 v5 P5b 刻印标签 [igs-combat:inscribe|角色|牌名|刻印名|原因] -> 刻印记录：只在角色卡组里按牌名找第一张未刻、适用该刻印的副本，记录写明 copyId。
+// taken 为本次扫描已分出去的副本（同一轮多个标签不落到同一张）。
+const INSCRIPTION_BY_NAME = new Map(Object.entries(INSCRIPTION_LABELS).flatMap(([key, label]) => [[label, key], [key, key]]));
+const cardNameKey = (value) => String(value || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+function buildInscribeEntry(effective, index, directive, anchor, userName, now, taken) {
+    const inscription = INSCRIPTION_BY_NAME.get(cardNameKey(directive.inscription));
+    if (!inscription) return { ok: false, reason: 'combat-inscribe-unknown' };
+    const key = characterKeyFor(index, directive.character, userName);
+    const character = effective?.ok ? effective.characters.get(canonicalCharacterId(index, key) ?? key) : null;
+    if (character?.kind !== 'deck-character') return { ok: false, reason: 'combat-inscribe-kind-mismatch' };
+    const wanted = cardNameKey(directive.card);
+    const named = (character.deckEntries || []).filter((e) => e.copyId && cardNameKey(character.catalog.get(e.cardId)?.name) === wanted);
+    if (!named.length) return { ok: false, reason: 'combat-inscribe-card-unknown' };
+    const fits = named.filter((e) => inscribable(character.catalog.get(e.cardId), inscription));
+    if (!fits.length) return { ok: false, reason: 'combat-inscribe-invalid' };
+    const pick = fits.find((e) => !e.inscription && !taken.has(e.copyId));
+    if (!pick) return { ok: false, reason: 'combat-inscribe-no-copy' };
+    taken.add(pick.copyId);
+    const normalized = normalizeLedgerEntry({
+        id: ledgerEntryId('inscribe', key, anchor), type: 'inscribe', character: key, anchor,
+        payload: { cardId: pick.cardId, copyId: pick.copyId, inscription, reason: directive.reason || '' }, createdAt: now,
+    });
+    return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
+}
+
 // 治疗量缩放：难度的 healScale 取整到 1–100。
 const healScalePercent = (healScale) => Math.min(100, Math.max(1, Math.round(100 * (Number(healScale) || 1))));
 // 传入空/非法的快照时统一的失败结果。
@@ -1337,6 +1362,8 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
     // 该标签位置是否已有一条未被撤销的同类记录
     const alreadyWritten = (kinds, character, anchor) => kinds.some((kind) => candidateEntryIds(index, kind, character, userName, anchor).some((id) => activeIds.has(id)));
     const attributes = [];
+    // 本次扫描已被刻印标签分走的副本（同楼多个标签不落到同一张）。
+    const inscribeTaken = new Set();
     const knownAttr = (kind, character, anchor) => candidateEntryIds(index, kind, character, userName, anchor).some((id) => snapshot.attributeIds?.has(id) === true);
     const effective = options.effectiveState ?? computeEffectiveState(snapshot, floors, { sourceFilter: options.sourceFilter, userName });
     const scan = { index, userName, now, ctx: buildScanContext(snapshot, effective, index, options), knownAttr, attributes, entries, diagnostics };
@@ -1384,6 +1411,12 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
                     id: ledgerEntryId('heal', key, anchor), type: 'heal', character: key, anchor,
                     payload: { amount: directive.amount, mode: directive.mode, scale: healScale, reason: directive.reason }, createdAt: now,
                 });
+            } else if (directive.kind === 'inscribe') {
+                if (report) { diagnostics.push({ code: 'combat-inscribe-tag-in-report', messageId, character: directive.character }); continue; }
+                if (alreadyWritten(['inscribe'], directive.character, anchor)) continue;
+                const built = buildInscribeEntry(effective, index, directive, anchor, userName, now, inscribeTaken);
+                if (built.ok) entries.push(built.entry);
+                else diagnostics.push({ code: built.reason, messageId, character: directive.character, card: directive.card });
             } else if (GENERATION_KINDS.has(directive.kind)) {
                 if (alreadyWritten(directive.kind === 'upgrade' ? ['upgrade', 'learn'] : [directive.kind], directive.character, anchor)) continue;
                 queueGeneration(directive, anchor);

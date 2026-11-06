@@ -1,5 +1,6 @@
 // 战斗提示词：给 AI 的「战斗」规则段、战报后的续写段、主角团状态段。
 import { INTIMATE_GRAMMAR_LINE, INTIMATE_LINES_LINE, normalizeIntimateSettings } from './intimate-duel.js';
+import { INSCRIPTION_LABELS } from '../combat/mechanics/inscription.js';
 // 规则文本按开关拼装：合并模式下装备/道具标签单独成段，物品演出开启时道具获得行并入物品演出。
 export const COMBAT_BLOCK_KEY = 'combat';
 export const COMBAT_NARRATION_SEGMENT_ID = 'igs-combat-narration';
@@ -74,6 +75,7 @@ function buildRuleText(includeGain = false) {
 - [igs-combat:exp|角色|数值|原因]：剧情中获得历练时写，每层每个角色合计不超过50
 - [igs-combat:learn|角色|技能名|简述|稀有度]：剧情中习得新技能；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按这门技能在剧情中的分量写，可省略
 - [igs-combat:upgrade|角色|技能名|简述]：已有技能得到精进
+- [igs-combat:inscribe|角色|牌名|刻印名|原因]：剧情让角色已有的某个招式留下永久的印记时写；牌名写该角色卡组里已有的招式名；刻印名只写 ${Object.values(INSCRIPTION_LABELS).join('/')} 之一；每个招式只能刻一次，不可移除，平常剧情不写
 - [igs-combat:class|角色|职业]：转职或觉醒
 - [igs-combat:unequip|角色|名称]：剧情中卸下某件装备，装备仍归此人所有；被夺走、损毁或交出时改写失去标签${includeGain ? `
 ${COMBAT_GAIN_LINE}
@@ -94,7 +96,7 @@ function ruleLinesOf(kinds) {
 }
 
 export const COMBAT_RULE_HEAD = buildRuleText().split('\n')[0];
-export const COMBAT_STORY_LINES = Object.freeze(ruleLinesOf(['start', 'awaken', 'lines', 'exp', 'learn', 'upgrade', 'class']));
+export const COMBAT_STORY_LINES = Object.freeze(ruleLinesOf(['start', 'awaken', 'lines', 'exp', 'learn', 'upgrade', 'inscribe', 'class']));
 export const COMBAT_GEAR_LINES = Object.freeze(ruleLinesOf(['unequip']));
 export const COMBAT_GROWTH_LINES = Object.freeze(ruleLinesOf(['rel', 'stat', 'heal']));
 export const COMBAT_SYNTAX_LINES = Object.freeze(buildRuleText().split('\n').filter((line) => /^\d\. /.test(line)));

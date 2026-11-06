@@ -8,7 +8,7 @@ import { readerBodyText } from './message-source.js';
 import { stripIllustrationMarkers } from './scene-directives.js';
 
 export const COMBAT_TAG_LIMITS = Object.freeze({ maxEnemies: 50, maxAllies: 3, storyExpCapPerFloor: 50, expMax: 1e3 });
-export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot', 'heal']);
+export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot', 'heal', 'inscribe']);
 
 // 战报编号：r + 最多 13 位小写字母数字。
 const REPORT_ID_PATTERN = /^r[0-9a-z]{1,13}$/;
@@ -160,7 +160,7 @@ function parseStartFields(fields) {
 }
 
 // 各成长标签允许的最大字段数（含角色名）。
-const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 4, heal: 3 });
+const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 4, heal: 3, inscribe: 4 });
 const HEAL_FLAT_MAX = 9999;
 
 // 稀有度字段：空为 null（不指定），未知词报错。
@@ -219,6 +219,15 @@ function parseGrowthFields(kind, fields) {
         if (amount === null) return fail('amount', 'invalid-amount');
         const reason = textField('reason', fields[2], DESC_MAX, false);
         return reason.ok ? { ok: true, value: { ...base, amount, mode: percent ? 'percent' : 'flat', reason: reason.value } } : reason;
+    }
+    // 规则 v5 P5b 刻印：角色|牌名|刻印名|原因。刻印名由账本按刻印表核对。
+    if (kind === 'inscribe') {
+        const card = textField('card', fields[1], NAME_MAX, true);
+        if (!card.ok) return card;
+        const inscription = textField('inscription', fields[2], NAME_MAX, true);
+        if (!inscription.ok) return inscription;
+        const reason = textField('reason', fields[3], DESC_MAX, false);
+        return reason.ok ? { ok: true, value: { ...base, card: card.value, inscription: inscription.value, reason: reason.value } } : reason;
     }
     if (kind === 'exp') {
         const amount = parseIntInRange(fields[1], 1, COMBAT_TAG_LIMITS.expMax);

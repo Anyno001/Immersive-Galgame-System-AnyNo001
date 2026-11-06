@@ -789,3 +789,26 @@ test('刻印奖励（P5b）：开启刻印的卡组角色按种子出刻印槽�
     assert.equal(hero.deckEntries.filter((e) => e.inscription).length, 1);
 });
 
+test('刻印标签（P5b）：扫描正文 inscribe 标签按牌名取卡组里第一张可刻副本写明 copyId；同楼多个标签分到不同副本；刻印名未知、牌不在卡组、牌面不符记诊断；入账后再扫不重复', async () => {
+    const lines = [
+        '[igs-combat:inscribe|主角|斩c1|锋利|开悟]', '[igs-combat:inscribe|我|斩c1|灵动|误刻]', '[igs-combat:inscribe|主角|斩c9|锋利|无此牌]',
+        '[igs-combat:inscribe|主角|斩c1|闪耀|无此印]', '[igs-combat:inscribe|主角|斩m3|锋利|不在卡组]',
+        '剑意再起。\n[igs-combat:inscribe|主角|斩c1|锋利|再悟]\n[igs-combat:inscribe|主角|斩c1|墨染|三悟]',
+    ];
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], lines.map(ai));
+    const scanned = await ledger.scan();
+    const entries = scanned.entries.filter((e) => e.type === 'inscribe');
+    assert.deepEqual(entries.map((e) => [e.anchor.messageId, e.payload.cardId, e.payload.inscription]), [[0, 'c1', 'sharp'], [5, 'c1', 'sharp'], [5, 'c1', 'ink']]);
+    assert.equal(new Set(entries.map((e) => e.payload.copyId)).size, 3);
+    const diag = (messageId) => scanned.diagnostics.find((d) => d.messageId === messageId && String(d.code).startsWith('combat-inscribe'))?.code;
+    assert.deepEqual([1, 2, 3, 4].map(diag), ['combat-inscribe-invalid', 'combat-inscribe-card-unknown', 'combat-inscribe-unknown', 'combat-inscribe-card-unknown']);
+    assert.equal(scanned.diagnostics.some((d) => d.code === 'combat-tag-unknown'), false);
+    assert.equal((await ledger.append(entries)).ok, true);
+    const effective = await ledger.effectiveState();
+    assert.equal(effective.diagnostics.some((d) => entries.some((e) => e.id === d.id)), false, JSON.stringify(effective.diagnostics));
+    const me = heroOf(effective);
+    assert.deepEqual(me.deckEntries.filter((e) => e.cardId === 'c1').map((e) => e.inscription ?? null), ['sharp', 'sharp', 'ink']);
+    assert.equal((await ledger.scan()).entries.filter((e) => e.type === 'inscribe').length, 0);
+});
+
+
