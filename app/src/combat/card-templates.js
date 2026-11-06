@@ -490,6 +490,12 @@ export const SKILL_TEMPLATES = Object.freeze({
     'slime-junk': skill('debuff', '塞入黏浊', () => [{ op: 'create', card: 'status-slime', amount: 1, to: 'discard' }], 1, 2),
     'void-junk': skill('debuff', '塞入空洞', () => [{ op: 'create', card: 'status-void', amount: 1, to: 'discard' }], 1, 2),
     'pain-junk': skill('debuff', '塞入痛楚', () => [{ op: 'create', card: 'status-pain', amount: 1, to: 'discard' }], 1, 2),
+    // 规则 v5 P4d E19 牌面附着（mechanics/foe-restrict.js 的 mark-card），只限敌方技能单位；不进补技能表。
+    'bind-card': skill('debuff', '绑定：对方 2 张牌每回合只能打出其中一张', () => [{ op: 'mark-card', mark: 'bound', amount: 2, target: 'enemy' }], 1, 3),
+    'tax-card': skill('debuff', '加费：对方 2 张牌费用 +1', () => [{ op: 'mark-card', mark: 'taxed', amount: 2, target: 'enemy' }], 1, 3),
+    'barb-card': skill('debuff', '痛刺：对方 2 张牌打出时失去生命', () => [{ op: 'mark-card', mark: 'pain', amount: 2, target: 'enemy' }], 1, 3),
+    'fade-card': skill('debuff', '附加虚无：对方 2 张牌回合结束仍在手中则消耗', () => [{ op: 'mark-card', mark: 'ethereal', amount: 2, target: 'enemy' }], 1, 3),
+    'scar-card': skill('debuff', '受创：对方 1 张牌打出后受到的攻击伤害增加', () => [{ op: 'mark-card', mark: 'scar', amount: 1, target: 'enemy' }], 1, 3),
 });
 
 // 复合效果的技能模板键（供选型时优先）。

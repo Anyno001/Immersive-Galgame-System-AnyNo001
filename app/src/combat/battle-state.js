@@ -60,6 +60,11 @@ export function cardView(state, inst) {
         };
     }
     if (entry.temp) view.temp = true;
+    // 规则 v5 E19 牌面附着（mechanics/foe-restrict.js 的 foe-mark）：只在 v5 战斗合并；附加虚无即按虚无牌处理。
+    if (state.rulesVersion >= 5 && Array.isArray(entry.marks) && entry.marks.length) {
+        view.marks = entry.marks.slice();
+        if (entry.marks.includes('ethereal')) view.ethereal = true;
+    }
     const costShift = (owner?.handCost || 0) + (entry.costMod || 0) + (owner?.turnCostMod?.[inst] || 0);
     if (typeof view.cost !== 'number') return view;
     let cost = Math.max(0, view.cost + costShift);
@@ -112,10 +117,11 @@ export function effectsPickAlly(effects) {
 }
 
 // 按登记顺序执行一个伤害修正阶段，每一步取整且不低于 0。
-function applyDamageStage(stage, attacker, target, value) {
+// origin 只由格挡阶段传入，见 computeBlock。
+function applyDamageStage(stage, attacker, target, value, origin) {
     let next = value;
     for (const mod of damageModifiers(stage)) {
-        const out = mod.fn(attacker, target, next);
+        const out = mod.fn(attacker, target, next, origin);
         if (Number.isFinite(out)) next = Math.max(0, Math.floor(out));
     }
     return next;
@@ -136,10 +142,11 @@ export function computeDamage(attacker, target, amount, strengthScale = 1, rules
     return Math.max(0, value);
 }
 
-// 格挡值：加敏捷，脆弱（frail）打七五折。rulesVersion >= 5 时在敏捷之后、脆弱之前执行已登记的 block-add 阶段。
-export function computeBlock(source, amount, target = source, rulesVersion) {
+// 格挡值：加敏捷，脆弱（frail）打七五折。rulesVersion >= 5 时在敏捷之后、脆弱之前执行已登记的 block-add 阶段；
+// origin 为格挡来源种类（卡牌结算传 'card'），透传给 block-add 第四个参数。
+export function computeBlock(source, amount, target = source, rulesVersion, origin) {
     let value = amount + (source?.statuses.dexterity || 0);
-    if (rulesVersion >= 5 && source) value = applyDamageStage('block-add', source, target, value);
+    if (rulesVersion >= 5 && source) value = applyDamageStage('block-add', source, target, value, origin);
     return Math.max(0, target?.statuses.frail > 0 ? Math.floor(value * 0.75) : value);
 }
 
@@ -213,12 +220,13 @@ export function estimateDamage(state, attacker, target, effects, aimId) {
     return total;
 }
 
-// 一组效果能给自己叠多少格挡；已登记机制的算子按其自身估算。rulesVersion 为战局规则版本。
-export function estimateBlock(unit, effects, rulesVersion) {
+// 一组效果能给自己叠多少格挡；已登记机制的算子按其自身估算。rulesVersion 为战局规则版本，origin 同 computeBlock。
+export function estimateBlock(unit, effects, rulesVersion, origin) {
+    const blockOf = (source, amount, target, version) => computeBlock(source, amount, target, version, origin);
     return (effects || []).reduce((total, effect) => {
-        if (effect.op === 'block') return total + computeBlock(unit, effect.amount, unit, rulesVersion);
+        if (effect.op === 'block') return total + blockOf(unit, effect.amount, unit, rulesVersion);
         const handler = opHandler(effect?.op);
-        return handler?.estimateBlock ? total + Math.max(0, Number(handler.estimateBlock(effect, { unit, rulesVersion, computeBlock, estimate: (list) => estimateBlock(unit, list, rulesVersion) })) || 0) : total;
+        return handler?.estimateBlock ? total + Math.max(0, Number(handler.estimateBlock(effect, { unit, rulesVersion, computeBlock: blockOf, estimate: (list) => estimateBlock(unit, list, rulesVersion, origin) })) || 0) : total;
     }, 0);
 }
 

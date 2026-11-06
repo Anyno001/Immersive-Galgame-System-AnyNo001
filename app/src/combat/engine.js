@@ -736,7 +736,7 @@ function applyEffect(ctx, unit, effect, aimId, source) {
             strike(ctx, unit, effect, aimId, source);
             return;
         case 'block':
-            for (const target of targets()) gainBlock(ctx, target, computeBlock(unit, effect.amount, target, state.rulesVersion), source);
+            for (const target of targets()) gainBlock(ctx, target, computeBlock(unit, effect.amount, target, state.rulesVersion, source?.kind), source);
             return;
         case 'heal':
             for (const target of targets()) heal(ctx, target, effect.amount, source);

@@ -2563,6 +2563,9 @@ test('攻击加费、禁守（E18）：攻击牌费用 +层数，卡牌格挡归
         return playIn(s, instOf(s, 'k')).state.units.hero.block;
     };
     assert.deepEqual([guard(), guard(4)], [0, 1]);
+    // 禁守只限卡牌来源：被动、心盾等经 computeBlock 但不带卡牌来源的格挡照常。
+    const blocked = { statuses: { 'no-block': 1 } };
+    assert.deepEqual([computeBlock(blocked, 5, blocked, 5, 'card'), computeBlock(blocked, 5, blocked, 5), computeBlock(blocked, 5, blocked, 5, 'passive')], [0, 5, 5]);
 });
 
 test('少抽（E18）：敌人施加少抽后，主角下一回合少抽层数张；规则 v4 无效', () => {
@@ -2636,5 +2639,73 @@ test('塞垃圾牌扩展（E21）与限制模板、词缀：敌方技能塞入 G
     }
     assert.deepEqual([...seen].sort(), ['af-downgrade', 'af-play-cap', 'af-skill-cap']);
     for (const [status, word] of [['no-attack', '禁攻'], ['attack-tax', '攻击加费'], ['no-block', '禁守'], ['draw-down', '少抽'], ['downgrade', '降级']]) assert.ok(describeEffects([onFoe(status, 1)]).includes(word), word);
+});
+
+// ---------- 规则 v5 P4d 子批 2：E19 牌面附着 ----------
+const markPoke = def('x', 'attack', [hitFoe(1)], { cost: 0 });
+const markedBattle = (marks, rv, foeUnit = foe({})) => {
+    const s = restrictBattle({ x: markPoke }, Array(10).fill('x'), null, foeUnit, rv);
+    const hand = s.piles.hero.hand.slice();
+    marks.forEach((mark, i) => {
+        if (mark) s.cards[hand[i]] = { ...s.cards[hand[i]], marks: [mark] };
+    });
+    return { s, hand };
+};
+
+test('绑定（E19）：每回合只能打出一张带绑定的牌，打出后标记清除，未附着的牌照常；与 legalActions 共用判定；规则 v4 无效', async () => {
+    const { legalActions } = await import('../src/combat/engine.js');
+    const { s, hand } = markedBattle(['bound', 'bound']);
+    const first = playIn(s, hand[0], 'foe');
+    const second = applyAction(first.state, { type: 'play', inst: hand[1], targetId: 'foe' });
+    assert.deepEqual([second.ok, second.error?.detail?.why], [false, 'bound']);
+    assert.equal(playsOf(legalActions(first.state), hand[1]), 0);
+    assert.ok(playsOf(legalActions(first.state), hand[2]) > 0);
+    assert.equal(first.state.cards[hand[0]].marks, undefined);
+    const v4 = markedBattle(['bound', 'bound'], 4);
+    assert.equal(applyAction(playIn(v4.s, v4.hand[0], 'foe').state, { type: 'play', inst: v4.hand[1], targetId: 'foe' }).ok, true);
+});
+
+test('加费、痛刺、附加虚无、受创（E19）：费用 +1、打出失去 2 生命、回合结束消耗、打出后受到的攻击伤害 +3；规则 v4 无效', () => {
+    const taxed = (rv) => {
+        const { s, hand } = markedBattle(['taxed'], rv);
+        return cardView(s, hand[0]).cost;
+    };
+    assert.deepEqual([taxed(), taxed(4)], [1, 0]);
+    const pain = (rv) => {
+        const { s, hand } = markedBattle(['pain'], rv);
+        return playIn(s, hand[0], 'foe').state.units.hero.hp;
+    };
+    assert.deepEqual([pain(), pain(4)], [28, 30]);
+    const fade = (rv) => {
+        const { s, hand } = markedBattle(['ethereal'], rv);
+        return { ethereal: cardView(s, hand[0]).ethereal === true, gone: endTurn(s).state.piles.hero.exhaust.includes(hand[0]) };
+    };
+    assert.deepEqual([fade(), fade(4)], [{ ethereal: true, gone: true }, { ethereal: false, gone: false }]);
+    const scar = (rv) => {
+        const { s, hand } = markedBattle(['scar'], rv, foe(foeAttack(5)));
+        const played = playIn(s, hand[0], 'foe').state;
+        const after = endTurn(played).state;
+        return [played.units.hero.statuses.scarred, after.units.hero.hp, after.units.hero.statuses.scarred || 0];
+    };
+    assert.deepEqual(scar(), [1, 22, 0]);
+    assert.deepEqual(scar(4), [undefined, 25, 0]);
+});
+
+test('牌面附着算子与模板（E19）：敌人出手时主角手牌已弃掉，从抽牌堆挑牌附着；面板关键字显示；规则 v4 无效', async () => {
+    const { skillFromTemplate } = await import('../src/combat/card-templates.js');
+    const { cardKeywordNames } = await import('../src/visual/igs-ui/combat-panel-model.js');
+    const binder = { intent: 'debuff', effects: [{ op: 'mark-card', mark: 'bound', amount: 2, target: 'enemy' }] };
+    const run = (rv) => endTurn(restrictBattle({ x: markPoke }, Array(10).fill('x'), null, foe(binder), rv));
+    const v5 = run();
+    const marked = v5.events.filter((e) => e.type === 'card-marked');
+    assert.equal(marked.length, 2);
+    assert.ok(marked.every((e) => e.owner === 'hero' && e.from === 'draw' && e.mark === 'bound'), JSON.stringify(marked));
+    assert.equal(Object.values(v5.state.cards).filter((c) => c.marks?.includes('bound')).length, 2);
+    assert.equal(run(4).events.some((e) => e.type === 'card-marked'), false);
+    for (const [key, mark] of [['bind-card', 'bound'], ['tax-card', 'taxed'], ['barb-card', 'pain'], ['fade-card', 'ethereal'], ['scar-card', 'scar']]) {
+        assert.equal(skillFromTemplate(key, 12).effects[0].mark, mark, key);
+    }
+    const names = cardKeywordNames({ marks: ['bound', 'pain', 'scar'] });
+    for (const word of ['绑定', '痛刺', '受创']) assert.ok(names.includes(word), word);
 });
 

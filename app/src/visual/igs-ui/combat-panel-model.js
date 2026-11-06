@@ -112,7 +112,7 @@ export function cardSlotView(card, hero, rulesVersion) {
     if (main.op === 'heal') return finish(main.amount, main.amount, '回复', 1, []);
     const baseValue = main.amount;
     if (main.op === 'block') {
-        const value = computeBlock(hero, baseValue, hero, rulesVersion);
+        const value = computeBlock(hero, baseValue, hero, rulesVersion, 'card');
         const parts = [`基础 ${baseValue}`];
         if (st.dexterity) parts.push(`防御力 ${signed(st.dexterity)}`);
         if (st.frail > 0) parts.push('脆弱 ×0.75');
@@ -140,6 +140,7 @@ export const KEYWORD_PRIORITY = Object.freeze(['不能打出', '消耗', '虚无
 export const KEYWORD_NAME_TIPS = Object.freeze({
     不能打出: '不能打出：这张牌不能被打出', 消耗: KEYWORD_TIPS.exhaust, 虚无: KEYWORD_TIPS.ethereal, 保留: KEYWORD_TIPS.retain, 固有: KEYWORD_TIPS.innate, 临时: KEYWORD_TIPS.temp,
     狡黠: KEYWORD_TIPS.sly, 重演: KEYWORD_TIPS.replay, 圣辉: KEYWORD_TIPS.radiance,
+    绑定: '绑定：每回合只能打出一张带绑定的牌', 痛刺: '痛刺：打出时失去 2 点生命', 受创: '受创：打出后到下一回合开始，每次受到的攻击伤害 +3',
 });
 // 加成 / 减弱差值：value 与 baseValue 不同时给带符号的字符串（减号为 U+2212），否则空串；数字本身不转色，差值只做单位后的淡色小字。
 export const cardValueDelta = (c) => (Number.isFinite(c?.value) && c.baseValue !== undefined && c.value !== c.baseValue ? signed(c.value - c.baseValue) : '');
@@ -154,6 +155,8 @@ export function cardKeywordNames(card) {
     if (Number.isInteger(card?.replay) && card.replay > 0) names.push('重演');
     if (card?.radiance !== undefined) names.push('圣辉');
     if (card?.temp) names.push('临时');
+    // 规则 v5 E19 牌面附着（加费体现在费用上，附加虚无已并入虚无）。
+    for (const [mark, label] of [['bound', '绑定'], ['pain', '痛刺'], ['scar', '受创']]) if (card?.marks?.includes(mark)) names.push(label);
     const exhaust = (list) => (list || []).some((e) => e.op === 'exhaust-self' || (Array.isArray(e.then) && exhaust(e.then)));
     if (exhaust(card?.effects)) names.push('消耗');
     return names;
