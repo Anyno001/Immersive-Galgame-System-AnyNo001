@@ -198,6 +198,7 @@ export function createStatsRuntime({
     let modeChat = null;
     const askedFill = new Set();
     const heroAsked = new Set();
+    const heroPickAsked = new Set();
     const notices = new Map();
     const diagnostics = [];
     const forcedSettings = new WeakMap();
@@ -1207,7 +1208,8 @@ export function createStatsRuntime({
                     return enableForChat({ initial, buildMode: pickedMode });
                 }, () => ({ ok: false, reason: 'stats-log-create-failed' })).finally(() => { creating = false; });
             }
-            ledger = createStatsLedger(chatId, initial || createStatsState());
+            // 直接启用（快速开始、自动启用）不送技能，「我的角色」里提示选擅长技能（3+5）。
+            ledger = createStatsLedger(chatId, initial || createStatsState({ skills: [] }));
             extra.push(initRecord(ledger.initial, { createdAt: Date.now() }));
         }
         chatEnabled = true;
@@ -1249,6 +1251,38 @@ export function createStatsRuntime({
         } : null);
         refreshBuildAsk();
         refreshHeroOffer();
+        refreshHeroPick();
+    }
+
+    // 主角还没有任何内置技能、也没选过时，需要选擅长技能。剧情技能、世界观技能不算（补全出来的不顶替这一步）。
+    function needsHeroPick() {
+        if (!ledger || catalog.heroPicked) return false;
+        const own = currentStatsState(ledger).protagonist.skills || {};
+        const builtin = (name) => Object.hasOwn(BUILTIN_SKILLS, name);
+        return ![...Object.keys(own), ...Object.keys(catalog.protagonistBase), ...Object.keys(catalog.protagonistEdit)].some(builtin);
+    }
+
+    function refreshHeroPick() {
+        const chatId = chatIdOf(ctx());
+        const offer = Boolean(chatId) && active() && !heroPickAsked.has(chatId) && needsHeroPick();
+        setNotice('hero-pick', offer ? { kind: 'onboarding', text: '主角技能：请选3项擅长、5项比较擅长', actions: [['open', '去选择'], ['later', '稍后']] } : null);
+    }
+
+    // 选擅长技能：skills 为 { 技能: 起始值 }（pickSummary 的结果），写进底数层；之后成长、手改照常叠加。
+    function pickHeroSkills(skills) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        const engine = engineOf();
+        // 只收注册表里认得的技能（内置或自定义已登记的）；自定义新名先登记成剧情技能。
+        const entries = Object.entries(skills || {}).filter(([, v]) => Number(v) > 0)
+            .map(([name, v]) => [engine.registry.resolve(name) || commitSkill(name), Number(v)]).filter(([name]) => Boolean(name));
+        if (!entries.length) return { ok: false, reason: 'stats-hero-pick-empty' };
+        const base = { ...catalog.protagonistBase };
+        for (const [name, value] of entries) base[name] = withoutHeroBonus(engine, name, value);
+        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, heroPicked: true });
+        setNotice('hero-pick', null);
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true };
     }
 
     // CoC 且主角还没分配过技能时，每个聊天提示一次。
@@ -1442,6 +1476,16 @@ export function createStatsRuntime({
 
     // ---- 主角技能（CoC）：按人设一次分配 + 玩家手改 ----
     // 可分配技能：核心（含默认特有）与当前世界观的附加技能；不含六维与理智、剧情技能。
+    // 「修改属性」预填：主角六维底数（剧情、升级加点之前，3–18）。战斗属性表没就绪时为 null，不显示按钮。
+    function heroAttrs() {
+        const source = life();
+        if (!source || source.ready !== true || typeof source.readAbilities !== 'function') return null;
+        let view = null;
+        try { view = source.readAbilities(userName() || PROTAGONIST, { heroPrefs: heroPrefs() }); } catch (error) { view = null; }
+        if (!view || !view.base || view.table !== 'ok') return null;
+        return { base: { ...view.base }, className: view.className || '', role: view.role || '' };
+    }
+
     function heroSkillNames() {
         const world = new Set(worldSkillNames(worldviewOf()));
         return engineOf().registry.entries()
@@ -1572,6 +1616,8 @@ export function createStatsRuntime({
     function heroOp(op, name, payload = {}) {
         if (op === 'set') return setHeroSkill(name, payload.value);
         if (op === 'edit') return editHeroSkill(name, payload.tier);
+        if (op === 'pick') return pickHeroSkills(payload.skills);
+        if (op === 'attrs') return { ok: true, attrs: heroAttrs() };
         if (op === 'assign') return assignHeroSkills({ overwrite: payload.overwrite === true });
         return { ok: false, reason: 'stats-hero-op-unknown' };
     }
@@ -1674,6 +1720,11 @@ export function createStatsRuntime({
             persist();
             refreshBuildAsk();
             return { ok: true, choice: action };
+        }
+        if (id === 'hero-pick') {
+            heroPickAsked.add(chatIdOf(ctx()));
+            setNotice('hero-pick', null);
+            return action === 'open' ? { ok: true, openSettings: 'stats' } : { ok: true };
         }
         if (id === 'hero-skills') {
             heroAsked.add(chatIdOf(ctx()));
@@ -2014,7 +2065,8 @@ export function createStatsRuntime({
         // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
         archive: ev(() => {
             ensureLoaded();
-            return ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero, heroName: userName() }) : null;
+            const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero, heroName: userName() }) : null;
+            return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs() } : null;
         }),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {

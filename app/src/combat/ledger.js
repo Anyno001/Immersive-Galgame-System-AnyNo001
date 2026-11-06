@@ -847,7 +847,8 @@ function foldAttributes(records, index, scanFloor, diagnostics) {
     const inits = records.filter((record) => record.type === 'init').sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
     for (const record of inits) {
         const bucket = bucketOf(record.character);
-        if (bucket.init) diagnostics.push({ code: 'combat-attribute-init-duplicate', id: record.id, character: record.character });
+        // 设置页「修改属性」写的记录（change 为「手改」）按时间顺序覆盖之前的初始化。
+        if (bucket.init && record.change !== INIT_EDIT_CHANGE) diagnostics.push({ code: 'combat-attribute-init-duplicate', id: record.id, character: record.character });
         else bucket.init = record.payload;
     }
     for (const record of records.filter((item) => item.type !== 'init').sort(compareAttributes)) {
@@ -862,6 +863,7 @@ function foldAttributes(records, index, scanFloor, diagnostics) {
 const defaultRole = (name, archetype) => (ARCHETYPES.includes(archetype) ? archetype : ARCHETYPES[hash32(`role:${name}`) % ARCHETYPES.length]);
 const abilityAdjustments = (records) => records.filter((record) => record.payload.ability !== 'free').map((record) => record.payload);
 const freePoints = (records) => records.reduce((sum, record) => sum + (record.payload.ability === 'free' ? record.payload.amount : 0), 0);
+const INIT_EDIT_CHANGE = '手改';
 const EMPTY_ATTRIBUTE_CONTEXT = Object.freeze({ fold: new Map(), heroLevel: 1, table: 'missing' });
 
 // 计算一个角色的六维属性视图。
@@ -1912,7 +1914,8 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         initTail = run.catch(() => {});
         return run;
     }
-    async function writeInitNow(name, init, { signal, shouldStart, manual = false } = {}) {
+    // replace 为真（须同时 manual）：已初始化的角色也写一条「手改」记录覆盖原初始化，剧情与升级加点照常叠加。
+    async function writeInitNow(name, init, { signal, shouldStart, manual = false, replace = false } = {}) {
         const alive = () => !signal?.aborted && (!shouldStart || shouldStart() === true);
         const stale = () => ({ ok: false, reason: 'request-stale' });
         if (!alive()) return stale();
@@ -1928,9 +1931,13 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         const user = getUserName();
         const state = resolveState(snapshot, getChat(), false).state;
         if (!state.ok) return state;
-        if (abilitiesForName(state, characterName, user)?.initialized) return { ok: true, unchanged: true };
+        const edit = manual && replace === true && Boolean(abilitiesForName(state, characterName, user)?.initialized);
+        if (!edit && abilitiesForName(state, characterName, user)?.initialized) return { ok: true, unchanged: true };
         const key = characterKeyFor(indexProfiles(snapshot.profiles, []), characterName, user);
-        const record = { id: ledgerEntryId('init', key), type: 'init', character: key, anchor: null, payload: parsed.value, createdAt: now(), change: '初始化' };
+        const at = now();
+        const record = edit
+            ? { id: `${ledgerEntryId('init', key)}|edit|${at}`, type: 'init', character: key, anchor: null, payload: parsed.value, createdAt: at, change: INIT_EDIT_CHANGE }
+            : { id: ledgerEntryId('init', key), type: 'init', character: key, anchor: null, payload: parsed.value, createdAt: at, change: '初始化' };
         if (!alive()) return stale();
         let written;
         try {

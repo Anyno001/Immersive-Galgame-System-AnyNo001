@@ -121,6 +121,16 @@ const operations = [
     ['read', async (w) => w.ledger.read()],
 ];
 
+// v0.39.58 起属性视图多带 base（剧情、升级加点前的六维底数，设置页「修改属性」用）；与原包比较时去掉。
+function withoutBase(value, seen = new WeakSet()) {
+    if (!value || typeof value !== 'object' || seen.has(value)) return value;
+    seen.add(value);
+    if (value instanceof Map) { for (const v of value.values()) withoutBase(v, seen); return value; }
+    if (Object.hasOwn(value, 'base') && Object.hasOwn(value, 'scores') && Object.hasOwn(value, 'mods')) delete value.base;
+    for (const v of Object.values(value)) withoutBase(v, seen);
+    return value;
+}
+
 const sheetRows = (host) => Object.fromEntries(Object.values(host.sheets).map((sheet) => [sheet.name, clone(sheet.content)]));
 
 test('账本与背包：与 v0.39 同操作同结果，整表读取次数不增', async () => {
@@ -131,7 +141,7 @@ test('账本与背包：与 v0.39 同操作同结果，整表读取次数不增'
         const beforeO = worldO.host.calls.exportTableAsJson;
         const beforeM = worldM.host.calls.exportTableAsJson;
         const resultO = await run(worldO);
-        const resultM = await run(worldM);
+        const resultM = withoutBase(structuredClone(await run(worldM)));
         assert.deepEqual(resultM, resultO, `${name}：返回值不一致`);
         assert.deepEqual(sheetRows(worldM.host), sheetRows(worldO.host), `${name}：写入表的行不一致`);
         table.push({ 操作: name, 原包读表: worldO.host.calls.exportTableAsJson - beforeO, 改写读表: worldM.host.calls.exportTableAsJson - beforeM });
@@ -257,6 +267,6 @@ test('账本在 tables 没有版本号接口时退回不缓存，结果不变', 
     const a = await ledger.effectiveState();
     const b = await ledger.effectiveState();
     assert.notEqual(a, b, '无版本号时不缓存');
-    assert.deepEqual(a, await worldO.ledger.effectiveState());
+    assert.deepEqual(withoutBase(structuredClone(a)), await worldO.ledger.effectiveState());
     assert.equal(ledger.stats().stateHits, 0);
 });

@@ -25,12 +25,13 @@ export function defaultBars(money = 0) {
     return { stamina: 100, money, stress: 0 };
 }
 
-export function createStatsState({ day = 1, special = 50, money = 0, prefs = null } = {}) {
+// skills：起始技能名（默认 8 项日常技能各 special 点）；新聊天传空数组，由玩家选擅长技能。
+export function createStatsState({ day = 1, special = 50, money = 0, prefs = null, skills = DEFAULT_SPECIAL_SKILLS } = {}) {
     return {
         version: STATS_VERSION,
         clock: { day, lastHour: null, lastDate: null, floorsSinceDay: 0, stayedUp: false, challenges: 0, lastChallengeFloor: null, lastChallengeReport: null },
         protagonist: {
-            skills: skillTable(DEFAULT_SPECIAL_SKILLS, special),
+            skills: skillTable(skills, special),
             prefs: prefs && typeof prefs === 'object' ? { ...prefs } : null,
             bars: defaultBars(money),
         },

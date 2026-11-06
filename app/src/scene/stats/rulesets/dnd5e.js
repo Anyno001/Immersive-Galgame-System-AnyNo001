@@ -1,5 +1,5 @@
 // D&D 第五版（数值 v2 §4.2）：属性值 = 底数 / 5，修正 = floor((属性值 − 10) / 2)；
-// 技能底数 50–74 熟练、75 以上专精（双倍熟练加值）；熟练加值看资历档。优势 / 劣势不叠加。
+// 技能底数 25–49 半熟练（熟练加值减半向下取整，即「万事通」）、50–74 熟练、75 以上专精（双倍熟练加值）；熟练加值看资历档。优势 / 劣势不叠加。
 // 自然 20 / 1 常开（引擎传 natural:true）：技能检定里自然 20 必成、自然 1 必败；分档（超出 DC 多少）只用于演出与结算。
 
 export const ID = 'dnd5e';
@@ -7,6 +7,7 @@ export const LABEL = 'D&D第五版（d20）';
 export const EDGE_MAX = 1;
 export const DC = Object.freeze({ 简单: 10, 普通: 15, 困难: 20, 极难: 25 });
 export const RANK_BONUS = Object.freeze({ 普通人: 2, 老手: 3, 精英: 4, 大师: 5, 传奇: 6 });
+export const HALF_AT = 25;
 export const PROFICIENT_AT = 50;
 export const EXPERT_AT = 75;
 
@@ -21,13 +22,13 @@ export function modOf(value) {
 export function proficiencyOf(profile) {
     if (profile.kind === 'attribute' || !profile.learned) return 0;
     const v = Number(profile.value) || 0;
-    return v >= EXPERT_AT ? 2 : v >= PROFICIENT_AT ? 1 : 0;
+    return v >= EXPERT_AT ? 2 : v >= PROFICIENT_AT ? 1 : v >= HALF_AT ? 0.5 : 0;
 }
 
 // 压力修正：百分制目标 −10 折成 −2（每 5 点约 1）。
 export function bonusOf(profile, shift = 0) {
     const pb = RANK_BONUS[profile.rank] || RANK_BONUS.普通人;
-    return modOf(profile.attributeValue ?? profile.value) + proficiencyOf(profile) * pb + Math.round((Number(shift) || 0) / 5);
+    return modOf(profile.attributeValue ?? profile.value) + Math.floor(proficiencyOf(profile) * pb) + Math.round((Number(shift) || 0) / 5);
 }
 
 export function rawRoll(random) {

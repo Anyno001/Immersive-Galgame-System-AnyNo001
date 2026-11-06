@@ -25,6 +25,11 @@ export const NPC_SKILL_JITTER = 5;
 // 主角补全不设上限（11-07 用户放开），补出来不合适时在「我的角色」里手改。
 export const PROTAGONIST_BACKFILL_MAX = '大师';
 export const SHEET_BATCH_MAX = 8;
+// 角色卡 3+5：与主角选技能同值（擅长 60、比较擅长 30）。
+export const NPC_STRONG_COUNT = 3;
+export const NPC_GOOD_COUNT = 5;
+export const NPC_STRONG_VALUE = 60;
+export const NPC_GOOD_VALUE = 30;
 export const BACKFILL_SKILL_MAX = 6;
 export const SUMMARY_MAX = 600;
 export const BACKFILL_SUMMARY_MAX = 300;
@@ -137,12 +142,17 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
             else if (tier && validSkillName(k)) skills[validSkillName(k)] = tier;
             else diagnostics.push({ code: 'stats-sheet-cell-dropped', name, key: k });
         }
+        // 3+5：擅长 3 项、比较擅长 5 项（与主角选技能同一套起步值）；旧格式的「技能」档位表仍可识别。
+        const pickList = (list, max) => (Array.isArray(list) ? list : []).map((k) => (registry ? registry.resolve(k) : null) || validSkillName(k))
+            .filter((k) => k && !BASE_ATTRIBUTES.includes(k)).filter((k, i, all) => all.indexOf(k) === i).slice(0, max);
+        const strong = pickList(raw.擅长 || raw.strong, NPC_STRONG_COUNT);
+        const good = pickList(raw.比较擅长 || raw.good, NPC_GOOD_COUNT).filter((k) => !strong.includes(k));
         const signature = [];
         for (const item of Array.isArray(raw.招牌技能 || raw.signature) ? (raw.招牌技能 || raw.signature) : []) {
             const skillName = validSkillName(item && (item.名 || item.name));
             if (skillName && signature.length < 3) signature.push({ name: skillName, attribute: normalizeAttribute(item.属性 || item.attribute) });
         }
-        sheets[name] = { rank: rankWord(raw.资历 || raw.rank) || RANKS[0], attributes, skills, signature };
+        sheets[name] = { rank: rankWord(raw.资历 || raw.rank) || RANKS[0], attributes, skills, strong, good, signature };
     }
     if (!Object.keys(sheets).length) return { ok: false, reason: 'stats-sheet-empty', sheets, diagnostics };
     return { ok: true, sheets, diagnostics };
@@ -162,6 +172,8 @@ export function sheetFromTiers(name, tiers, { chatSeed = '', heroSkill = null } 
         const v = npcSkillValue(tier, heroOf(skill), `${chatSeed}|${name}|${skill}`);
         if (v) skills[skill] = v;
     }
+    for (const skill of tiers.strong || []) if (!skills[skill]) skills[skill] = NPC_STRONG_VALUE;
+    for (const skill of tiers.good || []) if (!skills[skill]) skills[skill] = NPC_GOOD_VALUE;
     for (const sig of tiers.signature || []) {
         if (!skills[sig.name]) skills[sig.name] = npcSkillValue('精通', heroOf(sig.name), `${chatSeed}|${name}|${sig.name}`);
     }

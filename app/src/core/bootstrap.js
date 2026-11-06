@@ -100,7 +100,7 @@ import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
-const IGS_VERSION = '0.39.57';
+const IGS_VERSION = '0.39.58';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -488,6 +488,14 @@ export function bootstrapIGS(options = {}) {
             if (kind === 'skill') return rt.skillOp(op, name, payload);
             if (kind === 'hero') return rt.heroOp(op, name, payload);
             if (kind === 'relation') return rt.relationOp(op, name, payload);
+            // 「修改属性」：主角六维底数写进战斗属性表（手改记录覆盖原初始化），剧情与升级加点照常叠加。
+            if (kind === 'attrs') {
+                const heroName = (typeof illustrationMessageHost.getUserName === 'function' && String(illustrationMessageHost.getUserName() || '').trim()) || '主角';
+                const value = { className: String(payload && payload.className || ''), role: payload && payload.role, scores: payload && payload.scores };
+                return Promise.resolve().then(() => combatServices.writeManualInit(heroName, value, { replace: true }))
+                    .then((written) => (written && written.ok === true ? { ok: true } : { ok: false, reason: (written && written.reason) || 'combat-init-write-failed' }),
+                        () => ({ ok: false, reason: 'combat-init-write-failed' }));
+            }
             if (kind === 'generate') return rt.generateSheets(name ? [name] : null);
             if (kind === 'backfill') return rt.runBackfill();
             if (kind === 'backup') return rt.dropBackup();

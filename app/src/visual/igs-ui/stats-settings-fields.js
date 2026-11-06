@@ -1,7 +1,7 @@
 // 数值系统提示词编辑（§9）：每段一个可编辑模板，可单独关闭，可恢复默认；阶段文案同样可改。
 // 留空表示使用默认值（默认值作为占位提示显示），整块默认折叠在高级分区里。
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
-import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_SPECIAL_COUNT, buildSummary, manualBuildSummary, normalizeBuild, specialCandidates } from '../../scene/stats/stat-build.js';
+import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_GOOD_VALUE, BUILD_PICK_SLOTS, BUILD_STRONG_VALUE, buildSummary, manualBuildSummary, normalizeBuild, pickCandidates, pickSummary } from '../../scene/stats/stat-build.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abilities.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
@@ -107,7 +107,7 @@ export function renderStatsRulesetField(ruleset) {
 
 // 建卡区提示文案与可用状态：渲染和输入时就地刷新共用同一份计算。mode 为 'manual' 时按手动六维算。
 export function statsBuildStatus(build, worldview, mode = null) {
-    const s = mode === 'manual' ? manualBuildSummary(build, { worldview }) : buildSummary(build, { worldview });
+    const s = mode === 'manual' ? manualBuildSummary(build) : buildSummary(build);
     let pointNote;
     if (mode === 'manual') {
         const problem = s.errors.includes('stats-build-over-total') ? `总分超过 ${s.max}` : s.errors.includes('stats-build-score-range') ? `单项须在 ${MANUAL_BUILD.min}–${MANUAL_BUILD.max}` : '';
@@ -116,10 +116,26 @@ export function statsBuildStatus(build, worldview, mode = null) {
     } else {
         pointNote = s.errors.includes('stats-build-prefs-duplicate') ? '主擅长、次擅长、短板须是三项不同的属性。' : '主擅长 15、次擅长 14、短板 8，其余三项 13 / 12 / 10。';
     }
-    const specialNote = s.picked.length > BUILD_SPECIAL_COUNT
-        ? `特有技能最多选 ${BUILD_SPECIAL_COUNT} 项（已选 ${s.picked.length} 项）。`
-        : `特有技能已选 ${s.picked.length}/${BUILD_SPECIAL_COUNT}，每项 50 起步。`;
-    return { ok: s.ok, pointNote, specialNote };
+    return { ok: s.ok, pointNote };
+}
+
+// 技能格提示：擅长三格必选、同一技能不能占两格；起步说明按骰子分开写。
+function pickNote(errors = [], ruleset = 'coc7') {
+    if (errors.includes('stats-build-pick-duplicate')) return '同一项技能只能选一次。';
+    if (errors.includes('stats-build-strong-missing')) return '擅长技能须选满3项。';
+    const head = ruleset === 'dnd5e'
+        ? '擅长技能加全额熟练加值，比较擅长加一半（向下取整），其余技能只加属性调整值。'
+        : `擅长技能${BUILD_STRONG_VALUE}起步，比较擅长${BUILD_GOOD_VALUE}起步，其余技能按未学的基础值计算。`;
+    return `${head}世界观技能与剧情技能另外计算。`;
+}
+
+// 擅长 3 格、比较擅长 5 格：下拉写设置草稿 bridge.stats.build.picks.<格>，建卡与新聊天选择共用。
+export function renderSkillPicks(build, ruleset = 'coc7') {
+    const b = normalizeBuild(build);
+    const items = [['', '未选'], ...pickCandidates(b).map((name) => [name, name])];
+    const label = (slot) => `${slot.startsWith('strong') ? '擅长' : '比较擅长'}${'一二三四五'[Number(slot.replace(/\D/g, '')) - 1]}`;
+    const grid = BUILD_PICK_SLOTS.map((slot) => field(`bridge.stats.build.picks.${slot}`, label(slot), selectInput(`bridge.stats.build.picks.${slot}`, b.picks[slot], items))).join('');
+    return `<div class="igs-source-filter-note" data-result="stats-build-special" data-stats-ruleset="${esc(ruleset)}">${esc(pickNote(pickSummary(b).errors, ruleset))}</div><div class="igs-source-filter-grid">${grid}</div>`;
 }
 
 // 数字框输入只写草稿、不整页重绘（保焦点）；剩余点数、技能提示与「按分配启用」在这里就地更新。
@@ -130,10 +146,13 @@ export function refreshStatsBuildStatus(root, build, worldview) {
     const st = statsBuildStatus(build, worldview === undefined ? attr('data-stats-worldview') : worldview, attr('data-stats-mode') || null);
     const point = root.querySelector('[data-result="stats-build"]');
     if (point) point.textContent = st.pointNote;
-    const special = root.querySelector('[data-result="stats-build-special"]');
-    if (special) special.textContent = st.specialNote;
+    const notes = typeof root.querySelectorAll === 'function' ? root.querySelectorAll('[data-result="stats-build-special"]') : [];
+    const errors = pickSummary(build).errors;
+    for (const note of notes) note.textContent = pickNote(errors, (typeof note.getAttribute === 'function' && note.getAttribute('data-stats-ruleset')) || 'coc7');
     const button = root.querySelector('[data-action="stats-chat-enable-build"]');
     if (button) button.disabled = !st.ok;
+    const pick = root.querySelector('[data-action="stats-op:hero-pick"]');
+    if (pick) pick.disabled = !pickSummary(build).ok;
     return true;
 }
 
@@ -146,7 +165,7 @@ export function renderStatsBuildModeField(mode) {
 
 // 建卡（§6、§10A）：默认折叠。自动/相对数值选六维倾向；手动建档填职业与六维加点（总分 72 以内）。
 // 超分或多选时「按分配启用」禁用并说明原因。
-export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview, mode = null } = {}) {
+export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview, mode = null, ruleset = 'coc7' } = {}) {
     const b = normalizeBuild(build);
     const manual = mode === 'manual';
     const st = statsBuildStatus(b, worldview, manual ? 'manual' : null);
@@ -155,9 +174,7 @@ export function renderStatsBuildFields(build, advancedOpen = () => '', { worldvi
             + field('bridge.stats.build.role', '定位', selectInput('bridge.stats.build.role', b.role, BUILD_ROLE_OPTIONS))
             + ABILITY_KEYS.map((key) => field(`bridge.stats.build.scores.${key}`, ABILITY_LABELS[key], numberInput(`bridge.stats.build.scores.${key}`, b.scores[key], MANUAL_BUILD.min, MANUAL_BUILD.max, false, 1))).join('')
         : BUILD_PREF_FIELDS.map((key) => field(`bridge.stats.build.prefs.${key}`, BUILD_PREF_LABELS[key], selectInput(`bridge.stats.build.prefs.${key}`, b.prefs[key], BUILD_ABILITY_OPTIONS))).join('');
-    // 技能选择沿用原有开关样式：默认 8 项、世界观附加与自定义技能同一种开关，不加附注、不加容器。
-    const special = specialCandidates(b, { worldview }).map((name) => checkbox(`bridge.stats.build.special.${name}`, b.special[name], name)).join('');
-    // 自定义技能已在上方开关列表里，下方这一行只放增删按钮，不重复列名字。
+    // 自定义技能出现在下拉候选里，这一行只放增删按钮。
     const addSkill = b.custom.length < BUILD_CUSTOM_MAX
         ? '<button type="button" class="igs-btn-mgr-icon" data-action="stats-build-add-skill" title="新增自定义技能" aria-label="新增自定义技能">+</button>'
         : '';
@@ -169,8 +186,7 @@ export function renderStatsBuildFields(build, advancedOpen = () => '', { worldvi
         + `<summary>${manual ? '建卡（六维加点与特有技能）' : '建卡（六维倾向与特有技能）'}</summary>`
         + `<div class="igs-source-filter-note" data-result="stats-build">${esc(st.pointNote)}</div>`
         + `<div class="igs-source-filter-grid">${base}</div>`
-        + `<div class="igs-source-filter-note" data-result="stats-build-special">${esc(st.specialNote)}</div>`
-        + `<div class="igs-settings-section">${special}</div>`
+        + renderSkillPicks(b, ruleset)
         + customRow
         + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-chat-enable-build" type="button"${st.ok ? '' : ' disabled'}>按分配启用</button></div>`
         + '</details>';
@@ -201,8 +217,13 @@ export function renderStatsMappingFields(described, advancedOpen = () => '', { p
 }
 
 // 「我的角色」已开始时的角色卡一览：天数与生命、体力、压力、金钱，六维，主角技能（折叠）。
-export function renderStatsHeroCard(model, advancedOpen = () => '') {
+export function renderStatsHeroCard(model, advancedOpen = () => '', build = null) {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
+    // 新聊天还没选擅长技能：选择区放在最前，确定后不再显示。
+    const pick = model.needsPick
+        ? `<div class="igs-settings-section" data-stats-hero-pick><div class="igs-source-filter-title">选择擅长技能</div>${renderSkillPicks(build, model.ruleset)}`
+            + `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-pick" type="button"${pickSummary(build).ok ? '' : ' disabled'}>确定</button></div></div>`
+        : '';
     const n = (v) => String(Math.round(Number(v) || 0));
     const bars = model.bars || {};
     const cell = (label, value) => `<div class="igs-stats-hero-cell"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
@@ -219,7 +240,8 @@ export function renderStatsHeroCard(model, advancedOpen = () => '') {
     const skills = skillCells ? `<div class="igs-stats-hero-grid is-skills">${skillCells}</div>` : '<div class="igs-source-filter-note">无</div>';
     const d20 = model.ruleset === 'dnd5e' && skillCells ? '技能数值为检定加值，掷二十面骰后加上此值。' : '';
     // 技能直接平铺显示；编辑全部收在下方「编辑技能」折叠里。
-    return head + attrs
+    const attrEdit = model.heroAttrs ? '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button></div>' : '';
+    return pick + head + attrs + attrEdit
         + `<div class="igs-source-filter-note" data-stats-skills>技能（✓ 表示今天有成长机会）${d20 ? `。${d20}` : ''}</div>${skills}`
         + renderSkillEditor(model, advancedOpen);
 }
@@ -232,35 +254,31 @@ function skillSelect(kind, s, list, current, label) {
     return `<select data-stats-skill-${kind}="${esc(s.name)}" aria-label="${esc(`${s.name}${label}`)}">${items.map((a) => `<option value="${esc(a)}"${a === current ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>`;
 }
 
-// 「编辑技能」一项：名字与当前数值一行；所属属性、熟练度两个下拉与删除三格等宽一行；剧情中出现的技能再加改名、合并。
+// 「编辑技能」一项：名字与数值（与数值格同一种显示，CoC 百分值、D&D 检定加值）一行；所属属性、熟练度两个下拉一行；
+// 按钮一行：剧情中出现的技能为改名、合并、删除三格等宽，内置技能只有删除（占满）。
 function skillEditRow(s) {
     const id = esc(encodeURIComponent(s.name));
     const learned = s.tier !== '未学';
-    const remove = learned || s.story ? `<button class="igs-settings-action" data-action="stats-op:skill-remove:${id}" type="button">删除</button>` : '';
-    const extra = s.story
-        ? '<div class="igs-stats-hero-actions">'
+    const remove = `<button class="igs-settings-action" data-action="stats-op:skill-remove:${id}" type="button">删除</button>`;
+    const buttons = s.story
+        ? '<div class="igs-stats-hero-actions is-three">'
             + `<button class="igs-settings-action" data-action="stats-op:skill-rename:${id}" type="button">改名</button>`
-            + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${id}" type="button">合并</button></div>`
-        : '';
-    return `<div class="igs-settings-section" data-stats-skill-row="${esc(s.name)}"><div class="igs-stats-person-head"><b>${esc(s.name)}</b><span>${learned ? esc(String(s.value)) : '未学'}${s.story ? ' · 剧情中出现' : ''}</span></div>`
-        + `<div class="igs-stats-hero-actions${remove ? ' is-three' : ''}">${skillSelect('attr', s, BASE_ATTRIBUTES, s.attribute, '所属属性')}${skillSelect('tier', s, SKILL_TIER_ITEMS, s.tier, '熟练度')}${remove}</div>`
-        + extra + '</div>';
+            + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${id}" type="button">合并</button>${remove}</div>`
+        : learned ? `<div class="igs-stats-hero-actions">${remove}</div>` : '';
+    return `<div class="igs-settings-section" data-stats-skill-row="${esc(s.name)}"><div class="igs-stats-person-head"><b>${esc(s.name)}</b><span>${learned ? esc(s.display ?? String(s.value)) : '未学'}${s.story ? ' · 剧情中出现' : ''}</span></div>`
+        + `<div class="igs-stats-hero-actions">${skillSelect('attr', s, BASE_ATTRIBUTES, s.attribute, '所属属性')}${skillSelect('tier', s, SKILL_TIER_ITEMS, s.tier, '熟练度')}</div>`
+        + buttons + '</div>';
 }
 
-// 「编辑技能」折叠：已学的平铺（数值高的在前），未学的按所属属性再折叠；末尾输入框新增技能（入门起步）。
+// 「编辑技能」折叠：已学技能（数值高的在前）与剧情中出现的技能；未学的内置技能不列，需要时在末尾输入框新增（入门起步）。
 function renderSkillEditor(model, advancedOpen) {
     const rows = Array.isArray(model.skillEdit) ? model.skillEdit : [];
-    const known = rows.filter((r) => r.tier !== '未学').sort((a, b) => b.value - a.value);
-    const byAttribute = new Map();
-    for (const s of rows.filter((r) => r.tier === '未学')) {
-        const key = s.attribute || '其他';
-        byAttribute.set(key, [...(byAttribute.get(key) || []), s]);
-    }
-    const idle = [...byAttribute.entries()].map(([attribute, list]) => `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-hero-skills-${esc(attribute)}"${advancedOpen(`stats-hero-skills-${attribute}`)}><summary>${esc(attribute)}类未学（${list.length}项）</summary>${list.map(skillEditRow).join('')}</details>`).join('');
+    const known = rows.filter((r) => r.tier !== '未学' || r.story).sort((a, b) => b.value - a.value);
+    const learned = known.filter((r) => r.tier !== '未学').length;
     const add = field('', '新增技能', '<input data-stats-skill-add type="text" maxlength="8" placeholder="技能名，回车添加">');
-    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skill-edit"${advancedOpen('stats-skill-edit')}><summary>编辑技能（${known.length}项已学）</summary>`
+    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skill-edit"${advancedOpen('stats-skill-edit')}><summary>编辑技能（${learned}项已学）</summary>`
         + (known.length ? known.map(skillEditRow).join('') : '<div class="igs-source-filter-note">暂无已学技能。</div>')
-        + idle + add + '</details>';
+        + add + '</details>';
 }
 
 // 「我的角色」底部按钮：暂停本聊天；有主角技能表（CoC）时再加「按人设分配技能」。
@@ -366,7 +384,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
             : chat.enabled ? '本聊天已开始。暂停后数值冻结、不结算，存档保留。' : '本聊天尚未开始，可直接快速开始，或自己建卡。';
     const buildOpen = (key) => (key === 'stats-build' && manual ? ' open' : advancedOpen(key));
-    const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode });
+    const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode, ruleset: stats.ruleset });
     return {
         statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
         statsCombatNoteHidden: hiddenAttr(!combatOn),
@@ -377,7 +395,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsMainBuildHidden: hiddenAttr(!manual),
         statsMainBuildFields: manual ? build(buildOpen) : '',
         statsHeroHidden: hiddenAttr(!started),
-        statsHeroCard: renderStatsHeroCard(archive, advancedOpen),
+        statsHeroCard: renderStatsHeroCard(archive, advancedOpen, stats.build),
         statsHeroActions: renderStatsHeroActions(archive),
         statsHeroRecords: renderStatsHeroRecords(archive, advancedOpen),
         statsPeopleFields: renderStatsPeople(archive, advancedOpen),

@@ -51,8 +51,9 @@ import { preserveConfiguredArtists } from '../../generated-images/artist-library
 import { pickImagePromptFile } from './settings-image-prompt-io.js';
 import { previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
-import { normalizeBuild } from '../../scene/stats/stat-build.js';
+import { normalizeBuild, pickSummary } from '../../scene/stats/stat-build.js';
 import { refreshStatsBuildStatus } from './stats-settings-fields.js';
+import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL } from '../../combat/abilities.js';
 import { BATTLE_MODE_PATH, COMBAT_PRESET_PATH, checkCombatExpansionReady, planBattleMode, planCombatPreset } from './combat-settings.js';
 import { ensureEnemyAtlas } from './combat-enemy-atlas.js';
 import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
@@ -707,6 +708,30 @@ export function createSettingsHost(deps) {
             else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
             else if (kind === 'skill-tier') result = valuePart ? await op('hero', 'edit', name, { tier: valuePart }) : { ok: true, cancelled: true };
+            else if (kind === 'hero-pick') {
+                // 选擅长技能：读设置草稿里的 8 格（与建卡同一份），确定后写进本聊天。
+                const draftBuild = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge && state.activeSettings.draft.bridge.stats && state.activeSettings.draft.bridge.stats.build;
+                const picked = pickSummary(draftBuild);
+                result = picked.ok ? await op('hero', 'pick', '', { skills: picked.skills }) : { ok: false, reason: picked.errors[0] };
+            }
+            else if (kind === 'hero-attrs') {
+                // 修改属性：六维底数 3–18、合计不超过 72；剧情与升级加的点另算，不受这个上限。
+                const read = await op('hero', 'attrs', '', {});
+                const attrs = read && read.attrs;
+                if (!attrs) result = { ok: false, reason: 'combat-attribute-table-missing' };
+                else {
+                    const values = await settingsDialogs.numbers(`修改属性（单项${MANUAL_BUILD.min}–${MANUAL_BUILD.max}，合计不超过${MANUAL_TOTAL}）`, ABILITY_KEYS.map((key) => ({ key, label: ABILITY_LABELS[key], value: attrs.base[key], min: MANUAL_BUILD.min, max: MANUAL_BUILD.max })), { okLabel: '保存' });
+                    if (!values) result = { ok: true, cancelled: true };
+                    else {
+                        const scores = Object.fromEntries(ABILITY_KEYS.map((key) => [key, Math.round(Number(values[key]))]));
+                        const total = Object.values(scores).reduce((sum, v) => sum + v, 0);
+                        result = total > MANUAL_TOTAL ? { ok: false, reason: 'stats-build-over-total' }
+                            : ABILITY_KEYS.some((key) => !(scores[key] >= MANUAL_BUILD.min && scores[key] <= MANUAL_BUILD.max)) ? { ok: false, reason: 'stats-build-score-range' }
+                                : ABILITY_KEYS.every((key) => scores[key] === attrs.base[key]) ? { ok: true, cancelled: true }
+                                    : await op('attrs', 'set', '', { scores, className: attrs.className, role: attrs.role });
+                    }
+                }
+            }
             else if (kind === 'hero-assign') {
                 result = await op('hero', 'assign', '', {});
                 if (result && result.reason === 'needs-confirm') {
@@ -750,7 +775,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();

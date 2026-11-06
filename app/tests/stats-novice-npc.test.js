@@ -264,15 +264,14 @@ test('其他角色：角色卡并进同名角色，没有人际档的角色卡�
     // 技能平铺不折叠；全部技能的编辑在「编辑技能」折叠里，不再有「编辑技能」按钮。
     assert.doesNotMatch(mine, /data-advanced="stats-skills"|stats-story-skills|stats-op:hero-edit/);
     const editor = mine.slice(mine.indexOf('data-advanced="stats-skill-edit"'), mine.indexOf('data-advanced="stats-checks"'));
-    // 内置技能（烹饪）与剧情技能同样可改属性、熟练度、删除：两个下拉与删除三格等宽。
+    // 内置技能（烹饪）：两个下拉一行，删除单独一行占满；剧情技能的删除与改名、合并同一行。
     const cook = editor.slice(editor.indexOf('data-stats-skill-row="烹饪"'), editor.indexOf('data-stats-skill-row="开锁"'));
-    assert.match(cook, /<div class="igs-stats-hero-actions is-three"><select data-stats-skill-attr="烹饪"[^>]*>.*<option value="智力" selected>.*<select data-stats-skill-tier="烹饪"[^>]*>.*<option value="熟练" selected>.*stats-op:skill-remove:/s);
+    assert.match(cook, /<div class="igs-stats-hero-actions"><select data-stats-skill-attr="烹饪"[^>]*>.*<option value="智力" selected>.*<select data-stats-skill-tier="烹饪"[^>]*>.*<option value="熟练" selected>.*<\/select><\/div><div class="igs-stats-hero-actions"><button[^>]*stats-op:skill-remove:/s);
     assert.doesNotMatch(cook, /skill-rename/);
-    // 剧情技能多一行改名、合并；未学的按属性折叠、没有删除。
-    assert.match(editor.slice(editor.indexOf('data-stats-skill-row="开锁"')), /skill-rename:.*skill-merge:/s);
-    const idle = editor.slice(editor.indexOf('data-advanced="stats-hero-skills-智力"'));
-    assert.match(idle, /data-stats-skill-row="法律"/);
-    assert.doesNotMatch(idle.slice(idle.indexOf('data-stats-skill-row="法律"')), /skill-remove/);
+    // 剧情技能：改名、合并、删除三格同一行；未学的内置技能不列。
+    assert.match(editor.slice(editor.indexOf('data-stats-skill-row="开锁"')), /igs-stats-hero-actions is-three"><button[^>]*skill-rename:.*skill-merge:.*skill-remove:/s);
+    assert.doesNotMatch(editor, /data-stats-skill-row="法律"/);
+    assert.doesNotMatch(editor, /stats-hero-skills-智力/);
     assert.match(editor, /data-stats-skill-add/);
     assert.match(mine, /data-advanced="stats-checks"/);
     assert.doesNotMatch(npc, /data-stats-skill-|stats-checks/);

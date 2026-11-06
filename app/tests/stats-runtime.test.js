@@ -1,3 +1,4 @@
+import { createStatsState } from '../src/scene/stats/stat-state.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { STATS_PROMPT_KEY, createStatsRuntime } from '../src/core/stats-runtime.js';
@@ -215,7 +216,8 @@ test('总开关关闭时在设置页启用本聊天：先读存档，不用空�
 
 test('先掷后写：命中技能时生成前掷骰并注入检定段，结算记录检定；继续生成沿用；关闭自动判断不掷（§4.1）', () => {
     const { host, rt, set } = setup();
-    rt.enableForChat();
+    // 直接启用不送技能，这里按旧默认（8 项日常技能）建档。
+    rt.enableForChat({ initial: createStatsState() });
     host.ctx.chat.push({ is_user: true, mes: '我给她做一顿寿司' });
     const { id, injected } = generate(host, '她尝了一口。');
     assert.match(injected, /【本轮检定】烹饪：1d100=\d+，需≤\d+，结果【[^】]+】/);
@@ -365,4 +367,18 @@ test('statsTables 缺失时数值系统停摆并给出原因，不抛错、不�
     rt.sync();
     assert.equal(rt.enableForChat().reason, 'stats-db-missing');
     assert.equal(rt.chatStatus().blocked, 'stats-db-missing');
+});
+
+test('新聊天直接启用不送技能，提示选擅长技能；选完写底数、不再提示', () => {
+    const { rt } = setup();
+    rt.enableForChat();
+    assert.deepEqual(Object.keys(rt.getState().protagonist.skills), []);
+    assert.equal(rt.archive().needsPick, true);
+    assert.ok(rt.notices().some((n) => n.id === 'hero-pick'));
+    const r = rt.heroOp('pick', '', { skills: { 话术: 60, 侦查: 60, 家务: 60, 格斗: 30 } });
+    assert.equal(r.ok, true);
+    const shown = Object.fromEntries(rt.archive().skills.map((s) => [s.name, s.value]));
+    assert.deepEqual([shown.话术, shown.格斗], [60, 30]);
+    assert.equal(rt.archive().needsPick, false);
+    assert.equal(rt.notices().some((n) => n.id === 'hero-pick'), false);
 });

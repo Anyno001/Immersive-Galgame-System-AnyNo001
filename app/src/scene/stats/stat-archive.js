@@ -64,7 +64,7 @@ function skillEditRows(engine, state, names, catalog) {
         const p = profileOf(engine, state, PROTAGONIST, name);
         if (!p.entry || p.entry.kind !== 'skill') return null;
         const value = Math.round(Number(p.value) || 0);
-        return { name, attribute: p.entry.attribute || '', tier: skillTierOf(p) || '未学', value, story: story.has(name) };
+        return { name, attribute: p.entry.attribute || '', tier: skillTierOf(p) || '未学', value, display: displaySkill(engine, p), story: story.has(name) };
     }).filter(Boolean);
 }
 

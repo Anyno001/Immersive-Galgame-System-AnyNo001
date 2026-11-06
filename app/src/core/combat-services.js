@@ -518,7 +518,8 @@ export function createCombatServices(options = {}) {
     }
 
     // 手动写入初始化（设置页）：写完刷新生命与成长
-    async function writeManualInit(name, value, { signal } = {}) {
+    // replace：已初始化的角色也覆盖（设置页「修改属性」）。
+    async function writeManualInit(name, value, { signal, replace = false } = {}) {
         const chatId = getChatId();
         if (!chatId) return { ok: false, reason: 'combat-generate-unavailable' };
         getTables();
@@ -526,7 +527,7 @@ export function createCombatServices(options = {}) {
         const stillValid = () => getChatId() === chatId && ledger === ledgerImpl && !signal?.aborted;
         let written;
         try {
-            written = await ledgerImpl.writeInit(name, value, { signal, shouldStart: stillValid, manual: true });
+            written = await ledgerImpl.writeInit(name, value, { signal, shouldStart: stillValid, manual: true, replace });
         } catch {
             written = { ok: false, reason: 'combat-init-write-failed' };
         }

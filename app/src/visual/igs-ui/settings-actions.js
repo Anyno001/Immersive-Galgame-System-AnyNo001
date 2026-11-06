@@ -2458,7 +2458,6 @@ export async function handleSettingsAction(action, ctx) {
         if (!name) return { ok: false, reason: 'stats-build-skill-invalid' };
         if (!build.custom.includes(name)) {
             build.custom.push(name);
-            if (!Object.hasOwn(build.special, name)) build.special[name] = false;
             statsDraft.build = build;
             const persisted = persistSettingsDraft();
             if (persisted.ok === false) return persisted;
@@ -2477,7 +2476,7 @@ export async function handleSettingsAction(action, ctx) {
         if (!name) return rerenderSettings();
         if (!build.custom.includes(name)) return { ok: false, reason: 'stats-build-skill-unknown' };
         build.custom = build.custom.filter((item) => item !== name);
-        delete build.special[name];
+        for (const slot of Object.keys(build.picks)) if (build.picks[slot] === name) build.picks[slot] = '';
         statsDraft.build = build;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;

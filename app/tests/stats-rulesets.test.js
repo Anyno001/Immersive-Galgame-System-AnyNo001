@@ -51,7 +51,10 @@ test('D&D：属性值 = 底数/5、修正向下取整；熟练与专精按底数
     assert.equal(dnd5e.bonusOf(p(60, { attributeValue: 50 })), 2);
     assert.equal(dnd5e.bonusOf(p(80, { attributeValue: 50 })), 4);
     assert.equal(dnd5e.bonusOf(p(80, { attributeValue: 50, rank: '精英' })), 8);
-    assert.equal(dnd5e.bonusOf(p(30, { attributeValue: 70 })), 2);
+    // 25–49 半熟练：熟练加值减半向下取整（普通人 +2 → +1；老手 +3 → +1）。
+    assert.equal(dnd5e.bonusOf(p(30, { attributeValue: 70 })), 3);
+    assert.equal(dnd5e.bonusOf(p(30, { attributeValue: 50, rank: '老手' })), 1);
+    assert.equal(dnd5e.bonusOf(p(20, { attributeValue: 50 })), 0);
     assert.equal(dnd5e.bonusOf({ kind: 'attribute', value: 70, learned: true, attributeValue: 70, rank: '传奇' }), 2);
 });
 
