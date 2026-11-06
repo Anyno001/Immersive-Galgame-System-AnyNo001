@@ -306,18 +306,17 @@ function skillSelect(kind, s, list, current, label, disabledOf = null) {
 }
 
 // 「编辑技能」一项：名字与数值（与数值格同一种显示，CoC 百分值、D&D 检定加值）一行；所属属性、熟练度两个下拉一行；
-// 按钮一行：剧情中出现的技能为改名、合并、删除三格等宽，内置技能只有删除（占满）。
+// 按钮一行用分段按钮样式、等宽居中：剧情中出现的技能为改名、合并、删除，占 3+5 格的不出合并；内置技能只有删除。
 // 非剧情技能（及占格技能）的熟练度不能高于封顶档；capTier 为空表示不限。
 const tierDisabled = (s) => (s.capTier ? (a) => SKILL_TIER_ITEMS.indexOf(a) > SKILL_TIER_ITEMS.indexOf(s.capTier) : null);
 function skillEditRow(s) {
     const id = esc(encodeURIComponent(s.name));
     const learned = s.tier !== '未学';
-    const remove = `<button class="igs-settings-action" data-action="stats-op:skill-remove:${id}" type="button">删除</button>`;
-    const buttons = s.story
-        ? '<div class="igs-stats-hero-actions is-three">'
-            + `<button class="igs-settings-action" data-action="stats-op:skill-rename:${id}" type="button">改名</button>`
-            + `<button class="igs-settings-action" data-action="stats-op:skill-merge:${id}" type="button">合并</button>${remove}</div>`
-        : learned ? `<div class="igs-stats-hero-actions">${remove}</div>` : '';
+    const btn = (op, label) => `<button class="igs-segmented-btn" data-action="stats-op:skill-${op}:${id}" type="button"><span class="igs-segmented-btn-label">${label}</span></button>`;
+    const ops = s.story ? [['rename', '改名'], ...(s.slotted ? [] : [['merge', '合并']]), ['remove', '删除']] : learned ? [['remove', '删除']] : [];
+    const buttons = ops.length
+        ? `<div class="igs-segmented igs-stats-skill-ops">${ops.map(([op, label]) => btn(op, label)).join('')}</div>`
+        : '';
     return `<div class="igs-settings-section" data-stats-skill-row="${esc(s.name)}"><div class="igs-stats-person-head"><b>${esc(s.name)}</b><span>${learned ? esc(s.display ?? String(s.value)) : '未学'}${s.story ? ' · 剧情中出现' : ''}</span></div>`
         + `<div class="igs-stats-hero-actions">${skillSelect('attr', s, BASE_ATTRIBUTES, s.attribute, '所属属性')}${skillSelect('tier', s, SKILL_TIER_ITEMS, s.tier, '熟练度', tierDisabled(s))}</div>`
         + buttons + '</div>';

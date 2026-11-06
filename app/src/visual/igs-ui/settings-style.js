@@ -227,6 +227,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-stats-hero-actions.is-three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .igs-stats-hero-actions>.igs-settings-action:only-child{grid-column:1/-1}
 .igs-stats-hero-actions>select{min-width:0;height:34px;padding:0 8px;text-overflow:ellipsis;cursor:pointer}
+.igs-stats-skill-ops{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)}
 /* 数值页「存档与记录」的角色卡：名字、阶段一行，数值格同「我的角色」，按钮两两并排。 */
 .igs-stats-person{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 0;border-bottom:1px solid var(--igs-settings-field)}
 .igs-stats-person:last-of-type{border-bottom:0}

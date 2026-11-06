@@ -111,7 +111,8 @@ function skillEditRows(engine, state, names, catalog, slots = null) {
         if (!p.entry || p.entry.kind !== 'skill') return null;
         const value = Math.round(Number(p.value) || 0);
         const cap = heroSkillCap(engine, state, catalog, name, slots);
-        return { name, attribute: p.entry.attribute || '', tier: skillTierOf(p) || '未学', value, display: displaySkill(engine, p), story: story.has(name), capTier: cap.capped ? cap.tier : '' };
+        const slotted = Object.values(slots || {}).includes(name);
+        return { name, attribute: p.entry.attribute || '', tier: skillTierOf(p) || '未学', value, display: displaySkill(engine, p), story: story.has(name), slotted, capTier: cap.capped ? cap.tier : '' };
     }).filter(Boolean);
 }
 
