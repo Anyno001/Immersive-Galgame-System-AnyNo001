@@ -85,6 +85,8 @@ export const APPLY_STATUSES = Object.freeze({
     barbed: Object.freeze({ max: 6, value: 2 }),
     'time-warp': Object.freeze({ max: 2, value: 4 }),
     skybreaker: Object.freeze({ max: 1, value: 6 }),
+    // 规则 v5 P4b E09 背击（foe-units.js）。
+    flank: Object.freeze({ max: 1, value: 4 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

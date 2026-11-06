@@ -19,3 +19,4 @@ import './cadence.js';
 import './orb.js';
 import './summon.js';
 import './foe.js';
+import './foe-units.js';

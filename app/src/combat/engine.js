@@ -420,18 +420,55 @@ function checkOutcome(ctx) {
     else if (!livingIds(state, 'enemy').length && !(state.overkill === true && state.phase === 'player')) endBattle(ctx, 'victory');
 }
 
-// 敌人倒下后，后备队的下一个顶上它的出手位。
+// 敌人倒下后，后备队的下一个顶上它的出手位（规则 v5 爪牙倒下不顶位）。
 function reinforce(ctx, fallen) {
     const state = ctx.state;
-    if (fallen.side !== 'enemy' || !state.reserve?.length) return;
+    if (fallen.side !== 'enemy' || fallen.minion === true || !state.reserve?.length) return;
     const nextId = state.reserve.shift();
     if (!state.reserve.length) delete state.reserve;
     state.order[state.order.indexOf(fallen.id)] = nextId;
     const recruit = state.units[nextId];
     emit(ctx, { type: 'reinforce', unitId: nextId, replaced: fallen.id });
-    scheduleUnit(state, recruit);
-    if (recruit.kind === 'skill') planIntent(ctx, recruit);
-    fireTrigger(ctx, recruit, 'battle-start', null);
+    enterUnit(ctx, recruit);
+}
+
+// 单位入场（后备补位与规则 v5 运行时召唤共用）：排进行动条、技能单位规划意图，再触发战斗开始被动。
+function enterUnit(ctx, unit) {
+    scheduleUnit(ctx.state, unit);
+    if (unit.kind === 'skill') planIntent(ctx, unit);
+    fireTrigger(ctx, unit, 'battle-start', null);
+}
+
+// 规则 v5 E13 召唤爪牙：只限敌方，在场存活敌人不足 maxEnemiesOnField 时新增一个技能单位，写 minion / minionOf，排在出手顺序末尾。
+// id 取 `<owner>-m<n>`，序号顺延避开已有单位；返回新单位，未入场返回 null。v3/v4 不调用。
+function summonUnit(ctx, owner, def) {
+    const state = ctx.state;
+    if (!(state.rulesVersion >= 5) || state.outcome || !owner?.alive || owner.side !== 'enemy') return null;
+    if (livingIds(state, 'enemy').length >= COMBAT_RULES.maxEnemiesOnField) return null;
+    const base = String(owner.id).slice(0, 56);
+    let n = 1;
+    while (Object.hasOwn(state.units, `${base}-m${n}`)) n += 1;
+    const id = `${base}-m${n}`;
+    const unit = buildUnit({ ...def, id, side: 'enemy', kind: 'skill' });
+    unit.minion = true;
+    unit.minionOf = owner.id;
+    state.units[id] = unit;
+    state.cooldowns[id] = {};
+    state.history[id] = [];
+    state.order.push(id);
+    emit(ctx, { type: 'minion-enter', unitId: id, ownerId: owner.id, name: unit.name });
+    enterUnit(ctx, unit);
+    return unit;
+}
+
+// 规则 v5 E12 爪牙退场：不算倒下（不发 defeated、不触发击杀与补位），记 left，战报与面板写「退场」。
+function dismissUnit(ctx, unit) {
+    if (!unit?.alive) return;
+    unit.alive = false;
+    unit.block = 0;
+    unit.left = true;
+    delete ctx.state.intents[unit.id];
+    emit(ctx, { type: 'minion-leave', unitId: unit.id, ownerId: unit.minionOf ?? null });
 }
 
 // 结算一次伤害，返回实际扣掉的生命。blockable 为假时无视格挡（中毒、自伤）。
@@ -487,7 +524,7 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
     if (hpLoss > 0) runHooks(ctx, 'hp-loss-after', { target, source, kind, hpLoss });
     checkOutcome(ctx);
     const attacker = source?.unitId != null ? ctx.state.units[source.unitId] : null;
-    if (!target.alive && kind === 'attack' && attacker && attacker.side !== target.side) fireBus(ctx, attacker, 'kill', null);
+    if (!target.alive && kind === 'attack' && attacker && attacker.side !== target.side && target.minion !== true) fireBus(ctx, attacker, 'kill', null);
     else if (target.alive && hpLoss > 0) fireBus(ctx, target, 'hp-loss', null);
     if (broke && target.alive) fireBus(ctx, target, 'block-broken', null);
     return hpLoss;
@@ -617,6 +654,8 @@ const engineKit = (targets) => ({
     requestEndTurn: (ctx) => {
         ctx.endTurnRequested = true;
     },
+    // 规则 v5 E12 / E13：运行时新增与移除单位只经这两个入口（mechanics/foe-units.js）。
+    summonUnit, dismissUnit,
 });
 
 // 单个效果的结算。source 记录来源（单位、种类、id），写进事件。

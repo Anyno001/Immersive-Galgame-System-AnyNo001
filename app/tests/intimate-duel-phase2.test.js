@@ -2226,3 +2226,72 @@ test('敌方状态反应模板与词缀（E01、E02、R06）：晕厥与飞行�
     assert.ok(describeEffects([onFoe('stun', 1)]).includes('晕厥'));
 });
 
+// ---------- 规则 v5 P4b 子批 1：E09 背击、E12 爪牙绑定、E13 召唤爪牙 ----------
+const callMinion = (amount, hp, damage) => ({ intent: 'special', effects: [{ op: 'summon-minion', amount, hp, damage }] });
+const livingFoes = (s) => s.order.filter((id) => s.units[id].side === 'enemy' && s.units[id].alive);
+
+test('背击（E09）：主角打出指定敌人的牌时转向它，带背击的另一名敌人从背后攻击伤害 ×1.5；面向背击者时照常；规则 v4 无效', () => {
+    const poke = free('x', 'attack', [hitFoe(1)]);
+    const run = (aim, rv) => {
+        const flanker = foe(foeAttack(4), { id: 'foe2', name: '他', ...selfStatus('flank', 1) });
+        const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck: padded(['x']), catalog: { x: poke, k: GUARD } }), foe(foeAttack(4)), flanker], ...(rv ? { rulesVersion: rv } : {}) };
+        const created = createBattle(setup, 7);
+        assert.equal(created.ok, true, JSON.stringify(created.error));
+        const played = playIn(created.state, instOf(created.state, 'x'), aim);
+        return { played, ended: endTurn(played.state) };
+    };
+    const back = run('foe');
+    assert.equal(back.played.state.units.hero.res?.facing, 'foe');
+    assert.ok(back.played.events.some((e) => e.type === 'face' && e.targetId === 'foe'));
+    assert.equal(back.ended.state.units.hero.hp, 20);
+    assert.equal(run('foe2').ended.state.units.hero.hp, 22);
+    const v4 = run('foe', 4);
+    assert.deepEqual([v4.ended.state.units.hero.hp, v4.played.state.units.hero.res], [22, undefined]);
+});
+
+test('召唤爪牙（E13）与爪牙绑定（E12）：受控入场写 minion / minionOf；召唤者倒下时爪牙退场，不算倒下，战报写「退场」；规则 v4 无效', () => {
+    const smash = free('x', 'attack', [hitFoe(40)]);
+    const run = (rv) => {
+        const t = battleOf({ x: smash }, Array(10).fill('x'), foe(callMinion(1, 10, 3)), rv);
+        const summoned = endTurn(t);
+        const killed = playIn(summoned.state, instOf(summoned.state, 'x'), 'foe');
+        return { summoned, killed };
+    };
+    const v5 = run();
+    const s = v5.summoned.state;
+    assert.deepEqual(s.order, ['hero', 'foe', 'foe-m1']);
+    assert.deepEqual([s.units['foe-m1'].minion, s.units['foe-m1'].minionOf, s.units['foe-m1'].maxHp, s.units['foe-m1'].alive], [true, 'foe', 10, true]);
+    assert.ok(v5.summoned.events.some((e) => e.type === 'minion-enter' && e.unitId === 'foe-m1' && e.ownerId === 'foe'));
+    assert.ok(s.intents['foe-m1'], '爪牙入场即规划意图');
+    const k = v5.killed;
+    assert.equal(k.state.outcome, 'victory');
+    assert.deepEqual([k.state.units['foe-m1'].alive, k.state.units['foe-m1'].left], [false, true]);
+    assert.ok(k.events.some((e) => e.type === 'minion-leave' && e.unitId === 'foe-m1'));
+    assert.equal(k.events.some((e) => e.type === 'defeated' && e.unitId === 'foe-m1'), false);
+    const report = buildCombatReport({ combatId: 'c-minion', state: k.state, events: [...v5.summoned.events, ...k.events] });
+    assert.equal(report.ok, true);
+    assert.ok(report.text.includes('爪牙 退场'), report.text);
+    const v4 = run(4);
+    assert.deepEqual([v4.summoned.state.order, v4.summoned.events.some((e) => e.type === 'minion-enter')], [['hero', 'foe'], false]);
+});
+
+test('召唤爪牙（E13）：场上存活敌人最多 5 名，满员时不再入场；新单位 id 顺延且不重复', () => {
+    let s = battleOf({}, padded([]), foe(callMinion(2, 8, 1)));
+    const counts = [];
+    for (let i = 0; i < 3; i += 1) {
+        s = endTurn(s).state;
+        counts.push(livingFoes(s).length);
+    }
+    assert.deepEqual(counts, [3, 5, 5]);
+    assert.deepEqual(s.order, ['hero', 'foe', 'foe-m1', 'foe-m2', 'foe-m3', 'foe-m4']);
+    assert.equal(new Set(s.order).size, s.order.length);
+});
+
+test('爪牙模板（E12、E13）：call-minion 生成 summon-minion 技能；背击状态有显示名', async () => {
+    const { skillFromTemplate } = await import('../src/combat/card-templates.js');
+    const called = skillFromTemplate('call-minion', 12);
+    assert.equal(called.intent, 'special');
+    assert.deepEqual(called.effects, [{ op: 'summon-minion', amount: 1, hp: 18, damage: 3 }]);
+    assert.ok(describeEffects([onFoe('flank', 1)]).includes('背击'));
+});
+
