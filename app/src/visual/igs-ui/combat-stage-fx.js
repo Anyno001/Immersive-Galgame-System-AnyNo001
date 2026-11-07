@@ -27,8 +27,11 @@ const WRAP_CSS = `
 #igs-overlay .igs-sfx.is-clash.out{background:transparent;transition:background 300ms;}
 #igs-overlay .igs-sfx .sfx-canvas{position:absolute;left:50%;top:50%;width:var(--cw);height:var(--ch);margin:calc(var(--ch) / -2) 0 0 calc(var(--cw) / -2);transform:scale(var(--cx-scale,1));transform-origin:50% 50%;}
 #igs-overlay .igs-sfx-result{position:absolute;inset:0;z-index:1;pointer-events:none;}
-#igs-overlay .igs-sfx-result .rs-ui{position:absolute;z-index:5;right:14px;top:600px;width:226px;display:flex;flex-direction:column;gap:10px;pointer-events:auto;}
-#igs-overlay .igs-sfx-result.land .rs-ui{right:120px;top:560px;width:380px;}
+/* 可点区贴画布底边向上长：战利品、候选、工具行与发送按钮多了也不越出画布 */
+#igs-overlay .igs-sfx-result .rs-ui{position:absolute;z-index:5;right:14px;bottom:14px;width:226px;display:flex;flex-direction:column;gap:10px;pointer-events:auto;}
+#igs-overlay .igs-sfx-result.land .rs-ui{right:120px;bottom:16px;width:380px;}
+#igs-overlay .igs-sfx-result .rs-ui .igs-combat-loot-row{--loot-w:min(104px,calc((100% - (var(--n,3) - 1) * 12px) / var(--n,3)));}
+#igs-overlay .igs-sfx-result .rs-ui .igs-combat-loot-tools{flex-wrap:wrap;gap:8px;}
 #igs-combat-panel:not([data-igs-combat-result-in]) .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
 #igs-combat-panel[data-igs-combat-reduced] .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
 /* VS 对撞站位：两边镜像，主战者等大（3:4 框）、头顶同高，同伴在外侧身后、略小压暗；竖屏我方偏上、敌方偏下，按接缝斜向错开 */

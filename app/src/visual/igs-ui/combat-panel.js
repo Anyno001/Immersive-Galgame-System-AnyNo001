@@ -96,6 +96,8 @@ export function createCombatPanelController(doc, options = {}) {
     let abandonTimer = null;
     let leaving = false;
     let historyOpen = false;
+    // 结算页删牌浮层是否展开；选定、关闭或开合面板时收起。
+    let purgeOpen = false;
     let notice = '';
     let selected = null;
     // v4 待选阶段：已选的候选牌实例（只在引擎 pending 属于操控角色时有内容）。
@@ -366,6 +368,7 @@ export function createCombatPanelController(doc, options = {}) {
         }
         const challenge = cur.kind === 'challenge';
         if (historyOpen) { view.historyOpen = true; view.challenge = true; view.history = typeof options.challengeHistory === 'function' ? options.challengeHistory() : null; }
+        if (purgeOpen) view.purgeOpen = true;
         if (challenge) view.challenge = true;
         const mechanic = challenge ? cur.challenge?.intimate?.mechanic || cur.challengeSetup?.challenge?.intimate?.mechanic || '' : '';
         if (mechanic) view.intimate = mechanic;
@@ -1975,8 +1978,15 @@ export function createCombatPanelController(doc, options = {}) {
                 const value = typeof id === 'string' && /^[A-Za-z0-9_:.-]{1,200}$/.test(id) ? id : '';
                 if (!value) return { ok: false, reason: 'combat-purge-copy-missing' };
                 if (typeof s.pickPurge !== 'function') return { ok: false, reason: 'combat-purge-unavailable' };
-                return runAsync('flip', () => s.pickPurge(value));
+                return runAsync('flip', () => s.pickPurge(value)).then((picked) => {
+                    if (picked?.ok === true && purgeOpen) { purgeOpen = false; render(); }
+                    return picked;
+                });
             }
+            case 'purge-open':
+                if (typeof s.pickPurge !== 'function') return { ok: false, reason: 'combat-purge-unavailable' };
+                purgeOpen = true; render(); return { ok: true };
+            case 'purge-close': purgeOpen = false; render(); return { ok: true };
             case 'reroll': return runAsync('flip', () => s.reroll());
             case 'retry-reward': return runAsync('reward', () => s.retryReward());
             case 'skip': return runAsync('skip', () => s.skip());
@@ -2325,6 +2335,7 @@ export function createCombatPanelController(doc, options = {}) {
         followUp = ['auto', 'abandon'].includes(openOptions.then) ? openOptions.then : '';
         preview = openOptions.preview && typeof openOptions.preview === 'object' ? openOptions.preview : null;
         historyOpen = openOptions.history === true;
+        purgeOpen = false;
         notice = ''; pending = ''; selected = null; chosen = []; controlledId = null; rewards = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         frontFoe = '';
         token += 1;
@@ -2442,7 +2453,7 @@ export function createCombatPanelController(doc, options = {}) {
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         battleMusic(pageOverlay, false);
         pageOverlay = null;
-        pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
+        pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null; purgeOpen = false;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();
