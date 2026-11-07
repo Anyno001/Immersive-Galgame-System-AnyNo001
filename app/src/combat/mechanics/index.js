@@ -28,5 +28,7 @@ import './fixed-tally.js';
 import './fixed-pile.js';
 // 规则 v6 计数被动（G5-1，原版遗物的每 N 次 / 每回合第一次 / 每场第一次）。
 import './relic-counter.js';
+// 规则 v6 卡牌操作（G5d，降费到打出、升级牌堆、复制消耗堆、扣减能量）。
+import './relic-cards.js';
 // 规则 v6 被动修正（G5c，出伤加值、易伤 / 虚弱倍率、失血减免与上限、首次格挡翻倍）。
 import './relic-modify.js';

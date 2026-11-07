@@ -46,18 +46,24 @@ registerMechanic({
     ops: {
         search: {
             validate(effect, path, state, kit) {
-                kit.checkKnownFields(effect, ['op', 'amount', 'cardType'], path, state);
-                return { op: 'search', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 2, 1), ...typeField(effect, path, state, kit) };
+                kit.checkKnownFields(effect, ['op', 'amount', 'cardType', 'cost'], path, state);
+                // 规则 v6 G5d：cost 按费用检索（0–3 或 X，取牌面当前费用）。
+                const cost = effect.cost === undefined ? undefined : kit.enumField(effect.cost, kit.joinPath(path, 'cost'), state, [0, 1, 2, 3, 'X']);
+                return {
+                    op: 'search', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 2, 1), ...typeField(effect, path, state, kit),
+                    ...(cost === undefined ? {} : { cost }),
+                };
             },
             apply(ctx, unit, effect, aimId, source, kit) {
+                const costOk = (card) => effect.cost === undefined || !(ctx.state.rulesVersion >= 6) || card.cost === effect.cost;
                 const options = pileOf(ctx, unit).draw.filter((inst) => {
                     const card = kit.cardView(ctx.state, inst);
-                    return card && (!effect.cardType || card.type === effect.cardType);
+                    return card && (!effect.cardType || card.type === effect.cardType) && costOk(card);
                 });
                 for (const inst of kit.selectCards(ctx, 'choose', options, Math.min(effect.amount, options.length), 'pick')) moveToHand(ctx, unit, kit, inst, 'draw');
             },
             value: (e) => e.amount * 5,
-            describe: (e, kit) => `从抽牌堆检索 ${e.amount} 张${kit.typed(e.cardType)}加入手牌`,
+            describe: (e, kit) => `从抽牌堆检索 ${e.amount} 张${e.cost === undefined ? '' : `${e.cost} 费的`}${kit.typed(e.cardType)}加入手牌`,
             brief: (e) => `检索${e.amount}`,
         },
         retrieve: {

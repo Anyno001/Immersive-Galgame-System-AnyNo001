@@ -3290,3 +3290,48 @@ test('被动修正（v6 G5c）：出伤加值按牌名与升级过滤、易伤 /
     assert.match(describeEffects([{ op: 'relic-mod', mod: 'damage-add', amount: 3, name: '斩' }]), /牌名含「斩」的牌造成的伤害 \+3/);
     assert.match(describeEffects([{ op: 'relic-mod', mod: 'turn-hp-cap', amount: 5 }]), /每回合最多失去 5 点生命/);
 });
+
+test('卡牌操作（v6 G5d）：降费到打出、升级抽牌堆与刚抽到的牌、从消耗堆复制、扣减能量（立即 / 下回合）、按费用检索；规则 v5 不生效', () => {
+    const zero = (id, effects, extra = {}) => def(id, 'skill', effects, { innate: true, cost: 0, ...extra });
+    const cheap = zero('d', [{ op: 'discount-card', amount: 1 }]);
+    const cutOf = (state) => state.piles.hero.hand.filter((inst) => cardView(state, inst).cost === 0);
+    const disc = playIn(startDeck({ d: cheap, k: GUARD }, ['d', ...Array(9).fill('k')]), 'hero#0').state;
+    assert.equal(cutOf(disc).length, 1);
+    const spent = playIn(disc, cutOf(disc)[0]).state;
+    assert.equal(spent.units.hero.energy, disc.units.hero.energy);
+    assert.equal(spent.cards[cutOf(disc)[0]].discount, undefined);
+    const oldDisc = playIn(startDeck({ d: cheap, k: GUARD }, ['d', ...Array(9).fill('k')], 5), 'hero#0').state;
+    assert.equal(cutOf(oldDisc).length, 0);
+
+    const lift = playIn(startDeck({ u: zero('u', [{ op: 'upgrade-pile', from: 'draw', amount: 2 }]), a: ATTACK }, ['u', ...Array(9).fill('a')]), 'hero#0').state;
+    assert.equal(lift.piles.hero.draw.filter((inst) => lift.cards[inst].upgraded === true).length, 2);
+    const fresh = playIn(startDeck({ u: zero('u', [{ op: 'upgrade-pile', from: 'drawn', amount: 2 }, { op: 'draw', amount: 3 }]), a: ATTACK }, ['u', ...Array(9).fill('a')]), 'hero#0').state;
+    assert.equal(fresh.piles.hero.hand.filter((inst) => fresh.cards[inst].upgraded === true).length, 2);
+    assert.equal(fresh.units.hero.res?.upgradeDrawn, undefined);
+
+    const burn = zero('e', [{ op: 'block', amount: 1, target: 'self' }, { op: 'exhaust-self' }]);
+    const echo = zero('c', [{ op: 'copy-exhausted', amount: 1 }]);
+    let pile = startDeck({ e: burn, c: echo, k: GUARD }, ['e', 'c', ...Array(8).fill('k')]);
+    pile = playIn(pile, instOf(pile, 'e')).state;
+    pile = playIn(pile, instOf(pile, 'c')).state;
+    assert.ok(pile.piles.hero.hand.some((inst) => pile.cards[inst].temp && pile.cards[inst].cardId === 'e'));
+
+    const drainNow = playIn(startDeck({ l: zero('l', [{ op: 'lose-energy', amount: 2 }]), k: GUARD }, ['l', ...Array(9).fill('k')]), 'hero#0').state;
+    assert.equal(drainNow.units.hero.energy, 1);
+    const later = playIn(startDeck({ l: zero('l', [{ op: 'lose-energy', amount: 1, timing: 'next-turn' }]), k: GUARD }, ['l', ...Array(9).fill('k')]), 'hero#0').state;
+    assert.equal(later.units.hero.energy, 3);
+    assert.equal(endTurn(later).state.units.hero.energy, 2);
+
+    const two = def('two', 'skill', [{ op: 'block', amount: 1, target: 'self' }], { cost: 2 });
+    const seek = startDeck({ s: zero('s', [{ op: 'search', amount: 1, cost: 2 }]), two, k: GUARD }, ['s', ...Array(4).fill('two'), ...Array(5).fill('k')]);
+    const drawTwos = seek.piles.hero.draw.filter((inst) => seek.cards[inst].cardId === 'two').length;
+    assert.ok(drawTwos > 0);
+    const sought = playIn(seek, instOf(seek, 's'));
+    const fetched = sought.events.filter((e) => e.type === 'fetch');
+    assert.equal(fetched.length, 1);
+    assert.equal(sought.state.cards[fetched[0].inst].cardId, 'two');
+    assert.ok(shapeErrors([{ op: 'search', amount: 1, cost: 5 }]).length > 0);
+
+    assert.match(describeEffects([{ op: 'discount-card', amount: 1, count: 2, cardType: 'attack' }]), /费用 -1，直到打出为止/);
+    assert.match(describeEffects([{ op: 'lose-energy', amount: 1, timing: 'next-turn' }]), /下回合开始时失去 1 点能量/);
+});
