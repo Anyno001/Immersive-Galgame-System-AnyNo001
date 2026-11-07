@@ -170,21 +170,34 @@ function rebuildHtml(v, d) {
     return `<p class="igs-deck-help">重新生成只更换个人牌并重组起始卡组，保留当前职业牌；个人卡池不一定全部加入起始卡组。</p>${v.rebuild ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : ''}<div class="igs-deck-actions">${inner}</div>`;
 }
 
-// 规则 v6 积分抽卡（只主角）：没有待选时给「抽卡」，点后在原处确认或取消，金钱不足置灰；
-// 抽到后列出 3 张候选，每张给「选这张」，另给「放弃」（不退还）。
-const drawChoiceRow = (c, acts) => `<li class="igs-deck-card" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>`
-    + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span>${c.rarity ? `<span class="igs-deck-tag">${esc(TRAIT_RARITY_LABELS[c.rarity] || c.rarity)}</span>` : ''}</div>`
-    + `<p class="igs-deck-effect">${esc(c.text || '暂无效果资料')}</p></div>${acts ? `<div class="igs-deck-card-side"><div class="igs-deck-card-acts">${acts}</div></div>` : ''}</li>`;
+// 规则 v6 积分抽卡（只主角）：没有待翻的牌时给「抽卡」，点后在原处确认或取消，金钱不足置灰；
+// 抽到后 3 张牌背面朝上并排，点一张翻开即得这张（进卡组），翻前可「放弃」（不退还）；翻开后亮出其余两张，「确定」收起。
+const drawFace = (c) => `<span class="igs-deck-reveal-face"><span class="igs-deck-reveal-tag">${esc([TRAIT_RARITY_LABELS[c.rarity] || '', c.cost === '' ? '' : `${c.cost}费`].filter(Boolean).join(' · '))}</span>`
+    + `<span class="igs-deck-reveal-name">${esc(c.name)}</span><span class="igs-deck-draw-text">${esc(c.text || '')}</span></span>`;
+function drawRevealHtml(v, d) {
+    const last = d.lastDraw;
+    const fresh = v.drawShown?.fresh === true;
+    const cards = last.choices.map((c, i) => {
+        const chosen = i === last.pick;
+        return `<div class="igs-deck-draw-card${chosen ? ' is-chosen' : ' is-dim'}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''} role="img" aria-label="${esc(`${chosen ? '翻开' : '未翻'}：${c.name}`)}">${chosen && fresh ? REVEAL_BACK : ''}${drawFace(c)}</div>`;
+    }).join('');
+    const got = last.choices[last.pick];
+    const state = got ? `「${got.name}」已加入卡组` : '已放弃';
+    return `<section class="igs-deck-reveal igs-deck-draw"${fresh ? ' data-fresh' : ''}${v.reduced ? ' data-still' : ''}><div class="igs-deck-draw-row">${cards}</div>`
+        + `<p class="igs-deck-reveal-state" role="status">${esc(state)}</p><div class="igs-deck-actions">${btn('draw-done', '确定', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
+}
 function drawHtml(v, d) {
     if (!d.canSell || d.kind !== 'deck-character') return '';
     const busy = v.readonly || Boolean(v.pending);
-    const fresh = d.pendingDraw;
-    if (fresh) {
-        const canPick = !v.readonly && v.canPickCard;
-        const rows = fresh.choices.map((c, i) => drawChoiceRow(c, canPick ? btn('card-pick', '选这张', { id: String(i), primary: true, disabled: busy }) : ''));
-        const skip = canPick ? `<div class="igs-deck-actions">${btn('card-pick', '放弃（不退还）', { id: 'skip', disabled: busy })}</div>` : '';
-        return section('抽到的牌', `<ul class="igs-deck-cards">${rows.join('')}</ul>${skip}`);
+    const waiting = d.pendingDraw;
+    if (waiting) {
+        const canFlip = !v.readonly && v.canPickCard;
+        const off = busy || !canFlip;
+        const backs = Array.from({ length: waiting.count }, (_, i) => `<button type="button" class="igs-deck-draw-card" data-deck-act="card-flip" data-deck-id="${i}" aria-label="翻开第 ${i + 1} 张"${off ? ' aria-disabled="true"' : ''}>${REVEAL_BACK}</button>`).join('');
+        const skip = canFlip ? `<div class="igs-deck-actions">${btn('draw-skip', '放弃（不退还）', { disabled: busy })}</div>` : '';
+        return `<section class="igs-deck-reveal igs-deck-draw"><div class="igs-deck-draw-row">${backs}</div><p class="igs-deck-reveal-state">${esc(v.pending === 'card-flip' ? '翻牌中' : '翻开一张')}</p>${skip}</section>`;
     }
+    if (d.lastDraw && v.drawShown?.drawId === d.lastDraw.drawId) return drawRevealHtml(v, d);
     if (v.readonly || !v.canDrawCard) return '';
     const inner = v.draw
         ? btn('draw-confirm', v.pending === 'card-draw' ? '生成中' : `确认抽卡 · ${CARD_DRAW_COST} 金钱`, { primary: true, disabled: busy }) + btn('draw-cancel', '取消', { disabled: busy })

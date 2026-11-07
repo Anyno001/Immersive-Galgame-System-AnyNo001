@@ -401,7 +401,7 @@ function createCharacterState(index, profile, diagnostics) {
         id: profile.id, kind: profile.kind, name: profile.name, profile, exp: 0,
         gear: { owned: new Map(), slots: {} }, items: new Map(), keepsakes: new Map(),
         points: 0, traits: [], pendingTrait: null, traitDraws: 0, innateDropped: [], slotUnlocks: 0, wound: null,
-        cardDraws: 0, pendingDraw: null,
+        cardDraws: 0, pendingDraw: null, lastDraw: null,
         battleGrowth: { cards: new Map(), hpMax: 0 },
     };
     if (profile.kind === 'skill-character') return { ...base, className: profile.className, skills: [...profile.skills], passives: profile.passives };
@@ -940,7 +940,8 @@ const handlers = Object.freeze({
         state.pendingDraw = { drawId: payload.drawId, choices: payload.choices.map((card) => (isFixedCardId(card.id) ? fixedCard(card.id) : card)) };
         return null;
     },
-    // 选其一进卡组（固定卡按 ID 进目录加副本，随机卡走 learn 并卡），skip 放弃；都不退款。先校验后改状态，失败时待选保留。
+    // 翻开其一进卡组（固定卡按 ID 进目录加副本，随机卡走 learn 并卡），skip 放弃；都不退款。先校验后改状态，失败时待选保留。
+    // lastDraw 记最近一次翻牌结果（翻开的位置与 3 张候选），供面板翻开后亮出其余两张。
     'card-pick'(state, payload, context = {}) {
         if (context.heroId && state.id !== context.heroId) return 'combat-points-not-protagonist';
         const pending = state.pendingDraw;
@@ -957,6 +958,7 @@ const handlers = Object.freeze({
                 if (failure) return failure;
             }
         }
+        state.lastDraw = { drawId: pending.drawId, pick: payload.pick, choices: pending.choices };
         state.pendingDraw = null;
         return null;
     },
@@ -1074,6 +1076,7 @@ function presentCharacter(state, options = {}) {
         traitDraws: state.traitDraws, innateDropped: [...state.innateDropped], slotUnlocks: state.slotUnlocks,
         cardDraws: state.cardDraws,
         pendingDraw: state.pendingDraw ? { drawId: state.pendingDraw.drawId, choices: state.pendingDraw.choices.map((card) => ({ ...card })) } : null,
+        lastDraw: state.lastDraw ? { drawId: state.lastDraw.drawId, pick: state.lastDraw.pick, choices: state.lastDraw.choices.map((card) => ({ ...card })) } : null,
         wound: state.wound ? { ...state.wound } : null,
     };
     if (stock) {

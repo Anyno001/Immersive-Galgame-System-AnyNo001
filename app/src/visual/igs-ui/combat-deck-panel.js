@@ -52,6 +52,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
     let trait = false;
     // 积分抽卡待确认（只主角）；抽到的待选来自账本，选牌或放弃即为确认。与 trait 同时清空。
     let draw = false;
+    // 积分抽卡翻牌揭晓：{ drawId, played }，翻开一张后亮出全部牌面；翻面动画只在第一次画出时播放，换角色、换页与开关面板时清空。
+    let drawShown = null;
     let abort = null;
     // 抽人物特性揭晓（P-f）：{ phase: 'charge' | 'open', rarity, traitId, played }。确认抽取即进入蓄力（稀有度与服务层同一 planTrait 预定），
     // 写入并重读账本后翻开；失败、换角色、换页与开关面板时清空，重读账本保留。翻开动画只在第一次画出时播放（played）。
@@ -122,6 +124,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const still = reduced();
         return {
             status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait, draw, generationForm: generationForm.view(),
+            drawShown: drawShown ? { drawId: drawShown.drawId, fresh: !drawShown.played && !still } : null,
             selectedBuild, builds: builds.map((c) => ({ name: c.name, protagonist: c.protagonist })),
             reveal: reveal ? { phase: reveal.phase, rarity: reveal.rarity, traitId: reveal.traitId, fresh: reveal.phase === 'open' && !reveal.played && !still } : null,
             reduced: still, theme, canTheme: typeof options.setTheme === 'function',
@@ -159,6 +162,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const top = body.querySelector?.('.igs-deck-main')?.scrollTop || 0;
         body.innerHTML = renderCombatDeckPanelHtml(snapshot());
         if (reveal?.phase === 'open') reveal.played = true;
+        if (drawShown) drawShown.played = true;
         const scroller = top ? body.querySelector?.('.igs-deck-main') : null;
         if (scroller) scroller.scrollTop = top;
         if (!had) return;
@@ -632,17 +636,19 @@ export function createCombatDeckPanelController(doc, options = {}) {
         return r;
     }
 
-    // 选牌：id 为候选序号或 'skip'（放弃，不退还）；经注入的 pickCard 写一条 card-pick，成功后重读。
-    async function cardPick(id) {
+    // 翻牌：id 为背面朝上的位置序号（翻开即得这张，进卡组）或 'skip'（翻前放弃，不退还）；经注入的 pickCard 写一条 card-pick，成功后重读并亮出全部牌面。
+    async function cardFlip(id) {
         const g = heroAction('pickCard', 'card-pick');
         if (!g.ok) return g;
         const fresh = g.view.pendingDraw;
         if (!fresh) return fail('combat-card-pick-invalid');
         const pick = id === 'skip' ? 'skip' : Number(id);
         if (pick !== 'skip' && !(Number.isInteger(pick) && pick >= 0 && pick < fresh.choices.length)) return fail('combat-card-pick-invalid');
-        const r = await run('card-pick', () => options.pickCard({ pick }));
+        const r = await run(pick === 'skip' ? 'card-skip' : 'card-flip', () => options.pickCard({ pick }));
         if (r.stale) return r;
-        if (r.ok === true) await load(); else render();
+        if (r.ok !== true) { render(); return r; }
+        drawShown = pick === 'skip' ? null : { drawId: fresh.drawId, played: false };
+        await load();
         return r;
     }
 
@@ -728,7 +734,9 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'draw-open': return drawOpen();
             case 'draw-confirm': return drawConfirm();
             case 'draw-cancel': draw = false; notice = ''; render(); return { ok: true };
-            case 'card-pick': return cardPick(id);
+            case 'card-flip': return cardFlip(id);
+            case 'draw-skip': return cardFlip('skip');
+            case 'draw-done': drawShown = null; notice = ''; render(); return { ok: true };
             case 'theme':
                 theme = normalizeSettingsTheme(id);
                 root.setAttribute('data-rp-theme', theme);

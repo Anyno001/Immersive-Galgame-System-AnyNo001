@@ -1096,6 +1096,7 @@ test('规则 v6 积分抽卡：150 抽 3 张本职业候选（固定 2 + 随机 
     assert.equal((await ledger.pickCard('pc-hero', plan.drawId, 'skip')).ok, true);
     me = heroOf(await ledger.effectiveState());
     assert.deepEqual([me.points, me.pendingDraw, me.deck.length], [850, null, size]);
+    assert.deepEqual([me.lastDraw.drawId, me.lastDraw.pick, me.lastDraw.choices.length], [plan.drawId, 'skip', 3]);
     // 第二抽种子随已抽次数变化；选随机卡进卡组。
     const second = planCardDraw(me);
     assert.notEqual(second.drawId, plan.drawId);
@@ -1103,6 +1104,8 @@ test('规则 v6 积分抽卡：150 抽 3 张本职业候选（固定 2 + 随机 
     assert.equal((await ledger.pickCard('pc-hero', second.drawId, second.randomAt)).ok, true);
     me = heroOf(await ledger.effectiveState());
     assert.deepEqual([me.points, me.pendingDraw, me.deck.length, me.owned.get(second.cardId), me.catalog.get(second.cardId)?.name], [700, null, size + 1, 1, '裂岩斩']);
+    // 翻开后记下翻开的位置与全部牌面，供面板亮出其余两张。
+    assert.deepEqual([me.lastDraw.drawId, me.lastDraw.pick, me.lastDraw.choices.map((c) => c.id)], [second.drawId, second.randomAt, choicesOf(second, randomCard(second.cardId)).map((c) => c.id)]);
     // 第三抽选固定卡：按 ID 进目录加一张副本。
     const third = planCardDraw(me);
     assert.equal((await ledger.drawCard('pc-hero', { drawId: third.drawId, choices: choicesOf(third, randomCard(third.cardId)) })).ok, true);

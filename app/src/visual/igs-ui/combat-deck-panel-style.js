@@ -165,6 +165,29 @@ ${P} .igs-deck-reveal-burst{position:absolute;inset:-10%;border-radius:50%;point
 ${P} .igs-deck-reveal-sparks i{position:absolute;left:50%;top:50%;width:4px;height:12px;margin:-6px -2px;border-radius:2px;background:var(--rar);box-shadow:0 0 6px var(--rar);opacity:0;animation:igs-deck-reveal-spark .7s .32s ease-out both;}
 ${P} .igs-deck-reveal[data-fresh][data-rarity="mythic"] .igs-deck-reveal-stage{animation:igs-deck-reveal-shake .42s .3s linear both;}
 ${P} .igs-deck-reveal-flash{position:absolute;inset:0;z-index:2;pointer-events:none;background:#fff;opacity:0;animation:igs-deck-reveal-flash .45s .3s ease-out both;}
+/* 规则 v6 积分抽卡翻牌：3 张背面朝上并排，点一张翻开即得；翻开后亮出全部牌面，未翻的压暗。复用揭晓的卡背、卡面与翻面动画。 */
+${P} .igs-deck-draw{padding:4px 0 0;}
+${P} .igs-deck-draw-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:min(100%,480px);perspective:900px;}
+${P} .igs-deck-draw-card{--rar:var(--igs-rp-text-faint);position:relative;display:block;width:100%;aspect-ratio:5/7;padding:0;border:0;border-radius:var(--igs-cb-r-l);background:none;color:inherit;font:inherit;transform-style:preserve-3d;transition:transform .18s ease;}
+${P} button.igs-deck-draw-card{cursor:pointer;}
+${P} button.igs-deck-draw-card:not([aria-disabled="true"]):hover{transform:translateY(-4px);}
+${P} button.igs-deck-draw-card[aria-disabled="true"]{cursor:default;opacity:.7;}
+${P} button.igs-deck-draw-card:focus-visible{outline:1px solid var(--igs-rp-accent);outline-offset:3px;}
+${P} .igs-deck-draw-card .igs-deck-reveal-face{gap:6px;padding:10px 8px;}
+${P} .igs-deck-draw-card .igs-deck-reveal-name{font-size:14px;letter-spacing:.04em;}
+${P} .igs-deck-draw-card:is([data-rarity="epic"],[data-rarity="mythic"]) .igs-deck-reveal-name{color:var(--rar);}
+${P} .igs-deck-draw-text{color:var(--igs-cb-ink-soft);font-size:11px;line-height:1.5;overflow-wrap:anywhere;}
+${P} .igs-deck-draw-card.is-chosen{transform:translateY(-6px);}
+${P} .igs-deck-draw-card.is-dim{opacity:.55;}
+${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-chosen .igs-deck-reveal-back{animation:igs-deck-reveal-back-out .3s ease-in both;}
+${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-chosen .igs-deck-reveal-face{animation:igs-deck-reveal-face-in .34s .26s ease-out both;}
+${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-dim{animation:igs-deck-reveal-rise .4s .6s ease-out both;}
+${P}.igs-rp-narrow .igs-deck-draw-row{gap:8px;}
+${P}.igs-rp-narrow .igs-deck-draw-card .igs-deck-reveal-face{padding:8px 6px;}
+${P}.igs-rp-narrow .igs-deck-draw-text{font-size:10px;}
+${P} .igs-deck-draw[data-still] .igs-deck-draw-card :is(.igs-deck-reveal-back,.igs-deck-reveal-face),${P} .igs-deck-draw[data-still] .igs-deck-draw-card{animation:none!important;}
+${P} .igs-deck-draw[data-still] .igs-deck-draw-card.is-chosen .igs-deck-reveal-back{display:none;}
+@media (prefers-reduced-motion:reduce){${P} .igs-deck-draw-card,${P} .igs-deck-draw-card :is(.igs-deck-reveal-back,.igs-deck-reveal-face){animation:none!important;transition:none;}${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-chosen .igs-deck-reveal-back{display:none;}}
 
 ${combatRarityStyle(`${P} :is(.igs-deck-card,.igs-deck-chip,.igs-deck-keepsake,.igs-deck-reveal,.igs-deck-reveal-slot)`)}
 ${P} .igs-deck-reveal[data-rarity="mythic"]::after{content:none;}
