@@ -1068,21 +1068,28 @@ export function createStatsRuntime({
     // 只有拿到回复的批次才记为已评；失败的 10 分钟内不重发。
     let initialJob = null;
     let initialRetryAt = 0;
-    const pendingInitial = () => {
+    // manual：设置页「补全角色特质」，已评过但仍没有任何特质的角色也再评一次。
+    const pendingInitial = (manual = false) => {
         if (!ledger) return [];
         const done = new Set(catalog.traitInit || []);
-        const npcs = Object.keys(currentStatsState(ledger).characters || {}).filter((n) => n !== PROTAGONIST && !isHero(n));
-        return [PROTAGONIST, ...npcs].filter((n) => !done.has(n));
+        const npcs = [...new Set([...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})])].filter((n) => n !== PROTAGONIST && !isHero(n));
+        const bare = (n) => !listTraits(catalog, n).some((t) => t.src !== 'achieve');
+        return [PROTAGONIST, ...npcs].filter((n) => !done.has(n) || (manual && bare(n)));
     };
-    function runInitialTraits() {
+    function runInitialTraits({ manual = false } = {}) {
         if (initialJob) return initialJob;
-        if (!active() || !ledger || Date.now() < initialRetryAt) return Promise.resolve({ ok: false });
+        if (!active() || !ledger) return Promise.resolve({ ok: false, reason: ledger ? 'stats-inactive' : 'stats-no-ledger' });
+        if (!manual && Date.now() < initialRetryAt) return Promise.resolve({ ok: false });
+        if (manual && generating) return Promise.resolve({ ok: false, reason: 'stats-generating' });
+        if (reviewing) return Promise.resolve({ ok: false, reason: 'stats-trait-busy' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
         const chatId = chatIdOf(ctx());
+        const filled = [];
         const run = async () => {
             let total = 0;
-            const names = pendingInitial();
+            const names = pendingInitial(manual);
+            if (!names.length) return { ok: true, applied: 0, filled, asked: 0 };
             for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
                 if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
                 const batch = names.slice(i, i + SHEET_BATCH_MAX);
@@ -1113,7 +1120,7 @@ export function createStatsRuntime({
                 } catch (error) {
                     diag('stats-trait-initial-failed');
                     initialRetryAt = Date.now() + 10 * 60 * 1000;
-                    return { ok: false, applied: total };
+                    return { ok: false, reason: 'stats-trait-initial-failed', applied: total, filled };
                 }
                 if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
                 const now = currentStatsState(ledger);
@@ -1123,6 +1130,7 @@ export function createStatsRuntime({
                 applyCatalog({ ...applied.catalog, traitInit: [...new Set([...(catalog.traitInit || []), ...batch])] });
                 if (applied.applied.length) {
                     total += applied.applied.length;
+                    for (const r of applied.applied) if (!filled.includes(r.charName)) filled.push(r.charName);
                     const texts = refreshAllCombos(now, prevCatalog, now);
                     announceTraits(applied.notices, texts);
                     lightGlobalCodex(now);
@@ -1130,7 +1138,8 @@ export function createStatsRuntime({
                 persist();
                 push();
             }
-            return { ok: true, applied: total };
+            if (manual) onChange(currentStatsState(ledger), null);
+            return { ok: true, applied: total, filled, asked: names.length };
         };
         reviewing = true;
         initialJob = run().catch(() => { diag('stats-trait-initial-failed'); return { ok: false }; })
@@ -2160,6 +2169,7 @@ export function createStatsRuntime({
     function relationOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         if (op === 'fill-start') return fillStartRelations();
+        if (op === 'fill-traits') return runInitialTraits({ manual: true });
         if (op === 'import-table') return importTablePeople();
         if (op === 'forced') return setIntimacyForced(name, payload && payload.forced === true);
         if (op === 'trait') return setTrait(name, payload && payload.key, payload && payload.on === true);

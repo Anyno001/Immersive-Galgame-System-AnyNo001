@@ -225,7 +225,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-stats-hero-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .igs-stats-hero-actions>.igs-settings-action{min-width:0;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .igs-stats-hero-actions.is-three{grid-template-columns:repeat(3,minmax(0,1fr))}
-.igs-stats-hero-actions>.igs-settings-action:only-child{grid-column:1/-1}
+.igs-stats-hero-actions>.igs-settings-action:only-child,.igs-stats-hero-actions>.igs-settings-action.is-wide{grid-column:1/-1}
 .igs-stats-hero-actions>select{min-width:0;height:34px;padding:0 8px;text-overflow:ellipsis;cursor:pointer}
 .igs-stats-skill-ops{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);height:auto;padding:0;gap:8px;background:transparent;overflow:visible}
 .igs-stats-skill-ops>.igs-segmented-btn{height:34px;background:var(--igs-settings-raised);color:var(--igs-settings-ink-2)}

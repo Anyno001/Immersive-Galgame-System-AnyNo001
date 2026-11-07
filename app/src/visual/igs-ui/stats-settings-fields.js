@@ -436,9 +436,8 @@ export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts =
     });
     const list = [...people, ...sheetOnly].join('') || '<div class="igs-source-filter-note">还没有登记的角色。</div>';
     const pending = (model.pendingPeople || []).length ? `<div class="igs-source-filter-note">待生成角色卡：${model.pendingPeople.map(esc).join('、')}</div>` : '';
-    const fill = '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:relation-import" type="button">从数据库表格导入角色</button>'
-        + '<button class="igs-settings-action" data-action="stats-op:relation-fill" type="button">按人设补填初始关系</button></div>';
-    return fill + list + pending;
+    // 全员类操作（导入、补填关系、生成数值、补全技能与特质）在「设置 › 登记与补全」。
+    return list + pending;
 }
 
 // 「我的角色」下方：检定记录（折叠）。
