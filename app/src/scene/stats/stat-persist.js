@@ -86,7 +86,7 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [] };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
@@ -149,6 +149,8 @@ export function sanitizeCatalog(raw) {
     out.queue.skills = [...new Set((Array.isArray(q.skills) ? q.skills : []).map(validSkillName).filter(Boolean).map(canonicalSkillName))].slice(0, QUEUE_MAX);
     out.queue.people = (Array.isArray(q.people) ? q.people : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, QUEUE_MAX);
     out.notified = (Array.isArray(raw.notified) ? raw.notified : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, SHEET_MAX * 2);
+    // 已做过初始特质评定的角色（含主角），每人只评一次。
+    out.traitInit = [...new Set((Array.isArray(raw.traitInit) ? raw.traitInit : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX * 2);
     return out;
 }
 

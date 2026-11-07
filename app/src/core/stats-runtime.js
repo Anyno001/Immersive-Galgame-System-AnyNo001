@@ -1055,6 +1055,7 @@ export function createStatsRuntime({
         const directives = parseStatDirectives(body, { rev: 2 }).directives;
         for (const d of directives) reviewTouched.add(d.target || PROTAGONIST);
         if (reviewing || generating || !requester()) return;
+        if (pendingInitial().length) { runInitialTraits(); return; }
         const last = Number(catalog.counters.reviewFloor) || 0;
         const scan = scanFloorForReview(directives, messageId, last, s.traitReviewN, { recentChars: [...reviewTouched], text: stripStatDirectives(body), protagonist: PROTAGONIST });
         if (!scan.send) return;
@@ -1063,8 +1064,104 @@ export function createStatsRuntime({
         persist();
         runTraitReview(scan.chars, messageId);
     }
+    // 初始特质：主角与已建档角色各评一次（每人最多 3 项，src=auto），按 SHEET_BATCH_MAX 人一批依次发给备用模型。
+    // 只有拿到回复的批次才记为已评；失败的 10 分钟内不重发。
+    let initialJob = null;
+    let initialRetryAt = 0;
+    const pendingInitial = () => {
+        if (!ledger) return [];
+        const done = new Set(catalog.traitInit || []);
+        const npcs = Object.keys(currentStatsState(ledger).characters || {}).filter((n) => n !== PROTAGONIST && !isHero(n));
+        return [PROTAGONIST, ...npcs].filter((n) => !done.has(n));
+    };
+    function runInitialTraits() {
+        if (initialJob) return initialJob;
+        if (!active() || !ledger || Date.now() < initialRetryAt) return Promise.resolve({ ok: false });
+        const request = requester();
+        if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
+        const chatId = chatIdOf(ctx());
+        const run = async () => {
+            let total = 0;
+            const names = pendingInitial();
+            for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
+                if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
+                const batch = names.slice(i, i + SHEET_BATCH_MAX);
+                let people;
+                try { people = await describeWithHero(batch); } catch (error) { people = batch.map((name) => ({ name, summary: '' })); }
+                const persona = new Map((Array.isArray(people) ? people : []).filter(Boolean).map((p) => [p.name, String(p.summary || '')]));
+                const c = ctx();
+                const state = currentStatsState(ledger);
+                const nsfw = isNsfw();
+                const defs = TRAIT_DEFS.filter((d) => nsfw || !d.nsfw);
+                const floors = messages(c).filter((m) => m && !m.is_system).slice(-6)
+                    .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')).slice(0, 1500) }));
+                let client = null;
+                try { client = getPushClient(); } catch (error) { client = null; }
+                let aliases = {};
+                try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+                const chars = batch.map((n) => ({
+                    name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST, persona: persona.get(n) || '',
+                    relation: state.characters[n] ? stageLabel(Number(state.characters[n].dims.好感) || 0, isRomance(state.characters[n], n, catalog.romanceSeen)) : '',
+                    traits: listTraits(catalog, n).filter((t) => !t.id.startsWith('combo:')).map((t) => ({ id: t.id, src: t.src })),
+                }));
+                const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw });
+                const prompt = { system: '你是角色设定评定助手，只依据人设与正文作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'initial') };
+                let text;
+                try {
+                    const reply = await ask(request, prompt);
+                    text = reply && typeof reply === 'object' ? reply.text : reply;
+                } catch (error) {
+                    diag('stats-trait-initial-failed');
+                    initialRetryAt = Date.now() + 10 * 60 * 1000;
+                    return { ok: false, applied: total };
+                }
+                if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
+                const now = currentStatsState(ledger);
+                const prevCatalog = catalog;
+                const results = parseReviewReply(text, defs, { chars: batch }).filter((r) => r.on);
+                const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'initial' });
+                applyCatalog({ ...applied.catalog, traitInit: [...new Set([...(catalog.traitInit || []), ...batch])] });
+                if (applied.applied.length) {
+                    total += applied.applied.length;
+                    const texts = refreshAllCombos(now, prevCatalog, now);
+                    announceTraits(applied.notices, texts);
+                    lightGlobalCodex(now);
+                }
+                persist();
+                push();
+            }
+            return { ok: true, applied: total };
+        };
+        reviewing = true;
+        initialJob = run().catch(() => { diag('stats-trait-initial-failed'); return { ok: false }; })
+            .finally(() => { reviewing = false; initialJob = null; });
+        return initialJob;
+    }
     // 复核：6 楼正文 + 纪要表 + 恋爱日记表 + 当前特质 → 副模型（现有后台请求通道）→ 解析 → applyTraitChange，并记下识别出的事件。
+    // 人多时按 SHEET_BATCH_MAX 人一批依次发送，避免一次请求过长被截断或超时。
     function runTraitReview(names, messageId) {
+        const all = [...new Set(names)];
+        if (all.length <= SHEET_BATCH_MAX) return runTraitReviewBatch(all, messageId);
+        const bond = [];
+        const review = [];
+        let applied = 0;
+        let ok = false;
+        let chain = Promise.resolve();
+        for (let i = 0; i < all.length; i += SHEET_BATCH_MAX) {
+            const batch = all.slice(i, i + SHEET_BATCH_MAX);
+            chain = chain.then(() => runTraitReviewBatch(batch, messageId)).then((r) => {
+                if (r && r.ok) { ok = true; applied += r.applied || 0; }
+                bond.push(...pendingEvents.bond);
+                review.push(...pendingEvents.review);
+                pendingEvents = { bond: [], review: [] };
+            });
+        }
+        return chain.then(() => {
+            pendingEvents = { bond, review };
+            return { ok, applied, events: bond.length + review.length };
+        });
+    }
+    function runTraitReviewBatch(names, messageId) {
         const request = requester();
         if (!request || !ledger) return Promise.resolve({ ok: false });
         const c = ctx();
@@ -1619,6 +1716,8 @@ export function createStatsRuntime({
                 ? { kind: 'sheets', text: `还有 ${catalog.queue.people.length} 位角色没有数值`, actions: [['generate', '生成数值'], ['dismiss', '稍后']] }
                 : { kind: 'info', text: `已生成数值：${done.join('、')}`, ttl: true });
             onChange(currentStatsState(ledger), null);
+            // 新角色卡生成后接着评初始特质（与角色卡分开请求，失败不影响角色卡）。
+            setTimeout(() => { if (!generating && !reviewing && pendingInitial().length) runInitialTraits(); }, 0);
             return { ok: true, names: done };
         };
         sheetJob = run().finally(() => { sheetJob = null; });

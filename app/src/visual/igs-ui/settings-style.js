@@ -251,7 +251,7 @@ details.igs-stats-person details.igs-settings-advanced>summary{padding-left:0;pa
 .igs-settings-action.is-small{height:30px;padding:0 12px;flex:0 0 auto;white-space:nowrap}
 .igs-trait-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
 .igs-trait-toggle{position:absolute;opacity:0;width:0;height:0;margin:0;pointer-events:none}
-.igs-trait-chip{box-sizing:border-box;height:28px;padding:0 10px;line-height:28px;font-size:12px;border:0;cursor:pointer;user-select:none;order:1}
+.igs-mood-review-chip.igs-trait-chip{box-sizing:border-box;height:28px;padding:0 10px;line-height:28px;font-size:12px;border:0;cursor:pointer;user-select:none;order:1}
 .igs-trait-chip>b{font-weight:500;letter-spacing:0}
 .igs-trait-chip.is-add{justify-content:center;width:28px;padding:0;font-size:16px;color:var(--igs-settings-ink-2)}
 .igs-trait-chip.is-off{opacity:.45;cursor:default}

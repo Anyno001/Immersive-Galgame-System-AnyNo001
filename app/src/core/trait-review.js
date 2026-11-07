@@ -117,6 +117,7 @@ export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, ns
             protagonist: !!c.protagonist,
             relation: clean(c.relation),
             summary: clean(c.summary),
+            persona: clean(c.persona).slice(0, 1200),
             traits: currentTraits(c, catalog).map((t) => ({ ...t, name: nameOf(t.id) })),
             recent: Array.isArray(c.recent) ? c.recent.map((r) => ({ id: r.id, on: !!r.on, name: nameOf(r.id) })) : [],
             diary: diary[c.name] || [],
@@ -140,6 +141,7 @@ export function buildReviewPrompt(payload, defs, mode = 'story', eventTypes = []
     for (const d of defList) lines.push(`- ${d.name}：${clean(d.judge)}`);
     for (const c of p.chars || []) {
         lines.push('', `【角色：${c.name}${c.protagonist ? '（主角）' : ''}】`);
+        if (c.persona) lines.push(`人设：${c.persona}`);
         if (c.relation) lines.push(`关系状态：${c.relation}`);
         if (c.summary) lines.push(`近期数值：${c.summary}`);
         lines.push(`当前特质：${c.traits.length ? c.traits.map((t) => t.name).join('、') : '无'}`);
@@ -150,6 +152,10 @@ export function buildReviewPrompt(payload, defs, mode = 'story', eventTypes = []
     if ((p.floors || []).length) {
         lines.push('', '最近正文：');
         p.floors.forEach((f) => lines.push(`【${f.role === 'user' ? '用户' : 'AI'}${f.no != null ? ` 第${f.no}楼` : ''}】${f.text}`));
+    }
+    if (mode === 'initial') {
+        lines.push('', `只输出一段 JSON，不要任何解释或代码块标记，格式：${JSON_SHAPE}`, '没有明确依据的角色可以省略；只写 add，events 留空；特质名必须与上表完全一致。');
+        return lines.join('\n');
     }
     const kinds = [...(Array.isArray(eventTypes) ? eventTypes : []), ...REVIEW_EVENT_TYPES];
     lines.push('', `另外，最近正文里若有明确发生的下列事件，在 events 里记一条（name 为受事角色，dir 写 ta 表示主角对 TA、me 表示 TA 对主角，可省）：${kinds.join('、')}。没有就留空。`);
