@@ -2990,6 +2990,60 @@ test('计数被动（v6 G5-1）：每第 N 次跨回合累计、每回合第一�
     assert.ok(shapeErrors([{ op: 'counter', mode: 'battle-first', then: [{ op: 'draw', amount: 1 }] }]).includes('passive-only'));
     assert.match(describeEffects([{ op: 'counter', mode: 'every', per: 3, then: BLOCK_UP }]), /每第 3 次/);
 });
+test('遗物条件与回合内计数（v6 G5a）：计数不超过 N（含 0）、第 N 回合、格挡阈值、精英/首领战、目标灾厄；每回合每第 N 次按回合清零；规则 v5 不成立', async () => {
+    const { conditionHolds } = await import('../src/combat/battle-state.js');
+    const holds = (state, when) => conditionHolds(state, state.units.hero, when, 'foe');
+    const s = structuredClone(duel());
+    assert.equal(holds(s, { kind: 'cards-played-lte', value: 0 }), true);
+    assert.equal(holds(s, { kind: 'attacks-played-lte', value: 0 }), true);
+    assert.equal(holds(s, { kind: 'discarded-lte', value: 0 }), true);
+    const size = s.piles.hero.hand.length;
+    assert.equal(holds(s, { kind: 'hand-lte', value: size }), true);
+    assert.equal(holds(s, { kind: 'hand-lte', value: size - 1 }), false);
+    assert.equal(holds(s, { kind: 'turn-eq', value: s.turn }), true);
+    assert.equal(holds(s, { kind: 'turn-gte', value: s.turn + 1 }), false);
+    assert.equal(holds(s, { kind: 'self-block-lte', value: 0 }), s.units.hero.block === 0);
+    s.units.hero.block = 10;
+    assert.equal(holds(s, { kind: 'self-block-gte', value: 10 }), true);
+    assert.equal(holds(s, { kind: 'self-block-lte', value: 9 }), false);
+    assert.equal(holds(s, { kind: 'battle-tier', value: 'boss' }), false);
+    s.units.foe.tier = 'boss';
+    assert.equal(holds(s, { kind: 'battle-tier', value: 'boss' }), true);
+    assert.equal(holds(s, { kind: 'battle-tier', value: 'elite' }), false);
+    assert.equal(holds(s, { kind: 'target-doom-gte', value: 3 }), false);
+    s.units.foe.statuses = { ...s.units.foe.statuses, doom: s.units.foe.hp };
+    assert.equal(holds(s, { kind: 'target-doom-gte', value: 3 }), true);
+    assert.equal(holds(s, { kind: 'target-doom-hp' }), true);
+    s.units.foe.statuses.doom = s.units.foe.hp - 1;
+    assert.equal(holds(s, { kind: 'target-doom-hp' }), false);
+
+    const old = structuredClone(duel({ rulesVersion: 5 }));
+    assert.equal(holds(old, { kind: 'cards-played-lte', value: 0 }), false);
+    assert.equal(holds(old, { kind: 'turn-eq', value: old.turn }), false);
+
+    const when = (cond) => [{ op: 'conditional', when: cond, then: [{ op: 'block', amount: 3, target: 'self' }] }];
+    for (const cond of [{ kind: 'hand-lte', value: 0 }, { kind: 'turn-eq', value: 3 }, { kind: 'self-block-lte', value: 0 }, { kind: 'battle-tier', value: 'elite' }, { kind: 'target-doom-hp' }]) {
+        assert.deepEqual(shapeErrors(when(cond)), [], cond.kind);
+    }
+    assert.ok(shapeErrors(when({ kind: 'battle-tier', value: 'normal' })).includes('invalid-enum'));
+    assert.ok(shapeErrors(when({ kind: 'cards-played-gte', value: 0 })).includes('out-of-range'));
+    assert.ok(shapeErrors(when({ kind: 'target-doom-hp', value: 1 })).includes('unknown-field'));
+    assert.match(describeEffects(when({ kind: 'hand-lte', value: 0 })), /手牌为空时/);
+    assert.match(describeEffects(when({ kind: 'turn-eq', value: 3 })), /第 3 回合/);
+
+    const counted = (counter) => duel({ heroExtra: { passives: [passiveOn('card-played', [{ op: 'counter', ...counter, then: BLOCK_UP }])] } });
+    const playFirst = (state) => playIn(state, state.piles.hero.hand[0]).state;
+    const twice = (state) => playFirst(playFirst(state));
+    const turn1 = twice(counted({ mode: 'turn-every', per: 2 }));
+    assert.equal(turn1.units.hero.block, 5);
+    const turn2 = playFirst(endTurn(turn1).state);
+    assert.equal(turn2.units.hero.block, 1);
+    assert.equal(playFirst(turn2).units.hero.block, 5);
+    assert.ok(shapeErrors([{ op: 'counter', mode: 'turn-every', then: [{ op: 'draw', amount: 1 }] }]).includes('passive-only'));
+    assert.match(describeEffects([{ op: 'counter', mode: 'turn-every', per: 3, then: BLOCK_UP }]), /每回合每第 3 次/);
+});
+
+
 
 test('战后触发点（v6 G5-1）：开战被动挂「战后回复」状态，胜利结算按层数回复', async () => {
     const { afterBattleMend } = await import('../src/combat/mechanics/sanctum.js');

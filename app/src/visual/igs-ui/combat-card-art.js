@@ -25,6 +25,19 @@ const WHEN = Object.freeze({
     'target-hp-below': (v) => `目标生命低于 ${v}% 时：`,
     'hand-gte': (v) => `手牌不少于 ${v} 张时：`,
     'exhausted-gte': (v) => `本场已消耗 ${v} 张牌时：`,
+    // 规则 v6 G5a。
+    'cards-played-lte': (v) => (v === 0 ? '本回合未出牌时：' : `本回合出牌不超过 ${v} 张时：`),
+    'attacks-played-lte': (v) => (v === 0 ? '本回合未出攻击牌时：' : `本回合攻击牌不超过 ${v} 张时：`),
+    'skills-played-lte': (v) => (v === 0 ? '本回合未出技能牌时：' : `本回合技能牌不超过 ${v} 张时：`),
+    'discarded-lte': (v) => (v === 0 ? '本回合未弃牌时：' : `本回合弃牌不超过 ${v} 张时：`),
+    'hand-lte': (v) => (v === 0 ? '手牌为空时：' : `手牌不超过 ${v} 张时：`),
+    'turn-eq': (v) => `第 ${v} 回合：`,
+    'turn-gte': (v) => `第 ${v} 回合起：`,
+    'self-block-gte': (v) => `自身格挡不少于 ${v} 时：`,
+    'self-block-lte': (v) => (v === 0 ? '自身没有格挡时：' : `自身格挡不超过 ${v} 时：`),
+    'battle-tier': (v) => (v === 'boss' ? '首领战中：' : '精英战中：'),
+    'target-doom-gte': (v) => `目标灾厄不少于 ${v} 层时：`,
+    'target-doom-hp': () => '目标灾厄不低于其生命时：',
 });
 export const CARD_TYPE_LABELS = Object.freeze({ attack: '攻击', skill: '技能', power: '能力' });
 const PILE = Object.freeze({ hand: '手牌', discard: '弃牌堆', draw: '抽牌堆' });

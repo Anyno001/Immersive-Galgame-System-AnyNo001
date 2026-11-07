@@ -72,7 +72,15 @@ const STATUS_TARGETS = Object.freeze([...OFFENSE_TARGETS, ...SUPPORT_TARGETS]);
 // 这些状态默认挂在自己身上，其余默认挂敌人。
 const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact']);
 // 规则 v5 G22：目标意图为攻击、目标生命低于百分比、手牌数、本场已消耗数。
-const CONDITION_KINDS = Object.freeze(['target-has', 'self-has', 'self-hp-below', 'cards-played-gte', 'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte', 'target-intent-attack', 'target-hp-below', 'hand-gte', 'exhausted-gte']);
+// 规则 v6 G5a（遗物条件，只在 v6 战斗成立）：本回合计数不超过 N（含 0）、第 N 回合、自身格挡阈值、本场有精英/首领、目标灾厄层数。
+const LTE_CONDITIONS = new Set(['cards-played-lte', 'attacks-played-lte', 'skills-played-lte', 'discarded-lte', 'hand-lte']);
+const TURN_CONDITIONS = new Set(['turn-eq', 'turn-gte']);
+const BLOCK_CONDITIONS = new Set(['self-block-gte', 'self-block-lte']);
+export const BATTLE_TIERS = Object.freeze(['elite', 'boss']);
+const CONDITION_KINDS = Object.freeze([
+    'target-has', 'self-has', 'self-hp-below', 'cards-played-gte', 'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte', 'target-intent-attack', 'target-hp-below', 'hand-gte', 'exhausted-gte',
+    ...LTE_CONDITIONS, ...TURN_CONDITIONS, ...BLOCK_CONDITIONS, 'battle-tier', 'target-doom-gte', 'target-doom-hp',
+]);
 const COUNT_CONDITIONS = new Set(['cards-played-gte', 'attacks-played-gte', 'skills-played-gte', 'same-card-gte', 'discarded-gte', 'hand-gte', 'exhausted-gte']);
 const DISCARD_MODES = Object.freeze(['choose', 'random']);
 const PICK_MODES = Object.freeze(['self', 'choose', 'random']);
@@ -154,8 +162,14 @@ function validateCondition(cond, path, state) {
     const valuePath = joinPath(path, 'value');
     if (kind === 'target-has' || kind === 'self-has') return { kind, value: enumField(cond.value, valuePath, state, STATUSES) };
     if (kind === 'self-hp-below' || kind === 'target-hp-below') return { kind, value: intField(cond.value, valuePath, state, 1, 99) };
-    if (kind === 'target-intent-attack') return cond.value === undefined ? { kind } : addIssue(state, valuePath, 'unknown-field');
+    if (kind === 'target-intent-attack' || kind === 'target-doom-hp') return cond.value === undefined ? { kind } : addIssue(state, valuePath, 'unknown-field');
     if (COUNT_CONDITIONS.has(kind)) return { kind, value: intField(cond.value, valuePath, state, 1, 10) };
+    if (LTE_CONDITIONS.has(kind)) return { kind, value: intField(cond.value, valuePath, state, 0, 10) };
+    if (TURN_CONDITIONS.has(kind)) return { kind, value: intField(cond.value, valuePath, state, 1, 20) };
+    if (kind === 'self-block-gte') return { kind, value: intField(cond.value, valuePath, state, 1, 99) };
+    if (kind === 'self-block-lte') return { kind, value: intField(cond.value, valuePath, state, 0, 99) };
+    if (kind === 'battle-tier') return { kind, value: enumField(cond.value, valuePath, state, BATTLE_TIERS) };
+    if (kind === 'target-doom-gte') return { kind, value: intField(cond.value, valuePath, state, 1, 99) };
 }
 
 // 选择模式：choose 只能在顶层卡牌效果里用，self 只能用于卡牌（非技能）。

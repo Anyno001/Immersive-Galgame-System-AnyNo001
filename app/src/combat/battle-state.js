@@ -198,6 +198,43 @@ export function conditionHolds(state, unit, when, targetId, cardInst) {
         case 'exhausted-gte':
             return (state.piles?.[unit.id]?.exhaust || []).filter((inst) => cardView(state, inst)?.type !== 'power').length >= when.value;
         default:
+            return v6ConditionHolds(state, unit, when, targetId);
+    }
+}
+
+// 规则 v6 G5a 遗物条件：v5 及更早的战斗一律不成立。
+function v6ConditionHolds(state, unit, when, targetId) {
+    if (!(state?.rulesVersion >= 6)) return false;
+    const stats = unit.turnStats;
+    const foe = state.units?.[targetId];
+    switch (when?.kind) {
+        case 'cards-played-lte':
+            return (unit.cardsPlayed || 0) <= when.value;
+        case 'attacks-played-lte':
+            return (stats?.attack || 0) <= when.value;
+        case 'skills-played-lte':
+            return (stats?.skill || 0) <= when.value;
+        case 'discarded-lte':
+            return (stats?.discards || 0) <= when.value;
+        case 'hand-lte':
+            return (state.piles?.[unit.id]?.hand?.length || 0) <= when.value;
+        case 'turn-eq':
+            return state.turn === when.value;
+        case 'turn-gte':
+            return (state.turn || 0) >= when.value;
+        case 'self-block-gte':
+            return (unit.block || 0) >= when.value;
+        case 'self-block-lte':
+            return (unit.block || 0) <= when.value;
+        // 本场对面有该档位的敌人（含已倒下的），即精英战 / 首领战。
+        case 'battle-tier':
+            return Object.values(state.units || {}).some((other) => other && other.side !== unit.side && other.tier === when.value);
+        case 'target-doom-gte':
+            return Boolean(foe?.alive) && (foe.statuses?.doom || 0) >= when.value;
+        // 目标身上的灾厄层数不低于其当前生命。
+        case 'target-doom-hp':
+            return Boolean(foe?.alive) && (foe.statuses?.doom || 0) >= foe.hp;
+        default:
             return false;
     }
 }
