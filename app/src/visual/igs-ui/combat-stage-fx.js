@@ -51,7 +51,6 @@ const WRAP_CSS = `
 #igs-overlay .igs-sfx .fig .igs-combat-art{position:absolute;inset:0;}
 #igs-overlay .igs-sfx .fig-sil{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;color:var(--text,#fff);opacity:.14;}
 #igs-overlay .igs-sfx .fig-sil svg{width:auto;height:100%;max-width:100%;}
-#igs-overlay .igs-sfx .fig-char{position:absolute;inset:0;display:grid;place-items:center;color:var(--text);font:900 min(60%,180px)/1 var(--display);opacity:.45;}
 `;
 export const COMBAT_STAGE_FX_STYLE_TEXT = `${COMBAT_STAGE_FX_BASE_CSS}\n${Object.values(COMBAT_STAGE_FX_STYLE_CSS).join('\n')}\n${WRAP_CSS}\n${COMBAT_STAGE_FX_POLISH_CSS}
 ${RESULT_SKINS_CSS}`;
@@ -343,7 +342,8 @@ export function resultStageHtml({ skin = '', orient = 'port', end = {}, order = 
     const args = { skin, orient, end, order, pics, ui, esc, style, size, won, heroes, english: ENGLISH[end.outcome] || '', cssUrl, plateSvg };
     const custom = own?.html?.(args);
     if (custom) return custom;
-    const fig = (cls, n) => (n ? `<i class="fig ${cls}"${pics[n] ? ` style="background-image:${esc(cssUrl(pics[n]))}"` : ''}>${pics[n] ? '' : `<b class="fig-char">${esc(Array.from(n)[0] || '')}</b>`}</i>` : '');
+    // 缺立绘时与开场 / 特写一致画人形剪影（SVG 只来自程序常量），左侧立绘位不留空。
+    const fig = (cls, n) => (n ? `<i class="fig ${cls}"${pics[n] ? ` style="background-image:${esc(cssUrl(pics[n]))}"` : ''}>${pics[n] ? '' : `<span class="fig-sil">${portraitSilhouetteSvg(n)}</span>`}</i>` : '');
     // 行上带种类（战功 / 队员）、伤情冷暖与头像，供要画行首图标、数值配色的皮肤取用；其余皮肤不读这些属性。
     const tone = (v) => (/重创|濒死|倒下|力竭/.test(v) ? 'bad' : /无伤|轻伤|从容/.test(v) ? 'good' : '');
     const rows = [...(end.feats || []).map((f) => ['战功', f.title || '', 'feat']), ...(end.allies || []).map((a) => [a.name, a.injury || '', 'ally'])].slice(0, 3)

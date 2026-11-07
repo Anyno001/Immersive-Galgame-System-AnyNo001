@@ -333,8 +333,11 @@ const lootStep = (next) => { if (next.ok) lootPick = next.pick; return Promise.r
 // ?purge=1（配合 ?combat=end&loot=v6）：本场视为第 5 场普通胜利，结算页同时给一次删牌机会（75 金钱）；?purge=poor 为金钱不足。只改内存。
 const purgeParam = new URLSearchParams(location.search).get('purge') || '';
 const purgeOffer = !purgeParam ? null : purgeParam === 'poor' ? { battle: 5, cost: 75, available: false, reason: 'combat-points-insufficient' }
-  : { battle: 5, cost: 75, available: true, cards: warriorPool.slice(0, 6).map((c, i) => ({ copyId: `preview-${c.id}:${i}`, cardId: c.id, name: c.name, type: c.type, cost: c.cost, rarity: c.rarity, effects: c.effects, count: i < 2 ? 3 : 1,
-      ...(c.innate || c.retain || c.ethereal ? { keywords: { innate: c.innate, retain: c.retain, ethereal: c.ethereal } } : {}), variants: { upgraded: i === 0 ? 1 : 0, bonus: i === 1 ? 1 : 0, inscribed: 0 } })) };
+  : { battle: 5, cost: 75, available: true, cards: warriorPool.slice(0, 6).flatMap((c, i) => Array.from({ length: i < 2 ? 3 : 1 }, (_, k) => {
+      const up = i === 0 && k === 0 && c.upgraded ? c.upgraded : null;
+      return { copyId: `preview-${c.id}:${k}`, cardId: c.id, name: c.name, type: c.type, cost: up?.cost ?? c.cost, rarity: c.rarity, effects: up?.effects || c.effects, ...(up ? { upgraded: true } : {}), ...(i === 1 && k === 0 ? { bonus: { damage: 2, block: 0 } } : {}),
+        ...(c.innate || c.retain || c.ethereal ? { keywords: { innate: c.innate, retain: c.retain, ethereal: c.ethereal } } : {}) };
+    })) };
 const combatSession = !lootPreview ? baseSession : { ...baseSession,
   state() { const st = baseSession.state(); return st.status === 'ended' || st.status === 'send-failed' ? { ...st, flip: flipView(lootOffer, lootPick, { points: 100, payer: false }, purgeOffer) } : st; },
   loadFlip: async () => ({ ok: true }),

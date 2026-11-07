@@ -10,6 +10,7 @@ import { CHALLENGE_ACHIEVEMENTS } from '../../combat/challenge-history.js';
 import { INTIMATE_ENDING_LINE } from '../../scene/intimate-duel.js';
 import { resultStageHtml, stageFxStyle } from './combat-stage-fx.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
+import { INSCRIPTION_LABELS } from '../../combat/mechanics/inscription.js';
 
 // 战斗面板的 HTML 片段：只输出字段、状态、错误与操作确认；动作统一走 data-combat-act / data-combat-id。
 const REASON_TEXT = Object.freeze({
@@ -561,20 +562,20 @@ function purgeButton(f, pending) {
     return btn('purge-open', label, { primary: f.needPurge === true, disabled: pending });
 }
 
-// 删牌浮层：盖在整个面板上（不进结算画布，各皮肤一致），列出卡组里每种牌与「不删」；点遮罩或「关闭」收起。
-// 点牌名先看详情（牌名、类型·稀有度·费用、关键字、效果、持有张数与变体），再点「删除这张」才记入选择；「不删」直接记入。
+// 删牌浮层：盖在整个面板上（不进结算画布，各皮肤一致），卡组里的牌逐张列出（同名牌不合并）与「不删」；点遮罩或「关闭」收起。
+// 点一张牌先看详情（牌名、类型·稀有度·费用、关键字、效果、强化 / 成长 / 刻印），再点「删除这张」才记入选择；「不删」直接记入。
+const purgeMarks = (c) => [c.upgraded ? '已强化' : '', c.bonus?.damage ? `伤害 +${c.bonus.damage}` : '', c.bonus?.block ? `格挡 +${c.bonus.block}` : '',
+    c.inscription ? `刻印·${INSCRIPTION_LABELS[c.inscription] || c.inscription}` : ''].filter(Boolean);
 function purgeDetailHtml(c, cost, pending) {
     const meta = [CARD_TYPE_LABELS[c.type], LOOT_RARITY_LABELS[c.rarity], c.cost === '' || c.cost === undefined ? '' : `${c.cost} 费`].filter(Boolean).join(' · ');
     const keywords = describeKeywords(c.keywords || {});
     const text = describeEffects(c.effects);
-    const v = c.variants || {};
-    const held = [`持有 ${c.count} 张`, v.upgraded ? `已升级 ${v.upgraded}` : '', v.bonus ? `带成长 ${v.bonus}` : '', v.inscribed ? `带刻印 ${v.inscribed}` : ''].filter(Boolean).join(' · ');
-    const removes = (v.upgraded || v.bonus || v.inscribed) && c.count > (v.upgraded || 0) ? '删去其中一张未强化的' : '';
+    const marks = purgeMarks(c).join(' · ');
     return `<div class="igs-combat-purge-detail" aria-live="polite"><b class="igs-combat-trait-tip-name">${esc(c.name)}</b>`
         + (meta ? `<span class="igs-combat-trait-tip-meta">${esc(meta)}</span>` : '')
         + (keywords ? `<span class="igs-combat-trait-tip-meta">${esc(keywords)}</span>` : '')
         + `<span class="igs-combat-trait-tip-text">${esc(text || '无效果')}</span>`
-        + `<span class="igs-combat-trait-tip-origin">${esc([held, removes].filter(Boolean).join('，'))}</span>`
+        + (marks ? `<span class="igs-combat-trait-tip-origin">${esc(marks)}</span>` : '')
         + `<div class="igs-combat-actions">${btn('pick-purge', `删除这张（消耗${cost}金钱）`, { id: c.copyId, primary: true, disabled: pending })}</div></div>`;
 }
 function purgeSheetHtml(v) {
@@ -586,7 +587,7 @@ function purgeSheetHtml(v) {
     const focusId = v.purgeFocus || (p.pick !== 'skip' ? p.pick : '');
     const focus = list.find((c) => c.copyId === focusId) || null;
     const cards = list.map((c) => {
-        const label = `${c.name}${c.count > 1 ? ` ×${c.count}` : ''}`;
+        const label = [c.name, ...purgeMarks(c)].join(' · ');
         return btn('purge-focus', p.pick === c.copyId ? `${label}（已选）` : label, { id: c.copyId, pressed: focus?.copyId === c.copyId, disabled: pending });
     }).join('');
     const skip = btn('pick-purge', p.pick === 'skip' ? '已选不删' : '不删', { id: 'skip', primary: p.pick === 'skip', disabled: pending });

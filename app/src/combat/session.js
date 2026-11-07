@@ -835,8 +835,8 @@ export function createCombatSession(options = {}) {
     const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text) }, context.purge);
 
     // 规则 v6 删卡：本场普通胜利正好满 5 场时，结算页给主角一次删牌机会（可跳过）。没到场次时不给字段。
-    // cards 按牌合并：每种牌给一张代表副本（优先不带升级、成长与刻印的，取最后获得的）。
-    // 详情字段：keywords 为牌面关键字（固有、保留等，只取定义里有的），variants 为同名副本里已升级 / 带成长 / 带刻印的张数。
+    // cards 按卡组副本逐张列出（同名牌不合并）：已升级的副本给升级后的费用与效果并带 upgraded，成长与刻印原样带出。
+    // keywords 为牌面关键字（固有、保留等，只取定义里有的）。
     const PURGE_KEYWORD_KEYS = ['unplayable', 'innate', 'retain', 'ethereal', 'sly', 'replay', 'radiance', 'temp', 'onDiscard'];
     function purgeOfHero(hero, combatId, points) {
         if (hero?.kind !== 'deck-character') return null;
@@ -845,20 +845,13 @@ export function createCombatSession(options = {}) {
         const short = chance.available && points < chance.cost;
         const base = { battle: chance.battle, cost: chance.cost, available: chance.available && !short, ...(short ? { reason: 'combat-points-insufficient' } : chance.reason ? { reason: chance.reason } : {}) };
         if (!base.available) return base;
-        const groups = new Map();
-        for (const row of hero.deckEntries || []) {
-            if (!row.copyId) continue;
-            const group = groups.get(row.cardId) || { rows: [] };
-            group.rows.push(row);
-            groups.set(row.cardId, group);
-        }
-        const cards = [...groups].map(([cardId, { rows }]) => {
-            const plain = rows.filter((r) => !r.upgraded && !r.bonus && !r.inscription);
-            const card = hero.catalog?.get?.(cardId) || {};
+        const cards = (hero.deckEntries || []).filter((row) => row.copyId).map((row) => {
+            const card = hero.catalog?.get?.(row.cardId) || {};
+            const up = row.upgraded && card.upgraded ? card.upgraded : null;
             const keywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => card[k] !== undefined && card[k] !== false).map((k) => [k, card[k]]));
-            const variants = { upgraded: rows.filter((r) => r.upgraded).length, bonus: rows.filter((r) => r.bonus).length, inscribed: rows.filter((r) => r.inscription).length };
-            return { copyId: (plain.length ? plain : rows).at(-1).copyId, cardId, name: card.name || cardId, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '', effects: card.effects || [], count: rows.length,
-                ...(Object.keys(keywords).length ? { keywords } : {}), variants };
+            return { copyId: row.copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', cost: up?.cost ?? card.cost ?? '', rarity: card.rarity || '',
+                effects: up?.effects || card.effects || [], ...(row.upgraded ? { upgraded: true } : {}), ...(row.bonus ? { bonus: row.bonus } : {}),
+                ...(row.inscription ? { inscription: row.inscription } : {}), ...(Object.keys(keywords).length ? { keywords } : {}) };
         });
         return { ...base, cards };
     }
