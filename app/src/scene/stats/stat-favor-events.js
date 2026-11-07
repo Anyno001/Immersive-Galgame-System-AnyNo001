@@ -1,6 +1,7 @@
 // 好感事件（§5.2、§5.3）：送礼重复递减、关键事件突破关口、冷落冷却（易错点 E4/E6）。
 import { FAVOR_GATES, applyDim, gateKey, stageOf } from './stat-favor.js';
 import { rollStatCheck } from './stat-rng.js';
+import { hasTrait } from './stat-traits.js';
 
 export const RECENT_MAX = 10;
 export const COOLDOWN_DAYS = 3;
@@ -18,13 +19,17 @@ export function applyGift(character, gift, { random, coef = 1, floorRoom, dailyM
 // 好感停在关口（25/50/75）时，关键事件用魅力检定突破：成功则解锁该关口并升入下一阶段。
 // 每道关口只解锁一次，之后跌回再涨不再封顶，也不能拿同一次解锁去过别的关口。
 // roll：由检定引擎提供的魅力检定（按当前规则体系）；未给时按 v1 的百分骰直接掷。
-export function applyKeyEvent(character, event, { charm = 50, modifiers = {}, random, roll } = {}) {
+// extraGates：这些关口要成功两次关键事件才解锁（白月光），第一次成功只记 gateStep。
+export function applyKeyEvent(character, event, { charm = 50, modifiers = {}, random, roll, extraGates = [] } = {}) {
     const favor = Number(character.dims.好感) || 0;
     const gate = FAVOR_GATES.find((value) => value === favor && !character.unlocked.includes(gateKey(value)));
     if (gate === undefined) return { character, result: { event, gate: null, success: false, reason: 'not-at-gate' } };
     const check = typeof roll === 'function' ? roll() : rollStatCheck(charm, modifiers, random);
     const result = { event, gate, roll: check.roll, target: check.target, tier: check.tier, success: check.success };
     if (!check.success) return { character, result };
+    if (extraGates.includes(gate) && !(character.gateStep || {})[gateKey(gate)]) {
+        return { character: { ...character, gateStep: { ...character.gateStep, [gateKey(gate)]: 1 } }, result: { ...result, success: false, reason: 'extra-step' } };
+    }
     const dims = { ...character.dims, 好感: gate + 1 };
     return { character: { ...character, dims, unlocked: [...character.unlocked, gateKey(gate)] }, result };
 }
@@ -62,9 +67,15 @@ export function fadeDesire(character, days = 1) {
 }
 
 // 近 7 天信任下降、芥蒂上升的账：[{ day, dim, amount }]，超过 7 天的作废。
-export function liveHurts(character, day) {
+export function liveHurts(character, day, span = RECENT_HURT_DAYS) {
     const list = Array.isArray(character.recentHurts) ? character.recentHurts : [];
-    return list.filter((e) => e && Number(e.amount) > 0 && day - (Number(e.day) || 0) <= RECENT_HURT_DAYS);
+    return list.filter((e) => e && Number(e.amount) > 0 && day - (Number(e.day) || 0) <= span);
+}
+
+// 伤势恢复天数：自愈减半（向上取整），伤口难愈加倍。
+export function hurtDaysOf(state, catalog, name) {
+    if (hasTrait(state, catalog, name, '自愈')) return Math.ceil(RECENT_HURT_DAYS / 2);
+    return hasTrait(state, catalog, name, '伤口难愈') ? RECENT_HURT_DAYS * 2 : RECENT_HURT_DAYS;
 }
 
 // days：本次推进的天数（日结算 1，时间跳跃为跳过的天数，软跨天 0）；信任受伤标记 trustWound 每天减 1，没有该字段的角色不新增字段。

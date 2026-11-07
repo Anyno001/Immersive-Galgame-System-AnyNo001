@@ -47,10 +47,10 @@ import {
 import { parseDiceCommand } from '../choices/dice-check.js';
 import { parseStatDirectives, stripStatDirectives } from '../scene/stats/stat-directives.js';
 import { traitEnvOf } from '../scene/stats/stat-trait-env.js';
-import { traitEdgeOf } from '../scene/stats/stat-trait-dice.js';
+import { luckyReroll, traitEdgeOf } from '../scene/stats/stat-trait-dice.js';
 import { EVENT_TYPES as BOND_EVENT_TYPES } from '../scene/stats/stat-trait-rules-bond.js';
 import { TRAIT_DEFS } from '../scene/stats/stat-traits.js';
-import { applyReview, buildReviewPayload, buildReviewPrompt, parseReviewEvents, parseReviewReply, scanFloorForReview } from './trait-review.js';
+import { applyReview, buildReviewPayload, reviewMemoryOf, reviewMemoryWrite, buildReviewPrompt, parseReviewEvents, parseReviewReply, scanFloorForReview } from './trait-review.js';
 import { achievementPass, lightCodex, refreshCombos, comboNotices, traitNoticeText } from './stats-trait-runtime.js';
 
 export const STATS_PROMPT_KEY = 'igs-stats-state';
@@ -917,8 +917,7 @@ export function createStatsRuntime({
             const hit = matchSkill(text, { skills: matchable(state), learned, extra: storyLexicon() });
             if (hit.skill) {
                 const toward = isSocialSkill(engine, hit.skill) ? mentionedCharacter(text, state) : null;
-                const te = traitEdgeFor(state, { skill: hit.skill, toward, engine });
-                const check = { ...resolveCheck(engine, state, { actor: PROTAGONIST, skill: hit.skill, difficulty: hit.difficulty, toward, edge: te.edge, source: 'input' }, cryptoRandom), ...(te.favorFrom ? { favorFrom: te.favorFrom } : {}) };
+                const check = resolveHeroCheck(engine, state, { actor: PROTAGONIST, skill: hit.skill, difficulty: hit.difficulty, toward, source: 'input' });
                 return { check, note: { source: 'input', word: hit.word } };
             }
             reason = hit.reason || reason;
@@ -991,14 +990,20 @@ export function createStatsRuntime({
     const takeBondEvents = () => { const out = pendingEvents.bond; pendingEvents = { ...pendingEvents, bond: [] }; return out; };
     const takeReviewEvents = () => { const out = pendingEvents.review; pendingEvents = { ...pendingEvents, review: [] }; return out; };
     let reviewTouched = new Set();
-    let reviewRecent = {};
-    let reviewLog = {};
+    const TRAIT_IDS = TRAIT_DEFS.map((d) => d.id);
     let reviewing = false;
     // 检定的特质与恩仇奖惩骰（只对主角发起的检定；rev ≥ 2 的楼才用）。
     function traitEdgeFor(state, { skill, toward = null, engine = null } = {}) {
         const eng = engine || memoEngineOf();
         const cat = traitCatalogOf(catalog.traits, isNsfw());
         return traitEdgeOf(state, cat, { actor: PROTAGONIST, skill, toward, social: isSocialSkill(eng, skill), skillValue: Number(profileOf(eng, state, PROTAGONIST, skill).value) || 0, present: present(state) });
+    }
+    // 主角检定带特质：万事通技能下限、贵人相助失败重掷；favorFrom 随结果一并带上。
+    function resolveHeroCheck(engine, state, request) {
+        const te = traitEdgeFor(state, { skill: request.skill, toward: request.toward || request.against || null, engine });
+        const req = { ...request, edge: te.edge, floor: te.floor };
+        const check = luckyReroll(state, traitCatalogOf(catalog.traits, isNsfw()), resolveCheck(engine, state, req, cryptoRandom), () => resolveCheck(engine, state, req, cryptoRandom));
+        return { ...check, ...(te.favorFrom ? { favorFrom: te.favorFrom } : {}) };
     }
     const applyCatalog = (next) => { catalog = sanitizeCatalog({ ...next, intimacyForced: [] }); };
     function announceTraits(notices, texts = []) {
@@ -1079,7 +1084,7 @@ export function createStatsRuntime({
                 name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST,
                 relation: own ? stageLabel(Number(own.dims.好感) || 0, isRomance(own, n, catalog.romanceSeen)) : '',
                 traits: listTraits(catalog, n).filter((t) => !t.id.startsWith('combo:')).map((t) => ({ id: t.id, src: t.src })),
-                recent: reviewRecent[n] || [],
+                recent: reviewMemoryOf(catalog.counters, [], [n], TRAIT_IDS, state.clock.day).recent[n] || [],
             };
         });
         if (!chars.length) return Promise.resolve({ ok: false });
@@ -1094,13 +1099,11 @@ export function createStatsRuntime({
             const events = parseReviewEvents(text, { bondTypes: BOND_EVENT_TYPES, chars: only });
             const now = currentStatsState(ledger);
             const prevCatalog = catalog;
-            const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'story', day: now.clock.day, changeLog: reviewLog, recent: reviewRecent });
-            reviewLog = applied.changeLog;
+            const memory = reviewMemoryOf(catalog.counters, results, [...new Set(results.map((r) => r.charName))], TRAIT_IDS, now.clock.day);
+            const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'story', day: now.clock.day, changeLog: memory.changeLog, recent: memory.recent });
             pendingEvents = { bond: events.bond, review: events.review };
             if (applied.applied.length) {
-                reviewRecent = { ...reviewRecent };
-                for (const r of applied.applied) reviewRecent[r.charName] = [{ id: r.id, on: r.on }];
-                applyCatalog(applied.catalog);
+                applyCatalog({ ...applied.catalog, counters: reviewMemoryWrite(applied.catalog.counters, applied.applied, TRAIT_IDS, now.clock.day) });
                 const texts = refreshAllCombos(now, prevCatalog, now);
                 announceTraits(applied.notices, texts);
                 lightGlobalCodex(now);
@@ -1905,8 +1908,7 @@ export function createStatsRuntime({
         const pr = entry.meta.pendingRoll;
         collectOriginSkills();
         const name = commitSkill(pr.skill, { attribute: pr.attribute, floor: entry.messageId }) || pr.skill;
-        const te = traitEdgeFor(entry.before, { skill: name, toward: pr.against });
-        const check = { ...resolveCheck(engineOf(), entry.before, { actor: PROTAGONIST, skill: name, difficulty: pr.difficulty, against: pr.against, opposedSkill: pr.opposedSkill, edge: te.edge, source: 'manual' }, cryptoRandom), ...(te.favorFrom ? { favorFrom: te.favorFrom } : {}) };
+        const check = resolveHeroCheck(engineOf(), entry.before, { actor: PROTAGONIST, skill: name, difficulty: pr.difficulty, against: pr.against, opposedSkill: pr.opposedSkill, source: 'manual' });
         manualCheck = { messageId: entry.messageId, check };
         setNotice('roll', null);
         playCheck(check, entry.messageId);

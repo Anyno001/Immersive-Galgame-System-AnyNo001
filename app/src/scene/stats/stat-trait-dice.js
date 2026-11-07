@@ -2,13 +2,15 @@
 // 只改检定骰数，不碰战斗与亲密对决规则；调用方把结果加进 resolveCheck 请求的 edge，最终仍由 modifiersOf 夹在规则体系的骰数上限内。
 import { COMBAT_SKILLS } from './stat-registry.js';
 import { bondDice, consumeFavorDice } from './stat-trait-rules-bond.js';
-import { traitDice } from './stat-traits.js';
+import { hasTrait, traitDice } from './stat-traits.js';
 
 const TECH = new Set(['电脑', '开锁', '修理', '查资料', '伪造', '鉴定']);
 const AGILE = new Set(['敏捷', '闪避', '攀爬', '潜行', '跳跃']);
 const CRAFT = new Set(['手工', '烹饪', '修理', '化妆', '穿搭']);
 const STUDY = new Set(['学习', '记忆', '查资料', '外语', '写作']);
 const COMBAT = new Set(COMBAT_SKILLS);
+// 万事通：任何检定中该技能值不低于此值。
+export const ALL_ROUNDER_FLOOR = 30;
 
 // 技能 → 检定类别（特质规则表里用的名字）。一个技能可属多类。
 export function diceCategories(skill, { social = false, versus = false } = {}) {
@@ -26,7 +28,7 @@ export function diceCategories(skill, { social = false, versus = false } = {}) {
 // request：{ actor, skill, toward, social, skillValue }。返回 { edge, favorFrom }：
 // favorFrom 为被求助时「欠你人情」的 NPC 名（本次检定用掉，由结算消耗）。
 export function traitEdgeOf(state, cat, { actor = '主角', skill = '', toward = null, social = false, skillValue = 0, present = [] } = {}) {
-    if (actor !== '主角' || !state) return { edge: 0, favorFrom: null };
+    if (actor !== '主角' || !state) return { edge: 0, favorFrom: null, floor: 0 };
     const categories = diceCategories(skill, { social, versus: Boolean(toward) });
     const here = toward ? present.includes(toward) : false;
     let edge = 0;
@@ -43,8 +45,15 @@ export function traitEdgeOf(state, cat, { actor = '主角', skill = '', toward =
         edge += extra;
         if (social && bondDice(state, toward)) { edge += 1; favorFrom = toward; }
     }
-    return { edge: Math.max(-2, Math.min(2, edge)), favorFrom };
+    return { edge: Math.max(-2, Math.min(2, edge)), favorFrom, floor: hasTrait(state, cat, actor, '万事通') ? ALL_ROUNDER_FLOOR : 0 };
 }
 
 // 用掉「欠你人情」的奖励骰：清除该 NPC 身上「欠你人情（ta）」的关系状态，返回新 state。
 export const consumeFavor = (state, name) => (name ? consumeFavorDice(state, name) : state);
+
+// 贵人相助：主角的检定失败且当天未用过，自动重掷一次（redo 返回新检定）；用过的标记由结算按 check.reroll 写进 clock.luckyUsed。
+export function luckyReroll(state, cat, check, redo) {
+    if (!check || check.success || check.actor !== '主角' || !state || state.clock.luckyUsed || !hasTrait(state, cat, '主角', '贵人相助')) return check;
+    const again = redo();
+    return { ...again, notes: [...(again.notes || []), '贵人相助·重掷'], reroll: '贵人相助·重掷' };
+}

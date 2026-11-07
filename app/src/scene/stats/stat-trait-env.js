@@ -1,10 +1,9 @@
 // 特质钩子用的本楼环境读取（纯函数，不 import 特质登记表）：
 // - 天气、地点：取自现有场景指令 [igs-scene:地点|时间|天气]（scene-directives 解析），本楼没写就沿用之前最近一条；
 // - 演出标签：ABO 包 [igs-fx:suppress|…] 等，原样取字段，不另造标签；
-// - 正文关键词：只认下面一小串固定词（吸血、歌声、发情季），命中即记，不进正文提示词。
+// - 吸血、歌唱、发情：由 event 标签（traitEvent）给出，不再读正文关键词。
 import { extractSceneDirectives, resolveLatestSceneDirective } from '../scene-directives.js';
 const FX_TAG = /\[igs-fx:(suppress|soothe|bond|phase|inhibitor)((?:\|[^\]\n|]*)*)\]/gi;
-export const TRAIT_TEXT_WORDS = Object.freeze(['发情季', '吸血', '獠牙', '歌声', '唱歌', '歌唱']);
 
 const clean = (v) => String(v ?? '').trim();
 
@@ -30,6 +29,5 @@ export function traitEnvOf(text, history = []) {
         place: scene ? scene.place : '',
         weather: scene ? scene.weather : '',
         fx: fxTagsOf(body),
-        words: TRAIT_TEXT_WORDS.filter((w) => body.includes(w)),
     };
 }

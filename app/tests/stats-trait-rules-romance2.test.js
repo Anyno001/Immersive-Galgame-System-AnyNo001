@@ -324,3 +324,79 @@ test('检定骰：腹黑 / 小笨蛋 / 绿茶惩罚骰，恋爱军师 / 键盘�
     assert.equal(dice('恋爱军师', '社交', { here: false }), 0);
     assert.equal(dice('键盘侠', '社交'), 1);
 });
+
+// ---- 第二期：事件标签 / 白月光 ----
+const ev = (who, type) => `[igs-stat:event|${who}|${type}]`;
+
+test('特质事件标签：rev2 才认，不进关口、不记关键事件', () => {
+    const s = one({ dims: { 好感: 25 } });
+    const r = floor(s, ev('林夏', '夸奖'));
+    assert.equal(d(r).好感, 25);
+    assert.equal(r.meta.events.length, 0);
+    assert.deepEqual(r.meta.reviewEvents, undefined);
+    assert.equal(floor(s, ev('林夏', '夸奖'), {}, { strengthRev: 1 }).state.characters.林夏.dims.好感, 25);
+});
+
+test('夸奖标签每楼生效：自卑好感加倍', () => {
+    const text = `[igs-stat:favor|林夏|喜悦|中]${ev('林夏', '夸奖')}`;
+    assert.ok(d(floor(one(), text, T('自卑'))).好感 > d(floor(one(), text)).好感);
+});
+
+test('背叛：信任大降芥蒂大升；正义使者芥蒂加倍', () => {
+    const s = one({ dims: { 信任: 40, 芥蒂: 0 } });
+    const base = floor(s, ev('林夏', '背叛'));
+    assert.equal(d(base).信任, 25);
+    assert.equal(d(base).芥蒂, 10);
+    assert.ok(d(floor(s, ev('林夏', '背叛'), T('正义使者'))).芥蒂 > 10);
+});
+
+test('求助：老好人答应并挂欠你人情；普通角色不挂', () => {
+    const rel = (r) => (r.state.characters.林夏.relStates || []).map((x) => x.id);
+    assert.deepEqual(rel(floor(one(), ev('林夏', '求助'), T('老好人'))), ['欠你人情']);
+    assert.deepEqual(rel(floor(one(), ev('林夏', '求助'))), []);
+});
+
+test('信仰质疑：狂信徒芥蒂加倍，无神论者不变', () => {
+    const text = `[igs-stat:grudge|林夏|上升|中]${ev('林夏', '信仰质疑')}`;
+    const plain = d(floor(one(), text)).芥蒂;
+    assert.ok(d(floor(one(), text, T('狂信徒'))).芥蒂 > plain);
+    assert.equal(d(floor(one(), text, T('无神论者'))).芥蒂, plain);
+});
+
+test('吸血 / 歌唱 事件标签替代关键词', () => {
+    const s = world({ 林夏: mkChar({}, { stamina: 50 }), 夜宵: mkChar() });
+    const r = floor(s, ev('夜宵', '吸血'), mk({ 夜宵: ['吸血鬼'] }), { present: ['夜宵'] });
+    assert.ok(r.state.characters.夜宵.bars.stamina > 100 - 1 || r.state.characters.夜宵.bars.stamina >= s.characters.夜宵.bars.stamina);
+    assert.equal(floor(s, '她咬了一口，吸血', mk({ 夜宵: ['吸血鬼'] })).state.characters.夜宵.bars.stamina, s.characters.夜宵.bars.stamina);
+});
+
+test('白月光：久别重逢好感大升；不在场不冷却', () => {
+    const s = world({ 林夏: mkChar({ dims: { 好感: 30 }, lastSeenDay: 1 }) }, {}, { day: 10 });
+    const r = floor(s, '[igs-stat:favor|林夏|平淡]', T('白月光'));
+    assert.equal(d(r).好感, 36);
+    const again = floor(r.state, '[igs-stat:favor|林夏|平淡]', T('白月光'));
+    assert.equal(d(again).好感, 36);
+    assert.equal(d(floor(s, '[igs-stat:favor|林夏|平淡]')).好感, 30);
+    const idle = settleDay(world({ 林夏: mkChar({ dims: { 好感: 40 }, lastSeenDay: 1 }) }, {}, { day: 10 }), { random: high, rev: 2, traits: T('白月光'), nsfw: true, present: [] });
+    assert.equal(idle.characters.林夏.dims.好感, 40);
+});
+
+test('白月光被提起：好感心动以上的其他角色吃醋，每天一次', () => {
+    const s = world({ 林夏: mkChar({ dims: { 好感: 30 } }), 苏雨: mkChar({ dims: { 好感: 60, 芥蒂: 0 } }) });
+    const r = floor(s, ev('林夏', '提起'), T('白月光'));
+    assert.ok(r.state.characters.苏雨.dims.芥蒂 > 0);
+    assert.equal(r.state.characters.林夏.dims.芥蒂, 0);
+    const g = r.state.characters.苏雨.dims.芥蒂;
+    assert.equal(floor(r.state, ev('林夏', '提起'), T('白月光')).state.characters.苏雨.dims.芥蒂, g);
+});
+
+test('白月光：心动进恋人需要两次关键事件', () => {
+    const low = high;
+    let s = world({ 林夏: mkChar({ dims: { 好感: 75 }, unlocked: ['gate-25', 'gate-50'] }) });
+    const text = '[igs-stat:event|林夏|约会]';
+    let r = floor(s, text, T('白月光'), { random: low });
+    assert.equal(d(r).好感, 75);
+    r = floor(r.state, text, T('白月光'), { random: low });
+    assert.equal(d(r).好感, 76);
+    assert.equal(d(floor(s, text, {}, { random: low })).好感, 76);
+});

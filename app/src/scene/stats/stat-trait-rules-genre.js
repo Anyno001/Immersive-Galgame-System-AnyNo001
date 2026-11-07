@@ -8,7 +8,7 @@
 // - 无法单凭特质认出「主人 / 向导 / 叉子」是谁时，按「持有对应特质的任一角色」认定（主角视为一直在场）。
 // - 钩子读本楼结算已产生的变动记录（ctx.changes 中 source 为 tag 的条目）取实际增减量，再追加差额，不重算强度表。
 // - 只改数值，不碰战斗与亲密对决的牌组、主导权、回合与牌效。
-// - 环境读取：ABO 演出标签、固定关键词、地点由结算放进 ctx.fx / ctx.words / ctx.place（见 stat-trait-env.js），读不到静默不生效。
+// - 环境读取：ABO 演出标签、地点由结算放进 ctx.fx / ctx.place（见 stat-trait-env.js），吸血、歌唱、发情读本楼 traitEvent 标签，读不到静默不生效。
 // 模块级代码不使用 import 的值（这些模块与 stat-traits.js 存在互相引用），导入项只在函数里用。
 import { DIM_MAX, barsOf, clamp, withBars, withCharacter } from './stat-state.js';
 import { shiftStress } from './stat-strain.js';
@@ -227,10 +227,10 @@ function disguiseCap(state, api) {
 }
 
 
-// ---- 环境类：ABO 演出标签、关键词、地点（读 ctx.fx / ctx.words / ctx.place，读不到静默不生效）----
+// ---- 环境类：ABO 演出标签、关键词、地点（读 ctx.fx / traitEvent 标签 / ctx.place，读不到静默不生效）----
 const WATER = /水|海|湖|河|溪|泳|潜|岸|港|池|浪/;
 const fxOf = (ctx, kind) => (Array.isArray(ctx.fx) ? ctx.fx.filter((f) => f && f.kind === kind) : []);
-const wordHit = (ctx, ...words) => Array.isArray(ctx.words) && words.some((w) => ctx.words.includes(w));
+const wordHit = (ctx, ...words) => Array.isArray(ctx.directives) && ctx.directives.some((d) => d.kind === 'traitEvent' && words.includes(d.value));
 // 一个角色有无某一组身份之一。
 const holders = (state, api, id) => withIds(state, api, [id]);
 
@@ -272,12 +272,12 @@ function aboScene(state, api) {
 // 兽人发情季、吸血鬼吸血、人鱼之歌（关键词）与人鱼的水域（地点）。
 function wordScene(state, api) {
   const ctx = api.ctx;
-  if (wordHit(ctx, '发情季')) for (const n of holders(state, api, '兽人')) { const g = applied(ctx, n, '欲望', 1); if (g) state = api.bump(state, n, '欲望', Math.round(g * 0.5), '发情季'); }
-  if (wordHit(ctx, '吸血', '獠牙')) {
+  if (wordHit(ctx, '发情')) for (const n of holders(state, api, '兽人')) { const g = applied(ctx, n, '欲望', 1); if (g) state = api.bump(state, n, '欲望', Math.round(g * 0.5), '发情季'); }
+  if (wordHit(ctx, '吸血')) {
     for (const v of holders(state, api, '吸血鬼')) if (present(api, v)) state = shiftBar(state, v, 'stamina', BIG_BAR, '吸血', ctx);
     for (const b of holders(state, api, '血仆')) if (present(api, b)) { state = shiftBar(state, b, 'stamina', -BIG_BAR, '被吸血', ctx); state = api.bump(state, b, '欲望', SMALL_DESIRE, '被吸血'); }
   }
-  if (wordHit(ctx, '歌声', '唱歌', '歌唱')) {
+  if (wordHit(ctx, '歌唱')) {
     for (const s of holders(state, api, '人鱼之歌')) {
       if (!present(api, s)) continue;
       if (s !== HERO) { state = api.bump(state, s, '欲望', SMALL_DESIRE, '人鱼之歌'); state = shiftBar(state, HERO, 'stress', -STRESS_SMALL, '人鱼之歌', ctx); }

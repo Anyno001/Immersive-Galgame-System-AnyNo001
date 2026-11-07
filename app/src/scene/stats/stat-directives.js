@@ -1,6 +1,6 @@
 // [igs-stat:…] 数值标签解析与剔除。只认离散档位；战斗数量与时间跳跃天数是结构参数，单独限幅。
 // 容错（易错点 C1）：[] 或 【】 包裹、半角或全角冒号与竖线、字段两侧多空格与换行。
-import { FAVOR_STRENGTHS, INTIMATE_LEVELS, DIM_DIRECTIONS, DIM_KINDS, ENEMY_TIERS, FAVOR_DIRECTIONS_LEGACY, HERO_STATES, HURT_TIERS, KEY_EVENTS, KEY_EVENTS_LEGACY, MONEY_FLOWS, MONEY_TIERS, ROLL_DIFFICULTIES, STAMINA_EVENTS, START_FIX_DIMS, START_FIX_LEVELS, STRESS_STRENGTHS, normalizeTier, parseStartRelation, resolveFavorWord } from './stat-vocab.js';
+import { FAVOR_STRENGTHS, INTIMATE_LEVELS, DIM_DIRECTIONS, DIM_KINDS, ENEMY_TIERS, FAVOR_DIRECTIONS_LEGACY, HERO_STATES, HURT_TIERS, KEY_EVENTS, KEY_EVENTS_LEGACY, TRAIT_EVENTS, MONEY_FLOWS, MONEY_TIERS, ROLL_DIFFICULTIES, STAMINA_EVENTS, START_FIX_DIMS, START_FIX_LEVELS, STRESS_STRENGTHS, normalizeTier, parseStartRelation, resolveFavorWord } from './stat-vocab.js';
 import { SKIP_DAYS_MAX, SKIP_DAYS_MAX_LEGACY, parseSkipDays } from './stat-duration.js';
 import { STRAIN_NAMES, normalizeStressSource } from './stat-strain.js';
 
@@ -117,7 +117,12 @@ function parseFields([kindRaw, a, b, c, d], ctx = {}) {
     }
     case 'sleep': return { kind };
     case 'hurt': { const value = normalizeTier('hurt', HURT_TIERS, a); return value ? { kind, value } : null; }
-    case 'event': { const value = normalizeTier('event', rev2 ? KEY_EVENTS : KEY_EVENTS_LEGACY, b); return target && value ? { kind, target, value } : null; }
+    case 'event': {
+        const value = normalizeTier('event', rev2 ? KEY_EVENTS : KEY_EVENTS_LEGACY, b);
+        if (value) return target ? { kind, target, value } : null;
+        const mark = rev2 ? normalizeTier('event', TRAIT_EVENTS, b) : null;
+        return target && mark ? { kind: 'traitEvent', target, value: mark } : null;
+    }
     case 'gift': { const value = freeText(b); return target && value ? { kind, target, value } : null; }
     case 'grow': { const skill = freeText(b); return target && skill ? { kind, target, skill } : null; }
     case 'work': return { kind, value: freeText(a) || '打工' };

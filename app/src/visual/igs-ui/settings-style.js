@@ -220,7 +220,8 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-stats-hero-cell{position:relative;display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:2px 0 2px 10px;min-width:0}
 .igs-stats-hero-cell::before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:2px;background:var(--igs-settings-accent)}
 .igs-stats-hero-cell>span{min-width:0;font-size:13px;line-height:20px;color:var(--igs-settings-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.igs-stats-hero-cell>b{flex-shrink:0;font-size:14px;line-height:20px;font-weight:600;color:var(--igs-settings-ink);font-variant-numeric:tabular-nums}
+.igs-stats-hero-cell>b{flex-shrink:0;font-size:13px;line-height:20px;font-weight:500;color:var(--igs-settings-ink);font-variant-numeric:tabular-nums}
+.igs-stats-hero-cell>b>small{margin-left:3px;font-size:11px;font-weight:400;color:var(--igs-settings-ink-4)}
 .igs-stats-hero-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .igs-stats-hero-actions>.igs-settings-action{min-width:0;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .igs-stats-hero-actions.is-three{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -246,6 +247,7 @@ details.igs-stats-person details.igs-settings-advanced>summary{padding-left:0;pa
 .igs-stats-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:30px;font-size:13px;color:var(--igs-settings-ink-2)}
 .igs-stats-sec-head>b{font-weight:600;color:var(--igs-settings-ink)}
 .igs-stats-sec-head>em{font-style:normal;font-size:12px;color:var(--igs-settings-ink-4);font-variant-numeric:tabular-nums}
+.igs-stats-sec-head:has(>em.is-inline){justify-content:flex-start}
 .igs-settings-action.is-small{height:30px;padding:0 12px;flex:0 0 auto;white-space:nowrap}
 .igs-trait-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
 .igs-trait-toggle{position:absolute;opacity:0;width:0;height:0;margin:0;pointer-events:none}
@@ -281,7 +283,8 @@ details.igs-stats-person details.igs-edit-fold>:not(summary){margin-left:0;margi
 details.igs-stats-person details.igs-edit-fold>summary{padding-left:0}
 .igs-edit-fold{display:block}
 .igs-edit-fold>.igs-stats-sec,.igs-edit-fold>.igs-stats-hero-actions,.igs-edit-fold>.igs-settings-field{margin-top:10px}
-.igs-edit-toggle{position:absolute;opacity:0;width:0;height:0;margin:0;pointer-events:none}
+/* 酒馆全局 input[type=checkbox]:not(#nothing) 会给勾选框尺寸与外边距，隐藏的开关要压过它，否则在卡片里占位 */
+#igs-unified-settings input.igs-edit-toggle:not(#igs-none),#igs-unified-settings input.igs-trait-toggle:not(#igs-none){display:none}
 .igs-person-chips .igs-trait-chip{order:0}
 .igs-edit-tags{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
 .igs-edit-empty{font-size:12px;color:var(--igs-settings-ink-4)}

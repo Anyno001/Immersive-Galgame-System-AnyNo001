@@ -198,7 +198,7 @@ test('状态栏关着：什么都不加，也不替换', () => {
 // ---------- 设置页版面 ----------
 function page(over = {}, id = 'stats') {
     const stats = normalizeStatsSettings({ enabled: true, ...(over.stats || {}) });
-    const values = buildStatsPageValues({ stats, chat: over.chat === undefined ? { hasChat: true, enabled: false } : over.chat, archive: over.archive || null, combatOn: false });
+    const values = buildStatsPageValues({ stats, chat: over.chat === undefined ? { hasChat: true, enabled: false } : over.chat, archive: over.archive || null, combatOn: false, advancedOpen: over.open || (() => '') });
     return renderTemplate(getPageTemplate(id), values);
 }
 
@@ -250,14 +250,15 @@ test('其他角色：角色卡并进同名角色，没有人际档的角色卡�
     const archive = { day: 1, bars: {}, wallet: 0, vitals: null, attributes: [], skills: [], log: [], total: 0, checks: [{ messageId: 2, skill: '侦查', difficulty: '普通', detail: '1d100=12', outcome: '成功', ruleset: 'coc7' }], story: [{ name: '开锁', attribute: '敏捷' }], pendingPeople: [], pendingSkills: [],
         characters: [{ name: '小雪', stage: '朋友', dims: { 好感: 30, 信任: 10, 了解: 5 }, intimacyForced: false }],
         sheets: [{ name: '小雪', rank: '老手', source: 'default', attributes: [{ name: '力量', display: '40' }], skills: [] }, { name: '路人甲', rank: '普通人', source: 'default', attributes: [], skills: [] }] };
-    const npc = page({ chat: { hasChat: true, enabled: true }, archive }, 'stats-npc');
+    const editOpen = (key) => (key.startsWith('stats-edit-') ? ' open' : '');
+    const npc = page({ chat: { hasChat: true, enabled: true }, archive, open: editOpen }, 'stats-npc');
     const card = npc.slice(npc.indexOf('<b>小雪</b>'), npc.indexOf('<b>路人甲</b>'));
     assert.match(card, /data-action="stats-op:relation-set:/);
     assert.match(card, /data-action="stats-op:sheet-edit:%E5%B0%8F%E9%9B%AA"/);
     assert.match(npc.slice(npc.indexOf('<b>路人甲</b>')), /stats-op:sheet-edit:/);
     // 有人际档的角色卡在时不出「生成角色卡」；卡丢了才出。
     assert.doesNotMatch(card, /stats-op:sheet-new:/);
-    const lost = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, sheets: [] } }, 'stats-npc');
+    const lost = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, sheets: [] }, open: editOpen }, 'stats-npc');
     assert.match(lost, /data-action="stats-op:sheet-new:%E5%B0%8F%E9%9B%AA"/);
     const skillEdit = [{ name: '烹饪', attribute: '智力', tier: '熟练', value: 55, story: false }, { name: '开锁', attribute: '敏捷', tier: '入门', value: 30, story: true }, { name: '火尖枪', attribute: '力量', tier: '入门', value: 28, story: true, slotted: true }, { name: '法律', attribute: '智力', tier: '未学', value: 5, story: false }];
     const mine = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, skillEdit } });

@@ -246,6 +246,42 @@ export function applyReview(results, catalog, applyTraitChange, opts = {}) {
     return { catalog: cat, notices, applied, skipped, changeLog };
 }
 
+// 节流记录落盘：存在 catalog.counters（只收数字、键长 ≤ 24、最多 40 项）。
+// 「每日一次」：rl:哈希(名|id) = 当天；「上次刚变动」：rr:哈希(名) = (id 在 ids 里的序号 + 1) × 2 + (获得 1 / 失去 0)，每人一条。
+const MEMORY_RECENT_MAX = 10;
+const hashOf = (text) => { let h = 5381; for (const ch of String(text)) h = ((h * 33) ^ ch.codePointAt(0)) >>> 0; return h.toString(36); };
+
+// 读出本次要用的节流记录：results 用于还原每日一次的 changeLog，names 用于还原 recent。
+export function reviewMemoryOf(counters, results, names, ids, day) {
+    const c = counters || {};
+    const changeLog = {};
+    for (const r of Array.isArray(results) ? results : []) if (c[`rl:${hashOf(`${r.charName}|${r.id}`)}`] === day) changeLog[`${r.charName}|${r.id}`] = day;
+    const recent = {};
+    for (const name of names) {
+        const v = Number(c[`rr:${hashOf(name)}`]);
+        const id = v >= 2 ? ids[(v >> 1) - 1] : null;
+        if (id) recent[name] = [{ id, on: (v & 1) === 1 }];
+    }
+    return { changeLog, recent };
+}
+
+// 写回：每日记录只留当天的；recent 每人只留最近一次，总数超过上限时丢最旧的。返回新 counters。
+export function reviewMemoryWrite(counters, applied, ids, day) {
+    const next = {};
+    for (const [k, v] of Object.entries(counters || {})) if (!(k.startsWith('rl:') && v !== day)) next[k] = v;
+    for (const r of applied) {
+        next[`rl:${hashOf(`${r.charName}|${r.id}`)}`] = day;
+        const at = ids.indexOf(r.id);
+        if (at < 0) continue;
+        const key = `rr:${hashOf(r.charName)}`;
+        delete next[key];
+        next[key] = (at + 1) * 2 + (r.on ? 1 : 0);
+    }
+    const recentKeys = Object.keys(next).filter((k) => k.startsWith('rr:'));
+    for (const k of recentKeys.slice(0, Math.max(0, recentKeys.length - MEMORY_RECENT_MAX))) delete next[k];
+    return next;
+}
+
 // 6. 事件：解析 events。bondTypes 为恩仇规则的 EVENT_TYPES；返回 { bond: [{ type, target, who, dir }], review: [{ type, name, dir }] }。
 // 丢弃表外类型与不在 opts.chars 里的角色，同角色同类型去重。
 export function parseReviewEvents(text, opts = {}) {

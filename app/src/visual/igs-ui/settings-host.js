@@ -1831,6 +1831,8 @@ export function createSettingsHost(deps) {
             }
             // 敌人立绘管理折叠时不渲染行：展开时重绘一次补出内容。
             if (key === 'combat-enemy-sprites' && target.open) rerenderSettings({ draftUnchanged: true });
+            // 角色「编辑」折叠（含整张特质候选表）收起时不渲染：展开时重绘一次补出内容。
+            if ((key === 'stats-hero-edit' || key.startsWith('stats-edit-')) && target.open && !target.querySelector('summary ~ *')) rerenderSettings({ draftUnchanged: true });
         }, true);
         root.addEventListener('keydown', (event) => {
             if (onboarding.keydown(event, doc)) return;

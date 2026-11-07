@@ -68,7 +68,7 @@ test('旧四个勾选与豁免按钮不再出现，其他角色卡与我的角�
         characters: [{ name: '小雪', stage: '朋友', dims: { 好感: 30, 信任: 10, 了解: 5 }, intimacyForced: true }],
         traitList: { 小雪: { items: [item('forced')], slots: 1, auto: 0, achieve: 0 } }, traitNsfw: true, traits: {}, aptitude: {}, heroNotes: {},
     };
-    const npc = renderStatsPeople(archive);
+    const npc = renderStatsPeople(archive, (key) => (key.startsWith('stats-edit-') ? ' open' : ''));
     assert.match(npc, /igs-person-chips[\s\S]*igs-edit-fold[\s\S]*添加特质/);
     assert.doesNotMatch(npc, /igs-switch|relation-forced|stats-op:trait:/);
     assert.match(renderStatsHeroTail(archive), /data-traits-of="主角"/);
@@ -107,7 +107,7 @@ test('悟性并入特质：出众是一行可摘下回平庸，不再有悟性�
 
 test('声望：只读小标签写「名 · 档位」，编辑态有关闭与新增，无声望时显示「未设置」', () => {
     const base = { day: 1, bars: {}, wallet: 0, vitals: null, attributes: [], skills: [], log: [], total: 0, checks: [], story: [], sheets: [], skillEdit: [], characters: [], traits: {}, aptitude: {}, heroNotes: {} };
-    const html = renderStatsHeroTail({ ...base, fame: [{ name: '唯粉', kind: '粉丝', tier: '小有名气' }] });
+    const html = renderStatsHeroTail({ ...base, fame: [{ name: '唯粉', kind: '粉丝', tier: '小有名气' }] }, (key) => (key === 'stats-hero-edit' ? ' open' : ''));
     assert.match(html, /<b>唯粉 · 小有名气<\/b>/);
     assert.match(html, /<em>1\/3<\/em>/);
     assert.match(html, /data-action="stats-op:fame-remove:/);
@@ -132,10 +132,12 @@ test('角色卡：观赏区不放按钮，所有编辑收进默认折叠的「�
         traitList: { 小雪: { items: [item('fragile')], slots: 1, auto: 0, achieve: 0 } }, traitNsfw: false, traits: {}, aptitude: {}, heroNotes: {},
     };
     const npc = renderStatsPeople(archive);
+    assert.doesNotMatch(npc, /添加特质/, '收起的「编辑」不渲染内容');
+    const opened = renderStatsPeople(archive, (key) => (key.startsWith('stats-edit-') ? ' open' : ''));
     const summary = npc.slice(npc.indexOf('<summary class="igs-stats-person-head">'), npc.indexOf('</summary>'));
     assert.match(summary, /igs-person-chips[\s\S]*脆弱/);
     const fold = npc.indexOf('igs-edit-fold');
     assert.ok(fold > 0 && !/open/.test(npc.slice(fold, npc.indexOf('<summary>编辑', fold))));
     assert.doesNotMatch(npc.slice(npc.indexOf('</summary>'), fold), /<button/);
-    assert.match(npc.slice(fold), /修改数值[\s\S]*摘下[\s\S]*添加特质[\s\S]*按剧情拟写[\s\S]*保存/);
+    assert.match(opened.slice(opened.indexOf('igs-edit-fold')), /修改数值[\s\S]*摘下[\s\S]*添加特质[\s\S]*按剧情拟写[\s\S]*保存/);
 });

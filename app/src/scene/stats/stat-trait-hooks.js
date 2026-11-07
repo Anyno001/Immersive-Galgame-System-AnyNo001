@@ -53,6 +53,22 @@ function hereSet(directives, ctx) {
     return set;
 }
 
+/// 白月光：本楼有「提起」事件指向白月光时，其他对主角好感达「心动」的角色按吃醋结算（补一条吃醋标签交给原结算），每人每天最多一次。
+export function moonlightJealousy(state, directives, ctx) {
+    const cat = ctx.traitCat || traitCatalogOf(ctx.traits, ctx.nsfw);
+    const mentioned = directives.filter((d) => d.kind === 'traitEvent' && d.value === '提起' && hasTrait(state, cat, d.target, '白月光')).map((d) => d.target);
+    if (!mentioned.length) return { state, directives: [] };
+    const day = state.clock.day;
+    const out = [];
+    let next = state;
+    for (const [name, cur] of Object.entries(state.characters)) {
+        if (mentioned.includes(name) || (Number(cur.dims.好感) || 0) < 51 || cur.moonJealousDay === day) continue;
+        out.push({ kind: 'favor', target: name, dim: '好感', value: '吃醋', strength: '中' });
+        next = withCharacter(next, name, { ...cur, moonJealousDay: day });
+    }
+    return { state: next, directives: out };
+}
+
 // 每楼事件类联动：抖M、抖S、护短、熊系、猫系、包容。
 export function settleTraitTags(before, directives, ctx) {
     const cat = ctx.traitCat || traitCatalogOf(ctx.traits, ctx.nsfw);

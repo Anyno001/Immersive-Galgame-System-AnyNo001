@@ -150,6 +150,20 @@ export const DAILY = [];
 
 // ---- 每楼事件钩子 ----
 export const TAG_HOOKS = [
+    // 白月光：距上次在场 ≥ 7 天后再次在场（或本楼写了「重逢」事件）那一楼，对主角好感上升一大档。
+    (state, api) => {
+        let next = state;
+        const day = num(next.clock && next.clock.day);
+        const reunion = (api.ctx.reviewEvents || []).filter((e) => e.type === '重逢').map((e) => e.name);
+        for (const name of traitHolders(api, next, '白月光')) {
+            if (name === '主角' || !next.characters[name]) continue;
+            const seen = api.ctx.lastSeen && api.ctx.lastSeen[name];
+            const long = Number.isFinite(seen) && api.here.has(name) && day - seen >= 7;
+            if (long || reunion.includes(name)) next = api.bump(next, name, '好感', api.BIG.好感, '白月光');
+            if (long) next = putField(next, name, { lastSeenDay: day });
+        }
+        return next;
+    },
     // 绿茶：情敌（其他好感达「心动」的在场角色）在场那一楼，其好感上升 ×1.5，情敌的吃醋结算加倍。
     (state, api) => {
         let next = state;

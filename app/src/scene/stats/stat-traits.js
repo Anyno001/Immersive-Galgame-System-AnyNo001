@@ -541,6 +541,9 @@ export function traitFlag(state, catalog, charName, flag, ctx = null) {
     return false;
 }
 
+// 白月光：「心动」进「恋人」（75 关）多一次关键事件。
+export const extraGatesOf = (state, catalog, name) => (hasTrait(state, catalog, name, '白月光') ? [75] : []);
+
 // 倍率大于 1 时单楼与每日上限同乘倍率（四舍五入）；小于等于 1 时上限不变。
 export const amplifyLimit = (limit, scale) => (scale > 1 ? Math.round(limit * scale) : limit);
 

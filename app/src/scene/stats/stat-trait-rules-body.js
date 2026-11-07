@@ -259,6 +259,33 @@ function relationHook(state, api) {
     return next;
 }
 
+// 赌徒（自动押）：本楼有主角检定（含打工）且有金钱收支时，成功的收入翻倍、失败的金钱扣减翻倍；检定日记在 clock.checkDay，供日结算判断「没赌的日子」。
+function gamblerHook(state, api) {
+    const { ctx } = api;
+    const work = ctx.flags && ctx.flags.work;
+    const won = ctx.checkSuccess !== undefined ? ctx.checkSuccess : work ? String(work.tier || '').includes('成功') : undefined;
+    if (won === undefined || !api.has(state, HERO, '赌徒')) return state;
+    let next = state.clock.checkDay === state.clock.day ? state : withClock(state, { checkDay: state.clock.day });
+    for (const c of ctx.changes.slice()) {
+        if (c.target !== HERO || c.key !== 'money' || (c.source !== 'tag' && c.source !== 'battle')) continue;
+        if (won && c.to > c.from) next = moveMoney(next, HERO, c.to - c.from, '赌徒·收入翻倍', ctx.changes);
+        if (!won && c.to < c.from) next = moveMoney(next, HERO, c.to - c.from, '赌徒·损失翻倍', ctx.changes);
+    }
+    return next;
+}
+
+// 万事通：主角对角色的「了解」上升 ×1.5（SCALE 只能挂在被改动的角色上，这里读本楼已记的了解变动补差额）。
+function allRounderHook(state, api) {
+    if (!api.has(state, HERO, '万事通')) return state;
+    let next = state;
+    for (const c of api.ctx.changes.slice()) {
+        if (c.source !== 'tag' || c.key !== '了解' || c.target === HERO || !(c.to > c.from) || !next.characters[c.target]) continue;
+        const extra = Math.round((c.to - c.from) * 0.5);
+        if (extra) next = api.bump(next, c.target, '了解', extra, '万事通');
+    }
+    return next;
+}
+
 // 记账：进食日（漏餐判定）、主角体力低于一半的日期（铁打的身体）。排在体力钩子之后。
 function trackHook(state, api) {
     const { directives } = api;
@@ -274,7 +301,7 @@ function trackHook(state, api) {
     return next;
 }
 
-export const TAG_HOOKS = [staminaHook, moneyHook, painEnvHook, relationHook, trackHook];
+export const TAG_HOOKS = [staminaHook, moneyHook, painEnvHook, relationHook, allRounderHook, gamblerHook, trackHook];
 
 // ---- 日结算钩子（rev ≥ 2；时间跳跃不走这里）----
 
@@ -361,7 +388,13 @@ function streakHook(state, api) {
     return streak === state.clock.sturdyStreak ? state : withClock(state, { sturdyStreak: streak });
 }
 
-export const DAILY_HOOKS = [sleepHook, missedMealHook, dailyMoneyHook, growthHook, streakHook];
+// 赌徒：刚过去的那天没有任何检定，压力小升。
+function gamblerIdleHook(state, api) {
+    if (!api.has(state, HERO, '赌徒') || state.clock.checkDay === api.day - 1) return state;
+    return moveStress(state, HERO, PHOBIA_STRESS, '赌徒·没赌', api.changes);
+}
+
+export const DAILY_HOOKS = [sleepHook, missedMealHook, dailyMoneyHook, growthHook, streakHook, gamblerIdleHook];
 
 // DICE：[特质键, 检定类别, 奖惩骰数(+1 奖励 / -1 惩罚), 条件(character, ctx)?]
 // 一技之长：「该技能」的检定。类别无法区分具体技能，条件读调用方传入的 ctx.skillValue（该次检定所用技能的当前值），没传则不生效。

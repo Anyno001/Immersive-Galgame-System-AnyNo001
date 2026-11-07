@@ -311,12 +311,13 @@ function rawFor(engine, random, edge, difficulty) {
     return engine.ruleset.rawRoll(random, extra);
 }
 
-// request：{ actor, skill, difficulty, against, opposedSkill, toward, ally, edge, raw, source }
+// request：{ actor, skill, difficulty, against, opposedSkill, toward, ally, edge, floor（技能值下限，特质）, raw, source }
 // against：对抗的 NPC（按对方被动值定难度 / DC）；toward：只取好感修正、不对抗（关键事件）。
 export function resolveCheck(engine, state, request, random) {
     const actor = isProtagonist(request.actor) ? PROTAGONIST : request.actor;
     const skill = request.skill;
-    const profile = profileOf(engine, state, actor, skill);
+    const base = profileOf(engine, state, actor, skill);
+    const profile = request.floor > base.value && base.kind === 'skill' ? { ...base, value: request.floor } : base;
     const toward = request.against || request.toward || null;
     const mods = modifiersOf(engine, state, { actor, skill, toward, ally: request.ally, edge: request.edge });
     const opts = { difficulty: DIFFICULTIES.includes(request.difficulty) ? request.difficulty : '普通', edge: mods.edge, shift: mods.shift, natural: engine.natural };

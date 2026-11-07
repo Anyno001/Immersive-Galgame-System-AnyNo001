@@ -1,6 +1,6 @@
 // 跨天判定与日结算（§7；易错点 C6/D1/D2/D3/D4）。跨天主要看 sleep 标签与明确的日期字样，钟点只作辅助。
 import { stripStatDirectives } from './stat-directives.js';
-import { coolDown, fadeDesire, fadeGrudge, liveHurts, resetDaily } from './stat-favor-events.js';
+import { coolDown, fadeDesire, fadeGrudge, hurtDaysOf, liveHurts, resetDaily } from './stat-favor-events.js';
 import { rollDie, rollOver } from './stat-rng.js';
 import { SKILL_MAX, barsOf, clamp, isRomance, withBars, withClock, withSkills } from './stat-state.js';
 import { hasTrait, traitCatalogOf, traitFlag, traitScale } from './stat-traits.js';
@@ -11,13 +11,15 @@ import { relaxStress, shiftStress } from './stat-strain.js';
 export const APTITUDES = Object.freeze(['平庸', '出众', '天纵']);
 export const aptitudeTier = (name) => (APTITUDES.includes(name) ? name : '平庸');
 // 成长检定：平庸 d100 大于当前值；出众掷两次取好；天纵掷两次取好且判定线按当前值 −10。返回是否通过。
-function growthPasses(value, tier, random) {
-    if (tier === '平庸') return rollOver(value, random).passed;
+function growthPasses(value, tier, random, retry = false) {
+    if (tier === '平庸') return rollOver(value, random).passed || (retry && rollOver(value, random).passed);
     const line = tier === '天纵' ? value - 10 : value;
     const first = rollOver(line, random).passed;
     const second = rollOver(line, random).passed;
-    return first || second;
+    return first || second || (retry && rollOver(line, random).passed);
 }
+// 拼命三郎透支体力后的次日：体力只恢复到上限减一档（重度消耗 30）。
+export const OVERDRAW_CAP = 70;
 // 成长涨幅：天纵 1d10+2，其余 1d10。
 export const growthGain = (tier, random) => rollDie(10, random) + (tier === '天纵' ? 2 : 0);
 
@@ -66,11 +68,11 @@ export function fallbackDirectives(narration, directives, { frozen = false } = {
 
 // 成长：打过勾的技能掷 d100，大于当前值则 +1d10（不超过 90），然后清勾。
 // aptitude 只在 strengthRev ≥ 2 时传入（'平庸' / '出众' / '天纵'）；没有时按旧规则，随机数消耗与旧楼一致。
-function growSkills(skills, random, changes, aptitude) {
+function growSkills(skills, random, changes, aptitude, retry = false) {
     let next = skills;
     for (const [name, skill] of Object.entries(skills)) {
         if (!skill.marked) continue;
-        const passed = aptitude ? growthPasses(skill.value, aptitude, random) : rollOver(skill.value, random).passed;
+        const passed = aptitude ? growthPasses(skill.value, aptitude, random, retry) : rollOver(skill.value, random).passed;
         const to = passed ? Math.min(SKILL_MAX, skill.value + (aptitude ? growthGain(aptitude, random) : rollDie(10, random))) : skill.value;
         if (to !== skill.value) changes.push({ source: 'daily', target: '主角', key: name, from: skill.value, to, note: '成长' });
         next = { ...next, [name]: { value: to, marked: false } };
@@ -146,7 +148,7 @@ function coolCharactersRev2(characters, day, days, changes, ctx) {
             if (desire.change) { current = desire.character; changes.push({ source: 'daily', target: name, ...desire.change }); }
         }
         if (Array.isArray(current.recentHurts)) {
-            const live = liveHurts(current, day);
+            const live = liveHurts(current, day, hurtDaysOf(view, cat, name));
             if (live.length !== current.recentHurts.length) {
                 const { recentHurts, ...rest } = current;
                 current = live.length ? { ...rest, recentHurts: live } : rest;
@@ -208,22 +210,24 @@ export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, 
     // rev ≥ 2：压力按转换后的走向回落（沦陷、扭曲、蜕变不自然变化）。
     const nextBars = {
         ...(rev2 ? relaxStress(bars) : bars),
-        stamina: detached ? bars.stamina : Math.max(bars.stamina, state.clock.stayedUp ? 70 : 100),
+        stamina: detached ? bars.stamina : Math.max(bars.stamina, state.clock.stayedUp || state.clock.overdrawDay === state.clock.day ? OVERDRAW_CAP : 100),
         ...(rev2 ? {} : { stress: clamp(bars.stress - 10, 0, 100) }),
     };
     pushBarChanges(bars, nextBars, changes, '日结算', rev2);
     let next = withBars(state, nextBars);
-    next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null);
+    next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null, diligentOf(next, rev2, traits, nsfw));
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, 1, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, 1, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, '日结算', { stress: true, rev2: rev2 ? { day, days: 1, present } : null }) };
-    next = withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
+    next = withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0, ...(state.clock.luckyUsed ? { luckyUsed: false } : {}) });
     return rev2 ? dailyTraitPass(next, { traits, nsfw, present, ...(env || {}) }, changes) : next;
 }
 
 // 成长次数累计进 protagonist.growth（D&D 资历档由它推出，v2 §4.2）。
-function grow(state, random, changes, skillValueOf, aptitudeOf) {
+const diligentOf = (state, rev2, traits, nsfw) => rev2 && hasTrait(state, traitCatalogOf(traits, nsfw), '主角', '勤奋');
+
+function grow(state, random, changes, skillValueOf, aptitudeOf, diligent = false) {
     const before = changes.length;
-    const next = withSkills(state, growSkills(state.protagonist.skills, random, changes, typeof aptitudeOf === 'function' ? aptitudeTier(aptitudeOf('主角')) : null));
+    const next = withSkills(state, growSkills(state.protagonist.skills, random, changes, typeof aptitudeOf === 'function' ? aptitudeTier(aptitudeOf('主角')) : null, diligent));
     const gained = changes.slice(before).filter((c) => c.note === '成长').length;
     const hero = gained ? { ...next, protagonist: { ...next.protagonist, growth: (Number(next.protagonist.growth) || 0) + gained } } : next;
     return growNpcSkills(hero, random, changes, skillValueOf, aptitudeOf);
@@ -233,7 +237,7 @@ function grow(state, random, changes, skillValueOf, aptitudeOf) {
 export function settleRest(state, { changes = [], frozen = false } = {}) {
     if (frozen) return state;
     const { bars } = state.protagonist;
-    const stamina = Math.max(bars.stamina, state.clock.stayedUp ? 70 : 100);
+    const stamina = Math.max(bars.stamina, state.clock.stayedUp || state.clock.overdrawDay === state.clock.day ? OVERDRAW_CAP : 100);
     if (stamina === bars.stamina && !state.clock.stayedUp) return state;
     pushBarChanges(bars, { ...bars, stamina }, changes, '入睡');
     return withClock(withBars(state, { ...bars, stamina }), { stayedUp: false });
@@ -249,10 +253,10 @@ export function settleSkip(state, days, { random, changes = [], skillValueOf, re
     const nextBars = { ...bars, stamina: detached ? bars.stamina : 100 };
     pushBarChanges(bars, nextBars, changes, `跳过${days}天`);
     let next = withBars(state, nextBars);
-    next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null);
+    next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null, diligentOf(next, rev2, traits, nsfw));
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, days, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, days, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, `跳过${days}天`, { stress: false, rev2: rev2 ? { day, days, present } : null }) };
-    return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
+    return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0, ...(state.clock.luckyUsed ? { luckyUsed: false } : {}) });
 }
 
 // 软跨天：连续 30 楼没有跨天时只清零每日上限，不恢复、不成长，天数不变（易错点 D2）。

@@ -20,9 +20,9 @@ export const EVENT_TYPES = Object.freeze([
 
 // 「一档」换算（沿用普通档强度表）：信任下降小 3 / 大 15；芥蒂上升小 2 / 大 10、下降大 10；压力小 5 / 大 20；好感信任一大档 6。
 const TRUST_DROP = 3;
-const TRUST_DROP_BIG = 15;
+export const TRUST_DROP_BIG = 15;
 const GRUDGE_UP_SMALL = 2;
-const GRUDGE_UP_BIG = 10;
+export const GRUDGE_UP_BIG = 10;
 const GRUDGE_DOWN_BIG = 10;
 const STRESS_BIG = 20;
 const STRESS_SMALL = 5;
@@ -279,7 +279,7 @@ function resolveHate(state, api, name, dir) {
     return { state: next, cleared };
 }
 
-function applyEvent(state, api, ev) {
+export function applyEvent(state, api, ev) {
     const name = ev.target;
     const cur = name && state.characters[name];
     if (!cur) return state;

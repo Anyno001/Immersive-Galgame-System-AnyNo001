@@ -74,6 +74,9 @@ export const ENEMY_TIERS = Object.freeze(['杂兵', '精英', '头目']);
 // 关键事件：rev≥2 的新楼才认「交心」（友情向），旧楼仍只认前三项。
 export const KEY_EVENTS_LEGACY = Object.freeze(['约会', '告白', '共患难']);
 export const KEY_EVENTS = Object.freeze([...KEY_EVENTS_LEGACY, '交心']);
+// 特质事件（rev≥2，解析成 traitEvent 而非 event）：只记录发生了什么，不进好感关口；吸血、歌唱、发情只当环境词。
+export const TRAIT_EVENTS = Object.freeze(['夸奖', '批评', '拒绝', '背叛', '求助', '信仰质疑', '耳语', '重逢', '提起', '吸血', '歌唱', '发情']);
+export const TRAIT_WORD_EVENTS = Object.freeze(['吸血', '歌唱', '发情']);
 // 主角离体标签的取值；rev≥2 才解析。
 export const HERO_STATES = Object.freeze(['离体', '复归']);
 export const ROLL_DIFFICULTIES = Object.freeze(['简单', '普通', '困难', '极难']);

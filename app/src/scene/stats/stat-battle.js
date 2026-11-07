@@ -2,6 +2,7 @@
 // 掷骰走检定引擎：CoC 为对抗（主角反击时同级攻击方胜），D&D 为攻击检定对 AC、闪避为敏捷豁免。
 import { applyBarDirective, walletBalance, workIncomeTier } from './stat-bars.js';
 import { applyKeyEvent } from './stat-favor-events.js';
+import { extraGatesOf } from './stat-traits.js';
 import { matchSkill } from './stat-skill-match.js';
 import { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withSkills } from './stat-state.js';
 import { COMBAT_SKILLS, DODGE_SKILLS } from './stat-registry.js';
@@ -123,7 +124,7 @@ export function applyBattle(state, directive, ctx) {
     if (result.outcome !== '败') next = markSkill(next, result.attack);
     if (result.ally && result.outcome !== '败' && next.characters[result.ally]) {
         const roll = () => resolveCheck(engine, next, { actor: PROTAGONIST, skill: keyEventSkill(engine, next, '共患难', ctx.rev), toward: result.ally }, ctx.random);
-        const { character, result: ev } = applyKeyEvent(next.characters[result.ally], '共患难', { roll, random: ctx.random });
+        const { character, result: ev } = applyKeyEvent(next.characters[result.ally], '共患难', { roll, random: ctx.random, extraGates: ctx.rev >= 2 ? extraGatesOf(next, ctx.traitCat, result.ally) : [] });
         if (ev.success) ctx.changes.push({ source: 'battle', target: result.ally, key: '好感', from: ev.gate, to: ev.gate + 1, note: '共患难突破' });
         ctx.events.push({ target: result.ally, ...ev });
         next = withCharacter(next, result.ally, character);
