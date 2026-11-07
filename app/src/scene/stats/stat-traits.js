@@ -6,6 +6,10 @@
 //   键 combo:合成名 为合成占位（parts 为组成项键），合成整体占 1 格，组成项仍各自存在、各自生效。
 // 只对 strengthRev ≥ 2 的楼生效：调用方在 rev ≥ 2 的分支里才调用这里的读取接口。
 
+import { TRAIT_RECIPES } from './stat-trait-recipes.js';
+
+const NSFW_COMBO_NAMES = new Set(TRAIT_RECIPES.filter((r) => r.nsfw).map((r) => r.name));
+
 export const TRAIT_SRC = Object.freeze(['auto', 'manual', 'story', 'achieve']);
 // 数量上限：自动评定 3、同挂 5（自动 + 剧情 + 手动，合成按 1 格）、成就另计 2。
 export const TRAIT_LIMITS = Object.freeze({ auto: 3, total: 5, achieve: 2 });
@@ -343,7 +347,8 @@ function cleanEntry(raw, key) {
     if (!plain(raw) || raw.on !== true) return null;
     const src = TRAIT_SRC.includes(raw.src) ? raw.src : 'manual';
     if (isComboKey(key)) {
-        const parts = Array.isArray(raw.parts) ? raw.parts.filter((p) => typeof p === 'string' && getTraitDef(p)).slice(0, 5) : [];
+        // 组成项可以是特质键，也可以是关系状态名（救命之恩、已标记等，不占格）。
+        const parts = Array.isArray(raw.parts) ? raw.parts.filter((p) => typeof p === 'string' && (getTraitDef(p) || RELATION_STATE_DEFS.some((d) => d.name === p))).slice(0, 5) : [];
         return parts.length >= 2 ? { on: true, src, parts } : null;
     }
     return { on: true, src };
@@ -420,6 +425,11 @@ export function slotUsage(catalog, charName) {
 
 // 谁有这项特质：聊天级勾选或角色档案里的旧标记字段任一为真；仅 NSFW 的项在 NSFW 关闭时视为未挂。
 export function hasTrait(state, catalog, charName, id) {
+    // 合成键 combo:名：读合成占位条目；含 NSFW 组成项的合成在 NSFW 关闭时视为未挂。
+    if (isComboKey(id)) {
+        const entry = catalog && catalog.traits && catalog.traits[charName] && catalog.traits[charName][id];
+        return traitOn(entry) && (!NSFW_COMBO_NAMES.has(id.slice(6)) || (catalog && catalog.nsfw === true));
+    }
     const def = getTraitDef(id);
     if (!def) return false;
     if (def.nsfw && !(catalog && catalog.nsfw === true)) return false;

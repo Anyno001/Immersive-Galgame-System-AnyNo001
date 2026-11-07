@@ -124,10 +124,12 @@ export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, ns
     };
 }
 
-const JSON_SHAPE = '{"results":[{"name":"角色名","add":["特质名"],"remove":["特质名"]}]}';
+// 顺带识别的事件（不新增正文标签）：恩仇类由调用方注入类型表（bond-rules 的 EVENT_TYPES），其余为评定事件。
+export const REVIEW_EVENT_TYPES = Object.freeze(['夸奖', '批评', '拒绝', '背叛', '求助', '耳语', '信仰质疑']);
+const JSON_SHAPE = '{"results":[{"name":"角色名","add":["特质名"],"remove":["特质名"]}],"events":[{"name":"角色名","type":"事件","dir":"ta或me"}]}';
 
 // 3. 提示词：只列「特质名：评定依据」，不列倍率；NSFW 关时不列 nsfw 项。mode：'initial' | 'story'。
-export function buildReviewPrompt(payload, defs, mode = 'story') {
+export function buildReviewPrompt(payload, defs, mode = 'story', eventTypes = []) {
     const p = payload || {};
     const defList = (Array.isArray(defs) ? defs : []).filter((d) => d && (p.nsfw || !d.nsfw));
     const lines = [];
@@ -149,6 +151,8 @@ export function buildReviewPrompt(payload, defs, mode = 'story') {
         lines.push('', '最近正文：');
         p.floors.forEach((f) => lines.push(`【${f.role === 'user' ? '用户' : 'AI'}${f.no != null ? ` 第${f.no}楼` : ''}】${f.text}`));
     }
+    const kinds = [...(Array.isArray(eventTypes) ? eventTypes : []), ...REVIEW_EVENT_TYPES];
+    lines.push('', `另外，最近正文里若有明确发生的下列事件，在 events 里记一条（name 为受事角色，dir 写 ta 表示主角对 TA、me 表示 TA 对主角，可省）：${kinds.join('、')}。没有就留空。`);
     lines.push('', `只输出一段 JSON，不要任何解释或代码块标记，格式：${JSON_SHAPE}`, '没有变化的角色可以省略；add 为获得、remove 为失去；特质名必须与上表完全一致。');
     return lines.join('\n');
 }
@@ -240,4 +244,28 @@ export function applyReview(results, catalog, applyTraitChange, opts = {}) {
         if (Array.isArray(res.notices)) notices.push(...res.notices);
     }
     return { catalog: cat, notices, applied, skipped, changeLog };
+}
+
+// 6. 事件：解析 events。bondTypes 为恩仇规则的 EVENT_TYPES；返回 { bond: [{ type, target, who, dir }], review: [{ type, name, dir }] }。
+// 丢弃表外类型与不在 opts.chars 里的角色，同角色同类型去重。
+export function parseReviewEvents(text, opts = {}) {
+    const bondTypes = new Set(Array.isArray(opts.bondTypes) ? opts.bondTypes : []);
+    const allowed = Array.isArray(opts.chars) && opts.chars.length ? new Set(opts.chars.map(clean)) : null;
+    const root = extractJson(text);
+    const list = root && typeof root === 'object' && Array.isArray(root.events) ? root.events : [];
+    const bond = [];
+    const review = [];
+    const seen = new Set();
+    for (const e of list) {
+        if (!e || typeof e !== 'object') continue;
+        const name = clean(e.name ?? e.target ?? e.who);
+        const type = clean(e.type);
+        if (!name || (allowed && !allowed.has(name))) continue;
+        const dir = clean(e.dir) === 'me' ? 'me' : 'ta';
+        const key = `${name}|${type}`;
+        if (seen.has(key)) continue;
+        if (bondTypes.has(type)) { seen.add(key); bond.push({ type, target: name, who: name, dir }); }
+        else if (REVIEW_EVENT_TYPES.includes(type)) { seen.add(key); review.push({ type, name, dir }); }
+    }
+    return { bond, review };
 }

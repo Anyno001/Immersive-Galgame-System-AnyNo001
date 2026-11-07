@@ -29,6 +29,8 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     optionChance: true,
     heroNotePrompt: false,
     npcBars: false,
+    // 特质复核：距上次发送满多少楼自动复核一次，0 为关闭（大事件另算）。
+    traitReviewN: 30,
     hudFame: false,
     hudFameDetail: false,
     sheetGen: 'prompt',
@@ -173,6 +175,7 @@ export function normalizeStatsSettings(raw) {
         // 「我对TA」备注是否注入 present 段；角色（非主角）的体力条是否显示在状态栏与好感总览。
         heroNotePrompt: bool(src.heroNotePrompt, d.heroNotePrompt),
         npcBars: bool(src.npcBars, d.npcBars),
+        traitReviewN: Number.isFinite(Number(src.traitReviewN)) ? Math.min(200, Math.max(0, Math.floor(Number(src.traitReviewN)))) : d.traitReviewN,
         // 状态栏显示声望（汇总一行）；开了它之后「显示细项」才生效（每条、每一对各自成条）。
         hudFame: bool(src.hudFame, d.hudFame),
         hudFameDetail: bool(src.hudFameDetail, d.hudFameDetail),

@@ -4,7 +4,6 @@
 // TAG_HOOKS：每楼事件钩子 (state, api) => state；DAILY_HOOKS：日结算钩子 (state, api) => state。api 见 stat-trait-hooks.js。
 // 全部只改数值，不碰战斗与亲密对决规则。事件钩子读本楼 ctx.changes（已结算的变动）与 api.directives（本楼标签）做「抵消 / 追加」，读不到的语义不接。
 // 合成：hasTrait 不认 combo 键（登记表无该项），这里直接读 api.cat.traits[名]['combo:合成名']；含 NSFW 组成项的合成在 NSFW 关闭时视为未挂。
-import { TRAIT_RECIPES } from './stat-trait-recipes.js';
 
 const LIKE_FROM = 26;
 const HEART_FROM = 51;
@@ -21,7 +20,6 @@ const MONEY_ORDER = Object.freeze(['少量', '普通', '昂贵', '巨额']);
 // 好感方向词里「冷处理」「拒绝」的近义（含旧词），以及「示好」类事件。
 const COLD_WORDS = new Set(['冷淡', '嫌弃', '失望', '反感']);
 const COURT_EVENTS = new Set(['约会', '告白', '交心']);
-const NSFW_COMBOS = new Set(TRAIT_RECIPES.filter((r) => r.nsfw).map((r) => r.name));
 
 // 已被某条规则抵消过的变动，避免多条规则重复抵消同一笔。
 const undone = new WeakSet();
@@ -91,11 +89,7 @@ const putField = (state, name, patch) => (state.characters[name] ? { ...state, c
 
 // ---- 谁挂了什么 ----
 const traitHolders = (api, state, id) => ['主角', ...Object.keys(state.characters)].filter((n) => api.has(state, n, id));
-function hasCombo(api, name, combo) {
-    const entry = api.cat && api.cat.traits && api.cat.traits[name] && api.cat.traits[name][`combo:${combo}`];
-    if (!(entry === true || Boolean(entry && entry.on === true))) return false;
-    return !NSFW_COMBOS.has(combo) || (api.cat && api.cat.nsfw === true);
-}
+const hasCombo = (api, name, combo) => api.has(api.state || {}, name, `combo:${combo}`);
 const comboHolders = (api, combo) => Object.keys((api.cat && api.cat.traits) || {}).filter((n) => hasCombo(api, n, combo));
 
 // 抵消某批变动（把变动量原路还回）。

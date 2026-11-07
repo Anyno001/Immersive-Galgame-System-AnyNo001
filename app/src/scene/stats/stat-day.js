@@ -3,7 +3,7 @@ import { stripStatDirectives } from './stat-directives.js';
 import { coolDown, fadeDesire, fadeGrudge, liveHurts, resetDaily } from './stat-favor-events.js';
 import { rollDie, rollOver } from './stat-rng.js';
 import { SKILL_MAX, barsOf, clamp, isRomance, withBars, withClock, withSkills } from './stat-state.js';
-import { traitCatalogOf, traitFlag, traitScale } from './stat-traits.js';
+import { hasTrait, traitCatalogOf, traitFlag, traitScale } from './stat-traits.js';
 import { dailyTraitPass } from './stat-trait-hooks.js';
 import { relaxStress, shiftStress } from './stat-strain.js';
 
@@ -129,7 +129,11 @@ function coolCharactersRev2(characters, day, days, changes, ctx) {
         let current = character;
         if (present.has(name)) current = { ...current, lastSeenDay: day };
         const here = { here: hereAll.has(name) };
-        if (!ctx.detached && !traitFlag(view, cat, name, 'noCool', here)) {
+        // 已故：冻结全部冷却与消退（含时间跳跃），只清每日上限。
+        if (hasTrait(view, cat, name, '已故')) { next[name] = resetDaily(current, day, days); continue; }
+        // 长生：时间跳跃期间好感不冷却。
+        const ageless = days > 1 && hasTrait(view, cat, name, '长生');
+        if (!ctx.detached && !ageless && !traitFlag(view, cat, name, 'noCool', here)) {
             const cooled = coolDown(current, day, days, traitScale(view, cat, name, '好感', 'cool'));
             if (cooled !== current) changes.push({ source: 'daily', target: name, key: '好感', from: current.dims.好感, to: cooled.dims.好感, note: '冷却' });
             current = cooled;
@@ -196,7 +200,7 @@ function pushBarChanges(from, to, changes, note, onlyBars = false) {
 // 日结算：体力恢复（熬夜后只到 70）、压力 −10、技能成长、好感冷却、每日上限清零。
 // 生命不随过夜恢复（合并计划 Q4）：只有回复标签与战斗结果改变伤势。
 // rev ≥ 2：悟性（aptitudeOf）、主角离体（体力不恢复、好感冷却暂停）、随身角色不冷却（traits）、芥蒂淡忘与欲望淡去（romanceSeen 用于判恋爱对象）。
-export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen } = {}) {
+export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env } = {}) {
     const day = state.clock.day + 1;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -213,7 +217,7 @@ export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, 
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, 1, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, 1, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, '日结算', { stress: true, rev2: rev2 ? { day, days: 1, present } : null }) };
     next = withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
-    return rev2 ? dailyTraitPass(next, { traits, nsfw, present }, changes) : next;
+    return rev2 ? dailyTraitPass(next, { traits, nsfw, present, ...(env || {}) }, changes) : next;
 }
 
 // 成长次数累计进 protagonist.growth（D&D 资历档由它推出，v2 §4.2）。
@@ -237,7 +241,7 @@ export function settleRest(state, { changes = [], frozen = false } = {}) {
 
 // 时间跳跃：体力回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
 // rev ≥ 2：天数上限 3650（解析阶段决定），冷却、受伤天数、芥蒂淡忘、欲望淡去都按天数一次算完；跳跃楼在场角色（present）不冷却。
-export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen } = {}) {
+export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env } = {}) {
     const day = state.clock.day + days;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;

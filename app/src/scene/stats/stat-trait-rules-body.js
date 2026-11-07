@@ -167,10 +167,10 @@ function staminaHook(state, api) {
         if (extra) next = moveBar(next, name, 'stamina', -extra, names.join('·'), ctx.changes);
     }
     // 不眠：不需要入睡。清掉熬夜标记（日结算不再只回到七成），并剔除兜底识别出的「入睡」（兜底本来就不补入睡）。
-    // 这里原地剔除 directives：本楼的跨天判定在钩子之后才读它。
+    // 不原地改 directives：只在 ctx 上记一个标记，结算流程据此取剔除兜底入睡后的副本再过天。
     if (api.has(next, HERO, '不眠')) {
         if (next.clock.stayedUp) next = withClock(next, { stayedUp: false });
-        for (let i = directives.length - 1; i >= 0; i -= 1) if (directives[i].kind === 'sleep' && directives[i].fallback === true) directives.splice(i, 1);
+        ctx.dropFallbackSleep = true;
     }
     return next;
 }

@@ -64,6 +64,8 @@ import { collectOutfitClues } from '../data/shujuku/outfit-clues.js';
 import { describeStatMappings } from '../data/shujuku/stats-push.js';
 import { buildInitialState } from '../scene/stats/stat-build.js';
 import { createSheetStore } from '../scene/stats/stat-sheet-store.js';
+import { createTraitCodexStore } from './stats-trait-runtime.js';
+import { writeCheckedStorage } from '../storage/checked-storage-write.js';
 import { isBackgroundGenerationActive } from '../host/background-generation.js';
 import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
 import { createSecondaryLlm } from '../host/secondary-llm.js';
@@ -100,7 +102,7 @@ import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
-const IGS_VERSION = '0.39.67';
+const IGS_VERSION = '0.39.68';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -885,6 +887,8 @@ export function bootstrapIGS(options = {}) {
         return '';
     };
     const statsSheetStore = createSheetStore(() => storageLike);
+    // 全局特质图鉴：跨聊天、跨角色卡，存一个 localStorage 键。
+    const statsTraitCodexStore = createTraitCodexStore(() => storageLike, writeCheckedStorage);
     // 世界书里有条目的角色按重要角色登记（多人世界书卡里卡名不是角色名）；读不到世界书时返回 null，不记入已查。
     const statsWorldRoles = createWorldRoles({
         lookup: async (name) => {
@@ -943,6 +947,7 @@ export function bootstrapIGS(options = {}) {
         },
         combatEnabled: () => combatExpansionEnabled((getUnifiedSettingsSnapshot() || {}).readerSettings),
         sheetStore: statsSheetStore,
+        traitCodexStore: statsTraitCodexStore,
         worldviewOf: () => resolveWorldview(((getUnifiedSettingsSnapshot() || {}).bridge || {}).sceneAssets),
         resumeReply: () => hostAdapter.resumeReply?.(),
         // 掷骰卡（v2 §9.1）：阅读器开着时播放，没开不补播。

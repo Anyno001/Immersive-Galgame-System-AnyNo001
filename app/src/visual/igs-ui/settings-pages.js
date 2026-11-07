@@ -49,6 +49,7 @@ export const SETTINGS_PAGES = Object.freeze([
     Object.freeze(['parse', '正文解析', 'ai']),
     Object.freeze(['stats', '我的角色', 'stats']),
     Object.freeze(['stats-npc', '其他角色', 'stats']),
+    Object.freeze(['stats-codex', '特质图鉴', 'stats']),
     Object.freeze(['stats-set', '设置', 'stats']),
     Object.freeze(['combat', '战斗与敌方', 'combat']),
     Object.freeze(['origin', '随身系统', 'origin']),

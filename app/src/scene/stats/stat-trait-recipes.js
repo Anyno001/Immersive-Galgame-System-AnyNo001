@@ -35,7 +35,7 @@ const RAW = [
   ['大恶魔', ['小恶魔', '抖S', '疯批'], 'stressFeedsDemon', '主角压力越高，其对主角好感与欲望上升越快；主角压力满那一楼，其欲望直接拉满。'],
   ['天使', ['包容', '傻白甜', '老好人'], 'angelNoGrudge', '在场所有角色对其不记芥蒂；主角做出背叛或伤害类事件时，其好感不降、只降信任。'],
   ['暴君', ['疯批', '抖S', '控制狂'], 'tyrantDesireHold', '亲密对决胜利后，其对主角欲望不消退。'],
-  ['百炼成钢', ['劫后余生', '坚韧', '旧伤'], 'noBreakdown', '不再进入压力转换「崩溃」（主角可合成）。'],
+  ['百炼成钢', ['坚韧', '旧伤'], 'noBreakdown', '不再进入压力转换「崩溃」（主角可合成）。'],
   // 罪犯（合成补充）
   ['亡命鸳鸯', ['杀手', '共犯', '专一'], 'fugitivePairNoStress', '两人同在一楼时，双方压力不上升。'],
   ['金牌骗子', ['骗子', '话痨', '幸运儿'], 'lieExposeShield', '谎言被揭穿每天第一次不结算。'],
@@ -74,6 +74,18 @@ export const TRAIT_RECIPES = Object.freeze(RAW.map(([name, parts, key, text], i)
   nsfw: NSFW_RECIPES.has(name),
   order: i,
 })));
+
+// 关系状态 → 合成用的状态名列表。「救命之恩」只在「TA 欠你」（dir 为 ta）一侧成立，你欠 TA 一侧不参与合成（以身相许）。
+// rels：character.relStates 数组 [{ id, dir }]。
+export function relationStateNames(rels) {
+  const out = [];
+  for (const r of Array.isArray(rels) ? rels : []) {
+    if (!r || !r.id) continue;
+    if (r.id === '救命之恩' && r.dir !== 'ta') continue;
+    if (!out.includes(r.id)) out.push(r.id);
+  }
+  return out;
+}
 
 // 是否关系状态组成项
 export function isRelationPart(name) {

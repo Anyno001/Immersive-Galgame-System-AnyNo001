@@ -11,8 +11,8 @@ import { MONEY_TIERS } from './stat-vocab.js';
 
 const HERO = '主角';
 const HALF = 50;
-// 「富裕」档的金额线：计划文档只写了档名没给数值，暂定 1000，待用户拍板，改这一个常量即可。
-export const RICH_FROM = 1000;
+// 「富裕」档的金额线：对照现有金钱分档表（少量 20 / 普通 100 / 昂贵 500 / 巨额 3000），取「昂贵」档 500 起算。
+export const RICH_FROM = 500;
 const stressOf = (character) => Number(character && character.bars && character.bars.stress) || 0;
 
 export const SCALE = [
@@ -186,6 +186,8 @@ export const TAG_HOOKS = [
                     if (!isHero(name)) next = api.bump(next, name, '好感', api.BIG.好感, '初体验');
                     next = moveBar(next, name, 'stress', api.SMALL.压力, '初体验', ctx.changes);
                     patch.firstDone = true;
+                    // 之后自动摘下：结算只记下，运行时据 flags.traitDrops 调 applyTraitChange 摘除。
+                    ctx.flags.traitDrops = [...(ctx.flags.traitDrops || []), { name, id: '初体验' }];
                 }
                 // 调教中：每次亲密后，欲望自然消退的下限提高一小档，最高到一半（日结算落实）。
                 if (has('调教中') && !isHero(name)) patch.trainFloor = Math.min(HALF, (Number(marks.trainFloor) || 0) + api.SMALL.欲望);

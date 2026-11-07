@@ -19,7 +19,7 @@ import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
 import { createStatsState, grudgeOfCharacter, isRomance } from '../scene/stats/stat-state.js';
-import { aptitudeLevel, applyTraitChange, hasTrait, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
+import { aptitudeLevel, applyTraitChange, getTraitDef, hasTrait, listTraits, slotUsage, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
 import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
 import { statsPushActive } from '../data/shujuku/igs-managed.js';
@@ -45,6 +45,13 @@ import {
     buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, skillTierOfValue, strongSkills, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
+import { parseStatDirectives, stripStatDirectives } from '../scene/stats/stat-directives.js';
+import { traitEnvOf } from '../scene/stats/stat-trait-env.js';
+import { traitEdgeOf } from '../scene/stats/stat-trait-dice.js';
+import { EVENT_TYPES as BOND_EVENT_TYPES } from '../scene/stats/stat-trait-rules-bond.js';
+import { TRAIT_DEFS } from '../scene/stats/stat-traits.js';
+import { applyReview, buildReviewPayload, buildReviewPrompt, parseReviewEvents, parseReviewReply, scanFloorForReview } from './trait-review.js';
+import { achievementPass, lightCodex, refreshCombos, comboNotices, traitNoticeText } from './stats-trait-runtime.js';
 
 export const STATS_PROMPT_KEY = 'igs-stats-state';
 const IN_CHAT = 1;
@@ -54,6 +61,8 @@ const SKIP_TYPES = new Set(['quiet', 'impersonate']);
 const HERO_NOTE_FLOORS = 12;
 const HERO_NOTE_CHARS = 6000;
 const DIAG_MAX = 50;
+// 复核提示词里列的恩仇事件（短表；解析仍认全部 EVENT_TYPES）。
+const TRAIT_REVIEW_PROMPT_EVENTS = Object.freeze(['救命', '帮忙', '报恩', '结怨', '和解', '复仇', '偷窃成功', '谎言揭穿']);
 const SKILLS_LINE_MAX = 20;
 const PRESENT_MAX = 3;
 const BACKGROUND_TIMEOUT_MS = 60000;
@@ -173,6 +182,8 @@ export function createStatsRuntime({
     characterAliases = () => ({}),
     // 当前情绪分组 [{ label, words }]（场景素材 moodGroups），好感方向词的情绪组兜底识别用；缺省用默认分组。
     moodGroups = () => null,
+    // 全局特质图鉴存储 { get(), set(next) }（跨聊天、跨角色卡）；缺省不记图鉴。
+    traitCodexStore = null,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -906,7 +917,8 @@ export function createStatsRuntime({
             const hit = matchSkill(text, { skills: matchable(state), learned, extra: storyLexicon() });
             if (hit.skill) {
                 const toward = isSocialSkill(engine, hit.skill) ? mentionedCharacter(text, state) : null;
-                const check = resolveCheck(engine, state, { actor: PROTAGONIST, skill: hit.skill, difficulty: hit.difficulty, toward, source: 'input' }, cryptoRandom);
+                const te = traitEdgeFor(state, { skill: hit.skill, toward, engine });
+                const check = { ...resolveCheck(engine, state, { actor: PROTAGONIST, skill: hit.skill, difficulty: hit.difficulty, toward, edge: te.edge, source: 'input' }, cryptoRandom), ...(te.favorFrom ? { favorFrom: te.favorFrom } : {}) };
                 return { check, note: { source: 'input', word: hit.word } };
             }
             reason = hit.reason || reason;
@@ -971,6 +983,134 @@ export function createStatsRuntime({
         return found;
     }
 
+    // ---- 特质接线 ----
+    // 本楼之前几楼 AI 正文（由近到远），本楼没写场景标签时沿用最近的地点与天气。
+    const previousBodies = (c, messageId) => messages(c).slice(0, messageId).reverse().filter((m) => m && !m.is_user && !m.is_system).slice(0, 6).map((m) => String(m.mes ?? ''));
+    // 副模型复核识别的事件：下一次新结算的楼消费一次（写进该楼 meta，重算同一楼沿用）。
+    let pendingEvents = { bond: [], review: [] };
+    const takeBondEvents = () => { const out = pendingEvents.bond; pendingEvents = { ...pendingEvents, bond: [] }; return out; };
+    const takeReviewEvents = () => { const out = pendingEvents.review; pendingEvents = { ...pendingEvents, review: [] }; return out; };
+    let reviewTouched = new Set();
+    let reviewRecent = {};
+    let reviewLog = {};
+    let reviewing = false;
+    // 检定的特质与恩仇奖惩骰（只对主角发起的检定；rev ≥ 2 的楼才用）。
+    function traitEdgeFor(state, { skill, toward = null, engine = null } = {}) {
+        const eng = engine || memoEngineOf();
+        const cat = traitCatalogOf(catalog.traits, isNsfw());
+        return traitEdgeOf(state, cat, { actor: PROTAGONIST, skill, toward, social: isSocialSkill(eng, skill), skillValue: Number(profileOf(eng, state, PROTAGONIST, skill).value) || 0, present: present(state) });
+    }
+    const applyCatalog = (next) => { catalog = sanitizeCatalog({ ...next, intimacyForced: [] }); };
+    function announceTraits(notices, texts = []) {
+        const lines = [...notices.map(traitNoticeText), ...texts];
+        lines.forEach((text, i) => setNotice(`trait:${Date.now()}:${i}`, { kind: 'info', text, ttl: true }));
+    }
+    // 合成刷新：所有挂了特质的角色各算一次。
+    function refreshAllCombos(state, prevCatalog, prevState) {
+        const texts = [];
+        for (const name of Object.keys(catalog.traits || {})) {
+            const r = refreshCombos(catalog, state, name, { catalog: prevCatalog, state: prevState });
+            if (r.catalog !== catalog) applyCatalog(r.catalog);
+            texts.push(...comboNotices(r.notices));
+        }
+        return texts;
+    }
+    function lightGlobalCodex(state) {
+        if (!traitCodexStore) return;
+        try {
+            const next = lightCodex(traitCodexStore.get(), catalog, state, { cardName: cardOf(ctx()), nsfwOn: isNsfw() });
+            if (next) traitCodexStore.set(next);
+        } catch (error) { diag('stats-trait-codex-failed'); }
+    }
+    // 每楼结算后的特质收尾：初体验摘下、成就计数与授予、合成刷新、图鉴点亮、复核触发。只对新结算的 rev ≥ 2 楼。
+    function traitPass(entry, messageId, body) {
+        const meta = entry.meta || {};
+        if (!(Number(meta.strengthRev) >= 2)) return;
+        const state = entry.after;
+        const prevCatalog = catalog;
+        const notices = [];
+        for (const drop of (meta.flags && meta.flags.traitDrops) || []) {
+            const r = applyTraitChange(state, catalog, drop.name, drop.id, false, 'story');
+            if (r.notices.length) { applyCatalog(r.catalog); notices.push(...r.notices); }
+        }
+        const ach = achievementPass(catalog, state, entry, catalog.romanceSeen);
+        if (ach.catalog !== catalog) applyCatalog(ach.catalog);
+        notices.push(...ach.notices);
+        const texts = refreshAllCombos(state, prevCatalog, entry.before);
+        if (JSON.stringify(catalog.traits) !== JSON.stringify(prevCatalog.traits) || JSON.stringify(catalog.counters) !== JSON.stringify(prevCatalog.counters)) {
+            announceTraits(notices, texts);
+            lightGlobalCodex(state);
+            persist();
+            push();
+        }
+        scheduleTraitReview(messageId, body);
+    }
+    function scheduleTraitReview(messageId, body) {
+        const s = settings();
+        const directives = parseStatDirectives(body, { rev: 2 }).directives;
+        for (const d of directives) reviewTouched.add(d.target || PROTAGONIST);
+        if (reviewing || generating || !requester()) return;
+        const last = Number(catalog.counters.reviewFloor) || 0;
+        const scan = scanFloorForReview(directives, messageId, last, s.traitReviewN, { recentChars: [...reviewTouched], text: stripStatDirectives(body), protagonist: PROTAGONIST });
+        if (!scan.send) return;
+        reviewTouched = new Set();
+        applyCatalog({ ...catalog, counters: { ...catalog.counters, reviewFloor: messageId } });
+        persist();
+        runTraitReview(scan.chars, messageId);
+    }
+    // 复核：6 楼正文 + 纪要表 + 恋爱日记表 + 当前特质 → 副模型（现有后台请求通道）→ 解析 → applyTraitChange，并记下识别出的事件。
+    function runTraitReview(names, messageId) {
+        const request = requester();
+        if (!request || !ledger) return Promise.resolve({ ok: false });
+        const c = ctx();
+        const chatId = chatIdOf(c);
+        const state = currentStatsState(ledger);
+        const nsfw = isNsfw();
+        const defs = TRAIT_DEFS.filter((d) => nsfw || !d.nsfw);
+        const floors = messages(c).slice(0, messageId + 1).filter((m) => m && !m.is_system).slice(-6)
+            .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')).slice(0, 1500) }));
+        let client = null;
+        try { client = getPushClient(); } catch (error) { client = null; }
+        let aliases = {};
+        try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+        const chars = [...new Set(names)].filter((n) => n === PROTAGONIST || state.characters[n]).map((n) => {
+            const own = state.characters[n];
+            return {
+                name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST,
+                relation: own ? stageLabel(Number(own.dims.好感) || 0, isRomance(own, n, catalog.romanceSeen)) : '',
+                traits: listTraits(catalog, n).filter((t) => !t.id.startsWith('combo:')).map((t) => ({ id: t.id, src: t.src })),
+                recent: reviewRecent[n] || [],
+            };
+        });
+        if (!chars.length) return Promise.resolve({ ok: false });
+        const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw });
+        const prompt = { system: '你是剧情评定助手，只依据正文与资料作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'story', TRAIT_REVIEW_PROMPT_EVENTS) };
+        reviewing = true;
+        return ask(request, prompt).then((reply) => {
+            if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
+            const text = reply && typeof reply === 'object' ? reply.text : reply;
+            const only = chars.map((x) => x.name);
+            const results = parseReviewReply(text, defs, { chars: only });
+            const events = parseReviewEvents(text, { bondTypes: BOND_EVENT_TYPES, chars: only });
+            const now = currentStatsState(ledger);
+            const prevCatalog = catalog;
+            const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'story', day: now.clock.day, changeLog: reviewLog, recent: reviewRecent });
+            reviewLog = applied.changeLog;
+            pendingEvents = { bond: events.bond, review: events.review };
+            if (applied.applied.length) {
+                reviewRecent = { ...reviewRecent };
+                for (const r of applied.applied) reviewRecent[r.charName] = [{ id: r.id, on: r.on }];
+                applyCatalog(applied.catalog);
+                const texts = refreshAllCombos(now, prevCatalog, now);
+                announceTraits(applied.notices, texts);
+                lightGlobalCodex(now);
+                persist();
+                push();
+            }
+            return { ok: true, applied: applied.applied.length, events: events.bond.length + events.review.length };
+        }).catch(() => { diag('stats-trait-review-failed'); return { ok: false }; }).finally(() => { reviewing = false; });
+    }
+
     function settleAt(messageId, { redo = false, plan = null } = {}) {
         const c = ctx();
         const m = messages(c)[messageId];
@@ -1011,6 +1151,8 @@ export function createStatsRuntime({
                 else diag('stats-check-replay-unavailable', { messageId, reason: back.reason });
             }
             const r = settleFloorText(before, body, {
+                env: traitEnvOf(body, previousBodies(c, messageId)), bondEvents: priorMeta.bondEvents || takeBondEvents(), reviewEvents: priorMeta.reviewEvents || takeReviewEvents(),
+                traitEdge: strengthRev >= 2 ? (st, req) => traitEdgeFor(st, { ...req, engine }) : null,
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
                 check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, aptitudeOf: (name) => aptitudeLevel(catalog, name), traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
                 seedCharacters: autoTable ? tableSeedOf(before, messageId) : null, fameBars: catalog.fameBars,
@@ -1045,6 +1187,7 @@ export function createStatsRuntime({
         detectNewCharacters();
         scheduleBackfill();
         confirmWorldRoles(meta.diagnostics, messageId);
+        if (!redo) traitPass(r.entry, messageId, body);
         return r;
     }
 
@@ -1762,7 +1905,8 @@ export function createStatsRuntime({
         const pr = entry.meta.pendingRoll;
         collectOriginSkills();
         const name = commitSkill(pr.skill, { attribute: pr.attribute, floor: entry.messageId }) || pr.skill;
-        const check = resolveCheck(engineOf(), entry.before, { actor: PROTAGONIST, skill: name, difficulty: pr.difficulty, against: pr.against, opposedSkill: pr.opposedSkill, source: 'manual' }, cryptoRandom);
+        const te = traitEdgeFor(entry.before, { skill: name, toward: pr.against });
+        const check = { ...resolveCheck(engineOf(), entry.before, { actor: PROTAGONIST, skill: name, difficulty: pr.difficulty, against: pr.against, opposedSkill: pr.opposedSkill, edge: te.edge, source: 'manual' }, cryptoRandom), ...(te.favorFrom ? { favorFrom: te.favorFrom } : {}) };
         manualCheck = { messageId: entry.messageId, check };
         setNotice('roll', null);
         playCheck(check, entry.messageId);
@@ -1918,6 +2062,7 @@ export function createStatsRuntime({
         if (op === 'import-table') return importTablePeople();
         if (op === 'forced') return setIntimacyForced(name, payload && payload.forced === true);
         if (op === 'trait') return setTrait(name, payload && payload.key, payload && payload.on === true);
+        if (op === 'trait-id') return setTraitById(name, payload && payload.id, payload && payload.on === true);
         if (op === 'aptitude') return setAptitude(name, payload && payload.level);
         if (op === 'note') return setHeroNote(name, payload && payload.text);
         if (op === 'note-prompt') return heroNotePrompt(name);
@@ -1959,6 +2104,23 @@ export function createStatsRuntime({
         const changed = applyTraitChange(null, catalog, name, key, on, 'manual');
         if (changed.reason && changed.reason !== 'absent') return { ok: false, reason: 'stats-relation-op-unknown' };
         catalog = sanitizeCatalog({ ...changed.catalog, intimacyForced: [] });
+        persist();
+        push();
+        return { ok: true };
+    }
+
+    // 角色卡胶囊：按登记表键挂上、摘下（来源手动）；被拒绝（满格、互斥受保护等）时返回原因，目录不变。
+    function setTraitById(name, id, on) {
+        if (!getTraitDef(id)) return { ok: false, reason: 'stats-relation-op-unknown' };
+        if (name !== PROTAGONIST && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        const changed = applyTraitChange(null, catalog, name, id, on, 'manual');
+        if (changed.reason && changed.reason !== 'absent') return { ok: false, reason: changed.reason === 'full' || changed.reason === 'achieve-full' ? 'stats-trait-full' : 'stats-trait-refused' };
+        const prevCatalog = catalog;
+        catalog = sanitizeCatalog({ ...changed.catalog, intimacyForced: [] });
+        const after = activeEntryBefore(ledger, Infinity);
+        const nowState = after ? after.after : ledger.initial;
+        announceTraits(changed.notices, refreshAllCombos(nowState, prevCatalog, nowState));
+        lightGlobalCodex(nowState);
         persist();
         push();
         return { ok: true };
@@ -2328,7 +2490,7 @@ export function createStatsRuntime({
         archive: ev(() => {
             ensureLoaded();
             const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero, heroName: userName() }) : null;
-            return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), heroNotes: { ...catalog.heroNotes }, fame: fameRows(currentStatsState(ledger), catalog.fameBars) } : null;
+            return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, fame: fameRows(currentStatsState(ledger), catalog.fameBars) } : null;
         }),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {

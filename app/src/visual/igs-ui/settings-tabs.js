@@ -464,6 +464,7 @@ const STATS_TEMPLATE = `
       <div{{statsMainBuildHidden}}>{{statsMainBuildFields}}</div>
       <div class="igs-settings-section"{{statsHeroHidden}}>
         {{statsHeroCard}}
+        {{statsHeroTail}}
         {{statsHeroMore}}
         {{statsHeroActions}}
       </div>
@@ -488,6 +489,18 @@ const STATS_NPC_TEMPLATE = `
         <button class="igs-settings-action" data-action="stats-op:generate" type="button">为缺数值的角色生成</button>
         <button class="igs-settings-action" data-action="stats-op:backfill" type="button">补全新技能</button>
       </div>
+    </div>
+  </div>
+</div>
+`.trim();
+
+const STATS_CODEX_TEMPLATE = `
+<div class="igs-settings-grid" data-settings-pane="stats-codex">
+  <div class="igs-source-filter-note"{{statsOffNoteHidden}}>未启用数值系统，可在「我的角色」页开启。</div>
+  <div class="igs-settings-sub igs-settings-full"{{statsHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">特质图鉴</div>
+      {{statsCodexFields}}
     </div>
   </div>
 </div>
@@ -636,6 +649,7 @@ const PAGE_TEMPLATES = Object.freeze({
     stats: STATS_TEMPLATE,
     'stats-npc': STATS_NPC_TEMPLATE,
     'stats-set': STATS_SET_TEMPLATE,
+    'stats-codex': STATS_CODEX_TEMPLATE,
     combat: COMBAT_TEMPLATE,
     data: BACKUP_TEMPLATE,
     logs: IMAGE_LOGS_TEMPLATE,

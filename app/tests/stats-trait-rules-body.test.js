@@ -54,7 +54,7 @@ test('不眠：熬夜无体力代价，熬夜标记清除，兜底入睡被剔�
     const r = tags(state, hero('不眠'), { seed: [spend(100, 80, '熬夜')], directives });
     assert.equal(stamina(r), 100);
     assert.equal(r.state.clock.stayedUp, false);
-    assert.deepEqual(directives, [{ kind: 'sleep' }]);
+    assert.equal(directives.length, 2, '不原地改 directives');
 });
 
 // ---- 生存 ----
