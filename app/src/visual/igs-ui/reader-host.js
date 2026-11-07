@@ -5400,6 +5400,7 @@ ${row.key}`;
             drawTrait: typeof options.drawCombatTrait === 'function' ? (opts) => options.drawCombatTrait(opts) : null,
             pickTrait: typeof options.pickCombatTrait === 'function' ? (opts) => options.pickCombatTrait(opts) : null,
             unlockTraitSlot: typeof options.unlockCombatTraitSlot === 'function' ? () => options.unlockCombatTraitSlot() : null,
+            purgeCard: typeof options.purgeCombatCard === 'function' ? (copyId) => options.purgeCombatCard(copyId) : null,
             setGear: typeof options.setCombatGear === 'function' ? (id, gearId, equip, slotIndex) => options.setCombatGear(id, gearId, equip, slotIndex) : null,
             // 手动建档（P8c）：本聊天建档方式为「手动」时，加点页给尚无建档记录的角色逐项加点，确认后写属性表 init。
             writeManualInit: typeof options.writeCombatManualInit === 'function' ? (name, raw) => options.writeCombatManualInit(name, raw) : null,

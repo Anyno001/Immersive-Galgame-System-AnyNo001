@@ -1965,6 +1965,12 @@ export function createCombatPanelController(doc, options = {}) {
                 if (position < 0) return { ok: false, reason: 'combat-flip-position-invalid' };
                 return runAsync('flip', () => (name === 'flip' ? s.flip(position) : s.choose(position)));
             }
+            case 'pick-card': {
+                const value = id === 'skip' ? 'skip' : /^\d+$/.test(id) ? Number(id) : -1;
+                if (value === -1) return { ok: false, reason: 'combat-flip-position-invalid' };
+                if (typeof s.pickCard !== 'function') return { ok: false, reason: 'combat-flip-card-unavailable' };
+                return runAsync('flip', () => s.pickCard(value));
+            }
             case 'reroll': return runAsync('flip', () => s.reroll());
             case 'retry-reward': return runAsync('reward', () => s.retryReward());
             case 'skip': return runAsync('skip', () => s.skip());

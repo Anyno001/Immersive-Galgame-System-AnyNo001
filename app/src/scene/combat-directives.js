@@ -160,7 +160,8 @@ function parseStartFields(fields) {
 }
 
 // 各成长标签允许的最大字段数（含角色名）。
-const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 4, heal: 3, inscribe: 4 });
+// loot 第 5 字段（规则 v6）：三选一卡牌槽的候选序号（0 起）或 skip，旧标签不带。
+const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 5, heal: 3, inscribe: 4 });
 const HEAL_FLAT_MAX = 9999;
 
 // 稀有度字段：空为 null（不指定），未知词报错。
@@ -209,7 +210,12 @@ function parseGrowthFields(kind, fields) {
         const slot = parseIntInRange(fields[2], 0, 3);
         if (slot === null) return fail('slot', 'invalid-slot');
         const set = String(fields[3] ?? '').trim() || 'main';
-        return set !== 'main' && set !== 'reserve' ? fail('set', 'unknown-set') : { ok: true, value: { ...base, reportId, slot, set } };
+        if (set !== 'main' && set !== 'reserve') return fail('set', 'unknown-set');
+        const pickWord = String(fields[4] ?? '').trim().toLowerCase();
+        if (!pickWord) return { ok: true, value: { ...base, reportId, slot, set } };
+        if (pickWord === 'skip') return { ok: true, value: { ...base, reportId, slot, set, pick: 'skip' } };
+        const pick = parseIntInRange(pickWord, 0, 2);
+        return pick === null ? fail('pick', 'invalid-pick') : { ok: true, value: { ...base, reportId, slot, set, pick } };
     }
     if (kind === 'heal') {
         // 数量可写成百分比（含全角％）。

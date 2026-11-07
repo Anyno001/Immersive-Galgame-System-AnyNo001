@@ -866,5 +866,175 @@ test('宝物重穿：只有稀有度、没有加成与被动的宝物卸下后�
     assert.deepEqual(me.gear.slots.treasure.map((g) => [g.name, g.rarity]), [[name, 'rare']]);
 });
 
+test('规则 v6 卡牌三选一：本职业固定 2 + 随机 1 按种子定，按比例混入无色固定卡；旧调用形状不变；翻牌取候选 / 跳过，战报第 5 字段经账本兑现', async () => {
+    const { assembleReward } = await import('../src/combat/generation-assembly.js');
+    const { reportIdFor, attachLoot } = await import('../src/combat/report.js');
+    const { CARD_TEMPLATES, templatesFor } = await import('../src/combat/card-templates.js');
+    const { fixedCard, fixedCardGroup } = await import('../src/combat/fixed-cards/index.js');
+    const { emptyPick, flipCard, flipView, lootOf, normalizePick, pickCardChoice } = await import('../src/combat/flip.js');
+    const rank = (rarity) => ['common', 'uncommon', 'rare', 'epic', 'mythic'].indexOf(rarity);
+    const strip = ({ fixedIds, randomAt, archetype, ...rest }) => rest;
+    const me = { kind: 'deck-character', id: 'pc-hero', classProfile: { archetype: 'warrior' }, owned: new Map() };
+    let cards = 0;
+    let general = 0;
+    let found = null;
+    for (let i = 0; i < 600; i += 1) {
+        for (const tier of ['normal', 'elite', 'boss']) {
+            const combatId = `cb|v6|${i}`;
+            const plan = planRewardSlots({ combatId, tier, character: me, candidates: true });
+            const old = planRewardSlots({ combatId, tier, character: me });
+            assert.deepEqual([...plan.slots, ...plan.reserve].map(strip), [...old.slots, ...old.reserve]);
+            assert.ok([...old.slots, ...old.reserve].every((slot) => slot.fixedIds === undefined));
+            for (const slot of [...plan.slots, ...plan.reserve].filter((s) => s.kind === 'card')) {
+                cards += 1;
+                assert.equal(slot.archetype, 'warrior');
+                assert.equal(slot.fixedIds.length, 2);
+                assert.equal(new Set(slot.fixedIds).size, 2);
+                assert.ok([0, 1, 2].includes(slot.randomAt));
+                assert.equal(fixedCardGroup(slot.fixedIds[0]), 'warrior');
+                const last = fixedCardGroup(slot.fixedIds[1]);
+                assert.ok(['warrior', 'general'].includes(last), last);
+                if (last === 'general') general += 1;
+                for (const id of slot.fixedIds) assert.ok(rank(fixedCard(id).rarity) <= Math.max(rank('uncommon'), Math.min(rank(slot.rarity), rank('rare'))), `${id} ${slot.rarity}`);
+                if (!found && tier === 'boss' && plan.slots.includes(slot)) found = { combatId, slot, slots: plan.slots };
+            }
+        }
+    }
+    assert.ok(cards > 500 && found, `card slots ${cards}`);
+    assert.ok(Math.abs(general / cards - 0.25) < 0.04, `general share ${general / cards}`);
+    assert.ok([...planRewardSlots({ combatId: 'cb|v6|s', tier: 'boss', character: { kind: 'skill-character', id: 'sc' }, candidates: true }).slots].every((s) => s.kind !== 'card'));
+
+    const table = templatesFor('warrior');
+    let assembled = null;
+    for (const key of Object.keys(table)) {
+        const tried = assembleReward({ slots: [['裂空斩', key, '血战之后']] }, { key: 'k', input: { seed: 's', slots: [found.slot] } });
+        if (!tried.errors) { assembled = tried; break; }
+    }
+    assert.ok(assembled, 'no warrior template solvable for the slot');
+    const foreign = Object.keys(CARD_TEMPLATES).find((key) => !Object.hasOwn(table, key));
+    if (foreign) assert.ok(assembleReward({ slots: [['裂空斩', foreign, '']] }, { key: 'k', input: { seed: 's', slots: [found.slot] } }).errors);
+    const cardSlot = assembled.value.slots[0];
+    assert.equal(cardSlot.choices.length, 3);
+    assert.equal(cardSlot.choices[found.slot.randomAt].id, cardSlot.card.id);
+    assert.deepEqual(cardSlot.choices.filter((_, i) => i !== found.slot.randomAt).map((c) => [c.id, c.model]), found.slot.fixedIds.map((id) => [id, 'fixed']));
+
+    const filler = (index) => ({ index, kind: 'keepsake', rarity: 'rare', name: `杂物${index}`, origin: '' });
+    const slots = found.slots.map((slot) => (slot.index === found.slot.index ? { ...cardSlot, index: slot.index } : filler(slot.index)));
+    const reward = { combatId: found.combatId, slots };
+    const order = flipOrder(reward, 'main');
+    const at = order.indexOf(found.slot.index);
+    const flipped = flipCard(reward, emptyPick(), at).pick;
+    assert.equal(flipView(reward, flipped).needCard, true);
+    assert.equal(lootOf(reward, flipped).pick, undefined);
+    assert.equal(pickCardChoice(reward, flipped, 3).ok, false);
+    assert.equal(pickCardChoice(reward, emptyPick(), 0).reason, 'combat-flip-not-ready');
+    const other = flipCard(reward, emptyPick(), order.findIndex((index) => index !== found.slot.index)).pick;
+    assert.equal(pickCardChoice(reward, other, 0).reason, 'combat-flip-card-unavailable');
+    assert.equal(flipView(reward, other).needCard, undefined);
+    const chosen = pickCardChoice(reward, flipped, 'skip').pick;
+    assert.deepEqual([flipView(reward, chosen).needCard, flipView(reward, chosen).card, lootOf(reward, chosen).pick], [false, 'skip', 'skip']);
+    assert.deepEqual(normalizePick(chosen, reward), chosen);
+    assert.equal(normalizePick({ ...other, card: 0 }, reward), null);
+
+    const rid = reportIdFor(found.combatId);
+    const body = `<igs-combat-report result="win" id="${rid}">终局：我方获胜。</igs-combat-report>`;
+    assert.equal(attachLoot(body, { character: '主角', reportId: rid, index: found.slot.index, set: 'main', slot: slots[found.slot.index] }), body);
+    const fixedAt = [0, 1, 2].find((i) => i !== found.slot.randomAt);
+    const settle = async (pick) => {
+        const { ledger, ref } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai('正文'), ai('续写')]);
+        const before = heroOf(await ledger.effectiveState());
+        const offerAnchor = { messageId: 0, swipeId: 0, tagHash: 'offer', occurrence: 0 };
+        const offer = { id: ledgerEntryId('offer', 'pc-hero', offerAnchor), type: 'offer', character: 'pc-hero', anchor: offerAnchor, payload: { combatId: found.combatId, tier: 'boss', exp: 10, reveal: 0, slots }, createdAt: 7 };
+        const appended = await ledger.append([offer]);
+        assert.equal(appended.ok, true, JSON.stringify(appended));
+        const text = attachLoot(body, { character: '主角', reportId: rid, index: found.slot.index, set: 'main', slot: slots[found.slot.index], pick });
+        assert.ok(text.endsWith(`|${found.slot.index}|main|${pick}]`), text);
+        ref.chat = [ai('正文'), user(text)];
+        const scanned = await ledger.scan();
+        const loot = scanned.entries.filter((e) => e.type === 'loot');
+        assert.equal(loot.length, 1, JSON.stringify(scanned.diagnostics));
+        assert.equal(loot[0].payload.pick, pick);
+        assert.equal((await ledger.append(loot)).ok, true);
+        const after = await ledger.effectiveState();
+        assert.equal(after.diagnostics.some((d) => d.id === loot[0].id), false, JSON.stringify(after.diagnostics));
+        return { text, before, hero: heroOf(after) };
+    };
+    const fixedId = cardSlot.choices[fixedAt].id;
+    const tookFixed = await settle(fixedAt);
+    assert.ok(tookFixed.text.includes(`领悟了「${cardSlot.choices[fixedAt].name}」`), tookFixed.text);
+    assert.deepEqual([tookFixed.hero.owned.get(fixedId), tookFixed.hero.catalog.get(fixedId)?.model, tookFixed.hero.deckEntries.length], [1, 'fixed', tookFixed.before.deckEntries.length + 1]);
+    const tookRandom = await settle(found.slot.randomAt);
+    assert.equal(tookRandom.hero.deckEntries.length, tookRandom.before.deckEntries.length + 1);
+    assert.equal(tookRandom.hero.owned.get(fixedId), undefined);
+    const skipped = await settle('skip');
+    assert.ok(skipped.text.includes('放下了这次领悟的机会'), skipped.text);
+    assert.equal(skipped.hero.deckEntries.length, skipped.before.deckEntries.length);
+});
+
+
+test('规则 v6 取消自由组卡：卡组合规时 saveDeck 拒写 deck 记录，面板不出加入 / 移出 / 保存；已有 deck 记录照旧重放', async () => {
+    const { deckDetailView } = await import('../src/visual/igs-ui/combat-deck-panel-model.js');
+    const { ledger, tables } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai('正文')]);
+    const me = heroOf(await ledger.effectiveState());
+    assert.equal(me.deckNeedsAdjust, false);
+    const before = tables.ledger.length;
+    const locked = await ledger.saveDeck('pc-hero', me.deck.slice(0, 18));
+    assert.equal(locked.reason, 'combat-deck-locked');
+    assert.equal(tables.ledger.length, before);
+    assert.equal(deckDetailView(me, null).deckEditable, false);
+
+    const anchor = { messageId: 0, swipeId: 0, tagHash: 'deck', occurrence: 0 };
+    const trimmed = me.deck.slice(0, 18);
+    const old = { id: ledgerEntryId('deck', 'pc-hero', anchor), type: 'deck', character: 'pc-hero', anchor, payload: { cards: trimmed, revision: 1 }, createdAt: 7 };
+    assert.equal((await ledger.append([old])).ok, true);
+    const replayed = heroOf(await ledger.effectiveState());
+    assert.deepEqual(replayed.deck, trimmed);
+    assert.equal(replayed.deckNeedsAdjust, false);
+});
+test('规则 v6 按场次删卡：只计战报楼本场经验的普通胜利，每满 5 场一次机会、过期作废，费用 75 + 50 × 已删次数，删后不少于 10 张', async () => {
+    const { reportIdFor } = await import('../src/combat/report.js');
+    const { purgeOpportunity } = await import('../src/combat/ledger.js');
+    const tables = memoryTables([row(classDef('cls-blade'), 1), row(heroDef(), 2)]);
+    const ref = { chat: [ai('正文')] };
+    const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '主角', now: () => 7, wallet: () => 1000 });
+    const winFloor = (i) => {
+        const rid = reportIdFor(`cb|purge|${i}`);
+        return user(`<igs-combat-report id="${rid}" result="win">终局：我方获胜。</igs-combat-report>\n[igs-combat:exp|主角|5|战斗:${rid}]`);
+    };
+    const addWins = async (from, to) => {
+        for (let i = from; i < to; i += 1) ref.chat.push(winFloor(i), ai(`第${i}场后[igs-combat:exp|主角|3|历练]`));
+        const scanned = await ledger.scan();
+        assert.equal((await ledger.append(scanned.entries.filter((e) => e.type === 'exp'))).ok, true);
+        return heroOf(await ledger.effectiveState());
+    };
+    let me = await addWins(0, 4);
+    assert.deepEqual([me.purge.battle, me.purge.available, me.purge.reason, me.purge.next], [4, false, 'combat-purge-not-due', 5]);
+    assert.equal((await ledger.purgeCard('pc-hero', me.deckEntries[0].copyId)).reason, 'combat-purge-not-due');
+    me = await addWins(4, 5);
+    assert.deepEqual([me.purge.battle, me.purge.available, me.purge.cost], [5, true, 75]);
+    const size = me.deck.length;
+    const target = me.deckEntries.at(-1).copyId;
+    assert.equal((await ledger.purgeCard('pc-hero', 'nope:0')).reason, 'combat-purge-copy-missing');
+    const done = await ledger.purgeCard('pc-hero', target);
+    assert.equal(done.ok, true, JSON.stringify(done));
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.deck.length, me.deckEntries.some((e) => e.copyId === target), me.purge.reason, me.purge.cost], [size - 1, false, 'combat-purge-used', 125]);
+    assert.equal(me.points, 1000 - 75);
+    assert.equal((await ledger.purgeCard('pc-hero', me.deckEntries[0].copyId)).reason, 'combat-purge-used');
+    me = await addWins(5, 6);
+    assert.deepEqual([me.purge.battle, me.purge.available, me.purge.next], [6, false, 10]);
+    me = await addWins(6, 10);
+    assert.deepEqual([me.purge.battle, me.purge.available, me.purge.cost], [10, true, 125]);
+    me = await addWins(10, 11);
+    assert.equal(me.purge.reason, 'combat-purge-not-due');
+    assert.equal(me.points, 1000 - 75);
+    const small = { kind: 'deck-character', battleWins: new Set([1, 2, 3, 4, 5]), purges: 0, purgedAt: new Set(), deck: Array(10).fill('c1') };
+    assert.equal(purgeOpportunity(small).reason, 'combat-purge-deck-min');
+    assert.equal(purgeOpportunity({ ...small, deck: Array(11).fill('c1') }).available, true);
+});
+
+
+
+
 
 

@@ -1148,6 +1148,18 @@ export function createCombatServices(options = {}) {
         return unlocked?.ok !== true ? { ok: false, reason: unlocked?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, slot: next.slot, cost: next.cost };
     }
 
+    // 规则 v6 删卡（只主角）：当前删卡机会可用时删去卡组里指定的一张副本，费用与机会由账本核对。
+    async function purgeCard(copyId) {
+        const context = await heroActionContext('purgeCard', 'purge', { needLlm: false });
+        if (!context.ok) return context;
+        const { ledgerImpl, hero } = context;
+        const purge = hero.purge;
+        if (!purge?.available) return { ok: false, reason: purge?.reason || 'combat-purge-not-due' };
+        if ((hero.points || 0) < purge.cost) return { ok: false, reason: 'combat-points-insufficient' };
+        const done = await ledgerImpl.purgeCard(hero.id, String(copyId || ''));
+        return done?.ok !== true ? { ok: false, reason: done?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, copyId, cost: purge.cost };
+    }
+
     // ---- 主角档案（进入聊天后自动准备，状态可订阅） ----
     let protagonistState = { key: '', status: 'idle', reason: '', attempt: 0, requested: false };
     let protagonistTask = null; // { key, controller, promise }
@@ -1421,7 +1433,7 @@ export function createCombatServices(options = {}) {
 
     return {
         getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
-        drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
+        drawTrait, pickTrait, unlockTraitSlot, purgeCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,

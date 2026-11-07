@@ -35,7 +35,7 @@ import { planChallengeReward } from './challenge-reward.js';
 import { buildChallengeReport, parseChallengeReport } from './challenge-report.js';
 import { buildIntimateSetup, foldIntimateTrace, initIntimateTrace, replayIntimateTrace } from './intimate-setup.js';
 import { INTIMATE_LEGACY_OUTCOME, intimateEnding, resolveIntimatePosition } from '../scene/intimate-duel.js';
-import { chooseCard, emptyPick, flipCard, flipView, laterPick, lootOf, normalizePick, rerollPick } from './flip.js';
+import { chooseCard, emptyPick, flipCard, flipView, hasCardChoices, laterPick, lootOf, normalizePick, pickCardChoice, rerollPick } from './flip.js';
 import { REROLL_COST } from './points.js';
 import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
 import { equippedGear } from './gear-slots.js';
@@ -368,6 +368,7 @@ function buildLobby(ledgerState, start, userName, fallbackTemplates) {
 }
 
 // 本场战斗的奖励计划（主角缺档案时按名字临时造一个角色引用）。规则 v5 的战斗可出刻印槽；已存的 v3 / v4 战斗不出。
+// 规则 v6 的战斗卡牌槽是三选一；v5 及以前的战斗照旧只出一张。
 function planReward(ledgerState, session, userName, difficulty) {
     const hero = findCharacter(ledgerState, userName);
     const character = hero || { kind: 'deck-character', id: profileIdFor('deck-character', userName), name: userName };
@@ -376,7 +377,7 @@ function planReward(ledgerState, session, userName, difficulty) {
     return rewardEntity({
         combatId: session.combatId, anchor: session.anchor, tier: session.start.tier, enemyTiers, enemies: session.start.enemies,
         encounter: session.start.encounter, character, links: traitLinks(hero?.traits, hero?.gear?.slots), difficulty,
-        inscribe: rulesVersion >= 5,
+        inscribe: rulesVersion >= 5, candidates: rulesVersion >= 6,
     });
 }
 
@@ -922,6 +923,8 @@ export function createCombatSession(options = {}) {
     }
     const flip = (index) => updateFlip((context) => flipCard(context.offer, context.pick, index));
     const choose = (index) => updateFlip((context) => chooseCard(context.offer, context.pick, index));
+    // 规则 v6 卡牌槽：在候选里取第几张（0 起）或 'skip' 放弃
+    const pickCard = (value) => updateFlip((context) => pickCardChoice(context.offer, context.pick, value));
     const reroll = () => updateFlip((context) => rerollPick(context.offer, context.pick, { points: context.points, payer: context.payer }));
 
     // 发送战报前确认翻牌奖励：胜利且未领奖时，把选中的奖励追加进战报文本
@@ -933,6 +936,7 @@ export function createCombatSession(options = {}) {
         if (!loaded.ok || flipState?.status !== 'ready' || !flipContext) return { ok: false, reason: flipState?.reason || loaded.reason || 'combat-flip-not-ready' };
         const loot = lootOf(flipContext.offer, flipContext.pick);
         if (!loot) return { ok: false, reason: 'combat-flip-required' };
+        if (hasCardChoices(loot.slot) && loot.pick === undefined) return { ok: false, reason: 'combat-flip-card-required' };
         if (loot.set === 'reserve' && flipContext.points < REROLL_COST) return { ok: false, reason: 'combat-points-insufficient' };
         await flipWriteChain;
         return { ok: true, item: { ...report, text: attachLoot(report.text, { character: flipContext.character, reportId: report.reportId, ...loot }) } };
@@ -1583,7 +1587,7 @@ export function createCombatSession(options = {}) {
     }
 
     return {
-        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
+        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, pickCard, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
         // 以下为写盘节流新增：立即落盘、写盘统计、释放监听器
         flushPersist,
         getPersistStats: () => ({ ...persist.stats, pending: persist.hasPending() }),

@@ -213,6 +213,10 @@ export function deckDetailView(view, draft) {
         classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name, text: describeEffects(view.classProfile.classPassive.effects) } : null,
         personalPassive: profile.personalPassive ? { name: profile.personalPassive.name, text: describeEffects(profile.personalPassive.effects) } : null,
         owned, classCandidates, signature, deck: cards, check, dirty: Boolean(draft) && draft.join('|') !== view.deck.join('|'),
+        // 规则 v6 卡组即持有：只有旧档案卡组需要调整时才开放加入 / 移出 / 保存。
+        deckEditable: view.deckNeedsAdjust === true,
+        // 规则 v6 删卡机会（账本视图有普通战斗胜场或删过牌时才有）。
+        purge: view.purge ? { ...view.purge } : null,
         pendingRewards: [...view.pendingRewards],
     };
 }

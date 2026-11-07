@@ -41,17 +41,24 @@ const LOOT_MARK = /\[igs-combat:loot\|/;
 export const hasLoot = (text) => LOOT_MARK.test(String(text || ''));
 
 // 在战报块末尾追加一行战利品描述，并在块后追加战利品标记。已有标记或没有战报块时原样返回。
+// 规则 v6 三选一卡牌槽（slot.choices）：loot.pick 为候选序号或 'skip'，写进标记第 5 字段；描述用选中的那张牌名。
 export function attachLoot(text, loot) {
     const body = String(text || '');
     if (!loot?.slot || hasLoot(body) || !body.includes('</igs-combat-report>')) return body;
     const character = sanitize(loot.character);
     const slot = loot.slot;
+    const choices = slot.kind === 'card' && Array.isArray(slot.choices) && slot.choices.length ? slot.choices : null;
+    if (choices && loot.pick !== 'skip' && !choices[loot.pick]) return body;
     const countText = slot.kind === 'item' && slot.item?.count > 1 ? `×${slot.item.count}` : '';
     // 规则 v5 P5b 刻印槽：写成在哪张牌（招式）上刻下哪种刻印。
-    const line = slot.kind === 'inscribe'
-        ? `战利品：${character}在「${sanitize(slot.cardName)}」上刻下了「${sanitize(INSCRIPTION_LABELS[slot.inscription] || slot.name)}」。`
-        : `战利品：${character}${LOOT_VERB[slot.kind] || '得到了'}「${sanitize(slot.name)}」${countText}。`;
-    const mark = `[igs-combat:loot|${character}|${loot.reportId}|${loot.index}|${loot.set === 'reserve' ? 'reserve' : 'main'}]`;
+    const line = choices && loot.pick === 'skip'
+        ? `战利品：${character}放下了这次领悟的机会。`
+        : choices
+            ? `战利品：${character}${LOOT_VERB.card}「${sanitize(choices[loot.pick].name)}」。`
+            : slot.kind === 'inscribe'
+                ? `战利品：${character}在「${sanitize(slot.cardName)}」上刻下了「${sanitize(INSCRIPTION_LABELS[slot.inscription] || slot.name)}」。`
+                : `战利品：${character}${LOOT_VERB[slot.kind] || '得到了'}「${sanitize(slot.name)}」${countText}。`;
+    const mark = `[igs-combat:loot|${character}|${loot.reportId}|${loot.index}|${loot.set === 'reserve' ? 'reserve' : 'main'}${choices ? `|${loot.pick}` : ''}]`;
     return `${body.replace('</igs-combat-report>', `${line}\n</igs-combat-report>`)}\n${mark}`;
 }
 

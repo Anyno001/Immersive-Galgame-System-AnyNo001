@@ -15,7 +15,7 @@ import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { hash32, hashString, nextRandom } from './random.js';
 import { isEnemyArtKey } from './enemy-art.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
-import { fixedClassPool } from './fixed-cards/index.js';
+import { fixedCard, fixedClassPool } from './fixed-cards/index.js';
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const indexPath = (path, index) => `${path}[${index}]`;
@@ -643,8 +643,17 @@ function buildRewardEntry(value, path, collector, slot, seed) {
     if (origin.length > REWARD_ORIGIN_MAX) collector.note(paths[2], origin.length, REWARD_ORIGIN_MAX);
     const base = { index: slot.index, kind: slot.kind, rarity: slot.rarity, origin: origin.slice(0, REWARD_ORIGIN_MAX) };
     if (slot.kind === 'card') {
-        const card = buildCard(nameValue, templateValue, undefined, [paths[0], paths[1], `${path}.cost`], collector, { id: rewardId(seed, slot.index, 'rc'), rarity: slot.rarity, slot: slot.cost });
-        return card ? { ...base, name: card.name, card } : undefined;
+        // 规则 v6 三选一槽（rewards.js 的 withCardCandidates）：随机卡只能用本职业允许的模板，与程序定的固定卡一起按 randomAt 排成 choices。
+        const fixedIds = Array.isArray(slot.fixedIds) ? slot.fixedIds : null;
+        const table = fixedIds ? archetypeTable(slot.archetype) : CARD_TEMPLATES;
+        const card = buildCard(nameValue, templateValue, undefined, [paths[0], paths[1], `${path}.cost`], collector, { id: rewardId(seed, slot.index, 'rc'), rarity: slot.rarity, slot: slot.cost, table });
+        if (!card) return undefined;
+        if (!fixedIds) return { ...base, name: card.name, card };
+        const fixed = fixedIds.map((id) => fixedCard(id));
+        if (fixed.some((item) => !item)) return collector.fail(path, 'reward-choice-invalid');
+        const choices = fixed.map((item) => JSON.parse(JSON.stringify(item)));
+        choices.splice(Math.max(0, Math.min(choices.length, Number(slot.randomAt) || 0)), 0, card);
+        return { ...base, name: card.name, card, choices };
     }
     // 规则 v5 P5b 刻印槽：刻印种类、目标副本与名称都由程序定，模型只写来历。
     if (slot.kind === 'inscribe') {

@@ -12,6 +12,11 @@ export const ASCEND_TIERS = Object.freeze({
     3: Object.freeze({ cost: 600, level: 10, rarity: 'epic' }),
 });
 export const TRAIT_DRAW_COST = 100;
+// 规则 v6 删卡（D-05 / D-06 / D-07）：每满 PURGE_EVERY 场普通战斗胜利给一次机会，过期作废；费用 75 + 50 × 已删次数。
+export const PURGE_EVERY = 5;
+export const PURGE_BASE_COST = 75;
+export const PURGE_STEP_COST = 50;
+export const purgeCost = (used) => PURGE_BASE_COST + PURGE_STEP_COST * Math.max(0, Number(used) || 0);
 // 出售价在基础价上下浮动的比例。
 export const SELL_PRICE_SPREAD = 0.2;
 

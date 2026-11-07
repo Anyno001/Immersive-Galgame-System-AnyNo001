@@ -335,9 +335,10 @@ const withGearTemplates = (slots, seed) => slots.map((slot) => (slot.kind === 'g
 
 // 战斗奖励请求：先规划奖励槽位（plan），再生成 entity；参数缺失返回 error
 // inscribe 为真时（规则 v5 普通战斗）卡组角色可出刻印槽，刻印种类与目标副本由程序定，模型只写来历。
-export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty, inscribe = false } = {}) {
+// candidates 为真时（规则 v6 普通战斗）卡组角色的卡牌槽是三选一，见 rewards.js 的 withCardCandidates。
+export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty, inscribe = false, candidates = false } = {}) {
     if (!combatId || !anchor || !character?.id) return { error: 'combat-reward-input-missing' };
-    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty, inscribe });
+    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty, inscribe, candidates });
     const slots = withGearTemplates(plan.slots, plan.seed);
     const reserve = withGearTemplates(plan.reserve, `${plan.seed}|reserve`);
     // 给模型的槽位信息去掉 index 与 count（由程序掌握）；刻印槽只给刻印名与牌名，不给副本与卡牌 ID。

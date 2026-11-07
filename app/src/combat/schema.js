@@ -44,6 +44,7 @@ export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-ch
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
     'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth', 'inscribe',
+    'purge',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -58,6 +59,8 @@ export const HURT_TIER_KEYS = Object.freeze(['轻伤', '中伤', '重伤']);
 // inscribe：规则 v5 P5b 刻印奖励槽（刻印种类与目标副本由程序按种子定）。
 export const REWARD_KINDS = Object.freeze(['card', 'gear', 'item', 'keepsake', 'inscribe']);
 export const REWARD_SLOT_COUNT = 3;
+// 规则 v6 卡牌槽的候选张数（固定卡与随机卡 2:1）。
+export const REWARD_CARD_CHOICES = 3;
 export const REWARD_ORIGIN_MAX = 30;
 export const BUFF_TRIGGERS = Object.freeze(['card-played', 'discard', 'exhaust', 'kill', 'hp-loss', 'block-gain', 'turn-start', 'turn-end']);
 export const GEAR_BONUS_BY_RARITY = Object.freeze({ common: 1, uncommon: 2, rare: 3, epic: 4, mythic: 5 });
@@ -749,7 +752,8 @@ function validateItem(item, path, state) {
 }
 
 // 战利品槽位里除公共字段外允许的载荷字段。
-const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card'], gear: ['gear'], item: ['item'], keepsake: [], inscribe: ['inscription', 'cardId', 'copyId', 'cardName'] });
+// 卡牌槽的 choices（规则 v6）：REWARD_CARD_CHOICES 张候选（固定卡与随机卡 2:1），card 为其中的随机卡；旧槽位不带。
+const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card', 'choices'], gear: ['gear'], item: ['item'], keepsake: [], inscribe: ['inscription', 'cardId', 'copyId', 'cardName'] });
 
 // 战利品槽位（offer / loot 用）。
 function validateRewardSlot(slot, path, state) {
@@ -768,6 +772,13 @@ function validateRewardSlot(slot, path, state) {
     if (kind === 'card') {
         result.card = validateCardEntry(slot.card, at('card'), state, LOOT_RARITIES);
         if (result.card?.rarity && result.rarity && result.card.rarity !== result.rarity) addIssue(state, at('card.rarity'), 'rarity-mismatch');
+        if (slot.choices !== undefined) {
+            result.choices = arrayField(slot.choices, at('choices'), state, REWARD_CARD_CHOICES, REWARD_CARD_CHOICES, (card, cardPath, st) => validateCardEntry(card, cardPath, st, LOOT_RARITIES));
+            if (Array.isArray(result.choices)) {
+                checkDuplicateIds(result.choices, at('choices'), state);
+                if (result.card && !result.choices.some((card) => card?.id === result.card.id)) addIssue(state, at('choices'), 'choice-card-missing');
+            }
+        }
     } else if (kind === 'gear') {
         result.gear = validateGear(slot.gear, at('gear'), state);
     } else if (kind === 'item') {
@@ -929,8 +940,10 @@ function validateLedgerPayload(type, payload, path, state) {
             };
         }
         case 'loot':
-            checkKnownFields(payload, ['combatId', 'reportId', 'set', 'slot', 'cost', 'merge'], path, state);
+            checkKnownFields(payload, ['combatId', 'reportId', 'set', 'slot', 'cost', 'merge', 'pick'], path, state);
             if (payload.merge !== undefined && typeof payload.merge !== 'boolean') addIssue(state, at('merge'), 'expected-boolean');
+            // 规则 v6：带 choices 的卡牌槽须写 pick（候选序号或 skip）；旧记录不带。
+            if (payload.pick !== undefined && payload.pick !== 'skip' && !(Number.isInteger(payload.pick) && payload.pick >= 0 && payload.pick < REWARD_CARD_CHOICES)) addIssue(state, at('pick'), 'invalid-pick');
             return {
                 combatId: textField(payload.combatId, at('combatId'), state, 120),
                 reportId: textField(payload.reportId, at('reportId'), state, 40),
@@ -938,6 +951,7 @@ function validateLedgerPayload(type, payload, path, state) {
                 slot: validateRewardSlot(payload.slot, at('slot'), state),
                 cost: intField(payload.cost, at('cost'), state, 0, 1e5, 0),
                 ...(payload.merge === true ? { merge: true } : {}),
+                ...(payload.pick !== undefined ? { pick: payload.pick } : {}),
             };
         case 'sell': {
             checkKnownFields(payload, ['lootId', 'gearId', 'itemId', 'rarity'], path, state);
@@ -972,6 +986,10 @@ function validateLedgerPayload(type, payload, path, state) {
         case 'trait-slot':
             checkKnownFields(payload, ['slot', 'cost'], path, state);
             return { slot: intField(payload.slot, at('slot'), state, TRAIT_BASE_SLOTS + 1, TRAIT_SLOT_MAX), cost: intField(payload.cost, at('cost'), state, 0, 1e5) };
+        // 规则 v6 删卡：删去卡组里的一张副本；battle 为获得这次机会时的普通战斗胜场数。
+        case 'purge':
+            checkKnownFields(payload, ['copyId', 'cost', 'battle'], path, state);
+            return { copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN), cost: intField(payload.cost, at('cost'), state, 0, 1e5), battle: intField(payload.battle, at('battle'), state, 1, 1e6) };
         case 'wound': {
             checkKnownFields(payload, ['hp', 'maxHp', 'down', 'reportId'], path, state);
             const maxHp = intField(payload.maxHp, at('maxHp'), state, 1, 9999);

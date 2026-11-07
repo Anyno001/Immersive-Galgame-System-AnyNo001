@@ -23,7 +23,7 @@ import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extract
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportIdFor, reportIdOf } from './report.js';
 import { parseChallengeReport } from './challenge-report.js';
-import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, sellPrice } from './points.js';
+import { ASCEND_TIERS, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, purgeCost, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
 import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
 import { HERO_BASE_ARCHETYPE, characterCombatStats, heroBaseStats, vitalsOf } from './vitals.js';
@@ -53,12 +53,14 @@ export const ASCEND_TAG_HASH = 'ascend';
 export const TRAIT_TAG_HASH = 'trait';
 export const PANEL_TAG_HASH = 'panel';
 export const USE_TAG_HASH = 'use';
+// 规则 v6 删卡：面板操作，锚定写入时最新楼层。
+export const PURGE_TAG_HASH = 'purge';
 export const ALLOC_TAG_HASH = 'alloc';
 // 日常挑战圆满后的经验牌：挂在战报楼上，战报是圆满才有效，不对应正文里的标签。
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'battle-growth']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'battle-growth', 'purge']);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -72,10 +74,10 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
-    'battle-growth': 18.5, inscribe: 18.6, wound: 19, hurt: 19, heal: 19.5,
+    'battle-growth': 18.5, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
-const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
+const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH, PURGE_TAG_HASH]);
 const typeRank = (entry) => (PANEL_TAG_HASHES.has(entry.anchor?.tagHash) ? 20 : TYPE_ORDER[entry.type]);
 
 // 同一楼同一 swipe 上，某角色已有多少条面板记录（新面板记录的 occurrence 取这个数）。
@@ -406,6 +408,8 @@ function createCharacterState(index, profile, diagnostics) {
     if (!classProfile) diagnostics.push({ code: 'combat-class-missing', id: profile.id, classRef: profile.classRef });
     return {
         ...base, classRef: classProfile?.id ?? profile.classRef, classProfile, classTier: 1, tierName: '', tierCards: [],
+        // 规则 v6 删卡：battleWins 为已计入的普通战斗胜利（战报 ID），purges 为已删次数，purgedAt 为已用掉机会时的胜场数。
+        battleWins: new Set(), purges: 0, purgedAt: new Set(),
         ...initialDeckState(profile, classProfile),
     };
 }
@@ -452,6 +456,20 @@ const isHeroStock = (state, context) => context?.heroStock === true && !!context
 
 // 战利品入账。reserveOnly 为 true 表示只验证、不重复入库（库存由背包表管理）。
 function applyLootSlot(state, slot, entry, heroStockOwner = false) {
+    // 规则 v6 三选一卡牌槽：按 pick 取候选（skip 不入账）；固定卡按 ID 进目录并直接加一张副本，随机卡照旧走 learn 并卡。
+    if (slot.kind === 'card' && Array.isArray(slot.choices)) {
+        const pick = entry?.payload?.pick;
+        if (pick === undefined) return 'combat-loot-pick-missing';
+        if (pick === 'skip') return null;
+        const card = slot.choices[pick];
+        if (!card) return 'combat-loot-pick-invalid';
+        if (!isFixedCardId(card.id)) return handlers.learn(state, { card, merge: true }, { entry });
+        // 奖励单出单后才达到同名上限（如剧情另得一张）时不再给。
+        if ((state.owned.get(card.id) || 0) >= cardCopyLimit(card.rarity)) return 'combat-loot-copy-limit';
+        if (!state.catalog.has(card.id)) state.catalog.set(card.id, fixedCard(card.id));
+        addCard(state, card.id, entry.id);
+        return null;
+    }
     if (slot.kind === 'card') return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}) }, { entry });
     // 规则 v5 P5b 刻印槽：刻在奖励单定下的那张副本上（副本已不在或已刻时记诊断）。
     if (slot.kind === 'inscribe') return handlers.inscribe(state, { cardId: slot.cardId, copyId: slot.copyId, inscription: slot.inscription });
@@ -472,8 +490,11 @@ function applyLootSlot(state, slot, entry, heroStockOwner = false) {
 // 各类记录的重放处理函数：(角色状态, 载荷, 上下文) -> 失败原因或 null。
 // 上下文含 index（档案索引）、entry（当前记录）、diagnostics、offers、loots、heroId、heroStock。
 const handlers = Object.freeze({
-    exp(state, payload) {
+    exp(state, payload, context = {}) {
         state.exp += payload.amount;
+        // 普通战斗胜利只按战报楼里本场战报的经验计一次（同一战报多条、剧情经验、日常挑战与亲密对决都不计）。
+        const report = context.floorReport;
+        if (state.battleWins && report?.result === 'win' && report.reportId && payload.reason === `战斗:${report.reportId}`) state.battleWins.add(report.reportId);
         return null;
     },
     class(state, payload, { index }) {
@@ -883,20 +904,57 @@ const handlers = Object.freeze({
         return null;
     },
     'trait-slot'(state, payload, { heroId }) {
-        if (state.kind !== 'deck-character') return 'combat-trait-slot-kind-mismatch';
+        return traitSlotHandler(state, payload, heroId);
+    },
+    // 规则 v6 删卡：只主角卡组角色；当前胜场须正好是 PURGE_EVERY 的倍数且这次机会未用过（过期作废），费用按已删次数，删后不少于 deckMin 张。
+    purge(state, payload, { heroId }) {
+        if (state.kind !== 'deck-character') return 'combat-purge-kind-mismatch';
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
-        const next = nextTraitSlot(state);
-        if (!next || payload.slot !== next.slot) return 'combat-trait-slot-invalid';
-        if (payload.cost !== next.cost) return 'combat-trait-slot-cost-invalid';
+        const opportunity = purgeOpportunity(state);
+        if (!opportunity.available || payload.battle !== opportunity.battle) return 'combat-purge-unavailable';
+        if (payload.cost !== opportunity.cost) return 'combat-purge-cost-invalid';
+        const at = state.deckCopies.indexOf(payload.copyId);
+        if (at < 0 || !state.copies.has(payload.copyId)) return 'combat-purge-copy-missing';
+        state.copies.delete(payload.copyId);
+        state.deck.splice(at, 1);
+        state.deckCopies.splice(at, 1);
+        syncOwned(state);
         state.points -= payload.cost;
-        state.slotUnlocks += 1;
-        if (state.pendingTrait && traitFits(state, state.pendingTrait.kind)) {
-            state.traits = [...state.traits, state.pendingTrait];
-            state.pendingTrait = null;
-        }
+        state.purges += 1;
+        state.purgedAt.add(payload.battle);
         return null;
     },
 });
+
+function traitSlotHandler(state, payload, heroId) {
+    if (state.kind !== 'deck-character') return 'combat-trait-slot-kind-mismatch';
+    if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
+    const next = nextTraitSlot(state);
+    if (!next || payload.slot !== next.slot) return 'combat-trait-slot-invalid';
+    if (payload.cost !== next.cost) return 'combat-trait-slot-cost-invalid';
+    state.points -= payload.cost;
+    state.slotUnlocks += 1;
+    if (state.pendingTrait && traitFits(state, state.pendingTrait.kind)) {
+        state.traits = [...state.traits, state.pendingTrait];
+        state.pendingTrait = null;
+    }
+    return null;
+}
+
+// 规则 v6 删卡机会：普通战斗胜场 battle 正好是 PURGE_EVERY 的倍数、这一档还没用过、卡组多于 deckMin 张时可删；
+// 再赢一场即过期作废（D-07）。cost 为下一次删卡的费用。
+export function purgeOpportunity(state) {
+    const battle = state?.battleWins?.size || 0;
+    const cost = purgeCost(state?.purges || 0);
+    const size = Array.isArray(state?.deck) ? state.deck.length : 0;
+    const reason = state?.kind !== 'deck-character' ? 'combat-purge-kind-mismatch'
+        : battle === 0 || battle % PURGE_EVERY !== 0 ? 'combat-purge-not-due'
+            : state.purgedAt?.has(battle) ? 'combat-purge-used'
+                : size <= COMBAT_RULES.deckMin ? 'combat-purge-deck-min'
+                    : null;
+    const next = battle + (PURGE_EVERY - (battle % PURGE_EVERY || PURGE_EVERY)) || PURGE_EVERY;
+    return { battle, cost, available: reason === null, next: reason === 'combat-purge-not-due' ? next : battle, ...(reason ? { reason } : {}) };
+}
 
 // 重放去重键：同一角色同一类型同一标签位置只认一条。
 const entryDedupKey = (characterId, entry) => [characterId, entry.type, entry.anchor.messageId, entry.anchor.swipeId, entry.anchor.tagHash, entry.anchor.occurrence].join('|');
@@ -988,6 +1046,8 @@ function presentCharacter(state, options = {}) {
         deckRevision: state.deckRevision ?? null, deckErrors: deckCheck.errors,
         deckNeedsAdjust: state.deckNeedsAdjust === true || !deckCheck.ok,
         claimedLevels: [...state.claimed].sort((a, b) => a - b), pendingRewards,
+        // 规则 v6 删卡：有普通战斗胜场或删过牌时给出删卡机会视图；没有时不写字段，旧视图形状不变。
+        ...(state.battleWins?.size || state.purges ? { purge: purgeOpportunity(state) } : {}),
         ...(hasGrowth ? { battleGrowth: { cards: Object.fromEntries([...growth.cards].map(([cardId, value]) => [cardId, { ...value }])), hpMax: growth.hpMax } } : {}),
         // 已到解锁等级、档案还没有对应专属卡的槽位（待生成）；没有时不写字段，旧视图形状不变。
         ...(state.signatureDue?.size ? { signatureDue: [...state.signatureDue].map(([slot, anchor]) => ({ slot, level: signatureUnlockLevel(slot), anchor: { ...anchor } })) } : {}),
@@ -1201,7 +1261,9 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         }
         const state = states.get(characterId);
         const levelBefore = expProgress(state.exp).level;
-        const failure = handlers[entry.type](state, entry.payload, { index, entry, diagnostics, offers, loots, heroId, heroStock });
+        // floorReport：记录所在楼的战报（只有战报用户楼有），exp 据此计普通战斗胜场。
+        const floorReport = entry.type === 'exp' ? scanFloor(entry.anchor.messageId)?.report ?? null : null;
+        const failure = handlers[entry.type](state, entry.payload, { index, entry, diagnostics, offers, loots, heroId, heroStock, floorReport });
         if (failure) { pushDiagnostic(diagnostics, failure, entry); continue; }
         applied.push(entry.id);
         if (entry.type === 'exp') unlockSignatures(state, levelBefore, entry.anchor);
@@ -1310,10 +1372,14 @@ function buildLootEntry(effective, index, directive, anchor, report, text, userN
     if ((canonicalCharacterId(index, key) ?? key) !== offer.character) return { ok: false, reason: 'combat-loot-owner-mismatch' };
     const slot = (directive.set === 'reserve' ? offer.reserve : offer.slots)?.[directive.slot];
     if (!slot) return { ok: false, reason: 'combat-loot-slot-missing' };
+    // 规则 v6 三选一卡牌槽：标签必须写候选序号或 skip；旧槽位不带 choices，忽略该字段。
+    const choices = slot.kind === 'card' && Array.isArray(slot.choices);
+    if (choices && directive.pick === undefined) return { ok: false, reason: 'combat-loot-pick-missing' };
     const payload = {
         combatId: offer.combatId, reportId: directive.reportId, set: directive.set, slot: { ...slot },
         cost: directive.set === 'reserve' ? REROLL_COST : 0,
         ...(slot.kind === 'card' ? { merge: true } : {}),
+        ...(choices ? { pick: directive.pick } : {}),
     };
     const normalized = normalizeLedgerEntry({ id: ledgerEntryId('loot', key, anchor), type: 'loot', character: key, anchor, payload, createdAt: now });
     return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
@@ -1690,7 +1756,7 @@ export function buildSellEntry(snapshot, chat, effective, target, now = 0) {
 
 // 主角面板操作类型 -> 挂的标签。
 const PANEL_ACTION_TAGS = Object.freeze({
-    rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH, 'trait-slot': TRAIT_TAG_HASH,
+    rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH, 'trait-slot': TRAIT_TAG_HASH, purge: PURGE_TAG_HASH,
 });
 
 // 主角面板操作（改建卡组、转职、晋升、抽特质、选特质、解锁特质槽）。只有主角的卡组角色能做，点数要够。
@@ -2094,7 +2160,12 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     async function saveDeck(characterId, cards) {
         const snapshot = await readSnapshot();
         if (!snapshot.ok) return snapshot;
-        const built = buildDeckEntry(snapshot, getChat(), characterId, cards, now());
+        const floors = getChat();
+        // 规则 v6 卡组即持有：不再自由组卡，只有旧档案卡组需要调整时才写 deck 记录；已有 deck 记录照旧重放。
+        const character = resolveState(snapshot, floors, true).state.characters?.get(characterId);
+        if (!character || character.kind !== 'deck-character') return { ok: false, reason: 'combat-deck-invalid' };
+        if (character.deckNeedsAdjust !== true) return { ok: false, reason: 'combat-deck-locked' };
+        const built = buildDeckEntry(snapshot, floors, characterId, cards, now());
         return built.ok ? withEntry(built) : built;
     }
 
@@ -2297,10 +2368,21 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         const cost = TRAIT_SLOT_COSTS[slot];
         return cost ? heroPanelAction(characterId, 'trait-slot', { slot, cost }) : Promise.resolve({ ok: false, reason: 'combat-trait-slot-invalid' });
     }
+    // 规则 v6 删卡：按当前机会（胜场档与费用）写一条 purge；机会、费用与副本由试重放再核一次。
+    async function purgeCard(characterId, copyId) {
+        const state = await effectiveState();
+        if (!state.ok) return state;
+        const hero = state.characters.get(characterId);
+        if (!hero || hero.kind !== 'deck-character') return { ok: false, reason: 'combat-purge-kind-mismatch' };
+        const purge = hero.purge;
+        if (!purge?.available) return { ok: false, reason: purge?.reason || 'combat-purge-not-due' };
+        if (!hero.deckEntries.some((row) => row.copyId === copyId)) return { ok: false, reason: 'combat-purge-copy-missing' };
+        return heroPanelAction(characterId, 'purge', { copyId, cost: purge.cost, battle: purge.battle });
+    }
 
     return {
         read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,
-        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot,
+        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, purgeCard,
         stats: readStats,
     };
 }

@@ -1,5 +1,5 @@
 import { esc } from './reader-value-utils.js';
-import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
+import { describeEffects, intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { KEYWORD_NAME_TIPS, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
 import { LIVE_ICONS } from './danmaku-icons.js';
 import { RECORD_ICONS } from './record-icons.js';
@@ -103,6 +103,8 @@ const REASON_TEXT = Object.freeze({
     'combat-flip-already': '这张已经翻开',
     'combat-flip-choose': '从翻开的牌里选一张',
     'combat-flip-position-invalid': '这张牌不能选',
+    'combat-flip-card-required': '先在候选里选一张牌或跳过',
+    'combat-flip-card-unavailable': '这份战利品没有候选牌',
     'combat-reroll-used': '本场已经重抽过',
     'combat-reroll-unavailable': '本场不能重抽',
     'combat-points-insufficient': '金钱不足',
@@ -532,6 +534,21 @@ function lootCardHtml(c, f, fresh, struck, pending) {
     const actLabel = act === 'choose' ? `选择 ${label}` : s ? `翻开 ${label}` : `翻开第 ${pos + 1} 张`;
     return `<button type="button" ${attrs} data-combat-act="${act}" data-combat-id="${pos}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(actLabel)}">${inner}</button>`;
 }
+// 规则 v6 卡牌槽三选一：选定的战利品带 choices 时，在下方列出候选，点选其一（可改选），或跳过。
+function lootChoicesHtml(f, pending) {
+    const slot = f.done ? f.cards.find((c) => c.chosen)?.slot : null;
+    if (!slot || slot.kind !== 'card' || !Array.isArray(slot.choices) || !slot.choices.length) return '';
+    const cards = slot.choices.map((card, i) => {
+        const tag = [LOOT_RARITY_LABELS[card.rarity], card.cost === undefined ? '' : `${card.cost}费`].filter(Boolean).join('·');
+        const text = describeEffects(card.effects);
+        const chosen = f.card === i;
+        const cls = `igs-combat-loot-card is-face${chosen ? ' is-chosen' : ''}${f.card === 'skip' ? ' is-dim' : ''}`;
+        const face = `<span class="igs-combat-loot-face"><span class="igs-combat-loot-tag">${esc(tag)}</span><span class="igs-combat-loot-name">${esc(card.name)}</span>${text ? `<span class="igs-combat-loot-origin">${esc(text)}</span>` : ''}</span>`;
+        return `<button type="button" class="${cls}"${card.rarity ? ` data-rarity="${esc(card.rarity)}"` : ''} data-combat-act="pick-card" data-combat-id="${i}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(`选择 ${card.name}${chosen ? '（已选定）' : ''}`)}">${face}</button>`;
+    }).join('');
+    return `<div class="igs-combat-loot-row igs-combat-loot-choices" style="--n:${slot.choices.length}">${cards}</div>`;
+}
+
 // 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（金钱不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
 function lootHtml(v) {
     const f = v.flip;
@@ -546,12 +563,15 @@ function lootHtml(v) {
     const r = f.reroll;
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
         ? btn('reroll', `重新抽取（消耗${r.cost}金钱）`, { disabled: pending || !r.available }) : '';
+    const choices = lootChoicesHtml(f, pending);
+    const skip = choices ? btn('pick-card', f.card === 'skip' ? '已跳过' : '跳过', { id: 'skip', disabled: pending }) : '';
+    const tools = `${skip}${reroll}`;
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
-        + `${reroll ? `<div class="igs-combat-loot-tools">${reroll}</div>` : ''}</section>`;
+        + `${choices}${tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}</section>`;
 }
-// 有 offer 时选定战利品前不能发战报：读取中或未选定时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
-const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && !f.done));
+// 有 offer 时选定战利品前不能发战报：读取中、未选定或三选一卡牌槽还没取牌 / 跳过时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
+const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && (!f.done || f.needCard === true)));
 
 // 圆满后的收获：奖金档位与经验牌，只在结算画面显示。
 function harvestHtml(e) {

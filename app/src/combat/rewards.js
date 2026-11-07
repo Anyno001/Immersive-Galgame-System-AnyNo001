@@ -1,8 +1,9 @@
 // 战斗奖励规划：按敌人档位、难度、特性关联，用固定种子生成翻牌奖励槽位（主组 + 备选组）。纯函数。
-import { combatExpReward, difficultyRule } from './rules.js';
-import { GEAR_SLOTS, REWARD_SLOT_COUNT } from './schema.js';
+import { cardCopyLimit, combatExpReward, difficultyRule } from './rules.js';
+import { GEAR_SLOTS, REWARD_CARD_CHOICES, REWARD_SLOT_COUNT } from './schema.js';
 import { hash32, nextRandom } from './random.js';
 import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
+import { FIXED_GENERAL_CARDS, fixedClassPool } from './fixed-cards/index.js';
 
 const RARITY_ORDER = Object.freeze(['common', 'uncommon', 'rare', 'epic', 'mythic']);
 const rarityIndex = (rarity) => RARITY_ORDER.indexOf(rarity);
@@ -144,9 +145,44 @@ function buildSlots(seed, rule, kinds, count, fortune, loot = null, targets = nu
     return slots;
 }
 
+// 规则 v6 卡牌槽的固定候选：从本职业固定池按槽位稀有度（史诗及以上按稀有）取 count 张不同的牌，
+// 跳过已达同名上限与已选的牌，不够时逐档降低稀有度补足；floor 为最低稀有度（无色池没有普通，按罕见起算）。
+const FIXED_TOP = rarityIndex('rare');
+// 无色固定卡进战利品翻牌的比例：每个卡牌槽以此概率把一张固定候选换成无色牌（积分抽卡不出无色）。
+export const REWARD_GENERAL_SHARE = 0.25;
+function fixedCandidates(seed, rarity, pool, owned, count, taken = [], floor = 'common') {
+    const random = randomFrom(seed);
+    const out = [];
+    const top = Math.max(rarityIndex(floor), Math.min(rarityIndex(rarity), FIXED_TOP));
+    for (let r = top; r >= 0 && out.length < count; r -= 1) {
+        const left = pool.filter((card) => card.rarity === RARITY_ORDER[r] && !out.includes(card.id) && !taken.includes(card.id) && (owned.get(card.id) || 0) < cardCopyLimit(card.rarity));
+        while (out.length < count && left.length) out.push(left.splice(pickIndex(random, left.length), 1)[0].id);
+    }
+    return out;
+}
+
+// 规则 v6：卡牌槽展开为 REWARD_CARD_CHOICES 张候选，本职业固定卡与随机卡 2:1，随机卡的位置由种子定；
+// 每槽以 REWARD_GENERAL_SHARE 的概率把最后一张固定候选换成无色固定卡。
+// 程序在槽位上记 fixedIds / randomAt / archetype，随机卡由副 LLM 按本职业模板命名。本职业固定池凑不齐时该槽照旧只出一张随机卡。
+function withCardCandidates(slots, seed, pool, owned, archetype, general = []) {
+    if (!pool.length) return slots;
+    return slots.map((slot) => {
+        if (slot.kind !== 'card') return slot;
+        const fixedIds = fixedCandidates(`${seed}|cand|${slot.index}`, slot.rarity, pool, owned, REWARD_CARD_CHOICES - 1);
+        if (fixedIds.length < REWARD_CARD_CHOICES - 1) return slot;
+        if (general.length && randomFrom(`${seed}|cand-general|${slot.index}`)() < REWARD_GENERAL_SHARE) {
+            const [colorless] = fixedCandidates(`${seed}|cand-general-pick|${slot.index}`, slot.rarity, general, owned, 1, fixedIds, 'uncommon');
+            if (colorless) fixedIds[fixedIds.length - 1] = colorless;
+        }
+        const randomAt = pickIndex(randomFrom(`${seed}|cand-at|${slot.index}`), REWARD_CARD_CHOICES);
+        return { ...slot, archetype, fixedIds, randomAt };
+    });
+}
+
 // 规划一场战斗的奖励。返回 { seed, tier, exp, links, slots, reserve }。
 // inscribe 为真（规则 v5 胜利奖励）时卡组角色可出刻印槽；日常挑战等其他调用方不开启，槽位与旧规则一致。
-export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false } = {}) {
+// candidates 为真（规则 v6 胜利奖励）时卡组角色的卡牌槽展开为三选一（本职业固定卡、按比例混入无色固定卡、本职业随机卡，见 withCardCandidates）。
+export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false, candidates = false } = {}) {
     const tierKey = Object.hasOwn(TIER_LOOT, tier) ? tier : 'normal';
     const rule = TIER_LOOT[tierKey];
     const normalLinks = normalizeLinks(links);
@@ -159,7 +195,12 @@ export function planRewardSlots({ combatId, tier, enemyTiers = [], character = n
     const count = REWARD_SLOT_COUNT + (normalLinks.reflip ? 1 : 0);
     const lootChance = difficultyRule(difficulty).loot;
     const lootFor = (key) => (lootChance > 0 ? { chance: lootChance, seed: `${key}|loot` } : null);
-    const slots = buildSlots(seed, rule, kinds, count, normalLinks.fortune, lootFor(seed), targets);
-    const reserve = buildSlots(`${seed}|reserve`, rule, kinds, count, normalLinks.fortune, lootFor(`${seed}|reserve`), targets);
+    const archetype = character?.classProfile?.archetype;
+    const pool = deck && candidates === true ? fixedClassPool(archetype) : [];
+    const general = pool.length ? FIXED_GENERAL_CARDS : [];
+    const owned = character?.owned instanceof Map ? character.owned : new Map();
+    const slots = withCardCandidates(buildSlots(seed, rule, kinds, count, normalLinks.fortune, lootFor(seed), targets), seed, pool, owned, archetype, general);
+    const reserveSeed = `${seed}|reserve`;
+    const reserve = withCardCandidates(buildSlots(reserveSeed, rule, kinds, count, normalLinks.fortune, lootFor(reserveSeed), targets), reserveSeed, pool, owned, archetype, general);
     return { seed, tier: tierKey, exp: victoryExpFor(enemyTiers), links: normalLinks, slots, reserve };
 }
