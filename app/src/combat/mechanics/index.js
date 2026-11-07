@@ -26,3 +26,5 @@ import './inscription.js';
 // 规则 v6 固定卡缺口算子（G2）。
 import './fixed-tally.js';
 import './fixed-pile.js';
+// 规则 v6 计数被动（G5-1，原版遗物的每 N 次 / 每回合第一次 / 每场第一次）。
+import './relic-counter.js';

@@ -2967,6 +2967,37 @@ test('固定卡算子牌面（v6 G2）：说明非空，可缩放数值与 effec
     }
 });
 
+test('计数被动（v6 G5-1）：每第 N 次跨回合累计、每回合第一次、每场第一次；只能写在被动里；规则 v5 不结算', () => {
+    const counted = (counter, rulesVersion) => duel({ heroExtra: { passives: [passiveOn('card-played', [{ op: 'counter', ...counter, then: BLOCK_UP }])] }, rulesVersion });
+    const playFirst = (state) => playIn(state, state.piles.hero.hand[0]).state;
+    const twice = (state) => playFirst(playFirst(state));
+
+    const turn1 = twice(counted({ mode: 'every', per: 3 }));
+    assert.equal(turn1.units.hero.block, 2);
+    const turn2 = playFirst(endTurn(turn1).state);
+    assert.equal(turn2.units.hero.block, 4);
+    assert.equal(playFirst(turn2).units.hero.block, 5);
+
+    const turnFirst = twice(counted({ mode: 'turn-first' }));
+    assert.equal(turnFirst.units.hero.block, 5);
+    assert.equal(playFirst(endTurn(turnFirst).state).units.hero.block, 4);
+
+    const battleFirst = twice(counted({ mode: 'battle-first' }));
+    assert.equal(battleFirst.units.hero.block, 5);
+    assert.equal(playFirst(endTurn(battleFirst).state).units.hero.block, 1);
+
+    assert.equal(twice(counted({ mode: 'battle-first' }, 5)).units.hero.block, 2);
+    assert.ok(shapeErrors([{ op: 'counter', mode: 'battle-first', then: [{ op: 'draw', amount: 1 }] }]).includes('passive-only'));
+    assert.match(describeEffects([{ op: 'counter', mode: 'every', per: 3, then: BLOCK_UP }]), /每第 3 次/);
+});
+
+test('战后触发点（v6 G5-1）：开战被动挂「战后回复」状态，胜利结算按层数回复', async () => {
+    const { afterBattleMend } = await import('../src/combat/mechanics/sanctum.js');
+    const mended = duel({ heroExtra: { passives: [passiveOn('battle-start', [{ op: 'apply-status', status: 'after-mend', stacks: 6 }])] } });
+    assert.equal(afterBattleMend(mended.units.hero), 6);
+});
+
+
 test('战士固定卡补机制（v6 G2）：化岩把手牌攻击牌变巨石；连环复制第 3 张攻击；乘隙施加易伤抽牌；狱火抽到攻击即打出', () => {
     const withStatus = (state, key, stacks) => {
         const next = structuredClone(state);

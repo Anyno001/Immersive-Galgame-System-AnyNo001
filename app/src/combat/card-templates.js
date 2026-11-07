@@ -622,8 +622,10 @@ export function passiveFromTemplate(key) {
     return tpl ? { trigger: tpl.trigger, effects: tpl.effects(), description: tpl.label } : null;
 }
 
-// 按倍率放大效果数值：层数封顶 10，回复封顶 60，其余封顶 99；向上取整。
-const scaleUp = (effects, factor) => effects.map((effect) => (effect.op === 'status'
+// 按倍率放大效果数值：层数封顶 10，回复封顶 60，其余封顶 99；向上取整。计数被动（counter）放大其 then。
+const scaleUp = (effects, factor) => effects.map((effect) => (effect.op === 'counter'
+    ? { ...effect, then: scaleUp(effect.then, factor) }
+    : effect.op === 'status'
     ? { ...effect, stacks: Math.min(10, Math.ceil(effect.stacks * factor)) }
     : typeof effect.amount === 'number' ? { ...effect, amount: Math.min(effect.op === 'heal' ? 60 : 99, Math.ceil(effect.amount * factor)) } : effect));
 
