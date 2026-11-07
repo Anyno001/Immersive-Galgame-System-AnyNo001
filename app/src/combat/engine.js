@@ -211,6 +211,8 @@ function validateSetup(setup) {
     // openingCharged（v0.39.2）：开局先手计入操控角色的行动条；randomTargets（v0.39.2）：敌人随机选攻击对象。旧 setup 不带时规则不变。
     if (setup.openingCharged !== undefined && typeof setup.openingCharged !== 'boolean') return { reason: 'invalid-setup' };
     if (setup.randomTargets !== undefined && typeof setup.randomTargets !== 'boolean') return { reason: 'invalid-setup' };
+    // foeCap（规则 v6 敌方编制）：场上普通敌人（不含爪牙）上限，空出的总位置只给爪牙；旧 setup 不带时只按总位置算。
+    if (setup.foeCap !== undefined && !(Number.isInteger(setup.foeCap) && setup.foeCap >= 1 && setup.foeCap <= COMBAT_RULES.maxEnemiesOnField)) return { reason: 'invalid-setup' };
     const ids = new Set();
     for (const [index, unit] of setup.units.entries()) {
         const path = `units[${index}]`;
@@ -226,6 +228,7 @@ function validateSetup(setup) {
     const isEnemy = (id) => setup.units.some((unit) => unit.id === id && unit.side === 'enemy');
     if (!Array.isArray(reserve) || reserve.length >= enemyCount || reserve.some((id, index) => typeof id !== 'string' || reserve.indexOf(id) !== index || !isEnemy(id))) return { reason: 'invalid-reserve' };
     if (enemyCount - reserve.length > COMBAT_RULES.maxEnemiesOnField) return { reason: 'too-many-enemies', detail: { max: COMBAT_RULES.maxEnemiesOnField } };
+    if (setup.foeCap !== undefined && enemyCount - reserve.length > setup.foeCap) return { reason: 'too-many-enemies', detail: { max: setup.foeCap } };
     const hero = setup.units.find((unit) => unit.id === setup.controlledId);
     return !hero || hero.side !== 'ally' || hero.kind !== 'deck' ? { reason: 'invalid-controlled' } : null;
 }
@@ -442,9 +445,12 @@ function enterUnit(ctx, unit) {
 
 // 规则 v5 运行时新增敌方技能单位（E10 分裂、E13 召唤爪牙共用）：在场存活敌人不足 maxEnemiesOnField 时建出单位并补齐 cooldowns / history，
 // 追加到出手顺序末尾；id 取 `<来源>-<tag><n>`，序号顺延避开已有单位。只建不入场（调用方发事件后再 enterUnit），满员返回 null。
-function spawnUnit(ctx, owner, def, tag) {
+// state.foeCap 存在时，新单位不是爪牙（minion 为假）还要求在场普通敌人少于 foeCap；爪牙只受总位置限制，占普通敌人空出的位置。
+function spawnUnit(ctx, owner, def, tag, minion = false) {
     const state = ctx.state;
-    if (livingIds(state, 'enemy').length >= COMBAT_RULES.maxEnemiesOnField) return null;
+    const living = livingIds(state, 'enemy');
+    if (living.length >= COMBAT_RULES.maxEnemiesOnField) return null;
+    if (!minion && state.foeCap && living.filter((id) => state.units[id].minion !== true).length >= state.foeCap) return null;
     const base = String(owner.id).slice(0, 56);
     let n = 1;
     while (Object.hasOwn(state.units, `${base}-${tag}${n}`)) n += 1;
@@ -461,7 +467,7 @@ function spawnUnit(ctx, owner, def, tag) {
 function summonUnit(ctx, owner, def) {
     const state = ctx.state;
     if (!(state.rulesVersion >= 5) || state.outcome || !owner?.alive || owner.side !== 'enemy') return null;
-    const unit = spawnUnit(ctx, owner, def, 'm');
+    const unit = spawnUnit(ctx, owner, def, 'm', true);
     if (!unit) return null;
     unit.minion = true;
     unit.minionOf = owner.id;
@@ -486,7 +492,7 @@ function splitUnit(ctx, unit) {
     };
     const children = [];
     for (let i = 0; i < 2; i += 1) {
-        const child = spawnUnit(ctx, unit, def, 's');
+        const child = spawnUnit(ctx, unit, def, 's', unit.minion === true);
         if (!child) break;
         child.splitFrom = unit.id;
         if (unit.minion === true) {
@@ -1771,6 +1777,7 @@ export function createBattle(setup, seed) {
         ...(setup.wipe === true ? { wipe: true } : {}),
         ...(setup.openingCharged === true ? { openingDebt: true } : {}),
         ...(setup.randomTargets === true ? { randomTargets: true } : {}),
+        ...(setup.foeCap !== undefined ? { foeCap: setup.foeCap } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((item) => ({ itemId: item.itemId, name: typeof item.name === 'string' ? item.name : item.itemId, count: item.count, effects: deepCopy(item.effects) })) } } : {}),
         ...(reserve.size ? { reserve: [...setup.reserve] } : {}),

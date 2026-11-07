@@ -65,13 +65,30 @@ test('敌人随机选攻击对象（setup.randomTargets）：开启时按种子�
     assert.equal(createBattle({ controlledId: 'hero', randomTargets: 'yes', units: units() }, SEED).error?.reason, 'invalid-setup');
 });
 
-test('多敌折算：1 只为 1；2 只约 0.70；3、4 只继续递减，5 只起封底 0.4', () => {
+test('多敌折算（规则 v6 编制）：1 只为 1；2 只起封底 0.75；在场人数按普通敌人上限 3 截断', () => {
     assert.equal(crowdScaleFor(1), 1);
-    assert.ok(Math.abs(crowdScaleFor(2) - 1 / 1.43) < 1e-9, String(crowdScaleFor(2)));
-    assert.ok(crowdScaleFor(3) < crowdScaleFor(2) && crowdScaleFor(3) > 0.5);
-    assert.ok(Math.abs(crowdScaleFor(4) - 1 / 2.29) < 1e-9, String(crowdScaleFor(4)));
-    for (const n of [5, 8, 50]) assert.equal(crowdScaleFor(n), COMBAT_RULES.crowd.floor, `n=${n}`);
-    assert.equal(COMBAT_RULES.crowd.floor, 0.4);
+    assert.equal(COMBAT_RULES.crowd.floor, 0.75);
+    assert.equal(COMBAT_RULES.maxFoesOnField, 3);
+    for (const n of [2, 3, 5, 8, 50]) assert.equal(crowdScaleFor(n), 0.75, `n=${n}`);
+});
+
+test('敌方编制（规则 v6）：新建 setup 写 foeCap 3；场上普通敌人超过 foeCap 时 too-many-enemies；爪牙占剩余 2 位，普通敌人位与爪牙位互不挤占', () => {
+    const skill = { id: 'hit', name: '打', intent: 'attack', effects: [{ op: 'damage', amount: 1, target: 'enemy' }] };
+    const call = { id: 'call', name: '唤', intent: 'special', effects: [{ op: 'summon-minion', amount: 2, hp: 5, damage: 1 }] };
+    const foe = (id, skills = [skill]) => ({ id, name: id, side: 'enemy', kind: 'skill', maxHp: 30, skills });
+    const heroUnit = { id: 'hero', name: '我', side: 'ally', kind: 'deck', maxHp: 60, deck: Array(10).fill('k'), catalog: { k: { id: 'k', name: '守', type: 'skill', cost: 1, effects: [{ op: 'block', amount: 1 }] } } };
+    const four = [heroUnit, foe('a'), foe('b'), foe('c'), foe('d')];
+    assert.equal(createBattle({ controlledId: 'hero', foeCap: 3, units: four }, 1).error?.reason, 'too-many-enemies');
+    assert.equal(createBattle({ controlledId: 'hero', foeCap: 3, reserve: ['d'], units: four }, 1).ok, true);
+    assert.equal(createBattle({ controlledId: 'hero', units: four }, 1).ok, true, '不带 foeCap 的旧 setup 仍按总位置 5');
+    assert.equal(createBattle({ controlledId: 'hero', foeCap: 0, units: four }, 1).error?.reason, 'invalid-setup');
+    const created = createBattle({ controlledId: 'hero', rulesVersion: 6, foeCap: 3, reserve: ['d'], units: [heroUnit, foe('a', [call]), foe('b'), foe('c'), foe('d')] }, 1);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    let state = created.state;
+    for (let i = 0; i < 3 && !state.outcome; i += 1) state = applyAction(state, { type: 'end-turn' }).state;
+    const living = state.order.filter((id) => state.units[id].side === 'enemy' && state.units[id].alive);
+    assert.deepEqual([living.filter((id) => !state.units[id].minion).length, living.filter((id) => state.units[id].minion).length], [3, 2]);
+    assert.deepEqual(state.reserve, ['d'], '爪牙入场不消耗后备');
 });
 
 test('专属卡槽位：ID 带 -g<n> 按槽位，否则按档案位置；Lv5 / Lv10 解锁', () => {
@@ -310,7 +327,7 @@ test('助战绝招（ace / legend）取角色自己伤害最高的技能强化�
     assert.equal(chooseSkillIntent(battle.state, 'sc-ace', 0.9).skillId, 'sc-ace-u1');
 });
 
-test('场外排位（v0.39.3）：首领 → 精英 → 普通，精英先于普通怪上场与补位；同一 combatId 结果不变', async () => {
+test('场外排位（v0.39.3，规则 v6 场上普通敌人 3 名）：首领 → 精英 → 普通，精英先于普通怪上场与补位；同一 combatId 结果不变', async () => {
     const { templateEnemy } = await import('../src/combat/generation.js');
     const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [user('出发')]);
     const state = await ledger.effectiveState();
@@ -320,8 +337,9 @@ test('场外排位（v0.39.3）：首领 → 精英 → 普通，精英先于普
     const built = buildSetup(lobby, start, { combatId: 'c-elite' });
     assert.equal(built.ok, true, JSON.stringify(built));
     const tierOf = (id) => (built.setup.units.find((u) => u.id === id)?.name.startsWith('头狼') ? 'elite' : 'normal');
-    assert.equal(built.setup.reserve.length, 3);
-    assert.deepEqual(built.setup.reserve.map(tierOf), ['normal', 'normal', 'normal']);
+    assert.equal(built.setup.foeCap, 3);
+    assert.equal(built.setup.reserve.length, 5);
+    assert.deepEqual(built.setup.reserve.map(tierOf), ['normal', 'normal', 'normal', 'normal', 'normal']);
     assert.deepEqual(buildSetup(lobby, start, { combatId: 'c-elite' }).setup.reserve, built.setup.reserve);
 });
 

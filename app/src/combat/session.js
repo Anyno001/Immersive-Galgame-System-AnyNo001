@@ -460,9 +460,9 @@ export function lobbyVitals(lobby, difficulty = 'normal') {
     return Object.fromEntries(allyUnits(lobby, difficulty).map((unit) => [unit.id, { hp: unit.hp ?? unit.maxHp, maxHp: unit.maxHp }]));
 }
 
-// 敌人超出场上上限时，按战斗标识确定性地排出后备队列（首领 → 精英 → 普通，同档内按种子；排不下的首领、精英先于普通怪补位）
+// 敌人超出场上普通敌人上限（maxFoesOnField）时，按战斗标识确定性地排出后备队列（首领 → 精英 → 普通，同档内按种子；排不下的首领、精英先于普通怪补位）
 function reserveQueue(enemyUnitList, tiers, combatId) {
-    if (enemyUnitList.length <= COMBAT_RULES.maxEnemiesOnField) return null;
+    if (enemyUnitList.length <= COMBAT_RULES.maxFoesOnField) return null;
     const salt = `reserve:${combatId}`;
     const order = (units) => units
         .map((unit) => [unit.id, hash32(`${salt}|${unit.id}`)])
@@ -471,7 +471,7 @@ function reserveQueue(enemyUnitList, tiers, combatId) {
     const bosses = enemyUnitList.filter((unit, index) => tiers[index] === 'boss');
     const elites = enemyUnitList.filter((unit, index) => tiers[index] === 'elite');
     const others = enemyUnitList.filter((unit, index) => tiers[index] !== 'boss' && tiers[index] !== 'elite');
-    return [...order(bosses), ...order(elites), ...order(others)].slice(COMBAT_RULES.maxEnemiesOnField);
+    return [...order(bosses), ...order(elites), ...order(others)].slice(COMBAT_RULES.maxFoesOnField);
 }
 
 // 由大厅 + 战斗起点 + 难度生成引擎的开局参数
@@ -489,9 +489,10 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     }
     // openingCharged（v0.39.2）：开局先手计入操控角色的行动条，速度快的主角首轮不再连动两回合；
     // randomTargets（v0.39.2）：敌人在存活的我方单位中按种子随机选攻击对象。两者都只写进新建 setup，旧战斗按已存 setup 重放。
+    // foeCap（规则 v6 敌方编制）：场上普通敌人最多 maxFoesOnField，空出的总位置只给爪牙；只写进新建 setup。
     const setup = {
         rulesVersion: COMBAT_RULES.version, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
-        openingCharged: true, randomTargets: true, units: [...allies, ...enemies],
+        openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, units: [...allies, ...enemies],
     };
     const reserve = reserveQueue(enemies, tiers, combatId);
     if (reserve) setup.reserve = reserve;
