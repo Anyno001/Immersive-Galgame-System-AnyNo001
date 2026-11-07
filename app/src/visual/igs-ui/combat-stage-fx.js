@@ -32,8 +32,9 @@ const WRAP_CSS = `
 #igs-overlay .igs-sfx-result.land .rs-ui{right:120px;bottom:16px;width:380px;}
 #igs-overlay .igs-sfx-result .rs-ui .igs-combat-loot-row{--loot-w:min(104px,calc((100% - (var(--n,3) - 1) * 12px) / var(--n,3)));}
 #igs-overlay .igs-sfx-result .rs-ui .igs-combat-loot-tools{flex-wrap:wrap;gap:8px;}
-#igs-combat-panel:not([data-igs-combat-result-in]) .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
-#igs-combat-panel[data-igs-combat-reduced] .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
+/* 入场播完或减少动态效果时定格：立绘位规则（.result .fig.lead）选择器更具体，须 !important，否则每次重绘（点删牌、选牌）立绘都重播升起 */
+#igs-combat-panel:not([data-igs-combat-result-in]) .igs-sfx-result :is(.veil,.hband,.shaft,.fig,.plate,.big,.grade,.row){animation-duration:0s !important;animation-delay:0s !important;}
+#igs-combat-panel[data-igs-combat-reduced] .igs-sfx-result :is(.veil,.hband,.shaft,.fig,.plate,.big,.grade,.row){animation-duration:0s !important;animation-delay:0s !important;}
 /* VS 对撞站位：两边镜像，主战者等大（3:4 框）、头顶同高，同伴在外侧身后、略小压暗；竖屏我方偏上、敌方偏下，按接缝斜向错开 */
 #igs-overlay .igs-sfx .clash .half .fig.lead{left:-24px;right:auto;top:96px;bottom:auto;width:330px;height:440px;}
 #igs-overlay .igs-sfx .clash .half .fig.mate{left:-84px;right:auto;top:40px;bottom:auto;width:250px;height:333px;}

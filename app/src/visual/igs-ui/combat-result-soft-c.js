@@ -149,5 +149,5 @@ ${S} .igs-combat-loot-cap,${S} .igs-combat-loot-card{animation:sfxc-rise ${T(350
 ${S} .igs-combat-loot-card:nth-child(2){animation-delay:${T(1650)};}
 ${S} .igs-combat-loot-card:nth-child(3){animation-delay:${T(1800)};}
 ${S} .igs-combat-actions,${S} .igs-combat-loot-tools{animation:sfxc-rise ${T(400)} ${T(1900)} both;}
-#igs-combat-panel:not([data-igs-combat-result-in]) ${S} :is(.spr,.pgw,.pg,.curl,.ttl b,.rs-r,.igs-challenge-harvest-row,.igs-combat-loot-cap,.igs-combat-loot-card,.igs-combat-actions,.igs-combat-loot-tools),#igs-combat-panel[data-igs-combat-reduced] ${S} :is(.spr,.pgw,.pg,.curl,.ttl b,.rs-r,.igs-challenge-harvest-row,.igs-combat-loot-cap,.igs-combat-loot-card,.igs-combat-actions,.igs-combat-loot-tools){animation-duration:0s;animation-delay:0s;}
+#igs-overlay #igs-combat-panel:not([data-igs-combat-result-in]) ${S.replace('#igs-overlay ', '')} :is(.spr,.pgw,.pg,.curl,.ttl b,.rs-r,.igs-challenge-harvest-row,.igs-combat-loot-cap,.igs-combat-loot-card,.igs-combat-actions,.igs-combat-loot-tools),#igs-overlay #igs-combat-panel[data-igs-combat-reduced] ${S.replace('#igs-overlay ', '')} :is(.spr,.pgw,.pg,.curl,.ttl b,.rs-r,.igs-challenge-harvest-row,.igs-combat-loot-cap,.igs-combat-loot-card,.igs-combat-actions,.igs-combat-loot-tools){animation-duration:0s;animation-delay:0s;}
 `;

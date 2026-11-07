@@ -137,5 +137,5 @@ ${S} .igs-combat-loot-card{animation:sfxa-pop ${T(350)} cubic-bezier(.3,1.3,.5,1
 ${S} .igs-combat-loot-card:nth-child(2){animation-delay:${T(1450)};}
 ${S} .igs-combat-loot-card:nth-child(3){animation-delay:${T(1600)};}
 ${S} .igs-combat-actions{animation:sfxa-fade ${T(400)} ease ${T(1900)} backwards;}
-#igs-combat-panel:not([data-igs-combat-result-in]) ${S} :is(.sp,.card,.flower,.head,.stamp,.rs-row,.igs-challenge-harvest,.igs-combat-loot-card,.igs-combat-actions,.flower .ds),#igs-combat-panel[data-igs-combat-reduced] ${S} :is(.sp,.card,.flower,.head,.stamp,.rs-row,.igs-challenge-harvest,.igs-combat-loot-card,.igs-combat-actions,.flower .ds){animation-duration:0s;animation-delay:0s;}
+#igs-overlay #igs-combat-panel:not([data-igs-combat-result-in]) ${S.replace('#igs-overlay ', '')} :is(.sp,.card,.flower,.head,.stamp,.rs-row,.igs-challenge-harvest,.igs-combat-loot-card,.igs-combat-actions,.flower .ds),#igs-overlay #igs-combat-panel[data-igs-combat-reduced] ${S.replace('#igs-overlay ', '')} :is(.sp,.card,.flower,.head,.stamp,.rs-row,.igs-challenge-harvest,.igs-combat-loot-card,.igs-combat-actions,.flower .ds){animation-duration:0s;animation-delay:0s;}
 `;

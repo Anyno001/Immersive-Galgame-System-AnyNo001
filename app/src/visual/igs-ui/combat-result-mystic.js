@@ -160,6 +160,6 @@ ${L} .igs-combat-actions{grid-column:1 / 3;}
 ${L} .mr-low:has(.igs-combat-loot-tools) .igs-combat-actions{grid-column:2;}
 ${L} .igs-combat-btn{font-size:15px;}
 /* 入场结束后重绘不再重播入场动画；减少动态效果时直接到位 */
-#igs-combat-panel:not([data-igs-combat-result-in]) ${S} .mr :is(.mr-a,.mr-row,.mr-st,.mr-hzl){animation-duration:0s;animation-delay:0s;}
-#igs-combat-panel[data-igs-combat-reduced] ${S} .mr :is(.mr-a,.mr-row,.mr-st,.mr-hzl){animation-duration:0s;animation-delay:0s;}
+#igs-overlay #igs-combat-panel:not([data-igs-combat-result-in]) ${S.replace('#igs-overlay ', '')} .mr :is(.mr-a,.mr-row,.mr-st,.mr-hzl){animation-duration:0s;animation-delay:0s;}
+#igs-overlay #igs-combat-panel[data-igs-combat-reduced] ${S.replace('#igs-overlay ', '')} .mr :is(.mr-a,.mr-row,.mr-st,.mr-hzl){animation-duration:0s;animation-delay:0s;}
 `;
