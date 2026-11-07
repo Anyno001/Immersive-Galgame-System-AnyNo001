@@ -9,8 +9,9 @@ import { hashString } from './random.js';
 import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
-import { opHandler, reserveBuiltins } from './mechanics/registry.js';
+import { DEFEAT_CAUSES, ORB_FILTER_KINDS, opHandler, reserveBuiltins } from './mechanics/registry.js';
 import { INSCRIPTION_KEYS } from './mechanics/inscription.js';
+import { APPLY_STATUSES } from './mechanics/apply-status.js';
 import { TREASURE_SLOT_MAX } from './gear-slots.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
@@ -39,7 +40,11 @@ export const PASSIVE_TRIGGERS = Object.freeze([
     'hp-loss', 'block-gain', 'foe-card-played',
     // 规则 v5 G20：抽牌后、生成临时牌后、使敌人陷入减益后、格挡被打破时（只在 v5 战斗中触发）。
     'draw', 'create', 'debuff-applied', 'block-broken',
+    // 规则 v6 G5b（只在 v6 战斗中触发）：敌人倒下（任意死因）、获得状态后、使用道具后、预知后、凝结法珠后、消耗圣辉后、随从出手后。
+    'defeated', 'status-gained', 'item-used', 'foresee', 'orb-channel', 'radiance-spent', 'minion-act',
 ]);
+// 被动过滤字段（规则 v6 G5b）可用的触发器：status 限获得状态 / 使敌人陷入减益，orb 限凝结法珠，cause 限敌人倒下。
+const FILTER_TRIGGERS = Object.freeze({ status: ['status-gained', 'debuff-applied'], orb: ['orb-channel'], cause: ['defeated'] });
 export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-character', 'enemy']);
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
@@ -415,7 +420,7 @@ function validateSkill(skill, path, state) {
 function validatePassive(passive, path, state) {
     if (!objectField(passive, path, state)) return;
     const at = (key) => joinPath(path, key);
-    checkKnownFields(passive, ['id', 'name', 'trigger', 'cardType', 'effects', 'description'], path, state);
+    checkKnownFields(passive, ['id', 'name', 'trigger', 'cardType', 'status', 'orb', 'cause', 'effects', 'description'], path, state);
     const result = {
         id: idField(passive.id, at('id'), state),
         name: textField(passive.name, at('name'), state, 20),
@@ -426,6 +431,12 @@ function validatePassive(passive, path, state) {
     if (passive.cardType !== undefined) {
         if (result.trigger !== 'card-played' && result.trigger !== 'foe-card-played') addIssue(state, at('cardType'), 'unknown-field');
         else result.cardType = enumField(passive.cardType, at('cardType'), state, CARD_TYPES);
+    }
+    const allowed = { status: [...STATUSES, ...Object.keys(APPLY_STATUSES)], orb: ORB_FILTER_KINDS, cause: DEFEAT_CAUSES };
+    for (const key of Object.keys(FILTER_TRIGGERS)) {
+        if (passive[key] === undefined) continue;
+        if (!FILTER_TRIGGERS[key].includes(result.trigger)) addIssue(state, at(key), 'unknown-field');
+        else result[key] = enumField(passive[key], at(key), state, allowed[key]);
     }
     return result;
 }

@@ -136,10 +136,20 @@ const PASSIVE_WHEN = Object.freeze({
     'on-low-hp': `生命首次低于 ${Math.round(LOW_HP_RATIO * 100)}% 时`, discard: '每次弃牌时', exhaust: '每次消耗牌时', kill: '每次击杀敌人时',
     shuffle: '每次洗牌时', 'hp-loss': '每次失去生命时', 'block-gain': '每次获得格挡时',
     draw: '每次抽牌后', create: '每次生成临时牌后', 'debuff-applied': '每次使敌人陷入减益后', 'block-broken': '格挡被打破时',
+    // 规则 v6 G5b。
+    defeated: '每有敌人倒下时', 'status-gained': '每次获得状态后', 'item-used': '每次使用道具后', foresee: '每次预知后',
+    'orb-channel': '每次凝结法珠后', 'radiance-spent': '每次消耗圣辉后', 'minion-act': '随从每次出手后',
 });
-export function describeTrigger(trigger, cardType) {
+const ORB_LABEL = Object.freeze({ lightning: '雷珠', frost: '霜珠', dark: '蚀珠', plasma: '源珠', glass: '晶珠' });
+const CAUSE_LABEL = Object.freeze({ attack: '被攻击击倒', poison: '因中毒倒下', doom: '因灾厄倒下', orb: '被法珠击倒', minion: '被随从击倒', thorns: '被荆棘击倒', self: '自损倒下' });
+const statusText = (key) => STATUS[key] || statusLabel(key) || key;
+export function describeTrigger(trigger, cardType, filters = {}) {
     if (trigger === 'card-played') return `每次打出${typed(cardType)}时`;
     if (trigger === 'foe-card-played') return `对方每次打出${typed(cardType)}时`;
+    if (trigger === 'status-gained' && filters.status) return `每次获得${statusText(filters.status)}后`;
+    if (trigger === 'debuff-applied' && filters.status) return `每次使敌人陷入${statusText(filters.status)}后`;
+    if (trigger === 'orb-channel' && filters.orb) return `每次凝结${ORB_LABEL[filters.orb] || filters.orb}后`;
+    if (trigger === 'defeated' && filters.cause) return `每有敌人${CAUSE_LABEL[filters.cause] || '倒下'}时`;
     return PASSIVE_WHEN[trigger] || String(trigger || '');
 }
 

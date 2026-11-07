@@ -61,6 +61,8 @@ function minionStrike(ctx, owner, effect, targets, kit) {
         const value = st(target, 'vulnerable') > 0 ? Math.floor(base * 1.5) : base;
         kit.dealDamage(ctx, target, value, minionSource(owner), 'minion', true);
     }
+    // 规则 v6 G5b：随从出手后（主人的被动）。
+    if (ctx.state.rulesVersion >= 6) kit.fireBus(ctx, owner, 'minion-act', null);
 }
 
 // 牺牲（S03）：随从倒下，换最大生命 ×2 的格挡，或对全体敌人造成等于最大生命的随从伤害。

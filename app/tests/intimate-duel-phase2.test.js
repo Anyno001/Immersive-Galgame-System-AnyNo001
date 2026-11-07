@@ -3044,6 +3044,74 @@ test('遗物条件与回合内计数（v6 G5a）：计数不超过 N（含 0）�
 });
 
 
+test('遗物触发器（v6 G5b）：获得状态与施加减益可按状态过滤、不自我连锁；敌人倒下按死因；使用道具、凝结法珠（按种类）、预知、消耗圣辉、随从出手；规则 v5 不触发', async () => {
+    const { describeTrigger } = await import('../src/visual/igs-ui/combat-card-art.js');
+    const solo = (cards, passives, extra = {}) => {
+        const catalog = { k: GUARD, ...cards };
+        const deck = [...Object.keys(cards), ...Array(10 - Object.keys(cards).length).fill('k')];
+        const units = [hero({}, { deck, catalog, passives }), foe({}), ...(extra.foes || [])];
+        const created = createBattle({ controlledId: 'hero', canEscape: true, units, ...extra.setup }, 7);
+        assert.equal(created.ok, true, JSON.stringify(created.error));
+        return created.state;
+    };
+    const gain = def('g', 'skill', STRENGTH_UP, { innate: true });
+    const blocked = (filter) => playIn(solo({ g: gain }, [{ ...passiveOn('status-gained', BLOCK_UP), ...filter }]), instOf(solo({ g: gain }, []), 'g')).state.units.hero.block;
+    assert.equal(blocked({ status: 'strength' }), 3);
+    assert.equal(blocked({ status: 'dexterity' }), 0);
+    const echo = solo({ g: gain }, [passiveOn('status-gained', STRENGTH_UP)]);
+    assert.equal(playIn(echo, instOf(echo, 'g')).state.units.hero.statuses.strength, 2);
+    const old = solo({ g: gain }, [passiveOn('status-gained', BLOCK_UP)], { setup: { rulesVersion: 5 } });
+    assert.equal(playIn(old, instOf(old, 'g')).state.units.hero.block, 0);
+
+    const weak = def('w', 'skill', [{ op: 'status', status: 'weak', stacks: 1, target: 'enemy' }], { innate: true });
+    const venom = def('v', 'skill', [{ op: 'status', status: 'poison', stacks: 2, target: 'enemy' }], { innate: true });
+    const hex = solo({ w: weak, v: venom }, [{ ...passiveOn('debuff-applied', BLOCK_UP), status: 'poison' }]);
+    const afterWeak = playIn(hex, instOf(hex, 'w'), 'foe').state;
+    assert.equal(afterWeak.units.hero.block, 0);
+    assert.equal(playIn(afterWeak, instOf(afterWeak, 'v'), 'foe').state.units.hero.block, 3);
+
+    const slay = def('s', 'attack', [{ op: 'damage', amount: 30, target: 'enemy' }], { innate: true });
+    const second = foe({}, { id: 'foe2', name: '她二' });
+    const fell = (cause) => {
+        const state = solo({ s: slay }, [{ ...passiveOn('defeated', BLOCK_UP), ...(cause ? { cause } : {}) }], { foes: [second] });
+        return playIn(state, instOf(state, 's'), 'foe').state;
+    };
+    assert.equal(fell().units.hero.block, 3);
+    assert.equal(fell('attack').units.hero.block, 3);
+    assert.equal(fell('poison').units.hero.block, 0);
+
+    const potion = solo({}, [passiveOn('item-used', BLOCK_UP)], { setup: { items: [{ itemId: 'potion', name: '药', count: 1, effects: [{ op: 'heal', amount: 1 }] }] } });
+    const used = applyAction(potion, { type: 'item', itemId: 'potion' });
+    assert.equal(used.ok, true, JSON.stringify(used.error));
+    assert.equal(used.state.units.hero.block, 3);
+
+    const frost = def('f', 'skill', [{ op: 'channel', orb: 'frost', amount: 1 }], { innate: true });
+    const chilled = (orb) => {
+        const state = solo({ f: frost }, [{ ...passiveOn('orb-channel', BLOCK_UP), orb }]);
+        return playIn(state, instOf(state, 'f')).state.units.hero.block;
+    };
+    assert.equal(chilled('frost'), 3);
+    assert.equal(chilled('lightning'), 0);
+
+    const scry = def('y', 'skill', [{ op: 'foresee', amount: 2 }], { innate: true });
+    const seer = solo({ y: scry }, [passiveOn('foresee', BLOCK_UP)]);
+    assert.equal(playIn(seer, instOf(seer, 'y')).state.units.hero.block, 3);
+
+    const halo = def('r', 'skill', [{ op: 'draw', amount: 1 }], { innate: true, radiance: 1 });
+    const lit = solo({ r: halo }, [passiveOn('battle-start', [{ op: 'radiance', amount: 2 }]), passiveOn('radiance-spent', BLOCK_UP)]);
+    assert.equal(playIn(lit, instOf(lit, 'r')).state.units.hero.block, 3);
+
+    const call = def('m', 'skill', [{ op: 'summon', amount: 5 }, { op: 'minion-strike', amount: 3, target: 'enemy' }], { innate: true });
+    const pack = solo({ m: call }, [passiveOn('minion-act', BLOCK_UP)]);
+    assert.equal(playIn(pack, instOf(pack, 'm'), 'foe').state.units.hero.block, 3);
+
+    assert.equal(describeTrigger('status-gained', undefined, { status: 'strength' }), '每次获得攻击力后');
+    assert.equal(describeTrigger('defeated', undefined, { cause: 'poison' }), '每有敌人因中毒倒下时');
+    assert.equal(describeTrigger('orb-channel', undefined, { orb: 'frost' }), '每次凝结霜珠后');
+    assert.equal(describeTrigger('item-used'), '每次使用道具后');
+});
+
+
 
 test('战后触发点（v6 G5-1）：开战被动挂「战后回复」状态，胜利结算按层数回复', async () => {
     const { afterBattleMend } = await import('../src/combat/mechanics/sanctum.js');

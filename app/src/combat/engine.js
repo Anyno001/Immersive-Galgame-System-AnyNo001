@@ -9,7 +9,7 @@
 // - 效果、技能、被动这类静态定义不再深拷贝，引擎对它们只读。
 // 行为、数值与事件流与 v0.39.0 一致。
 import { COMBAT_RULES, TOKEN_CARDS, estimateEffectsValue, isCompatibleRulesVersion } from './rules.js';
-import { damageModifiers, hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
+import { BUS_FILTERS, DEFEAT_CAUSES, damageModifiers, hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
 import { isInscription } from './mechanics/inscription.js';
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
@@ -127,11 +127,13 @@ function addStatus(ctx, unit, status, stacks, source) {
     }
     setStatus(unit, status, (unit.statuses[status] || 0) + stacks);
     emit(ctx, { type: 'status', source, target: unit.id, status, stacks });
+    // 规则 v6 G5b：获得状态后（被动可按 status 过滤）。
+    if (ctx.state.rulesVersion >= 6) fireBus(ctx, unit, 'status-gained', null, { status });
     if (!isDebuff(status)) return;
     runHooks(ctx, 'debuff-applied', { target: unit, status, stacks, source });
     // 规则 v5 G20：施加方「使敌人陷入减益后」的被动（被人工制品抵消时不算）。
     const applier = ctx.state.rulesVersion >= 5 && source?.unitId != null ? ctx.state.units[source.unitId] : null;
-    if (applier && applier.side !== unit.side) fireBus(ctx, applier, 'debuff-applied', unit.id);
+    if (applier && applier.side !== unit.side) fireBus(ctx, applier, 'debuff-applied', unit.id, { status });
 }
 
 // 效果的目标类型：显式 target 优先，其次按 op/状态推断。
@@ -602,6 +604,11 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
     // 规则 v5：爪牙倒下、分裂或退场（left）不算击杀。
     if (!target.alive && kind === 'attack' && attacker && attacker.side !== target.side && target.minion !== true && !target.left) fireBus(ctx, attacker, 'kill', null);
     else if (target.alive && hpLoss > 0) fireBus(ctx, target, 'hp-loss', null);
+    // 规则 v6 G5b：敌方单位因任意原因倒下（爪牙、分裂、退场不算），对面每个存活单位各触发一次，被动可按 cause 过滤死因。
+    if (!target.alive && ctx.state.rulesVersion >= 6 && target.minion !== true && !target.left) {
+        const cause = DEFEAT_CAUSES.includes(kind) ? kind : 'other';
+        for (const id of ctx.state.order) if (ctx.state.units[id]?.side !== target.side) fireBus(ctx, ctx.state.units[id], 'defeated', null, { cause });
+    }
     if (broke && target.alive) fireBus(ctx, target, 'block-broken', null);
     return hpLoss;
 }
@@ -620,7 +627,7 @@ function gainBlock(ctx, target, amount, source, extra = {}) {
     emit(ctx, { type: 'block', source, target: target.id, amount, ...extra });
     if (amount <= 0) return;
     runHooks(ctx, 'block-gained', { target, amount, source, ...extra });
-    fireBus(ctx, target, 'block-gain', null);
+    fireBus(ctx, target, 'block-gain', null, { amount });
 }
 
 // 血量低于阈值时触发一次性的低血被动，并依次进入满足条件的阶段。
@@ -664,18 +671,25 @@ function fireTrigger(ctx, unit, trigger, aimId) {
 const busOpen = (ctx) => ctx.depth < MAX_DEPTH && (ctx.state.busTriggers || 0) < BUS_TRIGGER_LIMIT;
 
 // 事件总线：打牌/弃牌/获得格挡等时机触发被动与限时 buff。每回合总次数受 BUS_TRIGGER_LIMIT 限制。
+// extra 为本次触发的附带信息（BUS_FILTERS：cardType / status / orb / cause）：被动或 buff 带同名过滤字段时必须相等才触发。
+// 规则 v6：正在结算的被动不会被自己的效果再次触发（如「施加中毒时再施加 1 层」不连锁）。
 function fireBus(ctx, unit, trigger, aimId, extra = {}) {
     if (!unit?.alive || ctx.state.outcome) return;
-    const matches = (entry) => entry.trigger === trigger && (!entry.cardType || entry.cardType === extra.cardType);
+    const matches = (entry) => entry.trigger === trigger && BUS_FILTERS.every((key) => !entry[key] || entry[key] === extra[key]);
     const passives = PASSIVE_FREE_TRIGGERS.has(trigger) ? [] : (unit.passives || []).filter(matches);
     const buffs = (unit.buffs || []).filter(matches);
     if ((!passives.length && !buffs.length) || !busOpen(ctx)) return;
     ctx.depth += 1;
+    const guard = ctx.state.rulesVersion >= 6 ? (ctx.running ||= new Set()) : null;
     const run = (kind, entry, effects, eventExtra) => {
         if (!unit.alive || ctx.state.outcome || (ctx.state.busTriggers || 0) >= BUS_TRIGGER_LIMIT) return;
+        const key = `${unit.id}|${kind}|${entry.id}`;
+        if (guard?.has(key)) return;
         ctx.state.busTriggers = (ctx.state.busTriggers || 0) + 1;
         emit(ctx, { type: kind === 'passive' ? 'passive' : 'buff-trigger', unitId: unit.id, ...eventExtra, trigger });
+        guard?.add(key);
         runEffects(ctx, unit, effects, aimId, { unitId: unit.id, kind, id: entry.id });
+        guard?.delete(key);
     };
     for (const passive of passives) run('passive', passive, passive.effects, { passiveId: passive.id });
     for (const buff of buffs) run('buff', buff, buff.then, { buffId: buff.id });
@@ -1526,6 +1540,8 @@ function useItem(ctx, unit, itemId, aimId) {
     ctx.state.items.used = true;
     emit(ctx, { type: 'item', unitId: unit.id, itemId, name: item.name, targetId: aimId ?? null });
     runEffects(ctx, unit, item.effects, aimId ?? null, { unitId: unit.id, kind: 'item', id: itemId });
+    // 规则 v6 G5b：使用道具后。
+    if (ctx.state.rulesVersion >= 6) fireBus(ctx, unit, 'item-used', null);
     checkOutcome(ctx);
 }
 

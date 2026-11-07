@@ -83,6 +83,8 @@ function foresee(ctx, unit, amount, kit) {
     kit.emit(ctx, { type: 'foresee', unitId: unit.id, seen: seen.length, discarded: tossed });
     const ward = st(unit, 'scry-ward');
     if (ward) statusBlock(ctx, unit, ward, 'scry-ward', kit);
+    // 规则 v6 G5b：预知后。
+    if (ctx.state.rulesVersion >= 6) kit.fireBus(ctx, unit, 'foresee', null);
 }
 
 // 保留减费（B06）：回合结束后仍在手中的牌记进 res.kept，下一回合这些牌费用 -1；每个回合结束重新记。

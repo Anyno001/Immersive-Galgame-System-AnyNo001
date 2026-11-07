@@ -312,7 +312,7 @@ function traitOrbs(state, hero, legal) {
 // 单位详情（助手 10-28：点头像阅读）：卡组角色的被动按人物特性（个人被动与抽到的被动特性）/ 职业 / 装备分组（setup 的被动带 source；旧战斗没有时归入「被动」），
 // 非操控的卡组角色另列主动；技能角色与敌人列技能（意图、绝招、冷却）、被动与常驻效果（source 为 affix），另列尚未触发的阶段。rarity 为 innate（固有）或特性稀有度。
 const PASSIVE_SOURCES = Object.freeze(['personal', 'trait', 'class', 'gear']);
-const passiveItem = (p, t) => ({ name: p.name || t?.name || '', meta: describeTrigger(p.trigger, p.cardType), text: describeEffects(p.effects),
+const passiveItem = (p, t) => ({ name: p.name || t?.name || '', meta: describeTrigger(p.trigger, p.cardType, p), text: describeEffects(p.effects),
     ...(t ? { rarity: t.innate ? 'innate' : t.rarity || '' } : {}) });
 const skillItem = (s) => ({ name: s.name || '', text: describeEffects(s.effects),
     meta: [COMBAT_INTENT_LABELS[s.intent] || '', s.ultimate ? '绝招' : '', s.cooldown ? `冷却 ${s.cooldown} 回合` : ''].filter(Boolean).join(' · ') });

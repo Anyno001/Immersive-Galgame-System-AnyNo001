@@ -26,6 +26,11 @@ export const COST_STAGES = Object.freeze(['card-cost']);
 // card-upgrade 签名 (state, owner) => 返回 false 时该单位的牌按未升级显示与结算。
 export const PLAY_STAGES = Object.freeze(['card-play', 'draw-count', 'card-upgrade']);
 const BUILTIN_LOSS_KINDS = Object.freeze(['poison', 'self']);
+// 事件总线的过滤字段（规则 v6 G5b）：被动或限时 buff 带同名字段时，必须与本次触发的附带值相等才触发。
+export const BUS_FILTERS = Object.freeze(['cardType', 'status', 'orb', 'cause']);
+// 「敌人倒下」触发器的死因：攻击、中毒、灾厄、法珠、随从、荆棘、自伤；其余伤害种类记为 other。
+export const DEFEAT_CAUSES = Object.freeze(['attack', 'poison', 'doom', 'orb', 'minion', 'thorns', 'self']);
+export const ORB_FILTER_KINDS = Object.freeze(['lightning', 'frost', 'dark', 'plasma', 'glass']);
 
 const KEY_PATTERN = /^[a-z][a-z0-9-]{1,39}$/;
 const MECHANICS = new Map();

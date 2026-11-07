@@ -79,6 +79,8 @@ function channel(ctx, unit, kind, kit) {
     if (!unit.alive || ctx.state.outcome) return;
     orbs.list.push(kind === 'dark' ? { kind, charge: 6 } : kind === 'glass' ? { kind, charge: 4 } : { kind });
     kit.emit(ctx, { type: 'channel', unitId: unit.id, orb: kind });
+    // 规则 v6 G5b：凝结法珠后（被动可按 orb 过滤种类）。
+    if (ctx.state.rulesVersion >= 6) kit.fireBus(ctx, unit, 'orb-channel', null, { orb: kind });
 }
 // 多重引发（M04）：最前一颗引发 times 次后移除。
 function evokeFirst(ctx, unit, times, kit) {
