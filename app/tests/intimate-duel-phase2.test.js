@@ -3335,3 +3335,21 @@ test('卡牌操作（v6 G5d）：降费到打出、升级抽牌堆与刚抽到�
     assert.match(describeEffects([{ op: 'discount-card', amount: 1, count: 2, cardType: 'attack' }]), /费用 -1，直到打出为止/);
     assert.match(describeEffects([{ op: 'lose-energy', amount: 1, timing: 'next-turn' }]), /下回合开始时失去 1 点能量/);
 });
+
+test('动态数量（v6 G5e）：按本回合失血量回复与格挡（被动也开启计数）、按计数回复只在 v6 结算、点数类计数上限 30', () => {
+    const hurt = def('h', 'skill', [{ op: 'self-damage', amount: 4 }], { innate: true, cost: 0 });
+    const mend = def('m', 'skill', [{ op: 'self-damage', amount: 4 }, { op: 'tally-heal', source: 'hp-lost-turn', per: 1 }], { innate: true, cost: 0 });
+    const run = (catalog, card, extra = {}) => {
+        const state = duel({ catalog: { ...catalog, k: GUARD }, deck: [card, ...Array(9).fill('k')], ...extra });
+        return playIn(state, instOf(state, card)).state.units.hero;
+    };
+    assert.equal(run({ m: mend }, 'm').hp, 30);
+    assert.equal(run({ m: mend }, 'm', { rulesVersion: 5 }).hp, 26);
+    const guard = { heroExtra: { passives: [passiveOn('hp-loss', [{ op: 'tally-guard', source: 'hp-lost-turn', per: 1 }])] } };
+    assert.equal(run({ h: hurt }, 'h', guard).block, 4);
+    assert.equal(run({ h: hurt }, 'h', { ...guard, rulesVersion: 5 }).block, 0);
+
+    assert.equal(shapeErrors([{ op: 'tally-guard', source: 'hp-lost-turn', per: 1, max: 30 }]).length, 0);
+    assert.ok(shapeErrors([{ op: 'tally-guard', source: 'hand', per: 1, max: 30 }]).length > 0);
+    assert.match(describeEffects([{ op: 'tally-heal', amount: 0, source: 'discards', per: 2 }]), /回复 0 点生命；本回合每弃过 1 张牌，再 \+2/);
+});
