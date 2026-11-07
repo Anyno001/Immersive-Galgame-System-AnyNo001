@@ -53,7 +53,9 @@ export function createCombatDeckPanelController(doc, options = {}) {
     // 积分抽卡待确认（只主角）；抽到的待选来自账本，选牌或放弃即为确认。与 trait 同时清空。
     let draw = false;
     // 积分抽卡翻牌揭晓：{ drawId, played }，翻开一张后亮出全部牌面；翻面动画只在第一次画出时播放，换角色、换页与开关面板时清空。
+    // drawFlipping 为正在翻（等待写账）的位置，用于给那张卡背加按下光效。
     let drawShown = null;
+    let drawFlipping = null;
     let abort = null;
     // 抽人物特性揭晓（P-f）：{ phase: 'charge' | 'open', rarity, traitId, played }。确认抽取即进入蓄力（稀有度与服务层同一 planTrait 预定），
     // 写入并重读账本后翻开；失败、换角色、换页与开关面板时清空，重读账本保留。翻开动画只在第一次画出时播放（played）。
@@ -124,7 +126,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const still = reduced();
         return {
             status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait, draw, generationForm: generationForm.view(),
-            drawShown: drawShown ? { drawId: drawShown.drawId, fresh: !drawShown.played && !still } : null,
+            drawShown: drawShown ? { drawId: drawShown.drawId, fresh: !drawShown.played && !still } : null, drawFlipping,
             selectedBuild, builds: builds.map((c) => ({ name: c.name, protagonist: c.protagonist })),
             reveal: reveal ? { phase: reveal.phase, rarity: reveal.rarity, traitId: reveal.traitId, fresh: reveal.phase === 'open' && !reveal.played && !still } : null,
             reduced: still, theme, canTheme: typeof options.setTheme === 'function',
@@ -144,7 +146,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             canPickTrait: typeof options.pickTrait === 'function',
             canUnlockSlot: typeof options.unlockTraitSlot === 'function',
             canDrawCard: typeof options.drawCard === 'function',
-            canPickCard: typeof options.pickCard === 'function',
+            canPickCard: typeof options.pickCard === 'function' && typeof options.flipCard === 'function',
         };
     }
 
@@ -230,14 +232,14 @@ export function createCombatDeckPanelController(doc, options = {}) {
 
     function select(id) {
         if (!state?.ok || !state.characters.has(id)) return { ok: false, reason: 'combat-character-missing' };
-        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; reveal = null; notice = ''; }
+        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
 
     function selectBuild(name) {
         if (!builds.some((c) => c.name === name)) return { ok: false, reason: 'combat-character-missing' };
-        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; reveal = null; notice = ''; }
+        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
@@ -636,18 +638,38 @@ export function createCombatDeckPanelController(doc, options = {}) {
         return r;
     }
 
-    // 翻牌：id 为背面朝上的位置序号（翻开即得这张，进卡组）或 'skip'（翻前放弃，不退还）；经注入的 pickCard 写一条 card-pick，成功后重读并亮出全部牌面。
+    // 翻牌：id 为背面朝上的位置序号，每抽只能翻一张；经注入的 flipCard 写一条 card-flip，成功后重读并亮出全部牌面（翻面动画只播一次）。
     async function cardFlip(id) {
+        const g = heroAction('flipCard', 'card-flip');
+        if (!g.ok) return g;
+        const fresh = g.view.pendingDraw;
+        if (!fresh) return fail('combat-card-flip-invalid');
+        if (Number.isInteger(fresh.flipped)) return fail('combat-card-flip-done');
+        const position = Number(id);
+        if (!(Number.isInteger(position) && position >= 0 && position < fresh.choices.length)) return fail('combat-card-flip-invalid');
+        drawFlipping = position;
+        const r = await run('card-flip', () => options.flipCard({ position }));
+        drawFlipping = null;
+        if (r.stale) return r;
+        if (r.ok !== true) { render(); return r; }
+        drawShown = { drawId: fresh.drawId, played: false };
+        await load();
+        return r;
+    }
+
+    // 翻开后决定：keep 把翻开的那张加入卡组，skip 放弃（翻前翻后都可，不退还）；经注入的 pickCard 写一条 card-pick，成功后重读。
+    async function cardDecide(keep) {
         const g = heroAction('pickCard', 'card-pick');
         if (!g.ok) return g;
         const fresh = g.view.pendingDraw;
         if (!fresh) return fail('combat-card-pick-invalid');
-        const pick = id === 'skip' ? 'skip' : Number(id);
-        if (pick !== 'skip' && !(Number.isInteger(pick) && pick >= 0 && pick < fresh.choices.length)) return fail('combat-card-pick-invalid');
-        const r = await run(pick === 'skip' ? 'card-skip' : 'card-flip', () => options.pickCard({ pick }));
+        if (keep && !Number.isInteger(fresh.flipped)) return fail('combat-card-pick-unflipped');
+        const pick = keep ? fresh.flipped : 'skip';
+        const r = await run(keep ? 'card-keep' : 'card-skip', () => options.pickCard({ pick }));
         if (r.stale) return r;
         if (r.ok !== true) { render(); return r; }
-        drawShown = pick === 'skip' ? null : { drawId: fresh.drawId, played: false };
+        drawShown = null;
+        notice = keep ? `「${fresh.choices[fresh.flipped]?.name || ''}」已加入卡组` : '已放弃这次抽到的牌';
         await load();
         return r;
     }
@@ -698,7 +720,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'save': return save();
             case 'page':
                 if (!DECK_PAGES.includes(id)) return fail('combat-page-invalid');
-                page = id; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; reveal = null; notice = ''; render();
+                page = id; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null; notice = ''; render();
                 return { ok: true, page };
             case 'alloc-add': return allocEdit(id, 1);
             case 'alloc-remove': return allocEdit(id, -1);
@@ -735,8 +757,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'draw-confirm': return drawConfirm();
             case 'draw-cancel': draw = false; notice = ''; render(); return { ok: true };
             case 'card-flip': return cardFlip(id);
-            case 'draw-skip': return cardFlip('skip');
-            case 'draw-done': drawShown = null; notice = ''; render(); return { ok: true };
+            case 'draw-keep': return cardDecide(true);
+            case 'draw-skip': return cardDecide(false);
             case 'theme':
                 theme = normalizeSettingsTheme(id);
                 root.setAttribute('data-rp-theme', theme);
@@ -783,7 +805,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-combat-container' };
         if (!ledger() && !(buildEntryOn() && manualOn())) return { ok: false, reason: 'combat-disabled' };
         token += 1;
-        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; reveal = null;
+        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null;
         builds = []; selectedBuild = null; wantBuild = build ? String(build) : null;
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
@@ -835,7 +857,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         pageOverlay?.classList?.remove('igs-record-screen-open');
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         pageOverlay = null;
-        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; reveal = null; selectedBuild = null; wantBuild = null;
+        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null; selectedBuild = null; wantBuild = null;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();

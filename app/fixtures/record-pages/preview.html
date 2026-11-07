@@ -426,19 +426,19 @@ const inscribeCopies = (c) => {
   return { ...c, copies: c.copies.map(mark), deckEntries: (c.deckEntries || []).map(mark) };
 };
 // ?carddraw=open：主角金钱 500，可点「抽卡」；?carddraw=pending：另挂一组按种子规划的 3 张背面牌（本职业固定 2 + 示例随机 1），
-// 点一张即按预览翻开（不写账本），亮出全部牌面；「放弃」清掉待翻的牌。只改面板读到的归并视图。
+// 点一张即按预览翻开（不写账本），亮出全部牌面，再「加入卡组」或「放弃」；?carddraw=flipped 打开时已翻开第一张。只改面板读到的归并视图。
 const cardDrawParam = new URLSearchParams(location.search).get('carddraw') || '';
-const cardDrawPreview = { pick: null };
+const cardDrawPreview = { flipped: cardDrawParam === 'flipped' ? 0 : null, done: false };
 const cardDrawView = (c) => {
   if (c.kind !== 'deck-character' || c.attributes?.protagonist !== true) return c;
   const out = { ...c, points: Math.max(c.points || 0, 500) };
-  if (cardDrawParam !== 'pending') return out;
+  if (!['pending', 'flipped'].includes(cardDrawParam) || cardDrawPreview.done) return out;
   const plan = planCardDraw({ ...c, classProfile: c.classProfile || { archetype: 'warrior' } });
   if (!plan) return out;
   const choices = plan.fixedIds.map((id) => JSON.parse(JSON.stringify(fixedCard(id))));
   choices.splice(plan.randomAt, 0, { id: plan.cardId, name: '裂岩斩', type: 'attack', cost: 1, rarity: plan.rarity, effects: [{ op: 'damage', amount: 3 }, { op: 'block', amount: 3 }] });
-  if (cardDrawPreview.pick === null) return { ...out, pendingDraw: { drawId: plan.drawId, choices } };
-  return cardDrawPreview.pick === 'skip' ? out : { ...out, lastDraw: { drawId: plan.drawId, pick: cardDrawPreview.pick, choices } };
+  const flipped = cardDrawPreview.flipped === null ? {} : { flipped: cardDrawPreview.flipped };
+  return { ...out, pendingDraw: { drawId: plan.drawId, choices, ...flipped } };
 };
 const deckLedger = !INSCRIBE_PREVIEW.length && !cardDrawParam ? combatPreview.ledger : { ...combatPreview.ledger, async effectiveState() {
   const st = await combatPreview.ledger.effectiveState();
@@ -450,7 +450,8 @@ const deckNoop = async () => ({ ok: false, reason: 'combat-generate-unavailable'
 const deckFull = createCombatDeckPanelController(document, {
   getLedger: () => deckLedger, getSession: () => combatPreview.session,
   regenerateDeck: deckNoop, respecClass: deckNoop, ascendClass: deckNoop, drawTrait: deckNoop, pickTrait: deckNoop, unlockTraitSlot: deckNoop, drawCard: deckNoop,
-  pickCard: cardDrawParam === 'pending' ? async ({ pick }) => { await new Promise((r) => setTimeout(r, 200)); cardDrawPreview.pick = pick; return { ok: true, pick }; } : deckNoop,
+  flipCard: cardDrawParam ? async ({ position }) => { await new Promise((r) => setTimeout(r, 450)); cardDrawPreview.flipped = position; return { ok: true, position }; } : deckNoop,
+  pickCard: cardDrawParam ? async ({ pick }) => { await new Promise((r) => setTimeout(r, 200)); cardDrawPreview.done = true; return { ok: true, pick }; } : deckNoop,
   getTheme: () => new URLSearchParams(location.search).get('theme') || '', setTheme: () => {},
 });
 async function openDeckFull() {

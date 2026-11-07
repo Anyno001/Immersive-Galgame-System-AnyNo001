@@ -58,7 +58,7 @@ export const ALLOC_TAG_HASH = 'alloc';
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'card-draw', 'card-pick', 'wound', 'battle-growth']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth']);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -72,7 +72,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
-    'card-draw': 18.1, 'card-pick': 18.2, 'battle-growth': 18.5, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
+    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
@@ -401,7 +401,7 @@ function createCharacterState(index, profile, diagnostics) {
         id: profile.id, kind: profile.kind, name: profile.name, profile, exp: 0,
         gear: { owned: new Map(), slots: {} }, items: new Map(), keepsakes: new Map(),
         points: 0, traits: [], pendingTrait: null, traitDraws: 0, innateDropped: [], slotUnlocks: 0, wound: null,
-        cardDraws: 0, pendingDraw: null, lastDraw: null,
+        cardDraws: 0, pendingDraw: null,
         battleGrowth: { cards: new Map(), hpMax: 0 },
     };
     if (profile.kind === 'skill-character') return { ...base, className: profile.className, skills: [...profile.skills], passives: profile.passives };
@@ -940,13 +940,23 @@ const handlers = Object.freeze({
         state.pendingDraw = { drawId: payload.drawId, choices: payload.choices.map((card) => (isFixedCardId(card.id) ? fixedCard(card.id) : card)) };
         return null;
     },
-    // 翻开其一进卡组（固定卡按 ID 进目录加副本，随机卡走 learn 并卡），skip 放弃；都不退款。先校验后改状态，失败时待选保留。
-    // lastDraw 记最近一次翻牌结果（翻开的位置与 3 张候选），供面板翻开后亮出其余两张。
+    // 翻牌：3 张背面朝上，每抽只能翻开一张（记 flipped，关面板重开不能重翻）。
+    'card-flip'(state, payload, context = {}) {
+        if (context.heroId && state.id !== context.heroId) return 'combat-points-not-protagonist';
+        const pending = state.pendingDraw;
+        if (!pending || pending.drawId !== payload.drawId || !pending.choices[payload.position]) return 'combat-card-flip-invalid';
+        if (pending.flipped !== undefined) return 'combat-card-flip-done';
+        state.pendingDraw = { ...pending, flipped: payload.position };
+        return null;
+    },
+    // 翻开的那张加入卡组（pick 须为翻开的位置；固定卡按 ID 进目录加副本，随机卡走 learn 并卡），skip 放弃（翻前翻后都可）；都不退款。
+    // 先校验后改状态，失败时待选保留。
     'card-pick'(state, payload, context = {}) {
         if (context.heroId && state.id !== context.heroId) return 'combat-points-not-protagonist';
         const pending = state.pendingDraw;
         if (!pending || pending.drawId !== payload.drawId) return 'combat-card-pick-invalid';
         if (payload.pick !== 'skip') {
+            if (pending.flipped !== payload.pick) return 'combat-card-pick-unflipped';
             const card = pending.choices[payload.pick];
             if (!card) return 'combat-card-pick-invalid';
             if (isFixedCardId(card.id)) {
@@ -958,7 +968,6 @@ const handlers = Object.freeze({
                 if (failure) return failure;
             }
         }
-        state.lastDraw = { drawId: pending.drawId, pick: payload.pick, choices: pending.choices };
         state.pendingDraw = null;
         return null;
     },
@@ -1075,8 +1084,10 @@ function presentCharacter(state, options = {}) {
         points: state.points, traits, pendingTrait: state.pendingTrait ? { ...state.pendingTrait } : null,
         traitDraws: state.traitDraws, innateDropped: [...state.innateDropped], slotUnlocks: state.slotUnlocks,
         cardDraws: state.cardDraws,
-        pendingDraw: state.pendingDraw ? { drawId: state.pendingDraw.drawId, choices: state.pendingDraw.choices.map((card) => ({ ...card })) } : null,
-        lastDraw: state.lastDraw ? { drawId: state.lastDraw.drawId, pick: state.lastDraw.pick, choices: state.lastDraw.choices.map((card) => ({ ...card })) } : null,
+        pendingDraw: state.pendingDraw ? {
+            drawId: state.pendingDraw.drawId, choices: state.pendingDraw.choices.map((card) => ({ ...card })),
+            ...(state.pendingDraw.flipped !== undefined ? { flipped: state.pendingDraw.flipped } : {}),
+        } : null,
         wound: state.wound ? { ...state.wound } : null,
     };
     if (stock) {
@@ -1847,7 +1858,7 @@ export function buildSellEntry(snapshot, chat, effective, target, now = 0) {
 // 主角面板操作类型 -> 挂的标签。
 const PANEL_ACTION_TAGS = Object.freeze({
     rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH, 'trait-slot': TRAIT_TAG_HASH,
-    'card-draw': PANEL_TAG_HASH, 'card-pick': PANEL_TAG_HASH,
+    'card-draw': PANEL_TAG_HASH, 'card-flip': PANEL_TAG_HASH, 'card-pick': PANEL_TAG_HASH,
 });
 
 // 主角面板操作（改建卡组、转职、晋升、抽特质、选特质、解锁特质槽）。只有主角的卡组角色能做，点数要够。
@@ -2460,11 +2471,12 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return cost ? heroPanelAction(characterId, 'trait-slot', { slot, cost }) : Promise.resolve({ ok: false, reason: 'combat-trait-slot-invalid' });
     }
     const drawCard = (characterId, { drawId, choices } = {}) => heroPanelAction(characterId, 'card-draw', { drawId, choices, cost: CARD_DRAW_COST });
+    const flipCard = (characterId, drawId, position) => heroPanelAction(characterId, 'card-flip', { drawId, position });
     const pickCard = (characterId, drawId, pick) => heroPanelAction(characterId, 'card-pick', { drawId, pick });
 
     return {
         read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,
-        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, drawCard, pickCard,
+        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, drawCard, flipCard, pickCard,
         stats: readStats,
     };
 }

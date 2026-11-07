@@ -1177,7 +1177,23 @@ export function createCombatServices(options = {}) {
         return { ok: true, id: hero.id, drawId: plan.drawId, choices, cost: CARD_DRAW_COST };
     }
 
-    // pick：候选序号 0–2 或 'skip'（放弃不退款）。
+    // 翻牌：position 为背面朝上的位置 0–2，每抽只能翻一张；翻开后再决定加入卡组或放弃。
+    async function flipCard({ position } = {}) {
+        const context = await heroActionContext('flipCard', 'card-flip', { needLlm: false });
+        if (!context.ok) return context;
+        const { ledgerImpl, hero } = context;
+        const pending = hero.pendingDraw;
+        if (!pending) return { ok: false, reason: 'combat-card-flip-invalid' };
+        if (pending.flipped !== undefined) return { ok: false, reason: 'combat-card-flip-done' };
+        const at = Number(position);
+        if (!(Number.isInteger(at) && at >= 0 && at < pending.choices.length)) return { ok: false, reason: 'combat-card-flip-invalid' };
+        const flipped = await ledgerImpl.flipCard(hero.id, pending.drawId, at);
+        return flipped?.ok !== true
+            ? { ok: false, reason: flipped?.reason || 'combat-ledger-insert-failed' }
+            : { ok: true, id: hero.id, drawId: pending.drawId, position: at, card: pending.choices[at] };
+    }
+
+    // pick：翻开的那张的位置（加入卡组）或 'skip'（翻前翻后都可放弃，不退款）。
     async function pickCard({ pick } = {}) {
         const context = await heroActionContext('pickCard', 'card-pick', { needLlm: false });
         if (!context.ok) return context;
@@ -1186,6 +1202,7 @@ export function createCombatServices(options = {}) {
         if (!pending) return { ok: false, reason: 'combat-card-pick-invalid' };
         const choice = pick === 'skip' ? 'skip' : Number(pick);
         if (choice !== 'skip' && !(Number.isInteger(choice) && choice >= 0 && choice < pending.choices.length)) return { ok: false, reason: 'combat-card-pick-invalid' };
+        if (choice !== 'skip' && pending.flipped !== choice) return { ok: false, reason: 'combat-card-pick-unflipped' };
         const picked = await ledgerImpl.pickCard(hero.id, pending.drawId, choice);
         return picked?.ok !== true
             ? { ok: false, reason: picked?.reason || 'combat-ledger-insert-failed' }
@@ -1465,7 +1482,7 @@ export function createCombatServices(options = {}) {
 
     return {
         getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
-        drawTrait, pickTrait, unlockTraitSlot, drawCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
+        drawTrait, pickTrait, unlockTraitSlot, drawCard, flipCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,

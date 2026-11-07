@@ -1061,7 +1061,7 @@ test('规则 v6 按场次删卡：第 5 场胜利战报里的删牌标签入账�
     assert.equal(purgeOpportunity(small).reason, 'combat-purge-deck-min');
     assert.equal(purgeOpportunity({ ...small, deck: Array(11).fill('c1') }).available, true);
 });
-test('规则 v6 积分抽卡：150 抽 3 张本职业候选（固定 2 + 随机 1，种子定、不含无色），有待选不能再抽，放弃不退款，选随机卡或固定卡直接进卡组，候选不合规或金钱不足拒写', async () => {
+test('规则 v6 积分抽卡：150 抽 3 张本职业候选（固定 2 + 随机 1，种子定、不含无色），翻开一张后加入卡组或放弃，每抽只翻一次，放弃不退款，候选不合规或金钱不足拒写', async () => {
     const { planCardDraw } = await import('../src/combat/rewards.js');
     const { FIXED_GENERAL_CARDS, fixedCard, fixedClassPool, isFixedCardId } = await import('../src/combat/fixed-cards/index.js');
     const { drawCardEntity } = await import('../src/combat/generation.js');
@@ -1090,31 +1090,45 @@ test('规则 v6 积分抽卡：150 抽 3 张本职业候选（固定 2 + 随机 
     me = heroOf(await ledger.effectiveState());
     assert.deepEqual([me.points, me.cardDraws, me.pendingDraw.drawId, me.pendingDraw.choices.length, me.pendingDraw.choices[plan.randomAt].id], [850, 1, plan.drawId, 3, plan.cardId]);
     assert.equal((await ledger.drawCard('pc-hero', { drawId: 'cd-other', choices: choicesOf(plan, randomCard('dc-other')) })).reason, 'combat-card-draw-pending');
-    // 放弃：不退款，卡组不变。
+    // 翻前放弃：不退款，卡组不变。
     const size = me.deck.length;
     assert.equal((await ledger.pickCard('pc-hero', 'cd-wrong', 'skip')).reason, 'combat-card-pick-invalid');
     assert.equal((await ledger.pickCard('pc-hero', plan.drawId, 'skip')).ok, true);
     me = heroOf(await ledger.effectiveState());
     assert.deepEqual([me.points, me.pendingDraw, me.deck.length], [850, null, size]);
-    assert.deepEqual([me.lastDraw.drawId, me.lastDraw.pick, me.lastDraw.choices.length], [plan.drawId, 'skip', 3]);
-    // 第二抽种子随已抽次数变化；选随机卡进卡组。
+    // 第二抽种子随已抽次数变化；未翻不能加入，翻开随机卡后只能收下翻开的那张，且不能再翻。
     const second = planCardDraw(me);
     assert.notEqual(second.drawId, plan.drawId);
     assert.equal((await ledger.drawCard('pc-hero', { drawId: second.drawId, choices: choicesOf(second, randomCard(second.cardId)) })).ok, true);
+    assert.equal((await ledger.pickCard('pc-hero', second.drawId, second.randomAt)).reason, 'combat-card-pick-unflipped');
+    assert.equal((await ledger.flipCard('pc-hero', 'cd-wrong', second.randomAt)).reason, 'combat-card-flip-invalid');
+    assert.equal((await ledger.flipCard('pc-hero', second.drawId, second.randomAt)).ok, true);
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.pendingDraw.drawId, me.pendingDraw.flipped, me.deck.length], [second.drawId, second.randomAt, size]);
+    const otherAt = second.randomAt === 0 ? 1 : 0;
+    assert.equal((await ledger.flipCard('pc-hero', second.drawId, otherAt)).reason, 'combat-card-flip-done');
+    assert.equal((await ledger.pickCard('pc-hero', second.drawId, otherAt)).reason, 'combat-card-pick-unflipped');
     assert.equal((await ledger.pickCard('pc-hero', second.drawId, second.randomAt)).ok, true);
     me = heroOf(await ledger.effectiveState());
     assert.deepEqual([me.points, me.pendingDraw, me.deck.length, me.owned.get(second.cardId), me.catalog.get(second.cardId)?.name], [700, null, size + 1, 1, '裂岩斩']);
-    // 翻开后记下翻开的位置与全部牌面，供面板亮出其余两张。
-    assert.deepEqual([me.lastDraw.drawId, me.lastDraw.pick, me.lastDraw.choices.map((c) => c.id)], [second.drawId, second.randomAt, choicesOf(second, randomCard(second.cardId)).map((c) => c.id)]);
-    // 第三抽选固定卡：按 ID 进目录加一张副本。
+    // 第三抽翻开固定卡后放弃：不退款，卡组不变。
     const third = planCardDraw(me);
     assert.equal((await ledger.drawCard('pc-hero', { drawId: third.drawId, choices: choicesOf(third, randomCard(third.cardId)) })).ok, true);
-    const fixedAt = third.randomAt === 0 ? 1 : 0;
-    const fixedId = third.fixedIds[0];
-    const before = me.owned.get(fixedId) || 0;
-    assert.equal((await ledger.pickCard('pc-hero', third.drawId, fixedAt)).ok, true);
+    const thirdAt = third.randomAt === 0 ? 1 : 0;
+    assert.equal((await ledger.flipCard('pc-hero', third.drawId, thirdAt)).ok, true);
+    assert.equal((await ledger.pickCard('pc-hero', third.drawId, 'skip')).ok, true);
     me = heroOf(await ledger.effectiveState());
-    assert.deepEqual([me.points, me.deck.length, me.owned.get(fixedId), me.catalog.get(fixedId)?.id, me.cardDraws], [550, size + 2, before + 1, fixedId, 3]);
+    assert.deepEqual([me.points, me.pendingDraw, me.deck.length], [550, null, size + 1]);
+    // 第四抽翻开固定卡并加入：按 ID 进目录加一张副本。
+    const fourth = planCardDraw(me);
+    assert.equal((await ledger.drawCard('pc-hero', { drawId: fourth.drawId, choices: choicesOf(fourth, randomCard(fourth.cardId)) })).ok, true);
+    const fixedAt = fourth.randomAt === 0 ? 1 : 0;
+    const fixedId = fourth.fixedIds[0];
+    const before = me.owned.get(fixedId) || 0;
+    assert.equal((await ledger.flipCard('pc-hero', fourth.drawId, fixedAt)).ok, true);
+    assert.equal((await ledger.pickCard('pc-hero', fourth.drawId, fixedAt)).ok, true);
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.points, me.deck.length, me.owned.get(fixedId), me.catalog.get(fixedId)?.id, me.cardDraws], [400, size + 2, before + 1, fixedId, 4]);
     // 随机候选请求只给本职业模板，稀有度、费用与 ID 由程序定。
     const entity = drawCardEntity({ character: me, plan: planCardDraw(me) });
     assert.deepEqual([entity.kind, entity.fixed.archetype, entity.input.allowedTemplates.includes('strike')], ['draw-card', 'warrior', true]);

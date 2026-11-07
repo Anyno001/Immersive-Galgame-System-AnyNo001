@@ -165,31 +165,50 @@ ${P} .igs-deck-reveal-burst{position:absolute;inset:-10%;border-radius:50%;point
 ${P} .igs-deck-reveal-sparks i{position:absolute;left:50%;top:50%;width:4px;height:12px;margin:-6px -2px;border-radius:2px;background:var(--rar);box-shadow:0 0 6px var(--rar);opacity:0;animation:igs-deck-reveal-spark .7s .32s ease-out both;}
 ${P} .igs-deck-reveal[data-fresh][data-rarity="mythic"] .igs-deck-reveal-stage{animation:igs-deck-reveal-shake .42s .3s linear both;}
 ${P} .igs-deck-reveal-flash{position:absolute;inset:0;z-index:2;pointer-events:none;background:#fff;opacity:0;animation:igs-deck-reveal-flash .45s .3s ease-out both;}
-/* 规则 v6 积分抽卡翻牌：3 张背面朝上并排，点一张翻开即得；翻开后亮出全部牌面，未翻的压暗。复用揭晓的卡背、卡面与翻面动画。 */
+/* 规则 v6 积分抽卡翻牌：3 张背面朝上并排（卡背纹样、中心徽记与呼吸光，悬停上浮、按下聚光），点一张翻开（翻面、爆光与火花，颜色取稀有度，
+   翻开的牌持续描边辉光），其余两张随后亮出并压暗；翻开后加入卡组或放弃。复用揭晓的卡面与翻面动画。 */
 ${P} .igs-deck-draw{padding:4px 0 0;}
 ${P} .igs-deck-draw-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:min(100%,480px);perspective:900px;}
-${P} .igs-deck-draw-card{--rar:var(--igs-rp-text-faint);position:relative;display:block;width:100%;aspect-ratio:5/7;padding:0;border:0;border-radius:var(--igs-cb-r-l);background:none;color:inherit;font:inherit;transform-style:preserve-3d;transition:transform .18s ease;}
+${P} .igs-deck-draw-card{position:relative;display:block;width:100%;aspect-ratio:5/7;padding:0;border:0;border-radius:var(--igs-cb-r-l);background:none;color:inherit;font:inherit;transform-style:preserve-3d;transition:transform .18s ease,box-shadow .18s ease;}
+${P} .igs-deck-draw-back{overflow:hidden;background:radial-gradient(60% 45% at 50% 50%,color-mix(in srgb,var(--igs-rp-accent) 30%,transparent),transparent 72%),repeating-linear-gradient(45deg,color-mix(in srgb,var(--igs-rp-accent) 10%,transparent) 0 2px,transparent 2px 11px),repeating-linear-gradient(-45deg,color-mix(in srgb,var(--igs-rp-accent) 10%,transparent) 0 2px,transparent 2px 11px),linear-gradient(160deg,color-mix(in srgb,var(--igs-rp-accent) 22%,var(--igs-cb-fill)),var(--igs-cb-fill));box-shadow:inset 0 0 0 5px color-mix(in srgb,var(--igs-rp-accent) 14%,transparent),0 18px 36px -18px rgba(0,0,0,.8);}
+${P} .igs-deck-draw-back::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.22) 50%,transparent 60%) 0 0/260% 100% no-repeat;animation:igs-deck-draw-sheen 3.6s ease-in-out infinite;}
+${P} .igs-deck-draw-sigil{position:absolute;left:50%;top:50%;width:38%;aspect-ratio:1;transform:translate(-50%,-50%) rotate(45deg);border-radius:18%;background:radial-gradient(circle,color-mix(in srgb,var(--igs-rp-accent) 70%,#fff) 0 14%,transparent 16%),conic-gradient(from 0deg,color-mix(in srgb,var(--igs-rp-accent) 55%,transparent),transparent 25%,color-mix(in srgb,var(--igs-rp-accent) 55%,transparent) 50%,transparent 75%,color-mix(in srgb,var(--igs-rp-accent) 55%,transparent));-webkit-mask:radial-gradient(circle,#000 62%,transparent 64%);mask:radial-gradient(circle,#000 62%,transparent 64%);opacity:.85;}
+${P} .igs-deck-draw[data-phase="back"] .igs-deck-draw-card.is-back{animation:igs-deck-draw-breathe 2.4s ease-in-out infinite;}
+${P} .igs-deck-draw[data-phase="back"] .igs-deck-draw-card.is-back:nth-child(2){animation-delay:-.8s;}
+${P} .igs-deck-draw[data-phase="back"] .igs-deck-draw-card.is-back:nth-child(3){animation-delay:-1.6s;}
 ${P} button.igs-deck-draw-card{cursor:pointer;}
-${P} button.igs-deck-draw-card:not([aria-disabled="true"]):hover{transform:translateY(-4px);}
+${P} button.igs-deck-draw-card:not([aria-disabled="true"]):hover{transform:translateY(-6px) scale(1.03);box-shadow:0 0 22px -2px color-mix(in srgb,var(--igs-rp-accent) 65%,transparent);border-radius:var(--igs-cb-r-l);}
 ${P} button.igs-deck-draw-card[aria-disabled="true"]{cursor:default;opacity:.7;}
+${P} button.igs-deck-draw-card.is-flipping{opacity:1;animation:igs-deck-draw-focus .9s ease-in-out infinite;}
 ${P} button.igs-deck-draw-card:focus-visible{outline:1px solid var(--igs-rp-accent);outline-offset:3px;}
 ${P} .igs-deck-draw-card .igs-deck-reveal-face{gap:6px;padding:10px 8px;}
 ${P} .igs-deck-draw-card .igs-deck-reveal-name{font-size:14px;letter-spacing:.04em;}
 ${P} .igs-deck-draw-card:is([data-rarity="epic"],[data-rarity="mythic"]) .igs-deck-reveal-name{color:var(--rar);}
+${P} .igs-deck-draw-card .igs-deck-reveal-tag{color:color-mix(in srgb,var(--rar) 55%,var(--igs-cb-ink));letter-spacing:.12em;}
 ${P} .igs-deck-draw-text{color:var(--igs-cb-ink-soft);font-size:11px;line-height:1.5;overflow-wrap:anywhere;}
-${P} .igs-deck-draw-card.is-chosen{transform:translateY(-6px);}
+${P} .igs-deck-draw-card.is-chosen{transform:translateY(-8px) scale(1.04);z-index:1;}
+${P} .igs-deck-draw-card.is-chosen .igs-deck-reveal-face{box-shadow:0 0 0 1px color-mix(in srgb,var(--rar) 70%,transparent),0 0 34px -4px color-mix(in srgb,var(--rar) 75%,transparent),0 18px 36px -18px rgba(0,0,0,.8);animation:igs-deck-draw-glow 2.6s ease-in-out infinite;}
+${P} .igs-deck-draw-card .igs-deck-reveal-burst{inset:-35%;}
 ${P} .igs-deck-draw-card.is-dim{opacity:.55;}
-${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-chosen .igs-deck-reveal-back{animation:igs-deck-reveal-back-out .3s ease-in both;}
-${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-chosen .igs-deck-reveal-face{animation:igs-deck-reveal-face-in .34s .26s ease-out both;}
-${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-dim{animation:igs-deck-reveal-rise .4s .6s ease-out both;}
+${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card .igs-deck-reveal-back{animation:igs-deck-reveal-back-out .3s ease-in both;}
+${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-chosen .igs-deck-reveal-face{animation:igs-deck-reveal-face-in .34s .26s ease-out both,igs-deck-draw-glow 2.6s 1s ease-in-out infinite;}
+${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-dim .igs-deck-reveal-back{animation-delay:.9s;}
+${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-dim .igs-deck-reveal-face{animation:igs-deck-reveal-face-in .34s 1.16s ease-out both;}
+${P} .igs-deck-draw[data-fresh][data-rarity="mythic"] .igs-deck-draw-row{animation:igs-deck-reveal-shake .42s .3s linear both;}
 ${P}.igs-rp-narrow .igs-deck-draw-row{gap:8px;}
 ${P}.igs-rp-narrow .igs-deck-draw-card .igs-deck-reveal-face{padding:8px 6px;}
 ${P}.igs-rp-narrow .igs-deck-draw-text{font-size:10px;}
-${P} .igs-deck-draw[data-still] .igs-deck-draw-card :is(.igs-deck-reveal-back,.igs-deck-reveal-face),${P} .igs-deck-draw[data-still] .igs-deck-draw-card{animation:none!important;}
-${P} .igs-deck-draw[data-still] .igs-deck-draw-card.is-chosen .igs-deck-reveal-back{display:none;}
-@media (prefers-reduced-motion:reduce){${P} .igs-deck-draw-card,${P} .igs-deck-draw-card :is(.igs-deck-reveal-back,.igs-deck-reveal-face){animation:none!important;transition:none;}${P} .igs-deck-draw[data-fresh] .igs-deck-draw-card.is-chosen .igs-deck-reveal-back{display:none;}}
+${P} .igs-deck-draw[data-still] :is(.igs-deck-draw-row,.igs-deck-draw-card,.igs-deck-reveal-back,.igs-deck-reveal-face,.igs-deck-draw-back::after){animation:none!important;}
+${P} .igs-deck-draw[data-still] :is(.igs-deck-reveal-burst,.igs-deck-reveal-sparks){display:none;}
+${P} .igs-deck-draw[data-still][data-phase="open"] .igs-deck-reveal-back{display:none;}
+#igs-overlay[data-igs-quality="low"] ${P} .igs-deck-draw :is(.igs-deck-reveal-sparks,.igs-deck-draw-back::after){display:none;}
+@media (prefers-reduced-motion:reduce){${P} .igs-deck-draw :is(.igs-deck-draw-row,.igs-deck-draw-card,.igs-deck-reveal-back,.igs-deck-reveal-face){animation:none!important;transition:none;}${P} .igs-deck-draw-back::after{animation:none;background:none;}${P} .igs-deck-draw :is(.igs-deck-reveal-burst,.igs-deck-reveal-sparks){display:none;}${P} .igs-deck-draw[data-phase="open"] .igs-deck-reveal-back{display:none;}}
+@keyframes igs-deck-draw-breathe{0%,100%{box-shadow:0 0 0 transparent;}50%{box-shadow:0 0 18px -4px color-mix(in srgb,var(--igs-rp-accent) 55%,transparent);}}
+@keyframes igs-deck-draw-sheen{0%,40%{background-position:120% 0;}100%{background-position:-20% 0;}}
+@keyframes igs-deck-draw-focus{0%,100%{transform:translateY(-6px) scale(1.03);box-shadow:0 0 16px -2px color-mix(in srgb,var(--igs-rp-accent) 55%,transparent);}50%{transform:translateY(-8px) scale(1.05);box-shadow:0 0 30px 2px color-mix(in srgb,var(--igs-rp-accent) 80%,transparent);}}
+@keyframes igs-deck-draw-glow{0%,100%{filter:brightness(1);}50%{filter:brightness(1.08);}}
 
-${combatRarityStyle(`${P} :is(.igs-deck-card,.igs-deck-chip,.igs-deck-keepsake,.igs-deck-reveal,.igs-deck-reveal-slot)`)}
+${combatRarityStyle(`${P} :is(.igs-deck-card,.igs-deck-chip,.igs-deck-keepsake,.igs-deck-reveal,.igs-deck-reveal-slot,.igs-deck-draw-card)`)}
 ${P} .igs-deck-reveal[data-rarity="mythic"]::after{content:none;}
 /* 窄屏（容器 <768）：名单变成横向一排，详情卡片收窄内边距，卡牌右栏移到下方。 */
 ${P}.igs-rp-narrow .igs-deck-main{padding:4px 14px 20px;}

@@ -171,33 +171,37 @@ function rebuildHtml(v, d) {
 }
 
 // 规则 v6 积分抽卡（只主角）：没有待翻的牌时给「抽卡」，点后在原处确认或取消，金钱不足置灰；
-// 抽到后 3 张牌背面朝上并排，点一张翻开即得这张（进卡组），翻前可「放弃」（不退还）；翻开后亮出其余两张，「确定」收起。
+// 抽到后 3 张牌背面朝上并排（卡背纹样与呼吸光），点一张翻开（翻面爆光，颜色取稀有度），其余两张随后亮出并压暗；
+// 翻开后「加入卡组」收下这张，或「放弃（不退还）」；翻前也可放弃。
+const DRAW_BACK = '<span class="igs-deck-reveal-back igs-deck-draw-back" aria-hidden="true"><i class="igs-deck-draw-sigil"></i></span>';
 const drawFace = (c) => `<span class="igs-deck-reveal-face"><span class="igs-deck-reveal-tag">${esc([TRAIT_RARITY_LABELS[c.rarity] || '', c.cost === '' ? '' : `${c.cost}费`].filter(Boolean).join(' · '))}</span>`
     + `<span class="igs-deck-reveal-name">${esc(c.name)}</span><span class="igs-deck-draw-text">${esc(c.text || '')}</span></span>`;
-function drawRevealHtml(v, d) {
-    const last = d.lastDraw;
-    const fresh = v.drawShown?.fresh === true;
-    const cards = last.choices.map((c, i) => {
-        const chosen = i === last.pick;
-        return `<div class="igs-deck-draw-card${chosen ? ' is-chosen' : ' is-dim'}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''} role="img" aria-label="${esc(`${chosen ? '翻开' : '未翻'}：${c.name}`)}">${chosen && fresh ? REVEAL_BACK : ''}${drawFace(c)}</div>`;
+function drawOpenHtml(v, w) {
+    const fresh = v.drawShown?.drawId === w.drawId && v.drawShown.fresh === true;
+    const busy = v.readonly || Boolean(v.pending);
+    const canPick = !v.readonly && v.canPickCard;
+    const cards = w.choices.map((c, i) => {
+        const chosen = i === w.flipped;
+        const fx = chosen && fresh ? `<span class="igs-deck-reveal-burst" aria-hidden="true"></span>${dots('igs-deck-reveal-sparks')}` : '';
+        return `<div class="igs-deck-draw-card${chosen ? ' is-chosen' : ' is-dim'}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''} role="img" aria-label="${esc(`${chosen ? '翻开' : '未翻'}：${c.name}`)}">${fresh ? DRAW_BACK : ''}${drawFace(c)}${fx}</div>`;
     }).join('');
-    const got = last.choices[last.pick];
-    const state = got ? `「${got.name}」已加入卡组` : '已放弃';
-    return `<section class="igs-deck-reveal igs-deck-draw"${fresh ? ' data-fresh' : ''}${v.reduced ? ' data-still' : ''}><div class="igs-deck-draw-row">${cards}</div>`
-        + `<p class="igs-deck-reveal-state" role="status">${esc(state)}</p><div class="igs-deck-actions">${btn('draw-done', '确定', { primary: true, disabled: Boolean(v.pending) })}</div></section>`;
+    const got = w.choices[w.flipped];
+    const acts = canPick ? btn('draw-keep', v.pending === 'card-keep' ? '加入中' : '加入卡组', { primary: true, disabled: busy }) + btn('draw-skip', '放弃（不退还）', { disabled: busy }) : '';
+    return `<section class="igs-deck-reveal igs-deck-draw" data-phase="open"${got?.rarity ? ` data-rarity="${esc(got.rarity)}"` : ''}${fresh ? ' data-fresh' : ''}${v.reduced ? ' data-still' : ''}><div class="igs-deck-draw-row">${cards}</div>`
+        + `<p class="igs-deck-reveal-state" role="status">${esc(got ? `翻开了「${got.name}」` : '')}</p>${acts ? `<div class="igs-deck-actions">${acts}</div>` : ''}</section>`;
 }
 function drawHtml(v, d) {
     if (!d.canSell || d.kind !== 'deck-character') return '';
     const busy = v.readonly || Boolean(v.pending);
     const waiting = d.pendingDraw;
+    if (waiting && Number.isInteger(waiting.flipped)) return drawOpenHtml(v, waiting);
     if (waiting) {
         const canFlip = !v.readonly && v.canPickCard;
         const off = busy || !canFlip;
-        const backs = Array.from({ length: waiting.count }, (_, i) => `<button type="button" class="igs-deck-draw-card" data-deck-act="card-flip" data-deck-id="${i}" aria-label="翻开第 ${i + 1} 张"${off ? ' aria-disabled="true"' : ''}>${REVEAL_BACK}</button>`).join('');
+        const backs = Array.from({ length: waiting.count }, (_, i) => `<button type="button" class="igs-deck-draw-card is-back${v.pending === 'card-flip' && v.drawFlipping === i ? ' is-flipping' : ''}" data-deck-act="card-flip" data-deck-id="${i}" aria-label="翻开第 ${i + 1} 张"${off ? ' aria-disabled="true"' : ''}>${DRAW_BACK}</button>`).join('');
         const skip = canFlip ? `<div class="igs-deck-actions">${btn('draw-skip', '放弃（不退还）', { disabled: busy })}</div>` : '';
-        return `<section class="igs-deck-reveal igs-deck-draw"><div class="igs-deck-draw-row">${backs}</div><p class="igs-deck-reveal-state">${esc(v.pending === 'card-flip' ? '翻牌中' : '翻开一张')}</p>${skip}</section>`;
+        return `<section class="igs-deck-reveal igs-deck-draw" data-phase="back"${v.reduced ? ' data-still' : ''}><div class="igs-deck-draw-row">${backs}</div><p class="igs-deck-reveal-state">${esc(v.pending === 'card-flip' ? '翻牌中' : '翻开一张')}</p>${skip}</section>`;
     }
-    if (d.lastDraw && v.drawShown?.drawId === d.lastDraw.drawId) return drawRevealHtml(v, d);
     if (v.readonly || !v.canDrawCard) return '';
     const inner = v.draw
         ? btn('draw-confirm', v.pending === 'card-draw' ? '生成中' : `确认抽卡 · ${CARD_DRAW_COST} 金钱`, { primary: true, disabled: busy }) + btn('draw-cancel', '取消', { disabled: busy })
