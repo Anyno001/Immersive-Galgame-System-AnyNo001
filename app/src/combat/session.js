@@ -835,6 +835,8 @@ export function createCombatSession(options = {}) {
 
     // 规则 v6 删卡：本场普通胜利正好满 5 场时，结算页给主角一次删牌机会（可跳过）。没到场次时不给字段。
     // cards 按牌合并：每种牌给一张代表副本（优先不带升级、成长与刻印的，取最后获得的）。
+    // 详情字段：keywords 为牌面关键字（固有、保留等，只取定义里有的），variants 为同名副本里已升级 / 带成长 / 带刻印的张数。
+    const PURGE_KEYWORD_KEYS = ['unplayable', 'innate', 'retain', 'ethereal', 'sly', 'replay', 'radiance', 'temp', 'onDiscard'];
     function purgeOfHero(hero, combatId, points) {
         if (hero?.kind !== 'deck-character') return null;
         const chance = purgeChance(hero, reportIdFor(combatId));
@@ -852,7 +854,10 @@ export function createCombatSession(options = {}) {
         const cards = [...groups].map(([cardId, { rows }]) => {
             const plain = rows.filter((r) => !r.upgraded && !r.bonus && !r.inscription);
             const card = hero.catalog?.get?.(cardId) || {};
-            return { copyId: (plain.length ? plain : rows).at(-1).copyId, cardId, name: card.name || cardId, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '', effects: card.effects || [], count: rows.length };
+            const keywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => card[k] !== undefined && card[k] !== false).map((k) => [k, card[k]]));
+            const variants = { upgraded: rows.filter((r) => r.upgraded).length, bonus: rows.filter((r) => r.bonus).length, inscribed: rows.filter((r) => r.inscription).length };
+            return { copyId: (plain.length ? plain : rows).at(-1).copyId, cardId, name: card.name || cardId, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '', effects: card.effects || [], count: rows.length,
+                ...(Object.keys(keywords).length ? { keywords } : {}), variants };
         });
         return { ...base, cards };
     }

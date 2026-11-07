@@ -749,6 +749,10 @@ ${C} .igs-combat-purge-veil{position:absolute;inset:0;background:rgba(0,0,0,.6);
 ${C} .igs-combat-purge-box{position:relative;display:flex;flex-direction:column;gap:12px;width:min(520px,100%);max-height:100%;padding:16px;box-sizing:border-box;overflow:auto;border-radius:var(--igs-cb-r-m);background:rgba(${N},.96);}
 ${C} .igs-combat-purge{display:flex;flex-wrap:wrap;gap:8px;}
 ${C} .igs-combat-purge .igs-combat-btn{flex:1 1 140px;}
+${C} .igs-combat-purge .igs-combat-btn[aria-pressed="true"]{background:var(--igs-cb-fill-hover);color:var(--igs-cb-ink);}
+${C} .igs-combat-purge-detail{display:grid;gap:4px;padding:12px 14px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-fill);}
+${C} .igs-combat-purge-detail .igs-combat-trait-tip-text{font-size:13px;line-height:1.6;color:var(--igs-cb-ink);}
+${C} .igs-combat-purge-detail>.igs-combat-actions{justify-content:flex-end;margin-top:6px;}
 ${C} .igs-combat-purge-box>.igs-combat-actions{justify-content:flex-end;}
 ${C} .igs-combat-loot-card.is-fresh .igs-combat-loot-back{animation:igs-combat-loot-back-out .26s ease-in var(--loot-delay) both;}
 ${C} .igs-combat-loot-card.is-fresh .igs-combat-loot-face{animation:igs-combat-loot-face-in .34s var(--igs-cb-ease) var(--fx-at) both;}
