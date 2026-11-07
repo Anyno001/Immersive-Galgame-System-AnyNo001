@@ -302,7 +302,7 @@ test('亲密消耗设置默认标准，非法值回默认', () => {
 
 test('豁免名单进聊天级存档并能还原', () => {
     const map = chatEntries({ catalog: { intimacyForced: ['小雪'] } });
-    assert.equal(map.get('force:小雪'), true);
+    assert.deepEqual(map.get('trait:小雪'), { forced: { on: true, src: 'manual' } }, '豁免并入 trait 记录，不再写 force: 键');
     assert.deepEqual(restoreChat(map).catalog.intimacyForced, ['小雪']);
     assert.deepEqual(restoreChat(chatEntries({})).catalog.intimacyForced, []);
 });

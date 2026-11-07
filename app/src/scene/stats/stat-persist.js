@@ -5,6 +5,7 @@ import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat
 import { BASE_ATTRIBUTES } from './stat-state.js';
 import * as registry from './stat-registry.js';
 import { sanitizeFameBars } from './stat-fame.js';
+import { LEGACY_TRAIT_KEYS, mergeLegacyForced, sanitizeAptitude, sanitizeTraits } from './stat-traits.js';
 
 const { validSkillName, canonicalSkillName, mergeLegacyValue } = registry;
 // 旧技能名（妙手、急救等）读入时落到新名；几个旧名同时有值时数值取大，字符串以新名自己的为准。
@@ -85,12 +86,12 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [] };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
 export const APTITUDE_LEVELS = Object.freeze(['出众', '天纵']);
-export const TRAIT_KEYS = Object.freeze(['companion', 'bodiless', 'kin', 'fragile']);
+export const TRAIT_KEYS = LEGACY_TRAIT_KEYS;
 const NOTE_MAX = 40;
 
 export function sanitizeCatalog(raw) {
@@ -128,16 +129,14 @@ export function sanitizeCatalog(raw) {
             if (canon && !used.has(canon)) { used.add(canon); out.heroSlots[slot] = canon; }
         }
     }
-    // 亲密门槛豁免：聊天级角色名单，不随楼层快照，swipe、删楼不丢。
-    out.intimacyForced = [...new Set((Array.isArray(raw.intimacyForced) ? raw.intimacyForced : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
-    // 悟性：{ 名: '出众' | '天纵' }，主角键为「主角」；平庸是默认，不存。
-    for (const [k, v] of Object.entries(plainObject(raw.aptitude) ? raw.aptitude : {}).slice(0, SHEET_MAX)) if (k && k.length <= 20 && APTITUDE_LEVELS.includes(v)) out.aptitude[k] = v;
-    // 角色标记勾选：{ 名: { companion?: true, bodiless?: true, kin?: true } }，没有任何勾选的名字不存。
-    for (const [k, v] of Object.entries(plainObject(raw.traits) ? raw.traits : {}).slice(0, SHEET_MAX)) {
-        if (!k || k.length > 20 || !plainObject(v)) continue;
-        const marks = Object.fromEntries(TRAIT_KEYS.filter((key) => v[key] === true).map((key) => [key, true]));
-        if (Object.keys(marks).length) out.traits[k] = marks;
-    }
+    // 特质（登记表见 stat-traits.js）：{ 名: { 键: { on, src } } }，旧布尔式读档时迁移为手动；旧 intimacyForced 名单并入为「豁免亲密门槛」。
+    // 写档只写新格式；catalog.intimacyForced 是由 traits 推出的只读名单（供提示词与存档页使用）。
+    out.traits = mergeLegacyForced(sanitizeTraits(raw.traits), raw.intimacyForced);
+    out.intimacyForced = Object.keys(out.traits).filter((n) => out.traits[n].forced && out.traits[n].forced.on === true);
+    // 悟性：{ 名: { v: '出众' | '天纵', src } }；旧字符串读档时迁移为手动；平庸是默认，不存。
+    out.aptitude = sanitizeAptitude(raw.aptitude);
+    // 累计计数（成就特质用）：{ 计数名: 非负整数 }。
+    for (const [k, v] of Object.entries(plainObject(raw.counters) ? raw.counters : {}).slice(0, 40)) { const n = num(v, 0, 1e6); if (k && k.length <= 24 && n !== null) out.counters[k] = n; }
     // 「我对TA」备注：{ 名: 最多 40 字 }，只给用户看，空串不存。
     for (const [k, v] of Object.entries(plainObject(raw.heroNotes) ? raw.heroNotes : {}).slice(0, SHEET_MAX)) {
         const text = typeof v === 'string' ? v.trim().slice(0, NOTE_MAX) : '';

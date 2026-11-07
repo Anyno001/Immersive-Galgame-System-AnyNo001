@@ -710,7 +710,7 @@ export function createAutoIllustrationService(deps) {
         return attempts;
     }
 
-    async function paintDbgenCaptions(messageId, floor, key, s, base, slots, { refreshDna = false } = {}) {
+    async function paintDbgenCaptions(messageId, floor, key, s, base, slots, { refreshDna = false, freshSeed = false } = {}) {
         const assets = refreshDna ? structuredClone(readSceneAssets()) : null;
         const requests = cgPaintRequests(slots, assets);
         const attempts = await preparePaintAttempts(key, requests, floor, s.taskSignal);
@@ -731,7 +731,7 @@ export function createAutoIllustrationService(deps) {
                 try {
                     result = await recover(floor, () => generateCaption({ caption: request.caption, size: cgSize(s), messageId,
                         ...((!nai.describe || nai.describe(undefined, { signal: s.taskSignal }).mode === 'nai' || nai.describe(undefined, { signal: s.taskSignal }).via === 'nai') && {
-                            seed: resolveImageSeed(cgGenerationSeed(request, readSceneAssets())) }),
+                            seed: resolveImageSeed(freshSeed ? undefined : cgGenerationSeed(request, readSceneAssets())) }),
                         imageKind: 'cg', signal: s.taskSignal || recoveryController.signal, shouldStart: () => targetStillLive(floor), promptKind: base.kind === 'nsfw' ? 'nsfwCg' : 'cg',
                         ...(edited || (!request.promptRecipe && request.captionMode === 'final')
                             ? { captionMode: 'final' } : request.promptRecipe || request.promptTask ? {
@@ -809,8 +809,8 @@ export function createAutoIllustrationService(deps) {
         if (marked.retry.length) {
             const base = { kind: (previous && previous.kind) || 'interlude', want: (previous && previous.want) || marked.all.length };
             report('info', `第 ${messageId} 楼重试 ${marked.retry.length} 张未成功的插图，复用已保存的提示词直接出图…`);
-            if (backendReady(s).via === 'dbgen') return paintDbgenCaptions(messageId, floor, key, s, base, marked.retry);
-            return generateSlots(messageId, floor, key, s, base, marked.retry);
+            if (backendReady(s).via === 'dbgen') return paintDbgenCaptions(messageId, floor, key, s, base, marked.retry, { freshSeed: manual });
+            return generateSlots(messageId, floor, key, s, base, marked.retry, { freshSeed: manual });
         }
         if (marked.all.length) return { ok: true, reason: manual ? 'nothing-missing' : 'already-decided' };
         if (!manual && previous && SETTLED_STATUSES.has(previous.status)
@@ -1004,11 +1004,11 @@ export function createAutoIllustrationService(deps) {
             description: numbered.paragraphs.slice(Math.max(0, slot.at - 2), slot.at).map((p) => p.text).join('\n'),
         }));
         report('info', `第 ${messageId} 楼规划完成，正在请求 ${plan.slots.length} 张插图…`);
-        return generateSlots(messageId, floor, key, s, base, plan.slots);
+        return generateSlots(messageId, floor, key, s, base, plan.slots, { freshSeed: manual });
     }
 
     // 有任一张失败时楼层记为 failed；下次渲染或手动生图只补失败的那几张，不重新规划、不重复写标记。
-    async function generateSlots(messageId, floor, key, s, base, slots, { refreshDna = false } = {}) {
+    async function generateSlots(messageId, floor, key, s, base, slots, { refreshDna = false, freshSeed = false } = {}) {
         const backend = await readyBackend(floor, s);
         if (!backend.ready.ok) {
             await store.putFloor(key, { ...base, status: 'failed', error: backend.ready.error, updatedAt: now() });
@@ -1033,7 +1033,7 @@ export function createAutoIllustrationService(deps) {
             else try {
                 const final = edited || (!request.promptRecipe && request.captionMode === 'final');
                 const seed = (!nai.describe || nai.describe(undefined, { signal: s.taskSignal }).mode === 'nai' || nai.describe(undefined, { signal: s.taskSignal }).via === 'nai')
-                    ? { seed: resolveImageSeed(cgGenerationSeed(request, readSceneAssets())) } : {};
+                    ? { seed: resolveImageSeed(freshSeed ? undefined : cgGenerationSeed(request, readSceneAssets())) } : {};
                 result = await recover(floor, () => nai.generate(final ? cgFinalRequest(request) : request, { ...s.nai, size, ...seed }, { ...meta, ...seed }), request);
                 if (edited && result?.ok) result = { ...result,
                     ...promptProvenance({ promptRecipe: request.promptRecipe, dnaSnapshot: request.dnaSnapshot }),
@@ -1313,9 +1313,9 @@ export function createAutoIllustrationService(deps) {
             const previous = await store.getFloor(key);
             const base = { kind: (previous && previous.kind) || 'interlude', want: (previous && previous.want) || 1 };
             if (backendReady(s).via === 'dbgen') {
-                return paintDbgenCaptions(identity.floor.messageId, floorInfo, key, s, base, [record], { refreshDna: true });
+                return paintDbgenCaptions(identity.floor.messageId, floorInfo, key, s, base, [record], { refreshDna: true, freshSeed: true });
             }
-            return generateSlots(identity.floor.messageId, floorInfo, key, s, base, [record], { refreshDna: true });
+            return generateSlots(identity.floor.messageId, floorInfo, key, s, base, [record], { refreshDna: true, freshSeed: true });
         }).finally(() => { if (locks.get(key) === job) locks.delete(key); });
         locks.set(key, job);
         return job;

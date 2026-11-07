@@ -2,7 +2,9 @@
 import { stripStatDirectives } from './stat-directives.js';
 import { coolDown, fadeDesire, fadeGrudge, liveHurts, resetDaily } from './stat-favor-events.js';
 import { rollDie, rollOver } from './stat-rng.js';
-import { SKILL_MAX, barsOf, clamp, hasMark, isRomance, withBars, withClock, withSkills } from './stat-state.js';
+import { SKILL_MAX, barsOf, clamp, isRomance, withBars, withClock, withSkills } from './stat-state.js';
+import { traitCatalogOf, traitFlag, traitScale } from './stat-traits.js';
+import { dailyTraitPass } from './stat-trait-hooks.js';
 import { relaxStress, shiftStress } from './stat-strain.js';
 
 // 悟性三档（strengthRev ≥ 2）：平庸（默认）、出众、天纵。
@@ -115,22 +117,27 @@ function coolCharacters(characters, day, days, changes) {
 }
 
 // strengthRev ≥ 2 的日结算角色处理：好感冷却（离体期间与随身角色暂停，跳跃楼在场角色视作一直在场）、芥蒂淡忘、非恋爱对象欲望淡去、
-// 作废超过 7 天的误会账、清每日上限。天数一次算完。ctx：{ detached, traits, present, romanceSeen }。
+// 作废超过 7 天的误会账、清每日上限。天数一次算完。ctx：{ detached, traits, nsfw, present, romanceSeen }。
+// 特质（只读 hasTrait / traitScale / traitFlag）：随身与「主角在场」类特质不冷却，冷却速度与芥蒂、欲望的消退按特质倍率或停摆。
 function coolCharactersRev2(characters, day, days, changes, ctx) {
     const next = {};
     const present = new Set(days > 1 && Array.isArray(ctx.present) ? ctx.present : []);
+    const hereAll = new Set(Array.isArray(ctx.present) ? ctx.present : []);
+    const cat = traitCatalogOf(ctx.traits, ctx.nsfw);
+    const view = { characters };
     for (const [name, character] of Object.entries(characters)) {
         let current = character;
         if (present.has(name)) current = { ...current, lastSeenDay: day };
-        if (!ctx.detached && !hasMark(current, ctx.traits, name, 'companion')) {
-            const cooled = coolDown(current, day, days);
+        const here = { here: hereAll.has(name) };
+        if (!ctx.detached && !traitFlag(view, cat, name, 'noCool', here)) {
+            const cooled = coolDown(current, day, days, traitScale(view, cat, name, '好感', 'cool'));
             if (cooled !== current) changes.push({ source: 'daily', target: name, key: '好感', from: current.dims.好感, to: cooled.dims.好感, note: '冷却' });
             current = cooled;
         }
         // 宿仇（芥蒂满过 100）：芥蒂不再自然消退。
-        const grudge = current.feud ? { change: null } : fadeGrudge(current, days);
+        const grudge = current.feud || traitFlag(view, cat, name, 'noFade:芥蒂') ? { change: null } : fadeGrudge(current, days, traitScale(view, cat, name, '芥蒂', 'fade'));
         if (grudge.change) { current = grudge.character; changes.push({ source: 'daily', target: name, ...grudge.change }); }
-        if (!isRomance(current, name, ctx.romanceSeen)) {
+        if (!isRomance(current, name, ctx.romanceSeen) && !traitFlag(view, cat, name, 'noFade:欲望')) {
             const desire = fadeDesire(current, days);
             if (desire.change) { current = desire.character; changes.push({ source: 'daily', target: name, ...desire.change }); }
         }
@@ -189,7 +196,7 @@ function pushBarChanges(from, to, changes, note, onlyBars = false) {
 // 日结算：体力恢复（熬夜后只到 70）、压力 −10、技能成长、好感冷却、每日上限清零。
 // 生命不随过夜恢复（合并计划 Q4）：只有回复标签与战斗结果改变伤势。
 // rev ≥ 2：悟性（aptitudeOf）、主角离体（体力不恢复、好感冷却暂停）、随身角色不冷却（traits）、芥蒂淡忘与欲望淡去（romanceSeen 用于判恋爱对象）。
-export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, present, romanceSeen } = {}) {
+export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen } = {}) {
     const day = state.clock.day + 1;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -203,9 +210,10 @@ export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, 
     pushBarChanges(bars, nextBars, changes, '日结算', rev2);
     let next = withBars(state, nextBars);
     next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null);
-    const cooled = rev2 ? coolCharactersRev2(next.characters, day, 1, changes, { detached, traits, present, romanceSeen }) : coolCharacters(next.characters, day, 1, changes);
+    const cooled = rev2 ? coolCharactersRev2(next.characters, day, 1, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, 1, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, '日结算', { stress: true, rev2: rev2 ? { day, days: 1, present } : null }) };
-    return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
+    next = withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
+    return rev2 ? dailyTraitPass(next, { traits, nsfw, present }, changes) : next;
 }
 
 // 成长次数累计进 protagonist.growth（D&D 资历档由它推出，v2 §4.2）。
@@ -229,7 +237,7 @@ export function settleRest(state, { changes = [], frozen = false } = {}) {
 
 // 时间跳跃：体力回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
 // rev ≥ 2：天数上限 3650（解析阶段决定），冷却、受伤天数、芥蒂淡忘、欲望淡去都按天数一次算完；跳跃楼在场角色（present）不冷却。
-export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, present, romanceSeen } = {}) {
+export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen } = {}) {
     const day = state.clock.day + days;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -238,7 +246,7 @@ export function settleSkip(state, days, { random, changes = [], skillValueOf, re
     pushBarChanges(bars, nextBars, changes, `跳过${days}天`);
     let next = withBars(state, nextBars);
     next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null);
-    const cooled = rev2 ? coolCharactersRev2(next.characters, day, days, changes, { detached, traits, present, romanceSeen }) : coolCharacters(next.characters, day, days, changes);
+    const cooled = rev2 ? coolCharactersRev2(next.characters, day, days, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, days, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, `跳过${days}天`, { stress: false, rev2: rev2 ? { day, days, present } : null }) };
     return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0 });
 }

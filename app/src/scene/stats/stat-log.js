@@ -137,7 +137,7 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     for (const [name, value] of Object.entries(clean.protagonistEdit)) map.set(`edit:${name}`, value);
     if (clean.heroAssigned) map.set('hero:assigned', true);
     if (clean.heroSlots) map.set('hero:slots', clean.heroSlots);
-    for (const name of clean.intimacyForced) map.set(`force:${name}`, true);
+    // 豁免亲密门槛已并入 trait:名（键 forced）；force: 键只在读档时兼容旧记录，不再写。
     for (const [name, level] of Object.entries(clean.aptitude)) map.set(`aptitude:${name}`, level);
     for (const [name, marks] of Object.entries(clean.traits)) map.set(`trait:${name}`, marks);
     for (const [name, text] of Object.entries(clean.heroNotes)) map.set(`heronote:${name}`, text);

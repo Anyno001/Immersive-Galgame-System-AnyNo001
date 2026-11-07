@@ -18,7 +18,8 @@ import { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } from '../scene
 import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
-import { createStatsState, grudgeOfCharacter, hasMark, isRomance } from '../scene/stats/stat-state.js';
+import { createStatsState, grudgeOfCharacter, isRomance } from '../scene/stats/stat-state.js';
+import { aptitudeLevel, applyTraitChange, hasTrait, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
 import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
 import { statsPushActive } from '../data/shujuku/igs-managed.js';
@@ -259,10 +260,12 @@ export function createStatsRuntime({
     // 一次注入或结算内用：读数按名字记忆化，避免同一名字反复折叠战斗账本。
     const memoEngineOf = (ruleset) => withAbilityMemo(engineOf(ruleset));
     const background = () => { try { return Boolean(isBackground()); } catch (error) { return false; } };
+    // 界面开关沿用旧布尔式（键 → true）；新格式只在存档与结算里使用，界面改版后换读 listTraits。
+    const traitSwitchModel = (traits) => Object.fromEntries(Object.entries(traits).map(([n, marks]) => [n, Object.fromEntries(Object.entries(marks).filter(([, e]) => e && e.on === true).map(([k]) => [k, true]))]));
     const present = (state) => {
         const names = typeof presentOf === 'function' ? presentOf(state) : Object.keys(state.characters).sort((a, b) => (state.characters[b].lastSeenDay || 0) - (state.characters[a].lastSeenDay || 0));
         // 随身角色（档案标记或聊天级勾选）正文不点名也在场。
-        const companions = Object.keys(state.characters).filter((n) => hasMark(state.characters[n], catalog.traits, n, 'companion') && !names.includes(n));
+        const companions = Object.keys(state.characters).filter((n) => hasTrait(state, traitCatalogOf(catalog.traits), n, 'companion') && !names.includes(n));
         return [...names, ...companions].filter((n) => state.characters[n] && !isHero(n));
     };
     // 写回是否生效：设置里手动开启，或本聊天用了 IGS 适配版模板（角色数值表、才艺技能表由 IGS 维护）时自动开启。读表结果短暂缓存。
@@ -1009,7 +1012,7 @@ export function createStatsRuntime({
             }
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, aptitudeOf: (name) => (catalog.aptitude && catalog.aptitude[name]) || '平庸', traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, aptitudeOf: (name) => aptitudeLevel(catalog, name), traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
                 seedCharacters: autoTable ? tableSeedOf(before, messageId) : null, fameBars: catalog.fameBars,
             });
             const meta = { ...r.meta };
@@ -1938,8 +1941,7 @@ export function createStatsRuntime({
     function setIntimacyForced(name, on) {
         const entry = activeEntryBefore(ledger, Infinity);
         if (!(entry ? entry.after : ledger.initial).characters[name]) return { ok: false, reason: 'stats-relation-missing' };
-        const rest = catalog.intimacyForced.filter((n) => n !== name);
-        catalog = sanitizeCatalog({ ...catalog, intimacyForced: on ? [...rest, name] : rest });
+        catalog = sanitizeCatalog({ ...applyTraitChange(null, catalog, name, 'forced', on, 'manual').catalog, intimacyForced: [] });
         persist();
         push();
         return { ok: true };
@@ -1954,9 +1956,9 @@ export function createStatsRuntime({
     function setTrait(name, key, on) {
         if (!TRAIT_KEYS.includes(key)) return { ok: false, reason: 'stats-relation-op-unknown' };
         if (!(key === 'fragile' && name === PROTAGONIST) && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
-        const marks = { ...(catalog.traits[name] || {}) };
-        if (on) marks[key] = true; else delete marks[key];
-        catalog = sanitizeCatalog({ ...catalog, traits: { ...catalog.traits, [name]: marks } });
+        const changed = applyTraitChange(null, catalog, name, key, on, 'manual');
+        if (changed.reason && changed.reason !== 'absent') return { ok: false, reason: 'stats-relation-op-unknown' };
+        catalog = sanitizeCatalog({ ...changed.catalog, intimacyForced: [] });
         persist();
         push();
         return { ok: true };
@@ -1965,9 +1967,7 @@ export function createStatsRuntime({
     // 主角的悟性键为「主角」；平庸即删除记录。
     function setAptitude(name, level) {
         if (name !== PROTAGONIST && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
-        const next = { ...catalog.aptitude };
-        if (APTITUDE_LEVELS.includes(level)) next[name] = level; else delete next[name];
-        catalog = sanitizeCatalog({ ...catalog, aptitude: next });
+        catalog = sanitizeCatalog(withAptitude(catalog, name, APTITUDE_LEVELS.includes(level) ? level : '平庸', 'manual'));
         persist();
         return { ok: true };
     }
@@ -2328,7 +2328,7 @@ export function createStatsRuntime({
         archive: ev(() => {
             ensureLoaded();
             const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero, heroName: userName() }) : null;
-            return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: { ...catalog.aptitude }, traits: { ...catalog.traits }, heroNotes: { ...catalog.heroNotes }, fame: fameRows(currentStatsState(ledger), catalog.fameBars) } : null;
+            return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), heroNotes: { ...catalog.heroNotes }, fame: fameRows(currentStatsState(ledger), catalog.fameBars) } : null;
         }),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {
@@ -2359,7 +2359,7 @@ export function createStatsRuntime({
                 return {
                     ...p,
                     romance,
-                    kin: hasMark(c, catalog.traits, p.name, 'kin'),
+                    kin: hasTrait(state, traitCatalogOf(catalog.traits), p.name, 'kin'),
                     metrics: characterStatMetrics(c, { hudLabel: s.hudLabel, nsfw, stamina: npcStaminaShown() }),
                     stage: stageLabel(Number(p.dims.好感) || 0, romance),
                 };

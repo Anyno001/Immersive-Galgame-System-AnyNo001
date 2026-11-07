@@ -6,12 +6,12 @@ export const RECENT_MAX = 10;
 export const COOLDOWN_DAYS = 3;
 
 // 送礼按「开心」结算；近期送过一次同类礼物收益减半，两次及以上不再加分。
-export function applyGift(character, gift, { random, coef = 1, floorRoom } = {}) {
+export function applyGift(character, gift, { random, coef = 1, floorRoom, dailyMax, scale = null } = {}) {
     const key = `送礼:${gift}`;
     const repeats = character.recent.filter((item) => item === key).length;
     const recent = [...character.recent, key].slice(-RECENT_MAX);
     if (repeats >= 2) return { character: { ...character, recent }, change: null };
-    const result = applyDim(character, '好感', '开心', { random, coef: repeats ? coef / 2 : coef, floorRoom });
+    const result = applyDim(character, '好感', '开心', { random, coef: repeats ? coef / 2 : coef, floorRoom, scale, ...(dailyMax !== undefined ? { dailyMax } : {}) });
     return { character: { ...result.character, recent }, change: result.change };
 }
 
@@ -30,11 +30,13 @@ export function applyKeyEvent(character, event, { charm = 50, modifiers = {}, ra
 }
 
 // 冷却：超过 3 天没有互动，正值好感每天 −1，止于当前阶段下限；负值与 0 不变。
-export function coolDown(character, day, days = 1) {
+// scale：冷却速度倍率（特质），为 1 时与旧结果一致。
+export function coolDown(character, day, days = 1, scale = 1) {
     const favor = Number(character.dims.好感) || 0;
     const idle = day - (Number(character.lastSeenDay) || day);
     if (favor <= 0 || idle <= COOLDOWN_DAYS) return character;
-    const to = Math.max(stageOf(favor).min, favor - Math.min(days, idle - COOLDOWN_DAYS));
+    const drop = Math.min(days, idle - COOLDOWN_DAYS);
+    const to = Math.max(stageOf(favor).min, favor - (scale === 1 ? drop : Math.max(1, Math.round(drop * scale))));
     return to === favor ? character : { ...character, dims: { ...character.dims, 好感: to } };
 }
 
@@ -44,10 +46,10 @@ export const RECENT_HURT_DAYS = 7;
 export const INSIGHT_COOLDOWN_DAYS = 30;
 
 // 芥蒂缓慢消退：芥蒂 >25 每天 −1，最低降到 25（不掉回吃醋低路）；返回 { character, change }，没有变化时 change 为 null。
-export function fadeGrudge(character, days = 1) {
+export function fadeGrudge(character, days = 1, scale = 1) {
     const from = Number(character.dims.芥蒂) || 0;
     if (from <= GRUDGE_FADE_FLOOR || !(days > 0)) return { character, change: null };
-    const to = Math.max(GRUDGE_FADE_FLOOR, from - Math.floor(days));
+    const to = Math.max(GRUDGE_FADE_FLOOR, from - Math.floor(days * scale));
     return to === from ? { character, change: null } : { character: { ...character, dims: { ...character.dims, 芥蒂: to } }, change: { key: '芥蒂', from, to, note: '淡忘' } };
 }
 

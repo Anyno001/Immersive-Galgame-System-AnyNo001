@@ -25,7 +25,7 @@ const sanitize = (value) => String(value ?? '').replace(/["<>\[\]|\n]/g, '').tri
 
 function processSentences(outcome, willRatio, byLimit) {
     if (outcome === '放弃') return ['中途选择了退出', '这件事就此搁下'];
-    const first = willRatio >= 0.6 ? '全程应对从容' : willRatio >= 0.3 ? '中途几次被逼得手忙脚乱' : '多次被逼到极限';
+    const first = willRatio >= 0.6 ? '全程应对从容' : willRatio >= 0.3 ? '中途几次被逼得应接不暇' : '多次被逼到极限';
     if (byLimit) return [first, outcome === '勉强' ? '时限将至，总算勉强过关' : '时限已到，事情没有着落'];
     return [first, { 圆满: '最终顺利完成', 勉强: '最后靠平时的积累渡过了难关', 失败: '终究没能坚持到底' }[outcome]];
 }

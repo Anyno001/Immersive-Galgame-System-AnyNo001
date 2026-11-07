@@ -15,27 +15,27 @@ export const INTIMATE_SCHOOLS = Object.freeze({
     合拍: Object.freeze({
         receive: Object.freeze([
             school('回应', 'strike', 1, 2), school('主动示好', 'bash', 1, 1), school('害羞躲闪', 'fumble', 1, 1), school('牵手', 'mend', 1, 1),
-            school('轻声表白', 'rend', 1, 1), school('置之不理', 'guard', 0, 1), school('深呼吸', 'brace', 1, 1), school('靠近一点', 'twin', 2, 1), school('相视而笑', 'prepare', 1, 1),
+            school('轻声表白', 'rend', 1, 1), school('暂且搁置', 'guard', 0, 1), school('深呼吸', 'brace', 1, 1), school('并肩而立', 'twin', 2, 1), school('相视而笑', 'prepare', 1, 1),
         ]),
         lead: Object.freeze([
             school('温柔', 'strike', 1, 2), school('安抚', 'mend', 1, 1), school('耐心', 'brace', 1, 2), school('情话', 'rend', 1, 1),
-            school('确认心意', 'quick', 1, 1), school('置之不理', 'guard', 0, 1), school('轻抚', 'bash', 1, 1), school('十指相扣', 'twin', 2, 1),
+            school('确认心意', 'quick', 1, 1), school('暂且搁置', 'guard', 0, 1), school('轻抚', 'bash', 1, 1), school('十指相扣', 'twin', 2, 1),
         ]),
     }),
     主导: Object.freeze({
         receive: Object.freeze([
             school('欲拒还迎', 'counter', 1, 1), school('挑衅', 'cripple', 1, 1), school('故作示弱', 'lure', 1, 1), school('反将一军', 'execute', 2, 1),
-            school('撒娇夺权', 'quick', 1, 1), school('咬唇忍住', 'guard', 1, 2), school('勾手指', 'rend', 1, 1), school('拉扯', 'tear', 1, 1), school('旧账', 'execute', 2, 1),
+            school('软语夺势', 'quick', 1, 1), school('咬唇忍住', 'guard', 1, 2), school('轻勾指尖', 'rend', 1, 1), school('拉扯', 'tear', 1, 1), school('旧事', 'execute', 2, 1),
         ]),
         lead: Object.freeze([
             school('占先', 'bash', 1, 1), school('逼近', 'strike', 1, 2), school('扣住手腕', 'trip', 1, 1), school('低声命令', 'cripple', 1, 1),
-            school('逼至角落', 'bash', 2, 1), school('不容闪避', 'rend', 1, 1), school('耐心磨', 'venom', 1, 1), school('拉扯', 'tear', 1, 1), school('旧账', 'execute', 2, 1),
+            school('逼至角落', 'bash', 2, 1), school('不容闪避', 'rend', 1, 1), school('慢慢消磨', 'venom', 1, 1), school('拉扯', 'tear', 1, 1), school('旧事', 'execute', 2, 1),
         ]),
     }),
 });
 
 const RELATIONS = Object.freeze({
-    合拍: Object.freeze([['默契', 'bash'], ['信赖', 'mend'], ['心跳同步', 'quick'], ['心照不宣', 'brace']]),
+    合拍: Object.freeze([['默契', 'bash'], ['信赖', 'mend'], ['心意相合', 'quick'], ['心照不宣', 'brace']]),
     主导: Object.freeze([['旧情', 'bash'], ['较劲', 'strike'], ['针锋相对', 'cripple'], ['不肯让步', 'guard']]),
 });
 
@@ -85,9 +85,9 @@ export function buildIntimateDeck({ mechanic = '合拍', position = 'receive', s
     const grudgeOpen = tier > 0;
     const oldRarity = CHALLENGE_RARITIES[Math.min(CHALLENGE_RARITIES.indexOf(rarity) + Math.max(0, tier - 1), CHALLENGE_RARITIES.length - 1)];
     INTIMATE_SCHOOLS[kind][side].forEach((spec, index) => {
-        const plainOld = spec.name === '旧账' && !grudgeOpen;
-        const id = spec.name === '置之不理' ? INTIMATE_INTERRUPT_CARD : `im-s${index}`;
-        const card = solved(id, plainOld ? '步步紧逼' : spec.name, plainOld ? 'strike' : spec.key, plainOld ? 1 : spec.cost, spec.name === '旧账' && grudgeOpen ? oldRarity : rarity);
+        const plainOld = spec.name === '旧事' && !grudgeOpen;
+        const id = spec.name === '暂且搁置' ? INTIMATE_INTERRUPT_CARD : `im-s${index}`;
+        const card = solved(id, plainOld ? '步步紧逼' : spec.name, plainOld ? 'strike' : spec.key, plainOld ? 1 : spec.cost, spec.name === '旧事' && grudgeOpen ? oldRarity : rarity);
         if (!card) return;
         catalog[id] = spec.key === 'lure' ? withFizzle(card) : card;
         deck.push(...Array(spec.copies).fill(id));

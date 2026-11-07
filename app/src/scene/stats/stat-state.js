@@ -1,6 +1,7 @@
 // 数值系统存档模型（§3）：默认状态与写时浅拷 helper。
 // 六维属性取自战斗底座，不再存在 skills 里；skills 只放 8 个特有技能，prefs 记六维倾向（主擅长/次擅长/短板）。
 // 状态对象共享只读，修改只复制被改动的路径，不深拷整份存档（易错点 B4）。
+import { traitOn } from './stat-traits.js';
 export const STATS_VERSION = 2;
 export const BASE_ATTRIBUTES = Object.freeze(['力量', '敏捷', '体质', '智力', '感知', '魅力']);
 export const DEFAULT_SPECIAL_SKILLS = Object.freeze(['烹饪', '家务', '学习', '运动', '艺术', '话术', '照顾', '应变']);
@@ -88,11 +89,12 @@ export function withCharacter(state, name, character) {
     return state.characters[name] === character ? state : { ...state, characters: { ...state.characters, [name]: character } };
 }
 
-// 角色标记（随身 companion、无实体 bodiless、亲人 kin）：角色档案里的标记或聊天级 catalog.traits 勾选，任一为真即生效。
+// 角色标记（随身 companion、无实体 bodiless、亲人 kin、脆弱 fragile）：角色档案里的标记或聊天级 catalog.traits 勾选，任一为真即生效。
+// 兼容旧布尔式与新格式 { on, src }；新代码请直接用 stat-traits.js 的 hasTrait。
 export function hasMark(character, traits, name, key) {
     if (character && character[key] === true) return true;
     const own = traits && typeof traits === 'object' ? traits[name] : null;
-    return Boolean(own && own[key] === true);
+    return Boolean(own && traitOn(own[key]));
 }
 
 // 当过恋爱对象：character.romance 为真；从未判定过（undefined）时，演出层记录的 romanceSeen 名单也算。结束恋爱后为 false，不再被名单覆盖。

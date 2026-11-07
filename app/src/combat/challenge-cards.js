@@ -25,7 +25,7 @@ const SLOTS = Object.freeze({
 const names = (push, hold, combo, tempo, ace, ladders = {}) => Object.freeze({ push, hold, combo, tempo, ace, ladders: Object.freeze(ladders) });
 
 export const DOMAIN_CARDS = Object.freeze({
-    烹饪: names('拿手菜', '火候', '摆盘', '备料', '招牌秘方', { push: ['strike', 'bash', 'bash'], combo: ['bash', 'bash', 'cripple'] }),
+    烹饪: names('拿手菜', '掌控火候', '精心装盘', '备料', '招牌秘方', { push: ['strike', 'bash', 'bash'], combo: ['bash', 'bash', 'cripple'] }),
     话术: names('据理力争', '以退为进', '层层递进', '理清脉络', '一语中的', { hold: ['brace', 'brace', 'mend'], ace: ['rend', 'rend', 'shatter'] }),
     学习: names('融会贯通', '稳扎稳打', '一气呵成', '灵感闪现', '举一反三', { combo: ['twin', 'twin', 'flurry'], tempo: ['prepare', 'quick', 'quick'] }),
     应变: names('随机应变', '见招拆招', '连环对策', '急中生智', '绝处逢生'),

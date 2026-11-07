@@ -1,6 +1,7 @@
 // 数值系统提示词注入段（§9）：每段一个可编辑模板，用户覆盖优先，可单独关闭。
 // 模板变量写错或缺失时原样保留变量名并记诊断，不中断（§9 末条）。
-import { grudgeTier, hasMark, isRomance } from './stat-state.js';
+import { grudgeTier, isRomance } from './stat-state.js';
+import { hasTrait, traitCatalogOf } from './stat-traits.js';
 import { compileCaptureRegex } from './stat-date.js';
 import { FAVOR_GATES, gateKey, stageOf } from './stat-favor.js';
 import { healthStatus, walletBalance, STAMINA_LOW, STRESS_HIGH } from './stat-bars.js';
@@ -256,7 +257,7 @@ export function buildStatsPrompt(state, opts = {}) {
             const stage = stageOf(c.dims.好感).name;
             // 非恋爱对象（含亲人）：四档正向阶段改用去恋爱化的文案；亲密门槛按身份区分。
             const romance = isRomance(c, name, opts.romanceSeen);
-            const role = { romance, kin: hasMark(c, opts.traits, name, 'kin') };
+            const role = { romance, kin: hasTrait(state, traitCatalogOf(opts.traits), name, 'kin') };
             const text = !romance && Object.hasOwn(DEFAULT_STAGE_TEXT_PLATONIC, stage) ? platonicText[stage] : stageText[stage];
             return fillTemplate(prompts.present, {
                 角色: name, 阶段: stage, 阶段文案: text || '', 组合描述: describeCombination(c.dims),

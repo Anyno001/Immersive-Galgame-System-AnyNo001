@@ -215,8 +215,9 @@ export function createAssetGenerationService(deps) {
     }
 
     const builtinSeeds = signal => describeTask(signal).mode === 'nai' || describeTask(signal).via === 'nai';
-    const spriteSeed = (name, fallback, signal) => resolveImageSeed(
-        builtinSeeds(signal) ? characterGenerationSeed(readSettings(signal).sceneAssets, name) ?? fallback : fallback);
+    // 调用方显式给种子（手动重画/差分）优先；只有自动出图才沿用登记的角色种子。
+    const spriteSeed = (name, given, signal) => resolveImageSeed(isImageSeed(given) ? given
+        : builtinSeeds(signal) ? characterGenerationSeed(readSettings(signal).sceneAssets, name) : undefined);
     const backgroundSeed = async (name, imageId, signal) => {
         const saved = builtinSeeds(signal) ? sceneGenerationSeed(readSettings(signal).sceneAssets, name) : undefined;
         if (isImageSeed(saved)) return saved;
@@ -2427,7 +2428,7 @@ export function createAssetGenerationService(deps) {
         }
         reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: '平和' });
         const painted = await paintExpressionCaption(who, '平和', written.caption, paintDna,
-            { ...(nude && { look: 'nude' }), writtenFromDna: needsWriting, characterMeta: written.characterMeta, signal, shouldStart });
+            { ...(nude && { look: 'nude' }), writtenFromDna: needsWriting, characterMeta: written.characterMeta, seed: randomSeed(), signal, shouldStart });
         if (!painted.ok) return { ok: false, error: painted.error || '出图失败', prompt: painted.prompt };
         return { ok: true, imageId: painted.imageId, prompt: painted.prompt, characterMeta: painted.characterMeta,
             ...(isImageSeed(painted.seed) && { seed: painted.seed }) };

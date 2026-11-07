@@ -255,8 +255,9 @@ test('持久化：aptitude、traits、heroNotes、romanceSeen 经 sanitize 与�
         heroNotes: { 小雪: 'x'.repeat(60), 空: '  ' },
         romanceSeen: ['小雪', '小雪', 3],
     });
-    assert.deepEqual(catalog.aptitude, { 主角: '天纵', 阿福: '出众' });
-    assert.deepEqual(catalog.traits, { 老爷爷: { companion: true, bodiless: true }, 小雪: { kin: true } });
+    assert.deepEqual(catalog.aptitude, { 主角: { v: '天纵', src: 'manual' }, 阿福: { v: '出众', src: 'manual' } });
+    const on = { on: true, src: 'manual' };
+    assert.deepEqual(catalog.traits, { 老爷爷: { companion: on, bodiless: on }, 小雪: { kin: on } });
     assert.equal(catalog.heroNotes.小雪.length, 40);
     assert.deepEqual(catalog.romanceSeen, ['小雪']);
     const back = restoreChat(chatEntries({ catalog })).catalog;

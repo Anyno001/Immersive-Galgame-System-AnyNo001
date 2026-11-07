@@ -208,7 +208,7 @@ export function advanceIntimateDuel(ratio) {
     return true;
 }
 
-export const INTIMATE_WHISPER_CARDS = Object.freeze(['轻声表白', '情话', '低声命令', '确认心意', '撒娇夺权']);
+export const INTIMATE_WHISPER_CARDS = Object.freeze(['轻声表白', '情话', '低声命令', '确认心意', '软语夺势']);
 export const isWhisperCard = (name) => INTIMATE_WHISPER_CARDS.includes(String(name || ''));
 
 export const INTIMATE_HEART_REST = 66;

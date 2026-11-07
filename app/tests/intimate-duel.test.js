@@ -162,7 +162,7 @@ test('对方压力回合里我方未受损而对方受损时累计默契', () =>
     assert.equal(trace.rapport, 1);
 });
 
-test('打断意图未被「置之不理」化解时命中', () => {
+test('打断意图未被「暂且搁置」化解时命中', () => {
     let trace = foldIntimateTrace(initIntimateTrace(), stateAt(1, 100, 100), [{ type: 'intent', skillId: 'im-interrupt' }]);
     trace = foldIntimateTrace(trace, stateAt(1, 100, 100), [{ type: 'skill', skillId: 'im-interrupt' }]);
     assert.equal(trace.interruptHit, true);

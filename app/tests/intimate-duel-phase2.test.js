@@ -137,7 +137,7 @@ test('相爱相杀：好感高且仇怨过门槛成立，机制兜底取主导',
 });
 
 test('相爱相杀：仇怨强度决定旧账稀有度，信任低时多出动摇牌', () => {
-    const rarityOf = (grudge) => Object.values(buildIntimateDeck({ mechanic: '主导', position: 'receive', favor: 70, trust: 80, grudge }).catalog).find((card) => card.name === '旧账')?.rarity;
+    const rarityOf = (grudge) => Object.values(buildIntimateDeck({ mechanic: '主导', position: 'receive', favor: 70, trust: 80, grudge }).catalog).find((card) => card.name === '旧事')?.rarity;
     const order = ['common', 'uncommon', 'rare', 'epic'];
     assert.ok(order.indexOf(rarityOf(90)) > order.indexOf(rarityOf(30)));
     const has = (trust) => Object.values(buildIntimateDeck({ mechanic: '主导', position: 'receive', favor: 70, trust, grudge: 60 }).catalog).some((card) => card.name === '眼神闪躲');

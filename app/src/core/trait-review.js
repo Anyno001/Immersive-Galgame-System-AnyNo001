@@ -1,0 +1,243 @@
+// 特质的副模型评定与触发发送（纯逻辑 + 可注入 IO）。
+// 本文件不读 stat-traits.js：登记表 defs 与 applyTraitChange 均由调用方注入，只依赖接口约定：
+//   def = { id, name, nsfw, protagonist, judge }；applyTraitChange(state, catalog, 名, id, on, src) → { catalog, notices }。
+import { parseTables } from '../data/shujuku/table-parser.js';
+
+export const REVIEW_DEFAULT_N = 30;
+export const REVIEW_FLOOR_COUNT = 6; // 最近 3 楼 AI + 对应用户楼
+export const REVIEW_DIARY_ROWS = 3;
+export const REVIEW_MIN_ROWS = 3;
+export const REVIEW_MAX_ROWS = 20;
+export const INITIAL_MAX_ADD = 3;
+export const SUMMARY_TABLE = '纪要表';
+export const DIARY_TABLE = '恋爱日记表';
+
+// 本地扫描认的大事件词（事件标签值或正文关键词）。
+export const BIG_EVENT_WORDS = Object.freeze(['救命', '舍身', '挡刀', '背叛', '重伤', '害死', '复仇', '和解', '死亡', '失忆', '身份揭穿', '揭穿身份']);
+
+const clean = (v) => String(v ?? '').trim();
+
+// 1. 扫：只看本楼数值标签（已解析的 directives），不调模型。
+// opts：{ recentChars: 距上次发送期间被标签点名过的角色（兜底用）, text: 本楼正文（关键词佐证）, protagonist: 主角名 }
+export function scanFloorForReview(directives, floorNo, lastSentFloor, N, opts = {}) {
+    const list = Array.isArray(directives) ? directives : [];
+    const interval = Math.floor(Number(N));
+    const protagonist = clean(opts.protagonist) || '主角';
+    const hit = new Set();
+    const reasons = [];
+    const mark = (name, reason) => {
+        hit.add(clean(name) || protagonist);
+        if (!reasons.includes(reason)) reasons.push(reason);
+    };
+    for (const d of list) {
+        if (!d || typeof d !== 'object') continue;
+        if (d.kind === 'stress' && d.value === '上升' && d.strength === '极大') mark(d.target, 'stress-extreme');
+        else if (d.kind === 'break') mark(d.target, 'break');
+        else if (d.kind === 'romance' && d.value === '结束') mark(d.target, 'romance-end');
+        else if (d.kind === 'hurt' && d.value === '重伤') mark(d.target, 'hurt-heavy');
+        else if (d.kind === 'event' && BIG_EVENT_WORDS.some((w) => clean(d.value).includes(w))) mark(d.target, 'event');
+    }
+    // 正文关键词只作佐证，不单独触发，避免闲笔误触。
+    if (hit.size > 0 && clean(opts.text) && BIG_EVENT_WORDS.some((w) => String(opts.text).includes(w))) reasons.push('keyword');
+    if (hit.size > 0) return { send: true, reason: reasons.join(','), chars: [...hit] };
+    if (interval > 0 && Number(floorNo) - Number(lastSentFloor || 0) >= interval) {
+        const chars = [...new Set((Array.isArray(opts.recentChars) ? opts.recentChars : []).map(clean).filter(Boolean))];
+        return { send: true, reason: 'interval', chars };
+    }
+    return { send: false, reason: '', chars: [] };
+}
+
+// 纪要表行数：N÷3 向上取整，夹在 3–20。
+export function summaryRowCount(N) {
+    const n = Math.max(0, Math.floor(Number(N) || 0));
+    return Math.min(REVIEW_MAX_ROWS, Math.max(REVIEW_MIN_ROWS, Math.ceil(n / 3)));
+}
+
+// 把注入的表来源统一成 [{name, columns, rows}]：可为函数、readTables 的 { ok, data }、原始导出对象或已解析数组。
+function normalizeTables(source) {
+    let value = source;
+    try { if (typeof value === 'function') value = value(); } catch (error) { return []; }
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter((t) => t && Array.isArray(t.columns) && Array.isArray(t.rows));
+    if (typeof value === 'object' && 'ok' in value) return value.ok ? parseTables(value.data) : [];
+    return parseTables(value);
+}
+
+const colIndex = (table, names) => table.columns.findIndex((c) => names.includes(clean(c).replace(/\s+/g, '')));
+const rowText = (table, row) => table.columns
+    .map((c, i) => ({ c: clean(c), v: clean(Array.isArray(row) ? row[i] : '') }))
+    .filter((x) => x.v && !/^(row_?id|序号)$/i.test(x.c))
+    .map((x) => `${x.c}：${x.v}`).join('；');
+
+function summaryRows(tables, N) {
+    const table = tables.find((t) => clean(t.name) === SUMMARY_TABLE);
+    if (!table) return [];
+    const rows = table.rows.map((r) => rowText(table, r)).filter(Boolean);
+    return rows.slice(-summaryRowCount(N));
+}
+
+function diaryRows(tables, chars) {
+    const table = tables.find((t) => clean(t.name) === DIARY_TABLE);
+    if (!table) return {};
+    const col = colIndex(table, ['角色名', '角色', '姓名', '名字', '人物']);
+    if (col < 0) return {};
+    const out = {};
+    for (const c of chars) {
+        const names = [c.name, ...(Array.isArray(c.aliases) ? c.aliases : [])].map(clean).filter(Boolean);
+        const hits = table.rows.filter((r) => names.includes(clean(Array.isArray(r) ? r[col] : '')));
+        if (hits.length) out[c.name] = hits.slice(-REVIEW_DIARY_ROWS).map((r) => rowText(table, r));
+    }
+    return out;
+}
+
+// 当前已挂特质：优先 chars[i].traits（[{id, src}]），否则读 catalog.traits[名] = {键:{on,src}}。
+function currentTraits(char, catalog) {
+    if (Array.isArray(char.traits)) return char.traits.map((t) => ({ id: t.id, src: t.src || 'auto' }));
+    const own = catalog && catalog.traits && catalog.traits[char.name];
+    if (!own || typeof own !== 'object') return [];
+    return Object.entries(own).filter(([, v]) => v && v.on).map(([id, v]) => ({ id, src: v.src || 'auto' }));
+}
+
+// 2. 发：组装发送内容。
+// floors：[{ no, role: 'ai'|'user', text }]（取最后 6 楼）；
+// chars：[{ name, aliases?, protagonist?, relation?, summary?, traits?, recent? }]
+export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, nsfw = false } = {}) {
+    const byId = new Map((Array.isArray(defs) ? defs : []).map((d) => [d.id, d]));
+    const nameOf = (id) => (byId.has(id) ? byId.get(id).name : id);
+    const people = (Array.isArray(chars) ? chars : []).filter((c) => c && clean(c.name));
+    const tableList = normalizeTables(tables);
+    const diary = diaryRows(tableList, people);
+    return {
+        nsfw: !!nsfw,
+        floors: (Array.isArray(floors) ? floors : []).filter((f) => f && clean(f.text)).slice(-REVIEW_FLOOR_COUNT)
+            .map((f) => ({ no: f.no, role: f.role === 'user' ? 'user' : 'ai', text: clean(f.text) })),
+        summary: summaryRows(tableList, N),
+        chars: people.map((c) => ({
+            name: clean(c.name),
+            protagonist: !!c.protagonist,
+            relation: clean(c.relation),
+            summary: clean(c.summary),
+            traits: currentTraits(c, catalog).map((t) => ({ ...t, name: nameOf(t.id) })),
+            recent: Array.isArray(c.recent) ? c.recent.map((r) => ({ id: r.id, on: !!r.on, name: nameOf(r.id) })) : [],
+            diary: diary[c.name] || [],
+        })),
+    };
+}
+
+const JSON_SHAPE = '{"results":[{"name":"角色名","add":["特质名"],"remove":["特质名"]}]}';
+
+// 3. 提示词：只列「特质名：评定依据」，不列倍率；NSFW 关时不列 nsfw 项。mode：'initial' | 'story'。
+export function buildReviewPrompt(payload, defs, mode = 'story') {
+    const p = payload || {};
+    const defList = (Array.isArray(defs) ? defs : []).filter((d) => d && (p.nsfw || !d.nsfw));
+    const lines = [];
+    lines.push(mode === 'initial'
+        ? '任务：为下列角色评定初始特质。只依据人设与已有正文中明确写出的内容，没有写明就不给，不要凑数。每个角色最多给 3 项。'
+        : '任务：复核下列角色的特质是否因近期剧情发生变化。每个角色最多变动 1 项（获得或失去均算），必须有明确的剧情依据才改；没有依据就不改。上次刚变动过的特质这次不能改回。');
+    lines.push('', '可选特质（只能从下表选择，表外一律不要输出）：');
+    for (const d of defList) lines.push(`- ${d.name}：${clean(d.judge)}`);
+    for (const c of p.chars || []) {
+        lines.push('', `【角色：${c.name}${c.protagonist ? '（主角）' : ''}】`);
+        if (c.relation) lines.push(`关系状态：${c.relation}`);
+        if (c.summary) lines.push(`近期数值：${c.summary}`);
+        lines.push(`当前特质：${c.traits.length ? c.traits.map((t) => t.name).join('、') : '无'}`);
+        if (c.recent.length) lines.push(`上次刚变动：${c.recent.map((r) => `${r.on ? '获得' : '失去'}「${r.name}」`).join('、')}`);
+        if (c.diary.length) { lines.push('恋爱日记（最近）：'); c.diary.forEach((r) => lines.push(`  ${r}`)); }
+    }
+    if ((p.summary || []).length) { lines.push('', '剧情纪要（由旧到新）：'); p.summary.forEach((r, i) => lines.push(`${i + 1}. ${r}`)); }
+    if ((p.floors || []).length) {
+        lines.push('', '最近正文：');
+        p.floors.forEach((f) => lines.push(`【${f.role === 'user' ? '用户' : 'AI'}${f.no != null ? ` 第${f.no}楼` : ''}】${f.text}`));
+    }
+    lines.push('', `只输出一段 JSON，不要任何解释或代码块标记，格式：${JSON_SHAPE}`, '没有变化的角色可以省略；add 为获得、remove 为失去；特质名必须与上表完全一致。');
+    return lines.join('\n');
+}
+
+// 取第一段配平的 JSON 对象或数组。
+function extractJson(text) {
+    const s = String(text ?? '').replace(/```(?:json)?/gi, '');
+    for (let start = 0; start < s.length; start += 1) {
+        const open = s[start];
+        if (open !== '{' && open !== '[') continue;
+        const close = open === '{' ? '}' : ']';
+        let depth = 0;
+        let inStr = false;
+        for (let i = start; i < s.length; i += 1) {
+            const ch = s[i];
+            if (inStr) { if (ch === '\\') i += 1; else if (ch === '"') inStr = false; continue; }
+            if (ch === '"') inStr = true;
+            else if (ch === open) depth += 1;
+            else if (ch === close) {
+                depth -= 1;
+                if (depth === 0) { try { return JSON.parse(s.slice(start, i + 1)); } catch (error) { break; } }
+            }
+        }
+    }
+    return null;
+}
+
+// 4. 解析：返回 [{ charName, id, on }]；丢弃表外项并去重。特质写显示名或 id 均认。
+// opts.chars：给出时只收这些角色。
+export function parseReviewReply(text, defs, opts = {}) {
+    const lookup = new Map();
+    for (const d of Array.isArray(defs) ? defs : []) { lookup.set(clean(d.name), d.id); lookup.set(clean(d.id), d.id); }
+    const allowed = Array.isArray(opts.chars) && opts.chars.length ? new Set(opts.chars.map(clean)) : null;
+    const root = extractJson(text);
+    const entries = Array.isArray(root) ? root : root && Array.isArray(root.results) ? root.results : root && typeof root === 'object' ? [root] : [];
+    const out = [];
+    const seen = new Set();
+    for (const e of entries) {
+        if (!e || typeof e !== 'object') continue;
+        const charName = clean(e.name ?? e.charName ?? e.character);
+        if (!charName || (allowed && !allowed.has(charName))) continue;
+        for (const [field, on] of [['add', true], ['remove', false]]) {
+            const raw = e[field];
+            const items = Array.isArray(raw) ? raw : raw ? [raw] : [];
+            for (const item of items) {
+                const id = lookup.get(clean(item));
+                if (!id) continue;
+                const key = `${charName}|${id}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                out.push({ charName, id, on });
+            }
+        }
+    }
+    return out;
+}
+
+// 5. 应用：逐项调注入的 applyTraitChange。
+// opts：{ state, mode: 'initial'|'story', day（当天标识）, changeLog（{ "名|id": day }，不原地改，返回新的）,
+//         recent（{ 名: [{id,on}] } 上次刚变的）, maxPerChar }
+// initial：src='auto'，每人最多挂 3 项，不覆盖 manual 的项；story：src='story'，每人最多变 1 项，可覆盖 manual。
+export function applyReview(results, catalog, applyTraitChange, opts = {}) {
+    const mode = opts.mode === 'initial' ? 'initial' : 'story';
+    const src = mode === 'initial' ? 'auto' : 'story';
+    const cap = Number.isFinite(opts.maxPerChar) ? opts.maxPerChar : mode === 'initial' ? INITIAL_MAX_ADD : 1;
+    const changeLog = { ...(opts.changeLog || {}) };
+    const recent = opts.recent || {};
+    const counts = {};
+    const notices = [];
+    const applied = [];
+    const skipped = [];
+    let cat = catalog;
+    for (const r of Array.isArray(results) ? results : []) {
+        const own = cat && cat.traits && cat.traits[r.charName] && cat.traits[r.charName][r.id];
+        const skip = (why) => skipped.push({ ...r, why });
+        if (mode === 'initial' && !r.on) { skip('initial-no-remove'); continue; }
+        if (mode === 'initial' && own && own.src === 'manual') { skip('manual'); continue; }
+        if (!!(own && own.on) === !!r.on) { skip('no-change'); continue; }
+        if ((recent[r.charName] || []).some((x) => x.id === r.id && !!x.on !== !!r.on)) { skip('just-changed'); continue; }
+        const key = `${r.charName}|${r.id}`;
+        if (opts.day != null && changeLog[key] === opts.day) { skip('daily-limit'); continue; }
+        if ((counts[r.charName] || 0) >= cap) { skip('cap'); continue; }
+        const res = applyTraitChange(opts.state, cat, r.charName, r.id, !!r.on, src);
+        if (!res || !res.catalog) { skip('apply-failed'); continue; }
+        cat = res.catalog;
+        counts[r.charName] = (counts[r.charName] || 0) + 1;
+        if (opts.day != null) changeLog[key] = opts.day;
+        applied.push(r);
+        if (Array.isArray(res.notices)) notices.push(...res.notices);
+    }
+    return { catalog: cat, notices, applied, skipped, changeLog };
+}
