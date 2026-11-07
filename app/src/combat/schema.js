@@ -6,6 +6,7 @@ import {
     cardCopyLimit, evaluateCardBudget,
 } from './rules.js';
 import { hashString } from './random.js';
+import { BATTLE_POINTS_RANGE, BATTLE_POINT_TIERS, battlePoints } from './points.js';
 import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
@@ -49,7 +50,7 @@ export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-ch
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
     'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth', 'inscribe',
-    'purge', 'card-draw', 'card-flip', 'card-pick',
+    'purge', 'card-draw', 'card-flip', 'card-pick', 'battle-points',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -1035,6 +1036,17 @@ function validateLedgerPayload(type, payload, path, state) {
                 copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN), cost: intField(payload.cost, at('cost'), state, 0, 1e5), battle: intField(payload.battle, at('battle'), state, 1, 1e6),
                 reportId: textField(payload.reportId, at('reportId'), state, 40),
             };
+        // 规则 v6 G5g 战斗胜利积分：锚定胜利战报楼，amount 由程序按档位与战斗 ID 定额（10–30）。
+        case 'battle-points': {
+            checkKnownFields(payload, ['amount', 'tier', 'combatId', 'reportId'], path, state);
+            const tier = enumField(payload.tier, at('tier'), state, BATTLE_POINT_TIERS);
+            const range = BATTLE_POINTS_RANGE[tier] || [BATTLE_POINTS_RANGE.normal[0], BATTLE_POINTS_RANGE.boss[1]];
+            const amount = intField(payload.amount, at('amount'), state, range[0], range[1]);
+            const combatId = textField(payload.combatId, at('combatId'), state, 120);
+            // 金额必须等于按档位与战斗 ID 重算的定额，账本重放可独立复核。
+            if (BATTLE_POINTS_RANGE[tier] && typeof combatId === 'string' && amount !== battlePoints(tier, combatId)) addIssue(state, at('amount'), 'battle-points-mismatch');
+            return { amount, tier, combatId, reportId: textField(payload.reportId, at('reportId'), state, 40) };
+        }
         case 'wound': {
             checkKnownFields(payload, ['hp', 'maxHp', 'down', 'reportId'], path, state);
             const maxHp = intField(payload.maxHp, at('maxHp'), state, 1, 9999);

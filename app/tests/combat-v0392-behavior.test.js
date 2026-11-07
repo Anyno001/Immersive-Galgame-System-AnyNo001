@@ -212,6 +212,52 @@ test('重新开始：对局中与撤退后用同一 setup 换新种子从头打�
     assert.equal((await won.restart()).reason, 'combat-restart-unavailable');
 });
 
+test('战斗胜利积分（v6 G5g）会话收尾：普通战斗胜利向战报楼写一条 battle-points，档位取最高敌人档位，金额按战斗 ID 定额且可被账本校验', async () => {
+    const { createCombatSession, locateCombatStart, sessionKeyFor } = await import('../src/combat/session.js');
+    const { createCountingStorage } = await import('./helpers/combat-mock-host-services.js');
+    const { BATTLE_POINTS_TAG_HASH } = await import('../src/combat/ledger.js');
+    const { battlePoints } = await import('../src/combat/points.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    for (const [tiers, tier] of [[['normal'], 'normal'], [['normal', 'boss'], 'boss']]) {
+        const chat = [{ is_user: true, mes: '出发' }, { is_user: false, mes: '前方出现了敌人。\n[igs-combat:start|史莱姆|草原]', swipe_id: 0 }];
+        const located = locateCombatStart(chat, 1);
+        assert.equal(located.ok, true);
+        const setup = { rulesVersion: COMBAT_RULES.version, controlledId: 'hero', canEscape: true, units: [hero(Array(5).fill('basic-strike'), { speed: 100 }), foe({ maxHp: 1 })] };
+        const record = { v: 1, combatId: located.combatId, anchor: located.anchor, seed: seedFor(located.combatId), setup, actions: [], encounter: '草原', tiers, expTargets: ['我'] };
+        const records = new Map();
+        const chatRecord = {
+            read: () => ({ ok: true, value: records.get(located.combatId) || null }),
+            write: async (anchor, combatId, patch) => { records.set(combatId, { ...(records.get(combatId) || {}), ...patch }); return { ok: true }; },
+        };
+        const appended = [];
+        const ledger = {
+            effectiveState: async () => ({ ok: true, offers: new Map(), attributes: {}, characters: new Map(), classes: new Map() }),
+            append: async (entries) => { appended.push(...entries); return { ok: true }; },
+            scan: async () => ({ ok: true }),
+        };
+        const storage = createCountingStorage({ [sessionKeyFor('chat-1')]: JSON.stringify(record) });
+        const send = async (text) => { chat.push({ is_user: true, mes: text, swipe_id: 0 }); return { ok: true, messageId: chat.length - 1 }; };
+        const session = createCombatSession({ ledger, tables: {}, storage, chat, getChatId: () => 'chat-1', userName: '我', chatRecord, send, now: () => 1000 });
+        assert.equal(session.resume().ok, true);
+        const strike = session.state().legal.find((a) => a.type === 'play');
+        assert.ok(strike);
+        session.act(strike);
+        if (session.state().status === 'battle') session.act({ type: 'end-turn' });
+        assert.equal(session.state().battle.outcome, 'victory');
+        const done = await session.finish();
+        assert.equal(done.ok, true, JSON.stringify(done.reason));
+        assert.equal(done.battlePoints?.ok, true);
+        const paid = appended.filter((entry) => entry.type === 'battle-points');
+        assert.equal(paid.length, 1);
+        const [entry] = paid;
+        assert.equal(entry.character, 'hero');
+        assert.deepEqual(entry.anchor, { messageId: 2, swipeId: 0, tagHash: BATTLE_POINTS_TAG_HASH, occurrence: 0 });
+        assert.deepEqual(entry.payload, { amount: battlePoints(tier, located.combatId), tier, combatId: located.combatId, reportId: entry.payload.reportId });
+        assert.equal(typeof entry.payload.reportId, 'string');
+        assert.equal(normalizeLedgerEntry(entry).ok, true, JSON.stringify(normalizeLedgerEntry(entry).errors));
+    }
+});
+
 // ---------- 账本：专属卡按等级解锁 / 助战绝招 ----------
 const attack = (id, amount = 6) => ({ id, name: `斩${id}`, type: 'attack', cost: 1, rarity: 'common', effects: [{ op: 'damage', amount }] });
 const guard = (id) => ({ id, name: `守${id}`, type: 'skill', cost: 1, rarity: 'common', effects: [{ op: 'block', amount: 5 }] });
@@ -1136,4 +1182,50 @@ test('规则 v6 积分抽卡：150 抽 3 张本职业候选（固定 2 + 随机 
     const poor = createCombatLedger({ tables: memoryTables([row(classDef('cls-blade'), 1), row(heroDef(), 2)]), chat: () => [ai('正文')], userName: '主角', now: () => 7, wallet: () => 100 });
     const p0 = planCardDraw(heroOf(await poor.effectiveState()));
     assert.equal((await poor.drawCard('pc-hero', { drawId: p0.drawId, choices: choicesOf(p0, randomCard(p0.cardId)) })).reason, 'combat-points-insufficient');
+});
+
+test('战斗胜利积分（v6 G5g）：按档位与战斗 ID 定额；锚定胜利战报楼写进主角积分，战报换楼或败北失效；金额越界拒收', async () => {
+    const { BATTLE_POINTS_TAG_HASH } = await import('../src/combat/ledger.js');
+    const { BATTLE_POINTS_RANGE, battlePoints, battleTierOf } = await import('../src/combat/points.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    assert.deepEqual([battleTierOf(['normal', 'elite']), battleTierOf(['elite', 'boss']), battleTierOf([]), battleTierOf(undefined)], ['elite', 'boss', 'normal', 'normal']);
+    for (const tier of ['normal', 'elite', 'boss']) {
+        const [min, max] = BATTLE_POINTS_RANGE[tier];
+        const seen = new Set();
+        for (let n = 0; n < 60; n += 1) {
+            const amount = battlePoints(tier, `cb-${n}`);
+            assert.ok(amount >= min && amount <= max, `${tier} ${amount}`);
+            seen.add(amount);
+        }
+        assert.ok(seen.size > 1, tier);
+        assert.equal(battlePoints(tier, 'cb-x'), battlePoints(tier, 'cb-x'));
+    }
+
+    const floor = (id, result = 'win') => user(`<igs-combat-report id="${id}" result="${result}">战报</igs-combat-report>`);
+    const { ledger, ref, tables } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [floor('r1')]);
+    const hero = 'pc-hero';
+    const entryAt = (messageId, payload, character = hero) => {
+        const anchor = { messageId, swipeId: 0, tagHash: BATTLE_POINTS_TAG_HASH, occurrence: 0 };
+        return { id: ledgerEntryId('battle-points', character, anchor), type: 'battle-points', character, anchor, payload, createdAt: 7 };
+    };
+    const before = heroOf(await ledger.effectiveState()).points;
+    const amount = battlePoints('elite', 'cb-1');
+    const paid = { amount, tier: 'elite', combatId: 'cb-1', reportId: 'r1' };
+    assert.equal((await ledger.append([entryAt(0, paid)])).ok, true);
+    assert.equal((await ledger.append([entryAt(0, paid)])).ok, true);
+    assert.equal(tables.ledger.filter((e) => e.type === 'battle-points').length, 1);
+    assert.equal(heroOf(await ledger.effectiveState()).points - before, amount);
+
+    ref.chat = [floor('r9')];
+    const moved = await ledger.effectiveState();
+    assert.ok(moved.inactive.some((item) => item.reason === 'battle-points-report-invalid'));
+    assert.equal(heroOf(moved).points, before);
+    ref.chat = [floor('r1', 'lose')];
+    assert.equal(heroOf(await ledger.effectiveState()).points, before);
+
+    assert.equal(normalizeLedgerEntry(entryAt(0, { amount: 16, tier: 'normal', combatId: 'cb-1', reportId: 'r1' })).ok, false);
+    assert.equal(normalizeLedgerEntry(entryAt(0, { amount: 31, tier: 'boss', combatId: 'cb-1', reportId: 'r1' })).ok, false);
+    const forged = amount === 16 ? 17 : 16;
+    assert.equal(normalizeLedgerEntry(entryAt(0, { ...paid, amount: forged })).ok, false);
+    assert.equal(normalizeLedgerEntry(entryAt(0, { amount, tier: 'elite', reportId: 'r1' })).ok, false);
 });

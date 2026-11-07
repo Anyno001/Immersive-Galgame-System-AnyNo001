@@ -21,6 +21,20 @@ export const PURGE_STEP_COST = 50;
 export const purgeCost = (used) => PURGE_BASE_COST + PURGE_STEP_COST * Math.max(0, Number(used) || 0);
 // 出售价在基础价上下浮动的比例。
 export const SELL_PRICE_SPREAD = 0.2;
+// 规则 v6 G5g 战斗胜利积分（D-16）：按本场最高敌人档位取区间，以战斗 ID 作种子定额。
+export const BATTLE_POINTS_RANGE = Object.freeze({
+    normal: Object.freeze([10, 15]), elite: Object.freeze([16, 22]), boss: Object.freeze([23, 30]),
+});
+export const BATTLE_POINT_TIERS = Object.freeze(['normal', 'elite', 'boss']);
+
+// 本场档位：有首领取首领，否则有精英取精英，其余为普通。
+export const battleTierOf = (tiers) => (Array.isArray(tiers) && tiers.includes('boss') ? 'boss' : Array.isArray(tiers) && tiers.includes('elite') ? 'elite' : 'normal');
+
+// 胜利积分：区间内按战斗 ID 哈希定额，同一战斗恒定。
+export function battlePoints(tier, combatId) {
+    const [min, max] = BATTLE_POINTS_RANGE[tier] || BATTLE_POINTS_RANGE.normal;
+    return min + (hash32(`igs-win:${combatId ?? ''}`) % (max - min + 1));
+}
 
 // 出售价：基础价 ± 20%，浮动由 seed 哈希决定（同 seed 恒定），最低 1。
 export function sellPrice(rarity, seed) {

@@ -12,7 +12,8 @@ import {
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
 import { attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
-import { BATTLE_GROWTH_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance } from './ledger.js';
+import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance } from './ledger.js';
+import { battlePoints, battleTierOf } from './points.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
 import { ABILITY_KEYS, ABILITY_LABELS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
@@ -1390,6 +1391,22 @@ export function createCombatSession(options = {}) {
                 growthResult = { ok: false, reason: 'combat-battle-growth-write-failed' };
             }
         }
+        // 规则 v6 G5g：普通战斗胜利发积分（挑战与亲密对决不发；敌人撤离的胜利照发），锚定胜利战报楼，随楼层回退撤销。
+        // 记在本场受控单位（账本角色 ID）名下；不是主角时账本重放按 combat-points-not-protagonist 拒收。
+        let pointsResult = null;
+        const intimate = current.record?.setup?.challenge?.intimate || current.challenge?.intimate;
+        const hero = current.record?.setup?.controlledId;
+        const combatId = current.combatId;
+        if (report.result === 'win' && !isChallenge(current) && !intimate && Number.isInteger(reportMessageId) && ledger?.append && typeof hero === 'string' && hero && typeof combatId === 'string' && combatId) {
+            const tier = battleTierOf(current.record?.tiers);
+            const anchor = { messageId: reportMessageId, swipeId: reportSwipeId(), tagHash: BATTLE_POINTS_TAG_HASH, occurrence: 0 };
+            const entry = { id: ledgerEntryId('battle-points', hero, anchor), type: 'battle-points', character: hero, anchor, payload: { amount: battlePoints(tier, combatId), tier, combatId, reportId: report.reportId }, createdAt: now() };
+            try {
+                pointsResult = await ledger.append([entry]);
+            } catch {
+                pointsResult = { ok: false, reason: 'combat-battle-points-write-failed' };
+            }
+        }
         if (isChallenge(current) && Number.isInteger(reportMessageId) && ledger?.append) {
             const card = challengeSummary(current)?.card;
             if (card) {
@@ -1407,7 +1424,7 @@ export function createCombatSession(options = {}) {
             }
         }
         setState({ ...identityOf(current), status: 'done', report });
-        return ok({ messageId: reportMessageId ?? null, scan, ...(consumeResult ? { consume: consumeResult } : {}), ...(woundResult ? { wound: woundResult } : {}), ...(growthResult ? { battleGrowth: growthResult } : {}) });
+        return ok({ messageId: reportMessageId ?? null, scan, ...(consumeResult ? { consume: consumeResult } : {}), ...(woundResult ? { wound: woundResult } : {}), ...(growthResult ? { battleGrowth: growthResult } : {}), ...(pointsResult ? { battlePoints: pointsResult } : {}) });
     }
 
     // 把战报发进聊天：战报楼已存在则直接收尾；发送失败进入 send-failed 可重试

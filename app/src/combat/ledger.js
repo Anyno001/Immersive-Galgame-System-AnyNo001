@@ -45,6 +45,8 @@ export const CONSUME_TAG_HASH = 'consume';
 export const WOUND_TAG_HASH = 'wound';
 // 规则 v5 G24 / G25：本场永久成长与击杀奖励，锚定战报用户楼，与 wound 一样不来自标签。
 export const BATTLE_GROWTH_TAG_HASH = 'battle-growth';
+// 规则 v6 G5g：战斗胜利积分，锚定胜利战报楼，不来自标签。
+export const BATTLE_POINTS_TAG_HASH = 'battle-points';
 export const GEAR_TAG_HASH = 'gear';
 export const SELL_TAG_HASH = 'sell';
 export const REBUILD_TAG_HASH = 'rebuild';
@@ -58,7 +60,7 @@ export const ALLOC_TAG_HASH = 'alloc';
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth', 'battle-points']);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -72,7 +74,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
-    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
+    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, 'battle-points': 18.55, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
@@ -287,6 +289,8 @@ function inactiveReason(entry, scanFloor) {
     if (entry.type === 'purge' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'purge-report-invalid';
     if (entry.type === 'wound' && floor.report?.reportId !== entry.payload.reportId) return 'wound-report-invalid';
     if (entry.type === 'battle-growth' && floor.report?.reportId !== entry.payload.reportId) return 'battle-growth-report-invalid';
+    // 规则 v6 G5g：胜利积分只认胜利战报楼里本场战报。
+    if (entry.type === 'battle-points' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'battle-points-report-invalid';
     return null;
 }
 
@@ -651,6 +655,12 @@ const handlers = Object.freeze({
             growth.cards.set(cardId, { damage: Math.min(BATTLE_GROWTH_MAX, prev.damage + damage), block: Math.min(BATTLE_GROWTH_MAX, prev.block + block) });
         }
         growth.hpMax = Math.min(BATTLE_GROWTH_MAX, growth.hpMax + payload.hpMax);
+        return null;
+    },
+    // 规则 v6 G5g：战斗胜利积分写进主角 points（积分即金钱，与数值侧金钱合并显示，不改写 bars.money）。
+    'battle-points'(state, payload, { heroId } = {}) {
+        if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
+        state.points += payload.amount;
         return null;
     },
     // 规则 v5 P5b 刻印：每张副本最多一个、不可移除。带 copyId 时刻那一张；不带时按卡组顺序取第一张未刻印的同名副本。
